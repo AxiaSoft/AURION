@@ -4,7 +4,7 @@
 
 ## مدل لایسنس حفظ شده
 - کلید عمومی Ed25519 در engine: `ED25519_PUBLIC_HEX`
-- کلید خصوصی فقط در keyserver و ماشین مالک: `AXIASOFT_KEY_PRIVATE`
+- کلید خصوصی فقط در store/keyserver و ماشین مالک: `AXIASOFT_KEY_PRIVATE`
 - امضای کلیدها همچنان Ed25519 است - غیرقابل جعل
 - فعال‌سازی آنلاین یک‌بارمصرف و بایند به ماشین حفظ شد
 
@@ -72,20 +72,20 @@
 **بعد:** `b32decode` strict - کاراکتر نامعتبر throw. `wrapSecret` با PBKDF2 100k iterations و salt ثابت. `verify` با timingSafeEqual درست.
 **فایل:** `backend/src/totp.js`
 
-### 13. keyserver JSON store بدون قفل
+### 13. store/keyserver JSON store بدون قفل
 **قبل:** `store.js` با `_queue` Promise ولی بدون chmod و بدون محدودیت سایز
 **بعد:** فایل با 0o600, دایرکتوری 0o700, محدودیت 50MB, cleanup collections, atomic write با fsync.
-**فایل:** `keyserver/src/store.js`
+**فایل:** `store/keyserver/src/store.js`
 
 ### 14. JWT_SECRET و ADMIN_TOKEN پیش‌فرض
 **قبل:** `JWT_SECRET` پیش‌فرض `aurion-keyserver-dev-secret` - قابل حدس. `DEV_OTP_FALLBACK=1` پیش‌فرض
 **بعد:** در production اگر `JWT_SECRET` یا `ADMIN_TOKEN` نباشد process exit 1. در dev secret تصادفی هر boot. `DEV_OTP_FALLBACK` پیش‌فرض 0.
-**فایل‌ها:** `keyserver/src/index.js`, `keyserver/.env.example`
+**فایل‌ها:** `store/keyserver/src/index.js`, `store/keyserver/.env.example`
 
 ### 15. Security headers
 **قبل:** فقط `X-Powered-By` حذف شده بود
 **بعد:** `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy`, `Permissions-Policy`, `CSP`, `HSTS` در production.
-**فایل‌ها:** `backend/src/index.js`, `keyserver/src/index.js`, `engine/aurion/api/server.py`
+**فایل‌ها:** `backend/src/index.js`, `store/keyserver/src/index.js`, `engine/aurion/api/server.py`
 
 ### 16. Frontend token handling
 **قبل:** توکن در `localStorage` + در WS query `?token=` - قابل دزدی با XSS
@@ -110,10 +110,10 @@
    - Node.js MSI با بررسی header `D0 CF 11 E0` (MSI magic)
    - نصب silent با `windowsHide:true`
 
-4. **scripts/install-windows-gui.ps1** - Windows Forms GUI
+4. **windows-app/installer/install-windows-gui.ps1** - Windows Forms GUI
    - Form با progress bar, listBox log, دکمه نصب
    - دانلود با TLS verification
-   - fallback به `install-windows.ps1` کنسولی
+   - fallback به `windows-app/installer/install-windows.ps1` کنسولی
 
 5. **install-aurion-secure.cmd** - لانچر امن که GUI را اول امتحان می‌کند
 

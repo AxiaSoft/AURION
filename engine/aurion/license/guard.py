@@ -736,5 +736,5 @@ if __name__ == "__main__":  # CLI key mint:  python -m aurion.license.guard <pla
     except RuntimeError as exc:
         print(f"error: {exc}", file=sys.stderr)
         print("hint:  set AXIASOFT_KEY_PRIVATE or AURION_KEY_PRIVATE_HEX=<64-hex-seed> first (owner machine only)", file=sys.stderr)
-        print("hint:  Windows: set AXIASOFT_KEY_PRIVATE=...  then python scripts/mint_local.py developer", file=sys.stderr)
+        print("hint:  Windows: set AXIASOFT_KEY_PRIVATE=...  then python admin/mint_local.py developer", file=sys.stderr)
         sys.exit(3)

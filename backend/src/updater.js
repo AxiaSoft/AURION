@@ -122,7 +122,7 @@ function collectLocalManifest() {
     path.join(ROOT, "backend", "src"),
     path.join(ROOT, "engine", "aurion"),
     path.join(ROOT, "apps", "web", "js"),
-    path.join(ROOT, "apps", "desktop"),
+    path.join(ROOT, "windows-app", "desktop"),
   ];
   const maxFiles = 500;
   let count = 0;

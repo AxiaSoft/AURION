@@ -3,6 +3,8 @@ node_modules/
 __pycache__/
 *.pyc
 *.log
+dist/
+.venv/
 
 # AURION live state
 data/license/
@@ -11,9 +13,24 @@ data/ea-inbox/
 data/settings-backup.json
 engine/models/
 
-# Key server local state + secrets
-keyserver/data/
-keyserver/.env
+# Key server (store) local state + secrets
+store/keyserver/data/
+store/keyserver/.env
+
+# Update server local state + secrets
+admin/update-server/data/
+admin/update-server/.env
+
+# Owner key ledger
+data/license/issued.json
+
+# Generated desk artifacts (jwt secret, exports) - regenerated at first run.
+# NOTE: data/jwt.secret and data/users.json are still tracked by git in this
+# branch; run "git rm --cached data/jwt.secret data/users.json" to untrack them.
+data/jwt.secret
+data/users.json
+data/exports/
+
 .env
 
 # OS/editor noise

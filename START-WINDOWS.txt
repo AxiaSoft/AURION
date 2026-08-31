@@ -7,7 +7,7 @@ First time (downloads Python 3.12 + Node LTS if missing)
      (wrong: D:\aurion\aurion)
   2. Double-click:
 
-       install-aurion.cmd
+       windows-app\installer\install-aurion.cmd
 
      The window stays open. It will:
        - install Python 3.12 (winget or python.org silent setup)
@@ -28,6 +28,8 @@ Every later day
     start-aurion.cmd
 
   If a prerequisite is missing, the same installer runs by itself.
+  It then waits for /api/health before opening the browser, so you
+  never land on a connection-refused page.
   Engine and desk stay HIDDEN. No extra black CMD windows.
   Browser:  http://127.0.0.1:8080
   Guide:    http://127.0.0.1:8080/guide-install.html
@@ -37,8 +39,10 @@ Every later day
 
     stop-aurion.cmd
 
-Do NOT use Python 3.13 / 3.14. AURION only calls:  py -3.12
-Node 18+ is fine, including 26.
+Python must be 3.10 / 3.11 / 3.12 - 3.12 is preferred and is what the
+installer puts on a clean machine.  Do NOT use 3.13 / 3.14:
+engine\main.py exits on them and numpy 1.26.4 has no 3.13 wheels.
+Node 18 to 30 is fine, including 26.
 
 If PATH is stale after the first Python/Node install:
   sign out of Windows (or reboot) and run install-aurion.cmd again.
@@ -89,9 +93,21 @@ Correct:
   cd backend
   dir src\index.js
 
+Where things live
+-----------------
+  start-aurion.cmd / stop-aurion.cmd      daily use (tree root)
+  start-desk.cmd / start-engine.cmd       foreground debugging
+  scripts\                               hidden.vbs, copy-ea.ps1, restart,
+                                          fix-npm.ps1, fix-numpy.ps1
+  windows-app\desktop\                   the Electron Windows app
+  windows-app\installer\                 install-aurion.cmd + installers
+  windows-app\packaging\                 MSI builders
+  store\keyserver\                       the shop / key server
+  admin\                                 owner tools + update server
+
 Three-language guides
 ---------------------
   apps\web\guide-install.html     Windows install
   apps\web\guide.html             how the robot trades
   apps\web\guide-backtest.html    backtest
-  docs\fa\  docs\en\  docs\ar\
+  docs\en\  docs\ar\               (there is no docs\fa\ in this tree)

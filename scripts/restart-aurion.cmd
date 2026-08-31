@@ -8,7 +8,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command "foreach($u in 'http://12
 
 timeout /t 2 /nobreak >nul
 
-powershell -NoProfile -ExecutionPolicy Bypass -Command "foreach($p in 8080,18765,18766){ Get-NetTCPConnection -LocalPort $p -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue } }" >nul 2>nul
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$own=@('node','python','pythonw','py'); foreach($p in 8080,18765,18766){ Get-NetTCPConnection -LocalPort $p -State Listen -ErrorAction SilentlyContinue | ForEach-Object { $proc = Get-Process -Id $_.OwningProcess -ErrorAction SilentlyContinue; if($proc -and ($own -contains $proc.ProcessName.ToLower())){ Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue } } }" >nul 2>nul
 
 timeout /t 2 /nobreak >nul
 

@@ -85,7 +85,7 @@
       <h2 id="fa-2">۲. ویندوز — یک بار، یک کلیک</h2>
       <ol>
         <li>کل پوشهٔ AURION را در <code>D:\aurion</code> بگذارید (نه تو در تو: <code>D:\aurion\aurion</code> غلط است).</li>
-        <li>روی <code>install-aurion.cmd</code> دوبار کلیک کنید. پنجره باز می‌ماند تا پیشرفت را ببینید.</li>
+        <li>روی <code>windows-app\installer\install-aurion.cmd</code> دوبار کلیک کنید. پنجره باز می‌ماند تا پیشرفت را ببینید.</li>
         <li>اگر پایتون ۳.۱۲ یا Node نباشد، نصب‌کننده آن‌ها را می‌گیرد (winget، وگرنه دانلود رسمی).</li>
         <li>سپس pip و npm اجرا می‌شود و <code>AurionBridge.mq5</code> داخل <code>MQL5\Experts\Aurion</code> هر ترمینال محلی کپی می‌شود.</li>
         <li>در پایان میز در <code>http://127.0.0.1:8080</code> باز می‌شود.</li>
@@ -123,7 +123,7 @@
       <h2 id="fa-6">۶. عیب‌یابی نصب</h2>
       <table>
         <tr><th>نشانه</th><th>کار</th></tr>
-        <tr><td><code>py -3.12</code> پیدا نشد بعد از نصب</td><td>خروج از حساب ویندوز یا اجرای دوبارهٔ <code>install-aurion.cmd</code></td></tr>
+        <tr><td><code>py -3.12</code> پیدا نشد بعد از نصب</td><td>خروج از حساب ویندوز یا اجرای دوبارهٔ <code>windows-app\installer\install-aurion.cmd</code></td></tr>
         <tr><td>npm / SSL خطا</td><td>اگر npm به خاطر SSL شکست:  <code>scripts\fix-npm.ps1</code></td></tr>
         <tr><td>EA روی میز نیست</td><td>F7 نسخه ۱.۱۷، از چارت بردارید و دوباره بچسبانید، Experts را بخوانید</td></tr>
         <tr><td>پایتون ۳.۱۴ از قبل نصب است</td><td>نصب‌کننده ۳.۱۲ را کنار آن می‌گذارد. AURION فقط <code>py -3.12</code> را صدا می‌زند</td></tr>
@@ -149,7 +149,7 @@
       <h2 id="en-2">2. Windows — once, one click</h2>
       <ol>
         <li>Put the whole tree at <code>D:\aurion</code> (not nested <code>D:\aurion\aurion</code>).</li>
-        <li>Double-click <code>install-aurion.cmd</code>. The window stays open so you can see progress.</li>
+        <li>Double-click <code>windows-app\installer\install-aurion.cmd</code>. The window stays open so you can see progress.</li>
         <li>Missing Python 3.12 or Node? The script installs them (winget, else official download).</li>
         <li>Then pip + npm, and <code>AurionBridge.mq5</code> is copied into every local <code>MQL5\Experts\Aurion</code>.</li>
         <li>The desk opens at <code>http://127.0.0.1:8080</code>.</li>
@@ -187,7 +187,7 @@
       <h2 id="en-6">6. Install troubleshooting</h2>
       <table>
         <tr><th>Symptom</th><th>Fix</th></tr>
-        <tr><td><code>py -3.12</code> missing after setup</td><td>Sign out of Windows or run <code>install-aurion.cmd</code> again</td></tr>
+        <tr><td><code>py -3.12</code> missing after setup</td><td>Sign out of Windows or run <code>windows-app\installer\install-aurion.cmd</code> again</td></tr>
         <tr><td>npm / SSL error</td><td>If npm/SSL fails: <code>scripts\fix-npm.ps1</code></td></tr>
         <tr><td>No EA on the desk</td><td>F7 version 1.17, detach/reattach, read Experts</td></tr>
         <tr><td>Python 3.14 already installed</td><td>The installer adds 3.12 beside it. AURION only calls <code>py -3.12</code></td></tr>
@@ -213,7 +213,7 @@
       <h2 id="ar-2">٢. ويندوز — مرة واحدة، نقرة واحدة</h2>
       <ol>
         <li>ضع الشجرة كاملة في <code>D:\aurion</code>.</li>
-        <li>انقر مرتين <code>install-aurion.cmd</code>. تبقى النافذة مفتوحة لترى التقدّم.</li>
+        <li>انقر مرتين <code>windows-app\installer\install-aurion.cmd</code>. تبقى النافذة مفتوحة لترى التقدّم.</li>
         <li>إن نقص Python 3.12 أو Node يثبّتهما المثبّت.</li>
         <li>ثم pip وnpm ونسخ <code>AurionBridge.mq5</code> إلى <code>MQL5\Experts\Aurion</code>.</li>
         <li>يفتح المكتب على <code>http://127.0.0.1:8080</code>.</li>
@@ -249,7 +249,7 @@
       <h2 id="ar-6">٦. أعطال التثبيت</h2>
       <table>
         <tr><th>العرض</th><th>العلاج</th></tr>
-        <tr><td><code>py -3.12</code> مفقود بعد التثبيت</td><td>اخرج من ويندوز أو أعد <code>install-aurion.cmd</code></td></tr>
+        <tr><td><code>py -3.12</code> مفقود بعد التثبيت</td><td>اخرج من ويندوز أو أعد <code>windows-app\installer\install-aurion.cmd</code></td></tr>
         <tr><td>خطأ npm / SSL</td><td>إن فشل npm/SSL: <code>scripts\fix-npm.ps1</code></td></tr>
         <tr><td>لا مستشار على المكتب</td><td>F7 للإصدار 1.17 ثم أزل وأعد الإرفاق</td></tr>
       </table>
