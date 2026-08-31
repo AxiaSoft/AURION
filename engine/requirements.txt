@@ -1,0 +1,17 @@
+fastapi==0.116.1
+uvicorn==0.35.0
+pydantic==2.11.7
+websockets==15.0.1
+httpx==0.28.1
+# NumPy 2.1+ wheels require x86-64-v2. NumPy 1.26.4 is the last
+# CPU-safe official Windows wheel, and it only exists for CPython 3.9–3.12.
+# Do not run AURION on Python 3.13/3.14.
+numpy==1.26.4
+pandas==2.2.3
+scipy==1.14.1
+scikit-learn==1.5.2
+joblib==1.4.2
+openpyxl==3.1.5
+python-multipart==0.0.20
+# MetaTrader5 is Windows-only. Installed by scripts/fix-numpy.ps1 and start.ps1.
+# MetaTrader5>=5.0.4874

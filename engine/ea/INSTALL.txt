@@ -1,0 +1,86 @@
+AURION MetaTrader 5 experts
+===========================
+
+Copy both files into the terminal data folder:
+
+  File → Open Data Folder → MQL5 → Experts → Aurion\
+
+  AurionBridge.mq5        required on every chart you want on the desk
+  AurionChartAgent.mq5    optional alias (pointer only — compile AurionBridge)
+
+On Windows, install-aurion.cmd and start-aurion.cmd already copy these
+into every local MQL5\Experts\Aurion folder.
+
+Then compile AurionBridge.mq5 in MetaEditor (F7). You must see version 1.17.
+1.17 sends hello + last tick + current candle + first history chunk
+on the first timer (50ms). It does not wait for a market tick.
+Closed deals are pushed on connect, OnTrade and OnTradeTransaction
+(not on the 1s heartbeat) — a closed trade leaves the desk instantly.
+1.17 also tags every message with tester=true when it runs inside the
+Strategy Tester, so the desk keeps backtest prices/positions separate
+from the live chart. Attach it to a live chart for trading orders; a
+tester chart is read-only.
+
+AurionBridge 1.17 talks to the engine over HTTP WebRequest
+(http://127.0.0.1:18765/v1/ea/ingest) and the common Files inbox.
+That is intentional: some MT5 builds return 5273 on SocketSend even
+after SocketConnect succeeds, which caused a reconnect storm.
+
+Inputs
+------
+  InpEngineHost    127.0.0.1 on the same machine, or the VPS IP of the engine
+  InpEnginePort    unused for the live HTTP/file path (kept so saved chart inputs do not shift)
+  InpHttpPort      18765 (must match config/aurion.json → engine.port)
+  InpCandleDepth   number of REAL closed bars to push on connect
+  InpSendHistory   send the existing chart history once after hello
+                   (desk can also request any TF via CopyRates)
+
+Terminal checklist
+------------------
+  Tools → Options → Expert Advisors
+    ☑ Allow algorithmic trading
+    ☑ Allow WebRequest for listed URL
+    Add these lines EXACTLY:
+      127.0.0.1
+      http://127.0.0.1
+      http://127.0.0.1:18765
+      http://127.0.0.1:8080
+
+  AutoTrading button on the toolbar must be green.
+
+Restart the AURION engine after copying 1.17 so /v1/ea/ingest exists.
+Then remove AurionBridge from the chart and attach the newly compiled 1.17.
+
+Each attached chart appears separately in AURION → Charts with its
+symbol and timeframe. Removing the EA drops that chart; a second EA
+on the same symbol keeps the symbol alive.
+
+The official MetaTrader 5 mobile application cannot host experts.
+AURION is Windows-only. Supervise the account from the desk at
+http://127.0.0.1:8080 while this EA runs on the desktop terminal
+or a Windows VPS. There is no Android SDK / APK in this product.
+
+Host / VPS
+----------
+The EA never runs "on the host" by itself. It only runs inside a
+Windows MetaTrader 5 terminal. Two honest layouts:
+
+  Same Windows PC / VPS
+    Engine + desk + MT5 on one machine.
+    InpEngineHost = 127.0.0.1
+    InpHttpPort   = 18765
+    FILE inbox works (Common\\Files\\aurion_in_<chart>.jsonl)
+    HTTP ingest is optional.
+
+  MT5 on a trading PC, AURION on a Windows host
+    FILE inbox cannot cross machines.
+    Set InpEngineHost to the host public/LAN IP.
+    Allow WebRequest for:
+      http://<host-ip>:18765
+      http://<host-ip>:8080
+    Open host firewall for 18765 (engine) and 8080 (desk).
+    Orders still execute in the MT5 terminal that holds the EA,
+    never on the Node desk and never on official MT5 mobile.
+
+Three-language install guide: apps\web\guide-install.html
+or http://127.0.0.1:8080/guide-install.html after the desk is up.
