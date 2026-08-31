@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en" dir="ltr" class="mode-desk">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=5" />
+  <meta name="theme-color" content="#06070b" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <title>AURION</title>
+  <link rel="manifest" href="/manifest.json" />
+  <link rel="icon" href="/icons/mark.png?v=desk46" />
+  <link rel="apple-touch-icon" href="/icons/mark.png?v=desk46" />
+  <link rel="stylesheet" href="/css/app.css?v=desk53" />
+</head>
+<body class="mode-desk">
+  <div class="aurora"></div>
+  <div id="welcome" class="welcome">
+    <video id="welcome-vid" playsinline webkit-playsinline preload="auto"></video>
+    <button type="button" class="welcome-sound" id="welcome-sound" hidden aria-label="Sound">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M4 10v4h3l5 4V6L7 10H4z"/>
+        <path d="M16 9.5a4 4 0 010 5"/>
+        <path d="M18.5 7a7 7 0 010 10"/>
+      </svg>
+    </button>
+    <button type="button" class="btn tiny ghost" id="welcome-skip">Skip</button>
+  </div>
+  <div id="app">
+    <section id="auth" class="hidden">
+      <div class="auth-shell">
+        <div class="auth-brand">
+          <div class="auth-logo-slot">
+            <img src="/icons/mark.png?v=desk45" alt="AURION" class="auth-logo" />
+          </div>
+          <p class="kicker" data-i18n="auth.kicker">Institutional tape. Nothing invented.</p>
+          <h1>AURION</h1>
+          <p class="lede" data-i18n="brand.tagline">Intelligent execution for MetaTrader 5</p>
+          <div class="axiasoft-slot">
+            <img src="/assets/axiasoft-logo.png?v=desk45" alt="Axiasoft" class="axiasoft-logo" />
+            <span data-i18n="auth.licensed_by">Licensed by Axiasoft</span>
+          </div>
+          <ul class="auth-points">
+            <li data-i18n="auth.point1">Every candle is from MetaTrader 5</li>
+            <li data-i18n="auth.point2">Persian, English and Arabic — RTL included</li>
+            <li data-i18n="auth.point3">Prop rules, kill switch, live EA charts</li>
+          </ul>
+        </div>
+        <div class="auth-card gate-card" id="gate-card">
+          <div class="lang-pills" id="auth-langs">
+            <button type="button" data-lang="en">EN</button>
+            <button type="button" data-lang="fa">فارسی</button>
+            <button type="button" data-lang="ar">العربية</button>
+          </div>
+          <div class="gate-badge">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <circle cx="8" cy="15" r="4"/><path d="M10.9 12.1 21 2"/><path d="m15 8 3 3"/><path d="m18 5 3 3"/>
+            </svg>
+          </div>
+          <h2 id="gate-title" data-i18n="keygate.title">License key</h2>
+          <p class="lede" id="gate-sub" data-i18n="keygate.sub">Enter your AURION product key to unlock premium — or continue in free mode.</p>
+          <label class="field">
+            <span data-i18n="keygate.key">Product key</span>
+            <input id="gate-key" dir="ltr" inputmode="text" spellcheck="false" autocomplete="off" placeholder="AXIA-M1-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX" />
+          </label>
+          <p class="err" id="gate-err"></p>
+          <button class="btn block" id="gate-go" type="button" data-i18n="keygate.activate">Activate &amp; enter</button>
+          <button class="btn ghost block" id="gate-buy" type="button" data-i18n="keygate.buy">Buy a key</button>
+          <button class="btn ghost block" id="gate-free" type="button" data-i18n="keygate.free">I don't have a key — continue free</button>
+          <p class="sub gate-limits" id="gate-limits" data-i18n="keygate.limits">Free mode: prop profiles, scalping style and strategy upload are locked.</p>
+          <p class="sub mono gate-state" id="gate-state"></p>
+        </div>
+      </div>
+    </section>
+
+    <section id="desk">
+      <aside class="nav" id="nav"></aside>
+      <header class="top">
+        <button class="menu-btn" id="btn-menu" type="button" aria-label="Menu" aria-expanded="false" aria-controls="nav">
+          <span></span><span></span><span></span>
+        </button>
+        <h2 id="page-title"></h2>
+        <div class="hdr-status" id="hdr-status">
+          <span class="st-chip" id="st-engine" data-state="down">Engine</span>
+          <span class="st-chip mt5" id="st-mt5" data-state="down">MT5</span>
+          <span class="st-chip tape" id="st-tape" data-state="idle">EA</span>
+          <span class="st-eq mono" id="st-eq"></span>
+        </div>
+        <div class="top-actions">
+          <button class="icon-btn hdr-drawer-btn" id="btn-hdr-drawer" type="button" aria-label="Status and equity" aria-expanded="false" aria-controls="hdr-drawer">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+          </button>
+          <button class="icon-btn" id="btn-refresh" type="button" aria-label="Refresh" title="Refresh">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M21 12a9 9 0 11-3-6.7"/><path d="M21 4v6h-6"/></svg>
+          </button>
+          <button class="btn tiny ghost" id="btn-lang" type="button">EN</button>
+          <button class="btn tiny ghost hidden" id="btn-logout" type="button" hidden>Logout</button>
+          <button class="btn tiny ghost" id="btn-flat" type="button" data-i18n="exec.close_all">Close all</button>
+          <button class="btn tiny danger" id="btn-kill" type="button" data-i18n="exec.kill">Kill</button>
+          <button class="btn tiny ghost hidden" id="btn-restart" type="button" hidden data-i18n="host.restart">Restart</button>
+        </div>
+        <div class="hdr-drawer" id="hdr-drawer" hidden></div>
+      </header>
+      <main class="stage" id="stage"></main>
+      <div class="nav-scrim" id="nav-scrim" hidden></div>
+    </section>
+  </div>
+  <div class="toast-wrap" id="toasts"></div>
+  <div class="notify-stack" id="notify-stack" hidden></div>
+  <div class="pay-veil hidden" id="pay-veil"></div>
+  <script src="/js/i18n.js?v=desk53"></script>
+  <script src="/js/api.js?v=desk53"></script>
+  <script src="/js/charts.js?v=desk53"></script>
+  <script src="/js/app.js?v=desk53"></script>
+</body>
+</html>

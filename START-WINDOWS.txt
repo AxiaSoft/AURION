@@ -1,0 +1,97 @@
+AURION — run on Windows
+=======================
+
+First time (downloads Python 3.12 + Node LTS if missing)
+--------------------------------------------------------
+  1. Copy the FULL tree to D:\aurion
+     (wrong: D:\aurion\aurion)
+  2. Double-click:
+
+       install-aurion.cmd
+
+     The window stays open. It will:
+       - install Python 3.12 (winget or python.org silent setup)
+       - install Node.js 18+ (winget, existing Node 26, or official MSI)
+       - pip install engine\requirements.txt  (NumPy 1.26.4)
+       - npm install in backend
+       - copy AurionBridge.mq5 1.17 into every local MQL5\Experts\Aurion
+       - allow TCP 8080 on the Private firewall (local desk)
+       - start the hidden engine + desk and open the browser
+
+  3. The desk opens at once. There is no login, registration,
+     user profile, subscription plan or product key.
+
+Every later day
+---------------
+  Double-click:
+
+    start-aurion.cmd
+
+  If a prerequisite is missing, the same installer runs by itself.
+  Engine and desk stay HIDDEN. No extra black CMD windows.
+  Browser:  http://127.0.0.1:8080
+  Guide:    http://127.0.0.1:8080/guide-install.html
+  Logs:     dashboard → Terminal → Python engine / Node desk
+
+  Stop:
+
+    stop-aurion.cmd
+
+Do NOT use Python 3.13 / 3.14. AURION only calls:  py -3.12
+Node 18+ is fine, including 26.
+
+If PATH is stale after the first Python/Node install:
+  sign out of Windows (or reboot) and run install-aurion.cmd again.
+
+Windows only
+------------
+  AURION is a Windows desk. There is no Android app, no APK, and
+  no Android SDK in this tree. Official MT5 mobile cannot host EAs.
+  Execution is always on this PC or a Windows VPS with AurionBridge.
+
+MetaTrader 5 — chart not on the desk
+------------------------------------
+Compile engine\ea\AurionBridge.mq5 version 1.17 with F7.
+start-aurion.cmd also copies that file into every local
+MQL5\Experts\Aurion folder. Remove the EA from the chart, attach 1.17.
+
+1.17 writes aurion_in_<chart>.jsonl into the MT5 Common Files
+folder. The engine reads that file. WebRequest is OPTIONAL.
+Closed deals are pushed on connect and OnTrade (not every heartbeat).
+
+Experts must print:
+  AURION: v1.17 FILE+HTTP
+  AURION: hello delivered v1.17
+  and/or: AURION: file inbox writing aurion_in_....jsonl
+
+If you also want HTTP:
+  Tools → Options → Expert Advisors
+  Tick: Allow algorithmic trading
+  Tick: Allow WebRequest for listed URL
+  Add:
+      127.0.0.1
+      http://127.0.0.1
+      http://127.0.0.1:18765
+      http://127.0.0.1:8080
+
+Do not run the EA in Strategy Tester.
+After a desk update: stop-aurion.cmd then start-aurion.cmd,
+then Ctrl+Shift+R in the browser.
+
+Wrong:  127.0.0.1:18766   as a WebRequest URL
+Right:  127.0.0.1
+
+You are ALREADY in D:\aurion. Do NOT type:
+  cd aurion\backend
+That looks for D:\aurion\aurion\backend and fails.
+
+Correct:
+  cd backend
+  dir src\index.js
+
+Three-language guides
+---------------------
+  apps\web\guide-install.html     Windows install
+  apps\web\guide.html             how the robot trades
+  apps\web\guide-backtest.html    backtest
+  docs\fa\  docs\en\  docs\ar\

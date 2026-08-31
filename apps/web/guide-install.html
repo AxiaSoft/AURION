@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>AURION — نصب ویندوز</title>
+  <style>
+    :root{
+      --bg:#06070b;--ink:#e8edf7;--muted:#8b93a7;--faint:#5b6274;
+      --line:rgba(255,255,255,.1);--cyan:#3ee0c4;--gold:#e8c07a;--violet:#7c6cff;--rose:#ff6b8a;
+    }
+    *{box-sizing:border-box}
+    html,body{margin:0;background:#06070b;color:var(--ink);font:16px/1.7 system-ui,Vazirmatn,Segoe UI,sans-serif}
+    html[dir="rtl"] body{line-height:1.85}
+    .aurora{position:fixed;inset:0;pointer-events:none;z-index:0;
+      background:
+        radial-gradient(800px 420px at 10% -10%,rgba(124,108,255,.2),transparent 55%),
+        radial-gradient(700px 400px at 90% 0,rgba(62,224,196,.12),transparent 50%),
+        linear-gradient(180deg,rgba(6,7,11,.35),rgba(6,7,11,.82) 78%),
+        url("assets/login-orb.png") center/cover no-repeat,#06070b}
+    .wrap{position:relative;z-index:1;max-width:920px;margin:0 auto;padding:28px 18px 80px}
+    header{display:flex;flex-wrap:wrap;gap:12px;align-items:center;margin-bottom:22px}
+    .mark{width:56px;height:56px;border-radius:16px;background:#05070c;object-fit:cover}
+    h1{margin:0;letter-spacing:.12em;font-weight:600}
+    html[dir="rtl"] h1{letter-spacing:.02em}
+    .tag{margin:2px 0 0;color:var(--muted);font-size:14px}
+    .langs{margin-inline-start:auto;display:flex;gap:6px}
+    .langs button{border:1px solid var(--line);background:transparent;color:var(--muted);border-radius:999px;padding:7px 12px;cursor:pointer}
+    .langs button.on{background:var(--gold);color:#061014;border-color:transparent}
+    nav.toc{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 22px}
+    nav.toc a{color:var(--cyan);text-decoration:none;border:1px solid var(--line);border-radius:999px;padding:5px 10px;font-size:12px}
+    article{display:none}
+    article.on{display:block}
+    h2{margin:28px 0 10px;font-size:22px;font-weight:500;color:var(--gold)}
+    h3{margin:18px 0 8px;font-size:16px;color:var(--cyan);font-weight:500}
+    p,li{color:#d5dbe8}
+    .card{background:linear-gradient(180deg,rgba(18,20,30,.78),rgba(12,14,22,.62));border:1px solid var(--line);border-radius:18px;padding:14px 16px;margin:12px 0}
+    ol,ul{padding-inline-start:22px}
+    code,kbd{font-family:ui-monospace,Consolas,monospace;background:rgba(255,255,255,.06);padding:1px 6px;border-radius:6px;font-size:.92em}
+    table{width:100%;border-collapse:collapse;font-size:14px;margin:10px 0}
+    th,td{text-align:start;padding:8px;border-bottom:1px solid var(--line);vertical-align:top}
+    th{color:var(--faint);font-weight:500}
+    .warn{border-color:rgba(232,192,122,.35)}
+    .ok{border-color:rgba(62,224,196,.3)}
+    .bad{border-color:rgba(255,107,138,.35)}
+    footer{margin-top:36px;color:var(--faint);font-size:13px}
+    a{color:var(--cyan)}
+    .lede{margin:0 0 14px}
+  </style>
+</head>
+<body>
+  <div class="aurora"></div>
+  <div class="wrap">
+    <header>
+      <img class="mark" src="/icons/mark.png?v=desk30" alt="" />
+      <div>
+        <h1>AURION</h1>
+        <p class="tag" id="hdr-tag"></p>
+      </div>
+      <div class="langs">
+        <button type="button" data-lang="fa" class="on">فارسی</button>
+        <button type="button" data-lang="en">EN</button>
+        <button type="button" data-lang="ar">العربية</button>
+      </div>
+    </header>
+    <p class="lede"><a href="/guide.html">راهنمای ربات</a> · <a href="/guide-backtest.html">بک‌تست</a></p>
+    <nav class="toc" id="toc"></nav>
+
+    <article id="doc-fa" class="on" lang="fa" dir="rtl">
+      <h2 id="fa-0">۰. این راهنما چیست</h2>
+      <p>نصب کامل AURION روی <b>ویندوز</b>. محصول فقط دسکتاپ ویندوز است. پیش‌نیازها (پایتون ۳.۱۲ و Node.js ۱۸+) اگر روی رایانه نباشند <b>خود نصب‌کننده دانلود و نصب می‌کند</b>. دادهٔ ساختگی وجود ندارد: تا AurionBridge روی چارت زنده ننشیند میز خالی می‌ماند.</p>
+      <div class="card warn">اپ رسمی MetaTrader 5 موبایل نمی‌تواند EA نگه دارد. Android SDK، Flutter و APK بخشی از AURION نیستند و از درخت پروژه حذف شده‌اند. اجرا فقط روی ویندوز یا VPS ویندوز است.</div>
+
+      <h2 id="fa-1">۱. چه چیزی نصب می‌شود</h2>
+      <table>
+        <tr><th>قطعه</th><th>کجا</th><th>چگونه نصب می‌شود</th></tr>
+        <tr><td>Python 3.12</td><td>ویندوز میزبان</td><td>winget یا دانلود رسمی از python.org — بی‌صدا</td></tr>
+        <tr><td>Node.js 18+ (۲۲ / ۲۶)</td><td>ویندوز میزبان</td><td>winget یا MSI رسمی Node</td></tr>
+        <tr><td>بسته‌های موتور (NumPy 1.26.4 و …)</td><td>همان ماشین</td><td>pip از <code>engine\requirements.txt</code></td></tr>
+        <tr><td>میز Node</td><td>همان ماشین</td><td><code>npm install</code> در <code>backend</code></td></tr>
+        <tr><td>AurionBridge 1.17</td><td>پوشه Experts هر MT5 محلی</td><td>کپی خودکار توسط نصب‌کننده</td></tr>
+      </table>
+      <div class="card ok">پایتون باید ۳.۱۲ باشد (نه ۳.۱۳/۳.۱۴). Node ۱۸ به بالا، از جمله ۲۶، قبول است. Android SDK لازم نیست و نباید نصب شود.</div>
+
+      <h2 id="fa-2">۲. ویندوز — یک بار، یک کلیک</h2>
+      <ol>
+        <li>کل پوشهٔ AURION را در <code>D:\aurion</code> بگذارید (نه تو در تو: <code>D:\aurion\aurion</code> غلط است).</li>
+        <li>روی <code>install-aurion.cmd</code> دوبار کلیک کنید. پنجره باز می‌ماند تا پیشرفت را ببینید.</li>
+        <li>اگر پایتون ۳.۱۲ یا Node نباشد، نصب‌کننده آن‌ها را می‌گیرد (winget، وگرنه دانلود رسمی).</li>
+        <li>سپس pip و npm اجرا می‌شود و <code>AurionBridge.mq5</code> داخل <code>MQL5\Experts\Aurion</code> هر ترمینال محلی کپی می‌شود.</li>
+        <li>در پایان میز در <code>http://127.0.0.1:8080</code> باز می‌شود.</li>
+      </ol>
+      <p>از دفعهٔ بعد فقط <code>start-aurion.cmd</code> کافی است. اگر پیش‌نیازی ناقص باشد همان اسکریپت خودش نصب‌کننده را صدا می‌زند. توقف: <code>stop-aurion.cmd</code>.</p>
+      <div class="card warn">نصب پایتون/نود ممکن است چند دقیقه طول بکشد و به اینترنت نیاز دارد. اگر PATH تازه نشده باشد یک‌بار از حساب ویندوز خارج شوید یا نصب‌کننده را دوباره اجرا کنید.</div>
+
+      <h2 id="fa-3">۳. اولین ورود به میز</h2>
+      <ol>
+        <li>مرورگر <code>http://127.0.0.1:8080</code> را باز می‌کند.</li>
+        <li>اولین اجرا مدیر می‌سازد. گذرواژهٔ کارخانه‌ای وجود ندارد — خودتان بسازید.</li>
+        <li>ورود با Gmail یا شمارهٔ ایران (<code>09xxxxxxxxx</code>).</li>
+        <li>زبان را از EN / فارسی / العربية انتخاب کنید.</li>
+        <li>تا EA روی چارت نباشد بازار و پوزیشن خالی است. این درست است.</li>
+      </ol>
+
+      <h2 id="fa-4">۴. متاتریدر ۵ و EA ۱.۱۷</h2>
+      <ol>
+        <li>ترمینال بروکر را نصب و وارد حسابی شوید که مجاز به معاملهٔ آن هستید.</li>
+        <li>در MetaEditor فایل <code>D:\aurion\engine\ea\AurionBridge.mq5</code> (یا کپی داخل Experts\Aurion) را با <kbd>F7</kbd> کامپایل کنید. نسخه باید <b>۱.۱۷</b> باشد.</li>
+        <li>اکسپرت را روی هر چارتی که باید روی میز بیاید بچسبانید. AutoTrading سبز باشد. Strategy Tester نه.</li>
+        <li>تب Experts باید بگوید <code>hello delivered v1.17</code> یا <code>file inbox writing</code>.</li>
+        <li>WebRequest اختیاری است. اگر می‌خواهید HTTP هم کار کند در Tools → Options → Expert Advisors این‌ها را به allow-list اضافه کنید: <code>127.0.0.1</code> ، <code>http://127.0.0.1</code> ، <code>http://127.0.0.1:18765</code> ، <code>http://127.0.0.1:8080</code>.</li>
+      </ol>
+      <p>ورودی‌های EA: <code>InpEngineHost=127.0.0.1</code> روی همان PC، در غیر این صورت IP موتور. <code>InpHttpPort=18765</code>.</p>
+
+      <h2 id="fa-5">۵. چک‌لیست بعد از نصب</h2>
+      <ol>
+        <li><code>http://127.0.0.1:8080/api/health</code> مقدار <code>backend: online</code> و <code>engine: online</code>.</li>
+        <li>قرص هدر: موتور زنده، بعد از EA متاتریدر زنده.</li>
+        <li>کندل بازارها یکی‌به‌یک با چارت MT5.</li>
+        <li>سفارش دستی میز در Toolbox → Trade ظاهر شود.</li>
+      </ol>
+
+      <h2 id="fa-6">۶. عیب‌یابی نصب</h2>
+      <table>
+        <tr><th>نشانه</th><th>کار</th></tr>
+        <tr><td><code>py -3.12</code> پیدا نشد بعد از نصب</td><td>خروج از حساب ویندوز یا اجرای دوبارهٔ <code>install-aurion.cmd</code></td></tr>
+        <tr><td>npm / SSL خطا</td><td>اگر npm به خاطر SSL شکست:  <code>scripts\fix-npm.ps1</code></td></tr>
+        <tr><td>EA روی میز نیست</td><td>F7 نسخه ۱.۱۷، از چارت بردارید و دوباره بچسبانید، Experts را بخوانید</td></tr>
+        <tr><td>پایتون ۳.۱۴ از قبل نصب است</td><td>نصب‌کننده ۳.۱۲ را کنار آن می‌گذارد. AURION فقط <code>py -3.12</code> را صدا می‌زند</td></tr>
+      </table>
+    </article>
+
+    <article id="doc-en" lang="en" dir="ltr">
+      <h2 id="en-0">0. What this guide is</h2>
+      <p>Full AURION install on <b>Windows</b>. This product is Windows-only. If Python 3.12 or Node.js 18+ is missing, the installer <b>downloads and installs them</b>. Nothing is invented: the desk stays empty until AurionBridge sits on a live chart.</p>
+      <div class="card warn">Official MetaTrader 5 mobile cannot host EAs. The Android SDK, Flutter, and APK path are not part of AURION and have been removed from the tree. Execution is always on Windows or a Windows VPS.</div>
+
+      <h2 id="en-1">1. What gets installed</h2>
+      <table>
+        <tr><th>Piece</th><th>Where</th><th>How</th></tr>
+        <tr><td>Python 3.12</td><td>Host Windows PC</td><td>winget or official python.org silent setup</td></tr>
+        <tr><td>Node.js 18+ (22 / 26)</td><td>Same PC</td><td>winget or official MSI</td></tr>
+        <tr><td>Engine wheels (NumPy 1.26.4 …)</td><td>Same PC</td><td>pip from <code>engine\requirements.txt</code></td></tr>
+        <tr><td>Node desk</td><td>Same PC</td><td><code>npm install</code> in <code>backend</code></td></tr>
+        <tr><td>AurionBridge 1.17</td><td>Each local MT5 Experts folder</td><td>Copied by the installer</td></tr>
+      </table>
+      <div class="card ok">Python must be 3.12 (not 3.13/3.14). Node 18+ including 26 is accepted. No Android SDK is required or shipped.</div>
+
+      <h2 id="en-2">2. Windows — once, one click</h2>
+      <ol>
+        <li>Put the whole tree at <code>D:\aurion</code> (not nested <code>D:\aurion\aurion</code>).</li>
+        <li>Double-click <code>install-aurion.cmd</code>. The window stays open so you can see progress.</li>
+        <li>Missing Python 3.12 or Node? The script installs them (winget, else official download).</li>
+        <li>Then pip + npm, and <code>AurionBridge.mq5</code> is copied into every local <code>MQL5\Experts\Aurion</code>.</li>
+        <li>The desk opens at <code>http://127.0.0.1:8080</code>.</li>
+      </ol>
+      <p>After that, <code>start-aurion.cmd</code> is enough. If a prerequisite is missing it calls the same installer. Stop with <code>stop-aurion.cmd</code>.</p>
+      <div class="card warn">Python/Node setup needs the internet and a few minutes. If PATH is stale, sign out of Windows or run the installer again.</div>
+
+      <h2 id="en-3">3. First desk login</h2>
+      <ol>
+        <li>Browser opens <code>http://127.0.0.1:8080</code>.</li>
+        <li>First launch creates the administrator. There is no factory password.</li>
+        <li>Sign in with Gmail or an Iranian mobile (<code>09xxxxxxxxx</code>).</li>
+        <li>Pick EN / فارسی / العربية.</li>
+        <li>Until an EA is on a chart, markets and positions stay empty. That is correct.</li>
+      </ol>
+
+      <h2 id="en-4">4. MetaTrader 5 and EA 1.17</h2>
+      <ol>
+        <li>Install the broker terminal. Log into an account you are allowed to trade.</li>
+        <li>In MetaEditor compile <code>D:\aurion\engine\ea\AurionBridge.mq5</code> with <kbd>F7</kbd>. Version must be <b>1.17</b>.</li>
+        <li>Attach it to every chart you want on the desk. AutoTrading green. Not Strategy Tester.</li>
+        <li>Experts must show <code>hello delivered v1.17</code> or <code>file inbox writing</code>.</li>
+        <li>WebRequest is optional. If you want HTTP too, allow-list <code>127.0.0.1</code>, <code>http://127.0.0.1</code>, <code>http://127.0.0.1:18765</code>, <code>http://127.0.0.1:8080</code>.</li>
+      </ol>
+      <p>EA inputs: <code>InpEngineHost=127.0.0.1</code> on the same PC, otherwise the engine IP. <code>InpHttpPort=18765</code>.</p>
+
+      <h2 id="en-5">5. After-install checklist</h2>
+      <ol>
+        <li><code>http://127.0.0.1:8080/api/health</code> → <code>backend: online</code> and <code>engine: online</code>.</li>
+        <li>Header pills: engine live, then MT5 live after the EA.</li>
+        <li>Markets candles match the MT5 chart one-for-one.</li>
+        <li>A manual desk order appears in Toolbox → Trade.</li>
+      </ol>
+
+      <h2 id="en-6">6. Install troubleshooting</h2>
+      <table>
+        <tr><th>Symptom</th><th>Fix</th></tr>
+        <tr><td><code>py -3.12</code> missing after setup</td><td>Sign out of Windows or run <code>install-aurion.cmd</code> again</td></tr>
+        <tr><td>npm / SSL error</td><td>If npm/SSL fails: <code>scripts\fix-npm.ps1</code></td></tr>
+        <tr><td>No EA on the desk</td><td>F7 version 1.17, detach/reattach, read Experts</td></tr>
+        <tr><td>Python 3.14 already installed</td><td>The installer adds 3.12 beside it. AURION only calls <code>py -3.12</code></td></tr>
+      </table>
+    </article>
+
+    <article id="doc-ar" lang="ar" dir="rtl">
+      <h2 id="ar-0">٠. ما هذا الدليل</h2>
+      <p>تثبيت AURION على <b>ويندوز</b> فقط. إذا لم يوجد Python 3.12 أو Node.js 18+ فإن المثبّت <b>ينزّلهما ويثبّتهما</b>. لا بيانات مختلقة: يبقى المكتب فارغاً حتى يُرفَق AurionBridge على رسم حي.</p>
+      <div class="card warn">تطبيق MetaTrader 5 الرسمي على الجوال لا يشغّل المستشارين. Android SDK وFlutter وAPK ليست جزءاً من AURION وحُذفت من الشجرة. التنفيذ على ويندوز أو VPS ويندوز فقط.</div>
+
+      <h2 id="ar-1">١. ماذا يُثبَّت</h2>
+      <table>
+        <tr><th>القطعة</th><th>أين</th><th>كيف</th></tr>
+        <tr><td>Python 3.12</td><td>جهاز ويندوز المضيف</td><td>winget أو مثبّت python.org الصامت</td></tr>
+        <tr><td>Node.js 18+ (22 / 26)</td><td>نفس الجهاز</td><td>winget أو MSI الرسمي</td></tr>
+        <tr><td>حزم المحرك</td><td>نفس الجهاز</td><td>pip من <code>engine\requirements.txt</code></td></tr>
+        <tr><td>مكتب Node</td><td>نفس الجهاز</td><td><code>npm install</code> في <code>backend</code></td></tr>
+        <tr><td>AurionBridge 1.17</td><td>مجلد Experts لكل MT5 محلي</td><td>ينسخه المثبّت</td></tr>
+      </table>
+      <div class="card ok">بايثون 3.12 فقط. Node 18 فأعلى (بما فيه 26) مقبول. لا حاجة لـ Android SDK.</div>
+
+      <h2 id="ar-2">٢. ويندوز — مرة واحدة، نقرة واحدة</h2>
+      <ol>
+        <li>ضع الشجرة كاملة في <code>D:\aurion</code>.</li>
+        <li>انقر مرتين <code>install-aurion.cmd</code>. تبقى النافذة مفتوحة لترى التقدّم.</li>
+        <li>إن نقص Python 3.12 أو Node يثبّتهما المثبّت.</li>
+        <li>ثم pip وnpm ونسخ <code>AurionBridge.mq5</code> إلى <code>MQL5\Experts\Aurion</code>.</li>
+        <li>يفتح المكتب على <code>http://127.0.0.1:8080</code>.</li>
+      </ol>
+      <p>بعدها يكفي <code>start-aurion.cmd</code>. إن نقص متطلب يستدعي المثبّت نفسه. الإيقاف: <code>stop-aurion.cmd</code>.</p>
+
+      <h2 id="ar-3">٣. أول دخول</h2>
+      <ol>
+        <li>المتصفح يفتح <code>http://127.0.0.1:8080</code>.</li>
+        <li>الإطلاق الأول ينشئ المدير. لا كلمة مرور مصنع.</li>
+        <li>ادخل بـ Gmail أو رقم إيراني (<code>09xxxxxxxxx</code>).</li>
+        <li>اختر EN / فارسی / العربية.</li>
+        <li>بلا مستشار على الرسم تبقى الأسواق فارغة. هذا صحيح.</li>
+      </ol>
+
+      <h2 id="ar-4">٤. ميتاتريدر وEA 1.17</h2>
+      <ol>
+        <li>ثبّت طرفية الوسيط وادخل حساباً يحق لك تداوله.</li>
+        <li>في MetaEditor جمّع <code>AurionBridge.mq5</code> بـ <kbd>F7</kbd>. الإصدار <b>1.17</b>.</li>
+        <li>أرفقه على كل رسم تريده في المكتب. AutoTrading أخضر. ليس المختبر.</li>
+        <li>Experts: <code>hello delivered v1.17</code> أو <code>file inbox writing</code>.</li>
+        <li>WebRequest اختياري. للقائمة: <code>127.0.0.1</code> و<code>http://127.0.0.1</code> و<code>http://127.0.0.1:18765</code> و<code>http://127.0.0.1:8080</code>.</li>
+      </ol>
+
+      <h2 id="ar-5">٥. قائمة التحقق</h2>
+      <ol>
+        <li><code>/api/health</code> يقول <code>online</code> للمحرك والمكتب.</li>
+        <li>الحبوب في الرأس: المحرك ثم MT5 بعد المستشار.</li>
+        <li>شموع الأسواق تطابق رسم MT5.</li>
+        <li>أمر يدوي يظهر في Toolbox → Trade.</li>
+      </ol>
+
+      <h2 id="ar-6">٦. أعطال التثبيت</h2>
+      <table>
+        <tr><th>العرض</th><th>العلاج</th></tr>
+        <tr><td><code>py -3.12</code> مفقود بعد التثبيت</td><td>اخرج من ويندوز أو أعد <code>install-aurion.cmd</code></td></tr>
+        <tr><td>خطأ npm / SSL</td><td>إن فشل npm/SSL: <code>scripts\fix-npm.ps1</code></td></tr>
+        <tr><td>لا مستشار على المكتب</td><td>F7 للإصدار 1.17 ثم أزل وأعد الإرفاق</td></tr>
+      </table>
+    </article>
+
+    <footer>AURION 1.0 · Windows install · Python 3.12 · Node 18+ (26 OK) · EA 1.17 · 2026-08-20</footer>
+  </div>
+  <script>
+    const toc = {
+      fa: [
+        ["#fa-0","۰ مقدمه"],["#fa-1","۱ چه نصب می‌شود"],["#fa-2","۲ ویندوز"],["#fa-3","۳ ورود"],
+        ["#fa-4","۴ متاتریدر"],["#fa-5","۵ چک‌لیست"],["#fa-6","۶ عیب‌یابی"]
+      ],
+      en: [
+        ["#en-0","0 Intro"],["#en-1","1 What"],["#en-2","2 Windows"],["#en-3","3 Login"],
+        ["#en-4","4 MT5"],["#en-5","5 Checklist"],["#en-6","6 Fixes"]
+      ],
+      ar: [
+        ["#ar-0","٠ مقدمة"],["#ar-1","١ ماذا"],["#ar-2","٢ ويندوز"],["#ar-3","٣ الدخول"],
+        ["#ar-4","٤ ميتاتريدر"],["#ar-5","٥ التحقق"],["#ar-6","٦ الأعطال"]
+      ]
+    };
+    const tags = {
+      fa: "نصب ویندوز — پیش‌نیازها خودشان دانلود می‌شوند",
+      en: "Windows install — prerequisites download themselves",
+      ar: "تثبيت ويندوز — المتطلبات تُنزَّل وحدها"
+    };
+    function setLang(lang) {
+      document.documentElement.lang = lang;
+      document.documentElement.dir = lang === "en" ? "ltr" : "rtl";
+      document.querySelectorAll("article").forEach((a) => a.classList.toggle("on", a.id === "doc-" + lang));
+      document.querySelectorAll(".langs button").forEach((b) => b.classList.toggle("on", b.dataset.lang === lang));
+      document.getElementById("hdr-tag").textContent = tags[lang];
+      document.getElementById("toc").innerHTML = (toc[lang] || []).map(([h, l]) => `<a href="${h}">${l}</a>`).join("");
+      try { localStorage.setItem("aurion.install.lang", lang); } catch (e) {}
+    }
+    document.querySelector(".langs").onclick = (e) => {
+      const b = e.target.closest("[data-lang]");
+      if (b) setLang(b.dataset.lang);
+    };
+    setLang(localStorage.getItem("aurion.install.lang") || "fa");
+  </script>
+</body>
+</html>

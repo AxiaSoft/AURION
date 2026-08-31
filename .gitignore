@@ -1,0 +1,21 @@
+# Runtime artifacts — never committed
+node_modules/
+__pycache__/
+*.pyc
+*.log
+
+# AURION live state
+data/license/
+data/logs/
+data/ea-inbox/
+data/settings-backup.json
+engine/models/
+
+# Key server local state + secrets
+keyserver/data/
+keyserver/.env
+.env
+
+# OS/editor noise
+.DS_Store
+Thumbs.db

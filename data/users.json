@@ -1,0 +1,12 @@
+{
+  "users": [
+    {
+      "id": "97374e1d-b71a-47f0-a154-815bf923c677",
+      "username": "desk",
+      "password": "$2a$12$qyEBYOWz67dwEHuUJxLsDu4wr62ofWUtEioR0GdNJDIIM.aPmGM.y",
+      "language": "en",
+      "role": "admin",
+      "created": "2026-08-18T21:16:17.379Z"
+    }
+  ]
+}

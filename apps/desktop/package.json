@@ -1,0 +1,79 @@
+{
+  "name": "aurion-desktop",
+  "version": "1.0.0",
+  "private": true,
+  "main": "main.js",
+  "productName": "AURION",
+  "description": "AURION Windows application — live MT5 desk with secure auto-installer",
+  "author": "AURION",
+  "scripts": {
+    "start": "electron .",
+    "pack": "electron-builder --win msi --x64",
+    "dist": "electron-builder --win msi --x64",
+    "dist:msi": "electron-builder --win msi --x64 --config.msi.perMachine=true --config.forceCodeSigning=false",
+    "dist:msi:unsigned": "electron-builder --win msi --x64 --config.msi.perMachine=true --config.forceCodeSigning=false",
+    "postinstall": "echo If winCodeSign symlink error: Enable Developer Mode + run as Admin + rmdir /s /q %LOCALAPPDATA%\\electron-builder\\Cache\\winCodeSign"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "devDependencies": {
+    "electron": "40.0.0",
+    "electron-builder": "26.0.12"
+  },
+  "build": {
+    "appId": "ai.aurion.desk",
+    "productName": "AURION",
+    "forceCodeSigning": false,
+    "directories": { "output": "../../dist/desktop" },
+    "files": ["main.js", "preload.js", "prereq.js", "icon.ico"],
+    "extraResources": [
+      {
+        "from": "../../backend/src",
+        "to": "backend/src",
+        "filter": ["**/*"]
+      },
+      {
+        "from": "../../backend/package.json",
+        "to": "backend/package.json"
+      },
+      {
+        "from": "../../engine",
+        "to": "engine",
+        "filter": ["**/*", "!**/__pycache__/**", "!**/*.pyc", "!**/venv/**", "!**/.venv/**"]
+      },
+      {
+        "from": "../../apps/web",
+        "to": "apps/web",
+        "filter": ["**/*", "!**/node_modules/**"]
+      },
+      {
+        "from": "../../config",
+        "to": "config",
+        "filter": ["**/*"]
+      },
+      {
+        "from": "../../lang",
+        "to": "lang",
+        "filter": ["**/*"]
+      }
+    ],
+    "win": {
+      "target": [
+        { "target": "msi", "arch": ["x64"] }
+      ],
+      "icon": "icon.ico",
+      "verifyUpdateCodeSignature": false,
+      "signAndEditExecutable": false
+    },
+    "msi": {
+      "oneClick": false,
+      "perMachine": true,
+      "createDesktopShortcut": "always",
+      "createStartMenuShortcut": true,
+      "shortcutName": "AURION",
+      "runAfterFinish": true,
+      "warningsAsErrors": false
+    }
+  }
+}

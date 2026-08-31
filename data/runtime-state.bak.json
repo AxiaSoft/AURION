@@ -1,0 +1,53 @@
+{
+  "runtime": {
+    "auto_trade": true,
+    "require_ai_agree": true,
+    "min_ai_confidence": 0.55,
+    "trade_style": "scalping",
+    "strategies": {
+      "ema_rsi": {
+        "enabled": false
+      },
+      "price_action": {
+        "enabled": false
+      },
+      "atr_breakout": {
+        "enabled": false
+      },
+      "scalp_impulse": {
+        "enabled": false
+      }
+    }
+  },
+  "prop": {
+    "enabled": true,
+    "active_profile": "conservative",
+    "profile": null
+  },
+  "execution": {
+    "kill_switch_default": false,
+    "flatten_on_disconnect": true
+  },
+  "mt5": {
+    "terminal_path": "",
+    "login": 0,
+    "server": "",
+    "portable": false
+  },
+  "ai": {
+    "enabled": true,
+    "min_bars_to_train": 160,
+    "retrain_every_bars": 40,
+    "online_learning": true,
+    "confidence_threshold": 0.58
+  },
+  "default_language": "en",
+  "telegram": {
+    "enabled": false,
+    "language": "fa",
+    "notify_open": true,
+    "notify_close": true,
+    "chats": [],
+    "username": null
+  }
+}

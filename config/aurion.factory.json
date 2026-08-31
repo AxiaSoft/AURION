@@ -1,0 +1,183 @@
+{
+  "name": "AURION",
+  "version": "1.0.0",
+  "mode": "live",
+  "allow_synthetic_data": false,
+  "languages": [
+    "en",
+    "fa",
+    "ar"
+  ],
+  "default_language": "en",
+  "backend": {
+    "host": "0.0.0.0",
+    "port": 8080,
+    "public_url": "",
+    "jwt_expires_hours": 72,
+    "history_retention_days": 30
+  },
+  "engine": {
+    "host": "127.0.0.1",
+    "port": 18765,
+    "bind": "0.0.0.0",
+    "heartbeat_seconds": 2,
+    "tick_buffer": 5000,
+    "candle_lookback": 1500
+  },
+  "mt5": {
+    "terminal_path": "",
+    "login": 0,
+    "password": "",
+    "server": "",
+    "timeout_ms": 10000,
+    "portable": false,
+    "ea_listen_host": "0.0.0.0",
+    "ea_listen_port": 18766,
+    "symbols": [],
+    "timeframes": [
+      "M1",
+      "M5",
+      "M15",
+      "M30",
+      "H1",
+      "H4",
+      "D1"
+    ]
+  },
+  "ai": {
+    "enabled": true,
+    "min_bars_to_train": 160,
+    "retrain_every_bars": 40,
+    "online_learning": true,
+    "confidence_threshold": 0.58,
+    "model_dir": "engine/models"
+  },
+  "execution": {
+    "max_slippage_points": 30,
+    "magic": 908173,
+    "comment_prefix": "AURION",
+    "default_deviation": 20,
+    "flatten_on_disconnect": true,
+    "flatten_on_ai_fault": false,
+    "kill_switch_default": false
+  },
+  "runtime": {
+    "auto_trade": false,
+    "require_ai_agree": true,
+    "min_ai_confidence": 0.55,
+    "trade_style": "normal",
+    "strategies": {
+      "ema_rsi": {
+        "enabled": false
+      },
+      "price_action": {
+        "enabled": false
+      },
+      "atr_breakout": {
+        "enabled": false
+      },
+      "scalp_impulse": {
+        "enabled": false
+      }
+    }
+  },
+  "prop": {
+    "active_profile": "conservative",
+    "enabled": true,
+    "news_calendar_path": "",
+    "news_blackout_minutes_before": 15,
+    "news_blackout_minutes_after": 15
+  },
+  "license": {
+    "issuer": "Axiasoft",
+    "keyserver_url": "",
+    "store_url": "",
+    "github_repo": "",
+    "otp": {
+      "smtp_host": "",
+      "smtp_port": 587,
+      "smtp_user": "",
+      "smtp_password": "",
+      "smtp_from": "",
+      "sms_url": "",
+      "sms_token": ""
+    }
+  },
+  "paths": {
+    "data": "data",
+    "archive": "data/archive",
+    "exports": "data/exports",
+    "uploads": "data/uploads",
+    "strategies": "engine/strategies",
+    "lang": "lang"
+  },
+  "billing": {
+    "currency": "IRR",
+    "support": "support@axiasoft",
+    "expire_warn_days": [
+      14,
+      7,
+      3,
+      1
+    ],
+    "provider": "zarinpal",
+    "plans": {
+      "m1": {
+        "days": 30,
+        "amount": 14900000,
+        "label": {
+          "en": "1 month",
+          "fa": "۱ ماه",
+          "ar": "شهر واحد"
+        }
+      },
+      "m3": {
+        "days": 90,
+        "amount": 38900000,
+        "label": {
+          "en": "3 months",
+          "fa": "۳ ماه",
+          "ar": "٣ أشهر"
+        }
+      },
+      "m6": {
+        "days": 180,
+        "amount": 69900000,
+        "label": {
+          "en": "6 months",
+          "fa": "۶ ماه",
+          "ar": "٦ أشهر"
+        }
+      },
+      "y1": {
+        "days": 365,
+        "amount": 119000000,
+        "label": {
+          "en": "12 months",
+          "fa": "۱۲ ماه",
+          "ar": "١٢ شهراً"
+        }
+      }
+    },
+    "zarinpal": {
+      "merchant_id": "",
+      "sandbox": true
+    }
+  },
+  "owner": {
+    "gmail": "",
+    "locked": false
+  },
+  "database": {
+    "driver": "auto",
+    "url": ""
+  },
+  "telegram": {
+    "enabled": false,
+    "bot_token": "",
+    "language": "fa",
+    "notify_open": true,
+    "notify_close": true,
+    "chats": []
+  }
+}
