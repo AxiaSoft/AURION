@@ -22,8 +22,9 @@ from .store import Store, parse_strategy_tag
 
 log = get("trader")
 
-# The Forex Factory feed only carries the current week; refresh well inside that.
-NEWS_REFRESH_SECONDS = 6 * 3600
+# Keep the desk close to live. Matches news_feed.MIN_AGE_SECONDS; going faster
+# than the source updates only adds load.
+NEWS_REFRESH_SECONDS = 5 * 60
 
 
 class Trader:

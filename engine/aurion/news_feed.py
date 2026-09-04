@@ -31,13 +31,19 @@ from .config import ROOT, load
 
 log = logging.getLogger("aurion.news")
 
+# "thisweek" alone is not enough: on a Saturday/Sunday Forex Factory's idea of
+# "this week" is the week that is ending, so the desk showed last week's
+# releases and nothing ahead.  Both windows are fetched and merged.
 FEED_URL = "https://nfs.faireconomy.media/ff_calendar_thisweek.json"
+FEED_URL_NEXT = "https://nfs.faireconomy.media/ff_calendar_nextweek.json"
 CACHE = ROOT / "config" / "news_calendar.csv"
 STAMP = ROOT / "config" / "news_calendar.fetched"
 HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; AURION/1.0)"}
 
 # Refresh at most every 6 hours; the feed only changes when FF revises it.
-MIN_AGE_SECONDS = 6 * 3600
+# The desk is meant to feel live. FF itself only revises the feed every few
+# minutes, so going below that just adds load without fresher data.
+MIN_AGE_SECONDS = 5 * 60
 
 # After a failure, wait before trying again. Without this a machine with no
 # outbound access retries a 25s-timeout download on every reload_news() call —
@@ -112,16 +118,39 @@ def write_csv(rows: list[dict[str, str]], path: Path | None = None) -> Path:
     return target
 
 
-def fetch(timeout: float = 25.0) -> list[dict[str, str]]:
-    """Download and normalise the feed. Raises on network failure."""
-    req = urllib.request.Request(FEED_URL, headers=HEADERS)
+def _get(url: str, timeout: float) -> list[dict[str, Any]]:
+    req = urllib.request.Request(url, headers=HEADERS)
     with urllib.request.urlopen(req, timeout=timeout) as res:  # nosec - public feed
         payload = json.loads(res.read().decode("utf-8"))
     if isinstance(payload, dict):
         payload = payload.get("events") or payload.get("data") or []
     if not isinstance(payload, list):
         raise ValueError("unexpected feed shape")
-    return parse_feed(payload)
+    return payload
+
+
+def fetch(timeout: float = 25.0) -> list[dict[str, str]]:
+    """Download this week + next week. Raises only if BOTH fail.
+
+    One window being unreachable must not blank the calendar, so a failure on
+    the second feed degrades to whatever the first one returned.
+    """
+    items = _get(FEED_URL, timeout)
+    try:
+        items = items + _get(FEED_URL_NEXT, timeout)
+    except Exception as exc:
+        log.warning("next-week feed failed, continuing with this week: %s", exc)
+    rows = parse_feed(items)
+    # The two windows overlap; keep the first occurrence of each release.
+    seen: set[tuple[str, str, str]] = set()
+    unique = []
+    for row in rows:
+        key = (row["time"], row["currency"], row["title"])
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append(row)
+    return unique
 
 
 def cache_age_seconds() -> float:
