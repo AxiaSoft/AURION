@@ -22,6 +22,9 @@ from .store import Store, parse_strategy_tag
 
 log = get("trader")
 
+# The Forex Factory feed only carries the current week; refresh well inside that.
+NEWS_REFRESH_SECONDS = 6 * 3600
+
 
 class Trader:
     def __init__(self) -> None:
@@ -52,6 +55,8 @@ class Trader:
         self.started = False
         self._last_equity_write = 0.0
         self._last_bar_time: dict[tuple[str, str], str] = {}
+        self._news_stop = asyncio.Event()
+        self._news_task: asyncio.Task | None = None
         self.robot_log: deque[dict[str, Any]] = deque(maxlen=600)
         self._known_pos: dict[int, dict[str, Any]] = {}
         self._pending_tag: list[dict[str, Any]] = []
@@ -131,10 +136,20 @@ class Trader:
         except Exception:
             log.exception("license heartbeat failed")
         # Do not persist on boot — a failed overlay read would rewrite saved settings.
+        self._news_stop = asyncio.Event()
+        self._news_task = asyncio.create_task(self._news_refresh_loop(), name="aurion-news")
         log.info("AURION engine started")
         await self.journal("info", "boot", "Engine online. Robot is idle until a strategy is enabled and auto-trade is armed.")
 
     async def stop(self) -> None:
+        self._news_stop.set()
+        if self._news_task:
+            self._news_task.cancel()
+            try:
+                await self._news_task
+            except (asyncio.CancelledError, Exception):
+                pass
+            self._news_task = None
         cfg = load()
         if (
             cfg["execution"].get("flatten_on_disconnect")
@@ -1458,6 +1473,25 @@ class Trader:
             return bool((self.prop.profile or {}).get("allow_weekend"))
         except Exception:
             return False
+
+    async def _news_refresh_loop(self) -> None:
+        """Keep the economic calendar current for as long as the engine runs.
+
+        The feed only carries the current week, so a robot left running over a
+        weekend would otherwise keep filtering against last week's releases.
+        """
+        from .. import news_feed
+
+        while not self._news_stop.is_set():
+            try:
+                await asyncio.get_running_loop().run_in_executor(None, news_feed.refresh)
+                self.prop.reload_news()
+            except Exception:
+                log.exception("news refresh failed")
+            try:
+                await asyncio.wait_for(self._news_stop.wait(), timeout=NEWS_REFRESH_SECONDS)
+            except asyncio.TimeoutError:
+                continue
 
     def news_state(self) -> dict[str, Any]:
         """Is a high-impact release inside the blackout window right now?

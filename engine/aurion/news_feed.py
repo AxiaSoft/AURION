@@ -39,6 +39,12 @@ HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; AURION/1.0)"}
 # Refresh at most every 6 hours; the feed only changes when FF revises it.
 MIN_AGE_SECONDS = 6 * 3600
 
+# After a failure, wait before trying again. Without this a machine with no
+# outbound access retries a 25s-timeout download on every reload_news() call —
+# which the desk triggers each time the Calendar tab is opened.
+RETRY_AFTER_SECONDS = 30 * 60
+_last_failure = 0.0
+
 # Impact names come through with inconsistent casing across FF endpoints.
 IMPACT_MAP = {
     "high": "high",
@@ -131,13 +137,24 @@ def refresh(force: bool = False) -> dict[str, Any]:
     Returns ``{"ok", "count", "cached", "error"}`` so callers can surface why
     the calendar is empty instead of silently showing nothing.
     """
+    global _last_failure
     if not force and cache_age_seconds() < MIN_AGE_SECONDS and CACHE.exists():
         return {"ok": True, "count": count_cached(), "cached": True, "error": ""}
+    if not force and _last_failure and (time.time() - _last_failure) < RETRY_AFTER_SECONDS:
+        return {
+            "ok": False,
+            "count": count_cached(),
+            "cached": False,
+            "error": "retry_backoff",
+            "retry_in": int(RETRY_AFTER_SECONDS - (time.time() - _last_failure)),
+        }
     try:
         rows = fetch()
     except Exception as exc:
+        _last_failure = time.time()
         log.warning("news feed fetch failed: %s", exc)
         return {"ok": False, "count": count_cached(), "cached": False, "error": str(exc)}
+    _last_failure = 0.0
     if not rows:
         return {"ok": False, "count": 0, "cached": False, "error": "empty_feed"}
     write_csv(rows)
