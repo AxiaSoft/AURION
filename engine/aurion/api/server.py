@@ -400,7 +400,11 @@ async def telegram_state() -> dict[str, Any]:
 
         bot = TelegramBot(trader)
         trader.telegram = bot
-    return {"ok": True, "data": bot.public()}
+    state = bot.public()
+    # The dashboard is a client: it gets no part of the token, not even the
+    # masked fingerprint.  Only the local-only admin panel sees that.
+    state.pop("token_hint", None)
+    return {"ok": True, "data": state}
 
 
 @app.post("/v1/telegram")

@@ -2901,7 +2901,6 @@ function telegramPanelHtml() {
         return `<span>${esc(label)}</span><button type="button" class="btn tiny ghost" data-tg-unlink="${esc(c.id)}">${I18N.t("telegram.unlink")}</button>`;
       }).join("")}</div>`
     : `<p class="sub">${I18N.t("telegram.no_chat")}</p>`;
-  const hint = tg.token_hint || "";
   const status = tg.running ? I18N.t("telegram.running") : I18N.t("telegram.stopped");
   const err = tg.last_error ? `<p class="err">${esc(tg.last_error)}</p>` : "";
   const botName = tg.username ? `@${esc(tg.username)}` : "";
@@ -2913,11 +2912,6 @@ function telegramPanelHtml() {
           <p class="sub" id="tg-sub">${status}${botName ? " · " + botName : ""}</p>
         </div>
         <button type="button" class="switch ${on?"on":""}" id="tg-on" aria-pressed="${on}"><i></i></button>
-      </div>
-      <div class="tg-src ${tg.token_from_source ? "ok" : "warn"}">
-        <b>${esc(I18N.t("telegram.token"))}</b>
-        <span>${esc(tg.token_from_source ? I18N.t("telegram.token_from_source") : I18N.t("telegram.token_missing"))}</span>
-        ${hint ? `<span class="mono">${esc(hint)}</span>` : ""}
       </div>
       <p class="sub">${esc(I18N.t("telegram.token_source_hint"))}</p>
       <label class="field"><span>${I18N.t("telegram.language")}</span>
