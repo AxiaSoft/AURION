@@ -141,11 +141,17 @@ def refresh(force: bool = False) -> dict[str, Any]:
     if not force and cache_age_seconds() < MIN_AGE_SECONDS and CACHE.exists():
         return {"ok": True, "count": count_cached(), "cached": True, "error": ""}
     if not force and _last_failure and (time.time() - _last_failure) < RETRY_AFTER_SECONDS:
+        # Still serve whatever is on disk: skipping this left the calendar
+        # blank on an offline machine even though a good cache existed, because
+        # the config path was only ever written on a successful fetch.
+        have = count_cached()
+        if have:
+            ensure_configured()
         return {
-            "ok": False,
-            "count": count_cached(),
-            "cached": False,
-            "error": "retry_backoff",
+            "ok": bool(have),
+            "count": have,
+            "cached": bool(have),
+            "error": "" if have else "retry_backoff",
             "retry_in": int(RETRY_AFTER_SECONDS - (time.time() - _last_failure)),
         }
     try:
@@ -153,7 +159,16 @@ def refresh(force: bool = False) -> dict[str, Any]:
     except Exception as exc:
         _last_failure = time.time()
         log.warning("news feed fetch failed: %s", exc)
-        return {"ok": False, "count": count_cached(), "cached": False, "error": str(exc)}
+        have = count_cached()
+        if have:
+            # Serve the last good week instead of an empty calendar.
+            ensure_configured()
+        return {
+            "ok": bool(have),
+            "count": have,
+            "cached": bool(have),
+            "error": str(exc),
+        }
     _last_failure = 0.0
     if not rows:
         return {"ok": False, "count": 0, "cached": False, "error": "empty_feed"}
