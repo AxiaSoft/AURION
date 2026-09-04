@@ -1459,11 +1459,24 @@ class Trader:
         except Exception:
             return False
 
+    def news_state(self) -> dict[str, Any]:
+        """Is a high-impact release inside the blackout window right now?
+
+        The desk shows this instead of a generic "market closed" line, because
+        "no trade" during a news freeze has a completely different cause.
+        """
+        try:
+            blocked, why = self.prop._news_blackout(self.active_symbol or "", force=True)
+        except Exception:
+            return {"active": False, "reason": "", "event": ""}
+        return {"active": bool(blocked), "reason": str(why or ""), "event": str(why or "")}
+
     def market_state(self) -> dict[str, Any]:
         sess = market_session(friday_close_hour=self._friday_close_hour())
         sess["allow_weekend"] = self._weekend_allowed()
         # A blocked weekend is only "blocked" when weekend trading is off.
         sess["trading_allowed"] = bool(sess["open"] or sess["allow_weekend"])
+        sess["news"] = self.news_state()
         return sess
 
     async def _note_market_session(self) -> None:
@@ -1486,13 +1499,6 @@ class Trader:
                 "market_closed",
                 "Market closed for the weekend — no trades will be placed until "
                 f"{sess.get('next_open') or 'Monday'}",
-                {"session": sess},
-            )
-        elif state == "friday_close":
-            await self.journal(
-                "info",
-                "friday_close",
-                "Friday close hour reached — existing positions are being wound down",
                 {"session": sess},
             )
         else:

@@ -153,8 +153,8 @@
     "prop_block": "Prop rule blocked execution",
     "ea_waiting": "EA is on the chart but has not reached the desk yet — compile bridge 1.17",
     "ea_file_hint": "AurionBridge 1.17 feeds the desk from the MT5 common Files folder even if WebRequest is blocked. Compile engine\\ea\\AurionBridge.mq5 with F7, remove it from the chart, attach it again.",
-    "market_weekend": "The FX market is closed today ({day}) — no trades will be opened.",
-    "friday_close": "Friday close hour reached — open positions are being wound down."
+    "market_weekend": "The FX market is closed ({day}) — Friday 17:00 New York to Sunday 17:00 New York.",
+    "news_blackout": "News window — “{event}” is inside the blackout; no new trades are opened."
   },
   "command": {
     "title": "Command centre",

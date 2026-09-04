@@ -23,6 +23,10 @@ config/telegram.token
 config/telegram.local.json
 admin/telegram-panel/panel.token
 
+# Generated economic-calendar cache (refetched from the Forex Factory feed)
+config/news_calendar.csv
+config/news_calendar.fetched
+
 # Update server local state + secrets
 admin/update-server/data/
 admin/update-server/.env

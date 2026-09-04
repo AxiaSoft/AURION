@@ -63,6 +63,16 @@ class PropEngine:
         path = str(cfg["prop"].get("news_calendar_path") or "")
         self.news_events = []
         if not path:
+            # Nothing configured: fall back to the Forex Factory cache so the
+            # calendar and the blackout filter are never silently empty.
+            try:
+                from .. import news_feed
+
+                news_feed.refresh()
+                path = str(load()["prop"].get("news_calendar_path") or "")
+            except Exception:
+                return 0
+        if not path:
             return 0
         file = abspath(path)
         if not file.exists():

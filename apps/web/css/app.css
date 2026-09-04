@@ -1574,3 +1574,6 @@ input[type=range]{width:100%;accent-color:var(--cyan);height:28px;cursor:pointer
 .st-drop-name{display:block;margin-top:4px;font-family:"IBM Plex Mono",monospace;font-size:11px;color:var(--cyan);word-break:break-all}
 /* weekend / friday-close notice on the command tab — same banner the tape uses */
 .tape-banner.is-closed{border-color:rgba(255,107,138,.45);color:var(--rose);background:rgba(255,107,138,.1)}
+
+/* news-blackout notice on the command tab */
+.tape-banner.is-news{border-color:rgba(232,192,122,.5);color:var(--gold);background:rgba(232,192,122,.1)}

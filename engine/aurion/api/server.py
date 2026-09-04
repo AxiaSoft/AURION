@@ -514,8 +514,11 @@ async def symbols_available() -> dict[str, Any]:
 
 
 @app.get("/v1/news")
-async def news_events() -> dict[str, Any]:
+async def news_events(request: Request) -> dict[str, Any]:
     """Economic-calendar events behind the news blackout and the Calendar tab."""
+    from .. import news_feed
+
+    feed = news_feed.refresh(force=str(request.query_params.get("refresh") or "") in {"1", "true"})
     try:
         count = trader.prop.reload_news()
     except Exception:
@@ -529,6 +532,7 @@ async def news_events() -> dict[str, Any]:
             "source": str(load()["prop"].get("news_calendar_path") or ""),
             "blackout_before": int(cfg.get("news_blackout_minutes_before") or 15),
             "blackout_after": int(cfg.get("news_blackout_minutes_after") or 15),
+            "feed": feed,
             "events": rows,
         },
     }

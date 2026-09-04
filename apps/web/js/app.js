@@ -2696,10 +2696,16 @@ function regLabel(r) {
 function marketBanner() {
   const m = S.snap && S.snap.market;
   if (!m) return "";
-  if (m.trading_allowed) {
-    if (m.state !== "friday_close") return "";
-    return `<div class="tape-banner is-closed">${esc(I18N.t("status.friday_close"))}</div>`;
+  // A news freeze outranks everything else: "no trade right now" has a
+  // different cause when a high-impact release is inside the blackout window.
+  const news = m.news || {};
+  if (news.active) {
+    const what = String(news.event || "").replace(/^news blackout\s*/i, "");
+    return `<div class="tape-banner is-news">${esc(I18N.t("status.news_blackout", { event: what || I18N.t("calendar.untitled") }))}</div>`;
   }
+  if (m.trading_allowed) return "";
+  // Past 17:00 New York on Friday the market simply is closed — there is no
+  // separate "friday close" state to announce any more.
   return `<div class="tape-banner is-closed">${esc(
     I18N.t("status.market_weekend", { day: I18N.t(`calendar.weekday_${m.weekday_key}`) }),
   )}</div>`;
