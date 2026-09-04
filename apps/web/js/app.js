@@ -438,7 +438,6 @@ function renderNav() {
       return `<button type="button" data-view="${id}" class="nav-tab ${S.view === id ? "on" : ""}" title="${label.replace(/"/g, "&quot;")}">${svg}<span>${label}</span></button>`;
     }).join("") +
     `<div class="spacer"></div>
-    ${isOwner() ? `<button type="button" class="nav-tab nav-admin" id="nav-tg-admin" title="${esc(I18N.t("telegram.admin_title"))}">${icon("gear")}<span>${esc(I18N.t("telegram.admin_title"))}</span></button>` : ""}
     <div class="nav-foot" id="nav-foot">
       <button type="button" class="nav-acc-btn" id="nav-acc-btn">${navAccountHtml()}</button>
       <div class="nav-brandline nav-brandline-stacked">
@@ -446,7 +445,6 @@ function renderNav() {
         <span id="nav-version" class="nav-ver">v${esc(ver)}</span>
       </div>
     </div>`;
-  nav.querySelector("#nav-tg-admin")?.addEventListener("click", () => openTelegramAdmin());
   const accBtn = nav.querySelector("#nav-acc-btn");
   if (accBtn) accBtn.onclick = () => show("upgrade");
   nav.querySelectorAll("button[data-view]").forEach((b) => {
@@ -4184,119 +4182,6 @@ async function bindSymbolPicker() {
     if (row) row.classList.toggle("on", box.checked);
     symPaintFoot();
   });
-}
-
-/* ---------------------------------------------------------------------------
- * Telegram admin — owner only.
- *
- * The bot token is provisioned in the source (config/telegram.token or the
- * AURION_TELEGRAM_TOKEN env var); the dashboard is a client of the bot and can
- * neither read nor change the token.  This panel only starts, stops, restarts
- * and test-fires a bot the owner already provisioned.
- * ------------------------------------------------------------------------- */
-function isOwner() {
-  const u = S.user || {};
-  return Boolean(u.is_owner || u.role === "owner");
-}
-
-async function telegramAdminState() {
-  const r = await API.get("/api/admin/telegram");
-  if (!r || r.ok === false) {
-    if (r && (r.error === "forbidden" || r.status === 403)) return { forbidden: true };
-    return { error: (r && r.error) || "engine_offline" };
-  }
-  return r.data || {};
-}
-
-function telegramAdminRow(k, v, cls) {
-  return `<div class="tg-row"><span class="tg-k">${esc(k)}</span><span class="tg-v ${cls || ""}">${v}</span></div>`;
-}
-
-async function openTelegramAdmin() {
-  if (!isOwner()) {
-    toast(I18N.t("errors.forbidden"));
-    return;
-  }
-  const box = document.createElement("div");
-  box.className = "modal open";
-  box.innerHTML = `<div class="modal-card tg-admin">
-      <div class="modal-head"><h3>${esc(I18N.t("telegram.admin_title"))}</h3>
-        <button type="button" class="btn sm" data-close>✕</button></div>
-      <div class="modal-body" id="tg-admin-body">
-        <div class="empty">${esc(I18N.t("telegram.loading"))}</div>
-      </div>
-      <div class="modal-foot">
-        <button type="button" class="btn" id="tg-a-refresh">${esc(I18N.t("telegram.reload"))}</button>
-        <button type="button" class="btn danger" id="tg-a-stop">${esc(I18N.t("telegram.admin_stop"))}</button>
-        <button type="button" class="btn" id="tg-a-restart">${esc(I18N.t("telegram.admin_restart"))}</button>
-        <button type="button" class="btn primary" id="tg-a-start">${esc(I18N.t("telegram.admin_start"))}</button>
-        <button type="button" class="btn" id="tg-a-test">${esc(I18N.t("telegram.test"))}</button>
-      </div>
-    </div>`;
-  document.body.appendChild(box);
-  box.addEventListener("click", (e) => {
-    if (e.target === box || e.target.closest("[data-close]")) box.remove();
-  });
-  box.addEventListener("keydown", (e) => { if (e.key === "Escape") box.remove(); });
-
-  const body = box.querySelector("#tg-admin-body");
-
-  const paint = async () => {
-    body.innerHTML = `<div class="empty">${esc(I18N.t("telegram.loading"))}</div>`;
-    const st = await telegramAdminState();
-    if (st.forbidden) {
-      body.innerHTML = `<div class="empty">${esc(I18N.t("errors.forbidden"))}</div>`;
-      return;
-    }
-    if (st.error) {
-      body.innerHTML = `<div class="empty">${esc(
-        st.error === "engine_offline" ? I18N.t("errors.no_engine") : st.error,
-      )}</div>`;
-      return;
-    }
-    const running = Boolean(st.running);
-    const up = Number(st.uptime_seconds || 0);
-    const upTxt = up > 0 ? `${Math.floor(up / 60)}m ${Math.round(up % 60)}s` : "—";
-    body.innerHTML = `
-      <div class="tg-status ${running ? "on" : "off"}">${esc(
-        running ? I18N.t("telegram.admin_running") : I18N.t("telegram.admin_stopped"),
-      )}</div>
-      ${telegramAdminRow(I18N.t("telegram.admin_token"), st.token_from_source
-        ? esc(I18N.t("telegram.admin_token_source"))
-        : esc(I18N.t("telegram.admin_token_missing")), st.token_from_source ? "ok" : "warn")}
-      ${telegramAdminRow(I18N.t("telegram.admin_origin"), `<span class="mono">${esc(st.token_origin || "—")}</span>`)}
-      ${telegramAdminRow(I18N.t("telegram.admin_uptime"), `<span class="mono">${esc(upTxt)}</span>`)}
-      ${telegramAdminRow(I18N.t("telegram.admin_licensed"), st.licensed
-        ? esc(I18N.t("telegram.yes")) : esc(I18N.t("telegram.admin_not_licensed")), st.licensed ? "ok" : "warn")}
-      ${telegramAdminRow(I18N.t("telegram.admin_bot"), `<span class="mono">@${esc(st.username || "—")}</span>`)}
-      ${telegramAdminRow(I18N.t("telegram.chats"), String((st.chats || []).length))}
-      ${st.last_error ? telegramAdminRow(I18N.t("telegram.admin_last_error"), `<span class="mono">${esc(st.last_error)}</span>`, "warn") : ""}
-      <div class="tg-note">${esc(I18N.t("telegram.admin_note", { path: st.source_path || "config/telegram.token" }))}</div>`;
-  };
-
-  const act = async (action) => {
-    const btns = box.querySelectorAll(".modal-foot .btn");
-    btns.forEach((b) => (b.disabled = true));
-    let r = null;
-    try {
-      r = await API.post("/api/admin/telegram", { action });
-    } finally {
-      btns.forEach((b) => (b.disabled = false));
-    }
-    if (!r || r.ok === false) {
-      toast((r && r.error) || I18N.t("errors.generic"));
-    } else {
-      toast(I18N.t("telegram.admin_done", { action }));
-    }
-    await paint();
-  };
-
-  box.querySelector("#tg-a-start")?.addEventListener("click", () => act("start"));
-  box.querySelector("#tg-a-stop")?.addEventListener("click", () => act("stop"));
-  box.querySelector("#tg-a-restart")?.addEventListener("click", () => act("restart"));
-  box.querySelector("#tg-a-test")?.addEventListener("click", () => act("test"));
-  box.querySelector("#tg-a-refresh")?.addEventListener("click", paint);
-  await paint();
 }
 
 function bindPropForm() {

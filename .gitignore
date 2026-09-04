@@ -21,6 +21,7 @@ store/keyserver/.env
 # Only the .example template is tracked.
 config/telegram.token
 config/telegram.local.json
+admin/telegram-panel/panel.token
 
 # Update server local state + secrets
 admin/update-server/data/

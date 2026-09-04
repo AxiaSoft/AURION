@@ -830,10 +830,9 @@ guarded.post("/telegram/unlink", passthrough("POST", "/v1/telegram/unlink"));
 guarded.get("/market/session", passthrough("GET", "/v1/market/session"));
 guarded.get("/news", passthrough("GET", "/v1/news"));
 guarded.get("/symbols", passthrough("GET", "/v1/symbols"));
-// Owner-only Telegram control plane. The dashboard is a client of the bot; the
-// token itself is provisioned in the source, never through the UI.
-guarded.get("/admin/telegram", ownerOnly, passthrough("GET", "/v1/telegram/admin"));
-guarded.post("/admin/telegram", ownerOnly, passthrough("POST", "/v1/telegram/admin"));
+// The Telegram control plane is deliberately NOT proxied here. The dashboard is
+// a client of the bot only; admin lives in admin/telegram-panel/ and talks to
+// the engine's local-only /v1/telegram/admin directly.
 guarded.get("/robot", passthrough("GET", "/v1/robot"));
 guarded.post("/persist", passthrough("POST", "/v1/persist"));
 guarded.post("/host/restart", (_req, res) => {

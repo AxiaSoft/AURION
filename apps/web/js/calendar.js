@@ -38,7 +38,10 @@ const Calendar = {
     // every parsed year/month/day came back as 0. Text output (month and
     // weekday names) is still localised; only the numerals are forced Latin.
     const tag = `${this._loc()}-u-ca-${this.CA_TAG[system] || "gregory"}-nu-latn`;
-    return new Intl.DateTimeFormat(tag, { timeZone: "UTC", ...opts });
+    // No timeZone option on purpose: the calendar has to follow the viewer's
+    // own clock.  Pinning UTC made the whole grid a day behind east of
+    // Greenwich (Tehran is UTC+3:30, so "today" was still yesterday).
+    return new Intl.DateTimeFormat(tag, opts);
   },
 
   /** {y, m, d} of a UTC instant in the given calendar system. */
@@ -67,9 +70,13 @@ const Calendar = {
 
   _weekdayList(width) {
     const f = this._fmt("gregorian", { weekday: width });
-    const base = Date.UTC(2024, 0, 7); // a Sunday
+    const base = new Date(2024, 0, 7); // a Sunday, local
     const out = [];
-    for (let i = 0; i < 7; i += 1) out.push(f.format(new Date(base + i * 86400000)));
+    for (let i = 0; i < 7; i += 1) {
+      const d = new Date(base);
+      d.setDate(d.getDate() + i);
+      out.push(f.format(d));
+    }
     return out; // index 0 === Sunday
   },
 
@@ -117,13 +124,15 @@ const Calendar = {
     if (!raw) return null;
     let ms = Date.parse(raw.endsWith("Z") || /[+-]\d\d:?\d\d$/.test(raw) ? raw : `${raw}Z`);
     if (!Number.isFinite(ms)) ms = NaN;
-    const day = Number.isFinite(ms) ? new Date(ms).toISOString().slice(0, 10) : raw.slice(0, 10);
+    // Bucket events by the viewer's local day: a 21:00Z release is the next
+    // morning in Tehran and belongs on that day, not the UTC one.
+    const day = Number.isFinite(ms) ? this._dayKey(ms) : raw.slice(0, 10);
     const impact = String(row.impact || row.importance || "low").toLowerCase();
     return {
       ms: Number.isFinite(ms) ? ms : 0,
       day,
       time: Number.isFinite(ms)
-        ? new Intl.DateTimeFormat(this._loc(), { hour: "2-digit", minute: "2-digit", timeZone: "UTC" }).format(new Date(ms))
+        ? new Intl.DateTimeFormat(this._loc(), { hour: "2-digit", minute: "2-digit" }).format(new Date(ms))
         : raw,
       currency: String(row.currency || row.ccy || "").toUpperCase(),
       impact: ["high", "red", "3", "holiday", "medium", "orange", "2", "low", "green", "1"].includes(impact) ? impact : "low",
@@ -135,22 +144,34 @@ const Calendar = {
   /* ---------------- grid ---------------- */
 
   _dayKey(ms) {
-    return new Date(ms).toISOString().slice(0, 10);
+    const d = new Date(ms);
+    const p = (n) => String(n).padStart(2, "0");
+    return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+  },
+
+  /** Inverse of _dayKey: local noon on that calendar day. */
+  _fromDayKey(key) {
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(key || ""));
+    if (!m) return NaN;
+    return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), 12).getTime();
   },
 
   /** 42 UTC midnights covering the primary month that contains `anchor`. */
   cells(anchor) {
     const cur = new Date(anchor);
-    cur.setUTCHours(12, 0, 0, 0);
-    while (this.parts(cur.getTime(), this.system).d !== 1) cur.setUTCDate(cur.getUTCDate() - 1);
+    cur.setHours(12, 0, 0, 0);
+    while (this.parts(cur.getTime(), this.system).d !== 1) cur.setDate(cur.getDate() - 1);
     const start = cur.getTime();
     const first = this.parts(start, this.system);
-    const lead = (new Date(start).getUTCDay() - this.firstWeekday() + 7) % 7;
+    const lead = (new Date(start).getDay() - this.firstWeekday() + 7) % 7;
     const out = [];
+    const step = new Date(start);
+    step.setDate(step.getDate() - lead);
     for (let i = 0; i < 42; i += 1) {
-      const ms = start + (i - lead) * 86400000;
+      const ms = step.getTime();
       const p = this.parts(ms, this.system);
       out.push({ ms, inMonth: p.m === first.m && p.y === first.y, primary: p });
+      step.setDate(step.getDate() + 1);
     }
     return { cells: out, label: first };
   },
@@ -160,7 +181,7 @@ const Calendar = {
   view() {
     if (!this.anchor) {
       const now = new Date();
-      this.anchor = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 12);
+      this.anchor = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 12).getTime();
     }
     if (!this.selected) this.selected = this._dayKey(this.anchor);
     const t = (k, v) => I18N.t(k, v);
@@ -256,7 +277,7 @@ const Calendar = {
   _cell(c, companions) {
     const key = this._dayKey(c.ms);
     const evs = this.byDay.get(key) || [];
-    const dow = new Date(c.ms).getUTCDay();
+    const dow = new Date(c.ms).getDay();
     const isWeekend = dow === 0 || dow === 6;
     const today = key === this._dayKey(Date.now());
     const cls = [
@@ -288,7 +309,7 @@ const Calendar = {
   _dayPanel(key) {
     const t = (k, v) => I18N.t(k, v);
     const evs = (this.byDay.get(key) || []).slice();
-    const ms = Date.parse(`${key}T12:00:00Z`);
+    const ms = this._fromDayKey(key);
     const title = Number.isFinite(ms)
       ? this.CALENDARS.map((sys) => {
           const p = this.parts(ms, sys);
@@ -297,7 +318,7 @@ const Calendar = {
           )}</span>`;
         }).join("")
       : esc(key);
-    const dow = Number.isFinite(ms) ? new Date(ms).getUTCDay() : -1;
+    const dow = Number.isFinite(ms) ? new Date(ms).getDay() : -1;
     const weekend = dow === 0 || dow === 6;
     return `
       <div class="cal-dp-h">${title}</div>
@@ -325,7 +346,7 @@ const Calendar = {
 
   _tipFor(key, evs) {
     const t = (k, v) => I18N.t(k, v);
-    const ms = Date.parse(`${key}T12:00:00Z`);
+    const ms = this._fromDayKey(key);
     const lines = this.CALENDARS.map((sys) => {
       const p = this.parts(ms, sys);
       return `<div class="cal-tip-sys"><span>${esc(t(`calendar.${sys}`))}</span><b>${esc(
@@ -398,11 +419,15 @@ const Calendar = {
           y -= 1;
         }
         // Find the first UTC day whose primary parts equal (y, m, 1).
-        let probe = ms + Math.sign(months) * approx * 86400000;
+        const probeDate = new Date(ms);
+        probeDate.setDate(probeDate.getDate() + Math.sign(months) * Math.round(approx));
+        let probe = probeDate.getTime();
         for (let k = 0; k < 40; k += 1) {
           const q = this.parts(probe, this.system);
           if (q.y === y && q.m === m && q.d === 1) break;
-          probe += (q.y < y || (q.y === y && q.m < m) ? 1 : -1) * 86400000;
+          const pd = new Date(probe);
+          pd.setDate(pd.getDate() + (q.y < y || (q.y === y && q.m < m) ? 1 : -1));
+          probe = pd.getTime();
         }
         ms = probe;
       }
@@ -415,7 +440,7 @@ const Calendar = {
     $$("#cal-next")?.addEventListener("click", () => shift(1));
     $$("#cal-today")?.addEventListener("click", () => {
       const now = new Date();
-      this.anchor = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 12);
+      this.anchor = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 12).getTime();
       this.selected = this._dayKey(Date.now());
       this.rerender();
     });
