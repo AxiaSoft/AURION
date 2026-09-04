@@ -26,6 +26,7 @@ const NAV = [
   ["command", "nav.command", icon("grid")],
   ["markets", "nav.markets", icon("pulse")],
   ["intelligence", "nav.intelligence", icon("spark")],
+  ["calendar", "nav.calendar", icon("cal")],
   ["strategies", "nav.strategies", icon("code")],
   ["charts", "nav.charts", icon("layers")],
   ["terminal", "nav.terminal", icon("term")],
@@ -52,6 +53,7 @@ function icon(name) {
     info: '<circle cx="12" cy="12" r="9"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>',
     flask: '<path d="M9 3h6"/><path d="M10 3v5a6 6 0 00-3 5.2V19a1 1 0 001 1h8a1 1 0 001-1v-5.8A6 6 0 0014 8V3"/>',
     user: '<circle cx="12" cy="8" r="3.2"/><path d="M5 19c1.4-3.2 3.8-5 7-5s5.6 1.8 7 5"/>',
+    cal: '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18"/><path d="M8 3v4M16 3v4"/><circle cx="8.5" cy="14.5" r="1.2"/><circle cx="15.5" cy="14.5" r="1.2"/><circle cx="12" cy="17.5" r="1.2"/>',
   };
   return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">${p[name] || ""}</svg>`;
 }
@@ -436,6 +438,7 @@ function renderNav() {
       return `<button type="button" data-view="${id}" class="nav-tab ${S.view === id ? "on" : ""}" title="${label.replace(/"/g, "&quot;")}">${svg}<span>${label}</span></button>`;
     }).join("") +
     `<div class="spacer"></div>
+    ${isOwner() ? `<button type="button" class="nav-tab nav-admin" id="nav-tg-admin" title="${esc(I18N.t("telegram.admin_title"))}">${icon("gear")}<span>${esc(I18N.t("telegram.admin_title"))}</span></button>` : ""}
     <div class="nav-foot" id="nav-foot">
       <button type="button" class="nav-acc-btn" id="nav-acc-btn">${navAccountHtml()}</button>
       <div class="nav-brandline nav-brandline-stacked">
@@ -443,6 +446,7 @@ function renderNav() {
         <span id="nav-version" class="nav-ver">v${esc(ver)}</span>
       </div>
     </div>`;
+  nav.querySelector("#nav-tg-admin")?.addEventListener("click", () => openTelegramAdmin());
   const accBtn = nav.querySelector("#nav-acc-btn");
   if (accBtn) accBtn.onclick = () => show("upgrade");
   nav.querySelectorAll("button[data-view]").forEach((b) => {
@@ -1416,11 +1420,13 @@ function strategyUploadCard() {
         </div>
         <a class="btn tiny ghost" id="st-tpl" href="#">${I18N.t("strategies.template")}</a>
       </div>
-      <label class="st-drop" id="st-drop" for="st-file-pick">
+      <label class="st-drop" id="st-drop" for="st-file-pick" tabindex="0" role="button"
+             aria-label="${I18N.t("strategies.drop")}">
         <input type="file" id="st-file-pick" accept=".py,.txt" hidden />
         <span class="st-drop-ico" aria-hidden="true"></span>
         <b>${I18N.t("strategies.drop")}</b>
         <small>${I18N.t("strategies.browse")}</small>
+        <small class="st-drop-name mono" id="st-drop-name"></small>
       </label>
       <input class="ctrl" id="st-file" placeholder="my_strategy.py" />
       <textarea id="st-src" class="ctrl st-src" placeholder="# Python strategy"></textarea>
@@ -1756,7 +1762,25 @@ function propFormHtml() {
           <label class="field"><span>${I18N.t("risk.news_after")}</span><input id="pr-na" type="number" value="${pr.news_blackout_after||15}" /></label>
         </div>
         <h4 class="set-h">${I18N.t("risk.sec_filters")}</h4>
-        <label class="field"><span>${I18N.t("risk.symbols")}</span><input id="pr-syms" placeholder="XAUUSD,EURUSD" value="${pr.allowed_symbols||""}" /></label>
+        <div class="field sym-field">
+          <span>${I18N.t("risk.symbols")}</span>
+          <div class="sym-pick" id="pr-syms-pick">
+            <button type="button" class="btn sm sym-btn" id="pr-syms-btn" aria-haspopup="true" aria-expanded="false">
+              <span id="pr-syms-label">${esc(I18N.t("risk.symbols_pick"))}</span>
+              <span class="sym-caret">▾</span>
+            </button>
+            <input type="hidden" id="pr-syms" value="${esc(pr.allowed_symbols||"")}" />
+            <div class="sym-panel" id="pr-syms-panel" hidden>
+              <input class="fld sym-q" id="pr-syms-q" type="search" placeholder="${esc(I18N.t("risk.symbols_search"))}" />
+              <div class="sym-acts">
+                <button type="button" class="btn sm" id="pr-syms-all">${esc(I18N.t("risk.symbols_all"))}</button>
+                <button type="button" class="btn sm" id="pr-syms-none">${esc(I18N.t("risk.symbols_none"))}</button>
+              </div>
+              <div class="sym-list" id="pr-syms-list" role="listbox" aria-multiselectable="true"></div>
+              <div class="sym-foot" id="pr-syms-foot"></div>
+            </div>
+          </div>
+        </div>
         <label class="field"><span>${I18N.t("risk.violation")}</span>
           <select class="ctrl" id="pr-vio">
             <option value="lock" ${pr.on_violation==="lock"?"selected":""}>lock</option>
@@ -1806,6 +1830,7 @@ const views = {
       </div>`;
     return `<div class="cmd">
       ${tapeBanner()}
+      ${marketBanner()}
       ${chartSliderHtml("ol", outlookSlideInnerHtml)}
       ${gateHtml()}
       ${wizard}
@@ -1904,6 +1929,10 @@ const views = {
         </div>
       </div>
     </div>`;
+  },
+  async calendar() {
+    await Calendar.load();
+    return Calendar.view();
   },
   strategies() {
     const st = S.snap?.strategy || {};
@@ -2662,13 +2691,32 @@ function regLabel(r) {
   if (n === "unknown" || !n) return "—";
   return n;
 }
+/* Market-session banner. Answers "why did nothing trade?" before the user has
+ * to ask: on Saturday/Sunday the desk says the market is shut, not that the
+ * robot is broken. */
+function marketBanner() {
+  const m = S.snap && S.snap.market;
+  if (!m) return "";
+  if (m.trading_allowed) {
+    if (m.state === "friday_close") {
+      return `<div class="notice warn"><i class="ico">${icon("cal")}</i><span>${esc(I18N.t("status.friday_close"))}</span></div>`;
+    }
+    return "";
+  }
+  return `<div class="notice warn"><i class="ico">${icon("cal")}</i><span>${esc(
+    I18N.t("status.market_weekend", { day: I18N.t(`calendar.weekday_${m.weekday_key}`) }),
+  )}</span></div>`;
+}
+
 function tapeBanner() {
   const mode = tapeMode();
   const bt = S.backtest || S.snap?.backtest || {};
   if (bt.running) {
     return `<div class="tape-banner is-backtest" id="tape-banner">${I18N.t("tape.running")}</div>`;
   }
-  if (mode === "tester" || (bt.mode === "backtest" && bt.ok && S.view === "history")) {
+  // Backtest has its own tab now.  The banner belongs there - showing it on
+  // the history tab was leftover from when backtest lived inside history.
+  if (mode === "tester" || (bt.mode === "backtest" && bt.ok && S.view === "backtest")) {
     return `<div class="tape-banner is-backtest" id="tape-banner">${I18N.t("tape.showing_backtest")}</div>`;
   }
   if (mode === "live") return ""; // chart names live inside the outlook slider now — no banner needed
@@ -2869,10 +2917,12 @@ function telegramPanelHtml() {
         </div>
         <button type="button" class="switch ${on?"on":""}" id="tg-on" aria-pressed="${on}"><i></i></button>
       </div>
-      <label class="field"><span>${I18N.t("telegram.token")}</span>
-        <input id="tg-token" type="password" autocomplete="off" placeholder="${esc(I18N.t("telegram.token_ph"))}" value="" data-hint="${esc(hint)}" />
-      </label>
-      ${hint ? `<p class="sub" id="tg-token-hint">${esc(hint)}</p>` : ""}
+      <div class="tg-src ${tg.token_from_source ? "ok" : "warn"}">
+        <b>${esc(I18N.t("telegram.token"))}</b>
+        <span>${esc(tg.token_from_source ? I18N.t("telegram.token_from_source") : I18N.t("telegram.token_missing"))}</span>
+        ${hint ? `<span class="mono">${esc(hint)}</span>` : ""}
+      </div>
+      <p class="sub">${esc(I18N.t("telegram.token_source_hint"))}</p>
       <label class="field"><span>${I18N.t("telegram.language")}</span>
         <select class="ctrl" id="tg-lang">
           <option value="fa" ${lang==="fa"?"selected":""}>فارسی</option>
@@ -2913,16 +2963,11 @@ function bindTelegramPanel() {
   if (op) op.onclick = () => paintSwitch(op, !op.classList.contains("on"));
   const cl = $("tg-close");
   if (cl) cl.onclick = () => paintSwitch(cl, !cl.classList.contains("on"));
-  const token = $("tg-token");
-  if (token && token.dataset.hint && !token.placeholder.includes(token.dataset.hint)) {
-    token.placeholder = token.dataset.hint;
-  }
   const save = $("tg-save");
   if (save) save.onclick = async () => {
-    const raw = String($("tg-token")?.value || "").trim();
+    // No bot_token here on purpose: the token is provisioned in the source.
     const r = await API.post("/api/telegram", {
       enabled: Boolean($("tg-on")?.classList.contains("on")),
-      bot_token: raw || "…",
       language: $("tg-lang")?.value || "fa",
       notify_open: Boolean($("tg-open")?.classList.contains("on")),
       notify_close: Boolean($("tg-close")?.classList.contains("on")),
@@ -3118,6 +3163,9 @@ function bindView(view) {
     const sym = $("sym"), tf = $("tf");
     if (sym) sym.onchange = () => pickMarket(sym.value, S.timeframe);
     if (tf) tf.onchange = () => pickMarket(S.symbol || sym.value, tf.value);
+  }
+  if (view === "calendar") {
+    Calendar.bind(document.getElementById("stage"));
   }
   if (view === "intelligence") {
     // Per-chart AI slider — manual only, no timer anywhere.
@@ -3353,12 +3401,30 @@ function bindView(view) {
   if (view === "history") {
     loadHistory();
     $("h-exp").onclick = async () => {
-      const r = await API.post("/api/export/excel", { lang: I18N.lang });
-      if (r.ok && r.data?.url) {
-        const a = document.createElement("a");
-        a.href = r.data.url + (r.data.url.includes("?") ? "&" : "?") + "token=" + encodeURIComponent(API.token);
-        a.download = r.data.filename; a.click();
-      } else toast(r.error || I18N.t("errors.generic"));
+      const btn = $("h-exp");
+      if (btn) btn.disabled = true;
+      try {
+        const r = await API.post("/api/export/excel", { lang: I18N.lang });
+        const name = r.ok ? r.data?.filename : "";
+        if (!name) {
+          toast(r.error || I18N.t("errors.generic"));
+          return;
+        }
+        // Fetch the workbook as a blob: the /api/exports route is behind
+        // auth.middleware, which only accepts an Authorization header.
+        const d = await API.download("/api/exports/" + encodeURIComponent(name), name);
+        if (!d.ok) {
+          toast(d.error === "auth_required"
+            ? I18N.t("errors.session_expired")
+            : (d.error || I18N.t("errors.generic")));
+        } else {
+          toast(I18N.t("history.export_done", { name }));
+        }
+      } catch (err) {
+        toast((err && err.message) || I18N.t("errors.generic"));
+      } finally {
+        if (btn) btn.disabled = false;
+      }
     };
     $("h-rst").onclick = async () => {
       const ok = await askConfirm({
@@ -3380,6 +3446,7 @@ function bindView(view) {
   if (view === "settings") {
     bindRobotPanel();
     bindTelegramPanel();
+    bindSymbolPicker();
     bindUpdatePanel();
     bindStrategyToggles();
     bindPropForm();
@@ -3609,27 +3676,89 @@ function bindStrategyToggles() {
   });
 }
 
-function bindStrategyUpload() {
-  const takeFile = async (file) => {
-    if (!file) return;
-    const name = file.name || "custom.py";
-    if ($("st-file")) $("st-file").value = name;
-    try { if ($("st-src")) $("st-src").value = await file.text(); } catch { /* */ }
-    const drop = $("st-drop");
-    if (drop) drop.classList.add("has-file");
-  };
-  const pick = $("st-file-pick");
-  if (pick) pick.onchange = () => takeFile(pick.files && pick.files[0]);
+// ---------------------------------------------------------------------------
+// Strategy file intake: drag & drop or click-to-browse.
+//
+// The drag listeners live on `document` and are installed once at boot.  Every
+// view re-render replaces the drop-zone element, which used to take its
+// listeners with it - that is why dropping a file stopped working after the
+// first refresh.  Document-level handling also makes the whole Strategies tab
+// a drop target and stops the browser from navigating to the dropped file.
+// ---------------------------------------------------------------------------
+const STRATEGY_FILE_RE = /\.(py|txt)$/i;
+
+function strategyDropActive() {
+  return S.view === "strategies" && Boolean($("st-drop")) && licFeat("strategy_upload");
+}
+
+function dragHasFiles(e) {
+  const dt = e.dataTransfer;
+  if (!dt) return false;
+  if (dt.types) return Array.prototype.indexOf.call(dt.types, "Files") !== -1;
+  return Boolean(dt.files && dt.files.length);
+}
+
+async function takeStrategyFile(file) {
+  if (!file) return;
+  if (!STRATEGY_FILE_RE.test(file.name || "")) {
+    toast(I18N.t("strategies.bad_type"));
+    return;
+  }
   const drop = $("st-drop");
-  if (drop && !drop._bound) {
-    drop._bound = true;
-    drop.addEventListener("dragover", (e) => { e.preventDefault(); drop.classList.add("over"); });
-    drop.addEventListener("dragleave", () => drop.classList.remove("over"));
-    drop.addEventListener("drop", (e) => {
-      e.preventDefault();
-      drop.classList.remove("over");
-      takeFile(e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0]);
-    });
+  if (drop) drop.classList.add("has-file");
+  if ($("st-file")) $("st-file").value = file.name || "custom.py";
+  let text = "";
+  try {
+    text = await file.text();
+  } catch {
+    try { text = await new Response(file).text(); } catch { text = ""; }
+  }
+  if (!text) {
+    toast(I18N.t("strategies.bad_read"));
+    return;
+  }
+  if ($("st-src")) $("st-src").value = text;
+  const hint = $("st-drop-name");
+  if (hint) hint.textContent = `${file.name} · ${(file.size / 1024).toFixed(1)} KB`;
+  toast(I18N.t("strategies.file_ready", { name: file.name }));
+}
+
+function bindStrategyDropTarget() {
+  if (document._stDropBound) return;
+  document._stDropBound = true;
+  let depth = 0;
+  const mark = (on) => { const z = $("st-drop"); if (z) z.classList.toggle("over", on); };
+  document.addEventListener("dragenter", (e) => {
+    if (!strategyDropActive() || !dragHasFiles(e)) return;
+    e.preventDefault();
+    depth++;
+    mark(true);
+  });
+  document.addEventListener("dragover", (e) => {
+    if (!strategyDropActive() || !dragHasFiles(e)) return;
+    e.preventDefault();
+    try { e.dataTransfer.dropEffect = "copy"; } catch { /* older engines */ }
+  });
+  document.addEventListener("dragleave", () => {
+    if (!strategyDropActive()) return;
+    depth = Math.max(0, depth - 1);
+    if (!depth) mark(false);
+  });
+  document.addEventListener("drop", (e) => {
+    if (!strategyDropActive()) return;
+    e.preventDefault();
+    depth = 0;
+    mark(false);
+    takeStrategyFile(e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0]);
+  });
+}
+
+function bindStrategyUpload() {
+  bindStrategyDropTarget();
+  const pick = $("st-file-pick");
+  if (pick && !pick._bound) {
+    pick._bound = true;
+    pick.addEventListener("change", () => takeStrategyFile(pick.files && pick.files[0]));
   }
   const tpl = $("st-tpl");
   if (tpl && !tpl._bound) {
@@ -3946,6 +4075,229 @@ function customPropPayload() {
     news_blackout_after: +($("pr-na")?.value || 15),
     hedging_allowed: Boolean($("pr-hedge")?.checked),
   };
+}
+
+/* ---------------------------------------------------------------------------
+ * Allowed symbols — a selection list, never a free-text field.
+ *
+ * The engine's prop profile stores ``allowed_symbols`` as a comma-separated
+ * string, so the picker writes back to the same hidden input the save path
+ * already reads; only the way the user picks symbols changes.
+ * ------------------------------------------------------------------------- */
+const SYM_PICK = { all: [], source: "", selected: new Set(), open: false };
+
+async function loadSymbolChoices() {
+  if (SYM_PICK.all.length) return SYM_PICK.all;
+  try {
+    const r = await API.get("/api/symbols");
+    const d = (r && r.data) || {};
+    SYM_PICK.all = Array.isArray(d.symbols) ? d.symbols.map((x) => String(x).toUpperCase()) : [];
+    SYM_PICK.source = d.source || "";
+  } catch (_) {
+    SYM_PICK.all = [];
+  }
+  return SYM_PICK.all;
+}
+
+function symPaintList(filter) {
+  const list = $("pr-syms-list");
+  if (!list) return;
+  const q = String(filter || "").trim().toUpperCase();
+  const rows = SYM_PICK.all.filter((s) => !q || s.includes(q));
+  list.innerHTML = rows.length
+    ? rows
+        .map(
+          (sym) =>
+            `<label class="sym-row${SYM_PICK.selected.has(sym) ? " on" : ""}" data-sym="${esc(sym)}">` +
+            `<input type="checkbox" value="${esc(sym)}"${SYM_PICK.selected.has(sym) ? " checked" : ""} />` +
+            `<span>${esc(sym)}</span></label>`,
+        )
+        .join("")
+    : `<div class="sym-empty">${esc(I18N.t("risk.symbols_empty"))}</div>`;
+  symPaintFoot();
+}
+
+function symPaintFoot() {
+  const foot = $("pr-syms-foot");
+  const label = $("pr-syms-label");
+  const n = SYM_PICK.selected.size;
+  if (foot) foot.textContent = I18N.t("risk.symbols_count", { n });
+  if (label) {
+    label.textContent = n
+      ? I18N.t("risk.symbols_count", { n })
+      : I18N.t("risk.symbols_all_allowed");
+  }
+  const hidden = $("pr-syms");
+  if (hidden) hidden.value = Array.from(SYM_PICK.selected).sort().join(",");
+}
+
+async function bindSymbolPicker() {
+  const wrap = $("pr-syms-pick");
+  if (!wrap || wrap._bound) return;
+  wrap._bound = true;
+  const btn = $("pr-syms-btn");
+  const panel = $("pr-syms-panel");
+  const list = $("pr-syms-list");
+  const q = $("pr-syms-q");
+
+  const seed = String($("pr-syms")?.value || "")
+    .split(/[,;]/)
+    .map((x) => x.trim().toUpperCase())
+    .filter(Boolean);
+  SYM_PICK.selected = new Set(seed);
+  await loadSymbolChoices();
+  // Keep symbols the profile already had even if the broker list lacks them.
+  seed.forEach((x) => { if (!SYM_PICK.all.includes(x)) SYM_PICK.all.push(x); });
+  SYM_PICK.all.sort();
+  symPaintList("");
+  symPaintFoot();
+
+  const setOpen = (v) => {
+    SYM_PICK.open = v;
+    if (panel) panel.hidden = !v;
+    if (btn) btn.setAttribute("aria-expanded", v ? "true" : "false");
+    if (v && q) setTimeout(() => q.focus(), 0);
+  };
+
+  btn?.addEventListener("click", (e) => { e.stopPropagation(); setOpen(!SYM_PICK.open); });
+  document.addEventListener("click", (e) => {
+    if (SYM_PICK.open && !wrap.contains(e.target)) setOpen(false);
+  });
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape" && SYM_PICK.open) setOpen(false); });
+  q?.addEventListener("input", () => symPaintList(q.value));
+  q?.addEventListener("click", (e) => e.stopPropagation());
+  panel?.addEventListener("click", (e) => e.stopPropagation());
+  $("pr-syms-all")?.addEventListener("click", () => {
+    SYM_PICK.selected = new Set(SYM_PICK.all);
+    symPaintList(q?.value || "");
+  });
+  $("pr-syms-none")?.addEventListener("click", () => {
+    SYM_PICK.selected = new Set();
+    symPaintList(q?.value || "");
+  });
+  list?.addEventListener("change", (e) => {
+    const box = e.target.closest('input[type="checkbox"]');
+    if (!box) return;
+    const sym = String(box.value || "").toUpperCase();
+    if (box.checked) SYM_PICK.selected.add(sym);
+    else SYM_PICK.selected.delete(sym);
+    const row = box.closest(".sym-row");
+    if (row) row.classList.toggle("on", box.checked);
+    symPaintFoot();
+  });
+}
+
+/* ---------------------------------------------------------------------------
+ * Telegram admin — owner only.
+ *
+ * The bot token is provisioned in the source (config/telegram.token or the
+ * AURION_TELEGRAM_TOKEN env var); the dashboard is a client of the bot and can
+ * neither read nor change the token.  This panel only starts, stops, restarts
+ * and test-fires a bot the owner already provisioned.
+ * ------------------------------------------------------------------------- */
+function isOwner() {
+  const u = S.user || {};
+  return Boolean(u.is_owner || u.role === "owner");
+}
+
+async function telegramAdminState() {
+  const r = await API.get("/api/admin/telegram");
+  if (!r || r.ok === false) {
+    if (r && (r.error === "forbidden" || r.status === 403)) return { forbidden: true };
+    return { error: (r && r.error) || "engine_offline" };
+  }
+  return r.data || {};
+}
+
+function telegramAdminRow(k, v, cls) {
+  return `<div class="tg-row"><span class="tg-k">${esc(k)}</span><span class="tg-v ${cls || ""}">${v}</span></div>`;
+}
+
+async function openTelegramAdmin() {
+  if (!isOwner()) {
+    toast(I18N.t("errors.forbidden"));
+    return;
+  }
+  const box = document.createElement("div");
+  box.className = "modal open";
+  box.innerHTML = `<div class="modal-card tg-admin">
+      <div class="modal-head"><h3>${esc(I18N.t("telegram.admin_title"))}</h3>
+        <button type="button" class="btn sm" data-close>✕</button></div>
+      <div class="modal-body" id="tg-admin-body">
+        <div class="empty">${esc(I18N.t("telegram.loading"))}</div>
+      </div>
+      <div class="modal-foot">
+        <button type="button" class="btn" id="tg-a-refresh">${esc(I18N.t("telegram.reload"))}</button>
+        <button type="button" class="btn danger" id="tg-a-stop">${esc(I18N.t("telegram.admin_stop"))}</button>
+        <button type="button" class="btn" id="tg-a-restart">${esc(I18N.t("telegram.admin_restart"))}</button>
+        <button type="button" class="btn primary" id="tg-a-start">${esc(I18N.t("telegram.admin_start"))}</button>
+        <button type="button" class="btn" id="tg-a-test">${esc(I18N.t("telegram.test"))}</button>
+      </div>
+    </div>`;
+  document.body.appendChild(box);
+  box.addEventListener("click", (e) => {
+    if (e.target === box || e.target.closest("[data-close]")) box.remove();
+  });
+  box.addEventListener("keydown", (e) => { if (e.key === "Escape") box.remove(); });
+
+  const body = box.querySelector("#tg-admin-body");
+
+  const paint = async () => {
+    body.innerHTML = `<div class="empty">${esc(I18N.t("telegram.loading"))}</div>`;
+    const st = await telegramAdminState();
+    if (st.forbidden) {
+      body.innerHTML = `<div class="empty">${esc(I18N.t("errors.forbidden"))}</div>`;
+      return;
+    }
+    if (st.error) {
+      body.innerHTML = `<div class="empty">${esc(
+        st.error === "engine_offline" ? I18N.t("errors.no_engine") : st.error,
+      )}</div>`;
+      return;
+    }
+    const running = Boolean(st.running);
+    const up = Number(st.uptime_seconds || 0);
+    const upTxt = up > 0 ? `${Math.floor(up / 60)}m ${Math.round(up % 60)}s` : "—";
+    body.innerHTML = `
+      <div class="tg-status ${running ? "on" : "off"}">${esc(
+        running ? I18N.t("telegram.admin_running") : I18N.t("telegram.admin_stopped"),
+      )}</div>
+      ${telegramAdminRow(I18N.t("telegram.admin_token"), st.token_from_source
+        ? esc(I18N.t("telegram.admin_token_source"))
+        : esc(I18N.t("telegram.admin_token_missing")), st.token_from_source ? "ok" : "warn")}
+      ${telegramAdminRow(I18N.t("telegram.admin_origin"), `<span class="mono">${esc(st.token_origin || "—")}</span>`)}
+      ${telegramAdminRow(I18N.t("telegram.admin_uptime"), `<span class="mono">${esc(upTxt)}</span>`)}
+      ${telegramAdminRow(I18N.t("telegram.admin_licensed"), st.licensed
+        ? esc(I18N.t("telegram.yes")) : esc(I18N.t("telegram.admin_not_licensed")), st.licensed ? "ok" : "warn")}
+      ${telegramAdminRow(I18N.t("telegram.admin_bot"), `<span class="mono">@${esc(st.username || "—")}</span>`)}
+      ${telegramAdminRow(I18N.t("telegram.chats"), String((st.chats || []).length))}
+      ${st.last_error ? telegramAdminRow(I18N.t("telegram.admin_last_error"), `<span class="mono">${esc(st.last_error)}</span>`, "warn") : ""}
+      <div class="tg-note">${esc(I18N.t("telegram.admin_note", { path: st.source_path || "config/telegram.token" }))}</div>`;
+  };
+
+  const act = async (action) => {
+    const btns = box.querySelectorAll(".modal-foot .btn");
+    btns.forEach((b) => (b.disabled = true));
+    let r = null;
+    try {
+      r = await API.post("/api/admin/telegram", { action });
+    } finally {
+      btns.forEach((b) => (b.disabled = false));
+    }
+    if (!r || r.ok === false) {
+      toast((r && r.error) || I18N.t("errors.generic"));
+    } else {
+      toast(I18N.t("telegram.admin_done", { action }));
+    }
+    await paint();
+  };
+
+  box.querySelector("#tg-a-start")?.addEventListener("click", () => act("start"));
+  box.querySelector("#tg-a-stop")?.addEventListener("click", () => act("stop"));
+  box.querySelector("#tg-a-restart")?.addEventListener("click", () => act("restart"));
+  box.querySelector("#tg-a-test")?.addEventListener("click", () => act("test"));
+  box.querySelector("#tg-a-refresh")?.addEventListener("click", paint);
+  await paint();
 }
 
 function bindPropForm() {
@@ -4982,6 +5334,7 @@ async function playWelcome() {
 
 async function boot() {
   bindChrome();
+  bindStrategyDropTarget();
   await I18N.load(I18N.lang);
   I18N.apply();
   markLangPills();

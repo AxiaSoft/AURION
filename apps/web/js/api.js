@@ -37,6 +37,45 @@ const API = {
   },
   get(path) { return this.req("GET", path); },
   post(path, body) { return this.req("POST", path, body); },
+  /**
+   * Binary download.
+   *
+   * A plain <a href> navigation cannot carry the Authorization header, and the
+   * desk deliberately never puts the token in a query string (it would leak
+   * into the server log).  So the bytes are fetched with the header and handed
+   * to a short-lived object URL.  The element is attached to the DOM first —
+   * Firefox ignores click() on a detached anchor.
+   */
+  async download(path, filename) {
+    let res;
+    try {
+      res = await fetch(path, { headers: this.headers(), credentials: "same-origin" });
+    } catch (err) {
+      return { ok: false, error: (err && err.message) || "network" };
+    }
+    if (res.status === 401) {
+      this.setToken("");
+      try { window.dispatchEvent(new CustomEvent("aurion:auth-required")); } catch {}
+      return { ok: false, error: "auth_required" };
+    }
+    if (!res.ok) {
+      let msg = "";
+      try { const j = await res.json(); msg = (j && j.error) || ""; } catch {}
+      return { ok: false, error: msg || ("http_" + res.status) };
+    }
+    const blob = await res.blob();
+    if (!blob.size) return { ok: false, error: "empty_file" };
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename || "download";
+    a.rel = "noopener";
+    a.style.display = "none";
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 5000);
+    return { ok: true, size: blob.size };
+  },
   setToken(token) {
     this._memToken = token || "";
     try {

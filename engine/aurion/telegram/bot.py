@@ -18,6 +18,7 @@ import time
 from typing import Any
 
 from ..config import load, merge, ROOT
+from . import secret
 from ..util.log import get
 
 log = get("telegram")
@@ -483,6 +484,7 @@ class TelegramBot:
         self._last_error = ""
         self._me: dict[str, Any] = {}
         self._lock = asyncio.Lock()
+        self._started_at = 0.0
 
     def _cfg(self) -> dict[str, Any]:
         cfg = load()
@@ -493,9 +495,28 @@ class TelegramBot:
         lang = str(self._cfg().get("language") or load().get("default_language") or "fa").lower()
         return lang if lang in TXT else "fa"
 
+    def token(self) -> str:
+        """Active token. The source (env / config file) always wins over the desk."""
+        tok, _ = secret.resolve(self._cfg().get("bot_token"))
+        return tok
+
+    def token_origin(self) -> str:
+        _, origin = secret.resolve(self._cfg().get("bot_token"))
+        return origin
+
+    def source_token_set(self) -> bool:
+        return bool(secret.source_token())
+
     def enabled(self) -> bool:
         c = self._cfg()
-        return bool(c.get("enabled") and str(c.get("bot_token") or "").strip() and not is_masked_token(str(c.get("bot_token") or "")))
+        return bool(c.get("enabled") and self.token())
+
+    def uptime(self) -> float:
+        """Seconds the poll loop has been running (0 when it is not)."""
+        task = self._task
+        if not task or task.done() or not self.enabled():
+            return 0.0
+        return round(max(0.0, time.time() - float(self._started_at or 0.0)), 1)
 
     def chats(self) -> list[dict[str, Any]]:
         return _norm_chats(self._cfg().get("chats") or self._cfg().get("chat_ids"))
@@ -505,17 +526,24 @@ class TelegramBot:
 
     def public(self) -> dict[str, Any]:
         c = self._cfg()
-        token = str(c.get("bot_token") or "")
+        token = self.token()
+        from_source = self.source_token_set()
         return {
             "enabled": bool(c.get("enabled")),
-            "has_token": bool(token) and not is_masked_token(token),
-            "token_hint": mask_token(token) if token and not is_masked_token(token) else "",
+            "has_token": bool(token),
+            # The dashboard is a client: it may see the origin, never the token.
+            "token_origin": self.token_origin(),
+            "token_from_source": from_source,
+            "token_editable": not from_source,
+            "token_hint": mask_token(token) if token else "",
             "language": self.lang(),
             "notify_open": c.get("notify_open", True) is not False,
             "notify_close": c.get("notify_close", True) is not False,
             "chats": self.chats(),
             "username": str(self._me.get("username") or c.get("username") or ""),
-            "running": bool(self._task and not self._task.done()),
+            # "running" means actually polling: the task is alive AND the bot is
+            # enabled. A disabled bot keeps an idle task, which is not "on".
+            "running": bool(self._task and not self._task.done()) and self.enabled(),
             "last_error": self._last_error,
             "pair_active": bool(self._pair_code and time.time() < self._pair_until),
             "version": get_version(),
@@ -537,6 +565,9 @@ class TelegramBot:
         current = self._cfg()
         token_in = str(body.get("bot_token") if "bot_token" in body else current.get("bot_token") or "").strip()
         if is_masked_token(token_in):
+            token_in = str(current.get("bot_token") or "").strip()
+        # Source-provisioned tokens are read-only: the desk cannot swap the bot.
+        if secret.source_token():
             token_in = str(current.get("bot_token") or "").strip()
         lang = str(body.get("language") if "language" in body else current.get("language") or "fa").lower()
         if lang not in TXT:
@@ -562,6 +593,15 @@ class TelegramBot:
             pass
         return {"ok": True, "telegram": self.public()}
 
+    def set_enabled(self, value: bool) -> dict[str, Any]:
+        """Persist the on/off flag WITHOUT scheduling a restart.
+
+        ``apply()`` fires its own restart task; the admin panel drives the
+        lifecycle explicitly, so it needs a save that does not race with it.
+        """
+        self._save({"enabled": bool(value)})
+        return self._cfg()
+
     def unlink(self, chat_id: int) -> dict[str, Any]:
         try:
             cid = int(chat_id)
@@ -571,14 +611,21 @@ class TelegramBot:
         self._save({"chats": chats})
         return {"ok": True, "telegram": self.public()}
 
-    async def start(self) -> None:
+    async def start(self, auto_enable: bool = False) -> None:
         self._stop = asyncio.Event()
+        # "Always on" is a boot-time rule only: a source-provisioned token means
+        # the bot re-arms itself whenever the engine starts.  An admin who
+        # stopped it on purpose must stay stopped, so restart() never re-enables.
+        if auto_enable and self.source_token_set() and not self._cfg().get("enabled"):
+            self._save({"enabled": True})
         if self._task and not self._task.done():
             return
+        self._started_at = time.time()
         self._task = asyncio.create_task(self._run(), name="aurion-telegram")
 
     async def stop(self) -> None:
         self._stop.set()
+        self._started_at = 0.0
         task = self._task
         self._task = None
         if task:
@@ -608,7 +655,7 @@ class TelegramBot:
         return self._client
 
     async def _call(self, method: str, payload: dict[str, Any] | None = None, token: str | None = None) -> dict[str, Any]:
-        tok = token if token is not None else str(self._cfg().get("bot_token") or "")
+        tok = token if token is not None else self.token()
         if not tok or is_masked_token(tok):
             return {"ok": False, "error": "no_token"}
         client = await self._client_of()

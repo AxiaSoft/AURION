@@ -17,6 +17,11 @@ engine/models/
 store/keyserver/data/
 store/keyserver/.env
 
+# Telegram bot token — provisioned locally in the source, never committed.
+# Only the .example template is tracked.
+config/telegram.token
+config/telegram.local.json
+
 # Update server local state + secrets
 admin/update-server/data/
 admin/update-server/.env

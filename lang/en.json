@@ -34,7 +34,29 @@
     "need_token": "Paste a bot token first",
     "need_chat": "Link a chat with a pairing code first",
     "test_ok": "Status sent to Telegram",
-    "code": "Code"
+    "code": "Code",
+    "admin_title": "Telegram admin",
+    "loading": "Loading…",
+    "admin_start": "Start",
+    "admin_stop": "Stop",
+    "admin_restart": "Restart",
+    "admin_running": "Bot is running",
+    "admin_stopped": "Bot is stopped",
+    "admin_token": "Token",
+    "admin_token_source": "Read from source",
+    "admin_token_missing": "No token found in the source",
+    "admin_origin": "Token origin",
+    "admin_uptime": "Uptime",
+    "admin_licensed": "Telegram licence",
+    "admin_not_licensed": "Not licensed (source token active)",
+    "admin_bot": "Bot name",
+    "admin_last_error": "Last error",
+    "admin_note": "The token is read only from {path} in the source. The dashboard can neither see nor change it.",
+    "admin_done": "Done: {action}",
+    "yes": "Yes",
+    "token_from_source": "Read from the source",
+    "token_missing": "No token in the source",
+    "token_source_hint": "The bot token lives only in a source file; the dashboard is a client of the bot and the bot controls live in the admin panel."
   },
   "brand": {
     "name": "AURION",
@@ -54,7 +76,8 @@
     "profile": "Profile",
     "upgrade": "Account upgrade",
     "about": "About",
-    "backtest": "Backtest"
+    "backtest": "Backtest",
+    "calendar": "Calendar"
   },
   "auth": {
     "title": "Sign in to AURION",
@@ -128,7 +151,9 @@
     "prop_ok": "Prop rules clear",
     "prop_block": "Prop rule blocked execution",
     "ea_waiting": "EA is on the chart but has not reached the desk yet — compile bridge 1.17",
-    "ea_file_hint": "AurionBridge 1.17 feeds the desk from the MT5 common Files folder even if WebRequest is blocked. Compile engine\\ea\\AurionBridge.mq5 with F7, remove it from the chart, attach it again."
+    "ea_file_hint": "AurionBridge 1.17 feeds the desk from the MT5 common Files folder even if WebRequest is blocked. Compile engine\\ea\\AurionBridge.mq5 with F7, remove it from the chart, attach it again.",
+    "market_weekend": "The FX market is closed today ({day}) — no trades will be opened.",
+    "friday_close": "Friday close hour reached — open positions are being wound down."
   },
   "command": {
     "title": "Command centre",
@@ -250,7 +275,10 @@
     "lot_manual": "Manual",
     "lot_auto_sub": "Auto: each strategy trades with its own preset volume (Normal 0.10, Scalping 0.05).",
     "lot_manual_sub": "Manual: the robot opens every entry with exactly this lot — on all symbols.",
-    "lot_value": "Lot (e.g. 0.10)"
+    "lot_value": "Lot (e.g. 0.10)",
+    "bad_type": "Only Python or text files (.py or .txt)",
+    "bad_read": "Could not read the file",
+    "file_ready": "File “{name}” is ready to upload"
   },
   "risk": {
     "title": "Prop risk",
@@ -297,7 +325,14 @@
     "preset_the5ers": "The5ers-style",
     "preset_custom": "Custom",
     "preset_locked": "Factory preset — rules cannot be edited. Switch to Custom to write your own book.",
-    "preset_applied": "Preset applied"
+    "preset_applied": "Preset applied",
+    "symbols_pick": "Select symbols",
+    "symbols_search": "Search symbol…",
+    "symbols_all": "Select all",
+    "symbols_none": "Clear",
+    "symbols_empty": "No symbol found",
+    "symbols_count": "{n} symbols selected",
+    "symbols_all_allowed": "All symbols allowed (no restriction)"
   },
   "exec": {
     "title": "Execution",
@@ -405,7 +440,8 @@
     "backtest_empty": "Pick a live EA symbol and run a backtest. Results stay in this card.",
     "backtest_hint": "Uses only candles from the AurionBridge chart you pick. The live desk does not switch to this tape.",
     "live_ledger": "Live closed trades",
-    "trades": "Trades"
+    "trades": "Trades",
+    "export_done": "File “{name}” downloaded"
   },
   "settings": {
     "title": "Settings",
@@ -479,7 +515,8 @@
     "manual_disabled": "Manual trading is disabled. AURION only executes strategy signals.",
     "forbidden": "This account cannot do that.",
     "owner_gmail": "Owner must be created with a Gmail address.",
-    "self": "You cannot disable your own owner account."
+    "self": "You cannot disable your own owner account.",
+    "session_expired": "Your session expired — please sign in again"
   },
   "common": {
     "ok": "OK",
@@ -789,5 +826,37 @@
   },
   "hdr": {
     "drawer": "Status, equity and account"
+  },
+  "calendar": {
+    "title": "Economic Calendar",
+    "hint": "News events sit on the calendar coloured by impact. Hover a day to see what each event is and at what time.",
+    "jalali": "Jalali",
+    "gregorian": "Gregorian",
+    "hijri": "Hijri",
+    "today": "Today",
+    "prev": "Previous month",
+    "next": "Next month",
+    "month_events": "{n} events this month",
+    "legend": "Legend",
+    "impact_high": "High impact",
+    "impact_medium": "Medium impact",
+    "impact_low": "Low impact",
+    "impact_holiday": "Market holiday",
+    "blackout_note": "Trade blackout: {before} min before and {after} min after an event",
+    "source_set": "Calendar source is active",
+    "source_missing": "No economic calendar file configured",
+    "closed": "Market closed",
+    "closed_note": "The FX market is closed on Saturday and Sunday — no trades are opened on those two days.",
+    "closed_short": "Closed",
+    "no_events": "No events recorded.",
+    "day": "Day",
+    "untitled": "Untitled",
+    "weekday_monday": "Monday",
+    "weekday_tuesday": "Tuesday",
+    "weekday_wednesday": "Wednesday",
+    "weekday_thursday": "Thursday",
+    "weekday_friday": "Friday",
+    "weekday_saturday": "Saturday",
+    "weekday_sunday": "Sunday"
   }
 }

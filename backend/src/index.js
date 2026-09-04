@@ -9,7 +9,7 @@ const express = require("express");
 const cors = require("cors");
 const { WebSocketServer } = require("ws");
 const { load, ensureDirs } = require("./config");
-const { WEB, LANG, ROOT, DATA } = require("./paths");
+const { WEB, LANG, DATA } = require("./paths");
 const auth = require("./auth");
 const engine = require("./engine");
 const identity = require("./identity");
@@ -825,6 +825,15 @@ guarded.post("/telegram", passthrough("POST", "/v1/telegram"));
 guarded.post("/telegram/pair", passthrough("POST", "/v1/telegram/pair"));
 guarded.post("/telegram/test", passthrough("POST", "/v1/telegram/test"));
 guarded.post("/telegram/unlink", passthrough("POST", "/v1/telegram/unlink"));
+// Weekend / session awareness, the economic calendar and the symbol list the
+// prop filter dropdown is built from.
+guarded.get("/market/session", passthrough("GET", "/v1/market/session"));
+guarded.get("/news", passthrough("GET", "/v1/news"));
+guarded.get("/symbols", passthrough("GET", "/v1/symbols"));
+// Owner-only Telegram control plane. The dashboard is a client of the bot; the
+// token itself is provisioned in the source, never through the UI.
+guarded.get("/admin/telegram", ownerOnly, passthrough("GET", "/v1/telegram/admin"));
+guarded.post("/admin/telegram", ownerOnly, passthrough("POST", "/v1/telegram/admin"));
 guarded.get("/robot", passthrough("GET", "/v1/robot"));
 guarded.post("/persist", passthrough("POST", "/v1/persist"));
 guarded.post("/host/restart", (_req, res) => {
@@ -921,11 +930,24 @@ guarded.post("/export/excel", async (req, res) => {
   }
 });
 
+// Workbook download.  Behind auth.middleware, so it is only reachable with an
+// Authorization header - which is why the desk fetches it as a blob instead of
+// navigating an <a href> (a navigation cannot send that header and the token
+// must never travel in the query string).
 app.get("/api/exports/:name", auth.middleware, (req, res) => {
-  const name = path.basename(req.params.name);
-  const dest = path.join(ROOT, "data", "exports", name);
-  if (!fs.existsSync(dest)) return res.status(404).json({ ok: false, error: "missing" });
-  res.download(dest, name);
+  const name = path.basename(String(req.params.name || ""));
+  if (!/^[A-Za-z0-9._-]+\.xlsx$/i.test(name)) {
+    return res.status(400).json({ ok: false, error: "bad_filename" });
+  }
+  const dest = path.join(DATA, "exports", name);
+  if (!dest.startsWith(path.join(DATA, "exports") + path.sep) || !fs.existsSync(dest)) {
+    return res.status(404).json({ ok: false, error: "missing" });
+  }
+  res.setHeader("Cache-Control", "no-store");
+  res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+  res.download(dest, name, (err) => {
+    if (err && !res.headersSent) res.status(500).json({ ok: false, error: "send_failed" });
+  });
 });
 
 app.use("/api", guarded);

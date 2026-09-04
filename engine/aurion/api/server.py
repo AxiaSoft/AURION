@@ -447,6 +447,150 @@ async def telegram_unlink(body: dict[str, Any] | None = None) -> dict[str, Any]:
     return bot.unlink(int(body.get("chat_id") or body.get("id") or 0))
 
 
+def _local(request: Request) -> bool:
+    host = request.client.host if request.client else ""
+    return host in {"127.0.0.1", "::1", "localhost"}
+
+
+@app.get("/v1/market/session")
+async def market_session_now() -> dict[str, Any]:
+    """Weekend / session awareness for the desk and the journal."""
+    return {"ok": True, "data": trader.market_state()}
+
+
+# A conservative default basket: used only when neither MT5 nor an attached
+# chart can answer, so the prop filter dropdown is never empty.
+FALLBACK_SYMBOLS = (
+    "EURUSD", "GBPUSD", "USDJPY", "USDCHF", "AUDUSD", "USDCAD", "NZDUSD",
+    "XAUUSD", "XAGUSD", "US30", "US500", "NAS100", "GER40", "UK100",
+    "BTCUSD", "ETHUSD", "WTI", "BRENT",
+)
+
+
+@app.get("/v1/symbols")
+async def symbols_available() -> dict[str, Any]:
+    """The list the prop "allowed symbols" dropdown is built from.
+
+    Order of preference: the broker's own symbol table, then symbols with an
+    attached chart, then the configured watchlist.  The desk never asks the
+    user to type a symbol again.
+    """
+    bridge = trader.bridge
+    broker: list[str] = []
+    try:
+        broker = sorted({str(x).strip().upper() for x in (bridge.native.symbols() or []) if str(x or "").strip()})
+    except Exception:
+        broker = []
+    try:
+        online = sorted({str(x).strip().upper() for x in bridge.online_symbols() if str(x or "").strip()})
+    except Exception:
+        online = []
+    try:
+        watch = sorted({str(x).strip().upper() for x in (load()["mt5"].get("symbols") or []) if str(x or "").strip()})
+    except Exception:
+        watch = []
+    active = str(trader.active_symbol or "").strip().upper()
+
+    merged: list[str] = []
+    for pool in (broker, online, watch, list(FALLBACK_SYMBOLS)):
+        for sym in pool:
+            if sym and sym not in merged:
+                merged.append(sym)
+    return {
+        "ok": True,
+        "data": {
+            "symbols": merged,
+            "broker": broker,
+            "online": online,
+            "watchlist": watch,
+            "active": active,
+            "source": "broker" if broker else ("charts" if online else ("watchlist" if watch else "default")),
+        },
+    }
+
+
+@app.get("/v1/news")
+async def news_events() -> dict[str, Any]:
+    """Economic-calendar events behind the news blackout and the Calendar tab."""
+    try:
+        count = trader.prop.reload_news()
+    except Exception:
+        count = 0
+    rows = list(getattr(trader.prop, "news_events", None) or [])
+    cfg = trader.prop.profile or {}
+    return {
+        "ok": True,
+        "data": {
+            "count": count,
+            "source": str(load()["prop"].get("news_calendar_path") or ""),
+            "blackout_before": int(cfg.get("news_blackout_minutes_before") or 15),
+            "blackout_after": int(cfg.get("news_blackout_minutes_after") or 15),
+            "events": rows,
+        },
+    }
+
+
+@app.get("/v1/telegram/admin")
+async def telegram_admin_state(request: Request) -> dict[str, Any]:
+    """Owner-only control surface. The dashboard is a client, never the admin."""
+    if not _local(request):
+        return {"ok": False, "error": "local_only"}
+    from ..telegram import secret
+
+    bot = getattr(trader, "telegram", None)
+    if bot is None:
+        from ..telegram.bot import TelegramBot
+
+        bot = TelegramBot(trader)
+        trader.telegram = bot
+    state = bot.public()
+    state.update(
+        {
+            "licensed": bool(trader.license.feature("telegram")),
+            "token_origin": bot.token_origin(),
+            "token_from_source": bot.source_token_set(),
+            "source_path": secret.source_path_hint(),
+            "uptime_seconds": bot.uptime(),
+        }
+    )
+    return {"ok": True, "data": state}
+
+
+@app.post("/v1/telegram/admin")
+async def telegram_admin_action(request: Request, body: dict[str, Any] | None = None) -> dict[str, Any]:
+    """start / stop / restart / test / enable / disable — owner machine only."""
+    if not _local(request):
+        return {"ok": False, "error": "local_only"}
+    body = dict(body or {})
+    action = str(body.get("action") or "").lower()
+    bot = getattr(trader, "telegram", None)
+    if bot is None:
+        from ..telegram.bot import TelegramBot
+
+        bot = TelegramBot(trader)
+        trader.telegram = bot
+    if not bot.token():
+        from ..telegram import secret
+
+        return {"ok": False, "error": "no_token", "source_path": secret.source_path_hint()}
+    try:
+        if action in {"start", "enable", "on"}:
+            bot.set_enabled(True)
+            await bot.restart()
+        elif action in {"stop", "disable", "off"}:
+            bot.set_enabled(False)
+            await bot.stop()
+        elif action == "restart":
+            await bot.restart()
+        elif action == "test":
+            return await bot.send_test()
+        else:
+            return {"ok": False, "error": "action"}
+    except Exception as exc:
+        return {"ok": False, "error": str(exc)}
+    return {"ok": True, "data": bot.public()}
+
+
 @app.post("/v1/persist")
 async def persist_now() -> dict[str, Any]:
     try:

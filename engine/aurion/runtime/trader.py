@@ -15,6 +15,7 @@ from ..strategy.base import StrategyContext
 from ..strategy.loader import StrategyLoader, StrategyValidationError
 from ..license.guard import Guard
 from ..util.clock import utc_iso
+from ..util.market import block_reason as market_block_reason, session as market_session
 from ..util.log import RING, get
 from .bus import Bus
 from .store import Store, parse_strategy_tag
@@ -107,14 +108,17 @@ class Trader:
         except Exception:
             log.exception("default strategy load failed")
         try:
-            if self.license.feature("telegram"):
-                from ..telegram.bot import TelegramBot
+            from ..telegram import secret as tg_secret
+            from ..telegram.bot import TelegramBot
 
+            # A token dropped into the source means the owner wants the bot on,
+            # full stop — it starts even when the plan would otherwise gate it.
+            if self.license.feature("telegram") or tg_secret.source_token():
                 self.telegram = TelegramBot(self)
-                await self.telegram.start()
+                await self.telegram.start(auto_enable=True)
             else:
                 self.telegram = None
-                log.info("telegram bot skipped — premium feature (freemium account)")
+                log.info("telegram bot skipped — no source token and premium feature not licensed")
         except Exception:
             log.exception("telegram bot failed to start")
         try:
@@ -1258,6 +1262,17 @@ class Trader:
             await self.journal("warning", "kill", "Order blocked — kill switch is armed")
             return {"ok": False, "error": "kill switch armed"}
         action = str(request.get("action") or "market").lower()
+        if action not in {"close", "flatten", "close_all", "modify"}:
+            sess = self.market_state()
+            if not sess.get("trading_allowed"):
+                why = market_block_reason(sess) or "market closed"
+                await self.journal(
+                    "warning",
+                    "market_closed",
+                    f"Order blocked — {why} (reopens {sess.get('next_open') or 'Monday'})",
+                    {"session": sess},
+                )
+                return {"ok": False, "error": sess.get("reason") or "market_closed", "market": sess}
         if action in {"buy", "sell"}:
             request = {**request, "side": action, "action": "market"}
         if action == "close_all":
@@ -1429,6 +1444,60 @@ class Trader:
         await self.bus.publish("log", {"level": "warning", "message": f"flatten: {reason}"})
         return {"ok": all(r.get("ok") for r in results) if results else True, "results": results, "reason": reason}
 
+    # -- market session ----------------------------------------------------
+    def _friday_close_hour(self) -> int | None:
+        try:
+            profile = self.prop.profile or {}
+            value = profile.get("friday_close_utc_hour")
+            return int(value) if value not in (None, "") else None
+        except Exception:
+            return None
+
+    def _weekend_allowed(self) -> bool:
+        try:
+            return bool((self.prop.profile or {}).get("allow_weekend"))
+        except Exception:
+            return False
+
+    def market_state(self) -> dict[str, Any]:
+        sess = market_session(friday_close_hour=self._friday_close_hour())
+        sess["allow_weekend"] = self._weekend_allowed()
+        # A blocked weekend is only "blocked" when weekend trading is off.
+        sess["trading_allowed"] = bool(sess["open"] or sess["allow_weekend"])
+        return sess
+
+    async def _note_market_session(self) -> None:
+        """Journal the weekend exactly once per state change.
+
+        Without this the desk shows a silent robot on Saturday and the user
+        cannot tell a shut market from a broken one.
+        """
+        sess = self.market_state()
+        state = str(sess.get("state") or "")
+        if state == getattr(self, "_market_state_seen", ""):
+            return
+        first = not hasattr(self, "_market_state_seen")
+        self._market_state_seen = state
+        if first or not state:
+            return
+        if state == "weekend":
+            await self.journal(
+                "warning",
+                "market_closed",
+                "Market closed for the weekend — no trades will be placed until "
+                f"{sess.get('next_open') or 'Monday'}",
+                {"session": sess},
+            )
+        elif state == "friday_close":
+            await self.journal(
+                "info",
+                "friday_close",
+                "Friday close hour reached — existing positions are being wound down",
+                {"session": sess},
+            )
+        else:
+            await self.journal("info", "market_open", "Market session open", {"session": sess})
+
     def snapshot(self) -> dict[str, Any]:
         account = self.bridge.account.to_dict()
         try:
@@ -1460,6 +1529,7 @@ class Trader:
             "telegram": self.telegram.public() if getattr(self, "telegram", None) else {},
             "tape": self.bridge.tape_mode(),
             "backtest": dict(self.backtest_run or {"running": False, "mode": "idle"}),
+            "market": self.market_state(),
             "ts": utc_iso(),
         }
 
