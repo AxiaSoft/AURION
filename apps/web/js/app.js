@@ -1930,9 +1930,10 @@ const views = {
       </div>
     </div>`;
   },
-  async calendar() {
-    await Calendar.load();
-    return Calendar.view();
+  calendar() {
+    // The renderer assigns innerHTML synchronously, so an async view would
+    // print "[object Promise]".  Ship the shell and let bindView fill it.
+    return `<div class="cmd" id="cal-root"><div class="empty">${esc(I18N.t("telegram.loading"))}</div></div>`;
   },
   strategies() {
     const st = S.snap?.strategy || {};
@@ -2698,14 +2699,12 @@ function marketBanner() {
   const m = S.snap && S.snap.market;
   if (!m) return "";
   if (m.trading_allowed) {
-    if (m.state === "friday_close") {
-      return `<div class="notice warn"><i class="ico">${icon("cal")}</i><span>${esc(I18N.t("status.friday_close"))}</span></div>`;
-    }
-    return "";
+    if (m.state !== "friday_close") return "";
+    return `<div class="tape-banner is-closed">${esc(I18N.t("status.friday_close"))}</div>`;
   }
-  return `<div class="notice warn"><i class="ico">${icon("cal")}</i><span>${esc(
+  return `<div class="tape-banner is-closed">${esc(
     I18N.t("status.market_weekend", { day: I18N.t(`calendar.weekday_${m.weekday_key}`) }),
-  )}</span></div>`;
+  )}</div>`;
 }
 
 function tapeBanner() {
@@ -3165,7 +3164,7 @@ function bindView(view) {
     if (tf) tf.onchange = () => pickMarket(S.symbol || sym.value, tf.value);
   }
   if (view === "calendar") {
-    Calendar.bind(document.getElementById("stage"));
+    Calendar.mount($("cal-root"));
   }
   if (view === "intelligence") {
     // Per-chart AI slider — manual only, no timer anywhere.

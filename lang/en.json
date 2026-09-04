@@ -56,7 +56,8 @@
     "yes": "Yes",
     "token_from_source": "Read from the source",
     "token_missing": "No token in the source",
-    "token_source_hint": "The bot token lives only in a source file; the dashboard is a client of the bot and the bot controls live in the admin panel."
+    "token_source_hint": "The bot token lives only in a source file; the dashboard is a client of the bot and the bot controls live in the admin panel.",
+    "reload": "Refresh status"
   },
   "brand": {
     "name": "AURION",

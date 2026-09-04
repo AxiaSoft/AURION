@@ -33,7 +33,11 @@ const Calendar = {
   },
 
   _fmt(system, opts) {
-    const tag = `${this._loc()}-u-ca-${this.CA_TAG[system] || "gregory"}`;
+    // "-nu-latn" is load-bearing: under fa-IR / ar-SA Intl emits Persian and
+    // Arabic-Indic digits (۱۴۰۵), and \d in a JS regex only matches ASCII, so
+    // every parsed year/month/day came back as 0. Text output (month and
+    // weekday names) is still localised; only the numerals are forced Latin.
+    const tag = `${this._loc()}-u-ca-${this.CA_TAG[system] || "gregory"}-nu-latn`;
     return new Intl.DateTimeFormat(tag, { timeZone: "UTC", ...opts });
   },
 
@@ -343,6 +347,25 @@ const Calendar = {
 
   /* ---------------- wiring ---------------- */
 
+  /** Fetch the data, then paint. Safe to call after the shell is on screen. */
+  async mount(root) {
+    if (!root) return;
+    this.root = root;
+    await this.load();
+    // The user may have navigated away while the fetch was in flight.
+    if (!document.body.contains(root)) return;
+    root.innerHTML = this.view();
+    this.bind(root);
+  },
+
+  /** Re-render in place (month change, calendar-system change) without a refetch. */
+  rerender() {
+    const root = this.root;
+    if (!root || !document.body.contains(root)) return;
+    root.innerHTML = this.view();
+    this.bind(root);
+  },
+
   bind(root) {
     const $$ = (s) => root.querySelector(s);
     const grid = $$("#cal-grid");
@@ -355,7 +378,7 @@ const Calendar = {
       if (!btn) return;
       this.system = btn.dataset.sys;
       localStorage.setItem("aurion.cal.system", this.system);
-      UI.page("calendar", { keepScroll: false });
+      this.rerender();
     });
 
     const shift = (months) => {
@@ -385,7 +408,7 @@ const Calendar = {
       }
       this.anchor = ms;
       this.selected = this._dayKey(ms);
-      UI.page("calendar", { keepScroll: false });
+      this.rerender();
     };
 
     $$("#cal-prev")?.addEventListener("click", () => shift(-1));
@@ -394,7 +417,7 @@ const Calendar = {
       const now = new Date();
       this.anchor = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 12);
       this.selected = this._dayKey(Date.now());
-      UI.page("calendar", { keepScroll: false });
+      this.rerender();
     });
 
     grid?.addEventListener("click", (e) => {
