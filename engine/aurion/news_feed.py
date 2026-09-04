@@ -139,6 +139,10 @@ def refresh(force: bool = False) -> dict[str, Any]:
     """
     global _last_failure
     if not force and cache_age_seconds() < MIN_AGE_SECONDS and CACHE.exists():
+        # Must still point the config at the cache: a warm cache written by
+        # another process left news_calendar_path empty, so reload_news()
+        # returned 0 events while the CSV sat there with a full week in it.
+        ensure_configured()
         return {"ok": True, "count": count_cached(), "cached": True, "error": ""}
     if not force and _last_failure and (time.time() - _last_failure) < RETRY_AFTER_SECONDS:
         # Still serve whatever is on disk: skipping this left the calendar

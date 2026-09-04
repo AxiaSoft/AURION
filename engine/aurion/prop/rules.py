@@ -73,6 +73,16 @@ class PropEngine:
             except Exception:
                 return 0
         if not path:
+            # Last resort: read the feed cache directly rather than trusting a
+            # config value this process may have loaded before it was written.
+            try:
+                from .. import news_feed
+
+                if news_feed.CACHE.exists():
+                    path = str(news_feed.CACHE)
+            except Exception:
+                pass
+        if not path:
             return 0
         file = abspath(path)
         if not file.exists():
