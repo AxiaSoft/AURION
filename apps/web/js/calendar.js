@@ -264,8 +264,7 @@ const Calendar = {
             : ""
         }
       </div>
-    </div>
-    <div class="cal-tip" id="cal-tip" hidden></div>`;
+    </div>`;
   },
 
   _monthCount(cells) {
@@ -391,7 +390,16 @@ const Calendar = {
     const $$ = (s) => root.querySelector(s);
     const grid = $$("#cal-grid");
     const day = $$("#cal-day");
-    const tip = $$("#cal-tip");
+    // Reuse one tooltip, parented to <body> so no transformed ancestor can
+    // hijack its fixed positioning.
+    let tip = document.getElementById("cal-tip");
+    if (!tip) {
+      tip = document.createElement("div");
+      tip.className = "cal-tip";
+      tip.id = "cal-tip";
+      tip.hidden = true;
+      document.body.appendChild(tip);
+    }
     this.tip = tip;
 
     $$("#cal-sys")?.addEventListener("click", (e) => {
@@ -460,11 +468,16 @@ const Calendar = {
       tip.innerHTML = this._tipFor(key, this.byDay.get(key) || []);
       tip.hidden = false;
       const r = cell.getBoundingClientRect();
-      const w = tip.offsetWidth || 260;
+      const w = Math.min(tip.offsetWidth || 260, window.innerWidth - 16);
+      const h = tip.offsetHeight || 160;
+      tip.style.maxWidth = `${window.innerWidth - 16}px`;
       const left = Math.min(Math.max(8, r.left + r.width / 2 - w / 2), window.innerWidth - w - 8);
       tip.style.left = `${Math.max(8, left)}px`;
-      const below = r.bottom + 8;
-      tip.style.top = `${below + (tip.offsetHeight || 0) > window.innerHeight ? r.top - (tip.offsetHeight || 160) - 8 : below}px`;
+      // Prefer below the cell; flip above only when it would overflow, and
+      // never let it leave the viewport.
+      let top = r.bottom + 8;
+      if (top + h > window.innerHeight - 8) top = r.top - h - 8;
+      tip.style.top = `${Math.max(8, Math.min(top, window.innerHeight - h - 8))}px`;
     };
     const hideTip = () => {
       if (tip) tip.hidden = true;

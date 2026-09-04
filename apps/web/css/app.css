@@ -1577,3 +1577,21 @@ input[type=range]{width:100%;accent-color:var(--cyan);height:28px;cursor:pointer
 
 /* news-blackout notice on the command tab */
 .tape-banner.is-news{border-color:rgba(232,192,122,.5);color:var(--gold);background:rgba(232,192,122,.1)}
+
+/* v58 — calendar fixes: the day panel must not stretch the page, and the
+   tooltip lives on <body> so #stage's transform cannot move it. */
+.cal-side{align-self:start;position:sticky;top:8px}
+.cal-day{max-height:min(60vh,520px);overflow:auto;overscroll-behavior:contain}
+.cal-evs{gap:6px}
+.cal-ev{position:relative;padding-inline-start:12px;align-items:center}
+.cal-ev::before{content:"";position:absolute;inset-inline-start:0;top:6px;bottom:6px;width:3px;border-radius:2px;background:var(--faint)}
+.cal-ev.i-high::before{background:var(--bad)}
+.cal-ev.i-medium::before{background:var(--gold)}
+.cal-ev.i-low::before{background:var(--ok)}
+.cal-ev.i-holiday::before{background:var(--violet)}
+.cal-ev-imp{padding:1px 6px;border-radius:999px;background:rgba(255,255,255,.06)}
+.cal-ev.i-high .cal-ev-imp{color:var(--bad);background:rgba(255,107,138,.12)}
+.cal-ev.i-medium .cal-ev-imp{color:var(--gold);background:rgba(232,192,122,.12)}
+.cal-ev.i-low .cal-ev-imp{color:var(--ok);background:rgba(62,224,196,.12)}
+.cal-ev.i-holiday .cal-ev-imp{color:#c9c2ff;background:rgba(124,108,255,.14)}
+.cal-tip{max-width:min(320px,calc(100vw - 16px));max-height:min(60vh,420px);overflow:auto}
