@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>AURION — Backtest guide</title>
+  <style>
+    :root{
+      --bg:#06070b;--ink:#e8edf7;--muted:#8b93a7;--faint:#5b6274;
+      --line:rgba(255,255,255,.1);--cyan:#3ee0c4;--gold:#e8c07a;--violet:#7c6cff;
+    }
+    *{box-sizing:border-box}
+    html,body{margin:0;background:#06070b;color:var(--ink);font:16px/1.7 system-ui,Vazirmatn,Segoe UI,sans-serif}
+    html[dir="rtl"] body{line-height:1.85}
+    .aurora{position:fixed;inset:0;pointer-events:none;z-index:0;
+      background:radial-gradient(800px 420px at 12% -8%,rgba(124,108,255,.2),transparent 55%),
+                 radial-gradient(640px 380px at 92% 8%,rgba(62,224,196,.12),transparent 52%),#06070b}
+    .wrap{position:relative;z-index:1;max-width:880px;margin:0 auto;padding:28px 18px 80px}
+    header{display:flex;flex-wrap:wrap;gap:12px;align-items:center;margin-bottom:18px}
+    .mark{width:56px;height:56px;border-radius:16px;background:#05070c;object-fit:cover}
+    h1{margin:0;letter-spacing:.1em;font-weight:600;font-size:clamp(22px,4vw,30px)}
+    html[dir="rtl"] h1{letter-spacing:.02em}
+    .tag{margin:2px 0 0;color:var(--muted);font-size:14px}
+    .langs{margin-inline-start:auto;display:flex;gap:6px}
+    .langs button{border:1px solid var(--line);background:transparent;color:var(--muted);border-radius:999px;padding:7px 12px;cursor:pointer}
+    .langs button.on{background:var(--gold);color:#061014;border-color:transparent}
+    .links{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 18px}
+    .links a{color:var(--cyan);text-decoration:none;border:1px solid var(--line);border-radius:999px;padding:6px 12px;font-size:13px}
+    nav.toc{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 22px}
+    nav.toc a{color:var(--cyan);text-decoration:none;border:1px solid var(--line);border-radius:999px;padding:5px 10px;font-size:12px}
+    article{display:none}
+    article.on{display:block}
+    h2{margin:28px 0 10px;font-size:22px;font-weight:500;color:var(--gold)}
+    h3{margin:18px 0 8px;font-size:16px;color:var(--cyan);font-weight:500}
+    p,li{color:#d5dbe8}
+    .card{background:linear-gradient(180deg,rgba(18,20,30,.7),rgba(12,14,22,.5));border:1px solid var(--line);border-radius:18px;padding:14px 16px;margin:12px 0}
+    .warn{border-color:rgba(232,192,122,.4)}
+    .ok{border-color:rgba(62,224,196,.3)}
+    ol,ul{padding-inline-start:22px}
+    code{font-family:ui-monospace,Consolas,monospace;background:rgba(255,255,255,.06);padding:1px 6px;border-radius:6px;font-size:.92em}
+    table{width:100%;border-collapse:collapse;font-size:14px;margin:10px 0}
+    th,td{text-align:start;padding:8px;border-bottom:1px solid var(--line);vertical-align:top}
+    th{color:var(--faint);font-weight:500}
+    footer{margin-top:36px;color:var(--faint);font-size:13px}
+  </style>
+</head>
+<body>
+  <div class="aurora"></div>
+  <div class="wrap">
+    <header>
+      <img class="mark" src="/icons/mark.png" alt="" />
+      <div>
+        <h1>AURION</h1>
+        <p class="tag" id="hdr-tag"></p>
+      </div>
+      <div class="langs">
+        <button type="button" data-lang="fa" class="on">فارسی</button>
+        <button type="button" data-lang="en">EN</button>
+        <button type="button" data-lang="ar">العربية</button>
+      </div>
+    </header>
+    <div class="links">
+      <a href="/guide.html">AURION guide</a>
+      <a href="/guide-backtest.html">Backtest</a>
+    </div>
+    <nav class="toc" id="toc"></nav>
+
+    <article id="doc-fa" class="on" lang="fa" dir="rtl">
+      <h2 id="fa-0">۰. بک‌تست چیست و چه نیست</h2>
+      <p>بک‌تست AURION یعنی همان استراتژی زنده را روی <b>کندل‌های واقعی متاتریدر ۵</b> از اول تا آخر دوباره اجرا کند و بگوید اگر آن موقع معامله می‌کردید نتیجه چه می‌شد.</p>
+      <div class="card warn">
+        کندل ساختگی نمی‌سازد. اگر تاریخچهٔ واقعی از MT5 نرسد، اجرا را رد می‌کند و پیام خطا می‌دهد.
+        این آزمایش <b>سفارش زنده به بروکر نمی‌فرستد</b>. با معاملهٔ خودکار یکی نیست.
+      </div>
+
+      <h2 id="fa-1">۱. پیش‌نیاز</h2>
+      <ol>
+        <li>موتور و میز بالا باشند: <code>start-aurion.cmd</code> → <code>http://127.0.0.1:8080</code></li>
+        <li>وارد میز شده باشید.</li>
+        <li>MT5 وصل باشد: یا AurionBridge روی چارت، یا اتصال native در تنظیمات.</li>
+        <li>برای همان نماد/تایم‌فریم حداقل حدود <b>۸۵ کندل واقعی</b> در بافر باشد (۸۰ کندل گرم‌کردن + چند کندل معامله). بهتر است چند صد کندل باشد.</li>
+      </ol>
+      <p>اگر تاریخچه کم باشد خطا می‌گیرید: <code>not enough real historical bars from MT5 to backtest</code> یا <code>no real MT5 history available</code>.</p>
+
+      <h2 id="fa-2">۲. از روی میز — قدم‌به‌قدم</h2>
+      <ol>
+        <li>صفحهٔ <b>بازارها</b> را باز کنید.</li>
+        <li>نماد را انتخاب کنید (مثلاً XAUUSD) و تایم‌فریم (مثلاً M15).</li>
+        <li>صبر کنید چارت واقعی کشیده شود. این کار موتور را وادار می‌کند تاریخچه را از MT5/EA بکشد.</li>
+        <li>بروید <b>تاریخچه</b>.</li>
+        <li>دکمهٔ <b>بک‌تست</b> را بزنید (کنار خروجی اکسل و بایگانی).</li>
+        <li>کارت نتیجه بالای صفحه می‌آید: نرخ برد، فاکتور سود، شارپ، میانگین R:R، سود خالص.</li>
+      </ol>
+      <div class="card ok">نماد و تایم‌فریم همان چیزی است که آخر بار در بازارها انتخاب کردید. اگر خالی باشد، نماد فعال موتور استفاده می‌شود.</div>
+
+      <h3>کدام استراتژی تست می‌شود؟</h3>
+      <p>از میز، پیش‌فرض <code>ema_rsi</code> است مگر در درخواست استراتژی دیگری بفرستید. بک‌تست آن را با <code>enabled: false</code> بار می‌کند؛ یعنی ربات زنده را مسلح نمی‌کند.</p>
+      <p>پارامترهای مدل <b>نرمال / اسکلپینگ</b> روی نمونهٔ زنده‌اند. اگر می‌خواهید اسکلپ را بسنجید، اول در تنظیمات مدل اسکلپ را بگذارید، بازار M1 را لود کنید، بعد بک‌تست بگیرید.</p>
+
+      <h2 id="fa-3">۳. موتور پشت صحنه چه می‌کند</h2>
+      <ol>
+        <li>کندل‌ها را از بافر پل یا با <code>pull_candles</code> از MT5 می‌گیرد.</li>
+        <li>۸۰ کندل اول فقط گرم‌کردن است (EMA/RSI جا بیفتد)؛ معامله از ایندکس ۸۰ شروع می‌شود.</li>
+        <li>روی هر کندل بسته: اگر پوزیشن باز باشد و high/low به SL یا TP بخورد، خارج می‌شود.</li>
+        <li>هوش مصنوعی روی همان پنجره <code>infer</code> می‌شود و به استراتژی داده می‌شود.</li>
+        <li>استراتژی <code>on_candle</code> را صدا می‌زند. <code>buy</code>/<code>sell</code> فقط وقتی پوزیشنی نیست ورود می‌سازد. <code>close</code> پوزیشن را می‌بندد.</li>
+        <li>در یک لحظه فقط <b>یک پوزیشن</b> نگه می‌دارد.</li>
+        <li>آخرین پوزیشن باز در پایان روی قیمت close آخرین کندل بسته می‌شود (دلیل: <code>eod</code>).</li>
+      </ol>
+
+      <h3>سود و زیان چطور حساب می‌شود</h3>
+      <p><code>(قیمت خروج − ورود) × جهت × حجم × point_value</code></p>
+      <p>جهت خرید = ۱+ و فروش = ۱−. <code>point_value</code> پیش‌فرض <b>۱</b> است. یعنی این یک مقیاس نسبی است، نه لزوماً دلار قرارداد بروکر (برای طلا/شاخص ممکن است با حساب واقعی فرق کند). برای مقایسهٔ استراتژی‌ها روی یک نماد مفید است، نه برای گزارش مالیاتی.</p>
+
+      <h2 id="fa-4">۴. معنی عددها</h2>
+      <table>
+        <tr><th>شاخص</th><th>معنی</th></tr>
+        <tr><td>نرخ برد</td><td>درصد معاملات با سود مثبت</td></tr>
+        <tr><td>فاکتور سود</td><td>جمع سودها ÷ قدرمطلق جمع ضررها. بالای ۱ یعنی سود ناخالص بیشتر از ضرر ناخالص</td></tr>
+        <tr><td>شارپ</td><td>بازده تعدیل‌شده با نوسان (تقریب ۲۵۲ روز). هرچه بالاتر پایدارتر</td></tr>
+        <tr><td>میانگین R:R</td><td>سود هر معامله نسبت به فاصلهٔ ورود تا حد ضرر، اگر SL بوده باشد</td></tr>
+        <tr><td>سود خالص</td><td>جمع جبری همهٔ سود و ضررها روی همان مقیاس point_value</td></tr>
+        <tr><td>حداکثر دراودان</td><td>بزرگ‌ترین افت منحنی اکوئیتی از سقف، به درصد</td></tr>
+      </table>
+      <p>اگر هیچ معامله‌ای ساخته نشود همهٔ عددها صفر می‌مانند — معمولاً تاریخچه کم است یا استراتژی در آن دوره سیگنال نداده.</p>
+
+      <h2 id="fa-5">۵. از API (اختیاری)</h2>
+      <p>با توکن ورود:</p>
+      <p><code>POST /api/backtest</code></p>
+      <p>بدنهٔ نمونه:</p>
+      <p><code>{"symbol":"XAUUSD","timeframe":"M15","bars":1500,"initial_equity":10000,"strategy":{"kind":"builtin","name":"ema_rsi"}}</code></p>
+      <p>نام‌های builtin: <code>ema_rsi</code> ، <code>price_action</code> ، <code>atr_breakout</code> ، <code>scalp_impulse</code>.</p>
+      <p>اکوئیتی اولیه اگر خالی باشد از اکوئیتی حساب زنده می‌آید، وگرنه ۱۰۰۰۰.</p>
+
+      <h2 id="fa-6">۶. خطاهای رایج</h2>
+      <table>
+        <tr><th>پیام</th><th>کار</th></tr>
+        <tr><td>no real MT5 history</td><td>EA را روی همان نماد بچسبانید یا بازارها را باز کنید تا کندل بیاید</td></tr>
+        <tr><td>not enough real historical bars</td><td>تایم‌فریم بالاتر یا صبر برای تاریخچهٔ بیشتر؛ حداقل حدود ۸۵ کندل</td></tr>
+        <tr><td>engine offline</td><td><code>start-aurion.cmd</code> و سلامت <code>/api/health</code></td></tr>
+        <tr><td>نتیجه خالی / صفر معامله</td><td>استراتژی در آن نوار سیگنال نداده؛ مدل یا نماد را عوض کنید</td></tr>
+      </table>
+
+      <h2 id="fa-7">۷. محدودیت‌هایی که باید بدانید</h2>
+      <ul>
+        <li>اسپرد، کمیسیون و سواپ مدل نشده‌اند.</li>
+        <li>ورود روی close همان کندل است، نه تیک داخل کندل.</li>
+        <li>اگر در یک کندل هم SL و هم TP بخورد، اول SL فرض می‌شود (محافظه‌کارانه).</li>
+        <li>قوانین پراپ زنده روی این ریپلی اعمال نمی‌شوند.</li>
+        <li>نتیجهٔ گذشته تضمین آینده نیست.</li>
+      </ul>
+    </article>
+
+    <article id="doc-en" lang="en" dir="ltr">
+      <h2 id="en-0">0. What a backtest is — and is not</h2>
+      <p>AURION replays the <b>same live strategy</b> over <b>real MetaTrader 5 candles</b>. It never invents bars. If there is no history it refuses. It does <b>not</b> send live orders and it is not the same as arming Auto-trade.</p>
+
+      <h2 id="en-1">1. Prerequisites</h2>
+      <ol>
+        <li>Engine + desk up: <code>start-aurion.cmd</code> → <code>http://127.0.0.1:8080</code></li>
+        <li>Signed in.</li>
+        <li>MT5 reachable (AurionBridge on a chart, or native login in Settings).</li>
+        <li>At least ~<b>85 real bars</b> for that symbol/timeframe (80 warmup + a few trade bars). Hundreds is better.</li>
+      </ol>
+      <p>Too little history → <code>not enough real historical bars from MT5 to backtest</code> or <code>no real MT5 history available</code>.</p>
+
+      <h2 id="en-2">2. From the desk, step by step</h2>
+      <ol>
+        <li>Open <b>Markets</b>.</li>
+        <li>Pick the symbol (e.g. XAUUSD) and timeframe (e.g. M15).</li>
+        <li>Wait until real candles paint — that pulls history into the engine.</li>
+        <li>Go to <b>History</b>.</li>
+        <li>Click <b>Backtest</b> (next to Excel export and archive).</li>
+        <li>A result card appears at the top: win rate, profit factor, Sharpe, average R:R, net P/L.</li>
+      </ol>
+      <div class="card ok">The run uses the last Markets selection. If empty, the engine’s active symbol/timeframe is used.</div>
+      <h3>Which strategy?</h3>
+      <p>From the desk the default is <code>ema_rsi</code> unless the API body names another. It is loaded with <code>enabled: false</code>, so the live robot is not armed.</p>
+      <p>Normal / Scalping overlays apply to the live book. To score scalping: set Scalping in Settings, load M1 on Markets, then backtest.</p>
+
+      <h2 id="en-3">3. What the engine does</h2>
+      <ol>
+        <li>Takes bars from the bridge buffer, or <code>pull_candles</code> from MT5.</li>
+        <li>First 80 bars are warmup only. Trading starts at index 80.</li>
+        <li>On each closed bar, an open position is stopped out if that bar’s high/low tags SL or TP.</li>
+        <li>AI <code>infer</code>s on the window and is passed into the strategy.</li>
+        <li><code>on_candle</code>: <code>buy</code>/<code>sell</code> opens only if flat; <code>close</code> exits.</li>
+        <li>One position at a time.</li>
+        <li>A leftover position is closed on the last bar’s close (<code>eod</code>).</li>
+      </ol>
+      <h3>P/L formula</h3>
+      <p><code>(exit − entry) × direction × volume × point_value</code></p>
+      <p>Buy = +1, sell = −1. Default <code>point_value</code> is <b>1</b> — a relative scale, not necessarily your broker’s contract (gold/indices will differ from cash). Use it to compare strategies on one symbol, not as accounting.</p>
+
+      <h2 id="en-4">4. Reading the numbers</h2>
+      <table>
+        <tr><th>Metric</th><th>Meaning</th></tr>
+        <tr><td>Win rate</td><td>Share of trades with profit &gt; 0</td></tr>
+        <tr><td>Profit factor</td><td>Gross wins ÷ |gross losses|. Above 1 = more won than lost</td></tr>
+        <tr><td>Sharpe</td><td>Return vs volatility (√252). Higher is stabler</td></tr>
+        <tr><td>Average R:R</td><td>Profit ÷ stop distance when SL existed</td></tr>
+        <tr><td>Net P/L</td><td>Sum of all trade P/L on the point_value scale</td></tr>
+        <tr><td>Max drawdown</td><td>Worst peak-to-trough of the equity curve, %</td></tr>
+      </table>
+      <p>Zero trades → all zeros. Usually not enough bars, or the strategy never fired.</p>
+
+      <h2 id="en-5">5. API (optional)</h2>
+      <p><code>POST /api/backtest</code> with a desk token.</p>
+      <p><code>{"symbol":"XAUUSD","timeframe":"M15","bars":1500,"initial_equity":10000,"strategy":{"kind":"builtin","name":"ema_rsi"}}</code></p>
+      <p>Builtins: <code>ema_rsi</code>, <code>price_action</code>, <code>atr_breakout</code>, <code>scalp_impulse</code>.</p>
+      <p>If <code>initial_equity</code> is omitted: live account equity, else 10 000.</p>
+
+      <h2 id="en-6">6. Common errors</h2>
+      <table>
+        <tr><th>Message</th><th>Fix</th></tr>
+        <tr><td>no real MT5 history</td><td>Attach the EA on that symbol or open Markets so candles arrive</td></tr>
+        <tr><td>not enough real historical bars</td><td>Higher timeframe or wait; need ~85+ bars</td></tr>
+        <tr><td>engine offline</td><td><code>start-aurion.cmd</code> and check <code>/api/health</code></td></tr>
+        <tr><td>0 trades</td><td>No signal on that tape — change strategy or symbol</td></tr>
+      </table>
+
+      <h2 id="en-7">7. Limits you must know</h2>
+      <ul>
+        <li>Spread, commission and swap are not modelled.</li>
+        <li>Entries use that bar’s close, not intra-bar ticks.</li>
+        <li>If SL and TP both trade in one bar, SL is assumed first (conservative).</li>
+        <li>Live prop rules are not applied to the replay.</li>
+        <li>Past results are not a promise.</li>
+      </ul>
+    </article>
+
+    <article id="doc-ar" lang="ar" dir="rtl">
+      <h2 id="ar-0">٠. ما هو الاختبار الخلفي</h2>
+      <p>يعيد AURION تشغيل الاستراتيجية على <b>شموع ميتاتريدر الحقيقية</b> فقط. لا يخترع شموعاً. إن لم يصل تاريخ يرفض التشغيل. <b>لا يرسل أوامر حية</b> وليس تسليح التداول الآلي.</p>
+
+      <h2 id="ar-1">١. المتطلبات</h2>
+      <ol>
+        <li><code>start-aurion.cmd</code> ثم المكتب على <code>http://127.0.0.1:8080</code></li>
+        <li>تسجيل الدخول.</li>
+        <li>MT5 متصل (AurionBridge أو الدخول الأصلي).</li>
+        <li>نحو <b>٨٥ شمعة حقيقية</b> على الأقل لذلك الرمز/الإطار (٨٠ إحماء).</li>
+      </ol>
+
+      <h2 id="ar-2">٢. من المكتب خطوة بخطوة</h2>
+      <ol>
+        <li>افتح <b>الأسواق</b> واختر الرمز والإطار وانتظر الشموع.</li>
+        <li>اذهب إلى <b>السجل</b>.</li>
+        <li>اضغط <b>اختبار خلفي</b> بجانب تصدير إكسل.</li>
+        <li>تظهر بطاقة: نسبة الفوز، عامل الربح، شارب، متوسط العائد للمخاطرة، صافي الربح.</li>
+      </ol>
+      <div class="card ok">الاستراتيجية الافتراضية من المكتب هي <code>ema_rsi</code> دون تسليح الروبوت الحي.</div>
+
+      <h2 id="ar-3">٣. ماذا يفعل المحرك</h2>
+      <p>إحماء ٨٠ شمعة ثم على كل إغلاق: وقف/هدف من قمة/قاع الشمعة، ثم <code>on_candle</code>. مركز واحد فقط. المعادلة: <code>(خروج − دخول) × الاتجاه × الحجم × 1</code>. القيمة النقطية = ١ (مقياس نسبي وليس عقد الوسيط بالضرورة).</p>
+
+      <h2 id="ar-4">٤. قراءة الأرقام</h2>
+      <ul>
+        <li>نسبة الفوز — صفقات رابحة.</li>
+        <li>عامل الربح — أرباح ÷ |خسائر|. فوق ١ أفضل.</li>
+        <li>شارب — عائد مقابل التقلب.</li>
+        <li>صافي الربح — مجموع النتائج على مقياس النقطة.</li>
+      </ul>
+
+      <h2 id="ar-5">٥. واجهة برمجية</h2>
+      <p><code>POST /api/backtest</code> مع الرمز والوقت و<code>strategy.kind = builtin</code> و<code>name</code> مثل <code>ema_rsi</code>.</p>
+
+      <h2 id="ar-6">٦. أعطال شائعة</h2>
+      <p>لا تاريخ → أرفق المستشار أو افتح الأسواق. شموع قليلة → انتظر أو غيّر الإطار. صفر صفقات → لا إشارة على ذلك الشريط.</p>
+
+      <h2 id="ar-7">٧. حدود</h2>
+      <p>بلا سبريد/عمولة/سواب. الدخول على إغلاق الشمعة. إن لُمس الوقف والهدف معاً يُحتسب الوقف أولاً. قواعد البروب الحية لا تُطبَّق هنا. الماضي ليس وعداً.</p>
+    </article>
+
+    <footer>AURION backtest · real MT5 bars only · 2026-08-19</footer>
+  </div>
+  <script>
+    const toc = {
+      fa: [["#fa-0","۰ چیست"],["#fa-1","۱ پیش‌نیاز"],["#fa-2","۲ از میز"],["#fa-3","۳ موتور"],["#fa-4","۴ عددها"],["#fa-5","۵ API"],["#fa-6","۶ خطا"],["#fa-7","۷ محدودیت"]],
+      en: [["#en-0","0 What"],["#en-1","1 Prerequisites"],["#en-2","2 Desk"],["#en-3","3 Engine"],["#en-4","4 Metrics"],["#en-5","5 API"],["#en-6","6 Errors"],["#en-7","7 Limits"]],
+      ar: [["#ar-0","٠ ما هو"],["#ar-1","١ المتطلبات"],["#ar-2","٢ المكتب"],["#ar-3","٣ المحرك"],["#ar-4","٤ الأرقام"],["#ar-5","٥ API"],["#ar-6","٦ أعطال"],["#ar-7","٧ حدود"]],
+    };
+    const tags = {
+      fa: "راهنمای بک‌تست — فقط کندل واقعی متاتریدر",
+      en: "Backtest guide — real MT5 candles only",
+      ar: "دليل الاختبار الخلفي — شموع ميتاتريدر فقط",
+    };
+    function setLang(lang) {
+      document.documentElement.lang = lang;
+      document.documentElement.dir = lang === "en" ? "ltr" : "rtl";
+      document.querySelectorAll("article").forEach((a) => a.classList.toggle("on", a.id === "doc-" + lang));
+      document.querySelectorAll(".langs button").forEach((b) => b.classList.toggle("on", b.dataset.lang === lang));
+      document.getElementById("hdr-tag").textContent = tags[lang];
+      document.getElementById("toc").innerHTML = (toc[lang] || []).map(([h, l]) => `<a href="${h}">${l}</a>`).join("");
+      try { localStorage.setItem("aurion.guide.lang", lang); } catch (e) {}
+    }
+    document.querySelector(".langs").onclick = (e) => {
+      const b = e.target.closest("[data-lang]");
+      if (b) setLang(b.dataset.lang);
+    };
+    setLang(localStorage.getItem("aurion.guide.lang") || "fa");
+  </script>
+</body>
+</html>

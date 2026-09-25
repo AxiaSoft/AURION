@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>AURION Keys — فروشگاه لایسنس | Axiasoft</title>
+  <meta name="description" content="فروشگاه رسمی لایسنس AURION — پرداخت امن زرین‌پال، تحویل آنی کلید، پشتیبانی تیکت، بازیابی رایگان. ۱ ماهه تا ۱۲ ماهه." />
+  <meta property="og:title" content="AURION Keys — فروشگاه لایسنس" />
+  <meta property="og:description" content="پرداخت امن زرین‌پال، تحویل آنی، پشتیبانی واقعی" />
+  <meta name="theme-color" content="#070a10" />
+  <link rel="stylesheet" href="/style.css?v=full3" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='22' fill='%23070a10'/><path d='M30 30h40v10H40v10h30v10H40v20H30z' fill='%233ee0c4'/></svg>" />
+</head>
+<body>
+  <div class="bg-orb orb1"></div>
+  <div class="bg-orb orb2"></div>
+
+  <header class="hd">
+    <div class="wrap hd-row">
+      <div class="brand" id="brand">
+        <span class="mark"></span>
+        <div><b>AURION Keys</b><small id="site-tagline">Axiasoft license store — پرداخت امن</small></div>
+      </div>
+
+      <button class="hamburger" id="hamburger" aria-label="منو" aria-expanded="false">
+        <span></span><span></span><span></span>
+      </button>
+
+      <nav class="tabs" id="nav">
+        <button data-view="store" class="on">فروشگاه</button>
+        <button data-view="products">محصولات</button>
+        <button data-view="cart">سبد خرید <span class="badge" id="cart-badge" hidden>0</span></button>
+        <button data-view="support">پشتیبانی</button>
+        <button data-view="recover">بازیابی کلید</button>
+        <button data-view="account" id="nav-account" hidden>حساب من</button>
+        <button data-view="auth" id="nav-auth">ورود / ثبت‌نام</button>
+        <button id="nav-logout" hidden>خروج</button>
+      </nav>
+
+      <div class="hd-actions">
+        <button class="icon-btn" id="btn-wishlist" title="علاقه‌مندی‌ها" aria-label="علاقه‌مندی">♡ <span id="wish-badge" class="badge sm" hidden>0</span></button>
+        <button class="icon-btn" id="btn-search" title="جستجو">⌕</button>
+      </div>
+    </div>
+    <div class="search-bar" id="search-bar" hidden>
+      <div class="wrap">
+        <input id="search-input" placeholder="جستجو: نام پلن، ویژگی، شماره سفارش..." />
+        <button class="btn small ghost" id="search-close">بستن</button>
+      </div>
+    </div>
+    <div class="notice-bar" id="notice-bar" hidden></div>
+  </header>
+
+  <div class="mobile-menu" id="mobile-menu" hidden>
+    <div class="mm-head">
+      <b>منو</b>
+      <button class="btn small ghost" id="mm-close">✕</button>
+    </div>
+    <div class="mm-nav" id="mm-nav"></div>
+  </div>
+
+  <main class="wrap" id="app">
+    <div class="loading-screen">
+      <div class="spinner"></div>
+      <p>در حال بارگذاری فروشگاه...</p>
+    </div>
+  </main>
+
+  <footer class="ft">
+    <div class="wrap ft-grid">
+      <div>
+        <div class="brand"><span class="mark"></span><div><b>AURION Keys</b><small>© Axiasoft</small></div></div>
+        <p class="sub" style="margin-top:10px">فروشگاه رسمی لایسنس AURION — تحویل آنی، پرداخت امن زرین‌پال، پشتیبانی واقعی با تیکت و راه‌های تماس مستقیم. هر کلید یک‌بارمصرف و بایند به یک سیستم است، با تا ۳ بار بازیابی رایگان.</p>
+        <div class="trust-row">
+          <span class="trust">🔒 پرداخت امن</span>
+          <span class="trust">⚡ تحویل آنی</span>
+          <span class="trust">🎧 پشتیبانی تیکت</span>
+          <span class="trust">🛡️ ضمانت اصالت</span>
+        </div>
+      </div>
+      <div>
+        <h4>دسترسی سریع</h4>
+        <a data-view="store">فروشگاه</a>
+        <a data-view="products">محصولات</a>
+        <a data-view="cart">سبد خرید</a>
+        <a data-view="support">پشتیبانی</a>
+        <a data-view="recover">بازیابی کلید</a>
+      </div>
+      <div>
+        <h4>پشتیبانی</h4>
+        <div id="ft-contact" class="sub">در حال بارگذاری...</div>
+        <p class="sub" style="margin-top:8px"><a href="https://www.zarinpal.com" target="_blank" rel="noopener">زرین‌پال — درگاه امن</a></p>
+      </div>
+      <div>
+        <h4>قوانین</h4>
+        <p class="sub">هر کلید یک‌بارمصرف است و به یک سیستم بایند می‌شود. کپی/اشتراک کلید منجر به ابطال می‌شود (تشخیص خودکار heartbeat). تا ۳ بار بازیابی رایگان برای تعویض سیستم/نصب مجدد. پرداخت‌ها از طریق زرین‌پال؛ در صورت خطا تا ۷۲ ساعت بازگشت خودکار.</p>
+      </div>
+    </div>
+    <div class="wrap ft-bottom">
+      <span class="sub">© <span id="year"></span> Axiasoft — نمونه فروشگاه صدور کلید AURION — نسخه کامل فروشگاهی</span>
+      <span class="sub">پنل ادمین محرمانه: <code>/#/<span id="admin-hash-hint">owner-...</span></code> — فقط مالک</span>
+    </div>
+  </footer>
+
+  <div class="toast" id="toast" hidden></div>
+  <div class="modal" id="modal" hidden><div class="modal-card" id="modal-card"></div></div>
+
+  <script src="/app.js?v=full3"></script>
+</body>
+</html>

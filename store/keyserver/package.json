@@ -1,0 +1,20 @@
+{
+  "name": "aurion-keyserver",
+  "version": "1.0.0",
+  "private": true,
+  "description": "AURION license key issuer — plans, ZarinPal payments, recovery, desk activation API. Standalone app, not part of the trading desk.",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js",
+    "test": "node test/key-parity.mjs && node test/api-support.mjs",
+    "mint": "node src/mint.js"
+  },
+  "engines": { "node": ">=18" },
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "express": "^4.19.2",
+    "jsonwebtoken": "^9.0.2",
+    "nodemailer": "^6.9.14"
+  }
+}

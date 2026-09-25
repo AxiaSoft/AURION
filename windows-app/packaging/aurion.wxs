@@ -1,0 +1,1308 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+  <Product Id="*" Name="AURION" Language="1033" Version="1.0.0"
+           Manufacturer="Axiasoft" UpgradeCode="A1B2C3D4-5E6F-4A90-8B1D-7A0E15C90F01">
+    <Package InstallerVersion="300" Compressed="yes" InstallScope="perUser"
+             Description="AURION live MetaTrader 5 desk" InstallPrivileges="limited" />
+    <!-- Major upgrade: every installed AURION MSI sharing this UpgradeCode
+         and older than OR EQUAL to this package is removed before the new
+         files are written. AllowSameVersionUpgrades makes reinstalling the
+         exact same version a clean replace (repair) instead of piling up a
+         second entry; a NEWER installed version aborts with the message. -->
+    <MajorUpgrade AllowSameVersionUpgrades="yes" DowngradeErrorMessage="A newer AURION is already installed. Uninstall it first (Control Panel - Programs and Features), then run this setup again." />
+    <!-- The legacy electron-builder MSI (appId ai.aurion.desk) has its own
+         UpgradeCode; remove it too so only one AURION is ever installed. -->
+    <Upgrade Id="134B0455-22E8-5870-A900-62999683CF0B">
+      <UpgradeVersion Minimum="0.0.0" IncludeMinimum="yes" Maximum="99.0.0" IncludeMaximum="yes" OnlyDetect="no" Property="AURION_LEGACY_MSI" />
+    </Upgrade>
+    <Media Id="1" Cabinet="aurion.cab" EmbedCab="yes" />
+    <Icon Id="AppIcon" SourceFile="/home/user/AURION/windows-app/packaging/aurion.ico" />
+    <Property Id="ARPPRODUCTICON" Value="AppIcon" />
+    <!-- ARPNOMODIFY is already set by WixUI_InstallDir.
+         Control Panel / Settings policy: "Uninstall" runs the INSTALLED
+         uninstall-aurion.js (self-contained: engine uninstall first for the
+         real progress bar, then forced cleanup of the tree, registry and
+         ALL shortcuts - works even when the MSI registration/cache is
+         broken, which is exactly when the engine-only uninstall silently
+         does nothing). WindowsInstaller=0 makes Windows run that
+         UninstallString. "Change" (ModifyPath = MsiExec.exe /I + code)
+         opens the branded wizard (Repair / Remove with real events).
+         Repair is also available by running the setup MSI again. -->
+    <SetProperty Id="AurionArpFix" Value="&quot;[SystemFolder]reg.exe&quot; add &quot;HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall\[ProductCode]&quot; /v UninstallString /t REG_SZ /d &quot;wscript.exe \&quot;[INSTALLDIR]uninstall-aurion.js\&quot;&quot; /f" Before="AurionArpFix" Sequence="execute" />
+    <CustomAction Id="AurionArpFix" BinaryKey="WixCA" DllEntry="WixQuietExec" Execute="deferred" Impersonate="yes" Return="ignore" />
+    <SetProperty Id="AurionArpFix2" Value="&quot;[SystemFolder]reg.exe&quot; add &quot;HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall\[ProductCode]&quot; /v ModifyPath /t REG_SZ /d &quot;MsiExec.exe /I[ProductCode]&quot; /f" Before="AurionArpFix2" Sequence="execute" />
+    <CustomAction Id="AurionArpFix2" BinaryKey="WixCA" DllEntry="WixQuietExec" Execute="deferred" Impersonate="yes" Return="ignore" />
+    <SetProperty Id="AurionArpFix3" Value="&quot;[SystemFolder]reg.exe&quot; add &quot;HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall\[ProductCode]&quot; /v WindowsInstaller /t REG_DWORD /d 0 /f" Before="AurionArpFix3" Sequence="execute" />
+    <CustomAction Id="AurionArpFix3" BinaryKey="WixCA" DllEntry="WixQuietExec" Execute="deferred" Impersonate="yes" Return="ignore" />
+    <!-- Stale / duplicate "AURION" entries in Apps &amp; features (older
+         electron-builder MSI with a broken cache, the hand-made HKCU\...\AURION
+         key of earlier builds, ...). msiexec cannot run nested, so this CA
+         launches a detached cleaner (wscript) that runs once this install has
+         finished: it uninstalls every other AURION MSI product silently and
+         force-deletes registrations whose package is gone. Never touches
+         [ProductCode]. Log: %TEMP%\aurion-arp-clean.log -->
+    <Binary Id="AurionArpCleanJs" SourceFile="/home/user/AURION/windows-app/packaging/wix/arp-clean.js" />
+    <CustomAction Id="AurionArpClean" BinaryKey="AurionArpCleanJs" JScriptCall="" Execute="immediate" Impersonate="yes" Return="ignore" />
+    <Binary Id="AurionArpRemoveOldJs" SourceFile="/home/user/AURION/windows-app/packaging/wix/arp-remove-old.js" />
+    <CustomAction Id="AurionArpRemoveOld" BinaryKey="AurionArpRemoveOldJs" JScriptCall="" Execute="immediate" Impersonate="yes" Return="ignore" />
+    <Binary Id="AurionVerCmpVbs" SourceFile="/home/user/AURION/windows-app/packaging/wix/ver-cmp.vbs" />
+    <CustomAction Id="AurionVerCmp" BinaryKey="AurionVerCmpVbs" VBScriptCall="" Execute="immediate" Return="ignore" />
+    <Property Id="AURION_KEEPDATA" Value="1" Secure="yes" />
+    <Property Id="AURION_REMOVING" Secure="yes" />
+    <Property Id="AURION_MODEPICK" Secure="yes" />
+    <!-- Kill a running AURION before files are replaced/removed; otherwise
+         msiexec shows the "files in use" page or leaves a half-updated tree. -->
+    <SetProperty Id="AurionKillApp" Value="&quot;[SystemFolder]taskkill.exe&quot; /F /T /IM AURION.exe" Before="AurionKillApp" Sequence="execute" />
+    <CustomAction Id="AurionKillApp" BinaryKey="WixCA" DllEntry="WixQuietExec" Execute="immediate" Return="ignore" />
+    <!-- Repair/Remove can fail with "cannot write &lt;file&gt;" while the app
+         or its python/node children (started from the install dir) still
+         hold handles. taskkill only knows image names, so also kill every
+         process whose executable lives under [INSTALLDIR], then wait a
+         moment for Windows to release the handles. -->
+    <SetProperty Id="AurionKillApp2" Value="&quot;[SystemFolder]WindowsPowerShell\v1.0\powershell.exe&quot; -NoProfile -ExecutionPolicy Bypass -Command &quot;Get-Process | Where-Object { $_.Path -like '[INSTALLDIR]*' } | Stop-Process -Force&quot;" Before="AurionKillApp2" Sequence="execute" />
+    <CustomAction Id="AurionKillApp2" BinaryKey="WixCA" DllEntry="WixQuietExec" Execute="immediate" Return="ignore" />
+    <SetProperty Id="AurionKillWait" Value="&quot;[SystemFolder]cmd.exe&quot; /c ping -n 3 127.0.0.1 &gt; nul" Before="AurionKillWait" Sequence="execute" />
+    <CustomAction Id="AurionKillWait" BinaryKey="WixCA" DllEntry="WixQuietExec" Execute="immediate" Return="ignore" />
+    <Property Id="WIXUI_INSTALLDIR" Value="INSTALLDIR" />
+
+    <Property Id="WIXUI_EXITDIALOGOPTIONALCHECKBOXTEXT" Value="Start AURION now" />
+    <Property Id="WIXUI_EXITDIALOGOPTIONALCHECKBOX" Value="1" />
+    <Property Id="WixShellExecTarget" Value="[#LaunchVbs]" />
+    <CustomAction Id="AurionLaunchApp" BinaryKey="WixCA" DllEntry="WixShellExec" Impersonate="yes" />
+    <WixVariable Id="WixUIBannerBmp" Value="wix\banner.bmp" />
+    <WixVariable Id="WixUIExclamationIco" Value="wix\aurion-small.ico" />
+    <WixVariable Id="WixUIInfoIco" Value="wix\aurion-small.ico" />
+    <WixVariable Id="WixUINewIco" Value="wix\aurion-small.ico" />
+    <WixVariable Id="WixUIUpIco" Value="wix\aurion-small.ico" />
+    <WixVariable Id="WixUIDialogBmp" Value="wix\dialog.bmp" />
+
+    <!-- ============================ detection ============================ -->
+    <!-- Previous install of this MSI (registry key written by Shortcuts). -->
+    <!-- AURION_PREV = full path of start-aurion.cmd inside the registered
+         InstallPath; empty when the key is stale (folder gone / manually deleted). -->
+    <Property Id="AURION_PREV" Secure="yes">
+      <RegistrySearch Id="AurionInstalledSearch" Root="HKCU" Key="Software\AURION" Name="InstallPath" Type="directory">
+        <FileSearch Id="AurionPrevStarter" Name="start-aurion.cmd" />
+      </RegistrySearch>
+    </Property>
+    <Property Id="AURION_PREV_PATH" Secure="yes">
+      <RegistrySearch Id="AurionPrevPathSearch" Root="HKCU" Key="Software\AURION" Name="InstallPath" Type="raw" />
+    </Property>
+    <Property Id="AURION_PREV_VERSION" Secure="yes">
+      <RegistrySearch Id="AurionPrevVersionSearch" Root="HKCU" Key="Software\AURION" Name="Version" Type="raw" />
+    </Property>
+    <!-- Legacy electron-builder install (AURION.exe in its folder). -->
+    <Property Id="AURION_LEGACY" Secure="yes">
+      <DirectorySearch Id="AurionLegacyLocalDir" Path="[LocalAppDataFolder]Programs\AURION" Depth="0">
+        <FileSearch Id="AurionLegacyLocal" Name="AURION.exe" />
+      </DirectorySearch>
+      <DirectorySearch Id="AurionLegacyPFDir" Path="[ProgramFilesFolder]AURION" Depth="0">
+        <FileSearch Id="AurionLegacyPF" Name="AURION.exe" />
+      </DirectorySearch>
+    </Property>
+
+    <!-- ========================== custom actions ========================= -->
+    <!-- Carry user state (data/ incl. the license, user config) to the new
+         install location when the location changes or the legacy install is
+         replaced. Runs in the execute sequence once INSTALLDIR is final. -->
+    <Binary Id="AurionMigrateJs" SourceFile="/home/user/AURION/windows-app/packaging/wix/migrate-state.js" />
+    <CustomAction Id="AurionMigrateState" BinaryKey="AurionMigrateJs" JScriptCall="" Execute="immediate" Return="ignore" />
+    <Binary Id="AurionWipeJs" SourceFile="/home/user/AURION/windows-app/packaging/wix/wipe-state.js" />
+    <CustomAction Id="AurionWipeState" BinaryKey="AurionWipeJs" JScriptCall="" Execute="immediate" Return="ignore" />
+    <InstallExecuteSequence>
+      <Custom Action="AurionKillApp" Before="InstallValidate">Installed OR REMOVE</Custom>
+      <Custom Action="AurionKillApp2" After="AurionKillApp">Installed OR REMOVE</Custom>
+      <Custom Action="AurionKillWait" After="AurionKillApp2">Installed OR REMOVE</Custom>
+      <Custom Action="AurionMigrateState" After="CostFinalize">NOT Installed AND ((AURION_PREV_PATH AND AURION_PREV_PATH&lt;&gt;INSTALLDIR) OR AURION_LEGACY)</Custom>
+      <Custom Action="AurionWipeState" After="InstallValidate">REMOVE="ALL" AND NOT UPGRADINGPRODUCTCODE AND AURION_KEEPDATA&lt;&gt;"1"</Custom>
+      <Custom Action="AurionArpFix" After="RegisterProduct">NOT REMOVE</Custom>
+      <Custom Action="AurionArpFix2" After="AurionArpFix">NOT REMOVE</Custom>
+      <Custom Action="AurionArpFix3" After="AurionArpFix2">NOT REMOVE</Custom>
+      <Custom Action="AurionArpClean" After="InstallFinalize">1</Custom>
+    </InstallExecuteSequence>
+
+    <!-- Default to %LOCALAPPDATA%\Programs\AURION (per user, writable tree) -->
+    <Directory Id="TARGETDIR" Name="SourceDir">
+      <Directory Id="LocalAppDataFolder">
+        <Directory Id="ProgramsDir" Name="Programs">
+          <Directory Id="INSTALLDIR" Name="AURION">
+              <Component Id="C0001" Guid="8BE079BC-9223-529B-9DD9-061AFF2896F4">
+                <File Id="F0001" Name=".gitignore" Source="/home/user/AURION/.gitignore" KeyPath="yes" />
+              </Component>
+              <Component Id="C0002" Guid="B56D8C97-0E0E-5233-851B-2BA97B337155">
+                <File Id="F0002" Name="AURION-BACKTEST-GUIDE.html" Source="/home/user/AURION/AURION-BACKTEST-GUIDE.html" KeyPath="yes" />
+              </Component>
+              <Component Id="C0003" Guid="E8883FFF-ECCE-5D1F-9FF6-B255038BE667">
+                <File Id="F0003" Name="AURION-GUIDE.html" Source="/home/user/AURION/AURION-GUIDE.html" KeyPath="yes" />
+              </Component>
+              <Component Id="C0004" Guid="A25E229E-8EEF-54AC-BF10-9D4B2C6960BA">
+                <File Id="F0004" Name="OWNER.txt" Source="/home/user/AURION/OWNER.txt" KeyPath="yes" />
+              </Component>
+              <Component Id="C0005" Guid="636F6144-FE52-5219-A7E8-AD8921B968C8">
+                <File Id="F0005" Name="README.md" Source="/home/user/AURION/README.md" KeyPath="yes" />
+              </Component>
+              <Component Id="C0006" Guid="7F4C37FC-F08D-597C-AB9C-3430FD946053">
+                <File Id="F0006" Name="SECURITY-FIXES.md" Source="/home/user/AURION/SECURITY-FIXES.md" KeyPath="yes" />
+              </Component>
+              <Component Id="C0007" Guid="67D52F96-C6FC-5B98-BD75-C38D2A17719B">
+                <File Id="F0007" Name="START-WINDOWS.txt" Source="/home/user/AURION/START-WINDOWS.txt" KeyPath="yes" />
+              </Component>
+              <Component Id="C0008" Guid="3B21D16F-8CA3-5779-9713-DD730C460D1A">
+                <File Id="F0008" Name="package.json" Source="/home/user/AURION/package.json" KeyPath="yes" />
+              </Component>
+              <Component Id="C0009" Guid="9006582F-1792-5863-9E22-169A0A368CE0">
+                <File Id="F0009" Name="start-aurion.cmd" Source="/home/user/AURION/start-aurion.cmd" KeyPath="yes" />
+              </Component>
+              <Component Id="C0010" Guid="2C5CB6B7-BE4E-5946-BB95-1A0D012EBCF7">
+                <File Id="F0010" Name="start-desk.cmd" Source="/home/user/AURION/start-desk.cmd" KeyPath="yes" />
+              </Component>
+              <Component Id="C0011" Guid="AC53256A-5AF4-55A7-8293-EA2B3A318E52">
+                <File Id="F0011" Name="start-engine.cmd" Source="/home/user/AURION/start-engine.cmd" KeyPath="yes" />
+              </Component>
+              <Component Id="C0012" Guid="DABB01CB-8E15-52FD-A9D2-5D22265E64C2">
+                <File Id="F0012" Name="stop-aurion.cmd" Source="/home/user/AURION/stop-aurion.cmd" KeyPath="yes" />
+              </Component>
+              <Directory Id="D0001" Name="admin">
+                <Component Id="C0013" Guid="1C3C119A-4BBD-53B8-8A80-E6CE50D64987">
+                  <File Id="F0013" Name="ADMIN-KEY-GUIDE.md" Source="/home/user/AURION/admin/ADMIN-KEY-GUIDE.md" KeyPath="yes" />
+                </Component>
+                <Component Id="C0014" Guid="19348CCD-A4EE-543F-BD35-757CD2549883">
+                  <File Id="F0014" Name="README.md" Source="/home/user/AURION/admin/README.md" KeyPath="yes" />
+                </Component>
+                <Component Id="C0015" Guid="8B6C48B7-8726-5257-8E39-2A9372740F1F">
+                  <File Id="F0015" Name="UPDATE-PANEL.md" Source="/home/user/AURION/admin/UPDATE-PANEL.md" KeyPath="yes" />
+                </Component>
+                <Component Id="C0016" Guid="264E812C-9607-5F17-9330-6CF12B9BB8A9">
+                  <File Id="F0016" Name="issue-license.py" Source="/home/user/AURION/admin/issue-license.py" KeyPath="yes" />
+                </Component>
+                <Component Id="C0017" Guid="64E3C320-9DA0-5BEE-B266-CE6A273FB2E8">
+                  <File Id="F0017" Name="mint-key.cmd" Source="/home/user/AURION/admin/mint-key.cmd" KeyPath="yes" />
+                </Component>
+                <Component Id="C0018" Guid="0F99A052-F981-5DDF-A5A3-BC24225AF733">
+                  <File Id="F0018" Name="mint-key.ps1" Source="/home/user/AURION/admin/mint-key.ps1" KeyPath="yes" />
+                </Component>
+                <Component Id="C0019" Guid="95915946-2927-53ED-AFF2-BCE877468A3D">
+                  <File Id="F0019" Name="mint_local.py" Source="/home/user/AURION/admin/mint_local.py" KeyPath="yes" />
+                </Component>
+                <Component Id="C0020" Guid="6264155B-34EE-5185-A0D4-6DEB6703150D">
+                  <File Id="F0020" Name="start-telegram-panel.cmd" Source="/home/user/AURION/admin/start-telegram-panel.cmd" KeyPath="yes" />
+                </Component>
+                <Component Id="C0021" Guid="EED16294-7797-5406-890C-46D3AE22AC06">
+                  <File Id="F0021" Name="start-telegram-panel.sh" Source="/home/user/AURION/admin/start-telegram-panel.sh" KeyPath="yes" />
+                </Component>
+                <Component Id="C0022" Guid="556D9D57-FB62-53C1-910D-B052BAEEF11E">
+                  <File Id="F0022" Name="start-update-server.cmd" Source="/home/user/AURION/admin/start-update-server.cmd" KeyPath="yes" />
+                </Component>
+                <Component Id="C0023" Guid="6C04B655-867F-57C2-B06B-3A35ABD7DB48">
+                  <File Id="F0023" Name="start-update-server.sh" Source="/home/user/AURION/admin/start-update-server.sh" KeyPath="yes" />
+                </Component>
+                <Directory Id="D0002" Name="telegram-panel">
+                  <Component Id="C0024" Guid="9542A89B-2C42-5FCD-ACFF-ABB1A72B252A">
+                    <File Id="F0024" Name="index.html" Source="/home/user/AURION/admin/telegram-panel/index.html" KeyPath="yes" />
+                  </Component>
+                  <Component Id="C0025" Guid="7A268270-0067-5FF7-BEA8-AEA276BA09C0">
+                    <File Id="F0025" Name="server.js" Source="/home/user/AURION/admin/telegram-panel/server.js" KeyPath="yes" />
+                  </Component>
+                </Directory>
+                <Directory Id="D0003" Name="update-server">
+                  <Component Id="C0026" Guid="113F9616-1AFD-5989-AAE0-AF43175BB09F">
+                    <File Id="F0026" Name=".env.example" Source="/home/user/AURION/admin/update-server/.env.example" KeyPath="yes" />
+                  </Component>
+                  <Component Id="C0027" Guid="E7BEBB22-B0BC-5714-A9BA-2C4D1706CA08">
+                    <File Id="F0027" Name="package.json" Source="/home/user/AURION/admin/update-server/package.json" KeyPath="yes" />
+                  </Component>
+                  <Directory Id="D0004" Name="src">
+                    <Component Id="C0028" Guid="148DA826-DB79-52B2-8C47-C9B565EF6487">
+                      <File Id="F0028" Name="index.js" Source="/home/user/AURION/admin/update-server/src/index.js" KeyPath="yes" />
+                    </Component>
+                    <Component Id="C0029" Guid="42721A86-8F4B-5969-8A9C-186634EC6FD4">
+                      <File Id="F0029" Name="store.js" Source="/home/user/AURION/admin/update-server/src/store.js" KeyPath="yes" />
+                    </Component>
+                  </Directory>
+                </Directory>
+              </Directory>
+              <Directory Id="D0005" Name="apps">
+                <Directory Id="D0006" Name="web">
+                  <Component Id="C0030" Guid="705DF20F-FCC2-569A-8516-E2CB4A40D08C">
+                    <File Id="F0030" Name="guide-backtest.html" Source="/home/user/AURION/apps/web/guide-backtest.html" KeyPath="yes" />
+                  </Component>
+                  <Component Id="C0031" Guid="56432982-DE25-5C9A-BEA2-211C9A5C23DE">
+                    <File Id="F0031" Name="guide-install.html" Source="/home/user/AURION/apps/web/guide-install.html" KeyPath="yes" />
+                  </Component>
+                  <Component Id="C0032" Guid="E7C252F1-9183-58A7-9692-796DED5B5106">
+                    <File Id="F0032" Name="guide.html" Source="/home/user/AURION/apps/web/guide.html" KeyPath="yes" />
+                  </Component>
+                  <Component Id="C0033" Guid="17DE079B-BD0E-5373-8807-0B7D9B2467BD">
+                    <File Id="F0033" Name="index.html" Source="/home/user/AURION/apps/web/index.html" KeyPath="yes" />
+                  </Component>
+                  <Component Id="C0034" Guid="A655CE7B-E4DC-5326-ABF4-7425AFF9B795">
+                    <File Id="F0034" Name="manifest.json" Source="/home/user/AURION/apps/web/manifest.json" KeyPath="yes" />
+                  </Component>
+                  <Component Id="C0035" Guid="9D694D85-D981-5B50-A082-3AD6E0A49D39">
+                    <File Id="F0035" Name="sw.js" Source="/home/user/AURION/apps/web/sw.js" KeyPath="yes" />
+                  </Component>
+                  <Directory Id="D0007" Name="assets">
+                    <Component Id="C0036" Guid="1983696F-32B3-54F6-B077-692B92D75160">
+                      <File Id="F0036" Name="axiasoft-logo.png" Source="/home/user/AURION/apps/web/assets/axiasoft-logo.png" KeyPath="yes" />
+                    </Component>
+                    <Component Id="C0037" Guid="CD65F867-0AE9-5936-8170-1D48A18A3DD1">
+                      <File Id="F0037" Name="login-orb-light.png" Source="/home/user/AURION/apps/web/assets/login-orb-light.png" KeyPath="yes" />
+                    </Component>
+                    <Component Id="C0038" Guid="CD57A6F9-EB82-5932-8626-2EC02DEE53ED">
+                      <File Id="F0038" Name="login-orb.png" Source="/home/user/AURION/apps/web/assets/login-orb.png" KeyPath="yes" />
+                    </Component>
+                    <Directory Id="D0008" Name="welcome">
+                      <Component Id="C0039" Guid="D69902B4-F9D3-550E-BBFA-F8E65F51AADF">
+                        <File Id="F0039" Name="README.txt" Source="/home/user/AURION/apps/web/assets/welcome/README.txt" KeyPath="yes" />
+                      </Component>
+                      <Component Id="C0040" Guid="EAEDC9E1-331D-592F-94CF-D74965519220">
+                        <File Id="F0040" Name="desktop.mp4" Source="/home/user/AURION/apps/web/assets/welcome/desktop.mp4" KeyPath="yes" />
+                      </Component>
+                      <Component Id="C0041" Guid="D7707BAF-5AEE-5B1A-8D84-210957DC509E">
+                        <File Id="F0041" Name="mobile.mp4" Source="/home/user/AURION/apps/web/assets/welcome/mobile.mp4" KeyPath="yes" />
+                      </Component>
+                    </Directory>
+                  </Directory>
+                  <Directory Id="D0009" Name="css">
+                    <Component Id="C0042" Guid="FB0523D4-B38C-506C-BD41-D715F62C9B6A">
+                      <File Id="F0042" Name="app.css" Source="/home/user/AURION/apps/web/css/app.css" KeyPath="yes" />
+                    </Component>
+                  </Directory>
+                  <Directory Id="D0010" Name="fonts">
+                    <Component Id="C0043" Guid="3765A680-F448-59F3-96DB-7B6794E5CF72">
+                      <File Id="F0043" Name="ibm-plex-mono-500.woff2" Source="/home/user/AURION/apps/web/fonts/ibm-plex-mono-500.woff2" KeyPath="yes" />
+                    </Component>
+                    <Component Id="C0044" Guid="1EBA3D29-AD2C-59EB-89FB-6A9DBBFFECEC">
+                      <File Id="F0044" Name="ibm-plex-mono.woff2" Source="/home/user/AURION/apps/web/fonts/ibm-plex-mono.woff2" KeyPath="yes" />
+                    </Component>
+                    <Component Id="C0045" Guid="A605F176-0B05-5178-AB6C-F677D6B8E91B">
+                      <File Id="F0045" Name="outfit-latin-500.woff2" Source="/home/user/AURION/apps/web/fonts/outfit-latin-500.woff2" KeyPath="yes" />
+                    </Component>
+                    <Component Id="C0046" Guid="B8FB590E-9336-5B70-8CD1-D1BB96A868F8">
+                      <File Id="F0046" Name="outfit-latin-600.woff2" Source="/home/user/AURION/apps/web/fonts/outfit-latin-600.woff2" KeyPath="yes" />
+                    </Component>
+                    <Component Id="C0047" Guid="1949C35E-6D84-5A16-8721-DF8B1980CD97">
+                      <File Id="F0047" Name="outfit-latin.woff2" Source="/home/user/AURION/apps/web/fonts/outfit-latin.woff2" KeyPath="yes" />
+                    </Component>
+                    <Component Id="C0048" Guid="940AB13F-2D57-598F-9DBA-0660765D1DA0">
+                      <File Id="F0048" Name="vazirmatn-400.woff2" Source="/home/user/AURION/apps/web/fonts/vazirmatn-400.woff2" KeyPath="yes" />
+                    </Component>
+                    <Component Id="C0049" Guid="4033852C-F140-5C5E-9D84-4C029B36918B">
+                      <File Id="F0049" Name="vazirmatn-500.woff2" Source="/home/user/AURION/apps/web/fonts/vazirmatn-500.woff2" KeyPath="yes" />
+                    </Component>
+                    <Component Id="C0050" Guid="E84B79DE-84B5-5FB1-BC19-DF798E1A83D5">
+                      <File Id="F0050" Name="vazirmatn-600.woff2" Source="/home/user/AURION/apps/web/fonts/vazirmatn-600.woff2" KeyPath="yes" />
+                    </Component>
+                    <Component Id="C0051" Guid="116CB0B4-BCD7-569D-9AD5-CD320EB14A96">
+                      <File Id="F0051" Name="vazirmatn-latin-400.woff2" Source="/home/user/AURION/apps/web/fonts/vazirmatn-latin-400.woff2" KeyPath="yes" />
+                    </Component>
+                    <Component Id="C0052" Guid="BA022C06-36D6-5EC4-A84A-F9A43A3F9AAE">
+                      <File Id="F0052" Name="vazirmatn-latin-500.woff2" Source="/home/user/AURION/apps/web/fonts/vazirmatn-latin-500.woff2" KeyPath="yes" />
+                    </Component>
+                    <Component Id="C0053" Guid="63BB11E4-6D08-5227-81D5-4584F8D4B179">
+                      <File Id="F0053" Name="vazirmatn-latin.woff2" Source="/home/user/AURION/apps/web/fonts/vazirmatn-latin.woff2" KeyPath="yes" />
+                    </Component>
+                    <Component Id="C0054" Guid="4D8850D8-85BB-562F-BA16-DA90AE91A35C">
+                      <File Id="F0054" Name="vazirmatn.woff2" Source="/home/user/AURION/apps/web/fonts/vazirmatn.woff2" KeyPath="yes" />
+                    </Component>
+                  </Directory>
+                  <Directory Id="D0011" Name="icons">
+                    <Component Id="C0055" Guid="61310BEC-AAFE-50DE-9D72-5B9CDBC1FA84">
+                      <File Id="F0055" Name="mark.png" Source="/home/user/AURION/apps/web/icons/mark.png" KeyPath="yes" />
+                    </Component>
+                  </Directory>
+                  <Directory Id="D0012" Name="js">
+                    <Component Id="C0056" Guid="65CC65EC-53A8-572A-A001-1815E9D58B84">
+                      <File Id="F0056" Name="api.js" Source="/home/user/AURION/apps/web/js/api.js" KeyPath="yes" />
+                    </Component>
+                    <Component Id="C0057" Guid="6AF3EE43-7B7B-53D6-83C4-2F72AA50B00D">
+                      <File Id="F0057" Name="app.js" Source="/home/user/AURION/apps/web/js/app.js" KeyPath="yes" />
+                    </Component>
+                    <Component Id="C0058" Guid="29E28E3E-E0AF-5F06-915C-4E189B6F48CC">
+                      <File Id="F0058" Name="calendar.js" Source="/home/user/AURION/apps/web/js/calendar.js" KeyPath="yes" />
+                    </Component>
+                    <Component Id="C0059" Guid="02DC2118-D099-5222-823E-0E9F960D0152">
+                      <File Id="F0059" Name="charts.js" Source="/home/user/AURION/apps/web/js/charts.js" KeyPath="yes" />
+                    </Component>
+                    <Component Id="C0060" Guid="1AFED9E6-E1AA-588A-9C9E-DFAF053B00DA">
+                      <File Id="F0060" Name="i18n.js" Source="/home/user/AURION/apps/web/js/i18n.js" KeyPath="yes" />
+                    </Component>
+                  </Directory>
+                </Directory>
+              </Directory>
+              <Directory Id="D0013" Name="backend">
+                <Component Id="C0061" Guid="8AC6436E-08A8-5432-919D-649D4ECC2780">
+                  <File Id="F0061" Name="package-lock.json" Source="/home/user/AURION/backend/package-lock.json" KeyPath="yes" />
+                </Component>
+                <Component Id="C0062" Guid="A8772C9F-68E9-5158-993A-8C432DD11670">
+                  <File Id="F0062" Name="package.json" Source="/home/user/AURION/backend/package.json" KeyPath="yes" />
+                </Component>
+                <Directory Id="D0014" Name="src">
+                  <Component Id="C0063" Guid="D57A367B-F954-574B-96F9-9B5F96AB597A">
+                    <File Id="F0063" Name="access_db.py" Source="/home/user/AURION/backend/src/access_db.py" KeyPath="yes" />
+                  </Component>
+                  <Component Id="C0064" Guid="33AF109A-E10C-5F00-A682-F25252564FB0">
+                    <File Id="F0064" Name="auth.js" Source="/home/user/AURION/backend/src/auth.js" KeyPath="yes" />
+                  </Component>
+                  <Component Id="C0065" Guid="354CC048-8329-5555-86D7-6B1639FD8DF6">
+                    <File Id="F0065" Name="billing.js" Source="/home/user/AURION/backend/src/billing.js" KeyPath="yes" />
+                  </Component>
+                  <Component Id="C0066" Guid="A10BADB9-1289-5653-B391-483738A85EA7">
+                    <File Id="F0066" Name="config.js" Source="/home/user/AURION/backend/src/config.js" KeyPath="yes" />
+                  </Component>
+                  <Component Id="C0067" Guid="A678D7D4-D7DB-5421-B37C-0B9BEA83B64E">
+                    <File Id="F0067" Name="db.js" Source="/home/user/AURION/backend/src/db.js" KeyPath="yes" />
+                  </Component>
+                  <Component Id="C0068" Guid="BB4ACBEE-160B-58E0-BD40-7B17C6908618">
+                    <File Id="F0068" Name="engine.js" Source="/home/user/AURION/backend/src/engine.js" KeyPath="yes" />
+                  </Component>
+                  <Component Id="C0069" Guid="DB21E2A6-F026-54DB-ABEF-8ED7538F732F">
+                    <File Id="F0069" Name="excel.js" Source="/home/user/AURION/backend/src/excel.js" KeyPath="yes" />
+                  </Component>
+                  <Component Id="C0070" Guid="08812263-7AEA-5374-B46B-AE5FDE279962">
+                    <File Id="F0070" Name="host.js" Source="/home/user/AURION/backend/src/host.js" KeyPath="yes" />
+                  </Component>
+                  <Component Id="C0071" Guid="0B0A4EF5-5EFF-5654-B3AD-03F511C058B6">
+                    <File Id="F0071" Name="i18n.js" Source="/home/user/AURION/backend/src/i18n.js" KeyPath="yes" />
+                  </Component>
+                  <Component Id="C0072" Guid="52770417-5E37-5B47-93D1-5E255E3E16E4">
+                    <File Id="F0072" Name="identity.js" Source="/home/user/AURION/backend/src/identity.js" KeyPath="yes" />
+                  </Component>
+                  <Component Id="C0073" Guid="1C63A1DE-DD9C-5162-B1FD-8C9A3571C5C4">
+                    <File Id="F0073" Name="index.js" Source="/home/user/AURION/backend/src/index.js" KeyPath="yes" />
+                  </Component>
+                  <Component Id="C0074" Guid="46306D20-87D1-5130-A42C-A4A9BF2CE665">
+                    <File Id="F0074" Name="mailer.js" Source="/home/user/AURION/backend/src/mailer.js" KeyPath="yes" />
+                  </Component>
+                  <Component Id="C0075" Guid="D0A27636-6222-54B5-B847-8C6D2204D310">
+                    <File Id="F0075" Name="notify.js" Source="/home/user/AURION/backend/src/notify.js" KeyPath="yes" />
+                  </Component>
+                  <Component Id="C0076" Guid="7ED553A0-721D-50F4-91A0-57C3BD1A9EC1">
+                    <File Id="F0076" Name="otp.js" Source="/home/user/AURION/backend/src/otp.js" KeyPath="yes" />
+                  </Component>
+                  <Component Id="C0077" Guid="3B538749-0EDF-5081-B0CB-F4D55BE831F5">
+                    <File Id="F0077" Name="owner.js" Source="/home/user/AURION/backend/src/owner.js" KeyPath="yes" />
+                  </Component>
+                  <Component Id="C0078" Guid="E3060EF6-4516-570E-BD01-5268C227BB66">
+                    <File Id="F0078" Name="paths.js" Source="/home/user/AURION/backend/src/paths.js" KeyPath="yes" />
+                  </Component>
+                  <Component Id="C0079" Guid="3D4E6FF9-98F7-5D6B-9FA9-D39338A89146">
+                    <File Id="F0079" Name="totp.js" Source="/home/user/AURION/backend/src/totp.js" KeyPath="yes" />
+                  </Component>
+                  <Component Id="C0080" Guid="20E0CD97-8601-53D9-B878-75B0417A24A7">
+                    <File Id="F0080" Name="updater.js" Source="/home/user/AURION/backend/src/updater.js" KeyPath="yes" />
+                  </Component>
+                </Directory>
+              </Directory>
+              <Directory Id="D0015" Name="config">
+                <Component Id="C0081" Guid="28B57BAC-5DA4-5832-A32C-0A7FEDD89966">
+                  <File Id="F0081" Name="aurion.factory.json" Source="/home/user/AURION/config/aurion.factory.json" KeyPath="yes" />
+                </Component>
+                <Component Id="C0082" Guid="897A17D3-432C-5999-8E4D-888E7269E31D">
+                  <File Id="F0082" Name="news_calendar.template.csv" Source="/home/user/AURION/config/news_calendar.template.csv" KeyPath="yes" />
+                </Component>
+                <Component Id="C0083" Guid="C9EA8EFC-E010-54BA-A1DA-7FA3A964433D">
+                  <File Id="F0083" Name="owner.gmail.example" Source="/home/user/AURION/config/owner.gmail.example" KeyPath="yes" />
+                </Component>
+                <Component Id="C0084" Guid="655ADAAD-3ED7-57D6-B060-2EF3A4FF549B">
+                  <File Id="F0084" Name="telegram.token.example" Source="/home/user/AURION/config/telegram.token.example" KeyPath="yes" />
+                </Component>
+              </Directory>
+              <Directory Id="D0016" Name="docs">
+                <Component Id="C0085" Guid="14024033-A305-59FA-A8A9-9CF24CC0D32F">
+                  <File Id="F0085" Name="AURION-BACKTEST-GUIDE.html" Source="/home/user/AURION/docs/AURION-BACKTEST-GUIDE.html" KeyPath="yes" />
+                </Component>
+                <Component Id="C0086" Guid="1F5FF921-2B0E-5E8D-A556-0BA43BB70D94">
+                  <File Id="F0086" Name="AURION-GUIDE.html" Source="/home/user/AURION/docs/AURION-GUIDE.html" KeyPath="yes" />
+                </Component>
+                <Directory Id="D0017" Name="ar">
+                  <Component Id="C0087" Guid="74E37FB7-0FFC-5464-BDED-56F8D983A8B4">
+                    <File Id="F0087" Name="01-installation.md" Source="/home/user/AURION/docs/ar/01-installation.md" KeyPath="yes" />
+                  </Component>
+                  <Component Id="C0088" Guid="441C6A35-F183-58F6-B6AB-5CF7926980D9">
+                    <File Id="F0088" Name="02-system-setup.md" Source="/home/user/AURION/docs/ar/02-system-setup.md" KeyPath="yes" />
+                  </Component>
+                  <Component Id="C0089" Guid="34BBF42A-B301-537D-BB5D-B16C853CAF0E">
+                    <File Id="F0089" Name="03-troubleshooting.md" Source="/home/user/AURION/docs/ar/03-troubleshooting.md" KeyPath="yes" />
+                  </Component>
+                  <Component Id="C0090" Guid="577935EF-7CBD-52D8-840D-6EA7F6420F0E">
+                    <File Id="F0090" Name="04-user-manual.md" Source="/home/user/AURION/docs/ar/04-user-manual.md" KeyPath="yes" />
+                  </Component>
+                  <Component Id="C0091" Guid="BC251445-7B11-5029-8ADA-1674820F4E9F">
+                    <File Id="F0091" Name="05-advanced.md" Source="/home/user/AURION/docs/ar/05-advanced.md" KeyPath="yes" />
+                  </Component>
+                </Directory>
+                <Directory Id="D0018" Name="en">
+                  <Component Id="C0092" Guid="1608934E-559E-5801-A078-58D99D2071D1">
+                    <File Id="F0092" Name="01-installation.md" Source="/home/user/AURION/docs/en/01-installation.md" KeyPath="yes" />
+                  </Component>
+                  <Component Id="C0093" Guid="D7FE763B-094D-5F21-A287-190571351A88">
+                    <File Id="F0093" Name="02-system-setup.md" Source="/home/user/AURION/docs/en/02-system-setup.md" KeyPath="yes" />
+                  </Component>
+                </Directory>
+              </Directory>
+              <Directory Id="D0019" Name="engine">
+                <Component Id="C0094" Guid="30208F59-4110-5638-A284-98C8F9178D6B">
+                  <File Id="F0094" Name="main.py" Source="/home/user/AURION/engine/main.py" KeyPath="yes" />
+                </Component>
+                <Component Id="C0095" Guid="93E2B325-E335-54A6-BDED-7A9BA0814EA9">
+                  <File Id="F0095" Name="requirements.txt" Source="/home/user/AURION/engine/requirements.txt" KeyPath="yes" />
+                </Component>
+                <Directory Id="D0020" Name="aurion">
+                  <Component Id="C0096" Guid="1FF9E185-8E70-5175-8A5B-57D14FBB6334">
+                    <File Id="F0096" Name="__init__.py" Source="/home/user/AURION/engine/aurion/__init__.py" KeyPath="yes" />
+                  </Component>
+                  <Component Id="C0097" Guid="0A385F77-E8B5-5B34-B8BD-D03E55371100">
+                    <File Id="F0097" Name="config.py" Source="/home/user/AURION/engine/aurion/config.py" KeyPath="yes" />
+                  </Component>
+                  <Component Id="C0098" Guid="3BA5C16F-DC24-52B9-95C7-CFC644B20B21">
+                    <File Id="F0098" Name="i18n.py" Source="/home/user/AURION/engine/aurion/i18n.py" KeyPath="yes" />
+                  </Component>
+                  <Component Id="C0099" Guid="7D0C0CB1-A0A3-56C3-817F-4B86D3F7BF35">
+                    <File Id="F0099" Name="news_feed.py" Source="/home/user/AURION/engine/aurion/news_feed.py" KeyPath="yes" />
+                  </Component>
+                  <Directory Id="D0021" Name="ai">
+                    <Component Id="C0100" Guid="5F669243-35E2-5849-9FE9-CBC847B05902">
+                      <File Id="F0100" Name="__init__.py" Source="/home/user/AURION/engine/aurion/ai/__init__.py" KeyPath="yes" />
+                    </Component>
+                    <Component Id="C0101" Guid="47B7274C-250B-5208-BA24-EB2142181E71">
+                      <File Id="F0101" Name="engine.py" Source="/home/user/AURION/engine/aurion/ai/engine.py" KeyPath="yes" />
+                    </Component>
+                    <Component Id="C0102" Guid="C3376F5D-1420-53CC-ADCC-6F6FF9945825">
+                      <File Id="F0102" Name="features.py" Source="/home/user/AURION/engine/aurion/ai/features.py" KeyPath="yes" />
+                    </Component>
+                    <Component Id="C0103" Guid="CDEB7D02-0385-5C85-9448-8D09B522E4E5">
+                      <File Id="F0103" Name="models.py" Source="/home/user/AURION/engine/aurion/ai/models.py" KeyPath="yes" />
+                    </Component>
+                    <Component Id="C0104" Guid="BAEB1B84-3764-528E-81EF-7455F5F02B1A">
+                      <File Id="F0104" Name="patterns.py" Source="/home/user/AURION/engine/aurion/ai/patterns.py" KeyPath="yes" />
+                    </Component>
+                  </Directory>
+                  <Directory Id="D0022" Name="api">
+                    <Component Id="C0105" Guid="83C23BA4-F25B-5E8C-BD54-5915C0B29CD9">
+                      <File Id="F0105" Name="__init__.py" Source="/home/user/AURION/engine/aurion/api/__init__.py" KeyPath="yes" />
+                    </Component>
+                    <Component Id="C0106" Guid="6110B309-B9B1-5FB9-863F-78BB64F2503D">
+                      <File Id="F0106" Name="server.py" Source="/home/user/AURION/engine/aurion/api/server.py" KeyPath="yes" />
+                    </Component>
+                  </Directory>
+                  <Directory Id="D0023" Name="backtest">
+                    <Component Id="C0107" Guid="51381EC5-E5A3-5D38-B516-C5957EE82E63">
+                      <File Id="F0107" Name="__init__.py" Source="/home/user/AURION/engine/aurion/backtest/__init__.py" KeyPath="yes" />
+                    </Component>
+                    <Component Id="C0108" Guid="18A538F5-7919-54AC-B9F8-1390467E86A7">
+                      <File Id="F0108" Name="engine.py" Source="/home/user/AURION/engine/aurion/backtest/engine.py" KeyPath="yes" />
+                    </Component>
+                    <Component Id="C0109" Guid="C5F2B1D1-C665-572C-BA30-15F75E7AD330">
+                      <File Id="F0109" Name="metrics.py" Source="/home/user/AURION/engine/aurion/backtest/metrics.py" KeyPath="yes" />
+                    </Component>
+                  </Directory>
+                  <Directory Id="D0024" Name="license">
+                    <Component Id="C0110" Guid="978E23C9-C849-5C30-96E0-5BB36DB5B24B">
+                      <File Id="F0110" Name="__init__.py" Source="/home/user/AURION/engine/aurion/license/__init__.py" KeyPath="yes" />
+                    </Component>
+                    <Component Id="C0111" Guid="40B7C0CE-421F-597F-9C0B-E11008A93791">
+                      <File Id="F0111" Name="ed25519.py" Source="/home/user/AURION/engine/aurion/license/ed25519.py" KeyPath="yes" />
+                    </Component>
+                    <Component Id="C0112" Guid="984B203F-0876-521C-A97E-BE5813B5AD9A">
+                      <File Id="F0112" Name="guard.py" Source="/home/user/AURION/engine/aurion/license/guard.py" KeyPath="yes" />
+                    </Component>
+                    <Component Id="C0113" Guid="217ECDE2-57D7-540E-9BB8-EDBBB5AB7B9F">
+                      <File Id="F0113" Name="material.py" Source="/home/user/AURION/engine/aurion/license/material.py" KeyPath="yes" />
+                    </Component>
+                    <Component Id="C0114" Guid="DBCEA596-DD11-5294-8AF0-9BB317335DE0">
+                      <File Id="F0114" Name="updates.py" Source="/home/user/AURION/engine/aurion/license/updates.py" KeyPath="yes" />
+                    </Component>
+                  </Directory>
+                  <Directory Id="D0025" Name="mt5">
+                    <Component Id="C0115" Guid="02E1BADD-C39B-598D-B5F4-20A38F7FF577">
+                      <File Id="F0115" Name="__init__.py" Source="/home/user/AURION/engine/aurion/mt5/__init__.py" KeyPath="yes" />
+                    </Component>
+                    <Component Id="C0116" Guid="8D52B5E6-3BF9-577A-89A4-73483B4C8B00">
+                      <File Id="F0116" Name="bridge.py" Source="/home/user/AURION/engine/aurion/mt5/bridge.py" KeyPath="yes" />
+                    </Component>
+                    <Component Id="C0117" Guid="62DE1031-9A8C-5DD5-AD37-38AE4A6388A4">
+                      <File Id="F0117" Name="native.py" Source="/home/user/AURION/engine/aurion/mt5/native.py" KeyPath="yes" />
+                    </Component>
+                    <Component Id="C0118" Guid="614917CB-CA2A-54CF-8334-85C47EA66D75">
+                      <File Id="F0118" Name="protocol.py" Source="/home/user/AURION/engine/aurion/mt5/protocol.py" KeyPath="yes" />
+                    </Component>
+                    <Component Id="C0119" Guid="C8A4D8BC-41C2-5BE7-9808-88C6151410B4">
+                      <File Id="F0119" Name="types.py" Source="/home/user/AURION/engine/aurion/mt5/types.py" KeyPath="yes" />
+                    </Component>
+                  </Directory>
+                  <Directory Id="D0026" Name="prop">
+                    <Component Id="C0120" Guid="8E3D32BA-C21D-5044-B6C2-19121083B039">
+                      <File Id="F0120" Name="__init__.py" Source="/home/user/AURION/engine/aurion/prop/__init__.py" KeyPath="yes" />
+                    </Component>
+                    <Component Id="C0121" Guid="67498BDD-9C5C-56FE-AAA5-F166146DCBC5">
+                      <File Id="F0121" Name="profiles.py" Source="/home/user/AURION/engine/aurion/prop/profiles.py" KeyPath="yes" />
+                    </Component>
+                    <Component Id="C0122" Guid="BF47D3EE-9E94-5E55-B7BA-E4668DBEE280">
+                      <File Id="F0122" Name="rules.py" Source="/home/user/AURION/engine/aurion/prop/rules.py" KeyPath="yes" />
+                    </Component>
+                  </Directory>
+                  <Directory Id="D0027" Name="runtime">
+                    <Component Id="C0123" Guid="35F8C133-6DA4-5A79-9BC9-16B3E2D50852">
+                      <File Id="F0123" Name="__init__.py" Source="/home/user/AURION/engine/aurion/runtime/__init__.py" KeyPath="yes" />
+                    </Component>
+                    <Component Id="C0124" Guid="BC35A6DD-A0E9-54DF-929B-32D8812004DD">
+                      <File Id="F0124" Name="bus.py" Source="/home/user/AURION/engine/aurion/runtime/bus.py" KeyPath="yes" />
+                    </Component>
+                    <Component Id="C0125" Guid="0101A170-D252-5116-B742-23D15013B5EC">
+                      <File Id="F0125" Name="danger.py" Source="/home/user/AURION/engine/aurion/runtime/danger.py" KeyPath="yes" />
+                    </Component>
+                    <Component Id="C0126" Guid="D0E7889E-7EC7-536E-B8B5-9F5A23541B18">
+                      <File Id="F0126" Name="store.py" Source="/home/user/AURION/engine/aurion/runtime/store.py" KeyPath="yes" />
+                    </Component>
+                    <Component Id="C0127" Guid="3A840904-AF0E-5558-BA91-6274121599FB">
+                      <File Id="F0127" Name="trader.py" Source="/home/user/AURION/engine/aurion/runtime/trader.py" KeyPath="yes" />
+                    </Component>
+                  </Directory>
+                  <Directory Id="D0028" Name="signals">
+                    <Component Id="C0128" Guid="520273E1-FDE9-505D-BB4A-B5D61CC37E0C">
+                      <File Id="F0128" Name="__init__.py" Source="/home/user/AURION/engine/aurion/signals/__init__.py" KeyPath="yes" />
+                    </Component>
+                    <Component Id="C0129" Guid="95912452-BEEC-5E2A-B68C-0A30C38056B9">
+                      <File Id="F0129" Name="chart_signals.py" Source="/home/user/AURION/engine/aurion/signals/chart_signals.py" KeyPath="yes" />
+                    </Component>
+                  </Directory>
+                  <Directory Id="D0029" Name="strategy">
+                    <Component Id="C0130" Guid="24F143EC-F6E4-5125-9B05-5BF19FDD0790">
+                      <File Id="F0130" Name="__init__.py" Source="/home/user/AURION/engine/aurion/strategy/__init__.py" KeyPath="yes" />
+                    </Component>
+                    <Component Id="C0131" Guid="BEC28CF7-8DC9-5072-8787-18E33C1016EB">
+                      <File Id="F0131" Name="base.py" Source="/home/user/AURION/engine/aurion/strategy/base.py" KeyPath="yes" />
+                    </Component>
+                    <Component Id="C0132" Guid="15277248-A3C3-5990-8D64-AFD760C29A5F">
+                      <File Id="F0132" Name="loader.py" Source="/home/user/AURION/engine/aurion/strategy/loader.py" KeyPath="yes" />
+                    </Component>
+                    <Directory Id="D0030" Name="builtin">
+                      <Component Id="C0133" Guid="77165046-6DD5-5115-B097-0FD210B31552">
+                        <File Id="F0133" Name="__init__.py" Source="/home/user/AURION/engine/aurion/strategy/builtin/__init__.py" KeyPath="yes" />
+                      </Component>
+                      <Component Id="C0134" Guid="6900EB67-C40B-5253-BACB-3CF2CCBDBB69">
+                        <File Id="F0134" Name="atr_breakout.py" Source="/home/user/AURION/engine/aurion/strategy/builtin/atr_breakout.py" KeyPath="yes" />
+                      </Component>
+                      <Component Id="C0135" Guid="0E8243B7-E271-56BA-9714-EE238E2DBB37">
+                        <File Id="F0135" Name="ema_rsi.py" Source="/home/user/AURION/engine/aurion/strategy/builtin/ema_rsi.py" KeyPath="yes" />
+                      </Component>
+                      <Component Id="C0136" Guid="BCC51692-5ACC-5591-87B1-27BD8311C48D">
+                        <File Id="F0136" Name="price_action.py" Source="/home/user/AURION/engine/aurion/strategy/builtin/price_action.py" KeyPath="yes" />
+                      </Component>
+                      <Component Id="C0137" Guid="4851B0B4-D5EF-5B52-BC4D-C7C3023D1BC8">
+                        <File Id="F0137" Name="scalp_impulse.py" Source="/home/user/AURION/engine/aurion/strategy/builtin/scalp_impulse.py" KeyPath="yes" />
+                      </Component>
+                    </Directory>
+                  </Directory>
+                  <Directory Id="D0031" Name="telegram">
+                    <Component Id="C0138" Guid="23CA11BB-DEE7-5696-AC10-FD519EDFE854">
+                      <File Id="F0138" Name="__init__.py" Source="/home/user/AURION/engine/aurion/telegram/__init__.py" KeyPath="yes" />
+                    </Component>
+                    <Component Id="C0139" Guid="10BF8E04-4B0B-5590-837E-A16ECAD31955">
+                      <File Id="F0139" Name="bot.py" Source="/home/user/AURION/engine/aurion/telegram/bot.py" KeyPath="yes" />
+                    </Component>
+                    <Component Id="C0140" Guid="41BEBA02-B2CF-5283-8828-D999F7AE45F2">
+                      <File Id="F0140" Name="secret.py" Source="/home/user/AURION/engine/aurion/telegram/secret.py" KeyPath="yes" />
+                    </Component>
+                  </Directory>
+                  <Directory Id="D0032" Name="util">
+                    <Component Id="C0141" Guid="B7839CA1-20A4-5D83-8C29-C9646DD067BA">
+                      <File Id="F0141" Name="__init__.py" Source="/home/user/AURION/engine/aurion/util/__init__.py" KeyPath="yes" />
+                    </Component>
+                    <Component Id="C0142" Guid="C5EF194A-E93D-5013-ACDE-DC52239F0843">
+                      <File Id="F0142" Name="clock.py" Source="/home/user/AURION/engine/aurion/util/clock.py" KeyPath="yes" />
+                    </Component>
+                    <Component Id="C0143" Guid="1CF3DC5E-80A0-5378-9036-97CC35DC8EA1">
+                      <File Id="F0143" Name="log.py" Source="/home/user/AURION/engine/aurion/util/log.py" KeyPath="yes" />
+                    </Component>
+                    <Component Id="C0144" Guid="990EA3C9-B13A-58E5-9310-AC3773B0128C">
+                      <File Id="F0144" Name="market.py" Source="/home/user/AURION/engine/aurion/util/market.py" KeyPath="yes" />
+                    </Component>
+                  </Directory>
+                </Directory>
+                <Directory Id="D0033" Name="ea">
+                  <Component Id="C0145" Guid="0428EADB-160C-5976-AB3F-49506CE96A53">
+                    <File Id="F0145" Name="AurionBridge.mq5" Source="/home/user/AURION/engine/ea/AurionBridge.mq5" KeyPath="yes" />
+                  </Component>
+                  <Component Id="C0146" Guid="7FA3924A-BCCA-5AB4-A4BB-8F775E10FE72">
+                    <File Id="F0146" Name="AurionChartAgent.mq5" Source="/home/user/AURION/engine/ea/AurionChartAgent.mq5" KeyPath="yes" />
+                  </Component>
+                  <Component Id="C0147" Guid="4EE05356-7319-5827-811B-6C6A08BD2AF3">
+                    <File Id="F0147" Name="INSTALL.txt" Source="/home/user/AURION/engine/ea/INSTALL.txt" KeyPath="yes" />
+                  </Component>
+                </Directory>
+                <Directory Id="D0034" Name="strategies">
+                  <Component Id="C0148" Guid="1009A17A-67A3-5ADC-AAA3-4D791843AA1D">
+                    <File Id="F0148" Name="template.py" Source="/home/user/AURION/engine/strategies/template.py" KeyPath="yes" />
+                  </Component>
+                </Directory>
+                <Directory Id="D0035" Name="tests">
+                  <Component Id="C0149" Guid="A52E168C-2BE0-5611-9EFE-ADDE98780206">
+                    <File Id="F0149" Name="test_danger.py" Source="/home/user/AURION/engine/tests/test_danger.py" KeyPath="yes" />
+                  </Component>
+                  <Component Id="C0150" Guid="E9B4BF20-3DC3-5796-BF95-D611CE84CAED">
+                    <File Id="F0150" Name="test_fixes.py" Source="/home/user/AURION/engine/tests/test_fixes.py" KeyPath="yes" />
+                  </Component>
+                  <Component Id="C0151" Guid="D4C6EA2C-8BDB-5F29-A38C-56767E160625">
+                    <File Id="F0151" Name="test_gates.py" Source="/home/user/AURION/engine/tests/test_gates.py" KeyPath="yes" />
+                  </Component>
+                </Directory>
+              </Directory>
+              <Directory Id="D0036" Name="lang">
+                <Component Id="C0152" Guid="2361B68A-A289-5EA4-8BD3-053DEC096B12">
+                  <File Id="F0152" Name="ar.json" Source="/home/user/AURION/lang/ar.json" KeyPath="yes" />
+                </Component>
+                <Component Id="C0153" Guid="A57C5EAB-DC52-5942-8009-1C2443F2F4C3">
+                  <File Id="F0153" Name="en.json" Source="/home/user/AURION/lang/en.json" KeyPath="yes" />
+                </Component>
+                <Component Id="C0154" Guid="8564E2F7-D4A0-59F0-B617-59D309054D06">
+                  <File Id="F0154" Name="fa.json" Source="/home/user/AURION/lang/fa.json" KeyPath="yes" />
+                </Component>
+              </Directory>
+              <Directory Id="D0037" Name="scripts">
+                <Component Id="C0155" Guid="F7594D95-8DE8-56DF-A14C-F349938B2032">
+                  <File Id="F0155" Name="copy-ea.ps1" Source="/home/user/AURION/scripts/copy-ea.ps1" KeyPath="yes" />
+                </Component>
+                <Component Id="C0156" Guid="74AC2D65-E88F-582F-9B41-078A7363DB15">
+                  <File Id="F0156" Name="fix-npm.ps1" Source="/home/user/AURION/scripts/fix-npm.ps1" KeyPath="yes" />
+                </Component>
+                <Component Id="C0157" Guid="411F63A1-858D-5FC1-AB8F-A3C9827A92A2">
+                  <File Id="F0157" Name="fix-numpy.ps1" Source="/home/user/AURION/scripts/fix-numpy.ps1" KeyPath="yes" />
+                </Component>
+                <Component Id="C0158" Guid="AA10AD88-2D7D-5935-A5FB-9F41E3B57090">
+                  <File Id="F0158" Name="hidden.vbs" Source="/home/user/AURION/scripts/hidden.vbs" KeyPath="yes" />
+                </Component>
+                <Component Id="C0159" Guid="52396A72-3D7D-5045-8E7D-20AD4BE118F3">
+                  <File Id="F0159" Name="install-postgres-driver.cmd" Source="/home/user/AURION/scripts/install-postgres-driver.cmd" KeyPath="yes" />
+                </Component>
+                <Component Id="C0160" Guid="0F3A104A-1093-534F-AA5C-EC634DE723DB">
+                  <File Id="F0160" Name="restart-aurion.cmd" Source="/home/user/AURION/scripts/restart-aurion.cmd" KeyPath="yes" />
+                </Component>
+                <Component Id="C0161" Guid="46BAB5C9-4E9B-5531-97DF-536D582EEEAA">
+                  <File Id="F0161" Name="restart-aurion.sh" Source="/home/user/AURION/scripts/restart-aurion.sh" KeyPath="yes" />
+                </Component>
+                <Component Id="C0162" Guid="E30B2D95-A102-50EE-BA51-5BFF3A17C0BF">
+                  <File Id="F0162" Name="setup.sh" Source="/home/user/AURION/scripts/setup.sh" KeyPath="yes" />
+                </Component>
+                <Component Id="C0163" Guid="418C7316-A1B1-51A2-BA5E-097328EC1881">
+                  <File Id="F0163" Name="start.ps1" Source="/home/user/AURION/scripts/start.ps1" KeyPath="yes" />
+                </Component>
+                <Component Id="C0164" Guid="8D8B1127-F877-501E-A7FE-E225A79867AC">
+                  <File Id="F0164" Name="start.sh" Source="/home/user/AURION/scripts/start.sh" KeyPath="yes" />
+                </Component>
+              </Directory>
+              <Directory Id="D0038" Name="src">
+                <Component Id="C0165" Guid="819124F7-8359-5C99-9C4D-8127B7008A89">
+                  <File Id="F0165" Name="index.js" Source="/home/user/AURION/src/index.js" KeyPath="yes" />
+                </Component>
+              </Directory>
+              <Directory Id="D0039" Name="store">
+                <Component Id="C0166" Guid="E81AC179-86CF-5ADC-800E-54AAA0262DD9">
+                  <File Id="F0166" Name="README.md" Source="/home/user/AURION/store/README.md" KeyPath="yes" />
+                </Component>
+                <Component Id="C0167" Guid="11FCC088-083B-552B-8F3D-4992F8E7EBE9">
+                  <File Id="F0167" Name="shop-audit-fa.md" Source="/home/user/AURION/store/shop-audit-fa.md" KeyPath="yes" />
+                </Component>
+                <Directory Id="D0040" Name="keyserver">
+                  <Component Id="C0168" Guid="11FE4F50-1E2B-5C64-A1FC-434F42BB80DA">
+                    <File Id="F0168" Name=".env.example" Source="/home/user/AURION/store/keyserver/.env.example" KeyPath="yes" />
+                  </Component>
+                  <Component Id="C0169" Guid="9124A121-3CFC-5F8A-ADB4-5F0BBB7C09BA">
+                    <File Id="F0169" Name="README.md" Source="/home/user/AURION/store/keyserver/README.md" KeyPath="yes" />
+                  </Component>
+                  <Component Id="C0170" Guid="740A7AAF-350F-5624-A33D-26EB9F68B893">
+                    <File Id="F0170" Name="package-lock.json" Source="/home/user/AURION/store/keyserver/package-lock.json" KeyPath="yes" />
+                  </Component>
+                  <Component Id="C0171" Guid="3A55599A-571E-59C0-99D4-D04EE6DD3819">
+                    <File Id="F0171" Name="package.json" Source="/home/user/AURION/store/keyserver/package.json" KeyPath="yes" />
+                  </Component>
+                  <Directory Id="D0041" Name="public">
+                    <Component Id="C0172" Guid="218D36AC-0202-5DFB-93CB-69B9DC60D5FA">
+                      <File Id="F0172" Name="app.js" Source="/home/user/AURION/store/keyserver/public/app.js" KeyPath="yes" />
+                    </Component>
+                    <Component Id="C0173" Guid="0BDEBA29-F81F-5E90-8ECE-6B72C53141C2">
+                      <File Id="F0173" Name="index.html" Source="/home/user/AURION/store/keyserver/public/index.html" KeyPath="yes" />
+                    </Component>
+                    <Component Id="C0174" Guid="AA8F99C0-2D67-561B-9CD7-81BA1B4D71C3">
+                      <File Id="F0174" Name="style.css" Source="/home/user/AURION/store/keyserver/public/style.css" KeyPath="yes" />
+                    </Component>
+                  </Directory>
+                  <Directory Id="D0042" Name="src">
+                    <Component Id="C0175" Guid="AB753099-43AC-52D3-AB38-77DD3567B103">
+                      <File Id="F0175" Name="captcha.js" Source="/home/user/AURION/store/keyserver/src/captcha.js" KeyPath="yes" />
+                    </Component>
+                    <Component Id="C0176" Guid="127DF745-F1D2-5A2B-A574-DBAD4D37F3CF">
+                      <File Id="F0176" Name="ed25519.js" Source="/home/user/AURION/store/keyserver/src/ed25519.js" KeyPath="yes" />
+                    </Component>
+                    <Component Id="C0177" Guid="53720C23-6862-56AC-868F-452F6AFFACD4">
+                      <File Id="F0177" Name="index.js" Source="/home/user/AURION/store/keyserver/src/index.js" KeyPath="yes" />
+                    </Component>
+                    <Component Id="C0178" Guid="9101AB2F-6709-5F47-A765-ACF4A3A38A3A">
+                      <File Id="F0178" Name="keys.js" Source="/home/user/AURION/store/keyserver/src/keys.js" KeyPath="yes" />
+                    </Component>
+                    <Component Id="C0179" Guid="87829211-0672-55AB-8FD9-8F75487D25B1">
+                      <File Id="F0179" Name="mint.js" Source="/home/user/AURION/store/keyserver/src/mint.js" KeyPath="yes" />
+                    </Component>
+                    <Component Id="C0180" Guid="4BBC34FA-DBF6-5592-BDE4-39BAC38AEC65">
+                      <File Id="F0180" Name="notify.js" Source="/home/user/AURION/store/keyserver/src/notify.js" KeyPath="yes" />
+                    </Component>
+                    <Component Id="C0181" Guid="7E5DDC15-6708-5609-AF5E-526D485086B7">
+                      <File Id="F0181" Name="store.js" Source="/home/user/AURION/store/keyserver/src/store.js" KeyPath="yes" />
+                    </Component>
+                    <Component Id="C0182" Guid="7E82310D-495B-5E39-96C1-4CEB0E6A8B58">
+                      <File Id="F0182" Name="zarinpal.js" Source="/home/user/AURION/store/keyserver/src/zarinpal.js" KeyPath="yes" />
+                    </Component>
+                  </Directory>
+                  <Directory Id="D0043" Name="test">
+                    <Component Id="C0183" Guid="438BD39A-4851-5A81-9B6A-0D009403FE53">
+                      <File Id="F0183" Name="api-support.mjs" Source="/home/user/AURION/store/keyserver/test/api-support.mjs" KeyPath="yes" />
+                    </Component>
+                    <Component Id="C0184" Guid="5EB2790D-3998-5FFC-B797-5863B1B65B72">
+                      <File Id="F0184" Name="key-parity.mjs" Source="/home/user/AURION/store/keyserver/test/key-parity.mjs" KeyPath="yes" />
+                    </Component>
+                  </Directory>
+                </Directory>
+              </Directory>
+              <Directory Id="D0044" Name="tests">
+                <Component Id="C0185" Guid="D4B27F2B-5AD1-598B-B678-824E02B6517D">
+                  <File Id="F0185" Name="desk-render.test.js" Source="/home/user/AURION/tests/desk-render.test.js" KeyPath="yes" />
+                </Component>
+              </Directory>
+              <Directory Id="D0045" Name="windows-app">
+                <Component Id="C0186" Guid="8E41ED41-0C70-5E1F-8A78-8CC94AC2F7F8">
+                  <File Id="F0186" Name="README.md" Source="/home/user/AURION/windows-app/README.md" KeyPath="yes" />
+                </Component>
+                <Directory Id="D0046" Name="desktop">
+                  <Component Id="C0187" Guid="F8E06D9A-3BF6-5A51-9682-E0D08B328F1D">
+                    <File Id="F0187" Name="brand-exe.js" Source="/home/user/AURION/windows-app/desktop/brand-exe.js" KeyPath="yes" />
+                  </Component>
+                  <Component Id="C0188" Guid="A93A16A1-6470-5C25-9FF9-CEC2B653BC93">
+                    <File Id="F0188" Name="icon.ico" Source="/home/user/AURION/windows-app/desktop/icon.ico" KeyPath="yes" />
+                  </Component>
+                  <Component Id="C0189" Guid="45B73FB5-605C-5B11-A416-9D34BC85F7A9">
+                    <File Id="F0189" Name="main.js" Source="/home/user/AURION/windows-app/desktop/main.js" KeyPath="yes" />
+                  </Component>
+                  <Component Id="C0190" Guid="79619B75-5B86-511A-9EB8-1E2B8095A146">
+                    <File Id="F0190" Name="package.json" Source="/home/user/AURION/windows-app/desktop/package.json" KeyPath="yes" />
+                  </Component>
+                  <Component Id="C0191" Guid="78F863A2-E710-536D-A8B3-566C424A0570">
+                    <File Id="F0191" Name="preload.js" Source="/home/user/AURION/windows-app/desktop/preload.js" KeyPath="yes" />
+                  </Component>
+                  <Component Id="C0192" Guid="0F8A9282-A2E3-53C1-9D1E-5824D464C2EF">
+                    <File Id="F0192" Name="prereq.js" Source="/home/user/AURION/windows-app/desktop/prereq.js" KeyPath="yes" />
+                  </Component>
+                  <Component Id="C0193" Guid="C0D52283-27D4-56A4-9A2C-F3063372945F">
+                    <File Id="F0193" Name="runtime.js" Source="/home/user/AURION/windows-app/desktop/runtime.js" KeyPath="yes" />
+                  </Component>
+                </Directory>
+                <Directory Id="D0047" Name="docs">
+                  <Component Id="C0194" Guid="30DD2880-B83D-5A72-9619-FB31B6787D4D">
+                    <File Id="F0194" Name="BRANDING-AND-VERSION.md" Source="/home/user/AURION/windows-app/docs/BRANDING-AND-VERSION.md" KeyPath="yes" />
+                  </Component>
+                  <Component Id="C0195" Guid="18978FC2-8C75-5AFD-8413-AD335C1E5D3F">
+                    <File Id="F0195" Name="INSTALL-MSI.md" Source="/home/user/AURION/windows-app/docs/INSTALL-MSI.md" KeyPath="yes" />
+                  </Component>
+                  <Component Id="C0196" Guid="8C2E0D43-0768-55E2-B06A-44F8455D28E4">
+                    <File Id="F0196" Name="WINDOWS-APP-GUIDE.md" Source="/home/user/AURION/windows-app/docs/WINDOWS-APP-GUIDE.md" KeyPath="yes" />
+                  </Component>
+                </Directory>
+                <Directory Id="D0048" Name="installer">
+                  <Component Id="C0197" Guid="A72EE6B7-4EEF-5946-A4E6-5AE681BB6F37">
+                    <File Id="F0197" Name="install-aurion-secure.cmd" Source="/home/user/AURION/windows-app/installer/install-aurion-secure.cmd" KeyPath="yes" />
+                  </Component>
+                  <Component Id="C0198" Guid="F2E23FAB-2D0F-5A5A-87E7-22DDDF31FDAF">
+                    <File Id="F0198" Name="install-aurion.cmd" Source="/home/user/AURION/windows-app/installer/install-aurion.cmd" KeyPath="yes" />
+                  </Component>
+                  <Component Id="C0199" Guid="457FB481-83AA-5943-8474-ACFA4C215364">
+                    <File Id="F0199" Name="install-windows-gui.ps1" Source="/home/user/AURION/windows-app/installer/install-windows-gui.ps1" KeyPath="yes" />
+                  </Component>
+                  <Component Id="C0200" Guid="40C78CA9-DBB3-55D9-B4B5-BB94190AB22F">
+                    <File Id="F0200" Name="install-windows.ps1" Source="/home/user/AURION/windows-app/installer/install-windows.ps1" KeyPath="yes" />
+                  </Component>
+                </Directory>
+                <Directory Id="D0049" Name="packaging">
+                  <Component Id="C0201" Guid="9EE9480B-C8E6-59E8-9DEC-693A5C191B70">
+                    <File Id="F0201" Name="aurion.ico" Source="/home/user/AURION/windows-app/packaging/aurion.ico" KeyPath="yes" />
+                  </Component>
+                  <Component Id="C0202" Guid="14016014-CF3F-55C2-8E74-4BB4EA818CC6">
+                    <File Id="F0202" Name="aurion.wxs" Source="/home/user/AURION/windows-app/packaging/aurion.wxs" KeyPath="yes" />
+                  </Component>
+                  <Component Id="C0203" Guid="BBDA9598-EE21-5485-953C-90A214D6CE8A">
+                    <File Id="F0203" Name="build-msi-windows.ps1" Source="/home/user/AURION/windows-app/packaging/build-msi-windows.ps1" KeyPath="yes" />
+                  </Component>
+                  <Component Id="C0204" Guid="30808B70-6587-5547-8C9E-3D537DA25A4F">
+                    <File Id="F0204" Name="build-msi.ps1" Source="/home/user/AURION/windows-app/packaging/build-msi.ps1" KeyPath="yes" />
+                  </Component>
+                  <Component Id="C0205" Guid="A2DC40EC-B882-55D7-A47B-FEDAB6DF6310">
+                    <File Id="F0205" Name="build-msi.py" Source="/home/user/AURION/windows-app/packaging/build-msi.py" KeyPath="yes" />
+                  </Component>
+                  <Component Id="C0206" Guid="EB02604C-41FF-50D1-A239-D31D1D890E18">
+                    <File Id="F0206" Name="launch-aurion.vbs" Source="/home/user/AURION/windows-app/packaging/launch-aurion.vbs" KeyPath="yes" />
+                  </Component>
+                  <Component Id="C0207" Guid="CEA46881-5D58-583C-9E99-67E2F05BDC31">
+                    <File Id="F0207" Name="lint_wxs.py" Source="/home/user/AURION/windows-app/packaging/lint_wxs.py" KeyPath="yes" />
+                  </Component>
+                  <Component Id="C0208" Guid="8A6E19A4-D51D-5A0B-837E-97C4CAE8D0AB">
+                    <File Id="F0208" Name="make-wizart-assets.py" Source="/home/user/AURION/windows-app/packaging/make-wizart-assets.py" KeyPath="yes" />
+                  </Component>
+                  <Directory Id="D0050" Name="tests">
+                    <Component Id="C0209" Guid="1480C417-AE06-5EEA-B8DE-97CEA59568B8">
+                      <File Id="F0209" Name="arp-clean.test.js" Source="/home/user/AURION/windows-app/packaging/tests/arp-clean.test.js" KeyPath="yes" />
+                    </Component>
+                  </Directory>
+                  <Directory Id="D0051" Name="wix">
+                    <Component Id="C0210" Guid="D5BB160D-7F10-5247-844D-1E58CB13660C">
+                      <File Id="F0210" Name="arp-clean-inner.js" Source="/home/user/AURION/windows-app/packaging/wix/arp-clean-inner.js" KeyPath="yes" />
+                    </Component>
+                    <Component Id="C0211" Guid="EC720F18-79A4-53AF-BF25-C63095DC17AE">
+                      <File Id="F0211" Name="arp-clean.js" Source="/home/user/AURION/windows-app/packaging/wix/arp-clean.js" KeyPath="yes" />
+                    </Component>
+                    <Component Id="C0212" Guid="6638E91F-7779-5F49-BE46-139850E72E83">
+                      <File Id="F0212" Name="arp-remove-old.js" Source="/home/user/AURION/windows-app/packaging/wix/arp-remove-old.js" KeyPath="yes" />
+                    </Component>
+                    <Component Id="C0213" Guid="9B577A3E-9A6E-5B71-B6CE-DF36B9263E41">
+                      <File Id="F0213" Name="aurion-small.ico" Source="/home/user/AURION/windows-app/packaging/wix/aurion-small.ico" KeyPath="yes" />
+                    </Component>
+                    <Component Id="C0214" Guid="E3B150EE-15B4-5D2F-A698-3F7DA49F6600">
+                      <File Id="F0214" Name="banner-preview.png" Source="/home/user/AURION/windows-app/packaging/wix/banner-preview.png" KeyPath="yes" />
+                    </Component>
+                    <Component Id="C0215" Guid="A944ED78-2387-5167-B3CB-47B112157256">
+                      <File Id="F0215" Name="banner.bmp" Source="/home/user/AURION/windows-app/packaging/wix/banner.bmp" KeyPath="yes" />
+                    </Component>
+                    <Component Id="C0216" Guid="A4614656-F53E-5F28-AF18-9070D9755AD6">
+                      <File Id="F0216" Name="dialog.bmp" Source="/home/user/AURION/windows-app/packaging/wix/dialog.bmp" KeyPath="yes" />
+                    </Component>
+                    <Component Id="C0217" Guid="FF84AE34-7FB6-5046-86F9-48C812F09CE8">
+                      <File Id="F0217" Name="migrate-state.js" Source="/home/user/AURION/windows-app/packaging/wix/migrate-state.js" KeyPath="yes" />
+                    </Component>
+                    <Component Id="C0218" Guid="62DD4384-B659-54FA-A6ED-16B78FA9C49D">
+                      <File Id="F0218" Name="uninstall-aurion.js" Source="/home/user/AURION/windows-app/packaging/wix/uninstall-aurion.js" KeyPath="yes" />
+                    </Component>
+                    <Component Id="C0219" Guid="775C61D8-6616-5D0E-81DA-E79C20AA0C1A">
+                      <File Id="F0219" Name="ver-cmp.vbs" Source="/home/user/AURION/windows-app/packaging/wix/ver-cmp.vbs" KeyPath="yes" />
+                    </Component>
+                    <Component Id="C0220" Guid="A7176AA4-DA56-56B6-8443-4EA86A41DA55">
+                      <File Id="F0220" Name="wipe-state.js" Source="/home/user/AURION/windows-app/packaging/wix/wipe-state.js" KeyPath="yes" />
+                    </Component>
+                  </Directory>
+                </Directory>
+              </Directory>
+          <Component Id="Launcher" Guid="33774592-BE13-574E-B1A1-EAE319534475">
+            <File Id="LaunchVbs" Name="launch-aurion.vbs" Source="/home/user/AURION/windows-app/packaging/launch-aurion.vbs" KeyPath="yes" />
+          </Component>
+          </Directory>
+        </Directory>
+      </Directory>
+      <Directory Id="DesktopFolder" Name="Desktop" />
+      <Directory Id="ProgramMenuFolder">
+        <Directory Id="ProgramMenuDir" Name="AURION" />
+      </Directory>
+    </Directory>
+    <DirectoryRef Id="DesktopFolder">
+      <Component Id="Shortcuts" Guid="15D0A731-BA04-59A5-AB03-A95BB9586A20">
+        <Shortcut Id="DesktopShortcut" Name="AURION"
+                  Description="AURION live desk"
+                  Target="[#LaunchVbs]"
+                  WorkingDirectory="INSTALLDIR"
+                  Icon="AppIcon" />
+        <Shortcut Id="StartMenuShortcut" Name="AURION"
+                  Directory="ProgramMenuDir"
+                  Description="AURION live desk"
+                  Target="[#LaunchVbs]"
+                  WorkingDirectory="INSTALLDIR"
+                  Icon="AppIcon" />
+        <RemoveFolder Id="RemoveMenu" Directory="ProgramMenuDir" On="uninstall" />
+        <RegistryValue Root="HKCU" Key="Software\AURION" Name="installed" Type="integer" Value="1" KeyPath="yes" />
+        <RegistryValue Root="HKCU" Key="Software\AURION" Name="InstallPath" Type="string" Value="[INSTALLDIR]" />
+        <RegistryValue Root="HKCU" Key="Software\AURION" Name="Version" Type="string" Value="[ProductVersion]" />
+        <RegistryValue Root="HKCU" Key="Software\AURION" Name="ProductCode" Type="string" Value="[ProductCode]" />
+      </Component>
+      <!-- The installed uninstaller (uninstall-aurion.js): the ARP entry's
+           UninstallString is rewritten (deferred CA) to run it, so Control
+           Panel / Settings uninstall REALLY removes - engine first, then
+           forced cleanup + all shortcuts. (Its own DirectoryRef follows
+           AFTER this one closes - DirectoryRef must not nest.) -->
+    </DirectoryRef>
+      <DirectoryRef Id="INSTALLDIR">
+        <Component Id="AurionUninstallJs" Guid="526E619F-4784-5D45-966C-64675DF9EDA1">
+          <File Id="AurionUninstallJsFile" Name="uninstall-aurion.js" Source="/home/user/AURION/windows-app/packaging/wix/uninstall-aurion.js" KeyPath="yes" />
+        </Component>
+      </DirectoryRef>
+
+    <Feature Id="MainFeature" Title="AURION" Level="1" Description="Installs to %LOCALAPPDATA%\Programs\AURION with desktop shortcut">
+          <ComponentRef Id="C0001" />
+          <ComponentRef Id="C0002" />
+          <ComponentRef Id="C0003" />
+          <ComponentRef Id="C0004" />
+          <ComponentRef Id="C0005" />
+          <ComponentRef Id="C0006" />
+          <ComponentRef Id="C0007" />
+          <ComponentRef Id="C0008" />
+          <ComponentRef Id="C0009" />
+          <ComponentRef Id="C0010" />
+          <ComponentRef Id="C0011" />
+          <ComponentRef Id="C0012" />
+          <ComponentRef Id="C0013" />
+          <ComponentRef Id="C0014" />
+          <ComponentRef Id="C0015" />
+          <ComponentRef Id="C0016" />
+          <ComponentRef Id="C0017" />
+          <ComponentRef Id="C0018" />
+          <ComponentRef Id="C0019" />
+          <ComponentRef Id="C0020" />
+          <ComponentRef Id="C0021" />
+          <ComponentRef Id="C0022" />
+          <ComponentRef Id="C0023" />
+          <ComponentRef Id="C0024" />
+          <ComponentRef Id="C0025" />
+          <ComponentRef Id="C0026" />
+          <ComponentRef Id="C0027" />
+          <ComponentRef Id="C0028" />
+          <ComponentRef Id="C0029" />
+          <ComponentRef Id="C0030" />
+          <ComponentRef Id="C0031" />
+          <ComponentRef Id="C0032" />
+          <ComponentRef Id="C0033" />
+          <ComponentRef Id="C0034" />
+          <ComponentRef Id="C0035" />
+          <ComponentRef Id="C0036" />
+          <ComponentRef Id="C0037" />
+          <ComponentRef Id="C0038" />
+          <ComponentRef Id="C0039" />
+          <ComponentRef Id="C0040" />
+          <ComponentRef Id="C0041" />
+          <ComponentRef Id="C0042" />
+          <ComponentRef Id="C0043" />
+          <ComponentRef Id="C0044" />
+          <ComponentRef Id="C0045" />
+          <ComponentRef Id="C0046" />
+          <ComponentRef Id="C0047" />
+          <ComponentRef Id="C0048" />
+          <ComponentRef Id="C0049" />
+          <ComponentRef Id="C0050" />
+          <ComponentRef Id="C0051" />
+          <ComponentRef Id="C0052" />
+          <ComponentRef Id="C0053" />
+          <ComponentRef Id="C0054" />
+          <ComponentRef Id="C0055" />
+          <ComponentRef Id="C0056" />
+          <ComponentRef Id="C0057" />
+          <ComponentRef Id="C0058" />
+          <ComponentRef Id="C0059" />
+          <ComponentRef Id="C0060" />
+          <ComponentRef Id="C0061" />
+          <ComponentRef Id="C0062" />
+          <ComponentRef Id="C0063" />
+          <ComponentRef Id="C0064" />
+          <ComponentRef Id="C0065" />
+          <ComponentRef Id="C0066" />
+          <ComponentRef Id="C0067" />
+          <ComponentRef Id="C0068" />
+          <ComponentRef Id="C0069" />
+          <ComponentRef Id="C0070" />
+          <ComponentRef Id="C0071" />
+          <ComponentRef Id="C0072" />
+          <ComponentRef Id="C0073" />
+          <ComponentRef Id="C0074" />
+          <ComponentRef Id="C0075" />
+          <ComponentRef Id="C0076" />
+          <ComponentRef Id="C0077" />
+          <ComponentRef Id="C0078" />
+          <ComponentRef Id="C0079" />
+          <ComponentRef Id="C0080" />
+          <ComponentRef Id="C0081" />
+          <ComponentRef Id="C0082" />
+          <ComponentRef Id="C0083" />
+          <ComponentRef Id="C0084" />
+          <ComponentRef Id="C0085" />
+          <ComponentRef Id="C0086" />
+          <ComponentRef Id="C0087" />
+          <ComponentRef Id="C0088" />
+          <ComponentRef Id="C0089" />
+          <ComponentRef Id="C0090" />
+          <ComponentRef Id="C0091" />
+          <ComponentRef Id="C0092" />
+          <ComponentRef Id="C0093" />
+          <ComponentRef Id="C0094" />
+          <ComponentRef Id="C0095" />
+          <ComponentRef Id="C0096" />
+          <ComponentRef Id="C0097" />
+          <ComponentRef Id="C0098" />
+          <ComponentRef Id="C0099" />
+          <ComponentRef Id="C0100" />
+          <ComponentRef Id="C0101" />
+          <ComponentRef Id="C0102" />
+          <ComponentRef Id="C0103" />
+          <ComponentRef Id="C0104" />
+          <ComponentRef Id="C0105" />
+          <ComponentRef Id="C0106" />
+          <ComponentRef Id="C0107" />
+          <ComponentRef Id="C0108" />
+          <ComponentRef Id="C0109" />
+          <ComponentRef Id="C0110" />
+          <ComponentRef Id="C0111" />
+          <ComponentRef Id="C0112" />
+          <ComponentRef Id="C0113" />
+          <ComponentRef Id="C0114" />
+          <ComponentRef Id="C0115" />
+          <ComponentRef Id="C0116" />
+          <ComponentRef Id="C0117" />
+          <ComponentRef Id="C0118" />
+          <ComponentRef Id="C0119" />
+          <ComponentRef Id="C0120" />
+          <ComponentRef Id="C0121" />
+          <ComponentRef Id="C0122" />
+          <ComponentRef Id="C0123" />
+          <ComponentRef Id="C0124" />
+          <ComponentRef Id="C0125" />
+          <ComponentRef Id="C0126" />
+          <ComponentRef Id="C0127" />
+          <ComponentRef Id="C0128" />
+          <ComponentRef Id="C0129" />
+          <ComponentRef Id="C0130" />
+          <ComponentRef Id="C0131" />
+          <ComponentRef Id="C0132" />
+          <ComponentRef Id="C0133" />
+          <ComponentRef Id="C0134" />
+          <ComponentRef Id="C0135" />
+          <ComponentRef Id="C0136" />
+          <ComponentRef Id="C0137" />
+          <ComponentRef Id="C0138" />
+          <ComponentRef Id="C0139" />
+          <ComponentRef Id="C0140" />
+          <ComponentRef Id="C0141" />
+          <ComponentRef Id="C0142" />
+          <ComponentRef Id="C0143" />
+          <ComponentRef Id="C0144" />
+          <ComponentRef Id="C0145" />
+          <ComponentRef Id="C0146" />
+          <ComponentRef Id="C0147" />
+          <ComponentRef Id="C0148" />
+          <ComponentRef Id="C0149" />
+          <ComponentRef Id="C0150" />
+          <ComponentRef Id="C0151" />
+          <ComponentRef Id="C0152" />
+          <ComponentRef Id="C0153" />
+          <ComponentRef Id="C0154" />
+          <ComponentRef Id="C0155" />
+          <ComponentRef Id="C0156" />
+          <ComponentRef Id="C0157" />
+          <ComponentRef Id="C0158" />
+          <ComponentRef Id="C0159" />
+          <ComponentRef Id="C0160" />
+          <ComponentRef Id="C0161" />
+          <ComponentRef Id="C0162" />
+          <ComponentRef Id="C0163" />
+          <ComponentRef Id="C0164" />
+          <ComponentRef Id="C0165" />
+          <ComponentRef Id="C0166" />
+          <ComponentRef Id="C0167" />
+          <ComponentRef Id="C0168" />
+          <ComponentRef Id="C0169" />
+          <ComponentRef Id="C0170" />
+          <ComponentRef Id="C0171" />
+          <ComponentRef Id="C0172" />
+          <ComponentRef Id="C0173" />
+          <ComponentRef Id="C0174" />
+          <ComponentRef Id="C0175" />
+          <ComponentRef Id="C0176" />
+          <ComponentRef Id="C0177" />
+          <ComponentRef Id="C0178" />
+          <ComponentRef Id="C0179" />
+          <ComponentRef Id="C0180" />
+          <ComponentRef Id="C0181" />
+          <ComponentRef Id="C0182" />
+          <ComponentRef Id="C0183" />
+          <ComponentRef Id="C0184" />
+          <ComponentRef Id="C0185" />
+          <ComponentRef Id="C0186" />
+          <ComponentRef Id="C0187" />
+          <ComponentRef Id="C0188" />
+          <ComponentRef Id="C0189" />
+          <ComponentRef Id="C0190" />
+          <ComponentRef Id="C0191" />
+          <ComponentRef Id="C0192" />
+          <ComponentRef Id="C0193" />
+          <ComponentRef Id="C0194" />
+          <ComponentRef Id="C0195" />
+          <ComponentRef Id="C0196" />
+          <ComponentRef Id="C0197" />
+          <ComponentRef Id="C0198" />
+          <ComponentRef Id="C0199" />
+          <ComponentRef Id="C0200" />
+          <ComponentRef Id="C0201" />
+          <ComponentRef Id="C0202" />
+          <ComponentRef Id="C0203" />
+          <ComponentRef Id="C0204" />
+          <ComponentRef Id="C0205" />
+          <ComponentRef Id="C0206" />
+          <ComponentRef Id="C0207" />
+          <ComponentRef Id="C0208" />
+          <ComponentRef Id="C0209" />
+          <ComponentRef Id="C0210" />
+          <ComponentRef Id="C0211" />
+          <ComponentRef Id="C0212" />
+          <ComponentRef Id="C0213" />
+          <ComponentRef Id="C0214" />
+          <ComponentRef Id="C0215" />
+          <ComponentRef Id="C0216" />
+          <ComponentRef Id="C0217" />
+          <ComponentRef Id="C0218" />
+          <ComponentRef Id="C0219" />
+          <ComponentRef Id="C0220" />
+          <ComponentRef Id="Shortcuts" />
+          <ComponentRef Id="Launcher" />
+          <ComponentRef Id="AurionUninstallJs" />
+    </Feature>
+
+    <!-- ============================= wizard ============================= -->
+    <!-- WixUI_InstallMode drives the stock VerifyReadyDlg (which button/title
+         it shows). Our dialogs set it explicitly; the stock Maintenance pages
+         are bypassed. -->
+    <UI>
+      <!-- first install / upgrade when an existing AURION is detected.
+           Smart: the same version offers Repair / Remove only; Update shows
+           up exclusively when this package is actually newer. -->
+      <Dialog Id="AurionModeDlg" Width="370" Height="270" Title="AURION Setup" NoMinimize="yes">
+        <Control Id="BannerBitmap" Type="Bitmap" X="0" Y="0" Width="370" Height="44" TabSkip="no" Text="!(loc.InstallDirDlgBannerBitmap)" />
+        <Control Id="BannerLine" Type="Line" X="0" Y="44" Width="370" Height="0" />
+        <Control Id="Title" Type="Text" X="15" Y="6" Width="300" Height="15" Transparent="yes" NoPrefix="yes"
+                 Text="{\WixUI_Font_Title}AURION is already installed" />
+        <Control Id="Description" Type="Text" X="25" Y="23" Width="320" Height="15" Transparent="yes" NoPrefix="yes"
+                 Text="Choose what Setup should do." />
+        <Control Id="PathLine" Type="Text" X="20" Y="58" Width="330" Height="12" NoPrefix="yes" Hidden="yes"
+                 Text="Current: [AURION_PREV_PATH]  (version [AURION_PREV_VERSION])">
+          <Condition Action="show">AURION_PREV</Condition>
+        </Control>
+        <Control Id="LegacyLine" Type="Text" X="20" Y="58" Width="330" Height="12" NoPrefix="yes" Hidden="yes"
+                 Text="Older AURION found: [AURION_LEGACY] - it will be replaced.">
+          <Condition Action="show">NOT AURION_PREV AND AURION_LEGACY</Condition>
+        </Control>
+        <Control Id="HintUpdate" Type="Text" X="20" Y="74" Width="330" Height="12" NoPrefix="yes" Hidden="yes"
+                 Text="Your license, data and settings are kept - you will not re-enter them.">
+          <Condition Action="show">NOT Installed AND AURION_PREV_OLDER</Condition>
+        </Control>
+        <Control Id="HintSame" Type="Text" X="20" Y="74" Width="330" Height="12" NoPrefix="yes" Hidden="yes"
+                 Text="This version is already installed - you can repair the files or remove AURION.">
+          <Condition Action="show">NOT Installed AND AURION_PREV_SAME</Condition>
+        </Control>
+        <Control Id="HintNewer" Type="Text" X="20" Y="74" Width="330" Height="24" NoPrefix="yes" Hidden="yes"
+                 Text="A newer AURION is already installed. This setup cannot continue - uninstall the newer version first.">
+          <Condition Action="show">NOT Installed AND AURION_PREV_NEWER</Condition>
+        </Control>
+        <Control Id="OptUpdate" Type="PushButton" X="20" Y="96" Width="330" Height="30" TabSkip="no" Hidden="yes"
+                 Text="&amp;Update AURION to version [ProductVersion] (keeps your data)">
+          <Condition Action="show">NOT Installed AND AURION_PREV_OLDER AND (AURION_PREV OR AURION_LEGACY OR OLDPRODUCTFOUND)</Condition>
+        </Control>
+        <Control Id="OptRepair" Type="PushButton" X="20" Y="96" Width="330" Height="30" TabSkip="no" Hidden="yes"
+                 Text="&amp;Repair AURION [ProductVersion] (re-write the program files)">
+          <Condition Action="show">NOT Installed AND AURION_PREV_SAME</Condition>
+        </Control>
+        <Control Id="OptRemove" Type="PushButton" X="20" Y="132" Width="330" Height="30" TabSkip="no" Hidden="yes"
+                 Text="&amp;Remove AURION from this computer">
+          <Condition Action="show">NOT Installed AND (AURION_PREV OR AURION_LEGACY OR OLDPRODUCTFOUND) AND NOT AURION_PREV_NEWER</Condition>
+        </Control>
+        <Control Id="OptChange" Type="PushButton" X="20" Y="168" Width="330" Height="30" TabSkip="no" Hidden="yes"
+                 Text="&amp;Change the install location">
+          <Condition Action="show">NOT Installed AND NOT AURION_PREV_NEWER</Condition>
+        </Control>
+        <Control Id="BottomLine" Type="Line" X="0" Y="234" Width="370" Height="0" />
+        <Control Id="Back" Type="PushButton" X="180" Y="243" Width="56" Height="17" Disabled="yes" Text="!(loc.WixUIBack)" />
+        <Control Id="Next" Type="PushButton" X="236" Y="243" Width="56" Height="17" Default="yes" Text="!(loc.WixUINext)" />
+        <Control Id="Cancel" Type="PushButton" X="304" Y="243" Width="56" Height="17" Cancel="yes" Text="!(loc.WixUICancel)" />
+      </Dialog>
+      <!-- Update / Repair: keep the previous folder, go to the summary (new
+           ProductCode = a normal install from MSI's point of view; the
+           MajorUpgrade removes the old one first). Repair on the SAME
+           version is a clean replace: AllowSameVersionUpgrades lets the
+           equal version through and the old files are fully rewritten. -->
+      <Publish Dialog="AurionModeDlg" Control="OptUpdate" Property="AURION_MODEPICK" Value="1" Order="0">1</Publish>
+      <Publish Dialog="AurionModeDlg" Control="OptUpdate" Property="INSTALLDIR" Value="[AURION_PREV_PATH]" Order="1">AURION_PREV_PATH</Publish>
+      <Publish Dialog="AurionModeDlg" Control="OptUpdate" Event="SetTargetPath" Value="INSTALLDIR" Order="2">1</Publish>
+      <Publish Dialog="AurionModeDlg" Control="OptUpdate" Event="NewDialog" Value="VerifyReadyDlg" Order="3">1</Publish>
+      <Publish Dialog="AurionModeDlg" Control="OptRepair" Property="AURION_MODEPICK" Value="1" Order="0">1</Publish>
+      <Publish Dialog="AurionModeDlg" Control="OptRepair" Property="INSTALLDIR" Value="[AURION_PREV_PATH]" Order="1">AURION_PREV_PATH</Publish>
+      <Publish Dialog="AurionModeDlg" Control="OptRepair" Event="SetTargetPath" Value="INSTALLDIR" Order="2">1</Publish>
+      <Publish Dialog="AurionModeDlg" Control="OptRepair" Event="NewDialog" Value="VerifyReadyDlg" Order="3">1</Publish>
+      <!-- Remove from the mode dialog. This session is a FIRST install (the
+           detected product is a DIFFERENT package), so the stock "Remove"
+           event can never fire here (its condition "Installed" is false) -
+           publishing it made the wizard fall through and INSTALL AURION.
+           Instead: cancel this setup entirely (EndDialog Exit) after arming
+           the detached uninstaller, which removes the detected products
+           (OLDPRODUCTFOUND + AURION_LEGACY_MSI codes), the program tree,
+           HKCU\Software\AURION and shortcuts from outside this session. -->
+      <Publish Dialog="AurionModeDlg" Control="OptRemove" Event="DoAction" Value="AurionArpRemoveOld" Order="0">1</Publish>
+      <Publish Dialog="AurionModeDlg" Control="OptRemove" Event="EndDialog" Value="Exit" Order="1">1</Publish>
+      <Publish Dialog="AurionModeDlg" Control="OptChange" Event="NewDialog" Value="InstallDirDlg">1</Publish>
+      <Publish Dialog="AurionModeDlg" Control="Next" Event="NewDialog" Value="InstallDirDlg">1</Publish>
+      <Publish Dialog="AurionModeDlg" Control="Cancel" Event="SpawnDialog" Value="CancelDlg">1</Publish>
+
+      <!-- maintenance (Apps and features / Control Panel) -->
+      <Dialog Id="AurionRemoveDlg" Width="370" Height="270" Title="AURION Setup" NoMinimize="yes">
+        <Control Id="BannerBitmap" Type="Bitmap" X="0" Y="0" Width="370" Height="44" TabSkip="no" Text="!(loc.InstallDirDlgBannerBitmap)" />
+        <Control Id="BannerLine" Type="Line" X="0" Y="44" Width="370" Height="0" />
+        <Control Id="Title" Type="Text" X="15" Y="6" Width="300" Height="15" Transparent="yes" NoPrefix="yes"
+                 Text="{\WixUI_Font_Title}Repair or remove AURION" />
+        <Control Id="Description" Type="Text" X="25" Y="23" Width="320" Height="15" Transparent="yes" NoPrefix="yes"
+                 Text="AURION [ProductVersion] is installed in [INSTALLDIR]" />
+        <Control Id="Hint" Type="Text" X="20" Y="58" Width="330" Height="24" NoPrefix="yes"
+                 Text="Choose what Setup should do." />
+        <Control Id="OptRepair" Type="PushButton" X="20" Y="92" Width="330" Height="30" TabSkip="no"
+                 Text="&amp;Repair AURION (re-write all program files, keep everything else)" />
+        <Control Id="OptRemove" Type="PushButton" X="20" Y="128" Width="330" Height="30" TabSkip="no"
+                 Text="&amp;Remove AURION from this computer" />
+        <Control Id="KeepData" Type="CheckBox" X="24" Y="170" Width="326" Height="17" Property="AURION_KEEPDATA" CheckBoxValue="1"
+                 Text="Keep my license, settings and data (a later install picks them up)" />
+        <Control Id="BottomLine" Type="Line" X="0" Y="234" Width="370" Height="0" />
+        <Control Id="Back" Type="PushButton" X="180" Y="243" Width="56" Height="17" Disabled="yes" Text="!(loc.WixUIBack)" />
+        <Control Id="Next" Type="PushButton" X="236" Y="243" Width="56" Height="17" Disabled="yes" Text="!(loc.WixUINext)" />
+        <Control Id="Cancel" Type="PushButton" X="304" Y="243" Width="56" Height="17" Cancel="yes" Default="yes" Text="!(loc.WixUICancel)" />
+      </Dialog>
+      <!-- Repair / Remove run straight from this dialog (ReinstallMode +
+           Reinstall / Remove + EndDialog Return) - the stock VerifyReadyDlg
+           is never shown in maintenance, so its "blank page" cannot happen. -->
+      <Publish Dialog="AurionRemoveDlg" Control="OptRepair" Property="WixUI_InstallMode" Value="Repair" Order="1">1</Publish>
+      <Publish Dialog="AurionRemoveDlg" Control="OptRepair" Event="ReinstallMode" Value="amus" Order="2">1</Publish>
+      <Publish Dialog="AurionRemoveDlg" Control="OptRepair" Event="Reinstall" Value="All" Order="3">1</Publish>
+      <Publish Dialog="AurionRemoveDlg" Control="OptRepair" Event="EndDialog" Value="Return" Order="4">1</Publish>
+      <Publish Dialog="AurionRemoveDlg" Control="OptRemove" Property="AURION_REMOVING" Value="1" Order="1">1</Publish>
+      <Publish Dialog="AurionRemoveDlg" Control="OptRemove" Event="Remove" Value="All" Order="2">1</Publish>
+      <Publish Dialog="AurionRemoveDlg" Control="OptRemove" Event="EndDialog" Value="Return" Order="3">1</Publish>
+      <Publish Dialog="AurionRemoveDlg" Control="Cancel" Event="SpawnDialog" Value="CancelDlg">1</Publish>
+
+      <!-- stock flow wiring -->
+      <!-- EULA page skipped: later Order on the same control wins. -->
+      <Publish Dialog="WelcomeDlg" Control="Next" Event="NewDialog" Value="InstallDirDlg" Order="2">1</Publish>
+      <Publish Dialog="InstallDirDlg" Control="Back" Event="NewDialog" Value="WelcomeDlg" Order="2">NOT Installed AND NOT (AURION_PREV OR AURION_LEGACY OR OLDPRODUCTFOUND)</Publish>
+      <Publish Dialog="InstallDirDlg" Control="Back" Event="NewDialog" Value="AurionModeDlg" Order="3">NOT Installed AND (AURION_PREV OR AURION_LEGACY OR OLDPRODUCTFOUND)</Publish>
+      <!-- Ready page Back: to our dialogs (never to the stock Maintenance pages) -->
+      <Publish Dialog="VerifyReadyDlg" Control="Back" Event="NewDialog" Value="InstallDirDlg" Order="10">NOT Installed AND NOT AURION_MODEPICK</Publish>
+      <Publish Dialog="VerifyReadyDlg" Control="Back" Event="NewDialog" Value="AurionModeDlg" Order="11">NOT Installed AND AURION_MODEPICK</Publish>
+      <Publish Dialog="VerifyReadyDlg" Control="Back" Event="NewDialog" Value="AurionRemoveDlg" Order="12">Installed AND NOT PATCH</Publish>
+      <!-- Launch the app from the Finish page (first install / upgrade only) -->
+      <Publish Dialog="ExitDialog" Control="Finish" Event="DoAction" Value="AurionLaunchApp" Order="1">WIXUI_EXITDIALOGOPTIONALCHECKBOX = 1 AND NOT Installed</Publish>
+      <!-- stock maintenance welcome -> our branded Repair/Remove page -->
+      <Publish Dialog="MaintenanceWelcomeDlg" Control="Next" Event="NewDialog" Value="AurionRemoveDlg" Order="2">1</Publish>
+      <Publish Dialog="MaintenanceTypeDlg" Control="Next" Event="NewDialog" Value="VerifyReadyDlg" Order="2">1</Publish>
+
+      <InstallUISequence>
+        <!-- First install: mode dialog when an old AURION is present,
+             otherwise the stock Welcome. Maintenance (Control Panel
+             "Change"/ModifyPath): the stock MaintenanceWelcomeDlg appears
+             and its Next is re-pointed to our branded AurionRemoveDlg. -->
+        <Custom Action="AurionVerCmp" After="AppSearch">NOT Installed</Custom>
+        <Show Dialog="AurionModeDlg" After="MigrateFeatureStates">NOT Installed AND (AURION_PREV OR AURION_LEGACY OR OLDPRODUCTFOUND)</Show>
+        <Show Dialog="WelcomeDlg" Before="ProgressDlg">NOT Installed AND NOT (AURION_PREV OR AURION_LEGACY OR OLDPRODUCTFOUND)</Show>
+        <!-- Maintenance (Control Panel "Change" / ModifyPath): the stock
+             MaintenanceWelcomeDlg shows first; its Next is re-pointed to our
+             branded AurionRemoveDlg (later Order on the same control wins -
+             the same pattern as our WelcomeDlg.Next override). Its
+             Repair/Remove buttons perform the real operation. -->
+      </InstallUISequence>
+    </UI>
+    <UIRef Id="WixUI_InstallDir" />
+    <UIRef Id="WixUI_ErrorProgressText" />
+  </Product>
+</Wix>

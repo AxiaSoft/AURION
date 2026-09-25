@@ -1,0 +1,4 @@
+This AURION build is a standard local desk.
+
+There is no owner account, no registration, no plans and no license key.
+Open start-aurion.cmd and the desk is ready.
