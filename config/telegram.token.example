@@ -1,0 +1,15 @@
+# AURION Telegram bot token — SOURCE-ONLY provisioning.
+#
+# Copy this file to  config/telegram.token  (gitignored) and put the real
+# token on a single line.  The dashboard never asks for it and cannot change
+# it; it is only a client of the bot.  The admin panel (owner login) can
+# start / stop / restart / test-fire the bot.
+#
+#   cp config/telegram.token.example config/telegram.token
+#
+# An environment variable works too and wins over the file:
+#   set AURION_TELEGRAM_TOKEN=123456:ABC-...        (Windows)
+#   export AURION_TELEGRAM_TOKEN=123456:ABC-...     (Linux / macOS)
+#
+# Get a token from @BotFather -> /newbot.
+# Lines starting with # are ignored.

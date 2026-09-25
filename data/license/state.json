@@ -1,0 +1,13 @@
+{
+  "plan": "developer",
+  "identity": "",
+  "activated": "2026-09-25T04:22:39Z",
+  "expires": null,
+  "key_hash": "33118ce9542fa96c67b3e091c03eafd554c4ff7bbf5e27e4c2067df63188b6d0",
+  "machine": "704fc6a98ff79abdbbd2b908360792d9",
+  "bot_trades": 0,
+  "last_seen": "2026-09-25T04:22:39Z",
+  "issuer": "Axiasoft",
+  "product": "AURION",
+  "signature": "003b9e97cc4f8cdab85e137299162fd3bed6024376f9ef7919bfc6b9412f7535"
+}
