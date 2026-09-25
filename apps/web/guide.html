@@ -1,0 +1,540 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>AURION — راهنمای ربات</title>
+  <style>
+    :root{
+      --bg:#06070b;--ink:#e8edf7;--muted:#8b93a7;--faint:#5b6274;
+      --line:rgba(255,255,255,.1);--cyan:#3ee0c4;--gold:#e8c07a;--violet:#7c6cff;--rose:#ff6b8a;
+    }
+    *{box-sizing:border-box}
+    html,body{margin:0;background:#06070b;color:var(--ink);font:16px/1.7 system-ui,Vazirmatn,Segoe UI,sans-serif}
+    html[dir="rtl"] body{line-height:1.85}
+    .aurora{position:fixed;inset:0;pointer-events:none;z-index:0;
+      background:radial-gradient(800px 420px at 10% -10%,rgba(124,108,255,.2),transparent 55%),
+                 radial-gradient(700px 400px at 90% 0,rgba(62,224,196,.12),transparent 50%),#06070b}
+    .wrap{position:relative;z-index:1;max-width:920px;margin:0 auto;padding:28px 18px 80px}
+    header{display:flex;flex-wrap:wrap;gap:12px;align-items:center;margin-bottom:22px}
+    .mark{width:56px;height:56px;border-radius:16px;background:#05070c;object-fit:cover}
+    h1{margin:0;letter-spacing:.12em;font-weight:600}
+    html[dir="rtl"] h1{letter-spacing:.02em}
+    .tag{margin:2px 0 0;color:var(--muted);font-size:14px}
+    .langs{margin-inline-start:auto;display:flex;gap:6px}
+    .langs button{border:1px solid var(--line);background:transparent;color:var(--muted);border-radius:999px;padding:7px 12px;cursor:pointer}
+    .langs button.on{background:var(--gold);color:#061014;border-color:transparent}
+    nav.toc{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 22px}
+    nav.toc a{color:var(--cyan);text-decoration:none;border:1px solid var(--line);border-radius:999px;padding:5px 10px;font-size:12px}
+    article{display:none}
+    article.on{display:block}
+    h2{margin:28px 0 10px;font-size:22px;font-weight:500;color:var(--gold)}
+    h3{margin:18px 0 8px;font-size:16px;color:var(--cyan);font-weight:500}
+    p,li{color:#d5dbe8}
+    .muted{color:var(--muted)}
+    .card{background:linear-gradient(180deg,rgba(18,20,30,.7),rgba(12,14,22,.5));border:1px solid var(--line);border-radius:18px;padding:14px 16px;margin:12px 0}
+    ol,ul{padding-inline-start:22px}
+    code,kbd{font-family:ui-monospace,Consolas,monospace;background:rgba(255,255,255,.06);padding:1px 6px;border-radius:6px;font-size:.92em}
+    table{width:100%;border-collapse:collapse;font-size:14px;margin:10px 0}
+    th,td{text-align:start;padding:8px;border-bottom:1px solid var(--line);vertical-align:top}
+    th{color:var(--faint);font-weight:500}
+    .warn{border-color:rgba(232,192,122,.35)}
+    .ok{border-color:rgba(62,224,196,.3)}
+    .bad{border-color:rgba(255,107,138,.35)}
+    footer{margin-top:36px;color:var(--faint);font-size:13px}
+    a{color:var(--cyan)}
+  </style>
+</head>
+<body>
+  <div class="aurora"></div>
+  <div class="wrap">
+    <header>
+      <img class="mark" src="/icons/mark.png?v=desk28" alt="" />
+      <div>
+        <h1>AURION</h1>
+        <p class="tag" id="hdr-tag"></p>
+      </div>
+      <div class="langs">
+        <button type="button" data-lang="fa" class="on">فارسی</button>
+        <button type="button" data-lang="en">EN</button>
+        <button type="button" data-lang="ar">العربية</button>
+      </div>
+    </header>
+    <p class="lede" style="margin:0 0 14px"><a href="/guide-install.html">نصب ویندوز</a> · <a href="/guide-backtest.html">راهنمای بک‌تست</a></p>
+    <nav class="toc" id="toc"></nav>
+
+    <article id="doc-fa" class="on" lang="fa" dir="rtl">
+      <h2 id="fa-0">۰. این فایل چیست</h2>
+      <p>راهنمای کامل AURION با تمرکز روی <b>نحوهٔ معاملهٔ ربات</b>: چه کسی سفارش می‌فرستد، روی کدام کندل، با کدام استراتژی، در مدل نرمال یا اسکلپ، و پراپ چگونه همان سفارش را قطع یا عبور می‌دهد. دادهٔ ساختگی وجود ندارد. اگر متاتریدر قطع باشد میز خالی می‌ماند و سفارشی جعل نمی‌شود.</p>
+
+      <h2 id="fa-1">۱. AURION چیست</h2>
+      <p>میز معاملاتی زنده برای MetaTrader 5. سه لایه:</p>
+      <ol>
+        <li><b>موتور پایتون</b> روی <code>18765</code> — هوش، استراتژی، قوانین پراپ. سوکت قدیمی EA روی <code>18766</code>.</li>
+        <li><b>میز Node</b> روی <code>http://127.0.0.1:8080</code> — ورود، وب‌سوکت، اکسل، فارسی/انگلیسی/عربی.</li>
+        <li><b>AurionBridge.mq5 نسخه ۱.۱۷</b> روی چارت دسکتاپ — تیک، کندل بسته، حساب و پوزیشن را می‌فرستد و سفارش ربات را اجرا می‌کند. دو لوله دارد: فایل مشترک متاتریدر (بدون WebRequest) و HTTP به <code>18765</code> سپس <code>8080</code>.</li>
+      </ol>
+      <div class="card warn">اپ رسمی موبایل متاتریدر نمی‌تواند EA نگه دارد. AURION فقط ویندوز است. اجرا روی همین PC یا VPS ویندوز است.</div>
+
+      <h2 id="fa-2">۲. سه مفهوم جدا — قاطی نکنید</h2>
+      <table>
+        <tr><th>چیست</th><th>چه کار می‌کند</th><th>چه کار نمی‌کند</th></tr>
+        <tr><td>معاملهٔ خودکار</td><td>سوییچ مسلح‌کردن ربات. پیش‌فرض کارخانه <b>خاموش</b> است.</td><td>به‌تنهایی استراتژی را روشن نمی‌کند و پراپ را عوض نمی‌کند.</td></tr>
+        <tr><td>مدل نرمال / اسکلپ</td><td>فقط پارامتر همان استراتژی‌های روشن را عوض می‌کند (EMA، حد، لات، نگاه به چند کندل).</td><td>ربات را مسلح نمی‌کند. استراتژی <code>scalp_impulse</code> را خودش روشن نمی‌کند.</td></tr>
+        <tr><td>پراپ</td><td>فیلتر ریسک روی <b>هر ورود</b> (ربات یا دستی). پروفایل سقف ضرر، لات، ساعت UTC، خبر و جمعه را اعمال می‌کند.</td><td>سبک ورود نیست. سیگنال نمی‌سازد.</td></tr>
+      </table>
+      <div class="card ok">تا وقتی خودکار مسلح نباشد و حداقل یک استراتژی روشن نباشد، ربات <b>هیچ سفارشی</b> نمی‌فرستد — نه در نرمال، نه در اسکلپ، نه با پراپ روشن.</div>
+
+      <h2 id="fa-3">۳. چه کسی معامله می‌کند؟</h2>
+      <p>کارت «چه کسی معامله می‌کند» روی مرکز فرمان و اجرا همین گیت‌ها را زنده نشان می‌دهد.</p>
+      <table>
+        <tr><th>عامل</th><th>شرط</th><th>چه می‌فرستد</th></tr>
+        <tr><td>ربات</td><td>EA زنده + خودکار مسلح + حداقل یک استراتژی روشن + کلید اضطراری خاموش + حالت امن خاموش + اگر پراپ روشن است قفل نباشد</td><td>خرید / فروش / بستن روی <b>کندل بسته</b> همان چارت EA</td></tr>
+        <tr><td>شما — دستی</td><td>EA یا MT5 زنده است و از صفحهٔ اجرا سفارش می‌زنید</td><td>خرید/فروش مارکت، بستن تکی، Flatten. از گیت استراتژی و هوش رد نمی‌شود؛ پراپ و کلید اضطراری اعمال می‌شود</td></tr>
+        <tr><td>هیچ‌کس</td><td>MT5 / EA قطع است</td><td>هیچ فیکی ساخته نمی‌شود</td></tr>
+      </table>
+
+      <h2 id="fa-4">۴. مسیر ربات، قدم‌به‌قدم</h2>
+      <p>ربات <b>هر تیک</b> سفارش نمی‌زند. چهار استراتژی پیش‌فرض فقط روی کندل <b>بسته</b> ارزیابی می‌شوند. EA کندل در حال تشکیل را با <code>closed:false</code> می‌فرستد؛ وقتی بار عوض شود کندل قبلی را با <code>closed:true</code> می‌فرستد و همان جرقه است.</p>
+      <ol>
+        <li>AurionBridge روی یک چارت زنده است (مثلاً XAUUSD M15). بدون EA هیچ نمادی معامله نمی‌شود.</li>
+        <li>کندل بسته می‌رسد. هوش مصنوعی روی همان نوار واقعی استنتاج می‌کند (آموزش در پس‌زمینه، حلقه را قفل نمی‌کند).</li>
+        <li>هر استراتژی <b>روشن</b> سیگنال می‌دهد: <code>hold</code> / <code>buy</code> / <code>sell</code> / <code>close</code>.</li>
+        <li>اگر هیچ استراتژی روشن نباشد، لاگ می‌نویسد «no strategy enabled» و تمام.</li>
+        <li>اگر خودکار مسلح نباشد، سیگنال دیده می‌شود ولی با «will not send» تمام می‌شود.</li>
+        <li>بستن‌ها اول اجرا می‌شوند (پوزیشن خلاف‌جهت).</li>
+        <li>اگر چند استراتژی همزمان بخرند و بفروشند، ورود لغو می‌شود (اختلاف سمت).</li>
+        <li>اگر چند ورود هم‌سمت باشد، فقط <b>اولی</b> ارسال می‌شود.</li>
+        <li>اگر «توافق هوش مصنوعی» روشن باشد و مدل آماده باشد: اطمینان زیر آستانه (پیش‌فرض <code>0.55</code>) یا جهت مخالف سیگنال → ورود رد. جهت <code>neutral</code> ورود را نمی‌بندد. اگر مدل هنوز آماده نباشد این دروازه بلوکه نمی‌کند.</li>
+        <li>اگر پراپ روشن باشد سفارش از <code>allow_order</code> رد می‌شود (لات، ساعت، سقف روزانه، فاصله، خبر، هج…).</li>
+        <li>سفارش با magic <code>908173</code> و کامنت <code>AURION robot</code> به همان EA (یک هدف، نه پخش به همهٔ چارت‌ها) یا در صورت اتصال native به ترمینال می‌رود.</li>
+      </ol>
+      <div class="card warn">استراتژی‌های پیش‌فرض متد <code>on_tick</code> ندارند. تیک فقط برای نمایش قیمت، تریل (اگر <code>trailing_points</code> در پارامتر باشد — در پک کارخانه صفر است) و استراتژی سفارشی شماست.</div>
+
+      <h2 id="fa-5">۵. مدل نرمال در برابر اسکلپ</h2>
+      <p>در تنظیمات یا کارت مدل معامله انتخاب می‌شود. منطق گیت یکی است. فقط اعداد استراتژی عوض می‌شود. اگر اسکلپ را بزنید و تایم‌فریم فعال H1 / H4 / D1 باشد، موتور آن را به <b>M1</b> می‌کشد.</p>
+      <table>
+        <tr><th></th><th>نرمال</th><th>اسکلپ</th></tr>
+        <tr><td>هدف</td><td>سوئینگ / میان‌روزی. ستاپ کمتر، حد بازتر</td><td>ورود و خروج سریع. ستاپ بیشتر، حد تنگ</td></tr>
+        <tr><td>تایم‌فریم پیشنهادی چارت EA</td><td>M15 / M30 / H1</td><td>M1 / M5</td></tr>
+        <tr><td>لات پیش‌فرض بیشتر استراتژی‌ها</td><td>۰.۱۰</td><td>۰.۰۵</td></tr>
+        <tr><td><code>ema_rsi</code></td><td>EMA ۸/۲۱ — RSI ۱۴ — حد ۱.۶ ATR — هدف ۲.۴ ATR</td><td>EMA ۳/۸ — RSI ۷ — حد ۰.۷ — هدف ۱.۱</td></tr>
+        <tr><td><code>price_action</code></td><td>امتیاز الگو ≥ ۰.۶۲ — حد ۱.۴ / هدف ۲.۲</td><td>امتیاز ≥ ۰.۵۵ — حد ۰.۷ / هدف ۱.۰۵</td></tr>
+        <tr><td><code>atr_breakout</code></td><td>نگاه ۲۰ کندل — حد ۱.۲ / هدف ۲.۰</td><td>نگاه ۸ کندل — حد ۰.۵۵ / هدف ۰.۹۵</td></tr>
+        <tr><td><code>scalp_impulse</code></td><td>نگاه ۸ کندل — حد ۰.۹ / هدف ۱.۴ — لات ۰.۰۵</td><td>نگاه ۵ کندل — حد ۰.۵ / هدف ۰.۸ — لات ۰.۰۵</td></tr>
+      </table>
+      <p class="muted">انتخاب اسکلپ به‌تنهایی <code>scalp_impulse</code> را روشن نمی‌کند. هر استراتژی را جدا در تنظیمات یا صفحهٔ استراتژی‌ها روشن کنید.</p>
+
+      <h2 id="fa-6">۶. چهار استراتژی — دقیقاً کی می‌خرند / می‌فروشند</h2>
+      <p>همه فقط وقتی پوزیشن هم‌نماد باز نباشد ورود می‌دهند. اگر پوزیشن مخالف باشد اول <code>close</code> می‌دهند.</p>
+
+      <h3><code>ema_rsi</code> — تقاطع میانگین</h3>
+      <ul>
+        <li><b>خرید:</b> EMA سریع از پایین EMA کند را قطع کند و RSI ≥ ۴۲ (نرمال) باشد.</li>
+        <li><b>فروش:</b> EMA سریع از بالا قطع کند و RSI ≤ ۵۸ باشد.</li>
+        <li>حد و هدف مضرب ATR ۱۴ کندل از قیمت بسته است.</li>
+      </ul>
+
+      <h3><code>price_action</code> — الگوی کندلی</h3>
+      <p>روی آخرین کندل‌های واقعی یکی از این‌ها را می‌جوید و قوی‌ترین امتیاز را برمی‌دارد. ورود فقط اگر امتیاز ≥ آستانهٔ مدل باشد و اگر هوش آماده است با جهت الگو یکی باشد.</p>
+      <table>
+        <tr><th>الگو</th><th>جهت</th><th>امتیاز</th></tr>
+        <tr><td>hammer</td><td>صعودی</td><td>۰.۶۲</td></tr>
+        <tr><td>shooting_star</td><td>نزولی</td><td>۰.۶۲</td></tr>
+        <tr><td>bullish_engulfing</td><td>صعودی</td><td>۰.۷۰</td></tr>
+        <tr><td>bearish_engulfing</td><td>نزولی</td><td>۰.۷۰</td></tr>
+        <tr><td>morning_star</td><td>صعودی</td><td>۰.۷۴</td></tr>
+        <tr><td>evening_star</td><td>نزولی</td><td>۰.۷۴</td></tr>
+        <tr><td>pin_break_up / down</td><td>صعودی / نزولی</td><td>۰.۶۶</td></tr>
+        <tr><td>higher_highs / lower_lows</td><td>صعودی / نزولی</td><td>۰.۵۸ — در نرمال زیر ۰.۶۲ است و به‌تنهایی ورود نمی‌دهد؛ در اسکلپ (۰.۵۵) می‌تواند بدهد</td></tr>
+        <tr><td>doji</td><td>خنثی</td><td>۰.۴۵ — ورود ندارد</td></tr>
+      </table>
+
+      <h3><code>atr_breakout</code> — شکست سقف/کف</h3>
+      <ul>
+        <li><b>خرید:</b> کلوز کندل بسته بالاتر از سقف N کندل قبلی.</li>
+        <li><b>فروش:</b> کلوز پایین‌تر از کف N کندل قبلی.</li>
+        <li>اگر ATR نسبت به قیمت خیلی کوچک باشد (بازار مرده) سیگنال نمی‌دهد.</li>
+      </ul>
+
+      <h3><code>scalp_impulse</code> — ضربهٔ کوتاه</h3>
+      <ul>
+        <li>بدنهٔ کندل باید از کسری از ATR بزرگ‌تر باشد (کندل دوجی رد می‌شود).</li>
+        <li><b>خرید:</b> کلوز بالای سقف N کندل و کلوز بالای اوپن (کندل سبز ضربه‌ای).</li>
+        <li><b>فروش:</b> کلوز زیر کف N کندل و کلوز زیر اوپن.</li>
+      </ul>
+
+      <h2 id="fa-7">۷. پراپ — فیلتر روی همان سیگنال</h2>
+      <p>پراپ سبک ورود نیست. استراتژی سیگنال می‌دهد؛ پراپ می‌گوید بفرست یا نه. خاموش کردن پراپ یعنی این فیلترها کنار می‌روند — مسئولیت با شماست. چهار پروفایل کارخانه قفل‌اند؛ فقط «سفارشی» ویرایش می‌شود.</p>
+      <table>
+        <tr><th>پروفایل</th><th>ضرر روزانه / دراودان</th><th>لات / باز</th><th>ساعت UTC</th><th>خبر / جمعه</th></tr>
+        <tr><td>محافظه‌کار</td><td>۲٪ / ۵٪ + قفل سود روزانه ۳٪</td><td>۰.۳۰ — حداکثر ۲ باز — فاصله ۱۵ دقیقه — ۶ در روز</td><td>۰۷–۲۰ هفته</td><td>خبر خاموش — جمعه ۲۰ فلت و قفل</td></tr>
+        <tr><td>FTMO-style</td><td>۵٪ / ۱۰٪ — هدف ۱۰٪</td><td>۲.۰۰ — ۵ باز — ۲ در نماد</td><td>تقریباً تمام روز هفته</td><td>خبر ۱۵+۱۵ — جمعه ۲۱ فلت — هج مجاز</td></tr>
+        <tr><td>FundingPips</td><td>۴٪ / ۶٪ — هدف ۸٪</td><td>۱.۰۰ (۰.۸۰ هر نماد) — ۳ باز — فاصله ۱۰ دقیقه — ۸ در روز</td><td>۰۱–۲۱</td><td>خبر ۱۰+۱۰ — بدون هج — جمعه ۲۰ فلت</td></tr>
+        <tr><td>The5ers</td><td>۵٪ / ۶٪ — هدف ۸٪</td><td>۲.۵۰ — ۸ باز — ۲۰ در روز</td><td>تقریباً تمام روز</td><td>خبر خاموش — نگه‌داشتن آخر هفته مجاز — نقض فقط قفل می‌کند</td></tr>
+      </table>
+      <p>ورود رد می‌شود اگر: قفل پراپ خورده باشد، سقف ضرر/دراودان زده شده باشد، خارج از ساعت UTC باشد، لات یا تعداد پوزیشن پر باشد، فاصلهٔ ورود رعایت نشده باشد، ضرر پیاپی به سقف رسیده باشد، هج ممنوع باشد و پوزیشن مخالف همان نماد باز باشد، یا فیلتر خبر روشن باشد <b>و</b> فایل تقویم بار شده باشد. بدون فایل تقویم، خبر عملاً چیزی را نمی‌بندد.</p>
+      <p>پراپ روی ورود <b>دستی</b> هم اعمال می‌شود. بستن اضطراری / Flatten از سقف حداقل‌ماندن رد می‌شود.</p>
+
+      <h2 id="fa-8">۸. دروازهٔ هوش مصنوعی</h2>
+      <ul>
+        <li>پیش‌فرض: توافق هوش <b>روشن</b>، حداقل اطمینان <code>0.55</code>.</li>
+        <li>فقط ورود <code>buy</code> / <code>sell</code> را می‌بندد؛ بستن پوزیشن را نمی‌بندد.</li>
+        <li>اگر مدل آماده نباشد، ورود استراتژی رد نمی‌شود.</li>
+        <li>اگر آماده باشد و اطمینان کم باشد یا جهت خلاف سیگنال باشد، در لاگ ربات <code>AI confidence … skipped</code> یا <code>AI disagrees</code> می‌آید.</li>
+        <li>هوش فقط روی نماد EA و کندل بسته آموزش می‌بیند؛ Market Watch را قاطی نمی‌کند.</li>
+      </ul>
+
+      <h2 id="fa-9">۹. لاگ ربات — معنی هر خط</h2>
+      <p>تب ترمینال → ربات، یا کارت ربات در اجرا. بعد از هر کندل بسته یکی از این‌ها را ببینید:</p>
+      <table>
+        <tr><th>متن</th><th>یعنی</th></tr>
+        <tr><td><code>Evaluating … on XAUUSD M15 (LIVE fire)</code></td><td>گیت‌ها باز است؛ اگر استراتژی شلیک کند سفارش می‌رود</td></tr>
+        <tr><td><code>observe only — will not send</code></td><td>سیگنال دیده شد ولی خودکار مسلح نیست یا گیت بسته است</td></tr>
+        <tr><td><code>hold — no setup on this bar</code></td><td>استراتژی روی این کندل ستاپ ندید</td></tr>
+        <tr><td><code>no strategy enabled</code></td><td>هیچ استراتژی‌ای روشن نیست</td></tr>
+        <tr><td><code>Enabled strategies disagreed on side</code></td><td>یکی خرید یکی فروش — ورود لغو</td></tr>
+        <tr><td><code>AI confidence … skipped</code> / <code>AI disagrees</code></td><td>سیگنال بود، دروازهٔ هوش رد کرد</td></tr>
+        <tr><td><code>Prop blocked the order</code></td><td>پروفایل پراپ ورود را نگذاشت</td></tr>
+        <tr><td><code>Sending buy/sell … via EA</code> بعد <code>Filled</code></td><td>سفارش زنده رفت و تأیید شد</td></tr>
+        <tr><td><code>Rejected</code></td><td>متاتریدر یا EA رد کرد (AutoTrading خاموش، فیلینگ، مارکت بسته…)</td></tr>
+      </table>
+
+      <h2 id="fa-10">۱۰. نصب ویندوز</h2>
+      <ol>
+        <li>کل پوشه را در <code>D:\\aurion</code> بگذارید (نه تو در تو).</li>
+        <li>اولین بار <code>install-aurion.cmd</code> — پایتون ۳.۱۲ و Node LTS اگر نباشند <b>خودشان دانلود و نصب می‌شوند</b>، بعد pip و npm و کپی EA ۱.۱۷.</li>
+        <li>فقط <b>پایتون ۳.۱۲</b> — <code>py -3.12</code>. نه ۳.۱۳ و نه ۳.۱۴. Node ۲۶ مجاز است.</li>
+        <li>NumPy باید <code>1.26.4</code> باشد.</li>
+        <li>روزانه <code>start-aurion.cmd</code> — موتور و میز مخفی؛ مرورگر <code>http://127.0.0.1:8080</code>. اگر پیش‌نیاز ناقص باشد همان نصب‌کننده صدا زده می‌شود.</li>
+        <li>توقف: <code>stop-aurion.cmd</code>. راهنمای کامل نصب: <a href="/guide-install.html">guide-install.html</a>.</li>
+      </ol>
+
+      <h2 id="fa-11">۱۱. اتصال MetaTrader و EA ۱.۱۷</h2>
+      <ol>
+        <li>MT5 روی همان ماشین (نه Strategy Tester).</li>
+        <li><code>AurionBridge.mq5</code> را با F7 کامپایل کنید — نسخه باید <b>۱.۱۷</b> باشد. از چارت بردارید و دوباره بچسبانید.</li>
+        <li>در تب Experts باید <code>hello delivered v1.17</code> یا <code>file inbox writing</code> بیاید. فایل مشترک حتی بدون WebRequest میز را تغذیه می‌کند.</li>
+        <li>WebRequest اختیاری است. اگر می‌خواهید: Allow algorithmic trading + URLهای <code>127.0.0.1</code> ، <code>http://127.0.0.1</code> ، <code>http://127.0.0.1:18765</code> ، <code>http://127.0.0.1:8080</code>.</li>
+        <li>AutoTrading ترمینال و چارت روشن باشد وگرنه سفارش ربات در EA رد می‌شود.</li>
+      </ol>
+
+      <h2 id="fa-12">۱۲. نقشهٔ میز</h2>
+      <ul>
+        <li><b>مرکز فرمان</b> — KPI، کارت گیت، نوار چارت‌های EA، پوزیشن، حساب، هوش.</li>
+        <li><b>بازارها</b> — کندل واقعی همان نماد EA.</li>
+        <li><b>هوش مصنوعی</b> — جهت، رژیم، الگو، بازآموزش.</li>
+        <li><b>استراتژی‌ها</b> — روشن/خاموش و آخرین عمل روی کندل بسته.</li>
+        <li><b>اجرا</b> — مسلح کردن ربات، دستی، Flatten، لاگ ربات.</li>
+        <li><b>چارت‌های EA</b> — یک کارت برای هر AurionBridge؛ کلیک = چارت کامل و ابزار رسم.</li>
+        <li><b>ترمینال</b> — زنده / ربات / موتور / میز.</li>
+        <li><b>تنظیمات</b> — خودکار، مدل نرمال/اسکلپ، استراتژی، پراپ بخش‌بندی‌شده، MT5، زبان، همین راهنما.</li>
+      </ul>
+
+      <h2 id="fa-13">۱۳. ایمنی</h2>
+      <ul>
+        <li>کلید اضطراری هدر: ورود جدید بسته می‌شود؛ بستن همچنان ممکن است.</li>
+        <li>Flatten همه پوزیشن‌های زنده را می‌بندد.</li>
+        <li>حالت امن بعد از کرش استراتژی روشن می‌شود و ربات دیگر شلیک نمی‌کند تا رفع شود.</li>
+        <li>اگر flatten-on-disconnect روشن باشد قطع شدن همهٔ EA می‌تواند کتاب را جمع کند.</li>
+      </ul>
+
+      <h2 id="fa-14">۱۴. عیب‌یابی ربات</h2>
+      <table>
+        <tr><th>نشانه</th><th>کار</th></tr>
+        <tr><td>کارت می‌گوید «هیچ‌کس»</td><td>EA ۱.۱۷ را کامپایل و دوباره بچسبانید. Experts را بخوانید.</td></tr>
+        <tr><td>کارت می‌گوید «شما — دستی»</td><td>استراتژی روشن نیست یا خودکار مسلح نیست یا کلید/پراپ بسته است.</td></tr>
+        <tr><td>Evaluating … observe only</td><td>خودکار را مسلح کنید.</td></tr>
+        <tr><td>hold هر کندل</td><td>ستاپ آن استراتژی روی این تایم‌فریم نیامده. مدل یا استراتژی را عوض کنید.</td></tr>
+        <tr><td>Prop blocked</td><td>ساعت UTC، لات، سقف روزانه یا فاصله. پروفایل یا پراپ را ببینید.</td></tr>
+        <tr><td>EA did not confirm / AutoTrading OFF</td><td>دکمه AutoTrading ترمینال و چارت.</td></tr>
+        <tr><td>چارت روی میز نیست</td><td>نسخه باید ۱.۱۷ باشد. stop سپس start، Ctrl+Shift+R.</td></tr>
+      </table>
+
+      <h2 id="fa-15">۱۵. چک‌لیست اولین معاملهٔ ربات</h2>
+      <ol>
+        <li><code>start-aurion.cmd</code> → ورود به میز.</li>
+        <li>AurionBridge ۱.۱۷ روی چارت زنده (نرمال: مثلاً XAUUSD M15 — اسکلپ: M1/M5).</li>
+        <li>کارت عامل در «چارت‌های EA» آنلاین شود.</li>
+        <li>یک یا چند استراتژی را روشن کنید.</li>
+        <li>مدل نرمال یا اسکلپ را انتخاب کنید.</li>
+        <li>پروفایل پراپ را انتخاب کنید یا پراپ را آگاهانه خاموش کنید.</li>
+        <li>معاملهٔ خودکار را مسلح کنید.</li>
+        <li>کارت گیت باید بگوید <b>ربات</b> و «ربات می‌تواند سفارش بفرستد».</li>
+        <li>منتظر کندل بسته بمانید. ورود جعلی ساخته نمی‌شود.</li>
+      </ol>
+    </article>
+
+    <article id="doc-en" lang="en" dir="ltr">
+      <h2 id="en-0">0. What this file is</h2>
+      <p>The full AURION manual, centred on <b>how the robot trades</b>: who may send, on which bar, with which strategy, in Normal vs Scalping, and how prop filters the same order. Nothing is invented. If MT5 is down the book stays empty.</p>
+
+      <h2 id="en-1">1. What AURION is</h2>
+      <ol>
+        <li><b>Python engine</b> on <code>18765</code> — AI, strategies, prop. Legacy EA socket on <code>18766</code>.</li>
+        <li><b>Node desk</b> on <code>http://127.0.0.1:8080</code>.</li>
+        <li><b>AurionBridge.mq5 1.17</b> on a desktop MT5 chart. Two pipes: the MT5 Common Files drop (no WebRequest) and HTTP to <code>18765</code> then <code>8080</code>.</li>
+      </ol>
+      <div class="card warn">Official MT5 mobile cannot host EAs. AURION is Windows-only. Execution is on this PC or a Windows VPS.</div>
+
+      <h2 id="en-2">2. Three separate knobs</h2>
+      <table>
+        <tr><th>Knob</th><th>Does</th><th>Does not</th></tr>
+        <tr><td>Auto-trade</td><td>Arms the robot. Factory default is <b>OFF</b>.</td><td>Does not enable a strategy or change prop.</td></tr>
+        <tr><td>Normal / Scalping</td><td>Overlays strategy parameters (EMAs, stops, lots, lookback).</td><td>Does not arm the robot or enable <code>scalp_impulse</code>.</td></tr>
+        <tr><td>Prop</td><td>Risk filter on every <b>entry</b> (robot or manual).</td><td>Not a trade style. Builds no signal.</td></tr>
+      </table>
+      <div class="card ok">Until auto-trade is armed and at least one strategy is ON, the robot sends <b>nothing</b> — in any style, with or without prop.</div>
+
+      <h2 id="en-3">3. Who trades?</h2>
+      <table>
+        <tr><th>Actor</th><th>When</th><th>What is sent</th></tr>
+        <tr><td>Robot</td><td>EA live + auto armed + ≥1 strategy ON + kill off + safe off + prop not locked</td><td>Buy / sell / close on a <b>closed</b> bar of that EA chart</td></tr>
+        <tr><td>You — manual</td><td>EA/MT5 live and you use Execution</td><td>Market buy/sell, ticket close, flatten. Skips strategy/AI gates; still hits prop and kill</td></tr>
+        <tr><td>Nobody</td><td>MT5 / EA down</td><td>Nothing</td></tr>
+      </table>
+
+      <h2 id="en-4">4. Robot path</h2>
+      <p>The robot does <b>not</b> fire on every tick. Built-in strategies evaluate only a <b>closed</b> candle (<code>closed:true</code> from the EA when the bar rolls).</p>
+      <ol>
+        <li>AurionBridge is on a live chart. No EA → no symbol is tradable.</li>
+        <li>Closed bar arrives. AI infers on that real tape (retrain is background).</li>
+        <li>Each <b>enabled</b> strategy returns hold / buy / sell / close.</li>
+        <li>No strategy enabled → journal only.</li>
+        <li>Auto off → “will not send”.</li>
+        <li>Closes run first.</li>
+        <li>If enabled strategies disagree on side, no entry.</li>
+        <li>If several entries share a side, only the <b>first</b> is sent.</li>
+        <li>AI gate (default on, min confidence <code>0.55</code>): when the model is ready, low confidence or opposite direction skips the entry. <code>neutral</code> does not block. If the model is not ready, the gate does not block.</li>
+        <li>If prop is ON, <code>allow_order</code> must pass.</li>
+        <li>Order goes out with magic <code>908173</code> to <b>one</b> EA target (or native if connected).</li>
+      </ol>
+      <div class="card warn">Built-ins have no <code>on_tick</code>. Ticks only paint the tape, optional trailing (<code>trailing_points</code> is 0 in factory packs), and your custom strategy.</div>
+
+      <h2 id="en-5">5. Normal vs scalping</h2>
+      <table>
+        <tr><th></th><th>Normal</th><th>Scalping</th></tr>
+        <tr><td>Intent</td><td>Swing / intraday. Fewer setups, wider stops</td><td>Fast in/out. More setups, tight stops</td></tr>
+        <tr><td>Suggested EA chart</td><td>M15 / M30 / H1</td><td>M1 / M5</td></tr>
+        <tr><td>Default lot</td><td>0.10 (impulse 0.05)</td><td>0.05</td></tr>
+        <tr><td><code>ema_rsi</code></td><td>8/21, RSI 14, SL 1.6 ATR, TP 2.4</td><td>3/8, RSI 7, SL 0.7, TP 1.1</td></tr>
+        <tr><td><code>price_action</code></td><td>score ≥ 0.62, SL 1.4 / TP 2.2</td><td>score ≥ 0.55, SL 0.7 / TP 1.05</td></tr>
+        <tr><td><code>atr_breakout</code></td><td>lookback 20, SL 1.2 / TP 2.0</td><td>lookback 8, SL 0.55 / TP 0.95</td></tr>
+        <tr><td><code>scalp_impulse</code></td><td>lookback 8, SL 0.9 / TP 1.4</td><td>lookback 5, SL 0.5 / TP 0.8</td></tr>
+      </table>
+      <p>Picking Scalping also forces an H1/H4/D1 active timeframe down to <b>M1</b>. It does not enable <code>scalp_impulse</code> by itself.</p>
+
+      <h2 id="en-6">6. When each strategy fires</h2>
+      <p>Entries only if there is no open position on that symbol. An opposite position yields <code>close</code> first.</p>
+      <ul>
+        <li><code>ema_rsi</code> — buy when fast EMA crosses up through slow and RSI ≥ 42; sell on a cross down with RSI ≤ 58.</li>
+        <li><code>price_action</code> — strongest of hammer / star / engulfing / morning-evening star / pin-break / HH-LL. Needs score ≥ the style threshold and AI agreement when AI is ready. Doji is neutral (no entry). HH/LL score 0.58: Normal (0.62) ignores it alone; Scalping (0.55) can take it.</li>
+        <li><code>atr_breakout</code> — buy if the closed bar closes above the prior N-bar high; sell below the N-bar low. Dead ATR is skipped.</li>
+        <li><code>scalp_impulse</code> — body must beat a fraction of ATR. Buy: close above the N-bar high and above open. Sell: close below the N-bar low and below open.</li>
+      </ul>
+
+      <h2 id="en-7">7. Prop — filter, not a style</h2>
+      <p>The strategy still decides the setup. Prop decides whether that order may leave. Factory presets are sealed; only Custom is editable.</p>
+      <table>
+        <tr><th>Profile</th><th>Daily / max DD</th><th>Lot / book</th><th>UTC hours</th><th>News / Friday</th></tr>
+        <tr><td>Conservative</td><td>2% / 5% + 3% daily profit lock</td><td>0.30, 2 open, 15 min gap, 6/day</td><td>07–20 weekdays</td><td>News off · Friday 20 flatten+lock</td></tr>
+        <tr><td>FTMO-style</td><td>5% / 10%, 10% target</td><td>2.00, 5 open, 2/symbol</td><td>Almost all weekday</td><td>News 15+15 · Friday 21 flatten · hedge on</td></tr>
+        <tr><td>FundingPips</td><td>4% / 6%, 8% target</td><td>1.00 (0.80/symbol), 3 open, 10 min gap, 8/day</td><td>01–21</td><td>News 10+10 · no hedge · Friday 20 flatten</td></tr>
+        <tr><td>The5ers</td><td>5% / 6%, 8% target</td><td>2.50, 8 open, 20/day</td><td>Almost all weekday</td><td>News off · weekend hold allowed · lock only on trip</td></tr>
+      </table>
+      <p>An entry is refused if the book is locked, daily loss / DD is hit, the clock is outside UTC hours, lot or ticket caps are full, the gap or consecutive-loss cap is hit, hedging is forbidden and an opposite ticket is open, or news filter is on <b>and</b> a calendar file is loaded. No calendar file → news does not block. Manual entries hit the same filter. Emergency flatten bypasses min-hold.</p>
+
+      <h2 id="en-8">8. AI gate</h2>
+      <p>Default on. Applies only to buy/sell, not closes. If the model is not ready, it does not block. When ready: confidence below the threshold or direction opposite the signal skips the entry. Neutral does not skip.</p>
+
+      <h2 id="en-9">9. Robot log lines</h2>
+      <table>
+        <tr><th>Line</th><th>Meaning</th></tr>
+        <tr><td><code>Evaluating … (LIVE fire)</code></td><td>Gates open — a setup can send</td></tr>
+        <tr><td><code>observe only — will not send</code></td><td>Signal seen, auto not armed or a gate is closed</td></tr>
+        <tr><td><code>hold — no setup on this bar</code></td><td>That strategy saw nothing</td></tr>
+        <tr><td><code>no strategy enabled</code></td><td>Turn one on</td></tr>
+        <tr><td><code>disagreed on side</code></td><td>Buy and sell at once — no entry</td></tr>
+        <tr><td><code>AI … skipped / disagrees</code></td><td>Setup died at the AI gate</td></tr>
+        <tr><td><code>Prop blocked</code></td><td>Profile refused the ticket</td></tr>
+        <tr><td><code>Sending … Filled</code></td><td>Live order confirmed</td></tr>
+        <tr><td><code>Rejected</code></td><td>MT5/EA refused (AutoTrading, filling, closed market…)</td></tr>
+      </table>
+
+      <h2 id="en-10">10. Windows install</h2>
+      <ol>
+        <li>Copy the tree to <code>D:\\aurion</code>.</li>
+        <li>First time: <code>install-aurion.cmd</code> — missing Python 3.12 / Node LTS are <b>downloaded and installed</b>, then pip, npm, and EA 1.17 copy.</li>
+        <li><b>Python 3.12</b> only: <code>py -3.12</code>. Not 3.13 / 3.14. Node 26 is OK.</li>
+        <li>NumPy <code>1.26.4</code>.</li>
+        <li>Daily: <code>start-aurion.cmd</code> — hidden engine + desk, browser on <code>http://127.0.0.1:8080</code>. Missing prerequisites call the same installer.</li>
+        <li>Stop with <code>stop-aurion.cmd</code>. Full install guide: <a href="/guide-install.html">guide-install.html</a>.</li>
+      </ol>
+
+      <h2 id="en-11">11. MetaTrader + EA 1.17</h2>
+      <ol>
+        <li>Same machine, not Strategy Tester.</li>
+        <li>Compile <code>AurionBridge.mq5</code> with F7 — version <b>1.17</b>. Remove and reattach.</li>
+        <li>Experts must show <code>hello delivered v1.17</code> or <code>file inbox writing</code>. The file drop feeds the desk without WebRequest.</li>
+        <li>WebRequest is optional. If you want it: allow algo trading and <code>127.0.0.1</code>, <code>http://127.0.0.1</code>, <code>http://127.0.0.1:18765</code>, <code>http://127.0.0.1:8080</code>.</li>
+        <li>Terminal and chart AutoTrading must be ON or the EA rejects the robot order.</li>
+      </ol>
+
+      <h2 id="en-12">12. Desk map</h2>
+      <ul>
+        <li><b>Command</b> — KPIs, gate card, EA strip, positions, account, AI.</li>
+        <li><b>Markets</b> — real candles for the EA symbol only.</li>
+        <li><b>Intelligence</b> — direction, regime, pattern, retrain.</li>
+        <li><b>Strategies</b> — enable/disable and last closed-bar action.</li>
+        <li><b>Execution</b> — arm the robot, manual ticket, flatten, robot log.</li>
+        <li><b>EA Charts</b> — one card per bridge; click for the full tape and drawing tools.</li>
+        <li><b>Terminal</b> — live / robot / engine / desk.</li>
+        <li><b>Settings</b> — auto, style, strategies, sectioned prop, MT5, language, this guide.</li>
+      </ul>
+
+      <h2 id="en-13">13. Safety</h2>
+      <ul>
+        <li>Header kill switch blocks new entries; closes still work.</li>
+        <li>Flatten closes every live position.</li>
+        <li>Safe mode trips after a strategy crash and stops robot fire.</li>
+        <li>Flatten-on-disconnect can flatten the book if every EA drops.</li>
+      </ul>
+
+      <h2 id="en-14">14. Robot troubleshooting</h2>
+      <table>
+        <tr><th>Symptom</th><th>Fix</th></tr>
+        <tr><td>Gate says Nobody</td><td>Compile and reattach EA 1.17. Read Experts.</td></tr>
+        <tr><td>Gate says You — manual</td><td>Enable a strategy, arm auto, check kill/prop.</td></tr>
+        <tr><td>observe only</td><td>Arm auto-trade.</td></tr>
+        <tr><td>hold every bar</td><td>No setup on that TF. Change style or strategy.</td></tr>
+        <tr><td>Prop blocked</td><td>UTC hours, lot, daily cap or gap.</td></tr>
+        <tr><td>EA did not confirm</td><td>Turn AutoTrading ON on the terminal and the chart.</td></tr>
+        <tr><td>No chart on the desk</td><td>Must be 1.17. stop then start, Ctrl+Shift+R.</td></tr>
+      </table>
+
+      <h2 id="en-15">15. First robot-trade checklist</h2>
+      <ol>
+        <li><code>start-aurion.cmd</code> → sign in.</li>
+        <li>AurionBridge 1.17 on a live chart (Normal: e.g. XAUUSD M15 — Scalp: M1/M5).</li>
+        <li>EA Charts shows the agent online.</li>
+        <li>Enable one or more strategies.</li>
+        <li>Pick Normal or Scalping.</li>
+        <li>Pick a prop profile or turn prop off on purpose.</li>
+        <li>Arm Auto-trade.</li>
+        <li>The gate card must say <b>Robot</b>.</li>
+        <li>Wait for a closed bar. Nothing is invented.</li>
+      </ol>
+    </article>
+
+    <article id="doc-ar" lang="ar" dir="rtl">
+      <h2 id="ar-0">٠. ما هذا الملف</h2>
+      <p>دليل AURION الكامل، ومركزه <b>كيف يتداول الروبوت</b>: من يرسل، على أي شمعة، بأي استراتيجية، في العادي أو السكالب، وكيف يصفّي البروب الأمر نفسه. لا بيانات مختلقة.</p>
+
+      <h2 id="ar-1">١. ثلاث مفاتيح منفصلة</h2>
+      <table>
+        <tr><th>المفتاح</th><th>يفعل</th><th>لا يفعل</th></tr>
+        <tr><td>التداول الآلي</td><td>يسلّح الروبوت. الافتراضي <b>متوقف</b>.</td><td>لا يفعّل استراتيجية ولا يغيّر البروب.</td></tr>
+        <tr><td>عادي / سكالب</td><td>يغيّر معاملات الاستراتيجية فقط.</td><td>لا يسلّح الروبوت ولا يفعّل <code>scalp_impulse</code> وحده.</td></tr>
+        <tr><td>البروب</td><td>مرشّح مخاطر على كل <b>دخول</b>.</td><td>ليس أسلوب دخول. لا يصنع إشارة.</td></tr>
+      </table>
+      <div class="card ok">ما لم يُسلَّح الآلي وتُفعَّل استراتيجية واحدة على الأقل، لن يرسل الروبوت شيئاً.</div>
+
+      <h2 id="ar-2">٢. مسار الروبوت</h2>
+      <p>لا يطلق على كل تيك. الاستراتيجيات المدمجة تُقيَّم فقط على شمعة <b>مغلقة</b> من الرسم الذي عليه AurionBridge 1.17.</p>
+      <ol>
+        <li>المستشار على رسم حي. بلا مستشار لا رمز قابل للتداول.</li>
+        <li>تصل شمعة مغلقة. يستنتج الذكاء على ذلك الشريط الحقيقي.</li>
+        <li>كل استراتيجية مفعّلة تعيد hold / buy / sell / close.</li>
+        <li>الإغلاقات أولاً. إن اختلفت الجهات يُلغى الدخول. إن اتفقت يُرسل الأول فقط.</li>
+        <li>بوابة الذكاء (افتراضي 0.55): إن كان النموذج جاهزاً والاتجاه معاكساً أو الثقة منخفضة يُتخطى الدخول. الحياد لا يمنع. إن لم يكن جاهزاً لا تُغلق البوابة.</li>
+        <li>إن كان البروب شغّالاً يجب أن يمرّ <code>allow_order</code>.</li>
+        <li>الأمر بـ magic <code>908173</code> إلى مستشار واحد (أو Native).</li>
+      </ol>
+
+      <h2 id="ar-3">٣. عادي مقابل سكالب</h2>
+      <table>
+        <tr><th></th><th>عادي</th><th>سكالب</th></tr>
+        <tr><td>الرسم المقترح</td><td>M15 / M30 / H1</td><td>M1 / M5</td></tr>
+        <tr><td>اللوت</td><td>0.10 (الضربة 0.05)</td><td>0.05</td></tr>
+        <tr><td><code>ema_rsi</code></td><td>8/21 RSI14 حد 1.6 هدف 2.4</td><td>3/8 RSI7 حد 0.7 هدف 1.1</td></tr>
+        <tr><td><code>price_action</code></td><td>درجة ≥ 0.62</td><td>درجة ≥ 0.55</td></tr>
+        <tr><td><code>atr_breakout</code></td><td>20 شمعة</td><td>8 شموع</td></tr>
+        <tr><td><code>scalp_impulse</code></td><td>8 شموع حد 0.9</td><td>5 شموع حد 0.5</td></tr>
+      </table>
+      <p>السكالب يسحب H1/H4/D1 إلى <b>M1</b>. لا يفعّل <code>scalp_impulse</code> وحده.</p>
+
+      <h2 id="ar-4">٤. متى تطلق كل استراتيجية</h2>
+      <ul>
+        <li><code>ema_rsi</code> — شراء عند تقاطع سريع صاعد و RSI ≥ 42؛ بيع عند تقاطع هابط و RSI ≤ 58.</li>
+        <li><code>price_action</code> — أقوى نمط (مطرقة، نجم، ابتلاع، نجمة صباح/مساء، كسر دبوس، HH/LL). الدوجي محايد.</li>
+        <li><code>atr_breakout</code> — إغلاق فوق أعلى N أو تحت أدنى N.</li>
+        <li><code>scalp_impulse</code> — جسم أكبر من جزء من ATR ثم كسر سقف/قاع N مع اتجاه الجسم.</li>
+      </ul>
+
+      <h2 id="ar-5">٥. البروب</h2>
+      <p>الاستراتيجية تقرّر الإعداد. البروب يقرّر المغادرة. المحافظ: 2/5 و0.30 لوت و07–20 UTC. FTMO-style: 5/10 ولوت 2.00 وخبر 15+15. FundingPips: 4/6 بلا تحوّط. The5ers: 5/6 واحتفاظ عطلة مسموح. بلا ملف تقويم لا يحظر الخبر شيئاً. الدخول اليدوي يمرّ من البروب أيضاً.</p>
+
+      <h2 id="ar-6">٦. السجل</h2>
+      <p><code>LIVE fire</code> = البوابات مفتوحة. <code>observe only</code> = الآلي غير مسلّح. <code>hold</code> = لا إعداد. <code>Prop blocked</code> / <code>AI disagrees</code> = إشارة رُفضت. <code>Filled</code> = أمر حي مؤكّد.</p>
+
+      <h2 id="ar-7">٧. التثبيت والميتاتريدر</h2>
+      <ol>
+        <li><code>D:\\aurion</code> ثم <code>install-aurion.cmd</code> (ينزّل Python 3.12 وNode LTS إن نقصا) ثم يومياً <code>start-aurion.cmd</code>. الدليل: <a href="/guide-install.html">guide-install.html</a>.</li>
+        <li>جمّع AurionBridge <b>1.17</b> بـ F7. Experts: <code>hello delivered v1.17</code> أو كتابة الملف المشترك. WebRequest اختياري.</li>
+        <li>AutoTrading على المنصة والرسم يجب أن يكون شغّالاً.</li>
+      </ol>
+
+      <h2 id="ar-8">٨. قائمة أول صفقة روبوت</h2>
+      <ol>
+        <li>شغّل المكدس وادخل.</li>
+        <li>المستشار 1.17 على رسم حي.</li>
+        <li>فعّل استراتيجية. اختر نمطاً. اضبط البروب.</li>
+        <li>سلّح الآلي. البطاقة تقول <b>الروبوت</b>.</li>
+        <li>انتظر شمعة مغلقة. لا شيء يُختلق.</li>
+      </ol>
+    </article>
+
+    <footer>AURION 1.0 · live tape only · magic 908173 · robot guide 2026-08-20 · EA 1.17</footer>
+  </div>
+  <script>
+    const toc = {
+      fa: [
+        ["#fa-0","۰ مقدمه"],["#fa-1","۱ چیست"],["#fa-2","۲ سه مفهوم"],["#fa-3","۳ چه کسی"],
+        ["#fa-4","۴ مسیر ربات"],["#fa-5","۵ نرمال / اسکلپ"],["#fa-6","۶ استراتژی‌ها"],["#fa-7","۷ پراپ"],
+        ["#fa-8","۸ هوش"],["#fa-9","۹ لاگ"],["#fa-10","۱۰ نصب"],["#fa-11","۱۱ متاتریدر"],
+        ["#fa-12","۱۲ میز"],["#fa-13","۱۳ ایمنی"],["#fa-14","۱۴ عیب‌یابی"],["#fa-15","۱۵ چک‌لیست"]
+      ],
+      en: [
+        ["#en-0","0 Intro"],["#en-1","1 What"],["#en-2","2 Knobs"],["#en-3","3 Who"],
+        ["#en-4","4 Path"],["#en-5","5 Style"],["#en-6","6 Strategies"],["#en-7","7 Prop"],
+        ["#en-8","8 AI"],["#en-9","9 Log"],["#en-10","10 Install"],["#en-11","11 MT5"],
+        ["#en-12","12 Desk"],["#en-13","13 Safety"],["#en-14","14 Fixes"],["#en-15","15 Checklist"]
+      ],
+      ar: [
+        ["#ar-0","٠ مقدمة"],["#ar-1","١ المفاتيح"],["#ar-2","٢ المسار"],["#ar-3","٣ النمط"],
+        ["#ar-4","٤ الاستراتيجيات"],["#ar-5","٥ البروب"],["#ar-6","٦ السجل"],["#ar-7","٧ التثبيت"],
+        ["#ar-8","٨ القائمة"]
+      ],
+    };
+    const tags = {
+      fa: "راهنمای معاملهٔ ربات — نرمال، اسکلپ، پراپ",
+      en: "How the robot trades — normal, scalping, prop",
+      ar: "كيف يتداول الروبوت — عادي وسكالب وبروب"
+    };
+    function setLang(lang) {
+      document.documentElement.lang = lang;
+      document.documentElement.dir = lang === "en" ? "ltr" : "rtl";
+      document.querySelectorAll("article").forEach((a) => a.classList.toggle("on", a.id === "doc-" + lang));
+      document.querySelectorAll(".langs button").forEach((b) => b.classList.toggle("on", b.dataset.lang === lang));
+      document.getElementById("hdr-tag").textContent = tags[lang];
+      document.getElementById("toc").innerHTML = (toc[lang] || []).map(([h,l]) => `<a href="${h}">${l}</a>`).join("");
+      try { localStorage.setItem("aurion.guide.lang", lang); } catch (e) {}
+    }
+    document.querySelector(".langs").onclick = (e) => {
+      const b = e.target.closest("[data-lang]");
+      if (b) setLang(b.dataset.lang);
+    };
+    setLang(localStorage.getItem("aurion.guide.lang") || "fa");
+  </script>
+</body>
+</html>

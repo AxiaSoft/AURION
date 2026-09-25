@@ -1,0 +1,193 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="robots" content="noindex, nofollow, noarchive" />
+<title>AURION — پنل ادمین تلگرام</title>
+<style>
+  :root{
+    --bg:#06070b; --bg2:#0b0d14; --ink:#e8edf7; --muted:#8b93a7; --faint:#5b6274;
+    --line:rgba(255,255,255,.09); --cyan:#3ee0c4; --rose:#ff6b8a; --gold:#e8c07a;
+    --font:Vazirmatn,Segoe UI,Tahoma,system-ui,sans-serif;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--font);font-size:14px;
+       min-height:100vh;display:grid;place-items:center;padding:24px}
+  .card{width:min(560px,100%);background:var(--bg2);border:1px solid var(--line);
+        border-radius:18px;padding:22px;box-shadow:0 20px 60px rgba(0,0,0,.45)}
+  h1{font-size:17px;margin:0 0 4px;font-weight:600}
+  .sub{color:var(--muted);font-size:12px;margin:0 0 18px;line-height:1.7}
+  .badge{display:inline-block;padding:5px 12px;border-radius:999px;font-size:12px;font-weight:600;margin-bottom:14px}
+  .badge.on{background:rgba(62,224,196,.14);color:var(--cyan)}
+  .badge.off{background:rgba(255,107,138,.14);color:var(--rose)}
+  .row{display:flex;justify-content:space-between;gap:12px;padding:8px 0;
+       border-bottom:1px solid var(--line);font-size:13px}
+  .k{color:var(--muted)} .v{text-align:left;font-family:ui-monospace,Consolas,monospace;word-break:break-all}
+  .v.ok{color:var(--cyan)} .v.warn{color:var(--gold)}
+  .acts{display:flex;gap:8px;flex-wrap:wrap;margin-top:18px}
+  button{font:inherit;border:1px solid var(--line);background:rgba(255,255,255,.04);color:var(--ink);
+         padding:9px 15px;border-radius:10px;cursor:pointer}
+  button:hover:not(:disabled){background:rgba(255,255,255,.09)}
+  button:disabled{opacity:.45;cursor:default}
+  button.primary{border-color:rgba(62,224,196,.5);color:var(--cyan)}
+  button.danger{border-color:rgba(255,107,138,.5);color:var(--rose)}
+  input{font:inherit;width:100%;padding:10px 12px;border-radius:10px;
+        border:1px solid var(--line);background:var(--bg);color:var(--ink);
+        font-family:ui-monospace,Consolas,monospace}
+  .note{margin-top:16px;color:var(--faint);font-size:11px;line-height:1.8;
+        border-top:1px solid var(--line);padding-top:12px}
+  .err{color:var(--rose);font-size:12px;margin-top:10px}
+  [hidden]{display:none}
+</style>
+</head>
+<body>
+<div class="card">
+  <h1>پنل ادمین تلگرام</h1>
+  <p class="sub">
+    کنترل ربات تلگرام AURION. این پنل بخشی از داشبورد نیست و فقط روی همین دستگاه
+    (loopback) در دسترس است. توکن ربات از فایل سورس خوانده می‌شود و هرگز اینجا
+    نمایش داده یا قابل تغییر نیست.
+  </p>
+
+  <div id="gate">
+    <input id="tok" type="password" autocomplete="off" spellcheck="false"
+           placeholder="توکن پنل (فایل admin/telegram-panel/panel.token)" />
+    <div class="acts">
+      <button class="primary" id="unlock">ورود</button>
+    </div>
+    <div class="err" id="gate-err" hidden></div>
+  </div>
+
+  <div id="panel" hidden>
+    <div class="badge off" id="st">—</div>
+    <div id="rows"></div>
+    <div class="acts">
+      <button id="a-refresh">بازخوانی</button>
+      <button class="danger" id="a-stop">خاموش کردن</button>
+      <button id="a-restart">راه‌اندازی مجدد</button>
+      <button class="primary" id="a-start">روشن کردن</button>
+      <button id="a-test">ارسال تست</button>
+    </div>
+    <div class="err" id="err" hidden></div>
+    <div class="note" id="note"></div>
+  </div>
+</div>
+
+<script>
+(function () {
+  "use strict";
+  var $ = function (id) { return document.getElementById(id); };
+  // sessionStorage, not localStorage: the token dies with the tab.
+  var tok = sessionStorage.getItem("aurion.panel.token") || "";
+
+  function esc(s) {
+    return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) {
+      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
+    });
+  }
+
+  function row(k, v, cls) {
+    return '<div class="row"><span class="k">' + esc(k) + '</span><span class="v ' + (cls || "") + '">' + v + "</span></div>";
+  }
+
+  function fmtUp(s) {
+    s = Number(s || 0);
+    if (!s) return "—";
+    var h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = Math.round(s % 60);
+    return h ? h + "h " + m + "m" : m ? m + "m " + sec + "s" : sec + "s";
+  }
+
+  function call(path, body) {
+    return fetch(path, {
+      method: body ? "POST" : "GET",
+      headers: { "Content-Type": "application/json", "X-Panel-Token": tok },
+      body: body ? JSON.stringify(body) : undefined
+    }).then(function (r) { return r.json().then(function (j) { return { status: r.status, json: j }; }); });
+  }
+
+  function fail(msg) {
+    var e = $("err");
+    e.textContent = msg;
+    e.hidden = !msg;
+  }
+
+  function paint(d) {
+    var running = !!d.running;
+    var st = $("st");
+    st.textContent = running ? "ربات در حال اجراست" : "ربات خاموش است";
+    st.className = "badge " + (running ? "on" : "off");
+    $("rows").innerHTML =
+      row("توکن", d.token_from_source ? "از سورس خوانده شده" : "توکنی در سورس نیست", d.token_from_source ? "ok" : "warn") +
+      row("منبع توکن", esc(d.token_origin || "—")) +
+      row("اثر انگشت", esc(d.token_hint || "—")) +
+      row("مدت کارکرد", esc(fmtUp(d.uptime_seconds))) +
+      row("نام ربات", esc(d.username ? "@" + d.username : "—")) +
+      row("چت‌های وصل", String((d.chats || []).length)) +
+      row("زبان پیام‌ها", esc(d.language || "—")) +
+      row("مجوز تلگرام", d.licensed ? "دارد" : "ندارد (توکن سورس فعال است)", d.licensed ? "ok" : "warn") +
+      (d.last_error ? row("آخرین خطا", esc(d.last_error), "warn") : "");
+    $("note").textContent =
+      "توکن فقط از " + (d.source_path || "config/telegram.token") +
+      " در سورس خوانده می‌شود. داشبورد نمی‌تواند آن را ببیند یا تغییر دهد. " +
+      "با هر بار بالا آمدن موتور، ربات به‌طور خودکار روشن می‌شود.";
+  }
+
+  function refresh() {
+    fail("");
+    return call("/api/state").then(function (r) {
+      if (r.status === 401) { lock(); return; }
+      if (!r.json || r.json.ok === false) {
+        fail((r.json && (r.json.detail || r.json.error)) || "موتور در دسترس نیست");
+        return;
+      }
+      unlockUi();
+      paint(r.json.data || {});
+    }).catch(function (e) { fail("خطا در ارتباط با پنل: " + e.message); });
+  }
+
+  function act(a) {
+    var btns = document.querySelectorAll(".acts button");
+    btns.forEach(function (b) { b.disabled = true; });
+    return call("/api/action", { action: a }).then(function (r) {
+      if (r.status === 401) { lock(); return; }
+      if (!r.json || r.json.ok === false) fail((r.json && r.json.error) || "ناموفق");
+      return refresh();
+    }).catch(function (e) { fail(e.message); })
+      .then(function () { btns.forEach(function (b) { b.disabled = false; }); });
+  }
+
+  function unlockUi() {
+    $("gate").hidden = true;
+    $("panel").hidden = false;
+  }
+  function lock() {
+    sessionStorage.removeItem("aurion.panel.token");
+    tok = "";
+    $("gate").hidden = false;
+    $("panel").hidden = true;
+  }
+
+  $("unlock").addEventListener("click", function () {
+    tok = $("tok").value.trim();
+    if (!tok) return;
+    sessionStorage.setItem("aurion.panel.token", tok);
+    var e = $("gate-err");
+    e.hidden = true;
+    refresh().then(function () {
+      if (!$("panel").hidden) { e.textContent = "توکن پنل نامعتبر است"; e.hidden = false; }
+    });
+  });
+  $("tok").addEventListener("keydown", function (e) { if (e.key === "Enter") $("unlock").click(); });
+
+  $("a-refresh").addEventListener("click", refresh);
+  $("a-start").addEventListener("click", function () { act("start"); });
+  $("a-stop").addEventListener("click", function () { act("stop"); });
+  $("a-restart").addEventListener("click", function () { act("restart"); });
+  $("a-test").addEventListener("click", function () { act("test"); });
+
+  if (tok) refresh();
+})();
+</script>
+</body>
+</html>
