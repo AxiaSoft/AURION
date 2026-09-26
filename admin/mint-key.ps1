@@ -149,7 +149,10 @@ print("MATCH" if derived == ED25519_PUBLIC_HEX else "MISMATCH " + derived)
 $tmp = Join-Path ([IO.Path]::GetTempPath()) ("aurion-seed-check-{0}.py" -f [guid]::NewGuid())
 Set-Content -Path $tmp -Value $verifier -Encoding UTF8
 try {
-  $check = (& $pyExe @pyArgs $tmp $Engine $seed 2>&1 | Out-String).Trim()
+  $prevEap = $ErrorActionPreference
+  $ErrorActionPreference = "Continue"
+  $check = (& $pyExe @pyArgs $tmp $Engine $seed 2>&1 | ForEach-Object { [string]$_ } | Out-String).Trim()
+  $ErrorActionPreference = $prevEap
 } finally {
   Remove-Item $tmp -Force -ErrorAction SilentlyContinue
 }
@@ -175,13 +178,30 @@ foreach ($n in $seedNames) { Set-Item -Path "env:$n" -Value $seed }
 Write-Host ""
 Write-Host ("  minting {0} for '{1}'" -f $Plan, $Note) -ForegroundColor Gray
 
-$key = (& $pyExe @pyArgs $Script $Plan $Note 2>&1 | Where-Object { $_ -notmatch '^\s*#' } | Out-String).Trim()
-$code = $LASTEXITCODE
+# mint_local.py prints the key on stdout and its progress notes on stderr.
+# Merging the two with 2>&1 while $ErrorActionPreference is "Stop" turns those
+# perfectly normal notes into terminating errors, so native output is relaxed
+# for exactly this call and the streams are separated by hand.
+$prevEap = $ErrorActionPreference
+$ErrorActionPreference = "Continue"
+try {
+  $output = & $pyExe @pyArgs $Script $Plan $Note 2>&1
+  $code = $LASTEXITCODE
+} finally {
+  $ErrorActionPreference = $prevEap
+}
+
+$lines = @($output | ForEach-Object { ([string]$_).Trim() } | Where-Object { $_ })
+$candidates = @($lines | Where-Object { $_ -notlike '#*' })
+$key = ""
+if ($candidates.Count -gt 0) { $key = $candidates[0] }
 
 # The seed leaves the session with us, whatever happened above.
 foreach ($n in $seedNames) { Remove-Item -Path "env:$n" -ErrorAction SilentlyContinue }
 
-if ($code -ne 0 -or -not $key) { Fail "Minting failed:`n$key" }
+if ($code -ne 0 -or -not $key) {
+  Fail ("Minting failed:`n" + (($lines) -join "`n"))
+}
 
 Write-Host ""
 Write-Host "  $key" -ForegroundColor Green
