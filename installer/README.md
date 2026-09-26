@@ -130,6 +130,27 @@ the product. `ProductCode` is regenerated per build, which is what Windows
 Installer *requires* for major upgrades; the UpgradeCode is what keeps a single
 Apps & Features entry across versions.
 
+**The desk opens as a desktop window, not a browser tab.** AURION's UI is a
+local web app, but users expect an application window. `AURION-Launch.vbs`
+starts it with Chromium *app mode* (`--app`), which gives a window with no
+address bar, no tabs and its own taskbar button. Microsoft Edge is present on
+every supported version of Windows, so this needs no extra runtime, no
+download, and — importantly — **no change to the application itself**. Chrome
+is accepted as an alternative and the default browser is the last-resort
+fallback, so the desk is always reachable.
+
+| Choice | Value | Why |
+|---|---|---|
+| Opening size | `--window-size=1270,720` | a real window, never maximised on first run |
+| Profile | `%LocalAppData%\AxiaSoft\AURION\Window` | isolates the window from the user's own browser session: their tabs, profile and extensions are untouched, and the window remembers its own geometry |
+| After first run | whatever the user last chose | resizing or maximising sticks, as in any desktop app |
+| Uninstall | `AurionCleanWindowProfile` removes that folder | it is installer-owned, so a full uninstall takes it with it |
+
+To change the opening size, edit `WIN_W` / `WIN_H` at the top of
+`installer/launcher/AURION-Launch.vbs`. Note that a window position is
+deliberately *not* forced: Chromium places the window sensibly on the active
+monitor, and hard-coded coordinates break on multi-monitor and scaled displays.
+
 **ICE validation stays on, with five documented suppressions.** The build runs
 the full ICE suite (`PedanticBuild`), and `AURION.wixproj` suppresses exactly
 five checks, each with its reason written next to it. Four of the five exist
