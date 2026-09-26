@@ -149,6 +149,22 @@ def main() -> int:
                 if ctype == "CheckBox" and not el.get("CheckBoxValue"):
                     fail(f"{rel}: checkbox '{el.get('Id')}' has no CheckBoxValue (it would never set its property)")
 
+                # --- WiX v4/v5 syntax rules the compiler enforces (WIX0004/5/400) ---
+                for child in el:
+                    if tag(child) == "Condition":
+                        fail(f"{rel}: control '{el.get('Id')}' has a <Condition> child - WiX 4+ "
+                             f"uses ShowCondition / HideCondition / EnableCondition / DisableCondition attributes")
+                    if tag(child) == "Text" and (child.text or "").strip():
+                        fail(f"{rel}: control '{el.get('Id')}' has inner text in <Text> - use the Text attribute")
+                if el.get("Transparent") and ctype not in ("Text", "Bitmap"):
+                    fail(f"{rel}: control '{el.get('Id')}' is Type='{ctype}' and cannot be Transparent "
+                         f"(only Text and Bitmap can)")
+
+            elif t == "Property":
+                pid = el.get("Id") or ""
+                if el.get("Secure") == "yes" and pid != pid.upper():
+                    fail(f"{rel}: property '{pid}' is Secure, so it must be public - the Id has to be all uppercase")
+
             elif t == "Shortcut":
                 if el.get("Icon") and el.get("Icon") not in icons:
                     fail(f"{rel}: shortcut '{el.get('Id')}' uses icon '{el.get('Icon')}' which is not defined")

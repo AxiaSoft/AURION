@@ -57,9 +57,9 @@
       <Property Id="ErrorDialog" Value="ErrorDlg" />
 
 
-      <!-- Wizard state. AurionMode drives the wording on Ready/Progress/Finish
+      <!-- Wizard state. AURION_MODE drives the wording on Ready/Progress/Finish
            so one set of dialogs serves install, upgrade, repair and removal. -->
-      <Property Id="AurionMode" Value="Install" Secure="yes" />
+      <Property Id="AURION_MODE" Value="Install" Secure="yes" />
       <Property Id="WIXUI_INSTALLDIR" Value="INSTALLFOLDER" />
       <Property Id="_BrowseProperty" Value="INSTALLFOLDER" />
       <Property Id="AURION_LAUNCH_AFTER" Value="yes" Secure="yes" />
@@ -73,24 +73,14 @@
         <Control Id="BottomLine" Type="Line" X="0" Y="234" Width="370" Height="0" />
 
         <Control Id="Title" Type="Text" X="135" Y="26" Width="215" Height="44"
-                 Transparent="yes" NoPrefix="yes">
-          <Text>{\AurionFontHero}!(loc.WelcomeTitle)</Text>
-          <Condition Action="hide" Condition="AURION_INSTALLED_VERSION" />
-        </Control>
+                 Transparent="yes" NoPrefix="yes" Text="{\AurionFontHero}!(loc.WelcomeTitle)" HideCondition="AURION_INSTALLED_VERSION" />
         <Control Id="TitleUpgrade" Type="Text" X="135" Y="26" Width="215" Height="44"
-                 Transparent="yes" NoPrefix="yes" Hidden="yes">
-          <Text>{\AurionFontHero}!(loc.WelcomeTitleUpgrade)</Text>
-          <Condition Action="show" Condition="AURION_INSTALLED_VERSION" />
-        </Control>
+                 Transparent="yes" NoPrefix="yes" Hidden="yes" Text="{\AurionFontHero}!(loc.WelcomeTitleUpgrade)" ShowCondition="AURION_INSTALLED_VERSION" />
 
         <Control Id="Body" Type="Text" X="135" Y="78" Width="215" Height="90"
-                 Transparent="yes" NoPrefix="yes" Text="!(loc.WelcomeBody)">
-          <Condition Action="hide" Condition="AURION_INSTALLED_VERSION" />
-        </Control>
+                 Transparent="yes" NoPrefix="yes" Text="!(loc.WelcomeBody)" HideCondition="AURION_INSTALLED_VERSION" />
         <Control Id="BodyUpgrade" Type="Text" X="135" Y="78" Width="215" Height="90"
-                 Transparent="yes" NoPrefix="yes" Hidden="yes" Text="!(loc.WelcomeBodyUpgrade)">
-          <Condition Action="show" Condition="AURION_INSTALLED_VERSION" />
-        </Control>
+                 Transparent="yes" NoPrefix="yes" Hidden="yes" Text="!(loc.WelcomeBodyUpgrade)" ShowCondition="AURION_INSTALLED_VERSION" />
 
         <Control Id="Version" Type="Text" X="135" Y="196" Width="215" Height="24"
                  Transparent="yes" NoPrefix="yes" Text="!(loc.WelcomeVersion)" />
@@ -126,41 +116,27 @@
         <Control Id="PyLabel" Type="Text" X="20" Y="92" Width="90" Height="12"
                  NoPrefix="yes" Text="!(loc.PrereqPython)" />
         <Control Id="PyOk" Type="Text" X="112" Y="92" Width="238" Height="12" NoPrefix="yes"
-                 Hidden="yes" Text="!(loc.PrereqFound)">
-          <Condition Action="show" Condition="AURION_PYTHON_OK" />
-        </Control>
+                 Hidden="yes" Text="!(loc.PrereqFound)" ShowCondition="AURION_PYTHON_OK" />
         <Control Id="PyMissing" Type="Text" X="112" Y="92" Width="238" Height="24" NoPrefix="yes"
-                 Text="!(loc.PrereqPythonMissing)">
-          <Condition Action="hide" Condition="AURION_PYTHON_OK" />
-        </Control>
+                 Text="!(loc.PrereqPythonMissing)" HideCondition="AURION_PYTHON_OK" />
         <Control Id="PyBad" Type="Text" X="112" Y="106" Width="238" Height="12" NoPrefix="yes"
-                 Hidden="yes" Text="!(loc.PrereqPythonUnsupported)">
-          <Condition Action="show" Condition="AURION_PYTHON_UNSUPPORTED AND NOT AURION_PYTHON_OK" />
-        </Control>
+                 Hidden="yes" Text="!(loc.PrereqPythonUnsupported)" ShowCondition="AURION_PYTHON_UNSUPPORTED AND NOT AURION_PYTHON_OK" />
 
         <!-- Node.js -->
         <Control Id="NodeLabel" Type="Text" X="20" Y="124" Width="90" Height="12"
                  NoPrefix="yes" Text="!(loc.PrereqNode)" />
         <Control Id="NodeOk" Type="Text" X="112" Y="124" Width="238" Height="12" NoPrefix="yes"
-                 Hidden="yes" Text="!(loc.PrereqFound)">
-          <Condition Action="show" Condition="AURION_NODE_OK" />
-        </Control>
+                 Hidden="yes" Text="!(loc.PrereqFound)" ShowCondition="AURION_NODE_OK" />
         <Control Id="NodeMissing" Type="Text" X="112" Y="124" Width="238" Height="24" NoPrefix="yes"
-                 Text="!(loc.PrereqNodeMissing)">
-          <Condition Action="hide" Condition="AURION_NODE_OK" />
-        </Control>
+                 Text="!(loc.PrereqNodeMissing)" HideCondition="AURION_NODE_OK" />
 
         <!-- MetaTrader 5 -->
         <Control Id="Mt5Label" Type="Text" X="20" Y="152" Width="90" Height="12"
                  NoPrefix="yes" Text="!(loc.PrereqMt5)" />
         <Control Id="Mt5Ok" Type="Text" X="112" Y="152" Width="238" Height="12" NoPrefix="yes"
-                 Hidden="yes" Text="!(loc.PrereqFound)">
-          <Condition Action="show" Condition="AURION_MT5_OK" />
-        </Control>
+                 Hidden="yes" Text="!(loc.PrereqFound)" ShowCondition="AURION_MT5_OK" />
         <Control Id="Mt5Missing" Type="Text" X="112" Y="152" Width="238" Height="24" NoPrefix="yes"
-                 Text="!(loc.PrereqMt5Missing)">
-          <Condition Action="hide" Condition="AURION_MT5_OK" />
-        </Control>
+                 Text="!(loc.PrereqMt5Missing)" HideCondition="AURION_MT5_OK" />
 
         <Control Id="NoteIcon" Type="Icon" X="20" Y="188" Width="16" Height="16"
                  FixedSize="yes" IconSize="16" Text="AurionInfoIco" />
@@ -313,9 +289,9 @@
         </Control>
         <Control Id="Next" Type="PushButton" X="236" Y="243" Width="56" Height="17"
                  Default="yes" Text="!(loc.ButtonNext)">
-          <Publish Property="AurionMode" Value="Install" Order="1"
+          <Publish Property="AURION_MODE" Value="Install" Order="1"
                    Condition="NOT AURION_INSTALLED_VERSION" />
-          <Publish Property="AurionMode" Value="Upgrade" Order="2"
+          <Publish Property="AURION_MODE" Value="Upgrade" Order="2"
                    Condition="AURION_INSTALLED_VERSION" />
           <Publish Event="NewDialog" Value="AurionReadyDlg" Order="3" />
         </Control>
@@ -376,60 +352,45 @@
 
         <!-- One summary block per mode. Exactly one is ever visible. -->
         <Control Id="SumInstall" Type="Text" X="20" Y="62" Width="330" Height="150"
-                 NoPrefix="yes" Hidden="yes" Text="!(loc.ReadyInstall)">
-          <Condition Action="show" Condition="AurionMode = &quot;Install&quot;" />
-        </Control>
+                 NoPrefix="yes" Hidden="yes" Text="!(loc.ReadyInstall)" ShowCondition="AURION_MODE = &quot;Install&quot;" />
         <Control Id="SumUpgrade" Type="Text" X="20" Y="62" Width="330" Height="150"
-                 NoPrefix="yes" Hidden="yes" Text="!(loc.ReadyUpgrade)">
-          <Condition Action="show" Condition="AurionMode = &quot;Upgrade&quot;" />
-        </Control>
+                 NoPrefix="yes" Hidden="yes" Text="!(loc.ReadyUpgrade)" ShowCondition="AURION_MODE = &quot;Upgrade&quot;" />
         <Control Id="SumRepair" Type="Text" X="20" Y="62" Width="330" Height="150"
-                 NoPrefix="yes" Hidden="yes" Text="!(loc.ReadyRepair)">
-          <Condition Action="show" Condition="AurionMode = &quot;Repair&quot;" />
-        </Control>
+                 NoPrefix="yes" Hidden="yes" Text="!(loc.ReadyRepair)" ShowCondition="AURION_MODE = &quot;Repair&quot;" />
         <Control Id="SumModify" Type="Text" X="20" Y="62" Width="330" Height="150"
-                 NoPrefix="yes" Hidden="yes" Text="!(loc.ReadyModify)">
-          <Condition Action="show" Condition="AurionMode = &quot;Modify&quot;" />
-        </Control>
+                 NoPrefix="yes" Hidden="yes" Text="!(loc.ReadyModify)" ShowCondition="AURION_MODE = &quot;Modify&quot;" />
         <Control Id="SumRemove" Type="Text" X="20" Y="62" Width="330" Height="150"
-                 NoPrefix="yes" Hidden="yes" Text="!(loc.ReadyRemove)">
-          <Condition Action="show" Condition="AurionMode = &quot;Remove&quot;" />
-        </Control>
+                 NoPrefix="yes" Hidden="yes" Text="!(loc.ReadyRemove)" ShowCondition="AURION_MODE = &quot;Remove&quot;" />
 
         <Control Id="Back" Type="PushButton" X="180" Y="243" Width="56" Height="17"
                  Text="!(loc.ButtonBack)">
           <Publish Event="NewDialog" Value="AurionOptionsDlg" Order="1"
-                   Condition="AurionMode = &quot;Install&quot; OR AurionMode = &quot;Upgrade&quot;" />
+                   Condition="AURION_MODE = &quot;Install&quot; OR AURION_MODE = &quot;Upgrade&quot;" />
           <Publish Event="NewDialog" Value="AurionFeaturesDlg" Order="2"
-                   Condition="AurionMode = &quot;Modify&quot;" />
+                   Condition="AURION_MODE = &quot;Modify&quot;" />
           <Publish Event="NewDialog" Value="AurionMaintenanceDlg" Order="3"
-                   Condition="AurionMode = &quot;Repair&quot;" />
+                   Condition="AURION_MODE = &quot;Repair&quot;" />
           <Publish Event="NewDialog" Value="AurionRemoveDlg" Order="4"
-                   Condition="AurionMode = &quot;Remove&quot;" />
+                   Condition="AURION_MODE = &quot;Remove&quot;" />
         </Control>
         <Control Id="Install" Type="PushButton" X="236" Y="243" Width="56" Height="17"
-                 Default="yes" ElevationShield="no" Text="!(loc.ButtonInstall)" Hidden="yes">
-          <Condition Action="show" Condition="AurionMode = &quot;Install&quot;" />
+                 Default="yes" ElevationShield="no" Text="!(loc.ButtonInstall)" Hidden="yes" ShowCondition="AURION_MODE = &quot;Install&quot;">
           <Publish Event="EndDialog" Value="Return" />
         </Control>
         <Control Id="Upgrade" Type="PushButton" X="236" Y="243" Width="56" Height="17"
-                 Text="!(loc.ButtonUpgrade)" Hidden="yes">
-          <Condition Action="show" Condition="AurionMode = &quot;Upgrade&quot;" />
+                 Text="!(loc.ButtonUpgrade)" Hidden="yes" ShowCondition="AURION_MODE = &quot;Upgrade&quot;">
           <Publish Event="EndDialog" Value="Return" />
         </Control>
         <Control Id="Repair" Type="PushButton" X="236" Y="243" Width="56" Height="17"
-                 Text="!(loc.ButtonRepair)" Hidden="yes">
-          <Condition Action="show" Condition="AurionMode = &quot;Repair&quot;" />
+                 Text="!(loc.ButtonRepair)" Hidden="yes" ShowCondition="AURION_MODE = &quot;Repair&quot;">
           <Publish Event="EndDialog" Value="Return" />
         </Control>
         <Control Id="Change" Type="PushButton" X="236" Y="243" Width="56" Height="17"
-                 Text="!(loc.ButtonChange)" Hidden="yes">
-          <Condition Action="show" Condition="AurionMode = &quot;Modify&quot;" />
+                 Text="!(loc.ButtonChange)" Hidden="yes" ShowCondition="AURION_MODE = &quot;Modify&quot;">
           <Publish Event="EndDialog" Value="Return" />
         </Control>
         <Control Id="Remove" Type="PushButton" X="236" Y="243" Width="56" Height="17"
-                 Text="!(loc.ButtonRemove)" Hidden="yes">
-          <Condition Action="show" Condition="AurionMode = &quot;Remove&quot;" />
+                 Text="!(loc.ButtonRemove)" Hidden="yes" ShowCondition="AURION_MODE = &quot;Remove&quot;">
           <Publish Event="EndDialog" Value="Return" />
         </Control>
         <Control Id="Cancel" Type="PushButton" X="304" Y="243" Width="56" Height="17"
@@ -455,7 +416,7 @@
 
         <Control Id="RepairButton" Type="PushButton" X="20" Y="92" Width="80" Height="18"
                  Text="!(loc.ButtonRepair)">
-          <Publish Property="AurionMode" Value="Repair" Order="1" />
+          <Publish Property="AURION_MODE" Value="Repair" Order="1" />
           <Publish Event="ReinstallMode" Value="ecmus" Order="2" />
           <Publish Event="Reinstall" Value="All" Order="3" />
           <Publish Event="NewDialog" Value="AurionReadyDlg" Order="4" />
@@ -465,7 +426,7 @@
 
         <Control Id="ChangeButton" Type="PushButton" X="20" Y="130" Width="80" Height="18"
                  Text="!(loc.ButtonModify)">
-          <Publish Property="AurionMode" Value="Modify" Order="1" />
+          <Publish Property="AURION_MODE" Value="Modify" Order="1" />
           <Publish Event="NewDialog" Value="AurionFeaturesDlg" Order="2" />
         </Control>
         <Control Id="ChangeText" Type="Text" X="110" Y="130" Width="240" Height="30"
@@ -473,7 +434,7 @@
 
         <Control Id="RemoveButton" Type="PushButton" X="20" Y="168" Width="80" Height="18"
                  Text="!(loc.ButtonUninstall)">
-          <Publish Property="AurionMode" Value="Remove" Order="1" />
+          <Publish Property="AURION_MODE" Value="Remove" Order="1" />
           <Publish Event="NewDialog" Value="AurionRemoveDlg" Order="2" />
         </Control>
         <Control Id="RemoveText" Type="Text" X="110" Y="168" Width="240" Height="30"
@@ -515,13 +476,9 @@
                  Property="AURION_REMOVE_DATA" CheckBoxValue="yes"
                  Text="!(loc.RemoveDeleteData)" />
         <Control Id="DeleteDataWarnIcon" Type="Icon" X="24" Y="198" Width="16" Height="16"
-                 FixedSize="yes" IconSize="16" Text="AurionExclamIco" Hidden="yes">
-          <Condition Action="show" Condition="AURION_REMOVE_DATA" />
-        </Control>
+                 FixedSize="yes" IconSize="16" Text="AurionExclamIco" Hidden="yes" ShowCondition="AURION_REMOVE_DATA" />
         <Control Id="DeleteDataWarn" Type="Text" X="48" Y="198" Width="302" Height="30"
-                 NoPrefix="yes" Hidden="yes" Text="!(loc.RemoveDeleteDataWarn)">
-          <Condition Action="show" Condition="AURION_REMOVE_DATA" />
-        </Control>
+                 NoPrefix="yes" Hidden="yes" Text="!(loc.RemoveDeleteDataWarn)" ShowCondition="AURION_REMOVE_DATA" />
 
         <Control Id="Back" Type="PushButton" X="180" Y="243" Width="56" Height="17"
                  Text="!(loc.ButtonBack)">
@@ -529,7 +486,7 @@
         </Control>
         <Control Id="Next" Type="PushButton" X="236" Y="243" Width="56" Height="17"
                  Default="yes" Text="!(loc.ButtonNext)">
-          <Publish Property="AurionMode" Value="Remove" Order="1" />
+          <Publish Property="AURION_MODE" Value="Remove" Order="1" />
           <Publish Event="Remove" Value="All" Order="2" />
           <Publish Event="NewDialog" Value="AurionReadyDlg" Order="3" />
         </Control>
@@ -549,19 +506,13 @@
 
         <Control Id="TitleInstalling" Type="Text" X="20" Y="15" Width="230" Height="15"
                  Transparent="yes" NoPrefix="yes" Hidden="yes"
-                 Text="{\AurionFontTitle}!(loc.ProgressInstalling)">
-          <Condition Action="show" Condition="NOT Installed" />
-        </Control>
+                 Text="{\AurionFontTitle}!(loc.ProgressInstalling)" ShowCondition="NOT Installed" />
         <Control Id="TitleMaintaining" Type="Text" X="20" Y="15" Width="230" Height="15"
                  Transparent="yes" NoPrefix="yes" Hidden="yes"
-                 Text="{\AurionFontTitle}!(loc.ProgressUpdating)">
-          <Condition Action="show" Condition="Installed AND NOT REMOVE" />
-        </Control>
+                 Text="{\AurionFontTitle}!(loc.ProgressUpdating)" ShowCondition="Installed AND NOT REMOVE" />
         <Control Id="TitleRemoving" Type="Text" X="20" Y="15" Width="230" Height="15"
                  Transparent="yes" NoPrefix="yes" Hidden="yes"
-                 Text="{\AurionFontTitle}!(loc.ProgressRemoving)">
-          <Condition Action="show" Condition="REMOVE" />
-        </Control>
+                 Text="{\AurionFontTitle}!(loc.ProgressRemoving)" ShowCondition="REMOVE" />
 
         <Control Id="Stage" Type="Text" X="20" Y="70" Width="330" Height="12"
                  NoPrefix="yes" Text="!(loc.ProgressStage)" />
@@ -596,29 +547,18 @@
 
         <Control Id="TitleDone" Type="Text" X="135" Y="26" Width="215" Height="40"
                  Transparent="yes" NoPrefix="yes" Hidden="yes"
-                 Text="{\AurionFontHero}!(loc.ExitTitleInstalled)">
-          <Condition Action="show" Condition="NOT REMOVE" />
-        </Control>
+                 Text="{\AurionFontHero}!(loc.ExitTitleInstalled)" ShowCondition="NOT REMOVE" />
         <Control Id="TitleGone" Type="Text" X="135" Y="26" Width="215" Height="40"
                  Transparent="yes" NoPrefix="yes" Hidden="yes"
-                 Text="{\AurionFontHero}!(loc.ExitTitleRemoved)">
-          <Condition Action="show" Condition="REMOVE" />
-        </Control>
+                 Text="{\AurionFontHero}!(loc.ExitTitleRemoved)" ShowCondition="REMOVE" />
 
         <Control Id="BodyDone" Type="Text" X="135" Y="72" Width="215" Height="86"
-                 Transparent="yes" NoPrefix="yes" Hidden="yes" Text="!(loc.ExitBodyInstalled)">
-          <Condition Action="show" Condition="NOT REMOVE" />
-        </Control>
+                 Transparent="yes" NoPrefix="yes" Hidden="yes" Text="!(loc.ExitBodyInstalled)" ShowCondition="NOT REMOVE" />
         <Control Id="BodyGone" Type="Text" X="135" Y="72" Width="215" Height="86"
-                 Transparent="yes" NoPrefix="yes" Hidden="yes" Text="!(loc.ExitBodyRemoved)">
-          <Condition Action="show" Condition="REMOVE" />
-        </Control>
+                 Transparent="yes" NoPrefix="yes" Hidden="yes" Text="!(loc.ExitBodyRemoved)" ShowCondition="REMOVE" />
 
-        <Control Id="LaunchCheck" Type="CheckBox" X="135" Y="170" Width="215" Height="18"
-                 Transparent="yes" Hidden="yes"
-                 Property="AURION_LAUNCH_AFTER" CheckBoxValue="yes" Text="!(loc.ExitLaunch)">
-          <Condition Action="show" Condition="NOT REMOVE" />
-        </Control>
+        <Control Id="LaunchCheck" Type="CheckBox" X="135" Y="170" Width="215" Height="18" Hidden="yes"
+                 Property="AURION_LAUNCH_AFTER" CheckBoxValue="yes" Text="!(loc.ExitLaunch)" ShowCondition="NOT REMOVE" />
 
         <Control Id="Back" Type="PushButton" X="180" Y="243" Width="56" Height="17"
                  Disabled="yes" Text="!(loc.ButtonBack)" />
