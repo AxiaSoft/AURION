@@ -1,0 +1,66 @@
+{"ts": "2026-09-25T04:22:12.547602+00:00", "level": "WARNING", "logger": "aurion.news", "message": "next-week feed failed, continuing with this week: HTTP Error 404: Not Found"}
+INFO:     Started server process [1180]
+INFO:     Waiting for application startup.
+{"ts": "2026-09-25T04:22:12.665597+00:00", "level": "INFO", "logger": "aurion.mt5", "message": "EA socket listening on 0.0.0.0:18766 (HTTP /v1/ea/ingest + file inbox D:\\AURION BETA\\data\\ea-inbox, C:\\Users\\Aryan\\AppData\\Roaming\\MetaQuotes\\Terminal\\Common\\Files, C:\\Users\\Aryan\\AppData\\Roaming\\MetaQuotes\\Terminal\\Common\\MQL5\\Files)"}
+{"ts": "2026-09-25T04:22:12.880598+00:00", "level": "INFO", "logger": "aurion.trader", "message": "telegram bot skipped — no source token and premium feature not licensed"}
+{"ts": "2026-09-25T04:22:12.881598+00:00", "level": "INFO", "logger": "aurion.trader", "message": "AURION engine started"}
+{"ts": "2026-09-25T04:22:12.881598+00:00", "level": "INFO", "logger": "aurion.trader", "message": "[robot] Engine online. Robot is idle until a strategy is enabled and auto-trade is armed."}
+{"ts": "2026-09-25T04:22:12.949637+00:00", "level": "INFO", "logger": "aurion.mt5", "message": "watching EA file inbox in ['D:\\\\AURION BETA\\\\data\\\\ea-inbox', 'C:\\\\Users\\\\Aryan\\\\AppData\\\\Roaming\\\\MetaQuotes\\\\Terminal\\\\Common\\\\Files', 'C:\\\\Users\\\\Aryan\\\\AppData\\\\Roaming\\\\MetaQuotes\\\\Terminal\\\\Common\\\\MQL5\\\\Files', 'C:\\\\Users\\\\Aryan\\\\AppData\\\\Roaming\\\\MetaQuotes\\\\Terminal\\\\Common\\\\Common\\\\Files', 'C:\\\\Users\\\\Aryan\\\\AppData\\\\Roaming\\\\MetaQuotes\\\\Terminal\\\\Community\\\\MQL5\\\\Files', 'C:\\\\Users\\\\Aryan\\\\AppData\\\\Roaming\\\\MetaQuotes\\\\Terminal\\\\Community\\\\Common\\\\Files', 'C:\\\\Users\\\\Aryan\\\\AppData\\\\Roaming\\\\MetaQuotes\\\\Terminal\\\\D0E8209F77C8CF37AD8BF550E51FF075\\\\MQL5\\\\Files', 'C:\\\\Users\\\\Aryan\\\\AppData\\\\Roaming\\\\MetaQuotes\\\\Terminal\\\\D0E8209F77C8CF37AD8BF550E51FF075\\\\Common\\\\Files']"}
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://127.0.0.1:18765 (Press CTRL+C to quit)
+INFO:     127.0.0.1:61046 - "GET /health HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61046 - "GET /health HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61046 - "GET /v1/license HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51275 - "GET /v1/license HTTP/1.1" 200 OK
+{"ts": "2026-09-25T04:22:39.829210+00:00", "level": "INFO", "logger": "aurion.trader", "message": "[robot] License activated: developer"}
+INFO:     127.0.0.1:51275 - "POST /v1/license/activate HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51275 - "GET /v1/license HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51275 - "GET /v1/license HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51275 - "GET /v1/logs?limit=200 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52773 - "WebSocket /v1/stream" [accepted]
+INFO:     connection open
+INFO:     127.0.0.1:51275 - "GET /v1/snapshot HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52775 - "GET /v1/news HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52775 - "GET /v1/market/session HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52775 - "GET /v1/snapshot HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50171 - "GET /v1/snapshot HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59831 - "GET /v1/snapshot HTTP/1.1" 200 OK
+INFO:     127.0.0.1:62356 - "GET /v1/symbols HTTP/1.1" 200 OK
+INFO:     127.0.0.1:62357 - "GET /v1/config HTTP/1.1" 200 OK
+INFO:     127.0.0.1:62357 - "GET /v1/symbols HTTP/1.1" 200 OK
+INFO:     127.0.0.1:62356 - "GET /v1/config HTTP/1.1" 200 OK
+INFO:     127.0.0.1:62356 - "GET /v1/snapshot HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49557 - "GET /v1/snapshot HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63826 - "GET /v1/snapshot HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64376 - "GET /v1/snapshot HTTP/1.1" 200 OK
+INFO:     127.0.0.1:62423 - "GET /v1/snapshot HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51333 - "GET /v1/snapshot HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51333 - "GET /v1/config HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51336 - "GET /v1/snapshot HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51337 - "GET /v1/snapshot HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63539 - "GET /v1/snapshot HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57756 - "GET /v1/snapshot HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58786 - "GET /v1/snapshot HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63466 - "GET /v1/snapshot HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61612 - "GET /v1/snapshot HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53577 - "GET /v1/snapshot HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60440 - "GET /v1/snapshot HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52015 - "GET /v1/snapshot HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56008 - "GET /v1/snapshot HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50356 - "GET /v1/snapshot HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63532 - "GET /v1/config HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63532 - "GET /v1/snapshot HTTP/1.1" 200 OK
+{"ts": "2026-09-25T04:27:14.517024+00:00", "level": "WARNING", "logger": "aurion.news", "message": "next-week feed failed, continuing with this week: HTTP Error 404: Not Found"}
+INFO:     127.0.0.1:58659 - "GET /v1/snapshot HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59428 - "GET /v1/snapshot HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61043 - "GET /v1/snapshot HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52510 - "GET /v1/snapshot HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52194 - "GET /v1/snapshot HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63468 - "GET /v1/snapshot HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52161 - "GET /v1/snapshot HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51175 - "GET /v1/snapshot HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52738 - "GET /v1/snapshot HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54947 - "GET /v1/snapshot HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52287 - "GET /v1/snapshot HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51584 - "GET /v1/snapshot HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50778 - "GET /v1/snapshot HTTP/1.1" 200 OK

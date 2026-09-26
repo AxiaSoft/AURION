@@ -1,0 +1,9 @@
+{
+  "name": "aurion",
+  "private": true,
+  "description": "AURION — run the desk from the repo root",
+  "scripts": {
+    "start": "node backend/src/index.js",
+    "engine": "python engine/main.py --host 127.0.0.1 --port 18765"
+  }
+}
