@@ -207,10 +207,16 @@ $forbidden = @(
     @{ Pattern = "state.json";        Why = "licence state" },
     @{ Pattern = "used.json";         Why = "licence state" }
 )
+# NOTE: the accumulation below deliberately uses foreach statements, not the
+# ForEach-Object cmdlet. Assigning to $problems inside a cmdlet script block
+# writes to a child scope, so the list would always come back empty and this
+# safety net would silently pass everything.
 $problems = @()
 foreach ($rule in $forbidden) {
-    Get-ChildItem -Path $Stage -Recurse -File -Filter $rule.Pattern -ErrorAction SilentlyContinue |
-        ForEach-Object { $problems += ("{0}  <- {1}" -f $_.FullName.Substring($Stage.Length), $rule.Why) }
+    $hits = @(Get-ChildItem -Path $Stage -Recurse -File -Filter $rule.Pattern -ErrorAction SilentlyContinue)
+    foreach ($hit in $hits) {
+        $problems += ("{0}  <- {1}" -f $hit.FullName.Substring($Stage.Length), $rule.Why)
+    }
 }
 foreach ($dir in @("store", "admin", ".git", "data")) {
     if (Test-Path (Join-Path $appDir $dir)) { $problems += "$dir\  <- must not be installed on a trader machine" }
@@ -218,7 +224,7 @@ foreach ($dir in @("store", "admin", ".git", "data")) {
 if ($problems.Count -gt 0) {
     Write-Host ""
     Write-Host "PAYLOAD REJECTED - these must not ship:" -ForegroundColor Red
-    $problems | ForEach-Object { Write-Host "    $_" -ForegroundColor Red }
+    foreach ($p in $problems) { Write-Host "    $p" -ForegroundColor Red }
     throw "Staging aborted: forbidden content in payload."
 }
 
@@ -229,7 +235,7 @@ foreach ($must in @("app\backend\src\index.js", "app\engine\main.py",
     if (-not (Test-Path (Join-Path $Stage $must))) { throw "Payload incomplete: $must is missing." }
 }
 
-$files = (Get-ChildItem $Stage -Recurse -File)
+$files = @(Get-ChildItem $Stage -Recurse -File)
 $sizeMb = [math]::Round((($files | Measure-Object Length -Sum).Sum / 1MB), 1)
 Write-Host ""
 Write-Host ("  payload OK: {0} files, {1} MB" -f $files.Count, $sizeMb) -ForegroundColor Green

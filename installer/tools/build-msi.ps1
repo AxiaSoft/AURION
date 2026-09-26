@@ -64,7 +64,7 @@ function Step([string] $text) {
 
 # Bumped whenever this script changes, so a stale copy is obvious at a glance
 # instead of failing with a confusing parameter error.
-$ScriptRevision = "3"
+$ScriptRevision = "4"
 
 Write-Host ""
 Write-Host "  AURION installer build" -ForegroundColor White
@@ -89,13 +89,14 @@ function Find-DotnetSdk {
         (Join-Path $env:LOCALAPPDATA "Microsoft\dotnet\dotnet.exe"),
         "C:\Program Files\dotnet\dotnet.exe"
     )
-    foreach ($exe in ($candidates | Where-Object { $_ -and (Test-Path $_) } | Select-Object -Unique)) {
-        $sdks = & $exe --list-sdks 2>$null
-        if ($LASTEXITCODE -eq 0 -and $sdks) {
-            $newest = ($sdks | ForEach-Object { ($_ -split ' ')[0] } |
-                       Where-Object { $_ -match '^\d+' } |
-                       Sort-Object { [version]($_ -split '-')[0] } -Descending |
-                       Select-Object -First 1)
+    $usable = @($candidates | Where-Object { $_ -and (Test-Path $_) } | Select-Object -Unique)
+    foreach ($exe in $usable) {
+        $sdks = @(& $exe --list-sdks 2>$null)
+        if ($LASTEXITCODE -eq 0 -and $sdks.Count -gt 0) {
+            $newest = @($sdks | ForEach-Object { ($_ -split ' ')[0] } |
+                        Where-Object { $_ -match '^\d+' } |
+                        Sort-Object { [version]($_ -split '-')[0] } -Descending |
+                        Select-Object -First 1)[0]
             if ([version](($newest -split '-')[0]) -ge [version]"6.0.0") {
                 return [pscustomobject]@{ Exe = $exe; Sdk = $newest }
             }
@@ -128,7 +129,7 @@ $found = Find-DotnetSdk
 
 # Offer the per-user bootstrap instead of just refusing to work. -InstallDotnet
 # is only needed to skip this question (unattended / CI runs).
-if (-not $found -and -not $InstallDotnet -and -not [Environment]::UserInteractive.Equals($false)) {
+if (-not $found -and -not $InstallDotnet -and [Environment]::UserInteractive) {
     Write-Host ""
     Write-Host "  The .NET SDK is required to build an MSI and was not found." -ForegroundColor Yellow
     Write-Host "  It can be installed for your user only, in %LocalAppData%\Microsoft\dotnet," -ForegroundColor Yellow
@@ -195,9 +196,11 @@ Write-Host "  building version $Version" -ForegroundColor Gray
 # ---------------------------------------------------------------------------
 Step "Branding assets"
 
-$needAssets = @("aurion.ico", "banner.bmp", "dialog.bmp", "info.ico",
-                "exclamation.ico", "new.ico", "up.ico") |
-              Where-Object { -not (Test-Path (Join-Path $assetsDir $_)) }
+# @() matters: Where-Object returns $null when every asset is present, and
+# $null has no .Count under Set-StrictMode.
+$needAssets = @(@("aurion.ico", "banner.bmp", "dialog.bmp", "info.ico",
+                  "exclamation.ico", "new.ico", "up.ico") |
+                Where-Object { -not (Test-Path (Join-Path $assetsDir $_)) })
 
 if ($needAssets.Count -eq 0) {
     Write-Host "  assets present (delete installer\assets\generated to rebuild them)" -ForegroundColor Gray
@@ -216,8 +219,10 @@ if ($needAssets.Count -eq 0) {
 # 3. Payload
 # ---------------------------------------------------------------------------
 Step "Staging payload"
+# stage.ps1 throws on failure; $ErrorActionPreference = "Stop" turns that into
+# a terminating error here, so there is nothing extra to check. ($LASTEXITCODE
+# is deliberately not read: it may not exist yet, which StrictMode rejects.)
 & (Join-Path $PSScriptRoot "stage.ps1") -Root $repoRoot -SkipNpm:$SkipNpm
-if ($LASTEXITCODE -ne 0 -and $null -ne $LASTEXITCODE) { throw "Staging failed." }
 
 # ---------------------------------------------------------------------------
 # 4. Compile
@@ -244,8 +249,8 @@ if ($LASTEXITCODE -ne 0) {
     exit 1
 }
 
-$built = Get-ChildItem (Join-Path $installerDir "bin") -Recurse -Filter "AURION-$Version-x64.msi" -ErrorAction SilentlyContinue |
-         Sort-Object LastWriteTime -Descending | Select-Object -First 1
+$built = @(Get-ChildItem (Join-Path $installerDir "bin") -Recurse -Filter "AURION-$Version-x64.msi" -ErrorAction SilentlyContinue |
+           Sort-Object LastWriteTime -Descending) | Select-Object -First 1
 if (-not $built) { throw "Build reported success but no MSI was produced under installer\bin." }
 
 Copy-Item $built.FullName $outputDir -Force
@@ -258,9 +263,9 @@ $msi = Get-Item (Join-Path $outputDir $built.Name)
 # ---------------------------------------------------------------------------
 if ($CertThumbprint) {
     Step "Signing"
-    $signtool = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin" -Recurse -Filter signtool.exe -ErrorAction SilentlyContinue |
-                Where-Object { $_.FullName -match "x64" } |
-                Sort-Object FullName -Descending | Select-Object -First 1
+    $signtool = @(Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin" -Recurse -Filter signtool.exe -ErrorAction SilentlyContinue |
+                  Where-Object { $_.FullName -match "x64" } |
+                  Sort-Object FullName -Descending) | Select-Object -First 1
     if (-not $signtool) { throw "signtool.exe not found. Install the Windows SDK, or sign the MSI on your signing machine." }
 
     & $signtool.FullName sign /sha1 $CertThumbprint /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 /d "AURION" $msi.FullName
