@@ -65,7 +65,10 @@ echo   Waiting for the desk on http://127.0.0.1:8080 ...
 powershell -NoProfile -ExecutionPolicy Bypass -Command "$ok=$false; for($i=0;$i -lt 60;$i++){ try { $r=Invoke-WebRequest -UseBasicParsing -TimeoutSec 2 http://127.0.0.1:8080/api/health; if($r.StatusCode -eq 200){$ok=$true;break} } catch {}; Start-Sleep -Milliseconds 700 }; if($ok){exit 0}else{exit 1}"
 if errorlevel 1 goto :NOTREADY
 
-start "" "http://127.0.0.1:8080"
+REM AURION.exe hosts the desk in its own window and sets AURION_NO_BROWSER,
+REM so a browser tab would be a duplicate. Without the variable - double-click
+REM on this file, or any older shortcut - the behaviour is unchanged.
+if not defined AURION_NO_BROWSER start "" "http://127.0.0.1:8080"
 
 echo.
 echo   Desk    http://127.0.0.1:8080
@@ -89,7 +92,7 @@ echo   Python/Node package. Repair packages with:
 echo     powershell -ExecutionPolicy Bypass -File scripts\fix-npm.ps1
 echo     powershell -ExecutionPolicy Bypass -File scripts\fix-numpy.ps1
 echo.
-start "" "http://127.0.0.1:8080"
+if not defined AURION_NO_BROWSER start "" "http://127.0.0.1:8080"
 timeout /t 8 >nul
 exit /b 1
 

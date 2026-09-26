@@ -231,7 +231,7 @@ def main() -> int:
             fail(f"branding asset missing: assets/generated/{asset} (run assets/build-assets.py)")
 
     # ---------------------------------------------------------- launchers
-    for vbs in ("AURION-Launch.vbs", "AURION-Stop.vbs"):
+    for vbs in ("AURION-Stop.vbs",):
         if not (INSTALLER / "launcher" / vbs).exists():
             fail(f"launcher missing: launcher/{vbs}")
 

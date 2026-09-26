@@ -6,12 +6,13 @@
   <!--
     Shortcuts.
 
-    All of them are non-advertised: AURION's entry point is a script, not a PE,
-    so there is no executable for Windows Installer to advertise. Non-advertised
-    shortcuts to wscript.exe with our own .vbs launcher give the correct icon,
-    a sane working directory and no console flash, while keeping repair and
-    uninstall fully MSI-managed (each shortcut lives in its own component with
-    an HKCU key path, which is the documented per-user pattern).
+    The Start Menu and Desktop entries point at AURION.exe, the installer-owned
+    WebView2 host that shows the desk in its own window. "Stop AURION" stays a
+    wscript.exe entry because stopping the stack has no window at all.
+
+    All shortcuts are non-advertised and each lives in its own component with an
+    HKCU key path, which is the documented per-user pattern and keeps repair and
+    uninstall fully MSI-managed.
   -->
 
   <Fragment>
@@ -21,8 +22,7 @@
         <Shortcut Id="ScStartAurion"
                   Name="!(loc.ShortcutStart)"
                   Description="!(loc.ShortcutStartDesc)"
-                  Target="[System64Folder]wscript.exe"
-                  Arguments="&quot;[INSTALLFOLDER]AURION-Launch.vbs&quot;"
+                  Target="[INSTALLFOLDER]AURION.exe"
                   WorkingDirectory="INSTALLFOLDER"
                   Icon="AurionIcon" />
         <RegistryValue Root="$(var.RegRoot)" Key="$(var.RegKey)\Shortcuts"
@@ -82,8 +82,7 @@
         <Shortcut Id="ScDesktopAurion"
                   Name="!(loc.ProductName)"
                   Description="!(loc.ShortcutStartDesc)"
-                  Target="[System64Folder]wscript.exe"
-                  Arguments="&quot;[INSTALLFOLDER]AURION-Launch.vbs&quot;"
+                  Target="[INSTALLFOLDER]AURION.exe"
                   WorkingDirectory="INSTALLFOLDER"
                   Icon="AurionIcon" />
         <RegistryValue Root="$(var.RegRoot)" Key="$(var.RegKey)\Shortcuts"

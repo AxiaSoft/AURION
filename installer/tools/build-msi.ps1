@@ -64,7 +64,7 @@ function Step([string] $text) {
 
 # Bumped whenever this script changes, so a stale copy is obvious at a glance
 # instead of failing with a confusing parameter error.
-$ScriptRevision = "11"
+$ScriptRevision = "12"
 
 Write-Host ""
 Write-Host "  AURION installer build" -ForegroundColor White
@@ -232,6 +232,44 @@ Step "Staging payload"
 # a terminating error here, so there is nothing extra to check. ($LASTEXITCODE
 # is deliberately not read: it may not exist yet, which StrictMode rejects.)
 & (Join-Path $PSScriptRoot "stage.ps1") -Root $repoRoot -SkipNpm:$SkipNpm
+
+# ---------------------------------------------------------------------------
+# 3b. The desk window
+#
+# AURION.exe is the installer-owned WebView2 host that shows the desk in a real
+# window. It is published self-contained, so the trader's machine needs no .NET
+# runtime, and it lands directly in the staged payload next to start-aurion.cmd,
+# where Files.wxs harvests it with everything else.
+# ---------------------------------------------------------------------------
+Step "Building the desk window"
+
+$windowProject = Join-Path $installerDir "window\AurionWindow.csproj"
+$stageApp = Join-Path $installerDir "stage\app"
+
+& $dotnetExe publish $windowProject `
+    -c $Configuration `
+    -r win-x64 `
+    --self-contained true `
+    -p:PublishSingleFile=true `
+    -p:IncludeNativeLibrariesForSelfExtract=true `
+    -p:EnableCompressionInSingleFile=true `
+    -p:AurionVersion=$Version `
+    -o $stageApp `
+    --nologo -v quiet
+
+if ($LASTEXITCODE -ne 0) { throw "Building the desk window (AURION.exe) failed." }
+
+$windowExe = Join-Path $stageApp "AURION.exe"
+if (-not (Test-Path $windowExe)) { throw "AURION.exe was not produced in $stageApp." }
+
+# A self-contained single-file publish also drops its own .pdb and the
+# deps/runtimeconfig files next to the exe; none of them belong in a shipped
+# payload, and leaving them would put ~100 unnecessary files in the MSI.
+Get-ChildItem $stageApp -File |
+    Where-Object { $_.Extension -in @(".pdb", ".xml") -or $_.Name -like "*.deps.json" } |
+    Remove-Item -Force -ErrorAction SilentlyContinue
+
+Write-Host ("  AURION.exe  {0:N1} MB" -f ((Get-Item $windowExe).Length / 1MB)) -ForegroundColor Gray
 
 # ---------------------------------------------------------------------------
 # 4. Compile

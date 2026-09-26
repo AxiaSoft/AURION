@@ -231,7 +231,7 @@ if ($problems.Count -gt 0) {
 # sanity: the thing we actually run must be there
 foreach ($must in @("app\backend\src\index.js", "app\engine\main.py",
                     "app\apps\web\index.html", "app\start-aurion.cmd",
-                    "launcher\AURION-Launch.vbs")) {
+                    "launcher\AURION-Stop.vbs")) {
     if (-not (Test-Path (Join-Path $Stage $must))) { throw "Payload incomplete: $must is missing." }
 }
 

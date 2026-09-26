@@ -11,7 +11,8 @@ installer/
 ├── assets/
 │   ├── build-assets.py         regenerates the branding from the app's own artwork
 │   └── generated/              banner.bmp, dialog.bmp, aurion.ico, wizard glyphs
-├── launcher/                   installer-owned .vbs helpers (start / stop)
+├── launcher/                   installer-owned helper (AURION-Stop.vbs)
+├── window/                     AURION.exe - the WebView2 desk window (C#)
 ├── src/
 │   ├── Variables.wxi           shared constants — no hard-coded paths anywhere else
 │   ├── Package.wxs             product, upgrade policy, features, Windows integration
@@ -23,7 +24,7 @@ installer/
 │   └── ui/
 │       ├── AurionUI.wxs        the complete branded wizard (16 dialogs)
 │       └── en-us.wxl           every visible string
-└── build/
+└── tools/
     ├── build-msi.ps1           one-command build
     ├── stage.ps1               assembles + verifies the payload
     └── check-authoring.py      static lint, runs on any OS
@@ -130,26 +131,39 @@ the product. `ProductCode` is regenerated per build, which is what Windows
 Installer *requires* for major upgrades; the UpgradeCode is what keeps a single
 Apps & Features entry across versions.
 
-**The desk opens as a desktop window, not a browser tab.** AURION's UI is a
-local web app, but users expect an application window. `AURION-Launch.vbs`
-starts it with Chromium *app mode* (`--app`), which gives a window with no
-address bar, no tabs and its own taskbar button. Microsoft Edge is present on
-every supported version of Windows, so this needs no extra runtime, no
-download, and — importantly — **no change to the application itself**. Chrome
-is accepted as an alternative and the default browser is the last-resort
-fallback, so the desk is always reachable.
+**The desk opens in its own window, with no browser involved.** AURION's UI is
+a local web app, but a trading desk has to look and behave like an application.
+`AURION.exe` (sources in `installer/window/`) is a small WinForms host built on
+**WebView2**: its own title bar, taskbar button and icon, no address bar, no
+tabs, and no dependency on which browser is installed or which one is default.
+
+It is published **self-contained**, so the trader's machine needs no .NET
+runtime. It contains no application logic whatsoever: it runs the application's
+own `start-aurion.cmd`, waits for `/api/health`, and then shows the desk.
 
 | Choice | Value | Why |
 |---|---|---|
-| Opening size | `--window-size=1270,720` | a real window, never maximised on first run |
-| Profile | `%LocalAppData%\AxiaSoft\AURION\Window` | isolates the window from the user's own browser session: their tabs, profile and extensions are untouched, and the window remembers its own geometry |
-| After first run | whatever the user last chose | resizing or maximising sticks, as in any desktop app |
-| Uninstall | `AurionCleanWindowProfile` removes that folder | it is installer-owned, so a full uninstall takes it with it |
+| Opening size | 1270 x 720, centred | a window, never maximised - traders keep the desk beside MetaTrader |
+| Later runs | the size and position the user left | stored in `%LocalAppData%\AxiaSoft\AURION\window.txt`; a position on an unplugged monitor is ignored rather than hiding the window |
+| Web profile | `%LocalAppData%\AxiaSoft\AURION\Window` | the user's own browser profile, tabs, sign-ins and extensions are never touched |
+| External links | handed to the default browser | the desk is an application, not a place to browse from |
+| Second launch | raises the existing window | a mutex, so a second double-click never starts a second stack |
+| DPI | PerMonitorV2 | stays crisp when dragged to a monitor with a different scale |
+| Uninstall | `AurionCleanWindowProfile` removes the profile folder | it is installer-owned |
 
-To change the opening size, edit `WIN_W` / `WIN_H` at the top of
-`installer/launcher/AURION-Launch.vbs`. Note that a window position is
-deliberately *not* forced: Chromium places the window sensibly on the active
-monitor, and hard-coded coordinates break on multi-monitor and scaled displays.
+**WebView2 runtime.** WebView2 is a Windows component, not a browser: it ships
+with Windows 11 and reaches Windows 10 through Edge servicing, so in practice
+it is already there. If it is genuinely missing, the window says so plainly and
+falls back to opening the desk in the default browser, so the trader is never
+stuck.
+
+**The one change made to the application.** `start-aurion.cmd` ended by opening
+a browser tab. With the desk already hosted in `AURION.exe` that tab is a
+duplicate, so the two `start "" "http://..."` lines are now guarded by
+`if not defined AURION_NO_BROWSER`, and `AURION.exe` sets that variable. Running
+`start-aurion.cmd` by hand behaves exactly as it always did. This is the only
+edit to the application in the whole installer project, and it is one condition
+on two lines - everything else is additive.
 
 **ICE validation stays on, with five documented suppressions.** The build runs
 the full ICE suite (`PedanticBuild`), and `AURION.wixproj` suppresses exactly

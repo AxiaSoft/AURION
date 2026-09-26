@@ -1,0 +1,52 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- ==========================================================================
+       AURION desktop window  (installer-owned, NOT part of the application)
+
+       A minimal WinForms host that shows the AURION desk inside a real Windows
+       window: own title bar, own taskbar button, own icon, no address bar and
+       no dependency on which browser the trader happens to have.
+
+       It contains no application logic. It starts the desk with the
+       application's own start-aurion.cmd and then displays it.
+
+       Published self-contained, so the target machine needs no .NET runtime.
+       ========================================================================== -->
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+
+    <AssemblyName>AURION</AssemblyName>
+    <RootNamespace>Aurion.Window</RootNamespace>
+    <ApplicationIcon>..\assets\generated\aurion.ico</ApplicationIcon>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+
+    <!-- Shown in the file properties dialog and in Task Manager. -->
+    <Product>AURION</Product>
+    <Company>AxiaSoft</Company>
+    <AssemblyTitle>AURION</AssemblyTitle>
+    <Description>AURION desk</Description>
+    <Version>$(AurionVersion)</Version>
+    <FileVersion>$(AurionVersion)</FileVersion>
+    <InformationalVersion>$(AurionVersion)</InformationalVersion>
+
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <DebugType>none</DebugType>
+    <InvariantGlobalization>true</InvariantGlobalization>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(AurionVersion)' == ''">
+    <Version>1.0.0</Version>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.2903.40" />
+  </ItemGroup>
+
+</Project>

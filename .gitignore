@@ -17,3 +17,7 @@ __pycache__/
 *.pyo
 .venv/
 venv/
+
+# WebView2 desk window build output
+installer/window/bin/
+installer/window/obj/

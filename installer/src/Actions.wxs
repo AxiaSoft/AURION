@@ -68,8 +68,8 @@
                   Return="ignore" />
 
     <!-- The desk window runs in an isolated Chromium profile created by
-         AURION-Launch.vbs (window geometry only - never the user's own browser
-         profile). It is installer-owned, so a full uninstall takes it with it.
+         AURION.exe (window geometry and web storage only - never the user's
+         own browser profile). It is installer-owned, so a full uninstall takes it with it.
          Return="ignore": a leftover cache must never fail an uninstall. -->
     <CustomAction Id="AurionCleanWindowProfile"
                   Directory="INSTALLFOLDER"
@@ -81,13 +81,13 @@
     <!-- ================================================================
          4. Launch AURION when the user ticks the box on the last page
          ================================================================
-         Started from the finish page as the logged-on user (a per-user package
-         is never elevated) and detached with asyncNoWait, so the wizard closes
-         at once instead of babysitting the desk it just launched. A plain
-         type-34 action keeps the package free of any WiX extension binary.   -->
+         Starts AURION.exe, the desk window, as the logged-on user (a per-user
+         package is never elevated) and detaches with asyncNoWait so the wizard
+         closes at once instead of babysitting the desk it just launched. A
+         plain type-34 action keeps the package free of any WiX extension. -->
     <CustomAction Id="AurionLaunchApplication"
                   Directory="INSTALLFOLDER"
-                  ExeCommand="&quot;[System64Folder]wscript.exe&quot; //nologo &quot;[INSTALLFOLDER]AURION-Launch.vbs&quot;"
+                  ExeCommand="&quot;[INSTALLFOLDER]AURION.exe&quot;"
                   Execute="immediate"
                   Impersonate="yes"
                   Return="asyncNoWait" />
