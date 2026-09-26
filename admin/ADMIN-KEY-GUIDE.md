@@ -7,16 +7,16 @@ License model = Ed25519 asymmetric — ساختار موجود حفظ شده، �
 > **خلاصه دستورات (Quick Commands) — Windows Fix:**
 > ```powershell
 > # Admin Key (نامحدود) — PowerShell
-> $env:AURION_KEY_PRIVATE_HEX="9090ebd8..."   # یا AXIASOFT_KEY_PRIVATE
+> $env:AURION_KEY_PRIVATE_HEX="<your-64-hex-ed25519-seed>"   # یا AXIASOFT_KEY_PRIVATE
 > python admin/mint_local.py developer "admin-owner"
 > # Normal Key (1 ماهه) — PowerShell
-> $env:AURION_KEY_PRIVATE_HEX="9090ebd8..."; python admin/mint_local.py m1 "client@example.com"
+> $env:AURION_KEY_PRIVATE_HEX="<your-64-hex-ed25519-seed>"; python admin/mint_local.py m1 "client@example.com"
 > # Normal Key (12 ماهه)
-> $env:AURION_KEY_PRIVATE_HEX="9090ebd8..."; python admin/mint_local.py y1 "client@example.com"
+> $env:AURION_KEY_PRIVATE_HEX="<your-64-hex-ed25519-seed>"; python admin/mint_local.py y1 "client@example.com"
 > ```
 > ```cmd
 > :: Windows CMD
-> set AURION_KEY_PRIVATE_HEX=9090ebd8...
+> set AURION_KEY_PRIVATE_HEX=<your-64-hex-ed25519-seed>
 > python admin/mint_local.py developer "admin-owner"
 > admin\mint-key.cmd developer "admin-owner"
 > admin\mint-key.cmd m1 "client@example.com"
@@ -62,7 +62,7 @@ License model = Ed25519 asymmetric — ساختار موجود حفظ شده، �
 1. از ابزار لوکال استفاده کنید که خودش `engine/` را به `PYTHONPATH` اضافه می‌کند:
 ```cmd
 :: CMD - از ریشه پروژه اجرا کنید D:\AURION BETA
-set AURION_KEY_PRIVATE_HEX=9090ebd82348b326eb891e496f2f5c1746a53243625237411835a810686826dc
+set AURION_KEY_PRIVATE_HEX=<your-64-hex-ed25519-seed>
 python admin/mint_local.py developer "admin-owner"
 python admin/mint_local.py m1 "client@example.com"
 python admin/mint_local.py y1 "client@example.com"
@@ -73,7 +73,7 @@ admin\mint-key.cmd m1 "client@example.com"
 
 ```powershell
 # PowerShell
-$env:AURION_KEY_PRIVATE_HEX="9090ebd82348b326eb891e496f2f5c1746a53243625237411835a810686826dc"
+$env:AURION_KEY_PRIVATE_HEX="<your-64-hex-ed25519-seed>"
 python admin/mint_local.py developer "admin-owner"
 python admin/mint_local.py m1 "client@example.com"
 # یا
@@ -290,3 +290,41 @@ GET /api/license → { data: { plan, premium, expires, features, locked } }
 ---
 
 **پایان راهنمای کلید ادمین.**
+
+---
+
+## Where the private seed belongs
+
+The Ed25519 **private seed** is the only thing that can create valid AURION
+keys. Everything else in this repository — including
+`engine/aurion/license/material.py` — holds only the *public* key, which can
+verify keys but never create them.
+
+The seed must therefore live outside the source tree:
+
+* a password manager entry, for the owner;
+* the keyserver's environment variables, for automated issuing;
+* nowhere else — not in a file, not in a commit, not in a chat message.
+
+`mint-key.ps1` asks for it, keeps it in the session only, verifies it against
+the public key compiled into the build, and clears it afterwards. Nothing is
+written to disk.
+
+> **This guide used to print the real seed as an "example".** It was in the
+> repository and therefore in the git history, which means it must be treated
+> as compromised: anyone with a copy of the repository could mint developer
+> keys. Rotating it invalidates every key ever issued, so plan the migration
+> before you do it — see "Rotating the signing key" below.
+
+## Rotating the signing key
+
+1. Generate a new keypair on an offline machine and store the seed in a
+   password manager.
+2. Replace `ED25519_PUBLIC_HEX` in `engine/aurion/license/material.py` with the
+   new public key and ship that build.
+3. Re-issue keys for every active customer; keys signed with the old seed stop
+   validating the moment step 2 reaches them.
+4. Update the keyserver's environment variable to the new seed.
+
+Because step 3 affects paying customers, the safe sequence is: issue the new
+keys first, notify, then ship the build that changes the public key.

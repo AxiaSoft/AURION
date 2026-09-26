@@ -6,20 +6,20 @@ Local-only key minting tool (owner machine only).
 - Fixes ModuleNotFoundError by adding engine/ to sys.path
 
 Usage (Windows):
-  set AURION_KEY_PRIVATE_HEX=9090ebd8...
+  set AURION_KEY_PRIVATE_HEX=<your-64-hex-ed25519-seed>
   python admin/mint_local.py developer "admin-owner"
 
-  set AURION_KEY_PRIVATE_HEX=9090ebd8...
+  set AURION_KEY_PRIVATE_HEX=<your-64-hex-ed25519-seed>
   python admin/mint_local.py m1 "client@example.com"
 
-  set AURION_KEY_PRIVATE_HEX=9090ebd8...
+  set AURION_KEY_PRIVATE_HEX=<your-64-hex-ed25519-seed>
   python admin/mint_local.py y1 "client@example.com"
 
 Usage (PowerShell):
-  $env:AURION_KEY_PRIVATE_HEX="9090ebd8..."
+  $env:AURION_KEY_PRIVATE_HEX="<your-64-hex-ed25519-seed>"
   python admin/mint_local.py developer "admin-owner"
 
-  $env:AXIASOFT_KEY_PRIVATE="9090ebd8..."
+  $env:AXIASOFT_KEY_PRIVATE="<your-64-hex-ed25519-seed>"
   python admin/mint_local.py m1 "client@example.com"
 
 Plans: m1 (1 month), m3 (3 months), m6 (6 months), y1 (12 months), developer (admin, unlimited)
@@ -63,9 +63,9 @@ def main():
     if not has_key:
         print("ERROR: Private key not set in env.", file=sys.stderr)
         print("Set one of:", file=sys.stderr)
-        print("  Windows CMD: set AURION_KEY_PRIVATE_HEX=9090ebd82348b326eb891e496f2f5c1746a53243625237411835a810686826dc", file=sys.stderr)
-        print("  PowerShell: $env:AURION_KEY_PRIVATE_HEX=\"9090ebd82348b326eb891e496f2f5c1746a53243625237411835a810686826dc\"", file=sys.stderr)
-        print("  Linux: export AURION_KEY_PRIVATE_HEX=9090ebd8...", file=sys.stderr)
+        print("  Windows CMD: set AURION_KEY_PRIVATE_HEX=<your-64-hex-ed25519-seed>", file=sys.stderr)
+        print("  PowerShell: $env:AURION_KEY_PRIVATE_HEX=\"<your-64-hex-ed25519-seed>\"", file=sys.stderr)
+        print("  Linux: export AURION_KEY_PRIVATE_HEX=<your-64-hex-ed25519-seed>", file=sys.stderr)
         sys.exit(3)
 
     try:
