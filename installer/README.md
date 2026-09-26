@@ -130,6 +130,23 @@ the product. `ProductCode` is regenerated per build, which is what Windows
 Installer *requires* for major upgrades; the UpgradeCode is what keeps a single
 Apps & Features entry across versions.
 
+**ICE validation stays on, with five documented suppressions.** The build runs
+the full ICE suite (`PedanticBuild`), and `AURION.wixproj` suppresses exactly
+five checks, each with its reason written next to it. Four of the five exist
+because ICE rules assume a *per-machine* package, and this one is per-user:
+
+| ICE | Why it fires here | Why suppressing it is safe |
+|---|---|---|
+| ICE38 | components install into the user profile without an HKCU keypath | in a per-user package every component already belongs to the installing user; file keypaths are correct and give real per-file self-repair |
+| ICE64 | profile directories are not in the `RemoveFile` table | that rule protects *other* users' profiles in a per-machine install; Windows Installer removes the directories it created here, and `AurionCleanGenerated` sweeps runtime leftovers |
+| ICE91 | installing to `LocalAppData` | that is the design (no elevation) |
+| ICE69 | formatted paths crossing components | all inside our own install folder |
+| ICE61 | `AllowSameVersionUpgrades` | deliberate, so re-installing the same build works |
+
+Do not add suppressions casually: an ICE that fires for a reason not in that
+table is a real bug. Uninstall cleanliness in particular is verified by an
+actual install/uninstall test, not by ICE64.
+
 ---
 
 ## Wizard flows

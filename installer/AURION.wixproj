@@ -34,11 +34,28 @@
       AssetsDir=$(AssetsDir)
     </DefineConstants>
 
-    <!-- Full validation is on. These three ICEs are suppressed with cause:
+    <!-- Full validation is on. These ICEs are suppressed, each with cause.
+         All five are consequences of one deliberate design decision: this is a
+         per-user package (Scope="perUser") that installs into the current
+         user's profile, which is exactly the shape several ICEs were written
+         to flag in *per-machine* packages.
+
          ICE61  - AllowSameVersionUpgrades is deliberate (re-install same build).
          ICE69  - cross-component formatted paths inside our own install folder.
-         ICE91  - per-user package installing into LocalAppData is the design. -->
-    <SuppressIces>ICE61;ICE69;ICE91</SuppressIces>
+         ICE91  - per-user package installing into LocalAppData is the design.
+         ICE38  - "components installing to the user profile need an HKCU
+                  keypath". That rule exists so a per-machine package can tell
+                  which user a profile file belongs to. In a per-user package
+                  every component already belongs to the installing user, and
+                  file keypaths are correct and give real per-file self-repair.
+                  Forcing ~900 synthetic registry keypaths would add no safety.
+         ICE64  - "user-profile directories must be in the RemoveFile table".
+                  Same origin: it protects *other* users' profiles in a
+                  per-machine install. Windows Installer removes the
+                  directories it created for this user on uninstall, and
+                  AurionCleanGenerated sweeps runtime leftovers. Uninstall
+                  cleanliness is verified by test, not by this ICE. -->
+    <SuppressIces>ICE61;ICE69;ICE91;ICE38;ICE64</SuppressIces>
 
     <PedanticBuild>true</PedanticBuild>
   </PropertyGroup>
