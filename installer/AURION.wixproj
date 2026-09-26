@@ -2,7 +2,7 @@
 <!--
   AURION MSI package.
 
-  Build:  installer\build\build-msi.ps1          (recommended - stages payload first)
+  Build:  installer\tools\build-msi.ps1          (recommended - stages payload first)
   or:     dotnet build installer\AURION.wixproj -c Release
 
   The project intentionally has no hard-coded paths: everything comes from
@@ -18,7 +18,7 @@
     <InstallerPlatform>x64</InstallerPlatform>
     <Cultures>en-US</Cultures>
 
-    <!-- Payload produced by build\stage.ps1. Override on the command line to
+    <!-- Payload produced by tools\stage.ps1. Override on the command line to
          package a payload built elsewhere (CI artefact, signed drop, ...). -->
     <StageDir Condition="'$(StageDir)' == ''">$(MSBuildThisFileDirectory)stage</StageDir>
     <AssetsDir Condition="'$(AssetsDir)' == ''">$(MSBuildThisFileDirectory)assets\generated</AssetsDir>
@@ -51,7 +51,7 @@
   <!-- Fail early and loudly instead of shipping an empty MSI. -->
   <Target Name="VerifyStage" BeforeTargets="BeforeBuild">
     <Error Condition="!Exists('$(StageDir)\app\backend\src\index.js')"
-           Text="Payload missing at $(StageDir). Run installer\build\stage.ps1 first (build-msi.ps1 does it for you)." />
+           Text="Payload missing at $(StageDir). Run installer\tools\stage.ps1 first (build-msi.ps1 does it for you)." />
     <Error Condition="!Exists('$(AssetsDir)\aurion.ico')"
            Text="Branding assets missing at $(AssetsDir). Run installer\assets\build-assets.py." />
   </Target>

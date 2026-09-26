@@ -15,7 +15,7 @@ only surface halfway through a Windows build:
 It is a lint, not a compiler: a clean run does not replace `wix build`, it
 just means the obvious things are right.
 
-Usage:  python installer/build/check-authoring.py
+Usage:  python installer/tools/check-authoring.py
 """
 
 from __future__ import annotations

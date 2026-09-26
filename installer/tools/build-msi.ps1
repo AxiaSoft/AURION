@@ -7,7 +7,7 @@
 
       1. tool check      .NET SDK 6+ and the WiX 5 MSBuild SDK (restored by NuGet)
       2. branding        regenerate installer assets if they are missing
-      3. payload         installer\build\stage.ps1
+      3. payload         installer\tools\stage.ps1
       4. compile         dotnet build installer\AURION.wixproj  (full ICE validation)
 
     The result lands in installer\output\ together with a SHA-256 file.
@@ -30,7 +30,7 @@
     administrator rights, nothing machine-wide, nothing else touched.
 
 .EXAMPLE
-    powershell -ExecutionPolicy Bypass -File installer\build\build-msi.ps1
+    powershell -ExecutionPolicy Bypass -File installer\tools\build-msi.ps1
 
 .EXAMPLE
     # first time on a machine without the .NET SDK
@@ -62,9 +62,14 @@ function Step([string] $text) {
     Write-Host "== $text" -ForegroundColor Cyan
 }
 
+# Bumped whenever this script changes, so a stale copy is obvious at a glance
+# instead of failing with a confusing parameter error.
+$ScriptRevision = "3"
+
 Write-Host ""
 Write-Host "  AURION installer build" -ForegroundColor White
 Write-Host "  ----------------------" -ForegroundColor DarkGray
+Write-Host "  build script revision $ScriptRevision" -ForegroundColor DarkGray
 
 # ---------------------------------------------------------------------------
 # 1. Tools
@@ -120,6 +125,17 @@ function Install-DotnetSdk {
 }
 
 $found = Find-DotnetSdk
+
+# Offer the per-user bootstrap instead of just refusing to work. -InstallDotnet
+# is only needed to skip this question (unattended / CI runs).
+if (-not $found -and -not $InstallDotnet -and -not [Environment]::UserInteractive.Equals($false)) {
+    Write-Host ""
+    Write-Host "  The .NET SDK is required to build an MSI and was not found." -ForegroundColor Yellow
+    Write-Host "  It can be installed for your user only, in %LocalAppData%\Microsoft\dotnet," -ForegroundColor Yellow
+    Write-Host "  without administrator rights and without changing anything machine-wide." -ForegroundColor Yellow
+    $answer = Read-Host "  Install the .NET SDK now? [Y/n]"
+    if ([string]::IsNullOrWhiteSpace($answer) -or $answer -match '^(y|yes)$') { $InstallDotnet = $true }
+}
 
 if (-not $found -and $InstallDotnet) {
     Install-DotnetSdk

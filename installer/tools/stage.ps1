@@ -24,7 +24,7 @@
     "npm ci --omit=dev". Only for fast local iteration - never for a release.
 
 .EXAMPLE
-    powershell -ExecutionPolicy Bypass -File installer\build\stage.ps1
+    powershell -ExecutionPolicy Bypass -File installer\tools\stage.ps1
 #>
 [CmdletBinding()]
 param(

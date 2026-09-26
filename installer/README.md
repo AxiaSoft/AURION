@@ -38,16 +38,20 @@ desk's production dependencies). Nothing else — NuGet pulls the WiX 5 toolset 
 automatically on the first build.
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File installer\build\build-msi.ps1
+powershell -ExecutionPolicy Bypass -File installer\tools\build-msi.ps1
 ```
 
-No .NET SDK on the machine? Let the script install it for you — per-user, into
-`%LocalAppData%\Microsoft\dotnet`, with no administrator rights and no
-machine-wide change:
+No .NET SDK on the machine? The script offers to install it for you — per-user,
+into `%LocalAppData%\Microsoft\dotnet`, with no administrator rights and no
+machine-wide change. Just answer **Y**. To skip the question (CI, unattended):
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File installer\build\build-msi.ps1 -InstallDotnet
+powershell -ExecutionPolicy Bypass -File installer\tools\build-msi.ps1 -InstallDotnet
 ```
+
+The script prints its own revision on the first line. If it does not print one,
+you are running a stale copy — refresh the `installer\` folder before anything
+else.
 
 > The .NET **Runtime** is not enough: WiX is an MSBuild SDK, and only the **SDK**
 > ships MSBuild. The script checks for a real SDK (`dotnet --list-sdks`) and also
@@ -75,7 +79,7 @@ Useful switches:
 Before a build — or from Linux/macOS/CI where WiX cannot run — lint the authoring:
 
 ```bash
-python installer/build/check-authoring.py
+python installer/tools/check-authoring.py
 ```
 
 ---
@@ -90,7 +94,7 @@ bridge sources, factory configuration, and (optionally) the offline docs.
 panel), `data/` (databases, logs, exports, `jwt.secret`, licence state) and
 `config/aurion.json`. The staging script *fails the build* if any of them, or any
 file matching a secret pattern, reaches the payload — see the verification block
-at the end of `build/stage.ps1`.
+at the end of `tools/stage.ps1`.
 
 The key server, the admin key-minting tool and the update panel are hosted
 separately, exactly as intended; this MSI is the trader-machine half only.
@@ -229,7 +233,7 @@ different version is already installed.
 
 1. Bump `AurionVersion` in `installer/Version.props` (three numeric fields —
    Windows Installer ignores a fourth). **Never touch `AurionUpgradeCode`.**
-2. `powershell -File installer\build\build-msi.ps1 -CertThumbprint <hash>`
+2. `powershell -File installer\tools\build-msi.ps1 -CertThumbprint <hash>`
 3. Test the three paths on a machine that already has the previous version:
    upgrade, then repair, then uninstall.
 4. Publish the MSI and its `.sha256`.
