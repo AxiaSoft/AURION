@@ -289,7 +289,21 @@
                    Condition="NOT AURION_INSTALLED_VERSION" />
           <Publish Property="AURION_MODE" Value="Upgrade" Order="2"
                    Condition="AURION_INSTALLED_VERSION" />
-          <Publish Event="NewDialog" Value="AurionReadyDlg" Order="3" />
+
+          <!-- Apply the two shortcut choices here, not through feature <Level>
+               conditions: those are evaluated in CostFinalize, long before this
+               page exists, so a box ticked now would be ignored. AddLocal and
+               Remove change the feature state immediately. -->
+          <Publish Event="AddLocal" Value="AurionStartMenu" Order="3"
+                   Condition="AURION_WANT_STARTMENU" />
+          <Publish Event="Remove" Value="AurionStartMenu" Order="4"
+                   Condition="NOT AURION_WANT_STARTMENU" />
+          <Publish Event="AddLocal" Value="AurionDesktop" Order="5"
+                   Condition="AURION_WANT_DESKTOP" />
+          <Publish Event="Remove" Value="AurionDesktop" Order="6"
+                   Condition="NOT AURION_WANT_DESKTOP" />
+
+          <Publish Event="NewDialog" Value="AurionReadyDlg" Order="7" />
         </Control>
         <Control Id="Cancel" Type="PushButton" X="304" Y="243" Width="56" Height="17"
                  Cancel="yes" Text="!(loc.ButtonCancel)">

@@ -37,7 +37,31 @@ shell.CurrentDirectory = here
 ' 7 = minimised, without focus. Not hidden: if start-aurion.cmd needs to report
 ' a missing prerequisite the user must be able to read it.
 shell.Run """" & starter & """", 7, False
-WScript.Quit 0
+
+' The stack takes a few seconds to come up, and until then nothing is visible
+' on screen because the console is minimised. Wait for the desk to answer and
+' then open it, so clicking the shortcut always leads somewhere.
+Dim waited
+waited = 0
+Do While waited < 90
+    WScript.Sleep 1000
+    waited = waited + 1
+    If DeskIsAnswering() Then
+        shell.Run "http://127.0.0.1:8080", 1, False
+        WScript.Quit 0
+    End If
+Loop
+
+' Still nothing after a minute and a half: say so plainly instead of leaving
+' the user staring at an empty desktop. The console is still open, minimised,
+' and holds the real reason (usually a missing Python 3.10-3.12 or Node.js).
+MsgBox "AURION did not finish starting." & vbCrLf & vbCrLf & _
+       "Open the minimised AURION window in the taskbar - it shows what went " & _
+       "wrong. The usual cause is a missing prerequisite: Python 3.10, 3.11 " & _
+       "or 3.12, or Node.js 18+." & vbCrLf & vbCrLf & _
+       "Once the desk is running it is at http://127.0.0.1:8080", _
+       vbExclamation, "AURION"
+WScript.Quit 1
 
 
 Function DeskIsAnswering()

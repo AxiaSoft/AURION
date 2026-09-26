@@ -45,6 +45,13 @@ CYAN = (62, 224, 196)  # --cyan    #3ee0c4
 VIOLET = (124, 108, 255)  # --violet  #7c6cff
 GOLD = (232, 192, 122)  # --gold    #e8c07a
 
+# Windows Installer draws dialog text in the system window-text colour (black)
+# and offers no way to recolour a CheckBox or PushButton label. Any area the
+# installer writes into therefore has to be a LIGHT surface - the brand's dark
+# palette is kept for the artwork columns only.
+PAPER_TOP = (250, 251, 253)
+PAPER_BOTTOM = (234, 239, 246)
+
 BANNER_SIZE = (493, 58)
 DIALOG_SIZE = (493, 312)
 ICON_SIZES = (256, 128, 64, 48, 32, 24, 16)
@@ -132,17 +139,26 @@ def hairline(draw: ImageDraw.ImageDraw, box, colour, alpha: float) -> None:
 # so the artwork must live on the right and stay quiet.
 # ---------------------------------------------------------------------------
 def build_banner() -> Image.Image:
+    """Top banner. MSI writes the page title over the LEFT side, so that part
+    is a light surface; the brand block sits on the right."""
     w, h = BANNER_SIZE
-    img = vertical_wash(BANNER_SIZE, (13, 15, 22), BG)
-    glow(img, (w - 54, h // 2), 46, CYAN, 0.16)
-    glow(img, (w - 132, h + 8), 40, VIOLET, 0.07)
+    brand = 168                      # width of the dark brand block, right-aligned
+    split = w - brand
 
+    img = vertical_wash(BANNER_SIZE, PAPER_TOP, PAPER_BOTTOM)
+
+    block = vertical_wash((brand, h), (13, 15, 22), BG)
+    glow(block, (brand - 54, h // 2), 46, CYAN, 0.16)
+    glow(block, (brand - 132, h + 8), 40, VIOLET, 0.07)
     logo = mark(40)
-    img.paste(logo, (w - 52, (h - 40) // 2), logo)
+    block.paste(logo, (brand - 52, (h - 40) // 2), logo)
+    bd = ImageDraw.Draw(block)
+    bd.text((brand - 150, 14), "AURION", font=load_font("semibold", 17), fill=INK)
+    bd.text((brand - 149, 34), "by AxiaSoft", font=load_font("regular", 10), fill=MUTED)
+    img.paste(block, (split, 0))
 
     d = ImageDraw.Draw(img)
-    d.text((w - 150, 14), "AURION", font=load_font("semibold", 17), fill=INK)
-    d.text((w - 149, 34), "by AxiaSoft", font=load_font("regular", 10), fill=MUTED)
+    hairline(d, (split, 0, split, h), CYAN, 0.35)
     hairline(d, (0, h - 1, w, h - 1), CYAN, 0.30)
     return img
 
@@ -198,7 +214,16 @@ def build_dialog() -> Image.Image:
     tagw = d.textlength("AXIASOFT", font=tag)
     d.text(((panel - tagw) / 2, h - 30), "AXIASOFT", font=tag, fill=GOLD)
 
-    # Divider between artwork column and the text column MSI writes into.
+    # The column MSI writes into must be light: welcome/finish body text and
+    # the "Start AURION now" checkbox are painted by Windows in black, and a
+    # CheckBox label cannot be recoloured from the authoring at all.
+    paper = vertical_wash((w - panel, h), PAPER_TOP, PAPER_BOTTOM)
+    glow(paper, (w - panel - 40, h - 30), 150, CYAN, 0.05)
+    glow(paper, (30, 40), 130, VIOLET, 0.04)
+    img.paste(paper, (panel, 0))
+
+    d = ImageDraw.Draw(img)
+    # Divider between the artwork column and the text column.
     for x, a in ((panel - 1, 0.42), (panel, 0.12)):
         hairline(d, (x, 0, x, h), CYAN, a)
     return img

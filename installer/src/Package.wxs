@@ -130,21 +130,28 @@
       <ComponentGroupRef Id="AurionLauncherFiles" />
       <ComponentGroupRef Id="AurionRegistry" />
 
+      <!-- Shortcut features.
+
+           Feature <Level> conditions are evaluated in CostFinalize, which runs
+           BEFORE the wizard is shown, so they cannot see a box the user ticks
+           on the Options page. The level conditions below therefore only cover
+           the SILENT case (UILevel < 5), where the choice can only come from a
+           property on the command line. In an interactive run both features
+           stay selectable and AurionOptionsDlg sets their real state with
+           AddLocal / Remove control events, which take effect immediately. -->
       <Feature Id="AurionStartMenu"
                Title="!(loc.FeatureStartMenuTitle)"
                Description="!(loc.FeatureStartMenuDesc)"
                Level="1" AllowAdvertise="no">
-        <Level Value="0" Condition="NOT AURION_WANT_STARTMENU" />
+        <Level Value="0" Condition="UILevel &lt; 5 AND NOT AURION_WANT_STARTMENU" />
         <ComponentGroupRef Id="AurionStartMenuShortcuts" />
       </Feature>
 
-      <!-- Off unless the user ticks it on the Options page (or had it before:
-           the choice is remembered in HKCU and read back by AppSearch). -->
       <Feature Id="AurionDesktop"
                Title="!(loc.FeatureDesktopTitle)"
                Description="!(loc.FeatureDesktopDesc)"
-               Level="0" AllowAdvertise="no">
-        <Level Value="1" Condition="AURION_WANT_DESKTOP" />
+               Level="1" AllowAdvertise="no">
+        <Level Value="0" Condition="UILevel &lt; 5 AND NOT AURION_WANT_DESKTOP" />
         <ComponentGroupRef Id="AurionDesktopShortcut" />
       </Feature>
 
