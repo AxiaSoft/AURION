@@ -194,7 +194,7 @@ msiexec /a AURION-1.0.0-x64.msi TARGETDIR=\\server\software\aurion
 | `INSTALLFOLDER` | any path | `%LocalAppData%\Programs\AURION` |
 | `AURION_WANT_STARTMENU` | `yes` / omit | `yes` |
 | `AURION_WANT_DESKTOP` | `yes` / omit | off |
-| `AURION_LAUNCH_AFTER` | `yes` / omit | `yes` (interactive only) |
+| `AURION_LAUNCH_AFTER` | `yes` / omit | `yes` (finish page only; silent installs never launch) |
 | `AURION_REMOVE_DATA` | `yes` / omit | off — data is kept |
 
 > Conditions treat *any* non-empty string as true, which is why these are `yes`

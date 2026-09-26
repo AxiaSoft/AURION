@@ -82,7 +82,6 @@ This wizard replaces it with version [ProductVersion]. Your settings, trading hi
   <String Id="OptionsSubtitle" Value="Shortcuts and first launch" />
   <String Id="OptionStartMenu" Value="Add AURION to the Start Menu" />
   <String Id="OptionDesktop" Value="Create a desktop shortcut" />
-  <String Id="OptionLaunch" Value="Start AURION when setup finishes" />
   <String Id="OptionsNote" Value="You can change any of these later: Settings &gt; Apps &gt; AURION &gt; Modify.
 
 Trading settings, MetaTrader 5 credentials and prop-firm rules are configured inside the desk itself, not here." />

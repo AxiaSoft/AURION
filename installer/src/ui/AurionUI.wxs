@@ -271,10 +271,6 @@
         <Control Id="DesktopCheck" Type="CheckBox" X="24" Y="90" Width="320" Height="18"
                  Property="AURION_WANT_DESKTOP" CheckBoxValue="yes"
                  Text="!(loc.OptionDesktop)" />
-        <Control Id="LaunchCheck" Type="CheckBox" X="24" Y="114" Width="320" Height="18"
-                 Property="AURION_LAUNCH_AFTER" CheckBoxValue="yes"
-                 Text="!(loc.OptionLaunch)" />
-
         <Control Id="AdvancedIcon" Type="Icon" X="24" Y="152" Width="16" Height="16"
                  FixedSize="yes" IconSize="16" Text="AurionInfoIco" />
         <Control Id="AdvancedNote" Type="Text" X="48" Y="150" Width="300" Height="70"
@@ -557,13 +553,13 @@
         <Control Id="BodyGone" Type="Text" X="135" Y="72" Width="215" Height="86"
                  Transparent="yes" NoPrefix="yes" Hidden="yes" Text="!(loc.ExitBodyRemoved)" ShowCondition="REMOVE" />
 
-        <!-- No CheckBoxValue here on purpose: the MSI CheckBox table is keyed by
-             property, so the single row emitted by AurionOptionsDlg already
-             defines the checked value ("yes") for AURION_LAUNCH_AFTER. Repeating
-             it would be a duplicate primary key (WIX0130). This control shares
-             that row and simply reflects and toggles the same property. -->
+        <!-- The MSI CheckBox table is keyed by property and WiX emits one row per
+             CheckBox control, so a property can back exactly ONE checkbox in the
+             whole package (WIX0130). "Start AURION now" therefore lives only
+             here, on the finish page, which is also where users expect it. -->
         <Control Id="LaunchCheck" Type="CheckBox" X="135" Y="170" Width="215" Height="18" Hidden="yes"
-                 Property="AURION_LAUNCH_AFTER" Text="!(loc.ExitLaunch)" ShowCondition="NOT REMOVE" />
+                 Property="AURION_LAUNCH_AFTER" CheckBoxValue="yes"
+                 Text="!(loc.ExitLaunch)" ShowCondition="NOT REMOVE" />
 
         <Control Id="Back" Type="PushButton" X="180" Y="243" Width="56" Height="17"
                  Disabled="yes" Text="!(loc.ButtonBack)" />

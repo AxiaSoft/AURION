@@ -84,7 +84,6 @@ def main() -> int:
     dialogs: set[str] = set()
     binaries: set[str] = set()
     checkbox_values: dict = {}   # property -> id of the control defining its checked value
-    checkbox_props: dict = {}    # property -> every checkbox control bound to it
     icons: set[str] = set()
     properties: set[str] = set()
     custom_actions: set[str] = set()
@@ -149,16 +148,17 @@ def main() -> int:
                 if prop and prop not in known_props:
                     fail(f"{rel}: control '{el.get('Id')}' binds undeclared property '{prop}'")
                 if ctype == "CheckBox":
-                    # The MSI CheckBox table is keyed by property: exactly one
-                    # control per property may declare the checked value.
-                    if el.get("CheckBoxValue"):
-                        if prop in checkbox_values:
-                            fail(f"{rel}: checkbox '{el.get('Id')}' repeats CheckBoxValue for '{prop}', "
-                                 f"already declared by '{checkbox_values[prop]}' - duplicate primary key "
-                                 f"in the CheckBox table (WIX0130)")
-                        else:
-                            checkbox_values[prop] = el.get("Id")
-                    checkbox_props.setdefault(prop, []).append((rel, el.get("Id")))
+                    # WiX emits one CheckBox table row per control and that table
+                    # is keyed by property, so a property can back exactly one
+                    # checkbox in the entire package - sharing it is WIX0130.
+                    if prop in checkbox_values:
+                        fail(f"{rel}: checkbox '{el.get('Id')}' is bound to '{prop}', which already "
+                             f"backs checkbox '{checkbox_values[prop]}' - the CheckBox table is keyed "
+                             f"by property, so this is a duplicate primary key (WIX0130)")
+                    else:
+                        checkbox_values[prop] = el.get("Id")
+                    if not el.get("CheckBoxValue"):
+                        fail(f"{rel}: checkbox '{el.get('Id')}' has no CheckBoxValue - it would never set '{prop}'")
 
                 # --- WiX v4/v5 syntax rules the compiler enforces (WIX0004/5/400) ---
                 for child in el:
@@ -234,12 +234,6 @@ def main() -> int:
     for vbs in ("AURION-Launch.vbs", "AURION-Stop.vbs"):
         if not (INSTALLER / "launcher" / vbs).exists():
             fail(f"launcher missing: launcher/{vbs}")
-
-    # A property with checkboxes but no declared checked value can never be set.
-    for prop, controls in checkbox_props.items():
-        if prop not in checkbox_values:
-            where = ", ".join(f"{r}:{i}" for r, i in controls)
-            fail(f"no checkbox declares CheckBoxValue for '{prop}' ({where}) - it would never be set")
 
     return report()
 
