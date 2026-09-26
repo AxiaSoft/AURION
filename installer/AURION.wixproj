@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  AURION MSI package.
+
+  Build:  installer\build\build-msi.ps1          (recommended - stages payload first)
+  or:     dotnet build installer\AURION.wixproj -c Release
+
+  The project intentionally has no hard-coded paths: everything comes from
+  Version.props and the StageDir / AssetsDir properties below.
+-->
+<Project Sdk="WixToolset.Sdk/5.0.2">
+
+  <Import Project="Version.props" />
+
+  <PropertyGroup>
+    <OutputType>Package</OutputType>
+    <OutputName>AURION-$(AurionVersion)-x64</OutputName>
+    <InstallerPlatform>x64</InstallerPlatform>
+    <Cultures>en-US</Cultures>
+
+    <!-- Payload produced by build\stage.ps1. Override on the command line to
+         package a payload built elsewhere (CI artefact, signed drop, ...). -->
+    <StageDir Condition="'$(StageDir)' == ''">$(MSBuildThisFileDirectory)stage</StageDir>
+    <AssetsDir Condition="'$(AssetsDir)' == ''">$(MSBuildThisFileDirectory)assets\generated</AssetsDir>
+
+    <DefineConstants>
+      Version=$(AurionVersion);
+      UpgradeCode=$(AurionUpgradeCode);
+      ProductName=$(AurionProductName);
+      Manufacturer=$(AurionManufacturer);
+      HelpLink=$(AurionHelpLink);
+      AboutLink=$(AurionAboutLink);
+      StageDir=$(StageDir);
+      AssetsDir=$(AssetsDir)
+    </DefineConstants>
+
+    <!-- Full validation is on. These three ICEs are suppressed with cause:
+         ICE61  - AllowSameVersionUpgrades is deliberate (re-install same build).
+         ICE69  - cross-component formatted paths inside our own install folder.
+         ICE91  - per-user package installing into LocalAppData is the design. -->
+    <SuppressIces>ICE61;ICE69;ICE91</SuppressIces>
+
+    <PedanticBuild>true</PedanticBuild>
+  </PropertyGroup>
+
+  <!-- No WiX extensions are referenced on purpose: the wizard is authored
+       from standard MSI UI tables in src\ui, and every custom action is a
+       plain type-34 (directory + command) action. Fewer moving parts, and
+       the package builds with nothing but the WiX SDK itself. -->
+
+  <!-- Fail early and loudly instead of shipping an empty MSI. -->
+  <Target Name="VerifyStage" BeforeTargets="BeforeBuild">
+    <Error Condition="!Exists('$(StageDir)\app\backend\src\index.js')"
+           Text="Payload missing at $(StageDir). Run installer\build\stage.ps1 first (build-msi.ps1 does it for you)." />
+    <Error Condition="!Exists('$(AssetsDir)\aurion.ico')"
+           Text="Branding assets missing at $(AssetsDir). Run installer\assets\build-assets.py." />
+  </Target>
+
+</Project>

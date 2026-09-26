@@ -1,0 +1,101 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+
+  <?include Variables.wxi ?>
+
+  <!--
+    Environment detection.
+
+    AURION runs on CPython 3.10-3.12 and Node.js 18+. The installer does NOT
+    bundle, download or silently install either of them:
+      * downloading unknown payloads mid-install is a security anti-pattern,
+      * a bundled runtime would collide with the ones traders already have,
+      * both vendors ship their own maintained installers.
+
+    Instead the wizard *detects* them and shows a clear, actionable status page.
+    A missing runtime is a warning, never a hard stop: the files are still
+    perfectly installable, and start-aurion.cmd prints the same guidance if the
+    user fixes the environment later.
+
+    Everything here is a plain AppSearch (registry / directory search). There is
+    no custom action, so detection also works during a silent install.
+  -->
+  <Fragment>
+
+    <!-- ================================================================ -->
+    <!-- Python 3.12 / 3.11 / 3.10, per-user and per-machine, 64-bit first -->
+    <!-- ================================================================ -->
+    <Property Id="AURION_PYTHON312" Secure="yes">
+      <RegistrySearch Id="Py312User" Root="HKCU" Key="Software\Python\PythonCore\3.12\InstallPath" Type="raw" Bitness="always64" />
+      <RegistrySearch Id="Py312Machine" Root="HKLM" Key="Software\Python\PythonCore\3.12\InstallPath" Type="raw" Bitness="always64" />
+    </Property>
+    <Property Id="AURION_PYTHON311" Secure="yes">
+      <RegistrySearch Id="Py311User" Root="HKCU" Key="Software\Python\PythonCore\3.11\InstallPath" Type="raw" Bitness="always64" />
+      <RegistrySearch Id="Py311Machine" Root="HKLM" Key="Software\Python\PythonCore\3.11\InstallPath" Type="raw" Bitness="always64" />
+    </Property>
+    <Property Id="AURION_PYTHON310" Secure="yes">
+      <RegistrySearch Id="Py310User" Root="HKCU" Key="Software\Python\PythonCore\3.10\InstallPath" Type="raw" Bitness="always64" />
+      <RegistrySearch Id="Py310Machine" Root="HKLM" Key="Software\Python\PythonCore\3.10\InstallPath" Type="raw" Bitness="always64" />
+    </Property>
+
+    <!-- 3.13+ is actively unsupported: engine\main.py refuses to start on it and
+         numpy 1.26.4 has no wheels for it. Detected so the wizard can say so
+         instead of letting the user discover it at first launch. -->
+    <Property Id="AURION_PYTHON_UNSUPPORTED" Secure="yes">
+      <RegistrySearch Id="Py313User" Root="HKCU" Key="Software\Python\PythonCore\3.13\InstallPath" Type="raw" Bitness="always64" />
+      <RegistrySearch Id="Py313Machine" Root="HKLM" Key="Software\Python\PythonCore\3.13\InstallPath" Type="raw" Bitness="always64" />
+    </Property>
+
+    <SetProperty Id="AURION_PYTHON_OK" Value="1" After="AppSearch" Sequence="both"
+                 Condition="AURION_PYTHON312 OR AURION_PYTHON311 OR AURION_PYTHON310" />
+
+    <!-- ================================================================ -->
+    <!-- Node.js                                                          -->
+    <!-- ================================================================ -->
+    <Property Id="AURION_NODE" Secure="yes">
+      <RegistrySearch Id="Node64" Root="HKLM" Key="Software\Node.js" Name="InstallPath" Type="raw" Bitness="always64" />
+      <RegistrySearch Id="Node32" Root="HKLM" Key="Software\Node.js" Name="InstallPath" Type="raw" Bitness="always32" />
+    </Property>
+    <Property Id="AURION_NODE_FILE" Secure="yes">
+      <DirectorySearch Id="NodeDirSearch" Path="[ProgramFiles64Folder]nodejs">
+        <FileSearch Id="NodeExeSearch" Name="node.exe" />
+      </DirectorySearch>
+    </Property>
+    <SetProperty Id="AURION_NODE_OK" Value="1" After="AppSearch" Sequence="both"
+                 Condition="AURION_NODE OR AURION_NODE_FILE" />
+
+    <!-- ================================================================ -->
+    <!-- MetaTrader 5 terminal (informational only - it is usually on a    -->
+    <!-- separate VPS, so its absence is never an error)                   -->
+    <!-- ================================================================ -->
+    <Property Id="AURION_MT5" Secure="yes">
+      <DirectorySearch Id="Mt5CommonSearch" Path="[AppDataFolder]MetaQuotes\Terminal\Common\Files" />
+    </Property>
+    <SetProperty Id="AURION_MT5_OK" Value="1" After="AppSearch" Sequence="both" Condition="AURION_MT5" />
+
+    <!-- ================================================================ -->
+    <!-- Previous AURION install: version + location, for the welcome page -->
+    <!-- ================================================================ -->
+    <Property Id="AURION_INSTALLED_VERSION" Secure="yes">
+      <RegistrySearch Id="PrevVersion" Root="$(var.RegRoot)" Key="$(var.RegKey)" Name="Version" Type="raw" />
+    </Property>
+    <Property Id="AURION_INSTALLED_FOLDER" Secure="yes">
+      <RegistrySearch Id="PrevFolder" Root="$(var.RegRoot)" Key="$(var.RegKey)" Name="InstallFolder" Type="directory" />
+    </Property>
+
+    <!-- Remembered wizard choices. Defaults: Start Menu yes, Desktop no. -->
+    <Property Id="AURION_WANT_STARTMENU" Value="1" Secure="yes">
+      <RegistrySearch Id="PrevWantStartMenu" Root="$(var.RegRoot)" Key="$(var.RegKey)" Name="WantStartMenu" Type="raw" />
+    </Property>
+    <Property Id="AURION_WANT_DESKTOP" Value="0" Secure="yes">
+      <RegistrySearch Id="PrevWantDesktop" Root="$(var.RegRoot)" Key="$(var.RegKey)" Name="WantDesktop" Type="raw" />
+    </Property>
+
+    <!-- Re-install into the previous location by default, so an upgrade never
+         silently moves a desk that the user put on D:\aurion. -->
+    <SetProperty Id="INSTALLFOLDER" Value="[AURION_INSTALLED_FOLDER]"
+                 After="AppSearch" Sequence="both"
+                 Condition="AURION_INSTALLED_FOLDER AND NOT INSTALLFOLDER_SET" />
+
+  </Fragment>
+</Wix>

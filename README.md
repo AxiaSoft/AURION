@@ -40,7 +40,30 @@ MT5 Python API (Windows) ──────────┘              │
 | [`store/`](store/README.md) | **The shop** — standalone key server / store (own app, own deploy) |
 | [`admin/`](admin/README.md) | **Owner/admin tooling** — local key minting, update server and its hidden panel |
 
-## Windows — running the system
+## Windows — installing with the MSI
+
+The supported way to put AURION on a trader's machine is the signed installer:
+
+```
+AURION-<version>-x64.msi
+```
+
+Double-click it. The wizard checks the environment, installs to
+`%LocalAppData%\Programs\AURION` (changeable), creates the shortcuts you pick and
+can start the desk when it finishes. **No administrator rights are required.**
+
+Upgrade, Repair, Modify and Uninstall all run from **Settings → Apps → AURION**
+and use the same branded wizard. Your settings, trading history, licence state
+and trained models survive every upgrade, and uninstall keeps them unless you
+tick the box that says otherwise.
+
+Building the MSI, silent-install switches, logging and the release checklist:
+[`installer/README.md`](installer/README.md).
+
+The key server (`store/`) and the owner tooling (`admin/`) are hosted separately
+and are deliberately not part of the MSI.
+
+## Windows — running from the source tree
 
 Copy the **full** tree to `D:\aurion` (not nested `D:\aurion\aurion`).
 

@@ -1,0 +1,162 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util">
+
+  <?include Variables.wxi ?>
+
+  <!--
+    AURION - Windows Installer package.
+
+    Scope
+    =====
+    This MSI packages the AURION *desk* only: the Node.js desk API, the Python
+    engine, the web UI, translations, factory configuration and the MetaTrader 5
+    bridge sources. The key server (store\keyserver), the owner update server and
+    the Telegram admin panel are separately hosted services and are deliberately
+    NOT part of this package.
+
+    Why per-user
+    ============
+    AURION writes into its own tree at runtime (data\, config\aurion.json,
+    engine\models\, backend\node_modules cache). A per-machine install under
+    Program Files would need either elevation on every launch or a loosened ACL
+    on a Program Files subtree - both worse than a per-user install. So the
+    package is perUser, needs no administrator rights, and defaults to
+    %LocalAppData%\Programs\AURION. The user may still redirect it to e.g.
+    D:\aurion on the install-location page.
+  -->
+  <Package
+      Name="!(loc.ProductName)"
+      Manufacturer="$(var.Manufacturer)"
+      Version="$(var.Version)"
+      UpgradeCode="$(var.UpgradeCode)"
+      Scope="perUser"
+      Language="1033"
+      Codepage="1252"
+      InstallerVersion="500"
+      Compressed="yes">
+
+    <SummaryInformation
+        Description="!(loc.ProductName) $(var.Version) - !(loc.ProductTagline)"
+        Keywords="AURION;MetaTrader 5;trading desk;AxiaSoft"
+        Manufacturer="$(var.Manufacturer)" />
+
+    <!-- ================================================================
+         Upgrade strategy
+         ================================================================
+         One UpgradeCode for the life of the product + a new ProductCode per
+         build (WiX default "*") = textbook MSI major upgrade:
+           * a newer build silently replaces the older one,
+           * files removed from the new build disappear (no orphans),
+           * only one AURION is ever registered in Apps & Features,
+           * re-running the same version repairs in place,
+           * an older build over a newer one is refused with a clear message.
+         Scheduled afterInstallInitialize (not the WiX default) for one
+         concrete reason: the old product must be shut down before it is
+         removed, and a deferred custom action cannot run before
+         InstallInitialize. See AurionStopRunningInstance in Actions.wxs.     -->
+    <MajorUpgrade
+        Schedule="afterInstallInitialize"
+        AllowSameVersionUpgrades="yes"
+        DowngradeErrorMessage="!(loc.DowngradeError)"
+        IgnoreRemoveFailure="no" />
+
+    <MediaTemplate EmbedCab="yes" CompressionLevel="high" />
+
+    <!-- ================================================================
+         Environment gates (see Prerequisites.wxs for the searches)
+         ================================================================ -->
+    <Launch Condition="Installed OR VersionNT &gt;= 603"
+            Message="!(loc.RequireWindows)" />
+    <Launch Condition="Installed OR VersionNT64"
+            Message="!(loc.Require64Bit)" />
+    <!-- A per-user package needs no elevation at all: it writes only to the
+         user's own LocalAppData / Start Menu / HKCU. Windows Installer reports
+         a denied target folder itself, with a rollback, so no extra gate. -->
+
+    <!-- ================================================================
+         Windows integration / Apps & Features presentation
+         ================================================================ -->
+    <Icon Id="AurionIcon" SourceFile="$(var.IconFile)" />
+    <Property Id="ARPPRODUCTICON" Value="AurionIcon" />
+    <Property Id="ARPHELPLINK" Value="$(var.HelpLink)" />
+    <Property Id="ARPURLINFOABOUT" Value="$(var.AboutLink)" />
+    <Property Id="ARPCONTACT" Value="$(var.Manufacturer)" />
+    <!-- Repair and Modify stay enabled: both are real, supported operations. -->
+    <Property Id="ARPNOREPAIR" Value="0" />
+    <Property Id="ARPNOMODIFY" Value="0" />
+    <SetProperty Id="ARPINSTALLLOCATION" Value="[INSTALLFOLDER]"
+                 After="CostFinalize" Sequence="both" />
+
+    <!-- Always produce a troubleshooting log, even on a double-click install:
+         %TEMP%\MSI*.LOG. Mirrors "msiexec /l*v" without the user asking. -->
+    <Property Id="MsiLogging" Value="voicewarmupx!" />
+
+    <!-- Reboots are never correct for this product: nothing here is a driver,
+         a service or a shared system file. Restart Manager stays ENABLED, so
+         Windows can offer to close a stubborn AURION process gracefully
+         instead of demanding a restart. -->
+    <Property Id="REBOOT" Value="ReallySuppress" />
+
+    <!-- ================================================================
+         Layout
+         ================================================================ -->
+    <StandardDirectory Id="LocalAppDataFolder">
+      <Directory Id="AurionProgramsFolder" Name="Programs">
+        <Directory Id="INSTALLFOLDER" Name="!(loc.ProductName)" />
+      </Directory>
+    </StandardDirectory>
+    <StandardDirectory Id="ProgramMenuFolder">
+      <Directory Id="AurionMenuFolder" Name="!(loc.ProductName)" />
+    </StandardDirectory>
+    <StandardDirectory Id="DesktopFolder" />
+    <!-- Referenced by the shortcut targets and the custom actions. -->
+    <StandardDirectory Id="System64Folder" />
+
+    <!-- ================================================================
+         Features
+         ================================================================
+         Small, honest tree: the engine is mandatory, everything else is a
+         genuine user choice that Modify can toggle later.                   -->
+    <Feature Id="AurionCore"
+             Title="!(loc.FeatureCoreTitle)"
+             Description="!(loc.FeatureCoreDesc)"
+             Level="1"
+             AllowAbsent="no"
+             AllowAdvertise="no"
+             ConfigurableDirectory="INSTALLFOLDER">
+
+      <ComponentGroupRef Id="AurionAppFiles" />
+      <ComponentGroupRef Id="AurionLauncherFiles" />
+      <ComponentGroupRef Id="AurionRegistry" />
+
+      <Feature Id="AurionStartMenu"
+               Title="!(loc.FeatureStartMenuTitle)"
+               Description="!(loc.FeatureStartMenuDesc)"
+               Level="1" AllowAdvertise="no">
+        <Level Value="0" Condition="NOT AURION_WANT_STARTMENU" />
+        <ComponentGroupRef Id="AurionStartMenuShortcuts" />
+      </Feature>
+
+      <!-- Off unless the user ticks it on the Options page (or had it before:
+           the choice is remembered in HKCU and read back by AppSearch). -->
+      <Feature Id="AurionDesktop"
+               Title="!(loc.FeatureDesktopTitle)"
+               Description="!(loc.FeatureDesktopDesc)"
+               Level="0" AllowAdvertise="no">
+        <Level Value="1" Condition="AURION_WANT_DESKTOP" />
+        <ComponentGroupRef Id="AurionDesktopShortcut" />
+      </Feature>
+
+      <Feature Id="AurionDocs"
+               Title="!(loc.FeatureDocsTitle)"
+               Description="!(loc.FeatureDocsDesc)"
+               Level="1" AllowAdvertise="no">
+        <ComponentGroupRef Id="AurionDocFiles" />
+      </Feature>
+    </Feature>
+
+    <UIRef Id="WixUI_Aurion" />
+
+  </Package>
+</Wix>

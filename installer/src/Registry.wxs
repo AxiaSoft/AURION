@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+
+  <?include Variables.wxi ?>
+
+  <!--
+    Product registry footprint.
+
+    Everything lives under one key, HKCU\Software\AxiaSoft\AURION, and is owned
+    by a single component - so uninstall removes exactly this key and nothing
+    else. No file associations, no PATH edits, no shell extensions, no
+    HKLM writes: a per-user desk has no business touching machine state.
+
+    The remembered-property pattern (RemoveDesktop / RemoveStartMenu) lets
+    Modify and the next upgrade re-offer the user's previous choices instead of
+    silently resetting them.
+  -->
+  <Fragment>
+    <ComponentGroup Id="AurionRegistry" Directory="INSTALLFOLDER">
+      <Component Id="AurionRegistryState" Guid="{B4E4A1D8-6B3F-4F2E-9A57-2C9E8F5B7A10}">
+        <RegistryKey Root="$(var.RegRoot)" Key="$(var.RegKey)" ForceDeleteOnUninstall="yes">
+          <RegistryValue Name="InstallFolder" Type="string" Value="[INSTALLFOLDER]" KeyPath="yes" />
+          <RegistryValue Name="Version"       Type="string" Value="$(var.Version)" />
+          <RegistryValue Name="Publisher"     Type="string" Value="$(var.Manufacturer)" />
+          <!-- Remembered wizard choices, read back by AppSearch on upgrade/modify -->
+          <RegistryValue Name="WantDesktop"   Type="string" Value="[AURION_WANT_DESKTOP]" />
+          <RegistryValue Name="WantStartMenu" Type="string" Value="[AURION_WANT_STARTMENU]" />
+        </RegistryKey>
+      </Component>
+    </ComponentGroup>
+  </Fragment>
+
+</Wix>

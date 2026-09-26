@@ -1,0 +1,201 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Every visible string in the AURION installer.
+
+  Nothing user-facing is hard-coded in the .wxs files, so translating the
+  wizard is a matter of copying this file (e.g. fa-ir.wxl), translating the
+  values and adding the culture to <Cultures> in AURION.wixproj. Right-to-left
+  cultures additionally need RightToLeft="yes" on the dialogs; see
+  installer\README.md.
+
+  Tone rules used here: short sentences, no jargon the trader does not need,
+  never blame the user, always say what happens next.
+-->
+<WixLocalization xmlns="http://wixtoolset.org/schemas/v4/wxl" Culture="en-US">
+
+  <String Id="ProductName" Value="AURION" />
+  <String Id="ProductTagline" Value="Live execution desk for MetaTrader 5" />
+  <String Id="WizardTitle" Value="AURION Setup" />
+
+  <!-- ===================== buttons ===================== -->
+  <String Id="ButtonBack" Value="&amp;Back" />
+  <String Id="ButtonNext" Value="&amp;Next" />
+  <String Id="ButtonCancel" Value="Cancel" />
+  <String Id="ButtonInstall" Value="&amp;Install" />
+  <String Id="ButtonUpgrade" Value="&amp;Upgrade" />
+  <String Id="ButtonRepair" Value="&amp;Repair" />
+  <String Id="ButtonModify" Value="&amp;Modify" />
+  <String Id="ButtonChange" Value="&amp;Apply" />
+  <String Id="ButtonRemove" Value="&amp;Uninstall" />
+  <String Id="ButtonUninstall" Value="&amp;Uninstall" />
+  <String Id="ButtonFinish" Value="&amp;Finish" />
+  <String Id="ButtonClose" Value="&amp;Close" />
+  <String Id="ButtonBrowse" Value="B&amp;rowse..." />
+  <String Id="ButtonOK" Value="OK" />
+  <String Id="ButtonYes" Value="&amp;Yes" />
+  <String Id="ButtonNo" Value="&amp;No" />
+  <String Id="ButtonRetry" Value="&amp;Retry" />
+  <String Id="ButtonIgnore" Value="&amp;Ignore" />
+  <String Id="ButtonExit" Value="E&amp;xit" />
+
+  <!-- ===================== welcome ===================== -->
+  <String Id="WelcomeTitle" Value="Install AURION" />
+  <String Id="WelcomeTitleUpgrade" Value="Update AURION" />
+  <String Id="WelcomeBody" Value="This wizard installs the AURION desk: the trading engine, the desk API and the web dashboard for MetaTrader 5.
+
+Nothing is installed outside your own user profile, and no administrator rights are needed." />
+  <String Id="WelcomeBodyUpgrade" Value="Version [AURION_INSTALLED_VERSION] is already installed.
+
+This wizard replaces it with version [ProductVersion]. Your settings, trading history, licence state and trained models are kept exactly as they are." />
+  <String Id="WelcomeVersion" Value="Version [ProductVersion]   |   [Manufacturer]" />
+
+  <!-- ================ environment check ================ -->
+  <String Id="PrereqTitle" Value="Environment check" />
+  <String Id="PrereqSubtitle" Value="What AURION found on this machine" />
+  <String Id="PrereqIntro" Value="AURION runs on the Python and Node.js runtimes already installed on this machine. Setup only checks for them - it never downloads or replaces them." />
+  <String Id="PrereqPython" Value="Python 3.10-3.12" />
+  <String Id="PrereqNode" Value="Node.js 18+" />
+  <String Id="PrereqMt5" Value="MetaTrader 5" />
+  <String Id="PrereqFound" Value="Found - ready to use." />
+  <String Id="PrereqPythonMissing" Value="Not found. Install Python 3.12 from python.org, then run: pip install -r engine\requirements.txt" />
+  <String Id="PrereqPythonUnsupported" Value="Python 3.13+ was found. AURION needs 3.10, 3.11 or 3.12." />
+  <String Id="PrereqNodeMissing" Value="Not found. Install Node.js 18 or newer from nodejs.org." />
+  <String Id="PrereqMt5Missing" Value="No local terminal found. Fine if MetaTrader 5 runs on a separate VPS." />
+  <String Id="PrereqNote" Value="A missing runtime does not stop this installation. AURION is installed either way, and you can add the runtime afterwards - the launcher tells you exactly what is still needed." />
+
+  <!-- ================ install location ================ -->
+  <String Id="FolderTitle" Value="Install location" />
+  <String Id="FolderSubtitle" Value="Where the AURION desk is placed" />
+  <String Id="FolderLabel" Value="Install AURION to:" />
+  <String Id="FolderHint" Value="The default folder is inside your user profile, so setup needs no administrator rights and the engine can write its own logs, databases and trained models." />
+  <String Id="FolderDataNote" Value="Your data lives inside this folder, under data\ and config\aurion.json. Upgrades never touch it, and uninstall keeps it unless you ask for it to be deleted." />
+
+  <String Id="BrowseTitle" Value="Choose a folder" />
+  <String Id="BrowseSubtitle" Value="Pick the folder to install AURION into" />
+  <String Id="BrowseLookIn" Value="&amp;Look in:" />
+  <String Id="BrowseFolderName" Value="&amp;Folder:" />
+  <String Id="BrowseUpTooltip" Value="Up one level" />
+  <String Id="BrowseNewTooltip" Value="Create a new folder" />
+
+  <!-- ===================== options ===================== -->
+  <String Id="OptionsTitle" Value="Options" />
+  <String Id="OptionsSubtitle" Value="Shortcuts and first launch" />
+  <String Id="OptionStartMenu" Value="Add AURION to the Start Menu" />
+  <String Id="OptionDesktop" Value="Create a desktop shortcut" />
+  <String Id="OptionLaunch" Value="Start AURION when setup finishes" />
+  <String Id="OptionsNote" Value="You can change any of these later: Settings &gt; Apps &gt; AURION &gt; Modify.
+
+Trading settings, MetaTrader 5 credentials and prop-firm rules are configured inside the desk itself, not here." />
+
+  <!-- ===================== features ===================== -->
+  <String Id="FeaturesTitle" Value="Choose what to install" />
+  <String Id="FeaturesSubtitle" Value="Turn parts of AURION on or off" />
+  <String Id="FeaturesTree" Value="AURION components" />
+  <String Id="FeaturesPickHint" Value="Select a component to see what it does." />
+  <String Id="FeatureCoreTitle" Value="AURION desk" />
+  <String Id="FeatureCoreDesc" Value="Trading engine, desk API, web dashboard, translations and the MetaTrader 5 bridge. Required." />
+  <String Id="FeatureStartMenuTitle" Value="Start Menu shortcuts" />
+  <String Id="FeatureStartMenuDesc" Value="Start, stop, user guide and uninstall entries in the Start Menu." />
+  <String Id="FeatureDesktopTitle" Value="Desktop shortcut" />
+  <String Id="FeatureDesktopDesc" Value="A single AURION icon on the desktop." />
+  <String Id="FeatureDocsTitle" Value="Documentation" />
+  <String Id="FeatureDocsDesc" Value="Offline guides in English and Arabic, plus the interactive backtest guide." />
+
+  <!-- ====================== ready ====================== -->
+  <String Id="ReadyTitle" Value="Ready" />
+  <String Id="ReadySubtitle" Value="Review before setup makes any change" />
+  <String Id="ReadyInstall" Value="Setup will now install AURION [ProductVersion].
+
+It will be installed to:
+[INSTALLFOLDER]
+
+Nothing on this computer has been changed yet. Click Install to begin, or Back to review your choices." />
+  <String Id="ReadyUpgrade" Value="Setup will now update AURION from [AURION_INSTALLED_VERSION] to [ProductVersion] in:
+[INSTALLFOLDER]
+
+A running desk is closed first, the program files are replaced, and your settings, history, licence state and trained models are kept. Click Upgrade to continue." />
+  <String Id="ReadyRepair" Value="Setup will repair AURION [ProductVersion] in [INSTALLFOLDER].
+
+Missing or damaged program files are restored and the shortcuts and registry entries are rewritten. Your data is not touched. Click Repair to continue." />
+  <String Id="ReadyModify" Value="Setup will apply your component changes to AURION [ProductVersion] in [INSTALLFOLDER].
+
+Only the components you changed are added or removed. Your data is not touched. Click Apply to continue." />
+  <String Id="ReadyRemove" Value="Setup will remove AURION [ProductVersion] from [INSTALLFOLDER].
+
+The running desk is closed first, then program files, shortcuts and registry entries are removed. Click Uninstall to continue." />
+
+  <!-- =================== maintenance =================== -->
+  <String Id="MaintTitle" Value="Manage AURION" />
+  <String Id="MaintSubtitle" Value="Repair, change or remove this installation" />
+  <String Id="MaintInstalled" Value="AURION [ProductVersion] is installed in [INSTALLFOLDER]." />
+  <String Id="MaintRepairText" Value="Restore missing or damaged program files, shortcuts and registry entries. Your data is kept." />
+  <String Id="MaintChangeText" Value="Add or remove optional components such as the desktop shortcut or the offline documentation." />
+  <String Id="MaintRemoveText" Value="Remove AURION from this computer. You choose whether your trading data is kept." />
+
+  <!-- ==================== uninstall ==================== -->
+  <String Id="RemoveTitle" Value="Uninstall AURION" />
+  <String Id="RemoveSubtitle" Value="Choose what should be removed" />
+  <String Id="RemoveWhatGoes" Value="Always removed: the AURION program files, the Start Menu and desktop shortcuts, and the AURION entry in Apps &amp; Features. If the desk is running, setup closes it first." />
+  <String Id="RemoveWhatStays" Value="Kept by default: your settings (config\aurion.json), trading history and databases (data\), licence state and trained AI models." />
+  <String Id="RemoveDeleteData" Value="Also delete my AURION data, settings and trained models" />
+  <String Id="RemoveDeleteDataWarn" Value="This permanently deletes your trading history, exports, licence state and models. It cannot be undone." />
+
+  <!-- ==================== progress ==================== -->
+  <String Id="ProgressInstalling" Value="Installing AURION" />
+  <String Id="ProgressUpdating" Value="Updating AURION" />
+  <String Id="ProgressRemoving" Value="Removing AURION" />
+  <String Id="ProgressStage" Value="Please wait while setup finishes. This usually takes under a minute." />
+  <String Id="ProgressStatus" Value="Status:" />
+  <String Id="ProgressBarText" Value="Progress" />
+  <String Id="ProgressNote" Value="Any running AURION engine or desk process is closed automatically before its files are touched. If a file is still locked, setup asks you before doing anything about it." />
+
+  <!-- ==================== preparing ==================== -->
+  <String Id="PrepareTitle" Value="Preparing setup" />
+  <String Id="PrepareBody" Value="Checking this machine and calculating what needs to change." />
+
+  <!-- ====================== finish ====================== -->
+  <String Id="ExitTitleInstalled" Value="AURION is ready" />
+  <String Id="ExitTitleRemoved" Value="AURION removed" />
+  <String Id="ExitBodyInstalled" Value="AURION [ProductVersion] is installed in [INSTALLFOLDER].
+
+The desk opens at http://127.0.0.1:8080 once the engine is up. The first launch creates your administrator account." />
+  <String Id="ExitBodyRemoved" Value="AURION has been removed from this computer.
+
+Thank you for using AURION." />
+  <String Id="ExitLaunch" Value="Start AURION now" />
+
+  <!-- ===================== failures ===================== -->
+  <String Id="FatalTitle" Value="Setup did not finish" />
+  <String Id="FatalBody" Value="Setup could not complete and has undone every change it made. This computer is exactly as it was before setup started." />
+  <String Id="FatalLogHint" Value="A full log was written to your %TEMP% folder as MSI*.LOG. Send it to support if the problem repeats." />
+
+  <String Id="UserExitTitle" Value="Setup cancelled" />
+  <String Id="UserExitBody" Value="You cancelled setup, so nothing was changed. Run the installer again whenever you are ready." />
+
+  <String Id="CancelText" Value="Cancel setup? Any change made so far will be undone." />
+  <String Id="ErrorPlaceholder" Value="Information text" />
+
+  <!-- ================== files in use ================== -->
+  <String Id="FilesInUseTitle" Value="AURION is still running" />
+  <String Id="FilesInUseSubtitle" Value="Some files are in use and cannot be replaced yet" />
+  <String Id="FilesInUseText" Value="Setup already asked AURION to shut down, but these programs still hold files that setup needs to replace. Close them, then click Retry." />
+  <String Id="RmFilesInUseText" Value="These programs still hold files that setup needs to replace. Windows can close and restart them for you." />
+  <String Id="RmFilesInUseOption" Value="Click OK to let Windows close these programs and restart them when setup is done. Ignore leaves them running and can leave AURION half-updated." />
+  <String Id="FilesInUseHint" Value="Retry is the safe choice. Ignore leaves those files for the next restart and can leave AURION half-updated until then." />
+
+  <!-- ================= launch conditions ================= -->
+  <String Id="DowngradeError" Value="A newer version of AURION is already installed on this computer. Windows Installer will not replace it with an older one. Uninstall the newer version first if you really want to go back." />
+  <String Id="RequireWindows" Value="AURION needs Windows 8.1 or newer. This computer is running an older version of Windows." />
+  <String Id="Require64Bit" Value="AURION needs 64-bit Windows. This computer is running a 32-bit version." />
+
+  <!-- ==================== shortcuts ==================== -->
+  <String Id="ShortcutStart" Value="AURION" />
+  <String Id="ShortcutStartDesc" Value="Start the AURION engine and desk" />
+  <String Id="ShortcutStop" Value="Stop AURION" />
+  <String Id="ShortcutStopDesc" Value="Shut down the AURION engine and desk" />
+  <String Id="ShortcutGuide" Value="AURION User Guide" />
+  <String Id="ShortcutGuideDesc" Value="How the robot trades - offline guide" />
+  <String Id="ShortcutUninstall" Value="Uninstall AURION" />
+  <String Id="ShortcutUninstallDesc" Value="Remove AURION from this computer" />
+
+</WixLocalization>

@@ -1,0 +1,95 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+
+  <?include Variables.wxi ?>
+
+  <!--
+    Shortcuts.
+
+    All of them are non-advertised: AURION's entry point is a script, not a PE,
+    so there is no executable for Windows Installer to advertise. Non-advertised
+    shortcuts to wscript.exe with our own .vbs launcher give the correct icon,
+    a sane working directory and no console flash, while keeping repair and
+    uninstall fully MSI-managed (each shortcut lives in its own component with
+    an HKCU key path, which is the documented per-user pattern).
+  -->
+
+  <Fragment>
+    <ComponentGroup Id="AurionStartMenuShortcuts" Directory="AurionMenuFolder">
+
+      <Component Id="AurionShortcutStart" Guid="{3D0C7A6E-1B84-4D3F-8E21-5A7C9B2F4E60}">
+        <Shortcut Id="ScStartAurion"
+                  Name="!(loc.ShortcutStart)"
+                  Description="!(loc.ShortcutStartDesc)"
+                  Target="[System64Folder]wscript.exe"
+                  Arguments="&quot;[INSTALLFOLDER]AURION-Launch.vbs&quot;"
+                  WorkingDirectory="INSTALLFOLDER"
+                  Icon="AurionIcon" />
+        <RegistryValue Root="$(var.RegRoot)" Key="$(var.RegKey)\Shortcuts"
+                       Name="StartMenu" Type="integer" Value="1" KeyPath="yes" />
+      </Component>
+
+      <Component Id="AurionShortcutStop" Guid="{9E2B5C41-7F60-4A8B-B3D2-08C6E1A97F35}">
+        <Shortcut Id="ScStopAurion"
+                  Name="!(loc.ShortcutStop)"
+                  Description="!(loc.ShortcutStopDesc)"
+                  Target="[System64Folder]wscript.exe"
+                  Arguments="&quot;[INSTALLFOLDER]AURION-Stop.vbs&quot;"
+                  WorkingDirectory="INSTALLFOLDER"
+                  Icon="AurionIcon" />
+        <RegistryValue Root="$(var.RegRoot)" Key="$(var.RegKey)\Shortcuts"
+                       Name="StopMenu" Type="integer" Value="1" KeyPath="yes" />
+      </Component>
+
+      <Component Id="AurionShortcutGuide" Guid="{6C1F84A9-52D7-4B0E-9F73-14E8D5A2C8B6}">
+        <Shortcut Id="ScGuide"
+                  Name="!(loc.ShortcutGuide)"
+                  Description="!(loc.ShortcutGuideDesc)"
+                  Target="[INSTALLFOLDER]apps\web\guide.html"
+                  WorkingDirectory="INSTALLFOLDER"
+                  Icon="AurionIcon" />
+        <RegistryValue Root="$(var.RegRoot)" Key="$(var.RegKey)\Shortcuts"
+                       Name="Guide" Type="integer" Value="1" KeyPath="yes" />
+      </Component>
+
+      <!-- Start Menu uninstall entry. It calls msiexec /X on our ProductCode,
+           which is exactly what Apps & Features calls, so the user gets the
+           identical branded maintenance wizard from either entry point. -->
+      <Component Id="AurionShortcutUninstall" Guid="{0A47E93B-8D25-4C6A-91F8-7B3E62D5104C}">
+        <Shortcut Id="ScUninstall"
+                  Name="!(loc.ShortcutUninstall)"
+                  Description="!(loc.ShortcutUninstallDesc)"
+                  Target="[System64Folder]msiexec.exe"
+                  Arguments="/x [ProductCode]"
+                  Icon="AurionIcon" />
+        <RegistryValue Root="$(var.RegRoot)" Key="$(var.RegKey)\Shortcuts"
+                       Name="Uninstall" Type="integer" Value="1" KeyPath="yes" />
+      </Component>
+
+      <!-- The folder itself is removed on uninstall by this component. -->
+      <Component Id="AurionMenuFolderCleanup" Guid="{E5B39F17-4A08-4E52-AC6D-9F214B7C3D88}">
+        <RemoveFolder Id="RemoveAurionMenuFolder" Directory="AurionMenuFolder" On="uninstall" />
+        <RegistryValue Root="$(var.RegRoot)" Key="$(var.RegKey)\Shortcuts"
+                       Name="Folder" Type="integer" Value="1" KeyPath="yes" />
+      </Component>
+
+    </ComponentGroup>
+  </Fragment>
+
+  <Fragment>
+    <ComponentGroup Id="AurionDesktopShortcut" Directory="DesktopFolder">
+      <Component Id="AurionShortcutDesktop" Guid="{7F58D2C0-3E91-4B7A-8C46-D0A1E9358B2F}">
+        <Shortcut Id="ScDesktopAurion"
+                  Name="!(loc.ProductName)"
+                  Description="!(loc.ShortcutStartDesc)"
+                  Target="[System64Folder]wscript.exe"
+                  Arguments="&quot;[INSTALLFOLDER]AURION-Launch.vbs&quot;"
+                  WorkingDirectory="INSTALLFOLDER"
+                  Icon="AurionIcon" />
+        <RegistryValue Root="$(var.RegRoot)" Key="$(var.RegKey)\Shortcuts"
+                       Name="Desktop" Type="integer" Value="1" KeyPath="yes" />
+      </Component>
+    </ComponentGroup>
+  </Fragment>
+
+</Wix>

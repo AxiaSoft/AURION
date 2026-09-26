@@ -1,0 +1,104 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+
+  <?include Variables.wxi ?>
+
+  <!--
+    Custom actions.
+
+    Rules followed here:
+      * every state-changing action is DEFERRED, so Windows Installer owns the
+        transaction and can roll back,
+      * nothing is downloaded, nothing is executed from a temp or user-writable
+        location outside the product's own install folder,
+      * every action is Return="ignore" where a failure must not strand the
+        user mid-uninstall, and Return="check" where correctness matters,
+      * no action touches a file the package did not install, except the
+        opt-in user-data removal the user explicitly asked for.
+  -->
+  <Fragment>
+
+    <!-- ================================================================
+         1. Close a running AURION before touching its files
+         ================================================================
+         Runs on upgrade, repair and uninstall - never on a first install
+         (there is nothing to close, and the helper does not exist yet).
+
+         It calls the product's own stop-aurion.cmd through AURION-Stop.vbs and
+         waits for it, so the engine and desk are down before Windows Installer
+         starts replacing or deleting files. Windows Installer's Restart Manager
+         / "Files in use" dialog stays enabled as the backstop for anything this
+         misses, which is why the user never meets a raw sharing violation.    -->
+    <CustomAction Id="AurionStopRunningInstance"
+                  Directory="INSTALLFOLDER"
+                  ExeCommand="&quot;[System64Folder]wscript.exe&quot; //nologo &quot;[INSTALLFOLDER]AURION-Stop.vbs&quot;"
+                  Execute="deferred"
+                  Impersonate="yes"
+                  Return="ignore" />
+
+    <!-- ================================================================
+         2. Opt-in removal of user data on uninstall
+         ================================================================
+         Default is KEEP. The uninstall wizard's checkbox sets
+         AURION_REMOVE_DATA=1, and only then is anything below removed.
+
+         The paths are enumerated one by one on purpose. There is deliberately
+         no recursive delete of INSTALLFOLDER itself: the user may have chosen
+         a folder that holds other things, and an installer must never widen
+         its own blast radius.                                                -->
+    <CustomAction Id="AurionRemoveUserData"
+                  Directory="INSTALLFOLDER"
+                  ExeCommand="&quot;[System64Folder]cmd.exe&quot; /c (if exist &quot;[INSTALLFOLDER]data&quot; rmdir /s /q &quot;[INSTALLFOLDER]data&quot;) &amp; (if exist &quot;[INSTALLFOLDER]config\aurion.json&quot; del /f /q &quot;[INSTALLFOLDER]config\aurion.json&quot;) &amp; (if exist &quot;[INSTALLFOLDER]engine\models&quot; rmdir /s /q &quot;[INSTALLFOLDER]engine\models&quot;)"
+                  Execute="deferred"
+                  Impersonate="yes"
+                  Return="ignore" />
+
+    <!-- ================================================================
+         3. Remove build artefacts the application generates at runtime
+         ================================================================
+         __pycache__ and backend\node_modules\.cache are created by Python and
+         npm *after* installation, so Windows Installer does not know about them
+         and would otherwise leave an orphaned folder behind. This is pure
+         cleanup of our own install folder and runs on every uninstall.       -->
+    <CustomAction Id="AurionCleanGenerated"
+                  Directory="INSTALLFOLDER"
+                  ExeCommand="&quot;[System64Folder]cmd.exe&quot; /c for /d /r &quot;[INSTALLFOLDER]&quot; %d in (__pycache__) do @(if exist &quot;%d&quot; rmdir /s /q &quot;%d&quot;)"
+                  Execute="deferred"
+                  Impersonate="yes"
+                  Return="ignore" />
+
+    <!-- ================================================================
+         4. Launch AURION when the user ticks the box on the last page
+         ================================================================
+         Started from the finish page as the logged-on user (a per-user package
+         is never elevated) and detached with asyncNoWait, so the wizard closes
+         at once instead of babysitting the desk it just launched. A plain
+         type-34 action keeps the package free of any WiX extension binary.   -->
+    <CustomAction Id="AurionLaunchApplication"
+                  Directory="INSTALLFOLDER"
+                  ExeCommand="&quot;[System64Folder]wscript.exe&quot; //nologo &quot;[INSTALLFOLDER]AURION-Launch.vbs&quot;"
+                  Execute="immediate"
+                  Impersonate="yes"
+                  Return="asyncNoWait" />
+
+    <!-- ================================================================
+         Sequencing
+         ================================================================ -->
+    <InstallExecuteSequence>
+      <!-- Before RemoveExistingProducts (MajorUpgrade is scheduled
+           afterInstallInitialize precisely so this can get in first). -->
+      <Custom Action="AurionStopRunningInstance"
+              After="InstallInitialize"
+              Condition="Installed OR AURION_INSTALLED_VERSION" />
+
+      <Custom Action="AurionRemoveUserData"
+              Before="RemoveFiles"
+              Condition="(REMOVE=&quot;ALL&quot;) AND AURION_REMOVE_DATA" />
+
+      <Custom Action="AurionCleanGenerated"
+              After="RemoveFiles"
+              Condition="REMOVE=&quot;ALL&quot;" />
+    </InstallExecuteSequence>
+
+  </Fragment>
+</Wix>

@@ -1,0 +1,850 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+
+  <?include ..\Variables.wxi ?>
+
+  <!--
+    ==========================================================================
+    WixUI_Aurion - the AURION branded wizard
+    ==========================================================================
+
+    This is a complete, self-contained Windows Installer dialog set. It does not
+    derive from WixUI_InstallDir / WixUI_Mondo, for one deliberate reason: a
+    derived set can only be re-skinned by fighting the stock Publish rows, and
+    every insertion point becomes an override. Owning the whole set means the
+    branding, the wording and the navigation are all ours, while the mechanics
+    stay 100% standard MSI UI tables - no custom UI host, no bootstrapper, no
+    trickery that Windows Installer cannot roll back.
+
+    Flows
+    =====
+    Fresh install   Welcome -> Environment -> Location -> Options -> Ready
+                    -> Progress -> Finish
+    Upgrade         identical, but Welcome/Ready state the version change and
+                    Location is skipped (the existing folder is reused)
+    Maintenance     Maintenance (Repair | Modify | Uninstall)
+                      Repair    -> Ready -> Progress -> Finish
+                      Modify    -> Features -> Ready -> Progress -> Finish
+                      Uninstall -> Remove confirmation (+ keep/delete data)
+                                -> Ready -> Progress -> Finish
+
+    Apps & Features -> Uninstall runs "msiexec /x {ProductCode}" with the full
+    UI level, so it enters this same set at the Maintenance page and the user
+    gets the branded uninstall wizard rather than a bare progress bar.
+
+    Geometry follows the Windows Installer wizard convention (370 x 270 dialog
+    units, 370x44 banner, 370x234 hero) so the wizard scales correctly with the
+    system DPI on modern Windows instead of being pinned to pixels.
+  -->
+
+  <Fragment>
+
+    <!-- Branding bitmaps and glyphs used by the dialogs below. -->
+    <Binary Id="AurionDialogBmp" SourceFile="$(var.DialogBmp)" />
+    <Binary Id="AurionBannerBmp" SourceFile="$(var.BannerBmp)" />
+    <Binary Id="AurionInfoIco" SourceFile="$(var.InfoIco)" />
+    <Binary Id="AurionExclamIco" SourceFile="$(var.ExclamIco)" />
+    <Binary Id="AurionNewIco" SourceFile="$(var.NewIco)" />
+    <Binary Id="AurionUpIco" SourceFile="$(var.UpIco)" />
+
+    <UI Id="WixUI_Aurion">
+
+      <!-- ============================ style ============================ -->
+      <TextStyle Id="AurionFont" FaceName="Segoe UI" Size="8" />
+      <TextStyle Id="AurionFontTitle" FaceName="Segoe UI" Size="9" Bold="yes" />
+      <TextStyle Id="AurionFontHero" FaceName="Segoe UI" Size="14" />
+      <Property Id="DefaultUIFont" Value="AurionFont" />
+      <Property Id="ErrorDialog" Value="ErrorDlg" />
+
+
+      <!-- Wizard state. AurionMode drives the wording on Ready/Progress/Finish
+           so one set of dialogs serves install, upgrade, repair and removal. -->
+      <Property Id="AurionMode" Value="Install" Secure="yes" />
+      <Property Id="WIXUI_INSTALLDIR" Value="INSTALLFOLDER" />
+      <Property Id="_BrowseProperty" Value="INSTALLFOLDER" />
+      <Property Id="AURION_LAUNCH_AFTER" Value="yes" Secure="yes" />
+      <Property Id="AURION_REMOVE_DATA" Secure="yes" />
+
+      <!-- ========================= 1. Welcome ========================= -->
+      <Dialog Id="AurionWelcomeDlg" Width="370" Height="270"
+              Title="!(loc.WizardTitle)" NoMinimize="yes">
+        <Control Id="Hero" Type="Bitmap" X="0" Y="0" Width="370" Height="234"
+                 TabSkip="no" Text="AurionDialogBmp" />
+        <Control Id="BottomLine" Type="Line" X="0" Y="234" Width="370" Height="0" />
+
+        <Control Id="Title" Type="Text" X="135" Y="26" Width="215" Height="44"
+                 Transparent="yes" NoPrefix="yes">
+          <Text>{\AurionFontHero}!(loc.WelcomeTitle)</Text>
+          <Condition Action="hide" Condition="AURION_INSTALLED_VERSION" />
+        </Control>
+        <Control Id="TitleUpgrade" Type="Text" X="135" Y="26" Width="215" Height="44"
+                 Transparent="yes" NoPrefix="yes" Hidden="yes">
+          <Text>{\AurionFontHero}!(loc.WelcomeTitleUpgrade)</Text>
+          <Condition Action="show" Condition="AURION_INSTALLED_VERSION" />
+        </Control>
+
+        <Control Id="Body" Type="Text" X="135" Y="78" Width="215" Height="90"
+                 Transparent="yes" NoPrefix="yes" Text="!(loc.WelcomeBody)">
+          <Condition Action="hide" Condition="AURION_INSTALLED_VERSION" />
+        </Control>
+        <Control Id="BodyUpgrade" Type="Text" X="135" Y="78" Width="215" Height="90"
+                 Transparent="yes" NoPrefix="yes" Hidden="yes" Text="!(loc.WelcomeBodyUpgrade)">
+          <Condition Action="show" Condition="AURION_INSTALLED_VERSION" />
+        </Control>
+
+        <Control Id="Version" Type="Text" X="135" Y="196" Width="215" Height="24"
+                 Transparent="yes" NoPrefix="yes" Text="!(loc.WelcomeVersion)" />
+
+        <Control Id="Back" Type="PushButton" X="180" Y="243" Width="56" Height="17"
+                 Disabled="yes" Text="!(loc.ButtonBack)" />
+        <Control Id="Next" Type="PushButton" X="236" Y="243" Width="56" Height="17"
+                 Default="yes" Text="!(loc.ButtonNext)">
+          <Publish Event="NewDialog" Value="AurionPrereqDlg" />
+        </Control>
+        <Control Id="Cancel" Type="PushButton" X="304" Y="243" Width="56" Height="17"
+                 Cancel="yes" Text="!(loc.ButtonCancel)">
+          <Publish Event="SpawnDialog" Value="AurionCancelDlg" />
+        </Control>
+      </Dialog>
+
+      <!-- ================== 2. Environment / prerequisites ================== -->
+      <Dialog Id="AurionPrereqDlg" Width="370" Height="270"
+              Title="!(loc.WizardTitle)" NoMinimize="yes">
+        <Control Id="Banner" Type="Bitmap" X="0" Y="0" Width="370" Height="44"
+                 TabSkip="no" Text="AurionBannerBmp" />
+        <Control Id="BannerLine" Type="Line" X="0" Y="44" Width="370" Height="0" />
+        <Control Id="BottomLine" Type="Line" X="0" Y="234" Width="370" Height="0" />
+        <Control Id="Title" Type="Text" X="15" Y="6" Width="230" Height="15"
+                 Transparent="yes" NoPrefix="yes" Text="{\AurionFontTitle}!(loc.PrereqTitle)" />
+        <Control Id="Description" Type="Text" X="25" Y="23" Width="230" Height="15"
+                 Transparent="yes" NoPrefix="yes" Text="!(loc.PrereqSubtitle)" />
+
+        <Control Id="Intro" Type="Text" X="20" Y="58" Width="330" Height="24"
+                 NoPrefix="yes" Text="!(loc.PrereqIntro)" />
+
+        <!-- Python -->
+        <Control Id="PyLabel" Type="Text" X="20" Y="92" Width="90" Height="12"
+                 NoPrefix="yes" Text="!(loc.PrereqPython)" />
+        <Control Id="PyOk" Type="Text" X="112" Y="92" Width="238" Height="12" NoPrefix="yes"
+                 Hidden="yes" Text="!(loc.PrereqFound)">
+          <Condition Action="show" Condition="AURION_PYTHON_OK" />
+        </Control>
+        <Control Id="PyMissing" Type="Text" X="112" Y="92" Width="238" Height="24" NoPrefix="yes"
+                 Text="!(loc.PrereqPythonMissing)">
+          <Condition Action="hide" Condition="AURION_PYTHON_OK" />
+        </Control>
+        <Control Id="PyBad" Type="Text" X="112" Y="106" Width="238" Height="12" NoPrefix="yes"
+                 Hidden="yes" Text="!(loc.PrereqPythonUnsupported)">
+          <Condition Action="show" Condition="AURION_PYTHON_UNSUPPORTED AND NOT AURION_PYTHON_OK" />
+        </Control>
+
+        <!-- Node.js -->
+        <Control Id="NodeLabel" Type="Text" X="20" Y="124" Width="90" Height="12"
+                 NoPrefix="yes" Text="!(loc.PrereqNode)" />
+        <Control Id="NodeOk" Type="Text" X="112" Y="124" Width="238" Height="12" NoPrefix="yes"
+                 Hidden="yes" Text="!(loc.PrereqFound)">
+          <Condition Action="show" Condition="AURION_NODE_OK" />
+        </Control>
+        <Control Id="NodeMissing" Type="Text" X="112" Y="124" Width="238" Height="24" NoPrefix="yes"
+                 Text="!(loc.PrereqNodeMissing)">
+          <Condition Action="hide" Condition="AURION_NODE_OK" />
+        </Control>
+
+        <!-- MetaTrader 5 -->
+        <Control Id="Mt5Label" Type="Text" X="20" Y="152" Width="90" Height="12"
+                 NoPrefix="yes" Text="!(loc.PrereqMt5)" />
+        <Control Id="Mt5Ok" Type="Text" X="112" Y="152" Width="238" Height="12" NoPrefix="yes"
+                 Hidden="yes" Text="!(loc.PrereqFound)">
+          <Condition Action="show" Condition="AURION_MT5_OK" />
+        </Control>
+        <Control Id="Mt5Missing" Type="Text" X="112" Y="152" Width="238" Height="24" NoPrefix="yes"
+                 Text="!(loc.PrereqMt5Missing)">
+          <Condition Action="hide" Condition="AURION_MT5_OK" />
+        </Control>
+
+        <Control Id="NoteIcon" Type="Icon" X="20" Y="188" Width="16" Height="16"
+                 FixedSize="yes" IconSize="16" Text="AurionInfoIco" />
+        <Control Id="Note" Type="Text" X="44" Y="186" Width="306" Height="40" NoPrefix="yes"
+                 Text="!(loc.PrereqNote)" />
+
+        <Control Id="Back" Type="PushButton" X="180" Y="243" Width="56" Height="17"
+                 Text="!(loc.ButtonBack)">
+          <Publish Event="NewDialog" Value="AurionWelcomeDlg" />
+        </Control>
+        <Control Id="Next" Type="PushButton" X="236" Y="243" Width="56" Height="17"
+                 Default="yes" Text="!(loc.ButtonNext)">
+          <!-- On an upgrade the location is fixed: never move a desk the user
+               deliberately put on another drive. -->
+          <Publish Event="NewDialog" Value="AurionOptionsDlg" Order="1"
+                   Condition="AURION_INSTALLED_VERSION" />
+          <Publish Event="NewDialog" Value="AurionFolderDlg" Order="2"
+                   Condition="NOT AURION_INSTALLED_VERSION" />
+        </Control>
+        <Control Id="Cancel" Type="PushButton" X="304" Y="243" Width="56" Height="17"
+                 Cancel="yes" Text="!(loc.ButtonCancel)">
+          <Publish Event="SpawnDialog" Value="AurionCancelDlg" />
+        </Control>
+      </Dialog>
+
+      <!-- ====================== 3. Install location ====================== -->
+      <Dialog Id="AurionFolderDlg" Width="370" Height="270"
+              Title="!(loc.WizardTitle)" NoMinimize="yes">
+        <Control Id="Banner" Type="Bitmap" X="0" Y="0" Width="370" Height="44"
+                 TabSkip="no" Text="AurionBannerBmp" />
+        <Control Id="BannerLine" Type="Line" X="0" Y="44" Width="370" Height="0" />
+        <Control Id="BottomLine" Type="Line" X="0" Y="234" Width="370" Height="0" />
+        <Control Id="Title" Type="Text" X="15" Y="6" Width="230" Height="15"
+                 Transparent="yes" NoPrefix="yes" Text="{\AurionFontTitle}!(loc.FolderTitle)" />
+        <Control Id="Description" Type="Text" X="25" Y="23" Width="230" Height="15"
+                 Transparent="yes" NoPrefix="yes" Text="!(loc.FolderSubtitle)" />
+
+        <Control Id="FolderLabel" Type="Text" X="20" Y="60" Width="330" Height="12"
+                 NoPrefix="yes" Text="!(loc.FolderLabel)" />
+        <Control Id="Folder" Type="PathEdit" X="20" Y="76" Width="250" Height="18"
+                 Property="WIXUI_INSTALLDIR" Indirect="yes" />
+        <Control Id="ChangeFolder" Type="PushButton" X="278" Y="76" Width="72" Height="18"
+                 Text="!(loc.ButtonBrowse)" />
+
+        <Control Id="SpaceIcon" Type="Icon" X="20" Y="108" Width="16" Height="16"
+                 FixedSize="yes" IconSize="16" Text="AurionInfoIco" />
+        <Control Id="Hint" Type="Text" X="44" Y="106" Width="306" Height="48" NoPrefix="yes"
+                 Text="!(loc.FolderHint)" />
+
+        <Control Id="DataIcon" Type="Icon" X="20" Y="164" Width="16" Height="16"
+                 FixedSize="yes" IconSize="16" Text="AurionNewIco" />
+        <Control Id="DataNote" Type="Text" X="44" Y="162" Width="306" Height="60" NoPrefix="yes"
+                 Text="!(loc.FolderDataNote)" />
+
+        <Control Id="Back" Type="PushButton" X="180" Y="243" Width="56" Height="17"
+                 Text="!(loc.ButtonBack)">
+          <Publish Event="NewDialog" Value="AurionPrereqDlg" />
+        </Control>
+        <Control Id="Next" Type="PushButton" X="236" Y="243" Width="56" Height="17"
+                 Default="yes" Text="!(loc.ButtonNext)">
+          <Publish Event="SetTargetPath" Value="[WIXUI_INSTALLDIR]" Order="1" />
+          <Publish Property="INSTALLFOLDER_SET" Value="1" Order="2" />
+          <Publish Event="NewDialog" Value="AurionOptionsDlg" Order="3" />
+        </Control>
+        <Control Id="Cancel" Type="PushButton" X="304" Y="243" Width="56" Height="17"
+                 Cancel="yes" Text="!(loc.ButtonCancel)">
+          <Publish Event="SpawnDialog" Value="AurionCancelDlg" />
+        </Control>
+      </Dialog>
+
+      <!-- Folder browser (standard MSI browse controls). -->
+      <Dialog Id="AurionBrowseDlg" Width="370" Height="270"
+              Title="!(loc.WizardTitle)" NoMinimize="yes">
+        <Control Id="Banner" Type="Bitmap" X="0" Y="0" Width="370" Height="44"
+                 TabSkip="no" Text="AurionBannerBmp" />
+        <Control Id="BannerLine" Type="Line" X="0" Y="44" Width="370" Height="0" />
+        <Control Id="BottomLine" Type="Line" X="0" Y="234" Width="370" Height="0" />
+        <Control Id="Title" Type="Text" X="15" Y="6" Width="230" Height="15"
+                 Transparent="yes" NoPrefix="yes" Text="{\AurionFontTitle}!(loc.BrowseTitle)" />
+        <Control Id="Description" Type="Text" X="25" Y="23" Width="230" Height="15"
+                 Transparent="yes" NoPrefix="yes" Text="!(loc.BrowseSubtitle)" />
+
+        <Control Id="ComboLabel" Type="Text" X="20" Y="58" Width="44" Height="10"
+                 TabSkip="no" Text="!(loc.BrowseLookIn)" />
+        <Control Id="DirectoryCombo" Type="DirectoryCombo" X="68" Y="56" Width="220" Height="80"
+                 Disabled="yes" Sunken="yes" Indirect="yes" Fixed="yes" Remote="yes"
+                 Property="_BrowseProperty" />
+        <Control Id="Up" Type="PushButton" X="298" Y="55" Width="19" Height="19"
+                 ToolTip="!(loc.BrowseUpTooltip)" Icon="yes" FixedSize="yes" IconSize="16"
+                 Text="AurionUpIco">
+          <Publish Event="DirectoryListUp" Value="0" />
+        </Control>
+        <Control Id="NewFolder" Type="PushButton" X="325" Y="55" Width="19" Height="19"
+                 ToolTip="!(loc.BrowseNewTooltip)" Icon="yes" FixedSize="yes" IconSize="16"
+                 Text="AurionNewIco">
+          <Publish Event="DirectoryListNew" Value="0" />
+        </Control>
+        <Control Id="DirectoryList" Type="DirectoryList" X="20" Y="83" Width="324" Height="98"
+                 Sunken="yes" Indirect="yes" TabSkip="no" Property="_BrowseProperty" />
+        <Control Id="PathLabel" Type="Text" X="20" Y="190" Width="44" Height="10"
+                 TabSkip="no" Text="!(loc.BrowseFolderName)" />
+        <Control Id="PathEdit" Type="PathEdit" X="68" Y="188" Width="276" Height="18"
+                 Indirect="yes" Property="_BrowseProperty" />
+
+        <Control Id="OK" Type="PushButton" X="236" Y="243" Width="56" Height="17"
+                 Default="yes" Text="!(loc.ButtonOK)">
+          <Publish Event="SetTargetPath" Value="[_BrowseProperty]" Order="1" />
+          <Publish Event="EndDialog" Value="Return" Order="2" />
+        </Control>
+        <Control Id="Cancel" Type="PushButton" X="304" Y="243" Width="56" Height="17"
+                 Cancel="yes" Text="!(loc.ButtonCancel)">
+          <Publish Event="Reset" Value="0" Order="1" />
+          <Publish Event="EndDialog" Value="Return" Order="2" />
+        </Control>
+      </Dialog>
+
+      <!-- ========================== 4. Options ========================== -->
+      <Dialog Id="AurionOptionsDlg" Width="370" Height="270"
+              Title="!(loc.WizardTitle)" NoMinimize="yes">
+        <Control Id="Banner" Type="Bitmap" X="0" Y="0" Width="370" Height="44"
+                 TabSkip="no" Text="AurionBannerBmp" />
+        <Control Id="BannerLine" Type="Line" X="0" Y="44" Width="370" Height="0" />
+        <Control Id="BottomLine" Type="Line" X="0" Y="234" Width="370" Height="0" />
+        <Control Id="Title" Type="Text" X="15" Y="6" Width="230" Height="15"
+                 Transparent="yes" NoPrefix="yes" Text="{\AurionFontTitle}!(loc.OptionsTitle)" />
+        <Control Id="Description" Type="Text" X="25" Y="23" Width="230" Height="15"
+                 Transparent="yes" NoPrefix="yes" Text="!(loc.OptionsSubtitle)" />
+
+        <Control Id="StartMenuCheck" Type="CheckBox" X="24" Y="66" Width="320" Height="18"
+                 Property="AURION_WANT_STARTMENU" CheckBoxValue="yes"
+                 Text="!(loc.OptionStartMenu)" />
+        <Control Id="DesktopCheck" Type="CheckBox" X="24" Y="90" Width="320" Height="18"
+                 Property="AURION_WANT_DESKTOP" CheckBoxValue="yes"
+                 Text="!(loc.OptionDesktop)" />
+        <Control Id="LaunchCheck" Type="CheckBox" X="24" Y="114" Width="320" Height="18"
+                 Property="AURION_LAUNCH_AFTER" CheckBoxValue="yes"
+                 Text="!(loc.OptionLaunch)" />
+
+        <Control Id="AdvancedIcon" Type="Icon" X="24" Y="152" Width="16" Height="16"
+                 FixedSize="yes" IconSize="16" Text="AurionInfoIco" />
+        <Control Id="AdvancedNote" Type="Text" X="48" Y="150" Width="300" Height="70"
+                 NoPrefix="yes" Text="!(loc.OptionsNote)" />
+
+        <Control Id="Back" Type="PushButton" X="180" Y="243" Width="56" Height="17"
+                 Text="!(loc.ButtonBack)">
+          <Publish Event="NewDialog" Value="AurionFolderDlg" Order="1"
+                   Condition="NOT AURION_INSTALLED_VERSION" />
+          <Publish Event="NewDialog" Value="AurionPrereqDlg" Order="2"
+                   Condition="AURION_INSTALLED_VERSION" />
+        </Control>
+        <Control Id="Next" Type="PushButton" X="236" Y="243" Width="56" Height="17"
+                 Default="yes" Text="!(loc.ButtonNext)">
+          <Publish Property="AurionMode" Value="Install" Order="1"
+                   Condition="NOT AURION_INSTALLED_VERSION" />
+          <Publish Property="AurionMode" Value="Upgrade" Order="2"
+                   Condition="AURION_INSTALLED_VERSION" />
+          <Publish Event="NewDialog" Value="AurionReadyDlg" Order="3" />
+        </Control>
+        <Control Id="Cancel" Type="PushButton" X="304" Y="243" Width="56" Height="17"
+                 Cancel="yes" Text="!(loc.ButtonCancel)">
+          <Publish Event="SpawnDialog" Value="AurionCancelDlg" />
+        </Control>
+      </Dialog>
+
+      <!-- ===================== 5. Features (Modify) ===================== -->
+      <Dialog Id="AurionFeaturesDlg" Width="370" Height="270"
+              Title="!(loc.WizardTitle)" NoMinimize="yes" TrackDiskSpace="yes">
+        <Control Id="Banner" Type="Bitmap" X="0" Y="0" Width="370" Height="44"
+                 TabSkip="no" Text="AurionBannerBmp" />
+        <Control Id="BannerLine" Type="Line" X="0" Y="44" Width="370" Height="0" />
+        <Control Id="BottomLine" Type="Line" X="0" Y="234" Width="370" Height="0" />
+        <Control Id="Title" Type="Text" X="15" Y="6" Width="230" Height="15"
+                 Transparent="yes" NoPrefix="yes" Text="{\AurionFontTitle}!(loc.FeaturesTitle)" />
+        <Control Id="Description" Type="Text" X="25" Y="23" Width="230" Height="15"
+                 Transparent="yes" NoPrefix="yes" Text="!(loc.FeaturesSubtitle)" />
+
+        <Control Id="Tree" Type="SelectionTree" X="20" Y="60" Width="180" Height="140"
+                 Property="_BrowseProperty" Sunken="yes" TabSkip="no" Text="!(loc.FeaturesTree)" />
+        <Control Id="ItemDescription" Type="Text" X="212" Y="60" Width="138" Height="90"
+                 NoPrefix="yes" Text="!(loc.FeaturesPickHint)">
+          <Subscribe Event="SelectionDescription" Attribute="Text" />
+        </Control>
+        <Control Id="ItemSize" Type="Text" X="212" Y="152" Width="138" Height="48"
+                 NoPrefix="yes">
+          <Subscribe Event="SelectionSize" Attribute="Text" />
+        </Control>
+
+        <Control Id="Back" Type="PushButton" X="180" Y="243" Width="56" Height="17"
+                 Text="!(loc.ButtonBack)">
+          <Publish Event="NewDialog" Value="AurionMaintenanceDlg" />
+        </Control>
+        <Control Id="Next" Type="PushButton" X="236" Y="243" Width="56" Height="17"
+                 Default="yes" Text="!(loc.ButtonNext)">
+          <Publish Event="NewDialog" Value="AurionReadyDlg" />
+        </Control>
+        <Control Id="Cancel" Type="PushButton" X="304" Y="243" Width="56" Height="17"
+                 Cancel="yes" Text="!(loc.ButtonCancel)">
+          <Publish Event="SpawnDialog" Value="AurionCancelDlg" />
+        </Control>
+      </Dialog>
+
+      <!-- ====================== 6. Ready / summary ====================== -->
+      <Dialog Id="AurionReadyDlg" Width="370" Height="270"
+              Title="!(loc.WizardTitle)" NoMinimize="yes" TrackDiskSpace="yes">
+        <Control Id="Banner" Type="Bitmap" X="0" Y="0" Width="370" Height="44"
+                 TabSkip="no" Text="AurionBannerBmp" />
+        <Control Id="BannerLine" Type="Line" X="0" Y="44" Width="370" Height="0" />
+        <Control Id="BottomLine" Type="Line" X="0" Y="234" Width="370" Height="0" />
+        <Control Id="Title" Type="Text" X="15" Y="6" Width="230" Height="15"
+                 Transparent="yes" NoPrefix="yes" Text="{\AurionFontTitle}!(loc.ReadyTitle)" />
+        <Control Id="Description" Type="Text" X="25" Y="23" Width="230" Height="15"
+                 Transparent="yes" NoPrefix="yes" Text="!(loc.ReadySubtitle)" />
+
+        <!-- One summary block per mode. Exactly one is ever visible. -->
+        <Control Id="SumInstall" Type="Text" X="20" Y="62" Width="330" Height="150"
+                 NoPrefix="yes" Hidden="yes" Text="!(loc.ReadyInstall)">
+          <Condition Action="show" Condition="AurionMode = &quot;Install&quot;" />
+        </Control>
+        <Control Id="SumUpgrade" Type="Text" X="20" Y="62" Width="330" Height="150"
+                 NoPrefix="yes" Hidden="yes" Text="!(loc.ReadyUpgrade)">
+          <Condition Action="show" Condition="AurionMode = &quot;Upgrade&quot;" />
+        </Control>
+        <Control Id="SumRepair" Type="Text" X="20" Y="62" Width="330" Height="150"
+                 NoPrefix="yes" Hidden="yes" Text="!(loc.ReadyRepair)">
+          <Condition Action="show" Condition="AurionMode = &quot;Repair&quot;" />
+        </Control>
+        <Control Id="SumModify" Type="Text" X="20" Y="62" Width="330" Height="150"
+                 NoPrefix="yes" Hidden="yes" Text="!(loc.ReadyModify)">
+          <Condition Action="show" Condition="AurionMode = &quot;Modify&quot;" />
+        </Control>
+        <Control Id="SumRemove" Type="Text" X="20" Y="62" Width="330" Height="150"
+                 NoPrefix="yes" Hidden="yes" Text="!(loc.ReadyRemove)">
+          <Condition Action="show" Condition="AurionMode = &quot;Remove&quot;" />
+        </Control>
+
+        <Control Id="Back" Type="PushButton" X="180" Y="243" Width="56" Height="17"
+                 Text="!(loc.ButtonBack)">
+          <Publish Event="NewDialog" Value="AurionOptionsDlg" Order="1"
+                   Condition="AurionMode = &quot;Install&quot; OR AurionMode = &quot;Upgrade&quot;" />
+          <Publish Event="NewDialog" Value="AurionFeaturesDlg" Order="2"
+                   Condition="AurionMode = &quot;Modify&quot;" />
+          <Publish Event="NewDialog" Value="AurionMaintenanceDlg" Order="3"
+                   Condition="AurionMode = &quot;Repair&quot;" />
+          <Publish Event="NewDialog" Value="AurionRemoveDlg" Order="4"
+                   Condition="AurionMode = &quot;Remove&quot;" />
+        </Control>
+        <Control Id="Install" Type="PushButton" X="236" Y="243" Width="56" Height="17"
+                 Default="yes" ElevationShield="no" Text="!(loc.ButtonInstall)" Hidden="yes">
+          <Condition Action="show" Condition="AurionMode = &quot;Install&quot;" />
+          <Publish Event="EndDialog" Value="Return" />
+        </Control>
+        <Control Id="Upgrade" Type="PushButton" X="236" Y="243" Width="56" Height="17"
+                 Text="!(loc.ButtonUpgrade)" Hidden="yes">
+          <Condition Action="show" Condition="AurionMode = &quot;Upgrade&quot;" />
+          <Publish Event="EndDialog" Value="Return" />
+        </Control>
+        <Control Id="Repair" Type="PushButton" X="236" Y="243" Width="56" Height="17"
+                 Text="!(loc.ButtonRepair)" Hidden="yes">
+          <Condition Action="show" Condition="AurionMode = &quot;Repair&quot;" />
+          <Publish Event="EndDialog" Value="Return" />
+        </Control>
+        <Control Id="Change" Type="PushButton" X="236" Y="243" Width="56" Height="17"
+                 Text="!(loc.ButtonChange)" Hidden="yes">
+          <Condition Action="show" Condition="AurionMode = &quot;Modify&quot;" />
+          <Publish Event="EndDialog" Value="Return" />
+        </Control>
+        <Control Id="Remove" Type="PushButton" X="236" Y="243" Width="56" Height="17"
+                 Text="!(loc.ButtonRemove)" Hidden="yes">
+          <Condition Action="show" Condition="AurionMode = &quot;Remove&quot;" />
+          <Publish Event="EndDialog" Value="Return" />
+        </Control>
+        <Control Id="Cancel" Type="PushButton" X="304" Y="243" Width="56" Height="17"
+                 Cancel="yes" Text="!(loc.ButtonCancel)">
+          <Publish Event="SpawnDialog" Value="AurionCancelDlg" />
+        </Control>
+      </Dialog>
+
+      <!-- ======================= 7. Maintenance ======================= -->
+      <Dialog Id="AurionMaintenanceDlg" Width="370" Height="270"
+              Title="!(loc.WizardTitle)" NoMinimize="yes">
+        <Control Id="Banner" Type="Bitmap" X="0" Y="0" Width="370" Height="44"
+                 TabSkip="no" Text="AurionBannerBmp" />
+        <Control Id="BannerLine" Type="Line" X="0" Y="44" Width="370" Height="0" />
+        <Control Id="BottomLine" Type="Line" X="0" Y="234" Width="370" Height="0" />
+        <Control Id="Title" Type="Text" X="15" Y="6" Width="230" Height="15"
+                 Transparent="yes" NoPrefix="yes" Text="{\AurionFontTitle}!(loc.MaintTitle)" />
+        <Control Id="Description" Type="Text" X="25" Y="23" Width="230" Height="15"
+                 Transparent="yes" NoPrefix="yes" Text="!(loc.MaintSubtitle)" />
+
+        <Control Id="Installed" Type="Text" X="20" Y="58" Width="330" Height="24"
+                 NoPrefix="yes" Text="!(loc.MaintInstalled)" />
+
+        <Control Id="RepairButton" Type="PushButton" X="20" Y="92" Width="80" Height="18"
+                 Text="!(loc.ButtonRepair)">
+          <Publish Property="AurionMode" Value="Repair" Order="1" />
+          <Publish Event="ReinstallMode" Value="ecmus" Order="2" />
+          <Publish Event="Reinstall" Value="All" Order="3" />
+          <Publish Event="NewDialog" Value="AurionReadyDlg" Order="4" />
+        </Control>
+        <Control Id="RepairText" Type="Text" X="110" Y="92" Width="240" Height="30"
+                 NoPrefix="yes" Text="!(loc.MaintRepairText)" />
+
+        <Control Id="ChangeButton" Type="PushButton" X="20" Y="130" Width="80" Height="18"
+                 Text="!(loc.ButtonModify)">
+          <Publish Property="AurionMode" Value="Modify" Order="1" />
+          <Publish Event="NewDialog" Value="AurionFeaturesDlg" Order="2" />
+        </Control>
+        <Control Id="ChangeText" Type="Text" X="110" Y="130" Width="240" Height="30"
+                 NoPrefix="yes" Text="!(loc.MaintChangeText)" />
+
+        <Control Id="RemoveButton" Type="PushButton" X="20" Y="168" Width="80" Height="18"
+                 Text="!(loc.ButtonUninstall)">
+          <Publish Property="AurionMode" Value="Remove" Order="1" />
+          <Publish Event="NewDialog" Value="AurionRemoveDlg" Order="2" />
+        </Control>
+        <Control Id="RemoveText" Type="Text" X="110" Y="168" Width="240" Height="30"
+                 NoPrefix="yes" Text="!(loc.MaintRemoveText)" />
+
+        <Control Id="Back" Type="PushButton" X="180" Y="243" Width="56" Height="17"
+                 Disabled="yes" Text="!(loc.ButtonBack)" />
+        <Control Id="Next" Type="PushButton" X="236" Y="243" Width="56" Height="17"
+                 Disabled="yes" Default="yes" Text="!(loc.ButtonNext)" />
+        <Control Id="Cancel" Type="PushButton" X="304" Y="243" Width="56" Height="17"
+                 Cancel="yes" Text="!(loc.ButtonCancel)">
+          <Publish Event="SpawnDialog" Value="AurionCancelDlg" />
+        </Control>
+      </Dialog>
+
+      <!-- ================= 8. Uninstall confirmation ================= -->
+      <Dialog Id="AurionRemoveDlg" Width="370" Height="270"
+              Title="!(loc.WizardTitle)" NoMinimize="yes">
+        <Control Id="Banner" Type="Bitmap" X="0" Y="0" Width="370" Height="44"
+                 TabSkip="no" Text="AurionBannerBmp" />
+        <Control Id="BannerLine" Type="Line" X="0" Y="44" Width="370" Height="0" />
+        <Control Id="BottomLine" Type="Line" X="0" Y="234" Width="370" Height="0" />
+        <Control Id="Title" Type="Text" X="15" Y="6" Width="230" Height="15"
+                 Transparent="yes" NoPrefix="yes" Text="{\AurionFontTitle}!(loc.RemoveTitle)" />
+        <Control Id="Description" Type="Text" X="25" Y="23" Width="230" Height="15"
+                 Transparent="yes" NoPrefix="yes" Text="!(loc.RemoveSubtitle)" />
+
+        <Control Id="WillRemoveIcon" Type="Icon" X="20" Y="60" Width="16" Height="16"
+                 FixedSize="yes" IconSize="16" Text="AurionInfoIco" />
+        <Control Id="WillRemove" Type="Text" X="44" Y="58" Width="306" Height="58"
+                 NoPrefix="yes" Text="!(loc.RemoveWhatGoes)" />
+
+        <Control Id="WillKeepIcon" Type="Icon" X="20" Y="124" Width="16" Height="16"
+                 FixedSize="yes" IconSize="16" Text="AurionNewIco" />
+        <Control Id="WillKeep" Type="Text" X="44" Y="122" Width="306" Height="48"
+                 NoPrefix="yes" Text="!(loc.RemoveWhatStays)" />
+
+        <Control Id="DeleteDataCheck" Type="CheckBox" X="24" Y="178" Width="326" Height="18"
+                 Property="AURION_REMOVE_DATA" CheckBoxValue="yes"
+                 Text="!(loc.RemoveDeleteData)" />
+        <Control Id="DeleteDataWarnIcon" Type="Icon" X="24" Y="198" Width="16" Height="16"
+                 FixedSize="yes" IconSize="16" Text="AurionExclamIco" Hidden="yes">
+          <Condition Action="show" Condition="AURION_REMOVE_DATA" />
+        </Control>
+        <Control Id="DeleteDataWarn" Type="Text" X="48" Y="198" Width="302" Height="30"
+                 NoPrefix="yes" Hidden="yes" Text="!(loc.RemoveDeleteDataWarn)">
+          <Condition Action="show" Condition="AURION_REMOVE_DATA" />
+        </Control>
+
+        <Control Id="Back" Type="PushButton" X="180" Y="243" Width="56" Height="17"
+                 Text="!(loc.ButtonBack)">
+          <Publish Event="NewDialog" Value="AurionMaintenanceDlg" />
+        </Control>
+        <Control Id="Next" Type="PushButton" X="236" Y="243" Width="56" Height="17"
+                 Default="yes" Text="!(loc.ButtonNext)">
+          <Publish Property="AurionMode" Value="Remove" Order="1" />
+          <Publish Event="Remove" Value="All" Order="2" />
+          <Publish Event="NewDialog" Value="AurionReadyDlg" Order="3" />
+        </Control>
+        <Control Id="Cancel" Type="PushButton" X="304" Y="243" Width="56" Height="17"
+                 Cancel="yes" Text="!(loc.ButtonCancel)">
+          <Publish Event="SpawnDialog" Value="AurionCancelDlg" />
+        </Control>
+      </Dialog>
+
+      <!-- ========================= 9. Progress ========================= -->
+      <Dialog Id="AurionProgressDlg" Width="370" Height="270"
+              Title="!(loc.WizardTitle)" Modeless="yes" NoMinimize="yes">
+        <Control Id="Banner" Type="Bitmap" X="0" Y="0" Width="370" Height="44"
+                 TabSkip="no" Text="AurionBannerBmp" />
+        <Control Id="BannerLine" Type="Line" X="0" Y="44" Width="370" Height="0" />
+        <Control Id="BottomLine" Type="Line" X="0" Y="234" Width="370" Height="0" />
+
+        <Control Id="TitleInstalling" Type="Text" X="20" Y="15" Width="230" Height="15"
+                 Transparent="yes" NoPrefix="yes" Hidden="yes"
+                 Text="{\AurionFontTitle}!(loc.ProgressInstalling)">
+          <Condition Action="show" Condition="NOT Installed" />
+        </Control>
+        <Control Id="TitleMaintaining" Type="Text" X="20" Y="15" Width="230" Height="15"
+                 Transparent="yes" NoPrefix="yes" Hidden="yes"
+                 Text="{\AurionFontTitle}!(loc.ProgressUpdating)">
+          <Condition Action="show" Condition="Installed AND NOT REMOVE" />
+        </Control>
+        <Control Id="TitleRemoving" Type="Text" X="20" Y="15" Width="230" Height="15"
+                 Transparent="yes" NoPrefix="yes" Hidden="yes"
+                 Text="{\AurionFontTitle}!(loc.ProgressRemoving)">
+          <Condition Action="show" Condition="REMOVE" />
+        </Control>
+
+        <Control Id="Stage" Type="Text" X="20" Y="70" Width="330" Height="12"
+                 NoPrefix="yes" Text="!(loc.ProgressStage)" />
+        <Control Id="ActionText" Type="Text" X="70" Y="90" Width="280" Height="12" NoPrefix="yes">
+          <Subscribe Event="ActionText" Attribute="Text" />
+        </Control>
+        <Control Id="ActionLabel" Type="Text" X="20" Y="90" Width="50" Height="12"
+                 NoPrefix="yes" Text="!(loc.ProgressStatus)" />
+        <Control Id="ProgressBar" Type="ProgressBar" X="20" Y="112" Width="330" Height="12"
+                 ProgressBlocks="yes" Text="!(loc.ProgressBarText)">
+          <Subscribe Event="SetProgress" Attribute="Progress" />
+        </Control>
+        <Control Id="StatusNote" Type="Text" X="20" Y="140" Width="330" Height="60"
+                 NoPrefix="yes" Text="!(loc.ProgressNote)" />
+
+        <Control Id="Back" Type="PushButton" X="180" Y="243" Width="56" Height="17"
+                 Disabled="yes" Text="!(loc.ButtonBack)" />
+        <Control Id="Next" Type="PushButton" X="236" Y="243" Width="56" Height="17"
+                 Disabled="yes" Text="!(loc.ButtonNext)" />
+        <Control Id="Cancel" Type="PushButton" X="304" Y="243" Width="56" Height="17"
+                 Cancel="yes" Text="!(loc.ButtonCancel)">
+          <Publish Event="SpawnDialog" Value="AurionCancelDlg" />
+        </Control>
+      </Dialog>
+
+      <!-- ====================== 10. Finish (success) ====================== -->
+      <Dialog Id="AurionExitDlg" Width="370" Height="270"
+              Title="!(loc.WizardTitle)" NoMinimize="yes">
+        <Control Id="Hero" Type="Bitmap" X="0" Y="0" Width="370" Height="234"
+                 TabSkip="no" Text="AurionDialogBmp" />
+        <Control Id="BottomLine" Type="Line" X="0" Y="234" Width="370" Height="0" />
+
+        <Control Id="TitleDone" Type="Text" X="135" Y="26" Width="215" Height="40"
+                 Transparent="yes" NoPrefix="yes" Hidden="yes"
+                 Text="{\AurionFontHero}!(loc.ExitTitleInstalled)">
+          <Condition Action="show" Condition="NOT REMOVE" />
+        </Control>
+        <Control Id="TitleGone" Type="Text" X="135" Y="26" Width="215" Height="40"
+                 Transparent="yes" NoPrefix="yes" Hidden="yes"
+                 Text="{\AurionFontHero}!(loc.ExitTitleRemoved)">
+          <Condition Action="show" Condition="REMOVE" />
+        </Control>
+
+        <Control Id="BodyDone" Type="Text" X="135" Y="72" Width="215" Height="86"
+                 Transparent="yes" NoPrefix="yes" Hidden="yes" Text="!(loc.ExitBodyInstalled)">
+          <Condition Action="show" Condition="NOT REMOVE" />
+        </Control>
+        <Control Id="BodyGone" Type="Text" X="135" Y="72" Width="215" Height="86"
+                 Transparent="yes" NoPrefix="yes" Hidden="yes" Text="!(loc.ExitBodyRemoved)">
+          <Condition Action="show" Condition="REMOVE" />
+        </Control>
+
+        <Control Id="LaunchCheck" Type="CheckBox" X="135" Y="170" Width="215" Height="18"
+                 Transparent="yes" Hidden="yes"
+                 Property="AURION_LAUNCH_AFTER" CheckBoxValue="yes" Text="!(loc.ExitLaunch)">
+          <Condition Action="show" Condition="NOT REMOVE" />
+        </Control>
+
+        <Control Id="Back" Type="PushButton" X="180" Y="243" Width="56" Height="17"
+                 Disabled="yes" Text="!(loc.ButtonBack)" />
+        <Control Id="Cancel" Type="PushButton" X="304" Y="243" Width="56" Height="17"
+                 Disabled="yes" Cancel="yes" Text="!(loc.ButtonCancel)" />
+        <Control Id="Finish" Type="PushButton" X="236" Y="243" Width="56" Height="17"
+                 Default="yes" Text="!(loc.ButtonFinish)">
+          <Publish Event="DoAction" Value="AurionLaunchApplication" Order="1"
+                   Condition="AURION_LAUNCH_AFTER AND NOT REMOVE" />
+          <Publish Event="EndDialog" Value="Return" Order="2" />
+        </Control>
+      </Dialog>
+
+      <!-- ==================== 11. Cancel confirmation ==================== -->
+      <Dialog Id="AurionCancelDlg" Width="260" Height="85" Title="!(loc.WizardTitle)"
+              NoMinimize="yes">
+        <Control Id="Icon" Type="Icon" X="15" Y="15" Width="24" Height="24"
+                 FixedSize="yes" IconSize="32" Text="AurionExclamIco" />
+        <Control Id="Text" Type="Text" X="48" Y="15" Width="194" Height="40"
+                 NoPrefix="yes" Text="!(loc.CancelText)" />
+        <Control Id="No" Type="PushButton" X="132" Y="57" Width="56" Height="17"
+                 Default="yes" Cancel="yes" Text="!(loc.ButtonNo)">
+          <Publish Event="EndDialog" Value="Return" />
+        </Control>
+        <Control Id="Yes" Type="PushButton" X="72" Y="57" Width="56" Height="17"
+                 Text="!(loc.ButtonYes)">
+          <Publish Event="EndDialog" Value="Exit" />
+        </Control>
+      </Dialog>
+
+      <!-- ===================== 12. Preparing / costing ===================== -->
+      <Dialog Id="AurionPrepareDlg" Width="370" Height="270"
+              Title="!(loc.WizardTitle)" Modeless="yes" NoMinimize="yes">
+        <Control Id="Hero" Type="Bitmap" X="0" Y="0" Width="370" Height="234"
+                 TabSkip="no" Text="AurionDialogBmp" />
+        <Control Id="BottomLine" Type="Line" X="0" Y="234" Width="370" Height="0" />
+        <Control Id="Title" Type="Text" X="135" Y="26" Width="215" Height="40"
+                 Transparent="yes" NoPrefix="yes" Text="{\AurionFontHero}!(loc.PrepareTitle)" />
+        <Control Id="Body" Type="Text" X="135" Y="72" Width="215" Height="60"
+                 Transparent="yes" NoPrefix="yes" Text="!(loc.PrepareBody)" />
+        <Control Id="ActionData" Type="Text" X="135" Y="140" Width="215" Height="24"
+                 Transparent="yes" NoPrefix="yes">
+          <Subscribe Event="ActionData" Attribute="Text" />
+        </Control>
+        <Control Id="Back" Type="PushButton" X="180" Y="243" Width="56" Height="17"
+                 Disabled="yes" Text="!(loc.ButtonBack)" />
+        <Control Id="Next" Type="PushButton" X="236" Y="243" Width="56" Height="17"
+                 Disabled="yes" Text="!(loc.ButtonNext)" />
+        <Control Id="Cancel" Type="PushButton" X="304" Y="243" Width="56" Height="17"
+                 Cancel="yes" Text="!(loc.ButtonCancel)">
+          <Publish Event="SpawnDialog" Value="AurionCancelDlg" />
+        </Control>
+      </Dialog>
+
+      <!-- ===================== 13. Failure / rollback ===================== -->
+      <Dialog Id="AurionFatalErrorDlg" Width="370" Height="270"
+              Title="!(loc.WizardTitle)" NoMinimize="yes">
+        <Control Id="Hero" Type="Bitmap" X="0" Y="0" Width="370" Height="234"
+                 TabSkip="no" Text="AurionDialogBmp" />
+        <Control Id="BottomLine" Type="Line" X="0" Y="234" Width="370" Height="0" />
+        <Control Id="Title" Type="Text" X="135" Y="26" Width="215" Height="40"
+                 Transparent="yes" NoPrefix="yes" Text="{\AurionFontHero}!(loc.FatalTitle)" />
+        <Control Id="Body" Type="Text" X="135" Y="72" Width="215" Height="80"
+                 Transparent="yes" NoPrefix="yes" Text="!(loc.FatalBody)" />
+        <Control Id="LogHint" Type="Text" X="135" Y="158" Width="215" Height="60"
+                 Transparent="yes" NoPrefix="yes" Text="!(loc.FatalLogHint)" />
+        <Control Id="Back" Type="PushButton" X="180" Y="243" Width="56" Height="17"
+                 Disabled="yes" Text="!(loc.ButtonBack)" />
+        <Control Id="Cancel" Type="PushButton" X="304" Y="243" Width="56" Height="17"
+                 Disabled="yes" Cancel="yes" Text="!(loc.ButtonCancel)" />
+        <Control Id="Finish" Type="PushButton" X="236" Y="243" Width="56" Height="17"
+                 Default="yes" Text="!(loc.ButtonClose)">
+          <Publish Event="EndDialog" Value="Exit" />
+        </Control>
+      </Dialog>
+
+      <!-- ====================== 14. User cancelled ====================== -->
+      <Dialog Id="AurionUserExitDlg" Width="370" Height="270"
+              Title="!(loc.WizardTitle)" NoMinimize="yes">
+        <Control Id="Hero" Type="Bitmap" X="0" Y="0" Width="370" Height="234"
+                 TabSkip="no" Text="AurionDialogBmp" />
+        <Control Id="BottomLine" Type="Line" X="0" Y="234" Width="370" Height="0" />
+        <Control Id="Title" Type="Text" X="135" Y="26" Width="215" Height="40"
+                 Transparent="yes" NoPrefix="yes" Text="{\AurionFontHero}!(loc.UserExitTitle)" />
+        <Control Id="Body" Type="Text" X="135" Y="72" Width="215" Height="80"
+                 Transparent="yes" NoPrefix="yes" Text="!(loc.UserExitBody)" />
+        <Control Id="Back" Type="PushButton" X="180" Y="243" Width="56" Height="17"
+                 Disabled="yes" Text="!(loc.ButtonBack)" />
+        <Control Id="Cancel" Type="PushButton" X="304" Y="243" Width="56" Height="17"
+                 Disabled="yes" Cancel="yes" Text="!(loc.ButtonCancel)" />
+        <Control Id="Finish" Type="PushButton" X="236" Y="243" Width="56" Height="17"
+                 Default="yes" Text="!(loc.ButtonClose)">
+          <Publish Event="EndDialog" Value="Exit" />
+        </Control>
+      </Dialog>
+
+      <!-- ============= 15. Engine error dialog (reserved shape) ============= -->
+      <Dialog Id="ErrorDlg" Width="270" Height="105" Title="!(loc.WizardTitle)"
+              ErrorDialog="yes" NoMinimize="yes">
+        <Control Id="ErrorIcon" Type="Icon" X="15" Y="15" Width="24" Height="24"
+                 FixedSize="yes" IconSize="32" Text="AurionExclamIco" />
+        <Control Id="ErrorText" Type="Text" X="48" Y="15" Width="205" Height="60"
+                 TabSkip="no" Text="!(loc.ErrorPlaceholder)" />
+        <Control Id="Y" Type="PushButton" X="100" Y="80" Width="56" Height="17"
+                 TabSkip="yes" Text="!(loc.ButtonYes)">
+          <Publish Event="EndDialog" Value="ErrorYes" />
+        </Control>
+        <Control Id="A" Type="PushButton" X="100" Y="80" Width="56" Height="17"
+                 TabSkip="yes" Text="!(loc.ButtonCancel)">
+          <Publish Event="EndDialog" Value="ErrorAbort" />
+        </Control>
+        <Control Id="C" Type="PushButton" X="100" Y="80" Width="56" Height="17"
+                 TabSkip="yes" Text="!(loc.ButtonCancel)">
+          <Publish Event="EndDialog" Value="ErrorCancel" />
+        </Control>
+        <Control Id="I" Type="PushButton" X="100" Y="80" Width="56" Height="17"
+                 TabSkip="yes" Text="!(loc.ButtonIgnore)">
+          <Publish Event="EndDialog" Value="ErrorIgnore" />
+        </Control>
+        <Control Id="N" Type="PushButton" X="100" Y="80" Width="56" Height="17"
+                 TabSkip="yes" Text="!(loc.ButtonNo)">
+          <Publish Event="EndDialog" Value="ErrorNo" />
+        </Control>
+        <Control Id="O" Type="PushButton" X="100" Y="80" Width="56" Height="17"
+                 TabSkip="yes" Text="!(loc.ButtonOK)">
+          <Publish Event="EndDialog" Value="ErrorOk" />
+        </Control>
+        <Control Id="R" Type="PushButton" X="100" Y="80" Width="56" Height="17"
+                 TabSkip="yes" Text="!(loc.ButtonRetry)">
+          <Publish Event="EndDialog" Value="ErrorRetry" />
+        </Control>
+      </Dialog>
+
+      <!-- ============ 16. Files in use (graceful, not a failure) ============ -->
+      <Dialog Id="FilesInUse" Width="370" Height="270" Title="!(loc.WizardTitle)"
+              KeepModeless="yes" NoMinimize="yes">
+        <Control Id="Banner" Type="Bitmap" X="0" Y="0" Width="370" Height="44"
+                 TabSkip="no" Text="AurionBannerBmp" />
+        <Control Id="BannerLine" Type="Line" X="0" Y="44" Width="370" Height="0" />
+        <Control Id="BottomLine" Type="Line" X="0" Y="234" Width="370" Height="0" />
+        <Control Id="Title" Type="Text" X="15" Y="6" Width="260" Height="15"
+                 Transparent="yes" NoPrefix="yes" Text="{\AurionFontTitle}!(loc.FilesInUseTitle)" />
+        <Control Id="Description" Type="Text" X="25" Y="23" Width="280" Height="15"
+                 Transparent="yes" NoPrefix="yes" Text="!(loc.FilesInUseSubtitle)" />
+        <Control Id="Text" Type="Text" X="20" Y="58" Width="330" Height="40"
+                 NoPrefix="yes" Text="!(loc.FilesInUseText)" />
+        <Control Id="List" Type="ListBox" X="20" Y="104" Width="330" Height="90"
+                 Property="FileInUseProcess" Sunken="yes" TabSkip="yes" />
+        <Control Id="Hint" Type="Text" X="20" Y="200" Width="330" Height="28"
+                 NoPrefix="yes" Text="!(loc.FilesInUseHint)" />
+        <Control Id="Retry" Type="PushButton" X="180" Y="243" Width="56" Height="17"
+                 Default="yes" Text="!(loc.ButtonRetry)">
+          <Publish Event="EndDialog" Value="Retry" />
+        </Control>
+        <Control Id="Ignore" Type="PushButton" X="236" Y="243" Width="56" Height="17"
+                 Text="!(loc.ButtonIgnore)">
+          <Publish Event="EndDialog" Value="Ignore" />
+        </Control>
+        <Control Id="Exit" Type="PushButton" X="304" Y="243" Width="56" Height="17"
+                 Cancel="yes" Text="!(loc.ButtonExit)">
+          <Publish Event="EndDialog" Value="Exit" />
+        </Control>
+      </Dialog>
+
+      <!-- Restart Manager variant: same page, but Windows can close and -->
+      <!-- restart the applications itself.                              -->
+      <Dialog Id="MsiRMFilesInUse" Width="370" Height="270" Title="!(loc.WizardTitle)"
+              KeepModeless="yes" NoMinimize="yes">
+        <Control Id="Banner" Type="Bitmap" X="0" Y="0" Width="370" Height="44"
+                 TabSkip="no" Text="AurionBannerBmp" />
+        <Control Id="BannerLine" Type="Line" X="0" Y="44" Width="370" Height="0" />
+        <Control Id="BottomLine" Type="Line" X="0" Y="234" Width="370" Height="0" />
+        <Control Id="Title" Type="Text" X="15" Y="6" Width="260" Height="15"
+                 Transparent="yes" NoPrefix="yes" Text="{\AurionFontTitle}!(loc.FilesInUseTitle)" />
+        <Control Id="Description" Type="Text" X="25" Y="23" Width="280" Height="15"
+                 Transparent="yes" NoPrefix="yes" Text="!(loc.FilesInUseSubtitle)" />
+        <Control Id="Text" Type="Text" X="20" Y="58" Width="330" Height="40"
+                 NoPrefix="yes" Text="!(loc.RmFilesInUseText)" />
+        <Control Id="List" Type="ListBox" X="20" Y="104" Width="330" Height="90"
+                 Property="FileInUseProcess" Sunken="yes" TabSkip="yes" />
+        <Control Id="Hint" Type="Text" X="20" Y="200" Width="330" Height="28"
+                 NoPrefix="yes" Text="!(loc.RmFilesInUseOption)" />
+        <Control Id="Ignore" Type="PushButton" X="180" Y="243" Width="56" Height="17"
+                 Text="!(loc.ButtonIgnore)">
+          <Publish Event="EndDialog" Value="Ignore" />
+        </Control>
+        <Control Id="OK" Type="PushButton" X="236" Y="243" Width="56" Height="17"
+                 Default="yes" Text="!(loc.ButtonOK)">
+          <Publish Event="EndDialog" Value="Return" />
+        </Control>
+        <Control Id="Exit" Type="PushButton" X="304" Y="243" Width="56" Height="17"
+                 Cancel="yes" Text="!(loc.ButtonExit)">
+          <Publish Event="EndDialog" Value="Exit" />
+        </Control>
+      </Dialog>
+
+      <!-- ========================= Navigation ========================= -->
+      <!-- Browse button routing (kept out of the dialog so the property
+           plumbing is visible in one place).                             -->
+      <Publish Dialog="AurionFolderDlg" Control="ChangeFolder"
+               Property="_BrowseProperty" Value="[WIXUI_INSTALLDIR]" Order="1" />
+      <Publish Dialog="AurionFolderDlg" Control="ChangeFolder"
+               Event="SpawnDialog" Value="AurionBrowseDlg" Order="2" />
+
+      <!-- ====================== Sequencing ====================== -->
+      <InstallUISequence>
+        <Show Dialog="AurionPrepareDlg" Before="LaunchConditions" />
+        <Show Dialog="AurionWelcomeDlg" After="MigrateFeatureStates"
+              Condition="NOT Installed" />
+        <Show Dialog="AurionMaintenanceDlg" After="AurionWelcomeDlg"
+              Condition="Installed AND NOT RESUME AND NOT Preselected AND NOT PATCH" />
+        <Show Dialog="AurionProgressDlg" After="AurionMaintenanceDlg" />
+        <Show Dialog="AurionExitDlg" OnExit="success" />
+        <Show Dialog="AurionFatalErrorDlg" OnExit="error" />
+        <Show Dialog="AurionUserExitDlg" OnExit="cancel" />
+      </InstallUISequence>
+
+      <!-- Administrative installation (msiexec /a) gets the same skin. -->
+      <AdminUISequence>
+        <Show Dialog="AurionPrepareDlg" Before="CostInitialize" />
+        <Show Dialog="AurionProgressDlg" After="CostFinalize" />
+        <Show Dialog="AurionExitDlg" OnExit="success" />
+        <Show Dialog="AurionFatalErrorDlg" OnExit="error" />
+        <Show Dialog="AurionUserExitDlg" OnExit="cancel" />
+      </AdminUISequence>
+
+    </UI>
+  </Fragment>
+</Wix>
