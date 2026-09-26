@@ -86,7 +86,7 @@ app.use((req, res, next) => {
 const allowedOriginRegex = /^(http:\/\/(127\.0\.0\.1|localhost)(:\d+)?|app:\/\/aurion|https:\/\/(127\.0\.0\.1|localhost)(:\d+)?)$/;
 app.use(cors({
   origin: (origin, cb) => {
-    if (!origin) return cb(null, true); // Electron, curl, same-origin
+    if (!origin) return cb(null, true); // curl, same-origin
     if (allowedOriginRegex.test(origin)) return cb(null, true);
     // For development, allow file:// is handled as no origin
     return cb(null, false);
@@ -977,7 +977,7 @@ function tokenFromRequest(req) {
     const t = header.slice(7).trim();
     if (t && !/\s/.test(t) && t.length >= 20) return t;
   }
-  // For Electron preload, token can be sent as first message, not URL
+  // The token can be sent as the first message, not in the URL
   return "";
 }
 

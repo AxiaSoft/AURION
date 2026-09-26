@@ -2057,7 +2057,6 @@ const views = {
             <div class="step"><b>4</b><div>${I18N.t("wizard.step4")}</div></div>
           </div>
           <button class="btn block" id="go-settings" type="button">${I18N.t("wizard.verify")}</button>
-          <a class="btn block ghost" href="/guide-install.html?v=desk45" target="_blank" rel="noopener">${I18N.t("guide.install")}</a>
         </div>
       </div>`;
     return `<div class="cmd">
@@ -2503,7 +2502,6 @@ const views = {
             <button type="button" data-lang="ar">العربية</button>
           </div>
           <p class="sub">AURION 1.0.0</p>
-          <a class="btn block ghost" href="/guide-install.html?v=desk45" target="_blank" rel="noopener">${I18N.t("guide.install")}</a>
           <a class="btn block ghost" href="/guide.html?v=desk45" target="_blank" rel="noopener">${I18N.t("guide.open")}</a>
           <a class="btn block ghost" href="/guide-backtest.html?v=desk45" target="_blank" rel="noopener">${I18N.t("guide.backtest")}</a>
         </div>

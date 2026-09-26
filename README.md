@@ -37,28 +37,24 @@ MT5 Python API (Windows) ──────────┘              │
 | `apps/web/` | The desk UI (served by the backend on :8080) |
 | `config/`, `lang/`, `data/` | Configuration, translations, live state |
 | `scripts/` | Day-to-day helpers used by `start-aurion.cmd` (`hidden.vbs`, `copy-ea.ps1`, `restart-aurion.cmd`, `fix-npm.ps1`, `fix-numpy.ps1`) |
-| [`windows-app/`](windows-app/README.md) | **The Windows application and everything that builds it** — Electron app, prerequisite installers, MSI packaging |
 | [`store/`](store/README.md) | **The shop** — standalone key server / store (own app, own deploy) |
 | [`admin/`](admin/README.md) | **Owner/admin tooling** — local key minting, update server and its hidden panel |
 
-## Windows — prerequisites install themselves
+## Windows — running the system
 
 Copy the **full** tree to `D:\aurion` (not nested `D:\aurion\aurion`).
 
 | When | What to run |
 |---|---|
-| First time | **`windows-app\installer\install-aurion.cmd`** |
+| First time | Install **Python 3.10-3.12** (never 3.13/3.14) + **Node.js 18-30**, `pip install -r engine\requirements.txt`, then `npm install` in `backend\` |
 | Every later day | **`start-aurion.cmd`** |
 | Stop | **`stop-aurion.cmd`** |
 
-`windows-app\installer\install-aurion.cmd` downloads and silently installs **Python 3.12** and **Node.js 18+** (22 LTS or 26) if they are missing (winget first, else official python.org / nodejs.org), then `pip` + `npm`, copies `AurionBridge.mq5` **1.17** into every local `MQL5\Experts\Aurion`, opens the Private-network firewall for port **8080**, and launches the desk.
-
-`start-aurion.cmd` calls the same installer automatically when a prerequisite is missing, waits for `/api/health` before opening the browser, and runs engine + desk **hidden**. Logs live inside the dashboard (**Terminal**).
+`start-aurion.cmd` checks the prerequisites, waits for `/api/health` before opening the browser, and runs engine + desk **hidden**. Logs live inside the dashboard (**Terminal**).
 
 Python must be **3.10, 3.11 or 3.12** (3.12 preferred). **Never 3.13 or 3.14** — `engine/main.py` exits on them and `numpy==1.26.4` has no 3.13 wheels. Node **18 to 30** is fine, including **26**.
 
 Desk: `http://127.0.0.1:8080`  
-Install guide (FA / EN / AR): `http://127.0.0.1:8080/guide-install.html`
 
 First launch creates the administrator. There is no factory password.
 
@@ -87,7 +83,6 @@ WebRequest is optional. If you want HTTP too, allow-list:
 
 Interactive three-language guides inside the desk:
 
-- `/guide-install.html` — Windows install
 - `/guide.html` — how the robot trades
 - `/guide-backtest.html` — backtest
 
@@ -102,9 +97,8 @@ guides ship inside the desk as `apps/web/guide*.html`):
 | User manual | — | [docs/ar/04-user-manual.md](docs/ar/04-user-manual.md) |
 | Advanced | — | [docs/ar/05-advanced.md](docs/ar/05-advanced.md) |
 
-Windows app and store documentation moved with the code:
-[`windows-app/docs/`](windows-app/README.md), [`admin/`](admin/README.md),
-[`store/`](store/README.md).
+Store and admin documentation:
+[`admin/`](admin/README.md), [`store/`](store/README.md).
 
 ## Windows only
 

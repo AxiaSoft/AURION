@@ -624,8 +624,7 @@
   },
   "guide": {
     "open": "Full guide",
-    "backtest": "Backtest guide",
-    "install": "Windows install"
+    "backtest": "Backtest guide"
   },
   "host": {
     "system": "System",

@@ -130,7 +130,7 @@ function slimState(data) {
   };
 }
 
-// Windows MSIs (electron-builder) ship installed files read-only, which
+// Some installers ship config files read-only, which
 // makes renameSync() over an existing file fail with EPERM and
 // writeFileSync() onto it fail the same way. Clearing the bit first is the
 // fix; no-op on POSIX and when the target does not exist yet.

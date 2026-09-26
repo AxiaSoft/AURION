@@ -21,7 +21,7 @@ REM ---------------------------------------------------------------------------
 REM Prerequisites.
 REM engine\main.py aborts on CPython 3.13+ and numpy 1.26.4 has no 3.13 wheels,
 REM so only 3.10 / 3.11 / 3.12 are accepted - 3.12 first, because that is what
-REM the installer puts on a clean machine.
+REM the supported baseline.
 REM ---------------------------------------------------------------------------
 call :FINDPY
 if not defined PYCMD goto :NEEDINSTALL
@@ -33,19 +33,11 @@ if not exist "backend\node_modules\express" goto :NEEDINSTALL
 goto :LAUNCH
 
 :NEEDINSTALL
-echo Prerequisites missing or incomplete. Running the installer...
+echo Prerequisites missing or incomplete.
 echo.
-powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0windows-app\installer\install-windows.ps1"
-if errorlevel 1 goto :INSTALLFAIL
-call :REFRESHPATH
-call :FINDPY
-if not defined PYCMD goto :INSTALLFAIL
-goto :LAUNCH
-
-:INSTALLFAIL
-echo.
-echo Installer failed. Double-click windows-app\installer\install-aurion.cmd and read the log.
-echo Guide: apps\web\guide-install.html
+echo Install Python 3.10 / 3.11 / 3.12 (never 3.13 / 3.14) and Node.js 18+.
+echo Then run:  pip install -r engine\requirements.txt
+echo And:       cd backend ^&^& npm install
 echo.
 pause
 exit /b 1
@@ -77,7 +69,6 @@ start "" "http://127.0.0.1:8080"
 
 echo.
 echo   Desk    http://127.0.0.1:8080
-echo   Guide   http://127.0.0.1:8080/guide-install.html
 echo   Engine  127.0.0.1:18765
 echo   EA      file inbox + HTTP on 127.0.0.1:18765
 echo   Python  %PYCMD%

@@ -289,4 +289,4 @@ GET /api/license → { data: { plan, premium, expires, features, locked } }
 
 ---
 
-**پایان راهنمای کلید ادمین — برای راهنمای نصب ویندوز به `WINDOWS-APP-GUIDE.md` مراجعه کنید.**
+**پایان راهنمای کلید ادمین.**
