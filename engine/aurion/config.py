@@ -116,7 +116,7 @@ def load(force: bool = False) -> dict[str, Any]:
 def clear_readonly(path: Path) -> None:
     """Clear the read-only bit on an existing file so it can be overwritten.
 
-    Windows MSIs (electron-builder) ship installed files with the read-only
+    Some installers ship installed files with the read-only
     attribute, which makes ``os.replace()`` die with WinError 5 and
     ``open(path, "w")`` with PermissionError on every save. Clearing the bit
     before writing is the fix; no-op on POSIX and when the file is missing.

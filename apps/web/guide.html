@@ -60,7 +60,7 @@
         <button type="button" data-lang="ar">العربية</button>
       </div>
     </header>
-    <p class="lede" style="margin:0 0 14px"><a href="/guide-install.html">نصب ویندوز</a> · <a href="/guide-backtest.html">راهنمای بک‌تست</a></p>
+    <p class="lede" style="margin:0 0 14px"><a href="/guide-backtest.html">راهنمای بک‌تست</a></p>
     <nav class="toc" id="toc"></nav>
 
     <article id="doc-fa" class="on" lang="fa" dir="rtl">
@@ -203,11 +203,11 @@
       <h2 id="fa-10">۱۰. نصب ویندوز</h2>
       <ol>
         <li>کل پوشه را در <code>D:\\aurion</code> بگذارید (نه تو در تو).</li>
-        <li>اولین بار <code>install-aurion.cmd</code> — پایتون ۳.۱۲ و Node LTS اگر نباشند <b>خودشان دانلود و نصب می‌شوند</b>، بعد pip و npm و کپی EA ۱.۱۷.</li>
+        <li>اولین بار: پایتون ۳.۱۰ تا ۳.۱۲ (هرگز ۳.۱۳/۳.۱۴) و Node.js 18+ را نصب کنید، بعد <code>pip install -r engine\requirements.txt</code> و <code>npm install</code>.</li>
         <li>فقط <b>پایتون ۳.۱۲</b> — <code>py -3.12</code>. نه ۳.۱۳ و نه ۳.۱۴. Node ۲۶ مجاز است.</li>
         <li>NumPy باید <code>1.26.4</code> باشد.</li>
         <li>روزانه <code>start-aurion.cmd</code> — موتور و میز مخفی؛ مرورگر <code>http://127.0.0.1:8080</code>. اگر پیش‌نیاز ناقص باشد همان نصب‌کننده صدا زده می‌شود.</li>
-        <li>توقف: <code>stop-aurion.cmd</code>. راهنمای کامل نصب: <a href="/guide-install.html">guide-install.html</a>.</li>
+        <li>توقف: <code>stop-aurion.cmd</code>.</li>
       </ol>
 
       <h2 id="fa-11">۱۱. اتصال MetaTrader و EA ۱.۱۷</h2>
@@ -364,11 +364,11 @@
       <h2 id="en-10">10. Windows install</h2>
       <ol>
         <li>Copy the tree to <code>D:\\aurion</code>.</li>
-        <li>First time: <code>install-aurion.cmd</code> — missing Python 3.12 / Node LTS are <b>downloaded and installed</b>, then pip, npm, and EA 1.17 copy.</li>
+        <li>First time: install Python 3.10-3.12 (never 3.13/3.14) and Node.js 18+, then <code>pip install -r engine\requirements.txt</code> and <code>npm install</code>.</li>
         <li><b>Python 3.12</b> only: <code>py -3.12</code>. Not 3.13 / 3.14. Node 26 is OK.</li>
         <li>NumPy <code>1.26.4</code>.</li>
         <li>Daily: <code>start-aurion.cmd</code> — hidden engine + desk, browser on <code>http://127.0.0.1:8080</code>. Missing prerequisites call the same installer.</li>
-        <li>Stop with <code>stop-aurion.cmd</code>. Full install guide: <a href="/guide-install.html">guide-install.html</a>.</li>
+        <li>Stop with <code>stop-aurion.cmd</code>.</li>
       </ol>
 
       <h2 id="en-11">11. MetaTrader + EA 1.17</h2>
@@ -479,7 +479,7 @@
 
       <h2 id="ar-7">٧. التثبيت والميتاتريدر</h2>
       <ol>
-        <li><code>D:\\aurion</code> ثم <code>install-aurion.cmd</code> (ينزّل Python 3.12 وNode LTS إن نقصا) ثم يومياً <code>start-aurion.cmd</code>. الدليل: <a href="/guide-install.html">guide-install.html</a>.</li>
+        <li>انسخ إلى <code>D:\\aurion</code>، ثبّت Python 3.10-3.12 وNode.js 18+ يدوياً، ثم يومياً <code>start-aurion.cmd</code>.</li>
         <li>جمّع AurionBridge <b>1.17</b> بـ F7. Experts: <code>hello delivered v1.17</code> أو كتابة الملف المشترك. WebRequest اختياري.</li>
         <li>AutoTrading على المنصة والرسم يجب أن يكون شغّالاً.</li>
       </ol>

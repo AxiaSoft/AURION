@@ -8,7 +8,7 @@ Copy both files into the terminal data folder:
   AurionBridge.mq5        required on every chart you want on the desk
   AurionChartAgent.mq5    optional alias (pointer only — compile AurionBridge)
 
-On Windows, install-aurion.cmd and start-aurion.cmd already copy these
+On Windows, start-aurion.cmd already copies these
 into every local MQL5\Experts\Aurion folder.
 
 Then compile AurionBridge.mq5 in MetaEditor (F7). You must see version 1.17.
@@ -82,5 +82,3 @@ Windows MetaTrader 5 terminal. Two honest layouts:
     Orders still execute in the MT5 terminal that holds the EA,
     never on the Node desk and never on official MT5 mobile.
 
-Three-language install guide: apps\web\guide-install.html
-or http://127.0.0.1:8080/guide-install.html after the desk is up.

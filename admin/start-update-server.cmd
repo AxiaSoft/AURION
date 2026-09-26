@@ -18,7 +18,7 @@ if not exist "update-server\.env" (
 cd update-server
 where node >nul 2>nul
 if errorlevel 1 (
-  echo Node.js 18+ is required. Run windows-app\installer\install-aurion.cmd first.
+  echo Node.js 18+ is required. Install Node.js and try again.
   pause
   exit /b 1
 )
