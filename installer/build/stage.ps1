@@ -110,10 +110,20 @@ if ($SkipNpm) {
 } else {
     Say "npm ci --omit=dev  (production dependencies only)"
     Push-Location (Join-Path $appDir "backend")
+    # npm reports progress on stderr even when it succeeds. Merging that into
+    # the pipeline while $ErrorActionPreference is 'Stop' would abort the build
+    # on a perfectly good install, so native output is relaxed just here.
+    $previousEap = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
     try {
-        & npm ci --omit=dev --no-audit --no-fund 2>&1 | ForEach-Object { Write-Verbose $_ }
-        if ($LASTEXITCODE -ne 0) { throw "npm ci failed with exit code $LASTEXITCODE" }
-    } finally { Pop-Location }
+        & npm ci --omit=dev --no-audit --no-fund 2>&1 | ForEach-Object { Write-Verbose "$_" }
+        if ($LASTEXITCODE -ne 0) {
+            throw "npm ci failed with exit code $LASTEXITCODE. Run it by hand in $((Get-Location).Path) to see why."
+        }
+    } finally {
+        $ErrorActionPreference = $previousEap
+        Pop-Location
+    }
 
     # npm leaves caches and native build leftovers behind; they bloat the CAB
     # and are never needed at runtime.

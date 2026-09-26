@@ -41,6 +41,22 @@ automatically on the first build.
 powershell -ExecutionPolicy Bypass -File installer\build\build-msi.ps1
 ```
 
+No .NET SDK on the machine? Let the script install it for you — per-user, into
+`%LocalAppData%\Microsoft\dotnet`, with no administrator rights and no
+machine-wide change:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File installer\build\build-msi.ps1 -InstallDotnet
+```
+
+> The .NET **Runtime** is not enough: WiX is an MSBuild SDK, and only the **SDK**
+> ships MSBuild. The script checks for a real SDK (`dotnet --list-sdks`) and also
+> looks in `%ProgramFiles%\dotnet` and `%LocalAppData%\Microsoft\dotnet`, so an
+> SDK that is installed but missing from `PATH` is still found.
+>
+> The first build needs internet access to restore the WiX toolset from
+> nuget.org. Later builds work offline from the NuGet cache.
+
 Output:
 
 ```
