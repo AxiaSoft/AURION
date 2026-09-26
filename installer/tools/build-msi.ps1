@@ -64,7 +64,7 @@ function Step([string] $text) {
 
 # Bumped whenever this script changes, so a stale copy is obvious at a glance
 # instead of failing with a confusing parameter error.
-$ScriptRevision = "9"
+$ScriptRevision = "10"
 
 Write-Host ""
 Write-Host "  AURION installer build" -ForegroundColor White
@@ -203,16 +203,25 @@ $needAssets = @(@("aurion.ico", "banner.bmp", "dialog.bmp", "info.ico",
                 Where-Object { -not (Test-Path (Join-Path $assetsDir $_)) })
 
 if ($needAssets.Count -eq 0) {
-    Write-Host "  assets present (delete installer\assets\generated to rebuild them)" -ForegroundColor Gray
+    Write-Host "  assets present" -ForegroundColor Gray
 } else {
     $py = Get-Command py -ErrorAction SilentlyContinue
     if (-not $py) { $py = Get-Command python -ErrorAction SilentlyContinue }
     if (-not $py) {
-        throw "Missing assets: $($needAssets -join ', '). Install Python and run installer\assets\build-assets.py, or restore the files from source control."
+        throw ("Missing assets: {0}.`n" -f ($needAssets -join ', ')) +
+              "  These are committed to the repository, so the quickest fix is:`n" +
+              "      git checkout -- installer/assets/generated`n" +
+              "  To regenerate them instead you need Python with Pillow."
     }
     Write-Host "  generating from the application artwork" -ForegroundColor Gray
     & $py.Source (Join-Path $installerDir "assets\build-assets.py")
-    if ($LASTEXITCODE -ne 0) { throw "Asset generation failed. Try: pip install Pillow fonttools brotli" }
+    if ($LASTEXITCODE -ne 0) {
+        throw "Asset generation failed.`n" +
+              "  The generated assets are committed, so you normally do not need to build them:`n" +
+              "      git checkout -- installer/assets/generated`n" +
+              "  Only rebuild them after changing the branding, which needs:`n" +
+              "      pip install Pillow fonttools brotli"
+    }
 }
 
 # ---------------------------------------------------------------------------
