@@ -9,9 +9,16 @@ internal static class Program
     // the window that is already open instead of starting a second stack.
     private const string MutexName = @"Local\AxiaSoft.AURION.Window";
 
+    // Without an explicit AppUserModelID Windows groups the window under the
+    // generic host process and a pinned taskbar item can lose the AURION icon.
+    private const string AppUserModelId = "AxiaSoft.AURION.Desk";
+
     [STAThread]
     private static void Main()
     {
+        try { SetCurrentProcessExplicitAppUserModelID(AppUserModelId); }
+        catch { /* older Windows: the window icon is still correct */ }
+
         using var single = new Mutex(initiallyOwned: true, MutexName, out bool isFirst);
         if (!isFirst)
         {
@@ -47,4 +54,7 @@ internal static class Program
     [DllImport("user32.dll")] private static extern bool SetForegroundWindow(IntPtr hWnd);
     [DllImport("user32.dll")] private static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
     [DllImport("user32.dll")] private static extern bool IsIconic(IntPtr hWnd);
+
+    [DllImport("shell32.dll", CharSet = CharSet.Unicode, PreserveSig = false)]
+    private static extern void SetCurrentProcessExplicitAppUserModelID(string appId);
 }

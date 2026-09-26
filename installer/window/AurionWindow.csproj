@@ -49,4 +49,12 @@
     <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.2903.40" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- ApplicationIcon only sets the icon Explorer shows on the .exe. The
+         window and its taskbar button use Form.Icon, which defaults to the
+         stock WinForms icon unless we set it - so the same .ico is embedded
+         here and loaded at startup. -->
+    <EmbeddedResource Include="..\assets\generated\aurion.ico" LogicalName="AURION.ico" />
+  </ItemGroup>
+
 </Project>

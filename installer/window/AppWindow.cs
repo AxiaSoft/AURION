@@ -288,17 +288,35 @@ internal sealed class AppWindow : Form
         }
     }
 
-    private Icon? LoadIcon()
+    /// <summary>
+    /// The window icon, which is also what Windows shows on the taskbar button
+    /// and in Alt+Tab. Form.Icon does NOT inherit the executable's icon, so
+    /// leaving it unset gives the stock WinForms placeholder.
+    /// </summary>
+    private static Icon? LoadIcon()
     {
+        // The .ico carries 256/128/64/48/32/24/16 frames, so Windows can pick
+        // the right one for the taskbar, the title bar and the task switcher.
         try
         {
-            var ico = Path.Combine(_installDir, "AURION.ico");
-            if (File.Exists(ico)) return new Icon(ico);
+            using var stream = typeof(AppWindow).Assembly.GetManifestResourceStream("AURION.ico");
+            if (stream is not null) return new Icon(stream);
         }
         catch
         {
-            // Falls back to the icon compiled into the executable.
+            // fall through to the executable's own icon
         }
+
+        try
+        {
+            var exe = Environment.ProcessPath;
+            if (exe is not null) return Icon.ExtractAssociatedIcon(exe);
+        }
+        catch
+        {
+            // Last resort: WinForms default. Never fail to open over an icon.
+        }
+
         return null;
     }
 }
