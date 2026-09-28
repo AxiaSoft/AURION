@@ -327,8 +327,8 @@ html[data-skin="clay"]{
   --sk-btn-radius:18px;
   --sk-blur:none;
 
-  --sk-surface:linear-gradient(180deg, var(--clay-body-hi), var(--clay-body));
-  --sk-surface-2:linear-gradient(180deg, rgb(var(--s5)), rgb(var(--s3)));
+  --sk-surface:linear-gradient(180deg, rgb(var(--s9) / .94), rgb(var(--s7) / .94));
+  --sk-surface-2:linear-gradient(180deg, rgb(var(--s5) / .92), rgb(var(--s3) / .92));
   --sk-edge:0;
 
   /* top light, bottom thickness, one soft cast. Nothing else. */
@@ -421,7 +421,10 @@ html[data-skin="clay"] .switch.on{
   box-shadow:inset 0 3px 7px -2px var(--clay-sink);
 }
 
-html[data-skin="clay"] .nav button{ border-radius:16px; margin-inline:6px }
+/* Padding, not margin: a horizontal margin on a full-width button pushes the
+   content past the rail and hands it a sideways scrollbar. */
+html[data-skin="clay"] .nav{ padding-inline:14px }
+html[data-skin="clay"] .nav button{ border-radius:16px; margin-inline:0; max-width:100% }
 html[data-skin="clay"] .nav button.on{
   background:color-mix(in srgb, var(--accent) 16%, transparent);
   box-shadow:inset 0 1px 0 rgb(var(--wash) / .07), inset 0 -5px 9px -6px var(--clay-dip);
@@ -451,14 +454,14 @@ html[data-skin="clay"] tbody tr:hover{
    so this skin flattens the wallpaper on purpose. Nothing has a border; every
    edge is two shadows, one light and one dark, from a single light source. */
 html[data-skin="neu"]{
-  --sk-scrim:rgb(var(--s5) / .62);
+  --sk-scrim:rgb(var(--s5) / .34);
   --sk-r:22px;
   --sk-r-sm:16px;
   --sk-btn-radius:16px;
   --sk-blur:none;
   --sk-page:rgb(var(--s5));
-  --sk-surface:rgb(var(--s5));
-  --sk-surface-2:rgb(var(--s5));
+  --sk-surface:rgb(var(--s5) / .96);
+  --sk-surface-2:rgb(var(--s5) / .94);
   --sk-edge:0;
   --sk-shadow:10px 10px 24px rgba(0,0,0,.55), -10px -10px 24px rgb(var(--wash) / .05);
   --sk-shadow-hover:14px 14px 30px rgba(0,0,0,.6), -14px -14px 30px rgb(var(--wash) / .06);
@@ -498,7 +501,8 @@ html[data-skin="neu"] .switch{
   box-shadow:inset 4px 4px 10px rgba(0,0,0,.55), inset -4px -4px 10px rgb(var(--wash) / .04);
 }
 html[data-skin="neu"] .switch i{ box-shadow:2px 2px 5px rgba(0,0,0,.5) }
-html[data-skin="neu"] .nav button{ border-radius:16px; margin-inline:8px }
+html[data-skin="neu"] .nav{ padding-inline:16px }
+html[data-skin="neu"] .nav button{ border-radius:16px; margin-inline:0; max-width:100% }
 html[data-skin="neu"] .nav button.on{
   background:rgb(var(--s5));
   box-shadow:inset 5px 5px 12px rgba(0,0,0,.5), inset -5px -5px 12px rgb(var(--wash) / .04);
@@ -539,7 +543,7 @@ html[data-skin="skeu"]{
   --sk-surface:
     linear-gradient(180deg, rgb(var(--wash) / .09), transparent 38%),
     repeating-linear-gradient(90deg, rgb(var(--wash) / .014) 0 1px, transparent 1px 3px),
-    linear-gradient(180deg, rgb(var(--s7)), rgb(var(--s2)));
+    linear-gradient(180deg, rgb(var(--s7) / .94), rgb(var(--s2) / .94));
   --sk-surface-2:
     linear-gradient(180deg, rgb(var(--wash) / .10), transparent 40%),
     linear-gradient(180deg, rgb(var(--s5)), rgb(var(--s1)));
@@ -597,14 +601,14 @@ html[data-skin="skeu"] table th{
    block of accent. Denser spacing and tighter type, because minimal is about
    information density as much as decoration. */
 html[data-skin="minimal"]{
-  --sk-scrim:rgb(var(--s1) / .55);
+  --sk-scrim:rgb(var(--s1) / .30);
   --sk-r:4px;
   --sk-r-sm:3px;
   --sk-btn-radius:3px;
   --sk-blur:none;
   --sk-page:rgb(var(--s1));
-  --sk-surface:rgb(var(--s2));
-  --sk-surface-2:rgb(var(--s1));
+  --sk-surface:rgb(var(--s2) / .92);
+  --sk-surface-2:rgb(var(--s1) / .90);
   --sk-edge:1px solid rgb(var(--wash) / .12);
   --sk-shadow:none;
   --sk-shadow-hover:none;
@@ -807,29 +811,8 @@ table tbody tr,
    colour input inside it, so the browser's own swatch was clipped off-centre.
    The circle now paints the picked colour itself and the input is an invisible
    hit target stretched across it. */
-.accent-custom{
-  position:relative;
-  width:32px; height:32px; border-radius:50%;
-  background:var(--picked, var(--accent));
-  border:2px dashed rgb(var(--wash) / .75);
-  cursor:pointer;
-  display:inline-flex; align-items:center; justify-content:center;
-  overflow:hidden;
-  box-shadow:0 4px 12px rgba(0,0,0,.35);
-  transition:transform .2s var(--ease), border-color .2s;
-}
-.accent-custom::after{
-  content:"";
-  position:absolute; inset:0;
-  background:linear-gradient(135deg, rgb(var(--wash) / .35), transparent 55%);
-  pointer-events:none;
-}
-.accent-custom:hover{ transform:scale(1.1); border-color:var(--ink) }
-.accent-custom input[type="color"]{
-  position:absolute; inset:0;
-  width:100%; height:100%;
-  opacity:0; border:0; padding:0; margin:0; background:none; cursor:pointer;
-}
+/* Twenty swatches wrap onto as many rows as they need. */
+.accent-row{ max-width:520px }
 
 /* Wallpaper tiles. A name is not a preview, so every option shows its own
    picture; only the user's own image carries a remove control, in its corner. */

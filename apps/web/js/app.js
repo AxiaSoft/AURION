@@ -325,8 +325,6 @@ function appearanceCardsHtml() {
   const accent = AurionSkin.getAccent();
   const bg = AurionSkin.getBackground();
   const perf = AurionSkin.getPerfMode();
-  const custom = /^#[0-9a-fA-F]{6}$/.test(accent) ? accent : AurionSkin.accentTriplet(accent)[0];
-
   const skins = AurionSkin.SKINS.map((id) =>
     `<button type="button" data-skinbtn="${id}" class="${id === skin ? "on" : ""}">${skinLabel(id)}</button>`).join("");
 
@@ -379,13 +377,7 @@ function appearanceCardsHtml() {
 
       <div class="card" style="margin-top:14px">
         <p class="sub" style="margin:0 0 6px">${I18N.t("settings.accent")}</p>
-        <div class="accent-row" id="set-accents">
-          ${swatches}
-          <label class="accent-custom" title="${I18N.t("settings.accent_custom")}"
-                 style="--picked:${custom}">
-            <input type="color" id="set-accent-custom" value="${custom}" aria-label="${I18N.t("settings.accent_custom")}" />
-          </label>
-        </div>
+        <div class="accent-row" id="set-accents">${swatches}</div>
         <p class="sub" style="margin:8px 0 0">${I18N.t("settings.accent_hint")}</p>
       </div>
 
@@ -447,9 +439,6 @@ function markAppearancePills() {
   const now = $("set-perf-now");
   if (now) now.textContent = perfNowLabel();
   syncGlassRow();
-  const swatch = document.querySelector(".accent-custom");
-  const picker = $("set-accent-custom");
-  if (swatch && picker) swatch.style.setProperty("--picked", picker.value);
 }
 
 function bindAppearance() {
@@ -468,13 +457,6 @@ function bindAppearance() {
   if (accents) accents.onclick = (e) => {
     const b = e.target.closest("[data-accent]"); if (!b) return;
     AurionSkin.setAccent(b.dataset.accent);
-    markAppearancePills();
-    repaintChartsForTheme();
-  };
-
-  const custom = $("set-accent-custom");
-  if (custom) custom.oninput = () => {
-    AurionSkin.setAccent(custom.value);
     markAppearancePills();
     repaintChartsForTheme();
   };
@@ -623,7 +605,13 @@ function setMenu(open) {
     btn.setAttribute("aria-label", I18N.t("common.menu"));
   }
   if (scrim) scrim.hidden = !on;
-  if (nav) nav.setAttribute("aria-hidden", isCompactNav() && !on ? "true" : "false");
+  if (nav) {
+    nav.setAttribute("aria-hidden", isCompactNav() && !on ? "true" : "false");
+    // Open at the top. On a phone the rail keeps its scroll position while it
+    // is off-screen, so the next tap on the menu would reveal it half-way down
+    // a list the user never scrolled.
+    if (on) nav.scrollTop = 0;
+  }
 }
 
 function closeAllDropdowns() {
@@ -1676,7 +1664,12 @@ function toggleHdrDrawer(force) {
   dr.hidden = !open;
   btn.classList.toggle("open", open);
   btn.setAttribute("aria-expanded", open ? "true" : "false");
-  if (open) dr.innerHTML = hdrDrawerHtml();
+  if (open) {
+    dr.innerHTML = hdrDrawerHtml();
+    // A drawer that reopens where it was last scrolled looks broken on a phone:
+    // you tap the menu and land in the middle of a list you have never seen.
+    dr.scrollTop = 0;
+  }
 }
 
 function accTypeLabel(kind) {

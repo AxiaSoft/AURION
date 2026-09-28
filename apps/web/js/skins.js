@@ -22,13 +22,34 @@
 
   // Presets are (base, mid, third, ink). The first one is the original palette,
   // which is what an untouched install keeps.
+  // Twenty curated accents. A free colour picker was offered first and removed:
+  // most hand-picked values land somewhere that fights the dark surfaces or
+  // goes muddy in the light theme, and every one of them still has to pass the
+  // readability pass below. A fixed set can be tuned once and trusted.
+  //
+  // Each entry is [base, mid, third] - the mid and third stops build gradients.
+  // The readable foreground is never stored here; it is derived from the base.
   var ACCENTS = {
-    aurora:  ["#3ee0c4", "#2bb8c9", "#7c6cff", "#061014"],
-    violet:  ["#8b7bff", "#6c5ce7", "#c16cff", "#0b0714"],
-    amber:   ["#e8c07a", "#d79a3c", "#ff9f6b", "#1a1206"],
-    rose:    ["#ff7d9c", "#e94f75", "#ff9f6b", "#1d0a11"],
-    azure:   ["#4cc9f0", "#3a86ff", "#7c6cff", "#04101a"],
-    lime:    ["#9ee493", "#5fbb63", "#3ee0c4", "#06140a"],
+    aurora:    ["#3ee0c4", "#2bb8c9", "#7c6cff"],
+    teal:      ["#2ec4b6", "#1b9aaa", "#3ee0c4"],
+    emerald:   ["#34d399", "#10b981", "#3ee0c4"],
+    lime:      ["#a3e635", "#65a30d", "#34d399"],
+    citrus:    ["#facc15", "#eab308", "#f97316"],
+    amber:     ["#e8c07a", "#d79a3c", "#ff9f6b"],
+    sunset:    ["#fb923c", "#ea580c", "#f43f5e"],
+    coral:     ["#ff8a65", "#f4511e", "#ff4081"],
+    rose:      ["#ff7d9c", "#e94f75", "#ff9f6b"],
+    crimson:   ["#f43f5e", "#be123c", "#fb7185"],
+    magenta:   ["#e879f9", "#c026d3", "#7c6cff"],
+    orchid:    ["#c084fc", "#9333ea", "#e879f9"],
+    violet:    ["#8b7bff", "#6c5ce7", "#c16cff"],
+    indigo:    ["#818cf8", "#4f46e5", "#8b7bff"],
+    azure:     ["#4cc9f0", "#3a86ff", "#7c6cff"],
+    sky:       ["#38bdf8", "#0284c7", "#4cc9f0"],
+    ice:       ["#a5f3fc", "#22d3ee", "#93c5fd"],
+    steel:     ["#94a3b8", "#475569", "#64748b"],
+    sand:      ["#d6c7a1", "#a1874e", "#e8c07a"],
+    graphite:  ["#cbd5e1", "#64748b", "#94a3b8"],
   };
 
   // A custom wallpaper is stored as a data URL. Browsers give the whole origin
@@ -80,15 +101,6 @@
 
   /* --------------------------------------------------------------- accent */
 
-  function normaliseHex(value) {
-    if (typeof value !== "string") return null;
-    var v = value.trim();
-    if (/^#[0-9a-fA-F]{3}$/.test(v)) {
-      return "#" + v[1] + v[1] + v[2] + v[2] + v[3] + v[3];
-    }
-    return /^#[0-9a-fA-F]{6}$/.test(v) ? v.toLowerCase() : null;
-  }
-
   function mix(hex, other, weight) {
     var a = parseInt(hex.slice(1), 16);
     var b = parseInt(other.slice(1), 16);
@@ -137,35 +149,45 @@
     return hex;
   }
 
-  /** Foreground for text sitting ON the accent, by relative luminance.
-      0.45 is where a mid-tone stops being readable with light text. */
+  var INK_DARK = "#061014";
+  var INK_LIGHT = "#f5f8ff";
+
+  function contrastRatio(a, b) {
+    var hi = Math.max(a, b), lo = Math.min(a, b);
+    return (hi + 0.05) / (lo + 0.05);
+  }
+
+  /**
+   * Foreground for text sitting ON the accent.
+   *
+   * A fixed luminance threshold looked right and was not: a mid-tone like
+   * #38bdf8 sits almost exactly on any threshold you pick, and whichever side
+   * it falls on gives about 2:1 contrast - unreadable. So both candidates are
+   * measured and the better one wins, which is what the eye does anyway.
+   */
   function readableInk(hex) {
-    return luminance(hex) > 0.45 ? "#061014" : "#f5f8ff";
+    var lum = luminance(hex);
+    return contrastRatio(lum, luminance(INK_DARK)) >= contrastRatio(lum, luminance(INK_LIGHT))
+      ? INK_DARK : INK_LIGHT;
   }
 
   function accentTriplet(value) {
-    // The ink is always derived, never taken from the preset table: the rule
-    // "dark text on a light accent, light text on a dark one" has to hold for
-    // a colour the user invents as much as for one we shipped.
-    if (ACCENTS[value]) {
-      var preset = ACCENTS[value];
-      return [preset[0], preset[1], preset[2], readableInk(preset[0])];
-    }
-    var hex = normaliseHex(value);
-    if (!hex) return ACCENTS.aurora;
-    // A custom colour only gives us one hue, so the gradient is derived from it:
-    // a slightly deeper mid tone and a hue-shifted third stop.
-    return [hex, mix(hex, "#000000", 0.22), mix(hex, "#7c6cff", 0.55), readableInk(hex)];
+    var preset = ACCENTS[value] || ACCENTS.aurora;
+    // The ink is always derived - "dark text on a light accent, light text on
+    // a dark one" has to hold for every entry, not be maintained by hand.
+    return [preset[0], preset[1], preset[2], readableInk(preset[0])];
   }
 
-  function getAccent() { return read(LS.accent, "aurora"); }
+  function getAccent() {
+    var v = read(LS.accent, "aurora");
+    return ACCENTS[v] ? v : "aurora";
+  }
 
   function setAccent(value) {
-    var ok = ACCENTS[value] ? value : normaliseHex(value);
-    if (!ok) return getAccent();
-    write(LS.accent, ok);
+    if (!ACCENTS[value]) return getAccent();
+    write(LS.accent, value);
     apply();
-    return ok;
+    return value;
   }
 
   /* ------------------------------------------------------------ wallpaper */
