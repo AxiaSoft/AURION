@@ -87,6 +87,42 @@ function sessionsAt(date) {
   return MARKET_SESSIONS.filter((s) => sessionCovers(s, h));
 }
 
+
+/**
+ * Which sessions open between one bar and the next.
+ *
+ * The open has to be marked on the candle where it actually happens, so this
+ * compares two consecutive bar timestamps rather than asking "is it open now".
+ * Two cases it has to survive: a gap in the data - a weekend, or a missing
+ * hour - where a whole session may have opened between two bars, and the
+ * midnight wrap, where the hour number goes down instead of up.
+ */
+function sessionOpensBetween(prev, next) {
+  if (!(prev instanceof Date) || !(next instanceof Date)) return [];
+  if (isNaN(prev.getTime()) || isNaN(next.getTime())) return [];
+  const gapHours = (next.getTime() - prev.getTime()) / 3600000;
+  if (gapHours <= 0) return [];
+  // A gap of a day or more means every session opened in it; marking them all
+  // on one candle would be noise, so the gap itself is left unmarked.
+  if (gapHours >= 24) return [];
+
+  return MARKET_SESSIONS.filter((s) => {
+    const was = sessionCovers(s, prev.getUTCHours() + prev.getUTCMinutes() / 60);
+    const now = sessionCovers(s, next.getUTCHours() + next.getUTCMinutes() / 60);
+    if (!was && now) return true;
+    // On a coarse timeframe a session can open and the bar still land inside
+    // it later; walk the hours in between so a 4H candle still shows the open.
+    if (gapHours > 1) {
+      for (let h = 1; h < gapHours; h++) {
+        const at = new Date(prev.getTime() + h * 3600000);
+        const before = new Date(at.getTime() - 3600000);
+        if (!sessionCovers(s, before.getUTCHours()) && sessionCovers(s, at.getUTCHours())) return true;
+      }
+    }
+    return false;
+  });
+}
+
 class CandleChart {
   constructor(canvas, opts) {
     this.canvas = canvas;
@@ -220,6 +256,42 @@ class CandleChart {
         ctx.fillStyle = `rgba(${s.tint[0]},${s.tint[1]},${s.tint[2]},0.06)`;
         ctx.fillRect(x, L.plotT, L.bw + 0.5, L.plotB - L.plotT);
       }
+    }
+
+    // The open itself, on the candle where it happens. The band says a session
+    // is running; this says exactly when it started, which is the bar traders
+    // actually mark up.
+    ctx.font = "10px IBM Plex Mono, Vazirmatn, monospace";
+    for (let i = 1; i < rows.length; i++) {
+      const prevAt = new Date(rows[i - 1].time || rows[i - 1].ts || 0);
+      const at = new Date(rows[i].time || rows[i].ts || 0);
+      const opens = sessionOpensBetween(prevAt, at);
+      if (!opens.length) continue;
+
+      const x = Math.round(L.xOf(i) - L.bw / 2) + 0.5;
+      opens.forEach((s, n) => {
+        const tint = `rgb(${s.tint[0]},${s.tint[1]},${s.tint[2]})`;
+        ctx.strokeStyle = tint;
+        ctx.setLineDash([3, 3]);
+        ctx.lineWidth = 1.2;
+        ctx.beginPath();
+        ctx.moveTo(x, L.plotT);
+        ctx.lineTo(x, L.plotB);
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        // A flag at the bottom, stacked when two centres open on one candle.
+        const label = `${s.label} ${String(s.open).padStart(2, "0")}:00`;
+        const tw = ctx.measureText(label).width + 10;
+        const ly = L.plotB - 16 - n * 15;
+        const lx = Math.min(x + 3, L.plotR - tw - 2);
+        ctx.fillStyle = tint;
+        ctx.globalAlpha = 0.9;
+        ctx.fillRect(lx, ly, tw, 13);
+        ctx.globalAlpha = 1;
+        ctx.fillStyle = "#06070b";
+        ctx.fillText(label, lx + 5, ly + 10);
+      });
     }
     ctx.restore();
 
@@ -1114,5 +1186,5 @@ class CandleChart {
 }
 
 if (typeof module !== "undefined" && module.exports) {
-  module.exports = { MARKET_SESSIONS, sessionCovers, sessionsAt };
+  module.exports = { MARKET_SESSIONS, sessionCovers, sessionsAt, sessionOpensBetween };
 }
