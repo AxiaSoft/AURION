@@ -257,7 +257,29 @@ html[data-skin]:not([data-skin="glass"]) .st-card,
 html[data-skin]:not([data-skin="glass"]) .kpi,
 html[data-skin]:not([data-skin="glass"]) .chart-ticket,
 html[data-skin]:not([data-skin="glass"]) .cal-tip,
-html[data-skin]:not([data-skin="glass"]) .set-jump{
+html[data-skin]:not([data-skin="glass"]) .set-jump,
+html[data-skin]:not([data-skin="glass"]) .robot-card,
+html[data-skin]:not([data-skin="glass"]) .pay-card,
+html[data-skin]:not([data-skin="glass"]) .notify-card,
+html[data-skin]:not([data-skin="glass"]) .toast,
+html[data-skin]:not([data-skin="glass"]) .sym-panel,
+html[data-skin]:not([data-skin="glass"]) .cal-side,
+html[data-skin]:not([data-skin="glass"]) .cal-legend,
+html[data-skin]:not([data-skin="glass"]) .chart-card,
+html[data-skin]:not([data-skin="glass"]) .prof-hero,
+html[data-skin]:not([data-skin="glass"]) .up-hero,
+html[data-skin]:not([data-skin="glass"]) .st-up-hero,
+html[data-skin]:not([data-skin="glass"]) .ai-hero,
+html[data-skin]:not([data-skin="glass"]) .secret-box,
+html[data-skin]:not([data-skin="glass"]) .manual-box,
+html[data-skin]:not([data-skin="glass"]) .danger-zone,
+html[data-skin]:not([data-skin="glass"]) .gate-card,
+html[data-skin]:not([data-skin="glass"]) .wizard,
+html[data-skin]:not([data-skin="glass"]) .tape-banner,
+html[data-skin]:not([data-skin="glass"]) .outlook-banner,
+html[data-skin]:not([data-skin="glass"]) .auto-banner,
+html[data-skin]:not([data-skin="glass"]) .lic-banner,
+html[data-skin]:not([data-skin="glass"]) .hdr-drawer{
   background:var(--sk-surface);
   border:var(--sk-edge);
   border-radius:var(--sk-r);
@@ -993,3 +1015,212 @@ html[data-skin="clay"] .switch.on:hover{ background:color-mix(in srgb, var(--acc
 /* The calendar's chosen day is a selection too. */
 html .cal-cell.sel:hover,
 html .cal-cell.pinned:hover{ border-color:var(--accent); transform:none }
+
+/* ===========================================================================
+   15. Full coverage
+   ===========================================================================
+   The surfaces that are not cards: the sign-in screen, small controls, the
+   terminal, tables, the calendar and every kind of badge. Left on the glass
+   rules, these are the places where a skin used to stop halfway. */
+
+/* --- sign-in ------------------------------------------------------------ */
+html[data-skin]:not([data-skin="glass"]) .auth-card{ padding:26px }
+html[data-skin]:not([data-skin="glass"]) .auth-logo-slot,
+html[data-skin]:not([data-skin="glass"]) .prof-ava,
+html[data-skin]:not([data-skin="glass"]) .gate-badge,
+html[data-skin]:not([data-skin="glass"]) .up-badge{
+  border-radius:var(--sk-r-sm);
+  box-shadow:var(--sk-chip-shadow, none);
+}
+html[data-skin="clay"] .auth-logo-slot,
+html[data-skin="clay"] .prof-ava{ border-radius:26px }
+html[data-skin="minimal"] .auth-logo-slot,
+html[data-skin="minimal"] .prof-ava{ border-radius:4px }
+
+/* --- small controls ----------------------------------------------------- */
+html[data-skin]:not([data-skin="glass"]) .icon-btn,
+html[data-skin]:not([data-skin="glass"]) .menu-btn,
+html[data-skin]:not([data-skin="glass"]) .hdr-drawer-btn,
+html[data-skin]:not([data-skin="glass"]) .chart-nav button,
+html[data-skin]:not([data-skin="glass"]) .sym-btn,
+html[data-skin]:not([data-skin="glass"]) .cal-nav button{
+  border-radius:var(--sk-r-sm);
+  background:var(--sk-field);
+  border:var(--sk-field-edge);
+  box-shadow:var(--sk-chip-shadow, none);
+}
+html[data-skin]:not([data-skin="glass"]) .seg,
+html[data-skin]:not([data-skin="glass"]) .draw-tools,
+html[data-skin]:not([data-skin="glass"]) .chart-work-bar,
+html[data-skin]:not([data-skin="glass"]) .chart-signals-bar,
+html[data-skin]:not([data-skin="glass"]) .cal-bar{
+  background:var(--sk-field);
+  border:var(--sk-field-edge);
+  border-radius:var(--sk-r-sm);
+  box-shadow:var(--sk-field-shadow);
+}
+
+/* Sliders are a control in their own right and looked stock in every skin. */
+input[type=range]{ accent-color:var(--accent) }
+html[data-skin="clay"] input[type=range],
+html[data-skin="neu"] input[type=range]{
+  -webkit-appearance:none; appearance:none;
+  height:10px; border-radius:999px;
+  background:rgb(var(--s3));
+  box-shadow:inset 0 3px 7px -2px rgba(0,0,0,.45);
+}
+html[data-skin="clay"] input[type=range]::-webkit-slider-thumb,
+html[data-skin="neu"] input[type=range]::-webkit-slider-thumb{
+  -webkit-appearance:none; appearance:none;
+  width:22px; height:22px; border-radius:50%;
+  background:var(--accent);
+  border:0;
+  box-shadow:inset 0 2px 1px rgb(255 255 255 / .4), 0 4px 10px -3px rgba(0,0,0,.5);
+  cursor:pointer;
+}
+html[data-skin="minimal"] input[type=range]{
+  -webkit-appearance:none; appearance:none;
+  height:2px; background:rgb(var(--wash) / .18);
+}
+html[data-skin="minimal"] input[type=range]::-webkit-slider-thumb{
+  -webkit-appearance:none; appearance:none;
+  width:14px; height:14px; border-radius:2px;
+  background:var(--accent); border:0; cursor:pointer;
+}
+
+/* --- terminal, tables, code -------------------------------------------- */
+html[data-skin]:not([data-skin="glass"]) .term,
+html[data-skin]:not([data-skin="glass"]) .robot-term,
+html[data-skin]:not([data-skin="glass"]) .st-src,
+html[data-skin]:not([data-skin="glass"]) .tg-src{
+  background:var(--sk-field);
+  border:var(--sk-field-edge);
+  box-shadow:var(--sk-field-shadow);
+  border-radius:var(--sk-r-sm);
+}
+html[data-skin]:not([data-skin="glass"]) .table-wrap{ border-radius:var(--sk-r-sm); overflow:hidden }
+html[data-skin="minimal"] table th{ background:transparent }
+html[data-skin="neu"] table th{ color:var(--muted); border-bottom:0 }
+
+/* --- calendar ----------------------------------------------------------- */
+html[data-skin]:not([data-skin="glass"]) .cal-cell{
+  border-radius:var(--sk-r-sm);
+  background:var(--sk-field);
+  border:var(--sk-field-edge);
+}
+html[data-skin="clay"] .cal-cell{ box-shadow:inset 0 -4px 8px -4px rgba(0,0,0,.3) }
+html[data-skin="neu"] .cal-cell{ box-shadow:4px 4px 10px rgba(0,0,0,.4), -4px -4px 10px rgb(var(--wash) / .035); border:0 }
+html[data-skin="minimal"] .cal-cell{ border-radius:2px; box-shadow:none }
+html[data-skin="skeu"] .cal-cell{ box-shadow:inset 0 1px 0 rgb(var(--wash) / .10) }
+.cal-cell.sel{ border-color:var(--accent); box-shadow:0 0 0 1px var(--accent) }
+
+/* --- badges, chips, pills ----------------------------------------------- */
+html[data-skin]:not([data-skin="glass"]) .badge-ok,
+html[data-skin]:not([data-skin="glass"]) .badge-no,
+html[data-skin]:not([data-skin="glass"]) .badge-hint,
+html[data-skin]:not([data-skin="glass"]) .lvl-chip,
+html[data-skin]:not([data-skin="glass"]) .acc-type,
+html[data-skin]:not([data-skin="glass"]) .hdr-kpi{
+  border-radius:var(--sk-r-sm);
+  box-shadow:var(--sk-chip-shadow, none);
+}
+html[data-skin="minimal"] .badge-ok,
+html[data-skin="minimal"] .badge-no,
+html[data-skin="minimal"] .lvl-chip,
+html[data-skin="minimal"] .chip,
+html[data-skin="minimal"] .pill{
+  text-transform:uppercase;
+  letter-spacing:.06em;
+  font-size:10px;
+}
+
+/* --- plan and upgrade cards --------------------------------------------- */
+html[data-skin]:not([data-skin="glass"]) .plan-card{ border-radius:var(--sk-r) }
+html[data-skin="clay"] .plan-card.popular{
+  box-shadow:var(--sk-shadow), 0 0 0 2px color-mix(in srgb, var(--accent) 55%, transparent);
+}
+html[data-skin="minimal"] .plan-card.popular{ box-shadow:inset 0 0 0 1px var(--accent) }
+
+/* --- toasts ------------------------------------------------------------- */
+html[data-skin]:not([data-skin="glass"]) .toast{
+  border-radius:var(--sk-r-sm);
+  padding:12px 14px;
+}
+
+/* ===========================================================================
+   16. The signature of each material
+   ===========================================================================
+   One deliberate flourish per skin - the detail a person notices without
+   being able to name it. Kept here, together, so they stay in proportion to
+   one another instead of each skin growing its own pile of exceptions. */
+
+/* Glass: a single specular highlight sliding across the top of a panel. */
+html[data-skin="glass"] .card::after{
+  content:"";
+  position:absolute; inset:0 0 auto 0; height:40%;
+  background:linear-gradient(180deg, rgb(var(--wash) / .045), transparent);
+  pointer-events:none;
+}
+
+/* Clay: a soft inner rim, as if the surface were pressed from a mould. */
+html[data-skin="clay"] .card::after{
+  content:"";
+  position:absolute; inset:1px;
+  border-radius:inherit;
+  box-shadow:inset 0 0 0 1px rgb(var(--wash) / .045);
+  pointer-events:none;
+}
+
+/* Skeu: a hairline of light along the very top edge, like polished metal. */
+html[data-skin="skeu"] .card::after{
+  content:"";
+  position:absolute; inset:0 0 auto 0; height:1px;
+  background:linear-gradient(90deg, transparent, rgb(var(--wash) / .35) 20%,
+             rgb(var(--wash) / .35) 80%, transparent);
+  pointer-events:none;
+}
+
+/* Neu: nothing. The material is defined by the absence of edges, and adding
+   one here would undo it - the restraint is the signature. */
+
+/* Minimal: an accent rule on the leading edge of a heading. */
+html[data-skin="minimal"] .card h3{
+  padding-inline-start:10px;
+  border-inline-start:2px solid var(--accent);
+  line-height:1.2;
+}
+html[data-skin="minimal"] .card{ padding-top:16px }
+
+/* The last few real surfaces. Everything else left untouched by a skin is a
+   brand mark, a data dot or a chart glyph - those answer to the palette, not
+   to the material, and restyling them would be the kind of over-reach that
+   makes a theme look costumed. */
+html[data-skin]:not([data-skin="glass"]) .cal-ev,
+html[data-skin]:not([data-skin="glass"]) .slide-sym,
+html[data-skin]:not([data-skin="glass"]) .auth-modes,
+html[data-skin]:not([data-skin="glass"]) .st-drop-ico,
+html[data-skin]:not([data-skin="glass"]) .chart-text-pop{
+  border-radius:var(--sk-r-sm);
+  box-shadow:var(--sk-chip-shadow, none);
+}
+html[data-skin="minimal"] .cal-ev,
+html[data-skin="minimal"] .slide-sym{ border-radius:2px; box-shadow:none }
+html[data-skin="clay"] .cal-ev{ border-radius:12px }
+
+/* Progress bars and gauges read as inset channels in the moulded skins and as
+   flat rules in minimal. */
+html[data-skin="clay"] .bar,
+html[data-skin="neu"] .bar,
+html[data-skin="clay"] .gauge,
+html[data-skin="neu"] .gauge{
+  box-shadow:inset 0 3px 7px -2px rgba(0,0,0,.45);
+  border-radius:999px;
+  overflow:hidden;
+}
+html[data-skin="skeu"] .bar,
+html[data-skin="skeu"] .gauge{
+  box-shadow:inset 0 2px 5px rgba(0,0,0,.55), 0 1px 0 rgb(var(--wash) / .10);
+  border-radius:6px;
+}
+html[data-skin="minimal"] .bar,
+html[data-skin="minimal"] .gauge{ border-radius:0; box-shadow:none }
