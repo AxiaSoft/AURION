@@ -365,6 +365,152 @@ function repaintChartsForTheme() {
 
 /* Closes the pinned calendar day card, wherever we are. Safe to call when the
    calendar has never been opened. */
+/* ===========================================================================
+   Signal notifications
+   ===========================================================================
+   A signal is the one event a trader must not miss, and until now it only
+   changed a number on a panel they might not be looking at. It now announces
+   itself three ways, in order of how much attention it can command:
+
+     1. in the desk, as a card that says what to do and can open the chart;
+     2. on the Windows desktop, but only when the window cannot be seen -
+        a toast for something already on screen is just noise;
+     3. by raising the window when that toast is clicked.
+
+   The host (installer/window) provides the second and third; if the desk is
+   open in a plain browser instead, the first still works.
+   =========================================================================== */
+
+function signalLots(sig) {
+  const v = Number(sig.volume || sig.lots || sig.lot || 0);
+  return v > 0 ? v : null;
+}
+
+function signalPrice(sig, key) {
+  const v = Number(sig[key] || 0);
+  return v > 0 ? v : null;
+}
+
+/** The one-line summary used by the card, the toast and the log. */
+function signalHeadline(sig) {
+  const side = String(sig.action || sig.side || "").toLowerCase();
+  const verb = side === "sell" ? I18N.t("signal.sell") : I18N.t("signal.buy");
+  return `${verb} ${sig.symbol || ""}`.trim();
+}
+
+function signalDetail(sig) {
+  const bits = [];
+  const lots = signalLots(sig);
+  const sl = signalPrice(sig, "sl");
+  const tp = signalPrice(sig, "tp");
+  if (lots) bits.push(`${I18N.t("signal.lots")} ${fmt(lots, 2)}`);
+  if (sl) bits.push(`${I18N.t("signal.sl")} ${fmt(sl, 5)}`);
+  if (tp) bits.push(`${I18N.t("signal.tp")} ${fmt(tp, 5)}`);
+  if (sig.confidence) bits.push(`${I18N.t("signal.confidence")} ${Math.round(Number(sig.confidence) * 100)}%`);
+  return bits.join(" · ");
+}
+
+function announceSignal(sig) {
+  if (!sig || typeof sig !== "object") return;
+  const action = String(sig.action || sig.side || "").toLowerCase();
+  if (!["buy", "sell", "market"].includes(action)) return;
+
+  // The same signal can arrive twice - the bus republishes on reconnect - and
+  // a duplicate toast for a trade you already saw is worse than none.
+  const key = [sig.ts, sig.symbol, action, sig.volume, sig.sl, sig.tp].join("|");
+  if (S._lastSignalKey === key) return;
+  S._lastSignalKey = key;
+
+  pushSignalCard(sig);
+  if (documentHidden()) notifyHost(sig);
+}
+
+function documentHidden() {
+  try {
+    // The host tells us when its window is minimised; the Page Visibility API
+    // does not fire for a minimised WebView2, only for a hidden tab.
+    if (window.__aurionWindowHidden) return true;
+    return document.visibilityState === "hidden";
+  } catch (e) {
+    return false;
+  }
+}
+
+/** Hand the signal to the desktop host, which owns the Windows toast. */
+function notifyHost(sig) {
+  try {
+    const bridge = window.chrome && window.chrome.webview;
+    if (!bridge || typeof bridge.postMessage !== "function") return;
+    bridge.postMessage(JSON.stringify({
+      type: "signal",
+      title: signalHeadline(sig),
+      body: signalDetail(sig),
+      symbol: sig.symbol || "",
+      timeframe: sig.timeframe || S.timeframe || "",
+    }));
+  } catch (e) {
+    /* no host: the in-desk card is the whole notification */
+  }
+}
+
+function pushSignalCard(sig) {
+  const stack = $("notify-stack");
+  if (!stack) return;
+  const side = String(sig.action || sig.side || "").toLowerCase();
+  const id = "sig-" + (sig.ts || Date.now());
+  const card = document.createElement("article");
+  card.className = "notify-card signal-card " + (side === "sell" ? "is-sell" : "is-buy");
+  card.setAttribute("data-nid", id);
+  card.innerHTML =
+    `<button type="button" class="n-x" data-nx="${esc(id)}" aria-label="${esc(I18N.t("notify.dismiss"))}">×</button>` +
+    `<h4>${esc(signalHeadline(sig))}</h4>` +
+    `<p class="sub">${esc(signalDetail(sig) || I18N.t("signal.no_levels"))}</p>` +
+    `<button type="button" class="btn tiny" data-sig-open="${esc(sig.symbol || "")}"
+             data-sig-tf="${esc(sig.timeframe || "")}">${esc(I18N.t("signal.open_chart"))}</button>`;
+  stack.prepend(card);
+  bindSwipe(card);
+
+  // Signals stack up during a busy session; keep the newest few.
+  while (stack.children.length > 4) stack.lastElementChild.remove();
+
+  card.querySelector("[data-sig-open]").onclick = () => {
+    openSignalChart(sig.symbol, sig.timeframe);
+    card.remove();
+  };
+  card.querySelector(".n-x").onclick = () => card.remove();
+}
+
+/** Take the trader to the chart the signal is about. */
+function openSignalChart(symbol, timeframe) {
+  if (symbol) S.symbol = symbol;
+  if (timeframe) S.timeframe = timeframe;
+  show("markets", { animate: true, closeMenu: true });
+  if (symbol) {
+    try { pickMarket(symbol, timeframe || S.timeframe); } catch (e) { /* view will catch up */ }
+  }
+}
+
+/* The host posts back when its toast is clicked, and tells us whether the
+   window can currently be seen. */
+function bindHostBridge() {
+  try {
+    const bridge = window.chrome && window.chrome.webview;
+    if (!bridge || typeof bridge.addEventListener !== "function") return;
+    bridge.addEventListener("message", (e) => {
+      let msg = e.data;
+      if (typeof msg === "string") {
+        try { msg = JSON.parse(msg); } catch (err) { return; }
+      }
+      if (!msg || typeof msg !== "object") return;
+      if (msg.type === "visibility") window.__aurionWindowHidden = Boolean(msg.hidden);
+      if (msg.type === "open-signal") openSignalChart(msg.symbol, msg.timeframe);
+    });
+  } catch (e) {
+    /* running in a browser, not the desk window */
+  }
+}
+
+
 function dismissCalendarCard() {
   const tip = document.getElementById("cal-tip");
   if (tip) {
@@ -5160,7 +5306,9 @@ function onLive(msg) {
   }
   if (msg.type === "signal") {
     S.snap = S.snap || {};
-    S.snap.last_signal = msg.data || msg;
+    const sig = msg.data || msg;
+    S.snap.last_signal = sig;
+    announceSignal(sig);
     scheduleSync();
   }
   if (msg.type === "history") {
@@ -5567,6 +5715,7 @@ async function enterDesk() {
   setShell("desk");
   await loadAccountSettings();
   bindChrome();
+  bindHostBridge();
   setMenu(false);
   $("btn-lang").onclick = async () => {
     const order = ["en", "fa", "ar"];

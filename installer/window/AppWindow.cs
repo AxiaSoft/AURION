@@ -31,6 +31,21 @@ internal sealed class AppWindow : Form
     private readonly SplashPanel _splash;
 
     private readonly string _installDir = AppContext.BaseDirectory.TrimEnd('\\');
+
+    /// <summary>
+    /// The channel for desktop notifications.
+    ///
+    /// A NotifyIcon balloon rather than a WinRT toast on purpose: WinRT
+    /// notifications need a registered AppUserModelID backed by a shortcut and
+    /// a packaged identity, which a per-user MSI that installs into
+    /// %LocalAppData% cannot guarantee. A balloon works everywhere, needs no
+    /// registration, and can be clicked - which is all this has to do.
+    /// </summary>
+    private readonly NotifyIcon _tray = new() { Visible = false, Text = "AURION" };
+
+    /// <summary>Set by the last toast, so a click knows which chart to open.</summary>
+    private string _pendingSymbol = "";
+    private string _pendingTimeframe = "";
     private readonly HttpClient _http = new() { Timeout = TimeSpan.FromSeconds(2) };
 
     public AppWindow()
@@ -49,7 +64,18 @@ internal sealed class AppWindow : Form
 
         LoadPlacement();
         Shown += async (_, _) => await BootAsync();
-        FormClosing += (_, _) => SavePlacement();
+        FormClosing += (_, _) => { SavePlacement(); _tray.Visible = false; };
+
+        _tray.Icon = Icon ?? SystemIcons.Application;
+        _tray.BalloonTipClicked += (_, _) => OpenSignalFromToast();
+        _tray.Click += (_, _) => { if (!Visible || WindowState == FormWindowState.Minimized) RaiseWindow(); };
+
+        // The desk needs to know whether it can be seen: a toast for a signal
+        // the trader is already looking at is noise, and the Page Visibility
+        // API does not fire for a minimised window - only for a hidden tab.
+        Resize += (_, _) => ReportVisibility();
+        Activated += (_, _) => ReportVisibility();
+        Deactivate += (_, _) => ReportVisibility();
     }
 
     // ----------------------------------------------------------------- boot
@@ -167,6 +193,67 @@ internal sealed class AppWindow : Form
 
     // ------------------------------------------------------------- web view
 
+    /// <summary>Tell the desk whether its window is visible right now.</summary>
+    private void ReportVisibility()
+    {
+        var hidden = WindowState == FormWindowState.Minimized || !Visible;
+        try
+        {
+            _view.CoreWebView2?.PostWebMessageAsString(
+                "{\"type\":\"visibility\",\"hidden\":" + (hidden ? "true" : "false") + "}");
+        }
+        catch
+        {
+            // The view may not be ready yet; the next resize will report again.
+        }
+    }
+
+    private void RaiseWindow()
+    {
+        Show();
+        if (WindowState == FormWindowState.Minimized) WindowState = FormWindowState.Normal;
+        Activate();
+        BringToFront();
+    }
+
+    private void OpenSignalFromToast()
+    {
+        RaiseWindow();
+        if (_pendingSymbol.Length == 0) return;
+        try
+        {
+            var payload = "{\"type\":\"open-signal\",\"symbol\":\"" + Escape(_pendingSymbol) +
+                          "\",\"timeframe\":\"" + Escape(_pendingTimeframe) + "\"}";
+            _view.CoreWebView2?.PostWebMessageAsString(payload);
+        }
+        catch
+        {
+            // Raising the window is the important half; navigation is a bonus.
+        }
+    }
+
+    private static string Escape(string value) =>
+        value.Replace("\\", "\\\\").Replace("\"", "\\\"");
+
+    /// <summary>A signal arrived while the window was not visible.</summary>
+    private void ShowSignalToast(string title, string body, string symbol, string timeframe)
+    {
+        _pendingSymbol = symbol ?? "";
+        _pendingTimeframe = timeframe ?? "";
+        try
+        {
+            _tray.Visible = true;
+            _tray.BalloonTipTitle = string.IsNullOrWhiteSpace(title) ? "AURION" : title;
+            _tray.BalloonTipText = body ?? "";
+            _tray.BalloonTipIcon = ToolTipIcon.Info;
+            _tray.ShowBalloonTip(8000);
+        }
+        catch
+        {
+            // A missing notification area is not a reason to fail a signal.
+        }
+    }
+
     private async Task ShowDeskAsync()
     {
         // Kept out of the user's own browser profile: their tabs, sign-ins and
@@ -221,6 +308,20 @@ internal sealed class AppWindow : Form
                 OpenExternally(e.Uri);
             }
         };
+        core.WebMessageReceived += (_, e) =>
+        {
+            string raw;
+            try { raw = e.TryGetWebMessageAsString(); }
+            catch { return; }
+            if (string.IsNullOrWhiteSpace(raw) || !raw.Contains("\"signal\"")) return;
+
+            // Deliberately a hand-rolled read of four known fields rather than
+            // a JSON dependency: the host has exactly one message to parse and
+            // its shape is defined a few lines away in app.js.
+            ShowSignalToast(Field(raw, "title"), Field(raw, "body"),
+                            Field(raw, "symbol"), Field(raw, "timeframe"));
+        };
+
         core.DocumentTitleChanged += (_, _) =>
         {
             // The desk's own <title> is "AURION", so appending the product name
@@ -239,6 +340,7 @@ internal sealed class AppWindow : Form
             _splash.Progress = 1f;
             _view.Visible = true;
             _splash.Visible = false;
+            ReportVisibility();
         };
         _view.Source = new Uri(DeskUrl);
     }
@@ -333,6 +435,24 @@ internal sealed class AppWindow : Form
         {
             return null;
         }
+    }
+
+    /// <summary>Pull one string field out of the desk's small JSON message.</summary>
+    private static string Field(string json, string name)
+    {
+        var key = "\"" + name + "\":\"";
+        var at = json.IndexOf(key, StringComparison.Ordinal);
+        if (at < 0) return "";
+        at += key.Length;
+        var sb = new System.Text.StringBuilder();
+        for (var i = at; i < json.Length; i++)
+        {
+            var c = json[i];
+            if (c == '\\' && i + 1 < json.Length) { sb.Append(json[++i]); continue; }
+            if (c == '"') break;
+            sb.Append(c);
+        }
+        return sb.ToString();
     }
 
     private static Icon? LoadIcon()

@@ -713,3 +713,29 @@ html[data-theme="light"][data-perf="fast"] :is(.pay-veil, .desk-reload){ backgro
 .st-stats-2{ margin-top:6px; padding-top:6px }
 .st-stats-2 span{ font-size:10.5px }
 .st-stats .sep{ font-style:normal; color:var(--faint); padding:0 2px }
+
+/* ===========================================================================
+   14. Signal cards
+   ===========================================================================
+   A signal is the one event that must not be missed, so its card is marked by
+   direction on the leading edge - readable at a glance and from the corner of
+   the eye - and carries the levels the trader needs before acting. */
+.signal-card{
+  border-inline-start:3px solid var(--candle-up);
+  padding-inline-start:13px;
+}
+.signal-card.is-sell{ border-inline-start-color:var(--candle-down) }
+.signal-card h4{
+  margin:0 0 4px;
+  font-size:13.5px;
+  letter-spacing:.01em;
+  color:var(--candle-up);
+}
+.signal-card.is-sell h4{ color:var(--candle-down) }
+.signal-card .sub{
+  margin:0 0 10px;
+  font-family:"IBM Plex Mono", monospace;
+  font-size:11.5px;
+  line-height:1.6;
+}
+.signal-card .btn.tiny{ width:100% }

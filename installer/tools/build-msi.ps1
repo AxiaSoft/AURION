@@ -64,7 +64,7 @@ function Step([string] $text) {
 
 # Bumped whenever this script changes, so a stale copy is obvious at a glance
 # instead of failing with a confusing parameter error.
-$ScriptRevision = "15"
+$ScriptRevision = "16"
 
 Write-Host ""
 Write-Host "  AURION installer build" -ForegroundColor White

@@ -988,5 +988,15 @@
   },
   "chart": {
     "regime_hint": "The slider above shows direction and regime per chart — move between charts with the arrows."
+  },
+  "signal": {
+    "buy": "Buy signal",
+    "sell": "Sell signal",
+    "lots": "Lots",
+    "sl": "SL",
+    "tp": "TP",
+    "confidence": "Confidence",
+    "open_chart": "Open chart",
+    "no_levels": "No stop or target set by the strategy"
   }
 }
