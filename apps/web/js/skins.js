@@ -180,6 +180,11 @@
     return out;
   }
 
+  // The two foregrounds any accent can take. Which one is used is measured,
+  // never assumed - see readableInk below.
+  var INK_DARK = "#061014";
+  var INK_LIGHT = "#f5f8ff";
+
   function readableInk(hex) {
     var lum = luminance(hex);
     return contrastRatio(lum, luminance(INK_DARK)) >= contrastRatio(lum, luminance(INK_LIGHT))
@@ -194,13 +199,13 @@
   }
 
   function getAccent() {
-    var v = read(LS.accent, "aurora");
+    var v = read(LS_ACCENT, "aurora");
     return ACCENTS[v] ? v : "aurora";
   }
 
   function setAccent(value) {
     if (!ACCENTS[value]) return getAccent();
-    write(LS.accent, value);
+    write(LS_ACCENT, value);
     apply();
     return value;
   }
