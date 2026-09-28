@@ -445,3 +445,170 @@ table tbody tr,
   transform:scale(1.1);
   box-shadow:0 0 0 3px rgb(var(--wash) / .10), 0 6px 16px rgba(0,0,0,.4);
 }
+
+/* ===========================================================================
+   11. Prop rules: units and the symbol picker
+   ===========================================================================
+   Every number in the prop form needed its unit spelled out. "2" in a box
+   labelled "daily loss" could be two percent, two hundred dollars or two pips,
+   and on a funded account that difference is the account. The unit sits inside
+   the field as a suffix, so it stays with the value when the label wraps. */
+.num-field .num-wrap{
+  position:relative;
+  display:block;
+}
+.num-field .num-wrap input{
+  width:100%;
+  /* Room for the suffix. Long units ("hour, UTC (0-23)") get their own line
+     under the input on narrow screens rather than colliding with the value. */
+  padding-inline-end:var(--unit-gap, 96px);
+}
+.num-field .num-unit{
+  position:absolute;
+  inset-inline-end:12px;
+  top:50%;
+  transform:translateY(-50%);
+  font-size:11px;
+  font-weight:500;
+  color:var(--faint);
+  pointer-events:none;
+  white-space:nowrap;
+  letter-spacing:.01em;
+}
+.num-field > span{ display:flex; align-items:baseline; gap:8px; flex-wrap:wrap }
+.num-field .unit-note{
+  font-style:normal;
+  font-size:10.5px;
+  color:var(--faint);
+  padding:2px 7px;
+  border-radius:999px;
+  background:rgb(var(--wash) / .06);
+}
+/* Hide the spinner: it is useless at 0.1 steps and crowds the unit. */
+.num-field input[type=number]::-webkit-outer-spin-button,
+.num-field input[type=number]::-webkit-inner-spin-button{ -webkit-appearance:none; margin:0 }
+.num-field input[type=number]{ -moz-appearance:textfield; appearance:textfield }
+
+@media (max-width:720px){
+  .num-field .num-wrap input{ padding-inline-end:12px; padding-bottom:22px }
+  .num-field .num-unit{ top:auto; bottom:6px; transform:none; inset-inline-start:12px; inset-inline-end:auto }
+}
+
+/* --- the symbol picker --------------------------------------------------
+   It was a grey button reading "6 selected" over a plain list. The count is
+   the one thing a trader does not need - they know how many they picked; they
+   want to see WHICH. The control shows the symbols themselves as chips, each
+   removable in place, and only collapses to "+3" when there are too many. */
+.sym-field{ position:relative }
+.sym-pick{ position:relative }
+.sym-btn{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:10px;
+  width:100%;
+  min-height:44px;
+  padding:7px 10px;
+  text-align:start;
+  background:var(--field);
+  border:1px solid var(--line);
+  border-radius:var(--sk-r-sm);
+  color:var(--ink);
+  cursor:pointer;
+  transition:border-color .18s var(--ease), background .18s var(--ease);
+}
+.sym-btn:hover{ border-color:rgb(var(--accent-rgb) / .38); background:var(--field-hi) }
+.sym-btn[aria-expanded="true"]{
+  border-color:rgb(var(--accent-rgb) / .55);
+  box-shadow:0 0 0 4px rgb(var(--accent-rgb) / .12);
+}
+.sym-chips{
+  display:flex;
+  align-items:center;
+  gap:6px;
+  flex-wrap:wrap;
+  min-width:0;
+}
+.sym-none{ font-style:normal; color:var(--muted); font-size:12.5px }
+.sym-chip{
+  display:inline-flex;
+  align-items:center;
+  gap:5px;
+  padding:3px 6px 3px 9px;
+  border-radius:999px;
+  background:rgb(var(--accent-rgb) / .14);
+  border:1px solid rgb(var(--accent-rgb) / .30);
+  color:var(--accent-readable, var(--accent));
+  font-size:11.5px;
+  font-weight:500;
+  font-family:"IBM Plex Mono", monospace;
+  letter-spacing:.02em;
+}
+.sym-chip i{
+  font-style:normal;
+  cursor:pointer;
+  width:15px; height:15px;
+  display:grid; place-items:center;
+  border-radius:50%;
+  font-size:12px;
+  line-height:1;
+  color:var(--muted);
+  transition:background .15s, color .15s;
+}
+.sym-chip i:hover{ background:var(--rose); color:#fff }
+.sym-chip.more{
+  background:rgb(var(--wash) / .07);
+  border-color:rgb(var(--wash) / .12);
+  color:var(--muted);
+  padding-inline:9px;
+}
+.sym-caret{ display:grid; place-items:center; color:var(--faint); flex:none }
+.sym-caret svg{ width:16px; height:16px; transition:transform .2s var(--ease) }
+.sym-btn[aria-expanded="true"] .sym-caret svg{ transform:rotate(180deg) }
+
+.sym-panel{
+  padding:10px;
+  border-radius:var(--r);
+  box-shadow:0 24px 60px rgba(0,0,0,.45);
+}
+.sym-head{ margin-bottom:8px }
+.sym-q{
+  width:100%;
+  min-height:38px;
+  padding:8px 12px;
+  border-radius:var(--sk-r-sm);
+  background:var(--field2);
+  border:1px solid var(--line);
+  color:var(--ink);
+}
+.sym-q:focus{ outline:none; border-color:rgb(var(--accent-rgb) / .55) }
+.sym-acts{ display:flex; gap:8px; margin-bottom:8px }
+.sym-acts .btn{ flex:1 }
+.sym-list{
+  max-height:260px;
+  /* Two columns: a broker list runs to dozens of symbols and a single column
+     turned the panel into a long scroll for no reason. */
+  grid-template-columns:repeat(auto-fill, minmax(130px, 1fr));
+  gap:3px;
+  padding-inline-end:2px;
+}
+.sym-row{
+  padding:7px 9px;
+  border-radius:var(--sk-r-sm);
+  font-family:"IBM Plex Mono", monospace;
+  font-size:11.5px;
+  letter-spacing:.02em;
+  user-select:none;
+}
+.sym-row input{ accent-color:var(--accent); width:14px; height:14px; flex:none }
+.sym-row.on{
+  background:rgb(var(--accent-rgb) / .12);
+  color:var(--accent-readable, var(--accent));
+}
+.sym-foot{
+  margin-top:8px;
+  padding-top:8px;
+  font-size:11px;
+  color:var(--muted);
+  border-top:1px solid var(--line);
+}

@@ -339,8 +339,21 @@
     "symbols_all": "انتخاب همه",
     "symbols_none": "پاک کردن",
     "symbols_empty": "نمادی یافت نشد",
-    "symbols_count": "{n} نماد انتخاب شده",
-    "symbols_all_allowed": "همه نمادها مجاز (محدودیتی نیست)"
+    "symbols_count": "%n نماد انتخاب شده",
+    "symbols_all_allowed": "همه نمادها مجاز (محدودیتی نیست)",
+    "u_pct_balance": "٪ از موجودی",
+    "u_pct_equity": "٪ از سرمایه",
+    "u_lots": "لات",
+    "u_trades": "معامله",
+    "u_positions": "پوزیشن",
+    "u_per_day": "معامله در روز",
+    "u_minutes": "دقیقه",
+    "u_hours": "ساعت",
+    "u_utc_hour": "ساعت به وقت UTC (۰ تا ۲۳)",
+    "u_time": "ساعت:دقیقه، به وقت بروکر",
+    "u_zero_off": "۰ یعنی بدون محدودیت",
+    "symbols_none_sel": "بدون محدودیت نماد — همه‌ی نمادها مجازند",
+    "symbols_clear": "پاک‌کردن"
   },
   "exec": {
     "title": "اجرا",

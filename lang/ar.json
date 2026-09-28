@@ -339,8 +339,21 @@
     "symbols_all": "تحديد الكل",
     "symbols_none": "مسح",
     "symbols_empty": "لم يُعثر على رمز",
-    "symbols_count": "{n} رمز محدد",
-    "symbols_all_allowed": "كل الرموز مسموحة (بدون قيد)"
+    "symbols_count": "%n رمز محدد",
+    "symbols_all_allowed": "كل الرموز مسموحة (بدون قيد)",
+    "u_pct_balance": "٪ من الرصيد",
+    "u_pct_equity": "٪ من حقوق الملكية",
+    "u_lots": "لوت",
+    "u_trades": "صفقة",
+    "u_positions": "مركز",
+    "u_per_day": "صفقة / يوم",
+    "u_minutes": "دقيقة",
+    "u_hours": "ساعة",
+    "u_utc_hour": "ساعة بتوقيت UTC (0-23)",
+    "u_time": "ساعة:دقيقة بتوقيت الوسيط",
+    "u_zero_off": "0 = بلا حد",
+    "symbols_none_sel": "بلا قيود - كل الرموز مسموحة",
+    "symbols_clear": "مسح"
   },
   "exec": {
     "title": "التنفيذ",

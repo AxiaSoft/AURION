@@ -2041,6 +2041,40 @@ function propStatusHtml() {
       </div>
     </div>`;
 }
+/**
+ * One numeric prop-rule field.
+ *
+ * Every number on this page needed a unit spelled out: "2" in a box labelled
+ * "daily loss" could be two percent, two hundred dollars or two pips, and the
+ * difference between those is an account. The unit is rendered inside the
+ * field as a suffix rather than in the label, so it stays attached to the
+ * value even when the label wraps.
+ */
+function propNum(id, labelKey, unitKey, value, opts) {
+  opts = opts || {};
+  const step = opts.step ? ` step="${opts.step}"` : "";
+  const min = opts.min !== undefined ? ` min="${opts.min}"` : "";
+  const max = opts.max !== undefined ? ` max="${opts.max}"` : "";
+  const note = opts.zeroOff ? `<em class="unit-note">${I18N.t("risk.u_zero_off")}</em>` : "";
+  return `<label class="field num-field">
+      <span>${I18N.t(labelKey)}${note}</span>
+      <span class="num-wrap">
+        <input id="${id}" type="number"${step}${min}${max} value="${value}" />
+        <b class="num-unit">${I18N.t(unitKey)}</b>
+      </span>
+    </label>`;
+}
+
+function propText(id, labelKey, unitKey, value, placeholder) {
+  return `<label class="field num-field">
+      <span>${I18N.t(labelKey)}</span>
+      <span class="num-wrap">
+        <input id="${id}" value="${esc(value)}"${placeholder ? ` placeholder="${placeholder}"` : ""} />
+        <b class="num-unit">${I18N.t(unitKey)}</b>
+      </span>
+    </label>`;
+}
+
 function propFormHtml() {
   const p = S.snap?.prop || {};
   const pr = p.profile || {};
@@ -2058,48 +2092,55 @@ function propFormHtml() {
         <fieldset class="prop-fields${locked?" is-locked":""}"${locked?" disabled":""}>
         <h4 class="set-h">${I18N.t("risk.sec_limits")}</h4>
         <div class="grid g-2">
-          <label class="field"><span>${I18N.t("risk.daily_loss")}</span><input id="pr-dday" type="number" step="0.1" value="${pr.max_daily_loss_pct||2}" /></label>
-          <label class="field"><span>${I18N.t("risk.max_dd")}</span><input id="pr-mdd" type="number" step="0.1" value="${pr.max_drawdown_pct||5}" /></label>
-          <label class="field"><span>${I18N.t("risk.daily_profit")}</span><input id="pr-dtp" type="number" step="0.1" value="${pr.max_daily_profit_pct||0}" /></label>
-          <label class="field"><span>${I18N.t("risk.profit_target")}</span><input id="pr-pt" type="number" step="0.1" value="${pr.profit_target_pct||0}" /></label>
-          <label class="field"><span>${I18N.t("risk.max_lot")}</span><input id="pr-lot" type="number" step="0.01" value="${pr.max_lot||0.5}" /></label>
-          <label class="field"><span>${I18N.t("risk.max_lot_symbol")}</span><input id="pr-lotsym" type="number" step="0.01" value="${pr.max_lot_per_symbol||0}" /></label>
-          <label class="field"><span>${I18N.t("risk.max_trades")}</span><input id="pr-n" type="number" value="${pr.max_open_trades||2}" /></label>
-          <label class="field"><span>${I18N.t("risk.per_symbol")}</span><input id="pr-ps" type="number" value="${pr.max_positions_per_symbol||1}" /></label>
-          <label class="field"><span>${I18N.t("risk.max_day_trades")}</span><input id="pr-dayn" type="number" value="${pr.max_trades_per_day||0}" /></label>
-          <label class="field"><span>${I18N.t("risk.risk_pct")}</span><input id="pr-risk" type="number" step="0.1" value="${pr.max_risk_per_trade_pct||0.5}" /></label>
+          ${propNum("pr-dday", "risk.daily_loss", "risk.u_pct_balance", pr.max_daily_loss_pct||2, {step:"0.1", min:0})}
+          ${propNum("pr-mdd", "risk.max_dd", "risk.u_pct_balance", pr.max_drawdown_pct||5, {step:"0.1", min:0})}
+          ${propNum("pr-dtp", "risk.daily_profit", "risk.u_pct_balance", pr.max_daily_profit_pct||0, {step:"0.1", min:0, zeroOff:true})}
+          ${propNum("pr-pt", "risk.profit_target", "risk.u_pct_balance", pr.profit_target_pct||0, {step:"0.1", min:0, zeroOff:true})}
+          ${propNum("pr-lot", "risk.max_lot", "risk.u_lots", pr.max_lot||0.5, {step:"0.01", min:0})}
+          ${propNum("pr-lotsym", "risk.max_lot_symbol", "risk.u_lots", pr.max_lot_per_symbol||0, {step:"0.01", min:0, zeroOff:true})}
+          ${propNum("pr-n", "risk.max_trades", "risk.u_trades", pr.max_open_trades||2, {min:0})}
+          ${propNum("pr-ps", "risk.per_symbol", "risk.u_positions", pr.max_positions_per_symbol||1, {min:0})}
+          ${propNum("pr-dayn", "risk.max_day_trades", "risk.u_per_day", pr.max_trades_per_day||0, {min:0, zeroOff:true})}
+          ${propNum("pr-risk", "risk.risk_pct", "risk.u_pct_equity", pr.max_risk_per_trade_pct||0.5, {step:"0.1", min:0})}
         </div>
         <h4 class="set-h">${I18N.t("risk.sec_time")}</h4>
         <div class="grid g-2">
-          <label class="field"><span>${I18N.t("risk.min_hold")}</span><input id="pr-holdmin" type="number" step="0.1" value="${pr.min_hold_minutes||0}" /></label>
-          <label class="field"><span>${I18N.t("risk.max_hold")}</span><input id="pr-maxhold" type="number" step="0.1" value="${pr.max_hold_hours||0}" /></label>
-          <label class="field"><span>${I18N.t("risk.gap")}</span><input id="pr-gap" type="number" value="${pr.min_minutes_between_trades||0}" /></label>
-          <label class="field"><span>${I18N.t("risk.consec")}</span><input id="pr-cl" type="number" value="${pr.max_consecutive_losses||0}" /></label>
-          <label class="field"><span>${I18N.t("risk.hours_start")}</span><input id="pr-hs" value="${(pr.trading_hours&&pr.trading_hours.start)||"00:15"}" /></label>
-          <label class="field"><span>${I18N.t("risk.hours_end")}</span><input id="pr-he" value="${(pr.trading_hours&&pr.trading_hours.end)||"23:45"}" /></label>
-          <label class="field"><span>${I18N.t("risk.friday")}</span><input id="pr-fri" type="number" value="${pr.friday_close_utc_hour||21}" /></label>
-          <label class="field"><span>${I18N.t("risk.news_before")}</span><input id="pr-nb" type="number" value="${pr.news_blackout_before||15}" /></label>
-          <label class="field"><span>${I18N.t("risk.news_after")}</span><input id="pr-na" type="number" value="${pr.news_blackout_after||15}" /></label>
+          ${propNum("pr-holdmin", "risk.min_hold", "risk.u_minutes", pr.min_hold_minutes||0, {step:"0.1", min:0, zeroOff:true})}
+          ${propNum("pr-maxhold", "risk.max_hold", "risk.u_hours", pr.max_hold_hours||0, {step:"0.1", min:0, zeroOff:true})}
+          ${propNum("pr-gap", "risk.gap", "risk.u_minutes", pr.min_minutes_between_trades||0, {min:0, zeroOff:true})}
+          ${propNum("pr-cl", "risk.consec", "risk.u_trades", pr.max_consecutive_losses||0, {min:0, zeroOff:true})}
+          ${propText("pr-hs", "risk.hours_start", "risk.u_time", (pr.trading_hours&&pr.trading_hours.start)||"00:15", "00:15")}
+          ${propText("pr-he", "risk.hours_end", "risk.u_time", (pr.trading_hours&&pr.trading_hours.end)||"23:45", "23:45")}
+          ${propNum("pr-fri", "risk.friday", "risk.u_utc_hour", pr.friday_close_utc_hour||21, {min:0, max:23})}
+          ${propNum("pr-nb", "risk.news_before", "risk.u_minutes", pr.news_blackout_before||15, {min:0})}
+          ${propNum("pr-na", "risk.news_after", "risk.u_minutes", pr.news_blackout_after||15, {min:0})}
         </div>
         <h4 class="set-h">${I18N.t("risk.sec_filters")}</h4>
         <div class="field sym-field">
           <span>${I18N.t("risk.symbols")}</span>
           <div class="sym-pick" id="pr-syms-pick">
-            <button type="button" class="btn sm sym-btn" id="pr-syms-btn" aria-haspopup="true" aria-expanded="false">
-              <span id="pr-syms-label">${esc(I18N.t("risk.symbols_pick"))}</span>
-              <span class="sym-caret">▾</span>
+            <button type="button" class="sym-btn" id="pr-syms-btn" aria-haspopup="true" aria-expanded="false">
+              <span class="sym-chips" id="pr-syms-label">${esc(I18N.t("risk.symbols_pick"))}</span>
+              <span class="sym-caret" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                     stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>
+              </span>
             </button>
             <input type="hidden" id="pr-syms" value="${esc(pr.allowed_symbols||"")}" />
             <div class="sym-panel" id="pr-syms-panel" hidden>
-              <input class="fld sym-q" id="pr-syms-q" type="search" placeholder="${esc(I18N.t("risk.symbols_search"))}" />
+              <div class="sym-head">
+                <input class="sym-q" id="pr-syms-q" type="search"
+                       placeholder="${esc(I18N.t("risk.symbols_search"))}" />
+              </div>
               <div class="sym-acts">
-                <button type="button" class="btn sm" id="pr-syms-all">${esc(I18N.t("risk.symbols_all"))}</button>
-                <button type="button" class="btn sm" id="pr-syms-none">${esc(I18N.t("risk.symbols_none"))}</button>
+                <button type="button" class="btn tiny ghost" id="pr-syms-all">${esc(I18N.t("risk.symbols_all"))}</button>
+                <button type="button" class="btn tiny ghost" id="pr-syms-none">${esc(I18N.t("risk.symbols_none"))}</button>
               </div>
               <div class="sym-list" id="pr-syms-list" role="listbox" aria-multiselectable="true"></div>
               <div class="sym-foot" id="pr-syms-foot"></div>
             </div>
           </div>
+          <p class="sub">${I18N.t("risk.symbols_none_sel")}</p>
         </div>
         <label class="field"><span>${I18N.t("risk.violation")}</span>
           <select class="ctrl" id="pr-vio">
@@ -2116,705 +2157,6 @@ function propFormHtml() {
         </fieldset>
         ${locked ? "" : `<button class="btn block" id="pr-save" type="button">${I18N.t("risk.save")}</button>`}`;
 }
-
-const views = {
-  command() {
-    const acc = S.snap?.mt5?.account || {};
-    const prop = S.snap?.prop || {};
-    const pos = S.snap?.positions || [];
-    const agents = liveAgents();
-    const wizard = `<div class="hero" id="cmd-wizard" style="margin-bottom:14px"${agents.length ? " hidden" : ""}>
-        <div class="hero-copy">
-          <p class="kicker">${I18N.t("command.ready")}</p>
-          <h3>${I18N.t("command.hero")}</h3>
-          <p>${I18N.t("command.connect_hint")}</p>
-          ${!agents.length ? `<p class="sub">${I18N.t("status.ea_waiting")}</p>` : ""}
-          ${!agents.length ? `<p class="sub" id="wiz-ingest">${esc(eaIngestLine() || I18N.t("status.ea_file_hint"))}</p>` : ""}
-          <div class="hero-chips">
-            <span class="pill"><i class="dot ${S.snap ? "live" : "down"}"></i>${I18N.t(S.snap ? "status.engine_live" : "status.engine_down")}</span>
-            <span class="pill" id="wiz-mt5"><i class="dot ${mt5Live() ? "live" : "down"}"></i>${I18N.t(mt5Live() ? "status.mt5_live" : "status.mt5_down")}</span>
-            <span class="pill" id="wiz-ea">${I18N.t("status.ea_attached", { n: agents.length })}</span>
-          </div>
-        </div>
-        <div class="card glass-rise">
-          <h3>${I18N.t("wizard.title")}</h3>
-          <div class="wizard">
-            <div class="step"><b>1</b><div>${I18N.t("wizard.step1")}</div></div>
-            <div class="step"><b>2</b><div>${I18N.t("wizard.step2")}</div></div>
-            <div class="step"><b>3</b><div>${I18N.t("wizard.step3")}</div></div>
-            <div class="step"><b>4</b><div>${I18N.t("wizard.step4")}</div></div>
-          </div>
-          <button class="btn block" id="go-settings" type="button">${I18N.t("wizard.verify")}</button>
-        </div>
-      </div>`;
-    return `<div class="cmd">
-      ${tapeBanner()}
-      ${marketBanner()}
-      ${chartSliderHtml("ol", outlookSlideInnerHtml)}
-      ${gateHtml()}
-      ${wizard}
-      ${agents.length || testerAgents().length ? `<div class="card" id="ea-strip" style="margin:0"><h3 style="margin:0 0 8px">${I18N.t("nav.charts")}</h3><div class="hero-chips">${agents.map((a) => `<span class="pill is-live"><i class="dot live"></i>${esc(a.symbol)} · ${esc(a.timeframe || "")} · ${I18N.t(isTesterAgent(a) ? "tape.backtest" : "tape.live")}</span>`).join("")}${testerAgents().map((a) => `<span class="pill is-backtest">${esc(a.symbol)} · ${esc(a.timeframe || "")} · ${I18N.t("tape.backtest")}</span>`).join("")}</div></div>` : ""}
-      <div class="cmd-strip">
-        ${kpi("command.equity", acc.equity, acc.currency)}
-        ${kpi("command.profit", acc.profit, acc.currency, true)}
-        ${kpi("command.daily_pl", prop.daily_pl_pct, "%", true)}
-        ${kpi("command.drawdown", prop.drawdown_pct, "%")}
-        ${kpi("command.balance", acc.balance, acc.currency)}
-        ${kpi("command.margin", acc.margin, acc.currency)}
-      </div>
-      <div class="grid g-2">
-        <div class="card">
-          <h3>${I18N.t("command.positions")}</h3>
-          <div id="live-pos">${pos.length ? table(pos, ["symbol","type","volume","strategy","price_open","price_current","sl","tp","profit","profit_pct"], true) : emptyMini(I18N.t("status.no_positions"))}</div>
-        </div>
-        <div class="cmd-side">
-          <div class="card">
-            <h3>${I18N.t("account.type")}</h3>
-            <p class="metric" id="cmd-acc-type">${accTypeLabel(acc.account_label || acc.account_type || "unknown")}</p>
-            <p class="sub">${[acc.company, acc.server, acc.margin_mode, acc.leverage ? "1:"+acc.leverage : ""].filter(Boolean).join(" · ")}</p>
-            <div class="kv" style="margin-top:12px">
-              <span>${I18N.t("command.free_margin")}</span><b class="mono" data-metric="command.free_margin">${fmt(acc.margin_free)} ${acc.currency||""}</b>
-              <span>${I18N.t("command.leverage")}</span><b class="mono" data-metric="command.leverage">${acc.leverage ? "1:"+acc.leverage : "—"}</b>
-            </div>
-          </div>
-          <div class="card">
-            <h3>${I18N.t("ai.title")}</h3>
-            <div id="live-ai">${aiBlock(S.snap?.ai)}</div>
-          </div>
-        </div>
-      </div>
-      <div class="card" id="live-st-wrap">
-        <h3>${I18N.t("strategies.live")}</h3>
-        <div class="grid g-2" id="live-st">${strategyLiveCards()}</div>
-      </div>
-    </div>`;
-  },
-  markets() {
-    const ticks = S.snap?.ticks || {};
-    const items = liveSymbols();
-    const symbols = items.map((x) => x.symbol);
-    const live = mt5Live();
-    return `<div class="grid g-chart">
-      <div class="card">
-        <div class="row" style="margin-bottom:10px;gap:8px;flex-wrap:wrap">
-          ${symbolSelectHtml("sym", S.symbol)}
-          <select class="ctrl" id="tf">${["M1","M5","M15","M30","H1","H4","D1"].map((t)=>`<option ${t===S.timeframe?"selected":""}>${t}</option>`).join("")}</select>
-          <span class="legend mono" id="tick-lbl">${tickLabel()}</span>
-        </div>
-        <div class="row" style="margin-bottom:8px;gap:6px">
-          <button type="button" class="btn tiny ${S.signalsEnabled?"on":"ghost"}" id="sig-toggle-m">${S.signalsEnabled?"🔔 Signals ON":"🔕 Signals OFF"}</button>
-          <button type="button" class="btn tiny ghost" id="sig-show-m" style="${S.signalsEnabled?"":"display:none"}">${S.showSignals?"👁️":"🚫"}</button>
-          ${!licFeat("chart_signals")?`<span class="pill no" style="font-size:10px">PREMIUM</span>`:""}
-        </div>
-        <div class="chart-box"><canvas id="cv"></canvas>${!eaLive() || !S.candles.length ? emptyCard(I18N.t("markets.empty"), symbols.length ? I18N.t("markets.loading_tf") : I18N.t("exec.no_ea_symbol")) : ""}</div>
-        ${eaLive() ? chartTicketHtml() : ""}
-        <!-- Chart signals list removed per user request — signals only on chart canvas itself -->
-      </div>
-      <div class="card">
-        <h3>${I18N.t("markets.title")}</h3>
-        <div id="live-ticks">${symbols.length ? `<div class="table-wrap"><table><thead><tr><th>${I18N.t("markets.symbol")}</th><th>${I18N.t("markets.bid")}</th><th>${I18N.t("markets.ask")}</th></tr></thead><tbody>${symbols.map((s)=>`<tr><td>${s}</td><td class="mono">${fmt(ticks[s]?.bid,5)}</td><td class="mono">${fmt(ticks[s]?.ask,5)}</td></tr>`).join("")}</tbody></table></div>` : emptyMini(I18N.t("exec.no_ea_symbol"))}</div>
-      </div>
-    </div>`;
-  },
-  intelligence() {
-    // v54: merged slider — direction+regime per chart, features per selected chart
-    const cur = currentAiSlideState() || S.snap?.ai || {};
-    const feed = (cur.activity || S.snap?.ai?.activity || []).slice(-16).reverse();
-    const rg = cur.regime_obj || cur.regime;
-    const pat = cur.pattern_obj || cur.pattern;
-    const feats = cur.features || {};
-    return `<div class="grid g-2">
-      <div class="card">${chartSliderHtml("ai", aiSlideInnerHtml)}</div>
-      <div class="card">
-        <h3>${I18N.t("ai.regime")} · ${I18N.t("ai.direction")} (per chart)</h3>
-        <p class="metric" id="ai-regime">${regLabel(typeof rg === "string" ? {name: rg} : rg)}</p>
-        <p class="sub">${esc((rg && typeof rg === "object" ? rg.reason : "") || "")}</p>
-        <h3 style="margin-top:16px">${I18N.t("ai.pattern")}</h3>
-        <p class="metric" id="ai-pattern" style="font-size:20px">${esc(typeof pat === "string" ? pat : (pat?.name || "—"))}</p>
-        <p class="sub">${esc((pat && typeof pat === "object" ? pat.reason : "") || I18N.t("status.ai_idle"))}</p>
-        <p class="sub" style="margin-top:8px">${I18N.t("chart.regime_hint")}</p>
-      </div>
-      <div class="card">
-        <h3>${I18N.t("ai.activity")}</h3>
-        <div class="ai-feed term" id="ai-feed">${feed.length ? feed.map((row) => `<div class="row-line"><span class="ts">${esc(row.ts || "")}</span><span>${esc(row.text || "")}</span></div>`).join("") : emptyMini(I18N.t("status.ai_idle"))}</div>
-      </div>
-      <div class="card">
-        <h3>${I18N.t("ai.features")} <span class="slide-sym mono" id="ai-feat-sym">${esc(cur.symbol || "")}</span></h3>
-        <div class="kv" id="ai-feat">${Object.keys(feats).length ? Object.entries(feats).slice(0,18).map(([k,v])=>`<span>${esc(k)}</span><b class="mono">${fmt(v,5)}</b>`).join("") : emptyMini(I18N.t("status.ai_idle"))}</div>
-        <p class="sub" id="ai-why">${esc((cur.confidence_why && cur.confidence_why.text) || cur.reason || I18N.t("ai.conf_help"))}</p>
-        <div class="row" style="margin-top:14px">
-          <button class="btn tiny ghost" id="btn-train" type="button">${I18N.t("ai.retrain")}</button>
-          <span class="sub">${I18N.t("ai.auto_learn")} · ${I18N.t("ai.samples")}: <b class="mono" id="ai-samples">${cur.samples || 0}</b>${cur.need ? " / " + cur.need : ""}</span>
-        </div>
-      </div>
-    </div>`;
-  },
-  calendar() {
-    // The renderer assigns innerHTML synchronously, so an async view would
-    // print "[object Promise]".  Ship the shell and let bindView fill it.
-    return `<div class="cmd" id="cal-root"><div class="empty">${esc(I18N.t("telegram.loading"))}</div></div>`;
-  },
-  strategies() {
-    const st = S.snap?.strategy || {};
-    const sig = S.snap?.last_signal;
-    return `<div class="card auto-banner">
-        <div>
-          <h3 style="margin:0 0 6px">${I18N.t("strategies.live")}</h3>
-          <p class="sub">${st.auto_trade ? I18N.t("exec.auto_on") : I18N.t("exec.auto_off")} · ${I18N.t("style.title")}: ${I18N.t("style." + (st.trade_style||"normal"))}</p>
-          <p class="sub" style="opacity:.85">${I18N.t("strategies.single_rule")}</p>
-        </div>
-        <span class="pill" id="st-live-sig">${sig ? `${sig.action||"—"} ${sig.symbol||""}` : I18N.t("strategies.waiting")}</span>
-      </div>
-      <div class="grid g-2" id="st-live-grid">${strategyLiveCards()}</div>
-      ${strategyUploadCard()}`;
-  },
-  execution() {
-    const pos = S.snap?.positions || [];
-    const orders = S.snap?.orders || [];
-    const st = S.snap?.strategy || {};
-    const armed = Boolean(st.auto_trade);
-    const sig = S.snap?.last_signal;
-    return `<div class="cmd">${gateHtml()}<div class="grid g-2">
-      <div class="card">
-        <div class="auto-banner">
-          <div>
-            <h3 style="margin:0 0 6px">${I18N.t("exec.auto")}</h3>
-            <p class="sub">${armed ? I18N.t("exec.auto_on") : I18N.t("exec.auto_off")}</p>
-            <p class="sub">${I18N.t("exec.auto_hint")}</p>
-          </div>
-          <button type="button" class="switch ${armed?"on":""}" id="ex-auto"><i></i></button>
-        </div>
-        <div class="kv" id="live-signal">
-          <span>${I18N.t("exec.last_signal")}</span><b>${sig ? `${sig.action||"—"} ${sig.symbol||""}` : "—"}</b>
-          <span>${I18N.t("strategies.active")}</span><b>${st.name || I18N.t("strategies.none")}</b>
-        </div>
-        <button class="btn danger block" id="ex-flat" type="button" style="margin-top:14px">${I18N.t("exec.emergency")}</button>
-        <div class="manual-box">
-          <h3 style="margin:0 0 8px">${I18N.t("exec.manual")}</h3>
-          <p class="sub">${I18N.t("exec.manual_hint")}</p>
-          <div class="grid g-2">
-            <label class="field"><span>${I18N.t("markets.symbol")}</span>${symbolSelectHtml("ex-sym", defaultSymbol())}</label>
-            <label class="field"><span>${I18N.t("exec.volume")}</span><input id="ex-vol" type="number" step="0.01" min="0.01" value="0.10" /></label>
-            <label class="field"><span>${I18N.t("exec.sl")}</span><input id="ex-sl" type="number" step="0.0001" value="" placeholder="0" /></label>
-            <label class="field"><span>${I18N.t("exec.tp")}</span><input id="ex-tp" type="number" step="0.0001" value="" placeholder="0" /></label>
-          </div>
-          <p class="sub" id="ex-ea-hint">${liveSymbols().length ? I18N.t("exec.pick_symbol") : I18N.t("exec.no_ea_symbol")}</p>
-          <div class="row" style="margin-top:8px">
-            <button class="btn" id="ex-buy" type="button"${liveSymbols().length ? "" : " disabled"}>${I18N.t("exec.buy")}</button>
-            <button class="btn danger" id="ex-sell" type="button"${liveSymbols().length ? "" : " disabled"}>${I18N.t("exec.sell")}</button>
-          </div>
-          <p class="sub" id="ex-msg"></p>
-        </div>
-        ${mt5Live()?"":`<p class="sub" style="margin-top:10px">${I18N.t("errors.no_mt5")}</p>`}
-      </div>
-      <div class="card">
-        <h3>${I18N.t("command.positions")}</h3>
-        <div id="live-exec-pos">${pos.length ? table(pos, ["ticket","symbol","type","volume","strategy","price_open","sl","tp","profit","profit_pct"], true) : emptyMini(I18N.t("status.no_positions"))}</div>
-        <h3 style="margin-top:16px">${I18N.t("status.no_orders")}</h3>
-        <div id="live-exec-ord">${orders.length ? table(orders, ["ticket","symbol","type","volume","price"]) : emptyMini(I18N.t("status.no_orders"))}</div>
-      </div>
-    </div>
-    ${robotPanelBox()}</div>`;
-  },
-  charts() {
-    if (S.chartFocus) {
-      const f = S.chartFocus;
-      const tools = [
-        ["cursor", "draw.cursor", "M5 12h14"],
-        ["trend", "draw.trend", "M4 18L10 10L14 14L20 6"],
-        ["ray", "draw.ray", "M4 18L20 6M16 6h4v4"],
-        ["extended", "draw.extended", "M2 20L22 4"],
-        ["parallel", "draw.parallel", "M5 16L15 6M9 20L19 10"],
-        ["channel", "draw.channel", "M4 16L14 6M8 20L18 10M6 18L16 8"],
-        ["pitchfork", "draw.pitchfork", "M4 20L12 4L20 20M12 4v16"],
-        ["triangle", "draw.triangle", "M12 4L20 18H4z"],
-        ["circle", "draw.circle", "M12 4a8 8 0 100 16 8 8 0 000-16z"],
-        ["ellipse", "draw.ellipse", "M12 6c5 0 8 3 8 6s-3 6-8 6-8-3-8-6 3-6 8-6z"],
-        ["hline", "draw.hline", "M4 12h16"],
-        ["hray", "draw.hray", "M8 12h12M8 9v6"],
-        ["vline", "draw.vline", "M12 4v16"],
-        ["rect", "draw.rect", "M6 7h12v10H6z"],
-        ["long", "draw.long", "M7 17V7h10"],
-        ["short", "draw.short", "M7 7v10h10"],
-        ["fib", "draw.fib", "M4 7h16M4 12h16M4 17h16"],
-        ["fibext", "draw.fibext", "M4 6h16M4 11h16M4 16h10"],
-        ["fibtime", "draw.fibtime", "M7 4v16M12 4v16M17 4v16"],
-        ["gann", "draw.gann", "M4 20L20 4M4 20L20 12M4 20L12 4"],
-        ["measure", "draw.measure", "M5 19L19 5M8 19h-3v-3M19 8V5h-3"],
-        ["pricerange", "draw.pricerange", "M4 8h16M4 16h16"],
-        ["daterange", "draw.daterange", "M8 4v16M16 4v16"],
-        ["arrow", "draw.arrow", "M5 19L19 5M14 5h5v5"],
-        ["brush", "draw.brush", "M4 16c4-6 8 2 12-4 2-3 4-4 4-4"],
-        ["infoline", "draw.infoline", "M4 18L20 6M12 4v4"],
-        ["text", "draw.text", "M6 8h12M12 8v10"],
-        ["emoji", "draw.emoji", "M12 8v.01M8 13c1.5 2 6.5 2 8 0"],
-      ];
-      const svgBtn = (id, key, d, extra = "") =>
-        `<button type="button" data-tool="${id}" class="${id==="cursor"?"on":""}" title="${I18N.t(key)}" aria-label="${I18N.t(key)}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7">${d.startsWith("<") ? d : `<path d="${d}"/>`}</svg></button>`;
-      return `<div class="chart-work">
-        <div class="chart-work-bar">
-          <button type="button" class="btn tiny ghost" id="chart-back">${I18N.t("common.back")}</button>
-          <h3>${f.symbol} · ${f.timeframe}</h3>
-          <span class="legend mono" id="tick-lbl">${tickLabel()}</span>
-          <div class="chart-signals-bar" style="display:flex;gap:6px;align-items:center;margin-inline:8px">
-            <button type="button" class="btn tiny ${S.signalsEnabled?"on":"ghost"}" id="sig-toggle" title="Buy/Sell signals">${S.signalsEnabled?"🔔 Signals ON":"🔕 Signals OFF"}</button>
-            <button type="button" class="btn tiny ghost" id="sig-show" style="${S.signalsEnabled?"":"display:none"}">${S.showSignals?"👁️":"🚫"}</button>
-            ${!licFeat("chart_signals")?`<span class="pill no" style="font-size:10px">PREMIUM</span>`:""}
-          </div>
-          <div class="draw-frame" id="draw-frame">
-            <button type="button" class="icon-btn draw-more" id="draw-more" title="${I18N.t("draw.tools")}" aria-label="${I18N.t("draw.tools")}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>
-            <div class="draw-tools" id="draw-tools">
-              ${tools.map(([id,k,d]) => svgBtn(id, k, d)).join("")}
-              <button type="button" id="draw-magnet" title="${I18N.t("draw.magnet")}" aria-label="${I18N.t("draw.magnet")}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M7 4v8a5 5 0 0010 0V4M7 4H4v8a8 8 0 0016 0V4h-3"/></svg></button>
-              <button type="button" id="draw-zin" title="${I18N.t("draw.zoom_in")}" aria-label="${I18N.t("draw.zoom_in")}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="11" cy="11" r="6"/><path d="M21 21l-4-4M8 11h6M11 8v6"/></svg></button>
-              <button type="button" id="draw-zout" title="${I18N.t("draw.zoom_out")}" aria-label="${I18N.t("draw.zoom_out")}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="11" cy="11" r="6"/><path d="M21 21l-4-4M8 11h6"/></svg></button>
-              <button type="button" id="draw-fit" title="${I18N.t("draw.fit")}" aria-label="${I18N.t("draw.fit")}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg></button>
-              <button type="button" id="draw-undo" title="${I18N.t("draw.undo")}" aria-label="${I18N.t("draw.undo")}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M9 14L4 9l5-5"/><path d="M4 9h10a6 6 0 110 12h-2"/></svg></button>
-              <button type="button" id="draw-clear" title="${I18N.t("draw.clear")}" aria-label="${I18N.t("draw.clear")}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M5 7h14M9 7V5h6v2M8 7l1 12h6l1-12"/></svg></button>
-            </div>
-          </div>
-        </div>
-        <div class="chart-box"><canvas id="cv-desk"></canvas><div class="chart-levels" id="chart-levels"></div></div>
-        ${chartTicketHtml()}
-        <!-- chart signals list removed — only canvas overlay per user request -->
-      </div>`;
-    }
-    const agents = liveAgents();
-    const testers = testerAgents();
-    const chartCard = (a, tester, clickable) => `<div class="card chart-card"${clickable ? " data-open-chart" : ""} data-sym="${a.symbol||""}" data-tf="${a.timeframe||""}">
-      <h3>${a.symbol || "—"} · ${a.timeframe || ""} <span class="pill ${tester ? "is-backtest" : ""}" style="font-size:11px">${I18N.t(tester ? "tape.backtest" : "tape.live")}</span></h3>
-      <p class="metric" style="font-size:18px">${a.ea_name || "AurionBridge"}</p>
-      <div class="kv">
-        <span>${I18N.t("charts.chart")}</span><b class="mono">${a.chart_id || "—"}</b>
-        <span>${I18N.t("charts.signal")}</span><b>${a.last_signal?.direction || a.last_signal?.action || "—"}</b>
-        <span>${I18N.t("charts.state")}</span><b>${a.status || "online"}</b>
-      </div>
-      ${tester && !clickable ? `<p class="sub">${I18N.t("tape.showing_backtest")}</p>` : `<div class="chart-box" style="height:200px;margin-top:10px"><canvas data-mini="${a.symbol||""}" data-tf="${a.timeframe||""}"></canvas></div>
-      <p class="sub">${I18N.t("charts.open_hint")}</p>`}
-    </div>`;
-    if (agents.length || testers.length) {
-      return `${testers.length ? `<h3 style="margin:4px 0 8px">${I18N.t("tape.backtest")}</h3><div class="grid g-2">${testers.map((a) => chartCard(a, true, false)).join("")}</div>` : ""}
-      ${agents.length ? `<div class="grid g-2">${agents.map((a) => chartCard(a, isTesterAgent(a), true)).join("")}</div>` : ""}`;
-    }
-    return `<div class="card">${emptyCard(I18N.t("status.no_eas"), I18N.t("wizard.step3") + " — " + I18N.t("charts.empty_hint"))}</div>`;
-  },
-  terminal() {
-    return `<div class="card">
-      <div class="tabs" id="term-tabs">
-        <button type="button" data-term="live" class="on">${I18N.t("terminal.live")}</button>
-        <button type="button" data-term="robot">${I18N.t("terminal.robot")}</button>
-        <button type="button" data-term="engine">${I18N.t("terminal.engine")}</button>
-        <button type="button" data-term="desk">${I18N.t("terminal.desk")}</button>
-      </div>
-      <p class="sub" id="term-hint">${I18N.t("terminal.hint")}</p>
-      <div class="row" style="margin:10px 0;flex-wrap:wrap;gap:8px" id="term-live-tools">
-        <input class="ctrl grow" id="log-q" data-i18n-ph="terminal.placeholder" placeholder="" style="flex:1;min-width:180px" />
-        <button class="btn tiny ghost" id="log-clr" type="button">${I18N.t("terminal.clear")}</button>
-        <button class="btn tiny" id="term-restart" type="button" title="Immediate restart of system terminals">🔄 ${I18N.t("terminal.restart")||"Restart Terminals"}</button>
-      </div>
-      <div class="term" id="term">${renderLogs()}</div>
-    </div>`;
-  },
-  backtest() {
-    const bt = S.backtest || S.snap?.backtest || {};
-    const items = liveSymbols();
-    const stItems = strategyItems();
-    const running = Boolean(bt.running);
-    return `<div class="cmd">
-      ${tapeBanner()}
-      <div class="card" id="bt-card">
-        <h3>🧪 ${I18N.t("history.backtest")}</h3>
-        <p class="sub">${I18N.t("history.backtest_hint")}</p>
-        <div class="ct-grid ct-grid-3">
-          <label class="field"><span>${I18N.t("markets.symbol")}</span>${symbolSelectHtml("bt-sym", S.symbol)}</label>
-          <label class="field"><span>${I18N.t("markets.timeframe")}</span>
-            <select class="ctrl" id="bt-tf">${["M1","M5","M15","M30","H1","H4","D1"].map((t)=>`<option ${t===(S.timeframe||"M15")?"selected":""}>${t}</option>`).join("")}</select>
-          </label>
-          <label class="field"><span>${I18N.t("strategies.active")}</span>
-            <select class="ctrl" id="bt-st">${stItems.map((it)=>`<option value="${esc(it.name)}">${esc(it.name)}</option>`).join("")}</select>
-          </label>
-        </div>
-        <div class="row" style="margin-top:10px">
-          <button class="btn" id="h-bt" type="button"${running || !items.length ? " disabled" : ""}>${running ? I18N.t("history.backtest_running") : I18N.t("history.backtest_run")}</button>
-        </div>
-        <div id="bt-load" class="bt-load${running ? "" : " hidden"}"><i></i><span>${I18N.t("history.backtest_wait")}</span></div>
-        <div id="bt-result">${renderBacktestCard(bt)}</div>
-      </div>
-      <div class="card">
-        <h3>📊 ${I18N.t("bt.results")}</h3>
-        <p class="sub">${I18N.t("bt.results_hint")}</p>
-        <div id="bt-extra"></div>
-      </div>
-    </div>`;
-  },
-  history() {
-    return `<div class="cmd">
-      ${tapeBanner()}
-      <div class="card">
-        <div class="row" style="margin-bottom:12px;flex-wrap:wrap">
-          <button class="btn tiny" id="h-exp" type="button">${I18N.t("history.export")}</button>
-          <button class="btn tiny ghost" id="h-rst" type="button">${I18N.t("history.reset")}</button>
-        </div>
-        <h3>${I18N.t("history.live_ledger")}</h3>
-        <div id="h-body">${emptyMini(I18N.t("status.no_history"))}</div>
-      </div>
-    </div>`;
-  },
-  upgrade() {
-    const L = (S.snap && S.snap.license) || {};
-    const premium = Boolean(L.premium);
-    const days = L.days_left;
-    const total = Number((L.plans && L.plans[L.plan] && L.plans[L.plan].days) || 0);
-    const pct = premium && total ? Math.max(0, Math.min(100, Math.round((days || 0) / total * 100))) : 0;
-    const feats = [
-      ["prop", "upgrade.f_prop"],
-      ["scalping", "upgrade.f_scalp"],
-      ["strategy_upload", "upgrade.f_upload"],
-      ["telegram", "upgrade.f_telegram"],
-      ["news", "upgrade.f_news"],
-      ["chart_signals", "upgrade.f_chart_signals"],
-      ["volume_mode", "upgrade.f_volume"],
-    ];
-    return `<div class="cmd">
-      <div class="card up-hero ${premium ? "is-premium" : "is-free"}">
-        <div>
-          <p class="kicker">${I18N.t("upgrade.now")}</p>
-          <h3 class="up-type">${premium ? esc(heroPlanLabel(L)) : I18N.t("lic.freemium")}</h3>
-          <p class="sub">${premium ? I18N.t("upgrade.prem_note") : I18N.t("upgrade.free_note")}</p>
-        </div>
-        <span class="up-badge">${premium ? "PRO" : "FREE"}</span>
-      </div>
-      ${premium ? `<div class="card">
-        <div class="kv">
-          <span>${I18N.t("lic.plan")}</span><b>${esc(planLabel(L))}</b>
-          <span>${I18N.t("lic.activated")}</span><b>${esc(licDate(L.activated))}</b>
-          <span>${I18N.t("lic.expires")}</span><b>${esc(licDate(L.expires))}</b>
-          <span>${I18N.t("upgrade.days")}</span><b class="mono">${days == null ? "—" : fmt(days, 0)}</b>
-        </div>
-        ${total ? `<div class="bar" style="margin-top:12px"><i style="--w:${pct}%"></i></div>` : ""}
-      </div>` : ""}
-      <div class="grid g-2">
-        <div class="card">
-          <h3>${I18N.t("upgrade.features")}</h3>
-          <div class="kv up-feats">
-            ${feats.map(([f, key]) => {
-              const open = licFeat(f);
-              return `<span>${I18N.t(key)}</span><b class="${open ? "up" : "down"}">${open ? I18N.t("upgrade.unlocked") : I18N.t("upgrade.locked")}</b>`;
-            }).join("")}
-          </div>
-        </div>
-        <div class="card">
-          <h3>${I18N.t("upgrade.buy")}</h3>
-          <p class="sub">${I18N.t("upgrade.store_hint")}</p>
-          <button class="btn block" id="up-store" type="button"${L.store_url ? "" : " disabled"}>${I18N.t("keygate.buy")}</button>
-          ${L.store_url ? "" : `<p class="err">${I18N.t("upgrade.store_unset")}</p>`}
-          <h3 style="margin-top:18px">${I18N.t("upgrade.have_key")}</h3>
-          <p class="sub">${I18N.t("upgrade.enter_hint")}</p>
-          <label class="field"><span>${I18N.t("keygate.key")}</span>
-            <input id="up-key" dir="ltr" spellcheck="false" autocomplete="off" placeholder="AXIA-M1-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX" />
-          </label>
-          <button class="btn block" id="up-go" type="button">${I18N.t("keygate.activate")}</button>
-          <p class="err" id="up-err"></p>
-          <p class="ok" id="up-result"></p>
-        </div>
-      </div>
-    </div>`;
-  },
-  settings() {
-    const mt = S.snap?.mt5 || {};
-    const tab = S.setTab || "set-robot";
-    const fa = (S.lang || I18N.lang || "fa") === "fa";
-    const tabBtn = (id, label, ic, desc) => `<button type="button" data-jump="${id}" class="${tab===id?"on":""}">
-        <span class="sj-ic">${icon(ic)}</span><span class="sj-txt"><b>${label}</b>${desc ? `<small>${desc}</small>` : ""}</span></button>`;
-    const grp = (label) => `<div class="sj-grp">${label}</div>`;
-    return `<div class="set-desk set-rail"><nav class="set-jump" id="set-jump" aria-label="settings">
-        ${grp(I18N.t("rail.trading"))}
-        ${tabBtn("set-robot", I18N.t("settings.sec_robot"), "bolt", I18N.t("rail.robot_hint"))}
-        ${tabBtn("set-strats", I18N.t("nav.strategies"), "layers", I18N.t("rail.strats_hint"))}
-        ${tabBtn("set-prop", I18N.t("risk.title"), "shield", I18N.t("rail.prop_hint"))}
-        ${tabBtn("set-mt5", "MetaTrader 5", "term", I18N.t("rail.mt5_hint"))}
-        ${grp(I18N.t("rail.personalize"))}
-        ${tabBtn("set-lang", I18N.t("settings.language"), "book", I18N.t("rail.lang_hint"))}
-        ${tabBtn("set-personal", I18N.t("settings.personal"), "user", I18N.t("rail.personal_hint"))}
-        ${tabBtn("set-telegram", I18N.t("telegram.title"), "spark", I18N.t("rail.telegram_hint"))}
-        ${grp(I18N.t("rail.system"))}
-        ${tabBtn("set-update", I18N.t("upd.title"), "pulse", I18N.t("rail.update_hint"))}
-        ${tabBtn("set-system", I18N.t("host.system"), "gear", I18N.t("rail.system_hint"))}
-      </nav><div class="set-main">
-      <section class="set-block" id="set-robot"${tab==="set-robot"?"":" hidden"}>
-        <h2 class="set-title">${I18N.t("settings.sec_robot")}</h2>
-        <div class="grid g-2">${robotPanelHtml()}</div>
-      </section>
-      <section class="set-block" id="set-strats"${tab==="set-strats"?"":" hidden"}>
-        <h2 class="set-title">${I18N.t("strategies.live")}</h2>
-        <p class="sub" style="margin:0 0 10px">${I18N.t("strategies.single_rule")}</p>
-        <div class="grid g-2" id="st-live-grid">${strategyLiveCards()}</div>
-        ${licFeat("strategy_upload") ? `<div class="card" style="margin-top:14px">
-          <h3>${I18N.t("strategies.upload")}</h3>
-          <textarea id="st-src" class="ctrl" style="min-height:120px;width:100%;resize:vertical" placeholder="# Python strategy"></textarea>
-          <div class="row" style="margin-top:10px;align-items:center;gap:8px">
-            <input class="ctrl" id="st-file" placeholder="my_strategy.py" />
-            <button class="btn tiny" id="st-up" type="button">${I18N.t("strategies.upload")}</button>
-            <a class="btn tiny ghost" id="st-tpl" href="#">${I18N.t("strategies.template")}</a>
-            <a class="btn tiny ghost" id="st-cancel" href="#" hidden>${I18N.t("strategies.cancel")}</a>
-          </div>
-          <p class="sub" id="st-up-msg"></p>
-        </div>` : `<div style="margin-top:14px">${lockedUpgradeCard("strategy_upload")}</div>`}
-      </section>
-      <section class="set-block" id="set-prop"${tab==="set-prop"?"":" hidden"}>
-        <h2 class="set-title">${I18N.t("risk.title")}</h2>
-        ${licFeat("prop") ? `${propStatusHtml()}<div class="card">${propFormHtml()}</div>` : lockedUpgradeCard("prop")}
-      </section>
-      <section class="set-block" id="set-mt5"${tab==="set-mt5"?"":" hidden"}>
-        <h2 class="set-title">MetaTrader 5</h2>
-        <div class="card">
-          <label class="field"><span data-i18n="settings.mt5_path"></span><input id="s-path" /></label>
-          <label class="field"><span data-i18n="settings.mt5_login"></span><input id="s-login" type="number" /></label>
-          <label class="field"><span data-i18n="settings.mt5_server"></span><input id="s-server" /></label>
-          <label class="field"><span data-i18n="settings.mt5_password"></span><input id="s-pass" type="password" /></label>
-          <p class="sub" data-i18n="settings.password_note"></p>
-          <div class="row" style="margin-top:10px">
-            <button class="btn" id="s-save" type="button">${I18N.t("settings.save")}</button>
-            <button class="btn" id="s-con" type="button">${I18N.t("settings.connect")}</button>
-            <button class="btn ghost" id="s-dis" type="button">${I18N.t("settings.disconnect")}</button>
-          </div>
-          <p class="sub" id="s-msg">${mt.last_error || (mt.connected ? I18N.t("status.mt5_live") : I18N.t("status.mt5_down"))}</p>
-        </div>
-      </section>
-      <section class="set-block" id="set-lang"${tab==="set-lang"?"":" hidden"}>
-        <h2 class="set-title">${I18N.t("settings.language")}</h2>
-        <div class="card">
-          <div class="lang-pills" id="set-langs">
-            <button type="button" data-lang="en">English</button>
-            <button type="button" data-lang="fa">فارسی</button>
-            <button type="button" data-lang="ar">العربية</button>
-          </div>
-          <p class="sub">AURION 1.0.0</p>
-          <a class="btn block ghost" href="/guide.html?v=desk45" target="_blank" rel="noopener">${I18N.t("guide.open")}</a>
-          <a class="btn block ghost" href="/guide-backtest.html?v=desk45" target="_blank" rel="noopener">${I18N.t("guide.backtest")}</a>
-        </div>
-      </section>
-      <section class="set-block" id="set-personal"${tab==="set-personal"?"":" hidden"}>
-        <h2 class="set-title">${I18N.t("settings.personal")}</h2>
-        <div class="card">
-          <p class="sub" style="margin:0 0 6px">${I18N.t("settings.theme")}</p>
-          <div class="lang-pills" id="set-themes">
-            <button type="button" data-themebtn="auto">\uD83C\uDF13 ${I18N.t("settings.theme_auto")}</button>
-            <button type="button" data-themebtn="dark">\uD83C\uDF19 ${I18N.t("settings.theme_dark")}</button>
-            <button type="button" data-themebtn="light">\u2600\uFE0F ${I18N.t("settings.theme_light")}</button>
-          </div>
-          <div class="row" style="justify-content:space-between;margin-top:16px;align-items:flex-start">
-            <div>
-              <div style="font-weight:600">${I18N.t("settings.liquid_glass")}</div>
-              <p class="sub" style="margin:2px 0 0">${I18N.t("settings.liquid_glass_hint")}</p>
-            </div>
-            <button type="button" class="switch ${glassOn()?"on":""}" id="sw-glass" aria-pressed="${glassOn()}"><i></i></button>
-          </div>
-        </div>
-        ${appearanceCardsHtml()}
-      </section>
-      <section class="set-block" id="set-telegram"${tab==="set-telegram"?"":" hidden"}>
-        <h2 class="set-title">${I18N.t("telegram.title")}</h2>
-        ${licFeat("telegram") ? telegramPanelHtml() : lockedUpgradeCard("telegram")}
-      </section>
-      <section class="set-block" id="set-update" hidden>
-        <h2 class="set-title">${I18N.t("upd.title")}</h2>
-        <div class="card">
-          <h3>${I18N.t("upd.settings")}</h3>
-          <label class="field" style="flex-direction:row;align-items:center;justify-content:space-between;margin-top:12px">
-            <span>${I18N.t("upd.auto")}</span>
-            <button type="button" class="switch" id="upd-auto"><i></i></button>
-          </label>
-          <label class="field"><span>${I18N.t("upd.interval")}</span>
-            <input id="upd-interval" type="number" min="1" max="168" value="6" />
-          </label>
-          <button class="btn block" id="upd-save" type="button">${I18N.t("upd.save")}</button>
-          <p class="sub" id="upd-save-msg"></p>
-        </div>
-        <div class="card" style="margin-top:14px">
-          <h3>${I18N.t("upd.status")}</h3>
-          <p class="sub" id="upd-last-check">${I18N.t("upd.last_check")}: -</p>
-          <div id="upd-status"></div>
-          <div class="row" style="margin-top:10px;gap:8px">
-            <button class="btn" id="upd-check" type="button">🔍 ${I18N.t("upd.check")}</button>
-            <button class="btn ghost" id="upd-manifest" type="button">📋 ${I18N.t("upd.manifest")}</button>
-          </div>
-          <div id="upd-result" style="margin-top:12px"></div>
-        </div>
-      </section>
-      <section class="set-block" id="set-system"${tab==="set-system"?"":" hidden"}>
-        <h2 class="set-title">${I18N.t("host.system")}</h2>
-        <div class="card">
-          <h3>${I18N.t("host.restart")}</h3>
-          <p class="sub">${I18N.t("host.restart_hint")}</p>
-          <button class="btn block" id="sys-restart" type="button">${I18N.t("host.restart")}</button>
-        </div>
-        <div class="card danger-zone" id="danger-zone">
-          <h3>${I18N.t("host.factory")}</h3>
-          <p class="sub">${I18N.t("host.factory_hint")}</p>
-          <label class="field"><span>${I18N.t("host.factory_type")}</span>
-            <input id="factory-confirm" autocomplete="off" placeholder="FACTORY" />
-          </label>
-          <button class="btn danger block" id="sys-factory" type="button">${I18N.t("host.factory_go")}</button>
-        </div>
-      </section></div></div>`;
-  },
-  about() {
-    const ver = S.version || S.snap?.version || S._gateLic?.version || "1.0.0";
-    const L = (S.snap && S.snap.license) || {};
-    const buildDate = S.buildDate || new Date().toISOString().slice(0,10);
-    return `<div class="cmd">
-      <div class="card" style="text-align:center;padding:32px 24px">
-        <div style="width:96px;height:96px;margin:0 auto 16px;border-radius:24px;overflow:hidden;background:var(--deep);box-shadow:0 12px 32px rgba(0,0,0,.4)">
-          <img src="/icons/mark.png?v=desk49" alt="AURION" style="width:100%;height:100%;object-fit:cover;transform:scale(1.08)" />
-        </div>
-        <h2 style="margin:0 0 6px;font-size:28px;letter-spacing:.12em">AURION</h2>
-        <p class="sub" style="font-size:14px">${I18N.t("about.version")} <b class="mono" style="color:var(--cyan)">v${esc(ver)}</b> • ${I18N.t("about.build")} ${esc(buildDate)}</p>
-        <p class="sub" style="margin-top:12px;max-width:520px;margin-left:auto;margin-right:auto;line-height:1.8">${I18N.t("about.blurb")}</p>
-        <div style="margin:20px auto 0;display:flex;gap:8px;justify-content:center;flex-wrap:wrap">
-          <span class="pill ok">MT5 Live</span>
-          <span class="pill ok">AI ${L.premium? 'PRO' : 'Free'}</span>
-          <span class="pill">Prop Guard</span>
-          <span class="pill">v${esc(ver)}</span>
-        </div>
-      </div>
-      <div class="grid g-2">
-        <div class="card">
-          <h3>🛠️ ${I18N.t("about.specs")}</h3>
-          <div class="kv">
-            <span>${I18N.t("about.sys_name")}</span><b>AURION</b>
-            <span>${I18N.t("about.version")}</span><b class="mono">v${esc(ver)}</b>
-            <span>${I18N.t("about.state")}</span><b>${S.snap?.engine === 'online' ? I18N.t("about.online") + ' 🟢' : I18N.t("about.offline") + ' 🔴'}</b>
-            <span>MT5</span><b>${mt5Live() ? I18N.t("about.connected") + ' 🟢' : I18N.t("about.disconnected") + ' 🔴'}</b>
-            <span>EA Charts</span><b class="mono">${liveAgents().length}</b>
-            <span>${I18N.t("about.active_strategy")}</span><b>${esc(S.snap?.strategy?.name||'—')}</b>
-            <span>${I18N.t("about.autotrade")}</span><b>${S.snap?.strategy?.auto_trade ? I18N.t("about.on") + ' 🟢' : I18N.t("about.off") + ' 🔴'}</b>
-            <span>${I18N.t("about.kill")}</span><b>${S.snap?.kill_switch ? I18N.t("about.armed") + ' 🔴' : I18N.t("about.off") + ' 🟢'}</b>
-            <span>Prop</span><b>${S.snap?.prop?.enabled !== false ? I18N.t("about.enabled") + ' 🟢' : I18N.t("about.disabled") + ' 🔴'}</b>
-            <span>${I18N.t("about.language")}</span><b>${I18N.lang.toUpperCase()}</b>
-          </div>
-        </div>
-        <div class="card">
-          <h3>🏢 ${I18N.t("about.maker")}</h3>
-          <div style="display:flex;align-items:center;gap:14px;margin:12px 0">
-            <img src="/assets/axiasoft-logo.png?v=desk49" alt="Axiasoft" style="width:56px;height:56px;object-fit:contain;background:transparent;border:none;border-radius:0" />
-            <div>
-              <b style="font-size:18px">Axiasoft</b><br>
-              <span class="sub">${I18N.t("about.developer_of")} • 2024-${copyrightYear()}</span>
-            </div>
-          </div>
-          <div class="kv" style="margin-top:12px">
-            <span>${I18N.t("about.product")}</span><b>AURION Live Desk</b>
-            <span>${I18N.t("about.license")}</span><b>${L.premium ? planLabel(L) : 'Freemium'}</b>
-            <span>${I18N.t("about.support")}</span><b>support@axiasoft</b>
-            <span>${I18N.t("about.update")}</span><b id="about-update-status">${I18N.t("about.checking")}</b>
-          </div>
-          <div class="row" style="margin-top:14px">
-            <button class="btn tiny" id="about-check-update" type="button">🔄 ${I18N.t("about.check")}</button>
-            <button class="btn tiny ghost" id="about-copy-ver" type="button">📋 ${I18N.t("about.copy_ver")}</button>
-          </div>
-        </div>
-      </div>
-      <div class="card">
-        <h3>📋 ${I18N.t("about.changelog")}</h3>
-        <div id="about-changelog" class="sub" style="max-height:240px;overflow:auto;line-height:1.8">
-          <p>${I18N.t("upd.loading")}</p>
-        </div>
-      </div>
-    </div>`;
-  },
-  profile() {
-    const u = S.user || {};
-    const L = (S.snap && S.snap.license) || {};
-    const paid = Boolean(L.paid || L.developer);
-    const initials = String(u.display_name || u.username || "A").replace(/[^A-Za-z0-9\u0600-\u06FF]/g, "").slice(0, 2).toUpperCase() || "A";
-    const since = u.created ? String(u.created).slice(0, 10) : "—";
-    const last = u.last_login ? String(u.last_login).replace("T", " ").slice(0, 16) : "—";
-    const popular = "m6";
-    const toman = (rial) => rial ? fmt(rial / 10, 0) : "—";
-    const plans = (S.plans || []).map((p) => {
-      const on = S._plan === p.id ? " on" : "";
-      const pop = p.id === popular ? " popular" : "";
-      const per = p.amount && p.days ? fmt((p.amount / 10) / (p.days / 30), 0) : "—";
-      return `<button type="button" class="plan-card${on}${pop}" data-plan="${p.id}">
-        ${p.id === popular ? `<span class="plan-tag">${I18N.t("profile.popular")}</span>` : ""}
-        <h4>${esc(p.label)}</h4>
-        <div class="plan-price"><b>${toman(p.amount)}</b><small>${I18N.lang === "en" ? "Toman" : I18N.t("profile.per_month")}</small></div>
-        <p class="plan-per">${per} · ${I18N.t("profile.per_month")}</p>
-        <ul>
-          <li>${I18N.t("profile.feature_live")}</li>
-          <li>${I18N.t("profile.feature_days", { n: p.days })}</li>
-          <li>${I18N.t("profile.feature_renew")}</li>
-        </ul>
-      </button>`;
-    }).join("");
-    const pays = (S.pays || []).map((p) => `<div class="pay-row"><span>${esc(p.plan)} · ${esc(p.status)}</span><b class="mono">${p.amount ? fmt(p.amount / 10, 0) : "—"}</b></div>`).join("");
-    const tz = u.timezone || "Asia/Tehran";
-    const zones = ["Asia/Tehran", "UTC", "Europe/Berlin", "Europe/London", "Asia/Dubai", "America/New_York"];
-    return `<div class="cmd">
-      <div class="card">
-        <div class="prof-hero">
-          <div class="prof-ava">${esc(initials)}</div>
-          <div>
-            <h2 class="set-title" style="margin:0">${esc(u.display_name || u.username || I18N.t("profile.title"))}</h2>
-            <p class="sub">@${esc(u.username || "")}</p>
-            <div class="prof-meta">
-              <span class="chip on">${esc(u.role || "trader")}</span>
-              <span class="chip">${I18N.t("profile.member")} ${esc(since)}</span>
-              <span class="chip">${I18N.t("profile.last_seen")} ${esc(last)}</span>
-              <button type="button" class="chip" id="pf-copy">@${esc(u.username || "")} · ${I18N.t("profile.copy")}</button>
-            </div>
-          </div>
-        </div>
-        <div class="grid g-2" style="margin-top:16px">
-          <label class="field"><span>${I18N.t("profile.name")}</span><input id="pf-name" value="${esc(u.display_name || "")}" placeholder="${esc(I18N.t("profile.name_ph"))}" /></label>
-          <label class="field"><span>${I18N.t("profile.tz")}</span>
-            <select class="ctrl" id="pf-tz">${zones.map((z) => `<option value="${z}" ${z === tz ? "selected" : ""}>${z}</option>`).join("")}</select>
-          </label>
-        </div>
-        <div class="lang-pills" id="pf-langs" style="margin:8px 0 12px">
-          <button type="button" data-lang="en">EN</button>
-          <button type="button" data-lang="fa">فارسی</button>
-          <button type="button" data-lang="ar">العربية</button>
-        </div>
-        <button class="btn" id="pf-save" type="button">${I18N.t("profile.save_profile")}</button>
-      </div>
-      <div class="grid g-2">
-        <div class="card prof-sec">
-          <h3>${I18N.t("profile.identity")}</h3>
-          <p>${u.gmail ? esc(u.gmail) : I18N.t("profile.no_mail")} ${u.gmail ? `<span class="badge-ok">${I18N.t("profile.verified")}</span>` : ""}</p>
-          <p style="margin-top:10px">${u.phone ? esc(u.phone) : I18N.t("profile.no_phone")} ${u.phone ? `<span class="badge-ok">${I18N.t("profile.verified")}</span>` : ""}</p>
-        </div>
-        <div class="card prof-sec">
-          <h3>${I18N.t("profile.security")}</h3>
-          <label class="field"><span>${I18N.t("profile.current")}</span><input id="pf-cur" type="password" autocomplete="current-password" /></label>
-          <label class="field"><span>${I18N.t("profile.next")}</span><input id="pf-next" type="password" autocomplete="new-password" /></label>
-          <label class="field"><span>${I18N.t("auth.pass2")}</span><input id="pf-next2" type="password" autocomplete="new-password" /></label>
-          <button class="btn tiny" id="pf-pass" type="button">${I18N.t("profile.password")}</button>
-          <h3 style="margin-top:16px">${I18N.t("profile.totp")}</h3>
-          <p class="sub">${I18N.t(u.totp_enabled ? "profile.totp_on" : "profile.totp_off")}</p>
-          ${u.totp_enabled
-            ? `<div class="row"><input class="ctrl" id="pf-td" placeholder="000000" style="max-width:120px"/><button class="btn tiny danger" id="pf-toff" type="button">${I18N.t("profile.totp_disable")}</button></div>`
-            : `<button class="btn tiny" id="pf-ton" type="button">${I18N.t("profile.totp_start")}</button>
-               <p class="secret-box hidden" id="pf-tsec"></p>
-               <div class="row hidden" id="pf-trow"><input class="ctrl" id="pf-tc" placeholder="000000" style="max-width:120px"/><button class="btn tiny" id="pf-tok" type="button">${I18N.t("profile.totp_confirm")}</button></div>`}
-        </div>
-      </div>
-      <div class="card${paid ? "" : " lic-banner"}">
-        <h3>${I18N.t("profile.plan")}</h3>
-        <p class="metric">${esc(L.plan_label || L.plan || I18N.t("profile.trial"))}</p>
-        <p class="sub">${paid && L.days_left != null ? I18N.t("profile.remaining", { n: L.days_left }) : I18N.t("profile.trial")}</p>
-        <p class="sub">${L.expires || ""}</p>
-        <h3 style="margin-top:14px">${I18N.t(paid ? "profile.renew" : "profile.choose")}</h3>
-        <div class="plan-grid" id="plan-grid">${plans || `<p class="sub">${I18N.t("profile.gateway_off")}</p>`}</div>
-        <button class="btn block" id="pf-pay" type="button">${I18N.t("profile.pay")}</button>
-        <p class="sub" id="pf-pay-msg"></p>
-        <h3 style="margin-top:16px">${I18N.t("profile.history")}</h3>
-        <div id="pf-pays">${pays || `<p class="sub">${I18N.t("profile.pay_none")}</p>`}</div>
-      </div>
-    </div>`;
-  },
-};
 
 function metric(key, value, suffix, signed) {
   return `<div class="card"><h3>${I18N.t(key)}</h3><p class="metric mono ${signed?clsPnl(value):""}" data-metric="${key}">${fmt(value)}${suffix ? " " + suffix : ""}</p></div>`;
@@ -4514,9 +3856,19 @@ function symPaintFoot() {
   const n = SYM_PICK.selected.size;
   if (foot) foot.textContent = I18N.t("risk.symbols_count", { n });
   if (label) {
-    label.textContent = n
-      ? I18N.t("risk.symbols_count", { n })
-      : I18N.t("risk.symbols_all_allowed");
+    // The chosen symbols are shown as chips on the control itself. A count
+    // alone ("6 selected") forces the trader to open the panel to find out
+    // which six, which is the question they actually have.
+    if (!n) {
+      label.innerHTML = `<em class="sym-none">${esc(I18N.t("risk.symbols_all_allowed"))}</em>`;
+    } else {
+      const picks = Array.from(SYM_PICK.selected).sort();
+      const shown = picks.slice(0, 6);
+      label.innerHTML = shown.map((sym) =>
+        `<span class="sym-chip">${esc(sym)}<i data-unpick="${esc(sym)}" title="${esc(I18N.t("risk.symbols_clear"))}">&times;</i></span>`
+      ).join("") + (picks.length > shown.length
+        ? `<span class="sym-chip more">+${picks.length - shown.length}</span>` : "");
+    }
   }
   const hidden = $("pr-syms");
   if (hidden) hidden.value = Array.from(SYM_PICK.selected).sort().join(",");
@@ -4526,6 +3878,17 @@ async function bindSymbolPicker() {
   const wrap = $("pr-syms-pick");
   if (!wrap || wrap._bound) return;
   wrap._bound = true;
+  const label = $("pr-syms-label");
+  if (label) label.onclick = (e) => {
+    const x = e.target.closest("[data-unpick]");
+    if (!x) return;
+    // Do not let the click reach the button, or the panel opens as it closes.
+    e.preventDefault();
+    e.stopPropagation();
+    SYM_PICK.selected.delete(x.getAttribute("data-unpick"));
+    symPaintList($("pr-syms-q") ? $("pr-syms-q").value : "");
+  };
+
   const btn = $("pr-syms-btn");
   const panel = $("pr-syms-panel");
   const list = $("pr-syms-list");

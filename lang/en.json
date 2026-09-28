@@ -339,8 +339,21 @@
     "symbols_all": "Select all",
     "symbols_none": "Clear",
     "symbols_empty": "No symbol found",
-    "symbols_count": "{n} symbols selected",
-    "symbols_all_allowed": "All symbols allowed (no restriction)"
+    "symbols_count": "%n selected",
+    "symbols_all_allowed": "All symbols allowed (no restriction)",
+    "u_pct_balance": "% of balance",
+    "u_pct_equity": "% of equity",
+    "u_lots": "lots",
+    "u_trades": "trades",
+    "u_positions": "positions",
+    "u_per_day": "trades / day",
+    "u_minutes": "minutes",
+    "u_hours": "hours",
+    "u_utc_hour": "hour, UTC (0-23)",
+    "u_time": "HH:MM, broker time",
+    "u_zero_off": "0 = no limit",
+    "symbols_none_sel": "No symbol restriction - every symbol is allowed",
+    "symbols_clear": "Clear"
   },
   "exec": {
     "title": "Execution",
