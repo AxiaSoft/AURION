@@ -1060,32 +1060,134 @@ html[data-skin]:not([data-skin="glass"]) .cal-bar{
   box-shadow:var(--sk-field-shadow);
 }
 
-/* Sliders are a control in their own right and looked stock in every skin. */
-input[type=range]{ accent-color:var(--accent) }
-html[data-skin="clay"] input[type=range],
-html[data-skin="neu"] input[type=range]{
-  -webkit-appearance:none; appearance:none;
-  height:10px; border-radius:999px;
-  background:rgb(var(--s3));
-  box-shadow:inset 0 3px 7px -2px rgba(0,0,0,.45);
-}
-html[data-skin="clay"] input[type=range]::-webkit-slider-thumb,
-html[data-skin="neu"] input[type=range]::-webkit-slider-thumb{
-  -webkit-appearance:none; appearance:none;
-  width:22px; height:22px; border-radius:50%;
-  background:var(--accent);
-  border:0;
-  box-shadow:inset 0 2px 1px rgb(255 255 255 / .4), 0 4px 10px -3px rgba(0,0,0,.5);
+/* --- range sliders ------------------------------------------------------
+   The confidence and risk sliders are the most-used controls on the settings
+   page and were left at the browser default in every skin. Each material now
+   shapes both parts of the control - the channel and the handle - because a
+   moulded track with a stock grey handle looks worse than leaving it alone.
+
+   Written twice, for -webkit- and -moz-: pseudo-elements from different
+   engines cannot share a rule, a comma-joined selector is dropped whole by
+   both. WebView2 only needs the first, the second is for anyone opening the
+   desk in Firefox. */
+input[type=range]{
+  accent-color:var(--accent);
+  -webkit-appearance:none;
+  appearance:none;
+  background:transparent;
+  height:28px;
   cursor:pointer;
 }
-html[data-skin="minimal"] input[type=range]{
-  -webkit-appearance:none; appearance:none;
-  height:2px; background:rgb(var(--wash) / .18);
+input[type=range]::-webkit-slider-runnable-track{
+  height:var(--sk-track-h, 6px);
+  border-radius:var(--sk-track-r, 999px);
+  background:var(--sk-track-bg, rgb(var(--s3)));
+  box-shadow:var(--sk-track-shadow, none);
+  border:var(--sk-track-edge, 0);
 }
-html[data-skin="minimal"] input[type=range]::-webkit-slider-thumb{
-  -webkit-appearance:none; appearance:none;
-  width:14px; height:14px; border-radius:2px;
-  background:var(--accent); border:0; cursor:pointer;
+input[type=range]::-moz-range-track{
+  height:var(--sk-track-h, 6px);
+  border-radius:var(--sk-track-r, 999px);
+  background:var(--sk-track-bg, rgb(var(--s3)));
+  box-shadow:var(--sk-track-shadow, none);
+  border:var(--sk-track-edge, 0);
+}
+input[type=range]::-webkit-slider-thumb{
+  -webkit-appearance:none;
+  appearance:none;
+  width:var(--sk-thumb, 18px);
+  height:var(--sk-thumb, 18px);
+  border-radius:var(--sk-thumb-r, 50%);
+  background:var(--sk-thumb-bg, var(--accent));
+  border:var(--sk-thumb-edge, 0);
+  box-shadow:var(--sk-thumb-shadow, 0 3px 8px -2px rgba(0,0,0,.5));
+  /* Centre the handle on the track whatever height the skin gave it. */
+  margin-top:calc((var(--sk-track-h, 6px) - var(--sk-thumb, 18px)) / 2);
+  transition:transform .15s var(--ease);
+}
+input[type=range]::-moz-range-thumb{
+  width:var(--sk-thumb, 18px);
+  height:var(--sk-thumb, 18px);
+  border-radius:var(--sk-thumb-r, 50%);
+  background:var(--sk-thumb-bg, var(--accent));
+  border:var(--sk-thumb-edge, 0);
+  box-shadow:var(--sk-thumb-shadow, 0 3px 8px -2px rgba(0,0,0,.5));
+}
+input[type=range]:hover::-webkit-slider-thumb{ transform:scale(1.08) }
+input[type=range]:active::-webkit-slider-thumb{ transform:scale(.96) }
+input[type=range]:focus-visible::-webkit-slider-thumb{
+  outline:2px solid var(--accent);
+  outline-offset:2px;
+}
+
+/* Glass: a translucent channel and a lit bead. */
+html[data-skin="glass"]{
+  --sk-track-h:6px;
+  --sk-track-bg:rgb(var(--wash) / .10);
+  --sk-track-edge:1px solid rgb(var(--wash) / .08);
+  --sk-thumb:18px;
+  --sk-thumb-shadow:0 2px 10px -2px rgb(var(--accent-rgb) / .8), inset 0 1px 0 rgb(255 255 255 / .45);
+}
+
+/* Clay: a deep moulded channel, a fat rounded bead sitting in it. */
+html[data-skin="clay"]{
+  --sk-track-h:12px;
+  --sk-track-bg:rgb(var(--s3));
+  --sk-track-shadow:inset 0 3px 7px -2px rgba(0,0,0,.5), inset 0 -1px 0 rgb(var(--wash) / .05);
+  --sk-thumb:24px;
+  --sk-thumb-shadow:inset 0 2px 1px rgb(255 255 255 / .42), 0 5px 12px -4px rgba(0,0,0,.55);
+}
+
+/* Neu: the channel is carved out of the surface; the handle rises from it. */
+html[data-skin="neu"]{
+  --sk-track-h:12px;
+  --sk-track-bg:rgb(var(--s5));
+  --sk-track-shadow:inset 4px 4px 9px rgba(0,0,0,.5), inset -4px -4px 9px rgb(var(--wash) / .04);
+  --sk-thumb:22px;
+  --sk-thumb-bg:rgb(var(--s5));
+  --sk-thumb-shadow:4px 4px 9px rgba(0,0,0,.5), -4px -4px 9px rgb(var(--wash) / .05),
+                    inset 0 0 0 4px var(--accent);
+}
+
+/* Skeu: a bevelled steel groove with a chrome knob. */
+html[data-skin="skeu"]{
+  --sk-track-h:8px;
+  --sk-track-r:4px;
+  --sk-track-bg:linear-gradient(180deg, rgb(var(--s1)), rgb(var(--s4)));
+  --sk-track-edge:1px solid rgba(0,0,0,.6);
+  --sk-track-shadow:inset 0 2px 5px rgba(0,0,0,.6), 0 1px 0 rgb(var(--wash) / .10);
+  --sk-thumb:20px;
+  --sk-thumb-r:5px;
+  --sk-thumb-bg:linear-gradient(180deg, rgb(var(--wash) / .35), transparent 50%), var(--accent);
+  --sk-thumb-edge:1px solid rgba(0,0,0,.55);
+  --sk-thumb-shadow:inset 0 1px 0 rgb(255 255 255 / .5), 0 3px 7px -2px rgba(0,0,0,.55);
+}
+
+/* Minimal: a hairline and a square. */
+html[data-skin="minimal"]{
+  --sk-track-h:2px;
+  --sk-track-r:0;
+  --sk-track-bg:rgb(var(--wash) / .18);
+  --sk-thumb:14px;
+  --sk-thumb-r:2px;
+  --sk-thumb-shadow:none;
+}
+
+/* Light theme: the moulded skins need their shadows re-cut here too. */
+html[data-theme="light"][data-skin="clay"]{
+  --sk-track-bg:rgb(var(--s1));
+  --sk-track-shadow:inset 0 3px 7px -2px rgba(90,104,130,.30);
+  --sk-thumb-shadow:inset 0 2px 1px rgba(255,255,255,.7), 0 4px 10px -4px rgba(60,72,96,.35);
+}
+html[data-theme="light"][data-skin="neu"]{
+  --sk-track-shadow:inset 4px 4px 9px rgba(88,102,128,.20), inset -4px -4px 9px rgba(255,255,255,.95);
+  --sk-thumb-shadow:4px 4px 9px rgba(88,102,128,.20), -4px -4px 9px rgba(255,255,255,.95),
+                    inset 0 0 0 4px var(--accent);
+}
+html[data-theme="light"][data-skin="skeu"]{
+  --sk-track-bg:linear-gradient(180deg, #c9d2e0, #eef2f8);
+  --sk-track-edge:1px solid rgba(120,134,158,.5);
+  --sk-track-shadow:inset 0 2px 4px rgba(90,104,130,.35), 0 1px 0 rgba(255,255,255,.9);
 }
 
 /* --- terminal, tables, code -------------------------------------------- */
@@ -1224,3 +1326,120 @@ html[data-skin="skeu"] .gauge{
 }
 html[data-skin="minimal"] .bar,
 html[data-skin="minimal"] .gauge{ border-radius:0; box-shadow:none }
+
+/* ===========================================================================
+   17. Detail pass
+   ===========================================================================
+   The small things that were still identical in all five skins. Each is a
+   place where the material should have had an opinion and did not. */
+
+/* Switches. The single most-used control on the settings page, and until now
+   only clay and neu shaped it. */
+html[data-skin="skeu"] .switch{
+  background:linear-gradient(180deg, rgb(var(--s1)), rgb(var(--s4)));
+  border:1px solid rgba(0,0,0,.6);
+  box-shadow:inset 0 2px 5px rgba(0,0,0,.6);
+}
+html[data-skin="skeu"] .switch.on{
+  background:linear-gradient(180deg,
+    color-mix(in srgb, var(--accent) 55%, #000),
+    color-mix(in srgb, var(--accent) 85%, #fff));
+}
+html[data-skin="minimal"] .switch{
+  border-radius:2px;
+  border:1px solid rgb(var(--wash) / .22);
+  background:transparent;
+  box-shadow:none;
+}
+html[data-skin="minimal"] .switch.on{ background:var(--accent); border-color:var(--accent) }
+html[data-skin="minimal"] .switch i{ border-radius:1px; box-shadow:none }
+html[data-skin="glass"] .switch{ backdrop-filter:blur(6px); -webkit-backdrop-filter:blur(6px) }
+
+/* Text inputs: a focus state that belongs to the material rather than one
+   cyan ring for everything. */
+html[data-skin="clay"] .field input:focus,
+html[data-skin="clay"] .field select:focus,
+html[data-skin="clay"] .ctrl:focus{
+  box-shadow:inset 0 3px 8px -2px rgba(0,0,0,.5), 0 0 0 3px rgb(var(--accent-rgb) / .22);
+  border-color:transparent;
+}
+html[data-skin="neu"] .field input:focus,
+html[data-skin="neu"] .field select:focus,
+html[data-skin="neu"] .ctrl:focus{
+  box-shadow:inset 6px 6px 14px rgba(0,0,0,.55), inset -6px -6px 14px rgb(var(--wash) / .045),
+             0 0 0 2px rgb(var(--accent-rgb) / .35);
+}
+html[data-skin="skeu"] .field input:focus,
+html[data-skin="skeu"] .field select:focus,
+html[data-skin="skeu"] .ctrl:focus{
+  box-shadow:inset 0 3px 7px rgba(0,0,0,.65), 0 0 0 2px rgb(var(--accent-rgb) / .4);
+}
+html[data-skin="minimal"] .field input:focus,
+html[data-skin="minimal"] .field select:focus,
+html[data-skin="minimal"] .ctrl:focus{
+  box-shadow:none;
+  border-color:var(--accent);
+  border-bottom-width:2px;
+}
+
+/* Section headings: the label above a group of settings. */
+html[data-skin="minimal"] .set-rail .sj-grp{
+  border-bottom:1px solid rgb(var(--wash) / .10);
+  margin-inline:6px;
+}
+html[data-skin="skeu"] .set-rail .sj-grp{ text-shadow:0 -1px 0 rgba(0,0,0,.6) }
+
+/* Dropdown menus open as part of the material, not as a floating glass sheet. */
+html[data-skin]:not([data-skin="glass"]) .dd-menu{ padding:6px }
+html[data-skin="clay"] .dd-opt{ border-radius:14px }
+html[data-skin="minimal"] .dd-opt{ border-radius:0 }
+html[data-skin="skeu"] .dd-opt.on{
+  background:linear-gradient(180deg, rgb(var(--accent-rgb) / .35), rgb(var(--accent-rgb) / .12));
+  box-shadow:inset 0 1px 0 rgb(var(--wash) / .2);
+}
+
+/* Empty states should look intentional in every material. */
+html[data-skin]:not([data-skin="glass"]) .empty,
+html[data-skin]:not([data-skin="glass"]) .sym-empty,
+html[data-skin]:not([data-skin="glass"]) .cal-none{
+  background:var(--sk-field);
+  border:var(--sk-field-edge);
+  border-radius:var(--sk-r-sm);
+  box-shadow:var(--sk-field-shadow);
+}
+html[data-skin="minimal"] .empty,
+html[data-skin="minimal"] .sym-empty,
+html[data-skin="minimal"] .cal-none{
+  background:transparent;
+  border:1px dashed rgb(var(--wash) / .16);
+  box-shadow:none;
+}
+
+/* The kill switch keeps its colour everywhere, but its armed state should
+   announce itself in the language of the skin. */
+html[data-skin="clay"] #btn-kill.kills{
+  box-shadow:inset 0 2px 1px rgb(255 255 255 / .3), 0 0 0 3px rgb(244 71 91 / .35),
+             0 12px 22px -10px rgba(0,0,0,.5);
+}
+html[data-skin="neu"] #btn-kill.kills{
+  box-shadow:7px 7px 18px rgba(0,0,0,.55), -7px -7px 18px rgb(var(--wash) / .05),
+             inset 0 0 0 2px #f4475b;
+}
+html[data-skin="minimal"] #btn-kill.kills{ box-shadow:inset 0 0 0 2px #fff }
+html[data-skin="skeu"] #btn-kill.kills{
+  box-shadow:inset 0 1px 0 rgb(255 255 255 / .45), 0 0 14px rgb(244 71 91 / .55);
+}
+
+/* Charts sit inside the material instead of on top of it. */
+html[data-skin]:not([data-skin="glass"]) .chart-stage,
+html[data-skin]:not([data-skin="glass"]) .chart-box{
+  border-radius:var(--sk-r-sm);
+  overflow:hidden;
+}
+html[data-skin="skeu"] .chart-box{ box-shadow:inset 0 1px 0 rgb(var(--wash) / .12) }
+html[data-skin="neu"] .chart-box{ box-shadow:inset 3px 3px 8px rgba(0,0,0,.35) }
+
+/* Direction never follows the accent - stated here as well as in app.css so
+   a skin cannot quietly override it. */
+.up, .metric.up, .dot.i-low{ color:var(--candle-up) }
+.down, .metric.down{ color:var(--candle-down) }

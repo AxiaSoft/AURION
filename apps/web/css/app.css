@@ -45,8 +45,14 @@
   --violet:var(--accent-3);
   --gold:#e8c07a;
   --rose:#ff6b8a;
-  --ok:var(--accent);
-  --bad:#ff6b8a;
+  /* Market direction is not decoration. Green is up and red is down in every
+     theme, on every skin, whatever accent the user picks - a trader reads
+     these before they read anything else, and an accent that turned profit
+     violet would be a genuine hazard. They are deliberately NOT --accent. */
+  --candle-up:#26d07c;
+  --candle-down:#f4475b;
+  --ok:var(--candle-up);
+  --bad:var(--candle-down);
   --shadow:0 20px 60px rgba(0,0,0,.45);
   --r:22px;
   --nav:212px;
@@ -1713,8 +1719,10 @@ html[data-theme="light"]{
   --violet:var(--accent-3);
   --gold:#8a6a1c;
   --rose:#d63a5c;
-  --ok:var(--accent-readable, var(--accent));
-  --bad:#d63a5c;
+  --candle-up:#0f9d58;
+  --candle-down:#d93025;
+  --ok:var(--candle-up);
+  --bad:var(--candle-down);
   --shadow:0 20px 50px rgba(30,40,70,.16);
   --wash:21 27 40;
   --s1:213 219 230; --s2:240 244 250; --s3:244 247 251; --s4:248 250 253; --s5:250 252 255;

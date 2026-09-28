@@ -26,8 +26,10 @@ function chartTheme() {
     const n = parseInt(h, 16);
     return [(n >> 16) & 255, (n >> 8) & 255, n & 255].join(",");
   };
-  const up = pick("--cyan", "#3ee0c4");
-  const down = pick("--rose", "#ff6b8a");
+  // Candles read --candle-up / --candle-down, never the accent: the direction
+  // of a bar has to mean the same thing in every theme the user can choose.
+  const up = pick("--candle-up", "#26d07c");
+  const down = pick("--candle-down", "#f4475b");
   const gold = pick("--gold", "#e8c07a");
   const violet = pick("--violet", "#7c6cff");
   const light = (typeof document !== "undefined" && document.documentElement && document.documentElement.dataset.theme) === "light";
@@ -39,8 +41,8 @@ function chartTheme() {
     muted: pick("--chart-muted", "#8b93a7"),
     panel: pick("--chart-panel", "rgba(10,12,18,.9)"),
     up, down, gold, violet,
-    upT: tri(up, "62,224,196"),
-    downT: tri(down, "255,107,138"),
+    upT: tri(up, "38,208,124"),
+    downT: tri(down, "244,71,91"),
     goldT: tri(gold, "232,192,122"),
     violetT: tri(violet, "124,108,255"),
     fib: light ? "#3c4a63" : "#c9d0de",
