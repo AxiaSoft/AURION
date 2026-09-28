@@ -1,9 +1,14 @@
 /* ===========================================================================
-   AURION — display: how much the desk spends on visual effects.
+   AURION — display tier: how much the desk spends on visual effects.
 
    All that is left of the old appearance module. The interface styles and the
    accent picker were removed; the brand palette now lives entirely in
    css/app.css, where a theme switch is enough to change it.
+
+   The file keeps its original name on purpose. It was briefly renamed to
+   display.js - tidier, and also exactly the kind of change that breaks an
+   install whose cached HTML still asks for the old path. A renamed script is a
+   404, and a 404 here takes the whole desk with it.
 
    This owns one attribute on <html>:
 

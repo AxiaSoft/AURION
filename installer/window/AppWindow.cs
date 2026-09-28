@@ -199,7 +199,10 @@ internal sealed class AppWindow : Form
 
         var core = _view.CoreWebView2;
         core.Settings.AreDefaultContextMenusEnabled = true;
-        core.Settings.AreDevToolsEnabled = false;
+        // Left ON deliberately. This is a local desk, not a kiosk: when a page
+        // fails to build, F12 is the only way anyone can say WHY, and a blank
+        // window with no console is the worst thing to hand a user.
+        core.Settings.AreDevToolsEnabled = true;
         core.Settings.IsStatusBarEnabled = false;
         core.Settings.IsSwipeNavigationEnabled = false;
 
