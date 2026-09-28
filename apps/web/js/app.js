@@ -404,6 +404,13 @@ function perfNowLabel() {
     ? I18N.t("settings.perf_now_fast") : I18N.t("settings.perf_now_rich");
 }
 
+/* Frosted glass is meaningless on an opaque skin, so its switch comes and goes
+   with the skin - in place, without rebuilding the settings page. */
+function syncGlassRow() {
+  const row = $("row-liquid-glass");
+  if (row) row.hidden = !glassSkinActive();
+}
+
 function markAppearancePills() {
   if (typeof AurionSkin === "undefined") return;
   const skin = AurionSkin.getSkin(), bg = AurionSkin.getBackground();
@@ -418,6 +425,7 @@ function markAppearancePills() {
   });
   const now = $("set-perf-now");
   if (now) now.textContent = perfNowLabel();
+  syncGlassRow();
   const swatch = document.querySelector(".accent-custom");
   const picker = $("set-accent-custom");
   if (swatch && picker) swatch.style.setProperty("--picked", picker.value);
@@ -430,8 +438,9 @@ function bindAppearance() {
   if (skins) skins.onclick = (e) => {
     const b = e.target.closest("[data-skinbtn]"); if (!b) return;
     AurionSkin.setSkin(b.dataset.skinbtn);
+    markAppearancePills();
+    syncGlassRow();
     repaintChartsForTheme();
-    renderSettings();
   };
 
   const accents = $("set-accents");
@@ -2743,14 +2752,13 @@ const views = {
             <button type="button" data-themebtn="dark">\uD83C\uDF19 ${I18N.t("settings.theme_dark")}</button>
             <button type="button" data-themebtn="light">\u2600\uFE0F ${I18N.t("settings.theme_light")}</button>
           </div>
-          ${glassSkinActive() ? `
-          <div class="row" style="justify-content:space-between;margin-top:16px;align-items:flex-start">
+          <div class="row" id="row-liquid-glass" style="justify-content:space-between;margin-top:16px;align-items:flex-start"${glassSkinActive() ? "" : " hidden"}>
             <div>
               <div style="font-weight:600">${I18N.t("settings.liquid_glass")}</div>
               <p class="sub" style="margin:2px 0 0">${I18N.t("settings.liquid_glass_hint")}</p>
             </div>
             <button type="button" class="switch ${glassOn()?"on":""}" id="sw-glass" aria-pressed="${glassOn()}"><i></i></button>
-          </div>` : ""}
+          </div>
         </div>
         ${appearanceCardsHtml()}
       </section>

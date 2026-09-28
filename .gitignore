@@ -24,3 +24,6 @@ installer/window/obj/
 
 # local UI scratch pages (never shipped)
 apps/web/__*.html
+
+# JS analysis helper deps (installed on demand, never shipped)
+node_modules/
