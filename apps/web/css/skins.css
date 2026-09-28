@@ -99,13 +99,40 @@
 .st-chip:hover{ border-color:rgb(var(--accent-rgb) / .35); background:var(--sk-tint) }
 
 /* The settings rail is a list of destinations, not a control.
-   Nothing about the container itself may react to the pointer - it used to
-   pick up glass and blur only while hovered, which made the panel look like
-   it was switching on and off as the mouse crossed it. Only the rows respond,
-   and only by brightening their label. */
+
+   The container must not react to the pointer at all. It used to pick up glass
+   and blur only while hovered, so the whole panel appeared to switch on and
+   off as the mouse crossed it. These rules restate its resting appearance for
+   every pointer state, which is the only way to be sure nothing underneath
+   reintroduces a hover. */
+.set-jump,
 .set-jump:hover,
-.set-rail .set-jump:hover{ background:inherit; box-shadow:inherit; border-color:inherit }
-.set-jump button:hover{ background:transparent; color:var(--ink) }
+.set-jump:focus-within,
+.set-rail .set-jump,
+.set-rail .set-jump:hover,
+.set-rail .set-jump:focus-within{
+  background:var(--sk-rail-bg, linear-gradient(180deg, rgb(var(--s4) / .92), rgb(var(--s2) / .88)));
+  border-color:var(--line);
+  box-shadow:var(--sk-rail-shadow, none);
+  transform:none;
+}
+.set-jump button:hover{ background:rgb(var(--wash) / .05); color:var(--ink) }
+
+/* Clicking a control should not leave a hard ring around it. Keyboard focus
+   still gets a clear one - :focus-visible only fires for keyboard users. */
+.set-jump button:focus,
+.lang-pills button:focus,
+.accent-dot:focus,
+.bg-chip button:focus,
+.btn:focus{ outline:none }
+.set-jump button:focus-visible,
+.lang-pills button:focus-visible,
+.accent-dot:focus-visible,
+.bg-chip button:focus-visible,
+.btn:focus-visible{
+  outline:2px solid var(--accent);
+  outline-offset:2px;
+}
 
 /* A selected control must look identical hovered and not hovered. Otherwise
    the pressed state flickers as the pointer passes over it, which reads as a
@@ -122,24 +149,43 @@
   border-color:inherit;
   filter:none;
 }
-.lang-pills button.on:hover{
-  background:var(--sk-tint-strong);
-  border-color:rgb(var(--accent-rgb) / .55);
+.set-jump button.on,
+.set-jump button.on:hover,
+.set-jump button.on:focus{
+  background:var(--accent);
+  color:var(--accent-ink);
+}
+/* Selected and hovered used to be two shades of the same wash, so whichever
+   pill the pointer happened to be over looked like the active one. The
+   selected pill is now a solid fill of the accent with derived ink; hover is a
+   barely-there tint that could never be mistaken for it. */
+.lang-pills button:hover{
+  background:rgb(var(--wash) / .05);
+  border-color:rgb(var(--accent-rgb) / .28);
   color:var(--ink);
 }
-.set-jump button.on:hover{ background:var(--ink); color:var(--on-accent) }
-.lang-pills button:hover{ border-color:rgb(var(--accent-rgb) / .40); background:var(--sk-tint) }
-.lang-pills button.on{
-  border-color:rgb(var(--accent-rgb) / .55);
-  background:var(--sk-tint-strong);
-  /* A wash of the accent over the page is still mostly page, so the label
-     follows the theme rather than the accent - set by js/skins.js. */
-  color:var(--accent-ink-soft, var(--ink));
+.lang-pills button.on,
+.lang-pills button.on:hover,
+.lang-pills button.on:focus{
+  background:var(--accent);
+  border-color:var(--accent);
+  color:var(--accent-ink);
+  font-weight:600;
 }
 /* Where the accent is the *fill*, the label is the derived ink: black on a
    pale accent, white on a deep one, decided by relative luminance. */
+/* Anything FILLED with the accent takes the derived ink, so a near-black
+   accent gets white text and a pale one gets black - decided by luminance in
+   js/skins.js, never hand-picked. */
 .btn,
-.set-jump button.on{ color:var(--accent-ink) }
+.btn *,
+.lang-pills button.on,
+.set-jump button.on,
+.bg-chip.on > button[data-bgbtn]{ color:var(--accent-ink) }
+.bg-chip.on{ background:var(--accent); border-color:var(--accent) }
+.bg-chip.on .bg-chip-x{ color:var(--accent-ink); opacity:.75 }
+.bg-chip.on .bg-chip-x:hover{ color:var(--accent-ink); opacity:1 }
+.switch.on i{ background:var(--accent) }
 .chip.on,
 .nav button.on,
 .nav-ver,
@@ -235,6 +281,7 @@ html[data-skin]:not([data-skin="glass"]) .set-jump{
   backdrop-filter:var(--sk-blur);
   -webkit-backdrop-filter:var(--sk-blur);
 }
+html[data-skin]:not([data-skin="glass"]){ --sk-rail-bg:var(--sk-surface); --sk-rail-shadow:var(--sk-shadow) }
 html[data-skin]:not([data-skin="glass"]) .set-jump button,
 html[data-skin]:not([data-skin="glass"]) .dd-opt,
 html[data-skin]:not([data-skin="glass"]) .tab{ border-radius:var(--sk-r-sm) }
@@ -303,21 +350,22 @@ html[data-skin="clay"]{
       color-mix(in srgb, var(--accent) 88%, #fff) 0%,
       var(--accent) 45%,
       color-mix(in srgb, var(--accent) 88%, #000) 100%);
+  /* A single body. The earlier version carried "0 4px 0" - a hard-edged
+     coloured slab directly under the button - which is exactly the second
+     layer that shows up as a rim under every clay button. Depth now comes
+     only from light inside the body and one soft shadow far below it. */
   --sk-btn-shadow:
-    inset 0 2px 1px rgb(255 255 255 / .35),
-    inset 0 -6px 10px -6px rgba(0,0,0,.35),
-    0 4px 0 -1px color-mix(in srgb, var(--accent) 62%, #000),
-    0 12px 22px -10px rgba(0,0,0,.45);
+    inset 0 2px 1px rgb(255 255 255 / .34),
+    inset 0 -10px 14px -10px rgba(0,0,0,.40),
+    0 10px 20px -10px rgba(0,0,0,.45);
   --sk-danger-shadow:
-    inset 0 2px 1px rgb(255 255 255 / .3),
-    inset 0 -6px 10px -6px rgba(0,0,0,.35),
-    0 4px 0 -1px #97304f,
-    0 12px 22px -10px rgba(0,0,0,.45);
+    inset 0 2px 1px rgb(255 255 255 / .30),
+    inset 0 -10px 14px -10px rgba(0,0,0,.40),
+    0 10px 20px -10px rgba(0,0,0,.45);
   --sk-danger-shadow-hover:
     inset 0 2px 1px rgb(255 255 255 / .38),
-    inset 0 -6px 10px -6px rgba(0,0,0,.3),
-    0 5px 0 -1px #97304f,
-    0 16px 26px -10px rgba(0,0,0,.5);
+    inset 0 -10px 14px -10px rgba(0,0,0,.34),
+    0 16px 26px -12px rgba(0,0,0,.5);
 
   --sk-lift:translateY(-2px);
   --sk-btn-press:translateY(3px);
@@ -335,21 +383,19 @@ html[data-skin="clay"] .btn{
   transition:transform .18s var(--ease), box-shadow .18s var(--ease), filter .18s;
 }
 html[data-skin="clay"] .btn:hover{
-  filter:brightness(1.04);
+  filter:brightness(1.05);
   box-shadow:
     inset 0 2px 1px rgb(255 255 255 / .42),
-    inset 0 -6px 10px -6px rgba(0,0,0,.3),
-    0 5px 0 -1px color-mix(in srgb, var(--accent) 62%, #000),
-    0 16px 26px -10px rgba(0,0,0,.5);
+    inset 0 -10px 14px -10px rgba(0,0,0,.34),
+    0 16px 26px -12px rgba(0,0,0,.5);
 }
-html[data-skin="clay"] .btn:active{
-  box-shadow:
-    inset 0 3px 8px -2px rgba(0,0,0,.4),
-    0 1px 0 -1px color-mix(in srgb, var(--accent) 62%, #000);
-}
+/* Pressed clay dents inward: the light moves to the bottom edge. */
+html[data-skin="clay"] .btn:active,
 html[data-skin="clay"] #btn-kill:active,
 html[data-skin="clay"] .btn.danger:active{
-  box-shadow:inset 0 3px 8px -2px rgba(0,0,0,.4), 0 1px 0 -1px #97304f;
+  box-shadow:
+    inset 0 4px 10px -3px rgba(0,0,0,.42),
+    inset 0 -2px 1px rgb(255 255 255 / .18);
 }
 html[data-skin="clay"] .btn.ghost{
   background:rgb(var(--s5));
@@ -405,7 +451,7 @@ html[data-skin="clay"] tbody tr:hover{
    so this skin flattens the wallpaper on purpose. Nothing has a border; every
    edge is two shadows, one light and one dark, from a single light source. */
 html[data-skin="neu"]{
-  --sk-scrim:rgb(var(--s5) / .90);
+  --sk-scrim:rgb(var(--s5) / .62);
   --sk-r:22px;
   --sk-r-sm:16px;
   --sk-btn-radius:16px;
@@ -464,11 +510,22 @@ html[data-skin="neu"] .nav button.on{
    through at the edges. */
 html[data-skin="neu"] .aurora::after{ opacity:.06 }
 html[data-skin="neu"] .aurora{ animation:none }
-html[data-skin="neu"] #app::before,
-html[data-skin="minimal"] #app::before{
+/* Neumorphism and minimal need an even page tone, but the wallpaper has to
+   stay visible - that is the whole point of choosing one.
+
+   The scrim is drawn on body::after, deliberately not inside #app and not on
+   .aurora::before. #app opens its own stacking context, so a child of it could
+   never sit behind it; and .aurora::before is already the light-theme
+   crossfade layer and is switched off for three of the five wallpapers. As the
+   last child of <body> with no z-index, body::after lands above .aurora
+   (z-index:0) and below #app (z-index:1) for every wallpaper and both themes. */
+html[data-skin="neu"] body::after,
+html[data-skin="minimal"] body::after,
+body.skin-scrim::after{
   content:"";
-  position:fixed; inset:0; z-index:-1; pointer-events:none;
-  background:var(--sk-scrim);
+  position:fixed; inset:0;
+  pointer-events:none;
+  background:var(--sk-scrim, transparent);
 }
 
 /* ===========================================================================
@@ -540,7 +597,7 @@ html[data-skin="skeu"] table th{
    block of accent. Denser spacing and tighter type, because minimal is about
    information density as much as decoration. */
 html[data-skin="minimal"]{
-  --sk-scrim:rgb(var(--s1) / .82);
+  --sk-scrim:rgb(var(--s1) / .55);
   --sk-r:4px;
   --sk-r-sm:3px;
   --sk-btn-radius:3px;

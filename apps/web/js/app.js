@@ -379,7 +379,6 @@ function appearanceCardsHtml() {
         <p class="sub" style="margin:8px 0 0" id="set-bg-msg">${I18N.t("settings.wallpaper_hint")}</p>
       </div>
 
-      ${!glassSkinActive() ? "" : `
       <div class="card" style="margin-top:14px">
         <p class="sub" style="margin:0 0 6px">${I18N.t("settings.perf")}</p>
         <div class="lang-pills" id="set-perf">
@@ -389,12 +388,12 @@ function appearanceCardsHtml() {
         </div>
         <p class="sub" style="margin:8px 0 0">${I18N.t("settings.perf_hint")}
           <b id="set-perf-now">${perfNowLabel()}</b></p>
-      </div>`}`;
+      </div>`;
 }
 
 /* Frosted glass only exists in the glass skin; the others are opaque by
-   design, so offering a switch that does nothing would just be noise. The
-   rendering tier is hidden for the same reason - there is no blur to trade. */
+   design, so a switch for it there would do nothing. The rendering tier is a
+   different thing - it governs cost, not looks - so it is always offered. */
 function glassSkinActive() {
   return typeof AurionSkin === "undefined" || AurionSkin.getSkin() === "glass";
 }
