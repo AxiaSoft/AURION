@@ -5045,6 +5045,24 @@ function bindChartDesk() {
   const fit = $("draw-fit"); if (fit) fit.onclick = () => S.chart && S.chart.fit();
   const sess = $("draw-sessions");
   if (sess) sess.onclick = () => setChartSessions(!chartSessionsOn());
+
+  /* Drawings can be picked up and moved now, which needs a home for the
+     keyboard part: Delete removes what is selected, Escape drops the
+     selection or an unfinished shape. Bound once per chart mount. */
+  if (S.chart && !S._chartKeysBound) {
+    S._chartKeysBound = true;
+    document.addEventListener("keydown", (e) => {
+      if (!S.chart || S.view !== "charts") return;
+      const typing = /^(input|textarea|select)$/i.test((e.target && e.target.tagName) || "");
+      if (typing) return;
+      if (e.key === "Delete" || e.key === "Backspace") {
+        if (S.chart.deleteSelected && S.chart.deleteSelected()) e.preventDefault();
+      } else if (e.key === "Escape") {
+        if (S.chart.select) S.chart.select(null);
+        if (S.chart.draft) { S.chart.draft = null; S.chart.draw(); }
+      }
+    });
+  }
   // Apply the remembered choice to a chart that has just been created.
   if (S.chart && typeof S.chart.setSessions === "function") S.chart.setSessions(chartSessionsOn());
   const more = $("draw-more");

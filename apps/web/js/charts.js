@@ -95,6 +95,8 @@ class CandleChart {
     this.bars = [];
     // Off by default: an overlay the trader did not ask for is clutter.
     this.sessions = false;
+    // The drawing currently under the trader's hand, if any.
+    this.selected = null;
     this.offset = 0;
     this.span = 80;
     this.hover = null;
@@ -623,10 +625,99 @@ class CandleChart {
     }
     return { x: L.xOf(i), y: L.yOf(pt.p), i };
   }
+
+  /* -----------------------------------------------------------------------
+     Working with what you have already drawn.
+
+     Until now a drawing was write-only: the only way to move a trend line one
+     bar to the left was to clear the chart and draw it again. These three
+     methods make an existing shape selectable, draggable and removable, which
+     is most of what "interacting with the chart" means in practice.
+     ----------------------------------------------------------------------- */
+
+  /** The drawing nearest the pointer, within a forgiving radius. */
+  shapeAt(L, x, y) {
+    const near = 8;
+    for (let i = this.drawings.length - 1; i >= 0; i--) {
+      const d = this.drawings[i];
+      for (const key of ["a", "b", "c"]) {
+        const pt = d[key] && this.xyOf(L, d[key]);
+        if (pt && Math.hypot(pt.x - x, pt.y - y) <= near + 3) {
+          return { shape: d, index: i, handle: key };
+        }
+      }
+      const a = d.a && this.xyOf(L, d.a);
+      const b = d.b && this.xyOf(L, d.b);
+      if (a && b && this.nearSegment(x, y, a, b) <= near) return { shape: d, index: i, handle: null };
+      // Horizontal lines have one anchor but span the plot.
+      if (a && !b && (d.kind === "hline" || d.kind === "hray") && Math.abs(y - a.y) <= near) {
+        return { shape: d, index: i, handle: null };
+      }
+      if (a && !b && d.kind === "vline" && Math.abs(x - a.x) <= near) {
+        return { shape: d, index: i, handle: null };
+      }
+    }
+    return null;
+  }
+
+  nearSegment(px, py, a, b) {
+    const dx = b.x - a.x, dy = b.y - a.y;
+    const len = dx * dx + dy * dy;
+    if (!len) return Math.hypot(px - a.x, py - a.y);
+    let t = ((px - a.x) * dx + (py - a.y) * dy) / len;
+    t = Math.max(0, Math.min(1, t));
+    return Math.hypot(px - (a.x + t * dx), py - (a.y + t * dy));
+  }
+
+  select(shape) {
+    this.selected = shape || null;
+    this.draw();
+  }
+
+  deleteSelected() {
+    if (!this.selected) return false;
+    const at = this.drawings.indexOf(this.selected);
+    if (at >= 0) this.drawings.splice(at, 1);
+    this.selected = null;
+    this.saveDrawings && this.saveDrawings();
+    this.draw();
+    return true;
+  }
+
+  /** Move a whole shape, or just the handle that was grabbed. */
+  moveSelected(from, to, handle) {
+    const d = this.selected;
+    if (!d || !from || !to) return;
+    const dGi = (to.gi || 0) - (from.gi || 0);
+    const dP = (to.p || 0) - (from.p || 0);
+    const shift = (pt) => {
+      if (!pt) return pt;
+      pt.gi = (pt.gi || 0) + dGi;
+      pt.p = (pt.p || 0) + dP;
+      return pt;
+    };
+    if (handle && d[handle]) shift(d[handle]);
+    else ["a", "b", "c"].forEach((k) => shift(d[k]));
+    if (Array.isArray(d.pts)) d.pts.forEach(shift);
+    this.draw();
+  }
+
   paintShape(L, d, ghost) {
     const ctx = this.ctx;
     ctx.save();
     ctx.globalAlpha = ghost ? 0.7 : 1;
+    const chosen = !ghost && this.selected === d;
+    if (chosen) {
+      // Handles on the anchors, so it is obvious what can be grabbed.
+      ["a", "b", "c"].forEach((k) => {
+        const pt = d[k] && this.xyOf(L, d[k]);
+        if (!pt) return;
+        ctx.fillStyle = chartTheme().text;
+        ctx.strokeStyle = chartTheme().panel;
+        ctx.beginPath(); ctx.arc(pt.x, pt.y, 4.5, 0, Math.PI * 2);
+        ctx.fill(); ctx.stroke();
+      });
+    }
     ctx.strokeStyle = d.color || chartTheme().gold;
     ctx.fillStyle = d.color || chartTheme().gold;
     ctx.lineWidth = 1.4;
@@ -688,17 +779,69 @@ class CandleChart {
       ctx.fillStyle = "rgba(" + chartTheme().upT + ",.1)";
       ctx.fillRect(L.plotL, y, L.plotR - L.plotL, h);
       ctx.strokeRect(L.plotL, y, L.plotR - L.plotL, h);
-    } else if ((kind === "rect" || kind === "long" || kind === "short") && a && b) {
+      // The measurement was written in a branch this kind never reaches, so a
+      // price range drew a band and told you nothing about it.
+      const dp = d.b.p - d.a.p;
+      const pct = d.a.p ? (dp / d.a.p) * 100 : 0;
+      const label = this.fmtPrice(Math.abs(dp)) + "   " + Math.abs(pct).toFixed(2) + "%";
+      ctx.fillStyle = chartTheme().panel;
+      const tw = ctx.measureText(label).width + 16;
+      ctx.fillRect(L.plotL + 8, y + h / 2 - 13, tw, 26);
+      ctx.fillStyle = dp >= 0 ? chartTheme().up : chartTheme().down;
+      ctx.fillText(label, L.plotL + 16, y + h / 2 + 4);
+    } else if (kind === "rect" && a && b) {
       const x = Math.min(a.x, b.x), y = Math.min(a.y, b.y);
-      const w = Math.abs(b.x - a.x), h = Math.abs(b.y - a.y);
-      ctx.fillStyle = kind === "short" ? "rgba(" + chartTheme().downT + ",.12)" : "rgba(" + chartTheme().violetT + ",.12)";
-      if (kind === "long") ctx.fillStyle = "rgba(" + chartTheme().upT + ",.12)";
-      ctx.fillRect(x, y, w, h);
-      ctx.strokeRect(x, y, w, h);
-      if (kind === "long" || kind === "short") {
-        ctx.fillStyle = chartTheme().text;
-        ctx.fillText(kind.toUpperCase(), x + 6, y + 14);
-      }
+      ctx.fillStyle = "rgba(" + chartTheme().violetT + ",.12)";
+      ctx.fillRect(x, y, Math.abs(b.x - a.x), Math.abs(b.y - a.y));
+      ctx.strokeRect(x, y, Math.abs(b.x - a.x), Math.abs(b.y - a.y));
+    } else if ((kind === "long" || kind === "short") && a && b) {
+      // A position tool that only draws a box is a rectangle with a label on
+      // it. What a trader needs from it is the trade: where the stop is, where
+      // the target is, and whether the reward is worth the risk. Drag sets the
+      // entry and the stop; the target is projected at 2R and both zones are
+      // drawn to scale, so an unbalanced trade looks unbalanced.
+      const long = kind === "long";
+      const entry = d.a.p;
+      const stop = d.b.p;
+      const risk = Math.abs(entry - stop);
+      const rr = Number(d.rr || 2);
+      const target = long ? entry + risk * rr : entry - risk * rr;
+
+      const x = Math.min(a.x, b.x);
+      const w = Math.max(40, Math.abs(b.x - a.x));
+      const yEntry = L.yOf(entry);
+      const yStop = L.yOf(stop);
+      const yTarget = L.yOf(target);
+
+      ctx.fillStyle = "rgba(" + chartTheme().downT + ",.14)";
+      ctx.fillRect(x, Math.min(yEntry, yStop), w, Math.abs(yStop - yEntry));
+      ctx.fillStyle = "rgba(" + chartTheme().upT + ",.14)";
+      ctx.fillRect(x, Math.min(yEntry, yTarget), w, Math.abs(yTarget - yEntry));
+
+      ctx.setLineDash([4, 3]);
+      [[yStop, chartTheme().down], [yTarget, chartTheme().up]].forEach(([yy, col]) => {
+        ctx.strokeStyle = col;
+        ctx.beginPath(); ctx.moveTo(x, yy); ctx.lineTo(x + w, yy); ctx.stroke();
+      });
+      ctx.setLineDash([]);
+      ctx.strokeStyle = chartTheme().text;
+      ctx.beginPath(); ctx.moveTo(x, yEntry); ctx.lineTo(x + w, yEntry); ctx.stroke();
+
+      const pct = entry ? (Math.abs(target - entry) / entry) * 100 : 0;
+      const lines = [
+        (long ? "LONG" : "SHORT") + "  " + rr.toFixed(1) + "R",
+        "entry " + this.fmtPrice(entry),
+        "stop  " + this.fmtPrice(stop) + "   -" + this.fmtPrice(risk),
+        "target " + this.fmtPrice(target) + "   +" + pct.toFixed(2) + "%",
+      ];
+      const bw = Math.max(...lines.map((t) => ctx.measureText(t).width)) + 16;
+      const by = Math.min(yTarget, yStop) - 4;
+      ctx.fillStyle = chartTheme().panel;
+      ctx.fillRect(x, by - lines.length * 14 - 6, bw, lines.length * 14 + 8);
+      lines.forEach((t, i) => {
+        ctx.fillStyle = i === 0 ? (long ? chartTheme().up : chartTheme().down) : chartTheme().muted;
+        ctx.fillText(t, x + 8, by - (lines.length - i) * 14 + 8);
+      });
     } else if (kind === "circle" && a && b) {
       const rr = Math.max(4, Math.hypot(b.x - a.x, b.y - a.y));
       ctx.beginPath(); ctx.arc(a.x, a.y, rr, 0, Math.PI * 2); ctx.stroke();
@@ -745,28 +888,47 @@ class CandleChart {
         ctx.strokeStyle = n === 0 ? chartTheme().gold : "rgba(" + chartTheme().goldT + ",.55)";
         ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, a.y + (b.y - a.y) * r); ctx.stroke();
       });
-    } else if (kind === "fibext" && a && b) {
-      const levels = [0, 1, 1.272, 1.618, 2, 2.618];
+    } else if ((kind === "fib" || kind === "fibext") && a && b) {
+      // Both fib tools used to stretch every level across the full plot width,
+      // which made them indistinguishable from each other and from a price
+      // range. A retracement belongs to the swing it was drawn on: the levels
+      // span the two anchors and extend a little to the right, the way every
+      // charting package draws them.
+      const ext = kind === "fibext";
+      const levels = ext
+        ? [0, 0.618, 1, 1.272, 1.618, 2, 2.618]
+        : [0, 0.236, 0.382, 0.5, 0.618, 0.786, 1];
+      const key = ext ? [1.618, 2.618] : [0.5, 0.618];
       const hi = d.a.p, lo = d.b.p;
+      const x0 = Math.min(a.x, b.x);
+      const x1 = Math.max(a.x, b.x);
+      const tail = Math.min(L.plotR, x1 + (x1 - x0) * (ext ? 1.0 : 0.35));
+
+      // Shade between neighbouring levels so the zones read at a glance.
+      for (let i = 0; i < levels.length - 1; i++) {
+        const yA = L.yOf(hi + (lo - hi) * levels[i]);
+        const yB = L.yOf(hi + (lo - hi) * levels[i + 1]);
+        ctx.fillStyle = i % 2
+          ? "rgba(" + chartTheme().goldT + ",.05)"
+          : "rgba(" + chartTheme().violetT + ",.05)";
+        ctx.fillRect(x0, Math.min(yA, yB), tail - x0, Math.abs(yB - yA));
+      }
       levels.forEach((lv) => {
         const p = hi + (lo - hi) * lv;
         const y = L.yOf(p);
-        ctx.strokeStyle = lv === 1.618 || lv === 2.618 ? chartTheme().up : "rgba(" + chartTheme().violetT + ",.75)";
-        ctx.beginPath(); ctx.moveTo(L.plotL, y); ctx.lineTo(L.plotR, y); ctx.stroke();
+        const strong = key.includes(lv);
+        ctx.strokeStyle = strong ? chartTheme().up : "rgba(" + chartTheme().goldT + ",.7)";
+        ctx.lineWidth = strong ? 1.6 : 1;
+        ctx.beginPath(); ctx.moveTo(x0, y); ctx.lineTo(tail, y); ctx.stroke();
         ctx.fillStyle = chartTheme().fib;
-        ctx.fillText(lv.toFixed(3) + "  " + this.fmtPrice(p), L.plotL + 6, y - 3);
+        ctx.fillText(lv.toFixed(3) + "  " + this.fmtPrice(p), x0 + 6, y - 3);
       });
-    } else if (kind === "fib" && a && b) {
-      const levels = [0, 0.236, 0.382, 0.5, 0.618, 0.786, 1];
-      const hi = d.a.p, lo = d.b.p;
-      levels.forEach((lv) => {
-        const p = hi + (lo - hi) * lv;
-        const y = L.yOf(p);
-        ctx.strokeStyle = lv === 0.618 || lv === 0.5 ? chartTheme().up : "rgba(" + chartTheme().goldT + ",.7)";
-        ctx.beginPath(); ctx.moveTo(L.plotL, y); ctx.lineTo(L.plotR, y); ctx.stroke();
-        ctx.fillStyle = chartTheme().fib;
-        ctx.fillText(lv.toFixed(3) + "  " + this.fmtPrice(p), L.plotL + 6, y - 3);
-      });
+      ctx.lineWidth = 1.4;
+      // The swing itself, so the trader can see what the levels were taken from.
+      ctx.strokeStyle = "rgba(" + chartTheme().goldT + ",.45)";
+      ctx.setLineDash([4, 4]);
+      ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+      ctx.setLineDash([]);
     } else if (kind === "fibtime" && a && b) {
       const ratios = [0, 0.382, 0.5, 0.618, 1, 1.618, 2.618];
       const span = (b.x - a.x) || 1;
