@@ -831,92 +831,143 @@ table tbody tr,
   opacity:0; border:0; padding:0; margin:0; background:none; cursor:pointer;
 }
 
-/* Wallpaper chips. Only the user's own image carries a remove control, and it
-   sits on the chip instead of being a separate button that outlives it. */
-.bg-pills{ align-items:center }
-.bg-chip{
-  display:inline-flex; align-items:center;
-  border:1px solid var(--line); border-radius:999px;
+/* Wallpaper tiles. A name is not a preview, so every option shows its own
+   picture; only the user's own image carries a remove control, in its corner. */
+.bg-pills{ display:flex; flex-wrap:wrap; gap:10px; align-items:stretch }
+.bg-tile{
+  position:relative;
+  display:inline-flex;
+  border-radius:calc(var(--sk-r-sm) + 2px);
+  padding:2px;
+  border:2px solid transparent;
+  transition:border-color .2s, transform .2s var(--ease);
+}
+.bg-tile:hover{ transform:translateY(-2px) }
+.bg-tile.on{ border-color:var(--accent) }
+.bg-tile-btn{
+  width:124px; height:74px;
+  border:0; padding:0; cursor:pointer;
+  border-radius:var(--sk-r-sm);
+  background-color:rgb(var(--s4));
+  background-size:cover;
+  background-position:center;
+  position:relative;
   overflow:hidden;
+  display:block;
 }
-.bg-chip.on{
-  border-color:rgb(var(--accent-rgb) / .55);
-  background:rgb(var(--accent-rgb) / .20);
+.bg-tile-btn::after{
+  content:"";
+  position:absolute; inset:0;
+  background:linear-gradient(180deg, transparent 40%, rgba(0,0,0,.72));
 }
-.bg-chip > button[data-bgbtn]{
-  border:0; background:transparent; color:inherit;
-  padding:8px 6px 8px 14px; cursor:pointer; font:inherit;
+.bg-tile-name{
+  position:absolute; inset-inline:0; bottom:0;
+  z-index:1;
+  padding:5px 8px;
+  font-size:11px; font-weight:500; color:#fff;
+  text-align:start;
+  text-shadow:0 1px 2px rgba(0,0,0,.8);
 }
-.bg-chip-x{
-  border:0; background:transparent; cursor:pointer;
-  color:var(--muted); font-size:16px; line-height:1;
-  padding:8px 12px 8px 6px;
-  transition:color .2s;
+.bg-tile.on .bg-tile-name{ color:#fff }
+.bg-tile-x{
+  position:absolute; inset-block-start:-6px; inset-inline-end:-6px;
+  z-index:2;
+  width:22px; height:22px;
+  border-radius:50%;
+  border:1px solid rgb(var(--wash) / .25);
+  background:rgb(var(--s1));
+  color:var(--ink);
+  font-size:13px; line-height:1;
+  display:grid; place-items:center;
+  cursor:pointer;
+  box-shadow:0 4px 10px rgba(0,0,0,.5);
+  transition:background .2s, color .2s, transform .2s;
 }
-.bg-chip-x:hover{ color:var(--rose) }
+.bg-tile-x:hover{ background:var(--rose); color:#fff; transform:scale(1.1) }
 
 /* ===========================================================================
-   10. Material follow-through
+   10. Focus, and the black hairline that appeared on click
    ===========================================================================
-   The details that decide whether a theme looks designed or merely applied. */
-
-/* Clay: the rail, modal and tiles are moulded from the same body. */
-html[data-skin="clay"] .set-jump{ padding:8px; border-radius:22px }
-html[data-skin="clay"] .set-jump button.on{
-  background:color-mix(in srgb, var(--accent) 18%, transparent);
-  box-shadow:inset 0 1px 0 rgb(var(--wash) / .07), inset 0 -5px 9px -6px var(--clay-dip);
-  color:var(--ink);
-}
-html[data-skin="clay"] .modal{ border-radius:28px }
-html[data-skin="clay"] .kpi{ border-radius:22px }
-html[data-skin="clay"] .dd-menu{ border-radius:20px }
-html[data-skin="clay"] .accent-dot,
-html[data-skin="clay"] .accent-custom{
-  box-shadow:inset 0 2px 1px rgb(255 255 255 / .3), 0 6px 14px -6px rgba(0,0,0,.5);
+   Chromium draws a focus ring on any element that takes focus, and on a dark
+   clay or glass surface that ring reads as a thin black bar cutting across the
+   sidebar or a settings container. It must never appear for a pointer - only
+   for keyboard navigation, where it is the only way to see where you are. */
+:focus:not(:focus-visible){ outline:none }
+button:focus:not(:focus-visible),
+a:focus:not(:focus-visible),
+[tabindex]:focus:not(:focus-visible),
+summary:focus:not(:focus-visible){ outline:none; box-shadow:none }
+:focus-visible{
+  outline:2px solid var(--accent);
+  outline-offset:2px;
+  border-radius:inherit;
 }
 
-/* Neu: no borders anywhere, and the rail is carved into the same surface. */
-html[data-skin="neu"] .set-jump{
-  background:rgb(var(--s5));
-  box-shadow:inset 5px 5px 12px rgba(0,0,0,.5), inset -5px -5px 12px rgb(var(--wash) / .04);
-  border:0;
+/* ===========================================================================
+   11. Dialogs
+   ===========================================================================
+   The desk's own confirm/alert card, in both themes. It follows the active
+   skin like everything else, because a glass dialog in front of a clay page
+   is exactly the seam that makes a theme feel bolted on. */
+.modal{
+  background:rgba(4, 6, 11, .58);
+  backdrop-filter:blur(6px);
+  -webkit-backdrop-filter:blur(6px);
 }
-html[data-skin="neu"] .set-jump button.on{
-  background:rgb(var(--s5));
-  color:var(--accent);
-  box-shadow:5px 5px 12px rgba(0,0,0,.45), -5px -5px 12px rgb(var(--wash) / .045);
-}
-html[data-skin="neu"] .kpi,
-html[data-skin="neu"] .modal,
-html[data-skin="neu"] .dd-menu{ border:0 }
-html[data-skin="neu"] table tbody tr{ box-shadow:inset 0 -1px 0 rgb(var(--wash) / .03) }
-html[data-skin="neu"] .chip,
-html[data-skin="neu"] .pill{ border:0 }
+html[data-theme="light"] .modal{ background:rgba(18, 24, 38, .38) }
 
-/* Skeu: brushed surfaces, so the rail gets the same metal and the modal a bezel. */
-html[data-skin="skeu"] .set-jump{ background:var(--sk-surface-2) }
-html[data-skin="skeu"] .set-jump button.on{
-  background:linear-gradient(180deg, rgb(var(--wash) / .22), rgb(var(--wash) / .05));
-  box-shadow:inset 0 1px 0 rgb(var(--wash) / .25), inset 0 -2px 5px rgba(0,0,0,.45);
-  color:var(--ink);
+.modal-card{
+  background:var(--sk-surface);
+  border:var(--sk-edge);
+  border-radius:var(--sk-r);
+  box-shadow:var(--sk-shadow), 0 40px 90px rgba(0,0,0,.55);
+  padding:22px 22px 18px;
+  max-width:min(440px, calc(100vw - 32px));
+  animation:modalIn .22s var(--ease-out);
 }
-html[data-skin="skeu"] .modal{ border:1px solid rgba(0,0,0,.7); box-shadow:inset 0 1px 0 rgb(var(--wash) / .18), 0 30px 70px rgba(0,0,0,.7) }
-html[data-skin="skeu"] .kpi{ box-shadow:inset 0 1px 0 rgb(var(--wash) / .14), 0 8px 18px rgba(0,0,0,.5) }
+html[data-theme="light"] .modal-card{ box-shadow:var(--sk-shadow), 0 30px 70px rgba(20,28,45,.22) }
+@keyframes modalIn{
+  from{ opacity:0; transform:translateY(10px) scale(.98) }
+  to{ opacity:1; transform:none }
+}
+.modal-card h3{
+  margin:0 0 8px;
+  font-size:16px;
+  letter-spacing:.01em;
+}
+.modal-card .modal-body{
+  margin:0 0 18px;
+  color:var(--muted);
+  line-height:1.6;
+  font-size:13.5px;
+}
+.modal-card .modal-actions{
+  display:flex; gap:10px; justify-content:flex-end; flex-wrap:wrap;
+}
+.modal-card .modal-actions .btn{ min-width:104px; justify-content:center }
+/* A destructive dialog says so before anyone reads the words. */
+.modal-card.is-danger{ border-top:3px solid var(--rose) }
+.modal-card.is-danger h3{ color:var(--rose) }
 
-/* Minimal: rules instead of containers. The rail loses its box entirely. */
-html[data-skin="minimal"] .set-jump{
-  background:transparent; border:0; border-bottom:1px solid rgb(var(--wash) / .12);
-  border-radius:0; box-shadow:none; padding:0 0 2px;
+/* ===========================================================================
+   12. Settings: even columns
+   ===========================================================================
+   The robot page is a two-column grid of cards of different heights. Left to
+   itself the browser stretches each row to its tallest card and the shorter
+   one floats with a gap under its content, which is the ragged look. Making
+   the grid dense and aligning to the start keeps every card its natural height
+   and lets the next one move up into the space. */
+.set-block > .grid.g-2{
+  align-items:start;
+  grid-auto-flow:row dense;
+  gap:14px;
 }
-html[data-skin="minimal"] .set-jump button{ border-radius:0 }
-html[data-skin="minimal"] .set-jump button.on{
-  background:transparent; color:var(--accent);
-  box-shadow:inset 0 -2px 0 var(--accent);
+.set-block > .grid.g-2 > .card{
+  height:auto;
+  align-self:start;
+  display:flex;
+  flex-direction:column;
 }
-html[data-skin="minimal"] .modal,
-html[data-skin="minimal"] .dd-menu,
-html[data-skin="minimal"] .kpi{ box-shadow:none }
-html[data-skin="minimal"] .chip,
-html[data-skin="minimal"] .pill{ border-radius:3px }
-html[data-skin="minimal"] .card h3,
-html[data-skin="minimal"] .set-title{ letter-spacing:.03em }
+/* The last paragraph in a card should not leave a hole under it. */
+.set-block .card > p.sub:last-child{ margin-bottom:0 }
+.set-block .card > .btn.block:last-child{ margin-top:auto }

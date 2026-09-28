@@ -107,15 +107,18 @@ def grain(img: Image.Image, amount: int = 6) -> Image.Image:
 # Deep - almost nothing. A single soft pool of light low on the page.
 # ---------------------------------------------------------------------------
 def build_deep(light: bool) -> Image.Image:
+    """Almost nothing: a horizon. One wide, very soft band of light low on the
+    page and a whisper of colour at the top, so the eye has somewhere to rest
+    without the page ever competing with the data on top of it."""
     w, h = SIZE
     if light:
-        img = vertical(SIZE, LIGHT_LIFT, lerp(LIGHT_BASE, (222, 228, 238), 0.6))
-        glow(img, (w * 0.5, h * 1.12), int(w * 0.7), lerp(CYAN, (255, 255, 255), 0.72), 0.5, light)
-        glow(img, (w * 0.12, h * -0.1), int(w * 0.45), lerp(VIOLET, (255, 255, 255), 0.78), 0.45, light)
+        img = vertical(SIZE, LIGHT_LIFT, lerp(LIGHT_BASE, (218, 225, 236), 0.85))
+        glow(img, (w * 0.5, h * 1.02), int(w * 0.85), lerp(CYAN, (255, 255, 255), 0.62), 0.45, True)
+        glow(img, (w * 0.5, h * -0.16), int(w * 0.6), lerp(VIOLET, (255, 255, 255), 0.7), 0.3, True)
     else:
-        img = vertical(SIZE, lerp(DARK_BASE, DARK_LIFT, 0.55), DARK_BASE)
-        glow(img, (w * 0.5, h * 1.1), int(w * 0.72), lerp(CYAN, DARK_BASE, 0.3), 0.5, light)
-        glow(img, (w * 0.14, h * -0.08), int(w * 0.42), lerp(VIOLET, DARK_BASE, 0.3), 0.45, light)
+        img = vertical(SIZE, lerp(DARK_BASE, (14, 16, 26), 0.85), DARK_BASE)
+        glow(img, (w * 0.5, h * 1.02), int(w * 0.88), lerp(CYAN, DARK_BASE, 0.32), 0.52, False)
+        glow(img, (w * 0.5, h * -0.14), int(w * 0.62), lerp(VIOLET, DARK_BASE, 0.42), 0.34, False)
     return grain(img)
 
 
@@ -123,43 +126,66 @@ def build_deep(light: bool) -> Image.Image:
 # Aurora - wide ribbons of light, the way the name promises.
 # ---------------------------------------------------------------------------
 def build_aurora(light: bool) -> Image.Image:
+    """Curtains of light. Bands alone looked like a blurred flag, so this adds
+    the two things that make an aurora read as one: vertical striations inside
+    each curtain, and a faint star field above them on the dark variant."""
     w, h = SIZE
-    base = (vertical(SIZE, LIGHT_LIFT, lerp(LIGHT_BASE, (216, 224, 236), 0.75)) if light
-            else vertical(SIZE, lerp(DARK_BASE, DARK_LIFT, 0.8), DARK_BASE))
+    base = (vertical(SIZE, LIGHT_LIFT, lerp(LIGHT_BASE, (212, 221, 235), 0.8)) if light
+            else vertical(SIZE, lerp(DARK_BASE, (12, 14, 24), 0.9), DARK_BASE))
 
-    ribbons = Image.new("RGB", SIZE, (0, 0, 0))
+    if not light:
+        # Stars first, so the curtains wash over them.
+        rnd = random.Random(7411)
+        d = ImageDraw.Draw(base)
+        for _ in range(420):
+            x, y = rnd.uniform(0, w), rnd.uniform(0, h * 0.62)
+            r = rnd.choice((0.6, 0.8, 1.0, 1.4))
+            v = rnd.randint(90, 210)
+            d.ellipse((x - r, y - r, x + r, y + r), fill=(v, v, int(v * 1.05)))
+        base = base.filter(ImageFilter.GaussianBlur(0.6))
+
+    curtains = Image.new("RGB", SIZE, (0, 0, 0))
     mask = Image.new("L", SIZE, 0)
-    md = ImageDraw.Draw(mask)
-    rd = ImageDraw.Draw(ribbons)
+    cd, md = ImageDraw.Draw(curtains), ImageDraw.Draw(mask)
 
     bands = [
-        (VIOLET, 0.16, 190, 0.9),
-        (CYAN, 0.42, 150, 1.25),
-        (GOLD, 0.68, 110, 0.8),
-        (ROSE, 0.86, 90, 1.05),
+        (lerp(VIOLET, CYAN, 0.15), 0.30, 300, 0.85, 200),
+        (CYAN, 0.46, 250, 1.20, 235),
+        (lerp(CYAN, VIOLET, 0.65), 0.60, 190, 1.55, 180),
+        (GOLD, 0.78, 130, 0.95, 120),
     ]
-    for colour, y0, thickness, freq in bands:
-        pts_top, pts_bottom = [], []
-        for x in range(0, w + 24, 24):
+    for colour, y0, thickness, freq, alpha in bands:
+        top, bottom = [], []
+        for x in range(0, w + 16, 16):
             t = x / w
-            wave = math.sin(t * math.pi * freq * 2 + y0 * 9) * h * 0.075
-            wave += math.sin(t * math.pi * freq * 5.5 + y0 * 3) * h * 0.022
+            wave = math.sin(t * math.pi * freq * 2 + y0 * 11) * h * 0.085
+            wave += math.sin(t * math.pi * freq * 6 + y0 * 4) * h * 0.028
             y = h * y0 + wave
-            pts_top.append((x, y - thickness / 2))
-            pts_bottom.append((x, y + thickness / 2))
-        poly = pts_top + list(reversed(pts_bottom))
-        rd.polygon(poly, fill=colour)
-        md.polygon(poly, fill=210 if not light else 150)
+            # Curtains hang: thin at the top edge, spreading downward.
+            top.append((x, y - thickness * 0.30))
+            bottom.append((x, y + thickness * 0.70))
+        poly = top + list(reversed(bottom))
+        cd.polygon(poly, fill=colour)
+        md.polygon(poly, fill=alpha if not light else int(alpha * 0.62))
 
-    mask = mask.filter(ImageFilter.GaussianBlur(85))
-    ribbons = ribbons.filter(ImageFilter.GaussianBlur(70))
-    img = Image.composite(ribbons, base, mask)
-    img = Image.blend(base, img, 0.72 if not light else 0.5)
+    # Vertical striations: the detail that separates an aurora from a gradient.
+    rnd = random.Random(902)
+    for _ in range(140):
+        x = rnd.uniform(0, w)
+        y1 = rnd.uniform(h * 0.18, h * 0.72)
+        length = rnd.uniform(h * 0.06, h * 0.22)
+        width = rnd.uniform(6, 22)
+        md.rectangle((x, y1, x + width, y1 + length), fill=rnd.randint(30, 90))
 
-    glow(img, (w * 0.2, h * 0.05), int(w * 0.4),
-         lerp(VIOLET, (255, 255, 255) if light else DARK_BASE, 0.2), 0.45, light)
-    glow(img, (w * 0.85, h * 0.12), int(w * 0.35),
-         lerp(CYAN, (255, 255, 255) if light else DARK_BASE, 0.2), 0.4, light)
+    mask = mask.filter(ImageFilter.GaussianBlur(70))
+    curtains = curtains.filter(ImageFilter.GaussianBlur(55))
+    img = Image.composite(curtains, base, mask)
+    img = Image.blend(base, img, 0.80 if not light else 0.55)
+
+    glow(img, (w * 0.22, h * 0.34), int(w * 0.34),
+         lerp(CYAN, (255, 255, 255) if light else DARK_BASE, 0.25), 0.34, light)
+    glow(img, (w * 0.8, h * 0.28), int(w * 0.30),
+         lerp(VIOLET, (255, 255, 255) if light else DARK_BASE, 0.25), 0.30, light)
     return grain(img)
 
 
@@ -189,6 +215,26 @@ def build_mesh(light: bool) -> Image.Image:
     return grain(base)
 
 
+THUMB = (320, 200)
+
+
+def save_thumb(img: Image.Image, name: str) -> None:
+    """A small crop for the picker. Cropped from the centre rather than squashed,
+    so the preview shows what the wallpaper actually looks like."""
+    w, h = img.size
+    target = THUMB[0] / THUMB[1]
+    if w / h > target:
+        new_w = int(h * target)
+        img = img.crop(((w - new_w) // 2, 0, (w + new_w) // 2, h))
+    else:
+        new_h = int(w / target)
+        img = img.crop((0, (h - new_h) // 2, w, (h + new_h) // 2))
+    thumb = img.resize(THUMB, Image.LANCZOS)
+    out = HERE / f"bg-thumb-{name}.jpg"
+    thumb.save(out, format="JPEG", quality=82, optimize=True)
+    print(f"  {out.name:24} {out.stat().st_size / 1024:6.0f} KB")
+
+
 def main() -> int:
     builders = {"deep": build_deep, "aurora": build_aurora, "mesh": build_mesh}
     for name, fn in builders.items():
@@ -197,6 +243,15 @@ def main() -> int:
             out = HERE / f"bg-{name}-{'light' if light else 'dark'}.jpg"
             img.save(out, format="JPEG", quality=88, optimize=True, progressive=True)
             print(f"  {out.name:24} {out.stat().st_size / 1024:6.0f} KB")
+            if not light:
+                save_thumb(img, name)
+
+    # The default wallpaper is the app's own orb, so its thumbnail comes from
+    # the same file the desk actually shows.
+    orb = HERE / "login-orb.png"
+    if orb.exists():
+        save_thumb(Image.open(orb).convert("RGB"), "default")
+
     print(f"\nWallpapers written to {HERE}")
     return 0
 

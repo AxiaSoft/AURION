@@ -339,15 +339,35 @@ function appearanceCardsHtml() {
   // The "my image" entry only exists while there is an image, and it is the
   // only one that carries a remove affordance - a small x on the chip itself,
   // instead of a second button that lingers after the image is gone.
+  // Each wallpaper shows itself. A name alone ("Mesh") tells a trader nothing;
+  // a thumbnail is the only honest preview of a background.
+  const thumbs = {
+    default: "/assets/bg-thumb-default.jpg",
+    aurora: "/assets/bg-thumb-aurora.jpg",
+    deep: "/assets/bg-thumb-deep.jpg",
+    mesh: "/assets/bg-thumb-mesh.jpg",
+  };
   const backgrounds = AurionSkin.BACKGROUNDS
     .filter((id) => id !== "custom" || AurionSkin.hasWallpaper())
-    .map((id) => id === "custom"
-      ? `<span class="bg-chip ${id === bg ? "on" : ""}">
-           <button type="button" data-bgbtn="custom">${bgLabel("custom")}</button>
-           <button type="button" class="bg-chip-x" id="set-bg-clear" title="${I18N.t("settings.bg_remove")}"
-                   aria-label="${I18N.t("settings.bg_remove")}">&times;</button>
-         </span>`
-      : `<button type="button" data-bgbtn="${id}" class="${id === bg ? "on" : ""}">${bgLabel(id)}</button>`)
+    .map((id) => {
+      const on = id === bg ? " on" : "";
+      if (id === "custom") {
+        return `<span class="bg-tile bg-tile-custom${on}">
+            <button type="button" data-bgbtn="custom" class="bg-tile-btn"
+                    style="background-image:var(--skin-wallpaper)">
+              <span class="bg-tile-name">${bgLabel("custom")}</span>
+            </button>
+            <button type="button" class="bg-tile-x" id="set-bg-clear"
+                    title="${I18N.t("settings.bg_remove")}" aria-label="${I18N.t("settings.bg_remove")}">&times;</button>
+          </span>`;
+      }
+      return `<span class="bg-tile${on}">
+          <button type="button" data-bgbtn="${id}" class="bg-tile-btn"
+                  style="background-image:url('${thumbs[id]}')">
+            <span class="bg-tile-name">${bgLabel(id)}</span>
+          </button>
+        </span>`;
+    })
     .join("");
 
   return `
@@ -418,10 +438,11 @@ function markAppearancePills() {
   document.querySelectorAll("[data-skinbtn]").forEach((b) => b.classList.toggle("on", b.dataset.skinbtn === skin));
   document.querySelectorAll("[data-perfbtn]").forEach((b) => b.classList.toggle("on", b.dataset.perfbtn === perf));
   document.querySelectorAll("[data-accent]").forEach((b) => b.classList.toggle("on", b.dataset.accent === accent));
-  // The custom wallpaper lives on a wrapper, so it is marked on the wrapper.
+  // Wallpapers are picture tiles: the button is the image, the wrapper holds
+  // the selected state and, for a custom image, the remove control.
   document.querySelectorAll("[data-bgbtn]").forEach((b) => {
-    const target = b.dataset.bgbtn === "custom" ? b.parentElement : b;
-    if (target) target.classList.toggle("on", b.dataset.bgbtn === bg);
+    const tile = b.closest(".bg-tile") || b;
+    tile.classList.toggle("on", b.dataset.bgbtn === bg);
   });
   const now = $("set-perf-now");
   if (now) now.textContent = perfNowLabel();
@@ -460,7 +481,7 @@ function bindAppearance() {
 
   const bgs = $("set-bgs");
   if (bgs) bgs.onclick = (e) => {
-    if (e.target.closest(".bg-chip-x")) return;   // handled below
+    if (e.target.closest(".bg-tile-x")) return;   // handled below
     const b = e.target.closest("[data-bgbtn]"); if (!b) return;
     AurionSkin.setBackground(b.dataset.bgbtn);
     markAppearancePills();
@@ -487,9 +508,16 @@ function bindAppearance() {
   const clear = $("set-bg-clear");
   if (clear) clear.onclick = (e) => {
     e.stopPropagation();
-    if (!confirm(I18N.t("settings.bg_remove_confirm"))) return;
-    AurionSkin.clearWallpaper();
-    refreshAppearanceCards();
+    askConfirm({
+      title: I18N.t("settings.bg_remove"),
+      body: I18N.t("settings.bg_remove_confirm"),
+      ok: I18N.t("settings.bg_remove"),
+      danger: true,
+    }).then((yes) => {
+      if (!yes) return;
+      AurionSkin.clearWallpaper();
+      refreshAppearanceCards();
+    });
   };
 
   const perf = $("set-perf");
@@ -2111,7 +2139,6 @@ function robotPanelHtml() {
         <input id="st-conf" type="range" step="0.01" min="0.05" max="0.95" value="${st.min_ai_confidence ?? 0.55}" />
       </div>
       <p class="sub" id="ai-conf-why">${I18N.t("strategies.min_conf_help")}</p>
-      <button class="btn block" id="st-ai-save" type="button">${I18N.t("common.save")}</button>
     </div>
     <div class="card">
       <h3>${I18N.t("strategies.lot_title")} ${!licFeat("volume_mode")?'<span class="pill no">PREMIUM</span>':''}</h3>
@@ -4404,8 +4431,14 @@ function bindRobotPanel() {
     await refresh(false);
     return r;
   };
-  const save = $("st-ai-save");
-  if (save) save.onclick = () => saveAi(false);
+  // No save button: flipping the switch is the decision, so it persists
+  // immediately - the same contract as every other switch on this page.
+  const aiSwitch = $("st-ai");
+  if (aiSwitch) aiSwitch.onclick = () => {
+    aiSwitch.classList.toggle("on");
+    aiSwitch.setAttribute("aria-pressed", aiSwitch.classList.contains("on") ? "true" : "false");
+    saveAi(true);
+  };
   const conf = $("st-conf");
   if (conf) {
     const pct = $("st-conf-pct");
