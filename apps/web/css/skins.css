@@ -1443,3 +1443,231 @@ html[data-skin="neu"] .chart-box{ box-shadow:inset 3px 3px 8px rgba(0,0,0,.35) }
    a skin cannot quietly override it. */
 .up, .metric.up, .dot.i-low{ color:var(--candle-up) }
 .down, .metric.down{ color:var(--candle-down) }
+
+/* ===========================================================================
+   18. Clay, Neu and Skeu, in full
+   ===========================================================================
+   app.css draws a 1px border in 48 places. That is correct for glass and for
+   minimal - both are defined by their edges - and wrong for the other three:
+   clay and neu build every edge out of light and shadow, so an extra hairline
+   on top reads as a seam, and skeu wants a bevel rather than a flat grey line.
+
+   The three blocks below finish those materials properly: first the seams are
+   removed (or recoloured, for skeu), then each element is given the treatment
+   its material implies. The selector lists are long on purpose - naming the
+   surfaces explicitly is what makes this reviewable, and a blanket
+   `* { border:0 }` would take the chart axes and table rules with it. */
+
+/* --------------------------------------------------------------- shared -- */
+:where(html[data-skin="clay"], html[data-skin="neu"])
+  :is(.card, .auth-card, .plan-card, .gate-card, .st-card, .kpi, .modal, .dd-menu,
+      .set-jump, .term, .robot-term, .st-src, .tg-src, .chart-ticket, .chart-card,
+      .cal-tip, .cal-side, .cal-legend, .cal-cell, .sym-panel, .sym-row, .notify-card,
+      .pay-card, .toast, .prof-hero, .up-hero, .st-up-hero, .ai-hero, .secret-box,
+      .manual-box, .danger-zone, .wizard, .tape-banner, .outlook-banner, .auto-banner,
+      .lic-banner, .hdr-drawer, .seg, .tabs, .draw-tools, .chart-work-bar,
+      .chart-signals-bar, .cal-bar, .icon-btn, .menu-btn, .hdr-drawer-btn, .sym-btn,
+      .chip, .pill, .st-chip, .lvl-chip, .acc-type, .hdr-kpi, .badge-ok, .badge-no,
+      .badge-hint, .lang-pills button, .field input, .field select, .ctrl, .dd-btn,
+      textarea, .empty, .sym-empty, .cal-none, .table-wrap, .nav, .top,
+      .ai-feed, .auth-modes, .auth-owner-hint, .auth-points, .cal-ev, .chart-text-pop,
+      .desk-reload, .gate-badge, .keybox, .nav-acc, .nav-foot, .nav-ver, .pay-row,
+      .row-line, .set-block, .set-main, .set-rail, .sig-row, .st-mng, .st-stats,
+      .step, .sym-foot, .tg-row, .up-badge, .btn.ghost, .switch,
+      .ok, .no, .lock-ico, .set-title, .welcome-sound){
+  border:0;
+}
+/* Ghost buttons and switches lose their outline, so they need the material to
+   say where they are - otherwise they vanish into the page. */
+html[data-skin="clay"] .btn.ghost{
+  box-shadow:inset 0 1px 0 rgb(var(--wash) / .08), inset 0 -6px 10px -8px var(--clay-dip);
+}
+html[data-skin="neu"] .btn.ghost{
+  box-shadow:5px 5px 12px rgba(0,0,0,.45), -5px -5px 12px rgb(var(--wash) / .045);
+}
+html[data-skin="clay"] :is(.nav-acc, .nav-foot, .st-stats, .sig-row, .tg-row, .pay-row,
+                           .sym-foot, .auth-points, .ai-feed, .keybox){
+  background:rgb(var(--s5) / .55);
+  border-radius:18px;
+}
+html[data-skin="neu"] :is(.nav-acc, .nav-foot, .st-stats, .sig-row, .tg-row, .pay-row,
+                          .sym-foot, .auth-points, .ai-feed, .keybox){
+  background:transparent;
+  border-radius:14px;
+  box-shadow:inset 3px 3px 8px rgba(0,0,0,.35), inset -3px -3px 8px rgb(var(--wash) / .03);
+}
+/* A settings section is a grouping, not an object: no frame in either skin. */
+html[data-skin="clay"] :is(.set-block, .set-main, .set-rail),
+html[data-skin="neu"] :is(.set-block, .set-main, .set-rail){
+  background:transparent;
+  box-shadow:none;
+}
+/* The rail keeps a single dividing line - without it the desk loses its
+   left edge entirely - but drawn as the material's own shadow, not a border. */
+html[data-skin="clay"] .nav{ box-shadow:6px 0 18px -12px rgba(0,0,0,.6) }
+html[data-skin="neu"] .nav{ box-shadow:10px 0 22px -16px rgba(0,0,0,.65) }
+html[data-skin="clay"] .top,
+html[data-skin="neu"] .top{ box-shadow:0 8px 18px -16px rgba(0,0,0,.7) }
+
+/* ----------------------------------------------------------------- clay -- */
+/* Everything is moulded from one body: rounded, matte, lit from above, with
+   its own thickness underneath. Nothing is outlined. */
+html[data-skin="clay"] :is(.chip, .pill, .st-chip, .lvl-chip, .acc-type, .hdr-kpi,
+                           .badge-ok, .badge-no, .badge-hint){
+  background:rgb(var(--s5));
+  border-radius:999px;
+  padding-inline:12px;
+  box-shadow:inset 0 1px 0 rgb(var(--wash) / .07), inset 0 -4px 8px -5px var(--clay-dip);
+}
+html[data-skin="clay"] :is(.icon-btn, .menu-btn, .hdr-drawer-btn, .sym-btn,
+                           .chart-nav button, .cal-nav button){
+  background:rgb(var(--s5));
+  border-radius:16px;
+  box-shadow:inset 0 1px 0 rgb(var(--wash) / .08), inset 0 -5px 9px -6px var(--clay-dip),
+             0 6px 14px -8px rgba(0,0,0,.45);
+}
+html[data-skin="clay"] :is(.icon-btn, .menu-btn, .sym-btn):active{
+  box-shadow:inset 0 3px 8px -2px var(--clay-sink);
+}
+html[data-skin="clay"] :is(.seg, .tabs, .draw-tools, .cal-bar, .chart-work-bar){
+  background:rgb(var(--s3));
+  border-radius:20px;
+  padding:5px;
+  box-shadow:inset 0 3px 8px -3px var(--clay-sink);
+}
+html[data-skin="clay"] :is(.tabs button, .seg button){ border-radius:15px }
+html[data-skin="clay"] :is(.term, .robot-term, .st-src, .tg-src){
+  border-radius:20px;
+  box-shadow:inset 0 4px 10px -4px var(--clay-sink);
+}
+html[data-skin="clay"] .modal{ border-radius:30px }
+html[data-skin="clay"] .toast{ border-radius:20px; box-shadow:var(--sk-shadow) }
+html[data-skin="clay"] .table-wrap{ border-radius:20px }
+html[data-skin="clay"] .empty,
+html[data-skin="clay"] .sym-empty,
+html[data-skin="clay"] .cal-none{
+  border-radius:20px;
+  box-shadow:inset 0 3px 8px -3px var(--clay-sink);
+}
+html[data-skin="clay"] .sym-row{ border-radius:16px; margin-block:3px }
+html[data-skin="clay"] .sym-row:hover{ background:rgb(var(--s5)) }
+html[data-skin="clay"] hr{ height:2px; border-radius:2px; background:rgb(var(--s3));
+  box-shadow:inset 0 1px 2px rgba(0,0,0,.4) }
+
+/* ------------------------------------------------------------------ neu -- */
+/* One continuous surface. Every element is either raised from it or pressed
+   into it - there is no third state, and never an outline. */
+html[data-skin="neu"] :is(.chip, .pill, .st-chip, .lvl-chip, .acc-type, .hdr-kpi,
+                          .badge-ok, .badge-no, .badge-hint){
+  background:rgb(var(--s5));
+  border-radius:999px;
+  padding-inline:12px;
+  box-shadow:3px 3px 8px rgba(0,0,0,.42), -3px -3px 8px rgb(var(--wash) / .04);
+}
+html[data-skin="neu"] :is(.icon-btn, .menu-btn, .hdr-drawer-btn, .sym-btn,
+                          .chart-nav button, .cal-nav button){
+  background:rgb(var(--s5));
+  border-radius:14px;
+  box-shadow:5px 5px 12px rgba(0,0,0,.5), -5px -5px 12px rgb(var(--wash) / .045);
+}
+html[data-skin="neu"] :is(.icon-btn, .menu-btn, .sym-btn):active,
+html[data-skin="neu"] :is(.tabs button.on, .seg button.on){
+  box-shadow:inset 5px 5px 12px rgba(0,0,0,.5), inset -5px -5px 12px rgb(var(--wash) / .04);
+}
+html[data-skin="neu"] :is(.seg, .tabs, .draw-tools, .cal-bar, .chart-work-bar){
+  background:rgb(var(--s5));
+  border-radius:16px;
+  padding:5px;
+  box-shadow:inset 4px 4px 10px rgba(0,0,0,.45), inset -4px -4px 10px rgb(var(--wash) / .04);
+}
+html[data-skin="neu"] :is(.tabs button, .seg button){ border-radius:12px; background:transparent }
+html[data-skin="neu"] :is(.tabs button.on, .seg button.on){ background:rgb(var(--s5)); color:var(--accent) }
+html[data-skin="neu"] :is(.term, .robot-term, .st-src, .tg-src, .empty, .sym-empty, .cal-none){
+  border-radius:16px;
+  box-shadow:inset 5px 5px 12px rgba(0,0,0,.5), inset -5px -5px 12px rgb(var(--wash) / .04);
+}
+html[data-skin="neu"] .modal{ border-radius:24px }
+html[data-skin="neu"] .toast{ border-radius:16px; box-shadow:var(--sk-shadow) }
+html[data-skin="neu"] .sym-row{ border-radius:12px; margin-block:3px }
+html[data-skin="neu"] .sym-row:hover{
+  box-shadow:inset 3px 3px 8px rgba(0,0,0,.4), inset -3px -3px 8px rgb(var(--wash) / .035);
+}
+html[data-skin="neu"] table tbody tr{ box-shadow:none }
+html[data-skin="neu"] hr{
+  height:2px; background:transparent;
+  box-shadow:inset 0 1px 2px rgba(0,0,0,.45), inset 0 -1px 1px rgb(var(--wash) / .05);
+}
+
+/* ----------------------------------------------------------------- skeu -- */
+/* Materials, not paper. Borders stay, but as a dark seam under a light
+   hairline, which is what a bevel actually is. */
+html[data-skin="skeu"]
+  :is(.chip, .pill, .st-chip, .lvl-chip, .acc-type, .hdr-kpi, .badge-ok, .badge-no,
+      .badge-hint, .icon-btn, .menu-btn, .hdr-drawer-btn, .sym-btn, .chart-nav button,
+      .cal-nav button, .seg, .tabs, .draw-tools, .cal-bar, .chart-work-bar,
+      .term, .robot-term, .st-src, .tg-src, .empty, .sym-empty, .cal-none, .table-wrap){
+  border:1px solid rgba(0,0,0,.55);
+  box-shadow:inset 0 1px 0 rgb(var(--wash) / .16), 0 2px 5px -2px rgba(0,0,0,.5);
+}
+html[data-skin="skeu"] :is(.chip, .pill, .st-chip, .lvl-chip, .acc-type, .hdr-kpi,
+                           .badge-ok, .badge-no, .badge-hint){
+  background:linear-gradient(180deg, rgb(var(--s6)), rgb(var(--s3)));
+  border-radius:8px;
+}
+html[data-skin="skeu"] :is(.icon-btn, .menu-btn, .hdr-drawer-btn, .sym-btn,
+                           .chart-nav button, .cal-nav button){
+  background:linear-gradient(180deg, rgb(var(--wash) / .14), transparent 48%),
+             linear-gradient(180deg, rgb(var(--s6)), rgb(var(--s2)));
+  border-radius:8px;
+}
+html[data-skin="skeu"] :is(.icon-btn, .menu-btn, .sym-btn):active{
+  box-shadow:inset 0 3px 7px rgba(0,0,0,.6);
+}
+html[data-skin="skeu"] :is(.seg, .tabs, .draw-tools, .cal-bar, .chart-work-bar){
+  background:linear-gradient(180deg, rgb(var(--s1)), rgb(var(--s4)));
+  box-shadow:inset 0 2px 6px rgba(0,0,0,.6), 0 1px 0 rgb(var(--wash) / .10);
+  border-radius:9px;
+  padding:3px;
+}
+html[data-skin="skeu"] :is(.tabs button, .seg button){ border-radius:6px }
+html[data-skin="skeu"] :is(.term, .robot-term, .st-src, .tg-src){
+  background:linear-gradient(180deg, #05070c, #0a0d15);
+  box-shadow:inset 0 3px 8px rgba(0,0,0,.7), 0 1px 0 rgb(var(--wash) / .10);
+}
+html[data-skin="skeu"] .sym-row{ border-bottom:1px solid rgba(0,0,0,.45);
+  box-shadow:inset 0 1px 0 rgb(var(--wash) / .06) }
+html[data-skin="skeu"] .modal{ border-radius:14px }
+html[data-skin="skeu"] hr{
+  height:2px; background:transparent;
+  box-shadow:inset 0 1px 0 rgba(0,0,0,.6), inset 0 -1px 0 rgb(var(--wash) / .14);
+}
+
+/* Light theme: the same three materials, re-cut. Dark seams and heavy inner
+   shadows turn into grey dirt on a white page. */
+html[data-theme="light"][data-skin="clay"] :is(.chip, .pill, .st-chip, .acc-type,
+                                               .hdr-kpi, .badge-ok, .badge-no, .badge-hint){
+  background:rgb(var(--s3));
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.9), inset 0 -4px 8px -5px rgba(90,104,130,.22);
+}
+html[data-theme="light"][data-skin="neu"] :is(.chip, .pill, .st-chip, .acc-type,
+                                              .hdr-kpi, .badge-ok, .badge-no, .badge-hint,
+                                              .icon-btn, .menu-btn, .sym-btn){
+  box-shadow:3px 3px 8px rgba(88,102,128,.18), -3px -3px 8px rgba(255,255,255,.95);
+}
+html[data-theme="light"][data-skin="skeu"]
+  :is(.chip, .pill, .icon-btn, .menu-btn, .sym-btn, .seg, .tabs, .table-wrap){
+  border-color:rgba(120,134,158,.45);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.9), 0 2px 4px -2px rgba(60,72,96,.25);
+}
+
+/* .axiasoft-slot and .draw-frame keep their outlines on purpose: the first is
+   a brand lockup with a fixed treatment, the second is a drawing tool whose
+   frame is functional - it shows the region being measured, so it has to stay
+   visible whatever the surface underneath looks like. */
+html[data-skin="clay"] :is(.ok, .no){ border-radius:999px; background:rgb(var(--s5)) }
+html[data-skin="neu"] :is(.ok, .no){
+  border-radius:999px;
+  box-shadow:3px 3px 8px rgba(0,0,0,.4), -3px -3px 8px rgb(var(--wash) / .035);
+}
+html[data-skin="clay"] .welcome-sound,
+html[data-skin="neu"] .welcome-sound{ box-shadow:var(--sk-btn-shadow) }
