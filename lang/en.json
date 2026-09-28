@@ -501,7 +501,8 @@
     "perf_rich": "Full effects",
     "perf_fast": "Performance",
     "perf_now_fast": "Effects are reduced on this machine.",
-    "perf_now_rich": "Full effects are on."
+    "perf_now_rich": "Full effects are on.",
+    "bg_remove_confirm": "Remove your background image? The AURION wallpaper comes back."
   },
   "style": {
     "title": "Trade model",

@@ -336,13 +336,19 @@ function appearanceCardsHtml() {
               style="background:linear-gradient(135deg, ${c[0]}, ${c[2]})" aria-label="${id}"></button>`;
   }).join("");
 
+  // The "my image" entry only exists while there is an image, and it is the
+  // only one that carries a remove affordance - a small x on the chip itself,
+  // instead of a second button that lingers after the image is gone.
   const backgrounds = AurionSkin.BACKGROUNDS
     .filter((id) => id !== "custom" || AurionSkin.hasWallpaper())
-    .map((id) => `<button type="button" data-bgbtn="${id}" class="${id === bg ? "on" : ""}">${bgLabel(id)}</button>`)
+    .map((id) => id === "custom"
+      ? `<span class="bg-chip ${id === bg ? "on" : ""}">
+           <button type="button" data-bgbtn="custom">${bgLabel("custom")}</button>
+           <button type="button" class="bg-chip-x" id="set-bg-clear" title="${I18N.t("settings.bg_remove")}"
+                   aria-label="${I18N.t("settings.bg_remove")}">&times;</button>
+         </span>`
+      : `<button type="button" data-bgbtn="${id}" class="${id === bg ? "on" : ""}">${bgLabel(id)}</button>`)
     .join("");
-
-  const perfNow = AurionSkin.effectivePerf() === "fast"
-    ? I18N.t("settings.perf_now_fast") : I18N.t("settings.perf_now_rich");
 
   return `
       <div class="card" style="margin-top:14px">
@@ -355,7 +361,8 @@ function appearanceCardsHtml() {
         <p class="sub" style="margin:0 0 6px">${I18N.t("settings.accent")}</p>
         <div class="accent-row" id="set-accents">
           ${swatches}
-          <label class="accent-custom" title="${I18N.t("settings.accent_custom")}">
+          <label class="accent-custom" title="${I18N.t("settings.accent_custom")}"
+                 style="--picked:${custom}">
             <input type="color" id="set-accent-custom" value="${custom}" aria-label="${I18N.t("settings.accent_custom")}" />
           </label>
         </div>
@@ -364,10 +371,9 @@ function appearanceCardsHtml() {
 
       <div class="card" style="margin-top:14px">
         <p class="sub" style="margin:0 0 6px">${I18N.t("settings.wallpaper")}</p>
-        <div class="lang-pills" id="set-bgs">${backgrounds}</div>
+        <div class="lang-pills bg-pills" id="set-bgs">${backgrounds}</div>
         <div class="row" style="gap:8px;margin-top:10px;flex-wrap:wrap">
           <button type="button" class="btn tiny ghost" id="set-bg-pick">${I18N.t("settings.bg_choose")}</button>
-          ${AurionSkin.hasWallpaper() ? `<button type="button" class="btn tiny ghost" id="set-bg-clear">${I18N.t("settings.bg_remove")}</button>` : ""}
           <input type="file" id="set-bg-file" accept="image/*" hidden />
         </div>
         <p class="sub" style="margin:8px 0 0" id="set-bg-msg">${I18N.t("settings.wallpaper_hint")}</p>
@@ -380,17 +386,34 @@ function appearanceCardsHtml() {
           <button type="button" data-perfbtn="rich" class="${perf === "rich" ? "on" : ""}">${I18N.t("settings.perf_rich")}</button>
           <button type="button" data-perfbtn="fast" class="${perf === "fast" ? "on" : ""}">${I18N.t("settings.perf_fast")}</button>
         </div>
-        <p class="sub" style="margin:8px 0 0">${I18N.t("settings.perf_hint")} <b>${perfNow}</b></p>
+        <p class="sub" style="margin:8px 0 0">${I18N.t("settings.perf_hint")}
+          <b id="set-perf-now">${perfNowLabel()}</b></p>
       </div>`;
+}
+
+function perfNowLabel() {
+  if (typeof AurionSkin === "undefined") return "";
+  return AurionSkin.effectivePerf() === "fast"
+    ? I18N.t("settings.perf_now_fast") : I18N.t("settings.perf_now_rich");
 }
 
 function markAppearancePills() {
   if (typeof AurionSkin === "undefined") return;
-  const skin = AurionSkin.getSkin(), bg = AurionSkin.getBackground(), perf = AurionSkin.getPerfMode(), accent = AurionSkin.getAccent();
+  const skin = AurionSkin.getSkin(), bg = AurionSkin.getBackground();
+  const perf = AurionSkin.getPerfMode(), accent = AurionSkin.getAccent();
   document.querySelectorAll("[data-skinbtn]").forEach((b) => b.classList.toggle("on", b.dataset.skinbtn === skin));
-  document.querySelectorAll("[data-bgbtn]").forEach((b) => b.classList.toggle("on", b.dataset.bgbtn === bg));
   document.querySelectorAll("[data-perfbtn]").forEach((b) => b.classList.toggle("on", b.dataset.perfbtn === perf));
   document.querySelectorAll("[data-accent]").forEach((b) => b.classList.toggle("on", b.dataset.accent === accent));
+  // The custom wallpaper lives on a wrapper, so it is marked on the wrapper.
+  document.querySelectorAll("[data-bgbtn]").forEach((b) => {
+    const target = b.dataset.bgbtn === "custom" ? b.parentElement : b;
+    if (target) target.classList.toggle("on", b.dataset.bgbtn === bg);
+  });
+  const now = $("set-perf-now");
+  if (now) now.textContent = perfNowLabel();
+  const swatch = document.querySelector(".accent-custom");
+  const picker = $("set-accent-custom");
+  if (swatch && picker) swatch.style.setProperty("--picked", picker.value);
 }
 
 function bindAppearance() {
@@ -421,6 +444,7 @@ function bindAppearance() {
 
   const bgs = $("set-bgs");
   if (bgs) bgs.onclick = (e) => {
+    if (e.target.closest(".bg-chip-x")) return;   // handled below
     const b = e.target.closest("[data-bgbtn]"); if (!b) return;
     AurionSkin.setBackground(b.dataset.bgbtn);
     markAppearancePills();
@@ -435,22 +459,44 @@ function bindAppearance() {
     file.value = "";
     if (!f) return;
     const r = await AurionSkin.setWallpaperFile(f);
-    if (r.ok) { renderSettings(); return; }
+    if (r.ok) { refreshAppearanceCards(); return; }
     if (!msg) return;
     if (r.error === "too-large") msg.textContent = I18N.t("settings.bg_too_large").replace("%s", String(AurionSkin.maxWallpaperMb()));
     else if (r.error === "not-an-image") msg.textContent = I18N.t("settings.bg_not_image");
     else if (r.error === "no-space") msg.textContent = I18N.t("settings.bg_no_space");
   };
 
+  // Deleting the image the user chose is destructive and cannot be undone
+  // from here, so it asks first.
   const clear = $("set-bg-clear");
-  if (clear) clear.onclick = () => { AurionSkin.clearWallpaper(); renderSettings(); };
+  if (clear) clear.onclick = (e) => {
+    e.stopPropagation();
+    if (!confirm(I18N.t("settings.bg_remove_confirm"))) return;
+    AurionSkin.clearWallpaper();
+    refreshAppearanceCards();
+  };
 
   const perf = $("set-perf");
   if (perf) perf.onclick = (e) => {
     const b = e.target.closest("[data-perfbtn]"); if (!b) return;
     AurionSkin.setPerfMode(b.dataset.perfbtn);
-    renderSettings();
+    // Re-marking in place, not re-rendering: a full settings re-render was
+    // rebuilding the tab and losing the pressed state until you navigated away.
+    markAppearancePills();
   };
+}
+
+/* Rebuilds just the appearance cards - used when the set of wallpaper chips
+   changes, so the rest of the settings page is left alone. */
+function refreshAppearanceCards() {
+  const host = document.querySelector("#set-personal");
+  if (!host) return;
+  const cards = host.querySelectorAll(".card");
+  // the first card is the theme/glass block that lives in renderSettings
+  for (let i = 1; i < cards.length; i++) cards[i].remove();
+  host.insertAdjacentHTML("beforeend", appearanceCardsHtml());
+  bindAppearance();
+  markAppearancePills();
 }
 
 /* The chart canvases read their colours once, so an accent or skin change has

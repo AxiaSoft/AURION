@@ -96,8 +96,14 @@
 .chip:hover,
 .menu-btn:hover,
 .dd-btn:hover,
-.st-chip:hover,
-.set-jump:hover{ border-color:rgb(var(--accent-rgb) / .35); background:var(--sk-tint) }
+.st-chip:hover{ border-color:rgb(var(--accent-rgb) / .35); background:var(--sk-tint) }
+
+/* The settings rail is a list of destinations, not a row of controls. Tinting
+   every row on hover turned reading the page into a light show, so it gets the
+   quietest possible cue: the label brightens, nothing moves, nothing fills. */
+.set-jump:hover{ background:rgb(var(--s2) / .55) }
+.set-jump button:hover{ background:transparent; color:var(--ink) }
+.set-jump button.on:hover{ color:var(--on-accent) }
 .lang-pills button:hover{ border-color:rgb(var(--accent-rgb) / .40); background:var(--sk-tint) }
 .lang-pills button.on{
   border-color:rgb(var(--accent-rgb) / .55);
@@ -176,6 +182,33 @@ html[data-skin]:not([data-skin="glass"]) .lang-pills button,
 html[data-skin]:not([data-skin="glass"]) .menu-btn{
   border-radius:var(--sk-r-sm);
   box-shadow:var(--sk-chip-shadow, none);
+}
+
+/* Surfaces that are not cards but still read as panels: the modal, the mobile
+   drawer, dropdown menus, KPI tiles, the strategy cards and the settings rail.
+   Leaving these on the glass rules was what made a skin change feel partial. */
+html[data-skin]:not([data-skin="glass"]) .modal,
+html[data-skin]:not([data-skin="glass"]) .dd-menu,
+html[data-skin]:not([data-skin="glass"]) .st-card,
+html[data-skin]:not([data-skin="glass"]) .kpi,
+html[data-skin]:not([data-skin="glass"]) .chart-ticket,
+html[data-skin]:not([data-skin="glass"]) .cal-tip,
+html[data-skin]:not([data-skin="glass"]) .set-jump{
+  background:var(--sk-surface);
+  border:var(--sk-edge);
+  border-radius:var(--sk-r);
+  box-shadow:var(--sk-shadow);
+  backdrop-filter:var(--sk-blur);
+  -webkit-backdrop-filter:var(--sk-blur);
+}
+html[data-skin]:not([data-skin="glass"]) .set-jump button,
+html[data-skin]:not([data-skin="glass"]) .dd-opt,
+html[data-skin]:not([data-skin="glass"]) .tab{ border-radius:var(--sk-r-sm) }
+
+/* Scrollbars follow the material too - a chrome scrollbar next to a matte clay
+   panel is exactly the kind of detail that makes a theme feel unfinished. */
+html[data-skin]:not([data-skin="glass"]) *::-webkit-scrollbar-thumb{
+  border-radius:var(--sk-r-sm);
 }
 
 /* The decorative hairline across the top of every card belongs to glass. */
@@ -418,48 +451,90 @@ html[data-skin="minimal"] #auth{ background:var(--sk-page) }
 /* ===========================================================================
    7. Wallpaper
    ===========================================================================
-   Skins that need a flat page (neu, minimal) override .aurora above, so these
-   only apply where the wallpaper is still visible. */
+   Deep, Aurora and Mesh are real images (apps/web/assets/build-wallpapers.py
+   generates them from the brand palette), each with a dark and a light
+   variant. They are layered under the same gradient scrim the default uses, so
+   panels keep their contrast whichever wallpaper is on.
+
+   Skins that need a flat page - neu and minimal - override .aurora further
+   down and win, because their material depends on it. */
+html[data-bg="deep"] .aurora,
+html[data-bg="deep"].mode-desk .aurora{
+  background:
+    linear-gradient(180deg, rgb(var(--s1) / .30), rgb(var(--s1) / .72) 82%),
+    url("../assets/bg-deep-dark.jpg") center/cover no-repeat,
+    var(--bg);
+  animation:none;
+}
 html[data-bg="aurora"] .aurora,
 html[data-bg="aurora"].mode-desk .aurora{
   background:
-    radial-gradient(900px 500px at 12% -10%, rgb(var(--accent-3-rgb) / .20), transparent 55%),
-    radial-gradient(800px 480px at 90% 0%, rgb(var(--accent-rgb) / .12), transparent 50%),
-    radial-gradient(700px 400px at 70% 110%, rgba(232,192,122,.07), transparent 55%),
-    linear-gradient(180deg, rgb(var(--s1) / .32), rgb(var(--s1) / .86) 78%),
+    linear-gradient(180deg, rgb(var(--s1) / .34), rgb(var(--s1) / .74) 80%),
+    url("../assets/bg-aurora-dark.jpg") center/cover no-repeat,
     var(--bg);
 }
-html[data-bg="deep"] .aurora,
-html[data-bg="deep"].mode-desk .aurora{
-  background:linear-gradient(180deg, rgb(var(--s3)), var(--bg) 70%);
-  animation:none;
-}
-html[data-bg="deep"] .aurora::after{ opacity:.12 }
-
 html[data-bg="mesh"] .aurora,
 html[data-bg="mesh"].mode-desk .aurora{
   background:
-    radial-gradient(1000px 600px at 15% -5%, rgb(var(--accent-3-rgb) / .30), transparent 60%),
-    radial-gradient(900px 520px at 85% 5%, rgb(var(--accent-rgb) / .22), transparent 55%),
-    radial-gradient(800px 500px at 60% 105%, rgb(var(--accent-rgb) / .14), transparent 60%),
-    linear-gradient(180deg, rgb(var(--s2) / .6), rgb(var(--s1) / .92) 80%),
+    linear-gradient(180deg, rgb(var(--s1) / .30), rgb(var(--s1) / .70) 80%),
+    url("../assets/bg-mesh-dark.jpg") center/cover no-repeat,
     var(--bg);
 }
+
+/* Light theme: the same three, redrawn rather than brightened, so type stays
+   readable instead of fighting a washed-out dark image. */
+html[data-theme="light"][data-bg="deep"] .aurora,
+html[data-theme="light"][data-bg="deep"].mode-desk .aurora{
+  background:
+    linear-gradient(180deg, rgba(233,237,244,.45), rgba(233,237,244,.8) 82%),
+    url("../assets/bg-deep-light.jpg") center/cover no-repeat,
+    var(--bg);
+}
+html[data-theme="light"][data-bg="aurora"] .aurora,
+html[data-theme="light"][data-bg="aurora"].mode-desk .aurora{
+  background:
+    linear-gradient(180deg, rgba(233,237,244,.42), rgba(233,237,244,.78) 80%),
+    url("../assets/bg-aurora-light.jpg") center/cover no-repeat,
+    var(--bg);
+}
+html[data-theme="light"][data-bg="mesh"] .aurora,
+html[data-theme="light"][data-bg="mesh"].mode-desk .aurora{
+  background:
+    linear-gradient(180deg, rgba(233,237,244,.42), rgba(233,237,244,.78) 80%),
+    url("../assets/bg-mesh-light.jpg") center/cover no-repeat,
+    var(--bg);
+}
+/* The light layer .aurora::before is only for the default orb. */
+html[data-bg="deep"] .aurora::before,
+html[data-bg="aurora"] .aurora::before,
+html[data-bg="mesh"] .aurora::before,
+html[data-bg="custom"] .aurora::before{ display:none }
+
+/* Sign-in screen follows the same choice. */
+html[data-bg="deep"] #auth{ background:linear-gradient(180deg, rgb(var(--s1) / .5), rgb(var(--s1) / .88) 78%), url("../assets/bg-deep-dark.jpg") center/cover no-repeat }
+html[data-bg="aurora"] #auth{ background:linear-gradient(180deg, rgb(var(--s1) / .5), rgb(var(--s1) / .88) 78%), url("../assets/bg-aurora-dark.jpg") center/cover no-repeat }
+html[data-bg="mesh"] #auth{ background:linear-gradient(180deg, rgb(var(--s1) / .5), rgb(var(--s1) / .88) 78%), url("../assets/bg-mesh-dark.jpg") center/cover no-repeat }
+html[data-theme="light"][data-bg="deep"] #auth{ background:linear-gradient(180deg, rgba(233,237,244,.55), rgba(233,237,244,.9) 78%), url("../assets/bg-deep-light.jpg") center/cover no-repeat }
+html[data-theme="light"][data-bg="aurora"] #auth{ background:linear-gradient(180deg, rgba(233,237,244,.55), rgba(233,237,244,.9) 78%), url("../assets/bg-aurora-light.jpg") center/cover no-repeat }
+html[data-theme="light"][data-bg="mesh"] #auth{ background:linear-gradient(180deg, rgba(233,237,244,.55), rgba(233,237,244,.9) 78%), url("../assets/bg-mesh-light.jpg") center/cover no-repeat }
+html[data-bg="deep"] #auth::before,
+html[data-bg="aurora"] #auth::before,
+html[data-bg="mesh"] #auth::before,
+html[data-bg="custom"] #auth::before{ display:none }
+
 html[data-bg="custom"] .aurora,
 html[data-bg="custom"].mode-desk .aurora{
   background:
     linear-gradient(180deg, rgb(var(--s1) / .55), rgb(var(--s1) / .82) 82%),
     var(--skin-wallpaper, none) center/cover no-repeat,
     var(--bg);
+  animation:none;
 }
 html[data-bg="custom"] #auth{
   background:
     linear-gradient(180deg, rgb(var(--s1) / .55), rgb(var(--s1) / .9) 78%),
     var(--skin-wallpaper, none) center/cover no-repeat;
 }
-html[data-bg="aurora"] #auth,
-html[data-bg="deep"] #auth,
-html[data-bg="mesh"] #auth{ background:linear-gradient(180deg, rgb(var(--s2) / .6), rgb(var(--s1) / .95) 78%) }
 
 /* ===========================================================================
    8. Rendering tier
@@ -513,27 +588,126 @@ table tbody tr,
    =========================================================================== */
 .accent-row{ display:flex; align-items:center; gap:10px; flex-wrap:wrap }
 .accent-dot{
-  width:30px; height:30px; border-radius:50%;
+  width:32px; height:32px; border-radius:50%;
   border:2px solid transparent; padding:0; cursor:pointer;
+  box-shadow:0 4px 12px rgba(0,0,0,.35);
+  transition:transform .2s var(--ease), border-color .2s, box-shadow .2s;
+}
+.accent-dot:hover{ transform:scale(1.1) }
+.accent-dot.on{
+  border-color:var(--ink);
+  transform:scale(1.1);
+  box-shadow:0 0 0 3px rgb(var(--wash) / .10), 0 6px 16px rgba(0,0,0,.4);
+}
+
+/* The custom swatch used to show half a colour: a round 30px box with a square
+   colour input inside it, so the browser's own swatch was clipped off-centre.
+   The circle now paints the picked colour itself and the input is an invisible
+   hit target stretched across it. */
+.accent-custom{
+  position:relative;
+  width:32px; height:32px; border-radius:50%;
+  background:var(--picked, var(--accent));
+  border:2px dashed rgb(var(--wash) / .75);
+  cursor:pointer;
+  display:inline-flex; align-items:center; justify-content:center;
+  overflow:hidden;
   box-shadow:0 4px 12px rgba(0,0,0,.35);
   transition:transform .2s var(--ease), border-color .2s;
 }
-.accent-dot:hover{ transform:scale(1.08) }
-.accent-dot.on{ border-color:var(--ink); transform:scale(1.08) }
-.accent-custom{
-  width:30px; height:30px; border-radius:50%; overflow:hidden;
-  border:1px dashed rgb(var(--wash) / .35); cursor:pointer;
-  display:inline-flex; align-items:center; justify-content:center;
+.accent-custom::after{
+  content:"";
+  position:absolute; inset:0;
+  background:linear-gradient(135deg, rgb(var(--wash) / .35), transparent 55%);
+  pointer-events:none;
 }
+.accent-custom:hover{ transform:scale(1.1); border-color:var(--ink) }
 .accent-custom input[type="color"]{
-  width:150%; height:150%; border:0; padding:0; background:none; cursor:pointer;
+  position:absolute; inset:0;
+  width:100%; height:100%;
+  opacity:0; border:0; padding:0; margin:0; background:none; cursor:pointer;
 }
-/* A live sample of the chosen skin, so the choice is visible before committing. */
-.skin-preview{
-  display:flex; align-items:center; gap:10px; flex-wrap:wrap;
-  margin-top:12px; padding:14px;
-  background:var(--sk-surface);
-  border:var(--sk-edge);
-  border-radius:var(--sk-r);
-  box-shadow:var(--sk-shadow);
+
+/* Wallpaper chips. Only the user's own image carries a remove control, and it
+   sits on the chip instead of being a separate button that outlives it. */
+.bg-pills{ align-items:center }
+.bg-chip{
+  display:inline-flex; align-items:center;
+  border:1px solid var(--line); border-radius:999px;
+  overflow:hidden;
 }
+.bg-chip.on{
+  border-color:rgb(var(--accent-rgb) / .55);
+  background:rgb(var(--accent-rgb) / .20);
+}
+.bg-chip > button[data-bgbtn]{
+  border:0; background:transparent; color:inherit;
+  padding:8px 6px 8px 14px; cursor:pointer; font:inherit;
+}
+.bg-chip-x{
+  border:0; background:transparent; cursor:pointer;
+  color:var(--muted); font-size:16px; line-height:1;
+  padding:8px 12px 8px 6px;
+  transition:color .2s;
+}
+.bg-chip-x:hover{ color:var(--rose) }
+
+/* ===========================================================================
+   10. Material follow-through
+   ===========================================================================
+   The details that decide whether a theme looks designed or merely applied. */
+
+/* Clay: everything is a soft pebble, including the rail and the modal. */
+html[data-skin="clay"] .set-jump{ padding:8px; border-radius:24px }
+html[data-skin="clay"] .set-jump button.on{ box-shadow:inset 0 -3px 8px rgba(0,0,0,.3) }
+html[data-skin="clay"] .modal{ border-radius:30px }
+html[data-skin="clay"] .kpi{ border-radius:24px }
+html[data-skin="clay"] .dd-menu{ border-radius:22px }
+html[data-skin="clay"] .accent-dot,
+html[data-skin="clay"] .accent-custom{ box-shadow:0 6px 14px rgba(0,0,0,.45), inset 0 -3px 6px rgba(0,0,0,.3) }
+
+/* Neu: no borders anywhere, and the rail is carved into the same surface. */
+html[data-skin="neu"] .set-jump{
+  background:rgb(var(--s5));
+  box-shadow:inset 5px 5px 12px rgba(0,0,0,.5), inset -5px -5px 12px rgb(var(--wash) / .04);
+  border:0;
+}
+html[data-skin="neu"] .set-jump button.on{
+  background:rgb(var(--s5));
+  color:var(--accent);
+  box-shadow:5px 5px 12px rgba(0,0,0,.45), -5px -5px 12px rgb(var(--wash) / .045);
+}
+html[data-skin="neu"] .kpi,
+html[data-skin="neu"] .modal,
+html[data-skin="neu"] .dd-menu{ border:0 }
+html[data-skin="neu"] table tbody tr{ box-shadow:inset 0 -1px 0 rgb(var(--wash) / .03) }
+html[data-skin="neu"] .chip,
+html[data-skin="neu"] .pill{ border:0 }
+
+/* Skeu: brushed surfaces, so the rail gets the same metal and the modal a bezel. */
+html[data-skin="skeu"] .set-jump{ background:var(--sk-surface-2) }
+html[data-skin="skeu"] .set-jump button.on{
+  background:linear-gradient(180deg, rgb(var(--wash) / .22), rgb(var(--wash) / .05));
+  box-shadow:inset 0 1px 0 rgb(var(--wash) / .25), inset 0 -2px 5px rgba(0,0,0,.45);
+  color:var(--ink);
+}
+html[data-skin="skeu"] .modal{ border:1px solid rgba(0,0,0,.7); box-shadow:inset 0 1px 0 rgb(var(--wash) / .18), 0 30px 70px rgba(0,0,0,.7) }
+html[data-skin="skeu"] .kpi{ box-shadow:inset 0 1px 0 rgb(var(--wash) / .14), 0 8px 18px rgba(0,0,0,.5) }
+
+/* Minimal: rules instead of containers. The rail loses its box entirely. */
+html[data-skin="minimal"] .set-jump{
+  background:transparent; border:0; border-bottom:1px solid rgb(var(--wash) / .12);
+  border-radius:0; box-shadow:none; padding:0 0 2px;
+}
+html[data-skin="minimal"] .set-jump button{ border-radius:0 }
+html[data-skin="minimal"] .set-jump button.on{
+  background:transparent; color:var(--accent);
+  box-shadow:inset 0 -2px 0 var(--accent);
+}
+html[data-skin="minimal"] .modal,
+html[data-skin="minimal"] .dd-menu,
+html[data-skin="minimal"] .kpi{ box-shadow:none }
+html[data-skin="minimal"] .chip,
+html[data-skin="minimal"] .pill{ border-radius:3px }
+html[data-skin="minimal"] .card h3,
+html[data-skin="minimal"] .set-title{ letter-spacing:.03em }
