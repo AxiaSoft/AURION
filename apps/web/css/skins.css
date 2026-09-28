@@ -140,21 +140,6 @@
   outline-offset:2px;
 }
 
-/* A selected control must look identical hovered and not hovered. Otherwise
-   the pressed state flickers as the pointer passes over it, which reads as a
-   bug in both light and dark themes. */
-.set-jump button.on:hover,
-.set-jump button.on:focus,
-.lang-pills button.on:hover,
-.lang-pills button.on:focus,
-.bg-chip.on:hover,
-.chip.on:hover,
-.nav button.on:hover{
-  background:inherit;
-  color:inherit;
-  border-color:inherit;
-  filter:none;
-}
 .set-jump button.on,
 .set-jump button.on:hover,
 .set-jump button.on:focus{
@@ -1023,3 +1008,79 @@ html[data-theme="light"][data-skin="skeu"] .top h2{
 html[data-theme="light"][data-skin="clay"] .btn,
 html[data-theme="light"][data-skin="skeu"] .btn{ text-shadow:none }
 html[data-theme="light"][data-skin="minimal"]{ --sk-scrim:rgb(var(--s1) / .35) }
+
+/* ===========================================================================
+   14. Selected controls do not respond to the pointer
+   ===========================================================================
+   Once something is chosen, hovering it must change nothing. A selected item
+   that lifts, brightens or shifts colour under the cursor reads as though the
+   selection is about to move, and next to an unselected item that highlights
+   on hover it becomes impossible to tell at a glance which one is actually
+   active - the exact confusion reported on the skin picker.
+
+   Each family below restates its resting appearance for :hover and :focus.
+   Restating is deliberate: `inherit` or `revert` would pull in whatever a
+   parent happens to define, which is how the first attempt at this silently
+   did nothing. Specificity is raised with html[data-skin] where a skin rule
+   would otherwise win.
+
+   Selected controls are still clickable - only the visual reaction is gone. */
+html .lang-pills button.on:hover,
+html .lang-pills button.on:focus,
+html .tabs button.on:hover,
+html .tabs button.on:focus{
+  background:var(--accent);
+  border-color:var(--accent);
+  color:var(--accent-ink);
+  transform:none;
+  filter:none;
+  box-shadow:none;
+}
+
+html .set-jump button.on:hover,
+html .set-jump button.on:focus,
+html .set-rail .set-jump button.on:hover,
+html .set-rail .set-jump button.on:focus{
+  background:var(--accent);
+  color:var(--accent-ink);
+  transform:none;
+  filter:none;
+}
+
+html .nav button.on:hover,
+html[dir="rtl"] .nav button.on:hover{
+  background:rgb(var(--accent-rgb) / .12);
+  color:var(--accent-readable, var(--accent));
+  transform:none;
+  filter:none;
+}
+
+html .chip.on:hover,
+html .pill.on:hover,
+html .st-chip.on:hover{
+  background:transparent;
+  border-color:rgb(var(--accent-rgb) / .35);
+  color:var(--accent-readable, var(--accent));
+  transform:none;
+}
+
+html .dd-opt.on:hover,
+html .dd-opt.on:focus{
+  background:rgb(var(--accent-rgb) / .2);
+  color:var(--accent-readable, var(--accent));
+}
+
+/* Picture tiles and swatches keep the size their selected state gave them. */
+html .bg-tile.on:hover{ transform:none }
+html .accent-dot.on:hover{ transform:scale(1.1) }
+
+/* Anything that reports its own pressed state gets the same treatment, which
+   covers switches and any control added later without touching this file. */
+html [aria-pressed="true"]:hover,
+html [aria-selected="true"]:hover{ filter:none; transform:none }
+html .switch.on:hover{ background:color-mix(in srgb, var(--accent) 25%, transparent) }
+html[data-skin="clay"] .switch.on:hover{ background:color-mix(in srgb, var(--accent) 30%, rgb(var(--s3))) }
+
+/* The calendar's chosen day is a selection too. */
+html .cal-cell.sel:hover,
+html .cal-cell.pinned:hover{ border-color:var(--accent); transform:none }
