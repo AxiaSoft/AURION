@@ -25,29 +25,21 @@
       document.documentElement.dataset.glass = (__g === "off") ? "off" : "on";
       var __m = document.querySelector('meta[name="theme-color"]');
       if (__m) __m.setAttribute("content", __r === "light" ? "#e9edf4" : "#06070b");
-      /* Appearance, applied before the first paint so the desk never flashes
-         the wrong skin. js/skins.js re-applies the same values and owns the
-         logic; this is only the pre-paint shortcut. */
-      var __skin = localStorage.getItem("aurion.skin") || "glass";
-      if (["glass","clay","skeu","neu"].indexOf(__skin) < 0) __skin = "glass";
-      document.documentElement.dataset.skin = __skin;
+      /* Rendering tier, applied before the first paint so the desk never
+         flashes a blurred layout it is about to drop. The accent is not
+         duplicated here: js/skins.js owns the preset table and now loads in
+         <head>, which is early enough to beat the first paint. */
       var __perf = localStorage.getItem("aurion.perf") || "auto";
       if (__perf === "auto") {
         var __c = navigator.hardwareConcurrency || 0, __mem = navigator.deviceMemory || 0;
         __perf = ((__c > 0 && __c <= 4) || (__mem > 0 && __mem <= 4)) ? "fast" : "rich";
       }
-      document.documentElement.dataset.perf = (__skin === "glass") ? __perf : "fast";
-      var __acc = localStorage.getItem("aurion.accent");
-      if (__acc && /^#[0-9a-fA-F]{6}$/.test(__acc)) {
-        var __n = parseInt(__acc.slice(1), 16);
-        var __rgb = ((__n >> 16) & 255) + " " + ((__n >> 8) & 255) + " " + (__n & 255);
-        document.documentElement.style.setProperty("--accent", __acc);
-        document.documentElement.style.setProperty("--accent-rgb", __rgb);
-      }
+      document.documentElement.dataset.perf = __perf;
     } catch (e) { document.documentElement.dataset.theme = "dark"; }
   </script>
+  <script src="/js/skins.js?v=desk81"></script>
   <link rel="stylesheet" href="/css/app.css?v=desk65" />
-  <link rel="stylesheet" href="/css/skins.css?v=desk80" />
+  <link rel="stylesheet" href="/css/skins.css?v=desk81" />
 </head>
 <body class="mode-desk">
   <div class="aurora"></div>
@@ -148,11 +140,10 @@
   <div class="toast-wrap" id="toasts"></div>
   <div class="notify-stack" id="notify-stack" hidden></div>
   <div class="pay-veil hidden" id="pay-veil"></div>
-  <script src="/js/skins.js?v=desk80"></script>
   <script src="/js/i18n.js?v=desk60"></script>
   <script src="/js/api.js?v=desk60"></script>
   <script src="/js/calendar.js?v=desk60"></script>
   <script src="/js/charts.js?v=desk77"></script>
-  <script src="/js/app.js?v=desk79"></script>
+  <script src="/js/app.js?v=desk81"></script>
 </body>
 </html>

@@ -1,41 +1,25 @@
 /* ===========================================================================
-   AURION — interface styles, accent colour, rendering tier.
+   AURION — appearance: accent colour, states, dialogs, rendering tier.
 
-   This file only overrides. app.css owns layout and behaviour; everything here
-   hangs off one attribute on <html>:
+   This file only ever overrides; app.css owns layout and behaviour. What is
+   left after the alternative interface styles were removed is everything that
+   was never really about a "skin":
 
-       data-skin   glass (default) | clay | skeu | neu
-       data-perf   rich | fast            fast removes every blur
+     * the accent, which must reach every hover, focus ring, chip and chart;
+     * states - selected, disabled, focused - behaving consistently;
+     * the desk's own dialogs;
+     * the rendering tier, which decides how much blur the machine pays for.
 
-   How a skin works
-   ----------------
-   A skin is not a colour swap. Each one redefines the *material* of the desk:
-   the page surface, the radius, how an edge is drawn (border, bevel, shadow or
-   nothing), how a button is pressed, and how depth is faked. That is why every
-   skin sets the same small set of tokens below and then adds only the handful
-   of structural rules its material actually needs.
+   One attribute still drives the page:
 
-       --sk-r / --sk-r-sm      corner radius, large and small
-       --sk-surface            card and panel background
-       --sk-surface-2          nav / top bar / drawer background
-       --sk-edge               the card border shorthand
-       --sk-shadow             resting elevation
-       --sk-shadow-hover       elevation while hovered
-       --sk-blur               backdrop-filter value (none for most skins)
-       --sk-field / --sk-field-edge / --sk-field-shadow
-       --sk-btn-bg / --sk-btn-edge / --sk-btn-shadow / --sk-btn-press
-       --sk-tint               accent wash used by every hover
-       --sk-scrim              tone laid over the wallpaper by flat skins
+       data-perf   rich | fast        fast removes every backdrop-filter
 
-   Colour never comes from a skin. It comes from --accent, which the user picks
-   and js/skins.js writes as four values (hex x3 + an "r g b" triplet). app.css
-   has been converted to use those, so hovers, focus rings, chips, switches,
-   charts and badges all follow the picked colour with no extra work here.
+   Glassmorphism is now the only interface style, so its refinements live here
+   rather than behind a data-skin selector.
    =========================================================================== */
 
 :root{
-  /* One rhythm for every skin. A skin changes the material, never the
-     spacing: cards, rails and dialogs line up whichever one is chosen. */
+  /* One rhythm for the whole desk. */
   --sk-pad:16px;
   --sk-gap:14px;
   --sk-head:15px;
@@ -44,41 +28,25 @@
   --sk-tint:rgb(var(--accent-rgb) / .10);
   --sk-tint-strong:rgb(var(--accent-rgb) / .20);
 
-  --sk-r:var(--r);
   --sk-r-sm:14px;
-  --sk-surface:linear-gradient(180deg, rgb(var(--s7) / .62), rgb(var(--s4) / .5));
-  --sk-surface-2:rgb(var(--s2) / .72);
-  --sk-edge:1px solid var(--line);
-  --sk-shadow:0 10px 40px rgba(0,0,0,.22);
-  --sk-shadow-hover:0 16px 48px rgba(0,0,0,.3);
-  --sk-blur:blur(18px) saturate(130%);
-  --sk-field:var(--field);
-  --sk-field-edge:1px solid var(--line);
-  --sk-field-shadow:none;
-  --sk-btn-bg:linear-gradient(135deg, var(--accent), var(--accent-2) 55%, var(--accent-3));
-  --sk-btn-edge:0;
-  --sk-btn-shadow:0 10px 24px rgb(var(--accent-rgb) / .18);
-  --sk-btn-press:translateY(0) scale(.98);
   --sk-btn-radius:14px;
-  --sk-lift:translateY(-1px);
 }
 
 /* ===========================================================================
-   1. One accent, everywhere — including every hover
+   1. One accent, everywhere - including every hover
    ===========================================================================
-   The brief: picking a colour must move the whole desk, not just the primary
-   button. app.css now expresses its accent through --accent / --accent-rgb, so
-   what is left here are the neutral-grey hovers that should also pick up a
-   tint of the chosen colour. */
+   Picking a colour has to move the whole desk, not just the primary button.
+   app.css expresses its accent through --accent / --accent-rgb, so what is
+   left here are the neutral-grey hovers that should also take a tint of the
+   chosen colour. */
 
 .btn{
-  background:var(--sk-btn-bg);
+  background:linear-gradient(135deg, var(--accent), var(--accent-2) 55%, var(--accent-3));
   color:var(--accent-ink);
-  border:var(--sk-btn-edge);
   border-radius:var(--sk-btn-radius);
 }
-.btn:hover{ transform:var(--sk-lift); box-shadow:var(--sk-btn-shadow) }
-.btn:active{ transform:var(--sk-btn-press) }
+.btn:hover{ transform:translateY(-1px); box-shadow:0 10px 24px rgb(var(--accent-rgb) / .18) }
+.btn:active{ transform:translateY(0) scale(.98) }
 
 .btn.ghost{
   background:transparent;
@@ -94,7 +62,6 @@
 }
 .btn.ghost:active{ background:var(--sk-tint-strong) }
 
-/* Secondary surfaces answer to the accent too. */
 .nav button:hover{ background:var(--sk-tint); color:var(--ink) }
 .nav button.on{ background:rgb(var(--accent-rgb) / .12) }
 .pill:hover,
@@ -102,66 +69,10 @@
 .menu-btn:hover,
 .dd-btn:hover,
 .st-chip:hover{ border-color:rgb(var(--accent-rgb) / .35); background:var(--sk-tint) }
+tbody tr:hover{ background:rgb(var(--accent-rgb) / .05) }
+a:hover{ color:var(--accent-readable, var(--accent)) }
+::selection{ background:rgb(var(--accent-rgb) / .3) }
 
-/* The settings rail is a list of destinations, not a control.
-
-   The container must not react to the pointer at all. It used to pick up glass
-   and blur only while hovered, so the whole panel appeared to switch on and
-   off as the mouse crossed it. These rules restate its resting appearance for
-   every pointer state, which is the only way to be sure nothing underneath
-   reintroduces a hover. */
-.set-jump,
-.set-jump:hover,
-.set-jump:focus-within,
-.set-rail .set-jump,
-.set-rail .set-jump:hover,
-.set-rail .set-jump:focus-within{
-  background:var(--sk-rail-bg, linear-gradient(180deg, rgb(var(--s4) / .92), rgb(var(--s2) / .88)));
-  border-color:var(--line);
-  box-shadow:var(--sk-rail-shadow, none);
-  transform:none;
-}
-.set-jump button:hover{ background:rgb(var(--wash) / .05); color:var(--ink) }
-
-/* Clicking a control should not leave a hard ring around it. Keyboard focus
-   still gets a clear one - :focus-visible only fires for keyboard users. */
-.set-jump button:focus,
-.lang-pills button:focus,
-.accent-dot:focus,
-.btn:focus{ outline:none }
-.set-jump button:focus-visible,
-.lang-pills button:focus-visible,
-.accent-dot:focus-visible,
-.btn:focus-visible{
-  outline:2px solid var(--accent);
-  outline-offset:2px;
-}
-
-.set-jump button.on,
-.set-jump button.on:hover,
-.set-jump button.on:focus{
-  background:var(--accent);
-  color:var(--accent-ink);
-}
-/* Selected and hovered used to be two shades of the same wash, so whichever
-   pill the pointer happened to be over looked like the active one. The
-   selected pill is now a solid fill of the accent with derived ink; hover is a
-   barely-there tint that could never be mistaken for it. */
-.lang-pills button:hover{
-  background:rgb(var(--wash) / .05);
-  border-color:rgb(var(--accent-rgb) / .28);
-  color:var(--ink);
-}
-.lang-pills button.on,
-.lang-pills button.on:hover,
-.lang-pills button.on:focus{
-  background:var(--accent);
-  border-color:var(--accent);
-  color:var(--accent-ink);
-  font-weight:600;
-}
-/* Where the accent is the *fill*, the label is the derived ink: black on a
-   pale accent, white on a deep one, decided by relative luminance. */
 /* Anything FILLED with the accent takes the derived ink, so a near-black
    accent gets white text and a pale one gets black - decided by luminance in
    js/skins.js, never hand-picked. */
@@ -169,420 +80,308 @@
 .btn *,
 .lang-pills button.on,
 .set-jump button.on,
-.switch.on i{ background:var(--accent) }
+.tabs button.on{ color:var(--accent-ink) }
 .chip.on,
 .nav button.on,
-.nav-ver,
-a:hover{ color:var(--accent-readable, var(--accent)) }
-tbody tr:hover{ background:rgb(var(--accent-rgb) / .05) }
-a:hover{ color:var(--accent) }
-::selection{ background:rgb(var(--accent-rgb) / .3) }
+.nav-ver{ color:var(--accent-readable, var(--accent)) }
+.switch.on i{ background:var(--accent) }
+.tabs button.on{ background:var(--accent) }
+
+/* Selected is a solid fill; hover is a faint neutral tint. They were two
+   shades of the same wash once, and whichever pill the pointer was over
+   looked like the active one. */
+.lang-pills button:hover{
+  background:rgb(var(--wash) / .05);
+  border-color:rgb(var(--accent-rgb) / .28);
+  color:var(--ink);
+}
+.lang-pills button.on{
+  background:var(--accent);
+  border-color:var(--accent);
+  font-weight:600;
+}
 
 /* ---------------------------------------------------------------------------
-   The emergency stop is the one control that must never follow fashion.
-   Its colour is fixed — a trader has to find it by colour alone, under stress,
-   on any skin. Its *shape* still follows the skin, like every other button,
-   so it never looks bolted on.
+   The emergency stop is the one control that must never follow fashion. Its
+   colour is fixed - a trader has to find it by colour alone, under stress -
+   while its shape follows the same rules as every other button.
    --------------------------------------------------------------------------- */
 #btn-kill,
 .btn.danger{
   background:linear-gradient(135deg, #ff6b8a, #c43b5c) !important;
   color:#fff !important;
   border-radius:var(--sk-btn-radius);
-  border:var(--sk-btn-edge);
-  box-shadow:var(--sk-danger-shadow, 0 10px 24px rgba(255,107,138,.22));
+  box-shadow:0 10px 24px rgba(255,107,138,.22);
 }
 #btn-kill:hover,
-.btn.danger:hover{
-  transform:var(--sk-lift);
-  box-shadow:var(--sk-danger-shadow-hover, 0 12px 30px rgba(255,107,138,.34));
-}
+.btn.danger:hover{ transform:translateY(-1px); box-shadow:0 12px 30px rgba(255,107,138,.34) }
 #btn-kill:active,
-.btn.danger:active{ transform:var(--sk-btn-press) }
+.btn.danger:active{ transform:translateY(0) scale(.98) }
 #btn-kill.kills{ box-shadow:0 0 0 1px var(--rose), 0 0 24px rgba(255,107,138,.3) }
 
-/* Gold keeps its own identity for the same reason (it marks paid features). */
-.btn.gold{ border-radius:var(--sk-btn-radius); border:var(--sk-btn-edge) }
+/* Direction never follows the accent - stated here as well as in app.css so
+   nothing can quietly override it. Green is up and red is down, always. */
+.up, .metric.up, .dot.i-low{ color:var(--candle-up) }
+.down, .metric.down{ color:var(--candle-down) }
 
 /* ===========================================================================
-   2. Shared plumbing — every skin drives these through its tokens
-   =========================================================================== */
-html[data-skin]:not([data-skin="glass"]) .card,
-html[data-skin]:not([data-skin="glass"]) .auth-card,
-html[data-skin]:not([data-skin="glass"]) .plan-card,
-html[data-skin]:not([data-skin="glass"]) .gate-card,
-html[data-skin]:not([data-skin="glass"]) .st-drop,
-html[data-skin]:not([data-skin="glass"]) .term{
-  background:var(--sk-surface);
-  border:var(--sk-edge);
-  border-radius:var(--sk-r);
-  box-shadow:var(--sk-shadow);
-  backdrop-filter:var(--sk-blur);
-  -webkit-backdrop-filter:var(--sk-blur);
-}
-html[data-skin]:not([data-skin="glass"]) .card:hover{ box-shadow:var(--sk-shadow-hover) }
-
-html[data-skin]:not([data-skin="glass"]) .nav,
-html[data-skin]:not([data-skin="glass"]) .top,
-html[data-skin]:not([data-skin="glass"]) .hdr-drawer{
-  background:var(--sk-surface-2);
-  backdrop-filter:var(--sk-blur);
-  -webkit-backdrop-filter:var(--sk-blur);
-}
-
-html[data-skin]:not([data-skin="glass"]) .field input,
-html[data-skin]:not([data-skin="glass"]) .field select,
-html[data-skin]:not([data-skin="glass"]) .ctrl,
-html[data-skin]:not([data-skin="glass"]) .dd-btn,
-html[data-skin]:not([data-skin="glass"]) textarea{
-  background:var(--sk-field);
-  border:var(--sk-field-edge);
-  box-shadow:var(--sk-field-shadow);
-  border-radius:var(--sk-r-sm);
-}
-html[data-skin]:not([data-skin="glass"]) .pill,
-html[data-skin]:not([data-skin="glass"]) .chip,
-html[data-skin]:not([data-skin="glass"]) .lang-pills button,
-html[data-skin]:not([data-skin="glass"]) .menu-btn{
-  border-radius:var(--sk-r-sm);
-  box-shadow:var(--sk-chip-shadow, none);
-}
-
-/* Surfaces that are not cards but still read as panels: the modal, the mobile
-   drawer, dropdown menus, KPI tiles, the strategy cards and the settings rail.
-   Leaving these on the glass rules was what made a skin change feel partial. */
-html[data-skin]:not([data-skin="glass"]) .modal,
-html[data-skin]:not([data-skin="glass"]) .dd-menu,
-html[data-skin]:not([data-skin="glass"]) .st-card,
-html[data-skin]:not([data-skin="glass"]) .kpi,
-html[data-skin]:not([data-skin="glass"]) .chart-ticket,
-html[data-skin]:not([data-skin="glass"]) .cal-tip,
-html[data-skin]:not([data-skin="glass"]) .set-jump,
-html[data-skin]:not([data-skin="glass"]) .robot-card,
-html[data-skin]:not([data-skin="glass"]) .pay-card,
-html[data-skin]:not([data-skin="glass"]) .notify-card,
-html[data-skin]:not([data-skin="glass"]) .toast,
-html[data-skin]:not([data-skin="glass"]) .sym-panel,
-html[data-skin]:not([data-skin="glass"]) .cal-side,
-html[data-skin]:not([data-skin="glass"]) .cal-legend,
-html[data-skin]:not([data-skin="glass"]) .chart-card,
-html[data-skin]:not([data-skin="glass"]) .prof-hero,
-html[data-skin]:not([data-skin="glass"]) .up-hero,
-html[data-skin]:not([data-skin="glass"]) .st-up-hero,
-html[data-skin]:not([data-skin="glass"]) .ai-hero,
-html[data-skin]:not([data-skin="glass"]) .secret-box,
-html[data-skin]:not([data-skin="glass"]) .manual-box,
-html[data-skin]:not([data-skin="glass"]) .danger-zone,
-html[data-skin]:not([data-skin="glass"]) .gate-card,
-html[data-skin]:not([data-skin="glass"]) .wizard,
-html[data-skin]:not([data-skin="glass"]) .tape-banner,
-html[data-skin]:not([data-skin="glass"]) .outlook-banner,
-html[data-skin]:not([data-skin="glass"]) .auto-banner,
-html[data-skin]:not([data-skin="glass"]) .lic-banner,
-html[data-skin]:not([data-skin="glass"]) .hdr-drawer{
-  background:var(--sk-surface);
-  border:var(--sk-edge);
-  border-radius:var(--sk-r);
-  box-shadow:var(--sk-shadow);
-  backdrop-filter:var(--sk-blur);
-  -webkit-backdrop-filter:var(--sk-blur);
-}
-html[data-skin]:not([data-skin="glass"]){ --sk-rail-bg:var(--sk-surface); --sk-rail-shadow:var(--sk-shadow) }
-html[data-skin]:not([data-skin="glass"]) .set-jump button,
-html[data-skin]:not([data-skin="glass"]) .dd-opt{ border-radius:var(--sk-r-sm) }
-
-/* Scrollbars follow the material too - a chrome scrollbar next to a matte clay
-   panel is exactly the kind of detail that makes a theme feel unfinished. */
-html[data-skin]:not([data-skin="glass"]) *::-webkit-scrollbar-thumb{
-  border-radius:var(--sk-r-sm);
-}
-
-/* The decorative hairline across the top of every card belongs to glass. */
-html[data-skin]:not([data-skin="glass"]) .card::before{ display:none }
-
-/* ===========================================================================
-   3. Claymorphism — soft, inflated, single-piece
+   2. Glass, refined
    ===========================================================================
-   Clay is not "a card with heavy shadows". Real clay reads as ONE moulded
-   object: a rounded body, light pooling on the upper edge, the shadow of its
-   own thickness underneath, and a wide soft drop far below it. Three rules
-   follow from that and they are why the first attempt looked noisy:
-
-     * one inner light and one inner shadow, never both at full strength on
-       every edge - light comes from above, so the top is lit and the bottom
-       is dark, nothing else;
-     * the drop shadow is soft, distant and low-opacity. Crisp dark shadows
-       make plastic look wet, not soft;
-     * a clay button is a single body. The earlier one had a coloured plinth
-       under a gradient face, which read as two stacked objects. It is now one
-       colour with its own inner light and one thin darker base.
-
-   Everything is built from --clay-* so the whole skin can be re-tuned from
-   these six values. */
-html[data-skin="clay"]{
-  --clay-lift:rgb(var(--wash) / .10);        /* light pooling on the top edge  */
-  --clay-dip:rgba(0,0,0,.30);                /* the object's own thickness     */
-  --clay-cast:rgba(0,0,0,.34);               /* soft distant drop              */
-  --clay-sink:rgba(0,0,0,.38);               /* pressed / inset wells          */
-
-  --sk-r:26px;
-  --sk-r-sm:18px;
-  --sk-btn-radius:18px;
-  --sk-blur:none;
-
-  --sk-surface:linear-gradient(180deg, rgb(var(--s9) / .94), rgb(var(--s7) / .94));
-  --sk-surface-2:linear-gradient(180deg, rgb(var(--s5) / .92), rgb(var(--s3) / .92));
-  --sk-edge:0;
-
-  /* top light, bottom thickness, one soft cast. Nothing else. */
-  --sk-shadow:
-    inset 0 2px 1px var(--clay-lift),
-    inset 0 -14px 20px -12px var(--clay-dip),
-    0 18px 40px -18px var(--clay-cast);
-  --sk-shadow-hover:
-    inset 0 2px 1px rgb(var(--wash) / .14),
-    inset 0 -14px 20px -12px var(--clay-dip),
-    0 24px 50px -20px var(--clay-cast);
-
-  --sk-field:rgb(var(--s4));
-  --sk-field-edge:0;
-  --sk-field-shadow:inset 0 3px 8px -2px var(--clay-sink), inset 0 -1px 0 rgb(var(--wash) / .05);
-
-  /* One body: a single accent fill lit from above, on a thin darker base. */
-  --sk-btn-bg:linear-gradient(180deg,
-      color-mix(in srgb, var(--accent) 88%, #fff) 0%,
-      var(--accent) 45%,
-      color-mix(in srgb, var(--accent) 88%, #000) 100%);
-  /* A single body. The earlier version carried "0 4px 0" - a hard-edged
-     coloured slab directly under the button - which is exactly the second
-     layer that shows up as a rim under every clay button. Depth now comes
-     only from light inside the body and one soft shadow far below it. */
-  --sk-btn-shadow:
-    inset 0 2px 1px rgb(255 255 255 / .34),
-    inset 0 -10px 14px -10px rgba(0,0,0,.40),
-    0 10px 20px -10px rgba(0,0,0,.45);
-  --sk-danger-shadow:
-    inset 0 2px 1px rgb(255 255 255 / .30),
-    inset 0 -10px 14px -10px rgba(0,0,0,.40),
-    0 10px 20px -10px rgba(0,0,0,.45);
-  --sk-danger-shadow-hover:
-    inset 0 2px 1px rgb(255 255 255 / .38),
-    inset 0 -10px 14px -10px rgba(0,0,0,.34),
-    0 16px 26px -12px rgba(0,0,0,.5);
-
-  --sk-lift:translateY(-2px);
-  --sk-btn-press:translateY(3px);
-  --sk-chip-shadow:inset 0 1px 0 rgb(var(--wash) / .07), inset 0 -4px 8px -4px var(--clay-dip);
+   The default deserves the same care the alternatives got: a brighter top
+   edge, a hairline that follows the accent, an accent-tinted hover border and
+   a single specular highlight. */
+.card{
+  border-color:rgb(var(--wash) / .10);
+  box-shadow:0 10px 40px rgba(0,0,0,.22), inset 0 1px 0 rgb(var(--wash) / .07);
 }
+.card::before{
+  background:linear-gradient(90deg, transparent, rgb(var(--accent-rgb) / .45),
+             rgb(var(--accent-3-rgb) / .35), transparent);
+}
+.card:hover{ border-color:rgb(var(--accent-rgb) / .22) }
+.card::after{
+  content:"";
+  position:absolute; inset:0 0 auto 0; height:40%;
+  background:linear-gradient(180deg, rgb(var(--wash) / .045), transparent);
+  pointer-events:none;
+}
+.switch{ backdrop-filter:blur(6px); -webkit-backdrop-filter:blur(6px) }
 
-html[data-skin="clay"] .btn{
-  font-weight:600;
-  padding:13px 20px;
+/* ===========================================================================
+   3. Consistent rhythm and states
+   =========================================================================== */
+.card h3,
+.set-title{
+  font-size:var(--sk-head);
   letter-spacing:.005em;
-  border:0;
-  /* The resting state already carries its shadow, so hovering only deepens it
-     rather than adding a second, differently-shaped one on top. */
-  box-shadow:var(--sk-btn-shadow);
-  transition:transform .18s var(--ease), box-shadow .18s var(--ease), filter .18s;
+  line-height:1.3;
 }
-html[data-skin="clay"] .btn:hover{
-  filter:brightness(1.05);
-  box-shadow:
-    inset 0 2px 1px rgb(255 255 255 / .42),
-    inset 0 -10px 14px -10px rgba(0,0,0,.34),
-    0 16px 26px -12px rgba(0,0,0,.5);
-}
-/* Pressed clay dents inward: the light moves to the bottom edge. */
-html[data-skin="clay"] .btn:active,
-html[data-skin="clay"] #btn-kill:active,
-html[data-skin="clay"] .btn.danger:active{
-  box-shadow:
-    inset 0 4px 10px -3px rgba(0,0,0,.42),
-    inset 0 -2px 1px rgb(255 255 255 / .18);
-}
-html[data-skin="clay"] .btn.ghost{
-  background:rgb(var(--s5));
-  color:var(--ink);
-  box-shadow:inset 0 1px 0 rgb(var(--wash) / .07), inset 0 -6px 10px -8px var(--clay-dip);
-}
-html[data-skin="clay"] .btn.ghost:hover{
-  background:rgb(var(--s6));
-  box-shadow:inset 0 1px 0 rgb(var(--wash) / .10), inset 0 -6px 10px -8px var(--clay-dip);
+.card > .sub:first-of-type{ margin-top:2px }
+
+/* Mixed control heights are the usual reason a settings page looks untidy. */
+.field input,
+.field select,
+.ctrl,
+.dd-btn{ min-height:42px }
+.btn{ min-height:42px; display:inline-flex; align-items:center; justify-content:center; gap:8px }
+.btn.tiny{ min-height:32px }
+
+.card,
+.btn,
+.switch,
+.chip,
+.pill,
+.accent-dot,
+.lang-pills button{ transition-timing-function:var(--ease); transition-duration:.18s }
+
+.btn:disabled,
+.lang-pills button:disabled,
+.tabs button:disabled{
+  opacity:.45;
+  cursor:not-allowed;
+  filter:grayscale(.35);
+  box-shadow:none;
+  transform:none;
 }
 
-/* Controls are moulded from the same clay. */
-html[data-skin="clay"] .switch{
-  border:0;
-  background:rgb(var(--s3));
-  box-shadow:inset 0 3px 7px -2px var(--clay-sink);
-}
-html[data-skin="clay"] .switch i{
-  box-shadow:0 2px 4px rgba(0,0,0,.35), inset 0 1px 0 rgb(255 255 255 / .6);
-}
-html[data-skin="clay"] .switch.on{
-  background:color-mix(in srgb, var(--accent) 30%, rgb(var(--s3)));
-  box-shadow:inset 0 3px 7px -2px var(--clay-sink);
-}
+*::-webkit-scrollbar-thumb{ background:var(--scroll-thumb); border-radius:999px }
+*::-webkit-scrollbar-thumb:hover{ background:var(--scroll-thumb-hover) }
 
-/* Padding, not margin: a horizontal margin on a full-width button pushes the
-   content past the rail and hands it a sideways scrollbar. */
-html[data-skin="clay"] .nav{ padding-inline:14px }
-html[data-skin="clay"] .nav button{ border-radius:16px; margin-inline:0; max-width:100% }
-html[data-skin="clay"] .nav button.on{
-  background:color-mix(in srgb, var(--accent) 16%, transparent);
-  box-shadow:inset 0 1px 0 rgb(var(--wash) / .07), inset 0 -5px 9px -6px var(--clay-dip);
-}
-html[data-skin="clay"] .field input,
-html[data-skin="clay"] .field select,
-html[data-skin="clay"] .ctrl,
-html[data-skin="clay"] .dd-btn{ padding-block:12px }
-
-/* Tables read as a stack of soft tiles rather than ruled rows. */
-html[data-skin="clay"] table{ border-collapse:separate; border-spacing:0 7px }
-html[data-skin="clay"] table th{ border:0; color:var(--muted) }
-html[data-skin="clay"] tbody tr{
-  background:rgb(var(--s5));
-  box-shadow:inset 0 1px 0 rgb(var(--wash) / .05), inset 0 -5px 9px -6px var(--clay-dip);
-}
-html[data-skin="clay"] tbody tr td:first-child{ border-start-start-radius:14px; border-end-start-radius:14px }
-html[data-skin="clay"] tbody tr td:last-child{ border-start-end-radius:14px; border-end-end-radius:14px }
-html[data-skin="clay"] tbody tr:hover{
-  background:color-mix(in srgb, var(--accent) 7%, rgb(var(--s5)));
-}
+.card hr,
+.cal-tip-sep{ border:0; height:1px; background:rgb(var(--wash) / .10); margin:14px 0 }
 
 /* ===========================================================================
-   4. Neumorphism — one continuous surface, shaped only by light.
+   4. Range sliders
    ===========================================================================
-   The illusion collapses unless the page and the panels are the *same* colour,
-   so this skin flattens the wallpaper on purpose. Nothing has a border; every
-   edge is two shadows, one light and one dark, from a single light source. */
-html[data-skin="neu"]{
-  --sk-scrim:rgb(var(--s5) / .34);
-  --sk-r:22px;
-  --sk-r-sm:16px;
-  --sk-btn-radius:16px;
-  --sk-blur:none;
-  --sk-page:rgb(var(--s5));
-  --sk-surface:rgb(var(--s5) / .96);
-  --sk-surface-2:rgb(var(--s5) / .94);
-  --sk-edge:0;
-  --sk-shadow:10px 10px 24px rgba(0,0,0,.55), -10px -10px 24px rgb(var(--wash) / .05);
-  --sk-shadow-hover:14px 14px 30px rgba(0,0,0,.6), -14px -14px 30px rgb(var(--wash) / .06);
-  --sk-field:rgb(var(--s5));
-  --sk-field-edge:0;
-  --sk-field-shadow:inset 6px 6px 14px rgba(0,0,0,.55), inset -6px -6px 14px rgb(var(--wash) / .045);
-  --sk-btn-bg:rgb(var(--s5));
-  --sk-btn-shadow:7px 7px 18px rgba(0,0,0,.55), -7px -7px 18px rgb(var(--wash) / .05);
-  --sk-danger-shadow:7px 7px 18px rgba(0,0,0,.55), -7px -7px 18px rgb(var(--wash) / .05);
-  --sk-danger-shadow-hover:9px 9px 22px rgba(0,0,0,.6), -9px -9px 22px rgb(var(--wash) / .06);
-  --sk-lift:none;
-  --sk-btn-press:none;
-  --sk-chip-shadow:5px 5px 12px rgba(0,0,0,.45), -5px -5px 12px rgb(var(--wash) / .04);
+   Written twice, for -webkit- and -moz-: pseudo-elements from different
+   engines cannot share a rule, a comma-joined selector is dropped whole by
+   both. WebView2 only needs the first; the second is for anyone opening the
+   desk in Firefox. */
+input[type=range]{
+  accent-color:var(--accent);
+  -webkit-appearance:none;
+  appearance:none;
+  background:transparent;
+  height:28px;
+  cursor:pointer;
 }
-/* Type carries the colour, because the surface cannot. */
-html[data-skin="neu"] .btn{
-  background:rgb(var(--s5));
-  color:var(--accent);
-  font-weight:600;
-  text-shadow:0 1px 0 rgba(0,0,0,.45);
+input[type=range]::-webkit-slider-runnable-track{
+  height:6px;
+  border-radius:999px;
+  background:rgb(var(--wash) / .10);
+  border:1px solid rgb(var(--wash) / .08);
 }
-html[data-skin="neu"] .btn:hover{ color:color-mix(in srgb, var(--accent) 80%, #fff) }
-html[data-skin="neu"] .btn:active,
-html[data-skin="neu"] .btn.ghost:active{
-  box-shadow:inset 6px 6px 14px rgba(0,0,0,.55), inset -6px -6px 14px rgb(var(--wash) / .045);
+input[type=range]::-moz-range-track{
+  height:6px;
+  border-radius:999px;
+  background:rgb(var(--wash) / .10);
+  border:1px solid rgb(var(--wash) / .08);
 }
-html[data-skin="neu"] #btn-kill,
-html[data-skin="neu"] .btn.danger{
-  background:rgb(var(--s5)) !important;
-  color:#ff6b8a !important;
+input[type=range]::-webkit-slider-thumb{
+  -webkit-appearance:none;
+  appearance:none;
+  width:18px; height:18px;
+  border-radius:50%;
+  background:var(--accent);
+  border:0;
+  box-shadow:0 2px 10px -2px rgb(var(--accent-rgb) / .8), inset 0 1px 0 rgb(255 255 255 / .45);
+  margin-top:-6px;
+  transition:transform .15s var(--ease);
 }
-html[data-skin="neu"] .btn.ghost{ background:rgb(var(--s5)); box-shadow:var(--sk-btn-shadow) }
-html[data-skin="neu"] .btn.ghost:hover{ background:rgb(var(--s5)) }
-html[data-skin="neu"] .card:hover{ transform:none }
-html[data-skin="neu"] .switch{
-  background:rgb(var(--s5)); border:0;
-  box-shadow:inset 4px 4px 10px rgba(0,0,0,.55), inset -4px -4px 10px rgb(var(--wash) / .04);
+input[type=range]::-moz-range-thumb{
+  width:18px; height:18px;
+  border-radius:50%;
+  background:var(--accent);
+  border:0;
+  box-shadow:0 2px 10px -2px rgb(var(--accent-rgb) / .8);
 }
-html[data-skin="neu"] .switch i{ box-shadow:2px 2px 5px rgba(0,0,0,.5) }
-html[data-skin="neu"] .nav{ padding-inline:16px }
-html[data-skin="neu"] .nav button{ border-radius:16px; margin-inline:0; max-width:100% }
-html[data-skin="neu"] .nav button.on{
-  background:rgb(var(--s5));
-  box-shadow:inset 5px 5px 12px rgba(0,0,0,.5), inset -5px -5px 12px rgb(var(--wash) / .04);
-  color:var(--accent);
-}
-/* The wallpaper stays. Neumorphism needs its panels to sit on one even tone,
-   so instead of throwing the image away it lays a heavy scrim of the panel
-   colour over it: the material still works and the wallpaper still shows
-   through at the edges. */
-html[data-skin="neu"] .aurora::after{ opacity:.06 }
-html[data-skin="neu"] .aurora{ animation:none }
+input[type=range]:hover::-webkit-slider-thumb{ transform:scale(1.08) }
+input[type=range]:active::-webkit-slider-thumb{ transform:scale(.96) }
+
 /* ===========================================================================
-   5. Skeuomorphism — real materials. Brushed metal, glass bevels, engraving.
+   5. Focus, and the black hairline that appeared on click
+   ===========================================================================
+   Chromium draws a focus ring on anything that takes focus, and on a dark
+   surface that ring reads as a thin black bar cutting across a panel. It must
+   never appear for a pointer - only for keyboard navigation, where it is the
+   only way to see where you are. */
+:focus:not(:focus-visible){ outline:none }
+button:focus:not(:focus-visible),
+a:focus:not(:focus-visible),
+[tabindex]:focus:not(:focus-visible),
+summary:focus:not(:focus-visible){ outline:none; box-shadow:none }
+:focus-visible{
+  outline:2px solid var(--accent);
+  outline-offset:2px;
+}
+
+/* ===========================================================================
+   6. Selected controls do not respond to the pointer
+   ===========================================================================
+   Once something is chosen, hovering it must change nothing. A selected item
+   that lifts or shifts colour under the cursor reads as though the selection
+   is about to move, and next to an unselected item that highlights on hover it
+   becomes hard to tell which one is actually active.
+
+   Each family restates its resting appearance. Restating is deliberate:
+   `inherit` or `revert` pull in whatever a parent happens to define, which is
+   how an earlier attempt at this silently did nothing. */
+html .lang-pills button.on:hover,
+html .lang-pills button.on:focus,
+html .tabs button.on:hover,
+html .tabs button.on:focus{
+  background:var(--accent);
+  border-color:var(--accent);
+  color:var(--accent-ink);
+  transform:none;
+  filter:none;
+  box-shadow:none;
+}
+html .set-jump button.on:hover,
+html .set-jump button.on:focus,
+html .set-rail .set-jump button.on:hover,
+html .set-rail .set-jump button.on:focus{
+  background:var(--accent);
+  color:var(--accent-ink);
+  transform:none;
+  filter:none;
+}
+html .nav button.on:hover,
+html[dir="rtl"] .nav button.on:hover{
+  background:rgb(var(--accent-rgb) / .12);
+  color:var(--accent-readable, var(--accent));
+  transform:none;
+  filter:none;
+}
+html .chip.on:hover,
+html .pill.on:hover,
+html .st-chip.on:hover{
+  background:transparent;
+  border-color:rgb(var(--accent-rgb) / .35);
+  color:var(--accent-readable, var(--accent));
+  transform:none;
+}
+html .dd-opt.on:hover,
+html .dd-opt.on:focus{
+  background:rgb(var(--accent-rgb) / .2);
+  color:var(--accent-readable, var(--accent));
+}
+html .accent-dot.on:hover{ transform:scale(1.1) }
+html [aria-pressed="true"]:hover,
+html [aria-selected="true"]:hover{ filter:none; transform:none }
+html .switch.on:hover{ background:color-mix(in srgb, var(--accent) 25%, transparent) }
+html .cal-cell.sel:hover,
+html .cal-cell.pinned:hover{ border-color:var(--accent); transform:none }
+.cal-cell.sel{ border-color:var(--accent); box-shadow:0 0 0 1px var(--accent) }
+
+/* ===========================================================================
+   7. The settings rail
+   ===========================================================================
+   A list of destinations, not a control. The container must not react to the
+   pointer at all - it used to pick up glass and blur only while hovered, so
+   the whole panel appeared to switch on and off as the mouse crossed it. Its
+   resting appearance is restated for every pointer state so nothing
+   underneath can reintroduce a hover. */
+.set-jump,
+.set-jump:hover,
+.set-jump:focus-within,
+.set-rail .set-jump,
+.set-rail .set-jump:hover,
+.set-rail .set-jump:focus-within{
+  background:linear-gradient(180deg, rgb(var(--s4) / .92), rgb(var(--s2) / .88));
+  border-color:var(--line);
+  transform:none;
+}
+.set-jump button:hover{ background:rgb(var(--wash) / .05); color:var(--ink) }
+
+/* Settings pairs. NOT a dense grid: the robot page is authored in deliberate
+   pairs - auto trading with news, model with volume, AI gate with the danger
+   guard - and a dense flow would pull a short card up and break them. */
+.set-block > .grid.g-2{
+  align-items:start;
+  gap:14px;
+}
+.set-block > .grid.g-2 > .card{
+  height:auto;
+  align-self:start;
+  display:flex;
+  flex-direction:column;
+}
+.set-block .card > p.sub:last-child{ margin-bottom:0 }
+.set-block .card > .btn.block:last-child{ margin-top:auto }
+
+/* ===========================================================================
+   8. Dialogs
    =========================================================================== */
-html[data-skin="skeu"]{
-  --sk-r:12px;
-  --sk-r-sm:9px;
-  --sk-btn-radius:9px;
-  --sk-blur:none;
-  --sk-surface:
-    linear-gradient(180deg, rgb(var(--wash) / .09), transparent 38%),
-    /* 2px on 6px, not 1px on 3px: a single-pixel stripe beats against the
-       display's own grid at 125% and 150% scaling and shimmers when the panel
-       moves. Doubling the period puts it safely below that. */
-    repeating-linear-gradient(90deg, rgb(var(--wash) / .018) 0 2px, transparent 2px 6px),
-    linear-gradient(180deg, rgb(var(--s7) / .94), rgb(var(--s2) / .94));
-  --sk-surface-2:
-    linear-gradient(180deg, rgb(var(--wash) / .10), transparent 40%),
-    linear-gradient(180deg, rgb(var(--s5)), rgb(var(--s1)));
-  --sk-edge:1px solid rgba(0,0,0,.6);
-  --sk-shadow:inset 0 1px 0 rgb(var(--wash) / .16), 0 14px 30px rgba(0,0,0,.55);
-  --sk-shadow-hover:inset 0 1px 0 rgb(var(--wash) / .22), 0 18px 36px rgba(0,0,0,.6);
-  --sk-field:linear-gradient(180deg, rgb(var(--s1)), rgb(var(--s4)));
-  --sk-field-edge:1px solid rgba(0,0,0,.65);
-  --sk-field-shadow:inset 0 3px 7px rgba(0,0,0,.65), 0 1px 0 rgb(var(--wash) / .10);
-  --sk-btn-bg:
-    linear-gradient(180deg, rgb(var(--wash) / .34), rgb(var(--wash) / .05) 48%, transparent 50%),
-    linear-gradient(180deg, var(--accent), var(--accent-2) 70%);
-  --sk-btn-edge:1px solid rgba(0,0,0,.55);
-  --sk-btn-shadow:inset 0 1px 0 rgb(var(--wash) / .45), 0 6px 14px rgba(0,0,0,.5);
-  --sk-danger-shadow:inset 0 1px 0 rgb(var(--wash) / .4), 0 6px 14px rgba(0,0,0,.5);
-  --sk-danger-shadow-hover:inset 0 1px 0 rgb(var(--wash) / .5), 0 8px 18px rgba(0,0,0,.55);
-  --sk-lift:none;
-  --sk-btn-press:translateY(1px);
-  --sk-chip-shadow:inset 0 1px 0 rgb(var(--wash) / .14), 0 2px 5px rgba(0,0,0,.45);
+.modal{
+  background:rgba(4, 6, 11, .58);
+  backdrop-filter:blur(6px);
+  -webkit-backdrop-filter:blur(6px);
 }
-html[data-skin="skeu"] .btn{ text-shadow:0 1px 1px rgba(0,0,0,.35); font-weight:600 }
-html[data-skin="skeu"] .btn:hover{ filter:brightness(1.08) }
-html[data-skin="skeu"] .btn:active{ box-shadow:inset 0 4px 9px rgba(0,0,0,.55) }
-html[data-skin="skeu"] #btn-kill,
-html[data-skin="skeu"] .btn.danger{
-  background:
-    linear-gradient(180deg, rgb(var(--wash) / .34), rgb(var(--wash) / .05) 48%, transparent 50%),
-    linear-gradient(180deg, #ff6b8a, #a82d4c 70%) !important;
+html[data-theme="light"] .modal{ background:rgba(18, 24, 38, .38) }
+
+.modal-card{
+  border-radius:var(--r);
+  box-shadow:0 10px 40px rgba(0,0,0,.35), 0 40px 90px rgba(0,0,0,.55);
+  padding:22px 22px 18px;
+  max-width:min(440px, calc(100vw - 32px));
+  animation:modalIn .22s var(--ease-out);
 }
-/* Engraved headings: the classic two-tone letterpress trick. */
-html[data-skin="skeu"] .card h3,
-html[data-skin="skeu"] .set-title,
-html[data-skin="skeu"] .top h2{ text-shadow:0 -1px 0 rgba(0,0,0,.65), 0 1px 0 rgb(var(--wash) / .12) }
-html[data-skin="skeu"] .switch{
-  border:1px solid rgba(0,0,0,.6);
-  box-shadow:inset 0 2px 5px rgba(0,0,0,.6);
+html[data-theme="light"] .modal-card{ box-shadow:0 30px 70px rgba(20,28,45,.22) }
+@keyframes modalIn{
+  from{ opacity:0; transform:translateY(10px) scale(.98) }
+  to{ opacity:1; transform:none }
 }
-html[data-skin="skeu"] .switch i{
-  background:linear-gradient(180deg, #fff, #b9c2d2);
-  box-shadow:0 1px 3px rgba(0,0,0,.6);
-}
-html[data-skin="skeu"] .nav button.on{
-  background:linear-gradient(180deg, rgb(var(--accent-rgb) / .3), rgb(var(--accent-rgb) / .08));
-  box-shadow:inset 0 1px 0 rgb(var(--wash) / .2), inset 0 -2px 6px rgba(0,0,0,.4);
-}
-html[data-skin="skeu"] table th{
-  background:linear-gradient(180deg, rgb(var(--s6)), rgb(var(--s2)));
-  box-shadow:inset 0 1px 0 rgb(var(--wash) / .12);
-}
+.modal-card h3{ margin:0 0 8px; font-size:16px; letter-spacing:.01em }
+.modal-card .modal-body{ margin:0 0 18px; color:var(--muted); line-height:1.6; font-size:13.5px }
+.modal-card .modal-actions{ display:flex; gap:10px; justify-content:flex-end; flex-wrap:wrap }
+.modal-card .modal-actions .btn{ min-width:104px }
+/* A destructive dialog says so before anyone reads the words. */
+.modal-card.is-danger{ border-top:3px solid var(--rose) }
+.modal-card.is-danger h3{ color:var(--rose) }
+
 /* ===========================================================================
-   8. Rendering tier
+   9. Rendering tier
    ===========================================================================
    backdrop-filter is the most expensive thing on the page: each blurred layer
    makes the compositor re-sample everything behind it, and the desk stacks
@@ -592,11 +391,11 @@ html[data-perf="fast"] *{
   backdrop-filter:none !important;
   -webkit-backdrop-filter:none !important;
 }
-html[data-perf="fast"][data-skin="glass"] .card{ background:linear-gradient(180deg, rgb(var(--s7)), rgb(var(--s4))) }
-html[data-perf="fast"][data-skin="glass"] .auth-card{ background:linear-gradient(180deg, rgb(var(--s6)), rgb(var(--s3))) }
-html[data-perf="fast"][data-skin="glass"] .nav,
-html[data-perf="fast"][data-skin="glass"] .top,
-html[data-perf="fast"][data-skin="glass"] .hdr-drawer{ background:rgb(var(--s2)) }
+html[data-perf="fast"] .card{ background:linear-gradient(180deg, rgb(var(--s7)), rgb(var(--s4))) }
+html[data-perf="fast"] .auth-card{ background:linear-gradient(180deg, rgb(var(--s6)), rgb(var(--s3))) }
+html[data-perf="fast"] .nav,
+html[data-perf="fast"] .top,
+html[data-perf="fast"] .hdr-drawer{ background:rgb(var(--s2)) }
 html[data-perf="fast"] .aurora{ animation:none }
 html[data-perf="fast"] .aurora::after{ opacity:.14 }
 
@@ -607,10 +406,7 @@ html.mode-desk .aurora{ animation:none }
 /* A panel's repaint should not invalidate the document.
 
    Deliberately layout+style and NOT paint: `contain:paint` clips everything to
-   the padding box, and clay and neu build their controls out of outer shadows
-   that extend past it. With paint containment a button near the edge of a card
-   lost the very shadow that made it look raised. The remaining two keep most of
-   the benefit and cannot cut a material in half. */
+   the padding box, and shadows that extend past it would be cut off. */
 .card,
 .chart-box,
 .set-block{ contain:layout style }
@@ -635,9 +431,9 @@ table tbody tr,
 }
 
 /* ===========================================================================
-   9. The appearance controls
+   10. The appearance controls
    =========================================================================== */
-.accent-row{ display:flex; align-items:center; gap:10px; flex-wrap:wrap }
+.accent-row{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; max-width:520px }
 .accent-dot{
   width:32px; height:32px; border-radius:50%;
   border:2px solid transparent; padding:0; cursor:pointer;
@@ -649,942 +445,4 @@ table tbody tr,
   border-color:var(--ink);
   transform:scale(1.1);
   box-shadow:0 0 0 3px rgb(var(--wash) / .10), 0 6px 16px rgba(0,0,0,.4);
-}
-
-/* The custom swatch used to show half a colour: a round 30px box with a square
-   colour input inside it, so the browser's own swatch was clipped off-centre.
-   The circle now paints the picked colour itself and the input is an invisible
-   hit target stretched across it. */
-/* Twenty swatches wrap onto as many rows as they need. */
-.accent-row{ max-width:520px }
-
-/* ===========================================================================
-   10. Focus, and the black hairline that appeared on click
-   ===========================================================================
-   Chromium draws a focus ring on any element that takes focus, and on a dark
-   clay or glass surface that ring reads as a thin black bar cutting across the
-   sidebar or a settings container. It must never appear for a pointer - only
-   for keyboard navigation, where it is the only way to see where you are. */
-:focus:not(:focus-visible){ outline:none }
-button:focus:not(:focus-visible),
-a:focus:not(:focus-visible),
-[tabindex]:focus:not(:focus-visible),
-summary:focus:not(:focus-visible){ outline:none; box-shadow:none }
-:focus-visible{
-  outline:2px solid var(--accent);
-  outline-offset:2px;
-}
-
-/* ===========================================================================
-   11. Dialogs
-   ===========================================================================
-   The desk's own confirm/alert card, in both themes. It follows the active
-   skin like everything else, because a glass dialog in front of a clay page
-   is exactly the seam that makes a theme feel bolted on. */
-.modal{
-  background:rgba(4, 6, 11, .58);
-  backdrop-filter:blur(6px);
-  -webkit-backdrop-filter:blur(6px);
-}
-html[data-theme="light"] .modal{ background:rgba(18, 24, 38, .38) }
-
-.modal-card{
-  background:var(--sk-surface);
-  border:var(--sk-edge);
-  border-radius:var(--sk-r);
-  box-shadow:var(--sk-shadow), 0 40px 90px rgba(0,0,0,.55);
-  padding:22px 22px 18px;
-  max-width:min(440px, calc(100vw - 32px));
-  animation:modalIn .22s var(--ease-out);
-}
-html[data-theme="light"] .modal-card{ box-shadow:var(--sk-shadow), 0 30px 70px rgba(20,28,45,.22) }
-@keyframes modalIn{
-  from{ opacity:0; transform:translateY(10px) scale(.98) }
-  to{ opacity:1; transform:none }
-}
-.modal-card h3{
-  margin:0 0 8px;
-  font-size:16px;
-  letter-spacing:.01em;
-}
-.modal-card .modal-body{
-  margin:0 0 18px;
-  color:var(--muted);
-  line-height:1.6;
-  font-size:13.5px;
-}
-.modal-card .modal-actions{
-  display:flex; gap:10px; justify-content:flex-end; flex-wrap:wrap;
-}
-.modal-card .modal-actions .btn{ min-width:104px; justify-content:center }
-/* A destructive dialog says so before anyone reads the words. */
-.modal-card.is-danger{ border-top:3px solid var(--rose) }
-.modal-card.is-danger h3{ color:var(--rose) }
-
-/* ===========================================================================
-   12. Settings: even columns
-   ===========================================================================
-   The robot page is a two-column grid of cards of different heights. Left to
-   itself the browser stretches each row to its tallest card and the shorter
-   one floats with a gap under its content, which is the ragged look. Making
-   the grid dense and aligning to the start keeps every card its natural height
-   and lets the next one move up into the space. */
-.set-block > .grid.g-2{
-  align-items:start;
-  gap:14px;
-}
-/* NOT dense: the robot page is authored in deliberate pairs - auto trading
-   with news, model with volume, AI gate with the danger guard - and a dense
-   flow would pull a short card up into the previous row and break them. */
-.set-block > .grid.g-2 > .card{
-  height:auto;
-  align-self:start;
-  display:flex;
-  flex-direction:column;
-}
-/* The last paragraph in a card should not leave a hole under it. */
-.set-block .card > p.sub:last-child{ margin-bottom:0 }
-.set-block .card > .btn.block:last-child{ margin-top:auto }
-
-/* ===========================================================================
-   13. Finish
-   ===========================================================================
-   The last pass over all five skins: the details that decide whether the desk
-   looks designed or merely themed. Everything here is shared, so a change is
-   made once rather than five times. */
-
-/* Headings carry the same weight and rhythm in every material. */
-.card h3,
-.set-title{
-  font-size:var(--sk-head);
-  letter-spacing:.005em;
-  line-height:1.3;
-}
-.card > .sub:first-of-type{ margin-top:2px }
-
-/* Controls line up on one baseline. Mixed heights between an input, a select
-   and a small button are the most common reason a settings page looks untidy. */
-.field input,
-.field select,
-.ctrl,
-.dd-btn{ min-height:42px }
-.btn{ min-height:42px; display:inline-flex; align-items:center; justify-content:center; gap:8px }
-.btn.tiny{ min-height:32px }
-
-/* Motion: one curve, one duration, and none of it when the user asked for less. */
-.card,
-.btn,
-.switch,
-.chip,
-.pill,
-.accent-dot,
-.lang-pills button{ transition-timing-function:var(--ease); transition-duration:.18s }
-
-/* Disabled means disabled in every material. */
-.btn:disabled,
-.lang-pills button:disabled,
-.tabs button:disabled{
-  opacity:.45;
-  cursor:not-allowed;
-  filter:grayscale(.35);
-  box-shadow:none;
-  transform:none;
-}
-
-/* Tabs follow the skin instead of staying glass in all five. */
-html[data-skin]:not([data-skin="glass"]) .tabs{
-  background:var(--sk-field);
-  border:var(--sk-field-edge);
-  box-shadow:var(--sk-field-shadow);
-  border-radius:var(--sk-r-sm);
-  padding:3px;
-}
-html[data-skin]:not([data-skin="glass"]) .tabs button{ border-radius:calc(var(--sk-r-sm) - 3px) }
-.tabs button.on{ background:var(--accent); color:var(--accent-ink) }
-
-/* Scrollbars, which are otherwise the one chrome-coloured thing left. */
-*::-webkit-scrollbar-thumb{ background:var(--scroll-thumb); border-radius:999px }
-*::-webkit-scrollbar-thumb:hover{ background:var(--scroll-thumb-hover) }html[data-skin="skeu"] *::-webkit-scrollbar-thumb{
-  background:linear-gradient(180deg, rgb(var(--wash) / .35), rgb(var(--wash) / .12));
-  box-shadow:inset 0 1px 0 rgb(var(--wash) / .3);
-}
-
-/* Empty states and separators should not look like leftovers. */
-.card hr,
-.cal-tip-sep{ border:0; height:1px; background:rgb(var(--wash) / .10); margin:14px 0 }
-html[data-skin="skeu"] .card hr{
-  height:2px;
-  background:linear-gradient(180deg, rgba(0,0,0,.5), rgb(var(--wash) / .10));
-}
-
-/* Glass, refined. It is the default and deserves the same care as the rest:
-   a brighter top edge, a tighter blur, and a hairline that follows the accent. */
-html[data-skin="glass"] .card{
-  border-color:rgb(var(--wash) / .10);
-  box-shadow:0 10px 40px rgba(0,0,0,.22), inset 0 1px 0 rgb(var(--wash) / .07);
-}
-html[data-skin="glass"] .card::before{
-  background:linear-gradient(90deg, transparent, rgb(var(--accent-rgb) / .45),
-             rgb(var(--accent-3-rgb) / .35), transparent);
-}
-html[data-skin="glass"] .card:hover{ border-color:rgb(var(--accent-rgb) / .22) }
-
-/* Light theme: the dark-surface shadows of clay, neu and skeu are far too
-   heavy on a white page, so each material is restated at light-page strength
-   instead of simply inheriting numbers tuned for near-black. */
-html[data-theme="light"][data-skin="clay"]{
-  --clay-lift:rgba(255,255,255,.9);
-  --clay-dip:rgba(90,104,130,.18);
-  --clay-cast:rgba(60,72,96,.20);
-  --clay-sink:rgba(90,104,130,.22);
-}
-html[data-theme="light"][data-skin="neu"]{
-  --sk-shadow:9px 9px 20px rgba(88,102,128,.18), -9px -9px 20px rgba(255,255,255,.95);
-  --sk-shadow-hover:12px 12px 26px rgba(88,102,128,.22), -12px -12px 26px rgba(255,255,255,1);
-  --sk-field-shadow:inset 5px 5px 12px rgba(88,102,128,.18), inset -5px -5px 12px rgba(255,255,255,.95);
-  --sk-btn-shadow:6px 6px 16px rgba(88,102,128,.18), -6px -6px 16px rgba(255,255,255,.95);
-  --sk-scrim:rgb(var(--s5) / .42);
-}
-html[data-theme="light"][data-skin="neu"] .btn:active,
-html[data-theme="light"][data-skin="neu"] .btn.ghost:active{
-  box-shadow:inset 5px 5px 12px rgba(88,102,128,.20), inset -5px -5px 12px rgba(255,255,255,.95);
-}
-html[data-theme="light"][data-skin="skeu"]{
-  --sk-edge:1px solid rgba(120,134,158,.45);
-  --sk-shadow:inset 0 1px 0 rgba(255,255,255,.9), 0 10px 22px rgba(60,72,96,.16);
-  --sk-field-shadow:inset 0 2px 5px rgba(90,104,130,.22), 0 1px 0 rgba(255,255,255,.9);
-  --sk-btn-edge:1px solid rgba(0,0,0,.18);
-}
-html[data-theme="light"][data-skin="skeu"] .card h3,
-html[data-theme="light"][data-skin="skeu"] .set-title,
-html[data-theme="light"][data-skin="skeu"] .top h2{
-  text-shadow:0 1px 0 rgba(255,255,255,.95);
-}
-html[data-theme="light"][data-skin="clay"] .btn,
-html[data-theme="light"][data-skin="skeu"] .btn{ text-shadow:none }
-/* ===========================================================================
-   14. Selected controls do not respond to the pointer
-   ===========================================================================
-   Once something is chosen, hovering it must change nothing. A selected item
-   that lifts, brightens or shifts colour under the cursor reads as though the
-   selection is about to move, and next to an unselected item that highlights
-   on hover it becomes impossible to tell at a glance which one is actually
-   active - the exact confusion reported on the skin picker.
-
-   Each family below restates its resting appearance for :hover and :focus.
-   Restating is deliberate: `inherit` or `revert` would pull in whatever a
-   parent happens to define, which is how the first attempt at this silently
-   did nothing. Specificity is raised with html[data-skin] where a skin rule
-   would otherwise win.
-
-   Selected controls are still clickable - only the visual reaction is gone. */
-html .lang-pills button.on:hover,
-html .lang-pills button.on:focus,
-html .tabs button.on:hover,
-html .tabs button.on:focus{
-  background:var(--accent);
-  border-color:var(--accent);
-  color:var(--accent-ink);
-  transform:none;
-  filter:none;
-  box-shadow:none;
-}
-
-html .set-jump button.on:hover,
-html .set-jump button.on:focus,
-html .set-rail .set-jump button.on:hover,
-html .set-rail .set-jump button.on:focus{
-  background:var(--accent);
-  color:var(--accent-ink);
-  transform:none;
-  filter:none;
-}
-
-html .nav button.on:hover,
-html[dir="rtl"] .nav button.on:hover{
-  background:rgb(var(--accent-rgb) / .12);
-  color:var(--accent-readable, var(--accent));
-  transform:none;
-  filter:none;
-}
-
-html .chip.on:hover,
-html .pill.on:hover,
-html .st-chip.on:hover{
-  background:transparent;
-  border-color:rgb(var(--accent-rgb) / .35);
-  color:var(--accent-readable, var(--accent));
-  transform:none;
-}
-
-html .dd-opt.on:hover,
-html .dd-opt.on:focus{
-  background:rgb(var(--accent-rgb) / .2);
-  color:var(--accent-readable, var(--accent));
-}
-
-/* Picture tiles and swatches keep the size their selected state gave them. */
-html .accent-dot.on:hover{ transform:scale(1.1) }
-
-/* Anything that reports its own pressed state gets the same treatment, which
-   covers switches and any control added later without touching this file. */
-html [aria-pressed="true"]:hover,
-html [aria-selected="true"]:hover{ filter:none; transform:none }
-html .switch.on:hover{ background:color-mix(in srgb, var(--accent) 25%, transparent) }
-html[data-skin="clay"] .switch.on:hover{ background:color-mix(in srgb, var(--accent) 30%, rgb(var(--s3))) }
-
-/* The calendar's chosen day is a selection too. */
-html .cal-cell.sel:hover,
-html .cal-cell.pinned:hover{ border-color:var(--accent); transform:none }
-
-/* ===========================================================================
-   15. Full coverage
-   ===========================================================================
-   The surfaces that are not cards: the sign-in screen, small controls, the
-   terminal, tables, the calendar and every kind of badge. Left on the glass
-   rules, these are the places where a skin used to stop halfway. */
-
-/* --- sign-in ------------------------------------------------------------ */
-html[data-skin]:not([data-skin="glass"]) .auth-card{ padding:26px }
-html[data-skin]:not([data-skin="glass"]) .auth-logo-slot,
-html[data-skin]:not([data-skin="glass"]) .prof-ava,
-html[data-skin]:not([data-skin="glass"]) .gate-badge,
-html[data-skin]:not([data-skin="glass"]) .up-badge{
-  border-radius:var(--sk-r-sm);
-  box-shadow:var(--sk-chip-shadow, none);
-}
-html[data-skin="clay"] .auth-logo-slot,
-html[data-skin="clay"] .prof-ava{ border-radius:26px }
-/* --- small controls ----------------------------------------------------- */
-html[data-skin]:not([data-skin="glass"]) .icon-btn,
-html[data-skin]:not([data-skin="glass"]) .menu-btn,
-html[data-skin]:not([data-skin="glass"]) .hdr-drawer-btn,
-html[data-skin]:not([data-skin="glass"]) .chart-nav button,
-html[data-skin]:not([data-skin="glass"]) .sym-btn,
-html[data-skin]:not([data-skin="glass"]) .cal-nav button{
-  border-radius:var(--sk-r-sm);
-  background:var(--sk-field);
-  border:var(--sk-field-edge);
-  box-shadow:var(--sk-chip-shadow, none);
-}
-html[data-skin]:not([data-skin="glass"]) .seg,
-html[data-skin]:not([data-skin="glass"]) .draw-tools,
-html[data-skin]:not([data-skin="glass"]) .chart-work-bar,
-html[data-skin]:not([data-skin="glass"]) .chart-signals-bar,
-html[data-skin]:not([data-skin="glass"]) .cal-bar{
-  background:var(--sk-field);
-  border:var(--sk-field-edge);
-  border-radius:var(--sk-r-sm);
-  box-shadow:var(--sk-field-shadow);
-}
-
-/* --- range sliders ------------------------------------------------------
-   The confidence and risk sliders are the most-used controls on the settings
-   page and were left at the browser default in every skin. Each material now
-   shapes both parts of the control - the channel and the handle - because a
-   moulded track with a stock grey handle looks worse than leaving it alone.
-
-   Written twice, for -webkit- and -moz-: pseudo-elements from different
-   engines cannot share a rule, a comma-joined selector is dropped whole by
-   both. WebView2 only needs the first, the second is for anyone opening the
-   desk in Firefox. */
-input[type=range]{
-  accent-color:var(--accent);
-  -webkit-appearance:none;
-  appearance:none;
-  background:transparent;
-  height:28px;
-  cursor:pointer;
-}
-input[type=range]::-webkit-slider-runnable-track{
-  height:var(--sk-track-h, 6px);
-  border-radius:var(--sk-track-r, 999px);
-  background:var(--sk-track-bg, rgb(var(--s3)));
-  box-shadow:var(--sk-track-shadow, none);
-  border:var(--sk-track-edge, 0);
-}
-input[type=range]::-moz-range-track{
-  height:var(--sk-track-h, 6px);
-  border-radius:var(--sk-track-r, 999px);
-  background:var(--sk-track-bg, rgb(var(--s3)));
-  box-shadow:var(--sk-track-shadow, none);
-  border:var(--sk-track-edge, 0);
-}
-input[type=range]::-webkit-slider-thumb{
-  -webkit-appearance:none;
-  appearance:none;
-  width:var(--sk-thumb, 18px);
-  height:var(--sk-thumb, 18px);
-  border-radius:var(--sk-thumb-r, 50%);
-  background:var(--sk-thumb-bg, var(--accent));
-  border:var(--sk-thumb-edge, 0);
-  box-shadow:var(--sk-thumb-shadow, 0 3px 8px -2px rgba(0,0,0,.5));
-  /* Centre the handle on the track whatever height the skin gave it. */
-  margin-top:calc((var(--sk-track-h, 6px) - var(--sk-thumb, 18px)) / 2);
-  transition:transform .15s var(--ease);
-}
-input[type=range]::-moz-range-thumb{
-  width:var(--sk-thumb, 18px);
-  height:var(--sk-thumb, 18px);
-  border-radius:var(--sk-thumb-r, 50%);
-  background:var(--sk-thumb-bg, var(--accent));
-  border:var(--sk-thumb-edge, 0);
-  box-shadow:var(--sk-thumb-shadow, 0 3px 8px -2px rgba(0,0,0,.5));
-}
-input[type=range]:hover::-webkit-slider-thumb{ transform:scale(1.08) }
-input[type=range]:active::-webkit-slider-thumb{ transform:scale(.96) }
-input[type=range]:focus-visible::-webkit-slider-thumb{
-  outline:2px solid var(--accent);
-  outline-offset:2px;
-}
-
-/* Glass: a translucent channel and a lit bead. */
-html[data-skin="glass"]{
-  --sk-track-h:6px;
-  --sk-track-bg:rgb(var(--wash) / .10);
-  --sk-track-edge:1px solid rgb(var(--wash) / .08);
-  --sk-thumb:18px;
-  --sk-thumb-shadow:0 2px 10px -2px rgb(var(--accent-rgb) / .8), inset 0 1px 0 rgb(255 255 255 / .45);
-}
-
-/* Clay: a deep moulded channel, a fat rounded bead sitting in it. */
-html[data-skin="clay"]{
-  --sk-track-h:12px;
-  --sk-track-bg:rgb(var(--s3));
-  --sk-track-shadow:inset 0 3px 7px -2px rgba(0,0,0,.5), inset 0 -1px 0 rgb(var(--wash) / .05);
-  --sk-thumb:24px;
-  --sk-thumb-shadow:inset 0 2px 1px rgb(255 255 255 / .42), 0 5px 12px -4px rgba(0,0,0,.55);
-}
-
-/* Neu: the channel is carved out of the surface; the handle rises from it. */
-html[data-skin="neu"]{
-  --sk-track-h:12px;
-  --sk-track-bg:rgb(var(--s5));
-  --sk-track-shadow:inset 4px 4px 9px rgba(0,0,0,.5), inset -4px -4px 9px rgb(var(--wash) / .04);
-  --sk-thumb:22px;
-  --sk-thumb-bg:rgb(var(--s5));
-  --sk-thumb-shadow:4px 4px 9px rgba(0,0,0,.5), -4px -4px 9px rgb(var(--wash) / .05),
-                    inset 0 0 0 4px var(--accent);
-}
-
-/* Skeu: a bevelled steel groove with a chrome knob. */
-html[data-skin="skeu"]{
-  --sk-track-h:8px;
-  --sk-track-r:4px;
-  --sk-track-bg:linear-gradient(180deg, rgb(var(--s1)), rgb(var(--s4)));
-  --sk-track-edge:1px solid rgba(0,0,0,.6);
-  --sk-track-shadow:inset 0 2px 5px rgba(0,0,0,.6), 0 1px 0 rgb(var(--wash) / .10);
-  --sk-thumb:20px;
-  --sk-thumb-r:5px;
-  --sk-thumb-bg:linear-gradient(180deg, rgb(var(--wash) / .35), transparent 50%), var(--accent);
-  --sk-thumb-edge:1px solid rgba(0,0,0,.55);
-  --sk-thumb-shadow:inset 0 1px 0 rgb(255 255 255 / .5), 0 3px 7px -2px rgba(0,0,0,.55);
-}
-/* Light theme: the moulded skins need their shadows re-cut here too. */
-html[data-theme="light"][data-skin="clay"]{
-  --sk-track-bg:rgb(var(--s1));
-  --sk-track-shadow:inset 0 3px 7px -2px rgba(90,104,130,.30);
-  --sk-thumb-shadow:inset 0 2px 1px rgba(255,255,255,.7), 0 4px 10px -4px rgba(60,72,96,.35);
-}
-html[data-theme="light"][data-skin="neu"]{
-  --sk-track-shadow:inset 4px 4px 9px rgba(88,102,128,.20), inset -4px -4px 9px rgba(255,255,255,.95);
-  --sk-thumb-shadow:4px 4px 9px rgba(88,102,128,.20), -4px -4px 9px rgba(255,255,255,.95),
-                    inset 0 0 0 4px var(--accent);
-}
-html[data-theme="light"][data-skin="skeu"]{
-  --sk-track-bg:linear-gradient(180deg, #c9d2e0, #eef2f8);
-  --sk-track-edge:1px solid rgba(120,134,158,.5);
-  --sk-track-shadow:inset 0 2px 4px rgba(90,104,130,.35), 0 1px 0 rgba(255,255,255,.9);
-}
-
-/* --- terminal, tables, code -------------------------------------------- */
-html[data-skin]:not([data-skin="glass"]) .term,
-html[data-skin]:not([data-skin="glass"]) .robot-term,
-html[data-skin]:not([data-skin="glass"]) .st-src,
-html[data-skin]:not([data-skin="glass"]) .tg-src{
-  background:var(--sk-field);
-  border:var(--sk-field-edge);
-  box-shadow:var(--sk-field-shadow);
-  border-radius:var(--sk-r-sm);
-}
-html[data-skin]:not([data-skin="glass"]) .table-wrap{ border-radius:var(--sk-r-sm); overflow:hidden }html[data-skin="neu"] table th{ color:var(--muted); border-bottom:0 }
-
-/* --- calendar ----------------------------------------------------------- */
-html[data-skin]:not([data-skin="glass"]) .cal-cell{
-  border-radius:var(--sk-r-sm);
-  background:var(--sk-field);
-  border:var(--sk-field-edge);
-}
-html[data-skin="clay"] .cal-cell{ box-shadow:inset 0 -4px 8px -4px rgba(0,0,0,.3) }
-html[data-skin="neu"] .cal-cell{ box-shadow:4px 4px 10px rgba(0,0,0,.4), -4px -4px 10px rgb(var(--wash) / .035); border:0 }html[data-skin="skeu"] .cal-cell{ box-shadow:inset 0 1px 0 rgb(var(--wash) / .10) }
-.cal-cell.sel{ border-color:var(--accent); box-shadow:0 0 0 1px var(--accent) }
-
-/* --- badges, chips, pills ----------------------------------------------- */
-html[data-skin]:not([data-skin="glass"]) .badge-ok,
-html[data-skin]:not([data-skin="glass"]) .badge-no,
-html[data-skin]:not([data-skin="glass"]) .badge-hint,
-html[data-skin]:not([data-skin="glass"]) .lvl-chip,
-html[data-skin]:not([data-skin="glass"]) .acc-type,
-html[data-skin]:not([data-skin="glass"]) .hdr-kpi{
-  border-radius:var(--sk-r-sm);
-  box-shadow:var(--sk-chip-shadow, none);
-}
-/* --- plan and upgrade cards --------------------------------------------- */
-html[data-skin]:not([data-skin="glass"]) .plan-card{ border-radius:var(--sk-r) }
-html[data-skin="clay"] .plan-card.popular{
-  box-shadow:var(--sk-shadow), 0 0 0 2px color-mix(in srgb, var(--accent) 55%, transparent);
-}
-/* --- toasts ------------------------------------------------------------- */
-html[data-skin]:not([data-skin="glass"]) .toast{
-  border-radius:var(--sk-r-sm);
-  padding:12px 14px;
-}
-
-/* ===========================================================================
-   16. The signature of each material
-   ===========================================================================
-   One deliberate flourish per skin - the detail a person notices without
-   being able to name it. Kept here, together, so they stay in proportion to
-   one another instead of each skin growing its own pile of exceptions. */
-
-/* Glass: a single specular highlight sliding across the top of a panel. */
-html[data-skin="glass"] .card::after{
-  content:"";
-  position:absolute; inset:0 0 auto 0; height:40%;
-  background:linear-gradient(180deg, rgb(var(--wash) / .045), transparent);
-  pointer-events:none;
-}
-
-/* Clay: a soft inner rim, as if the surface were pressed from a mould. */
-html[data-skin="clay"] .card::after{
-  content:"";
-  position:absolute; inset:1px;
-  border-radius:inherit;
-  box-shadow:inset 0 0 0 1px rgb(var(--wash) / .045);
-  pointer-events:none;
-}
-
-/* Skeu: a hairline of light along the very top edge, like polished metal. */
-html[data-skin="skeu"] .card::after{
-  content:"";
-  position:absolute; inset:0 0 auto 0; height:1px;
-  background:linear-gradient(90deg, transparent, rgb(var(--wash) / .35) 20%,
-             rgb(var(--wash) / .35) 80%, transparent);
-  pointer-events:none;
-}
-/* The last few real surfaces. Everything else left untouched by a skin is a
-   brand mark, a data dot or a chart glyph - those answer to the palette, not
-   to the material, and restyling them would be the kind of over-reach that
-   makes a theme look costumed. */
-html[data-skin]:not([data-skin="glass"]) .cal-ev,
-html[data-skin]:not([data-skin="glass"]) .slide-sym,
-html[data-skin]:not([data-skin="glass"]) .auth-modes,
-html[data-skin]:not([data-skin="glass"]) .st-drop-ico,
-html[data-skin]:not([data-skin="glass"]) .chart-text-pop{
-  border-radius:var(--sk-r-sm);
-  box-shadow:var(--sk-chip-shadow, none);
-}html[data-skin="clay"] .cal-ev{ border-radius:12px }
-
-/* Progress bars and gauges read as inset channels in the moulded skins. */
-html[data-skin="clay"] .bar,
-html[data-skin="neu"] .bar,
-html[data-skin="clay"] .gauge,
-html[data-skin="neu"] .gauge{
-  box-shadow:inset 0 3px 7px -2px rgba(0,0,0,.45);
-  border-radius:999px;
-  overflow:hidden;
-}
-html[data-skin="skeu"] .bar,
-html[data-skin="skeu"] .gauge{
-  box-shadow:inset 0 2px 5px rgba(0,0,0,.55), 0 1px 0 rgb(var(--wash) / .10);
-  border-radius:6px;
-}
-/* ===========================================================================
-   17. Detail pass
-   ===========================================================================
-   The small things that were still identical in all five skins. Each is a
-   place where the material should have had an opinion and did not. */
-
-/* Switches. The single most-used control on the settings page, and until now
-   only clay and neu shaped it. */
-html[data-skin="skeu"] .switch{
-  background:linear-gradient(180deg, rgb(var(--s1)), rgb(var(--s4)));
-  border:1px solid rgba(0,0,0,.6);
-  box-shadow:inset 0 2px 5px rgba(0,0,0,.6);
-}
-html[data-skin="skeu"] .switch.on{
-  background:linear-gradient(180deg,
-    color-mix(in srgb, var(--accent) 55%, #000),
-    color-mix(in srgb, var(--accent) 85%, #fff));
-}html[data-skin="glass"] .switch{ backdrop-filter:blur(6px); -webkit-backdrop-filter:blur(6px) }
-
-/* Text inputs: a focus state that belongs to the material rather than one
-   cyan ring for everything. */
-html[data-skin="clay"] .field input:focus,
-html[data-skin="clay"] .field select:focus,
-html[data-skin="clay"] .ctrl:focus{
-  box-shadow:inset 0 3px 8px -2px rgba(0,0,0,.5), 0 0 0 3px rgb(var(--accent-rgb) / .22);
-  border-color:transparent;
-}
-html[data-skin="neu"] .field input:focus,
-html[data-skin="neu"] .field select:focus,
-html[data-skin="neu"] .ctrl:focus{
-  box-shadow:inset 6px 6px 14px rgba(0,0,0,.55), inset -6px -6px 14px rgb(var(--wash) / .045),
-             0 0 0 2px rgb(var(--accent-rgb) / .35);
-}
-html[data-skin="skeu"] .field input:focus,
-html[data-skin="skeu"] .field select:focus,
-html[data-skin="skeu"] .ctrl:focus{
-  box-shadow:inset 0 3px 7px rgba(0,0,0,.65), 0 0 0 2px rgb(var(--accent-rgb) / .4);
-}html[data-skin="skeu"] .set-rail .sj-grp{ text-shadow:0 -1px 0 rgba(0,0,0,.6) }
-
-/* Dropdown menus open as part of the material, not as a floating glass sheet. */
-html[data-skin]:not([data-skin="glass"]) .dd-menu{ padding:6px }
-html[data-skin="clay"] .dd-opt{ border-radius:14px }html[data-skin="skeu"] .dd-opt.on{
-  background:linear-gradient(180deg, rgb(var(--accent-rgb) / .35), rgb(var(--accent-rgb) / .12));
-  box-shadow:inset 0 1px 0 rgb(var(--wash) / .2);
-}
-
-/* Empty states should look intentional in every material. */
-html[data-skin]:not([data-skin="glass"]) .empty,
-html[data-skin]:not([data-skin="glass"]) .sym-empty,
-html[data-skin]:not([data-skin="glass"]) .cal-none{
-  background:var(--sk-field);
-  border:var(--sk-field-edge);
-  border-radius:var(--sk-r-sm);
-  box-shadow:var(--sk-field-shadow);
-}
-/* The kill switch keeps its colour everywhere, but its armed state should
-   announce itself in the language of the skin. */
-html[data-skin="clay"] #btn-kill.kills{
-  box-shadow:inset 0 2px 1px rgb(255 255 255 / .3), 0 0 0 3px rgb(244 71 91 / .35),
-             0 12px 22px -10px rgba(0,0,0,.5);
-}
-html[data-skin="neu"] #btn-kill.kills{
-  box-shadow:7px 7px 18px rgba(0,0,0,.55), -7px -7px 18px rgb(var(--wash) / .05),
-             inset 0 0 0 2px #f4475b;
-}html[data-skin="skeu"] #btn-kill.kills{
-  box-shadow:inset 0 1px 0 rgb(255 255 255 / .45), 0 0 14px rgb(244 71 91 / .55);
-}
-
-/* Charts sit inside the material instead of on top of it. */
-html[data-skin]:not([data-skin="glass"]) .chart-stage,
-html[data-skin]:not([data-skin="glass"]) .chart-box{
-  border-radius:var(--sk-r-sm);
-  overflow:hidden;
-}
-html[data-skin="skeu"] .chart-box{ box-shadow:inset 0 1px 0 rgb(var(--wash) / .12) }
-html[data-skin="neu"] .chart-box{ box-shadow:inset 3px 3px 8px rgba(0,0,0,.35) }
-
-/* Direction never follows the accent - stated here as well as in app.css so
-   a skin cannot quietly override it. */
-.up, .metric.up, .dot.i-low{ color:var(--candle-up) }
-.down, .metric.down{ color:var(--candle-down) }
-
-/* ===========================================================================
-   18. Clay, Neu and Skeu, in full
-   ===========================================================================
-   app.css draws a 1px border in 72 places. That is correct for glass, which is
-   defined by its edges, and wrong for the other three:
-   clay and neu build every edge out of light and shadow, so an extra hairline
-   on top reads as a seam, and skeu wants a bevel rather than a flat grey line.
-
-   The three blocks below finish those materials properly: first the seams are
-   removed (or recoloured, for skeu), then each element is given the treatment
-   its material implies. The selector lists are long on purpose - naming the
-   surfaces explicitly is what makes this reviewable, and a blanket
-   `* { border:0 }` would take the chart axes and table rules with it. */
-
-/* --------------------------------------------------------------- shared -- */
-:where(html[data-skin="clay"], html[data-skin="neu"])
-  :is(.card, .auth-card, .plan-card, .gate-card, .st-card, .kpi, .modal, .dd-menu,
-      .set-jump, .term, .robot-term, .st-src, .tg-src, .chart-ticket, .chart-card,
-      .cal-tip, .cal-side, .cal-legend, .cal-cell, .sym-panel, .sym-row, .notify-card,
-      .pay-card, .toast, .prof-hero, .up-hero, .st-up-hero, .ai-hero, .secret-box,
-      .manual-box, .danger-zone, .wizard, .tape-banner, .outlook-banner, .auto-banner,
-      .lic-banner, .hdr-drawer, .seg, .tabs, .draw-tools, .chart-work-bar,
-      .chart-signals-bar, .cal-bar, .icon-btn, .menu-btn, .hdr-drawer-btn, .sym-btn,
-      .chip, .pill, .st-chip, .lvl-chip, .acc-type, .hdr-kpi, .badge-ok, .badge-no,
-      .badge-hint, .lang-pills button, .field input, .field select, .ctrl, .dd-btn,
-      textarea, .empty, .sym-empty, .cal-none, .table-wrap, .nav, .top,
-      .ai-feed, .auth-modes, .auth-owner-hint, .auth-points, .cal-ev, .chart-text-pop,
-      .desk-reload, .gate-badge, .keybox, .nav-acc, .nav-foot, .nav-ver, .pay-row,
-      .row-line, .set-block, .set-main, .set-rail, .sig-row, .st-mng, .st-stats,
-      .step, .sym-foot, .tg-row, .up-badge, .btn.ghost, .switch,
-      .ok, .no, .lock-ico, .set-title, .welcome-sound){
-  border:0;
-}
-/* Ghost buttons and switches lose their outline, so they need the material to
-   say where they are - otherwise they vanish into the page. */
-html[data-skin="clay"] .btn.ghost{
-  box-shadow:inset 0 1px 0 rgb(var(--wash) / .08), inset 0 -6px 10px -8px var(--clay-dip);
-}
-html[data-skin="neu"] .btn.ghost{
-  box-shadow:5px 5px 12px rgba(0,0,0,.45), -5px -5px 12px rgb(var(--wash) / .045);
-}
-html[data-skin="clay"] :is(.nav-acc, .nav-foot, .st-stats, .sig-row, .tg-row, .pay-row,
-                           .sym-foot, .auth-points, .ai-feed, .keybox){
-  background:rgb(var(--s5) / .55);
-  border-radius:18px;
-}
-html[data-skin="neu"] :is(.nav-acc, .nav-foot, .st-stats, .sig-row, .tg-row, .pay-row,
-                          .sym-foot, .auth-points, .ai-feed, .keybox){
-  background:transparent;
-  border-radius:14px;
-  box-shadow:inset 3px 3px 8px rgba(0,0,0,.35), inset -3px -3px 8px rgb(var(--wash) / .03);
-}
-/* A settings section is a grouping, not an object: no frame in either skin. */
-html[data-skin="clay"] :is(.set-block, .set-main, .set-rail),
-html[data-skin="neu"] :is(.set-block, .set-main, .set-rail){
-  background:transparent;
-  box-shadow:none;
-}
-/* The rail keeps a single dividing line - without it the desk loses its
-   left edge entirely - but drawn as the material's own shadow, not a border. */
-html[data-skin="clay"] .nav{ box-shadow:6px 0 18px -12px rgba(0,0,0,.6) }
-html[data-skin="neu"] .nav{ box-shadow:10px 0 22px -16px rgba(0,0,0,.65) }
-html[data-skin="clay"] .top,
-html[data-skin="neu"] .top{ box-shadow:0 8px 18px -16px rgba(0,0,0,.7) }
-
-/* ----------------------------------------------------------------- clay -- */
-/* Everything is moulded from one body: rounded, matte, lit from above, with
-   its own thickness underneath. Nothing is outlined. */
-html[data-skin="clay"] :is(.chip, .pill, .st-chip, .lvl-chip, .acc-type, .hdr-kpi,
-                           .badge-ok, .badge-no, .badge-hint){
-  background:rgb(var(--s5));
-  border-radius:999px;
-  padding-inline:12px;
-  box-shadow:inset 0 1px 0 rgb(var(--wash) / .07), inset 0 -4px 8px -5px var(--clay-dip);
-}
-html[data-skin="clay"] :is(.icon-btn, .menu-btn, .hdr-drawer-btn, .sym-btn,
-                           .chart-nav button, .cal-nav button){
-  background:rgb(var(--s5));
-  border-radius:16px;
-  box-shadow:inset 0 1px 0 rgb(var(--wash) / .08), inset 0 -5px 9px -6px var(--clay-dip),
-             0 6px 14px -8px rgba(0,0,0,.45);
-}
-html[data-skin="clay"] :is(.icon-btn, .menu-btn, .sym-btn):active{
-  box-shadow:inset 0 3px 8px -2px var(--clay-sink);
-}
-html[data-skin="clay"] :is(.seg, .tabs, .draw-tools, .cal-bar, .chart-work-bar){
-  background:rgb(var(--s3));
-  border-radius:20px;
-  padding:5px;
-  box-shadow:inset 0 3px 8px -3px var(--clay-sink);
-}
-html[data-skin="clay"] :is(.tabs button, .seg button){ border-radius:15px }
-html[data-skin="clay"] :is(.term, .robot-term, .st-src, .tg-src){
-  border-radius:20px;
-  box-shadow:inset 0 4px 10px -4px var(--clay-sink);
-}
-html[data-skin="clay"] .modal{ border-radius:30px }
-html[data-skin="clay"] .toast{ border-radius:20px; box-shadow:var(--sk-shadow) }
-html[data-skin="clay"] .table-wrap{ border-radius:20px }
-html[data-skin="clay"] .empty,
-html[data-skin="clay"] .sym-empty,
-html[data-skin="clay"] .cal-none{
-  border-radius:20px;
-  box-shadow:inset 0 3px 8px -3px var(--clay-sink);
-}
-html[data-skin="clay"] .sym-row{ border-radius:16px; margin-block:3px }
-html[data-skin="clay"] .sym-row:hover{ background:rgb(var(--s5)) }
-html[data-skin="clay"] hr{ height:2px; border-radius:2px; background:rgb(var(--s3));
-  box-shadow:inset 0 1px 2px rgba(0,0,0,.4) }
-
-/* ------------------------------------------------------------------ neu -- */
-/* One continuous surface. Every element is either raised from it or pressed
-   into it - there is no third state, and never an outline. */
-html[data-skin="neu"] :is(.chip, .pill, .st-chip, .lvl-chip, .acc-type, .hdr-kpi,
-                          .badge-ok, .badge-no, .badge-hint){
-  background:rgb(var(--s5));
-  border-radius:999px;
-  padding-inline:12px;
-  box-shadow:3px 3px 8px rgba(0,0,0,.42), -3px -3px 8px rgb(var(--wash) / .04);
-}
-html[data-skin="neu"] :is(.icon-btn, .menu-btn, .hdr-drawer-btn, .sym-btn,
-                          .chart-nav button, .cal-nav button){
-  background:rgb(var(--s5));
-  border-radius:14px;
-  box-shadow:5px 5px 12px rgba(0,0,0,.5), -5px -5px 12px rgb(var(--wash) / .045);
-}
-html[data-skin="neu"] :is(.icon-btn, .menu-btn, .sym-btn):active,
-html[data-skin="neu"] :is(.tabs button.on, .seg button.on){
-  box-shadow:inset 5px 5px 12px rgba(0,0,0,.5), inset -5px -5px 12px rgb(var(--wash) / .04);
-}
-html[data-skin="neu"] :is(.seg, .tabs, .draw-tools, .cal-bar, .chart-work-bar){
-  background:rgb(var(--s5));
-  border-radius:16px;
-  padding:5px;
-  box-shadow:inset 4px 4px 10px rgba(0,0,0,.45), inset -4px -4px 10px rgb(var(--wash) / .04);
-}
-html[data-skin="neu"] :is(.tabs button, .seg button){ border-radius:12px; background:transparent }
-html[data-skin="neu"] :is(.tabs button.on, .seg button.on){ background:rgb(var(--s5)); color:var(--accent) }
-html[data-skin="neu"] :is(.term, .robot-term, .st-src, .tg-src, .empty, .sym-empty, .cal-none){
-  border-radius:16px;
-  box-shadow:inset 5px 5px 12px rgba(0,0,0,.5), inset -5px -5px 12px rgb(var(--wash) / .04);
-}
-html[data-skin="neu"] .modal{ border-radius:24px }
-html[data-skin="neu"] .toast{ border-radius:16px; box-shadow:var(--sk-shadow) }
-html[data-skin="neu"] .sym-row{ border-radius:12px; margin-block:3px }
-html[data-skin="neu"] .sym-row:hover{
-  box-shadow:inset 3px 3px 8px rgba(0,0,0,.4), inset -3px -3px 8px rgb(var(--wash) / .035);
-}
-html[data-skin="neu"] table tbody tr{ box-shadow:none }
-html[data-skin="neu"] hr{
-  height:2px; background:transparent;
-  box-shadow:inset 0 1px 2px rgba(0,0,0,.45), inset 0 -1px 1px rgb(var(--wash) / .05);
-}
-
-/* ----------------------------------------------------------------- skeu -- */
-/* Materials, not paper. Borders stay, but as a dark seam under a light
-   hairline, which is what a bevel actually is. */
-html[data-skin="skeu"]
-  :is(.chip, .pill, .st-chip, .lvl-chip, .acc-type, .hdr-kpi, .badge-ok, .badge-no,
-      .badge-hint, .icon-btn, .menu-btn, .hdr-drawer-btn, .sym-btn, .chart-nav button,
-      .cal-nav button, .seg, .tabs, .draw-tools, .cal-bar, .chart-work-bar,
-      .term, .robot-term, .st-src, .tg-src, .empty, .sym-empty, .cal-none, .table-wrap){
-  border:1px solid rgba(0,0,0,.55);
-  box-shadow:inset 0 1px 0 rgb(var(--wash) / .16), 0 2px 5px -2px rgba(0,0,0,.5);
-}
-html[data-skin="skeu"] :is(.chip, .pill, .st-chip, .lvl-chip, .acc-type, .hdr-kpi,
-                           .badge-ok, .badge-no, .badge-hint){
-  background:linear-gradient(180deg, rgb(var(--s6)), rgb(var(--s3)));
-  border-radius:8px;
-}
-html[data-skin="skeu"] :is(.icon-btn, .menu-btn, .hdr-drawer-btn, .sym-btn,
-                           .chart-nav button, .cal-nav button){
-  background:linear-gradient(180deg, rgb(var(--wash) / .14), transparent 48%),
-             linear-gradient(180deg, rgb(var(--s6)), rgb(var(--s2)));
-  border-radius:8px;
-}
-html[data-skin="skeu"] :is(.icon-btn, .menu-btn, .sym-btn):active{
-  box-shadow:inset 0 3px 7px rgba(0,0,0,.6);
-}
-html[data-skin="skeu"] :is(.seg, .tabs, .draw-tools, .cal-bar, .chart-work-bar){
-  background:linear-gradient(180deg, rgb(var(--s1)), rgb(var(--s4)));
-  box-shadow:inset 0 2px 6px rgba(0,0,0,.6), 0 1px 0 rgb(var(--wash) / .10);
-  border-radius:9px;
-  padding:3px;
-}
-html[data-skin="skeu"] :is(.tabs button, .seg button){ border-radius:6px }
-html[data-skin="skeu"] :is(.term, .robot-term, .st-src, .tg-src){
-  background:linear-gradient(180deg, #05070c, #0a0d15);
-  box-shadow:inset 0 3px 8px rgba(0,0,0,.7), 0 1px 0 rgb(var(--wash) / .10);
-}
-html[data-skin="skeu"] .sym-row{ border-bottom:1px solid rgba(0,0,0,.45);
-  box-shadow:inset 0 1px 0 rgb(var(--wash) / .06) }
-html[data-skin="skeu"] .modal{ border-radius:14px }
-html[data-skin="skeu"] hr{
-  height:2px; background:transparent;
-  box-shadow:inset 0 1px 0 rgba(0,0,0,.6), inset 0 -1px 0 rgb(var(--wash) / .14);
-}
-
-/* Light theme: the same three materials, re-cut. Dark seams and heavy inner
-   shadows turn into grey dirt on a white page. */
-html[data-theme="light"][data-skin="clay"] :is(.chip, .pill, .st-chip, .acc-type,
-                                               .hdr-kpi, .badge-ok, .badge-no, .badge-hint){
-  background:rgb(var(--s3));
-  box-shadow:inset 0 1px 0 rgba(255,255,255,.9), inset 0 -4px 8px -5px rgba(90,104,130,.22);
-}
-html[data-theme="light"][data-skin="neu"] :is(.chip, .pill, .st-chip, .acc-type,
-                                              .hdr-kpi, .badge-ok, .badge-no, .badge-hint,
-                                              .icon-btn, .menu-btn, .sym-btn){
-  box-shadow:3px 3px 8px rgba(88,102,128,.18), -3px -3px 8px rgba(255,255,255,.95);
-}
-html[data-theme="light"][data-skin="skeu"]
-  :is(.chip, .pill, .icon-btn, .menu-btn, .sym-btn, .seg, .tabs, .table-wrap){
-  border-color:rgba(120,134,158,.45);
-  box-shadow:inset 0 1px 0 rgba(255,255,255,.9), 0 2px 4px -2px rgba(60,72,96,.25);
-}
-
-/* .axiasoft-slot and .draw-frame keep their outlines on purpose: the first is
-   a brand lockup with a fixed treatment, the second is a drawing tool whose
-   frame is functional - it shows the region being measured, so it has to stay
-   visible whatever the surface underneath looks like. */
-html[data-skin="clay"] :is(.ok, .no){ border-radius:999px; background:rgb(var(--s5)) }
-html[data-skin="neu"] :is(.ok, .no){
-  border-radius:999px;
-  box-shadow:3px 3px 8px rgba(0,0,0,.4), -3px -3px 8px rgb(var(--wash) / .035);
-}
-html[data-skin="clay"] .welcome-sound,
-html[data-skin="neu"] .welcome-sound{ box-shadow:var(--sk-btn-shadow) }
-
-/* ===========================================================================
-   19. Room for the material
-   ===========================================================================
-   app.css clips a card's contents (overflow:hidden) so the decorative hairline
-   across its top cannot spill past the rounded corner. Glass needs that. Clay,
-   neu and skeu do not have that hairline - it is switched off for them - but
-   they do have controls whose outer shadows reach past the card's padding box,
-   and clipping cut those off, flattening every button that sat near an edge.
-   Those three release the clip. */
-html[data-skin="clay"] .card,
-html[data-skin="neu"] .card,
-html[data-skin="skeu"] .card,
-html[data-skin="clay"] .st-card,
-html[data-skin="neu"] .st-card,
-html[data-skin="skeu"] .st-card,
-html[data-skin="clay"] .kpi,
-html[data-skin="neu"] .kpi,
-html[data-skin="skeu"] .kpi{
-  overflow:visible;
-}
-/* The clip stays wherever something really does need to be cut to the corner:
-   a chart canvas, a table with rounded ends, an image tile. */
-html[data-skin]:not([data-skin="glass"]) :is(.chart-box, .chart-stage, .table-wrap){
-  overflow:hidden;
-}
-
-/* Neu labels its buttons in the accent rather than filling them, so the accent
-   has to be legible as text. It uses the readability-corrected value: measured
-   against the panel colour, the raw accent failed 4.5:1 for all twenty presets
-   on the light theme. */
-html[data-skin="neu"] .btn,
-html[data-skin="neu"] .tabs button.on,
-html[data-skin="neu"] .seg button.on,
-html[data-skin="neu"] .nav button.on{
-  color:var(--accent-readable, var(--accent));
-}
-html[data-skin="neu"] .btn:hover{
-  color:var(--accent-readable, var(--accent));
-  filter:brightness(1.12);
-}
-
-/* ===========================================================================
-   20. The three materials on a white page
-   ===========================================================================
-   Found by working through each skin in the light theme rather than assuming
-   the dark values would scale. */
-
-/* Clay went flat: --s9 is pure white in the light theme, so a white body with
-   a white inner light has nothing left to shade. It gets a faintly tinted body
-   so the moulding is still visible. */
-html[data-theme="light"][data-skin="clay"]{
-  --sk-surface:linear-gradient(180deg, #ffffff, #eef1f7);
-  --sk-surface-2:linear-gradient(180deg, #f7f9fc, #e8ecf4);
-}
-html[data-theme="light"][data-skin="clay"] :is(.chip, .pill, .st-chip, .hdr-kpi){
-  background:#eef1f7;
-}
-html[data-theme="light"][data-skin="clay"] :is(.seg, .tabs, .draw-tools, .cal-bar){
-  background:#e4e9f2;
-}
-
-/* Neu needs panel and page to share one tone; on white that means lifting the
-   panel very slightly, or the shadows have nothing to sit against. */
-html[data-theme="light"][data-skin="neu"]{
-  --sk-surface:#f2f5fa;
-  --sk-surface-2:#eef2f8;
-  --sk-field:#f2f5fa;
-}
-html[data-theme="light"][data-skin="neu"] :is(.tabs, .seg, .draw-tools, .cal-bar,
-                                              .term, .robot-term, .st-src, .empty){
-  background:#f2f5fa;
-}
-
-/* Skeu's screen stays dark even in the light theme - a terminal is a screen,
-   and bleaching it would lose the one place the metaphor is literal. */
-html[data-theme="light"][data-skin="skeu"] :is(.term, .robot-term, .st-src, .tg-src){
-  background:linear-gradient(180deg, #11151d, #1a202b);
-  color:#dbe3f0;
 }

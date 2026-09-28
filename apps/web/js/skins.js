@@ -1,5 +1,5 @@
 /* ===========================================================================
-   AURION — appearance: skin, accent colour, performance tier.
+   AURION — appearance: accent colour and performance tier.
 
    Deliberately standalone and dependency-free so index.html can apply the saved
    look before the first paint. It owns nothing but <html> attributes, a handful
@@ -10,12 +10,10 @@
   "use strict";
 
   var LS = {
-    skin: "aurion.skin",
     accent: "aurion.accent",
     perf: "aurion.perf",
   };
 
-  var SKINS = ["glass", "clay", "skeu", "neu"];
   // whatever the trader supplies. The generated alternatives were removed:
   // three more built-in backgrounds is three more things to keep looking
   // right across five skins and two themes, for no real gain.
@@ -76,22 +74,6 @@
 
   function oneOf(value, list, fallback) {
     return list.indexOf(value) === -1 ? fallback : value;
-  }
-
-  /* ----------------------------------------------------------------- skin */
-
-  function getSkin() {
-    // oneOf() also rescues anyone whose stored skin no longer exists - the
-    // minimal skin was removed, and its users must land on the default rather
-    // than on an attribute nothing styles.
-    return oneOf(read(LS.skin, "glass"), SKINS, "glass");
-  }
-
-  function setSkin(name) {
-    var skin = oneOf(name, SKINS, "glass");
-    write(LS.skin, skin);
-    apply();
-    return skin;
   }
 
   /* --------------------------------------------------------------- accent */
@@ -234,8 +216,10 @@
     var el = root();
     if (!el) return;
 
-    var skin = getSkin();
-    el.dataset.skin = skin;
+    // Glassmorphism is the only interface style. The attribute stays so the
+    // stylesheet can keep scoping to it, and so a future style has somewhere
+    // to hang, but nothing chooses it any more.
+    el.dataset.skin = "glass";
 
     var a = accentTriplet(getAccent());
     el.style.setProperty("--accent", a[0]);
@@ -257,9 +241,7 @@
     el.style.setProperty("--accent-ink-soft", contrastInk());
     el.style.setProperty("--accent-readable", legibleOnPage(a[0]));
 
-    // A skin that is not glass has no blur to pay for, so the expensive tier is
-    // only meaningful under the glass skin.
-    el.dataset.perf = skin === "glass" ? effectivePerf() : "fast";
+    el.dataset.perf = effectivePerf();
   }
 
   // The theme can change without the accent changing, and both readability
@@ -275,11 +257,8 @@
   }
 
   global.AurionSkin = {
-    SKINS: SKINS,
     ACCENTS: ACCENTS,
     apply: apply,
-    getSkin: getSkin,
-    setSkin: setSkin,
     getAccent: getAccent,
     setAccent: setAccent,
     accentTriplet: accentTriplet,
@@ -288,11 +267,13 @@
     effectivePerf: effectivePerf,
   };
 
-  // The wallpaper picker was removed; drop anything it left behind rather
-  // than leaving a multi-megabyte data URL in the user's storage forever.
+  // Settings that no longer exist are cleared rather than left behind: the
+  // wallpaper picker could otherwise strand a multi-megabyte data URL in the
+  // user's storage, and a stale skin name would be read by nothing.
   try {
     localStorage.removeItem("aurion.bg");
     localStorage.removeItem("aurion.wallpaper");
+    localStorage.removeItem("aurion.skin");
   } catch (e) { /* nothing to clean up */ }
 
   apply();

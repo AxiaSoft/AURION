@@ -309,19 +309,10 @@ function setThemeNow(mode) {
    attributes on <html>, and nothing here touches desk state. Rendered as part
    of the Personal settings tab.
    =========================================================================== */
-function skinLabel(id) {
-  const map = { glass: "skin_glass", clay: "skin_clay", skeu: "skin_skeu", neu: "skin_neu" };
-  return I18N.t("settings." + (map[id] || "skin_glass"));
-}
-
 function appearanceCardsHtml() {
   if (typeof AurionSkin === "undefined") return "";
-  const skin = AurionSkin.getSkin();
   const accent = AurionSkin.getAccent();
   const perf = AurionSkin.getPerfMode();
-  const skins = AurionSkin.SKINS.map((id) =>
-    `<button type="button" data-skinbtn="${id}" class="${id === skin ? "on" : ""}">${skinLabel(id)}</button>`).join("");
-
   const swatches = Object.keys(AurionSkin.ACCENTS).map((id) => {
     const c = AurionSkin.ACCENTS[id];
     return `<button type="button" class="accent-dot ${id === accent ? "on" : ""}" data-accent="${id}" title="${id}"
@@ -332,12 +323,6 @@ function appearanceCardsHtml() {
   // only one that carries a remove affordance - a small x on the chip itself,
   // instead of a second button that lingers after the image is gone.
   return `
-      <div class="card" style="margin-top:14px">
-        <p class="sub" style="margin:0 0 6px">${I18N.t("settings.skin")}</p>
-        <div class="lang-pills" id="set-skins">${skins}</div>
-        <p class="sub" style="margin:8px 0 0">${I18N.t("settings.skin_hint")}</p>
-      </div>
-
       <div class="card" style="margin-top:14px">
         <p class="sub" style="margin:0 0 6px">${I18N.t("settings.accent")}</p>
         <div class="accent-row" id="set-accents">${swatches}</div>
@@ -356,49 +341,23 @@ function appearanceCardsHtml() {
       </div>`;
 }
 
-/* Frosted glass only exists in the glass skin; the others are opaque by
-   design, so a switch for it there would do nothing. The rendering tier is a
-   different thing - it governs cost, not looks - so it is always offered. */
-function glassSkinActive() {
-  return typeof AurionSkin === "undefined" || AurionSkin.getSkin() === "glass";
-}
-
 function perfNowLabel() {
   if (typeof AurionSkin === "undefined") return "";
   return AurionSkin.effectivePerf() === "fast"
     ? I18N.t("settings.perf_now_fast") : I18N.t("settings.perf_now_rich");
 }
 
-/* Frosted glass is meaningless on an opaque skin, so its switch comes and goes
-   with the skin - in place, without rebuilding the settings page. */
-function syncGlassRow() {
-  const row = $("row-liquid-glass");
-  if (row) row.hidden = !glassSkinActive();
-}
-
 function markAppearancePills() {
   if (typeof AurionSkin === "undefined") return;
-  const skin = AurionSkin.getSkin();
   const perf = AurionSkin.getPerfMode(), accent = AurionSkin.getAccent();
-  document.querySelectorAll("[data-skinbtn]").forEach((b) => b.classList.toggle("on", b.dataset.skinbtn === skin));
   document.querySelectorAll("[data-perfbtn]").forEach((b) => b.classList.toggle("on", b.dataset.perfbtn === perf));
   document.querySelectorAll("[data-accent]").forEach((b) => b.classList.toggle("on", b.dataset.accent === accent));
   const now = $("set-perf-now");
   if (now) now.textContent = perfNowLabel();
-  syncGlassRow();
 }
 
 function bindAppearance() {
   if (typeof AurionSkin === "undefined") return;
-
-  const skins = $("set-skins");
-  if (skins) skins.onclick = (e) => {
-    const b = e.target.closest("[data-skinbtn]"); if (!b) return;
-    AurionSkin.setSkin(b.dataset.skinbtn);
-    markAppearancePills();
-    syncGlassRow();
-    repaintChartsForTheme();
-  };
 
   const accents = $("set-accents");
   if (accents) accents.onclick = (e) => {
@@ -2666,7 +2625,7 @@ const views = {
             <button type="button" data-themebtn="dark">\uD83C\uDF19 ${I18N.t("settings.theme_dark")}</button>
             <button type="button" data-themebtn="light">\u2600\uFE0F ${I18N.t("settings.theme_light")}</button>
           </div>
-          <div class="row" id="row-liquid-glass" style="justify-content:space-between;margin-top:16px;align-items:flex-start"${glassSkinActive() ? "" : " hidden"}>
+          <div class="row" style="justify-content:space-between;margin-top:16px;align-items:flex-start">
             <div>
               <div style="font-weight:600">${I18N.t("settings.liquid_glass")}</div>
               <p class="sub" style="margin:2px 0 0">${I18N.t("settings.liquid_glass_hint")}</p>
