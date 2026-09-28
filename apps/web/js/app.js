@@ -2056,7 +2056,10 @@ function propNum(id, labelKey, unitKey, value, opts) {
   const min = opts.min !== undefined ? ` min="${opts.min}"` : "";
   const max = opts.max !== undefined ? ` max="${opts.max}"` : "";
   const note = opts.zeroOff ? `<em class="unit-note">${I18N.t("risk.u_zero_off")}</em>` : "";
-  return `<label class="field num-field">
+  // A long unit needs more room than a short one; the field declares which it
+  // is instead of every field reserving space for the longest possible suffix.
+  const wide = I18N.t(unitKey).length > 12 ? " wide-unit" : "";
+  return `<label class="field num-field${wide}">
       <span>${I18N.t(labelKey)}${note}</span>
       <span class="num-wrap">
         <input id="${id}" type="number"${step}${min}${max} value="${value}" />
@@ -2066,7 +2069,8 @@ function propNum(id, labelKey, unitKey, value, opts) {
 }
 
 function propText(id, labelKey, unitKey, value, placeholder) {
-  return `<label class="field num-field">
+  const wide = I18N.t(unitKey).length > 12 ? " wide-unit" : "";
+  return `<label class="field num-field${wide}">
       <span>${I18N.t(labelKey)}</span>
       <span class="num-wrap">
         <input id="${id}" value="${esc(value)}"${placeholder ? ` placeholder="${placeholder}"` : ""} />

@@ -612,3 +612,97 @@ table tbody tr,
   color:var(--muted);
   border-top:1px solid var(--line);
 }
+
+/* ===========================================================================
+   12. Floating surfaces must be readable, blur or no blur
+   ===========================================================================
+   Panels that open over content - the symbol picker, dropdown menus, the
+   calendar card, dialogs, the mobile drawer - were 72% opaque and leaned on
+   backdrop-filter for legibility. That is fine until the blur is switched off,
+   which happens in two supported situations: the liquid-glass toggle, and the
+   fast rendering tier on a slow machine. Then the alpha is all that is left
+   and the page shows straight through them.
+
+   Two rules, applied in order: raise the resting opacity so they are readable
+   even WITH blur over a busy chart, and make them fully opaque whenever the
+   blur is gone. A floating panel is not decoration - you have to be able to
+   read what is in it. */
+.sym-panel,
+.dd-menu,
+.cal-tip,
+.st-drop,
+.notify-card,
+.modal-card{
+  background:rgb(var(--s6) / .94);
+  backdrop-filter:blur(22px) saturate(140%);
+  -webkit-backdrop-filter:blur(22px) saturate(140%);
+  border:1px solid rgb(var(--wash) / .12);
+}
+html[data-theme="light"] :is(.sym-panel, .dd-menu, .cal-tip, .st-drop, .notify-card, .modal-card){
+  background:rgb(var(--s8) / .96);
+  border-color:rgba(20,28,45,.10);
+}
+
+/* No blur available: go solid. */
+html[data-glass="off"] :is(.sym-panel, .dd-menu, .cal-tip, .st-drop, .notify-card,
+                           .modal-card, .hdr-drawer, .sym-list, .nav, .top),
+html[data-perf="fast"] :is(.sym-panel, .dd-menu, .cal-tip, .st-drop, .notify-card,
+                           .modal-card, .hdr-drawer, .sym-list, .nav, .top){
+  background:rgb(var(--s6));
+}
+html[data-glass="off"] :is(.nav, .top, .hdr-drawer),
+html[data-perf="fast"] :is(.nav, .top, .hdr-drawer){ background:rgb(var(--s2)) }
+html[data-theme="light"][data-glass="off"] :is(.sym-panel, .dd-menu, .cal-tip, .st-drop,
+                                               .notify-card, .modal-card),
+html[data-theme="light"][data-perf="fast"] :is(.sym-panel, .dd-menu, .cal-tip, .st-drop,
+                                               .notify-card, .modal-card){
+  background:#ffffff;
+}
+
+/* The dialog scrim has the same problem: 55% black plus a blur reads as solid,
+   55% black alone does not. Without blur it darkens further so the dialog is
+   the only thing the eye can land on. */
+html[data-glass="off"] .modal,
+html[data-perf="fast"] .modal{ background:rgba(4,5,8,.82) }
+html[data-theme="light"][data-glass="off"] .modal,
+html[data-theme="light"][data-perf="fast"] .modal{ background:rgba(18,24,38,.62) }
+
+/* The symbol panel sits over the chart and the table behind it; give it a
+   shadow deep enough to separate it from both. */
+.sym-panel{ box-shadow:0 28px 70px rgba(0,0,0,.6), 0 2px 0 rgb(var(--wash) / .05) inset }
+html[data-theme="light"] .sym-panel{ box-shadow:0 24px 60px rgba(20,28,45,.28) }
+
+/* ===========================================================================
+   13. Text that ran into itself
+   ===========================================================================
+   Two collisions in the settings pages, both from a fixed-width element
+   sitting beside text that can grow: a long unit suffix over a long number,
+   and the confidence percentage over its own label. */
+.num-field .num-wrap input{ padding-inline-end:var(--unit-gap, 92px) }
+/* Long units - "hour, UTC (0-23)", "HH:MM, broker time" - need more room than
+   "lots" does, so the field says how much rather than every field paying for
+   the longest one. */
+.num-field.wide-unit .num-wrap input{ --unit-gap:150px }
+.num-field .num-unit{ max-width:60%; overflow:hidden; text-overflow:ellipsis }
+
+.conf-head{ flex-wrap:wrap; row-gap:4px }
+.conf-head .conf-pct{ flex:none }
+
+/* A settings label and its control must never share a line they cannot fit. */
+.field > span{ min-width:0; overflow-wrap:anywhere }
+.set-block .kv{ gap:10px }
+.set-block .kv > span{ min-width:0; overflow-wrap:anywhere }
+.set-block .kv > b{ text-align:end; min-width:0; overflow-wrap:anywhere }
+
+/* Four more surfaces found by auditing every rule that pairs a backdrop-filter
+   with an alpha below 0.9: the nav scrim, the payment veil, the reload prompt
+   and the welcome sound button. Each one is legible only while the blur is
+   there, so each one gets a solid form when it is not. */
+html[data-glass="off"] .nav-scrim,
+html[data-perf="fast"] .nav-scrim{ background:rgba(4,5,8,.72) }
+html[data-glass="off"] :is(.pay-veil, .desk-reload),
+html[data-perf="fast"] :is(.pay-veil, .desk-reload){ background:rgb(var(--s1)) }
+html[data-glass="off"] .welcome-sound,
+html[data-perf="fast"] .welcome-sound{ background:rgb(var(--s4)) }
+html[data-theme="light"][data-glass="off"] :is(.pay-veil, .desk-reload),
+html[data-theme="light"][data-perf="fast"] :is(.pay-veil, .desk-reload){ background:#ffffff }
