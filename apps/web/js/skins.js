@@ -103,18 +103,49 @@
     return ((n >> 16) & 255) + " " + ((n >> 8) & 255) + " " + (n & 255);
   }
 
-  function readableInk(hex) {
+
+  function luminance(hex) {
     var n = parseInt(hex.slice(1), 16);
-    var channels = [(n >> 16) & 255, (n >> 8) & 255, n & 255].map(function (c) {
-      var s = c / 255;
-      return s <= 0.03928 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4);
+    var ch = [(n >> 16) & 255, (n >> 8) & 255, n & 255].map(function (c) {
+      var v = c / 255;
+      return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
     });
-    var lum = 0.2126 * channels[0] + 0.7152 * channels[1] + 0.0722 * channels[2];
-    return lum > 0.45 ? "#061014" : "#f5f8ff";
+    return 0.2126 * ch[0] + 0.7152 * ch[1] + 0.0722 * ch[2];
+  }
+
+  /** Text colour for a surface that is a translucent wash of the accent over
+      the page: that is dominated by the page, so it follows the theme. */
+  function contrastInk() {
+    var el = root();
+    var light = el && el.dataset.theme === "light";
+    return light ? "#0b1018" : "#e8edf7";
+  }
+
+  /** Keep an accent usable as *text*. Yellow reads fine on a dark page and
+      disappears on a light one; this lifts or deepens it until it does not. */
+  function legibleOnPage(hex) {
+    var el = root();
+    var light = el && el.dataset.theme === "light";
+    var lum = luminance(hex);
+    if (light && lum > 0.42) return mix(hex, "#000000", Math.min(0.55, (lum - 0.42) * 1.6));
+    if (!light && lum < 0.22) return mix(hex, "#ffffff", Math.min(0.55, (0.22 - lum) * 2.2));
+    return hex;
+  }
+
+  /** Foreground for text sitting ON the accent, by relative luminance.
+      0.45 is where a mid-tone stops being readable with light text. */
+  function readableInk(hex) {
+    return luminance(hex) > 0.45 ? "#061014" : "#f5f8ff";
   }
 
   function accentTriplet(value) {
-    if (ACCENTS[value]) return ACCENTS[value];
+    // The ink is always derived, never taken from the preset table: the rule
+    // "dark text on a light accent, light text on a dark one" has to hold for
+    // a colour the user invents as much as for one we shipped.
+    if (ACCENTS[value]) {
+      var preset = ACCENTS[value];
+      return [preset[0], preset[1], preset[2], readableInk(preset[0])];
+    }
     var hex = normaliseHex(value);
     if (!hex) return ACCENTS.aurora;
     // A custom colour only gives us one hue, so the gradient is derived from it:
@@ -241,9 +272,29 @@
     el.style.setProperty("--accent-3-rgb", rgbTriplet(a[2]));
     el.style.setProperty("--scroll-thumb-hover", a[0]);
 
+    // Two more readability values the stylesheet needs:
+    //   --accent-ink-soft  text drawn ON a translucent wash of the accent
+    //   --accent-readable  the accent itself, nudged until it is legible as
+    //                      text on the page background (a pale yellow accent
+    //                      is fine on a button and invisible as a label)
+    el.style.setProperty("--accent-ink-soft", contrastInk());
+    el.style.setProperty("--accent-readable", legibleOnPage(a[0]));
+
     // A skin that is not glass has no blur to pay for, so the expensive tier is
     // only meaningful under the glass skin.
     el.dataset.perf = skin === "glass" ? effectivePerf() : "fast";
+  }
+
+  // The theme can change without the accent changing, and both readability
+  // values depend on it, so watch the attribute rather than hoping app.js
+  // remembers to call us.
+  function watchTheme() {
+    try {
+      var el = root();
+      if (!el || typeof MutationObserver === "undefined") return;
+      new MutationObserver(function () { apply(); })
+        .observe(el, { attributes: true, attributeFilter: ["data-theme"] });
+    } catch (e) { /* not fatal */ }
   }
 
   global.AurionSkin = {
@@ -268,4 +319,5 @@
   };
 
   apply();
+  watchTheme();
 })(typeof window !== "undefined" ? window : this);

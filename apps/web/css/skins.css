@@ -98,18 +98,52 @@
 .dd-btn:hover,
 .st-chip:hover{ border-color:rgb(var(--accent-rgb) / .35); background:var(--sk-tint) }
 
-/* The settings rail is a list of destinations, not a row of controls. Tinting
-   every row on hover turned reading the page into a light show, so it gets the
-   quietest possible cue: the label brightens, nothing moves, nothing fills. */
-.set-jump:hover{ background:rgb(var(--s2) / .55) }
+/* The settings rail is a list of destinations, not a control.
+   Nothing about the container itself may react to the pointer - it used to
+   pick up glass and blur only while hovered, which made the panel look like
+   it was switching on and off as the mouse crossed it. Only the rows respond,
+   and only by brightening their label. */
+.set-jump:hover,
+.set-rail .set-jump:hover{ background:inherit; box-shadow:inherit; border-color:inherit }
 .set-jump button:hover{ background:transparent; color:var(--ink) }
-.set-jump button.on:hover{ color:var(--on-accent) }
+
+/* A selected control must look identical hovered and not hovered. Otherwise
+   the pressed state flickers as the pointer passes over it, which reads as a
+   bug in both light and dark themes. */
+.set-jump button.on:hover,
+.set-jump button.on:focus,
+.lang-pills button.on:hover,
+.lang-pills button.on:focus,
+.bg-chip.on:hover,
+.chip.on:hover,
+.nav button.on:hover{
+  background:inherit;
+  color:inherit;
+  border-color:inherit;
+  filter:none;
+}
+.lang-pills button.on:hover{
+  background:var(--sk-tint-strong);
+  border-color:rgb(var(--accent-rgb) / .55);
+  color:var(--ink);
+}
+.set-jump button.on:hover{ background:var(--ink); color:var(--on-accent) }
 .lang-pills button:hover{ border-color:rgb(var(--accent-rgb) / .40); background:var(--sk-tint) }
 .lang-pills button.on{
   border-color:rgb(var(--accent-rgb) / .55);
   background:var(--sk-tint-strong);
-  color:var(--ink);
+  /* A wash of the accent over the page is still mostly page, so the label
+     follows the theme rather than the accent - set by js/skins.js. */
+  color:var(--accent-ink-soft, var(--ink));
 }
+/* Where the accent is the *fill*, the label is the derived ink: black on a
+   pale accent, white on a deep one, decided by relative luminance. */
+.btn,
+.set-jump button.on{ color:var(--accent-ink) }
+.chip.on,
+.nav button.on,
+.nav-ver,
+a:hover{ color:var(--accent-readable, var(--accent)) }
 tbody tr:hover{ background:rgb(var(--accent-rgb) / .05) }
 a:hover{ color:var(--accent) }
 ::selection{ background:rgb(var(--accent-rgb) / .3) }
@@ -215,47 +249,154 @@ html[data-skin]:not([data-skin="glass"]) *::-webkit-scrollbar-thumb{
 html[data-skin]:not([data-skin="glass"]) .card::before{ display:none }
 
 /* ===========================================================================
-   3. Claymorphism — thick, soft, matte. Inflated plastic.
+   3. Claymorphism — soft, inflated, single-piece
    ===========================================================================
-   Very round, no borders, a heavy inner shadow at the bottom and a soft inner
-   light at the top. Buttons sit on a solid colour plinth and physically sink
-   when pressed. */
+   Clay is not "a card with heavy shadows". Real clay reads as ONE moulded
+   object: a rounded body, light pooling on the upper edge, the shadow of its
+   own thickness underneath, and a wide soft drop far below it. Three rules
+   follow from that and they are why the first attempt looked noisy:
+
+     * one inner light and one inner shadow, never both at full strength on
+       every edge - light comes from above, so the top is lit and the bottom
+       is dark, nothing else;
+     * the drop shadow is soft, distant and low-opacity. Crisp dark shadows
+       make plastic look wet, not soft;
+     * a clay button is a single body. The earlier one had a coloured plinth
+       under a gradient face, which read as two stacked objects. It is now one
+       colour with its own inner light and one thin darker base.
+
+   Everything is built from --clay-* so the whole skin can be re-tuned from
+   these six values. */
 html[data-skin="clay"]{
-  --sk-r:30px;
-  --sk-r-sm:20px;
-  --sk-btn-radius:20px;
+  --clay-lift:rgb(var(--wash) / .10);        /* light pooling on the top edge  */
+  --clay-dip:rgba(0,0,0,.30);                /* the object's own thickness     */
+  --clay-cast:rgba(0,0,0,.34);               /* soft distant drop              */
+  --clay-body:rgb(var(--s7));
+  --clay-body-hi:rgb(var(--s8));
+  --clay-sink:rgba(0,0,0,.38);               /* pressed / inset wells          */
+
+  --sk-r:26px;
+  --sk-r-sm:18px;
+  --sk-btn-radius:18px;
   --sk-blur:none;
-  --sk-surface:linear-gradient(180deg, rgb(var(--s9)), rgb(var(--s5)));
-  --sk-surface-2:rgb(var(--s6));
+
+  --sk-surface:linear-gradient(180deg, var(--clay-body-hi), var(--clay-body));
+  --sk-surface-2:linear-gradient(180deg, rgb(var(--s5)), rgb(var(--s3)));
   --sk-edge:0;
+
+  /* top light, bottom thickness, one soft cast. Nothing else. */
   --sk-shadow:
-    0 22px 45px rgba(0,0,0,.45),
-    inset 0 -10px 20px rgba(0,0,0,.38),
-    inset 0 10px 18px rgb(var(--wash) / .07);
+    inset 0 2px 1px var(--clay-lift),
+    inset 0 -14px 20px -12px var(--clay-dip),
+    0 18px 40px -18px var(--clay-cast);
   --sk-shadow-hover:
-    0 26px 55px rgba(0,0,0,.5),
-    inset 0 -10px 20px rgba(0,0,0,.38),
-    inset 0 10px 18px rgb(var(--wash) / .09);
+    inset 0 2px 1px rgb(var(--wash) / .14),
+    inset 0 -14px 20px -12px var(--clay-dip),
+    0 24px 50px -20px var(--clay-cast);
+
   --sk-field:rgb(var(--s4));
   --sk-field-edge:0;
-  --sk-field-shadow:inset 0 6px 14px rgba(0,0,0,.5), inset 0 -2px 2px rgb(var(--wash) / .05);
-  --sk-btn-bg:linear-gradient(180deg, color-mix(in srgb, var(--accent) 92%, #fff), var(--accent-2));
-  --sk-btn-shadow:0 9px 0 -1px color-mix(in srgb, var(--accent-2) 60%, #000), 0 18px 30px rgba(0,0,0,.4);
-  --sk-danger-shadow:0 9px 0 -1px #8e2440, 0 18px 30px rgba(0,0,0,.4);
-  --sk-danger-shadow-hover:0 11px 0 -1px #8e2440, 0 20px 34px rgba(0,0,0,.45);
-  --sk-btn-press:translateY(5px);
+  --sk-field-shadow:inset 0 3px 8px -2px var(--clay-sink), inset 0 -1px 0 rgb(var(--wash) / .05);
+
+  /* One body: a single accent fill lit from above, on a thin darker base. */
+  --sk-btn-bg:linear-gradient(180deg,
+      color-mix(in srgb, var(--accent) 88%, #fff) 0%,
+      var(--accent) 45%,
+      color-mix(in srgb, var(--accent) 88%, #000) 100%);
+  --sk-btn-shadow:
+    inset 0 2px 1px rgb(255 255 255 / .35),
+    inset 0 -6px 10px -6px rgba(0,0,0,.35),
+    0 4px 0 -1px color-mix(in srgb, var(--accent) 62%, #000),
+    0 12px 22px -10px rgba(0,0,0,.45);
+  --sk-danger-shadow:
+    inset 0 2px 1px rgb(255 255 255 / .3),
+    inset 0 -6px 10px -6px rgba(0,0,0,.35),
+    0 4px 0 -1px #97304f,
+    0 12px 22px -10px rgba(0,0,0,.45);
+  --sk-danger-shadow-hover:
+    inset 0 2px 1px rgb(255 255 255 / .38),
+    inset 0 -6px 10px -6px rgba(0,0,0,.3),
+    0 5px 0 -1px #97304f,
+    0 16px 26px -10px rgba(0,0,0,.5);
+
   --sk-lift:translateY(-2px);
-  --sk-chip-shadow:inset 0 -3px 8px rgba(0,0,0,.35), inset 0 3px 6px rgb(var(--wash) / .05);
+  --sk-btn-press:translateY(3px);
+  --sk-chip-shadow:inset 0 1px 0 rgb(var(--wash) / .07), inset 0 -4px 8px -4px var(--clay-dip);
 }
-html[data-skin="clay"] .btn{ font-weight:600; padding:13px 18px }
-html[data-skin="clay"] .btn:active{ box-shadow:0 4px 0 -1px color-mix(in srgb, var(--accent-2) 60%, #000) }
+
+html[data-skin="clay"] .btn{
+  font-weight:600;
+  padding:13px 20px;
+  letter-spacing:.005em;
+  border:0;
+  /* The resting state already carries its shadow, so hovering only deepens it
+     rather than adding a second, differently-shaped one on top. */
+  box-shadow:var(--sk-btn-shadow);
+  transition:transform .18s var(--ease), box-shadow .18s var(--ease), filter .18s;
+}
+html[data-skin="clay"] .btn:hover{
+  filter:brightness(1.04);
+  box-shadow:
+    inset 0 2px 1px rgb(255 255 255 / .42),
+    inset 0 -6px 10px -6px rgba(0,0,0,.3),
+    0 5px 0 -1px color-mix(in srgb, var(--accent) 62%, #000),
+    0 16px 26px -10px rgba(0,0,0,.5);
+}
+html[data-skin="clay"] .btn:active{
+  box-shadow:
+    inset 0 3px 8px -2px rgba(0,0,0,.4),
+    0 1px 0 -1px color-mix(in srgb, var(--accent) 62%, #000);
+}
 html[data-skin="clay"] #btn-kill:active,
-html[data-skin="clay"] .btn.danger:active{ box-shadow:0 4px 0 -1px #8e2440 }
-html[data-skin="clay"] .switch{ border:0; box-shadow:inset 0 3px 8px rgba(0,0,0,.5) }
-html[data-skin="clay"] .switch i{ box-shadow:0 3px 6px rgba(0,0,0,.4) }
-html[data-skin="clay"] .nav button{ border-radius:18px; margin-inline:6px }
-html[data-skin="clay"] table{ border-collapse:separate; border-spacing:0 6px }
-html[data-skin="clay"] tbody tr{ background:rgb(var(--s5)); box-shadow:inset 0 -3px 8px rgba(0,0,0,.28) }
+html[data-skin="clay"] .btn.danger:active{
+  box-shadow:inset 0 3px 8px -2px rgba(0,0,0,.4), 0 1px 0 -1px #97304f;
+}
+html[data-skin="clay"] .btn.ghost{
+  background:rgb(var(--s5));
+  color:var(--ink);
+  box-shadow:inset 0 1px 0 rgb(var(--wash) / .07), inset 0 -6px 10px -8px var(--clay-dip);
+}
+html[data-skin="clay"] .btn.ghost:hover{
+  background:rgb(var(--s6));
+  box-shadow:inset 0 1px 0 rgb(var(--wash) / .10), inset 0 -6px 10px -8px var(--clay-dip);
+}
+
+/* Controls are moulded from the same clay. */
+html[data-skin="clay"] .switch{
+  border:0;
+  background:rgb(var(--s3));
+  box-shadow:inset 0 3px 7px -2px var(--clay-sink);
+}
+html[data-skin="clay"] .switch i{
+  box-shadow:0 2px 4px rgba(0,0,0,.35), inset 0 1px 0 rgb(255 255 255 / .6);
+}
+html[data-skin="clay"] .switch.on{
+  background:color-mix(in srgb, var(--accent) 30%, rgb(var(--s3)));
+  box-shadow:inset 0 3px 7px -2px var(--clay-sink);
+}
+
+html[data-skin="clay"] .nav button{ border-radius:16px; margin-inline:6px }
+html[data-skin="clay"] .nav button.on{
+  background:color-mix(in srgb, var(--accent) 16%, transparent);
+  box-shadow:inset 0 1px 0 rgb(var(--wash) / .07), inset 0 -5px 9px -6px var(--clay-dip);
+}
+html[data-skin="clay"] .field input,
+html[data-skin="clay"] .field select,
+html[data-skin="clay"] .ctrl,
+html[data-skin="clay"] .dd-btn{ padding-block:12px }
+
+/* Tables read as a stack of soft tiles rather than ruled rows. */
+html[data-skin="clay"] table{ border-collapse:separate; border-spacing:0 7px }
+html[data-skin="clay"] table th{ border:0; color:var(--muted) }
+html[data-skin="clay"] tbody tr{
+  background:rgb(var(--s5));
+  box-shadow:inset 0 1px 0 rgb(var(--wash) / .05), inset 0 -5px 9px -6px var(--clay-dip);
+}
+html[data-skin="clay"] tbody tr td:first-child{ border-start-start-radius:14px; border-end-start-radius:14px }
+html[data-skin="clay"] tbody tr td:last-child{ border-start-end-radius:14px; border-end-end-radius:14px }
+html[data-skin="clay"] tbody tr:hover{
+  background:color-mix(in srgb, var(--accent) 7%, rgb(var(--s5)));
+}
 
 /* ===========================================================================
    4. Neumorphism — one continuous surface, shaped only by light.
@@ -264,6 +405,7 @@ html[data-skin="clay"] tbody tr{ background:rgb(var(--s5)); box-shadow:inset 0 -
    so this skin flattens the wallpaper on purpose. Nothing has a border; every
    edge is two shadows, one light and one dark, from a single light source. */
 html[data-skin="neu"]{
+  --sk-scrim:rgb(var(--s5) / .90);
   --sk-r:22px;
   --sk-r-sm:16px;
   --sk-btn-radius:16px;
@@ -316,10 +458,18 @@ html[data-skin="neu"] .nav button.on{
   box-shadow:inset 5px 5px 12px rgba(0,0,0,.5), inset -5px -5px 12px rgb(var(--wash) / .04);
   color:var(--accent);
 }
-html[data-skin="neu"] .aurora,
-html[data-skin="neu"].mode-desk .aurora{ background:var(--sk-page); animation:none }
-html[data-skin="neu"] .aurora::after{ opacity:.05 }
-html[data-skin="neu"] #auth{ background:var(--sk-page) }
+/* The wallpaper stays. Neumorphism needs its panels to sit on one even tone,
+   so instead of throwing the image away it lays a heavy scrim of the panel
+   colour over it: the material still works and the wallpaper still shows
+   through at the edges. */
+html[data-skin="neu"] .aurora::after{ opacity:.06 }
+html[data-skin="neu"] .aurora{ animation:none }
+html[data-skin="neu"] #app::before,
+html[data-skin="minimal"] #app::before{
+  content:"";
+  position:fixed; inset:0; z-index:-1; pointer-events:none;
+  background:var(--sk-scrim);
+}
 
 /* ===========================================================================
    5. Skeuomorphism — real materials. Brushed metal, glass bevels, engraving.
@@ -390,6 +540,7 @@ html[data-skin="skeu"] table th{
    block of accent. Denser spacing and tighter type, because minimal is about
    information density as much as decoration. */
 html[data-skin="minimal"]{
+  --sk-scrim:rgb(var(--s1) / .82);
   --sk-r:4px;
   --sk-r-sm:3px;
   --sk-btn-radius:3px;
@@ -440,13 +591,8 @@ html[data-skin="minimal"] table th{
   font-size:10px;
   letter-spacing:.08em;
 }
-html[data-skin="minimal"] .aurora,
-html[data-skin="minimal"].mode-desk .aurora{
-  background:var(--sk-page);
-  animation:none;
-}
-html[data-skin="minimal"] .aurora::after{ opacity:.04 }
-html[data-skin="minimal"] #auth{ background:var(--sk-page) }
+html[data-skin="minimal"] .aurora{ animation:none }
+html[data-skin="minimal"] .aurora::after{ opacity:.05 }
 
 /* ===========================================================================
    7. Wallpaper
@@ -657,14 +803,20 @@ table tbody tr,
    ===========================================================================
    The details that decide whether a theme looks designed or merely applied. */
 
-/* Clay: everything is a soft pebble, including the rail and the modal. */
-html[data-skin="clay"] .set-jump{ padding:8px; border-radius:24px }
-html[data-skin="clay"] .set-jump button.on{ box-shadow:inset 0 -3px 8px rgba(0,0,0,.3) }
-html[data-skin="clay"] .modal{ border-radius:30px }
-html[data-skin="clay"] .kpi{ border-radius:24px }
-html[data-skin="clay"] .dd-menu{ border-radius:22px }
+/* Clay: the rail, modal and tiles are moulded from the same body. */
+html[data-skin="clay"] .set-jump{ padding:8px; border-radius:22px }
+html[data-skin="clay"] .set-jump button.on{
+  background:color-mix(in srgb, var(--accent) 18%, transparent);
+  box-shadow:inset 0 1px 0 rgb(var(--wash) / .07), inset 0 -5px 9px -6px var(--clay-dip);
+  color:var(--ink);
+}
+html[data-skin="clay"] .modal{ border-radius:28px }
+html[data-skin="clay"] .kpi{ border-radius:22px }
+html[data-skin="clay"] .dd-menu{ border-radius:20px }
 html[data-skin="clay"] .accent-dot,
-html[data-skin="clay"] .accent-custom{ box-shadow:0 6px 14px rgba(0,0,0,.45), inset 0 -3px 6px rgba(0,0,0,.3) }
+html[data-skin="clay"] .accent-custom{
+  box-shadow:inset 0 2px 1px rgb(255 255 255 / .3), 0 6px 14px -6px rgba(0,0,0,.5);
+}
 
 /* Neu: no borders anywhere, and the rail is carved into the same surface. */
 html[data-skin="neu"] .set-jump{

@@ -508,6 +508,20 @@ const Calendar = {
       }
       root.querySelectorAll(".cal-cell.pinned").forEach((el) => el.classList.remove("pinned"));
     };
+    // The card is parented to <body> so no transformed ancestor can break its
+    // fixed positioning - which also means it outlives the calendar view. Two
+    // guards: the desk calls unpin() when it changes view, and the card removes
+    // itself if the grid it belongs to ever leaves the document.
+    this.unpin = unpin;
+    if (typeof MutationObserver !== "undefined" && grid) {
+      const watcher = new MutationObserver(() => {
+        if (!document.body.contains(grid)) {
+          unpin();
+          watcher.disconnect();
+        }
+      });
+      watcher.observe(document.body, { childList: true, subtree: true });
+    }
     grid?.addEventListener("mouseover", (e) => {
       const cell = e.target.closest(".cal-cell");
       if (cell) showTip(cell);

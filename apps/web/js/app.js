@@ -379,6 +379,7 @@ function appearanceCardsHtml() {
         <p class="sub" style="margin:8px 0 0" id="set-bg-msg">${I18N.t("settings.wallpaper_hint")}</p>
       </div>
 
+      ${!glassSkinActive() ? "" : `
       <div class="card" style="margin-top:14px">
         <p class="sub" style="margin:0 0 6px">${I18N.t("settings.perf")}</p>
         <div class="lang-pills" id="set-perf">
@@ -388,7 +389,14 @@ function appearanceCardsHtml() {
         </div>
         <p class="sub" style="margin:8px 0 0">${I18N.t("settings.perf_hint")}
           <b id="set-perf-now">${perfNowLabel()}</b></p>
-      </div>`;
+      </div>`}`;
+}
+
+/* Frosted glass only exists in the glass skin; the others are opaque by
+   design, so offering a switch that does nothing would just be noise. The
+   rendering tier is hidden for the same reason - there is no blur to trade. */
+function glassSkinActive() {
+  return typeof AurionSkin === "undefined" || AurionSkin.getSkin() === "glass";
 }
 
 function perfNowLabel() {
@@ -423,8 +431,8 @@ function bindAppearance() {
   if (skins) skins.onclick = (e) => {
     const b = e.target.closest("[data-skinbtn]"); if (!b) return;
     AurionSkin.setSkin(b.dataset.skinbtn);
-    markAppearancePills();
     repaintChartsForTheme();
+    renderSettings();
   };
 
   const accents = $("set-accents");
@@ -505,6 +513,18 @@ function repaintChartsForTheme() {
   if (S.chart && S.candles && S.candles.length && typeof S.chart.setBars === "function") {
     try { S.chart.setBars(S.candles); } catch {}
   }
+}
+
+/* Closes the pinned calendar day card, wherever we are. Safe to call when the
+   calendar has never been opened. */
+function dismissCalendarCard() {
+  const tip = document.getElementById("cal-tip");
+  if (tip) {
+    tip.hidden = true;
+    tip.classList.remove("pinned");
+  }
+  document.querySelectorAll(".cal-cell.pinned").forEach((el) => el.classList.remove("pinned"));
+  try { if (window.Calendar && typeof Calendar.unpin === "function") Calendar.unpin(); } catch {}
 }
 
 function glassOn() {
@@ -1218,6 +1238,10 @@ function show(view, opts) {
   const changing = prev !== view;
   if (view === "profile" || view === "execution") view = "command";
   if (view === "settings" && changing && prev && prev !== "settings") S.setTab = "set-robot";
+  // The calendar's day card is parented to <body> so no transformed ancestor
+  // can break its fixed positioning - which also means leaving the calendar
+  // does not take it with you. Dismiss it on every view change.
+  if (changing) dismissCalendarCard();
   S.view = view;
   localStorage.setItem("aurion.view", view);
   if (changing) {
@@ -2720,13 +2744,14 @@ const views = {
             <button type="button" data-themebtn="dark">\uD83C\uDF19 ${I18N.t("settings.theme_dark")}</button>
             <button type="button" data-themebtn="light">\u2600\uFE0F ${I18N.t("settings.theme_light")}</button>
           </div>
+          ${glassSkinActive() ? `
           <div class="row" style="justify-content:space-between;margin-top:16px;align-items:flex-start">
             <div>
               <div style="font-weight:600">${I18N.t("settings.liquid_glass")}</div>
               <p class="sub" style="margin:2px 0 0">${I18N.t("settings.liquid_glass_hint")}</p>
             </div>
             <button type="button" class="switch ${glassOn()?"on":""}" id="sw-glass" aria-pressed="${glassOn()}"><i></i></button>
-          </div>
+          </div>` : ""}
         </div>
         ${appearanceCardsHtml()}
       </section>
