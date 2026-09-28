@@ -116,6 +116,11 @@
   }
 
 
+  function contrastRatio(a, b) {
+    var hi = Math.max(a, b), lo = Math.min(a, b);
+    return (hi + 0.05) / (lo + 0.05);
+  }
+
   function luminance(hex) {
     var n = parseInt(hex.slice(1), 16);
     var ch = [(n >> 16) & 255, (n >> 8) & 255, n & 255].map(function (c) {
@@ -133,33 +138,37 @@
     return light ? "#0b1018" : "#e8edf7";
   }
 
-  /** Keep an accent usable as *text*. Yellow reads fine on a dark page and
-      disappears on a light one; this lifts or deepens it until it does not. */
+  // The surface an accent is most often drawn on as text: the panel colour of
+  // the current theme. Values mirror --s5 in app.css.
+  var PAGE_SURFACE_DARK = "#0e1018";
+  var PAGE_SURFACE_LIGHT = "#fafcff";
+  var TEXT_CONTRAST_TARGET = 4.5;   // WCAG AA for normal text
+
+  /**
+   * Keep an accent usable as *text*.
+   *
+   * The first version nudged the colour by a fixed amount when its luminance
+   * crossed a threshold, which was a guess: measured afterwards, all twenty
+   * accents still failed 4.5:1 as button labels on the light theme's panels.
+   * This version states the goal instead - darken (or lighten) in small steps
+   * until the contrast target is actually met, and stop as soon as it is, so a
+   * colour that already passes is left exactly as the user chose it.
+   */
   function legibleOnPage(hex) {
     var el = root();
     var light = el && el.dataset.theme === "light";
-    var lum = luminance(hex);
-    if (light && lum > 0.42) return mix(hex, "#000000", Math.min(0.55, (lum - 0.42) * 1.6));
-    if (!light && lum < 0.22) return mix(hex, "#ffffff", Math.min(0.55, (0.22 - lum) * 2.2));
-    return hex;
+    var surface = light ? PAGE_SURFACE_LIGHT : PAGE_SURFACE_DARK;
+    var towards = light ? "#000000" : "#ffffff";
+    var surfaceLum = luminance(surface);
+
+    var out = hex;
+    for (var step = 0; step < 20; step++) {
+      if (contrastRatio(luminance(out), surfaceLum) >= TEXT_CONTRAST_TARGET) return out;
+      out = mix(out, towards, 0.06);
+    }
+    return out;
   }
 
-  var INK_DARK = "#061014";
-  var INK_LIGHT = "#f5f8ff";
-
-  function contrastRatio(a, b) {
-    var hi = Math.max(a, b), lo = Math.min(a, b);
-    return (hi + 0.05) / (lo + 0.05);
-  }
-
-  /**
-   * Foreground for text sitting ON the accent.
-   *
-   * A fixed luminance threshold looked right and was not: a mid-tone like
-   * #38bdf8 sits almost exactly on any threshold you pick, and whichever side
-   * it falls on gives about 2:1 contrast - unreadable. So both candidates are
-   * measured and the better one wins, which is what the eye does anyway.
-   */
   function readableInk(hex) {
     var lum = luminance(hex);
     return contrastRatio(lum, luminance(INK_DARK)) >= contrastRatio(lum, luminance(INK_LIGHT))

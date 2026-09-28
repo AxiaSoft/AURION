@@ -289,8 +289,7 @@ html[data-skin]:not([data-skin="glass"]) .hdr-drawer{
 }
 html[data-skin]:not([data-skin="glass"]){ --sk-rail-bg:var(--sk-surface); --sk-rail-shadow:var(--sk-shadow) }
 html[data-skin]:not([data-skin="glass"]) .set-jump button,
-html[data-skin]:not([data-skin="glass"]) .dd-opt,
-html[data-skin]:not([data-skin="glass"]) .tab{ border-radius:var(--sk-r-sm) }
+html[data-skin]:not([data-skin="glass"]) .dd-opt{ border-radius:var(--sk-r-sm) }
 
 /* Scrollbars follow the material too - a chrome scrollbar next to a matte clay
    panel is exactly the kind of detail that makes a theme feel unfinished. */
@@ -324,8 +323,6 @@ html[data-skin="clay"]{
   --clay-lift:rgb(var(--wash) / .10);        /* light pooling on the top edge  */
   --clay-dip:rgba(0,0,0,.30);                /* the object's own thickness     */
   --clay-cast:rgba(0,0,0,.34);               /* soft distant drop              */
-  --clay-body:rgb(var(--s7));
-  --clay-body-hi:rgb(var(--s8));
   --clay-sink:rgba(0,0,0,.38);               /* pressed / inset wells          */
 
   --sk-r:26px;
@@ -530,7 +527,10 @@ html[data-skin="skeu"]{
   --sk-blur:none;
   --sk-surface:
     linear-gradient(180deg, rgb(var(--wash) / .09), transparent 38%),
-    repeating-linear-gradient(90deg, rgb(var(--wash) / .014) 0 1px, transparent 1px 3px),
+    /* 2px on 6px, not 1px on 3px: a single-pixel stripe beats against the
+       display's own grid at 125% and 150% scaling and shimmers when the panel
+       moves. Doubling the period puts it safely below that. */
+    repeating-linear-gradient(90deg, rgb(var(--wash) / .018) 0 2px, transparent 2px 6px),
     linear-gradient(180deg, rgb(var(--s7) / .94), rgb(var(--s2) / .94));
   --sk-surface-2:
     linear-gradient(180deg, rgb(var(--wash) / .10), transparent 40%),
@@ -604,10 +604,16 @@ html[data-perf="fast"] .aurora::after{ opacity:.14 }
    every blurred panel. Keep it on the sign-in screen; never on the desk. */
 html.mode-desk .aurora{ animation:none }
 
-/* A panel's repaint should not invalidate the document. */
+/* A panel's repaint should not invalidate the document.
+
+   Deliberately layout+style and NOT paint: `contain:paint` clips everything to
+   the padding box, and clay and neu build their controls out of outer shadows
+   that extend past it. With paint containment a button near the edge of a card
+   lost the very shadow that made it look raised. The remaining two keep most of
+   the benefit and cannot cut a material in half. */
 .card,
 .chart-box,
-.set-block{ contain:layout paint style }
+.set-block{ contain:layout style }
 
 /* Off-screen rows cost nothing; contain-intrinsic-size keeps scrolling honest. */
 table tbody tr,
@@ -667,7 +673,6 @@ summary:focus:not(:focus-visible){ outline:none; box-shadow:none }
 :focus-visible{
   outline:2px solid var(--accent);
   outline-offset:2px;
-  border-radius:inherit;
 }
 
 /* ===========================================================================
@@ -1503,3 +1508,83 @@ html[data-skin="neu"] :is(.ok, .no){
 }
 html[data-skin="clay"] .welcome-sound,
 html[data-skin="neu"] .welcome-sound{ box-shadow:var(--sk-btn-shadow) }
+
+/* ===========================================================================
+   19. Room for the material
+   ===========================================================================
+   app.css clips a card's contents (overflow:hidden) so the decorative hairline
+   across its top cannot spill past the rounded corner. Glass needs that. Clay,
+   neu and skeu do not have that hairline - it is switched off for them - but
+   they do have controls whose outer shadows reach past the card's padding box,
+   and clipping cut those off, flattening every button that sat near an edge.
+   Those three release the clip. */
+html[data-skin="clay"] .card,
+html[data-skin="neu"] .card,
+html[data-skin="skeu"] .card,
+html[data-skin="clay"] .st-card,
+html[data-skin="neu"] .st-card,
+html[data-skin="skeu"] .st-card,
+html[data-skin="clay"] .kpi,
+html[data-skin="neu"] .kpi,
+html[data-skin="skeu"] .kpi{
+  overflow:visible;
+}
+/* The clip stays wherever something really does need to be cut to the corner:
+   a chart canvas, a table with rounded ends, an image tile. */
+html[data-skin]:not([data-skin="glass"]) :is(.chart-box, .chart-stage, .table-wrap){
+  overflow:hidden;
+}
+
+/* Neu labels its buttons in the accent rather than filling them, so the accent
+   has to be legible as text. It uses the readability-corrected value: measured
+   against the panel colour, the raw accent failed 4.5:1 for all twenty presets
+   on the light theme. */
+html[data-skin="neu"] .btn,
+html[data-skin="neu"] .tabs button.on,
+html[data-skin="neu"] .seg button.on,
+html[data-skin="neu"] .nav button.on{
+  color:var(--accent-readable, var(--accent));
+}
+html[data-skin="neu"] .btn:hover{
+  color:var(--accent-readable, var(--accent));
+  filter:brightness(1.12);
+}
+
+/* ===========================================================================
+   20. The three materials on a white page
+   ===========================================================================
+   Found by working through each skin in the light theme rather than assuming
+   the dark values would scale. */
+
+/* Clay went flat: --s9 is pure white in the light theme, so a white body with
+   a white inner light has nothing left to shade. It gets a faintly tinted body
+   so the moulding is still visible. */
+html[data-theme="light"][data-skin="clay"]{
+  --sk-surface:linear-gradient(180deg, #ffffff, #eef1f7);
+  --sk-surface-2:linear-gradient(180deg, #f7f9fc, #e8ecf4);
+}
+html[data-theme="light"][data-skin="clay"] :is(.chip, .pill, .st-chip, .hdr-kpi){
+  background:#eef1f7;
+}
+html[data-theme="light"][data-skin="clay"] :is(.seg, .tabs, .draw-tools, .cal-bar){
+  background:#e4e9f2;
+}
+
+/* Neu needs panel and page to share one tone; on white that means lifting the
+   panel very slightly, or the shadows have nothing to sit against. */
+html[data-theme="light"][data-skin="neu"]{
+  --sk-surface:#f2f5fa;
+  --sk-surface-2:#eef2f8;
+  --sk-field:#f2f5fa;
+}
+html[data-theme="light"][data-skin="neu"] :is(.tabs, .seg, .draw-tools, .cal-bar,
+                                              .term, .robot-term, .st-src, .empty){
+  background:#f2f5fa;
+}
+
+/* Skeu's screen stays dark even in the light theme - a terminal is a screen,
+   and bleaching it would lose the one place the metaphor is literal. */
+html[data-theme="light"][data-skin="skeu"] :is(.term, .robot-term, .st-src, .tg-src){
+  background:linear-gradient(180deg, #11151d, #1a202b);
+  color:#dbe3f0;
+}
