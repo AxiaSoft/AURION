@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.IO;
 using System.Runtime.InteropServices;
 
 namespace Aurion.Window;
@@ -26,8 +27,43 @@ internal static class Program
             return;
         }
 
+        // A desk must not greet a trader with a .NET crash dialog and a wall of
+        // loaded assemblies. Anything unhandled is logged next to the app and
+        // shown as one readable sentence; the window survives where it can.
+        Application.SetUnhandledExceptionMode(UnhandledExceptionMode.CatchException);
+        Application.ThreadException += (_, e) => ReportFault(e.Exception);
+        AppDomain.CurrentDomain.UnhandledException += (_, e) => ReportFault(e.ExceptionObject as Exception);
+
         ApplicationConfiguration.Initialize();
         Application.Run(new AppWindow());
+    }
+
+    private static void ReportFault(Exception? ex)
+    {
+        if (ex is null) return;
+        try
+        {
+            var log = Path.Combine(AppContext.BaseDirectory, "data", "logs", "window.log");
+            Directory.CreateDirectory(Path.GetDirectoryName(log)!);
+            File.AppendAllText(log, $"{DateTime.Now:u}  {ex}{Environment.NewLine}{Environment.NewLine}");
+        }
+        catch
+        {
+            // Logging must never be the thing that takes the app down.
+        }
+
+        try
+        {
+            MessageBox.Show(
+                "AURION hit an unexpected error:\n\n" + ex.Message +
+                "\n\nThe desk usually keeps running. Details were written to" +
+                "\ndata\\logs\\window.log",
+                "AURION", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+        }
+        catch
+        {
+            // Nothing left to do but let it go.
+        }
     }
 
     private static void RaiseExistingWindow()

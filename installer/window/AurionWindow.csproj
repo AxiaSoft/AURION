@@ -38,7 +38,18 @@
     <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
     <GenerateDocumentationFile>false</GenerateDocumentationFile>
     <DebugType>none</DebugType>
-    <InvariantGlobalization>true</InvariantGlobalization>
+    <!-- Deliberately NOT invariant.
+
+         Invariant globalization trims the ICU data and looks like free weight
+         on a host that only shows a splash and a WebView. It is not: WinForms
+         handles WM_INPUTLANGCHANGE by building a CultureInfo from the keyboard
+         layout's LCID, and in invariant mode that throws. Switching to the
+         Persian layout (0x0429) - which every user of this product does, many
+         times a day - raised an unhandled CultureNotFoundException.
+
+         The cost is ICU in the self-contained publish; the alternative is a
+         crash dialog every time someone changes keyboard. -->
+    <InvariantGlobalization>false</InvariantGlobalization>
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(AurionVersion)' == ''">
