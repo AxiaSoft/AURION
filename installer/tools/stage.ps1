@@ -140,6 +140,11 @@ if ($SkipNpm) {
 # ---------------------------------------------------------------------------
 Say "apps\web\"
 Copy-Tree -From (Join-Path $Root "apps\web") -To (Join-Path $appDir "apps\web")
+# __*.html are local scratch pages used to eyeball skins during development.
+# They are git-ignored, but a developer's working copy is what gets staged, so
+# the payload drops them explicitly rather than trusting that.
+Get-ChildItem (Join-Path $appDir "apps\web") -Filter "__*.html" -File -ErrorAction SilentlyContinue |
+    Remove-Item -Force -ErrorAction SilentlyContinue
 
 Say "lang\"
 Copy-Tree -From (Join-Path $Root "lang") -To (Join-Path $appDir "lang")

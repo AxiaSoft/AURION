@@ -25,9 +25,26 @@
       document.documentElement.dataset.glass = (__g === "off") ? "off" : "on";
       var __m = document.querySelector('meta[name="theme-color"]');
       if (__m) __m.setAttribute("content", __r === "light" ? "#e9edf4" : "#06070b");
+      /* Appearance, applied before the first paint so the desk never flashes
+         the wrong skin. js/skins.js re-applies the same values and owns the
+         logic; this is only the pre-paint shortcut. */
+      var __skin = localStorage.getItem("aurion.skin") || "glass";
+      if (["glass","clay","skeu","neu","minimal"].indexOf(__skin) < 0) __skin = "glass";
+      document.documentElement.dataset.skin = __skin;
+      var __bg = localStorage.getItem("aurion.bg") || "default";
+      if (["default","aurora","deep","mesh","custom"].indexOf(__bg) < 0) __bg = "default";
+      if (__bg === "custom" && !localStorage.getItem("aurion.wallpaper")) __bg = "default";
+      document.documentElement.dataset.bg = __bg;
+      var __perf = localStorage.getItem("aurion.perf") || "auto";
+      if (__perf === "auto") {
+        var __c = navigator.hardwareConcurrency || 0, __mem = navigator.deviceMemory || 0;
+        __perf = ((__c > 0 && __c <= 4) || (__mem > 0 && __mem <= 4)) ? "fast" : "rich";
+      }
+      document.documentElement.dataset.perf = (__skin === "glass") ? __perf : "fast";
     } catch (e) { document.documentElement.dataset.theme = "dark"; }
   </script>
   <link rel="stylesheet" href="/css/app.css?v=desk65" />
+  <link rel="stylesheet" href="/css/skins.css?v=desk66" />
 </head>
 <body class="mode-desk">
   <div class="aurora"></div>
@@ -128,6 +145,7 @@
   <div class="toast-wrap" id="toasts"></div>
   <div class="notify-stack" id="notify-stack" hidden></div>
   <div class="pay-veil hidden" id="pay-veil"></div>
+  <script src="/js/skins.js?v=desk66"></script>
   <script src="/js/i18n.js?v=desk60"></script>
   <script src="/js/api.js?v=desk60"></script>
   <script src="/js/calendar.js?v=desk60"></script>

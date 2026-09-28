@@ -302,6 +302,165 @@ function setThemeNow(mode) {
     try { S.chart.setBars(S.candles); } catch {}
   }
 }
+/* ===========================================================================
+   Appearance — skin, accent, wallpaper, rendering tier.
+
+   Every one of these is presentation only: AurionSkin owns the storage and the
+   attributes on <html>, and nothing here touches desk state. Rendered as part
+   of the Personal settings tab.
+   =========================================================================== */
+function skinLabel(id) {
+  const map = { glass: "skin_glass", clay: "skin_clay", skeu: "skin_skeu", neu: "skin_neu", minimal: "skin_minimal" };
+  return I18N.t("settings." + (map[id] || "skin_glass"));
+}
+
+function bgLabel(id) {
+  const map = { default: "bg_default", aurora: "bg_aurora", deep: "bg_deep", mesh: "bg_mesh", custom: "bg_custom" };
+  return I18N.t("settings." + (map[id] || "bg_default"));
+}
+
+function appearanceCardsHtml() {
+  if (typeof AurionSkin === "undefined") return "";
+  const skin = AurionSkin.getSkin();
+  const accent = AurionSkin.getAccent();
+  const bg = AurionSkin.getBackground();
+  const perf = AurionSkin.getPerfMode();
+  const custom = /^#[0-9a-fA-F]{6}$/.test(accent) ? accent : AurionSkin.accentTriplet(accent)[0];
+
+  const skins = AurionSkin.SKINS.map((id) =>
+    `<button type="button" data-skinbtn="${id}" class="${id === skin ? "on" : ""}">${skinLabel(id)}</button>`).join("");
+
+  const swatches = Object.keys(AurionSkin.ACCENTS).map((id) => {
+    const c = AurionSkin.ACCENTS[id];
+    return `<button type="button" class="accent-dot ${id === accent ? "on" : ""}" data-accent="${id}" title="${id}"
+              style="background:linear-gradient(135deg, ${c[0]}, ${c[2]})" aria-label="${id}"></button>`;
+  }).join("");
+
+  const backgrounds = AurionSkin.BACKGROUNDS
+    .filter((id) => id !== "custom" || AurionSkin.hasWallpaper())
+    .map((id) => `<button type="button" data-bgbtn="${id}" class="${id === bg ? "on" : ""}">${bgLabel(id)}</button>`)
+    .join("");
+
+  const perfNow = AurionSkin.effectivePerf() === "fast"
+    ? I18N.t("settings.perf_now_fast") : I18N.t("settings.perf_now_rich");
+
+  return `
+      <div class="card" style="margin-top:14px">
+        <p class="sub" style="margin:0 0 6px">${I18N.t("settings.skin")}</p>
+        <div class="lang-pills" id="set-skins">${skins}</div>
+        <p class="sub" style="margin:8px 0 0">${I18N.t("settings.skin_hint")}</p>
+      </div>
+
+      <div class="card" style="margin-top:14px">
+        <p class="sub" style="margin:0 0 6px">${I18N.t("settings.accent")}</p>
+        <div class="accent-row" id="set-accents">
+          ${swatches}
+          <label class="accent-custom" title="${I18N.t("settings.accent_custom")}">
+            <input type="color" id="set-accent-custom" value="${custom}" aria-label="${I18N.t("settings.accent_custom")}" />
+          </label>
+        </div>
+        <p class="sub" style="margin:8px 0 0">${I18N.t("settings.accent_hint")}</p>
+      </div>
+
+      <div class="card" style="margin-top:14px">
+        <p class="sub" style="margin:0 0 6px">${I18N.t("settings.wallpaper")}</p>
+        <div class="lang-pills" id="set-bgs">${backgrounds}</div>
+        <div class="row" style="gap:8px;margin-top:10px;flex-wrap:wrap">
+          <button type="button" class="btn tiny ghost" id="set-bg-pick">${I18N.t("settings.bg_choose")}</button>
+          ${AurionSkin.hasWallpaper() ? `<button type="button" class="btn tiny ghost" id="set-bg-clear">${I18N.t("settings.bg_remove")}</button>` : ""}
+          <input type="file" id="set-bg-file" accept="image/*" hidden />
+        </div>
+        <p class="sub" style="margin:8px 0 0" id="set-bg-msg">${I18N.t("settings.wallpaper_hint")}</p>
+      </div>
+
+      <div class="card" style="margin-top:14px">
+        <p class="sub" style="margin:0 0 6px">${I18N.t("settings.perf")}</p>
+        <div class="lang-pills" id="set-perf">
+          <button type="button" data-perfbtn="auto" class="${perf === "auto" ? "on" : ""}">${I18N.t("settings.perf_auto")}</button>
+          <button type="button" data-perfbtn="rich" class="${perf === "rich" ? "on" : ""}">${I18N.t("settings.perf_rich")}</button>
+          <button type="button" data-perfbtn="fast" class="${perf === "fast" ? "on" : ""}">${I18N.t("settings.perf_fast")}</button>
+        </div>
+        <p class="sub" style="margin:8px 0 0">${I18N.t("settings.perf_hint")} <b>${perfNow}</b></p>
+      </div>`;
+}
+
+function markAppearancePills() {
+  if (typeof AurionSkin === "undefined") return;
+  const skin = AurionSkin.getSkin(), bg = AurionSkin.getBackground(), perf = AurionSkin.getPerfMode(), accent = AurionSkin.getAccent();
+  document.querySelectorAll("[data-skinbtn]").forEach((b) => b.classList.toggle("on", b.dataset.skinbtn === skin));
+  document.querySelectorAll("[data-bgbtn]").forEach((b) => b.classList.toggle("on", b.dataset.bgbtn === bg));
+  document.querySelectorAll("[data-perfbtn]").forEach((b) => b.classList.toggle("on", b.dataset.perfbtn === perf));
+  document.querySelectorAll("[data-accent]").forEach((b) => b.classList.toggle("on", b.dataset.accent === accent));
+}
+
+function bindAppearance() {
+  if (typeof AurionSkin === "undefined") return;
+
+  const skins = $("set-skins");
+  if (skins) skins.onclick = (e) => {
+    const b = e.target.closest("[data-skinbtn]"); if (!b) return;
+    AurionSkin.setSkin(b.dataset.skinbtn);
+    markAppearancePills();
+    repaintChartsForTheme();
+  };
+
+  const accents = $("set-accents");
+  if (accents) accents.onclick = (e) => {
+    const b = e.target.closest("[data-accent]"); if (!b) return;
+    AurionSkin.setAccent(b.dataset.accent);
+    markAppearancePills();
+    repaintChartsForTheme();
+  };
+
+  const custom = $("set-accent-custom");
+  if (custom) custom.oninput = () => {
+    AurionSkin.setAccent(custom.value);
+    markAppearancePills();
+    repaintChartsForTheme();
+  };
+
+  const bgs = $("set-bgs");
+  if (bgs) bgs.onclick = (e) => {
+    const b = e.target.closest("[data-bgbtn]"); if (!b) return;
+    AurionSkin.setBackground(b.dataset.bgbtn);
+    markAppearancePills();
+  };
+
+  const pick = $("set-bg-pick");
+  const file = $("set-bg-file");
+  const msg = $("set-bg-msg");
+  if (pick && file) pick.onclick = () => file.click();
+  if (file) file.onchange = async () => {
+    const f = file.files && file.files[0];
+    file.value = "";
+    if (!f) return;
+    const r = await AurionSkin.setWallpaperFile(f);
+    if (r.ok) { renderSettings(); return; }
+    if (!msg) return;
+    if (r.error === "too-large") msg.textContent = I18N.t("settings.bg_too_large").replace("%s", String(AurionSkin.maxWallpaperMb()));
+    else if (r.error === "not-an-image") msg.textContent = I18N.t("settings.bg_not_image");
+    else if (r.error === "no-space") msg.textContent = I18N.t("settings.bg_no_space");
+  };
+
+  const clear = $("set-bg-clear");
+  if (clear) clear.onclick = () => { AurionSkin.clearWallpaper(); renderSettings(); };
+
+  const perf = $("set-perf");
+  if (perf) perf.onclick = (e) => {
+    const b = e.target.closest("[data-perfbtn]"); if (!b) return;
+    AurionSkin.setPerfMode(b.dataset.perfbtn);
+    renderSettings();
+  };
+}
+
+/* The chart canvases read their colours once, so an accent or skin change has
+   to ask them to redraw - the same thing a theme switch already does. */
+function repaintChartsForTheme() {
+  if (S.chart && S.candles && S.candles.length && typeof S.chart.setBars === "function") {
+    try { S.chart.setBars(S.candles); } catch {}
+  }
+}
+
 function glassOn() {
   if (document.documentElement && document.documentElement.dataset.glass) {
     return document.documentElement.dataset.glass !== "off";
@@ -2523,6 +2682,7 @@ const views = {
             <button type="button" class="switch ${glassOn()?"on":""}" id="sw-glass" aria-pressed="${glassOn()}"><i></i></button>
           </div>
         </div>
+        ${appearanceCardsHtml()}
       </section>
       <section class="set-block" id="set-telegram"${tab==="set-telegram"?"":" hidden"}>
         <h2 class="set-title">${I18N.t("telegram.title")}</h2>
@@ -3822,6 +3982,8 @@ function bindView(view) {
     paintGlassSwitch();
     const glass = $("sw-glass");
     if (glass) glass.onclick = () => setGlass(!glassOn());
+    bindAppearance();
+    markAppearancePills();
     bindStrategyUpload();
     const tpl = $("st-tpl");
     if (tpl) tpl.onclick = async (e) => {

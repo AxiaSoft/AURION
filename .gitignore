@@ -21,3 +21,6 @@ venv/
 # WebView2 desk window build output
 installer/window/bin/
 installer/window/obj/
+
+# local UI scratch pages (never shipped)
+apps/web/__*.html
