@@ -97,6 +97,12 @@
   }
 
   // Relative luminance, so text on a bright accent is dark and vice versa.
+
+  function rgbTriplet(hex) {
+    var n = parseInt(hex.slice(1), 16);
+    return ((n >> 16) & 255) + " " + ((n >> 8) & 255) + " " + (n & 255);
+  }
+
   function readableInk(hex) {
     var n = parseInt(hex.slice(1), 16);
     var channels = [(n >> 16) & 255, (n >> 8) & 255, n & 255].map(function (c) {
@@ -228,10 +234,11 @@
     el.style.setProperty("--accent-2", a[1]);
     el.style.setProperty("--accent-3", a[2]);
     el.style.setProperty("--accent-ink", a[3]);
-    // app.css reaches for --cyan all over the desk; keeping it in step is what
-    // makes the accent apply to charts, links, focus rings and the rest.
-    el.style.setProperty("--cyan", a[0]);
-    el.style.setProperty("--ok", a[0]);
+    // app.css expresses every tinted hover, focus ring, badge and chart colour
+    // as rgb(var(--accent-rgb) / alpha), so the triplets are what actually make
+    // the whole desk follow the picked colour - not just the solid fills.
+    el.style.setProperty("--accent-rgb", rgbTriplet(a[0]));
+    el.style.setProperty("--accent-3-rgb", rgbTriplet(a[2]));
     el.style.setProperty("--scroll-thumb-hover", a[0]);
 
     // A skin that is not glass has no blur to pay for, so the expensive tier is

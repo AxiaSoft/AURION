@@ -41,6 +41,13 @@
         __perf = ((__c > 0 && __c <= 4) || (__mem > 0 && __mem <= 4)) ? "fast" : "rich";
       }
       document.documentElement.dataset.perf = (__skin === "glass") ? __perf : "fast";
+      var __acc = localStorage.getItem("aurion.accent");
+      if (__acc && /^#[0-9a-fA-F]{6}$/.test(__acc)) {
+        var __n = parseInt(__acc.slice(1), 16);
+        var __rgb = ((__n >> 16) & 255) + " " + ((__n >> 8) & 255) + " " + (__n & 255);
+        document.documentElement.style.setProperty("--accent", __acc);
+        document.documentElement.style.setProperty("--accent-rgb", __rgb);
+      }
     } catch (e) { document.documentElement.dataset.theme = "dark"; }
   </script>
   <link rel="stylesheet" href="/css/app.css?v=desk65" />

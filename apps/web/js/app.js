@@ -2303,7 +2303,7 @@ const views = {
         <h3 style="margin-top:16px">${I18N.t("ai.pattern")}</h3>
         <p class="metric" id="ai-pattern" style="font-size:20px">${esc(typeof pat === "string" ? pat : (pat?.name || "—"))}</p>
         <p class="sub">${esc((pat && typeof pat === "object" ? pat.reason : "") || I18N.t("status.ai_idle"))}</p>
-        <p class="sub" style="margin-top:8px">اسلایدر بالا جهت + رژیم را برای هر چارت جداگانه نشان می‌دهد — با دکمه‌های ‹ › بین چارت‌ها جابجا شوید.</p>
+        <p class="sub" style="margin-top:8px">${I18N.t("chart.regime_hint")}</p>
       </div>
       <div class="card">
         <h3>${I18N.t("ai.activity")}</h3>
@@ -2512,8 +2512,8 @@ const views = {
         <div id="bt-result">${renderBacktestCard(bt)}</div>
       </div>
       <div class="card">
-        <h3>📊 نتایج بک‌تست</h3>
-        <p class="sub">نتایج آخرین بک‌تست در اینجا نمایش داده می‌شود</p>
+        <h3>📊 ${I18N.t("bt.results")}</h3>
+        <p class="sub">${I18N.t("bt.results_hint")}</p>
         <div id="bt-extra"></div>
       </div>
     </div>`;
@@ -2599,18 +2599,18 @@ const views = {
         <span class="sj-ic">${icon(ic)}</span><span class="sj-txt"><b>${label}</b>${desc ? `<small>${desc}</small>` : ""}</span></button>`;
     const grp = (label) => `<div class="sj-grp">${label}</div>`;
     return `<div class="set-desk set-rail"><nav class="set-jump" id="set-jump" aria-label="settings">
-        ${grp(fa ? "معامله" : "Trading")}
-        ${tabBtn("set-robot", I18N.t("settings.sec_robot"), "bolt", fa ? "حالت، ریسک، نمادها" : "mode, risk, symbols")}
-        ${tabBtn("set-strats", I18N.t("nav.strategies"), "layers", fa ? "استراتژی فعال" : "active strategy")}
-        ${tabBtn("set-prop", I18N.t("risk.title"), "shield", fa ? "قوانین پراپ و حد ضرر" : "prop rules, drawdown")}
-        ${tabBtn("set-mt5", "MetaTrader 5", "term", fa ? "اتصال به بروکر" : "broker connection")}
-        ${grp(fa ? "شخصی‌سازی" : "Personal")}
-        ${tabBtn("set-lang", I18N.t("settings.language"), "book", fa ? "زبان رابط" : "interface language")}
-        ${tabBtn("set-personal", I18N.t("settings.personal"), "user", fa ? "پوسته و ظاهر" : "theme & look")}
-        ${tabBtn("set-telegram", I18N.t("telegram.title"), "spark", fa ? "اعلان‌ها" : "notifications")}
-        ${grp(fa ? "سیستم" : "System")}
-        ${tabBtn("set-update", fa ? "آپدیت سیستم" : "Updates", "pulse", fa ? "نسخه و به‌روزرسانی" : "version & updates")}
-        ${tabBtn("set-system", I18N.t("host.system"), "gear", fa ? "لایسنس و سرویس" : "license & service")}
+        ${grp(I18N.t("rail.trading"))}
+        ${tabBtn("set-robot", I18N.t("settings.sec_robot"), "bolt", I18N.t("rail.robot_hint"))}
+        ${tabBtn("set-strats", I18N.t("nav.strategies"), "layers", I18N.t("rail.strats_hint"))}
+        ${tabBtn("set-prop", I18N.t("risk.title"), "shield", I18N.t("rail.prop_hint"))}
+        ${tabBtn("set-mt5", "MetaTrader 5", "term", I18N.t("rail.mt5_hint"))}
+        ${grp(I18N.t("rail.personalize"))}
+        ${tabBtn("set-lang", I18N.t("settings.language"), "book", I18N.t("rail.lang_hint"))}
+        ${tabBtn("set-personal", I18N.t("settings.personal"), "user", I18N.t("rail.personal_hint"))}
+        ${tabBtn("set-telegram", I18N.t("telegram.title"), "spark", I18N.t("rail.telegram_hint"))}
+        ${grp(I18N.t("rail.system"))}
+        ${tabBtn("set-update", I18N.t("upd.title"), "pulse", I18N.t("rail.update_hint"))}
+        ${tabBtn("set-system", I18N.t("host.system"), "gear", I18N.t("rail.system_hint"))}
       </nav><div class="set-main">
       <section class="set-block" id="set-robot"${tab==="set-robot"?"":" hidden"}>
         <h2 class="set-title">${I18N.t("settings.sec_robot")}</h2>
@@ -2689,26 +2689,26 @@ const views = {
         ${licFeat("telegram") ? telegramPanelHtml() : lockedUpgradeCard("telegram")}
       </section>
       <section class="set-block" id="set-update" hidden>
-        <h2 class="set-title">آپدیت سیستم</h2>
+        <h2 class="set-title">${I18N.t("upd.title")}</h2>
         <div class="card">
-          <h3>تنظیمات آپدیت</h3>
+          <h3>${I18N.t("upd.settings")}</h3>
           <label class="field" style="flex-direction:row;align-items:center;justify-content:space-between;margin-top:12px">
-            <span>چک خودکار آپدیت</span>
+            <span>${I18N.t("upd.auto")}</span>
             <button type="button" class="switch" id="upd-auto"><i></i></button>
           </label>
-          <label class="field"><span>فاصله چک خودکار (ساعت)</span>
+          <label class="field"><span>${I18N.t("upd.interval")}</span>
             <input id="upd-interval" type="number" min="1" max="168" value="6" />
           </label>
-          <button class="btn block" id="upd-save" type="button">ذخیره تنظیمات</button>
+          <button class="btn block" id="upd-save" type="button">${I18N.t("upd.save")}</button>
           <p class="sub" id="upd-save-msg"></p>
         </div>
         <div class="card" style="margin-top:14px">
-          <h3>وضعیت آپدیت</h3>
-          <p class="sub" id="upd-last-check">آخرین چک: -</p>
+          <h3>${I18N.t("upd.status")}</h3>
+          <p class="sub" id="upd-last-check">${I18N.t("upd.last_check")}: -</p>
           <div id="upd-status"></div>
           <div class="row" style="margin-top:10px;gap:8px">
-            <button class="btn" id="upd-check" type="button">🔍 چک کردن آپدیت</button>
-            <button class="btn ghost" id="upd-manifest" type="button">📋 نمایش فایل‌های محلی</button>
+            <button class="btn" id="upd-check" type="button">🔍 ${I18N.t("upd.check")}</button>
+            <button class="btn ghost" id="upd-manifest" type="button">📋 ${I18N.t("upd.manifest")}</button>
           </div>
           <div id="upd-result" style="margin-top:12px"></div>
         </div>
@@ -2740,8 +2740,8 @@ const views = {
           <img src="/icons/mark.png?v=desk49" alt="AURION" style="width:100%;height:100%;object-fit:cover;transform:scale(1.08)" />
         </div>
         <h2 style="margin:0 0 6px;font-size:28px;letter-spacing:.12em">AURION</h2>
-        <p class="sub" style="font-size:14px">نسخه <b class="mono" style="color:var(--cyan)">v${esc(ver)}</b> • بیلد ${esc(buildDate)}</p>
-        <p class="sub" style="margin-top:12px;max-width:520px;margin-left:auto;margin-right:auto;line-height:1.8">AURION یک دسک ترید زنده MetaTrader 5 با هوش مصنوعی، مدیریت ریسک پراپ و استراتژی‌های قابل آپلود است. طراحی شده برای تریدرهای حرفه‌ای.</p>
+        <p class="sub" style="font-size:14px">${I18N.t("about.version")} <b class="mono" style="color:var(--cyan)">v${esc(ver)}</b> • ${I18N.t("about.build")} ${esc(buildDate)}</p>
+        <p class="sub" style="margin-top:12px;max-width:520px;margin-left:auto;margin-right:auto;line-height:1.8">${I18N.t("about.blurb")}</p>
         <div style="margin:20px auto 0;display:flex;gap:8px;justify-content:center;flex-wrap:wrap">
           <span class="pill ok">MT5 Live</span>
           <span class="pill ok">AI ${L.premium? 'PRO' : 'Free'}</span>
@@ -2751,45 +2751,45 @@ const views = {
       </div>
       <div class="grid g-2">
         <div class="card">
-          <h3>🛠️ مشخصات سیستم</h3>
+          <h3>🛠️ ${I18N.t("about.specs")}</h3>
           <div class="kv">
-            <span>نام سیستم</span><b>AURION</b>
-            <span>نسخه</span><b class="mono">v${esc(ver)}</b>
-            <span>حالت</span><b>${S.snap?.engine === 'online' ? 'آنلاین 🟢' : 'آفلاین 🔴'}</b>
-            <span>MT5</span><b>${mt5Live() ? 'متصل 🟢' : 'قطع 🔴'}</b>
+            <span>${I18N.t("about.sys_name")}</span><b>AURION</b>
+            <span>${I18N.t("about.version")}</span><b class="mono">v${esc(ver)}</b>
+            <span>${I18N.t("about.state")}</span><b>${S.snap?.engine === 'online' ? I18N.t("about.online") + ' 🟢' : I18N.t("about.offline") + ' 🔴'}</b>
+            <span>MT5</span><b>${mt5Live() ? I18N.t("about.connected") + ' 🟢' : I18N.t("about.disconnected") + ' 🔴'}</b>
             <span>EA Charts</span><b class="mono">${liveAgents().length}</b>
-            <span>استراتژی فعال</span><b>${esc(S.snap?.strategy?.name||'—')}</b>
-            <span>اتو ترید</span><b>${S.snap?.strategy?.auto_trade ? 'روشن 🟢' : 'خاموش 🔴'}</b>
-            <span>کیل سوئیچ</span><b>${S.snap?.kill_switch ? 'مسلح 🔴' : 'خاموش 🟢'}</b>
-            <span>Prop</span><b>${S.snap?.prop?.enabled !== false ? 'فعال 🟢' : 'غیرفعال 🔴'}</b>
-            <span>زبان</span><b>${I18N.lang.toUpperCase()}</b>
+            <span>${I18N.t("about.active_strategy")}</span><b>${esc(S.snap?.strategy?.name||'—')}</b>
+            <span>${I18N.t("about.autotrade")}</span><b>${S.snap?.strategy?.auto_trade ? I18N.t("about.on") + ' 🟢' : I18N.t("about.off") + ' 🔴'}</b>
+            <span>${I18N.t("about.kill")}</span><b>${S.snap?.kill_switch ? I18N.t("about.armed") + ' 🔴' : I18N.t("about.off") + ' 🟢'}</b>
+            <span>Prop</span><b>${S.snap?.prop?.enabled !== false ? I18N.t("about.enabled") + ' 🟢' : I18N.t("about.disabled") + ' 🔴'}</b>
+            <span>${I18N.t("about.language")}</span><b>${I18N.lang.toUpperCase()}</b>
           </div>
         </div>
         <div class="card">
-          <h3>🏢 سازنده</h3>
+          <h3>🏢 ${I18N.t("about.maker")}</h3>
           <div style="display:flex;align-items:center;gap:14px;margin:12px 0">
             <img src="/assets/axiasoft-logo.png?v=desk49" alt="Axiasoft" style="width:56px;height:56px;object-fit:contain;background:transparent;border:none;border-radius:0" />
             <div>
               <b style="font-size:18px">Axiasoft</b><br>
-              <span class="sub">توسعه‌دهنده AURION • 2024-${copyrightYear()}</span>
+              <span class="sub">${I18N.t("about.developer_of")} • 2024-${copyrightYear()}</span>
             </div>
           </div>
           <div class="kv" style="margin-top:12px">
-            <span>محصول</span><b>AURION Live Desk</b>
-            <span>لایسنس</span><b>${L.premium ? planLabel(L) : 'Freemium'}</b>
-            <span>پشتیبانی</span><b>support@axiasoft</b>
-            <span>آپدیت</span><b id="about-update-status">در حال بررسی...</b>
+            <span>${I18N.t("about.product")}</span><b>AURION Live Desk</b>
+            <span>${I18N.t("about.license")}</span><b>${L.premium ? planLabel(L) : 'Freemium'}</b>
+            <span>${I18N.t("about.support")}</span><b>support@axiasoft</b>
+            <span>${I18N.t("about.update")}</span><b id="about-update-status">${I18N.t("about.checking")}</b>
           </div>
           <div class="row" style="margin-top:14px">
-            <button class="btn tiny" id="about-check-update" type="button">🔄 چک آپدیت</button>
-            <button class="btn tiny ghost" id="about-copy-ver" type="button">📋 کپی نسخه</button>
+            <button class="btn tiny" id="about-check-update" type="button">🔄 ${I18N.t("about.check")}</button>
+            <button class="btn tiny ghost" id="about-copy-ver" type="button">📋 ${I18N.t("about.copy_ver")}</button>
           </div>
         </div>
       </div>
       <div class="card">
-        <h3>📋 لاگ تغییرات</h3>
+        <h3>📋 ${I18N.t("about.changelog")}</h3>
         <div id="about-changelog" class="sub" style="max-height:240px;overflow:auto;line-height:1.8">
-          <p>در حال بارگذاری...</p>
+          <p>${I18N.t("upd.loading")}</p>
         </div>
       </div>
     </div>`;
@@ -3442,12 +3442,12 @@ async function bindUpdatePanel(){
     }
     const st = await API.get('/api/system/update/state');
     if(st.ok && st.data){
-      if(lastCheckEl) lastCheckEl.textContent = 'آخرین چک: '+(st.data.last_check||'-') + (st.data.update_available?' - آپدیت موجود!':' - به‌روز');
+      if(lastCheckEl) lastCheckEl.textContent = I18N.t('upd.last_check') + ': ' + (st.data.last_check||'-') + ' - ' + (st.data.update_available ? I18N.t('upd.available') : I18N.t('upd.uptodate'));
       if(statusEl){
         if(st.data.latest){
-          statusEl.innerHTML = '<div class="kv"><span>نسخه جدید</span><b>'+esc(st.data.latest.version||'')+'</b><span>تاریخ</span><b>'+esc(st.data.latest.published_at||'')+'</b></div><p class="sub">'+esc(st.data.latest.changelog||'')+'</p><p class="sub">فایل‌های تغییر: '+(st.data.latest.files||[]).length+'</p>';
+          statusEl.innerHTML = '<div class="kv"><span>'+I18N.t('upd.new_version')+'</span><b>'+esc(st.data.latest.version||'')+'</b><span>'+I18N.t('upd.date')+'</span><b>'+esc(st.data.latest.published_at||'')+'</b></div><p class="sub">'+esc(st.data.latest.changelog||'')+'</p><p class="sub">'+I18N.t('upd.files_changed')+': '+(st.data.latest.files||[]).length+'</p>';
         } else {
-          statusEl.innerHTML = '<p class="sub">آپدیتی یافت نشد</p>';
+          statusEl.innerHTML = '<p class="sub">' + I18N.t('upd.none') + '</p>';
         }
       }
     }
@@ -3460,7 +3460,7 @@ async function bindUpdatePanel(){
       auto_check_interval_hours: Number(intervalEl.value)||6,
     };
     const r = await API.post('/api/system/update/settings', body);
-    const txt = r.ok ? 'ذخیره شد ✅' : (r.error||'خطا');
+    const txt = r.ok ? I18N.t('upd.saved') + ' ✅' : (r.error||I18N.t('upd.error'));
     if(saveMsg) saveMsg.textContent = txt;
     toast(txt);
   };
@@ -3468,32 +3468,32 @@ async function bindUpdatePanel(){
 
   const checkBtn = document.getElementById('upd-check');
   if(checkBtn) checkBtn.onclick = async () => {
-    if(resultEl) resultEl.innerHTML = '<p class="sub">در حال چک...</p>';
+    if(resultEl) resultEl.innerHTML = '<p class="sub">' + I18N.t('upd.checking') + '</p>';
     const r = await API.post('/api/system/update/check', {});
     if(!r.ok){
-      if(resultEl) resultEl.innerHTML = '<p class="err">خطا: '+esc(r.error||'')+'</p>';
+      if(resultEl) resultEl.innerHTML = '<p class="err">' + I18N.t('upd.error') + ': '+esc(r.error||'')+'</p>';
       return;
     }
     if(!r.update_available){
-      if(resultEl) resultEl.innerHTML = '<p class="ok">✅ سیستم به‌روز است - نسخه '+esc((r.latest&&r.latest.version)||'')+'</p>';
-      if(lastCheckEl) lastCheckEl.textContent = 'آخرین چک: '+(r.last_check||new Date().toISOString())+' - به‌روز';
+      if(resultEl) resultEl.innerHTML = '<p class="ok">✅ '+I18N.t('upd.uptodate')+' - '+I18N.t('about.version')+' '+esc((r.latest&&r.latest.version)||'')+'</p>';
+      if(lastCheckEl) lastCheckEl.textContent = I18N.t('upd.last_check')+': '+(r.last_check||new Date().toISOString())+' - '+I18N.t('upd.uptodate');
       return;
     }
     const upd = r.latest;
     if(resultEl){
-      resultEl.innerHTML = '<div class="card" style="background:rgb(var(--s9))"><h3>🆕 آپدیت موجود: '+esc(upd.version||'')+'</h3><p class="sub">'+esc(upd.changelog||'')+'</p><p class="sub">فایل‌ها: '+(upd.files||[]).length+' تغییر</p><div style="max-height:200px;overflow:auto;margin:8px 0">'+(upd.files||[]).map(f=>'<div class="file-item" style="display:flex;justify-content:space-between;background:rgb(var(--s3));padding:6px;border-radius:4px;margin:3px 0"><span>'+esc(f.path)+'</span><span style="font-size:11px">'+(f.size||'')+' bytes</span></div>').join('')+'</div><button class="btn" id="upd-apply-btn" type="button">⬇️ دریافت و نصب آپدیت</button><p class="sub" style="margin-top:8px;color:var(--gold)">توجه: فایل‌ها جایگزین می‌شوند و بک‌آپ گرفته می‌شود</p></div>';
+      resultEl.innerHTML = '<div class="card" style="background:rgb(var(--s9))"><h3>🆕 '+I18N.t('upd.available')+': '+esc(upd.version||'')+'</h3><p class="sub">'+esc(upd.changelog||'')+'</p><p class="sub">'+I18N.t('upd.files_changed')+': '+(upd.files||[]).length+'</p><div style="max-height:200px;overflow:auto;margin:8px 0">'+(upd.files||[]).map(f=>'<div class="file-item" style="display:flex;justify-content:space-between;background:rgb(var(--s3));padding:6px;border-radius:4px;margin:3px 0"><span>'+esc(f.path)+'</span><span style="font-size:11px">'+(f.size||'')+' bytes</span></div>').join('')+'</div><button class="btn" id="upd-apply-btn" type="button">⬇️ '+I18N.t('upd.download_apply')+'</button><p class="sub" style="margin-top:8px;color:var(--gold)">'+I18N.t('upd.replace_note')+'</p></div>';
       const applyBtn = document.getElementById('upd-apply-btn');
       if(applyBtn) applyBtn.onclick = async () => {
-        if(!confirm('آپدیت '+upd.version+' نصب شود؟ فایل‌های فعلی بک‌آپ گرفته می‌شود')) return;
+        if(!confirm(I18N.t('upd.confirm').replace('%s', upd.version))) return;
         applyBtn.disabled = true;
-        applyBtn.textContent = 'در حال نصب...';
+        applyBtn.textContent = I18N.t('upd.installing');
         const ar = await API.post('/api/system/update/apply', { update_id: upd.id });
         if(ar.ok){
-          resultEl.innerHTML = '<p class="ok">✅ آپدیت '+esc(ar.version||upd.version)+' نصب شد<br>فایل‌ها: '+(ar.applied||[]).length+'<br>بک‌آپ: '+esc(ar.backup_dir||'')+'</p><p class="sub">برای اعمال کامل، سیستم را ری‌استارت کنید</p><button class="btn" id="upd-restart" type="button">🔄 ری‌استارت سیستم</button>';
+          resultEl.innerHTML = '<p class="ok">✅ '+I18N.t('upd.installed').replace('%s', esc(ar.version||upd.version))+'<br>'+I18N.t('upd.files')+': '+(ar.applied||[]).length+'<br>'+I18N.t('upd.backup')+': '+esc(ar.backup_dir||'')+'</p><p class="sub">'+I18N.t('upd.restart_hint')+'</p><button class="btn" id="upd-restart" type="button">🔄 '+I18N.t('upd.restart')+'</button>';
           const rb = document.getElementById('upd-restart');
           if(rb) rb.onclick = () => restartSystem();
         } else {
-          resultEl.innerHTML = '<p class="err">خطا در نصب: '+esc(ar.error||'')+'</p>';
+          resultEl.innerHTML = '<p class="err">' + I18N.t('upd.install_failed') + ': '+esc(ar.error||'')+'</p>';
           applyBtn.disabled = false;
         }
       };
@@ -3505,9 +3505,9 @@ async function bindUpdatePanel(){
     const r = await API.get('/api/system/update/manifest');
     if(resultEl){
       if(r.ok){
-        resultEl.innerHTML = '<h4>فایل‌های محلی ('+(r.data.files||[]).length+')</h4><div style="max-height:300px;overflow:auto">'+(r.data.files||[]).slice(0,100).map(f=>'<div style="font-family:monospace;font-size:12px;padding:2px">'+esc(f.path)+' - '+esc(f.hash.slice(0,12))+'</div>').join('')+'</div><p class="sub">نسخه: '+esc(r.data.version||'')+'</p>';
+        resultEl.innerHTML = '<h4>'+I18N.t('upd.local_files')+' ('+(r.data.files||[]).length+')</h4><div style="max-height:300px;overflow:auto">'+(r.data.files||[]).slice(0,100).map(f=>'<div style="font-family:monospace;font-size:12px;padding:2px">'+esc(f.path)+' - '+esc(f.hash.slice(0,12))+'</div>').join('')+'</div><p class="sub">'+I18N.t('about.version')+': '+esc(r.data.version||'')+'</p>';
       } else {
-        resultEl.innerHTML = '<p class="err">خطا</p>';
+        resultEl.innerHTML = '<p class="err">' + I18N.t('upd.error') + '</p>';
       }
     }
   };
@@ -4004,15 +4004,15 @@ function bindView(view) {
     if(chk) chk.onclick = async () => {
       const r = await API.post('/api/system/update/check', {});
       const el = $("about-update-status");
-      if(el) el.textContent = r.ok ? (r.update_available ? 'آپدیت موجود: '+(r.latest?.version||'') : 'به‌روز ✅') : 'خطا: '+(r.error||'');
+      if(el) el.textContent = r.ok ? (r.update_available ? I18N.t('upd.available')+': '+(r.latest?.version||'') : I18N.t('upd.uptodate')+' ✅') : ''+I18N.t('upd.error')+': '+(r.error||'');
       const logEl = $("about-changelog");
       if(logEl && r.ok && r.latest){
-        logEl.innerHTML = '<b>نسخه '+esc(r.latest.version||'')+'</b><br>'+esc(r.latest.changelog||'')+'<br><br>'+ (r.latest.files||[]).map(f=>'<div style="font-family:monospace;font-size:12px">'+esc(f.path)+'</div>').join('');
+        logEl.innerHTML = '<b>'+I18N.t('about.version')+' '+esc(r.latest.version||'')+'</b><br>'+esc(r.latest.changelog||'')+'<br><br>'+ (r.latest.files||[]).map(f=>'<div style="font-family:monospace;font-size:12px">'+esc(f.path)+'</div>').join('');
       }
     };
     const copy = $("about-copy-ver");
     if(copy) copy.onclick = async () => {
-      try { await navigator.clipboard.writeText(S.version||'1.0.0'); toast('کپی شد: v'+(S.version||'')); } catch {}
+      try { await navigator.clipboard.writeText(S.version||'1.0.0'); toast(I18N.t('about.copied') + ': v'+(S.version||'')); } catch {}
     };
     // auto check - async IIFE
     (async () => {
@@ -4020,14 +4020,14 @@ function bindView(view) {
         const r = await API.get('/api/system/update/state');
         const el = $("about-update-status");
         if(el && r.ok && r.data){
-          el.textContent = r.data.update_available ? 'آپدیت موجود: '+(r.data.latest?.version||'') : 'به‌روز ✅ - v'+(S.version||'1.0.0');
+          el.textContent = r.data.update_available ? I18N.t('upd.available')+': '+(r.data.latest?.version||'') : I18N.t('upd.uptodate')+' ✅ - v'+(S.version||'1.0.0');
         }
         const logEl = $("about-changelog");
         if(logEl){
           if(r.ok && r.data && r.data.latest){
-            logEl.innerHTML = '<b>نسخه '+esc(r.data.latest.version||'')+'</b><br>'+esc(r.data.latest.changelog||'')+'';
+            logEl.innerHTML = '<b>'+I18N.t('about.version')+' '+esc(r.data.latest.version||'')+'</b><br>'+esc(r.data.latest.changelog||'')+'';
           } else {
-            logEl.innerHTML = '<p>سیستم به‌روز است - v'+esc(S.version||'1.0.0')+'</p><p class="sub">AURION Live Desk - Axiasoft</p>';
+            logEl.innerHTML = '<p>'+I18N.t('upd.uptodate')+' - v'+esc(S.version||'1.0.0')+'</p><p class="sub">AURION Live Desk - Axiasoft</p>';
           }
         }
       } catch {}
