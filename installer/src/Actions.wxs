@@ -40,7 +40,9 @@
          2. Opt-in removal of user data on uninstall
          ================================================================
          Default is KEEP. The uninstall wizard's checkbox sets
-         AURION_REMOVE_DATA=1, and only then is anything below removed.
+         AURION_REMOVE_DATA="all", and only then is anything below removed.
+         Anything else - including the default "keep" - leaves the trader's
+         licence, settings and history exactly where they are.
 
          The paths are enumerated one by one on purpose. There is deliberately
          no recursive delete of INSTALLFOLDER itself: the user may have chosen
@@ -104,7 +106,7 @@
 
       <Custom Action="AurionRemoveUserData"
               Before="RemoveFiles"
-              Condition="(REMOVE=&quot;ALL&quot;) AND AURION_REMOVE_DATA" />
+              Condition="(REMOVE=&quot;ALL&quot;) AND (AURION_REMOVE_DATA = &quot;all&quot;)" />
 
       <Custom Action="AurionCleanGenerated"
               After="RemoveFiles"

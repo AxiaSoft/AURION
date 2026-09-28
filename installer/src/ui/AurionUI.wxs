@@ -63,7 +63,7 @@
       <Property Id="WIXUI_INSTALLDIR" Value="INSTALLFOLDER" />
       <Property Id="_BrowseProperty" Value="INSTALLFOLDER" />
       <Property Id="AURION_LAUNCH_AFTER" Value="yes" Secure="yes" />
-      <Property Id="AURION_REMOVE_DATA" Secure="yes" />
+      <Property Id="AURION_REMOVE_DATA" Value="keep" Secure="yes" />
 
       <!-- ========================= 1. Welcome ========================= -->
       <Dialog Id="AurionWelcomeDlg" Width="370" Height="270"
@@ -482,13 +482,26 @@
         <Control Id="WillKeep" Type="Text" X="44" Y="122" Width="306" Height="48"
                  NoPrefix="yes" Text="!(loc.RemoveWhatStays)" />
 
-        <Control Id="DeleteDataCheck" Type="CheckBox" X="24" Y="178" Width="326" Height="18"
-                 Property="AURION_REMOVE_DATA" CheckBoxValue="yes"
-                 Text="!(loc.RemoveDeleteData)" />
-        <Control Id="DeleteDataWarnIcon" Type="Icon" X="24" Y="198" Width="16" Height="16"
-                 FixedSize="yes" IconSize="16" Text="AurionExclamIco" Hidden="yes" ShowCondition="AURION_REMOVE_DATA" />
-        <Control Id="DeleteDataWarn" Type="Text" X="48" Y="198" Width="302" Height="30"
-                 NoPrefix="yes" Hidden="yes" Text="!(loc.RemoveDeleteDataWarn)" ShowCondition="AURION_REMOVE_DATA" />
+        <!-- An explicit either/or, not a checkbox: deleting a trader's licence
+             and history is not something to leave to a box someone might tick
+             by reflex. "keep" is preselected and the destructive option carries
+             its own warning. The values are words, never 0/1: in MSI every
+             non-empty property string is TRUE, so "0" would read as yes. -->
+        <Control Id="RemoveChoice" Type="RadioButtonGroup" X="24" Y="172" Width="326" Height="40"
+                 Property="AURION_REMOVE_DATA">
+          <RadioButtonGroup Property="AURION_REMOVE_DATA">
+            <RadioButton Value="keep" X="0" Y="0" Width="326" Height="18"
+                         Text="!(loc.RemoveKeepData)" />
+            <RadioButton Value="all" X="0" Y="20" Width="326" Height="18"
+                         Text="!(loc.RemoveDeleteData)" />
+          </RadioButtonGroup>
+        </Control>
+        <Control Id="DeleteDataWarnIcon" Type="Icon" X="24" Y="214" Width="16" Height="16"
+                 FixedSize="yes" IconSize="16" Text="AurionExclamIco" Hidden="yes"
+                 ShowCondition="AURION_REMOVE_DATA = &quot;all&quot;" />
+        <Control Id="DeleteDataWarn" Type="Text" X="44" Y="213" Width="306" Height="20"
+                 NoPrefix="yes" Hidden="yes" Text="!(loc.RemoveDeleteDataWarn)"
+                 ShowCondition="AURION_REMOVE_DATA = &quot;all&quot;" />
 
         <Control Id="Back" Type="PushButton" X="180" Y="243" Width="56" Height="17"
                  Text="!(loc.ButtonBack)">
@@ -783,8 +796,16 @@
         <Show Dialog="AurionPrepareDlg" Before="LaunchConditions" />
         <Show Dialog="AurionWelcomeDlg" After="MigrateFeatureStates"
               Condition="NOT Installed" />
-        <Show Dialog="AurionMaintenanceDlg" After="AurionWelcomeDlg"
-              Condition="Installed AND NOT RESUME AND NOT Preselected AND NOT PATCH" />
+        <!-- Apps &amp; Features and Control Panel both invoke msiexec /X, which
+             presets REMOVE=ALL and therefore sets Preselected. The classic
+             maintenance condition excludes Preselected, so that path used to
+             skip our wizard entirely and show nothing but a bare progress bar.
+             Uninstall from outside now lands on our own removal page, where the
+             user decides what to keep. -->
+        <Show Dialog="AurionRemoveDlg" After="AurionWelcomeDlg"
+              Condition="Installed AND (REMOVE~=&quot;ALL&quot;) AND NOT RESUME AND NOT PATCH" />
+        <Show Dialog="AurionMaintenanceDlg" After="AurionRemoveDlg"
+              Condition="Installed AND NOT (REMOVE~=&quot;ALL&quot;) AND NOT RESUME AND NOT Preselected AND NOT PATCH" />
         <Show Dialog="AurionProgressDlg" After="AurionMaintenanceDlg" />
         <Show Dialog="AurionExitDlg" OnExit="success" />
         <Show Dialog="AurionFatalErrorDlg" OnExit="error" />

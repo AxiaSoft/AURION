@@ -147,6 +147,23 @@ def main() -> int:
                 prop = el.get("Property")
                 if prop and prop not in known_props:
                     fail(f"{rel}: control '{el.get('Id')}' binds undeclared property '{prop}'")
+                if ctype == "RadioButtonGroup":
+                    groups = [c for c in el if tag(c) == "RadioButtonGroup"]
+                    if not groups:
+                        fail(f"{rel}: control '{el.get('Id')}' is a RadioButtonGroup with no "
+                             f"<RadioButtonGroup> child - the control would render empty")
+                    for g in groups:
+                        if g.get("Property") != prop:
+                            fail(f"{rel}: control '{el.get('Id')}' binds '{prop}' but its "
+                                 f"<RadioButtonGroup> binds '{g.get('Property')}'")
+                        if not [b for b in g if tag(b) == "RadioButton"]:
+                            fail(f"{rel}: the RadioButtonGroup for '{prop}' has no buttons")
+                        for b in g:
+                            if tag(b) == "RadioButton" and (b.get("Value") or "") in ("0", ""):
+                                fail(f"{rel}: radio button for '{prop}' uses value "
+                                     f"'{b.get('Value')}' - in MSI any non-empty string is TRUE, "
+                                     f"so use words like \"keep\" / \"all\", never 0/1")
+
                 if ctype == "CheckBox":
                     # WiX emits one CheckBox table row per control and that table
                     # is keyed by property, so a property can back exactly one

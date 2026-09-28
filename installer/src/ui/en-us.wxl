@@ -135,9 +135,10 @@ The running desk is closed first, then program files, shortcuts and registry ent
   <String Id="RemoveTitle" Value="Uninstall AURION" />
   <String Id="RemoveSubtitle" Value="Choose what should be removed" />
   <String Id="RemoveWhatGoes" Value="Always removed: the AURION program files, the Start Menu and desktop shortcuts, and the AURION entry in Apps &amp; Features. If the desk is running, setup closes it first." />
-  <String Id="RemoveWhatStays" Value="Kept by default: your settings (config\aurion.json), trading history and databases (data\), licence state and trained AI models." />
-  <String Id="RemoveDeleteData" Value="Also delete my AURION data, settings and trained models" />
-  <String Id="RemoveDeleteDataWarn" Value="This permanently deletes your trading history, exports, licence state and models. It cannot be undone." />
+  <String Id="RemoveWhatStays" Value="What you keep is your choice below: settings (config\aurion.json), trading history (data\), your licence and trained AI models." />
+  <String Id="RemoveKeepData" Value="Keep my licence, settings and trading history (recommended)" />
+  <String Id="RemoveDeleteData" Value="Remove everything, including my licence and trading history" />
+  <String Id="RemoveDeleteDataWarn" Value="Permanent. Your licence must be activated again after reinstalling." />
 
   <!-- ==================== progress ==================== -->
   <String Id="ProgressInstalling" Value="Installing AURION" />
