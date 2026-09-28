@@ -26,9 +26,8 @@
       var __m = document.querySelector('meta[name="theme-color"]');
       if (__m) __m.setAttribute("content", __r === "light" ? "#e9edf4" : "#06070b");
       /* Rendering tier, applied before the first paint so the desk never
-         flashes a blurred layout it is about to drop. The accent is not
-         duplicated here: js/skins.js owns the preset table and now loads in
-         <head>, which is early enough to beat the first paint. */
+         flashes a blurred layout it is about to drop. js/display.js re-applies
+         the same value and owns the logic; this is the pre-paint shortcut. */
       var __perf = localStorage.getItem("aurion.perf") || "auto";
       if (__perf === "auto") {
         var __c = navigator.hardwareConcurrency || 0, __mem = navigator.deviceMemory || 0;
@@ -37,9 +36,9 @@
       document.documentElement.dataset.perf = __perf;
     } catch (e) { document.documentElement.dataset.theme = "dark"; }
   </script>
-  <script src="/js/skins.js?v=desk81"></script>
+  <script src="/js/display.js?v=desk82"></script>
   <link rel="stylesheet" href="/css/app.css?v=desk65" />
-  <link rel="stylesheet" href="/css/skins.css?v=desk81" />
+  <link rel="stylesheet" href="/css/skins.css?v=desk82" />
 </head>
 <body class="mode-desk">
   <div class="aurora"></div>
@@ -144,6 +143,6 @@
   <script src="/js/api.js?v=desk60"></script>
   <script src="/js/calendar.js?v=desk60"></script>
   <script src="/js/charts.js?v=desk77"></script>
-  <script src="/js/app.js?v=desk81"></script>
+  <script src="/js/app.js?v=desk82"></script>
 </body>
 </html>

@@ -1,11 +1,11 @@
 /* ===========================================================================
-   AURION — appearance: accent colour, states, dialogs, rendering tier.
+   AURION — states, dialogs and the rendering tier.
 
-   This file only ever overrides; app.css owns layout and behaviour. What is
-   left after the alternative interface styles were removed is everything that
-   was never really about a "skin":
+   This file only ever overrides; app.css owns layout, behaviour and the
+   palette. What is left after the interface styles and the accent picker were
+   removed is everything that was never really about either:
 
-     * the accent, which must reach every hover, focus ring, chip and chart;
+     * the brand accent reaching every hover, focus ring, chip and chart;
      * states - selected, disabled, focused - behaving consistently;
      * the desk's own dialogs;
      * the rendering tier, which decides how much blur the machine pays for.
@@ -73,9 +73,8 @@ tbody tr:hover{ background:rgb(var(--accent-rgb) / .05) }
 a:hover{ color:var(--accent-readable, var(--accent)) }
 ::selection{ background:rgb(var(--accent-rgb) / .3) }
 
-/* Anything FILLED with the accent takes the derived ink, so a near-black
-   accent gets white text and a pale one gets black - decided by luminance in
-   js/skins.js, never hand-picked. */
+/* Anything FILLED with the accent takes --accent-ink, the foreground measured
+   against it in app.css rather than picked by eye. */
 .btn,
 .btn *,
 .lang-pills button.on,

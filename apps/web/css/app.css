@@ -33,14 +33,18 @@
   --glass:rgb(var(--s5) / .58);
   --glass2:rgb(var(--s8) / .72);
   /* The accent, as hex and as an 'r g b' triplet so rules can add alpha.
-     js/skins.js rewrites all four when the user picks a colour, which is
-     what makes every hover, focus ring, badge and chart follow it. */
+     Every hover, focus ring, badge and chart resolves through these, so the
+     light theme below can restate them once and move the whole desk. */
   --accent:#3ee0c4;
   --accent-2:#2bb8c9;
   --accent-3:#7c6cff;
   --accent-rgb:62 224 196;
   --accent-3-rgb:124 108 255;
+  /* Foreground on the accent, and the accent when it is used AS text.
+     Both are measured, not guessed: #061014 on the accent is 11.60:1, and the
+     accent on a panel is 11.45:1, so on the dark theme it needs no correction. */
   --accent-ink:#061014;
+  --accent-readable:var(--accent);
   --cyan:var(--accent);
   --violet:var(--accent-3);
   --gold:#e8c07a;
@@ -1705,16 +1709,18 @@ html[data-theme="light"]{
   --glass:rgba(255,255,255,.66);
   --glass2:rgba(255,255,255,.8);
   /* The light theme used to pin --cyan and --violet to fixed teal and indigo,
-     which silently overrode the user's accent: picking a colour changed the
-     dark theme and did nothing here. They follow the accent now, through
-     --accent-readable, which js/skins.js deepens until it is legible on a
-     light page. The literals below are only the fallback for a first paint
-     before the script runs. */
+     which meant the light theme quietly ignored the brand accent. They follow
+     it now, through --accent-readable - the accent deepened until it is
+     legible as text on a light page. */
   --accent:#0aa488;
   --accent-2:#0f8f9c;
   --accent-3:#5a4fe0;
   --accent-rgb:10 164 136;
   --accent-3-rgb:90 79 224;
+  --accent-ink:#061014;
+  /* The accent as text on a white panel is only 3.2:1, so the light theme
+     uses a deepened form: #08806a measures 4.75:1, clearing WCAG AA. */
+  --accent-readable:#08806a;
   --cyan:var(--accent-readable, var(--accent));
   --violet:var(--accent-3);
   --gold:#8a6a1c;

@@ -19,7 +19,7 @@ import { parse } from "acorn";
 import { simple, ancestor } from "acorn-walk";
 
 const here = dirname(fileURLToPath(import.meta.url));
-const FILES = ["app.js", "skins.js", "calendar.js", "charts.js", "api.js", "i18n.js"];
+const FILES = ["app.js", "display.js", "calendar.js", "charts.js", "api.js", "i18n.js"];
 
 // Globals the desk legitimately expects from the page or the platform.
 const AMBIENT = new Set([
