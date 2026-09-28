@@ -1,5 +1,5 @@
 /* ===========================================================================
-   AURION — appearance: skin, accent colour, wallpaper, performance tier.
+   AURION — appearance: skin, accent colour, performance tier.
 
    Deliberately standalone and dependency-free so index.html can apply the saved
    look before the first paint. It owns nothing but <html> attributes, a handful
@@ -12,17 +12,13 @@
   var LS = {
     skin: "aurion.skin",
     accent: "aurion.accent",
-    bg: "aurion.bg",
-    wallpaper: "aurion.wallpaper",
     perf: "aurion.perf",
   };
 
   var SKINS = ["glass", "clay", "skeu", "neu", "minimal"];
-  // The AURION wallpaper (which has its own dark and light artwork) and
   // whatever the trader supplies. The generated alternatives were removed:
   // three more built-in backgrounds is three more things to keep looking
   // right across five skins and two themes, for no real gain.
-  var BACKGROUNDS = ["default", "custom"];
 
   // Presets are (base, mid, third, ink). The first one is the original palette,
   // which is what an untouched install keeps.
@@ -55,16 +51,6 @@
     sand:      ["#d6c7a1", "#a1874e", "#e8c07a"],
     graphite:  ["#cbd5e1", "#64748b", "#94a3b8"],
   };
-
-  // A custom wallpaper is stored as a data URL. Browsers give the whole origin
-  // roughly 5 MB of localStorage and the desk keeps real state there too, so
-  // instead of rejecting large pictures we re-encode them: a 24 MP phone photo
-  // becomes a 2560px JPEG of a few hundred KB, which is more than a wallpaper
-  // ever needs. Only if that still does not fit do we refuse.
-  var WALLPAPER_MAX_EDGE = 2560;
-  var WALLPAPER_QUALITY = 0.82;
-  var WALLPAPER_INPUT_LIMIT = 40 * 1024 * 1024;   // sanity, not a design limit
-  var WALLPAPER_STORE_LIMIT = 3.2 * 1024 * 1024;  // after re-encoding
 
   function read(key, fallback) {
     try {
@@ -194,93 +180,6 @@
     return value;
   }
 
-  /* ------------------------------------------------------------ wallpaper */
-
-  function getBackground() { return oneOf(read(LS.bg, "default"), BACKGROUNDS, "default"); }
-
-  function setBackground(name) {
-    var bg = oneOf(name, BACKGROUNDS, "default");
-    if (bg === "custom" && !read(LS.wallpaper, "")) return getBackground();
-    write(LS.bg, bg);
-    apply();
-    return bg;
-  }
-
-  /**
-   * Store a user-picked image and switch to it.
-   *
-   * The file is decoded, scaled to fit WALLPAPER_MAX_EDGE and re-encoded as
-   * JPEG before storage, so the size of the original barely matters - a 12 MB
-   * photograph is accepted and kept as a few hundred kilobytes.
-   *
-   * @returns {Promise<{ok:boolean, error?:string}>}
-   */
-  function setWallpaperFile(file) {
-    return new Promise(function (resolve) {
-      if (!file) return resolve({ ok: false, error: "no-file" });
-      if (!/^image\//.test(file.type)) return resolve({ ok: false, error: "not-an-image" });
-      if (file.size > WALLPAPER_INPUT_LIMIT) return resolve({ ok: false, error: "too-large" });
-
-      var reader = new FileReader();
-      reader.onerror = function () { resolve({ ok: false, error: "unreadable" }); };
-      reader.onload = function () {
-        var raw = String(reader.result || "");
-        downscale(raw, function (url) {
-          try {
-            localStorage.setItem(LS.wallpaper, url);
-          } catch (e) {
-            return resolve({ ok: false, error: "no-space" });
-          }
-          write(LS.bg, "custom");
-          apply();
-          resolve({ ok: true });
-        }, function () {
-          resolve({ ok: false, error: "unreadable" });
-        });
-      };
-      reader.readAsDataURL(file);
-    });
-  }
-
-  /** Decode, fit inside WALLPAPER_MAX_EDGE, re-encode as JPEG. */
-  function downscale(dataUrl, done, fail) {
-    try {
-      var img = new Image();
-      img.onerror = fail;
-      img.onload = function () {
-        var scale = Math.min(1, WALLPAPER_MAX_EDGE / Math.max(img.width, img.height));
-        var w = Math.max(1, Math.round(img.width * scale));
-        var h = Math.max(1, Math.round(img.height * scale));
-        var canvas = document.createElement("canvas");
-        canvas.width = w;
-        canvas.height = h;
-        var ctx = canvas.getContext("2d");
-        if (!ctx) return done(dataUrl);
-        ctx.drawImage(img, 0, 0, w, h);
-
-        var out = canvas.toDataURL("image/jpeg", WALLPAPER_QUALITY);
-        // Step the quality down rather than giving up on a big picture.
-        var quality = WALLPAPER_QUALITY;
-        while (out.length > WALLPAPER_STORE_LIMIT && quality > 0.4) {
-          quality -= 0.12;
-          out = canvas.toDataURL("image/jpeg", quality);
-        }
-        done(out.length < dataUrl.length ? out : dataUrl);
-      };
-      img.src = dataUrl;
-    } catch (e) {
-      fail();
-    }
-  }
-
-  function clearWallpaper() {
-    write(LS.wallpaper, null);
-    if (getBackground() === "custom") write(LS.bg, "default");
-    apply();
-  }
-
-  function maxWallpaperMb() { return Math.round(WALLPAPER_INPUT_LIMIT / (1024 * 1024)); }
-
   /* ----------------------------------------------------------------- perf */
 
   /**
@@ -324,13 +223,6 @@
     var skin = getSkin();
     el.dataset.skin = skin;
 
-    var bg = getBackground();
-    var wallpaper = bg === "custom" ? read(LS.wallpaper, "") : "";
-    if (bg === "custom" && !wallpaper) bg = "default";
-    el.dataset.bg = bg;
-    if (wallpaper) el.style.setProperty("--skin-wallpaper", 'url("' + wallpaper + '")');
-    else el.style.removeProperty("--skin-wallpaper");
-
     var a = accentTriplet(getAccent());
     el.style.setProperty("--accent", a[0]);
     el.style.setProperty("--accent-2", a[1]);
@@ -370,7 +262,6 @@
 
   global.AurionSkin = {
     SKINS: SKINS,
-    BACKGROUNDS: BACKGROUNDS,
     ACCENTS: ACCENTS,
     apply: apply,
     getSkin: getSkin,
@@ -378,16 +269,17 @@
     getAccent: getAccent,
     setAccent: setAccent,
     accentTriplet: accentTriplet,
-    getBackground: getBackground,
-    setBackground: setBackground,
-    setWallpaperFile: setWallpaperFile,
-    clearWallpaper: clearWallpaper,
-    hasWallpaper: function () { return !!read(LS.wallpaper, ""); },
-    maxWallpaperMb: maxWallpaperMb,
     getPerfMode: getPerfMode,
     setPerfMode: setPerfMode,
     effectivePerf: effectivePerf,
   };
+
+  // The wallpaper picker was removed; drop anything it left behind rather
+  // than leaving a multi-megabyte data URL in the user's storage forever.
+  try {
+    localStorage.removeItem("aurion.bg");
+    localStorage.removeItem("aurion.wallpaper");
+  } catch (e) { /* nothing to clean up */ }
 
   apply();
   watchTheme();

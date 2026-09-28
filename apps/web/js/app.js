@@ -314,16 +314,10 @@ function skinLabel(id) {
   return I18N.t("settings." + (map[id] || "skin_glass"));
 }
 
-function bgLabel(id) {
-  const map = { default: "bg_default", aurora: "bg_aurora", deep: "bg_deep", mesh: "bg_mesh", custom: "bg_custom" };
-  return I18N.t("settings." + (map[id] || "bg_default"));
-}
-
 function appearanceCardsHtml() {
   if (typeof AurionSkin === "undefined") return "";
   const skin = AurionSkin.getSkin();
   const accent = AurionSkin.getAccent();
-  const bg = AurionSkin.getBackground();
   const perf = AurionSkin.getPerfMode();
   const skins = AurionSkin.SKINS.map((id) =>
     `<button type="button" data-skinbtn="${id}" class="${id === skin ? "on" : ""}">${skinLabel(id)}</button>`).join("");
@@ -337,32 +331,6 @@ function appearanceCardsHtml() {
   // The "my image" entry only exists while there is an image, and it is the
   // only one that carries a remove affordance - a small x on the chip itself,
   // instead of a second button that lingers after the image is gone.
-  // Each wallpaper shows itself. A name alone ("Mesh") tells a trader nothing;
-  // a thumbnail is the only honest preview of a background.
-  const thumbs = { default: "/assets/bg-thumb-default.jpg" };
-  const backgrounds = AurionSkin.BACKGROUNDS
-    .filter((id) => id !== "custom" || AurionSkin.hasWallpaper())
-    .map((id) => {
-      const on = id === bg ? " on" : "";
-      if (id === "custom") {
-        return `<span class="bg-tile bg-tile-custom${on}">
-            <button type="button" data-bgbtn="custom" class="bg-tile-btn"
-                    style="background-image:var(--skin-wallpaper)">
-              <span class="bg-tile-name">${bgLabel("custom")}</span>
-            </button>
-            <button type="button" class="bg-tile-x" id="set-bg-clear"
-                    title="${I18N.t("settings.bg_remove")}" aria-label="${I18N.t("settings.bg_remove")}">&times;</button>
-          </span>`;
-      }
-      return `<span class="bg-tile${on}">
-          <button type="button" data-bgbtn="${id}" class="bg-tile-btn"
-                  style="background-image:url('${thumbs[id]}')">
-            <span class="bg-tile-name">${bgLabel(id)}</span>
-          </button>
-        </span>`;
-    })
-    .join("");
-
   return `
       <div class="card" style="margin-top:14px">
         <p class="sub" style="margin:0 0 6px">${I18N.t("settings.skin")}</p>
@@ -374,16 +342,6 @@ function appearanceCardsHtml() {
         <p class="sub" style="margin:0 0 6px">${I18N.t("settings.accent")}</p>
         <div class="accent-row" id="set-accents">${swatches}</div>
         <p class="sub" style="margin:8px 0 0">${I18N.t("settings.accent_hint")}</p>
-      </div>
-
-      <div class="card" style="margin-top:14px">
-        <p class="sub" style="margin:0 0 6px">${I18N.t("settings.wallpaper")}</p>
-        <div class="lang-pills bg-pills" id="set-bgs">${backgrounds}</div>
-        <div class="row" style="gap:8px;margin-top:10px;flex-wrap:wrap">
-          <button type="button" class="btn tiny ghost" id="set-bg-pick">${I18N.t("settings.bg_choose")}</button>
-          <input type="file" id="set-bg-file" accept="image/*" hidden />
-        </div>
-        <p class="sub" style="margin:8px 0 0" id="set-bg-msg">${I18N.t("settings.wallpaper_hint")}</p>
       </div>
 
       <div class="card" style="margin-top:14px">
@@ -420,17 +378,11 @@ function syncGlassRow() {
 
 function markAppearancePills() {
   if (typeof AurionSkin === "undefined") return;
-  const skin = AurionSkin.getSkin(), bg = AurionSkin.getBackground();
+  const skin = AurionSkin.getSkin();
   const perf = AurionSkin.getPerfMode(), accent = AurionSkin.getAccent();
   document.querySelectorAll("[data-skinbtn]").forEach((b) => b.classList.toggle("on", b.dataset.skinbtn === skin));
   document.querySelectorAll("[data-perfbtn]").forEach((b) => b.classList.toggle("on", b.dataset.perfbtn === perf));
   document.querySelectorAll("[data-accent]").forEach((b) => b.classList.toggle("on", b.dataset.accent === accent));
-  // Wallpapers are picture tiles: the button is the image, the wrapper holds
-  // the selected state and, for a custom image, the remove control.
-  document.querySelectorAll("[data-bgbtn]").forEach((b) => {
-    const tile = b.closest(".bg-tile") || b;
-    tile.classList.toggle("on", b.dataset.bgbtn === bg);
-  });
   const now = $("set-perf-now");
   if (now) now.textContent = perfNowLabel();
   syncGlassRow();
@@ -456,47 +408,6 @@ function bindAppearance() {
     repaintChartsForTheme();
   };
 
-  const bgs = $("set-bgs");
-  if (bgs) bgs.onclick = (e) => {
-    if (e.target.closest(".bg-tile-x")) return;   // handled below
-    const b = e.target.closest("[data-bgbtn]"); if (!b) return;
-    AurionSkin.setBackground(b.dataset.bgbtn);
-    markAppearancePills();
-  };
-
-  const pick = $("set-bg-pick");
-  const file = $("set-bg-file");
-  const msg = $("set-bg-msg");
-  if (pick && file) pick.onclick = () => file.click();
-  if (file) file.onchange = async () => {
-    const f = file.files && file.files[0];
-    file.value = "";
-    if (!f) return;
-    const r = await AurionSkin.setWallpaperFile(f);
-    if (r.ok) { refreshAppearanceCards(); return; }
-    if (!msg) return;
-    if (r.error === "too-large") msg.textContent = I18N.t("settings.bg_too_large").replace("%s", String(AurionSkin.maxWallpaperMb()));
-    else if (r.error === "not-an-image") msg.textContent = I18N.t("settings.bg_not_image");
-    else if (r.error === "no-space") msg.textContent = I18N.t("settings.bg_no_space");
-  };
-
-  // Deleting the image the user chose is destructive and cannot be undone
-  // from here, so it asks first.
-  const clear = $("set-bg-clear");
-  if (clear) clear.onclick = (e) => {
-    e.stopPropagation();
-    askConfirm({
-      title: I18N.t("settings.bg_remove"),
-      body: I18N.t("settings.bg_remove_confirm"),
-      ok: I18N.t("settings.bg_remove"),
-      danger: true,
-    }).then((yes) => {
-      if (!yes) return;
-      AurionSkin.clearWallpaper();
-      refreshAppearanceCards();
-    });
-  };
-
   const perf = $("set-perf");
   if (perf) perf.onclick = (e) => {
     const b = e.target.closest("[data-perfbtn]"); if (!b) return;
@@ -505,19 +416,6 @@ function bindAppearance() {
     // rebuilding the tab and losing the pressed state until you navigated away.
     markAppearancePills();
   };
-}
-
-/* Rebuilds just the appearance cards - used when the set of wallpaper chips
-   changes, so the rest of the settings page is left alone. */
-function refreshAppearanceCards() {
-  const host = document.querySelector("#set-personal");
-  if (!host) return;
-  const cards = host.querySelectorAll(".card");
-  // the first card is the theme/glass block that lives in renderSettings
-  for (let i = 1; i < cards.length; i++) cards[i].remove();
-  host.insertAdjacentHTML("beforeend", appearanceCardsHtml());
-  bindAppearance();
-  markAppearancePills();
 }
 
 /* The chart canvases read their colours once, so an accent or skin change has

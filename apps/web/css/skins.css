@@ -1,11 +1,10 @@
 /* ===========================================================================
-   AURION — interface styles, accent colour, wallpaper, rendering tier.
+   AURION — interface styles, accent colour, rendering tier.
 
    This file only overrides. app.css owns layout and behaviour; everything here
    hangs off one attribute on <html>:
 
        data-skin   glass (default) | clay | skeu | neu | minimal
-       data-bg     default | aurora | deep | mesh | custom
        data-perf   rich | fast            fast removes every blur
 
    How a skin works
@@ -26,7 +25,7 @@
        --sk-field / --sk-field-edge / --sk-field-shadow
        --sk-btn-bg / --sk-btn-edge / --sk-btn-shadow / --sk-btn-press
        --sk-tint               accent wash used by every hover
-       --sk-page               what the wallpaper layer resolves to
+       --sk-scrim              tone laid over the wallpaper by flat skins
 
    Colour never comes from a skin. It comes from --accent, which the user picks
    and js/skins.js writes as four values (hex x3 + an "r g b" triplet). app.css
@@ -129,12 +128,10 @@
 .set-jump button:focus,
 .lang-pills button:focus,
 .accent-dot:focus,
-.bg-chip button:focus,
 .btn:focus{ outline:none }
 .set-jump button:focus-visible,
 .lang-pills button:focus-visible,
 .accent-dot:focus-visible,
-.bg-chip button:focus-visible,
 .btn:focus-visible{
   outline:2px solid var(--accent);
   outline-offset:2px;
@@ -172,10 +169,6 @@
 .btn *,
 .lang-pills button.on,
 .set-jump button.on,
-.bg-chip.on > button[data-bgbtn]{ color:var(--accent-ink) }
-.bg-chip.on{ background:var(--accent); border-color:var(--accent) }
-.bg-chip.on .bg-chip-x{ color:var(--accent-ink); opacity:.75 }
-.bg-chip.on .bg-chip-x:hover{ color:var(--accent-ink); opacity:1 }
 .switch.on i{ background:var(--accent) }
 .chip.on,
 .nav button.on,
@@ -511,9 +504,9 @@ html[data-skin="neu"] .aurora{ animation:none }
    The scrim is drawn on body::after, deliberately not inside #app and not on
    .aurora::before. #app opens its own stacking context, so a child of it could
    never sit behind it; and .aurora::before is already the light-theme
-   crossfade layer and is switched off for three of the five wallpapers. As the
-   last child of <body> with no z-index, body::after lands above .aurora
-   (z-index:0) and below #app (z-index:1) for every wallpaper and both themes. */
+   crossfade layer for the light theme. As the last child of <body> with no
+   z-index, body::after lands above .aurora (z-index:0) and below #app
+   (z-index:1) in both themes. */
 html[data-skin="neu"] body::after,
 html[data-skin="minimal"] body::after,
 body.skin-scrim::after{
@@ -647,34 +640,6 @@ html[data-skin="minimal"] .aurora{ animation:none }
 html[data-skin="minimal"] .aurora::after{ opacity:.05 }
 
 /* ===========================================================================
-   7. Wallpaper
-   ===========================================================================
-   Two options only: the AURION artwork, which app.css already layers for dark
-   and light, and an image the trader chooses. */
-html[data-bg="custom"] .aurora,
-html[data-bg="custom"].mode-desk .aurora{
-  background:
-    linear-gradient(180deg, rgb(var(--s1) / .52), rgb(var(--s1) / .80) 82%),
-    var(--skin-wallpaper, none) center/cover no-repeat,
-    var(--bg);
-  animation:none;
-}
-html[data-theme="light"][data-bg="custom"] .aurora,
-html[data-theme="light"][data-bg="custom"].mode-desk .aurora{
-  background:
-    linear-gradient(180deg, rgba(233,237,244,.42), rgba(233,237,244,.74) 82%),
-    var(--skin-wallpaper, none) center/cover no-repeat,
-    var(--bg);
-}
-html[data-bg="custom"] .aurora::before{ display:none }
-html[data-bg="custom"] #auth{
-  background:
-    linear-gradient(180deg, rgb(var(--s1) / .55), rgb(var(--s1) / .9) 78%),
-    var(--skin-wallpaper, none) center/cover no-repeat;
-}
-html[data-bg="custom"] #auth::before{ display:none }
-
-/* ===========================================================================
    8. Rendering tier
    ===========================================================================
    backdrop-filter is the most expensive thing on the page: each blurred layer
@@ -744,60 +709,6 @@ table tbody tr,
    hit target stretched across it. */
 /* Twenty swatches wrap onto as many rows as they need. */
 .accent-row{ max-width:520px }
-
-/* Wallpaper tiles. A name is not a preview, so every option shows its own
-   picture; only the user's own image carries a remove control, in its corner. */
-.bg-pills{ display:flex; flex-wrap:wrap; gap:10px; align-items:stretch }
-.bg-tile{
-  position:relative;
-  display:inline-flex;
-  border-radius:calc(var(--sk-r-sm) + 2px);
-  padding:2px;
-  border:2px solid transparent;
-  transition:border-color .2s, transform .2s var(--ease);
-}
-.bg-tile:hover{ transform:translateY(-2px) }
-.bg-tile.on{ border-color:var(--accent) }
-.bg-tile-btn{
-  width:124px; height:74px;
-  border:0; padding:0; cursor:pointer;
-  border-radius:var(--sk-r-sm);
-  background-color:rgb(var(--s4));
-  background-size:cover;
-  background-position:center;
-  position:relative;
-  overflow:hidden;
-  display:block;
-}
-.bg-tile-btn::after{
-  content:"";
-  position:absolute; inset:0;
-  background:linear-gradient(180deg, transparent 40%, rgba(0,0,0,.72));
-}
-.bg-tile-name{
-  position:absolute; inset-inline:0; bottom:0;
-  z-index:1;
-  padding:5px 8px;
-  font-size:11px; font-weight:500; color:#fff;
-  text-align:start;
-  text-shadow:0 1px 2px rgba(0,0,0,.8);
-}
-.bg-tile.on .bg-tile-name{ color:#fff }
-.bg-tile-x{
-  position:absolute; inset-block-start:-6px; inset-inline-end:-6px;
-  z-index:2;
-  width:22px; height:22px;
-  border-radius:50%;
-  border:1px solid rgb(var(--wash) / .25);
-  background:rgb(var(--s1));
-  color:var(--ink);
-  font-size:13px; line-height:1;
-  display:grid; place-items:center;
-  cursor:pointer;
-  box-shadow:0 4px 10px rgba(0,0,0,.5);
-  transition:background .2s, color .2s, transform .2s;
-}
-.bg-tile-x:hover{ background:var(--rose); color:#fff; transform:scale(1.1) }
 
 /* ===========================================================================
    10. Focus, and the black hairline that appeared on click
@@ -919,7 +830,6 @@ html[data-theme="light"] .modal-card{ box-shadow:var(--sk-shadow), 0 30px 70px r
 .switch,
 .chip,
 .pill,
-.bg-tile,
 .accent-dot,
 .lang-pills button{ transition-timing-function:var(--ease); transition-duration:.18s }
 
@@ -1071,7 +981,6 @@ html .dd-opt.on:focus{
 }
 
 /* Picture tiles and swatches keep the size their selected state gave them. */
-html .bg-tile.on:hover{ transform:none }
 html .accent-dot.on:hover{ transform:scale(1.1) }
 
 /* Anything that reports its own pressed state gets the same treatment, which
