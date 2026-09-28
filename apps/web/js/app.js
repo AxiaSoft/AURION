@@ -2570,6 +2570,9 @@ const views = {
               <button type="button" id="draw-fit" title="${I18N.t("draw.fit")}" aria-label="${I18N.t("draw.fit")}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg></button>
               <button type="button" id="draw-undo" title="${I18N.t("draw.undo")}" aria-label="${I18N.t("draw.undo")}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M9 14L4 9l5-5"/><path d="M4 9h10a6 6 0 110 12h-2"/></svg></button>
               <button type="button" id="draw-clear" title="${I18N.t("draw.clear")}" aria-label="${I18N.t("draw.clear")}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M5 7h14M9 7V5h6v2M8 7l1 12h6l1-12"/></svg></button>
+              <button type="button" id="draw-sessions" class="${S.chartSessions ? "on" : ""}"
+                      title="${I18N.t("draw.sessions")}" aria-label="${I18N.t("draw.sessions")}"
+                      aria-pressed="${Boolean(S.chartSessions)}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M12 3a9 9 0 100 18 9 9 0 000-18z"/><path d="M12 7v5l3 2"/></svg></button>
             </div>
           </div>
         </div>
@@ -4925,6 +4928,26 @@ async function hardRefresh() {
     veil.classList.add("hidden");
   }
 }
+/* Market sessions are a per-trader preference, not per chart: someone who
+   wants to see the London open wants it on every symbol they look at. */
+function chartSessionsOn() {
+  if (S.chartSessions !== undefined) return Boolean(S.chartSessions);
+  try { S.chartSessions = localStorage.getItem("aurion.chart.sessions") === "on"; }
+  catch (e) { S.chartSessions = false; }
+  return S.chartSessions;
+}
+
+function setChartSessions(on) {
+  S.chartSessions = Boolean(on);
+  try { localStorage.setItem("aurion.chart.sessions", S.chartSessions ? "on" : "off"); } catch (e) { /* ignore */ }
+  if (S.chart && typeof S.chart.setSessions === "function") S.chart.setSessions(S.chartSessions);
+  const btn = $("draw-sessions");
+  if (btn) {
+    btn.classList.toggle("on", S.chartSessions);
+    btn.setAttribute("aria-pressed", S.chartSessions ? "true" : "false");
+  }
+}
+
 function applyChartLevels(force) {
   if (!force) {
     if (S._lvlTimer) return;
@@ -5020,6 +5043,10 @@ function bindChartDesk() {
   const zin = $("draw-zin"); if (zin) zin.onclick = () => S.chart && S.chart.zoom(1);
   const zout = $("draw-zout"); if (zout) zout.onclick = () => S.chart && S.chart.zoom(-1);
   const fit = $("draw-fit"); if (fit) fit.onclick = () => S.chart && S.chart.fit();
+  const sess = $("draw-sessions");
+  if (sess) sess.onclick = () => setChartSessions(!chartSessionsOn());
+  // Apply the remembered choice to a chart that has just been created.
+  if (S.chart && typeof S.chart.setSessions === "function") S.chart.setSessions(chartSessionsOn());
   const more = $("draw-more");
   const frame = $("draw-frame");
   if (more && frame) more.onclick = () => frame.classList.toggle("open");

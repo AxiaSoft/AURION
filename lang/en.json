@@ -608,7 +608,8 @@
     "emoji": "Emoji",
     "triangle": "Triangle",
     "circle": "Circle",
-    "ellipse": "Ellipse"
+    "ellipse": "Ellipse",
+    "sessions": "Market sessions"
   },
   "gate": {
     "title": "Who trades",

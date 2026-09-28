@@ -53,12 +53,48 @@ function chartTheme() {
   return T;
 }
 
+
+/* ===========================================================================
+   Market sessions
+   ===========================================================================
+   The four centres that set the tone of a trading day. Hours are UTC and do
+   not move; the local clock does, which is exactly why they are stored this
+   way and converted at the edge rather than guessed from the browser.
+
+   Sydney is the one that wraps midnight, so every calculation below has to
+   handle a session whose end hour is smaller than its start - the usual source
+   of an overlay that quietly disappears for two hours a day.
+   =========================================================================== */
+const MARKET_SESSIONS = [
+  { id: "sydney", label: "Sydney", open: 21, close: 6, tint: [124, 108, 255] },
+  { id: "tokyo", label: "Tokyo", open: 0, close: 9, tint: [232, 192, 122] },
+  { id: "london", label: "London", open: 7, close: 16, tint: [62, 224, 196] },
+  { id: "newyork", label: "New York", open: 12, close: 21, tint: [255, 107, 138] },
+];
+
+/** Is this UTC hour inside the session? Handles the midnight wrap. */
+function sessionCovers(session, utcHour) {
+  const h = ((utcHour % 24) + 24) % 24;
+  return session.open <= session.close
+    ? h >= session.open && h < session.close
+    : h >= session.open || h < session.close;
+}
+
+/** Which sessions are open at a moment - London and New York overlap daily. */
+function sessionsAt(date) {
+  if (!(date instanceof Date) || isNaN(date.getTime())) return [];
+  const h = date.getUTCHours() + date.getUTCMinutes() / 60;
+  return MARKET_SESSIONS.filter((s) => sessionCovers(s, h));
+}
+
 class CandleChart {
   constructor(canvas, opts) {
     this.canvas = canvas;
     this.ctx = canvas.getContext("2d");
     this.opts = opts || {};
     this.bars = [];
+    // Off by default: an overlay the trader did not ask for is clutter.
+    this.sessions = false;
     this.offset = 0;
     this.span = 80;
     this.hover = null;
@@ -153,6 +189,60 @@ class CandleChart {
     this.span = Math.min(160, Math.max(40, this.bars.length || 40));
     this.draw();
   }
+
+  /**
+   * Shade the hours each financial centre is open, behind the candles.
+   *
+   * Drawn per bar rather than as one rectangle per session: a chart can hold
+   * several days, and a session that is painted once would only ever mark the
+   * first of them. Bands are stacked with low alpha so the London/New York
+   * overlap - the busiest window of the day - reads as the densest part of the
+   * chart without any special case.
+   */
+  paintSessions(L) {
+    if (!this.sessions) return;
+    const ctx = this.ctx;
+    const rows = L.rows || [];
+    if (rows.length < 2) return;
+
+    ctx.save();
+    for (let i = 0; i < rows.length; i++) {
+      const stamp = rows[i].time || rows[i].ts;
+      const at = stamp ? new Date(stamp) : null;
+      if (!at || isNaN(at.getTime())) continue;
+      const open = sessionsAt(at);
+      if (!open.length) continue;
+
+      const x = L.xOf(i) - L.bw / 2;
+      for (const s of open) {
+        ctx.fillStyle = `rgba(${s.tint[0]},${s.tint[1]},${s.tint[2]},0.06)`;
+        ctx.fillRect(x, L.plotT, L.bw + 0.5, L.plotB - L.plotT);
+      }
+    }
+    ctx.restore();
+
+    // A legend, because a coloured band nobody can name is just tinting.
+    ctx.save();
+    ctx.font = "10px IBM Plex Mono, Vazirmatn, monospace";
+    ctx.textBaseline = "top";
+    const nowOpen = sessionsAt(new Date()).map((s) => s.id);
+    let lx = L.plotL + 8;
+    for (const s of MARKET_SESSIONS) {
+      const live = nowOpen.includes(s.id);
+      ctx.fillStyle = `rgba(${s.tint[0]},${s.tint[1]},${s.tint[2]},${live ? 0.95 : 0.4})`;
+      ctx.fillRect(lx, L.plotT + 7, 7, 7);
+      ctx.fillStyle = live ? chartTheme().text : chartTheme().muted;
+      ctx.fillText(s.label, lx + 11, L.plotT + 6);
+      lx += ctx.measureText(s.label).width + 26;
+    }
+    ctx.restore();
+  }
+
+  setSessions(on) {
+    this.sessions = Boolean(on);
+    this.draw();
+  }
+
   setBars(bars) {
     const had = this.bars.length > 0;
     const prevSpan = this.span;
@@ -276,6 +366,7 @@ class CandleChart {
     ctx.beginPath();
     ctx.rect(L.plotL, L.plotT, L.plotR - L.plotL, L.plotB - L.plotT);
     ctx.clip();
+    this.paintSessions(L);
     L.rows.forEach((r, i) => {
       const x = L.xOf(i);
       const up = r.c >= r.o;
@@ -858,4 +949,8 @@ class CandleChart {
       }
     } else this.pinch = null;
   }
+}
+
+if (typeof module !== "undefined" && module.exports) {
+  module.exports = { MARKET_SESSIONS, sessionCovers, sessionsAt };
 }
