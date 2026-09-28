@@ -324,6 +324,59 @@ class Store:
                 break
         return out
 
+    def pending_reconcile(self, limit: int = 40) -> list[dict[str, Any]]:
+        """Closed rows whose figures came from the last floating price.
+
+        A position can vanish from the book a second or two before its deal
+        reaches MT5's history. Rather than block the close, the desk records
+        what it knows and marks the row; these are the rows to go back for.
+        """
+        rows = self.query(
+            """SELECT id, ticket, raw FROM trades
+               WHERE lower(coalesce(kind,'')) IN ('close','out','inout')
+               ORDER BY id DESC LIMIT ?""",
+            (int(limit or 40),),
+        )
+        out: list[dict[str, Any]] = []
+        for row in rows:
+            try:
+                raw = json.loads(row.get("raw") or "{}")
+            except Exception:
+                raw = {}
+            if str(raw.get("source") or "") == "estimate":
+                out.append({"id": row.get("id"), "ticket": row.get("ticket")})
+        return out
+
+    def apply_reconciliation(self, row_id: int, totals: dict[str, Any]) -> bool:
+        """Replace an estimated close with MetaTrader's own figures."""
+        rows = self.query("SELECT raw FROM trades WHERE id=? LIMIT 1", (int(row_id),))
+        if not rows:
+            return False
+        try:
+            raw = json.loads(rows[0].get("raw") or "{}")
+        except Exception:
+            raw = {}
+        raw.update({
+            "profit": totals.get("profit"),
+            "swap": totals.get("swap"),
+            "commission": totals.get("commission"),
+            "net": totals.get("net"),
+            "parts": totals.get("parts"),
+            "source": "mt5",
+        })
+        self.execute(
+            """UPDATE trades SET profit=?, swap=?, commission=?, price=?, raw=? WHERE id=?""",
+            (
+                totals.get("profit"),
+                totals.get("swap"),
+                totals.get("commission"),
+                totals.get("price") or None,
+                json.dumps(raw, ensure_ascii=False),
+                int(row_id),
+            ),
+        )
+        return True
+
     def strategy_stats(self, names: list[str] | None = None) -> dict[str, dict[str, Any]]:
         out: dict[str, dict[str, Any]] = {}
         for name in names or []:

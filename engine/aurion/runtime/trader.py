@@ -6,6 +6,7 @@ import time
 from collections import deque
 from typing import Any
 
+from .deals import aggregate_close_deals
 from ..ai.engine import AIEngine
 from ..backtest.engine import Backtester
 from ..config import ROOT, load, merge, save
@@ -32,6 +33,7 @@ log = get("trader")
 # Keep the desk close to live. Matches news_feed.MIN_AGE_SECONDS; going faster
 # than the source updates only adds load.
 NEWS_REFRESH_SECONDS = 5 * 60
+
 
 
 class Trader:
@@ -235,6 +237,12 @@ class Trader:
             # Never import MetaTrader deal history into the AURION ledger.
             # Restart / OnTrade dumps would replay old broker fills as if they were ours.
             rows = payload if isinstance(payload, list) else (payload.get("items") if isinstance(payload, dict) else [])
+            # Deals arriving IS the signal that MT5 now knows about a close we
+            # had to estimate, so this is the moment to go back and correct it.
+            try:
+                await self.reconcile_estimated_closes()
+            except Exception:
+                log.exception("reconciliation pass failed")
             await self.bus.publish("deals", {"items": rows} if isinstance(rows, list) else payload)
             return
         if kind == "agents":
@@ -407,6 +415,55 @@ class Trader:
                     return str(pending.get("strategy") or "")
         return ""
 
+
+    async def reconcile_estimated_closes(self) -> int:
+        """Go back for the closes we had to estimate.
+
+        A position can leave the book a second or two before its deal reaches
+        MT5's history, so the close is recorded from the last floating price
+        and marked as an estimate. This runs afterwards, finds those rows, and
+        replaces them with MetaTrader's own numbers - which is what makes the
+        desk's history and the broker's statement agree rather than nearly
+        agree. Returns how many rows it corrected.
+        """
+        if not getattr(self.bridge, "native", None) or not self.bridge.native.connected:
+            return 0
+        pending = self.store.pending_reconcile(40)
+        if not pending:
+            return 0
+
+        from datetime import datetime, timedelta, timezone
+        import asyncio as _asyncio
+
+        now = datetime.now(timezone.utc)
+        try:
+            recent = await _asyncio.to_thread(
+                self.bridge.native.deals, now - timedelta(days=3), now
+            )
+        except Exception:
+            return 0
+        rows = [
+            d.to_dict() if hasattr(d, "to_dict") else d
+            for d in list(recent or [])
+            if hasattr(d, "to_dict") or isinstance(d, dict)
+        ]
+
+        fixed = 0
+        for item in pending:
+            try:
+                ticket = int(item.get("ticket") or 0)
+            except (TypeError, ValueError):
+                continue
+            if not ticket:
+                continue
+            totals = aggregate_close_deals(rows, ticket)
+            if not totals:
+                continue
+            if self.store.apply_reconciliation(int(item["id"]), totals):
+                fixed += 1
+                log.info("reconciled close %s with MT5: net %.2f", ticket, totals["net"])
+        return fixed
+
     async def _sync_position_book(self, rows: list[dict[str, Any]]) -> None:
         current: dict[int, dict[str, Any]] = {}
         opened: list[dict[str, Any]] = []
@@ -493,48 +550,53 @@ class Trader:
             # Try to get accurate profit from bridge deals (MT5 deal history) if available
             # This ensures P/L matches MT5 exactly, not floating estimate
             deal_profit = None
+            deal_net = None
+            deal_parts = 0
             deal_swap = None
             deal_comm = None
             deal_price = None
             try:
-                # bridge.deals holds Deal objects or dicts (from EA or native)
-                for d in list(self.bridge.deals or [])[-200:]:
-                    dd = d.to_dict() if hasattr(d, "to_dict") else (d if isinstance(d, dict) else {})
-                    try:
-                        pos_id = int(dd.get("position_id") or 0)
-                        tick_id = int(dd.get("ticket") or 0)
-                        if pos_id == ticket or tick_id == ticket:
-                            if str(dd.get("entry") or "").lower() in {"out", "inout"} or float(dd.get("profit") or 0) != 0:
-                                deal_profit = float(dd.get("profit") or 0)
-                                deal_swap = float(dd.get("swap") or 0)
-                                deal_comm = float(dd.get("commission") or 0)
-                                deal_price = float(dd.get("price") or 0)
-                                break
-                    except Exception:
-                        continue
+                # Every closing deal for this position, not just the first:
+                # a partial close produces several and MT5 reports their sum.
+                rows = [
+                    d.to_dict() if hasattr(d, "to_dict") else d
+                    for d in list(self.bridge.deals or [])[-400:]
+                    if hasattr(d, "to_dict") or isinstance(d, dict)
+                ]
+                totals = aggregate_close_deals(rows, ticket)
+                if totals:
+                    deal_profit = totals["profit"]
+                    deal_swap = totals["swap"]
+                    deal_comm = totals["commission"]
+                    deal_price = totals["price"]
+                    deal_net = totals["net"]
+                    deal_parts = totals["parts"]
             except Exception:
                 pass
-            # Fallback: if native MT5 is connected and deal not found, pull recent deals from MT5 history
+            # Not in the EA feed yet? Ask MT5 directly. Deals can lag the
+            # position disappearing by a second or two.
             if deal_profit is None and self.bridge.native.connected:
                 try:
                     from datetime import datetime, timedelta, timezone
-                    now = datetime.now(timezone.utc)
-                    past = now - timedelta(days=2)
-                    # native.deals is sync, run in thread
                     import asyncio as _asyncio
-                    recent = await _asyncio.to_thread(self.bridge.native.deals, past, now)
-                    for d in list(recent or [])[-200:]:
-                        dd = d.to_dict() if hasattr(d, "to_dict") else (d if isinstance(d, dict) else {})
-                        try:
-                            if int(dd.get("position_id") or 0) == ticket or int(dd.get("ticket") or 0) == ticket:
-                                if str(dd.get("entry") or "").lower() in {"out", "inout"} or float(dd.get("profit") or 0) != 0:
-                                    deal_profit = float(dd.get("profit") or 0)
-                                    deal_swap = float(dd.get("swap") or 0)
-                                    deal_comm = float(dd.get("commission") or 0)
-                                    deal_price = float(dd.get("price") or 0)
-                                    break
-                        except Exception:
-                            continue
+
+                    now = datetime.now(timezone.utc)
+                    recent = await _asyncio.to_thread(
+                        self.bridge.native.deals, now - timedelta(days=2), now
+                    )
+                    rows = [
+                        d.to_dict() if hasattr(d, "to_dict") else d
+                        for d in list(recent or [])[-400:]
+                        if hasattr(d, "to_dict") or isinstance(d, dict)
+                    ]
+                    totals = aggregate_close_deals(rows, ticket)
+                    if totals:
+                        deal_profit = totals["profit"]
+                        deal_swap = totals["swap"]
+                        deal_comm = totals["commission"]
+                        deal_price = totals["price"]
+                        deal_net = totals["net"]
+                        deal_parts = totals["parts"]
                 except Exception:
                     pass
             close_trade = {
@@ -549,6 +611,15 @@ class Trader:
                 "profit": deal_profit if deal_profit is not None else (old.get("profit") or 0),
                 "swap": deal_swap if deal_swap is not None else (old.get("swap") or 0),
                 "commission": deal_comm if deal_comm is not None else 0,
+                # net is what the balance actually moved by; MT5's Profit column
+                # is gross, and a desk that mixes the two can never reconcile.
+                "net": deal_net if deal_net is not None else round(
+                    float(old.get("profit") or 0) + float(old.get("swap") or 0), 2
+                ),
+                # How many deals closed this position, and whether the figures
+                # came from MT5 or from the last floating price we had.
+                "parts": deal_parts,
+                "source": "mt5" if deal_profit is not None else "estimate",
                 "comment": old.get("comment"),
                 "strategy": old.get("strategy") or parse_strategy_tag(str(old.get("comment") or "")),
                 "kind": "close",

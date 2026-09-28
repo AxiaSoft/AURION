@@ -4697,17 +4697,45 @@ function setBacktestBusy(on) {
   if (load) load.classList.toggle("hidden", !on);
 }
 function historyRows(rows) {
-  // Show all trades (entry + close) so executed trades appear immediately in history
-  // P/L and SL/TP are now matched to MT5 via trader fix
+  // Entries and closes both appear, so a trade shows up the moment it opens.
   return Array.isArray(rows) ? rows : [];
 }
+
+/**
+ * Present a history row the way MetaTrader's own statement does.
+ *
+ * Three columns instead of one "profit", because that single column was the
+ * reason the desk and MT5 seemed to disagree: MT5's Profit is gross, and the
+ * balance moves by profit + swap + commission. Showing only the gross figure
+ * next to a balance that moved by the net one is a contradiction the trader is
+ * left to work out. Now both are visible and they reconcile by inspection.
+ */
+function historyRowView(row) {
+  const num = (v) => (v === null || v === undefined || v === "" ? 0 : Number(v) || 0);
+  const profit = num(row.profit);
+  const swap = num(row.swap);
+  const comm = num(row.commission);
+  const net = row.net !== undefined && row.net !== null ? num(row.net) : profit + swap + comm;
+  const isClose = String(row.kind || row.entry || "").toLowerCase().match(/close|out/);
+  return {
+    ...row,
+    profit: isClose ? profit : "",
+    fees: isClose && (swap || comm) ? Number((swap + comm).toFixed(2)) : "",
+    net: isClose ? Number(net.toFixed(2)) : "",
+    // A close recorded from the last floating price rather than from an MT5
+    // deal is marked, instead of being presented as fact.
+    source: row.source === "estimate" ? "≈" : "",
+  };
+}
+
 async function loadHistory() {
   const box = $("h-body");
   if (!box) return;
   const r = await API.get("/api/history?limit=400");
-  const rows = historyRows(r.data || []);
+  const rows = historyRows(r.data || []).map(historyRowView);
   if (!rows.length) { box.innerHTML = emptyMini(I18N.t("status.no_history")); return; }
-  box.innerHTML = table(rows, ["ts","ticket","symbol","side","volume","price","sl","tp","profit","strategy","comment"]);
+  box.innerHTML = table(rows, ["ts","ticket","symbol","side","volume","price","sl","tp",
+                               "profit","fees","net","source","strategy","comment"]);
 }
 
 async function hardRefresh() {

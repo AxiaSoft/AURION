@@ -448,7 +448,7 @@
     "reset_confirm": "Archive and wipe the AURION ledger? MetaTrader history is never imported.",
     "from": "From",
     "to": "To",
-    "net": "Net P/L",
+    "net": "Net",
     "winrate": "Win rate",
     "pf": "Profit factor",
     "sharpe": "Sharpe",
@@ -462,7 +462,9 @@
     "backtest_hint": "Uses only candles from the AurionBridge chart you pick. The live desk does not switch to this tape.",
     "live_ledger": "Live closed trades",
     "trades": "Trades",
-    "export_done": "File “{name}” downloaded"
+    "export_done": "File “{name}” downloaded",
+    "fees": "Swap + commission",
+    "source": "Source"
   },
   "settings": {
     "title": "Settings",
