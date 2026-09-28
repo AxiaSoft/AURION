@@ -15,7 +15,7 @@
     perf: "aurion.perf",
   };
 
-  var SKINS = ["glass", "clay", "skeu", "neu", "minimal"];
+  var SKINS = ["glass", "clay", "skeu", "neu"];
   // whatever the trader supplies. The generated alternatives were removed:
   // three more built-in backgrounds is three more things to keep looking
   // right across five skins and two themes, for no real gain.
@@ -80,7 +80,12 @@
 
   /* ----------------------------------------------------------------- skin */
 
-  function getSkin() { return oneOf(read(LS.skin, "glass"), SKINS, "glass"); }
+  function getSkin() {
+    // oneOf() also rescues anyone whose stored skin no longer exists - the
+    // minimal skin was removed, and its users must land on the default rather
+    // than on an attribute nothing styles.
+    return oneOf(read(LS.skin, "glass"), SKINS, "glass");
+  }
 
   function setSkin(name) {
     var skin = oneOf(name, SKINS, "glass");

@@ -479,7 +479,6 @@
     "skin_clay": "Claymorphism",
     "skin_skeu": "Skeuomorphism",
     "skin_neu": "Neumorphism",
-    "skin_minimal": "Minimalmorphism",
     "accent": "Accent colour",
     "accent_hint": "Buttons, switches, charts and highlights follow this colour.",
     "perf": "Rendering",

@@ -4,7 +4,7 @@
    This file only overrides. app.css owns layout and behaviour; everything here
    hangs off one attribute on <html>:
 
-       data-skin   glass (default) | clay | skeu | neu | minimal
+       data-skin   glass (default) | clay | skeu | neu
        data-perf   rich | fast            fast removes every blur
 
    How a skin works
@@ -520,24 +520,6 @@ html[data-skin="neu"] .nav button.on{
    through at the edges. */
 html[data-skin="neu"] .aurora::after{ opacity:.06 }
 html[data-skin="neu"] .aurora{ animation:none }
-/* Neumorphism and minimal need an even page tone, but the wallpaper has to
-   stay visible - that is the whole point of choosing one.
-
-   The scrim is drawn on body::after, deliberately not inside #app and not on
-   .aurora::before. #app opens its own stacking context, so a child of it could
-   never sit behind it; and .aurora::before is already the light-theme
-   crossfade layer for the light theme. As the last child of <body> with no
-   z-index, body::after lands above .aurora (z-index:0) and below #app
-   (z-index:1) in both themes. */
-html[data-skin="neu"] body::after,
-html[data-skin="minimal"] body::after,
-body.skin-scrim::after{
-  content:"";
-  position:fixed; inset:0;
-  pointer-events:none;
-  background:var(--sk-scrim, transparent);
-}
-
 /* ===========================================================================
    5. Skeuomorphism — real materials. Brushed metal, glass bevels, engraving.
    =========================================================================== */
@@ -599,68 +581,6 @@ html[data-skin="skeu"] table th{
   background:linear-gradient(180deg, rgb(var(--s6)), rgb(var(--s2)));
   box-shadow:inset 0 1px 0 rgb(var(--wash) / .12);
 }
-
-/* ===========================================================================
-   6. Minimalmorphism — Swiss. Hairlines, flat ink, no ornament at all.
-   ===========================================================================
-   Square corners, one-pixel rules, no shadow anywhere, buttons that are a flat
-   block of accent. Denser spacing and tighter type, because minimal is about
-   information density as much as decoration. */
-html[data-skin="minimal"]{
-  --sk-scrim:rgb(var(--s1) / .30);
-  --sk-r:4px;
-  --sk-r-sm:3px;
-  --sk-btn-radius:3px;
-  --sk-blur:none;
-  --sk-page:rgb(var(--s1));
-  --sk-surface:rgb(var(--s2) / .92);
-  --sk-surface-2:rgb(var(--s1) / .90);
-  --sk-edge:1px solid rgb(var(--wash) / .12);
-  --sk-shadow:none;
-  --sk-shadow-hover:none;
-  --sk-field:transparent;
-  --sk-field-edge:1px solid rgb(var(--wash) / .16);
-  --sk-field-shadow:none;
-  --sk-btn-bg:var(--accent);
-  --sk-btn-shadow:none;
-  --sk-danger-shadow:none;
-  --sk-danger-shadow-hover:none;
-  --sk-lift:none;
-  --sk-btn-press:none;
-  --sk-chip-shadow:none;
-}
-html[data-skin="minimal"]{ --r:4px }
-html[data-skin="minimal"] .btn{
-  font-weight:500;
-  letter-spacing:.04em;
-  text-transform:uppercase;
-  font-size:12px;
-  padding:11px 16px;
-}
-html[data-skin="minimal"] .btn:hover{ filter:brightness(1.12) }
-html[data-skin="minimal"] .btn.ghost{ border-color:rgb(var(--wash) / .22) }
-html[data-skin="minimal"] #btn-kill,
-html[data-skin="minimal"] .btn.danger{ background:#ff6b8a !important; color:#1d0a11 !important }
-html[data-skin="minimal"] .card{ padding:14px }
-html[data-skin="minimal"] .card:hover{ transform:none; border-color:rgb(var(--accent-rgb) / .35) }
-html[data-skin="minimal"] .switch{ border-radius:3px }
-html[data-skin="minimal"] .switch i{ border-radius:2px }
-html[data-skin="minimal"] .nav button{ border-radius:0; border-inline-start:2px solid transparent }
-html[data-skin="minimal"] .nav button.on{
-  background:transparent;
-  border-inline-start-color:var(--accent);
-  color:var(--accent);
-}
-html[data-skin="minimal"] .nav button.on::before{ display:none }
-html[data-skin="minimal"] table th{
-  border-bottom:1px solid rgb(var(--wash) / .18);
-  text-transform:uppercase;
-  font-size:10px;
-  letter-spacing:.08em;
-}
-html[data-skin="minimal"] .aurora{ animation:none }
-html[data-skin="minimal"] .aurora::after{ opacity:.05 }
-
 /* ===========================================================================
    8. Rendering tier
    ===========================================================================
@@ -879,9 +799,7 @@ html[data-skin]:not([data-skin="glass"]) .tabs button{ border-radius:calc(var(--
 
 /* Scrollbars, which are otherwise the one chrome-coloured thing left. */
 *::-webkit-scrollbar-thumb{ background:var(--scroll-thumb); border-radius:999px }
-*::-webkit-scrollbar-thumb:hover{ background:var(--scroll-thumb-hover) }
-html[data-skin="minimal"] *::-webkit-scrollbar-thumb{ border-radius:0 }
-html[data-skin="skeu"] *::-webkit-scrollbar-thumb{
+*::-webkit-scrollbar-thumb:hover{ background:var(--scroll-thumb-hover) }html[data-skin="skeu"] *::-webkit-scrollbar-thumb{
   background:linear-gradient(180deg, rgb(var(--wash) / .35), rgb(var(--wash) / .12));
   box-shadow:inset 0 1px 0 rgb(var(--wash) / .3);
 }
@@ -939,8 +857,6 @@ html[data-theme="light"][data-skin="skeu"] .top h2{
 }
 html[data-theme="light"][data-skin="clay"] .btn,
 html[data-theme="light"][data-skin="skeu"] .btn{ text-shadow:none }
-html[data-theme="light"][data-skin="minimal"]{ --sk-scrim:rgb(var(--s1) / .35) }
-
 /* ===========================================================================
    14. Selected controls do not respond to the pointer
    ===========================================================================
@@ -1034,9 +950,6 @@ html[data-skin]:not([data-skin="glass"]) .up-badge{
 }
 html[data-skin="clay"] .auth-logo-slot,
 html[data-skin="clay"] .prof-ava{ border-radius:26px }
-html[data-skin="minimal"] .auth-logo-slot,
-html[data-skin="minimal"] .prof-ava{ border-radius:4px }
-
 /* --- small controls ----------------------------------------------------- */
 html[data-skin]:not([data-skin="glass"]) .icon-btn,
 html[data-skin]:not([data-skin="glass"]) .menu-btn,
@@ -1162,17 +1075,6 @@ html[data-skin="skeu"]{
   --sk-thumb-edge:1px solid rgba(0,0,0,.55);
   --sk-thumb-shadow:inset 0 1px 0 rgb(255 255 255 / .5), 0 3px 7px -2px rgba(0,0,0,.55);
 }
-
-/* Minimal: a hairline and a square. */
-html[data-skin="minimal"]{
-  --sk-track-h:2px;
-  --sk-track-r:0;
-  --sk-track-bg:rgb(var(--wash) / .18);
-  --sk-thumb:14px;
-  --sk-thumb-r:2px;
-  --sk-thumb-shadow:none;
-}
-
 /* Light theme: the moulded skins need their shadows re-cut here too. */
 html[data-theme="light"][data-skin="clay"]{
   --sk-track-bg:rgb(var(--s1));
@@ -1200,9 +1102,7 @@ html[data-skin]:not([data-skin="glass"]) .tg-src{
   box-shadow:var(--sk-field-shadow);
   border-radius:var(--sk-r-sm);
 }
-html[data-skin]:not([data-skin="glass"]) .table-wrap{ border-radius:var(--sk-r-sm); overflow:hidden }
-html[data-skin="minimal"] table th{ background:transparent }
-html[data-skin="neu"] table th{ color:var(--muted); border-bottom:0 }
+html[data-skin]:not([data-skin="glass"]) .table-wrap{ border-radius:var(--sk-r-sm); overflow:hidden }html[data-skin="neu"] table th{ color:var(--muted); border-bottom:0 }
 
 /* --- calendar ----------------------------------------------------------- */
 html[data-skin]:not([data-skin="glass"]) .cal-cell{
@@ -1211,9 +1111,7 @@ html[data-skin]:not([data-skin="glass"]) .cal-cell{
   border:var(--sk-field-edge);
 }
 html[data-skin="clay"] .cal-cell{ box-shadow:inset 0 -4px 8px -4px rgba(0,0,0,.3) }
-html[data-skin="neu"] .cal-cell{ box-shadow:4px 4px 10px rgba(0,0,0,.4), -4px -4px 10px rgb(var(--wash) / .035); border:0 }
-html[data-skin="minimal"] .cal-cell{ border-radius:2px; box-shadow:none }
-html[data-skin="skeu"] .cal-cell{ box-shadow:inset 0 1px 0 rgb(var(--wash) / .10) }
+html[data-skin="neu"] .cal-cell{ box-shadow:4px 4px 10px rgba(0,0,0,.4), -4px -4px 10px rgb(var(--wash) / .035); border:0 }html[data-skin="skeu"] .cal-cell{ box-shadow:inset 0 1px 0 rgb(var(--wash) / .10) }
 .cal-cell.sel{ border-color:var(--accent); box-shadow:0 0 0 1px var(--accent) }
 
 /* --- badges, chips, pills ----------------------------------------------- */
@@ -1226,23 +1124,11 @@ html[data-skin]:not([data-skin="glass"]) .hdr-kpi{
   border-radius:var(--sk-r-sm);
   box-shadow:var(--sk-chip-shadow, none);
 }
-html[data-skin="minimal"] .badge-ok,
-html[data-skin="minimal"] .badge-no,
-html[data-skin="minimal"] .lvl-chip,
-html[data-skin="minimal"] .chip,
-html[data-skin="minimal"] .pill{
-  text-transform:uppercase;
-  letter-spacing:.06em;
-  font-size:10px;
-}
-
 /* --- plan and upgrade cards --------------------------------------------- */
 html[data-skin]:not([data-skin="glass"]) .plan-card{ border-radius:var(--sk-r) }
 html[data-skin="clay"] .plan-card.popular{
   box-shadow:var(--sk-shadow), 0 0 0 2px color-mix(in srgb, var(--accent) 55%, transparent);
 }
-html[data-skin="minimal"] .plan-card.popular{ box-shadow:inset 0 0 0 1px var(--accent) }
-
 /* --- toasts ------------------------------------------------------------- */
 html[data-skin]:not([data-skin="glass"]) .toast{
   border-radius:var(--sk-r-sm);
@@ -1281,18 +1167,6 @@ html[data-skin="skeu"] .card::after{
              rgb(var(--wash) / .35) 80%, transparent);
   pointer-events:none;
 }
-
-/* Neu: nothing. The material is defined by the absence of edges, and adding
-   one here would undo it - the restraint is the signature. */
-
-/* Minimal: an accent rule on the leading edge of a heading. */
-html[data-skin="minimal"] .card h3{
-  padding-inline-start:10px;
-  border-inline-start:2px solid var(--accent);
-  line-height:1.2;
-}
-html[data-skin="minimal"] .card{ padding-top:16px }
-
 /* The last few real surfaces. Everything else left untouched by a skin is a
    brand mark, a data dot or a chart glyph - those answer to the palette, not
    to the material, and restyling them would be the kind of over-reach that
@@ -1304,13 +1178,9 @@ html[data-skin]:not([data-skin="glass"]) .st-drop-ico,
 html[data-skin]:not([data-skin="glass"]) .chart-text-pop{
   border-radius:var(--sk-r-sm);
   box-shadow:var(--sk-chip-shadow, none);
-}
-html[data-skin="minimal"] .cal-ev,
-html[data-skin="minimal"] .slide-sym{ border-radius:2px; box-shadow:none }
-html[data-skin="clay"] .cal-ev{ border-radius:12px }
+}html[data-skin="clay"] .cal-ev{ border-radius:12px }
 
-/* Progress bars and gauges read as inset channels in the moulded skins and as
-   flat rules in minimal. */
+/* Progress bars and gauges read as inset channels in the moulded skins. */
 html[data-skin="clay"] .bar,
 html[data-skin="neu"] .bar,
 html[data-skin="clay"] .gauge,
@@ -1324,9 +1194,6 @@ html[data-skin="skeu"] .gauge{
   box-shadow:inset 0 2px 5px rgba(0,0,0,.55), 0 1px 0 rgb(var(--wash) / .10);
   border-radius:6px;
 }
-html[data-skin="minimal"] .bar,
-html[data-skin="minimal"] .gauge{ border-radius:0; box-shadow:none }
-
 /* ===========================================================================
    17. Detail pass
    ===========================================================================
@@ -1344,16 +1211,7 @@ html[data-skin="skeu"] .switch.on{
   background:linear-gradient(180deg,
     color-mix(in srgb, var(--accent) 55%, #000),
     color-mix(in srgb, var(--accent) 85%, #fff));
-}
-html[data-skin="minimal"] .switch{
-  border-radius:2px;
-  border:1px solid rgb(var(--wash) / .22);
-  background:transparent;
-  box-shadow:none;
-}
-html[data-skin="minimal"] .switch.on{ background:var(--accent); border-color:var(--accent) }
-html[data-skin="minimal"] .switch i{ border-radius:1px; box-shadow:none }
-html[data-skin="glass"] .switch{ backdrop-filter:blur(6px); -webkit-backdrop-filter:blur(6px) }
+}html[data-skin="glass"] .switch{ backdrop-filter:blur(6px); -webkit-backdrop-filter:blur(6px) }
 
 /* Text inputs: a focus state that belongs to the material rather than one
    cyan ring for everything. */
@@ -1373,27 +1231,11 @@ html[data-skin="skeu"] .field input:focus,
 html[data-skin="skeu"] .field select:focus,
 html[data-skin="skeu"] .ctrl:focus{
   box-shadow:inset 0 3px 7px rgba(0,0,0,.65), 0 0 0 2px rgb(var(--accent-rgb) / .4);
-}
-html[data-skin="minimal"] .field input:focus,
-html[data-skin="minimal"] .field select:focus,
-html[data-skin="minimal"] .ctrl:focus{
-  box-shadow:none;
-  border-color:var(--accent);
-  border-bottom-width:2px;
-}
-
-/* Section headings: the label above a group of settings. */
-html[data-skin="minimal"] .set-rail .sj-grp{
-  border-bottom:1px solid rgb(var(--wash) / .10);
-  margin-inline:6px;
-}
-html[data-skin="skeu"] .set-rail .sj-grp{ text-shadow:0 -1px 0 rgba(0,0,0,.6) }
+}html[data-skin="skeu"] .set-rail .sj-grp{ text-shadow:0 -1px 0 rgba(0,0,0,.6) }
 
 /* Dropdown menus open as part of the material, not as a floating glass sheet. */
 html[data-skin]:not([data-skin="glass"]) .dd-menu{ padding:6px }
-html[data-skin="clay"] .dd-opt{ border-radius:14px }
-html[data-skin="minimal"] .dd-opt{ border-radius:0 }
-html[data-skin="skeu"] .dd-opt.on{
+html[data-skin="clay"] .dd-opt{ border-radius:14px }html[data-skin="skeu"] .dd-opt.on{
   background:linear-gradient(180deg, rgb(var(--accent-rgb) / .35), rgb(var(--accent-rgb) / .12));
   box-shadow:inset 0 1px 0 rgb(var(--wash) / .2);
 }
@@ -1407,14 +1249,6 @@ html[data-skin]:not([data-skin="glass"]) .cal-none{
   border-radius:var(--sk-r-sm);
   box-shadow:var(--sk-field-shadow);
 }
-html[data-skin="minimal"] .empty,
-html[data-skin="minimal"] .sym-empty,
-html[data-skin="minimal"] .cal-none{
-  background:transparent;
-  border:1px dashed rgb(var(--wash) / .16);
-  box-shadow:none;
-}
-
 /* The kill switch keeps its colour everywhere, but its armed state should
    announce itself in the language of the skin. */
 html[data-skin="clay"] #btn-kill.kills{
@@ -1424,9 +1258,7 @@ html[data-skin="clay"] #btn-kill.kills{
 html[data-skin="neu"] #btn-kill.kills{
   box-shadow:7px 7px 18px rgba(0,0,0,.55), -7px -7px 18px rgb(var(--wash) / .05),
              inset 0 0 0 2px #f4475b;
-}
-html[data-skin="minimal"] #btn-kill.kills{ box-shadow:inset 0 0 0 2px #fff }
-html[data-skin="skeu"] #btn-kill.kills{
+}html[data-skin="skeu"] #btn-kill.kills{
   box-shadow:inset 0 1px 0 rgb(255 255 255 / .45), 0 0 14px rgb(244 71 91 / .55);
 }
 
@@ -1447,8 +1279,8 @@ html[data-skin="neu"] .chart-box{ box-shadow:inset 3px 3px 8px rgba(0,0,0,.35) }
 /* ===========================================================================
    18. Clay, Neu and Skeu, in full
    ===========================================================================
-   app.css draws a 1px border in 48 places. That is correct for glass and for
-   minimal - both are defined by their edges - and wrong for the other three:
+   app.css draws a 1px border in 72 places. That is correct for glass, which is
+   defined by its edges, and wrong for the other three:
    clay and neu build every edge out of light and shadow, so an extra hairline
    on top reads as a seam, and skeu wants a bevel rather than a flat grey line.
 

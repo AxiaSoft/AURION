@@ -310,7 +310,7 @@ function setThemeNow(mode) {
    of the Personal settings tab.
    =========================================================================== */
 function skinLabel(id) {
-  const map = { glass: "skin_glass", clay: "skin_clay", skeu: "skin_skeu", neu: "skin_neu", minimal: "skin_minimal" };
+  const map = { glass: "skin_glass", clay: "skin_clay", skeu: "skin_skeu", neu: "skin_neu" };
   return I18N.t("settings." + (map[id] || "skin_glass"));
 }
 
