@@ -18,7 +18,11 @@
   };
 
   var SKINS = ["glass", "clay", "skeu", "neu", "minimal"];
-  var BACKGROUNDS = ["default", "aurora", "deep", "mesh", "custom"];
+  // The AURION wallpaper (which has its own dark and light artwork) and
+  // whatever the trader supplies. The generated alternatives were removed:
+  // three more built-in backgrounds is three more things to keep looking
+  // right across five skins and two themes, for no real gain.
+  var BACKGROUNDS = ["default", "custom"];
 
   // Presets are (base, mid, third, ink). The first one is the original palette,
   // which is what an untouched install keeps.

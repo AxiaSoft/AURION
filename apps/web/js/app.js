@@ -339,12 +339,7 @@ function appearanceCardsHtml() {
   // instead of a second button that lingers after the image is gone.
   // Each wallpaper shows itself. A name alone ("Mesh") tells a trader nothing;
   // a thumbnail is the only honest preview of a background.
-  const thumbs = {
-    default: "/assets/bg-thumb-default.jpg",
-    aurora: "/assets/bg-thumb-aurora.jpg",
-    deep: "/assets/bg-thumb-deep.jpg",
-    mesh: "/assets/bg-thumb-mesh.jpg",
-  };
+  const thumbs = { default: "/assets/bg-thumb-default.jpg" };
   const backgrounds = AurionSkin.BACKGROUNDS
     .filter((id) => id !== "custom" || AurionSkin.hasWallpaper())
     .map((id) => {
@@ -2112,6 +2107,16 @@ function robotPanelHtml() {
       </div>
       ${freeAuto}
     </div>
+    <div class="card">
+      <div class="auto-banner" style="margin:0">
+        <div>
+          <h3 style="margin:0 0 6px">${I18N.t("strategies.news_trade")}</h3>
+          <p class="sub" id="st-news-sub">${st.news_trade_locked ? I18N.t("strategies.news_locked") : I18N.t("strategies.news_help")}</p>
+        </div>
+        <button type="button" class="switch ${st.news_trade && newsPrem?"on":""}" id="st-news" ${st.news_trade_locked || !newsPrem?"disabled":""} aria-pressed="${Boolean(st.news_trade && newsPrem)}"><i></i></button>
+      </div>
+      ${newsPrem ? "" : `<p class="sub lock-note">${I18N.t("lock.news")} <a href="#" data-go-upgrade>${I18N.t("lic.upgrade_cta")}</a></p>`}
+    </div>
     <div class="card" id="set-style">
       <h3>${I18N.t("style.title")}</h3>
       <div class="tabs" id="style-tabs">
@@ -2120,18 +2125,6 @@ function robotPanelHtml() {
       </div>
       <p class="sub">${style==="scalping" ? I18N.t("style.scalping_hint") : I18N.t("style.normal_hint")}</p>
       ${licFeat("scalping") ? "" : `<p class="sub lock-note">${I18N.t("lock.scalping")} <a href="#" data-go-upgrade>${I18N.t("lic.upgrade_cta")}</a></p>`}
-    </div>
-    <div class="card">
-      <h3>${I18N.t("strategies.ai_gate")}</h3>
-      <p class="sub">${I18N.t("strategies.ai_gate_help")}</p>
-      <label class="field" style="flex-direction:row;align-items:center;justify-content:space-between">
-        <span>${I18N.t("strategies.ai_gate_switch")}</span>
-        <button type="button" class="switch ${st.require_ai_agree!==false?"on":""}" id="st-ai"><i></i></button>
-      </label>
-      <div class="field"><span class="conf-head">${I18N.t("strategies.min_conf")}<b class="mono conf-pct" id="st-conf-pct">${Math.round((st.min_ai_confidence ?? 0.55) * 100)}%</b></span>
-        <input id="st-conf" type="range" step="0.01" min="0.05" max="0.95" value="${st.min_ai_confidence ?? 0.55}" />
-      </div>
-      <p class="sub" id="ai-conf-why">${I18N.t("strategies.min_conf_help")}</p>
     </div>
     <div class="card">
       <h3>${I18N.t("strategies.lot_title")} ${!licFeat("volume_mode")?'<span class="pill no">PREMIUM</span>':''}</h3>
@@ -2147,14 +2140,16 @@ function robotPanelHtml() {
       <p class="sub" id="vol-sub">${I18N.t(st.volume_mode === "manual" ? "strategies.lot_manual_sub" : "strategies.lot_auto_sub")}</p>
     </div>
     <div class="card">
-      <div class="auto-banner" style="margin:0">
-        <div>
-          <h3 style="margin:0 0 6px">${I18N.t("strategies.news_trade")}</h3>
-          <p class="sub" id="st-news-sub">${st.news_trade_locked ? I18N.t("strategies.news_locked") : I18N.t("strategies.news_help")}</p>
-        </div>
-        <button type="button" class="switch ${st.news_trade && newsPrem?"on":""}" id="st-news" ${st.news_trade_locked || !newsPrem?"disabled":""} aria-pressed="${Boolean(st.news_trade && newsPrem)}"><i></i></button>
+      <h3>${I18N.t("strategies.ai_gate")}</h3>
+      <p class="sub">${I18N.t("strategies.ai_gate_help")}</p>
+      <label class="field" style="flex-direction:row;align-items:center;justify-content:space-between">
+        <span>${I18N.t("strategies.ai_gate_switch")}</span>
+        <button type="button" class="switch ${st.require_ai_agree!==false?"on":""}" id="st-ai"><i></i></button>
+      </label>
+      <div class="field"><span class="conf-head">${I18N.t("strategies.min_conf")}<b class="mono conf-pct" id="st-conf-pct">${Math.round((st.min_ai_confidence ?? 0.55) * 100)}%</b></span>
+        <input id="st-conf" type="range" step="0.01" min="0.05" max="0.95" value="${st.min_ai_confidence ?? 0.55}" />
       </div>
-      ${newsPrem ? "" : `<p class="sub lock-note">${I18N.t("lock.news")} <a href="#" data-go-upgrade>${I18N.t("lic.upgrade_cta")}</a></p>`}
+      <p class="sub" id="ai-conf-why">${I18N.t("strategies.min_conf_help")}</p>
     </div>
     <div class="card">
       <div class="auto-banner" style="margin:0">
@@ -2168,7 +2163,8 @@ function robotPanelHtml() {
         <input id="st-danger-sens" type="range" step="1" min="1" max="100" value="${dg.sensitivity ?? 50}" ${propOn?"disabled":""} />
       </div>
       <p class="sub">${I18N.t("strategies.danger_sens_help")}</p>
-    </div>`;
+    </div>
+`;
 }
 
 function profileLabel(id) {

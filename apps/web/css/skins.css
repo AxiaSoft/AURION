@@ -35,6 +35,12 @@
    =========================================================================== */
 
 :root{
+  /* One rhythm for every skin. A skin changes the material, never the
+     spacing: cards, rails and dialogs line up whichever one is chosen. */
+  --sk-pad:16px;
+  --sk-gap:14px;
+  --sk-head:15px;
+
   --accent-soft:rgb(var(--accent-rgb) / .16);
   --sk-tint:rgb(var(--accent-rgb) / .10);
   --sk-tint-strong:rgb(var(--accent-rgb) / .20);
@@ -658,90 +664,30 @@ html[data-skin="minimal"] .aurora::after{ opacity:.05 }
 /* ===========================================================================
    7. Wallpaper
    ===========================================================================
-   Deep, Aurora and Mesh are real images (apps/web/assets/build-wallpapers.py
-   generates them from the brand palette), each with a dark and a light
-   variant. They are layered under the same gradient scrim the default uses, so
-   panels keep their contrast whichever wallpaper is on.
-
-   Skins that need a flat page - neu and minimal - override .aurora further
-   down and win, because their material depends on it. */
-html[data-bg="deep"] .aurora,
-html[data-bg="deep"].mode-desk .aurora{
-  background:
-    linear-gradient(180deg, rgb(var(--s1) / .30), rgb(var(--s1) / .72) 82%),
-    url("../assets/bg-deep-dark.jpg") center/cover no-repeat,
-    var(--bg);
-  animation:none;
-}
-html[data-bg="aurora"] .aurora,
-html[data-bg="aurora"].mode-desk .aurora{
-  background:
-    linear-gradient(180deg, rgb(var(--s1) / .34), rgb(var(--s1) / .74) 80%),
-    url("../assets/bg-aurora-dark.jpg") center/cover no-repeat,
-    var(--bg);
-}
-html[data-bg="mesh"] .aurora,
-html[data-bg="mesh"].mode-desk .aurora{
-  background:
-    linear-gradient(180deg, rgb(var(--s1) / .30), rgb(var(--s1) / .70) 80%),
-    url("../assets/bg-mesh-dark.jpg") center/cover no-repeat,
-    var(--bg);
-}
-
-/* Light theme: the same three, redrawn rather than brightened, so type stays
-   readable instead of fighting a washed-out dark image. */
-html[data-theme="light"][data-bg="deep"] .aurora,
-html[data-theme="light"][data-bg="deep"].mode-desk .aurora{
-  background:
-    linear-gradient(180deg, rgba(233,237,244,.45), rgba(233,237,244,.8) 82%),
-    url("../assets/bg-deep-light.jpg") center/cover no-repeat,
-    var(--bg);
-}
-html[data-theme="light"][data-bg="aurora"] .aurora,
-html[data-theme="light"][data-bg="aurora"].mode-desk .aurora{
-  background:
-    linear-gradient(180deg, rgba(233,237,244,.42), rgba(233,237,244,.78) 80%),
-    url("../assets/bg-aurora-light.jpg") center/cover no-repeat,
-    var(--bg);
-}
-html[data-theme="light"][data-bg="mesh"] .aurora,
-html[data-theme="light"][data-bg="mesh"].mode-desk .aurora{
-  background:
-    linear-gradient(180deg, rgba(233,237,244,.42), rgba(233,237,244,.78) 80%),
-    url("../assets/bg-mesh-light.jpg") center/cover no-repeat,
-    var(--bg);
-}
-/* The light layer .aurora::before is only for the default orb. */
-html[data-bg="deep"] .aurora::before,
-html[data-bg="aurora"] .aurora::before,
-html[data-bg="mesh"] .aurora::before,
-html[data-bg="custom"] .aurora::before{ display:none }
-
-/* Sign-in screen follows the same choice. */
-html[data-bg="deep"] #auth{ background:linear-gradient(180deg, rgb(var(--s1) / .5), rgb(var(--s1) / .88) 78%), url("../assets/bg-deep-dark.jpg") center/cover no-repeat }
-html[data-bg="aurora"] #auth{ background:linear-gradient(180deg, rgb(var(--s1) / .5), rgb(var(--s1) / .88) 78%), url("../assets/bg-aurora-dark.jpg") center/cover no-repeat }
-html[data-bg="mesh"] #auth{ background:linear-gradient(180deg, rgb(var(--s1) / .5), rgb(var(--s1) / .88) 78%), url("../assets/bg-mesh-dark.jpg") center/cover no-repeat }
-html[data-theme="light"][data-bg="deep"] #auth{ background:linear-gradient(180deg, rgba(233,237,244,.55), rgba(233,237,244,.9) 78%), url("../assets/bg-deep-light.jpg") center/cover no-repeat }
-html[data-theme="light"][data-bg="aurora"] #auth{ background:linear-gradient(180deg, rgba(233,237,244,.55), rgba(233,237,244,.9) 78%), url("../assets/bg-aurora-light.jpg") center/cover no-repeat }
-html[data-theme="light"][data-bg="mesh"] #auth{ background:linear-gradient(180deg, rgba(233,237,244,.55), rgba(233,237,244,.9) 78%), url("../assets/bg-mesh-light.jpg") center/cover no-repeat }
-html[data-bg="deep"] #auth::before,
-html[data-bg="aurora"] #auth::before,
-html[data-bg="mesh"] #auth::before,
-html[data-bg="custom"] #auth::before{ display:none }
-
+   Two options only: the AURION artwork, which app.css already layers for dark
+   and light, and an image the trader chooses. */
 html[data-bg="custom"] .aurora,
 html[data-bg="custom"].mode-desk .aurora{
   background:
-    linear-gradient(180deg, rgb(var(--s1) / .55), rgb(var(--s1) / .82) 82%),
+    linear-gradient(180deg, rgb(var(--s1) / .52), rgb(var(--s1) / .80) 82%),
     var(--skin-wallpaper, none) center/cover no-repeat,
     var(--bg);
   animation:none;
 }
+html[data-theme="light"][data-bg="custom"] .aurora,
+html[data-theme="light"][data-bg="custom"].mode-desk .aurora{
+  background:
+    linear-gradient(180deg, rgba(233,237,244,.42), rgba(233,237,244,.74) 82%),
+    var(--skin-wallpaper, none) center/cover no-repeat,
+    var(--bg);
+}
+html[data-bg="custom"] .aurora::before{ display:none }
 html[data-bg="custom"] #auth{
   background:
     linear-gradient(180deg, rgb(var(--s1) / .55), rgb(var(--s1) / .9) 78%),
     var(--skin-wallpaper, none) center/cover no-repeat;
 }
+html[data-bg="custom"] #auth::before{ display:none }
 
 /* ===========================================================================
    8. Rendering tier
@@ -942,9 +888,11 @@ html[data-theme="light"] .modal-card{ box-shadow:var(--sk-shadow), 0 30px 70px r
    and lets the next one move up into the space. */
 .set-block > .grid.g-2{
   align-items:start;
-  grid-auto-flow:row dense;
   gap:14px;
 }
+/* NOT dense: the robot page is authored in deliberate pairs - auto trading
+   with news, model with volume, AI gate with the danger guard - and a dense
+   flow would pull a short card up into the previous row and break them. */
 .set-block > .grid.g-2 > .card{
   height:auto;
   align-self:start;
@@ -954,3 +902,124 @@ html[data-theme="light"] .modal-card{ box-shadow:var(--sk-shadow), 0 30px 70px r
 /* The last paragraph in a card should not leave a hole under it. */
 .set-block .card > p.sub:last-child{ margin-bottom:0 }
 .set-block .card > .btn.block:last-child{ margin-top:auto }
+
+/* ===========================================================================
+   13. Finish
+   ===========================================================================
+   The last pass over all five skins: the details that decide whether the desk
+   looks designed or merely themed. Everything here is shared, so a change is
+   made once rather than five times. */
+
+/* Headings carry the same weight and rhythm in every material. */
+.card h3,
+.set-title{
+  font-size:var(--sk-head);
+  letter-spacing:.005em;
+  line-height:1.3;
+}
+.card > .sub:first-of-type{ margin-top:2px }
+
+/* Controls line up on one baseline. Mixed heights between an input, a select
+   and a small button are the most common reason a settings page looks untidy. */
+.field input,
+.field select,
+.ctrl,
+.dd-btn{ min-height:42px }
+.btn{ min-height:42px; display:inline-flex; align-items:center; justify-content:center; gap:8px }
+.btn.tiny{ min-height:32px }
+
+/* Motion: one curve, one duration, and none of it when the user asked for less. */
+.card,
+.btn,
+.switch,
+.chip,
+.pill,
+.bg-tile,
+.accent-dot,
+.lang-pills button{ transition-timing-function:var(--ease); transition-duration:.18s }
+
+/* Disabled means disabled in every material. */
+.btn:disabled,
+.lang-pills button:disabled,
+.tabs button:disabled{
+  opacity:.45;
+  cursor:not-allowed;
+  filter:grayscale(.35);
+  box-shadow:none;
+  transform:none;
+}
+
+/* Tabs follow the skin instead of staying glass in all five. */
+html[data-skin]:not([data-skin="glass"]) .tabs{
+  background:var(--sk-field);
+  border:var(--sk-field-edge);
+  box-shadow:var(--sk-field-shadow);
+  border-radius:var(--sk-r-sm);
+  padding:3px;
+}
+html[data-skin]:not([data-skin="glass"]) .tabs button{ border-radius:calc(var(--sk-r-sm) - 3px) }
+.tabs button.on{ background:var(--accent); color:var(--accent-ink) }
+
+/* Scrollbars, which are otherwise the one chrome-coloured thing left. */
+*::-webkit-scrollbar-thumb{ background:var(--scroll-thumb); border-radius:999px }
+*::-webkit-scrollbar-thumb:hover{ background:var(--scroll-thumb-hover) }
+html[data-skin="minimal"] *::-webkit-scrollbar-thumb{ border-radius:0 }
+html[data-skin="skeu"] *::-webkit-scrollbar-thumb{
+  background:linear-gradient(180deg, rgb(var(--wash) / .35), rgb(var(--wash) / .12));
+  box-shadow:inset 0 1px 0 rgb(var(--wash) / .3);
+}
+
+/* Empty states and separators should not look like leftovers. */
+.card hr,
+.cal-tip-sep{ border:0; height:1px; background:rgb(var(--wash) / .10); margin:14px 0 }
+html[data-skin="skeu"] .card hr{
+  height:2px;
+  background:linear-gradient(180deg, rgba(0,0,0,.5), rgb(var(--wash) / .10));
+}
+
+/* Glass, refined. It is the default and deserves the same care as the rest:
+   a brighter top edge, a tighter blur, and a hairline that follows the accent. */
+html[data-skin="glass"] .card{
+  border-color:rgb(var(--wash) / .10);
+  box-shadow:0 10px 40px rgba(0,0,0,.22), inset 0 1px 0 rgb(var(--wash) / .07);
+}
+html[data-skin="glass"] .card::before{
+  background:linear-gradient(90deg, transparent, rgb(var(--accent-rgb) / .45),
+             rgb(var(--accent-3-rgb) / .35), transparent);
+}
+html[data-skin="glass"] .card:hover{ border-color:rgb(var(--accent-rgb) / .22) }
+
+/* Light theme: the dark-surface shadows of clay, neu and skeu are far too
+   heavy on a white page, so each material is restated at light-page strength
+   instead of simply inheriting numbers tuned for near-black. */
+html[data-theme="light"][data-skin="clay"]{
+  --clay-lift:rgba(255,255,255,.9);
+  --clay-dip:rgba(90,104,130,.18);
+  --clay-cast:rgba(60,72,96,.20);
+  --clay-sink:rgba(90,104,130,.22);
+}
+html[data-theme="light"][data-skin="neu"]{
+  --sk-shadow:9px 9px 20px rgba(88,102,128,.18), -9px -9px 20px rgba(255,255,255,.95);
+  --sk-shadow-hover:12px 12px 26px rgba(88,102,128,.22), -12px -12px 26px rgba(255,255,255,1);
+  --sk-field-shadow:inset 5px 5px 12px rgba(88,102,128,.18), inset -5px -5px 12px rgba(255,255,255,.95);
+  --sk-btn-shadow:6px 6px 16px rgba(88,102,128,.18), -6px -6px 16px rgba(255,255,255,.95);
+  --sk-scrim:rgb(var(--s5) / .42);
+}
+html[data-theme="light"][data-skin="neu"] .btn:active,
+html[data-theme="light"][data-skin="neu"] .btn.ghost:active{
+  box-shadow:inset 5px 5px 12px rgba(88,102,128,.20), inset -5px -5px 12px rgba(255,255,255,.95);
+}
+html[data-theme="light"][data-skin="skeu"]{
+  --sk-edge:1px solid rgba(120,134,158,.45);
+  --sk-shadow:inset 0 1px 0 rgba(255,255,255,.9), 0 10px 22px rgba(60,72,96,.16);
+  --sk-field-shadow:inset 0 2px 5px rgba(90,104,130,.22), 0 1px 0 rgba(255,255,255,.9);
+  --sk-btn-edge:1px solid rgba(0,0,0,.18);
+}
+html[data-theme="light"][data-skin="skeu"] .card h3,
+html[data-theme="light"][data-skin="skeu"] .set-title,
+html[data-theme="light"][data-skin="skeu"] .top h2{
+  text-shadow:0 1px 0 rgba(255,255,255,.95);
+}
+html[data-theme="light"][data-skin="clay"] .btn,
+html[data-theme="light"][data-skin="skeu"] .btn{ text-shadow:none }
+html[data-theme="light"][data-skin="minimal"]{ --sk-scrim:rgb(var(--s1) / .35) }
