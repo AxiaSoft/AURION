@@ -28,15 +28,7 @@ internal sealed class AppWindow : Form
     private static readonly TimeSpan StartupBudget = TimeSpan.FromMinutes(3);
 
     private readonly WebView2 _view = new() { Dock = DockStyle.Fill, Visible = false };
-    private readonly Label _status = new()
-    {
-        Dock = DockStyle.Fill,
-        TextAlign = ContentAlignment.MiddleCenter,
-        ForeColor = Color.FromArgb(0xE8, 0xED, 0xF7),
-        BackColor = Color.FromArgb(0x06, 0x07, 0x0B),
-        Font = new Font("Segoe UI", 11F),
-        Text = "Starting AURION…",
-    };
+    private readonly SplashPanel _splash;
 
     private readonly string _installDir = AppContext.BaseDirectory.TrimEnd('\\');
     private readonly HttpClient _http = new() { Timeout = TimeSpan.FromSeconds(2) };
@@ -51,8 +43,9 @@ internal sealed class AppWindow : Form
         WindowState = FormWindowState.Normal;
         Icon = LoadIcon();
 
+        _splash = new SplashPanel(SplashMark()) { Status = "Starting AURION…" };
         Controls.Add(_view);
-        Controls.Add(_status);
+        Controls.Add(_splash);
 
         LoadPlacement();
         Shown += async (_, _) => await BootAsync();
@@ -63,15 +56,30 @@ internal sealed class AppWindow : Form
 
     private async Task BootAsync()
     {
-        if (!await DeskIsAnsweringAsync())
+        if (await DeskIsAnsweringAsync())
         {
+            _splash.Status = "Connecting to the desk…";
+            _splash.Progress = 0.85f;
+        }
+        else
+        {
+            _splash.Status = "Starting the engine…";
             if (!StartDesk()) return;
 
             var clock = Stopwatch.StartNew();
             while (clock.Elapsed < StartupBudget)
             {
-                await Task.Delay(1000);
-                _status.Text = $"Starting AURION…  ({clock.Elapsed.Seconds + clock.Elapsed.Minutes * 60}s)";
+                await Task.Delay(500);
+
+                // Honest progress: the elapsed share of the budget, capped well
+                // short of full, because reaching 100% before the desk answers
+                // would be a lie. The bar completes when the desk really does.
+                var share = (float)(clock.Elapsed.TotalSeconds / StartupBudget.TotalSeconds);
+                _splash.Progress = Math.Min(0.8f, 0.05f + share * 2.2f);
+                _splash.Status = clock.Elapsed.TotalSeconds < 12
+                    ? "Starting the engine…"
+                    : $"Waiting for the desk…  {clock.Elapsed.Seconds + clock.Elapsed.Minutes * 60}s";
+
                 if (await DeskIsAnsweringAsync()) break;
             }
 
@@ -82,6 +90,8 @@ internal sealed class AppWindow : Form
             }
         }
 
+        _splash.Status = "Loading the desk…";
+        _splash.Progress = 0.92f;
         await ShowDeskAsync();
     }
 
@@ -143,7 +153,8 @@ internal sealed class AppWindow : Form
     private void ShowStartupFailure()
     {
         var logs = Path.Combine(_installDir, "data", "logs");
-        _status.Text = "AURION did not finish starting.";
+        _splash.Status = "AURION did not finish starting.";
+        _splash.Progress = 0f;
         MessageBox.Show(this,
             "AURION did not finish starting within three minutes.\n\n" +
             "The engine and desk write the real reason here:\n" +
@@ -209,13 +220,24 @@ internal sealed class AppWindow : Form
         };
         core.DocumentTitleChanged += (_, _) =>
         {
-            var t = core.DocumentTitle;
-            Text = string.IsNullOrWhiteSpace(t) || t.Contains("127.0.0.1") ? "AURION" : $"{t} — AURION";
+            // The desk's own <title> is "AURION", so appending the product name
+            // produced "AURION — AURION" in the title bar and the taskbar
+            // tooltip. Only a page that says something else gets a suffix.
+            var t = (core.DocumentTitle ?? "").Trim();
+            Text = t.Length == 0 || t.Contains("127.0.0.1") || t.Equals("AURION", StringComparison.OrdinalIgnoreCase)
+                ? "AURION"
+                : $"{t} — AURION";
         };
 
+        // Hold the splash until the desk has actually painted, so the window
+        // never shows an empty white frame between the two.
+        core.NavigationCompleted += (_, _) =>
+        {
+            _splash.Progress = 1f;
+            _view.Visible = true;
+            _splash.Visible = false;
+        };
         _view.Source = new Uri(DeskUrl);
-        _view.Visible = true;
-        _status.Visible = false;
     }
 
     private static bool IsDesk(string uri) =>
@@ -293,6 +315,23 @@ internal sealed class AppWindow : Form
     /// and in Alt+Tab. Form.Icon does NOT inherit the executable's icon, so
     /// leaving it unset gives the stock WinForms placeholder.
     /// </summary>
+    /// <summary>The logo for the splash, taken from the same embedded icon as
+    /// the window icon so there is only ever one source of the mark.</summary>
+    private static Image? SplashMark()
+    {
+        try
+        {
+            var icon = LoadIcon();
+            if (icon is null) return null;
+            using var sized = new Icon(icon, new Size(128, 128));
+            return sized.ToBitmap();
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
     private static Icon? LoadIcon()
     {
         // The .ico carries 256/128/64/48/32/24/16 frames, so Windows can pick
