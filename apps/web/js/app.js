@@ -312,10 +312,21 @@ function setThemeNow(mode) {
 function appearanceCardsHtml() {
   if (typeof AurionSkin === "undefined") return "";
   const perf = AurionSkin.getPerfMode();
-  // The "my image" entry only exists while there is an image, and it is the
-  // only one that carries a remove affordance - a small x on the chip itself,
-  // instead of a second button that lingers after the image is gone.
+  const accent = AurionSkin.getAccent();
+  const swatches = Object.keys(AurionSkin.ACCENTS).map((id) => {
+    const c = AurionSkin.ACCENTS[id];
+    return `<button type="button" class="accent-dot ${id === accent ? "on" : ""}" data-accent="${id}"
+              title="${id}" aria-label="${id}" aria-pressed="${id === accent}"
+              style="background:linear-gradient(135deg, ${c[0]}, ${c[2]})"></button>`;
+  }).join("");
+
   return `
+      <div class="card" style="margin-top:14px">
+        <p class="sub" style="margin:0 0 6px">${I18N.t("settings.accent")}</p>
+        <div class="accent-row" id="set-accents">${swatches}</div>
+        <p class="sub" style="margin:8px 0 0">${I18N.t("settings.accent_hint")}</p>
+      </div>
+
       <div class="card" style="margin-top:14px">
         <p class="sub" style="margin:0 0 6px">${I18N.t("settings.perf")}</p>
         <div class="lang-pills" id="set-perf">
@@ -336,7 +347,12 @@ function perfNowLabel() {
 
 function markAppearancePills() {
   if (typeof AurionSkin === "undefined") return;
-  const perf = AurionSkin.getPerfMode();
+  const perf = AurionSkin.getPerfMode(), accent = AurionSkin.getAccent();
+  document.querySelectorAll("[data-accent]").forEach((b) => {
+    const on = b.dataset.accent === accent;
+    b.classList.toggle("on", on);
+    b.setAttribute("aria-pressed", on ? "true" : "false");
+  });
   document.querySelectorAll("[data-perfbtn]").forEach((b) => b.classList.toggle("on", b.dataset.perfbtn === perf));
   const now = $("set-perf-now");
   if (now) now.textContent = perfNowLabel();
@@ -344,6 +360,16 @@ function markAppearancePills() {
 
 function bindAppearance() {
   if (typeof AurionSkin === "undefined") return;
+
+  const accents = $("set-accents");
+  if (accents) accents.onclick = (e) => {
+    const b = e.target.closest("[data-accent]");
+    if (!b) return;
+    AurionSkin.setAccent(b.dataset.accent);
+    markAppearancePills();
+    // The chart reads its colours once when it paints, so it has to be asked.
+    repaintChartsForTheme();
+  };
 
   const perf = $("set-perf");
   if (perf) perf.onclick = (e) => {

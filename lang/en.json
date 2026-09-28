@@ -497,7 +497,9 @@
     "perf_rich": "Full effects",
     "perf_fast": "Performance",
     "perf_now_fast": "Effects are reduced on this machine.",
-    "perf_now_rich": "Full effects are on."
+    "perf_now_rich": "Full effects are on.",
+    "accent": "Accent colour",
+    "accent_hint": "Buttons, switches, highlights and chart overlays follow this colour."
   },
   "style": {
     "title": "Trade model",

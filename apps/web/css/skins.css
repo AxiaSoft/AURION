@@ -739,3 +739,26 @@ html[data-theme="light"][data-perf="fast"] :is(.pay-veil, .desk-reload){ backgro
   line-height:1.6;
 }
 .signal-card .btn.tiny{ width:100% }
+
+/* ===========================================================================
+   15. Console surfaces stay dark in the light theme
+   ===========================================================================
+   A terminal is a screen. Bleaching the engine log, the robot log and the
+   strategy source to match a white page destroys the one place in the desk
+   where monospaced light-on-dark text is the convention a trader already
+   reads - and where a red error line has to be unmissable. These keep their
+   own colours in both themes. */
+html[data-theme="light"] :is(.term, .robot-term, .st-src, .tg-src, .secret-box, .keybox){
+  background:#0b0e15;
+  color:#dbe3f0;
+  border-color:rgba(20,28,45,.35);
+}
+html[data-theme="light"] :is(.term, .robot-term) .l-info{ color:#9fb0c9 }
+html[data-theme="light"] :is(.term, .robot-term) .l-warn{ color:#f0b955 }
+html[data-theme="light"] :is(.term, .robot-term) .l-err{ color:#ff7d94 }
+html[data-theme="light"] :is(.term, .robot-term) .l-ok{ color:#4fd6a3 }
+html[data-theme="light"] :is(.st-src, .tg-src)::placeholder{ color:#6b7b93 }
+/* The scrollbar inside a dark console should not be a light-theme scrollbar. */
+html[data-theme="light"] :is(.term, .robot-term, .st-src)::-webkit-scrollbar-thumb{
+  background:rgba(255,255,255,.22);
+}
