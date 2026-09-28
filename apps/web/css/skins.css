@@ -706,3 +706,10 @@ html[data-glass="off"] .welcome-sound,
 html[data-perf="fast"] .welcome-sound{ background:rgb(var(--s4)) }
 html[data-theme="light"][data-glass="off"] :is(.pay-veil, .desk-reload),
 html[data-theme="light"][data-perf="fast"] :is(.pay-veil, .desk-reload){ background:#ffffff }
+
+/* A strategy's record is two rows of three: the headline figures the trader
+   scans, then the detail they check. Both keep the same grid so the numbers
+   line up down the card rather than drifting. */
+.st-stats-2{ margin-top:6px; padding-top:6px }
+.st-stats-2 span{ font-size:10.5px }
+.st-stats .sep{ font-style:normal; color:var(--faint); padding:0 2px }

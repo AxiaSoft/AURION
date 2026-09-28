@@ -286,7 +286,10 @@
     "lot_value": "Lot (e.g. 0.10)",
     "bad_type": "Only Python or text files (.py or .txt)",
     "bad_read": "Could not read the file",
-    "file_ready": "File “{name}” is ready to upload"
+    "file_ready": "File “{name}” is ready to upload",
+    "record": "Won / lost",
+    "pf": "Profit factor",
+    "avg": "Average trade"
   },
   "risk": {
     "title": "Prop risk",

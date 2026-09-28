@@ -26,7 +26,7 @@ from .danger import (
     score_position,
     threshold_for,
 )
-from .store import Store, parse_strategy_tag
+from .store import Store, normalise_strategy_tag, parse_strategy_tag
 
 log = get("trader")
 
@@ -85,6 +85,15 @@ class Trader:
         self._last_ai_tick = 0.0
         self._ai_tick_task: asyncio.Task | None = None
         RING.subscribe(self._on_log)
+
+        # Existing installs already have months of trades; seed the record from
+        # them once rather than starting every strategy at zero on upgrade day.
+        try:
+            seeded = self.store.backfill_strategy_ledger()
+            if seeded:
+                log.info("strategy ledger seeded from %d historical closes", seeded)
+        except Exception:
+            log.exception("strategy ledger backfill failed")
 
     def _on_log(self, payload: dict[str, Any]) -> None:
         try:
@@ -1100,16 +1109,16 @@ class Trader:
             desc["last_ts"] = slot.get("last_ts") or ""
             items.append(desc)
         try:
-            ledger = self.store.strategy_stats([k for k in self.book] + ["desk", "other"])
+            # The persistent ledger, not a scan of the trade table: a strategy's
+            # record has to outlive a history reset, and every strategy - the
+            # four built-ins and any uploaded one - keeps its own.
+            ledger = self.store.strategy_ledger([k for k in self.book] + ["desk", "other"])
         except Exception:
+            log.exception("strategy ledger unavailable")
             ledger = {}
 
         def _stat(name: str) -> dict[str, Any]:
-            keys = [name, str(name).lower(), str(name).removesuffix(".py"), str(name).lower().removesuffix(".py")]
-            for key in keys:
-                if key in ledger:
-                    return ledger[key]
-            return {}
+            return ledger.get(normalise_strategy_tag(name), {})
 
         for desc in items:
             stats = _stat(str(desc.get("name") or ""))
@@ -1118,6 +1127,15 @@ class Trader:
             desc["losses"] = int(stats.get("losses") or 0)
             desc["net"] = float(stats.get("net") or 0)
             desc["win_rate"] = float(stats.get("win_rate") or 0)
+            # The card shows the record as well as the headline, so the whole
+            # ledger row travels with it rather than three of its fields.
+            desc["profit_factor"] = stats.get("profit_factor")
+            desc["avg"] = float(stats.get("avg") or 0)
+            desc["best"] = float(stats.get("best") or 0)
+            desc["worst"] = float(stats.get("worst") or 0)
+            desc["gross_profit"] = float(stats.get("gross_profit") or 0)
+            desc["gross_loss"] = float(stats.get("gross_loss") or 0)
+            desc["last_trade_ts"] = stats.get("last_ts")
         self.strategy_meta = {
             "name": ",".join(enabled) if enabled else None,
             "enabled": bool(enabled) and self.auto_trade,

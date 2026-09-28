@@ -1765,6 +1765,14 @@ function strategyLiveCards() {
         <div><span>${I18N.t("strategies.net")}</span><b class="mono ${clsPnl(it.net)}" data-st-net="${esc(it.name)}">${fmt(it.net || 0)}</b></div>
         <div><span>${I18N.t("strategies.trades")}</span><b class="mono" data-st-n="${esc(it.name)}">${it.trades || 0}</b></div>
       </div>
+      <div class="st-stats st-stats-2">
+        <div><span>${I18N.t("strategies.record")}</span>
+          <b class="mono" data-st-wl="${esc(it.name)}">${it.wins || 0}<i class="sep">/</i>${it.losses || 0}</b></div>
+        <div><span>${I18N.t("strategies.pf")}</span>
+          <b class="mono" data-st-pf="${esc(it.name)}">${it.profit_factor === null || it.profit_factor === undefined ? "—" : fmt(it.profit_factor, 2)}</b></div>
+        <div><span>${I18N.t("strategies.avg")}</span>
+          <b class="mono ${clsPnl(it.avg)}" data-st-avg="${esc(it.name)}">${fmt(it.avg || 0)}</b></div>
+      </div>
       <p class="sub" data-st-eval="${esc(it.name)}">${it.last_reason || I18N.t("strategies.waiting")}</p>
       ${custom ? `<div class="row st-mng">
         <button type="button" class="btn tiny ghost" data-st-edit="${esc(it.name)}">${I18N.t("strategies.edit")}</button>

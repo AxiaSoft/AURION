@@ -32,6 +32,19 @@ CREATE TABLE IF NOT EXISTS events (
     message TEXT,
     payload TEXT
 );
+CREATE TABLE IF NOT EXISTS strategy_ledger (
+    strategy TEXT PRIMARY KEY,
+    trades INTEGER NOT NULL DEFAULT 0,
+    wins INTEGER NOT NULL DEFAULT 0,
+    losses INTEGER NOT NULL DEFAULT 0,
+    net REAL NOT NULL DEFAULT 0,
+    gross_profit REAL NOT NULL DEFAULT 0,
+    gross_loss REAL NOT NULL DEFAULT 0,
+    best REAL NOT NULL DEFAULT 0,
+    worst REAL NOT NULL DEFAULT 0,
+    first_ts TEXT,
+    last_ts TEXT
+);
 CREATE TABLE IF NOT EXISTS trades (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     ts TEXT NOT NULL,
@@ -103,6 +116,25 @@ def parse_strategy_tag(comment: str) -> str:
         if tag in compact:
             return tag
     return ""
+
+
+def normalise_strategy_tag(tag: str) -> str:
+    """One spelling per strategy.
+
+    Tags arrive from MT5 comments, from uploaded file names and from the desk,
+    in every combination of case, dashes and a trailing .py. Without a single
+    normaliser the same strategy accumulates two or three separate records and
+    each card shows a fraction of its own history.
+    """
+    name = str(tag or "").strip()
+    if not name:
+        return "other"
+    if name.startswith("@"):          # reserved desk tags keep their marker
+        return name
+    name = name.lower().replace("-", "_").replace(" ", "_")
+    if name.endswith(".py"):
+        name = name[:-3]
+    return name or "other"
 
 
 def _is_close_row(kind: str, entry: str, profit: Any) -> bool:
@@ -262,6 +294,13 @@ class Store:
             )
             if existing:
                 return False
+        if _is_close_row(kind, entry, trade.get("profit")):
+            # The per-strategy record is kept in its own ledger, updated here
+            # because every close - EA, native sync or desk - passes through
+            # this one function. Deriving it from the trades table instead is
+            # what made clearing the history erase a strategy's whole record.
+            self._bump_strategy_ledger(strategy, trade)
+
         self.execute(
             """INSERT INTO trades(ts, ticket, symbol, side, volume, price, sl, tp, profit, swap, commission, comment, raw, strategy, kind, entry)
                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
@@ -377,6 +416,121 @@ class Store:
         )
         return True
 
+    def _bump_strategy_ledger(self, strategy: str, trade: dict[str, Any]) -> None:
+        """Fold one closed trade into a strategy's running record.
+
+        Uses net - profit plus swap and commission - because that is what the
+        account balance did. A strategy whose gross wins are eaten by swap is
+        not a winning strategy, and the card should not claim otherwise.
+        """
+        tag = normalise_strategy_tag(strategy or parse_strategy_tag(str(trade.get("comment") or "")))
+        try:
+            profit = float(trade.get("profit") or 0)
+            swap = float(trade.get("swap") or 0)
+            commission = float(trade.get("commission") or 0)
+        except (TypeError, ValueError):
+            return
+        net_raw = trade.get("net")
+        try:
+            net = float(net_raw) if net_raw not in (None, "") else profit + swap + commission
+        except (TypeError, ValueError):
+            net = profit + swap + commission
+        net = round(net, 2)
+        stamp = str(trade.get("time") or trade.get("ts") or utc_iso())
+
+        self.execute(
+            """INSERT INTO strategy_ledger(strategy, trades, wins, losses, net,
+                   gross_profit, gross_loss, best, worst, first_ts, last_ts)
+               VALUES (?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+               ON CONFLICT(strategy) DO UPDATE SET
+                   trades = trades + 1,
+                   wins = wins + excluded.wins,
+                   losses = losses + excluded.losses,
+                   net = round(net + excluded.net, 2),
+                   gross_profit = round(gross_profit + excluded.gross_profit, 2),
+                   gross_loss = round(gross_loss + excluded.gross_loss, 2),
+                   best = max(best, excluded.best),
+                   worst = min(worst, excluded.worst),
+                   last_ts = excluded.last_ts""",
+            (
+                tag,
+                1 if net > 0 else 0,
+                1 if net < 0 else 0,
+                net,
+                net if net > 0 else 0.0,
+                net if net < 0 else 0.0,
+                net,
+                net,
+                stamp,
+                stamp,
+            ),
+        )
+
+    def strategy_ledger(self, names: list[str] | None = None) -> dict[str, dict[str, Any]]:
+        """Every strategy's record, including ones with no trades yet.
+
+        A card reading 0 trades is information; a card with no numbers at all
+        looks broken, which is why requested names are always present.
+        """
+        out: dict[str, dict[str, Any]] = {}
+        for name in names or []:
+            out[normalise_strategy_tag(name)] = {
+                "trades": 0, "wins": 0, "losses": 0, "net": 0.0,
+                "gross_profit": 0.0, "gross_loss": 0.0, "best": 0.0, "worst": 0.0,
+                "win_rate": 0.0, "profit_factor": 0.0, "avg": 0.0, "last_ts": None,
+            }
+        for row in self.query("SELECT * FROM strategy_ledger"):
+            tag = normalise_strategy_tag(str(row.get("strategy") or ""))
+            trades = int(row.get("trades") or 0)
+            wins = int(row.get("wins") or 0)
+            gross_profit = float(row.get("gross_profit") or 0)
+            gross_loss = abs(float(row.get("gross_loss") or 0))
+            net = float(row.get("net") or 0)
+            out[tag] = {
+                "trades": trades,
+                "wins": wins,
+                "losses": int(row.get("losses") or 0),
+                "net": round(net, 2),
+                "gross_profit": round(gross_profit, 2),
+                "gross_loss": round(gross_loss, 2),
+                "best": round(float(row.get("best") or 0), 2),
+                "worst": round(float(row.get("worst") or 0), 2),
+                "win_rate": round(wins / trades * 100, 1) if trades else 0.0,
+                # Undefined rather than infinite when nothing has lost yet.
+                "profit_factor": round(gross_profit / gross_loss, 2) if gross_loss else None,
+                "avg": round(net / trades, 2) if trades else 0.0,
+                "last_ts": row.get("last_ts"),
+            }
+        return out
+
+    def backfill_strategy_ledger(self) -> int:
+        """Seed the ledger from existing history, once.
+
+        An install that already has months of trades should not start from zero
+        the day this ships. Runs only while the ledger is empty, so a later
+        history reset cannot trigger a re-import of rows that are gone.
+        """
+        existing = self.query("SELECT COUNT(*) AS n FROM strategy_ledger")
+        if existing and int(existing[0].get("n") or 0):
+            return 0
+        rows = self.query("SELECT * FROM trades ORDER BY id ASC")
+        seeded = 0
+        for row in rows:
+            if not _is_close_row(row.get("kind"), row.get("entry"), row.get("profit")):
+                continue
+            self._bump_strategy_ledger(
+                str(row.get("strategy") or ""),
+                {
+                    "profit": row.get("profit"),
+                    "swap": row.get("swap"),
+                    "commission": row.get("commission"),
+                    "comment": row.get("comment"),
+                    "time": row.get("ts"),
+                },
+            )
+            seeded += 1
+        return seeded
+
     def strategy_stats(self, names: list[str] | None = None) -> dict[str, dict[str, Any]]:
         out: dict[str, dict[str, Any]] = {}
         for name in names or []:
@@ -443,7 +597,11 @@ class Store:
                 backup = sqlite3.connect(dest)
                 self._conn.backup(backup)
                 backup.close()
-                # Wipe the dashboard book. Do not touch candles (AI tape).
+                # Wipe the dashboard book. Do not touch candles (AI tape),
+                # and deliberately not strategy_ledger either: a strategy's
+                # record is its track record. Clearing the trade list is a
+                # housekeeping action, not a reason to forget that a strategy
+                # has taken 300 trades at a 54% win rate.
                 self._conn.execute("DELETE FROM trades")
                 self._conn.execute("DELETE FROM signals")
                 self._conn.execute("DELETE FROM events")
