@@ -1022,7 +1022,7 @@
     "trade": "Trade",
     "auto_scale": "Auto scale",
     "mode_navigate": "Navigate",
-    "hint_nav": "Scroll to zoom · drag to pan · right-drag moves the chart anywhere · drag the price axis to scale · double-click to reset",
+    "hint_nav": "Scroll to zoom · drag to pan · right-drag moves the chart · ctrl + right-drag stretches the candles · double-click resets",
     "hint_free": "Press and drag to draw · Esc to cancel",
     "hint_points": "Click {n} points · Esc to cancel",
     "tf_minutes": "Minutes",

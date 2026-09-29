@@ -2529,6 +2529,29 @@ class CandleChart {
     this.offset = Math.max(this.minOffset(), Math.min(this.maxOffset(), this.offset));
   }
 
+  /**
+   * Stretch or compress the price axis around one price.
+   *
+   * Around a chosen price rather than the middle of the window, so the
+   * candle under the cursor stays under the cursor while the rest of the
+   * chart grows or shrinks away from it. Done in log space when the axis is
+   * logarithmic, or the anchor drifts on one of the two scales.
+   */
+  scaleAround(start, k) {
+    this.scale.auto = false;
+    const log = this.scale.log && start.mn > 0 && start.at > 0;
+    const f = log ? Math.log : (x) => x;
+    const fi = log ? Math.exp : (x) => x;
+    const a = f(start.at);
+    const lo = f(start.mn);
+    const hi = f(start.mx);
+    const mn = fi(a - (a - lo) * k);
+    const mx = fi(a + (hi - a) * k);
+    if (!Number.isFinite(mn) || !Number.isFinite(mx) || mx - mn <= 0) return;
+    this.scale.mn = mn;
+    this.scale.mx = mx;
+  }
+
   /** Stretch or compress the price axis around its middle. */
   scaleBy(k) {
     const L = this._L || this.layout();
@@ -2686,16 +2709,22 @@ class CandleChart {
        goes - including past the newest bar, into the empty margin. */
     if (e.button === 2) {
       this._rightDrag = false;
+      // Hold ctrl (or cmd) and the same button stretches the candles
+      // instead of moving them - the price axis, adjusted from wherever the
+      // pointer already is rather than by travelling to the edge of the
+      // screen to grab the scale.
+      const stretch = e.ctrlKey || e.metaKey;
       this.drag = {
-        mode: "free",
+        mode: stretch ? "stretch" : "free",
         x: e.clientX, y: e.clientY,
         off: this.offset,
         mn: raw.L.mn, mx: raw.L.mx,
+        at: raw.p,
         plotH: raw.L.plotB - raw.L.plotT,
         bw: raw.L.bw,
       };
       try { this.canvas.setPointerCapture(e.pointerId); } catch (err) { /* not fatal */ }
-      this.canvas.style.cursor = "grabbing";
+      this.canvas.style.cursor = stretch ? "ns-resize" : "grabbing";
       return;
     }
 
@@ -2846,6 +2875,13 @@ class CandleChart {
         this.offset = this.drag.off + Math.round(dx / (this.drag.bw || 1));
         this.clampOffset();
         this.panPrice(this.drag, dy);
+      } else if (this.drag.mode === "stretch") {
+        const dy = e.clientY - this.drag.y;
+        if (Math.abs(dy) > 2) this._rightDrag = true;
+        // Down compresses, up stretches - the same direction as dragging
+        // the price axis itself, so the two gestures cannot disagree.
+        const k = Math.max(0.12, Math.min(9, 1 + dy / 200));
+        this.scaleAround(this.drag, k);
       } else if (this.drag.mode === "scale") {
         const dy = e.clientY - this.drag.y;
         const k = Math.max(0.2, 1 + dy / 220);
@@ -2883,7 +2919,7 @@ class CandleChart {
   }
 
   onUp(e) {
-    if (this.drag && this.drag.mode === "free") {
+    if (this.drag && (this.drag.mode === "free" || this.drag.mode === "stretch")) {
       this.drag = null;
       this.canvas.style.cursor = this.cursorFor();
       // A right *click* that never moved is not navigation; offer it to the

@@ -493,6 +493,78 @@ check("a locked object cannot be grabbed by its handle",
   chart.fit();
 })();
 
+/* ------------------------------------------------------- the stretch -- */
+/*
+   Zoom out far enough and the candles are squeezed into a band. Holding
+   ctrl with the right button stretches the price axis from wherever the
+   pointer is, instead of making the trader travel to the axis to grab it.
+   The invariant is the same one the grab has: the price under the cursor
+   does not move while everything else grows away from it.
+*/
+(function theStretch() {
+  chart.fit();
+  chart.setTool("cursor");
+  chart.setAutoScale(true);
+
+  const L0 = chart.layout();
+  const y0 = Math.round(L0.plotT + (L0.plotB - L0.plotT) * 0.3);
+  const held = L0.pOf(y0);
+  const range0 = L0.mx - L0.mn;
+
+  const down = (opts) => chart.onDown(Object.assign({ button: 2, pointerId: 1 }, opts));
+  const move = (x, y) => chart.onMove({ clientX: x, clientY: y });
+  const up = (x, y) => chart.onUp({ button: 2, clientX: x, clientY: y, pointerId: 1 });
+
+  down({ clientX: 400, clientY: y0, ctrlKey: true });
+  check("ctrl with the right button starts a stretch, not a pan",
+    chart.drag && chart.drag.mode === "stretch");
+
+  move(400, y0 + 100);
+  const wide = chart.layout();
+  check("dragging down compresses the candles", (wide.mx - wide.mn) > range0);
+  check("...and releases auto scale", chart.scale.auto === false);
+  check("the price under the cursor stays under the cursor",
+    Math.abs(wide.pOf(y0) - held) < range0 * 0.01);
+
+  move(400, y0 - 100);
+  const tall = chart.layout();
+  check("dragging up stretches them again", (tall.mx - tall.mn) < range0);
+  check("...still anchored on the same price",
+    Math.abs(tall.pOf(y0) - held) < (tall.mx - tall.mn) * 0.02);
+
+  const offsetBefore = chart.offset;
+  move(700, y0 - 100);
+  check("sideways movement does not scroll while stretching", chart.offset === offsetBefore);
+
+  let menus = 0;
+  chart.opts.onMenu = () => { menus++; };
+  up(700, y0 - 100);
+  check("the stretch ends cleanly", chart.drag === null);
+  check("and it is not a context menu", menus === 0);
+
+  // Without ctrl the same button still pans, both axes.
+  down({ clientX: 400, clientY: y0 });
+  check("without ctrl it is still a free pan", chart.drag.mode === "free");
+  up(400, y0);
+
+  // On a log axis the anchor has to hold too.
+  chart.setAutoScale(true);
+  chart.setLogScale(true);
+  const Llog = chart.layout();
+  const ylog = Math.round(Llog.plotT + (Llog.plotB - Llog.plotT) * 0.6);
+  const heldLog = Llog.pOf(ylog);
+  down({ clientX: 400, clientY: ylog, ctrlKey: true });
+  move(400, ylog + 80);
+  const after = chart.layout();
+  check("a logarithmic axis stretches around the same price",
+    Math.abs(after.pOf(ylog) - heldLog) < (after.mx - after.mn) * 0.02);
+  up(400, ylog + 80);
+  chart.setLogScale(false);
+  chart.opts.onMenu = null;
+  chart.setAutoScale(true);
+  chart.fit();
+})();
+
 /* ---------------------------------------------------------- the resize -- */
 /*
    "ResizeObserver loop completed with undelivered notifications" is what the
