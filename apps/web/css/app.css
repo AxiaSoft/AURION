@@ -1851,3 +1851,54 @@ html[dir="rtl"] .set-rail .sj-grp{letter-spacing:0;text-transform:none;font-size
 }
 html[data-theme="light"] .set-rail .set-jump{background:linear-gradient(180deg, rgba(255,255,255,.86), rgba(255,255,255,.7))}
 html[data-theme="light"] .set-rail .set-jump button.on{background:linear-gradient(135deg, rgba(20,150,130,.14), rgba(90,80,220,.08))}
+
+/* ===========================================================================
+   The robot page, and the two shapes it is built from
+   ===========================================================================
+   It used to be eight cards of very different heights in a two-column CSS
+   grid. A grid row is as tall as its tallest cell, so a one-line switch card
+   beside the slots panel reserved the slots panel's height and left a hole
+   under itself. Columns break wherever they like, so nothing reserves
+   anything. */
+.robot-hero{
+  margin:0 0 14px;
+  border-color:rgb(var(--accent-rgb) / .22);
+}
+.robot-hero.is-on{
+  background:linear-gradient(180deg, rgb(var(--accent-rgb) / .10), rgb(var(--s4) / .6));
+  border-color:rgb(var(--accent-rgb) / .38);
+}
+.robot-cols{ column-count:2; column-gap:14px }
+.robot-cols > .card{ break-inside:avoid; margin:0 0 14px; display:block; width:100% }
+@media (max-width:1100px){ .robot-cols{ column-count:1 } }
+
+/* One switch on a row: heading, explanation, control. */
+.set-switch{ display:flex; align-items:center; justify-content:space-between; gap:14px }
+.set-switch-txt{ min-width:0 }
+.set-switch h3{ margin:0; font-size:14px; font-weight:500 }
+.set-switch .sub{ margin:4px 0 0 }
+.set-switch .switch{ flex:none }
+
+.card-h{ margin:0 0 6px; font-size:14px; font-weight:500; display:flex; align-items:center; gap:8px }
+.set-pair{ display:flex; gap:10px; flex-wrap:wrap }
+.set-pair > .field{ flex:1; min-width:130px }
+.set-rule{ border:0; border-top:1px solid var(--line); margin:14px 0 }
+
+/* ---- Telegram, customer side ------------------------------------------- */
+.tg-code{
+  display:flex; align-items:center; justify-content:space-between; gap:12px;
+  margin-top:12px; padding:14px 16px;
+  border:1px dashed rgb(var(--accent-rgb) / .45);
+  border-radius:14px;
+  background:rgb(var(--accent-rgb) / .06);
+}
+.tg-code b{ font-size:28px; letter-spacing:.22em; color:var(--accent-readable, var(--accent)) }
+.tg-code[data-empty="1"] b{ color:var(--faint); letter-spacing:.16em }
+.tg-chats{ list-style:none; margin:10px 0 0; padding:0; display:flex; flex-direction:column; gap:8px }
+.tg-chats li{
+  display:flex; align-items:center; justify-content:space-between; gap:10px;
+  padding:9px 11px; border:1px solid var(--line); border-radius:12px;
+  background:var(--surface-interactive);
+}
+.tg-who{ display:flex; flex-direction:column; gap:2px; min-width:0 }
+.tg-who small{ color:var(--faint); font-size:11px }

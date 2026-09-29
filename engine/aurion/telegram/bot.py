@@ -679,6 +679,18 @@ class TelegramBot:
                 except asyncio.TimeoutError:
                     continue
                 continue
+            if not self._should_poll():
+                # Idle installs stay off the wire. Telegram hands a long-poll
+                # update to exactly ONE caller, so every desk that polls a
+                # shared bot is competing for other people's messages; an
+                # install with nobody paired and no pairing window open has
+                # nothing to receive and must not take an update that belongs
+                # to someone else. It wakes the moment a code is issued.
+                try:
+                    await asyncio.wait_for(self._stop.wait(), timeout=2.0)
+                except asyncio.TimeoutError:
+                    continue
+                continue
             try:
                 await self._call("deleteWebhook", {"drop_pending_updates": False})
                 me = await self._call("getMe")
@@ -716,6 +728,17 @@ class TelegramBot:
                 self._last_error = str(exc)
                 log.warning("telegram loop: %s", exc)
                 await asyncio.sleep(5)
+
+    def _should_poll(self) -> bool:
+        """Has this install any reason to be listening?
+
+        True when somebody is already paired with it, or when a pairing code
+        is live and waiting to be sent. Both are the only cases in which an
+        update can legitimately be for this desk.
+        """
+        if self.chat_ids():
+            return True
+        return bool(self._pair_code and time.time() < self._pair_until)
 
     def _authorized(self, chat_id: int) -> bool:
         return int(chat_id) in self.chat_ids()

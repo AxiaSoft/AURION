@@ -1791,8 +1791,10 @@ function patchLive() {
     if (dd) dd.textContent = fmt(pstat.drawdown_pct) + "%";
     const autoOn = Boolean(S.snap?.strategy?.auto_trade);
     paintSwitch($("st-auto"), autoOn);
-    const autoSub = $("st-auto")?.closest(".auto-banner")?.querySelector(".sub");
+    const autoSub = $("st-auto-sub");
     if (autoSub) autoSub.textContent = I18N.t(autoOn ? "exec.auto_on" : "exec.auto_off");
+    const hero = $("st-auto")?.closest(".robot-hero");
+    if (hero) hero.classList.toggle("is-on", autoOn);
     const propOn = pstat.enabled !== false;
     paintSwitch($("prop-enable"), propOn);
     const psub = $("prop-enable-sub");
@@ -2437,6 +2439,29 @@ function licenseCardHtml() {
     </div>`;
 }
 
+/* One switch on its own row: a heading, a line of explanation and the
+   control, always in that order and always the same height. The robot page
+   used to build this shape four different ways with inline styles. */
+function switchRow(o) {
+  return `<div class="set-switch">
+      <div class="set-switch-txt">
+        <h3>${o.title}</h3>
+        ${o.sub ? `<p class="sub"${o.subId ? ` id="${o.subId}"` : ""}>${o.sub}</p>` : ""}
+      </div>
+      <button type="button" class="switch ${o.on ? "on" : ""}" id="${o.id}"
+        ${o.disabled ? "disabled" : ""} aria-pressed="${Boolean(o.on)}"><i></i></button>
+    </div>`;
+}
+
+/**
+ * The robot page.
+ *
+ * It was eight cards of wildly different heights in a two-column grid, and
+ * a CSS grid makes every row as tall as its tallest card - which is where
+ * the empty space came from. The master switch now spans the page on its
+ * own, and the rest flow in columns that break wherever they like, so a
+ * short card no longer reserves the height of a tall one beside it.
+ */
 function robotPanelHtml() {
   const st = S.snap?.strategy || {};
   const style = st.trade_style || S.snap?.trade_style || "normal";
@@ -2459,94 +2484,103 @@ function robotPanelHtml() {
   const newsPrem = licFeat("news");
   const propOn = (S.snap?.prop || {}).enabled !== false;
   const dg = st.danger_guard || {};
-  return `<div class="card">
-      <div class="auto-banner" style="margin:0">
-        <div>
-          <h3 style="margin:0 0 6px">${I18N.t("strategies.auto")}</h3>
-          <p class="sub">${st.auto_trade ? I18N.t("exec.auto_on") : I18N.t("exec.auto_off")}</p>
-        </div>
-        <button type="button" class="switch ${st.auto_trade?"on":""}" id="st-auto" aria-pressed="${Boolean(st.auto_trade)}"><i></i></button>
-      </div>
+  const auto = Boolean(st.auto_trade);
+
+  return `<div class="card robot-hero${auto ? " is-on" : ""}">
+      ${switchRow({
+        id: "st-auto",
+        title: I18N.t("strategies.auto"),
+        sub: st.auto_trade ? I18N.t("exec.auto_on") : I18N.t("exec.auto_off"),
+        subId: "st-auto-sub",
+        on: auto,
+      })}
       ${freeAuto}
     </div>
-    <div class="card">
-      <div class="auto-banner" style="margin:0">
-        <div>
-          <h3 style="margin:0 0 6px">${I18N.t("strategies.news_trade")}</h3>
-          <p class="sub" id="st-news-sub">${st.news_trade_locked ? I18N.t("strategies.news_locked") : I18N.t("strategies.news_help")}</p>
+
+    <div class="robot-cols">
+      <div class="card">
+        <h3 class="card-h">${I18N.t("style.title")}</h3>
+        <div class="tabs" id="style-tabs">
+          <button type="button" data-style="normal" class="${style !== "scalping" ? "on" : ""}">${I18N.t("style.normal")}</button>
+          <button type="button" data-style="scalping" class="${style === "scalping" ? "on" : ""}"${licFeat("scalping") ? "" : " disabled"}>${I18N.t("style.scalping")}</button>
         </div>
-        <button type="button" class="switch ${st.news_trade && newsPrem?"on":""}" id="st-news" ${st.news_trade_locked || !newsPrem?"disabled":""} aria-pressed="${Boolean(st.news_trade && newsPrem)}"><i></i></button>
+        <p class="sub">${style === "scalping" ? I18N.t("style.scalping_hint") : I18N.t("style.normal_hint")}</p>
+        ${licFeat("scalping") ? "" : `<p class="sub lock-note">${I18N.t("lock.scalping")} <a href="#" data-go-upgrade>${I18N.t("lic.upgrade_cta")}</a></p>`}
       </div>
-      ${newsPrem ? "" : `<p class="sub lock-note">${I18N.t("lock.news")} <a href="#" data-go-upgrade>${I18N.t("lic.upgrade_cta")}</a></p>`}
-    </div>
-    <div class="card" id="set-style">
-      <h3>${I18N.t("style.title")}</h3>
-      <div class="tabs" id="style-tabs">
-        <button type="button" data-style="normal" class="${style!=="scalping"?"on":""}">${I18N.t("style.normal")}</button>
-        <button type="button" data-style="scalping" class="${style==="scalping"?"on":""}"${licFeat("scalping") ? "" : " disabled"}>${I18N.t("style.scalping")}</button>
-      </div>
-      <p class="sub">${style==="scalping" ? I18N.t("style.scalping_hint") : I18N.t("style.normal_hint")}</p>
-      ${licFeat("scalping") ? "" : `<p class="sub lock-note">${I18N.t("lock.scalping")} <a href="#" data-go-upgrade>${I18N.t("lic.upgrade_cta")}</a></p>`}
-    </div>
-    <div class="card" id="set-slots">
-      <h3>${I18N.t("slots.title")}</h3>
-      <p class="sub">${I18N.t("slots.help")}</p>
-      <div style="display:flex;gap:10px;flex-wrap:wrap">
-        <label class="field" style="flex:1;min-width:120px"><span>${I18N.t("slots.min")}</span>
-          <input id="st-min-trades" type="number" step="1" min="1" max="20" value="${st.min_open_trades ?? 1}" />
-        </label>
-        <label class="field" style="flex:1;min-width:120px"><span>${I18N.t("slots.max")}</span>
-          <input id="st-max-trades" type="number" step="1" min="1" max="20" value="${st.max_open_trades ?? 2}" />
-        </label>
-      </div>
-      <p class="sub" id="st-slots-now">${I18N.t("slots.open_now", { n: st.open_trades ?? 0, max: st.max_open_trades ?? 2 })}</p>
-      <label class="field" style="flex-direction:row;align-items:center;justify-content:space-between">
-        <span>${I18N.t("slots.smart")}</span>
-        <button type="button" class="switch ${st.smart_filters!==false?"on":""}" id="st-smart" aria-pressed="${st.smart_filters!==false}"><i></i></button>
-      </label>
-      <p class="sub">${I18N.t("slots.smart_help")}</p>
-      <div class="field"><span class="conf-head">${I18N.t("slots.quality")}<b class="mono conf-pct" id="st-quality-pct">${Math.round((st.min_signal_quality ?? 0.55) * 100)}%</b></span>
-        <input id="st-quality" type="range" step="0.01" min="0.20" max="0.90" value="${st.min_signal_quality ?? 0.55}" />
-      </div>
-      <p class="sub">${I18N.t("slots.quality_help")}</p>
-    </div>
-    <div class="card">
-      <h3>${I18N.t("strategies.lot_title")} ${!licFeat("volume_mode")?'<span class="pill no">PREMIUM</span>':''}</h3>
-      <p class="sub">${I18N.t("strategies.lot_help")}</p>
-      ${!licFeat("volume_mode")?`<p class="sub lock-note">${I18N.t("lock.volume_mode")||"Volume mode is premium"} <a href="#" data-go-upgrade>${I18N.t("lic.upgrade_cta")}</a></p>`:""}
-      <div class="tabs" id="vol-tabs">
-        <button type="button" data-vm="auto" class="${st.volume_mode !== "manual" ? "on" : ""}">${I18N.t("strategies.lot_auto")}</button>
-        <button type="button" data-vm="manual" class="${st.volume_mode === "manual" ? "on" : ""}"${!licFeat("volume_mode")?" disabled":""}>${I18N.t("strategies.lot_manual")}</button>
-      </div>
-      <label class="field" id="vol-field" style="${st.volume_mode === "manual" ? "margin-top:10px" : "display:none"}"><span>${I18N.t("strategies.lot_value")}</span>
-        <input id="st-vol" type="number" step="0.01" min="0.01" max="1000" value="${st.manual_volume ?? 0.10}" ${!licFeat("volume_mode") && st.volume_mode==="manual"?"":""} />
-      </label>
-      <p class="sub" id="vol-sub">${I18N.t(st.volume_mode === "manual" ? "strategies.lot_manual_sub" : "strategies.lot_auto_sub")}</p>
-    </div>
-    <div class="card">
-      <h3>${I18N.t("strategies.ai_gate")}</h3>
-      <p class="sub">${I18N.t("strategies.ai_gate_help")}</p>
-      <label class="field" style="flex-direction:row;align-items:center;justify-content:space-between">
-        <span>${I18N.t("strategies.ai_gate_switch")}</span>
-        <button type="button" class="switch ${st.require_ai_agree!==false?"on":""}" id="st-ai"><i></i></button>
-      </label>
-      <div class="field"><span class="conf-head">${I18N.t("strategies.min_conf")}<b class="mono conf-pct" id="st-conf-pct">${Math.round((st.min_ai_confidence ?? 0.55) * 100)}%</b></span>
-        <input id="st-conf" type="range" step="0.01" min="0.05" max="0.95" value="${st.min_ai_confidence ?? 0.55}" />
-      </div>
-      <p class="sub" id="ai-conf-why">${I18N.t("strategies.min_conf_help")}</p>
-    </div>
-    <div class="card">
-      <div class="auto-banner" style="margin:0">
-        <div>
-          <h3 style="margin:0 0 6px">🛡️ ${I18N.t("strategies.danger_title")}</h3>
-          <p class="sub" id="st-danger-sub">${propOn ? I18N.t("strategies.danger_prop_note") : I18N.t("strategies.danger_help")}</p>
+
+      <div class="card" id="set-slots">
+        <h3 class="card-h">${I18N.t("slots.title")}</h3>
+        <p class="sub">${I18N.t("slots.help")}</p>
+        <div class="set-pair">
+          <label class="field"><span>${I18N.t("slots.min")}</span>
+            <input id="st-min-trades" type="number" step="1" min="1" max="20" value="${st.min_open_trades ?? 1}" />
+          </label>
+          <label class="field"><span>${I18N.t("slots.max")}</span>
+            <input id="st-max-trades" type="number" step="1" min="1" max="20" value="${st.max_open_trades ?? 2}" />
+          </label>
         </div>
-        <button type="button" class="switch ${dg.enabled?"on":""}" id="st-danger" ${propOn?"disabled":""} aria-pressed="${Boolean(dg.enabled)}"><i></i></button>
+        <p class="sub" id="st-slots-now">${I18N.t("slots.open_now", { n: st.open_trades ?? 0, max: st.max_open_trades ?? 2 })}</p>
+        <hr class="set-rule" />
+        ${switchRow({ id: "st-smart", title: I18N.t("slots.smart"), sub: I18N.t("slots.smart_help"), on: st.smart_filters !== false })}
+        <hr class="set-rule" />
+        <div class="field"><span class="conf-head">${I18N.t("slots.quality")}<b class="mono conf-pct" id="st-quality-pct">${Math.round((st.min_signal_quality ?? 0.55) * 100)}%</b></span>
+          <input id="st-quality" type="range" step="0.01" min="0.20" max="0.90" value="${st.min_signal_quality ?? 0.55}" />
+        </div>
+        <p class="sub">${I18N.t("slots.quality_help")}</p>
       </div>
-      <div class="field"><span class="conf-head">${I18N.t("strategies.danger_sens")}<b class="mono conf-pct" id="st-danger-pct">${dg.sensitivity ?? 50}%</b></span>
-        <input id="st-danger-sens" type="range" step="1" min="1" max="100" value="${dg.sensitivity ?? 50}" ${propOn?"disabled":""} />
+
+      <div class="card">
+        ${switchRow({
+          id: "st-news",
+          title: I18N.t("strategies.news_trade"),
+          sub: st.news_trade_locked ? I18N.t("strategies.news_locked") : I18N.t("strategies.news_help"),
+          subId: "st-news-sub",
+          on: st.news_trade && newsPrem,
+          disabled: st.news_trade_locked || !newsPrem,
+        })}
+        ${newsPrem ? "" : `<p class="sub lock-note">${I18N.t("lock.news")} <a href="#" data-go-upgrade>${I18N.t("lic.upgrade_cta")}</a></p>`}
       </div>
-      <p class="sub">${I18N.t("strategies.danger_sens_help")}</p>
+
+      <div class="card">
+        <h3 class="card-h">${I18N.t("strategies.lot_title")}
+          ${!licFeat("volume_mode") ? `<span class="pill no">${I18N.t("themes.premium_tag")}</span>` : ""}</h3>
+        <p class="sub">${I18N.t("strategies.lot_help")}</p>
+        ${!licFeat("volume_mode") ? `<p class="sub lock-note">${I18N.t("lock.volume_mode")} <a href="#" data-go-upgrade>${I18N.t("lic.upgrade_cta")}</a></p>` : ""}
+        <div class="tabs" id="vol-tabs">
+          <button type="button" data-vm="auto" class="${st.volume_mode !== "manual" ? "on" : ""}">${I18N.t("strategies.lot_auto")}</button>
+          <button type="button" data-vm="manual" class="${st.volume_mode === "manual" ? "on" : ""}"${!licFeat("volume_mode") ? " disabled" : ""}>${I18N.t("strategies.lot_manual")}</button>
+        </div>
+        <label class="field" id="vol-field"${st.volume_mode === "manual" ? "" : " hidden"}><span>${I18N.t("strategies.lot_value")}</span>
+          <input id="st-vol" type="number" step="0.01" min="0.01" max="1000" value="${st.manual_volume ?? 0.10}" />
+        </label>
+        <p class="sub" id="vol-sub">${I18N.t(st.volume_mode === "manual" ? "strategies.lot_manual_sub" : "strategies.lot_auto_sub")}</p>
+      </div>
+
+      <div class="card">
+        <h3 class="card-h">${I18N.t("strategies.ai_gate")}</h3>
+        <p class="sub">${I18N.t("strategies.ai_gate_help")}</p>
+        <hr class="set-rule" />
+        ${switchRow({ id: "st-ai", title: I18N.t("strategies.ai_gate_switch"), on: st.require_ai_agree !== false })}
+        <div class="field" style="margin-top:10px"><span class="conf-head">${I18N.t("strategies.min_conf")}<b class="mono conf-pct" id="st-conf-pct">${Math.round((st.min_ai_confidence ?? 0.55) * 100)}%</b></span>
+          <input id="st-conf" type="range" step="0.01" min="0.05" max="0.95" value="${st.min_ai_confidence ?? 0.55}" />
+        </div>
+        <p class="sub" id="ai-conf-why">${I18N.t("strategies.min_conf_help")}</p>
+      </div>
+
+      <div class="card">
+        ${switchRow({
+          id: "st-danger",
+          title: I18N.t("strategies.danger_title"),
+          sub: propOn ? I18N.t("strategies.danger_prop_note") : I18N.t("strategies.danger_help"),
+          subId: "st-danger-sub",
+          on: dg.enabled,
+          disabled: propOn,
+        })}
+        <div class="field" style="margin-top:10px"><span class="conf-head">${I18N.t("strategies.danger_sens")}<b class="mono conf-pct" id="st-danger-pct">${dg.sensitivity ?? 50}%</b></span>
+          <input id="st-danger-sens" type="range" step="1" min="1" max="100" value="${dg.sensitivity ?? 50}" ${propOn ? "disabled" : ""} />
+        </div>
+        <p class="sub">${I18N.t("strategies.danger_sens_help")}</p>
+      </div>
     </div>
 `;
 }
@@ -3090,7 +3124,7 @@ const views = {
       </nav><div class="set-main">
       <section class="set-block" id="set-robot"${tab==="set-robot"?"":" hidden"}>
         <h2 class="set-title">${I18N.t("settings.sec_robot")}</h2>
-        <div class="grid g-2">${robotPanelHtml()}</div>
+        ${robotPanelHtml()}
       </section>
       <section class="set-block" id="set-strats"${tab==="set-strats"?"":" hidden"}>
         <h2 class="set-title">${I18N.t("strategies.live")}</h2>
@@ -3787,78 +3821,79 @@ async function factoryReset() {
   setTimeout(() => { location.href = "/?factory=1&v=" + Date.now(); }, 4000);
 }
 
+/**
+ * The Telegram page, as a customer sees it.
+ *
+ * Everything that belongs to whoever *operates* the bot has been taken out:
+ * the on/off switch, the running state, the note about where the token comes
+ * from, and the bot's message language. None of that is this user's to
+ * decide - one desk cannot turn the service on for everybody, and a customer
+ * should not be told how the credential is provisioned. It lives in the
+ * separate admin panel, which already has its own tooling under admin/.
+ *
+ * What is left is the whole of the customer's side of it: the code they send
+ * to the bot to attach their own Telegram account, the accounts currently
+ * attached, and what those accounts are sent.
+ */
 function telegramPanelHtml() {
   const tg = (S.snap && S.snap.telegram) || {};
   const chats = Array.isArray(tg.chats) ? tg.chats : [];
-  const on = Boolean(tg.enabled);
   const openOn = tg.notify_open !== false;
   const closeOn = tg.notify_close !== false;
-  const lang = tg.language || I18N.lang || "fa";
+  const code = S._tgCode || "";
+  const botName = tg.username ? "@" + tg.username : "";
+
   const chatHtml = chats.length
-    ? `<div class="kv">${chats.map((c) => {
-        const label = [c.name, c.username ? "@" + c.username : "", c.id].filter(Boolean).join(" · ");
-        return `<span>${esc(label)}</span><button type="button" class="btn tiny ghost" data-tg-unlink="${esc(c.id)}">${I18N.t("telegram.unlink")}</button>`;
-      }).join("")}</div>`
+    ? `<ul class="tg-chats">${chats.map((c) => {
+        const label = [c.name, c.username ? "@" + c.username : ""].filter(Boolean).join(" · ") || ("#" + c.id);
+        return `<li><span class="tg-who"><b>${esc(label)}</b><small class="mono">${esc(c.id)}</small></span>
+          <button type="button" class="btn tiny ghost" data-tg-unlink="${esc(c.id)}">${I18N.t("telegram.unlink")}</button></li>`;
+      }).join("")}</ul>`
     : `<p class="sub">${I18N.t("telegram.no_chat")}</p>`;
-  const status = tg.running ? I18N.t("telegram.running") : I18N.t("telegram.stopped");
-  const err = tg.last_error ? `<p class="err">${esc(tg.last_error)}</p>` : "";
-  const botName = tg.username ? `@${esc(tg.username)}` : "";
-  return `<div class="card">
-      <p class="sub">${I18N.t("telegram.hint")}</p>
-      <div class="auto-banner" style="margin:12px 0">
-        <div>
-          <h3 style="margin:0 0 6px">${I18N.t("telegram.enable")}</h3>
-          <p class="sub" id="tg-sub">${status}${botName ? " · " + botName : ""}</p>
-        </div>
-        <button type="button" class="switch ${on?"on":""}" id="tg-on" aria-pressed="${on}"><i></i></button>
+
+  return `<div class="card tg-pair-card">
+      <h3 class="card-h">${I18N.t("telegram.pair")}</h3>
+      <p class="sub">${I18N.t("telegram.pair_hint")}${botName ? ` <b class="mono">${esc(botName)}</b>` : ""}</p>
+      <div class="tg-code" data-empty="${code ? "0" : "1"}">
+        <b class="mono" id="tg-code">${esc(code || "······")}</b>
+        <button type="button" class="btn tiny ghost" id="tg-copy"${code ? "" : " disabled"}>${I18N.t("common.copy")}</button>
       </div>
-      <p class="sub">${esc(I18N.t("telegram.token_source_hint"))}</p>
-      <label class="field"><span>${I18N.t("telegram.language")}</span>
-        <select class="ctrl" id="tg-lang">
-          <option value="fa" ${lang==="fa"?"selected":""}>فارسی</option>
-          <option value="en" ${lang==="en"?"selected":""}>English</option>
-          <option value="ar" ${lang==="ar"?"selected":""}>العربية</option>
-        </select>
-      </label>
-      <div class="auto-banner" style="margin:8px 0">
-        <div><h3 style="margin:0">${I18N.t("telegram.notify_open")}</h3></div>
-        <button type="button" class="switch ${openOn?"on":""}" id="tg-open" aria-pressed="${openOn}"><i></i></button>
-      </div>
-      <div class="auto-banner" style="margin:8px 0">
-        <div><h3 style="margin:0">${I18N.t("telegram.notify_close")}</h3></div>
-        <button type="button" class="switch ${closeOn?"on":""}" id="tg-close" aria-pressed="${closeOn}"><i></i></button>
-      </div>
-      <button class="btn block" id="tg-save" type="button">${I18N.t("telegram.save")}</button>
-      ${err}
-      <p class="sub" id="tg-msg"></p>
-    </div>
-    <div class="card" style="margin-top:14px">
-      <h3>${I18N.t("telegram.pair")}</h3>
-      <p class="sub">${I18N.t("telegram.pair_hint")}</p>
-      <p class="metric mono" id="tg-code">${esc(S._tgCode || "—")}</p>
-      <div class="row" style="margin-top:10px">
+      <div class="row" style="margin-top:12px">
         <button class="btn" id="tg-pair" type="button">${I18N.t("telegram.pair_go")}</button>
-        <button class="btn ghost" id="tg-test" type="button">${I18N.t("telegram.test")}</button>
+        <button class="btn ghost" id="tg-test" type="button"${chats.length ? "" : " disabled"}>${I18N.t("telegram.test")}</button>
       </div>
+      <p class="sub" id="tg-msg"></p>
+      ${tg.running === false ? `<p class="sub lock-note">${I18N.t("telegram.offline_note")}</p>` : ""}
     </div>
+
     <div class="card" style="margin-top:14px">
-      <h3>${I18N.t("telegram.chats")}</h3>
+      <h3 class="card-h">${I18N.t("telegram.chats")}</h3>
+      <p class="sub">${I18N.t("telegram.chats_hint")}</p>
       ${chatHtml}
+    </div>
+
+    <div class="card" style="margin-top:14px">
+      <h3 class="card-h">${I18N.t("telegram.notify_title")}</h3>
+      ${switchRow({ id: "tg-open", title: I18N.t("telegram.notify_open"), on: openOn })}
+      <hr class="set-rule" />
+      ${switchRow({ id: "tg-close", title: I18N.t("telegram.notify_close"), on: closeOn })}
+      <button class="btn block" id="tg-save" type="button" style="margin-top:12px">${I18N.t("telegram.save")}</button>
     </div>`;
 }
+
 function bindTelegramPanel() {
-  const on = $("tg-on");
-  if (on) on.onclick = () => paintSwitch(on, !on.classList.contains("on"));
   const op = $("tg-open");
   if (op) op.onclick = () => paintSwitch(op, !op.classList.contains("on"));
   const cl = $("tg-close");
   if (cl) cl.onclick = () => paintSwitch(cl, !cl.classList.contains("on"));
   const save = $("tg-save");
   if (save) save.onclick = async () => {
-    // No bot_token here on purpose: the token is provisioned in the source.
+    /* Only this user's own preferences are sent. No token, because it is
+       provisioned in the source; no enabled flag, because the service is
+       not one desk's to switch off for everyone; and the language follows
+       the desk rather than being a second place to choose it. */
     const r = await API.post("/api/telegram", {
-      enabled: Boolean($("tg-on")?.classList.contains("on")),
-      language: $("tg-lang")?.value || "fa",
+      language: I18N.lang || "fa",
       notify_open: Boolean($("tg-open")?.classList.contains("on")),
       notify_close: Boolean($("tg-close")?.classList.contains("on")),
     });
@@ -3878,8 +3913,19 @@ function bindTelegramPanel() {
     if (!r.ok) return toast(r.error || I18N.t("errors.generic"));
     S._tgCode = r.code || (r.data && r.data.code) || "";
     const box = $("tg-code");
-    if (box) box.textContent = S._tgCode || "—";
+    if (box) box.textContent = S._tgCode || "······";
+    const wrap = box && box.closest(".tg-code");
+    if (wrap) wrap.dataset.empty = S._tgCode ? "0" : "1";
+    const copy = $("tg-copy");
+    if (copy) copy.disabled = !S._tgCode;
     toast(I18N.t("telegram.code") + " " + S._tgCode);
+  };
+  const copyBtn = $("tg-copy");
+  if (copyBtn) copyBtn.onclick = async () => {
+    if (!S._tgCode) return;
+    try { await navigator.clipboard.writeText(S._tgCode); } catch { /* no clipboard */ }
+    copyBtn.textContent = I18N.t("common.copied");
+    setTimeout(() => { copyBtn.textContent = I18N.t("common.copy"); }, 1600);
   };
   const test = $("tg-test");
   if (test) test.onclick = async () => {

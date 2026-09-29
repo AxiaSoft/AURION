@@ -22,7 +22,7 @@
     "notify_close": "Notify when a position closes (with P/L)",
     "save": "Save Telegram",
     "pair": "Pairing code",
-    "pair_hint": "In Telegram send: /start CODE",
+    "pair_hint": "Press Get code, then send the six digits to the bot.",
     "pair_go": "Generate code",
     "test": "Send test status",
     "chats": "Linked chats",
@@ -57,7 +57,10 @@
     "token_from_source": "Read from the source",
     "token_missing": "No token in the source",
     "token_source_hint": "The bot token lives only in a source file; the dashboard is a client of the bot and the bot controls live in the admin panel.",
-    "reload": "Refresh status"
+    "reload": "Refresh status",
+    "offline_note": "The Telegram service is not reachable right now. Your code will work as soon as it is back.",
+    "chats_hint": "Only the accounts listed here receive anything from this desk.",
+    "notify_title": "What you are sent"
   },
   "brand": {
     "name": "AURION",
@@ -575,7 +578,9 @@
     "back": "Back",
     "logout": "Logout",
     "close": "Close",
-    "delete": "Delete"
+    "delete": "Delete",
+    "copy": "Copy",
+    "copied": "Copied"
   },
   "draw": {
     "cursor": "Hand",
