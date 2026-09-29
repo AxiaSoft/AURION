@@ -453,7 +453,7 @@
       <footer class="tv-status">
         <span id="tv-status-tool">${esc(tt("chart.mode_navigate", "Navigate"))}</span>
         <span class="tv-div"></span>
-        <span id="tv-status-hint" class="sub">${esc(tt("chart.hint_nav", "Scroll to zoom · drag to pan · drag the price axis to scale"))}</span>
+        <span id="tv-status-hint" class="sub">${esc(tt("chart.hint_nav", "Scroll to zoom · drag to pan · right-drag moves the chart anywhere"))}</span>
         <span class="tv-spacer"></span>
         <span class="mono" id="tick-lbl"></span>
       </footer>
@@ -642,7 +642,7 @@
     if (hint) {
       const need = global.SHAPE_POINTS ? global.SHAPE_POINTS[c.tool] : null;
       hint.textContent = c.tool === "cursor"
-        ? tt("chart.hint_nav", "Scroll to zoom · drag to pan · drag the price axis to scale")
+        ? tt("chart.hint_nav", "Scroll to zoom · drag to pan · right-drag moves the chart anywhere")
         : need === -1
           ? tt("chart.hint_free", "Press and drag to draw · Esc to cancel")
           : tt("chart.hint_points", "Click {n} points · Esc to cancel").replace("{n}", need || 2);

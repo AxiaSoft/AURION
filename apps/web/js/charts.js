@@ -595,7 +595,8 @@ class CandleChart {
       this.span = Math.min(this.analyze ? 160 : 120, Math.max(30, this.bars.length || 30));
     } else {
       this.span = Math.max(8, Math.min(this.rows().length || prevSpan, prevSpan));
-      this.offset = Math.max(0, Math.min(Math.max(0, this.rows().length - this.span), prevOff));
+      this.offset = prevOff;
+      this.clampOffset();
     }
     this.draw();
   }
@@ -637,10 +638,20 @@ class CandleChart {
     return this._series;
   }
 
+  /**
+   * The visible window.
+   *
+   * A negative offset means the chart has been pulled past the newest bar -
+   * the empty margin on the right that every terminal lets you scroll into,
+   * so the last candle does not have to live jammed against the price axis.
+   * That margin is expressed as `rightPad`, which the layout counts as extra
+   * cells, and it is the only reason offset is allowed below zero.
+   */
   slice() {
     const all = this.rows();
-    const end = all.length - this.offset;
-    const start = Math.max(0, end - this.span);
+    this.rightPad = Math.max(0, -this.offset);
+    const end = all.length - Math.max(0, this.offset);
+    const start = Math.max(0, end - this.span + this.rightPad);
     return { rows: all.slice(start, end), start, end };
   }
 
@@ -2416,6 +2427,9 @@ class CandleChart {
 
   maxOffset() { return Math.max(0, this.rows().length - Math.round(this.span * 0.2)); }
 
+  /** How far past the newest bar the chart may be pulled. */
+  minOffset() { return -Math.floor(this.span * 0.45); }
+
   /**
    * Zoom.
    *
@@ -2433,19 +2447,20 @@ class CandleChart {
       // Keep the bar under the cursor in place by moving the window's end.
       const share = Math.max(0, Math.min(1, at / before));
       const delta = Math.round((this.span - before) * (1 - share));
-      this.offset = Math.max(0, Math.min(this.maxOffset(), this.offset + delta));
+      this.offset = this.offset + delta;
     }
     this.clampOffset();
     this.draw();
   }
 
   pan(bars) {
-    this.offset = Math.max(0, Math.min(this.maxOffset(), this.offset + bars));
+    this.offset += bars;
+    this.clampOffset();
     this.draw();
   }
 
   clampOffset() {
-    this.offset = Math.max(0, Math.min(this.maxOffset(), this.offset));
+    this.offset = Math.max(this.minOffset(), Math.min(this.maxOffset(), this.offset));
   }
 
   /** Stretch or compress the price axis around its middle. */
@@ -2458,6 +2473,29 @@ class CandleChart {
     this.scale.mn = mid - half;
     this.scale.mx = mid + half;
     this.draw();
+  }
+
+  /**
+   * Move the price window by a number of pixels.
+   *
+   * Used by the right-button drag. The arithmetic is done in whatever space
+   * the axis is in - linear or logarithmic - so the chart follows the cursor
+   * exactly on both, and inverted axes drag the right way round.
+   */
+  panPrice(start, dy) {
+    const h = start.plotH || 1;
+    const dir = this.scale.invert ? -1 : 1;
+    this.scale.auto = false;
+    if (this.scale.log && start.mn > 0) {
+      const a = Math.log(start.mn), b = Math.log(start.mx);
+      const k = ((b - a) / h) * dy * dir;
+      this.scale.mn = Math.exp(a + k);
+      this.scale.mx = Math.exp(b + k);
+    } else {
+      const k = ((start.mx - start.mn) / h) * dy * dir;
+      this.scale.mn = start.mn + k;
+      this.scale.mx = start.mx + k;
+    }
   }
 
   shiftScale(dp) {
@@ -2528,14 +2566,16 @@ class CandleChart {
     this.fit();
   }
 
+  /**
+   * The browser's own menu is always refused on the canvas.
+   *
+   * The right button is a navigation control here, and which of mousedown or
+   * mouseup fires this event depends on the platform - so deciding anything
+   * in it would behave differently on Windows and on Linux. The decision is
+   * made in onUp instead, where it is known whether the pointer moved.
+   */
   onContext(e) {
-    if (typeof this.opts.onMenu !== "function") return;
-    const hit = this.hit(e);
-    if (!hit) return;
     e.preventDefault();
-    const found = this.shapeAt(hit.L, hit.x, hit.y);
-    if (found) this.select(found.shape);
-    this.opts.onMenu({ x: e.clientX, y: e.clientY, shape: found ? found.shape : null, price: hit.p });
   }
 
   /** How many points this tool still needs before the shape is finished. */
@@ -2570,6 +2610,26 @@ class CandleChart {
     const raw = this.hit(e);
     if (!raw) return;
     const hit = this.snapHit(raw);
+
+    /* ---- the right button: take the chart anywhere --------------------
+       Before the axes and before any tool, because this is the gesture that
+       has to work from inside whatever the trader is doing. Press and drag
+       moves time and price together, so the chart goes wherever the hand
+       goes - including past the newest bar, into the empty margin. */
+    if (e.button === 2) {
+      this._rightDrag = false;
+      this.drag = {
+        mode: "free",
+        x: e.clientX, y: e.clientY,
+        off: this.offset,
+        mn: raw.L.mn, mx: raw.L.mx,
+        plotH: raw.L.plotB - raw.L.plotT,
+        bw: raw.L.bw,
+      };
+      try { this.canvas.setPointerCapture(e.pointerId); } catch (err) { /* not fatal */ }
+      this.canvas.style.cursor = "grabbing";
+      return;
+    }
 
     /* ---- the axes are controls too ------------------------------------ */
     if (raw.onPriceAxis) {
@@ -2699,8 +2759,17 @@ class CandleChart {
         if (L) {
           const dx = e.clientX - this.drag.x;
           const rtl = document.documentElement.dir === "rtl" ? -1 : 1;
-          this.offset = Math.max(0, Math.min(this.maxOffset(), this.drag.off + Math.round((-dx * rtl) / L.bw)));
+          this.offset = this.drag.off + Math.round((-dx * rtl) / L.bw);
+          this.clampOffset();
         }
+      } else if (this.drag.mode === "free") {
+        const dx = e.clientX - this.drag.x;
+        const dy = e.clientY - this.drag.y;
+        if (Math.abs(dx) > 2 || Math.abs(dy) > 2) this._rightDrag = true;
+        const rtl = document.documentElement.dir === "rtl" ? -1 : 1;
+        this.offset = this.drag.off + Math.round((-dx * rtl) / (this.drag.bw || 1));
+        this.clampOffset();
+        this.panPrice(this.drag, dy);
       } else if (this.drag.mode === "scale") {
         const dy = e.clientY - this.drag.y;
         const k = Math.max(0.2, 1 + dy / 220);
@@ -2738,6 +2807,22 @@ class CandleChart {
   }
 
   onUp(e) {
+    if (this.drag && this.drag.mode === "free") {
+      this.drag = null;
+      this.canvas.style.cursor = this.cursorFor();
+      // A right *click* that never moved is not navigation; offer it to the
+      // interface as a context menu instead. A right *drag* is swallowed.
+      if (!this._rightDrag && typeof this.opts.onMenu === "function" && e) {
+        const hit = this.hit(e);
+        this.opts.onMenu({
+          x: e.clientX, y: e.clientY,
+          shape: hit ? (this.shapeAt(hit.L, hit.x, hit.y) || {}).shape || null : null,
+          price: hit ? hit.p : null,
+        });
+      }
+      this.draw();
+      return;
+    }
     if (this.dragLevel) {
       this.dragLevel = null;
       this.canvas.style.cursor = this.cursorFor();
@@ -2796,7 +2881,8 @@ class CandleChart {
       const L = this._L || this.layout();
       if (L) {
         const dx = mid - this.pinch.mid;
-        this.offset = Math.max(0, Math.min(this.maxOffset(), this.pinch.off - Math.round(dx / L.bw)));
+        this.offset = this.pinch.off - Math.round(dx / L.bw);
+        this.clampOffset();
       }
       this.draw();
     } else this.pinch = null;

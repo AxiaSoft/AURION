@@ -197,9 +197,13 @@ const off0 = chart.offset;
 chart.pan(20);
 check("pan scrolls back", chart.offset === off0 + 20);
 chart.pan(-9999);
-check("pan cannot scroll past the newest bar", chart.offset === 0);
+check("pan stops in the empty margin past the newest bar",
+  chart.offset === chart.minOffset() && chart.offset < 0);
+check("...and that margin becomes real space on the right",
+  (() => { const L = chart.layout(); return L.cells > L.rows.length; })());
 chart.pan(99999);
 check("pan cannot scroll past the oldest", chart.offset <= chart.maxOffset());
+chart.fit();
 
 chart.setAutoScale(true);
 const autoL = chart.layout();
@@ -263,6 +267,58 @@ check("empty space selects nothing", chart.shapeAt(L2, L2.plotL + 2, L2.plotT + 
 chart.updateObject(line.id, { locked: true });
 check("a locked object cannot be grabbed by its handle",
   (chart.shapeAt(L2, ax.x, ax.y) || {}).handle === null);
+
+/* ------------------------------------------------- the right-button drag -- */
+/*
+   Press the right button anywhere on the chart and drag: time and price move
+   together, from inside whatever tool is armed, and the browser's own menu
+   never appears. A right click that does not move is not navigation and is
+   offered to the interface as a context menu instead.
+*/
+(function rightDrag() {
+  chart.fit();
+  chart.setTool("trend");                       // armed tool must not interfere
+  const before = { offset: chart.offset, mn: chart.layout().mn };
+  let menus = 0;
+  chart.opts.onMenu = () => { menus++; };
+
+  const down = (btn, x, y) => chart.onDown({ button: btn, clientX: x, clientY: y, pointerId: 1 });
+  const move = (x, y) => chart.onMove({ clientX: x, clientY: y });
+  const up = (btn, x, y) => chart.onUp({ button: btn, clientX: x, clientY: y, pointerId: 1 });
+
+  down(2, 400, 200);
+  check("the right button starts a free drag", chart.drag && chart.drag.mode === "free");
+  check("...and does not start a drawing", chart.draft === null);
+
+  move(300, 260);
+  check("dragging left scrolls forward in time", chart.offset !== before.offset);
+  check("dragging down moves the price window", chart.layout().mn !== before.mn);
+  check("...which means auto scale has been released", chart.scale.auto === false);
+
+  up(2, 300, 260);
+  check("the drag ends cleanly", chart.drag === null);
+  check("a drag is not a context menu", menus === 0);
+  check("the tool survived the navigation", chart.tool === "trend");
+
+  // Back the other way: the gesture has to be symmetrical.
+  // Dragging down pushed the candles down, which raises the visible window;
+  // dragging back up has to lower it again by the same logic.
+  const mid = chart.layout().mn;
+  down(2, 300, 260); move(420, 190); up(2, 420, 190);
+  check("dragging back the other way reverses it", chart.layout().mn < mid);
+
+  // A click that never moved.
+  down(2, 400, 200); up(2, 400, 200);
+  check("a right click with no movement offers a menu", menus === 1);
+
+  let prevented = 0;
+  chart.onContext({ preventDefault: () => { prevented++; } });
+  check("the browser menu is always refused on the canvas", prevented === 1);
+
+  chart.opts.onMenu = null;
+  chart.setTool("cursor");
+  chart.fit();
+})();
 
 /* ---------------------------------------------------------- the resize -- */
 /*
