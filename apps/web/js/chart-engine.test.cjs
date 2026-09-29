@@ -268,6 +268,94 @@ chart.updateObject(line.id, { locked: true });
 check("a locked object cannot be grabbed by its handle",
   (chart.shapeAt(L2, ax.x, ax.y) || {}).handle === null);
 
+/* ------------------------------------------------ drawing without a leash -- */
+/*
+   Two limits the tools used to have, both of them the same mistake: an
+   anchor was being rewritten to the nearest bar. A brush stroke between two
+   candles, or out in the empty margin past the newest one, collapsed onto
+   them; and a position could only ever be as precise as a bar was wide.
+*/
+(function freeHand() {
+  chart.fit();
+  chart.drawings = [];
+  const L = chart.layout();
+
+  // ---- a point between two bars stays between them --------------------
+  chart.setTool("brush");
+  const xMid = Math.round(L.xOf(10) + L.bw / 2);          // exactly between bars
+  const hitMid = chart.hit({ clientX: xMid, clientY: 200 });
+  const pMid = chart.point(hitMid);
+  check("a freehand point is never pinned to a bar", pMid.t === "");
+  check("...and keeps where it really was", Math.abs(pMid.gx - (L.start + 10.5)) < 0.05);
+  const back = chart.xyOf(L, pMid);
+  check("...so it paints back onto the same pixel", Math.abs(back.x - xMid) < 1);
+
+  // ---- and so does one past the last candle ---------------------------
+  chart.pan(-30);                                          // into the empty margin
+  const L2 = chart.layout();
+  const xFar = Math.round(L2.plotR - 20);
+  const far = chart.point(chart.hit({ clientX: xFar, clientY: 220 }));
+  check("a point can be placed past the newest candle", far.gx > chart.rows().length - 1);
+  check("...and paints where it was placed",
+    Math.abs(chart.xyOf(L2, far).x - xFar) < 1.5);
+  chart.fit();
+
+  // ---- a snapping tool still snaps ------------------------------------
+  chart.setTool("trend");
+  chart.setSnapTime(true);
+  const snapped = chart.point(chart.hit({ clientX: xMid, clientY: 200 }));
+  check("a trend line still lands on a bar when snapping is on", snapped.t !== "");
+  chart.setSnapTime(false);
+  const loose = chart.point(chart.hit({ clientX: xMid, clientY: 200 }));
+  check("...and is free the moment snapping is turned off", loose.t === "");
+  chart.setSnapTime(true);
+})();
+
+/* -------------------------------------------------------- the position -- */
+(function positions() {
+  chart.fit();
+  chart.drawings = [];
+  chart.setTool("long");
+  const rows = chart.rows();
+  const P = (i, p) => ({ t: "", p, gi: i, gx: i });
+
+  const pos = chart.addObject({ kind: "long", a: P(300, 1.1000), b: P(320, 1.0950), rr: 2 });
+  check("a position placed with two clicks has no target yet", !pos.c);
+  chart.draft = { kind: "long", a: P(300, 1.1000), b: P(320, 1.0950), rr: 2 };
+  chart.commitDraft();
+  const live = chart.drawings[chart.drawings.length - 1];
+  check("committing one gives it a target anchor", Boolean(live.c));
+  check("...at twice the risk to start with",
+    Math.abs(live.c.p - (1.1000 + 0.0050 * 2)) < 1e-9);
+  check("...which makes it a third handle", chart.anchorKeys(live).length === 3);
+
+  const L = chart.layout();
+  const cxy = chart.xyOf(L, live.c);
+  chart.select(live);
+  check("the target can be grabbed on the chart",
+    (chart.shapeAt(L, cxy.x, cxy.y) || {}).handle === "c");
+
+  // Dragging the target alone changes the reward, not the risk.
+  chart.moveSelected({ p: live.c.p, gi: live.c.gi, gx: live.c.gx },
+                     { p: live.c.p + 0.0050, gi: live.c.gi, gx: live.c.gx }, "c");
+  check("dragging the target moves only the target",
+    Math.abs(live.a.p - 1.1000) < 1e-9 && Math.abs(live.b.p - 1.0950) < 1e-9 &&
+    Math.abs(live.c.p - 1.1150) < 1e-9);
+
+  // Dragging the entry carries the whole trade.
+  chart.moveSelected({ p: live.a.p, gi: 300, gx: 300 }, { p: live.a.p + 0.0010, gi: 300, gx: 300 }, "a");
+  check("dragging the entry carries the stop and the target with it",
+    Math.abs(live.a.p - 1.1010) < 1e-9 && Math.abs(live.b.p - 1.0960) < 1e-9 &&
+    Math.abs(live.c.p - 1.1160) < 1e-9);
+
+  // And it can be typed to the tick.
+  live.c.p = 1.12345;
+  check("the target takes an exact price", Math.abs(live.c.p - 1.12345) < 1e-9);
+  chart.drawings = [];
+  chart.selected = null;
+  chart.setTool("cursor");
+})();
+
 /* -------------------------------------------------------------- the grab -- */
 /*
    The one invariant that decides whether a chart feels right: what is under

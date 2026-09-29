@@ -1067,7 +1067,16 @@
     "levels": "Levels",
     "custom_level": "Add a level",
     "coordinates": "Coordinates",
-    "rename": "Name"
+    "rename": "Name",
+    "position": "Position",
+    "entry": "Entry",
+    "stop": "Stop loss",
+    "target": "Take profit",
+    "ratio": "Risk / reward",
+    "risk": "Risk",
+    "rewardv": "Reward",
+    "position_note": "These are the numbers of the drawing, not a forecast.",
+    "position_side": "The stop or the target is on the wrong side of the entry for this direction."
   },
   "signal": {
     "buy": "Buy signal",

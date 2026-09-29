@@ -810,6 +810,30 @@
       <input type="checkbox" data-prop-bool="bold" ${d.bold ? "checked" : ""} /></label>`,
     rr: (d) => `<label class="tvp-row"><span>${esc(tt("chart.reward", "Reward multiple"))}</span>
       <input type="number" step="0.1" min="0.1" data-prop-num="rr" value="${esc(d.rr || 2)}" /></label>`,
+
+    /* A position is three prices and the numbers that fall out of them.
+       They are typed here to the tick, because a stop placed by dragging is
+       a stop placed to the nearest pixel. */
+    position: (d) => {
+      const c = ui.chart;
+      const long = d.kind === "long";
+      const entry = Number(d.a && d.a.p) || 0;
+      const stop = Number(d.b && d.b.p) || 0;
+      const target = d.c && Number.isFinite(d.c.p)
+        ? Number(d.c.p)
+        : (long ? entry + Math.abs(entry - stop) * (d.rr || 2) : entry - Math.abs(entry - stop) * (d.rr || 2));
+      const risk = Math.abs(entry - stop);
+      const reward = Math.abs(target - entry);
+      const step = entry >= 100 ? 0.01 : 0.00001;
+      const row = (key, label, value) => `<label class="tvp-row"><span>${esc(label)}</span>
+        <input type="number" step="${step}" data-price="${key}" value="${esc(Number(value).toFixed(5))}" /></label>`;
+      return `<div class="tvp-sec">${esc(tt("chart.position", "Position"))}</div>
+        ${row("a", tt("chart.entry", "Entry"), entry)}
+        ${row("b", tt("chart.stop", "Stop loss"), stop)}
+        ${row("c", tt("chart.target", "Take profit"), target)}
+        <div id="tvp-derived">${positionSums(d)}</div>
+        <p class="tvp-note">${esc(tt("chart.position_note", "These are the numbers of the drawing, not a forecast."))}</p>`;
+    },
     levels: (d) => {
       const chart = ui.chart;
       const levels = chart.fibLevels(d);
@@ -831,6 +855,30 @@
     },
   };
 
+  /** The figures that fall out of a position's three prices. */
+  function positionSums(d) {
+    const c = ui.chart;
+    const long = d.kind === "long";
+    const entry = Number(d.a && d.a.p) || 0;
+    const stop = Number(d.b && d.b.p) || 0;
+    const target = d.c && Number.isFinite(d.c.p)
+      ? Number(d.c.p)
+      : (long ? entry + Math.abs(entry - stop) * (d.rr || 2) : entry - Math.abs(entry - stop) * (d.rr || 2));
+    const risk = Math.abs(entry - stop);
+    const reward = Math.abs(target - entry);
+    // A stop on the wrong side of the entry is a drawing mistake, and it is
+    // better to say so than to print a confident ratio for it.
+    const wrong = long ? (stop > entry || target < entry) : (stop < entry || target > entry);
+    return `<div class="tvp-row"><span>${esc(tt("chart.ratio", "Risk / reward"))}</span>
+        <b class="mono">${risk ? (reward / risk).toFixed(2) : "—"} R</b></div>
+      <div class="tvp-row"><span>${esc(tt("chart.risk", "Risk"))}</span>
+        <b class="mono down">${c.fmtPrice(risk)}${entry ? "  " + ((risk / entry) * 100).toFixed(2) + "%" : ""}</b></div>
+      <div class="tvp-row"><span>${esc(tt("chart.rewardv", "Reward"))}</span>
+        <b class="mono up">${c.fmtPrice(reward)}${entry ? "  " + ((reward / entry) * 100).toFixed(2) + "%" : ""}</b></div>
+      ${wrong ? `<p class="tvp-warn">${esc(tt("chart.position_side",
+        "The stop or the target is on the wrong side of the entry for this direction."))}</p>` : ""}`;
+  }
+
   /** Which properties a kind actually has. Nothing irrelevant is shown. */
   function fieldsFor(kind) {
     const base = ["color", "width", "style", "opacity"];
@@ -838,7 +886,7 @@
       return ["color", "text", "font", "opacity"];
     }
     if (/^fib/.test(kind)) return base.concat(["fill", "levels"]);
-    if (/^(long|short)$/.test(kind)) return ["color", "width", "opacity", "rr"];
+    if (/^(long|short)$/.test(kind)) return ["position", "color", "width", "opacity"];
     if (/^(rect|circle|ellipse|triangle|polygon|rotrect|channel|flatchannel|disjoint|parallel|gannbox|gannsquare|daterange|pricerange|pitchfork|schiff|modschiff)$/.test(kind)) {
       return base.concat(["fill"]);
     }
@@ -1236,6 +1284,22 @@
         if (t.dataset.coord && d) {
           const pt = d[t.dataset.coord];
           if (pt) { pt.p = Number(t.value); chart.persist(); chart.draw(); }
+          return;
+        }
+        if (t.dataset.price && d) {
+          const key = t.dataset.price;
+          const v = Number(t.value);
+          if (!Number.isFinite(v)) return;
+          if (!d[key] && d.b) d[key] = { t: "", p: v, gi: d.b.gi, gx: d.b.gx };
+          else d[key].p = v;
+          chart.persist();
+          chart.draw();
+          // Only the derived block is rebuilt. Re-rendering the whole panel
+          // would replace the field being typed into and send the caret to
+          // the end on every keystroke.
+          const sums = $("tvp-derived");
+          if (sums) sums.innerHTML = positionSums(d);
+          renderObjects();
           return;
         }
         if (t.dataset.levelVis !== undefined && d) {

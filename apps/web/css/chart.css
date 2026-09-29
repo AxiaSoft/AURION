@@ -585,3 +585,17 @@ html:fullscreen body { background: var(--bg) }
 @media (prefers-reduced-motion: reduce) {
   .tv-menu, .tv-flyout, .tv-body, .tv-nav, .tv-switch i { transition: none !important }
 }
+
+/* A drawing that contradicts itself - a long whose stop is above its entry -
+   says so in the panel rather than printing a confident ratio for it. */
+.tvp-warn {
+  margin: 8px 0 0;
+  padding: 7px 9px;
+  border: 1px solid rgb(255 107 138 / .35);
+  border-radius: var(--radius-sm, 8px);
+  background: rgb(255 107 138 / .08);
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--rose);
+}
+.tvp-note { margin: 8px 0 0; font-size: 10.5px; color: var(--faint); line-height: 1.5 }

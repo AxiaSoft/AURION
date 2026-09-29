@@ -1551,6 +1551,10 @@ class CandleChart {
 
   /** The anchors of a drawing, in the order they were placed. */
   anchorKeys(d) {
+    // A position is placed with two clicks - entry, then stop - but it has
+    // three things a trader needs to move: the target is an anchor too, so
+    // it can be dragged and typed rather than only derived from a multiple.
+    if (d.kind === "long" || d.kind === "short") return d.c ? ["a", "b", "c"] : ["a", "b"];
     const n = SHAPE_POINTS[d.kind];
     if (n === -1) return [];
     return ["a", "b", "c", "d", "e", "f", "g"].slice(0, Math.max(1, n || 2));
@@ -2114,11 +2118,12 @@ class CandleChart {
     const stop = d.b.p;
     const risk = Math.abs(entry - stop);
     const rr = Number(d.rr || 2);
-    const target = d.target !== undefined && d.target !== null
-      ? Number(d.target)
+    const target = d.c && Number.isFinite(d.c.p)
+      ? Number(d.c.p)
       : (long ? entry + risk * rr : entry - risk * rr);
-    const x = Math.min(a.x, b.x);
-    const w = Math.max(56, Math.abs(b.x - a.x));
+    const pts = [a, b].concat(d.c ? [this.xyOf(L, d.c)].filter(Boolean) : []);
+    const x = Math.min(...pts.map((p) => p.x));
+    const w = Math.max(56, Math.max(...pts.map((p) => p.x)) - x);
     const yEntry = L.yOf(entry), yStop = L.yOf(stop), yTarget = L.yOf(target);
 
     ctx.save();
@@ -2284,8 +2289,13 @@ class CandleChart {
     const x = e.clientX - r.left, y = e.clientY - r.top;
     const i = Math.max(0, Math.min(L.rows.length - 1, L.iOf(x)));
     const row = L.rows[i];
+    // gx is where the pointer really is, in bar units and unclamped: it can
+    // sit between two bars, before the first or out in the empty margin past
+    // the last. Everything that is drawn uses it; only the legend and the
+    // crosshair use the snapped index.
     return {
       L, x, y, i, gi: L.start + i,
+      gx: (x - L.padL) / (L.bw || 1) - 0.5 + L.start,
       t: row ? row.t : "",
       p: L.pOf(y),
       onPriceAxis: x > L.plotR,
@@ -2316,14 +2326,52 @@ class CandleChart {
     return hit;
   }
 
-  point(hit) {
-    return { t: this.snapTime ? hit.t : "", p: hit.p, gi: hit.gi };
+  /** Tools that must never be pinned to a bar. */
+  static get FREEHAND() { return { brush: 1, highlighter: 1, freearrow: 1, polyline: 1, path: 1, polygon: 1 }; }
+
+  /**
+   * A point in data space.
+   *
+   * `gx` is the honest position and is always kept. `t` is only recorded
+   * when the anchor is meant to belong to a particular bar - and never for
+   * the freehand tools, which is what used to flatten a brush stroke onto
+   * the candles: every sample was being rewritten to the nearest bar's
+   * timestamp, so a curve drawn between two candles, or out in the margin
+   * past the last one, collapsed onto them.
+   */
+  point(hit, opts) {
+    const free = (opts && opts.free) || CandleChart.FREEHAND[this.tool];
+    return {
+      t: this.snapTime && !free ? hit.t : "",
+      p: hit.p,
+      gi: hit.gi,
+      gx: hit.gx,
+    };
   }
 
   xyOf(L, pt) {
     if (!pt) return null;
+
+    /* A point placed with a continuous coordinate keeps it. This is what
+       lets a drawing live between two bars, above the highest high or out
+       in the empty margin to the right of the newest candle - anywhere the
+       trader put it, rather than on the nearest available bar. */
+    if (Number.isFinite(pt.gx) && !pt.t) {
+      const x = L.padL + (pt.gx - L.start + 0.5) * L.bw;
+      const far = (L.plotR - L.plotL) * 3;
+      if (x < L.plotL - far || x > L.plotR + far) {
+        if (pt.p == null) return null;
+        return { x: x < L.plotL ? L.plotL - 4 : L.plotR + 4, y: L.yOf(pt.p), off: true, i: -1 };
+      }
+      return { x, y: L.yOf(pt.p), i: Math.round(pt.gx - L.start) };
+    }
+
     let i = -1;
     if (pt.t) i = L.rows.findIndex((r) => r.t === pt.t);
+    if (i < 0 && Number.isFinite(pt.gx)) {
+      const x = L.padL + (pt.gx - L.start + 0.5) * L.bw;
+      return { x, y: L.yOf(pt.p), i: Math.round(pt.gx - L.start) };
+    }
     if (i < 0 && Number.isFinite(pt.gi)) i = pt.gi - L.start;
     if (i < 0 || i >= L.cells) {
       // Off-screen anchors still position a line: clamp to the edge so a
@@ -2408,14 +2456,20 @@ class CandleChart {
     if (!d || d.locked || !from || !to) return;
     const dGi = (to.gi || 0) - (from.gi || 0);
     const dP = (to.p || 0) - (from.p || 0);
+    const dGx = (to.gx === undefined || from.gx === undefined) ? dGi : (to.gx - from.gx);
     const shift = (pt) => {
       if (!pt) return pt;
       pt.gi = (pt.gi || 0) + dGi;
+      if (Number.isFinite(pt.gx)) pt.gx += dGx;
       pt.p = (pt.p || 0) + dP;
       pt.t = "";
       return pt;
     };
-    if (handle && d[handle]) shift(d[handle]);
+    // Dragging a position by its entry moves the trade; dragging the stop
+    // or the target moves only that leg, which is how the ratio is set.
+    if (handle === "a" && (d.kind === "long" || d.kind === "short")) {
+      this.anchorKeys(d).forEach((k) => shift(d[k]));
+    } else if (handle && d[handle]) shift(d[handle]);
     else {
       this.anchorKeys(d).forEach((k) => shift(d[k]));
       if (Array.isArray(d.pts)) d.pts.forEach(shift);
@@ -2747,6 +2801,16 @@ class CandleChart {
     if (!this.draft) return;
     const d = this.draft;
     this.draft = null;
+    if ((d.kind === "long" || d.kind === "short") && d.a && d.b && !d.c) {
+      // The target starts at twice the risk, which is a starting point and
+      // not a recommendation; from then on it is a handle like any other.
+      const risk = Math.abs(d.a.p - d.b.p);
+      const rr = Number(d.rr || 2);
+      d.c = {
+        t: "", p: d.kind === "long" ? d.a.p + risk * rr : d.a.p - risk * rr,
+        gi: d.b.gi, gx: d.b.gx,
+      };
+    }
     const obj = this.addObject(d);
     this.select(obj);
     if (typeof this.opts.onToolDone === "function") this.opts.onToolDone();
