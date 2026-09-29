@@ -66,6 +66,7 @@ class Trader:
         # a combined quality score before any robot entry is allowed out.
         self.smart_filters = True
         self.min_signal_quality = 0.55
+        self.last_quality: dict[str, Any] = {}
         self.news_trade = False
         # Danger guard: tick-level protective exit. Hard-disabled while prop
         # rules are on — a challenge account only exits through the prop book.
@@ -1390,6 +1391,7 @@ class Trader:
             "free_slots": self.free_slots(),
             "smart_filters": bool(getattr(self, "smart_filters", True)),
             "min_signal_quality": float(getattr(self, "min_signal_quality", 0.55) or 0.55),
+            "last_quality": dict(getattr(self, "last_quality", {}) or {}),
             "news_trade": self.news_trading_on(),
             "news_trade_locked": bool(self.prop.enabled),
             "danger_guard": self._danger_state(),
@@ -1862,6 +1864,18 @@ class Trader:
         verdict = self.signal_quality(symbol, side, float(payload.get("confidence") or 0))
         quality = float(verdict.get("score") or 0)
         payload["quality"] = round(quality, 3)
+        # Keep the last judgement where the desk can read it. A score the
+        # trader cannot see is a number they have to take on trust, and the
+        # setting that acts on it stays abstract until they watch it work.
+        self.last_quality = {
+            "score": round(quality, 3),
+            "passed": quality >= float(getattr(self, "min_signal_quality", 0.55) or 0),
+            "symbol": symbol,
+            "side": side,
+            "reasons": list(verdict.get("reasons") or []),
+            "bias": verdict.get("bias") or "neutral",
+            "at": utc_iso(),
+        }
         if getattr(self, "smart_filters", True):
             if quality < float(getattr(self, "min_signal_quality", 0.55) or 0):
                 await self.journal(
@@ -2469,6 +2483,7 @@ class Trader:
         self.max_open_trades = 2
         self.smart_filters = True
         self.min_signal_quality = 0.55
+        self.last_quality: dict[str, Any] = {}
         self.danger_enabled = False
         self.danger_sensitivity = 50
         self._danger_seen = {}

@@ -2439,6 +2439,67 @@ function licenseCardHtml() {
     </div>`;
 }
 
+/**
+ * The setup-quality control, explained where it is used.
+ *
+ * It used to be a slider, a percentage and one sentence naming six things
+ * the user had no way to weigh - which told them nothing about what moving
+ * it would do. Three things are said instead: what the number decides, what
+ * the number is made of, and what the last signal actually scored.
+ */
+function qualityHtml(st) {
+  const v = st.min_signal_quality ?? 0.55;
+  const pct = Math.round(v * 100);
+  const last = st.last_quality || {};
+  const hasLast = Number.isFinite(Number(last.score));
+
+  /* The weights are the engine's, not a description of them: see
+     signal_quality() in engine/aurion/runtime/trader.py. */
+  const parts = [
+    ["slots.q_ai", "+30"],
+    ["slots.q_htf", "±18"],
+    ["slots.q_strategy", "+10"],
+    ["slots.q_edge", "+10"],
+    ["slots.q_regime", "±8"],
+    ["slots.q_chop", "−10"],
+  ];
+
+  return `<div class="field">
+      <span class="conf-head">${I18N.t("slots.quality")}
+        <b class="mono conf-pct" id="st-quality-pct">${pct}%</b></span>
+      <input id="st-quality" type="range" step="0.01" min="0.20" max="0.90" value="${v}" />
+      <div class="scale-legend"><span>${I18N.t("slots.q_loose")}</span><span>${I18N.t("slots.q_tight")}</span></div>
+    </div>
+    <p class="sub" id="st-quality-note">${I18N.t("slots.q_now_" + (pct >= 70 ? "tight" : pct >= 45 ? "mid" : "loose"))}</p>
+
+    <div class="q-does">
+      <b>${I18N.t("slots.q_does")}</b>
+      <ol>
+        <li>${I18N.t("slots.q_does_1", { pct })}</li>
+        <li>${I18N.t("slots.q_does_2")}</li>
+        <li>${I18N.t("slots.q_does_3")}</li>
+      </ol>
+    </div>
+
+    ${hasLast ? `<div class="q-last ${last.passed ? "ok" : "no"}">
+      <div class="q-last-head">
+        <span>${I18N.t("slots.q_last")}</span>
+        <b class="mono">${Math.round(Number(last.score) * 100)}%</b>
+        <span class="pill ${last.passed ? "ok" : "no"}">${I18N.t(last.passed ? "slots.q_taken" : "slots.q_skipped")}</span>
+      </div>
+      <p class="sub">${esc([last.side, last.symbol].filter(Boolean).join(" ").toUpperCase())}
+        ${(last.reasons || []).length ? "· " + esc(last.reasons.join(" · ")) : ""}</p>
+    </div>` : `<p class="sub q-last-none">${I18N.t("slots.q_none")}</p>`}
+
+    <details class="q-how">
+      <summary>${I18N.t("slots.q_how")}</summary>
+      <p class="sub">${I18N.t("slots.q_how_hint")}</p>
+      <div class="q-table">
+        ${parts.map(([key, w]) => `<span>${I18N.t(key)}</span><b class="mono">${w}</b>`).join("")}
+      </div>
+    </details>`;
+}
+
 /* One switch on its own row: a heading, a line of explanation and the
    control, always in that order and always the same height. The robot page
    used to build this shape four different ways with inline styles. */
@@ -2522,11 +2583,13 @@ function robotPanelHtml() {
         <p class="sub" id="st-slots-now">${I18N.t("slots.open_now", { n: st.open_trades ?? 0, max: st.max_open_trades ?? 2 })}</p>
         <hr class="set-rule" />
         ${switchRow({ id: "st-smart", title: I18N.t("slots.smart"), sub: I18N.t("slots.smart_help"), on: st.smart_filters !== false })}
+        <ul class="set-list">
+          <li>${I18N.t("slots.filter_htf")}</li>
+          <li>${I18N.t("slots.filter_spread")}</li>
+          <li>${I18N.t("slots.filter_chop")}</li>
+        </ul>
         <hr class="set-rule" />
-        <div class="field"><span class="conf-head">${I18N.t("slots.quality")}<b class="mono conf-pct" id="st-quality-pct">${Math.round((st.min_signal_quality ?? 0.55) * 100)}%</b></span>
-          <input id="st-quality" type="range" step="0.01" min="0.20" max="0.90" value="${st.min_signal_quality ?? 0.55}" />
-        </div>
-        <p class="sub">${I18N.t("slots.quality_help")}</p>
+        ${qualityHtml(st)}
       </div>
 
       <div class="card">
@@ -4894,7 +4957,17 @@ function bindRobotPanel() {
   const quality = $("st-quality");
   if (quality) {
     const qpct = $("st-quality-pct");
-    quality.addEventListener("input", () => { if (qpct) qpct.textContent = Math.round(+quality.value * 100) + "%"; });
+    const qnote = $("st-quality-note");
+    const paint = () => {
+      const pct = Math.round(+quality.value * 100);
+      if (qpct) qpct.textContent = pct + "%";
+      // The sentence under the slider changes with it, so the number means
+      // something while it is being dragged rather than after it is saved.
+      if (qnote) qnote.textContent = I18N.t("slots.q_now_" + (pct >= 70 ? "tight" : pct >= 45 ? "mid" : "loose"));
+      const first = document.querySelector(".q-does ol li");
+      if (first) first.textContent = I18N.t("slots.q_does_1", { pct });
+    };
+    quality.addEventListener("input", paint);
     quality.addEventListener("change", () => saveSlots(true));
   }
   const conf = $("st-conf");
