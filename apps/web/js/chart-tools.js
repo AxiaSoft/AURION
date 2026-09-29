@@ -511,7 +511,10 @@
     el.id = "tv-menu";
     el.setAttribute("role", "dialog");
     el.innerHTML = body;
-    document.body.appendChild(el);
+    // Inside an element-level fullscreen only that element's subtree is
+    // painted, so a menu parented to <body> would not be on screen at all.
+    const fs = document.fullscreenElement;
+    ((fs && fs !== document.documentElement && fs !== document.body) ? fs : document.body).appendChild(el);
     const r = anchor.getBoundingClientRect();
     const w = el.offsetWidth;
     let left = r.left;
@@ -630,11 +633,7 @@
     document.querySelectorAll("#tv-rail [data-tool]").forEach((b) => {
       b.classList.toggle("on", b.dataset.tool === active);
     });
-    const mag = $("tv-magnet");
-    if (mag) {
-      mag.classList.toggle("on", c.magnet !== "off");
-      mag.setAttribute("aria-pressed", c.magnet !== "off" ? "true" : "false");
-    }
+    markRailState();
     const tool = TOOL_BY_ID[active];
     const st = $("tv-status-tool");
     if (st) st.textContent = tool ? tool.label : tt("chart.mode_navigate", "Navigate");
@@ -647,6 +646,56 @@
           ? tt("chart.hint_free", "Press and drag to draw · Esc to cancel")
           : tt("chart.hint_points", "Click {n} points · Esc to cancel").replace("{n}", need || 2);
     }
+  }
+
+  /**
+   * The three rail switches that had no state on screen.
+   *
+   * Magnet, lock-all and hide-all all did their job and none of them looked
+   * any different afterwards - the two bulk buttons were never marked at
+   * all, and the magnet could not show which of its three strengths was on.
+   * They are now painted from the engine every time anything changes, which
+   * also means they are correct the moment the workspace mounts rather than
+   * only after the first click.
+   */
+  function markRailState() {
+    const c = ui.chart;
+    if (!c) return;
+    const any = c.drawings.length > 0;
+    const allLocked = any && c.drawings.every((d) => d.locked);
+    const anyHidden = any && c.drawings.some((d) => d.visible === false);
+
+    const mag = $("tv-magnet");
+    if (mag) {
+      const on = c.magnet !== "off";
+      mag.classList.toggle("on", on);
+      mag.dataset.level = c.magnet;
+      mag.setAttribute("aria-pressed", on ? "true" : "false");
+      mag.title = tt("chart.magnet_" + c.magnet, "Magnet: " + c.magnet);
+    }
+
+    const lock = $("tv-lockall");
+    if (lock) {
+      lock.classList.toggle("on", allLocked);
+      lock.setAttribute("aria-pressed", allLocked ? "true" : "false");
+      lock.disabled = !any;
+      lock.innerHTML = svg(allLocked ? I.lock : I.unlock);
+      lock.title = allLocked
+        ? tt("chart.unlock_all", "Unlock all") : tt("chart.lock_all", "Lock all drawings");
+    }
+
+    const hide = $("tv-hideall");
+    if (hide) {
+      hide.classList.toggle("on", anyHidden);
+      hide.setAttribute("aria-pressed", anyHidden ? "true" : "false");
+      hide.disabled = !any;
+      hide.innerHTML = svg(anyHidden ? I.eyeOff : I.eye);
+      hide.title = anyHidden
+        ? tt("chart.show_all", "Show all") : tt("chart.hide_all", "Hide all drawings");
+    }
+
+    const clear = $("tv-clear");
+    if (clear) clear.disabled = !any;
   }
 
   function pickTool(id) {
@@ -822,6 +871,7 @@
   function refresh() {
     renderObjects();
     renderProps();
+    markRailState();
     const u = $("tv-undo"), r = $("tv-redo");
     if (u) u.disabled = !ui.chart.canUndo();
     if (r) r.disabled = !ui.chart.canRedo();
@@ -862,8 +912,15 @@
       btn.innerHTML = svg(on ? I.exit : I.full);
       btn.setAttribute("aria-pressed", on ? "true" : "false");
     }
+    /* The whole document goes fullscreen, not the workspace element.
+       Asking only for #tv looked tidier and was wrong: everything that
+       floats - the confirm dialog, the toasts, these menus - lives outside
+       #tv, and the browser paints nothing outside the fullscreen element.
+       Fullscreening the document keeps the entire desk inside it, and the
+       chart still fills the screen because body.chart-full says so. */
     try {
-      if (on && !document.fullscreenElement && tv.requestFullscreen) tv.requestFullscreen().catch(() => {});
+      const root = document.documentElement;
+      if (on && !document.fullscreenElement && root.requestFullscreen) root.requestFullscreen().catch(() => {});
       if (!on && document.fullscreenElement && document.exitFullscreen) document.exitFullscreen().catch(() => {});
     } catch (e) { /* the app-level fullscreen still applies */ }
     setTimeout(() => ui.chart && ui.chart.draw(), 120);
@@ -967,13 +1024,21 @@
         return;
       }
       if (e.target.closest("#tv-lockall")) {
+        if (!chart.drawings.length) return;
         const lock = !chart.drawings.every((d) => d.locked);
         chart.eachObject((d) => { d.locked = lock; });
+        if (ctx.toast) {
+          ctx.toast(lock ? tt("chart.lock_all", "Lock all drawings") : tt("chart.unlock_all", "Unlock all"));
+        }
         return;
       }
       if (e.target.closest("#tv-hideall")) {
+        if (!chart.drawings.length) return;
         const hide = chart.drawings.some((d) => d.visible !== false);
         chart.eachObject((d) => { d.visible = !hide; });
+        if (ctx.toast) {
+          ctx.toast(hide ? tt("chart.hide_all", "Hide all drawings") : tt("chart.show_all", "Show all"));
+        }
         return;
       }
       if (e.target.closest("#tv-clear")) {
@@ -1203,7 +1268,7 @@
   }
 
   Object.assign(UI, {
-    bind, refresh, pickTool, setFullscreen, showDock, closeMenu, markTool,
+    bind, refresh, pickTool, setFullscreen, showDock, closeMenu, markTool, markRailState,
     isFullscreen: () => ui.fullscreen,
   });
 })(typeof window !== "undefined" ? window : this);

@@ -119,9 +119,26 @@ window.AURION_onAuthLost = () => {
     leaveDesk(I18N.t("auth.session_boot"));
   }
 };
+/**
+ * Where a floating layer has to live right now.
+ *
+ * While an element is fullscreen the browser paints that element's subtree
+ * and nothing else, so a modal parented to <body> is simply not on screen -
+ * which is how deleting a drawing from a fullscreen chart turned into
+ * "nothing happens until you leave fullscreen". Anything that floats asks
+ * for its host instead of assuming <body>.
+ */
+function overlayHost() {
+  const fs = document.fullscreenElement;
+  if (fs && fs !== document.documentElement && fs !== document.body) return fs;
+  return document.body;
+}
+
 function toast(msg) {
   const wrap = $("toasts");
   if (!wrap) return;
+  const host = overlayHost();
+  if (wrap.parentElement !== host) host.appendChild(wrap);
   while (wrap.children.length >= 2) wrap.firstElementChild.remove();
   const el = document.createElement("div");
   el.className = "toast";
@@ -143,8 +160,9 @@ function askConfirm(opts) {
       host.id = "desk-modal";
       host.className = "modal";
       host.hidden = true;
-      document.body.appendChild(host);
     }
+    const where = overlayHost();
+    if (host.parentElement !== where) where.appendChild(host);
     const danger = Boolean(opts.danger);
     host.innerHTML = `<div class="modal-card${danger ? " is-danger" : ""}" role="dialog" aria-modal="true" aria-labelledby="modal-title">
       <h3 id="modal-title">${esc(opts.title || I18N.t("common.ok"))}</h3>

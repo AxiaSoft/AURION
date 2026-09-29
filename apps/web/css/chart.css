@@ -144,6 +144,31 @@
 .tvr-btn:hover { background: var(--surface-hover); color: var(--ink) }
 .tvr-btn.on { background: rgb(var(--accent-rgb) / .16); color: var(--accent-readable, var(--accent)) }
 .tvr-btn.danger:hover { color: var(--rose) }
+.tvr-btn:disabled { opacity: .3; cursor: default }
+.tvr-btn:disabled:hover { background: transparent; color: var(--muted) }
+
+/* The magnet has three strengths, so one lit state cannot describe it. A
+   weak pull is tinted; a strong one is filled, and both carry a bar at the
+   foot of the button that grows with the strength. */
+#tv-magnet { position: relative }
+#tv-magnet[data-level="strong"] {
+  background: var(--accent);
+  color: var(--accent-ink, var(--on-accent));
+}
+#tv-magnet[data-level="weak"]::after,
+#tv-magnet[data-level="strong"]::after {
+  content: "";
+  position: absolute;
+  inset-block-end: 3px;
+  inset-inline-start: 50%;
+  transform: translateX(-50%);
+  height: 2px;
+  border-radius: 2px;
+  background: currentColor;
+  opacity: .9;
+}
+#tv-magnet[data-level="weak"]::after { width: 7px }
+#tv-magnet[data-level="strong"]::after { width: 15px }
 
 /* The little corner mark that says "this button has more behind it". */
 .tvr-more {
@@ -485,7 +510,12 @@ body.chart-full .tv {
   border: 0; border-radius: 0;
 }
 body.chart-full .view-head, body.chart-full .tapebar { display: none !important }
+html:fullscreen .tv,
 .tv:fullscreen { height: 100vh; border: 0; border-radius: 0; background: var(--bg) }
+/* The page itself is what goes fullscreen, so it has to carry the page
+   colour - a transparent <html> over the browser's black is not the theme. */
+html:fullscreen { background: var(--bg) }
+html:fullscreen body { background: var(--bg) }
 
 /* --------------------------------------------------------- responsive -- */
 
