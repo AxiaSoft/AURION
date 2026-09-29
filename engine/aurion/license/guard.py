@@ -30,7 +30,21 @@ PLANS: dict[str, dict[str, Any]] = {
 PAID_PLANS = ("m1", "m3", "m6", "y1")
 
 # Features locked in freemium mode (server-side enforced).
-FREEMIUM_LOCKED = ("prop", "scalping", "strategy_upload", "telegram", "news", "chart_signals", "volume_mode")
+#
+# "themes" is the one presentation-only entry: there is no engine endpoint to
+# guard, so it is enforced in the desk. It lives here anyway so that the whole
+# premium surface is described in a single list and the upgrade screen can read
+# it from the same snapshot as everything else.
+FREEMIUM_LOCKED = (
+    "prop",
+    "scalping",
+    "strategy_upload",
+    "telegram",
+    "news",
+    "chart_signals",
+    "volume_mode",
+    "themes",
+)
 
 # Freemium auto-trade allowance: N robot trades per rolling window, then the
 # window locks and auto-resets after the cooldown.

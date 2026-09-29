@@ -226,7 +226,28 @@
     return [preset[0], preset[1], preset[2], readableInk(preset[0])];
   }
 
+  /* The accent picker is premium. While it is locked the theme dictates the
+     accent, and that is expressed here rather than by overwriting the stored
+     value: a user who once picked sand and later lets a key lapse gets sand
+     back the moment they renew, instead of silently losing it. */
+  var forcedAccent = null;
+
+  function forceAccent(value) {
+    var next = ACCENTS[value] ? value : null;
+    if (next === forcedAccent) return forcedAccent;
+    forcedAccent = next;
+    apply();
+    return forcedAccent;
+  }
+
   function getAccent() {
+    if (forcedAccent) return forcedAccent;
+    var v = read(LS_ACCENT, "aurora");
+    return ACCENTS[v] ? v : "aurora";
+  }
+
+  /** What the user chose, ignoring any lock - for the settings row. */
+  function storedAccent() {
     var v = read(LS_ACCENT, "aurora");
     return ACCENTS[v] ? v : "aurora";
   }
@@ -235,7 +256,7 @@
     if (!ACCENTS[value]) return getAccent();
     write(LS_ACCENT, value);
     apply();
-    return value;
+    return getAccent();
   }
 
   function detectPerf() {
@@ -307,7 +328,9 @@
   global.AurionSkin = {
     ACCENTS: ACCENTS,
     getAccent: getAccent,
+    storedAccent: storedAccent,
     setAccent: setAccent,
+    forceAccent: forceAccent,
     accentTriplet: accentTriplet,
     apply: apply,
     getPerfMode: getPerfMode,

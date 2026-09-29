@@ -325,8 +325,22 @@ function setThemeNow(mode) {
 const THEME_TICK =
   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12.5 4.5 4.5L19 7"/></svg>';
 
+const THEME_LOCK =
+  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4.5" y="10.5" width="15" height="9.5" rx="2.2"/><path d="M8 10.5V7a4 4 0 118 0v3.5"/></svg>';
+
+/* One question, asked in three places: the gallery, the accent row and the
+   upgrade screen all have to agree about what this desk is allowed to wear. */
+function themesUnlocked() {
+  return licFeat("themes");
+}
+
+function themeLocked(id) {
+  return typeof AurionTheme !== "undefined" && AurionTheme.locked(id);
+}
+
 function themeCardHtml(theme, current, custom) {
   const on = theme.id === current;
+  const locked = themeLocked(theme.id);
   const name = I18N.t("themes." + theme.id + "_name");
   const desc = I18N.t("themes." + theme.id + "_desc");
   // The custom card is the only one that shows what the user built rather
@@ -337,8 +351,12 @@ function themeCardHtml(theme, current, custom) {
     const rad = Math.max(2, Math.round(custom.radius * 0.45));
     style = ` style="--p-accent:${acc[0]};--p-accent2:${acc[2]};--p-radius:${rad}px"`;
   }
-  return `<button type="button" class="theme-card${on ? " on" : ""}" data-theme-pick="${theme.id}"
-      role="radio" aria-checked="${on ? "true" : "false"}" tabindex="${on ? "0" : "-1"}">
+  // A locked card is shown, not hidden: the point of a premium theme is that
+  // it can be seen. It stays in the radiogroup and stays reachable from the
+  // keyboard - it just answers with the upgrade screen instead of a swap.
+  return `<button type="button" class="theme-card${on ? " on" : ""}${locked ? " is-locked" : ""}" data-theme-pick="${theme.id}"
+      role="radio" aria-checked="${on ? "true" : "false"}" tabindex="${on ? "0" : "-1"}"
+      ${locked ? `data-locked="1" aria-describedby="set-theme-lock" title="${esc(I18N.t("themes.locked_hint"))}"` : ""}>
       <span class="tc-art" data-art="${theme.id}"${style} aria-hidden="true">
         <span class="tc-rail"><i></i><i></i><i></i></span>
         <span class="tc-body">
@@ -351,6 +369,8 @@ function themeCardHtml(theme, current, custom) {
         <span class="tc-desc">${esc(desc)}</span>
       </span>
       <span class="tc-check">${THEME_TICK}</span>
+      ${locked ? `<span class="tc-lock" aria-hidden="true">${THEME_LOCK}</span>
+      <span class="sr-only">${esc(I18N.t("themes.locked_hint"))}</span>` : ""}
     </button>`;
 }
 
@@ -369,21 +389,29 @@ function themeKnobHtml(key, label, value, suffix) {
 
 function themesGalleryHtml() {
   if (typeof AurionTheme === "undefined") return "";
-  const current = AurionTheme.get();
+  const current = AurionTheme.effective();
   const custom = AurionTheme.getCustom();
   const cards = AurionTheme.THEMES.map((t) => themeCardHtml(t, current, custom)).join("");
   const backdrops = ["soft", "blobs", "aurora", "grid", "waves", "dusk", "layered", "flat", "none"]
     .map((b) => `<option value="${b}"${b === custom.bg ? " selected" : ""}>${esc(I18N.t("themes.bg_" + b))}</option>`)
     .join("");
 
+  const unlocked = themesUnlocked();
+
   return `
       <div class="card" style="margin-top:14px">
         <p class="sub" style="margin:0 0 10px">${I18N.t("themes.hint")}</p>
+        ${unlocked ? "" : `<div class="theme-locked-note" id="set-theme-lock">
+          <span class="tl-ico" aria-hidden="true">${THEME_LOCK}</span>
+          <span class="tl-text"><b>${I18N.t("themes.locked_title")}</b>
+            <span class="sub">${I18N.t("themes.locked_note")}</span></span>
+          <button type="button" class="btn tiny" data-go-upgrade>${I18N.t("lic.upgrade_cta")}</button>
+        </div>`}
         <div class="theme-grid" id="set-theme-grid" role="radiogroup" aria-label="${esc(I18N.t("themes.title"))}">${cards}</div>
         <p class="sub" style="margin:12px 0 0">${I18N.t("themes.recommended")}</p>
       </div>
 
-      <div class="card tc-custom" id="set-theme-custom" style="margin-top:14px"${current === "custom" ? "" : " hidden"}>
+      <div class="card tc-custom" id="set-theme-custom" style="margin-top:14px"${current === "custom" && unlocked ? "" : " hidden"}>
         <h3 style="margin:0 0 4px">${I18N.t("themes.custom_title")}</h3>
         <p class="sub" style="margin:0">${I18N.t("themes.custom_hint")}</p>
         <div class="knob-grid">
@@ -407,15 +435,17 @@ function themesGalleryHtml() {
    exact bug the accent row was fixed for. */
 function markThemeCards() {
   if (typeof AurionTheme === "undefined") return;
-  const current = AurionTheme.get();
+  const current = AurionTheme.effective();
   document.querySelectorAll("[data-theme-pick]").forEach((b) => {
     const on = b.dataset.themePick === current;
+    const locked = themeLocked(b.dataset.themePick);
     b.classList.toggle("on", on);
+    b.classList.toggle("is-locked", locked);
     b.setAttribute("aria-checked", on ? "true" : "false");
     b.tabIndex = on ? 0 : -1;
   });
   const panel = $("set-theme-custom");
-  if (panel) panel.hidden = current !== "custom";
+  if (panel) panel.hidden = current !== "custom" || !themesUnlocked();
   paintCustomPreview();
 }
 
@@ -432,8 +462,17 @@ function paintCustomPreview() {
   art.style.setProperty("--p-radius", Math.max(2, Math.round(custom.radius * 0.45)) + "px");
 }
 
-function pickTheme(id) {
-  if (typeof AurionTheme === "undefined" || AurionTheme.get() === id) return;
+function pickTheme(id, opts) {
+  if (typeof AurionTheme === "undefined") return;
+  if (themeLocked(id)) {
+    // Silent when the keyboard merely passed over the card; an upsell that
+    // fires on an arrow key is an ambush, not an offer.
+    if (opts && opts.quiet) return;
+    toast(I18N.t("themes.locked_toast"));
+    show("upgrade");
+    return;
+  }
+  if (AurionTheme.effective() === id) return;
   // The same veil the light/dark switch uses. A theme swap changes far more
   // than a theme switch does, so it needs the cover more, not less.
   morphTheme(() => {
@@ -472,7 +511,7 @@ function bindThemesGallery() {
       }
       e.preventDefault();
       cards[next].focus();
-      pickTheme(cards[next].dataset.themePick);
+      pickTheme(cards[next].dataset.themePick, { quiet: true });
     };
   }
 
@@ -530,10 +569,14 @@ function appearanceCardsHtml() {
   if (typeof AurionSkin === "undefined") return "";
   const perf = AurionSkin.getPerfMode();
   const accent = AurionSkin.getAccent();
+  // Freemium wears the accent its theme was designed with. The row still shows
+  // every colour - a locked door you cannot see is just a wall.
+  const accentOpen = themesUnlocked();
   const swatches = Object.keys(AurionSkin.ACCENTS).map((id) => {
     const c = AurionSkin.ACCENTS[id];
     return `<button type="button" class="accent-dot ${id === accent ? "on" : ""}" data-accent="${id}"
               title="${id}" aria-label="${id}" aria-pressed="${id === accent}"
+              ${accentOpen ? "" : 'data-locked="1"'}
               style="background:linear-gradient(135deg, ${c[0]}, ${c[2]})"></button>`;
   }).join("");
 
@@ -542,9 +585,11 @@ function appearanceCardsHtml() {
       ${themesGalleryHtml()}
 
       <div class="card" style="margin-top:14px">
-        <p class="sub" style="margin:0 0 6px">${I18N.t("settings.accent")}</p>
-        <div class="accent-row" id="set-accents">${swatches}</div>
-        <p class="sub" style="margin:8px 0 0">${I18N.t("settings.accent_hint")}</p>
+        <p class="sub" style="margin:0 0 6px">${I18N.t("settings.accent")}
+          ${accentOpen ? "" : `<span class="pill no">${I18N.t("themes.premium_tag")}</span>`}</p>
+        <div class="accent-row${accentOpen ? "" : " is-locked"}" id="set-accents">${swatches}</div>
+        <p class="sub" style="margin:8px 0 0">${accentOpen ? I18N.t("settings.accent_hint")
+          : `${I18N.t("settings.accent_locked")} <a href="#" data-go-upgrade>${I18N.t("lic.upgrade_cta")}</a>`}</p>
       </div>
 
       <div class="card" style="margin-top:14px">
@@ -585,11 +630,12 @@ function bindAppearance() {
   if (accents) accents.onclick = (e) => {
     const b = e.target.closest("[data-accent]");
     if (!b) return;
+    if (b.dataset.locked) { toast(I18N.t("themes.locked_toast")); show("upgrade"); return; }
     AurionSkin.setAccent(b.dataset.accent);
     // Picking an accent while the custom theme is active is part of building
     // it, so it is remembered with the rest of that theme's knobs rather than
     // being reset the next time the theme is applied.
-    if (typeof AurionTheme !== "undefined" && AurionTheme.get() === "custom") {
+    if (typeof AurionTheme !== "undefined" && AurionTheme.effective() === "custom") {
       AurionTheme.setCustom({ accent: b.dataset.accent }, { silent: true });
     }
     markAppearancePills();
@@ -1027,7 +1073,26 @@ function navAccountHtml() {
   return `<span class="nav-acc ${premium ? "prem" : "free"}" id="nav-acc" title="${esc(I18N.t("nav.upgrade"))}">${esc(label)}</span>`;
 }
 
+/* The themes are premium, and the theme layer boots in <head> from a cached
+   verdict because the licence only arrives with the first snapshot. This is
+   where the engine's answer reaches it - on every sync and on every licence
+   push, so activating a key restores the user's theme without a reload and a
+   lapsed one drops the desk back to glass the same way. */
+function syncThemeLicense() {
+  if (typeof AurionTheme === "undefined") return;
+  const L = ((S.snap && S.snap.license) || S._gateLic || {});
+  // Unknown licence (no snapshot yet) is not an answer - leave the cache be.
+  if (L.premium === undefined || L.premium === null) return;
+  const changed = AurionTheme.setPaid(Boolean(L.premium));
+  if (!changed) return;
+  markThemeCards();
+  markAppearancePills();
+  repaintChartsForTheme();
+  if (S.view === "settings") show("settings", { animate: false, closeMenu: false, nav: false });
+}
+
 function paintNavAcc() {
+  syncThemeLicense();
   const chip = $("nav-acc");
   if (!chip) return;
   const L = ((S.snap && S.snap.license) || S._gateLic || {});
@@ -2953,6 +3018,7 @@ const views = {
       ["news", "upgrade.f_news"],
       ["chart_signals", "upgrade.f_chart_signals"],
       ["volume_mode", "upgrade.f_volume"],
+      ["themes", "upgrade.f_themes"],
     ];
     return `<div class="cmd">
       <div class="card up-hero ${premium ? "is-premium" : "is-free"}">

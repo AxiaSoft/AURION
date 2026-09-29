@@ -22,6 +22,8 @@
 
        aurion.theme.skin     the chosen theme id
        aurion.theme.custom   the custom theme's knobs, as JSON
+       aurion.theme.paid     last known licence verdict, so a paid desk paints
+                             its theme at boot instead of flashing the free one
 
    The light/dark choice (aurion.theme), the accent (aurion.accent) and the
    rendering tier (aurion.perf) are NOT duplicated here - they stay with
@@ -36,7 +38,25 @@
 
   var LS_SKIN = "aurion.theme.skin";
   var LS_CUSTOM = "aurion.theme.custom";
+  var LS_PAID = "aurion.theme.paid";
   var DEFAULT_SKIN = "glass";
+
+  /* -------------------------------------------------------------------------
+     What freemium gets.
+
+     Liquid Glass is the product's own look and is never taken away - a free
+     desk is a complete desk, not a crippled one. The other eleven materials
+     and the custom builder are premium, and so is the accent row: while the
+     lock is on, the accent is whatever the active theme was designed with.
+
+     The premium flag is mirrored into localStorage because this file runs in
+     <head>, long before the engine snapshot that carries the licence can
+     arrive. Reading the last known answer at boot is what keeps a paying user
+     from seeing their theme flash to glass and back on every launch. It is a
+     cache for painting, never the authority: the snapshot corrects it within
+     the first second, in both directions.
+     ------------------------------------------------------------------------- */
+  var FREE_THEMES = ["glass"];
 
   /* -------------------------------------------------------------------------
      The table.
@@ -155,9 +175,53 @@
 
   /* ----------------------------------------------------------------- state */
 
+  /** The theme the user chose, licensed or not. */
   function getTheme() {
     var v = read(LS_SKIN, DEFAULT_SKIN);
     return BY_ID[v] ? v : DEFAULT_SKIN;
+  }
+
+  function isPaid() {
+    return read(LS_PAID, "0") === "1";
+  }
+
+  function isLocked(id) {
+    if (!BY_ID[id]) return false;
+    return !isPaid() && FREE_THEMES.indexOf(id) === -1;
+  }
+
+  /** The theme actually on screen: the chosen one, or glass if it is locked. */
+  function effectiveTheme() {
+    var id = getTheme();
+    return isLocked(id) ? DEFAULT_SKIN : id;
+  }
+
+  /**
+   * Tell the engine's verdict to the theme layer.
+   *
+   * Returns true when the answer changed something visible, so the desk knows
+   * whether it has to re-mark the gallery. Both directions matter: activating
+   * a key restores the theme the user had picked before it lapsed, and losing
+   * one puts the desk back on glass without a reload.
+   */
+  function setPaid(paid) {
+    var next = paid ? "1" : "0";
+    if (read(LS_PAID, "0") === next) return false;
+    var before = effectiveTheme();
+    write(LS_PAID, next);
+    var after = effectiveTheme();
+    // apply() pins or releases the accent by itself; deliberately nothing is
+    // written to the accent key here, so a key that lapses and is renewed
+    // gives the user back the exact colour they had chosen.
+    apply();
+    // The theme on screen only moves when the chosen one was locked, but the
+    // padlocks move either way, so the caller is told about both.
+    if (before !== after) {
+      try {
+        global.dispatchEvent(new CustomEvent("aurion:theme", { detail: { id: after, licence: true } }));
+      } catch (e) { /* CustomEvent is not essential */ }
+    }
+    return true;
   }
 
   /** The knob limits, so the UI can build its sliders from one source. */
@@ -207,20 +271,20 @@
     }
     write(LS_CUSTOM, JSON.stringify(next));
     if (!(opts && opts.silent)) apply();
-    if (next.accent && getTheme() === "custom") applyAccent(next.accent);
+    if (next.accent && effectiveTheme() === "custom") applyAccent(next.accent);
     return next;
   }
 
   function resetCustom() {
     write(LS_CUSTOM, null);
     apply();
-    if (getTheme() === "custom") applyAccent(defaultCustom().accent);
+    if (effectiveTheme() === "custom") applyAccent(defaultCustom().accent);
     return getCustom();
   }
 
   /** The knobs actually in force right now, theme defaults or custom. */
   function activeKnobs() {
-    var id = getTheme();
+    var id = effectiveTheme();
     if (id === "custom") return getCustom();
     var t = BY_ID[id] || BY_ID[DEFAULT_SKIN];
     var out = {};
@@ -277,11 +341,19 @@
   function apply() {
     var el = root();
     if (!el) return;
-    var id = getTheme();
+    var id = effectiveTheme();
     var k = activeKnobs();
 
     el.dataset.skin = id;
     el.dataset.bg = k.bg || "soft";
+    /* Premium gates the accent row too, so while it is locked the theme's own
+       accent is pinned - the desk still looks designed, it just looks the one
+       way this theme was designed to look. */
+    try {
+      if (global.AurionSkin && global.AurionSkin.forceAccent) {
+        global.AurionSkin.forceAccent(isPaid() ? null : (k.accent || BY_ID[id].accent));
+      }
+    } catch (e) { /* the theme still applies without the pin */ }
 
     var motion = clamp(k.motion, 0, 160);
     el.dataset.motion = motion === 0 ? "off" : motion < 70 ? "soft" : "full";
@@ -307,6 +379,9 @@
    */
   function setTheme(id, opts) {
     if (!BY_ID[id]) return getTheme();
+    // A locked theme is not applied and, deliberately, not remembered either:
+    // storing it would leave a free desk holding a choice it cannot see.
+    if (isLocked(id)) return getTheme();
     write(LS_SKIN, id);
     apply();
     if (!(opts && opts.keepAccent)) {
@@ -336,7 +411,12 @@
     LIMITS: LIMITS,
     DEFAULT: DEFAULT_SKIN,
     get: getTheme,
+    effective: effectiveTheme,
     set: setTheme,
+    FREE: FREE_THEMES,
+    locked: isLocked,
+    paid: isPaid,
+    setPaid: setPaid,
     apply: apply,
     knobs: activeKnobs,
     getCustom: getCustom,

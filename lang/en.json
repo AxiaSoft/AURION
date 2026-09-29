@@ -499,7 +499,8 @@
     "perf_now_fast": "Effects are reduced on this machine.",
     "perf_now_rich": "Full effects are on.",
     "accent": "Accent colour",
-    "accent_hint": "Buttons, switches, highlights and chart overlays follow this colour."
+    "accent_hint": "Buttons, switches, highlights and chart overlays follow this colour.",
+    "accent_locked": "On the free plan the accent comes from the theme itself."
   },
   "style": {
     "title": "Trade model",
@@ -848,10 +849,11 @@
     "store_unset": "Store link is not configured on this machine.",
     "have_key": "Have a key?",
     "enter_hint": "Paste the key below. It activates once and binds to this machine.",
-    "free_note": "Live trading, built-in strategies and the desk are free. Prop profiles, scalping, strategy upload, Telegram and news trading need a key. Free auto trading is limited to 3 trades every 5 hours.",
+    "free_note": "Live trading, built-in strategies and the desk are free. Prop profiles, scalping, strategy upload, Telegram, news trading and the theme gallery need a key. Free auto trading is limited to 3 trades every 5 hours.",
     "prem_note": "Every feature is unlocked. The desk never asks for a key while this machine is licensed.",
     "f_chart_signals": "Chart Buy/Sell Signals (EMA/RSI/ATR strict)",
-    "f_volume": "Manual Volume/Lot Mode"
+    "f_volume": "Manual Volume/Lot Mode",
+    "f_themes": "Themes and colours"
   },
   "lock": {
     "prop": "Prop profiles and the strict risk engine are premium features. Activate a license key to use them.",
@@ -869,7 +871,9 @@
     "chart_signals": "Chart Buy/Sell signals with strict EMA/RSI/ATR analysis is a premium feature. Activate a premium key to unlock.",
     "chart_signals_title": "Chart Signals — Premium",
     "volume_mode": "Trading volume/lot manual mode is premium. Activate premium to set fixed lot.",
-    "volume_mode_title": "Volume Mode — Premium"
+    "volume_mode_title": "Volume Mode — Premium",
+    "themes_title": "Themes are premium",
+    "themes": "Eleven materials, a custom builder and the full accent range unlock with a key."
   },
   "hdr": {
     "drawer": "Status, equity and account"
@@ -1063,6 +1067,11 @@
     "mono_name": "Monochrome",
     "mono_desc": "Grey only. Emphasis comes from weight and spacing, not colour.",
     "custom_name": "Custom",
-    "custom_desc": "Your own material — accent, surface, border, blur, radius, shadow and motion."
+    "custom_desc": "Your own material — accent, surface, border, blur, radius, shadow and motion.",
+    "locked_title": "Themes are premium",
+    "locked_note": "Liquid Glass stays yours for good. The other eleven materials, the custom builder and the accent colours unlock with a key.",
+    "locked_hint": "Premium theme — unlocks with a key",
+    "locked_toast": "Themes and colours are part of premium.",
+    "premium_tag": "PREMIUM"
   }
 }

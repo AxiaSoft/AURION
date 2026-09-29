@@ -1903,3 +1903,82 @@ html[data-motion="off"] .theme-card.on::after{ animation:none; opacity:0 }
    the readout is given the accent while it is being changed. */
 .knob:focus-within .knob-head b,
 .knob:hover .knob-head b{ color:var(--accent-readable, var(--accent)) }
+
+/* ===========================================================================
+   12. What premium looks like
+   ===========================================================================
+   Eleven of the twelve materials, the custom builder and the accent row are
+   part of a key. The rule followed here is that a locked thing is shown, not
+   hidden: the preview is the whole argument for buying it, so the miniature
+   keeps its colours and its animation, and only the card around it says no.
+
+   What marks the lock is deliberately quiet - a desaturated frame, a small
+   padlock, a cursor that will not promise a selection. Nothing is greyed into
+   illegibility and nothing is covered up.
+   =========================================================================== */
+
+/* For text that only the screen reader needs - the padlock is decorative, so
+   the reason a card cannot be chosen has to be said in words somewhere. */
+.sr-only{
+  position:absolute; width:1px; height:1px;
+  margin:-1px; padding:0; border:0;
+  clip:rect(0 0 0 0); clip-path:inset(50%);
+  overflow:hidden; white-space:nowrap;
+}
+
+/* ---- the note above the grid --------------------------------------------- */
+.theme-locked-note{
+  display:flex; align-items:center; gap:12px;
+  margin:0 0 12px; padding:10px 12px;
+  background:var(--surface-2);
+  border:1px solid var(--line);
+  border-inline-start:2px solid var(--accent);
+  border-radius:calc(var(--radius-lg) * .6);
+}
+.theme-locked-note .tl-ico{
+  flex:0 0 auto; display:grid; place-items:center;
+  width:30px; height:30px; border-radius:50%;
+  background:color-mix(in srgb, var(--accent) 16%, transparent);
+  color:var(--accent-readable, var(--accent));
+}
+.theme-locked-note .tl-ico svg{ width:16px; height:16px }
+.theme-locked-note .tl-text{ display:flex; flex-direction:column; gap:2px; min-width:0; flex:1 1 auto }
+.theme-locked-note .tl-text b{ font-size:13px; letter-spacing:var(--head-track, 0) }
+.theme-locked-note .tl-text .sub{ margin:0; font-size:12px }
+.theme-locked-note .btn{ flex:0 0 auto }
+
+/* ---- a locked card -------------------------------------------------------- */
+.theme-card.is-locked{ cursor:not-allowed }
+/* The frame reads as unavailable; the miniature inside it does not, because
+   the miniature is the product. */
+.theme-card.is-locked .tc-meta{ opacity:.72 }
+.theme-card.is-locked .tc-art{ filter:saturate(.88) }
+.theme-card.is-locked:hover .tc-art{ filter:none }
+.theme-card.is-locked:hover{ transform:none }
+.theme-card.is-locked:hover .tc-art{ transform:none }
+
+.tc-lock{
+  position:absolute; inset-block-start:8px; inset-inline-end:8px;
+  display:grid; place-items:center;
+  width:22px; height:22px; border-radius:50%;
+  background:rgb(var(--s1) / .62);
+  border:1px solid var(--line);
+  color:var(--muted);
+  backdrop-filter:blur(6px);
+  transition:color var(--dur-2) var(--ease-1), border-color var(--dur-2) var(--ease-1);
+}
+.tc-lock svg{ width:12px; height:12px }
+.theme-card.is-locked:hover .tc-lock,
+.theme-card.is-locked:focus-visible .tc-lock{
+  color:var(--accent-readable, var(--accent));
+  border-color:color-mix(in srgb, var(--accent) 45%, var(--line));
+}
+/* The tick and the padlock can never both be true, but the selected card is
+   painted by class and the lock by licence, so this says it outright. */
+.theme-card.is-locked .tc-check{ display:none }
+html[data-perf="fast"] .tc-lock{ background:rgb(var(--s1) / .9) }
+
+/* ---- a locked accent row -------------------------------------------------- */
+.accent-row.is-locked .accent-dot{ cursor:not-allowed; opacity:.5 }
+.accent-row.is-locked .accent-dot:hover{ transform:scale(1.04); opacity:.72 }
+.accent-row.is-locked .accent-dot.on{ opacity:1; transform:scale(1.1) }
