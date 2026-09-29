@@ -123,36 +123,133 @@ function sessionOpensBetween(prev, next) {
   });
 }
 
+
+/* ===========================================================================
+   The chart engine
+   ===========================================================================
+   A 2D-canvas terminal chart. There is no charting library underneath it -
+   every candle, axis, indicator and drawing on the screen is painted here -
+   which is why this file owns so much: the alternative is a dependency that
+   cannot be themed with the desk's tokens or bundled into the installer.
+
+   The parts, in the order they are declared:
+
+     state        what is being shown, how, and what the user has drawn
+     scales       price and time, including log, percent and manual scaling
+     layout       one object per frame with every coordinate helper on it
+     paint        series, indicators, drawings, axes, crosshair, legend
+     hit-testing  what is under the pointer, and what can be grabbed
+     interaction  pointer, wheel, touch; drawing versus navigating
+
+   Two invariants worth keeping:
+
+     1. `layout()` is the only place that knows how a price becomes a y, and
+        a bar index becomes an x. Everything else asks it.
+     2. A drawing is stored in *data* space - bar index and price - never in
+        pixels, so it stays where the trader put it through every zoom, pan,
+        timeframe change and window resize.
+   =========================================================================== */
+
+/** Points required before a drawing is finished. -1 means freehand. */
+const SHAPE_POINTS = {
+  hline: 1, hray: 1, vline: 1, crossline: 1, priceline: 1, dateline: 1,
+  text: 1, note: 1, label: 1, pricelabel: 1, flag: 1, emoji: 1,
+  trend: 2, ray: 2, extended: 2, arrow: 2, infoline: 2, callout: 2,
+  rect: 2, circle: 2, ellipse: 2, measure: 2, pricerange: 2, daterange: 2,
+  long: 2, short: 2, fib: 2, fibtime: 2, fibcircle: 2, fibarc: 2, fibspiral: 2,
+  gannfan: 2, gannbox: 2, gannsquare: 2, regression: 2,
+  parallel: 3, channel: 3, flatchannel: 3, pitchfork: 3, schiff: 3, modschiff: 3,
+  triangle: 3, rotrect: 3, arc: 3, curve: 3, fibext: 3, fibchannel: 3, fibwedge: 3,
+  disjoint: 4, doublecurve: 4, abcd: 4, elliott3: 4,
+  xabcd: 5, gartley: 5, butterfly: 5, bat: 5, crab: 5, cypher: 5,
+  elliott5: 6, headshoulders: 7, threedrives: 7,
+  brush: -1, highlighter: -1, freearrow: -1, polyline: -1, polygon: -1, path: -1,
+};
+
+/** Point labels drawn on the pattern tools. */
+const SHAPE_LABELS = {
+  abcd: ["A", "B", "C", "D"],
+  xabcd: ["X", "A", "B", "C", "D"],
+  gartley: ["X", "A", "B", "C", "D"],
+  butterfly: ["X", "A", "B", "C", "D"],
+  bat: ["X", "A", "B", "C", "D"],
+  crab: ["X", "A", "B", "C", "D"],
+  cypher: ["X", "A", "B", "C", "D"],
+  elliott5: ["0", "1", "2", "3", "4", "5"],
+  elliott3: ["0", "A", "B", "C"],
+  headshoulders: ["", "LS", "", "H", "", "RS", ""],
+  threedrives: ["1", "A", "2", "B", "3", "C", "4"],
+};
+
+/** The harmonic ratios each named pattern is defined by, for the readout. */
+const HARMONIC_RULES = {
+  gartley: { AB: [0.618, 0.618], BC: [0.382, 0.886], CD: [1.13, 1.618], XD: [0.786, 0.786] },
+  butterfly: { AB: [0.786, 0.786], BC: [0.382, 0.886], CD: [1.618, 2.24], XD: [1.27, 1.618] },
+  bat: { AB: [0.382, 0.5], BC: [0.382, 0.886], CD: [1.618, 2.618], XD: [0.886, 0.886] },
+  crab: { AB: [0.382, 0.618], BC: [0.382, 0.886], CD: [2.24, 3.618], XD: [1.618, 1.618] },
+  cypher: { AB: [0.382, 0.618], BC: [1.13, 1.414], CD: [0.786, 0.786], XD: [0.786, 0.786] },
+};
+
+/** Shapes whose second anchor is only a width, not a price. */
+const TIME_ONLY = { daterange: true, fibtime: true, vline: true, dateline: true };
+
+const DASHES = { solid: [], dashed: [6, 4], dotted: [1.5, 3] };
+
+let __shapeSeq = 0;
+function shapeId() {
+  __shapeSeq += 1;
+  return "d" + Date.now().toString(36) + "-" + __shapeSeq.toString(36);
+}
+
 class CandleChart {
   constructor(canvas, opts) {
     this.canvas = canvas;
     this.ctx = canvas.getContext("2d");
     this.opts = opts || {};
     this.bars = [];
-    // Off by default: an overlay the trader did not ask for is clutter.
+
+    /* ---- what is shown ------------------------------------------------ */
+    this.type = "candles";
     this.sessions = false;
-    // The drawing currently under the trader's hand, if any.
+    this.grid = true;
+    this.crosshair = "cross";      // cross | dot | none
+    this.tool = "cursor";
+    this.magnet = "off";           // off | weak | strong
+    this.snapTime = true;
+    this.indicators = [];
+    this.drawings = [];
     this.selected = null;
-    this.offset = 0;
-    this.span = 80;
+
+    /* ---- the view ------------------------------------------------------ */
+    this.offset = 0;               // bars scrolled back from the newest
+    this.span = 120;               // bars across the plot
+    this.rightPad = 0;             // empty bars kept to the right of the last
+    this.scale = { auto: true, log: false, percent: false, invert: false, lock: false, mn: null, mx: null };
+
+    /* ---- transient ----------------------------------------------------- */
     this.hover = null;
     this.drag = null;
-    this.tick = null;
-    this.tool = "cursor";
     this.draft = null;
-    this.drawings = [];
+    this.tick = null;
     this.levels = [];
     this.pending = { sl: 0, tp: 0 };
     this.dragLevel = null;
-    this._moved = false;
-    this.magnet = false;
-    this.crosshair = true;
-    this.key = this.opts.key || "";
-    this.analyze = Boolean(this.opts.analyze);
     this.signals = [];
     this.showSignals = true;
-    this._clicks = 0;
-    if (this.key) this.drawings = CandleChart.load(this.key);
+    this._moved = false;
+    this._space = false;
+
+    /* ---- history ------------------------------------------------------- */
+    this.past = [];
+    this.future = [];
+
+    this.key = this.opts.key || "";
+    this.analyze = Boolean(this.opts.analyze);
+    if (this.key) {
+      this.drawings = CandleChart.load(this.key).map((d) => this.hydrate(d));
+      this.restoreState();
+    }
+
     this.ro = new ResizeObserver(() => this.draw());
     this.ro.observe(canvas.parentElement || canvas);
     canvas.addEventListener("wheel", (e) => this.onWheel(e), { passive: false });
@@ -160,40 +257,309 @@ class CandleChart {
     canvas.addEventListener("pointermove", (e) => this.onMove(e));
     canvas.addEventListener("pointerup", (e) => this.onUp(e));
     canvas.addEventListener("pointerleave", () => { this.hover = null; this.draw(); });
+    canvas.addEventListener("contextmenu", (e) => this.onContext(e));
     canvas.addEventListener("touchstart", (e) => this.onTouch(e), { passive: false });
     canvas.addEventListener("touchmove", (e) => this.onTouch(e), { passive: false });
-    canvas.addEventListener("dblclick", () => this.fit());
+    canvas.addEventListener("touchend", () => { this.pinch = null; });
+    canvas.addEventListener("dblclick", (e) => this.onDouble(e));
   }
+
+  /* ======================================================== persistence == */
+
   static load(key) {
     try { return JSON.parse(localStorage.getItem("aurion.draw." + key) || "[]") || []; }
     catch { return []; }
   }
+
+  /** Older drawings predate ids and style fields; fill them in on the way in. */
+  hydrate(d) {
+    return Object.assign({
+      id: shapeId(),
+      width: 1.4,
+      style: "solid",
+      opacity: 1,
+      fill: true,
+      visible: true,
+      locked: false,
+      name: "",
+    }, d);
+  }
+
   persist() {
     if (!this.key) return;
-    try { localStorage.setItem("aurion.draw." + this.key, JSON.stringify(this.drawings.slice(-200))); } catch { /* */ }
+    try {
+      localStorage.setItem("aurion.draw." + this.key, JSON.stringify(this.drawings.slice(-400)));
+    } catch { /* private mode must never break the chart */ }
   }
+
+  /** The workspace: chart type, indicators, scale. Kept apart from drawings
+      so clearing the chart does not throw the trader's indicators away. */
+  saveState() {
+    if (!this.key) return;
+    try {
+      localStorage.setItem("aurion.chart." + this.key, JSON.stringify({
+        type: this.type,
+        indicators: this.indicators.map((i) => ({ id: i.id, type: i.type, params: i.params, visible: i.visible, color: i.color })),
+        scale: { log: this.scale.log, percent: this.scale.percent, invert: this.scale.invert, auto: this.scale.auto },
+        grid: this.grid,
+        crosshair: this.crosshair,
+        magnet: this.magnet,
+        sessions: this.sessions,
+      }));
+    } catch { /* not fatal */ }
+  }
+
+  restoreState() {
+    let st = null;
+    try { st = JSON.parse(localStorage.getItem("aurion.chart." + this.key) || "null"); } catch { st = null; }
+    if (!st || typeof st !== "object") return;
+    if (st.type) this.type = st.type;
+    if (typeof st.grid === "boolean") this.grid = st.grid;
+    if (typeof st.sessions === "boolean") this.sessions = st.sessions;
+    if (st.crosshair) this.crosshair = st.crosshair;
+    if (st.magnet) this.magnet = st.magnet;
+    if (st.scale) Object.assign(this.scale, st.scale, { mn: null, mx: null });
+    if (Array.isArray(st.indicators)) {
+      this.indicators = st.indicators
+        .filter((i) => i && this.indicatorDef(i.type))
+        .map((i) => ({
+          id: i.id || shapeId(),
+          type: i.type,
+          params: Object.assign({}, this.indicatorDef(i.type).params, i.params || {}),
+          visible: i.visible !== false,
+          color: i.color || "",
+        }));
+    }
+  }
+
+  /* ============================================================ history == */
+
+  /**
+   * Undo is a snapshot stack rather than a list of inverse operations.
+   *
+   * A drawing is small and there are never many of them, so the honest,
+   * unbreakable version costs a few kilobytes: every mutation pushes the
+   * state that preceded it. Inverse operations would be cheaper and would
+   * eventually get one of the fifty shape kinds wrong.
+   */
+  snapshot() {
+    try {
+      this.past.push(JSON.stringify(this.drawings));
+      if (this.past.length > 80) this.past.shift();
+      this.future.length = 0;
+    } catch { /* a snapshot that cannot be taken must not block the edit */ }
+  }
+
+  restore(json) {
+    try {
+      const next = JSON.parse(json);
+      this.drawings = Array.isArray(next) ? next.map((d) => this.hydrate(d)) : [];
+      const keep = this.selected && this.drawings.find((d) => d.id === this.selected.id);
+      this.selected = keep || null;
+      this.persist();
+      this.draw();
+      this.changed();
+    } catch { /* corrupt history entry: leave the chart as it is */ }
+  }
+
+  undo() {
+    if (!this.past.length) return false;
+    this.future.push(JSON.stringify(this.drawings));
+    this.restore(this.past.pop());
+    return true;
+  }
+
+  redo() {
+    if (!this.future.length) return false;
+    this.past.push(JSON.stringify(this.drawings));
+    this.restore(this.future.pop());
+    return true;
+  }
+
+  canUndo() { return this.past.length > 0; }
+  canRedo() { return this.future.length > 0; }
+
+  /** Tell the interface that the object list or selection moved. */
+  changed() {
+    if (typeof this.opts.onChange === "function") {
+      try { this.opts.onChange(this); } catch { /* the chart is still fine */ }
+    }
+  }
+
+  /* ========================================================= the objects == */
+
+  addObject(obj) {
+    this.snapshot();
+    const d = this.hydrate(obj);
+    this.drawings.push(d);
+    this.persist();
+    this.draw();
+    this.changed();
+    return d;
+  }
+
+  getObject(id) { return this.drawings.find((d) => d.id === id) || null; }
+
+  updateObject(id, patch, opts) {
+    const d = this.getObject(id);
+    if (!d) return null;
+    if (!(opts && opts.quiet)) this.snapshot();
+    Object.assign(d, patch || {});
+    this.persist();
+    this.draw();
+    if (!(opts && opts.quiet)) this.changed();
+    return d;
+  }
+
+  removeObject(id) {
+    const at = this.drawings.findIndex((d) => d.id === id);
+    if (at < 0) return false;
+    this.snapshot();
+    const [gone] = this.drawings.splice(at, 1);
+    if (this.selected === gone) this.selected = null;
+    this.persist();
+    this.draw();
+    this.changed();
+    return true;
+  }
+
+  eachObject(fn) {
+    this.snapshot();
+    this.drawings.forEach(fn);
+    this.persist();
+    this.draw();
+    this.changed();
+  }
+
+  clearDrawings() {
+    if (!this.drawings.length) return;
+    this.snapshot();
+    this.drawings = [];
+    this.selected = null;
+    this.persist();
+    this.draw();
+    this.changed();
+  }
+
+  select(shape) {
+    this.selected = shape || null;
+    this.draw();
+    this.changed();
+  }
+
+  selectById(id) {
+    this.select(this.getObject(id));
+  }
+
+  deleteSelected() {
+    if (!this.selected) return false;
+    return this.removeObject(this.selected.id);
+  }
+
+  /* ========================================================== indicators == */
+
+  indicatorDef(type) {
+    const lib = (typeof window !== "undefined" && window.AurionSeries) || null;
+    return (lib && lib.INDICATOR_BY_ID[type]) || null;
+  }
+
+  addIndicator(type, params) {
+    const def = this.indicatorDef(type);
+    if (!def) return null;
+    const ind = {
+      id: shapeId(),
+      type,
+      params: Object.assign({}, def.params, params || {}),
+      visible: true,
+      color: "",
+    };
+    this.indicators.push(ind);
+    this.saveState();
+    this.draw();
+    this.changed();
+    return ind;
+  }
+
+  updateIndicator(id, patch) {
+    const ind = this.indicators.find((i) => i.id === id);
+    if (!ind) return null;
+    if (patch && patch.params) {
+      ind.params = Object.assign({}, ind.params, patch.params);
+      delete patch.params;
+    }
+    Object.assign(ind, patch || {});
+    this.saveState();
+    this.draw();
+    this.changed();
+    return ind;
+  }
+
+  removeIndicator(id) {
+    const at = this.indicators.findIndex((i) => i.id === id);
+    if (at < 0) return false;
+    this.indicators.splice(at, 1);
+    this.saveState();
+    this.draw();
+    this.changed();
+    return true;
+  }
+
+  /* =============================================================== state == */
+
   setTool(tool) {
     this.tool = tool || "cursor";
     this.draft = null;
-    this._clicks = 0;
-    this.canvas.style.cursor = this.tool === "cursor" ? "grab" : "crosshair";
+    this.canvas.style.cursor = this.cursorFor();
     this.draw();
   }
-  setMagnet(on) { this.magnet = Boolean(on); }
+
+  cursorFor() {
+    if (this.tool === "cursor") return "default";
+    if (this.tool === "pan") return "grab";
+    if (this.tool === "eraser") return "cell";
+    return "crosshair";
+  }
+
+  setCrosshair(mode) { this.crosshair = mode || "cross"; this.saveState(); this.draw(); }
+  setGrid(on) { this.grid = Boolean(on); this.saveState(); this.draw(); }
+  setMagnet(mode) {
+    // The old interface had a magnet switch; a switch cannot say how strong.
+    if (mode === true) mode = "weak";
+    if (mode === false) mode = "off";
+    this.magnet = mode || "off";
+    this.saveState();
+  }
+  setSnapTime(on) { this.snapTime = Boolean(on); }
+
+  setType(type) {
+    const lib = (typeof window !== "undefined" && window.AurionSeries) || null;
+    if (lib && !lib.SERIES_TYPES.some((t) => t.id === type)) return this.type;
+    this.type = type;
+    this._series = null;
+    this.saveState();
+    this.draw();
+    return type;
+  }
+
+  setSessions(on) { this.sessions = Boolean(on); this.saveState(); this.draw(); }
+
   setLevels(positions) {
     this.levels = Array.isArray(positions) ? positions.filter(Boolean) : [];
     this.draw();
   }
+
   setPending(p) {
     p = p || {};
     this.pending = { sl: Number(p.sl || 0) || 0, tp: Number(p.tp || 0) || 0 };
     this.draw();
   }
+
   setSignals(signals, show) {
     this.signals = Array.isArray(signals) ? signals : [];
     if (typeof show === "boolean") this.showSignals = show;
     this.draw();
   }
+
   setLastBar(b) {
     if (!b) return;
     if (!this.bars.length) { this.setBars([b]); return; }
@@ -201,42 +567,220 @@ class CandleChart {
     const last = this.bars[this.bars.length - 1];
     if (t && String(last.time || last.ts || "") === t) this.bars[this.bars.length - 1] = b;
     else this.bars.push(b);
-    this.draw();
-  }
-  zoom(dir) {
-    this.span = Math.max(20, Math.min(this.bars.length || 20, this.span + (dir > 0 ? -10 : 10)));
-    this.draw();
-  }
-  snapHit(hit) {
-    if (!hit || !hit.valid || !this.magnet || !hit.L) return hit;
-    const row = hit.L.rows[hit.i];
-    if (!row) return hit;
-    let best = hit.p;
-    let bd = 12;
-    for (const p of [row.o, row.h, row.l, row.c]) {
-      const d = Math.abs(hit.L.yOf(p) - hit.y);
-      if (d < bd) { bd = d; best = p; }
-    }
-    hit.p = best;
-    return hit;
-  }
-  undo() { this.drawings.pop(); this.persist(); this.draw(); }
-  clearDrawings() { this.drawings = []; this.persist(); this.draw(); }
-  fit() {
-    this.offset = 0;
-    this.span = Math.min(160, Math.max(40, this.bars.length || 40));
+    this._series = null;
     this.draw();
   }
 
+  setBars(bars) {
+    const had = this.bars.length > 0;
+    const prevSpan = this.span;
+    const prevOff = this.offset;
+    const raw = Array.isArray(bars) ? bars.filter((b) => b && (b.close || b.c)) : [];
+    const map = new Map();
+    for (const b of raw) {
+      const t = String(b.time || b.ts || "");
+      if (!t) continue;
+      map.set(t, b);
+    }
+    this.bars = [...map.values()].sort((a, b) => String(a.time || a.ts || "").localeCompare(String(b.time || b.ts || "")));
+    this._series = null;
+    if (!had) {
+      this.offset = 0;
+      this.span = Math.min(this.analyze ? 160 : 120, Math.max(30, this.bars.length || 30));
+    } else {
+      this.span = Math.max(8, Math.min(this.rows().length || prevSpan, prevSpan));
+      this.offset = Math.max(0, Math.min(Math.max(0, this.rows().length - this.span), prevOff));
+    }
+    this.draw();
+  }
+
+  setTick(tick) { this.tick = tick; this.draw(); }
+
+  /* ================================================================ data == */
+
+  norm(b) {
+    return {
+      t: b.time || b.ts || "",
+      o: +b.open || +b.o,
+      h: +b.high || +b.h,
+      l: +b.low || +b.l,
+      c: +b.close || +b.c,
+      v: +b.volume || +b.v || 0,
+    };
+  }
+
+  /** The raw normalised bars, before the chart type has its say. */
+  all() { return this.bars.map((b) => this.norm(b)); }
+
   /**
-   * Shade the hours each financial centre is open, behind the candles.
-   *
-   * Drawn per bar rather than as one rectangle per session: a chart can hold
-   * several days, and a session that is painted once would only ever mark the
-   * first of them. Bands are stacked with low alpha so the London/New York
-   * overlap - the busiest window of the day - reads as the densest part of the
-   * chart without any special case.
+   * The rows the chart actually plots: the bars after the series transform,
+   * memoised because Renko over a thousand bars is not free and the chart
+   * repaints on every pointer move.
    */
+  rows() {
+    if (this._series && this._seriesType === this.type && this._seriesLen === this.bars.length) {
+      return this._series;
+    }
+    const lib = (typeof window !== "undefined" && window.AurionSeries) || null;
+    const def = lib && lib.SERIES_TYPES.find((t) => t.id === this.type);
+    const base = this.all();
+    this._series = def && def.transform ? def.transform(base) : base;
+    if (!this._series.length) this._series = base;
+    this._seriesType = this.type;
+    this._seriesLen = this.bars.length;
+    return this._series;
+  }
+
+  slice() {
+    const all = this.rows();
+    const end = all.length - this.offset;
+    const start = Math.max(0, end - this.span);
+    return { rows: all.slice(start, end), start, end };
+  }
+
+  fmtPrice(p) {
+    const n = Number(p);
+    if (!Number.isFinite(n)) return "—";
+    const a = Math.abs(n);
+    if (a >= 1000) return n.toFixed(2);
+    if (a >= 100) return n.toFixed(3);
+    if (a >= 1) return n.toFixed(4);
+    return n.toFixed(5);
+  }
+
+  /* ============================================================== layout == */
+
+  size() {
+    const dpr = window.devicePixelRatio || 1;
+    const r = this.canvas.getBoundingClientRect();
+    const w = Math.max(1, r.width), h = Math.max(1, r.height);
+    if (this.canvas.width !== Math.round(w * dpr) || this.canvas.height !== Math.round(h * dpr)) {
+      this.canvas.width = Math.round(w * dpr);
+      this.canvas.height = Math.round(h * dpr);
+    }
+    this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const axisW = w < 420 ? 62 : (this.analyze ? 92 : 78);
+    return { w, h, padL: 10, padR: axisW, padT: 14, padB: 26, gapR: 10 };
+  }
+
+  /**
+   * Everything the painters need, computed once per frame.
+   *
+   * The price axis is the interesting part. Auto scale fits the visible bars;
+   * once the trader drags the axis it is pinned until they ask for auto back.
+   * Log and percent are alternative mappings of the same range rather than
+   * separate code paths, so every drawing follows the axis it was placed on.
+   */
+  layout() {
+    const { w, h, padL, padR, padT, padB, gapR } = this.size();
+    const { rows, start } = this.slice();
+    if (!rows.length) return null;
+
+    /* ---- sub-panes ---------------------------------------------------- */
+    const subs = this.indicators.filter((i) => {
+      const def = this.indicatorDef(i.type);
+      return i.visible !== false && def && def.pane === "sub";
+    });
+    const usable = h - padT - padB;
+    let paneShare = 0;
+    subs.forEach((i) => { paneShare += (this.indicatorDef(i.type).height || 0.18); });
+    paneShare = Math.min(0.62, paneShare);
+    const panesH = subs.length ? Math.round(usable * paneShare) : 0;
+    const gap = 6;
+    const mainB = padT + usable - panesH - (subs.length ? gap : 0);
+
+    /* ---- price range --------------------------------------------------- */
+    let mn = Math.min(...rows.map((r) => r.l));
+    let mx = Math.max(...rows.map((r) => r.h));
+    for (const lv of this.levels || []) {
+      for (const k of ["sl", "tp", "price_open", "price_current"]) {
+        const n = Number(lv[k]);
+        if (n > 0) { mn = Math.min(mn, n); mx = Math.max(mx, n); }
+      }
+    }
+    for (const ind of this.indicators) {
+      const def = this.indicatorDef(ind.type);
+      if (!def || def.pane !== "main" || ind.visible === false) continue;
+      const out = this.indicatorValues(ind, rows);
+      for (const plot of def.plots) {
+        for (const v of (out[plot.key] || [])) {
+          if (v === null || !Number.isFinite(v)) continue;
+          mn = Math.min(mn, v); mx = Math.max(mx, v);
+        }
+      }
+    }
+    if (mn === mx) { mn -= 1; mx += 1; }
+    const auto = this.scale.auto || this.scale.mn === null;
+    if (!auto) { mn = this.scale.mn; mx = this.scale.mx; }
+    else {
+      const pad = (mx - mn) * 0.06 || 0.5;
+      mn -= pad; mx += pad;
+    }
+
+    const log = this.scale.log && mn > 0;
+    const invert = this.scale.invert;
+    const f = log ? Math.log : (x) => x;
+    const fi = log ? Math.exp : (x) => x;
+    const fmn = f(mn), fmx = f(mx);
+    const fspan = (fmx - fmn) || 1;
+    const plotH = mainB - padT;
+
+    const plotW = Math.max(20, w - padL - padR - gapR);
+    const cells = rows.length + this.rightPad;
+    const bw = plotW / Math.max(1, cells);
+
+    const yOf = (p) => {
+      const v = (f(Math.max(log ? 1e-9 : -Infinity, p)) - fmn) / fspan;
+      const k = invert ? v : 1 - v;
+      return padT + k * plotH;
+    };
+    const pOf = (y) => {
+      const k = (y - padT) / (plotH || 1);
+      const v = invert ? k : 1 - k;
+      return fi(fmn + v * fspan);
+    };
+
+    /* ---- pane geometry -------------------------------------------------- */
+    const panes = [];
+    if (subs.length) {
+      const each = panesH / subs.length;
+      subs.forEach((ind, n) => {
+        const top = mainB + gap + n * each;
+        const bot = top + each - 4;
+        panes.push({ ind, def: this.indicatorDef(ind.type), top, bot });
+      });
+    }
+
+    return {
+      w, h, padL, padR, padT, padB, gapR, rows, start, bw, mn, mx,
+      span: mx - mn, log, cells,
+      plotL: padL,
+      plotR: padL + plotW,
+      plotT: padT,
+      plotB: mainB,
+      axisB: h - padB,
+      panes,
+      xOf: (i) => padL + i * bw + bw / 2,
+      yOf,
+      pOf,
+      iOf: (x) => Math.floor((x - padL) / bw),
+    };
+  }
+
+  /* ---- indicator values, memoised per frame ---------------------------- */
+  indicatorValues(ind, rows) {
+    const def = this.indicatorDef(ind.type);
+    if (!def) return {};
+    const stamp = ind.id + "|" + rows.length + "|" + (rows[0] && rows[0].t) + "|" +
+      (rows[rows.length - 1] && rows[rows.length - 1].c) + "|" + JSON.stringify(ind.params);
+    this._indCache = this._indCache || new Map();
+    const hit = this._indCache.get(ind.id);
+    if (hit && hit.stamp === stamp) return hit.out;
+    let out = {};
+    try { out = def.calc(rows, ind.params) || {}; } catch { out = {}; }
+    this._indCache.set(ind.id, { stamp, out });
+    return out;
+  }
   paintSessions(L) {
     if (!this.sessions) return;
     const ctx = this.ctx;
@@ -312,212 +856,504 @@ class CandleChart {
     ctx.restore();
   }
 
-  setSessions(on) {
-    this.sessions = Boolean(on);
-    this.draw();
-  }
 
-  setBars(bars) {
-    const had = this.bars.length > 0;
-    const prevSpan = this.span;
-    const prevOff = this.offset;
-    const raw = Array.isArray(bars) ? bars.filter((b) => b && (b.close || b.c)) : [];
-    const map = new Map();
-    for (const b of raw) {
-      const t = String(b.time || b.ts || "");
-      if (!t) continue;
-      map.set(t, b);
-    }
-    this.bars = [...map.values()].sort((a, b) => String(a.time || a.ts || "").localeCompare(String(b.time || b.ts || "")));
-    if (!had) {
-      this.offset = 0;
-      this.span = Math.min(this.analyze ? 160 : 120, Math.max(30, this.bars.length || 30));
-    } else {
-      this.span = Math.max(20, Math.min(this.bars.length || prevSpan, prevSpan));
-      this.offset = Math.max(0, Math.min(Math.max(0, this.bars.length - this.span), prevOff));
-    }
-    this.draw();
-  }
-  setTick(tick) { this.tick = tick; this.draw(); }
-  norm(b) {
-    return {
-      t: b.time || b.ts || "",
-      o: +b.open || +b.o,
-      h: +b.high || +b.h,
-      l: +b.low || +b.l,
-      c: +b.close || +b.c,
-      v: +b.volume || +b.v || 0,
-    };
-  }
-  all() { return this.bars.map((b) => this.norm(b)); }
-  slice() {
-    const all = this.all();
-    const end = all.length - this.offset;
-    const start = Math.max(0, end - this.span);
-    return { rows: all.slice(start, end), start, end };
-  }
-  fmtPrice(p) {
-    const n = Number(p);
-    if (!Number.isFinite(n)) return "—";
-    const a = Math.abs(n);
-    if (a >= 1000) return n.toFixed(2);
-    if (a >= 100) return n.toFixed(3);
-    if (a >= 1) return n.toFixed(4);
-    return n.toFixed(5);
-  }
-  size() {
-    const dpr = window.devicePixelRatio || 1;
-    const r = this.canvas.getBoundingClientRect();
-    const w = Math.max(1, r.width), h = Math.max(1, r.height);
-    if (this.canvas.width !== Math.round(w * dpr) || this.canvas.height !== Math.round(h * dpr)) {
-      this.canvas.width = Math.round(w * dpr);
-      this.canvas.height = Math.round(h * dpr);
-    }
-    this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    const axisW = this.analyze ? 92 : 84;
-    return { w, h, padL: 14, padR: axisW, padT: 16, padB: 36, gapR: 18 };
-  }
-  layout() {
-    const { w, h, padL, padR, padT, padB, gapR } = this.size();
-    const { rows, start } = this.slice();
-    if (!rows.length) return null;
-    let mn = Math.min(...rows.map((r) => r.l)), mx = Math.max(...rows.map((r) => r.h));
-    for (const lv of this.levels || []) {
-      for (const k of ["sl", "tp", "price_open", "price_current"]) {
-        const n = Number(lv[k]);
-        if (n > 0) { mn = Math.min(mn, n); mx = Math.max(mx, n); }
-      }
-    }
-    if (mn === mx) { mn -= 1; mx += 1; }
-    const padPct = (mx - mn) * 0.04 || 0.5;
-    mn -= padPct;
-    mx += padPct;
-    const span = mx - mn || 1;
-    const plotW = Math.max(20, w - padL - padR - gapR);
-    const bw = plotW / rows.length;
-    return {
-      w, h, padL, padR, padT, padB, gapR, rows, start, bw, mn, mx, span,
-      plotL: padL,
-      plotR: padL + plotW,
-      plotT: padT,
-      plotB: h - padB,
-      xOf: (i) => padL + i * bw + bw / 2,
-      yOf: (p) => padT + (1 - (p - mn) / span) * (h - padT - padB),
-      iOf: (x) => Math.floor((x - padL) / bw),
-      pOf: (y) => mx - ((y - padT) / (h - padT - padB)) * span,
-    };
-  }
-  hit(e) {
-    const L = this.layout();
-    if (!L) return null;
-    const r = this.canvas.getBoundingClientRect();
-    const x = e.clientX - r.left, y = e.clientY - r.top;
-    const i = L.iOf(x);
-    const gi = L.start + i;
-    const row = L.rows[i];
-    return {
-      L, x, y, i, gi,
-      t: row ? row.t : "",
-      p: L.pOf(y),
-      valid: i >= 0 && i < L.rows.length,
-    };
-  }
+  /* =============================================================== paint == */
+
   draw() {
-    const L = this.layout();
     const ctx = this.ctx;
     const box = this.size();
     ctx.clearRect(0, 0, box.w, box.h);
+    const L = this.layout();
     if (!L) return;
+    this._L = L;
     ctx.font = "11px IBM Plex Mono, Vazirmatn, monospace";
-    ctx.strokeStyle = chartTheme().grid;
-    ctx.lineWidth = 1;
-    for (let i = 0; i < 5; i++) {
-      const p = L.mx - (L.span * i) / 4;
-      const yy = L.yOf(p);
-      ctx.beginPath(); ctx.moveTo(L.plotL, yy); ctx.lineTo(L.plotR, yy); ctx.stroke();
-    }
+    ctx.textBaseline = "alphabetic";
+    ctx.textAlign = "left";
+
+    this.paintGrid(L);
+
     ctx.save();
     ctx.beginPath();
     ctx.rect(L.plotL, L.plotT, L.plotR - L.plotL, L.plotB - L.plotT);
     ctx.clip();
     this.paintSessions(L);
-    L.rows.forEach((r, i) => {
-      const x = L.xOf(i);
-      const up = r.c >= r.o;
-      const col = up ? chartTheme().up : chartTheme().down;
-      ctx.strokeStyle = col;
-      ctx.beginPath();
-      ctx.moveTo(x, L.yOf(r.h));
-      ctx.lineTo(x, L.yOf(r.l));
-      ctx.stroke();
-      const top = L.yOf(Math.max(r.o, r.c));
-      const bot = L.yOf(Math.min(r.o, r.c));
-      ctx.fillStyle = col;
-      ctx.globalAlpha = 0.92;
-      ctx.fillRect(x - Math.max(1, L.bw * 0.32), top, Math.max(2, L.bw * 0.64), Math.max(1, bot - top));
-      ctx.globalAlpha = 1;
-    });
-    this.drawings.forEach((d) => this.paintShape(L, d, false));
+    this.paintSeries(L);
+    this.paintMainIndicators(L);
+    this.drawings.forEach((d) => { if (d.visible !== false) this.paintShape(L, d, false); });
     if (this.draft) this.paintShape(L, this.draft, true);
     this.paintLevels(L);
     this.paintPending(L);
     this.paintSignals(L);
-    if (this.tick && (this.tick.bid || this.tick.ask)) {
-      const mid = ((+this.tick.bid || 0) + (+this.tick.ask || 0)) / 2;
-      if (mid) {
-        const yy = L.yOf(mid);
-        ctx.strokeStyle = "rgba(" + chartTheme().goldT + ",.7)";
-        ctx.setLineDash([4, 4]);
-        ctx.beginPath(); ctx.moveTo(L.plotL, yy); ctx.lineTo(L.plotR, yy); ctx.stroke();
-        ctx.setLineDash([]);
-      }
-    }
-    if (this.hover && L.rows[this.hover.i]) {
-      const r = L.rows[this.hover.i];
-      const x = L.xOf(this.hover.i);
-      ctx.strokeStyle = chartTheme().line;
-      ctx.beginPath(); ctx.moveTo(x, L.plotT); ctx.lineTo(x, L.plotB); ctx.stroke();
-      if (this.tool !== "cursor" || this.analyze) {
-        const yy = this.hover.y != null ? this.hover.y : L.yOf(r.c);
-        ctx.beginPath(); ctx.moveTo(L.plotL, yy); ctx.lineTo(L.plotR, yy); ctx.stroke();
-      }
-    }
+    this.paintLastPrice(L);
     ctx.restore();
-    ctx.fillStyle = chartTheme().panel;
+
+    this.paintPanes(L);
+    this.paintAxes(L);
+    this.paintCrosshair(L);
+    this.paintLegend(L);
+  }
+
+  paintGrid(L) {
+    if (!this.grid) return;
+    const ctx = this.ctx;
+    const T = chartTheme();
+    ctx.strokeStyle = T.grid;
+    ctx.lineWidth = 1;
+    for (let i = 0; i <= 4; i++) {
+      const y = L.plotT + ((L.plotB - L.plotT) * i) / 4;
+      ctx.beginPath(); ctx.moveTo(L.plotL, y); ctx.lineTo(L.plotR, y); ctx.stroke();
+    }
+    // Vertical rules on a round number of bars rather than every bar: a grid
+    // you cannot see through is not a grid.
+    const step = Math.max(1, Math.round(L.rows.length / 8));
+    for (let i = 0; i < L.rows.length; i += step) {
+      const x = L.xOf(i);
+      ctx.beginPath(); ctx.moveTo(x, L.plotT); ctx.lineTo(x, L.plotB); ctx.stroke();
+    }
+  }
+
+  /**
+   * The price series itself, in whichever geometry the chart type asks for.
+   *
+   * Candle bodies are drawn at a minimum of one pixel so a doji is still a
+   * mark rather than nothing, and the body is skipped entirely below two
+   * pixels of bar width - past that it is a solid block of colour and the
+   * wick carries the information.
+   */
+  paintSeries(L) {
+    const ctx = this.ctx;
+    const T = chartTheme();
+    const lib = (typeof window !== "undefined" && window.AurionSeries) || null;
+    const def = lib && lib.SERIES_TYPES.find((t) => t.id === this.type);
+    const geometry = (def && def.geometry) || "candle";
+    const rows = L.rows;
+
+    if (geometry === "line" || geometry === "area") {
+      const base = this.type === "baseline"
+        ? rows.reduce((a, r) => a + r.c, 0) / rows.length
+        : null;
+      ctx.lineWidth = 1.6;
+      ctx.beginPath();
+      rows.forEach((r, i) => {
+        const x = L.xOf(i), y = L.yOf(r.c);
+        if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+      });
+      if (this.type === "baseline") {
+        // Two passes so the part above the baseline is green and the part
+        // below is red, clipped rather than redrawn.
+        const yb = L.yOf(base);
+        [[L.plotT, yb, T.up, T.upT], [yb, L.plotB, T.down, T.downT]].forEach(([top, bot, col, tri]) => {
+          ctx.save();
+          ctx.beginPath(); ctx.rect(L.plotL, top, L.plotR - L.plotL, Math.max(0, bot - top)); ctx.clip();
+          const g = ctx.createLinearGradient(0, top, 0, bot);
+          g.addColorStop(0, "rgba(" + tri + ",.22)");
+          g.addColorStop(1, "rgba(" + tri + ",0)");
+          ctx.beginPath();
+          rows.forEach((r, i) => {
+            const x = L.xOf(i), y = L.yOf(r.c);
+            if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+          });
+          ctx.lineTo(L.xOf(rows.length - 1), yb);
+          ctx.lineTo(L.xOf(0), yb);
+          ctx.closePath();
+          ctx.fillStyle = g; ctx.fill();
+          ctx.strokeStyle = col; ctx.lineWidth = 1.6;
+          ctx.beginPath();
+          rows.forEach((r, i) => {
+            const x = L.xOf(i), y = L.yOf(r.c);
+            if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+          });
+          ctx.stroke();
+          ctx.restore();
+        });
+        ctx.strokeStyle = T.line;
+        ctx.setLineDash([4, 4]);
+        ctx.beginPath(); ctx.moveTo(L.plotL, yb); ctx.lineTo(L.plotR, yb); ctx.stroke();
+        ctx.setLineDash([]);
+        return;
+      }
+      if (geometry === "area") {
+        const g = ctx.createLinearGradient(0, L.plotT, 0, L.plotB);
+        g.addColorStop(0, "rgba(" + T.upT + ",.26)");
+        g.addColorStop(1, "rgba(" + T.upT + ",0)");
+        ctx.lineTo(L.xOf(rows.length - 1), L.plotB);
+        ctx.lineTo(L.xOf(0), L.plotB);
+        ctx.closePath();
+        ctx.fillStyle = g;
+        ctx.fill();
+        ctx.beginPath();
+        rows.forEach((r, i) => {
+          const x = L.xOf(i), y = L.yOf(r.c);
+          if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+        });
+      }
+      ctx.strokeStyle = T.up;
+      ctx.stroke();
+      return;
+    }
+
+    const bodyW = Math.max(1, L.bw * 0.66);
+    const thin = L.bw < 2.4;
+    rows.forEach((r, i) => {
+      const x = L.xOf(i);
+      const up = r.c >= r.o;
+      const col = up ? T.up : T.down;
+      ctx.strokeStyle = col;
+      ctx.fillStyle = col;
+      ctx.lineWidth = Math.min(1.6, Math.max(1, L.bw * 0.12));
+
+      if (geometry === "bar") {
+        ctx.beginPath();
+        ctx.moveTo(x, L.yOf(r.h)); ctx.lineTo(x, L.yOf(r.l));
+        ctx.moveTo(x - bodyW / 2, L.yOf(r.o)); ctx.lineTo(x, L.yOf(r.o));
+        ctx.moveTo(x, L.yOf(r.c)); ctx.lineTo(x + bodyW / 2, L.yOf(r.c));
+        ctx.stroke();
+        return;
+      }
+
+      ctx.beginPath();
+      ctx.moveTo(x, L.yOf(r.h));
+      ctx.lineTo(x, L.yOf(r.l));
+      ctx.stroke();
+      if (thin) return;
+      const top = L.yOf(Math.max(r.o, r.c));
+      const bot = L.yOf(Math.min(r.o, r.c));
+      const h = Math.max(1, bot - top);
+      if (this.type === "hollow" && up) {
+        ctx.lineWidth = 1.2;
+        ctx.strokeRect(x - bodyW / 2, top, bodyW, h);
+      } else {
+        ctx.globalAlpha = 0.94;
+        ctx.fillRect(x - bodyW / 2, top, bodyW, h);
+        ctx.globalAlpha = 1;
+      }
+    });
+  }
+
+  /** Resolve an indicator plot colour name to a real one. */
+  plotColor(name, ind) {
+    const T = chartTheme();
+    if (ind && ind.color) return ind.color;
+    switch (name) {
+      case "gold": return T.gold;
+      case "violet": return T.violet;
+      case "up": return T.up;
+      case "down": return T.down;
+      case "muted": return T.muted;
+      case "accent": return T.violet;
+      default: return T.gold;
+    }
+  }
+
+  paintMainIndicators(L) {
+    for (const ind of this.indicators) {
+      const def = this.indicatorDef(ind.type);
+      if (!def || def.pane !== "main" || ind.visible === false) continue;
+      const out = this.indicatorValues(ind, L.rows);
+      if (def.band && out[def.band[0]] && out[def.band[1]]) {
+        this.paintBand(L, out[def.band[0]], out[def.band[1]], this.plotColor(def.plots[0].color, ind));
+      }
+      def.plots.forEach((plot) => {
+        this.paintSeriesLine(L, out[plot.key], this.plotColor(plot.color, ind), plot.dash, L.yOf);
+      });
+    }
+  }
+
+  paintBand(L, upper, lower, color) {
+    const ctx = this.ctx;
+    ctx.save();
+    ctx.globalAlpha = 0.08;
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    let started = false;
+    upper.forEach((v, i) => {
+      if (v === null) return;
+      const x = L.xOf(i), y = L.yOf(v);
+      if (!started) { ctx.moveTo(x, y); started = true; } else ctx.lineTo(x, y);
+    });
+    for (let i = lower.length - 1; i >= 0; i--) {
+      if (lower[i] === null) continue;
+      ctx.lineTo(L.xOf(i), L.yOf(lower[i]));
+    }
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+  }
+
+  paintSeriesLine(L, values, color, dash, yOf) {
+    if (!values) return;
+    const ctx = this.ctx;
+    ctx.save();
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 1.3;
+    if (dash) ctx.setLineDash([4, 4]);
+    ctx.beginPath();
+    let pen = false;
+    values.forEach((v, i) => {
+      if (v === null || !Number.isFinite(v)) { pen = false; return; }
+      const x = L.xOf(i), y = yOf(v);
+      if (!pen) { ctx.moveTo(x, y); pen = true; } else ctx.lineTo(x, y);
+    });
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  /**
+   * The indicator strips under the chart.
+   *
+   * Each gets its own price range - an RSI and a volume histogram share no
+   * units - and its own right-hand scale so the numbers can be read without
+   * hovering.
+   */
+  paintPanes(L) {
+    const ctx = this.ctx;
+    const T = chartTheme();
+    for (const pane of L.panes) {
+      const { ind, def, top, bot } = pane;
+      const out = this.indicatorValues(ind, L.rows);
+      let mn = Infinity, mx = -Infinity;
+      if (def.range) { mn = def.range[0]; mx = def.range[1]; }
+      else {
+        def.plots.forEach((plot) => {
+          (out[plot.key] || []).forEach((v) => {
+            if (v === null || !Number.isFinite(v)) return;
+            mn = Math.min(mn, v); mx = Math.max(mx, v);
+          });
+        });
+        if (def.zero) mn = Math.min(mn, 0);
+        if (!Number.isFinite(mn) || !Number.isFinite(mx)) { mn = 0; mx = 1; }
+        if (mn === mx) { mn -= 1; mx += 1; }
+        const pad = (mx - mn) * 0.1;
+        mn -= pad; mx += pad;
+      }
+      const span = (mx - mn) || 1;
+      const yOf = (v) => bot - ((v - mn) / span) * (bot - top);
+      pane.yOf = yOf; pane.mn = mn; pane.mx = mx;
+
+      ctx.save();
+      ctx.strokeStyle = T.panelLine;
+      ctx.beginPath(); ctx.moveTo(L.plotL, top - 3); ctx.lineTo(L.plotR, top - 3); ctx.stroke();
+
+      (def.guides || []).forEach((g) => {
+        if (g < mn || g > mx) return;
+        ctx.strokeStyle = T.grid;
+        ctx.setLineDash([3, 4]);
+        ctx.beginPath(); ctx.moveTo(L.plotL, yOf(g)); ctx.lineTo(L.plotR, yOf(g)); ctx.stroke();
+        ctx.setLineDash([]);
+      });
+
+      ctx.beginPath();
+      ctx.rect(L.plotL, top - 3, L.plotR - L.plotL, bot - top + 3);
+      ctx.clip();
+
+      def.plots.forEach((plot) => {
+        const values = out[plot.key];
+        if (!values) return;
+        if (plot.kind === "histogram") {
+          const w = Math.max(1, L.bw * 0.6);
+          values.forEach((v, i) => {
+            if (v === null || !Number.isFinite(v)) return;
+            const x = L.xOf(i);
+            const zero = yOf(Math.max(mn, Math.min(mx, 0)));
+            const y = yOf(v);
+            if (plot.color === "direction") {
+              const r = L.rows[i];
+              ctx.fillStyle = r && r.c >= r.o ? "rgba(" + T.upT + ",.5)" : "rgba(" + T.downT + ",.5)";
+            } else if (plot.color === "signed") {
+              ctx.fillStyle = v >= 0 ? "rgba(" + T.upT + ",.55)" : "rgba(" + T.downT + ",.55)";
+            } else ctx.fillStyle = this.plotColor(plot.color, ind);
+            ctx.fillRect(x - w / 2, Math.min(y, zero), w, Math.max(1, Math.abs(zero - y)));
+          });
+        } else {
+          this.paintSeriesLine(L, values, this.plotColor(plot.color, ind), plot.dash, yOf);
+        }
+      });
+      ctx.restore();
+
+      // The pane's own name and last value, top-left, like every terminal.
+      const last = def.plots.map((p) => {
+        const arr = out[p.key] || [];
+        for (let i = arr.length - 1; i >= 0; i--) {
+          if (arr[i] !== null && Number.isFinite(arr[i])) return arr[i];
+        }
+        return null;
+      }).find((v) => v !== null);
+      ctx.fillStyle = T.muted;
+      ctx.font = "10px IBM Plex Mono, Vazirmatn, monospace";
+      const title = def.short + (ind.params.period ? " " + ind.params.period : "");
+      ctx.fillText(title + (last === null || last === undefined ? "" : "  " + this.fmtPrice(last)), L.plotL + 6, top + 10);
+
+      ctx.textAlign = "right";
+      ctx.fillStyle = T.muted;
+      ctx.fillText(this.fmtPrice(mx), L.w - 8, top + 8);
+      ctx.fillText(this.fmtPrice(mn), L.w - 8, bot - 2);
+      ctx.textAlign = "left";
+      ctx.font = "11px IBM Plex Mono, Vazirmatn, monospace";
+    }
+  }
+
+  /** The dotted line and tag for the live mid price. */
+  paintLastPrice(L) {
+    if (!this.tick || !(this.tick.bid || this.tick.ask)) return;
+    const mid = ((+this.tick.bid || 0) + (+this.tick.ask || 0)) / 2;
+    if (!mid) return;
+    const ctx = this.ctx;
+    const y = L.yOf(mid);
+    ctx.strokeStyle = "rgba(" + chartTheme().goldT + ",.7)";
+    ctx.setLineDash([4, 4]);
+    ctx.beginPath(); ctx.moveTo(L.plotL, y); ctx.lineTo(L.plotR, y); ctx.stroke();
+    ctx.setLineDash([]);
+  }
+
+  /** Price axis on the right, time axis along the bottom. */
+  paintAxes(L) {
+    const ctx = this.ctx;
+    const T = chartTheme();
+    ctx.fillStyle = T.panel;
     ctx.fillRect(L.w - L.padR, 0, L.padR, L.h);
-    ctx.strokeStyle = chartTheme().panelLine;
+    ctx.strokeStyle = T.panelLine;
     ctx.beginPath(); ctx.moveTo(L.w - L.padR, 0); ctx.lineTo(L.w - L.padR, L.h); ctx.stroke();
-    ctx.fillStyle = chartTheme().muted;
+    ctx.beginPath(); ctx.moveTo(0, L.axisB); ctx.lineTo(L.w, L.axisB); ctx.stroke();
+
+    ctx.fillStyle = T.muted;
     ctx.textAlign = "right";
     ctx.textBaseline = "middle";
-    for (let i = 0; i < 5; i++) {
-      const p = L.mx - (L.span * i) / 4;
-      const yy = Math.min(L.plotB - 2, Math.max(L.plotT + 2, L.yOf(p)));
-      ctx.fillText(this.fmtPrice(p), L.w - 10, yy);
+    const first = L.rows[0];
+    for (let i = 0; i <= 4; i++) {
+      const y = L.plotT + ((L.plotB - L.plotT) * i) / 4;
+      const p = L.pOf(y);
+      const text = this.scale.percent && first && first.c
+        ? (((p - first.c) / first.c) * 100).toFixed(2) + "%"
+        : this.fmtPrice(p);
+      ctx.fillText(text, L.w - 8, Math.min(L.plotB - 2, Math.max(L.plotT + 2, y)));
     }
+
     if (this.tick && (this.tick.bid || this.tick.ask)) {
       const mid = ((+this.tick.bid || 0) + (+this.tick.ask || 0)) / 2;
       if (mid) {
-        const yy = Math.min(L.plotB - 2, Math.max(L.plotT + 2, L.yOf(mid)));
-        ctx.fillStyle = chartTheme().tag;
-        ctx.fillRect(L.w - L.padR + 4, yy - 9, L.padR - 8, 18);
-        ctx.fillStyle = chartTheme().gold;
-        ctx.fillText(this.fmtPrice(mid), L.w - 10, yy);
+        const y = Math.min(L.plotB - 2, Math.max(L.plotT + 2, L.yOf(mid)));
+        ctx.fillStyle = T.tag;
+        ctx.fillRect(L.w - L.padR + 3, y - 9, L.padR - 6, 18);
+        ctx.fillStyle = T.gold;
+        ctx.fillText(this.fmtPrice(mid), L.w - 8, y);
       }
     }
     this.paintLevelLabels(L);
+
+    // Time axis: as many stamps as fit, never overlapping.
+    ctx.textAlign = "center";
+    ctx.fillStyle = T.muted;
+    ctx.font = "10px IBM Plex Mono, Vazirmatn, monospace";
+    const room = Math.max(1, Math.floor((L.plotR - L.plotL) / 86));
+    const step = Math.max(1, Math.ceil(L.rows.length / room));
+    for (let i = 0; i < L.rows.length; i += step) {
+      const r = L.rows[i];
+      if (!r || !r.t) continue;
+      const label = String(r.t).slice(5, 16).replace("T", " ");
+      ctx.fillText(label, L.xOf(i), L.axisB + 14);
+    }
+    ctx.font = "11px IBM Plex Mono, Vazirmatn, monospace";
     ctx.textAlign = "left";
     ctx.textBaseline = "alphabetic";
-    if (this.hover && L.rows[this.hover.i]) {
-      const r = L.rows[this.hover.i];
-      ctx.fillStyle = chartTheme().panel;
-      ctx.fillRect(12, 10, 236, 78);
-      ctx.fillStyle = chartTheme().text;
-      ctx.fillText(r.t, 20, 26);
-      ctx.fillStyle = r.c >= r.o ? chartTheme().up : chartTheme().down;
-      ctx.fillText("O " + this.fmtPrice(r.o) + "  H " + this.fmtPrice(r.h), 20, 46);
-      ctx.fillText("L " + this.fmtPrice(r.l) + "  C " + this.fmtPrice(r.c), 20, 64);
+  }
+
+  /**
+   * The crosshair, with a price tag on the axis and a time tag under it.
+   *
+   * It is drawn last and outside the plot clip so the tags sit on the axes
+   * rather than being cut off by them.
+   */
+  paintCrosshair(L) {
+    if (!this.hover || this.crosshair === "none") return;
+    const ctx = this.ctx;
+    const T = chartTheme();
+    const i = this.hover.i;
+    const x = L.xOf(i);
+    const y = this.hover.y;
+    if (this.crosshair === "dot") {
+      ctx.fillStyle = T.text;
+      ctx.beginPath(); ctx.arc(x, y, 3, 0, Math.PI * 2); ctx.fill();
+      return;
     }
+    ctx.save();
+    ctx.strokeStyle = T.line;
+    ctx.setLineDash([3, 3]);
+    ctx.beginPath(); ctx.moveTo(x, L.plotT); ctx.lineTo(x, L.axisB); ctx.stroke();
+    if (y >= L.plotT && y <= L.plotB) {
+      ctx.beginPath(); ctx.moveTo(L.plotL, y); ctx.lineTo(L.plotR, y); ctx.stroke();
+      ctx.setLineDash([]);
+      const p = L.pOf(y);
+      const text = this.fmtPrice(p);
+      const tw = ctx.measureText(text).width + 12;
+      ctx.fillStyle = T.text;
+      ctx.fillRect(L.w - L.padR + 3, y - 9, Math.min(L.padR - 6, tw), 18);
+      ctx.fillStyle = T.panel;
+      ctx.textBaseline = "middle";
+      ctx.fillText(text, L.w - L.padR + 8, y);
+      ctx.textBaseline = "alphabetic";
+    }
+    ctx.setLineDash([]);
+    const row = L.rows[i];
+    if (row && row.t) {
+      const label = String(row.t).slice(5, 16).replace("T", " ");
+      const tw = ctx.measureText(label).width + 12;
+      ctx.fillStyle = T.text;
+      ctx.fillRect(x - tw / 2, L.axisB + 2, tw, 16);
+      ctx.fillStyle = T.panel;
+      ctx.textAlign = "center";
+      ctx.fillText(label, x, L.axisB + 14);
+      ctx.textAlign = "left";
+    }
+    ctx.restore();
+  }
+
+  /**
+   * The OHLC readout.
+   *
+   * It used to be a filled panel sitting on top of the candles in the corner
+   * where the price action usually is. It is now a single line of text along
+   * the top, the way a terminal does it, so it never covers anything.
+   */
+  paintLegend(L) {
+    const ctx = this.ctx;
+    const T = chartTheme();
+    const r = (this.hover && L.rows[this.hover.i]) || L.rows[L.rows.length - 1];
+    if (!r) return;
+    const up = r.c >= r.o;
+    const parts = [
+      ["O", this.fmtPrice(r.o)], ["H", this.fmtPrice(r.h)],
+      ["L", this.fmtPrice(r.l)], ["C", this.fmtPrice(r.c)],
+    ];
+    let x = L.plotL + 4;
+    ctx.font = "11px IBM Plex Mono, Vazirmatn, monospace";
+    ctx.textBaseline = "top";
+    parts.forEach(([k, v]) => {
+      ctx.fillStyle = T.muted;
+      ctx.fillText(k, x, 2);
+      x += ctx.measureText(k).width + 3;
+      ctx.fillStyle = up ? T.up : T.down;
+      ctx.fillText(v, x, 2);
+      x += ctx.measureText(v).width + 10;
+    });
+    const dp = r.c - r.o;
+    const pct = r.o ? (dp / r.o) * 100 : 0;
+    ctx.fillStyle = up ? T.up : T.down;
+    ctx.fillText((dp >= 0 ? "+" : "") + this.fmtPrice(dp) + "  (" + pct.toFixed(2) + "%)", x, 2);
+
+    // Main-pane indicator names, so what is on the chart is always named.
+    let ix = L.plotL + 4;
+    let iy = 16;
+    for (const ind of this.indicators) {
+      const def = this.indicatorDef(ind.type);
+      if (!def || def.pane !== "main") continue;
+      const label = def.short + (ind.params.period ? " " + ind.params.period : "");
+      ctx.fillStyle = ind.visible === false ? T.muted : this.plotColor(def.plots[0].color, ind);
+      ctx.globalAlpha = ind.visible === false ? 0.5 : 1;
+      ctx.fillText(label, ix, iy);
+      ctx.globalAlpha = 1;
+      ix += ctx.measureText(label).width + 10;
+    }
+    ctx.textBaseline = "alphabetic";
   }
   paintLevels(L) {
     const ctx = this.ctx;
@@ -652,17 +1488,6 @@ class CandleChart {
       ctx.restore();
     }
   }
-  pendingHit(L, y) {
-    const sl = Number(this.pending && this.pending.sl || 0);
-    const tp = Number(this.pending && this.pending.tp || 0);
-    let best = null, bd = 10;
-    for (const [k, p] of [["sl", sl], ["tp", tp]]) {
-      if (!p) continue;
-      const d = Math.abs(L.yOf(p) - y);
-      if (d < bd) { bd = d; best = k; }
-    }
-    return best;
-  }
   paintLevelLabels(L) {
     const ctx = this.ctx;
     ctx.textAlign = "left";
@@ -686,46 +1511,836 @@ class CandleChart {
       }
     }
   }
+
+  /* ============================================================= shapes == */
+
+  /** The anchors of a drawing, in the order they were placed. */
+  anchorKeys(d) {
+    const n = SHAPE_POINTS[d.kind];
+    if (n === -1) return [];
+    return ["a", "b", "c", "d", "e", "f", "g"].slice(0, Math.max(1, n || 2));
+  }
+
+  anchorPoints(d) {
+    if (SHAPE_POINTS[d.kind] === -1) return Array.isArray(d.pts) ? d.pts : [];
+    return this.anchorKeys(d).map((k) => d[k]).filter(Boolean);
+  }
+
+  /** Apply an object's own styling to the context. Returns its colour. */
+  styleFor(L, d, ghost) {
+    const ctx = this.ctx;
+    const T = chartTheme();
+    const color = d.color || T.gold;
+    ctx.strokeStyle = color;
+    ctx.fillStyle = color;
+    ctx.lineWidth = Number(d.width) || 1.4;
+    ctx.globalAlpha = ghost ? 0.65 : (d.opacity === undefined ? 1 : Number(d.opacity));
+    ctx.setLineDash(DASHES[d.style] || []);
+    return color;
+  }
+
+  /** Semi-transparent version of a colour, for fills. */
+  wash(color, alpha) {
+    const T = chartTheme();
+    const hex = /^#([0-9a-f]{6})$/i.exec(String(color || ""));
+    if (hex) {
+      const n = parseInt(hex[1], 16);
+      return "rgba(" + [(n >> 16) & 255, (n >> 8) & 255, n & 255].join(",") + "," + alpha + ")";
+    }
+    return "rgba(" + T.goldT + "," + alpha + ")";
+  }
+
+  /** A small text tag with the chart's panel colour behind it. */
+  tag(x, y, text, color, align) {
+    const ctx = this.ctx;
+    const T = chartTheme();
+    ctx.save();
+    ctx.setLineDash([]);
+    ctx.globalAlpha = 1;
+    ctx.font = "11px IBM Plex Mono, Vazirmatn, monospace";
+    const w = ctx.measureText(text).width + 12;
+    const left = align === "end" ? x - w : x;
+    ctx.fillStyle = T.panel;
+    ctx.fillRect(left, y - 9, w, 18);
+    ctx.fillStyle = color || T.text;
+    ctx.textBaseline = "middle";
+    ctx.fillText(text, left + 6, y);
+    ctx.textBaseline = "alphabetic";
+    ctx.restore();
+  }
+
+  strokePath(points, opts) {
+    const ctx = this.ctx;
+    if (!points.length) return;
+    ctx.beginPath();
+    points.forEach((p, i) => { if (i === 0) ctx.moveTo(p.x, p.y); else ctx.lineTo(p.x, p.y); });
+    if (opts && opts.close) ctx.closePath();
+    if (opts && opts.fill) {
+      const save = ctx.fillStyle;
+      ctx.fillStyle = opts.fill;
+      ctx.fill();
+      ctx.fillStyle = save;
+    }
+    ctx.stroke();
+  }
+
+  arrowHead(a, b, size) {
+    const ctx = this.ctx;
+    const ang = Math.atan2(b.y - a.y, b.x - a.x);
+    const s = size || 10;
+    ctx.beginPath();
+    ctx.moveTo(b.x, b.y);
+    ctx.lineTo(b.x - s * Math.cos(ang - 0.4), b.y - s * Math.sin(ang - 0.4));
+    ctx.moveTo(b.x, b.y);
+    ctx.lineTo(b.x - s * Math.cos(ang + 0.4), b.y - s * Math.sin(ang + 0.4));
+    ctx.stroke();
+  }
+
+  /** Extend a segment to the plot edge in one or both directions. */
+  extend(L, a, b, left, right) {
+    const dx = b.x - a.x, dy = b.y - a.y;
+    const len = Math.hypot(dx, dy) || 1;
+    const far = (L.plotR - L.plotL) + (L.plotB - L.plotT);
+    const ux = (dx / len) * far, uy = (dy / len) * far;
+    return {
+      a: left ? { x: a.x - ux, y: a.y - uy } : a,
+      b: right ? { x: b.x + ux, y: b.y + uy } : b,
+    };
+  }
+
+  paintShape(L, d, ghost) {
+    const ctx = this.ctx;
+    const T = chartTheme();
+    ctx.save();
+    const color = this.styleFor(L, d, ghost);
+    const kind = d.kind;
+    const P = this.anchorPoints(d).map((pt) => this.xyOf(L, pt)).filter(Boolean);
+    const a = P[0], b = P[1], c = P[2];
+
+    /* ---- horizontals and verticals ------------------------------------ */
+    if (kind === "hline" || kind === "hray" || kind === "priceline") {
+      if (a) {
+        const y = L.yOf(d.a.p);
+        ctx.beginPath();
+        ctx.moveTo(kind === "hray" ? a.x : L.plotL, y);
+        ctx.lineTo(L.plotR, y);
+        ctx.stroke();
+        if (kind === "priceline" || d.showPrice) this.tag(L.plotR, y, this.fmtPrice(d.a.p), color, "end");
+      }
+    } else if (kind === "vline" || kind === "dateline") {
+      if (a) {
+        ctx.beginPath(); ctx.moveTo(a.x, L.plotT); ctx.lineTo(a.x, L.plotB); ctx.stroke();
+        if (kind === "dateline" && d.a.t) this.tag(a.x, L.plotT + 10, String(d.a.t).slice(5, 16), color);
+      }
+    } else if (kind === "crossline") {
+      if (a) {
+        const y = L.yOf(d.a.p);
+        ctx.beginPath();
+        ctx.moveTo(L.plotL, y); ctx.lineTo(L.plotR, y);
+        ctx.moveTo(a.x, L.plotT); ctx.lineTo(a.x, L.plotB);
+        ctx.stroke();
+      }
+
+    /* ---- straight lines ------------------------------------------------ */
+    } else if (kind === "trend" || kind === "ray" || kind === "extended" ||
+               kind === "arrow" || kind === "infoline" || kind === "measure") {
+      if (a && b) {
+        const seg = this.extend(L, a, b,
+          kind === "extended" || d.extendL, kind === "ray" || kind === "extended" || d.extendR);
+        this.strokePath([seg.a, seg.b]);
+        if (kind === "arrow") this.arrowHead(a, b, 11);
+        if (kind === "measure" || kind === "infoline") {
+          const dp = d.b.p - d.a.p;
+          const bars = Math.abs((d.b.gi || 0) - (d.a.gi || 0));
+          const pct = d.a.p ? (dp / d.a.p) * 100 : 0;
+          this.tag((a.x + b.x) / 2, (a.y + b.y) / 2 - 14,
+            this.fmtPrice(dp) + "  " + pct.toFixed(2) + "%  " + bars + "b",
+            dp >= 0 ? T.up : T.down);
+        }
+      }
+
+    /* ---- channels ------------------------------------------------------ */
+    } else if (kind === "parallel" || kind === "channel" || kind === "flatchannel" || kind === "disjoint") {
+      if (a && b) {
+        this.strokePath([a, b]);
+        const third = kind === "disjoint" ? P[2] : c;
+        if (third) {
+          const dx = kind === "flatchannel" ? 0 : b.x - a.x;
+          const dy = kind === "flatchannel" ? 0 : b.y - a.y;
+          const c2 = kind === "disjoint" && P[3]
+            ? P[3]
+            : { x: third.x + (kind === "flatchannel" ? (b.x - a.x) : dx), y: third.y + dy };
+          this.strokePath([third, c2]);
+          if (d.fill !== false) {
+            ctx.save();
+            ctx.fillStyle = this.wash(color, 0.08);
+            ctx.beginPath();
+            ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y);
+            ctx.lineTo(c2.x, c2.y); ctx.lineTo(third.x, third.y);
+            ctx.closePath(); ctx.fill();
+            ctx.restore();
+          }
+          if (kind === "channel") {
+            ctx.save();
+            ctx.globalAlpha = 0.5;
+            this.strokePath([{ x: (a.x + third.x) / 2, y: (a.y + third.y) / 2 },
+              { x: (b.x + c2.x) / 2, y: (b.y + c2.y) / 2 }]);
+            ctx.restore();
+          }
+        }
+      }
+    } else if (kind === "regression") {
+      if (a && b) {
+        // A real least-squares fit over the bars between the two anchors,
+        // with one and two standard deviations either side.
+        const i0 = Math.max(0, Math.min(d.a.gi, d.b.gi) - L.start);
+        const i1 = Math.min(L.rows.length - 1, Math.max(d.a.gi, d.b.gi) - L.start);
+        const fitRows = L.rows.slice(i0, i1 + 1);
+        const lib = (typeof window !== "undefined" && window.AurionSeries) || null;
+        const reg = lib && fitRows.length > 1 ? lib.regression(fitRows) : null;
+        if (reg) {
+          const y0 = L.yOf(reg.intercept);
+          const y1 = L.yOf(reg.intercept + reg.slope * (fitRows.length - 1));
+          const x0 = L.xOf(i0), x1 = L.xOf(i1);
+          this.strokePath([{ x: x0, y: y0 }, { x: x1, y: y1 }]);
+          [1, 2].forEach((k) => {
+            ctx.save();
+            ctx.globalAlpha = (ctx.globalAlpha || 1) * (k === 1 ? 0.75 : 0.45);
+            ctx.setLineDash([4, 4]);
+            [1, -1].forEach((sgn) => {
+              this.strokePath([
+                { x: x0, y: L.yOf(reg.intercept + sgn * k * reg.sigma) },
+                { x: x1, y: L.yOf(reg.intercept + reg.slope * (fitRows.length - 1) + sgn * k * reg.sigma) },
+              ]);
+            });
+            ctx.restore();
+          });
+          this.tag(x1, y1 - 12, (reg.slope >= 0 ? "+" : "") + this.fmtPrice(reg.slope) + "/bar", color, "end");
+        }
+      }
+    } else if (kind === "pitchfork" || kind === "schiff" || kind === "modschiff") {
+      if (a && b && c) {
+        // Schiff moves the handle's origin to the midpoint of A-B; the
+        // modified version puts it halfway along the handle instead.
+        let origin = a;
+        if (kind === "schiff") origin = { x: a.x, y: (a.y + b.y) / 2 };
+        if (kind === "modschiff") origin = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+        const mid = { x: (b.x + c.x) / 2, y: (b.y + c.y) / 2 };
+        const dx = mid.x - origin.x, dy = mid.y - origin.y;
+        const len = Math.hypot(dx, dy) || 1;
+        const far = ((L.plotR - L.plotL) + (L.plotB - L.plotT)) / len;
+        const proj = (p) => ({ x: p.x + dx * far, y: p.y + dy * far });
+        this.strokePath([origin, mid]);
+        [[origin, mid], [b, proj(b)], [c, proj(c)]].forEach(([s, e], i) => {
+          ctx.save();
+          if (i) ctx.globalAlpha = (ctx.globalAlpha || 1) * 0.85;
+          this.strokePath([s, i ? e : proj(origin)]);
+          ctx.restore();
+        });
+        if (d.fill !== false) {
+          ctx.save();
+          ctx.fillStyle = this.wash(color, 0.06);
+          ctx.beginPath();
+          ctx.moveTo(b.x, b.y); ctx.lineTo(proj(b).x, proj(b).y);
+          ctx.lineTo(proj(c).x, proj(c).y); ctx.lineTo(c.x, c.y);
+          ctx.closePath(); ctx.fill();
+          ctx.restore();
+        }
+      }
+
+    /* ---- fibonacci ----------------------------------------------------- */
+    } else if (kind === "fib" || kind === "fibext" || kind === "fibchannel") {
+      const levels = this.fibLevels(d);
+      if (a && b) {
+        const base = kind === "fibext" && c ? c : a;
+        const from = kind === "fibext" && c ? d.c.p : d.a.p;
+        const to = kind === "fibext" && c ? d.c.p + (d.b.p - d.a.p) : d.b.p;
+        const x0 = Math.min(a.x, b.x), x1 = Math.max(a.x, b.x);
+        const tail = Math.min(L.plotR, x1 + (x1 - x0) * 0.38);
+        if (kind === "fibchannel" && c) {
+          // Levels run parallel to the A-B line instead of flat.
+          const dyc = c.y - a.y;
+          levels.forEach((lv) => {
+            const off = dyc * lv.value;
+            ctx.save();
+            ctx.strokeStyle = lv.color || color;
+            ctx.globalAlpha = (ctx.globalAlpha || 1) * (lv.strong ? 1 : 0.75);
+            this.strokePath([{ x: a.x, y: a.y + off }, { x: b.x, y: b.y + off }]);
+            ctx.restore();
+            ctx.fillStyle = T.fib;
+            ctx.fillText(lv.label, b.x + 4, b.y + off - 3);
+          });
+        } else {
+          for (let i = 0; i < levels.length - 1 && d.fill !== false; i++) {
+            const yA = L.yOf(from + (to - from) * levels[i].value);
+            const yB = L.yOf(from + (to - from) * levels[i + 1].value);
+            ctx.save();
+            ctx.globalAlpha = (ctx.globalAlpha || 1) * 0.5;
+            ctx.fillStyle = this.wash(levels[i].color || color, i % 2 ? 0.05 : 0.09);
+            ctx.fillRect(x0, Math.min(yA, yB), tail - x0, Math.abs(yB - yA));
+            ctx.restore();
+          }
+          levels.forEach((lv) => {
+            const p = from + (to - from) * lv.value;
+            const y = L.yOf(p);
+            ctx.save();
+            ctx.strokeStyle = lv.color || color;
+            ctx.lineWidth = lv.strong ? 1.7 : 1;
+            this.strokePath([{ x: x0, y }, { x: tail, y }]);
+            ctx.restore();
+            ctx.fillStyle = T.fib;
+            ctx.fillText(lv.label + "  " + this.fmtPrice(p), x0 + 6, y - 3);
+          });
+          ctx.save();
+          ctx.setLineDash([4, 4]);
+          ctx.globalAlpha = (ctx.globalAlpha || 1) * 0.55;
+          this.strokePath(kind === "fibext" && c ? [a, b, c] : [a, b]);
+          ctx.restore();
+        }
+      }
+    } else if (kind === "fibtime") {
+      if (a && b) {
+        const span = (b.x - a.x) || 1;
+        this.fibLevels(d).forEach((lv) => {
+          const x = a.x + span * lv.value;
+          ctx.save();
+          ctx.strokeStyle = lv.color || color;
+          ctx.lineWidth = lv.strong ? 1.6 : 1;
+          this.strokePath([{ x, y: L.plotT }, { x, y: L.plotB }]);
+          ctx.restore();
+          ctx.fillStyle = T.fib;
+          ctx.fillText(lv.label, x + 4, L.plotT + 12);
+        });
+      }
+    } else if (kind === "fibcircle" || kind === "fibarc" || kind === "fibspiral") {
+      if (a && b) {
+        const r = Math.hypot(b.x - a.x, b.y - a.y);
+        if (kind === "fibspiral") {
+          // A golden spiral out of quarter arcs, growing by phi each turn.
+          const phi = 1.618033988749;
+          ctx.beginPath();
+          let rad = r / Math.pow(phi, 4);
+          let cx = a.x, cy = a.y, ang = 0;
+          for (let i = 0; i < 8; i++) {
+            ctx.arc(cx, cy, rad, ang, ang + Math.PI / 2);
+            const nx = cx + Math.cos(ang + Math.PI / 2) * rad;
+            const ny = cy + Math.sin(ang + Math.PI / 2) * rad;
+            const nr = rad * phi;
+            cx = nx - Math.cos(ang + Math.PI / 2) * nr;
+            cy = ny - Math.sin(ang + Math.PI / 2) * nr;
+            rad = nr;
+            ang += Math.PI / 2;
+          }
+          ctx.stroke();
+        } else {
+          this.fibLevels(d).forEach((lv) => {
+            if (!lv.value) return;
+            ctx.save();
+            ctx.strokeStyle = lv.color || color;
+            ctx.lineWidth = lv.strong ? 1.6 : 1;
+            ctx.beginPath();
+            if (kind === "fibarc") ctx.arc(a.x, a.y, r * lv.value, Math.PI, Math.PI * 2);
+            else ctx.arc(a.x, a.y, r * lv.value, 0, Math.PI * 2);
+            ctx.stroke();
+            ctx.restore();
+            ctx.fillStyle = T.fib;
+            ctx.fillText(lv.label, a.x + r * lv.value + 3, a.y - 3);
+          });
+        }
+      }
+    } else if (kind === "fibwedge") {
+      if (a && b && c) {
+        this.fibLevels(d).forEach((lv) => {
+          ctx.save();
+          ctx.strokeStyle = lv.color || color;
+          this.strokePath([a, { x: b.x + (c.x - b.x) * lv.value, y: b.y + (c.y - b.y) * lv.value }]);
+          ctx.restore();
+        });
+      }
+
+    /* ---- gann ---------------------------------------------------------- */
+    } else if (kind === "gannfan") {
+      if (a && b) {
+        const ratios = [[1, 1], [1, 2], [2, 1], [1, 3], [3, 1], [1, 4], [4, 1], [1, 8], [8, 1]];
+        const dx = b.x - a.x, dy = b.y - a.y;
+        ratios.forEach(([rx, ry], i) => {
+          ctx.save();
+          ctx.globalAlpha = (ctx.globalAlpha || 1) * (rx === ry ? 1 : 0.6);
+          ctx.lineWidth = rx === ry ? 1.7 : 1;
+          const k = 6;
+          this.strokePath([a, { x: a.x + dx * (rx / ry) * k, y: a.y + dy * k }]);
+          ctx.restore();
+          if (rx === ry) this.tag(a.x + dx, a.y + dy, "1×1", color);
+        });
+      }
+    } else if (kind === "gannbox" || kind === "gannsquare") {
+      if (a && b) {
+        const x0 = Math.min(a.x, b.x), x1 = Math.max(a.x, b.x);
+        const y0 = Math.min(a.y, b.y), y1 = Math.max(a.y, b.y);
+        ctx.strokeRect(x0, y0, x1 - x0, y1 - y0);
+        const parts = kind === "gannsquare" ? [0.25, 0.5, 0.75] : [0.25, 0.382, 0.5, 0.618, 0.75];
+        ctx.save();
+        ctx.globalAlpha = (ctx.globalAlpha || 1) * 0.55;
+        parts.forEach((p) => {
+          this.strokePath([{ x: x0 + (x1 - x0) * p, y: y0 }, { x: x0 + (x1 - x0) * p, y: y1 }]);
+          this.strokePath([{ x: x0, y: y0 + (y1 - y0) * p }, { x: x1, y: y0 + (y1 - y0) * p }]);
+        });
+        if (kind === "gannsquare") {
+          this.strokePath([{ x: x0, y: y1 }, { x: x1, y: y0 }]);
+          this.strokePath([{ x: x0, y: y0 }, { x: x1, y: y1 }]);
+        }
+        ctx.restore();
+      }
+
+    /* ---- geometry ------------------------------------------------------ */
+    } else if (kind === "rect" || kind === "daterange" || kind === "pricerange") {
+      if (a && b) {
+        let x = Math.min(a.x, b.x), y = Math.min(a.y, b.y);
+        let w = Math.abs(b.x - a.x), h = Math.abs(b.y - a.y);
+        if (kind === "daterange") { y = L.plotT; h = L.plotB - L.plotT; }
+        if (kind === "pricerange") { x = L.plotL; w = L.plotR - L.plotL; }
+        if (d.fill !== false) {
+          ctx.save();
+          ctx.fillStyle = this.wash(color, 0.12);
+          ctx.fillRect(x, y, w, h);
+          ctx.restore();
+        }
+        ctx.strokeRect(x, y, w, h);
+        if (kind === "pricerange" || kind === "daterange") {
+          const dp = d.b.p - d.a.p;
+          const pct = d.a.p ? (dp / d.a.p) * 100 : 0;
+          const bars = Math.abs((d.b.gi || 0) - (d.a.gi || 0));
+          const text = kind === "pricerange"
+            ? this.fmtPrice(Math.abs(dp)) + "  " + Math.abs(pct).toFixed(2) + "%"
+            : bars + " bars";
+          this.tag(x + 8, y + h / 2, text, dp >= 0 ? T.up : T.down);
+        }
+      }
+    } else if (kind === "rotrect") {
+      if (a && b) {
+        const c3 = c || b;
+        const dx = b.x - a.x, dy = b.y - a.y;
+        const len = Math.hypot(dx, dy) || 1;
+        const nx = -dy / len, ny = dx / len;
+        const off = c ? ((c3.x - b.x) * nx + (c3.y - b.y) * ny) : 0;
+        this.strokePath([
+          a, b, { x: b.x + nx * off, y: b.y + ny * off }, { x: a.x + nx * off, y: a.y + ny * off },
+        ], { close: true, fill: d.fill !== false ? this.wash(color, 0.1) : null });
+      }
+    } else if (kind === "circle") {
+      if (a && b) {
+        const r = Math.max(3, Math.hypot(b.x - a.x, b.y - a.y));
+        ctx.beginPath(); ctx.arc(a.x, a.y, r, 0, Math.PI * 2);
+        if (d.fill !== false) { ctx.save(); ctx.fillStyle = this.wash(color, 0.1); ctx.fill(); ctx.restore(); }
+        ctx.stroke();
+      }
+    } else if (kind === "ellipse") {
+      if (a && b) {
+        ctx.beginPath();
+        ctx.ellipse((a.x + b.x) / 2, (a.y + b.y) / 2,
+          Math.max(2, Math.abs(b.x - a.x) / 2), Math.max(2, Math.abs(b.y - a.y) / 2), 0, 0, Math.PI * 2);
+        if (d.fill !== false) { ctx.save(); ctx.fillStyle = this.wash(color, 0.1); ctx.fill(); ctx.restore(); }
+        ctx.stroke();
+      }
+    } else if (kind === "triangle") {
+      if (a && b) {
+        this.strokePath(c ? [a, b, c] : [a, b],
+          { close: Boolean(c), fill: c && d.fill !== false ? this.wash(color, 0.1) : null });
+      }
+    } else if (kind === "arc" || kind === "curve" || kind === "doublecurve") {
+      if (a && b) {
+        ctx.beginPath();
+        ctx.moveTo(a.x, a.y);
+        if (c) ctx.quadraticCurveTo(c.x, c.y, b.x, b.y);
+        else ctx.lineTo(b.x, b.y);
+        ctx.stroke();
+        if (kind === "doublecurve" && P[3]) {
+          ctx.beginPath();
+          ctx.moveTo(b.x, b.y);
+          ctx.quadraticCurveTo(P[3].x, P[3].y, P[3].x, P[3].y);
+          ctx.stroke();
+        }
+      }
+    } else if (kind === "polyline" || kind === "polygon" || kind === "path") {
+      const pts = (d.pts || []).map((p) => this.xyOf(L, p)).filter(Boolean);
+      if (pts.length > 1) {
+        this.strokePath(pts, {
+          close: kind === "polygon",
+          fill: kind === "polygon" && d.fill !== false ? this.wash(color, 0.1) : null,
+        });
+        if (kind === "path") this.arrowHead(pts[pts.length - 2], pts[pts.length - 1], 10);
+      }
+
+    /* ---- positions and risk ------------------------------------------- */
+    } else if (kind === "long" || kind === "short") {
+      if (a && b) this.paintPosition(L, d, a, b, kind === "long");
+
+    /* ---- patterns ------------------------------------------------------ */
+    } else if (SHAPE_LABELS[kind]) {
+      this.paintPattern(L, d, P, color);
+
+    /* ---- annotation ---------------------------------------------------- */
+    } else if (kind === "text" || kind === "emoji" || kind === "note" ||
+               kind === "label" || kind === "pricelabel" || kind === "flag") {
+      if (a) this.paintAnnotation(L, d, a, color);
+    } else if (kind === "callout") {
+      if (a && b) {
+        ctx.save();
+        ctx.setLineDash([3, 3]);
+        this.strokePath([a, b]);
+        ctx.restore();
+        this.paintAnnotation(L, d, b, color);
+      }
+
+    /* ---- freehand ------------------------------------------------------ */
+    } else if (kind === "brush" || kind === "highlighter" || kind === "freearrow") {
+      const pts = (d.pts || []).map((p) => this.xyOf(L, p)).filter(Boolean);
+      if (pts.length > 1) {
+        ctx.save();
+        if (kind === "highlighter") {
+          ctx.globalAlpha = (ctx.globalAlpha || 1) * 0.3;
+          ctx.lineWidth = Math.max(8, (Number(d.width) || 1.4) * 8);
+          ctx.lineCap = "round";
+        }
+        ctx.lineJoin = "round";
+        // Quadratic smoothing through the midpoints: a freehand line drawn
+        // with a mouse is a staircase without it.
+        ctx.beginPath();
+        ctx.moveTo(pts[0].x, pts[0].y);
+        for (let i = 1; i < pts.length - 1; i++) {
+          const mx = (pts[i].x + pts[i + 1].x) / 2;
+          const my = (pts[i].y + pts[i + 1].y) / 2;
+          ctx.quadraticCurveTo(pts[i].x, pts[i].y, mx, my);
+        }
+        ctx.lineTo(pts[pts.length - 1].x, pts[pts.length - 1].y);
+        ctx.stroke();
+        ctx.restore();
+        if (kind === "freearrow") this.arrowHead(pts[pts.length - 2], pts[pts.length - 1], 12);
+      }
+    }
+
+    /* ---- the handles --------------------------------------------------- */
+    if (!ghost && this.selected === d) {
+      ctx.setLineDash([]);
+      ctx.globalAlpha = 1;
+      const pts = SHAPE_POINTS[kind] === -1 ? [] : P;
+      pts.forEach((pt) => {
+        ctx.fillStyle = d.locked ? T.muted : T.text;
+        ctx.strokeStyle = T.panel;
+        ctx.lineWidth = 1.5;
+        ctx.beginPath(); ctx.arc(pt.x, pt.y, 4.5, 0, Math.PI * 2);
+        ctx.fill(); ctx.stroke();
+      });
+    }
+    ctx.restore();
+  }
+
+  /** The level table for a fib tool: its own, or the default for its kind. */
+  fibLevels(d) {
+    const T = chartTheme();
+    if (Array.isArray(d.levels) && d.levels.length) {
+      return d.levels.filter((l) => l && l.visible !== false).map((l) => ({
+        value: Number(l.value),
+        label: l.label || (Number(l.value) * 100).toFixed(1) + "%",
+        strong: Boolean(l.strong),
+        color: l.color || "",
+      }));
+    }
+    const sets = {
+      fib: [0, 0.236, 0.382, 0.5, 0.618, 0.786, 1],
+      fibext: [0, 0.618, 1, 1.272, 1.618, 2, 2.618],
+      fibchannel: [0, 0.382, 0.5, 0.618, 1, 1.618],
+      fibtime: [0, 0.382, 0.5, 0.618, 1, 1.618, 2.618],
+      fibcircle: [0.236, 0.382, 0.5, 0.618, 1],
+      fibarc: [0.382, 0.5, 0.618, 1],
+      fibwedge: [0.236, 0.382, 0.5, 0.618, 1],
+    };
+    const strong = { 0.5: 1, 0.618: 1, 1.618: 1 };
+    return (sets[d.kind] || sets.fib).map((v) => ({
+      value: v,
+      label: (v * 100).toFixed(1).replace(/\.0$/, "") + "%",
+      strong: Boolean(strong[v]),
+      color: strong[v] ? T.up : "",
+    }));
+  }
+
+  /**
+   * A long or short position.
+   *
+   * Entry and stop come from the two anchors; the target is projected at the
+   * object's own reward multiple. The zones are drawn to scale, so a trade
+   * with a bad ratio looks bad before the numbers are read. The numbers
+   * describe the drawing, not a forecast - nothing here is an outcome.
+   */
+  paintPosition(L, d, a, b, long) {
+    const ctx = this.ctx;
+    const T = chartTheme();
+    const entry = d.a.p;
+    const stop = d.b.p;
+    const risk = Math.abs(entry - stop);
+    const rr = Number(d.rr || 2);
+    const target = d.target !== undefined && d.target !== null
+      ? Number(d.target)
+      : (long ? entry + risk * rr : entry - risk * rr);
+    const x = Math.min(a.x, b.x);
+    const w = Math.max(56, Math.abs(b.x - a.x));
+    const yEntry = L.yOf(entry), yStop = L.yOf(stop), yTarget = L.yOf(target);
+
+    ctx.save();
+    ctx.setLineDash([]);
+    ctx.fillStyle = "rgba(" + T.downT + ",.14)";
+    ctx.fillRect(x, Math.min(yEntry, yStop), w, Math.abs(yStop - yEntry));
+    ctx.fillStyle = "rgba(" + T.upT + ",.14)";
+    ctx.fillRect(x, Math.min(yEntry, yTarget), w, Math.abs(yTarget - yEntry));
+
+    ctx.setLineDash([4, 3]);
+    [[yStop, T.down], [yTarget, T.up]].forEach(([yy, col]) => {
+      ctx.strokeStyle = col;
+      ctx.beginPath(); ctx.moveTo(x, yy); ctx.lineTo(x + w, yy); ctx.stroke();
+    });
+    ctx.setLineDash([]);
+    ctx.strokeStyle = T.text;
+    ctx.beginPath(); ctx.moveTo(x, yEntry); ctx.lineTo(x + w, yEntry); ctx.stroke();
+
+    const reward = Math.abs(target - entry);
+    const pctR = entry ? (risk / entry) * 100 : 0;
+    const pctW = entry ? (reward / entry) * 100 : 0;
+    const lines = [
+      (long ? "LONG" : "SHORT") + "   " + (risk ? (reward / risk).toFixed(2) : "—") + " R",
+      "entry  " + this.fmtPrice(entry),
+      "stop   " + this.fmtPrice(stop) + "   −" + this.fmtPrice(risk) + "  " + pctR.toFixed(2) + "%",
+      "target " + this.fmtPrice(target) + "   +" + this.fmtPrice(reward) + "  " + pctW.toFixed(2) + "%",
+    ];
+    ctx.font = "11px IBM Plex Mono, Vazirmatn, monospace";
+    const bw = Math.max(...lines.map((t) => ctx.measureText(t).width)) + 16;
+    const bh = lines.length * 14 + 10;
+    let by = Math.min(yTarget, yStop) - bh - 4;
+    if (by < L.plotT) by = Math.max(yTarget, yStop) + 6;
+    ctx.fillStyle = T.panel;
+    ctx.fillRect(x, by, bw, bh);
+    lines.forEach((t, i) => {
+      ctx.fillStyle = i === 0 ? (long ? T.up : T.down) : T.muted;
+      ctx.fillText(t, x + 8, by + 16 + i * 14);
+    });
+    ctx.restore();
+  }
+
+  /**
+   * The pattern family: a labelled polyline with the leg ratios written on it.
+   *
+   * Every harmonic is the same drawing with different rules, so they are one
+   * renderer. For the named ones the actual retracement of each leg is
+   * measured and shown against the textbook range - the tool marks what the
+   * trader drew, it does not claim the pattern is valid.
+   */
+  paintPattern(L, d, P, color) {
+    const ctx = this.ctx;
+    const T = chartTheme();
+    const labels = SHAPE_LABELS[d.kind] || [];
+    if (P.length < 2) return;
+    this.strokePath(P, {
+      close: false,
+      fill: d.fill !== false && P.length > 3 ? this.wash(color, 0.06) : null,
+    });
+    if (d.fill !== false && P.length >= 4) {
+      // Shade the triangles the eye is meant to compare.
+      ctx.save();
+      ctx.globalAlpha = (ctx.globalAlpha || 1) * 0.5;
+      ctx.fillStyle = this.wash(color, 0.08);
+      for (let i = 0; i + 2 < P.length; i += 2) {
+        ctx.beginPath();
+        ctx.moveTo(P[i].x, P[i].y);
+        ctx.lineTo(P[i + 1].x, P[i + 1].y);
+        ctx.lineTo(P[i + 2].x, P[i + 2].y);
+        ctx.closePath(); ctx.fill();
+      }
+      ctx.restore();
+    }
+    ctx.save();
+    ctx.setLineDash([]);
+    ctx.globalAlpha = 1;
+    ctx.font = "11px Outfit, Vazirmatn, sans-serif";
+    P.forEach((pt, i) => {
+      const text = (d.labels && d.labels[i]) || labels[i] || "";
+      if (!text) return;
+      const above = i === 0 || !P[i - 1] || pt.y <= P[i - 1].y;
+      this.tag(pt.x - 9, pt.y + (above ? -14 : 16), text, color);
+    });
+
+    const rules = HARMONIC_RULES[d.kind];
+    if (rules && P.length === 5) {
+      const pts = this.anchorPoints(d);
+      const leg = (i, j) => Math.abs(pts[j].p - pts[i].p);
+      const ratios = [
+        ["AB", leg(1, 2) / (leg(0, 1) || 1), rules.AB],
+        ["BC", leg(2, 3) / (leg(1, 2) || 1), rules.BC],
+        ["CD", leg(3, 4) / (leg(2, 3) || 1), rules.CD],
+        ["XD", leg(0, 4) / (leg(0, 1) || 1), rules.XD],
+      ];
+      let y = Math.min(...P.map((p) => p.y)) - 8;
+      const x = Math.max(...P.map((p) => p.x)) + 8;
+      ratios.forEach(([name, got, want], i) => {
+        const ok = got >= want[0] * 0.9 && got <= want[1] * 1.1;
+        this.tag(x, y + i * 18, name + " " + got.toFixed(3), ok ? T.up : T.muted);
+      });
+    }
+    ctx.restore();
+  }
+
+  /** Text, notes, labels, flags - everything that is words on the chart. */
+  paintAnnotation(L, d, at, color) {
+    const ctx = this.ctx;
+    const T = chartTheme();
+    const kind = d.kind;
+    const text = kind === "pricelabel" ? this.fmtPrice(d.a.p) : (d.text || "");
+    ctx.save();
+    ctx.setLineDash([]);
+    ctx.globalAlpha = d.opacity === undefined ? 1 : Number(d.opacity);
+    const size = Number(d.fontSize) || (kind === "emoji" ? 18 : 13);
+    const weight = d.bold ? "600 " : "";
+    ctx.font = weight + size + "px " + (kind === "emoji" ? "sans-serif" : "Outfit, Vazirmatn, sans-serif");
+    ctx.textBaseline = "middle";
+    ctx.textAlign = d.align === "center" ? "center" : (d.align === "end" ? "right" : "left");
+
+    if (kind === "flag") {
+      ctx.strokeStyle = color; ctx.fillStyle = color;
+      ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.moveTo(at.x, at.y); ctx.lineTo(at.x, at.y - 22); ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(at.x, at.y - 22); ctx.lineTo(at.x + 16, at.y - 18); ctx.lineTo(at.x, at.y - 13);
+      ctx.closePath(); ctx.fill();
+      if (text) { ctx.fillStyle = T.text; ctx.fillText(text, at.x + 20, at.y - 18); }
+      ctx.restore();
+      return;
+    }
+
+    const w = ctx.measureText(text).width;
+    if (kind === "note" || kind === "label" || kind === "pricelabel" || kind === "callout") {
+      const padX = 8, padY = 5;
+      const bx = at.x - (ctx.textAlign === "center" ? w / 2 : 0) - padX;
+      const by = at.y - size / 2 - padY;
+      ctx.fillStyle = d.background || this.wash(color, kind === "note" ? 0.16 : 0.9);
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      const r = 5, bw = w + padX * 2, bh = size + padY * 2;
+      ctx.moveTo(bx + r, by);
+      ctx.arcTo(bx + bw, by, bx + bw, by + bh, r);
+      ctx.arcTo(bx + bw, by + bh, bx, by + bh, r);
+      ctx.arcTo(bx, by + bh, bx, by, r);
+      ctx.arcTo(bx, by, bx + bw, by, r);
+      ctx.closePath();
+      ctx.fill();
+      if (kind === "note") ctx.stroke();
+      ctx.fillStyle = kind === "note" ? T.text : (d.textColor || T.tag);
+    } else {
+      ctx.fillStyle = d.textColor || color;
+    }
+    ctx.fillText(text, at.x, at.y);
+    ctx.restore();
+  }
+
+  /* ========================================================== hit-testing == */
+
+  hit(e) {
+    const L = this._L || this.layout();
+    if (!L) return null;
+    const r = this.canvas.getBoundingClientRect();
+    const x = e.clientX - r.left, y = e.clientY - r.top;
+    const i = Math.max(0, Math.min(L.rows.length - 1, L.iOf(x)));
+    const row = L.rows[i];
+    return {
+      L, x, y, i, gi: L.start + i,
+      t: row ? row.t : "",
+      p: L.pOf(y),
+      onPriceAxis: x > L.plotR,
+      onTimeAxis: y > L.axisB - 6,
+      valid: x >= L.plotL && x <= L.plotR && y >= L.plotT && y <= L.plotB,
+    };
+  }
+
+  /**
+   * Magnet.
+   *
+   * Weak pulls to the nearest of the bar's four prices only when the pointer
+   * is already close to one; strong always takes the nearest. Time snapping
+   * is separate and on by default, because a drawing that sits between two
+   * bars is never what anybody meant.
+   */
+  snapHit(hit) {
+    if (!hit || !hit.L) return hit;
+    if (this.magnet === "off") return hit;
+    const row = hit.L.rows[hit.i];
+    if (!row) return hit;
+    let best = hit.p, bd = this.magnet === "strong" ? Infinity : 14;
+    for (const p of [row.o, row.h, row.l, row.c]) {
+      const d = Math.abs(hit.L.yOf(p) - hit.y);
+      if (d < bd) { bd = d; best = p; }
+    }
+    hit.p = best;
+    return hit;
+  }
+
+  point(hit) {
+    return { t: this.snapTime ? hit.t : "", p: hit.p, gi: hit.gi };
+  }
+
   xyOf(L, pt) {
     if (!pt) return null;
     let i = -1;
     if (pt.t) i = L.rows.findIndex((r) => r.t === pt.t);
     if (i < 0 && Number.isFinite(pt.gi)) i = pt.gi - L.start;
-    if (i < 0 || i >= L.rows.length) {
-      if (pt.kind === "hline" || pt.p != null) return { x: L.padL, y: L.yOf(pt.p), off: true, i };
-      return null;
+    if (i < 0 || i >= L.cells) {
+      // Off-screen anchors still position a line: clamp to the edge so a
+      // trend line drawn last week does not vanish when it scrolls away.
+      if (pt.p == null) return null;
+      const x = i < 0 ? L.plotL - 4 : L.plotR + 4;
+      return { x, y: L.yOf(pt.p), off: true, i };
     }
     return { x: L.xOf(i), y: L.yOf(pt.p), i };
   }
 
-  /* -----------------------------------------------------------------------
-     Working with what you have already drawn.
-
-     Until now a drawing was write-only: the only way to move a trend line one
-     bar to the left was to clear the chart and draw it again. These three
-     methods make an existing shape selectable, draggable and removable, which
-     is most of what "interacting with the chart" means in practice.
-     ----------------------------------------------------------------------- */
-
-  /** The drawing nearest the pointer, within a forgiving radius. */
   shapeAt(L, x, y) {
     const near = 8;
     for (let i = this.drawings.length - 1; i >= 0; i--) {
       const d = this.drawings[i];
-      for (const key of ["a", "b", "c"]) {
-        const pt = d[key] && this.xyOf(L, d[key]);
-        if (pt && Math.hypot(pt.x - x, pt.y - y) <= near + 3) {
-          return { shape: d, index: i, handle: key };
+      if (d.visible === false) continue;
+      const pts = this.anchorPoints(d).map((p) => this.xyOf(L, p)).filter(Boolean);
+      const keys = this.anchorKeys(d);
+      for (let k = 0; k < pts.length; k++) {
+        if (Math.hypot(pts[k].x - x, pts[k].y - y) <= near + 3) {
+          return { shape: d, index: i, handle: d.locked ? null : keys[k] };
         }
       }
-      const a = d.a && this.xyOf(L, d.a);
-      const b = d.b && this.xyOf(L, d.b);
-      if (a && b && this.nearSegment(x, y, a, b) <= near) return { shape: d, index: i, handle: null };
-      // Horizontal lines have one anchor but span the plot.
-      if (a && !b && (d.kind === "hline" || d.kind === "hray") && Math.abs(y - a.y) <= near) {
-        return { shape: d, index: i, handle: null };
+      const kind = d.kind;
+      if (kind === "hline" || kind === "hray" || kind === "priceline") {
+        if (pts[0] && Math.abs(y - pts[0].y) <= near) return { shape: d, index: i, handle: null };
+        continue;
       }
-      if (a && !b && d.kind === "vline" && Math.abs(x - a.x) <= near) {
+      if (kind === "vline" || kind === "dateline") {
+        if (pts[0] && Math.abs(x - pts[0].x) <= near) return { shape: d, index: i, handle: null };
+        continue;
+      }
+      if (kind === "rect" || kind === "circle" || kind === "ellipse" ||
+          kind === "long" || kind === "short" || kind === "gannbox" || kind === "gannsquare" ||
+          kind === "daterange" || kind === "pricerange") {
+        if (pts.length > 1) {
+          const x0 = Math.min(pts[0].x, pts[1].x) - near, x1 = Math.max(pts[0].x, pts[1].x) + near;
+          const y0 = Math.min(pts[0].y, pts[1].y) - near, y1 = Math.max(pts[0].y, pts[1].y) + near;
+          const inX = kind === "pricerange" ? true : x >= x0 && x <= x1;
+          const inY = kind === "daterange" ? true : y >= y0 && y <= y1;
+          if (inX && inY) return { shape: d, index: i, handle: null };
+        }
+        continue;
+      }
+      const free = Array.isArray(d.pts) ? d.pts.map((p) => this.xyOf(L, p)).filter(Boolean) : [];
+      const chain = free.length ? free : pts;
+      for (let k = 0; k + 1 < chain.length; k++) {
+        if (this.nearSegment(x, y, chain[k], chain[k + 1]) <= near) {
+          return { shape: d, index: i, handle: null };
+        }
+      }
+      if (chain.length === 1 && Math.hypot(chain[0].x - x, chain[0].y - y) <= near + 8) {
         return { shape: d, index: i, handle: null };
       }
     }
@@ -741,406 +2356,375 @@ class CandleChart {
     return Math.hypot(px - (a.x + t * dx), py - (a.y + t * dy));
   }
 
-  select(shape) {
-    this.selected = shape || null;
-    this.draw();
+  pendingHit(L, y) {
+    const sl = Number(this.pending && this.pending.sl || 0);
+    const tp = Number(this.pending && this.pending.tp || 0);
+    let best = null, bd = 10;
+    for (const [k, p] of [["sl", sl], ["tp", tp]]) {
+      if (!p) continue;
+      const d = Math.abs(L.yOf(p) - y);
+      if (d < bd) { bd = d; best = k; }
+    }
+    return best;
   }
 
-  deleteSelected() {
-    if (!this.selected) return false;
-    const at = this.drawings.indexOf(this.selected);
-    if (at >= 0) this.drawings.splice(at, 1);
-    this.selected = null;
-    this.saveDrawings && this.saveDrawings();
-    this.draw();
-    return true;
-  }
-
-  /** Move a whole shape, or just the handle that was grabbed. */
   moveSelected(from, to, handle) {
     const d = this.selected;
-    if (!d || !from || !to) return;
+    if (!d || d.locked || !from || !to) return;
     const dGi = (to.gi || 0) - (from.gi || 0);
     const dP = (to.p || 0) - (from.p || 0);
     const shift = (pt) => {
       if (!pt) return pt;
       pt.gi = (pt.gi || 0) + dGi;
       pt.p = (pt.p || 0) + dP;
+      pt.t = "";
       return pt;
     };
     if (handle && d[handle]) shift(d[handle]);
-    else ["a", "b", "c"].forEach((k) => shift(d[k]));
-    if (Array.isArray(d.pts)) d.pts.forEach(shift);
+    else {
+      this.anchorKeys(d).forEach((k) => shift(d[k]));
+      if (Array.isArray(d.pts)) d.pts.forEach(shift);
+    }
     this.draw();
   }
 
-  paintShape(L, d, ghost) {
-    const ctx = this.ctx;
-    ctx.save();
-    ctx.globalAlpha = ghost ? 0.7 : 1;
-    const chosen = !ghost && this.selected === d;
-    if (chosen) {
-      // Handles on the anchors, so it is obvious what can be grabbed.
-      ["a", "b", "c"].forEach((k) => {
-        const pt = d[k] && this.xyOf(L, d[k]);
-        if (!pt) return;
-        ctx.fillStyle = chartTheme().text;
-        ctx.strokeStyle = chartTheme().panel;
-        ctx.beginPath(); ctx.arc(pt.x, pt.y, 4.5, 0, Math.PI * 2);
-        ctx.fill(); ctx.stroke();
-      });
+  /* ========================================================== navigation == */
+
+  maxOffset() { return Math.max(0, this.rows().length - Math.round(this.span * 0.2)); }
+
+  /**
+   * Zoom.
+   *
+   * Around the pointer, not the middle: zooming into a chart and finding the
+   * candle you were looking at has moved is the single most common way a web
+   * chart feels amateur. `at` is a bar index in the visible slice.
+   */
+  zoom(dir, at) {
+    const total = this.rows().length;
+    if (!total) return;
+    const before = this.span;
+    const factor = dir > 0 ? 0.82 : 1 / 0.82;
+    this.span = Math.max(8, Math.min(Math.max(20, total + this.rightPad), Math.round(before * factor)));
+    if (at !== undefined && at !== null && before) {
+      // Keep the bar under the cursor in place by moving the window's end.
+      const share = Math.max(0, Math.min(1, at / before));
+      const delta = Math.round((this.span - before) * (1 - share));
+      this.offset = Math.max(0, Math.min(this.maxOffset(), this.offset + delta));
     }
-    ctx.strokeStyle = d.color || chartTheme().gold;
-    ctx.fillStyle = d.color || chartTheme().gold;
-    ctx.lineWidth = 1.4;
-    const a = this.xyOf(L, d.a);
-    const b = this.xyOf(L, d.b || d.a);
-    const kind = d.kind;
-    if ((kind === "hline" || kind === "hray") && d.a) {
-      const y = L.yOf(d.a.p);
-      ctx.setLineDash(kind === "hray" ? [] : [6, 4]);
-      ctx.beginPath();
-      if (kind === "hray" && a) { ctx.moveTo(a.x, y); ctx.lineTo(L.plotR, y); }
-      else { ctx.moveTo(L.plotL, y); ctx.lineTo(L.plotR, y); }
-      ctx.stroke();
-      ctx.setLineDash([]);
-    } else if (kind === "vline" && a) {
-      ctx.setLineDash([6, 4]);
-      ctx.beginPath(); ctx.moveTo(a.x, L.plotT); ctx.lineTo(a.x, L.plotB); ctx.stroke();
-      ctx.setLineDash([]);
-    } else if ((kind === "trend" || kind === "ray" || kind === "extended" || kind === "measure" || kind === "arrow" || kind === "infoline") && a && b) {
-      ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
-      if (kind === "ray" || kind === "extended") {
-        const dx = b.x - a.x, dy = b.y - a.y;
-        ctx.beginPath(); ctx.moveTo(b.x, b.y); ctx.lineTo(b.x + dx * 8, b.y + dy * 8); ctx.stroke();
-        if (kind === "extended") {
-          ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(a.x - dx * 8, a.y - dy * 8); ctx.stroke();
-        }
-      }
-      if (kind === "arrow") {
-        const ang = Math.atan2(b.y - a.y, b.x - a.x);
-        ctx.beginPath();
-        ctx.moveTo(b.x, b.y);
-        ctx.lineTo(b.x - 10 * Math.cos(ang - 0.4), b.y - 10 * Math.sin(ang - 0.4));
-        ctx.moveTo(b.x, b.y);
-        ctx.lineTo(b.x - 10 * Math.cos(ang + 0.4), b.y - 10 * Math.sin(ang + 0.4));
-        ctx.stroke();
-      }
-      if (kind === "measure" || kind === "infoline" || kind === "pricerange") {
-        const dp = (d.b.p - d.a.p);
-        const bars = Math.abs((d.b.gi || 0) - (d.a.gi || 0));
-        const pct = d.a.p ? (dp / d.a.p) * 100 : 0;
-        const label = this.fmtPrice(dp) + "   " + pct.toFixed(2) + "%   " + bars + "b";
-        const tw = Math.min(240, ctx.measureText(label).width + 16);
-        let lx = (a.x + b.x) / 2 - tw / 2;
-        let ly = (a.y + b.y) / 2 - 16;
-        lx = Math.max(L.plotL + 4, Math.min(L.plotR - tw - 4, lx));
-        ly = Math.max(L.plotT + 4, Math.min(L.plotB - 28, ly));
-        ctx.fillStyle = chartTheme().panel;
-        ctx.fillRect(lx, ly, tw, 26);
-        ctx.fillStyle = dp >= 0 ? chartTheme().up : chartTheme().down;
-        ctx.fillText(label, lx + 8, ly + 17);
-      }
-    } else if (kind === "daterange" && a && b) {
-      const x = Math.min(a.x, b.x), w = Math.abs(b.x - a.x);
-      ctx.fillStyle = "rgba(" + chartTheme().violetT + ",.12)";
-      ctx.fillRect(x, L.plotT, w, L.plotB - L.plotT);
-      ctx.strokeRect(x, L.plotT, w, L.plotB - L.plotT);
-    } else if (kind === "pricerange" && a && b) {
-      const y = Math.min(a.y, b.y), h = Math.abs(b.y - a.y);
-      ctx.fillStyle = "rgba(" + chartTheme().upT + ",.1)";
-      ctx.fillRect(L.plotL, y, L.plotR - L.plotL, h);
-      ctx.strokeRect(L.plotL, y, L.plotR - L.plotL, h);
-      // The measurement was written in a branch this kind never reaches, so a
-      // price range drew a band and told you nothing about it.
-      const dp = d.b.p - d.a.p;
-      const pct = d.a.p ? (dp / d.a.p) * 100 : 0;
-      const label = this.fmtPrice(Math.abs(dp)) + "   " + Math.abs(pct).toFixed(2) + "%";
-      ctx.fillStyle = chartTheme().panel;
-      const tw = ctx.measureText(label).width + 16;
-      ctx.fillRect(L.plotL + 8, y + h / 2 - 13, tw, 26);
-      ctx.fillStyle = dp >= 0 ? chartTheme().up : chartTheme().down;
-      ctx.fillText(label, L.plotL + 16, y + h / 2 + 4);
-    } else if (kind === "rect" && a && b) {
-      const x = Math.min(a.x, b.x), y = Math.min(a.y, b.y);
-      ctx.fillStyle = "rgba(" + chartTheme().violetT + ",.12)";
-      ctx.fillRect(x, y, Math.abs(b.x - a.x), Math.abs(b.y - a.y));
-      ctx.strokeRect(x, y, Math.abs(b.x - a.x), Math.abs(b.y - a.y));
-    } else if ((kind === "long" || kind === "short") && a && b) {
-      // A position tool that only draws a box is a rectangle with a label on
-      // it. What a trader needs from it is the trade: where the stop is, where
-      // the target is, and whether the reward is worth the risk. Drag sets the
-      // entry and the stop; the target is projected at 2R and both zones are
-      // drawn to scale, so an unbalanced trade looks unbalanced.
-      const long = kind === "long";
-      const entry = d.a.p;
-      const stop = d.b.p;
-      const risk = Math.abs(entry - stop);
-      const rr = Number(d.rr || 2);
-      const target = long ? entry + risk * rr : entry - risk * rr;
-
-      const x = Math.min(a.x, b.x);
-      const w = Math.max(40, Math.abs(b.x - a.x));
-      const yEntry = L.yOf(entry);
-      const yStop = L.yOf(stop);
-      const yTarget = L.yOf(target);
-
-      ctx.fillStyle = "rgba(" + chartTheme().downT + ",.14)";
-      ctx.fillRect(x, Math.min(yEntry, yStop), w, Math.abs(yStop - yEntry));
-      ctx.fillStyle = "rgba(" + chartTheme().upT + ",.14)";
-      ctx.fillRect(x, Math.min(yEntry, yTarget), w, Math.abs(yTarget - yEntry));
-
-      ctx.setLineDash([4, 3]);
-      [[yStop, chartTheme().down], [yTarget, chartTheme().up]].forEach(([yy, col]) => {
-        ctx.strokeStyle = col;
-        ctx.beginPath(); ctx.moveTo(x, yy); ctx.lineTo(x + w, yy); ctx.stroke();
-      });
-      ctx.setLineDash([]);
-      ctx.strokeStyle = chartTheme().text;
-      ctx.beginPath(); ctx.moveTo(x, yEntry); ctx.lineTo(x + w, yEntry); ctx.stroke();
-
-      const pct = entry ? (Math.abs(target - entry) / entry) * 100 : 0;
-      const lines = [
-        (long ? "LONG" : "SHORT") + "  " + rr.toFixed(1) + "R",
-        "entry " + this.fmtPrice(entry),
-        "stop  " + this.fmtPrice(stop) + "   -" + this.fmtPrice(risk),
-        "target " + this.fmtPrice(target) + "   +" + pct.toFixed(2) + "%",
-      ];
-      const bw = Math.max(...lines.map((t) => ctx.measureText(t).width)) + 16;
-      const by = Math.min(yTarget, yStop) - 4;
-      ctx.fillStyle = chartTheme().panel;
-      ctx.fillRect(x, by - lines.length * 14 - 6, bw, lines.length * 14 + 8);
-      lines.forEach((t, i) => {
-        ctx.fillStyle = i === 0 ? (long ? chartTheme().up : chartTheme().down) : chartTheme().muted;
-        ctx.fillText(t, x + 8, by - (lines.length - i) * 14 + 8);
-      });
-    } else if (kind === "circle" && a && b) {
-      const rr = Math.max(4, Math.hypot(b.x - a.x, b.y - a.y));
-      ctx.beginPath(); ctx.arc(a.x, a.y, rr, 0, Math.PI * 2); ctx.stroke();
-    } else if (kind === "ellipse" && a && b) {
-      const cx = (a.x + b.x) / 2, cy = (a.y + b.y) / 2;
-      ctx.beginPath();
-      ctx.ellipse(cx, cy, Math.max(2, Math.abs(b.x - a.x) / 2), Math.max(2, Math.abs(b.y - a.y) / 2), 0, 0, Math.PI * 2);
-      ctx.stroke();
-    } else if (kind === "triangle" && a && b) {
-      const c = this.xyOf(L, d.c);
-      ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y);
-      if (c) { ctx.lineTo(c.x, c.y); ctx.closePath(); }
-      ctx.stroke();
-    } else if ((kind === "parallel" || kind === "channel") && a && b) {
-      ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
-      const c = this.xyOf(L, d.c);
-      if (c) {
-        const dx = b.x - a.x, dy = b.y - a.y;
-        ctx.beginPath(); ctx.moveTo(c.x, c.y); ctx.lineTo(c.x + dx, c.y + dy); ctx.stroke();
-        ctx.strokeStyle = "rgba(" + chartTheme().goldT + ",.35)";
-        ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(c.x, c.y); ctx.stroke();
-        ctx.beginPath(); ctx.moveTo(b.x, b.y); ctx.lineTo(c.x + dx, c.y + dy); ctx.stroke();
-        if (kind === "channel") {
-          ctx.fillStyle = "rgba(" + chartTheme().goldT + ",.08)";
-          ctx.beginPath();
-          ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y);
-          ctx.lineTo(c.x + dx, c.y + dy); ctx.lineTo(c.x, c.y);
-          ctx.closePath(); ctx.fill();
-        }
-      }
-    } else if (kind === "pitchfork" && a && b) {
-      const c = this.xyOf(L, d.c);
-      ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
-      if (c) {
-        const mx = (b.x + c.x) / 2, my = (b.y + c.y) / 2;
-        const dx = mx - a.x, dy = my - a.y;
-        ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(a.x + dx * 6, a.y + dy * 6); ctx.stroke();
-        ctx.beginPath(); ctx.moveTo(b.x, b.y); ctx.lineTo(b.x + dx * 6, b.y + dy * 6); ctx.stroke();
-        ctx.beginPath(); ctx.moveTo(c.x, c.y); ctx.lineTo(c.x + dx * 6, c.y + dy * 6); ctx.stroke();
-      }
-    } else if (kind === "gann" && a && b) {
-      const ratios = [1, 2, 0.5, 3, 1 / 3];
-      ratios.forEach((r, n) => {
-        ctx.strokeStyle = n === 0 ? chartTheme().gold : "rgba(" + chartTheme().goldT + ",.55)";
-        ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, a.y + (b.y - a.y) * r); ctx.stroke();
-      });
-    } else if ((kind === "fib" || kind === "fibext") && a && b) {
-      // Both fib tools used to stretch every level across the full plot width,
-      // which made them indistinguishable from each other and from a price
-      // range. A retracement belongs to the swing it was drawn on: the levels
-      // span the two anchors and extend a little to the right, the way every
-      // charting package draws them.
-      const ext = kind === "fibext";
-      const levels = ext
-        ? [0, 0.618, 1, 1.272, 1.618, 2, 2.618]
-        : [0, 0.236, 0.382, 0.5, 0.618, 0.786, 1];
-      const key = ext ? [1.618, 2.618] : [0.5, 0.618];
-      const hi = d.a.p, lo = d.b.p;
-      const x0 = Math.min(a.x, b.x);
-      const x1 = Math.max(a.x, b.x);
-      const tail = Math.min(L.plotR, x1 + (x1 - x0) * (ext ? 1.0 : 0.35));
-
-      // Shade between neighbouring levels so the zones read at a glance.
-      for (let i = 0; i < levels.length - 1; i++) {
-        const yA = L.yOf(hi + (lo - hi) * levels[i]);
-        const yB = L.yOf(hi + (lo - hi) * levels[i + 1]);
-        ctx.fillStyle = i % 2
-          ? "rgba(" + chartTheme().goldT + ",.05)"
-          : "rgba(" + chartTheme().violetT + ",.05)";
-        ctx.fillRect(x0, Math.min(yA, yB), tail - x0, Math.abs(yB - yA));
-      }
-      levels.forEach((lv) => {
-        const p = hi + (lo - hi) * lv;
-        const y = L.yOf(p);
-        const strong = key.includes(lv);
-        ctx.strokeStyle = strong ? chartTheme().up : "rgba(" + chartTheme().goldT + ",.7)";
-        ctx.lineWidth = strong ? 1.6 : 1;
-        ctx.beginPath(); ctx.moveTo(x0, y); ctx.lineTo(tail, y); ctx.stroke();
-        ctx.fillStyle = chartTheme().fib;
-        ctx.fillText(lv.toFixed(3) + "  " + this.fmtPrice(p), x0 + 6, y - 3);
-      });
-      ctx.lineWidth = 1.4;
-      // The swing itself, so the trader can see what the levels were taken from.
-      ctx.strokeStyle = "rgba(" + chartTheme().goldT + ",.45)";
-      ctx.setLineDash([4, 4]);
-      ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
-      ctx.setLineDash([]);
-    } else if (kind === "fibtime" && a && b) {
-      const ratios = [0, 0.382, 0.5, 0.618, 1, 1.618, 2.618];
-      const span = (b.x - a.x) || 1;
-      ratios.forEach((lv) => {
-        const x = a.x + span * lv;
-        ctx.strokeStyle = lv === 0.618 || lv === 1.618 ? chartTheme().up : "rgba(" + chartTheme().violetT + ",.7)";
-        ctx.beginPath(); ctx.moveTo(x, L.plotT); ctx.lineTo(x, L.plotB); ctx.stroke();
-        ctx.fillStyle = chartTheme().fib;
-        ctx.fillText(lv.toFixed(3), x + 4, L.plotT + 12);
-      });
-    } else if (kind === "brush" && Array.isArray(d.pts)) {
-      ctx.beginPath();
-      d.pts.forEach((pt, i) => {
-        const xy = this.xyOf(L, pt);
-        if (!xy) return;
-        if (i === 0) ctx.moveTo(xy.x, xy.y);
-        else ctx.lineTo(xy.x, xy.y);
-      });
-      ctx.stroke();
-    } else if ((kind === "text" || kind === "emoji") && a) {
-      ctx.font = kind === "emoji" ? "18px sans-serif" : "13px Outfit, Vazirmatn, sans-serif";
-      ctx.fillStyle = chartTheme().text;
-      ctx.fillText(d.text || "", a.x + 6, a.y - 6);
-    }
-    ctx.restore();
+    this.clampOffset();
+    this.draw();
   }
+
+  pan(bars) {
+    this.offset = Math.max(0, Math.min(this.maxOffset(), this.offset + bars));
+    this.draw();
+  }
+
+  clampOffset() {
+    this.offset = Math.max(0, Math.min(this.maxOffset(), this.offset));
+  }
+
+  /** Stretch or compress the price axis around its middle. */
+  scaleBy(k) {
+    const L = this._L || this.layout();
+    if (!L) return;
+    const mid = (L.mn + L.mx) / 2;
+    const half = ((L.mx - L.mn) / 2) * k;
+    this.scale.auto = false;
+    this.scale.mn = mid - half;
+    this.scale.mx = mid + half;
+    this.draw();
+  }
+
+  shiftScale(dp) {
+    const L = this._L || this.layout();
+    if (!L) return;
+    this.scale.auto = false;
+    this.scale.mn = (this.scale.mn === null ? L.mn : this.scale.mn) + dp;
+    this.scale.mx = (this.scale.mx === null ? L.mx : this.scale.mx) + dp;
+    this.draw();
+  }
+
+  setAutoScale(on) {
+    this.scale.auto = on !== false;
+    if (this.scale.auto) { this.scale.mn = null; this.scale.mx = null; }
+    this.saveState();
+    this.draw();
+  }
+
+  setLogScale(on) { this.scale.log = Boolean(on); this.saveState(); this.draw(); }
+  setPercentScale(on) { this.scale.percent = Boolean(on); this.saveState(); this.draw(); }
+  setInvertScale(on) { this.scale.invert = Boolean(on); this.saveState(); this.draw(); }
+
+  fit() {
+    this.offset = 0;
+    this.rightPad = 0;
+    this.span = Math.min(160, Math.max(30, this.rows().length || 40));
+    this.setAutoScale(true);
+    this.draw();
+  }
+
+  resetView() { this.fit(); }
+
+  /* ========================================================= interaction == */
+
+  /**
+   * The wheel.
+   *
+   *   wheel            zoom around the pointer
+   *   shift + wheel    pan sideways
+   *   ctrl/cmd wheel   zoom, for the trackpads that send pinch that way
+   *
+   * Over the price axis the wheel scales the price instead, which is what
+   * every terminal does and what makes a chart feel unlocked.
+   */
   onWheel(e) {
     e.preventDefault();
-    const dir = e.deltaY > 0 ? 1 : -1;
-    this.span = Math.max(20, Math.min(this.bars.length || 20, this.span + dir * 6));
-    this.draw();
-  }
-  needsThird(kind) {
-    return kind === "parallel" || kind === "channel" || kind === "pitchfork" || kind === "triangle";
-  }
-  askText(kind, pt) {
-    const finish = (txt) => {
-      if (!txt) return;
-      this.drawings.push({ kind, a: pt, text: txt, color: chartTheme().gold });
-      this.persist();
-      this.draw();
-    };
-    if (typeof this.opts.onText === "function") {
-      this.opts.onText(kind === "emoji" ? "🙂" : "", finish);
+    const hit = this.hit(e);
+    const dir = e.deltaY > 0 ? -1 : 1;
+    if (hit && hit.onPriceAxis) { this.scaleBy(dir > 0 ? 0.9 : 1.1); return; }
+    if (e.shiftKey && !e.ctrlKey) {
+      this.pan(Math.round((e.deltaY > 0 ? 1 : -1) * Math.max(1, this.span * 0.08)));
       return;
     }
-    const txt = window.prompt("", kind === "emoji" ? "📌" : "");
-    finish(txt);
+    this.zoom(dir, hit ? hit.i : null);
   }
+
+  onDouble(e) {
+    const hit = this.hit(e);
+    if (hit && hit.onPriceAxis) { this.setAutoScale(true); return; }
+    if (this.tool === "cursor" && hit) {
+      const found = this.shapeAt(hit.L, hit.x, hit.y);
+      if (found) {
+        this.select(found.shape);
+        if (typeof this.opts.onEdit === "function") this.opts.onEdit(found.shape);
+        return;
+      }
+    }
+    this.fit();
+  }
+
+  onContext(e) {
+    if (typeof this.opts.onMenu !== "function") return;
+    const hit = this.hit(e);
+    if (!hit) return;
+    e.preventDefault();
+    const found = this.shapeAt(hit.L, hit.x, hit.y);
+    if (found) this.select(found.shape);
+    this.opts.onMenu({ x: e.clientX, y: e.clientY, shape: found ? found.shape : null, price: hit.p });
+  }
+
+  /** How many points this tool still needs before the shape is finished. */
+  needs(kind) {
+    const n = SHAPE_POINTS[kind];
+    return n === undefined ? 2 : n;
+  }
+
+  placed(d) {
+    if (Array.isArray(d.pts)) return d.pts.length;
+    return this.anchorKeys(d).filter((k) => d[k]).length;
+  }
+
+  askText(kind, pt, after) {
+    const finish = (txt) => {
+      if (!txt && kind !== "note") return;
+      const obj = this.addObject({
+        kind, a: pt, text: txt,
+        color: chartTheme().gold,
+      });
+      if (typeof after === "function") after(obj);
+    };
+    if (typeof this.opts.onText === "function") {
+      this.opts.onText(kind === "emoji" ? "📌" : "", finish);
+      return;
+    }
+    finish(window.prompt("", kind === "emoji" ? "📌" : "") || "");
+  }
+
   onDown(e) {
     this._moved = false;
-    const hit = this.snapHit(this.hit(e));
-    if (this.tool === "cursor" && hit && hit.L) {
+    const raw = this.hit(e);
+    if (!raw) return;
+    const hit = this.snapHit(raw);
+
+    /* ---- the axes are controls too ------------------------------------ */
+    if (raw.onPriceAxis) {
+      this.drag = { mode: "scale", y: e.clientY, mn: (this._L || {}).mn, mx: (this._L || {}).mx };
+      this.canvas.setPointerCapture(e.pointerId);
+      this.canvas.style.cursor = "ns-resize";
+      return;
+    }
+    if (raw.onTimeAxis) {
+      this.drag = { mode: "timescale", x: e.clientX, span: this.span };
+      this.canvas.setPointerCapture(e.pointerId);
+      this.canvas.style.cursor = "ew-resize";
+      return;
+    }
+
+    /* ---- middle button or held space always pans ---------------------- */
+    if (e.button === 1 || this._space || this.tool === "pan") {
+      this.drag = { mode: "pan", x: e.clientX, off: this.offset };
+      this.canvas.setPointerCapture(e.pointerId);
+      this.canvas.style.cursor = "grabbing";
+      return;
+    }
+    if (e.button !== 0) return;
+
+    /* ---- a drawing in progress ---------------------------------------- */
+    if (this.draft) {
+      const need = this.needs(this.draft.kind);
+      if (need === -1) return;
+      const keys = this.anchorKeys(this.draft);
+      const at = this.placed(this.draft);
+      if (at < need) {
+        this.draft[keys[at]] = this.point(hit);
+        if (at + 1 >= need) this.commitDraft();
+        else this.draw();
+        return;
+      }
+    }
+
+    /* ---- the cursor: select, drag, or set a level --------------------- */
+    if (this.tool === "cursor" || this.tool === "eraser") {
       const kind = this.pendingHit(hit.L, hit.y);
-      if (kind) {
+      if (kind && this.tool === "cursor") {
         this.dragLevel = kind;
         this.canvas.setPointerCapture(e.pointerId);
         this.canvas.style.cursor = "ns-resize";
         return;
       }
-      if (this.pickPrice) {
-        this._priceClick = hit.p;
+      const found = this.shapeAt(hit.L, hit.x, hit.y);
+      if (this.tool === "eraser") {
+        if (found) this.removeObject(found.shape.id);
         return;
       }
-    }
-    if (this.draft && this.draft._locked && hit && hit.valid) {
-      this.draft.c = { t: hit.t, p: hit.p, gi: hit.gi };
-      this.drawings.push(this.draft);
-      this.draft = null;
-      this.persist();
-      this.draw();
-      return;
-    }
-    if (this.draft && this.needsThird(this.draft.kind) && !this.draft._locked && hit && hit.valid) {
-      this.draft.b = { t: hit.t, p: hit.p, gi: hit.gi };
-      this.draft._locked = true;
-      this.draw();
-      return;
-    }
-    if (this.tool === "cursor") {
-      this.drag = { x: e.clientX, off: this.offset };
+      if (found) {
+        this.select(found.shape);
+        if (!found.shape.locked) {
+          this.snapshot();
+          this.drag = { mode: "shape", from: this.point(hit), handle: found.handle };
+          this.canvas.setPointerCapture(e.pointerId);
+          this.canvas.style.cursor = "move";
+        }
+        return;
+      }
+      if (this.selected) this.select(null);
+      if (this.pickPrice) { this._priceClick = hit.p; return; }
+      this.drag = { mode: "pan", x: e.clientX, off: this.offset };
       this.canvas.setPointerCapture(e.pointerId);
       this.canvas.style.cursor = "grabbing";
       return;
     }
-    if (!hit) return;
-    const pt = { t: hit.t, p: hit.p, gi: hit.gi };
-    if (this.tool === "hline" || this.tool === "vline" || this.tool === "hray" || this.tool === "text" || this.tool === "emoji") {
-      if (this.tool === "text" || this.tool === "emoji") {
-        this.askText(this.tool, pt);
-        return;
-      }
-      this.drawings.push({ kind: this.tool, a: pt, color: chartTheme().gold });
-      this.persist();
-      this.draw();
+
+    /* ---- starting a new drawing --------------------------------------- */
+    const pt = this.point(hit);
+    const need = this.needs(this.tool);
+    if (this.tool === "text" || this.tool === "emoji" || this.tool === "note" ||
+        this.tool === "label" || this.tool === "flag") {
+      this.askText(this.tool, pt, () => { if (this.opts.onToolDone) this.opts.onToolDone(); });
       return;
     }
-    if (this.tool === "brush") {
-      this.draft = { kind: "brush", pts: [pt], a: pt, b: pt, color: chartTheme().gold };
+    if (need === 1) {
+      const obj = this.addObject({ kind: this.tool, a: pt, color: this.colorFor(this.tool) });
+      this.select(obj);
+      if (this.opts.onToolDone) this.opts.onToolDone();
       return;
     }
-    const color = (this.tool === "fib" || this.tool === "fibext" || this.tool === "fibtime") ? "#7c6cff"
-      : (this.tool === "long" ? chartTheme().up : (this.tool === "short" ? chartTheme().down : chartTheme().gold));
-    this.draft = { kind: this.tool, a: pt, b: pt, color };
+    if (need === -1) {
+      this.draft = { kind: this.tool, pts: [pt], a: pt, b: pt, color: this.colorFor(this.tool), width: this.tool === "highlighter" ? 2 : 1.4 };
+      return;
+    }
+    this.draft = { kind: this.tool, a: pt, b: pt, color: this.colorFor(this.tool) };
   }
+
+  colorFor(tool) {
+    const T = chartTheme();
+    if (tool === "long") return T.up;
+    if (tool === "short") return T.down;
+    if (tool.indexOf("fib") === 0) return T.violet;
+    return T.gold;
+  }
+
+  commitDraft() {
+    if (!this.draft) return;
+    const d = this.draft;
+    this.draft = null;
+    const obj = this.addObject(d);
+    this.select(obj);
+    if (typeof this.opts.onToolDone === "function") this.opts.onToolDone();
+  }
+
   onMove(e) {
     this._moved = true;
-    const hit = this.hit(e);
-    if (hit && hit.valid) this.hover = { i: hit.i, y: hit.y };
-    else this.hover = null;
-    if (this.dragLevel && hit && hit.L) {
-      const p = hit.L.pOf(hit.y);
-      this.pending = { ...(this.pending || {}), [this.dragLevel]: p };
-      if (typeof this.opts.onPending === "function") this.opts.onPending({ ...this.pending, kind: this.dragLevel });
+    const raw = this.hit(e);
+    if (!raw) return;
+    const hit = this.snapHit(raw);
+    this.hover = raw.valid ? { i: raw.i, y: raw.y } : null;
+
+    if (this.dragLevel) {
+      const p = raw.L.pOf(raw.y);
+      this.pending = Object.assign({}, this.pending, { [this.dragLevel]: p });
+      if (typeof this.opts.onPending === "function") this.opts.onPending(Object.assign({}, this.pending, { kind: this.dragLevel }));
       this.draw();
       return;
     }
-    if (this.draft && hit) {
-      const pt = { t: hit.t, p: hit.p, gi: hit.gi };
-      if (this.draft._locked) this.draft.c = pt;
-      else if (this.draft.kind === "brush") {
-        this.draft.pts = (this.draft.pts || []).concat([pt]).slice(-400);
-        this.draft.b = pt;
-      } else this.draft.b = pt;
-    }
-    if (this.drag && this.tool === "cursor") {
-      const L = this.layout();
-      if (L) {
+
+    if (this.drag) {
+      if (this.drag.mode === "pan") {
+        const L = this._L || this.layout();
+        if (L) {
+          const dx = e.clientX - this.drag.x;
+          const rtl = document.documentElement.dir === "rtl" ? -1 : 1;
+          this.offset = Math.max(0, Math.min(this.maxOffset(), this.drag.off + Math.round((-dx * rtl) / L.bw)));
+        }
+      } else if (this.drag.mode === "scale") {
+        const dy = e.clientY - this.drag.y;
+        const k = Math.max(0.2, 1 + dy / 220);
+        const mid = (this.drag.mn + this.drag.mx) / 2;
+        const half = ((this.drag.mx - this.drag.mn) / 2) * k;
+        this.scale.auto = false;
+        this.scale.mn = mid - half;
+        this.scale.mx = mid + half;
+      } else if (this.drag.mode === "timescale") {
         const dx = e.clientX - this.drag.x;
-        const rtl = document.documentElement.dir === "rtl" ? -1 : 1;
-        this.offset = Math.max(0, Math.min(Math.max(0, this.bars.length - this.span), this.drag.off + Math.round((-dx * rtl) / L.bw)));
+        this.span = Math.max(8, Math.min(Math.max(20, this.rows().length), Math.round(this.drag.span * (1 - dx / 300))));
+        this.clampOffset();
+      } else if (this.drag.mode === "shape") {
+        const to = this.point(hit);
+        this.moveSelected(this.drag.from, to, this.drag.handle);
+        this.drag.from = to;
+        return;
+      }
+      this.draw();
+      return;
+    }
+
+    if (this.draft) {
+      const pt = this.point(hit);
+      if (Array.isArray(this.draft.pts) && this.needs(this.draft.kind) === -1) {
+        this.draft.pts = this.draft.pts.concat([pt]).slice(-600);
+        this.draft.b = pt;
+      } else {
+        const keys = this.anchorKeys(this.draft);
+        const at = Math.max(1, this.placed(this.draft));
+        this.draft[keys[Math.min(at, keys.length - 1)]] = pt;
       }
     }
     this.draw();
   }
+
   onUp(e) {
     if (this.dragLevel) {
       this.dragLevel = null;
-      this.canvas.style.cursor = this.tool === "cursor" ? "grab" : "crosshair";
+      this.canvas.style.cursor = this.cursorFor();
       this.draw();
+      return;
+    }
+    if (this.drag && this.drag.mode === "shape") {
+      this.drag = null;
+      this.canvas.style.cursor = this.cursorFor();
+      this.persist();
+      this.changed();
       return;
     }
     if (this.pickPrice && this._priceClick != null && typeof this.opts.onPrice === "function") {
@@ -1151,40 +2735,53 @@ class CandleChart {
       this.draw();
       return;
     }
-    if (!this._moved && this.tool === "cursor" && typeof this.opts.onPrice === "function") {
+    if (!this._moved && this.tool === "cursor" && !this.selected && typeof this.opts.onPrice === "function") {
       const hit = this.hit(e || { clientX: 0, clientY: 0 });
       if (hit && hit.valid) this.opts.onPrice(hit.p);
     }
-    if (this.draft && this.needsThird(this.draft.kind)) {
-      this.drag = null;
-      this.draw();
-      return;
-    }
     if (this.draft) {
-      if (this.draft.kind === "brush" || this.draft.b) {
-        this.drawings.push(this.draft);
-        this.persist();
+      const need = this.needs(this.draft.kind);
+      if (need === -1) {
+        if ((this.draft.pts || []).length > 1) this.commitDraft();
+        else this.draft = null;
+      } else if (this._moved && this.placed(this.draft) >= 2 && need === 2) {
+        this.commitDraft();
       }
     }
-    this.draft = null;
     this.drag = null;
-    this.canvas.style.cursor = this.tool === "cursor" ? "grab" : "crosshair";
+    this.canvas.style.cursor = this.cursorFor();
     this.draw();
   }
+
+  /** Escape: drop the draft first, then the selection. */
+  cancel() {
+    if (this.draft) { this.draft = null; this.draw(); return true; }
+    if (this.selected) { this.select(null); return true; }
+    return false;
+  }
+
   onTouch(e) {
     if (e.touches.length === 2) {
       e.preventDefault();
-      const d = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
-      if (!this.pinch) this.pinch = { d, span: this.span };
-      else {
-        const k = this.pinch.d / d;
-        this.span = Math.max(20, Math.min(this.bars.length || 20, Math.round(this.pinch.span * k)));
-        this.draw();
+      const [t1, t2] = e.touches;
+      const d = Math.hypot(t1.clientX - t2.clientX, t1.clientY - t2.clientY);
+      const mid = (t1.clientX + t2.clientX) / 2;
+      if (!this.pinch) { this.pinch = { d, span: this.span, mid, off: this.offset }; return; }
+      const k = this.pinch.d / (d || 1);
+      this.span = Math.max(8, Math.min(Math.max(20, this.rows().length), Math.round(this.pinch.span * k)));
+      const L = this._L || this.layout();
+      if (L) {
+        const dx = mid - this.pinch.mid;
+        this.offset = Math.max(0, Math.min(this.maxOffset(), this.pinch.off - Math.round(dx / L.bw)));
       }
+      this.draw();
     } else this.pinch = null;
   }
 }
 
 if (typeof module !== "undefined" && module.exports) {
-  module.exports = { MARKET_SESSIONS, sessionCovers, sessionsAt, sessionOpensBetween };
+  module.exports = {
+    MARKET_SESSIONS, sessionCovers, sessionsAt, sessionOpensBetween,
+    SHAPE_POINTS, SHAPE_LABELS, CandleChart,
+  };
 }

@@ -2895,68 +2895,17 @@ const views = {
   charts() {
     if (S.chartFocus) {
       const f = S.chartFocus;
-      const tools = [
-        ["cursor", "draw.cursor", "M5 12h14"],
-        ["trend", "draw.trend", "M4 18L10 10L14 14L20 6"],
-        ["ray", "draw.ray", "M4 18L20 6M16 6h4v4"],
-        ["extended", "draw.extended", "M2 20L22 4"],
-        ["parallel", "draw.parallel", "M5 16L15 6M9 20L19 10"],
-        ["channel", "draw.channel", "M4 16L14 6M8 20L18 10M6 18L16 8"],
-        ["pitchfork", "draw.pitchfork", "M4 20L12 4L20 20M12 4v16"],
-        ["triangle", "draw.triangle", "M12 4L20 18H4z"],
-        ["circle", "draw.circle", "M12 4a8 8 0 100 16 8 8 0 000-16z"],
-        ["ellipse", "draw.ellipse", "M12 6c5 0 8 3 8 6s-3 6-8 6-8-3-8-6 3-6 8-6z"],
-        ["hline", "draw.hline", "M4 12h16"],
-        ["hray", "draw.hray", "M8 12h12M8 9v6"],
-        ["vline", "draw.vline", "M12 4v16"],
-        ["rect", "draw.rect", "M6 7h12v10H6z"],
-        ["long", "draw.long", "M7 17V7h10"],
-        ["short", "draw.short", "M7 7v10h10"],
-        ["fib", "draw.fib", "M4 7h16M4 12h16M4 17h16"],
-        ["fibext", "draw.fibext", "M4 6h16M4 11h16M4 16h10"],
-        ["fibtime", "draw.fibtime", "M7 4v16M12 4v16M17 4v16"],
-        ["gann", "draw.gann", "M4 20L20 4M4 20L20 12M4 20L12 4"],
-        ["measure", "draw.measure", "M5 19L19 5M8 19h-3v-3M19 8V5h-3"],
-        ["pricerange", "draw.pricerange", "M4 8h16M4 16h16"],
-        ["daterange", "draw.daterange", "M8 4v16M16 4v16"],
-        ["arrow", "draw.arrow", "M5 19L19 5M14 5h5v5"],
-        ["brush", "draw.brush", "M4 16c4-6 8 2 12-4 2-3 4-4 4-4"],
-        ["infoline", "draw.infoline", "M4 18L20 6M12 4v4"],
-        ["text", "draw.text", "M6 8h12M12 8v10"],
-        ["emoji", "draw.emoji", "M12 8v.01M8 13c1.5 2 6.5 2 8 0"],
-      ];
-      const svgBtn = (id, key, d, extra = "") =>
-        `<button type="button" data-tool="${id}" class="${id==="cursor"?"on":""}" title="${I18N.t(key)}" aria-label="${I18N.t(key)}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7">${d.startsWith("<") ? d : `<path d="${d}"/>`}</svg></button>`;
-      return `<div class="chart-work">
-        <div class="chart-work-bar">
-          <button type="button" class="btn tiny ghost" id="chart-back">${I18N.t("common.back")}</button>
-          <h3>${f.symbol} · ${f.timeframe}</h3>
-          <span class="legend mono" id="tick-lbl">${tickLabel()}</span>
-          <div class="chart-signals-bar" style="display:flex;gap:6px;align-items:center;margin-inline:8px">
-            <button type="button" class="btn tiny ${S.signalsEnabled?"on":"ghost"}" id="sig-toggle" title="Buy/Sell signals">${S.signalsEnabled?"🔔 Signals ON":"🔕 Signals OFF"}</button>
-            <button type="button" class="btn tiny ghost" id="sig-show" style="${S.signalsEnabled?"":"display:none"}">${S.showSignals?"👁️":"🚫"}</button>
-            ${!licFeat("chart_signals")?`<span class="pill no" style="font-size:10px">PREMIUM</span>`:""}
-          </div>
-          <div class="draw-frame" id="draw-frame">
-            <button type="button" class="icon-btn draw-more" id="draw-more" title="${I18N.t("draw.tools")}" aria-label="${I18N.t("draw.tools")}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>
-            <div class="draw-tools" id="draw-tools">
-              ${tools.map(([id,k,d]) => svgBtn(id, k, d)).join("")}
-              <button type="button" id="draw-magnet" title="${I18N.t("draw.magnet")}" aria-label="${I18N.t("draw.magnet")}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M7 4v8a5 5 0 0010 0V4M7 4H4v8a8 8 0 0016 0V4h-3"/></svg></button>
-              <button type="button" id="draw-zin" title="${I18N.t("draw.zoom_in")}" aria-label="${I18N.t("draw.zoom_in")}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="11" cy="11" r="6"/><path d="M21 21l-4-4M8 11h6M11 8v6"/></svg></button>
-              <button type="button" id="draw-zout" title="${I18N.t("draw.zoom_out")}" aria-label="${I18N.t("draw.zoom_out")}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="11" cy="11" r="6"/><path d="M21 21l-4-4M8 11h6"/></svg></button>
-              <button type="button" id="draw-fit" title="${I18N.t("draw.fit")}" aria-label="${I18N.t("draw.fit")}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg></button>
-              <button type="button" id="draw-undo" title="${I18N.t("draw.undo")}" aria-label="${I18N.t("draw.undo")}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M9 14L4 9l5-5"/><path d="M4 9h10a6 6 0 110 12h-2"/></svg></button>
-              <button type="button" id="draw-clear" title="${I18N.t("draw.clear")}" aria-label="${I18N.t("draw.clear")}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M5 7h14M9 7V5h6v2M8 7l1 12h6l1-12"/></svg></button>
-              <button type="button" id="draw-sessions" class="${S.chartSessions ? "on" : ""}"
-                      title="${I18N.t("draw.sessions")}" aria-label="${I18N.t("draw.sessions")}"
-                      aria-pressed="${Boolean(S.chartSessions)}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M12 3a9 9 0 100 18 9 9 0 000-18z"/><path d="M12 7v5l3 2"/></svg></button>
-            </div>
-          </div>
-        </div>
-        <div class="chart-box"><canvas id="cv-desk"></canvas><div class="chart-levels" id="chart-levels"></div></div>
-        ${chartTicketHtml()}
-        <!-- chart signals list removed — only canvas overlay per user request -->
-      </div>`;
+      // The workspace - top bar, drawing rail, chart, dock - is built by
+      // js/chart-tools.js from its own tool table. The desk only tells it
+      // what is being charted and hands it the order ticket to carry.
+      if (typeof AurionChartUI === "undefined") {
+        return `<div class="card">${emptyCard(I18N.t("errors.generic"), "chart-tools.js")}</div>`;
+      }
+      return AurionChartUI.html({
+        symbol: f.symbol,
+        timeframe: f.timeframe,
+        ticket: chartTicketHtml(),
+      });
     }
     const agents = liveAgents();
     const testers = testerAgents();
@@ -5360,11 +5309,6 @@ function setChartSessions(on) {
   S.chartSessions = Boolean(on);
   try { localStorage.setItem("aurion.chart.sessions", S.chartSessions ? "on" : "off"); } catch (e) { /* ignore */ }
   if (S.chart && typeof S.chart.setSessions === "function") S.chart.setSessions(S.chartSessions);
-  const btn = $("draw-sessions");
-  if (btn) {
-    btn.classList.toggle("on", S.chartSessions);
-    btn.setAttribute("aria-pressed", S.chartSessions ? "true" : "false");
-  }
 }
 
 function applyChartLevels(force) {
@@ -5393,36 +5337,17 @@ function applyChartLevels(force) {
   bindCloseButtons(box);
 }
 function bindChartDesk() {
-  const back = $("chart-back");
-  if (back) back.onclick = () => closeChartDesk();
-  const sigToggle = $("sig-toggle");
-  if (sigToggle) sigToggle.onclick = async () => {
-    if (!licFeat("chart_signals")) { toast(I18N.t("lic.err_locked")); show("upgrade"); return; }
-    S.signalsEnabled = !S.signalsEnabled;
-    localStorage.setItem("aurion.signalsEnabled", S.signalsEnabled ? "1" : "0");
-    sigToggle.textContent = S.signalsEnabled ? "🔔 Signals ON" : "🔕 Signals OFF";
-    sigToggle.classList.toggle("on", S.signalsEnabled);
-    sigToggle.classList.toggle("ghost", !S.signalsEnabled);
-    const showBtn = $("sig-show");
-    if (showBtn) showBtn.style.display = S.signalsEnabled ? "" : "none";
-    if (S.signalsEnabled) await fetchChartSignals(S.chartFocus?.symbol, S.chartFocus?.timeframe);
-    else { S.chartSignals = []; if (S.chart) S.chart.setSignals([], S.showSignals); }
-  };
-  const sigShow = $("sig-show");
-  if (sigShow) sigShow.onclick = () => {
-    S.showSignals = !S.showSignals;
-    localStorage.setItem("aurion.showSignals", S.showSignals ? "1" : "0");
-    sigShow.textContent = S.showSignals ? "👁️" : "🚫";
-    if (S.chart) S.chart.setSignals(S.chartSignals, S.showSignals);
-  };
   const cv = $("cv-desk");
   if (!cv || !S.chartFocus) return;
   const key = S.chartFocus.symbol + "." + S.chartFocus.timeframe;
+
   S.chart = new CandleChart(cv, {
     analyze: true,
     key,
     onPrice: onChartPrice,
     onPending: onChartPending,
+    // Text is asked for in place, over the chart, rather than with a
+    // browser prompt that steals the window.
     onText: (seed, done) => {
       let pop = $("chart-text-pop");
       if (!pop) {
@@ -5440,53 +5365,50 @@ function bindChartDesk() {
     },
   });
   S.chart.setTool("cursor");
+  S.chart.setSessions(chartSessionsOn());
+  S.chart.setSignals(S.chartSignals || [], S.showSignals);
   applyChartLevels(true);
   bindChartTicket();
-  const tools = $("draw-tools");
-  if (tools) tools.onclick = (e) => {
-    const b = e.target.closest("[data-tool]");
-    if (!b || !S.chart) return;
-    tools.querySelectorAll("[data-tool]").forEach((x) => x.classList.toggle("on", x === b));
-    S.chart.setTool(b.dataset.tool);
-  };
-  const undo = $("draw-undo");
-  if (undo) undo.onclick = () => S.chart && S.chart.undo();
-  const clr = $("draw-clear");
-  if (clr) clr.onclick = () => S.chart && S.chart.clearDrawings();
-  const mag = $("draw-magnet");
-  if (mag) mag.onclick = () => {
-    if (!S.chart) return;
-    S.chart.setMagnet(!S.chart.magnet);
-    mag.classList.toggle("on", S.chart.magnet);
-  };
-  const zin = $("draw-zin"); if (zin) zin.onclick = () => S.chart && S.chart.zoom(1);
-  const zout = $("draw-zout"); if (zout) zout.onclick = () => S.chart && S.chart.zoom(-1);
-  const fit = $("draw-fit"); if (fit) fit.onclick = () => S.chart && S.chart.fit();
-  const sess = $("draw-sessions");
-  if (sess) sess.onclick = () => setChartSessions(!chartSessionsOn());
 
-  /* Drawings can be picked up and moved now, which needs a home for the
-     keyboard part: Delete removes what is selected, Escape drops the
-     selection or an unfinished shape. Bound once per chart mount. */
-  if (S.chart && !S._chartKeysBound) {
-    S._chartKeysBound = true;
-    document.addEventListener("keydown", (e) => {
-      if (!S.chart || S.view !== "charts") return;
-      const typing = /^(input|textarea|select)$/i.test((e.target && e.target.tagName) || "");
-      if (typing) return;
-      if (e.key === "Delete" || e.key === "Backspace") {
-        if (S.chart.deleteSelected && S.chart.deleteSelected()) e.preventDefault();
-      } else if (e.key === "Escape") {
-        if (S.chart.select) S.chart.select(null);
-        if (S.chart.draft) { S.chart.draft = null; S.chart.draw(); }
-      }
+  if (typeof AurionChartUI !== "undefined") {
+    AurionChartUI.bind(S.chart, {
+      symbol: S.chartFocus.symbol,
+      timeframe: S.chartFocus.timeframe,
+      toast,
+      // Destructive actions go through the desk's own dialog rather than
+      // the browser's, which the installer window styles differently.
+      confirm: (question, go) => {
+        askConfirm({ title: I18N.t("chart.delete_all"), body: question, danger: true })
+          .then((yes) => { if (yes) go(); });
+      },
+      onBack: () => closeChartDesk(),
+      onSessions: (on) => setChartSessions(on),
+      // Strategy signals are premium and they come from the engine, so the
+      // switch in the chart's settings menu is answered here rather than in
+      // the interface layer.
+      onSignals: async (on) => {
+        if (on && !licFeat("chart_signals")) {
+          toast(I18N.t("lic.err_locked"));
+          show("upgrade");
+          return;
+        }
+        S.signalsEnabled = on;
+        S.showSignals = on;
+        try {
+          localStorage.setItem("aurion.signalsEnabled", on ? "1" : "0");
+          localStorage.setItem("aurion.showSignals", on ? "1" : "0");
+        } catch { /* ignore */ }
+        if (!on) {
+          S.chartSignals = [];
+          if (S.chart) S.chart.setSignals([], false);
+          return;
+        }
+        await fetchChartSignals(S.chartFocus?.symbol, S.chartFocus?.timeframe);
+      },
+      onTimeframe: (tf) => switchChartTimeframe(tf),
     });
   }
-  // Apply the remembered choice to a chart that has just been created.
-  if (S.chart && typeof S.chart.setSessions === "function") S.chart.setSessions(chartSessionsOn());
-  const more = $("draw-more");
-  const frame = $("draw-frame");
-  if (more && frame) more.onclick = () => frame.classList.toggle("open");
+
   (async () => {
     try {
       await pickMarket(S.chartFocus.symbol, S.chartFocus.timeframe);
@@ -5494,9 +5416,20 @@ function bindChartDesk() {
       const t = S.snap?.ticks?.[S.chartFocus.symbol];
       if (S.chart && t) S.chart.setTick(t);
       applyChartLevels();
-      if (S.signalsEnabled) await fetchChartSignals(S.chartFocus.symbol, S.chartFocus.timeframe);
+      if (S.signalsEnabled && licFeat("chart_signals")) {
+        await fetchChartSignals(S.chartFocus.symbol, S.chartFocus.timeframe);
+      }
     } catch { /* empty workspace */ }
   })();
+}
+
+/* Changing the interval keeps the workspace: same drawings, same indicators,
+   same tool - only the bars underneath are replaced. */
+async function switchChartTimeframe(tf) {
+  if (!S.chartFocus || S.chartFocus.timeframe === tf) return;
+  S.chartFocus = { ...S.chartFocus, timeframe: tf };
+  S.timeframe = tf;
+  await show("charts", { animate: false, closeMenu: false, nav: false });
 }
 
 async function paintMiniCharts() {
