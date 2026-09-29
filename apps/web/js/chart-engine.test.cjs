@@ -268,6 +268,91 @@ chart.updateObject(line.id, { locked: true });
 check("a locked object cannot be grabbed by its handle",
   (chart.shapeAt(L2, ax.x, ax.y) || {}).handle === null);
 
+/* -------------------------------------------------------------- the grab -- */
+/*
+   The one invariant that decides whether a chart feels right: what is under
+   the pointer when the drag starts is under the pointer when it ends. If
+   that holds, the chart is a sheet of paper under the hand; if it does not,
+   the chart argues with you. It used to argue - the horizontal sign was
+   inverted, and then inverted a second time for right-to-left layouts, so
+   the gesture was backwards in English and backwards-backwards in Persian.
+*/
+(function theGrab() {
+  const down = (btn, x, y) => chart.onDown({ button: btn, clientX: x, clientY: y, pointerId: 1 });
+  const move = (x, y) => chart.onMove({ clientX: x, clientY: y });
+  const up = (btn, x, y) => chart.onUp({ button: btn, clientX: x, clientY: y, pointerId: 1 });
+
+  function barUnder(x) {
+    const L = chart.layout();
+    return L.start + L.iOf(x);
+  }
+  // The window moves in whole bars, so a drag of n pixels lands on the
+  // nearest one; anything beyond a single bar of slip is a real error, and
+  // an inverted sign is out by twice the distance dragged.
+  function carried(x, was) { return Math.abs(barUnder(x) - was) <= 1; }
+
+  for (const dir of ["rtl", "ltr"]) {
+    win.document.documentElement.dir = dir;
+    chart.setTool("cursor");
+    chart.fit();
+    chart.pan(40);                                   // room to move both ways
+
+    // ---- left button, dragged right -----------------------------------
+    let L = chart.layout();
+    let x0 = Math.round(L.plotL + (L.plotR - L.plotL) / 2);
+    let step = Math.round(L.bw * 6);
+    let held = barUnder(x0);
+    down(0, x0, 200); move(x0 + step, 200); up(0, x0 + step, 200);
+    check("[" + dir + "] drag right and the bar under the pointer comes with it",
+      carried(x0 + step, held));
+    check("[" + dir + "] ...which means older bars are revealed", chart.layout().start < L.start);
+
+    // ---- left button, dragged left ------------------------------------
+    L = chart.layout();
+    held = barUnder(x0);
+    down(0, x0, 200); move(x0 - step, 200); up(0, x0 - step, 200);
+    check("[" + dir + "] drag left and it still comes with it",
+      carried(x0 - step, held));
+
+    // ---- right button: both axes at once -------------------------------
+    chart.setAutoScale(true);
+    L = chart.layout();
+    const y0 = Math.round(L.plotT + (L.plotB - L.plotT) / 2);
+    const dy = 70;
+    held = barUnder(x0);
+    const priceHeld = L.pOf(y0);
+    down(2, x0, y0); move(x0 + step, y0 + dy); up(2, x0 + step, y0 + dy);
+    const after = chart.layout();
+    check("[" + dir + "] right-drag carries the bar with the pointer",
+      carried(x0 + step, held));
+    check("[" + dir + "] right-drag carries the price with it too",
+      Math.abs(after.pOf(y0 + dy) - priceHeld) < (after.mx - after.mn) * 0.01);
+  }
+  win.document.documentElement.dir = "ltr";
+
+  // ---- two fingers ----------------------------------------------------
+  chart.fit(); chart.pan(40);
+  const L2 = chart.layout();
+  const tx = Math.round(L2.plotL + 200);
+  const heldT = L2.start + L2.iOf(tx);
+  const stepT = Math.round(L2.bw * 5);
+  const touch = (a, b) => ({ touches: [{ clientX: a, clientY: 100 }, { clientX: b, clientY: 300 }], preventDefault() {} });
+  chart.onTouch(touch(tx - 40, tx + 40));
+  chart.onTouch(touch(tx - 40 + stepT, tx + 40 + stepT));
+  check("two fingers carry the chart the way they move",
+    (() => { const L3 = chart.layout(); return Math.abs(L3.start + L3.iOf(tx + stepT) - heldT) <= 1; })());
+  chart.pinch = null;
+
+  // ---- shift + wheel ---------------------------------------------------
+  chart.fit(); chart.pan(60);
+  const back = chart.offset;
+  chart.onWheel({ deltaY: 120, shiftKey: true, clientX: 400, clientY: 200, preventDefault() {} });
+  check("shift and wheel down goes forward in time", chart.offset < back);
+  chart.onWheel({ deltaY: -120, shiftKey: true, clientX: 400, clientY: 200, preventDefault() {} });
+  check("...and wheel up goes back", chart.offset >= back - 1);
+  chart.fit();
+})();
+
 /* ------------------------------------------------- the right-button drag -- */
 /*
    Press the right button anywhere on the chart and drag: time and price move

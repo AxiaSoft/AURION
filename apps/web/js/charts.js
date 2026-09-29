@@ -2453,6 +2453,18 @@ class CandleChart {
     this.draw();
   }
 
+  /**
+   * Scroll the window by a number of bars.
+   *
+   * Positive goes back in time. The sign convention for *dragging* is the
+   * one thing this file cannot get wrong: the chart is a sheet of paper
+   * under the hand, so whatever the pointer does, the candles do. Drag
+   * right and the candles go right, which means older bars come into view
+   * and the offset grows. It used to be the opposite, and it was also
+   * negated again for right-to-left layouts - which made the gesture
+   * backwards in English and correct by accident in Persian. The canvas is
+   * never mirrored, so direction does not depend on the language at all.
+   */
   pan(bars) {
     this.offset += bars;
     this.clampOffset();
@@ -2546,7 +2558,9 @@ class CandleChart {
     const dir = e.deltaY > 0 ? -1 : 1;
     if (hit && hit.onPriceAxis) { this.scaleBy(dir > 0 ? 0.9 : 1.1); return; }
     if (e.shiftKey && !e.ctrlKey) {
-      this.pan(Math.round((e.deltaY > 0 ? 1 : -1) * Math.max(1, this.span * 0.08)));
+      // Wheel down goes forward in time, the way scrolling down a document
+      // goes forward through it.
+      this.pan(Math.round((e.deltaY > 0 ? -1 : 1) * Math.max(1, this.span * 0.08)));
       return;
     }
     this.zoom(dir, hit ? hit.i : null);
@@ -2758,16 +2772,14 @@ class CandleChart {
         const L = this._L || this.layout();
         if (L) {
           const dx = e.clientX - this.drag.x;
-          const rtl = document.documentElement.dir === "rtl" ? -1 : 1;
-          this.offset = this.drag.off + Math.round((-dx * rtl) / L.bw);
+          this.offset = this.drag.off + Math.round(dx / L.bw);
           this.clampOffset();
         }
       } else if (this.drag.mode === "free") {
         const dx = e.clientX - this.drag.x;
         const dy = e.clientY - this.drag.y;
         if (Math.abs(dx) > 2 || Math.abs(dy) > 2) this._rightDrag = true;
-        const rtl = document.documentElement.dir === "rtl" ? -1 : 1;
-        this.offset = this.drag.off + Math.round((-dx * rtl) / (this.drag.bw || 1));
+        this.offset = this.drag.off + Math.round(dx / (this.drag.bw || 1));
         this.clampOffset();
         this.panPrice(this.drag, dy);
       } else if (this.drag.mode === "scale") {
@@ -2881,7 +2893,7 @@ class CandleChart {
       const L = this._L || this.layout();
       if (L) {
         const dx = mid - this.pinch.mid;
-        this.offset = this.pinch.off - Math.round(dx / L.bw);
+        this.offset = this.pinch.off + Math.round(dx / L.bw);
         this.clampOffset();
       }
       this.draw();
