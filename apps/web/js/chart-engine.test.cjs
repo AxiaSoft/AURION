@@ -264,5 +264,60 @@ chart.updateObject(line.id, { locked: true });
 check("a locked object cannot be grabbed by its handle",
   (chart.shapeAt(L2, ax.x, ax.y) || {}).handle === null);
 
+/* ---------------------------------------------------------- the resize -- */
+/*
+   "ResizeObserver loop completed with undelivered notifications" is what the
+   browser reports when an observed element changes size again while the
+   observer is still delivering. The chart caused it by resizing its own
+   canvas inside the callback, and the desk's boot trap turned that benign
+   warning into a red "could not finish loading" panel over a working desk.
+   These assertions are the guard against it coming back.
+*/
+(function resizePath() {
+  const raf = [];
+  let observed = null;
+  const stub = makeCtx({ fills: 0, strokes: 0, text: [] });
+  const cv = {
+    getContext: () => stub, width: 0, height: 0, style: {}, parentElement: null,
+    getBoundingClientRect: () => ({ left: 0, top: 0, width: 800, height: 400 }),
+    addEventListener: noop, setPointerCapture: noop,
+  };
+  const env = {
+    devicePixelRatio: 1,
+    ResizeObserver: function (cb) { observed = cb; this.observe = noop; this.disconnect = noop; },
+    requestAnimationFrame: (fn) => raf.push(fn),
+    getComputedStyle: () => ({ getPropertyValue: () => "" }),
+    document: { documentElement: { dataset: {}, dir: "ltr" } },
+    localStorage: { getItem: () => null, setItem: noop, removeItem: noop },
+    console,
+  };
+  env.window = env; env.globalThis = env;
+  vm.createContext(env);
+  vm.runInContext(fs.readFileSync(path.join(here, "chart-series.js"), "utf8"), env);
+  vm.runInContext(fs.readFileSync(path.join(here, "charts.js"), "utf8") +
+    "\n;globalThis.CandleChart = CandleChart;", env);
+
+  const c = new env.CandleChart(cv, {});
+  c.setBars(series(60));
+  check("the chart observes its own box", typeof observed === "function");
+
+  let painted = 0;
+  const real = c.paint.bind(c);
+  c.paint = () => { painted++; real(); };
+
+  raf.length = 0;
+  observed();
+  check("a resize never paints inside the callback", painted === 0);
+  observed(); observed();
+  check("many resizes in one frame schedule one paint", raf.length === 1);
+  raf.splice(0).forEach((fn) => fn());
+  check("...and that frame paints exactly once", painted === 1);
+
+  let depth = 0, deepest = 0;
+  c.paint = () => { depth++; deepest = Math.max(deepest, depth); if (depth < 3) c.draw(); real(); depth--; };
+  c.draw();
+  check("a paint cannot re-enter itself", deepest === 1);
+})();
+
 console.log(failed ? `\n${failed} failing.` : "\nThe engine holds.");
 process.exit(failed ? 1 : 0);

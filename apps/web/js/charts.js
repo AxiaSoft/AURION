@@ -250,7 +250,13 @@ class CandleChart {
       this.restoreState();
     }
 
-    this.ro = new ResizeObserver(() => this.draw());
+    /* A resize is answered on the next frame, never inside the callback.
+       draw() resizes the canvas backing store, and a canvas that changes
+       size while the observer is still delivering is exactly what makes the
+       browser report "ResizeObserver loop completed with undelivered
+       notifications" - a benign warning, but one the desk's boot trap was
+       catching and turning into a fatal-looking error box. */
+    this.ro = new ResizeObserver(() => this.scheduleDraw());
     this.ro.observe(canvas.parentElement || canvas);
     canvas.addEventListener("wheel", (e) => this.onWheel(e), { passive: false });
     canvas.addEventListener("pointerdown", (e) => this.onDown(e));
@@ -859,7 +865,25 @@ class CandleChart {
 
   /* =============================================================== paint == */
 
+  /** Coalesce every redraw request in a frame into one paint. */
+  scheduleDraw() {
+    if (this._raf) return;
+    const raf = (typeof requestAnimationFrame === "function")
+      ? requestAnimationFrame
+      : (fn) => setTimeout(fn, 16);
+    this._raf = raf(() => { this._raf = 0; this.draw(); });
+  }
+
   draw() {
+    // Re-entrancy guard. Painting can resize the canvas, which can notify an
+    // observer, which can ask to paint again; without this the two chase
+    // each other for a frame.
+    if (this._painting) return;
+    this._painting = true;
+    try { this.paint(); } finally { this._painting = false; }
+  }
+
+  paint() {
     const ctx = this.ctx;
     const box = this.size();
     ctx.clearRect(0, 0, box.w, box.h);

@@ -71,7 +71,19 @@
           (document.body || document.documentElement).appendChild(box);
         } catch (e) { /* if even this fails, the console still has it */ }
       }
+      /* Two messages the spec requires the browser to fire as error events
+         even though nothing has failed: a ResizeObserver that could not
+         deliver every notification inside one frame simply retries on the
+         next one. They were putting a red "could not finish loading" panel
+         over a desk that had loaded perfectly. Noted in the console, never
+         on screen. */
+      var BENIGN = /^(ResizeObserver loop limit exceeded|ResizeObserver loop completed with undelivered notifications)/;
+
       window.addEventListener("error", function (e) {
+        if (e && typeof e.message === "string" && BENIGN.test(e.message)) {
+          if (window.console && console.debug) console.debug("[benign]", e.message);
+          return;
+        }
         report(e.message || "script error",
                (e.error && e.error.stack) || (e.filename ? e.filename + ":" + e.lineno : ""));
       });
@@ -85,7 +97,7 @@
   <script src="/js/themes.js?v=desk96"></script>
   <link rel="stylesheet" href="/css/app.css?v=desk97" />
   <link rel="stylesheet" href="/css/skins.css?v=desk93" />
-  <link rel="stylesheet" href="/css/chart.css?v=desk97" />
+  <link rel="stylesheet" href="/css/chart.css?v=desk100" />
   <link rel="stylesheet" href="/css/themes.css?v=desk99" />
 </head>
 <body class="mode-desk">
@@ -194,7 +206,7 @@
   <script src="/js/api.js?v=desk85"></script>
   <script src="/js/calendar.js?v=desk85"></script>
   <script src="/js/chart-series.js?v=desk97"></script>
-  <script src="/js/charts.js?v=desk97"></script>
+  <script src="/js/charts.js?v=desk100"></script>
   <script src="/js/chart-tools.js?v=desk97"></script>
   <script src="/js/app.js?v=desk97"></script>
 </body>

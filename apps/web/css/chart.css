@@ -213,6 +213,18 @@ html[dir="rtl"] .tv-flyout { transform: translateX(6px) }
   border-radius: 0;
   background: transparent;
 }
+/* The canvas is taken out of the layout entirely.
+   A canvas has an intrinsic size, and the engine rewrites that size whenever
+   the box changes - inside a flex column that is a feedback loop: paint
+   resizes the canvas, the canvas nudges the box, the box notifies the
+   observer, and the browser reports an undelivered ResizeObserver
+   notification. Absolute means the canvas can never push back on its parent. */
+.tv-stage .chart-box canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
 .tv-nav {
   position: absolute; inset-block-end: 12px; inset-inline-end: 96px;
   display: flex; gap: 5px;
