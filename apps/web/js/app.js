@@ -1806,6 +1806,29 @@ function patchLive() {
   }
 }
 
+/* A strategy card says "enabled" twice: with the switch at the top and with
+   the state pill under it. They had drifted apart - the live patcher rewrote
+   the pill's words and left its colour alone, so a strategy that had just
+   been turned off still read "Disabled" in the green of an enabled one until
+   something rebuilt the tab. Both markers are painted here, from one value,
+   so they cannot disagree again. */
+function paintStrategyEnabled(name, enabled) {
+  const on = Boolean(enabled);
+  const pill = document.querySelector('[data-st-on="' + name + '"]');
+  if (pill) {
+    pill.textContent = I18N.t(on ? "strategies.enable" : "strategies.disable");
+    pill.classList.toggle("on", on);
+  }
+  const sw = document.querySelector('button.switch[data-st="' + name + '"]');
+  if (sw) {
+    sw.classList.toggle("on", on);
+    // The pressed state is how a screen reader hears this switch at all.
+    sw.setAttribute("aria-pressed", on ? "true" : "false");
+  }
+  const card = document.querySelector('[data-st-card="' + name + '"]');
+  if (card) card.classList.toggle("is-off", !on);
+}
+
 function patchStrategyLive() {
   const st = S.snap?.strategy || {};
   // A strategy was added/removed (upload, delete, first toggle): the static
@@ -1827,19 +1850,31 @@ function patchStrategyLive() {
     const wr = document.querySelector('[data-st-wr="' + it.name + '"]');
     const net = document.querySelector('[data-st-net="' + it.name + '"]');
     const n = document.querySelector('[data-st-n="' + it.name + '"]');
+    const wl = document.querySelector('[data-st-wl="' + it.name + '"]');
+    const pf = document.querySelector('[data-st-pf="' + it.name + '"]');
+    const avg = document.querySelector('[data-st-avg="' + it.name + '"]');
     if (act) {
       act.textContent = it.last_action || "idle";
       act.className = "mono " + (it.last_action === "buy" ? "up" : it.last_action === "sell" ? "down" : "");
     }
     if (ev && it.last_reason) ev.textContent = it.last_reason;
-    if (on) on.textContent = it.enabled ? I18N.t("strategies.enable") : I18N.t("strategies.disable");
-    if (sw) sw.classList.toggle("on", Boolean(it.enabled));
+    if (on || sw) paintStrategyEnabled(it.name, it.enabled);
     if (wr) wr.textContent = fmt(it.win_rate || 0, 1) + "%";
     if (net) {
       net.textContent = fmt(it.net || 0);
       net.className = "mono " + clsPnl(it.net);
     }
     if (n) n.textContent = String(it.trades || 0);
+    // The second stats row was never patched at all, so the record, the
+    // profit factor and the average sat at whatever they were when the tab
+    // was last built.
+    if (wl) wl.innerHTML = String(it.wins || 0) + '<i class="sep">/</i>' + String(it.losses || 0);
+    if (pf) pf.textContent = it.profit_factor === null || it.profit_factor === undefined
+      ? "—" : fmt(it.profit_factor, 2);
+    if (avg) {
+      avg.textContent = fmt(it.avg || 0);
+      avg.className = "mono " + clsPnl(it.avg);
+    }
   });
   const sig = S.snap?.last_signal;
   const pill = $("st-live-sig");
@@ -2213,7 +2248,7 @@ function strategyLiveCards() {
     const act = it.last_action || "idle";
     const cls = act === "buy" ? "up" : act === "sell" ? "down" : "";
     const custom = (it.kind || "builtin") !== "builtin";
-    return `<div class="card st-card" data-st-card="${esc(it.name)}">
+    return `<div class="card st-card${it.enabled ? "" : " is-off"}" data-st-card="${esc(it.name)}">
       <div class="st-top">
         <div>
           <h3 style="margin:0">${esc(it.name)}</h3>
@@ -4560,7 +4595,12 @@ function bindStrategyToggles() {
     b.onclick = async () => {
       const name = b.dataset.st;
       const on = !b.classList.contains("on");
+      // Painted before the request goes out: the engine round trip is the
+      // one moment a switch must not feel slow. If it is refused, the two
+      // markers go back together.
+      paintStrategyEnabled(name, on);
       const r = await API.post("/api/strategies/toggle", { name, enabled: on });
+      if (!r.ok) paintStrategyEnabled(name, !on);
       toast(r.ok ? I18N.t(on ? "strategies.enable" : "strategies.disable") : (r.error || I18N.t("errors.generic")));
       if (r.ok && r.strategy) {
         S.snap = S.snap || {};

@@ -363,6 +363,11 @@ html[dir="rtl"] .field span{letter-spacing:0}
 .switch.on i{background:var(--cyan);transform:translateX(20px)}
 html[dir="rtl"] .switch.on i{transform:translateX(-20px)}
 .st-card{display:flex;flex-direction:column;gap:8px}
+/* A disabled strategy is still worth reading, so it is dimmed rather than
+   greyed: the heading, the switch and the state pill stay at full strength
+   and only the body of the card steps back. */
+.st-card.is-off .st-stats,.st-card.is-off .sub{opacity:.62}
+.st-card.is-off{transition:opacity .2s var(--ease)}
 .st-top{display:flex;align-items:center;justify-content:space-between;gap:12px}
 .auto-banner{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:14px}
 .manual-box{margin-top:16px;padding-top:12px;border-top:1px solid var(--line)}

@@ -1841,6 +1841,35 @@ html[data-skin] .plan-card.popular{
   background:linear-gradient(180deg, rgb(var(--accent-rgb) / .12), rgb(var(--s4) / .82));
 }
 
+/* "Enabled" on a strategy card, and the same filled pill wherever it means
+   "this one is on". A themed .pill rule carries one more attribute than
+   .st-live .pill.on does, so under Neumorphism the fill was being replaced by
+   the resting surface and under Cyber the transparent edge came back as neon:
+   the state was correct in the DOM and invisible on the screen.
+
+   The ink is the measured one rather than the fixed near-black app.css used,
+   because an accent can be dark - indigo and violet were putting dark text on
+   a dark fill. */
+html[data-skin] .st-live .pill.on,
+html[data-skin] .gate-card .pill.on{
+  background:var(--accent);
+  color:var(--accent-ink, var(--on-accent));
+  border-color:transparent;
+  box-shadow:none;
+}
+html[data-skin] .gate-card .pill.ok{
+  background:transparent;
+  border:1px solid rgb(var(--accent-rgb) / .35);
+  color:var(--accent-readable, var(--accent));
+  box-shadow:none;
+}
+html[data-skin] .gate-card .pill.no{
+  background:transparent;
+  border:1px solid rgb(255 107 138 / .35);
+  color:var(--rose);
+  box-shadow:none;
+}
+
 /* ===========================================================================
    11. The last details
    ===========================================================================
