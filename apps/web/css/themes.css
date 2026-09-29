@@ -533,6 +533,9 @@ html[data-skin] .toast{
   -webkit-backdrop-filter:blur(var(--blur-lg)) saturate(var(--sat));
 }
 html[data-skin] .dd-opt{ border-radius:var(--radius-sm) }
+/* A destructive dialog says so before anyone reads the words, and a themed
+   border on .modal-card would otherwise have erased the stripe that says it. */
+html[data-skin] .modal-card.is-danger{ border-top:3px solid var(--rose) }
 
 /* ---- interactive: buttons, fields, pills, switches -------------------- */
 html[data-skin] .btn{
@@ -583,12 +586,94 @@ html[data-skin] .dd-btn:focus{
   background:var(--field-hi);
 }
 
+/* Shape is the theme's business. Colour is the *state's* business, and this
+   rule used to take both: written as one blanket declaration it outweighed
+   .st-chip[data-state="live"] and .pill.is-backtest, so the header's "Engine
+   online" badge lost its fill and turned into another grey pill. A themed
+   base plus every state restated below is the correct split. */
 html[data-skin] .pill,
 html[data-skin] .chip,
+html[data-skin] .st-chip{ border-radius:var(--radius-pill) }
+/* .pill and .chip need nothing else: their resting colours are already
+   --line and a wash of --wash, both of which the theme has already moved.
+   A :not() chain to protect their states was written here first and thrown
+   away - it was more specific than the states it was protecting. */
+
+/* ---- the header's status badges ----------------------------------------
+   These three say whether the engine is up, whether MT5 is connected and
+   what the tape is doing, and they are read at a glance from the corner of
+   an eye - so each one carries a state dot as well as a fill, and the text
+   on a filled badge uses the accent's *measured* readable ink rather than a
+   fixed near-black that happens to work on teal. */
 html[data-skin] .st-chip{
-  border-radius:var(--radius-pill);
+  gap:6px;
   border-color:var(--line);
   background:var(--surface-interactive);
+  color:var(--muted);
+  transition:background var(--dur-2) var(--ease-1),
+             color var(--dur-2) var(--ease-1),
+             border-color var(--dur-2) var(--ease-1),
+             box-shadow var(--dur-2) var(--ease-1);
+}
+html[data-skin] .st-chip::before{
+  content:"";
+  width:6px; height:6px; border-radius:50%;
+  background:currentColor;
+  opacity:.9;
+  flex:none;
+}
+html[data-skin] .st-chip[data-state="live"]{
+  background:var(--accent);
+  color:var(--accent-ink);
+  border-color:transparent;
+  box-shadow:var(--glow-soft);
+}
+html[data-skin] .st-chip.mt5[data-state="live"]{
+  background:var(--gold);
+  color:#1a1206;
+  border-color:transparent;
+  box-shadow:0 8px 22px rgba(232,192,122,.18);
+}
+html[data-skin] .st-chip.tape[data-state="live"]{
+  background:var(--accent);
+  color:var(--accent-ink);
+  border-color:transparent;
+}
+html[data-skin] .st-chip.tape[data-state="tester"],
+html[data-skin] .st-chip.tape[data-state="backtest"]{
+  background:var(--accent-3);
+  color:#fff;
+  border-color:transparent;
+  box-shadow:none;
+}
+html[data-skin] .st-chip.tape[data-state="idle"]{
+  background:var(--surface-interactive);
+  color:var(--muted);
+  border-color:var(--line);
+  box-shadow:none;
+}
+/* Down is the one state that never follows the accent, for the same reason
+   the kill button does not: it has to be found by colour alone. */
+html[data-skin] .st-chip[data-state="down"]{
+  color:var(--rose);
+  background:rgb(244 71 91 / .12);
+  border-color:rgb(244 71 91 / .42);
+  box-shadow:none;
+}
+html[data-skin] .st-chip.ai[data-state="bull"]{
+  background:rgb(var(--accent-rgb) / .2);
+  color:var(--accent-readable, var(--accent));
+  border-color:rgb(var(--accent-rgb) / .35);
+}
+html[data-skin] .st-chip.ai[data-state="bear"]{
+  background:rgb(244 71 91 / .18);
+  color:var(--rose);
+  border-color:rgb(244 71 91 / .35);
+}
+/* A live badge breathes, very slightly, so "up" is visible without reading.
+   One 6px dot, opacity only, and it stops with everything else. */
+html[data-motion="full"][data-perf="rich"] .st-chip[data-state="live"]::before{
+  animation:pulse 2.4s var(--ease) infinite;
 }
 html[data-skin] .tabs button,
 html[data-skin] .lang-pills button,
@@ -598,6 +683,13 @@ html[data-skin] .switch{
   background:var(--surface-interactive);
   border:1px solid var(--line);
 }
+/* The same trap as the status badges: a themed resting state has to restate
+   the on state, or every toggle in the product reads as off. */
+html[data-skin] .switch.on{
+  background:rgb(var(--accent-rgb) / .25);
+  border-color:rgb(var(--accent-rgb) / .45);
+}
+html[data-skin] .switch.on i{ background:var(--accent) }
 html[data-skin] .switch i{
   transition:transform var(--dur-2) var(--ease-spring),
              background var(--dur-2) var(--ease-1);
@@ -1419,7 +1511,9 @@ html[data-skin] .cal-tip{ border-radius:var(--radius-md) }
 html[data-skin] .cal-cell{ border-radius:var(--radius-sm) }
 html[data-skin] .secret-box,
 html[data-skin] .keybox{ border-radius:var(--radius-md) }
-html[data-skin] .plan-card{ border-radius:var(--radius-lg); background:var(--surface-interactive) }
+/* Radius only: .plan-card.popular tints itself with the accent, and a
+   blanket background here would have quietly removed that. */
+html[data-skin] .plan-card{ border-radius:var(--radius-lg) }
 html[data-skin] .notify-stack .notify-card{ border-radius:var(--radius-md) }
 html[data-skin] .prof-ava{ border-radius:var(--radius-lg) }
 
@@ -1435,3 +1529,44 @@ html[data-skin] progress{ accent-color:var(--accent) }
    else when motion is off. */
 html[data-skin] .empty .orb{ animation-duration:calc(5s / max(var(--motion-scale), .2)) }
 html[data-motion="off"] .empty .orb{ animation:none }
+
+/* ===========================================================================
+   10. The states that have to outlive the theme
+   ===========================================================================
+   A themed *resting* appearance is written with one more attribute in the
+   selector than the state rules it sits next to, which means it silently
+   outranks them. That is how "Engine online" lost its fill: not a colour
+   mistake, a specificity one.
+
+   Everything a user reads as "this one is selected / this one is live /
+   this one is dangerous" is therefore restated here, at the same weight as
+   the themed surface it has to beat. If a new themed component is added
+   above, its states belong here. */
+
+/* The rail's selected destination keeps its accent wash, and keeps it while
+   the pointer is over it - a selected item that reverts on hover reads as
+   though the selection is about to move. */
+html[data-skin] .nav button.on,
+html[data-skin] .nav button.on:hover{
+  background:linear-gradient(180deg, rgb(var(--accent-rgb) / .16), rgb(var(--accent-rgb) / .06));
+  border-color:rgb(var(--accent-rgb) / .28);
+  color:var(--accent-readable, var(--ink));
+  transform:none;
+}
+
+/* Chart tool buttons mark their active tool with the gold edge, ghost or not. */
+html[data-skin] .ct-actions .btn.on,
+html[data-skin] .draw-tools .btn.on,
+html[data-skin] .draw-tools .icon-btn.on{
+  border-color:var(--gold);
+  color:var(--gold);
+}
+
+/* Plan cards: selected, and the one being pushed. */
+html[data-skin] .plan-card.on{
+  border-color:rgb(var(--accent-rgb) / .55);
+  box-shadow:0 0 0 1px rgb(var(--accent-rgb) / .28), var(--shadow-md);
+}
+html[data-skin] .plan-card.popular{
+  background:linear-gradient(180deg, rgb(var(--accent-rgb) / .12), rgb(var(--s4) / .82));
+}
