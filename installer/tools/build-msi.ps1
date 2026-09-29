@@ -64,7 +64,7 @@ function Step([string] $text) {
 
 # Bumped whenever this script changes, so a stale copy is obvious at a glance
 # instead of failing with a confusing parameter error.
-$ScriptRevision = "17"
+$ScriptRevision = "18"
 
 Write-Host ""
 Write-Host "  AURION installer build" -ForegroundColor White
@@ -223,6 +223,47 @@ if ($needAssets.Count -eq 0) {
               "      pip install Pillow fonttools brotli"
     }
 }
+
+# Present is not the same as usable. An icon that is really a renamed PNG
+# passes every Test-Path above and then fails a minute later inside the C#
+# compiler as "CS7065: Icon stream is not in the expected format", which
+# names neither the file nor the reason. Two magic numbers, checked here,
+# turn that into one clear line before anything is built.
+$badAssets = @()
+foreach ($item in @(
+        @{ name = "aurion.ico";      magic = @(0, 0, 1, 0);  kind = "an icon (.ico)" },
+        @{ name = "exclamation.ico"; magic = @(0, 0, 1, 0);  kind = "an icon (.ico)" },
+        @{ name = "info.ico";        magic = @(0, 0, 1, 0);  kind = "an icon (.ico)" },
+        @{ name = "new.ico";         magic = @(0, 0, 1, 0);  kind = "an icon (.ico)" },
+        @{ name = "up.ico";          magic = @(0, 0, 1, 0);  kind = "an icon (.ico)" },
+        @{ name = "banner.bmp";      magic = @(66, 77);      kind = "a bitmap (.bmp)" },
+        @{ name = "dialog.bmp";      magic = @(66, 77);      kind = "a bitmap (.bmp)" })) {
+
+    $path = Join-Path $assetsDir $item.name
+    if (-not (Test-Path $path)) { continue }
+    $head = [System.IO.File]::ReadAllBytes($path) | Select-Object -First 8
+    $want = $item.magic
+    $ok = $true
+    for ($i = 0; $i -lt $want.Count; $i++) { if ($head[$i] -ne $want[$i]) { $ok = $false } }
+    if ($ok) { continue }
+
+    $what = "an unrecognised format"
+    if ($head[0] -eq 0x89 -and $head[1] -eq 0x50) { $what = "a PNG" }
+    elseif ($head[0] -eq 0xFF -and $head[1] -eq 0xD8) { $what = "a JPEG" }
+    elseif ($head[0] -eq 0x42 -and $head[1] -eq 0x4D) { $what = "a BMP" }
+    elseif ($head[0] -eq 0x52 -and $head[1] -eq 0x49) { $what = "a WebP" }
+    $badAssets += "    {0} is {1}, but it has to be {2}" -f $item.name, $what, $item.kind
+}
+
+if ($badAssets.Count -gt 0) {
+    throw ("These branding assets are the wrong format:`n{0}`n`n" -f ($badAssets -join "`n")) +
+          "  Renaming a .png to .ico does not make an icon - Windows and the C#`n" +
+          "  compiler both refuse it. Fix it with one of:`n" +
+          "      git checkout -- installer/assets/generated`n" +
+          "      python installer\assets\build-assets.py`n" +
+          "      magick logo.png -define icon:auto-resize=256,128,64,48,32,24,16 installer\assets\generated\aurion.ico"
+}
+Write-Host "  asset formats verified" -ForegroundColor Gray
 
 # ---------------------------------------------------------------------------
 # 3. Payload

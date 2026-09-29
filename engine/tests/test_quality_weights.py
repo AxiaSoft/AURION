@@ -88,5 +88,8 @@ if __name__ == "__main__":
         except AssertionError as exc:
             print("FAIL  " + fn.__name__ + " → " + str(exc))
             bad += 1
+        except Exception as exc:  # a corrupt file must report, not traceback
+            print("FAIL  " + fn.__name__ + " → " + type(exc).__name__ + ": " + str(exc))
+            bad += 1
     print("\n%d failing." % bad if bad else "\nWhat the page says is what the engine does.")
     raise SystemExit(1 if bad else 0)

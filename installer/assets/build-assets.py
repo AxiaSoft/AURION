@@ -32,7 +32,10 @@ from pathlib import Path
 try:
     from PIL import Image, ImageDraw, ImageFilter, ImageFont
 except ImportError:  # pragma: no cover
-    sys.exit("Pillow is required:  pip install Pillow fonttools brotli")
+    # --verify is a byte-level check and needs nothing installed; only the
+    # generators need Pillow, so the failure is deferred until one is asked
+    # for. A build machine must be able to validate what is committed.
+    Image = ImageDraw = ImageFilter = ImageFont = None
 
 ROOT = Path(__file__).resolve().parents[2]
 WEB = ROOT / "apps" / "web"
@@ -261,12 +264,121 @@ def build_glyph(out: Path, kind: str) -> None:
     img.save(out, format="ICO", sizes=[(16, 16), (32, 32), (48, 48), (64, 64)])
 
 
+# ---------------------------------------------------------------------------
+# verification
+# ---------------------------------------------------------------------------
+# An asset with the right name and the wrong contents is the worst kind of
+# broken: every existence check passes and the failure surfaces a minute
+# later, from the C# compiler, as
+#
+#     CSC : error CS7065: Error building Win32 resources --
+#           Icon stream is not in the expected format.
+#
+# which says nothing about which file or why. That is exactly what happened
+# when aurion.ico was replaced with a PNG that had been renamed: a valid
+# picture, in a container Windows cannot read. This check is bytes only, so
+# it runs anywhere, and it names the file and the fix.
+
+EXPECTED = {
+    "aurion.ico": "ico",
+    "exclamation.ico": "ico",
+    "info.ico": "ico",
+    "new.ico": "ico",
+    "up.ico": "ico",
+    "banner.bmp": "bmp",
+    "dialog.bmp": "bmp",
+}
+
+
+def describe(blob: bytes) -> str:
+    """What this file actually is, by its magic number."""
+    if blob[:4] == b"\x89PNG":
+        return "a PNG"
+    if blob[:2] == b"\xff\xd8":
+        return "a JPEG"
+    if blob[:2] == b"BM":
+        return "a BMP"
+    if blob[:4] == b"\x00\x00\x01\x00":
+        return "an ICO"
+    if blob[:4] == b"\x00\x00\x02\x00":
+        return "a CUR (cursor), not an icon"
+    if blob[:4] == b"RIFF":
+        return "a WebP or RIFF container"
+    if blob[:5] == b"<?xml" or blob[:4] == b"<svg":
+        return "an SVG"
+    return "of an unrecognised format"
+
+
+def verify_ico(path: Path, blob: bytes) -> list[str]:
+    bad: list[str] = []
+    if blob[:4] != b"\x00\x00\x01\x00":
+        bad.append(f"{path.name} is {describe(blob)}, not an icon container")
+        return bad
+    if len(blob) < 22:
+        bad.append(f"{path.name} is too short to hold a directory entry")
+        return bad
+    count = int.from_bytes(blob[4:6], "little")
+    if count < 1:
+        bad.append(f"{path.name} declares no images")
+        return bad
+    for i in range(count):
+        off = 6 + i * 16
+        if off + 16 > len(blob):
+            bad.append(f"{path.name}: directory entry {i + 1} runs past the end of the file")
+            break
+        size = int.from_bytes(blob[off + 8:off + 12], "little")
+        data = int.from_bytes(blob[off + 12:off + 16], "little")
+        if data + size > len(blob):
+            bad.append(f"{path.name}: image {i + 1} points outside the file")
+    return bad
+
+
+def verify(out: Path) -> int:
+    problems: list[str] = []
+    for name, kind in sorted(EXPECTED.items()):
+        path = out / name
+        if not path.exists():
+            problems.append(f"{name} is missing")
+            continue
+        blob = path.read_bytes()
+        if kind == "ico":
+            problems.extend(verify_ico(path, blob))
+        elif blob[:2] != b"BM":
+            problems.append(f"{name} is {describe(blob)}, not a BMP")
+        else:
+            print(f"  {name:<18} ok")
+            continue
+        if not problems or not problems[-1].startswith(name):
+            print(f"  {name:<18} ok")
+    if problems:
+        print("\nThese branding assets cannot be used:", file=sys.stderr)
+        for p in problems:
+            print(f"  - {p}", file=sys.stderr)
+        print(
+            "\nAn icon has to be a real .ico container. Renaming a .png to .ico\n"
+            "produces a file Windows and the C# compiler both refuse.\n"
+            "  restore the committed ones:  git checkout -- installer/assets/generated\n"
+            "  or rebuild them:             python installer/assets/build-assets.py\n"
+            "  to convert your own artwork: magick logo.png -define icon:auto-resize=256,128,64,48,32,24,16 aurion.ico",
+            file=sys.stderr,
+        )
+        return 1
+    print("\nEvery branding asset is the format its name claims.")
+    return 0
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description="Build AURION MSI branding assets")
     ap.add_argument("--out", default=str(Path(__file__).resolve().parent / "generated"))
+    ap.add_argument("--verify", action="store_true",
+                    help="check the committed assets are the formats they claim, and build nothing")
     args = ap.parse_args()
 
     out = Path(args.out)
+    if args.verify:
+        return verify(out)
+    if Image is None:
+        sys.exit("Pillow is required to build assets:  pip install Pillow fonttools brotli")
     out.mkdir(parents=True, exist_ok=True)
 
     build_banner().save(out / "banner.bmp", format="BMP")
@@ -278,7 +390,8 @@ def main() -> int:
     for f in sorted(out.iterdir()):
         print(f"  {f.name:<18} {f.stat().st_size / 1024:8.1f} KB")
     print(f"\nAssets written to {out}")
-    return 0
+    # Never hand back something the compiler will reject.
+    return verify(out)
 
 
 if __name__ == "__main__":
