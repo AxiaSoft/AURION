@@ -1095,7 +1095,7 @@
   },
   "slots": {
     "title": "How many trades at once",
-    "help": "The robot opens between the first and the second number. A strong setup takes more tickets, a weak one takes the minimum. It never goes past the maximum.",
+    "help": "Two different limits. One is how many trades a single signal may open; the other is the most the robot may hold in total.",
     "min": "Open at least",
     "max": "Open at most",
     "open_now": "Open now: {n} of {max}",
@@ -1127,7 +1127,15 @@
     "q_strategy": "The strategy's own confidence",
     "q_edge": "The model's measured out-of-sample edge",
     "q_regime": "Market regime: trending helps, ranging hurts",
-    "q_chop": "Chop or dead volatility"
+    "q_chop": "Chop or dead volatility",
+    "min_label": "Per signal, at least",
+    "min_hint": "One confirmed setup can open more than one trade. This is the fewest it opens — a strong score opens more, up to the ceiling.",
+    "max_label": "Open at once, at most",
+    "max_hint": "A ceiling on every robot trade held at the same time, across all symbols. Nothing new is opened while it is full.",
+    "example": "So: a weak signal opens {min}, a perfect one opens {max}, and nothing opens while the ceiling is full.",
+    "state": "{n} open of {cap} · {free} free",
+    "cap_prop": "Your prop profile is holding the ceiling at {cap}, whatever is set above.",
+    "cap_symbol": "Prop rules also allow only {n} trade per symbol."
   },
   "themes": {
     "title": "Theme",

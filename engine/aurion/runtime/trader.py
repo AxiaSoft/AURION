@@ -1390,6 +1390,15 @@ class Trader:
             "open_trades": self._open_count(),
             "free_slots": self.free_slots(),
             "smart_filters": bool(getattr(self, "smart_filters", True)),
+            # What the caps actually are once the prop profile has had its
+            # say. The desk was showing the trader's own number, which is a
+            # wish rather than the rule the robot is being held to.
+            "cap_effective": self._total_cap(),
+            "cap_symbol": self._per_symbol_cap(),
+            "cap_by_prop": bool(
+                getattr(self.prop, "enabled", False)
+                and self._total_cap() < max(1, int(getattr(self, "max_open_trades", 2) or 2))
+            ),
             "min_signal_quality": float(getattr(self, "min_signal_quality", 0.55) or 0.55),
             "last_quality": dict(getattr(self, "last_quality", {}) or {}),
             "news_trade": self.news_trading_on(),

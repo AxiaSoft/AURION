@@ -1793,6 +1793,23 @@ function patchLive() {
     paintSwitch($("st-auto"), autoOn);
     const autoSub = $("st-auto-sub");
     if (autoSub) autoSub.textContent = I18N.t(autoOn ? "exec.auto_on" : "exec.auto_off");
+    // How many robot trades are actually open is the one number on that card
+    // that moves by itself, so it is patched rather than left at render time.
+    const slotsNow = $("st-slots-now");
+    if (slotsNow) {
+      const stx = S.snap?.strategy || {};
+      const cap = stx.cap_effective ?? stx.max_open_trades ?? 2;
+      const openNow = stx.open_trades ?? 0;
+      slotsNow.textContent = I18N.t("slots.state", { n: openNow, cap, free: Math.max(0, cap - openNow) });
+      const dots = slotsNow.parentElement?.querySelector(".slot-dots");
+      if (dots) {
+        const want = Math.min(12, Math.max(cap, openNow));
+        if (dots.children.length !== want) {
+          dots.innerHTML = Array.from({ length: want }, () => "<i></i>").join("");
+        }
+        Array.prototype.forEach.call(dots.children, (el, i) => el.classList.toggle("on", i < openNow));
+      }
+    }
     const hero = $("st-auto")?.closest(".robot-hero");
     if (hero) hero.classList.toggle("is-on", autoOn);
     const propOn = pstat.enabled !== false;
@@ -2440,6 +2457,56 @@ function licenseCardHtml() {
 }
 
 /**
+ * How many trades at once, explained as the two different things it is.
+ *
+ * The two fields were labelled "open at least" and "open at most", which
+ * reads as one range and is not what either of them does. The first is how
+ * many tickets ONE signal opens at minimum - a burst, on a single setup.
+ * The second is a ceiling on everything the robot holds at once, across
+ * every symbol. A trader could be forgiven for setting 1 and 2 and
+ * expecting "between one and two trades a day".
+ *
+ * The prop profile also lowers the ceiling when it is armed, and the desk
+ * was showing the trader's own number rather than the rule actually being
+ * enforced.
+ */
+function slotsHtml(st) {
+  const min = st.min_open_trades ?? 1;
+  const max = st.max_open_trades ?? 2;
+  const cap = st.cap_effective ?? max;
+  const open = st.open_trades ?? 0;
+  const free = Math.max(0, cap - open);
+  const perSymbol = st.cap_symbol ?? cap;
+  const byProp = Boolean(st.cap_by_prop);
+
+  return `<div class="set-pair">
+      <label class="field">
+        <span>${I18N.t("slots.min_label")}</span>
+        <input id="st-min-trades" type="number" step="1" min="1" max="20" value="${min}" />
+        <small class="field-hint">${I18N.t("slots.min_hint")}</small>
+      </label>
+      <label class="field">
+        <span>${I18N.t("slots.max_label")}</span>
+        <input id="st-max-trades" type="number" step="1" min="1" max="20" value="${max}" />
+        <small class="field-hint">${I18N.t("slots.max_hint")}</small>
+      </label>
+    </div>
+
+    <p class="sub" id="st-slots-example">${I18N.t("slots.example", { min, max: cap })}</p>
+
+    <div class="slot-state">
+      <div class="slot-dots" aria-hidden="true">
+        ${Array.from({ length: Math.min(12, Math.max(cap, open)) }, (_, i) =>
+          `<i class="${i < open ? "on" : ""}"></i>`).join("")}
+      </div>
+      <span id="st-slots-now">${I18N.t("slots.state", { n: open, cap, free })}</span>
+    </div>
+
+    ${byProp ? `<p class="sub lock-note">${I18N.t("slots.cap_prop", { cap })}</p>` : ""}
+    ${perSymbol < cap ? `<p class="sub">${I18N.t("slots.cap_symbol", { n: perSymbol })}</p>` : ""}`;
+}
+
+/**
  * The setup-quality control, explained where it is used.
  *
  * It used to be a slider, a percentage and one sentence naming six things
@@ -2572,15 +2639,7 @@ function robotPanelHtml() {
       <div class="card" id="set-slots">
         <h3 class="card-h">${I18N.t("slots.title")}</h3>
         <p class="sub">${I18N.t("slots.help")}</p>
-        <div class="set-pair">
-          <label class="field"><span>${I18N.t("slots.min")}</span>
-            <input id="st-min-trades" type="number" step="1" min="1" max="20" value="${st.min_open_trades ?? 1}" />
-          </label>
-          <label class="field"><span>${I18N.t("slots.max")}</span>
-            <input id="st-max-trades" type="number" step="1" min="1" max="20" value="${st.max_open_trades ?? 2}" />
-          </label>
-        </div>
-        <p class="sub" id="st-slots-now">${I18N.t("slots.open_now", { n: st.open_trades ?? 0, max: st.max_open_trades ?? 2 })}</p>
+        ${slotsHtml(st)}
         <hr class="set-rule" />
         ${switchRow({ id: "st-smart", title: I18N.t("slots.smart"), sub: I18N.t("slots.smart_help"), on: st.smart_filters !== false })}
         <ul class="set-list">
@@ -4942,9 +5001,19 @@ function bindRobotPanel() {
     await refresh(false);
     return r;
   };
+  // The worked example follows the fields as they are typed in, so the two
+  // numbers stop being abstract before anything is saved.
+  const slotExample = () => {
+    const el = $("st-slots-example");
+    if (!el) return;
+    const lo = Math.max(1, Math.min(20, +($("st-min-trades")?.value || 1)));
+    const hi = Math.max(lo, Math.min(20, +($("st-max-trades")?.value || 2)));
+    el.textContent = I18N.t("slots.example", { min: lo, max: hi });
+  };
   ["st-min-trades", "st-max-trades"].forEach((id) => {
     const el = $(id);
     if (!el) return;
+    el.addEventListener("input", slotExample);
     el.addEventListener("change", () => saveSlots(true));
     el.addEventListener("keydown", (e) => { if (e.key === "Enter") saveSlots(true); });
   });
