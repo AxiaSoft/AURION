@@ -64,12 +64,32 @@ function Step([string] $text) {
 
 # Bumped whenever this script changes, so a stale copy is obvious at a glance
 # instead of failing with a confusing parameter error.
-$ScriptRevision = "19"
+$ScriptRevision = "20"
 
 Write-Host ""
 Write-Host "  AURION installer build" -ForegroundColor White
 Write-Host "  ----------------------" -ForegroundColor DarkGray
 Write-Host "  build script revision $ScriptRevision" -ForegroundColor DarkGray
+
+# Which tree is this, really. Two checkouts on one machine - pulling into one
+# and building in the other - looks exactly like a fix that did not work, and
+# the only way to tell from a build log is to print it.
+Write-Host ("  building from       {0}" -f $repoRoot) -ForegroundColor DarkGray
+try {
+    $gitDir = Join-Path $repoRoot ".git"
+    if (Test-Path $gitDir) {
+        $head = (& git -C $repoRoot log -1 --format="%h %s" 2>$null)
+        $branch = (& git -C $repoRoot rev-parse --abbrev-ref HEAD 2>$null)
+        if ($head) {
+            Write-Host ("  commit              {0}" -f $head) -ForegroundColor DarkGray
+            Write-Host ("  branch              {0}" -f $branch) -ForegroundColor DarkGray
+        }
+    } else {
+        Write-Host "  commit              (not a git checkout)" -ForegroundColor DarkGray
+    }
+} catch {
+    # git missing is not a build problem; the revision number above is enough.
+}
 
 # ---------------------------------------------------------------------------
 # 1. Tools
@@ -290,6 +310,22 @@ if ($badAssets.Count -gt 0) {
           "      powershell -File installer\tools\make-icon.ps1 -Source logo.png -Destination installer\assets\generated\aurion.ico"
 }
 Write-Host "  asset formats verified" -ForegroundColor Gray
+
+# Say what the product icon actually is. One line, and the CS7065 class of
+# failure can be diagnosed from the log alone rather than from a guess.
+$icoPath = Join-Path $assetsDir "aurion.ico"
+if (Test-Path $icoPath) {
+    $ico = [System.IO.File]::ReadAllBytes($icoPath)
+    if ($ico.Length -ge 6 -and $ico[0] -eq 0 -and $ico[1] -eq 0 -and $ico[2] -eq 1) {
+        $imageCount = [BitConverter]::ToUInt16($ico, 4)
+        $dims = @()
+        for ($i = 0; $i -lt $imageCount; $i++) {
+            $w = $ico[6 + $i * 16]
+            $dims += $(if ($w -eq 0) { 256 } else { [int]$w })
+        }
+        Write-Host ("  product icon: {0} images ({1})" -f $imageCount, ($dims -join ", ")) -ForegroundColor Gray
+    }
+}
 
 # ---------------------------------------------------------------------------
 # 3. Payload
