@@ -83,7 +83,11 @@
       "scalp_impulse": {
         "enabled": false
       }
-    }
+    },
+    "min_open_trades": 1,
+    "max_open_trades": 2,
+    "smart_filters": true,
+    "min_signal_quality": 0.55
   },
   "prop": {
     "active_profile": "conservative",

@@ -56,6 +56,16 @@ class Trader:
         self.volume_mode = "auto"
         self.manual_volume = 0.10
         self.trade_style = "normal"
+        # How many robot positions may live at once, and how many the robot is
+        # allowed to open for one confirmed signal. "Between 1 and N trades":
+        # min_open_trades is what a strong setup opens right away,
+        # max_open_trades is the hard ceiling the robot never goes past.
+        self.min_open_trades = 1
+        self.max_open_trades = 2
+        # Extra brain: higher-timeframe confirmation, chop/spread rejection and
+        # a combined quality score before any robot entry is allowed out.
+        self.smart_filters = True
+        self.min_signal_quality = 0.55
         self.news_trade = False
         # Danger guard: tick-level protective exit. Hard-disabled while prop
         # rules are on — a challenge account only exits through the prop book.
@@ -964,7 +974,10 @@ class Trader:
                 return
             if signal:
                 await self._dispatch_signal(signal, f"strategy_tick:{name}")
-                return
+                # Keep scanning only while the book still has room; the old
+                # code stopped dead after the first strategy fired.
+                if self.free_slots(str(tick.get("symbol") or self.active_symbol)) <= 0:
+                    return
 
     def _load_runtime_book(self) -> None:
         cfg = load()
@@ -980,6 +993,13 @@ class Trader:
         self.trade_style = str(runtime.get("trade_style") or "normal")
         if self.trade_style not in {"normal", "scalping"}:
             self.trade_style = "normal"
+        self.max_open_trades = self._clamp_int(runtime.get("max_open_trades"), 2, 1, 20)
+        self.min_open_trades = self._clamp_int(runtime.get("min_open_trades"), 1, 1, self.max_open_trades)
+        self.smart_filters = bool(runtime.get("smart_filters", True))
+        try:
+            self.min_signal_quality = max(0.0, min(0.95, float(runtime.get("min_signal_quality", 0.55))))
+        except (TypeError, ValueError):
+            self.min_signal_quality = 0.55
         self.news_trade = bool(runtime.get("news_trade", False))
         danger_cfg = runtime.get("danger_guard") if isinstance(runtime.get("danger_guard"), dict) else {}
         self.danger_enabled = bool(danger_cfg.get("enabled", False))
@@ -1086,6 +1106,225 @@ class Trader:
                 pass
         self._sync_book_meta()
 
+    # ------------------------------------------------------------ trade slots
+    @staticmethod
+    def _clamp_int(value: Any, default: int, low: int, high: int) -> int:
+        try:
+            out = int(float(value))
+        except (TypeError, ValueError):
+            out = default
+        return max(low, min(high, out))
+
+    def _open_count(self, symbol: str = "") -> int:
+        """Live positions, optionally for one symbol only."""
+        try:
+            rows = list(getattr(self, "bridge").positions)
+        except Exception:
+            return 0
+        if not symbol:
+            return len(rows)
+        try:
+            return sum(1 for p in rows if self.bridge._sym_match(str(getattr(p, "symbol", "")), symbol))
+        except Exception:
+            return sum(1 for p in rows if str(getattr(p, "symbol", "")) == symbol)
+
+    def _per_symbol_cap(self) -> int:
+        """How many positions may share one symbol (prop wins when armed)."""
+        if getattr(self.prop, "enabled", False):
+            try:
+                return max(1, int((self.prop.profile or {}).get("max_positions_per_symbol") or 1))
+            except (TypeError, ValueError):
+                return 1
+        return max(1, int(getattr(self, "max_open_trades", 2) or 2))
+
+    def _total_cap(self) -> int:
+        cap = max(1, int(getattr(self, "max_open_trades", 2) or 2))
+        if getattr(self.prop, "enabled", False):
+            try:
+                cap = min(cap, max(1, int((self.prop.profile or {}).get("max_open_trades") or cap)))
+            except (TypeError, ValueError):
+                pass
+        return cap
+
+    def free_slots(self, symbol: str = "") -> int:
+        """Robot entries still allowed right now (never negative)."""
+        left = self._total_cap() - self._open_count()
+        if symbol:
+            left = min(left, self._per_symbol_cap() - self._open_count(symbol))
+        return max(0, left)
+
+    def _entries_for_signal(self, symbol: str, quality: float) -> int:
+        """How many tickets one confirmed signal opens: between min and max.
+
+        A weak-but-valid setup takes the minimum; a high quality one scales up
+        towards the ceiling. Never more than the free slots.
+        """
+        low = max(1, int(getattr(self, "min_open_trades", 1) or 1))
+        high = max(low, int(self._total_cap()))
+        if high <= low:
+            want = low
+        else:
+            strength = max(0.0, min(1.0, (float(quality) - 0.5) / 0.4))
+            want = low + int(round((high - low) * strength))
+        return max(0, min(want, self.free_slots(symbol)))
+
+    # --------------------------------------------------------- smarter brain
+    def _higher_timeframe(self) -> str:
+        ladder = ["M1", "M5", "M15", "M30", "H1", "H4", "D1"]
+        try:
+            idx = ladder.index(str(self.active_timeframe or "M15").upper())
+        except ValueError:
+            return "H1"
+        return ladder[min(len(ladder) - 1, idx + 2)]
+
+    def _higher_tf_bias(self, symbol: str) -> tuple[str, float]:
+        """Trend of the slower chart: ("bull"|"bear"|"neutral", strength 0..1).
+
+        Counter-trend entries are where most of the robot's losses came from —
+        a slow-chart read costs nothing and filters them out.
+        """
+        timeframe = self._higher_timeframe()
+        rows: list[dict[str, Any]] = []
+        try:
+            rows = [c.to_dict() for c in self.bridge.candles_of(symbol, timeframe)]
+        except Exception:
+            rows = []
+        if len(rows) < 60:
+            try:
+                rows = self.store.candles(symbol, timeframe, 300)
+            except Exception:
+                rows = []
+        if len(rows) < 60:
+            return "neutral", 0.0
+        try:
+            closes = [float(r.get("close") or 0) for r in rows if r.get("close")]
+        except (TypeError, ValueError):
+            return "neutral", 0.0
+        if len(closes) < 60:
+            return "neutral", 0.0
+
+        def _ema(values: list[float], span: int) -> float:
+            k = 2.0 / (span + 1.0)
+            out = values[0]
+            for v in values[1:]:
+                out = v * k + out * (1 - k)
+            return out
+
+        fast = _ema(closes[-120:], 21)
+        slow = _ema(closes[-200:] if len(closes) >= 200 else closes, 55)
+        price = closes[-1]
+        if not price:
+            return "neutral", 0.0
+        spread = (fast - slow) / price
+        strength = max(0.0, min(1.0, abs(spread) / 0.002))
+        if spread > 0.0002:
+            return "bull", strength
+        if spread < -0.0002:
+            return "bear", strength
+        return "neutral", strength
+
+    def _spread_ok(self, symbol: str) -> tuple[bool, str]:
+        """Reject entries when the spread eats the edge."""
+        try:
+            ticks = self.bridge.public_ticks() or {}
+        except Exception:
+            return True, ""
+        tick = ticks.get(symbol) or {}
+        try:
+            bid = float(tick.get("bid") or 0)
+            ask = float(tick.get("ask") or 0)
+        except (TypeError, ValueError):
+            return True, ""
+        if bid <= 0 or ask <= 0:
+            return True, ""
+        spread_pct = (ask - bid) / ((ask + bid) / 2.0)
+        atr_pct = 0.0
+        try:
+            feats = (self.ai.by_symbol.get(symbol) or {}).get("features") or {}
+            atr_pct = float(feats.get("atr_pct") or 0)
+        except Exception:
+            atr_pct = 0.0
+        if atr_pct > 0 and spread_pct > atr_pct * 0.5:
+            return False, f"spread {spread_pct * 100:.3f}% is over half the ATR"
+        if atr_pct <= 0 and spread_pct > 0.0015:
+            return False, f"spread {spread_pct * 100:.3f}% is too wide"
+        return True, ""
+
+    def signal_quality(self, symbol: str, side: str, signal_conf: float = 0.0) -> dict[str, Any]:
+        """Blend every read we have into one 0..1 score for this entry.
+
+        Model probability, its measured out-of-sample edge, the strategy's own
+        confidence, candle pattern, market regime and the higher timeframe all
+        move the same number — so the robot stops taking the setups that only
+        one of them liked.
+        """
+        want = "bull" if str(side).lower() in {"buy", "long"} else "bear"
+        ai: dict[str, Any] = {}
+        try:
+            ai = dict((self.ai.by_symbol.get(symbol) or {}))
+            if not ai:
+                last = self.ai.last or {}
+                if str(last.get("symbol") or "") == symbol or not last.get("symbol"):
+                    ai = dict(last)
+        except Exception:
+            ai = {}
+        reasons: list[str] = []
+        score = 0.5
+        conf = float(ai.get("confidence") or 0)
+        direction = str(ai.get("direction") or ai.get("display_direction") or "neutral")
+        if ai.get("ready"):
+            if direction == want:
+                score += 0.30 * conf
+                reasons.append(f"ai {direction} {conf:.0%}")
+            elif direction == "neutral":
+                score -= 0.05
+                reasons.append("ai neutral")
+            else:
+                score -= 0.30 * max(conf, 0.5)
+                reasons.append(f"ai {direction} against")
+        else:
+            score -= 0.05
+            reasons.append("ai still learning")
+        # Measured edge of the model (holdout accuracy) — an untested model is
+        # not allowed to push the score up much.
+        try:
+            edge = float((self.ai.models.metrics or {}).get("edge") or 0)
+        except Exception:
+            edge = 0.0
+        score += 0.10 * max(0.0, min(1.0, edge))
+        if signal_conf:
+            score += 0.10 * max(0.0, min(1.0, float(signal_conf)))
+            reasons.append(f"strategy {float(signal_conf):.0%}")
+        regime = ai.get("regime_obj") if isinstance(ai.get("regime_obj"), dict) else ai.get("regime")
+        regime_name = str((regime or {}).get("name") if isinstance(regime, dict) else regime or "")
+        if regime_name:
+            if "trend" in regime_name.lower():
+                score += 0.05
+            elif "chop" in regime_name.lower() or "range" in regime_name.lower():
+                score -= 0.08
+            reasons.append(f"regime {regime_name}")
+        bias, strength = self._higher_tf_bias(symbol)
+        if bias == want:
+            score += 0.12 * strength
+            reasons.append(f"{self._higher_timeframe()} {bias}")
+        elif bias != "neutral":
+            score -= 0.18 * max(0.35, strength)
+            reasons.append(f"{self._higher_timeframe()} {bias} against")
+        feats = ai.get("features") or {}
+        try:
+            er = float(feats.get("er10") or 0)
+            atr_pct = float(feats.get("atr_pct") or 0)
+        except (TypeError, ValueError):
+            er = atr_pct = 0.0
+        if er and er < 0.18:
+            score -= 0.10
+            reasons.append("chop (low efficiency)")
+        if atr_pct and atr_pct < 0.00025:
+            score -= 0.10
+            reasons.append("volatility too low")
+        score = max(0.0, min(1.0, score))
+        return {"score": score, "reasons": reasons, "bias": bias, "ai": direction, "confidence": conf}
+
     def _auto_limit_meta(self) -> dict[str, Any]:
         """Freemium auto-trade allowance for the UI; never breaks status paint."""
         try:
@@ -1145,6 +1384,12 @@ class Trader:
             "volume_mode": getattr(self, "volume_mode", "auto"),
             "manual_volume": getattr(self, "manual_volume", 0.10),
             "trade_style": self.trade_style,
+            "min_open_trades": int(getattr(self, "min_open_trades", 1) or 1),
+            "max_open_trades": int(getattr(self, "max_open_trades", 2) or 2),
+            "open_trades": self._open_count(),
+            "free_slots": self.free_slots(),
+            "smart_filters": bool(getattr(self, "smart_filters", True)),
+            "min_signal_quality": float(getattr(self, "min_signal_quality", 0.55) or 0.55),
             "news_trade": self.news_trading_on(),
             "news_trade_locked": bool(self.prop.enabled),
             "danger_guard": self._danger_state(),
@@ -1165,6 +1410,10 @@ class Trader:
                     "volume_mode": getattr(self, "volume_mode", "auto"),
                     "manual_volume": getattr(self, "manual_volume", 0.10),
                     "trade_style": self.trade_style,
+                    "min_open_trades": int(getattr(self, "min_open_trades", 1) or 1),
+                    "max_open_trades": int(getattr(self, "max_open_trades", 2) or 2),
+                    "smart_filters": bool(getattr(self, "smart_filters", True)),
+                    "min_signal_quality": float(getattr(self, "min_signal_quality", 0.55) or 0.55),
                     "news_trade": self.news_trade,
                     "danger_guard": {
                         "enabled": bool(self.danger_enabled),
@@ -1277,24 +1526,59 @@ class Trader:
             self._sync_book_meta()
             await self.bus.publish("strategy", self.strategy_meta)
             return
-        name, signal = entries[0]
-        await self.journal("info", "dispatch", f"Dispatching {name} {self._signal_bits(signal)[0]}")
-        await self._dispatch_signal(signal, f"strategy:{name}")
+        # Every agreeing strategy gets a chance, up to the configured ceiling.
+        for name, signal in entries:
+            if self.free_slots(ctx.symbol) <= 0:
+                await self.journal(
+                    "info",
+                    "slots_full",
+                    f"Holding {self._open_count()} of max {self._total_cap()} robot trades — {name} not dispatched",
+                )
+                break
+            await self.journal("info", "dispatch", f"Dispatching {name} {self._signal_bits(signal)[0]}")
+            await self._dispatch_signal(signal, f"strategy:{name}")
         self._sync_book_meta()
         await self.bus.publish("strategy", self.strategy_meta)
 
+    # Style packs also carry the confluence settings, so "normal" trades the
+    # strict, trend-following version of every strategy while "scalping"
+    # loosens the slow filters it cannot afford to wait for.
     STYLE_PACKS = {
         "normal": {
-            "ema_rsi": {"fast": 8, "slow": 21, "rsi_period": 14, "volume": 0.10, "sl_atr": 1.6, "tp_atr": 2.4},
-            "price_action": {"volume": 0.10, "min_score": 0.62, "sl_atr": 1.4, "tp_atr": 2.2},
-            "atr_breakout": {"lookback": 20, "volume": 0.10, "sl_atr": 1.2, "tp_atr": 2.0},
-            "scalp_impulse": {"lookback": 8, "volume": 0.05, "sl_atr": 0.9, "tp_atr": 1.4},
+            "ema_rsi": {
+                "fast": 8, "slow": 21, "rsi_period": 14, "volume": 0.10, "sl_atr": 1.6, "tp_atr": 2.4,
+                "min_rr": 1.5, "with_trend": True, "require_momentum": True, "min_efficiency": 0.15,
+            },
+            "price_action": {
+                "volume": 0.10, "min_score": 0.62, "sl_atr": 1.4, "tp_atr": 2.2,
+                "min_rr": 1.5, "with_trend": True, "require_momentum": False, "min_efficiency": 0.12,
+            },
+            "atr_breakout": {
+                "lookback": 20, "volume": 0.10, "sl_atr": 1.2, "tp_atr": 2.0,
+                "min_rr": 1.6, "with_trend": True, "require_momentum": True, "min_efficiency": 0.18,
+            },
+            "scalp_impulse": {
+                "lookback": 8, "volume": 0.05, "sl_atr": 0.9, "tp_atr": 1.4,
+                "min_rr": 1.3, "with_trend": True, "require_momentum": False, "min_efficiency": 0.2,
+            },
         },
         "scalping": {
-            "ema_rsi": {"fast": 3, "slow": 8, "rsi_period": 7, "volume": 0.05, "sl_atr": 0.7, "tp_atr": 1.1},
-            "price_action": {"volume": 0.05, "min_score": 0.55, "sl_atr": 0.7, "tp_atr": 1.05},
-            "atr_breakout": {"lookback": 8, "volume": 0.05, "sl_atr": 0.55, "tp_atr": 0.95},
-            "scalp_impulse": {"lookback": 5, "volume": 0.05, "sl_atr": 0.5, "tp_atr": 0.8},
+            "ema_rsi": {
+                "fast": 3, "slow": 8, "rsi_period": 7, "volume": 0.05, "sl_atr": 0.7, "tp_atr": 1.1,
+                "min_rr": 1.15, "with_trend": True, "require_momentum": False, "min_efficiency": 0.1,
+            },
+            "price_action": {
+                "volume": 0.05, "min_score": 0.55, "sl_atr": 0.7, "tp_atr": 1.05,
+                "min_rr": 1.15, "with_trend": False, "require_momentum": False, "min_efficiency": 0.08,
+            },
+            "atr_breakout": {
+                "lookback": 8, "volume": 0.05, "sl_atr": 0.55, "tp_atr": 0.95,
+                "min_rr": 1.2, "with_trend": True, "require_momentum": False, "min_efficiency": 0.12,
+            },
+            "scalp_impulse": {
+                "lookback": 5, "volume": 0.05, "sl_atr": 0.5, "tp_atr": 0.8,
+                "min_rr": 1.1, "with_trend": False, "require_momentum": False, "min_efficiency": 0.12,
+            },
         },
     }
 
@@ -1327,6 +1611,21 @@ class Trader:
             try:
                 self.manual_volume = max(0.0, min(1000.0, float(body.get("manual_volume") or 0)))
             except Exception:
+                pass
+        if "max_open_trades" in body:
+            self.max_open_trades = self._clamp_int(body.get("max_open_trades"), getattr(self, "max_open_trades", 2), 1, 20)
+            if getattr(self, "min_open_trades", 1) > self.max_open_trades:
+                self.min_open_trades = self.max_open_trades
+        if "min_open_trades" in body:
+            self.min_open_trades = self._clamp_int(
+                body.get("min_open_trades"), getattr(self, "min_open_trades", 1), 1, int(getattr(self, "max_open_trades", 2) or 2)
+            )
+        if "smart_filters" in body:
+            self.smart_filters = bool(body.get("smart_filters"))
+        if "min_signal_quality" in body:
+            try:
+                self.min_signal_quality = max(0.0, min(0.95, float(body.get("min_signal_quality") or 0)))
+            except (TypeError, ValueError):
                 pass
         if "trade_style" in body:
             style = str(body.get("trade_style") or "normal")
@@ -1550,8 +1849,63 @@ class Trader:
         self.last_signal = {**payload, "source": source, "ts": utc_iso()}
         self.store.record_signal(self.last_signal)
         await self.bus.publish("signal", self.last_signal)
-        await self.journal("info", "fire", f"{source} firing {action} {payload.get('symbol') or ''} vol={payload.get('volume') or 0}")
-        await self.execute(payload)
+        if action not in {"buy", "sell", "market"}:
+            await self.journal(
+                "info", "fire", f"{source} firing {action} {payload.get('symbol') or ''} vol={payload.get('volume') or 0}"
+            )
+            await self.execute(payload)
+            return
+        # --- entry path: judge it, size it, then decide how many tickets ----
+        symbol = self._resolve_symbol(payload)
+        payload["symbol"] = symbol
+        side = str(payload.get("side") or (action if action in {"buy", "sell"} else "buy"))
+        verdict = self.signal_quality(symbol, side, float(payload.get("confidence") or 0))
+        quality = float(verdict.get("score") or 0)
+        payload["quality"] = round(quality, 3)
+        if getattr(self, "smart_filters", True):
+            if quality < float(getattr(self, "min_signal_quality", 0.55) or 0):
+                await self.journal(
+                    "warning",
+                    "low_quality",
+                    f"Skipped {side} {symbol}: quality {quality:.2f} < {float(getattr(self, 'min_signal_quality', 0.55)):.2f} "
+                    f"({'; '.join(verdict.get('reasons') or []) or 'no supporting read'})",
+                    {"quality": verdict},
+                )
+                return
+            ok_spread, why = self._spread_ok(symbol)
+            if not ok_spread:
+                await self.journal("warning", "spread", f"Skipped {side} {symbol}: {why}")
+                return
+        count = self._entries_for_signal(symbol, quality)
+        if count <= 0:
+            await self.journal(
+                "info",
+                "slots_full",
+                f"{symbol} already holds {self._open_count(symbol)} of max {self._total_cap()} robot trades — no new entry",
+            )
+            return
+        base_volume = float(payload.get("volume") or 0)
+        if base_volume > 0 and getattr(self, "smart_filters", True) and str(getattr(self, "volume_mode", "auto")) != "manual":
+            # Weak-but-valid setups trade smaller; never larger than the preset.
+            factor = 0.6 + 0.4 * max(0.0, min(1.0, (quality - 0.5) / 0.4))
+            payload["volume"] = round(max(0.01, base_volume * factor), 2)
+        await self.journal(
+            "info",
+            "fire",
+            f"{source} firing {side} {symbol} x{count} vol={payload.get('volume') or 0} "
+            f"quality={quality:.2f} ({'; '.join(verdict.get('reasons') or [])})",
+            {"quality": verdict, "tickets": count},
+        )
+        for i in range(count):
+            if i:
+                # Let MT5 report the new position before sizing the next one,
+                # so the ceiling is counted against a fresh book.
+                await asyncio.sleep(0.6)
+                if self.free_slots(symbol) <= 0:
+                    break
+            result = await self.execute(dict(payload))
+            if not (result or {}).get("ok"):
+                break
 
     def _resolve_symbol(self, request: dict[str, Any]) -> str:
         symbol = str(request.get("symbol") or "").strip()
@@ -1610,6 +1964,16 @@ class Trader:
         if str(request.get("action") or "") == "market":
             robotish = source.startswith("strategy") or source in {"robot", "strategy_tick"}
             if robotish:
+                # The desk may always trade by hand; the robot obeys the
+                # "open between 1 and N trades" ceiling on every single entry.
+                symbol_now = self._resolve_symbol(request)
+                if self.free_slots(symbol_now) <= 0:
+                    await self.journal(
+                        "warning",
+                        "max_open_trades",
+                        f"Robot entry blocked — {self._open_count()} open, ceiling is {self._total_cap()}",
+                    )
+                    return {"ok": False, "error": f"max open trades reached ({self._total_cap()})"}
                 lic = self.license.allow_bot_entry()
                 if not lic.get("ok"):
                     until = lic.get("limit_until") or ""
@@ -1911,6 +2275,8 @@ class Trader:
         lic = self.license.allow_bot_entry()
         if not lic.get("ok"):
             reasons.append(str(lic.get("error") or "license"))
+        if self.free_slots() <= 0:
+            reasons.append("slots_full")
         ai = self.ai.last or {}
         ai_low = False
         if self.require_ai_agree and ai.get("ready"):
@@ -1937,6 +2303,8 @@ class Trader:
             "ai_gate": bool(self.require_ai_agree),
             "ai_low": ai_low,
             "style": self.trade_style,
+            "open_trades": self._open_count(),
+            "max_open_trades": int(self._total_cap()),
             "reasons": reasons,
             "manual_ok": bool(mt5 and not self.kill_switch and not (self.prop.enabled and self.prop.locked)),
         }
@@ -2097,6 +2465,10 @@ class Trader:
         self.require_ai_agree = True
         self.min_ai_confidence = 0.55
         self.trade_style = "normal"
+        self.min_open_trades = 1
+        self.max_open_trades = 2
+        self.smart_filters = True
+        self.min_signal_quality = 0.55
         self.danger_enabled = False
         self.danger_sensitivity = 50
         self._danger_seen = {}

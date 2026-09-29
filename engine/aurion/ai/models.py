@@ -7,11 +7,16 @@ from typing import Any
 import joblib
 import numpy as np
 from sklearn.cluster import MiniBatchKMeans
+from sklearn.ensemble import HistGradientBoostingClassifier
 from sklearn.linear_model import SGDClassifier
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 
 from ..util.clock import utc_iso
+
+# A boosted tree sees the non-linear combinations a linear model cannot, but
+# it needs data. Below this many labelled bars only the linear model votes.
+BOOST_MIN_SAMPLES = 400
 
 
 class LiveModels:
@@ -41,6 +46,13 @@ class LiveModels:
             ]
         )
         self.regime = MiniBatchKMeans(n_clusters=3, random_state=7, n_init=8, batch_size=64)
+        # Second opinion: gradient-boosted trees on the same features. Trained
+        # only when there is enough real history, blended at inference time.
+        self.boost: Any = None
+        # Measured out-of-sample edge (0 = no better than guessing). Every
+        # confidence the desk sees is shrunk by it, so an untested model can
+        # never talk the robot into a trade.
+        self.edge = 0.0
         self.ready = False
         self.samples = 0
         self.metrics: dict[str, Any] = {}
@@ -62,6 +74,11 @@ class LiveModels:
             self.ready = bool(blob.get("ready"))
             self.samples = int(blob.get("samples") or 0)
             self.metrics = dict(blob.get("metrics") or {})
+            self.boost = blob.get("boost")
+            try:
+                self.edge = float(blob.get("edge") or self.metrics.get("edge") or 0.0)
+            except (TypeError, ValueError):
+                self.edge = 0.0
             self.updated = str(blob.get("updated") or "")
             self._seen_classes = self.ready
         except Exception:
@@ -72,6 +89,8 @@ class LiveModels:
             {
                 "direction": self.direction,
                 "regime": self.regime,
+                "boost": self.boost,
+                "edge": self.edge,
                 "ready": self.ready,
                 "samples": self.samples,
                 "metrics": self.metrics,
@@ -98,15 +117,53 @@ class LiveModels:
         X_tr, y_tr, w_tr = X[:cut], y[:cut], weight[:cut]
         X_te, y_te = X[cut:], y[cut:]
         self.direction.fit(X_tr, y_tr, clf__sample_weight=w_tr)
+        # Boosted trees on the same split — kept only if the holdout says it
+        # is worth keeping (see the accuracy comparison below).
+        boost = None
+        if len(X_tr) >= BOOST_MIN_SAMPLES and len(np.unique(y_tr)) >= 2:
+            try:
+                candidate = HistGradientBoostingClassifier(
+                    max_depth=3,
+                    max_iter=180,
+                    learning_rate=0.06,
+                    l2_regularization=1.0,
+                    min_samples_leaf=25,
+                    early_stopping=True,
+                    validation_fraction=0.15,
+                    random_state=7,
+                )
+                candidate.fit(X_tr, y_tr, sample_weight=w_tr)
+                boost = candidate
+            except Exception:
+                boost = None
         vol_idx = 9 if X.shape[1] > 9 else min(7, X.shape[1] - 1)
         vol = X[:, [vol_idx, min(vol_idx + 1, X.shape[1] - 1)]]
         self.regime.partial_fit(vol)
         pred_in = self.direction.predict(X_tr)
         acc_in = float((pred_in == y_tr).mean())
         acc_oos = None
+        acc_boost = None
+        baseline = None
         if len(X_te) >= 20:
             pred_te = self.direction.predict(X_te)
             acc_oos = float((pred_te == y_te).mean())
+            # Beating the most common label is the only accuracy that counts.
+            counts = np.bincount(y_te - y_te.min()) if len(y_te) else np.array([1])
+            baseline = float(counts.max() / max(1, len(y_te)))
+            if boost is not None:
+                try:
+                    acc_boost = float((boost.predict(X_te) == y_te).mean())
+                except Exception:
+                    acc_boost = None
+        # Keep the tree only when it holds its own out of sample.
+        if boost is not None and acc_oos is not None and acc_boost is not None and acc_boost + 0.01 < acc_oos:
+            boost = None
+        self.boost = boost
+        best_acc = max([a for a in (acc_oos, acc_boost) if a is not None], default=None)
+        if best_acc is not None and baseline is not None and baseline < 0.999:
+            self.edge = max(0.0, min(1.0, (best_acc - baseline) / (1.0 - baseline)))
+        else:
+            self.edge = 0.0
         try:
             proba = self.direction.predict_proba(X)
             conf = float(proba.max(axis=1).mean())
@@ -118,6 +175,10 @@ class LiveModels:
         self.metrics = {
             "accuracy_in_sample": acc_in,
             "accuracy_holdout": acc_oos,
+            "accuracy_boost": acc_boost,
+            "baseline_holdout": baseline,
+            "edge": round(self.edge, 4),
+            "ensemble": bool(self.boost is not None),
             "mean_confidence": conf,
             "bars": int(len(X)),
             "holdout_bars": int(len(X_te)),
@@ -148,9 +209,33 @@ class LiveModels:
         try:
             proba = self.direction.predict_proba(vector)[0]
             classes = list(self.direction.named_steps["clf"].classes_)
+            if self.boost is not None:
+                # Average the two opinions over the union of their classes; a
+                # setup only scores high when both models like it.
+                try:
+                    b_proba = self.boost.predict_proba(vector)[0]
+                    b_classes = list(self.boost.classes_)
+                    blended: dict[int, float] = {}
+                    for cls, p in zip(classes, proba):
+                        blended[int(cls)] = blended.get(int(cls), 0.0) + 0.5 * float(p)
+                    for cls, p in zip(b_classes, b_proba):
+                        blended[int(cls)] = blended.get(int(cls), 0.0) + 0.5 * float(p)
+                    classes = list(blended.keys())
+                    proba = np.array([blended[c] for c in classes], dtype=float)
+                    total = float(proba.sum()) or 1.0
+                    proba = proba / total
+                except Exception:
+                    pass
             mapping = {int(cls): float(p) for cls, p in zip(classes, proba)}
             best = int(classes[int(np.argmax(proba))])
             confidence = float(np.max(proba))
+            # Calibration: pull the probability back towards "no information"
+            # in proportion to the edge the model actually showed out of
+            # sample. No measured edge means no confident signal.
+            base = 1.0 / max(2, len(classes))
+            shrink = 0.30 + 0.70 * max(0.0, min(1.0, float(self.edge)))
+            confidence = base + (confidence - base) * shrink
+            mapping = {cls: base + (p - base) * shrink for cls, p in mapping.items()}
         except Exception:
             best = int(self.direction.predict(vector)[0])
             mapping = {best: 1.0}
@@ -163,6 +248,7 @@ class LiveModels:
             rid = -1
         return {
             "ready": True,
+            "edge": round(float(self.edge), 4),
             "direction": direction,
             "label": best,
             "confidence": confidence,

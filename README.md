@@ -21,7 +21,8 @@ MT5 Python API (Windows) ──────────┘              │
 - Live MT5 bridge (official Python package on Windows **and** a socket/file EA on every chart)
 - AI that trains only on real OHLC from that account
 - Hot-swappable Python strategies with a sandboxed loader
-- Prop-firm rules (daily loss, drawdown, lot, hours, optional news calendar)
+- Prop-firm rules (daily loss, drawdown, lot, hours, optional news calendar) bound to the live account, so a new login always starts a flat day
+- A robot trade budget you set yourself — "open between 1 and N trades" — plus smart filters (higher-timeframe trend, spread, chop) and one quality score per entry
 - Backtester that refuses to run without real history
 - Liquid-glass desk in English, فارسی, العربية with live RTL/LTR
 - Excel export with translated headers and P/L colouring

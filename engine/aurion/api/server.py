@@ -330,7 +330,7 @@ async def prop_save(body: dict[str, Any]) -> dict[str, Any]:
 
 @app.post("/v1/prop/unlock")
 async def prop_unlock() -> dict[str, Any]:
-    trader.prop.unlock()
+    trader.prop.unlock(trader.bridge.account.to_dict())
     trader.safe_mode = False
     metrics = trader.prop.metrics(trader.bridge.account.to_dict())
     await trader.bus.publish("prop", metrics)

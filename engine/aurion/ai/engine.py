@@ -15,13 +15,53 @@ from .patterns import detect, regime_from_features
 log = get("ai")
 
 
-def _labels_from_frame(frame) -> np.ndarray:
-    future = frame["close"].shift(-3)
-    ret = (future - frame["close"]) / frame["close"]
-    atr = frame["atr_pct"].replace(0, np.nan)
-    threshold = (atr * 0.35).fillna(0.0004)
-    y = np.where(ret > threshold, 1, np.where(ret < -threshold, -1, 0))
-    return y[:-3], slice(0, len(frame) - 3)
+HORIZON = 6
+
+
+def _labels_from_frame(frame, horizon: int = HORIZON) -> tuple[np.ndarray, slice]:
+    """Label each bar by which barrier price touches first.
+
+    The old label only looked at the close three bars later, so a move that
+    ran 20 pips our way and came back scored the same as a move that never
+    happened — and the model learned noise. This is the triple-barrier label
+    used by real desks: for every bar, walk the next ``horizon`` bars and see
+    whether the ATR-scaled profit barrier or the loss barrier is touched
+    first. What it learns is now the thing the robot is actually paid for.
+    """
+    n = len(frame)
+    if n <= horizon + 1:
+        return np.zeros(0, dtype=int), slice(0, 0)
+    close = frame["close"].to_numpy(dtype=float)
+    high = frame["high"].to_numpy(dtype=float) if "high" in frame else close
+    low = frame["low"].to_numpy(dtype=float) if "low" in frame else close
+    atr_pct = frame["atr_pct"].to_numpy(dtype=float) if "atr_pct" in frame else np.full(n, 0.0004)
+    atr_pct = np.nan_to_num(atr_pct, nan=0.0004, posinf=0.0004, neginf=0.0004)
+    atr_pct = np.where(atr_pct <= 0, 0.0004, atr_pct)
+    limit = n - horizon
+    y = np.zeros(limit, dtype=int)
+    for i in range(limit):
+        entry = close[i]
+        if entry <= 0:
+            continue
+        barrier = entry * atr_pct[i] * 0.9
+        up = entry + barrier
+        dn = entry - barrier
+        label = 0
+        for j in range(i + 1, i + horizon + 1):
+            hit_up = high[j] >= up
+            hit_dn = low[j] <= dn
+            if hit_up and hit_dn:
+                # Both barriers inside the same bar: trust the close.
+                label = 1 if close[j] >= entry else -1
+                break
+            if hit_up:
+                label = 1
+                break
+            if hit_dn:
+                label = -1
+                break
+        y[i] = label
+    return y, slice(0, limit)
 
 
 class AIEngine:
@@ -300,6 +340,7 @@ class AIEngine:
             "reason": "; ".join(reason_parts),
             "samples": self.models.samples,
             "updated": self.models.updated,
+            "edge": round(float(getattr(self.models, "edge", 0.0) or 0.0), 4),
             "metrics": dict(self.models.metrics or {}),
             "symbol": symbol,
             "timeframe": timeframe,

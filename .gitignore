@@ -27,3 +27,7 @@ apps/web/__*.html
 
 # JS analysis helper deps (installed on demand, never shipped)
 node_modules/
+
+# local dev virtualenv + engine day state
+.venv_dev/
+data/prop-day.json

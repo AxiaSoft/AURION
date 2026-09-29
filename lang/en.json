@@ -1001,5 +1001,17 @@
     "confidence": "Confidence",
     "open_chart": "Open chart",
     "no_levels": "No stop or target set by the strategy"
+  },
+  "slots": {
+    "title": "How many trades at once",
+    "help": "The robot opens between the first and the second number. A strong setup takes more tickets, a weak one takes the minimum. It never goes past the maximum.",
+    "min": "Open at least",
+    "max": "Open at most",
+    "open_now": "Open now: {n} of {max}",
+    "smart": "Smart filters",
+    "smart_help": "Higher-timeframe trend, spread and chop checks before every robot entry.",
+    "quality": "Minimum setup quality",
+    "quality_help": "One score built from the AI read, its measured edge, the strategy, the pattern, the regime and the slower chart. Entries under this score are skipped.",
+    "unit": "trades"
   }
 }

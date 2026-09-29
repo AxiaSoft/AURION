@@ -2141,6 +2141,28 @@ function robotPanelHtml() {
       <p class="sub">${style==="scalping" ? I18N.t("style.scalping_hint") : I18N.t("style.normal_hint")}</p>
       ${licFeat("scalping") ? "" : `<p class="sub lock-note">${I18N.t("lock.scalping")} <a href="#" data-go-upgrade>${I18N.t("lic.upgrade_cta")}</a></p>`}
     </div>
+    <div class="card" id="set-slots">
+      <h3>${I18N.t("slots.title")}</h3>
+      <p class="sub">${I18N.t("slots.help")}</p>
+      <div style="display:flex;gap:10px;flex-wrap:wrap">
+        <label class="field" style="flex:1;min-width:120px"><span>${I18N.t("slots.min")}</span>
+          <input id="st-min-trades" type="number" step="1" min="1" max="20" value="${st.min_open_trades ?? 1}" />
+        </label>
+        <label class="field" style="flex:1;min-width:120px"><span>${I18N.t("slots.max")}</span>
+          <input id="st-max-trades" type="number" step="1" min="1" max="20" value="${st.max_open_trades ?? 2}" />
+        </label>
+      </div>
+      <p class="sub" id="st-slots-now">${I18N.t("slots.open_now", { n: st.open_trades ?? 0, max: st.max_open_trades ?? 2 })}</p>
+      <label class="field" style="flex-direction:row;align-items:center;justify-content:space-between">
+        <span>${I18N.t("slots.smart")}</span>
+        <button type="button" class="switch ${st.smart_filters!==false?"on":""}" id="st-smart" aria-pressed="${st.smart_filters!==false}"><i></i></button>
+      </label>
+      <p class="sub">${I18N.t("slots.smart_help")}</p>
+      <div class="field"><span class="conf-head">${I18N.t("slots.quality")}<b class="mono conf-pct" id="st-quality-pct">${Math.round((st.min_signal_quality ?? 0.55) * 100)}%</b></span>
+        <input id="st-quality" type="range" step="0.01" min="0.20" max="0.90" value="${st.min_signal_quality ?? 0.55}" />
+      </div>
+      <p class="sub">${I18N.t("slots.quality_help")}</p>
+    </div>
     <div class="card">
       <h3>${I18N.t("strategies.lot_title")} ${!licFeat("volume_mode")?'<span class="pill no">PREMIUM</span>':''}</h3>
       <p class="sub">${I18N.t("strategies.lot_help")}</p>
@@ -4491,6 +4513,41 @@ function bindRobotPanel() {
     aiSwitch.setAttribute("aria-pressed", aiSwitch.classList.contains("on") ? "true" : "false");
     saveAi(true);
   };
+  // "Open between 1 and N trades": the ceiling the robot never crosses and
+  // how many tickets a strong setup is allowed to take at once.
+  const saveSlots = async (quiet) => {
+    const lo = Math.max(1, Math.min(20, +($("st-min-trades")?.value || 1)));
+    let hi = Math.max(1, Math.min(20, +($("st-max-trades")?.value || 2)));
+    if (hi < lo) hi = lo;
+    if ($("st-max-trades")) $("st-max-trades").value = hi;
+    const r = await API.post("/api/auto", {
+      min_open_trades: lo,
+      max_open_trades: hi,
+      smart_filters: $("st-smart")?.classList.contains("on"),
+      min_signal_quality: +($("st-quality")?.value || 0.55),
+    });
+    if (!quiet) toast(r.ok ? I18N.t("common.save") : (r.error || I18N.t("errors.generic")));
+    await refresh(false);
+    return r;
+  };
+  ["st-min-trades", "st-max-trades"].forEach((id) => {
+    const el = $(id);
+    if (!el) return;
+    el.addEventListener("change", () => saveSlots(true));
+    el.addEventListener("keydown", (e) => { if (e.key === "Enter") saveSlots(true); });
+  });
+  const smart = $("st-smart");
+  if (smart) smart.onclick = () => {
+    smart.classList.toggle("on");
+    smart.setAttribute("aria-pressed", smart.classList.contains("on") ? "true" : "false");
+    saveSlots(true);
+  };
+  const quality = $("st-quality");
+  if (quality) {
+    const qpct = $("st-quality-pct");
+    quality.addEventListener("input", () => { if (qpct) qpct.textContent = Math.round(+quality.value * 100) + "%"; });
+    quality.addEventListener("change", () => saveSlots(true));
+  }
   const conf = $("st-conf");
   if (conf) {
     const pct = $("st-conf-pct");
