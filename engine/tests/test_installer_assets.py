@@ -65,6 +65,27 @@ def test_the_build_script_checks_this_before_compiling() -> None:
     assert "CS7065" in ps1, "and should say which failure it is preventing"
 
 
+def test_a_dropped_png_can_be_repaired_without_extra_tools() -> None:
+    """Somebody swapping in their own logo will copy a PNG over the .ico.
+
+    The build repacks it rather than refusing, using nothing but PowerShell
+    and System.Drawing - a build machine has no ImageMagick and may have no
+    Python either.
+    """
+    maker = ROOT / "installer" / "tools" / "make-icon.ps1"
+    assert maker.exists(), "installer/tools/make-icon.ps1 is missing"
+    src = maker.read_text(encoding="utf-8")
+    assert "System.Drawing" in src and "Add-Type" in src, "it must not need anything installed"
+    # The container it writes: type 1, 32bpp, 256 stored as PNG, the rest DIB.
+    assert "[uint16]1)                 # type 1 = icon" in src
+    assert "[uint16]32)            # bits per pixel" in src
+    assert "biHeight - colours + mask" in src, "an icon DIB doubles biHeight; that is the classic trap"
+
+    ps1 = SCRIPT.read_text(encoding="utf-8")
+    assert "make-icon.ps1" in ps1, "the build script has to know how to repair one"
+    assert "repacking it" in ps1, "and say so rather than doing it silently"
+
+
 def test_the_generator_can_verify_without_pillow() -> None:
     src = BUILDER.read_text(encoding="utf-8")
     assert "--verify" in src, "a build machine has to be able to check without installing Pillow"
@@ -73,6 +94,7 @@ def test_the_generator_can_verify_without_pillow() -> None:
 
 
 TESTS = [
+    test_a_dropped_png_can_be_repaired_without_extra_tools,
     test_every_icon_is_a_real_icon,
     test_every_icon_holds_the_images_it_promises,
     test_the_product_icon_covers_the_sizes_windows_asks_for,

@@ -64,7 +64,7 @@ function Step([string] $text) {
 
 # Bumped whenever this script changes, so a stale copy is obvious at a glance
 # instead of failing with a confusing parameter error.
-$ScriptRevision = "18"
+$ScriptRevision = "19"
 
 Write-Host ""
 Write-Host "  AURION installer build" -ForegroundColor White
@@ -224,11 +224,12 @@ if ($needAssets.Count -eq 0) {
     }
 }
 
-# Present is not the same as usable. An icon that is really a renamed PNG
-# passes every Test-Path above and then fails a minute later inside the C#
-# compiler as "CS7065: Icon stream is not in the expected format", which
-# names neither the file nor the reason. Two magic numbers, checked here,
-# turn that into one clear line before anything is built.
+# Present is not the same as usable, and a picture in the wrong container is
+# worth repairing rather than refusing: someone swapping in their own logo
+# will almost always do it by copying a PNG over the .ico. Anything that is a
+# real image gets repacked into a real icon here; anything else is reported
+# with the file named, before a compiler gets the chance to say
+# "CS7065: Icon stream is not in the expected format" and mention neither.
 $badAssets = @()
 foreach ($item in @(
         @{ name = "aurion.ico";      magic = @(0, 0, 1, 0);  kind = "an icon (.ico)" },
@@ -241,6 +242,7 @@ foreach ($item in @(
 
     $path = Join-Path $assetsDir $item.name
     if (-not (Test-Path $path)) { continue }
+
     $head = [System.IO.File]::ReadAllBytes($path) | Select-Object -First 8
     $want = $item.magic
     $ok = $true
@@ -248,10 +250,34 @@ foreach ($item in @(
     if ($ok) { continue }
 
     $what = "an unrecognised format"
-    if ($head[0] -eq 0x89 -and $head[1] -eq 0x50) { $what = "a PNG" }
-    elseif ($head[0] -eq 0xFF -and $head[1] -eq 0xD8) { $what = "a JPEG" }
-    elseif ($head[0] -eq 0x42 -and $head[1] -eq 0x4D) { $what = "a BMP" }
-    elseif ($head[0] -eq 0x52 -and $head[1] -eq 0x49) { $what = "a WebP" }
+    $isImage = $false
+    if ($head[0] -eq 0x89 -and $head[1] -eq 0x50) { $what = "a PNG"; $isImage = $true }
+    elseif ($head[0] -eq 0xFF -and $head[1] -eq 0xD8) { $what = "a JPEG"; $isImage = $true }
+    elseif ($head[0] -eq 0x42 -and $head[1] -eq 0x4D) { $what = "a BMP"; $isImage = $true }
+    elseif ($head[0] -eq 0x47 -and $head[1] -eq 0x49) { $what = "a GIF"; $isImage = $true }
+
+    # Only icons can be repaired - a BMP that is really a PNG would still
+    # need to be the exact size the installer draws, so that one is reported.
+    if ($isImage -and $item.name -like "*.ico") {
+        Write-Host ("  {0} is {1}, not an icon - repacking it" -f $item.name, $what) -ForegroundColor Yellow
+        try {
+            # Keep the original next to it; it is the artwork, and only the
+            # container was wrong.
+            $stash = Join-Path $assetsDir ([System.IO.Path]::GetFileNameWithoutExtension($item.name) + ".original.png")
+            Copy-Item -LiteralPath $path -Destination $stash -Force
+            & powershell -NoProfile -ExecutionPolicy Bypass `
+                -File (Join-Path $PSScriptRoot "make-icon.ps1") `
+                -Source $stash -Destination $path
+            $fixedHead = [System.IO.File]::ReadAllBytes($path) | Select-Object -First 4
+            if ($fixedHead[0] -eq 0 -and $fixedHead[1] -eq 0 -and $fixedHead[2] -eq 1 -and $fixedHead[3] -eq 0) {
+                Write-Host ("  {0} repaired - the artwork is unchanged, the container is now an icon" -f $item.name) -ForegroundColor Green
+                continue
+            }
+        } catch {
+            Write-Host ("  could not repack {0}: {1}" -f $item.name, $_.Exception.Message) -ForegroundColor DarkYellow
+        }
+    }
+
     $badAssets += "    {0} is {1}, but it has to be {2}" -f $item.name, $what, $item.kind
 }
 
@@ -261,7 +287,7 @@ if ($badAssets.Count -gt 0) {
           "  compiler both refuse it. Fix it with one of:`n" +
           "      git checkout -- installer/assets/generated`n" +
           "      python installer\assets\build-assets.py`n" +
-          "      magick logo.png -define icon:auto-resize=256,128,64,48,32,24,16 installer\assets\generated\aurion.ico"
+          "      powershell -File installer\tools\make-icon.ps1 -Source logo.png -Destination installer\assets\generated\aurion.ico"
 }
 Write-Host "  asset formats verified" -ForegroundColor Gray
 
