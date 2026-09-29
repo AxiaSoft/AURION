@@ -2074,67 +2074,129 @@ html[data-skin="frost"] #bg-fx::after,
 html[data-skin="neu"] #bg-fx::after,
 html[data-skin="clay"] #bg-fx::after,
 html[data-skin="aurora"] #bg-fx::after,
-html[data-skin="cyber"] #bg-fx::after{ opacity:1 }
-/* Midnight, Ocean, Sunset, Minimal and Monochrome join this list with their
-   own images; until then they keep the procedural backdrop they had, and no
-   scrim is drawn over a photograph that is not there yet. */
+html[data-skin="cyber"] #bg-fx::after,
+html[data-skin="midnight"] #bg-fx::after,
+html[data-skin="ocean"] #bg-fx::after,
+html[data-skin="sunset"] #bg-fx::after,
+html[data-skin="minimal"] #bg-fx::after,
+html[data-skin="mono"] #bg-fx::after{ opacity:1 }
 
 /* ---- the images -------------------------------------------------------- */
 
-/* The opacity is not a taste decision. Each image was measured: the brightest
-   region of the photograph is blended at that opacity, the scrim is applied
-   over it, and the theme's secondary text colour is checked against the
-   result. Every number below is the largest one that still clears 4.5:1 with
-   no panel in between - the worst case, text straight on the wallpaper. */
+/* The opacity is not a taste decision. For every image the second-brightest
+   region of the photograph is blended at the value below, the scrim is
+   applied over it, and the theme's own ink and secondary text are measured
+   against the result - the worst case there is, text sitting straight on the
+   wallpaper with no panel under it.
+
+   Every number is the largest that still clears 7:1 for body text and 4.5:1
+   for secondary. The light modes are far higher than they were: a pale
+   photograph damages contrast very little, so holding them all at a flat 34%
+   was throwing away the picture for nothing.
+
+   Two exceptions are deliberate rather than measured. Minimal and Monochrome
+   are capped at roughly half what they could carry, because restraint is the
+   whole of those two themes. */
 
 html[data-skin="frost"]{
   --theme-bg:url("../assets/bg/frost-dark.jpg");
-  --theme-bg-op:.48;            /* frost bokeh is the brightest of the set */
+  --theme-bg-op:.5;   /* frost bokeh is the brightest thing in the set */
 }
-html[data-skin="frost"][data-theme="light"]{ --theme-bg:url("../assets/bg/frost-light.jpg") }
+html[data-skin="frost"][data-theme="light"]{
+  --theme-bg:url("../assets/bg/frost-light.jpg");
+  --theme-bg-op:.7;
+}
 
 html[data-skin="neu"]{
   --theme-bg:url("../assets/bg/neu-dark.jpg");
-  --theme-bg-op:.48;
+  --theme-bg-op:.5;
 }
-html[data-skin="neu"][data-theme="light"]{ --theme-bg:url("../assets/bg/neu-light.jpg") }
+html[data-skin="neu"][data-theme="light"]{
+  --theme-bg:url("../assets/bg/neu-light.jpg");
+  --theme-bg-op:.7;
+}
 
 html[data-skin="clay"]{
   --theme-bg:url("../assets/bg/clay-dark.jpg");
-  --theme-bg-op:.58;
+  --theme-bg-op:.5;
 }
-html[data-skin="clay"][data-theme="light"]{ --theme-bg:url("../assets/bg/clay-light.jpg") }
+html[data-skin="clay"][data-theme="light"]{
+  --theme-bg:url("../assets/bg/clay-light.jpg");
+  --theme-bg-op:.68;
+}
 
 html[data-skin="aurora"]{
   --theme-bg:url("../assets/bg/aurora-dark.jpg");
-  --theme-bg-op:.62;
-}
-html[data-skin="aurora"][data-theme="light"]{ --theme-bg:url("../assets/bg/aurora-light.jpg") }
-
-/* Cyber earns the most of its image: the grid is the theme. */
-html[data-skin="cyber"]{
-  --theme-bg:url("../assets/bg/cyber-dark.jpg");
   --theme-bg-op:.66;
 }
-html[data-skin="cyber"][data-theme="light"]{ --theme-bg:url("../assets/bg/cyber-light.jpg") }
+html[data-skin="aurora"][data-theme="light"]{
+  --theme-bg:url("../assets/bg/aurora-light.jpg");
+  --theme-bg-op:.68;
+}
+
+html[data-skin="cyber"]{
+  --theme-bg:url("../assets/bg/cyber-dark.jpg");
+  --theme-bg-op:.7;   /* the grid is the theme; it earns the most of its image */
+}
+html[data-skin="cyber"][data-theme="light"]{
+  --theme-bg:url("../assets/bg/cyber-light.jpg");
+  --theme-bg-op:.64;
+}
+
+html[data-skin="midnight"]{
+  --theme-bg:url("../assets/bg/midnight-dark.jpg");
+  --theme-bg-op:.7;
+}
+html[data-skin="midnight"][data-theme="light"]{
+  --theme-bg:url("../assets/bg/midnight-light.jpg");
+  --theme-bg-op:.66;
+}
+
+html[data-skin="ocean"]{
+  --theme-bg:url("../assets/bg/ocean-dark.jpg");
+  --theme-bg-op:.7;   /* saturated turquoise is the one light image dark enough to hurt */
+}
+html[data-skin="ocean"][data-theme="light"]{
+  --theme-bg:url("../assets/bg/ocean-light.jpg");
+  --theme-bg-op:.34;
+}
+
+html[data-skin="sunset"]{
+  --theme-bg:url("../assets/bg/sunset-dark.jpg");
+  --theme-bg-op:.7;
+}
+html[data-skin="sunset"][data-theme="light"]{
+  --theme-bg:url("../assets/bg/sunset-light.jpg");
+  --theme-bg-op:.66;
+}
+
+html[data-skin="minimal"]{
+  --theme-bg:url("../assets/bg/minimal-dark.jpg");
+  --theme-bg-op:.4;   /* capped well under what it could carry: restraint is the theme */
+}
+html[data-skin="minimal"][data-theme="light"]{
+  --theme-bg:url("../assets/bg/minimal-light.jpg");
+  --theme-bg-op:.4;
+}
+
+html[data-skin="mono"]{
+  --theme-bg:url("../assets/bg/mono-dark.jpg");
+  --theme-bg-op:.36;   /* capped for the same reason */
+}
+html[data-skin="mono"][data-theme="light"]{
+  --theme-bg:url("../assets/bg/mono-light.jpg");
+  --theme-bg-op:.44;
+}
 
 /* ---- how much of it is allowed ----------------------------------------- */
 
-/* A light page has far less room before an image becomes noise. */
-html[data-theme="light"]{ --theme-bg-op:.34 }
+/* The scrim is heavier on a light page, where the same image carries further. */
 html[data-theme="light"] #bg-fx::after{
   background:linear-gradient(180deg,
     rgb(var(--s1) / .42) 0%,
     rgb(var(--s1) / .62) 45%,
     rgb(var(--s1) / .86) 100%);
 }
-
-/* Minimal and Monochrome are defined by restraint. They get an image, but
-   barely - a suggestion of one, which is the point of those two themes. */
-html[data-skin="minimal"]{ --theme-bg-op:.26 }
-html[data-skin="mono"]{ --theme-bg-op:.3 }
-html[data-theme="light"][data-skin="minimal"]{ --theme-bg-op:.16 }
-html[data-theme="light"][data-skin="mono"]{ --theme-bg-op:.18 }
 
 /* The cheap rendering tier keeps the picture - a static JPEG costs nothing
    to hold - but loses the crossfade. */
