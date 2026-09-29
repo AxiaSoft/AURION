@@ -150,10 +150,38 @@
   }
 
   // The surface an accent is most often drawn on as text: the panel colour of
-  // the current theme. Values mirror --s5 in app.css.
+  // the current theme. These two are the fallback - they mirror --s5 in
+  // app.css and are what gets used before the stylesheets have parsed.
   var PAGE_SURFACE_DARK = "#0e1018";
   var PAGE_SURFACE_LIGHT = "#fafcff";
   var TEXT_CONTRAST_TARGET = 4.5;   // WCAG AA for normal text
+
+  /**
+   * The panel the accent is actually sitting on, read from the page.
+   *
+   * This used to be one of the two constants above, which was true while
+   * there was one theme. There are twelve now, and their panels run from
+   * Cyber's near-black to Clay's lilac - measuring a teal against #0e1018
+   * and then drawing it on #3d2f5c is not a measurement, it is a guess. So
+   * --s5 is read from the live document whenever it is there.
+   */
+  function panelSurface() {
+    var el = root();
+    var light = el && el.dataset.theme === "light";
+    try {
+      var raw = getComputedStyle(el).getPropertyValue("--s5").trim();
+      var parts = raw.split(/[\s,]+/).filter(Boolean);
+      if (parts.length === 3) {
+        var hex = "#";
+        for (var i = 0; i < 3; i++) {
+          var n = Math.max(0, Math.min(255, parseInt(parts[i], 10) || 0));
+          hex += ("0" + n.toString(16)).slice(-2);
+        }
+        return hex;
+      }
+    } catch (e) { /* before the stylesheet parses there is nothing to read */ }
+    return light ? PAGE_SURFACE_LIGHT : PAGE_SURFACE_DARK;
+  }
 
   /**
    * Keep an accent usable as *text*.
@@ -168,7 +196,7 @@
   function legibleOnPage(hex) {
     var el = root();
     var light = el && el.dataset.theme === "light";
-    var surface = light ? PAGE_SURFACE_LIGHT : PAGE_SURFACE_DARK;
+    var surface = panelSurface();
     var towards = light ? "#000000" : "#ffffff";
     var surfaceLum = luminance(surface);
 
@@ -289,4 +317,14 @@
 
   apply();
   watchTheme();
+
+  // The first run happens in <head>, before any stylesheet has parsed, so
+  // panelSurface() can only return its fallback there. Running once more when
+  // the document is ready is what lets the readable forms of the accent be
+  // measured against the theme that is actually on screen.
+  try {
+    if (global.document && global.document.readyState === "loading") {
+      global.document.addEventListener("DOMContentLoaded", function () { apply(); });
+    }
+  } catch (e) { /* the fallback measurement still applies */ }
 })(typeof window !== "undefined" ? window : this);

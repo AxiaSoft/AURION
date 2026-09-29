@@ -165,272 +165,222 @@ html[data-skin][data-theme="light"]{
    it is what makes the desk readable in a bright room. */
 html[data-skin="glass"]{
   --bg:#06070b;
-  --bg2:#07090f;
-  --ink:#e8edf7;
-  --muted:#8b93a7;
-  --faint:#5b6274;
+  --bg2:#07090e;
+  --ink:#e8edf7; --muted:#8b93a7; --faint:#62687a;
   --wash:255 255 255;
   --s1:6 7 11; --s2:8 10 16; --s3:10 12 19; --s4:12 15 22; --s5:14 17 25; --s6:16 19 29; --s7:18 21 32; --s8:20 24 35; --s9:22 26 38;
-  --field:#10131c; --field2:#07090e; --field-hi:#151925; --deep:#050508;
-  --chart-panel:rgba(8,10,16,.92);
+  --field:#07090e; --field2:#050609; --field-hi:#131722; --deep:#040508;
+  --chart-panel:rgba(8,10,16,.93);
 }
 html[data-skin="glass"][data-theme="light"]{
   --bg:#e9edf4;
-  --bg2:#eef2f8;
-  --ink:#151b28;
-  --muted:#5a6478;
-  --faint:#98a2b6;
+  --bg2:#f0f4f9;
+  --ink:#151b28; --muted:#5a6478; --faint:#7c8494;
   --wash:21 27 40;
-  --s1:233 237 244; --s2:240 244 250; --s3:242 246 251; --s4:244 247 251; --s5:246 249 252; --s6:249 250 253; --s7:251 252 254; --s8:253 253 254; --s9:255 255 255;
-  --field:#ffffff; --field2:#edf1f7; --field-hi:#ffffff; --deep:#ffffff;
-  --chart-panel:rgba(255,255,255,.93);
+  --s1:233 237 244; --s2:244 247 252; --s3:246 248 252; --s4:247 249 253; --s5:249 250 253; --s6:250 252 254; --s7:252 253 254; --s8:253 254 255; --s9:255 255 255;
+  --field:#ffffff; --field2:#f3f5f9; --field-hi:#ffffff; --deep:#ffffff;
+  --chart-panel:rgba(255,255,255,.94);
 }
 html[data-skin="frost"]{
-  --bg:#080c16;
-  --bg2:#0e1423;
-  --ink:#eaf1ff;
-  --muted:#93a3bd;
-  --faint:#66768f;
+  --bg:#070c18;
+  --bg2:#0e1629;
+  --ink:#eef4ff; --muted:#9db0cc; --faint:#6d80a0;
   --wash:255 255 255;
-  --s1:8 12 22; --s2:16 24 40; --s3:18 26 43; --s4:20 29 47; --s5:22 31 50; --s6:24 34 54; --s7:26 36 57; --s8:28 39 61; --s9:30 41 64;
-  --field:#182135; --field2:#0c1320; --field-hi:#1d283f; --deep:#060911;
-  --chart-panel:rgba(16,24,40,.92);
+  --s1:7 12 24; --s2:17 28 50; --s3:19 31 54; --s4:22 34 58; --s5:24 37 62; --s6:27 39 66; --s7:29 42 70; --s8:32 45 74; --s9:34 48 78;
+  --field:#0e1629; --field2:#060a14; --field-hi:#1f2c48; --deep:#050811;
+  --chart-panel:rgba(17,28,50,.93);
 }
 html[data-skin="frost"][data-theme="light"]{
-  --bg:#e6edfa;
-  --bg2:#f0f5fe;
-  --ink:#101a2c;
-  --muted:#56657f;
-  --faint:#93a2b8;
-  --wash:16 26 44;
-  --s1:230 237 250; --s2:244 248 255; --s3:246 249 255; --s4:247 250 255; --s5:249 251 255; --s6:250 252 255; --s7:252 253 255; --s8:253 254 255; --s9:255 255 255;
-  --field:#ffffff; --field2:#eef3fd; --field-hi:#ffffff; --deep:#ffffff;
-  --chart-panel:rgba(255,255,255,.93);
+  --bg:#dde8fa;
+  --bg2:#ebf2fd;
+  --ink:#0e1a2e; --muted:#4f6484; --faint:#6f8096;
+  --wash:14 26 46;
+  --s1:221 232 250; --s2:242 247 255; --s3:244 248 255; --s4:246 249 255; --s5:248 250 255; --s6:249 252 255; --s7:251 253 255; --s8:253 254 255; --s9:255 255 255;
+  --field:#ffffff; --field2:#ecf2fc; --field-hi:#ffffff; --deep:#ffffff;
+  --chart-panel:rgba(255,255,255,.94);
 }
 html[data-skin="neu"]{
-  --bg:#171a21;
-  --bg2:#1a1e25;
-  --ink:#e3e7ee;
-  --muted:#949cab;
-  --faint:#6b7280;
+  --bg:#1b1f27;
+  --bg2:#1b1f27;
+  --ink:#e6eaf2; --muted:#98a1b2; --faint:#6e7786;
   --wash:255 255 255;
-  --s1:23 26 33; --s2:27 31 39; --s3:28 33 41; --s4:30 34 43; --s5:31 36 45; --s6:33 37 47; --s7:34 39 49; --s8:36 40 51; --s9:37 42 53;
-  --field:#21252f; --field2:#191d24; --field-hi:#252934; --deep:#111419;
-  --chart-panel:rgba(27,31,39,.92);
+  --s1:27 31 39; --s2:27 31 39; --s3:28 33 41; --s4:30 34 43; --s5:31 36 45; --s6:33 38 48; --s7:34 40 50; --s8:36 41 52; --s9:37 43 54;
+  --field:#1b1f27; --field2:#171a21; --field-hi:#232933; --deep:#13161b;
+  --chart-panel:rgba(27,31,39,.93);
 }
 html[data-skin="neu"][data-theme="light"]{
-  --bg:#e4e8ef;
-  --bg2:#eaedf3;
-  --ink:#2a2f3a;
-  --muted:#5d6472;
-  --faint:#9aa1ad;
-  --wash:42 47 58;
-  --s1:228 232 239; --s2:236 239 245; --s3:237 240 246; --s4:239 242 247; --s5:240 243 248; --s6:242 244 249; --s7:243 245 250; --s8:245 247 251; --s9:246 248 252;
-  --field:#fbfcfe; --field2:#e8ecf2; --field-hi:#ffffff; --deep:#ffffff;
-  --chart-panel:rgba(255,255,255,.93);
+  --bg:#e3e7ee;
+  --bg2:#e6eaf1;
+  --ink:#242935; --muted:#59606f; --faint:#798090;
+  --wash:36 41 53;
+  --s1:227 231 238; --s2:232 236 243; --s3:233 237 244; --s4:235 239 245; --s5:236 240 246; --s6:238 241 247; --s7:239 242 248; --s8:241 244 249; --s9:242 245 250;
+  --field:#ffffff; --field2:#f0f2f6; --field-hi:#ffffff; --deep:#ffffff;
+  --chart-panel:rgba(255,255,255,.94);
 }
 html[data-skin="clay"]{
-  --bg:#17131f;
-  --bg2:#20192d;
-  --ink:#f2ecff;
-  --muted:#b3a6c9;
-  --faint:#8a7ea0;
+  --bg:#191325;
+  --bg2:#241b37;
+  --ink:#f4edff; --muted:#b6a8d2; --faint:#8b7eab;
   --wash:255 255 255;
-  --s1:23 19 31; --s2:36 27 51; --s3:38 29 55; --s4:41 31 58; --s5:43 33 62; --s6:46 34 66; --s7:48 36 70; --s8:51 38 73; --s9:53 40 77;
-  --field:#2d2241; --field2:#1e172a; --field-hi:#34274c; --deep:#110e17;
-  --chart-panel:rgba(36,27,51,.92);
+  --s1:25 19 37; --s2:42 32 64; --s3:45 34 68; --s4:47 36 72; --s5:50 38 76; --s6:53 41 80; --s7:56 43 84; --s8:58 45 88; --s9:61 47 92;
+  --field:#241b37; --field2:#15101f; --field-hi:#392c56; --deep:#120d1a;
+  --chart-panel:rgba(42,32,64,.93);
 }
 html[data-skin="clay"][data-theme="light"]{
-  --bg:#efeafa;
-  --bg2:#f7f3fe;
-  --ink:#241a33;
-  --muted:#6b5f80;
-  --faint:#a196b5;
-  --wash:36 26 51;
-  --s1:239 234 250; --s2:250 247 255; --s3:251 248 255; --s4:251 249 255; --s5:252 250 255; --s6:253 252 255; --s7:254 253 255; --s8:254 254 255; --s9:255 255 255;
-  --field:#ffffff; --field2:#f5f1fd; --field-hi:#ffffff; --deep:#ffffff;
-  --chart-panel:rgba(255,255,255,.93);
+  --bg:#ece4fb;
+  --bg2:#f3edfe;
+  --ink:#271b3d; --muted:#6c5c8c; --faint:#8f83aa;
+  --wash:39 27 61;
+  --s1:236 228 251; --s2:247 242 255; --s3:248 244 255; --s4:249 246 255; --s5:250 248 255; --s6:252 249 255; --s7:253 251 255; --s8:254 253 255; --s9:255 255 255;
+  --field:#ffffff; --field2:#f5f0fd; --field-hi:#ffffff; --deep:#ffffff;
+  --chart-panel:rgba(255,255,255,.94);
 }
 html[data-skin="aurora"]{
-  --bg:#080a1a;
-  --bg2:#10102f;
-  --ink:#eceaff;
-  --muted:#9c9ac4;
-  --faint:#6f6d9a;
+  --bg:#070919;
+  --bg2:#0f0e32;
+  --ink:#efecff; --muted:#a49fd4; --faint:#7570aa;
   --wash:255 255 255;
-  --s1:8 10 26; --s2:19 19 56; --s3:21 21 60; --s4:24 22 63; --s5:26 24 67; --s6:29 26 71; --s7:31 28 75; --s8:34 29 78; --s9:36 31 82;
-  --field:#1c1a46; --field2:#0e0f2b; --field-hi:#231e51; --deep:#060814;
-  --chart-panel:rgba(19,19,56,.92);
+  --s1:7 9 25; --s2:20 17 64; --s3:23 19 69; --s4:26 22 75; --s5:29 24 80; --s6:33 27 86; --s7:36 29 91; --s8:39 32 97; --s9:42 34 102;
+  --field:#0f0e32; --field2:#060815; --field-hi:#261f5e; --deep:#050612;
+  --chart-panel:rgba(20,17,64,.93);
 }
 html[data-skin="aurora"][data-theme="light"]{
-  --bg:#ecebfb;
-  --bg2:#f4f3fe;
-  --ink:#1b1740;
-  --muted:#605d8c;
-  --faint:#9b98bd;
-  --wash:27 23 64;
-  --s1:236 235 251; --s2:247 246 255; --s3:248 247 255; --s4:249 249 255; --s5:250 250 255; --s6:252 251 255; --s7:253 252 255; --s8:254 254 255; --s9:255 255 255;
-  --field:#ffffff; --field2:#f2f1fd; --field-hi:#ffffff; --deep:#ffffff;
-  --chart-panel:rgba(255,255,255,.93);
+  --bg:#e9e6fb;
+  --bg2:#f1effe;
+  --ink:#1a1442; --muted:#5d5793; --faint:#847fa8;
+  --wash:26 20 66;
+  --s1:233 230 251; --s2:246 244 255; --s3:247 246 255; --s4:249 247 255; --s5:250 249 255; --s6:251 250 255; --s7:252 252 255; --s8:254 253 255; --s9:255 255 255;
+  --field:#ffffff; --field2:#f3f1fd; --field-hi:#ffffff; --deep:#ffffff;
+  --chart-panel:rgba(255,255,255,.94);
 }
 html[data-skin="cyber"]{
-  --bg:#04050d;
-  --bg2:#080b18;
-  --ink:#dcf7ff;
-  --muted:#84a0ba;
-  --faint:#5b768f;
+  --bg:#030410;
+  --bg2:#06091a;
+  --ink:#d9f8ff; --muted:#7fa6c4; --faint:#557a99;
   --wash:255 255 255;
-  --s1:4 5 13; --s2:10 13 28; --s3:11 15 32; --s4:13 16 35; --s5:14 18 39; --s6:16 20 43; --s7:17 22 47; --s8:19 23 50; --s9:20 25 54;
-  --field:#10142a; --field2:#070915; --field-hi:#141835; --deep:#03040a;
-  --chart-panel:rgba(10,13,28,.92);
+  --s1:3 4 16; --s2:7 12 32; --s3:8 14 36; --s4:10 15 39; --s5:11 17 43; --s6:12 19 47; --s7:13 21 51; --s8:15 22 54; --s9:16 24 58;
+  --field:#06091a; --field2:#03030e; --field-hi:#0e1635; --deep:#02030b;
+  --chart-panel:rgba(7,12,32,.93);
 }
 html[data-skin="cyber"][data-theme="light"]{
-  --bg:#e6ebf5;
-  --bg2:#eff3fb;
-  --ink:#0a1220;
-  --muted:#4f6076;
-  --faint:#8b9cb2;
-  --wash:10 18 32;
-  --s1:230 235 245; --s2:243 247 253; --s3:245 248 253; --s4:246 249 254; --s5:248 250 254; --s6:250 252 254; --s7:252 253 254; --s8:253 254 255; --s9:255 255 255;
-  --field:#ffffff; --field2:#edf2f9; --field-hi:#ffffff; --deep:#ffffff;
-  --chart-panel:rgba(255,255,255,.93);
+  --bg:#dfe6f2;
+  --bg2:#e9eef8;
+  --ink:#050b18; --muted:#4a5d75; --faint:#758599;
+  --wash:5 11 24;
+  --s1:223 230 242; --s2:238 243 251; --s3:240 245 252; --s4:243 246 252; --s5:245 248 253; --s6:248 250 253; --s7:250 252 254; --s8:253 253 254; --s9:255 255 255;
+  --field:#ffffff; --field2:#edf1f8; --field-hi:#ffffff; --deep:#ffffff;
+  --chart-panel:rgba(255,255,255,.94);
 }
 html[data-skin="minimal"]{
-  --bg:#0d0f14;
-  --bg2:#111318;
-  --ink:#e7e9ee;
-  --muted:#8b8f9a;
-  --faint:#63666f;
+  --bg:#0c0e13;
+  --bg2:#111319;
+  --ink:#eceef2; --muted:#8f939d; --faint:#6c707a;
   --wash:255 255 255;
-  --s1:13 15 20; --s2:18 20 25; --s3:19 22 27; --s4:21 23 29; --s5:22 25 31; --s6:24 26 33; --s7:25 28 35; --s8:27 29 37; --s9:28 31 39;
-  --field:#181a21; --field2:#101217; --field-hi:#1c1e26; --deep:#0a0b0f;
-  --chart-panel:rgba(18,20,25,.92);
+  --s1:12 14 19; --s2:19 22 28; --s3:21 24 30; --s4:22 25 32; --s5:24 27 34; --s6:25 29 36; --s7:27 31 38; --s8:28 32 40; --s9:30 34 42;
+  --field:#111319; --field2:#0a0c10; --field-hi:#1c2027; --deep:#080a0d;
+  --chart-panel:rgba(19,22,28,.93);
 }
 html[data-skin="minimal"][data-theme="light"]{
-  --bg:#f6f7f9;
-  --bg2:#fcfdfd;
-  --ink:#14161a;
-  --muted:#5c6069;
-  --faint:#9a9ea7;
-  --wash:20 22 26;
-  --s1:246 247 249; --s2:255 255 255; --s3:255 255 255; --s4:255 255 255; --s5:255 255 255; --s6:255 255 255; --s7:255 255 255; --s8:255 255 255; --s9:255 255 255;
-  --field:#ffffff; --field2:#fbfbfc; --field-hi:#ffffff; --deep:#ffffff;
-  --chart-panel:rgba(255,255,255,.93);
+  --bg:#f4f5f7;
+  --bg2:#fbfcfc;
+  --ink:#111318; --muted:#5b5f68; --faint:#898d95;
+  --wash:17 19 24;
+  --s1:244 245 247; --s2:255 255 255; --s3:255 255 255; --s4:255 255 255; --s5:255 255 255; --s6:255 255 255; --s7:255 255 255; --s8:255 255 255; --s9:255 255 255;
+  --field:#ffffff; --field2:#f9fafb; --field-hi:#ffffff; --deep:#ffffff;
+  --chart-panel:rgba(255,255,255,.94);
 }
 html[data-skin="midnight"]{
-  --bg:#050713;
-  --bg2:#090d1f;
-  --ink:#e6ebff;
-  --muted:#8d97bb;
-  --faint:#616b8f;
+  --bg:#04060f;
+  --bg2:#080c1f;
+  --ink:#e8edff; --muted:#909cc4; --faint:#636e96;
   --wash:255 255 255;
-  --s1:5 7 19; --s2:11 16 36; --s3:13 18 40; --s4:14 20 44; --s5:16 22 48; --s6:18 25 52; --s7:20 27 56; --s8:21 29 60; --s9:23 31 64;
-  --field:#121833; --field2:#080c1c; --field-hi:#161e3f; --deep:#04050e;
-  --chart-panel:rgba(11,16,36,.92);
+  --s1:4 6 15; --s2:10 15 40; --s3:12 18 45; --s4:14 20 49; --s5:16 23 54; --s6:18 25 58; --s7:20 28 63; --s8:22 30 67; --s9:24 33 72;
+  --field:#080c1f; --field2:#03050d; --field-hi:#151d42; --deep:#03040b;
+  --chart-panel:rgba(10,15,40,.93);
 }
 html[data-skin="midnight"][data-theme="light"]{
-  --bg:#e7eaf6;
-  --bg2:#f1f3fc;
-  --ink:#131a33;
-  --muted:#565f80;
-  --faint:#939bb8;
-  --wash:19 26 51;
-  --s1:231 234 246; --s2:245 247 255; --s3:246 248 255; --s4:248 249 255; --s5:249 250 255; --s6:251 252 255; --s7:252 253 255; --s8:254 254 255; --s9:255 255 255;
-  --field:#ffffff; --field2:#eff1fb; --field-hi:#ffffff; --deep:#ffffff;
-  --chart-panel:rgba(255,255,255,.93);
+  --bg:#e3e8f6;
+  --bg2:#edf1fc;
+  --ink:#101838; --muted:#525c80; --faint:#7f86a3;
+  --wash:16 24 56;
+  --s1:227 232 246; --s2:243 246 255; --s3:245 247 255; --s4:246 249 255; --s5:248 250 255; --s6:250 251 255; --s7:252 252 255; --s8:253 254 255; --s9:255 255 255;
+  --field:#ffffff; --field2:#f0f2fa; --field-hi:#ffffff; --deep:#ffffff;
+  --chart-panel:rgba(255,255,255,.94);
 }
 html[data-skin="ocean"]{
-  --bg:#031018;
-  --bg2:#051b27;
-  --ink:#e3f6ff;
-  --muted:#8bb3c4;
-  --faint:#5f8799;
+  --bg:#020e16;
+  --bg2:#041c27;
+  --ink:#e2f7ff; --muted:#8cb9cb; --faint:#5d8a9e;
   --wash:255 255 255;
-  --s1:3 16 24; --s2:6 32 46; --s3:7 35 50; --s4:8 38 53; --s5:9 41 57; --s6:10 45 61; --s7:11 48 65; --s8:12 51 68; --s9:13 54 72;
-  --field:#0a2c3c; --field2:#051924; --field-hi:#0d3547; --deep:#020c12;
-  --chart-panel:rgba(6,32,46,.92);
+  --s1:2 14 22; --s2:5 35 48; --s3:6 39 53; --s4:7 42 57; --s5:8 46 62; --s6:9 49 66; --s7:10 53 71; --s8:11 56 75; --s9:12 60 80;
+  --field:#041c27; --field2:#020c13; --field-hi:#0b374a; --deep:#010a0f;
+  --chart-panel:rgba(5,35,48,.93);
 }
 html[data-skin="ocean"][data-theme="light"]{
-  --bg:#e2f0f7;
-  --bg2:#eff8fd;
-  --ink:#06222e;
-  --muted:#4a6f7e;
-  --faint:#88a7b4;
-  --wash:6 34 46;
-  --s1:226 240 247; --s2:244 251 255; --s3:246 252 255; --s4:247 252 255; --s5:249 253 255; --s6:250 253 255; --s7:252 254 255; --s8:253 254 255; --s9:255 255 255;
-  --field:#ffffff; --field2:#ecf6fb; --field-hi:#ffffff; --deep:#ffffff;
-  --chart-panel:rgba(255,255,255,.93);
+  --bg:#dff0f7;
+  --bg2:#ebf7fc;
+  --ink:#04212e; --muted:#446c7d; --faint:#6e8c99;
+  --wash:4 33 46;
+  --s1:223 240 247; --s2:241 251 255; --s3:243 252 255; --s4:245 252 255; --s5:247 253 255; --s6:249 253 255; --s7:251 254 255; --s8:253 254 255; --s9:255 255 255;
+  --field:#ffffff; --field2:#edf7fb; --field-hi:#ffffff; --deep:#ffffff;
+  --chart-panel:rgba(255,255,255,.94);
 }
 html[data-skin="sunset"]{
-  --bg:#140910;
-  --bg2:#1f0f16;
-  --ink:#ffeee6;
-  --muted:#c19a95;
-  --faint:#96716e;
+  --bg:#16080d;
+  --bg2:#230d14;
+  --ink:#ffeee5; --muted:#c99e94; --faint:#9c746c;
   --wash:255 255 255;
-  --s1:20 9 16; --s2:36 17 25; --s3:39 19 27; --s4:43 20 29; --s5:46 22 31; --s6:50 24 32; --s7:53 26 34; --s8:57 27 36; --s9:60 29 38;
-  --field:#311820; --field2:#1d0d15; --field-hi:#3b1c25; --deep:#0f070c;
-  --chart-panel:rgba(36,17,25,.92);
+  --s1:22 8 13; --s2:42 16 24; --s3:46 18 27; --s4:50 21 29; --s5:54 23 32; --s6:58 26 34; --s7:62 28 37; --s8:66 31 39; --s9:70 33 42;
+  --field:#230d14; --field2:#13070b; --field-hi:#401e26; --deep:#0f0609;
+  --chart-panel:rgba(42,16,24,.93);
 }
 html[data-skin="sunset"][data-theme="light"]{
-  --bg:#fcece4;
-  --bg2:#fef4ef;
-  --ink:#2b1410;
-  --muted:#7d5a52;
-  --faint:#b1918a;
-  --wash:43 20 16;
-  --s1:252 236 228; --s2:255 248 244; --s3:255 249 246; --s4:255 250 247; --s5:255 251 249; --s6:255 252 250; --s7:255 253 252; --s8:255 254 253; --s9:255 255 255;
-  --field:#ffffff; --field2:#fef3ed; --field-hi:#ffffff; --deep:#ffffff;
-  --chart-panel:rgba(255,255,255,.93);
+  --bg:#fce8dc;
+  --bg2:#fef1e9;
+  --ink:#2d130c; --muted:#7f5548; --faint:#a07e71;
+  --wash:45 19 12;
+  --s1:252 232 220; --s2:255 246 240; --s3:255 247 242; --s4:255 249 244; --s5:255 250 246; --s6:255 251 249; --s7:255 252 251; --s8:255 254 253; --s9:255 255 255;
+  --field:#ffffff; --field2:#fdf2ec; --field-hi:#ffffff; --deep:#ffffff;
+  --chart-panel:rgba(255,255,255,.94);
 }
 html[data-skin="mono"]{
-  --bg:#0a0a0b;
+  --bg:#09090a;
   --bg2:#101011;
-  --ink:#ececee;
-  --muted:#8d8d92;
-  --faint:#646468;
+  --ink:#eeeef0; --muted:#90909a; --faint:#6c6c74;
   --wash:255 255 255;
-  --s1:10 10 11; --s2:18 18 19; --s3:20 20 21; --s4:22 22 23; --s5:24 24 25; --s6:25 25 27; --s7:27 27 29; --s8:29 29 31; --s9:31 31 33;
-  --field:#19191b; --field2:#0e0e0f; --field-hi:#1e1e20; --deep:#080808;
-  --chart-panel:rgba(18,18,19,.92);
+  --s1:9 9 10; --s2:19 19 20; --s3:21 21 22; --s4:23 23 24; --s5:25 25 26; --s6:27 27 29; --s7:29 29 31; --s8:31 31 33; --s9:33 33 35;
+  --field:#101011; --field2:#080809; --field-hi:#1e1e20; --deep:#060607;
+  --chart-panel:rgba(19,19,20,.93);
 }
 html[data-skin="mono"][data-theme="light"]{
-  --bg:#f3f3f4;
-  --bg2:#fbfbfc;
-  --ink:#111112;
-  --muted:#5e5e63;
-  --faint:#9a9a9f;
-  --wash:17 17 18;
-  --s1:243 243 244; --s2:255 255 255; --s3:255 255 255; --s4:255 255 255; --s5:255 255 255; --s6:255 255 255; --s7:255 255 255; --s8:255 255 255; --s9:255 255 255;
-  --field:#ffffff; --field2:#fafafa; --field-hi:#ffffff; --deep:#ffffff;
-  --chart-panel:rgba(255,255,255,.93);
+  --bg:#f2f2f3;
+  --bg2:#f8f8f9;
+  --ink:#0e0e10; --muted:#5c5c63; --faint:#8a8a91;
+  --wash:14 14 16;
+  --s1:242 242 243; --s2:251 251 252; --s3:252 252 252; --s4:252 252 253; --s5:253 253 253; --s6:253 253 254; --s7:254 254 254; --s8:254 254 255; --s9:255 255 255;
+  --field:#ffffff; --field2:#f8f8f8; --field-hi:#ffffff; --deep:#ffffff;
+  --chart-panel:rgba(255,255,255,.94);
 }
-
-
-/* The custom theme starts from the Liquid Glass ramp and is then reshaped
-   entirely by its knobs, which the user owns. */
 html[data-skin="custom"]{
   --bg:#06070b;
-  --bg2:#07090f;
-  --ink:#e8edf7;
-  --muted:#8b93a7;
-  --faint:#5b6274;
+  --bg2:#07090e;
+  --ink:#e8edf7; --muted:#8b93a7; --faint:#62687a;
   --wash:255 255 255;
   --s1:6 7 11; --s2:8 10 16; --s3:10 12 19; --s4:12 15 22; --s5:14 17 25; --s6:16 19 29; --s7:18 21 32; --s8:20 24 35; --s9:22 26 38;
-  --field:#10131c; --field2:#07090e; --field-hi:#151925; --deep:#050508;
-  --chart-panel:rgba(8,10,16,.92);
+  --field:#07090e; --field2:#050609; --field-hi:#131722; --deep:#040508;
+  --chart-panel:rgba(8,10,16,.93);
 }
 html[data-skin="custom"][data-theme="light"]{
   --bg:#e9edf4;
-  --bg2:#eef2f8;
-  --ink:#151b28;
-  --muted:#5a6478;
-  --faint:#98a2b6;
+  --bg2:#f0f4f9;
+  --ink:#151b28; --muted:#5a6478; --faint:#7c8494;
   --wash:21 27 40;
-  --s1:233 237 244; --s2:240 244 250; --s3:242 246 251; --s4:244 247 251; --s5:246 249 252; --s6:249 250 253; --s7:251 252 254; --s8:253 253 254; --s9:255 255 255;
-  --field:#ffffff; --field2:#edf1f7; --field-hi:#ffffff; --deep:#ffffff;
-  --chart-panel:rgba(255,255,255,.93);
+  --s1:233 237 244; --s2:244 247 252; --s3:246 248 252; --s4:247 249 253; --s5:249 250 253; --s6:250 252 254; --s7:252 253 254; --s8:253 254 255; --s9:255 255 255;
+  --field:#ffffff; --field2:#f3f5f9; --field-hi:#ffffff; --deep:#ffffff;
+  --chart-panel:rgba(255,255,255,.94);
 }
+
+
 
 /* ===========================================================================
    3. Morphism, applied with a hierarchy
@@ -704,25 +654,6 @@ html[data-skin] table tbody tr:hover{ background:var(--surface-interactive) }
    things that actually make them recognisable - and nothing more, because a
    theme that rewrote every rule would stop tracking changes to the rest. */
 
-/* ---- glass: frost, aurora, ocean, sunset ------------------------------
-   Variations on the default. Their difference is in the numbers, not here. */
-html[data-skin="frost"] .card{
-  background:linear-gradient(140deg,
-            rgb(var(--s9) / calc(var(--surface-alpha) * 1.1)),
-            rgb(var(--s5) / calc(var(--surface-alpha) * .7)));
-  border-color:rgb(var(--wash) / calc(var(--border-alpha-eff) * 1.3));
-}
-html[data-skin="frost"] .card::after{
-  background:linear-gradient(180deg, rgb(var(--wash) / .08), transparent 60%);
-}
-html[data-skin="aurora"]{ --accent-edge:1.4 }
-html[data-skin="ocean"] .card{
-  background:linear-gradient(180deg,
-            rgb(var(--s8) / var(--surface-alpha)),
-            rgb(var(--s4) / calc(var(--surface-alpha) * .8)));
-}
-html[data-skin="sunset"]{ --sat:150% }
-
 /* ---- neu: neumorphism -------------------------------------------------
    No borders and no translucency: the surface is the page, and every edge is
    made of light. Two shadows per element, one warm-light and one dark, and
@@ -945,6 +876,330 @@ html[data-skin="midnight"] .card{
 }
 html[data-skin="midnight"] .nav,
 html[data-skin="midnight"] .top{ background:rgb(var(--s2) / .94) }
+
+/* ===========================================================================
+   4b. Identity
+   ===========================================================================
+   A palette and six numbers get a theme most of the way, but not all of it.
+   What is left is the handful of details that make a material feel authored
+   rather than generated: how saturated it renders, how present the accent's
+   edge is, how the type is set, what a text selection looks like, and what
+   the scrollbar does. They are small and there are not many of them - which
+   is the point. One block per theme, and the block is short. */
+
+/* Type is part of the material. A flat theme needs its headings to carry the
+   hierarchy that shadows used to carry; a soft theme can let them relax. */
+html[data-skin] .card h3,
+html[data-skin] .set-title,
+html[data-skin] .modal-card h3{
+  font-weight:var(--head-weight, 500);
+  letter-spacing:var(--head-track, .005em);
+}
+html[data-skin] .kicker,
+html[data-skin] .set-h{ letter-spacing:var(--eyebrow-track, .14em) }
+html[data-skin] .sub,
+html[data-skin] .lede{ color:var(--muted) }
+
+/* Selection and caret follow the accent everywhere. They were the last two
+   places still showing the browser's default blue. */
+html[data-skin] ::selection{
+  background:rgb(var(--accent-rgb) / .3);
+  color:var(--ink);
+}
+html[data-skin] input,
+html[data-skin] textarea{ caret-color:var(--accent) }
+
+/* ---- Liquid Glass: the default, and the reference for the rest ---------- */
+html[data-skin="glass"]{ --sat:130%; --accent-edge:1; --head-weight:500 }
+
+/* ---- Glassmorphism: thin, bright, lit from the top-left ----------------- */
+html[data-skin="frost"]{
+  --sat:160%;
+  --accent-edge:.8;
+  --head-weight:500;
+  --head-track:.012em;
+  --surface-hover:rgb(var(--wash) / .1);
+}
+html[data-skin="frost"] .card,
+html[data-skin="frost"] .auth-card{
+  background:linear-gradient(140deg,
+            rgb(var(--s9) / calc(var(--surface-alpha) * 1.5)),
+            rgb(var(--s4) / calc(var(--surface-alpha) * .65)));
+  border-color:rgb(var(--wash) / calc(var(--border-alpha-eff) * 1.2));
+  box-shadow:var(--shadow-md), inset 0 1px 0 rgb(var(--wash) / .16);
+}
+/* The lit edge is the whole idea of the style: one hairline along the top
+   and the leading side, bright, and nothing else. */
+html[data-skin="frost"] .card::after{
+  background:linear-gradient(180deg, rgb(var(--wash) / .1), transparent 55%);
+}
+html[data-skin="frost"] .nav,
+html[data-skin="frost"] .top{
+  background:rgb(var(--s3) / calc(var(--surface-alpha) * 1.3));
+  border-color:rgb(var(--wash) / calc(var(--border-alpha-eff) * 1.1));
+}
+html[data-skin="frost"] .field input,
+html[data-skin="frost"] .ctrl,
+html[data-skin="frost"] .dd-btn{
+  background:rgb(var(--s2) / .55);
+  border-color:rgb(var(--wash) / calc(var(--border-alpha-eff) * 1.1));
+}
+
+/* ---- Neumorphism -------------------------------------------------------
+   The rule of the style is that the surface and the page are the same
+   colour, and every edge is made of light. Which means the light has to have
+   a direction, and it has to be the same direction everywhere: top-left. */
+html[data-skin="neu"]{
+  --sat:100%;
+  --head-weight:600;
+  --head-track:.01em;
+  --surface-interactive:rgb(var(--wash) / .03);
+  --surface-hover:rgb(var(--wash) / .05);
+}
+html[data-skin="neu"] .set-h,
+html[data-skin="neu"] .kicker{ color:var(--faint) }
+html[data-skin="neu"] table th{ background:transparent; box-shadow:inset 0 -1px 0 rgb(var(--wash) / .06) }
+html[data-skin="neu"] .term,
+html[data-skin="neu"] .chart-box{ background:rgb(var(--s2)); box-shadow:var(--neu-in); border:0 }
+html[data-skin="neu"] .bar{ background:rgb(var(--s2)); box-shadow:var(--neu-in) }
+html[data-skin="neu"] .tabs button.on,
+html[data-skin="neu"] .lang-pills button.on{ box-shadow:var(--neu-in) }
+html[data-skin="neu"] .st-chip{ box-shadow:var(--neu-out-sm); border:0; background:rgb(var(--s3)) }
+html[data-skin="neu"] .st-chip[data-state="live"]{ background:var(--accent); box-shadow:var(--neu-out-sm) }
+html[data-skin="neu"] .st-chip[data-state="down"]{ background:rgb(var(--s3)); box-shadow:var(--neu-out-sm) }
+html[data-skin="neu"] input[type=range]::-webkit-slider-runnable-track{
+  background:rgb(var(--s2)); border:0; box-shadow:var(--neu-in);
+}
+/* On a light neumorphic page the dark shadow has to be a warm grey, not
+   black: black on #e3e7ee reads as soot rather than depth. */
+html[data-skin="neu"][data-theme="light"]{
+  --neu-light:rgb(255 255 255 / .9);
+  --neu-dark:rgb(163 172 190 / calc(.55 * var(--shadow-strength)));
+}
+
+/* ---- Claymorphism ------------------------------------------------------
+   Thick and inflated: a long soft drop, a bright inner top, a dark inner
+   bottom, and a radius large enough that nothing looks like a rectangle. */
+html[data-skin="clay"]{
+  --sat:120%;
+  --head-weight:600;
+  --head-track:.005em;
+  --surface-interactive:rgb(var(--wash) / .07);
+  --surface-hover:rgb(var(--wash) / .11);
+}
+html[data-skin="clay"] .card h3{ font-size:calc(var(--sk-head, 15px) * 1.05) }
+html[data-skin="clay"] .st-chip{ border:0; box-shadow:inset 0 -2px 4px rgb(var(--shadow-rgb) / .22) }
+html[data-skin="clay"] .switch{
+  border:0;
+  box-shadow:inset 0 3px 7px rgb(var(--shadow-rgb) / .35);
+  background:rgb(var(--s3));
+}
+html[data-skin="clay"] .switch.on{ background:rgb(var(--accent-rgb) / .4) }
+html[data-skin="clay"] .switch i{ box-shadow:0 2px 5px rgb(var(--shadow-rgb) / .4) }
+html[data-skin="clay"] .term,
+html[data-skin="clay"] .chart-box,
+html[data-skin="clay"] .bar{
+  background:rgb(var(--s3));
+  box-shadow:inset 0 3px 8px rgb(var(--shadow-rgb) / .3);
+  border:0;
+}
+html[data-skin="clay"] .tabs button.on{ box-shadow:inset 0 3px 6px rgb(var(--shadow-rgb) / .3) }
+html[data-skin="clay"][data-theme="light"]{
+  --clay-in:inset 0 -6px 12px rgb(148 130 180 / .28),
+            inset 0 8px 14px rgb(255 255 255 / .9);
+  --clay-out:0 16px 30px rgb(110 90 150 / calc(.22 * var(--shadow-strength)));
+}
+
+/* ---- Aurora ------------------------------------------------------------
+   Deep translucent panels over moving colour. The accent is allowed to be
+   present in the surface itself, which no other theme does. */
+html[data-skin="aurora"]{
+  --sat:150%;
+  --accent-edge:1.5;
+  --head-weight:500;
+  --head-track:.015em;
+}
+html[data-skin="aurora"] .card{
+  background:linear-gradient(160deg,
+            rgb(var(--s8) / var(--surface-alpha)),
+            rgb(var(--s3) / calc(var(--surface-alpha) * .9)));
+  box-shadow:var(--shadow-lg), inset 0 1px 0 rgb(var(--wash) / .1);
+}
+html[data-skin="aurora"] .card::after{
+  background:radial-gradient(120% 70% at 12% 0%, rgb(var(--accent-3-rgb) / .12), transparent 60%);
+  height:100%;
+}
+html[data-skin="aurora"] .nav{ background:rgb(var(--s2) / calc(var(--surface-alpha) * 1.25)) }
+
+/* ---- Cyber Neon --------------------------------------------------------
+   Everything is carried by the edge. The discipline that keeps it usable:
+   glow goes on borders and never behind text, and the body copy stays a cool
+   near-white rather than becoming another neon. */
+html[data-skin="cyber"]{
+  --sat:140%;
+  --accent-edge:2;
+  --head-weight:600;
+  --head-track:.05em;
+  --eyebrow-track:.2em;
+  --surface-interactive:rgb(var(--accent-rgb) / .06);
+  --surface-hover:rgb(var(--accent-rgb) / .12);
+}
+html[data-skin="cyber"] .card h3,
+html[data-skin="cyber"] .set-title{ text-transform:uppercase; font-size:13px }
+html[data-skin="cyber"] .mono{ letter-spacing:.02em }
+html[data-skin="cyber"] .top{
+  border-bottom:1px solid rgb(var(--accent-rgb) / .3);
+  box-shadow:0 1px 0 rgb(var(--accent-rgb) / .12);
+}
+html[data-skin="cyber"] .term{
+  background:rgb(var(--s1) / .85);
+  border-color:rgb(var(--accent-rgb) / .22);
+  box-shadow:inset 0 0 30px rgb(var(--accent-rgb) / .06);
+}
+html[data-skin="cyber"] .switch{ border-color:rgb(var(--accent-rgb) / .3) }
+html[data-skin="cyber"] .switch.on{ box-shadow:0 0 12px rgb(var(--accent-rgb) / .4) }
+html[data-skin="cyber"] .tabs button.on{ box-shadow:0 0 14px rgb(var(--accent-rgb) / .45) }
+html[data-skin="cyber"] table th{
+  background:rgb(var(--accent-rgb) / .08);
+  border-bottom:1px solid rgb(var(--accent-rgb) / .25);
+  text-transform:uppercase;
+  letter-spacing:.08em;
+  font-size:10.5px;
+}
+/* On a light page neon has nothing to glow against, so the style becomes
+   what it would be on paper: hard edges, saturated ink, no bloom. */
+html[data-skin="cyber"][data-theme="light"]{
+  --neon:0 0 0 1px rgb(var(--accent-rgb) / .45);
+}
+html[data-skin="cyber"][data-theme="light"] .btn{ box-shadow:none }
+html[data-skin="cyber"][data-theme="light"] .card:hover{
+  box-shadow:0 0 0 1px rgb(var(--accent-rgb) / .6), var(--shadow-sm);
+}
+
+/* ---- Minimal -----------------------------------------------------------
+   The hardest one to get right, because there is nothing to hide behind.
+   Everything is spacing, hairlines and one accent used sparingly. */
+html[data-skin="minimal"]{
+  --sat:100%;
+  --head-weight:600;
+  --head-track:0;
+  --eyebrow-track:.1em;
+  --surface-interactive:transparent;
+  --surface-hover:rgb(var(--wash) / .05);
+  --accent-edge:0;
+}
+html[data-skin="minimal"] .card::before{ display:none }
+html[data-skin="minimal"] .btn{ box-shadow:none }
+html[data-skin="minimal"] .btn.ghost{ background:transparent }
+html[data-skin="minimal"] .btn.ghost:hover{ background:var(--surface-hover) }
+html[data-skin="minimal"] .icon-btn{ background:transparent }
+html[data-skin="minimal"] table th{
+  background:transparent;
+  border-bottom:1px solid var(--border-2);
+  color:var(--muted);
+  text-transform:uppercase;
+  letter-spacing:.07em;
+  font-size:10.5px;
+}
+html[data-skin="minimal"] .nav button::after{ width:2px }
+html[data-skin="minimal"] .term{ background:rgb(var(--s2)) }
+
+/* ---- Midnight ----------------------------------------------------------
+   Nearly opaque, and the depth comes from stacking rather than from blur.
+   Built for a dark room and a long session, so the contrast is deliberately
+   a little softer than Liquid Glass. */
+html[data-skin="midnight"]{
+  --sat:115%;
+  --accent-edge:1.2;
+  --head-weight:500;
+  --head-track:.01em;
+}
+html[data-skin="midnight"] .card::after{
+  background:linear-gradient(180deg, rgb(var(--wash) / .05), transparent 70%);
+}
+html[data-skin="midnight"] .nav{ border-inline-end-color:rgb(var(--accent-rgb) / .14) }
+html[data-skin="midnight"] .term{ background:rgb(var(--s1) / .9) }
+
+/* ---- Ocean -------------------------------------------------------------
+   Light comes from below, the way it does underwater, so the gradient on a
+   panel runs the opposite way to every other theme. */
+html[data-skin="ocean"]{
+  --sat:140%;
+  --accent-edge:1.2;
+  --head-weight:500;
+  --head-track:.02em;
+}
+html[data-skin="ocean"] .card{
+  background:linear-gradient(0deg,
+            rgb(var(--s8) / var(--surface-alpha)),
+            rgb(var(--s4) / calc(var(--surface-alpha) * .82)));
+}
+html[data-skin="ocean"] .card::before{
+  background:linear-gradient(90deg, transparent,
+             rgb(var(--accent-rgb) / .5), rgb(var(--accent-3-rgb) / .3), transparent);
+}
+html[data-skin="ocean"] .nav{ background:rgb(var(--s3) / calc(var(--surface-alpha) * 1.15)) }
+
+/* ---- Sunset ------------------------------------------------------------
+   Warm, and warm all the way down: the muted text is a warm grey and the
+   hairline carries a little amber, or the panels read as dusty pink. */
+html[data-skin="sunset"]{
+  --sat:145%;
+  --accent-edge:1.3;
+  --head-weight:500;
+  --head-track:.015em;
+  --border-accent:rgb(var(--accent-rgb) / .38);
+}
+html[data-skin="sunset"] .card{
+  background:linear-gradient(200deg,
+            rgb(var(--s8) / var(--surface-alpha)),
+            rgb(var(--s3) / calc(var(--surface-alpha) * .88)));
+}
+html[data-skin="sunset"] .card::after{
+  background:radial-gradient(100% 60% at 100% 0%, rgb(var(--accent-rgb) / .1), transparent 60%);
+  height:100%;
+}
+
+/* ---- Monochrome --------------------------------------------------------
+   Grey only. With hue gone, every distinction has to be made by weight,
+   size, spacing and rule - which is why this is the only theme that changes
+   the type as much as it changes the surfaces. */
+html[data-skin="mono"]{
+  --sat:0%;
+  --accent-edge:0;
+  --head-weight:600;
+  --head-track:.01em;
+  --eyebrow-track:.18em;
+  --surface-interactive:rgb(var(--wash) / .04);
+  --surface-hover:rgb(var(--wash) / .08);
+  --glow-soft:none;
+}
+html[data-skin="mono"] .card::before{ display:none }
+html[data-skin="mono"] .btn{ box-shadow:none }
+html[data-skin="mono"] .btn:hover{ box-shadow:none; filter:brightness(1.08) }
+html[data-skin="mono"] table th{
+  background:transparent;
+  border-bottom:1px solid var(--border-2);
+  text-transform:uppercase;
+  letter-spacing:.1em;
+  font-size:10.5px;
+  color:var(--muted);
+}
+html[data-skin="mono"] .set-h{ color:var(--faint) }
+html[data-skin="mono"] .term{ background:rgb(var(--s2)) }
+/* Direction is the one thing that keeps its colour even here - a monochrome
+   desk still has to say green-up and red-down - so it is given a little more
+   weight instead, to hold its own against an otherwise grey page. */
+html[data-skin="mono"] .up,
+html[data-skin="mono"] .down,
+html[data-skin="mono"] .metric.up,
+html[data-skin="mono"] .metric.down{ font-weight:600 }
+
+/* ---- Custom ------------------------------------------------------------
+   No identity of its own on purpose: it is whatever the seven controls say,
+   starting from the Liquid Glass reference. */
+html[data-skin="custom"]{ --sat:130%; --head-weight:500 }
+
 
 /* ===========================================================================
    5. Backdrops
@@ -1344,107 +1599,122 @@ html[data-perf="fast"] #bg-fx b{ filter:blur(40px) }
 }
 .tc-dot{ width:9px; height:9px; border-radius:50%; background:var(--p-accent2, var(--p-accent)); opacity:.85 }
 
-/* The twelve miniatures. Palette first, then whatever single trick makes the
-   family recognisable at ninety pixels tall. */
+/* The twelve miniatures.
+
+   Each one is built from the same palette the theme itself uses - page,
+   lowest panel, highest panel, ink, muted, accent - so a card cannot drift
+   from the thing it is advertising. After the palette comes the one trick
+   that makes the family readable at ninety pixels: dual shadows for
+   neumorphism, an inflated inner edge for clay, a lit hairline and a grid
+   for cyber, a hairline and nothing else for the flat pair. */
 .tc-art[data-art="glass"]{
-  --p-bg:#080a12; --p-s:rgba(32,38,55,.9); --p-s2:rgba(48,56,78,.85);
-  --p-ink:#d7e0f0; --p-mute:#59617a; --p-accent:#3ee0c4; --p-accent2:#7c6cff;
+  --p-bg:#06070b; --p-s:rgba(22,26,38,.92); --p-s2:rgba(34,40,56,.85);
+  --p-ink:#e8edf7; --p-mute:#5b6274; --p-accent:#3ee0c4; --p-accent2:#7c6cff;
   --p-border:1px solid rgba(255,255,255,.1);
-  --p-glow:radial-gradient(60% 70% at 10% 0%, rgba(124,108,255,.35), transparent 60%),
-           radial-gradient(60% 70% at 100% 20%, rgba(62,224,196,.22), transparent 60%);
-  --p-shadow:0 6px 16px rgba(0,0,0,.45);
+  --p-radius:8px;
+  --p-glow:radial-gradient(62% 72% at 8% -8%, rgba(124,108,255,.34), transparent 60%),
+           radial-gradient(58% 68% at 104% 16%, rgba(62,224,196,.2), transparent 60%);
+  --p-shadow:0 6px 16px rgba(0,0,0,.5);
 }
 .tc-art[data-art="frost"]{
-  --p-bg:#0a1020; --p-s:rgba(255,255,255,.14); --p-s2:rgba(255,255,255,.1);
-  --p-ink:#e6efff; --p-mute:#7b8ca8; --p-accent:#38bdf8; --p-accent2:#a5f3fc;
-  --p-border:1px solid rgba(255,255,255,.24);
-  --p-glow:radial-gradient(50% 60% at 20% 10%, rgba(56,189,248,.4), transparent 62%),
-           radial-gradient(50% 60% at 90% 90%, rgba(165,243,252,.28), transparent 62%);
+  --p-bg:#070c18; --p-s:rgba(255,255,255,.15); --p-s2:rgba(255,255,255,.1);
+  --p-ink:#eef4ff; --p-mute:#6d80a0; --p-accent:#a5f3fc; --p-accent2:#38bdf8;
+  --p-border:1px solid rgba(255,255,255,.3);
   --p-radius:9px;
+  --p-glow:radial-gradient(52% 62% at 18% 6%, rgba(165,243,252,.34), transparent 62%),
+           radial-gradient(52% 62% at 92% 94%, rgba(56,189,248,.3), transparent 62%);
+  --p-shadow:0 6px 18px rgba(0,0,0,.35);
+  --p-rail:rgba(255,255,255,.08);
 }
 .tc-art[data-art="neu"]{
-  --p-bg:#171a21; --p-s:#1b1f27; --p-s2:#1b1f27;
-  --p-ink:#cfd5e0; --p-mute:#5a616e; --p-accent:#94a3b8;
-  --p-radius:9px;
-  --p-shadow:4px 4px 9px #0e1015, -4px -4px 9px #222732;
-  --p-shadow-sm:2px 2px 5px #0e1015, -2px -2px 5px #222732;
-  --p-rail:#1b1f27; --p-rail-shadow:3px 3px 8px #0e1015, -3px -3px 8px #222732;
-  --p-btn-shadow:3px 3px 7px #0e1015, -3px -3px 7px #222732;
+  --p-bg:#1b1f27; --p-s:#1b1f27; --p-s2:#1b1f27;
+  --p-ink:#cfd6e2; --p-mute:#5b6270; --p-accent:#94a3b8;
+  --p-radius:10px;
+  --p-shadow:4px 4px 9px #12151b, -4px -4px 9px #242933;
+  --p-shadow-sm:2px 2px 5px #12151b, -2px -2px 5px #242933;
+  --p-rail:#1b1f27; --p-rail-shadow:3px 3px 8px #12151b, -3px -3px 8px #242933;
+  --p-btn-shadow:3px 3px 7px #12151b, -3px -3px 7px #242933;
 }
 .tc-art[data-art="clay"]{
-  --p-bg:#17131f; --p-s:#32264a; --p-s2:#3d2f59;
-  --p-ink:#e9dfff; --p-mute:#7a6b96; --p-accent:#c084fc;
-  --p-radius:13px;
-  --p-shadow:inset 0 -4px 7px rgba(0,0,0,.35), inset 0 4px 7px rgba(255,255,255,.1), 0 8px 16px rgba(0,0,0,.4);
-  --p-btn-shadow:inset 0 -3px 5px rgba(0,0,0,.3), inset 0 3px 5px rgba(255,255,255,.18);
-  --p-rail:#241b33;
+  --p-bg:#191325; --p-s:#3d2f5c; --p-s2:#4a3a6e;
+  --p-ink:#f4edff; --p-mute:#8b7eab; --p-accent:#c084fc;
+  --p-radius:14px;
+  --p-shadow:inset 0 -5px 8px rgba(0,0,0,.38), inset 0 5px 8px rgba(255,255,255,.12), 0 9px 18px rgba(0,0,0,.42);
+  --p-btn-shadow:inset 0 -3px 5px rgba(0,0,0,.3), inset 0 3px 5px rgba(255,255,255,.22);
+  --p-rail:#2a2040;
 }
 .tc-art[data-art="aurora"]{
-  --p-bg:#080a1a; --p-s:rgba(48,40,98,.78); --p-s2:rgba(66,54,126,.7);
-  --p-ink:#e2dfff; --p-mute:#6b679c; --p-accent:#8b7bff; --p-accent2:#3ee0c4;
-  --p-border:1px solid rgba(255,255,255,.14);
+  --p-bg:#070919; --p-s:rgba(42,34,102,.8); --p-s2:rgba(60,48,134,.72);
+  --p-ink:#efecff; --p-mute:#7570aa; --p-accent:#8b7bff; --p-accent2:#3ee0c4;
+  --p-border:1px solid rgba(255,255,255,.15);
   --p-radius:11px;
-  --p-glow:radial-gradient(55% 65% at 0% 0%, rgba(139,123,255,.55), transparent 62%),
-           radial-gradient(55% 65% at 100% 100%, rgba(62,224,196,.3), transparent 62%),
-           radial-gradient(45% 55% at 70% 0%, rgba(232,121,249,.28), transparent 62%);
+  --p-glow:radial-gradient(58% 66% at -6% -6%, rgba(139,123,255,.6), transparent 62%),
+           radial-gradient(56% 64% at 106% 106%, rgba(62,224,196,.32), transparent 62%),
+           radial-gradient(46% 56% at 72% -8%, rgba(232,121,249,.3), transparent 62%);
 }
 .tc-art[data-art="cyber"]{
-  --p-bg:#04050d; --p-s:rgba(14,18,42,.9); --p-s2:rgba(20,25,54,.9);
-  --p-ink:#d6f6ff; --p-mute:#4d6a86; --p-accent:#e879f9; --p-accent2:#4cc9f0;
-  --p-border:1px solid rgba(232,121,249,.5);
+  --p-bg:#030410; --p-s:rgba(16,24,58,.88); --p-s2:rgba(22,32,72,.88);
+  --p-ink:#d9f8ff; --p-mute:#4f708c; --p-accent:#e879f9; --p-accent2:#4cc9f0;
+  --p-border:1px solid rgba(232,121,249,.55);
   --p-radius:3px;
-  --p-shadow:0 0 0 1px rgba(232,121,249,.35), 0 0 14px rgba(232,121,249,.3);
-  --p-btn-shadow:0 0 12px rgba(232,121,249,.6);
-  --p-rail:rgba(10,13,28,.9);
+  --p-shadow:0 0 0 1px rgba(232,121,249,.3), 0 0 14px rgba(232,121,249,.32);
+  --p-btn-shadow:0 0 12px rgba(232,121,249,.65);
+  --p-rail:rgba(7,12,32,.9);
 }
 .tc-art[data-art="cyber"]::before{
   background:
-    linear-gradient(rgba(232,121,249,.14) 1px, transparent 1px) 0 0/14px 14px,
-    linear-gradient(90deg, rgba(232,121,249,.14) 1px, transparent 1px) 0 0/14px 14px,
-    radial-gradient(70% 60% at 50% 110%, rgba(76,201,240,.3), transparent 65%);
+    linear-gradient(rgba(232,121,249,.13) 1px, transparent 1px) 0 0/13px 13px,
+    linear-gradient(90deg, rgba(232,121,249,.13) 1px, transparent 1px) 0 0/13px 13px,
+    radial-gradient(72% 58% at 50% 112%, rgba(76,201,240,.34), transparent 65%);
 }
 .tc-art[data-art="minimal"]{
-  --p-bg:#0d0f14; --p-s:#171a21; --p-s2:#1d212a;
-  --p-ink:#dfe3ea; --p-mute:#565a64; --p-accent:#cbd5e1;
-  --p-border:1px solid rgba(255,255,255,.13);
+  --p-bg:#0c0e13; --p-s:#171a21; --p-s2:#1e222a;
+  --p-ink:#eceef2; --p-mute:#5a5e68; --p-accent:#38bdf8;
+  --p-border:1px solid rgba(255,255,255,.14);
   --p-radius:4px;
+  --p-rail:#13161c;
 }
 .tc-art[data-art="midnight"]{
-  --p-bg:#050713; --p-s:#151d3e; --p-s2:#1d2751;
-  --p-ink:#dfe5ff; --p-mute:#5b6488; --p-accent:#818cf8;
+  --p-bg:#04060f; --p-s:#182148; --p-s2:#202a58;
+  --p-ink:#e8edff; --p-mute:#5d688f; --p-accent:#818cf8;
   --p-radius:6px;
-  --p-glow:radial-gradient(70% 70% at 50% -10%, rgba(129,140,248,.3), transparent 65%);
-  --p-shadow:0 8px 18px rgba(0,0,0,.6);
+  --p-glow:radial-gradient(74% 72% at 50% -14%, rgba(129,140,248,.32), transparent 66%);
+  --p-shadow:0 8px 18px rgba(0,0,0,.65);
+  --p-rail:#0a0f28;
 }
 .tc-art[data-art="ocean"]{
-  --p-bg:#031018; --p-s:rgba(11,52,71,.92); --p-s2:rgba(16,70,94,.9);
-  --p-ink:#dcf3ff; --p-mute:#527786; --p-accent:#4cc9f0; --p-accent2:#38bdf8;
-  --p-border:1px solid rgba(255,255,255,.12);
+  --p-bg:#020e16; --p-s:rgba(12,60,80,.9); --p-s2:rgba(18,78,102,.88);
+  --p-ink:#e2f7ff; --p-mute:#54808f; --p-accent:#4cc9f0; --p-accent2:#38bdf8;
+  --p-border:1px solid rgba(255,255,255,.13);
   --p-radius:9px;
-  --p-glow:radial-gradient(80% 70% at 50% 120%, rgba(76,201,240,.4), transparent 65%);
+  --p-glow:radial-gradient(86% 72% at 50% 122%, rgba(76,201,240,.44), transparent 66%);
+  --p-rail:rgba(5,35,48,.92);
 }
 .tc-art[data-art="sunset"]{
-  --p-bg:#140910; --p-s:rgba(66,32,41,.92); --p-s2:rgba(86,43,52,.9);
-  --p-ink:#ffe9df; --p-mute:#8d6863; --p-accent:#fb923c; --p-accent2:#f43f5e;
-  --p-border:1px solid rgba(255,255,255,.12);
+  --p-bg:#16080d; --p-s:rgba(70,33,42,.92); --p-s2:rgba(92,45,54,.9);
+  --p-ink:#ffeee5; --p-mute:#8b6860; --p-accent:#fb923c; --p-accent2:#f43f5e;
+  --p-border:1px solid rgba(255,255,255,.13);
   --p-radius:11px;
-  --p-glow:radial-gradient(60% 70% at 85% 0%, rgba(251,146,60,.45), transparent 62%),
-           radial-gradient(60% 70% at 10% 100%, rgba(244,63,94,.3), transparent 62%);
+  --p-glow:radial-gradient(62% 70% at 88% -6%, rgba(251,146,60,.48), transparent 62%),
+           radial-gradient(58% 66% at 6% 106%, rgba(244,63,94,.3), transparent 62%);
+  --p-rail:rgba(42,16,24,.92);
 }
 .tc-art[data-art="mono"]{
-  --p-bg:#0a0a0b; --p-s:#1d1d1f; --p-s2:#262628;
-  --p-ink:#e4e4e6; --p-mute:#565659; --p-accent:#d4d4d8;
-  --p-border:1px solid rgba(255,255,255,.15);
+  --p-bg:#09090a; --p-s:#212123; --p-s2:#2b2b2e;
+  --p-ink:#eeeef0; --p-mute:#5a5a62; --p-accent:#d4d4d8;
+  --p-border:1px solid rgba(255,255,255,.16);
   --p-radius:2px;
+  --p-rail:#131314;
 }
-/* The custom miniature is the only one that is not fixed: the desk writes the
-   user's own accent, radius and surface strength onto it, so the card shows
-   the theme they built rather than the one it shipped with. */
+/* The custom miniature is the only one that is not fixed: the desk writes
+   the user's own accent, radius and surface strength onto it, so the card
+   shows the theme they built rather than the one it shipped with. */
 .tc-art[data-art="custom"]{
-  --p-bg:#0a0c14; --p-s:rgba(34,40,58,.9); --p-s2:rgba(50,58,80,.85);
-  --p-ink:#dbe3f2; --p-mute:#5c6478; --p-accent:#3ee0c4;
+  --p-bg:#06070b; --p-s:rgba(26,31,45,.9); --p-s2:rgba(40,47,66,.85);
+  --p-ink:#e8edf7; --p-mute:#5b6274; --p-accent:#3ee0c4;
   --p-border:1px solid rgba(255,255,255,.12);
-  --p-shadow:0 6px 16px rgba(0,0,0,.45);
+  --p-radius:8px;
+  --p-shadow:0 6px 16px rgba(0,0,0,.5);
 }
 
 /* A light desk needs the previews lifted off the page, or twelve dark
@@ -1570,3 +1840,66 @@ html[data-skin] .plan-card.on{
 html[data-skin] .plan-card.popular{
   background:linear-gradient(180deg, rgb(var(--accent-rgb) / .12), rgb(var(--s4) / .82));
 }
+
+/* ===========================================================================
+   11. The last details
+   ===========================================================================
+   The things that are only noticed when they are wrong. */
+
+/* The scrim behind the mobile rail was a fixed black. On a light theme that
+   is a black sheet over a white page; it should be the theme's own page
+   colour, dimmed. */
+html[data-skin] .nav-scrim,
+html[data-skin] .pay-veil{ background:rgb(var(--s1) / .58) }
+html[data-skin][data-theme="light"] .nav-scrim,
+html[data-skin][data-theme="light"] .pay-veil{ background:rgb(var(--wash) / .34) }
+
+/* A backdrop tuned for a dark page is too loud on a light one: the same
+   blobs at the same opacity turn a white desk into a poster. */
+html[data-theme="light"] #bg-fx{ opacity:.55 }
+html[data-theme="light"][data-bg="grid"] #bg-fx{ opacity:.4 }
+
+/* Cyber and Monochrome want their own scrollbar: one because everything
+   else on the page is lit, the other because nothing is. */
+html[data-skin="cyber"]{ --scroll-thumb:rgb(var(--accent-rgb) / .35) }
+html[data-skin="mono"]{ --scroll-thumb:rgb(var(--wash) / .22) }
+
+/* ---- the gallery, finished -------------------------------------------- */
+/* A card the keyboard has landed on has to be as obvious as one the pointer
+   is over, and the ring alone is not enough at this size. */
+.theme-card:focus-visible{
+  border-color:rgb(var(--accent-rgb) / .6);
+  box-shadow:var(--shadow-md);
+}
+/* The miniature lifts very slightly out of its card on hover - the same
+   gesture the real cards make, at a third of the distance. */
+.theme-card .tc-art{
+  transform:scale(1);
+  transition:transform var(--dur-3) var(--ease-2), box-shadow var(--dur-2) var(--ease-1);
+}
+.theme-card:hover .tc-art{ transform:scale(1.02) }
+.theme-card.on .tc-art{ box-shadow:0 0 0 1px rgb(var(--accent-rgb) / .45) }
+/* One slow sweep of light across the selected card, once, when it is chosen.
+   It marks the choice and then gets out of the way. */
+.theme-card.on::after{
+  content:"";
+  position:absolute; inset:0;
+  background:linear-gradient(115deg, transparent 30%, rgb(var(--accent-rgb) / .16) 50%, transparent 70%);
+  transform:translateX(-120%);
+  animation:tcSweep .75s var(--ease-2) 1;
+  pointer-events:none;
+}
+@keyframes tcSweep{ to{ transform:translateX(120%) } }
+html[data-motion="off"] .theme-card.on::after{ animation:none; opacity:0 }
+@media (prefers-reduced-motion:reduce){
+  .theme-card.on::after{ animation:none; opacity:0 }
+  .theme-card:hover .tc-art{ transform:none }
+}
+
+/* The custom panel arrives when Custom is chosen rather than appearing. */
+.tc-custom{ animation:ddIn var(--dur-3) var(--ease-2) }
+
+/* Knob sliders are the only place in the desk where a number is dragged, so
+   the readout is given the accent while it is being changed. */
+.knob:focus-within .knob-head b,
+.knob:hover .knob-head b{ color:var(--accent-readable, var(--accent)) }
