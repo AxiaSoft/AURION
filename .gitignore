@@ -34,3 +34,4 @@ data/prop-day.json
 
 # The build script keeps the artwork it repacked, next to the icon it made.
 installer/assets/generated/*.original.png
+installer/assets/generated/*.original.ico

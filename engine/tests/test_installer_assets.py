@@ -44,6 +44,41 @@ def test_every_icon_holds_the_images_it_promises() -> None:
             assert data + size <= len(blob), f"{name}: image {i + 1} points past the end"
 
 
+def test_the_product_icon_is_the_real_logo_on_black() -> None:
+    """The wordmark is silver; a transparent icon loses it on a light desktop.
+
+    Checked on the 16x16 frame, which is a raw DIB and so can be read here
+    without an image library: its corner pixel has to be opaque black.
+    """
+    blob = (ASSETS / "aurion.ico").read_bytes()
+    count = struct.unpack("<H", blob[4:6])[0]
+    smallest = None
+    for i in range(count):
+        off = 6 + i * 16
+        w = blob[off] or 256
+        size, data = struct.unpack("<II", blob[off + 8:off + 16])
+        if smallest is None or w < smallest[0]:
+            smallest = (w, data, size)
+    w, data, _size = smallest
+    assert blob[data:data + 4] != b"\x89PNG", "the smallest frame should be a DIB"
+    header = struct.unpack("<I", blob[data:data + 4])[0]
+    assert header == 40, "expected a 40-byte BITMAPINFOHEADER"
+    bpp = struct.unpack("<H", blob[data + 14:data + 16])[0]
+    assert bpp == 32, f"the {w}px frame is {bpp}bpp - icons should carry full colour"
+    # First pixel of the bottom row, BGRA.
+    b, g, r, a = blob[data + 40:data + 44]
+    assert (b, g, r) == (0, 0, 0), f"the corner is not black, it is {(r, g, b)}"
+    assert a == 255, "the corner is not opaque - the silver wordmark will vanish"
+
+
+def test_the_generator_matches_the_committed_icon() -> None:
+    """Whoever runs build-assets.py next must not undo this."""
+    src = BUILDER.read_text(encoding="utf-8")
+    assert 'WEB / "icons" / "mark.png"' in src, "the icon has to come from the real logo"
+    assert "(0, 0, 0, 255)" in src, "and be composited onto black"
+    assert "monogram" in src, "and drop the wordmark at the sizes it cannot be read"
+
+
 def test_the_product_icon_covers_the_sizes_windows_asks_for() -> None:
     """Explorer, the taskbar, alt-tab and the installer all want a different one."""
     blob = (ASSETS / "aurion.ico").read_bytes()
@@ -86,6 +121,26 @@ def test_a_dropped_png_can_be_repaired_without_extra_tools() -> None:
     assert "repacking it" in ps1, "and say so rather than doing it silently"
 
 
+def test_there_is_a_one_command_doctor() -> None:
+    """When a build keeps failing, the answer has to be one paste, not five."""
+    doc = ROOT / "installer" / "tools" / "fix-icon-now.ps1"
+    assert doc.exists(), "installer/tools/fix-icon-now.ps1 is missing"
+    src = doc.read_text(encoding="utf-8")
+    # It has to answer the three questions that look identical from a log.
+    assert "NOT a git checkout" in src, "it must catch a folder that cannot receive a pull"
+    assert "rev-parse --abbrev-ref HEAD" in src, "and report the branch it is on"
+    assert "not building from this folder" in src or "building from this folder" in src, \
+        "and say so when the icon is fine but the build still fails"
+    assert "make-icon.ps1" in src, "and repair what it can"
+
+
+def test_binary_assets_are_marked_binary() -> None:
+    """core.autocrlf on Windows must never get near an icon."""
+    attrs = (ROOT / ".gitattributes").read_text(encoding="utf-8")
+    for ext in ("*.ico", "*.png", "*.bmp"):
+        assert f"{ext}" in attrs and "binary" in attrs, f"{ext} is not marked binary"
+
+
 def test_the_generator_can_verify_without_pillow() -> None:
     src = BUILDER.read_text(encoding="utf-8")
     assert "--verify" in src, "a build machine has to be able to check without installing Pillow"
@@ -94,6 +149,10 @@ def test_the_generator_can_verify_without_pillow() -> None:
 
 
 TESTS = [
+    test_the_product_icon_is_the_real_logo_on_black,
+    test_the_generator_matches_the_committed_icon,
+    test_there_is_a_one_command_doctor,
+    test_binary_assets_are_marked_binary,
     test_a_dropped_png_can_be_repaired_without_extra_tools,
     test_every_icon_is_a_real_icon,
     test_every_icon_holds_the_images_it_promises,

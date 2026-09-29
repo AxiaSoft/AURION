@@ -119,7 +119,24 @@ function Get-DibBytes {
 }
 
 $srcPath = (Resolve-Path -LiteralPath $Source).Path
-$image = [System.Drawing.Image]::FromFile($srcPath)
+
+# The source may itself be an icon - a valid container that some toolchain
+# still refuses, usually because it holds nothing but a single 256px PNG.
+# Pull the largest frame out of it and rebuild properly from that.
+$srcBytes = [System.IO.File]::ReadAllBytes($srcPath)
+if ($srcBytes.Length -ge 4 -and $srcBytes[0] -eq 0 -and $srcBytes[1] -eq 0 -and
+    $srcBytes[2] -eq 1 -and $srcBytes[3] -eq 0) {
+    $iconStream = New-Object System.IO.MemoryStream(, $srcBytes)
+    $icon = New-Object System.Drawing.Icon($iconStream, 256, 256)
+    $image = $icon.ToBitmap()
+    $icon.Dispose()
+    $iconStream.Dispose()
+} else {
+    # Read through a stream, never FromFile: FromFile holds the handle open
+    # and the destination is very often the source.
+    $imgStream = New-Object System.IO.MemoryStream(, $srcBytes)
+    $image = [System.Drawing.Image]::FromStream($imgStream)
+}
 $images = @()
 try {
     foreach ($size in ($Sizes | Sort-Object -Descending -Unique)) {

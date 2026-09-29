@@ -64,7 +64,7 @@ function Step([string] $text) {
 
 # Bumped whenever this script changes, so a stale copy is obvious at a glance
 # instead of failing with a confusing parameter error.
-$ScriptRevision = "20"
+$ScriptRevision = "21"
 
 Write-Host ""
 Write-Host "  AURION installer build" -ForegroundColor White
@@ -263,15 +263,36 @@ foreach ($item in @(
     $path = Join-Path $assetsDir $item.name
     if (-not (Test-Path $path)) { continue }
 
-    $head = [System.IO.File]::ReadAllBytes($path) | Select-Object -First 8
+    $blob = [System.IO.File]::ReadAllBytes($path)
+    $head = $blob | Select-Object -First 8
     $want = $item.magic
     $ok = $true
     for ($i = 0; $i -lt $want.Count; $i++) { if ($head[$i] -ne $want[$i]) { $ok = $false } }
-    if ($ok) { continue }
+
+    # A correct magic number is not the whole story for an icon. A container
+    # holding nothing but one 256px PNG entry is a legal .ico that some
+    # toolchains still refuse, and it is what most "convert to ico" websites
+    # produce - so an icon without the small classic bitmaps Windows asks
+    # for is rebuilt as well, not just an outright wrong one.
+    $thin = $false
+    if ($ok -and $item.name -like "*.ico" -and $blob.Length -ge 22) {
+        $n = [BitConverter]::ToUInt16($blob, 4)
+        $small = 0
+        for ($i = 0; $i -lt $n; $i++) {
+            $w = $blob[6 + $i * 16]
+            if ($w -ne 0 -and $w -le 64) { $small++ }
+        }
+        if ($n -lt 2 -or $small -lt 1) {
+            $thin = $true
+            Write-Host ("  {0} has {1} image(s) and none at 64px or below - rebuilding it" -f $item.name, $n) -ForegroundColor Yellow
+        }
+    }
+    if ($ok -and -not $thin) { continue }
 
     $what = "an unrecognised format"
     $isImage = $false
-    if ($head[0] -eq 0x89 -and $head[1] -eq 0x50) { $what = "a PNG"; $isImage = $true }
+    if ($thin) { $what = "an icon without the usual small sizes"; $isImage = $true }
+    elseif ($head[0] -eq 0x89 -and $head[1] -eq 0x50) { $what = "a PNG"; $isImage = $true }
     elseif ($head[0] -eq 0xFF -and $head[1] -eq 0xD8) { $what = "a JPEG"; $isImage = $true }
     elseif ($head[0] -eq 0x42 -and $head[1] -eq 0x4D) { $what = "a BMP"; $isImage = $true }
     elseif ($head[0] -eq 0x47 -and $head[1] -eq 0x49) { $what = "a GIF"; $isImage = $true }
@@ -279,11 +300,14 @@ foreach ($item in @(
     # Only icons can be repaired - a BMP that is really a PNG would still
     # need to be the exact size the installer draws, so that one is reported.
     if ($isImage -and $item.name -like "*.ico") {
-        Write-Host ("  {0} is {1}, not an icon - repacking it" -f $item.name, $what) -ForegroundColor Yellow
+        if (-not $thin) {
+            Write-Host ("  {0} is {1}, not an icon - repacking it" -f $item.name, $what) -ForegroundColor Yellow
+        }
         try {
             # Keep the original next to it; it is the artwork, and only the
             # container was wrong.
             $stash = Join-Path $assetsDir ([System.IO.Path]::GetFileNameWithoutExtension($item.name) + ".original.png")
+            if ($thin) { $stash = Join-Path $assetsDir ([System.IO.Path]::GetFileNameWithoutExtension($item.name) + ".original.ico") }
             Copy-Item -LiteralPath $path -Destination $stash -Force
             & powershell -NoProfile -ExecutionPolicy Bypass `
                 -File (Join-Path $PSScriptRoot "make-icon.ps1") `

@@ -236,10 +236,42 @@ def build_dialog() -> Image.Image:
 # icons
 # ---------------------------------------------------------------------------
 def build_icon(out: Path) -> None:
-    base = mark(256)
-    flat = Image.new("RGBA", (256, 256), BG + (255,))
-    flat.alpha_composite(base)
-    flat.save(out, format="ICO", sizes=[(s, s) for s in ICON_SIZES])
+    """The product icon: the real logo, on black, sized the way Windows asks.
+
+    Two things about it are deliberate.
+
+    The background is solid black rather than transparent. The wordmark is
+    silver, and on a transparent icon over a light Explorer background it
+    disappears - the logo has to carry its own backdrop.
+
+    The small sizes are the monogram alone. At 32 and 16 pixels the word
+    AURION is four grey smudges; dropping it there and letting the mark fill
+    the tile is the difference between a recognisable taskbar icon and a
+    stain. Windows picks the frame that fits, so the full lockup is still
+    what anybody sees at any size where it can be read.
+    """
+    source = WEB / "icons" / "mark.png"
+    art = Image.open(source).convert("RGBA")
+    art = art.crop(art.getbbox())                     # drop the empty margin
+
+    # The lockup without its wordmark - the top 71% of the trimmed artwork.
+    monogram = art.crop((0, 0, art.width, int(art.height * 0.71)))
+    monogram = monogram.crop(monogram.getbbox())
+
+    frames = []
+    for size in sorted(ICON_SIZES, reverse=True):
+        piece = art if size >= 48 else monogram
+        margin = 0.92 if size >= 48 else 0.88
+        box = int(size * margin)
+        scaled = piece.copy()
+        scaled.thumbnail((box, box), Image.LANCZOS)
+        tile = Image.new("RGBA", (size, size), (0, 0, 0, 255))
+        tile.alpha_composite(
+            scaled, ((size - scaled.width) // 2, (size - scaled.height) // 2))
+        frames.append(tile)
+
+    frames[0].save(out, format="ICO", sizes=[(f.width, f.height) for f in frames],
+                   append_images=frames[1:])
 
 
 def build_glyph(out: Path, kind: str) -> None:
