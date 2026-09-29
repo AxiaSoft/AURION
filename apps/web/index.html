@@ -34,6 +34,13 @@
         __perf = ((__c > 0 && __c <= 4) || (__mem > 0 && __mem <= 4)) ? "fast" : "rich";
       }
       document.documentElement.dataset.perf = __perf;
+      /* Theme material, applied before the first paint for the same reason:
+         js/themes.js owns this and re-applies it a few lines below, but the
+         desk must never show a frame of Liquid Glass to somebody who chose
+         Cyber. Only the attributes are set here - the numbers behind them
+         live in one place, and that place is themes.js. */
+      var __sk = localStorage.getItem("aurion.theme.skin") || "glass";
+      document.documentElement.dataset.skin = __sk;
     } catch (e) { document.documentElement.dataset.theme = "dark"; }
   </script>
   <script>
@@ -74,12 +81,17 @@
       });
     })();
   </script>
-  <script src="/js/skins.js?v=desk93"></script>
-  <link rel="stylesheet" href="/css/app.css?v=desk85" />
-  <link rel="stylesheet" href="/css/skins.css?v=desk92" />
+  <script src="/js/skins.js?v=desk94"></script>
+  <script src="/js/themes.js?v=desk94"></script>
+  <link rel="stylesheet" href="/css/app.css?v=desk86" />
+  <link rel="stylesheet" href="/css/skins.css?v=desk93" />
+  <link rel="stylesheet" href="/css/themes.css?v=desk94" />
 </head>
 <body class="mode-desk">
   <div class="aurora"></div>
+  <!-- The theme's backdrop. Three composited layers, transformed and never
+       repainted; which of them is visible is entirely up to [data-bg]. -->
+  <div id="bg-fx" aria-hidden="true"><b></b><b></b><b></b></div>
   <div id="theme-veil" aria-hidden="true"></div>
   <div id="welcome" class="welcome">
     <video id="welcome-vid" playsinline webkit-playsinline preload="auto"></video>
@@ -181,6 +193,6 @@
   <script src="/js/api.js?v=desk85"></script>
   <script src="/js/calendar.js?v=desk85"></script>
   <script src="/js/charts.js?v=desk94"></script>
-  <script src="/js/app.js?v=desk93"></script>
+  <script src="/js/app.js?v=desk94"></script>
 </body>
 </html>

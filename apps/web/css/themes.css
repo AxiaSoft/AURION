@@ -1,0 +1,1437 @@
+/* ===========================================================================
+   AURION — themes and morphism.
+   ===========================================================================
+
+   The desk used to have one material: frosted glass over a dark page. This
+   file turns that single material into a system. A theme is described by
+   eight numbers and a palette, and every surface in the product - panels,
+   rails, fields, dialogs, menus, toasts, tables, switches - is drawn from
+   those numbers rather than from colours written into the component.
+
+       --surface-alpha    how much of the page shows through a panel
+       --border-alpha     how present a hairline is
+       --blur             how far a translucent surface blurs
+       --radius-lg        the large corner radius; the rest are derived
+       --shadow-strength  shadow depth, as a multiplier
+       --motion-scale     animation amplitude and speed, as a multiplier
+       --accent*          owned by js/skins.js, nominated by the theme
+       --s1..--s9         the surface ramp, page to highest panel
+
+   js/themes.js publishes the first six as a rule on [data-skin][data-theme]
+   before the first paint; the palettes below arrive with [data-skin]. That
+   split is the point: a new theme is a palette plus six numbers, and it
+   inherits every component rule in this file for free.
+
+   Load order matters. app.css states the layout and the default material,
+   skins.css states states and rhythm, and this file states the material each
+   theme replaces them with - so it is loaded last and does not need
+   !important to be heard.
+
+   Three things are deliberately NOT themeable, because they are read under
+   stress and must never move: --candle-up and --candle-down (green is up, red
+   is down, in every theme), the kill button's red, and the focus ring.
+   =========================================================================== */
+
+/* ===========================================================================
+   1. The token layer
+   ===========================================================================
+   Defaults only. js/themes.js restates the six knobs at a higher weight, so
+   these values are what the desk looks like if JavaScript never runs - which
+   is the current Liquid Glass, unchanged. */
+:root{
+  --surface-alpha:.62;
+  --border-alpha:.10;
+  --blur:18px;
+  --radius-lg:22px;
+  --shadow-strength:1;
+  --motion-scale:1;
+
+  /* --- shape ------------------------------------------------------------
+     One radius is authored; the rest follow it, so a theme that asks for
+     square corners gets square inputs, chips and menus without listing them. */
+  --radius-xs:calc(var(--radius-lg) * .26);
+  --radius-sm:calc(var(--radius-lg) * .45);
+  --radius-md:calc(var(--radius-lg) * .66);
+  --radius-xl:calc(var(--radius-lg) * 1.2);
+  --radius-pill:999px;
+  --r:var(--radius-lg);            /* the name the rest of the desk already uses */
+  --sk-r-sm:var(--radius-sm);
+  --sk-btn-radius:var(--radius-md);
+
+  /* --- spacing ---------------------------------------------------------- */
+  --sp-1:4px; --sp-2:8px; --sp-3:12px; --sp-4:16px; --sp-5:22px; --sp-6:30px;
+
+  /* --- motion -----------------------------------------------------------
+     Durations are a multiple of the theme's motion knob, so "calmer" and
+     "livelier" are one number and not a rewrite. */
+  --dur-1:calc(120ms * var(--motion-scale));
+  --dur-2:calc(220ms * var(--motion-scale));
+  --dur-3:calc(420ms * var(--motion-scale));
+  --dur-4:calc(700ms * var(--motion-scale));
+  --ease-1:cubic-bezier(.22,.8,.24,1);
+  --ease-2:cubic-bezier(.16,1,.3,1);
+  --ease-spring:cubic-bezier(.34,1.4,.64,1);
+  --lift:calc(-2px * var(--motion-scale));
+  --press:calc(1 - .02 * var(--motion-scale));
+
+  /* --- shadow base ------------------------------------------------------- */
+  --shadow-rgb:0 0 0;
+  --shadow-op:1;
+  --border-boost:1;
+}
+
+/* Everything derived. Written against [data-skin][data-theme] so it outranks
+   the light-theme block in app.css without a single !important. */
+html[data-skin][data-theme]{
+  --border-alpha-eff:calc(var(--border-alpha) * var(--border-boost));
+  --line:rgb(var(--wash) / var(--border-alpha-eff));
+  --border-1:var(--line);
+  --border-2:rgb(var(--wash) / calc(var(--border-alpha-eff) * 1.9));
+  --border-accent:rgb(var(--accent-rgb) / .34);
+
+  /* Surfaces, in the order the hierarchy uses them: the page, the panel a
+     card is made of, the panel a card sits on, and the two that float. */
+  --surface-0:var(--bg);
+  --surface-1:rgb(var(--s4) / var(--surface-alpha));
+  --surface-2:rgb(var(--s6) / var(--surface-alpha));
+  --surface-3:rgb(var(--s8) / var(--surface-alpha));
+  --surface-elevated:rgb(var(--s8) / calc(var(--surface-alpha) * 1.25));
+  --surface-floating:rgb(var(--s9) / calc(var(--surface-alpha) * 1.45 + .18));
+  --surface-sunken:rgb(var(--s2) / calc(var(--surface-alpha) * 1.1));
+  --surface-interactive:rgb(var(--wash) / .045);
+  --surface-hover:rgb(var(--wash) / .07);
+
+  --card-bg:linear-gradient(180deg,
+            rgb(var(--s7) / var(--surface-alpha)),
+            rgb(var(--s4) / calc(var(--surface-alpha) * .86)));
+
+  --text-1:var(--ink);
+  --text-2:var(--muted);
+  --text-3:var(--faint);
+
+  --glass:rgb(var(--s5) / calc(var(--surface-alpha) * .95 + .04));
+  --glass2:rgb(var(--s8) / calc(var(--surface-alpha) * 1.1 + .06));
+
+  --blur-sm:calc(var(--blur) * .45);
+  --blur-md:var(--blur);
+  --blur-lg:calc(var(--blur) * 1.35);
+  --sat:130%;
+
+  --shadow-xs:0 1px 2px rgb(var(--shadow-rgb) / calc(.14 * var(--shadow-strength) * var(--shadow-op)));
+  --shadow-sm:0 4px 14px rgb(var(--shadow-rgb) / calc(.18 * var(--shadow-strength) * var(--shadow-op)));
+  --shadow-md:0 10px 34px rgb(var(--shadow-rgb) / calc(.24 * var(--shadow-strength) * var(--shadow-op)));
+  --shadow-lg:0 20px 58px rgb(var(--shadow-rgb) / calc(.38 * var(--shadow-strength) * var(--shadow-op)));
+  --shadow-xl:0 34px 90px rgb(var(--shadow-rgb) / calc(.5 * var(--shadow-strength) * var(--shadow-op)));
+  --shadow:var(--shadow-lg);
+  --glow:0 0 0 rgb(var(--accent-rgb) / 0);
+  --glow-soft:0 8px 26px rgb(var(--accent-rgb) / calc(.16 * var(--shadow-strength)));
+
+  --success:var(--candle-up);
+  --warning:var(--gold);
+  --error:var(--rose);
+
+  --scroll-thumb:rgb(var(--wash) / .18);
+  --chart-grid:rgb(var(--wash) / .05);
+  --chart-line:rgb(var(--wash) / .14);
+  --chart-panel-line:rgb(var(--wash) / .07);
+  --chart-text:var(--ink);
+  --chart-muted:var(--muted);
+}
+
+/* A light page carries a hairline and a shadow differently: the same alpha
+   that reads as a hairline on black disappears on white, and a black shadow
+   turns into dirt. Both are corrected once, for every theme. */
+html[data-skin][data-theme="light"]{
+  --border-boost:1.8;
+  --shadow-rgb:24 34 60;
+  --shadow-op:.42;
+  --surface-interactive:rgb(var(--wash) / .04);
+  --surface-hover:rgb(var(--wash) / .06);
+  --scroll-thumb:rgb(var(--wash) / .26);
+  --sat:120%;
+}
+
+/* ===========================================================================
+   2. The palettes
+   ===========================================================================
+   Twelve surface ramps. --s1 is the page, --s2..--s9 climb from the lowest
+   panel to the highest, and every translucent surface in the desk is one of
+   them at --surface-alpha. Generated as an even ramp between two authored
+   ends so the steps stay perceptually regular rather than hand-tuned and
+   slightly wrong.
+
+   Each theme states both modes. A theme that only worked in the dark would
+   quietly override the light switch, and the light switch is not decoration -
+   it is what makes the desk readable in a bright room. */
+html[data-skin="glass"]{
+  --bg:#06070b;
+  --bg2:#07090f;
+  --ink:#e8edf7;
+  --muted:#8b93a7;
+  --faint:#5b6274;
+  --wash:255 255 255;
+  --s1:6 7 11; --s2:8 10 16; --s3:10 12 19; --s4:12 15 22; --s5:14 17 25; --s6:16 19 29; --s7:18 21 32; --s8:20 24 35; --s9:22 26 38;
+  --field:#10131c; --field2:#07090e; --field-hi:#151925; --deep:#050508;
+  --chart-panel:rgba(8,10,16,.92);
+}
+html[data-skin="glass"][data-theme="light"]{
+  --bg:#e9edf4;
+  --bg2:#eef2f8;
+  --ink:#151b28;
+  --muted:#5a6478;
+  --faint:#98a2b6;
+  --wash:21 27 40;
+  --s1:233 237 244; --s2:240 244 250; --s3:242 246 251; --s4:244 247 251; --s5:246 249 252; --s6:249 250 253; --s7:251 252 254; --s8:253 253 254; --s9:255 255 255;
+  --field:#ffffff; --field2:#edf1f7; --field-hi:#ffffff; --deep:#ffffff;
+  --chart-panel:rgba(255,255,255,.93);
+}
+html[data-skin="frost"]{
+  --bg:#080c16;
+  --bg2:#0e1423;
+  --ink:#eaf1ff;
+  --muted:#93a3bd;
+  --faint:#66768f;
+  --wash:255 255 255;
+  --s1:8 12 22; --s2:16 24 40; --s3:18 26 43; --s4:20 29 47; --s5:22 31 50; --s6:24 34 54; --s7:26 36 57; --s8:28 39 61; --s9:30 41 64;
+  --field:#182135; --field2:#0c1320; --field-hi:#1d283f; --deep:#060911;
+  --chart-panel:rgba(16,24,40,.92);
+}
+html[data-skin="frost"][data-theme="light"]{
+  --bg:#e6edfa;
+  --bg2:#f0f5fe;
+  --ink:#101a2c;
+  --muted:#56657f;
+  --faint:#93a2b8;
+  --wash:16 26 44;
+  --s1:230 237 250; --s2:244 248 255; --s3:246 249 255; --s4:247 250 255; --s5:249 251 255; --s6:250 252 255; --s7:252 253 255; --s8:253 254 255; --s9:255 255 255;
+  --field:#ffffff; --field2:#eef3fd; --field-hi:#ffffff; --deep:#ffffff;
+  --chart-panel:rgba(255,255,255,.93);
+}
+html[data-skin="neu"]{
+  --bg:#171a21;
+  --bg2:#1a1e25;
+  --ink:#e3e7ee;
+  --muted:#949cab;
+  --faint:#6b7280;
+  --wash:255 255 255;
+  --s1:23 26 33; --s2:27 31 39; --s3:28 33 41; --s4:30 34 43; --s5:31 36 45; --s6:33 37 47; --s7:34 39 49; --s8:36 40 51; --s9:37 42 53;
+  --field:#21252f; --field2:#191d24; --field-hi:#252934; --deep:#111419;
+  --chart-panel:rgba(27,31,39,.92);
+}
+html[data-skin="neu"][data-theme="light"]{
+  --bg:#e4e8ef;
+  --bg2:#eaedf3;
+  --ink:#2a2f3a;
+  --muted:#5d6472;
+  --faint:#9aa1ad;
+  --wash:42 47 58;
+  --s1:228 232 239; --s2:236 239 245; --s3:237 240 246; --s4:239 242 247; --s5:240 243 248; --s6:242 244 249; --s7:243 245 250; --s8:245 247 251; --s9:246 248 252;
+  --field:#fbfcfe; --field2:#e8ecf2; --field-hi:#ffffff; --deep:#ffffff;
+  --chart-panel:rgba(255,255,255,.93);
+}
+html[data-skin="clay"]{
+  --bg:#17131f;
+  --bg2:#20192d;
+  --ink:#f2ecff;
+  --muted:#b3a6c9;
+  --faint:#8a7ea0;
+  --wash:255 255 255;
+  --s1:23 19 31; --s2:36 27 51; --s3:38 29 55; --s4:41 31 58; --s5:43 33 62; --s6:46 34 66; --s7:48 36 70; --s8:51 38 73; --s9:53 40 77;
+  --field:#2d2241; --field2:#1e172a; --field-hi:#34274c; --deep:#110e17;
+  --chart-panel:rgba(36,27,51,.92);
+}
+html[data-skin="clay"][data-theme="light"]{
+  --bg:#efeafa;
+  --bg2:#f7f3fe;
+  --ink:#241a33;
+  --muted:#6b5f80;
+  --faint:#a196b5;
+  --wash:36 26 51;
+  --s1:239 234 250; --s2:250 247 255; --s3:251 248 255; --s4:251 249 255; --s5:252 250 255; --s6:253 252 255; --s7:254 253 255; --s8:254 254 255; --s9:255 255 255;
+  --field:#ffffff; --field2:#f5f1fd; --field-hi:#ffffff; --deep:#ffffff;
+  --chart-panel:rgba(255,255,255,.93);
+}
+html[data-skin="aurora"]{
+  --bg:#080a1a;
+  --bg2:#10102f;
+  --ink:#eceaff;
+  --muted:#9c9ac4;
+  --faint:#6f6d9a;
+  --wash:255 255 255;
+  --s1:8 10 26; --s2:19 19 56; --s3:21 21 60; --s4:24 22 63; --s5:26 24 67; --s6:29 26 71; --s7:31 28 75; --s8:34 29 78; --s9:36 31 82;
+  --field:#1c1a46; --field2:#0e0f2b; --field-hi:#231e51; --deep:#060814;
+  --chart-panel:rgba(19,19,56,.92);
+}
+html[data-skin="aurora"][data-theme="light"]{
+  --bg:#ecebfb;
+  --bg2:#f4f3fe;
+  --ink:#1b1740;
+  --muted:#605d8c;
+  --faint:#9b98bd;
+  --wash:27 23 64;
+  --s1:236 235 251; --s2:247 246 255; --s3:248 247 255; --s4:249 249 255; --s5:250 250 255; --s6:252 251 255; --s7:253 252 255; --s8:254 254 255; --s9:255 255 255;
+  --field:#ffffff; --field2:#f2f1fd; --field-hi:#ffffff; --deep:#ffffff;
+  --chart-panel:rgba(255,255,255,.93);
+}
+html[data-skin="cyber"]{
+  --bg:#04050d;
+  --bg2:#080b18;
+  --ink:#dcf7ff;
+  --muted:#84a0ba;
+  --faint:#5b768f;
+  --wash:255 255 255;
+  --s1:4 5 13; --s2:10 13 28; --s3:11 15 32; --s4:13 16 35; --s5:14 18 39; --s6:16 20 43; --s7:17 22 47; --s8:19 23 50; --s9:20 25 54;
+  --field:#10142a; --field2:#070915; --field-hi:#141835; --deep:#03040a;
+  --chart-panel:rgba(10,13,28,.92);
+}
+html[data-skin="cyber"][data-theme="light"]{
+  --bg:#e6ebf5;
+  --bg2:#eff3fb;
+  --ink:#0a1220;
+  --muted:#4f6076;
+  --faint:#8b9cb2;
+  --wash:10 18 32;
+  --s1:230 235 245; --s2:243 247 253; --s3:245 248 253; --s4:246 249 254; --s5:248 250 254; --s6:250 252 254; --s7:252 253 254; --s8:253 254 255; --s9:255 255 255;
+  --field:#ffffff; --field2:#edf2f9; --field-hi:#ffffff; --deep:#ffffff;
+  --chart-panel:rgba(255,255,255,.93);
+}
+html[data-skin="minimal"]{
+  --bg:#0d0f14;
+  --bg2:#111318;
+  --ink:#e7e9ee;
+  --muted:#8b8f9a;
+  --faint:#63666f;
+  --wash:255 255 255;
+  --s1:13 15 20; --s2:18 20 25; --s3:19 22 27; --s4:21 23 29; --s5:22 25 31; --s6:24 26 33; --s7:25 28 35; --s8:27 29 37; --s9:28 31 39;
+  --field:#181a21; --field2:#101217; --field-hi:#1c1e26; --deep:#0a0b0f;
+  --chart-panel:rgba(18,20,25,.92);
+}
+html[data-skin="minimal"][data-theme="light"]{
+  --bg:#f6f7f9;
+  --bg2:#fcfdfd;
+  --ink:#14161a;
+  --muted:#5c6069;
+  --faint:#9a9ea7;
+  --wash:20 22 26;
+  --s1:246 247 249; --s2:255 255 255; --s3:255 255 255; --s4:255 255 255; --s5:255 255 255; --s6:255 255 255; --s7:255 255 255; --s8:255 255 255; --s9:255 255 255;
+  --field:#ffffff; --field2:#fbfbfc; --field-hi:#ffffff; --deep:#ffffff;
+  --chart-panel:rgba(255,255,255,.93);
+}
+html[data-skin="midnight"]{
+  --bg:#050713;
+  --bg2:#090d1f;
+  --ink:#e6ebff;
+  --muted:#8d97bb;
+  --faint:#616b8f;
+  --wash:255 255 255;
+  --s1:5 7 19; --s2:11 16 36; --s3:13 18 40; --s4:14 20 44; --s5:16 22 48; --s6:18 25 52; --s7:20 27 56; --s8:21 29 60; --s9:23 31 64;
+  --field:#121833; --field2:#080c1c; --field-hi:#161e3f; --deep:#04050e;
+  --chart-panel:rgba(11,16,36,.92);
+}
+html[data-skin="midnight"][data-theme="light"]{
+  --bg:#e7eaf6;
+  --bg2:#f1f3fc;
+  --ink:#131a33;
+  --muted:#565f80;
+  --faint:#939bb8;
+  --wash:19 26 51;
+  --s1:231 234 246; --s2:245 247 255; --s3:246 248 255; --s4:248 249 255; --s5:249 250 255; --s6:251 252 255; --s7:252 253 255; --s8:254 254 255; --s9:255 255 255;
+  --field:#ffffff; --field2:#eff1fb; --field-hi:#ffffff; --deep:#ffffff;
+  --chart-panel:rgba(255,255,255,.93);
+}
+html[data-skin="ocean"]{
+  --bg:#031018;
+  --bg2:#051b27;
+  --ink:#e3f6ff;
+  --muted:#8bb3c4;
+  --faint:#5f8799;
+  --wash:255 255 255;
+  --s1:3 16 24; --s2:6 32 46; --s3:7 35 50; --s4:8 38 53; --s5:9 41 57; --s6:10 45 61; --s7:11 48 65; --s8:12 51 68; --s9:13 54 72;
+  --field:#0a2c3c; --field2:#051924; --field-hi:#0d3547; --deep:#020c12;
+  --chart-panel:rgba(6,32,46,.92);
+}
+html[data-skin="ocean"][data-theme="light"]{
+  --bg:#e2f0f7;
+  --bg2:#eff8fd;
+  --ink:#06222e;
+  --muted:#4a6f7e;
+  --faint:#88a7b4;
+  --wash:6 34 46;
+  --s1:226 240 247; --s2:244 251 255; --s3:246 252 255; --s4:247 252 255; --s5:249 253 255; --s6:250 253 255; --s7:252 254 255; --s8:253 254 255; --s9:255 255 255;
+  --field:#ffffff; --field2:#ecf6fb; --field-hi:#ffffff; --deep:#ffffff;
+  --chart-panel:rgba(255,255,255,.93);
+}
+html[data-skin="sunset"]{
+  --bg:#140910;
+  --bg2:#1f0f16;
+  --ink:#ffeee6;
+  --muted:#c19a95;
+  --faint:#96716e;
+  --wash:255 255 255;
+  --s1:20 9 16; --s2:36 17 25; --s3:39 19 27; --s4:43 20 29; --s5:46 22 31; --s6:50 24 32; --s7:53 26 34; --s8:57 27 36; --s9:60 29 38;
+  --field:#311820; --field2:#1d0d15; --field-hi:#3b1c25; --deep:#0f070c;
+  --chart-panel:rgba(36,17,25,.92);
+}
+html[data-skin="sunset"][data-theme="light"]{
+  --bg:#fcece4;
+  --bg2:#fef4ef;
+  --ink:#2b1410;
+  --muted:#7d5a52;
+  --faint:#b1918a;
+  --wash:43 20 16;
+  --s1:252 236 228; --s2:255 248 244; --s3:255 249 246; --s4:255 250 247; --s5:255 251 249; --s6:255 252 250; --s7:255 253 252; --s8:255 254 253; --s9:255 255 255;
+  --field:#ffffff; --field2:#fef3ed; --field-hi:#ffffff; --deep:#ffffff;
+  --chart-panel:rgba(255,255,255,.93);
+}
+html[data-skin="mono"]{
+  --bg:#0a0a0b;
+  --bg2:#101011;
+  --ink:#ececee;
+  --muted:#8d8d92;
+  --faint:#646468;
+  --wash:255 255 255;
+  --s1:10 10 11; --s2:18 18 19; --s3:20 20 21; --s4:22 22 23; --s5:24 24 25; --s6:25 25 27; --s7:27 27 29; --s8:29 29 31; --s9:31 31 33;
+  --field:#19191b; --field2:#0e0e0f; --field-hi:#1e1e20; --deep:#080808;
+  --chart-panel:rgba(18,18,19,.92);
+}
+html[data-skin="mono"][data-theme="light"]{
+  --bg:#f3f3f4;
+  --bg2:#fbfbfc;
+  --ink:#111112;
+  --muted:#5e5e63;
+  --faint:#9a9a9f;
+  --wash:17 17 18;
+  --s1:243 243 244; --s2:255 255 255; --s3:255 255 255; --s4:255 255 255; --s5:255 255 255; --s6:255 255 255; --s7:255 255 255; --s8:255 255 255; --s9:255 255 255;
+  --field:#ffffff; --field2:#fafafa; --field-hi:#ffffff; --deep:#ffffff;
+  --chart-panel:rgba(255,255,255,.93);
+}
+
+
+/* The custom theme starts from the Liquid Glass ramp and is then reshaped
+   entirely by its knobs, which the user owns. */
+html[data-skin="custom"]{
+  --bg:#06070b;
+  --bg2:#07090f;
+  --ink:#e8edf7;
+  --muted:#8b93a7;
+  --faint:#5b6274;
+  --wash:255 255 255;
+  --s1:6 7 11; --s2:8 10 16; --s3:10 12 19; --s4:12 15 22; --s5:14 17 25; --s6:16 19 29; --s7:18 21 32; --s8:20 24 35; --s9:22 26 38;
+  --field:#10131c; --field2:#07090e; --field-hi:#151925; --deep:#050508;
+  --chart-panel:rgba(8,10,16,.92);
+}
+html[data-skin="custom"][data-theme="light"]{
+  --bg:#e9edf4;
+  --bg2:#eef2f8;
+  --ink:#151b28;
+  --muted:#5a6478;
+  --faint:#98a2b6;
+  --wash:21 27 40;
+  --s1:233 237 244; --s2:240 244 250; --s3:242 246 251; --s4:244 247 251; --s5:246 249 252; --s6:249 250 253; --s7:251 252 254; --s8:253 253 254; --s9:255 255 255;
+  --field:#ffffff; --field2:#edf1f7; --field-hi:#ffffff; --deep:#ffffff;
+  --chart-panel:rgba(255,255,255,.93);
+}
+
+/* ===========================================================================
+   3. Morphism, applied with a hierarchy
+   ===========================================================================
+   Material is not spread evenly. Six levels, and each one is allowed exactly
+   as much of it as its job needs:
+
+       background    the page and its backdrop — no material at all
+       primary       cards and panels — the theme's signature surface
+       secondary     rails, headers, tables — quieter, less blur
+       elevated      dialogs, menus, toasts — denser, more shadow
+       floating      tooltips and popovers — densest, smallest
+       interactive   buttons, fields, switches — shape and state only
+
+   A theme that blurred all six would read as fog. */
+
+/* ---- primary: cards, panels, the auth card ---------------------------- */
+html[data-skin] .card,
+html[data-skin] .auth-card{
+  background:var(--card-bg);
+  border:1px solid var(--line);
+  border-radius:var(--radius-lg);
+  box-shadow:var(--shadow-md);
+  backdrop-filter:blur(var(--blur-md)) saturate(var(--sat));
+  -webkit-backdrop-filter:blur(var(--blur-md)) saturate(var(--sat));
+  transition:transform var(--dur-2) var(--ease-1),
+             border-color var(--dur-2) var(--ease-1),
+             box-shadow var(--dur-2) var(--ease-1);
+}
+html[data-skin] .card:hover{
+  border-color:var(--border-accent);
+  box-shadow:var(--shadow-lg);
+}
+/* The hairline along a card's top edge is where the accent enters the
+   interface; every theme keeps it, at its own strength. */
+html[data-skin] .card::before{
+  background:linear-gradient(90deg, transparent,
+             rgb(var(--accent-rgb) / calc(.45 * var(--accent-edge, 1))),
+             rgb(var(--accent-3-rgb) / calc(.35 * var(--accent-edge, 1))), transparent);
+}
+
+/* ---- secondary: the rail, the header, the drawer ---------------------- */
+html[data-skin] .nav{
+  background:rgb(var(--s2) / calc(var(--surface-alpha) * .95));
+  border-inline-end:1px solid var(--line);
+  backdrop-filter:blur(var(--blur-lg));
+  -webkit-backdrop-filter:blur(var(--blur-lg));
+}
+html[data-skin] .top{
+  background:rgb(var(--s2) / calc(var(--surface-alpha) * .62));
+  border-bottom:1px solid var(--line);
+  backdrop-filter:blur(var(--blur-md));
+  -webkit-backdrop-filter:blur(var(--blur-md));
+}
+html[data-skin] .hdr-drawer{
+  background:var(--surface-elevated);
+  border-color:var(--line);
+  backdrop-filter:blur(var(--blur-md));
+  -webkit-backdrop-filter:blur(var(--blur-md));
+}
+html[data-skin] .set-jump,
+html[data-skin] .set-jump:hover,
+html[data-skin] .set-rail .set-jump,
+html[data-skin] .set-rail .set-jump:hover{
+  background:linear-gradient(180deg,
+            rgb(var(--s4) / calc(var(--surface-alpha) * 1.3 + .1)),
+            rgb(var(--s2) / calc(var(--surface-alpha) * 1.25 + .1)));
+  border-color:var(--line);
+  border-radius:var(--radius-lg);
+}
+html[data-skin] .nav button,
+html[data-skin] .set-jump button{ border-radius:var(--radius-md) }
+html[data-skin] .nav button:hover{ background:var(--surface-hover) }
+
+/* ---- elevated: dialogs, menus, toasts, notifications ------------------ */
+html[data-skin] .modal-card,
+html[data-skin] .modal .card{
+  background:linear-gradient(180deg,
+            rgb(var(--s8) / calc(var(--surface-alpha) * 1.35 + .1)),
+            rgb(var(--s5) / calc(var(--surface-alpha) * 1.3 + .1)));
+  border:1px solid var(--border-2);
+  border-radius:var(--radius-lg);
+  box-shadow:var(--shadow-xl);
+  backdrop-filter:blur(var(--blur-lg)) saturate(var(--sat));
+  -webkit-backdrop-filter:blur(var(--blur-lg)) saturate(var(--sat));
+}
+html[data-skin] .modal{
+  background:rgb(var(--s1) / .62);
+  backdrop-filter:blur(calc(var(--blur-sm) + 2px));
+  -webkit-backdrop-filter:blur(calc(var(--blur-sm) + 2px));
+}
+html[data-skin] .dd-menu,
+html[data-skin] .notify-card,
+html[data-skin] .toast{
+  background:var(--surface-floating);
+  border:1px solid var(--border-2);
+  border-radius:var(--radius-md);
+  box-shadow:var(--shadow-lg);
+  backdrop-filter:blur(var(--blur-lg)) saturate(var(--sat));
+  -webkit-backdrop-filter:blur(var(--blur-lg)) saturate(var(--sat));
+}
+html[data-skin] .dd-opt{ border-radius:var(--radius-sm) }
+
+/* ---- interactive: buttons, fields, pills, switches -------------------- */
+html[data-skin] .btn{
+  border-radius:var(--sk-btn-radius);
+  transition:transform var(--dur-1) var(--ease-1),
+             filter var(--dur-1) var(--ease-1),
+             box-shadow var(--dur-2) var(--ease-1),
+             background var(--dur-2) var(--ease-1);
+}
+html[data-skin] .btn:hover{ transform:translateY(var(--lift)); box-shadow:var(--glow-soft) }
+html[data-skin] .btn:active{ transform:translateY(0) scale(var(--press)) }
+html[data-skin] .btn.ghost{
+  background:var(--surface-interactive);
+  border:1px solid var(--line);
+}
+html[data-skin] .btn.ghost:hover{ background:var(--surface-hover); border-color:var(--border-accent) }
+html[data-skin] .btn.tiny{ border-radius:var(--radius-sm) }
+
+html[data-skin] .icon-btn{
+  background:var(--surface-interactive);
+  border:1px solid var(--line);
+  border-radius:var(--radius-sm);
+  transition:transform var(--dur-1) var(--ease-1),
+             background var(--dur-1) var(--ease-1),
+             border-color var(--dur-1) var(--ease-1);
+}
+html[data-skin] .icon-btn:hover{ background:var(--surface-hover); border-color:var(--border-accent) }
+html[data-skin] .icon-btn:active{ transform:scale(var(--press)) }
+
+html[data-skin] .field input,
+html[data-skin] .field select,
+html[data-skin] .ctrl,
+html[data-skin] .dd-btn,
+html[data-skin] textarea{
+  background:var(--field);
+  border:1px solid var(--line);
+  border-radius:var(--radius-md);
+  transition:border-color var(--dur-2) var(--ease-1),
+             box-shadow var(--dur-2) var(--ease-1),
+             background var(--dur-2) var(--ease-1);
+}
+html[data-skin] .field input:focus,
+html[data-skin] .field select:focus,
+html[data-skin] .ctrl:focus,
+html[data-skin] .dd-btn:focus{
+  border-color:rgb(var(--accent-rgb) / .55);
+  box-shadow:0 0 0 4px rgb(var(--accent-rgb) / .14);
+  background:var(--field-hi);
+}
+
+html[data-skin] .pill,
+html[data-skin] .chip,
+html[data-skin] .st-chip{
+  border-radius:var(--radius-pill);
+  border-color:var(--line);
+  background:var(--surface-interactive);
+}
+html[data-skin] .tabs button,
+html[data-skin] .lang-pills button,
+html[data-skin] .seg button{ border-radius:var(--radius-sm) }
+html[data-skin] .switch{
+  border-radius:var(--radius-pill);
+  background:var(--surface-interactive);
+  border:1px solid var(--line);
+}
+html[data-skin] .switch i{
+  transition:transform var(--dur-2) var(--ease-spring),
+             background var(--dur-2) var(--ease-1);
+}
+html[data-skin] table th{ background:rgb(var(--s3) / calc(var(--surface-alpha) * .9)) }
+html[data-skin] table tbody tr:hover{ background:var(--surface-interactive) }
+
+/* ===========================================================================
+   4. The families
+   ===========================================================================
+   Everything above is the shared grammar. Below, five families say the few
+   things that actually make them recognisable - and nothing more, because a
+   theme that rewrote every rule would stop tracking changes to the rest. */
+
+/* ---- glass: frost, aurora, ocean, sunset ------------------------------
+   Variations on the default. Their difference is in the numbers, not here. */
+html[data-skin="frost"] .card{
+  background:linear-gradient(140deg,
+            rgb(var(--s9) / calc(var(--surface-alpha) * 1.1)),
+            rgb(var(--s5) / calc(var(--surface-alpha) * .7)));
+  border-color:rgb(var(--wash) / calc(var(--border-alpha-eff) * 1.3));
+}
+html[data-skin="frost"] .card::after{
+  background:linear-gradient(180deg, rgb(var(--wash) / .08), transparent 60%);
+}
+html[data-skin="aurora"]{ --accent-edge:1.4 }
+html[data-skin="ocean"] .card{
+  background:linear-gradient(180deg,
+            rgb(var(--s8) / var(--surface-alpha)),
+            rgb(var(--s4) / calc(var(--surface-alpha) * .8)));
+}
+html[data-skin="sunset"]{ --sat:150% }
+
+/* ---- neu: neumorphism -------------------------------------------------
+   No borders and no translucency: the surface is the page, and every edge is
+   made of light. Two shadows per element, one warm-light and one dark, and
+   anything that receives input is pressed *into* the page instead of
+   standing on it - which is the only reliable way to tell an input from a
+   button once the borders are gone. */
+html[data-skin="neu"]{
+  --neu-light:rgb(var(--wash) / .055);
+  --neu-dark:rgb(var(--shadow-rgb) / calc(.5 * var(--shadow-strength)));
+  --neu-out:6px 6px 14px var(--neu-dark), -6px -6px 14px var(--neu-light);
+  --neu-out-sm:3px 3px 8px var(--neu-dark), -3px -3px 8px var(--neu-light);
+  --neu-in:inset 4px 4px 9px var(--neu-dark), inset -4px -4px 9px var(--neu-light);
+}
+html[data-skin="neu"][data-theme="light"]{
+  --neu-light:rgb(255 255 255 / .95);
+  --neu-dark:rgb(var(--shadow-rgb) / calc(.22 * var(--shadow-strength)));
+}
+html[data-skin="neu"] .card,
+html[data-skin="neu"] .auth-card,
+html[data-skin="neu"] .modal-card,
+html[data-skin="neu"] .set-jump,
+html[data-skin="neu"] .set-rail .set-jump{
+  background:rgb(var(--s3));
+  border:0;
+  box-shadow:var(--neu-out);
+}
+html[data-skin="neu"] .card::before,
+html[data-skin="neu"] .card::after{ display:none }
+html[data-skin="neu"] .card:hover{ box-shadow:var(--neu-out), 0 0 0 1px var(--border-accent) }
+html[data-skin="neu"] .nav,
+html[data-skin="neu"] .top{ background:rgb(var(--s2)); border-color:transparent }
+html[data-skin="neu"] .nav{ box-shadow:var(--neu-out-sm) }
+html[data-skin="neu"] .field input,
+html[data-skin="neu"] .field select,
+html[data-skin="neu"] .ctrl,
+html[data-skin="neu"] .dd-btn,
+html[data-skin="neu"] .switch,
+html[data-skin="neu"] textarea{
+  background:rgb(var(--s2));
+  border:0;
+  box-shadow:var(--neu-in);
+}
+html[data-skin="neu"] .field input:focus,
+html[data-skin="neu"] .ctrl:focus,
+html[data-skin="neu"] .dd-btn:focus{
+  box-shadow:var(--neu-in), 0 0 0 3px rgb(var(--accent-rgb) / .22);
+}
+html[data-skin="neu"] .btn.ghost,
+html[data-skin="neu"] .icon-btn,
+html[data-skin="neu"] .pill,
+html[data-skin="neu"] .chip{
+  background:rgb(var(--s3));
+  border:0;
+  box-shadow:var(--neu-out-sm);
+}
+html[data-skin="neu"] .btn.ghost:active,
+html[data-skin="neu"] .icon-btn:active{ box-shadow:var(--neu-in) }
+html[data-skin="neu"] .dd-menu,
+html[data-skin="neu"] .toast,
+html[data-skin="neu"] .notify-card{
+  background:rgb(var(--s4));
+  border:0;
+  box-shadow:var(--neu-out), var(--shadow-lg);
+}
+
+/* ---- clay: claymorphism ----------------------------------------------
+   Soft, thick, slightly inflated. An inner light along the top edge and an
+   inner shadow along the bottom is what gives the surface its depth; the
+   outer shadow is long and very soft so the shape reads as light, not heavy. */
+html[data-skin="clay"]{
+  --clay-in:inset 0 -6px 12px rgb(var(--shadow-rgb) / .3),
+            inset 0 8px 14px rgb(var(--wash) / .1);
+  --clay-out:0 16px 32px rgb(var(--shadow-rgb) / calc(.3 * var(--shadow-strength)));
+}
+html[data-skin="clay"] .card,
+html[data-skin="clay"] .auth-card,
+html[data-skin="clay"] .modal-card{
+  background:rgb(var(--s5));
+  border:0;
+  box-shadow:var(--clay-in), var(--clay-out);
+}
+html[data-skin="clay"] .card::before{ display:none }
+html[data-skin="clay"] .card:hover{ transform:translateY(calc(var(--lift) * 1.5)) }
+html[data-skin="clay"] .btn,
+html[data-skin="clay"] .btn.ghost,
+html[data-skin="clay"] .icon-btn,
+html[data-skin="clay"] .tabs button,
+html[data-skin="clay"] .lang-pills button{
+  border:0;
+  box-shadow:inset 0 -3px 6px rgb(var(--shadow-rgb) / .22),
+             inset 0 3px 6px rgb(var(--wash) / .14),
+             0 8px 16px rgb(var(--shadow-rgb) / calc(.24 * var(--shadow-strength)));
+}
+html[data-skin="clay"] .btn.ghost,
+html[data-skin="clay"] .icon-btn{ background:rgb(var(--s6)) }
+html[data-skin="clay"] .btn:active{ box-shadow:inset 0 3px 8px rgb(var(--shadow-rgb) / .3) }
+html[data-skin="clay"] .field input,
+html[data-skin="clay"] .field select,
+html[data-skin="clay"] .ctrl,
+html[data-skin="clay"] .dd-btn{
+  background:rgb(var(--s3));
+  border:0;
+  box-shadow:inset 0 3px 8px rgb(var(--shadow-rgb) / .28);
+}
+html[data-skin="clay"] .nav,
+html[data-skin="clay"] .top{ background:rgb(var(--s3) / .96); border-color:transparent }
+html[data-skin="clay"] .dd-menu,
+html[data-skin="clay"] .toast,
+html[data-skin="clay"] .notify-card{ background:rgb(var(--s7)); border:0 }
+
+/* ---- cyber: neon on black --------------------------------------------
+   The surface almost disappears and the *edge* carries everything: a lit
+   hairline, a faint outer bloom, and a corner radius small enough to read as
+   engineered. Glow is kept to borders and never put behind text. */
+html[data-skin="cyber"]{
+  --accent-edge:1.8;
+  --neon:0 0 0 1px rgb(var(--accent-rgb) / .35),
+         0 0 18px rgb(var(--accent-rgb) / calc(.18 * var(--shadow-strength)));
+}
+html[data-skin="cyber"] .card,
+html[data-skin="cyber"] .modal-card,
+html[data-skin="cyber"] .auth-card{
+  background:linear-gradient(180deg, rgb(var(--s3) / var(--surface-alpha)),
+             rgb(var(--s1) / calc(var(--surface-alpha) * .95)));
+  border:1px solid rgb(var(--accent-rgb) / .22);
+  box-shadow:var(--neon);
+}
+html[data-skin="cyber"] .card:hover{
+  border-color:rgb(var(--accent-rgb) / .5);
+  box-shadow:0 0 0 1px rgb(var(--accent-rgb) / .5),
+             0 0 26px rgb(var(--accent-rgb) / .24);
+}
+html[data-skin="cyber"] .nav,
+html[data-skin="cyber"] .top{
+  background:rgb(var(--s1) / .82);
+  border-color:rgb(var(--accent-rgb) / .2);
+}
+html[data-skin="cyber"] .btn{ box-shadow:0 0 16px rgb(var(--accent-rgb) / .28) }
+html[data-skin="cyber"] .btn.ghost{
+  border-color:rgb(var(--accent-rgb) / .34);
+  box-shadow:inset 0 0 12px rgb(var(--accent-rgb) / .08);
+}
+html[data-skin="cyber"] .field input,
+html[data-skin="cyber"] .ctrl,
+html[data-skin="cyber"] .dd-btn{
+  background:rgb(var(--s2) / .8);
+  border-color:rgb(var(--accent-rgb) / .22);
+}
+html[data-skin="cyber"] .pill,
+html[data-skin="cyber"] .chip,
+html[data-skin="cyber"] .st-chip{ border-color:rgb(var(--accent-rgb) / .28) }
+html[data-skin="cyber"] .dd-menu,
+html[data-skin="cyber"] .toast,
+html[data-skin="cyber"] .notify-card{
+  background:rgb(var(--s2) / .94);
+  border-color:rgb(var(--accent-rgb) / .3);
+  box-shadow:var(--neon), var(--shadow-lg);
+}
+
+/* ---- flat: minimal and monochrome -------------------------------------
+   No blur, almost no shadow, and a hairline doing all the work. The only
+   way this stays legible is discipline about contrast, so the surfaces are
+   opaque and the type keeps its full strength. */
+html[data-skin="minimal"] .card,
+html[data-skin="mono"] .card,
+html[data-skin="minimal"] .auth-card,
+html[data-skin="mono"] .auth-card{
+  background:rgb(var(--s4));
+  box-shadow:var(--shadow-xs);
+  backdrop-filter:none;
+  -webkit-backdrop-filter:none;
+}
+html[data-skin="minimal"] .card::before,
+html[data-skin="mono"] .card::before,
+html[data-skin="minimal"] .card::after,
+html[data-skin="mono"] .card::after{ display:none }
+html[data-skin="minimal"] .card:hover,
+html[data-skin="mono"] .card:hover{
+  border-color:var(--border-2);
+  box-shadow:var(--shadow-sm);
+  transform:none;
+}
+html[data-skin="minimal"] .nav,
+html[data-skin="mono"] .nav,
+html[data-skin="minimal"] .top,
+html[data-skin="mono"] .top{
+  background:rgb(var(--s2));
+  backdrop-filter:none;
+  -webkit-backdrop-filter:none;
+}
+html[data-skin="minimal"] .dd-menu,
+html[data-skin="mono"] .dd-menu,
+html[data-skin="minimal"] .toast,
+html[data-skin="mono"] .toast,
+html[data-skin="minimal"] .modal-card,
+html[data-skin="mono"] .modal-card,
+html[data-skin="minimal"] .notify-card,
+html[data-skin="mono"] .notify-card{
+  background:rgb(var(--s6));
+  backdrop-filter:none;
+  -webkit-backdrop-filter:none;
+  box-shadow:var(--shadow-md);
+}
+html[data-skin="minimal"] .btn:hover,
+html[data-skin="mono"] .btn:hover{ box-shadow:none }
+/* Monochrome means monochrome: the accent is a grey, so emphasis has to come
+   from weight and spacing instead of hue. */
+html[data-skin="mono"] .card h3,
+html[data-skin="mono"] .set-title{ font-weight:600; letter-spacing:.005em }
+html[data-skin="mono"] .kicker,
+html[data-skin="mono"] .set-h{ letter-spacing:.16em }
+
+/* ---- solid: midnight ---------------------------------------------------
+   Deep, layered, almost opaque. Blur is barely there; the depth comes from
+   nine very close surfaces stacked in the right order. */
+html[data-skin="midnight"] .card{
+  background:linear-gradient(180deg, rgb(var(--s6) / var(--surface-alpha)),
+             rgb(var(--s3) / var(--surface-alpha)));
+  box-shadow:var(--shadow-lg), inset 0 1px 0 rgb(var(--wash) / .06);
+}
+html[data-skin="midnight"] .nav,
+html[data-skin="midnight"] .top{ background:rgb(var(--s2) / .94) }
+
+/* ===========================================================================
+   5. Backdrops
+   ===========================================================================
+   The page behind the desk belongs to the theme. Two elements carry it: the
+   existing .aurora layer, which already crossfades between the light and dark
+   wallpapers, and #bg-fx, added for the themes that want something moving.
+
+   Everything here obeys three rules. It is drawn once and then only
+   transformed, so nothing repaints while it moves. It stops completely on the
+   cheap rendering tier, under prefers-reduced-motion, and when the motion knob
+   is off. And it never goes above about 20% opacity, because a backdrop that
+   competes with a price is a backdrop that has to go. */
+#bg-fx{
+  position:fixed; inset:0; z-index:0; pointer-events:none;
+  overflow:hidden;
+  contain:layout paint style;
+}
+#bg-fx b{
+  position:absolute; display:block; border-radius:50%;
+  filter:blur(60px);
+  opacity:0;
+  will-change:transform;
+  transition:opacity var(--dur-4) var(--ease-1);
+}
+html[data-bg="flat"] .aurora,
+html[data-bg="none"] .aurora{
+  background:var(--bg);
+  animation:none;
+}
+html[data-bg="flat"] .aurora::before,
+html[data-bg="none"] .aurora::before{ background:var(--bg) }
+html[data-bg="none"] .aurora::after{ opacity:0 }
+html[data-bg="flat"] .aurora::after{ opacity:.12 }
+
+/* ---- blobs: glassmorphism ---------------------------------------------- */
+html[data-bg="blobs"] .aurora,
+html[data-bg="aurora"] .aurora,
+html[data-bg="waves"] .aurora,
+html[data-bg="dusk"] .aurora,
+html[data-bg="layered"] .aurora,
+html[data-bg="grid"] .aurora{
+  background:
+    linear-gradient(180deg, rgb(var(--s1) / .35), rgb(var(--s1) / .8) 82%),
+    var(--bg);
+  animation:none;
+}
+html[data-bg="blobs"] .aurora::before,
+html[data-bg="aurora"] .aurora::before,
+html[data-bg="waves"] .aurora::before,
+html[data-bg="dusk"] .aurora::before,
+html[data-bg="layered"] .aurora::before,
+html[data-bg="grid"] .aurora::before{
+  background:
+    linear-gradient(180deg, rgb(var(--s1) / .5), rgb(var(--s1) / .86) 82%),
+    var(--bg);
+}
+
+html[data-bg="blobs"] #bg-fx b:nth-child(1),
+html[data-bg="aurora"] #bg-fx b:nth-child(1){
+  inset-inline-start:-10%; top:-16%;
+  width:60vw; height:60vw; max-width:900px; max-height:900px;
+  background:rgb(var(--accent-rgb) / .5);
+  opacity:.16;
+}
+html[data-bg="blobs"] #bg-fx b:nth-child(2),
+html[data-bg="aurora"] #bg-fx b:nth-child(2){
+  inset-inline-end:-14%; top:6%;
+  width:52vw; height:52vw; max-width:800px; max-height:800px;
+  background:rgb(var(--accent-3-rgb) / .5);
+  opacity:.14;
+}
+html[data-bg="blobs"] #bg-fx b:nth-child(3),
+html[data-bg="aurora"] #bg-fx b:nth-child(3){
+  inset-inline-start:24%; bottom:-24%;
+  width:56vw; height:56vw; max-width:880px; max-height:880px;
+  background:rgb(var(--accent-rgb) / .35);
+  opacity:.12;
+}
+/* Only the aurora theme actually drifts. Three transforms on three composited
+   layers is the whole cost - no filters are animated, no layout is touched. */
+html[data-bg="aurora"][data-motion="full"][data-perf="rich"] #bg-fx b:nth-child(1){
+  animation:bgDriftA 34s var(--ease) infinite alternate;
+}
+html[data-bg="aurora"][data-motion="full"][data-perf="rich"] #bg-fx b:nth-child(2){
+  animation:bgDriftB 42s var(--ease) infinite alternate;
+}
+html[data-bg="aurora"][data-motion="full"][data-perf="rich"] #bg-fx b:nth-child(3){
+  animation:bgDriftC 38s var(--ease) infinite alternate;
+}
+@keyframes bgDriftA{ from{transform:translate3d(0,0,0) scale(1)}    to{transform:translate3d(8vw,6vh,0) scale(1.12)} }
+@keyframes bgDriftB{ from{transform:translate3d(0,0,0) scale(1.05)} to{transform:translate3d(-7vw,9vh,0) scale(.95)} }
+@keyframes bgDriftC{ from{transform:translate3d(0,0,0) scale(.95)}  to{transform:translate3d(6vw,-8vh,0) scale(1.1)} }
+
+/* ---- grid: cyber -------------------------------------------------------
+   A perspective-free grid and one horizon glow. Background-position is not
+   animated: the grid is static and only the glow breathes, on opacity. */
+html[data-bg="grid"] #bg-fx{
+  background-image:
+    linear-gradient(rgb(var(--accent-rgb) / .07) 1px, transparent 1px),
+    linear-gradient(90deg, rgb(var(--accent-rgb) / .07) 1px, transparent 1px);
+  background-size:52px 52px, 52px 52px;
+  mask-image:linear-gradient(180deg, transparent, #000 35%, #000 70%, transparent);
+  -webkit-mask-image:linear-gradient(180deg, transparent, #000 35%, #000 70%, transparent);
+}
+html[data-bg="grid"] #bg-fx b:nth-child(1){
+  inset-inline-start:50%; top:62%;
+  width:120vw; height:40vh;
+  transform:translateX(-50%);
+  border-radius:50%;
+  background:rgb(var(--accent-rgb) / .4);
+  opacity:.12;
+}
+html[data-bg="grid"][data-motion="full"][data-perf="rich"] #bg-fx b:nth-child(1){
+  animation:bgPulse 7s var(--ease) infinite alternate;
+}
+@keyframes bgPulse{ from{opacity:.08} to{opacity:.18} }
+
+/* ---- waves: ocean ------------------------------------------------------ */
+html[data-bg="waves"] #bg-fx{
+  background-image:
+    radial-gradient(120vw 40vh at 50% 100%, rgb(var(--accent-rgb) / .16), transparent 70%),
+    radial-gradient(90vw 32vh at 20% 106%, rgb(var(--accent-3-rgb) / .12), transparent 70%);
+}
+html[data-bg="waves"] #bg-fx b:nth-child(1){
+  inset-inline-start:-20%; bottom:-30%;
+  width:90vw; height:60vh;
+  background:rgb(var(--accent-rgb) / .3);
+  opacity:.1;
+}
+html[data-bg="waves"][data-motion="full"][data-perf="rich"] #bg-fx b:nth-child(1){
+  animation:bgDriftB 46s var(--ease) infinite alternate;
+}
+
+/* ---- dusk: sunset ------------------------------------------------------ */
+html[data-bg="dusk"] #bg-fx{
+  background-image:
+    radial-gradient(70vw 50vh at 78% 8%, rgb(var(--accent-rgb) / .2), transparent 62%),
+    linear-gradient(180deg, rgb(var(--accent-3-rgb) / .1), transparent 45%);
+}
+
+/* ---- layered: midnight -------------------------------------------------- */
+html[data-bg="layered"] #bg-fx{
+  background-image:
+    radial-gradient(100vw 60vh at 50% -18%, rgb(var(--accent-3-rgb) / .14), transparent 65%),
+    radial-gradient(70vw 40vh at 8% 110%, rgb(var(--accent-rgb) / .09), transparent 65%),
+    linear-gradient(180deg, transparent 40%, rgb(var(--s1) / .5));
+}
+
+/* Cheap tier and reduced motion: the layers stay, the movement does not. */
+html[data-perf="fast"] #bg-fx b,
+html[data-motion="off"] #bg-fx b,
+html[data-motion="soft"] #bg-fx b{ animation:none !important }
+html[data-motion="off"] #bg-fx{ opacity:.55 }
+
+/* ===========================================================================
+   6. Motion and micro-interaction
+   ===========================================================================
+   Every duration below is a multiple of the theme's motion knob, so the
+   Minimal theme is calmer than Clay for one reason and not twelve. Only
+   transform, opacity and filter are animated - nothing here can cause a
+   layout pass. */
+
+/* Page and panel entrances, retimed to the theme. */
+html[data-skin] .stage.is-entering{ animation:rise calc(var(--dur-3) * 1.1) var(--ease-2) }
+html[data-skin] .stage.is-leaving{ animation:leave var(--dur-1) var(--ease-1) both }
+html[data-skin] .stage .card{ animation:rise calc(var(--dur-3) * 1.3) var(--ease-2) both }
+
+/* The rail's selected marker slides between destinations instead of blinking
+   on under the new one. */
+html[data-skin] .nav button{
+  position:relative;
+  transition:background var(--dur-1) var(--ease-1), color var(--dur-1) var(--ease-1);
+}
+html[data-skin] .nav button::after{
+  content:""; position:absolute; inset-block:18%; inset-inline-start:0;
+  width:3px; border-radius:0 3px 3px 0;
+  background:var(--accent);
+  transform:scaleY(0);
+  transform-origin:center;
+  transition:transform var(--dur-2) var(--ease-spring);
+}
+html[data-skin] .nav button.on::after{ transform:scaleY(1) }
+html[dir="rtl"][data-skin] .nav button::after{ border-radius:3px 0 0 3px }
+
+/* The tab underline travels the same way. */
+html[data-skin] .tabs button{
+  transition:background var(--dur-1) var(--ease-1),
+             color var(--dur-1) var(--ease-1),
+             transform var(--dur-1) var(--ease-1);
+}
+html[data-skin] .tabs button:active{ transform:scale(var(--press)) }
+
+/* Dialogs and menus arrive, they do not appear. */
+html[data-skin] .modal-card{ animation:modalPop calc(var(--dur-2) * 1.2) var(--ease-2) }
+@keyframes modalPop{ from{opacity:0; transform:translateY(12px) scale(.97)} to{opacity:1; transform:none} }
+html[data-skin] .dd-menu{ animation:ddIn var(--dur-2) var(--ease-2) }
+@keyframes ddIn{ from{opacity:0; transform:translateY(-6px)} to{opacity:1; transform:none} }
+html[data-skin] .toast{ animation:toastIn calc(var(--dur-2) * 1.4) var(--ease-2) }
+html[data-skin] .notify-card{ animation:ddIn calc(var(--dur-2) * 1.3) var(--ease-2) }
+
+/* Copy and save confirmations. Added as a class by the desk; harmless if it
+   is never used, and the one honest way to say "that worked" without a toast
+   for every keystroke. */
+.fx-ok{ animation:fxOk calc(var(--dur-3) * 1.1) var(--ease-1) }
+@keyframes fxOk{
+  0%{ box-shadow:0 0 0 0 rgb(var(--accent-rgb) / .45) }
+  60%{ box-shadow:0 0 0 7px rgb(var(--accent-rgb) / 0) }
+  100%{ box-shadow:0 0 0 0 rgb(var(--accent-rgb) / 0) }
+}
+.fx-pulse{ animation:fxPulse var(--dur-3) var(--ease-spring) }
+@keyframes fxPulse{ 0%{transform:scale(1)} 45%{transform:scale(1.06)} 100%{transform:scale(1)} }
+
+/* Skeletons. The shimmer is a single translated gradient on one element, not
+   a repainting background-position. */
+.skeleton{
+  position:relative; overflow:hidden;
+  background:rgb(var(--wash) / .05);
+  border-radius:var(--radius-sm);
+  min-height:12px;
+}
+.skeleton::after{
+  content:""; position:absolute; inset:0;
+  background:linear-gradient(90deg, transparent, rgb(var(--wash) / .09), transparent);
+  transform:translateX(-100%);
+  animation:shimmer 1.4s linear infinite;
+}
+@keyframes shimmer{ to{ transform:translateX(100%) } }
+
+/* ===========================================================================
+   7. Access
+   ===========================================================================
+   The focus ring is not themed. It is the same two pixels of accent on every
+   theme, because the one thing a keyboard user cannot afford is a theme where
+   it is subtle. */
+html[data-skin] :focus-visible{
+  outline:2px solid var(--accent);
+  outline-offset:2px;
+}
+html[data-skin="mono"] :focus-visible,
+html[data-skin="minimal"] :focus-visible{ outline-color:var(--ink) }
+
+/* Motion off - by the theme's own knob or by the operating system - stops
+   everything decorative and keeps everything that communicates state. */
+html[data-motion="off"] *,
+html[data-motion="off"] *::before,
+html[data-motion="off"] *::after{
+  animation-duration:.001ms !important;
+  animation-iteration-count:1 !important;
+  transition-duration:.001ms !important;
+}
+@media (prefers-reduced-motion:reduce){
+  #bg-fx b{ animation:none !important }
+  html[data-skin] .stage .card,
+  html[data-skin] .stage.is-entering,
+  html[data-skin] .modal-card,
+  html[data-skin] .dd-menu,
+  html[data-skin] .toast{ animation:none !important }
+  .skeleton::after{ animation:none !important }
+}
+
+/* ---------------------------------------------------------------------------
+   Three things outrank the theme's own knobs, and all three are the user
+   telling us something about their machine or their body:
+
+     liquid glass off   no translucency, no blur, whatever the theme wanted
+     the cheap tier     the same, because blur is what costs
+     reduced motion     no movement, and the amplitude taken to zero at the
+                        source rather than animation by animation
+
+   They are heard because js/themes.js publishes the knobs as a rule of equal
+   weight that this file is loaded after - not as inline properties, which
+   nothing can override. */
+html[data-glass="off"][data-skin],
+html[data-perf="fast"][data-skin]{
+  --surface-alpha:1;
+  --blur:0px;
+}
+@media (prefers-reduced-motion:reduce){
+  html[data-skin][data-theme]{ --motion-scale:0 }
+}
+
+/* Cheap tier: the same removal of blur app.css already does, restated for the
+   surfaces this file introduces. */
+html[data-perf="fast"] #bg-fx{ filter:none }
+html[data-perf="fast"] #bg-fx b{ filter:blur(40px) }
+
+/* ===========================================================================
+   8. The themes gallery
+   ===========================================================================
+   A colour name in a dropdown tells nobody what a theme does to their desk.
+   Each card is a miniature of the thing itself: a rail, a panel, a button and
+   a chip, drawn in that theme's own palette and its own material, whichever
+   theme happens to be active while you look at it. That independence is why
+   the previews are pure CSS keyed on [data-art] and share nothing with the
+   live token layer. */
+.theme-grid{
+  display:grid;
+  grid-template-columns:repeat(auto-fill, minmax(196px, 1fr));
+  gap:14px;
+  margin:2px 0 0;
+}
+.theme-card{
+  position:relative;
+  display:flex; flex-direction:column; gap:10px;
+  padding:10px 10px 12px;
+  text-align:start;
+  background:var(--surface-interactive);
+  border:1px solid var(--line);
+  border-radius:var(--radius-lg);
+  color:var(--ink);
+  overflow:hidden;
+  transition:transform var(--dur-2) var(--ease-1),
+             border-color var(--dur-2) var(--ease-1),
+             box-shadow var(--dur-2) var(--ease-1),
+             background var(--dur-2) var(--ease-1);
+}
+.theme-card:hover{
+  transform:translateY(calc(var(--lift) * 1.5));
+  border-color:var(--border-accent);
+  box-shadow:var(--shadow-md);
+}
+.theme-card:active{ transform:translateY(0) scale(var(--press)) }
+.theme-card.on{
+  border-color:rgb(var(--accent-rgb) / .65);
+  background:rgb(var(--accent-rgb) / .07);
+  box-shadow:0 0 0 1px rgb(var(--accent-rgb) / .35), var(--shadow-sm);
+}
+/* The selection indicator grows out of the corner rather than blinking on. */
+.tc-check{
+  position:absolute; top:10px; inset-inline-end:10px;
+  width:22px; height:22px; border-radius:50%;
+  display:grid; place-items:center;
+  background:var(--accent); color:var(--accent-ink);
+  transform:scale(0) rotate(-40deg); opacity:0;
+  transition:transform var(--dur-2) var(--ease-spring), opacity var(--dur-1) var(--ease-1);
+  pointer-events:none;
+  z-index:2;
+}
+.theme-card.on .tc-check{ transform:scale(1) rotate(0); opacity:1 }
+.tc-check svg{ width:13px; height:13px; stroke:currentColor; fill:none; stroke-width:2.6 }
+
+.tc-meta{ display:flex; flex-direction:column; gap:2px; padding:0 4px }
+.tc-name{ font-size:13px; font-weight:600; line-height:1.3 }
+.tc-desc{ font-size:11px; color:var(--muted); line-height:1.45 }
+
+/* ---- the miniature ---------------------------------------------------- */
+.tc-art{
+  --p-radius:8px;
+  position:relative;
+  display:flex; gap:6px;
+  height:92px; padding:8px;
+  border-radius:calc(var(--radius-lg) - 6px);
+  background:var(--p-bg);
+  overflow:hidden;
+  isolation:isolate;
+}
+.tc-art::before{
+  content:""; position:absolute; inset:0; z-index:0;
+  background:var(--p-glow, transparent);
+}
+.tc-rail{
+  position:relative; z-index:1;
+  width:22px; flex:none;
+  display:flex; flex-direction:column; gap:5px;
+  padding:5px 4px;
+  border-radius:calc(var(--p-radius) * .8);
+  background:var(--p-rail, var(--p-s));
+  box-shadow:var(--p-rail-shadow, none);
+}
+.tc-rail i{ display:block; height:4px; border-radius:2px; background:var(--p-mute) }
+.tc-rail i:first-child{ background:var(--p-accent) }
+.tc-body{ position:relative; z-index:1; flex:1; display:flex; flex-direction:column; gap:6px; min-width:0 }
+.tc-panel{
+  flex:1;
+  border-radius:var(--p-radius);
+  background:var(--p-s);
+  border:var(--p-border, 0);
+  box-shadow:var(--p-shadow, none);
+  padding:7px;
+  display:flex; flex-direction:column; gap:5px;
+}
+.tc-panel i{ display:block; height:4px; border-radius:2px; background:var(--p-mute) }
+.tc-panel i:first-child{ width:62%; background:var(--p-ink) }
+.tc-panel i:last-child{ width:40% }
+.tc-row{ display:flex; align-items:center; gap:5px }
+.tc-btn{
+  height:13px; width:34px; border-radius:calc(var(--p-radius) * .7);
+  background:var(--p-accent);
+  box-shadow:var(--p-btn-shadow, none);
+}
+.tc-pill{
+  height:13px; width:22px; border-radius:999px;
+  background:var(--p-s2);
+  border:var(--p-border, 0);
+  box-shadow:var(--p-shadow-sm, none);
+}
+.tc-dot{ width:9px; height:9px; border-radius:50%; background:var(--p-accent2, var(--p-accent)); opacity:.85 }
+
+/* The twelve miniatures. Palette first, then whatever single trick makes the
+   family recognisable at ninety pixels tall. */
+.tc-art[data-art="glass"]{
+  --p-bg:#080a12; --p-s:rgba(32,38,55,.9); --p-s2:rgba(48,56,78,.85);
+  --p-ink:#d7e0f0; --p-mute:#59617a; --p-accent:#3ee0c4; --p-accent2:#7c6cff;
+  --p-border:1px solid rgba(255,255,255,.1);
+  --p-glow:radial-gradient(60% 70% at 10% 0%, rgba(124,108,255,.35), transparent 60%),
+           radial-gradient(60% 70% at 100% 20%, rgba(62,224,196,.22), transparent 60%);
+  --p-shadow:0 6px 16px rgba(0,0,0,.45);
+}
+.tc-art[data-art="frost"]{
+  --p-bg:#0a1020; --p-s:rgba(255,255,255,.14); --p-s2:rgba(255,255,255,.1);
+  --p-ink:#e6efff; --p-mute:#7b8ca8; --p-accent:#38bdf8; --p-accent2:#a5f3fc;
+  --p-border:1px solid rgba(255,255,255,.24);
+  --p-glow:radial-gradient(50% 60% at 20% 10%, rgba(56,189,248,.4), transparent 62%),
+           radial-gradient(50% 60% at 90% 90%, rgba(165,243,252,.28), transparent 62%);
+  --p-radius:9px;
+}
+.tc-art[data-art="neu"]{
+  --p-bg:#171a21; --p-s:#1b1f27; --p-s2:#1b1f27;
+  --p-ink:#cfd5e0; --p-mute:#5a616e; --p-accent:#94a3b8;
+  --p-radius:9px;
+  --p-shadow:4px 4px 9px #0e1015, -4px -4px 9px #222732;
+  --p-shadow-sm:2px 2px 5px #0e1015, -2px -2px 5px #222732;
+  --p-rail:#1b1f27; --p-rail-shadow:3px 3px 8px #0e1015, -3px -3px 8px #222732;
+  --p-btn-shadow:3px 3px 7px #0e1015, -3px -3px 7px #222732;
+}
+.tc-art[data-art="clay"]{
+  --p-bg:#17131f; --p-s:#32264a; --p-s2:#3d2f59;
+  --p-ink:#e9dfff; --p-mute:#7a6b96; --p-accent:#c084fc;
+  --p-radius:13px;
+  --p-shadow:inset 0 -4px 7px rgba(0,0,0,.35), inset 0 4px 7px rgba(255,255,255,.1), 0 8px 16px rgba(0,0,0,.4);
+  --p-btn-shadow:inset 0 -3px 5px rgba(0,0,0,.3), inset 0 3px 5px rgba(255,255,255,.18);
+  --p-rail:#241b33;
+}
+.tc-art[data-art="aurora"]{
+  --p-bg:#080a1a; --p-s:rgba(48,40,98,.78); --p-s2:rgba(66,54,126,.7);
+  --p-ink:#e2dfff; --p-mute:#6b679c; --p-accent:#8b7bff; --p-accent2:#3ee0c4;
+  --p-border:1px solid rgba(255,255,255,.14);
+  --p-radius:11px;
+  --p-glow:radial-gradient(55% 65% at 0% 0%, rgba(139,123,255,.55), transparent 62%),
+           radial-gradient(55% 65% at 100% 100%, rgba(62,224,196,.3), transparent 62%),
+           radial-gradient(45% 55% at 70% 0%, rgba(232,121,249,.28), transparent 62%);
+}
+.tc-art[data-art="cyber"]{
+  --p-bg:#04050d; --p-s:rgba(14,18,42,.9); --p-s2:rgba(20,25,54,.9);
+  --p-ink:#d6f6ff; --p-mute:#4d6a86; --p-accent:#e879f9; --p-accent2:#4cc9f0;
+  --p-border:1px solid rgba(232,121,249,.5);
+  --p-radius:3px;
+  --p-shadow:0 0 0 1px rgba(232,121,249,.35), 0 0 14px rgba(232,121,249,.3);
+  --p-btn-shadow:0 0 12px rgba(232,121,249,.6);
+  --p-rail:rgba(10,13,28,.9);
+}
+.tc-art[data-art="cyber"]::before{
+  background:
+    linear-gradient(rgba(232,121,249,.14) 1px, transparent 1px) 0 0/14px 14px,
+    linear-gradient(90deg, rgba(232,121,249,.14) 1px, transparent 1px) 0 0/14px 14px,
+    radial-gradient(70% 60% at 50% 110%, rgba(76,201,240,.3), transparent 65%);
+}
+.tc-art[data-art="minimal"]{
+  --p-bg:#0d0f14; --p-s:#171a21; --p-s2:#1d212a;
+  --p-ink:#dfe3ea; --p-mute:#565a64; --p-accent:#cbd5e1;
+  --p-border:1px solid rgba(255,255,255,.13);
+  --p-radius:4px;
+}
+.tc-art[data-art="midnight"]{
+  --p-bg:#050713; --p-s:#151d3e; --p-s2:#1d2751;
+  --p-ink:#dfe5ff; --p-mute:#5b6488; --p-accent:#818cf8;
+  --p-radius:6px;
+  --p-glow:radial-gradient(70% 70% at 50% -10%, rgba(129,140,248,.3), transparent 65%);
+  --p-shadow:0 8px 18px rgba(0,0,0,.6);
+}
+.tc-art[data-art="ocean"]{
+  --p-bg:#031018; --p-s:rgba(11,52,71,.92); --p-s2:rgba(16,70,94,.9);
+  --p-ink:#dcf3ff; --p-mute:#527786; --p-accent:#4cc9f0; --p-accent2:#38bdf8;
+  --p-border:1px solid rgba(255,255,255,.12);
+  --p-radius:9px;
+  --p-glow:radial-gradient(80% 70% at 50% 120%, rgba(76,201,240,.4), transparent 65%);
+}
+.tc-art[data-art="sunset"]{
+  --p-bg:#140910; --p-s:rgba(66,32,41,.92); --p-s2:rgba(86,43,52,.9);
+  --p-ink:#ffe9df; --p-mute:#8d6863; --p-accent:#fb923c; --p-accent2:#f43f5e;
+  --p-border:1px solid rgba(255,255,255,.12);
+  --p-radius:11px;
+  --p-glow:radial-gradient(60% 70% at 85% 0%, rgba(251,146,60,.45), transparent 62%),
+           radial-gradient(60% 70% at 10% 100%, rgba(244,63,94,.3), transparent 62%);
+}
+.tc-art[data-art="mono"]{
+  --p-bg:#0a0a0b; --p-s:#1d1d1f; --p-s2:#262628;
+  --p-ink:#e4e4e6; --p-mute:#565659; --p-accent:#d4d4d8;
+  --p-border:1px solid rgba(255,255,255,.15);
+  --p-radius:2px;
+}
+/* The custom miniature is the only one that is not fixed: the desk writes the
+   user's own accent, radius and surface strength onto it, so the card shows
+   the theme they built rather than the one it shipped with. */
+.tc-art[data-art="custom"]{
+  --p-bg:#0a0c14; --p-s:rgba(34,40,58,.9); --p-s2:rgba(50,58,80,.85);
+  --p-ink:#dbe3f2; --p-mute:#5c6478; --p-accent:#3ee0c4;
+  --p-border:1px solid rgba(255,255,255,.12);
+  --p-shadow:0 6px 16px rgba(0,0,0,.45);
+}
+
+/* A light desk needs the previews lifted off the page, or twelve dark
+   rectangles sit on white like holes. */
+html[data-theme="light"] .tc-art{ box-shadow:inset 0 0 0 1px rgb(var(--wash) / .08) }
+
+/* ---- the custom theme's controls -------------------------------------- */
+.tc-custom{ margin-top:14px }
+.tc-custom[hidden]{ display:none }
+.knob-grid{
+  display:grid;
+  grid-template-columns:repeat(auto-fit, minmax(210px, 1fr));
+  gap:12px 18px;
+  margin-top:10px;
+}
+.knob{ display:flex; flex-direction:column; gap:4px }
+.knob-head{ display:flex; align-items:baseline; justify-content:space-between; gap:10px }
+.knob-head span{ font-size:12px; color:var(--muted) }
+.knob-head b{ font-size:12px; font-weight:600; font-variant-numeric:tabular-nums; color:var(--ink) }
+.knob input[type=range]{ width:100% }
+.knob-note{ font-size:11px; color:var(--faint); margin:0 }
+
+/* ---- responsive --------------------------------------------------------
+   Phones get two columns rather than one: a theme is chosen by comparison,
+   and a single column turns that into scrolling and memory. */
+@media (max-width:860px){
+  .theme-grid{ grid-template-columns:repeat(auto-fill, minmax(150px, 1fr)); gap:10px }
+  .tc-art{ height:76px }
+}
+@media (max-width:520px){
+  .theme-grid{ grid-template-columns:repeat(2, minmax(0, 1fr)) }
+  .tc-art{ height:68px; padding:6px }
+  .tc-desc{ display:none }
+  .knob-grid{ grid-template-columns:1fr }
+}
+
+/* ===========================================================================
+   9. The surfaces that were painted in black
+   ===========================================================================
+   A handful of panels were drawn with a literal rgba(0,0,0,…) wash. On the
+   dark desk that reads as depth; on Minimal, Monochrome or any light page it
+   reads as a hole. They are restated here in terms of the theme's own page
+   colour, which is the whole point of the token layer. */
+html[data-skin] .chart-box{
+  background:rgb(var(--s1) / .45);
+  border-radius:var(--radius-md);
+}
+html[data-skin] .term{
+  background:rgb(var(--s1) / .55);
+  border:1px solid var(--line);
+  border-radius:var(--radius-md);
+}
+html[data-skin] .chart-box .empty{ background:rgb(var(--s1) / .5) }
+html[data-skin] .bar{ background:rgb(var(--wash) / .07); border-radius:var(--radius-pill) }
+html[data-skin] .bar > i{ background:linear-gradient(90deg, var(--accent), var(--accent-3)) }
+html[data-skin] .wizard .step{
+  border:1px solid var(--line);
+  border-radius:var(--radius-md);
+  background:var(--surface-interactive);
+  transition:border-color var(--dur-2) var(--ease-1), background var(--dur-2) var(--ease-1);
+}
+html[data-skin] .wizard .step:hover{ background:var(--surface-hover); border-color:var(--border-accent) }
+html[data-skin] .cal-tip{ border-radius:var(--radius-md) }
+html[data-skin] .cal-cell{ border-radius:var(--radius-sm) }
+html[data-skin] .secret-box,
+html[data-skin] .keybox{ border-radius:var(--radius-md) }
+html[data-skin] .plan-card{ border-radius:var(--radius-lg); background:var(--surface-interactive) }
+html[data-skin] .notify-stack .notify-card{ border-radius:var(--radius-md) }
+html[data-skin] .prof-ava{ border-radius:var(--radius-lg) }
+
+/* Native controls that are not switches still exist in forms, and an
+   unstyled checkbox in a themed dialog is the one thing that gives a skin
+   away as paint. */
+html[data-skin] input[type=checkbox],
+html[data-skin] input[type=radio],
+html[data-skin] progress{ accent-color:var(--accent) }
+
+/* The empty state's orb is the only decorative animation on a data page. It
+   keeps its float, at the theme's own amplitude, and stops with everything
+   else when motion is off. */
+html[data-skin] .empty .orb{ animation-duration:calc(5s / max(var(--motion-scale), .2)) }
+html[data-motion="off"] .empty .orb{ animation:none }

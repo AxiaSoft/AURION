@@ -25,6 +25,7 @@ MT5 Python API (Windows) ──────────┘              │
 - A robot trade budget you set yourself — "open between 1 and N trades" — plus smart filters (higher-timeframe trend, spread, chop) and one quality score per entry
 - Backtester that refuses to run without real history
 - Liquid-glass desk in English, فارسی, العربية with live RTL/LTR
+- Twelve themes, each a full material and not a colour swap — Liquid Glass, Glassmorphism, Neumorphism, Claymorphism, Aurora, Cyber Neon, Minimal, Midnight, Ocean, Sunset, Monochrome and a Custom theme with its own surface, border, blur, radius, shadow and motion controls (Settings → Personalization)
 - Excel export with translated headers and P/L colouring
 - 30-day archive / reset
 - Read-only **Telegram** status bot (open/close alerts with live P/L — no trading commands)

@@ -309,6 +309,223 @@ function setThemeNow(mode) {
    attributes on <html>, and nothing here touches desk state. Rendered as part
    of the Personal settings tab.
    =========================================================================== */
+/* ---------------------------------------------------------------------------
+   The themes gallery.
+
+   A theme is a material, not a colour, and a material cannot be described in
+   a dropdown. Every theme is therefore shown as a miniature of itself - rail,
+   panel, button, chip - drawn in its own palette and its own morphism,
+   whatever theme happens to be active while you are looking at the page. The
+   miniatures are pure CSS (css/themes.css, [data-art]) so they cost nothing
+   and cannot drift from the real thing by way of a second colour table here.
+
+   AurionTheme owns the state, the storage and the attributes on <html>. This
+   function only draws, and the morph the light/dark switch already uses is
+   reused for the swap so a theme change reads the same way. */
+const THEME_TICK =
+  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12.5 4.5 4.5L19 7"/></svg>';
+
+function themeCardHtml(theme, current, custom) {
+  const on = theme.id === current;
+  const name = I18N.t("themes." + theme.id + "_name");
+  const desc = I18N.t("themes." + theme.id + "_desc");
+  // The custom card is the only one that shows what the user built rather
+  // than what shipped: its accent and corner radius come from their knobs.
+  let style = "";
+  if (theme.id === "custom" && typeof AurionSkin !== "undefined") {
+    const acc = AurionSkin.ACCENTS[custom.accent] || AurionSkin.ACCENTS.aurora;
+    const rad = Math.max(2, Math.round(custom.radius * 0.45));
+    style = ` style="--p-accent:${acc[0]};--p-accent2:${acc[2]};--p-radius:${rad}px"`;
+  }
+  return `<button type="button" class="theme-card${on ? " on" : ""}" data-theme-pick="${theme.id}"
+      role="radio" aria-checked="${on ? "true" : "false"}" tabindex="${on ? "0" : "-1"}">
+      <span class="tc-art" data-art="${theme.id}"${style} aria-hidden="true">
+        <span class="tc-rail"><i></i><i></i><i></i></span>
+        <span class="tc-body">
+          <span class="tc-panel"><i></i><i></i></span>
+          <span class="tc-row"><span class="tc-btn"></span><span class="tc-pill"></span><span class="tc-dot"></span></span>
+        </span>
+      </span>
+      <span class="tc-meta">
+        <span class="tc-name">${esc(name)}</span>
+        <span class="tc-desc">${esc(desc)}</span>
+      </span>
+      <span class="tc-check">${THEME_TICK}</span>
+    </button>`;
+}
+
+/* One slider, with its value shown as it moves. Every knob is the same shape,
+   so the panel is a table and not seven hand-written blocks. */
+function themeKnobHtml(key, label, value, suffix) {
+  const lim = AurionTheme.LIMITS[key];
+  const shown = key === "motion" && Number(value) === 0
+    ? I18N.t("themes.motion_off") : value + (suffix || "");
+  return `<label class="knob">
+      <span class="knob-head"><span>${esc(label)}</span><b id="knob-v-${key}">${esc(shown)}</b></span>
+      <input type="range" data-knob="${key}" min="${lim[0]}" max="${lim[1]}" step="${lim[2]}"
+             value="${value}" aria-label="${esc(label)}" />
+    </label>`;
+}
+
+function themesGalleryHtml() {
+  if (typeof AurionTheme === "undefined") return "";
+  const current = AurionTheme.get();
+  const custom = AurionTheme.getCustom();
+  const cards = AurionTheme.THEMES.map((t) => themeCardHtml(t, current, custom)).join("");
+  const backdrops = ["soft", "blobs", "aurora", "grid", "waves", "dusk", "layered", "flat", "none"]
+    .map((b) => `<option value="${b}"${b === custom.bg ? " selected" : ""}>${esc(I18N.t("themes.bg_" + b))}</option>`)
+    .join("");
+
+  return `
+      <div class="card" style="margin-top:14px">
+        <p class="sub" style="margin:0 0 10px">${I18N.t("themes.hint")}</p>
+        <div class="theme-grid" id="set-theme-grid" role="radiogroup" aria-label="${esc(I18N.t("themes.title"))}">${cards}</div>
+        <p class="sub" style="margin:12px 0 0">${I18N.t("themes.recommended")}</p>
+      </div>
+
+      <div class="card tc-custom" id="set-theme-custom" style="margin-top:14px"${current === "custom" ? "" : " hidden"}>
+        <h3 style="margin:0 0 4px">${I18N.t("themes.custom_title")}</h3>
+        <p class="sub" style="margin:0">${I18N.t("themes.custom_hint")}</p>
+        <div class="knob-grid">
+          <label class="knob">
+            <span class="knob-head"><span>${I18N.t("themes.backdrop")}</span></span>
+            <select class="ctrl" id="knob-bg" aria-label="${esc(I18N.t("themes.backdrop"))}">${backdrops}</select>
+          </label>
+          ${themeKnobHtml("surface", I18N.t("themes.surface"), custom.surface, "%")}
+          ${themeKnobHtml("border", I18N.t("themes.border"), custom.border, "%")}
+          ${themeKnobHtml("blur", I18N.t("themes.blur"), custom.blur, "px")}
+          ${themeKnobHtml("radius", I18N.t("themes.radius"), custom.radius, "px")}
+          ${themeKnobHtml("shadow", I18N.t("themes.shadow"), custom.shadow, "%")}
+          ${themeKnobHtml("motion", I18N.t("themes.motion"), custom.motion, "%")}
+        </div>
+        <button type="button" class="btn ghost tiny" id="knob-reset" style="margin-top:12px">${I18N.t("themes.reset")}</button>
+      </div>`;
+}
+
+/* Marking in place rather than re-rendering: rebuilding the settings tab on
+   every click loses the pressed state and the scroll position, which is the
+   exact bug the accent row was fixed for. */
+function markThemeCards() {
+  if (typeof AurionTheme === "undefined") return;
+  const current = AurionTheme.get();
+  document.querySelectorAll("[data-theme-pick]").forEach((b) => {
+    const on = b.dataset.themePick === current;
+    b.classList.toggle("on", on);
+    b.setAttribute("aria-checked", on ? "true" : "false");
+    b.tabIndex = on ? 0 : -1;
+  });
+  const panel = $("set-theme-custom");
+  if (panel) panel.hidden = current !== "custom";
+  paintCustomPreview();
+}
+
+/* The custom miniature follows its own knobs live, so the card in the grid is
+   always a picture of the theme the user currently has. */
+function paintCustomPreview() {
+  if (typeof AurionTheme === "undefined" || typeof AurionSkin === "undefined") return;
+  const art = document.querySelector('.tc-art[data-art="custom"]');
+  if (!art) return;
+  const custom = AurionTheme.getCustom();
+  const acc = AurionSkin.ACCENTS[custom.accent] || AurionSkin.ACCENTS.aurora;
+  art.style.setProperty("--p-accent", acc[0]);
+  art.style.setProperty("--p-accent2", acc[2]);
+  art.style.setProperty("--p-radius", Math.max(2, Math.round(custom.radius * 0.45)) + "px");
+}
+
+function pickTheme(id) {
+  if (typeof AurionTheme === "undefined" || AurionTheme.get() === id) return;
+  // The same veil the light/dark switch uses. A theme swap changes far more
+  // than a theme switch does, so it needs the cover more, not less.
+  morphTheme(() => {
+    AurionTheme.set(id);
+    markThemeCards();
+    markAppearancePills();
+    repaintChartsForTheme();
+  });
+}
+
+function bindThemesGallery() {
+  if (typeof AurionTheme === "undefined") return;
+
+  const grid = $("set-theme-grid");
+  if (grid) {
+    grid.onclick = (e) => {
+      const b = e.target.closest("[data-theme-pick]");
+      if (!b) return;
+      pickTheme(b.dataset.themePick);
+    };
+    // A radiogroup that cannot be driven from the keyboard is a list of
+    // buttons wearing a costume. Arrows move and choose; Home and End jump.
+    grid.onkeydown = (e) => {
+      const keys = ["ArrowRight", "ArrowLeft", "ArrowDown", "ArrowUp", "Home", "End"];
+      if (keys.indexOf(e.key) === -1) return;
+      const cards = Array.prototype.slice.call(grid.querySelectorAll("[data-theme-pick]"));
+      if (!cards.length) return;
+      const rtl = document.documentElement.dir === "rtl";
+      const at = Math.max(0, cards.indexOf(document.activeElement.closest("[data-theme-pick]")));
+      let next = at;
+      if (e.key === "Home") next = 0;
+      else if (e.key === "End") next = cards.length - 1;
+      else {
+        const fwd = e.key === "ArrowDown" || (rtl ? e.key === "ArrowLeft" : e.key === "ArrowRight");
+        next = (at + (fwd ? 1 : -1) + cards.length) % cards.length;
+      }
+      e.preventDefault();
+      cards[next].focus();
+      pickTheme(cards[next].dataset.themePick);
+    };
+  }
+
+  const panel = $("set-theme-custom");
+  if (panel) {
+    // Sliders write straight through: there is no save button anywhere in
+    // settings, and a theme you have to confirm is a theme you cannot feel.
+    panel.oninput = (e) => {
+      const slider = e.target.closest("[data-knob]");
+      if (!slider) return;
+      const key = slider.dataset.knob;
+      const value = Number(slider.value);
+      AurionTheme.setCustom({ [key]: value });
+      const out = $("knob-v-" + key);
+      if (out) {
+        const suffix = key === "blur" || key === "radius" ? "px" : "%";
+        out.textContent = key === "motion" && value === 0
+          ? I18N.t("themes.motion_off") : value + suffix;
+      }
+      if (key === "radius") paintCustomPreview();
+    };
+    const bg = $("knob-bg");
+    if (bg) bg.onchange = () => AurionTheme.setCustom({ bg: bg.value });
+    const reset = $("knob-reset");
+    if (reset) reset.onclick = () => {
+      AurionTheme.resetCustom();
+      renderSettingsKnobs();
+      toast(I18N.t("themes.reset_done"));
+    };
+  }
+}
+
+/* After a reset the sliders are stale. Only their values are rewritten - the
+   panel itself stays, so focus and scroll stay with it. */
+function renderSettingsKnobs() {
+  if (typeof AurionTheme === "undefined") return;
+  const custom = AurionTheme.getCustom();
+  document.querySelectorAll("[data-knob]").forEach((slider) => {
+    const key = slider.dataset.knob;
+    if (custom[key] === undefined) return;
+    slider.value = custom[key];
+    const out = $("knob-v-" + key);
+    if (out) {
+      const suffix = key === "blur" || key === "radius" ? "px" : "%";
+      out.textContent = key === "motion" && Number(custom[key]) === 0
+        ? I18N.t("themes.motion_off") : custom[key] + suffix;
+    }
+  });
+  const bg = $("knob-bg");
+  if (bg) bg.value = custom.bg;
+  paintCustomPreview();
+}
+
 function appearanceCardsHtml() {
   if (typeof AurionSkin === "undefined") return "";
   const perf = AurionSkin.getPerfMode();
@@ -321,6 +538,9 @@ function appearanceCardsHtml() {
   }).join("");
 
   return `
+      <h3 class="set-h">${I18N.t("themes.title")}</h3>
+      ${themesGalleryHtml()}
+
       <div class="card" style="margin-top:14px">
         <p class="sub" style="margin:0 0 6px">${I18N.t("settings.accent")}</p>
         <div class="accent-row" id="set-accents">${swatches}</div>
@@ -366,10 +586,19 @@ function bindAppearance() {
     const b = e.target.closest("[data-accent]");
     if (!b) return;
     AurionSkin.setAccent(b.dataset.accent);
+    // Picking an accent while the custom theme is active is part of building
+    // it, so it is remembered with the rest of that theme's knobs rather than
+    // being reset the next time the theme is applied.
+    if (typeof AurionTheme !== "undefined" && AurionTheme.get() === "custom") {
+      AurionTheme.setCustom({ accent: b.dataset.accent }, { silent: true });
+    }
     markAppearancePills();
+    paintCustomPreview();
     // The chart reads its colours once when it paints, so it has to be asked.
     repaintChartsForTheme();
   };
+
+  bindThemesGallery();
 
   const perf = $("set-perf");
   if (perf) perf.onclick = (e) => {
@@ -4163,6 +4392,7 @@ function bindView(view) {
     if (glass) glass.onclick = () => setGlass(!glassOn());
     bindAppearance();
     markAppearancePills();
+    markThemeCards();
     bindStrategyUpload();
     const tpl = $("st-tpl");
     if (tpl) tpl.onclick = async (e) => {

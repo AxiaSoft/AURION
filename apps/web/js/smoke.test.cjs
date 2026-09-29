@@ -13,7 +13,7 @@ const path = require("node:path");
 const vm = require("node:vm");
 
 const here = __dirname;
-const SCRIPTS = ["skins.js", "i18n.js", "api.js", "calendar.js", "charts.js", "app.js"];
+const SCRIPTS = ["skins.js", "themes.js", "i18n.js", "api.js", "calendar.js", "charts.js", "app.js"];
 
 function makeWindow() {
   const store = new Map();
