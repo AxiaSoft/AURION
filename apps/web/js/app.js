@@ -2470,6 +2470,16 @@ function licenseCardHtml() {
  * was showing the trader's own number rather than the rule actually being
  * enforced.
  */
+/**
+ * How many trades the robot opens.
+ *
+ * Two fields side by side read as one range - "between 1 and 4 trades" -
+ * and neither of them means that. Naming them better was not enough, so
+ * they are now two numbered steps that cannot be read as a pair, and the
+ * second half of the card is a worked example computed with the engine's
+ * own arithmetic: for the numbers currently in the boxes, how many trades
+ * a weak, a decent and an excellent signal would actually open.
+ */
 function slotsHtml(st) {
   const min = st.min_open_trades ?? 1;
   const max = st.max_open_trades ?? 2;
@@ -2479,31 +2489,71 @@ function slotsHtml(st) {
   const perSymbol = st.cap_symbol ?? cap;
   const byProp = Boolean(st.cap_by_prop);
 
-  return `<div class="set-pair">
-      <label class="field">
-        <span>${I18N.t("slots.min_label")}</span>
-        <input id="st-min-trades" type="number" step="1" min="1" max="20" value="${min}" />
-        <small class="field-hint">${I18N.t("slots.min_hint")}</small>
-      </label>
-      <label class="field">
-        <span>${I18N.t("slots.max_label")}</span>
-        <input id="st-max-trades" type="number" step="1" min="1" max="20" value="${max}" />
-        <small class="field-hint">${I18N.t("slots.max_hint")}</small>
-      </label>
-    </div>
-
-    <p class="sub" id="st-slots-example">${I18N.t("slots.example", { min, max: cap })}</p>
-
-    <div class="slot-state">
-      <div class="slot-dots" aria-hidden="true">
-        ${Array.from({ length: Math.min(12, Math.max(cap, open)) }, (_, i) =>
-          `<i class="${i < open ? "on" : ""}"></i>`).join("")}
+  return `<div class="slot-step">
+      <span class="slot-num">1</span>
+      <div class="slot-body">
+        <label class="field">
+          <span>${I18N.t("slots.min_label")}</span>
+          <input id="st-min-trades" type="number" step="1" min="1" max="20" value="${min}" />
+        </label>
+        <p class="sub">${I18N.t("slots.min_hint")}</p>
       </div>
-      <span id="st-slots-now">${I18N.t("slots.state", { n: open, cap, free })}</span>
     </div>
 
-    ${byProp ? `<p class="sub lock-note">${I18N.t("slots.cap_prop", { cap })}</p>` : ""}
-    ${perSymbol < cap ? `<p class="sub">${I18N.t("slots.cap_symbol", { n: perSymbol })}</p>` : ""}`;
+    <div class="slot-step">
+      <span class="slot-num">2</span>
+      <div class="slot-body">
+        <label class="field">
+          <span>${I18N.t("slots.max_label")}</span>
+          <input id="st-max-trades" type="number" step="1" min="1" max="20" value="${max}" />
+        </label>
+        <p class="sub">${I18N.t("slots.max_hint")}</p>
+        <div class="slot-state">
+          <div class="slot-dots" aria-hidden="true">
+            ${Array.from({ length: Math.min(12, Math.max(cap, open)) }, (_, i) =>
+              `<i class="${i < open ? "on" : ""}"></i>`).join("")}
+          </div>
+          <span id="st-slots-now">${I18N.t("slots.state", { n: open, cap, free })}</span>
+        </div>
+        ${byProp ? `<p class="sub lock-note">${I18N.t("slots.cap_prop", { cap })}</p>` : ""}
+        ${perSymbol < cap ? `<p class="sub">${I18N.t("slots.cap_symbol", { n: perSymbol })}</p>` : ""}
+      </div>
+    </div>
+
+    <div class="slot-demo" id="st-slots-demo">${slotsDemoHtml(min, cap)}</div>`;
+}
+
+/**
+ * What those two numbers mean, in trades.
+ *
+ * The same arithmetic the engine uses in _entries_for_signal(), run on the
+ * numbers in the boxes right now: a signal's quality score is mapped from
+ * the minimum up to the ceiling, so the trader can see the whole behaviour
+ * of the setting at a glance instead of inferring it from a sentence.
+ */
+function slotsTickets(min, cap, quality) {
+  const low = Math.max(1, min);
+  const high = Math.max(low, cap);
+  if (high <= low) return low;
+  const strength = Math.max(0, Math.min(1, (quality - 0.5) / 0.4));
+  return low + Math.round((high - low) * strength);
+}
+
+function slotsDemoHtml(min, cap) {
+  const rows = [
+    [0.55, "slots.demo_weak"],
+    [0.70, "slots.demo_fair"],
+    [0.90, "slots.demo_best"],
+  ];
+  return `<b>${I18N.t("slots.demo_title")}</b>
+    <div class="slot-demo-rows">
+      ${rows.map(([q, key]) => {
+        const n = slotsTickets(min, cap, q);
+        return `<span>${I18N.t(key, { pct: Math.round(q * 100) })}</span>
+          <b class="mono">${I18N.t("slots.demo_n", { n })}</b>`;
+      }).join("")}
+    </div>
+    <p class="sub">${I18N.t("slots.demo_note", { cap })}</p>`;
 }
 
 /**
@@ -5004,11 +5054,11 @@ function bindRobotPanel() {
   // The worked example follows the fields as they are typed in, so the two
   // numbers stop being abstract before anything is saved.
   const slotExample = () => {
-    const el = $("st-slots-example");
+    const el = $("st-slots-demo");
     if (!el) return;
     const lo = Math.max(1, Math.min(20, +($("st-min-trades")?.value || 1)));
     const hi = Math.max(lo, Math.min(20, +($("st-max-trades")?.value || 2)));
-    el.textContent = I18N.t("slots.example", { min: lo, max: hi });
+    el.innerHTML = slotsDemoHtml(lo, hi);
   };
   ["st-min-trades", "st-max-trades"].forEach((id) => {
     const el = $(id);

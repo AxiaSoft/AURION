@@ -538,6 +538,9 @@ check("a locked object cannot be grabbed by its handle",
 
   let menus = 0;
   chart.opts.onMenu = () => { menus++; };
+  check("the gesture shows itself while it is happening",
+    Boolean(chart._stretch) && Math.abs(chart._stretch.x - 700) < 1);
+
   up(700, y0 - 100);
   check("the stretch ends cleanly", chart.drag === null);
   check("and it is not a context menu", menus === 0);
@@ -560,6 +563,25 @@ check("a locked object cannot be grabbed by its handle",
     Math.abs(after.pOf(ylog) - heldLog) < (after.mx - after.mn) * 0.02);
   up(400, ylog + 80);
   chart.setLogScale(false);
+
+  // ---- and the wheel form of the same gesture ------------------------
+  chart.setAutoScale(true);
+  const Lw = chart.layout();
+  const yw = Math.round(Lw.plotT + (Lw.plotB - Lw.plotT) * 0.45);
+  const heldW = Lw.pOf(yw);
+  const rangeW = Lw.mx - Lw.mn;
+  chart.onWheel({ deltaY: 120, ctrlKey: true, clientX: 420, clientY: yw, preventDefault() {} });
+  const afterW = chart.layout();
+  check("ctrl with the wheel stretches instead of zooming",
+    Math.abs((afterW.mx - afterW.mn) - rangeW) > rangeW * 0.02);
+  check("...anchored on the price under the pointer",
+    Math.abs(afterW.pOf(yw) - heldW) < (afterW.mx - afterW.mn) * 0.02);
+  check("...and it does not scroll the chart sideways", chart.offset === 0);
+
+  const plainSpan = chart.span;
+  chart.onWheel({ deltaY: 120, clientX: 420, clientY: yw, preventDefault() {} });
+  check("the wheel on its own still zooms time", chart.span !== plainSpan);
+
   chart.opts.onMenu = null;
   chart.setAutoScale(true);
   chart.fit();

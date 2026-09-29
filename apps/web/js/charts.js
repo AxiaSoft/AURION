@@ -926,6 +926,7 @@ class CandleChart {
     this.paintAxes(L);
     this.paintCrosshair(L);
     this.paintLegend(L);
+    this.paintStretch(L);
   }
 
   paintGrid(L) {
@@ -2552,6 +2553,60 @@ class CandleChart {
     this.scale.mx = mx;
   }
 
+  /**
+   * The readout that appears while the scale is being stretched.
+   *
+   * Without it the gesture is invisible until the candles have already
+   * moved, and a control the user cannot see engaging is a control they
+   * will assume is not there. It fades on its own.
+   */
+  flashStretch(x, y, ratio) {
+    this._stretch = { x, y, ratio, until: Date.now() + 900 };
+    // Guarded: the engine is also run head-less by the tests, where there
+    // is no timer. The readout is decoration and must never be the reason
+    // a frame throws.
+    if (typeof setTimeout !== "function") return;
+    if (this._stretchTimer) clearTimeout(this._stretchTimer);
+    this._stretchTimer = setTimeout(() => {
+      this._stretch = null;
+      this._stretchTimer = 0;
+      this.draw();
+    }, 950);
+  }
+
+  paintStretch(L) {
+    const st = this._stretch;
+    if (!st) return;
+    const live = this.drag && this.drag.mode === "stretch";
+    if (!live && Date.now() > st.until) return;
+    const T = chartTheme();
+    const ctx = this.ctx;
+    const pct = Math.round((st.ratio || 1) * 100);
+    const text = "\u2195 " + pct + "%";
+    ctx.save();
+    ctx.font = "12px IBM Plex Mono, Vazirmatn, monospace";
+    const w = ctx.measureText(text).width + 20;
+    const x = Math.max(L.plotL + 4, Math.min(L.plotR - w - 4, st.x + 14));
+    const y = Math.max(L.plotT + 14, Math.min(L.plotB - 14, st.y));
+    ctx.fillStyle = T.panel;
+    ctx.strokeStyle = "rgb(" + T.goldT + " / .55)";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    const r = 9;
+    ctx.moveTo(x + r, y - 13);
+    ctx.arcTo(x + w, y - 13, x + w, y + 13, r);
+    ctx.arcTo(x + w, y + 13, x, y + 13, r);
+    ctx.arcTo(x, y + 13, x, y - 13, r);
+    ctx.arcTo(x, y - 13, x + w, y - 13, r);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = T.gold;
+    ctx.textBaseline = "middle";
+    ctx.fillText(text, x + 10, y);
+    ctx.restore();
+  }
+
   /** Stretch or compress the price axis around its middle. */
   scaleBy(k) {
     const L = this._L || this.layout();
@@ -2634,6 +2689,16 @@ class CandleChart {
     const hit = this.hit(e);
     const dir = e.deltaY > 0 ? -1 : 1;
     if (hit && hit.onPriceAxis) { this.scaleBy(dir > 0 ? 0.9 : 1.1); return; }
+    /* ctrl means "vertical" everywhere on this chart: with the right button
+       it stretches by dragging, with the wheel it stretches by scrolling.
+       Both are anchored on the price under the pointer. */
+    if ((e.ctrlKey || e.metaKey) && hit) {
+      const L = hit.L;
+      this.scaleAround({ mn: L.mn, mx: L.mx, at: hit.p }, dir > 0 ? 0.88 : 1 / 0.88);
+      this.flashStretch(hit.x, hit.y, (L.mx - L.mn) / Math.max(1e-12, this.scale.mx - this.scale.mn));
+      this.draw();
+      return;
+    }
     if (e.shiftKey && !e.ctrlKey) {
       // Wheel down goes forward in time, the way scrolling down a document
       // goes forward through it.
@@ -2882,6 +2947,7 @@ class CandleChart {
         // the price axis itself, so the two gestures cannot disagree.
         const k = Math.max(0.12, Math.min(9, 1 + dy / 200));
         this.scaleAround(this.drag, k);
+        this.flashStretch(raw.x, raw.y, 1 / k);
       } else if (this.drag.mode === "scale") {
         const dy = e.clientY - this.drag.y;
         const k = Math.max(0.2, 1 + dy / 220);
@@ -2920,6 +2986,7 @@ class CandleChart {
 
   onUp(e) {
     if (this.drag && (this.drag.mode === "free" || this.drag.mode === "stretch")) {
+      if (this.drag.mode === "stretch" && this._stretch) this._stretch.until = Date.now() + 700;
       this.drag = null;
       this.canvas.style.cursor = this.cursorFor();
       // A right *click* that never moved is not navigation; offer it to the

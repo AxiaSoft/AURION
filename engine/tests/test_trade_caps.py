@@ -52,16 +52,30 @@ def test_the_desk_labels_say_which_is_which() -> None:
     desk = DESK.read_text(encoding="utf-8")
     block = desk[desk.index("function slotsHtml("):desk.index("function qualityHtml(")]
     for key in ("slots.min_label", "slots.min_hint", "slots.max_label",
-                "slots.max_hint", "slots.example", "slots.state"):
+                "slots.max_hint", "slots.state"):
         assert key in block, f"{key} is missing from the card"
     assert "cap_effective" in block, "the card has to show the effective ceiling"
     assert "slots.cap_prop" in block, "and say when the prop profile is the one setting it"
 
 
+def test_the_worked_example_uses_the_engine_formula() -> None:
+    """The card computes the outcome itself, so it has to compute it the same way."""
+    desk = DESK.read_text(encoding="utf-8")
+    block = desk[desk.index("function slotsTickets("):desk.index("function slotsDemoHtml(")]
+    assert "(quality - 0.5) / 0.4" in block, "the desk must use the engine's mapping"
+    assert "low + Math.round((high - low) * strength)" in block
+
+    src = _src()
+    engine = src[src.index("def _entries_for_signal("):src.index("def _higher_timeframe(")]
+    assert "(float(quality) - 0.5) / 0.4" in engine
+    assert "low + int(round((high - low) * strength))" in engine
+
+
 def test_every_language_explains_both() -> None:
     import json
-    need = ["min_label", "min_hint", "max_label", "max_hint", "example", "state",
-            "cap_prop", "cap_symbol", "help", "title"]
+    need = ["min_label", "min_hint", "max_label", "max_hint", "state",
+            "cap_prop", "cap_symbol", "help", "title",
+            "demo_title", "demo_weak", "demo_fair", "demo_best", "demo_n", "demo_note"]
     for lang in ("en", "fa", "ar"):
         pack = json.loads((LANG / f"{lang}.json").read_text(encoding="utf-8"))
         slots = pack.get("slots") or {}
@@ -72,6 +86,7 @@ def test_every_language_explains_both() -> None:
 
 
 TESTS = [
+    test_the_worked_example_uses_the_engine_formula,
     test_min_is_per_signal_not_a_floor_on_open_trades,
     test_max_is_the_ceiling_and_prop_can_lower_it,
     test_the_effective_caps_reach_the_desk,

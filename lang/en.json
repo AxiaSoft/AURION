@@ -1022,7 +1022,7 @@
     "trade": "Trade",
     "auto_scale": "Auto scale",
     "mode_navigate": "Navigate",
-    "hint_nav": "Scroll to zoom · drag to pan · right-drag moves the chart · ctrl + right-drag stretches the candles · double-click resets",
+    "hint_nav": "Scroll to zoom · drag to pan · right-drag moves the chart · ctrl + right-drag (or ctrl + wheel) stretches the candles up and down · double-click resets",
     "hint_free": "Press and drag to draw · Esc to cancel",
     "hint_points": "Click {n} points · Esc to cancel",
     "tf_minutes": "Minutes",
@@ -1094,8 +1094,8 @@
     "no_levels": "No stop or target set by the strategy"
   },
   "slots": {
-    "title": "How many trades at once",
-    "help": "Two different limits. One is how many trades a single signal may open; the other is the most the robot may hold in total.",
+    "title": "How many trades the robot opens",
+    "help": "Two separate limits: how many trades one signal may open, and how many the robot may hold at once.",
     "min": "Open at least",
     "max": "Open at most",
     "open_now": "Open now: {n} of {max}",
@@ -1132,10 +1132,15 @@
     "min_hint": "One confirmed setup can open more than one trade. This is the fewest it opens — a strong score opens more, up to the ceiling.",
     "max_label": "Open at once, at most",
     "max_hint": "A ceiling on every robot trade held at the same time, across all symbols. Nothing new is opened while it is full.",
-    "example": "So: a weak signal opens {min}, a perfect one opens {max}, and nothing opens while the ceiling is full.",
     "state": "{n} open of {cap} · {free} free",
     "cap_prop": "Your prop profile is holding the ceiling at {cap}, whatever is set above.",
-    "cap_symbol": "Prop rules also allow only {n} trade per symbol."
+    "cap_symbol": "Prop rules also allow only {n} trade per symbol.",
+    "demo_title": "With these two numbers, in practice:",
+    "demo_weak": "A weak signal ({pct}%)",
+    "demo_fair": "A decent signal ({pct}%)",
+    "demo_best": "An excellent signal ({pct}%)",
+    "demo_n": "{n} trades",
+    "demo_note": "And never more than {cap} open at the same time, whatever the robot sees."
   },
   "themes": {
     "title": "Theme",
