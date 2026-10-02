@@ -74,9 +74,16 @@ def test_the_product_icon_is_the_real_logo_on_black() -> None:
 def test_the_generator_matches_the_committed_icon() -> None:
     """Whoever runs build-assets.py next must not undo this."""
     src = BUILDER.read_text(encoding="utf-8")
-    assert 'WEB / "icons" / "mark.png"' in src, "the icon has to come from the real logo"
-    assert "(0, 0, 0, 255)" in src, "and be composited onto black"
-    assert "monogram" in src, "and drop the wordmark at the sizes it cannot be read"
+    body = src[src.index("def build_icon("):src.index("def build_glyph(")]
+    assert 'WEB / "icons" / "mark.png"' in body, "the icon has to come from the real logo"
+    assert "(0, 0, 0, 255)" in body, "and be composited onto black"
+    assert "ICON_SIZES" in body, "and cover every size Windows asks for"
+    # Prose mentioning cropping is fine; cropping is not.
+    code = "\n".join(line for line in body.splitlines() if not line.strip().startswith(("#", '"')))
+    assert ".crop(" not in code, (
+        "the logo is used whole at every size - if that ever changes, "
+        "update this test and say why"
+    )
 
 
 def test_the_product_icon_covers_the_sizes_windows_asks_for() -> None:

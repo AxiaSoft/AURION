@@ -236,38 +236,29 @@ def build_dialog() -> Image.Image:
 # icons
 # ---------------------------------------------------------------------------
 def build_icon(out: Path) -> None:
-    """The product icon: the real logo, on black, sized the way Windows asks.
+    """The product icon: the AURION logo, unaltered, at every size Windows asks for.
 
-    Two things about it are deliberate.
+    Two things are deliberate.
 
-    The background is solid black rather than transparent. The wordmark is
-    silver, and on a transparent icon over a light Explorer background it
-    disappears - the logo has to carry its own backdrop.
+    The background is solid black rather than transparent. The logo's own
+    file has a transparent background - it only looks black in a viewer -
+    and the wordmark is silver, so a transparent icon over a light Explorer
+    window shows the mark and loses the word underneath it. Black is also
+    how the logo was supplied.
 
-    The small sizes are the monogram alone. At 32 and 16 pixels the word
-    AURION is four grey smudges; dropping it there and letting the mark fill
-    the tile is the difference between a recognisable taskbar icon and a
-    stain. Windows picks the frame that fits, so the full lockup is still
-    what anybody sees at any size where it can be read.
+    Nothing is cropped or substituted at the small sizes. The whole lockup
+    is used at 16 and 24 as well, where the word AURION is a smudge; that is
+    the brand as given, and the alternative - dropping the wordmark below
+    48px - is a decision for whoever owns the brand, not for this script.
     """
     source = WEB / "icons" / "mark.png"
     art = Image.open(source).convert("RGBA")
-    art = art.crop(art.getbbox())                     # drop the empty margin
-
-    # The lockup without its wordmark - the top 71% of the trimmed artwork.
-    monogram = art.crop((0, 0, art.width, int(art.height * 0.71)))
-    monogram = monogram.crop(monogram.getbbox())
 
     frames = []
     for size in sorted(ICON_SIZES, reverse=True):
-        piece = art if size >= 48 else monogram
-        margin = 0.92 if size >= 48 else 0.88
-        box = int(size * margin)
-        scaled = piece.copy()
-        scaled.thumbnail((box, box), Image.LANCZOS)
         tile = Image.new("RGBA", (size, size), (0, 0, 0, 255))
-        tile.alpha_composite(
-            scaled, ((size - scaled.width) // 2, (size - scaled.height) // 2))
+        scaled = art.resize((size, size), Image.LANCZOS)
+        tile.alpha_composite(scaled)
         frames.append(tile)
 
     frames[0].save(out, format="ICO", sizes=[(f.width, f.height) for f in frames],
