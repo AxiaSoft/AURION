@@ -1,0 +1,123 @@
+name: Build MSI
+
+# The installer is a Windows artefact: a self-contained WinForms publish
+# wrapped by WiX. It cannot be produced anywhere else, which has meant that
+# the only machine able to tell us whether the desk window even compiles was
+# the one person's laptop that also had to run the whole build by hand.
+#
+# This moves both jobs onto GitHub's runners. Every push proves the C#
+# compiles, and a finished MSI can be downloaded from the run without anyone
+# installing a toolchain.
+#
+#   Actions -> Build MSI -> Run workflow        (then download the artifact)
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Product version (blank uses installer/Version.props)"
+        required: false
+        default: ""
+  push:
+    branches:
+      - "**"
+    paths:
+      - "installer/**"
+      - "apps/web/**"
+      - "backend/**"
+      - "engine/**"
+      - "lang/**"
+      - "scripts/**"
+      - "config/**"
+      - ".github/workflows/build-msi.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  # Fast feedback first: the suites that need neither Windows nor a toolchain.
+  checks:
+    name: Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Desk tests
+        run: |
+          for t in smoke chart-math chart-engine chart-ui chart-state strategies themes; do
+            echo "== $t"
+            node "apps/web/js/$t.test.cjs"
+          done
+
+      - name: Repository tests
+        run: |
+          for t in test_installer_assets test_first_run_setup test_telegram_isolation \
+                   test_quality_weights test_trade_caps; do
+            echo "== $t"
+            python3 "engine/tests/$t.py"
+          done
+
+      - name: Branding assets are the formats they claim
+        run: python3 installer/assets/build-assets.py --verify
+
+  msi:
+    name: Installer
+    runs-on: windows-latest
+    needs: checks
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Build the installer
+        shell: pwsh
+        run: |
+          $args = @()
+          if ("${{ github.event.inputs.version }}" -ne "") {
+            $args += @("-Version", "${{ github.event.inputs.version }}")
+          }
+          & powershell -ExecutionPolicy Bypass -File installer\tools\build-msi.ps1 @args
+
+      - name: Where the MSI landed
+        if: always()
+        shell: pwsh
+        run: |
+          if (Test-Path installer\output) {
+            Get-ChildItem installer\output -Recurse |
+              Select-Object Name, @{n="MB";e={[math]::Round($_.Length/1MB,2)}} |
+              Format-Table -AutoSize | Out-String | Write-Host
+          } else {
+            Write-Host "installer\output does not exist - the build did not get that far."
+          }
+
+      - name: Upload the MSI
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: AURION-msi
+          path: installer/output/*.msi
+          if-no-files-found: error
+          retention-days: 30
+
+      # The binary log is the only thing that makes an MSBuild failure
+      # diagnosable after the fact, so it is kept whether or not the build
+      # worked - a failed run is exactly when it is wanted.
+      - name: Upload the build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: |
+            installer/output/build.binlog
+          if-no-files-found: ignore
+          retention-days: 14
