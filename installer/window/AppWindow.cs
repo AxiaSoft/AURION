@@ -48,9 +48,13 @@ internal sealed class AppWindow : Form
     private string _pendingTimeframe = "";
     private readonly HttpClient _http = new() { Timeout = TimeSpan.FromSeconds(2) };
 
-    public AppWindow()
+    /// <summary>When true the window only runs the first-run check, then closes.</summary>
+    private readonly bool _setupOnly;
+
+    public AppWindow(bool setupOnly = false)
     {
-        Text = "AURION";
+        _setupOnly = setupOnly;
+        Text = setupOnly ? "AURION setup" : "AURION";
         BackColor = Color.FromArgb(0x06, 0x07, 0x0B);
         StartPosition = FormStartPosition.CenterScreen;
         ClientSize = new Size(DefaultWidth, DefaultHeight);
@@ -91,7 +95,9 @@ internal sealed class AppWindow : Form
         // ever sees it; on a bare one it is the difference between an
         // explanation and three minutes of a bar that was never going to
         // finish.
-        if (!await EnsurePrerequisitesAsync()) return;
+        var ready = await EnsurePrerequisitesAsync();
+        if (_setupOnly) { Close(); return; }
+        if (!ready) return;
 
         if (await DeskIsAnsweringAsync())
         {
@@ -139,14 +145,15 @@ internal sealed class AppWindow : Form
     private async Task<bool> EnsurePrerequisitesAsync()
     {
         // A desk that is already answering has, by definition, everything it
-        // needs - skip the question entirely on a warm start.
-        if (await DeskIsAnsweringAsync()) return true;
+        // needs - skip the question entirely on a warm start. Unless the
+        // trader asked for the check on purpose, in which case show it.
+        if (!_setupOnly && await DeskIsAnsweringAsync()) return true;
 
         _splash.Status = "Checking this machine…";
         var items = Prerequisites.Build();
         await Prerequisites.InspectAsync(items, _installDir);
 
-        if (items.All(r => r.State == ReqState.Present)) return true;
+        if (items.All(r => r.State == ReqState.Present) && !_setupOnly) return true;
 
         var setup = new SetupPanel(items);
         var done = new TaskCompletionSource<bool>();

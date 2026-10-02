@@ -15,13 +15,22 @@ internal static class Program
     private const string AppUserModelId = "AxiaSoft.AURION.Desk";
 
     [STAThread]
-    private static void Main()
+    private static void Main(string[] args)
     {
+        // `AURION.exe --setup` runs the first-run check on its own and then
+        // exits. It is what support asks for when a trader says the desk
+        // will not start: it answers "what is this machine missing" in ten
+        // seconds without booting the engine, and it is the same screen the
+        // app shows itself on a bare machine.
+        var setupOnly = args.Any(a =>
+            string.Equals(a, "--setup", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(a, "/setup", StringComparison.OrdinalIgnoreCase));
+
         try { SetCurrentProcessExplicitAppUserModelID(AppUserModelId); }
         catch { /* older Windows: the window icon is still correct */ }
 
         using var single = new Mutex(initiallyOwned: true, MutexName, out bool isFirst);
-        if (!isFirst)
+        if (!isFirst && !setupOnly)
         {
             RaiseExistingWindow();
             return;
@@ -35,7 +44,7 @@ internal static class Program
         AppDomain.CurrentDomain.UnhandledException += (_, e) => ReportFault(e.ExceptionObject as Exception);
 
         ApplicationConfiguration.Initialize();
-        Application.Run(new AppWindow());
+        Application.Run(new AppWindow(setupOnly));
     }
 
     private static void ReportFault(Exception? ex)

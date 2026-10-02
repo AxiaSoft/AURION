@@ -60,7 +60,7 @@ def test_a_prepared_machine_never_sees_it() -> None:
     app = APP.read_text(encoding="utf-8")
     block = app[app.index("private async Task<bool> EnsurePrerequisitesAsync("):]
     block = block[:block.index("/// <summary>Runs the application's own launcher")]
-    assert "if (await DeskIsAnsweringAsync()) return true;" in block, \
+    assert "await DeskIsAnsweringAsync()) return true;" in block, \
         "a desk that is already answering must skip the check entirely"
     assert "items.All(r => r.State == ReqState.Present)" in block, \
         "and a machine with everything present must go straight on"
@@ -176,7 +176,7 @@ def test_a_bare_machine_can_reach_the_explanation() -> None:
     exactly the machine the setup screen exists for.
     """
     app = APP.read_text(encoding="utf-8")
-    ctor = app[app.index("public AppWindow()"):app.index("// ----------------------------------------------------------------- boot")]
+    ctor = app[app.index("public AppWindow(bool setupOnly"):app.index("// ----------------------------------------------------------------- boot")]
     assert "Controls.Add(_splash)" in ctor, "the splash is always safe to show"
     assert "Controls.Add(_view)" not in ctor,         "the WebView2 control must not be realised before the runtime is checked"
     assert "Controls.Add(_view)" in app, "it still has to be added later"
@@ -202,7 +202,28 @@ def test_a_failure_can_be_sent_to_support() -> None:
     assert "Write(log," in install, "and record what happened, not only what is on screen"
 
 
+def test_the_check_can_be_run_on_demand() -> None:
+    """`AURION.exe --setup` answers "what is this machine missing" on its own.
+
+    Support needs that: it is a ten second answer that does not require
+    booting the engine, and it is the same screen the app shows itself.
+    """
+    prog = (WINDOW / "Program.cs").read_text(encoding="utf-8")
+    assert '"--setup"' in prog, "there is no --setup switch"
+    assert "setupOnly" in prog, "and nothing carries it into the window"
+    assert "!isFirst && !setupOnly" in prog, \
+        "the single-instance guard must not swallow a deliberate setup run"
+
+    app = APP.read_text(encoding="utf-8")
+    assert "_setupOnly" in app, "the window has to know it is in setup mode"
+    assert "if (_setupOnly) { Close(); return; }" in app, \
+        "and close afterwards rather than starting the desk"
+    assert "if (!_setupOnly && await DeskIsAnsweringAsync())" in app, \
+        "a deliberate check must run even when the desk is already up"
+
+
 TESTS = [
+    test_the_check_can_be_run_on_demand,
     test_a_bare_machine_can_reach_the_explanation,
     test_a_long_download_looks_alive,
     test_a_failure_can_be_sent_to_support,
