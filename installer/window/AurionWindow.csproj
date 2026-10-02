@@ -24,6 +24,12 @@
     <AssemblyName>AURION</AssemblyName>
     <RootNamespace>Aurion.Window</RootNamespace>
     <ApplicationIcon>..\assets\generated\aurion.ico</ApplicationIcon>
+
+    <!-- A Windows desktop app can be COMPILED on Linux or macOS as long as
+         the targeting packs are allowed to come from NuGet. That is what
+         lets the whole installer be produced from a phone, a container or
+         a CI runner that is not Windows; the output is still win-x64. -->
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
     <ApplicationManifest>app.manifest</ApplicationManifest>
 
     <!-- Shown in the file properties dialog and in Task Manager. -->
@@ -86,7 +92,7 @@
     ContinueOnError, because a machine without PowerShell should fall back
     to the committed icon rather than lose the build over its artwork.
   -->
-  <Target Name="BuildProductIcon" BeforeTargets="BeforeBuild">
+  <Target Name="BuildProductIcon" BeforeTargets="BeforeBuild" Condition="'$(OS)' == 'Windows_NT'">
     <PropertyGroup>
       <AurionLogo>$(MSBuildThisFileDirectory)..\..\apps\web\icons\mark.png</AurionLogo>
       <AurionIcon>$(MSBuildThisFileDirectory)..\assets\generated\aurion.ico</AurionIcon>
