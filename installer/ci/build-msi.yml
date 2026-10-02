@@ -82,11 +82,14 @@ jobs:
       - name: Build the installer
         shell: pwsh
         run: |
-          $args = @()
+          # Not $args: that is one of PowerShell's automatic variables and
+          # writing to it inside a script block is asking for trouble.
+          $buildArgs = @()
           if ("${{ github.event.inputs.version }}" -ne "") {
-            $args += @("-Version", "${{ github.event.inputs.version }}")
+            $buildArgs += @("-Version", "${{ github.event.inputs.version }}")
           }
-          & powershell -ExecutionPolicy Bypass -File installer\tools\build-msi.ps1 @args
+          & powershell -ExecutionPolicy Bypass -File installer\tools\build-msi.ps1 @buildArgs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Where the MSI landed
         if: always()
