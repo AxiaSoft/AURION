@@ -68,4 +68,34 @@
     <EmbeddedResource Include="..\assets\generated\aurion.ico" LogicalName="AURION.ico" />
   </ItemGroup>
 
+  <!--
+    Build the icon from the logo, here, every time.
+
+    The icon is consumed in exactly two places and both of them are in this
+    file, so this is where it should be guaranteed — not in the shell script
+    that usually runs first, because the failure it prevents happens whether
+    or not that script was used:
+
+        CSC : error CS7065: Error building Win32 resources,
+              Icon stream is not in the expected format.
+
+    which is what the compiler says when aurion.ico is a renamed .png. One
+    second of PowerShell removes the whole class of problem and keeps the
+    icon honest: whatever apps/web/icons/mark.png is, that is the icon.
+
+    ContinueOnError, because a machine without PowerShell should fall back
+    to the committed icon rather than lose the build over its artwork.
+  -->
+  <Target Name="BuildProductIcon" BeforeTargets="BeforeBuild">
+    <PropertyGroup>
+      <AurionLogo>$(MSBuildThisFileDirectory)..\..\apps\web\icons\mark.png</AurionLogo>
+      <AurionIcon>$(MSBuildThisFileDirectory)..\assets\generated\aurion.ico</AurionIcon>
+      <AurionMakeIcon>$(MSBuildThisFileDirectory)..\tools\make-icon.ps1</AurionMakeIcon>
+    </PropertyGroup>
+    <Exec Condition="Exists('$(AurionLogo)') And Exists('$(AurionMakeIcon)')"
+          Command="powershell -NoProfile -ExecutionPolicy Bypass -File &quot;$(AurionMakeIcon)&quot; -Source &quot;$(AurionLogo)&quot; -Destination &quot;$(AurionIcon)&quot;"
+          ContinueOnError="true"
+          StandardOutputImportance="low" />
+  </Target>
+
 </Project>

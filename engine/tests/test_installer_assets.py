@@ -126,6 +126,40 @@ def test_replacing_the_logo_is_enough() -> None:
     assert 'LogicalName="AURION.ico"' in csproj, "and the window and taskbar icon are the same file"
 
 
+def test_the_project_builds_its_own_icon() -> None:
+    """The guarantee belongs where the icon is consumed.
+
+    build-msi.ps1 usually runs first, but `dotnet build` on its own is a
+    perfectly normal thing to do, and CS7065 does not care which path got
+    there. The project that references the icon rebuilds it from the logo
+    before compiling, so the failure cannot happen at all.
+    """
+    import xml.etree.ElementTree as ET
+
+    csproj = ROOT / "installer" / "window" / "AurionWindow.csproj"
+    tree = ET.parse(csproj)                       # also proves it is valid XML
+    targets = [e for e in tree.getroot() if e.tag.endswith("Target")]
+    names = [t.get("Name") for t in targets]
+    assert "BuildProductIcon" in names, "the project must build its own icon"
+
+    target = targets[names.index("BuildProductIcon")]
+    assert target.get("BeforeTargets") == "BeforeBuild", "and do it before the compiler runs"
+    execs = [e for e in target.iter() if e.tag.endswith("Exec")]
+    assert execs, "the target does nothing"
+    command = execs[0].get("Command") or ""
+    maker = [e.text or "" for e in target.iter() if e.tag.endswith("AurionMakeIcon")]
+    assert maker and maker[0].endswith("make-icon.ps1"), "it must call the converter"
+    assert "$(AurionMakeIcon)" in command and "powershell" in command
+    logo = [e.text or "" for e in target.iter() if e.tag.endswith("AurionLogo")]
+    assert logo and logo[0].endswith("mark.png"), \
+        "it has to build from the logo, not from something else"
+    assert "$(AurionLogo)" in command, "and actually pass it to the converter"
+    assert execs[0].get("ContinueOnError") == "true", (
+        "a machine without PowerShell should fall back to the committed icon, "
+        "not lose the build over its artwork"
+    )
+
+
 def test_the_build_script_checks_this_before_compiling() -> None:
     ps1 = SCRIPT.read_text(encoding="utf-8")
     assert "asset formats verified" in ps1, "the build script must validate, not just Test-Path"
@@ -181,6 +215,7 @@ def test_the_generator_can_verify_without_pillow() -> None:
 
 
 TESTS = [
+    test_the_project_builds_its_own_icon,
     test_replacing_the_logo_is_enough,
     test_the_product_icon_is_the_real_logo_on_black,
     test_the_generator_matches_the_committed_icon,
