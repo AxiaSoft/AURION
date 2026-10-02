@@ -291,6 +291,18 @@ internal static class Prerequisites
         var work = Path.Combine(Path.GetTempPath(), "AURION-setup");
         Directory.CreateDirectory(work);
 
+        // Everything said on screen is also written down. A first run that
+        // fails on somebody else's machine is unsupportable otherwise: the
+        // one line still on screen is never the line that mattered.
+        var log = Path.Combine(installDir, "data", "logs", "setup.log");
+        var recorder = new Progress<string>(text =>
+        {
+            say.Report(text);
+            Write(log, text);
+        });
+        Write(log, $"--- setup started, {missing.Count()} item(s) missing ---");
+        say = recorder;
+
         foreach (var req in missing)
         {
             ct.ThrowIfCancellationRequested();
@@ -317,9 +329,11 @@ internal static class Prerequisites
             {
                 req.State = ReqState.Failed;
                 req.Problem = ex.Message;
+                Write(log, $"{req.Id}: FAILED - {ex}");
             }
         }
 
+        Write(log, "--- setup finished ---");
         try { Directory.Delete(work, recursive: true); } catch { /* temp files */ }
     }
 
@@ -412,9 +426,28 @@ internal static class Prerequisites
         using (var response = await Http.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, ct))
         {
             response.EnsureSuccessStatusCode();
+            var total = response.Content.Headers.ContentLength ?? 0L;
             await using var from = await response.Content.ReadAsStreamAsync(ct);
             await using var to = File.Create(target);
-            await from.CopyToAsync(to, ct);
+
+            // Copied by hand rather than with CopyToAsync so the trader can
+            // see it moving. A 90 MB download behind a single unchanging
+            // line of text is indistinguishable from a hang, and the first
+            // thing anybody does with a hang is kill it.
+            var buffer = new byte[128 * 1024];
+            long done = 0;
+            var lastReport = DateTime.MinValue;
+            int read;
+            while ((read = await from.ReadAsync(buffer, ct)) > 0)
+            {
+                await to.WriteAsync(buffer.AsMemory(0, read), ct);
+                done += read;
+                if (DateTime.UtcNow - lastReport < TimeSpan.FromMilliseconds(250)) continue;
+                lastReport = DateTime.UtcNow;
+                say.Report(total > 0
+                    ? $"Downloading {label}…  {Megabytes(done)} of {Megabytes(total)}"
+                    : $"Downloading {label}…  {Megabytes(done)}");
+            }
         }
 
         if (new FileInfo(target).Length < 100_000)
@@ -551,6 +584,22 @@ internal static class Prerequisites
             // Not fatal: the next launch will see it even if this one does not.
         }
     }
+
+    /// <summary>Append one line to the setup log, and never fail doing it.</summary>
+    private static void Write(string path, string text)
+    {
+        try
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            File.AppendAllText(path, $"{DateTime.Now:u}  {text}{Environment.NewLine}");
+        }
+        catch
+        {
+            // Logging must never be the reason setup stops.
+        }
+    }
+
+    private static string Megabytes(long bytes) => (bytes / 1024d / 1024d).ToString("0.0") + " MB";
 
     private static (string exe, string args) Split(string command)
     {

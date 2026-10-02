@@ -59,7 +59,11 @@ internal sealed class AppWindow : Form
         Icon = LoadIcon();
 
         _splash = new SplashPanel(SplashMark()) { Status = "Starting AURION…" };
-        Controls.Add(_view);
+        // The browser control is deliberately NOT added yet. On a machine
+        // with no WebView2 runtime, giving it a window handle can throw -
+        // and that would take the whole window down before the screen that
+        // exists to explain the problem has had a chance to appear. It is
+        // added in ShowDeskAsync, once the runtime is known to be there.
         Controls.Add(_splash);
 
         LoadPlacement();
@@ -346,6 +350,11 @@ internal sealed class AppWindow : Form
         try
         {
             var env = await CoreWebView2Environment.CreateAsync(null, profile);
+            if (!Controls.Contains(_view))
+            {
+                Controls.Add(_view);
+                _view.SendToBack();
+            }
             await _view.EnsureCoreWebView2Async(env);
         }
         catch (WebView2RuntimeNotFoundException)

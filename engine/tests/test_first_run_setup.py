@@ -168,7 +168,44 @@ def test_the_launcher_points_at_the_window() -> None:
         "the console path should send people to the thing that can fix it for them"
 
 
+def test_a_bare_machine_can_reach_the_explanation() -> None:
+    """The screen that explains a missing WebView2 must not need WebView2.
+
+    The browser control is only given a window handle once the runtime is
+    known to be installed; adding it in the constructor risked throwing on
+    exactly the machine the setup screen exists for.
+    """
+    app = APP.read_text(encoding="utf-8")
+    ctor = app[app.index("public AppWindow()"):app.index("// ----------------------------------------------------------------- boot")]
+    assert "Controls.Add(_splash)" in ctor, "the splash is always safe to show"
+    assert "Controls.Add(_view)" not in ctor,         "the WebView2 control must not be realised before the runtime is checked"
+    assert "Controls.Add(_view)" in app, "it still has to be added later"
+    show = app[app.index("private async Task ShowDeskAsync("):]
+    assert "Controls.Add(_view)" in show[:2000], "and that later is when the desk is shown"
+
+
+def test_a_long_download_looks_alive() -> None:
+    src = _prereq()
+    download = src[src.index("private static async Task<string> DownloadAsync("):]
+    download = download[:download.index("private static bool SignedBy(")]
+    assert "ReadAsync" in download and "WriteAsync" in download, \
+        "the copy is done by hand so progress can be reported"
+    assert "Megabytes(" in download, "and reported in a unit a person reads"
+    assert "FromMilliseconds(250)" in download, "throttled, so the UI is not flooded"
+
+
+def test_a_failure_can_be_sent_to_support() -> None:
+    src = _prereq()
+    assert '"setup.log"' in src or "setup.log" in src, "setup has to leave a log"
+    assert "data" in src and "logs" in src, "next to the desk's other logs"
+    install = src[src.index("public static async Task InstallAsync("):]
+    assert "Write(log," in install, "and record what happened, not only what is on screen"
+
+
 TESTS = [
+    test_a_bare_machine_can_reach_the_explanation,
+    test_a_long_download_looks_alive,
+    test_a_failure_can_be_sent_to_support,
     test_the_pieces_are_there,
     test_the_check_runs_before_the_desk_is_started,
     test_a_prepared_machine_never_sees_it,
