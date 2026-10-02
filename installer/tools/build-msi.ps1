@@ -64,7 +64,7 @@ function Step([string] $text) {
 
 # Bumped whenever this script changes, so a stale copy is obvious at a glance
 # instead of failing with a confusing parameter error.
-$ScriptRevision = "21"
+$ScriptRevision = "22"
 
 Write-Host ""
 Write-Host "  AURION installer build" -ForegroundColor White
@@ -333,6 +333,31 @@ if ($badAssets.Count -gt 0) {
           "      python installer\assets\build-assets.py`n" +
           "      powershell -File installer\tools\make-icon.ps1 -Source logo.png -Destination installer\assets\generated\aurion.ico"
 }
+# The logo is one file, and the icon follows it.
+#
+# apps/web/icons/mark.png is what the desk shows as its favicon, its
+# apple-touch icon and its PWA icon. Making the Windows icon regenerate from
+# the same file whenever it changes means replacing the brand is replacing
+# one picture - not one picture plus an icon conversion that somebody has to
+# remember, and that silently rots when they do not.
+$markPath = Join-Path $repoRoot "apps\web\icons\mark.png"
+$icoTarget = Join-Path $assetsDir "aurion.ico"
+if ((Test-Path $markPath) -and (Test-Path $icoTarget)) {
+    $markTime = (Get-Item $markPath).LastWriteTimeUtc
+    $icoTime  = (Get-Item $icoTarget).LastWriteTimeUtc
+    if ($markTime -gt $icoTime) {
+        Write-Host "  the logo is newer than the icon - rebuilding it" -ForegroundColor Yellow
+        try {
+            & powershell -NoProfile -ExecutionPolicy Bypass `
+                -File (Join-Path $PSScriptRoot "make-icon.ps1") `
+                -Source $markPath -Destination $icoTarget
+        } catch {
+            Write-Host ("  could not rebuild the icon: {0}" -f $_.Exception.Message) -ForegroundColor DarkYellow
+            Write-Host "  the committed one will be used instead" -ForegroundColor DarkYellow
+        }
+    }
+}
+
 Write-Host "  asset formats verified" -ForegroundColor Gray
 
 # Say what the product icon actually is. One line, and the CS7065 class of

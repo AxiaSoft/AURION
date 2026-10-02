@@ -101,6 +101,31 @@ def test_every_bitmap_is_a_real_bitmap() -> None:
         assert blob[:2] == b"BM", f"{name} is not a BMP - Windows Installer will not draw it"
 
 
+def test_replacing_the_logo_is_enough() -> None:
+    """One picture is the brand. The icon must follow it without being asked.
+
+    apps/web/icons/mark.png is already the favicon, the apple-touch icon and
+    the PWA icon. If the Windows icon needs a separate manual conversion,
+    the two drift apart the first time somebody forgets - so the build
+    rebuilds it whenever the logo is the newer file.
+    """
+    ps1 = SCRIPT.read_text(encoding="utf-8")
+    assert "apps\\web\\icons\\mark.png" in ps1, "the build has to know where the logo lives"
+    assert "the logo is newer than the icon" in ps1, "and rebuild when it changes"
+
+    index = (ROOT / "apps" / "web" / "index.html").read_text(encoding="utf-8")
+    assert 'rel="icon" href="/icons/mark.png' in index, "the favicon is the same file"
+    assert 'rel="apple-touch-icon" href="/icons/mark.png' in index
+
+    import json
+    manifest = json.loads((ROOT / "apps" / "web" / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest["icons"][0]["src"] == "/icons/mark.png", "and so is the installed-app icon"
+
+    csproj = (ROOT / "installer" / "window" / "AurionWindow.csproj").read_text(encoding="utf-8")
+    assert "<ApplicationIcon>" in csproj, "Explorer's icon for the exe"
+    assert 'LogicalName="AURION.ico"' in csproj, "and the window and taskbar icon are the same file"
+
+
 def test_the_build_script_checks_this_before_compiling() -> None:
     ps1 = SCRIPT.read_text(encoding="utf-8")
     assert "asset formats verified" in ps1, "the build script must validate, not just Test-Path"
@@ -156,6 +181,7 @@ def test_the_generator_can_verify_without_pillow() -> None:
 
 
 TESTS = [
+    test_replacing_the_logo_is_enough,
     test_the_product_icon_is_the_real_logo_on_black,
     test_the_generator_matches_the_committed_icon,
     test_there_is_a_one_command_doctor,
