@@ -35,9 +35,14 @@ goto :LAUNCH
 :NEEDINSTALL
 echo Prerequisites missing or incomplete.
 echo.
-echo Install Python 3.10 / 3.11 / 3.12 (never 3.13 / 3.14) and Node.js 18+.
-echo Then run:  pip install -r engine\requirements.txt
-echo And:       cd backend ^&^& npm install
+echo The easiest fix is to open AURION from its shortcut: the desk window
+echo checks this machine on every launch and offers to download and install
+echo whatever is missing, from the vendors themselves.
+echo.
+echo To do it by hand instead:
+echo   Python 3.10 / 3.11 / 3.12  (never 3.13 or newer)  and Node.js 18+
+echo   pip install -r engine\requirements.txt
+echo   cd backend ^&^& npm install
 echo.
 pause
 exit /b 1

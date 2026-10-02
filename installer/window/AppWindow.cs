@@ -82,6 +82,13 @@ internal sealed class AppWindow : Form
 
     private async Task BootAsync()
     {
+        // Nothing is worth starting until the machine can run it. On a
+        // prepared desk this costs a few hundred milliseconds and nobody
+        // ever sees it; on a bare one it is the difference between an
+        // explanation and three minutes of a bar that was never going to
+        // finish.
+        if (!await EnsurePrerequisitesAsync()) return;
+
         if (await DeskIsAnsweringAsync())
         {
             _splash.Status = "Connecting to the desk…";
@@ -119,6 +126,79 @@ internal sealed class AppWindow : Form
         _splash.Status = "Loading the desk…";
         _splash.Progress = 0.92f;
         await ShowDeskAsync();
+    }
+
+    /// <summary>
+    /// Check what the machine has, and offer to fetch what it does not.
+    /// </summary>
+    /// <returns>false when the window is closing and boot should stop.</returns>
+    private async Task<bool> EnsurePrerequisitesAsync()
+    {
+        // A desk that is already answering has, by definition, everything it
+        // needs - skip the question entirely on a warm start.
+        if (await DeskIsAnsweringAsync()) return true;
+
+        _splash.Status = "Checking this machine…";
+        var items = Prerequisites.Build();
+        await Prerequisites.InspectAsync(items, _installDir);
+
+        if (items.All(r => r.State == ReqState.Present)) return true;
+
+        var setup = new SetupPanel(items);
+        var done = new TaskCompletionSource<bool>();
+
+        setup.SkipRequested += (_, _) => done.TrySetResult(true);
+        setup.InstallRequested += async (_, _) =>
+        {
+            setup.Working(true);
+            var say = new Progress<string>(setup.Say);
+            try
+            {
+                var missing = items.Where(r => r.State is ReqState.Missing or ReqState.Failed).ToList();
+                await Prerequisites.InstallAsync(missing, _installDir, say, CancellationToken.None);
+
+                // Ask the machine again rather than trusting the installers:
+                // what matters is whether the thing is now detectable, not
+                // whether a setup program said it succeeded.
+                setup.Say("Checking again…");
+                await Prerequisites.InspectAsync(items, _installDir);
+                setup.Render();
+
+                if (items.All(r => r.State is ReqState.Present or ReqState.Installed))
+                {
+                    setup.Say("Ready. Starting the desk…");
+                    await Task.Delay(700);
+                    done.TrySetResult(true);
+                    return;
+                }
+                setup.Say("Some of it did not install. The details are on the rows above.");
+            }
+            catch (Exception ex)
+            {
+                setup.Say("Setup stopped: " + ex.Message);
+            }
+            finally
+            {
+                setup.Working(false);
+                setup.Render();
+            }
+        };
+
+        _splash.Visible = false;
+        Controls.Add(setup);
+        setup.BringToFront();
+
+        FormClosing += (_, _) => done.TrySetResult(false);
+        var proceed = await done.Task;
+
+        Controls.Remove(setup);
+        setup.Dispose();
+        if (!proceed) return false;
+
+        _splash.Visible = true;
+        _splash.BringToFront();
+        _splash.Status = "Starting AURION…";
+        return true;
     }
 
     /// <summary>Runs the application's own launcher, hidden, and lets it do its job.</summary>
