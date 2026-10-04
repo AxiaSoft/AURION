@@ -28,7 +28,7 @@
 #>
 [CmdletBinding()]
 param(
-    [string] $Root  = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path,
+    [string] $Root  = (Resolve-Path (Join-Path $PSScriptRoot "../..")).Path,
     [string] $Stage = (Join-Path (Resolve-Path (Join-Path $PSScriptRoot "..")).Path "stage"),
     [switch] $SkipNpm
 )
@@ -48,10 +48,14 @@ function Copy-Tree {
     if (-not (Test-Path $From)) { throw "Source missing: $From" }
     New-Item -ItemType Directory -Force -Path $To | Out-Null
 
-    $fromFull = (Resolve-Path $From).Path.TrimEnd('\')
+    # Both separators, deliberately. PowerShell runs on Linux too - the CI
+    # runner and the phone build both stage from there - and on Linux a
+    # backslash is an ordinary character in a filename, not a separator.
+    $seps = [char[]]@('\', '/')
+    $fromFull = (Resolve-Path $From).Path.TrimEnd($seps)
     Get-ChildItem -Path $From -Recurse -File | ForEach-Object {
-        $rel = $_.FullName.Substring($fromFull.Length).TrimStart('\')
-        $parts = $rel.Split('\')
+        $rel = $_.FullName.Substring($fromFull.Length).TrimStart($seps)
+        $parts = $rel.Split($seps, [StringSplitOptions]::RemoveEmptyEntries)
 
         foreach ($bad in $ExcludeDirs) {
             if ($parts -contains $bad) { return }
@@ -100,10 +104,10 @@ Copy-Tree -From (Join-Path $Root "engine") -To (Join-Path $appDir "engine") `
 # 2. Node.js desk API  (+ production dependencies)
 # ---------------------------------------------------------------------------
 Say "backend\src"
-Copy-Tree -From (Join-Path $Root "backend\src") -To (Join-Path $appDir "backend\src") `
+Copy-Tree -From (Join-Path $Root "backend/src") -To (Join-Path $appDir "backend/src") `
           -ExcludeDirs $noPy -ExcludeFiles @("*.pyc")
-Copy-Item (Join-Path $Root "backend\package.json")      (Join-Path $appDir "backend") -Force
-Copy-Item (Join-Path $Root "backend\package-lock.json") (Join-Path $appDir "backend") -Force
+Copy-Item (Join-Path $Root "backend/package.json")      (Join-Path $appDir "backend") -Force
+Copy-Item (Join-Path $Root "backend/package-lock.json") (Join-Path $appDir "backend") -Force
 
 if ($SkipNpm) {
     Say "npm install skipped (-SkipNpm)" "Yellow"
@@ -127,10 +131,10 @@ if ($SkipNpm) {
 
     # npm leaves caches and native build leftovers behind; they bloat the CAB
     # and are never needed at runtime.
-    Get-ChildItem (Join-Path $appDir "backend\node_modules") -Recurse -Force -Directory `
+    Get-ChildItem (Join-Path $appDir "backend/node_modules") -Recurse -Force -Directory `
         -Include ".cache", ".bin.cache", "test", "tests", "__tests__", ".github" -ErrorAction SilentlyContinue |
         Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
-    Get-ChildItem (Join-Path $appDir "backend\node_modules") -Recurse -Force -File `
+    Get-ChildItem (Join-Path $appDir "backend/node_modules") -Recurse -Force -File `
         -Include "*.md", "*.markdown", "*.ts.map", "*.map" -ErrorAction SilentlyContinue |
         Remove-Item -Force -ErrorAction SilentlyContinue
 }
@@ -139,11 +143,11 @@ if ($SkipNpm) {
 # 3. Web desk, translations, helper scripts
 # ---------------------------------------------------------------------------
 Say "apps\web\"
-Copy-Tree -From (Join-Path $Root "apps\web") -To (Join-Path $appDir "apps\web")
+Copy-Tree -From (Join-Path $Root "apps/web") -To (Join-Path $appDir "apps/web")
 # __*.html are local scratch pages used to eyeball skins during development.
 # They are git-ignored, but a developer's working copy is what gets staged, so
 # the payload drops them explicitly rather than trusting that.
-Get-ChildItem (Join-Path $appDir "apps\web") -Filter "__*.html" -File -ErrorAction SilentlyContinue |
+Get-ChildItem (Join-Path $appDir "apps/web") -Filter "__*.html" -File -ErrorAction SilentlyContinue |
     Remove-Item -Force -ErrorAction SilentlyContinue
 
 Say "lang\"
@@ -164,7 +168,7 @@ $cfgOut = Join-Path $appDir "config"
 New-Item -ItemType Directory -Force -Path $cfgOut | Out-Null
 foreach ($f in @("aurion.factory.json", "news_calendar.template.csv",
                  "owner.gmail.example", "telegram.token.example")) {
-    $src = Join-Path $Root "config\$f"
+    $src = Join-Path $Root "config/$f"
     if (Test-Path $src) { Copy-Item $src $cfgOut -Force }
 }
 
@@ -192,7 +196,7 @@ foreach ($f in @("AURION-GUIDE.html", "AURION-BACKTEST-GUIDE.html")) {
 # 7. Installer-owned launcher helpers
 # ---------------------------------------------------------------------------
 Say "launcher helpers"
-Copy-Item (Join-Path $PSScriptRoot "..\launcher\*.vbs") $launcherDir -Force
+Copy-Item (Join-Path $PSScriptRoot "../launcher/*.vbs") $launcherDir -Force
 
 # ---------------------------------------------------------------------------
 # 8. Safety net: refuse to ship a payload that contains secrets or the

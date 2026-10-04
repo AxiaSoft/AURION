@@ -224,8 +224,39 @@ dotnet publish installer/window/AurionWindow.csproj \
     -p:EnableWindowsTargeting=true \
     --nologo -v minimal
 
-say "Installing the desk API's packages"
-( cd backend && npm ci --omit=dev --no-audit --no-fund )
+# The WiX project installs a staged tree, not the repository, and refuses
+# to build without one:
+#
+#     error : Payload missing at installer/stage.
+#             Run installer\tools\stage.ps1 first
+#
+# That staging step is the project's own script and it decides what a
+# trader's machine may and may not receive - secrets, live config, the key
+# server, the admin panel. Reimplementing that list in bash would mean two
+# definitions of "what ships", and the day they disagree is the day
+# something private ends up in an installer. So PowerShell is installed and
+# the real script is run.
+PWSH_VERSION="7.4.6"
+PWSH_DIR="$HOME/powershell-$PWSH_VERSION"
+if [ ! -x "$PWSH_DIR/pwsh" ]; then
+    say "Installing PowerShell $PWSH_VERSION (needed by the staging step)"
+    mkdir -p "$PWSH_DIR"
+    curl -fL "https://github.com/PowerShell/PowerShell/releases/download/v$PWSH_VERSION/powershell-$PWSH_VERSION-linux-arm64.tar.gz" \
+        -o /tmp/pwsh.tar.gz || die "Could not download PowerShell from GitHub."
+    tar -xzf /tmp/pwsh.tar.gz -C "$PWSH_DIR"
+    chmod +x "$PWSH_DIR/pwsh"
+    rm -f /tmp/pwsh.tar.gz
+fi
+export PATH="$PWSH_DIR:$PATH"
+note "pwsh $("$PWSH_DIR/pwsh" --version 2>/dev/null || echo '?')"
+
+say "Staging the payload"
+note "this decides what ends up on a trader's machine - the project's own rules"
+note "it runs npm ci inside the staged tree, so the installer carries the"
+note "dependencies rather than expecting the trader to have them"
+"$PWSH_DIR/pwsh" -NoProfile -ExecutionPolicy Bypass \
+    -File installer/tools/stage.ps1 -Root "$PWD" \
+    || die "Staging failed - its output is above."
 
 say "Building the MSI"
 dotnet build installer/AURION.wixproj \
