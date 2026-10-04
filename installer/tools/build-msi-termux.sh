@@ -105,9 +105,19 @@ fi
 # Phase 2 - inside Ubuntu, where glibc lives.
 # ---------------------------------------------------------------------------
 say "Preparing the toolchain"
+note "several hundred MB of packages - the output below is apt, not a hang"
 export DEBIAN_FRONTEND=noninteractive
-apt-get update -qq
-apt-get install -y -qq curl git ca-certificates libicu-dev nodejs npm >/dev/null
+
+# Nothing here is quietened. On a phone these steps take tens of minutes,
+# and a silent command that long is indistinguishable from a frozen one -
+# which is how a half-finished container gets killed and started again.
+# A timeout, too: without one a mirror that will not answer waits forever.
+APT_OPTS="-o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 -o Acquire::Retries=2"
+# shellcheck disable=SC2086
+apt-get $APT_OPTS update || die "apt could not reach its mirrors. Check the phone's connection."
+# shellcheck disable=SC2086
+apt-get $APT_OPTS install -y curl git ca-certificates libicu-dev nodejs npm \
+    || die "apt could not install the toolchain - its output is above."
 note "node $(node --version), npm $(npm --version)"
 
 export DOTNET_ROOT="$HOME/.dotnet"
@@ -116,7 +126,7 @@ export DOTNET_CLI_TELEMETRY_OPTOUT=1
 export DOTNET_NOLOGO=1
 
 if ! command -v dotnet >/dev/null 2>&1; then
-    say "Installing the .NET 8 SDK (large, once)"
+    say "Installing the .NET 8 SDK (about 200 MB, once)"
     curl -fsSL https://dot.net/v1/dotnet-install.sh -o /tmp/dotnet-install.sh \
         || die "Could not reach Microsoft's download host. Your network may be blocking it."
     bash /tmp/dotnet-install.sh --channel 8.0 --install-dir "$DOTNET_ROOT" --no-path
@@ -124,6 +134,7 @@ fi
 note "dotnet $(dotnet --version)"
 
 say "Fetching the source"
+note "this part is quick"
 if [ -d "$HOME/AURION/.git" ]; then
     git -C "$HOME/AURION" fetch --quiet origin "$BRANCH"
     git -C "$HOME/AURION" checkout --quiet -B "$BRANCH" "origin/$BRANCH"
@@ -143,7 +154,7 @@ dotnet publish installer/window/AurionWindow.csproj \
     --nologo -v minimal
 
 say "Installing the desk API's packages"
-( cd backend && npm ci --omit=dev --no-audit --no-fund >/dev/null )
+( cd backend && npm ci --omit=dev --no-audit --no-fund )
 
 say "Building the MSI"
 dotnet build installer/AURION.wixproj \
