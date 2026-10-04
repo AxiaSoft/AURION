@@ -95,10 +95,11 @@ if [ -d /data/data/com.termux ] && [ ! -f /etc/os-release ]; then
     # a proot rootfs is an implementation detail that has moved between
     # proot-distro versions; this needs to know nothing about it.
     self="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
-    if ! proot-distro login "$DISTRO" --bind /sdcard:/sdcard -- bash -s < "$self"; then
-        die "Ubuntu is installed but would not run the build. Try: proot-distro reset $DISTRO"
-    fi
-    exit 0
+    # The build inside explains its own failures; adding a second guess on
+    # top of them ("try resetting Ubuntu") sent the last three failures in
+    # the wrong direction. Just carry the exit code out.
+    proot-distro login "$DISTRO" --bind /sdcard:/sdcard -- bash -s < "$self"
+    exit $?
 fi
 
 # ---------------------------------------------------------------------------
@@ -164,6 +165,43 @@ if ! command -v dotnet >/dev/null 2>&1; then
     fi
 fi
 command -v dotnet >/dev/null 2>&1 || die "dotnet is still not on PATH after installing it."
+
+# .NET will not start under proot without being told to want less memory.
+#
+#     GC heap initialization failed with error 0x8007000E
+#     Failed to create CoreCLR, HRESULT: 0x8007000E
+#
+# 0x8007000E is E_OUTOFMEMORY. On a 64-bit host the GC reserves a very
+# large virtual region at start-up, sized from what the machine claims to
+# have; proot on Android refuses that reservation and the runtime dies
+# before it has run a line of code. Capping the heap and using the
+# workstation collector keeps the request inside what proot will grant.
+#
+# The limit is a hex byte count with no 0x prefix - that is the format the
+# runtime reads. Tried largest first, because a bigger heap builds faster.
+export DOTNET_gcServer=0
+export DOTNET_GCHeapHardLimitPercent=50
+
+dotnet_starts() { dotnet --version >/dev/null 2>&1; }
+
+if ! dotnet_starts; then
+    say "Teaching .NET to fit inside proot"
+    for limit in 60000000 40000000 20000000 10000000; do   # 1.5G 1G 512M 256M
+        export DOTNET_GCHeapHardLimit="$limit"
+        if dotnet_starts; then
+            note "heap capped at 0x$limit bytes"
+            break
+        fi
+        unset DOTNET_GCHeapHardLimit
+    done
+fi
+
+dotnet_starts || die "The .NET runtime will not start under proot on this phone.
+   It failed with 0x8007000E (out of memory) at every heap size tried.
+   This is a limit of proot on Android, not of the project. The GitHub
+   Actions route in installer/ci/README.md builds the same MSI on a real
+   Windows machine in about five minutes."
+
 note "dotnet $(dotnet --version)"
 
 say "Fetching the source"
