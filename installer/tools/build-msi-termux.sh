@@ -43,6 +43,17 @@ if [ -d /data/data/com.termux ] && [ ! -f /etc/os-release ]; then
         *) die "This needs an arm64 phone. Yours reports $(uname -m), and .NET has no build for it." ;;
     esac
 
+    # Storage permission, before anything else. Without it the build works
+    # and the installer lands somewhere inside proot's filesystem that no
+    # file manager can see - which looks exactly like a build that failed.
+    if [ ! -d /sdcard ] || [ ! -w /sdcard ]; then
+        say "Asking for storage access"
+        note "Android will show a permission dialog - tap Allow."
+        termux-setup-storage || true
+        sleep 3
+        [ -d /sdcard ] || die "Storage is still not reachable. Grant Termux the Files permission in Android settings and run this again."
+    fi
+
     free_mb=$(df -Pm "$HOME" | awk 'NR==2 {print $4}')
     note "free space: ${free_mb} MB"
     [ "${free_mb:-0}" -lt 7000 ] && die "About 7 GB of free space is needed; there is ${free_mb} MB."
@@ -117,11 +128,21 @@ msi="$(find installer -name '*.msi' -newermt '-1 hour' | head -1)"
 say "Done"
 note "built: $msi  ($(du -h "$msi" | cut -f1))"
 
+copied=""
 for out in /sdcard/Download /sdcard/Downloads /storage/emulated/0/Download; do
-    if [ -d "$out" ]; then
-        cp "$msi" "$out/" && note "copied to $out/$(basename "$msi")"
+    if [ -d "$out" ] && cp "$msi" "$out/" 2>/dev/null; then
+        copied="$out/$(basename "$msi")"
+        note "copied to $copied"
         break
     fi
 done
+
+if [ -z "$copied" ]; then
+    # Say exactly how to get it out rather than leaving it buried.
+    printf '\n\033[33m!!\033[0m Could not reach your Downloads folder.\n'
+    note "The installer is at:  $HOME/AURION/$msi"
+    note "From a Termux shell (not this one), copy it out with:"
+    note "  cp \$PREFIX/var/lib/proot-distro/installed-rootfs/ubuntu/root/AURION/$msi /sdcard/Download/"
+fi
 
 printf '\n\033[32m==\033[0m The installer is ready. Move it to a Windows machine to run it.\n\n'
