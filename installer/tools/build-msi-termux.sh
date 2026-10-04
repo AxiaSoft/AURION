@@ -70,14 +70,24 @@ if [ -d /data/data/com.termux ] && [ ! -f /etc/os-release ]; then
     say "Installing proot-distro and Ubuntu (first run only)"
     pkg update -y >/dev/null
     pkg install -y proot-distro >/dev/null
-    proot-distro list --installed 2>/dev/null | grep -q "$DISTRO" || proot-distro install "$DISTRO"
+
+    # "Is it installed?" asked the only way that cannot be wrong: try to use
+    # it. Parsing `proot-distro list` means depending on the wording of a
+    # human-readable table, which differs between versions - and getting it
+    # wrong means trying to install over an existing container and stopping
+    # on an error that is not one.
+    if proot-distro login "$DISTRO" -- true >/dev/null 2>&1; then
+        note "Ubuntu is already installed"
+    else
+        proot-distro install "$DISTRO"
+    fi
 
     say "Handing over to Ubuntu"
-    # Copy this script inside and run it there. $0 may be a relative path.
+    # Fed in through stdin rather than copied into the container. The path of
+    # a proot rootfs is an implementation detail that has moved between
+    # proot-distro versions; this needs to know nothing about it.
     self="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
-    root="$PREFIX/var/lib/proot-distro/installed-rootfs/$DISTRO"
-    cp "$self" "$root/root/build-msi.sh"
-    exec proot-distro login "$DISTRO" --bind /sdcard:/sdcard -- bash /root/build-msi.sh
+    exec proot-distro login "$DISTRO" --bind /sdcard:/sdcard -- bash -s < "$self"
 fi
 
 # ---------------------------------------------------------------------------
