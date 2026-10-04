@@ -54,9 +54,18 @@ if [ -d /data/data/com.termux ] && [ ! -f /etc/os-release ]; then
         [ -d /sdcard ] || die "Storage is still not reachable. Grant Termux the Files permission in Android settings and run this again."
     fi
 
-    free_mb=$(df -Pm "$HOME" | awk 'NR==2 {print $4}')
-    note "free space: ${free_mb} MB"
-    [ "${free_mb:-0}" -lt 7000 ] && die "About 7 GB of free space is needed; there is ${free_mb} MB."
+    # Termux's df is toybox, which has no -m. -Pk is POSIX and understood
+    # everywhere; the arithmetic is done here instead.
+    free_kb=$(df -Pk "$HOME" 2>/dev/null | awk 'NR==2 {print $4}' || true)
+    if [ -n "${free_kb:-}" ] && [ "$free_kb" -gt 0 ] 2>/dev/null; then
+        free_mb=$((free_kb / 1024))
+        note "free space: ${free_mb} MB"
+        if [ "$free_mb" -lt 7000 ]; then
+            die "About 7 GB of free space is needed; there is ${free_mb} MB."
+        fi
+    else
+        note "free space: could not be measured - carrying on"
+    fi
 
     say "Installing proot-distro and Ubuntu (first run only)"
     pkg update -y >/dev/null
