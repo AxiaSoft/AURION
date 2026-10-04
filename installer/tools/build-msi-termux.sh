@@ -71,15 +71,23 @@ if [ -d /data/data/com.termux ] && [ ! -f /etc/os-release ]; then
     pkg update -y >/dev/null
     pkg install -y proot-distro >/dev/null
 
-    # "Is it installed?" asked the only way that cannot be wrong: try to use
-    # it. Parsing `proot-distro list` means depending on the wording of a
-    # human-readable table, which differs between versions - and getting it
-    # wrong means trying to install over an existing container and stopping
-    # on an error that is not one.
-    if proot-distro login "$DISTRO" -- true >/dev/null 2>&1; then
-        note "Ubuntu is already installed"
+    # Three attempts have now been made to ask proot-distro whether Ubuntu
+    # is installed - parsing its table, then trying a login - and both
+    # depend on behaviour that differs between its versions. So stop asking.
+    # Run the install, and read the one thing that is stable about it: it
+    # says "already exists" when there is nothing to do. Any other failure
+    # is a real one and is printed in full.
+    note "this takes a few minutes the first time, and nothing after that"
+    if install_log=$(proot-distro install "$DISTRO" 2>&1); then
+        note "Ubuntu installed"
     else
-        proot-distro install "$DISTRO"
+        case "$install_log" in
+            *"already exists"*) note "Ubuntu is already installed" ;;
+            *)
+                printf '%s\n' "$install_log"
+                die "Could not install Ubuntu - the output above is proot-distro's."
+                ;;
+        esac
     fi
 
     say "Handing over to Ubuntu"
@@ -87,7 +95,10 @@ if [ -d /data/data/com.termux ] && [ ! -f /etc/os-release ]; then
     # a proot rootfs is an implementation detail that has moved between
     # proot-distro versions; this needs to know nothing about it.
     self="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
-    exec proot-distro login "$DISTRO" --bind /sdcard:/sdcard -- bash -s < "$self"
+    if ! proot-distro login "$DISTRO" --bind /sdcard:/sdcard -- bash -s < "$self"; then
+        die "Ubuntu is installed but would not run the build. Try: proot-distro reset $DISTRO"
+    fi
+    exit 0
 fi
 
 # ---------------------------------------------------------------------------
