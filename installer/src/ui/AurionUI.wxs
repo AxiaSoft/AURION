@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
 
-  <?include ..\Variables.wxi ?>
+  <?include ../Variables.wxi ?>
 
   <!--
     ==========================================================================
