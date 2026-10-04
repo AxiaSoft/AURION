@@ -1,0 +1,127 @@
+#!/usr/bin/env bash
+#
+# Build the AURION installer from a phone.
+#
+#   curl -sSL https://raw.githubusercontent.com/AxiaSoft/AURION/arena/01a0ea7f-aurion/installer/tools/build-msi-termux.sh -o build.sh
+#   bash build.sh
+#
+# Run it in Termux. It sets up what it needs, builds, and leaves the .msi in
+# your Downloads folder.
+#
+# WHY IT IS NOT JUST "dotnet build"
+#
+# .NET needs glibc and Android uses bionic, so the SDK cannot run in Termux
+# itself. The script installs a real Ubuntu inside Termux with proot-distro
+# and does the work in there - that is the whole trick, and it is why the
+# first run downloads several gigabytes.
+#
+# The MSI itself is produced on Linux. A Windows desktop app can be compiled
+# anywhere as long as the targeting packs are allowed to come from NuGet
+# (EnableWindowsTargeting), and WiX 5 is a .NET tool rather than a Windows
+# one, so the whole chain is cross-platform. The output is a normal win-x64
+# installer; nothing about it is different from one built on Windows.
+
+set -euo pipefail
+
+BRANCH="${AURION_BRANCH:-arena/01a0ea7f-aurion}"
+REPO="${AURION_REPO:-https://github.com/AxiaSoft/AURION.git}"
+VERSION="${AURION_VERSION:-1.0.0}"
+DISTRO="ubuntu"
+
+say()  { printf '\n\033[36m==\033[0m %s\n' "$*"; }
+note() { printf '   %s\n' "$*"; }
+die()  { printf '\n\033[31m!!\033[0m %s\n\n' "$*" >&2; exit 1; }
+
+# ---------------------------------------------------------------------------
+# Phase 1 - in Termux: get a glibc userland, then hand over to phase 2.
+# ---------------------------------------------------------------------------
+if [ -d /data/data/com.termux ] && [ ! -f /etc/os-release ]; then
+    say "Termux detected"
+
+    case "$(uname -m)" in
+        aarch64|arm64) note "architecture $(uname -m) - supported" ;;
+        *) die "This needs an arm64 phone. Yours reports $(uname -m), and .NET has no build for it." ;;
+    esac
+
+    free_mb=$(df -Pm "$HOME" | awk 'NR==2 {print $4}')
+    note "free space: ${free_mb} MB"
+    [ "${free_mb:-0}" -lt 7000 ] && die "About 7 GB of free space is needed; there is ${free_mb} MB."
+
+    say "Installing proot-distro and Ubuntu (first run only)"
+    pkg update -y >/dev/null
+    pkg install -y proot-distro >/dev/null
+    proot-distro list --installed 2>/dev/null | grep -q "$DISTRO" || proot-distro install "$DISTRO"
+
+    say "Handing over to Ubuntu"
+    # Copy this script inside and run it there. $0 may be a relative path.
+    self="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
+    root="$PREFIX/var/lib/proot-distro/installed-rootfs/$DISTRO"
+    cp "$self" "$root/root/build-msi.sh"
+    exec proot-distro login "$DISTRO" --bind /sdcard:/sdcard -- bash /root/build-msi.sh
+fi
+
+# ---------------------------------------------------------------------------
+# Phase 2 - inside Ubuntu, where glibc lives.
+# ---------------------------------------------------------------------------
+say "Preparing the toolchain"
+export DEBIAN_FRONTEND=noninteractive
+apt-get update -qq
+apt-get install -y -qq curl git ca-certificates libicu-dev nodejs npm >/dev/null
+note "node $(node --version), npm $(npm --version)"
+
+export DOTNET_ROOT="$HOME/.dotnet"
+export PATH="$DOTNET_ROOT:$DOTNET_ROOT/tools:$PATH"
+export DOTNET_CLI_TELEMETRY_OPTOUT=1
+export DOTNET_NOLOGO=1
+
+if ! command -v dotnet >/dev/null 2>&1; then
+    say "Installing the .NET 8 SDK (large, once)"
+    curl -fsSL https://dot.net/v1/dotnet-install.sh -o /tmp/dotnet-install.sh \
+        || die "Could not reach Microsoft's download host. Your network may be blocking it."
+    bash /tmp/dotnet-install.sh --channel 8.0 --install-dir "$DOTNET_ROOT" --no-path
+fi
+note "dotnet $(dotnet --version)"
+
+say "Fetching the source"
+if [ -d "$HOME/AURION/.git" ]; then
+    git -C "$HOME/AURION" fetch --quiet origin "$BRANCH"
+    git -C "$HOME/AURION" checkout --quiet -B "$BRANCH" "origin/$BRANCH"
+else
+    git clone --quiet --branch "$BRANCH" --depth 1 "$REPO" "$HOME/AURION"
+fi
+cd "$HOME/AURION"
+note "at $(git log --oneline -1)"
+
+say "Building the desk window  (win-x64, self-contained)"
+# EnableWindowsTargeting is what lets a net8.0-windows WinForms project
+# compile on Linux; the targeting packs come from NuGet.
+dotnet publish installer/window/AurionWindow.csproj \
+    -c Release -r win-x64 --self-contained true \
+    -p:AurionVersion="$VERSION" \
+    -p:EnableWindowsTargeting=true \
+    --nologo -v minimal
+
+say "Installing the desk API's packages"
+( cd backend && npm ci --omit=dev --no-audit --no-fund >/dev/null )
+
+say "Building the MSI"
+dotnet build installer/AURION.wixproj \
+    -c Release \
+    -p:AurionVersion="$VERSION" \
+    -p:EnableWindowsTargeting=true \
+    --nologo -v minimal
+
+msi="$(find installer -name '*.msi' -newermt '-1 hour' | head -1)"
+[ -n "$msi" ] || die "The build finished but produced no .msi - look above for the failing task."
+
+say "Done"
+note "built: $msi  ($(du -h "$msi" | cut -f1))"
+
+for out in /sdcard/Download /sdcard/Downloads /storage/emulated/0/Download; do
+    if [ -d "$out" ]; then
+        cp "$msi" "$out/" && note "copied to $out/$(basename "$msi")"
+        break
+    fi
+done
+
+printf '\n\033[32m==\033[0m The installer is ready. Move it to a Windows machine to run it.\n\n'
