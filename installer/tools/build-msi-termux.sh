@@ -115,9 +115,25 @@ export DEBIAN_FRONTEND=noninteractive
 APT_OPTS="-o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 -o Acquire::Retries=2"
 # shellcheck disable=SC2086
 apt-get $APT_OPTS update || die "apt could not reach its mirrors. Check the phone's connection."
+# Deliberately NOT the distro's nodejs/npm. Ubuntu's npm package is broken
+# on this image - `npm` dies with "Cannot find module .../glob/dist/cjs" -
+# and arguing with a distro's packaging from inside a build script is a
+# losing game. The official tarball is one file, is the same Node the
+# Windows prerequisite installs, and cannot be broken by the container.
 # shellcheck disable=SC2086
-apt-get $APT_OPTS install -y curl git ca-certificates libicu-dev nodejs npm \
+apt-get $APT_OPTS install -y curl git ca-certificates libicu-dev xz-utils \
     || die "apt could not install the toolchain - its output is above."
+
+NODE_VERSION="v20.17.0"
+NODE_DIR="$HOME/node-$NODE_VERSION-linux-arm64"
+if [ ! -x "$NODE_DIR/bin/npm" ]; then
+    say "Installing Node $NODE_VERSION"
+    curl -fL "https://nodejs.org/dist/$NODE_VERSION/node-$NODE_VERSION-linux-arm64.tar.xz" \
+        -o /tmp/node.tar.xz || die "Could not download Node from nodejs.org."
+    tar -xJf /tmp/node.tar.xz -C "$HOME"
+    rm -f /tmp/node.tar.xz
+fi
+export PATH="$NODE_DIR/bin:$PATH"
 note "node $(node --version), npm $(npm --version)"
 
 export DOTNET_ROOT="$HOME/.dotnet"
@@ -126,11 +142,28 @@ export DOTNET_CLI_TELEMETRY_OPTOUT=1
 export DOTNET_NOLOGO=1
 
 if ! command -v dotnet >/dev/null 2>&1; then
+    # Ubuntu ships the SDK itself now, and apt is already working. That is
+    # preferable to dotnet-install.sh, which fails on this image with
+    #     line 1386: link_types[$link_index]: unbound variable
+    # - a bug in its own array handling under set -u. The script is kept as
+    # a fallback for distributions that do not package .NET.
     say "Installing the .NET 8 SDK (about 200 MB, once)"
-    curl -fsSL https://dot.net/v1/dotnet-install.sh -o /tmp/dotnet-install.sh \
-        || die "Could not reach Microsoft's download host. Your network may be blocking it."
-    bash /tmp/dotnet-install.sh --channel 8.0 --install-dir "$DOTNET_ROOT" --no-path
+    # shellcheck disable=SC2086
+    if apt-get $APT_OPTS install -y dotnet-sdk-8.0; then
+        export DOTNET_ROOT=/usr/lib/dotnet
+        note "installed from Ubuntu's own packages"
+    else
+        note "not packaged here - falling back to Microsoft's installer"
+        curl -fsSL https://dot.net/v1/dotnet-install.sh -o /tmp/dotnet-install.sh \
+            || die "Could not reach Microsoft's download host."
+        # --version instead of --channel: the channel path is what trips the
+        # unbound-variable bug above.
+        bash /tmp/dotnet-install.sh --version 8.0.404 --install-dir "$DOTNET_ROOT" --no-path \
+            || die "The .NET installer failed - its output is above."
+        export PATH="$DOTNET_ROOT:$PATH"
+    fi
 fi
+command -v dotnet >/dev/null 2>&1 || die "dotnet is still not on PATH after installing it."
 note "dotnet $(dotnet --version)"
 
 say "Fetching the source"
