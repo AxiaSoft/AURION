@@ -281,9 +281,21 @@
 
   /* ===================================================== fixture replay == */
 
-  let FIX = {};
+  /**
+   * Read the fixtures on every lookup rather than caching them at load.
+   *
+   * demo/fixtures.js is pulled in by the document.write below, and a script
+   * inserted that way does not run until the script doing the writing has
+   * finished -- so anything this file captures at the end of its own body is
+   * captured too early and comes back empty.  Reading the global each time is
+   * both correct and cheap; everything here runs on user time, not in a loop.
+   */
+  function fixtures() {
+    return window.AURION_DEMO_FIXTURES || {};
+  }
 
   function fixture(pathname, search) {
+    const FIX = fixtures();
     const full = pathname + (search || "");
     if (FIX[full]) return clone(FIX[full]);
     if (FIX[pathname]) return clone(FIX[pathname]);
@@ -343,6 +355,14 @@
       display_direction: "bull",
       need: 160,
     });
+
+    // licFeat() reads the snapshot's copy before S.license, so the premium
+    // licence has to be on both or half the desk stays locked.
+    d.license = clone(license().data);
+    if (d.strategy && d.strategy.auto_limit) {
+      d.strategy.auto_limit = Object.assign({}, d.strategy.auto_limit,
+        { premium: true, ok: true, limit: 0, used: 0, left: 0, lock_until: null });
+    }
 
     d.ts = new Date().toISOString();
     base.data = d;
@@ -434,8 +454,67 @@
     };
   }
 
+  /**
+   * The demo is licensed.
+   *
+   * The captured licence is freemium, which is correct for a fresh install
+   * and wrong for a shop window: it puts a key gate in front of a visitor who
+   * has no key and cannot get one here, and then locks eight of the things
+   * they came to look at.  Nobody evaluates prop profiles through a
+   * screenshot of a padlock.
+   *
+   * So the demo reports a paid licence with every feature on.  That costs
+   * nothing in the real product -- the licence that matters is the one the
+   * engine signs and checks, and there is no engine here.  This only decides
+   * what the interface draws.  The banner says the whole page is a demo, and
+   * key activation is still refused rather than faked, so nothing here tells
+   * a visitor they own something they do not.
+   */
+  const DEMO_PLAN_DAYS = 365;
+
   function license() {
     const f = fixture("/api/license") || { ok: true, data: {} };
+    const d = f.data || {};
+
+    const now = Date.now();
+    const expires = new Date(now + DEMO_PLAN_DAYS * 86400000);
+
+    // Every gated capability, read off the captured licence rather than
+    // listed here, so a feature added later is unlocked without anyone
+    // remembering to come back and edit this.
+    const features = {};
+    for (const k of Object.keys(d.features || {})) features[k] = true;
+    for (const k of d.locked || []) features[k] = true;
+
+    f.data = Object.assign({}, d, {
+      plan: "y1",
+      plan_label: "12 months",
+      months: 12,
+      account_type: "premium",
+      premium: true,
+      paid: true,
+      trial: false,
+      expired: false,
+      developer: false,
+      identity: "demo@axiasoft",
+      activated: new Date(now - 86400000).toISOString(),
+      expires: expires.toISOString(),
+      days_left: DEMO_PLAN_DAYS,
+      hours_left: DEMO_PLAN_DAYS * 24,
+      machine_ok: true,
+      tampered: false,
+      clock_rollback: false,
+      remote_revoked: "",
+      last_heartbeat: new Date().toISOString(),
+      // Auto-trade is rate limited on free machines; a paid one is not.
+      bot_trades: 0,
+      bot_limit: 0,
+      bot_remaining: 0,
+      bot_ok: true,
+      bot_lock_until: null,
+      features,
+      locked: [],
+    });
     return f;
   }
 
@@ -536,9 +615,9 @@
   /* ============================================================= banner == */
 
   const BANNER = {
-    en: ["Demo", "Sample data. No broker, no engine, nothing is traded."],
-    fa: ["دمو", "داده‌ی نمونه. بدون بروکر، بدون موتور، هیچ معامله‌ای انجام نمی‌شود."],
-    ar: ["عرض", "بيانات نموذجية. بلا وسيط ولا محرك، ولا تنفيذ لأي صفقة."],
+    en: ["Demo", "Sample data, every feature unlocked. No broker, no engine, nothing is traded."],
+    fa: ["دمو", "داده‌ی نمونه، همه‌ی قابلیت‌ها باز. بدون بروکر، بدون موتور، هیچ معامله‌ای انجام نمی‌شود."],
+    ar: ["عرض", "بيانات نموذجية وكل الميزات مفتوحة. بلا وسيط ولا محرك، ولا تنفيذ لأي صفقة."],
   };
 
   function banner() {
@@ -573,15 +652,13 @@
 
   /* =========================================================== fixtures == */
 
-  // demo/fixtures.js is a plain <script> loaded ahead of this one, so by the
-  // time anything here runs the global is already there.  It is a script and
-  // not a .json fetch on purpose: app.js calls boot() the moment it parses,
-  // and the licence call that decides whether the gate appears happens within
-  // milliseconds -- an async load would race it.  A script tag also still
-  // works when the page is opened straight off disk, where fetch and XHR on a
-  // sibling file are refused.
-  FIX = window.AURION_DEMO_FIXTURES || {};
-  if (!Object.keys(FIX).length) {
-    console.error("demo: fixtures missing -- demo/fixtures.js did not load");
-  }
+  // Warn once, after the parser has had a chance to run the written script.
+  // Without this the demo degrades silently into its catch-alls -- which is
+  // exactly what it did until the lazy read above replaced a load-time
+  // capture that always saw an empty global.
+  setTimeout(function () {
+    if (!Object.keys(fixtures()).length) {
+      console.error("demo: demo/fixtures.js did not load - serving synthesised data only");
+    }
+  }, 0);
 })();

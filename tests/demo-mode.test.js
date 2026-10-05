@@ -149,26 +149,28 @@ async function main() {
   await sleep(3000);
 
   check("demo mode switched itself on", window.AURION_DEMO === true);
+
+  // The captured responses must actually be in play. When they silently fail
+  // to load, the router's catch-all answers {ok:true,data:[]} for everything
+  // and the desk still looks plausible because the rest is synthesised -- so
+  // this asserts on a panel that can only come from the capture.
+  const news = await window.fetch("/api/news").then((r) => r.json());
+  check("the captured fixtures are being served",
+    news.ok && news.data && Number(news.data.count) > 0 && Array.isArray(news.data.events),
+    `/api/news -> ${news.data && news.data.count} events from ${news.data && news.data.source}`);
+
   check("the demo banner is on the page", Boolean($("demo-banner")),
     $("demo-banner") ? $("demo-banner").textContent.trim().slice(0, 60) : "missing");
 
-  // The gate: a visitor with no key has to be able to get in.
+  // No gate. A visitor who cannot obtain a key must not be asked for one,
+  // so the demo reports a paid licence and the desk opens on its own.
   const gate = $("auth");
-  check("the key gate rendered", gate && !gate.classList.contains("hidden"));
+  check("the visitor is never asked for a key",
+    gate && gate.classList.contains("hidden"),
+    gate ? `#auth hidden=${gate.classList.contains("hidden")}` : "no gate element");
 
-  const free = window.document.querySelector("#gate-free, [data-act='gate-free'], #auth .gate-free");
-  const freeBtn = free || Array.from(window.document.querySelectorAll("#auth button"))
-    .find((b) => /free|رایگان|مجاني/i.test(b.textContent));
-  check("the free-entry button is offered", Boolean(freeBtn),
-    freeBtn ? freeBtn.textContent.trim().slice(0, 48) : "not found");
-
-  if (freeBtn) {
-    freeBtn.click();
-    await sleep(2500);
-  }
-
-  check("the gate closed and the desk opened",
-    gate && gate.classList.contains("hidden"));
+  check("the desk opened without any interaction",
+    window.document.documentElement.classList.contains("mode-desk"));
 
   // The desk keeps its state in module-scope consts, so what it actually
   // rendered is the only thing worth asserting on.
@@ -189,6 +191,21 @@ async function main() {
     `${rows.length} table rows`);
 
   check("the AI panel is populated", /63%/.test(txt()));
+
+  // Premium. Everything the licence gates must be open, or the demo is a
+  // tour of padlocks.
+  const chip = $("nav-acc");
+  check("the account chip reads premium, not freemium",
+    chip && chip.classList.contains("prem") && !/free/i.test(chip.textContent),
+    chip ? `"${chip.textContent.trim()}"` : "no chip");
+
+  const lic = await window.fetch("/api/license").then((r) => r.json());
+  const feats = Object.entries(lic.data.features || {});
+  check("every licensed feature is unlocked",
+    feats.length >= 8 && feats.every(([, on]) => on === true) && (lic.data.locked || []).length === 0,
+    `${feats.length} features: ${feats.filter(([, on]) => !on).map(([k]) => k).join(", ") || "all on"}`);
+
+
 
   check("the desk believes a chart feed is attached",
     /EURUSD/.test(txt()) && /M15/.test(txt()));
@@ -273,6 +290,20 @@ async function main() {
   }).then((r) => r.json());
   check("activating a key is refused", activate && activate.ok === false,
     JSON.stringify(activate).slice(0, 70));
+
+  // Walk the views that a freemium machine locks, and prove none of them
+  // render the upgrade padlock. Last, because it navigates away.
+  const visited = [];
+  for (const view of ["strategies", "prop", "settings", "upgrade"]) {
+    const el = window.document.querySelector(`[data-view='${view}']`);
+    if (!el) continue;
+    visited.push(view);
+    el.click();
+    await sleep(900);
+  }
+  const padlocks = window.document.querySelectorAll(".locked-feature");
+  check("no premium feature renders an upgrade padlock", padlocks.length === 0,
+    `${padlocks.length} padlocks across ${visited.join(", ") || "no views"}`);
 
   const i18n = await window.fetch("/api/i18n/en");
   check("the language pack falls through to the published file", i18n.status === 404,

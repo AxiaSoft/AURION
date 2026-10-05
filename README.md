@@ -10,10 +10,12 @@ AURION never invents candles, fills, equity, or AI signals. If the terminal is u
 
 There is no Node desk and no Python engine behind a static site, so that page
 loads [`apps/web/js/demo.js`](apps/web/js/demo.js), which answers the API and
-the websocket from canned responses captured off a running desk. You get the
-gate, the book, the account, the AI panel, and a live chart you can pan, zoom
-and draw on — enough to find out whether the desk suits you before installing
-anything.
+the websocket from canned responses captured off a running desk. There is no
+key screen and nothing is locked: the demo reports a paid licence, so prop
+profiles, scalping, strategy upload, Telegram, news, chart signals and the
+themes are all open. You get the book, the account, the AI panel, and a live
+chart you can pan, zoom and draw on — enough to find out whether the desk
+suits you before installing anything.
 
 The one rule above still holds: the demo is the single place where AURION
 shows data that did not come from a terminal, it is labelled as such in a
