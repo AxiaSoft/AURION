@@ -563,7 +563,13 @@ class MT5Bridge:
             return
         self._started = True
         cfg = load()
-        host = cfg["mt5"]["ea_listen_host"]
+        # Loopback by default. This socket is an unauthenticated ingest into a
+        # live trading engine -- whatever reaches it becomes ticks, candles and
+        # account state -- so it is not something to expose by accident. The
+        # usual setup has MT5 on the same machine. Set mt5.ea_listen_host to
+        # 0.0.0.0 deliberately when the terminal runs on another box, and
+        # firewall the port to it.
+        host = cfg["mt5"].get("ea_listen_host") or "127.0.0.1"
         port = int(cfg["mt5"]["ea_listen_port"])
         self._server = await asyncio.start_server(self._handle_ea, host, port)
         if self._http_task is None or self._http_task.done():

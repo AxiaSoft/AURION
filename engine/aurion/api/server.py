@@ -8,7 +8,7 @@ import os
 
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 
 from ..config import heal_packaged_files, load, merge, save
 from ..mt5.protocol import parse_ea_json
@@ -62,6 +62,41 @@ def fail(message: str, status: int = 400) -> JSONResponse:
 @app.get("/health")
 async def health() -> dict[str, Any]:
     return {"ok": True, "product": "AURION", "engine": "online"}
+
+
+@app.get("/", response_class=HTMLResponse)
+async def root() -> str:
+    """A human landing page on the engine port.
+
+    This port is the engine's machine API, not the desk. Opening it in a
+    browser used to answer `{"detail":"Not Found"}`, which reads exactly like
+    an engine that failed to start -- so anyone who reached for this port to
+    check on the engine concluded it was down while it was serving happily.
+    Say what this is and where the desk actually lives.
+    """
+    cfg = load()
+    desk_port = int(cfg.get("backend", {}).get("port") or 8080)
+    return f"""<!doctype html>
+<html lang="en"><head><meta charset="utf-8" />
+<title>AURION engine</title>
+<style>
+ html,body{{height:100%;margin:0;background:#06070b;color:#8b93a7;
+   font:14px/1.7 "Segoe UI",system-ui,sans-serif}}
+ main{{height:100%;display:grid;place-content:center;justify-items:center;
+   gap:10px;text-align:center;padding:24px}}
+ h1{{color:#e7ecf5;font-size:17px;margin:0;letter-spacing:.3px}}
+ .ok{{color:#3ee0c4}}
+ code{{background:#11141c;border-radius:6px;padding:2px 7px;color:#c8d2e4}}
+ a{{color:#3ee0c4}}
+</style></head>
+<body><main>
+ <h1>AURION engine <span class="ok">&#9679; online</span></h1>
+ <p>This is the engine API, not the desk. There is no user interface here.</p>
+ <p>The desk is on port {desk_port} &mdash; <a href="http://127.0.0.1:{desk_port}/">http://127.0.0.1:{desk_port}/</a><br />
+ Behind a proxy, open the page published for port {desk_port}, not this one.</p>
+ <p>Machine endpoints: <code>/health</code> &middot; <code>/v1/snapshot</code> &middot; <code>/v1/license</code></p>
+</main></body></html>"""
+
 
 
 @app.get("/v1/snapshot")
