@@ -1353,7 +1353,7 @@ html[data-bg="layered"] #bg-fx{
 html[data-perf="fast"] #bg-fx b,
 html[data-motion="off"] #bg-fx b,
 html[data-motion="soft"] #bg-fx b{ animation:none !important }
-html[data-motion="off"] #bg-fx{ opacity:.55 }
+html[data-motion="off"] #bg-fx b{ opacity:.55 }
 
 /* ===========================================================================
    6. Motion and micro-interaction
@@ -1885,8 +1885,8 @@ html[data-skin][data-theme="light"] .pay-veil{ background:rgb(var(--wash) / .34)
 
 /* A backdrop tuned for a dark page is too loud on a light one: the same
    blobs at the same opacity turn a white desk into a poster. */
-html[data-theme="light"] #bg-fx{ opacity:.55 }
-html[data-theme="light"][data-bg="grid"] #bg-fx{ opacity:.4 }
+html[data-theme="light"] #bg-fx b{ opacity:.55 }
+html[data-theme="light"][data-bg="grid"] #bg-fx b{ opacity:.4 }
 
 /* Cyber and Monochrome want their own scrollbar: one because everything
    else on the page is lit, the other because nothing is. */
@@ -2022,64 +2022,39 @@ html[data-perf="fast"] .tc-lock{ background:rgb(var(--s1) / .9) }
    that image *is* the product's identity, and replacing it would be changing
    the default look rather than extending it.
 
-   Three things make a photograph usable behind a trading desk rather than
-   merely pretty:
+   Two things, now that the damping is gone:
 
-     1. It is damped. The image never renders above 55% on a dark theme or
-        34% on a light one, and a scrim of the theme's own page colour is
-        drawn over it, heaviest at the bottom where the tables are.
-     2. It is layered *over* the animated blobs, not under them, so a theme
-        that has both reads as one backdrop instead of two competing ones.
-     3. It is static. No parallax, no ken-burns, nothing that repaints - the
-        only thing that ever changes is the opacity, once, during a theme
-        swap that is already hidden behind the veil.
+     1. The image is shown as it is. No opacity, no scrim, no filter - what
+        is in the file is what is on the screen. Everything the desk draws
+        on top carries its own surface, so the contrast that matters is
+        between text and its panel, not between text and the wallpaper.
+     2. It is static, and it is layered over the animated blobs so a theme
+        with both reads as one backdrop rather than two competing ones.
+        No parallax, no ken-burns, nothing that repaints.
 
    Adding the rest is one line each: drop the file in assets/bg and name it.
    =========================================================================== */
 
-#bg-fx::before,
-#bg-fx::after{
+#bg-fx::before{
   content:"";
   position:absolute;
   inset:0;
   pointer-events:none;
-}
-
-/* The photograph. */
-#bg-fx::before{
   z-index:1;
   background-image:var(--theme-bg, none);
   background-size:cover;
   background-position:center;
   background-repeat:no-repeat;
-  opacity:var(--theme-bg-op, .55);
-  transition:opacity var(--dur-4) var(--ease-1);
+  /* Full strength, with nothing drawn over it.
+     There used to be a scrim here and a per-theme opacity under it, both
+     sized by measuring text contrast against the brightest part of every
+     photograph. Both are gone on purpose: a backdrop shown at half
+     strength under a wash of the page colour is not the backdrop anybody
+     chose. Legibility now rests where it belongs - on the panels, which
+     carry their own surface fill - instead of on spoiling the picture
+     behind them. */
+  opacity:1;
 }
-
-/* The scrim that keeps text on top of it legible. Bottom-weighted, because
-   that is where the dense numbers live. */
-#bg-fx::after{
-  z-index:2;
-  background:linear-gradient(180deg,
-    rgb(var(--s1) / .30) 0%,
-    rgb(var(--s1) / .52) 45%,
-    rgb(var(--s1) / .80) 100%);
-  /* Off by default: Liquid Glass has no photograph to scrim, and a wash over
-     nothing would just flatten the orb it ships with. Each theme that names
-     an image switches it on below. */
-  opacity:0;
-  transition:opacity var(--dur-4) var(--ease-1);
-}
-html[data-skin="frost"] #bg-fx::after,
-html[data-skin="neu"] #bg-fx::after,
-html[data-skin="clay"] #bg-fx::after,
-html[data-skin="aurora"] #bg-fx::after,
-html[data-skin="cyber"] #bg-fx::after,
-html[data-skin="midnight"] #bg-fx::after,
-html[data-skin="ocean"] #bg-fx::after,
-html[data-skin="sunset"] #bg-fx::after,
-html[data-skin="minimal"] #bg-fx::after,
-html[data-skin="mono"] #bg-fx::after{ opacity:1 }
 
 /* ---- the images -------------------------------------------------------- */
 
@@ -2100,112 +2075,75 @@ html[data-skin="mono"] #bg-fx::after{ opacity:1 }
 
 html[data-skin="frost"]{
   --theme-bg:url("../assets/bg/frost-dark.jpg");
-  --theme-bg-op:.5;   /* frost bokeh is the brightest thing in the set */
 }
 html[data-skin="frost"][data-theme="light"]{
   --theme-bg:url("../assets/bg/frost-light.jpg");
-  --theme-bg-op:.7;
 }
 
 html[data-skin="neu"]{
   --theme-bg:url("../assets/bg/neu-dark.jpg");
-  --theme-bg-op:.5;
 }
 html[data-skin="neu"][data-theme="light"]{
   --theme-bg:url("../assets/bg/neu-light.jpg");
-  --theme-bg-op:.7;
 }
 
 html[data-skin="clay"]{
   --theme-bg:url("../assets/bg/clay-dark.jpg");
-  --theme-bg-op:.5;
 }
 html[data-skin="clay"][data-theme="light"]{
   --theme-bg:url("../assets/bg/clay-light.jpg");
-  --theme-bg-op:.68;
 }
 
 html[data-skin="aurora"]{
   --theme-bg:url("../assets/bg/aurora-dark.jpg");
-  --theme-bg-op:.66;
 }
 html[data-skin="aurora"][data-theme="light"]{
   --theme-bg:url("../assets/bg/aurora-light.jpg");
-  --theme-bg-op:.68;
 }
 
 html[data-skin="cyber"]{
   --theme-bg:url("../assets/bg/cyber-dark.jpg");
-  --theme-bg-op:.7;   /* the grid is the theme; it earns the most of its image */
 }
 html[data-skin="cyber"][data-theme="light"]{
   --theme-bg:url("../assets/bg/cyber-light.jpg");
-  --theme-bg-op:.64;
 }
 
 html[data-skin="midnight"]{
   --theme-bg:url("../assets/bg/midnight-dark.jpg");
-  --theme-bg-op:.7;
 }
 html[data-skin="midnight"][data-theme="light"]{
   --theme-bg:url("../assets/bg/midnight-light.jpg");
-  --theme-bg-op:.66;
 }
 
 html[data-skin="ocean"]{
   --theme-bg:url("../assets/bg/ocean-dark.jpg");
-  --theme-bg-op:.7;   /* saturated turquoise is the one light image dark enough to hurt */
 }
 html[data-skin="ocean"][data-theme="light"]{
   --theme-bg:url("../assets/bg/ocean-light.jpg");
-  --theme-bg-op:.34;
 }
 
 html[data-skin="sunset"]{
   --theme-bg:url("../assets/bg/sunset-dark.jpg");
-  --theme-bg-op:.7;
 }
 html[data-skin="sunset"][data-theme="light"]{
   --theme-bg:url("../assets/bg/sunset-light.jpg");
-  --theme-bg-op:.66;
 }
 
 html[data-skin="minimal"]{
   --theme-bg:url("../assets/bg/minimal-dark.jpg");
-  --theme-bg-op:.4;   /* capped well under what it could carry: restraint is the theme */
 }
 html[data-skin="minimal"][data-theme="light"]{
   --theme-bg:url("../assets/bg/minimal-light.jpg");
-  --theme-bg-op:.4;
 }
 
 html[data-skin="mono"]{
   --theme-bg:url("../assets/bg/mono-dark.jpg");
-  --theme-bg-op:.36;   /* capped for the same reason */
 }
 html[data-skin="mono"][data-theme="light"]{
   --theme-bg:url("../assets/bg/mono-light.jpg");
-  --theme-bg-op:.44;
 }
 
-/* ---- how much of it is allowed ----------------------------------------- */
+/* ---- the two cases where it still steps aside ------------------------- */
 
-/* The scrim is heavier on a light page, where the same image carries further. */
-html[data-theme="light"] #bg-fx::after{
-  background:linear-gradient(180deg,
-    rgb(var(--s1) / .42) 0%,
-    rgb(var(--s1) / .62) 45%,
-    rgb(var(--s1) / .86) 100%);
-}
-
-/* The cheap rendering tier keeps the picture - a static JPEG costs nothing
-   to hold - but loses the crossfade. */
-html[data-perf="fast"] #bg-fx::before{ transition:none }
-
-/* With the backdrop off, the photograph goes with it. */
-html[data-bg="none"] #bg-fx::before,
-html[data-bg="none"] #bg-fx::after{ opacity:0 }
-
-@media (prefers-reduced-motion:reduce){
-  #bg-fx::before{ transition:none }
-}
+/* The custom theme's "no backdrop" choice means no backdrop. */
+html[data-bg="none"] #bg-fx::before{ display:none }
