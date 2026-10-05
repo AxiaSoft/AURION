@@ -1,0 +1,223 @@
+<!doctype html>
+<!--
+  The public face of AURION, served by GitHub Pages from the repository root.
+
+  It is a real demo, not a screenshot: the chart below is the desk's own
+  engine (js/charts.js, js/chart-tools.js) running on synthetic candles, and
+  the theme buttons drive the desk's own theme layer. What it cannot do is
+  trade - there is no engine on a static host, and the page says so rather
+  than implying otherwise.
+
+  Every path here is relative. Pages serves this from /AURION/, so an
+  absolute "/css/app.css" would resolve to the wrong origin root.
+-->
+<html lang="en" data-theme="dark" data-glass="on" data-perf="rich" data-skin="glass">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>AURION — intelligent execution desk for MetaTrader 5</title>
+<meta name="description" content="A Windows trading desk for MetaTrader 5: live execution, prop-firm risk rules, an AI read on every setup, and a charting terminal. This page is a live demo of the interface." />
+<link rel="icon" href="apps/web/icons/mark.png" />
+
+<script src="apps/web/js/skins.js"></script>
+<script src="apps/web/js/themes.js"></script>
+<link rel="stylesheet" href="apps/web/css/app.css" />
+<link rel="stylesheet" href="apps/web/css/skins.css" />
+<link rel="stylesheet" href="apps/web/css/chart.css" />
+<link rel="stylesheet" href="apps/web/css/themes.css" />
+<style>
+  body { margin:0; min-height:100vh }
+  .page { max-width:1180px; margin:0 auto; padding:28px 20px 60px; position:relative; z-index:2 }
+
+  .hero { display:flex; align-items:center; gap:22px; flex-wrap:wrap; padding:22px 0 10px }
+  .hero img { width:88px; height:88px; border-radius:22px; flex:none }
+  .hero h1 { margin:0; font-size:clamp(26px,4vw,40px); font-weight:500; letter-spacing:-.01em }
+  .hero p { margin:8px 0 0; color:var(--muted); font-size:15px; max-width:56ch; line-height:1.65 }
+  .hero .row { display:flex; gap:10px; flex-wrap:wrap; margin-top:16px }
+
+  .note { display:flex; gap:12px; align-items:flex-start; margin:22px 0 0; padding:12px 14px;
+          border:1px solid var(--line); border-inline-start:2px solid var(--accent);
+          border-radius:12px; background:var(--surface-interactive) }
+  .note b { font-size:13px } .note p { margin:4px 0 0; font-size:12.5px; color:var(--muted); line-height:1.6 }
+
+  h2 { margin:40px 0 4px; font-size:19px; font-weight:500 }
+  h2 + .sub { margin:0 0 14px }
+
+  .grid3 { display:grid; grid-template-columns:repeat(auto-fit,minmax(240px,1fr)); gap:14px }
+  .feat { padding:16px; border:1px solid var(--line); border-radius:14px; background:var(--surface-2) }
+  .feat h3 { margin:0 0 6px; font-size:14px; font-weight:500 }
+  .feat p { margin:0; font-size:12.5px; color:var(--muted); line-height:1.65 }
+
+  .themes { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:14px }
+  .themes button { height:32px; padding:0 12px; border:1px solid var(--line); border-radius:999px;
+                   background:var(--surface-interactive); color:var(--muted); font:inherit; font-size:12px; cursor:pointer }
+  .themes button:hover { color:var(--ink) }
+  .themes button.on { background:var(--accent); color:var(--accent-ink,var(--on-accent)); border-color:transparent }
+
+  .stage { height:min(70vh,620px); min-height:420px }
+  footer { margin-top:48px; padding-top:18px; border-top:1px solid var(--line);
+           color:var(--faint); font-size:12px; display:flex; gap:14px; flex-wrap:wrap }
+  footer a { color:var(--muted) }
+</style>
+</head>
+<body class="mode-desk">
+<div class="aurora" aria-hidden="true"></div>
+<div id="bg-fx" aria-hidden="true"><b></b><b></b><b></b></div>
+
+<div class="page">
+
+  <header class="hero">
+    <img src="apps/web/icons/mark.png" alt="AURION" />
+    <div>
+      <h1>AURION</h1>
+      <p>An intelligent live execution desk for MetaTrader&nbsp;5 — prop-firm risk rules enforced
+         before every order, an AI read scored against the strategy, the slower chart and the
+         market regime, and a charting terminal built for the job.</p>
+      <div class="row">
+        <a class="btn" href="https://github.com/AxiaSoft/AURION">Source on GitHub</a>
+        <a class="btn ghost" href="AURION-GUIDE.html">User guide</a>
+        <a class="btn ghost" href="docs/en/01-installation.md">Installation</a>
+      </div>
+    </div>
+  </header>
+
+  <div class="note">
+    <div>
+      <b>This page is the interface, not the engine.</b>
+      <p>The chart below is the desk's own charting engine running here in your browser on
+         generated candles, and the theme buttons drive the real theme layer. Trading needs the
+         Windows application: the engine, MetaTrader&nbsp;5 and your own account never leave your
+         machine, and nothing on this page connects to a broker.</p>
+    </div>
+  </div>
+
+  <h2>The charting terminal</h2>
+  <p class="sub">Drawing rail, object manager, indicators, and free navigation — scroll to zoom,
+     drag to pan, right-drag to move it anywhere, ctrl with the right button to stretch the price
+     scale. Everything works here exactly as it does in the desk.</p>
+  <div class="stage" id="chart-host"></div>
+
+  <h2>Twelve themes</h2>
+  <p class="sub">Each one changes the material the desk is made of — surface opacity, blur, shadow,
+     corner radius, motion — and brings its own backdrop. Try them; the chart above follows.</p>
+  <div class="themes" id="theme-row"></div>
+
+  <h2>What it does</h2>
+  <div class="grid3">
+    <div class="feat"><h3>Prop rules, enforced</h3>
+      <p>Daily loss, drawdown, position caps and session windows are checked before an order is
+         sent, not reported afterwards.</p></div>
+    <div class="feat"><h3>A score on every setup</h3>
+      <p>The AI read, its measured out-of-sample edge, the strategy's own confidence, the market
+         regime and the slower chart are blended into one number that decides whether to trade,
+         how many tickets, and how large.</p></div>
+    <div class="feat"><h3>Strategies you can replace</h3>
+      <p>Four built in, and your own Python uploaded from the desk. Each keeps its own ledger of
+         wins, losses and profit factor.</p></div>
+    <div class="feat"><h3>Telegram, per desk</h3>
+      <p>Pair your own chat with a code. Only the accounts you attach receive anything, and only
+         from your installation.</p></div>
+    <div class="feat"><h3>Installs on a bare machine</h3>
+      <p>The window checks for Python, Node and WebView2 before it starts and offers to fetch what
+         is missing, from the vendors themselves, with nothing unsigned ever run.</p></div>
+    <div class="feat"><h3>Windows, offline</h3>
+      <p>A per-user MSI. The desk is a local web app in a native window; your credentials and your
+         models stay on your disk.</p></div>
+  </div>
+
+  <footer>
+    <span>© AxiaSoft</span>
+    <a href="https://github.com/AxiaSoft/AURION">Repository</a>
+    <a href="AURION-BACKTEST-GUIDE.html">Backtesting</a>
+    <span>MetaTrader 5 is a trademark of MetaQuotes. Trading carries risk; nothing here is advice.</span>
+  </footer>
+</div>
+
+<script src="apps/web/js/chart-series.js"></script>
+<script src="apps/web/js/charts.js"></script>
+<script src="apps/web/js/chart-tools.js"></script>
+<script>
+/* A believable series so the terminal has something to show: a trend, a
+   pullback, a range, and a tape that keeps moving while the page is open. */
+function synth(n) {
+  const out = [];
+  let p = 1.0850, drift = 0.00012;
+  for (let i = 0; i < n; i++) {
+    if (i % 140 === 0) drift = -drift * 1.08;
+    p += drift + Math.sin(i / 9) * 0.00035 + (Math.random() - 0.5) * 0.0009;
+    const o = p, c = p + (Math.random() - 0.5) * 0.0011;
+    const at = new Date(Date.UTC(2026, 0, 1) + i * 15 * 60000);
+    out.push({
+      time: at.toISOString().slice(0, 19).replace("T", " "),
+      open: o, high: Math.max(o, c) + Math.random() * 0.0008,
+      low: Math.min(o, c) - Math.random() * 0.0008,
+      close: c, volume: Math.round(200 + Math.random() * 800),
+    });
+    p = c;
+  }
+  return out;
+}
+
+document.getElementById("chart-host").innerHTML =
+  AurionChartUI.html({ symbol: "EURUSD", timeframe: "M15", ticket: "" });
+
+const bars = synth(900);
+const chart = new CandleChart(document.getElementById("cv-desk"), {
+  analyze: true,
+  key: "demo.EURUSD.M15",
+  onText: (seed, done) => done(window.prompt("Text", seed || "note") || ""),
+});
+chart.setBars(bars);
+const last = bars[bars.length - 1].close;
+chart.setTick({ bid: last - 0.00004, ask: last + 0.00004 });
+chart.setLevels([{
+  type: "buy",
+  price_open: bars[bars.length - 40].close,
+  sl: bars[bars.length - 40].close - 0.004,
+  tp: bars[bars.length - 40].close + 0.008,
+}]);
+
+AurionChartUI.bind(chart, {
+  symbol: "EURUSD", timeframe: "M15",
+  toast: () => {},
+  onBack: () => {},
+  onTimeframe: (tf) => {
+    document.querySelectorAll("[data-tf]").forEach((b) => b.classList.toggle("on", b.dataset.tf === tf));
+    const label = document.getElementById("tv-tf-label");
+    if (label) label.textContent = tf;
+  },
+});
+
+/* Every theme is unlocked here: this is a shop window, not a licensed desk. */
+AurionTheme.setPaid(true);
+const row = document.getElementById("theme-row");
+row.innerHTML = AurionTheme.THEMES
+  .filter((t) => t.id !== "custom")
+  .map((t) => `<button type="button" data-t="${t.id}">${t.id}</button>`).join("");
+function markThemes() {
+  const now = AurionTheme.effective();
+  row.querySelectorAll("[data-t]").forEach((b) => b.classList.toggle("on", b.dataset.t === now));
+}
+row.onclick = (e) => {
+  const b = e.target.closest("[data-t]");
+  if (!b) return;
+  AurionTheme.set(b.dataset.t);
+  window.__aurionThemeRev = (window.__aurionThemeRev || 0) + 1;
+  chart.draw();
+  markThemes();
+};
+markThemes();
+
+/* A tape that moves, so the desk does not look frozen. */
+setInterval(() => {
+  const bar = chart.bars[chart.bars.length - 1];
+  if (!bar) return;
+  const step = (Math.random() - 0.5) * 0.0004;
+  bar.close = +(bar.close + step).toFixed(5);
+  bar.high = Math.max(bar.high, bar.close);
+  bar.low = Math.min(bar.low, bar.close);
+  chart.setTick({ bid: bar.close - 0.00004, ask: bar.close + 0.00004 });
+}, 1200);
+</script>
+</body>
+</html>
