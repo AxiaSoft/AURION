@@ -41,10 +41,19 @@ const MIME = {
   ".ttf": "font/ttf", ".mp3": "audio/mpeg", ".ico": "image/x-icon",
 };
 
+// GitHub Pages serves a project site from a subpath, not the host root, and
+// that is the one thing about the deployment a root-served test cannot catch:
+// every relative URL in the desk and every /api/* the demo router has to
+// recognise is resolved against it.
+const PREFIX = "/AURION";
+
 function serve() {
   return new Promise((resolve) => {
     const srv = http.createServer((req, res) => {
-      const rel = decodeURIComponent(req.url.split("?")[0]).replace(/^\/+/, "");
+      let url = req.url.split("?")[0];
+      if (!url.startsWith(PREFIX + "/")) { res.writeHead(404).end("outside the published prefix"); return; }
+      url = url.slice(PREFIX.length);
+      const rel = decodeURIComponent(url).replace(/^\/+/, "");
       const file = path.join(ROOT, rel);
       if (!file.startsWith(ROOT) || !fs.existsSync(file) || fs.statSync(file).isDirectory()) {
         res.writeHead(404).end("not found");
@@ -78,7 +87,7 @@ async function main() {
   // than JSDOM.fromURL, because the resource loader below returns null for
   // everything that is not a script and fromURL routes the document itself
   // through that same loader.
-  const pageUrl = `${base}/apps/web/index.html?demo=1`;
+  const pageUrl = `${base}${PREFIX}/apps/web/index.html?demo=1`;
   const html = await fetch(pageUrl).then((r) => r.text());
 
   const dom = new JSDOM(html, {
