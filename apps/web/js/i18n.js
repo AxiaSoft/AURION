@@ -3,10 +3,28 @@ const I18N = {
   pack: {},
   async load(lang) {
     const code = ["en", "fa", "ar"].includes(lang) ? lang : "en";
-    const res = await fetch(`/api/i18n/${code}`);
-    const json = await res.json();
+
+    /* The desk normally gets its language pack from the engine. Served as
+       plain files instead - GitHub Pages, or the folder opened straight off
+       a disk - there is no engine to ask, and without a pack every label in
+       the interface falls back to its key. The pack files are published
+       too, two levels up from here, so they are tried second. */
+    let data = null;
+    for (const url of [`/api/i18n/${code}`, `../../lang/${code}.json`]) {
+      try {
+        const res = await fetch(url);
+        if (!res.ok) continue;
+        const json = await res.json();
+        data = json.data || json;        // the API wraps it; the file does not
+        if (data && typeof data === "object") break;
+      } catch (e) {
+        // Try the next source; a missing pack must not stop the desk.
+      }
+    }
+    if (!data) return this.pack;
+
     this.lang = code;
-    this.pack = json.data || {};
+    this.pack = data;
     localStorage.setItem("aurion.lang", code);
     const dir = this.pack.meta?.dir || (code === "en" ? "ltr" : "rtl");
     const root = document.documentElement;

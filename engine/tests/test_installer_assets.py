@@ -113,13 +113,19 @@ def test_replacing_the_logo_is_enough() -> None:
     assert "apps\\web\\icons\\mark.png" in ps1, "the build has to know where the logo lives"
     assert "the logo is newer than the icon" in ps1, "and rebuild when it changes"
 
+    # The href is relative so the desk also works when it is served from a
+    # sub-path, which is how GitHub Pages publishes it. What matters here is
+    # that it points at the same file, not how it spells the path.
     index = (ROOT / "apps" / "web" / "index.html").read_text(encoding="utf-8")
-    assert 'rel="icon" href="/icons/mark.png' in index, "the favicon is the same file"
-    assert 'rel="apple-touch-icon" href="/icons/mark.png' in index
+    assert 'rel="icon" href="icons/mark.png' in index, "the favicon is the same file"
+    assert 'rel="apple-touch-icon" href="icons/mark.png' in index
+    assert 'href="/icons/mark.png' not in index, (
+        "an absolute path breaks the desk when it is not served from the root"
+    )
 
     import json
     manifest = json.loads((ROOT / "apps" / "web" / "manifest.json").read_text(encoding="utf-8"))
-    assert manifest["icons"][0]["src"] == "/icons/mark.png", "and so is the installed-app icon"
+    assert manifest["icons"][0]["src"] == "icons/mark.png", "and so is the installed-app icon"
 
     csproj = (ROOT / "installer" / "window" / "AurionWindow.csproj").read_text(encoding="utf-8")
     assert "<ApplicationIcon>" in csproj, "Explorer's icon for the exe"

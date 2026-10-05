@@ -1125,7 +1125,7 @@ function renderNav() {
   const nav = $("nav");
   const tag = String(I18N.t("brand.tagline")).replace(/"/g, "&quot;");
   const ver = S.version || S.snap?.version || S._gateLic?.version || "1.0.0";
-  nav.innerHTML = `<div class="nav-head"><div class="nav-logo"><img class="mark" src="/icons/mark.png?v=desk49" alt="AURION" /></div><div class="nav-brand"><b>AURION</b><span class="nav-tag">${tag}</span></div></div>` +
+  nav.innerHTML = `<div class="nav-head"><div class="nav-logo"><img class="mark" src="icons/mark.png?v=desk49" alt="AURION" /></div><div class="nav-brand"><b>AURION</b><span class="nav-tag">${tag}</span></div></div>` +
     NAV.map(([id, key, svg]) => {
       const label = I18N.t(key);
       return `<button type="button" data-view="${id}" class="nav-tab ${S.view === id ? "on" : ""}" title="${label.replace(/"/g, "&quot;")}">${svg}<span>${label}</span></button>`;
@@ -2438,7 +2438,7 @@ function licenseCardHtml() {
   const remain = L.bot_remaining;
   return `<div class="card${trial ? " lic-banner" : ""}">
       <div class="axiasoft-slot" style="margin:0 0 12px;max-width:none">
-        <img src="/assets/axiasoft-logo.png?v=desk45" alt="Axiasoft" class="axiasoft-logo" />
+        <img src="assets/axiasoft-logo.png?v=desk45" alt="Axiasoft" class="axiasoft-logo" />
         <span>${I18N.t("auth.licensed_by")}</span>
       </div>
       <div class="kv">
@@ -3343,8 +3343,8 @@ const views = {
             <button type="button" data-lang="ar">العربية</button>
           </div>
           <p class="sub">AURION 1.0.0</p>
-          <a class="btn block ghost" href="/guide.html?v=desk45" target="_blank" rel="noopener">${I18N.t("guide.open")}</a>
-          <a class="btn block ghost" href="/guide-backtest.html?v=desk45" target="_blank" rel="noopener">${I18N.t("guide.backtest")}</a>
+          <a class="btn block ghost" href="guide.html?v=desk45" target="_blank" rel="noopener">${I18N.t("guide.open")}</a>
+          <a class="btn block ghost" href="guide-backtest.html?v=desk45" target="_blank" rel="noopener">${I18N.t("guide.backtest")}</a>
         </div>
       </section>
       <section class="set-block" id="set-personal"${tab==="set-personal"?"":" hidden"}>
@@ -3419,7 +3419,7 @@ const views = {
     return `<div class="cmd">
       <div class="card" style="text-align:center;padding:32px 24px">
         <div style="width:96px;height:96px;margin:0 auto 16px;border-radius:24px;overflow:hidden;background:var(--deep);box-shadow:0 12px 32px rgba(0,0,0,.4)">
-          <img src="/icons/mark.png?v=desk49" alt="AURION" style="width:100%;height:100%;object-fit:cover;transform:scale(1.08)" />
+          <img src="icons/mark.png?v=desk49" alt="AURION" style="width:100%;height:100%;object-fit:cover;transform:scale(1.08)" />
         </div>
         <h2 style="margin:0 0 6px;font-size:28px;letter-spacing:.12em">AURION</h2>
         <p class="sub" style="font-size:14px">${I18N.t("about.version")} <b class="mono" style="color:var(--cyan)">v${esc(ver)}</b> • ${I18N.t("about.build")} ${esc(buildDate)}</p>
@@ -3450,7 +3450,7 @@ const views = {
         <div class="card">
           <h3>🏢 ${I18N.t("about.maker")}</h3>
           <div style="display:flex;align-items:center;gap:14px;margin:12px 0">
-            <img src="/assets/axiasoft-logo.png?v=desk49" alt="Axiasoft" style="width:56px;height:56px;object-fit:contain;background:transparent;border:none;border-radius:0" />
+            <img src="assets/axiasoft-logo.png?v=desk49" alt="Axiasoft" style="width:56px;height:56px;object-fit:contain;background:transparent;border:none;border-radius:0" />
             <div>
               <b style="font-size:18px">Axiasoft</b><br>
               <span class="sub">${I18N.t("about.developer_of")} • 2024-${copyrightYear()}</span>
@@ -6419,9 +6419,9 @@ function welcomeIsMobile() {
 function welcomeSrcList() {
   const mobile = welcomeIsMobile();
   const primary = mobile
-    ? ["/assets/welcome/mobile.mp4", "/assets/welcome/mobile.webm", "/assets/welcome/intro-mobile.mp4"]
-    : ["/assets/welcome/desktop.mp4", "/assets/welcome/desktop.webm", "/assets/welcome/intro-desktop.mp4"];
-  return primary.concat(["/assets/welcome/intro.mp4", "/assets/welcome/intro.webm", "/assets/welcome/welcome.mp4"]);
+    ? ["assets/welcome/mobile.mp4", "assets/welcome/mobile.webm", "assets/welcome/intro-mobile.mp4"]
+    : ["assets/welcome/desktop.mp4", "assets/welcome/desktop.webm", "assets/welcome/intro-desktop.mp4"];
+  return primary.concat(["assets/welcome/intro.mp4", "assets/welcome/intro.webm", "assets/welcome/welcome.mp4"]);
 }
 async function playWelcome() {
   const wrap = $("welcome");
@@ -6544,4 +6544,4 @@ async function boot() {
 }
 
 boot();
-if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => {});
+if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
