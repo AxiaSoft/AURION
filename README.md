@@ -4,6 +4,24 @@ Intelligent live execution operating system for **MetaTrader 5**.
 
 AURION never invents candles, fills, equity, or AI signals. If the terminal is unreachable the desk shows a disconnected state and waits for a real tape.
 
+## Try the desk in a browser
+
+**<https://axiasoft.github.io/AURION/>** — the real desk, running on sample data.
+
+There is no Node desk and no Python engine behind a static site, so that page
+loads [`apps/web/js/demo.js`](apps/web/js/demo.js), which answers the API and
+the websocket from canned responses captured off a running desk. The one rule
+above still holds: the demo is the single place where AURION shows data that
+did not come from a terminal, it is labelled as such in a banner on every
+screen, and every write — orders, key activation, config — is refused rather
+than faked. It is there to show you the interface, not to trade.
+
+Regenerate the captured responses with a desk running locally:
+
+```bash
+npm run demo:capture
+```
+
 ```
 MT5 terminal ── AurionBridge.mq5 ──┐
                                    ├── Python engine (AI, strategies, prop, backtest)
@@ -124,7 +142,7 @@ two that matter most:
 ### Tests
 
 ```bash
-npm test                              # JS: syntax, chart/theme units, static guards, jsdom render
+npm test                              # JS: syntax, chart/theme units, static guards, jsdom render, demo
 pytest engine/tests -q                # engine: 160 tests
 node scripts/check-lang.mjs           # en / fa / ar key parity
 npm --prefix store/keyserver test     # key server + Ed25519 parity with the engine

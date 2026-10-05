@@ -204,6 +204,12 @@
   <div class="toast-wrap" id="toasts"></div>
   <div class="notify-stack" id="notify-stack" hidden></div>
   <div class="pay-veil hidden" id="pay-veil"></div>
+  <!--
+    Loaded before everything that talks to the network.  It is inert unless
+    the page is opened as a demo (?demo=1, a github.io host, or file://), so
+    the real desk pays one parse and nothing else.
+  -->
+  <script src="js/demo.js?v=desk111"></script>
   <script src="js/i18n.js?v=desk111"></script>
   <script src="js/api.js?v=desk85"></script>
   <script src="js/calendar.js?v=desk85"></script>

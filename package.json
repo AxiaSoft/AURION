@@ -5,11 +5,13 @@
   "scripts": {
     "start": "node backend/src/index.js",
     "engine": "python engine/main.py --host 127.0.0.1 --port 18765",
-    "test": "npm run test:syntax && npm run test:unit && npm run test:static && npm run test:render",
+    "test": "npm run test:syntax && npm run test:unit && npm run test:static && npm run test:render && npm run test:demo",
     "test:unit": "node --test apps/web/js/*.test.cjs",
     "test:static": "node apps/web/js/check-views.mjs && node apps/web/js/check-calls.mjs",
     "test:render": "node tests/desk-render.test.js",
-    "test:syntax": "node scripts/check-syntax.mjs"
+    "test:syntax": "node scripts/check-syntax.mjs",
+    "test:demo": "node tests/demo-mode.test.js",
+    "demo:capture": "node scripts/capture-demo-fixtures.mjs"
   },
   "devDependencies": {
     "acorn": "^8.12.1",

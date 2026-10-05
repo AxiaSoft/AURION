@@ -18,7 +18,7 @@ git push
 
 | Job | What it checks |
 |---|---|
-| `desk` | Node 18 / 20 / 22 — `npm test` (syntax, unit, static guards, jsdom render), then boots the desk and hits `/api/health` |
+| `desk` | Node 18 / 20 / 22 — `npm test` (syntax, unit, static guards, jsdom render, GitHub Pages demo), then boots the desk and hits `/api/health` |
 | `engine` | Python 3.10 / 3.11 / 3.12 — `pytest engine/tests`, then boots the engine and hits `/health` |
 | `keyserver` | `store/keyserver` tests, including the Ed25519 parity check that mints keys in Node and decodes them in Python (and back) |
 | `translations` | `lang/en.json`, `fa.json` and `ar.json` must define exactly the same keys |
