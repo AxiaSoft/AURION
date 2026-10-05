@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
 import threading
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
-from ..config import ROOT, load
+from ..config import DATA_DIR, ROOT, load
 from ..util.clock import utc_iso
 
 SCHEMA = """
@@ -154,7 +155,7 @@ def _is_close_row(kind: str, entry: str, profit: Any) -> bool:
 class Store:
     def __init__(self, path: Path | None = None) -> None:
         cfg = load()
-        data_dir = ROOT / cfg["paths"]["data"]
+        data_dir = DATA_DIR if os.environ.get("AURION_DATA_DIR") else ROOT / cfg["paths"]["data"]
         data_dir.mkdir(parents=True, exist_ok=True)
         self.path = path or (data_dir / "aurion.engine.db")
         self._lock = threading.RLock()

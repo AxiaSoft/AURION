@@ -11,6 +11,9 @@ process.env.DATA_DIR = mkdtempSync(join(tmpdir(), "aurion-keys-test-"));
 // RFC 8032 test seed/public pair (test-only issuer; keys.js honors AURION_KEY_PUBLIC_HEX).
 process.env.AURION_KEY_PRIVATE_HEX = "9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60";
 process.env.AURION_KEY_PUBLIC_HEX = "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a";
+// The OTP is only echoed back in the response when this is opted into;
+// production delivers it by mail/SMS and never in the body.
+process.env.DEV_OTP_FALLBACK = "1";
 process.env.ADMIN_TOKEN = "test-admin-token-123";
 process.env.ADMIN_FAIL_LIMIT = "3";
 process.env.JWT_SECRET = "test-jwt";

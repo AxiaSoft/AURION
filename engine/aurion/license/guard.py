@@ -12,7 +12,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
-from ..config import ROOT, load
+from ..config import DATA_DIR, ROOT, load
 from .ed25519 import sign as _ed_sign
 from .ed25519 import verify as _ed_verify
 from .material import ED25519_PUBLIC_HEX, ISSUER, PRODUCT
@@ -57,7 +57,7 @@ HEARTBEAT_MIN_INTERVAL_SEC = 12 * 3600
 
 log = logging.getLogger(__name__)
 
-DIR = ROOT / "data" / "license"
+DIR = DATA_DIR / "license"
 STATE = DIR / "state.json"
 USED = DIR / "used.json"
 KEY_RE = re.compile(r"^(AXIA|AXI-DEV)(?:-[A-Z0-9]{2,4})+$")

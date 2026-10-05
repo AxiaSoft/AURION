@@ -67,16 +67,42 @@ try {
 } catch { /* keep going without file tee */ }
 const app = express();
 app.disable("x-powered-by");
+
+// ---------------------------------------------------------------------------
+// Deployment overrides.
+//
+// The desk is a *local* application: by default nothing may frame it and only
+// loopback origins may call it. Running it behind a reverse proxy (a remote
+// VPS, a preview/tunnel host, a container) needs both of those relaxed for
+// exactly the hosts the operator names — never implicitly.
+//
+//   AURION_ALLOWED_ORIGINS  comma-separated extra CORS origins
+//                           ("https://desk.example.com"), or "*" for any.
+//   AURION_FRAME_ANCESTORS  comma-separated hosts allowed to frame the desk,
+//                           or "*" for any. Unset keeps X-Frame-Options: DENY.
+// ---------------------------------------------------------------------------
+const envList = (name) => String(process.env[name] || "")
+  .split(",").map((s) => s.trim()).filter(Boolean);
+
+const extraOrigins = envList("AURION_ALLOWED_ORIGINS");
+const originWildcard = extraOrigins.includes("*");
+const frameAncestors = envList("AURION_FRAME_ANCESTORS");
+
 // Security headers
 app.use((req, res, next) => {
   res.setHeader("X-Content-Type-Options", "nosniff");
-  res.setHeader("X-Frame-Options", "DENY");
+  if (frameAncestors.length === 0) {
+    res.setHeader("X-Frame-Options", "DENY");
+  }
   res.setHeader("X-XSS-Protection", "0");
   res.setHeader("Referrer-Policy", "no-referrer");
   res.setHeader("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
   // CSP for API - very strict
   if (req.path.startsWith("/api/") || req.path.startsWith("/v1/")) {
     res.setHeader("Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'");
+  } else if (frameAncestors.length) {
+    const sources = frameAncestors.includes("*") ? "*" : frameAncestors.join(" ");
+    res.setHeader("Content-Security-Policy", `frame-ancestors ${sources}`);
   }
   if (process.env.NODE_ENV === "production") {
     res.setHeader("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
@@ -88,6 +114,7 @@ app.use(cors({
   origin: (origin, cb) => {
     if (!origin) return cb(null, true); // curl, same-origin
     if (allowedOriginRegex.test(origin)) return cb(null, true);
+    if (originWildcard || extraOrigins.includes(origin)) return cb(null, true);
     // For development, allow file:// is handled as no origin
     return cb(null, false);
   },

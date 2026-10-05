@@ -23,6 +23,10 @@ const CandleChart = sandbox.__CandleChart;
 
 const chart = Object.create(CandleChart.prototype);
 chart.drawings = [];
+// changed() notifies the host through opts.onChange; the bare prototype has
+// no constructor run, so give it an empty option bag.
+chart.opts = {};
+chart.draw = () => {};
 // A layout where price maps 1:1 to y and bar index 1:1 to x, so the numbers in
 // the assertions are the numbers in the picture.
 const L = {};
@@ -30,6 +34,9 @@ chart.xyOf = (_L, pt) => (pt ? { x: pt.gi * 10, y: pt.p } : null);
 
 let passed = 0;
 const check = (name, fn) => { fn(); passed++; console.log("  ok  " + name); };
+
+/** Just the coordinates of an anchor — drops caches like the resolved time. */
+const at = (pt) => ({ gi: pt.gi, p: pt.p });
 
 check("distance to a segment is measured to the segment, not its ends", () => {
   const a = { x: 0, y: 0 }, b = { x: 100, y: 0 };
@@ -68,16 +75,19 @@ check("moving a shape moves every anchor together", () => {
   chart.selected = shape;
   chart.draw = () => {};
   chart.moveSelected({ gi: 0, p: 0 }, { gi: 2, p: 5 }, null);
-  assert.deepEqual(shape.a, { gi: 2, p: 5 });
-  assert.deepEqual(shape.b, { gi: 12, p: 105 }, "the shape keeps its size");
+  // moveSelected also clears the cached timestamp (t) on every anchor it
+  // touches, so the anchor re-resolves against the bar it landed on. Only the
+  // coordinates matter here.
+  assert.deepEqual(at(shape.a), { gi: 2, p: 5 });
+  assert.deepEqual(at(shape.b), { gi: 12, p: 105 }, "the shape keeps its size");
 });
 
 check("dragging one handle moves only that handle", () => {
   const shape = { kind: "trend", a: { gi: 0, p: 0 }, b: { gi: 10, p: 100 } };
   chart.selected = shape;
   chart.moveSelected({ gi: 10, p: 100 }, { gi: 14, p: 120 }, "b");
-  assert.deepEqual(shape.a, { gi: 0, p: 0 }, "the other end stays put");
-  assert.deepEqual(shape.b, { gi: 14, p: 120 });
+  assert.deepEqual(at(shape.a), { gi: 0, p: 0 }, "the other end stays put");
+  assert.deepEqual(at(shape.b), { gi: 14, p: 120 });
 });
 
 check("delete removes the selection and nothing else", () => {

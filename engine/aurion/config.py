@@ -9,10 +9,20 @@ from pathlib import Path
 from typing import Any
 
 ROOT = Path(__file__).resolve().parents[2]
-CONFIG_PATH = ROOT / "config" / "aurion.json"
-FACTORY_PATH = ROOT / "config" / "aurion.factory.json"
-STATE_PATH = ROOT / "data" / "runtime-state.json"
-BACKUP_PATH = ROOT / "data" / "settings-backup.json"
+
+# Everything the engine writes at runtime lives under one directory, so a
+# deployment can point it at a volume or a throwaway sandbox instead of the
+# source tree. Unset keeps the historical <repo>/data layout. The Node desk
+# honours the same variable.
+DATA_DIR = Path(os.environ["AURION_DATA_DIR"]).resolve() if os.environ.get("AURION_DATA_DIR") else ROOT / "data"
+
+CONFIG_DIR = Path(os.environ["AURION_CONFIG_DIR"]).resolve() if os.environ.get("AURION_CONFIG_DIR") else ROOT / "config"
+CONFIG_PATH = CONFIG_DIR / "aurion.json"
+FACTORY_PATH = CONFIG_DIR / "aurion.factory.json"
+if not FACTORY_PATH.exists():
+    FACTORY_PATH = ROOT / "config" / "aurion.factory.json"
+STATE_PATH = DATA_DIR / "runtime-state.json"
+BACKUP_PATH = DATA_DIR / "settings-backup.json"
 
 _lock = threading.RLock()
 _cache: dict[str, Any] | None = None

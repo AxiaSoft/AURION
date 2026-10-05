@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from ..config import ROOT, abspath, load
+from ..config import DATA_DIR, ROOT, abspath, load
 from ..util.clock import utc_iso
 from ..util.log import get
 from .profiles import LOCKED_IDS, get_profile
@@ -17,7 +17,7 @@ log = get("prop")
 # re-baseline on every boot (a restart in the middle of a losing day would wipe
 # the daily-loss guard); with it the baseline is bound to one account + one UTC
 # day and is never reused for a different login.
-STATE_FILE = ROOT / "data" / "prop-day.json"
+STATE_FILE = DATA_DIR / "prop-day.json"
 
 
 def account_key(account: dict[str, Any] | None) -> str:

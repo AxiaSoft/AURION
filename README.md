@@ -93,6 +93,45 @@ bash scripts/start.sh
 
 Execution still needs a Windows/VPS MetaTrader 5 terminal with AurionBridge attached.
 
+## From a clone — the short version
+
+Two processes, no build step. The engine owns MT5, the AI and the strategies;
+the desk serves `apps/web` and proxies the engine.
+
+```bash
+git clone https://github.com/AxiaSoft/AURION.git && cd AURION
+
+python3 -m venv .venv && . .venv/bin/activate     # Python 3.10–3.12, never 3.13+
+pip install -r engine/requirements.txt
+npm install && npm --prefix backend install
+
+python engine/main.py --host 127.0.0.1 --port 18765 &   # engine
+node backend/src/index.js                               # desk → http://127.0.0.1:8080
+```
+
+First launch creates the administrator. There is no factory password.
+
+### Configuration
+
+Everything is optional and documented in [`.env.example`](.env.example). The
+two that matter most:
+
+| Variable | What it does |
+|---|---|
+| `AURION_DATA_DIR` | Move everything written at runtime (databases, JWT secret, logs, exports, licence state) out of the source tree. Honoured by the desk **and** the engine. |
+| `AURION_FRAME_ANCESTORS` / `AURION_ALLOWED_ORIGINS` | Required to run behind a reverse proxy. The desk is a local application by default: it refuses to be framed and accepts CORS only from loopback. |
+
+### Tests
+
+```bash
+npm test                              # JS: syntax, chart/theme units, static guards, jsdom render
+pytest engine/tests -q                # engine: 160 tests
+node scripts/check-lang.mjs           # en / fa / ar key parity
+npm --prefix store/keyserver test     # key server + Ed25519 parity with the engine
+```
+
+All four are wired into a GitHub Actions pipeline — [`.github/ci-workflow.yml`](.github/ci-workflow.yml). It ships parked next to the workflows directory rather than inside it; [`.github/README.md`](.github/README.md) has the one command that activates it.
+
 ## MetaTrader 5
 
 Compile `engine/ea/AurionBridge.mq5` with **F7**. Version must be **1.17**. Attach it to every chart you want on the desk. AutoTrading green. Not Strategy Tester.

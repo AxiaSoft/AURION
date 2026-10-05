@@ -10,7 +10,7 @@ from collections import defaultdict, deque
 from pathlib import Path
 from typing import Any, Awaitable, Callable
 
-from ..config import ROOT, load
+from ..config import DATA_DIR, ROOT, load
 from ..util.clock import utc_iso
 from ..util.log import get
 from .native import AVAILABLE as NATIVE_AVAILABLE
@@ -1288,7 +1288,7 @@ class MT5Bridge:
             seen.add(key)
             dirs.append(path)
 
-        add(ROOT / "data" / "ea-inbox")
+        add(DATA_DIR / "ea-inbox")
         appdata = os.environ.get("APPDATA") or ""
         home = os.environ.get("HOME") or ""
         roots: list[Path] = []

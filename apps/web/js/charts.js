@@ -417,8 +417,18 @@ class CandleChart {
     return d;
   }
 
+  /**
+   * Remove a drawing.
+   *
+   * Takes the id or the object itself. Matching on the object matters: not
+   * every shape carries an id (ones built in-memory and never persisted do
+   * not), and `d.id === undefined` would happily match the first such shape
+   * in the list rather than the one actually being deleted.
+   */
   removeObject(id) {
-    const at = this.drawings.findIndex((d) => d.id === id);
+    const at = (id && typeof id === "object")
+      ? this.drawings.indexOf(id)
+      : (id === undefined || id === null ? -1 : this.drawings.findIndex((d) => d.id === id));
     if (at < 0) return false;
     this.snapshot();
     const [gone] = this.drawings.splice(at, 1);
@@ -459,7 +469,9 @@ class CandleChart {
 
   deleteSelected() {
     if (!this.selected) return false;
-    return this.removeObject(this.selected.id);
+    // By reference, not by id — the selection is the shape, and it may not
+    // have an id yet.
+    return this.removeObject(this.selected);
   }
 
   /* ========================================================== indicators == */
@@ -2841,7 +2853,7 @@ class CandleChart {
       }
       const found = this.shapeAt(hit.L, hit.x, hit.y);
       if (this.tool === "eraser") {
-        if (found) this.removeObject(found.shape.id);
+        if (found) this.removeObject(found.shape);
         return;
       }
       if (found) {

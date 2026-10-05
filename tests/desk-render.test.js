@@ -24,6 +24,13 @@ const { JSDOM, VirtualConsole } = require(require.resolve("jsdom"));
 
 const WEB = path.join(__dirname, "..", "apps", "web");
 
+// The calendar opens on the *current* month, so the fixture has to land in it
+// — a hard-coded date turns this suite into a time bomb that starts failing
+// the month after it was written.
+const NOW = new Date();
+const dayInThisMonth = (day, hhmm) =>
+  `${NOW.getUTCFullYear()}-${String(NOW.getUTCMonth() + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}T${hhmm}:00Z`;
+
 const NEWS = {
   ok: true,
   data: {
@@ -32,9 +39,9 @@ const NEWS = {
     blackout_before: 15,
     blackout_after: 15,
     events: [
-      { time: "2026-09-05T12:30:00Z", currency: "USD", impact: "high", title: "Non-Farm Payrolls" },
-      { time: "2026-09-05T14:00:00Z", currency: "EUR", impact: "medium", title: "ECB Press Conference" },
-      { time: "2026-09-07T01:00:00Z", currency: "AUD", impact: "low", title: "RBA Rate Decision" },
+      { time: dayInThisMonth(5, "12:30"), currency: "USD", impact: "high", title: "Non-Farm Payrolls" },
+      { time: dayInThisMonth(5, "14:00"), currency: "EUR", impact: "medium", title: "ECB Press Conference" },
+      { time: dayInThisMonth(7, "01:00"), currency: "AUD", impact: "low", title: "RBA Rate Decision" },
     ],
   },
 };
