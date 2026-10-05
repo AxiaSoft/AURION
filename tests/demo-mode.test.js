@@ -98,6 +98,37 @@ async function main() {
       win.ResizeObserver = class { observe() {} unobserve() {} disconnect() {} };
       win.IntersectionObserver = class { observe() {} unobserve() {} disconnect() {} };
       win.scrollTo = () => {};
+      win.Element.prototype.setPointerCapture = function () {};
+      win.Element.prototype.releasePointerCapture = function () {};
+      win.Element.prototype.hasPointerCapture = function () { return false; };
+      // jsdom has no canvas backend, so getContext("2d") returns null and the
+      // chart dies on its first paint. This records the drawing instead of
+      // rasterising it, which is better than a real canvas here: the test can
+      // then assert on what the chart drew rather than on pixels.
+      win.HTMLCanvasElement.prototype.getContext = function () {
+        const calls = (this.__calls = this.__calls || []);
+        const noop = (name) => (...args) => { calls.push([name, ...args]); };
+        const ctx = {
+          canvas: this, __calls: calls,
+          fillStyle: "", strokeStyle: "", lineWidth: 1, font: "", textAlign: "",
+          textBaseline: "", globalAlpha: 1, lineCap: "", lineJoin: "", filter: "",
+          shadowBlur: 0, shadowColor: "", lineDashOffset: 0,
+          measureText: () => ({ width: 10 }),
+          createLinearGradient: () => ({ addColorStop() {} }),
+          createRadialGradient: () => ({ addColorStop() {} }),
+          createPattern: () => null,
+          getImageData: () => ({ data: new Uint8ClampedArray(4) }),
+          putImageData: noop("putImageData"),
+          setLineDash: noop("setLineDash"), getLineDash: () => [],
+          isPointInPath: () => false, isPointInStroke: () => false,
+        };
+        for (const m of ["setTransform", "resetTransform", "transform", "scale", "rotate",
+          "translate", "save", "restore", "beginPath", "closePath", "moveTo", "lineTo",
+          "bezierCurveTo", "quadraticCurveTo", "arc", "arcTo", "ellipse", "rect",
+          "roundRect", "fill", "stroke", "clip", "clearRect", "fillRect", "strokeRect",
+          "fillText", "strokeText", "drawImage"]) ctx[m] = noop(m);
+        return ctx;
+      };
       // jsdom has no fetch at all.  The demo replaces it for /api/*, but the
       // language pack is a real file request and has to reach the server,
       // and Node's fetch will not take the relative URL the desk uses.
@@ -159,9 +190,61 @@ async function main() {
 
   check("the AI panel is populated", /63%/.test(txt()));
 
+  check("the desk believes a chart feed is attached",
+    /EURUSD/.test(txt()) && /M15/.test(txt()));
+
   const engine = $("st-engine");
   check("the engine chip reads live", engine && engine.getAttribute("data-state") === "live",
     engine ? `data-state=${engine.getAttribute("data-state")}` : "no chip");
+
+  // The chart. The whole reason the demo claims attached chart agents is so
+  // a visitor has something to pan, zoom and draw on.
+  const navCharts = window.document.querySelector("[data-view='markets'], [data-nav='markets']")
+    || Array.from(window.document.querySelectorAll("nav a, nav button, [data-view]"))
+      .find((el) => /markets|بازار/i.test(el.textContent || ""));
+  check("the markets view is reachable", Boolean(navCharts),
+    navCharts ? (navCharts.textContent || "").trim().slice(0, 24) : "no nav entry");
+
+  if (navCharts) {
+    navCharts.click();
+    await sleep(2000);
+  }
+
+  const cv = $("cv");
+  check("the chart canvas mounted", Boolean(cv));
+
+  // The recording context makes the drawing itself assertable. A candle is a
+  // stroked path per bar, so the stroke count is the honest measure of
+  // "something was plotted"; fillText carries the axes.
+  const drawn = () => (cv && cv.__calls) || [];
+  const strokes = () => drawn().filter((c) => c[0] === "stroke").length;
+  const labels = () => drawn().filter((c) => c[0] === "fillText").map((c) => String(c[1]));
+
+  check("the chart plotted the bars", strokes() > 100, `${strokes()} stroked paths`);
+  check("the chart printed a price axis",
+    labels().filter((t) => /^\d+\.\d{3,}$/.test(t)).length >= 3,
+    labels().filter((t) => /^\d+\.\d{3,}$/.test(t)).slice(0, 4).join("  "));
+
+  const chartTxt = () => (cv && cv.parentElement ? cv.parentElement.textContent : "");
+  check("the chart is not showing its empty state",
+    !/waiting|empty|منتظر/i.test(chartTxt()), chartTxt().trim().slice(0, 48) || "(canvas only)");
+
+  // Interaction: the desk binds these to the canvas, and a chart that throws
+  // on the first wheel event is worse than no chart.
+  let threw = "";
+  const before = strokes();
+  try {
+    const ev = (type, init) => cv.dispatchEvent(new window.MouseEvent(type, Object.assign({ bubbles: true, clientX: 300, clientY: 200 }, init)));
+    cv.dispatchEvent(new window.WheelEvent("wheel", { bubbles: true, deltaY: -120, clientX: 300, clientY: 200 }));
+    ev("pointerdown"); ev("pointermove", { clientX: 220 }); ev("pointerup", { clientX: 220 });
+    ev("mousedown"); ev("mousemove", { clientX: 180 }); ev("mouseup", { clientX: 180 });
+    cv.dispatchEvent(new window.WheelEvent("wheel", { bubbles: true, deltaY: 240, clientX: 300, clientY: 200 }));
+  } catch (e) { threw = String(e && e.message); }
+  check("zooming and dragging the chart does not throw", !threw, threw);
+
+  await sleep(400);
+  check("interacting repaints the chart", strokes() > before,
+    `${before} -> ${strokes()} stroked paths`);
 
   // The transport, checked directly: the desk draws these but a canvas tells
   // a headless test nothing.

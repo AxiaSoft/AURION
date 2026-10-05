@@ -142,8 +142,28 @@ if ($SkipNpm) {
 # ---------------------------------------------------------------------------
 # 3. Web desk, translations, helper scripts
 # ---------------------------------------------------------------------------
-Say "apps\web\"
-Copy-Tree -From (Join-Path $Root "apps/web") -To (Join-Path $appDir "apps/web")
+Say "apps\web\  (without the GitHub Pages demo)"
+# apps\web\demo\ and js\demo.js are the public demo: they stand in for the
+# desk API and the engine so the published web page has something to show.
+# An installed copy has both services for real, so shipping them would mean
+# putting a fake tape next to a live one on a trader's machine. They stay out.
+Copy-Tree -From (Join-Path $Root "apps/web") -To (Join-Path $appDir "apps/web") `
+          -ExcludeDirs @("demo") -ExcludeFiles @("demo.js")
+
+# ...and the tag that loads it, so the installed desk does not ask for a file
+# that is deliberately absent. Matched on the src attribute rather than the
+# whole line so a reformat of index.html cannot quietly stop this working.
+$deskIndex = Join-Path $appDir "apps/web/index.html"
+$indexHtml = Get-Content -LiteralPath $deskIndex -Raw
+$stripped  = [regex]::Replace(
+    $indexHtml,
+    '(?s)\s*<!--(?:(?!-->).)*?-->\s*(?=<script[^>]*\bsrc="js/demo\.js)|\s*<script[^>]*\bsrc="js/demo\.js[^>]*>\s*</script>',
+    '')
+if ($stripped -eq $indexHtml) {
+    throw "apps\web\index.html no longer loads js/demo.js the way stage.ps1 expects. Check the script tag before shipping."
+}
+Set-Content -LiteralPath $deskIndex -Value $stripped -NoNewline
+
 # __*.html are local scratch pages used to eyeball skins during development.
 # They are git-ignored, but a developer's working copy is what gets staged, so
 # the payload drops them explicitly rather than trusting that.
@@ -154,7 +174,10 @@ Say "lang\"
 Copy-Tree -From (Join-Path $Root "lang") -To (Join-Path $appDir "lang")
 
 Say "scripts\"
-Copy-Tree -From (Join-Path $Root "scripts") -To (Join-Path $appDir "scripts")
+# capture-demo-fixtures.mjs only exists to regenerate the public demo's canned
+# responses. It is a maintainer tool, not part of the product.
+Copy-Tree -From (Join-Path $Root "scripts") -To (Join-Path $appDir "scripts") `
+          -ExcludeFiles @("capture-demo-fixtures.mjs")
 
 # ---------------------------------------------------------------------------
 # 4. Configuration
@@ -214,7 +237,14 @@ $forbidden = @(
     @{ Pattern = "*.xlsx";            Why = "exported trading history" },
     @{ Pattern = "*.log";             Why = "runtime log" },
     @{ Pattern = "state.json";        Why = "licence state" },
-    @{ Pattern = "used.json";         Why = "licence state" }
+    @{ Pattern = "used.json";         Why = "licence state" },
+    # Scoped with Under, because unlike "jwt.secret" these are ordinary
+    # filenames. Sweeping the whole payload for "fixtures.js" would turn the
+    # day some transitive npm dependency ships one into a baffling build
+    # failure about a demo the dependency has never heard of.
+    @{ Pattern = "demo.js";     Why = "GitHub Pages demo - fakes the API and the engine"; Under = "app/apps/web" },
+    @{ Pattern = "fixtures.js"; Why = "GitHub Pages demo data";                           Under = "app/apps/web" },
+    @{ Pattern = "capture-demo-fixtures.mjs"; Why = "demo maintenance tool";              Under = "app/scripts" }
 )
 # NOTE: the accumulation below deliberately uses foreach statements, not the
 # ForEach-Object cmdlet. Assigning to $problems inside a cmdlet script block
@@ -222,13 +252,21 @@ $forbidden = @(
 # safety net would silently pass everything.
 $problems = @()
 foreach ($rule in $forbidden) {
-    $hits = @(Get-ChildItem -Path $Stage -Recurse -File -Filter $rule.Pattern -ErrorAction SilentlyContinue)
+    $searchRoot = if ($rule.ContainsKey("Under")) { Join-Path $Stage $rule.Under } else { $Stage }
+    if (-not (Test-Path $searchRoot)) { continue }
+    $hits = @(Get-ChildItem -Path $searchRoot -Recurse -File -Filter $rule.Pattern -ErrorAction SilentlyContinue)
     foreach ($hit in $hits) {
         $problems += ("{0}  <- {1}" -f $hit.FullName.Substring($Stage.Length), $rule.Why)
     }
 }
 foreach ($dir in @("store", "admin", ".git", "data")) {
     if (Test-Path (Join-Path $appDir $dir)) { $problems += "$dir\  <- must not be installed on a trader machine" }
+}
+# A dangling <script src="js/demo.js"> would be a 404 on every desk launch,
+# and is the tell-tale that the strip above silently stopped matching.
+$shipped = Get-Content -LiteralPath (Join-Path $appDir "apps/web/index.html") -Raw
+if ($shipped -match 'demo\.js|AURION_DEMO') {
+    $problems += "apps\web\index.html  <- still references the demo"
 }
 if ($problems.Count -gt 0) {
     Write-Host ""

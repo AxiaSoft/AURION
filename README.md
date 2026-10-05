@@ -10,11 +10,22 @@ AURION never invents candles, fills, equity, or AI signals. If the terminal is u
 
 There is no Node desk and no Python engine behind a static site, so that page
 loads [`apps/web/js/demo.js`](apps/web/js/demo.js), which answers the API and
-the websocket from canned responses captured off a running desk. The one rule
-above still holds: the demo is the single place where AURION shows data that
-did not come from a terminal, it is labelled as such in a banner on every
-screen, and every write — orders, key activation, config — is refused rather
-than faked. It is there to show you the interface, not to trade.
+the websocket from canned responses captured off a running desk. You get the
+gate, the book, the account, the AI panel, and a live chart you can pan, zoom
+and draw on — enough to find out whether the desk suits you before installing
+anything.
+
+The one rule above still holds: the demo is the single place where AURION
+shows data that did not come from a terminal, it is labelled as such in a
+banner on every screen, and every write — orders, key activation, config — is
+refused rather than faked. It is there to show you the interface, not to trade.
+
+**It is not in the MSI.** `apps/web/demo/` and `js/demo.js` are dropped from
+the installer payload and the tag that loads them is stripped out of the
+installed `index.html`, because an installed copy has a real desk and a real
+engine and must never have a fake tape sitting next to the live one. The
+staging script fails the build if either survives — see
+[`installer/README.md`](installer/README.md).
 
 Regenerate the captured responses with a desk running locally:
 

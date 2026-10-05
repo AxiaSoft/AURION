@@ -223,6 +223,35 @@
     });
   }
 
+  /**
+   * The chart agents the desk thinks are attached.
+   *
+   * This is what makes the chart appear at all.  The desk refuses to draw a
+   * tape it was not given -- eaLive() gates the markets and charts views on
+   * there being at least one live AurionBridge chart, which is the rule that
+   * keeps the real product from ever showing an invented candle.  The demo
+   * does not get to bypass that rule, so it satisfies it honestly: it says
+   * these charts are attached, and then serves their bars.
+   */
+  function agents() {
+    return WATCH.map((symbol, i) => ({
+      chart_id: String(132000 + i),
+      symbol,
+      timeframe: "M15",
+      ea_name: "AurionBridge",
+      version: "1.17",
+      status: "online",
+      last_seen: new Date().toISOString(),
+      last_signal: {},
+      params: {},
+      logs: [],
+      performance: {},
+      tester: false,
+      mode: "live",
+      live: true,
+    }));
+  }
+
   function account(pos) {
     const open = pos.reduce((a, p) => a + p.profit, 0);
     return {
@@ -277,6 +306,8 @@
     d.active_symbol = d.active_symbol || "EURUSD";
     d.active_timeframe = d.active_timeframe || "M15";
     d.positions = pos;
+    d.agents = agents();
+    d.tape = "live";
     d.ticks = {};
     for (const s of WATCH) d.ticks[s] = tick(s);
 
@@ -368,6 +399,8 @@
     }
 
     if (p === "/api/chart/signals") return { ok: true, data: [] };
+
+    if (p === "/api/agents") return { ok: true, data: agents() };
 
     if (p === "/api/symbols") {
       const f = fixture("/api/symbols") || { ok: true, data: {} };
@@ -483,6 +516,7 @@
         const pos = positions();
         this._emit({ type: "positions", data: { items: pos } });
         this._emit({ type: "account", data: account(pos) });
+        this._emit({ type: "agents", data: agents() });
       }, 5000));
     }
     send() { /* the demo has nothing to say back */ }
@@ -502,22 +536,20 @@
   /* ============================================================= banner == */
 
   const BANNER = {
-    en: ["Demo", "Sample data. No broker, no engine, nothing is traded.", "Source"],
-    fa: ["دمو", "داده‌ی نمونه. بدون بروکر، بدون موتور، هیچ معامله‌ای انجام نمی‌شود.", "سورس"],
-    ar: ["عرض", "بيانات نموذجية. بلا وسيط ولا محرك، ولا تنفيذ لأي صفقة.", "المصدر"],
+    en: ["Demo", "Sample data. No broker, no engine, nothing is traded."],
+    fa: ["دمو", "داده‌ی نمونه. بدون بروکر، بدون موتور، هیچ معامله‌ای انجام نمی‌شود."],
+    ar: ["عرض", "بيانات نموذجية. بلا وسيط ولا محرك، ولا تنفيذ لأي صفقة."],
   };
 
   function banner() {
     let lang = "en";
     try { lang = localStorage.getItem("aurion.lang") || "en"; } catch {}
-    const [tag, text, src] = BANNER[lang] || BANNER.en;
+    const [tag, text] = BANNER[lang] || BANNER.en;
     const rtl = lang === "fa" || lang === "ar";
     const el = document.createElement("div");
     el.id = "demo-banner";
     el.dir = rtl ? "rtl" : "ltr";
-    el.innerHTML =
-      `<strong>${tag}</strong><span>${text}</span>` +
-      `<a href="https://github.com/AxiaSoft/AURION" target="_blank" rel="noopener">${src}</a>`;
+    el.innerHTML = `<strong>${tag}</strong><span>${text}</span>`;
     const css = document.createElement("style");
     css.textContent = `
       #demo-banner{position:fixed;left:0;right:0;bottom:0;z-index:99999;
@@ -527,7 +559,6 @@
       #demo-banner strong{background:#e8b83c;color:#1b1205;border-radius:4px;
         padding:1px 7px;font-size:11px;letter-spacing:.06em;text-transform:uppercase}
       #demo-banner span{color:#c9a861}
-      #demo-banner a{color:#e8b83c}
       @media(max-width:520px){#demo-banner span{display:none}}
     `;
     document.head.appendChild(css);

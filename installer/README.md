@@ -97,6 +97,16 @@ panel), `data/` (databases, logs, exports, `jwt.secret`, licence state) and
 file matching a secret pattern, reaches the payload — see the verification block
 at the end of `tools/stage.ps1`.
 
+**Also never installed: the public demo.** `apps/web/demo/` and
+`apps/web/js/demo.js` exist so the GitHub Pages build has something to show —
+they stand in for the desk API and the engine and serve a canned tape. An
+installed copy has both services for real, so shipping the demo would put a
+fake tape next to a live one on a trader's machine. Staging drops those files,
+strips the `<script src="js/demo.js">` tag out of the installed `index.html`,
+and then fails the build if either survives. If you ever rename or reformat
+that tag, staging stops with a message telling you so rather than shipping a
+desk that 404s on launch.
+
 The key server, the admin key-minting tool and the update panel are hosted
 separately, exactly as intended; this MSI is the trader-machine half only.
 
@@ -270,7 +280,8 @@ it is the one that failed.
 | Symptom | Where to look |
 |---|---|
 | Build fails | `installer\output\build.binlog`, open with <https://msbuildlog.com> |
-| "Payload rejected" | `stage.ps1` found a secret or a hosted-service folder in the payload |
+| "Payload rejected" | `stage.ps1` found a secret, a hosted-service folder, or the web demo in the payload |
+| "index.html no longer loads js/demo.js" | the demo script tag was renamed or reformatted; update the strip in `stage.ps1` |
 | Install rolls back | `Return value 3` in the MSI log |
 | Desk will not start after install | `data\logs\engine.log` and `data\logs\desk.log` in the install folder |
 | Wizard says a runtime is missing | Install Python 3.12 / Node.js 18+, then `pip install -r engine\requirements.txt` |
