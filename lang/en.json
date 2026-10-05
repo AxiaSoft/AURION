@@ -816,7 +816,10 @@
     "limits": "Free mode: prop profiles, scalping style and strategy upload are locked.",
     "engine_wait": "Waiting for the engine…",
     "state_free": "Free mode — premium features locked",
-    "state_prem": "Premium active — welcome back"
+    "state_prem": "Premium active — welcome back",
+    "engine_down": "The engine is not responding",
+    "engine_hint": "Start it with: python engine/main.py --host 127.0.0.1 --port 18765",
+    "retry": "Try again"
   },
   "lic": {
     "freemium": "Freemium",

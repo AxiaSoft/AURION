@@ -6222,11 +6222,22 @@ function licErrText(code, r) {
   return text;
 }
 
+/**
+ * Ask the engine (through the desk) what licence this machine holds.
+ *
+ * Returns the licence on success. On failure it records *why* on S._gateErr
+ * so the gate can say something more useful than "waiting" forever — the
+ * engine takes a few seconds to import numpy and sklearn, but it can also be
+ * simply not running, and those two look identical from here.
+ */
 async function fetchLicense() {
   try {
     const r = await API.get("/api/license");
-    if (r && r.ok && r.data) return r.data;
-  } catch { /* engine still booting */ }
+    if (r && r.ok && r.data) { S._gateErr = ""; return r.data; }
+    S._gateErr = (r && (r.detail || r.error)) || "engine_offline";
+  } catch (e) {
+    S._gateErr = (e && e.message) || "network";
+  }
   return null;
 }
 
@@ -6237,11 +6248,22 @@ function paintGate() {
   markLangPills();
   const Lic = S._gateLic;
   const line = $("gate-state");
+  // The engine needs a few seconds to boot. Past that, waiting silently is a
+  // dead end: say it is offline, show what the desk actually got back, and
+  // offer a retry instead of an ellipsis that never resolves.
+  const stalled = !Lic && (S._gateTries || 0) >= 4;
   if (line) {
     if (Lic && Lic.premium) line.textContent = I18N.t("keygate.state_prem");
     else if (Lic) line.textContent = I18N.t("keygate.state_free");
-    else line.textContent = I18N.t("keygate.engine_wait");
+    else line.textContent = I18N.t(stalled ? "keygate.engine_down" : "keygate.engine_wait");
   }
+  const detail = $("gate-detail");
+  if (detail) {
+    detail.hidden = !stalled;
+    detail.textContent = stalled ? `${I18N.t("keygate.engine_hint")} · ${S._gateErr || "engine_offline"}` : "";
+  }
+  const retry = $("gate-retry");
+  if (retry) retry.hidden = !stalled;
   const buy = $("gate-buy");
   const store = (Lic && Lic.store_url) || "";
   if (buy) {
@@ -6258,13 +6280,31 @@ function showGate(lic) {
   setShell("auth");
   paintGate();
   bindGate();
-  // While the gate is up, keep re-checking (engine boot, key activated elsewhere).
+  // While the gate is up, keep re-checking (engine boot, key activated
+  // elsewhere). Poll every second to begin with -- the common case is an
+  // engine that is simply still importing numpy, and five seconds of dead
+  // screen for that is needless -- then back off once it is clearly not
+  // coming, so a dead engine is not hammered forever.
   if (S._gateTimer) clearInterval(S._gateTimer);
-  S._gateTimer = setInterval(async () => {
-    if (!$("auth") || $("auth").classList.contains("hidden")) { clearInterval(S._gateTimer); S._gateTimer = null; return; }
+  S._gateTries = S._gateLic ? 0 : (S._gateTries || 0);
+  const poll = async () => {
+    const auth = $("auth");
+    if (!auth || auth.classList.contains("hidden")) { clearInterval(S._gateTimer); S._gateTimer = null; return; }
     const next = await fetchLicense();
-    if (next) { S._gateLic = next; paintGate(); }
-  }, 5000);
+    if (next) {
+      S._gateLic = next;
+      S._gateTries = 0;
+    } else {
+      S._gateTries = (S._gateTries || 0) + 1;
+      // 1s while it might still be booting, 5s once it plainly is not.
+      if (S._gateTries === 4) {
+        clearInterval(S._gateTimer);
+        S._gateTimer = setInterval(poll, 5000);
+      }
+    }
+    paintGate();
+  };
+  S._gateTimer = setInterval(poll, 1000);
 }
 
 function bindGate() {
@@ -6281,6 +6321,16 @@ function bindGate() {
   if (key) key.addEventListener("keydown", (e) => { if (e.key === "Enter") gateActivate(); });
   const free = $("gate-free");
   if (free) free.onclick = () => licenseSessionEnter("freemium");
+  const retry = $("gate-retry");
+  if (retry) retry.onclick = async () => {
+    retry.disabled = true;
+    S._gateTries = 0;
+    paintGate();
+    const lic = await fetchLicense();
+    if (lic) S._gateLic = lic; else S._gateTries = 4;
+    retry.disabled = false;
+    paintGate();
+  };
 }
 
 async function gateActivate() {
