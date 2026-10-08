@@ -96,6 +96,14 @@ Building the MSI, silent-install switches, logging and the release checklist:
 The key server (`store/`) and the owner tooling (`admin/`) are hosted separately
 and are deliberately not part of the MSI.
 
+## VS Code
+
+`Ctrl+Shift+P` → **Tasks: Run Task** — update from GitHub, build the MSI, start
+and stop the app, run the suites. `Ctrl+Shift+B` builds the MSI.
+Defined in [`.vscode/tasks.json`](.vscode/tasks.json); the raw commands, with
+the three things that catch people out on the first pull, are written up in
+Persian in [`docs/fa/vscode.md`](docs/fa/vscode.md).
+
 ## Windows — running from the source tree
 
 Copy the **full** tree to `D:\aurion` (not nested `D:\aurion\aurion`).
