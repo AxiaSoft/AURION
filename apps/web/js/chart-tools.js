@@ -33,6 +33,7 @@
     dot: "M12 10.6a1.4 1.4 0 100 2.8 1.4 1.4 0 000-2.8M12 3v4M12 17v4M3 12h4M17 12h4",
     eraser: "M4 16l7-7 5 5-4 4H6zM13 6l3-3 5 5-3 3",
     magnet: "M7 4v8a5 5 0 0010 0V4M7 4H4v8a8 8 0 0016 0V4h-3",
+    pin: "M9 3h6l-1 6 4 4v2H6v-2l4-4-1-6M12 15v6",
     trend: "M4 18L20 6",
     ray: "M4 18L20 6M15 6h5v5",
     extended: "M2 20L22 4",
@@ -381,6 +382,8 @@
       <div class="tvr-sep"></div>
       <button type="button" class="tvr-btn" id="tv-magnet" title="${esc(tt("chart.magnet", "Magnet"))}"
               aria-pressed="false">${svg(I.magnet)}</button>
+      <button type="button" class="tvr-btn" id="tv-toollock" title="${esc(tt("chart.tool_lock", "Keep the tool armed"))}"
+              aria-pressed="true">${svg(I.pin)}</button>
       <button type="button" class="tvr-btn" id="tv-lockall" title="${esc(tt("chart.lock_all", "Lock all drawings"))}"
               aria-pressed="false">${svg(I.lock)}</button>
       <button type="button" class="tvr-btn" id="tv-hideall" title="${esc(tt("chart.hide_all", "Hide all drawings"))}"
@@ -440,6 +443,7 @@
           <div class="chart-box" id="tv-chartbox">
             <canvas id="cv-desk"></canvas>
             <div class="tv-hint" id="tv-hint" hidden></div>
+            <div class="tv-style" id="tv-style" hidden></div>
             <div class="tv-nav">
               <button type="button" class="tv-round" id="tv-zin" title="${esc(tt("draw.zoom_in", "Zoom in"))} (+)">${svg(I.zoomIn)}</button>
               <button type="button" class="tv-round" id="tv-zout" title="${esc(tt("draw.zoom_out", "Zoom out"))} (−)">${svg(I.zoomOut)}</button>
@@ -491,9 +495,30 @@
 
   const LS_DOCK = "aurion.chart.dock";
   const LS_GROUP = "aurion.chart.lasttool";
+  const LS_TOOLLOCK = "aurion.chart.toollock";
 
   function $(id) { return document.getElementById(id); }
   function write(k, v) { try { localStorage.setItem(k, v); } catch (e) { /* */ } }
+  function read(k, fb) { try { const v = localStorage.getItem(k); return v === null ? fb : v; } catch (e) { return fb; } }
+
+  /**
+   * Does a drawing tool stay armed after a shape is finished?
+   *
+   * It used to snap back to the cursor every time, which is what most
+   * charting packages do and what the code called correct. It is correct
+   * for someone drawing one line. It is miserable for someone drawing
+   * twenty: a trader marking up a session re-clicks the tool between every
+   * single line. Staying armed is now the default, the switch is on the
+   * rail beside the magnet, and Escape disarms it - so the one-line case
+   * costs a keystroke instead of the twenty-line case costing twenty
+   * clicks.
+   */
+  function toolLocked() { return read(LS_TOOLLOCK, "1") === "1"; }
+
+  function setToolLock(on) {
+    write(LS_TOOLLOCK, on ? "1" : "0");
+    markRailState();
+  }
 
   /* ============================================================== menus == */
 
@@ -645,6 +670,10 @@
         : need === -1
           ? tt("chart.hint_free", "Press and drag to draw · Esc to cancel")
           : tt("chart.hint_points", "Click {n} points · Esc to cancel").replace("{n}", need || 2);
+      if (c.tool !== "cursor" && toolLocked()) {
+        hint.textContent += "  ·  " + tt("chart.hint_armed",
+          "The tool stays armed · Esc to stop · click a drawing to move it, alt-drag to draw over it");
+      }
     }
   }
 
@@ -672,6 +701,16 @@
       mag.dataset.level = c.magnet;
       mag.setAttribute("aria-pressed", on ? "true" : "false");
       mag.title = tt("chart.magnet_" + c.magnet, "Magnet: " + c.magnet);
+    }
+
+    const tlock = $("tv-toollock");
+    if (tlock) {
+      const on = toolLocked();
+      tlock.classList.toggle("on", on);
+      tlock.setAttribute("aria-pressed", on ? "true" : "false");
+      tlock.title = on
+        ? tt("chart.tool_lock_on", "Tools stay armed until you switch them off")
+        : tt("chart.tool_lock_off", "Tools return to the cursor after one shape");
     }
 
     const lock = $("tv-lockall");
@@ -797,6 +836,8 @@
       <input type="range" min="0.1" max="1" step="0.05" data-prop="opacity" value="${esc(d.opacity === undefined ? 1 : d.opacity)}" /></label>`,
     fill: (d) => `<label class="tvp-row"><span>${esc(tt("chart.fill", "Background fill"))}</span>
       <input type="checkbox" data-prop-bool="fill" ${d.fill !== false ? "checked" : ""} /></label>`,
+    showPrice: (d) => `<label class="tvp-row"><span>${esc(tt("chart.show_price", "Show the price"))}</span>
+      <input type="checkbox" data-prop-bool="showPrice" ${d.showPrice === false ? "" : "checked"} /></label>`,
     extend: (d) => `<div class="tvp-row"><span>${esc(tt("chart.extend", "Extend"))}</span>
       <span class="tvp-choice">
         <button type="button" data-prop-toggle="extendL" class="${d.extendL ? "on" : ""}">${esc(tt("chart.left", "Left"))}</button>
@@ -879,6 +920,67 @@
         "The stop or the target is on the wrong side of the entry for this direction."))}</p>` : ""}`;
   }
 
+  /* ====================================================== style bar ====== *
+   * Colour was always editable - buried in a dock that only ever opened on
+   * a double-click, which is a gesture nobody guesses. A selected shape now
+   * puts its own controls on the chart: the colours people actually reach
+   * for, a thickness, the price tag, and the way into everything else.
+   */
+
+  // Eight colours that read on both themes, rather than a wheel. Picking a
+  // colour is a decision between "the red one" and "the blue one"; a wheel
+  // makes it a decision about saturation.
+  const SWATCHES = [
+    "#e8c07a", "#7c6cff", "#36a3ff", "#2fbf71",
+    "#ef5350", "#ff9f43", "#e6edf3", "#8a8f98",
+  ];
+
+  /** Kinds that sit at a price and can therefore print one. */
+  function pricey(kind) {
+    return /^(hline|hray|priceline|crossline|trend|ray|extended|arrow)$/.test(String(kind || ""));
+  }
+
+  function styleBarHtml(d) {
+    const cur = /^#[0-9a-f]{6}$/i.test(d.color || "") ? String(d.color).toLowerCase() : "";
+    const width = Number(d.width || 1.4);
+    const dots = SWATCHES.map((c) => `<button type="button" class="tvs-dot${cur === c ? " on" : ""}"
+      data-swatch="${c}" style="--c:${c}" title="${esc(c)}" aria-label="${esc(c)}"></button>`).join("");
+    const widths = [1, 1.5, 2.5, 4].map((w) => `<button type="button" class="tvs-w${Math.abs(width - w) < 0.26 ? " on" : ""}"
+      data-swidth="${w}" title="${esc(tt("chart.thickness", "Thickness"))} ${w}"><i style="--h:${w}px"></i></button>`).join("");
+    return `<span class="tvs-kind">${esc((TOOL_BY_ID[d.kind] || {}).label || d.kind)}</span>
+      <span class="tvs-div"></span>
+      ${dots}
+      <label class="tvs-dot tvs-custom" title="${esc(tt("chart.color_custom", "Custom colour"))}">
+        <input type="color" data-style-color value="${esc(cur || "#e8c07a")}" />
+      </label>
+      <span class="tvs-div"></span>
+      ${widths}
+      ${pricey(d.kind) ? `<span class="tvs-div"></span>
+        <button type="button" class="tvs-btn${d.showPrice === false ? "" : " on"}" data-style-price
+          title="${esc(tt("chart.show_price", "Show the price"))}">1.2345</button>` : ""}
+      <span class="tvs-div"></span>
+      <button type="button" class="tvs-btn" data-style-more title="${esc(tt("chart.properties", "Properties"))}">${svg(I.settings || I.more)}</button>
+      <button type="button" class="tvs-btn danger" data-style-del title="${esc(tt("common.delete", "Delete"))}">${svg(I.trash)}</button>`;
+  }
+
+  /** Show the bar for the current selection, hide it when there is none. */
+  function paintStyleBar() {
+    const bar = $("tv-style");
+    if (!bar) return;
+    const d = ui.chart && ui.chart.selected;
+    if (!d) {
+      bar.hidden = true;
+      bar.innerHTML = "";
+      return;
+    }
+    // Keep the open colour picker alive: re-rendering the bar while the
+    // native dialog is up closes it, and the user is mid-choice.
+    const active = document.activeElement;
+    if (active && active.matches && active.matches("[data-style-color]") && bar.contains(active)) return;
+    bar.hidden = false;
+    bar.innerHTML = styleBarHtml(d);
+  }
+
   /** Which properties a kind actually has. Nothing irrelevant is shown. */
   function fieldsFor(kind) {
     const base = ["color", "width", "style", "opacity"];
@@ -890,8 +992,10 @@
     if (/^(rect|circle|ellipse|triangle|polygon|rotrect|channel|flatchannel|disjoint|parallel|gannbox|gannsquare|daterange|pricerange|pitchfork|schiff|modschiff)$/.test(kind)) {
       return base.concat(["fill"]);
     }
-    if (/^(trend|ray|extended|infoline)$/.test(kind)) return base.concat(["extend"]);
-    return base;
+    if (/^(trend|ray|extended|infoline)$/.test(kind)) {
+      return base.concat(pricey(kind) ? ["extend", "showPrice"] : ["extend"]);
+    }
+    return pricey(kind) ? base.concat(["showPrice"]) : base;
   }
 
   function renderProps() {
@@ -919,6 +1023,7 @@
   function refresh() {
     renderObjects();
     renderProps();
+    paintStyleBar();
     markRailState();
     const u = $("tv-undo"), r = $("tv-redo");
     if (u) u.disabled = !ui.chart.canUndo();
@@ -1007,6 +1112,10 @@
         if (ui.menu) { closeMenu(); return; }
         closeFlyout();
         if (c.cancel()) { markTool(); return; }
+        // An armed tool has to be escapable, or "it stays on" becomes "it
+        // will not turn off". One press puts the cursor back.
+        if (c.tool !== "cursor") { pickTool("cursor"); return; }
+        if (c.selected) { c.select(null); return; }
         if (ui.fullscreen) setFullscreen(false);
         return;
       case "Delete": case "Backspace":
@@ -1046,10 +1155,10 @@
 
     chart.opts.onChange = () => refresh();
     chart.opts.onToolDone = () => {
-      // One shape, then back to the cursor - the behaviour every charting
-      // package has, and the one thing the old toolbar got wrong: it left
-      // the tool armed and the next click drew another line by accident.
-      if (chart.tool !== "cursor") pickTool("cursor");
+      // The tool stays armed unless the trader asked for the old one-shot
+      // behaviour. Either way the shape just drawn is selected, so its
+      // colour and thickness are one click away on the style bar.
+      if (!toolLocked() && chart.tool !== "cursor") pickTool("cursor");
     };
     chart.opts.onEdit = () => showDock("props");
 
@@ -1076,6 +1185,17 @@
         chart.setMagnet(next);
         markTool();
         if (ctx.toast) ctx.toast(tt("chart.magnet_" + next, "Magnet: " + next));
+        return;
+      }
+      if (e.target.closest("#tv-toollock")) {
+        const next = !toolLocked();
+        setToolLock(next);
+        markTool();
+        if (ctx.toast) {
+          ctx.toast(next
+            ? tt("chart.tool_lock_on", "Tools stay armed until you switch them off")
+            : tt("chart.tool_lock_off", "Tools return to the cursor after one shape"));
+        }
         return;
       }
       if (e.target.closest("#tv-lockall")) {
@@ -1228,6 +1348,35 @@
       else if (e.target.closest("#tv-auto")) chart.setAutoScale(true);
       else if (e.target.closest("#tv-fit")) chart.fit();
     };
+
+    /* ---- selection style bar ------------------------------------------- */
+    const styleBar = $("tv-style");
+    if (styleBar) {
+      // Stop the chart from treating a click on the bar as a click on the
+      // canvas behind it, which would deselect the very shape being styled.
+      ["mousedown", "pointerdown", "touchstart"].forEach((ev) =>
+        styleBar.addEventListener(ev, (e) => e.stopPropagation()));
+      styleBar.onclick = (e) => {
+        const d = chart.selected;
+        if (!d) return;
+        const dot = e.target.closest("[data-swatch]");
+        if (dot) { chart.updateObject(d.id, { color: dot.dataset.swatch }); return; }
+        const w = e.target.closest("[data-swidth]");
+        if (w) { chart.updateObject(d.id, { width: Number(w.dataset.swidth) }); return; }
+        if (e.target.closest("[data-style-price]")) {
+          chart.updateObject(d.id, { showPrice: d.showPrice === false });
+          return;
+        }
+        if (e.target.closest("[data-style-more]")) { showDock("props"); return; }
+        if (e.target.closest("[data-style-del]")) { chart.removeObject(d.id); return; }
+      };
+      styleBar.oninput = (e) => {
+        const d = chart.selected;
+        if (d && e.target.dataset.styleColor !== undefined) {
+          chart.updateObject(d.id, { color: e.target.value }, { quiet: true });
+        }
+      };
+    }
 
     /* ---- dock ----------------------------------------------------------- */
     const dock = $("tv-dock");

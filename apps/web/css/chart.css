@@ -285,6 +285,70 @@ html[dir="rtl"] .tv-flyout { transform: translateX(6px) }
   pointer-events: none;
 }
 
+/* ------------------------------------------------- selection style bar -- */
+/* Colour and thickness used to live behind a double-click, in a dock most
+   people never opened. Selecting a shape now brings its controls to it. */
+
+.tv-style {
+  position: absolute; inset-block-start: 10px; inset-inline-start: 10px;
+  z-index: 6;
+  display: flex; align-items: center; gap: 4px; flex-wrap: wrap;
+  max-inline-size: calc(100% - 20px);
+  padding: 5px 7px;
+  border: 1px solid var(--line); border-radius: var(--radius-pill, 999px);
+  background: var(--surface-floating);
+  box-shadow: 0 8px 26px rgba(0, 0, 0, .28);
+}
+.tv-style[hidden] { display: none; }
+.tv-style .tvs-kind {
+  padding-inline: 4px 2px;
+  font-size: 11px; color: var(--muted); white-space: nowrap;
+}
+.tv-style .tvs-div {
+  inline-size: 1px; block-size: 16px; margin-inline: 3px;
+  background: var(--line);
+}
+.tv-style .tvs-dot {
+  inline-size: 18px; block-size: 18px; padding: 0;
+  border: 1px solid rgba(255, 255, 255, .22); border-radius: 50%;
+  background: var(--c, #e8c07a);
+  cursor: pointer;
+}
+.tv-style .tvs-dot.on,
+.tv-style .tvs-dot:hover { outline: 2px solid var(--accent, #e8c07a); outline-offset: 2px; }
+.tv-style .tvs-custom {
+  position: relative; overflow: hidden;
+  background: conic-gradient(#ef5350, #ff9f43, #2fbf71, #36a3ff, #7c6cff, #ef5350);
+}
+.tv-style .tvs-custom input {
+  position: absolute; inset: -6px; inline-size: 30px; block-size: 30px;
+  padding: 0; border: 0; background: transparent; opacity: 0; cursor: pointer;
+}
+.tv-style .tvs-w {
+  display: grid; place-items: center;
+  inline-size: 22px; block-size: 22px; padding: 0;
+  border: 1px solid transparent; border-radius: 6px;
+  background: transparent; cursor: pointer;
+}
+.tv-style .tvs-w i {
+  display: block; inline-size: 14px; block-size: var(--h, 1px);
+  border-radius: 2px; background: var(--text, #e6edf3);
+}
+.tv-style .tvs-w.on,
+.tv-style .tvs-w:hover { border-color: var(--line); background: var(--surface-raised, rgba(255, 255, 255, .06)); }
+.tv-style .tvs-btn {
+  display: inline-grid; place-items: center;
+  block-size: 22px; min-inline-size: 22px; padding-inline: 6px;
+  border: 1px solid transparent; border-radius: 6px;
+  background: transparent; color: var(--muted);
+  font-size: 10px; font-family: var(--mono, monospace);
+  cursor: pointer;
+}
+.tv-style .tvs-btn svg { inline-size: 14px; block-size: 14px; }
+.tv-style .tvs-btn:hover { border-color: var(--line); color: var(--text); }
+.tv-style .tvs-btn.on { color: var(--accent, #e8c07a); border-color: var(--line); }
+.tv-style .tvs-btn.danger:hover { color: var(--down, #ef5350); }
+
 /* --------------------------------------------------------------- dock -- */
 
 .tv-dock {

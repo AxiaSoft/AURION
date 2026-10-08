@@ -1858,7 +1858,10 @@ class CandleChart {
         ctx.moveTo(kind === "hray" ? a.x : L.plotL, y);
         ctx.lineTo(L.plotR, y);
         ctx.stroke();
-        if (kind === "priceline" || d.showPrice) this.tag(L.plotR, y, this.fmtPrice(d.a.p), color, "end");
+        // Every price line now says what price it is. A horizontal line
+        // with no number is a line the trader has to read off the axis by
+        // eye, which is exactly the measurement they drew it to avoid.
+        if (d.showPrice !== false) this.tag(L.plotR, y, this.fmtPrice(d.a.p), color, "end");
       }
     } else if (kind === "vline" || kind === "dateline") {
       if (a) {
@@ -1872,6 +1875,7 @@ class CandleChart {
         ctx.moveTo(L.plotL, y); ctx.lineTo(L.plotR, y);
         ctx.moveTo(a.x, L.plotT); ctx.lineTo(a.x, L.plotB);
         ctx.stroke();
+        if (d.showPrice !== false) this.tag(L.plotR, y, this.fmtPrice(d.a.p), color, "end");
       }
 
     /* ---- straight lines ------------------------------------------------ */
@@ -1882,6 +1886,16 @@ class CandleChart {
           kind === "extended" || d.extendL, kind === "ray" || kind === "extended" || d.extendR);
         this.strokePath([seg.a, seg.b]);
         if (kind === "arrow") this.arrowHead(a, b, 11);
+        // A sloped line has a different price at every x, so the number
+        // that means something is the one where it leaves the chart - the
+        // level it is pointing at, which is why it was drawn.
+        if (kind !== "measure" && kind !== "infoline" && d.showPrice !== false) {
+          const far = seg.b.x >= seg.a.x ? seg.b : seg.a;
+          const ex = Math.max(L.plotL + 8, Math.min(L.plotR, far.x));
+          const t = (ex - seg.a.x) / ((seg.b.x - seg.a.x) || 1);
+          const ey = Math.max(L.plotT + 9, Math.min(L.plotB - 9, seg.a.y + t * (seg.b.y - seg.a.y)));
+          this.tag(ex, ey, this.fmtPrice(L.pOf(ey)), color, "end");
+        }
         if (kind === "measure" || kind === "infoline") {
           const dp = d.b.p - d.a.p;
           const bars = Math.abs((d.b.gi || 0) - (d.a.gi || 0));
@@ -3053,6 +3067,27 @@ class CandleChart {
       this.canvas.setPointerCapture(e.pointerId);
       this.canvas.style.cursor = "grabbing";
       return;
+    }
+
+    /* ---- an existing shape, while a tool is armed ----------------------
+       Keeping the tool armed is only usable if the drawings already on the
+       chart stay reachable. A click that lands on one selects and moves it
+       instead of starting a new drawing; hold Alt to draw across a shape
+       on purpose. Without this, "the tool stays on" would mean "nothing
+       can ever be adjusted again". */
+    if (!e.altKey && this.tool !== "pan") {
+      const over = this.shapeAt(hit.L, hit.x, hit.y);
+      if (over) {
+        this.select(over.shape);
+        if (!over.shape.locked) {
+          this.snapshot();
+          this.drag = { mode: "shape", from: this.point(hit), handle: over.handle };
+          this.canvas.setPointerCapture(e.pointerId);
+          this.canvas.style.cursor = "move";
+        }
+        return;
+      }
+      if (this.selected) this.select(null);
     }
 
     /* ---- starting a new drawing --------------------------------------- */
