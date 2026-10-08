@@ -1010,6 +1010,59 @@ tr:hover td{background:rgb(var(--wash) / .02)}
 .kpi span{display:block;font-size:11px;color:var(--muted);margin-bottom:6px}
 .kpi b{display:block;font-size:clamp(16px,1.8vw,22px);font-weight:500}
 .cmd-side{display:grid;gap:14px;align-content:start}
+
+/* ===========================================================================
+   Open positions
+   ===========================================================================
+   Two complaints, one table.
+
+   It was too narrow: squeezed into half of a two-column row, so the close
+   button - the control a trader reaches for under pressure - sat behind a
+   horizontal scroll. It now spans the command centre, the rows are taller,
+   and the close button is pinned to the trailing edge where it cannot
+   scroll out of reach.
+
+   And the rows jumped. An auto-layout table re-measures its columns on
+   every repaint, so a profit going from "8.40" to "-124.65" widened that
+   column and shoved every column after it sideways - while the trader was
+   aiming at one of them. Fixed layout plus declared widths means the
+   geometry is decided once and the digits change underneath it. The width
+   budget is generous enough for the longest value each column can hold.
+   ========================================================================= */
+.pos-card{margin:0}
+.pos-card .table-wrap{max-height:min(560px,62vh)}
+.pos-card table{table-layout:fixed;width:100%;min-width:900px}
+.pos-card th,.pos-card td{
+  /* Digits must not resize their own cell. */
+  font-variant-numeric:tabular-nums;
+  overflow:hidden;text-overflow:ellipsis;
+}
+.pos-card td{padding:12px 10px}
+.pos-card th{padding:10px;position:sticky;top:0;z-index:2;background:var(--s2, #11141c);backdrop-filter:blur(8px)}
+.pos-card col.c-symbol{width:11%}
+.pos-card col.c-type{width:7%}
+.pos-card col.c-volume{width:7%}
+.pos-card col.c-strategy{width:12%}
+.pos-card col.c-price_open{width:10%}
+.pos-card col.c-price_current{width:10%}
+.pos-card col.c-sl{width:9%}
+.pos-card col.c-tp{width:9%}
+.pos-card col.c-profit{width:10%}
+.pos-card col.c-profit_pct{width:8%}
+.pos-card col.c-close{width:92px}
+.pos-card td:last-child{padding-inline-end:12px;text-align:end}
+.pos-card td:last-child .btn{width:100%;min-width:72px;padding-block:8px}
+/* Numbers are read by eye down a column; end-aligning them lines up the
+   decimal points, which auto-aligned text does not. */
+.pos-card td[data-k="volume"],.pos-card td[data-k="price_open"],
+.pos-card td[data-k="price_current"],.pos-card td[data-k="sl"],
+.pos-card td[data-k="tp"],.pos-card td[data-k="profit"],
+.pos-card td[data-k="profit_pct"]{text-align:end}
+.pos-card th:nth-child(n+3):nth-child(-n+10){text-align:end}
+@media (max-width:780px){
+  .pos-card td{padding:10px 8px}
+  .pos-card col.c-close{width:76px}
+}
 .chart-card{cursor:pointer}
 .chart-card:hover{transform:translateY(-2px);border-color:rgb(var(--accent-rgb) / .28)}
 
@@ -1162,7 +1215,7 @@ fieldset.prop-fields.is-locked{
 .chart-stage{
   flex:1;
   min-width:0;
-  will-change:transform,opacity;
+  will-change:transform;
   backface-visibility:hidden;
   transform:translateZ(0);
 }
@@ -1182,19 +1235,38 @@ fieldset.prop-fields.is-locked{
 }
 .chart-nav:hover{transform:scale(1.08);background:rgb(var(--wash) / .06)}
 .chart-nav:active{transform:scale(.92)}
-.chart-stage.sw-next{animation:slideFromRight .42s cubic-bezier(.22,.8,.24,1) both}
-.chart-stage.sw-prev{animation:slideFromLeft .42s cubic-bezier(.22,.8,.24,1) both}
+/* The slide is a slide.
+
+   It used to fade from 0 to 1 while nudging 32px sideways, which reads as
+   a flicker rather than movement: the content is briefly invisible, so the
+   eye has nothing to follow and cannot tell which way the deck went. The
+   panel now travels its own full width, at full opacity the whole way, and
+   the only thing that changes is where it is. Keeping it opaque also keeps
+   the text legible mid-transition instead of greying out and back.
+
+   The slider clips to its own box (overflow:hidden above), so a panel
+   starting a full width out is off-stage rather than overlapping the card
+   next to it. */
+.chart-stage.sw-next{animation:slideFromRight .34s cubic-bezier(.22,.8,.24,1) both}
+.chart-stage.sw-prev{animation:slideFromLeft .34s cubic-bezier(.22,.8,.24,1) both}
 @keyframes slideFromRight{
-  0%{opacity:0;transform:translate3d(32px,0,0)}
-  100%{opacity:1;transform:translate3d(0,0,0)}
+  0%{transform:translate3d(100%,0,0)}
+  100%{transform:translate3d(0,0,0)}
 }
 @keyframes slideFromLeft{
-  0%{opacity:0;transform:translate3d(-32px,0,0)}
-  100%{opacity:1;transform:translate3d(0,0,0)}
+  0%{transform:translate3d(-100%,0,0)}
+  100%{transform:translate3d(0,0,0)}
 }
-/* RTL — reverse visual direction so next still feels like next in RTL */
-html[dir=\"rtl\"] .chart-stage.sw-next{animation-name:slideFromLeft}
-html[dir=\"rtl\"] .chart-stage.sw-prev{animation-name:slideFromRight}
+/* RTL — reverse visual direction so next still feels like next in RTL.
+   These two selectors used to carry escaped quotes (dir=\"rtl\"), which is
+   not a valid attribute selector, so they never matched and the deck slid
+   backwards for every right-to-left user. */
+html[dir="rtl"] .chart-stage.sw-next{animation-name:slideFromLeft}
+html[dir="rtl"] .chart-stage.sw-prev{animation-name:slideFromRight}
+/* A slide is decoration; respect the system setting that asks for none. */
+@media (prefers-reduced-motion:reduce){
+  .chart-stage.sw-next,.chart-stage.sw-prev{animation:none}
+}
 .slide-sym{
   margin-inline-start:8px;
   font-size:11px;

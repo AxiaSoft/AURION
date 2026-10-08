@@ -950,6 +950,13 @@
 
   /* ========================================================= fullscreen == */
 
+  /** Repaint across a viewport change, which is never a single event. */
+  function redrawSoon() {
+    [0, 120, 360].forEach((ms) => setTimeout(() => {
+      try { if (ui.chart) ui.chart.draw(); } catch (e) { /* unmounted */ }
+    }, ms));
+  }
+
   function setFullscreen(on) {
     const tv = $("tv");
     if (!tv) return;
@@ -971,7 +978,7 @@
       if (on && !document.fullscreenElement && root.requestFullscreen) root.requestFullscreen().catch(() => {});
       if (!on && document.fullscreenElement && document.exitFullscreen) document.exitFullscreen().catch(() => {});
     } catch (e) { /* the app-level fullscreen still applies */ }
-    setTimeout(() => ui.chart && ui.chart.draw(), 120);
+    redrawSoon();
   }
 
   /* ========================================================== shortcuts == */
@@ -1202,7 +1209,15 @@
       document.addEventListener("keyup", onKeyUp);
       document.addEventListener("fullscreenchange", () => {
         if (!document.fullscreenElement && ui.fullscreen) setFullscreen(false);
+        // The browser resizes the viewport over a transition, so the frame
+        // painted on the way in is the old geometry. The engine's resize
+        // observer catches most of it; this covers the case where the box
+        // keeps its size and only the viewport units behind it change.
+        redrawSoon();
       });
+      // Turning a phone while the chart is fullscreen swaps width for
+      // height with no element resize at all on some browsers.
+      window.addEventListener("orientationchange", redrawSoon);
     }
 
     /* ---- navigation ----------------------------------------------------- */

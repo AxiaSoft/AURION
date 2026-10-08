@@ -25,7 +25,10 @@
   display: grid;
   grid-template-rows: var(--tv-bar) 1fr 26px;
   height: calc(100vh - 128px);
-  min-height: 460px;
+  height: calc(100dvh - 128px);
+  /* A floor, but never taller than the screen: on a phone in landscape a
+     flat 460px is more than the viewport and the footer falls off. */
+  min-height: min(460px, calc(100dvh - 128px));
   border: 1px solid var(--line);
   border-radius: var(--radius-lg);
   background: var(--surface-1);
@@ -502,16 +505,57 @@ html[dir="rtl"] .tv-switch.on i { transform: translateX(-13px) }
    leaves the chart with everything it needs.
 */
 body.chart-full #nav,
+body.chart-full .top,
 body.chart-full .topbar,
 body.chart-full .nav-scrim { display: none !important }
-body.chart-full #stage { padding: 0 !important; max-width: none !important }
+
+/* Hiding the sidebar is not the same as reclaiming its space.
+   #desk is a two-column grid - "nav stage" - with a fixed first track, so
+   display:none on the rail left a --nav-wide empty strip down the side and
+   the chart rendered into what was left. The header was never hidden at
+   all: the rule named .topbar and the element is .top, so a "fullscreen"
+   chart kept a header above it, was told to be 100vh tall inside the
+   shorter row that header left behind, and overflowed - which is the
+   defect, on desktop and mobile alike. Collapse the grid to a single cell
+   that is the whole viewport, and the chart genuinely has the screen. */
+body.chart-full #desk {
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+  grid-template-areas: "stage";
+  height: 100dvh;
+}
+body.chart-full .stage,
+body.chart-full #stage {
+  padding: 0 !important;
+  max-width: none !important;
+  overflow: hidden !important;
+}
+/* No page scroll behind a chart that owns the viewport - on a phone that
+   is what turns a pan gesture into a rubber-band. */
+body.chart-full { overflow: hidden }
 body.chart-full .tv {
+  /* dvh, not vh. Where the browser refuses requestFullscreen - iOS Safari
+     on iPhone refuses it outright - the app-level class is the whole
+     mechanism, and there 100vh is the viewport with the URL bar retracted:
+     the status footer ends up underneath browser chrome. */
   height: 100vh;
+  height: 100dvh;
+  /* The desktop min-height would otherwise make the chart taller than a
+     phone held sideways, pushing the footer off a screen that cannot
+     scroll. */
+  min-height: 0;
   border: 0; border-radius: 0;
 }
+/* Notches and home indicators belong to the chrome, not the chart. */
+body.chart-full .tv-status { padding-bottom: var(--safe-b, 0px) }
 body.chart-full .view-head, body.chart-full .tapebar { display: none !important }
 html:fullscreen .tv,
-.tv:fullscreen { height: 100vh; border: 0; border-radius: 0; background: var(--bg) }
+.tv:fullscreen {
+  height: 100vh;
+  height: 100dvh;
+  min-height: 0;
+  border: 0; border-radius: 0; background: var(--bg);
+}
 /* The page itself is what goes fullscreen, so it has to carry the page
    colour - a transparent <html> over the browser's black is not the theme. */
 html:fullscreen { background: var(--bg) }
@@ -526,7 +570,12 @@ html:fullscreen body { background: var(--bg) }
 /* Laptop and below: the dock becomes an overlay so the chart keeps its
    width, and the top bar drops the button labels. */
 @media (max-width: 980px) {
-  .tv { --tv-dock: 0px; height: calc(100vh - 116px) }
+  .tv {
+    --tv-dock: 0px;
+    height: calc(100vh - 116px);
+    height: calc(100dvh - 116px);
+    min-height: min(460px, calc(100dvh - 116px));
+  }
   .tv-body { grid-template-columns: var(--tv-rail) 1fr }
   .tv-dock {
     position: absolute; inset-block: 0; inset-inline-end: 0;
@@ -546,7 +595,15 @@ html:fullscreen body { background: var(--bg) }
 /* Tablet: the rail turns into a horizontal strip under the top bar - a
    vertical rail on a short screen wastes the only dimension that matters. */
 @media (max-width: 720px) {
-  .tv { --tv-rail: 0px; height: calc(100vh - 104px); grid-template-rows: var(--tv-bar) auto 1fr 26px }
+  .tv {
+    --tv-rail: 0px;
+    height: calc(100vh - 104px);
+    height: calc(100dvh - 104px);
+    min-height: min(420px, calc(100dvh - 104px));
+    grid-template-rows: var(--tv-bar) auto 1fr 26px;
+  }
+  /* Fullscreen keeps the four-row layout but takes the whole screen. */
+  body.chart-full .tv { height: 100dvh }
   .tv-body { grid-template-columns: 1fr; grid-row: 3 }
   .tv-rail {
     grid-row: 2;
@@ -568,7 +625,12 @@ html:fullscreen body { background: var(--bg) }
 }
 
 @media (max-width: 520px) {
-  .tv { height: calc(100vh - 92px) }
+  .tv {
+    height: calc(100vh - 92px);
+    height: calc(100dvh - 92px);
+    min-height: min(380px, calc(100dvh - 92px));
+  }
+  body.chart-full .tv { height: 100dvh }
   .tv-status #tv-status-hint { display: none }
   .tv-round { width: 32px; height: 32px }
   .tvr-btn { width: 40px; height: 38px }

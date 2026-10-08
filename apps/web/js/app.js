@@ -1748,8 +1748,6 @@ function patchLive() {
     paintPositions("live-pos", pos, ["symbol","type","volume","strategy","price_open","price_current","sl","tp","profit","profit_pct"], true);
     applyChartLevels();
     paintChartSlider("ol", outlookSlideInnerHtml);
-    const ai = $("live-ai");
-    if (ai) ai.innerHTML = aiBlock(S.snap?.ai);
   }
   if (v === "markets") {
     fillSymbolSelect("sym", S.symbol);
@@ -3015,25 +3013,28 @@ const views = {
         ${kpi("command.balance", acc.balance, acc.currency)}
         ${kpi("command.margin", acc.margin, acc.currency)}
       </div>
-      <div class="grid g-2">
-        <div class="card">
-          <h3>${I18N.t("command.positions")}</h3>
-          <div id="live-pos">${pos.length ? table(pos, ["symbol","type","volume","strategy","price_open","price_current","sl","tp","profit","profit_pct"], true) : emptyMini(I18N.t("status.no_positions"))}</div>
-        </div>
-        <div class="cmd-side">
-          <div class="card">
-            <h3>${I18N.t("account.type")}</h3>
-            <p class="metric" id="cmd-acc-type">${accTypeLabel(acc.account_label || acc.account_type || "unknown")}</p>
-            <p class="sub">${[acc.company, acc.server, acc.margin_mode, acc.leverage ? "1:"+acc.leverage : ""].filter(Boolean).join(" · ")}</p>
-            <div class="kv" style="margin-top:12px">
-              <span>${I18N.t("command.free_margin")}</span><b class="mono" data-metric="command.free_margin">${fmt(acc.margin_free)} ${acc.currency||""}</b>
-              <span>${I18N.t("command.leverage")}</span><b class="mono" data-metric="command.leverage">${acc.leverage ? "1:"+acc.leverage : "—"}</b>
-            </div>
-          </div>
-          <div class="card">
-            <h3>${I18N.t("ai.title")}</h3>
-            <div id="live-ai">${aiBlock(S.snap?.ai)}</div>
-          </div>
+      <!-- Positions get the full width of the command centre.
+           They used to share a two-column row with the account card and an
+           AI summary, which left the close button squeezed against the edge
+           of a horizontally scrolling table - the one control on this screen
+           that is pressed in a hurry.
+
+           The AI summary is gone rather than moved: it printed a single
+           bias with no symbol next to it, so on a desk with four charts
+           open it was not merely unhelpful, it was ambiguous in a direction
+           a trader could act on. The per-chart version in the Intelligence
+           view says which symbol it means, and that is where it belongs. -->
+      <div class="card pos-card">
+        <h3>${I18N.t("command.positions")}</h3>
+        <div id="live-pos">${pos.length ? table(pos, ["symbol","type","volume","strategy","price_open","price_current","sl","tp","profit","profit_pct"], true) : emptyMini(I18N.t("status.no_positions"))}</div>
+      </div>
+      <div class="card">
+        <h3>${I18N.t("account.type")}</h3>
+        <p class="metric" id="cmd-acc-type">${accTypeLabel(acc.account_label || acc.account_type || "unknown")}</p>
+        <p class="sub">${[acc.company, acc.server, acc.margin_mode, acc.leverage ? "1:"+acc.leverage : ""].filter(Boolean).join(" · ")}</p>
+        <div class="kv" style="margin-top:12px">
+          <span>${I18N.t("command.free_margin")}</span><b class="mono" data-metric="command.free_margin">${fmt(acc.margin_free)} ${acc.currency||""}</b>
+          <span>${I18N.t("command.leverage")}</span><b class="mono" data-metric="command.leverage">${acc.leverage ? "1:"+acc.leverage : "—"}</b>
         </div>
       </div>
       <div class="card" id="live-st-wrap">
@@ -3877,19 +3878,10 @@ function tapeBanner() {
   if (mode === "live") return ""; // chart names live inside the outlook slider now — no banner needed
   return `<div class="tape-banner is-idle" id="tape-banner">${I18N.t("tape.waiting")}</div>`;
 }
-function aiBlock(ai) {
-  if (!ai) return emptyMini(I18N.t("status.ai_idle"));
-  const d = shownDir(ai);
-  const hint = !ai.ready ? `<span class="badge-hint">${I18N.t("ai.untrained")}</span>` : "";
-  const outlook = ai.outlook || {};
-  return `<div class="kv">
-    <span>${I18N.t("ai.direction")}</span><b>${dirLabel(d)}${hint}</b>
-    <span>${I18N.t("ai.confidence")}</span><b class="mono">${fmt((ai.confidence||0)*100,1)}%</b>
-    <span>${I18N.t("ai.regime")}</span><b>${regLabel(ai.regime)}</b>
-    <span>${I18N.t("ai.pattern")}</span><b>${ai.pattern?.name || "—"}</b>
-    <span>${I18N.t("ai.samples")}</span><b class="mono">${ai.samples || 0}${ai.need ? " / " + ai.need : ""}</b>
-  </div><p class="sub">${esc(outlook.text || ai.reason || I18N.t("status.ai_idle"))}</p>`;
-}
+/* aiBlock() lived here. It rendered a single AI bias with no symbol
+   attached, which on a multi-chart desk is a direction without a subject.
+   The Intelligence view renders the same data per chart, labelled, so this
+   one was deleted rather than relocated. */
 function posProfitPct(r) {
   if (r && r.profit_pct !== undefined && r.profit_pct !== null && r.profit_pct !== "") return Number(r.profit_pct);
   const o = Number(r && r.price_open), c = Number(r && r.price_current);
@@ -3910,7 +3902,12 @@ function table(rows, keys, closable) {
     else text = (v ?? "—");
     return `<td class="mono ${c}" data-k="${k}">${text}</td>`;
   }).join("")}${closable ? `<td><button class="btn tiny ghost" type="button" data-close="${r.ticket}">${I18N.t("exec.close")}</button></td>` : ""}</tr>`).join("");
-  return `<div class="table-wrap"><table><thead><tr>${head}${closable?"<th></th>":""}</tr></thead><tbody>${body}</tbody></table></div>`;
+  // A colgroup, so the CSS can fix the column widths. Without declared
+  // widths a fixed-layout table divides itself evenly, and with no fixed
+  // layout at all the columns re-measure on every price tick and the row
+  // shifts under the pointer.
+  const cols = keys.map((k) => `<col class="c-${esc(k)}">`).join("") + (closable ? `<col class="c-close">` : "");
+  return `<div class="table-wrap"><table><colgroup>${cols}</colgroup><thead><tr>${head}${closable?"<th></th>":""}</tr></thead><tbody>${body}</tbody></table></div>`;
 }
 function paintPositions(boxId, rows, keys, closable) {
   const box = $(boxId);
