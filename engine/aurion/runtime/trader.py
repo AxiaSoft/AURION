@@ -2119,7 +2119,8 @@ class Trader:
     def _own_pending_orders(self) -> list[dict[str, Any]]:
         """AURION's resting orders, as plain dicts. Never the trader's own."""
         out: list[dict[str, Any]] = []
-        for order in getattr(self.bridge, "orders", None) or []:
+        bridge = getattr(self, "bridge", None)
+        for order in getattr(bridge, "orders", None) or []:
             row = order.to_dict() if hasattr(order, "to_dict") else dict(order or {})
             try:
                 if int(row.get("magic") or 0) != self.MAGIC:
