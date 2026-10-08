@@ -87,7 +87,13 @@
     "min_open_trades": 1,
     "max_open_trades": 2,
     "smart_filters": true,
-    "min_signal_quality": 0.55
+    "min_signal_quality": 0.55,
+    "auto_entry": {
+      "enabled": false,
+      "zone_depth": 0.5,
+      "offset_atr": 0.35,
+      "expiry_minutes": 120
+    }
   },
   "prop": {
     "active_profile": "conservative",

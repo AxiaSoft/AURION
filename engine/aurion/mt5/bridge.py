@@ -1511,12 +1511,13 @@ class MT5Bridge:
             "close": "close",
             "modify": "modify",
             "flatten": "flatten",
+            "cancel": "cancel",
             "market": "order",
             "buy": "order",
             "sell": "order",
-            "pending": "order",
-            "limit": "order",
-            "stop": "order",
+            "pending": "pending",
+            "limit": "pending",
+            "stop": "pending",
             "order": "order",
         }
         return mapping.get(action, "order")
@@ -1544,7 +1545,7 @@ class MT5Bridge:
             if request.get("side"):
                 request["side"] = str(request["side"]).lower()
             symbol = str(request.get("symbol") or "")
-            any_ok = (not symbol) or action in {"close", "flatten", "modify"}
+            any_ok = (not symbol) or action in {"close", "flatten", "modify", "cancel"}
             attached = sorted({a.symbol for a in self.active_agents() if a.symbol})
             n_targets = len(self._writers_for_symbol(symbol or None, any_ok=any_ok))
             if n_targets <= 0 and self._http_live():
@@ -1582,6 +1583,13 @@ class MT5Bridge:
         side = str(request.get("side") or "buy").lower()
         symbol = str(request.get("symbol") or "")
         volume = float(request.get("volume") or 0)
+        if action == "cancel":
+            # Deleting a resting order needs nothing but its ticket, and the
+            # symbol/volume checks below would reject it for not having them.
+            return {
+                "action": mt5.TRADE_ACTION_REMOVE,
+                "order": int(request.get("ticket") or request.get("order") or 0),
+            }
         if action in {"close", "flatten", "modify"}:
             ticket = int(request.get("ticket") or 0)
             pos = next((p for p in self.positions if p.ticket == ticket), None) if ticket else None

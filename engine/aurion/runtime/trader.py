@@ -6,6 +6,7 @@ import time
 from collections import deque
 from typing import Any
 
+from .auto_entry import expired_orders, plan_entry
 from .deals import aggregate_close_deals, history_row_matches
 from ..ai.engine import AIEngine
 from ..backtest.engine import Backtester
@@ -73,6 +74,15 @@ class Trader:
         self.min_signal_quality = 0.55
         self.last_quality: dict[str, Any] = {}
         self.news_trade = False
+        # Auto entry point: the robot names a price and waits there with the
+        # stop and target already attached, instead of buying the market the
+        # instant a candle closes.
+        self.auto_entry = False
+        self.auto_entry_depth = 0.5
+        self.auto_entry_offset = 0.35
+        self.auto_entry_expiry = 120
+        self._auto_entry_sweep = 0.0
+        self._auto_entry_tickets: set[int] = set()
         # Danger guard: tick-level protective exit. Hard-disabled while prop
         # rules are on — a challenge account only exits through the prop book.
         self.danger_enabled = False
@@ -735,6 +745,32 @@ class Trader:
             await self._danger_scan(list(current.values()))
         except Exception:
             log.exception("danger guard scan failed")
+        if getattr(self, "_pos_bootstrapped", False) and opened:
+            # A resting order that finally filled is the moment the robot
+            # actually entered, so that is when it is counted - not when the
+            # order was placed. A freemium allowance spent on an order the
+            # market never came back to would be a bill for a trade that
+            # never happened.
+            for item in opened:
+                try:
+                    if int(item.get("ticket") or 0) not in self._auto_entry_tickets:
+                        continue
+                    self._auto_entry_tickets.discard(int(item.get("ticket") or 0))
+                    self.prop.note_entry()
+                    self.license.note_bot_fill()
+                    await self.bus.publish("license", self.license.public())
+                    await self.journal(
+                        "info",
+                        "auto_entry_filled",
+                        f"Resting order filled: {item.get('type') or ''} {item.get('symbol') or ''} "
+                        f"at {item.get('price_open') or item.get('price_current') or '—'}",
+                    )
+                except Exception:
+                    log.exception("auto-entry fill accounting failed")
+        try:
+            await self.sweep_pending()
+        except Exception:
+            log.exception("pending sweep failed")
         tg = getattr(self, "telegram", None)
         if getattr(self, "_pos_bootstrapped", False) and tg:
             for item in opened:
@@ -1069,6 +1105,19 @@ class Trader:
         except (TypeError, ValueError):
             self.min_signal_quality = 0.55
         self.news_trade = bool(runtime.get("news_trade", False))
+        # Auto entry point: rest the robot's trade at a price instead of
+        # taking the market. See runtime/auto_entry.py for why.
+        auto_cfg = runtime.get("auto_entry") if isinstance(runtime.get("auto_entry"), dict) else {}
+        self.auto_entry = bool(auto_cfg.get("enabled", False))
+        try:
+            self.auto_entry_depth = max(0.0, min(1.0, float(auto_cfg.get("zone_depth", 0.5))))
+        except (TypeError, ValueError):
+            self.auto_entry_depth = 0.5
+        try:
+            self.auto_entry_offset = max(0.0, min(5.0, float(auto_cfg.get("offset_atr", 0.35))))
+        except (TypeError, ValueError):
+            self.auto_entry_offset = 0.35
+        self.auto_entry_expiry = self._clamp_int(auto_cfg.get("expiry_minutes"), 120, 0, 10080)
         danger_cfg = runtime.get("danger_guard") if isinstance(runtime.get("danger_guard"), dict) else {}
         self.danger_enabled = bool(danger_cfg.get("enabled", False))
         self.danger_sensitivity = clamp_sensitivity(danger_cfg.get("sensitivity", 50))
@@ -1470,6 +1519,9 @@ class Trader:
             "last_quality": dict(getattr(self, "last_quality", {}) or {}),
             "news_trade": self.news_trading_on(),
             "news_trade_locked": bool(self.prop.enabled),
+            "auto_entry": bool(getattr(self, "auto_entry", False)),
+            "auto_entry_expiry": int(getattr(self, "auto_entry_expiry", 120)),
+            "pending_orders": len(self._own_pending_orders()),
             "danger_guard": self._danger_state(),
             "auto_limit": self._auto_limit_meta(),
             "prop_enabled": bool(getattr(self.prop, "enabled", True)),
@@ -1519,6 +1571,12 @@ class Trader:
                     "smart_filters": bool(getattr(self, "smart_filters", True)),
                     "min_signal_quality": float(getattr(self, "min_signal_quality", 0.55) or 0.55),
                     "news_trade": self.news_trade,
+                    "auto_entry": {
+                        "enabled": bool(getattr(self, "auto_entry", False)),
+                        "zone_depth": float(getattr(self, "auto_entry_depth", 0.5)),
+                        "offset_atr": float(getattr(self, "auto_entry_offset", 0.35)),
+                        "expiry_minutes": int(getattr(self, "auto_entry_expiry", 120)),
+                    },
                     "danger_guard": {
                         "enabled": bool(self.danger_enabled),
                         "sensitivity": int(self.danger_sensitivity),
@@ -1754,6 +1812,24 @@ class Trader:
             if body.get("news_trade") and not self.license.feature("news"):
                 return {"ok": False, "error": "premium_required", "feature": "news", "upgrade": True}
             self.news_trade = bool(body.get("news_trade"))
+        if "auto_entry" in body:
+            # Accept the bare switch the desk sends, or the full object when
+            # an advanced user tunes the depth from the API.
+            raw = body.get("auto_entry")
+            auto = raw if isinstance(raw, dict) else {"enabled": bool(raw)}
+            if "enabled" in auto:
+                self.auto_entry = bool(auto.get("enabled"))
+            for key, attr, lo, hi in (
+                ("zone_depth", "auto_entry_depth", 0.0, 1.0),
+                ("offset_atr", "auto_entry_offset", 0.0, 5.0),
+            ):
+                if key in auto:
+                    try:
+                        setattr(self, attr, max(lo, min(hi, float(auto.get(key)))))
+                    except (TypeError, ValueError):
+                        pass
+            if "expiry_minutes" in auto:
+                self.auto_entry_expiry = self._clamp_int(auto.get("expiry_minutes"), 120, 0, 10080)
         if "prop_enabled" in body:
             if body.get("prop_enabled") and not self.license.feature("prop"):
                 return {"ok": False, "error": "premium_required", "feature": "prop", "upgrade": True}
@@ -2033,6 +2109,113 @@ class Trader:
             if not (result or {}).get("ok"):
                 break
 
+    # ---- auto entry point ------------------------------------------------
+    # The robot names the price it wants and leaves the order sitting there
+    # with the stop and target attached, instead of hitting the market the
+    # moment a candle closes.
+
+    MAGIC = 908173
+
+    def _own_pending_orders(self) -> list[dict[str, Any]]:
+        """AURION's resting orders, as plain dicts. Never the trader's own."""
+        out: list[dict[str, Any]] = []
+        for order in getattr(self.bridge, "orders", None) or []:
+            row = order.to_dict() if hasattr(order, "to_dict") else dict(order or {})
+            try:
+                if int(row.get("magic") or 0) != self.MAGIC:
+                    continue
+            except (TypeError, ValueError):
+                continue
+            out.append(row)
+        return out
+
+    async def _apply_auto_entry(self, request: dict[str, Any]) -> dict[str, Any]:
+        """Rewrite a robot market order into a resting order, when asked.
+
+        Returns the request to send: either a pending order, or the original
+        market order when there is no better price to wait for. Never raises
+        and never swallows the trade - a failed plan means "go to market",
+        because the alternative is a strategy whose signals silently vanish.
+        """
+        symbol = str(request.get("symbol") or "")
+        tick = self.bridge.ticks.get(symbol)
+        if not tick:
+            return request
+        side = str(request.get("side") or "buy").lower()
+        extra = request.get("extra") if isinstance(request.get("extra"), dict) else {}
+        plan = plan_entry(
+            side,
+            float(getattr(tick, "bid", 0) or 0),
+            float(getattr(tick, "ask", 0) or 0),
+            float(request.get("sl") or 0),
+            float(request.get("tp") or 0),
+            extra,
+            zone_depth=float(getattr(self, "auto_entry_depth", 0.5)),
+            offset_atr=float(getattr(self, "auto_entry_offset", 0.35)),
+            expiry_minutes=int(getattr(self, "auto_entry_expiry", 120)),
+        )
+        if not plan:
+            await self.journal(
+                "info",
+                "auto_entry_market",
+                f"Auto entry found no better price for {side} {symbol} — sending at market",
+            )
+            return request
+        out = {
+            **request,
+            "action": "pending",
+            "order_type": plan["order_type"],
+            "price": plan["price"],
+            "auto_entry": True,
+        }
+        if plan.get("sl"):
+            out["sl"] = plan["sl"]
+        if plan.get("tp"):
+            out["tp"] = plan["tp"]
+        await self.journal(
+            "info",
+            "auto_entry",
+            f"Auto entry: {plan['order_type'].replace('_', ' ')} {symbol} at {plan['price']} "
+            f"({plan['improvement']} better than {plan['market']}) with SL {out.get('sl') or '—'} / "
+            f"TP {out.get('tp') or '—'}"
+            + (f", RR {plan['rr']}" if plan.get("rr") else ""),
+            {"plan": dict(plan)},
+        )
+        return out
+
+    async def sweep_pending(self, force: bool = False) -> int:
+        """Cancel our resting orders that have waited past their shelf life.
+
+        A pending order is a decision with a timestamp on it. The structure
+        that justified the level does not survive forever, and an order left
+        from yesterday is not a trade anyone chose to take today.
+        """
+        expiry = int(getattr(self, "auto_entry_expiry", 120))
+        if expiry <= 0:
+            return 0
+        now = time.time()
+        if not force and now - float(getattr(self, "_auto_entry_sweep", 0.0)) < 30.0:
+            return 0
+        self._auto_entry_sweep = now
+        tickets = expired_orders(self._own_pending_orders(), now, expiry, self.MAGIC)
+        killed = 0
+        for ticket in tickets:
+            result = await self.bridge.send_order({"action": "cancel", "ticket": ticket})
+            if (result or {}).get("ok"):
+                killed += 1
+                await self.journal(
+                    "info",
+                    "auto_entry_expired",
+                    f"Cancelled resting order {ticket} — unfilled after {expiry} minutes",
+                )
+            else:
+                await self.journal(
+                    "warning",
+                    "auto_entry_cancel",
+                    f"Could not cancel resting order {ticket}: {(result or {}).get('error') or 'unknown'}",
+                )
+        return killed
+
     def _resolve_symbol(self, request: dict[str, Any]) -> str:
         symbol = str(request.get("symbol") or "").strip()
         if symbol:
@@ -2154,6 +2337,19 @@ class Trader:
         if not (self.bridge.connected or self.bridge.active_agents() or self.bridge.native.connected or self.bridge._ea_clients):
             await self.journal("error", "mt5_down", "MT5 is not reachable — AURION will not fabricate a fill")
             return {"ok": False, "error": "MetaTrader 5 is not reachable. AURION will not fabricate a fill."}
+        # Auto entry point. Deliberately the last step before the wire: every
+        # gate above - prop, news, quality, the open-trade ceiling - judges
+        # the trade the strategy asked for, and swapping the order type under
+        # them earlier would change what they were asked to approve.
+        if (
+            str(request.get("action") or "") == "market"
+            and getattr(self, "auto_entry", False)
+            and (source.startswith("strategy") or source in {"robot", "strategy_tick"})
+        ):
+            try:
+                request = await self._apply_auto_entry(request)
+            except Exception:
+                log.exception("auto entry planning failed - sending at market")
         await self.journal(
             "info",
             "send",
@@ -2162,6 +2358,23 @@ class Trader:
         )
         result = await self.bridge.send_order(request)
         action_now = str(request.get("action") or "")
+        if result.get("ok") and action_now == "pending" and request.get("auto_entry"):
+            # The trade has not started yet; it starts if price comes to the
+            # level. Remember the ticket so the fill can be accounted for,
+            # and tag it so the strategy still owns the trade hours later.
+            try:
+                ticket = int(result.get("order") or result.get("deal") or 0)
+            except (TypeError, ValueError):
+                ticket = 0
+            if ticket:
+                self._auto_entry_tickets.add(ticket)
+            self._remember_open(request, result)
+            await self.journal(
+                "info",
+                "auto_entry_placed",
+                f"Resting {str(request.get('order_type') or '').replace('_', ' ')} {request.get('symbol')} "
+                f"at {request.get('price')} — the trade starts only if price reaches it",
+            )
         if result.get("ok") and action_now in {"market", "buy", "sell"}:
             self.prop.note_entry()
             self._remember_open(request, result)

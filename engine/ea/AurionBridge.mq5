@@ -789,7 +789,14 @@ void SendOrders()
       json += "\"symbol\":\"" + JsonEsc(OrderGetString(ORDER_SYMBOL)) + "\",";
       json += "\"type\":\"" + OrderTypeName((ENUM_ORDER_TYPE)OrderGetInteger(ORDER_TYPE)) + "\",";
       json += "\"volume\":" + DoubleToString(OrderGetDouble(ORDER_VOLUME_CURRENT), 2) + ",";
-      json += "\"price\":" + DoubleToString(OrderGetDouble(ORDER_PRICE_OPEN), _Digits);
+      json += "\"price\":" + DoubleToString(OrderGetDouble(ORDER_PRICE_OPEN), _Digits) + ",";
+      json += "\"sl\":" + DoubleToString(OrderGetDouble(ORDER_SL), _Digits) + ",";
+      json += "\"tp\":" + DoubleToString(OrderGetDouble(ORDER_TP), _Digits) + ",";
+      json += "\"magic\":" + IntegerToString(OrderGetInteger(ORDER_MAGIC)) + ",";
+      // The desk expires its own resting orders, which it cannot do without
+      // knowing when each one was placed.
+      json += "\"time\":\"" + TimeToString((datetime)OrderGetInteger(ORDER_TIME_SETUP), TIME_DATE|TIME_SECONDS) + "\",";
+      json += "\"comment\":\"" + JsonEsc(OrderGetString(ORDER_COMMENT)) + "\"";
       json += "}";
      }
    json += "]}";
@@ -853,6 +860,8 @@ void HandleCommand(const string line)
    string type = Extract(line, "type");
    if(type == "hello" || type == "pong" || type == "ping") return;
    if(type == "order" || type == "market") { TradeMarket(line); return; }
+   if(type == "pending") { TradePending(line); return; }
+   if(type == "cancel") { TradeCancel(line); return; }
    if(type == "close") { TradeClose(line); return; }
    if(type == "modify") { TradeModify(line); return; }
    if(type == "flatten") { Flatten(); return; }
@@ -947,6 +956,73 @@ void TradeMarket(const string line)
      }
    bool good = ok && (res.retcode == TRADE_RETCODE_DONE || res.retcode == TRADE_RETCODE_PLACED || res.retcode == TRADE_RETCODE_DONE_PARTIAL);
    Reply(good, "retcode=" + IntegerToString(res.retcode) + " " + res.comment);
+  }
+
+// A resting order at a price the robot chose, with the stop and target
+// already attached. The trade only starts if the market comes back to it,
+// which is the whole point: no burst of market orders on the candle close,
+// and the entry is paid at the level rather than at whatever the impulse
+// candle happened to leave behind.
+void TradePending(const string line)
+  {
+   string want = Extract(line, "symbol");
+   if(want != "" && !SameSymbol(want, _Symbol)) return;
+   if(g_tester) { Reply(false, "tester tape is read-only - live orders stay on the main chart"); return; }
+   if(!TerminalInfoInteger(TERMINAL_TRADE_ALLOWED)) { Reply(false, "terminal AutoTrading is OFF"); return; }
+   if(!MQLInfoInteger(MQL_TRADE_ALLOWED)) { Reply(false, "AutoTrading is OFF on this chart"); return; }
+   string kind = Extract(line, "order_type");
+   StringToLower(kind);
+   double volume = StringToDouble(Extract(line, "volume"));
+   double price  = StringToDouble(Extract(line, "price"));
+   double sl = StringToDouble(Extract(line, "sl"));
+   double tp = StringToDouble(Extract(line, "tp"));
+   if(volume <= 0) { Reply(false, "volume required"); return; }
+   if(price <= 0)  { Reply(false, "price required for a pending order"); return; }
+   MqlTradeRequest req;
+   MqlTradeResult res;
+   ZeroMemory(req);
+   ZeroMemory(res);
+   req.action = TRADE_ACTION_PENDING;
+   req.symbol = _Symbol;
+   req.volume = volume;
+   req.price = NormalizeDouble(price, _Digits);
+   req.deviation = 30;
+   req.magic = 908173;
+   req.type_time = ORDER_TIME_GTC;
+   req.type_filling = FillOf(_Symbol);
+   string cmt = Extract(line, "comment");
+   if(cmt == "") cmt = "AURION";
+   if(StringLen(cmt) > 31) cmt = StringSubstr(cmt, 0, 31);
+   req.comment = cmt;
+   if(kind == "sell_limit")      req.type = ORDER_TYPE_SELL_LIMIT;
+   else if(kind == "sell_stop")  req.type = ORDER_TYPE_SELL_STOP;
+   else if(kind == "buy_stop")   req.type = ORDER_TYPE_BUY_STOP;
+   else                          req.type = ORDER_TYPE_BUY_LIMIT;
+   if(sl > 0.0) req.sl = NormalizeDouble(sl, _Digits);
+   if(tp > 0.0) req.tp = NormalizeDouble(tp, _Digits);
+   bool ok = OrderSend(req, res);
+   bool good = ok && (res.retcode == TRADE_RETCODE_DONE || res.retcode == TRADE_RETCODE_PLACED);
+   Reply(good, "retcode=" + IntegerToString(res.retcode) + " " + res.comment);
+   if(good) SendOrders();
+  }
+
+// The desk cancels a resting order that waited too long. Only its own:
+// the magic number is checked engine-side before the ticket is sent.
+void TradeCancel(const string line)
+  {
+   ulong ticket = (ulong)StringToInteger(Extract(line, "ticket"));
+   if(ticket == 0) { Reply(false, "ticket required"); return; }
+   if(!OrderSelect(ticket)) { Reply(false, "order not found"); return; }
+   MqlTradeRequest req;
+   MqlTradeResult res;
+   ZeroMemory(req);
+   ZeroMemory(res);
+   req.action = TRADE_ACTION_REMOVE;
+   req.order = ticket;
+   bool ok = OrderSend(req, res);
+   Reply(ok && (res.retcode == TRADE_RETCODE_DONE || res.retcode == TRADE_RETCODE_PLACED),
+         "retcode=" + IntegerToString(res.retcode));
+   SendOrders();
   }
 
 void TradeClose(const string line)

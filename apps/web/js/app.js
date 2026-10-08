@@ -2764,6 +2764,23 @@ function robotPanelHtml() {
         ${newsPrem ? "" : `<p class="sub lock-note">${I18N.t("lock.news")} <a href="#" data-go-upgrade>${I18N.t("lic.upgrade_cta")}</a></p>`}
       </div>
 
+      <div class="card" id="set-autoentry">
+        ${switchRow({
+          id: "st-autoentry",
+          title: I18N.t("autoentry.title"),
+          sub: I18N.t("autoentry.help"),
+          subId: "st-autoentry-sub",
+          on: Boolean(st.auto_entry),
+        })}
+        <ul class="set-list">
+          <li>${I18N.t("autoentry.point_pending")}</li>
+          <li>${I18N.t("autoentry.point_levels")}</li>
+          <li>${I18N.t("autoentry.point_expiry", { m: st.auto_entry_expiry ?? 120 })}</li>
+        </ul>
+        <p class="sub">${I18N.t("autoentry.tradeoff")}</p>
+        ${st.auto_entry && st.pending_orders ? `<p class="sub">${I18N.t("autoentry.waiting", { n: st.pending_orders })}</p>` : ""}
+      </div>
+
       <div class="card">
         <h3 class="card-h">${I18N.t("strategies.lot_title")}
           ${!licFeat("volume_mode") ? `<span class="pill no">${I18N.t("themes.premium_tag")}</span>` : ""}</h3>
@@ -5205,6 +5222,28 @@ function bindRobotPanel() {
       await reloadSettings();
     } finally {
       delete news.dataset.busy;
+    }
+  };
+  // Auto entry point: rest the robot's order at a price with the stop and
+  // target attached, instead of taking the market the second a candle shuts.
+  const autoEntry = $("st-autoentry");
+  if (autoEntry) autoEntry.onclick = async () => {
+    if (autoEntry.disabled || autoEntry.dataset.busy) return;
+    autoEntry.dataset.busy = "1";
+    const on = !autoEntry.classList.contains("on");
+    paintSwitch(autoEntry, on);
+    try {
+      const r = await API.post("/api/auto", { auto_entry: { enabled: on } });
+      if (!r.ok) {
+        paintSwitch(autoEntry, !on);
+        if (licGateToast(r)) return;
+        toast(r.error || I18N.t("errors.generic"));
+        return;
+      }
+      toast(I18N.t(on ? "autoentry.on" : "autoentry.off"));
+      await reloadSettings();
+    } finally {
+      delete autoEntry.dataset.busy;
     }
   };
   const dgSw = $("st-danger");

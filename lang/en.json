@@ -7,6 +7,17 @@
     "date": "DD/MM/YYYY",
     "datetime": "DD/MM/YYYY HH:mm:ss"
   },
+  "autoentry": {
+    "title": "Auto entry point",
+    "help": "The robot names the price it wants and leaves the order waiting there. The trade starts only if the market reaches it.",
+    "point_pending": "A pending order instead of a market order — nothing is bought the instant a candle closes.",
+    "point_levels": "Stop loss and take profit are attached to the order, so protection exists from the first second.",
+    "point_expiry": "An order that is never reached is cancelled after {m} minutes.",
+    "tradeoff": "Better entries, and some setups missed: if price never comes back to the level, the trade simply does not happen.",
+    "waiting": "{n} order(s) waiting at their entry price.",
+    "on": "Auto entry point is on — the robot will wait at its price.",
+    "off": "Auto entry point is off — the robot enters at market."
+  },
   "welcome": {
     "skip": "Skip",
     "sound": "Sound on"
