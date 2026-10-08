@@ -6,7 +6,7 @@ import time
 from collections import deque
 from typing import Any
 
-from .deals import aggregate_close_deals
+from .deals import aggregate_close_deals, history_row_matches
 from ..ai.engine import AIEngine
 from ..backtest.engine import Backtester
 from ..config import ROOT, load, merge, save
@@ -487,7 +487,49 @@ class Trader:
             if self.store.apply_reconciliation(int(item["id"]), totals):
                 fixed += 1
                 log.info("reconciled close %s with MT5: net %.2f", ticket, totals["net"])
+        fixed += self._audit_closed_rows(rows)
         return fixed
+
+    def _audit_closed_rows(self, deal_rows: list[dict[str, Any]]) -> int:
+        """Re-check rows that were already believed to agree with MT5.
+
+        Being right when written is not the same as being right. MT5 posts
+        swap at rollover, and some brokers book commission as its own deal
+        minutes after the close - both land on a position whose history row
+        was finished and never looked at again. Nothing marks those rows as
+        estimates, so the estimate sweep above will never revisit them and
+        the desk drifts away from the terminal one overnight charge at a
+        time.
+
+        Only rows whose position still appears in the deal window are
+        checked; outside it there is nothing to compare against and silence
+        is the correct answer, not a warning.
+        """
+        try:
+            stored = self.store.closed_rows_for_audit(60)
+        except Exception:
+            return 0
+        repaired = 0
+        for row in stored:
+            try:
+                ticket = int(row.get("ticket") or 0)
+            except (TypeError, ValueError):
+                continue
+            if not ticket:
+                continue
+            totals = aggregate_close_deals(deal_rows, ticket)
+            if not totals:
+                continue
+            drift = history_row_matches(row, totals)
+            if not drift:
+                continue
+            if self.store.apply_reconciliation(int(row["id"]), totals):
+                repaired += 1
+                log.info(
+                    "history row %s for ticket %s drifted from MT5 on %s - corrected",
+                    row.get("id"), ticket, ", ".join(drift),
+                )
+        return repaired
 
     async def _sync_position_book(self, rows: list[dict[str, Any]]) -> None:
         current: dict[int, dict[str, Any]] = {}
@@ -580,6 +622,7 @@ class Trader:
             deal_swap = None
             deal_comm = None
             deal_price = None
+            deal_totals: dict[str, Any] | None = None
             try:
                 # Every closing deal for this position, not just the first:
                 # a partial close produces several and MT5 reports their sum.
@@ -590,6 +633,7 @@ class Trader:
                 ]
                 totals = aggregate_close_deals(rows, ticket)
                 if totals:
+                    deal_totals = totals
                     deal_profit = totals["profit"]
                     deal_swap = totals["swap"]
                     deal_comm = totals["commission"]
@@ -616,6 +660,7 @@ class Trader:
                     ]
                     totals = aggregate_close_deals(rows, ticket)
                     if totals:
+                        deal_totals = totals
                         deal_profit = totals["profit"]
                         deal_swap = totals["swap"]
                         deal_comm = totals["commission"]
@@ -624,18 +669,35 @@ class Trader:
                         deal_parts = totals["parts"]
                 except Exception:
                     pass
+            mt5_view = deal_totals or {}
             close_trade = {
-                "time": utc_iso(),
+                # MetaTrader's close time, not the moment the desk noticed
+                # the position had gone. They differ by a second normally
+                # and by minutes after a reconnect, and a history sorted on
+                # the wrong one does not line up with the terminal's.
+                "time": mt5_view.get("close_time") or utc_iso(),
                 "ticket": ticket,
                 "symbol": old.get("symbol"),
                 "side": old.get("type") or old.get("side"),
-                "volume": old.get("volume"),
+                # The closed volume from the deals: a partial close moves
+                # less than the position was carrying.
+                "volume": mt5_view.get("volume") or old.get("volume"),
                 "price": deal_price or old.get("price_current") or old.get("price_open"),
+                # Carried so a row can be matched against MetaTrader's
+                # History tab, which lists a position by its open side too.
+                "price_open": mt5_view.get("open_price") or old.get("price_open"),
+                "time_open": mt5_view.get("open_time") or old.get("time"),
+                "order": mt5_view.get("order"),
+                "deals": mt5_view.get("deals") or [],
                 "sl": old.get("sl"),
                 "tp": old.get("tp"),
                 "profit": deal_profit if deal_profit is not None else (old.get("profit") or 0),
                 "swap": deal_swap if deal_swap is not None else (old.get("swap") or 0),
                 "commission": deal_comm if deal_comm is not None else 0,
+                # Brokers that bill on the way in put the whole commission on
+                # the entry deal; shown separately so "why is net below
+                # Profit" is answerable from the desk.
+                "entry_commission": mt5_view.get("entry_commission") or 0,
                 # net is what the balance actually moved by; MT5's Profit column
                 # is gross, and a desk that mixes the two can never reconcile.
                 "net": deal_net if deal_net is not None else round(

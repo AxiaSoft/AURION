@@ -3889,17 +3889,41 @@ function posProfitPct(r) {
   const raw = (c - o) / o * 100;
   return String(r.type || "").toLowerCase() === "sell" ? -raw : raw;
 }
+/**
+ * One cell's text, for both the initial render and the live patch.
+ *
+ * It lived twice - once in table() and once in paintPositions() - and the
+ * two copies formatted a different set of columns, so a price rendered with
+ * five decimals on load and with however many the engine sent on the first
+ * tick after it. Shared now, because a number that changes shape when it
+ * updates is read as a number that changed.
+ */
+const CELL_PRICE = ["price", "price_open", "price_current", "price_close", "sl", "tp"];
+const CELL_MONEY = ["profit", "net", "swap", "commission", "fees"];
+function cellText(k, v) {
+  if (k === "profit_pct") {
+    return (v === null || v === undefined || Number.isNaN(Number(v))) ? "—" : fmt(v, 2) + "%";
+  }
+  if (k === "strategy") return strategyLabel(v);
+  if (v === "" || v === null || v === undefined) return "—";
+  if (k === "volume") return fmt(v, 2);
+  if (CELL_PRICE.includes(k)) return fmt(v, 5);
+  if (CELL_MONEY.includes(k)) return fmt(v, 2);
+  return String(v);
+}
+/** Columns where a minus sign means something and should be coloured. */
+function cellSigned(k) {
+  return k === "profit" || k === "profit_pct" || k === "net" ||
+         k === "swap" || k === "commission";
+}
 function table(rows, keys, closable) {
   const head = keys.map((k) => `<th>${I18N.t("table." + k) !== "table." + k ? I18N.t("table." + k) : k}</th>`).join("");
   const body = rows.map((r) => `<tr data-ticket="${r.ticket || ""}">${keys.map((k) => {
     const v = k === "profit_pct" ? posProfitPct(r) : r[k];
-    const signed = k === "profit" || k === "profit_pct";
-    const c = signed ? clsPnl(v) : "";
-    let text;
-    if (k === "profit_pct") text = (v === null || v === undefined || Number.isNaN(Number(v))) ? "—" : fmt(v, 2) + "%";
-    else if (k === "strategy") text = strategyLabel(v);
-    else if (k === "profit" || k === "volume" || k === "price_open" || k === "price_current") text = fmt(v, k === "volume" ? 2 : 5);
-    else text = (v ?? "—");
+    // Every money column is signed, not just profit. A swap of -4.10 shown
+    // in the same colour as a profit of 4.10 is a column the eye skips.
+    const c = cellSigned(k) ? clsPnl(v) : "";
+    const text = cellText(k, v);
     return `<td class="mono ${c}" data-k="${k}">${text}</td>`;
   }).join("")}${closable ? `<td><button class="btn tiny ghost" type="button" data-close="${r.ticket}">${I18N.t("exec.close")}</button></td>` : ""}</tr>`).join("");
   // A colgroup, so the CSS can fix the column widths. Without declared
@@ -3926,13 +3950,9 @@ function paintPositions(boxId, rows, keys, closable) {
         const td = tr.querySelector(`[data-k="${k}"]`);
         if (!td) return;
         const v = k === "profit_pct" ? posProfitPct(r) : r[k];
-        let text;
-        if (k === "profit_pct") text = (v === null || v === undefined || Number.isNaN(Number(v))) ? "—" : fmt(v, 2) + "%";
-        else if (k === "strategy") text = strategyLabel(v);
-        else if (k === "profit" || k === "volume" || k === "price_open" || k === "price_current") text = fmt(v, k === "volume" ? 2 : 5);
-        else text = (v ?? "—");
+        const text = cellText(k, v);
         if (td.textContent !== text) td.textContent = text;
-        if (k === "profit" || k === "profit_pct") {
+        if (cellSigned(k)) {
           td.classList.toggle("up", Number(v) > 0);
           td.classList.toggle("down", Number(v) < 0);
         }
@@ -5535,11 +5555,17 @@ function historyRows(rows) {
 /**
  * Present a history row the way MetaTrader's own statement does.
  *
- * Three columns instead of one "profit", because that single column was the
- * reason the desk and MT5 seemed to disagree: MT5's Profit is gross, and the
- * balance moves by profit + swap + commission. Showing only the gross figure
- * next to a balance that moved by the net one is a contradiction the trader is
- * left to work out. Now both are visible and they reconcile by inspection.
+ * The columns are deliberately the terminal's columns, in the terminal's
+ * order: open time, position, symbol, type, volume, open price, S/L, T/P,
+ * close time, close price, commission, swap, profit. A trader checking the
+ * desk against MT5 should be reading two copies of the same table, not
+ * translating between two layouts and two conventions.
+ *
+ * Swap and commission are their own columns rather than one "fees", because
+ * that is how the terminal reports them and because a single lumped figure
+ * cannot be checked against anything. Net is the one column MT5 does not
+ * have, and it is the one that explains the balance: MT5's Profit is gross,
+ * and the account moves by profit + swap + commission.
  */
 function historyRowView(row) {
   const num = (v) => (v === null || v === undefined || v === "" ? 0 : Number(v) || 0);
@@ -5550,8 +5576,13 @@ function historyRowView(row) {
   const isClose = String(row.kind || row.entry || "").toLowerCase().match(/close|out/);
   return {
     ...row,
+    // Both ends of the position, as the terminal lists them.
+    ts_open: row.time_open || row.ts_open || "",
+    price_close: isClose ? row.price : "",
+    price_open: row.price_open || "",
     profit: isClose ? profit : "",
-    fees: isClose && (swap || comm) ? Number((swap + comm).toFixed(2)) : "",
+    swap: isClose && swap ? Number(swap.toFixed(2)) : "",
+    commission: isClose && comm ? Number(comm.toFixed(2)) : "",
     net: isClose ? Number(net.toFixed(2)) : "",
     // A close recorded from the last floating price rather than from an MT5
     // deal is marked, instead of being presented as fact.
@@ -5565,8 +5596,9 @@ async function loadHistory() {
   const r = await API.get("/api/history?limit=400");
   const rows = historyRows(r.data || []).map(historyRowView);
   if (!rows.length) { box.innerHTML = emptyMini(I18N.t("status.no_history")); return; }
-  box.innerHTML = table(rows, ["ts","ticket","symbol","side","volume","price","sl","tp",
-                               "profit","fees","net","source","strategy","comment"]);
+  box.innerHTML = table(rows, ["ts_open","ts","ticket","symbol","side","volume",
+                               "price_open","price_close","sl","tp",
+                               "commission","swap","profit","net","source","strategy","comment"]);
 }
 
 async function hardRefresh() {

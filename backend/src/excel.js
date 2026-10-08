@@ -296,17 +296,30 @@ async function exportHistory({ lang, trades, equity, account, metrics }) {
     [{ v: t(lang, "history.sharpe"), s: S.label }, { v: num(metrics && metrics.sharpe), s: S.num }],
     [{ v: t(lang, "history.rr"), s: S.label }, { v: num(metrics && metrics.avg_rr), s: S.num }],
   ];
+  /* The workbook is what gets compared against the broker's own statement,
+     so it carries the broker's own columns. Exporting gross profit alone
+     made that comparison impossible: the statement nets swap and commission
+     and the spreadsheet did not have them, so the two could only be made to
+     agree by hand. Open time and open price are here for the same reason -
+     they are how a row is identified in MetaTrader's History tab. */
+  const label = (key, fallback) => (t(lang, key) !== key ? t(lang, key) : fallback);
   const tradeHead = [
-    t(lang, "table.time"),
+    label("table.ts_open", "Open time"),
+    label("table.time", "Close time"),
     t(lang, "table.ticket"),
     t(lang, "table.symbol"),
     t(lang, "table.side"),
     t(lang, "table.volume"),
-    t(lang, "table.price"),
+    label("table.price_open", "Open price"),
+    label("table.price_close", "Close price"),
     t(lang, "table.sl"),
     t(lang, "table.tp"),
+    label("table.commission", "Commission"),
+    label("table.swap", "Swap"),
     t(lang, "table.profit"),
-    t(lang, "table.strategy") !== "table.strategy" ? t(lang, "table.strategy") : "Strategy",
+    label("table.net", "Net"),
+    label("table.source", "Source"),
+    label("table.strategy", "Strategy"),
     t(lang, "table.comment"),
   ].map((h) => ({ v: h, s: S.header }));
   const tradeRows = [tradeHead];
@@ -316,16 +329,30 @@ async function exportHistory({ lang, trades, equity, account, metrics }) {
     const numS = alt ? S.numAlt : S.num;
     const side = trade.side || trade.type || "";
     const profit = num(trade.profit);
+    const swap = num(trade.swap);
+    const commission = num(trade.commission);
+    // Prefer the stored net: it is what the reconciliation wrote from MT5's
+    // own deals. Recomputing is only a fallback for rows predating it.
+    const net = trade.net === undefined || trade.net === null
+      ? profit + swap + commission
+      : num(trade.net);
     tradeRows.push([
+      { v: trade.time_open || trade.ts_open || "", s: textS },
       { v: trade.ts || trade.time || "", s: textS },
       { v: trade.ticket ?? "", s: textS },
       { v: trade.symbol ?? "", s: textS },
       { v: side, s: sideStyle(side) },
       { v: num(trade.volume), s: numS },
+      { v: num(trade.price_open), s: numS },
       { v: num(trade.price), s: numS },
       { v: num(trade.sl), s: numS },
       { v: num(trade.tp), s: numS },
+      { v: commission, s: profitStyle(commission) },
+      { v: swap, s: profitStyle(swap) },
       { v: profit, s: profitStyle(profit) },
+      { v: net, s: profitStyle(net) },
+      // An estimated close is marked rather than presented as fact.
+      { v: trade.source === "estimate" ? "estimate" : "mt5", s: textS },
       { v: trade.strategy || "", s: textS },
       { v: trade.comment || "", s: textS },
     ]);
@@ -364,7 +391,7 @@ async function exportHistory({ lang, trades, equity, account, metrics }) {
     { name: "xl/styles.xml", data: STYLES },
     {
       name: "xl/worksheets/sheet1.xml",
-      data: sheetXml(tradeRows, { freeze: 1, widths: [22, 12, 14, 10, 12, 14, 12, 12, 14, 16, 28] }),
+      data: sheetXml(tradeRows, { freeze: 1, widths: [22, 22, 12, 14, 10, 12, 14, 14, 12, 12, 13, 11, 13, 13, 10, 16, 28] }),
     },
     {
       name: "xl/worksheets/sheet2.xml",
