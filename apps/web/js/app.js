@@ -2051,7 +2051,7 @@ function stAbout(name) {
     ema_rsi: "strategies.ema_rsi_about",
     price_action: "strategies.price_action_about",
     atr_breakout: "strategies.atr_breakout_about",
-    scalp_impulse: "strategies.scalp_about",
+    king: "strategies.king_about",
   };
   return I18N.t(about[name] || "strategies.active");
 }
@@ -2248,7 +2248,7 @@ function strategyItems() {
     {name:"ema_rsi", enabled:false, last_action:"idle"},
     {name:"price_action", enabled:false, last_action:"idle"},
     {name:"atr_breakout", enabled:false, last_action:"idle"},
-    {name:"scalp_impulse", enabled:false, last_action:"idle"},
+    {name:"king", enabled:false, last_action:"idle"},
   ];
   return items;
 }

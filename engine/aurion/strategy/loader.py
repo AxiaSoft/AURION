@@ -61,8 +61,23 @@ FORBIDDEN_MODULES = {
 }
 
 
-BUILTIN_NAMES = ("ema_rsi", "price_action", "atr_breakout", "scalp_impulse")
-RESERVED_NAMES = set(BUILTIN_NAMES) | {"template", "base"}
+BUILTIN_NAMES = ("ema_rsi", "price_action", "atr_breakout", "king")
+
+# Strategies that used to ship and no longer do. Saved runtime state, MT5
+# comments on open positions and a trader's own config all still name them, so
+# they resolve to their replacement instead of raising. Dropping the entry
+# would turn an upgrade into "unknown builtin strategy" on first boot.
+LEGACY_BUILTINS = {"scalp_impulse": "king"}
+
+# "scalp_impulse" stays reserved after its retirement: an uploaded file with
+# that name would collide with the alias above and silently shadow King.
+RESERVED_NAMES = set(BUILTIN_NAMES) | set(LEGACY_BUILTINS) | {"template", "base"}
+
+
+def resolve_builtin(name: str) -> str:
+    """Current id for a built-in, following one retirement if necessary."""
+    key = str(name or "")
+    return LEGACY_BUILTINS.get(key, key)
 
 
 class StrategyValidationError(ValueError):
@@ -183,15 +198,16 @@ class StrategyLoader:
     def load_builtin(self, name: str, params: dict[str, Any] | None = None) -> BaseStrategy:
         from .builtin.atr_breakout import ATRBreakout
         from .builtin.ema_rsi import EmaRsi
+        from .builtin.king import King
         from .builtin.price_action import PriceAction
-        from .builtin.scalp_impulse import ScalpImpulse
 
         mapping = {
             "ema_rsi": EmaRsi,
             "price_action": PriceAction,
             "atr_breakout": ATRBreakout,
-            "scalp_impulse": ScalpImpulse,
+            "king": King,
         }
+        name = resolve_builtin(name)
         if name not in mapping:
             raise StrategyValidationError(f"unknown builtin strategy '{name}'")
         inst = mapping[name](params or {})

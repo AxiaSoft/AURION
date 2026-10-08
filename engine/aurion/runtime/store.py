@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from ..config import DATA_DIR, ROOT, load
+from ..strategy.loader import BUILTIN_NAMES, LEGACY_BUILTINS
 from ..util.clock import utc_iso
 
 SCHEMA = """
@@ -97,7 +98,11 @@ CREATE INDEX IF NOT EXISTS idx_trades_ticket ON trades(ticket);
 CREATE INDEX IF NOT EXISTS idx_events_ts ON events(ts);
 """
 
-STRATEGY_TAGS = ("ema_rsi", "price_action", "atr_breakout", "scalp_impulse")
+# Parsed out of MT5 comments, so this is a *historical* list, not the list of
+# strategies that currently ship: trades opened by scalp_impulse before it was
+# retired still carry its tag, and a history that silently stopped attributing
+# them would quietly rewrite the record.
+STRATEGY_TAGS = tuple(BUILTIN_NAMES) + tuple(LEGACY_BUILTINS)
 _SKIP_TAGS = {"", "desk", "manual", "robot", "close", "flatten", "order", "aurion"}
 
 

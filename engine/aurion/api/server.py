@@ -13,6 +13,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from ..config import heal_packaged_files, load, merge, save
 from ..mt5.protocol import parse_ea_json
 from ..runtime.trader import Trader
+from ..strategy.loader import BUILTIN_NAMES
 from ..util.log import RING
 
 trader = Trader()
@@ -263,7 +264,7 @@ async def strategies() -> dict[str, Any]:
         "ok": True,
         "data": {
             "items": trader.loader.list(),
-            "builtins": ["ema_rsi", "price_action", "atr_breakout", "scalp_impulse"],
+            "builtins": list(BUILTIN_NAMES),
             "active": trader.strategy_meta,
         },
     }

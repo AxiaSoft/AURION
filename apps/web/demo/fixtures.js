@@ -279,7 +279,7 @@ window.AURION_DEMO_FIXTURES = {
       "last_trade_ts": null
      },
      {
-      "name": "scalp_impulse",
+      "name": "king",
       "version": "2.0.0",
       "language": "en",
       "params": {
@@ -362,7 +362,7 @@ window.AURION_DEMO_FIXTURES = {
       "avg": 0,
       "last_ts": null
      },
-     "scalp_impulse": {
+     "king": {
       "trades": 0,
       "wins": 0,
       "losses": 0,
@@ -1903,7 +1903,7 @@ window.AURION_DEMO_FIXTURES = {
       },
       "kind": "builtin"
      },
-     "scalp_impulse": {
+     "king": {
       "enabled": false,
       "params": {
        "lookback": 8,

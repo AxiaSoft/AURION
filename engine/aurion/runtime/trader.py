@@ -13,7 +13,12 @@ from ..config import ROOT, load, merge, save
 from ..mt5.bridge import MT5Bridge
 from ..prop.rules import PropEngine
 from ..strategy.base import StrategyContext
-from ..strategy.loader import StrategyLoader, StrategyValidationError
+from ..strategy.loader import (
+    BUILTIN_NAMES,
+    LEGACY_BUILTINS,
+    StrategyLoader,
+    StrategyValidationError,
+)
 from ..license.guard import Guard
 from ..util.clock import utc_iso
 from ..util.market import block_reason as market_block_reason, session as market_session
@@ -1025,9 +1030,9 @@ class Trader:
                 merge({"prop": {"enabled": False}})
             except Exception:
                 pass
-        saved = runtime.get("strategies") or {}
+        saved = self._migrate_retired_strategies(runtime.get("strategies") or {})
         self.book = {}
-        for name in ("ema_rsi", "price_action", "atr_breakout", "scalp_impulse"):
+        for name in BUILTIN_NAMES:
             spec = saved.get(name) or {}
             inst = self.loader.load_builtin(name, spec.get("params") or {})
             self.book[name] = {
@@ -1411,6 +1416,32 @@ class Trader:
             "class": first.__class__.__name__ if first else "",
         }
 
+    @staticmethod
+    def _migrate_retired_strategies(saved: dict[str, Any]) -> dict[str, Any]:
+        """Carry a retired built-in's saved state over to its replacement.
+
+        A trader who had scalp_impulse armed should come back from the upgrade
+        with King armed, not with auto-trading quietly switched off and no
+        explanation. Only the *enabled* flag and the kind travel: the old
+        parameters described an indicator strategy and mean nothing to a
+        structural one, so forwarding them would be worse than dropping them.
+        """
+        if not isinstance(saved, dict):
+            return {}
+        out = dict(saved)
+        for old_name, new_name in LEGACY_BUILTINS.items():
+            spec = out.pop(old_name, None)
+            if not isinstance(spec, dict):
+                continue
+            existing = out.get(new_name)
+            if isinstance(existing, dict) and existing.get("enabled"):
+                continue
+            out[new_name] = {
+                "enabled": bool(spec.get("enabled")),
+                "kind": "builtin",
+            }
+        return out
+
     def _persist_runtime(self) -> None:
         merge(
             {
@@ -1568,9 +1599,13 @@ class Trader:
                 "lookback": 20, "volume": 0.10, "sl_atr": 1.2, "tp_atr": 2.0,
                 "min_rr": 1.6, "with_trend": True, "require_momentum": True, "min_efficiency": 0.18,
             },
-            "scalp_impulse": {
-                "lookback": 8, "volume": 0.05, "sl_atr": 0.9, "tp_atr": 1.4,
-                "min_rr": 1.3, "with_trend": True, "require_momentum": False, "min_efficiency": 0.2,
+            # King reads structure, so the style pack tunes *patience*, not
+            # indicators: a wider higher timeframe, a strict discount and a
+            # target that has to pay twice the risk.
+            "king": {
+                "htf_factor": 4, "volume": 0.10, "max_discount": 0.5,
+                "min_displacement_atr": 0.9, "min_rr": 2.0, "tp_atr": 3.0,
+                "require_zone": True, "allow_choch": True,
             },
         },
         "scalping": {
@@ -1586,9 +1621,15 @@ class Trader:
                 "lookback": 8, "volume": 0.05, "sl_atr": 0.55, "tp_atr": 0.95,
                 "min_rr": 1.2, "with_trend": True, "require_momentum": False, "min_efficiency": 0.12,
             },
-            "scalp_impulse": {
-                "lookback": 5, "volume": 0.05, "sl_atr": 0.5, "tp_atr": 0.8,
-                "min_rr": 1.1, "with_trend": False, "require_momentum": False, "min_efficiency": 0.12,
+            # Scalping does not get to switch the quality gates off. It gets a
+            # closer higher timeframe and a nearer target, because on M1 the
+            # next pool of liquidity is minutes away rather than hours — but
+            # the discount rule, the zone and the 1.5R floor stay, since those
+            # are the reason this strategy wins and the old scalper did not.
+            "king": {
+                "htf_factor": 3, "volume": 0.05, "max_discount": 0.55,
+                "min_displacement_atr": 0.7, "min_rr": 1.5, "tp_atr": 2.0,
+                "require_zone": True, "allow_choch": True,
             },
         },
     }

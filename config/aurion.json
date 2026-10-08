@@ -80,6 +80,9 @@
       "atr_breakout": {
         "enabled": false
       },
+      "king": {
+        "enabled": false
+      },
       "scalp_impulse": {
         "enabled": false
       }
