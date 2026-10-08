@@ -9,8 +9,15 @@ const I18N = {
        a disk - there is no engine to ask, and without a pack every label in
        the interface falls back to its key. The pack files are published
        too, two levels up from here, so they are tried second. */
+    /* The pack is a plain file with no version in its name, so a browser
+       that cached it once will keep serving yesterday's labels and every
+       new key will render as its own key. The script tag that loaded this
+       file carries the build token; borrow it. */
+    const tag = document.querySelector('script[src*="i18n.js?v="]');
+    const build = tag ? String(tag.src).split("v=").pop() : "";
+    const bust = build ? `?v=${encodeURIComponent(build)}` : "";
     let data = null;
-    for (const url of [`/api/i18n/${code}`, `../../lang/${code}.json`]) {
+    for (const url of [`/api/i18n/${code}${bust}`, `../../lang/${code}.json${bust}`]) {
       try {
         const res = await fetch(url);
         if (!res.ok) continue;
