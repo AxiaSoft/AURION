@@ -109,7 +109,7 @@
         <Control Id="Description" Type="Text" X="25" Y="23" Width="230" Height="15"
                  Transparent="yes" NoPrefix="yes" Text="!(loc.PrereqSubtitle)" />
 
-        <Control Id="Intro" Type="Text" X="20" Y="58" Width="330" Height="24"
+        <Control Id="Intro" Type="Text" X="20" Y="58" Width="330" Height="30"
                  NoPrefix="yes" Text="!(loc.PrereqIntro)" />
 
         <!-- Python -->
@@ -588,15 +588,30 @@
                  Property="AURION_LAUNCH_AFTER" CheckBoxValue="yes"
                  Text="!(loc.ExitLaunch)" ShowCondition="NOT REMOVE" />
 
+        <!-- A window appearing by itself after Finish is alarming unless it
+             was announced. Shown whether or not the launch box is ticked:
+             either way the environment check is the next thing on screen. -->
+        <Control Id="Provision" Type="Text" X="135" Y="192" Width="215" Height="30"
+                 Transparent="yes" NoPrefix="yes" Hidden="yes" Text="!(loc.ExitProvision)"
+                 ShowCondition="AURION_PROVISION_NEEDED AND NOT REMOVE" />
+
         <Control Id="Back" Type="PushButton" X="180" Y="243" Width="56" Height="17"
                  Disabled="yes" Text="!(loc.ButtonBack)" />
         <Control Id="Cancel" Type="PushButton" X="304" Y="243" Width="56" Height="17"
                  Disabled="yes" Cancel="yes" Text="!(loc.ButtonCancel)" />
         <Control Id="Finish" Type="PushButton" X="236" Y="243" Width="56" Height="17"
                  Default="yes" Text="!(loc.ButtonFinish)">
-          <Publish Event="DoAction" Value="AurionLaunchApplication" Order="1"
+          <!-- Order matters and the two are mutually exclusive. Launching the
+               desk already runs the environment check on its way up, so when
+               the box is ticked there is nothing extra to do; when it is not,
+               a bare machine would otherwise be left exactly as setup found
+               it, and the next thing the user does - a shortcut, or
+               start-aurion.cmd - is the error they reported. -->
+          <Publish Event="DoAction" Value="AurionProvisionRuntimes" Order="1"
+                   Condition="AURION_PROVISION_NEEDED AND NOT AURION_LAUNCH_AFTER AND NOT REMOVE AND AURION_SKIP_PROVISION &lt;&gt; &quot;1&quot;" />
+          <Publish Event="DoAction" Value="AurionLaunchApplication" Order="2"
                    Condition="AURION_LAUNCH_AFTER AND NOT REMOVE" />
-          <Publish Event="EndDialog" Value="Return" Order="2" />
+          <Publish Event="EndDialog" Value="Return" Order="3" />
         </Control>
       </Dialog>
 

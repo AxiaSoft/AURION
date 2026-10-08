@@ -126,10 +126,31 @@ added files are two installer-owned launchers (`AURION-Launch.vbs`,
 `stop-aurion.cmd` so shortcuts get a proper icon, a correct working directory and
 no console flash.
 
-**Runtimes are detected, never bundled or downloaded.** Python 3.10–3.12 and
-Node.js 18+ are found through registry `AppSearch`. Missing ones produce a clear
-status page, not a blocked install — and Python 3.13+ is called out explicitly,
-because `engine/main.py` refuses to run on it.
+**Runtimes are installed, never bundled.** Python 3.10–3.12 and Node.js 18+ are
+detected with a plain `AppSearch` (so detection is also correct during a silent
+install) and shown on a status page. What is missing is then provisioned, once
+the MSI transaction is over, by `AURION.exe --setup` — the same environment
+screen the desk shows at launch. It downloads from python.org and nodejs.org,
+refuses to run anything whose Authenticode publisher is not the vendor's, and
+logs to `data\logs\setup.log`. Python 3.13+ is called out explicitly, because
+`engine/main.py` refuses to run on it; setup adds 3.12 beside it.
+
+Two deliberate constraints shape this:
+
+* **Nothing is bundled into the MSI.** A packaged runtime collides with the one
+  the trader already has and goes stale on our release cadence instead of the
+  vendor's.
+* **Nothing is installed from inside the transaction.** Node.js ships as an
+  `.msi`, and Windows Installer's `_MSIExecute` mutex forbids a nested install,
+  so provisioning has to be a separate process. With the full wizard the Finish
+  button starts it (`AurionProvisionRuntimes`, published only when the user did
+  *not* tick "Start AURION now", since launching runs the same check anyway);
+  with `/qn`, `/qb` or `/qr` there is no finish page, so it is sequenced after
+  `InstallFinalize` instead. Short of a Burn bundle this is the supported shape.
+
+Node's installer is per-machine and will raise a UAC prompt. Everything else,
+including Python, is per-user — installing AURION itself still needs no
+administrator rights.
 
 **Config survives upgrades by construction.** Only `config/aurion.factory.json`
 ships. The engine creates `config/aurion.json` from it on first run
@@ -258,9 +279,12 @@ msiexec /a AURION-1.0.0-x64.msi TARGETDIR=\\server\software\aurion
 | `AURION_WANT_DESKTOP` | `yes` / omit | off |
 | `AURION_LAUNCH_AFTER` | `yes` / omit | `yes` (finish page only; silent installs never launch) |
 | `AURION_REMOVE_DATA` | `yes` / omit | off — data is kept |
+| `AURION_SKIP_PROVISION` | `1` / omit | off — missing runtimes are installed |
 
 > Conditions treat *any* non-empty string as true, which is why these are `yes`
-> or absent — never `0`.
+> or absent — never `0`. `AURION_SKIP_PROVISION` is the one exception: it is
+> compared against the literal `1`, so that the obvious-looking
+> `AURION_SKIP_PROVISION=0` cannot silently mean "yes, skip".
 
 ---
 
@@ -284,7 +308,8 @@ it is the one that failed.
 | "index.html no longer loads js/demo.js" | the demo script tag was renamed or reformatted; update the strip in `stage.ps1` |
 | Install rolls back | `Return value 3` in the MSI log |
 | Desk will not start after install | `data\logs\engine.log` and `data\logs\desk.log` in the install folder |
-| Wizard says a runtime is missing | Install Python 3.12 / Node.js 18+, then `pip install -r engine\requirements.txt` |
+| Wizard says a runtime is missing | Nothing to do — setup installs it when you click Finish. To redo it later: `AURION.exe --setup` |
+| Provisioning failed or was skipped | `data\logs\setup.log` in the install folder. Re-run `AURION.exe --setup`; it only touches what is still missing |
 
 Exit codes are the standard Windows Installer ones: `0` success, `1602` user
 cancelled, `1603` fatal error, `1618` another install in progress, `1638` a

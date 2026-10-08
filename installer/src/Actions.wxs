@@ -95,6 +95,34 @@
                   Return="asyncNoWait" />
 
     <!-- ================================================================
+         5. Provision the runtimes on a machine that has none
+         ================================================================
+         Same binary, same detach, one argument's difference. The setup switch
+         (see the ExeCommand below) runs the environment check and the
+         download-and-install screen, then closes without ever opening the
+         desk. It is what makes a bare machine work without the trader having
+         to read anything first.
+
+         Why it is a separate process and not a custom action of its own:
+         Node.js ships as an .msi, and Windows Installer holds the _MSIExecute
+         mutex for the whole of this transaction, so a nested install would
+         fail at runtime on a real machine. Starting a plain process once
+         InstallFinalize is behind us is the supported way to do this short of
+         a Burn bundle.
+
+         Return="asyncNoWait" for the same reason as the launch action: a user
+         on a slow line could be ten minutes downloading Python, Node and
+         WebView2, and a wizard frozen on its last page for ten minutes is a
+         wizard people kill. The provisioning window has its own progress, its
+         own log (data\logs\setup.log) and its own Skip button. -->
+    <CustomAction Id="AurionProvisionRuntimes"
+                  Directory="INSTALLFOLDER"
+                  ExeCommand="&quot;[INSTALLFOLDER]AURION.exe&quot; --setup"
+                  Execute="immediate"
+                  Impersonate="yes"
+                  Return="asyncNoWait" />
+
+    <!-- ================================================================
          Sequencing
          ================================================================ -->
     <InstallExecuteSequence>
@@ -115,6 +143,20 @@
       <Custom Action="AurionCleanWindowProfile"
               After="AurionCleanGenerated"
               Condition="REMOVE=&quot;ALL&quot;" />
+
+      <!-- Provisioning, for every install that has no finish page to drive it.
+           With the full wizard (UILevel 5) the Finish button publishes this
+           action instead, so that it cannot race the "Start AURION now" launch
+           and so the user meets it in context rather than behind the still-open
+           wizard. With /qn, /qb or /qr there is no such page, and leaving the
+           machine unprovisioned is precisely the failure this is here to stop.
+
+           AURION_SKIP_PROVISION=1 opts out, for administrators who lay the
+           runtimes down themselves and do not want a window appearing on a
+           scripted rollout. -->
+      <Custom Action="AurionProvisionRuntimes"
+              After="InstallFinalize"
+              Condition="NOT Installed AND AURION_PROVISION_NEEDED AND (UILevel &lt; 5) AND (AURION_SKIP_PROVISION &lt;&gt; &quot;1&quot;)" />
     </InstallExecuteSequence>
 
   </Fragment>

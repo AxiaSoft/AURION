@@ -83,7 +83,37 @@ AURION-<version>-x64.msi
 
 Double-click it. The wizard checks the environment, installs to
 `%LocalAppData%\Programs\AURION` (changeable), creates the shortcuts you pick and
-can start the desk when it finishes. **No administrator rights are required.**
+can start the desk when it finishes. **No administrator rights are required**
+to install AURION itself.
+
+### A machine with nothing on it
+
+**You do not have to install Python or Node.js first.** The environment page
+lists what is missing; when the wizard finishes, a window opens, tells you what
+it is about to fetch and how large it is, and installs it once you say go:
+
+| Missing | What setup installs | From |
+|---|---|---|
+| Python 3.10-3.12 | Python 3.12, per-user, added to `PATH` | python.org |
+| The engine's packages | `pip install -r engine\requirements.txt` | PyPI |
+| Node.js 18+ | Node.js 20 — **this one asks for administrator rights**, because Node's own installer is per-machine | nodejs.org |
+| The desk API's packages | `npm install` in `backend\` | npm |
+| WebView2 | The evergreen runtime, if Windows does not already have it | Microsoft |
+
+Every download is checked against its vendor's Authenticode signature before it
+is allowed to run, and the whole run is logged to `data\logs\setup.log`.
+Nothing is bundled inside the MSI, so the runtimes are always the vendors'
+current ones rather than whatever was current when AURION shipped.
+
+The same check runs every time AURION starts, so a machine that loses its
+Python later is offered the fix instead of an error. To do it on demand:
+`AURION.exe --setup`.
+
+Deploying to machines you image yourself and want none of this on:
+`msiexec /i AURION-<version>-x64.msi /qn AURION_SKIP_PROVISION=1`.
+
+Written up in Persian, including the failure modes and where to look:
+[`docs/fa/prerequisites.md`](docs/fa/prerequisites.md).
 
 Upgrade, Repair, Modify and Uninstall all run from **Settings → Apps → AURION**
 and use the same branded wizard. Your settings, trading history, licence state
@@ -110,11 +140,11 @@ Copy the **full** tree to `D:\aurion` (not nested `D:\aurion\aurion`).
 
 | When | What to run |
 |---|---|
-| First time | Install **Python 3.10-3.12** (never 3.13/3.14) + **Node.js 18-30**, `pip install -r engine\requirements.txt`, then `npm install` in `backend\` |
+| First time | Install **Python 3.10-3.12** (never 3.13/3.14) + **Node.js 18-30**, `pip install -r engine\requirements.txt`, then `npm install` in `backend\` — or just run `start-aurion.cmd` and let it do all of that for you |
 | Every later day | **`start-aurion.cmd`** |
 | Stop | **`stop-aurion.cmd`** |
 
-`start-aurion.cmd` checks the prerequisites, waits for `/api/health` before opening the browser, and runs engine + desk **hidden**. Logs live inside the dashboard (**Terminal**).
+`start-aurion.cmd` checks the prerequisites — and, if any are missing, hands over to the same setup window the installer uses rather than leaving you with an error — waits for `/api/health` before opening the browser, and runs engine + desk **hidden**. Logs live inside the dashboard (**Terminal**).
 
 Python must be **3.10, 3.11 or 3.12** (3.12 preferred). **Never 3.13 or 3.14** — `engine/main.py` exits on them and `numpy==1.26.4` has no 3.13 wheels. Node **18 to 30** is fine, including **26**.
 

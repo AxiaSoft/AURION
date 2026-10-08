@@ -6,19 +6,29 @@
   <!--
     Environment detection.
 
-    AURION runs on CPython 3.10-3.12 and Node.js 18+. The installer does NOT
-    bundle, download or silently install either of them:
-      * downloading unknown payloads mid-install is a security anti-pattern,
-      * a bundled runtime would collide with the ones traders already have,
-      * both vendors ship their own maintained installers.
+    AURION runs on CPython 3.10-3.12 and Node.js 18+. On a bare machine setup
+    now *provisions* them rather than leaving the user a reading exercise:
+    AURION.exe, started with the setup switch, downloads the vendors' own
+    installers, checks the Authenticode publisher before running anything, and
+    installs what is missing (see installer\window\Prerequisites.cs).
+    AurionProvisionRuntimes in Actions.wxs is what starts it.
 
-    Instead the wizard *detects* them and shows a clear, actionable status page.
-    A missing runtime is a warning, never a hard stop: the files are still
-    perfectly installable, and start-aurion.cmd prints the same guidance if the
-    user fixes the environment later.
+    Two things are deliberately NOT done:
+      * nothing is bundled into the MSI - a packaged runtime would collide
+        with the ones traders already have, and would go stale on our release
+        cadence rather than the vendors';
+      * nothing is installed from inside the MSI transaction - Node.js ships
+        as an .msi, and Windows Installer's _MSIExecute mutex forbids a nested
+        install. Provisioning therefore runs as a separate process once this
+        transaction is over.
 
-    Everything here is a plain AppSearch (registry / directory search). There is
-    no custom action, so detection also works during a silent install.
+    What lives in this file is only the *detection* half, and only so the
+    wizard can tell the user in advance what it is about to do. Everything
+    here is a plain AppSearch (registry / directory search) with no custom
+    action, so it is also correct during a silent install. It is a cheap
+    approximation: the authoritative check is the one Prerequisites.cs makes
+    by actually running `python -V` and `node -v` on the PATH the desk will
+    use.
   -->
   <Fragment>
 
@@ -46,23 +56,47 @@
       <RegistrySearch Id="Py313Machine" Root="HKLM" Key="Software\Python\PythonCore\3.13\InstallPath" Type="raw" Bitness="always64" />
     </Property>
 
-    <SetProperty Id="AURION_PYTHON_OK" Value="1" After="AppSearch" Sequence="both"
+    <SetProperty Id="AURION_PYTHON_OK" Action="AurionSetPythonOk" Value="1"
+                 After="AppSearch" Sequence="both"
                  Condition="AURION_PYTHON312 OR AURION_PYTHON311 OR AURION_PYTHON310" />
 
     <!-- ================================================================ -->
     <!-- Node.js                                                          -->
     <!-- ================================================================ -->
-    <Property Id="AURION_NODE" Secure="yes">
-      <RegistrySearch Id="Node64" Root="HKLM" Key="Software\Node.js" Name="InstallPath" Type="raw" Bitness="always64" />
-      <RegistrySearch Id="Node32" Root="HKLM" Key="Software\Node.js" Name="InstallPath" Type="raw" Bitness="always32" />
-    </Property>
+    <!-- The HKLM\Software\Node.js\InstallPath key that Node's own MSI writes is
+         deliberately NOT used. It records *a* Node, with no version anywhere
+         near it, so it answers "found" just as cheerfully for the Node 16 that
+         AURION cannot run. A false "found" clears the wizard and hands the user
+         a failure at first launch - exactly the bug this page exists to
+         prevent - whereas a false "not found" costs nothing: provisioning asks
+         `node -v` itself, sees a good runtime, and installs nothing.
+         node.exe carries a version resource, so the default install location
+         can be checked properly instead of merely being found. -->
     <Property Id="AURION_NODE_FILE" Secure="yes">
       <DirectorySearch Id="NodeDirSearch" Path="[ProgramFiles64Folder]nodejs">
-        <FileSearch Id="NodeExeSearch" Name="node.exe" />
+        <FileSearch Id="NodeExeSearch" Name="node.exe" MinVersion="18.0.0.0" />
       </DirectorySearch>
     </Property>
-    <SetProperty Id="AURION_NODE_OK" Value="1" After="AppSearch" Sequence="both"
-                 Condition="AURION_NODE OR AURION_NODE_FILE" />
+    <SetProperty Id="AURION_NODE_OK" Action="AurionSetNodeOk" Value="1"
+                 After="AppSearch" Sequence="both"
+                 Condition="AURION_NODE_FILE" />
+
+    <!-- ================================================================ -->
+    <!-- Is there anything for setup to provision?                        -->
+    <!-- ================================================================ -->
+    <!-- Set after the two OK flags above, which is why Before/After order
+         matters: AurionSetPythonOk and AurionSetNodeOk both sit immediately
+         after AppSearch, so this one has to come after them, not after
+         AppSearch, or it would read properties that are not written yet.
+         MT5 is excluded on purpose - it usually lives on a separate VPS, so
+         its absence is never something to act on. -->
+    <!-- The escape hatch, for administrators who image the runtimes themselves:
+         msiexec /i AURION-1.0.0-x64.msi /qn AURION_SKIP_PROVISION=1 -->
+    <Property Id="AURION_SKIP_PROVISION" Value="0" Secure="yes" />
+
+    <SetProperty Id="AURION_PROVISION_NEEDED" Action="AurionSetProvisionNeeded" Value="1"
+                 After="AurionSetNodeOk" Sequence="both"
+                 Condition="NOT AURION_PYTHON_OK OR NOT AURION_NODE_OK" />
 
     <!-- ================================================================ -->
     <!-- MetaTrader 5 terminal (informational only - it is usually on a    -->

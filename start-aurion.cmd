@@ -33,13 +33,33 @@ if not exist "backend\node_modules\express" goto :NEEDINSTALL
 goto :LAUNCH
 
 :NEEDINSTALL
+REM Prerequisites missing. AURION.exe --setup is the same environment check the
+REM installer runs: it names what is missing, where it comes from and how big
+REM it is, waits for a yes, then downloads it from the vendor and verifies the
+REM signature before running anything. Printing instructions and giving up -
+REM which is what this used to do - left the user with an error and homework.
+REM
+REM Guarded against looping: SETUPDONE is set before the hand-off, so if the
+REM check runs and the machine still is not ready, the second pass falls
+REM through to the manual instructions instead of starting over.
+if defined AURION_SETUP_DONE goto :BYHAND
+if not exist "AURION.exe" goto :BYHAND
+
+echo Prerequisites missing or incomplete - opening the setup window.
+echo.
+AURION.exe --setup
+
+REM Setup installs Python and Node with PATH changes that this already-running
+REM console cannot see, so re-check in a fresh one rather than reporting a
+REM failure that is only stale environment.
+set "AURION_SETUP_DONE=1"
+cmd /c ""%~f0""
+exit /b %errorlevel%
+
+:BYHAND
 echo Prerequisites missing or incomplete.
 echo.
-echo The easiest fix is to open AURION from its shortcut: the desk window
-echo checks this machine on every launch and offers to download and install
-echo whatever is missing, from the vendors themselves.
-echo.
-echo To do it by hand instead:
+echo To do it by hand:
 echo   Python 3.10 / 3.11 / 3.12  (never 3.13 or newer)  and Node.js 18+
 echo   pip install -r engine\requirements.txt
 echo   cd backend ^&^& npm install
