@@ -720,13 +720,23 @@ function signalHeadline(sig) {
 function signalDetail(sig) {
   const bits = [];
   const lots = signalLots(sig);
+  // The entry comes first. It is the only number that is useless a minute
+  // later, so burying it behind the lot size was the wrong order.
+  const entry = signalPrice(sig, "entry") || signalPrice(sig, "price");
   const sl = signalPrice(sig, "sl");
   const tp = signalPrice(sig, "tp");
-  if (lots) bits.push(`${I18N.t("signal.lots")} ${fmt(lots, 2)}`);
+  if (entry) bits.push(`${I18N.t("signal.entry")} ${fmt(entry, 5)}`);
   if (sl) bits.push(`${I18N.t("signal.sl")} ${fmt(sl, 5)}`);
   if (tp) bits.push(`${I18N.t("signal.tp")} ${fmt(tp, 5)}`);
+  if (lots) bits.push(`${I18N.t("signal.lots")} ${fmt(lots, 2)}`);
   if (sig.confidence) bits.push(`${I18N.t("signal.confidence")} ${Math.round(Number(sig.confidence) * 100)}%`);
   return bits.join(" · ");
+}
+
+/** "from king" — which strategy is responsible for this mark. */
+function signalSource(sig) {
+  const name = String(sig.strategy || (sig.extra && sig.extra.strategy) || "");
+  return name ? `${I18N.t("signal.from_strategy")} ${strategyLabel(name)}` : "";
 }
 
 function announceSignal(sig) {
@@ -766,6 +776,10 @@ function notifyHost(sig) {
       body: signalDetail(sig),
       symbol: sig.symbol || "",
       timeframe: sig.timeframe || S.timeframe || "",
+      // Echoed back on click so the desk can pin the exact mark, not just
+      // the symbol - the Windows toast is a round trip through the host.
+      time: sig.time || sig.ts || "",
+      side: String(sig.action || sig.side || "").toLowerCase(),
     }));
   } catch (e) {
     /* no host: the in-desk card is the whole notification */
@@ -784,8 +798,9 @@ function pushSignalCard(sig) {
     `<button type="button" class="n-x" data-nx="${esc(id)}" aria-label="${esc(I18N.t("notify.dismiss"))}">×</button>` +
     `<h4>${esc(signalHeadline(sig))}</h4>` +
     `<p class="sub">${esc(signalDetail(sig) || I18N.t("signal.no_levels"))}</p>` +
+    (signalSource(sig) ? `<p class="sub dim">${esc(signalSource(sig))}</p>` : "") +
     `<button type="button" class="btn tiny" data-sig-open="${esc(sig.symbol || "")}"
-             data-sig-tf="${esc(sig.timeframe || "")}">${esc(I18N.t("signal.open_chart"))}</button>`;
+             data-sig-tf="${esc(sig.timeframe || "")}">${esc(I18N.t("signal.open_ea_chart"))}</button>`;
   stack.prepend(card);
   bindSwipe(card);
 
@@ -793,20 +808,58 @@ function pushSignalCard(sig) {
   while (stack.children.length > 4) stack.lastElementChild.remove();
 
   card.querySelector("[data-sig-open]").onclick = () => {
-    openSignalChart(sig.symbol, sig.timeframe);
+    openSignalChart(sig.symbol, sig.timeframe, sig);
     card.remove();
   };
   card.querySelector(".n-x").onclick = () => card.remove();
 }
 
-/** Take the trader to the chart the signal is about. */
-function openSignalChart(symbol, timeframe) {
-  if (symbol) S.symbol = symbol;
-  if (timeframe) S.timeframe = timeframe;
-  show("markets", { animate: true, closeMenu: true });
-  if (symbol) {
-    try { pickMarket(symbol, timeframe || S.timeframe); } catch (e) { /* view will catch up */ }
+/**
+ * Take the trader to the EA chart the signal is about.
+ *
+ * It used to open the Markets view, which is the symbol browser: the right
+ * instrument, but a different chart from the one the EA is attached to, and
+ * without the tools or the signal overlay. Clicking a notification should
+ * land on the chart where the trade would be managed, with the signal that
+ * sent you there already highlighted.
+ */
+function openSignalChart(symbol, timeframe, sig) {
+  if (!symbol) { show("charts", { animate: true, closeMenu: true }); return; }
+  // Remembered so bindChartDesk can pin the card once the signals for this
+  // symbol have actually loaded - they are fetched asynchronously and are
+  // not here yet at this point.
+  S.pendingSignal = sig && typeof sig === "object" ? { ...sig, symbol } : null;
+  // Landing on a chart with the overlay switched off would answer nothing,
+  // so following a signal turns the signals back on.
+  if (S.pendingSignal) {
+    S.signalsEnabled = true;
+    S.showSignals = true;
+    localStorage.setItem("aurion.signalsEnabled", "1");
   }
+  openChartDesk(symbol, timeframe || S.timeframe);
+  if (S.pendingSignal) fetchChartSignals(symbol, timeframe || S.timeframe);
+}
+
+/**
+ * Put the card for a just-arrived signal on screen without the trader
+ * having to find the arrow and hover it.
+ *
+ * Matched on time first and index second, because the replayed history and
+ * the live bus number their bars differently; the time is the only identity
+ * both agree on.
+ */
+function pinPendingSignal() {
+  const want = S.pendingSignal;
+  if (!want || !S.chart || typeof S.chart.pinSignal !== "function") return;
+  const list = S.chartSignals || [];
+  if (!list.length) return;
+  const side = String(want.action || want.side || "").toLowerCase();
+  const match =
+    list.find((s) => want.time && s.time === want.time && s.type === side) ||
+    list.filter((s) => s.type === side).slice(-1)[0] ||
+    list[list.length - 1];
+  if (match) S.chart.pinSignal(match);
+  S.pendingSignal = null;
 }
 
 /* The host posts back when its toast is clicked, and tells us whether the
@@ -822,7 +875,7 @@ function bindHostBridge() {
       }
       if (!msg || typeof msg !== "object") return;
       if (msg.type === "visibility") window.__aurionWindowHidden = Boolean(msg.hidden);
-      if (msg.type === "open-signal") openSignalChart(msg.symbol, msg.timeframe);
+      if (msg.type === "open-signal") openSignalChart(msg.symbol, msg.timeframe, msg.time || msg.side ? msg : null);
     });
   } catch (e) {
     /* running in a browser, not the desk window */
@@ -5623,6 +5676,9 @@ function bindChartDesk() {
   S.chart.setTool("cursor");
   S.chart.setSessions(chartSessionsOn());
   S.chart.setSignals(S.chartSignals || [], S.showSignals);
+  // Arriving here from a notification: if the marks for this symbol are
+  // already loaded, pin straight away rather than waiting for the next poll.
+  if (S.pendingSignal && S.pendingSignal.symbol === S.chartFocus.symbol) pinPendingSignal();
   applyChartLevels(true);
   bindChartTicket();
 
@@ -5738,6 +5794,9 @@ async function fetchChartSignals(symbol, timeframe) {
       S.chartSignals = [];
     }
     if (S.chart && typeof S.chart.setSignals === "function") S.chart.setSignals(S.chartSignals, S.showSignals);
+    // A notification that was clicked before the marks existed is honoured
+    // here, now that they do.
+    if (S.pendingSignal && S.pendingSignal.symbol === symbol) pinPendingSignal();
     // per user request: no bottom list — signals only on canvas (CandleChart overlay)
 
   } catch (e) {

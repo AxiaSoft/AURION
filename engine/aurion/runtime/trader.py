@@ -2718,9 +2718,39 @@ class Trader:
                 bars = bars or []
         if not bars or len(bars) < 30:
             return {"ok": False, "error": "no_candles", "symbol": symbol, "timeframe": timeframe}
+        # The marks on the chart have to be the armed strategies' own output.
+        # They used to be a fixed EMA-cross detector that ran regardless of
+        # what the trader had switched on, so the chart and the order book
+        # were two different systems and only one of them placed trades.
+        armed = [(name, slot.get("inst")) for name, slot in self.book.items() if slot.get("enabled")]
         try:
-            from ..signals.chart_signals import get_chart_signals
-            result = get_chart_signals(bars, strict=bool(strict))
+            if armed:
+                from ..signals.strategy_signals import replay
+
+                result = await asyncio.to_thread(
+                    replay,
+                    bars,
+                    armed,
+                    symbol,
+                    timeframe,
+                    # No AI read is passed in on purpose. There is only
+                    # today's, and applying it to a bar from last Tuesday
+                    # would be look-ahead dressed up as confluence. A
+                    # strategy with require_ai_agree therefore shows its
+                    # pure structural setups here, which is the honest
+                    # answer to "what did the strategy see".
+                    ai={},
+                    on_error=lambda name, exc: log.warning("chart replay: %s failed: %s", name, exc),
+                )
+            else:
+                # Nothing armed. Falling back to the indicator read keeps the
+                # chart useful, but it is labelled so nobody mistakes it for
+                # what the robot would do.
+                from ..signals.chart_signals import get_chart_signals
+
+                result = await asyncio.to_thread(get_chart_signals, bars, bool(strict))
+                result["source"] = "indicator"
+                result["strategies"] = []
             result["symbol"] = symbol
             result["timeframe"] = timeframe
             return result

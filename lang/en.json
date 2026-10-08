@@ -1094,7 +1094,12 @@
     "tp": "TP",
     "confidence": "Confidence",
     "open_chart": "Open chart",
-    "no_levels": "No stop or target set by the strategy"
+    "no_levels": "No stop or target set by the strategy",
+    "entry": "Entry",
+    "rr": "R:R",
+    "strategy": "Strategy",
+    "open_ea_chart": "Open the EA chart",
+    "from_strategy": "from"
   },
   "slots": {
     "title": "How many trades the robot opens",
