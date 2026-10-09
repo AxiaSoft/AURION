@@ -201,6 +201,22 @@ function askConfirm(opts) {
     setTimeout(() => yes && yes.focus(), 20);
   });
 }
+/**
+ * Which build of the desk is actually running.
+ *
+ * Every asset is cache-busted with a ?v= token, so when a change does not
+ * appear there are three candidates - the browser kept the old file, a
+ * service worker served it, or the desk being looked at is an installed
+ * copy that git never touched - and no way to tell them apart by looking.
+ * Printing the token the running app.js was loaded with settles it in one
+ * glance: if this does not match the token in index.html, the page is old.
+ */
+function buildTag() {
+  const tag = document.querySelector('script[src*="js/app.js?v="]');
+  if (!tag) return "dev";
+  return String(tag.src).split("v=").pop() || "dev";
+}
+
 function fmt(n, d = 2) {
   if (n === null || n === undefined || n === "" || Number.isNaN(Number(n))) return "—";
   try {
@@ -3413,7 +3429,7 @@ const views = {
             <button type="button" data-lang="fa">فارسی</button>
             <button type="button" data-lang="ar">العربية</button>
           </div>
-          <p class="sub">AURION 1.0.0</p>
+          <p class="sub">AURION 1.0.0 · <span class="mono" id="build-tag">${esc(buildTag())}</span></p>
           <a class="btn block ghost" href="guide.html?v=desk45" target="_blank" rel="noopener">${I18N.t("guide.open")}</a>
           <a class="btn block ghost" href="guide-backtest.html?v=desk45" target="_blank" rel="noopener">${I18N.t("guide.backtest")}</a>
         </div>
@@ -6721,4 +6737,7 @@ async function boot() {
 }
 
 boot();
+// Say which build this is before anything else can go wrong, so "the
+// change is not there" can be answered without guessing.
+try { console.info("AURION desk build", buildTag()); } catch (e) { /* no DOM yet */ }
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
