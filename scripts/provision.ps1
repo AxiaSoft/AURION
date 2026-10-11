@@ -74,7 +74,8 @@ try { [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::
 # Official vendor URLs, https only. The Python version is pinned to one the
 # engine supports: engine/requirements.txt pins numpy 1.26.4, which has no
 # wheels for 3.13, and engine/main.py refuses to start on it.
-$PythonUrl       = "https://www.python.org/ftp/python/3.12.7/python-3.12.7-amd64.exe"
+$PythonExeName   = "python-3.12.7-amd64.exe"
+$PythonUrl       = "https://www.python.org/ftp/python/3.12.7/$PythonExeName"
 $PythonPublisher = "Python Software Foundation"
 $NodeVersion     = "v20.17.0"
 $NodeZipName     = "node-$NodeVersion-win-x64.zip"
@@ -126,6 +127,22 @@ if (-not (Test-Path -LiteralPath (Join-Path $InstallFolder "engine"))) {
 $logDir = Join-Path $InstallFolder "data\logs"
 New-Item -ItemType Directory -Path $logDir -Force | Out-Null
 $logFile = Join-Path $logDir "setup.log"
+
+<#
+    A runtime bundled inside the installation, or $null.
+
+    installer\tools\fetch-vendor.ps1 puts Python, Node, WebView2 and the
+    engine's wheels into the MSI, so a customer's machine installs AURION
+    without reaching the network. That machine is the worst place to be
+    discovering a proxy or a blocked domain: nobody can log into it, and the
+    only symptom is a desk that does not start.
+#>
+function Get-Bundled {
+    param([string] $Name)
+    $p = Join-Path $InstallFolder "vendor\$Name"
+    if (Test-Path -LiteralPath $p) { return $p }
+    return $null
+}
 
 function Say {
     param([string] $Text)
@@ -262,6 +279,28 @@ function Assert-SignedBy {
     origin and is not pinned here, so it stays correct when the pinned
     version is bumped.
 #>
+<#
+    The bundled zip, against the bundled checksum list. Never deletes: this
+    file lives in the installation, and removing it would turn a verification
+    failure into an install that needs repairing.
+#>
+function Assert-LocalChecksum {
+    param([string] $Path, [string] $SumsFile, [string] $Name)
+
+    $line = Get-Content -LiteralPath $SumsFile |
+            ForEach-Object { $_.Trim() } |
+            Where-Object { $_ -match "[\s\*]$([regex]::Escape($Name))$" } |
+            Select-Object -First 1
+    if (-not $line) { throw "$Name is not listed in the bundled checksum file." }
+
+    $expected = ($line -split '\s+')[0]
+    $actual   = (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash
+    if ($actual -ne $expected.ToUpperInvariant()) {
+        throw "The bundled $Name does not match its checksum. It was not used."
+    }
+    Say "$Name checksum verified against the bundled list"
+}
+
 function Assert-PublishedChecksum {
     param([string] $Path, [string] $SumsUrl, [string] $Name)
 
@@ -297,8 +336,13 @@ if ($SkipPython) {
     Say "Python is already here: $($python -join ' ')"
 } else {
     Head "Installing Python 3.12"
-    $exe = Join-Path $work "python-setup.exe"
-    Get-File -Url $PythonUrl -Target $exe -Label "Python"
+    $exe = Get-Bundled $PythonExeName
+    if ($exe) {
+        Say "using the Python that ships with AURION"
+    } else {
+        $exe = Join-Path $work "python-setup.exe"
+        Get-File -Url $PythonUrl -Target $exe -Label "Python"
+    }
     Assert-SignedBy -Path $exe -Publisher $PythonPublisher -Label "Python"
 
     # Per-user on purpose. A desk that installs into %LocalAppData% has no
@@ -332,9 +376,20 @@ if ($python) {
             Say "the engine's libraries are already installed"
         } else {
             Head "Installing the engine's libraries"
-            Say "this is the long one - NumPy and scikit-learn are around 90 MB"
-            & $python[0] @($python[1..($python.Length - 1)]) -m pip install --upgrade pip --quiet
-            & $python[0] @($python[1..($python.Length - 1)]) -m pip install -r $requirements --quiet
+            # Upgrading pip is a nicety; on a machine with no network it
+            # fails, and that must not throw away a good offline bundle.
+            try { & $python[0] @($python[1..($python.Length - 1)]) -m pip install --upgrade pip --quiet } catch { }
+
+            $wheels = Join-Path $InstallFolder "vendor\wheels"
+            if ((Test-Path -LiteralPath $wheels) -and
+                (Get-ChildItem -LiteralPath $wheels -Filter *.whl -ErrorAction SilentlyContinue)) {
+                Say "installing from the copies that ship with AURION - no download"
+                & $python[0] @($python[1..($python.Length - 1)]) -m pip install `
+                    --no-index --find-links $wheels -r $requirements --quiet
+            } else {
+                Say "this is the long one - NumPy and scikit-learn are around 90 MB"
+                & $python[0] @($python[1..($python.Length - 1)]) -m pip install -r $requirements --quiet
+            }
             if ($LASTEXITCODE -ne 0) { throw "pip install finished with code $LASTEXITCODE." }
             Say "engine libraries installed"
         }
@@ -351,9 +406,18 @@ if ($SkipNode) {
     Say "Node is already here: $node"
 } else {
     Head "Installing Node.js $NodeVersion"
-    $zip = Join-Path $work $NodeZipName
-    Get-File -Url $NodeZipUrl -Target $zip -Label "Node.js"
-    Assert-PublishedChecksum -Path $zip -SumsUrl $NodeSumsUrl -Name $NodeZipName
+    $zip = Get-Bundled $NodeZipName
+    if ($zip) {
+        Say "using the Node.js that ships with AURION"
+        # fetch-vendor.ps1 bundles nodejs.org's checksum list next to the zip
+        # precisely so this can still be checked with no network.
+        $localSums = Get-Bundled "SHASUMS256.txt"
+        if ($localSums) { Assert-LocalChecksum -Path $zip -SumsFile $localSums -Name $NodeZipName }
+    } else {
+        $zip = Join-Path $work $NodeZipName
+        Get-File -Url $NodeZipUrl -Target $zip -Label "Node.js"
+        Assert-PublishedChecksum -Path $zip -SumsUrl $NodeSumsUrl -Name $NodeZipName
+    }
 
     $runtime = Join-Path $InstallFolder "runtime"
     $staging = Join-Path $runtime "node-new"

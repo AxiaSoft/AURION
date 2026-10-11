@@ -206,6 +206,22 @@ foreach ($f in @("start-aurion.cmd", "stop-aurion.cmd", "start-desk.cmd",
 }
 
 # ---------------------------------------------------------------------------
+# 5b. Bundled runtimes
+# ---------------------------------------------------------------------------
+# installer\vendor is produced by fetch-vendor.ps1 on the build machine. When
+# it is there, the MSI carries Python, Node, WebView2 and the engine's wheels,
+# and a customer's machine installs AURION without touching the network at
+# all. When it is not, nothing breaks: the setup window falls back to
+# downloading, exactly as it did before.
+$vendorSrc = Join-Path $PSScriptRoot "../vendor"
+if (Test-Path $vendorSrc) {
+    Say "vendor\  (bundled runtimes - no download on the target machine)"
+    Copy-Tree -From (Resolve-Path $vendorSrc).Path -To (Join-Path $appDir "vendor")
+} else {
+    Say "vendor\ is absent - the target machine will download its runtimes" "Yellow"
+}
+
+# ---------------------------------------------------------------------------
 # 6. Documentation feature
 # ---------------------------------------------------------------------------
 Say "docs\ (Documentation feature)"

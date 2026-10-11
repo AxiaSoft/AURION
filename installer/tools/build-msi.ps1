@@ -21,6 +21,16 @@
     user's store. Unsigned MSIs make SmartScreen shout at your customers, so
     sign every public release.
 
+.PARAMETER NoBundle
+    Do not bundle Python, Node, WebView2 and the engine's wheels into the
+    MSI. The installed app falls back to downloading them on first run, the
+    way it did before. Makes the MSI about 150 MB smaller and the first run
+    on a customer's machine dependent on their network.
+
+.PARAMETER SkipWheels
+    Bundle everything except the Python wheels. Use when the build machine
+    has no Python to collect them with.
+
 .PARAMETER SkipNpm
     Passed through to stage.ps1. Local iteration only.
 
@@ -44,6 +54,8 @@ param(
     [string] $Version,
     [string] $CertThumbprint,
     [switch] $SkipNpm,
+    [switch] $NoBundle,
+    [switch] $SkipWheels,
     [switch] $InstallDotnet,
     [ValidateSet("Release", "Debug")] [string] $Configuration = "Release"
 )
@@ -379,6 +391,23 @@ if (Test-Path $icoPath) {
 # ---------------------------------------------------------------------------
 # 3. Payload
 # ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# 2b. The runtimes the MSI carries
+# ---------------------------------------------------------------------------
+# Downloading Python and Node on the *customer's* machine is how a bare
+# install turns into a support call: that machine is behind a proxy nobody
+# told us about, and the only symptom is a desk that never starts. Fetch them
+# here instead, on a machine with a developer and a console, and ship them.
+#
+# -NoBundle restores the old behaviour for a quick local build.
+if ($NoBundle) {
+    Step "Skipping the bundled runtimes (-NoBundle)"
+    Write-Host "  the installed app will download Python and Node on first run" -ForegroundColor Yellow
+} else {
+    Step "Fetching the runtimes to bundle"
+    & (Join-Path $PSScriptRoot "fetch-vendor.ps1") -SkipWheels:$SkipWheels
+}
+
 Step "Staging payload"
 # stage.ps1 throws on failure; $ErrorActionPreference = "Stop" turns that into
 # a terminating error here, so there is nothing extra to check. ($LASTEXITCODE

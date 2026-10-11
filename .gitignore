@@ -40,3 +40,4 @@ installer/assets/generated/*.original.ico
 # Local runtime data dir (AURION_DATA_DIR) — never belongs in the repository
 # ---------------------------------------------------------------------------
 .devdata/
+installer/vendor/

@@ -75,9 +75,40 @@ internal static class Prerequisites
     // vendor releases a patch and does not silently rot into "refuses the
     // real file" the way a stale hash does.
     // ---------------------------------------------------------------------
+    private const string PythonFullVersion = "3.12.7";
+    private const string PythonExeName = "python-" + PythonFullVersion + "-amd64.exe";
     private const string PythonUrl =
-        "https://www.python.org/ftp/python/3.12.7/python-3.12.7-amd64.exe";
+        "https://www.python.org/ftp/python/" + PythonFullVersion + "/" + PythonExeName;
     private const string PythonPublisher = "Python Software Foundation";
+
+    // ---------------------------------------------------------------------
+    // Bundled runtimes
+    //
+    // installer\tools\fetch-vendor.ps1 downloads these on the build machine
+    // and stage.ps1 puts them in the payload, so a customer's machine
+    // installs AURION without reaching the network at all. That machine is
+    // the worst possible place to be discovering a proxy, an expired root
+    // certificate or a blocked vendor domain: nobody can log into it and the
+    // only symptom is a desk that does not start.
+    //
+    // The filenames are a contract with fetch-vendor.ps1. A test keeps them
+    // in step. When the folder is absent - a build that skipped the bundle -
+    // every one of these falls back to downloading, exactly as before.
+    // ---------------------------------------------------------------------
+
+    /// <summary>A file shipped in the payload, or "" when it was not bundled.</summary>
+    private static string Bundled(string installDir, string name)
+    {
+        try
+        {
+            var path = Path.Combine(installDir, "vendor", name);
+            return File.Exists(path) ? path : "";
+        }
+        catch
+        {
+            return "";
+        }
+    }
 
     // Node arrives as the official zip, not the MSI, and is unpacked into the
     // installation folder.
@@ -414,11 +445,11 @@ internal static class Prerequisites
             {
                 switch (req.Id)
                 {
-                    case "python": await InstallPythonAsync(work, say, ct); break;
+                    case "python": await InstallPythonAsync(work, installDir, say, ct); break;
                     case "pydeps": await InstallPythonLibsAsync(installDir, say, ct); break;
                     case "node": await InstallNodeAsync(work, installDir, say, ct); break;
                     case "nodedeps": await InstallNodeLibsAsync(installDir, say, ct); break;
-                    case "webview": await InstallWebViewAsync(work, say, ct); break;
+                    case "webview": await InstallWebViewAsync(work, installDir, say, ct); break;
                 }
                 req.State = ReqState.Installed;
                 req.Problem = "";
@@ -440,10 +471,25 @@ internal static class Prerequisites
         try { Directory.Delete(work, recursive: true); } catch { /* temp files */ }
     }
 
-    private static async Task InstallPythonAsync(string work, IProgress<string> say, CancellationToken ct)
+    private static async Task InstallPythonAsync(string work, string installDir, IProgress<string> say, CancellationToken ct)
     {
-        var file = await DownloadAsync(PythonUrl, Path.Combine(work, "python-setup.exe"),
-            PythonPublisher, "Python", say, ct);
+        var file = Bundled(installDir, PythonExeName);
+        if (file.Length > 0)
+        {
+            say.Report("Using the Python that ships with AURION…");
+            // Still verified. It came out of our own MSI, but the check costs
+            // nothing and a bundle is only as good as the thing that made it.
+            if (!SignedBy(file, PythonPublisher))
+            {
+                throw new InvalidOperationException(
+                    "The bundled Python installer is not signed by " + PythonPublisher + ".");
+            }
+        }
+        else
+        {
+            file = await DownloadAsync(PythonUrl, Path.Combine(work, "python-setup.exe"),
+                PythonPublisher, "Python", say, ct);
+        }
 
         say.Report("Installing Python…");
         // Per-user, on PATH, with pip. Never InstallAllUsers: a desk that
@@ -475,7 +521,29 @@ internal static class Prerequisites
 
         var (exe, args) = Split(PythonCommand);
         say.Report("Updating pip…");
-        await RunAsync(exe, (args + " -m pip install --upgrade pip").Trim(), elevate: false, ct);
+        try
+        {
+            await RunAsync(exe, (args + " -m pip install --upgrade pip").Trim(), elevate: false, ct);
+        }
+        catch (Exception ex)
+        {
+            // Upgrading pip is a nicety. On a machine with no network it
+            // fails, and failing the install over it would throw away a
+            // perfectly good offline bundle.
+            say.Report("pip could not be updated (" + ex.Message + ") - carrying on.");
+        }
+
+        // Wheels bundled by fetch-vendor.ps1 mean no PyPI, no proxy, no
+        // ninety-megabyte download on somebody else's laptop.
+        var wheels = Path.Combine(installDir, "vendor", "wheels");
+        if (Directory.Exists(wheels) && Directory.GetFiles(wheels, "*.whl").Length > 0)
+        {
+            say.Report("Installing the engine's libraries from the copies that ship with AURION…");
+            await RunAsync(exe,
+                (args + $" -m pip install --no-index --find-links \"{wheels}\" -r \"{requirements}\"").Trim(),
+                elevate: false, ct);
+            return;
+        }
 
         say.Report("Installing the engine's libraries… this is the long one.");
         await RunAsync(exe, (args + $" -m pip install -r \"{requirements}\"").Trim(), elevate: false, ct);
@@ -490,13 +558,25 @@ internal static class Prerequisites
     /// </summary>
     private static async Task InstallNodeAsync(string work, string installDir, IProgress<string> say, CancellationToken ct)
     {
-        var zip = Path.Combine(work, NodeZipName);
-        // The empty publisher is deliberate: a zip has no Authenticode
-        // signature, and the line below is what replaces that check.
-        await DownloadAsync(NodeZipUrl, zip, "", "Node.js", say, ct);
+        var zip = Bundled(installDir, NodeZipName);
+        if (zip.Length > 0)
+        {
+            say.Report("Using the Node.js that ships with AURION…");
+            // fetch-vendor.ps1 bundles nodejs.org's checksum list next to the
+            // zip precisely so this can still be checked with no network.
+            var sums = Bundled(installDir, "SHASUMS256.txt");
+            if (sums.Length > 0) VerifyAgainstSums(zip, await File.ReadAllTextAsync(sums, ct), NodeZipName);
+        }
+        else
+        {
+            zip = Path.Combine(work, NodeZipName);
+            // The empty publisher is deliberate: a zip has no Authenticode
+            // signature, and the line below is what replaces that check.
+            await DownloadAsync(NodeZipUrl, zip, "", "Node.js", say, ct);
 
-        say.Report("Checking the Node.js download…");
-        await VerifyAgainstPublishedSumAsync(zip, NodeSumsUrl, NodeZipName, ct);
+            say.Report("Checking the Node.js download…");
+            await VerifyAgainstPublishedSumAsync(zip, NodeSumsUrl, NodeZipName, ct);
+        }
 
         say.Report("Unpacking Node.js…");
         var runtime = Path.Combine(installDir, "runtime");
@@ -540,6 +620,27 @@ internal static class Prerequisites
         string file, string sumsUrl, string name, CancellationToken ct)
     {
         var sums = await Http.GetStringAsync(sumsUrl, ct);
+        try
+        {
+            VerifyAgainstSums(file, sums, name);
+        }
+        catch
+        {
+            // Only a *downloaded* file is deleted on a bad checksum. The
+            // bundled copy lives in the installation and deleting it would
+            // turn a verification failure into a broken install that needs a
+            // repair; the exception is enough to stop it being used.
+            File.Delete(file);
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// The comparison itself, so the bundled path can reuse it.
+    /// Throws without touching the file - see the caller above.
+    /// </summary>
+    private static void VerifyAgainstSums(string file, string sums, string name)
+    {
         var wanted = sums
             .Split('\n')
             .Select(line => line.Trim())
@@ -547,23 +648,21 @@ internal static class Prerequisites
                                  || line.EndsWith("*" + name, StringComparison.OrdinalIgnoreCase));
         if (wanted is null)
         {
-            File.Delete(file);
             throw new InvalidOperationException($"{name} is not listed in the vendor's checksum file.");
         }
 
         var expected = wanted.Split(' ')[0].Trim();
         string actual;
-        await using (var stream = File.OpenRead(file))
+        using (var stream = File.OpenRead(file))
         {
             actual = Convert.ToHexString(
-                await System.Security.Cryptography.SHA256.HashDataAsync(stream, ct)).ToLowerInvariant();
+                System.Security.Cryptography.SHA256.HashData(stream)).ToLowerInvariant();
         }
 
         if (!string.Equals(actual, expected, StringComparison.OrdinalIgnoreCase))
         {
-            File.Delete(file);
             throw new InvalidOperationException(
-                $"The {name} download does not match the checksum published for it. It was deleted without being used.");
+                $"{name} does not match the checksum published for it. It was not used.");
         }
     }
 
@@ -599,10 +698,23 @@ internal static class Prerequisites
         }
     }
 
-    private static async Task InstallWebViewAsync(string work, IProgress<string> say, CancellationToken ct)
+    private static async Task InstallWebViewAsync(string work, string installDir, IProgress<string> say, CancellationToken ct)
     {
-        var file = await DownloadAsync(WebViewUrl, Path.Combine(work, "webview2-setup.exe"),
-            WebViewPublisher, "WebView2", say, ct);
+        var file = Bundled(installDir, "MicrosoftEdgeWebview2Setup.exe");
+        if (file.Length > 0)
+        {
+            say.Report("Using the WebView2 installer that ships with AURION…");
+            if (!SignedBy(file, WebViewPublisher))
+            {
+                throw new InvalidOperationException(
+                    "The bundled WebView2 installer is not signed by " + WebViewPublisher + ".");
+            }
+        }
+        else
+        {
+            file = await DownloadAsync(WebViewUrl, Path.Combine(work, "webview2-setup.exe"),
+                WebViewPublisher, "WebView2", say, ct);
+        }
 
         say.Report("Installing the WebView2 runtime…");
         await RunAsync(file, "/silent /install", elevate: false, ct);

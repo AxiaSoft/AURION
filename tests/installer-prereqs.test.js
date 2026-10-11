@@ -43,6 +43,7 @@ const provisionPs1 = read("scripts/provision.ps1");
 const startCmd = read("start-aurion.cmd");
 const buildMsi = read("installer/tools/build-msi.ps1");
 const stagePs1 = read("installer/tools/stage.ps1");
+const vendorPs1 = read("installer/tools/fetch-vendor.ps1");
 
 // ---------------------------------------------------------------- detection
 
@@ -150,7 +151,8 @@ check("the build fails rather than shipping without it",
 
 // And theatre again if the provisioner cannot reach the vendors.
 check("the provisioner still knows where the runtimes come from",
-  /python\.org\/ftp\/python\/3\.12/.test(prereqCs) &&
+  /python\.org\/ftp\/python\//.test(prereqCs) &&
+  /PythonFullVersion = "3\.\d+\.\d+"/.test(prereqCs) &&
   /nodejs\.org\/dist\//.test(prereqCs) &&
   /NodeVersion = "v\d+\.\d+\.\d+"/.test(prereqCs));
 check("downloads are still checked against their publisher before running",
@@ -163,7 +165,7 @@ check("downloads are still checked against their publisher before running",
 check("the Node zip is verified against the vendor's published checksum",
   /SHASUMS256\.txt/.test(prereqCs) &&
   /VerifyAgainstPublishedSumAsync/.test(prereqCs) &&
-  /SHA256\.HashDataAsync/.test(prereqCs));
+  /SHA256\.HashData\(/.test(prereqCs));
 
 // --------------------------------------------- preparing itself, unattended
 
@@ -257,6 +259,56 @@ check("it records the runtimes the launcher reads",
 check("it is shipped in the MSI payload",
   /Copy-Tree -From \(Join-Path \$Root "scripts"\)/.test(stagePs1) &&
   !/provision\.ps1/.test(stagePs1.split("ExcludeFiles")[1] || ""));
+
+// ------------------------------------------- nothing fetched on their machine
+
+// The customer's machine is the worst possible place to be discovering a
+// proxy or a blocked vendor domain: nobody can log into it and the only
+// symptom is a desk that does not start. Fetch on the build machine instead.
+check("the build collects the runtimes so the MSI can carry them",
+  /python-\$PythonVersion-amd64\.exe/.test(vendorPs1) &&
+  /node-\$NodeVersion-win-x64\.zip/.test(vendorPs1) &&
+  /MicrosoftEdgeWebview2Setup\.exe/.test(vendorPs1) &&
+  /pip download/.test(vendorPs1));
+check("bundling is on by default and the build wires it in",
+  /\[switch\] \$NoBundle/.test(buildMsi) && /fetch-vendor\.ps1/.test(buildMsi) &&
+  /if \(\$NoBundle\)/.test(buildMsi));
+check("the payload carries the bundle",
+  /vendor/.test(stagePs1) && /Join-Path \$appDir "vendor"/.test(stagePs1));
+
+// Filenames are the contract between the three. They have to agree exactly.
+const pyName = "python-3.12.7-amd64.exe";
+const nodeName = "node-v20.17.0-win-x64.zip";
+check("the three sides agree on what the bundled files are called",
+  vendorPs1.includes("3.12.7") && vendorPs1.includes("v20.17.0") &&
+  prereqCs.includes('PythonFullVersion = "3.12.7"') &&
+  prereqCs.includes('NodeVersion = "v20.17.0"') &&
+  provisionPs1.includes(pyName) && provisionPs1.includes("v20.17.0"));
+
+check("the installed app prefers the bundle over the network",
+  /Bundled\(installDir, PythonExeName\)/.test(prereqCs) &&
+  /Bundled\(installDir, NodeZipName\)/.test(prereqCs) &&
+  /Bundled\(installDir, "MicrosoftEdgeWebview2Setup\.exe"\)/.test(prereqCs) &&
+  /--no-index --find-links/.test(prereqCs));
+check("and so does the script, for an install that is already on a machine",
+  /Get-Bundled/.test(provisionPs1) && /--no-index --find-links/.test(provisionPs1));
+
+// A bundled file is still checked - a bundle is only as good as the build
+// that made it - but a failed check must not delete part of the install.
+check("bundled runtimes are still verified",
+  /SignedBy\(file, PythonPublisher\)/.test(prereqCs) &&
+  /VerifyAgainstSums\(zip/.test(prereqCs) &&
+  /Assert-LocalChecksum/.test(provisionPs1));
+check("but a bad bundled file is not deleted out of the installation",
+  /Only a \*downloaded\* file is deleted/.test(prereqCs) &&
+  /Never deletes: this/.test(provisionPs1));
+
+// No bundle must still work. A build with -NoBundle, or an older MSI, falls
+// back to the network exactly as before.
+check("an unbundled build still falls back to downloading",
+  /DownloadAsync\(PythonUrl/.test(prereqCs) &&
+  /DownloadAsync\(NodeZipUrl/.test(prereqCs) &&
+  /vendor\\ is absent/.test(stagePs1));
 
 // An interpreter under "C:\\Program Files" came back from WScript.Arguments
 // as three words and the desk never started.
