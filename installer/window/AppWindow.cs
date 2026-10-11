@@ -151,7 +151,19 @@ internal sealed class AppWindow : Form
     }
 
     /// <summary>
-    /// Check what the machine has, and offer to fetch what it does not.
+    /// Make this machine able to run AURION, on the loading screen, now.
+    ///
+    /// This is the whole first-run experience and it is deliberately not a
+    /// wizard. A trader who has just run an installer and ticked "launch
+    /// AURION" has already said what they want; asking them a second time,
+    /// in a window that may not even have focus, is how a bare machine ended
+    /// up installing nothing and timing out three minutes later.
+    ///
+    /// So: look, install, look again - all of it narrated on the splash,
+    /// exactly the way start-aurion.cmd does it from a console. The setup
+    /// panel still exists, but it is now the *failure* surface. It appears
+    /// only when something could not be installed and there is a decision
+    /// worth putting in front of somebody.
     /// </summary>
     /// <returns>false when the window is closing and boot should stop.</returns>
     private async Task<bool> EnsurePrerequisitesAsync()
@@ -161,40 +173,132 @@ internal sealed class AppWindow : Form
         // trader asked for the check on purpose, in which case show it.
         if (!_setupOnly && await DeskIsAnsweringAsync()) return true;
 
-        _splash.Status = "Checking this machine…";
+        _splash.Visible = true;
+        _splash.BringToFront();
+        _splash.Status = "Checking what this machine has\u2026";
+        _splash.Progress = 0.04f;
+
         var items = Prerequisites.Build();
-        await Prerequisites.InspectAsync(items, _installDir);
+        try
+        {
+            await Prerequisites.InspectAsync(items, _installDir);
+        }
+        catch (Exception ex)
+        {
+            // Detection itself failing is not a reason to stop: the launcher
+            // runs the same checks again and can still get there.
+            Note("the prerequisite check could not complete: " + ex);
+        }
 
-        if (items.All(r => r.State == ReqState.Present) && !_setupOnly) return true;
+        var missing = items.Where(r => r.State is ReqState.Missing or ReqState.Failed).ToList();
 
-        var setup = new SetupPanel(items);
-        var done = new TaskCompletionSource<bool>();
+        if (missing.Count == 0)
+        {
+            if (!_setupOnly) return true;
+            _splash.Status = "Everything AURION needs is already installed.";
+            _splash.Progress = 1f;
+            await Task.Delay(1800);
+            return true;
+        }
 
-        // Not disposed on purpose: the install runs on a continuation that can
+        // ------------------------------------------------------------------
+        // Install, right here, without being asked
+        // ------------------------------------------------------------------
+        Note("missing on this machine: " + string.Join(", ", missing.Select(r => r.Id)));
+        _splash.Status = "Installing " + Readable(missing) + "\u2026";
+        _splash.Progress = 0.08f;
+
+        // Not disposed on purpose: the install runs on continuations that can
         // outlive this scope, and a cancelled token source is cheap.
         var cancel = new CancellationTokenSource();
+        FormClosing += (_, _) => cancel.Cancel();
+
+        // Progress is derived from how many requirements the machine actually
+        // has now, never from a guess about how long a download will take.
+        var say = new Progress<string>(text =>
+        {
+            _splash.Status = text;
+            var settled = items.Count(r => r.State is ReqState.Present or ReqState.Installed);
+            _splash.Progress = 0.08f + 0.62f * settled / Math.Max(1, items.Count);
+        });
+
+        var trouble = "";
+        try
+        {
+            await Prerequisites.InstallAsync(missing, _installDir, say, cancel.Token);
+
+            // Ask the machine again rather than trusting the installers: what
+            // matters is whether the thing is now detectable, not whether a
+            // setup program said it succeeded.
+            _splash.Status = "Checking again\u2026";
+            await Prerequisites.InspectAsync(items, _installDir);
+        }
+        catch (OperationCanceledException)
+        {
+            return false;
+        }
+        catch (Exception ex)
+        {
+            trouble = ex.Message;
+            Note("setup stopped: " + ex);
+        }
+
+        if (items.All(r => r.State is ReqState.Present or ReqState.Installed))
+        {
+            _splash.Status = "Ready. Starting the desk\u2026";
+            _splash.Progress = 0.75f;
+            await Task.Delay(600);
+            return true;
+        }
+
+        // ------------------------------------------------------------------
+        // Only now is there anything worth interrupting somebody for
+        // ------------------------------------------------------------------
+        return await ShowSetupPanelAsync(items, cancel, trouble);
+    }
+
+    /// <summary>"Python 3.12, Node.js 20 and 2 more things".</summary>
+    private static string Readable(List<Requirement> missing)
+    {
+        var names = missing.Select(r => r.Title).ToList();
+        if (names.Count == 1) return names[0];
+        if (names.Count == 2) return names[0] + " and " + names[1];
+        return string.Join(", ", names.Take(names.Count - 1)) + " and " + names[^1];
+    }
+
+    /// <summary>
+    /// The screen for when automatic setup did not get there.
+    ///
+    /// It says what is still missing and why, and offers to try again. This
+    /// is no longer part of a normal first run - reaching it means something
+    /// needs a human.
+    /// </summary>
+    private async Task<bool> ShowSetupPanelAsync(
+        List<Requirement> items, CancellationTokenSource cancel, string trouble)
+    {
+        var setup = new SetupPanel(items);
+        var done = new TaskCompletionSource<bool>();
 
         setup.SkipRequested += (_, _) => done.TrySetResult(true);
         setup.CancelRequested += (_, _) => cancel.Cancel();
         setup.InstallRequested += async (_, _) =>
         {
+            // A retry needs a token that has not already been cancelled.
+            var retry = new CancellationTokenSource();
             setup.Working(true);
             var say = new Progress<string>(setup.Say);
             try
             {
-                var missing = items.Where(r => r.State is ReqState.Missing or ReqState.Failed).ToList();
-                await Prerequisites.InstallAsync(missing, _installDir, say, cancel.Token);
+                var still = items.Where(r => r.State is ReqState.Missing or ReqState.Failed).ToList();
+                await Prerequisites.InstallAsync(still, _installDir, say, retry.Token);
 
-                // Ask the machine again rather than trusting the installers:
-                // what matters is whether the thing is now detectable, not
-                // whether a setup program said it succeeded.
-                setup.Say("Checking again…");
+                setup.Say("Checking again\u2026");
                 await Prerequisites.InspectAsync(items, _installDir);
                 setup.Render();
 
                 if (items.All(r => r.State is ReqState.Present or ReqState.Installed))
                 {
-                    setup.Say("Ready. Starting the desk…");
+                    setup.Say("Ready. Starting the desk\u2026");
                     await Task.Delay(700);
                     done.TrySetResult(true);
                     return;
@@ -203,7 +307,7 @@ internal sealed class AppWindow : Form
             }
             catch (OperationCanceledException)
             {
-                setup.Say("Stopped. Press \u201cInstall what is missing\u201d to pick it up again.");
+                setup.Say("Stopped.");
             }
             catch (Exception ex)
             {
@@ -219,30 +323,10 @@ internal sealed class AppWindow : Form
         _splash.Visible = false;
         Controls.Add(setup);
         setup.BringToFront();
-
-        // Start it, rather than wait to be asked.
-        //
-        // The screen used to list what was missing and then stand there until
-        // somebody pressed Install. On a machine launched from the installer's
-        // "run AURION now" that button is behind a window the trader is not
-        // looking at, so nothing was installed, the launcher gave up, and the
-        // three-minute timeout was the first news anybody had of it.
-        //
-        // Consent has not been dropped, only moved to where it belongs: the
-        // same list of vendors, downloads and sizes is on screen, the work is
-        // announced line by line, and the button next to it now cancels. The
-        // trader chose this when they ran the installer.
-        if (items.All(r => r.State == ReqState.Present))
-        {
-            // --setup on a machine that is already prepared. There is nothing
-            // to consent to, so do not sit there waiting to be dismissed.
-            setup.Say("Everything AURION needs is already installed.");
-            _ = Task.Delay(2500).ContinueWith(_ => done.TrySetResult(true));
-        }
-        else
-        {
-            setup.BeginAutomatically();
-        }
+        setup.Render();
+        setup.Say(trouble.Length > 0
+            ? "Automatic setup stopped: " + trouble
+            : "Some of this could not be installed automatically.");
 
         FormClosing += (_, _) => done.TrySetResult(false);
         var proceed = await done.Task;
@@ -253,8 +337,23 @@ internal sealed class AppWindow : Form
 
         _splash.Visible = true;
         _splash.BringToFront();
-        _splash.Status = "Starting AURION…";
+        _splash.Status = "Starting AURION\u2026";
         return true;
+    }
+
+    /// <summary>One line into data\logs\window.log, and never fail writing it.</summary>
+    private void Note(string text)
+    {
+        try
+        {
+            var log = Path.Combine(_installDir, "data", "logs", "window.log");
+            Directory.CreateDirectory(Path.GetDirectoryName(log)!);
+            File.AppendAllText(log, $"{DateTime.Now:u}  {text}{Environment.NewLine}");
+        }
+        catch
+        {
+            // Logging must never be the reason a first run stops.
+        }
     }
 
     /// <summary>

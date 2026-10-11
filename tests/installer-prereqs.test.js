@@ -170,11 +170,27 @@ check("the Node zip is verified against the vendor's published checksum",
 // The failure this was written for: on a bare machine the setup screen listed
 // what was missing and waited for a click nobody made, the launcher gave up,
 // and the window showed a three-minute timeout.
-check("setup starts on its own instead of waiting to be asked",
-  /BeginAutomatically/.test(setupPanel) && /BeginAutomatically\(\)/.test(appWindow));
+// The whole point: the loading screen does the work. Not a wizard, not a
+// button, not a second window behind the one the trader is looking at.
+// EnsurePrerequisitesAsync must call InstallAsync itself.
+const ensureBody = appWindow.slice(
+  appWindow.indexOf("private async Task<bool> EnsurePrerequisitesAsync"),
+  appWindow.indexOf("private async Task<bool> ShowSetupPanelAsync"));
+check("the loading screen installs what is missing, with nobody asked first",
+  /Prerequisites\.InstallAsync\(missing/.test(ensureBody) &&
+  !/new SetupPanel/.test(ensureBody));
+check("and it narrates it on the splash rather than in silence",
+  /_splash\.Status = "Installing/.test(ensureBody) &&
+  /_splash\.Progress/.test(ensureBody));
+check("the setup panel is now only the failure surface",
+  /ShowSetupPanelAsync\(items, cancel, trouble\)/.test(appWindow) &&
+  appWindow.indexOf("ShowSetupPanelAsync(items, cancel, trouble)") >
+    appWindow.indexOf("Prerequisites.InstallAsync(missing"));
 check("and can still be stopped while it runs",
   /CancelRequested/.test(setupPanel) && /CancelRequested/.test(appWindow) &&
-  /cancel\.Token/.test(appWindow));
+  /cancel\.Token/.test(appWindow) && /FormClosing \+= \(_, _\) => cancel\.Cancel\(\)/.test(appWindow));
+check("a first run that cannot even check the machine is not fatal",
+  /catch \(Exception ex\)[\s\S]{0,200}prerequisite check could not complete/.test(appWindow));
 
 // Node used to arrive as a per-machine MSI: a UAC prompt on a per-user
 // install, and node.exe somewhere only a PATH refresh could find.

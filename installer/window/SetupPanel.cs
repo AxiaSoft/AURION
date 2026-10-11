@@ -99,9 +99,6 @@ internal sealed class SetupPanel : Panel
     /// <summary>Raised when the trader stops work that is already running.</summary>
     public event EventHandler? CancelRequested;
 
-    /// <summary>Counts down to the automatic start, and shows it counting.</summary>
-    private readonly System.Windows.Forms.Timer _countdown = new() { Interval = 1000 };
-    private int _secondsLeft;
     private bool _busy;
     private bool _started;
 
@@ -120,21 +117,8 @@ internal sealed class SetupPanel : Panel
         {
             // One button, two jobs, and the label always says which: before
             // the work starts it declines it, during the work it stops it.
-            StopCountdown();
             if (_busy) CancelRequested?.Invoke(this, EventArgs.Empty);
             else SkipRequested?.Invoke(this, EventArgs.Empty);
-        };
-
-        _countdown.Tick += (_, _) =>
-        {
-            _secondsLeft--;
-            if (_secondsLeft > 0)
-            {
-                Say($"Starting in {_secondsLeft}s. Press \u201cNot now\u201d to skip it.");
-                return;
-            }
-            StopCountdown();
-            Begin();
         };
 
         var buttons = new FlowLayoutPanel
@@ -179,7 +163,7 @@ internal sealed class SetupPanel : Panel
         var failed = _items.Count(r => r.State == ReqState.Failed);
         _install.Visible = missing > 0;
         _install.Text = failed > 0 ? "Try again" : "Install what is missing";
-        if (!_busy && _secondsLeft == 0) _skip.Text = "Continue anyway";
+        if (!_busy) _skip.Text = "Continue anyway";
 
         if (missing == 0 && failed == 0)
         {
@@ -189,40 +173,11 @@ internal sealed class SetupPanel : Panel
         }
     }
 
-    /// <summary>
-    /// Start the installation by itself, after a few seconds of grace.
-    ///
-    /// The trader asked for AURION when they ran the installer; making them
-    /// ask a second time, in a window that may not even have focus, is how a
-    /// first run used to end in a three-minute timeout and nothing installed.
-    /// The list of what will be fetched and from whom is on screen the whole
-    /// time and the countdown is visible, so this is still a decision that
-    /// can be stopped - it just no longer requires a decision to proceed.
-    /// </summary>
-    public void BeginAutomatically(int graceSeconds = 5)
-    {
-        if (InvokeRequired) { BeginInvoke(new Action(() => BeginAutomatically(graceSeconds))); return; }
-        if (_started || _busy) return;
-        if (_items.All(r => r.State is ReqState.Present or ReqState.Installed)) return;
-
-        _skip.Text = "Not now";
-        _secondsLeft = Math.Max(1, graceSeconds);
-        Say($"Starting in {_secondsLeft}s. Press \u201cNot now\u201d to skip it.");
-        _countdown.Start();
-    }
-
     private void Begin()
     {
-        StopCountdown();
         if (_started) return;
         _started = true;
         InstallRequested?.Invoke(this, EventArgs.Empty);
-    }
-
-    private void StopCountdown()
-    {
-        _countdown.Stop();
-        _secondsLeft = 0;
     }
 
     /// <summary>A line of running commentary under the list.</summary>
@@ -246,12 +201,6 @@ internal sealed class SetupPanel : Panel
         // progress bar. Only its meaning changes.
         _skip.Enabled = true;
         _skip.Text = busy ? "Cancel" : "Continue anyway";
-    }
-
-    protected override void Dispose(bool disposing)
-    {
-        if (disposing) _countdown.Dispose();
-        base.Dispose(disposing);
     }
 
     private Control Row(Requirement req)
