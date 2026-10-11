@@ -91,6 +91,13 @@
 
     ContinueOnError, because a machine without PowerShell should fall back
     to the committed icon rather than lose the build over its artwork.
+    make-icon.ps1 writes to a temporary file and moves it into place only
+    after checking it, so "fall back to the committed icon" is a real
+    outcome and not a half-written one.
+
+    StandardOutputImportance is normal, not low: when the generator does
+    fail, the build has to say so. Hiding it is how a bad icon reached the
+    compiler and came back as CS7065 with no mention of an icon at all.
   -->
   <Target Name="BuildProductIcon" BeforeTargets="BeforeBuild" Condition="'$(OS)' == 'Windows_NT'">
     <PropertyGroup>
@@ -101,7 +108,7 @@
     <Exec Condition="Exists('$(AurionLogo)') And Exists('$(AurionMakeIcon)')"
           Command="powershell -NoProfile -ExecutionPolicy Bypass -File &quot;$(AurionMakeIcon)&quot; -Source &quot;$(AurionLogo)&quot; -Destination &quot;$(AurionIcon)&quot;"
           ContinueOnError="true"
-          StandardOutputImportance="low" />
+          StandardOutputImportance="normal" />
   </Target>
 
 </Project>

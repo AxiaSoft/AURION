@@ -68,6 +68,30 @@ function Get-PngBytes {
     } finally { $ms.Dispose() }
 }
 
+# ---------------------------------------------------------------------------
+# Emitting bytes
+# ---------------------------------------------------------------------------
+# Every integer below goes through [BitConverter], never BinaryWriter.
+#
+# This is not style. BinaryWriter.Write is heavily overloaded, and Windows
+# PowerShell 5.1 resolves Write([uint16]32) to Write(Char) - which encodes the
+# value as UTF-8 and writes ONE byte, not two. Each 16-byte icon directory
+# entry then came out 14 bytes long, every image offset was wrong by a growing
+# amount, and the last entry pointed past the end of the file. The compiler
+# said:
+#
+#     CSC : error CS7065: Error building Win32 resources --
+#           Unable to read beyond the end of the stream.
+#
+# which names neither PowerShell nor the icon. The same script on PowerShell 7
+# picked the numeric overload and produced a perfectly good file, so the bug
+# only appeared on other people's machines.
+#
+# [BitConverter]::GetBytes has one overload per type and no ambiguity.
+function Add-U16 { param($List, [uint16]$Value) $List.AddRange([BitConverter]::GetBytes($Value)) }
+function Add-U32 { param($List, [uint32]$Value) $List.AddRange([BitConverter]::GetBytes($Value)) }
+function Add-I32 { param($List, [int32]$Value)  $List.AddRange([BitConverter]::GetBytes($Value)) }
+
 function Get-DibBytes {
     <#
         A DIB inside an icon is a 40-byte BITMAPINFOHEADER whose biHeight is
@@ -97,24 +121,55 @@ function Get-DibBytes {
     $maskRow = [int](([Math]::Floor(($size + 31) / 32)) * 4)
     $mask = New-Object byte[] ($maskRow * $size)
 
-    $ms = New-Object System.IO.MemoryStream
-    $bw = New-Object System.IO.BinaryWriter $ms
-    try {
-        $bw.Write([uint32]40)                      # biSize
-        $bw.Write([int32]$size)                    # biWidth
-        $bw.Write([int32]($size * 2))              # biHeight - colours + mask
-        $bw.Write([uint16]1)                       # biPlanes
-        $bw.Write([uint16]32)                      # biBitCount
-        $bw.Write([uint32]0)                       # biCompression = BI_RGB
-        $bw.Write([uint32]($pixels.Length + $mask.Length))
-        $bw.Write([int32]0); $bw.Write([int32]0)   # pixels per metre
-        $bw.Write([uint32]0); $bw.Write([uint32]0) # palette
-        $bw.Write($pixels)
-        $bw.Write($mask)
-        $bw.Flush()
-        return $ms.ToArray()
-    } finally {
-        $bw.Dispose(); $ms.Dispose()
+    $out = New-Object "System.Collections.Generic.List[byte]"
+    Add-U32 $out 40                                 # biSize
+    Add-I32 $out $size                              # biWidth
+    Add-I32 $out ($size * 2)                        # biHeight - colours + mask
+    Add-U16 $out 1                                  # biPlanes
+    Add-U16 $out 32                                 # biBitCount
+    Add-U32 $out 0                                  # biCompression = BI_RGB
+    Add-U32 $out ($pixels.Length + $mask.Length)    # biSizeImage
+    Add-I32 $out 0; Add-I32 $out 0                  # pixels per metre
+    Add-U32 $out 0; Add-U32 $out 0                  # palette
+    $out.AddRange($pixels)
+    $out.AddRange($mask)
+    return $out.ToArray()
+}
+
+<#
+    Re-read what was just produced and prove it is a well-formed icon.
+
+    The writer above is the only thing standing between a logo and a build
+    failure that names neither of them, so it checks its own work: the header
+    is sane, every directory entry is 16 bytes where it should be, and no
+    image runs past the end of the file. That last one is exactly what the
+    compiler complains about, and it is far better said here.
+#>
+function Test-IconBytes {
+    param([byte[]] $Bytes)
+
+    if ($Bytes.Length -lt 6) { throw "the icon is only $($Bytes.Length) bytes long" }
+    if ([BitConverter]::ToUInt16($Bytes, 0) -ne 0) { throw "the icon's reserved field is not zero" }
+    if ([BitConverter]::ToUInt16($Bytes, 2) -ne 1) { throw "the icon's type field is not 1" }
+
+    $count = [BitConverter]::ToUInt16($Bytes, 4)
+    if ($count -lt 1) { throw "the icon claims to contain no images" }
+
+    $need = 6 + 16 * $count
+    if ($Bytes.Length -lt $need) {
+        throw "the icon claims $count images but is too short to hold their directory"
+    }
+
+    for ($i = 0; $i -lt $count; $i++) {
+        $at     = 6 + 16 * $i
+        $size   = [BitConverter]::ToUInt32($Bytes, $at + 8)
+        $offset = [BitConverter]::ToUInt32($Bytes, $at + 12)
+        if ($offset -lt $need) {
+            throw "image $i starts at $offset, inside the directory - the entries are the wrong width"
+        }
+        if ($offset + $size -gt $Bytes.Length) {
+            throw "image $i runs to $($offset + $size) but the file is only $($Bytes.Length) bytes"
+        }
     }
 }
 
@@ -153,32 +208,40 @@ try {
 $dir = Split-Path -Parent $Destination
 if ($dir -and -not (Test-Path $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
 
-$out = [System.IO.File]::Create($Destination)
-$writer = New-Object System.IO.BinaryWriter $out
-try {
-    $writer.Write([uint16]0)                 # reserved
-    $writer.Write([uint16]1)                 # type 1 = icon
-    $writer.Write([uint16]$images.Count)
+$blob = New-Object "System.Collections.Generic.List[byte]"
+Add-U16 $blob 0                              # reserved
+Add-U16 $blob 1                              # type 1 = icon
+Add-U16 $blob $images.Count
 
-    $offset = 6 + 16 * $images.Count
-    foreach ($img in $images) {
-        # 256 is written as 0: the field is one byte and 256 does not fit.
-        $dim = if ($img.Size -ge 256) { 0 } else { $img.Size }
-        $writer.Write([byte]$dim)            # width
-        $writer.Write([byte]$dim)            # height
-        $writer.Write([byte]0)               # palette entries
-        $writer.Write([byte]0)               # reserved
-        $writer.Write([uint16]1)             # colour planes
-        $writer.Write([uint16]32)            # bits per pixel
-        $writer.Write([uint32]$img.Bytes.Length)
-        $writer.Write([uint32]$offset)
-        $offset += $img.Bytes.Length
-    }
-    foreach ($img in $images) { $writer.Write($img.Bytes) }
-    $writer.Flush()
-} finally {
-    $writer.Dispose(); $out.Dispose()
+$offset = 6 + 16 * $images.Count
+foreach ($img in $images) {
+    # 256 is written as 0: the field is one byte and 256 does not fit.
+    $dim = if ($img.Size -ge 256) { 0 } else { $img.Size }
+    $blob.Add([byte]$dim)                    # width
+    $blob.Add([byte]$dim)                    # height
+    $blob.Add([byte]0)                       # palette entries
+    $blob.Add([byte]0)                       # reserved
+    Add-U16 $blob 1                          # colour planes
+    Add-U16 $blob 32                         # bits per pixel
+    Add-U32 $blob $img.Bytes.Length
+    Add-U32 $blob $offset
+    $offset += $img.Bytes.Length
 }
+foreach ($img in $images) { $blob.AddRange($img.Bytes) }
+
+$bytes = $blob.ToArray()
+
+# Checked before it is allowed anywhere near the destination.
+Test-IconBytes -Bytes $bytes
+
+# Written beside the target and moved into place, so a failure leaves the
+# previous icon untouched. File.Create truncates on open: the old code emptied
+# a known-good icon before it knew whether it could produce a new one, and the
+# csproj swallows this script's errors on purpose - which turned one bad run
+# into a zero-byte icon and a build that failed on every attempt afterwards.
+$temp = "$Destination.new"
+[System.IO.File]::WriteAllBytes($temp, $bytes)
+Move-Item -LiteralPath $temp -Destination $Destination -Force
 
 $written = (Get-Item -LiteralPath $Destination).Length
 $list = ($images | ForEach-Object { "{0}x{0}" -f $_.Size }) -join ", "
