@@ -76,7 +76,7 @@ function Step([string] $text) {
 
 # Bumped whenever this script changes, so a stale copy is obvious at a glance
 # instead of failing with a confusing parameter error.
-$ScriptRevision = "22"
+$ScriptRevision = "23"
 
 Write-Host ""
 Write-Host "  AURION installer build" -ForegroundColor White
@@ -423,6 +423,57 @@ Step "Staging payload"
 # where Files.wxs harvests it with everything else.
 # ---------------------------------------------------------------------------
 Step "Building the desk window"
+
+# ---------------------------------------------------------------------------
+# The icon, checked the way the compiler reads it
+# ---------------------------------------------------------------------------
+# A malformed .ico does not produce a message about icons. It produces:
+#
+#     CSC : error CS7065: Error building Win32 resources,
+#           "Unable to read beyond the end of the stream."
+#
+# which names neither the file nor the problem, and cost two full build
+# cycles on a machine nobody here can see. The arithmetic that actually goes
+# wrong is checked here instead, immediately before the compile and after
+# anything that might have rewritten the file, so the build says what is
+# wrong with which file.
+function Test-ProductIcon {
+    param([string] $Path)
+
+    if (-not (Test-Path -LiteralPath $Path)) { throw "The product icon is missing: $Path" }
+    $b = [System.IO.File]::ReadAllBytes($Path)
+
+    if ($b.Length -lt 6) { throw "The product icon is only $($b.Length) bytes long: $Path" }
+    if ([BitConverter]::ToUInt16($b, 0) -ne 0 -or [BitConverter]::ToUInt16($b, 2) -ne 1) {
+        throw "The product icon is not an icon - it may be a renamed PNG: $Path"
+    }
+
+    $count = [BitConverter]::ToUInt16($b, 4)
+    if ($count -lt 1) { throw "The product icon contains no images: $Path" }
+
+    $directoryEnd = 6 + 16 * $count
+    if ($b.Length -lt $directoryEnd) {
+        throw "The product icon claims $count images but is too short to list them: $Path"
+    }
+
+    for ($i = 0; $i -lt $count; $i++) {
+        $at     = 6 + 16 * $i
+        $size   = [BitConverter]::ToUInt32($b, $at + 8)
+        $offset = [BitConverter]::ToUInt32($b, $at + 12)
+        if ($offset -lt $directoryEnd -or ($offset + $size) -gt $b.Length) {
+            throw ("The product icon is malformed: image $i covers $offset..$($offset + $size) " +
+                   "but the file is $($b.Length) bytes and its directory ends at $directoryEnd.`n" +
+                   "  $Path`n" +
+                   "  Rebuild it with:`n" +
+                   "    powershell -ExecutionPolicy Bypass -File installer\tools\make-icon.ps1 ``n" +
+                   "      -Source apps\web\icons\mark.png -Destination $Path`n" +
+                   "  or restore the committed one with: git checkout -- $Path")
+        }
+    }
+    Write-Host "  product icon verified: $count images, $($b.Length) bytes" -ForegroundColor Gray
+}
+
+Test-ProductIcon -Path (Join-Path $assetsDir "aurion.ico")
 
 $windowProject = Join-Path $installerDir "window\AurionWindow.csproj"
 $stageApp = Join-Path $installerDir "stage\app"

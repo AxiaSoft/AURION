@@ -119,6 +119,22 @@ check("make-icon.ps1 writes integers through BitConverter, not BinaryWriter",
 check("and checks its own output before replacing the icon",
   /Test-IconBytes/.test(maker) && /Move-Item -LiteralPath \$temp/.test(maker));
 
+// Belt and braces. The generator is fixed, but regenerating a known-good,
+// tested artefact on every build buys nothing and can only go wrong - which
+// it did, twice, on a machine nobody here can see.
+const csproj = fs.readFileSync(
+  path.join(ROOT, "installer", "window", "AurionWindow.csproj"), "utf8");
+check("the build does not regenerate the icon unless asked",
+  /AurionRebuildIcon\)' == 'true'/.test(csproj));
+
+// And if something does rewrite it, the build has to name the file rather
+// than hand back CS7065.
+const buildMsi = fs.readFileSync(
+  path.join(ROOT, "installer", "tools", "build-msi.ps1"), "utf8");
+check("the build checks the icon itself, immediately before the compile",
+  /Test-ProductIcon/.test(buildMsi) &&
+  buildMsi.indexOf("Test-ProductIcon -Path") < buildMsi.indexOf("publish $windowProject"));
+
 const bad = results.filter((r) => !r.ok);
 console.log(`\n${results.length - bad.length}/${results.length} checks passed`);
 process.exit(bad.length ? 1 : 0);
