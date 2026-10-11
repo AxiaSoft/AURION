@@ -242,6 +242,16 @@ check("it installs Python per-user and Node without an installer at all",
 check("it re-reads PATH after installing, or it would not find its own work",
   /Update-PathFromRegistry/.test(provisionPs1) &&
   /GetEnvironmentVariable\("PATH", "Machine"\)/.test(provisionPs1));
+// The most useful way to run it is on a machine where AURION is installed
+// and broken and the script is not there yet - fetched straight from the
+// repository into %TEMP%, where $PSScriptRoot is worthless.
+check("the provisioner can find the installation when run from anywhere",
+  provisionPs1.includes("HKCU:\\Software\\AURION") &&
+  provisionPs1.includes("Programs\\AURION") &&
+  /Could not find an installed AURION/.test(provisionPs1));
+check("and can finish by starting the desk, so one command is the whole fix",
+  /\[switch\] \$Start/.test(provisionPs1) && /Start-Process -FilePath \$exe/.test(provisionPs1));
+
 check("it records the runtimes the launcher reads",
   /runtime\.env/.test(provisionPs1) && /PYTHON=/.test(provisionPs1) && /NODE=/.test(provisionPs1));
 check("it is shipped in the MSI payload",

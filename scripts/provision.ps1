@@ -40,15 +40,25 @@
 .PARAMETER SkipNode
     Leave Node alone.
 
+.PARAMETER Start
+    Launch AURION when it finishes, so one command ends with a running desk.
+
 .EXAMPLE
     powershell -ExecutionPolicy Bypass -File scripts\provision.ps1
+
+.EXAMPLE
+    # On a machine where AURION is installed but this script is not there yet.
+    # Finds the installation by itself and starts the desk when it is done.
+    iwr -UseBasicParsing <raw url>/scripts/provision.ps1 -OutFile $env:TEMP\p.ps1
+    & $env:TEMP\p.ps1 -Start
 #>
 
 [CmdletBinding()]
 param(
     [string] $InstallFolder = "",
     [switch] $SkipPython,
-    [switch] $SkipNode
+    [switch] $SkipNode,
+    [switch] $Start
 )
 
 Set-StrictMode -Version Latest
@@ -74,10 +84,44 @@ $NodeSumsUrl     = "https://nodejs.org/dist/$NodeVersion/SHASUMS256.txt"
 # ---------------------------------------------------------------------------
 # Saying what is happening
 # ---------------------------------------------------------------------------
+# Where AURION is.
+#
+# Normally this script sits in the installation's own scripts\ folder and the
+# answer is one Split-Path away. But the single most useful way to run it is
+# on a machine where AURION is installed and broken and this script is not
+# there yet - downloaded straight from the repository and run from %TEMP%, in
+# which case $PSScriptRoot points at %TEMP% and is worthless. So it falls
+# back to looking the installation up the same way update-installed-desk.ps1
+# does: the registry key the installer wrote, then the places it writes to.
+if (-not $InstallFolder -and $PSScriptRoot) {
+    $beside = Split-Path -Parent $PSScriptRoot
+    if (Test-Path -LiteralPath (Join-Path $beside "apps\web\index.html")) { $InstallFolder = $beside }
+}
+
 if (-not $InstallFolder) {
-    $InstallFolder = Split-Path -Parent $PSScriptRoot
+    $candidates = @(
+        (Join-Path $env:LOCALAPPDATA "Programs\AURION"),
+        (Join-Path ${env:ProgramFiles} "AURION"),
+        (Join-Path ${env:ProgramFiles(x86)} "AURION")
+    ) | Where-Object { $_ -and (Test-Path -LiteralPath $_) }
+
+    # The installer records where it went; trust that over a guess.
+    foreach ($key in @("HKCU:\Software\AURION", "HKLM:\Software\AURION")) {
+        try {
+            $v = (Get-ItemProperty -Path $key -ErrorAction Stop).InstallFolder
+            if ($v -and (Test-Path -LiteralPath $v)) { $candidates = @($v) + $candidates }
+        } catch { }
+    }
+    $InstallFolder = $candidates | Select-Object -First 1
+}
+
+if (-not $InstallFolder -or -not (Test-Path -LiteralPath $InstallFolder)) {
+    throw "Could not find an installed AURION. Pass -InstallFolder ""C:\path\to\AURION""."
 }
 $InstallFolder = (Resolve-Path -LiteralPath $InstallFolder).Path.TrimEnd('\')
+if (-not (Test-Path -LiteralPath (Join-Path $InstallFolder "engine"))) {
+    throw "$InstallFolder does not look like an AURION install (no engine folder)."
+}
 
 $logDir = Join-Path $InstallFolder "data\logs"
 New-Item -ItemType Directory -Path $logDir -Force | Out-Null
@@ -403,7 +447,20 @@ try { Remove-Item -LiteralPath $work -Recurse -Force -ErrorAction SilentlyContin
 
 Write-Host ""
 if ($ready) {
-    Write-Host "AURION is ready. Start it from the Start menu, or run start-aurion.cmd." -ForegroundColor Green
+    Write-Host "AURION is ready." -ForegroundColor Green
+    if ($Start) {
+        $exe = Join-Path $InstallFolder "AURION.exe"
+        $cmd = Join-Path $InstallFolder "start-aurion.cmd"
+        if (Test-Path -LiteralPath $exe) {
+            Write-Host "Starting AURION ..."
+            Start-Process -FilePath $exe -WorkingDirectory $InstallFolder
+        } elseif (Test-Path -LiteralPath $cmd) {
+            Write-Host "Starting AURION ..."
+            Start-Process -FilePath $cmd -WorkingDirectory $InstallFolder
+        }
+    } else {
+        Write-Host "Start it from the Start menu, or run start-aurion.cmd."
+    }
     exit 0
 }
 
