@@ -12,6 +12,13 @@ GitHub refuses a push that creates or changes anything under
 permission, which the assistant's app token does not. So the file is kept
 here, versioned and reviewable, and installed with one command.
 
+This has been retried and it is not a misconfiguration that can be worked
+around from this side: `git push` is rejected with *refusing to allow a GitHub
+App to create or update workflow ... without `workflows` permission*, and the
+REST contents API answers `403 Resource not accessible by integration`. The
+copy below has to be made by a human credential, once. After that the
+workflow updates itself like any other file in the repository.
+
 ## Turning it on
 
 From a clone, once:
