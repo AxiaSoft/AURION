@@ -51,15 +51,28 @@ REM Guarded against looping: SETUPDONE is set before the hand-off, so if the
 REM check runs and the machine still is not ready, the second pass falls
 REM through to the manual instructions instead of starting over.
 if defined AURION_SETUP_DONE goto :BYHAND
-if not exist "AURION.exe" goto :BYHAND
 
+REM scripts\provision.ps1 is preferred over AURION.exe --setup because it needs
+REM nobody to be looking at it. The setup window is the same work with a
+REM progress list attached; this runs unattended, which is what a machine
+REM being started by a shortcut actually needs.
+if not exist "scripts\provision.ps1" goto :SETUPWINDOW
+echo Prerequisites missing or incomplete - installing them now.
+echo This takes a few minutes the first time. Nothing needs an administrator.
+echo.
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\provision.ps1"
+goto :SETUPRETRY
+
+:SETUPWINDOW
+if not exist "AURION.exe" goto :BYHAND
 echo Prerequisites missing or incomplete - opening the setup window.
 echo.
 AURION.exe --setup
 
-REM Setup installs Python and Node with PATH changes that this already-running
-REM console cannot see, so re-check in a fresh one rather than reporting a
-REM failure that is only stale environment.
+:SETUPRETRY
+REM Setup installs Python with PATH changes that this already-running console
+REM cannot see, so re-check in a fresh one rather than reporting a failure
+REM that is only stale environment.
 set "AURION_SETUP_DONE=1"
 cmd /c ""%~f0""
 exit /b %errorlevel%

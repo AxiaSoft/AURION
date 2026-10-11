@@ -39,8 +39,10 @@ const program = read("installer/window/Program.cs");
 const appWindow = read("installer/window/AppWindow.cs");
 const setupPanel = read("installer/window/SetupPanel.cs");
 const hiddenVbs = read("scripts/hidden.vbs");
+const provisionPs1 = read("scripts/provision.ps1");
 const startCmd = read("start-aurion.cmd");
 const buildMsi = read("installer/tools/build-msi.ps1");
+const stagePs1 = read("installer/tools/stage.ps1");
 
 // ---------------------------------------------------------------- detection
 
@@ -204,6 +206,31 @@ check("it writes why it gave up where the window will read it",
   /LauncherComplaint/.test(appWindow));
 check("the window stops waiting once the launcher has already failed",
   /launcher\.HasExited && launcher\.ExitCode != 0/.test(appWindow));
+
+// The same work as the setup window, as a plain script, so a machine that
+// already has AURION can be repaired without shipping it a new binary.
+check("there is an unattended provisioner that needs nobody watching it",
+  /param\(/.test(provisionPs1) && /InstallFolder/.test(provisionPs1) &&
+  /Find-Python/.test(provisionPs1) && /Find-Node/.test(provisionPs1));
+check("the launcher prefers it over the window that waits for a click",
+  /provision\.ps1/.test(startCmd) &&
+  startCmd.indexOf("provision.ps1") < startCmd.indexOf(":SETUPWINDOW"));
+check("it keeps both download rules: signature for the exe, checksum for the zip",
+  /Assert-SignedBy/.test(provisionPs1) && /Python Software Foundation/.test(provisionPs1) &&
+  /Assert-PublishedChecksum/.test(provisionPs1) && /SHASUMS256\.txt/.test(provisionPs1) &&
+  /Get-FileHash/.test(provisionPs1));
+check("it installs Python per-user and Node without an installer at all",
+  /InstallAllUsers=0/.test(provisionPs1) &&
+  /(Expand-Archive|ExtractToDirectory)/.test(provisionPs1) &&
+  !/msiexec/.test(provisionPs1));
+check("it re-reads PATH after installing, or it would not find its own work",
+  /Update-PathFromRegistry/.test(provisionPs1) &&
+  /GetEnvironmentVariable\("PATH", "Machine"\)/.test(provisionPs1));
+check("it records the runtimes the launcher reads",
+  /runtime\.env/.test(provisionPs1) && /PYTHON=/.test(provisionPs1) && /NODE=/.test(provisionPs1));
+check("it is shipped in the MSI payload",
+  /Copy-Tree -From \(Join-Path \$Root "scripts"\)/.test(stagePs1) &&
+  !/provision\.ps1/.test(stagePs1.split("ExcludeFiles")[1] || ""));
 
 // An interpreter under "C:\\Program Files" came back from WScript.Arguments
 // as three words and the desk never started.
