@@ -148,7 +148,8 @@ Start-Sleep -Milliseconds 600
 # ---------------------------------------------------------------------------
 # Everything below is replaceable from the repository, so the backup exists
 # for one reason: to make going back a copy instead of a reinstall.
-$parts = @("apps\web", "engine", "backend", "lang", "scripts", "config\aurion.factory.json")
+$parts = @("apps\web", "engine", "backend", "lang", "scripts", "config\aurion.factory.json",
+           "start-aurion.cmd", "stop-aurion.cmd", "start-desk.cmd", "start-engine.cmd")
 
 if (-not $NoBackup) {
     $stamp  = Get-Date -Format "yyyyMMdd-HHmmss"
@@ -209,6 +210,18 @@ if ($stripped -ne $indexHtml) {
 foreach ($p in @("engine", "backend", "lang", "scripts")) {
     Say "$p\"
     Copy-Tree -From (Join-Path $source $p) -To (Join-Path $InstallFolder $p) -ExcludeDirs @("__pycache__", "tests")
+}
+
+# The launchers at the root of the installation. They are the part that knows
+# how to find Python and Node, so an update that leaves them behind fixes
+# nothing on the machine that actually had the problem.
+foreach ($f in @("start-aurion.cmd", "stop-aurion.cmd", "start-desk.cmd", "start-engine.cmd")) {
+    $src = Join-Path $source $f
+    if (-not (Test-Path -LiteralPath $src)) { continue }
+    $dest = Join-Path $InstallFolder $f
+    if (Test-Path -LiteralPath $dest) { try { Set-ItemProperty -LiteralPath $dest -Name IsReadOnly -Value $false } catch { } }
+    Copy-Item -LiteralPath $src -Destination $dest -Force
+    Say $f
 }
 
 $factory = Join-Path $source "config\aurion.factory.json"

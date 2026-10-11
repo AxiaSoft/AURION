@@ -107,12 +107,24 @@ internal sealed class AppWindow : Form
         else
         {
             _splash.Status = "Starting the engine…";
-            if (!StartDesk()) return;
+            var launcher = StartDesk();
+            if (launcher is null) return;
 
             var clock = Stopwatch.StartNew();
             while (clock.Elapsed < StartupBudget)
             {
                 await Task.Delay(500);
+
+                // start-aurion.cmd returning non-zero means it has already
+                // worked out what is wrong and written it down. Waiting out
+                // the rest of three minutes after that only delays the news.
+                if (launcher.HasExited && launcher.ExitCode != 0)
+                {
+                    await Task.Delay(1500);              // let the log flush
+                    if (await DeskIsAnsweringAsync()) break;
+                    ShowStartupFailure(LauncherComplaint());
+                    return;
+                }
 
                 // Honest progress: the elapsed share of the budget, capped well
                 // short of full, because reaching 100% before the desk answers
@@ -128,7 +140,7 @@ internal sealed class AppWindow : Form
 
             if (!await DeskIsAnsweringAsync())
             {
-                ShowStartupFailure();
+                ShowStartupFailure(LauncherComplaint());
                 return;
             }
         }
@@ -158,7 +170,12 @@ internal sealed class AppWindow : Form
         var setup = new SetupPanel(items);
         var done = new TaskCompletionSource<bool>();
 
+        // Not disposed on purpose: the install runs on a continuation that can
+        // outlive this scope, and a cancelled token source is cheap.
+        var cancel = new CancellationTokenSource();
+
         setup.SkipRequested += (_, _) => done.TrySetResult(true);
+        setup.CancelRequested += (_, _) => cancel.Cancel();
         setup.InstallRequested += async (_, _) =>
         {
             setup.Working(true);
@@ -166,7 +183,7 @@ internal sealed class AppWindow : Form
             try
             {
                 var missing = items.Where(r => r.State is ReqState.Missing or ReqState.Failed).ToList();
-                await Prerequisites.InstallAsync(missing, _installDir, say, CancellationToken.None);
+                await Prerequisites.InstallAsync(missing, _installDir, say, cancel.Token);
 
                 // Ask the machine again rather than trusting the installers:
                 // what matters is whether the thing is now detectable, not
@@ -184,6 +201,10 @@ internal sealed class AppWindow : Form
                 }
                 setup.Say("Some of it did not install. The details are on the rows above.");
             }
+            catch (OperationCanceledException)
+            {
+                setup.Say("Stopped. Press \u201cInstall what is missing\u201d to pick it up again.");
+            }
             catch (Exception ex)
             {
                 setup.Say("Setup stopped: " + ex.Message);
@@ -199,6 +220,30 @@ internal sealed class AppWindow : Form
         Controls.Add(setup);
         setup.BringToFront();
 
+        // Start it, rather than wait to be asked.
+        //
+        // The screen used to list what was missing and then stand there until
+        // somebody pressed Install. On a machine launched from the installer's
+        // "run AURION now" that button is behind a window the trader is not
+        // looking at, so nothing was installed, the launcher gave up, and the
+        // three-minute timeout was the first news anybody had of it.
+        //
+        // Consent has not been dropped, only moved to where it belongs: the
+        // same list of vendors, downloads and sizes is on screen, the work is
+        // announced line by line, and the button next to it now cancels. The
+        // trader chose this when they ran the installer.
+        if (items.All(r => r.State == ReqState.Present))
+        {
+            // --setup on a machine that is already prepared. There is nothing
+            // to consent to, so do not sit there waiting to be dismissed.
+            setup.Say("Everything AURION needs is already installed.");
+            _ = Task.Delay(2500).ContinueWith(_ => done.TrySetResult(true));
+        }
+        else
+        {
+            setup.BeginAutomatically();
+        }
+
         FormClosing += (_, _) => done.TrySetResult(false);
         var proceed = await done.Task;
 
@@ -212,8 +257,11 @@ internal sealed class AppWindow : Form
         return true;
     }
 
-    /// <summary>Runs the application's own launcher, hidden, and lets it do its job.</summary>
-    private bool StartDesk()
+    /// <summary>
+    /// Runs the application's own launcher, hidden, and lets it do its job.
+    /// </summary>
+    /// <returns>The launcher process, or null when it could not be started.</returns>
+    private Process? StartDesk()
     {
         var starter = Path.Combine(_installDir, "start-aurion.cmd");
         if (!File.Exists(starter))
@@ -223,7 +271,7 @@ internal sealed class AppWindow : Form
                 "Use Settings > Apps > AURION > Modify > Repair to restore it.",
                 "AURION", MessageBoxButtons.OK, MessageBoxIcon.Error);
             Close();
-            return false;
+            return null;
         }
 
         var psi = new ProcessStartInfo
@@ -240,17 +288,64 @@ internal sealed class AppWindow : Form
         // script; when it is absent the script behaves exactly as it always did.
         psi.Environment["AURION_NO_BROWSER"] = "1";
 
+        // A child inherits this process's environment, and this process's
+        // environment was captured before setup installed anything. Rebuild
+        // PATH from the registry so the launcher sees the Python that was
+        // installed four seconds ago, and add AURION's own Node to it.
+        psi.Environment["PATH"] = CurrentPath();
+
         try
         {
-            Process.Start(psi);
-            return true;
+            return Process.Start(psi);
         }
         catch (Exception ex)
         {
             MessageBox.Show(this, $"AURION could not be started:\n\n{ex.Message}",
                 "AURION", MessageBoxButtons.OK, MessageBoxIcon.Error);
             Close();
-            return false;
+            return null;
+        }
+    }
+
+    /// <summary>PATH as the registry has it now, plus AURION's private Node.</summary>
+    private string CurrentPath()
+    {
+        var parts = new List<string>();
+        foreach (var scope in new[] { EnvironmentVariableTarget.Machine, EnvironmentVariableTarget.User })
+        {
+            try
+            {
+                var value = Environment.GetEnvironmentVariable("PATH", scope);
+                if (!string.IsNullOrWhiteSpace(value)) parts.Add(value);
+            }
+            catch
+            {
+                // An unreadable scope falls back to what this process already has.
+            }
+        }
+        if (parts.Count == 0) parts.Add(Environment.GetEnvironmentVariable("PATH") ?? "");
+        parts.Add(Path.Combine(_installDir, "runtime", "node"));
+        return string.Join(';', parts.Where(p => p.Length > 0));
+    }
+
+    /// <summary>
+    /// The last thing the launcher wrote, so the failure box can say what
+    /// actually happened instead of listing two file paths.
+    /// </summary>
+    private string LauncherComplaint()
+    {
+        var log = Path.Combine(_installDir, "data", "logs", "desk.log");
+        try
+        {
+            if (!File.Exists(log)) return "";
+            var lines = File.ReadLines(log).Where(l => l.Trim().Length > 0).ToList();
+            if (lines.Count == 0) return "";
+            return string.Join(Environment.NewLine, lines.TakeLast(8));
+        }
+        catch
+        {
+            // The log being unreadable is not worth a second error box.
+            return "";
         }
     }
 
@@ -267,18 +362,24 @@ internal sealed class AppWindow : Form
         }
     }
 
-    private void ShowStartupFailure()
+    private void ShowStartupFailure(string reason = "")
     {
         var logs = Path.Combine(_installDir, "data", "logs");
         _splash.Status = "AURION did not finish starting.";
         _splash.Progress = 0f;
+
+        var said = reason.Trim().Length > 0
+            ? "AURION could not start the desk.\n\nThis is what it reported:\n\n" + reason.Trim() + "\n\n"
+            : "AURION did not finish starting within three minutes.\n\n" +
+              "The usual causes are a missing prerequisite or port 8080 being held " +
+              "by another program.\n\n";
+
         MessageBox.Show(this,
-            "AURION did not finish starting within three minutes.\n\n" +
-            "The engine and desk write the real reason here:\n" +
+            said +
+            "The full logs are here:\n" +
             $"    {Path.Combine(logs, "engine.log")}\n" +
             $"    {Path.Combine(logs, "desk.log")}\n\n" +
-            "The usual causes are a missing prerequisite or port 8080 being held " +
-            "by another program.",
+            "Run AURION again and the setup screen will offer to repair whatever is missing.",
             "AURION", MessageBoxButtons.OK, MessageBoxIcon.Warning);
     }
 

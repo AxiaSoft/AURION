@@ -79,9 +79,22 @@ internal static class Prerequisites
         "https://www.python.org/ftp/python/3.12.7/python-3.12.7-amd64.exe";
     private const string PythonPublisher = "Python Software Foundation";
 
-    private const string NodeUrl =
-        "https://nodejs.org/dist/v20.17.0/node-v20.17.0-x64.msi";
-    private const string NodePublisher = "OpenJS Foundation";
+    // Node arrives as the official zip, not the MSI, and is unpacked into the
+    // installation folder.
+    //
+    // The MSI is per-machine: it raises a UAC prompt that a trader running a
+    // per-user install was never warned about, fails outright on a managed
+    // laptop, and - the reason this was rewritten - puts node.exe somewhere
+    // only a PATH refresh can find. A zip under the install folder needs no
+    // elevation, no PATH, and no administrator; it is found by absolute path
+    // and it leaves with the uninstall.
+    //
+    // A zip carries no Authenticode signature, so it is verified against the
+    // SHA-256 published alongside it on nodejs.org over https instead.
+    private const string NodeVersion = "v20.17.0";
+    private const string NodeZipName = "node-" + NodeVersion + "-win-x64.zip";
+    private const string NodeZipUrl = "https://nodejs.org/dist/" + NodeVersion + "/" + NodeZipName;
+    private const string NodeSumsUrl = "https://nodejs.org/dist/" + NodeVersion + "/SHASUMS256.txt";
 
     // Microsoft's evergreen bootstrapper: a tiny stub that fetches the current
     // runtime itself. Deliberately not version-pinned - that is the supported
@@ -93,6 +106,13 @@ internal static class Prerequisites
 
     /// <summary>The Python interpreter found by the last inspection.</summary>
     public static string PythonCommand { get; private set; } = "";
+
+    /// <summary>The node.exe found by the last inspection, absolute when known.</summary>
+    public static string NodeCommand { get; private set; } = "";
+
+    /// <summary>AURION's own copy of Node, if it has been unpacked.</summary>
+    public static string PrivateNode(string installDir) =>
+        Path.Combine(installDir, "runtime", "node", "node.exe");
 
     /// <summary>Everything AURION needs, in the order it is shown.</summary>
     public static List<Requirement> Build() => new()
@@ -118,8 +138,8 @@ internal static class Prerequisites
             Id = "node",
             Title = "Node.js 20",
             Why = "Runs the desk's API between the engine and this window.",
-            Source = "nodejs.org",
-            Size = "28 MB",
+            Source = "nodejs.org (unpacked into AURION's own folder, no administrator)",
+            Size = "30 MB",
         },
         new Requirement
         {
@@ -152,6 +172,7 @@ internal static class Prerequisites
         var list = items.ToList();
         var python = FindPython();
         PythonCommand = python;
+        NodeCommand = FindNode(installDir);
 
         foreach (var req in list)
         {
@@ -173,7 +194,7 @@ internal static class Prerequisites
                     break;
 
                 case "node":
-                    var node = await NodeVersionAsync();
+                    var node = await NodeVersionAsync(installDir);
                     Settle(req, node.Length > 0, node, "Node.js 18 or newer was not found.");
                     break;
 
@@ -189,6 +210,48 @@ internal static class Prerequisites
                     break;
             }
         }
+
+        // Hand the launcher absolute paths. start-aurion.cmd runs in a console
+        // whose environment was captured before any of this happened, so PATH
+        // is the one thing it cannot trust.
+        WriteRuntimeEnv(installDir);
+    }
+
+    /// <summary>
+    /// Record the interpreters where the launcher can read them.
+    ///
+    /// data\runtime.env is two KEY=value lines, parsed by start-aurion.cmd with
+    /// a plain for /f. It is a cache, never a requirement: every consumer falls
+    /// back to searching when a path in here no longer exists.
+    /// </summary>
+    public static void WriteRuntimeEnv(string installDir)
+    {
+        try
+        {
+            var lines = new List<string>();
+            var py = AbsolutePython();
+            if (py.Length > 0) lines.Add("PYTHON=" + py);
+            if (NodeCommand.Length > 0 && File.Exists(NodeCommand)) lines.Add("NODE=" + NodeCommand);
+            if (lines.Count == 0) return;
+
+            var dir = Path.Combine(installDir, "data");
+            Directory.CreateDirectory(dir);
+            File.WriteAllLines(Path.Combine(dir, "runtime.env"), lines);
+        }
+        catch
+        {
+            // A cache that could not be written costs a PATH lookup, nothing more.
+        }
+    }
+
+    /// <summary>The full path of the interpreter behind PythonCommand, or "".</summary>
+    private static string AbsolutePython()
+    {
+        if (PythonCommand.Length == 0) return "";
+        var (exe, args) = Split(PythonCommand);
+        var text = Capture(exe, (args + " -c \"import sys; print(sys.executable)\"").Trim()).Trim();
+        var first = text.Split('\n').FirstOrDefault()?.Trim() ?? "";
+        return first.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) && File.Exists(first) ? first : "";
     }
 
     private static void Settle(Requirement req, bool ok, string found, string problem)
@@ -231,11 +294,51 @@ internal static class Prerequisites
             RunQuiet(exe, (args + " -c \"import fastapi, numpy, sklearn\"").Trim()));
     }
 
-    private static async Task<string> NodeVersionAsync()
+    /// <summary>
+    /// node.exe, by absolute path wherever possible.
+    ///
+    /// Order: AURION's own copy, then PATH, then the two places the official
+    /// installers use. Asking PATH alone is what left a freshly prepared
+    /// machine insisting Node was missing - this process inherited its
+    /// environment before Node existed and nothing it did could change that.
+    /// </summary>
+    private static string FindNode(string installDir)
+    {
+        var mine = PrivateNode(installDir);
+        if (File.Exists(mine)) return mine;
+
+        foreach (var dir in (Environment.GetEnvironmentVariable("PATH") ?? "").Split(';'))
+        {
+            if (dir.Trim().Length == 0) continue;
+            try
+            {
+                var candidate = Path.Combine(dir.Trim(), "node.exe");
+                if (File.Exists(candidate)) return candidate;
+            }
+            catch
+            {
+                // An unparseable PATH entry is not an error, it is just not Node.
+            }
+        }
+
+        string[] usual =
+        {
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "nodejs", "node.exe"),
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "Programs", "nodejs", "node.exe"),
+        };
+        return usual.FirstOrDefault(File.Exists) ?? "";
+    }
+
+    private static async Task<string> NodeVersionAsync(string installDir)
     {
         return await Task.Run(() =>
         {
-            var text = Capture("node", "--version").Trim();     // "v20.17.0"
+            var exe = FindNode(installDir);
+            if (exe.Length == 0) return "";
+            NodeCommand = exe;
+
+            var text = Capture(exe, "--version").Trim();        // "v20.17.0"
             var m = Regex.Match(text, @"^v(\d+)\.");
             if (!m.Success) return "";
             return int.TryParse(m.Groups[1].Value, out var major) && major >= 18
@@ -313,7 +416,7 @@ internal static class Prerequisites
                 {
                     case "python": await InstallPythonAsync(work, say, ct); break;
                     case "pydeps": await InstallPythonLibsAsync(installDir, say, ct); break;
-                    case "node": await InstallNodeAsync(work, say, ct); break;
+                    case "node": await InstallNodeAsync(work, installDir, say, ct); break;
                     case "nodedeps": await InstallNodeLibsAsync(installDir, say, ct); break;
                     case "webview": await InstallWebViewAsync(work, say, ct); break;
                 }
@@ -378,16 +481,90 @@ internal static class Prerequisites
         await RunAsync(exe, (args + $" -m pip install -r \"{requirements}\"").Trim(), elevate: false, ct);
     }
 
-    private static async Task InstallNodeAsync(string work, IProgress<string> say, CancellationToken ct)
+    /// <summary>
+    /// Unpack Node into the installation folder. No installer, no elevation.
+    ///
+    /// Nothing outside AURION's own directory is touched, so there is no UAC
+    /// prompt to decline, no PATH to go stale, and nothing left behind when
+    /// AURION is uninstalled.
+    /// </summary>
+    private static async Task InstallNodeAsync(string work, string installDir, IProgress<string> say, CancellationToken ct)
     {
-        var file = await DownloadAsync(NodeUrl, Path.Combine(work, "node-setup.msi"),
-            NodePublisher, "Node.js", say, ct);
+        var zip = Path.Combine(work, NodeZipName);
+        // The empty publisher is deliberate: a zip has no Authenticode
+        // signature, and the line below is what replaces that check.
+        await DownloadAsync(NodeZipUrl, zip, "", "Node.js", say, ct);
 
-        say.Report("Installing Node.js…");
-        // Node's MSI is per-machine, so this one does need elevation. The
-        // prompt is Windows's own and the user is told it is coming.
-        await RunAsync("msiexec.exe", $"/i \"{file}\" /qn /norestart", elevate: true, ct);
-        RefreshPath();
+        say.Report("Checking the Node.js download…");
+        await VerifyAgainstPublishedSumAsync(zip, NodeSumsUrl, NodeZipName, ct);
+
+        say.Report("Unpacking Node.js…");
+        var runtime = Path.Combine(installDir, "runtime");
+        var target = Path.Combine(runtime, "node");
+        var staging = Path.Combine(runtime, "node-new");
+
+        await Task.Run(() =>
+        {
+            if (Directory.Exists(staging)) Directory.Delete(staging, recursive: true);
+            Directory.CreateDirectory(runtime);
+            System.IO.Compression.ZipFile.ExtractToDirectory(zip, staging);
+        }, ct);
+
+        // The zip holds a single node-vX.Y.Z-win-x64 folder; promote its
+        // contents so node.exe sits exactly where PrivateNode() says it does.
+        var inner = Directory.GetDirectories(staging).FirstOrDefault() ?? staging;
+        if (Directory.Exists(target)) Directory.Delete(target, recursive: true);
+        Directory.Move(inner, target);
+        try { Directory.Delete(staging, recursive: true); } catch { /* already empty */ }
+
+        var node = PrivateNode(installDir);
+        if (!File.Exists(node))
+        {
+            throw new InvalidOperationException("Node.js unpacked but node.exe is not where it should be.");
+        }
+        NodeCommand = node;
+        WriteRuntimeEnv(installDir);
+        say.Report("Node.js is ready.");
+    }
+
+    /// <summary>
+    /// Verify a download against the checksum file the vendor publishes next
+    /// to it.
+    ///
+    /// A zip has no Authenticode signature, so the publisher check that
+    /// guards the .exe downloads cannot be used. The checksum list is fetched
+    /// over https from the same origin and is not pinned, so it keeps being
+    /// correct when the pinned version is bumped.
+    /// </summary>
+    private static async Task VerifyAgainstPublishedSumAsync(
+        string file, string sumsUrl, string name, CancellationToken ct)
+    {
+        var sums = await Http.GetStringAsync(sumsUrl, ct);
+        var wanted = sums
+            .Split('\n')
+            .Select(line => line.Trim())
+            .FirstOrDefault(line => line.EndsWith(" " + name, StringComparison.OrdinalIgnoreCase)
+                                 || line.EndsWith("*" + name, StringComparison.OrdinalIgnoreCase));
+        if (wanted is null)
+        {
+            File.Delete(file);
+            throw new InvalidOperationException($"{name} is not listed in the vendor's checksum file.");
+        }
+
+        var expected = wanted.Split(' ')[0].Trim();
+        string actual;
+        await using (var stream = File.OpenRead(file))
+        {
+            actual = Convert.ToHexString(
+                await System.Security.Cryptography.SHA256.HashDataAsync(stream, ct)).ToLowerInvariant();
+        }
+
+        if (!string.Equals(actual, expected, StringComparison.OrdinalIgnoreCase))
+        {
+            File.Delete(file);
+            throw new InvalidOperationException(
+                $"The {name} download does not match the checksum published for it. It was deleted without being used.");
+        }
     }
 
     private static async Task InstallNodeLibsAsync(string installDir, IProgress<string> say, CancellationToken ct)
@@ -398,10 +575,28 @@ internal static class Prerequisites
             throw new DirectoryNotFoundException("The backend folder is missing from the installation.");
         }
 
+        if (NodeCommand.Length == 0 || !File.Exists(NodeCommand)) NodeCommand = FindNode(installDir);
+        if (NodeCommand.Length == 0) throw new InvalidOperationException("Node.js is not available yet.");
+
         say.Report("Installing the desk API's packages…");
-        // npm is a .cmd shim, so it has to go through the shell.
-        await RunAsync("cmd.exe", "/c npm install --omit=dev --no-audit --no-fund",
-            elevate: false, ct, backend);
+
+        // npm is run as a script through node, by absolute path, rather than
+        // as the npm.cmd shim through the shell: the shim is only reachable
+        // via a PATH this process may not have, and AURION's own copy of Node
+        // is deliberately not on PATH at all.
+        var cli = Path.Combine(Path.GetDirectoryName(NodeCommand)!,
+            "node_modules", "npm", "bin", "npm-cli.js");
+        if (File.Exists(cli))
+        {
+            await RunAsync(NodeCommand, $"\"{cli}\" install --omit=dev --no-audit --no-fund",
+                elevate: false, ct, backend);
+        }
+        else
+        {
+            // A system-wide Node installed by the MSI keeps npm on PATH.
+            await RunAsync("cmd.exe", "/c npm install --omit=dev --no-audit --no-fund",
+                elevate: false, ct, backend);
+        }
     }
 
     private static async Task InstallWebViewAsync(string work, IProgress<string> say, CancellationToken ct)
@@ -456,7 +651,9 @@ internal static class Prerequisites
             throw new InvalidOperationException($"The {label} download was too small to be real.");
         }
 
-        if (!SignedBy(target, expectedPublisher))
+        // An empty publisher means the caller verifies integrity another way
+        // (see VerifyAgainstPublishedSumAsync); it never means "unchecked".
+        if (expectedPublisher.Length > 0 && !SignedBy(target, expectedPublisher))
         {
             File.Delete(target);
             throw new InvalidOperationException(

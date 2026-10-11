@@ -36,6 +36,9 @@ const ui = read("installer/src/ui/AurionUI.wxs");
 const wxl = read("installer/src/ui/en-us.wxl");
 const prereqCs = read("installer/window/Prerequisites.cs");
 const program = read("installer/window/Program.cs");
+const appWindow = read("installer/window/AppWindow.cs");
+const setupPanel = read("installer/window/SetupPanel.cs");
+const hiddenVbs = read("scripts/hidden.vbs");
 const startCmd = read("start-aurion.cmd");
 const buildMsi = read("installer/tools/build-msi.ps1");
 
@@ -146,11 +149,66 @@ check("the build fails rather than shipping without it",
 // And theatre again if the provisioner cannot reach the vendors.
 check("the provisioner still knows where the runtimes come from",
   /python\.org\/ftp\/python\/3\.12/.test(prereqCs) &&
-  /nodejs\.org\/dist\/v\d+\./.test(prereqCs));
+  /nodejs\.org\/dist\//.test(prereqCs) &&
+  /NodeVersion = "v\d+\.\d+\.\d+"/.test(prereqCs));
 check("downloads are still checked against their publisher before running",
   /Python Software Foundation/.test(prereqCs) &&
-  /OpenJS Foundation/.test(prereqCs) &&
   /SignedBy\(/.test(prereqCs));
+
+// Node is the exception, and the replacement check has to be real: the zip
+// is unsigned, so it is verified against the SHA-256 the vendor publishes
+// beside it. Dropping that line would leave one download unchecked.
+check("the Node zip is verified against the vendor's published checksum",
+  /SHASUMS256\.txt/.test(prereqCs) &&
+  /VerifyAgainstPublishedSumAsync/.test(prereqCs) &&
+  /SHA256\.HashDataAsync/.test(prereqCs));
+
+// --------------------------------------------- preparing itself, unattended
+
+// The failure this was written for: on a bare machine the setup screen listed
+// what was missing and waited for a click nobody made, the launcher gave up,
+// and the window showed a three-minute timeout.
+check("setup starts on its own instead of waiting to be asked",
+  /BeginAutomatically/.test(setupPanel) && /BeginAutomatically\(\)/.test(appWindow));
+check("and can still be stopped while it runs",
+  /CancelRequested/.test(setupPanel) && /CancelRequested/.test(appWindow) &&
+  /cancel\.Token/.test(appWindow));
+
+// Node used to arrive as a per-machine MSI: a UAC prompt on a per-user
+// install, and node.exe somewhere only a PATH refresh could find.
+check("Node is unpacked into the install folder, not installed machine-wide",
+  /"-win-x64\.zip"/.test(prereqCs) &&
+  /ExtractToDirectory/.test(prereqCs) &&
+  !/msiexec/.test(prereqCs));
+check("nothing is left behind: runtime\\ goes on uninstall",
+  /INSTALLFOLDER\]runtime&quot; rmdir \/s \/q/.test(actions));
+
+// PATH is the thing that cannot be trusted here, in either direction.
+check("the launcher is handed a PATH rebuilt from the registry",
+  /psi\.Environment\["PATH"\]/.test(appWindow) && /CurrentPath\(\)/.test(appWindow));
+check("the interpreters are recorded by absolute path for the launcher",
+  /runtime\.env/.test(prereqCs) && /WriteRuntimeEnv/.test(prereqCs) &&
+  /runtime\.env/.test(startCmd));
+check("start-aurion.cmd actually refreshes PATH - :REFRESHPATH was dead code",
+  /^call :REFRESHPATH/m.test(startCmd) && /^call :LOADRUNTIME/m.test(startCmd));
+check("the desk is launched through the Node that was found, not a bare name",
+  /desk\.log" %NODECMD% src\\index\.js/.test(startCmd));
+
+// A `pause` in a window the app deliberately hides is not a prompt, it is a
+// process that never returns - which is exactly what produced the timeout.
+check("the hidden launcher never stops on a prompt nobody can see",
+  /if defined AURION_NO_BROWSER exit \/b 1/.test(startCmd) &&
+  startCmd.indexOf("if defined AURION_NO_BROWSER exit /b 1") < startCmd.indexOf("\npause"));
+check("it writes why it gave up where the window will read it",
+  /SAYWHATSMISSING/.test(startCmd) && /desk\.log/.test(startCmd) &&
+  /LauncherComplaint/.test(appWindow));
+check("the window stops waiting once the launcher has already failed",
+  /launcher\.HasExited && launcher\.ExitCode != 0/.test(appWindow));
+
+// An interpreter under "C:\\Program Files" came back from WScript.Arguments
+// as three words and the desk never started.
+check("hidden.vbs re-quotes arguments that contain spaces",
+  /InStr\(arg, " "\) > 0/.test(hiddenVbs));
 
 const bad = results.filter((r) => !r.ok);
 console.log(`\n${results.length - bad.length}/${results.length} checks passed`);

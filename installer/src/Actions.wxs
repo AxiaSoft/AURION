@@ -61,10 +61,15 @@
          __pycache__ and backend\node_modules\.cache are created by Python and
          npm *after* installation, so Windows Installer does not know about them
          and would otherwise leave an orphaned folder behind. This is pure
-         cleanup of our own install folder and runs on every uninstall.       -->
+         cleanup of our own install folder and runs on every uninstall.
+
+         runtime\ joins them: the first run unpacks its own private copy of
+         Node there rather than installing Node machine-wide, which is what
+         lets a per-user install prepare itself without an administrator. It
+         is ours, it is not the trader's data, and it goes when AURION does. -->
     <CustomAction Id="AurionCleanGenerated"
                   Directory="INSTALLFOLDER"
-                  ExeCommand="&quot;[System64Folder]cmd.exe&quot; /c for /d /r &quot;[INSTALLFOLDER]&quot; %d in (__pycache__) do @(if exist &quot;%d&quot; rmdir /s /q &quot;%d&quot;)"
+                  ExeCommand="&quot;[System64Folder]cmd.exe&quot; /c (for /d /r &quot;[INSTALLFOLDER]&quot; %d in (__pycache__) do @(if exist &quot;%d&quot; rmdir /s /q &quot;%d&quot;)) &amp; (if exist &quot;[INSTALLFOLDER]runtime&quot; rmdir /s /q &quot;[INSTALLFOLDER]runtime&quot;)"
                   Execute="deferred"
                   Impersonate="yes"
                   Return="ignore" />

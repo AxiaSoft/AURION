@@ -23,12 +23,20 @@ REM engine\main.py aborts on CPython 3.13+ and numpy 1.26.4 has no 3.13 wheels,
 REM so only 3.10 / 3.11 / 3.12 are accepted - 3.12 first, because that is what
 REM the supported baseline.
 REM ---------------------------------------------------------------------------
+REM Pick up PATH changes a previous setup made. This console inherited its
+REM environment when it started, so a Python or Node installed since then is
+REM invisible to it - which used to send a perfectly prepared machine round
+REM the setup loop and out the other side with "prerequisites missing".
+REM :REFRESHPATH existed for this and was never called. It is now.
+call :REFRESHPATH
+call :LOADRUNTIME
+
 call :FINDPY
 if not defined PYCMD goto :NEEDINSTALL
 %PYCMD% -c "import fastapi,numpy,sklearn" >nul 2>nul
 if errorlevel 1 goto :NEEDINSTALL
-where node >nul 2>nul
-if errorlevel 1 goto :NEEDINSTALL
+call :FINDNODE
+if not defined NODECMD goto :NEEDINSTALL
 if not exist "backend\node_modules\express" goto :NEEDINSTALL
 goto :LAUNCH
 
@@ -57,6 +65,12 @@ cmd /c ""%~f0""
 exit /b %errorlevel%
 
 :BYHAND
+REM AURION.exe runs this script hidden, so a `pause` here is not a prompt -
+REM it is a process that never returns, and the window sits on a progress bar
+REM for three minutes before saying something vague about port 8080. Write the
+REM reason where the window will read it, and leave.
+call :SAYWHATSMISSING
+if defined AURION_NO_BROWSER exit /b 1
 echo Prerequisites missing or incomplete.
 echo.
 echo To do it by hand:
@@ -66,6 +80,17 @@ echo   cd backend ^&^& npm install
 echo.
 pause
 exit /b 1
+
+:SAYWHATSMISSING
+if not exist "data\logs" mkdir "data\logs" 2>nul
+> "data\logs\desk.log" echo AURION cannot start: a prerequisite is missing.
+if not defined PYCMD   >> "data\logs\desk.log" echo   - Python 3.10, 3.11 or 3.12 was not found.
+if defined PYCMD       >> "data\logs\desk.log" echo   - Python: %PYCMD%
+if not defined NODECMD >> "data\logs\desk.log" echo   - Node.js 18 or newer was not found.
+if defined NODECMD     >> "data\logs\desk.log" echo   - Node: %NODECMD%
+if not exist "backend\node_modules\express" >> "data\logs\desk.log" echo   - backend\node_modules is not installed.
+>> "data\logs\desk.log" echo Run AURION.exe --setup to install what is missing.
+goto :eof
 
 :NOTREE
 echo backend\src\index.js is missing.
@@ -82,7 +107,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command "$own=@('node','python','
 
 cscript //nologo "%~dp0scripts\hidden.vbs" "%CD%" "%CD%\data\logs\engine.log" %PYCMD% engine\main.py --host 127.0.0.1 --port 18765
 time /t >nul
-cscript //nologo "%~dp0scripts\hidden.vbs" "%CD%\backend" "%CD%\data\logs\desk.log" node src\index.js
+cscript //nologo "%~dp0scripts\hidden.vbs" "%CD%\backend" "%CD%\data\logs\desk.log" %NODECMD% src\index.js
 
 REM Wait for the desk to answer instead of guessing with a fixed sleep, so the
 REM browser never opens onto a connection-refused page.
@@ -100,6 +125,7 @@ echo   Desk    http://127.0.0.1:8080
 echo   Engine  127.0.0.1:18765
 echo   EA      file inbox + HTTP on 127.0.0.1:18765
 echo   Python  %PYCMD%
+echo   Node    %NODECMD%
 echo   Logs    dashboard Terminal tabs: Engine / Desk
 echo   Stop    double-click stop-aurion.cmd
 echo.
@@ -124,8 +150,42 @@ exit /b 1
 REM ---------------------------------------------------------------------------
 REM Helpers
 REM ---------------------------------------------------------------------------
+REM ---------------------------------------------------------------------------
+REM The runtimes setup recorded.
+REM
+REM PATH is the fragile way to find an interpreter: a console that started
+REM before the install never sees it, Group Policy rewrites it, and a
+REM per-user Node unpacked into the install folder is not on it at all. The
+REM setup writes absolute paths here and they are believed first.
+REM ---------------------------------------------------------------------------
+:LOADRUNTIME
+set "AURION_PY="
+set "AURION_NODE="
+if not exist "data\runtime.env" goto :eof
+for /f "usebackq tokens=1,* delims==" %%A in ("data\runtime.env") do (
+  if /i "%%A"=="PYTHON" set "AURION_PY=%%B"
+  if /i "%%A"=="NODE"   set "AURION_NODE=%%B"
+)
+goto :eof
+
+:FINDNODE
+set "NODECMD="
+if defined AURION_NODE if exist "%AURION_NODE%" set "NODECMD="%AURION_NODE%""
+if defined NODECMD goto :eof
+if exist "%~dp0runtime\node\node.exe" set "NODECMD="%~dp0runtime\node\node.exe""
+if defined NODECMD goto :eof
+where node >nul 2>nul
+if not errorlevel 1 set "NODECMD=node"
+if defined NODECMD goto :eof
+if exist "%ProgramFiles%\nodejs\node.exe" set "NODECMD="%ProgramFiles%\nodejs\node.exe""
+if defined NODECMD goto :eof
+if exist "%LOCALAPPDATA%\Programs\nodejs\node.exe" set "NODECMD="%LOCALAPPDATA%\Programs\nodejs\node.exe""
+goto :eof
+
 :FINDPY
 set "PYCMD="
+if defined AURION_PY if exist "%AURION_PY%" set "PYCMD="%AURION_PY%""
+if defined PYCMD goto :eof
 where py >nul 2>nul
 if errorlevel 1 goto :FINDPY_PLAIN
 for %%V in (3.12 3.11 3.10) do (
