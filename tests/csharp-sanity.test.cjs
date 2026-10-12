@@ -213,6 +213,53 @@ for (const file of files) {
 }
 
 // ---------------------------------------------------------------------------
+// An owner-drawn control that suppresses its own background
+// ---------------------------------------------------------------------------
+// Overriding OnPaintBackground to do nothing is how a control lets a
+// gradient behind it show through - except nothing is drawing the
+// gradient there, so whatever was last in the buffer stays and the
+// rounded corners frame it. Every button in both installers glitched for
+// this.
+//
+// An empty override is only correct if something else paints that area.
+// Here that something is BrandForm.PaintBackdropUnder.
+for (const file of files) {
+  const code = structureOf(fs.readFileSync(file, "utf8"));
+  const name = label(file);
+
+  // The body, brace-matched, so an override containing an if-statement
+  // is read in full rather than skipped.
+  const empty = [];
+  for (const m of code.matchAll(
+    /protected override void OnPaintBackground\(PaintEventArgs \w+\)\s*\{/g)) {
+    let depth = 1;
+    let i = m.index + m[0].length;
+    while (i < code.length && depth > 0) {
+      if (code[i] === "{") depth++;
+      else if (code[i] === "}") depth--;
+      i++;
+    }
+    const body = code.slice(m.index + m[0].length, i - 1);
+
+    // Either it hands the job to the window, or it falls back to the
+    // base, or it genuinely draws something itself - a form painting its
+    // own gradient is the one legitimate case.
+    const paints = /PaintBackdropUnder|base\.OnPaintBackground|DrawImage|FillRectangle|FillPath/
+      .test(body);
+    if (!paints) {
+      empty.push(body.trim().length === 0
+        ? "an empty override"
+        : "an override that paints nothing");
+    }
+  }
+
+  if (empty.length === 0 && !/OnPaintBackground/.test(code)) continue;
+  check(`${name} never suppresses a background without replacing it`,
+    empty.length === 0,
+    empty.length ? [...new Set(empty)].join("; ") : "backgrounds accounted for");
+}
+
+// ---------------------------------------------------------------------------
 // CS0136: the same local name twice, where one scope encloses the other
 // ---------------------------------------------------------------------------
 // Introduced by adding a tuple deconstruction at the top of a method that

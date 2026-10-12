@@ -22,14 +22,14 @@ internal sealed class SetupWindow : BrandForm
     private readonly string _msiPath;
     private readonly bool _alreadyInstalled;
 
-    private readonly Label _title = new();
-    private readonly Label _lead = new();
-    private readonly Label _status = new();
+    private readonly BrandLabel _title = new();
+    private readonly BrandLabel _lead = new();
+    private readonly BrandLabel _status = new();
     private readonly SweepBar _bar = new();
 
     private readonly ChoiceCard _startMenu;
     private readonly ChoiceCard _desktop;
-    private readonly Label _whereLabel = new();
+    private readonly BrandLabel _whereLabel = new();
 
     private readonly BrandButton _primary = new();
     private readonly BrandButton _secondary = new();
@@ -70,8 +70,6 @@ internal sealed class SetupWindow : BrandForm
 
         _title.Font = Brand.Title;
         _title.ForeColor = Brand.Ink;
-        _title.AutoSize = false;
-        _title.BackColor = Color.Transparent;
         _title.Location = new Point(44, 150);
         _title.Size = new Size(ClientSize.Width - 88, 36);
         Controls.Add(_title);
@@ -79,8 +77,6 @@ internal sealed class SetupWindow : BrandForm
 
         _lead.Font = Brand.Body;
         _lead.ForeColor = Brand.Muted;
-        _lead.AutoSize = false;
-        _lead.BackColor = Color.Transparent;
         _lead.Location = new Point(46, 192);
         _lead.Size = new Size(ClientSize.Width - 92, 60);
         Controls.Add(_lead);
@@ -98,8 +94,6 @@ internal sealed class SetupWindow : BrandForm
 
         _whereLabel.Font = Brand.Small;
         _whereLabel.ForeColor = Brand.Muted;
-        _whereLabel.AutoSize = false;
-        _whereLabel.BackColor = Color.Transparent;
         _whereLabel.Location = new Point(46, 434);
         _whereLabel.Size = new Size(ClientSize.Width - 92, 20);
         Controls.Add(_whereLabel);
@@ -111,8 +105,6 @@ internal sealed class SetupWindow : BrandForm
 
         _status.Font = Brand.Small;
         _status.ForeColor = Brand.Muted;
-        _status.AutoSize = false;
-        _status.BackColor = Color.Transparent;
         _status.Location = new Point(46, 314);
         _status.Size = new Size(ClientSize.Width - 92, 36);
         Controls.Add(_status);

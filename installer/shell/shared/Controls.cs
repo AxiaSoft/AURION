@@ -59,7 +59,10 @@ internal sealed class ChoiceCard : Control
 
     protected override void OnPaintBackground(PaintEventArgs e)
     {
-        // The form's gradient shows through.
+        // The form's gradient, actually drawn. Leaving this empty is what
+        // left artefacts around the rounded corners of every card.
+        if (FindForm() is BrandForm host) host.PaintBackdropUnder(e.Graphics, Bounds);
+        else base.OnPaintBackground(e);
     }
 
     protected override void OnPaint(PaintEventArgs e)
@@ -144,7 +147,11 @@ internal sealed class SweepBar : Control
     public void Start() => _ticker.Start();
     public void Stop() => _ticker.Stop();
 
-    protected override void OnPaintBackground(PaintEventArgs e) { }
+    protected override void OnPaintBackground(PaintEventArgs e)
+    {
+        if (FindForm() is BrandForm host) host.PaintBackdropUnder(e.Graphics, Bounds);
+        else base.OnPaintBackground(e);
+    }
 
     protected override void OnPaint(PaintEventArgs e)
     {

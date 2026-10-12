@@ -124,6 +124,14 @@ internal sealed class BrandButton : Control
         ForeColor = Brand.Ink;
     }
 
+    protected override void OnTextChanged(EventArgs e)
+    {
+        // "Install" becomes "Try again"; "Remove" becomes "Remove
+        // everything". Same problem as BrandLabel, same fix.
+        Parent?.Invalidate(Bounds, false);
+        base.OnTextChanged(e);
+    }
+
     protected override void OnMouseEnter(EventArgs e) { _hot = true; Invalidate(); base.OnMouseEnter(e); }
     protected override void OnMouseLeave(EventArgs e) { _hot = false; _down = false; Invalidate(); base.OnMouseLeave(e); }
     protected override void OnMouseDown(MouseEventArgs e) { _down = true; Invalidate(); base.OnMouseDown(e); }
@@ -131,8 +139,11 @@ internal sealed class BrandButton : Control
 
     protected override void OnPaintBackground(PaintEventArgs e)
     {
-        // The parent paints behind us; filling here would punch a flat
-        // rectangle through the gradient.
+        // Draw the window's own backdrop under this button, so the rounded
+        // corners sit on the gradient instead of on whatever was left in
+        // the buffer. Doing nothing here is what made the buttons glitch.
+        if (FindForm() is BrandForm host) host.PaintBackdropUnder(e.Graphics, Bounds);
+        else base.OnPaintBackground(e);
     }
 
     protected override void OnPaint(PaintEventArgs e)
@@ -174,6 +185,43 @@ internal sealed class BrandButton : Control
             : Brand.Muted;
         TextRenderer.DrawText(g, Text, Font, ClientRectangle, ink,
             TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine);
+    }
+}
+
+/// <summary>
+/// A Label that sits on the window's gradient rather than on a dark box.
+///
+/// Label supports a transparent BackColor, but WinForms implements that
+/// by filling with the parent's BackColor - a single flat colour. On a
+/// window whose background is a gradient with two soft lights in it, that
+/// is a visible rectangle, and every line of text had one behind it.
+/// </summary>
+internal sealed class BrandLabel : Label
+{
+    public BrandLabel()
+    {
+        AutoSize = false;
+        BackColor = Color.Transparent;
+        ForeColor = Brand.Ink;
+        Font = Brand.Body;
+    }
+
+    protected override void OnPaintBackground(PaintEventArgs e)
+    {
+        if (FindForm() is BrandForm host) host.PaintBackdropUnder(e.Graphics, Bounds);
+        else base.OnPaintBackground(e);
+    }
+
+    protected override void OnTextChanged(EventArgs e)
+    {
+        // Repaint the backdrop under the old text before drawing the new.
+        //
+        // Both windows rewrite these labels as they move between pages,
+        // and a shorter line does not erase a longer one: the control
+        // only repaints itself, over a background it believes is already
+        // correct. The leftovers of the previous sentence stay on screen.
+        Parent?.Invalidate(Bounds, false);
+        base.OnTextChanged(e);
     }
 }
 
@@ -236,22 +284,60 @@ internal class BrandForm : Form
         Invalidate();
     }
 
-    protected override void OnPaintBackground(PaintEventArgs e)
+    private Bitmap? Backdrop()
     {
         var w = ClientSize.Width;
         var h = ClientSize.Height;
-        if (w <= 0 || h <= 0) return;
+        if (w <= 0 || h <= 0) return null;
 
-        if (_backdrop is null)
+        if (_backdrop is null || _backdrop.Width != w || _backdrop.Height != h)
         {
+            _backdrop?.Dispose();
             _backdrop = new Bitmap(w, h);
             using var g = Graphics.FromImage(_backdrop);
             Brand.PaintBackdrop(g, w, h);
         }
-        e.Graphics.DrawImageUnscaled(_backdrop, 0, 0);
+        return _backdrop;
+    }
+
+    /// <summary>
+    /// Paint the piece of the window's backdrop that sits under a child.
+    ///
+    /// This is what makes the owner-drawn controls work, and leaving it
+    /// out is what made the buttons glitch. They suppressed their own
+    /// background so the gradient would show through, but nothing was
+    /// drawing the gradient there - so whatever happened to be in the
+    /// buffer stayed, and the rounded corners framed it.
+    ///
+    /// WinForms' own transparency does not solve this either. A control
+    /// with a transparent BackColor is filled with the *parent's
+    /// BackColor*, which here is one flat dark colour - so labels came
+    /// out as dark rectangles sitting on top of the glow rather than in
+    /// it. The only thing that matches is the real bitmap, sliced to the
+    /// child's bounds.
+    /// </summary>
+    internal void PaintBackdropUnder(Graphics g, Rectangle bounds)
+    {
+        var backdrop = Backdrop();
+        if (backdrop is null) return;
+
+        var source = Rectangle.Intersect(bounds, new Rectangle(Point.Empty, backdrop.Size));
+        if (source.Width <= 0 || source.Height <= 0) return;
+
+        g.DrawImage(backdrop,
+            new Rectangle(source.X - bounds.X, source.Y - bounds.Y, source.Width, source.Height),
+            source, GraphicsUnit.Pixel);
+    }
+
+    protected override void OnPaintBackground(PaintEventArgs e)
+    {
+        var backdrop = Backdrop();
+        if (backdrop is null) return;
+
+        e.Graphics.DrawImageUnscaled(backdrop, 0, 0);
 
         using var edge = new Pen(Brand.Hairline);
-        e.Graphics.DrawRectangle(edge, 0, 0, w - 1, h - 1);
+        e.Graphics.DrawRectangle(edge, 0, 0, ClientSize.Width - 1, ClientSize.Height - 1);
     }
 
     /// <summary>Let a drag anywhere on the chrome move the window.</summary>

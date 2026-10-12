@@ -20,9 +20,9 @@ internal sealed class UninstallWindow : BrandForm
     private readonly string _productCode;
     private readonly string _installFolder;
 
-    private readonly Label _title = new();
-    private readonly Label _lead = new();
-    private readonly Label _status = new();
+    private readonly BrandLabel _title = new();
+    private readonly BrandLabel _lead = new();
+    private readonly BrandLabel _status = new();
     private readonly ChoiceCard _keep;
     private readonly ChoiceCard _wipe;
     private readonly BrandButton _remove = new();
@@ -65,17 +65,14 @@ internal sealed class UninstallWindow : BrandForm
         _title.Text = "Remove AURION?";
         _title.Font = Brand.Title;
         _title.ForeColor = Brand.Ink;
-        _title.AutoSize = true;
-        _title.BackColor = Color.Transparent;
         _title.Location = new Point(40, 44);
+        _title.Size = new Size(ClientSize.Width - 88, 36);
         Controls.Add(_title);
         DragFrom(_title);
 
         _lead.Text = "AURION will stop running and be removed from this computer.";
         _lead.Font = Brand.Body;
         _lead.ForeColor = Brand.Muted;
-        _lead.AutoSize = false;
-        _lead.BackColor = Color.Transparent;
         _lead.Location = new Point(42, 90);
         _lead.Size = new Size(ClientSize.Width - 84, 24);
         Controls.Add(_lead);
@@ -98,8 +95,6 @@ internal sealed class UninstallWindow : BrandForm
 
         _status.Font = Brand.Small;
         _status.ForeColor = Brand.Muted;
-        _status.AutoSize = false;
-        _status.BackColor = Color.Transparent;
         _status.Location = new Point(42, 340);
         _status.Size = new Size(ClientSize.Width - 84, 34);
         Controls.Add(_status);
