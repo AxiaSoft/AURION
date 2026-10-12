@@ -313,6 +313,26 @@ check("and the uninstall takes the private Python with it",
   /\/quiet \/uninstall/.test(actions) &&
   /Before="RemoveFiles"[\s\S]{0,120}AurionRemovePrivatePython|AurionRemovePrivatePython[\s\S]{0,160}Before="RemoveFiles"/.test(actions));
 
+// %LOCALAPPDATA%\Microsoft\WindowsApps\python.exe is an app execution
+// alias, not an interpreter: it resolves only inside an interactive session
+// belonging to the user who installed it, redirects writes away from
+// site-packages, and started detached through wscript it exits without
+// producing output or a log. One machine had it recorded in runtime.env and
+// believed ever since - engine and desk wrote nothing, launcher returned 1.
+check("the Microsoft Store's Python is refused everywhere",
+  /IsStoreAlias/.test(prereqCs) &&
+  provisionPs1.includes('-notlike "*\\WindowsApps\\*"') &&
+  startCmd.includes('find /i "\\WindowsApps\\"'));
+check("AURION's own interpreter outranks the one in runtime.env",
+  startCmd.indexOf("runtime\\python\\python.exe") < startCmd.indexOf("if defined AURION_PY"));
+check("and a stale runtime.env can no longer pin a bad choice forever",
+  /\$env:AURION_PY -notlike/.test(provisionPs1));
+
+// When nothing started, setup.log is the only account of what happened.
+check("the failure box reads setup.log when the other two are empty",
+  /NewIn\("setup\.log", 8\)/.test(appWindow) &&
+  /"engine\.log", "desk\.log", "setup\.log"/.test(appWindow));
+
 // ------------------------------------------- nothing fetched on their machine
 
 // The customer's machine is the worst possible place to be discovering a

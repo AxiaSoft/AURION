@@ -197,13 +197,20 @@ goto :eof
 
 :FINDPY
 set "PYCMD="
-if defined AURION_PY if exist "%AURION_PY%" set "PYCMD="%AURION_PY%""
-if defined PYCMD goto :eof
-REM AURION's own interpreter, before anything the machine happens to have.
+
+REM AURION's own interpreter, before anything else - including before the
+REM one recorded in runtime.env.
+REM
 REM The engine is pinned to a NumPy that only exists for CPython 3.9-3.12,
-REM so following the system Python meant that upgrading it broke the engine.
+REM so following the machine's Python meant that upgrading it broke the
+REM engine. And runtime.env is written once and then believed forever, so a
+REM bad choice made on the first run outlived every repair attempt after it.
 if exist "%~dp0runtime\python\python.exe" set "PYCMD="%~dp0runtime\python\python.exe""
 if defined PYCMD goto :eof
+
+if defined AURION_PY call :USABLEPY "%AURION_PY%"
+if defined PYCMD goto :eof
+
 where py >nul 2>nul
 if errorlevel 1 goto :FINDPY_PLAIN
 for %%V in (3.12 3.11 3.10) do (
@@ -216,6 +223,23 @@ for %%V in (3.12 3.11 3.10) do (
 if defined PYCMD goto :eof
 python -c "import sys; sys.exit(0 if (3,10) <= sys.version_info[:2] <= (3,12) else 1)" >nul 2>nul
 if not errorlevel 1 set "PYCMD=python"
+goto :eof
+
+REM Accept a recorded interpreter, unless it is the Microsoft Store one.
+REM
+REM %LOCALAPPDATA%\Microsoft\WindowsApps\python.exe is not an interpreter.
+REM It is an app execution alias, and it behaves like one: it resolves only
+REM inside an interactive session belonging to the user who installed it, it
+REM redirects writes away from site-packages, and started detached through
+REM wscript it exits without producing output or a log. Which is exactly
+REM what happened - the engine and the desk wrote nothing at all, and the
+REM launcher came back with code 1.
+:USABLEPY
+set "CANDIDATE=%~1"
+if not exist "%CANDIDATE%" goto :eof
+echo %CANDIDATE% | find /i "\WindowsApps\" >nul
+if not errorlevel 1 goto :eof
+set "PYCMD="%CANDIDATE%""
 goto :eof
 
 :REFRESHPATH

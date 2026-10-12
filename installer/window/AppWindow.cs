@@ -460,7 +460,7 @@ internal sealed class AppWindow : Form
     /// </summary>
     private void MarkLogs()
     {
-        foreach (var name in new[] { "engine.log", "desk.log" })
+        foreach (var name in new[] { "engine.log", "desk.log", "setup.log" })
         {
             try
             {
@@ -515,6 +515,7 @@ internal sealed class AppWindow : Form
 
         var engine = NewIn("engine.log", 6);
         var desk = NewIn("desk.log", 6);
+        var setup = NewIn("setup.log", 8);
 
         if (engine.Length > 0) parts.Add("The engine said:" + Environment.NewLine + engine);
         if (desk.Length > 0) parts.Add("The desk said:" + Environment.NewLine + desk);
@@ -523,6 +524,11 @@ internal sealed class AppWindow : Form
         {
             parts.Add("Neither the engine nor the desk wrote anything this time, "
                       + "so they did not get as far as starting.");
+
+            // Which makes setup.log the only account of what did happen.
+            // Leaving it out was how a failure got reported as four facts
+            // and no reason.
+            if (setup.Length > 0) parts.Add("Setup said:" + Environment.NewLine + setup);
         }
 
         var runtimes = Runtimes();

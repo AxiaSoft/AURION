@@ -179,6 +179,14 @@ function Find-Python {
     $mine = Join-Path $InstallFolder "runtime\python\python.exe"
     if (Test-Path -LiteralPath $mine) { return @($mine) }
 
+    # An interpreter recorded on an earlier run, unless it has since gone
+    # away or is the Store alias. runtime.env is written once and believed
+    # afterwards, so a bad choice made on a first run outlived every repair.
+    if ($env:AURION_PY -and (Test-Path -LiteralPath $env:AURION_PY) -and
+        $env:AURION_PY -notlike "*\WindowsApps\*") {
+        return @($env:AURION_PY)
+    }
+
     foreach ($v in @("3.12", "3.11", "3.10")) {
         try {
             $null = & py "-$v" -c "import sys" 2>$null
@@ -186,11 +194,24 @@ function Find-Python {
         } catch { }
     }
     # No launcher, or no versioned entry. Accept a bare `python` only when it
-    # is a version the engine actually runs on.
-    try {
-        $null = & python -c "import sys; sys.exit(0 if (3,10) <= sys.version_info[:2] <= (3,12) else 1)" 2>$null
-        if ($LASTEXITCODE -eq 0) { return @("python") }
-    } catch { }
+    # is a version the engine actually runs on, and only when it is not the
+    # Microsoft Store alias.
+    #
+    # %LOCALAPPDATA%\Microsoft\WindowsApps\python.exe is not an interpreter,
+    # it is an app execution alias. It resolves only inside an interactive
+    # session belonging to the user who installed it, it redirects writes
+    # away from site-packages, and started detached through wscript it exits
+    # without producing output or a log. One machine had it recorded in
+    # runtime.env and believed ever since: engine and desk wrote nothing at
+    # all, and the launcher returned 1 with no explanation.
+    $bare = (Get-Command python -ErrorAction SilentlyContinue |
+             Select-Object -First 1 -ExpandProperty Source)
+    if ($bare -and $bare -notlike "*\WindowsApps\*") {
+        try {
+            $null = & python -c "import sys; sys.exit(0 if (3,10) <= sys.version_info[:2] <= (3,12) else 1)" 2>$null
+            if ($LASTEXITCODE -eq 0) { return @("python") }
+        } catch { }
+    }
     return $null
 }
 

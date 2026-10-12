@@ -322,17 +322,66 @@ internal static class Prerequisites
             if (RunQuiet("py", $"-{v} -c \"import sys\"")) return $"py -{v}";
         }
         // No launcher, or no versioned entry: fall back to whatever `python`
-        // is, but only accept it if it is a version the engine supports.
-        var bare = PythonVersionOf("python");
-        if (bare.Length > 0 && PythonVersions.Any(v => bare.Contains(" " + v + ".")))
+        // is, but only accept it if it is a version the engine supports and
+        // is not the Store alias.
+        if (!IsStoreAlias(WhereIs("python")))
         {
-            return "python";
+            var bare = PythonVersionOf("python");
+            if (bare.Length > 0 && PythonVersions.Any(v => bare.Contains(" " + v + ".")))
+            {
+                return "python";
+            }
         }
         return "";
     }
 
     /// <summary>Quote a path so Split() hands it back in one piece.</summary>
     private static string Quoted(string path) => "\"" + path + "\"";
+
+    /// <summary>
+    /// Reject the Microsoft Store's Python.
+    ///
+    /// %LocalAppData%\Microsoft\WindowsApps\python.exe is not an
+    /// interpreter, it is an app execution alias, and it behaves like one.
+    /// It resolves only inside an interactive session belonging to the user
+    /// who installed it, it redirects writes away from site-packages, and
+    /// started detached through wscript it exits without producing output
+    /// or a log.
+    ///
+    /// On the machine this was found on, it had been recorded in
+    /// runtime.env on a first run and believed ever since: the engine and
+    /// the desk wrote nothing whatsoever, and the launcher returned 1 with
+    /// nothing to say about why.
+    /// </summary>
+    /// <summary>What the PATH would actually run for a bare name, or "".</summary>
+    private static string WhereIs(string name)
+    {
+        try
+        {
+            var p = new Process
+            {
+                StartInfo = new ProcessStartInfo("where.exe", name)
+                {
+                    UseShellExecute = false,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    CreateNoWindow = true
+                }
+            };
+            p.Start();
+            var first = p.StandardOutput.ReadLine() ?? "";
+            p.StandardError.ReadToEnd();
+            p.WaitForExit(5000);
+            return first.Trim();
+        }
+        catch
+        {
+            return "";
+        }
+    }
+
+    private static bool IsStoreAlias(string path) =>
+        path.Contains("\\WindowsApps\\", StringComparison.OrdinalIgnoreCase);
 
     private static string PythonVersionOf(string command)
     {
