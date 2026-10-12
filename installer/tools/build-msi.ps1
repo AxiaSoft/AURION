@@ -76,7 +76,7 @@ function Step([string] $text) {
 
 # Bumped whenever this script changes, so a stale copy is obvious at a glance
 # instead of failing with a confusing parameter error.
-$ScriptRevision = "23"
+$ScriptRevision = "24"
 
 Write-Host ""
 Write-Host "  AURION installer build" -ForegroundColor White
@@ -405,7 +405,34 @@ if ($NoBundle) {
     Write-Host "  the installed app will download Python and Node on first run" -ForegroundColor Yellow
 } else {
     Step "Fetching the runtimes to bundle"
-    & (Join-Path $PSScriptRoot "fetch-vendor.ps1") -SkipWheels:$SkipWheels
+    # A failure here is only fatal if the bundle is not already complete.
+    #
+    # The runtimes are cached between builds, so the common case after one
+    # successful fetch is that nothing needs the network at all. Losing a
+    # build to a momentary refusal from nodejs.org, with 139 MB of verified
+    # payload already sitting on disk, is not an acceptable trade.
+    try {
+        & (Join-Path $PSScriptRoot "fetch-vendor.ps1") -SkipWheels:$SkipWheels
+    } catch {
+        $vendorDir = Join-Path $installerDir "vendor"
+        $needed = @("python-3.12.7-amd64.exe", "node-v20.17.0-win-x64.zip",
+                    "SHASUMS256.txt", "MicrosoftEdgeWebview2Setup.exe")
+        $have = $needed | Where-Object { Test-Path -LiteralPath (Join-Path $vendorDir $_) }
+
+        if ($have.Count -eq $needed.Count) {
+            Write-Host ""
+            Write-Host "  The runtimes could not be refreshed:" -ForegroundColor Yellow
+            Write-Host "    $($_.Exception.Message.Split([Environment]::NewLine)[0])" -ForegroundColor Yellow
+            Write-Host "  Every bundled runtime is already present, so the build continues with those." -ForegroundColor Yellow
+            Write-Host ""
+        } else {
+            $missing = $needed | Where-Object { $have -notcontains $_ }
+            throw ("The runtimes could not be collected and the bundle is incomplete.`n" +
+                   "  missing: $($missing -join ', ')`n" +
+                   "  $($_.Exception.Message)`n" +
+                   "  Build with -NoBundle to produce an MSI that downloads them on the target machine instead.")
+        }
+    }
 }
 
 Step "Staging payload"

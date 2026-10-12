@@ -275,6 +275,18 @@ check("it is shipped in the MSI payload",
   /Copy-Tree -From \(Join-Path \$Root "scripts"\)/.test(stagePs1) &&
   !/provision\.ps1/.test(stagePs1.split("ExcludeFiles")[1] || ""));
 
+// A build with 139 MB of verified payload already on disk died because
+// nodejs.org refused a connection for a 4 KB text file.
+check("every bundled file is cached, including the checksum list",
+  /Get-Vendor -Url \$NodeSumsUrl -Name "SHASUMS256\.txt"/.test(vendorPs1) &&
+  !/^\s*Invoke-WebRequest -Uri \$NodeSumsUrl/m.test(vendorPs1));
+check("downloads are retried before the build is lost",
+  /for \(\$try = 1; \$try -le \$attempts/.test(vendorPs1) &&
+  /Start-Sleep -Seconds \(\$try \* 3\)/.test(vendorPs1));
+check("and a complete bundle survives the network going away",
+  /Every bundled runtime is already present/.test(buildMsi) &&
+  /the bundle is incomplete/.test(buildMsi));
+
 // ------------------------------------- AURION brings its own interpreters
 
 // The engine is pinned to NumPy 1.26.4 - the last official Windows wheel

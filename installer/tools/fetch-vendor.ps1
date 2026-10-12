@@ -94,13 +94,37 @@ function Get-Vendor {
     Say "downloading $Name ..."
     $previous = $ProgressPreference
     $ProgressPreference = "SilentlyContinue"
-    try {
-        # Written to a .part first: a half-finished file left behind by an
-        # interrupted build would be treated as cached by the next one.
-        Invoke-WebRequest -Uri $Url -OutFile "$target.part" -UseBasicParsing
-    } finally {
-        $ProgressPreference = $previous
+
+    # Retried, because one refused connection should not cost a build.
+    #
+    # A build that already has 139 MB of verified payload on disk died on a
+    # 4 KB text file, and reported it as a raw Invoke-WebRequest stack
+    # trace. Three attempts with a widening pause covers the transient
+    # refusals; anything that survives all three is a real network problem
+    # and is reported as one.
+    $attempts = 3
+    for ($try = 1; $try -le $attempts; $try++) {
+        try {
+            # Written to a .part first: a half-finished file left behind by
+            # an interrupted build would be treated as cached by the next.
+            Invoke-WebRequest -Uri $Url -OutFile "$target.part" -UseBasicParsing -TimeoutSec 120
+            break
+        } catch {
+            Remove-Item -LiteralPath "$target.part" -Force -ErrorAction SilentlyContinue
+            if ($try -eq $attempts) {
+                $ProgressPreference = $previous
+                throw ("Could not download $Name after $attempts attempts.`n" +
+                       "  $Url`n" +
+                       "  $($_.Exception.Message)`n" +
+                       "  If this machine cannot reach the internet, fetch the file by hand into`n" +
+                       "  $Destination and run the build again - anything already there is reused.")
+            }
+            Say "attempt $try failed, retrying in $($try * 3)s ..."
+            Start-Sleep -Seconds ($try * 3)
+        }
     }
+
+    $ProgressPreference = $previous
     Move-Item -LiteralPath "$target.part" -Destination $target -Force
     Say ("{0} downloaded, {1:N1} MB" -f $Name, ((Get-Item -LiteralPath $target).Length / 1MB))
     return $target
@@ -138,8 +162,12 @@ $zip = Get-Vendor -Url $NodeZipUrl -Name $NodeZipName
 # The checksum file is bundled alongside the zip rather than only checked
 # here, so the customer's machine can verify what it unpacks without needing
 # nodejs.org to be reachable.
-$sumsPath = Join-Path $Destination "SHASUMS256.txt"
-Invoke-WebRequest -Uri $NodeSumsUrl -OutFile $sumsPath -UseBasicParsing
+#
+# Cached like everything else. This was the one file fetched unconditionally
+# on every build, and it is the smallest thing in the bundle: a build with
+# all 139 MB already downloaded and verified still died here because
+# nodejs.org refused a connection for a few seconds.
+$sumsPath = Get-Vendor -Url $NodeSumsUrl -Name "SHASUMS256.txt"
 $wanted = Get-Content -LiteralPath $sumsPath |
           ForEach-Object { $_.Trim() } |
           Where-Object { $_ -match "[\s\*]$([regex]::Escape($NodeZipName))$" } |
@@ -149,8 +177,13 @@ if (-not $wanted) { throw "$NodeZipName is not listed in the vendor's checksum f
 $expected = ($wanted -split '\s+')[0]
 $actual   = (Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash
 if ($actual -ne $expected.ToUpperInvariant()) {
+    # Both files are cached, so a mismatch is as likely to be a stale
+    # checksum list as a bad zip. Delete both and let the next run decide
+    # with two fresh files, rather than accusing the zip on this evidence.
     Remove-Item -LiteralPath $zip -Force -ErrorAction SilentlyContinue
-    throw "$NodeZipName does not match its published SHA-256. It was deleted, not bundled."
+    Remove-Item -LiteralPath $sumsPath -Force -ErrorAction SilentlyContinue
+    throw ("$NodeZipName does not match the SHA-256 published for it.`n" +
+           "  Both it and SHASUMS256.txt were deleted. Run the build again to re-fetch them.")
 }
 Say "checksum verified against nodejs.org"
 
