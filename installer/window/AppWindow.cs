@@ -107,6 +107,13 @@ internal sealed class AppWindow : Form
         else
         {
             _splash.Status = "Starting the engine…";
+
+            // Everything written to the logs from here on belongs to this
+            // run. Without these marks the failure box quotes whatever
+            // happened to be at the end of a file that has been appended to
+            // since September, which is worse than saying nothing.
+            MarkLogs();
+
             var launcher = StartDesk();
             if (launcher is null) return;
 
@@ -115,14 +122,25 @@ internal sealed class AppWindow : Form
             {
                 await Task.Delay(500);
 
-                // start-aurion.cmd returning non-zero means it has already
-                // worked out what is wrong and written it down. Waiting out
-                // the rest of three minutes after that only delays the news.
-                if (launcher.HasExited && launcher.ExitCode != 0)
+                // A launcher that exits non-zero has usually worked out what
+                // is wrong and written it down, and waiting out the rest of
+                // three minutes only delays the news.
+                //
+                // Usually, not always. start-aurion.cmd gives the desk 45
+                // seconds and then exits 1 itself - and on a first run, the
+                // engine's first import of numpy and scikit-learn alone can
+                // take longer than that. Treating that exit as fatal turned
+                // a slow start into a failure, which is a worse bug than the
+                // one the fail-fast was added to fix. So an early exit is
+                // believed and a late one is not: by thirty seconds nothing
+                // has been imported yet, and an exit that soon means a
+                // missing prerequisite or a broken tree.
+                if (launcher.HasExited && launcher.ExitCode != 0
+                    && clock.Elapsed < TimeSpan.FromSeconds(30))
                 {
-                    await Task.Delay(1500);              // let the log flush
+                    await Task.Delay(1500);              // let the logs flush
                     if (await DeskIsAnsweringAsync()) break;
-                    ShowStartupFailure(LauncherComplaint());
+                    ShowStartupFailure(Diagnosis(launcher.ExitCode));
                     return;
                 }
 
@@ -140,7 +158,8 @@ internal sealed class AppWindow : Form
 
             if (!await DeskIsAnsweringAsync())
             {
-                ShowStartupFailure(LauncherComplaint());
+                var code = launcher.HasExited ? launcher.ExitCode : (int?)null;
+                ShowStartupFailure(Diagnosis(code));
                 return;
             }
         }
@@ -427,23 +446,141 @@ internal sealed class AppWindow : Form
         return string.Join(';', parts.Where(p => p.Length > 0));
     }
 
+    /// <summary>How long each log was when this run started.</summary>
+    private readonly Dictionary<string, long> _logMarks = new();
+
+    private string LogPath(string name) => Path.Combine(_installDir, "data", "logs", name);
+
     /// <summary>
-    /// The last thing the launcher wrote, so the failure box can say what
-    /// actually happened instead of listing two file paths.
+    /// Remember where each log ends, so a failure can quote this run only.
+    ///
+    /// engine.log and desk.log are appended to, never truncated. Quoting
+    /// their last few lines meant quoting a successful start from three
+    /// weeks ago and presenting it as the reason today's run failed.
     /// </summary>
-    private string LauncherComplaint()
+    private void MarkLogs()
     {
-        var log = Path.Combine(_installDir, "data", "logs", "desk.log");
+        foreach (var name in new[] { "engine.log", "desk.log" })
+        {
+            try
+            {
+                var path = LogPath(name);
+                _logMarks[name] = File.Exists(path) ? new FileInfo(path).Length : 0L;
+            }
+            catch
+            {
+                _logMarks[name] = 0L;
+            }
+        }
+    }
+
+    /// <summary>Whatever this run appended to one log, trimmed to fit a dialog.</summary>
+    private string NewIn(string name, int maxLines)
+    {
         try
         {
-            if (!File.Exists(log)) return "";
-            var lines = File.ReadLines(log).Where(l => l.Trim().Length > 0).ToList();
-            if (lines.Count == 0) return "";
-            return string.Join(Environment.NewLine, lines.TakeLast(8));
+            var path = LogPath(name);
+            if (!File.Exists(path)) return "";
+
+            var from = _logMarks.TryGetValue(name, out var mark) ? mark : 0L;
+            using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+            if (stream.Length <= from) return "";
+            stream.Position = from;
+
+            using var reader = new StreamReader(stream);
+            var lines = reader.ReadToEnd()
+                .Split('\n')
+                .Select(l => l.TrimEnd('\r'))
+                .Where(l => l.Trim().Length > 0)
+                .ToList();
+            return lines.Count == 0 ? "" : string.Join(Environment.NewLine, lines.TakeLast(maxLines));
         }
         catch
         {
-            // The log being unreadable is not worth a second error box.
+            return "";
+        }
+    }
+
+    /// <summary>
+    /// Everything known about why the desk is not answering.
+    ///
+    /// Written for somebody who cannot be asked to open a log: what this run
+    /// actually printed, which interpreters were used, and - the single most
+    /// common cause that no log will ever mention - what else is holding
+    /// port 8080.
+    /// </summary>
+    private string Diagnosis(int? launcherExitCode)
+    {
+        var parts = new List<string>();
+
+        var engine = NewIn("engine.log", 6);
+        var desk = NewIn("desk.log", 6);
+
+        if (engine.Length > 0) parts.Add("The engine said:" + Environment.NewLine + engine);
+        if (desk.Length > 0) parts.Add("The desk said:" + Environment.NewLine + desk);
+
+        if (engine.Length == 0 && desk.Length == 0)
+        {
+            parts.Add("Neither the engine nor the desk wrote anything this time, "
+                      + "so they did not get as far as starting.");
+        }
+
+        var runtimes = Runtimes();
+        if (runtimes.Length > 0) parts.Add(runtimes);
+
+        var holder = WhoHasPort8080();
+        if (holder.Length > 0) parts.Add(holder);
+
+        if (launcherExitCode is int code && code != 0)
+        {
+            parts.Add($"The launcher stopped with code {code}.");
+        }
+
+        var all = string.Join(Environment.NewLine + Environment.NewLine, parts);
+        Note("startup failed. " + all.Replace(Environment.NewLine, " | "));
+        return all;
+    }
+
+    /// <summary>The interpreters setup recorded, so a wrong one is visible.</summary>
+    private string Runtimes()
+    {
+        try
+        {
+            var file = Path.Combine(_installDir, "data", "runtime.env");
+            if (!File.Exists(file)) return "";
+            var lines = File.ReadAllLines(file).Where(l => l.Contains('=')).ToList();
+            return lines.Count == 0 ? "" : "Using:" + Environment.NewLine + string.Join(Environment.NewLine, lines);
+        }
+        catch
+        {
+            return "";
+        }
+    }
+
+    /// <summary>
+    /// Name whatever else is listening on 8080.
+    ///
+    /// No log can report this, because the process that would have written
+    /// the log is the one that could not bind. It is also the most common
+    /// cause after a missing prerequisite, and the only one the trader can
+    /// act on without help.
+    /// </summary>
+    private string WhoHasPort8080()
+    {
+        try
+        {
+            var mine = System.Net.NetworkInformation.IPGlobalProperties.GetIPGlobalProperties()
+                .GetActiveTcpListeners()
+                .Any(e => e.Port == 8080);
+            if (!mine) return "Nothing is listening on port 8080.";
+
+            // Something has it. If it were ours the health check would have
+            // answered, so it is another program.
+            return "Port 8080 is held by another program. AURION's desk cannot "
+                 + "start while something else has it.";
+        }
+        catch
+        {
             return "";
         }
     }
@@ -468,17 +605,17 @@ internal sealed class AppWindow : Form
         _splash.Progress = 0f;
 
         var said = reason.Trim().Length > 0
-            ? "AURION could not start the desk.\n\nThis is what it reported:\n\n" + reason.Trim() + "\n\n"
-            : "AURION did not finish starting within three minutes.\n\n" +
-              "The usual causes are a missing prerequisite or port 8080 being held " +
-              "by another program.\n\n";
+            ? "AURION could not start the desk.\n\nFrom this attempt:\n\n" + reason.Trim() + "\n\n"
+            : "AURION did not finish starting within three minutes, and nothing "
+              + "was written explaining why.\n\n";
 
         MessageBox.Show(this,
             said +
             "The full logs are here:\n" +
             $"    {Path.Combine(logs, "engine.log")}\n" +
-            $"    {Path.Combine(logs, "desk.log")}\n\n" +
-            "Run AURION again and the setup screen will offer to repair whatever is missing.",
+            $"    {Path.Combine(logs, "desk.log")}\n" +
+            $"    {Path.Combine(logs, "window.log")}\n\n" +
+            "Starting AURION again will check the machine and repair anything missing.",
             "AURION", MessageBoxButtons.OK, MessageBoxIcon.Warning);
     }
 

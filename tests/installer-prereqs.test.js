@@ -221,9 +221,24 @@ check("the hidden launcher never stops on a prompt nobody can see",
   startCmd.indexOf("if defined AURION_NO_BROWSER exit /b 1") < startCmd.indexOf("\npause"));
 check("it writes why it gave up where the window will read it",
   /SAYWHATSMISSING/.test(startCmd) && /desk\.log/.test(startCmd) &&
-  /LauncherComplaint/.test(appWindow));
-check("the window stops waiting once the launcher has already failed",
-  /launcher\.HasExited && launcher\.ExitCode != 0/.test(appWindow));
+  /NewIn\("desk\.log"/.test(appWindow));
+// start-aurion.cmd gives the desk 45 seconds and then exits 1 itself. A
+// first run can take longer than that just importing numpy, so an exit is
+// only believed when it comes early enough to mean something is missing.
+check("an early launcher exit is fatal, a late one is not",
+  /launcher\.HasExited && launcher\.ExitCode != 0/.test(appWindow) &&
+  /clock\.Elapsed < TimeSpan\.FromSeconds\(30\)/.test(appWindow));
+
+// engine.log and desk.log are appended to and never truncated. Quoting
+// their last lines quoted a successful start from three weeks ago and
+// presented it as the reason today's run failed.
+check("the failure box quotes this run only",
+  /MarkLogs\(\)/.test(appWindow) && /_logMarks/.test(appWindow) &&
+  /stream\.Position = from/.test(appWindow));
+check("and says what no log can: who else holds port 8080",
+  /WhoHasPort8080/.test(appWindow) && /GetActiveTcpListeners/.test(appWindow));
+check("and which interpreters were actually used",
+  /private string Runtimes\(\)/.test(appWindow) && /runtime\.env/.test(appWindow));
 
 // The same work as the setup window, as a plain script, so a machine that
 // already has AURION can be repaired without shipping it a new binary.
