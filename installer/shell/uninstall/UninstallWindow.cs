@@ -52,6 +52,17 @@ internal sealed class UninstallWindow : BrandForm
         _keep.Selected = true;
     }
 
+    protected override void PaintBrand(Graphics g, int w, int h)
+    {
+        if (Mark is null) return;
+
+        // Smaller than the wizard's, and off to the side: this window is
+        // about a decision, not about the product.
+        const int size = 40;
+        Aurora.Halo(g, 40 + size / 2f, 44 + size / 2f, size * 0.7f);
+        g.DrawImage(Mark, new RectangleF(40, 44, size, size));
+    }
+
     private void Build()
     {
         _close.Location = new Point(ClientSize.Width - 48, 14);
@@ -65,8 +76,8 @@ internal sealed class UninstallWindow : BrandForm
         _title.Text = "Remove AURION?";
         _title.Font = Brand.Title;
         _title.ForeColor = Brand.Ink;
-        _title.Location = new Point(40, 44);
-        _title.Size = new Size(ClientSize.Width - 88, 36);
+        _title.Location = new Point(96, 46);
+        _title.Size = new Size(ClientSize.Width - 144, 34);
         Controls.Add(_title);
         DragFrom(_title);
 

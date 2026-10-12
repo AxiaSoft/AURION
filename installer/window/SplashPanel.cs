@@ -153,10 +153,11 @@ internal sealed class SplashPanel : Panel
         g.TextRenderingHint = TextRenderingHint.ClearTypeGridFit;
         g.InterpolationMode = InterpolationMode.HighQualityBicubic;
 
-        using (var wash = new LinearGradientBrush(new Rectangle(0, 0, w, h), Lift, Base, 90f))
-            g.FillRectangle(wash, 0, 0, w, h);
-        DrawGlow(g, new PointF(w * 0.22f, h * 0.18f), w * 0.42f, Violet, 0.16f);
-        DrawGlow(g, new PointF(w * 0.82f, h * 0.30f), w * 0.34f, Cyan, 0.12f);
+        // The same backdrop the setup wizard and the uninstaller are
+        // painted on. Four lights rather than two, a vignette, and a
+        // sparse dither that stops the gradients banding into visible
+        // arcs on an 8-bit display.
+        Aurion.Shell.Aurora.Paint(g, w, h);
 
         var centreY = h / 2f;
 
@@ -166,7 +167,11 @@ internal sealed class SplashPanel : Panel
         if (_mark is not null)
         {
             float size = Math.Min(96, Math.Max(56, h / 6));
-            var box = new RectangleF((w - size) / 2f, centreY - size - 52, size, size);
+            var box = new RectangleF((w - size) / 2f, centreY - size - 58, size, size);
+
+            // A halo, so the mark sits in the light rather than on it.
+            Aurion.Shell.Aurora.Halo(g, box.X + size / 2f, box.Y + size / 2f, size * 0.62f);
+
             using var clip = RoundedRect(box, size * 0.26f);
             var saved = g.Save();
             g.SetClip(clip);
@@ -174,15 +179,43 @@ internal sealed class SplashPanel : Panel
             g.Restore(saved);
         }
 
-        var titleText = "AURION";
-        var titleSize = g.MeasureString(titleText, _titleFont);
-        g.DrawString(titleText, _titleFont, _inkBrush, (w - titleSize.Width) / 2f, centreY - 34);
+        // Letter-spaced by hand, one glyph at a time.
+        //
+        // GDI+ has no tracking. A six-letter wordmark set solid at 22pt
+        // reads as a word; the same letters opened up read as a mark,
+        // which is what this is. It is drawn once into the bitmap, so
+        // the per-glyph cost never appears again.
+        DrawTracked(g, "AURION", _titleFont, _inkBrush, w, centreY - 38, 7f);
 
         var subText = "Live execution for MetaTrader 5";
         var subSize = g.MeasureString(subText, _subFont);
-        g.DrawString(subText, _subFont, _mutedBrush, (w - subSize.Width) / 2f, centreY + 4);
+        g.DrawString(subText, _subFont, _mutedBrush, (w - subSize.Width) / 2f, centreY + 6);
 
         return bmp;
+    }
+
+    /// <summary>Draw a centred string with extra space between letters.</summary>
+    private static void DrawTracked(Graphics g, string text, Font font, Brush brush,
+        int width, float y, float tracking)
+    {
+        var widths = new float[text.Length];
+        var total = 0f;
+        for (var i = 0; i < text.Length; i++)
+        {
+            // MeasureString pads; MeasureCharacterRanges is exact, but for
+            // a six-letter wordmark the padding is consistent enough and
+            // far cheaper to reason about.
+            widths[i] = g.MeasureString(text[i].ToString(), font).Width - font.Size * 0.42f;
+            total += widths[i] + tracking;
+        }
+        total -= tracking;
+
+        var x = (width - total) / 2f;
+        for (var i = 0; i < text.Length; i++)
+        {
+            g.DrawString(text[i].ToString(), font, brush, x - font.Size * 0.21f, y);
+            x += widths[i] + tracking;
+        }
     }
 
     protected override void OnPaint(PaintEventArgs e)

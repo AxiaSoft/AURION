@@ -71,33 +71,15 @@ internal static class Brand
         return path;
     }
 
-    /// <summary>The brand wash, drawn once into a bitmap by the caller.</summary>
-    public static void PaintBackdrop(Graphics g, int w, int h)
-    {
-        g.SmoothingMode = SmoothingMode.AntiAlias;
-        g.TextRenderingHint = TextRenderingHint.ClearTypeGridFit;
-
-        using (var wash = new LinearGradientBrush(new Rectangle(0, 0, w, h), Lift, Base, 90f))
-            g.FillRectangle(wash, 0, 0, w, h);
-
-        Glow(g, new PointF(w * 0.18f, h * 0.12f), w * 0.46f, Violet, 0.16f);
-        Glow(g, new PointF(w * 0.86f, h * 0.34f), w * 0.36f, Cyan, 0.12f);
-    }
-
-    private static void Glow(Graphics g, PointF centre, float radius, Color colour, float strength)
-    {
-        if (radius <= 0) return;
-        var rect = new RectangleF(centre.X - radius, centre.Y - radius, radius * 2, radius * 2);
-        using var path = new GraphicsPath();
-        path.AddEllipse(rect);
-        using var brush = new PathGradientBrush(path)
-        {
-            CenterColor = Color.FromArgb((int)(255 * strength), colour),
-            SurroundColors = new[] { Color.FromArgb(0, colour) },
-            CenterPoint = centre,
-        };
-        g.FillEllipse(brush, rect);
-    }
+    /// <summary>
+    /// The brand wash, drawn once into a bitmap by the caller.
+    ///
+    /// Delegated to Aurora, which the desk's loading screen also uses.
+    /// Two implementations of "the AURION background" is how two windows
+    /// of the same product end up almost matching, which looks worse than
+    /// not matching at all.
+    /// </summary>
+    public static void PaintBackdrop(Graphics g, int w, int h) => Aurora.Paint(g, w, h);
 }
 
 /// <summary>
@@ -405,9 +387,20 @@ internal class BrandForm : Form
             _backdrop = new Bitmap(w, h);
             using var g = Graphics.FromImage(_backdrop);
             Brand.PaintBackdrop(g, w, h);
+            PaintBrand(g, w, h);
         }
         return _backdrop;
     }
+
+    /// <summary>
+    /// Anything that belongs behind the content and never moves - the
+    /// product mark, its halo, a heading rule.
+    ///
+    /// Painted into the cached bitmap, not per frame. A mark drawn in
+    /// OnPaint is repainted every time any child invalidates, and it is
+    /// the largest image in the window.
+    /// </summary>
+    protected virtual void PaintBrand(Graphics g, int w, int h) { }
 
     /// <summary>
     /// Paint the piece of the window's backdrop that sits under a child.

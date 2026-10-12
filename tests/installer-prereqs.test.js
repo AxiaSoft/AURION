@@ -422,6 +422,33 @@ check("there is a way to read back what AURION actually registered",
   /AURION-Uninstall\.exe/.test(checkInstall) &&
   /Software\\AxiaSoft\\AURION/.test(checkInstall));
 
+// The loading screen, the setup wizard and the uninstaller are three
+// separate programs a customer meets weeks apart. The only thing that
+// makes them read as one product is that they are drawn by the same
+// code, so that is what is checked.
+const aurora = read("installer/shell/shared/Aurora.cs");
+check("one backdrop, shared by all three windows",
+  /static void Paint\(Graphics g, int w, int h\)/.test(aurora) &&
+  /Aurora\.Paint/.test(read("installer/shell/shared/Brand.cs")) &&
+  /Aurora\.Paint/.test(read("installer/window/SplashPanel.cs")) &&
+  /shell\\shared\\Aurora\.cs/.test(read("installer/window/AurionWindow.csproj")));
+
+// Wide dark gradients band into visible arcs on an 8-bit display. A
+// sparse dither breaks the steps up; it is drawn once, into the cached
+// bitmap, so it costs nothing per frame.
+check("the backdrop is dithered against banding, once",
+  /static void Grain/.test(aurora) &&
+  /new Random\(0x4155_5249\)/.test(aurora));
+
+// Everything static goes into the cached bitmap. A mark drawn in OnPaint
+// is the largest image in the window and repaints whenever any child
+// invalidates.
+check("the mark and its halo are cached, not painted per frame",
+  /protected virtual void PaintBrand/.test(read("installer/shell/shared/Brand.cs")) &&
+  /protected override void PaintBrand/.test(read("installer/shell/setup/SetupWindow.cs")) &&
+  /protected override void PaintBrand/.test(read("installer/shell/uninstall/UninstallWindow.cs")) &&
+  /Aurora\.Halo/.test(read("installer/window/SplashPanel.cs")));
+
 // ------------------------------------------------------- the setup wizard
 
 // Windows Installer's dialogs take a banner bitmap and a licence page and

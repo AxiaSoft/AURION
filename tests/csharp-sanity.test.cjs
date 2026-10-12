@@ -333,23 +333,46 @@ function localClashes(code) {
     declared.push({ name, path: path.slice() });
   };
 
-  // Walk the code so declarations can be attributed to a scope.
-  const tokens = [...code.matchAll(/[{}]|\bvar\s+\(([^)]*)\)\s*=|\bvar\s+([A-Za-z_]\w*)\s*=/g)];
+  // A variable declared in the head of a for, foreach or using belongs
+  // to the block that follows, not to the block containing it. Without
+  // that, two sequential `for (var i = 0; ...)` loops in one method look
+  // like a redeclaration - which is legal C#, extremely common, and was
+  // the first thing this check wrongly reported.
+  let pending = [];
+
+  const tokens = [...code.matchAll(
+    /\b(?:for|foreach|using)\s*\(|[{}]|\bvar\s+\(([^)]*)\)\s*=|\bvar\s+([A-Za-z_]\w*)\s*(?:=|\bin\b)/g)];
+
+  let heading = false;
   for (const t of tokens) {
-    if (t[0] === "{") {
+    if (/^(?:for|foreach|using)\s*\($/.test(t[0])) {
+      heading = true;
+    } else if (t[0] === "{") {
       counter[counter.length - 1]++;
       path.push(counter[counter.length - 1]);
       counter.push(0);
+      for (const name of pending) note(name);
+      pending = [];
+      heading = false;
     } else if (t[0] === "}") {
       path.pop();
       counter.pop();
       if (path.length === 0) { path = [0]; counter = [0]; }
-    } else if (t[1] !== undefined) {
-      for (const part of t[1].split(",")) note(part.trim());
     } else {
-      note(t[2]);
+      const names = t[1] !== undefined
+        ? t[1].split(",").map((x) => x.trim())
+        : [t[2]];
+
+      // `using var x = ...;` with no parentheses is an ordinary
+      // declaration in the current scope; only the parenthesised heads
+      // defer.
+      if (heading) pending.push(...names);
+      else names.forEach(note);
     }
   }
+
+  // A head with no block after it - `using (...) Statement;` - still
+  // scopes to that statement, which is narrower than anything here.
   return [...new Set(clashes)];
 }
 

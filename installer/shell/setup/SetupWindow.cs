@@ -141,17 +141,18 @@ internal sealed class SetupWindow : BrandForm
         _primary.Focus();
     }
 
-    protected override void OnPaint(PaintEventArgs e)
+    protected override void PaintBrand(Graphics g, int w, int h)
     {
-        base.OnPaint(e);
-
-        // The mark, above the heading. Drawn rather than placed in a
-        // PictureBox so it sits on the gradient without a grey rectangle
-        // behind it.
         if (Mark is null) return;
-        const int size = 72;
-        var x = (ClientSize.Width - size) / 2;
-        e.Graphics.DrawImage(Mark, new Rectangle(x, 56, size, size));
+
+        // Into the backdrop, with a halo behind it. Drawn in OnPaint it
+        // was the biggest image in the window and was repainted every
+        // time any child control invalidated.
+        const int size = 76;
+        var x = (w - size) / 2f;
+        const float y = 54f;
+        Aurora.Halo(g, x + size / 2f, y + size / 2f, size * 0.62f);
+        g.DrawImage(Mark, new RectangleF(x, y, size, size));
     }
 
     private static void Toggle(ChoiceCard card) => card.Selected = !card.Selected;

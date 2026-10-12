@@ -75,6 +75,14 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- The backdrop the loading screen shares with the setup wizard and
+         the uninstaller. Three separate programs a customer meets weeks
+         apart; the only thing that makes them read as one product is
+         that they are drawn by the same code. -->
+    <Compile Include="..\shell\shared\Aurora.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
     <!-- ApplicationIcon only sets the icon Explorer shows on the .exe. The
          window and its taskbar button use Form.Icon, which defaults to the
          stock WinForms icon unless we set it - so the same .ico is embedded
