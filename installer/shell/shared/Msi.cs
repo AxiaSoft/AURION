@@ -148,34 +148,29 @@ internal static class Msi
     /// <summary>
     /// The ProductCode AURION is registered under, or "".
     ///
-    /// The uninstaller is given it at build time, but a copy that has been
-    /// left behind by an older version would have the wrong one, so the
-    /// registry is the source of truth. Per-user product, so HKCU only.
+    /// Read from AURION's own key, which the MSI writes as an ordinary
+    /// component. Scanning Add or Remove Programs for it used to work and
+    /// no longer can: AURION hides Windows Installer's entry and writes
+    /// its own, whose key is named AURION rather than a GUID - so the scan
+    /// would hand msiexec the word "AURION" and be told there is no such
+    /// product.
     /// </summary>
-    public static string InstalledProductCode(string upgradeCode)
+    public static string InstalledProductCode(string fallback)
     {
-        try
+        foreach (var root in new[] { Microsoft.Win32.Registry.CurrentUser,
+                                     Microsoft.Win32.Registry.LocalMachine })
         {
-            using var key = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(
-                @"Software\Microsoft\Windows\CurrentVersion\Uninstall");
-            if (key is null) return "";
-
-            foreach (var name in key.GetSubKeyNames())
+            try
             {
-                using var entry = key.OpenSubKey(name);
-                var publisher = entry?.GetValue("Publisher") as string ?? "";
-                var product = entry?.GetValue("DisplayName") as string ?? "";
-                if (product.StartsWith("AURION", StringComparison.OrdinalIgnoreCase)
-                    && publisher.Contains("AxiaSoft", StringComparison.OrdinalIgnoreCase))
-                {
-                    return name;
-                }
+                using var key = root.OpenSubKey(@"Software\AxiaSoft\AURION");
+                var code = key?.GetValue("ProductCode") as string ?? "";
+                if (code.StartsWith('{') && code.EndsWith('}')) return code;
+            }
+            catch
+            {
+                // An unreadable key means "not installed", never a crash.
             }
         }
-        catch
-        {
-            // Fall through to the build-time code.
-        }
-        return upgradeCode;
+        return fallback;
     }
 }

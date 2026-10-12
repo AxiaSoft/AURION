@@ -491,13 +491,30 @@ check("it asks whether the trading data goes too, and keeps it by default",
   /_keep\.Selected = true/.test(uninstallWindow) &&
   /AURION_REMOVE_DATA/.test(actions));
 
-// RegisterProduct writes UninstallString itself, during InstallFinalize
-// and after every component's registry values - so a component cannot win
-// that race and the value has to be rewritten afterwards.
-check("Control Panel is pointed at it, after RegisterProduct has had its say",
-  /AurionOwnUninstallEntry/.test(actions) &&
-  /AURION-Uninstall\.exe.*--product \[ProductCode\]/.test(actions) &&
-  /AurionOwnUninstallEntry"[\s\S]{0,80}After="PublishProduct"/.test(actions));
+// Rewriting Windows Installer's own UninstallString with a custom action
+// lost the race: Control Panel went on calling msiexec and the
+// uninstaller never appeared. AURION hides that entry and writes its own
+// as an ordinary component, which is transactional, rolls back and is
+// removed on uninstall - and cannot be raced.
+const registry = read("installer/src/Registry.wxs");
+check("Control Panel is pointed at it by an entry AURION owns",
+  /ARPSYSTEMCOMPONENT" Value="1"/.test(read("installer/src/Package.wxs")) &&
+  registry.includes("CurrentVersion\\Uninstall\\$(var.ProductName)") &&
+  /Name="UninstallString"[\s\S]{0,120}AURION-Uninstall\.exe/.test(registry) &&
+  !/AurionOwnUninstallEntry/.test(actions));
+
+// A scripted removal must stay scripted, and Change must still reach
+// Windows Installer, which is the thing that knows how to add features.
+check("the hand-written entry keeps the parts Windows did better",
+  /Name="QuietUninstallString"[\s\S]{0,120}MsiExec\.exe \/x/.test(registry) &&
+  /Name="ModifyPath"[\s\S]{0,120}MsiExec\.exe \/i/.test(registry));
+
+// The ARP key is named AURION now, not a GUID, so the ProductCode cannot
+// be read off it. It is written where AURION keeps its own state.
+check("the uninstaller can still find the ProductCode on its own",
+  /Name="ProductCode"\s+Type="string" Value="\[ProductCode\]"/.test(registry) &&
+  read("installer/shell/shared/Msi.cs").includes("Software\\AxiaSoft\\AURION") &&
+  /GetValue\("ProductCode"\)/.test(read("installer/shell/shared/Msi.cs")));
 
 // It lives in the folder Windows Installer is about to delete.
 check("it copies itself out before deleting the folder it lives in",

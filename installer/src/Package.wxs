@@ -85,6 +85,21 @@
     <!-- Repair and Modify stay enabled: both are real, supported operations. -->
     <Property Id="ARPNOREPAIR" Value="0" />
     <Property Id="ARPNOMODIFY" Value="0" />
+
+    <!-- Windows Installer's own entry is hidden, because AURION writes
+         its own in Registry.wxs.
+         
+         Not for vanity. The entry Windows Installer writes points
+         UninstallString at msiexec, and msiexec cannot ask the one
+         question that matters when a trading desk is removed - whether
+         four years of trade history goes with it. Rewriting that value
+         afterwards with a custom action was tried and lost the race:
+         Control Panel kept calling msiexec.
+         
+         Hiding it and writing our own is the supported way to win. The
+         entry is an ordinary component, so it rolls back with a failed
+         install and is removed on uninstall. -->
+    <Property Id="ARPSYSTEMCOMPONENT" Value="1" />
     <SetProperty Id="ARPINSTALLLOCATION" Value="[INSTALLFOLDER]"
                  After="CostFinalize" Sequence="both" />
 
