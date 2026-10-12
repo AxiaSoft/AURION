@@ -596,12 +596,13 @@ internal static class Prerequisites
         // desk has no business owning the PATH or the .py extension.
         // Include_launcher=0 so py.exe in C:\Windows is left exactly as it
         // was found. No elevation is needed for any of it.
-        await RunAsync(file,
-            "/quiet InstallAllUsers=0 TargetDir=\"" + target + "\" " +
-            "PrependPath=0 AssociateFiles=0 Shortcuts=0 " +
-            "Include_launcher=0 InstallLauncherAllUsers=0 " +
-            "Include_pip=1 Include_test=0 Include_doc=0 Include_tcltk=0",
-            elevate: false, ct);
+        await WithHeartbeat("Installing Python into AURION's own folder", say, ct, () =>
+            RunAsync(file,
+                "/quiet InstallAllUsers=0 TargetDir=\"" + target + "\" " +
+                "PrependPath=0 AssociateFiles=0 Shortcuts=0 " +
+                "Include_launcher=0 InstallLauncherAllUsers=0 " +
+                "Include_pip=1 Include_test=0 Include_doc=0 Include_tcltk=0",
+                elevate: false, ct));
 
         var mine = PrivatePython(installDir);
         if (File.Exists(mine))
@@ -625,7 +626,9 @@ internal static class Prerequisites
 
     private static async Task InstallPythonLibsAsync(string installDir, IProgress<string> say, CancellationToken ct)
     {
-        if (PythonCommand.Length == 0) PythonCommand = FindPython(installDir);
+        // Off the UI thread, like every other probe: FindPython runs a
+        // series of child processes and waits for each one.
+        if (PythonCommand.Length == 0) PythonCommand = await Task.Run(() => FindPython(installDir), ct);
         if (PythonCommand.Length == 0) throw new InvalidOperationException("Python is not available yet.");
 
         var requirements = Path.Combine(installDir, "engine", "requirements.txt");
@@ -635,33 +638,48 @@ internal static class Prerequisites
         }
 
         var (exe, args) = Split(PythonCommand);
-        say.Report("Updating pip…");
-        try
-        {
-            await RunAsync(exe, (args + " -m pip install --upgrade pip").Trim(), elevate: false, ct);
-        }
-        catch (Exception ex)
-        {
-            // Upgrading pip is a nicety. On a machine with no network it
-            // fails, and failing the install over it would throw away a
-            // perfectly good offline bundle.
-            say.Report("pip could not be updated (" + ex.Message + ") - carrying on.");
-        }
 
         // Wheels bundled by fetch-vendor.ps1 mean no PyPI, no proxy, no
         // ninety-megabyte download on somebody else's laptop.
         var wheels = Path.Combine(installDir, "vendor", "wheels");
-        if (Directory.Exists(wheels) && Directory.GetFiles(wheels, "*.whl").Length > 0)
+        var offline = Directory.Exists(wheels) && Directory.GetFiles(wheels, "*.whl").Length > 0;
+
+        // Upgrading pip needs the network. Doing it immediately before an
+        // installation whose entire purpose is to need no network is a
+        // contradiction, and on a machine that genuinely has none it is
+        // where setup appeared to hang: pip retries, backs off and retries,
+        // for a minute or more, behind a line of text reading "Updating
+        // pip…". It is a nicety at the best of times. It is skipped when
+        // the bundle is going to be used.
+        if (!offline)
+        {
+            say.Report("Updating pip…");
+            try
+            {
+                await RunAsync(exe,
+                    (args + " -m pip install --upgrade pip --retries 1 --timeout 15 --no-input").Trim(),
+                    elevate: false, ct, null, say);
+            }
+            catch (Exception ex)
+            {
+                say.Report("pip could not be updated (" + ex.Message + ") - carrying on.");
+            }
+        }
+
+        if (offline)
         {
             say.Report("Installing the engine's libraries from the copies that ship with AURION…");
             await RunAsync(exe,
-                (args + $" -m pip install --no-index --find-links \"{wheels}\" -r \"{requirements}\"").Trim(),
-                elevate: false, ct);
+                (args + $" -m pip install --no-index --find-links \"{wheels}\" -r \"{requirements}\"" +
+                 " --no-input --disable-pip-version-check").Trim(),
+                elevate: false, ct, null, say);
             return;
         }
 
         say.Report("Installing the engine's libraries… this is the long one.");
-        await RunAsync(exe, (args + $" -m pip install -r \"{requirements}\"").Trim(), elevate: false, ct);
+        await RunAsync(exe,
+            (args + $" -m pip install -r \"{requirements}\" --no-input --disable-pip-version-check").Trim(),
+            elevate: false, ct, null, say);
     }
 
     /// <summary>
@@ -701,24 +719,26 @@ internal static class Prerequisites
             await VerifyAgainstPublishedSumAsync(zip, NodeSumsUrl, NodeZipName, ct);
         }
 
-        say.Report("Unpacking Node.js…");
         var runtime = Path.Combine(installDir, "runtime");
         var target = Path.Combine(runtime, "node");
         var staging = Path.Combine(runtime, "node-new");
 
-        await Task.Run(() =>
+        // Unzipping Node is around 50 MB of files and says nothing while it
+        // happens; so does deleting and moving the tree afterwards, which
+        // was being done on the UI thread.
+        await WithHeartbeat("Unpacking Node.js", say, ct, () => Task.Run(() =>
         {
             if (Directory.Exists(staging)) Directory.Delete(staging, recursive: true);
             Directory.CreateDirectory(runtime);
             System.IO.Compression.ZipFile.ExtractToDirectory(zip, staging);
-        }, ct);
 
-        // The zip holds a single node-vX.Y.Z-win-x64 folder; promote its
-        // contents so node.exe sits exactly where PrivateNode() says it does.
-        var inner = Directory.GetDirectories(staging).FirstOrDefault() ?? staging;
-        if (Directory.Exists(target)) Directory.Delete(target, recursive: true);
-        Directory.Move(inner, target);
-        try { Directory.Delete(staging, recursive: true); } catch { /* already empty */ }
+            // The zip holds a single node-vX.Y.Z-win-x64 folder; promote its
+            // contents so node.exe sits where PrivateNode() says it does.
+            var inner = Directory.GetDirectories(staging).FirstOrDefault() ?? staging;
+            if (Directory.Exists(target)) Directory.Delete(target, recursive: true);
+            Directory.Move(inner, target);
+            try { Directory.Delete(staging, recursive: true); } catch { /* already empty */ }
+        }, ct));
 
         var node = PrivateNode(installDir);
         if (!File.Exists(node))
@@ -797,7 +817,10 @@ internal static class Prerequisites
             throw new DirectoryNotFoundException("The backend folder is missing from the installation.");
         }
 
-        if (NodeCommand.Length == 0 || !File.Exists(NodeCommand)) NodeCommand = FindNode(installDir);
+        if (NodeCommand.Length == 0 || !File.Exists(NodeCommand))
+        {
+            NodeCommand = await Task.Run(() => FindNode(installDir), ct);
+        }
         if (NodeCommand.Length == 0) throw new InvalidOperationException("Node.js is not available yet.");
 
         say.Report("Installing the desk API's packages…");
@@ -811,13 +834,13 @@ internal static class Prerequisites
         if (File.Exists(cli))
         {
             await RunAsync(NodeCommand, $"\"{cli}\" install --omit=dev --no-audit --no-fund",
-                elevate: false, ct, backend);
+                elevate: false, ct, backend, say);
         }
         else
         {
             // A system-wide Node installed by the MSI keeps npm on PATH.
             await RunAsync("cmd.exe", "/c npm install --omit=dev --no-audit --no-fund",
-                elevate: false, ct, backend);
+                elevate: false, ct, backend, say);
         }
     }
 
@@ -840,7 +863,8 @@ internal static class Prerequisites
         }
 
         say.Report("Installing the WebView2 runtime…");
-        await RunAsync(file, "/silent /install", elevate: false, ct);
+        await WithHeartbeat("Installing the WebView2 runtime", say, ct, () =>
+            RunAsync(file, "/silent /install", elevate: false, ct));
     }
 
     // ---------------------------------------------------------------------
@@ -925,9 +949,70 @@ internal static class Prerequisites
     // Processes
     // ---------------------------------------------------------------------
 
-    private static async Task RunAsync(string exe, string args, bool elevate, CancellationToken ct,
-        string? workingDirectory = null)
+    /// <summary>
+    /// Run something slow while the screen keeps saying how long it has been.
+    ///
+    /// Some steps cannot narrate themselves. python-3.12.7-amd64.exe is run
+    /// with /quiet, which means exactly that: it prints nothing for one to
+    /// three minutes. A static line of text for three minutes is a hang as
+    /// far as anybody watching is concerned, and the usual response to a
+    /// hang is to kill the installer halfway through laying down a Python.
+    ///
+    /// A counter is a small thing, but it is the difference between "this
+    /// is stuck" and "this is working".
+    /// </summary>
+    private static async Task WithHeartbeat(
+        string message, IProgress<string> say, CancellationToken ct, Func<Task> work)
     {
+        using var beat = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        var clock = Stopwatch.StartNew();
+
+        var ticking = Task.Run(async () =>
+        {
+            try
+            {
+                while (!beat.Token.IsCancellationRequested)
+                {
+                    await Task.Delay(2000, beat.Token);
+                    var t = clock.Elapsed;
+                    var spent = t.TotalMinutes >= 1
+                        ? $"{(int)t.TotalMinutes}m {t.Seconds:00}s"
+                        : $"{t.Seconds}s";
+                    say.Report($"{message}  ({spent})");
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                // The work finished. That is the only way out of this loop.
+            }
+        }, beat.Token);
+
+        try
+        {
+            await work();
+        }
+        finally
+        {
+            beat.Cancel();
+            try { await ticking; } catch (OperationCanceledException) { }
+        }
+    }
+
+    /// <summary>
+    /// Run a program to completion, showing what it is saying while it does.
+    ///
+    /// <paramref name="tail"/> is the difference between a setup screen and
+    /// a frozen one. pip installing numpy, scipy and scikit-learn takes
+    /// minutes, and it used to do so behind one unchanging line of text.
+    /// Nothing was wrong, but there is no way for anyone to know that, and
+    /// the first thing anybody does with a hang is kill it. pip and npm both
+    /// narrate their work perfectly well; this just lets it through.
+    /// </summary>
+    private static async Task RunAsync(string exe, string args, bool elevate, CancellationToken ct,
+        string? workingDirectory = null, IProgress<string>? tail = null)
+    {
+        var watch = tail is not null && !elevate;
+
         var psi = new ProcessStartInfo
         {
             FileName = exe,
@@ -936,11 +1021,37 @@ internal static class Prerequisites
             CreateNoWindow = !elevate,
             WindowStyle = ProcessWindowStyle.Hidden,
             WorkingDirectory = workingDirectory ?? Path.GetTempPath(),
+            RedirectStandardOutput = watch,
+            RedirectStandardError = watch,
         };
         if (elevate) psi.Verb = "runas";
 
         using var proc = Process.Start(psi)
             ?? throw new InvalidOperationException($"Could not start {Path.GetFileName(exe)}.");
+
+        if (watch)
+        {
+            var last = DateTime.MinValue;
+            void Relay(object _, DataReceivedEventArgs e)
+            {
+                var line = e.Data?.Trim();
+                if (string.IsNullOrEmpty(line)) return;
+
+                // Throttled: pip can emit hundreds of lines a second while
+                // unpacking, and marshalling every one of them to the UI
+                // thread is its own way of making a window stop painting.
+                var now = DateTime.UtcNow;
+                if (now - last < TimeSpan.FromMilliseconds(200)) return;
+                last = now;
+
+                tail!.Report(line.Length > 120 ? line[..120] + "…" : line);
+            }
+
+            proc.OutputDataReceived += Relay;
+            proc.ErrorDataReceived += Relay;
+            proc.BeginOutputReadLine();
+            proc.BeginErrorReadLine();
+        }
 
         await proc.WaitForExitAsync(ct);
 

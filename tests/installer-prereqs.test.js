@@ -287,6 +287,35 @@ check("and a complete bundle survives the network going away",
   /Every bundled runtime is already present/.test(buildMsi) &&
   /the bundle is incomplete/.test(buildMsi));
 
+// ------------------------------------------- the setup screen stays alive
+
+// The bundle exists so the machine needs no network. Running `pip install
+// --upgrade pip` immediately before using it is a contradiction, and on a
+// machine that genuinely has no network it is where setup appeared to
+// hang: pip retries and backs off for a minute behind the words
+// "Updating pip...".
+check("pip is not upgraded over a network the bundle exists to avoid",
+  /if \(!offline\)[\s\S]{0,400}pip install --upgrade pip/.test(prereqCs) &&
+  /--retries 1 --timeout 15/.test(prereqCs));
+check("and pip is never left waiting for input or a version check",
+  /--no-input --disable-pip-version-check/.test(prereqCs));
+
+// pip and npm narrate their work; a setup screen that does not show it is
+// indistinguishable from a frozen one for the several minutes they take.
+check("long tools are shown saying what they are doing",
+  /IProgress<string>\? tail = null/.test(prereqCs) &&
+  /BeginOutputReadLine\(\)/.test(prereqCs) &&
+  /TimeSpan\.FromMilliseconds\(200\)/.test(prereqCs));
+
+// python-3.12.7-amd64.exe is run with /quiet and prints nothing for one to
+// three minutes. A static line for three minutes is a hang to anyone
+// watching, and the usual response is to kill it mid-install.
+check("and the silent ones at least show a clock",
+  /WithHeartbeat/.test(prereqCs) &&
+  /Installing Python into AURION's own folder", say, ct/.test(prereqCs) &&
+  /Unpacking Node\.js", say, ct/.test(prereqCs) &&
+  /Installing the WebView2 runtime", say, ct/.test(prereqCs));
+
 // ------------------------------------------------- the window stays alive
 
 // InspectAsync was async, but everything it did first was not: three
