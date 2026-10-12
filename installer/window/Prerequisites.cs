@@ -556,12 +556,8 @@ internal static class Prerequisites
         // fails on somebody else's machine is unsupportable otherwise: the
         // one line still on screen is never the line that mattered.
         var log = Path.Combine(installDir, "data", "logs", "setup.log");
-        var recorder = new Progress<string>(text =>
-        {
-            say.Report(text);
-            Write(log, text);
-        });
-        Write(log, $"--- setup started, {missing.Count()} item(s) missing ---");
+        using var recorder = new Recorder(say, log);
+        recorder.Report($"--- setup started, {missing.Count()} item(s) missing ---");
         say = recorder;
 
         foreach (var req in missing)
@@ -590,11 +586,11 @@ internal static class Prerequisites
             {
                 req.State = ReqState.Failed;
                 req.Problem = ex.Message;
-                Write(log, $"{req.Id}: FAILED - {ex}");
+                recorder.Log($"{req.Id}: FAILED - {ex}");
             }
         }
 
-        Write(log, "--- setup finished ---");
+        recorder.Log("--- setup finished ---");
         try { Directory.Delete(work, recursive: true); } catch { /* temp files */ }
     }
 
@@ -1084,7 +1080,7 @@ internal static class Prerequisites
                 // unpacking, and marshalling every one of them to the UI
                 // thread is its own way of making a window stop painting.
                 var now = DateTime.UtcNow;
-                if (now - last < TimeSpan.FromMilliseconds(200)) return;
+                if (now - last < TimeSpan.FromMilliseconds(400)) return;
                 last = now;
 
                 tail!.Report(line.Length > 120 ? line[..120] + "…" : line);
@@ -1204,16 +1200,80 @@ internal static class Prerequisites
     }
 
     /// <summary>Append one line to the setup log, and never fail doing it.</summary>
-    private static void Write(string path, string text)
+    /// <summary>
+    /// Writes every line to the log, then forwards it to the screen.
+    ///
+    /// The ordering matters, and so does the thread. This used to be a
+    /// Progress&lt;string&gt;, whose callback runs on the thread that
+    /// created it - the UI thread. Each line therefore did a
+    /// CreateDirectory and an open-append-close from the message loop.
+    ///
+    /// That was survivable while setup reported five or six lines in
+    /// total. Then pip and npm output started being relayed, five lines a
+    /// second for several minutes, and on a bare machine with Defender
+    /// scanning every write to a .log it stopped being survivable: the
+    /// message loop spent its time in file I/O and the window went grey.
+    /// The fix for a frozen screen had frozen the screen.
+    ///
+    /// Report runs on whichever thread produced the line - the background
+    /// reader, for the high-frequency case - and the file is held open for
+    /// the session instead of being reopened per line. Only the handover
+    /// to the UI goes through a Progress.
+    /// </summary>
+    private sealed class Recorder : IProgress<string>, IDisposable
     {
-        try
+        private readonly IProgress<string> _screen;
+        private readonly object _gate = new();
+        private StreamWriter? _file;
+
+        public Recorder(IProgress<string> screen, string path)
         {
-            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-            File.AppendAllText(path, $"{DateTime.Now:u}  {text}{Environment.NewLine}");
+            _screen = screen;
+            try
+            {
+                Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+                var stream = new FileStream(path, FileMode.Append, FileAccess.Write,
+                    FileShare.ReadWrite);
+                _file = new StreamWriter(stream) { AutoFlush = true };
+            }
+            catch
+            {
+                // Logging must never be the reason setup stops.
+                _file = null;
+            }
         }
-        catch
+
+        public void Report(string value)
         {
-            // Logging must never be the reason setup stops.
+            Log(value);
+            _screen.Report(value);
+        }
+
+        /// <summary>
+        /// Write to the log without putting it on screen.
+        ///
+        /// For the things worth keeping but not worth showing - a full
+        /// stack trace belongs in the file, not across a setup panel.
+        /// It also has to go through here rather than File.AppendAllText,
+        /// which would hit a sharing violation against the handle this
+        /// class holds open and lose the line silently.
+        /// </summary>
+        public void Log(string value)
+        {
+            lock (_gate)
+            {
+                try { _file?.WriteLine($"{DateTime.Now:u}  {value}"); }
+                catch { /* logging must never be the reason setup stops */ }
+            }
+        }
+
+        public void Dispose()
+        {
+            lock (_gate)
+            {
+                try { _file?.Dispose(); } catch { }
+                _file = null;
+            }
         }
     }
 

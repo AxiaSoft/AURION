@@ -320,7 +320,7 @@ check("and pip is never left waiting for input or a version check",
 check("long tools are shown saying what they are doing",
   /IProgress<string>\? tail = null/.test(prereqCs) &&
   /BeginOutputReadLine\(\)/.test(prereqCs) &&
-  /TimeSpan\.FromMilliseconds\(200\)/.test(prereqCs));
+  /TimeSpan\.FromMilliseconds\(400\)/.test(prereqCs));
 
 // python-3.12.7-amd64.exe is run with /quiet and prints nothing for one to
 // three minutes. A static line for three minutes is a hang to anyone
@@ -330,6 +330,21 @@ check("and the silent ones at least show a clock",
   /Installing Python into AURION's own folder", say, ct/.test(prereqCs) &&
   /Unpacking Node\.js", say, ct/.test(prereqCs) &&
   /Installing the WebView2 runtime", say, ct/.test(prereqCs));
+
+// The relay above was reported through a Progress<string>, whose callback
+// runs on the thread that created it: the UI thread. Every line therefore
+// did a CreateDirectory and an open-append-close from the message loop.
+// Fine for the six lines setup used to produce; fatal at five a second for
+// several minutes on a machine where Defender scans every write. The fix
+// for a frozen screen had frozen the screen.
+check("the setup log is written off the UI thread, on one open handle",
+  /private sealed class Recorder : IProgress<string>, IDisposable/.test(prereqCs) &&
+  /AutoFlush = true/.test(prereqCs) &&
+  !/File\.AppendAllText\(/.test(prereqCs) &&
+  /_screen\.Report\(value\)/.test(prereqCs));
+check("and a stack trace goes to the file without crossing the screen",
+  /public void Log\(string value\)/.test(prereqCs) &&
+  /recorder\.Log\(\$"\{req\.Id\}: FAILED/.test(prereqCs));
 
 // ------------------------------------------------- the window stays alive
 
