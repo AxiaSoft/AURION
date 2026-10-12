@@ -718,7 +718,12 @@ html:fullscreen body { background: var(--bg) }
   }
   .tv-stage { padding-top: 44px }
   .tvr-sep { width: 1px; height: 22px; margin: 0 4px }
-  .tv-flyout { inset-inline-start: 8px; inset-block-start: calc(var(--tv-bar) + 46px) !important }
+  /* Just under the rail, which is 44px tall and starts at the top of
+     .tv-body. The old value was calc(var(--tv-bar) + 46px) - 92px - and
+     came from the same mistake as everything else here: it measured from
+     the top of .tv, as though .tv-body were not already below the top
+     bar. The tool menu opened 44px adrift of the button that opened it. */
+  .tv-flyout { inset-inline-start: 8px; inset-block-start: 48px !important }
   .tv-nav { inset-inline-end: 72px }
   .tv-sym b { font-size: 13px }
   .tv-seg { display: none }
