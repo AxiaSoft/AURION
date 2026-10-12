@@ -117,6 +117,16 @@
   position: relative;
   transition: grid-template-columns var(--dur-3, .24s) var(--ease-1);
 }
+/* Closing the dock collapses its column.
+
+   Note the selector weight: this is (0,3,0), and the mobile override
+   below is a bare .tv-body at (0,1,0). A media query adds nothing to
+   specificity, so this rule wins at every width unless something of
+   equal weight says otherwise - which is why the mobile block repeats
+   it. Without that, closing the dock on a phone put .tv-stage into the
+   first column of "var(--tv-rail) 1fr 0", and --tv-rail is 0px there:
+   the chart was given zero width and vanished. Opening the dock brought
+   it straight back, because then this rule did not apply. */
 .tv.no-dock .tv-body { grid-template-columns: var(--tv-rail) 1fr 0 }
 .tv.no-dock .tv-dock { opacity: 0; pointer-events: none }
 
@@ -701,7 +711,11 @@ html:fullscreen body { background: var(--bg) }
     min-height: min(420px, calc(100dvh - 104px));
   }
   body.chart-full .tv { height: 100dvh }
-  .tv-body { grid-template-columns: 1fr }
+  /* Both selectors, at matching weight. The rail, the scrim and the dock
+     are all out of flow at this width, so .tv-stage is the only grid
+     item and it needs the one column whether the dock is open or not. */
+  .tv-body,
+  .tv.no-dock .tv-body { grid-template-columns: 1fr }
   .tv-rail {
     flex-direction: row;
     align-items: center;

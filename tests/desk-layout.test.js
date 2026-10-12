@@ -187,6 +187,42 @@ check("a viewport change is repainted more than once", (() => {
     js.indexOf('window.addEventListener("orientationchange", redrawSoon)') > 0;
 })());
 
+/* ---------------------------------------------- specificity vs breakpoint --
+
+   A media query adds nothing to specificity.
+
+   .tv.no-dock .tv-body is (0,3,0) and sits outside any breakpoint. The
+   mobile override is a bare .tv-body at (0,1,0), so the base rule won at
+   every width - and on a phone, where the rail, the scrim and the dock
+   are all out of flow, it put .tv-stage into the first column of
+   "var(--tv-rail) 1fr 0" with --tv-rail at 0px. The chart was given zero
+   width and vanished the moment the dock was closed; opening it brought
+   the chart straight back, because then the rule did not apply.
+
+   Every heavier selector that lays out .tv-body has to be repeated
+   wherever a lighter one tries to override it.                          */
+
+(() => {
+  // Comments first: a block comment immediately above a rule is part of
+  // the text between the previous } and the next {, and reading it as
+  // the selector made this check fail on rules it had no quarrel with.
+  const plain = chartCss.replace(/\/\*[\s\S]*?\*\//g, "");
+  const mobile = chartSliceOf(plain, "@media (max-width: 720px)");
+
+  // Rules outside any media query that set columns on .tv-body.
+  const base = [...plain.replace(/@media[^{]*\{[\s\S]*?\n\}/g, "")
+    .matchAll(/([^{}]*\.tv-body[^{}]*)\{([^{}]*)\}/g)]
+    .filter((m) => /grid-template-columns/.test(m[2]))
+    .map((m) => m[1].trim())
+    .filter((sel) => (sel.match(/\./g) || []).length > 1);
+
+  const unanswered = base.filter((sel) => !mobile.includes(sel));
+
+  check("every heavy .tv-body layout rule is answered at the mobile breakpoint",
+    unanswered.length === 0,
+    unanswered.length ? unanswered.join(" | ") : `${base.length} checked`);
+})();
+
 /* ------------------------------------------------------------------------- */
 
 /** The declaration block that follows a selector or at-rule, braces balanced. */
