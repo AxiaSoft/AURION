@@ -730,7 +730,17 @@ html:fullscreen body { background: var(--bg) }
     background: var(--surface-2);
     z-index: 20;
   }
-  .tv-stage { padding-top: 44px }
+  /* Span whatever columns exist, however many that turns out to be.
+
+     The rule above fixes the cause - a heavier .tv.no-dock selector
+     redefining the columns - but it only works by out-weighing it, and
+     that is a contest this file has now lost twice. grid-column has no
+     competing declaration anywhere, so the stage occupies the full
+     track list even if something later defines three columns again, or
+     five. At this width the rail, the scrim and the dock are all out of
+     flow and the stage is the only grid item, so spanning everything is
+     also simply what it should do. */
+  .tv-stage { padding-top: 44px; grid-column: 1 / -1; grid-row: 1 }
   .tvr-sep { width: 1px; height: 22px; margin: 0 4px }
   /* Just under the rail, which is 44px tall and starts at the top of
      .tv-body. The old value was calc(var(--tv-bar) + 46px) - 92px - and

@@ -5,6 +5,42 @@
       "identity": "",
       "plan": "developer",
       "machine": "704fc6a98ff79abdbbd2b908360792d9"
+    },
+    "b638f9dcf03a17007b4894b65d510aab816b57c6c066f3306ea69b10e4ce2ed9": {
+      "used": "2026-10-12T23:54:13Z",
+      "identity": "trader@example.com",
+      "plan": "m3",
+      "machine": "7b54de05c6f08a16598295ed56979a01"
+    },
+    "55184e954937e36d48ed51661794c52d37d04888186b880fe8ec1fff42629b17": {
+      "used": "2026-10-12T23:54:14Z",
+      "identity": "trader@example.com",
+      "plan": "m1",
+      "machine": "7b54de05c6f08a16598295ed56979a01"
+    },
+    "27de17aea5aed3488f181324c17cbb636753120697a75c12f26e090d59f79c4d": {
+      "used": "2026-10-12T23:54:16Z",
+      "identity": "trader@example.com",
+      "plan": "m1",
+      "machine": "7b54de05c6f08a16598295ed56979a01"
+    },
+    "c282d6fd16b286c0d7aeede796ab1f27e2e1680b9f2cf66fd0627339fb2e50ef": {
+      "used": "2026-10-12T23:54:36Z",
+      "identity": "trader@example.com",
+      "plan": "m3",
+      "machine": "7b54de05c6f08a16598295ed56979a01"
+    },
+    "9db696612425f9b7e2bb363012669499cee1f57cea5d5b53c8b208e6e66f4b41": {
+      "used": "2026-10-12T23:54:36Z",
+      "identity": "trader@example.com",
+      "plan": "m1",
+      "machine": "7b54de05c6f08a16598295ed56979a01"
+    },
+    "3c453f1e8431ce0e8b4c6e0f6b233a13b99f83a85552072cf7f5d2e08f7a0401": {
+      "used": "2026-10-12T23:54:39Z",
+      "identity": "trader@example.com",
+      "plan": "m1",
+      "machine": "7b54de05c6f08a16598295ed56979a01"
     }
   }
 }

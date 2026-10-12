@@ -218,6 +218,12 @@ check("a viewport change is repainted more than once", (() => {
 
   const unanswered = base.filter((sel) => !mobile.includes(sel));
 
+  // Belt and braces for the same bug. grid-column has no competing
+  // declaration anywhere, so the stage spans the whole track list even
+  // if something later defines three columns again.
+  check("and the stage spans every column there turns out to be",
+    /\.tv-stage \{ padding-top: 44px; grid-column: 1 \/ -1/.test(chartCss));
+
   check("every heavy .tv-body layout rule is answered at the mobile breakpoint",
     unanswered.length === 0,
     unanswered.length ? unanswered.join(" | ") : `${base.length} checked`);
