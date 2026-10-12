@@ -528,7 +528,15 @@ internal sealed class AppWindow : Form
             // Which makes setup.log the only account of what did happen.
             // Leaving it out was how a failure got reported as four facts
             // and no reason.
-            if (setup.Length > 0) parts.Add("Setup said:" + Environment.NewLine + setup);
+            if (setup.Length > 0)
+            {
+                parts.Add("Setup said:" + Environment.NewLine + setup);
+            }
+            else
+            {
+                parts.Add("The launcher wrote nothing either, so it stopped before "
+                          + "it could choose an interpreter.");
+            }
         }
 
         var runtimes = Runtimes();
@@ -555,7 +563,13 @@ internal sealed class AppWindow : Form
             var file = Path.Combine(_installDir, "data", "runtime.env");
             if (!File.Exists(file)) return "";
             var lines = File.ReadAllLines(file).Where(l => l.Contains('=')).ToList();
-            return lines.Count == 0 ? "" : "Using:" + Environment.NewLine + string.Join(Environment.NewLine, lines);
+            // Labelled as what it is. This is the file from the last
+            // successful setup, not necessarily what this run chose - and
+            // reading it as the latter wasted a round trip.
+            return lines.Count == 0
+                ? ""
+                : "Recorded by the last setup (not necessarily what ran now):"
+                  + Environment.NewLine + string.Join(Environment.NewLine, lines);
         }
         catch
         {

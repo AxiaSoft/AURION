@@ -319,10 +319,23 @@ check("and the uninstall takes the private Python with it",
 // site-packages, and started detached through wscript it exits without
 // producing output or a log. One machine had it recorded in runtime.env and
 // believed ever since - engine and desk wrote nothing, launcher returned 1.
+// FIND parses its arguments with C runtime rules, so the backslash in
+// "\WindowsApps\" escaped the closing quote and the search string arrived
+// unterminated. The subroutine it lived in also cost the launcher exit
+// code 255. Both are gone: plain cmd substring removal, no label, no pipe.
 check("the Microsoft Store's Python is refused everywhere",
   /IsStoreAlias/.test(prereqCs) &&
   provisionPs1.includes('-notlike "*\\WindowsApps\\*"') &&
-  startCmd.includes('find /i "\\WindowsApps\\"'));
+  startCmd.includes("%AURION_PY:WindowsApps=%") &&
+  !/find \/i/.test(startCmd) && !/USABLEPY/.test(startCmd));
+
+// Every path out of the launcher now leaves a line behind. Without this a
+// failure before the engine starts produces no log at all, anywhere.
+check("the launcher records what it chose, as it chooses it",
+  /\[launcher\] python: %PYCMD%/.test(startCmd) &&
+  /\[launcher\] node: %NODECMD%/.test(startCmd) &&
+  /no usable Python found/.test(startCmd) &&
+  /prerequisites satisfied, starting/.test(startCmd));
 check("AURION's own interpreter outranks the one in runtime.env",
   startCmd.indexOf("runtime\\python\\python.exe") < startCmd.indexOf("if defined AURION_PY"));
 check("and a stale runtime.env can no longer pin a bad choice forever",

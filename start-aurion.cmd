@@ -31,13 +31,38 @@ REM :REFRESHPATH existed for this and was never called. It is now.
 call :REFRESHPATH
 call :LOADRUNTIME
 
+REM Say what was decided, as it is decided.
+REM
+REM Everything below can fail without the engine or the desk ever starting,
+REM and when that happens neither writes a log - so there was nothing to
+REM read afterwards. A failure reported "neither wrote anything", printed
+REM data\runtime.env, and left it ambiguous whether that stale file was
+REM what had actually been used. These lines are the answer to that: they
+REM record the choice at the moment it is made, in the log the desk window
+REM already reads back when the other two are empty.
+if not exist "data\logs" mkdir "data\logs" >nul 2>nul
+set "TRAIL=data\logs\setup.log"
+echo.>>"%TRAIL%"
+echo [%DATE% %TIME%] launcher starting in "%CD%">>"%TRAIL%"
+
 call :FINDPY
+if not defined PYCMD echo [launcher] no usable Python found>>"%TRAIL%"
 if not defined PYCMD goto :NEEDINSTALL
+echo [launcher] python: %PYCMD%>>"%TRAIL%"
+
 %PYCMD% -c "import fastapi,numpy,sklearn" >nul 2>nul
+if errorlevel 1 echo [launcher] that Python cannot import fastapi, numpy and sklearn>>"%TRAIL%"
 if errorlevel 1 goto :NEEDINSTALL
+
 call :FINDNODE
+if not defined NODECMD echo [launcher] no usable Node found>>"%TRAIL%"
 if not defined NODECMD goto :NEEDINSTALL
+echo [launcher] node: %NODECMD%>>"%TRAIL%"
+
+if not exist "backend\node_modules\express" echo [launcher] backend\node_modules\express is missing>>"%TRAIL%"
 if not exist "backend\node_modules\express" goto :NEEDINSTALL
+
+echo [launcher] prerequisites satisfied, starting>>"%TRAIL%"
 goto :LAUNCH
 
 :NEEDINSTALL
@@ -208,7 +233,22 @@ REM bad choice made on the first run outlived every repair attempt after it.
 if exist "%~dp0runtime\python\python.exe" set "PYCMD="%~dp0runtime\python\python.exe""
 if defined PYCMD goto :eof
 
-if defined AURION_PY call :USABLEPY "%AURION_PY%"
+REM An interpreter recorded on an earlier run - unless it is the Store one.
+REM
+REM %LOCALAPPDATA%\Microsoft\WindowsApps\python.exe is not an interpreter.
+REM It is an app execution alias: it resolves only inside an interactive
+REM session belonging to the user who installed it, it redirects writes away
+REM from site-packages, and started detached through wscript - which is how
+REM the engine is started - it exits with no output and no log. That is why
+REM a failed run reported four facts and two empty logs.
+REM
+REM Tested by substring removal rather than FIND. FIND parses its arguments
+REM with C runtime rules, so the backslash in "\WindowsApps\" escaped the
+REM closing quote and the search string arrived unterminated.
+if defined AURION_PY (
+  set "AURION_PY_CLEAN=%AURION_PY:WindowsApps=%"
+)
+if defined AURION_PY if "%AURION_PY_CLEAN%"=="%AURION_PY%" if exist "%AURION_PY%" set "PYCMD="%AURION_PY%""
 if defined PYCMD goto :eof
 
 where py >nul 2>nul
@@ -223,23 +263,6 @@ for %%V in (3.12 3.11 3.10) do (
 if defined PYCMD goto :eof
 python -c "import sys; sys.exit(0 if (3,10) <= sys.version_info[:2] <= (3,12) else 1)" >nul 2>nul
 if not errorlevel 1 set "PYCMD=python"
-goto :eof
-
-REM Accept a recorded interpreter, unless it is the Microsoft Store one.
-REM
-REM %LOCALAPPDATA%\Microsoft\WindowsApps\python.exe is not an interpreter.
-REM It is an app execution alias, and it behaves like one: it resolves only
-REM inside an interactive session belonging to the user who installed it, it
-REM redirects writes away from site-packages, and started detached through
-REM wscript it exits without producing output or a log. Which is exactly
-REM what happened - the engine and the desk wrote nothing at all, and the
-REM launcher came back with code 1.
-:USABLEPY
-set "CANDIDATE=%~1"
-if not exist "%CANDIDATE%" goto :eof
-echo %CANDIDATE% | find /i "\WindowsApps\" >nul
-if not errorlevel 1 goto :eof
-set "PYCMD="%CANDIDATE%""
 goto :eof
 
 :REFRESHPATH
