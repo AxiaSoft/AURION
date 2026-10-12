@@ -11,6 +11,18 @@
 @font-face{font-family:Vazirmatn;src:url("../fonts/vazirmatn-latin-500.woff2") format("woff2");font-weight:500;font-display:swap;unicode-range:U+0000-00FF,U+0131,U+0152-0153}
 
 :root{
+  /* One scale for everything a finger or a cursor lands on.
+
+     Buttons, text inputs, selects and the custom dropdown were each
+     given their own padding by hand, so a button beside an input in the
+     same row came out a different height. That is the whole of what
+     "the controls are not tidy" means, and no amount of adjusting one
+     of them fixes it - they have to be derived from the same number. */
+  --ctl-h:42px;        /* the height every control agrees on */
+  --ctl-r:14px;        /* and the corner radius */
+  --ctl-px:16px;       /* and the space either side of the text */
+  --ctl-gap:10px;      /* and the space between two of them */
+
   --bg:#06070b;
   --bg2:#0b0d14;
   --ink:#e8edf7;
@@ -280,12 +292,23 @@ html[dir="rtl"] .field span{letter-spacing:0}
   background:var(--field);
   color:var(--ink);
   border:1px solid var(--line);
-  border-radius:14px;
-  padding:12px 14px;
+  border-radius:var(--ctl-r);
+  padding:0 calc(var(--ctl-px) - 2px);
+  min-height:var(--ctl-h);
+  font:inherit;
   outline:none;
   width:100%;
   max-width:100%;
+  min-width:0;
   transition:border .25s var(--ease), box-shadow .25s var(--ease), background .25s;
+}
+/* textarea is the one control that must not be a single row tall */
+.field textarea{
+  background:var(--field);color:var(--ink);
+  border:1px solid var(--line);border-radius:var(--ctl-r);
+  padding:10px calc(var(--ctl-px) - 2px);
+  font:inherit;outline:none;width:100%;max-width:100%;min-width:0;
+  min-height:calc(var(--ctl-h) * 2);resize:vertical;
 }
 .field select,.ctrl:is(select){
   background-color:var(--field);
@@ -335,9 +358,27 @@ html[dir="rtl"] .field span{letter-spacing:0}
 .dd-opt:hover,.dd-opt:focus{background:rgb(var(--accent-rgb) / .14);color:#fff;outline:none}
 .dd-opt.on{background:rgb(var(--accent-rgb) / .2);color:var(--cyan);font-weight:500}
 .dd-opt:disabled{opacity:.4;pointer-events:none}
-.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+/* A cluster, not a line.
+
+   .row was a wrapping flex line of intrinsically-sized buttons, which on
+   a narrow screen leaves ragged edges and a single orphan on the last
+   line. Below the breakpoint the children share the width instead, so a
+   row of two fills the line and a row of three becomes two then one -
+   each of them a full-width target rather than a stub. */
+.row{display:flex;gap:var(--ctl-gap);align-items:center;flex-wrap:wrap}
+.row>*{min-width:0}
 .btn{
-  border:0;border-radius:14px;padding:12px 16px;font-weight:500;
+  border:0;border-radius:var(--ctl-r);
+  min-height:var(--ctl-h);
+  padding:0 var(--ctl-px);
+  font-weight:500;
+  /* inline-flex, so an icon and a label sit on one baseline and a
+     button with neither still has the same height as one with both */
+  display:inline-flex;align-items:center;justify-content:center;gap:8px;
+  /* A caption longer than the button is clipped with an ellipsis rather
+     than wrapping and dragging the whole row taller. */
+  min-width:0;max-width:100%;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
   background:linear-gradient(135deg,var(--accent),var(--accent-2) 55%,var(--accent-3));
   color:#061014;
   transition:transform .25s var(--ease), filter .25s, box-shadow .25s;
@@ -353,7 +394,7 @@ html[dir="rtl"] .field span{letter-spacing:0}
 .btn.ghost:hover{background:rgb(var(--wash) / .04);box-shadow:none}
 .btn.danger{background:linear-gradient(135deg,#ff6b8a,#c43b5c);color:#fff}
 .btn.gold{background:linear-gradient(135deg,#e8c07a,#c4923a);color:#1a1206}
-.btn.tiny{padding:8px 12px;border-radius:10px;font-size:12px;white-space:nowrap}
+.btn.tiny{--ctl-h:32px;padding:0 12px;border-radius:10px;font-size:12px}
 .switch{
   --w:46px;width:var(--w);height:26px;border-radius:99px;border:1px solid var(--line);
   background:rgb(var(--wash) / .06);position:relative;padding:0;flex:none;
@@ -2067,3 +2108,53 @@ html[data-theme="light"] .set-rail .set-jump button.on{background:linear-gradien
 }
 .slot-demo-rows b{ color:var(--ink) }
 .slot-demo .sub{ margin:9px 0 0; font-size:11px }
+
+/* ==========================================================================
+   Controls, responsively
+   ==========================================================================
+   Everything below moves one of the four --ctl-* numbers or decides how a
+   cluster breaks. Nothing here restates a padding.
+   ========================================================================== */
+
+/* Phones: rows share the width rather than leaving an orphan.
+
+   A wrapping flex line sizes each button to its own caption, so three
+   buttons on a 360px screen come out as two of different widths and one
+   stranded underneath. Letting them grow turns that into two equal
+   halves and one full-width - which is also the easiest thing to hit. */
+@media (max-width: 560px){
+  .row>.btn{flex:1 1 calc(50% - var(--ctl-gap));justify-content:center}
+  .row>.btn.block,.row>.field{flex:1 1 100%}
+  .row>.btn.tiny{flex:0 1 auto}
+}
+
+/* Touch: every target reachable with a thumb.
+
+   There was no pointer:coarse block in this file at all, so the desk was
+   sized for a mouse on every device it has ever run on. 48px is the
+   smallest comfortable target; raising --ctl-h is enough, because every
+   control is now derived from it. */
+@media (pointer: coarse){
+  :root{--ctl-h:48px;--ctl-gap:12px}
+  .btn.tiny{--ctl-h:38px}
+  .icon-btn,.switch{min-height:38px}
+}
+
+/* iOS zooms the page when a text field smaller than 16px takes focus.
+
+   It is not a preference and it cannot be turned off from CSS any other
+   way: the only thing that stops it is the field actually being 16px.
+   The desk's fields were 14px, so every tap on one scrolled and scaled
+   the whole desk and left the user to pinch back out. */
+@media (max-width: 860px){
+  input,select,textarea,.field input,.field select,.ctrl{font-size:16px}
+}
+
+/* A form that is one column on a phone and two on anything wider.
+
+   Opt-in, because not every pair of fields belongs side by side - but
+   where it is used it needs no breakpoint of its own: auto-fit collapses
+   to one column as soon as 230px per column stops fitting. */
+.fields{display:grid;gap:0 14px;grid-template-columns:repeat(auto-fit,minmax(230px,1fr))}
+.fields>.field{min-width:0}
+.fields>.field.wide{grid-column:1 / -1}

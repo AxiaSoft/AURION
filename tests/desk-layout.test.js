@@ -223,6 +223,45 @@ check("a viewport change is repainted more than once", (() => {
     unanswered.length ? unanswered.join(" | ") : `${base.length} checked`);
 })();
 
+/* ------------------------------------------------------- control metrics --
+
+   Buttons, inputs, selects and the custom dropdown each had their own
+   hand-written padding, so a button beside an input in the same row came
+   out a different height. No amount of adjusting one of them fixes that;
+   they have to come from the same number.                               */
+
+(() => {
+  const appCss = read("apps/web/css/app.css");
+
+  check("there is one scale every control is derived from",
+    /--ctl-h:/.test(appCss) && /--ctl-r:/.test(appCss) &&
+    /--ctl-px:/.test(appCss) && /--ctl-gap:/.test(appCss));
+
+  check("buttons and fields are the same height by construction",
+    /\.btn\{[^}]*min-height:var\(--ctl-h\)/.test(appCss) &&
+    /\.field input,\.field select,\.ctrl\{[^}]*min-height:var\(--ctl-h\)/.test(appCss));
+
+  // A caption longer than its button used to wrap and drag the whole row
+  // taller; now it is clipped.
+  check("a long caption cannot stretch a row",
+    /\.btn\{[^}]*text-overflow:ellipsis/.test(appCss) &&
+    /\.btn\{[^}]*white-space:nowrap/.test(appCss));
+
+  // There was no pointer:coarse block in this file at all - the desk was
+  // sized for a mouse on every device it had ever run on.
+  check("touch targets exist, and move the scale rather than restating it",
+    /@media \(pointer: coarse\)\{\s*:root\{--ctl-h:48px/.test(appCss.replace(/\n\s*/g, "")));
+
+  // iOS scales the whole page in when a field under 16px takes focus.
+  // Nothing in CSS prevents it except the field being 16px.
+  check("tapping a field does not zoom the desk on iOS",
+    /input,select,textarea,\.field input,\.field select,\.ctrl\{font-size:16px\}/
+      .test(appCss.replace(/\n\s*/g, "")));
+
+  check("a row of buttons fills the line on a phone instead of leaving an orphan",
+    /\.row>\.btn\{flex:1 1 calc\(50% - var\(--ctl-gap\)\)/.test(appCss.replace(/\n\s*/g, "")));
+})();
+
 /* ------------------------------------------------------------------------- */
 
 /** The declaration block that follows a selector or at-rule, braces balanced. */
