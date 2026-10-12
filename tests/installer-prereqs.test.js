@@ -454,6 +454,19 @@ check("the build produces it beside the package",
   /AURION-Setup\.exe was not produced/.test(buildMsi) &&
   /Signing the setup wizard failed/.test(buildMsi));
 
+// It has no dependency on the MSI - it finds the .msi beside itself at
+// run time. Building it last meant a C# mistake in it surfaced only after
+// a four-minute MSI compile, and when that compile failed the wizard was
+// never produced at all. The report was "I click AURION-Setup.exe and
+// nothing happens", which was true: there was no such file.
+check("the wizard is built with the other executables, not after the MSI",
+  buildMsi.indexOf('Step "Building the setup wizard"') <
+  buildMsi.indexOf('Step "Compiling MSI"'));
+
+check("and the build ends by listing what it actually produced",
+  /In \$outputDir/.test(buildMsi) &&
+  /Get-ChildItem \$outputDir -File/.test(buildMsi));
+
 // Both installers are drawn from one palette, so the program a user meets
 // on day one and the one they meet a year later look like one product.
 const brand = read("installer/shell/shared/Brand.cs");

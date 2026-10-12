@@ -76,7 +76,7 @@ function Step([string] $text) {
 
 # Bumped whenever this script changes, so a stale copy is obvious at a glance
 # instead of failing with a confusing parameter error.
-$ScriptRevision = "27"
+$ScriptRevision = "28"
 
 Write-Host ""
 Write-Host "  AURION installer build" -ForegroundColor White
@@ -567,6 +567,46 @@ Get-ChildItem $stageApp -File |
 # ---------------------------------------------------------------------------
 # 4. Compile
 # ---------------------------------------------------------------------------
+# 3d. The setup wizard
+# ---------------------------------------------------------------------------
+# AURION-Setup.exe is the file a customer is actually given. It runs the
+# MSI beside it with /qn and draws the whole experience itself, because
+# Windows Installer's dialogs can be given a banner bitmap and a licence
+# page and nothing else - the typeface, the spacing and the word "Setup"
+# in the title bar stay Microsoft's.
+#
+# Built here, with the other two executables, and not after the MSI.
+#
+# It has no dependency on the MSI: it finds the .msi beside itself when it
+# runs. Building it last meant two things, both bad. A C# mistake in it
+# was only discovered after a four and a half minute MSI compile - and
+# when that compile failed, as it did twice on ICE77, the wizard was never
+# produced at all. The report that followed was "I click
+# AURION-Setup.exe and nothing happens", which was true: there was no
+# such file.
+Step "Building the setup wizard"
+
+$setupProject = Join-Path $installerDir "shell\setup\AurionSetup.csproj"
+$setupStage   = Join-Path $installerDir "bin\setup-publish"
+
+& $dotnetExe publish $setupProject `
+    -c $Configuration `
+    -r win-x64 `
+    --self-contained true `
+    -p:PublishSingleFile=true `
+    -p:IncludeNativeLibrariesForSelfExtract=true `
+    -p:EnableCompressionInSingleFile=true `
+    -p:AurionVersion=$Version `
+    -o $setupStage `
+    --nologo -v quiet
+
+if ($LASTEXITCODE -ne 0) { throw "Building the setup wizard (AURION-Setup.exe) failed." }
+
+$setupBuilt = Join-Path $setupStage "AURION-Setup.exe"
+if (-not (Test-Path $setupBuilt)) { throw "AURION-Setup.exe was not produced in $setupStage." }
+Write-Host ("  AURION-Setup.exe  {0:N1} MB" -f ((Get-Item $setupBuilt).Length / 1MB)) -ForegroundColor Gray
+
+# ---------------------------------------------------------------------------
 Step "Compiling MSI"
 
 New-Item -ItemType Directory -Force -Path $outputDir | Out-Null
@@ -598,42 +638,10 @@ $wixpdb = [IO.Path]::ChangeExtension($built.FullName, ".wixpdb")
 if (Test-Path $wixpdb) { Copy-Item $wixpdb $outputDir -Force }
 $msi = Get-Item (Join-Path $outputDir $built.Name)
 
-# ---------------------------------------------------------------------------
-# 4b. The setup wizard
-# ---------------------------------------------------------------------------
-# AURION-Setup.exe is the file a customer is actually given. It runs the
-# MSI beside it with /qn and draws the whole experience itself, because
-# Windows Installer's dialogs can be given a banner bitmap and a licence
-# page and nothing else - the typeface, the spacing and the word "Setup"
-# in the title bar stay Microsoft's.
-#
-# Published to a scratch folder and copied, so a publish that drops extra
-# files cannot quietly add them to a release directory.
-Step "Building the setup wizard"
 
-$setupProject = Join-Path $installerDir "shell\setup\AurionSetup.csproj"
-$setupStage   = Join-Path $installerDir "bin\setup-publish"
-
-& $dotnetExe publish $setupProject `
-    -c $Configuration `
-    -r win-x64 `
-    --self-contained true `
-    -p:PublishSingleFile=true `
-    -p:IncludeNativeLibrariesForSelfExtract=true `
-    -p:EnableCompressionInSingleFile=true `
-    -p:AurionVersion=$Version `
-    -o $setupStage `
-    --nologo -v quiet
-
-if ($LASTEXITCODE -ne 0) { throw "Building the setup wizard (AURION-Setup.exe) failed." }
-
-$setupBuilt = Join-Path $setupStage "AURION-Setup.exe"
-if (-not (Test-Path $setupBuilt)) { throw "AURION-Setup.exe was not produced in $setupStage." }
-
+# The wizard ships beside the package it installs.
 Copy-Item $setupBuilt $outputDir -Force
 $setupExe = Get-Item (Join-Path $outputDir "AURION-Setup.exe")
-Write-Host ("  AURION-Setup.exe  {0:N1} MB" -f ($setupExe.Length / 1MB)) -ForegroundColor Gray
-Write-Host "  hand the customer this and the .msi beside it" -ForegroundColor Gray
 
 # ---------------------------------------------------------------------------
 # 5. Sign (optional but expected for public releases)
@@ -666,13 +674,32 @@ Set-Content -Path "$($msi.FullName).sha256" -Value "$hash  $($msi.Name)" -Encodi
 
 Write-Host ""
 Write-Host "  BUILD OK" -ForegroundColor Green
-Write-Host ("  {0}" -f $msi.FullName)
-Write-Host ("  {0} MB" -f [math]::Round($msi.Length / 1MB, 1))
 Write-Host ("  SHA-256 {0}" -f $hash) -ForegroundColor DarkGray
 Write-Host ""
-Write-Host "  Try it:" -ForegroundColor White
-Write-Host "    msiexec /i `"$($msi.Name)`"                      full wizard"
+
+# Everything that now exists, by name and size.
+#
+# "I click AURION-Setup.exe and nothing happens" turned out to mean the
+# file had never been produced: the wizard was built after the MSI, and
+# the MSI compile had failed. Listing what is actually on disk at the end
+# of a build removes that entire class of confusion - if a name is not in
+# this list, it does not exist.
+Write-Host "  In $outputDir" -ForegroundColor White
+foreach ($item in Get-ChildItem $outputDir -File | Sort-Object Name) {
+    $size = if ($item.Length -ge 1MB) {
+        "{0,8:N1} MB" -f ($item.Length / 1MB)
+    } else {
+        "{0,8:N0} KB" -f ($item.Length / 1KB)
+    }
+    Write-Host ("    {0}  {1}" -f $size, $item.Name)
+}
+
+Write-Host ""
+Write-Host "  Give the customer AURION-Setup.exe and the .msi beside it." -ForegroundColor White
+Write-Host "  Running the .msi directly still works; it just shows Windows' own dialogs."
+Write-Host ""
+Write-Host "  Other ways in:" -ForegroundColor White
 Write-Host "    msiexec /i `"$($msi.Name)`" /qn                  silent install"
 Write-Host "    msiexec /i `"$($msi.Name)`" /l*v install.log     with a verbose log"
-Write-Host "    msiexec /x `"$($msi.Name)`"                      uninstall wizard"
+Write-Host "    msiexec /x `"$($msi.Name)`"                      uninstall"
 Write-Host ""
