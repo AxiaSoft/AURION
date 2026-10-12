@@ -74,8 +74,11 @@ try { [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::
 # Official vendor URLs, https only. The Python version is pinned to one the
 # engine supports: engine/requirements.txt pins numpy 1.26.4, which has no
 # wheels for 3.13, and engine/main.py refuses to start on it.
-$PythonExeName   = "python-3.12.7-amd64.exe"
-$PythonUrl       = "https://www.python.org/ftp/python/3.12.7/$PythonExeName"
+$PythonVersion   = "3.12.7"
+$PythonExeName   = "python-$PythonVersion-amd64.exe"
+$PythonZipName   = "python-$PythonVersion-embed-amd64.zip"
+$GetPipName      = "get-pip.py"
+$PythonUrl       = "https://www.python.org/ftp/python/$PythonVersion/$PythonExeName"
 $PythonPublisher = "Python Software Foundation"
 $NodeVersion     = "v20.17.0"
 $NodeZipName     = "node-$NodeVersion-win-x64.zip"
@@ -171,6 +174,54 @@ Say "installation: $InstallFolder"
     Returned as an array rather than a string because "py -3.12" is a command
     and a switch, and gluing them back together is how quoting bugs start.
 #>
+<#
+    Install Python by unpacking it, the way Node is installed here.
+
+    python.org's .exe is an MSI bundle, and Windows allows one installation
+    at a time across the machine. A desk started from its own installer's
+    finish page races the installer that started it, and the bundle exits
+    with a number and nothing else - which is how a machine ended up with
+    Node installed and Python not.
+
+    The embeddable build is a zip of files. Nothing to queue behind, no
+    elevation, no registry. Two things the full installer would have done
+    have to be done here: ._pth ships with "import site" commented out,
+    which leaves site-packages switched off and pip pointless; and there is
+    no pip, which is what the bundled get-pip.py is for - it carries its
+    own copy and needs no network.
+#>
+function Install-PythonFromZip {
+    $zip = Get-Bundled $PythonZipName
+    if (-not $zip) { throw "This build does not carry the embeddable Python, so there is nothing to unpack." }
+
+    $target = Join-Path $InstallFolder "runtime\python"
+    Say "unpacking Python into $target ..."
+    if (Test-Path -LiteralPath $target) { Remove-Item -LiteralPath $target -Recurse -Force }
+    New-Item -ItemType Directory -Path $target -Force | Out-Null
+    Expand-Archive -LiteralPath $zip -DestinationPath $target -Force
+
+    foreach ($pth in Get-ChildItem -LiteralPath $target -Filter "python*._pth" -File) {
+        $lines = Get-Content -LiteralPath $pth.FullName |
+                 ForEach-Object { if ($_.Trim() -eq "#import site") { "import site" } else { $_ } }
+        if ($lines -notcontains "import site") { $lines += "import site" }
+        if ($lines -notcontains "Lib\site-packages") { $lines += "Lib\site-packages" }
+        Set-Content -LiteralPath $pth.FullName -Value $lines
+    }
+    New-Item -ItemType Directory -Path (Join-Path $target "Lib\site-packages") -Force | Out-Null
+
+    $exe = Join-Path $target "python.exe"
+    if (-not (Test-Path -LiteralPath $exe)) { throw "Python unpacked but python.exe is not in $target." }
+
+    $getPip = Get-Bundled $GetPipName
+    if (-not $getPip) { throw "This build does not carry get-pip.py, so pip cannot be installed." }
+
+    Say "setting up pip ..."
+    & $exe $getPip --no-warn-script-location --no-input
+    if ($LASTEXITCODE -ne 0) { throw "pip could not be installed into the unpacked Python." }
+
+    Say "Python is ready: $exe"
+}
+
 function Find-Python {
     # AURION's own interpreter first. The engine is pinned to NumPy 1.26.4 -
     # the last official Windows wheel that does not require x86-64-v2 - and
@@ -192,6 +243,26 @@ function Find-Python {
             $null = & py "-$v" -c "import sys" 2>$null
             if ($LASTEXITCODE -eq 0) { return @("py", "-$v") }
         } catch { }
+    }
+
+    # Where python.org records what it installed.
+    #
+    # A machine had a working CPython 3.12.7 that AURION could not see: not
+    # on PATH because we install with PrependPath=0 on purpose, invisible to
+    # `py` because we install with Include_launcher=0 on purpose, and bare
+    # `python` resolved to the Store alias, which is refused. Three
+    # deliberate decisions adding up to an interpreter that exists, works,
+    # and cannot be found. This key is written regardless of all three.
+    foreach ($v in @("3.12", "3.11", "3.10")) {
+        foreach ($hive in @("HKCU:", "HKLM:")) {
+            try {
+                $key = "$hive\Software\Python\PythonCore\$v\InstallPath"
+                $dir = (Get-ItemProperty -Path $key -ErrorAction Stop)."(default)"
+                if (-not $dir) { continue }
+                $exe = Join-Path $dir "python.exe"
+                if (Test-Path -LiteralPath $exe) { return @($exe) }
+            } catch { }
+        }
     }
     # No launcher, or no versioned entry. Accept a bare `python` only when it
     # is a version the engine actually runs on, and only when it is not the
@@ -387,19 +458,31 @@ if ($SkipPython) {
     # None of it needs an administrator.
     $target = Join-Path $InstallFolder "runtime\python"
     Say "installing Python into $target (no administrator needed) ..."
+    $installLog = Join-Path $InstallFolder "data\logs\python-install.log"
     $p = Start-Process -FilePath $exe -Wait -PassThru -ArgumentList @(
-        "/quiet", "InstallAllUsers=0", "TargetDir=$target",
+        "/quiet", "/log", "`"$installLog`"",
+        "InstallAllUsers=0", "TargetDir=$target",
         "PrependPath=0", "AssociateFiles=0", "Shortcuts=0",
         "Include_launcher=0", "InstallLauncherAllUsers=0",
         "Include_pip=1", "Include_test=0", "Include_doc=0", "Include_tcltk=0")
+
     if ($p.ExitCode -ne 0 -and $p.ExitCode -ne 3010) {
-        throw "The Python installer finished with code $($p.ExitCode)."
+        Say "the Python installer finished with code $($p.ExitCode); unpacking a copy instead"
+        Install-PythonFromZip
+        return
     }
 
     Update-PathFromRegistry
+
+    # A zero exit code is not the question; whether there is a python.exe
+    # is. When this user already has CPython 3.12.7, the bundle detects its
+    # own packages as Present, switches to Modify, plans nothing, ignores
+    # TargetDir and exits 0 - a complete success that installed nothing.
     $python = Find-Python
     if (-not $python) {
-        throw "Python was installed but could not be found afterwards. Expected it at $target\python.exe."
+        Say "the installer had nothing to do and left no Python behind; unpacking a copy instead"
+        Install-PythonFromZip
+        return
     }
     Say "Python is ready: $($python -join ' ')"
 }

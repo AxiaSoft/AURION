@@ -317,13 +317,59 @@ check("Python waits for Windows Installer instead of racing it",
 check("the Python installer is made to explain itself",
   /\/quiet \/log/.test(prereqCs) &&
   /python-install\.log/.test(prereqCs) &&
-  /LastLinesOf\(installLog, 5\)/.test(prereqCs) &&
+  /Decisive\(installLog\)/.test(prereqCs) &&
   /private static string Explain\(string message\)/.test(prereqCs));
 
 // /passive still asks no questions, but it can show a UAC prompt - which
 // /quiet cannot, so a bundle needing elevation just fails with a number.
 check("and a silent failure is retried where it can speak",
   /\/passive \/log/.test(prereqCs));
+
+// python.org's .exe is an MSI bundle. When it will not run at all, the
+// embeddable build is a zip of files: nothing to queue behind, no
+// elevation, no registry - the same shape as the Node install, which is
+// the one runtime that has never failed to install on a customer machine.
+check("a Python that cannot be installed can still be unpacked",
+  /python-" \+ PythonFullVersion \+ "-embed-amd64\.zip/.test(prereqCs) &&
+  /UnpackPythonAsync/.test(prereqCs) &&
+  /Install-PythonFromZip/.test(provisionPs1) &&
+  /\$PythonZipName   = "python-\$PythonVersion-embed-amd64\.zip"/.test(provisionPs1));
+check("and the build bundles what unpacking needs",
+  /python-\$PythonVersion-embed-amd64\.zip/.test(vendorPs1) &&
+  /bootstrap\.pypa\.io\/get-pip\.py/.test(vendorPs1));
+
+// The embeddable build ships with "import site" commented out, which
+// leaves site-packages switched off - pip then installs into a directory
+// the interpreter never looks in, and every engine import fails with the
+// libraries sitting right there.
+check("the unpacked Python has site-packages switched back on",
+  /#import site/.test(prereqCs) && /Lib\\\\site-packages/.test(prereqCs) &&
+  /get-pip/.test(prereqCs) &&
+  provisionPs1.includes('"#import site"'));
+
+// A Burn log is thousands of lines and the useful one is rarely the last;
+// quoting the tail produced four lines about deleting temporary files.
+check("the error quotes the lines that name a failure, not the tail",
+  /private static string Decisive\(string path\)/.test(prereqCs) &&
+  !/LastLinesOf/.test(prereqCs) &&
+  /Detected related/.test(prereqCs));
+
+// From a real python-install.log: the bundle found its own packages
+// already Present, switched to Modify, planned "execute: None" for all 52,
+// ignored TargetDir and exited 0. A complete success that installed
+// nothing - so the exit code proves nothing and python.exe must be looked
+// for directly.
+check("a success that installed nothing is not treated as success",
+  /Plan begin, 52 packages, action: Modify/.test(prereqCs) &&
+  /had nothing to do and left no Python behind/.test(prereqCs) &&
+  /had nothing to do and left no Python behind/.test(provisionPs1));
+
+// PrependPath=0, Include_launcher=0 and refusing the Store alias are all
+// deliberate, and together they made a perfectly good CPython 3.12.7
+// invisible. python.org writes its location to the registry regardless.
+check("an existing python.org install is found through the registry",
+  prereqCs.includes("Software\\Python\\PythonCore\\{version}\\InstallPath") &&
+  provisionPs1.includes('Software\\Python\\PythonCore\\$v\\InstallPath'));
 
 // ------------------------------------------- the setup screen stays alive
 
@@ -527,13 +573,13 @@ check("the payload carries the bundle",
   /vendor/.test(stagePs1) && /Join-Path \$appDir "vendor"/.test(stagePs1));
 
 // Filenames are the contract between the three. They have to agree exactly.
-const pyName = "python-3.12.7-amd64.exe";
-const nodeName = "node-v20.17.0-win-x64.zip";
 check("the three sides agree on what the bundled files are called",
   vendorPs1.includes("3.12.7") && vendorPs1.includes("v20.17.0") &&
   prereqCs.includes('PythonFullVersion = "3.12.7"') &&
   prereqCs.includes('NodeVersion = "v20.17.0"') &&
-  provisionPs1.includes(pyName) && provisionPs1.includes("v20.17.0"));
+  provisionPs1.includes('$PythonVersion   = "3.12.7"') &&
+  provisionPs1.includes('"python-$PythonVersion-amd64.exe"') &&
+  provisionPs1.includes("v20.17.0"));
 
 check("the installed app prefers the bundle over the network",
   /Bundled\(installDir, PythonExeName\)/.test(prereqCs) &&

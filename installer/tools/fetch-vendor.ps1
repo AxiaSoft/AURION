@@ -70,6 +70,27 @@ $PythonExeName   = "python-$PythonVersion-amd64.exe"
 $PythonUrl       = "https://www.python.org/ftp/python/$PythonVersion/$PythonExeName"
 $PythonPublisher = "Python Software Foundation"
 
+# The same Python, as a zip.
+#
+# The .exe above is an MSI bundle, and on a customer's machine that turned
+# out to be the difference between Node installing and Python not: Windows
+# allows one installation at a time, a desk launched from its own MSI's
+# finish page races the installer that started it, and the bundle exits
+# with a number and no explanation. The embeddable build is just files.
+# Unpacking it answers to nobody, needs no administrator, and is exactly
+# how Node is installed here - which works.
+#
+# It ships alongside the .exe rather than instead of it. The full installer
+# is still tried first, because it brings a complete standard library and a
+# real pip; this is what happens when it will not run at all.
+$PythonZipName = "python-$PythonVersion-embed-amd64.zip"
+$PythonZipUrl  = "https://www.python.org/ftp/python/$PythonVersion/$PythonZipName"
+
+# The embeddable build deliberately ships without pip. get-pip.py carries
+# its own copy of pip inside it, so this works with no network.
+$GetPipName = "get-pip.py"
+$GetPipUrl  = "https://bootstrap.pypa.io/get-pip.py"
+
 $NodeVersion = "v20.17.0"
 $NodeZipName = "node-$NodeVersion-win-x64.zip"
 $NodeZipUrl  = "https://nodejs.org/dist/$NodeVersion/$NodeZipName"
@@ -152,6 +173,19 @@ Say "into $Destination"
 Head "Python $PythonVersion"
 $py = Get-Vendor -Url $PythonUrl -Name $PythonExeName
 Assert-SignedBy -Path $py -Publisher $PythonPublisher
+
+# The fallback, and the thing that makes it usable.
+$zip = Get-Vendor -Url $PythonZipUrl -Name $PythonZipName
+if ((Get-Item -LiteralPath $zip).Length -lt 5MB) {
+    Remove-Item -LiteralPath $zip -Force -ErrorAction SilentlyContinue
+    throw "$PythonZipName is too small to be the embeddable Python. It was deleted, not bundled."
+}
+
+$getPip = Get-Vendor -Url $GetPipUrl -Name $GetPipName
+if ((Get-Item -LiteralPath $getPip).Length -lt 100KB) {
+    Remove-Item -LiteralPath $getPip -Force -ErrorAction SilentlyContinue
+    throw "$GetPipName is too small to contain pip. It was deleted, not bundled."
+}
 
 # ---------------------------------------------------------------------------
 # Node

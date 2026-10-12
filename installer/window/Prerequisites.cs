@@ -77,6 +77,9 @@ internal static class Prerequisites
     // ---------------------------------------------------------------------
     private const string PythonFullVersion = "3.12.7";
     private const string PythonExeName = "python-" + PythonFullVersion + "-amd64.exe";
+    private const string PythonZipName = "python-" + PythonFullVersion + "-embed-amd64.zip";
+    private const string GetPipName = "get-pip.py";
+    private const string PythonExeName2 = "python.exe";
     private const string PythonUrl =
         "https://www.python.org/ftp/python/" + PythonFullVersion + "/" + PythonExeName;
     private const string PythonPublisher = "Python Software Foundation";
@@ -341,6 +344,43 @@ internal static class Prerequisites
     {
         var mine = PrivatePython(installDir);
         if (File.Exists(mine) && PythonVersionOf(Quoted(mine)).Length > 0) return Quoted(mine);
+
+        // Where python.org records what it installed.
+        //
+        // A machine had a perfectly good CPython 3.12.7 and AURION could
+        // not see it. It was not on PATH, because we install with
+        // PrependPath=0 on purpose; `py` could not find it, because we
+        // install with Include_launcher=0 on purpose; and bare `python`
+        // resolved to the Microsoft Store alias, which is refused. Three
+        // deliberate decisions adding up to an interpreter that exists,
+        // works, and is invisible.
+        //
+        // Every python.org installer writes its location here regardless
+        // of all three.
+        foreach (var version in PythonVersions)
+        {
+            foreach (var root in new[] { Microsoft.Win32.Registry.CurrentUser,
+                                         Microsoft.Win32.Registry.LocalMachine })
+            {
+                try
+                {
+                    using var key = root.OpenSubKey(
+                        $@"Software\Python\PythonCore\{version}\InstallPath");
+                    var dir = key?.GetValue(null) as string;
+                    if (string.IsNullOrWhiteSpace(dir)) continue;
+
+                    var candidate = Path.Combine(dir, PythonExeName2);
+                    if (File.Exists(candidate) && PythonVersionOf(Quoted(candidate)).Length > 0)
+                    {
+                        return Quoted(candidate);
+                    }
+                }
+                catch
+                {
+                    // An unreadable key means "not there", never a crash.
+                }
+            }
+        }
 
         // py.exe is an app execution alias too on a machine with no Python,
         // and launching it opens the Microsoft Store rather than answering.
@@ -697,12 +737,29 @@ internal static class Prerequisites
             }
             catch (Exception visible) when (visible is not OperationCanceledException)
             {
-                throw new InvalidOperationException(
-                    "Python could not be installed. " + Explain(quiet!.Message) +
-                    Environment.NewLine + Environment.NewLine +
-                    "The installer's own log is at:" + Environment.NewLine +
-                    "    " + installLog + Environment.NewLine +
-                    LastLinesOf(installLog, 5), visible);
+                // Neither mode of the MSI bundle would run. Unpack a Python
+                // instead - no Windows Installer, no mutex, no elevation,
+                // nothing to race. Exactly how Node is installed, which is
+                // the one runtime that has never failed to install here.
+                say.Report("The Python installer will not run on this machine. "
+                           + "Unpacking a copy instead…");
+                try
+                {
+                    await UnpackPythonAsync(installDir, say, ct);
+                    return;
+                }
+                catch (Exception unpack) when (unpack is not OperationCanceledException)
+                {
+                    throw new InvalidOperationException(
+                        "Python could not be installed. " + Explain(quiet!.Message) +
+                        Environment.NewLine + Environment.NewLine +
+                        "Unpacking a copy did not work either: " + unpack.Message +
+                        Environment.NewLine + Environment.NewLine +
+                        "What the installer logged:" + Environment.NewLine +
+                        Decisive(installLog) +
+                        Environment.NewLine +
+                        "    (full log: " + installLog + ")", visible);
+                }
             }
         }
 
@@ -715,18 +772,148 @@ internal static class Prerequisites
             return;
         }
 
-        // The installer did not put it where it was told. Fall back to
-        // whatever it did produce rather than failing outright.
+        // Succeeded, installed nothing.
+        //
+        // This is the real behaviour that cost several builds to find, and
+        // it looks like success from every angle. If this user already has
+        // CPython 3.12.7 - which they will, if an earlier AURION installed
+        // it before the private runtime existed - the bundle detects its
+        // own packages as Present, switches to Modify, plans "execute:
+        // None" for all fifty-two of them, ignores TargetDir completely,
+        // and exits 0:
+        //
+        //     Detected package: core_JustForMe, state: Present
+        //     Plan begin, 52 packages, action: Modify
+        //     Apply complete, result: 0x0
+        //
+        // So an exit code of zero is not the question. Whether python.exe
+        // is now in runtime\python is the question, and it is not.
         RefreshPath();
+
+        // The one it already has, if the registry knows where it is.
         PythonCommand = FindPython(installDir);
-        if (PythonCommand.Length == 0)
+        if (PythonCommand.Length > 0)
         {
-            throw new InvalidOperationException(
-                "Python reported success but is not at " + mine + "." +
-                Environment.NewLine + Environment.NewLine +
-                "The installer's own log is at:" + Environment.NewLine +
-                "    " + installLog + Environment.NewLine +
-                LastLinesOf(installLog, 5));
+            say.Report("Python is already installed on this machine. Using it.");
+            WriteRuntimeEnv(installDir);
+            return;
+        }
+
+        // Nothing usable anywhere. Unpack our own, which cannot be
+        // declined on the grounds of already being there.
+        say.Report("The installer had nothing to do and left no Python behind. "
+                   + "Unpacking a copy instead…");
+        await UnpackPythonAsync(installDir, say, ct);
+    }
+
+    /// <summary>
+    /// Install Python by unpacking it, the way Node is installed.
+    ///
+    /// python.org's embeddable build is a zip of files. No Windows
+    /// Installer, so nothing to queue behind and no machine-wide mutex to
+    /// lose a race to; no elevation; no registry; nothing that can refuse.
+    /// It is the same interpreter, built without the installer, the
+    /// launcher, tkinter, the test suite and the documentation.
+    ///
+    /// Two things have to be done by hand that the full installer does for
+    /// you. The ._pth file ships with "import site" commented out, which
+    /// leaves site-packages disabled and makes pip useless; and there is no
+    /// pip at all, which is what the bundled get-pip.py is for - it carries
+    /// its own copy inside it and needs no network.
+    /// </summary>
+    private static async Task UnpackPythonAsync(string installDir, IProgress<string> say, CancellationToken ct)
+    {
+        var zip = Bundled(installDir, PythonZipName);
+        if (zip.Length == 0)
+        {
+            throw new FileNotFoundException(
+                "This build does not carry " + PythonZipName + ", so there is nothing to unpack.");
+        }
+
+        var target = Path.Combine(installDir, "runtime", "python");
+
+        await WithHeartbeat("Unpacking Python", say, ct, () => Task.Run(() =>
+        {
+            if (Directory.Exists(target)) Directory.Delete(target, recursive: true);
+            Directory.CreateDirectory(target);
+            System.IO.Compression.ZipFile.ExtractToDirectory(zip, target);
+
+            // Turn site-packages back on. Without this pip installs into a
+            // directory the interpreter will not look in, and every import
+            // the engine needs fails with the libraries sitting right there.
+            foreach (var pth in Directory.GetFiles(target, "python*._pth"))
+            {
+                var lines = File.ReadAllLines(pth)
+                    .Select(l => l.Trim() == "#import site" ? "import site" : l)
+                    .ToList();
+                if (!lines.Any(l => l.Trim() == "import site")) lines.Add("import site");
+                if (!lines.Any(l => l.Trim() == "Lib\\site-packages")) lines.Add("Lib\\site-packages");
+                File.WriteAllLines(pth, lines);
+            }
+            Directory.CreateDirectory(Path.Combine(target, "Lib", "site-packages"));
+        }, ct));
+
+        var exe = PrivatePython(installDir);
+        if (!File.Exists(exe))
+        {
+            throw new InvalidOperationException("Python unpacked but python.exe is not in " + target + ".");
+        }
+
+        // The embeddable build has no pip. get-pip.py carries one.
+        var getPip = Bundled(installDir, GetPipName);
+        if (getPip.Length == 0)
+        {
+            throw new FileNotFoundException(
+                "This build does not carry " + GetPipName + ", so pip cannot be installed.");
+        }
+
+        say.Report("Setting up pip…");
+        await RunAsync(exe, $"\"{getPip}\" --no-warn-script-location --no-input",
+            elevate: false, ct, null, say);
+
+        PythonCommand = Quoted(exe);
+        WriteRuntimeEnv(installDir);
+        say.Report("Python is ready, inside AURION.");
+    }
+
+    /// <summary>
+    /// The lines of a Burn log that say what went wrong.
+    ///
+    /// python.org's installer writes thousands of lines and the useful one
+    /// is rarely the last. Quoting the tail produced four lines about
+    /// cleaning up temporary files. This pulls the ones that name a
+    /// failure, which is what somebody reading an error box needs.
+    /// </summary>
+    private static string Decisive(string path)
+    {
+        try
+        {
+            if (!File.Exists(path)) return "    (the installer wrote no log at all)";
+
+            using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+            using var reader = new StreamReader(stream);
+
+            var interesting = reader.ReadToEnd()
+                .Split('\n')
+                .Select(l => l.TrimEnd('\r').Trim())
+                .Where(l => l.Length > 0)
+                .Where(l => l.Contains("Error", StringComparison.OrdinalIgnoreCase)
+                            || l.Contains("Failed", StringComparison.OrdinalIgnoreCase)
+                            || l.Contains("Exit code", StringComparison.OrdinalIgnoreCase)
+                            || l.Contains("cannot", StringComparison.OrdinalIgnoreCase)
+                            || l.Contains("Detected related", StringComparison.OrdinalIgnoreCase))
+                .Distinct()
+                .TakeLast(6)
+                .Select(l => "    " + (l.Length > 160 ? l[..160] + "…" : l))
+                .ToList();
+
+            return interesting.Count > 0
+                ? string.Join(Environment.NewLine, interesting)
+                : "    (nothing in the log names a failure)";
+        }
+        catch
+        {
+            return "    (the log could not be read)";
         }
     }
 
@@ -800,27 +987,6 @@ internal static class Prerequisites
             if (message.Contains("code " + code)) return means;
         }
         return message;
-    }
-
-    /// <summary>The end of a log file, for an error message that has to stand alone.</summary>
-    private static string LastLinesOf(string path, int count)
-    {
-        try
-        {
-            if (!File.Exists(path)) return "";
-            using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
-            using var reader = new StreamReader(stream);
-            var lines = reader.ReadToEnd()
-                .Split('\n')
-                .Select(l => l.TrimEnd('\r'))
-                .Where(l => l.Trim().Length > 0)
-                .ToList();
-            return lines.Count == 0 ? "" : string.Join(Environment.NewLine, lines.TakeLast(count));
-        }
-        catch
-        {
-            return "";
-        }
     }
 
     private static async Task InstallPythonLibsAsync(string installDir, IProgress<string> say, CancellationToken ct)
