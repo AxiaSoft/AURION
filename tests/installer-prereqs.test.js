@@ -287,6 +287,21 @@ check("and a complete bundle survives the network going away",
   /Every bundled runtime is already present/.test(buildMsi) &&
   /the bundle is incomplete/.test(buildMsi));
 
+// One timeout cannot answer two questions. "Is this interpreter here?" is
+// answered in well under a second. "Can it import numpy and scikit-learn?"
+// compiles several thousand files to bytecode the first time anything on
+// the machine does it. Four seconds for both killed the import halfway on
+// a first launch and reported the libraries as missing; the second launch
+// found a warm cache and worked - hangs once, fine afterwards.
+check("the import check gets a budget suited to a cold bytecode cache",
+  /int timeoutMs = 4000/.test(prereqCs) &&
+  /timeoutMs: 240_000/.test(prereqCs) &&
+  /ImportsWorkAsync/.test(prereqCs));
+check("and it says what it is doing while it does it",
+  /WithHeartbeatResult/.test(prereqCs) &&
+  /IProgress<string>\? say = null/.test(prereqCs) &&
+  /InspectAsync\(items, _installDir, checking\)/.test(appWindow));
+
 // ------------------------------------------- the setup screen stays alive
 
 // The bundle exists so the machine needs no network. Running `pip install
@@ -399,6 +414,9 @@ check("the Microsoft Store's Python is refused everywhere",
 // it a second time. Assigning that over PATH replaced a working PATH with a
 // list of placeholders: nothing could be found at all, including
 // powershell.exe, and the launcher exited 9009.
+check("the PATH handed to the launcher keeps what this process had",
+  /parts\.Insert\(0, Environment\.GetEnvironmentVariable\("PATH"\)/.test(appWindow) &&
+  /"runtime", "python"\)/.test(appWindow));
 check("refreshing the PATH appends to it and never replaces it",
   !/set "PATH=%MACHINE_PATH%/.test(startCmd) &&
   startCmd.includes('set "PATH=%PATH%;%MACHINE_PATH%"') &&

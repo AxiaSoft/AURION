@@ -210,10 +210,17 @@ internal sealed class AppWindow : Form
         _splash.Status = "Checking what this machine has\u2026";
         _splash.Progress = 0.04f;
 
+        // Checking whether numpy and scikit-learn import is the slowest
+        // thing that happens before the desk appears, and on a first run it
+        // is slow for a reason nobody can see: Python is compiling several
+        // thousand files to bytecode. Left silent it reads as a hang on the
+        // one launch where the machine is doing the most work.
+        var checking = new Progress<string>(text => _splash.Status = text + "\u2026");
+
         var items = Prerequisites.Build();
         try
         {
-            await Prerequisites.InspectAsync(items, _installDir);
+            await Prerequisites.InspectAsync(items, _installDir, checking);
         }
         catch (Exception ex)
         {
@@ -263,7 +270,7 @@ internal sealed class AppWindow : Form
             // matters is whether the thing is now detectable, not whether a
             // setup program said it succeeded.
             _splash.Status = "Checking again\u2026";
-            await Prerequisites.InspectAsync(items, _installDir);
+            await Prerequisites.InspectAsync(items, _installDir, checking);
         }
         catch (OperationCanceledException)
         {
@@ -325,7 +332,7 @@ internal sealed class AppWindow : Form
                 await Prerequisites.InstallAsync(still, _installDir, say, retry.Token);
 
                 setup.Say("Checking again\u2026");
-                await Prerequisites.InspectAsync(items, _installDir);
+                await Prerequisites.InspectAsync(items, _installDir, say);
                 setup.Render();
 
                 if (items.All(r => r.State is ReqState.Present or ReqState.Installed))
@@ -454,9 +461,21 @@ internal sealed class AppWindow : Form
                 // An unreadable scope falls back to what this process already has.
             }
         }
-        if (parts.Count == 0) parts.Add(Environment.GetEnvironmentVariable("PATH") ?? "");
+        // Appended, never substituted. The registry copy is read to pick up
+        // a runtime installed seconds ago, not to decide what the launcher
+        // is allowed to find - and handing a child a PATH with this
+        // process's own entries removed is the same mistake :REFRESHPATH
+        // made in start-aurion.cmd, where it left the machine unable to
+        // locate powershell.exe.
+        parts.Insert(0, Environment.GetEnvironmentVariable("PATH") ?? "");
+
+        // Both of AURION's own runtimes, so the launcher finds them even
+        // when nothing on this machine has ever heard of them.
         parts.Add(Path.Combine(_installDir, "runtime", "node"));
-        return string.Join(';', parts.Where(p => p.Length > 0));
+        parts.Add(Path.Combine(_installDir, "runtime", "python"));
+        parts.Add(Path.Combine(_installDir, "runtime", "python", "Scripts"));
+
+        return string.Join(';', parts.Where(p => p.Length > 0).Distinct());
     }
 
     /// <summary>How long each log was when this run started.</summary>

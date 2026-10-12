@@ -214,7 +214,8 @@ internal static class Prerequisites
     /// Ask the machine what it already has. Fast, offline, and safe to run on
     /// every launch - the whole point is that a prepared machine never waits.
     /// </summary>
-    public static async Task InspectAsync(IEnumerable<Requirement> items, string installDir)
+    public static async Task InspectAsync(
+        IEnumerable<Requirement> items, string installDir, IProgress<string>? say = null)
     {
         var list = items.ToList();
 
@@ -252,7 +253,15 @@ internal static class Prerequisites
                         Settle(req, false, "", "Waiting for Python.");
                         break;
                     }
-                    Settle(req, await ImportsWorkAsync(python), "fastapi, numpy, scikit-learn",
+                    // The slowest check by a wide margin on a first run,
+                    // and the only one with nothing to show for itself.
+                    var imports = say is null
+                        ? await ImportsWorkAsync(python)
+                        : await WithHeartbeatResult(
+                            "Checking the engine's libraries", say, default,
+                            () => ImportsWorkAsync(python));
+
+                    Settle(req, imports, "fastapi, numpy, scikit-learn",
                         "The engine's Python libraries are not installed.");
                     break;
 
@@ -411,11 +420,22 @@ internal static class Prerequisites
         return m.Success ? m.Value : "";
     }
 
-    private static async Task<bool> ImportsWorkAsync(string python)
+    /// <summary>
+    /// Can this interpreter import what the engine needs?
+    ///
+    /// Four minutes, not four seconds. On a machine that has never run the
+    /// engine, importing numpy and scikit-learn compiles several thousand
+    /// files to bytecode on the way, and on a slow disk that is a minute or
+    /// more. It only ever happens once - every later import reads the cache
+    /// - but giving up on it is indistinguishable from the libraries not
+    /// being installed, and leads straight to reinstalling them.
+    /// </summary>
+    private static async Task<bool> ImportsWorkAsync(string python, CancellationToken ct = default)
     {
         var (exe, args) = Split(python);
         return await Task.Run(() =>
-            RunQuiet(exe, (args + " -c \"import fastapi, numpy, sklearn\"").Trim()));
+            RunQuiet(exe, (args + " -c \"import fastapi, numpy, sklearn\"").Trim(),
+                timeoutMs: 240_000), ct);
     }
 
     /// <summary>
@@ -998,6 +1018,15 @@ internal static class Prerequisites
         }
     }
 
+    /// <summary>WithHeartbeat, for work that produces an answer.</summary>
+    private static async Task<T> WithHeartbeatResult<T>(
+        string message, IProgress<string> say, CancellationToken ct, Func<Task<T>> work)
+    {
+        var result = default(T)!;
+        await WithHeartbeat(message, say, ct, async () => { result = await work(); });
+        return result;
+    }
+
     /// <summary>
     /// Run a program to completion, showing what it is saying while it does.
     ///
@@ -1063,7 +1092,24 @@ internal static class Prerequisites
         }
     }
 
-    private static bool RunQuiet(string exe, string args)
+    /// <summary>
+    /// Run something and report whether it succeeded.
+    ///
+    /// <paramref name="timeoutMs"/> defaults to a figure suited to the
+    /// question "is this interpreter here?", which is answered in well
+    /// under a second or not at all. It is badly wrong for the other
+    /// question asked through this method - "can it import numpy and
+    /// scikit-learn?" - because the first time anything imports those on a
+    /// machine, Python compiles several thousand files to bytecode, and
+    /// that takes tens of seconds.
+    ///
+    /// Four seconds for both meant the first launch on a fully prepared
+    /// machine killed the import halfway and reported the libraries as
+    /// missing. The second launch found a warm cache, took two seconds and
+    /// worked - which is precisely how it was reported: hangs once, fine
+    /// afterwards.
+    /// </summary>
+    private static bool RunQuiet(string exe, string args, int timeoutMs = 4000)
     {
         try
         {
@@ -1084,7 +1130,7 @@ internal static class Prerequisites
             // the old budget added up to most of a minute of waiting for
             // programs that were never there. A timed-out probe used to be
             // left running, too.
-            if (!p.WaitForExit(4000))
+            if (!p.WaitForExit(timeoutMs))
             {
                 try { p.Kill(entireProcessTree: true); } catch { }
                 return false;
