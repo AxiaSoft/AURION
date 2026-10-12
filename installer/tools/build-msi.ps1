@@ -520,6 +520,7 @@ if ($LASTEXITCODE -ne 0) { throw "Building the desk window (AURION.exe) failed."
 
 $windowExe = Join-Path $stageApp "AURION.exe"
 if (-not (Test-Path $windowExe)) { throw "AURION.exe was not produced in $stageApp." }
+Write-Host ("  AURION.exe  {0:N1} MB" -f ((Get-Item $windowExe).Length / 1MB)) -ForegroundColor Gray
 
 # ---------------------------------------------------------------------------
 # 3c. The uninstaller
@@ -562,7 +563,6 @@ Get-ChildItem $stageApp -File |
     Where-Object { $_.Extension -in @(".pdb", ".xml") -or $_.Name -like "*.deps.json" } |
     Remove-Item -Force -ErrorAction SilentlyContinue
 
-Write-Host ("  AURION.exe  {0:N1} MB" -f ((Get-Item $windowExe).Length / 1MB)) -ForegroundColor Gray
 
 # ---------------------------------------------------------------------------
 # 4. Compile

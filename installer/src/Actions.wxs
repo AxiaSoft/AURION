@@ -158,6 +158,19 @@
          component's registry values. A component cannot win that race, so
          the value is rewritten afterwards instead.
 
+         "Afterwards" means after PublishProduct, not after InstallFinalize.
+         A deferred action runs inside the installation script, and the
+         script is the span between InstallInitialize and InstallFinalize;
+         scheduling one outside it is ICE77:
+
+             error WIX0204: ICE77: AurionOwnUninstallEntry is a in-script
+             custom action. It must be sequenced in between the
+             InstallInitialize action and the InstallFinalize action
+
+         PublishProduct is the last standard action before InstallFinalize
+         and comes after RegisterProduct, so it is both inside the script
+         and late enough for this to be the last word on the value.
+
          What the user gets from this is the difference between an unnamed
          progress bar and being asked, in the product's own words, whether
          four years of trade history should go with the application. There
@@ -212,10 +225,11 @@
            AURION_SKIP_PROVISION=1 opts out, for administrators who lay the
            runtimes down themselves and do not want a window appearing on a
            scripted rollout. -->
-      <!-- After InstallFinalize, because RegisterProduct runs inside it
-           and writes the value this replaces. -->
+      <!-- After PublishProduct: inside the installation script, which a
+           deferred action must be, and after RegisterProduct, which is
+           what writes the value being replaced. -->
       <Custom Action="AurionOwnUninstallEntry"
-              After="InstallFinalize"
+              After="PublishProduct"
               Condition="NOT Installed" />
 
       <Custom Action="AurionProvisionRuntimes"

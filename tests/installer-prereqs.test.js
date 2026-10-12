@@ -371,6 +371,47 @@ check("an existing python.org install is found through the registry",
   prereqCs.includes("Software\\Python\\PythonCore\\{version}\\InstallPath") &&
   provisionPs1.includes('Software\\Python\\PythonCore\\$v\\InstallPath'));
 
+// ICE77, learned the hard way: a deferred custom action runs inside the
+// installation script, and the script is the span between
+// InstallInitialize and InstallFinalize. Scheduling one outside that span
+// is not a warning, it fails the build - and the build is on a machine
+// that is not this one, so it costs a day.
+{
+  // One element at a time. A single regex spanning from an Id to a later
+  // Execute="deferred" reaches straight across the element boundary and
+  // reported an immediate action as deferred.
+  const deferred = actions
+    .split("<CustomAction")
+    .slice(1)
+    .map((chunk) => chunk.slice(0, chunk.indexOf("/>")))
+    .filter((el) => /Execute="deferred"/.test(el))
+    .map((el) => /Id="([^"]+)"/.exec(el))
+    .filter((m) => m !== null)
+    .map((m) => m[1]);
+
+  const scheduled = new Map();
+  for (const m of actions.matchAll(
+    /<Custom\s+Action="([^"]+)"\s+(After|Before)="([^"]+)"/g)) {
+    scheduled.set(m[1], { when: m[2], anchor: m[3] });
+  }
+
+  const wrong = [];
+  for (const id of deferred) {
+    const slot = scheduled.get(id);
+    if (!slot) { wrong.push(`${id} is never sequenced`); continue; }
+    if (slot.when === "After" && slot.anchor === "InstallFinalize") {
+      wrong.push(`${id} is After InstallFinalize, outside the script`);
+    }
+    if (slot.when === "Before" && slot.anchor === "InstallInitialize") {
+      wrong.push(`${id} is Before InstallInitialize, outside the script`);
+    }
+  }
+
+  check("every deferred action is sequenced inside the install script",
+    wrong.length === 0,
+    wrong.length ? wrong.join("; ") : `${deferred.length} deferred actions`);
+}
+
 // ------------------------------------------------------- the setup wizard
 
 // Windows Installer's dialogs take a banner bitmap and a licence page and
@@ -443,7 +484,7 @@ check("it asks whether the trading data goes too, and keeps it by default",
 check("Control Panel is pointed at it, after RegisterProduct has had its say",
   /AurionOwnUninstallEntry/.test(actions) &&
   /AURION-Uninstall\.exe.*--product \[ProductCode\]/.test(actions) &&
-  /AurionOwnUninstallEntry"[\s\S]{0,80}After="InstallFinalize"/.test(actions));
+  /AurionOwnUninstallEntry"[\s\S]{0,80}After="PublishProduct"/.test(actions));
 
 // It lives in the folder Windows Installer is about to delete.
 check("it copies itself out before deleting the folder it lives in",
