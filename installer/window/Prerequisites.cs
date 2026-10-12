@@ -266,7 +266,7 @@ internal static class Prerequisites
                     break;
 
                 case "node":
-                    var node = await NodeVersionAsync(installDir);
+                    var node = await NodeVersionAsync(installDir, nodeCommand);
                     Settle(req, node.Length > 0, node, "Node.js 18 or newer was not found.");
                     break;
 
@@ -342,9 +342,17 @@ internal static class Prerequisites
         var mine = PrivatePython(installDir);
         if (File.Exists(mine) && PythonVersionOf(Quoted(mine)).Length > 0) return Quoted(mine);
 
-        foreach (var v in PythonVersions)
+        // py.exe is an app execution alias too on a machine with no Python,
+        // and launching it opens the Microsoft Store rather than answering.
+        // Each of the three probes below then runs to its timeout for
+        // nothing: twelve seconds of a bare machine's first launch spent
+        // waiting for a program that was never going to reply.
+        if (!IsStoreAlias(WhereIs("py")))
         {
-            if (RunQuiet("py", $"-{v} -c \"import sys\"")) return $"py -{v}";
+            foreach (var v in PythonVersions)
+            {
+                if (RunQuiet("py", $"-{v} -c \"import sys\"")) return $"py -{v}";
+            }
         }
         // No launcher, or no versioned entry: fall back to whatever `python`
         // is, but only accept it if it is a version the engine supports and
@@ -474,11 +482,17 @@ internal static class Prerequisites
         return usual.FirstOrDefault(File.Exists) ?? "";
     }
 
-    private static async Task<string> NodeVersionAsync(string installDir)
+    /// <param name="known">
+    /// What InspectAsync already resolved, so this does not search for Node
+    /// a second time. On a machine that has none, that search is a run of
+    /// child processes that each wait out a timeout, and doing it twice in
+    /// one pass doubled the slowest part of a first launch for no reason.
+    /// </param>
+    private static async Task<string> NodeVersionAsync(string installDir, string known = "")
     {
         return await Task.Run(() =>
         {
-            var exe = FindNode(installDir);
+            var exe = known.Length > 0 ? known : FindNode(installDir);
             if (exe.Length == 0) return "";
             NodeCommand = exe;
 

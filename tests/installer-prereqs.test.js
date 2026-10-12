@@ -333,6 +333,33 @@ check("and the silent ones at least show a clock",
 
 // ------------------------------------------------- the window stays alive
 
+// The splash drew a full-window gradient, two radial glows, three freshly
+// created Fonts and three MeasureString calls sixty-two times a second. On
+// a developer's machine that is invisible; on a bare VM with no graphics
+// acceleration it saturates the core the message loop runs on, and Windows
+// writes "not responding" across the title bar while the work it is
+// waiting for proceeds perfectly well on a background thread.
+const splash = read("installer/window/SplashPanel.cs");
+check("the splash builds its fonts and brushes once, not per frame",
+  !/new Font\(/.test(splash.split("OnPaint")[1] || "") &&
+  /private readonly Font _titleFont/.test(splash) &&
+  /private readonly SolidBrush _inkBrush/.test(splash));
+check("the parts that never move are drawn once into a bitmap",
+  /private Bitmap\? _backdrop/.test(splash) &&
+  /BuildBackdrop\(w, h\)/.test(splash) &&
+  /DrawImageUnscaled\(_backdrop/.test(splash));
+check("and only the strip that animates is invalidated",
+  /Invalidate\(AnimatedStrip\(\)\)/.test(splash) &&
+  /Interval = 33/.test(splash) &&
+  /if \(Visible\) _ticker\.Start\(\); else _ticker\.Stop\(\);/.test(splash));
+
+// py.exe is an app execution alias on a machine with no Python: launching
+// it opens the Store instead of answering, so all three probes ran to
+// their timeout for nothing.
+check("hopeless probes are not attempted at all",
+  /if \(!IsStoreAlias\(WhereIs\("py"\)\)\)/.test(prereqCs) &&
+  /NodeVersionAsync\(installDir, nodeCommand\)/.test(prereqCs));
+
 // InspectAsync was async, but everything it did first was not: three
 // `py -3.1x` probes, a `where python`, a `python --version`, then the same
 // for Node - all on the thread that paints the window. On a bare machine
