@@ -104,6 +104,11 @@ internal sealed class SetupPanel : Panel
 
     public SetupPanel(List<Requirement> items)
     {
+        // The form is PerMonitorV2 and scales its layout; this panel has to
+        // agree, or its children are measured against the wrong DPI and the
+        // result looks like a half-drawn window rather than a scaled one.
+        AutoScaleMode = AutoScaleMode.Dpi;
+
         _items = items;
         Dock = DockStyle.Fill;
         BackColor = Base;

@@ -217,16 +217,32 @@ internal static class Prerequisites
     public static async Task InspectAsync(IEnumerable<Requirement> items, string installDir)
     {
         var list = items.ToList();
-        var python = FindPython(installDir);
+
+        // Off the UI thread, all of it.
+        //
+        // This method is async, but everything it did first was not: three
+        // `py -3.1x` probes, a `where python`, a `python --version`, then
+        // the same again for Node. On a machine that has none of them every
+        // one of those runs to its timeout, and they were running on the
+        // thread that paints the window. The setup panel appeared unpainted
+        // and Windows marked AURION "not responding" for the best part of a
+        // minute before the first line of text arrived.
+        var (python, node, pythonVersion) = await Task.Run(() =>
+        {
+            var py = FindPython(installDir);
+            var nd = FindNode(installDir);
+            return (py, nd, py.Length > 0 ? PythonVersionOf(py) : "");
+        });
+
         PythonCommand = python;
-        NodeCommand = FindNode(installDir);
+        NodeCommand = node;
 
         foreach (var req in list)
         {
             switch (req.Id)
             {
                 case "python":
-                    Settle(req, python.Length > 0, PythonVersionOf(python),
+                    Settle(req, python.Length > 0, pythonVersion,
                         "No supported Python found. The engine needs 3.10, 3.11 or 3.12.");
                     break;
 
@@ -371,7 +387,10 @@ internal static class Prerequisites
             p.Start();
             var first = p.StandardOutput.ReadLine() ?? "";
             p.StandardError.ReadToEnd();
-            p.WaitForExit(5000);
+            if (!p.WaitForExit(4000))
+            {
+                try { p.Kill(entireProcessTree: true); } catch { }
+            }
             return first.Trim();
         }
         catch
@@ -661,7 +680,15 @@ internal static class Prerequisites
             // fetch-vendor.ps1 bundles nodejs.org's checksum list next to the
             // zip precisely so this can still be checked with no network.
             var sums = Bundled(installDir, "SHASUMS256.txt");
-            if (sums.Length > 0) VerifyAgainstSums(zip, await File.ReadAllTextAsync(sums, ct), NodeZipName);
+            if (sums.Length > 0)
+            {
+                // SHA-256 over 28 MB, off the UI thread. Short, but this
+                // runs while the setup panel is meant to be showing
+                // progress, and a frozen window is how the whole thing
+                // looked broken in the first place.
+                var text = await File.ReadAllTextAsync(sums, ct);
+                await Task.Run(() => VerifyAgainstSums(zip, text, NodeZipName), ct);
+            }
         }
         else
         {
@@ -938,8 +965,20 @@ internal static class Prerequisites
             };
             using var p = Process.Start(psi);
             if (p is null) return false;
-            p.WaitForExit(8000);
-            return p.HasExited && p.ExitCode == 0;
+
+            // Four seconds, not eight, and the probe is killed if it
+            // overruns. An interpreter that cannot answer "import sys" in
+            // four seconds is not one the engine is going to run on, and
+            // these probes are tried one after another: on a bare machine
+            // the old budget added up to most of a minute of waiting for
+            // programs that were never there. A timed-out probe used to be
+            // left running, too.
+            if (!p.WaitForExit(4000))
+            {
+                try { p.Kill(entireProcessTree: true); } catch { }
+                return false;
+            }
+            return p.ExitCode == 0;
         }
         catch
         {
@@ -961,7 +1000,10 @@ internal static class Prerequisites
             using var p = Process.Start(psi);
             if (p is null) return "";
             var text = p.StandardOutput.ReadToEnd() + p.StandardError.ReadToEnd();
-            p.WaitForExit(8000);
+            if (!p.WaitForExit(4000))
+            {
+                try { p.Kill(entireProcessTree: true); } catch { }
+            }
             return text;
         }
         catch

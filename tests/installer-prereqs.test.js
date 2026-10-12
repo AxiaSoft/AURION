@@ -287,6 +287,35 @@ check("and a complete bundle survives the network going away",
   /Every bundled runtime is already present/.test(buildMsi) &&
   /the bundle is incomplete/.test(buildMsi));
 
+// ------------------------------------------------- the window stays alive
+
+// InspectAsync was async, but everything it did first was not: three
+// `py -3.1x` probes, a `where python`, a `python --version`, then the same
+// for Node - all on the thread that paints the window. On a bare machine
+// every one runs to its timeout, so the setup panel appeared unpainted and
+// Windows marked AURION "not responding" for most of a minute.
+check("nothing probes the machine on the UI thread",
+  /var \(python, node, pythonVersion\) = await Task\.Run/.test(prereqCs) &&
+  /var py = FindPython\(installDir\);/.test(prereqCs));
+check("probes fail fast and do not leak a hung process",
+  !/WaitForExit\(8000\)/.test(prereqCs) && !/WaitForExit\(5000\)/.test(prereqCs) &&
+  /if \(!p\.WaitForExit\(4000\)\)/.test(prereqCs) &&
+  /p\.Kill\(entireProcessTree: true\)/.test(prereqCs));
+check("and hashing 28 MB does not freeze the progress it is reporting",
+  /await Task\.Run\(\(\) => VerifyAgainstSums/.test(prereqCs));
+
+// app.manifest declares PerMonitorV2, but ApplicationConfiguration's
+// generated default is SystemAware and nothing set AutoScaleMode. At 125%
+// or 150% the panels were laid out for 96 DPI: cramped, clipped and
+// overlapping, which reads as a window that has not finished loading.
+const windowCsproj = read("installer/window/AurionWindow.csproj");
+check("the window and the setup panel scale with the display",
+  /AutoScaleMode = AutoScaleMode\.Dpi/.test(appWindow) &&
+  /AutoScaleMode = AutoScaleMode\.Dpi/.test(setupPanel));
+check("and WinForms is told the same DPI mode the manifest asks for",
+  /<ApplicationHighDpiMode>PerMonitorV2<\/ApplicationHighDpiMode>/.test(windowCsproj) &&
+  /PerMonitorV2<\/dpiAwareness>/.test(read("installer/window/app.manifest")));
+
 // ------------------------------------- AURION brings its own interpreters
 
 // The engine is pinned to NumPy 1.26.4 - the last official Windows wheel

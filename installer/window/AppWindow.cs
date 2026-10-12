@@ -54,6 +54,19 @@ internal sealed class AppWindow : Form
     public AppWindow(bool setupOnly = false)
     {
         _setupOnly = setupOnly;
+
+        // Scale with the display.
+        //
+        // app.manifest declares PerMonitorV2, but every control here is
+        // positioned in raw pixels against fonts in points, and nothing told
+        // WinForms to scale the layout. On a laptop running at 125% or 150%
+        // - which is the default on most machines sold in the last decade -
+        // the panels were laid out for 96 DPI and drawn on a display that is
+        // not: cramped, clipped and overlapping. It did not look like a
+        // window that had failed to scale, it looked like one that had not
+        // finished loading, which is exactly how it was reported.
+        AutoScaleMode = AutoScaleMode.Dpi;
+
         Text = setupOnly ? "AURION setup" : "AURION";
         BackColor = Color.FromArgb(0x06, 0x07, 0x0B);
         StartPosition = FormStartPosition.CenterScreen;

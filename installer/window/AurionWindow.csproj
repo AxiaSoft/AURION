@@ -41,6 +41,14 @@
     <FileVersion>$(AurionVersion)</FileVersion>
     <InformationalVersion>$(AurionVersion)</InformationalVersion>
 
+    <!-- ApplicationConfiguration.Initialize() is source-generated from
+         these. Its default high DPI mode is SystemAware, which contradicts
+         the PerMonitorV2 in app.manifest; the manifest wins at process
+         start and WinForms is then left scaling for a mode it is not in. -->
+    <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
+    <ApplicationVisualStyles>true</ApplicationVisualStyles>
+    <ApplicationUseCompatibleTextRendering>false</ApplicationUseCompatibleTextRendering>
+
     <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
     <GenerateDocumentationFile>false</GenerateDocumentationFile>
     <DebugType>none</DebugType>
