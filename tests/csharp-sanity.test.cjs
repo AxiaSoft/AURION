@@ -260,6 +260,46 @@ for (const file of files) {
 }
 
 // ---------------------------------------------------------------------------
+// An owner-drawn control nobody can reach with a keyboard
+// ---------------------------------------------------------------------------
+// Control is not selectable by default. A class that derives from it,
+// handles clicks and paints itself like a button is a picture of a button
+// as far as Tab, Enter and Space are concerned - and shows nothing when
+// focused, so there is no way to tell where the keyboard is.
+//
+// Both installers were entirely mouse-only for this, including the page
+// that asks whether to delete four years of trade history.
+for (const file of files) {
+  const code = structureOf(fs.readFileSync(file, "utf8"));
+  const name = label(file);
+
+  const declarations = [...code.matchAll(/class\s+(\w+)\s*:\s*(\w+)/g)]
+    .map((m) => ({ at: m.index, name: m[1], base: m[2] }));
+
+  const wrong = [];
+  for (let i = 0; i < declarations.length; i++) {
+    const d = declarations[i];
+    if (d.base !== "Control") continue;
+
+    const next = declarations[i + 1];
+    const body = code.slice(d.at, next ? next.at : code.length);
+
+    // Only controls that are meant to be operated. A hairline and a row
+    // of dots are decoration and should stay out of the tab order.
+    const interactive = /OnClick|Click\s*\+=|OnMouseDown|Cursors\.Hand/.test(body);
+    if (!interactive) continue;
+
+    if (!/ControlStyles\.Selectable/.test(body)) wrong.push(`${d.name} is not selectable`);
+    else if (!/Keys\.Space|Keys\.Enter/.test(body)) wrong.push(`${d.name} ignores Enter and Space`);
+    else if (!/Focused/.test(body)) wrong.push(`${d.name} draws no focus state`);
+  }
+
+  if (wrong.length === 0 && !declarations.some((d) => d.base === "Control")) continue;
+  check(`${name} keeps every control it draws reachable`,
+    wrong.length === 0, wrong.length ? wrong.join("; ") : "selectable, keyed, focusable");
+}
+
+// ---------------------------------------------------------------------------
 // CS0136: the same local name twice, where one scope encloses the other
 // ---------------------------------------------------------------------------
 // Introduced by adding a tuple deconstruction at the top of a method that

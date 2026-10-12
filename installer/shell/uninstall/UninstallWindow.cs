@@ -27,6 +27,8 @@ internal sealed class UninstallWindow : BrandForm
     private readonly ChoiceCard _wipe;
     private readonly BrandButton _remove = new();
     private readonly BrandButton _cancel = new();
+    private readonly CloseGlyph _close = new();
+    private readonly Hairline _rule = new();
     private readonly SweepBar _bar = new();
 
     private bool _busy;
@@ -52,15 +54,13 @@ internal sealed class UninstallWindow : BrandForm
 
     private void Build()
     {
-        var close = new BrandButton
-        {
-            Text = "✕",
-            Size = new Size(36, 28),
-            Location = new Point(ClientSize.Width - 48, 12),
-            Font = Brand.Body,
-        };
-        close.Click += (_, _) => { if (!_busy) Close(); };
-        Controls.Add(close);
+        _close.Location = new Point(ClientSize.Width - 48, 14);
+        _close.Click += (_, _) => { if (!_busy) Close(); };
+        Controls.Add(_close);
+
+        _rule.Location = new Point(40, ClientSize.Height - 92);
+        _rule.Size = new Size(ClientSize.Width - 80, 1);
+        Controls.Add(_rule);
 
         _title.Text = "Remove AURION?";
         _title.Font = Brand.Title;
@@ -113,6 +113,17 @@ internal sealed class UninstallWindow : BrandForm
 
         // Escape is the safe answer here, so it is the one bound.
         KeyDown += (_, e) => { if (e.KeyCode == Keys.Escape && !_busy) Close(); };
+
+        var order = new Control[] { _keep, _wipe, _cancel, _remove, _close };
+        for (var i = 0; i < order.Length; i++) order[i].TabIndex = i;
+    }
+
+    protected override void OnShown(EventArgs e)
+    {
+        base.OnShown(e);
+        // Focus starts on the safe answer, not on Remove. Enter should
+        // not be able to delete a trade history by accident.
+        _cancel.Focus();
     }
 
     private void Choose(bool keep)

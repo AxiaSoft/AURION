@@ -33,7 +33,9 @@ internal sealed class SetupWindow : BrandForm
 
     private readonly BrandButton _primary = new();
     private readonly BrandButton _secondary = new();
-    private readonly BrandButton _close = new();
+    private readonly CloseGlyph _close = new();
+    private readonly StepDots _steps = new();
+    private readonly Hairline _rule = new();
 
     private int _page;
     private bool _busy;
@@ -61,12 +63,18 @@ internal sealed class SetupWindow : BrandForm
 
     private void Build()
     {
-        _close.Text = "✕";
-        _close.Size = new Size(36, 28);
-        _close.Location = new Point(ClientSize.Width - 48, 12);
-        _close.Font = Brand.Body;
+        _close.Location = new Point(ClientSize.Width - 48, 14);
         _close.Click += (_, _) => TryClose();
         Controls.Add(_close);
+
+        _steps.Count = 3;
+        _steps.Size = new Size(120, 10);
+        _steps.Location = new Point((ClientSize.Width - 120) / 2, ClientSize.Height - 104);
+        Controls.Add(_steps);
+
+        _rule.Location = new Point(40, ClientSize.Height - 90);
+        _rule.Size = new Size(ClientSize.Width - 80, 1);
+        Controls.Add(_rule);
 
         _title.Font = Brand.Title;
         _title.ForeColor = Brand.Ink;
@@ -119,6 +127,18 @@ internal sealed class SetupWindow : BrandForm
         Controls.Add(_primary);
 
         KeyDown += (_, e) => { if (e.KeyCode == Keys.Escape) TryClose(); };
+
+        // Tab goes through the window the way it reads.
+        var order = new Control[] { _startMenu, _desktop, _secondary, _primary, _close };
+        for (var i = 0; i < order.Length; i++) order[i].TabIndex = i;
+    }
+
+    protected override void OnShown(EventArgs e)
+    {
+        base.OnShown(e);
+        // So Enter does the obvious thing the moment the window appears,
+        // without anyone having to find the button with Tab first.
+        _primary.Focus();
     }
 
     protected override void OnPaint(PaintEventArgs e)
@@ -209,6 +229,9 @@ internal sealed class SetupWindow : BrandForm
                 _secondary.Enabled = true;
                 break;
         }
+
+        _steps.At = page >= 2 ? 2 : page;
+        _steps.Visible = page != 3;
 
         _primary.Invalidate();
         _secondary.Invalidate();

@@ -30,6 +30,7 @@ internal static class Brand
     public static readonly Color Violet = Color.FromArgb(0x7C, 0x6C, 0xFF);
     public static readonly Color Danger = Color.FromArgb(0xFF, 0x6B, 0x6B);
     public static readonly Color Hairline = Color.FromArgb(0x22, 0x27, 0x36);
+    public static readonly Color Focus = Color.FromArgb(0x6E, 0xE7, 0xD0);
 
     // Created once per process. A Font is expensive to build and these are
     // used on every paint; the splash screen was marked "not responding"
@@ -116,13 +117,49 @@ internal sealed class BrandButton : Control
 
     public BrandButton()
     {
+        // Selectable is the whole difference between a button and a
+        // picture of one.
+        //
+        // This derives from Control, which is not selectable by default,
+        // and nothing turned it on. The result was an installer whose
+        // buttons could not be reached with Tab, could not be pressed
+        // with Enter or Space, and showed nothing at all when focused.
+        // Every page was mouse-only - including the one that asks whether
+        // to delete four years of trade history.
         SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.UserPaint
-                 | ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
+                 | ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw
+                 | ControlStyles.Selectable, true);
+        TabStop = true;
         Size = new Size(150, 40);
         Cursor = Cursors.Hand;
         Font = Brand.Strong;
         ForeColor = Brand.Ink;
     }
+
+    protected override bool IsInputKey(Keys keyData) =>
+        keyData == Keys.Enter || keyData == Keys.Space || base.IsInputKey(keyData);
+
+    protected override void OnKeyDown(KeyEventArgs e)
+    {
+        if (e.KeyCode is Keys.Enter or Keys.Space) { e.Handled = true; _down = true; Invalidate(); }
+        base.OnKeyDown(e);
+    }
+
+    protected override void OnKeyUp(KeyEventArgs e)
+    {
+        if (e.KeyCode is Keys.Enter or Keys.Space)
+        {
+            e.Handled = true;
+            _down = false;
+            Invalidate();
+            if (Enabled) OnClick(EventArgs.Empty);
+        }
+        base.OnKeyUp(e);
+    }
+
+    protected override void OnGotFocus(EventArgs e) { Invalidate(); base.OnGotFocus(e); }
+    protected override void OnLostFocus(EventArgs e) { Invalidate(); base.OnLostFocus(e); }
+    protected override void OnEnabledChanged(EventArgs e) { Invalidate(); base.OnEnabledChanged(e); }
 
     protected override void OnTextChanged(EventArgs e)
     {
@@ -134,7 +171,15 @@ internal sealed class BrandButton : Control
 
     protected override void OnMouseEnter(EventArgs e) { _hot = true; Invalidate(); base.OnMouseEnter(e); }
     protected override void OnMouseLeave(EventArgs e) { _hot = false; _down = false; Invalidate(); base.OnMouseLeave(e); }
-    protected override void OnMouseDown(MouseEventArgs e) { _down = true; Invalidate(); base.OnMouseDown(e); }
+    protected override void OnMouseDown(MouseEventArgs e)
+    {
+        // Clicking something is also how it gets focus everywhere else in
+        // Windows.
+        if (Enabled && CanFocus) Focus();
+        _down = true;
+        Invalidate();
+        base.OnMouseDown(e);
+    }
     protected override void OnMouseUp(MouseEventArgs e) { _down = false; Invalidate(); base.OnMouseUp(e); }
 
     protected override void OnPaintBackground(PaintEventArgs e)
@@ -185,6 +230,17 @@ internal sealed class BrandButton : Control
             : Brand.Muted;
         TextRenderer.DrawText(g, Text, Font, ClientRectangle, ink,
             TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine);
+
+        // Keyboard focus has to be visible or being able to reach a button
+        // is worth nothing: the user would be moving an invisible cursor
+        // around a window and pressing Enter to find out where it was.
+        if (Focused && Enabled)
+        {
+            var ring = new RectangleF(2.5f, 2.5f, Width - 5f, Height - 5f);
+            using var path = Brand.Rounded(ring, 7f);
+            using var pen = new Pen(Brand.Focus, 1.8f) { DashStyle = DashStyle.Dot };
+            g.DrawPath(pen, path);
+        }
     }
 }
 
@@ -231,14 +287,67 @@ internal sealed class BrandLabel : Label
 /// </summary>
 internal class BrandForm : Form
 {
+    private const int WmNcHitTest = 0x84;
     private const int WmNcLButtonDown = 0xA1;
+    private const int HtClient = 0x1;
     private const int HtCaption = 0x2;
+    private const int CsDropShadow = 0x20000;
 
-    [DllImport("user32.dll")]
-    private static extern bool ReleaseCapture();
+    /// <summary>Height of the band at the top that drags the window.</summary>
+    protected virtual int CaptionHeight => 56;
 
-    [DllImport("user32.dll")]
-    private static extern IntPtr SendMessage(IntPtr hWnd, int msg, int wParam, int lParam);
+    [DllImport("dwmapi.dll")]
+    private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attribute, ref int value, int size);
+
+    protected override CreateParams CreateParams
+    {
+        get
+        {
+            // A borderless window gets no shadow, and without one it reads
+            // as a flat rectangle pasted onto the desktop rather than a
+            // window sitting above it.
+            var cp = base.CreateParams;
+            cp.ClassStyle |= CsDropShadow;
+            return cp;
+        }
+    }
+
+    protected override void OnHandleCreated(EventArgs e)
+    {
+        base.OnHandleCreated(e);
+
+        // Rounded corners, where the operating system has them.
+        // DWMWA_WINDOW_CORNER_PREFERENCE = 33, DWMWCP_ROUND = 2. Windows 11
+        // honours it; Windows 10 returns an error code that is ignored,
+        // and the square corners it keeps are the ones it uses everywhere
+        // else, so nothing looks out of place either way.
+        try
+        {
+            var round = 2;
+            DwmSetWindowAttribute(Handle, 33, ref round, sizeof(int));
+        }
+        catch
+        {
+            // Older than dwmapi. The window still works.
+        }
+    }
+
+    protected override void WndProc(ref Message m)
+    {
+        base.WndProc(ref m);
+
+        // Drag from anywhere in the header band.
+        //
+        // Dragging used to work only on the two labels that had been
+        // wired up for it, which is not something anyone can see: the
+        // window looked draggable everywhere and moved from two places.
+        if (m.Msg == WmNcHitTest && (int)m.Result == HtClient)
+        {
+            var screen = new Point(m.LParam.ToInt32() & 0xFFFF, (m.LParam.ToInt32() >> 16) & 0xFFFF);
+            var local = PointToClient(screen);
+            if (local.Y >= 0 && local.Y < CaptionHeight) m.Result = (IntPtr)HtCaption;
+        }
+    }
 
     private Bitmap? _backdrop;
     private readonly Image? _mark;
@@ -340,16 +449,31 @@ internal class BrandForm : Form
         e.Graphics.DrawRectangle(edge, 0, 0, ClientSize.Width - 1, ClientSize.Height - 1);
     }
 
-    /// <summary>Let a drag anywhere on the chrome move the window.</summary>
+    /// <summary>
+    /// Kept for controls that sit below the header band and should still
+    /// move the window - a caption-height hit test cannot reach those.
+    /// </summary>
     protected void DragFrom(Control c)
     {
         c.MouseDown += (_, e) =>
         {
             if (e.Button != MouseButtons.Left) return;
+
+            // Only inside the header band, so the hit test above and this
+            // agree about what counts as the caption.
+            var local = PointToClient(c.PointToScreen(e.Location));
+            if (local.Y >= CaptionHeight) return;
+
             ReleaseCapture();
             SendMessage(Handle, WmNcLButtonDown, HtCaption, 0);
         };
     }
+
+    [DllImport("user32.dll")]
+    private static extern bool ReleaseCapture();
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr SendMessage(IntPtr hWnd, int msg, int wParam, int lParam);
 
     protected override void Dispose(bool disposing)
     {
