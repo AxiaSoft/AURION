@@ -439,6 +439,7 @@
       ${topHtml(o)}
       <div class="tv-body">
         ${railHtml()}
+        <div class="tv-scrim" id="tv-scrim" aria-hidden="true"></div>
         <div class="tv-stage">
           <div class="chart-box" id="tv-chartbox">
             <canvas id="cv-desk"></canvas>
@@ -1050,7 +1051,40 @@
     write(LS_DOCK, next ? "1" : "0");
     const b = $("tv-dock-toggle");
     if (b) b.setAttribute("aria-pressed", next ? "true" : "false");
-    if (ui.chart) setTimeout(() => ui.chart.draw(), 210);
+
+    // One redraw timed to the end of a CSS transition is a guess, and it
+    // was the wrong guess often enough to be reported as the chart
+    // disappearing. redrawSoon paints at 0, 120 and 360ms, and the
+    // ResizeObserver below catches whatever none of those caught.
+    redrawSoon();
+  }
+
+  /**
+   * Repaint whenever the canvas changes size, whatever caused it.
+   *
+   * Every redraw in this file is otherwise tied to a specific event -
+   * a dock toggle, a fullscreen change, a window resize - and the chart
+   * is blank for as long as one of them is missed. A phone keyboard
+   * opening, an address bar collapsing, a rotation, a transition that
+   * ran longer than expected: none of those are events this code was
+   * watching, and all of them change the size of the canvas.
+   */
+  function watchSize() {
+    const box = $("tv-chartbox");
+    if (!box || typeof ResizeObserver === "undefined") return;
+    if (ui.sizeWatch) { try { ui.sizeWatch.disconnect(); } catch (e) { /* gone */ } }
+
+    let last = 0;
+    ui.sizeWatch = new ResizeObserver(() => {
+      // Coalesced: a transition fires this on every frame.
+      const now = Date.now();
+      if (now - last < 60) return;
+      last = now;
+      requestAnimationFrame(() => {
+        try { if (ui.chart) ui.chart.draw(); } catch (e) { /* unmounted */ }
+      });
+    });
+    ui.sizeWatch.observe(box);
   }
 
   /* ========================================================= fullscreen == */
@@ -1248,9 +1282,20 @@
         if (name === "settings") openMenu(menu, name, menuSettings());
         return;
       }
-      if (e.target.closest("#tv-back")) { if (ctx.onBack) ctx.onBack(); return; }
+      if (e.target.closest("#tv-back")) {
+        // Leave fullscreen on the way out.
+        //
+        // Going back from a fullscreen chart used to land on a desk with
+        // no title bar, no navigation and no way to get any of it back
+        // except pressing F or Escape - neither of which is discoverable,
+        // and neither of which exists on a phone.
+        if (ui.fullscreen) setFullscreen(false);
+        if (ctx.onBack) ctx.onBack();
+        return;
+      }
       if (e.target.closest("#tv-undo")) { chart.undo(); return; }
       if (e.target.closest("#tv-redo")) { chart.redo(); return; }
+      if (e.target.closest("#tv-scrim")) { toggleDock(false); return; }
       if (e.target.closest("#tv-dock-toggle")) { toggleDock(); return; }
       if (e.target.closest("#tv-full")) setFullscreen(!ui.fullscreen);
     };
@@ -1339,6 +1384,9 @@
       // height with no element resize at all on some browsers.
       window.addEventListener("orientationchange", redrawSoon);
     }
+
+    // And the catch-all, for every size change nothing above predicted.
+    watchSize();
 
     /* ---- navigation ----------------------------------------------------- */
     const box = $("tv-chartbox");

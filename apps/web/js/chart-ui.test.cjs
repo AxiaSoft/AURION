@@ -139,9 +139,24 @@ check("every icon button carries a label",
     const iconOnly = bare.filter((b) => /class="[^"]*(tv-icon|tvr-btn|tv-round)/.test(b));
     return iconOnly.length === 0 ? true : iconOnly.join(" | ");
   })());
-check("decorative icons are hidden from the reader",
-  (html.match(/<svg/g) || []).length === (html.match(/aria-hidden="true"/g) || []).length -
-    (html.match(/<div id="bg-fx"/g) || []).length);
+/*
+   Counting aria-hidden attributes and comparing the total to the number
+   of <svg> tags measured the right thing by accident. It broke the first
+   time something that is not an icon needed hiding - the scrim over the
+   mobile dock - and the failure said "decorative icons are hidden from
+   the reader" about a change that had added no icons.
+
+   What matters is that no icon reaches a screen reader, so that is what
+   is asked.
+*/
+const naked = (html.match(/<svg(?![^>]*aria-hidden)/g) || []).length;
+check("decorative icons are hidden from the reader", naked === 0 || `${naked} bare <svg>`);
+
+// The scrim is hidden too, and may be: the dock it covers has a real
+// close button, which is the control a reader should find instead.
+check("the mobile scrim is hidden from the reader but not from a thumb",
+  /class="tv-scrim"[^>]*aria-hidden="true"/.test(html) &&
+  /id="tv-dock-close"/.test(html));
 
 /* --------------------------------------------------------------- i18n --- */
 
