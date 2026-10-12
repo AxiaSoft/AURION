@@ -36,8 +36,20 @@ internal sealed class ChoiceCard : Control
     {
         _heading = heading;
         _detail = detail;
+        // SupportsTransparentBackColor is not decoration. Control.BackColor
+        // throws ArgumentException for any colour with an alpha below 255
+        // unless this style is set, and Color.Transparent has an alpha of
+        // zero - so the line below it was not a preference, it was an
+        // exception thrown from a constructor, before Application.Run had
+        // started pumping and therefore before anything could catch it.
+        //
+        // A WinExe that throws there dies without a window, without a
+        // message and without an entry anywhere a normal person would
+        // look. AURION-Setup.exe did exactly nothing when double-clicked,
+        // every time, for this.
         SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.UserPaint
-                 | ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
+                 | ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw
+                 | ControlStyles.SupportsTransparentBackColor, true);
         Cursor = Cursors.Hand;
         BackColor = Color.Transparent;
     }
@@ -120,8 +132,11 @@ internal sealed class SweepBar : Control
 
     public SweepBar()
     {
+        // As above: without SupportsTransparentBackColor the next line is
+        // an ArgumentException, not a colour.
         SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.UserPaint
-                 | ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
+                 | ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw
+                 | ControlStyles.SupportsTransparentBackColor, true);
         BackColor = Color.Transparent;
         _ticker.Tick += (_, _) => { _sweep = (_sweep + 0.008f) % 1f; Invalidate(); };
     }

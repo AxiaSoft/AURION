@@ -147,6 +147,72 @@ for (const file of files) {
 }
 
 // ---------------------------------------------------------------------------
+// A transparent BackColor on a plain Control throws at construction
+// ---------------------------------------------------------------------------
+// Control.BackColor throws ArgumentException for any colour whose alpha is
+// below 255 unless ControlStyles.SupportsTransparentBackColor is set, and
+// Color.Transparent has an alpha of zero. Label and Panel set that style
+// themselves; a class deriving straight from Control does not.
+//
+// It compiles. It throws at runtime, from a constructor, before
+// Application.Run has started pumping - so a WinExe dies with no window,
+// no message and nothing in any log. AURION-Setup.exe did exactly nothing
+// when double-clicked, every time, for this.
+const allClasses = files.flatMap((f) =>
+  [...structureOf(fs.readFileSync(f, "utf8")).matchAll(/class\s+(\w+)\s*:\s*(\w+)/g)]
+    .map((m) => ({ name: m[1], base: m[2] })));
+
+for (const file of files) {
+  const name = label(file);
+
+  // Everything below works on the comment-free code, never the raw file.
+  // The first version searched the raw text for the style name, found it
+  // in the comment explaining why the style is needed, and happily passed
+  // a file from which the style itself had been deleted.
+  const code = structureOf(fs.readFileSync(file, "utf8"));
+
+  // Only assignments to the class's own BackColor. "_title.BackColor =
+  // Color.Transparent" sets it on a Label, which supports it; an earlier
+  // draft could not tell the two apart and accused two correct files.
+  const own = /(?<![\w.])BackColor\s*=\s*Color\.Transparent/g;
+  if (!own.test(code)) continue;
+  own.lastIndex = 0;
+
+  const declarations = [...code.matchAll(/class\s+(\w+)\s*:\s*(\w+)/g)]
+    .map((m) => ({ at: m.index, name: m[1], base: m[2] }));
+
+  // Types that already carry the style, plus anything in this repository
+  // that derives from one of them - BrandForm is a Form, and a window
+  // deriving from BrandForm is as safe as one deriving from Form.
+  const safe = ["Form", "UserControl", "Panel", "Label", "ContainerControl"];
+  for (let settled = false; !settled; ) {
+    settled = true;
+    for (const d of allClasses) {
+      if (!safe.includes(d.name) && safe.includes(d.base)) {
+        safe.push(d.name);
+        settled = false;
+      }
+    }
+  }
+
+  const wrong = [];
+  for (const use of code.matchAll(own)) {
+    const owner = declarations.filter((d) => d.at < use.index).pop();
+    if (!owner || safe.includes(owner.base)) continue;
+
+    const next = declarations.find((d) => d.at > owner.at);
+    const body = code.slice(owner.at, next ? next.at : code.length);
+    if (!/SupportsTransparentBackColor/.test(body)) {
+      wrong.push(`${owner.name} derives from ${owner.base}`);
+    }
+  }
+
+  check(`${name} never sets a transparent BackColor it cannot have`,
+    wrong.length === 0,
+    wrong.length ? [...new Set(wrong)].join("; ") : "styles declared");
+}
+
+// ---------------------------------------------------------------------------
 // CS0136: the same local name twice, where one scope encloses the other
 // ---------------------------------------------------------------------------
 // Introduced by adding a tuple deconstruction at the top of a method that

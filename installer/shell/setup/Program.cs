@@ -30,9 +30,34 @@ internal static class Program
             return 1619;      // ERROR_INSTALL_PACKAGE_OPEN_FAILED
         }
 
+        // Nothing here is allowed to fail invisibly.
+        //
+        // The window is built inside Application.Run's argument, which is
+        // before the message loop exists - so WinForms' own exception
+        // handling is not running yet, and an exception from a control's
+        // constructor kills a WinExe process with no window, no message
+        // and nothing in any log. This program did exactly nothing when
+        // double-clicked, every time, because one control set
+        // BackColor = Color.Transparent without
+        // ControlStyles.SupportsTransparentBackColor.
+        //
+        // An installer that can die in silence is unsupportable: the
+        // person it fails for is a customer, on a machine nobody here can
+        // see, and their whole report is "it does not open".
         Application.SetUnhandledExceptionMode(UnhandledExceptionMode.CatchException);
-        ApplicationConfiguration.Initialize();
-        Application.Run(new SetupWindow(msi, Msi.InstalledProductCode("").Length > 0));
+        Application.ThreadException += (_, e) => Fault(e.Exception);
+        AppDomain.CurrentDomain.UnhandledException += (_, e) => Fault(e.ExceptionObject as Exception);
+
+        try
+        {
+            ApplicationConfiguration.Initialize();
+            Application.Run(new SetupWindow(msi, Msi.InstalledProductCode("").Length > 0));
+        }
+        catch (Exception ex)
+        {
+            Fault(ex);
+            return 1603;
+        }
         return 0;
     }
 
@@ -70,4 +95,25 @@ internal static class Program
         }
         return "";
     }
+
+    /// <summary>Say what went wrong, somewhere a person will find it.</summary>
+    private static void Fault(Exception? ex)
+    {
+        if (ex is null) return;
+        var log = Path.Combine(Path.GetTempPath(), "AURION-setup-fault.log");
+        try { File.AppendAllText(log, $"{DateTime.Now:u}  {ex}{Environment.NewLine}"); } catch { }
+
+        try
+        {
+            MessageBox.Show(
+                "AURION setup could not start.\n\n" + ex.Message
+                + "\n\nThe details are in:\n    " + log,
+                "AURION", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+        catch
+        {
+            // Nothing left to try.
+        }
+    }
+
 }

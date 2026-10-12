@@ -45,9 +45,24 @@ internal static class Program
         // file is locked, and on a bad day it fails halfway.
         if (!Relaunched(args) && RelaunchFromTemp(productCode, installFolder)) return 0;
 
+        // The same guard the setup wizard has, for the same reason: the
+        // window is built before the message loop exists, so an exception
+        // from a control's constructor kills a WinExe with no window and
+        // no message. Both programs shared the control that did it.
         Application.SetUnhandledExceptionMode(UnhandledExceptionMode.CatchException);
-        ApplicationConfiguration.Initialize();
-        Application.Run(new UninstallWindow(productCode, installFolder));
+        Application.ThreadException += (_, e) => Fault(e.Exception);
+        AppDomain.CurrentDomain.UnhandledException += (_, e) => Fault(e.ExceptionObject as Exception);
+
+        try
+        {
+            ApplicationConfiguration.Initialize();
+            Application.Run(new UninstallWindow(productCode, installFolder));
+        }
+        catch (Exception ex)
+        {
+            Fault(ex);
+            return 1603;
+        }
         return 0;
     }
 
@@ -100,4 +115,26 @@ internal static class Program
             return false;
         }
     }
+
+    /// <summary>Say what went wrong, somewhere a person will find it.</summary>
+    private static void Fault(Exception? ex)
+    {
+        if (ex is null) return;
+        var log = Path.Combine(Path.GetTempPath(), "AURION-uninstall-fault.log");
+        try { File.AppendAllText(log, $"{DateTime.Now:u}  {ex}{Environment.NewLine}"); } catch { }
+
+        try
+        {
+            MessageBox.Show(
+                "The AURION uninstaller could not start.\n\n" + ex.Message
+                + "\n\nAURION can still be removed from Settings using Windows' own "
+                + "uninstaller.\n\nThe details are in:\n    " + log,
+                "AURION", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+        catch
+        {
+            // Nothing left to try.
+        }
+    }
+
 }
