@@ -32,6 +32,8 @@ internal sealed class UninstallWindow : BrandForm
     private readonly SweepBar _bar = new();
 
     private bool _busy;
+    private bool _done;
+    private bool _wiped;
 
     public UninstallWindow(string productCode, string installFolder)
         : base("Remove AURION", 620, 480)
@@ -65,8 +67,8 @@ internal sealed class UninstallWindow : BrandForm
 
     private void Build()
     {
-        _close.Location = new Point(ClientSize.Width - 48, 14);
-        _close.Click += (_, _) => { if (!_busy) Close(); };
+        _close.Location = new Point(ClientSize.Width - 46, 14);
+        _close.Click += (_, _) => TryClose();
         Controls.Add(_close);
 
         _rule.Location = new Point(40, ClientSize.Height - 92);
@@ -111,19 +113,23 @@ internal sealed class UninstallWindow : BrandForm
         Controls.Add(_status);
 
         _cancel.Text = "Keep AURION";
-        _cancel.Location = new Point(ClientSize.Width - 330, ClientSize.Height - 72);
+        _cancel.RightAligned = true;
+
         _cancel.Click += (_, _) => { if (!_busy) Close(); };
         Controls.Add(_cancel);
 
         _remove.Text = "Remove";
+        _remove.RightAligned = true;
         _remove.Primary = true;
         _remove.Destructive = true;
-        _remove.Location = new Point(ClientSize.Width - 170, ClientSize.Height - 72);
+
         _remove.Click += async (_, _) => await RemoveAsync();
         Controls.Add(_remove);
 
         // Escape is the safe answer here, so it is the one bound.
-        KeyDown += (_, e) => { if (e.KeyCode == Keys.Escape && !_busy) Close(); };
+        KeyDown += (_, e) => { if (e.KeyCode == Keys.Escape) TryClose(); };
+
+        LayOutActions();
 
         var order = new Control[] { _keep, _wipe, _cancel, _remove, _close };
         for (var i = 0; i < order.Length; i++) order[i].TabIndex = i;
@@ -137,6 +143,35 @@ internal sealed class UninstallWindow : BrandForm
         _cancel.Focus();
     }
 
+    /// <summary>Put the two actions against the right margin, sized to fit.</summary>
+    private void LayOutActions()
+    {
+        var y = ClientSize.Height - 70;
+
+        _remove.FitToText();
+        _remove.Location = new Point(ClientSize.Width - 44 - _remove.Width, y);
+
+        _cancel.FitToText();
+        _cancel.Location = new Point(_remove.Left - 12 - _cancel.Width, y);
+    }
+
+    private void TryClose()
+    {
+        if (_done) { Close(); return; }
+
+        var leaving = _busy
+            ? Ask.Show(this, "Stop removing AURION?",
+                "Windows Installer is part-way through. Stopping now can leave "
+                + "AURION half-removed and needing a repair before it can be "
+                + "uninstalled properly.",
+                "Stop anyway", "Keep removing", destructive: true)
+            : Ask.Show(this, "Leave this alone?",
+                "AURION has not been touched. Nothing on this computer has changed.",
+                "Leave it installed", "Stay");
+
+        if (leaving) Close();
+    }
+
     private void Choose(bool keep)
     {
         if (_busy) return;
@@ -144,7 +179,7 @@ internal sealed class UninstallWindow : BrandForm
         _wipe.Selected = !keep;
         _remove.Destructive = !keep;
         _remove.Text = keep ? "Remove" : "Remove everything";
-        _remove.Invalidate();
+        LayOutActions();
     }
 
     private async Task RemoveAsync()
@@ -159,6 +194,7 @@ internal sealed class UninstallWindow : BrandForm
 
         _title.Text = "Removing AURION";
         _lead.Text = "This usually takes under a minute.";
+        _lead.Fit(2);
         _bar.Visible = true;
         _bar.Start();
 
@@ -168,7 +204,8 @@ internal sealed class UninstallWindow : BrandForm
         // AURION_REMOVE_DATA is read by AurionRemoveUserData in Actions.wxs.
         // The default is to keep everything, so the property is only passed
         // when the user has actually asked for the data to go.
-        var extra = _wipe.Selected ? " AURION_REMOVE_DATA=all" : "";
+        _wiped = _wipe.Selected;
+        var extra = _wiped ? " AURION_REMOVE_DATA=all" : "";
 
         try
         {
@@ -177,24 +214,7 @@ internal sealed class UninstallWindow : BrandForm
 
             _bar.Stop();
 
-            if (Msi.Succeeded(code))
-            {
-                _title.Text = "AURION has been removed";
-                _lead.Text = _wipe.Selected
-                    ? "The application and all of its data are gone from this computer."
-                    : "Your trading data is still on this computer, ready for next time.";
-                _status.Text = "";
-                _bar.Visible = false;
-
-                _cancel.Text = "Close";
-                _cancel.Enabled = true;
-                _cancel.Primary = true;
-                _cancel.Location = new Point(ClientSize.Width - 170, ClientSize.Height - 72);
-                _cancel.Invalidate();
-                _remove.Visible = false;
-                _busy = false;
-                return;
-            }
+            if (Msi.Succeeded(code)) { Farewell(); return; }
 
             Failed(Msi.Explain(code), log);
         }
@@ -203,6 +223,51 @@ internal sealed class UninstallWindow : BrandForm
             _bar.Stop();
             Failed(ex.Message, log);
         }
+    }
+
+    /// <summary>
+    /// The last thing AURION says.
+    ///
+    /// The window used to end by showing the two choices again - keep the
+    /// data, or remove everything - over a title saying it had already
+    /// been removed. The work was done and the question was dead, and
+    /// leaving a destructive-looking button on screen after the fact
+    /// reads as "did that not work?".
+    ///
+    /// It says goodbye instead, and tells the trader the one thing they
+    /// might act on later: whether their data is still there.
+    /// </summary>
+    private void Farewell()
+    {
+        _done = true;
+        _busy = false;
+
+        _bar.Stop();
+        _bar.Visible = false;
+        _keep.Visible = _wipe.Visible = false;
+        _remove.Visible = false;
+
+        _title.Text = "Goodbye, and thank you";
+        _lead.Text = _wiped
+            ? "AURION and everything it held are gone from this computer. "
+              + "No settings, no history, no licence - nothing left behind."
+            : "AURION is gone, but your trading data is not. Settings, history, "
+              + "exports and licence are still in place, and installing AURION "
+              + "again will pick up exactly where this left off.";
+
+        _status.Text = _wiped
+            ? ""
+            : _installFolder.Length > 0 ? "Your data is in  " + _installFolder + "data" : "";
+
+        _cancel.Text = "Close";
+        _cancel.Primary = true;
+        _cancel.Destructive = false;
+        _cancel.Enabled = true;
+
+        _lead.Fit(4);
+        _status.Fit(2);
+        LayOutActions();
+        Invalidate();
     }
 
     private void Failed(string why, string log)
@@ -214,11 +279,13 @@ internal sealed class UninstallWindow : BrandForm
 
         _remove.Enabled = true;
         _remove.Text = "Try again";
-        _remove.Invalidate();
         _cancel.Enabled = true;
         _cancel.Text = "Close";
-        _cancel.Invalidate();
         _keep.Enabled = _wipe.Enabled = true;
         _busy = false;
+
+        _lead.Fit(3);
+        _status.Fit(2);
+        LayOutActions();
     }
 }

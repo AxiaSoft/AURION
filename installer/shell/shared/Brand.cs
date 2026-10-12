@@ -143,13 +143,50 @@ internal sealed class BrandButton : Control
     protected override void OnLostFocus(EventArgs e) { Invalidate(); base.OnLostFocus(e); }
     protected override void OnEnabledChanged(EventArgs e) { Invalidate(); base.OnEnabledChanged(e); }
 
+    /// <summary>Grow to fit the label, never shrink below this.</summary>
+    public int MinimumWidth { get; set; } = 120;
+
+    /// <summary>Space either side of the text.</summary>
+    public int SidePadding { get; set; } = 22;
+
     protected override void OnTextChanged(EventArgs e)
     {
-        // "Install" becomes "Try again"; "Remove" becomes "Remove
-        // everything". Same problem as BrandLabel, same fix.
+        // Fit the text before repainting.
+        //
+        // These buttons were a fixed 150px and their captions are not:
+        // "Remove everything", "Install what is missing" and "Try again"
+        // all share one button, and the long ones were simply cut off
+        // mid-word. A button has to be as wide as what it says.
+        FitToText();
+
         Parent?.Invalidate(Bounds, false);
         base.OnTextChanged(e);
     }
+
+    /// <summary>
+    /// Resize to the caption, keeping the right-hand edge where it is.
+    ///
+    /// Both windows lay their actions out from the right-hand margin, so
+    /// a button that grows must grow leftwards or it walks off the edge
+    /// of the window.
+    /// </summary>
+    public void FitToText()
+    {
+        if (string.IsNullOrEmpty(Text)) return;
+
+        var size = TextRenderer.MeasureText(Text, Font, new Size(1000, Height),
+            TextFormatFlags.SingleLine | TextFormatFlags.NoPadding);
+
+        var want = Math.Max(MinimumWidth, size.Width + SidePadding * 2);
+        if (want == Width) return;
+
+        var right = Left + Width;
+        Width = want;
+        if (Anchor.HasFlag(AnchorStyles.Right) || RightAligned) Left = right - want;
+    }
+
+    /// <summary>Keep the right edge fixed when the caption changes.</summary>
+    public bool RightAligned { get; set; }
 
     protected override void OnMouseEnter(EventArgs e) { _hot = true; Invalidate(); base.OnMouseEnter(e); }
     protected override void OnMouseLeave(EventArgs e) { _hot = false; _down = false; Invalidate(); base.OnMouseLeave(e); }
@@ -242,6 +279,35 @@ internal sealed class BrandLabel : Label
         BackColor = Color.Transparent;
         ForeColor = Brand.Ink;
         Font = Brand.Body;
+        UseMnemonic = false;      // "&" in a path is a path, not a shortcut
+    }
+
+    /// <summary>
+    /// Set the height to whatever the text needs at the current width.
+    ///
+    /// Every label in both windows had a height picked by hand against
+    /// one English sentence. Any sentence longer than that - and several
+    /// are, once a reason or a file path is in them - was simply clipped
+    /// at the bottom, mid-line. Measuring is the only thing that works
+    /// for text nobody has seen yet.
+    /// </summary>
+    public void Fit(int maxLines = 4)
+    {
+        if (Width <= 0) return;
+
+        var flags = TextFormatFlags.WordBreak | TextFormatFlags.NoPadding;
+        var measured = TextRenderer.MeasureText(Text ?? "", Font,
+            new Size(Width, int.MaxValue), flags);
+
+        var line = Math.Max(1, TextRenderer.MeasureText("Ag", Font).Height);
+        Height = Math.Min(measured.Height + 2, line * maxLines + 2);
+    }
+
+    protected override void OnTextChanged(EventArgs e)
+    {
+        Parent?.Invalidate(Bounds, false);
+        Fit();
+        base.OnTextChanged(e);
     }
 
     protected override void OnPaintBackground(PaintEventArgs e)
@@ -250,17 +316,6 @@ internal sealed class BrandLabel : Label
         else base.OnPaintBackground(e);
     }
 
-    protected override void OnTextChanged(EventArgs e)
-    {
-        // Repaint the backdrop under the old text before drawing the new.
-        //
-        // Both windows rewrite these labels as they move between pages,
-        // and a shorter line does not erase a longer one: the control
-        // only repaints itself, over a background it believes is already
-        // correct. The leftovers of the previous sentence stay on screen.
-        Parent?.Invalidate(Bounds, false);
-        base.OnTextChanged(e);
-    }
 }
 
 /// <summary>

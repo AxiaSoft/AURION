@@ -449,6 +449,46 @@ check("the mark and its halo are cached, not painted per frame",
   /protected override void PaintBrand/.test(read("installer/shell/uninstall/UninstallWindow.cs")) &&
   /Aurora\.Halo/.test(read("installer/window/SplashPanel.cs")));
 
+// Captions change: "Install" becomes "Install what is missing" becomes
+// "Try again"; "Remove" becomes "Remove everything". A fixed 150px button
+// drew the long ones clipped mid-word, and a label with a hand-picked
+// height clipped the bottom line of any sentence longer than the one it
+// was measured against.
+const brandCs = read("installer/shell/shared/Brand.cs");
+check("buttons and labels are sized from their own text",
+  /public void FitToText\(\)/.test(brandCs) &&
+  /TextRenderer\.MeasureText/.test(brandCs) &&
+  /public void Fit\(int maxLines = 4\)/.test(brandCs));
+check("and the actions are laid out from the right margin, not pinned",
+  /private void LayOutActions\(\)/.test(read("installer/shell/setup/SetupWindow.cs")) &&
+  /private void LayOutActions\(\)/.test(read("installer/shell/uninstall/UninstallWindow.cs")));
+
+// Closing either window mid-flight is how a machine ends up with a
+// half-written installation, so it asks - in AURION's own window, since
+// a grey system box at that moment gives back exactly what these
+// programs exist to replace.
+const askCs = read("installer/shell/shared/Ask.cs");
+check("closing asks first, in AURION's own window",
+  /class Ask : BrandForm/.test(askCs) &&
+  /Ask\.Show\(this, "Leave setup\?"/.test(read("installer/shell/setup/SetupWindow.cs")) &&
+  /Ask\.Show\(this, "Leave this alone\?"/.test(read("installer/shell/uninstall/UninstallWindow.cs")));
+
+// Where a program puts itself and what it adds to the Start menu are not
+// advanced questions, and an "Options" button is the shape you choose for
+// settings you would rather nobody saw.
+check("the wizard asks where it goes and how to reach it, in that order",
+  /enum Page \{ Welcome = 0, Where = 1, Shortcuts = 2, Working = 3, Done = 4 \}/
+    .test(read("installer/shell/setup/SetupWindow.cs")) &&
+  /INSTALLFOLDER=/.test(read("installer/shell/setup/SetupWindow.cs")) &&
+  // The button assignment, not the comment explaining why it is gone.
+  !/_secondary\.Text = "Options"/.test(read("installer/shell/setup/SetupWindow.cs")));
+
+// Showing the keep-or-delete choice again, under a title saying it is
+// already done, reads as "did that not work?".
+check("the uninstaller says goodbye rather than re-asking",
+  /private void Farewell\(\)/.test(read("installer/shell/uninstall/UninstallWindow.cs")) &&
+  /Goodbye, and thank you/.test(read("installer/shell/uninstall/UninstallWindow.cs")));
+
 // ------------------------------------------------------- the setup wizard
 
 // Windows Installer's dialogs take a banner bitmap and a licence page and
