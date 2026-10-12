@@ -29,8 +29,19 @@ internal static class Program
 
         if (productCode.Length == 0)
         {
+            // Say what was looked at. "Does not appear to be installed" on
+            // a machine where AURION plainly is installed is the least
+            // useful sentence this program could produce, and it produced
+            // it - because it was deducing the answer from the registry
+            // instead of asking Windows Installer.
             MessageBox.Show(
-                "AURION does not appear to be installed for this user.\n\n"
+                "Windows Installer has no record of AURION on this machine.\n\n"
+                + "Checked:\n"
+                + "    the installer database, for AURION's upgrade code\n"
+                + "    HKCU and HKLM  Software\\AxiaSoft\\AURION  ProductCode\n\n"
+                + "If AURION is installed and this is wrong, its Windows Installer "
+                + "registration has been damaged. It can still be removed from "
+                + "Settings, and reinstalling over the top will repair it.\n\n"
                 + "Nothing was changed.",
                 "AURION", MessageBoxButtons.OK, MessageBoxIcon.Information);
             return 1605;      // ERROR_UNKNOWN_PRODUCT

@@ -519,12 +519,33 @@ check("the hand-written entry keeps the parts Windows did better",
   /Name="QuietUninstallString"[\s\S]{0,120}MsiExec\.exe \/x/.test(registry) &&
   /Name="ModifyPath"[\s\S]{0,120}MsiExec\.exe \/i/.test(registry));
 
-// The ARP key is named AURION now, not a GUID, so the ProductCode cannot
-// be read off it. It is written where AURION keeps its own state.
-check("the uninstaller can still find the ProductCode on its own",
+// Both earlier attempts deduced the ProductCode from the registry, and
+// both broke: the uninstaller told a machine with AURION plainly
+// installed that it was not installed. MsiEnumRelatedProducts asks the
+// installer database, which is the same question Windows Installer asks
+// itself and cannot be out of date.
+const msiCs = read("installer/shell/shared/Msi.cs");
+check("the uninstaller asks Windows Installer, not the registry",
+  /MsiEnumRelatedProductsW/.test(msiCs) &&
+  /DllImport\("msi\.dll"/.test(msiCs) &&
+  msiCs.indexOf("MsiEnumRelatedProductsW(UpgradeCode") <
+  msiCs.indexOf('OpenSubKey(@"Software'));
+
+// The registry remains a fallback for a damaged registration.
+check("and still keeps a fallback the MSI writes",
   /Name="ProductCode"\s+Type="string" Value="\[ProductCode\]"/.test(registry) &&
-  read("installer/shell/shared/Msi.cs").includes("Software\\AxiaSoft\\AURION") &&
-  /GetValue\("ProductCode"\)/.test(read("installer/shell/shared/Msi.cs")));
+  msiCs.includes("Software\\AxiaSoft\\AURION") &&
+  /GetValue\("ProductCode"\)/.test(msiCs));
+
+// A constant in two places is a constant that will drift.
+{
+  const props = read("installer/Version.props");
+  const inProps = /<AurionUpgradeCode>(\{[^<]+\})<\/AurionUpgradeCode>/.exec(props);
+  const inCode = /UpgradeCode = "(\{[^"]+\})"/.exec(msiCs);
+  check("the uninstaller's upgrade code is the one the MSI is built with",
+    inProps !== null && inCode !== null && inProps[1] === inCode[1],
+    inProps && inCode ? `${inCode[1]}` : "not found in both");
+}
 
 // It lives in the folder Windows Installer is about to delete.
 check("it copies itself out before deleting the folder it lives in",

@@ -146,17 +146,47 @@ internal static class Msi
     }
 
     /// <summary>
+    /// AURION's UpgradeCode. Frozen for the life of the product, and the
+    /// same constant installer\Version.props gives the MSI.
+    /// </summary>
+    private const string UpgradeCode = "{1F6A9A2C-4C1E-4E4B-9C35-6B5F0E5A3D71}";
+
+    [System.Runtime.InteropServices.DllImport("msi.dll",
+        CharSet = System.Runtime.InteropServices.CharSet.Unicode, ExactSpelling = true)]
+    private static extern int MsiEnumRelatedProductsW(
+        string upgradeCode, int reserved, int index, System.Text.StringBuilder productCode);
+
+    /// <summary>
     /// The ProductCode AURION is registered under, or "".
     ///
-    /// Read from AURION's own key, which the MSI writes as an ordinary
-    /// component. Scanning Add or Remove Programs for it used to work and
-    /// no longer can: AURION hides Windows Installer's entry and writes
-    /// its own, whose key is named AURION rather than a GUID - so the scan
-    /// would hand msiexec the word "AURION" and be told there is no such
-    /// product.
+    /// Asked of Windows Installer, not deduced from the registry.
+    ///
+    /// Both earlier attempts guessed. The first scanned Add or Remove
+    /// Programs for a DisplayName beginning with AURION and a Publisher
+    /// containing AxiaSoft; the second read a value AURION writes under
+    /// its own key. Each depends on a layout that can change - and one
+    /// did change, the moment AURION started writing its own Add or
+    /// Remove Programs entry under a key named AURION rather than a GUID.
+    /// The visible result was an uninstaller insisting, on a machine with
+    /// AURION plainly installed, that it was not installed at all.
+    ///
+    /// MsiEnumRelatedProducts answers from the installer database itself.
+    /// It is the same question Windows Installer asks when it decides
+    /// whether an upgrade applies, it needs no registry layout to be
+    /// true, and it cannot be out of date.
     /// </summary>
     public static string InstalledProductCode(string fallback)
     {
+        // 38 characters plus a terminator, per the API contract.
+        var buffer = new System.Text.StringBuilder(39);
+        if (MsiEnumRelatedProductsW(UpgradeCode, 0, 0, buffer) == 0)
+        {
+            var code = buffer.ToString();
+            if (code.StartsWith('{') && code.EndsWith('}')) return code;
+        }
+
+        // Where the MSI records it, for a machine whose Windows Installer
+        // registration has been damaged but whose files are intact.
         foreach (var root in new[] { Microsoft.Win32.Registry.CurrentUser,
                                      Microsoft.Win32.Registry.LocalMachine })
         {
@@ -168,9 +198,10 @@ internal static class Msi
             }
             catch
             {
-                // An unreadable key means "not installed", never a crash.
+                // An unreadable key means "not here", never a crash.
             }
         }
+
         return fallback;
     }
 }
