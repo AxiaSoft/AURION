@@ -412,6 +412,16 @@ check("an existing python.org install is found through the registry",
     wrong.length ? wrong.join("; ") : `${deferred.length} deferred actions`);
 }
 
+// "It used Windows' uninstaller" and "the fix is in, rebuild" is a
+// conversation that repeats forever unless both sides can see the same
+// facts. This prints them.
+const checkInstall = read("scripts/check-install.ps1");
+check("there is a way to read back what AURION actually registered",
+  /CurrentVersion\\Uninstall/.test(checkInstall) &&
+  /SystemComponent/.test(checkInstall) &&
+  /AURION-Uninstall\.exe/.test(checkInstall) &&
+  /Software\\AxiaSoft\\AURION/.test(checkInstall));
+
 // ------------------------------------------------------- the setup wizard
 
 // Windows Installer's dialogs take a banner bitmap and a licence page and
