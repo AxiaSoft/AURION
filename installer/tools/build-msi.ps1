@@ -76,7 +76,7 @@ function Step([string] $text) {
 
 # Bumped whenever this script changes, so a stale copy is obvious at a glance
 # instead of failing with a confusing parameter error.
-$ScriptRevision = "25"
+$ScriptRevision = "26"
 
 Write-Host ""
 Write-Host "  AURION installer build" -ForegroundColor White
@@ -599,6 +599,43 @@ if (Test-Path $wixpdb) { Copy-Item $wixpdb $outputDir -Force }
 $msi = Get-Item (Join-Path $outputDir $built.Name)
 
 # ---------------------------------------------------------------------------
+# 4b. The setup wizard
+# ---------------------------------------------------------------------------
+# AURION-Setup.exe is the file a customer is actually given. It runs the
+# MSI beside it with /qn and draws the whole experience itself, because
+# Windows Installer's dialogs can be given a banner bitmap and a licence
+# page and nothing else - the typeface, the spacing and the word "Setup"
+# in the title bar stay Microsoft's.
+#
+# Published to a scratch folder and copied, so a publish that drops extra
+# files cannot quietly add them to a release directory.
+Step "Building the setup wizard"
+
+$setupProject = Join-Path $installerDir "shell\setup\AurionSetup.csproj"
+$setupStage   = Join-Path $installerDir "bin\setup-publish"
+
+& $dotnetExe publish $setupProject `
+    -c $Configuration `
+    -r win-x64 `
+    --self-contained true `
+    -p:PublishSingleFile=true `
+    -p:IncludeNativeLibrariesForSelfExtract=true `
+    -p:EnableCompressionInSingleFile=true `
+    -p:AurionVersion=$Version `
+    -o $setupStage `
+    --nologo -v quiet
+
+if ($LASTEXITCODE -ne 0) { throw "Building the setup wizard (AURION-Setup.exe) failed." }
+
+$setupBuilt = Join-Path $setupStage "AURION-Setup.exe"
+if (-not (Test-Path $setupBuilt)) { throw "AURION-Setup.exe was not produced in $setupStage." }
+
+Copy-Item $setupBuilt $outputDir -Force
+$setupExe = Get-Item (Join-Path $outputDir "AURION-Setup.exe")
+Write-Host ("  AURION-Setup.exe  {0:N1} MB" -f ($setupExe.Length / 1MB)) -ForegroundColor Gray
+Write-Host "  hand the customer this and the .msi beside it" -ForegroundColor Gray
+
+# ---------------------------------------------------------------------------
 # 5. Sign (optional but expected for public releases)
 # ---------------------------------------------------------------------------
 if ($CertThumbprint) {
@@ -610,6 +647,11 @@ if ($CertThumbprint) {
 
     & $signtool.FullName sign /sha1 $CertThumbprint /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 /d "AURION" $msi.FullName
     if ($LASTEXITCODE -ne 0) { throw "Signing failed." }
+
+    # The wizard is the file the customer double-clicks, so it is the one
+    # SmartScreen judges. Signing the MSI and not this would be backwards.
+    & $signtool.FullName sign /sha1 $CertThumbprint /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 /d "AURION setup" $setupExe.FullName
+    if ($LASTEXITCODE -ne 0) { throw "Signing the setup wizard failed." }
     Write-Host "  signed" -ForegroundColor Green
 } else {
     Write-Host ""

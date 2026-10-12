@@ -371,15 +371,63 @@ check("an existing python.org install is found through the registry",
   prereqCs.includes("Software\\Python\\PythonCore\\{version}\\InstallPath") &&
   provisionPs1.includes('Software\\Python\\PythonCore\\$v\\InstallPath'));
 
+// ------------------------------------------------------- the setup wizard
+
+// Windows Installer's dialogs take a banner bitmap and a licence page and
+// nothing else: the typeface, the spacing, the buttons and the word
+// "Setup" in the title bar stay Microsoft's. For a product whose entire
+// first impression is that window, that is the wrong first impression.
+const uninstallWindow = read("installer/shell/uninstall/UninstallWindow.cs");
+const uninstallProgram = read("installer/shell/uninstall/Program.cs");
+const uninstallProj = read("installer/shell/uninstall/AurionUninstall.csproj");
+const setupWindow = read("installer/shell/setup/SetupWindow.cs");
+const setupProgram = read("installer/shell/setup/Program.cs");
+const setupProj = read("installer/shell/setup/AurionSetup.csproj");
+
+check("there is a setup wizard with AURION's own interface",
+  /class SetupWindow : BrandForm/.test(setupWindow) &&
+  /AssemblyName>AURION-Setup</.test(setupProj));
+
+// The MSI still installs. Only its dialogs are replaced, so upgrades,
+// rollback, repair and Add or Remove Programs are untouched.
+check("it drives the real MSI rather than replacing it",
+  /Msi\.RunAsync\(\$"\/i \\"\{_msiPath\}\\"\{properties\}"/.test(setupWindow) &&
+  /AURION\*\.msi/.test(setupProgram));
+
+// Properties the MSI has always understood and nothing could set.
+check("the wizard's choices reach the MSI",
+  /AURION_WANT_STARTMENU=/.test(setupWindow) &&
+  /AURION_WANT_DESKTOP=/.test(setupWindow) &&
+  /AURION_SKIP_PROVISION=1/.test(setupWindow) &&
+  /AURION_WANT_STARTMENU/.test(read("installer/src/Prerequisites.wxs")));
+
+// Provisioning is left to the desk window's first start, which has a
+// splash, a progress bar and an explanation. Letting the MSI do it too
+// would mean two different-looking setups running back to back.
+check("it does not race the desk window to set up the runtimes",
+  /AURION_SKIP_PROVISION=1/.test(setupWindow) &&
+  /StartAurion/.test(setupWindow));
+
+check("the build produces it beside the package",
+  /AurionSetup\.csproj/.test(buildMsi) &&
+  /AURION-Setup\.exe was not produced/.test(buildMsi) &&
+  /Signing the setup wizard failed/.test(buildMsi));
+
+// Both installers are drawn from one palette, so the program a user meets
+// on day one and the one they meet a year later look like one product.
+const brand = read("installer/shell/shared/Brand.cs");
+const controls = read("installer/shell/shared/Controls.cs");
+check("both installers share one visual language",
+  /class BrandForm : Form/.test(brand) &&
+  /class ChoiceCard : Control/.test(controls) &&
+  /Compile Include="\.\.\\shared\\\*\.cs"/.test(setupProj) &&
+  /Compile Include="\.\.\\shared\\\*\.cs"/.test(uninstallProj));
+
 // ------------------------------------------------------ the uninstaller
 
 // Windows Installer's own uninstall is an unnamed progress bar, and it has
 // no way to ask the only question that matters here: whether four years of
 // trade history goes with the application.
-const uninstallWindow = read("installer/shell/uninstall/UninstallWindow.cs");
-const uninstallProgram = read("installer/shell/uninstall/Program.cs");
-const uninstallProj = read("installer/shell/uninstall/AurionUninstall.csproj");
-
 check("there is an uninstaller with AURION's own interface",
   /class UninstallWindow : BrandForm/.test(uninstallWindow) &&
   /AssemblyName>AURION-Uninstall</.test(uninstallProj));
