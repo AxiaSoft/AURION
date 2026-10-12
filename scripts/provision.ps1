@@ -172,6 +172,13 @@ Say "installation: $InstallFolder"
     and a switch, and gluing them back together is how quoting bugs start.
 #>
 function Find-Python {
+    # AURION's own interpreter first. The engine is pinned to NumPy 1.26.4 -
+    # the last official Windows wheel that does not require x86-64-v2 - and
+    # that wheel exists only for CPython 3.9 to 3.12. Following whatever the
+    # machine has meant that upgrading the system Python broke the engine.
+    $mine = Join-Path $InstallFolder "runtime\python\python.exe"
+    if (Test-Path -LiteralPath $mine) { return @($mine) }
+
     foreach ($v in @("3.12", "3.11", "3.10")) {
         try {
             $null = & py "-$v" -c "import sys" 2>$null
@@ -348,9 +355,18 @@ if ($SkipPython) {
     # Per-user on purpose. A desk that installs into %LocalAppData% has no
     # business writing to Program Files, and a per-user Python needs no
     # elevation prompt - which is the whole point of doing it this way.
-    Say "installing Python (per-user, no administrator needed) ..."
+    # Into AURION's own folder. TargetDir keeps the engine's pinned NumPy
+    # safe from anyone upgrading the machine's Python; PrependPath=0 and
+    # AssociateFiles=0 because a trading desk has no business owning the
+    # PATH or the .py extension; Include_launcher=0 leaves py.exe alone.
+    # None of it needs an administrator.
+    $target = Join-Path $InstallFolder "runtime\python"
+    Say "installing Python into $target (no administrator needed) ..."
     $p = Start-Process -FilePath $exe -Wait -PassThru -ArgumentList @(
-        "/quiet", "InstallAllUsers=0", "PrependPath=1", "Include_pip=1", "Include_test=0")
+        "/quiet", "InstallAllUsers=0", "TargetDir=$target",
+        "PrependPath=0", "AssociateFiles=0", "Shortcuts=0",
+        "Include_launcher=0", "InstallLauncherAllUsers=0",
+        "Include_pip=1", "Include_test=0", "Include_doc=0", "Include_tcltk=0")
     if ($p.ExitCode -ne 0 -and $p.ExitCode -ne 3010) {
         throw "The Python installer finished with code $($p.ExitCode)."
     }
@@ -358,7 +374,7 @@ if ($SkipPython) {
     Update-PathFromRegistry
     $python = Find-Python
     if (-not $python) {
-        throw "Python installed but could not be found afterwards. Signing out and back in usually fixes the PATH."
+        throw "Python was installed but could not be found afterwards. Expected it at $target\python.exe."
     }
     Say "Python is ready: $($python -join ' ')"
 }

@@ -275,6 +275,32 @@ check("it is shipped in the MSI payload",
   /Copy-Tree -From \(Join-Path \$Root "scripts"\)/.test(stagePs1) &&
   !/provision\.ps1/.test(stagePs1.split("ExcludeFiles")[1] || ""));
 
+// ------------------------------------- AURION brings its own interpreters
+
+// The engine is pinned to NumPy 1.26.4 - the last official Windows wheel
+// that does not require x86-64-v2 - and that wheel exists only for CPython
+// 3.9 to 3.12. Following whatever Python the machine has meant that
+// upgrading it, an ordinary thing to do, silently broke the engine.
+check("Python is installed inside AURION, not into the machine",
+  /PrivatePython/.test(prereqCs) &&
+  /TargetDir=/.test(prereqCs) &&
+  /runtime\\python/.test(provisionPs1) &&
+  /TargetDir=\$target/.test(provisionPs1));
+check("and it takes nothing over on the way in",
+  /PrependPath=0/.test(prereqCs) && /AssociateFiles=0/.test(prereqCs) &&
+  /Include_launcher=0/.test(prereqCs) &&
+  /PrependPath=0/.test(provisionPs1) && /Include_launcher=0/.test(provisionPs1));
+check("every consumer looks for AURION's own interpreter first",
+  /PrivatePython\(installDir\)/.test(prereqCs) &&
+  startCmd.includes("runtime\\python\\python.exe") &&
+  provisionPs1.includes('runtime\\python\\python.exe'));
+check("a quoted interpreter path survives being split into exe and args",
+  /command\.StartsWith\('"'\)/.test(prereqCs));
+check("and the uninstall takes the private Python with it",
+  /AurionRemovePrivatePython/.test(actions) &&
+  /\/quiet \/uninstall/.test(actions) &&
+  /Before="RemoveFiles"[\s\S]{0,120}AurionRemovePrivatePython|AurionRemovePrivatePython[\s\S]{0,160}Before="RemoveFiles"/.test(actions));
+
 // ------------------------------------------- nothing fetched on their machine
 
 // The customer's machine is the worst possible place to be discovering a

@@ -145,6 +145,22 @@ internal static class Prerequisites
     public static string PrivateNode(string installDir) =>
         Path.Combine(installDir, "runtime", "node", "node.exe");
 
+    /// <summary>
+    /// AURION's own Python, if it has been installed.
+    ///
+    /// Private on purpose, and it is the whole answer to "I want to upgrade
+    /// the system Python". The engine is pinned to NumPy 1.26.4 because it
+    /// is the last official Windows wheel that does not require x86-64-v2,
+    /// and that wheel exists only for CPython 3.9 to 3.12. Depending on
+    /// whatever Python the machine happens to have meant that upgrading it -
+    /// an ordinary, sensible thing to do - silently broke the engine.
+    ///
+    /// So AURION brings its own, inside its own folder, on PATH for nobody.
+    /// The machine's Python can be 3.15, or absent, and neither matters.
+    /// </summary>
+    public static string PrivatePython(string installDir) =>
+        Path.Combine(installDir, "runtime", "python", "python.exe");
+
     /// <summary>Everything AURION needs, in the order it is shown.</summary>
     public static List<Requirement> Build() => new()
     {
@@ -152,8 +168,8 @@ internal static class Prerequisites
         {
             Id = "python",
             Title = "Python 3.12",
-            Why = "Runs the trading engine, the AI models and the strategies.",
-            Source = "python.org",
+            Why = "Runs the engine. Installed inside AURION, so upgrading the machine's own Python cannot break it.",
+            Source = "python.org (into AURION's folder, no administrator)",
             Size = "25 MB",
         },
         new Requirement
@@ -201,7 +217,7 @@ internal static class Prerequisites
     public static async Task InspectAsync(IEnumerable<Requirement> items, string installDir)
     {
         var list = items.ToList();
-        var python = FindPython();
+        var python = FindPython(installDir);
         PythonCommand = python;
         NodeCommand = FindNode(installDir);
 
@@ -292,9 +308,15 @@ internal static class Prerequisites
         req.Problem = ok ? "" : problem;
     }
 
-    /// <summary>The best supported interpreter on this machine, or "".</summary>
-    private static string FindPython()
+    /// <summary>
+    /// The interpreter AURION should use: its own first, the machine's only
+    /// as a fallback for installations that predate the private runtime.
+    /// </summary>
+    private static string FindPython(string installDir)
     {
+        var mine = PrivatePython(installDir);
+        if (File.Exists(mine) && PythonVersionOf(Quoted(mine)).Length > 0) return Quoted(mine);
+
         foreach (var v in PythonVersions)
         {
             if (RunQuiet("py", $"-{v} -c \"import sys\"")) return $"py -{v}";
@@ -308,6 +330,9 @@ internal static class Prerequisites
         }
         return "";
     }
+
+    /// <summary>Quote a path so Split() hands it back in one piece.</summary>
+    private static string Quoted(string path) => "\"" + path + "\"";
 
     private static string PythonVersionOf(string command)
     {
@@ -491,26 +516,48 @@ internal static class Prerequisites
                 PythonPublisher, "Python", say, ct);
         }
 
-        say.Report("Installing Python…");
-        // Per-user, on PATH, with pip. Never InstallAllUsers: a desk that
-        // installs into %LocalAppData% has no business writing to Program
-        // Files, and a per-user Python needs no elevation prompt.
-        await RunAsync(file, "/quiet InstallAllUsers=0 PrependPath=1 Include_pip=1 Include_test=0",
+        var target = Path.Combine(installDir, "runtime", "python");
+        say.Report("Installing Python into AURION's own folder…");
+
+        // Everything here is "ours, and only ours".
+        //
+        // TargetDir puts the interpreter inside the installation, so the
+        // engine's pinned NumPy cannot be broken by someone upgrading the
+        // machine's Python - which is an ordinary thing to do and used to
+        // be fatal. PrependPath=0 and AssociateFiles=0 because a trading
+        // desk has no business owning the PATH or the .py extension.
+        // Include_launcher=0 so py.exe in C:\Windows is left exactly as it
+        // was found. No elevation is needed for any of it.
+        await RunAsync(file,
+            "/quiet InstallAllUsers=0 TargetDir=\"" + target + "\" " +
+            "PrependPath=0 AssociateFiles=0 Shortcuts=0 " +
+            "Include_launcher=0 InstallLauncherAllUsers=0 " +
+            "Include_pip=1 Include_test=0 Include_doc=0 Include_tcltk=0",
             elevate: false, ct);
 
-        // The new interpreter is not on this process's PATH, so re-detect.
+        var mine = PrivatePython(installDir);
+        if (File.Exists(mine))
+        {
+            PythonCommand = Quoted(mine);
+            WriteRuntimeEnv(installDir);
+            say.Report("Python is ready, inside AURION.");
+            return;
+        }
+
+        // The installer did not put it where it was told. Fall back to
+        // whatever it did produce rather than failing outright.
         RefreshPath();
-        PythonCommand = FindPython();
+        PythonCommand = FindPython(installDir);
         if (PythonCommand.Length == 0)
         {
             throw new InvalidOperationException(
-                "Python installed but could not be found afterwards. A sign-out and back in usually fixes the PATH.");
+                "Python was installed but could not be found afterwards. Expected it at " + mine + ".");
         }
     }
 
     private static async Task InstallPythonLibsAsync(string installDir, IProgress<string> say, CancellationToken ct)
     {
-        if (PythonCommand.Length == 0) PythonCommand = FindPython();
+        if (PythonCommand.Length == 0) PythonCommand = FindPython(installDir);
         if (PythonCommand.Length == 0) throw new InvalidOperationException("Python is not available yet.");
 
         var requirements = Path.Combine(installDir, "engine", "requirements.txt");
@@ -910,8 +957,24 @@ internal static class Prerequisites
 
     private static string Megabytes(long bytes) => (bytes / 1024d / 1024d).ToString("0.0") + " MB";
 
+    /// <summary>
+    /// Break "py -3.12" into a program and its arguments.
+    ///
+    /// A quoted path is taken whole: the private interpreter lives under
+    /// %LocalAppData%\Programs\AURION, and splitting that on its first
+    /// space would hand the compiler half a directory name.
+    /// </summary>
     private static (string exe, string args) Split(string command)
     {
+        if (command.StartsWith('"'))
+        {
+            var close = command.IndexOf('"', 1);
+            if (close > 0)
+            {
+                return (command[1..close], command[(close + 1)..].Trim());
+            }
+        }
+
         var at = command.IndexOf(' ');
         return at < 0 ? (command, "") : (command[..at], command[(at + 1)..]);
     }

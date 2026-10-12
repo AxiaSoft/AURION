@@ -199,6 +199,11 @@ goto :eof
 set "PYCMD="
 if defined AURION_PY if exist "%AURION_PY%" set "PYCMD="%AURION_PY%""
 if defined PYCMD goto :eof
+REM AURION's own interpreter, before anything the machine happens to have.
+REM The engine is pinned to a NumPy that only exists for CPython 3.9-3.12,
+REM so following the system Python meant that upgrading it broke the engine.
+if exist "%~dp0runtime\python\python.exe" set "PYCMD="%~dp0runtime\python\python.exe""
+if defined PYCMD goto :eof
 where py >nul 2>nul
 if errorlevel 1 goto :FINDPY_PLAIN
 for %%V in (3.12 3.11 3.10) do (

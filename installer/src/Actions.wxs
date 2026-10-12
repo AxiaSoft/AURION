@@ -74,6 +74,29 @@
                   Impersonate="yes"
                   Return="ignore" />
 
+    <!-- ================================================================
+         3b. Uninstall AURION's private Python properly
+         ================================================================
+         The first run installs Python with TargetDir inside the
+         installation, which is what keeps the engine's pinned NumPy safe
+         from anybody upgrading the machine's own Python. That installer is
+         a real MSI, though, so it leaves its own entry in Add or Remove
+         Programs. Deleting runtime\ with rmdir would take the files and
+         leave the entry behind, pointing at nothing.
+
+         The same bundled installer can remove it, and it is still in the
+         payload at this point because this runs before RemoveFiles.
+
+         Return="ignore" throughout: a leftover runtime must never be the
+         reason an uninstall fails, and the rmdir afterwards removes the
+         files either way.                                                -->
+    <CustomAction Id="AurionRemovePrivatePython"
+                  Directory="INSTALLFOLDER"
+                  ExeCommand="&quot;[System64Folder]cmd.exe&quot; /c if exist &quot;[INSTALLFOLDER]runtime\python\python.exe&quot; (if exist &quot;[INSTALLFOLDER]vendor\python-3.12.7-amd64.exe&quot; &quot;[INSTALLFOLDER]vendor\python-3.12.7-amd64.exe&quot; /quiet /uninstall)"
+                  Execute="deferred"
+                  Impersonate="yes"
+                  Return="ignore" />
+
     <!-- The desk window runs in an isolated Chromium profile created by
          AURION.exe (window geometry and web storage only - never the user's
          own browser profile). It is installer-owned, so a full uninstall takes it with it.
@@ -140,6 +163,11 @@
       <Custom Action="AurionRemoveUserData"
               Before="RemoveFiles"
               Condition="(REMOVE=&quot;ALL&quot;) AND (AURION_REMOVE_DATA = &quot;all&quot;)" />
+
+      <!-- Before RemoveFiles: it needs vendor\ and runtime\ to still exist. -->
+      <Custom Action="AurionRemovePrivatePython"
+              Before="RemoveFiles"
+              Condition="REMOVE=&quot;ALL&quot;" />
 
       <Custom Action="AurionCleanGenerated"
               After="RemoveFiles"
