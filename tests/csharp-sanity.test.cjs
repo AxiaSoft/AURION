@@ -79,13 +79,30 @@ function structureOf(src) {
   return out.join("");
 }
 
-const dir = path.join(ROOT, "installer", "window");
-const files = fs.readdirSync(dir).filter((f) => f.endsWith(".cs")).sort();
+// Everything C#, not just the desk window: the setup wizard and the
+// uninstaller are separate programs that cannot be compiled here either,
+// and they are newer, so they are likelier to be wrong.
+function csharpUnder(...parts) {
+  const dir = path.join(ROOT, ...parts);
+  if (!fs.existsSync(dir)) return [];
+  return fs.readdirSync(dir, { withFileTypes: true }).flatMap((e) =>
+    e.isDirectory()
+      ? csharpUnder(...parts, e.name)
+      : e.name.endsWith(".cs") ? [path.join(dir, e.name)] : []);
+}
 
-check("the window project has C# in it", files.length > 0, `${files.length} files`);
+const files = [
+  ...csharpUnder("installer", "window"),
+  ...csharpUnder("installer", "shell"),
+].sort();
 
-for (const name of files) {
-  const src = fs.readFileSync(path.join(dir, name), "utf8");
+const label = (f) => path.relative(path.join(ROOT, "installer"), f).replace(/\\/g, "/");
+
+check("the installer's C# is all accounted for", files.length > 0, `${files.length} files`);
+
+for (const file of files) {
+  const name = label(file);
+  const src = fs.readFileSync(file, "utf8");
   const code = structureOf(src);
 
   const pairs = [["{", "}"], ["(", ")"], ["[", "]"]];
@@ -104,16 +121,29 @@ for (const name of files) {
 // it on a Panel does not fail as "no such property" - the name resolves to
 // the enum type instead, and the compiler says it is "a type but is used
 // like a variable", which does not sound like the mistake it is.
-for (const name of files) {
-  const src = fs.readFileSync(path.join(dir, name), "utf8");
-  const code = structureOf(src);
+for (const file of files) {
+  const name = label(file);
+  const code = structureOf(fs.readFileSync(file, "utf8"));
   if (!/\bAutoScaleMode\s*=/.test(code)) continue;
 
-  const base = /class\s+\w+\s*:\s*(\w+)/.exec(code);
-  const host = base ? base[1] : "?";
+  // Attributed to the class it is actually written in. A file holding
+  // several classes - a button deriving from Control next to a form
+  // deriving from Form - would otherwise be judged by whichever was
+  // declared first, which is how this check first accused a correct file.
+  const declarations = [...code.matchAll(/class\s+(\w+)\s*:\s*(\w+)/g)]
+    .map((m) => ({ at: m.index, name: m[1], base: m[2] }));
+
+  const wrong = [];
+  for (const use of code.matchAll(/\bAutoScaleMode\s*=/g)) {
+    const owner = declarations.filter((d) => d.at < use.index).pop();
+    const base = owner ? owner.base : "?";
+    if (!["Form", "UserControl", "ContainerControl"].includes(base)) {
+      wrong.push(`${owner ? owner.name : "?"} derives from ${base}`);
+    }
+  }
+
   check(`${name} only sets AutoScaleMode on a ContainerControl`,
-    ["Form", "UserControl", "ContainerControl"].includes(host),
-    `derives from ${host}`);
+    wrong.length === 0, wrong.length ? wrong.join("; ") : "correct hosts");
 }
 
 // ---------------------------------------------------------------------------
@@ -170,8 +200,9 @@ function localClashes(code) {
   return [...new Set(clashes)];
 }
 
-for (const name of files) {
-  const code = structureOf(fs.readFileSync(path.join(dir, name), "utf8"));
+for (const file of files) {
+  const name = label(file);
+  const code = structureOf(fs.readFileSync(file, "utf8"));
   const clashes = localClashes(code);
   check(`${name} never shadows a local with another local`, clashes.length === 0,
     clashes.length ? clashes.join(", ") : "no shadowing");

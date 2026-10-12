@@ -151,6 +151,31 @@
                   Return="asyncNoWait" />
 
     <!-- ================================================================
+         6. Point Add or Remove Programs at AURION's own uninstaller
+         ================================================================
+         Windows Installer writes UninstallString itself, pointing at
+         msiexec, and it writes it during RegisterProduct - after every
+         component's registry values. A component cannot win that race, so
+         the value is rewritten afterwards instead.
+
+         What the user gets from this is the difference between an unnamed
+         progress bar and being asked, in the product's own words, whether
+         four years of trade history should go with the application. There
+         is no way to ask that through msiexec.
+
+         QuietUninstallString is deliberately left pointing at msiexec: a
+         scripted removal should stay scripted and never open a window.
+
+         Return="ignore" - a desk that cannot repaint its own entry in
+         Control Panel is a blemish, not a failed installation.           -->
+    <CustomAction Id="AurionOwnUninstallEntry"
+                  Directory="INSTALLFOLDER"
+                  ExeCommand="&quot;[System64Folder]cmd.exe&quot; /c reg add &quot;HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall\[ProductCode]&quot; /v UninstallString /t REG_SZ /d &quot;\&quot;[INSTALLFOLDER]AURION-Uninstall.exe\&quot; --product [ProductCode]&quot; /f"
+                  Execute="deferred"
+                  Impersonate="yes"
+                  Return="ignore" />
+
+    <!-- ================================================================
          Sequencing
          ================================================================ -->
     <InstallExecuteSequence>
@@ -187,6 +212,12 @@
            AURION_SKIP_PROVISION=1 opts out, for administrators who lay the
            runtimes down themselves and do not want a window appearing on a
            scripted rollout. -->
+      <!-- After InstallFinalize, because RegisterProduct runs inside it
+           and writes the value this replaces. -->
+      <Custom Action="AurionOwnUninstallEntry"
+              After="InstallFinalize"
+              Condition="NOT Installed" />
+
       <Custom Action="AurionProvisionRuntimes"
               After="InstallFinalize"
               Condition="NOT Installed AND AURION_PROVISION_NEEDED AND (UILevel &lt; 5) AND (AURION_SKIP_PROVISION &lt;&gt; &quot;1&quot;)" />

@@ -76,7 +76,7 @@ function Step([string] $text) {
 
 # Bumped whenever this script changes, so a stale copy is obvious at a glance
 # instead of failing with a confusing parameter error.
-$ScriptRevision = "24"
+$ScriptRevision = "25"
 
 Write-Host ""
 Write-Host "  AURION installer build" -ForegroundColor White
@@ -520,6 +520,40 @@ if ($LASTEXITCODE -ne 0) { throw "Building the desk window (AURION.exe) failed."
 
 $windowExe = Join-Path $stageApp "AURION.exe"
 if (-not (Test-Path $windowExe)) { throw "AURION.exe was not produced in $stageApp." }
+
+# ---------------------------------------------------------------------------
+# 3c. The uninstaller
+# ---------------------------------------------------------------------------
+# AURION-Uninstall.exe is what Control Panel runs, because Windows
+# Installer's own uninstall is an unnamed progress bar and cannot ask the
+# only question that matters - whether the trade history goes with the
+# application.
+#
+# It lands in the staged payload beside AURION.exe, so Files.wxs harvests
+# it with everything else, and Actions.wxs repoints UninstallString at it
+# after RegisterProduct has had its say.
+Step "Building the uninstaller"
+
+$uninstallProject = Join-Path $installerDir "shell\uninstall\AurionUninstall.csproj"
+
+& $dotnetExe publish $uninstallProject `
+    -c $Configuration `
+    -r win-x64 `
+    --self-contained true `
+    -p:PublishSingleFile=true `
+    -p:IncludeNativeLibrariesForSelfExtract=true `
+    -p:EnableCompressionInSingleFile=true `
+    -p:AurionVersion=$Version `
+    -o $stageApp `
+    --nologo -v quiet
+
+if ($LASTEXITCODE -ne 0) { throw "Building the uninstaller (AURION-Uninstall.exe) failed." }
+
+$uninstallExe = Join-Path $stageApp "AURION-Uninstall.exe"
+if (-not (Test-Path $uninstallExe)) {
+    throw "AURION-Uninstall.exe was not produced in $stageApp."
+}
+Write-Host ("  AURION-Uninstall.exe  {0:N1} MB" -f ((Get-Item $uninstallExe).Length / 1MB)) -ForegroundColor Gray
 
 # A self-contained single-file publish also drops its own .pdb and the
 # deps/runtimeconfig files next to the exe; none of them belong in a shipped

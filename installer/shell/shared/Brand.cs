@@ -1,0 +1,273 @@
+using System.Drawing;
+using System.Drawing.Drawing2D;
+using System.Drawing.Text;
+using System.Runtime.InteropServices;
+using System.Windows.Forms;
+
+namespace Aurion.Shell;
+
+/// <summary>
+/// The look both of AURION's own installers wear.
+///
+/// There are two of them - the setup wizard and the uninstaller - and they
+/// are separate programs that a user meets months apart. Sharing one file
+/// is what stops them drifting into looking like two different products,
+/// and it is the same palette the desk's splash screen uses, so installing
+/// AURION and starting AURION are visibly the same thing.
+///
+/// Everything is drawn rather than themed. Windows Installer's own dialogs
+/// cannot be made to look like this, which is the entire reason these two
+/// programs exist.
+/// </summary>
+internal static class Brand
+{
+    public static readonly Color Base = Color.FromArgb(0x06, 0x07, 0x0B);
+    public static readonly Color Lift = Color.FromArgb(0x12, 0x15, 0x20);
+    public static readonly Color Card = Color.FromArgb(0x0E, 0x11, 0x1A);
+    public static readonly Color Ink = Color.FromArgb(0xE8, 0xED, 0xF7);
+    public static readonly Color Muted = Color.FromArgb(0x8B, 0x93, 0xA7);
+    public static readonly Color Cyan = Color.FromArgb(0x3E, 0xE0, 0xC4);
+    public static readonly Color Violet = Color.FromArgb(0x7C, 0x6C, 0xFF);
+    public static readonly Color Danger = Color.FromArgb(0xFF, 0x6B, 0x6B);
+    public static readonly Color Hairline = Color.FromArgb(0x22, 0x27, 0x36);
+
+    // Created once per process. A Font is expensive to build and these are
+    // used on every paint; the splash screen was marked "not responding"
+    // for building three of them sixty-two times a second.
+    public static readonly Font Title = new("Segoe UI", 20f, FontStyle.Regular, GraphicsUnit.Point);
+    public static readonly Font Heading = new("Segoe UI", 12f, FontStyle.Regular, GraphicsUnit.Point);
+    public static readonly Font Body = new("Segoe UI", 9.5f, FontStyle.Regular, GraphicsUnit.Point);
+    public static readonly Font Small = new("Segoe UI", 8.5f, FontStyle.Regular, GraphicsUnit.Point);
+    public static readonly Font Strong = new("Segoe UI", 9.5f, FontStyle.Bold, GraphicsUnit.Point);
+
+    /// <summary>The product icon, loaded from the exe's own resources.</summary>
+    public static Image? Mark()
+    {
+        try
+        {
+            var stream = typeof(Brand).Assembly.GetManifestResourceStream("AURION.ico");
+            if (stream is null) return null;
+            using var icon = new Icon(stream, 128, 128);
+            return icon.ToBitmap();
+        }
+        catch
+        {
+            // A missing mark is a cosmetic problem, never a reason to fail
+            // an installation.
+            return null;
+        }
+    }
+
+    public static GraphicsPath Rounded(RectangleF r, float radius)
+    {
+        var d = Math.Max(1f, radius * 2);
+        var path = new GraphicsPath();
+        path.AddArc(r.X, r.Y, d, d, 180, 90);
+        path.AddArc(r.Right - d, r.Y, d, d, 270, 90);
+        path.AddArc(r.Right - d, r.Bottom - d, d, d, 0, 90);
+        path.AddArc(r.X, r.Bottom - d, d, d, 90, 90);
+        path.CloseFigure();
+        return path;
+    }
+
+    /// <summary>The brand wash, drawn once into a bitmap by the caller.</summary>
+    public static void PaintBackdrop(Graphics g, int w, int h)
+    {
+        g.SmoothingMode = SmoothingMode.AntiAlias;
+        g.TextRenderingHint = TextRenderingHint.ClearTypeGridFit;
+
+        using (var wash = new LinearGradientBrush(new Rectangle(0, 0, w, h), Lift, Base, 90f))
+            g.FillRectangle(wash, 0, 0, w, h);
+
+        Glow(g, new PointF(w * 0.18f, h * 0.12f), w * 0.46f, Violet, 0.16f);
+        Glow(g, new PointF(w * 0.86f, h * 0.34f), w * 0.36f, Cyan, 0.12f);
+    }
+
+    private static void Glow(Graphics g, PointF centre, float radius, Color colour, float strength)
+    {
+        if (radius <= 0) return;
+        var rect = new RectangleF(centre.X - radius, centre.Y - radius, radius * 2, radius * 2);
+        using var path = new GraphicsPath();
+        path.AddEllipse(rect);
+        using var brush = new PathGradientBrush(path)
+        {
+            CenterColor = Color.FromArgb((int)(255 * strength), colour),
+            SurroundColors = new[] { Color.FromArgb(0, colour) },
+            CenterPoint = centre,
+        };
+        g.FillEllipse(brush, rect);
+    }
+}
+
+/// <summary>
+/// A flat button that matches the desk.
+///
+/// WinForms' own Button cannot be made to look like this at any setting:
+/// FlatStyle.Flat still draws a system border on focus and still uses the
+/// system highlight colour on hover.
+/// </summary>
+internal sealed class BrandButton : Control
+{
+    private bool _hot;
+    private bool _down;
+
+    public bool Primary { get; set; }
+    public bool Destructive { get; set; }
+
+    public BrandButton()
+    {
+        SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.UserPaint
+                 | ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
+        Size = new Size(150, 40);
+        Cursor = Cursors.Hand;
+        Font = Brand.Strong;
+        ForeColor = Brand.Ink;
+    }
+
+    protected override void OnMouseEnter(EventArgs e) { _hot = true; Invalidate(); base.OnMouseEnter(e); }
+    protected override void OnMouseLeave(EventArgs e) { _hot = false; _down = false; Invalidate(); base.OnMouseLeave(e); }
+    protected override void OnMouseDown(MouseEventArgs e) { _down = true; Invalidate(); base.OnMouseDown(e); }
+    protected override void OnMouseUp(MouseEventArgs e) { _down = false; Invalidate(); base.OnMouseUp(e); }
+
+    protected override void OnPaintBackground(PaintEventArgs e)
+    {
+        // The parent paints behind us; filling here would punch a flat
+        // rectangle through the gradient.
+    }
+
+    protected override void OnPaint(PaintEventArgs e)
+    {
+        var g = e.Graphics;
+        g.SmoothingMode = SmoothingMode.AntiAlias;
+        g.TextRenderingHint = TextRenderingHint.ClearTypeGridFit;
+
+        var r = new RectangleF(0.5f, 0.5f, Width - 1f, Height - 1f);
+        using var shape = Brand.Rounded(r, 8f);
+
+        if (!Enabled)
+        {
+            using var off = new SolidBrush(Color.FromArgb(28, 255, 255, 255));
+            g.FillPath(off, shape);
+        }
+        else if (Primary)
+        {
+            var a = Destructive ? Brand.Danger : Brand.Cyan;
+            var b = Destructive ? Color.FromArgb(0xD9, 0x48, 0x48) : Brand.Violet;
+            using var fill = new LinearGradientBrush(r, a, b, 0f);
+            g.FillPath(fill, shape);
+            if (_hot)
+            {
+                using var lift = new SolidBrush(Color.FromArgb(_down ? 10 : 26, 255, 255, 255));
+                g.FillPath(lift, shape);
+            }
+        }
+        else
+        {
+            using var fill = new SolidBrush(Color.FromArgb(_hot ? 30 : 16, 255, 255, 255));
+            g.FillPath(fill, shape);
+            using var edge = new Pen(Brand.Hairline);
+            g.DrawPath(edge, shape);
+        }
+
+        var ink = Enabled
+            ? (Primary ? Color.FromArgb(0x08, 0x0A, 0x12) : Brand.Ink)
+            : Brand.Muted;
+        TextRenderer.DrawText(g, Text, Font, ClientRectangle, ink,
+            TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine);
+    }
+}
+
+/// <summary>
+/// The window both programs live in: borderless, dark, draggable, with one
+/// close button and no system chrome.
+/// </summary>
+internal class BrandForm : Form
+{
+    private const int WmNcLButtonDown = 0xA1;
+    private const int HtCaption = 0x2;
+
+    [DllImport("user32.dll")]
+    private static extern bool ReleaseCapture();
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr SendMessage(IntPtr hWnd, int msg, int wParam, int lParam);
+
+    private Bitmap? _backdrop;
+    private readonly Image? _mark;
+
+    protected Image? Mark => _mark;
+
+    public BrandForm(string title, int width, int height)
+    {
+        _mark = Brand.Mark();
+
+        // AutoScaleMode.Dpi, because every position below is in raw pixels
+        // and every font in points. Without it the layout is built for a
+        // 96 DPI display on a machine that is running at 150%, and the
+        // result reads as a window that never finished loading.
+        AutoScaleMode = AutoScaleMode.Dpi;
+
+        Text = title;
+        FormBorderStyle = FormBorderStyle.None;
+        StartPosition = FormStartPosition.CenterScreen;
+        ClientSize = new Size(width, height);
+        BackColor = Brand.Base;
+        ForeColor = Brand.Ink;
+        ShowInTaskbar = true;
+        KeyPreview = true;
+        DoubleBuffered = true;
+
+        try
+        {
+            var stream = typeof(Brand).Assembly.GetManifestResourceStream("AURION.ico");
+            if (stream is not null) Icon = new Icon(stream);
+        }
+        catch
+        {
+            // The stock icon is survivable.
+        }
+    }
+
+    protected override void OnResize(EventArgs e)
+    {
+        _backdrop?.Dispose();
+        _backdrop = null;
+        base.OnResize(e);
+        Invalidate();
+    }
+
+    protected override void OnPaintBackground(PaintEventArgs e)
+    {
+        var w = ClientSize.Width;
+        var h = ClientSize.Height;
+        if (w <= 0 || h <= 0) return;
+
+        if (_backdrop is null)
+        {
+            _backdrop = new Bitmap(w, h);
+            using var g = Graphics.FromImage(_backdrop);
+            Brand.PaintBackdrop(g, w, h);
+        }
+        e.Graphics.DrawImageUnscaled(_backdrop, 0, 0);
+
+        using var edge = new Pen(Brand.Hairline);
+        e.Graphics.DrawRectangle(edge, 0, 0, w - 1, h - 1);
+    }
+
+    /// <summary>Let a drag anywhere on the chrome move the window.</summary>
+    protected void DragFrom(Control c)
+    {
+        c.MouseDown += (_, e) =>
+        {
+            if (e.Button != MouseButtons.Left) return;
+            ReleaseCapture();
+            SendMessage(Handle, WmNcLButtonDown, HtCaption, 0);
+        };
+    }
+
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing) _backdrop?.Dispose();
+        base.Dispose(disposing);
+    }
+}

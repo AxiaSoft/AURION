@@ -371,6 +371,47 @@ check("an existing python.org install is found through the registry",
   prereqCs.includes("Software\\Python\\PythonCore\\{version}\\InstallPath") &&
   provisionPs1.includes('Software\\Python\\PythonCore\\$v\\InstallPath'));
 
+// ------------------------------------------------------ the uninstaller
+
+// Windows Installer's own uninstall is an unnamed progress bar, and it has
+// no way to ask the only question that matters here: whether four years of
+// trade history goes with the application.
+const uninstallWindow = read("installer/shell/uninstall/UninstallWindow.cs");
+const uninstallProgram = read("installer/shell/uninstall/Program.cs");
+const uninstallProj = read("installer/shell/uninstall/AurionUninstall.csproj");
+
+check("there is an uninstaller with AURION's own interface",
+  /class UninstallWindow : BrandForm/.test(uninstallWindow) &&
+  /AssemblyName>AURION-Uninstall</.test(uninstallProj));
+check("it asks whether the trading data goes too, and keeps it by default",
+  /Keep my trading data/.test(uninstallWindow) &&
+  /AURION_REMOVE_DATA=all/.test(uninstallWindow) &&
+  /_keep\.Selected = true/.test(uninstallWindow) &&
+  /AURION_REMOVE_DATA/.test(actions));
+
+// RegisterProduct writes UninstallString itself, during InstallFinalize
+// and after every component's registry values - so a component cannot win
+// that race and the value has to be rewritten afterwards.
+check("Control Panel is pointed at it, after RegisterProduct has had its say",
+  /AurionOwnUninstallEntry/.test(actions) &&
+  /AURION-Uninstall\.exe.*--product \[ProductCode\]/.test(actions) &&
+  /AurionOwnUninstallEntry"[\s\S]{0,80}After="InstallFinalize"/.test(actions));
+
+// It lives in the folder Windows Installer is about to delete.
+check("it copies itself out before deleting the folder it lives in",
+  /RelaunchFromTemp/.test(uninstallProgram) &&
+  /--relaunched/.test(uninstallProgram));
+
+// /qn says nothing at all, and a progress bar that cannot move is the
+// thing people kill. Windows Installer narrates itself to its own log.
+check("a silent msiexec is still made to show its work",
+  /Action\\s\+\[\\d:\]\+/.test(read("installer/shell/shared/Msi.cs")) &&
+  /FileShare\.ReadWrite \| FileShare\.Delete/.test(read("installer/shell/shared/Msi.cs")));
+
+check("the build produces it into the payload",
+  /AurionUninstall\.csproj/.test(buildMsi) &&
+  /AURION-Uninstall\.exe was not produced/.test(buildMsi));
+
 // ------------------------------------------- the setup screen stays alive
 
 // The bundle exists so the machine needs no network. Running `pip install
