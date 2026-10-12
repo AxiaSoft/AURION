@@ -329,6 +329,22 @@ check("the Microsoft Store's Python is refused everywhere",
   startCmd.includes("%AURION_PY:WindowsApps=%") &&
   !/find \/i/.test(startCmd) && !/USABLEPY/.test(startCmd));
 
+// `reg query` returns REG_EXPAND_SZ raw, so the registry PATH arrives
+// containing the literal text %SystemRoot%\system32 and cmd will not expand
+// it a second time. Assigning that over PATH replaced a working PATH with a
+// list of placeholders: nothing could be found at all, including
+// powershell.exe, and the launcher exited 9009.
+check("refreshing the PATH appends to it and never replaces it",
+  !/set "PATH=%MACHINE_PATH%/.test(startCmd) &&
+  startCmd.includes('set "PATH=%PATH%;%MACHINE_PATH%"') &&
+  startCmd.includes('set "PATH=%PATH%;%USER_PATH%"') &&
+  /\$env:PATH = \(@\(\$env:PATH\)/.test(provisionPs1));
+check("and Windows' own tools are found without the PATH at all",
+  /set "PS=%SystemRoot%\\System32\\WindowsPowerShell/.test(startCmd) &&
+  /set "CSCRIPT=%SystemRoot%\\System32\\cscript\.exe"/.test(startCmd) &&
+  !/^powershell -NoProfile/m.test(startCmd) &&
+  !/^cscript \/\/nologo/m.test(startCmd));
+
 // Every path out of the launcher now leaves a line behind. Without this a
 // failure before the engine starts produces no log at all, anywhere.
 check("the launcher records what it chose, as it chooses it",

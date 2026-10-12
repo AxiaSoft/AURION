@@ -245,8 +245,12 @@ function Update-PathFromRegistry {
     try {
         $machine = [Environment]::GetEnvironmentVariable("PATH", "Machine")
         $user    = [Environment]::GetEnvironmentVariable("PATH", "User")
-        $joined  = @($machine, $user) | Where-Object { $_ }
-        if ($joined) { $env:PATH = ($joined -join ';') }
+        # Appended, not assigned. .NET expands REG_EXPAND_SZ so this does
+        # not hit the problem start-aurion.cmd had, but replacing a working
+        # PATH wholesale is still a way to lose tools the process already
+        # had - and there is no reason to take it.
+        $extra = @($machine, $user) | Where-Object { $_ }
+        if ($extra) { $env:PATH = (@($env:PATH) + $extra | Where-Object { $_ }) -join ';' }
     } catch {
         Say "could not re-read PATH from the registry: $($_.Exception.Message)"
     }

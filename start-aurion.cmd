@@ -28,6 +28,16 @@ REM environment when it started, so a Python or Node installed since then is
 REM invisible to it - which used to send a perfectly prepared machine round
 REM the setup loop and out the other side with "prerequisites missing".
 REM :REFRESHPATH existed for this and was never called. It is now.
+REM Windows' own tools, by full path.
+REM
+REM A broken PATH made powershell.exe unfindable and the launcher exited
+REM 9009. Nothing here should ever depend on the PATH to locate a program
+REM that ships with the operating system.
+set "PS=%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe"
+if not exist "%PS%" set "PS=powershell"
+set "CSCRIPT=%SystemRoot%\System32\cscript.exe"
+if not exist "%CSCRIPT%" set "CSCRIPT=cscript"
+
 call :REFRESHPATH
 call :LOADRUNTIME
 
@@ -85,7 +95,7 @@ if not exist "scripts\provision.ps1" goto :SETUPWINDOW
 echo Prerequisites missing or incomplete - installing them now.
 echo This takes a few minutes the first time. Nothing needs an administrator.
 echo.
-powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\provision.ps1"
+"%PS%" -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\provision.ps1"
 goto :SETUPRETRY
 
 :SETUPWINDOW
@@ -137,20 +147,20 @@ pause
 exit /b 1
 
 :LAUNCH
-powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\copy-ea.ps1" >nul 2>nul
+"%PS%" -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\copy-ea.ps1" >nul 2>nul
 
 REM Free the AURION ports, but only when a leftover AURION process owns them.
 REM Killing whatever happens to hold 8080 would take down unrelated software.
-powershell -NoProfile -ExecutionPolicy Bypass -Command "$own=@('node','python','pythonw','py'); foreach($p in 8080,18765,18766){ Get-NetTCPConnection -LocalPort $p -State Listen -ErrorAction SilentlyContinue | ForEach-Object { $proc = Get-Process -Id $_.OwningProcess -ErrorAction SilentlyContinue; if($proc -and ($own -contains $proc.ProcessName.ToLower())){ Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue } } }" >nul 2>nul
+"%PS%" -NoProfile -ExecutionPolicy Bypass -Command "$own=@('node','python','pythonw','py'); foreach($p in 8080,18765,18766){ Get-NetTCPConnection -LocalPort $p -State Listen -ErrorAction SilentlyContinue | ForEach-Object { $proc = Get-Process -Id $_.OwningProcess -ErrorAction SilentlyContinue; if($proc -and ($own -contains $proc.ProcessName.ToLower())){ Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue } } }" >nul 2>nul
 
-cscript //nologo "%~dp0scripts\hidden.vbs" "%CD%" "%CD%\data\logs\engine.log" %PYCMD% engine\main.py --host 127.0.0.1 --port 18765
+"%CSCRIPT%" //nologo "%~dp0scripts\hidden.vbs" "%CD%" "%CD%\data\logs\engine.log" %PYCMD% engine\main.py --host 127.0.0.1 --port 18765
 time /t >nul
-cscript //nologo "%~dp0scripts\hidden.vbs" "%CD%\backend" "%CD%\data\logs\desk.log" %NODECMD% src\index.js
+"%CSCRIPT%" //nologo "%~dp0scripts\hidden.vbs" "%CD%\backend" "%CD%\data\logs\desk.log" %NODECMD% src\index.js
 
 REM Wait for the desk to answer instead of guessing with a fixed sleep, so the
 REM browser never opens onto a connection-refused page.
 echo   Waiting for the desk on http://127.0.0.1:8080 ...
-powershell -NoProfile -ExecutionPolicy Bypass -Command "$ok=$false; for($i=0;$i -lt 60;$i++){ try { $r=Invoke-WebRequest -UseBasicParsing -TimeoutSec 2 http://127.0.0.1:8080/api/health; if($r.StatusCode -eq 200){$ok=$true;break} } catch {}; Start-Sleep -Milliseconds 700 }; if($ok){exit 0}else{exit 1}"
+"%PS%" -NoProfile -ExecutionPolicy Bypass -Command "$ok=$false; for($i=0;$i -lt 60;$i++){ try { $r=Invoke-WebRequest -UseBasicParsing -TimeoutSec 2 http://127.0.0.1:8080/api/health; if($r.StatusCode -eq 200){$ok=$true;break} } catch {}; Start-Sleep -Milliseconds 700 }; if($ok){exit 0}else{exit 1}"
 if errorlevel 1 goto :NOTREADY
 
 REM AURION.exe hosts the desk in its own window and sets AURION_NO_BROWSER,
@@ -266,9 +276,24 @@ if not errorlevel 1 set "PYCMD=python"
 goto :eof
 
 :REFRESHPATH
+REM Pick up anything added to the PATH since this process started, without
+REM destroying the PATH it already has.
+REM
+REM These two values are REG_EXPAND_SZ. `reg query` returns them raw, so
+REM MACHINE_PATH arrives containing the literal text %SystemRoot%\system32,
+REM and cmd will not expand that a second time. This routine used to assign
+REM the result straight over PATH, which replaced a working PATH with a list
+REM of unexpanded placeholders - and then nothing could be found at all. Not
+REM python, not py, and not powershell, which is why the launcher reported
+REM "no usable Python found" and came back with 9009, the code for a command
+REM that does not exist.
+REM
+REM Appending fixes both halves: the inherited PATH keeps working, and the
+REM placeholder entries are inert rather than fatal. The explicit list below
+REM is what actually finds a freshly installed runtime.
 for /f "tokens=2*" %%A in ('reg query "HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Environment" /v Path 2^>nul') do set "MACHINE_PATH=%%B"
 for /f "tokens=2*" %%A in ('reg query "HKCU\Environment" /v Path 2^>nul') do set "USER_PATH=%%B"
-if defined MACHINE_PATH if defined USER_PATH set "PATH=%MACHINE_PATH%;%USER_PATH%"
-if defined MACHINE_PATH if not defined USER_PATH set "PATH=%MACHINE_PATH%"
+if defined MACHINE_PATH set "PATH=%PATH%;%MACHINE_PATH%"
+if defined USER_PATH set "PATH=%PATH%;%USER_PATH%"
 set "PATH=%PATH%;%LOCALAPPDATA%\Programs\Python\Python312;%LOCALAPPDATA%\Programs\Python\Python312\Scripts;%LOCALAPPDATA%\Programs\Python\Python311;%LOCALAPPDATA%\Programs\Python\Python311\Scripts;%LOCALAPPDATA%\Programs\Python\Python310;%LOCALAPPDATA%\Programs\Python\Python310\Scripts;%LOCALAPPDATA%\Programs\Python\Launcher;%ProgramFiles%\nodejs;%LOCALAPPDATA%\Programs\nodejs"
 goto :eof
