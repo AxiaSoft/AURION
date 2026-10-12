@@ -615,7 +615,6 @@ internal static class Prerequisites
         }
 
         var target = Path.Combine(installDir, "runtime", "python");
-        say.Report("Installing Python into AURION's own folder…");
 
         // Everything here is "ours, and only ours".
         //
@@ -626,13 +625,86 @@ internal static class Prerequisites
         // desk has no business owning the PATH or the .py extension.
         // Include_launcher=0 so py.exe in C:\Windows is left exactly as it
         // was found. No elevation is needed for any of it.
-        await WithHeartbeat("Installing Python into AURION's own folder", say, ct, () =>
-            RunAsync(file,
-                "/quiet InstallAllUsers=0 TargetDir=\"" + target + "\" " +
-                "PrependPath=0 AssociateFiles=0 Shortcuts=0 " +
-                "Include_launcher=0 InstallLauncherAllUsers=0 " +
-                "Include_pip=1 Include_test=0 Include_doc=0 Include_tcltk=0",
-                elevate: false, ct));
+        var options =
+            "InstallAllUsers=0 TargetDir=\"" + target + "\" " +
+            "PrependPath=0 AssociateFiles=0 Shortcuts=0 " +
+            "Include_launcher=0 InstallLauncherAllUsers=0 " +
+            "Include_pip=1 Include_test=0 Include_doc=0 Include_tcltk=0";
+
+        // /log, always.
+        //
+        // python.org's installer is a Burn bundle: with /quiet it prints
+        // nothing, writes nothing to stdout and reports failure as a bare
+        // exit code. The first time it refused to install there was
+        // literally nothing to look at - the row went red, Node installed
+        // happily afterwards, and the only visible fact was that Python
+        // had not appeared. /log is the one way to find out why.
+        var installLog = Path.Combine(installDir, "data", "logs", "python-install.log");
+        Directory.CreateDirectory(Path.GetDirectoryName(installLog)!);
+
+        // Wait for Windows Installer to be free before starting.
+        //
+        // This is almost certainly why Python failed where Node did not.
+        // Node is a zip - unpacking it answers to nobody. Python is an MSI
+        // bundle, and Windows permits exactly one installation at a time
+        // across the whole machine. AURION is very often launched from its
+        // own MSI's finish page, while that MSI is still finalising, so
+        // the Python bundle asks for the installer mutex, cannot have it,
+        // and exits 1618 immediately: no download, no progress, no
+        // message. The row goes red and Node installs happily afterwards,
+        // which is exactly the shape of the report.
+        await WaitForWindowsInstaller(say, ct);
+
+        Exception? quiet = null;
+        for (var attempt = 1; attempt <= 3; attempt++)
+        {
+            try
+            {
+                say.Report(attempt == 1
+                    ? "Installing Python into AURION's own folder…"
+                    : $"Windows was busy with another installation. Trying again ({attempt} of 3)…");
+                await WithHeartbeat("Installing Python into AURION's own folder", say, ct, () =>
+                    RunAsync(file, $"/quiet /log \"{installLog}\" {options}", elevate: false, ct));
+                quiet = null;
+                break;
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                quiet = ex;
+
+                // 1618 is "another installation is in progress" and is the
+                // one failure that is worth simply waiting out.
+                if (!ex.Message.Contains("code 1618") || attempt == 3) break;
+                await Task.Delay(TimeSpan.FromSeconds(15), ct);
+            }
+        }
+
+        if (quiet is not null)
+        {
+            // Try again where it can speak.
+            //
+            // /passive shows the installer's own progress bar and, more
+            // importantly, lets it put a UAC prompt on screen. /quiet
+            // cannot: a bundle that decides it needs elevation simply
+            // fails, and it fails with a number. This asks no questions
+            // that /quiet would not have asked - it is the same unattended
+            // install with a window.
+            say.Report("The silent install did not work. Trying again visibly…");
+            try
+            {
+                await WithHeartbeat("Installing Python", say, ct, () =>
+                    RunAsync(file, $"/passive /log \"{installLog}\" {options}", elevate: false, ct));
+            }
+            catch (Exception visible) when (visible is not OperationCanceledException)
+            {
+                throw new InvalidOperationException(
+                    "Python could not be installed. " + Explain(quiet!.Message) +
+                    Environment.NewLine + Environment.NewLine +
+                    "The installer's own log is at:" + Environment.NewLine +
+                    "    " + installLog + Environment.NewLine +
+                    LastLinesOf(installLog, 5), visible);
+            }
+        }
 
         var mine = PrivatePython(installDir);
         if (File.Exists(mine))
@@ -650,7 +722,104 @@ internal static class Prerequisites
         if (PythonCommand.Length == 0)
         {
             throw new InvalidOperationException(
-                "Python was installed but could not be found afterwards. Expected it at " + mine + ".");
+                "Python reported success but is not at " + mine + "." +
+                Environment.NewLine + Environment.NewLine +
+                "The installer's own log is at:" + Environment.NewLine +
+                "    " + installLog + Environment.NewLine +
+                LastLinesOf(installLog, 5));
+        }
+    }
+
+    /// <summary>
+    /// Block until no other MSI installation is running, or two minutes.
+    ///
+    /// Windows serialises installations with a machine-wide mutex called
+    /// _MSIExecute. Asking for it politely first turns the most likely
+    /// failure of a first run - AURION started from its own installer's
+    /// finish page, racing the installer that started it - into a short,
+    /// explained wait.
+    /// </summary>
+    private static async Task WaitForWindowsInstaller(IProgress<string> say, CancellationToken ct)
+    {
+        var told = false;
+        for (var i = 0; i < 60; i++)
+        {
+            ct.ThrowIfCancellationRequested();
+
+            bool busy;
+            try
+            {
+                // Opening it is enough to know. It is never held here: the
+                // handle is released immediately, and failing to open it
+                // means somebody else has it.
+                using var mutex = System.Threading.Mutex.OpenExisting("Global\\_MSIExecute");
+                busy = !mutex.WaitOne(0);
+                if (!busy) mutex.ReleaseMutex();
+            }
+            catch (System.Threading.WaitHandleCannotBeOpenedException)
+            {
+                busy = false;      // Nothing is installing. The usual case.
+            }
+            catch
+            {
+                busy = false;      // Not worth failing a setup over.
+            }
+
+            if (!busy) return;
+
+            if (!told)
+            {
+                say.Report("Waiting for Windows to finish another installation…");
+                told = true;
+            }
+            await Task.Delay(2000, ct);
+        }
+    }
+
+    /// <summary>
+    /// Turn an installer exit code into something worth reading.
+    ///
+    /// These are the ones that actually come back from python.org's
+    /// bundle, and every one of them means something a person could act
+    /// on - which "finished with code 1603" does not.
+    /// </summary>
+    private static string Explain(string message)
+    {
+        var codes = new (string Code, string Means)[]
+        {
+            ("1602", "The installation was cancelled - usually a declined administrator prompt."),
+            ("1603", "The installer hit a fatal error. The usual causes are antivirus holding a file, or a half-removed Python already on the machine."),
+            ("1618", "Another installation is already running. Windows allows only one at a time."),
+            ("1638", "This version of Python is already installed. It may need removing from Settings first."),
+            ("5",    "Access was denied writing to the installation folder."),
+            ("1",    "The installer rejected its options."),
+        };
+
+        foreach (var (code, means) in codes)
+        {
+            if (message.Contains("code " + code)) return means;
+        }
+        return message;
+    }
+
+    /// <summary>The end of a log file, for an error message that has to stand alone.</summary>
+    private static string LastLinesOf(string path, int count)
+    {
+        try
+        {
+            if (!File.Exists(path)) return "";
+            using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+            using var reader = new StreamReader(stream);
+            var lines = reader.ReadToEnd()
+                .Split('\n')
+                .Select(l => l.TrimEnd('\r'))
+                .Where(l => l.Trim().Length > 0)
+                .ToList();
+            return lines.Count == 0 ? "" : string.Join(Environment.NewLine, lines.TakeLast(count));
+        }
+        catch
+        {
+            return "";
         }
     }
 

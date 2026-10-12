@@ -492,7 +492,7 @@ internal sealed class AppWindow : Form
     /// </summary>
     private void MarkLogs()
     {
-        foreach (var name in new[] { "engine.log", "desk.log", "setup.log" })
+        foreach (var name in new[] { "engine.log", "desk.log", "setup.log", "python-install.log" })
         {
             try
             {
@@ -563,6 +563,13 @@ internal sealed class AppWindow : Form
             if (setup.Length > 0)
             {
                 parts.Add("Setup said:" + Environment.NewLine + setup);
+            }
+
+            // python.org's bundle only speaks when asked to, and only here.
+            var pythonInstall = NewIn("python-install.log", 4);
+            if (pythonInstall.Length > 0)
+            {
+                parts.Add("The Python installer said:" + Environment.NewLine + pythonInstall);
             }
             else
             {

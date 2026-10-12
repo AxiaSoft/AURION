@@ -302,6 +302,29 @@ check("and it says what it is doing while it does it",
   /IProgress<string>\? say = null/.test(prereqCs) &&
   /InspectAsync\(items, _installDir, checking\)/.test(appWindow));
 
+// Node is a zip; unpacking it answers to nobody. Python is an MSI bundle,
+// and Windows permits one installation at a time across the machine. A
+// desk launched from its own MSI's finish page races the installer that
+// started it: the Python bundle exits 1618 instantly, with no download and
+// no message, while Node installs happily afterwards.
+check("Python waits for Windows Installer instead of racing it",
+  /WaitForWindowsInstaller/.test(prereqCs) &&
+  /Global\\\\_MSIExecute/.test(prereqCs) &&
+  /code 1618/.test(prereqCs));
+
+// /quiet makes python.org's bundle silent in every sense: no stdout, no
+// log, failure as a bare exit code. There was nothing at all to look at.
+check("the Python installer is made to explain itself",
+  /\/quiet \/log/.test(prereqCs) &&
+  /python-install\.log/.test(prereqCs) &&
+  /LastLinesOf\(installLog, 5\)/.test(prereqCs) &&
+  /private static string Explain\(string message\)/.test(prereqCs));
+
+// /passive still asks no questions, but it can show a UAC prompt - which
+// /quiet cannot, so a bundle needing elevation just fails with a number.
+check("and a silent failure is retried where it can speak",
+  /\/passive \/log/.test(prereqCs));
+
 // ------------------------------------------- the setup screen stays alive
 
 // The bundle exists so the machine needs no network. Running `pip install
