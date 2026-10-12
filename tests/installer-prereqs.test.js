@@ -295,7 +295,7 @@ check("and a complete bundle survives the network going away",
 // every one runs to its timeout, so the setup panel appeared unpainted and
 // Windows marked AURION "not responding" for most of a minute.
 check("nothing probes the machine on the UI thread",
-  /var \(python, node, pythonVersion\) = await Task\.Run/.test(prereqCs) &&
+  /var \(python, nodeCommand, pythonVersion\) = await Task\.Run/.test(prereqCs) &&
   /var py = FindPython\(installDir\);/.test(prereqCs));
 check("probes fail fast and do not leak a hung process",
   !/WaitForExit\(8000\)/.test(prereqCs) && !/WaitForExit\(5000\)/.test(prereqCs) &&
@@ -309,12 +309,19 @@ check("and hashing 28 MB does not freeze the progress it is reporting",
 // or 150% the panels were laid out for 96 DPI: cramped, clipped and
 // overlapping, which reads as a window that has not finished loading.
 const windowCsproj = read("installer/window/AurionWindow.csproj");
-check("the window and the setup panel scale with the display",
+// Panel derives from ScrollableControl, not ContainerControl, so it has no
+// AutoScaleMode at all - setting it there was a compile error. The form's
+// scaling propagates to its children regardless.
+check("the window scales with the display",
   /AutoScaleMode = AutoScaleMode\.Dpi/.test(appWindow) &&
-  /AutoScaleMode = AutoScaleMode\.Dpi/.test(setupPanel));
-check("and WinForms is told the same DPI mode the manifest asks for",
+  !/AutoScaleMode =/.test(setupPanel));
+
+// Declaring DPI awareness in both places is warning WFAC010, and the
+// manifest is the half WinForms cannot see: the loader applies it before
+// any managed code runs, so WinForms lays out for 96 DPI anyway.
+check("DPI awareness is declared once, where WinForms can act on it",
   /<ApplicationHighDpiMode>PerMonitorV2<\/ApplicationHighDpiMode>/.test(windowCsproj) &&
-  /PerMonitorV2<\/dpiAwareness>/.test(read("installer/window/app.manifest")));
+  !/dpiAware/.test(read("installer/window/app.manifest")));
 
 // ------------------------------------- AURION brings its own interpreters
 

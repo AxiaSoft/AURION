@@ -227,7 +227,7 @@ internal static class Prerequisites
         // thread that paints the window. The setup panel appeared unpainted
         // and Windows marked AURION "not responding" for the best part of a
         // minute before the first line of text arrived.
-        var (python, node, pythonVersion) = await Task.Run(() =>
+        var (python, nodeCommand, pythonVersion) = await Task.Run(() =>
         {
             var py = FindPython(installDir);
             var nd = FindNode(installDir);
@@ -235,7 +235,7 @@ internal static class Prerequisites
         });
 
         PythonCommand = python;
-        NodeCommand = node;
+        NodeCommand = nodeCommand;
 
         foreach (var req in list)
         {
