@@ -807,6 +807,7 @@ guarded.post("/strategies/apply", passthrough("POST", "/v1/strategies/apply"));
 guarded.post("/strategies/toggle", passthrough("POST", "/v1/strategies/toggle"));
 guarded.post("/auto", passthrough("POST", "/v1/auto"));
 guarded.post("/danger", passthrough("POST", "/v1/danger"));
+guarded.post("/risk_free", passthrough("POST", "/v1/risk_free"));
 guarded.post("/strategies/upload", passthrough("POST", "/v1/strategies/upload"));
 guarded.get("/strategies/source", passthrough("GET", "/v1/strategies/source"));
 guarded.post("/strategies/update", passthrough("POST", "/v1/strategies/update"));

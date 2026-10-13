@@ -162,6 +162,35 @@ def test_no_input_can_ever_produce_a_worse_stop():
     assert checked > 1000, checked
 
 
+# ------------------------------------------- the desk setting, in percent --
+
+def _pct_trigger(entry: float, pct: float) -> float:
+    """What the trader does with risk_free.trigger_pct."""
+    return entry * pct / 100.0
+
+
+def test_a_percentage_trigger_is_the_same_setting_on_every_instrument():
+    """0.3% is 0.3% whether the entry is 1.08 or 2400.
+
+    Points are not. 150 is a fair trigger on EURUSD and meaningless on
+    gold, which is why the desk setting is a percentage and the strategy
+    parameter is still points - a strategy knows the instrument it was
+    written for, and a single box in the settings does not.
+    """
+    for entry in (1.0850, 148.20, 2400.0, 39500.0):
+        trigger = _pct_trigger(entry, 0.30)
+
+        # Not yet: just under the trigger.
+        price = entry + trigger * 0.99
+        assert breakeven_target("buy", entry, price, trigger) is None
+
+        # And now, with the stop landing past the entry in every case.
+        price = entry + trigger * 1.01
+        sl = breakeven_target("buy", entry, price, trigger)
+        assert sl is not None and sl > entry
+        assert sl < price
+
+
 def test_an_unknown_side_does_nothing():
     assert resolve_stop("", 100.0, 110.0, 0.0, trailing_points=5.0) is None
     assert resolve_stop("hedge", 100.0, 110.0, 0.0, trailing_points=5.0) is None

@@ -87,6 +87,15 @@ class Trader:
         # Danger guard: tick-level protective exit. Hard-disabled while prop
         # rules are on — a challenge account only exits through the prop book.
         self.danger_enabled = False
+        # Risk free, as a desk setting rather than a strategy parameter.
+        #
+        # It was reachable only through strategy params, which means a
+        # trader who opens a position by hand - or runs the desk with no
+        # strategy loaded - got nothing. Protecting a trade is not a
+        # property of a strategy; it is a property of the account.
+        self.risk_free_enabled = False
+        self.risk_free_trigger_pct = 0.30
+        self.risk_free_lock_pct = 0.0
         # Which rule last moved each position's stop, so "this trade is
         # now risk free" is journalled once rather than on every tick.
         self._stop_note: dict[int, str] = {}
@@ -889,7 +898,14 @@ class Trader:
         trailing = float(params.get("trailing_points") or 0)
         be_trigger = float(params.get("breakeven_points") or 0)
         be_lock = float(params.get("breakeven_lock_points") or 0)
-        if trailing <= 0 and be_trigger <= 0:
+
+        # The account setting, for every position rather than only the
+        # ones a loaded strategy happens to own. A strategy that names
+        # its own points still wins: it knows the instrument it was
+        # written for, and this does not.
+        use_pct = bool(self.risk_free_enabled) and be_trigger <= 0
+
+        if trailing <= 0 and be_trigger <= 0 and not use_pct:
             return
 
         symbol = tick.get("symbol")
@@ -911,13 +927,23 @@ class Trader:
             if not close_px:
                 continue
 
+            entry = float(pos.price_open or 0)
+            trigger, lock = be_trigger, be_lock
+            if use_pct and entry > 0:
+                # A percentage is the same number on every instrument,
+                # which is the only kind of number one box in the desk
+                # can sensibly ask for. 150 points is a fair trigger on
+                # EURUSD and meaningless on gold.
+                trigger = entry * self.risk_free_trigger_pct / 100.0
+                lock = entry * self.risk_free_lock_pct / 100.0
+
             plan = resolve_stop(
                 side,
-                float(pos.price_open or 0),
+                entry,
                 close_px,
                 float(pos.sl or 0),
-                breakeven_points=be_trigger,
-                breakeven_lock_points=be_lock,
+                breakeven_points=trigger,
+                breakeven_lock_points=lock,
                 trailing_points=trailing,
                 spread=spread,
                 # A tenth of a spread is not worth a round trip, and
@@ -965,6 +991,46 @@ class Trader:
             "active": self._danger_armed(),
             "blocked_by_prop": bool(getattr(prop, "enabled", False)),
         }
+
+    @staticmethod
+    def _clamp_pct(value: Any, fallback: float) -> float:
+        """A percentage of the entry price, kept inside the believable."""
+        try:
+            pct = float(value)
+        except (TypeError, ValueError):
+            return fallback
+        if pct != pct:        # NaN
+            return fallback
+        return max(0.0, min(50.0, pct))
+
+    def _risk_free_state(self) -> dict[str, Any]:
+        return {
+            "enabled": bool(self.risk_free_enabled),
+            "trigger_pct": round(float(self.risk_free_trigger_pct), 4),
+            "lock_pct": round(float(self.risk_free_lock_pct), 4),
+        }
+
+    async def set_risk_free(self, body: dict[str, Any]) -> dict[str, Any]:
+        body = dict(body or {})
+        if "enabled" in body:
+            self.risk_free_enabled = bool(body.get("enabled"))
+        if "trigger_pct" in body:
+            self.risk_free_trigger_pct = self._clamp_pct(
+                body.get("trigger_pct"), self.risk_free_trigger_pct)
+        if "lock_pct" in body:
+            self.risk_free_lock_pct = self._clamp_pct(
+                body.get("lock_pct"), self.risk_free_lock_pct)
+
+        self._persist_runtime()
+        state = self._risk_free_state()
+        await self.journal(
+            "info",
+            "risk_free_cfg",
+            ("Risk free ON - stops move past entry at "
+             f"+{state['trigger_pct']}%" if state["enabled"] else "Risk free OFF"),
+            extra=state,
+        )
+        return {"ok": True, "risk_free": state}
 
     async def set_danger(self, body: dict[str, Any]) -> dict[str, Any]:
         body = dict(body or {})
@@ -1189,6 +1255,10 @@ class Trader:
         danger_cfg = runtime.get("danger_guard") if isinstance(runtime.get("danger_guard"), dict) else {}
         self.danger_enabled = bool(danger_cfg.get("enabled", False))
         self.danger_sensitivity = clamp_sensitivity(danger_cfg.get("sensitivity", 50))
+        rf_cfg = runtime.get("risk_free") if isinstance(runtime.get("risk_free"), dict) else {}
+        self.risk_free_enabled = bool(rf_cfg.get("enabled", False))
+        self.risk_free_trigger_pct = self._clamp_pct(rf_cfg.get("trigger_pct"), 0.30)
+        self.risk_free_lock_pct = self._clamp_pct(rf_cfg.get("lock_pct"), 0.0)
         # License gates: freemium accounts lose prop + scalping + news trading.
         # Persisted premium-era settings are silently downgraded on boot.
         if self.news_trade and not self.license.feature("news"):
@@ -1644,6 +1714,11 @@ class Trader:
                         "zone_depth": float(getattr(self, "auto_entry_depth", 0.5)),
                         "offset_atr": float(getattr(self, "auto_entry_offset", 0.35)),
                         "expiry_minutes": int(getattr(self, "auto_entry_expiry", 120)),
+                    },
+                    "risk_free": {
+                        "enabled": bool(self.risk_free_enabled),
+                        "trigger_pct": float(self.risk_free_trigger_pct),
+                        "lock_pct": float(self.risk_free_lock_pct),
                     },
                     "danger_guard": {
                         "enabled": bool(self.danger_enabled),

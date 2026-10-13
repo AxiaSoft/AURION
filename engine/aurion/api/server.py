@@ -285,6 +285,11 @@ async def set_auto(body: dict[str, Any]) -> dict[str, Any]:
     return trader.set_auto(body or {})
 
 
+@app.post("/v1/risk_free")
+async def risk_free_save(body: dict[str, Any] | None = None) -> dict[str, Any]:
+    return await trader.set_risk_free(body or {})
+
+
 @app.post("/v1/danger")
 async def danger_save(body: dict[str, Any] | None = None) -> dict[str, Any]:
     return await trader.set_danger(body or {})

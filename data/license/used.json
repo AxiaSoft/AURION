@@ -59,6 +59,24 @@
       "identity": "trader@example.com",
       "plan": "m1",
       "machine": "7b54de05c6f08a16598295ed56979a01"
+    },
+    "8b3a0acc87a07cc95a4fd110733b7a92d5f80edfb66892e225f4f92bfde57931": {
+      "used": "2026-10-13T16:01:28Z",
+      "identity": "trader@example.com",
+      "plan": "m3",
+      "machine": "7b54de05c6f08a16598295ed56979a01"
+    },
+    "0341c27e7de96e58ce5533c135a2325823ef6673b19cb5e6b7bda4d0d056b2c6": {
+      "used": "2026-10-13T16:01:28Z",
+      "identity": "trader@example.com",
+      "plan": "m1",
+      "machine": "7b54de05c6f08a16598295ed56979a01"
+    },
+    "9ade99b38c1f33b368a09d2f4be441618fe8d5aa0d9357f261f8d9bb31b1fd74": {
+      "used": "2026-10-13T16:01:31Z",
+      "identity": "trader@example.com",
+      "plan": "m1",
+      "machine": "7b54de05c6f08a16598295ed56979a01"
     }
   }
 }
