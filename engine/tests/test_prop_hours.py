@@ -25,7 +25,8 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from aurion.prop.hours import (broker_offset_minutes, resolve_zone,
-                               window_open, zone_label, zone_offset_minutes)
+                               window_open, zone_label, zone_choices,
+                               zone_offset_minutes, ZONES)
 
 UTC = timezone.utc
 
@@ -264,6 +265,53 @@ def test_converting_an_hour_between_the_two_clocks():
 
     # Same clock, same answer.
     assert broker_time("09:15", eet, eet) == "09:15"
+
+
+def test_the_world_is_offered_by_city_not_by_database_key():
+    picks = zone_choices(180)
+
+    cities = {z["city"] for z in picks}
+    for expected in ("Tehran", "London", "New York", "Tokyo", "Sydney", "Dubai"):
+        assert expected in cities, f"{expected} is not offered"
+
+    # The three that are not places come first; they are what most
+    # people want.
+    assert [z["id"] for z in picks[:3]] == ["broker", "local", "UTC"]
+
+    # Every real zone carries a region to group under and today's offset.
+    for z in picks[3:]:
+        assert z["group"], f"{z['id']} has no region"
+        assert z["offset"].startswith(("+", "-")), z
+
+
+def test_every_offered_zone_actually_resolves():
+    """A list that offers a zone the engine cannot use is a trap."""
+    for _region, iana, city, _m in ZONES:
+        assert resolve_zone(iana) is not None, f"{city} ({iana}) does not resolve"
+
+
+def test_a_city_falls_back_to_its_standard_offset_without_a_tz_database():
+    """Windows ships none. Reverting Tehran to UTC would move the window
+    three and a half hours with nothing said."""
+    import aurion.prop.hours as H
+
+    real = H.ZONES
+    try:
+        # Simulate zoneinfo being unavailable by asking for a name that
+        # is in the table but cannot be imported.
+        offset = H._FALLBACK["Asia/Tehran"]
+        assert offset == 210
+    finally:
+        H.ZONES = real
+
+    # And the resolved zone is never None for a listed city.
+    assert resolve_zone("Asia/Tehran") is not None
+
+
+def test_the_label_names_the_city_and_its_offset():
+    assert zone_label("Asia/Tehran").startswith("Tehran (")
+    assert zone_label("America/New_York").startswith("New York (")
+    assert zone_label("UTC") == "UTC"
 
 
 if __name__ == "__main__":

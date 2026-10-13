@@ -572,5 +572,14 @@ app.use("/admin", (req,res) => res.status(404).send("Not found"));
 app.listen(PORT, () => {
   console.log(`AURION Update Server listening on ${PORT}`);
   console.log(`Admin panel: http://127.0.0.1:${PORT}/admin/${ADMIN_PANEL_HASH}`);
+  if (!ADMIN_TOKEN) {
+    // Said here, because the alternative is a panel that loads, answers
+    // 401 to every button, and explains neither.
+    console.log("");
+    console.log("  WARNING: ADMIN_TOKEN is not set, so every admin action returns 401.");
+    console.log("           Put one in update-server/.env and restart.");
+    console.log("           start-update-server.cmd writes one for you.");
+    console.log("");
+  }
   console.log(`Public API: /api/updates/latest , /api/updates/check`);
 });

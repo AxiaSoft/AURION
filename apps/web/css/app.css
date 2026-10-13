@@ -2158,3 +2158,16 @@ html[data-theme="light"] .set-rail .set-jump button.on{background:linear-gradien
 .fields{display:grid;gap:0 14px;grid-template-columns:repeat(auto-fit,minmax(230px,1fr))}
 .fields>.field{min-width:0}
 .fields>.field.wide{grid-column:1 / -1}
+
+/* The zone a prop hour is written in, beside its label.
+
+   Without it the two time fields say "start" and "end" and nothing about
+   which clock they mean, which is how 07:00 came to be read as UTC by
+   the engine and as local by the trader. */
+.tz-tag{
+  font-weight:500; font-size:11px; color:var(--cyan);
+  background:rgb(var(--accent-rgb) / .12);
+  border-radius:999px; padding:2px 8px; margin-inline-start:6px;
+  white-space:nowrap;
+}
+.prop-at-broker{display:block; margin-top:6px; font-size:11px}

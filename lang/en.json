@@ -387,7 +387,7 @@
     "symbols_none_sel": "No symbol restriction - every symbol is allowed",
     "symbols_clear": "Clear",
     "hours_broker": "= {t} broker time",
-    "hours_broker_unknown": "broker clock not known yet — waiting for a tick"
+    "hours_broker_unknown": "Broker clock unknown — connect MetaTrader and the broker equivalent appears here"
   },
   "exec": {
     "title": "Execution",

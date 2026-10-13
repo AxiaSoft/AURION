@@ -8,8 +8,8 @@ from typing import Any
 
 from .auto_entry import expired_orders, plan_entry
 from .deals import aggregate_close_deals, history_row_matches
-from ..prop.hours import (broker_offset_minutes, resolve_zone, zone_label,
-                          zone_offset_minutes)
+from ..prop.hours import (broker_offset_minutes, resolve_zone, zone_choices,
+                          zone_label, zone_offset_minutes)
 from .gates import fire_blockers as gate_blockers
 from .stops import resolve_stop
 from ..ai.engine import AIEngine
@@ -1052,19 +1052,30 @@ class Trader:
             "lock_pct": round(float(self.risk_free_lock_pct), 4),
         }
 
+    def _timezone_city(self) -> str:
+        """The chosen zone as somebody would say it out loud."""
+        from ..prop.hours import ZONES
+
+        for _, iana, city, _m in ZONES:
+            if iana == self.desk_timezone:
+                return city
+        return self.desk_timezone
+
     def _timezone_state(self) -> dict[str, Any]:
         minutes = self.prop.broker_minutes
         return {
             "timezone": self.desk_timezone,
             "label": zone_label(self.desk_timezone, minutes),
+            "city": self._timezone_city(),
             "broker_offset_minutes": minutes,
             # The chosen zone's offset today, so the desk can convert a
             # time to broker time by arithmetic rather than by shipping
             # a second implementation of timezones to the browser.
             "offset_minutes": zone_offset_minutes(self.desk_timezone, minutes),
-            "choices": ["broker", "local", "UTC",
-                        "+03:30", "+03:00", "+02:00", "+01:00",
-                        "-04:00", "-05:00", "+04:00", "+05:30", "+08:00"],
+            # Cities, not database keys, and grouped by region. Built
+            # fresh each time so the offsets shown are today's, summer
+            # time included.
+            "choices": zone_choices(minutes),
         }
 
     async def set_timezone(self, body: dict[str, Any]) -> dict[str, Any]:

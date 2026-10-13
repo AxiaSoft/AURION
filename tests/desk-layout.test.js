@@ -345,6 +345,30 @@ check("a viewport change is repainted more than once", (() => {
     /propTime\("pr-hs"/.test(app) && /propTime\("pr-he"/.test(app) &&
     !/propText\("pr-hs"/.test(app));
 
+  // A free-text box accepted "7pm" and "07.00" and produced a window
+  // that never opened, with nothing saying why. type="time" gives two
+  // spinnable fields in the user's own locale and refuses 25:70.
+  check("the hours are real time inputs, not free text",
+    /type="time" step="60"/.test(app) &&
+    /function normalTime\(/.test(app));
+
+  // And each field says which clock it is in, beside its own label.
+  check("each hour field names its own clock",
+    /class="tz-tag"/.test(app) && /\.tz-tag\{/.test(read("apps/web/css/app.css")));
+
+  // Cities, grouped by region, with today's offset - not database keys.
+  check("the picker offers the world by city",
+    /<optgroup label=/.test(app) &&
+    /z\.city/.test(app) &&
+    /zone_choices\(minutes\)/.test(read("engine/aurion/runtime/trader.py")) &&
+    /def zone_choices/.test(read("engine/aurion/prop/hours.py")));
+
+  // Windows ships no IANA database, so without this every city a trader
+  // picks silently becomes UTC.
+  check("the engine installs a timezone database for Windows",
+    /^tzdata==/m.test(read("engine/requirements.txt")) &&
+    /_FALLBACK\.get\(text\)/.test(read("engine/aurion/prop/hours.py")));
+
   check("and each one says what it is for the broker",
     /function brokerEcho\(/.test(app) &&
     /risk\.hours_broker/.test(app) &&

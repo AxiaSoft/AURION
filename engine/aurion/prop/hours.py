@@ -30,7 +30,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 
 __all__ = ["resolve_zone", "window_open", "broker_offset_minutes",
-           "zone_label", "zone_offset_minutes"]
+           "zone_label", "zone_offset_minutes", "ZONES", "zone_choices"]
 
 
 def broker_offset_minutes(server_time: datetime | str | None, at: datetime | None = None) -> int | None:
@@ -99,6 +99,10 @@ def zone_label(name: str | None, broker_minutes: int | None = None) -> str:
     """What to show on the desk for a timezone setting."""
     text = str(name or "").strip() or "UTC"
     if text.lower() != "broker":
+        for _region, iana, city, _m in ZONES:
+            if iana == text:
+                live = zone_offset_minutes(iana)
+                return f"{city} ({_sign(live)})" if live is not None else city
         return text
     if broker_minutes is None:
         return "broker (unknown)"
@@ -154,7 +158,12 @@ def resolve_zone(name: str | None, broker_minutes: int | None = None) -> timezon
 
         return ZoneInfo(text)  # type: ignore[return-value]
     except Exception:
-        return None
+        # No tz database on this machine. Standard time for that city is
+        # a far better answer than silently reverting to UTC, which would
+        # move a Tehran trader's window by three and a half hours without
+        # saying anything.
+        minutes = _FALLBACK.get(text)
+        return timezone(timedelta(minutes=minutes)) if minutes is not None else None
 
 
 def _minutes(hhmm: str, fallback: int) -> int:
@@ -214,3 +223,104 @@ def window_open(
         f"outside trading hours {start_text}-{end_text} {label} "
         f"(it is {moment:%H:%M} {label} now)"
     )
+
+# ---------------------------------------------------------------------------
+# The zones offered on the desk
+# ---------------------------------------------------------------------------
+# Named by city, because "Asia/Tehran" is a database key and "Tehran" is
+# where somebody lives. Trading desks are also usually described by city -
+# the London session, the Tokyo open - so the city is the useful handle.
+#
+# Each carries a fallback offset. zoneinfo needs an IANA database, Windows
+# ships none, and although the engine now installs tzdata there is no
+# reason for a missing package to reduce a trader's timezone to UTC in
+# silence. The fallback is standard time, so it is wrong by an hour during
+# that region's summer and right the rest of the year - which is the
+# correct trade for a value that is only reached when the real answer is
+# unavailable.
+#
+# (region, IANA id, city, standard offset in minutes)
+ZONES: tuple[tuple[str, str, str, int], ...] = (
+    ("Americas", "America/Los_Angeles", "Los Angeles", -480),
+    ("Americas", "America/Denver", "Denver", -420),
+    ("Americas", "America/Chicago", "Chicago", -360),
+    ("Americas", "America/Mexico_City", "Mexico City", -360),
+    ("Americas", "America/New_York", "New York", -300),
+    ("Americas", "America/Bogota", "Bogota", -300),
+    ("Americas", "America/Caracas", "Caracas", -240),
+    ("Americas", "America/Santiago", "Santiago", -240),
+    ("Americas", "America/Sao_Paulo", "Sao Paulo", -180),
+    ("Americas", "America/Argentina/Buenos_Aires", "Buenos Aires", -180),
+
+    ("Europe & Africa", "Atlantic/Reykjavik", "Reykjavik", 0),
+    ("Europe & Africa", "Europe/London", "London", 0),
+    ("Europe & Africa", "Europe/Lisbon", "Lisbon", 0),
+    ("Europe & Africa", "Africa/Lagos", "Lagos", 60),
+    ("Europe & Africa", "Europe/Paris", "Paris", 60),
+    ("Europe & Africa", "Europe/Berlin", "Berlin", 60),
+    ("Europe & Africa", "Europe/Madrid", "Madrid", 60),
+    ("Europe & Africa", "Europe/Rome", "Rome", 60),
+    ("Europe & Africa", "Europe/Warsaw", "Warsaw", 60),
+    ("Europe & Africa", "Europe/Zurich", "Zurich", 60),
+    ("Europe & Africa", "Africa/Cairo", "Cairo", 120),
+    ("Europe & Africa", "Africa/Johannesburg", "Johannesburg", 120),
+    ("Europe & Africa", "Europe/Athens", "Athens", 120),
+    ("Europe & Africa", "Europe/Helsinki", "Helsinki", 120),
+    ("Europe & Africa", "Europe/Kyiv", "Kyiv", 120),
+    ("Europe & Africa", "Europe/Istanbul", "Istanbul", 180),
+    ("Europe & Africa", "Europe/Moscow", "Moscow", 180),
+
+    ("Middle East", "Asia/Jerusalem", "Jerusalem", 120),
+    ("Middle East", "Asia/Baghdad", "Baghdad", 180),
+    ("Middle East", "Asia/Riyadh", "Riyadh", 180),
+    ("Middle East", "Asia/Tehran", "Tehran", 210),
+    ("Middle East", "Asia/Dubai", "Dubai", 240),
+
+    ("Asia & Pacific", "Asia/Karachi", "Karachi", 300),
+    ("Asia & Pacific", "Asia/Kolkata", "Mumbai", 330),
+    ("Asia & Pacific", "Asia/Dhaka", "Dhaka", 360),
+    ("Asia & Pacific", "Asia/Bangkok", "Bangkok", 420),
+    ("Asia & Pacific", "Asia/Jakarta", "Jakarta", 420),
+    ("Asia & Pacific", "Asia/Shanghai", "Shanghai", 480),
+    ("Asia & Pacific", "Asia/Hong_Kong", "Hong Kong", 480),
+    ("Asia & Pacific", "Asia/Singapore", "Singapore", 480),
+    ("Asia & Pacific", "Asia/Tokyo", "Tokyo", 540),
+    ("Asia & Pacific", "Asia/Seoul", "Seoul", 540),
+    ("Asia & Pacific", "Australia/Perth", "Perth", 480),
+    ("Asia & Pacific", "Australia/Brisbane", "Brisbane", 600),
+    ("Asia & Pacific", "Australia/Sydney", "Sydney", 600),
+    ("Asia & Pacific", "Pacific/Auckland", "Auckland", 720),
+)
+
+_FALLBACK = {iana: minutes for _, iana, _, minutes in ZONES}
+
+
+def _sign(minutes: int) -> str:
+    sign = "+" if minutes >= 0 else "-"
+    hh, mm = divmod(abs(int(minutes)), 60)
+    return f"{sign}{hh:02d}:{mm:02d}"
+
+
+def zone_choices(broker_minutes: int | None = None) -> list[dict]:
+    """Everything the desk can offer, ready to put in a list.
+
+    The three that are not places come first, because they are the ones
+    most people want: the broker's own clock, this machine's, and UTC.
+    """
+    out: list[dict] = [
+        {"group": "", "id": "broker", "city": "Broker time",
+         "offset": _sign(broker_minutes) if broker_minutes is not None else "",
+         "auto": True},
+        {"group": "", "id": "local", "city": "This computer", "offset": "", "auto": True},
+        {"group": "", "id": "UTC", "city": "UTC", "offset": "+00:00", "auto": False},
+    ]
+    for region, iana, city, minutes in ZONES:
+        live = zone_offset_minutes(iana)
+        out.append({
+            "group": region,
+            "id": iana,
+            "city": city,
+            "offset": _sign(live if live is not None else minutes),
+            "auto": False,
+        })
+    return out

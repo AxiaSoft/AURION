@@ -2884,16 +2884,33 @@ function timezoneCardHtml() {
   const current = String(sys.timezone || "UTC");
   const choices = Array.isArray(sys.choices) && sys.choices.length
     ? sys.choices
-    : ["broker", "local", "UTC", "+03:30"];
+    : [{ group: "", id: "UTC", city: "UTC", offset: "+00:00" }];
 
-  const name = (z) => {
-    if (z === "broker") return I18N.t("sys.tz_broker");
-    if (z === "local") return I18N.t("sys.tz_local");
-    return z;
+  // The engine sends objects now: a city, the offset in force today and
+  // the region to group under. A raw "Asia/Tehran" is a database key;
+  // "Tehran (+03:30)" is where somebody lives.
+  const label = (z) => {
+    if (z.id === "broker") {
+      return z.offset ? `${I18N.t("sys.tz_broker")} ${z.offset}` : I18N.t("sys.tz_broker");
+    }
+    if (z.id === "local") return I18N.t("sys.tz_local");
+    return z.offset ? `${z.city} (${z.offset})` : z.city;
   };
 
-  const options = choices.map((z) =>
-    `<option value="${esc(z)}"${z === current ? " selected" : ""}>${esc(name(z))}</option>`).join("");
+  const groups = [];
+  for (const z of choices) {
+    const key = z.group || "";
+    let bucket = groups.find((g) => g.key === key);
+    if (!bucket) { bucket = { key, items: [] }; groups.push(bucket); }
+    bucket.items.push(z);
+  }
+
+  const options = groups.map((g) => {
+    const opts = g.items.map((z) =>
+      `<option value="${esc(z.id)}"${z.id === current ? " selected" : ""}>${esc(label(z))}</option>`
+    ).join("");
+    return g.key ? `<optgroup label="${esc(g.key)}">${opts}</optgroup>` : opts;
+  }).join("");
 
   const known = sys.broker_offset_minutes;
   const detail = current === "broker" && known === null
@@ -2995,15 +3012,30 @@ function propNum(id, labelKey, unitKey, value, opts) {
 function propTime(id, labelKey, value, placeholder) {
   const sys = S.snap?.strategy?.system || {};
   const zone = String(sys.label || sys.timezone || "UTC");
-  const unit = zone.length > 10 ? zone.slice(0, 10) : zone;
-  return `<label class="field num-field${zone.length > 12 ? " wide-unit" : ""}">
-      <span>${I18N.t(labelKey)}</span>
+
+  // type="time" rather than a text box.
+  //
+  // The browser then draws hours and minutes as two spinnable fields in
+  // the user's own locale, validates them, and refuses 25:70 - none of
+  // which a free-text box did. It was previously possible to save "7pm"
+  // or "07.00" and get a window that never opened, with nothing saying
+  // why.
+  return `<label class="field num-field">
+      <span>${I18N.t(labelKey)} <b class="tz-tag">${esc(zone)}</b></span>
       <span class="num-wrap">
-        <input id="${id}" value="${esc(value)}"${placeholder ? ` placeholder="${placeholder}"` : ""} />
-        <b class="num-unit">${esc(unit)}</b>
+        <input id="${id}" type="time" step="60" value="${esc(normalTime(value, placeholder))}" />
       </span>
       <small class="sub prop-at-broker" data-for="${id}">${esc(brokerEcho(value))}</small>
     </label>`;
+}
+
+/** "7:5" and "07.00" both mean 07:00; type="time" wants it spelled out. */
+function normalTime(value, fallback) {
+  const m = /^\s*(\d{1,2})\s*[:.]\s*(\d{1,2})\s*$/.exec(String(value ?? ""));
+  if (!m) return fallback || "00:00";
+  const hh = Math.min(23, +m[1]);
+  const mm = Math.min(59, +m[2]);
+  return String(hh).padStart(2, "0") + ":" + String(mm).padStart(2, "0");
 }
 
 /** "07:00 here = 06:30 broker", or an empty string when it cannot be said. */
@@ -3013,7 +3045,10 @@ function brokerEcho(text) {
   const broker = sys.broker_offset_minutes;
 
   if (mine === null || mine === undefined) return "";
-  if (broker === null || broker === undefined) return I18N.t("risk.hours_broker_unknown");
+  if (broker === null || broker === undefined) {
+    // Honest rather than converted against a zero it has not earned.
+    return I18N.t("risk.hours_broker_unknown");
+  }
 
   const m = /^\s*(\d{1,2})\s*:\s*(\d{2})\s*$/.exec(String(text || ""));
   if (!m) return "";

@@ -1,14 +1,14 @@
 {
   "plan": "m1",
   "identity": "trader@example.com",
-  "activated": "2026-10-13T21:41:28Z",
-  "expires": "2026-10-12T21:41:28Z",
-  "key_hash": "9a8269494992b9d3955c458d83c7c077b9f3a488ab4a7f9caa52f1720dd01dc7",
+  "activated": "2026-10-13T23:04:20Z",
+  "expires": "2026-10-12T23:04:20Z",
+  "key_hash": "28afaf187ea9b718a1a6912977bd3d1df80980ecf8e13a65cfec26f99ab983c5",
   "machine": "7b54de05c6f08a16598295ed56979a01",
   "bot_trades": 0,
-  "last_seen": "2026-10-13T21:41:28Z",
+  "last_seen": "2026-10-13T23:04:20Z",
   "issuer": "Axiasoft",
   "product": "AURION",
   "offline": true,
-  "signature": "0ca0a990189a8653f923e95aebdcece7e1d2af3abc7d092c1dd742cd3e28048b"
+  "signature": "ba437d181e0dff69eb957e03be2b7621bcf716e46e305b80a6d63550c95b7c9f"
 }

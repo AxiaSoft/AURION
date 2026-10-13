@@ -41,3 +41,11 @@ installer/assets/generated/*.original.ico
 # ---------------------------------------------------------------------------
 .devdata/
 installer/vendor/
+
+# Installed by the admin launchers, and the data they write.
+admin/update-server/node_modules/
+admin/update-server/data/
+admin/update-server/.env
+store/keyserver/node_modules/
+store/keyserver/data/
+store/keyserver/.env
