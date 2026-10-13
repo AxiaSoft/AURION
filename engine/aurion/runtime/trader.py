@@ -8,6 +8,7 @@ from typing import Any
 
 from .auto_entry import expired_orders, plan_entry
 from .deals import aggregate_close_deals, history_row_matches
+from .stops import resolve_stop
 from ..ai.engine import AIEngine
 from ..backtest.engine import Backtester
 from ..config import ROOT, load, merge, save
@@ -86,6 +87,9 @@ class Trader:
         # Danger guard: tick-level protective exit. Hard-disabled while prop
         # rules are on — a challenge account only exits through the prop book.
         self.danger_enabled = False
+        # Which rule last moved each position's stop, so "this trade is
+        # now risk free" is journalled once rather than on every tick.
+        self._stop_note: dict[int, str] = {}
         self.danger_sensitivity = 50
         self._danger_seen: dict[int, float] = {}
         self._danger_cooldown: dict[int, float] = {}
@@ -860,24 +864,88 @@ class Trader:
             await self.journal("error", "book_fault", f"Strategy book crashed: {exc}")
 
     async def _maybe_trail(self, tick: dict[str, Any]) -> None:
-        points = float((self.strategy.params if self.strategy else {}).get("trailing_points") or 0)
-        if points <= 0:
+        """Move protective stops forward, never back.
+
+        Two rules, resolved together because a position has one stop:
+
+          breakeven_points        profit that arms the risk-free move
+          breakeven_lock_points   how far past entry the stop then sits
+          trailing_points         distance the stop follows price at
+
+        The arithmetic is in runtime/stops.py, deliberately free of
+        MetaTrader and testable on its own. This method is only the part
+        that has to touch a broker: pick the closing price for each side,
+        ask what the stop should be, and send at most one modify.
+
+        Closing price, not the convenient one. A long is closed at the
+        bid and a short at the ask, so measuring a long's profit against
+        the ask - as the old trailing code effectively did by comparing
+        against whichever came in the tick - says a position is in profit
+        by a spread more than it is. On the break-even rule that is the
+        difference between a stop that cannot lose and one that loses
+        exactly the spread, every time.
+        """
+        params = (self.strategy.params if self.strategy else {}) or {}
+        trailing = float(params.get("trailing_points") or 0)
+        be_trigger = float(params.get("breakeven_points") or 0)
+        be_lock = float(params.get("breakeven_lock_points") or 0)
+        if trailing <= 0 and be_trigger <= 0:
             return
+
         symbol = tick.get("symbol")
         bid, ask = float(tick.get("bid") or 0), float(tick.get("ask") or 0)
         if not symbol or not (bid or ask):
             return
-        for pos in self.bridge.positions:
+        spread = max(0.0, ask - bid) if (bid and ask) else 0.0
+
+        bridge = getattr(self, "bridge", None)
+        if bridge is None:
+            return
+
+        for pos in list(bridge.positions):
             if pos.symbol != symbol:
                 continue
-            if pos.type == "buy" and bid:
-                new_sl = bid - points
-                if new_sl > float(pos.sl or 0) and new_sl < bid:
-                    await self.bridge.send_order({"action": "modify", "ticket": pos.ticket, "symbol": symbol, "sl": new_sl, "tp": pos.tp})
-            elif pos.type == "sell" and ask:
-                new_sl = ask + points
-                if (not pos.sl or new_sl < float(pos.sl)) and new_sl > ask:
-                    await self.bridge.send_order({"action": "modify", "ticket": pos.ticket, "symbol": symbol, "sl": new_sl, "tp": pos.tp})
+
+            side = str(pos.type or "").lower()
+            close_px = bid if side == "buy" else ask
+            if not close_px:
+                continue
+
+            plan = resolve_stop(
+                side,
+                float(pos.price_open or 0),
+                close_px,
+                float(pos.sl or 0),
+                breakeven_points=be_trigger,
+                breakeven_lock_points=be_lock,
+                trailing_points=trailing,
+                spread=spread,
+                # A tenth of a spread is not worth a round trip, and
+                # without a floor a fast instrument sends a modify on
+                # every tick and spends its time queueing behind itself.
+                min_step=spread * 0.5,
+            )
+            if plan is None:
+                continue
+
+            # Said once per position, not once per tick. The journal is
+            # read by people.
+            if self._stop_note.get(pos.ticket) != plan.reason:
+                self._stop_note[pos.ticket] = plan.reason
+                if plan.reason == "breakeven":
+                    await self.journal(
+                        "info",
+                        "risk_free",
+                        f"{symbol} #{pos.ticket} is now risk free - stop moved past entry",
+                    )
+
+            await bridge.send_order({
+                "action": "modify",
+                "ticket": pos.ticket,
+                "symbol": symbol,
+                "sl": plan.sl,
+                "tp": pos.tp,
+            })
 
     # ------------------------------------------------------------------
     # Danger guard — automatic protective exit
