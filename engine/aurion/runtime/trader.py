@@ -8,7 +8,8 @@ from typing import Any
 
 from .auto_entry import expired_orders, plan_entry
 from .deals import aggregate_close_deals, history_row_matches
-from ..prop.hours import broker_offset_minutes, resolve_zone, zone_label
+from ..prop.hours import (broker_offset_minutes, resolve_zone, zone_label,
+                          zone_offset_minutes)
 from .gates import fire_blockers as gate_blockers
 from .stops import resolve_stop
 from ..ai.engine import AIEngine
@@ -1057,6 +1058,10 @@ class Trader:
             "timezone": self.desk_timezone,
             "label": zone_label(self.desk_timezone, minutes),
             "broker_offset_minutes": minutes,
+            # The chosen zone's offset today, so the desk can convert a
+            # time to broker time by arithmetic rather than by shipping
+            # a second implementation of timezones to the browser.
+            "offset_minutes": zone_offset_minutes(self.desk_timezone, minutes),
             "choices": ["broker", "local", "UTC",
                         "+03:30", "+03:00", "+02:00", "+01:00",
                         "-04:00", "-05:00", "+04:00", "+05:30", "+08:00"],

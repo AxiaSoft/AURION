@@ -335,6 +335,39 @@ check("a viewport change is repainted more than once", (() => {
     /broker_minutes=self\.broker_minutes/.test(rules) &&
     !/"timezone": "UTC"/.test(read("engine/aurion/prop/profiles.py")));
 
+  // Prop hours are written in the trader's clock and echoed in the
+  // broker's, because the firm's rulebook is written in broker time.
+  // They used to be plain boxes meaning UTC with nothing saying so,
+  // which is how 07:00 became 10:30 in Tehran and prop mode looked as
+  // though it simply refused to trade.
+  check("prop hours are entered in the desk clock, not bare UTC",
+    /function propTime\(/.test(app) &&
+    /propTime\("pr-hs"/.test(app) && /propTime\("pr-he"/.test(app) &&
+    !/propText\("pr-hs"/.test(app));
+
+  check("and each one says what it is for the broker",
+    /function brokerEcho\(/.test(app) &&
+    /risk\.hours_broker/.test(app) &&
+    /addEventListener\("input", \(\) => \{ echo\.textContent = brokerEcho/.test(app));
+
+  // The browser converts with arithmetic on an offset the engine
+  // publishes. A second timezone implementation in the browser is how
+  // the two end up disagreeing about the week the clocks change.
+  check("the engine publishes the offset the browser does the sum with",
+    /"offset_minutes": zone_offset_minutes/.test(read("engine/aurion/runtime/trader.py")) &&
+    /def zone_offset_minutes/.test(read("engine/aurion/prop/hours.py")) &&
+    /sys\.offset_minutes/.test(app) && /sys\.broker_offset_minutes/.test(app));
+
+  // A conversion that silently lies is worse than none.
+  check("an unknown broker clock says so rather than guessing",
+    /risk\.hours_broker_unknown/.test(app) &&
+    /broker === null \|\| broker === undefined/.test(app));
+
+  const riskKeys = ["hours_broker", "hours_broker_unknown"];
+  const missingRisk = riskKeys.filter((k) => !(k in (en.risk || {})));
+  check("the broker echo is translated",
+    missingRisk.length === 0, missingRisk.length ? missingRisk.join(", ") : "2 keys");
+
   const sysKeys = ["tz_title", "tz_help", "tz_broker", "tz_local",
                    "tz_now", "tz_broker_waiting", "tz_set"];
   const missingSys = sysKeys.filter((k) => !(k in (en.sys || {})));

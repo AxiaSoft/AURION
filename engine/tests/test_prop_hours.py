@@ -25,7 +25,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from aurion.prop.hours import (broker_offset_minutes, resolve_zone,
-                               window_open, zone_label)
+                               window_open, zone_label, zone_offset_minutes)
 
 UTC = timezone.utc
 
@@ -224,6 +224,46 @@ def test_every_shipped_profile_is_open_during_its_own_session():
         hh, mm = (int(x) for x in start.split(":"))
         midpoint = at(f"{(hh + 1) % 24:02d}:{mm:02d}")
         assert window_open(hours, now=midpoint)[0] is True, f"{name} shut inside its own window"
+
+
+def test_the_offset_published_to_the_desk_is_the_one_in_effect_today():
+    """The desk converts prop hours to broker time with this number, so
+    it has to be the live offset rather than a nominal one."""
+    assert zone_offset_minutes("UTC") == 0
+    assert zone_offset_minutes("+03:30") == 210
+    assert zone_offset_minutes("-05:00") == -300
+
+    # "broker" resolves to whatever the ticks said.
+    assert zone_offset_minutes("broker", 180) == 180
+    assert zone_offset_minutes("broker", None) == 0      # UTC until a tick
+
+    # A zone nobody can resolve yields nothing, so the desk shows no
+    # conversion rather than a wrong one.
+    assert zone_offset_minutes("Mars/Olympus") is None
+
+
+def test_converting_an_hour_between_the_two_clocks():
+    """The arithmetic the desk does, checked here where it is cheap.
+
+    A time written in the trader's zone is the same instant as
+    time - their_offset + broker_offset on the broker's clock.
+    """
+    def broker_time(text: str, mine: int, broker: int) -> str:
+        hh, mm = (int(x) for x in text.split(":"))
+        at = (hh * 60 + mm - mine + broker) % (24 * 60)
+        return f"{at // 60:02d}:{at % 60:02d}"
+
+    tehran, eet = 210, 180
+    assert broker_time("07:00", tehran, eet) == "06:30"
+    assert broker_time("23:45", tehran, eet) == "23:15"
+
+    # Both midnight wraps, which is where an offset sum usually breaks.
+    assert broker_time("01:00", tehran, eet) == "00:30"
+    assert broker_time("00:15", tehran, eet) == "23:45"
+    assert broker_time("23:30", 0, eet) == "02:30"
+
+    # Same clock, same answer.
+    assert broker_time("09:15", eet, eet) == "09:15"
 
 
 if __name__ == "__main__":

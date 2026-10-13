@@ -2977,6 +2977,56 @@ function propNum(id, labelKey, unitKey, value, opts) {
     </label>`;
 }
 
+/**
+ * A prop trading hour, written in your clock and shown in the broker's.
+ *
+ * These used to be plain text boxes labelled "time", and the time they
+ * meant was UTC with nothing saying so. A trader in Tehran typing 07:00
+ * was setting 10:30 their own morning, which is how the conservative
+ * profile came to look as though prop mode simply refused to trade.
+ *
+ * So the field is in the desk's chosen zone - the one in System
+ * settings - and the line underneath says what that is for the broker,
+ * because that is the clock the firm's rulebook is written in. The
+ * conversion is arithmetic on an offset the engine publishes; doing it
+ * with a second timezone implementation in the browser is how the two
+ * end up disagreeing about the week the clocks change.
+ */
+function propTime(id, labelKey, value, placeholder) {
+  const sys = S.snap?.strategy?.system || {};
+  const zone = String(sys.label || sys.timezone || "UTC");
+  const unit = zone.length > 10 ? zone.slice(0, 10) : zone;
+  return `<label class="field num-field${zone.length > 12 ? " wide-unit" : ""}">
+      <span>${I18N.t(labelKey)}</span>
+      <span class="num-wrap">
+        <input id="${id}" value="${esc(value)}"${placeholder ? ` placeholder="${placeholder}"` : ""} />
+        <b class="num-unit">${esc(unit)}</b>
+      </span>
+      <small class="sub prop-at-broker" data-for="${id}">${esc(brokerEcho(value))}</small>
+    </label>`;
+}
+
+/** "07:00 here = 06:30 broker", or an empty string when it cannot be said. */
+function brokerEcho(text) {
+  const sys = S.snap?.strategy?.system || {};
+  const mine = sys.offset_minutes;
+  const broker = sys.broker_offset_minutes;
+
+  if (mine === null || mine === undefined) return "";
+  if (broker === null || broker === undefined) return I18N.t("risk.hours_broker_unknown");
+
+  const m = /^\s*(\d{1,2})\s*:\s*(\d{2})\s*$/.exec(String(text || ""));
+  if (!m) return "";
+  const hh = +m[1], mm = +m[2];
+  if (hh > 23 || mm > 59) return "";
+
+  // Same instant, read on the broker's clock.
+  let at = hh * 60 + mm - mine + broker;
+  at = ((at % 1440) + 1440) % 1440;
+  const out = String(Math.floor(at / 60)).padStart(2, "0") + ":" + String(at % 60).padStart(2, "0");
+  return I18N.t("risk.hours_broker", { t: out });
+}
+
 function propText(id, labelKey, unitKey, value, placeholder) {
   const wide = I18N.t(unitKey).length > 12 ? " wide-unit" : "";
   return `<label class="field num-field${wide}">
@@ -3022,8 +3072,8 @@ function propFormHtml() {
           ${propNum("pr-maxhold", "risk.max_hold", "risk.u_hours", pr.max_hold_hours||0, {step:"0.1", min:0, zeroOff:true})}
           ${propNum("pr-gap", "risk.gap", "risk.u_minutes", pr.min_minutes_between_trades||0, {min:0, zeroOff:true})}
           ${propNum("pr-cl", "risk.consec", "risk.u_trades", pr.max_consecutive_losses||0, {min:0, zeroOff:true})}
-          ${propText("pr-hs", "risk.hours_start", "risk.u_time", (pr.trading_hours&&pr.trading_hours.start)||"00:15", "00:15")}
-          ${propText("pr-he", "risk.hours_end", "risk.u_time", (pr.trading_hours&&pr.trading_hours.end)||"23:45", "23:45")}
+          ${propTime("pr-hs", "risk.hours_start", (pr.trading_hours&&pr.trading_hours.start)||"00:15", "00:15")}
+          ${propTime("pr-he", "risk.hours_end", (pr.trading_hours&&pr.trading_hours.end)||"23:45", "23:45")}
           ${propNum("pr-fri", "risk.friday", "risk.u_utc_hour", pr.friday_close_utc_hour||21, {min:0, max:23})}
           ${propNum("pr-nb", "risk.news_before", "risk.u_minutes", pr.news_blackout_before||15, {min:0})}
           ${propNum("pr-na", "risk.news_after", "risk.u_minutes", pr.news_blackout_after||15, {min:0})}
@@ -5333,6 +5383,16 @@ function bindRobotPanel() {
       delete autoEntry.dataset.busy;
     }
   };
+  // The broker line follows the field as it is typed, or it is a
+  // conversion of whatever was there when the page was drawn.
+  for (const id of ["pr-hs", "pr-he"]) {
+    const field = $(id);
+    if (!field) continue;
+    const echo = document.querySelector(`.prop-at-broker[data-for="${id}"]`);
+    if (!echo) continue;
+    field.addEventListener("input", () => { echo.textContent = brokerEcho(field.value); });
+  }
+
   const tzSel = $("sys-tz");
   if (tzSel) tzSel.onchange = async () => {
     const r = await API.post("/api/timezone", { timezone: tzSel.value });

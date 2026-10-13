@@ -385,7 +385,9 @@
     "u_time": "ساعة:دقيقة بتوقيت الوسيط",
     "u_zero_off": "0 = بلا حد",
     "symbols_none_sel": "بلا قيود - كل الرموز مسموحة",
-    "symbols_clear": "مسح"
+    "symbols_clear": "مسح",
+    "hours_broker": "= {t} بتوقيت الوسيط",
+    "hours_broker_unknown": "ساعة الوسيط غير معروفة بعد — في انتظار أول تيك"
   },
   "exec": {
     "title": "التنفيذ",

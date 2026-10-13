@@ -385,7 +385,9 @@
     "u_time": "HH:MM, broker time",
     "u_zero_off": "0 = no limit",
     "symbols_none_sel": "No symbol restriction - every symbol is allowed",
-    "symbols_clear": "Clear"
+    "symbols_clear": "Clear",
+    "hours_broker": "= {t} broker time",
+    "hours_broker_unknown": "broker clock not known yet — waiting for a tick"
   },
   "exec": {
     "title": "Execution",

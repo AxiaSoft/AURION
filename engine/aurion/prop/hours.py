@@ -29,7 +29,8 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
-__all__ = ["resolve_zone", "window_open", "broker_offset_minutes", "zone_label"]
+__all__ = ["resolve_zone", "window_open", "broker_offset_minutes",
+           "zone_label", "zone_offset_minutes"]
 
 
 def broker_offset_minutes(server_time: datetime | str | None, at: datetime | None = None) -> int | None:
@@ -71,6 +72,27 @@ def broker_offset_minutes(server_time: datetime | str | None, at: datetime | Non
         return None
 
     return int(round(raw / 15.0) * 15)
+
+
+def zone_offset_minutes(
+    name: str | None, broker_minutes: int | None = None, now: datetime | None = None
+) -> int | None:
+    """How far ahead of UTC a zone is right now, in minutes.
+
+    Published to the desk so it can convert a time between the trader's
+    clock and the broker's with arithmetic, instead of shipping a second
+    implementation of timezones to the browser and watching the two
+    disagree about the week a DST boundary falls.
+
+    "Right now" matters: for a named zone this is the offset in effect
+    today, summer time included.
+    """
+    zone = resolve_zone(name, broker_minutes)
+    if zone is None:
+        return None
+    moment = now or datetime.now(timezone.utc)
+    delta = moment.astimezone(zone).utcoffset()
+    return None if delta is None else int(delta.total_seconds() // 60)
 
 
 def zone_label(name: str | None, broker_minutes: int | None = None) -> str:
