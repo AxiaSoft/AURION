@@ -49,3 +49,7 @@ admin/update-server/.env
 store/keyserver/node_modules/
 store/keyserver/data/
 store/keyserver/.env
+
+# Panel secrets, made on first run.
+admin/panel/panel.token
+admin/telegram-panel/panel.token
