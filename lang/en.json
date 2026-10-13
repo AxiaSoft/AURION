@@ -311,6 +311,15 @@
     "pf": "Profit factor",
     "avg": "Average trade"
   },
+  "sys": {
+    "tz_title": "Time zone",
+    "tz_help": "The clock AURION reads everything in, including the prop trading window. Broker time is worked out from MetaTrader's own server clock, so it follows your broker without being told — and prop firms quote their hours in broker time.",
+    "tz_broker": "Broker time (automatic)",
+    "tz_local": "This computer's time",
+    "tz_now": "Currently using {z}.",
+    "tz_broker_waiting": "Waiting for the first tick from MetaTrader to read the broker's clock. UTC until then.",
+    "tz_set": "Desk clock set to {z}"
+  },
   "risk": {
     "title": "Prop risk",
     "profile": "Profile",

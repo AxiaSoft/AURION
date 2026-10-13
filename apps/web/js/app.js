@@ -2866,6 +2866,51 @@ function robotPanelHtml() {
 `;
 }
 
+/**
+ * The desk clock.
+ *
+ * In System rather than in prop risk, because which hours a prop firm
+ * allows is their rule and what time it is where you sit is not. Asking
+ * the same question once per profile is how the answers start
+ * disagreeing with each other.
+ *
+ * "Broker time" is the default and is not a question at all: MetaTrader
+ * stamps every tick with its server's clock, so the offset is worked
+ * out rather than asked for. It is the right default because prop
+ * trading hours are quoted in broker time by the firms themselves.
+ */
+function timezoneCardHtml() {
+  const sys = S.snap?.strategy?.system || {};
+  const current = String(sys.timezone || "UTC");
+  const choices = Array.isArray(sys.choices) && sys.choices.length
+    ? sys.choices
+    : ["broker", "local", "UTC", "+03:30"];
+
+  const name = (z) => {
+    if (z === "broker") return I18N.t("sys.tz_broker");
+    if (z === "local") return I18N.t("sys.tz_local");
+    return z;
+  };
+
+  const options = choices.map((z) =>
+    `<option value="${esc(z)}"${z === current ? " selected" : ""}>${esc(name(z))}</option>`).join("");
+
+  const known = sys.broker_offset_minutes;
+  const detail = current === "broker" && known === null
+    ? I18N.t("sys.tz_broker_waiting")
+    : I18N.t("sys.tz_now", { z: esc(sys.label || current) });
+
+  return `<div class="card">
+      <h3>${I18N.t("sys.tz_title")}</h3>
+      <p class="sub">${I18N.t("sys.tz_help")}</p>
+      <div class="field" style="margin-top:10px">
+        <span>${I18N.t("sys.tz_title")}</span>
+        <select id="sys-tz" class="ctrl">${options}</select>
+      </div>
+      <p class="sub" id="sys-tz-now">${detail}</p>
+    </div>`;
+}
+
 function profileLabel(id) {
   const key = "risk.preset_" + id;
   const tr = I18N.t(key);
@@ -3509,6 +3554,7 @@ const views = {
       </section>
       <section class="set-block" id="set-system"${tab==="set-system"?"":" hidden"}>
         <h2 class="set-title">${I18N.t("host.system")}</h2>
+        ${timezoneCardHtml()}
         <div class="card">
           <h3>${I18N.t("host.restart")}</h3>
           <p class="sub">${I18N.t("host.restart_hint")}</p>
@@ -5287,6 +5333,15 @@ function bindRobotPanel() {
       delete autoEntry.dataset.busy;
     }
   };
+  const tzSel = $("sys-tz");
+  if (tzSel) tzSel.onchange = async () => {
+    const r = await API.post("/api/timezone", { timezone: tzSel.value });
+    if (!r.ok) { toast(r.error || I18N.t("errors.generic")); return; }
+    const label = r.system?.label || tzSel.value;
+    toast(I18N.t("sys.tz_set", { z: label }));
+    await reloadSettings();
+  };
+
   const rfSw = $("st-rf");
   if (rfSw) rfSw.onclick = async () => {
     if (rfSw.disabled || rfSw.dataset.busy) return;

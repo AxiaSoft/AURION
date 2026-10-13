@@ -321,6 +321,26 @@ check("a viewport change is repainted more than once", (() => {
   check("the help text does not tie itself to particular instruments",
     !/EURUSD|XAUUSD|gold|طلا|GBPUSD/i.test(helpText), helpText.slice(0, 48) + "…");
 
+  // The clock lives in System, not in prop risk: which hours a firm
+  // allows is their rule, what time it is where you sit is not.
+  check("the timezone is a System setting, not a prop one",
+    /function timezoneCardHtml\(\)/.test(app) &&
+    /id="set-system"[\s\S]{0,200}timezoneCardHtml\(\)/.test(app) &&
+    /API\.post\("\/api\/timezone"/.test(app));
+
+  // Prop windows then read in it, which is the point of moving it.
+  const rules = read("engine/aurion/prop/rules.py");
+  check("prop hours follow the desk clock rather than restating it",
+    /default_zone=self\.desk_timezone/.test(rules) &&
+    /broker_minutes=self\.broker_minutes/.test(rules) &&
+    !/"timezone": "UTC"/.test(read("engine/aurion/prop/profiles.py")));
+
+  const sysKeys = ["tz_title", "tz_help", "tz_broker", "tz_local",
+                   "tz_now", "tz_broker_waiting", "tz_set"];
+  const missingSys = sysKeys.filter((k) => !(k in (en.sys || {})));
+  check("the clock's labels are translated",
+    missingSys.length === 0, missingSys.length ? missingSys.join(", ") : `${sysKeys.length} keys`);
+
   const keys = ["rf_title", "rf_help", "rf_on", "rf_off", "rf_trigger", "rf_trigger_help"];
   const missing = keys.filter((k) => !(k in (en.strategies || {})));
   check("every label it needs is translated",

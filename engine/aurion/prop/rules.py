@@ -54,6 +54,10 @@ class PropEngine:
         self.day_stamp: str = ""
         self.high_water: float | None = None
         self.locked = False
+        # Set by the trader: the desk-wide timezone and, when the setting
+        # is "broker", the offset worked out from MetaTrader's own clock.
+        self.desk_timezone = "UTC"
+        self.broker_minutes: int | None = None
         self.lock_reason = ""
         self.violations: list[dict[str, Any]] = []
         self.news_events: list[dict[str, Any]] = []
@@ -345,10 +349,17 @@ class PropEngine:
 
     def _in_hours(self) -> tuple[bool, str]:
         """Delegated to prop/hours.py, which is pure and therefore testable
-        at an hour other than the one it happens to be."""
+        at an hour other than the one it happens to be.
+
+        The zone is not a prop setting. It is chosen once in System
+        settings and every profile is read in it; a profile may still
+        name its own, but none of the shipped ones do.
+        """
         return window_open(
             self.profile.get("trading_hours"),
             allow_weekend=bool(self.profile.get("allow_weekend")),
+            default_zone=self.desk_timezone,
+            broker_minutes=self.broker_minutes,
         )
 
     def _news_blackout(self, symbol: str, force: bool = False) -> tuple[bool, str]:

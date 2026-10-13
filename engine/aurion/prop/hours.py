@@ -29,10 +29,63 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
-__all__ = ["resolve_zone", "window_open"]
+__all__ = ["resolve_zone", "window_open", "broker_offset_minutes", "zone_label"]
 
 
-def resolve_zone(name: str | None) -> timezone | None:
+def broker_offset_minutes(server_time: datetime | str | None, at: datetime | None = None) -> int | None:
+    """
+    How far ahead of UTC the broker's clock is, in minutes.
+
+    Worked out rather than configured. MetaTrader stamps every tick with
+    its server's own time, so the difference between that and the clock
+    here is the broker's offset - and a trader should not have to know
+    that their broker runs on EET, or notice when it changes for summer
+    time, to make the prop window line up with the session they watch.
+
+    Rounded to the nearest fifteen minutes because broker offsets are
+    whole or half hours and the raw difference is mostly network delay
+    and a tick that was already a moment old when it left.
+
+    Returns None when the difference is implausible - more than fourteen
+    hours either way is a clock that is wrong, not a timezone, and
+    guessing from it would move the trading window to somewhere nobody
+    chose.
+    """
+    if isinstance(server_time, str):
+        text = server_time.strip().replace("Z", "+00:00")
+        if not text:
+            return None
+        try:
+            server_time = datetime.fromisoformat(text)
+        except ValueError:
+            return None
+    if server_time is None:
+        return None
+
+    now = at or datetime.now(timezone.utc)
+    if server_time.tzinfo is None:
+        server_time = server_time.replace(tzinfo=timezone.utc)
+
+    raw = (server_time - now).total_seconds() / 60.0
+    if abs(raw) > 14 * 60:
+        return None
+
+    return int(round(raw / 15.0) * 15)
+
+
+def zone_label(name: str | None, broker_minutes: int | None = None) -> str:
+    """What to show on the desk for a timezone setting."""
+    text = str(name or "").strip() or "UTC"
+    if text.lower() != "broker":
+        return text
+    if broker_minutes is None:
+        return "broker (unknown)"
+    sign = "+" if broker_minutes >= 0 else "-"
+    hh, mm = divmod(abs(broker_minutes), 60)
+    return f"broker ({sign}{hh:02d}:{mm:02d})"
+
+
+def resolve_zone(name: str | None, broker_minutes: int | None = None) -> timezone | None:
     """
     Turn a timezone setting into something datetime can use.
 
@@ -57,6 +110,11 @@ def resolve_zone(name: str | None) -> timezone | None:
     text = str(name or "").strip()
     if not text or text.upper() == "UTC":
         return timezone.utc
+
+    if text.lower() == "broker":
+        # Unknown until a tick has arrived. UTC until then, rather than
+        # refusing to trade because the broker has not said hello yet.
+        return timezone.utc if broker_minutes is None else timezone(timedelta(minutes=broker_minutes))
 
     if text.lower() == "local":
         return datetime.now().astimezone().tzinfo  # type: ignore[return-value]
@@ -91,6 +149,8 @@ def window_open(
     *,
     allow_weekend: bool = False,
     now: datetime | None = None,
+    default_zone: str | None = None,
+    broker_minutes: int | None = None,
 ) -> tuple[bool, str]:
     """
     (open, reason). The reason is empty when it is open.
@@ -100,8 +160,14 @@ def window_open(
     session becomes a Saturday and stops.
     """
     hours = hours or {}
-    zone = resolve_zone(hours.get("timezone"))
-    label = str(hours.get("timezone") or "UTC").strip() or "UTC"
+
+    # A profile that does not name a zone follows the desk's setting.
+    # That is the whole arrangement: the timezone is chosen once, in
+    # System settings, and every prop profile is read in it - rather
+    # than being restated, and eventually contradicted, per profile.
+    chosen = str(hours.get("timezone") or "").strip() or str(default_zone or "").strip() or "UTC"
+    zone = resolve_zone(chosen, broker_minutes)
+    label = zone_label(chosen, broker_minutes)
     if zone is None:
         zone, label = timezone.utc, "UTC"
 

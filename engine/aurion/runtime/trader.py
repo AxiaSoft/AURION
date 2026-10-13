@@ -8,6 +8,7 @@ from typing import Any
 
 from .auto_entry import expired_orders, plan_entry
 from .deals import aggregate_close_deals, history_row_matches
+from ..prop.hours import broker_offset_minutes, resolve_zone, zone_label
 from .gates import fire_blockers as gate_blockers
 from .stops import resolve_stop
 from ..ai.engine import AIEngine
@@ -94,6 +95,11 @@ class Trader:
         # trader who opens a position by hand - or runs the desk with no
         # strategy loaded - got nothing. Protecting a trade is not a
         # property of a strategy; it is a property of the account.
+        # Chosen once, in System settings, and used by everything that
+        # has to know what time it is for this trader - prop windows
+        # first among them. "broker" is worked out from MetaTrader's own
+        # clock rather than asked for.
+        self.desk_timezone = "broker"
         self.risk_free_enabled = False
         self.risk_free_trigger_pct = 0.30
         self.risk_free_lock_pct = 0.0
@@ -236,8 +242,26 @@ class Trader:
         self.store.close()
         self.started = False
 
+    def _note_broker_clock(self, payload: dict[str, Any]) -> None:
+        """Learn the broker's timezone from the tick that already says it.
+
+        MetaTrader stamps every tick with its server's own time. The
+        difference between that and the clock here is the broker's
+        offset, so nobody has to know their broker runs on EET, or
+        notice when it shifts for summer time, for the prop window to
+        line up with the session they actually watch.
+        """
+        if str(getattr(self, "desk_timezone", "UTC")).lower() != "broker":
+            return
+        minutes = broker_offset_minutes(str(payload.get("time") or ""))
+        if minutes is None or minutes == self.prop.broker_minutes:
+            return
+        self.prop.broker_minutes = minutes
+        log.info("broker clock is UTC%+d:%02d", minutes // 60, abs(minutes) % 60)
+
     async def _on_bridge(self, kind: str, payload: dict[str, Any]) -> None:
         if kind == "tick":
+            self._note_broker_clock(payload)
             sym = str(payload.get("symbol") or "")
             await self.bus.publish("tick", payload)
             if not self.active_symbol and self._is_ea_symbol(sym):
@@ -1027,6 +1051,46 @@ class Trader:
             "lock_pct": round(float(self.risk_free_lock_pct), 4),
         }
 
+    def _timezone_state(self) -> dict[str, Any]:
+        minutes = self.prop.broker_minutes
+        return {
+            "timezone": self.desk_timezone,
+            "label": zone_label(self.desk_timezone, minutes),
+            "broker_offset_minutes": minutes,
+            "choices": ["broker", "local", "UTC",
+                        "+03:30", "+03:00", "+02:00", "+01:00",
+                        "-04:00", "-05:00", "+04:00", "+05:30", "+08:00"],
+        }
+
+    async def set_timezone(self, body: dict[str, Any]) -> dict[str, Any]:
+        """The desk's clock. Everything that needs to know the time uses it.
+
+        Deliberately not a prop setting. Which hours a prop firm allows
+        is their rule; what time it is where you sit is not, and asking
+        the same question once per profile is how the answers start
+        disagreeing.
+        """
+        wanted = str((body or {}).get("timezone") or "").strip()
+        if not wanted:
+            return {"ok": False, "error": "no timezone given"}
+
+        if wanted.lower() not in {"broker", "local"} and resolve_zone(wanted) is None:
+            return {"ok": False, "error": f"'{wanted}' is not a timezone this machine knows"}
+
+        self.desk_timezone = wanted
+        self.prop.desk_timezone = wanted
+        if wanted.lower() != "broker":
+            # A stale broker offset must not colour the new choice.
+            self.prop.broker_minutes = self.prop.broker_minutes
+
+        merge({"system": {"timezone": wanted}})
+        self._sync_book_meta()
+        await self.bus.publish("strategy", self.strategy_meta)
+
+        state = self._timezone_state()
+        await self.journal("info", "timezone", f"Desk clock set to {state['label']}", extra=state)
+        return {"ok": True, "system": state}
+
     async def set_risk_free(self, body: dict[str, Any]) -> dict[str, Any]:
         body = dict(body or {})
         if "enabled" in body:
@@ -1283,6 +1347,9 @@ class Trader:
         danger_cfg = runtime.get("danger_guard") if isinstance(runtime.get("danger_guard"), dict) else {}
         self.danger_enabled = bool(danger_cfg.get("enabled", False))
         self.danger_sensitivity = clamp_sensitivity(danger_cfg.get("sensitivity", 50))
+        system = cfg.get("system") if isinstance(cfg.get("system"), dict) else {}
+        self.desk_timezone = str(system.get("timezone") or "UTC").strip() or "UTC"
+        self.prop.desk_timezone = self.desk_timezone
         rf_cfg = runtime.get("risk_free") if isinstance(runtime.get("risk_free"), dict) else {}
         self.risk_free_enabled = bool(rf_cfg.get("enabled", False))
         self.risk_free_trigger_pct = self._clamp_pct(rf_cfg.get("trigger_pct"), 0.30)
@@ -1690,6 +1757,7 @@ class Trader:
             "pending_orders": len(self._own_pending_orders()),
             "danger_guard": self._danger_state(),
             "risk_free": self._risk_free_state(),
+            "system": self._timezone_state(),
             "auto_limit": self._auto_limit_meta(),
             "prop_enabled": bool(getattr(self.prop, "enabled", True)),
             "items": items,

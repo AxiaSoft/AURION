@@ -24,7 +24,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from aurion.prop.hours import resolve_zone, window_open
+from aurion.prop.hours import (broker_offset_minutes, resolve_zone,
+                               window_open, zone_label)
 
 UTC = timezone.utc
 
@@ -139,14 +140,79 @@ def test_a_mistyped_zone_falls_back_to_utc_rather_than_stopping_trading():
 
 # --------------------------------------------- the shipped profiles --
 
-def test_every_shipped_profile_states_its_timezone():
-    """Otherwise the desk cannot show what the hours mean, which is the
-    whole reason this was hard to diagnose."""
+def test_no_shipped_profile_pins_its_own_timezone():
+    """The clock is a desk setting, not a prop setting.
+
+    Which hours a prop firm allows is their rule; what time it is where
+    you sit is not. If a profile pinned its own zone it would quietly
+    override the one choice the trader made in System settings.
+    """
     from aurion.prop.profiles import PROFILES
 
     for name, profile in PROFILES.items():
         hours = profile.get("trading_hours") or {}
-        assert hours.get("timezone"), f"{name} does not say which clock it uses"
+        assert "timezone" in hours, f"{name} has no timezone key to inherit through"
+        assert not hours["timezone"], f"{name} pins its own zone and ignores the desk"
+
+
+def test_a_profile_without_a_zone_follows_the_desk():
+    hours = {"start": "07:00", "end": "20:00", "timezone": ""}
+    nine_in_tehran = at("05:30")
+
+    assert window_open(hours, now=nine_in_tehran, default_zone="UTC")[0] is False
+    assert window_open(hours, now=nine_in_tehran, default_zone="+03:30")[0] is True
+
+
+def test_a_profile_that_does_name_a_zone_still_wins():
+    hours = {"start": "07:00", "end": "20:00", "timezone": "UTC"}
+    assert window_open(hours, now=at("05:30"), default_zone="+03:30")[0] is False
+
+
+# ------------------------------------------------- the broker's clock --
+
+def test_the_broker_offset_is_read_from_its_own_tick():
+    """Nobody should have to know their broker runs on EET."""
+    now = datetime(2026, 10, 13, 12, 0, tzinfo=UTC)
+
+    # A tick stamped three hours ahead, arriving a couple of seconds late.
+    assert broker_offset_minutes(now + timedelta(hours=3, seconds=-2), now) == 180
+    assert broker_offset_minutes(now + timedelta(hours=5, minutes=30), now) == 330
+    assert broker_offset_minutes(now - timedelta(hours=5), now) == -300
+
+    # Network jitter must not become a different timezone.
+    assert broker_offset_minutes(now + timedelta(hours=2, seconds=40), now) == 120
+
+
+def test_an_impossible_clock_is_refused_rather_than_believed():
+    """A wrong clock is not a timezone, and guessing from one would move
+    the trading window somewhere nobody chose."""
+    now = datetime(2026, 10, 13, 12, 0, tzinfo=UTC)
+    assert broker_offset_minutes(now + timedelta(hours=40), now) is None
+    assert broker_offset_minutes(now - timedelta(days=3), now) is None
+    assert broker_offset_minutes("not a date") is None
+    assert broker_offset_minutes(None) is None
+
+
+def test_the_offset_can_be_read_straight_off_an_ea_tick_string():
+    now = datetime(2026, 10, 13, 12, 0, tzinfo=UTC)
+    assert broker_offset_minutes("2026-10-13T15:00:00Z", now) == 180
+    assert broker_offset_minutes("2026-10-13T15:00:00", now) == 180   # naive = UTC
+
+
+def test_broker_time_is_usable_before_the_first_tick():
+    """UTC until the broker says otherwise, rather than refusing to trade."""
+    assert resolve_zone("broker", None) is UTC
+    assert resolve_zone("broker", 180).utcoffset(None) == timedelta(hours=3)
+
+    hours = {"start": "00:00", "end": "23:59", "timezone": "broker"}
+    assert window_open(hours, now=at("12:00"), broker_minutes=None)[0] is True
+
+
+def test_the_label_says_what_broker_time_turned_out_to_be():
+    assert zone_label("broker", 180) == "broker (+03:00)"
+    assert zone_label("broker", -330) == "broker (-05:30)"
+    assert zone_label("broker", None) == "broker (unknown)"
+    assert zone_label("+03:30") == "+03:30"
 
 
 def test_every_shipped_profile_is_open_during_its_own_session():
