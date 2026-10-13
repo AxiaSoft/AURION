@@ -1021,7 +1021,18 @@ class Trader:
             self.risk_free_lock_pct = self._clamp_pct(
                 body.get("lock_pct"), self.risk_free_lock_pct)
 
+        # Rebuild the snapshot and push it, exactly as set_danger does.
+        #
+        # Leaving these two lines out is why the switch turned itself
+        # back off: the value was saved and persisted correctly, but
+        # strategy_meta still carried the old state, so the desk reloaded
+        # its settings, read enabled=false and repainted the switch off.
+        # From the outside that is indistinguishable from a setting that
+        # refuses to save.
+        self._sync_book_meta()
         self._persist_runtime()
+        await self.bus.publish("strategy", self.strategy_meta)
+
         state = self._risk_free_state()
         await self.journal(
             "info",

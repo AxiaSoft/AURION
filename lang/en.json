@@ -276,7 +276,7 @@
     "rf_on": "Risk free is on — stops will move past entry",
     "rf_off": "Risk free is off",
     "rf_trigger": "Profit before it moves",
-    "rf_trigger_help": "As a percentage of the entry price, so the same setting works on EURUSD and on gold. The stop lands just past the entry — far enough to clear the spread, so the trade cannot be closed at a loss by the cost of getting out of it.",
+    "rf_trigger_help": "A percentage of the entry price, so one setting means the same thing on every instrument whatever it is priced at. The stop then lands just past the entry — far enough to clear the spread, so the cost of getting out cannot turn a protected trade into a losing one.",
     "danger_help": "When on, the robot watches every open trade tick-by-tick and closes it fast when it senses danger (adverse move, AI opposition, floating loss). Works even when auto-trade is off.",
     "danger_prop_note": "Disabled while prop rules are on — turn prop off first.",
     "danger_sens": "Danger sensitivity",

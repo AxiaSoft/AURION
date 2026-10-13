@@ -268,6 +268,8 @@
     
 
     
+
+    
 <!-- settings-reference:start -->
       <h2 id="fa-16">۱۶. مرجع کامل تنظیمات</h2>
       <p>هر کلیدی که AURION می‌خواند، با مقدار پیش‌فرض واقعی‌اش. این جدول‌ها از
@@ -293,7 +295,7 @@
       <table>
         <tr><th>کلید</th><th>پیش‌فرض</th><th>توضیح</th></tr>
         <tr><td><code>runtime.risk_free.enabled</code></td><td><code>false</code></td><td>«ریسک‌فری». وقتی معامله به اندازهٔ کافی در سود رفت، حد ضرر را به آن‌طرف نقطهٔ ورود می‌برد تا دیگر نتواند ضرر بدهد. روی <b>هر</b> پوزیشن اعمال می‌شود، چه ربات بازش کرده باشد چه شما دستی.</td></tr>
-        <tr><td><code>runtime.risk_free.trigger_pct</code></td><td><code>0.3</code></td><td>چقدر سود لازم است تا این حرکت مسلح شود — بر حسب <b>درصد قیمت ورود</b>، نه پوینت. دلیلش این است که ۱۵۰ پوینت روی EURUSD معقول و روی طلا بی‌معنی است؛ ۰٫۳٪ روی همه‌چیز ۰٫۳٪ است. <b>مثال:</b> ورود خرید در ۲۴۰۰ طلا با <code>0.3</code> → در ۲۴۰۷٫۲ مسلح می‌شود.</td></tr>
+        <tr><td><code>runtime.risk_free.trigger_pct</code></td><td><code>0.3</code></td><td>چقدر سود لازم است تا این حرکت مسلح شود — بر حسب <b>درصد قیمت ورود</b>، نه پوینت. یک عدد پوینتی به قیمت نماد وابسته است و با تغییر نماد بی‌معنی می‌شود؛ درصد روی همه یک معنی دارد. <b>مثال:</b> با <code>0.3</code>، ورود خرید در ۲۴۰۰ در ۲۴۰۷٫۲ مسلح می‌شود و ورود خرید در ۱٫۰۸۵۰ در ۱٫۰۸۸۳.</td></tr>
         <tr><td><code>runtime.risk_free.lock_pct</code></td><td><code>0.0</code></td><td>حد ضرر چقدر آن‌طرفِ ورود بنشیند. <code>0</code> یعنی خودکار: <b>اسپرد زندهٔ همان لحظه + یک‌دهم تریگر</b>. این مقدار پیش‌فرض عمدی است — حد ضرری که <i>دقیقاً روی</i> قیمت ورود باشد باز هم با ضرر بسته می‌شود، چون برای خروج باید اسپرد رد شود و کمیسیون هم قبلاً گرفته شده.</td></tr>
         <tr><td><code>runtime.danger_guard.enabled</code></td><td><code>false</code></td><td>خروج محافظتی خودکار در شرایط خطر. وقتی قوانین پراپ روشن باشد غیرفعال می‌ماند — دو سیستم که هم‌زمان پوزیشن ببندند، نتیجه‌اش غیرقابل‌پیش‌بینی است.</td></tr>
         <tr><td><code>runtime.danger_guard.sensitivity</code></td><td><code>50</code></td><td>۰ تا ۱۰۰. بالاتر = زودتر می‌بندد. <b>مثال:</b> ۸۰ روی یک بازار پرنوسان، پوزیشن‌ها را زود می‌بندد و سودهای بزرگ را از دست می‌دهد؛ ۲۰ تقریباً هیچ‌وقت دخالت نمی‌کند.</td></tr>
@@ -535,6 +537,8 @@
     
 
     
+
+    
 <!-- settings-reference:start -->
       <h2 id="en-16">16. Complete settings reference</h2>
       <p>Every key AURION reads, with its real default. These tables are generated from
@@ -560,7 +564,7 @@
       <table>
         <tr><th>Key</th><th>Default</th><th>What it does</th></tr>
         <tr><td><code>runtime.risk_free.enabled</code></td><td><code>false</code></td><td>"Risk free". Once a trade is far enough ahead, the stop moves past the entry so the position can no longer lose. It applies to <b>every</b> position, whether the robot opened it or you did.</td></tr>
-        <tr><td><code>runtime.risk_free.trigger_pct</code></td><td><code>0.3</code></td><td>How much profit arms the move, as a <b>percentage of the entry price</b> rather than points. 150 points is sane on EURUSD and meaningless on gold; 0.3% is 0.3% on everything. <b>Example:</b> a long at 2400 on gold with <code>0.3</code> arms at 2407.2.</td></tr>
+        <tr><td><code>runtime.risk_free.trigger_pct</code></td><td><code>0.3</code></td><td>How much profit arms the move, as a <b>percentage of the entry price</b> rather than points. A figure in points depends on what the instrument costs and stops meaning anything the moment you trade something else; a percentage means the same everywhere. <b>Example:</b> at <code>0.3</code>, a long at 2400 arms at 2407.2 and a long at 1.0850 arms at 1.0883.</td></tr>
         <tr><td><code>runtime.risk_free.lock_pct</code></td><td><code>0.0</code></td><td>How far past the entry the stop sits. <code>0</code> means derive it: <b>the live spread plus a tenth of the trigger</b>. That default is deliberate — a stop sitting <i>exactly on</i> the open price still closes at a loss, because the spread has to be crossed to get out and the commission was already charged.</td></tr>
         <tr><td><code>runtime.danger_guard.enabled</code></td><td><code>false</code></td><td>The automatic protective exit. It stays idle while prop rules are on: two systems closing positions at once is not a behaviour anyone can predict.</td></tr>
         <tr><td><code>runtime.danger_guard.sensitivity</code></td><td><code>50</code></td><td>0 to 100. Higher closes sooner. <b>Example:</b> 80 on a volatile instrument exits early and gives up the large moves; 20 almost never intervenes.</td></tr>
@@ -710,6 +714,8 @@
     
 
     
+
+    
 <!-- settings-reference:start -->
       <h2 id="ar-16">١٦. مرجع الإعدادات الكامل</h2>
       <p>كل مفتاح يقرأه AURION مع قيمته الافتراضية الحقيقية. تُولَّد هذه الجداول من
@@ -733,7 +739,7 @@
       <table>
         <tr><th>المفتاح</th><th>الافتراضي</th><th>الوظيفة</th></tr>
         <tr><td><code>runtime.risk_free.enabled</code></td><td><code>false</code></td><td>«بدون مخاطرة». عند تحقيق ربح كافٍ، يُنقل وقف الخسارة خلف نقطة الدخول.</td></tr>
-        <tr><td><code>runtime.risk_free.trigger_pct</code></td><td><code>0.3</code></td><td>مقدار الربح الذي يُفعّل النقل، كنسبة مئوية من سعر الدخول وليس بالنقاط.</td></tr>
+        <tr><td><code>runtime.risk_free.trigger_pct</code></td><td><code>0.3</code></td><td>مقدار الربح الذي يُفعّل النقل، كنسبة مئوية من سعر الدخول وليس بالنقاط، لأن النقاط تعتمد على سعر الأداة. <b>مثال:</b> عند <code>0.3</code> يُفعَّل شراء عند 2400 في 2407.2.</td></tr>
         <tr><td><code>runtime.risk_free.lock_pct</code></td><td><code>0.0</code></td><td>مسافة الوقف خلف نقطة الدخول. <code>0</code> يعني الاشتقاق من السبريد الحي.</td></tr>
         <tr><td><code>runtime.danger_guard.enabled</code></td><td><code>false</code></td><td>الخروج الوقائي التلقائي. يبقى خاملاً عند تفعيل قواعد البروب.</td></tr>
         <tr><td><code>runtime.danger_guard.sensitivity</code></td><td><code>50</code></td><td>من ٠ إلى ١٠٠. الأعلى يغلق أسرع.</td></tr>

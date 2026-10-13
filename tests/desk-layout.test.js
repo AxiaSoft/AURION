@@ -292,6 +292,35 @@ check("a viewport change is repainted more than once", (() => {
     /"risk_free": self\._risk_free_state\(\)/.test(read("engine/aurion/runtime/trader.py")) &&
     /S\.snap\?\.strategy\?\.risk_free/.test(app));
 
+  // Saving is not the same as being seen to save.
+  //
+  // set_risk_free persisted correctly and did not rebuild strategy_meta
+  // or publish it, so the desk reloaded its settings, read the old
+  // enabled=false and painted the switch back off. From the outside
+  // that is indistinguishable from a setting that refuses to save, and
+  // it is invisible in review because the handler looks complete.
+  const trader = read("engine/aurion/runtime/trader.py");
+  const setters = [...trader.matchAll(
+    /async def (set_\w+)\(self, body[\s\S]*?(?=\n    (?:@|async def |def ))/g)];
+
+  const silent = [];
+  for (const [body, name] of setters) {
+    if (!/_persist_runtime\(\)/.test(body)) continue;      // not a settings setter
+    if (!/_sync_book_meta\(\)/.test(body) || !/bus\.publish\("strategy"/.test(body)) {
+      silent.push(name);
+    }
+  }
+  check("a saved setting is also published, or the desk paints the old one",
+    silent.length === 0, silent.length ? silent.join(", ") : `${setters.length} setters`);
+
+  // Naming two symbols invites the reading that the setting is for
+  // those two, and anybody trading neither has to translate the
+  // sentence before they can use it.
+  const helpText = JSON.parse(read("lang/fa.json")).strategies.rf_trigger_help
+    + JSON.parse(read("lang/en.json")).strategies.rf_trigger_help;
+  check("the help text does not tie itself to particular instruments",
+    !/EURUSD|XAUUSD|gold|طلا|GBPUSD/i.test(helpText), helpText.slice(0, 48) + "…");
+
   const keys = ["rf_title", "rf_help", "rf_on", "rf_off", "rf_trigger", "rf_trigger_help"];
   const missing = keys.filter((k) => !(k in (en.strategies || {})));
   check("every label it needs is translated",

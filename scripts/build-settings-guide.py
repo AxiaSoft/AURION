@@ -142,9 +142,9 @@ GROUPS: list[dict] = [
                 "ar": "«بدون مخاطرة». عند تحقيق ربح كافٍ، يُنقل وقف الخسارة خلف نقطة الدخول.",
             }),
             ("runtime.risk_free.trigger_pct", {
-                "fa": "چقدر سود لازم است تا این حرکت مسلح شود — بر حسب <b>درصد قیمت ورود</b>، نه پوینت. دلیلش این است که ۱۵۰ پوینت روی EURUSD معقول و روی طلا بی‌معنی است؛ ۰٫۳٪ روی همه‌چیز ۰٫۳٪ است. <b>مثال:</b> ورود خرید در ۲۴۰۰ طلا با <code>0.3</code> → در ۲۴۰۷٫۲ مسلح می‌شود.",
-                "en": "How much profit arms the move, as a <b>percentage of the entry price</b> rather than points. 150 points is sane on EURUSD and meaningless on gold; 0.3% is 0.3% on everything. <b>Example:</b> a long at 2400 on gold with <code>0.3</code> arms at 2407.2.",
-                "ar": "مقدار الربح الذي يُفعّل النقل، كنسبة مئوية من سعر الدخول وليس بالنقاط.",
+                "fa": "چقدر سود لازم است تا این حرکت مسلح شود — بر حسب <b>درصد قیمت ورود</b>، نه پوینت. یک عدد پوینتی به قیمت نماد وابسته است و با تغییر نماد بی‌معنی می‌شود؛ درصد روی همه یک معنی دارد. <b>مثال:</b> با <code>0.3</code>، ورود خرید در ۲۴۰۰ در ۲۴۰۷٫۲ مسلح می‌شود و ورود خرید در ۱٫۰۸۵۰ در ۱٫۰۸۸۳.",
+                "en": "How much profit arms the move, as a <b>percentage of the entry price</b> rather than points. A figure in points depends on what the instrument costs and stops meaning anything the moment you trade something else; a percentage means the same everywhere. <b>Example:</b> at <code>0.3</code>, a long at 2400 arms at 2407.2 and a long at 1.0850 arms at 1.0883.",
+                "ar": "مقدار الربح الذي يُفعّل النقل، كنسبة مئوية من سعر الدخول وليس بالنقاط، لأن النقاط تعتمد على سعر الأداة. <b>مثال:</b> عند <code>0.3</code> يُفعَّل شراء عند 2400 في 2407.2.",
             }),
             ("runtime.risk_free.lock_pct", {
                 "fa": "حد ضرر چقدر آن‌طرفِ ورود بنشیند. <code>0</code> یعنی خودکار: <b>اسپرد زندهٔ همان لحظه + یک‌دهم تریگر</b>. این مقدار پیش‌فرض عمدی است — حد ضرری که <i>دقیقاً روی</i> قیمت ورود باشد باز هم با ضرر بسته می‌شود، چون برای خروج باید اسپرد رد شود و کمیسیون هم قبلاً گرفته شده.",
