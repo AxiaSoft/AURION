@@ -8,6 +8,7 @@ from typing import Any
 
 from .auto_entry import expired_orders, plan_entry
 from .deals import aggregate_close_deals, history_row_matches
+from .gates import fire_blockers as gate_blockers
 from .stops import resolve_stop
 from ..ai.engine import AIEngine
 from ..backtest.engine import Backtester
@@ -829,6 +830,7 @@ class Trader:
             rows = self.store.candles(symbol, timeframe, 1500)
         if not rows:
             return
+        state: dict[str, Any] | None = None
         try:
             votes = []
             for name, slot in self.book.items():
@@ -842,32 +844,47 @@ class Trader:
             self.ai._strategy_votes = votes
             state = await asyncio.to_thread(self.ai.on_closed_bar, rows, symbol, timeframe)
         except Exception as exc:
+            # An AI fault must not stop the strategies.
+            #
+            # This used to `return`, which meant one exception out of the
+            # model silently switched the entire robot off: no strategy
+            # was evaluated, no signal was produced, and nothing in the
+            # log said the book had been skipped - only that the AI had
+            # failed. The product says everywhere that the AI is a filter
+            # and never a source of signals, and the default for
+            # execution.flatten_on_ai_fault is false for the same reason.
+            #
+            # The strategies still run. If require_ai_agree is on, the
+            # gate in _dispatch_signal then refuses the entry for want of
+            # an opinion - which is the correct, conservative outcome and
+            # is journalled with a reason.
             log.exception("AI on_closed_bar failed")
-            await self.journal("error", "ai_fault", f"AI failed on {symbol} {timeframe}: {exc}")
-            return
-        if state.get("retrain_due"):
-            asyncio.create_task(self._bg_train(rows, symbol, timeframe), name=f"aurion-train-{symbol}")
-        self.store.record_signal({**state, "source": "ai"})
-        await self.bus.publish("ai", state)
-        shown = state.get("display_direction") or state.get("hint") or state.get("direction") or "n/a"
-        await self.journal(
-            "info",
-            "ai_bar",
-            f"AI {symbol} {timeframe}: {shown} "
-            f"conf={float(state.get('confidence') or 0):.2f} samples={state.get('samples') or 0} "
-            f"— {state.get('reason') or 'no reason'}",
-            extra={"symbol": symbol, "timeframe": timeframe, "activity": (state.get("activity") or [])[-6:]},
-        )
+            await self.journal(
+                "error",
+                "ai_fault",
+                f"AI failed on {symbol} {timeframe}: {exc} — strategies still evaluated",
+            )
+
+        if state:
+            if state.get("retrain_due"):
+                asyncio.create_task(self._bg_train(rows, symbol, timeframe), name=f"aurion-train-{symbol}")
+            self.store.record_signal({**state, "source": "ai"})
+            await self.bus.publish("ai", state)
+            shown = state.get("display_direction") or state.get("hint") or state.get("direction") or "n/a"
+            await self.journal(
+                "info",
+                "ai_bar",
+                f"AI {symbol} {timeframe}: {shown} "
+                f"conf={float(state.get('confidence') or 0):.2f} samples={state.get('samples') or 0} "
+                f"— {state.get('reason') or 'no reason'}",
+                extra={"symbol": symbol, "timeframe": timeframe, "activity": (state.get("activity") or [])[-6:]},
+            )
+
         ctx = self._ctx(symbol, timeframe)
-        may_fire = bool(
-            self.auto_trade
-            and not self.kill_switch
-            and not self.safe_mode
-            and not (self.prop.enabled and self.prop.locked)
-            and self.bridge.tape_mode() == "live"
-        )
+        blocked = self.fire_blockers()
+        may_fire = not blocked
         try:
-            await self._run_enabled_strategies(ctx, execute=may_fire)
+            await self._run_enabled_strategies(ctx, execute=may_fire, blocked=blocked)
         except Exception as exc:
             log.exception("strategy book failed")
             await self.journal("error", "book_fault", f"Strategy book crashed: {exc}")
@@ -1764,7 +1781,28 @@ class Trader:
             return str(signal.get("action") or ""), str(signal.get("reason") or "")
         return "", ""
 
-    async def _run_enabled_strategies(self, ctx: StrategyContext, execute: bool = False) -> None:
+    def fire_blockers(self) -> list[str]:
+        """Every reason a signal would not be sent right now, by name.
+
+        "Signal seen but auto-trade is not armed (or a gate is closed)"
+        was the only thing the log said when a strategy fired and nothing
+        happened, and it is five possibilities in one sentence. A trader
+        looking at that cannot tell whether they forgot the switch, the
+        kill switch is down, prop has locked them out, or the tape is not
+        live - and every one of those has a different fix.
+        """
+        return gate_blockers(
+            auto_trade=bool(self.auto_trade),
+            kill_switch=bool(self.kill_switch),
+            safe_mode=bool(self.safe_mode),
+            prop_enabled=bool(self.prop.enabled),
+            prop_locked=bool(self.prop.locked),
+            tape_mode=self.bridge.tape_mode(),
+        )
+
+    async def _run_enabled_strategies(
+        self, ctx: StrategyContext, execute: bool = False, blocked: list[str] | None = None
+    ) -> None:
         closes: list[tuple[str, Any]] = []
         entries: list[tuple[str, Any]] = []
         enabled = [name for name, slot in self.book.items() if slot.get("enabled") and slot.get("inst")]
@@ -1814,10 +1852,12 @@ class Trader:
                 entries.append((name, signal))
         if not execute:
             if closes or entries:
+                why = ", ".join(blocked) if blocked else "a gate is closed"
                 await self.journal(
                     "warning",
                     "not_armed",
-                    "Signal seen but auto-trade is not armed (or a gate is closed) — order not sent.",
+                    f"Signal seen but not sent — {why}.",
+                    extra={"blocked": list(blocked or [])},
                 )
             self._sync_book_meta()
             await self.bus.publish("strategy", self.strategy_meta)
