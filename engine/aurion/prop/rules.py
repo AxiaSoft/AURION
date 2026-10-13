@@ -9,6 +9,7 @@ from typing import Any
 from ..config import DATA_DIR, ROOT, abspath, load
 from ..util.clock import utc_iso
 from ..util.log import get
+from .hours import window_open
 from .profiles import LOCKED_IDS, get_profile
 
 log = get("prop")
@@ -343,17 +344,12 @@ class PropEngine:
         }
 
     def _in_hours(self) -> tuple[bool, str]:
-        hours = self.profile.get("trading_hours") or {}
-        now = datetime.now(timezone.utc)
-        if now.weekday() not in set(hours.get("weekdays") or [0, 1, 2, 3, 4]):
-            if not self.profile.get("allow_weekend"):
-                return False, "outside allowed weekdays"
-        start = str(hours.get("start") or "00:00")
-        end = str(hours.get("end") or "23:59")
-        hm = now.strftime("%H:%M")
-        if not (start <= hm <= end):
-            return False, f"outside trading hours {start}-{end} UTC"
-        return True, ""
+        """Delegated to prop/hours.py, which is pure and therefore testable
+        at an hour other than the one it happens to be."""
+        return window_open(
+            self.profile.get("trading_hours"),
+            allow_weekend=bool(self.profile.get("allow_weekend")),
+        )
 
     def _news_blackout(self, symbol: str, force: bool = False) -> tuple[bool, str]:
         if not force and not self.profile.get("news_filter"):
