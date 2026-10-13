@@ -268,6 +268,36 @@ check("a viewport change is repainted more than once", (() => {
     /\.row>\.btn\{flex:1 1 calc\(50% - var\(--ctl-gap\)\)/.test(appCss.replace(/\n\s*/g, "")));
 })();
 
+/* ------------------------------------------------------- risk free in UI --
+
+   The rule shipped working and unreachable twice: first it only read
+   strategy params, then it was only settable over the API. A protective
+   feature nobody can find is a protective feature nobody has.          */
+
+(() => {
+  const app = read("apps/web/js/app.js");
+  const en = JSON.parse(read("lang/en.json"));
+
+  check("the robot settings have a risk-free switch",
+    /id: "st-rf"/.test(app) && /API\.post\("\/api\/risk_free", \{ enabled: on \}\)/.test(app));
+
+  check("and a trigger the switch enables and disables",
+    /id="st-rf-trigger"/.test(app) &&
+    /trigger_pct: \+rfTrigger\.value/.test(app) &&
+    /if \(trig\) trig\.disabled = !on/.test(app));
+
+  // The engine has to publish it or the switch paints from nothing and
+  // springs back to off on the next snapshot.
+  check("the engine publishes the state the switch reads",
+    /"risk_free": self\._risk_free_state\(\)/.test(read("engine/aurion/runtime/trader.py")) &&
+    /S\.snap\?\.strategy\?\.risk_free/.test(app));
+
+  const keys = ["rf_title", "rf_help", "rf_on", "rf_off", "rf_trigger", "rf_trigger_help"];
+  const missing = keys.filter((k) => !(k in (en.strategies || {})));
+  check("every label it needs is translated",
+    missing.length === 0, missing.length ? missing.join(", ") : `${keys.length} keys`);
+})();
+
 /* ------------------------------------------------------------------------- */
 
 /** The declaration block that follows a selector or at-rule, braces balanced. */

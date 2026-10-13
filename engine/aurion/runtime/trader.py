@@ -1661,6 +1661,7 @@ class Trader:
             "auto_entry_expiry": int(getattr(self, "auto_entry_expiry", 120)),
             "pending_orders": len(self._own_pending_orders()),
             "danger_guard": self._danger_state(),
+            "risk_free": self._risk_free_state(),
             "auto_limit": self._auto_limit_meta(),
             "prop_enabled": bool(getattr(self.prop, "enabled", True)),
             "items": items,

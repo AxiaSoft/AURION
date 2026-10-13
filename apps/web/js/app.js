@@ -1883,6 +1883,16 @@ function patchLive() {
     paintSwitch($("prop-enable"), propOn);
     const psub = $("prop-enable-sub");
     if (psub) psub.textContent = I18N.t(propOn ? "risk.prop_on" : "risk.prop_off");
+    const rfLive = S.snap?.strategy?.risk_free || {};
+    paintSwitch($("st-rf"), rfLive.enabled);
+    const rfTrig = $("st-rf-trigger");
+    if (rfTrig && document.activeElement !== rfTrig) {
+      rfTrig.value = rfLive.trigger_pct ?? 0.3;
+      rfTrig.disabled = !rfLive.enabled;
+      const pct = $("st-rf-pct");
+      if (pct) pct.textContent = Number(rfTrig.value).toFixed(2) + "%";
+    }
+
     const dgLive = S.snap?.strategy?.danger_guard || {};
     paintSwitch($("st-danger"), dgLive.enabled);
     const dgSwLive = $("st-danger");
@@ -2729,6 +2739,7 @@ function robotPanelHtml() {
   const newsPrem = licFeat("news");
   const propOn = (S.snap?.prop || {}).enabled !== false;
   const dg = st.danger_guard || {};
+  const rf = st.risk_free || {};
   const auto = Boolean(st.auto_trade);
 
   return `<div class="card robot-hero${auto ? " is-on" : ""}">
@@ -2821,6 +2832,20 @@ function robotPanelHtml() {
           <input id="st-conf" type="range" step="0.01" min="0.05" max="0.95" value="${st.min_ai_confidence ?? 0.55}" />
         </div>
         <p class="sub" id="ai-conf-why">${I18N.t("strategies.min_conf_help")}</p>
+      </div>
+
+      <div class="card">
+        ${switchRow({
+          id: "st-rf",
+          title: I18N.t("strategies.rf_title"),
+          sub: I18N.t("strategies.rf_help"),
+          subId: "st-rf-sub",
+          on: rf.enabled,
+        })}
+        <div class="field" style="margin-top:10px"><span class="conf-head">${I18N.t("strategies.rf_trigger")}<b class="mono conf-pct" id="st-rf-pct">${(rf.trigger_pct ?? 0.3).toFixed(2)}%</b></span>
+          <input id="st-rf-trigger" type="range" step="0.05" min="0.05" max="3" value="${rf.trigger_pct ?? 0.3}" ${rf.enabled ? "" : "disabled"} />
+        </div>
+        <p class="sub">${I18N.t("strategies.rf_trigger_help")}</p>
       </div>
 
       <div class="card">
@@ -5262,6 +5287,43 @@ function bindRobotPanel() {
       delete autoEntry.dataset.busy;
     }
   };
+  const rfSw = $("st-rf");
+  if (rfSw) rfSw.onclick = async () => {
+    if (rfSw.disabled || rfSw.dataset.busy) return;
+    rfSw.dataset.busy = "1";
+    const on = !rfSw.classList.contains("on");
+    paintSwitch(rfSw, on);
+    // The slider follows the switch: a trigger you can drag while the
+    // rule is off reads as though it were doing something.
+    const trig = $("st-rf-trigger");
+    if (trig) trig.disabled = !on;
+    try {
+      const r = await API.post("/api/risk_free", { enabled: on });
+      if (!r.ok) {
+        paintSwitch(rfSw, !on);
+        if (trig) trig.disabled = on;
+        toast(r.error || I18N.t("errors.generic"));
+        return;
+      }
+      toast(I18N.t(on ? "strategies.rf_on" : "strategies.rf_off"));
+      await reloadSettings();
+    } finally {
+      delete rfSw.dataset.busy;
+    }
+  };
+  const rfTrigger = $("st-rf-trigger");
+  if (rfTrigger) {
+    const pct = $("st-rf-pct");
+    rfTrigger.addEventListener("input", () => {
+      if (pct) pct.textContent = Number(rfTrigger.value).toFixed(2) + "%";
+    });
+    rfTrigger.addEventListener("change", async () => {
+      const r = await API.post("/api/risk_free", { trigger_pct: +rfTrigger.value });
+      if (!r.ok) toast(r.error || I18N.t("errors.generic"));
+      await refresh(false);
+    });
+  }
+
   const dgSw = $("st-danger");
   if (dgSw) dgSw.onclick = async () => {
     if (dgSw.disabled || dgSw.dataset.busy) return;
