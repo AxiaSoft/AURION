@@ -135,13 +135,21 @@ function findProduct(id) { return getProducts().find(p => p.id === String(id).to
 
 const app = express();
 app.disable("x-powered-by");
+
+// A shop that can be framed can be clicked through by a page pretending
+// to be it, so framing is refused. The single exception is an explicit
+// ALLOW_FRAMING=1, for showing the storefront inside a preview pane
+// while developing. It is off unless someone asks for it in writing.
+const ALLOW_FRAMING = String(ENV.ALLOW_FRAMING || "") === "1";
+if (ALLOW_FRAMING) console.log("  [dev] ALLOW_FRAMING=1 — this store may be embedded in a frame");
+
 app.use((req, res, next) => {
   res.setHeader("X-Content-Type-Options", "nosniff");
-  res.setHeader("X-Frame-Options", "DENY");
+  if (!ALLOW_FRAMING) res.setHeader("X-Frame-Options", "DENY");
   res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
   res.setHeader("Permissions-Policy", "clipboard-write=(self), camera=(), microphone=(), geolocation=()");
   res.setHeader("X-XSS-Protection", "0");
-  res.setHeader("Content-Security-Policy", "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self'; frame-ancestors 'none';");
+  res.setHeader("Content-Security-Policy", `default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self'; frame-ancestors ${ALLOW_FRAMING ? "*" : "'none'"};`);
   if (String(ENV.NODE_ENV).toLowerCase() === "production") {
     res.setHeader("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
   }
@@ -1118,7 +1126,15 @@ function getAppJs() {
 app.get("/app.js", (req, res) => {
   res.set("Cache-Control", "no-store").type("application/javascript").send(getAppJs());
 });
-app.use(express.static(publicDir, { setHeaders: (res, p) => { if (p.endsWith(".html")) res.setHeader("Cache-Control", "no-store"); } }));
+// The stylesheet is versioned in the markup, but a browser that cached
+// the broken one under the old query string keeps it until the page
+// asks for the new name. Serving CSS no-store costs a few kB and means
+// a fix is one reload away rather than one cache-clear away.
+app.use(express.static(publicDir, {
+  setHeaders: (res, p) => {
+    if (p.endsWith(".html") || p.endsWith(".css")) res.setHeader("Cache-Control", "no-store");
+  },
+}));
 app.get("*", (req, res, next) => {
   if (req.path.startsWith("/api/")) return next();
   res.sendFile(path.join(publicDir, "index.html"));

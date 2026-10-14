@@ -1,4 +1,6 @@
 *{box-sizing:border-box;margin:0;padding:0}
+
+
 :root{
   --bg:#070a10;--bg2:#0b1020;--card:#0e1320;--card2:#111a2e;--line:#1d2536;--line2:#243044;
   --txt:#eef2fa;--muted:#8a94ab;--muted2:#5d6a86;
@@ -187,3 +189,26 @@ td .row{gap:6px}
 }
 .inv-row{gap:14px;margin-top:8px;font-size:12px;color:var(--muted)}
 .inv-row b{color:var(--gold)}
+
+/* The HTML hidden attribute, honoured.
+ *
+ * The browser hides [hidden] with a user-agent rule of display:none. Any
+ * author rule that sets display beats it, whatever its specificity,
+ * because author styles outrank user-agent styles. So `.modal{...;
+ * display:grid}` on <div class="modal" hidden> left the modal on screen
+ * permanently: position:fixed, inset:0, a blurred black veil at z-index
+ * 50 with an empty card in the middle. The storefront rendered fine
+ * underneath and could not be clicked, and the veil had nothing written
+ * on it to say what it was — "an element in front of me with no text".
+ * .mobile-menu (display:flex) did the same thing one layer below.
+ *
+ * One line fixes the class of bug, not just the two instances. The desk
+ * app has carried this rule since early on; the store never got it.
+ *
+ * It lives at the END of the file on purpose. [hidden] is an attribute
+ * selector, specificity (0,1,0) - exactly the same as .modal. Equal
+ * specificity is broken by source order, so the rule has to come last;
+ * !important settles it in a real browser, but not every engine that
+ * reads this file implements !important, and being last costs nothing.
+ */
+[hidden]{display:none !important}
