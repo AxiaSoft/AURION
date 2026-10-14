@@ -53,4 +53,9 @@ store/keyserver/.env
 # Panel secrets, made on first run.
 admin/panel/panel.token
 admin/panel/seed.key
+
+# The Telegram bot token, provisioned into a build by
+# scripts/set-endpoints.mjs and staged into the MSI. Never committed.
+config/telegram.token
+config/telegram.local.json
 admin/telegram-panel/panel.token

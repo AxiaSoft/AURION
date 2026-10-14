@@ -273,6 +273,12 @@
     
 
     
+
+    
+
+    
+
+    
 <!-- settings-reference:start -->
       <h2 id="fa-16">۱۶. مرجع کامل تنظیمات</h2>
       <p>هر کلیدی که AURION می‌خواند، با مقدار پیش‌فرض واقعی‌اش. این جدول‌ها از
@@ -365,7 +371,21 @@
         <tr><td><code>engine.tick_buffer</code></td><td><code>5000</code></td><td>بافر تیک.</td></tr>
         <tr><td><code>engine.heartbeat_seconds</code></td><td><code>2</code></td><td>فاصلهٔ ضربان سلامت موتور.</td></tr>
       </table>
-      <h3 id="fa-16-notify">ط. تلگرام</h3>
+      <h3 id="fa-16-servers">ط. سرورهای شما — آپدیت و لایسنس</h3>
+      <p>این‌ها را <b>قبل از ساختن MSI</b> پر کنید، نه بعدش. نصب‌کننده فقط
+            <code>aurion.factory.json</code> را می‌برد؛ ویرایش <code>aurion.json</code> روی سیستم شما
+            هیچ اثری روی نسخهٔ مشتری ندارد. آدرس باید از اینترنت در دسترس باشد —
+            <code>127.0.0.1</code> روی سیستم مشتری یعنی سیستم خودِ او.
+            ساده‌ترین راه: <code>node scripts/set-endpoints.mjs --updates &lt;url&gt; --store &lt;url&gt;</code></p>
+      <table>
+        <tr><th>کلید</th><th>پیش‌فرض</th><th>توضیح</th></tr>
+        <tr><td><code>update_server.url</code></td><td><code><i>(empty)</i></code></td><td>آدرس سرور آپدیت شما. خالی یعنی میز هیچ‌وقت آپدیتی پیدا نمی‌کند (<code>update_server_not_configured</code>). از داشبورد قابل تغییر نیست — عمداً.</td></tr>
+        <tr><td><code>update_server.auto_check</code></td><td><code>false</code></td><td>خود میز هر چند ساعت یک‌بار بپرسد آپدیتی هست یا نه.</td></tr>
+        <tr><td><code>update_server.interval_hours</code></td><td><code>6</code></td><td>فاصلهٔ آن پرسش.</td></tr>
+        <tr><td><code>license.keyserver_url</code></td><td><code><i>(empty)</i></code></td><td>فروشگاه/سرور کلید. بدون آن هر کلید <code>AXIA-</code> با <code>internet_required</code> رد می‌شود. کلیدهای آفلاین <code>AXIO-</code> به آن نیاز ندارند.</td></tr>
+        <tr><td><code>license.store_url</code></td><td><code><i>(empty)</i></code></td><td>صفحه‌ای که میز برای خرید/تمدید به کاربر نشان می‌دهد.</td></tr>
+      </table>
+      <h3 id="fa-16-notify">ی. تلگرام</h3>
       <p>اعلان یک‌طرفه. از تلگرام نمی‌شود معامله باز یا بسته کرد — عمداً.</p>
       <table>
         <tr><th>کلید</th><th>پیش‌فرض</th><th>توضیح</th></tr>
@@ -545,6 +565,12 @@
     
 
     
+
+    
+
+    
+
+    
 <!-- settings-reference:start -->
       <h2 id="en-16">16. Complete settings reference</h2>
       <p>Every key AURION reads, with its real default. These tables are generated from
@@ -637,7 +663,21 @@
         <tr><td><code>engine.tick_buffer</code></td><td><code>5000</code></td><td>The tick buffer.</td></tr>
         <tr><td><code>engine.heartbeat_seconds</code></td><td><code>2</code></td><td>How often the engine reports it is alive.</td></tr>
       </table>
-      <h3 id="en-16-notify">I. Telegram</h3>
+      <h3 id="en-16-servers">I. Your servers — updates and licences</h3>
+      <p>Fill these in <b>before building the MSI</b>, not after. The installer
+            ships only <code>aurion.factory.json</code>; editing <code>aurion.json</code> on your machine
+            changes nothing for the customer. The address must be reachable from the internet —
+            <code>127.0.0.1</code> on their machine means their machine.
+            Easiest: <code>node scripts/set-endpoints.mjs --updates &lt;url&gt; --store &lt;url&gt;</code></p>
+      <table>
+        <tr><th>Key</th><th>Default</th><th>What it does</th></tr>
+        <tr><td><code>update_server.url</code></td><td><code><i>(empty)</i></code></td><td>Your update server. Empty means the desk never finds an update (<code>update_server_not_configured</code>). Not editable from the dashboard, deliberately.</td></tr>
+        <tr><td><code>update_server.auto_check</code></td><td><code>false</code></td><td>Let the desk ask for updates by itself.</td></tr>
+        <tr><td><code>update_server.interval_hours</code></td><td><code>6</code></td><td>How often it asks.</td></tr>
+        <tr><td><code>license.keyserver_url</code></td><td><code><i>(empty)</i></code></td><td>The key server. Without it every <code>AXIA-</code> key answers <code>internet_required</code>. Offline <code>AXIO-</code> keys do not need it.</td></tr>
+        <tr><td><code>license.store_url</code></td><td><code><i>(empty)</i></code></td><td>Where the desk sends a trader to buy or renew.</td></tr>
+      </table>
+      <h3 id="en-16-notify">J. Telegram</h3>
       <p>One-way notifications. You cannot trade from Telegram, deliberately.</p>
       <table>
         <tr><th>Key</th><th>Default</th><th>What it does</th></tr>
@@ -717,6 +757,12 @@
         <li>سلّح الآلي. البطاقة تقول <b>الروبوت</b>.</li>
         <li>انتظر شمعة مغلقة. لا شيء يُختلق.</li>
       </ol>
+    
+
+    
+
+    
+
     
 
     
@@ -814,7 +860,17 @@
         <tr><td><code>engine.tick_buffer</code></td><td><code>5000</code></td><td>مخزن التيكات.</td></tr>
         <tr><td><code>engine.heartbeat_seconds</code></td><td><code>2</code></td><td>فترة نبض المحرك.</td></tr>
       </table>
-      <h3 id="ar-16-notify">ط. تيليجرام</h3>
+      <h3 id="ar-16-servers">ط. خوادمك — التحديث والتراخيص</h3>
+      <p>املأ هذه قبل بناء الـ MSI. المثبّت ينقل ملف المصنع فقط.</p>
+      <table>
+        <tr><th>المفتاح</th><th>الافتراضي</th><th>الوظيفة</th></tr>
+        <tr><td><code>update_server.url</code></td><td><code><i>(empty)</i></code></td><td>عنوان خادم التحديث.</td></tr>
+        <tr><td><code>update_server.auto_check</code></td><td><code>false</code></td><td>فحص التحديث تلقائيًا.</td></tr>
+        <tr><td><code>update_server.interval_hours</code></td><td><code>6</code></td><td>الفاصل الزمني.</td></tr>
+        <tr><td><code>license.keyserver_url</code></td><td><code><i>(empty)</i></code></td><td>خادم المفاتيح.</td></tr>
+        <tr><td><code>license.store_url</code></td><td><code><i>(empty)</i></code></td><td>صفحة الشراء.</td></tr>
+      </table>
+      <h3 id="ar-16-notify">ي. تيليجرام</h3>
       <p>إشعارات باتجاه واحد. لا يمكن التداول من تيليجرام عمدًا.</p>
       <table>
         <tr><th>المفتاح</th><th>الافتراضي</th><th>الوظيفة</th></tr>

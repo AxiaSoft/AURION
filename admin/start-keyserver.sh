@@ -7,8 +7,11 @@ cd "$(dirname "$0")/../store/keyserver"
 command -v node >/dev/null || { echo "Node.js 18+ is required."; exit 1; }
 
 if [ ! -f .env ]; then
-  tok=$(node -e "console.log(require("crypto").randomBytes(16).toString("hex"))")
-  jwt=$(node -e "console.log(require("crypto").randomBytes(32).toString("hex"))")
+  # Single quotes around the -e program. With double quotes the inner
+  # "crypto" closed the shell's quote, node was handed a bare identifier
+  # and died, and set -e took the launcher down with it.
+  tok=$(node -e 'process.stdout.write(require("crypto").randomBytes(16).toString("hex"))')
+  jwt=$(node -e 'process.stdout.write(require("crypto").randomBytes(32).toString("hex"))')
   cat > .env <<ENVEOF
 PORT=8899
 DATA_DIR=data
@@ -29,6 +32,8 @@ fi
 
 [ -d node_modules/express ] || npm install --no-audit --no-fund
 echo
-echo "  Point AURION at it with  config/aurion.json -> license.keyserver_url"
+echo "  Point AURION at it with:"
+echo "      node scripts/set-endpoints.mjs --store https://<your-address>"
+echo "  (that writes config/aurion.factory.json, which is the copy the MSI ships.)"
 echo
 exec node src/index.js

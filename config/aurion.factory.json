@@ -125,6 +125,11 @@
       "sms_token": ""
     }
   },
+  "update_server": {
+    "url": "",
+    "auto_check": false,
+    "interval_hours": 6
+  },
   "paths": {
     "data": "data",
     "archive": "data/archive",

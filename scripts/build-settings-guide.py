@@ -350,11 +350,59 @@ GROUPS: list[dict] = [
         ],
     },
     {
+        "id": "servers",
+        "title": {
+            "fa": "ط. سرورهای شما — آپدیت و لایسنس",
+            "en": "I. Your servers — updates and licences",
+            "ar": "ط. خوادمك — التحديث والتراخيص",
+        },
+        "lede": {
+            "fa": """این‌ها را <b>قبل از ساختن MSI</b> پر کنید، نه بعدش. نصب‌کننده فقط
+            <code>aurion.factory.json</code> را می‌برد؛ ویرایش <code>aurion.json</code> روی سیستم شما
+            هیچ اثری روی نسخهٔ مشتری ندارد. آدرس باید از اینترنت در دسترس باشد —
+            <code>127.0.0.1</code> روی سیستم مشتری یعنی سیستم خودِ او.
+            ساده‌ترین راه: <code>node scripts/set-endpoints.mjs --updates &lt;url&gt; --store &lt;url&gt;</code>""",
+            "en": """Fill these in <b>before building the MSI</b>, not after. The installer
+            ships only <code>aurion.factory.json</code>; editing <code>aurion.json</code> on your machine
+            changes nothing for the customer. The address must be reachable from the internet —
+            <code>127.0.0.1</code> on their machine means their machine.
+            Easiest: <code>node scripts/set-endpoints.mjs --updates &lt;url&gt; --store &lt;url&gt;</code>""",
+            "ar": "املأ هذه قبل بناء الـ MSI. المثبّت ينقل ملف المصنع فقط.",
+        },
+        "rows": [
+            ("update_server.url", {
+                "fa": "آدرس سرور آپدیت شما. خالی یعنی میز هیچ‌وقت آپدیتی پیدا نمی‌کند (<code>update_server_not_configured</code>). از داشبورد قابل تغییر نیست — عمداً.",
+                "en": "Your update server. Empty means the desk never finds an update (<code>update_server_not_configured</code>). Not editable from the dashboard, deliberately.",
+                "ar": "عنوان خادم التحديث.",
+            }),
+            ("update_server.auto_check", {
+                "fa": "خود میز هر چند ساعت یک‌بار بپرسد آپدیتی هست یا نه.",
+                "en": "Let the desk ask for updates by itself.",
+                "ar": "فحص التحديث تلقائيًا.",
+            }),
+            ("update_server.interval_hours", {
+                "fa": "فاصلهٔ آن پرسش.",
+                "en": "How often it asks.",
+                "ar": "الفاصل الزمني.",
+            }),
+            ("license.keyserver_url", {
+                "fa": "فروشگاه/سرور کلید. بدون آن هر کلید <code>AXIA-</code> با <code>internet_required</code> رد می‌شود. کلیدهای آفلاین <code>AXIO-</code> به آن نیاز ندارند.",
+                "en": "The key server. Without it every <code>AXIA-</code> key answers <code>internet_required</code>. Offline <code>AXIO-</code> keys do not need it.",
+                "ar": "خادم المفاتيح.",
+            }),
+            ("license.store_url", {
+                "fa": "صفحه‌ای که میز برای خرید/تمدید به کاربر نشان می‌دهد.",
+                "en": "Where the desk sends a trader to buy or renew.",
+                "ar": "صفحة الشراء.",
+            }),
+        ],
+    },
+    {
         "id": "notify",
         "title": {
-            "fa": "ط. تلگرام",
-            "en": "I. Telegram",
-            "ar": "ط. تيليجرام",
+            "fa": "ی. تلگرام",
+            "en": "J. Telegram",
+            "ar": "ي. تيليجرام",
         },
         "lede": {
             "fa": "اعلان یک‌طرفه. از تلگرام نمی‌شود معامله باز یا بسته کرد — عمداً.",

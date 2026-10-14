@@ -55,6 +55,8 @@ if not exist "node_modules\express" (
 
 echo.
 echo   Key server starting. Point AURION at it with:
-echo       config\aurion.json  ->  license.keyserver_url
+echo       node scripts\set-endpoints.mjs --store https://^<your-address^>
+echo   That writes config\aurion.factory.json - the copy the MSI ships.
+echo   Editing config\aurion.json only affects THIS machine.
 echo.
 node src\index.js

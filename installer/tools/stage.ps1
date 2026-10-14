@@ -195,6 +195,23 @@ foreach ($f in @("aurion.factory.json", "news_calendar.template.csv",
     if (Test-Path $src) { Copy-Item $src $cfgOut -Force }
 }
 
+# The Telegram bot token, if this build has one.
+#
+# It is the only secret that is MEANT to travel: the desk is a client of
+# your bot and the trader never supplies a credential (see the rule at
+# the top of engine\aurion\telegram\secret.py). Without it in the
+# package the feature is simply off on every machine you ship to, and
+# you cannot go and add it afterwards.
+#
+# Provision it with:  node scripts\set-endpoints.mjs --telegram <token>
+$tgToken = Join-Path $Root "config/telegram.token"
+if (Test-Path $tgToken) {
+    Copy-Item $tgToken $cfgOut -Force
+    Say "  telegram.token included - every copy of this build talks to that bot"
+} else {
+    Say "  no config\telegram.token - Telegram notifications will be off on the installed copy"
+}
+
 # ---------------------------------------------------------------------------
 # 5. Launch scripts at the tree root
 # ---------------------------------------------------------------------------
