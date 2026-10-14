@@ -1125,6 +1125,63 @@ app.get("*", (req, res, next) => {
 });
 
 if (require.main === module) {
-  app.listen(PORT, () => console.log(`AURION key server FULL on :${PORT} (${PUBLIC_BASE}) gateway=${zarinpal.mode}${zarinpal.configured ? "" : " unconfigured"} adminHash=${ADMIN_HASH}`));
+  // A health route, so anything watching this can tell "not started"
+  // from "started and refusing". There was none, so /api/health answered
+  // 404 and looked exactly like a server that was not running.
+  app.get("/api/health", (_req, res) => res.json({
+    ok: true,
+    service: "aurion-keyserver",
+    gateway: zarinpal.mode,
+    gateway_configured: Boolean(zarinpal.configured),
+    can_mint: Boolean(String(process.env.AURION_KEY_PRIVATE_HEX || "").trim()),
+    time: new Date().toISOString(),
+  }));
+
+  app.listen(PORT, () => {
+    console.log("");
+    console.log("  AURION key server");
+    console.log("  -----------------");
+    console.log(`  store   ${PUBLIC_BASE}`);
+    console.log(`  admin   ${PUBLIC_BASE}/#/${ADMIN_HASH}`);
+    console.log("");
+
+    // Name what is not set up, and what it costs.
+    //
+    // The old line was one string ending in "gateway=live unconfigured",
+    // which is true and reads like a status rather than a warning. A
+    // store in live mode with no merchant id serves its whole catalogue
+    // perfectly and then fails at the moment a customer pays - which is
+    // the worst possible place to find out.
+    const problems = [];
+    if (!String(process.env.AURION_KEY_PRIVATE_HEX || "").trim()) {
+      problems.push([
+        "AURION_KEY_PRIVATE_HEX is not set",
+        "no key can be minted, so a paid order cannot be fulfilled.",
+        "Generate one once:  python admin/new-seed.py",
+      ]);
+    }
+    if (!zarinpal.configured) {
+      problems.push([
+        `the payment gateway is in ${zarinpal.mode} mode and unconfigured`,
+        "the catalogue works and checkout fails. Customers find out at the till.",
+        "Set the ZarinPal merchant id, or switch it to sandbox while testing.",
+      ]);
+    }
+    if (!String(process.env.ADMIN_TOKEN || "").trim()) {
+      problems.push([
+        "ADMIN_TOKEN is not set",
+        "the admin panel cannot be opened.",
+        "start-keyserver.cmd writes one for you.",
+      ]);
+    }
+
+    for (const [what, cost, fix] of problems) {
+      console.log(`  WARNING: ${what}`);
+      console.log(`           ${cost}`);
+      console.log(`           ${fix}`);
+      console.log("");
+    }
+    if (!problems.length) console.log("  Ready: gateway configured, signing key present.\n");
+  });
 }
 module.exports = { app, store };
