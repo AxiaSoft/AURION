@@ -35,3 +35,27 @@ data/prop-day.json
 # The build script keeps the artwork it repacked, next to the icon it made.
 installer/assets/generated/*.original.png
 installer/assets/generated/*.original.ico
+
+# ---------------------------------------------------------------------------
+# Local runtime data dir (AURION_DATA_DIR) — never belongs in the repository
+# ---------------------------------------------------------------------------
+.devdata/
+installer/vendor/
+
+# Installed by the admin launchers, and the data they write.
+admin/update-server/node_modules/
+admin/update-server/data/
+admin/update-server/.env
+store/keyserver/node_modules/
+store/keyserver/data/
+store/keyserver/.env
+
+# Panel secrets, made on first run.
+admin/panel/panel.token
+admin/panel/seed.key
+
+# The Telegram bot token, provisioned into a build by
+# scripts/set-endpoints.mjs and staged into the MSI. Never committed.
+config/telegram.token
+config/telegram.local.json
+admin/telegram-panel/panel.token

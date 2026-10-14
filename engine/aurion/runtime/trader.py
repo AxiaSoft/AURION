@@ -6,14 +6,24 @@ import time
 from collections import deque
 from typing import Any
 
-from .deals import aggregate_close_deals
+from .auto_entry import expired_orders, plan_entry
+from .deals import aggregate_close_deals, history_row_matches
+from ..prop.hours import (broker_offset_minutes, resolve_zone, zone_choices,
+                          zone_label, zone_offset_minutes)
+from .gates import fire_blockers as gate_blockers
+from .stops import resolve_stop
 from ..ai.engine import AIEngine
 from ..backtest.engine import Backtester
 from ..config import ROOT, load, merge, save
 from ..mt5.bridge import MT5Bridge
 from ..prop.rules import PropEngine
 from ..strategy.base import StrategyContext
-from ..strategy.loader import StrategyLoader, StrategyValidationError
+from ..strategy.loader import (
+    BUILTIN_NAMES,
+    LEGACY_BUILTINS,
+    StrategyLoader,
+    StrategyValidationError,
+)
 from ..license.guard import Guard
 from ..util.clock import utc_iso
 from ..util.market import block_reason as market_block_reason, session as market_session
@@ -68,9 +78,35 @@ class Trader:
         self.min_signal_quality = 0.55
         self.last_quality: dict[str, Any] = {}
         self.news_trade = False
+        # Auto entry point: the robot names a price and waits there with the
+        # stop and target already attached, instead of buying the market the
+        # instant a candle closes.
+        self.auto_entry = False
+        self.auto_entry_depth = 0.5
+        self.auto_entry_offset = 0.35
+        self.auto_entry_expiry = 120
+        self._auto_entry_sweep = 0.0
+        self._auto_entry_tickets: set[int] = set()
         # Danger guard: tick-level protective exit. Hard-disabled while prop
         # rules are on — a challenge account only exits through the prop book.
         self.danger_enabled = False
+        # Risk free, as a desk setting rather than a strategy parameter.
+        #
+        # It was reachable only through strategy params, which means a
+        # trader who opens a position by hand - or runs the desk with no
+        # strategy loaded - got nothing. Protecting a trade is not a
+        # property of a strategy; it is a property of the account.
+        # Chosen once, in System settings, and used by everything that
+        # has to know what time it is for this trader - prop windows
+        # first among them. "broker" is worked out from MetaTrader's own
+        # clock rather than asked for.
+        self.desk_timezone = "broker"
+        self.risk_free_enabled = False
+        self.risk_free_trigger_pct = 0.30
+        self.risk_free_lock_pct = 0.0
+        # Which rule last moved each position's stop, so "this trade is
+        # now risk free" is journalled once rather than on every tick.
+        self._stop_note: dict[int, str] = {}
         self.danger_sensitivity = 50
         self._danger_seen: dict[int, float] = {}
         self._danger_cooldown: dict[int, float] = {}
@@ -207,8 +243,26 @@ class Trader:
         self.store.close()
         self.started = False
 
+    def _note_broker_clock(self, payload: dict[str, Any]) -> None:
+        """Learn the broker's timezone from the tick that already says it.
+
+        MetaTrader stamps every tick with its server's own time. The
+        difference between that and the clock here is the broker's
+        offset, so nobody has to know their broker runs on EET, or
+        notice when it shifts for summer time, for the prop window to
+        line up with the session they actually watch.
+        """
+        if str(getattr(self, "desk_timezone", "UTC")).lower() != "broker":
+            return
+        minutes = broker_offset_minutes(str(payload.get("time") or ""))
+        if minutes is None or minutes == self.prop.broker_minutes:
+            return
+        self.prop.broker_minutes = minutes
+        log.info("broker clock is UTC%+d:%02d", minutes // 60, abs(minutes) % 60)
+
     async def _on_bridge(self, kind: str, payload: dict[str, Any]) -> None:
         if kind == "tick":
+            self._note_broker_clock(payload)
             sym = str(payload.get("symbol") or "")
             await self.bus.publish("tick", payload)
             if not self.active_symbol and self._is_ea_symbol(sym):
@@ -482,7 +536,49 @@ class Trader:
             if self.store.apply_reconciliation(int(item["id"]), totals):
                 fixed += 1
                 log.info("reconciled close %s with MT5: net %.2f", ticket, totals["net"])
+        fixed += self._audit_closed_rows(rows)
         return fixed
+
+    def _audit_closed_rows(self, deal_rows: list[dict[str, Any]]) -> int:
+        """Re-check rows that were already believed to agree with MT5.
+
+        Being right when written is not the same as being right. MT5 posts
+        swap at rollover, and some brokers book commission as its own deal
+        minutes after the close - both land on a position whose history row
+        was finished and never looked at again. Nothing marks those rows as
+        estimates, so the estimate sweep above will never revisit them and
+        the desk drifts away from the terminal one overnight charge at a
+        time.
+
+        Only rows whose position still appears in the deal window are
+        checked; outside it there is nothing to compare against and silence
+        is the correct answer, not a warning.
+        """
+        try:
+            stored = self.store.closed_rows_for_audit(60)
+        except Exception:
+            return 0
+        repaired = 0
+        for row in stored:
+            try:
+                ticket = int(row.get("ticket") or 0)
+            except (TypeError, ValueError):
+                continue
+            if not ticket:
+                continue
+            totals = aggregate_close_deals(deal_rows, ticket)
+            if not totals:
+                continue
+            drift = history_row_matches(row, totals)
+            if not drift:
+                continue
+            if self.store.apply_reconciliation(int(row["id"]), totals):
+                repaired += 1
+                log.info(
+                    "history row %s for ticket %s drifted from MT5 on %s - corrected",
+                    row.get("id"), ticket, ", ".join(drift),
+                )
+        return repaired
 
     async def _sync_position_book(self, rows: list[dict[str, Any]]) -> None:
         current: dict[int, dict[str, Any]] = {}
@@ -575,6 +671,7 @@ class Trader:
             deal_swap = None
             deal_comm = None
             deal_price = None
+            deal_totals: dict[str, Any] | None = None
             try:
                 # Every closing deal for this position, not just the first:
                 # a partial close produces several and MT5 reports their sum.
@@ -585,6 +682,7 @@ class Trader:
                 ]
                 totals = aggregate_close_deals(rows, ticket)
                 if totals:
+                    deal_totals = totals
                     deal_profit = totals["profit"]
                     deal_swap = totals["swap"]
                     deal_comm = totals["commission"]
@@ -611,6 +709,7 @@ class Trader:
                     ]
                     totals = aggregate_close_deals(rows, ticket)
                     if totals:
+                        deal_totals = totals
                         deal_profit = totals["profit"]
                         deal_swap = totals["swap"]
                         deal_comm = totals["commission"]
@@ -619,18 +718,35 @@ class Trader:
                         deal_parts = totals["parts"]
                 except Exception:
                     pass
+            mt5_view = deal_totals or {}
             close_trade = {
-                "time": utc_iso(),
+                # MetaTrader's close time, not the moment the desk noticed
+                # the position had gone. They differ by a second normally
+                # and by minutes after a reconnect, and a history sorted on
+                # the wrong one does not line up with the terminal's.
+                "time": mt5_view.get("close_time") or utc_iso(),
                 "ticket": ticket,
                 "symbol": old.get("symbol"),
                 "side": old.get("type") or old.get("side"),
-                "volume": old.get("volume"),
+                # The closed volume from the deals: a partial close moves
+                # less than the position was carrying.
+                "volume": mt5_view.get("volume") or old.get("volume"),
                 "price": deal_price or old.get("price_current") or old.get("price_open"),
+                # Carried so a row can be matched against MetaTrader's
+                # History tab, which lists a position by its open side too.
+                "price_open": mt5_view.get("open_price") or old.get("price_open"),
+                "time_open": mt5_view.get("open_time") or old.get("time"),
+                "order": mt5_view.get("order"),
+                "deals": mt5_view.get("deals") or [],
                 "sl": old.get("sl"),
                 "tp": old.get("tp"),
                 "profit": deal_profit if deal_profit is not None else (old.get("profit") or 0),
                 "swap": deal_swap if deal_swap is not None else (old.get("swap") or 0),
                 "commission": deal_comm if deal_comm is not None else 0,
+                # Brokers that bill on the way in put the whole commission on
+                # the entry deal; shown separately so "why is net below
+                # Profit" is answerable from the desk.
+                "entry_commission": mt5_view.get("entry_commission") or 0,
                 # net is what the balance actually moved by; MT5's Profit column
                 # is gross, and a desk that mixes the two can never reconcile.
                 "net": deal_net if deal_net is not None else round(
@@ -668,6 +784,32 @@ class Trader:
             await self._danger_scan(list(current.values()))
         except Exception:
             log.exception("danger guard scan failed")
+        if getattr(self, "_pos_bootstrapped", False) and opened:
+            # A resting order that finally filled is the moment the robot
+            # actually entered, so that is when it is counted - not when the
+            # order was placed. A freemium allowance spent on an order the
+            # market never came back to would be a bill for a trade that
+            # never happened.
+            for item in opened:
+                try:
+                    if int(item.get("ticket") or 0) not in self._auto_entry_tickets:
+                        continue
+                    self._auto_entry_tickets.discard(int(item.get("ticket") or 0))
+                    self.prop.note_entry()
+                    self.license.note_bot_fill()
+                    await self.bus.publish("license", self.license.public())
+                    await self.journal(
+                        "info",
+                        "auto_entry_filled",
+                        f"Resting order filled: {item.get('type') or ''} {item.get('symbol') or ''} "
+                        f"at {item.get('price_open') or item.get('price_current') or '—'}",
+                    )
+                except Exception:
+                    log.exception("auto-entry fill accounting failed")
+        try:
+            await self.sweep_pending()
+        except Exception:
+            log.exception("pending sweep failed")
         tg = getattr(self, "telegram", None)
         if getattr(self, "_pos_bootstrapped", False) and tg:
             for item in opened:
@@ -713,6 +855,7 @@ class Trader:
             rows = self.store.candles(symbol, timeframe, 1500)
         if not rows:
             return
+        state: dict[str, Any] | None = None
         try:
             votes = []
             for name, slot in self.book.items():
@@ -726,55 +869,151 @@ class Trader:
             self.ai._strategy_votes = votes
             state = await asyncio.to_thread(self.ai.on_closed_bar, rows, symbol, timeframe)
         except Exception as exc:
+            # An AI fault must not stop the strategies.
+            #
+            # This used to `return`, which meant one exception out of the
+            # model silently switched the entire robot off: no strategy
+            # was evaluated, no signal was produced, and nothing in the
+            # log said the book had been skipped - only that the AI had
+            # failed. The product says everywhere that the AI is a filter
+            # and never a source of signals, and the default for
+            # execution.flatten_on_ai_fault is false for the same reason.
+            #
+            # The strategies still run. If require_ai_agree is on, the
+            # gate in _dispatch_signal then refuses the entry for want of
+            # an opinion - which is the correct, conservative outcome and
+            # is journalled with a reason.
             log.exception("AI on_closed_bar failed")
-            await self.journal("error", "ai_fault", f"AI failed on {symbol} {timeframe}: {exc}")
-            return
-        if state.get("retrain_due"):
-            asyncio.create_task(self._bg_train(rows, symbol, timeframe), name=f"aurion-train-{symbol}")
-        self.store.record_signal({**state, "source": "ai"})
-        await self.bus.publish("ai", state)
-        shown = state.get("display_direction") or state.get("hint") or state.get("direction") or "n/a"
-        await self.journal(
-            "info",
-            "ai_bar",
-            f"AI {symbol} {timeframe}: {shown} "
-            f"conf={float(state.get('confidence') or 0):.2f} samples={state.get('samples') or 0} "
-            f"— {state.get('reason') or 'no reason'}",
-            extra={"symbol": symbol, "timeframe": timeframe, "activity": (state.get("activity") or [])[-6:]},
-        )
+            await self.journal(
+                "error",
+                "ai_fault",
+                f"AI failed on {symbol} {timeframe}: {exc} — strategies still evaluated",
+            )
+
+        if state:
+            if state.get("retrain_due"):
+                asyncio.create_task(self._bg_train(rows, symbol, timeframe), name=f"aurion-train-{symbol}")
+            self.store.record_signal({**state, "source": "ai"})
+            await self.bus.publish("ai", state)
+            shown = state.get("display_direction") or state.get("hint") or state.get("direction") or "n/a"
+            await self.journal(
+                "info",
+                "ai_bar",
+                f"AI {symbol} {timeframe}: {shown} "
+                f"conf={float(state.get('confidence') or 0):.2f} samples={state.get('samples') or 0} "
+                f"— {state.get('reason') or 'no reason'}",
+                extra={"symbol": symbol, "timeframe": timeframe, "activity": (state.get("activity") or [])[-6:]},
+            )
+
         ctx = self._ctx(symbol, timeframe)
-        may_fire = bool(
-            self.auto_trade
-            and not self.kill_switch
-            and not self.safe_mode
-            and not (self.prop.enabled and self.prop.locked)
-            and self.bridge.tape_mode() == "live"
-        )
+        blocked = self.fire_blockers()
+        may_fire = not blocked
         try:
-            await self._run_enabled_strategies(ctx, execute=may_fire)
+            await self._run_enabled_strategies(ctx, execute=may_fire, blocked=blocked)
         except Exception as exc:
             log.exception("strategy book failed")
             await self.journal("error", "book_fault", f"Strategy book crashed: {exc}")
 
     async def _maybe_trail(self, tick: dict[str, Any]) -> None:
-        points = float((self.strategy.params if self.strategy else {}).get("trailing_points") or 0)
-        if points <= 0:
+        """Move protective stops forward, never back.
+
+        Two rules, resolved together because a position has one stop:
+
+          breakeven_points        profit that arms the risk-free move
+          breakeven_lock_points   how far past entry the stop then sits
+          trailing_points         distance the stop follows price at
+
+        The arithmetic is in runtime/stops.py, deliberately free of
+        MetaTrader and testable on its own. This method is only the part
+        that has to touch a broker: pick the closing price for each side,
+        ask what the stop should be, and send at most one modify.
+
+        Closing price, not the convenient one. A long is closed at the
+        bid and a short at the ask, so measuring a long's profit against
+        the ask - as the old trailing code effectively did by comparing
+        against whichever came in the tick - says a position is in profit
+        by a spread more than it is. On the break-even rule that is the
+        difference between a stop that cannot lose and one that loses
+        exactly the spread, every time.
+        """
+        params = (self.strategy.params if self.strategy else {}) or {}
+        trailing = float(params.get("trailing_points") or 0)
+        be_trigger = float(params.get("breakeven_points") or 0)
+        be_lock = float(params.get("breakeven_lock_points") or 0)
+
+        # The account setting, for every position rather than only the
+        # ones a loaded strategy happens to own. A strategy that names
+        # its own points still wins: it knows the instrument it was
+        # written for, and this does not.
+        use_pct = bool(self.risk_free_enabled) and be_trigger <= 0
+
+        if trailing <= 0 and be_trigger <= 0 and not use_pct:
             return
+
         symbol = tick.get("symbol")
         bid, ask = float(tick.get("bid") or 0), float(tick.get("ask") or 0)
         if not symbol or not (bid or ask):
             return
-        for pos in self.bridge.positions:
+        spread = max(0.0, ask - bid) if (bid and ask) else 0.0
+
+        bridge = getattr(self, "bridge", None)
+        if bridge is None:
+            return
+
+        for pos in list(bridge.positions):
             if pos.symbol != symbol:
                 continue
-            if pos.type == "buy" and bid:
-                new_sl = bid - points
-                if new_sl > float(pos.sl or 0) and new_sl < bid:
-                    await self.bridge.send_order({"action": "modify", "ticket": pos.ticket, "symbol": symbol, "sl": new_sl, "tp": pos.tp})
-            elif pos.type == "sell" and ask:
-                new_sl = ask + points
-                if (not pos.sl or new_sl < float(pos.sl)) and new_sl > ask:
-                    await self.bridge.send_order({"action": "modify", "ticket": pos.ticket, "symbol": symbol, "sl": new_sl, "tp": pos.tp})
+
+            side = str(pos.type or "").lower()
+            close_px = bid if side == "buy" else ask
+            if not close_px:
+                continue
+
+            entry = float(pos.price_open or 0)
+            trigger, lock = be_trigger, be_lock
+            if use_pct and entry > 0:
+                # A percentage is the same number on every instrument,
+                # which is the only kind of number one box in the desk
+                # can sensibly ask for. 150 points is a fair trigger on
+                # EURUSD and meaningless on gold.
+                trigger = entry * self.risk_free_trigger_pct / 100.0
+                lock = entry * self.risk_free_lock_pct / 100.0
+
+            plan = resolve_stop(
+                side,
+                entry,
+                close_px,
+                float(pos.sl or 0),
+                breakeven_points=trigger,
+                breakeven_lock_points=lock,
+                trailing_points=trailing,
+                spread=spread,
+                # A tenth of a spread is not worth a round trip, and
+                # without a floor a fast instrument sends a modify on
+                # every tick and spends its time queueing behind itself.
+                min_step=spread * 0.5,
+            )
+            if plan is None:
+                continue
+
+            # Said once per position, not once per tick. The journal is
+            # read by people.
+            if self._stop_note.get(pos.ticket) != plan.reason:
+                self._stop_note[pos.ticket] = plan.reason
+                if plan.reason == "breakeven":
+                    await self.journal(
+                        "info",
+                        "risk_free",
+                        f"{symbol} #{pos.ticket} is now risk free - stop moved past entry",
+                    )
+
+            await bridge.send_order({
+                "action": "modify",
+                "ticket": pos.ticket,
+                "symbol": symbol,
+                "sl": plan.sl,
+                "tp": pos.tp,
+            })
 
     # ------------------------------------------------------------------
     # Danger guard — automatic protective exit
@@ -794,6 +1033,112 @@ class Trader:
             "active": self._danger_armed(),
             "blocked_by_prop": bool(getattr(prop, "enabled", False)),
         }
+
+    @staticmethod
+    def _clamp_pct(value: Any, fallback: float) -> float:
+        """A percentage of the entry price, kept inside the believable."""
+        try:
+            pct = float(value)
+        except (TypeError, ValueError):
+            return fallback
+        if pct != pct:        # NaN
+            return fallback
+        return max(0.0, min(50.0, pct))
+
+    def _risk_free_state(self) -> dict[str, Any]:
+        return {
+            "enabled": bool(self.risk_free_enabled),
+            "trigger_pct": round(float(self.risk_free_trigger_pct), 4),
+            "lock_pct": round(float(self.risk_free_lock_pct), 4),
+        }
+
+    def _timezone_city(self) -> str:
+        """The chosen zone as somebody would say it out loud."""
+        from ..prop.hours import ZONES
+
+        for _, iana, city, _m in ZONES:
+            if iana == self.desk_timezone:
+                return city
+        return self.desk_timezone
+
+    def _timezone_state(self) -> dict[str, Any]:
+        minutes = self.prop.broker_minutes
+        return {
+            "timezone": self.desk_timezone,
+            "label": zone_label(self.desk_timezone, minutes),
+            "city": self._timezone_city(),
+            "broker_offset_minutes": minutes,
+            # The chosen zone's offset today, so the desk can convert a
+            # time to broker time by arithmetic rather than by shipping
+            # a second implementation of timezones to the browser.
+            "offset_minutes": zone_offset_minutes(self.desk_timezone, minutes),
+            # Cities, not database keys, and grouped by region. Built
+            # fresh each time so the offsets shown are today's, summer
+            # time included.
+            "choices": zone_choices(minutes),
+        }
+
+    async def set_timezone(self, body: dict[str, Any]) -> dict[str, Any]:
+        """The desk's clock. Everything that needs to know the time uses it.
+
+        Deliberately not a prop setting. Which hours a prop firm allows
+        is their rule; what time it is where you sit is not, and asking
+        the same question once per profile is how the answers start
+        disagreeing.
+        """
+        wanted = str((body or {}).get("timezone") or "").strip()
+        if not wanted:
+            return {"ok": False, "error": "no timezone given"}
+
+        if wanted.lower() not in {"broker", "local"} and resolve_zone(wanted) is None:
+            return {"ok": False, "error": f"'{wanted}' is not a timezone this machine knows"}
+
+        self.desk_timezone = wanted
+        self.prop.desk_timezone = wanted
+        if wanted.lower() != "broker":
+            # A stale broker offset must not colour the new choice.
+            self.prop.broker_minutes = self.prop.broker_minutes
+
+        merge({"system": {"timezone": wanted}})
+        self._sync_book_meta()
+        await self.bus.publish("strategy", self.strategy_meta)
+
+        state = self._timezone_state()
+        await self.journal("info", "timezone", f"Desk clock set to {state['label']}", extra=state)
+        return {"ok": True, "system": state}
+
+    async def set_risk_free(self, body: dict[str, Any]) -> dict[str, Any]:
+        body = dict(body or {})
+        if "enabled" in body:
+            self.risk_free_enabled = bool(body.get("enabled"))
+        if "trigger_pct" in body:
+            self.risk_free_trigger_pct = self._clamp_pct(
+                body.get("trigger_pct"), self.risk_free_trigger_pct)
+        if "lock_pct" in body:
+            self.risk_free_lock_pct = self._clamp_pct(
+                body.get("lock_pct"), self.risk_free_lock_pct)
+
+        # Rebuild the snapshot and push it, exactly as set_danger does.
+        #
+        # Leaving these two lines out is why the switch turned itself
+        # back off: the value was saved and persisted correctly, but
+        # strategy_meta still carried the old state, so the desk reloaded
+        # its settings, read enabled=false and repainted the switch off.
+        # From the outside that is indistinguishable from a setting that
+        # refuses to save.
+        self._sync_book_meta()
+        self._persist_runtime()
+        await self.bus.publish("strategy", self.strategy_meta)
+
+        state = self._risk_free_state()
+        await self.journal(
+            "info",
+            "risk_free_cfg",
+            ("Risk free ON - stops move past entry at "
+             f"+{state['trigger_pct']}%" if state["enabled"] else "Risk free OFF"),
+            extra=state,
+        )
+        return {"ok": True, "risk_free": state}
 
     async def set_danger(self, body: dict[str, Any]) -> dict[str, Any]:
         body = dict(body or {})
@@ -1002,9 +1347,29 @@ class Trader:
         except (TypeError, ValueError):
             self.min_signal_quality = 0.55
         self.news_trade = bool(runtime.get("news_trade", False))
+        # Auto entry point: rest the robot's trade at a price instead of
+        # taking the market. See runtime/auto_entry.py for why.
+        auto_cfg = runtime.get("auto_entry") if isinstance(runtime.get("auto_entry"), dict) else {}
+        self.auto_entry = bool(auto_cfg.get("enabled", False))
+        try:
+            self.auto_entry_depth = max(0.0, min(1.0, float(auto_cfg.get("zone_depth", 0.5))))
+        except (TypeError, ValueError):
+            self.auto_entry_depth = 0.5
+        try:
+            self.auto_entry_offset = max(0.0, min(5.0, float(auto_cfg.get("offset_atr", 0.35))))
+        except (TypeError, ValueError):
+            self.auto_entry_offset = 0.35
+        self.auto_entry_expiry = self._clamp_int(auto_cfg.get("expiry_minutes"), 120, 0, 10080)
         danger_cfg = runtime.get("danger_guard") if isinstance(runtime.get("danger_guard"), dict) else {}
         self.danger_enabled = bool(danger_cfg.get("enabled", False))
         self.danger_sensitivity = clamp_sensitivity(danger_cfg.get("sensitivity", 50))
+        system = cfg.get("system") if isinstance(cfg.get("system"), dict) else {}
+        self.desk_timezone = str(system.get("timezone") or "UTC").strip() or "UTC"
+        self.prop.desk_timezone = self.desk_timezone
+        rf_cfg = runtime.get("risk_free") if isinstance(runtime.get("risk_free"), dict) else {}
+        self.risk_free_enabled = bool(rf_cfg.get("enabled", False))
+        self.risk_free_trigger_pct = self._clamp_pct(rf_cfg.get("trigger_pct"), 0.30)
+        self.risk_free_lock_pct = self._clamp_pct(rf_cfg.get("lock_pct"), 0.0)
         # License gates: freemium accounts lose prop + scalping + news trading.
         # Persisted premium-era settings are silently downgraded on boot.
         if self.news_trade and not self.license.feature("news"):
@@ -1025,9 +1390,9 @@ class Trader:
                 merge({"prop": {"enabled": False}})
             except Exception:
                 pass
-        saved = runtime.get("strategies") or {}
+        saved = self._migrate_retired_strategies(runtime.get("strategies") or {})
         self.book = {}
-        for name in ("ema_rsi", "price_action", "atr_breakout", "scalp_impulse"):
+        for name in BUILTIN_NAMES:
             spec = saved.get(name) or {}
             inst = self.loader.load_builtin(name, spec.get("params") or {})
             self.book[name] = {
@@ -1403,13 +1768,44 @@ class Trader:
             "last_quality": dict(getattr(self, "last_quality", {}) or {}),
             "news_trade": self.news_trading_on(),
             "news_trade_locked": bool(self.prop.enabled),
+            "auto_entry": bool(getattr(self, "auto_entry", False)),
+            "auto_entry_expiry": int(getattr(self, "auto_entry_expiry", 120)),
+            "pending_orders": len(self._own_pending_orders()),
             "danger_guard": self._danger_state(),
+            "risk_free": self._risk_free_state(),
+            "system": self._timezone_state(),
             "auto_limit": self._auto_limit_meta(),
             "prop_enabled": bool(getattr(self.prop, "enabled", True)),
             "items": items,
             "stats": ledger,
             "class": first.__class__.__name__ if first else "",
         }
+
+    @staticmethod
+    def _migrate_retired_strategies(saved: dict[str, Any]) -> dict[str, Any]:
+        """Carry a retired built-in's saved state over to its replacement.
+
+        A trader who had scalp_impulse armed should come back from the upgrade
+        with King armed, not with auto-trading quietly switched off and no
+        explanation. Only the *enabled* flag and the kind travel: the old
+        parameters described an indicator strategy and mean nothing to a
+        structural one, so forwarding them would be worse than dropping them.
+        """
+        if not isinstance(saved, dict):
+            return {}
+        out = dict(saved)
+        for old_name, new_name in LEGACY_BUILTINS.items():
+            spec = out.pop(old_name, None)
+            if not isinstance(spec, dict):
+                continue
+            existing = out.get(new_name)
+            if isinstance(existing, dict) and existing.get("enabled"):
+                continue
+            out[new_name] = {
+                "enabled": bool(spec.get("enabled")),
+                "kind": "builtin",
+            }
+        return out
 
     def _persist_runtime(self) -> None:
         merge(
@@ -1426,6 +1822,17 @@ class Trader:
                     "smart_filters": bool(getattr(self, "smart_filters", True)),
                     "min_signal_quality": float(getattr(self, "min_signal_quality", 0.55) or 0.55),
                     "news_trade": self.news_trade,
+                    "auto_entry": {
+                        "enabled": bool(getattr(self, "auto_entry", False)),
+                        "zone_depth": float(getattr(self, "auto_entry_depth", 0.5)),
+                        "offset_atr": float(getattr(self, "auto_entry_offset", 0.35)),
+                        "expiry_minutes": int(getattr(self, "auto_entry_expiry", 120)),
+                    },
+                    "risk_free": {
+                        "enabled": bool(self.risk_free_enabled),
+                        "trigger_pct": float(self.risk_free_trigger_pct),
+                        "lock_pct": float(self.risk_free_lock_pct),
+                    },
                     "danger_guard": {
                         "enabled": bool(self.danger_enabled),
                         "sensitivity": int(self.danger_sensitivity),
@@ -1458,7 +1865,28 @@ class Trader:
             return str(signal.get("action") or ""), str(signal.get("reason") or "")
         return "", ""
 
-    async def _run_enabled_strategies(self, ctx: StrategyContext, execute: bool = False) -> None:
+    def fire_blockers(self) -> list[str]:
+        """Every reason a signal would not be sent right now, by name.
+
+        "Signal seen but auto-trade is not armed (or a gate is closed)"
+        was the only thing the log said when a strategy fired and nothing
+        happened, and it is five possibilities in one sentence. A trader
+        looking at that cannot tell whether they forgot the switch, the
+        kill switch is down, prop has locked them out, or the tape is not
+        live - and every one of those has a different fix.
+        """
+        return gate_blockers(
+            auto_trade=bool(self.auto_trade),
+            kill_switch=bool(self.kill_switch),
+            safe_mode=bool(self.safe_mode),
+            prop_enabled=bool(self.prop.enabled),
+            prop_locked=bool(self.prop.locked),
+            tape_mode=self.bridge.tape_mode(),
+        )
+
+    async def _run_enabled_strategies(
+        self, ctx: StrategyContext, execute: bool = False, blocked: list[str] | None = None
+    ) -> None:
         closes: list[tuple[str, Any]] = []
         entries: list[tuple[str, Any]] = []
         enabled = [name for name, slot in self.book.items() if slot.get("enabled") and slot.get("inst")]
@@ -1508,10 +1936,12 @@ class Trader:
                 entries.append((name, signal))
         if not execute:
             if closes or entries:
+                why = ", ".join(blocked) if blocked else "a gate is closed"
                 await self.journal(
                     "warning",
                     "not_armed",
-                    "Signal seen but auto-trade is not armed (or a gate is closed) — order not sent.",
+                    f"Signal seen but not sent — {why}.",
+                    extra={"blocked": list(blocked or [])},
                 )
             self._sync_book_meta()
             await self.bus.publish("strategy", self.strategy_meta)
@@ -1568,9 +1998,13 @@ class Trader:
                 "lookback": 20, "volume": 0.10, "sl_atr": 1.2, "tp_atr": 2.0,
                 "min_rr": 1.6, "with_trend": True, "require_momentum": True, "min_efficiency": 0.18,
             },
-            "scalp_impulse": {
-                "lookback": 8, "volume": 0.05, "sl_atr": 0.9, "tp_atr": 1.4,
-                "min_rr": 1.3, "with_trend": True, "require_momentum": False, "min_efficiency": 0.2,
+            # King reads structure, so the style pack tunes *patience*, not
+            # indicators: a wider higher timeframe, a strict discount and a
+            # target that has to pay twice the risk.
+            "king": {
+                "htf_factor": 4, "volume": 0.10, "max_discount": 0.5,
+                "min_displacement_atr": 0.9, "min_rr": 2.0, "tp_atr": 3.0,
+                "require_zone": True, "allow_choch": True,
             },
         },
         "scalping": {
@@ -1586,9 +2020,15 @@ class Trader:
                 "lookback": 8, "volume": 0.05, "sl_atr": 0.55, "tp_atr": 0.95,
                 "min_rr": 1.2, "with_trend": True, "require_momentum": False, "min_efficiency": 0.12,
             },
-            "scalp_impulse": {
-                "lookback": 5, "volume": 0.05, "sl_atr": 0.5, "tp_atr": 0.8,
-                "min_rr": 1.1, "with_trend": False, "require_momentum": False, "min_efficiency": 0.12,
+            # Scalping does not get to switch the quality gates off. It gets a
+            # closer higher timeframe and a nearer target, because on M1 the
+            # next pool of liquidity is minutes away rather than hours — but
+            # the discount rule, the zone and the 1.5R floor stay, since those
+            # are the reason this strategy wins and the old scalper did not.
+            "king": {
+                "htf_factor": 3, "volume": 0.05, "max_discount": 0.55,
+                "min_displacement_atr": 0.7, "min_rr": 1.5, "tp_atr": 2.0,
+                "require_zone": True, "allow_choch": True,
             },
         },
     }
@@ -1651,6 +2091,24 @@ class Trader:
             if body.get("news_trade") and not self.license.feature("news"):
                 return {"ok": False, "error": "premium_required", "feature": "news", "upgrade": True}
             self.news_trade = bool(body.get("news_trade"))
+        if "auto_entry" in body:
+            # Accept the bare switch the desk sends, or the full object when
+            # an advanced user tunes the depth from the API.
+            raw = body.get("auto_entry")
+            auto = raw if isinstance(raw, dict) else {"enabled": bool(raw)}
+            if "enabled" in auto:
+                self.auto_entry = bool(auto.get("enabled"))
+            for key, attr, lo, hi in (
+                ("zone_depth", "auto_entry_depth", 0.0, 1.0),
+                ("offset_atr", "auto_entry_offset", 0.0, 5.0),
+            ):
+                if key in auto:
+                    try:
+                        setattr(self, attr, max(lo, min(hi, float(auto.get(key)))))
+                    except (TypeError, ValueError):
+                        pass
+            if "expiry_minutes" in auto:
+                self.auto_entry_expiry = self._clamp_int(auto.get("expiry_minutes"), 120, 0, 10080)
         if "prop_enabled" in body:
             if body.get("prop_enabled") and not self.license.feature("prop"):
                 return {"ok": False, "error": "premium_required", "feature": "prop", "upgrade": True}
@@ -1930,6 +2388,114 @@ class Trader:
             if not (result or {}).get("ok"):
                 break
 
+    # ---- auto entry point ------------------------------------------------
+    # The robot names the price it wants and leaves the order sitting there
+    # with the stop and target attached, instead of hitting the market the
+    # moment a candle closes.
+
+    MAGIC = 908173
+
+    def _own_pending_orders(self) -> list[dict[str, Any]]:
+        """AURION's resting orders, as plain dicts. Never the trader's own."""
+        out: list[dict[str, Any]] = []
+        bridge = getattr(self, "bridge", None)
+        for order in getattr(bridge, "orders", None) or []:
+            row = order.to_dict() if hasattr(order, "to_dict") else dict(order or {})
+            try:
+                if int(row.get("magic") or 0) != self.MAGIC:
+                    continue
+            except (TypeError, ValueError):
+                continue
+            out.append(row)
+        return out
+
+    async def _apply_auto_entry(self, request: dict[str, Any]) -> dict[str, Any]:
+        """Rewrite a robot market order into a resting order, when asked.
+
+        Returns the request to send: either a pending order, or the original
+        market order when there is no better price to wait for. Never raises
+        and never swallows the trade - a failed plan means "go to market",
+        because the alternative is a strategy whose signals silently vanish.
+        """
+        symbol = str(request.get("symbol") or "")
+        tick = self.bridge.ticks.get(symbol)
+        if not tick:
+            return request
+        side = str(request.get("side") or "buy").lower()
+        extra = request.get("extra") if isinstance(request.get("extra"), dict) else {}
+        plan = plan_entry(
+            side,
+            float(getattr(tick, "bid", 0) or 0),
+            float(getattr(tick, "ask", 0) or 0),
+            float(request.get("sl") or 0),
+            float(request.get("tp") or 0),
+            extra,
+            zone_depth=float(getattr(self, "auto_entry_depth", 0.5)),
+            offset_atr=float(getattr(self, "auto_entry_offset", 0.35)),
+            expiry_minutes=int(getattr(self, "auto_entry_expiry", 120)),
+        )
+        if not plan:
+            await self.journal(
+                "info",
+                "auto_entry_market",
+                f"Auto entry found no better price for {side} {symbol} — sending at market",
+            )
+            return request
+        out = {
+            **request,
+            "action": "pending",
+            "order_type": plan["order_type"],
+            "price": plan["price"],
+            "auto_entry": True,
+        }
+        if plan.get("sl"):
+            out["sl"] = plan["sl"]
+        if plan.get("tp"):
+            out["tp"] = plan["tp"]
+        await self.journal(
+            "info",
+            "auto_entry",
+            f"Auto entry: {plan['order_type'].replace('_', ' ')} {symbol} at {plan['price']} "
+            f"({plan['improvement']} better than {plan['market']}) with SL {out.get('sl') or '—'} / "
+            f"TP {out.get('tp') or '—'}"
+            + (f", RR {plan['rr']}" if plan.get("rr") else ""),
+            {"plan": dict(plan)},
+        )
+        return out
+
+    async def sweep_pending(self, force: bool = False) -> int:
+        """Cancel our resting orders that have waited past their shelf life.
+
+        A pending order is a decision with a timestamp on it. The structure
+        that justified the level does not survive forever, and an order left
+        from yesterday is not a trade anyone chose to take today.
+        """
+        expiry = int(getattr(self, "auto_entry_expiry", 120))
+        if expiry <= 0:
+            return 0
+        now = time.time()
+        if not force and now - float(getattr(self, "_auto_entry_sweep", 0.0)) < 30.0:
+            return 0
+        self._auto_entry_sweep = now
+        tickets = expired_orders(self._own_pending_orders(), now, expiry, self.MAGIC)
+        killed = 0
+        for ticket in tickets:
+            result = await self.bridge.send_order({"action": "cancel", "ticket": ticket})
+            if (result or {}).get("ok"):
+                killed += 1
+                await self.journal(
+                    "info",
+                    "auto_entry_expired",
+                    f"Cancelled resting order {ticket} — unfilled after {expiry} minutes",
+                )
+            else:
+                await self.journal(
+                    "warning",
+                    "auto_entry_cancel",
+                    f"Could not cancel resting order {ticket}: {(result or {}).get('error') or 'unknown'}",
+                )
+        return killed
+
     def _resolve_symbol(self, request: dict[str, Any]) -> str:
         symbol = str(request.get("symbol") or "").strip()
         if symbol:
@@ -2051,6 +2617,19 @@ class Trader:
         if not (self.bridge.connected or self.bridge.active_agents() or self.bridge.native.connected or self.bridge._ea_clients):
             await self.journal("error", "mt5_down", "MT5 is not reachable — AURION will not fabricate a fill")
             return {"ok": False, "error": "MetaTrader 5 is not reachable. AURION will not fabricate a fill."}
+        # Auto entry point. Deliberately the last step before the wire: every
+        # gate above - prop, news, quality, the open-trade ceiling - judges
+        # the trade the strategy asked for, and swapping the order type under
+        # them earlier would change what they were asked to approve.
+        if (
+            str(request.get("action") or "") == "market"
+            and getattr(self, "auto_entry", False)
+            and (source.startswith("strategy") or source in {"robot", "strategy_tick"})
+        ):
+            try:
+                request = await self._apply_auto_entry(request)
+            except Exception:
+                log.exception("auto entry planning failed - sending at market")
         await self.journal(
             "info",
             "send",
@@ -2059,6 +2638,23 @@ class Trader:
         )
         result = await self.bridge.send_order(request)
         action_now = str(request.get("action") or "")
+        if result.get("ok") and action_now == "pending" and request.get("auto_entry"):
+            # The trade has not started yet; it starts if price comes to the
+            # level. Remember the ticket so the fill can be accounted for,
+            # and tag it so the strategy still owns the trade hours later.
+            try:
+                ticket = int(result.get("order") or result.get("deal") or 0)
+            except (TypeError, ValueError):
+                ticket = 0
+            if ticket:
+                self._auto_entry_tickets.add(ticket)
+            self._remember_open(request, result)
+            await self.journal(
+                "info",
+                "auto_entry_placed",
+                f"Resting {str(request.get('order_type') or '').replace('_', ' ')} {request.get('symbol')} "
+                f"at {request.get('price')} — the trade starts only if price reaches it",
+            )
         if result.get("ok") and action_now in {"market", "buy", "sell"}:
             self.prop.note_entry()
             self._remember_open(request, result)
@@ -2677,9 +3273,39 @@ class Trader:
                 bars = bars or []
         if not bars or len(bars) < 30:
             return {"ok": False, "error": "no_candles", "symbol": symbol, "timeframe": timeframe}
+        # The marks on the chart have to be the armed strategies' own output.
+        # They used to be a fixed EMA-cross detector that ran regardless of
+        # what the trader had switched on, so the chart and the order book
+        # were two different systems and only one of them placed trades.
+        armed = [(name, slot.get("inst")) for name, slot in self.book.items() if slot.get("enabled")]
         try:
-            from ..signals.chart_signals import get_chart_signals
-            result = get_chart_signals(bars, strict=bool(strict))
+            if armed:
+                from ..signals.strategy_signals import replay
+
+                result = await asyncio.to_thread(
+                    replay,
+                    bars,
+                    armed,
+                    symbol,
+                    timeframe,
+                    # No AI read is passed in on purpose. There is only
+                    # today's, and applying it to a bar from last Tuesday
+                    # would be look-ahead dressed up as confluence. A
+                    # strategy with require_ai_agree therefore shows its
+                    # pure structural setups here, which is the honest
+                    # answer to "what did the strategy see".
+                    ai={},
+                    on_error=lambda name, exc: log.warning("chart replay: %s failed: %s", name, exc),
+                )
+            else:
+                # Nothing armed. Falling back to the indicator read keeps the
+                # chart useful, but it is labelled so nobody mistakes it for
+                # what the robot would do.
+                from ..signals.chart_signals import get_chart_signals
+
+                result = await asyncio.to_thread(get_chart_signals, bars, bool(strict))
+                result["source"] = "indicator"
+                result["strategies"] = []
             result["symbol"] = symbol
             result["timeframe"] = timeframe
             return result

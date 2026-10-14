@@ -22,9 +22,71 @@
           <RegistryValue Name="InstallFolder" Type="string" Value="[INSTALLFOLDER]" KeyPath="yes" />
           <RegistryValue Name="Version"       Type="string" Value="$(var.Version)" />
           <RegistryValue Name="Publisher"     Type="string" Value="$(var.Manufacturer)" />
+          <!-- What to hand msiexec. The uninstaller is normally told it on
+               the command line; this is where it looks when it has not
+               been, which is any copy run by hand. It cannot be worked out
+               from the Add or Remove Programs key any more, because that
+               key is now named AURION rather than a GUID. -->
+          <RegistryValue Name="ProductCode"   Type="string" Value="[ProductCode]" />
           <!-- Remembered wizard choices, read back by AppSearch on upgrade/modify -->
           <RegistryValue Name="WantDesktop"   Type="string" Value="[AURION_WANT_DESKTOP]" />
           <RegistryValue Name="WantStartMenu" Type="string" Value="[AURION_WANT_STARTMENU]" />
+        </RegistryKey>
+      </Component>
+
+      <!-- ================================================================
+           AURION's own entry in Add or Remove Programs
+           ================================================================
+           Windows Installer writes one of these itself, and the first
+           attempt at this rewrote its UninstallString afterwards with a
+           custom action. That lost: Control Panel went on calling
+           msiexec, AURION's uninstaller never appeared, and because the
+           action was Return="ignore" nothing said why.
+
+           It was the wrong approach regardless. It raced a standard
+           action over a key that standard action owns, and depended on
+           an ordering nobody documents.
+
+           This is the way that cannot lose. ARPSYSTEMCOMPONENT hides
+           Windows Installer's entry and AURION writes its own, as an
+           ordinary component - which means it is transactional, it rolls
+           back with a failed install, and it is removed on uninstall
+           like any other registry value.
+
+           What the user gets is a Remove button that opens AURION's
+           window and asks whether four years of trade history should go
+           with the application. Windows has no way to ask that.         -->
+      <Component Id="AurionArpEntry" Guid="{5E3A9C41-7D28-4B6E-9F31-6A4D2E8B1C57}">
+        <RegistryKey Root="HKCU"
+                     Key="Software\Microsoft\Windows\CurrentVersion\Uninstall\$(var.ProductName)"
+                     ForceDeleteOnUninstall="yes">
+          <RegistryValue Name="DisplayName"     Type="string" Value="$(var.ProductName)" KeyPath="yes" />
+          <RegistryValue Name="DisplayVersion"  Type="string" Value="$(var.Version)" />
+          <RegistryValue Name="Publisher"       Type="string" Value="$(var.Manufacturer)" />
+          <RegistryValue Name="DisplayIcon"     Type="string" Value="[INSTALLFOLDER]AURION.exe" />
+          <RegistryValue Name="InstallLocation" Type="string" Value="[INSTALLFOLDER]" />
+          <RegistryValue Name="HelpLink"        Type="string" Value="$(var.HelpLink)" />
+          <RegistryValue Name="URLInfoAbout"    Type="string" Value="$(var.AboutLink)" />
+          <RegistryValue Name="Contact"         Type="string" Value="$(var.Manufacturer)" />
+
+          <!-- The whole point. -->
+          <RegistryValue Name="UninstallString" Type="string"
+                         Value="&quot;[INSTALLFOLDER]AURION-Uninstall.exe&quot; --product [ProductCode]" />
+
+          <!-- Scripted removal stays scripted and never opens a window. -->
+          <RegistryValue Name="QuietUninstallString" Type="string"
+                         Value="MsiExec.exe /x [ProductCode] /qn /norestart" />
+
+          <!-- Change still goes to Windows Installer, which is the thing
+               that actually knows how to add and remove features. -->
+          <RegistryValue Name="ModifyPath" Type="string"
+                         Value="MsiExec.exe /i [ProductCode]" />
+          <RegistryValue Name="NoModify" Type="integer" Value="0" />
+
+          <!-- Repair is not offered. A hand-written entry cannot drive
+               Windows Installer's repair, and a button that does nothing
+               is worse than no button. Change reaches it. -->
+          <RegistryValue Name="NoRepair" Type="integer" Value="1" />
         </RegistryKey>
       </Component>
     </ComponentGroup>

@@ -80,7 +80,7 @@
       <table>
         <tr><th>چیست</th><th>چه کار می‌کند</th><th>چه کار نمی‌کند</th></tr>
         <tr><td>معاملهٔ خودکار</td><td>سوییچ مسلح‌کردن ربات. پیش‌فرض کارخانه <b>خاموش</b> است.</td><td>به‌تنهایی استراتژی را روشن نمی‌کند و پراپ را عوض نمی‌کند.</td></tr>
-        <tr><td>مدل نرمال / اسکلپ</td><td>فقط پارامتر همان استراتژی‌های روشن را عوض می‌کند (EMA، حد، لات، نگاه به چند کندل).</td><td>ربات را مسلح نمی‌کند. استراتژی <code>scalp_impulse</code> را خودش روشن نمی‌کند.</td></tr>
+        <tr><td>مدل نرمال / اسکلپ</td><td>فقط پارامتر همان استراتژی‌های روشن را عوض می‌کند (EMA، حد، لات، نگاه به چند کندل).</td><td>ربات را مسلح نمی‌کند. هیچ استراتژی‌ای را خودش روشن نمی‌کند.</td></tr>
         <tr><td>پراپ</td><td>فیلتر ریسک روی <b>هر ورود</b> (ربات یا دستی). پروفایل سقف ضرر، لات، ساعت UTC، خبر و جمعه را اعمال می‌کند.</td><td>سبک ورود نیست. سیگنال نمی‌سازد.</td></tr>
       </table>
       <div class="card ok">تا وقتی خودکار مسلح نباشد و حداقل یک استراتژی روشن نباشد، ربات <b>هیچ سفارشی</b> نمی‌فرستد — نه در نرمال، نه در اسکلپ، نه با پراپ روشن.</div>
@@ -121,9 +121,9 @@
         <tr><td><code>ema_rsi</code></td><td>EMA ۸/۲۱ — RSI ۱۴ — حد ۱.۶ ATR — هدف ۲.۴ ATR</td><td>EMA ۳/۸ — RSI ۷ — حد ۰.۷ — هدف ۱.۱</td></tr>
         <tr><td><code>price_action</code></td><td>امتیاز الگو ≥ ۰.۶۲ — حد ۱.۴ / هدف ۲.۲</td><td>امتیاز ≥ ۰.۵۵ — حد ۰.۷ / هدف ۱.۰۵</td></tr>
         <tr><td><code>atr_breakout</code></td><td>نگاه ۲۰ کندل — حد ۱.۲ / هدف ۲.۰</td><td>نگاه ۸ کندل — حد ۰.۵۵ / هدف ۰.۹۵</td></tr>
-        <tr><td><code>scalp_impulse</code></td><td>نگاه ۸ کندل — حد ۰.۹ / هدف ۱.۴ — لات ۰.۰۵</td><td>نگاه ۵ کندل — حد ۰.۵ / هدف ۰.۸ — لات ۰.۰۵</td></tr>
+        <tr><td><code>king</code></td><td>تایم بالاتر ۴× — حداقل پای حرکت ۰.۹ ATR — حداقل نسبت ۲.۰ — فقط نیمهٔ تخفیف</td><td>تایم بالاتر ۳× — پای ۰.۷ ATR — نسبت ۱.۵ — لات ۰.۰۵</td></tr>
       </table>
-      <p class="muted">انتخاب اسکلپ به‌تنهایی <code>scalp_impulse</code> را روشن نمی‌کند. هر استراتژی را جدا در تنظیمات یا صفحهٔ استراتژی‌ها روشن کنید.</p>
+      <p class="muted">انتخاب اسکلپ به‌تنهایی هیچ استراتژی‌ای را روشن نمی‌کند. هر استراتژی را جدا در تنظیمات یا صفحهٔ استراتژی‌ها روشن کنید.</p>
 
       <h2 id="fa-6">۶. چهار استراتژی — دقیقاً کی می‌خرند / می‌فروشند</h2>
       <p>همه فقط وقتی پوزیشن هم‌نماد باز نباشد ورود می‌دهند. اگر پوزیشن مخالف باشد اول <code>close</code> می‌دهند.</p>
@@ -157,11 +157,14 @@
         <li>اگر ATR نسبت به قیمت خیلی کوچک باشد (بازار مرده) سیگنال نمی‌دهد.</li>
       </ul>
 
-      <h3><code>scalp_impulse</code> — ضربهٔ کوتاه</h3>
+      <h3><code>king</code> — ساختار بازار</h3>
       <ul>
-        <li>بدنهٔ کندل باید از کسری از ATR بزرگ‌تر باشد (کندل دوجی رد می‌شود).</li>
-        <li><b>خرید:</b> کلوز بالای سقف N کندل و کلوز بالای اوپن (کندل سبز ضربه‌ای).</li>
-        <li><b>فروش:</b> کلوز زیر کف N کندل و کلوز زیر اوپن.</li>
+        <li>جهت را فقط <b>تایم بالاتر</b> تعیین می‌کند (کندل‌ها ۴ تا ۴ تا جمع می‌شوند)؛ هیچ میانگین متحرکی تصمیم نمی‌گیرد.</li>
+        <li>خرید فقط در <b>نیمهٔ پایین</b> دامنه (تخفیف) و فروش فقط در نیمهٔ بالا (پریمیوم) — همین یک فیلتر جلوی خرید در سقف را می‌گیرد.</li>
+        <li>تایم ورود باید با <b>کلوز</b> سقف/کف قبلی را بشکند؛ فتیله حساب نیست.</li>
+        <li>پای حرکتی که ساختار را شکسته باید حداقل چند برابر ATR باشد.</li>
+        <li>ورود فقط از داخل یک <b>ناحیهٔ عدم تعادل (FVG)</b> پرنشده یا آخرین اوردربلاک. بدون ناحیه، سیگنالی داده نمی‌شود.</li>
+        <li>حد ضرر پشت نقطهٔ ابطال و هدف روی نزدیک‌ترین <b>نقدینگی</b>؛ اگر نسبت سود به ضرر کمتر از حد تعیین‌شده باشد سیگنال لغو می‌شود.</li>
       </ul>
 
       <h2 id="fa-7">۷. پراپ — فیلتر روی همان سیگنال</h2>
@@ -263,6 +266,137 @@
         <li>کارت گیت باید بگوید <b>ربات</b> و «ربات می‌تواند سفارش بفرستد».</li>
         <li>منتظر کندل بسته بمانید. ورود جعلی ساخته نمی‌شود.</li>
       </ol>
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+<!-- settings-reference:start -->
+      <h2 id="fa-16">۱۶. مرجع کامل تنظیمات</h2>
+      <p>هر کلیدی که AURION می‌خواند، با مقدار پیش‌فرض واقعی‌اش. این جدول‌ها از
+      <code>config/aurion.factory.json</code> ساخته می‌شوند، پس هیچ‌وقت با خود محصول اختلاف پیدا نمی‌کنند.</p>
+      <div class="card">تنظیمات زنده در <code>config/aurion.json</code> است. فایل <code>aurion.factory.json</code>
+      فقط نسخهٔ کارخانه است و هنگام به‌روزرسانی بازنویسی می‌شود — ویرایش‌های خود را در اولی بگذارید.
+      بیشتر این کلیدها از صفحهٔ <b>تنظیمات</b> میز هم قابل تغییرند؛ ویرایش مستقیم فایل برای چیزهایی است که آنجا نیستند.</div>
+      <h3 id="fa-16-trading">الف. معامله — چه چیزی باز می‌شود و کِی</h3>
+      <p>این گروه تعیین می‌کند ربات اجازهٔ معامله دارد یا نه، و با چه سخت‌گیری‌ای. اگر فقط یک بخش را می‌خوانید، همین است.</p>
+      <table>
+        <tr><th>کلید</th><th>پیش‌فرض</th><th>توضیح</th></tr>
+        <tr><td><code>runtime.auto_trade</code></td><td><code>false</code></td><td>کلید اصلی ربات. تا وقتی <code>false</code> است هیچ سفارشی از طرف استراتژی‌ها نمی‌رود — تحلیل و سیگنال ادامه دارد، فقط اجرا قطع است. <b>مثال:</b> برای یک هفته رصد بدون ریسک، این را خاموش بگذارید و لاگ ربات را بخوانید.</td></tr>
+        <tr><td><code>runtime.trade_style</code></td><td><code>"normal"</code></td><td><code>normal</code> یا <code>scalping</code>. نرمال روی کندل بسته تصمیم می‌گیرد؛ اسکلپ تهاجمی‌تر و روی تایم‌فریم پایین‌تر است. <b>مثال:</b> روی حساب پراپ با محدودیت ضرر روزانه، <code>normal</code> بمانید — اسکلپ تعداد معامله و در نتیجه تعداد فرصت نقض قانون را بالا می‌برد.</td></tr>
+        <tr><td><code>runtime.require_ai_agree</code></td><td><code>true</code></td><td>اگر روشن باشد، سیگنال استراتژی فقط وقتی اجرا می‌شود که هوش مصنوعی هم‌جهت باشد. این یک <b>فیلتر</b> است، نه یک تولیدکنندهٔ سیگنال. <b>مثال:</b> استراتژی خرید می‌دهد، هوش «نزولی» می‌گوید → سفارش نمی‌رود و در لاگ با دلیل ثبت می‌شود.</td></tr>
+        <tr><td><code>runtime.min_ai_confidence</code></td><td><code>0.55</code></td><td>کف اطمینان هوش برای عبور از آن فیلتر، بین ۰ و ۱. <b>مثال:</b> <code>0.55</code> یعنی «۵۵٪ مطمئن یا بیشتر». بردنش به <code>0.75</code> تعداد معاملات را به‌شدت کم می‌کند؛ زیر <code>0.5</code> عملاً فیلتر را خاموش می‌کند.</td></tr>
+        <tr><td><code>runtime.min_signal_quality</code></td><td><code>0.55</code></td><td>کیفیت خود سیگنال استراتژی (جدا از هوش). سیگنال ضعیف‌تر از این حذف می‌شود. <b>مثال:</b> در بازار بدون روند، بالا بردن این عدد جلوی ورودهای بی‌کیفیت را می‌گیرد.</td></tr>
+        <tr><td><code>runtime.smart_filters</code></td><td><code>true</code></td><td>فیلترهای داخلی (اسپرد غیرعادی، ساعات کم‌نقدینگی، شرایط نامناسب). خاموش کردنش فقط برای تست است.</td></tr>
+        <tr><td><code>runtime.min_open_trades</code></td><td><code>1</code></td><td>کمینهٔ پوزیشن باز که ربات تلاش می‌کند حفظ کند.</td></tr>
+        <tr><td><code>runtime.max_open_trades</code></td><td><code>2</code></td><td>سقف پوزیشن هم‌زمان. <b>مهم‌ترین عدد برای کنترل ریسک کل.</b> <b>مثال:</b> با حجم ۰٫۱ و سقف ۲، حداکثر ۰٫۲ لات در بازار دارید — نه بیشتر، فارغ از اینکه چند سیگنال بیاید.</td></tr>
+      </table>
+      <h3 id="fa-16-protect">ب. محافظت از معاملهٔ باز</h3>
+      <p>این‌ها بعد از باز شدن پوزیشن کار می‌کنند. هیچ‌کدام سفارش جدید باز نمی‌کنند.</p>
+      <table>
+        <tr><th>کلید</th><th>پیش‌فرض</th><th>توضیح</th></tr>
+        <tr><td><code>runtime.risk_free.enabled</code></td><td><code>false</code></td><td>«ریسک‌فری». وقتی معامله به اندازهٔ کافی در سود رفت، حد ضرر را به آن‌طرف نقطهٔ ورود می‌برد تا دیگر نتواند ضرر بدهد. روی <b>هر</b> پوزیشن اعمال می‌شود، چه ربات بازش کرده باشد چه شما دستی.</td></tr>
+        <tr><td><code>runtime.risk_free.trigger_pct</code></td><td><code>0.3</code></td><td>چقدر سود لازم است تا این حرکت مسلح شود — بر حسب <b>درصد قیمت ورود</b>، نه پوینت. یک عدد پوینتی به قیمت نماد وابسته است و با تغییر نماد بی‌معنی می‌شود؛ درصد روی همه یک معنی دارد. <b>مثال:</b> با <code>0.3</code>، ورود خرید در ۲۴۰۰ در ۲۴۰۷٫۲ مسلح می‌شود و ورود خرید در ۱٫۰۸۵۰ در ۱٫۰۸۸۳.</td></tr>
+        <tr><td><code>runtime.risk_free.lock_pct</code></td><td><code>0.0</code></td><td>حد ضرر چقدر آن‌طرفِ ورود بنشیند. <code>0</code> یعنی خودکار: <b>اسپرد زندهٔ همان لحظه + یک‌دهم تریگر</b>. این مقدار پیش‌فرض عمدی است — حد ضرری که <i>دقیقاً روی</i> قیمت ورود باشد باز هم با ضرر بسته می‌شود، چون برای خروج باید اسپرد رد شود و کمیسیون هم قبلاً گرفته شده.</td></tr>
+        <tr><td><code>runtime.danger_guard.enabled</code></td><td><code>false</code></td><td>خروج محافظتی خودکار در شرایط خطر. وقتی قوانین پراپ روشن باشد غیرفعال می‌ماند — دو سیستم که هم‌زمان پوزیشن ببندند، نتیجه‌اش غیرقابل‌پیش‌بینی است.</td></tr>
+        <tr><td><code>runtime.danger_guard.sensitivity</code></td><td><code>50</code></td><td>۰ تا ۱۰۰. بالاتر = زودتر می‌بندد. <b>مثال:</b> ۸۰ روی یک بازار پرنوسان، پوزیشن‌ها را زود می‌بندد و سودهای بزرگ را از دست می‌دهد؛ ۲۰ تقریباً هیچ‌وقت دخالت نمی‌کند.</td></tr>
+      </table>
+      <h3 id="fa-16-entry">ج. ورود خودکار (Auto-entry)</h3>
+      <p>به‌جای ورود در قیمت لحظه‌ای، سفارش معلق در ناحیهٔ بهتر می‌گذارد.</p>
+      <table>
+        <tr><th>کلید</th><th>پیش‌فرض</th><th>توضیح</th></tr>
+        <tr><td><code>runtime.auto_entry.enabled</code></td><td><code>false</code></td><td>روشن/خاموش.</td></tr>
+        <tr><td><code>runtime.auto_entry.zone_depth</code></td><td><code>0.5</code></td><td>چقدر داخل ناحیه منتظر بماند، ۰ تا ۱. <b>مثال:</b> <code>0.5</code> یعنی وسط ناحیه. نزدیک ۱ قیمت بهتری می‌گیرد ولی خیلی از سفارش‌ها اصلاً پر نمی‌شوند.</td></tr>
+        <tr><td><code>runtime.auto_entry.offset_atr</code></td><td><code>0.35</code></td><td>فاصلهٔ اضافه بر حسب ATR، برای جا دادن به نوسان. <b>مثال:</b> <code>0.35</code> یعنی ۳۵٪ یک ATR عقب‌تر.</td></tr>
+        <tr><td><code>runtime.auto_entry.expiry_minutes</code></td><td><code>120</code></td><td>بعد از این مدت، سفارش پرنشده لغو می‌شود. <b>مثال:</b> <code>120</code> دو ساعت. صفر یعنی بدون انقضا — که روی سفارش معلق خطرناک است، چون ممکن است فردا در شرایطی کاملاً متفاوت پر شود.</td></tr>
+      </table>
+      <h3 id="fa-16-ai">د. هوش مصنوعی</h3>
+      <p>هوش هرگز به‌تنهایی معامله باز نمی‌کند. فقط سیگنال استراتژی را تأیید یا رد می‌کند.</p>
+      <table>
+        <tr><th>کلید</th><th>پیش‌فرض</th><th>توضیح</th></tr>
+        <tr><td><code>ai.enabled</code></td><td><code>true</code></td><td>روشن/خاموش کل لایهٔ هوش.</td></tr>
+        <tr><td><code>ai.min_bars_to_train</code></td><td><code>160</code></td><td>کمینهٔ کندل لازم برای اولین آموزش. قبل از رسیدن به این عدد، هوش نظری نمی‌دهد. <b>مثال:</b> روی M5 عدد <code>160</code> حدود ۱۳ ساعت دادهٔ بازار است.</td></tr>
+        <tr><td><code>ai.retrain_every_bars</code></td><td><code>40</code></td><td>هر چند کندل یک‌بار دوباره آموزش ببیند. کمتر = تطبیق سریع‌تر و پرنوسان‌تر.</td></tr>
+        <tr><td><code>ai.online_learning</code></td><td><code>true</code></td><td>یادگیری پیوسته از نتیجهٔ معاملات.</td></tr>
+        <tr><td><code>ai.confidence_threshold</code></td><td><code>0.58</code></td><td>آستانهٔ داخلی خود مدل (با <code>runtime.min_ai_confidence</code> فرق دارد: آن یکی فیلتر اجراست، این یکی آستانهٔ اعلام نظر مدل).</td></tr>
+      </table>
+      <h3 id="fa-16-exec">ه. اجرا و ایمنی</h3>
+      <p>این‌ها تعیین می‌کنند سفارش چطور به بروکر می‌رسد و در شرایط غیرعادی چه می‌شود.</p>
+      <table>
+        <tr><th>کلید</th><th>پیش‌فرض</th><th>توضیح</th></tr>
+        <tr><td><code>execution.max_slippage_points</code></td><td><code>30</code></td><td>بیشترین لغزش قابل‌قبول. اگر قیمت بیش از این حرکت کرده باشد، سفارش رد می‌شود به‌جای اینکه با قیمت بد پر شود.</td></tr>
+        <tr><td><code>execution.default_deviation</code></td><td><code>20</code></td><td>انحراف پیش‌فرض ارسالی به متاتریدر.</td></tr>
+        <tr><td><code>execution.magic</code></td><td><code>908173</code></td><td>شمارهٔ شناسایی سفارش‌های AURION. <b>دست نزنید</b> مگر دو نسخه را هم‌زمان روی یک حساب اجرا کنید — این عدد است که مشخص می‌کند کدام پوزیشن مال ربات است و کدام مال شما.</td></tr>
+        <tr><td><code>execution.flatten_on_disconnect</code></td><td><code>true</code></td><td>قطع ارتباط با متاتریدر → بستن همه‌چیز. <b>مثال:</b> روی VPS با اینترنت ناپایدار این را روشن نگه دارید؛ پوزیشن باز بدون نظارت بدترین حالت است.</td></tr>
+        <tr><td><code>execution.flatten_on_ai_fault</code></td><td><code>false</code></td><td>خطای هوش → بستن همه‌چیز. پیش‌فرض خاموش است چون هوش فقط فیلتر است و نبودش به‌تنهایی دلیل بستن پوزیشن نیست.</td></tr>
+        <tr><td><code>execution.kill_switch_default</code></td><td><code>false</code></td><td>وضعیت کلید اضطراری هنگام بالا آمدن.</td></tr>
+      </table>
+      <h3 id="fa-16-prop">و. قوانین پراپ</h3>
+      <p>پراپ یک <b>فیلتر</b> روی همان سیگنال است، نه یک سبک معاملاتی جدا. سیگنال تولید می‌شود و پراپ اجازه می‌دهد یا نمی‌دهد.</p>
+      <table>
+        <tr><th>کلید</th><th>پیش‌فرض</th><th>توضیح</th></tr>
+        <tr><td><code>prop.enabled</code></td><td><code>true</code></td><td>اعمال قوانین پراپ.</td></tr>
+        <tr><td><code>prop.active_profile</code></td><td><code>"conservative"</code></td><td>پروفایل فعال. <b>مثال:</b> <code>conservative</code> سخت‌گیرترین است و برای فاز ارزیابی مناسب.</td></tr>
+        <tr><td><code>prop.news_blackout_minutes_before</code></td><td><code>15</code></td><td>چند دقیقه <b>قبل</b> از خبر، معامله ممنوع شود. <b>مثال:</b> <code>15</code> با خبر ساعت ۱۶:۰۰ یعنی از ۱۵:۴۵ هیچ ورودی جدیدی نیست.</td></tr>
+        <tr><td><code>prop.news_blackout_minutes_after</code></td><td><code>15</code></td><td>همان، بعد از خبر.</td></tr>
+        <tr><td><code>prop.news_calendar_path</code></td><td><code><i>(empty)</i></code></td><td>مسیر فایل تقویم خبری. خالی = بدون فیلتر خبر.</td></tr>
+      </table>
+      <h3 id="fa-16-mt5">ز. اتصال متاتریدر</h3>
+      <p>اگر این بخش غلط باشد میز خالی می‌ماند — و عمداً خالی می‌ماند. AURION هیچ‌وقت دادهٔ ساختگی نشان نمی‌دهد.</p>
+      <table>
+        <tr><th>کلید</th><th>پیش‌فرض</th><th>توضیح</th></tr>
+        <tr><td><code>mt5.terminal_path</code></td><td><code><i>(empty)</i></code></td><td>مسیر <code>terminal64.exe</code>. خالی = جستجوی خودکار.</td></tr>
+        <tr><td><code>mt5.login</code></td><td><code>0</code></td><td>شمارهٔ حساب. <code>0</code> یعنی از نشست باز متاتریدر استفاده کن.</td></tr>
+        <tr><td><code>mt5.server</code></td><td><code><i>(empty)</i></code></td><td>نام سرور بروکر، دقیقاً همان‌طور که متاتریدر نشان می‌دهد.</td></tr>
+        <tr><td><code>mt5.ea_listen_port</code></td><td><code>18766</code></td><td>پورتی که EA روی آن حرف می‌زند. اگر عوضش کردید، باید در خود EA هم عوض شود وگرنه هیچ‌چیز نمی‌رسد.</td></tr>
+        <tr><td><code>mt5.timeframes</code></td><td><code>["M1", "M5", "M15", "M30", "H1", "H4", "D1"]</code></td><td>تایم‌فریم‌هایی که کندل‌شان گرفته می‌شود.</td></tr>
+        <tr><td><code>mt5.timeout_ms</code></td><td><code>10000</code></td><td>مهلت پاسخ متاتریدر بر حسب میلی‌ثانیه.</td></tr>
+      </table>
+      <h3 id="fa-16-infra">ح. موتور، میز و نگهداری</h3>
+      <p>این‌ها را معمولاً لازم نیست دست بزنید. فقط وقتی پورتی اشغال است یا VPS کم‌حافظه دارید.</p>
+      <table>
+        <tr><th>کلید</th><th>پیش‌فرض</th><th>توضیح</th></tr>
+        <tr><td><code>backend.port</code></td><td><code>8080</code></td><td>پورت میز. اگر ۸۰۸۰ اشغال باشد اینجا عوض کنید.</td></tr>
+        <tr><td><code>backend.jwt_expires_hours</code></td><td><code>72</code></td><td>اعتبار نشست ورود. <b>مثال:</b> <code>72</code> یعنی سه روز بعد دوباره باید وارد شوید.</td></tr>
+        <tr><td><code>backend.history_retention_days</code></td><td><code>30</code></td><td>چند روز تاریخچه نگه داشته شود. <b>مثال:</b> روی VPS با دیسک کوچک، <code>30</code> را به <code>14</code> کم کنید.</td></tr>
+        <tr><td><code>engine.candle_lookback</code></td><td><code>1500</code></td><td>چند کندل در حافظه بماند. کم کردنش مصرف رم را پایین می‌آورد ولی دقت آموزش هوش را کم می‌کند.</td></tr>
+        <tr><td><code>engine.tick_buffer</code></td><td><code>5000</code></td><td>بافر تیک.</td></tr>
+        <tr><td><code>engine.heartbeat_seconds</code></td><td><code>2</code></td><td>فاصلهٔ ضربان سلامت موتور.</td></tr>
+      </table>
+      <h3 id="fa-16-servers">ط. سرورهای شما — آپدیت و لایسنس</h3>
+      <p>این‌ها را <b>قبل از ساختن MSI</b> پر کنید، نه بعدش. نصب‌کننده فقط
+            <code>aurion.factory.json</code> را می‌برد؛ ویرایش <code>aurion.json</code> روی سیستم شما
+            هیچ اثری روی نسخهٔ مشتری ندارد. آدرس باید از اینترنت در دسترس باشد —
+            <code>127.0.0.1</code> روی سیستم مشتری یعنی سیستم خودِ او.
+            ساده‌ترین راه: <code>node scripts/set-endpoints.mjs --updates &lt;url&gt; --store &lt;url&gt;</code></p>
+      <table>
+        <tr><th>کلید</th><th>پیش‌فرض</th><th>توضیح</th></tr>
+        <tr><td><code>update_server.url</code></td><td><code><i>(empty)</i></code></td><td>آدرس سرور آپدیت شما. خالی یعنی میز هیچ‌وقت آپدیتی پیدا نمی‌کند (<code>update_server_not_configured</code>). از داشبورد قابل تغییر نیست — عمداً.</td></tr>
+        <tr><td><code>update_server.auto_check</code></td><td><code>false</code></td><td>خود میز هر چند ساعت یک‌بار بپرسد آپدیتی هست یا نه.</td></tr>
+        <tr><td><code>update_server.interval_hours</code></td><td><code>6</code></td><td>فاصلهٔ آن پرسش.</td></tr>
+        <tr><td><code>license.keyserver_url</code></td><td><code><i>(empty)</i></code></td><td>فروشگاه/سرور کلید. بدون آن هر کلید <code>AXIA-</code> با <code>internet_required</code> رد می‌شود. کلیدهای آفلاین <code>AXIO-</code> به آن نیاز ندارند.</td></tr>
+        <tr><td><code>license.store_url</code></td><td><code><i>(empty)</i></code></td><td>صفحه‌ای که میز برای خرید/تمدید به کاربر نشان می‌دهد.</td></tr>
+      </table>
+      <h3 id="fa-16-notify">ی. تلگرام</h3>
+      <p>اعلان یک‌طرفه. از تلگرام نمی‌شود معامله باز یا بسته کرد — عمداً.</p>
+      <table>
+        <tr><th>کلید</th><th>پیش‌فرض</th><th>توضیح</th></tr>
+        <tr><td><code>telegram.enabled</code></td><td><code>false</code></td><td>روشن/خاموش.</td></tr>
+        <tr><td><code>telegram.bot_token</code></td><td><code><i>(empty)</i></code></td><td>توکن ربات از BotFather.</td></tr>
+        <tr><td><code>telegram.notify_open</code></td><td><code>true</code></td><td>اعلان هنگام باز شدن پوزیشن.</td></tr>
+        <tr><td><code>telegram.notify_close</code></td><td><code>true</code></td><td>اعلان هنگام بسته شدن.</td></tr>
+        <tr><td><code>telegram.chats</code></td><td><code>[]</code></td><td>فهرست چت‌هایی که اعلان می‌گیرند.</td></tr>
+      </table>
+<!-- settings-reference:end -->
+
     </article>
 
     <article id="doc-en" lang="en" dir="ltr">
@@ -281,7 +415,7 @@
       <table>
         <tr><th>Knob</th><th>Does</th><th>Does not</th></tr>
         <tr><td>Auto-trade</td><td>Arms the robot. Factory default is <b>OFF</b>.</td><td>Does not enable a strategy or change prop.</td></tr>
-        <tr><td>Normal / Scalping</td><td>Overlays strategy parameters (EMAs, stops, lots, lookback).</td><td>Does not arm the robot or enable <code>scalp_impulse</code>.</td></tr>
+        <tr><td>Normal / Scalping</td><td>Overlays strategy parameters (EMAs, stops, lots, lookback).</td><td>Does not arm the robot or enable any strategy.</td></tr>
         <tr><td>Prop</td><td>Risk filter on every <b>entry</b> (robot or manual).</td><td>Not a trade style. Builds no signal.</td></tr>
       </table>
       <div class="card ok">Until auto-trade is armed and at least one strategy is ON, the robot sends <b>nothing</b> — in any style, with or without prop.</div>
@@ -320,9 +454,9 @@
         <tr><td><code>ema_rsi</code></td><td>8/21, RSI 14, SL 1.6 ATR, TP 2.4</td><td>3/8, RSI 7, SL 0.7, TP 1.1</td></tr>
         <tr><td><code>price_action</code></td><td>score ≥ 0.62, SL 1.4 / TP 2.2</td><td>score ≥ 0.55, SL 0.7 / TP 1.05</td></tr>
         <tr><td><code>atr_breakout</code></td><td>lookback 20, SL 1.2 / TP 2.0</td><td>lookback 8, SL 0.55 / TP 0.95</td></tr>
-        <tr><td><code>scalp_impulse</code></td><td>lookback 8, SL 0.9 / TP 1.4</td><td>lookback 5, SL 0.5 / TP 0.8</td></tr>
+        <tr><td><code>king</code></td><td>4x higher timeframe, leg ≥ 0.9 ATR, 2.0R floor, discount only</td><td>3x higher timeframe, leg ≥ 0.7 ATR, 1.5R floor, lot 0.05</td></tr>
       </table>
-      <p>Picking Scalping also forces an H1/H4/D1 active timeframe down to <b>M1</b>. It does not enable <code>scalp_impulse</code> by itself.</p>
+      <p>Picking Scalping also forces an H1/H4/D1 active timeframe down to <b>M1</b>. It does not enable any strategy by itself.</p>
 
       <h2 id="en-6">6. When each strategy fires</h2>
       <p>Entries only if there is no open position on that symbol. An opposite position yields <code>close</code> first.</p>
@@ -330,7 +464,7 @@
         <li><code>ema_rsi</code> — buy when fast EMA crosses up through slow and RSI ≥ 42; sell on a cross down with RSI ≤ 58.</li>
         <li><code>price_action</code> — strongest of hammer / star / engulfing / morning-evening star / pin-break / HH-LL. Needs score ≥ the style threshold and AI agreement when AI is ready. Doji is neutral (no entry). HH/LL score 0.58: Normal (0.62) ignores it alone; Scalping (0.55) can take it.</li>
         <li><code>atr_breakout</code> — buy if the closed bar closes above the prior N-bar high; sell below the N-bar low. Dead ATR is skipped.</li>
-        <li><code>scalp_impulse</code> — body must beat a fraction of ATR. Buy: close above the N-bar high and above open. Sell: close below the N-bar low and below open.</li>
+        <li><code>king</code> — higher-timeframe structure sets direction; entry only from a discount, inside an unmitigated imbalance, after a break on a close, with the target at liquidity.</li>
       </ul>
 
       <h2 id="en-7">7. Prop — filter, not a style</h2>
@@ -424,6 +558,137 @@
         <li>The gate card must say <b>Robot</b>.</li>
         <li>Wait for a closed bar. Nothing is invented.</li>
       </ol>
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+<!-- settings-reference:start -->
+      <h2 id="en-16">16. Complete settings reference</h2>
+      <p>Every key AURION reads, with its real default. These tables are generated from
+      <code>config/aurion.factory.json</code>, so they cannot drift from the product.</p>
+      <div class="card">Live settings are in <code>config/aurion.json</code>. <code>aurion.factory.json</code> is the
+      factory copy and is overwritten on update — put your edits in the first one. Most of these are also on the desk's
+      <b>Settings</b> screen; editing the file is for the ones that are not.</div>
+      <h3 id="en-16-trading">A. Trading — what opens, and when</h3>
+      <p>This group decides whether the robot may trade at all, and how strict it is. If you read one group, read this one.</p>
+      <table>
+        <tr><th>Key</th><th>Default</th><th>What it does</th></tr>
+        <tr><td><code>runtime.auto_trade</code></td><td><code>false</code></td><td>The master switch. While <code>false</code> no strategy order is ever sent — analysis and signals carry on, only execution stops. <b>Example:</b> to watch for a week with no risk, leave this off and read the robot log.</td></tr>
+        <tr><td><code>runtime.trade_style</code></td><td><code>"normal"</code></td><td><code>normal</code> or <code>scalping</code>. Normal decides on the closed candle; scalping is more aggressive and works lower. <b>Example:</b> on a prop account with a daily-loss rule, stay on <code>normal</code> — scalping multiplies the number of trades and therefore the number of chances to break a rule.</td></tr>
+        <tr><td><code>runtime.require_ai_agree</code></td><td><code>true</code></td><td>When on, a strategy signal only executes if the AI agrees with its direction. It is a <b>filter</b>, never a source of signals. <b>Example:</b> the strategy says buy, the AI says down → no order, and the log says why.</td></tr>
+        <tr><td><code>runtime.min_ai_confidence</code></td><td><code>0.55</code></td><td>The confidence floor for that filter, 0 to 1. <b>Example:</b> <code>0.55</code> means "55% sure or better". Raising it to <code>0.75</code> cuts the trade count sharply; below <code>0.5</code> the filter is off in all but name.</td></tr>
+        <tr><td><code>runtime.min_signal_quality</code></td><td><code>0.55</code></td><td>The quality of the strategy's own signal, separate from the AI. Anything weaker is dropped. <b>Example:</b> in a rangebound market, raising this is what stops low-grade entries.</td></tr>
+        <tr><td><code>runtime.smart_filters</code></td><td><code>true</code></td><td>The built-in filters: abnormal spread, thin hours, unsuitable conditions. Turning it off is for testing, not for trading.</td></tr>
+        <tr><td><code>runtime.min_open_trades</code></td><td><code>1</code></td><td>The floor on open positions the robot tries to maintain.</td></tr>
+        <tr><td><code>runtime.max_open_trades</code></td><td><code>2</code></td><td>The ceiling on simultaneous positions. <b>The single most important number for total risk.</b> <b>Example:</b> at 0.10 lots with a ceiling of 2 you can have 0.20 in the market and no more, however many signals arrive.</td></tr>
+      </table>
+      <h3 id="en-16-protect">B. Protecting an open trade</h3>
+      <p>These act after a position exists. None of them opens anything.</p>
+      <table>
+        <tr><th>Key</th><th>Default</th><th>What it does</th></tr>
+        <tr><td><code>runtime.risk_free.enabled</code></td><td><code>false</code></td><td>"Risk free". Once a trade is far enough ahead, the stop moves past the entry so the position can no longer lose. It applies to <b>every</b> position, whether the robot opened it or you did.</td></tr>
+        <tr><td><code>runtime.risk_free.trigger_pct</code></td><td><code>0.3</code></td><td>How much profit arms the move, as a <b>percentage of the entry price</b> rather than points. A figure in points depends on what the instrument costs and stops meaning anything the moment you trade something else; a percentage means the same everywhere. <b>Example:</b> at <code>0.3</code>, a long at 2400 arms at 2407.2 and a long at 1.0850 arms at 1.0883.</td></tr>
+        <tr><td><code>runtime.risk_free.lock_pct</code></td><td><code>0.0</code></td><td>How far past the entry the stop sits. <code>0</code> means derive it: <b>the live spread plus a tenth of the trigger</b>. That default is deliberate — a stop sitting <i>exactly on</i> the open price still closes at a loss, because the spread has to be crossed to get out and the commission was already charged.</td></tr>
+        <tr><td><code>runtime.danger_guard.enabled</code></td><td><code>false</code></td><td>The automatic protective exit. It stays idle while prop rules are on: two systems closing positions at once is not a behaviour anyone can predict.</td></tr>
+        <tr><td><code>runtime.danger_guard.sensitivity</code></td><td><code>50</code></td><td>0 to 100. Higher closes sooner. <b>Example:</b> 80 on a volatile instrument exits early and gives up the large moves; 20 almost never intervenes.</td></tr>
+      </table>
+      <h3 id="en-16-entry">C. Auto-entry</h3>
+      <p>Instead of entering at market, it places a pending order in a better zone.</p>
+      <table>
+        <tr><th>Key</th><th>Default</th><th>What it does</th></tr>
+        <tr><td><code>runtime.auto_entry.enabled</code></td><td><code>false</code></td><td>On or off.</td></tr>
+        <tr><td><code>runtime.auto_entry.zone_depth</code></td><td><code>0.5</code></td><td>How deep into the zone to wait, 0 to 1. <b>Example:</b> <code>0.5</code> is the middle. Near 1 gets a better price and leaves many orders unfilled.</td></tr>
+        <tr><td><code>runtime.auto_entry.offset_atr</code></td><td><code>0.35</code></td><td>Extra distance in ATR, to leave room for noise. <b>Example:</b> <code>0.35</code> is 35% of one ATR further back.</td></tr>
+        <tr><td><code>runtime.auto_entry.expiry_minutes</code></td><td><code>120</code></td><td>An unfilled order is cancelled after this. <b>Example:</b> <code>120</code> is two hours. Zero means never, which is dangerous on a pending order: it can fill tomorrow into conditions that no longer resemble the ones that justified it.</td></tr>
+      </table>
+      <h3 id="en-16-ai">D. The AI</h3>
+      <p>The AI never opens a trade on its own. It only agrees or disagrees with a strategy's signal.</p>
+      <table>
+        <tr><th>Key</th><th>Default</th><th>What it does</th></tr>
+        <tr><td><code>ai.enabled</code></td><td><code>true</code></td><td>The whole AI layer, on or off.</td></tr>
+        <tr><td><code>ai.min_bars_to_train</code></td><td><code>160</code></td><td>The candles needed before the first training. Below it the AI has no opinion. <b>Example:</b> on M5, <code>160</code> is about 13 hours of market.</td></tr>
+        <tr><td><code>ai.retrain_every_bars</code></td><td><code>40</code></td><td>How often to retrain. Lower adapts faster and is noisier.</td></tr>
+        <tr><td><code>ai.online_learning</code></td><td><code>true</code></td><td>Keep learning from outcomes as they arrive.</td></tr>
+        <tr><td><code>ai.confidence_threshold</code></td><td><code>0.58</code></td><td>The model's own threshold. Not the same as <code>runtime.min_ai_confidence</code>: that one filters execution, this one decides when the model speaks at all.</td></tr>
+      </table>
+      <h3 id="en-16-exec">E. Execution and safety</h3>
+      <p>How an order reaches the broker, and what happens when things go wrong.</p>
+      <table>
+        <tr><th>Key</th><th>Default</th><th>What it does</th></tr>
+        <tr><td><code>execution.max_slippage_points</code></td><td><code>30</code></td><td>The most slippage accepted. Beyond it the order is refused rather than filled at a price nobody agreed to.</td></tr>
+        <tr><td><code>execution.default_deviation</code></td><td><code>20</code></td><td>The deviation sent to MetaTrader.</td></tr>
+        <tr><td><code>execution.magic</code></td><td><code>908173</code></td><td>The id stamped on AURION's orders. <b>Leave it alone</b> unless you run two copies on one account: this number is what tells the robot's positions from yours.</td></tr>
+        <tr><td><code>execution.flatten_on_disconnect</code></td><td><code>true</code></td><td>Lose MetaTrader, close everything. <b>Example:</b> on a VPS with a flaky line, keep this on — an open position nobody is watching is the worst state to be in.</td></tr>
+        <tr><td><code>execution.flatten_on_ai_fault</code></td><td><code>false</code></td><td>An AI fault closes everything. Off by default, because the AI is only a filter and its absence is not by itself a reason to exit.</td></tr>
+        <tr><td><code>execution.kill_switch_default</code></td><td><code>false</code></td><td>The emergency switch's state at startup.</td></tr>
+      </table>
+      <h3 id="en-16-prop">F. Prop rules</h3>
+      <p>Prop is a <b>filter</b> over the same signals, not a separate trading style. The signal is produced and prop lets it through or does not.</p>
+      <table>
+        <tr><th>Key</th><th>Default</th><th>What it does</th></tr>
+        <tr><td><code>prop.enabled</code></td><td><code>true</code></td><td>Apply prop rules.</td></tr>
+        <tr><td><code>prop.active_profile</code></td><td><code>"conservative"</code></td><td>The active profile. <b>Example:</b> <code>conservative</code> is the strictest and the right one for an evaluation phase.</td></tr>
+        <tr><td><code>prop.news_blackout_minutes_before</code></td><td><code>15</code></td><td>Minutes <b>before</b> an event with no trading. <b>Example:</b> <code>15</code> with a 16:00 release means nothing new opens after 15:45.</td></tr>
+        <tr><td><code>prop.news_blackout_minutes_after</code></td><td><code>15</code></td><td>The same, after the event.</td></tr>
+        <tr><td><code>prop.news_calendar_path</code></td><td><code><i>(empty)</i></code></td><td>Path to the calendar file. Empty means no news filter.</td></tr>
+      </table>
+      <h3 id="en-16-mt5">G. MetaTrader connection</h3>
+      <p>Get this wrong and the desk stays empty — deliberately. AURION never shows invented data.</p>
+      <table>
+        <tr><th>Key</th><th>Default</th><th>What it does</th></tr>
+        <tr><td><code>mt5.terminal_path</code></td><td><code><i>(empty)</i></code></td><td>Path to <code>terminal64.exe</code>. Empty means find it.</td></tr>
+        <tr><td><code>mt5.login</code></td><td><code>0</code></td><td>Account number. <code>0</code> uses whatever MetaTrader is already logged into.</td></tr>
+        <tr><td><code>mt5.server</code></td><td><code><i>(empty)</i></code></td><td>The broker's server name, exactly as MetaTrader spells it.</td></tr>
+        <tr><td><code>mt5.ea_listen_port</code></td><td><code>18766</code></td><td>The port the EA talks on. Change it here and you must change it in the EA too, or nothing arrives.</td></tr>
+        <tr><td><code>mt5.timeframes</code></td><td><code>["M1", "M5", "M15", "M30", "H1", "H4", "D1"]</code></td><td>The timeframes whose candles are pulled.</td></tr>
+        <tr><td><code>mt5.timeout_ms</code></td><td><code>10000</code></td><td>How long to wait on MetaTrader, in milliseconds.</td></tr>
+      </table>
+      <h3 id="en-16-infra">H. Engine, desk and retention</h3>
+      <p>Rarely worth touching. Change them when a port is taken or a VPS is short of memory.</p>
+      <table>
+        <tr><th>Key</th><th>Default</th><th>What it does</th></tr>
+        <tr><td><code>backend.port</code></td><td><code>8080</code></td><td>The desk's port. Change it here if 8080 is taken.</td></tr>
+        <tr><td><code>backend.jwt_expires_hours</code></td><td><code>72</code></td><td>How long a sign-in lasts. <b>Example:</b> <code>72</code> means signing in again three days later.</td></tr>
+        <tr><td><code>backend.history_retention_days</code></td><td><code>30</code></td><td>Days of history kept. <b>Example:</b> on a small VPS disk, drop <code>30</code> to <code>14</code>.</td></tr>
+        <tr><td><code>engine.candle_lookback</code></td><td><code>1500</code></td><td>Candles held in memory. Lowering it saves RAM and costs the AI training depth.</td></tr>
+        <tr><td><code>engine.tick_buffer</code></td><td><code>5000</code></td><td>The tick buffer.</td></tr>
+        <tr><td><code>engine.heartbeat_seconds</code></td><td><code>2</code></td><td>How often the engine reports it is alive.</td></tr>
+      </table>
+      <h3 id="en-16-servers">I. Your servers — updates and licences</h3>
+      <p>Fill these in <b>before building the MSI</b>, not after. The installer
+            ships only <code>aurion.factory.json</code>; editing <code>aurion.json</code> on your machine
+            changes nothing for the customer. The address must be reachable from the internet —
+            <code>127.0.0.1</code> on their machine means their machine.
+            Easiest: <code>node scripts/set-endpoints.mjs --updates &lt;url&gt; --store &lt;url&gt;</code></p>
+      <table>
+        <tr><th>Key</th><th>Default</th><th>What it does</th></tr>
+        <tr><td><code>update_server.url</code></td><td><code><i>(empty)</i></code></td><td>Your update server. Empty means the desk never finds an update (<code>update_server_not_configured</code>). Not editable from the dashboard, deliberately.</td></tr>
+        <tr><td><code>update_server.auto_check</code></td><td><code>false</code></td><td>Let the desk ask for updates by itself.</td></tr>
+        <tr><td><code>update_server.interval_hours</code></td><td><code>6</code></td><td>How often it asks.</td></tr>
+        <tr><td><code>license.keyserver_url</code></td><td><code><i>(empty)</i></code></td><td>The key server. Without it every <code>AXIA-</code> key answers <code>internet_required</code>. Offline <code>AXIO-</code> keys do not need it.</td></tr>
+        <tr><td><code>license.store_url</code></td><td><code><i>(empty)</i></code></td><td>Where the desk sends a trader to buy or renew.</td></tr>
+      </table>
+      <h3 id="en-16-notify">J. Telegram</h3>
+      <p>One-way notifications. You cannot trade from Telegram, deliberately.</p>
+      <table>
+        <tr><th>Key</th><th>Default</th><th>What it does</th></tr>
+        <tr><td><code>telegram.enabled</code></td><td><code>false</code></td><td>On or off.</td></tr>
+        <tr><td><code>telegram.bot_token</code></td><td><code><i>(empty)</i></code></td><td>The bot token from BotFather.</td></tr>
+        <tr><td><code>telegram.notify_open</code></td><td><code>true</code></td><td>Tell me when a position opens.</td></tr>
+        <tr><td><code>telegram.notify_close</code></td><td><code>true</code></td><td>Tell me when one closes.</td></tr>
+        <tr><td><code>telegram.chats</code></td><td><code>[]</code></td><td>The chats that receive them.</td></tr>
+      </table>
+<!-- settings-reference:end -->
+
     </article>
 
     <article id="doc-ar" lang="ar" dir="rtl">
@@ -434,7 +699,7 @@
       <table>
         <tr><th>المفتاح</th><th>يفعل</th><th>لا يفعل</th></tr>
         <tr><td>التداول الآلي</td><td>يسلّح الروبوت. الافتراضي <b>متوقف</b>.</td><td>لا يفعّل استراتيجية ولا يغيّر البروب.</td></tr>
-        <tr><td>عادي / سكالب</td><td>يغيّر معاملات الاستراتيجية فقط.</td><td>لا يسلّح الروبوت ولا يفعّل <code>scalp_impulse</code> وحده.</td></tr>
+        <tr><td>عادي / سكالب</td><td>يغيّر معاملات الاستراتيجية فقط.</td><td>لا يسلّح الروبوت ولا يفعّل أي استراتيجية وحده.</td></tr>
         <tr><td>البروب</td><td>مرشّح مخاطر على كل <b>دخول</b>.</td><td>ليس أسلوب دخول. لا يصنع إشارة.</td></tr>
       </table>
       <div class="card ok">ما لم يُسلَّح الآلي وتُفعَّل استراتيجية واحدة على الأقل، لن يرسل الروبوت شيئاً.</div>
@@ -459,16 +724,16 @@
         <tr><td><code>ema_rsi</code></td><td>8/21 RSI14 حد 1.6 هدف 2.4</td><td>3/8 RSI7 حد 0.7 هدف 1.1</td></tr>
         <tr><td><code>price_action</code></td><td>درجة ≥ 0.62</td><td>درجة ≥ 0.55</td></tr>
         <tr><td><code>atr_breakout</code></td><td>20 شمعة</td><td>8 شموع</td></tr>
-        <tr><td><code>scalp_impulse</code></td><td>8 شموع حد 0.9</td><td>5 شموع حد 0.5</td></tr>
+        <tr><td><code>king</code></td><td>إطار أعلى ×4 — ساق ≥ 0.9 ATR — 2.0R</td><td>إطار أعلى ×3 — ساق ≥ 0.7 ATR — 1.5R</td></tr>
       </table>
-      <p>السكالب يسحب H1/H4/D1 إلى <b>M1</b>. لا يفعّل <code>scalp_impulse</code> وحده.</p>
+      <p>السكالب يسحب H1/H4/D1 إلى <b>M1</b>. لا يفعّل أي استراتيجية وحده.</p>
 
       <h2 id="ar-4">٤. متى تطلق كل استراتيجية</h2>
       <ul>
         <li><code>ema_rsi</code> — شراء عند تقاطع سريع صاعد و RSI ≥ 42؛ بيع عند تقاطع هابط و RSI ≤ 58.</li>
         <li><code>price_action</code> — أقوى نمط (مطرقة، نجم، ابتلاع، نجمة صباح/مساء، كسر دبوس، HH/LL). الدوجي محايد.</li>
         <li><code>atr_breakout</code> — إغلاق فوق أعلى N أو تحت أدنى N.</li>
-        <li><code>scalp_impulse</code> — جسم أكبر من جزء من ATR ثم كسر سقف/قاع N مع اتجاه الجسم.</li>
+        <li><code>king</code> — الاتجاه من الإطار الأعلى، والدخول من خصم داخل فجوة قيمة عادلة بعد كسر بالإغلاق.</li>
       </ul>
 
       <h2 id="ar-5">٥. البروب</h2>
@@ -492,6 +757,131 @@
         <li>سلّح الآلي. البطاقة تقول <b>الروبوت</b>.</li>
         <li>انتظر شمعة مغلقة. لا شيء يُختلق.</li>
       </ol>
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+<!-- settings-reference:start -->
+      <h2 id="ar-16">١٦. مرجع الإعدادات الكامل</h2>
+      <p>كل مفتاح يقرأه AURION مع قيمته الافتراضية الحقيقية. تُولَّد هذه الجداول من
+      <code>config/aurion.factory.json</code> فلا يمكن أن تختلف عن المنتج.</p>
+      <div class="card">الإعدادات الحية في <code>config/aurion.json</code>. ملف المصنع يُستبدل عند التحديث.</div>
+      <h3 id="ar-16-trading">أ. التداول — ماذا يُفتح ومتى</h3>
+      <p>تحدد هذه المجموعة ما إذا كان الروبوت مسموحًا له بالتداول، وبأي صرامة.</p>
+      <table>
+        <tr><th>المفتاح</th><th>الافتراضي</th><th>الوظيفة</th></tr>
+        <tr><td><code>runtime.auto_trade</code></td><td><code>false</code></td><td>المفتاح الرئيسي. عند <code>false</code> لا يُرسل أي أمر — التحليل مستمر والتنفيذ متوقف فقط.</td></tr>
+        <tr><td><code>runtime.trade_style</code></td><td><code>"normal"</code></td><td><code>normal</code> أو <code>scalping</code>. العادي يقرر عند إغلاق الشمعة؛ السكالب أكثر عدوانية.</td></tr>
+        <tr><td><code>runtime.require_ai_agree</code></td><td><code>true</code></td><td>عند التفعيل، تُنفَّذ إشارة الاستراتيجية فقط إذا وافق الذكاء الاصطناعي على اتجاهها.</td></tr>
+        <tr><td><code>runtime.min_ai_confidence</code></td><td><code>0.55</code></td><td>الحد الأدنى للثقة، بين ٠ و١. رفعه إلى <code>0.75</code> يقلل عدد الصفقات بشدة.</td></tr>
+        <tr><td><code>runtime.min_signal_quality</code></td><td><code>0.55</code></td><td>جودة إشارة الاستراتيجية نفسها، منفصلة عن الذكاء الاصطناعي.</td></tr>
+        <tr><td><code>runtime.smart_filters</code></td><td><code>true</code></td><td>المرشحات المدمجة: السبريد غير الطبيعي والساعات الضعيفة.</td></tr>
+        <tr><td><code>runtime.min_open_trades</code></td><td><code>1</code></td><td>الحد الأدنى للصفقات المفتوحة.</td></tr>
+        <tr><td><code>runtime.max_open_trades</code></td><td><code>2</code></td><td>سقف الصفقات المتزامنة. أهم رقم للتحكم في المخاطر الكلية.</td></tr>
+      </table>
+      <h3 id="ar-16-protect">ب. حماية الصفقة المفتوحة</h3>
+      <p>تعمل هذه بعد فتح الصفقة. لا يفتح أي منها صفقة جديدة.</p>
+      <table>
+        <tr><th>المفتاح</th><th>الافتراضي</th><th>الوظيفة</th></tr>
+        <tr><td><code>runtime.risk_free.enabled</code></td><td><code>false</code></td><td>«بدون مخاطرة». عند تحقيق ربح كافٍ، يُنقل وقف الخسارة خلف نقطة الدخول.</td></tr>
+        <tr><td><code>runtime.risk_free.trigger_pct</code></td><td><code>0.3</code></td><td>مقدار الربح الذي يُفعّل النقل، كنسبة مئوية من سعر الدخول وليس بالنقاط، لأن النقاط تعتمد على سعر الأداة. <b>مثال:</b> عند <code>0.3</code> يُفعَّل شراء عند 2400 في 2407.2.</td></tr>
+        <tr><td><code>runtime.risk_free.lock_pct</code></td><td><code>0.0</code></td><td>مسافة الوقف خلف نقطة الدخول. <code>0</code> يعني الاشتقاق من السبريد الحي.</td></tr>
+        <tr><td><code>runtime.danger_guard.enabled</code></td><td><code>false</code></td><td>الخروج الوقائي التلقائي. يبقى خاملاً عند تفعيل قواعد البروب.</td></tr>
+        <tr><td><code>runtime.danger_guard.sensitivity</code></td><td><code>50</code></td><td>من ٠ إلى ١٠٠. الأعلى يغلق أسرع.</td></tr>
+      </table>
+      <h3 id="ar-16-entry">ج. الدخول التلقائي</h3>
+      <p>بدلاً من الدخول بسعر السوق، يضع أمرًا معلقًا في منطقة أفضل.</p>
+      <table>
+        <tr><th>المفتاح</th><th>الافتراضي</th><th>الوظيفة</th></tr>
+        <tr><td><code>runtime.auto_entry.enabled</code></td><td><code>false</code></td><td>تشغيل أو إيقاف.</td></tr>
+        <tr><td><code>runtime.auto_entry.zone_depth</code></td><td><code>0.5</code></td><td>عمق الانتظار داخل المنطقة، من ٠ إلى ١.</td></tr>
+        <tr><td><code>runtime.auto_entry.offset_atr</code></td><td><code>0.35</code></td><td>مسافة إضافية بوحدات ATR.</td></tr>
+        <tr><td><code>runtime.auto_entry.expiry_minutes</code></td><td><code>120</code></td><td>يُلغى الأمر غير المنفَّذ بعد هذه المدة.</td></tr>
+      </table>
+      <h3 id="ar-16-ai">د. الذكاء الاصطناعي</h3>
+      <p>لا يفتح الذكاء الاصطناعي صفقة بمفرده أبدًا.</p>
+      <table>
+        <tr><th>المفتاح</th><th>الافتراضي</th><th>الوظيفة</th></tr>
+        <tr><td><code>ai.enabled</code></td><td><code>true</code></td><td>تشغيل طبقة الذكاء الاصطناعي.</td></tr>
+        <tr><td><code>ai.min_bars_to_train</code></td><td><code>160</code></td><td>الحد الأدنى من الشموع للتدريب الأول.</td></tr>
+        <tr><td><code>ai.retrain_every_bars</code></td><td><code>40</code></td><td>عدد الشموع بين كل تدريب وآخر.</td></tr>
+        <tr><td><code>ai.online_learning</code></td><td><code>true</code></td><td>التعلم المستمر من النتائج.</td></tr>
+        <tr><td><code>ai.confidence_threshold</code></td><td><code>0.58</code></td><td>عتبة النموذج نفسه، وتختلف عن مرشح التنفيذ.</td></tr>
+      </table>
+      <h3 id="ar-16-exec">هـ. التنفيذ والأمان</h3>
+      <p>كيف يصل الأمر إلى الوسيط وماذا يحدث عند الخلل.</p>
+      <table>
+        <tr><th>المفتاح</th><th>الافتراضي</th><th>الوظيفة</th></tr>
+        <tr><td><code>execution.max_slippage_points</code></td><td><code>30</code></td><td>أقصى انزلاق مقبول.</td></tr>
+        <tr><td><code>execution.default_deviation</code></td><td><code>20</code></td><td>الانحراف المُرسل إلى ميتاتريدر.</td></tr>
+        <tr><td><code>execution.magic</code></td><td><code>908173</code></td><td>رقم تعريف أوامر AURION. لا تغيّره.</td></tr>
+        <tr><td><code>execution.flatten_on_disconnect</code></td><td><code>true</code></td><td>عند فقد الاتصال بميتاتريدر، أغلق كل شيء.</td></tr>
+        <tr><td><code>execution.flatten_on_ai_fault</code></td><td><code>false</code></td><td>خطأ الذكاء الاصطناعي يغلق كل شيء. معطّل افتراضيًا.</td></tr>
+        <tr><td><code>execution.kill_switch_default</code></td><td><code>false</code></td><td>حالة مفتاح الطوارئ عند التشغيل.</td></tr>
+      </table>
+      <h3 id="ar-16-prop">و. قواعد البروب</h3>
+      <p>البروب مرشّح على الإشارات نفسها وليس أسلوب تداول منفصل.</p>
+      <table>
+        <tr><th>المفتاح</th><th>الافتراضي</th><th>الوظيفة</th></tr>
+        <tr><td><code>prop.enabled</code></td><td><code>true</code></td><td>تطبيق قواعد البروب.</td></tr>
+        <tr><td><code>prop.active_profile</code></td><td><code>"conservative"</code></td><td>الملف النشط. <code>conservative</code> هو الأكثر صرامة.</td></tr>
+        <tr><td><code>prop.news_blackout_minutes_before</code></td><td><code>15</code></td><td>الدقائق قبل الخبر التي يُمنع فيها التداول.</td></tr>
+        <tr><td><code>prop.news_blackout_minutes_after</code></td><td><code>15</code></td><td>نفس الشيء بعد الخبر.</td></tr>
+        <tr><td><code>prop.news_calendar_path</code></td><td><code><i>(empty)</i></code></td><td>مسار ملف التقويم. فارغ يعني بلا مرشح.</td></tr>
+      </table>
+      <h3 id="ar-16-mt5">ز. اتصال ميتاتريدر</h3>
+      <p>إذا كان هذا خاطئًا يبقى المكتب فارغًا عمدًا. لا يعرض AURION بيانات مُختلقة.</p>
+      <table>
+        <tr><th>المفتاح</th><th>الافتراضي</th><th>الوظيفة</th></tr>
+        <tr><td><code>mt5.terminal_path</code></td><td><code><i>(empty)</i></code></td><td>مسار <code>terminal64.exe</code>.</td></tr>
+        <tr><td><code>mt5.login</code></td><td><code>0</code></td><td>رقم الحساب. <code>0</code> يستخدم الجلسة المفتوحة.</td></tr>
+        <tr><td><code>mt5.server</code></td><td><code><i>(empty)</i></code></td><td>اسم خادم الوسيط كما يكتبه ميتاتريدر.</td></tr>
+        <tr><td><code>mt5.ea_listen_port</code></td><td><code>18766</code></td><td>المنفذ الذي يتحدث عليه EA.</td></tr>
+        <tr><td><code>mt5.timeframes</code></td><td><code>["M1", "M5", "M15", "M30", "H1", "H4", "D1"]</code></td><td>الأطر الزمنية المطلوبة.</td></tr>
+        <tr><td><code>mt5.timeout_ms</code></td><td><code>10000</code></td><td>مهلة الانتظار بالميلي ثانية.</td></tr>
+      </table>
+      <h3 id="ar-16-infra">ح. المحرك والمكتب والاحتفاظ</h3>
+      <p>نادرًا ما تحتاج إلى تغييرها.</p>
+      <table>
+        <tr><th>المفتاح</th><th>الافتراضي</th><th>الوظيفة</th></tr>
+        <tr><td><code>backend.port</code></td><td><code>8080</code></td><td>منفذ المكتب.</td></tr>
+        <tr><td><code>backend.jwt_expires_hours</code></td><td><code>72</code></td><td>مدة صلاحية الجلسة.</td></tr>
+        <tr><td><code>backend.history_retention_days</code></td><td><code>30</code></td><td>عدد أيام الاحتفاظ بالسجل.</td></tr>
+        <tr><td><code>engine.candle_lookback</code></td><td><code>1500</code></td><td>عدد الشموع المحفوظة في الذاكرة.</td></tr>
+        <tr><td><code>engine.tick_buffer</code></td><td><code>5000</code></td><td>مخزن التيكات.</td></tr>
+        <tr><td><code>engine.heartbeat_seconds</code></td><td><code>2</code></td><td>فترة نبض المحرك.</td></tr>
+      </table>
+      <h3 id="ar-16-servers">ط. خوادمك — التحديث والتراخيص</h3>
+      <p>املأ هذه قبل بناء الـ MSI. المثبّت ينقل ملف المصنع فقط.</p>
+      <table>
+        <tr><th>المفتاح</th><th>الافتراضي</th><th>الوظيفة</th></tr>
+        <tr><td><code>update_server.url</code></td><td><code><i>(empty)</i></code></td><td>عنوان خادم التحديث.</td></tr>
+        <tr><td><code>update_server.auto_check</code></td><td><code>false</code></td><td>فحص التحديث تلقائيًا.</td></tr>
+        <tr><td><code>update_server.interval_hours</code></td><td><code>6</code></td><td>الفاصل الزمني.</td></tr>
+        <tr><td><code>license.keyserver_url</code></td><td><code><i>(empty)</i></code></td><td>خادم المفاتيح.</td></tr>
+        <tr><td><code>license.store_url</code></td><td><code><i>(empty)</i></code></td><td>صفحة الشراء.</td></tr>
+      </table>
+      <h3 id="ar-16-notify">ي. تيليجرام</h3>
+      <p>إشعارات باتجاه واحد. لا يمكن التداول من تيليجرام عمدًا.</p>
+      <table>
+        <tr><th>المفتاح</th><th>الافتراضي</th><th>الوظيفة</th></tr>
+        <tr><td><code>telegram.enabled</code></td><td><code>false</code></td><td>تشغيل أو إيقاف.</td></tr>
+        <tr><td><code>telegram.bot_token</code></td><td><code><i>(empty)</i></code></td><td>رمز البوت من BotFather.</td></tr>
+        <tr><td><code>telegram.notify_open</code></td><td><code>true</code></td><td>إشعار عند فتح صفقة.</td></tr>
+        <tr><td><code>telegram.notify_close</code></td><td><code>true</code></td><td>إشعار عند الإغلاق.</td></tr>
+        <tr><td><code>telegram.chats</code></td><td><code>[]</code></td><td>قائمة المحادثات.</td></tr>
+      </table>
+<!-- settings-reference:end -->
+
     </article>
 
     <footer>AURION 1.0 · live tape only · magic 908173 · robot guide 2026-08-20 · EA 1.17</footer>
@@ -502,18 +892,21 @@
         ["#fa-0","۰ مقدمه"],["#fa-1","۱ چیست"],["#fa-2","۲ سه مفهوم"],["#fa-3","۳ چه کسی"],
         ["#fa-4","۴ مسیر ربات"],["#fa-5","۵ نرمال / اسکلپ"],["#fa-6","۶ استراتژی‌ها"],["#fa-7","۷ پراپ"],
         ["#fa-8","۸ هوش"],["#fa-9","۹ لاگ"],["#fa-10","۱۰ نصب"],["#fa-11","۱۱ متاتریدر"],
-        ["#fa-12","۱۲ میز"],["#fa-13","۱۳ ایمنی"],["#fa-14","۱۴ عیب‌یابی"],["#fa-15","۱۵ چک‌لیست"]
+        ["#fa-12","۱۲ میز"],["#fa-13","۱۳ ایمنی"],["#fa-14","۱۴ عیب‌یابی"],["#fa-15","۱۵ چک‌لیست"],
+        ["#fa-16","۱۶ تنظیمات"]
       ],
       en: [
         ["#en-0","0 Intro"],["#en-1","1 What"],["#en-2","2 Knobs"],["#en-3","3 Who"],
         ["#en-4","4 Path"],["#en-5","5 Style"],["#en-6","6 Strategies"],["#en-7","7 Prop"],
         ["#en-8","8 AI"],["#en-9","9 Log"],["#en-10","10 Install"],["#en-11","11 MT5"],
-        ["#en-12","12 Desk"],["#en-13","13 Safety"],["#en-14","14 Fixes"],["#en-15","15 Checklist"]
+        ["#en-12","12 Desk"],["#en-13","13 Safety"],["#en-14","14 Fixes"],["#en-15","15 Checklist"],
+        ["#en-16","16 Settings"]
       ],
       ar: [
         ["#ar-0","٠ مقدمة"],["#ar-1","١ المفاتيح"],["#ar-2","٢ المسار"],["#ar-3","٣ النمط"],
         ["#ar-4","٤ الاستراتيجيات"],["#ar-5","٥ البروب"],["#ar-6","٦ السجل"],["#ar-7","٧ التثبيت"],
-        ["#ar-8","٨ القائمة"]
+        ["#ar-8","٨ القائمة"],
+        ["#ar-16","١٦ الإعدادات"]
       ],
     };
     const tags = {

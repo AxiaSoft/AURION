@@ -6,9 +6,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from ..config import ROOT, abspath, load
+from ..config import DATA_DIR, ROOT, abspath, load
 from ..util.clock import utc_iso
 from ..util.log import get
+from .hours import window_open
 from .profiles import LOCKED_IDS, get_profile
 
 log = get("prop")
@@ -17,7 +18,7 @@ log = get("prop")
 # re-baseline on every boot (a restart in the middle of a losing day would wipe
 # the daily-loss guard); with it the baseline is bound to one account + one UTC
 # day and is never reused for a different login.
-STATE_FILE = ROOT / "data" / "prop-day.json"
+STATE_FILE = DATA_DIR / "prop-day.json"
 
 
 def account_key(account: dict[str, Any] | None) -> str:
@@ -53,6 +54,10 @@ class PropEngine:
         self.day_stamp: str = ""
         self.high_water: float | None = None
         self.locked = False
+        # Set by the trader: the desk-wide timezone and, when the setting
+        # is "broker", the offset worked out from MetaTrader's own clock.
+        self.desk_timezone = "UTC"
+        self.broker_minutes: int | None = None
         self.lock_reason = ""
         self.violations: list[dict[str, Any]] = []
         self.news_events: list[dict[str, Any]] = []
@@ -343,17 +348,19 @@ class PropEngine:
         }
 
     def _in_hours(self) -> tuple[bool, str]:
-        hours = self.profile.get("trading_hours") or {}
-        now = datetime.now(timezone.utc)
-        if now.weekday() not in set(hours.get("weekdays") or [0, 1, 2, 3, 4]):
-            if not self.profile.get("allow_weekend"):
-                return False, "outside allowed weekdays"
-        start = str(hours.get("start") or "00:00")
-        end = str(hours.get("end") or "23:59")
-        hm = now.strftime("%H:%M")
-        if not (start <= hm <= end):
-            return False, f"outside trading hours {start}-{end} UTC"
-        return True, ""
+        """Delegated to prop/hours.py, which is pure and therefore testable
+        at an hour other than the one it happens to be.
+
+        The zone is not a prop setting. It is chosen once in System
+        settings and every profile is read in it; a profile may still
+        name its own, but none of the shipped ones do.
+        """
+        return window_open(
+            self.profile.get("trading_hours"),
+            allow_weekend=bool(self.profile.get("allow_weekend")),
+            default_zone=self.desk_timezone,
+            broker_minutes=self.broker_minutes,
+        )
 
     def _news_blackout(self, symbol: str, force: bool = False) -> tuple[bool, str]:
         if not force and not self.profile.get("news_filter"):

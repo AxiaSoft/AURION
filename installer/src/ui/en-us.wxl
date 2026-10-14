@@ -52,16 +52,16 @@ This wizard replaces it with version [ProductVersion]. Your settings, trading hi
   <!-- ================ environment check ================ -->
   <String Id="PrereqTitle" Value="Environment check" />
   <String Id="PrereqSubtitle" Value="What AURION found on this machine" />
-  <String Id="PrereqIntro" Value="AURION runs on the Python and Node.js runtimes already installed on this machine. Setup only checks for them - it never downloads or replaces them." />
+  <String Id="PrereqIntro" Value="AURION runs on Python and Node.js. Setup checks for them here, and installs whatever is missing as soon as it finishes - from python.org and nodejs.org, and only after checking each download really is signed by its vendor." />
   <String Id="PrereqPython" Value="Python 3.10-3.12" />
   <String Id="PrereqNode" Value="Node.js 18+" />
   <String Id="PrereqMt5" Value="MetaTrader 5" />
   <String Id="PrereqFound" Value="Found - ready to use." />
-  <String Id="PrereqPythonMissing" Value="Not found. Install Python 3.12 from python.org, then run: pip install -r engine\requirements.txt" />
-  <String Id="PrereqPythonUnsupported" Value="Python 3.13+ was found. AURION needs 3.10, 3.11 or 3.12." />
-  <String Id="PrereqNodeMissing" Value="Not found. Install Node.js 18 or newer from nodejs.org." />
+  <String Id="PrereqPythonMissing" Value="Not found. Setup will install Python 3.12 from python.org, with the packages the engine needs." />
+  <String Id="PrereqPythonUnsupported" Value="Python 3.13+ was found, which AURION cannot run on. Setup will add 3.12 beside it." />
+  <String Id="PrereqNodeMissing" Value="Not found, or older than 18. Setup will install Node.js 20 from nodejs.org." />
   <String Id="PrereqMt5Missing" Value="No local terminal found. Fine if MetaTrader 5 runs on a separate VPS." />
-  <String Id="PrereqNote" Value="A missing runtime does not stop this installation. AURION is installed either way, and you can add the runtime afterwards - the launcher tells you exactly what is still needed." />
+  <String Id="PrereqNote" Value="Nothing is downloaded behind your back: when setup finishes, a window lists what is missing and where it comes from, and waits for you to say go. Node.js asks Windows for administrator rights; nothing else does." />
 
   <!-- ================ install location ================ -->
   <String Id="FolderTitle" Value="Install location" />
@@ -162,6 +162,7 @@ The desk opens at http://127.0.0.1:8080 once the engine is up. The first launch 
   <String Id="ExitBodyRemoved" Value="AURION has been removed from this computer.
 
 Thank you for using AURION." />
+  <String Id="ExitProvision" Value="This machine is missing Python or Node.js. Finish opens the window that installs them." />
   <String Id="ExitLaunch" Value="Start AURION now" />
 
   <!-- ===================== failures ===================== -->

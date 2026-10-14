@@ -1,0 +1,63 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- ==========================================================================
+       AURION-Setup.exe
+
+       The wizard a customer meets before AURION exists on their machine.
+
+       Windows Installer's own dialogs can be given a banner bitmap and a
+       licence page, and that is the end of it: the typeface, the spacing, the
+       buttons and the word "Setup" in the title bar stay Microsoft's. For a
+       product whose entire first impression is this window, that is the wrong
+       first impression - so the MSI is run with /qn and everything visible is
+       drawn by this program.
+
+       The MSI still does the installing. Upgrades, rollback, repair and Add or
+       Remove Programs are untouched.
+
+       Self-contained, because this runs before anything of AURION's exists and
+       cannot assume a .NET runtime is present.
+       ========================================================================== -->
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+
+    <AssemblyName>AURION-Setup</AssemblyName>
+    <RootNamespace>Aurion.Shell</RootNamespace>
+    <ApplicationIcon>..\..\assets\generated\aurion.ico</ApplicationIcon>
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    <ApplicationManifest>..\..\window\app.manifest</ApplicationManifest>
+
+    <Product>AURION</Product>
+    <Company>AxiaSoft</Company>
+    <AssemblyTitle>AURION setup</AssemblyTitle>
+    <Description>Installs AURION</Description>
+    <Version>$(AurionVersion)</Version>
+    <FileVersion>$(AurionVersion)</FileVersion>
+    <InformationalVersion>$(AurionVersion)</InformationalVersion>
+
+    <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
+    <ApplicationVisualStyles>true</ApplicationVisualStyles>
+    <ApplicationUseCompatibleTextRendering>false</ApplicationUseCompatibleTextRendering>
+
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <DebugType>none</DebugType>
+    <InvariantGlobalization>false</InvariantGlobalization>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(AurionVersion)' == ''">
+    <Version>1.0.0</Version>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="..\shared\*.cs" />
+    <EmbeddedResource Include="..\..\assets\generated\aurion.ico" LogicalName="AURION.ico" />
+  </ItemGroup>
+
+</Project>

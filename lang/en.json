@@ -7,6 +7,17 @@
     "date": "DD/MM/YYYY",
     "datetime": "DD/MM/YYYY HH:mm:ss"
   },
+  "autoentry": {
+    "title": "Auto entry point",
+    "help": "The robot names the price it wants and leaves the order waiting there. The trade starts only if the market reaches it.",
+    "point_pending": "A pending order instead of a market order — nothing is bought the instant a candle closes.",
+    "point_levels": "Stop loss and take profit are attached to the order, so protection exists from the first second.",
+    "point_expiry": "An order that is never reached is cancelled after {m} minutes.",
+    "tradeoff": "Better entries, and some setups missed: if price never comes back to the level, the trade simply does not happen.",
+    "waiting": "{n} order(s) waiting at their entry price.",
+    "on": "Auto entry point is on — the robot will wait at its price.",
+    "off": "Auto entry point is off — the robot enters at market."
+  },
   "welcome": {
     "skip": "Skip",
     "sound": "Sound on"
@@ -243,7 +254,7 @@
     "ema_rsi_about": "EMA cross + RSI filter",
     "price_action_about": "Candlestick pattern + AI bias",
     "atr_breakout_about": "N-bar high/low breakout",
-    "scalp_about": "M1 impulse scalp",
+    "king_about": "Structure + imbalance, higher timeframe",
     "live": "Live strategy status",
     "single_rule": "One strategy at a time — switching one on turns the others off. Stats below update after every closed trade.",
     "waiting": "Waiting for the next closed bar",
@@ -260,6 +271,12 @@
     "news_on": "News trading on",
     "news_off": "News trading off",
     "danger_title": "Danger guard",
+    "rf_title": "Risk free",
+    "rf_help": "Once a trade is far enough ahead, move its stop past the entry so it can no longer lose. Applies to every position, including ones you opened by hand.",
+    "rf_on": "Risk free is on — stops will move past entry",
+    "rf_off": "Risk free is off",
+    "rf_trigger": "Profit before it moves",
+    "rf_trigger_help": "A percentage of the entry price, so one setting means the same thing on every instrument whatever it is priced at. The stop then lands just past the entry — far enough to clear the spread, so the cost of getting out cannot turn a protected trade into a losing one.",
     "danger_help": "When on, the robot watches every open trade tick-by-tick and closes it fast when it senses danger (adverse move, AI opposition, floating loss). Works even when auto-trade is off.",
     "danger_prop_note": "Disabled while prop rules are on — turn prop off first.",
     "danger_sens": "Danger sensitivity",
@@ -293,6 +310,15 @@
     "record": "Won / lost",
     "pf": "Profit factor",
     "avg": "Average trade"
+  },
+  "sys": {
+    "tz_title": "Time zone",
+    "tz_help": "The clock AURION reads everything in, including the prop trading window. Broker time is worked out from MetaTrader's own server clock, so it follows your broker without being told — and prop firms quote their hours in broker time.",
+    "tz_broker": "Broker time (automatic)",
+    "tz_local": "This computer's time",
+    "tz_now": "Currently using {z}.",
+    "tz_broker_waiting": "Waiting for the first tick from MetaTrader to read the broker's clock. UTC until then.",
+    "tz_set": "Desk clock set to {z}"
   },
   "risk": {
     "title": "Prop risk",
@@ -359,7 +385,9 @@
     "u_time": "HH:MM, broker time",
     "u_zero_off": "0 = no limit",
     "symbols_none_sel": "No symbol restriction - every symbol is allowed",
-    "symbols_clear": "Clear"
+    "symbols_clear": "Clear",
+    "hours_broker": "= {t} broker time",
+    "hours_broker_unknown": "Broker clock unknown — connect MetaTrader and the broker equivalent appears here"
   },
   "exec": {
     "title": "Execution",
@@ -376,6 +404,13 @@
     "price_open": "Open",
     "price_current": "Last",
     "ts": "Time",
+    "ts_open": "Open time",
+    "price_close": "Close price",
+    "swap": "Swap",
+    "commission": "Commission",
+    "fees": "Fees",
+    "net": "Net",
+    "source": "Source",
     "kill": "Kill switch",
     "unkill": "Resume execution",
     "confirm_flat": "Close every live position on this account?",
@@ -816,7 +851,10 @@
     "limits": "Free mode: prop profiles, scalping style and strategy upload are locked.",
     "engine_wait": "Waiting for the engine…",
     "state_free": "Free mode — premium features locked",
-    "state_prem": "Premium active — welcome back"
+    "state_prem": "Premium active — welcome back",
+    "engine_down": "The engine is not responding",
+    "engine_hint": "Start it with: python engine/main.py --host 127.0.0.1 --port 18765",
+    "retry": "Try again"
   },
   "lic": {
     "freemium": "Freemium",
@@ -1023,6 +1061,12 @@
     "auto_scale": "Auto scale",
     "mode_navigate": "Navigate",
     "hint_nav": "Scroll to zoom · drag to pan · right-drag moves the chart · ctrl + right-drag (or ctrl + wheel) stretches the candles up and down · double-click resets",
+    "hint_armed": "The tool stays armed · Esc to stop · click a drawing to move it, alt-drag to draw over it",
+    "tool_lock": "Keep the tool armed",
+    "tool_lock_on": "Tools stay armed until you switch them off",
+    "tool_lock_off": "Tools return to the cursor after one shape",
+    "show_price": "Show the price",
+    "color_custom": "Custom colour",
     "hint_free": "Press and drag to draw · Esc to cancel",
     "hint_points": "Click {n} points · Esc to cancel",
     "tf_minutes": "Minutes",
@@ -1091,7 +1135,12 @@
     "tp": "TP",
     "confidence": "Confidence",
     "open_chart": "Open chart",
-    "no_levels": "No stop or target set by the strategy"
+    "no_levels": "No stop or target set by the strategy",
+    "entry": "Entry",
+    "rr": "R:R",
+    "strategy": "Strategy",
+    "open_ea_chart": "Open the EA chart",
+    "from_strategy": "from"
   },
   "slots": {
     "title": "How many trades the robot opens",

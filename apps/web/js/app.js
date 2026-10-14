@@ -201,6 +201,22 @@ function askConfirm(opts) {
     setTimeout(() => yes && yes.focus(), 20);
   });
 }
+/**
+ * Which build of the desk is actually running.
+ *
+ * Every asset is cache-busted with a ?v= token, so when a change does not
+ * appear there are three candidates - the browser kept the old file, a
+ * service worker served it, or the desk being looked at is an installed
+ * copy that git never touched - and no way to tell them apart by looking.
+ * Printing the token the running app.js was loaded with settles it in one
+ * glance: if this does not match the token in index.html, the page is old.
+ */
+function buildTag() {
+  const tag = document.querySelector('script[src*="js/app.js?v="]');
+  if (!tag) return "dev";
+  return String(tag.src).split("v=").pop() || "dev";
+}
+
 function fmt(n, d = 2) {
   if (n === null || n === undefined || n === "" || Number.isNaN(Number(n))) return "—";
   try {
@@ -720,13 +736,23 @@ function signalHeadline(sig) {
 function signalDetail(sig) {
   const bits = [];
   const lots = signalLots(sig);
+  // The entry comes first. It is the only number that is useless a minute
+  // later, so burying it behind the lot size was the wrong order.
+  const entry = signalPrice(sig, "entry") || signalPrice(sig, "price");
   const sl = signalPrice(sig, "sl");
   const tp = signalPrice(sig, "tp");
-  if (lots) bits.push(`${I18N.t("signal.lots")} ${fmt(lots, 2)}`);
+  if (entry) bits.push(`${I18N.t("signal.entry")} ${fmt(entry, 5)}`);
   if (sl) bits.push(`${I18N.t("signal.sl")} ${fmt(sl, 5)}`);
   if (tp) bits.push(`${I18N.t("signal.tp")} ${fmt(tp, 5)}`);
+  if (lots) bits.push(`${I18N.t("signal.lots")} ${fmt(lots, 2)}`);
   if (sig.confidence) bits.push(`${I18N.t("signal.confidence")} ${Math.round(Number(sig.confidence) * 100)}%`);
   return bits.join(" · ");
+}
+
+/** "from king" — which strategy is responsible for this mark. */
+function signalSource(sig) {
+  const name = String(sig.strategy || (sig.extra && sig.extra.strategy) || "");
+  return name ? `${I18N.t("signal.from_strategy")} ${strategyLabel(name)}` : "";
 }
 
 function announceSignal(sig) {
@@ -766,6 +792,10 @@ function notifyHost(sig) {
       body: signalDetail(sig),
       symbol: sig.symbol || "",
       timeframe: sig.timeframe || S.timeframe || "",
+      // Echoed back on click so the desk can pin the exact mark, not just
+      // the symbol - the Windows toast is a round trip through the host.
+      time: sig.time || sig.ts || "",
+      side: String(sig.action || sig.side || "").toLowerCase(),
     }));
   } catch (e) {
     /* no host: the in-desk card is the whole notification */
@@ -784,8 +814,9 @@ function pushSignalCard(sig) {
     `<button type="button" class="n-x" data-nx="${esc(id)}" aria-label="${esc(I18N.t("notify.dismiss"))}">×</button>` +
     `<h4>${esc(signalHeadline(sig))}</h4>` +
     `<p class="sub">${esc(signalDetail(sig) || I18N.t("signal.no_levels"))}</p>` +
+    (signalSource(sig) ? `<p class="sub dim">${esc(signalSource(sig))}</p>` : "") +
     `<button type="button" class="btn tiny" data-sig-open="${esc(sig.symbol || "")}"
-             data-sig-tf="${esc(sig.timeframe || "")}">${esc(I18N.t("signal.open_chart"))}</button>`;
+             data-sig-tf="${esc(sig.timeframe || "")}">${esc(I18N.t("signal.open_ea_chart"))}</button>`;
   stack.prepend(card);
   bindSwipe(card);
 
@@ -793,20 +824,58 @@ function pushSignalCard(sig) {
   while (stack.children.length > 4) stack.lastElementChild.remove();
 
   card.querySelector("[data-sig-open]").onclick = () => {
-    openSignalChart(sig.symbol, sig.timeframe);
+    openSignalChart(sig.symbol, sig.timeframe, sig);
     card.remove();
   };
   card.querySelector(".n-x").onclick = () => card.remove();
 }
 
-/** Take the trader to the chart the signal is about. */
-function openSignalChart(symbol, timeframe) {
-  if (symbol) S.symbol = symbol;
-  if (timeframe) S.timeframe = timeframe;
-  show("markets", { animate: true, closeMenu: true });
-  if (symbol) {
-    try { pickMarket(symbol, timeframe || S.timeframe); } catch (e) { /* view will catch up */ }
+/**
+ * Take the trader to the EA chart the signal is about.
+ *
+ * It used to open the Markets view, which is the symbol browser: the right
+ * instrument, but a different chart from the one the EA is attached to, and
+ * without the tools or the signal overlay. Clicking a notification should
+ * land on the chart where the trade would be managed, with the signal that
+ * sent you there already highlighted.
+ */
+function openSignalChart(symbol, timeframe, sig) {
+  if (!symbol) { show("charts", { animate: true, closeMenu: true }); return; }
+  // Remembered so bindChartDesk can pin the card once the signals for this
+  // symbol have actually loaded - they are fetched asynchronously and are
+  // not here yet at this point.
+  S.pendingSignal = sig && typeof sig === "object" ? { ...sig, symbol } : null;
+  // Landing on a chart with the overlay switched off would answer nothing,
+  // so following a signal turns the signals back on.
+  if (S.pendingSignal) {
+    S.signalsEnabled = true;
+    S.showSignals = true;
+    localStorage.setItem("aurion.signalsEnabled", "1");
   }
+  openChartDesk(symbol, timeframe || S.timeframe);
+  if (S.pendingSignal) fetchChartSignals(symbol, timeframe || S.timeframe);
+}
+
+/**
+ * Put the card for a just-arrived signal on screen without the trader
+ * having to find the arrow and hover it.
+ *
+ * Matched on time first and index second, because the replayed history and
+ * the live bus number their bars differently; the time is the only identity
+ * both agree on.
+ */
+function pinPendingSignal() {
+  const want = S.pendingSignal;
+  if (!want || !S.chart || typeof S.chart.pinSignal !== "function") return;
+  const list = S.chartSignals || [];
+  if (!list.length) return;
+  const side = String(want.action || want.side || "").toLowerCase();
+  const match =
+    list.find((s) => want.time && s.time === want.time && s.type === side) ||
+    list.filter((s) => s.type === side).slice(-1)[0] ||
+    list[list.length - 1];
+  if (match) S.chart.pinSignal(match);
+  S.pendingSignal = null;
 }
 
 /* The host posts back when its toast is clicked, and tells us whether the
@@ -822,7 +891,7 @@ function bindHostBridge() {
       }
       if (!msg || typeof msg !== "object") return;
       if (msg.type === "visibility") window.__aurionWindowHidden = Boolean(msg.hidden);
-      if (msg.type === "open-signal") openSignalChart(msg.symbol, msg.timeframe);
+      if (msg.type === "open-signal") openSignalChart(msg.symbol, msg.timeframe, msg.time || msg.side ? msg : null);
     });
   } catch (e) {
     /* running in a browser, not the desk window */
@@ -1695,8 +1764,6 @@ function patchLive() {
     paintPositions("live-pos", pos, ["symbol","type","volume","strategy","price_open","price_current","sl","tp","profit","profit_pct"], true);
     applyChartLevels();
     paintChartSlider("ol", outlookSlideInnerHtml);
-    const ai = $("live-ai");
-    if (ai) ai.innerHTML = aiBlock(S.snap?.ai);
   }
   if (v === "markets") {
     fillSymbolSelect("sym", S.symbol);
@@ -1816,6 +1883,16 @@ function patchLive() {
     paintSwitch($("prop-enable"), propOn);
     const psub = $("prop-enable-sub");
     if (psub) psub.textContent = I18N.t(propOn ? "risk.prop_on" : "risk.prop_off");
+    const rfLive = S.snap?.strategy?.risk_free || {};
+    paintSwitch($("st-rf"), rfLive.enabled);
+    const rfTrig = $("st-rf-trigger");
+    if (rfTrig && document.activeElement !== rfTrig) {
+      rfTrig.value = rfLive.trigger_pct ?? 0.3;
+      rfTrig.disabled = !rfLive.enabled;
+      const pct = $("st-rf-pct");
+      if (pct) pct.textContent = Number(rfTrig.value).toFixed(2) + "%";
+    }
+
     const dgLive = S.snap?.strategy?.danger_guard || {};
     paintSwitch($("st-danger"), dgLive.enabled);
     const dgSwLive = $("st-danger");
@@ -2051,7 +2128,7 @@ function stAbout(name) {
     ema_rsi: "strategies.ema_rsi_about",
     price_action: "strategies.price_action_about",
     atr_breakout: "strategies.atr_breakout_about",
-    scalp_impulse: "strategies.scalp_about",
+    king: "strategies.king_about",
   };
   return I18N.t(about[name] || "strategies.active");
 }
@@ -2248,7 +2325,7 @@ function strategyItems() {
     {name:"ema_rsi", enabled:false, last_action:"idle"},
     {name:"price_action", enabled:false, last_action:"idle"},
     {name:"atr_breakout", enabled:false, last_action:"idle"},
-    {name:"scalp_impulse", enabled:false, last_action:"idle"},
+    {name:"king", enabled:false, last_action:"idle"},
   ];
   return items;
 }
@@ -2662,6 +2739,7 @@ function robotPanelHtml() {
   const newsPrem = licFeat("news");
   const propOn = (S.snap?.prop || {}).enabled !== false;
   const dg = st.danger_guard || {};
+  const rf = st.risk_free || {};
   const auto = Boolean(st.auto_trade);
 
   return `<div class="card robot-hero${auto ? " is-on" : ""}">
@@ -2713,6 +2791,23 @@ function robotPanelHtml() {
         ${newsPrem ? "" : `<p class="sub lock-note">${I18N.t("lock.news")} <a href="#" data-go-upgrade>${I18N.t("lic.upgrade_cta")}</a></p>`}
       </div>
 
+      <div class="card" id="set-autoentry">
+        ${switchRow({
+          id: "st-autoentry",
+          title: I18N.t("autoentry.title"),
+          sub: I18N.t("autoentry.help"),
+          subId: "st-autoentry-sub",
+          on: Boolean(st.auto_entry),
+        })}
+        <ul class="set-list">
+          <li>${I18N.t("autoentry.point_pending")}</li>
+          <li>${I18N.t("autoentry.point_levels")}</li>
+          <li>${I18N.t("autoentry.point_expiry", { m: st.auto_entry_expiry ?? 120 })}</li>
+        </ul>
+        <p class="sub">${I18N.t("autoentry.tradeoff")}</p>
+        ${st.auto_entry && st.pending_orders ? `<p class="sub">${I18N.t("autoentry.waiting", { n: st.pending_orders })}</p>` : ""}
+      </div>
+
       <div class="card">
         <h3 class="card-h">${I18N.t("strategies.lot_title")}
           ${!licFeat("volume_mode") ? `<span class="pill no">${I18N.t("themes.premium_tag")}</span>` : ""}</h3>
@@ -2741,6 +2836,20 @@ function robotPanelHtml() {
 
       <div class="card">
         ${switchRow({
+          id: "st-rf",
+          title: I18N.t("strategies.rf_title"),
+          sub: I18N.t("strategies.rf_help"),
+          subId: "st-rf-sub",
+          on: rf.enabled,
+        })}
+        <div class="field" style="margin-top:10px"><span class="conf-head">${I18N.t("strategies.rf_trigger")}<b class="mono conf-pct" id="st-rf-pct">${(rf.trigger_pct ?? 0.3).toFixed(2)}%</b></span>
+          <input id="st-rf-trigger" type="range" step="0.05" min="0.05" max="3" value="${rf.trigger_pct ?? 0.3}" ${rf.enabled ? "" : "disabled"} />
+        </div>
+        <p class="sub">${I18N.t("strategies.rf_trigger_help")}</p>
+      </div>
+
+      <div class="card">
+        ${switchRow({
           id: "st-danger",
           title: I18N.t("strategies.danger_title"),
           sub: propOn ? I18N.t("strategies.danger_prop_note") : I18N.t("strategies.danger_help"),
@@ -2755,6 +2864,68 @@ function robotPanelHtml() {
       </div>
     </div>
 `;
+}
+
+/**
+ * The desk clock.
+ *
+ * In System rather than in prop risk, because which hours a prop firm
+ * allows is their rule and what time it is where you sit is not. Asking
+ * the same question once per profile is how the answers start
+ * disagreeing with each other.
+ *
+ * "Broker time" is the default and is not a question at all: MetaTrader
+ * stamps every tick with its server's clock, so the offset is worked
+ * out rather than asked for. It is the right default because prop
+ * trading hours are quoted in broker time by the firms themselves.
+ */
+function timezoneCardHtml() {
+  const sys = S.snap?.strategy?.system || {};
+  const current = String(sys.timezone || "UTC");
+  const choices = Array.isArray(sys.choices) && sys.choices.length
+    ? sys.choices
+    : [{ group: "", id: "UTC", city: "UTC", offset: "+00:00" }];
+
+  // The engine sends objects now: a city, the offset in force today and
+  // the region to group under. A raw "Asia/Tehran" is a database key;
+  // "Tehran (+03:30)" is where somebody lives.
+  const label = (z) => {
+    if (z.id === "broker") {
+      return z.offset ? `${I18N.t("sys.tz_broker")} ${z.offset}` : I18N.t("sys.tz_broker");
+    }
+    if (z.id === "local") return I18N.t("sys.tz_local");
+    return z.offset ? `${z.city} (${z.offset})` : z.city;
+  };
+
+  const groups = [];
+  for (const z of choices) {
+    const key = z.group || "";
+    let bucket = groups.find((g) => g.key === key);
+    if (!bucket) { bucket = { key, items: [] }; groups.push(bucket); }
+    bucket.items.push(z);
+  }
+
+  const options = groups.map((g) => {
+    const opts = g.items.map((z) =>
+      `<option value="${esc(z.id)}"${z.id === current ? " selected" : ""}>${esc(label(z))}</option>`
+    ).join("");
+    return g.key ? `<optgroup label="${esc(g.key)}">${opts}</optgroup>` : opts;
+  }).join("");
+
+  const known = sys.broker_offset_minutes;
+  const detail = current === "broker" && known === null
+    ? I18N.t("sys.tz_broker_waiting")
+    : I18N.t("sys.tz_now", { z: esc(sys.label || current) });
+
+  return `<div class="card">
+      <h3>${I18N.t("sys.tz_title")}</h3>
+      <p class="sub">${I18N.t("sys.tz_help")}</p>
+      <div class="field" style="margin-top:10px">
+        <span>${I18N.t("sys.tz_title")}</span>
+        <select id="sys-tz" class="ctrl">${options}</select>
+      </div>
+      <p class="sub" id="sys-tz-now">${detail}</p>
+    </div>`;
 }
 
 function profileLabel(id) {
@@ -2823,6 +2994,74 @@ function propNum(id, labelKey, unitKey, value, opts) {
     </label>`;
 }
 
+/**
+ * A prop trading hour, written in your clock and shown in the broker's.
+ *
+ * These used to be plain text boxes labelled "time", and the time they
+ * meant was UTC with nothing saying so. A trader in Tehran typing 07:00
+ * was setting 10:30 their own morning, which is how the conservative
+ * profile came to look as though prop mode simply refused to trade.
+ *
+ * So the field is in the desk's chosen zone - the one in System
+ * settings - and the line underneath says what that is for the broker,
+ * because that is the clock the firm's rulebook is written in. The
+ * conversion is arithmetic on an offset the engine publishes; doing it
+ * with a second timezone implementation in the browser is how the two
+ * end up disagreeing about the week the clocks change.
+ */
+function propTime(id, labelKey, value, placeholder) {
+  const sys = S.snap?.strategy?.system || {};
+  const zone = String(sys.label || sys.timezone || "UTC");
+
+  // type="time" rather than a text box.
+  //
+  // The browser then draws hours and minutes as two spinnable fields in
+  // the user's own locale, validates them, and refuses 25:70 - none of
+  // which a free-text box did. It was previously possible to save "7pm"
+  // or "07.00" and get a window that never opened, with nothing saying
+  // why.
+  return `<label class="field num-field">
+      <span>${I18N.t(labelKey)} <b class="tz-tag">${esc(zone)}</b></span>
+      <span class="num-wrap">
+        <input id="${id}" type="time" step="60" value="${esc(normalTime(value, placeholder))}" />
+      </span>
+      <small class="sub prop-at-broker" data-for="${id}">${esc(brokerEcho(value))}</small>
+    </label>`;
+}
+
+/** "7:5" and "07.00" both mean 07:00; type="time" wants it spelled out. */
+function normalTime(value, fallback) {
+  const m = /^\s*(\d{1,2})\s*[:.]\s*(\d{1,2})\s*$/.exec(String(value ?? ""));
+  if (!m) return fallback || "00:00";
+  const hh = Math.min(23, +m[1]);
+  const mm = Math.min(59, +m[2]);
+  return String(hh).padStart(2, "0") + ":" + String(mm).padStart(2, "0");
+}
+
+/** "07:00 here = 06:30 broker", or an empty string when it cannot be said. */
+function brokerEcho(text) {
+  const sys = S.snap?.strategy?.system || {};
+  const mine = sys.offset_minutes;
+  const broker = sys.broker_offset_minutes;
+
+  if (mine === null || mine === undefined) return "";
+  if (broker === null || broker === undefined) {
+    // Honest rather than converted against a zero it has not earned.
+    return I18N.t("risk.hours_broker_unknown");
+  }
+
+  const m = /^\s*(\d{1,2})\s*:\s*(\d{2})\s*$/.exec(String(text || ""));
+  if (!m) return "";
+  const hh = +m[1], mm = +m[2];
+  if (hh > 23 || mm > 59) return "";
+
+  // Same instant, read on the broker's clock.
+  let at = hh * 60 + mm - mine + broker;
+  at = ((at % 1440) + 1440) % 1440;
+  const out = String(Math.floor(at / 60)).padStart(2, "0") + ":" + String(at % 60).padStart(2, "0");
+  return I18N.t("risk.hours_broker", { t: out });
+}
+
 function propText(id, labelKey, unitKey, value, placeholder) {
   const wide = I18N.t(unitKey).length > 12 ? " wide-unit" : "";
   return `<label class="field num-field${wide}">
@@ -2868,8 +3107,8 @@ function propFormHtml() {
           ${propNum("pr-maxhold", "risk.max_hold", "risk.u_hours", pr.max_hold_hours||0, {step:"0.1", min:0, zeroOff:true})}
           ${propNum("pr-gap", "risk.gap", "risk.u_minutes", pr.min_minutes_between_trades||0, {min:0, zeroOff:true})}
           ${propNum("pr-cl", "risk.consec", "risk.u_trades", pr.max_consecutive_losses||0, {min:0, zeroOff:true})}
-          ${propText("pr-hs", "risk.hours_start", "risk.u_time", (pr.trading_hours&&pr.trading_hours.start)||"00:15", "00:15")}
-          ${propText("pr-he", "risk.hours_end", "risk.u_time", (pr.trading_hours&&pr.trading_hours.end)||"23:45", "23:45")}
+          ${propTime("pr-hs", "risk.hours_start", (pr.trading_hours&&pr.trading_hours.start)||"00:15", "00:15")}
+          ${propTime("pr-he", "risk.hours_end", (pr.trading_hours&&pr.trading_hours.end)||"23:45", "23:45")}
           ${propNum("pr-fri", "risk.friday", "risk.u_utc_hour", pr.friday_close_utc_hour||21, {min:0, max:23})}
           ${propNum("pr-nb", "risk.news_before", "risk.u_minutes", pr.news_blackout_before||15, {min:0})}
           ${propNum("pr-na", "risk.news_after", "risk.u_minutes", pr.news_blackout_after||15, {min:0})}
@@ -2962,25 +3201,28 @@ const views = {
         ${kpi("command.balance", acc.balance, acc.currency)}
         ${kpi("command.margin", acc.margin, acc.currency)}
       </div>
-      <div class="grid g-2">
-        <div class="card">
-          <h3>${I18N.t("command.positions")}</h3>
-          <div id="live-pos">${pos.length ? table(pos, ["symbol","type","volume","strategy","price_open","price_current","sl","tp","profit","profit_pct"], true) : emptyMini(I18N.t("status.no_positions"))}</div>
-        </div>
-        <div class="cmd-side">
-          <div class="card">
-            <h3>${I18N.t("account.type")}</h3>
-            <p class="metric" id="cmd-acc-type">${accTypeLabel(acc.account_label || acc.account_type || "unknown")}</p>
-            <p class="sub">${[acc.company, acc.server, acc.margin_mode, acc.leverage ? "1:"+acc.leverage : ""].filter(Boolean).join(" · ")}</p>
-            <div class="kv" style="margin-top:12px">
-              <span>${I18N.t("command.free_margin")}</span><b class="mono" data-metric="command.free_margin">${fmt(acc.margin_free)} ${acc.currency||""}</b>
-              <span>${I18N.t("command.leverage")}</span><b class="mono" data-metric="command.leverage">${acc.leverage ? "1:"+acc.leverage : "—"}</b>
-            </div>
-          </div>
-          <div class="card">
-            <h3>${I18N.t("ai.title")}</h3>
-            <div id="live-ai">${aiBlock(S.snap?.ai)}</div>
-          </div>
+      <!-- Positions get the full width of the command centre.
+           They used to share a two-column row with the account card and an
+           AI summary, which left the close button squeezed against the edge
+           of a horizontally scrolling table - the one control on this screen
+           that is pressed in a hurry.
+
+           The AI summary is gone rather than moved: it printed a single
+           bias with no symbol next to it, so on a desk with four charts
+           open it was not merely unhelpful, it was ambiguous in a direction
+           a trader could act on. The per-chart version in the Intelligence
+           view says which symbol it means, and that is where it belongs. -->
+      <div class="card pos-card">
+        <h3>${I18N.t("command.positions")}</h3>
+        <div id="live-pos">${pos.length ? table(pos, ["symbol","type","volume","strategy","price_open","price_current","sl","tp","profit","profit_pct"], true) : emptyMini(I18N.t("status.no_positions"))}</div>
+      </div>
+      <div class="card">
+        <h3>${I18N.t("account.type")}</h3>
+        <p class="metric" id="cmd-acc-type">${accTypeLabel(acc.account_label || acc.account_type || "unknown")}</p>
+        <p class="sub">${[acc.company, acc.server, acc.margin_mode, acc.leverage ? "1:"+acc.leverage : ""].filter(Boolean).join(" · ")}</p>
+        <div class="kv" style="margin-top:12px">
+          <span>${I18N.t("command.free_margin")}</span><b class="mono" data-metric="command.free_margin">${fmt(acc.margin_free)} ${acc.currency||""}</b>
+          <span>${I18N.t("command.leverage")}</span><b class="mono" data-metric="command.leverage">${acc.leverage ? "1:"+acc.leverage : "—"}</b>
         </div>
       </div>
       <div class="card" id="live-st-wrap">
@@ -3342,7 +3584,7 @@ const views = {
             <button type="button" data-lang="fa">فارسی</button>
             <button type="button" data-lang="ar">العربية</button>
           </div>
-          <p class="sub">AURION 1.0.0</p>
+          <p class="sub">AURION 1.0.0 · <span class="mono" id="build-tag">${esc(buildTag())}</span></p>
           <a class="btn block ghost" href="guide.html?v=desk45" target="_blank" rel="noopener">${I18N.t("guide.open")}</a>
           <a class="btn block ghost" href="guide-backtest.html?v=desk45" target="_blank" rel="noopener">${I18N.t("guide.backtest")}</a>
         </div>
@@ -3397,6 +3639,7 @@ const views = {
       </section>
       <section class="set-block" id="set-system"${tab==="set-system"?"":" hidden"}>
         <h2 class="set-title">${I18N.t("host.system")}</h2>
+        ${timezoneCardHtml()}
         <div class="card">
           <h3>${I18N.t("host.restart")}</h3>
           <p class="sub">${I18N.t("host.restart_hint")}</p>
@@ -3824,19 +4067,10 @@ function tapeBanner() {
   if (mode === "live") return ""; // chart names live inside the outlook slider now — no banner needed
   return `<div class="tape-banner is-idle" id="tape-banner">${I18N.t("tape.waiting")}</div>`;
 }
-function aiBlock(ai) {
-  if (!ai) return emptyMini(I18N.t("status.ai_idle"));
-  const d = shownDir(ai);
-  const hint = !ai.ready ? `<span class="badge-hint">${I18N.t("ai.untrained")}</span>` : "";
-  const outlook = ai.outlook || {};
-  return `<div class="kv">
-    <span>${I18N.t("ai.direction")}</span><b>${dirLabel(d)}${hint}</b>
-    <span>${I18N.t("ai.confidence")}</span><b class="mono">${fmt((ai.confidence||0)*100,1)}%</b>
-    <span>${I18N.t("ai.regime")}</span><b>${regLabel(ai.regime)}</b>
-    <span>${I18N.t("ai.pattern")}</span><b>${ai.pattern?.name || "—"}</b>
-    <span>${I18N.t("ai.samples")}</span><b class="mono">${ai.samples || 0}${ai.need ? " / " + ai.need : ""}</b>
-  </div><p class="sub">${esc(outlook.text || ai.reason || I18N.t("status.ai_idle"))}</p>`;
-}
+/* aiBlock() lived here. It rendered a single AI bias with no symbol
+   attached, which on a multi-chart desk is a direction without a subject.
+   The Intelligence view renders the same data per chart, labelled, so this
+   one was deleted rather than relocated. */
 function posProfitPct(r) {
   if (r && r.profit_pct !== undefined && r.profit_pct !== null && r.profit_pct !== "") return Number(r.profit_pct);
   const o = Number(r && r.price_open), c = Number(r && r.price_current);
@@ -3844,20 +4078,49 @@ function posProfitPct(r) {
   const raw = (c - o) / o * 100;
   return String(r.type || "").toLowerCase() === "sell" ? -raw : raw;
 }
+/**
+ * One cell's text, for both the initial render and the live patch.
+ *
+ * It lived twice - once in table() and once in paintPositions() - and the
+ * two copies formatted a different set of columns, so a price rendered with
+ * five decimals on load and with however many the engine sent on the first
+ * tick after it. Shared now, because a number that changes shape when it
+ * updates is read as a number that changed.
+ */
+const CELL_PRICE = ["price", "price_open", "price_current", "price_close", "sl", "tp"];
+const CELL_MONEY = ["profit", "net", "swap", "commission", "fees"];
+function cellText(k, v) {
+  if (k === "profit_pct") {
+    return (v === null || v === undefined || Number.isNaN(Number(v))) ? "—" : fmt(v, 2) + "%";
+  }
+  if (k === "strategy") return strategyLabel(v);
+  if (v === "" || v === null || v === undefined) return "—";
+  if (k === "volume") return fmt(v, 2);
+  if (CELL_PRICE.includes(k)) return fmt(v, 5);
+  if (CELL_MONEY.includes(k)) return fmt(v, 2);
+  return String(v);
+}
+/** Columns where a minus sign means something and should be coloured. */
+function cellSigned(k) {
+  return k === "profit" || k === "profit_pct" || k === "net" ||
+         k === "swap" || k === "commission";
+}
 function table(rows, keys, closable) {
   const head = keys.map((k) => `<th>${I18N.t("table." + k) !== "table." + k ? I18N.t("table." + k) : k}</th>`).join("");
   const body = rows.map((r) => `<tr data-ticket="${r.ticket || ""}">${keys.map((k) => {
     const v = k === "profit_pct" ? posProfitPct(r) : r[k];
-    const signed = k === "profit" || k === "profit_pct";
-    const c = signed ? clsPnl(v) : "";
-    let text;
-    if (k === "profit_pct") text = (v === null || v === undefined || Number.isNaN(Number(v))) ? "—" : fmt(v, 2) + "%";
-    else if (k === "strategy") text = strategyLabel(v);
-    else if (k === "profit" || k === "volume" || k === "price_open" || k === "price_current") text = fmt(v, k === "volume" ? 2 : 5);
-    else text = (v ?? "—");
+    // Every money column is signed, not just profit. A swap of -4.10 shown
+    // in the same colour as a profit of 4.10 is a column the eye skips.
+    const c = cellSigned(k) ? clsPnl(v) : "";
+    const text = cellText(k, v);
     return `<td class="mono ${c}" data-k="${k}">${text}</td>`;
   }).join("")}${closable ? `<td><button class="btn tiny ghost" type="button" data-close="${r.ticket}">${I18N.t("exec.close")}</button></td>` : ""}</tr>`).join("");
-  return `<div class="table-wrap"><table><thead><tr>${head}${closable?"<th></th>":""}</tr></thead><tbody>${body}</tbody></table></div>`;
+  // A colgroup, so the CSS can fix the column widths. Without declared
+  // widths a fixed-layout table divides itself evenly, and with no fixed
+  // layout at all the columns re-measure on every price tick and the row
+  // shifts under the pointer.
+  const cols = keys.map((k) => `<col class="c-${esc(k)}">`).join("") + (closable ? `<col class="c-close">` : "");
+  return `<div class="table-wrap"><table><colgroup>${cols}</colgroup><thead><tr>${head}${closable?"<th></th>":""}</tr></thead><tbody>${body}</tbody></table></div>`;
 }
 function paintPositions(boxId, rows, keys, closable) {
   const box = $(boxId);
@@ -3876,13 +4139,9 @@ function paintPositions(boxId, rows, keys, closable) {
         const td = tr.querySelector(`[data-k="${k}"]`);
         if (!td) return;
         const v = k === "profit_pct" ? posProfitPct(r) : r[k];
-        let text;
-        if (k === "profit_pct") text = (v === null || v === undefined || Number.isNaN(Number(v))) ? "—" : fmt(v, 2) + "%";
-        else if (k === "strategy") text = strategyLabel(v);
-        else if (k === "profit" || k === "volume" || k === "price_open" || k === "price_current") text = fmt(v, k === "volume" ? 2 : 5);
-        else text = (v ?? "—");
+        const text = cellText(k, v);
         if (td.textContent !== text) td.textContent = text;
-        if (k === "profit" || k === "profit_pct") {
+        if (cellSigned(k)) {
           td.classList.toggle("up", Number(v) > 0);
           td.classList.toggle("down", Number(v) < 0);
         }
@@ -5137,6 +5396,84 @@ function bindRobotPanel() {
       delete news.dataset.busy;
     }
   };
+  // Auto entry point: rest the robot's order at a price with the stop and
+  // target attached, instead of taking the market the second a candle shuts.
+  const autoEntry = $("st-autoentry");
+  if (autoEntry) autoEntry.onclick = async () => {
+    if (autoEntry.disabled || autoEntry.dataset.busy) return;
+    autoEntry.dataset.busy = "1";
+    const on = !autoEntry.classList.contains("on");
+    paintSwitch(autoEntry, on);
+    try {
+      const r = await API.post("/api/auto", { auto_entry: { enabled: on } });
+      if (!r.ok) {
+        paintSwitch(autoEntry, !on);
+        if (licGateToast(r)) return;
+        toast(r.error || I18N.t("errors.generic"));
+        return;
+      }
+      toast(I18N.t(on ? "autoentry.on" : "autoentry.off"));
+      await reloadSettings();
+    } finally {
+      delete autoEntry.dataset.busy;
+    }
+  };
+  // The broker line follows the field as it is typed, or it is a
+  // conversion of whatever was there when the page was drawn.
+  for (const id of ["pr-hs", "pr-he"]) {
+    const field = $(id);
+    if (!field) continue;
+    const echo = document.querySelector(`.prop-at-broker[data-for="${id}"]`);
+    if (!echo) continue;
+    field.addEventListener("input", () => { echo.textContent = brokerEcho(field.value); });
+  }
+
+  const tzSel = $("sys-tz");
+  if (tzSel) tzSel.onchange = async () => {
+    const r = await API.post("/api/timezone", { timezone: tzSel.value });
+    if (!r.ok) { toast(r.error || I18N.t("errors.generic")); return; }
+    const label = r.system?.label || tzSel.value;
+    toast(I18N.t("sys.tz_set", { z: label }));
+    await reloadSettings();
+  };
+
+  const rfSw = $("st-rf");
+  if (rfSw) rfSw.onclick = async () => {
+    if (rfSw.disabled || rfSw.dataset.busy) return;
+    rfSw.dataset.busy = "1";
+    const on = !rfSw.classList.contains("on");
+    paintSwitch(rfSw, on);
+    // The slider follows the switch: a trigger you can drag while the
+    // rule is off reads as though it were doing something.
+    const trig = $("st-rf-trigger");
+    if (trig) trig.disabled = !on;
+    try {
+      const r = await API.post("/api/risk_free", { enabled: on });
+      if (!r.ok) {
+        paintSwitch(rfSw, !on);
+        if (trig) trig.disabled = on;
+        toast(r.error || I18N.t("errors.generic"));
+        return;
+      }
+      toast(I18N.t(on ? "strategies.rf_on" : "strategies.rf_off"));
+      await reloadSettings();
+    } finally {
+      delete rfSw.dataset.busy;
+    }
+  };
+  const rfTrigger = $("st-rf-trigger");
+  if (rfTrigger) {
+    const pct = $("st-rf-pct");
+    rfTrigger.addEventListener("input", () => {
+      if (pct) pct.textContent = Number(rfTrigger.value).toFixed(2) + "%";
+    });
+    rfTrigger.addEventListener("change", async () => {
+      const r = await API.post("/api/risk_free", { trigger_pct: +rfTrigger.value });
+      if (!r.ok) toast(r.error || I18N.t("errors.generic"));
+      await refresh(false);
+    });
+  }
+
   const dgSw = $("st-danger");
   if (dgSw) dgSw.onclick = async () => {
     if (dgSw.disabled || dgSw.dataset.busy) return;
@@ -5485,11 +5822,17 @@ function historyRows(rows) {
 /**
  * Present a history row the way MetaTrader's own statement does.
  *
- * Three columns instead of one "profit", because that single column was the
- * reason the desk and MT5 seemed to disagree: MT5's Profit is gross, and the
- * balance moves by profit + swap + commission. Showing only the gross figure
- * next to a balance that moved by the net one is a contradiction the trader is
- * left to work out. Now both are visible and they reconcile by inspection.
+ * The columns are deliberately the terminal's columns, in the terminal's
+ * order: open time, position, symbol, type, volume, open price, S/L, T/P,
+ * close time, close price, commission, swap, profit. A trader checking the
+ * desk against MT5 should be reading two copies of the same table, not
+ * translating between two layouts and two conventions.
+ *
+ * Swap and commission are their own columns rather than one "fees", because
+ * that is how the terminal reports them and because a single lumped figure
+ * cannot be checked against anything. Net is the one column MT5 does not
+ * have, and it is the one that explains the balance: MT5's Profit is gross,
+ * and the account moves by profit + swap + commission.
  */
 function historyRowView(row) {
   const num = (v) => (v === null || v === undefined || v === "" ? 0 : Number(v) || 0);
@@ -5500,8 +5843,13 @@ function historyRowView(row) {
   const isClose = String(row.kind || row.entry || "").toLowerCase().match(/close|out/);
   return {
     ...row,
+    // Both ends of the position, as the terminal lists them.
+    ts_open: row.time_open || row.ts_open || "",
+    price_close: isClose ? row.price : "",
+    price_open: row.price_open || "",
     profit: isClose ? profit : "",
-    fees: isClose && (swap || comm) ? Number((swap + comm).toFixed(2)) : "",
+    swap: isClose && swap ? Number(swap.toFixed(2)) : "",
+    commission: isClose && comm ? Number(comm.toFixed(2)) : "",
     net: isClose ? Number(net.toFixed(2)) : "",
     // A close recorded from the last floating price rather than from an MT5
     // deal is marked, instead of being presented as fact.
@@ -5515,8 +5863,9 @@ async function loadHistory() {
   const r = await API.get("/api/history?limit=400");
   const rows = historyRows(r.data || []).map(historyRowView);
   if (!rows.length) { box.innerHTML = emptyMini(I18N.t("status.no_history")); return; }
-  box.innerHTML = table(rows, ["ts","ticket","symbol","side","volume","price","sl","tp",
-                               "profit","fees","net","source","strategy","comment"]);
+  box.innerHTML = table(rows, ["ts_open","ts","ticket","symbol","side","volume",
+                               "price_open","price_close","sl","tp",
+                               "commission","swap","profit","net","source","strategy","comment"]);
 }
 
 async function hardRefresh() {
@@ -5623,6 +5972,9 @@ function bindChartDesk() {
   S.chart.setTool("cursor");
   S.chart.setSessions(chartSessionsOn());
   S.chart.setSignals(S.chartSignals || [], S.showSignals);
+  // Arriving here from a notification: if the marks for this symbol are
+  // already loaded, pin straight away rather than waiting for the next poll.
+  if (S.pendingSignal && S.pendingSignal.symbol === S.chartFocus.symbol) pinPendingSignal();
   applyChartLevels(true);
   bindChartTicket();
 
@@ -5738,6 +6090,9 @@ async function fetchChartSignals(symbol, timeframe) {
       S.chartSignals = [];
     }
     if (S.chart && typeof S.chart.setSignals === "function") S.chart.setSignals(S.chartSignals, S.showSignals);
+    // A notification that was clicked before the marks existed is honoured
+    // here, now that they do.
+    if (S.pendingSignal && S.pendingSignal.symbol === symbol) pinPendingSignal();
     // per user request: no bottom list — signals only on canvas (CandleChart overlay)
 
   } catch (e) {
@@ -6222,11 +6577,22 @@ function licErrText(code, r) {
   return text;
 }
 
+/**
+ * Ask the engine (through the desk) what licence this machine holds.
+ *
+ * Returns the licence on success. On failure it records *why* on S._gateErr
+ * so the gate can say something more useful than "waiting" forever — the
+ * engine takes a few seconds to import numpy and sklearn, but it can also be
+ * simply not running, and those two look identical from here.
+ */
 async function fetchLicense() {
   try {
     const r = await API.get("/api/license");
-    if (r && r.ok && r.data) return r.data;
-  } catch { /* engine still booting */ }
+    if (r && r.ok && r.data) { S._gateErr = ""; return r.data; }
+    S._gateErr = (r && (r.detail || r.error)) || "engine_offline";
+  } catch (e) {
+    S._gateErr = (e && e.message) || "network";
+  }
   return null;
 }
 
@@ -6237,11 +6603,22 @@ function paintGate() {
   markLangPills();
   const Lic = S._gateLic;
   const line = $("gate-state");
+  // The engine needs a few seconds to boot. Past that, waiting silently is a
+  // dead end: say it is offline, show what the desk actually got back, and
+  // offer a retry instead of an ellipsis that never resolves.
+  const stalled = !Lic && (S._gateTries || 0) >= 4;
   if (line) {
     if (Lic && Lic.premium) line.textContent = I18N.t("keygate.state_prem");
     else if (Lic) line.textContent = I18N.t("keygate.state_free");
-    else line.textContent = I18N.t("keygate.engine_wait");
+    else line.textContent = I18N.t(stalled ? "keygate.engine_down" : "keygate.engine_wait");
   }
+  const detail = $("gate-detail");
+  if (detail) {
+    detail.hidden = !stalled;
+    detail.textContent = stalled ? `${I18N.t("keygate.engine_hint")} · ${S._gateErr || "engine_offline"}` : "";
+  }
+  const retry = $("gate-retry");
+  if (retry) retry.hidden = !stalled;
   const buy = $("gate-buy");
   const store = (Lic && Lic.store_url) || "";
   if (buy) {
@@ -6258,13 +6635,31 @@ function showGate(lic) {
   setShell("auth");
   paintGate();
   bindGate();
-  // While the gate is up, keep re-checking (engine boot, key activated elsewhere).
+  // While the gate is up, keep re-checking (engine boot, key activated
+  // elsewhere). Poll every second to begin with -- the common case is an
+  // engine that is simply still importing numpy, and five seconds of dead
+  // screen for that is needless -- then back off once it is clearly not
+  // coming, so a dead engine is not hammered forever.
   if (S._gateTimer) clearInterval(S._gateTimer);
-  S._gateTimer = setInterval(async () => {
-    if (!$("auth") || $("auth").classList.contains("hidden")) { clearInterval(S._gateTimer); S._gateTimer = null; return; }
+  S._gateTries = S._gateLic ? 0 : (S._gateTries || 0);
+  const poll = async () => {
+    const auth = $("auth");
+    if (!auth || auth.classList.contains("hidden")) { clearInterval(S._gateTimer); S._gateTimer = null; return; }
     const next = await fetchLicense();
-    if (next) { S._gateLic = next; paintGate(); }
-  }, 5000);
+    if (next) {
+      S._gateLic = next;
+      S._gateTries = 0;
+    } else {
+      S._gateTries = (S._gateTries || 0) + 1;
+      // 1s while it might still be booting, 5s once it plainly is not.
+      if (S._gateTries === 4) {
+        clearInterval(S._gateTimer);
+        S._gateTimer = setInterval(poll, 5000);
+      }
+    }
+    paintGate();
+  };
+  S._gateTimer = setInterval(poll, 1000);
 }
 
 function bindGate() {
@@ -6281,6 +6676,16 @@ function bindGate() {
   if (key) key.addEventListener("keydown", (e) => { if (e.key === "Enter") gateActivate(); });
   const free = $("gate-free");
   if (free) free.onclick = () => licenseSessionEnter("freemium");
+  const retry = $("gate-retry");
+  if (retry) retry.onclick = async () => {
+    retry.disabled = true;
+    S._gateTries = 0;
+    paintGate();
+    const lic = await fetchLicense();
+    if (lic) S._gateLic = lic; else S._gateTries = 4;
+    retry.disabled = false;
+    paintGate();
+  };
 }
 
 async function gateActivate() {
@@ -6544,4 +6949,7 @@ async function boot() {
 }
 
 boot();
+// Say which build this is before anything else can go wrong, so "the
+// change is not there" can be answered without guessing.
+try { console.info("AURION desk build", buildTag()); } catch (e) { /* no DOM yet */ }
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});

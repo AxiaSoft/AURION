@@ -173,6 +173,7 @@ def test_desk_order_skips_per_symbol_cap() -> None:
     from aurion.prop.rules import PropEngine
 
     prop = PropEngine()
+    prop.enabled = True
     prop.set_profile({"id": "conservative"})
     prop.profile["trading_hours"] = {"start": "00:00", "end": "23:59", "weekdays": [0, 1, 2, 3, 4, 5, 6]}
     prop.profile["allow_weekend"] = True
@@ -367,6 +368,13 @@ def test_features_include_macd_and_hour() -> None:
     assert len(frame) > 20
 
 
+class _NoBridge:
+    """Trader stand-in for the tests: no terminal attached, no deal history."""
+
+    deals: list = []
+    native = type("_NoNative", (), {"connected": False})()
+
+
 def test_sync_position_book_writes_history() -> None:
     import asyncio
     import tempfile
@@ -398,6 +406,7 @@ def test_sync_position_book_writes_history() -> None:
     trader.auto_trade = False
     trader.robot_log = deque(maxlen=10)
     trader.prop = type("P", (), {"note_closed_trade": lambda self, x: None})()
+    trader.bridge = _NoBridge()
 
     async def dummy(*_a, **_k):
         return None
@@ -646,6 +655,7 @@ def test_telegram_skips_bootstrap_then_notifies() -> None:
     trader.auto_trade = False
     trader.robot_log = deque(maxlen=10)
     trader.prop = type("P", (), {"note_closed_trade": lambda self, x: None})()
+    trader.bridge = _NoBridge()
     notes: list[tuple] = []
 
     class Tg:
@@ -839,9 +849,9 @@ def test_telegram_remote_settings() -> None:
     assert any(c[0] == "auto" and c[1].get("trade_style") == "scalping" for c in calls)
     kb = bot._desk_keyboard()
     data = {btn["callback_data"] for row in kb["inline_keyboard"] for btn in row}
-    assert "auto:on" in data
-    assert "kill:on" in data
-    assert "style:scalping" in data
+    assert "auto:toggle" in data
+    assert "kill:toggle" in data
+    assert "style:toggle" in data
     assert "status" in data
     assert "ai" in data
 

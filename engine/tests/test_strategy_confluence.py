@@ -19,7 +19,7 @@ from aurion.strategy.builtin._confluence import (  # noqa: E402
 from aurion.strategy.builtin.atr_breakout import ATRBreakout  # noqa: E402
 from aurion.strategy.builtin.ema_rsi import EmaRsi  # noqa: E402
 from aurion.strategy.builtin.price_action import PriceAction  # noqa: E402
-from aurion.strategy.builtin.scalp_impulse import ScalpImpulse  # noqa: E402
+from aurion.strategy.builtin.king import King  # noqa: E402
 from aurion.ai.features import candles_to_frame  # noqa: E402
 
 
@@ -52,7 +52,7 @@ def _ctx(candles: list[dict]) -> StrategyContext:
 
 def test_every_builtin_still_takes_trades() -> None:
     rows = _market()
-    for cls in (EmaRsi, ATRBreakout, ScalpImpulse, PriceAction):
+    for cls in (EmaRsi, ATRBreakout, King, PriceAction):
         strategy = cls()
         entries = []
         for k in range(120, len(rows)):

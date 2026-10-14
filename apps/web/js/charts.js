@@ -235,6 +235,9 @@ class CandleChart {
     this.pending = { sl: 0, tp: 0 };
     this.dragLevel = null;
     this.signals = [];
+    this._sigHits = [];
+    this._sigHover = null;
+    this._pinned = null;
     this.showSignals = true;
     this._moved = false;
     this._space = false;
@@ -262,7 +265,7 @@ class CandleChart {
     canvas.addEventListener("pointerdown", (e) => this.onDown(e));
     canvas.addEventListener("pointermove", (e) => this.onMove(e));
     canvas.addEventListener("pointerup", (e) => this.onUp(e));
-    canvas.addEventListener("pointerleave", () => { this.hover = null; this.draw(); });
+    canvas.addEventListener("pointerleave", () => { this.hover = null; this._sigHover = null; this.draw(); });
     canvas.addEventListener("contextmenu", (e) => this.onContext(e));
     canvas.addEventListener("touchstart", (e) => this.onTouch(e), { passive: false });
     canvas.addEventListener("touchmove", (e) => this.onTouch(e), { passive: false });
@@ -417,8 +420,18 @@ class CandleChart {
     return d;
   }
 
+  /**
+   * Remove a drawing.
+   *
+   * Takes the id or the object itself. Matching on the object matters: not
+   * every shape carries an id (ones built in-memory and never persisted do
+   * not), and `d.id === undefined` would happily match the first such shape
+   * in the list rather than the one actually being deleted.
+   */
   removeObject(id) {
-    const at = this.drawings.findIndex((d) => d.id === id);
+    const at = (id && typeof id === "object")
+      ? this.drawings.indexOf(id)
+      : (id === undefined || id === null ? -1 : this.drawings.findIndex((d) => d.id === id));
     if (at < 0) return false;
     this.snapshot();
     const [gone] = this.drawings.splice(at, 1);
@@ -459,7 +472,9 @@ class CandleChart {
 
   deleteSelected() {
     if (!this.selected) return false;
-    return this.removeObject(this.selected.id);
+    // By reference, not by id — the selection is the shape, and it may not
+    // have an id yet.
+    return this.removeObject(this.selected);
   }
 
   /* ========================================================== indicators == */
@@ -562,6 +577,7 @@ class CandleChart {
 
   setSignals(signals, show) {
     this.signals = Array.isArray(signals) ? signals : [];
+    this._sigHover = null;
     if (typeof show === "boolean") this.showSignals = show;
     this.draw();
   }
@@ -925,6 +941,7 @@ class CandleChart {
     this.paintPanes(L);
     this.paintAxes(L);
     this.paintCrosshair(L);
+    this.paintSignalCard(L);
     this.paintLegend(L);
     this.paintStretch(L);
   }
@@ -1450,6 +1467,10 @@ class CandleChart {
     ctx.lineWidth = 1.4;
   }
   paintSignals(L) {
+    // Rebuilt every paint rather than cached: the markers move with every
+    // pan, zoom and new bar, and a stale hit box is worse than none - it
+    // puts the card on a signal the pointer is nowhere near.
+    this._sigHits = [];
     if (!this.showSignals || !this.signals || !this.signals.length) return;
     const ctx = this.ctx;
     const rows = L.rows;
@@ -1522,7 +1543,179 @@ class CandleChart {
         ctx.fill();
       }
       ctx.restore();
+
+      // The marker's clickable / hoverable area. Deliberately larger than
+      // the triangle: a 12px arrow is not a pointer target, and a trader
+      // chasing one with the mouse while price moves is a trader not
+      // reading the chart.
+      const anchorY = isBuy ? L.yOf(row.l) + 14 : L.yOf(row.h) - 14;
+      const box = {
+        x: x - 22, y: isBuy ? anchorY - 10 : anchorY - 24,
+        w: 44, h: 36, cx: x, cy: anchorY, sig,
+      };
+      this._sigHits.push(box);
+      if (this._isPinned(sig)) {
+        this._sigHover = box;
+        // A ring around the pinned mark, so it still reads as "this one"
+        // after the card is dismissed by the first mouse move.
+        ctx.save();
+        ctx.strokeStyle = chartTheme().gold;
+        ctx.lineWidth = 1.4;
+        ctx.beginPath();
+        ctx.arc(x, anchorY, 13, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.restore();
+      }
     }
+  }
+
+  /**
+   * Show a signal's card without the trader hovering it, and scroll the
+   * window until the mark is actually on screen.
+   *
+   * This is what a clicked notification calls: landing on the chart with
+   * the signal somewhere off the left edge, uncarded, would answer none of
+   * the questions that made the trader click.
+   */
+  pinSignal(sig) {
+    if (!sig) return;
+    this._pinned = sig;
+    const total = this.rows().length;
+    const idx = Number(sig.index);
+    if (Number.isFinite(idx) && total) {
+      const { start, end } = this.slice();
+      if (idx < start + 2 || idx >= end - 2) {
+        // Park it a third of the way in from the right, so the bars that
+        // followed the signal - whether it worked - are visible too.
+        const target = Math.round(idx + this.span / 3);
+        this.offset = Math.max(0, total - target);
+        this.clampOffset();
+      }
+    }
+    this.draw();
+  }
+
+  /** Does this hit box belong to the signal that was pinned? */
+  _isPinned(sig) {
+    const want = this._pinned;
+    if (!want) return false;
+    if (want === sig) return true;
+    if (want.time && sig.time) return want.time === sig.time && want.type === sig.type;
+    return Number.isFinite(want.index) && want.index === sig.index && want.type === sig.type;
+  }
+
+  /** The signal under the pointer, or null. Newest wins when they overlap. */
+  signalAt(x, y) {
+    const hits = this._sigHits || [];
+    for (let i = hits.length - 1; i >= 0; i--) {
+      const h = hits[i];
+      if (x >= h.x && x <= h.x + h.w && y >= h.y && y <= h.y + h.h) return h;
+    }
+    return null;
+  }
+
+  /**
+   * The card that appears when the pointer rests on a signal.
+   *
+   * Everything a trader needs in order to act on the mark is here: which
+   * strategy produced it, where it wanted in, where the stop and target
+   * went, and what it risked to make that. Without this the arrow says
+   * "buy" and nothing else, which is an instruction rather than a case.
+   *
+   * Drawn last, outside the plot clip, so it is never cut off by an axis.
+   */
+  paintSignalCard(L) {
+    const hit = this._sigHover;
+    if (!hit) return;
+    const sig = hit.sig;
+    const ctx = this.ctx;
+    const T = chartTheme();
+    const isBuy = sig.type === "buy" || sig.side === "buy";
+    const accent = isBuy ? T.up : T.down;
+
+    const num = (v) => (Number(v) ? this.fmtPrice(Number(v)) : "—");
+    const rows = [
+      [this.i18n("signal.entry", "Entry"), num(sig.entry || sig.price)],
+      [this.i18n("signal.sl", "SL"), num(sig.sl)],
+      [this.i18n("signal.tp", "TP"), num(sig.tp)],
+    ];
+    if (Number(sig.rr)) rows.push([this.i18n("signal.rr", "R:R"), Number(sig.rr).toFixed(2)]);
+    if (Number(sig.confidence)) {
+      rows.push([this.i18n("signal.confidence", "Confidence"), Math.round(Number(sig.confidence) * 100) + "%"]);
+    }
+
+    const title = (isBuy ? "BUY" : "SELL") + "  " + String(sig.strategy || "").toUpperCase();
+    ctx.save();
+    ctx.font = "11px IBM Plex Mono, Vazirmatn, monospace";
+
+    // Wrap the reason to the card width instead of letting it run off the
+    // edge. The reason is the whole point of the card for King, which says
+    // which five confluences agreed.
+    const maxW = 250;
+    const reason = String(sig.reason || "");
+    const lines = [];
+    if (reason) {
+      let line = "";
+      for (const word of reason.split(/\s+/)) {
+        const probe = line ? line + " " + word : word;
+        if (ctx.measureText(probe).width > maxW - 20 && line) { lines.push(line); line = word; }
+        else line = probe;
+        if (lines.length >= 4) break;
+      }
+      if (line && lines.length < 4) lines.push(line);
+    }
+
+    const padX = 10, padY = 9, lh = 15;
+    const w = maxW;
+    const h = padY * 2 + 18 + rows.length * lh + (lines.length ? lines.length * 13 + 6 : 0);
+
+    // Keep the card on the canvas whichever edge the signal is near.
+    let cx = hit.cx + 16;
+    let cy = hit.cy - h / 2;
+    if (cx + w > L.plotR) cx = hit.cx - 16 - w;
+    if (cx < L.plotL) cx = L.plotL + 4;
+    cy = Math.max(L.plotT + 4, Math.min(cy, L.plotB - h - 4));
+
+    ctx.fillStyle = T.panel;
+    ctx.strokeStyle = accent;
+    ctx.lineWidth = 1;
+    if (ctx.roundRect) { ctx.beginPath(); ctx.roundRect(cx, cy, w, h, 7); ctx.fill(); ctx.stroke(); }
+    else { ctx.fillRect(cx, cy, w, h); ctx.strokeRect(cx, cy, w, h); }
+
+    let y = cy + padY + 9;
+    ctx.textBaseline = "middle";
+    ctx.textAlign = "left";
+    ctx.fillStyle = accent;
+    ctx.font = "bold 11px IBM Plex Mono, Vazirmatn, monospace";
+    ctx.fillText(title, cx + padX, y);
+    y += 18;
+
+    ctx.font = "11px IBM Plex Mono, Vazirmatn, monospace";
+    for (const [label, value] of rows) {
+      ctx.fillStyle = T.muted;
+      ctx.fillText(label, cx + padX, y);
+      ctx.fillStyle = label === this.i18n("signal.sl", "SL") ? T.down
+        : label === this.i18n("signal.tp", "TP") ? T.up : T.text;
+      ctx.textAlign = "right";
+      ctx.fillText(value, cx + w - padX, y);
+      ctx.textAlign = "left";
+      y += lh;
+    }
+    if (lines.length) {
+      y += 4;
+      ctx.fillStyle = T.muted;
+      ctx.font = "10px IBM Plex Mono, Vazirmatn, monospace";
+      for (const line of lines) { ctx.fillText(line, cx + padX, y); y += 13; }
+    }
+    ctx.restore();
+  }
+
+  /** Translate if the desk's dictionary is around; fall back to English. */
+  i18n(key, fallback) {
+    try {
+      const t = window.I18N && window.I18N.t ? window.I18N.t(key) : key;
+      return !t || t === key ? fallback : t;
+    } catch (e) { return fallback; }
   }
   paintLevelLabels(L) {
     const ctx = this.ctx;
@@ -1665,7 +1858,10 @@ class CandleChart {
         ctx.moveTo(kind === "hray" ? a.x : L.plotL, y);
         ctx.lineTo(L.plotR, y);
         ctx.stroke();
-        if (kind === "priceline" || d.showPrice) this.tag(L.plotR, y, this.fmtPrice(d.a.p), color, "end");
+        // Every price line now says what price it is. A horizontal line
+        // with no number is a line the trader has to read off the axis by
+        // eye, which is exactly the measurement they drew it to avoid.
+        if (d.showPrice !== false) this.tag(L.plotR, y, this.fmtPrice(d.a.p), color, "end");
       }
     } else if (kind === "vline" || kind === "dateline") {
       if (a) {
@@ -1679,6 +1875,7 @@ class CandleChart {
         ctx.moveTo(L.plotL, y); ctx.lineTo(L.plotR, y);
         ctx.moveTo(a.x, L.plotT); ctx.lineTo(a.x, L.plotB);
         ctx.stroke();
+        if (d.showPrice !== false) this.tag(L.plotR, y, this.fmtPrice(d.a.p), color, "end");
       }
 
     /* ---- straight lines ------------------------------------------------ */
@@ -1689,6 +1886,16 @@ class CandleChart {
           kind === "extended" || d.extendL, kind === "ray" || kind === "extended" || d.extendR);
         this.strokePath([seg.a, seg.b]);
         if (kind === "arrow") this.arrowHead(a, b, 11);
+        // A sloped line has a different price at every x, so the number
+        // that means something is the one where it leaves the chart - the
+        // level it is pointing at, which is why it was drawn.
+        if (kind !== "measure" && kind !== "infoline" && d.showPrice !== false) {
+          const far = seg.b.x >= seg.a.x ? seg.b : seg.a;
+          const ex = Math.max(L.plotL + 8, Math.min(L.plotR, far.x));
+          const t = (ex - seg.a.x) / ((seg.b.x - seg.a.x) || 1);
+          const ey = Math.max(L.plotT + 9, Math.min(L.plotB - 9, seg.a.y + t * (seg.b.y - seg.a.y)));
+          this.tag(ex, ey, this.fmtPrice(L.pOf(ey)), color, "end");
+        }
         if (kind === "measure" || kind === "infoline") {
           const dp = d.b.p - d.a.p;
           const bars = Math.abs((d.b.gi || 0) - (d.a.gi || 0));
@@ -2841,7 +3048,7 @@ class CandleChart {
       }
       const found = this.shapeAt(hit.L, hit.x, hit.y);
       if (this.tool === "eraser") {
-        if (found) this.removeObject(found.shape.id);
+        if (found) this.removeObject(found.shape);
         return;
       }
       if (found) {
@@ -2860,6 +3067,27 @@ class CandleChart {
       this.canvas.setPointerCapture(e.pointerId);
       this.canvas.style.cursor = "grabbing";
       return;
+    }
+
+    /* ---- an existing shape, while a tool is armed ----------------------
+       Keeping the tool armed is only usable if the drawings already on the
+       chart stay reachable. A click that lands on one selects and moves it
+       instead of starting a new drawing; hold Alt to draw across a shape
+       on purpose. Without this, "the tool stays on" would mean "nothing
+       can ever be adjusted again". */
+    if (!e.altKey && this.tool !== "pan") {
+      const over = this.shapeAt(hit.L, hit.x, hit.y);
+      if (over) {
+        this.select(over.shape);
+        if (!over.shape.locked) {
+          this.snapshot();
+          this.drag = { mode: "shape", from: this.point(hit), handle: over.handle };
+          this.canvas.setPointerCapture(e.pointerId);
+          this.canvas.style.cursor = "move";
+        }
+        return;
+      }
+      if (this.selected) this.select(null);
     }
 
     /* ---- starting a new drawing --------------------------------------- */
@@ -2916,6 +3144,17 @@ class CandleChart {
     if (!raw) return;
     const hit = this.snapHit(raw);
     this.hover = raw.valid ? { i: raw.i, y: raw.y } : null;
+
+    // Signal cards. Only repaint when the hovered signal actually changes,
+    // or every mouse move across the chart would force a full redraw.
+    const overSignal = raw.valid && !this.drag && !this.dragLevel ? this.signalAt(raw.x, raw.y) : null;
+    const wasOver = this._sigHover;
+    if (this._pinned && overSignal && !this._isPinned(overSignal.sig)) this._pinned = null;
+    if ((overSignal && overSignal.sig) !== (wasOver && wasOver.sig)) {
+      this._sigHover = overSignal;
+      this.draw();
+      return;
+    }
 
     if (this.dragLevel) {
       const p = raw.L.pOf(raw.y);

@@ -1,9 +1,31 @@
 {
   "name": "aurion",
   "private": true,
-  "description": "AURION — run the desk from the repo root",
+  "description": "AURION \u2014 run the desk from the repo root",
   "scripts": {
     "start": "node backend/src/index.js",
-    "engine": "python engine/main.py --host 127.0.0.1 --port 18765"
+    "engine": "python engine/main.py --host 127.0.0.1 --port 18765",
+    "test": "npm run test:syntax && npm run test:unit && npm run test:static && npm run test:render && npm run test:layout && npm run test:demo && npm run test:msi && npm run test:prereq && npm run test:icons && npm run test:csharp && npm run test:guide && npm run test:admin && npm run test:store && npm run test:updatepanel && npm run test:endpoints",
+    "test:unit": "node --test apps/web/js/*.test.cjs",
+    "test:static": "node apps/web/js/check-views.mjs && node apps/web/js/check-calls.mjs",
+    "test:render": "node tests/desk-render.test.js",
+    "test:syntax": "node scripts/check-syntax.mjs",
+    "test:demo": "node tests/demo-mode.test.js",
+    "demo:capture": "node scripts/capture-demo-fixtures.mjs",
+    "test:msi": "node tests/demo-not-shipped.test.js",
+    "test:prereq": "node tests/installer-prereqs.test.js",
+    "test:layout": "node tests/desk-layout.test.js",
+    "test:icons": "node tests/icons-are-icons.test.js",
+    "test:csharp": "node tests/csharp-sanity.test.cjs",
+    "test:guide": "node tests/guide-settings.test.js",
+    "test:admin": "node tests/admin-panel.test.js",
+    "test:store": "node tests/store-overlay.test.js",
+    "test:updatepanel": "node tests/update-panel.test.js",
+    "test:endpoints": "node tests/endpoints.test.js"
+  },
+  "devDependencies": {
+    "acorn": "^8.12.1",
+    "acorn-walk": "^8.3.5",
+    "jsdom": "^24.1.0"
   }
 }

@@ -29,6 +29,10 @@ on:
       - "lang/**"
       - "scripts/**"
       - "config/**"
+      - "tests/**"
+      # The launchers live at the root and are part of the payload: a change
+      # to how the desk finds Node has to rebuild the installer too.
+      - "*.cmd"
       - ".github/workflows/build-msi.yml"
 
 permissions:
