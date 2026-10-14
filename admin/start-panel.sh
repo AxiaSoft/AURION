@@ -1,16 +1,19 @@
-#!/usr/bin/env bash
-# AURION admin panel — see start-panel.cmd for the explanation.
-set -euo pipefail
-cd "$(dirname "$0")"
-command -v node >/dev/null || { echo "Node.js 18+ is required."; exit 1; }
+#!/bin/bash
+# AURION admin panel — updates, Telegram and licences in one window.
+# Reads the update token from admin/update-server/.env and the signing
+# seed from admin/panel/seed.key; environment variables override both.
+set -e
+HERE="$(cd "$(dirname "$0")" && pwd)"
+cd "$HERE"
 
-[ -n "${AURION_KEY_PRIVATE_HEX:-}" ] || cat <<'MSG'
+if ! command -v node >/dev/null 2>&1; then
+  echo "Node.js 18+ is required." >&2
+  exit 1
+fi
 
-  AURION_KEY_PRIVATE_HEX is not set, so the Licences tab cannot mint.
-  Generate a seed once:  python3 admin/new-seed.py
-  Then export it before running this.
+if [ ! -f update-server/.env ]; then
+  echo "  admin/update-server/.env does not exist yet, so the Updates tab"
+  echo "  will have no token. Run ./start-update-server.sh once."
+fi
 
-MSG
-
-[ -n "${AURION_UPDATE_TOKEN:-}" ] || echo "  AURION_UPDATE_TOKEN is not set — the Updates tab will say so."
 exec node panel/server.js

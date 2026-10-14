@@ -143,6 +143,72 @@ check("and the update server has the .env.example its launcher copies",
   has("admin/update-server/.env.example") &&
   /ADMIN_TOKEN/.test(read("admin/update-server/.env.example")));
 
+// ---------------------------------------------------------------------------
+// The token the user could not set.
+//
+// The launcher generated it inside an `if not exist (...)` block and
+// read it back with %VAR% in the same block. cmd.exe substitutes that
+// at parse time, before the block runs, so the file was written as a
+// bare "ADMIN_TOKEN=" and the screen printed nothing after "token:".
+// Every button in the panel then answered 401.
+// ---------------------------------------------------------------------------
+
+const launcher = read("admin/start-update-server.cmd");
+
+check("the update launcher does not read a variable it set in the same block",
+  !/for\s+\/f[^\n]*do set "?NEWTOK[\s\S]{0,400}?%NEWTOK%/i.test(launcher));
+
+check("the token is made by a program that can also repair a broken .env",
+  has("admin/update-server/ensure-env.js") &&
+  /ensure-env\.js/.test(launcher) &&
+  /ensure-env\.js/.test(read("admin/start-update-server.sh")));
+
+const ensure = read("admin/update-server/ensure-env.js");
+check("...which fills an ADMIN_TOKEN that exists but is empty",
+  /repaired/.test(ensure) && /randomBytes/.test(ensure));
+
+check("and prints nothing but the token on stdout, so a launcher can read it",
+  /process\.stdout\.write\(result\.token/.test(ensure) &&
+  /process\.stderr\.write/.test(ensure));
+
+// Nobody should have to carry a secret between two consoles by hand.
+check("the panel borrows the update token from the file that already holds it",
+  /update-server[\\/"', ]+\.env/.test(code) || /"update-server",\s*"\.env"/.test(code));
+
+check("the signing seed likewise comes from a file when it is not in the env",
+  /seed\.key/.test(code) && /keyserver.*\.env|"keyserver",\s*"\.env"/.test(code));
+
+check("an explicit environment variable still wins over both",
+  /process\.env\.AURION_UPDATE_TOKEN\s*\|\|/.test(code) &&
+  /process\.env\.AURION_KEY_PRIVATE_HEX\s*\|\|/.test(code));
+
+check("the seed file is never committed",
+  /admin\/panel\/seed\.key/.test(read(".gitignore")));
+
+check("the minter is handed the seed even when it came from a file",
+  /AURION_KEY_PRIVATE_HEX:\s*SEED\.seed/.test(code));
+
+check("new-seed.py can save the seed where the panel looks for it",
+  /--save/.test(read("admin/new-seed.py")) &&
+  /panel.*seed\.key|"seed\.key"/.test(read("admin/new-seed.py")));
+
+// ---------------------------------------------------------------------------
+// Updating the build tree must also remove what the branch removed.
+// ---------------------------------------------------------------------------
+
+const upPs = read("scripts/update-build-tree.ps1");
+const upSh = read("scripts/update-build-tree.sh");
+
+check("the updater sweeps untracked leftovers as well as tracked deletions",
+  /git clean -fd/.test(upPs) && /git clean -fd/.test(upSh));
+
+check("but never the vendor bundle, node_modules, a .env or a token",
+  ["installer/vendor", "node_modules", ".venv_dev", "*.env", "seed.key"]
+    .every((k) => upPs.includes(k) && upSh.includes(k)));
+
+check("and it says out loud which files are now gone",
+  /deleted/i.test(upPs) && /deleted/i.test(upSh));
+
 console.log(failed === 0
   ? "\nadmin panel: all checks passed"
   : `\n${failed} check(s) failed`);

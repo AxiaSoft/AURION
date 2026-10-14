@@ -23,12 +23,27 @@
 
     Add -Force to discard local changes (the regenerated icon, a .env you
     were testing with) and take the branch exactly as it is on GitHub.
+
+    A file deleted on the branch is deleted here too. `git reset --hard`
+    removes the ones git is tracking; this also sweeps away untracked
+    leftovers, which is the other half of the same complaint - a file
+    that was removed upstream but stayed on disk because an earlier
+    checkout left it behind, so the build kept compiling it.
+
+    Protected from that sweep, because they are expensive or secret and
+    git ignores them anyway: installer\vendor, node_modules, .venv_dev,
+    every .env and data directory.
+
+    Add -Deep to also throw away compiled build output (installer\build,
+    installer\output, every bin and obj) so the next MSI is built from
+    nothing but what GitHub just sent.
 #>
 
 [CmdletBinding()]
 param(
     [string] $Branch = "arena/01a10ba4-aurion",
-    [switch] $Force
+    [switch] $Force,
+    [switch] $Deep
 )
 
 $ErrorActionPreference = "Stop"
@@ -118,16 +133,75 @@ git branch --set-upstream-to="origin/$Branch" 2>&1 | Out-Null
 $after = (git rev-parse --short HEAD).Trim()
 
 # ---------------------------------------------------------------------------
+# Remove what the branch removed
+#
+# reset --hard has already deleted the tracked files that went away. What
+# it never touches is an untracked file - and a file deleted upstream
+# often survives exactly that way, because some earlier checkout wrote it
+# while it was still tracked and nothing has owned it since. It then sits
+# in the build tree looking current.
+# ---------------------------------------------------------------------------
+Head "Sweeping"
+
+# Never sweep these: they are costly to rebuild or hold secrets, and git
+# ignores them, so they are untracked by design.
+$keep = @(
+    "-e", "installer/vendor",
+    "-e", "node_modules",
+    "-e", ".venv_dev",
+    "-e", "*.env",
+    "-e", "panel.token",
+    "-e", "seed.key",
+    "-e", "data/"
+)
+
+$stray = @(@(git clean -nd @keep 2>$null) | ForEach-Object { $_ -replace "^Would remove ", "" })
+if ($stray.Count -gt 0) {
+    Say "$($stray.Count) leftover file(s)/folder(s) not on the branch:"
+    $stray | Select-Object -First 10 | ForEach-Object { Say "    $_" }
+    if ($stray.Count -gt 10) { Say "    ... and $($stray.Count - 10) more" }
+    git clean -fd @keep 2>&1 | Out-Null
+    Good "removed."
+} else {
+    Say "nothing left over."
+}
+
+if ($Deep) {
+    $built = @(
+        "installer\build", "installer\output",
+        "installer\window\bin", "installer\window\obj",
+        "installer\shell\setup\bin", "installer\shell\setup\obj",
+        "installer\shell\uninstall\bin", "installer\shell\uninstall\obj"
+    )
+    $gone = 0
+    foreach ($b in $built) {
+        if (Test-Path $b) { Remove-Item -Recurse -Force $b; $gone++ }
+    }
+    Say "-Deep: removed $gone build output folder(s); the next build starts clean."
+}
+
+# ---------------------------------------------------------------------------
 # Prove it
 # ---------------------------------------------------------------------------
 Head "After"
 Good "at $after  $((git log -1 --format='%s').Trim())"
 
-$files = @(git diff --name-only "$before..$after" 2>$null)
-if ($files.Count -gt 0) {
+$changes = @(git diff --name-status "$before..$after" 2>$null)
+$added   = @($changes | Where-Object { $_ -match "^A" })
+$deleted = @($changes | Where-Object { $_ -match "^D" })
+$edited  = @($changes | Where-Object { $_ -match "^M" })
+
+if ($changes.Count -gt 0) {
     Say ""
-    Say "$($files.Count) file(s) changed. A few of them:"
-    $files | Select-Object -First 10 | ForEach-Object { Say "    $_" }
+    Say "$($changes.Count) file(s): $($added.Count) new, $($edited.Count) changed, $($deleted.Count) deleted."
+    $changes | Select-Object -First 10 | ForEach-Object { Say "    $_" }
+    if ($changes.Count -gt 10) { Say "    ... and $($changes.Count - 10) more" }
+}
+if ($deleted.Count -gt 0) {
+    Say ""
+    Say "Deleted on the branch, and now gone from this folder:"
+    $deleted | Select-Object -First 10 | ForEach-Object { Say "    $($_ -replace '^D\s+', '')" }
+    if ($deleted.Count -gt 10) { Say "    ... and $($deleted.Count - 10) more" }
 }
 
 # The question that actually gets asked: is the thing I came for here?

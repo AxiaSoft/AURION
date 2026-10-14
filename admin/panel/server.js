@@ -44,8 +44,73 @@ const PORT = Number(process.env.AURION_PANEL_PORT || 8900);
 const HOST = "127.0.0.1";                       // never 0.0.0.0
 
 const ENGINE = (process.env.AURION_ENGINE_URL || "http://127.0.0.1:18765").replace(/\/+$/, "");
-const UPDATES = (process.env.AURION_UPDATE_URL || "http://127.0.0.1:8898").replace(/\/+$/, "");
-const UPDATE_TOKEN = String(process.env.AURION_UPDATE_TOKEN || "").trim();
+
+/* ------------------------------------------------------- borrowed secrets
+ *
+ * Two secrets belong to other programs: the update server's ADMIN_TOKEN
+ * and the licence signing seed. The panel used to demand both as
+ * environment variables, which on Windows means setting a variable in
+ * the same console before launching, or setx and a new console. That
+ * step failed often enough to be the fault itself — "I could not set the
+ * update token" — and when it failed the only symptom was 401.
+ *
+ * So: look where the value already lives before asking anyone to type
+ * it. An explicit environment variable still wins, for the case where
+ * the servers run on different machines.
+ */
+
+/** Read a .env into a plain object. Missing file is not an error. */
+function readEnvFile(file) {
+  const values = {};
+  let text = "";
+  try {
+    text = fs.readFileSync(file, "utf8");
+  } catch {
+    return values;
+  }
+  for (const line of text.split(/\r?\n/)) {
+    const m = /^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*?)\s*$/.exec(line);
+    if (m) values[m[1]] = m[2].replace(/^["']|["']$/g, "").trim();
+  }
+  return values;
+}
+
+const UPDATE_ENV = readEnvFile(path.join(ROOT, "admin", "update-server", ".env"));
+
+const UPDATES = (
+  process.env.AURION_UPDATE_URL
+  || `http://127.0.0.1:${UPDATE_ENV.PORT || 8898}`
+).replace(/\/+$/, "");
+
+const UPDATE_TOKEN = String(
+  process.env.AURION_UPDATE_TOKEN || UPDATE_ENV.ADMIN_TOKEN || ""
+).trim();
+
+const UPDATE_TOKEN_FROM = !UPDATE_TOKEN
+  ? "nowhere"
+  : (String(process.env.AURION_UPDATE_TOKEN || "").trim()
+      ? "AURION_UPDATE_TOKEN"
+      : "admin/update-server/.env");
+
+/** The signing seed: environment, then the key server's .env, then a file. */
+function signingSeed() {
+  const fromEnv = String(process.env.AURION_KEY_PRIVATE_HEX || "").trim();
+  if (fromEnv) return { seed: fromEnv, from: "AURION_KEY_PRIVATE_HEX" };
+
+  const store = readEnvFile(path.join(ROOT, "store", "keyserver", ".env"));
+  if (String(store.AURION_KEY_PRIVATE_HEX || "").trim()) {
+    return { seed: store.AURION_KEY_PRIVATE_HEX.trim(), from: "store/keyserver/.env" };
+  }
+  try {
+    const saved = fs.readFileSync(path.join(HERE, "seed.key"), "utf8").trim();
+    if (saved) return { seed: saved, from: "admin/panel/seed.key" };
+  } catch {
+    /* not there */
+  }
+  return { seed: "", from: "nowhere" };
+}
+
+const SEED = signingSeed();
 
 /* ------------------------------------------------------------------ auth */
 
@@ -149,7 +214,13 @@ function mintKey({ plan, note, offline }) {
     const python = process.env.AURION_PYTHON || "python3";
     const child = spawn(python, args, {
       cwd: path.join(ROOT, "engine"),
-      env: { ...process.env, PYTHONPATH: path.join(ROOT, "engine") },
+      env: {
+        ...process.env,
+        PYTHONPATH: path.join(ROOT, "engine"),
+        // The seed may have come from a file rather than this process's
+        // environment; the minter only reads the environment.
+        ...(SEED.seed ? { AURION_KEY_PRIVATE_HEX: SEED.seed } : {}),
+      },
     });
 
     let out = "";
@@ -176,7 +247,7 @@ function mintKey({ plan, note, offline }) {
         ok: false,
         error: err.trim() || `the minter exited with code ${code}`,
         hint: /PRIVATE/i.test(err)
-          ? "Set AURION_KEY_PRIVATE_HEX before starting the panel. Generate one with admin/new-seed.py."
+          ? "No signing seed. Make one with: python admin/new-seed.py --save"
           : "",
       });
     });
@@ -200,7 +271,7 @@ async function api(req, res, route) {
       ok: true,
       engine: { url: ENGINE, up: engine.ok },
       updates: { url: UPDATES, up: updates.ok, token: Boolean(UPDATE_TOKEN) },
-      licences: { seed: Boolean(String(process.env.AURION_KEY_PRIVATE_HEX || "").trim()) },
+      licences: { seed: Boolean(SEED.seed), from: SEED.from },
     });
   }
 
@@ -214,8 +285,9 @@ async function api(req, res, route) {
         ok: false,
         error: "no_update_token",
         detail: "AURION_UPDATE_TOKEN is not set for this panel. It is the "
-              + "ADMIN_TOKEN from admin/update-server/.env - set it before "
-              + "starting the panel.",
+              + "ADMIN_TOKEN from admin/update-server/.env, and that file "
+              + "does not exist yet. Run admin/start-update-server.cmd once: "
+              + "it writes the file, and this panel reads it by itself.",
       });
     }
     const tail = route.slice("/api/updates".length) || "";
@@ -268,15 +340,19 @@ const server = http.createServer(async (req, res) => {
 });
 
 server.listen(PORT, HOST, () => {
-  const seeded = Boolean(String(process.env.AURION_KEY_PRIVATE_HEX || "").trim());
+  const seeded = Boolean(SEED.seed);
   console.log("");
   console.log("  AURION admin panel");
   console.log("  ------------------");
   console.log(`  ${`http://${HOST}:${PORT}`}`);
   console.log(`  token  ${TOKEN}`);
   console.log("");
-  console.log(`  updates   ${UPDATES}${UPDATE_TOKEN ? "" : "   (no AURION_UPDATE_TOKEN - the tab will say so)"}`);
+  console.log(`  updates   ${UPDATES}   ${UPDATE_TOKEN
+    ? `token from ${UPDATE_TOKEN_FROM}`
+    : "NO TOKEN - start admin/start-update-server.cmd once, which writes it"}`);
   console.log(`  engine    ${ENGINE}`);
-  console.log(`  licences  ${seeded ? "signing seed present" : "no AURION_KEY_PRIVATE_HEX - minting is disabled"}`);
+  console.log(`  licences  ${seeded
+    ? `signing seed from ${SEED.from}`
+    : "NO SEED - minting is off. Make one: python admin/new-seed.py --save"}`);
   console.log("");
 });

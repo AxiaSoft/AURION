@@ -51,11 +51,25 @@ AURION_KEY_PRIVATE_HEX=your-64-hex-seed python3 admin/mint_local.py developer "a
 admin\start-update-server.cmd
 ```
 
-برای اولین اجرا `admin/update-server/.env` از روی `.env.example` ساخته می‌شود؛
-`ADMIN_TOKEN` و `ADMIN_PANEL_HASH` را پر کنید. بدون `ADMIN_TOKEN` تمام
-درخواست‌های `/admin` با ۴۰۱ رد می‌شوند.
+اولین اجرا خودش `admin/update-server/.env` را با یک `ADMIN_TOKEN` تصادفی
+می‌سازد و همان توکن را روی صفحه چاپ می‌کند. اگر فایل از قبل وجود داشته باشد
+ولی `ADMIN_TOKEN` آن خالی باشد (نتیجهٔ باگ قدیمی لانچر)، همان‌جا ترمیم می‌شود.
+هیچ متغیر محیطی لازم نیست.
 
 پنل: `http://127.0.0.1:8898/admin/<ADMIN_PANEL_HASH>`
+
+## توکن‌ها را دستی ست نکنید
+
+پنل ادمین (`admin\start-panel.cmd`) خودش سراغ جایی می‌رود که راز از قبل
+آنجاست:
+
+| چه چیزی | از کجا خوانده می‌شود | اگر نبود |
+| --- | --- | --- |
+| توکن سرور آپدیت | `admin/update-server/.env` → `ADMIN_TOKEN` | یک‌بار `start-update-server.cmd` را اجرا کنید |
+| بذر امضای لایسنس | `admin/panel/seed.key`، سپس `store/keyserver/.env` | `python admin\new-seed.py --save` |
+
+متغیرهای `AURION_UPDATE_TOKEN` و `AURION_KEY_PRIVATE_HEX` هنوز کار می‌کنند و
+بر فایل‌ها اولویت دارند — فقط وقتی لازم‌اند که سرورها روی ماشین دیگری باشند.
 
 ## امنیت
 

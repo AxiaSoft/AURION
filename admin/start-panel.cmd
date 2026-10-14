@@ -1,10 +1,11 @@
 @echo off
 REM AURION admin panel — one window for updates, Telegram and licences.
 REM
-REM Replaces start-telegram-panel.cmd and the separate update panel URL.
-REM The update server still runs on its own (start-update-server.cmd);
-REM this proxies to it, because it owns release storage and uploads and
-REM two programs writing one data directory is not a design.
+REM It no longer asks you to set anything. The update token is read from
+REM admin\update-server\.env (written by start-update-server.cmd) and the
+REM signing seed from admin\panel\seed.key (written by new-seed.py --save).
+REM Setting AURION_UPDATE_TOKEN / AURION_KEY_PRIVATE_HEX still overrides
+REM both, for the case where those servers live on another machine.
 setlocal EnableExtensions EnableDelayedExpansion
 cd /d "%~dp0"
 
@@ -15,21 +16,17 @@ if errorlevel 1 (
   exit /b 1
 )
 
-REM The licence tab needs the signing seed in this process. It is never
-REM written to disk by the panel. Generate one once: python admin\new-seed.py
-if "%AURION_KEY_PRIVATE_HEX%"=="" (
+if not exist "update-server\.env" (
   echo.
-  echo   AURION_KEY_PRIVATE_HEX is not set, so the Licences tab cannot mint.
-  echo   Generate a seed once:   python admin\new-seed.py
-  echo   Then, before running this:   set AURION_KEY_PRIVATE_HEX=^<seed^>
-  echo.
-)
-
-REM The Updates tab proxies to the update server with its admin token.
-if "%AURION_UPDATE_TOKEN%"=="" (
-  echo   AURION_UPDATE_TOKEN is not set — the Updates tab will say so.
-  echo   It is the ADMIN_TOKEN from update-server\.env.
+  echo   admin\update-server\.env does not exist yet, so the Updates tab
+  echo   will have no token. Run start-update-server.cmd once - it writes
+  echo   the file, and this panel then reads it by itself.
   echo.
 )
 
 node panel\server.js
+if errorlevel 1 (
+  echo.
+  echo   The panel stopped with an error. The text above says why.
+  pause
+)

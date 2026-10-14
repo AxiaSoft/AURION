@@ -6,7 +6,14 @@ seed IS the product. Anyone holding it can mint a licence for any plan,
 and rotating it invalidates every key already sold, because the public
 half is compiled into every copy of AURION that has shipped.
 
-    python3 admin/new-seed.py
+    python3 admin/new-seed.py            # print it
+    python3 admin/new-seed.py --save     # print it and keep it for the panel
+
+With --save the seed is also written to admin/panel/seed.key (owner-only,
+never committed), which is where the admin panel looks for it. That
+spares you setting AURION_KEY_PRIVATE_HEX in every console you open -
+a step that silently leaves the Licences tab unable to mint when it is
+forgotten.
 
 It prints two things. The private seed goes in the key server's .env and
 nowhere else - not in git, not in a chat, not in a screenshot. The public
@@ -35,6 +42,17 @@ def main() -> int:
     seed = secrets.token_bytes(32)
     public = ed.publickey(seed)
 
+    saved = ""
+    if "--save" in sys.argv:
+        target = ROOT / "admin" / "panel" / "seed.key"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(seed.hex() + "\n", encoding="utf-8")
+        try:
+            target.chmod(0o600)
+        except OSError:                            # Windows ACLs; best effort
+            pass
+        saved = str(target)
+
     print()
     print("  A new AURION signing key")
     print("  " + "-" * 50)
@@ -45,6 +63,14 @@ def main() -> int:
     print("  PUBLIC KEY    (ships inside AURION, safe to commit)")
     print(f"    {public.hex()}")
     print()
+    if saved:
+        print(f"  SAVED FOR THE PANEL   {saved}")
+        print("    The admin panel reads this file; nothing to set by hand.")
+        print()
+    else:
+        print("  Not saved anywhere. Run again with --save to let the admin")
+        print("  panel use it without you setting an environment variable.")
+        print()
     print("  Next:")
     print("    1. Put the private line in store/keyserver/.env")
     print("    2. Put the public key in engine/aurion/license/material.py")

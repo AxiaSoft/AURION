@@ -52,4 +52,5 @@ store/keyserver/.env
 
 # Panel secrets, made on first run.
 admin/panel/panel.token
+admin/panel/seed.key
 admin/telegram-panel/panel.token
