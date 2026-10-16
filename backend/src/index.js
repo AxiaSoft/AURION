@@ -815,6 +815,11 @@ guarded.get("/strategies/source", passthrough("GET", "/v1/strategies/source"));
 guarded.post("/strategies/update", passthrough("POST", "/v1/strategies/update"));
 guarded.post("/strategies/delete", passthrough("POST", "/v1/strategies/delete"));
 guarded.get("/strategies/template", passthrough("GET", "/v1/strategies/template"));
+// The MetaTrader experts: which ones this build ships, which version each
+// attached chart is running, and the source itself so the desk can hand the
+// user the file to compile instead of telling them to go and find it.
+guarded.get("/experts", passthrough("GET", "/v1/experts"));
+guarded.get("/experts/source", passthrough("GET", "/v1/experts/source"));
 guarded.get("/prop", passthrough("GET", "/v1/prop"));
 guarded.post("/prop", passthrough("POST", "/v1/prop"));
 guarded.post("/prop/unlock", passthrough("POST", "/v1/prop/unlock"));

@@ -85,6 +85,9 @@ class MT5Bridge:
         self._ingest_seen: dict[str, float] = {}
         self._last_pos_mark = 0.0
         self._agent_beat: dict[int, float] = {}
+        # Which chart has already been told its expert is out of date, and
+        # for which version - so the warning is said once, not every hello.
+        self._ea_version_warned: dict[int, str] = {}
         self.AGENT_LIVE_SEC = 18.0
         # The broker's contract specification, per symbol: what one tick is
         # worth, the lot step, the digits. Money rules cannot be applied
@@ -326,6 +329,41 @@ class MT5Bridge:
 
     def candles_of(self, symbol: str, timeframe: str) -> list[Candle]:
         return list(self.candles.get((symbol, timeframe), ()))
+
+    async def _warn_if_expert_is_old(self, agent: ChartAgent) -> None:
+        """Say it the moment an old expert attaches, not only on a settings page.
+
+        AURION updates itself; the expert inside MetaTrader cannot update
+        itself, because recompiling an .mq5 is something only the person at
+        the terminal can do. So the one moment where the warning certainly
+        reaches them is the moment the chart connects - and it is said once
+        per chart per version, because a heartbeat repeating it every second
+        would be noise rather than a warning.
+        """
+        from . import experts
+
+        want = experts.shipped_version()
+        verdict = experts.compare(str(agent.version or ""), want)
+        if verdict not in {"old", "unknown"}:
+            self._ea_version_warned.pop(int(agent.chart_id), None)
+            return
+        seen = self._ea_version_warned.get(int(agent.chart_id))
+        if seen == str(agent.version or ""):
+            return
+        self._ea_version_warned[int(agent.chart_id)] = str(agent.version or "")
+        running = str(agent.version or "") or "?"
+        await self.emit(
+            "log",
+            {
+                "level": "warning",
+                "lang_key": "logs.ea_outdated",
+                "message": (
+                    f"{agent.ea_name} on {agent.symbol or 'chart'} {agent.timeframe} is version {running}; "
+                    f"AURION ships {want}. Recompile and re-attach it in MetaTrader 5 "
+                    f"(Settings -> System -> Expert Advisors)."
+                ),
+            },
+        )
 
     def _is_tester_agent(self, agent: ChartAgent | None) -> bool:
         if not agent:
@@ -923,6 +961,7 @@ class MT5Bridge:
                     "message": f"EA {agent.symbol} {agent.timeframe} chart {chart_id} via {via} ({tape_label} tape)",
                 },
             )
+            await self._warn_if_expert_is_old(agent)
             await self._refresh_tape_view(prev_tape)
             if agent.symbol:
                 asyncio.create_task(self._prime_agent(agent), name=f"aurion-prime-{chart_id}")

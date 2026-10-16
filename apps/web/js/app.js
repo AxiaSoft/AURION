@@ -1721,6 +1721,16 @@ function bindCloseButtons(root) {
   });
 }
 
+function eaStale() {
+  const ea = (S.snap && S.snap.experts) || {};
+  return Array.isArray(ea.stale) ? ea.stale : [];
+}
+
+function eaStaleLabel() {
+  const ea = (S.snap && S.snap.experts) || {};
+  return I18N.t("ea.stale_pill", { n: eaStale().length, v: String(ea.version || "") });
+}
+
 function patchLive() {
   const v = S.view;
   paintNavAcc();
@@ -1743,6 +1753,14 @@ function patchLive() {
     if (cmdMt) cmdMt.innerHTML = `<i class="dot dot-mt5 ${mt5Live() ? "live" : "down"}"></i><span>${I18N.t(mt5Live() ? "status.mt5_live" : "status.mt5_down")}</span>`;
     const cmdEa = $("cmd-ea");
     if (cmdEa) cmdEa.textContent = I18N.t("status.ea_attached", { n: liveAgents().length });
+    // An expert older than the one this build ships is worth saying on the
+    // front page, not only on a settings tab nobody opens twice a year.
+    const eaVer = $("wiz-eaver");
+    if (eaVer) {
+      const stale = eaStale();
+      eaVer.hidden = stale.length === 0;
+      if (stale.length) eaVer.textContent = eaStaleLabel();
+    }
     const strip = $("conn-strip");
     if (strip) {
       const eng = strip.querySelector(".pill-engine");
@@ -2982,6 +3000,92 @@ function moneyReach(money) {
  * out rather than asked for. It is the right default because prop
  * trading hours are quoted in broker time by the firms themselves.
  */
+/**
+ * The MetaTrader side of the install: which experts AURION ships, which
+ * version each attached chart is actually running, and how to install them.
+ *
+ * AURION can update itself. The two .mq5 files inside MetaTrader cannot:
+ * only the person at the terminal can recompile and re-attach them. So an
+ * update used to leave the desk talking a newer protocol to an older
+ * expert, silently, with everything still showing "connected". The card
+ * puts both numbers side by side and says plainly when they differ.
+ */
+function expertsCardHtml() {
+  const ea = (S.snap && S.snap.experts) || {};
+  const ships = Array.isArray(ea.shipped) ? ea.shipped : [];
+  const charts = Array.isArray(ea.charts) ? ea.charts : [];
+  const stale = Array.isArray(ea.stale) ? ea.stale : [];
+  const shipped = String(ea.version || "—");
+
+  const warn = stale.length ? `<div class="ea-warn" id="ea-warn">
+      <b>${I18N.t("ea.outdated_title")}</b>
+      <p>${I18N.t("ea.outdated_body", { shipped: esc(shipped) })}</p>
+      <ul>${stale.map((c) => `<li><span class="mono">${esc(c.symbol || "—")} ${esc(c.timeframe || "")}</span>
+        — ${I18N.t("ea.running", { v: esc(c.version || "?") })}</li>`).join("")}</ul>
+    </div>` : "";
+
+  const rows = ships.map((x) => {
+    const file = String(x.file || "");
+    const bad = !x.available;
+    return `<div class="ea-row${bad ? " is-missing" : ""}">
+      <div>
+        <b class="mono">${esc(file)}</b>
+        <span class="pill ${x.required ? "" : "ghost"}">${I18N.t(x.required ? "ea.required" : "ea.optional")}</span>
+        <p class="sub">${I18N.t("ea." + String(x.id || "bridge") + "_about")}</p>
+      </div>
+      <div class="ea-row-end">
+        <b class="mono">v${esc(x.version || "—")}</b>
+        <button type="button" class="btn tiny ghost" data-ea-save="${esc(String(x.id || ""))}"
+          ${bad ? "disabled" : ""}>${I18N.t("ea.save_file")}</button>
+      </div>
+    </div>`;
+  }).join("");
+
+  const chartRows = charts.length
+    ? charts.map((c) => {
+        const cls = c.state === "ok" ? "ok" : c.state === "newer" ? "" : "no";
+        const word = I18N.t("ea.state_" + (c.state === "ok" ? "ok" : c.state === "newer" ? "newer" : c.state === "unknown" ? "unknown" : "old"));
+        return `<div class="ea-chart">
+          <span class="mono">${esc(c.symbol || "—")} ${esc(c.timeframe || "")}</span>
+          <span class="sub">${esc(c.ea_name || "AurionBridge")}${c.tester ? " · " + I18N.t("ea.tester") : ""}</span>
+          <b class="mono">v${esc(c.version || "?")}</b>
+          <span class="pill ${cls}">${word}</span>
+        </div>`;
+      }).join("")
+    : `<p class="sub">${I18N.t("ea.no_charts")}</p>`;
+
+  // If the installer already copied the files next to MetaTrader, say so:
+  // it turns "go and find the folder" into "press F7".
+  const inst = (ea.installed && ea.installed.folders && ea.installed.folders.length) ? ea.installed : null;
+  const copied = inst ? `<p class="sub ea-copied">${I18N.t("ea.copied", {
+    n: inst.folders.length,
+    v: esc(String(inst.version || "")),
+    at: esc(String(inst.at || "").replace("T", " ").slice(0, 16)),
+  })}</p>` : "";
+
+  const steps = [1, 2, 3, 4, 5, 6].map((n) => `<li>${I18N.t("ea.step" + n, {
+    folder: esc(String(ea.folder || "MQL5/Experts/Aurion")),
+    port: esc(String(ea.http_port_hint || 18765)),
+    v: esc(shipped),
+  })}</li>`).join("");
+
+  return `<div class="card" id="ea-card">
+      <h3>${I18N.t("ea.title")}</h3>
+      <p class="sub">${I18N.t("ea.help", { v: esc(shipped) })}</p>
+      ${warn}
+      <div class="ea-list">${rows || `<p class="sub">${I18N.t("ea.none_shipped")}</p>`}</div>
+      ${copied}
+      <h4 class="ea-sub">${I18N.t("ea.attached")}</h4>
+      <div class="ea-charts">${chartRows}</div>
+      <details class="ea-guide">
+        <summary>${I18N.t("ea.guide_title")}</summary>
+        <ol>${steps}</ol>
+        <p class="sub">${I18N.t("ea.guide_note")}</p>
+      </details>
+      <p class="sub ea-upd-note" id="ea-upd-note" hidden></p>
+    </div>`;
+}
+
 function timezoneCardHtml() {
   const sys = S.snap?.strategy?.system || {};
   const current = String(sys.timezone || "UTC");
@@ -3335,6 +3439,7 @@ const views = {
             <span class="pill"><i class="dot ${S.snap ? "live" : "down"}"></i>${I18N.t(S.snap ? "status.engine_live" : "status.engine_down")}</span>
             <span class="pill" id="wiz-mt5"><i class="dot ${mt5Live() ? "live" : "down"}"></i>${I18N.t(mt5Live() ? "status.mt5_live" : "status.mt5_down")}</span>
             <span class="pill" id="wiz-ea">${I18N.t("status.ea_attached", { n: agents.length })}</span>
+            <span class="pill warn" id="wiz-eaver"${eaStale().length ? "" : " hidden"}>${eaStaleLabel()}</span>
           </div>
         </div>
         <div class="card glass-rise">
@@ -3801,6 +3906,7 @@ const views = {
       </section>
       <section class="set-block" id="set-system"${tab==="set-system"?"":" hidden"}>
         <h2 class="set-title">${I18N.t("host.system")}</h2>
+        ${expertsCardHtml()}
         ${timezoneCardHtml()}
         <div class="card">
           <h3>${I18N.t("host.restart")}</h3>
@@ -4539,6 +4645,52 @@ function bindTelegramPanel() {
   });
 }
 
+/**
+ * The expert card's two jobs: hand over the file, and carry the warning
+ * from the last update forward.
+ *
+ * Saving the .mq5 from here matters more than it looks. The alternative
+ * instruction is "find the AURION folder on disk, then find engine/ea" -
+ * which is where people give up, keep the old expert attached, and then
+ * report that the desk is behaving strangely.
+ */
+async function bindExpertsCard() {
+  document.querySelectorAll("[data-ea-save]").forEach((btn) => {
+    btn.onclick = async () => {
+      const id = btn.getAttribute("data-ea-save") || "bridge";
+      const r = await API.get("/api/experts/source?id=" + encodeURIComponent(id));
+      if (!r.ok || !r.data || !r.data.source) return toast(I18N.t("ea.save_failed"));
+      const blob = new Blob([r.data.source], { type: "text/plain;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = r.data.file || "AurionBridge.mq5";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 4000);
+      toast(I18N.t("ea.saved", { file: r.data.file || "" }));
+    };
+  });
+
+  // Did the last update change the experts? If it did, say so here as
+  // well as in the update panel - this is the card the user will be on
+  // when they go to do something about it.
+  const note = document.getElementById("ea-upd-note");
+  if (!note) return;
+  try {
+    const st = await API.get("/api/system/update/state");
+    const last = st && st.data && st.data.last_applied;
+    if (last && last.ea_changed) {
+      note.hidden = false;
+      note.textContent = I18N.t("ea.changed_by_update", {
+        v: String(last.version || ""),
+        n: String((last.ea_files || []).length || 2),
+      });
+    }
+  } catch {}
+}
+
 async function bindUpdatePanel(){
   const urlDisplay = document.getElementById('upd-url-display');
   const autoEl = document.getElementById('upd-auto');
@@ -4604,7 +4756,14 @@ async function bindUpdatePanel(){
         applyBtn.textContent = I18N.t('upd.installing');
         const ar = await API.post('/api/system/update/apply', { update_id: upd.id });
         if(ar.ok){
-          resultEl.innerHTML = '<p class="ok">✅ '+I18N.t('upd.installed').replace('%s', esc(ar.version||upd.version))+'<br>'+I18N.t('upd.files')+': '+(ar.applied||[]).length+'<br>'+I18N.t('upd.backup')+': '+esc(ar.backup_dir||'')+'</p><p class="sub">'+I18N.t('upd.restart_hint')+'</p><button class="btn" id="upd-restart" type="button">🔄 '+I18N.t('upd.restart')+'</button>';
+          // An update that replaced the MetaTrader experts is only half
+          // applied: nothing out here can press F7 inside MetaEditor.
+          const eaLine = ar.ea_changed
+            ? '<p class="sub" style="color:var(--amber,#d8a657)">'
+              + I18N.t('ea.changed_by_update', { v: String(ar.version||upd.version||''), n: String((ar.ea_files||[]).length||2) })
+              + '</p>'
+            : '';
+          resultEl.innerHTML = '<p class="ok">✅ '+I18N.t('upd.installed').replace('%s', esc(ar.version||upd.version))+'<br>'+I18N.t('upd.files')+': '+(ar.applied||[]).length+'<br>'+I18N.t('upd.backup')+': '+esc(ar.backup_dir||'')+'</p>'+eaLine+'<p class="sub">'+I18N.t('upd.restart_hint')+'</p><button class="btn" id="upd-restart" type="button">🔄 '+I18N.t('upd.restart')+'</button>';
           const rb = document.getElementById('upd-restart');
           if(rb) rb.onclick = () => restartSystem();
         } else {
@@ -4979,6 +5138,7 @@ function bindView(view) {
     bindTelegramPanel();
     bindSymbolPicker();
     bindUpdatePanel();
+    bindExpertsCard();
     bindStrategyToggles();
     bindPropForm();
     bindPropEnable();

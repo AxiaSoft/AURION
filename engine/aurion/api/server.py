@@ -748,6 +748,27 @@ async def license_bind(body: dict[str, Any]) -> dict[str, Any]:
     return {"ok": True, "data": trader.license.public()}
 
 
+@app.get("/v1/experts")
+async def experts_state() -> dict[str, Any]:
+    """What AURION ships for MetaTrader, and what each chart is running."""
+    return {"ok": True, "data": trader.experts_state()}
+
+
+@app.get("/v1/experts/source")
+async def experts_source(id: str = "bridge") -> dict[str, Any]:
+    """The expert's source, so the desk can hand the user the file.
+
+    The identifier comes from a browser, so it is matched against the
+    shipped list rather than joined onto a path.
+    """
+    from ..mt5 import experts
+
+    name, text = experts.source(str(id or ""))
+    if not name:
+        return {"ok": False, "error": "unknown_expert"}
+    return {"ok": True, "data": {"file": name, "source": text, "version": experts.shipped_version()}}
+
+
 @app.get("/v1/updates")
 async def updates() -> dict[str, Any]:
     from ..license.updates import check

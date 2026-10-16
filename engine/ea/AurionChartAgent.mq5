@@ -7,11 +7,12 @@
 //| socket protocol — one compiled expert, many charts.              |
 //+------------------------------------------------------------------+
 #property copyright "AURION"
-#property version   "1.17"
-#property description "Use AurionBridge.mq5 1.17 — set InpEaName = AurionChartAgent"
+#define AURION_EA_VERSION "1.18"
+#property version   "1.18"
+#property description "Use AurionBridge.mq5 1.18 — set InpEaName = AurionChartAgent"
 
 int OnInit()
   {
-   Print("AURION: compile and attach AurionBridge.mq5 1.17. Set InpEaName to AurionChartAgent.");
+   Print("AURION: compile and attach AurionBridge.mq5 " + AURION_EA_VERSION + ". Set InpEaName to AurionChartAgent.");
    return(INIT_FAILED);
   }

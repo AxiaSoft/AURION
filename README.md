@@ -203,7 +203,7 @@ All four are wired into a GitHub Actions pipeline — [`.github/ci-workflow.yml`
 
 ## MetaTrader 5
 
-Compile `engine/ea/AurionBridge.mq5` with **F7**. Version must be **1.17**. Attach it to every chart you want on the desk. AutoTrading green. Not Strategy Tester.
+Compile `engine/ea/AurionBridge.mq5` with **F7**. Version must be **1.18**. Attach it to every chart you want on the desk. AutoTrading green. Not Strategy Tester.
 
 WebRequest is optional. If you want HTTP too, allow-list:
 

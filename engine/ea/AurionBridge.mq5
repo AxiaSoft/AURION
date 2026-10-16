@@ -2,6 +2,10 @@
 //| AurionBridge.mq5                                                 |
 //| Live chart agent for the AURION engine.                          |
 //|                                                                  |
+//| v1.18 — the desk can now see which expert is attached. Hello     |
+//|   carries the version from one #define instead of a literal      |
+//|   typed twice, and the desk compares it with the version it       |
+//|   ships: an old expert on a chart is reported, not guessed at.   |
 //| v1.17 — tape separation. Every message (tick, candle, account,   |
 //|   positions, orders, deals, bye, result) now carries tester=true |
 //|   when it runs inside the Strategy Tester, so the desk keeps the |
@@ -17,9 +21,18 @@
 //+------------------------------------------------------------------+
 #property copyright "AURION"
 #property link      "https://aurion.local"
-#property version   "1.17"
+// One version string for this expert.
+//
+// It used to be typed in three places - the property, the hello message
+// and the description - and the one on the wire is the one the desk
+// judges, so a missed edit meant the desk saw 1.16 from a 1.17 expert and
+// nobody could tell. AURION_EA_VERSION is the value sent to the engine;
+// engine/tests/test_ea_version.py fails the build if the #property below
+// drifts from it, because #property will not take a macro.
+#define AURION_EA_VERSION "1.18"
+#property version   "1.18"
 #property strict
-#property description "AURION live bridge 1.17 — tape separation + instant position push"
+#property description "AURION live bridge 1.18 — reports its own version to the desk"
 
 input string InpEngineHost   = "127.0.0.1";
 input int    InpEnginePort   = 18766;
@@ -105,7 +118,7 @@ int OnInit()
    g_deals_from = TimeCurrent();
    g_last_bar = iTime(_Symbol, _Period, 0);
    EventSetMillisecondTimer(50);
-   Print("AURION: v1.17 FILE+HTTP  ", InpEngineHost, ":", InpHttpPort,
+   Print("AURION: v" + AURION_EA_VERSION + " FILE+HTTP  ", InpEngineHost, ":", InpHttpPort,
          "  common=", TerminalInfoString(TERMINAL_COMMONDATA_PATH),
          "\\Files\\", InboxName());
    Print("AURION: WebRequest is optional. File inbox feeds the desk even if HTTP is blocked.");
@@ -190,7 +203,7 @@ void BurstConnect()
    g_up_since = now;
    g_last_beat = now;
    g_phase = 2;
-   Print("AURION: hello delivered v1.17  HTTP port=", ActiveHttpPort(),
+   Print("AURION: hello delivered v" + AURION_EA_VERSION + "  HTTP port=", ActiveHttpPort(),
          "  file=", InboxName(), "  ", _Symbol, " ", TfName(_Period));
    SendTick();
    SendCandle(0);
@@ -534,7 +547,7 @@ bool SendHello()
    json += "\"timeframe\":" + IntegerToString(PeriodSeconds(_Period) / 60) + ",";
    json += "\"timeframe_name\":\"" + TfName(_Period) + "\",";
    json += "\"ea_name\":\"" + JsonEsc(InpEaName) + "\",";
-   json += "\"version\":\"1.17\",";
+   json += "\"version\":\"" + AURION_EA_VERSION + "\",";
    json += "\"transport\":\"file+http\",";
    json += TapeTag();
    json += "}";

@@ -11,17 +11,17 @@ Copy both files into the terminal data folder:
 On Windows, start-aurion.cmd already copies these
 into every local MQL5\Experts\Aurion folder.
 
-Then compile AurionBridge.mq5 in MetaEditor (F7). You must see version 1.17.
-1.17 sends hello + last tick + current candle + first history chunk
+Then compile AurionBridge.mq5 in MetaEditor (F7). You must see version 1.18.
+1.18 sends hello + last tick + current candle + first history chunk
 on the first timer (50ms). It does not wait for a market tick.
 Closed deals are pushed on connect, OnTrade and OnTradeTransaction
 (not on the 1s heartbeat) — a closed trade leaves the desk instantly.
-1.17 also tags every message with tester=true when it runs inside the
+1.18 also tags every message with tester=true when it runs inside the
 Strategy Tester, so the desk keeps backtest prices/positions separate
 from the live chart. Attach it to a live chart for trading orders; a
 tester chart is read-only.
 
-AurionBridge 1.17 talks to the engine over HTTP WebRequest
+AurionBridge 1.18 talks to the engine over HTTP WebRequest
 (http://127.0.0.1:18765/v1/ea/ingest) and the common Files inbox.
 That is intentional: some MT5 builds return 5273 on SocketSend even
 after SocketConnect succeeds, which caused a reconnect storm.
@@ -48,8 +48,19 @@ Terminal checklist
 
   AutoTrading button on the toolbar must be green.
 
-Restart the AURION engine after copying 1.17 so /v1/ea/ingest exists.
-Then remove AurionBridge from the chart and attach the newly compiled 1.17.
+Restart the AURION engine after copying 1.18 so /v1/ea/ingest exists.
+Then remove AurionBridge from the chart and attach the newly compiled 1.18.
+
+Versions, and why the desk nags
+-------------------------------
+1.18 reports its version to the engine at hello, and AURION compares it
+with the version it ships (read from this folder's .mq5 files, so the two
+cannot drift). An AURION update can replace the files here - nothing can
+recompile them inside MetaTrader for you - so when a chart connects with
+an older expert the desk says so: a warning in the log the moment it
+attaches, a marker on the command page, and the full picture in
+Settings -> System -> Expert Advisors, where both files can also be saved
+straight out of the desk.
 
 Each attached chart appears separately in AURION → Charts with its
 symbol and timeframe. Removing the EA drops that chart; a second EA

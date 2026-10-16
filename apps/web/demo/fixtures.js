@@ -560,6 +560,18 @@ window.AURION_DEMO_FIXTURES = {
    "orders": [],
    "ticks": {},
    "agents": [],
+   "experts": {
+    "shipped": [
+     { "id": "bridge", "file": "AurionBridge.mq5", "role": "bridge", "required": true, "version": "1.18", "available": true, "bytes": 39222 },
+     { "id": "chart_agent", "file": "AurionChartAgent.mq5", "role": "agent", "required": false, "version": "1.18", "available": true, "bytes": 1010 }
+    ],
+    "version": "1.18",
+    "charts": [],
+    "stale": [],
+    "outdated": false,
+    "folder": "MQL5/Experts/Aurion",
+    "http_port_hint": 18765
+   },
    "last_signal": null,
    "gate": {
     "who": "nobody",

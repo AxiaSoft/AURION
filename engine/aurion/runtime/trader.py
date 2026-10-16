@@ -3294,6 +3294,11 @@ class Trader:
             "orders": [o.to_dict() for o in self.bridge.orders],
             "ticks": {k: v.to_dict() for k, v in self.bridge.public_ticks().items()},
             "agents": [a.to_dict() for a in self.bridge.public_agents()],
+            # Which experts this build ships, and which version each chart is
+            # actually running. An update can replace the .mq5 on disk; only
+            # the trader can recompile it in MetaTrader, so the desk has to
+            # be able to see the difference and say so.
+            "experts": self.experts_state(),
             "last_signal": self.last_signal,
             "gate": self.trade_gate(),
             "gates": self.gates_by_symbol(),
@@ -3305,6 +3310,17 @@ class Trader:
             "market": self.market_state(),
             "ts": utc_iso(),
         }
+
+    def experts_state(self) -> dict[str, Any]:
+        """The MetaTrader side of the install, shipped against running."""
+        from ..mt5 import experts
+
+        try:
+            agents = [a.to_dict() for a in self.bridge.public_agents()]
+            return experts.state(agents)
+        except Exception:        # a reporting read must never break a snapshot
+            log.exception("experts state failed")
+            return {"shipped": [], "version": "", "charts": [], "stale": [], "outdated": False}
 
     def _ai_by_symbol(self) -> list[dict[str, Any]]:
         """Per-chart AI states for the desk's multi-chart direction slider.

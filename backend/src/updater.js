@@ -122,6 +122,13 @@ function collectLocalManifest() {
     path.join(ROOT, "backend", "src"),
     path.join(ROOT, "engine", "aurion"),
     path.join(ROOT, "apps", "web", "js"),
+    // The MetaTrader experts travel with the update too.
+    //
+    // They were left out, so an update could change the protocol the desk
+    // speaks while the .mq5 on disk stayed at the old version - and the
+    // user had no new file to compile even if they wanted to. Shipping
+    // them is half the fix; the desk comparing versions is the other half.
+    path.join(ROOT, "engine", "ea"),
   ];
   const maxFiles = 500;
   let count = 0;
@@ -376,22 +383,78 @@ async function applyUpdate(updateId, serverUrl) {
       }
     } catch {}
 
+    // Did this update touch MetaTrader? Nothing here can recompile an
+    // expert inside a terminal, so the one useful thing to do is say it
+    // plainly and keep saying it until the chart reports the new version.
+    const eaFiles = applied.filter((p) => String(p).replace(/\\/g, "/").startsWith("engine/ea/"));
+    if (eaFiles.length) copyExpertsToTerminals();
+
     writeSecure(path.join(DATA, "last-update.json"), {
       update_id: updateId,
       version: state.latest.version,
       applied_at: new Date().toISOString(),
       files: applied,
       backup_dir: backupDir,
+      ea_files: eaFiles,
+      ea_changed: eaFiles.length > 0,
     });
 
-    return { ok: true, applied, backup_dir: backupDir, version: state.latest.version };
+    return {
+      ok: true,
+      applied,
+      backup_dir: backupDir,
+      version: state.latest.version,
+      ea_changed: eaFiles.length > 0,
+      ea_files: eaFiles,
+    };
   } catch (e) {
     return { ok: false, error: e.message, applied };
   }
 }
 
+/**
+ * Push the freshly updated experts next to MetaTrader, right away.
+ *
+ * "Everything updates together" is only half true for MetaTrader: the file
+ * can be put where the terminal will find it, but compiling it and
+ * re-attaching it to the chart is a human action inside MetaEditor. Doing
+ * the half that is possible, at the moment of the update rather than at the
+ * next start, is what makes the desk's warning actionable: the new file is
+ * already there, so the user only has to press F7.
+ *
+ * Best effort by design - a failure here must never fail an update, and on
+ * anything but Windows there is no terminal to copy into.
+ */
+function copyExpertsToTerminals() {
+  if (process.platform !== "win32") return false;
+  try {
+    const script = path.join(ROOT, "scripts", "copy-ea.ps1");
+    if (!fs.existsSync(script)) return false;
+    const { spawnSync } = require("child_process");
+    spawnSync("powershell", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", script], {
+      timeout: 20000,
+      windowsHide: true,
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function getUpdateState() {
-  return readJsonSecure(UPDATE_STATE_FILE, { last_check: null, update_available: false, latest: null });
+  const state = readJsonSecure(UPDATE_STATE_FILE, { last_check: null, update_available: false, latest: null });
+  // Carry the last applied update with it, so the desk can tell the user
+  // "the experts changed in this update" without a second request.
+  const last = readJsonSecure(path.join(DATA, "last-update.json"), null);
+  if (last) {
+    state.last_applied = {
+      version: last.version || "",
+      applied_at: last.applied_at || "",
+      ea_changed: !!last.ea_changed,
+      ea_files: last.ea_files || [],
+    };
+  }
+  return state;
 }
 
 let autoCheckTimer = null;
@@ -413,6 +476,7 @@ function stopAutoChecker() {
 }
 
 module.exports = {
+  copyExpertsToTerminals,
   getSettings,
   saveSettings,
   checkForUpdates,

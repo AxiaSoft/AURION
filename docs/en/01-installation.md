@@ -27,12 +27,12 @@ Do **not** use Python 3.13 or 3.14. Node **18+** is fine, including **26**.
 | Desk | `npm install` in `backend` |
 | EA file | copied by `start-aurion.cmd` into each local MT5 Experts folder |
 
-## MetaTrader 5 + EA 1.17
+## MetaTrader 5 + EA 1.18
 
 1. Install the broker terminal. Log into an account you are allowed to trade.
-2. MetaEditor → open `D:\aurion\engine\ea\AurionBridge.mq5` → **F7**. Version must be **1.17**.
+2. MetaEditor → open `D:\aurion\engine\ea\AurionBridge.mq5` → **F7**. Version must be **1.18**.
 3. Attach it to every chart you want on the desk. AutoTrading green. Not Strategy Tester.
-4. Experts tab: `hello delivered v1.17` or `file inbox writing`.
+4. Experts tab: `hello delivered v1.18` or `file inbox writing`.
 5. WebRequest is optional. If you want HTTP too, allow-list exactly:
    - `127.0.0.1`
    - `http://127.0.0.1`

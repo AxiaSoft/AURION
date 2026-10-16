@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import sys
 from pathlib import Path
 
@@ -477,7 +478,12 @@ def test_deals_are_not_written_to_store() -> None:
 
 def test_ea_has_send_deals_v117() -> None:
     src = (ROOT / "engine" / "ea" / "AurionBridge.mq5").read_text(encoding="utf-8")
-    assert "#property version   \"1.17\"" in src
+    # The version is no longer pinned here. It is bumped whenever the expert
+    # changes, and a test that has to be edited for every bump is a test
+    # people edit without reading. What must hold is that the expert has a
+    # version at all and that every copy of it agrees - which is
+    # engine/tests/test_ea_version.py's whole job.
+    assert re.search(r'#property version\s+"[0-9][0-9.]*"', src), "the expert must declare a version"
     assert "void SendDeals()" in src
     assert "HistoryDealGetTicket" in src
     assert "HistorySelect" in src
