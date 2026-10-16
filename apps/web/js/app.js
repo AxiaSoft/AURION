@@ -1971,7 +1971,14 @@ function patchStrategyLive() {
       act.textContent = it.last_action || "idle";
       act.className = "mono " + (it.last_action === "buy" ? "up" : it.last_action === "sell" ? "down" : "");
     }
-    if (ev && it.last_reason) ev.textContent = it.last_reason;
+    if (ev && it.last_reason) {
+      ev.textContent = it.last_reason;
+      // Hovering the line gives the running tally, so a desk that has been
+      // quiet all session can be read at a glance: one rule doing all the
+      // refusing is a setting to change, a spread of rules is just a slow market.
+      const tally = refusalTally(it);
+      if (tally) ev.setAttribute("title", tally); else ev.removeAttribute("title");
+    }
     if (on || sw) paintStrategyEnabled(it.name, it.enabled);
     if (wr) wr.textContent = fmt(it.win_rate || 0, 1) + "%";
     if (net) {
@@ -2388,13 +2395,19 @@ function strategyLiveCards() {
         <div><span>${I18N.t("strategies.avg")}</span>
           <b class="mono ${clsPnl(it.avg)}" data-st-avg="${esc(it.name)}">${fmt(it.avg || 0)}</b></div>
       </div>
-      <p class="sub" data-st-eval="${esc(it.name)}">${it.last_reason || I18N.t("strategies.waiting")}</p>
+      <p class="sub" data-st-eval="${esc(it.name)}" title="${esc(refusalTally(it))}">${it.last_reason || I18N.t("strategies.waiting")}</p>
       ${custom ? `<div class="row st-mng">
         <button type="button" class="btn tiny ghost" data-st-edit="${esc(it.name)}">${I18N.t("strategies.edit")}</button>
         <button type="button" class="btn tiny ghost st-del" data-st-del="${esc(it.name)}">${I18N.t("strategies.delete")}</button>
       </div>` : ""}
     </div>`;
   }).join("");
+}
+
+function refusalTally(it) {
+  const rows = Array.isArray(it && it.refusals) ? it.refusals : [];
+  if (!rows.length) return "";
+  return rows.map(r => `${r.reason} × ${r.count}`).join("\n");
 }
 
 function strategyEditorEls() {
@@ -3156,6 +3169,65 @@ function propFormHtml() {
         ${locked ? "" : `<button class="btn block" id="pr-save" type="button">${I18N.t("risk.save")}</button>`}`;
 }
 
+
+/**
+ * The prop guide, rendered under the prop form.
+ *
+ * Help that lives in another document is help nobody reads at the moment
+ * they need it, which is while looking at the box. Each entry is tied to
+ * a control by id, and tests/prop-guide.test.js refuses a control without
+ * one — so a new setting cannot ship undocumented.
+ */
+function propGuideHtml() {
+  const G = (typeof PROP_GUIDE !== "undefined") ? PROP_GUIDE : null;
+  if (!G) return "";
+  const lang = I18N.lang || "en";
+  const sections = G.SECTIONS.map((sec, i) => `
+      <details class="pg-sec" data-pg-sec="${esc(sec.id)}"${i === 0 ? " open" : ""}>
+        <summary>${esc(G.pick(sec.title, lang))}</summary>
+        <p class="sub pg-lede">${G.pick(sec.lede, lang)}</p>
+        ${sec.rows.map((row) => `
+          <div class="pg-row" data-pg-row="${esc(row.id)}"
+               data-pg-find="${esc((G.pick(row.label, lang) + " " + G.pick(row, lang)).toLowerCase())}">
+            <b class="pg-k">${esc(G.pick(row.label, lang))}</b>
+            <p class="pg-v">${G.pick(row, lang)}</p>
+          </div>`).join("")}
+      </details>`).join("");
+  return `<div class="card prop-guide" id="prop-guide">
+      <h3>${I18N.t("risk.guide_title")}</h3>
+      <p class="sub">${I18N.t("risk.guide_lede")}</p>
+      <label class="field"><span>${I18N.t("risk.guide_search")}</span>
+        <input id="prop-guide-q" type="search" placeholder="${esc(I18N.t("risk.guide_search_ph"))}" />
+      </label>
+      <p class="sub" id="prop-guide-empty" hidden>${I18N.t("risk.guide_empty")}</p>
+      ${sections}
+    </div>`;
+}
+
+/** Filter the guide as the box is typed in; empty query restores it. */
+function bindPropGuide() {
+  const q = document.getElementById("prop-guide-q");
+  if (!q || q.dataset.bound) return;
+  q.dataset.bound = "1";
+  const empty = document.getElementById("prop-guide-empty");
+  q.addEventListener("input", () => {
+    const want = q.value.trim().toLowerCase();
+    let hits = 0;
+    document.querySelectorAll("#prop-guide .pg-sec").forEach((sec) => {
+      let shown = 0;
+      sec.querySelectorAll(".pg-row").forEach((row) => {
+        const ok = !want || (row.dataset.pgFind || "").includes(want);
+        row.hidden = !ok;
+        if (ok) shown++;
+      });
+      sec.hidden = shown === 0;
+      if (want && shown) sec.open = true;
+      hits += shown;
+    });
+    if (empty) empty.hidden = hits !== 0;
+  });
+}
+
 const views = {
   command() {
     const acc = S.snap?.mt5?.account || {};
@@ -3558,7 +3630,7 @@ const views = {
       </section>
       <section class="set-block" id="set-prop"${tab==="set-prop"?"":" hidden"}>
         <h2 class="set-title">${I18N.t("risk.title")}</h2>
-        ${licFeat("prop") ? `${propStatusHtml()}<div class="card">${propFormHtml()}</div>` : lockedUpgradeCard("prop")}
+        ${licFeat("prop") ? `${propStatusHtml()}<div class="card">${propFormHtml()}</div>${propGuideHtml()}` : lockedUpgradeCard("prop")}
       </section>
       <section class="set-block" id="set-mt5"${tab==="set-mt5"?"":" hidden"}>
         <h2 class="set-title">MetaTrader 5</h2>
@@ -5427,6 +5499,8 @@ function bindRobotPanel() {
     if (!echo) continue;
     field.addEventListener("input", () => { echo.textContent = brokerEcho(field.value); });
   }
+
+  bindPropGuide();
 
   const tzSel = $("sys-tz");
   if (tzSel) tzSel.onchange = async () => {

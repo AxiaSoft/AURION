@@ -2171,3 +2171,45 @@ html[data-theme="light"] .set-rail .set-jump button.on{background:linear-gradien
   white-space:nowrap;
 }
 .prop-at-broker{display:block; margin-top:6px; font-size:11px}
+
+/* ── The prop guide, under the prop form ─────────────────────────────
+   Reads as prose rather than as a table: a label in the accent colour
+   and a paragraph under it, because most entries are two or three
+   sentences and a two-column grid squeezed them into slivers on a
+   laptop. Sections are <details>, so the page opens short and the one
+   section you want is one click away. */
+.prop-guide { margin-top: 14px; }
+.prop-guide .pg-sec {
+  border: 1px solid var(--line, rgba(255,255,255,.08));
+  border-radius: 12px;
+  padding: 10px 14px;
+  margin-top: 10px;
+  background: var(--panel-2, rgba(255,255,255,.02));
+}
+.prop-guide .pg-sec > summary {
+  cursor: pointer;
+  font-weight: 700;
+  padding: 4px 0;
+  list-style: none;
+}
+.prop-guide .pg-sec > summary::-webkit-details-marker { display: none; }
+.prop-guide .pg-sec > summary::before {
+  content: "+";
+  display: inline-block;
+  width: 1.2em;
+  opacity: .6;
+}
+.prop-guide .pg-sec[open] > summary::before { content: "−"; }
+.prop-guide .pg-lede { margin: 6px 0 10px; }
+.prop-guide .pg-row {
+  padding: 8px 0;
+  border-top: 1px solid var(--line, rgba(255,255,255,.06));
+}
+.prop-guide .pg-row:first-of-type { border-top: 0; }
+.prop-guide .pg-k { display: block; color: var(--accent, #7cc4ff); margin-bottom: 3px; }
+.prop-guide .pg-v { margin: 0; opacity: .88; line-height: 1.75; }
+.prop-guide .pg-v code {
+  padding: 1px 5px;
+  border-radius: 5px;
+  background: rgba(127,127,127,.18);
+}

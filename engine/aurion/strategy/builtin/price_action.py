@@ -39,13 +39,14 @@ class PriceAction(BaseStrategy):
         pattern = detect(ctx.candles)
         bias = pattern.get("bias")
         if not pattern.get("name") or bias not in {"bull", "bear"}:
-            return None
+            return self.decline("no candle pattern here")
         score = float(pattern.get("score") or 0)
         if score < float(self.params["min_score"]):
-            return None
+            return self.decline("pattern too weak",
+                                f"{score:.2f} < {float(self.params['min_score']):.2f}")
         frame = candles_to_frame(ctx.candles)
         if len(frame) < 40:
-            return None
+            return self.decline("not enough history", f"{len(frame)} bars")
         price = float(frame["close"].iloc[-1])
         atr = atr_value(frame)
         pos = ctx.position()
@@ -61,7 +62,7 @@ class PriceAction(BaseStrategy):
 
         ok, why = entry_allowed(frame, side, self.params, ctx.ai or {})
         if not ok:
-            return None
+            return self.decline(why)
         # The pattern has to be at a level that means something.
         high, low = swing_levels(frame, 20)
         reach = atr * float(self.params.get("structure_atr") or 1.2)
@@ -69,9 +70,9 @@ class PriceAction(BaseStrategy):
             near_support = abs(price - low) <= reach
             near_resistance = abs(high - price) <= reach
             if side == "buy" and not (near_support or price > high):
-                return None
+                return self.decline("the pattern is not at a level")
             if side == "sell" and not (near_resistance or price < low):
-                return None
+                return self.decline("the pattern is not at a level")
         sl, tp = risk_levels(
             side,
             price,
@@ -81,6 +82,7 @@ class PriceAction(BaseStrategy):
             float(self.params.get("min_rr") or 1.3),
             (high, low),
         )
+        self.accepted()
         confidence = min(0.99, 0.45 * score + 0.3 + 0.25 * efficiency(frame))
         return StrategySignal(
             side,

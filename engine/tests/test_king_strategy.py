@@ -244,15 +244,63 @@ def test_the_reason_names_the_confluences_that_were_checked() -> None:
         assert fragment in reason, f"'{fragment}' missing from: {reason}"
 
 
-def test_it_will_not_buy_in_premium() -> None:
-    """The single filter that stops it buying the top."""
+def test_a_reversal_is_never_bought_in_premium() -> None:
+    """The filter that stops it buying the top of the range.
+
+    It applies to reversal entries, which is what it was always for. A
+    continuation is a different trade — see the two tests below — and is
+    judged on the pullback and the zone instead.
+    """
     strict = King({"max_discount": 0.5})
     for sig in _entries(_walk(seed=3, bars=900), strict):
+        if sig.extra.get("entry_type") != "reversal":
+            continue
         eq = sig.extra["equilibrium"]
         if sig.action == "buy":
             assert eq <= 0.5 + 1e-9, f"bought at {eq:.0%} of the range"
         else:
             assert eq >= 0.5 - 1e-9, f"sold at {eq:.0%} of the range"
+
+
+def test_with_continuations_off_the_old_invariant_still_holds() -> None:
+    """The shipped behaviour before continuations is one switch away."""
+    strict = King({"max_discount": 0.5, "allow_continuation": False})
+    for sig in _entries(_walk(seed=3, bars=900), strict):
+        eq = sig.extra["equilibrium"]
+        assert sig.extra.get("entry_type") == "reversal"
+        if sig.action == "buy":
+            assert eq <= 0.5 + 1e-9, f"bought at {eq:.0%} of the range"
+        else:
+            assert eq >= 0.5 - 1e-9, f"sold at {eq:.0%} of the range"
+
+
+def test_a_continuation_needs_a_pullback_and_a_zone() -> None:
+    """Buying above equilibrium is allowed, but only as a pullback entry.
+
+    Without this the rule would simply be "chase", which is the thing the
+    premium filter existed to prevent. So every entry taken outside the
+    discount half has to be a measured retracement into an unmitigated
+    imbalance, and it has to say so.
+    """
+    king = King({})
+    hits = _entries(_walk(seed=3, bars=900), king)
+    assert hits, "no entries at all"
+    conts = [s for s in hits if s.extra.get("entry_type") == "continuation"]
+    assert conts, "continuations never fire — the gate is not wired in"
+    for sig in conts:
+        pull = float(sig.extra["pullback"])
+        assert king.params["min_pullback"] - 1e-9 <= pull <= king.params["max_pullback"] + 1e-9, (
+            f"continuation taken at {pull:.0%} of the leg"
+        )
+        assert sig.extra.get("zone"), "continuation without a zone"
+
+
+def test_continuations_are_extra_opportunity_not_a_rename() -> None:
+    """Turning them off has to cost signals, or nothing was added."""
+    rows = _walk(seed=3, bars=900)
+    on = len(_entries(rows, King({})))
+    off = len(_entries(rows, King({"allow_continuation": False})))
+    assert on > off, f"continuation changed nothing ({on} vs {off})"
 
 
 def test_demanding_a_zone_removes_signals_rather_than_being_decorative() -> None:

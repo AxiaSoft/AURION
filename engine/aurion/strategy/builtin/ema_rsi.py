@@ -48,7 +48,7 @@ class EmaRsi(BaseStrategy):
     def on_candle(self, ctx: StrategyContext) -> StrategySignal | None:
         frame = candles_to_frame(ctx.candles)
         if len(frame) < int(self.params["slow"]) + 30:
-            return None
+            return self.decline("not enough history", f"{len(frame)} bars")
         close = frame["close"]
         fast = ema(close, int(self.params["fast"]))
         slow = ema(close, int(self.params["slow"]))
@@ -95,24 +95,26 @@ class EmaRsi(BaseStrategy):
                 elif bias == "bear" and fx < sx and high_prev >= float(slow.iloc[-2]) and price < float(fast.iloc[-1]):
                     side, entry_kind = "sell", "pullback"
         if not side:
-            return None
+            return self.decline("no cross and no pullback into the trend")
         if entry_kind == "cross":
             if side == "buy" and rsi_now < float(self.params["rsi_buy"]):
-                return None
+                return self.decline("RSI does not back the cross", f"{rsi_now:.0f}")
             if side == "sell" and rsi_now > float(self.params["rsi_sell"]):
-                return None
+                return self.decline("RSI does not back the cross", f"{rsi_now:.0f}")
         else:
             # A pullback is supposed to look weak; only refuse the extremes.
             if side == "buy" and rsi_now < 35.0:
-                return None
+                return self.decline("RSI is washed out, not pulling back", f"{rsi_now:.0f}")
             if side == "sell" and rsi_now > 65.0:
-                return None
+                return self.decline("RSI is washed out, not pulling back", f"{rsi_now:.0f}")
         ok, why = entry_allowed(frame, side, self.params, ai)
         if not ok:
-            return None
+            return self.decline(why)
         min_conf = float(self.params.get("min_ai_confidence") or 0)
         if min_conf and ai.get("ready") and float(ai.get("confidence") or 0) < min_conf:
-            return None
+            return self.decline("the AI is not confident enough",
+                                f"{float(ai.get('confidence') or 0):.2f} < {min_conf:.2f}")
+        self.accepted()
         structure = swing_levels(frame, 20)
         sl, tp = risk_levels(
             side,

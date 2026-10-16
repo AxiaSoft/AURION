@@ -9,6 +9,7 @@ from ._structure import (
     Displacement,
     Zone,
     fair_value_gaps,
+    impulse_leg,
     liquidity_target,
     order_block,
     resample,
@@ -71,6 +72,29 @@ class King(BaseStrategy):
         # Where in the range we are willing to deal. 0.5 = strictly the
         # discount half for longs. Raising it buys more expensively.
         "max_discount": 0.5,
+        # Continuation entries.
+        #
+        # The discount rule above measures against the WHOLE dealing range,
+        # which in a trend that keeps extending puts price at 0.95-1.00 for
+        # as long as the trend lasts. On its own it therefore refuses every
+        # continuation and only speaks after a retracement deep enough to
+        # question the trend — measured on real series, 86% of all bars were
+        # refused by that one rule, and most of them were the trend itself.
+        #
+        # So a second, stricter door: price may be in the premium half if it
+        # has pulled back a real fraction of the LAST impulse leg AND is
+        # sitting inside an unmitigated imbalance from that leg. Both
+        # together cannot be satisfied at the extreme of a move, which is
+        # the thing the discount rule was protecting against.
+        "allow_continuation": True,
+        # A third of the leg: the shallowest pullback a discretionary trader
+        # would call one. Chosen for that reason and not by sweeping the
+        # number against a sample — on synthetic series 0.2 and 0.3 scored
+        # the same per trade, and the sweep that said 0.5 was best in one
+        # sample did not repeat out of sample.
+        "min_pullback": 0.3,       # of the last leg, 0.3 = a third
+        "max_pullback": 1.0,       # beyond this the leg is broken, not pulling back
+        "max_bars_since_break": 0,  # 0 = no limit
         # Displacement, measured on the higher-timeframe leg that set the
         # bias — NOT on the entry bar. The entry bar is the turn at the end of
         # a pullback; it is small by definition, and asking it to be large is
@@ -103,19 +127,20 @@ class King(BaseStrategy):
         htf_factor = max(1, int(self.params.get("htf_factor") or 4))
         # Enough for the higher timeframe to have its own structure, not just
         # enough for the entry chart.
-        if len(frame) < max(80, htf_factor * 20):
-            return None
+        need = max(80, htf_factor * 20)
+        if len(frame) < need:
+            return self.decline("not enough history", f"{len(frame)} bars, needs {need}")
 
         close = float(frame["close"].iloc[-1])
         atr = atr_value(frame, 14)
         if close <= 0 or atr <= 0:
-            return None
+            return self.decline("no price or no ATR yet")
 
         # 1. Direction belongs to the higher timeframe, and nothing else.
         htf = resample(frame, htf_factor)
         htf_state = structure_state(htf, int(self.params.get("htf_swing") or 2))
         if htf_state.bias not in {"bull", "bear"}:
-            return None
+            return self.decline("higher timeframe has no structure yet")
         side = "buy" if htf_state.bias == "bull" else "sell"
 
         # An opposing position is closed before anything else is considered.
@@ -134,15 +159,36 @@ class King(BaseStrategy):
             # decision, not a signal, and emitting one every bar of a
             # retracement is how an account ends up five times its intended
             # size in a single leg.
-            return None
+            return self.decline("already in this trade")
 
-        # 2. Premium / discount.
+        # 2. Premium / discount, or a measured pullback into an imbalance.
         eq = htf_state.equilibrium(close)
         limit = float(self.params.get("max_discount") or 0.5)
-        if side == "buy" and eq > limit:
-            return None
-        if side == "sell" and eq < (1.0 - limit):
-            return None
+        deep = eq <= limit if side == "buy" else eq >= (1.0 - limit)
+
+        leg = impulse_leg(htf, htf_state)
+        pull = leg.retracement if leg.ok else 0.0
+        entry_type = "reversal" if deep else "continuation"
+
+        if not deep:
+            if not self.params.get("allow_continuation", True):
+                return self.decline(
+                    f"price is {'premium' if side == 'buy' else 'discount'} "
+                    f"for a {side}", f"{eq:.2f}"
+                )
+            lo = float(self.params.get("min_pullback") or 0.2)
+            hi = float(self.params.get("max_pullback") or 1.0)
+            if not leg.ok:
+                return self.decline("no impulse leg to measure the pullback on")
+            if pull < lo:
+                return self.decline("no pullback yet", f"{pull:.0%} of the leg, wants {lo:.0%}")
+            if pull > hi:
+                return self.decline("the leg is broken, not pulling back", f"{pull:.0%}")
+            cap = int(self.params.get("max_bars_since_break") or 0)
+            if cap and htf_state.bars_since_break > cap:
+                return self.decline(
+                    "the break is stale", f"{htf_state.bars_since_break} bars ago"
+                )
 
         # 3. The entry chart has to confirm, with a close, inside the pullback.
         window = int(self.params.get("ltf_window") or 40)
@@ -150,37 +196,45 @@ class King(BaseStrategy):
         ltf_state = structure_state(tail, int(self.params.get("swing_k") or 2))
         if self.params.get("require_ltf_break", True):
             if ltf_state.bias != htf_state.bias:
-                return None
+                return self.decline(
+                    "entry chart disagrees with the higher timeframe",
+                    f"{ltf_state.bias or 'unclear'} vs {htf_state.bias}",
+                )
             allowed = {"bos", "choch"} if self.params.get("allow_choch", True) else {"bos"}
             if ltf_state.event not in allowed:
-                return None
+                return self.decline("no break on the entry chart yet")
 
         # 4. Was the leg that set the bias worth anything?
         disp = self._leg_strength(htf, htf_state)
         if not disp.ok:
-            return None
+            return self.decline("the leg is too small", disp.note)
 
         # 5. A zone to enter from.
         pad = atr * float(self.params.get("zone_pad_atr") or 0.25)
         zone = self._entry_zone(frame, side, close, pad)
-        if zone is None and self.params.get("require_zone", True):
-            return None
+        if zone is None and (self.params.get("require_zone", True) or entry_type == "continuation"):
+            # Non-negotiable for a continuation: without the imbalance there
+            # is nothing separating "entering a pullback" from "buying
+            # because the trend is up", which is chasing.
+            return self.decline("price is not in an entry zone")
 
         # The shared gate still has the last word on volatility, exhaustion
         # and the AI veto, so one strategy cannot quietly opt out of the
         # account-wide protections.
         ok, why = entry_allowed(frame, side, self.params, ctx.ai or {})
         if not ok:
-            return None
+            return self.decline(why)
 
         sl, tp, risk, reward = self._levels(frame, side, close, atr, zone, ltf_state)
         if risk <= 0 or reward <= 0:
-            return None
+            return self.decline("stop and target do not make a trade")
         rr = reward / risk
-        if rr < float(self.params.get("min_rr") or 2.0):
-            return None
+        floor_rr = float(self.params.get("min_rr") or 2.0)
+        if rr < floor_rr:
+            return self.decline("reward-to-risk too low", f"{rr:.2f} < {floor_rr:.2f}")
 
         swept = swept_liquidity(frame, side, int(self.params.get("swing_k") or 2))
+        self.accepted()
         confidence = self._confidence(htf_state, disp, zone, rr, eq, swept)
 
         return StrategySignal(
@@ -195,6 +249,8 @@ class King(BaseStrategy):
             extra={
                 "strategy": self.name,
                 "playbook": "king",
+                "entry_type": entry_type,
+                "pullback": round(pull, 3),
                 "htf_bias": htf_state.bias,
                 "htf_event": htf_state.event,
                 "ltf_event": ltf_state.event,

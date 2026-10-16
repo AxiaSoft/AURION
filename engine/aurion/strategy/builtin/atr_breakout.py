@@ -39,7 +39,7 @@ class ATRBreakout(BaseStrategy):
         frame = candles_to_frame(ctx.candles)
         n = int(self.params["lookback"])
         if len(frame) < n + 35:
-            return None
+            return self.decline("not enough history", f"{len(frame)} bars")
         window = frame.iloc[-n - 1 : -1]
         last = frame.iloc[-1]
         high = float(window["high"].max())
@@ -49,9 +49,10 @@ class ATRBreakout(BaseStrategy):
         bar_low = float(last["low"])
         atr = atr_value(frame)
         if close <= 0 or atr <= 0:
-            return None
+            return self.decline("no price or no ATR yet")
         if atr / close < float(self.params["min_atr_pct"]):
-            return None
+            return self.decline("too quiet to break anything",
+                                f"ATR {atr / close:.4%} of price")
         # Where in its own bar did price close? A breakout that closes mid-bar
         # is a wick, not a break.
         span = max(1e-12, bar_high - bar_low)
@@ -71,16 +72,17 @@ class ATRBreakout(BaseStrategy):
         elif close < low - buffer and (1 - close_loc) >= float(self.params.get("min_close_loc") or 0.6):
             side = "sell"
         if not side:
-            return None
+            return self.decline("no close beyond the range")
         if pos and pos.get("type") and pos.get("type") != side:
             return StrategySignal(
                 "close", ctx.symbol, reason=f"{side} break against the open {pos.get('type')}", comment="AURION brk"
             )
         if not squeeze_ok:
-            return None
+            return self.decline("the range was already wide — this is a chase")
         ok, why = entry_allowed(frame, side, self.params, ctx.ai or {})
         if not ok:
-            return None
+            return self.decline(why)
+        self.accepted()
         structure = swing_levels(frame, n)
         sl, tp = risk_levels(
             side,

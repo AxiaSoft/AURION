@@ -243,6 +243,77 @@ def structure_state(frame: pd.DataFrame, k: int = 2) -> Structure:
     return out
 
 
+@dataclass
+class Leg:
+    """The final impulse: where it started, where it ran to, and the pullback."""
+
+    low: float = 0.0
+    high: float = 0.0
+    bars: int = 0
+    retracement: float = 0.0       # 0 at the extreme, 1 back at the origin
+    ok: bool = False
+
+    @property
+    def size(self) -> float:
+        return max(0.0, self.high - self.low)
+
+
+def impulse_leg(frame: pd.DataFrame, state: Structure) -> Leg:
+    """The last leg, and how far price has come back off its extreme.
+
+    This exists because of a hole in premium/discount that makes a trading
+    strategy unusable in exactly the conditions it is supposed to be good
+    in. ``Structure`` measures the dealing range from the swing that
+    STARTED the move to the furthest price since. In a trend that keeps
+    extending, the furthest price is now, so equilibrium sits at 0.95-1.00
+    and a rule of "buy only the discount half" can never be satisfied. The
+    strategy then stands aside through the entire move and only speaks
+    after a retracement deep enough to question the trend itself — which is
+    the measured version of "the robot gets left behind".
+
+    A pullback is properly measured against the LAST impulse, not the whole
+    structure: from the extreme of the leg back to the swing the leg left.
+    A 38% pullback into an imbalance is a textbook continuation entry and a
+    5% one is a chase, and the whole-range view cannot tell them apart.
+    """
+    out = Leg()
+    if not state.has_range or len(frame) < 5:
+        return out
+
+    highs = frame["high"].to_numpy()
+    lows = frame["low"].to_numpy()
+    price = float(frame["close"].iloc[-1])
+
+    start = max(0, state.broke_index) if state.broke_index >= 0 else 0
+    tail_h = highs[start:]
+    tail_l = lows[start:]
+    if len(tail_h) < 2:
+        return out
+
+    if state.bias == "bull":
+        # Extreme first, then the lowest point BEFORE it: that pair is the
+        # leg. Taking the lowest point of the whole window instead would
+        # measure a pullback against a low price has already left behind.
+        peak = int(tail_h.argmax())
+        base = float(tail_l[: peak + 1].min()) if peak >= 0 else float(tail_l.min())
+        top = float(tail_h[peak])
+        out.low, out.high, out.bars = base, top, len(tail_h) - peak - 1
+        span = top - base
+        out.retracement = max(0.0, min(1.5, (top - price) / span)) if span > 0 else 0.0
+    elif state.bias == "bear":
+        trough = int(tail_l.argmin())
+        cap = float(tail_h[: trough + 1].max()) if trough >= 0 else float(tail_h.max())
+        bottom = float(tail_l[trough])
+        out.low, out.high, out.bars = bottom, cap, len(tail_l) - trough - 1
+        span = cap - bottom
+        out.retracement = max(0.0, min(1.5, (price - bottom) / span)) if span > 0 else 0.0
+    else:
+        return out
+
+    out.ok = out.size > 0
+    return out
+
+
 # ---------------------------------------------------------------------------
 # Imbalance
 # ---------------------------------------------------------------------------

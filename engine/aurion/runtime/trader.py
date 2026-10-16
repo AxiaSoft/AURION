@@ -1712,6 +1712,15 @@ class Trader:
             desc["last_action"] = slot.get("last_action") or "idle"
             desc["last_reason"] = slot.get("last_reason") or ""
             desc["last_ts"] = slot.get("last_ts") or ""
+            # The running tally of refusals: one bar's reason is an anecdote,
+            # the tally is the answer to "why has it not traded all week".
+            try:
+                desc["refusals"] = [
+                    {"reason": kind, "count": int(count)}
+                    for kind, count in (inst.refusal_report(5) if hasattr(inst, "refusal_report") else [])
+                ]
+            except Exception:
+                desc["refusals"] = []
             items.append(desc)
         try:
             # The persistent ledger, not a scan of the trade table: a strategy's
@@ -1921,8 +1930,13 @@ class Trader:
                 return
             action, reason = self._signal_bits(signal)
             if not signal or action in {"", "hold", "none"}:
+                # "no setup on this bar" is true and useless. A strategy that
+                # declines now says which rule stopped it, and that sentence
+                # is what the desk shows — otherwise a quiet robot and a
+                # broken one look exactly the same from the outside.
+                said = str(getattr(inst, "last_refusal", "") or "")
                 slot["last_action"] = "hold"
-                slot["last_reason"] = reason or "no setup on this bar"
+                slot["last_reason"] = reason or said or "no setup on this bar"
                 slot["last_ts"] = utc_iso()
                 await self.journal("info", "hold", f"{name}: hold — {slot['last_reason']}")
                 continue
