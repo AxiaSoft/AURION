@@ -309,7 +309,8 @@
     "file_ready": "File “{name}” is ready to upload",
     "record": "Won / lost",
     "pf": "Profit factor",
-    "avg": "Average trade"
+    "avg": "Average trade",
+    "live_hint": "Live read — the strategy is being asked again between candle closes"
   },
   "sys": {
     "tz_title": "Time zone",
@@ -1189,13 +1190,13 @@
     "q_skipped": "skipped",
     "q_none": "No signal has been judged yet. The score and the reasons for it appear here the first time the robot looks at one.",
     "q_how": "How the score is built",
-    "q_how_hint": "Every entry starts at 50% and each read moves it. The numbers are the most it can move, in points of score.",
-    "q_ai": "AI agrees with the direction (against it subtracts the same)",
-    "q_htf": "Slower chart agrees — or disagrees",
+    "q_how_hint": "Each read that has an opinion casts a vote, and the score is their weighted average. The numbers are how much each vote counts. A read with nothing to say is left out instead of counted against the trade — a model that is still learning no longer blocks every entry.",
+    "q_ai": "What the AI reads",
+    "q_htf": "The slower chart",
     "q_strategy": "The strategy's own confidence",
     "q_edge": "The model's measured out-of-sample edge",
-    "q_regime": "Market regime: trending helps, ranging hurts",
-    "q_chop": "Chop or dead volatility",
+    "q_regime": "Trend or range",
+    "q_chop": "Movement and volatility",
     "min_label": "Per signal, at least",
     "min_hint": "One confirmed setup can open more than one trade. This is the fewest it opens — a strong score opens more, up to the ceiling.",
     "max_label": "Open at once, at most",
@@ -1208,7 +1209,8 @@
     "demo_fair": "A decent signal ({pct}%)",
     "demo_best": "An excellent signal ({pct}%)",
     "demo_n": "{n} trades",
-    "demo_note": "And never more than {cap} open at the same time, whatever the robot sees."
+    "demo_note": "And never more than {cap} open at the same time, whatever the robot sees.",
+    "block_title": "Last signal that was not sent"
   },
   "themes": {
     "title": "Theme",

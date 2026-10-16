@@ -103,6 +103,14 @@ class Trader:
         # clock rather than asked for.
         self.desk_timezone = "broker"
         self.risk_free_enabled = False
+        # The last time a real signal was refused on its way to the broker,
+        # and by what. Published, because this is the question the desk
+        # could never answer.
+        self.last_block: dict[str, Any] = {}
+        # How often the cards are re-asked between bar closes. Two seconds
+        # looks live to a person and costs a few milliseconds of one
+        # thread; the strategies are pure functions of the candles.
+        self._watch_at = 0.0
         # Money management, stated the one way that means the same thing on
         # every instrument: what a stop is allowed to cost per 1.00 lot.
         self.max_loss_per_lot = 10.0
@@ -277,6 +285,7 @@ class Trader:
             await self._maybe_trail(payload)
             await self._maybe_danger_guard(payload)
             if self._is_ea_symbol(sym):
+                await self._watch_strategies(payload)
                 await self._maybe_strategy_tick(payload)
                 self._schedule_live_ai(sym)
             return
@@ -1553,6 +1562,81 @@ class Trader:
             }
         )
 
+    async def _watch_strategies(self, tick: dict[str, Any]) -> None:
+        """Keep the strategy cards honest between bar closes.
+
+        A card that only changes when a candle closes is a card that says
+        "idle" for fourteen minutes out of fifteen, and the trader cannot
+        tell a thinking robot from a stopped one. This asks every armed
+        strategy the same question the live engine will ask at the close —
+        on the bar as it stands — and publishes the answer. It never
+        trades: the decision that counts is still taken on a closed bar,
+        because a signal measured on half a candle is not a signal.
+        """
+        now = time.time()
+        if now - float(getattr(self, "_watch_at", 0.0) or 0.0) < self.WATCH_EVERY_SEC:
+            return
+        self._watch_at = now
+        symbol = str(tick.get("symbol") or self.active_symbol or "")
+        if not symbol or not self._is_ea_symbol(symbol):
+            return
+        armed = [(name, slot) for name, slot in self.book.items() if slot.get("enabled") and slot.get("inst")]
+        if not armed:
+            return
+        ctx = self._ctx(symbol, self.active_timeframe, tick)
+        if not ctx.candles or len(ctx.candles) < 30:
+            return
+
+        def look() -> dict[str, tuple[str, str]]:
+            out: dict[str, tuple[str, str]] = {}
+            for name, slot in armed:
+                inst = slot.get("inst")
+                # The tally of "why it stayed out" is per closed bar and the
+                # desk reads it; asking thirty times a minute would drown it.
+                # Snapshot it, ask, put it back.
+                tally = dict(getattr(inst, "refusals", {}) or {})
+                last_kind = getattr(inst, "last_refusal_kind", "")
+                last_why = getattr(inst, "last_refusal", "")
+                try:
+                    signal = inst.on_candle(ctx)
+                except Exception as exc:        # a watch pass must never arm safe mode
+                    out[name] = ("fault", str(exc))
+                    continue
+                finally:
+                    if hasattr(inst, "refusals"):
+                        inst.refusals = tally
+                action = str(getattr(signal, "action", "") or "") if signal else ""
+                if signal and action in {"buy", "sell", "close", "close_all", "flatten"}:
+                    out[name] = (action, str(getattr(signal, "reason", "") or action))
+                else:
+                    out[name] = ("hold", str(getattr(inst, "last_refusal", "") or "no setup on this bar"))
+                # And the strategy is left exactly as the last closed bar
+                # left it, so nothing the watch saw can leak into a trade.
+                if hasattr(inst, "last_refusal"):
+                    inst.last_refusal = last_why
+                    inst.last_refusal_kind = last_kind
+            return out
+
+        try:
+            seen = await asyncio.to_thread(look)
+        except Exception:
+            log.exception("strategy watch failed")
+            return
+        changed = False
+        for name, (action, why) in seen.items():
+            slot = self.book.get(name)
+            if slot is None:
+                continue
+            if slot.get("live_action") != action or slot.get("live_reason") != why:
+                changed = True
+            slot["live_action"] = action
+            slot["live_reason"] = why
+            slot["live_ts"] = utc_iso()
+        if not changed:
+            return
+        self._sync_book_meta()
+        await self.bus.publish("strategy", self.strategy_meta)
+
     async def _maybe_strategy_tick(self, tick: dict[str, Any]) -> None:
         if not self.auto_trade:
             return
@@ -1876,12 +1960,21 @@ class Trader:
         return True, ""
 
     def signal_quality(self, symbol: str, side: str, signal_conf: float = 0.0) -> dict[str, Any]:
-        """Blend every read we have into one 0..1 score for this entry.
+        """Blend every read that *has* an opinion into one 0..1 score.
 
-        Model probability, its measured out-of-sample edge, the strategy's own
-        confidence, candle pattern, market regime and the higher timeframe all
-        move the same number — so the robot stops taking the setups that only
-        one of them liked.
+        This used to start at 0.5 and add or subtract fixed amounts. That
+        arithmetic had a fault which switched the robot off entirely on a
+        fresh install: an AI that has not finished training took 0.05 off
+        the score for "still learning", a model with no measured edge
+        added nothing, and the default floor is 0.55 — so a perfectly
+        good setup scored about 0.51 and was skipped for "low quality".
+        Nobody could see it, because the thing that silenced the robot was
+        the absence of evidence rather than evidence against.
+
+        Now each read is a vote with a weight, and a read with nothing to
+        say simply does not vote. No votes at all means the score is the
+        floor: the robot trades the strategy's own judgement, which is
+        what it is for.
         """
         want = "bull" if str(side).lower() in {"buy", "long"} else "bear"
         ai: dict[str, Any] = {}
@@ -1893,60 +1986,79 @@ class Trader:
                     ai = dict(last)
         except Exception:
             ai = {}
+
         reasons: list[str] = []
-        score = 0.5
+        votes: list[tuple[float, float]] = []      # (weight, 0..1 value)
+
+        def vote(weight: float, value: float, note: str) -> None:
+            votes.append((max(0.0, weight), max(0.0, min(1.0, value))))
+            if note:
+                reasons.append(note)
+
+        # --- the model, only when it is actually ready ------------------
         conf = float(ai.get("confidence") or 0)
         direction = str(ai.get("direction") or ai.get("display_direction") or "neutral")
-        if ai.get("ready"):
-            if direction == want:
-                score += 0.30 * conf
-                reasons.append(f"ai {direction} {conf:.0%}")
-            elif direction == "neutral":
-                score -= 0.05
-                reasons.append("ai neutral")
-            else:
-                score -= 0.30 * max(conf, 0.5)
-                reasons.append(f"ai {direction} against")
-        else:
-            score -= 0.05
-            reasons.append("ai still learning")
-        # Measured edge of the model (holdout accuracy) — an untested model is
-        # not allowed to push the score up much.
         try:
             edge = float((self.ai.models.metrics or {}).get("edge") or 0)
         except Exception:
             edge = 0.0
-        score += 0.10 * max(0.0, min(1.0, edge))
+        if ai.get("ready"):
+            # An untested model is allowed an opinion, not a loud one.
+            weight = 0.6 + 0.6 * max(0.0, min(1.0, edge))
+            if direction == want:
+                vote(weight, 0.5 + 0.5 * conf, f"ai {direction} {conf:.0%}")
+            elif direction == "neutral":
+                vote(weight * 0.5, 0.5, "ai neutral")
+            else:
+                vote(weight, 0.5 - 0.5 * max(conf, 0.5), f"ai {direction} against")
+        else:
+            # Not a penalty. A model that has not finished learning knows
+            # nothing about this trade, and knowing nothing is not a
+            # reason to refuse it.
+            reasons.append("ai still learning (not counted)")
+
+        # --- the strategy's own confidence ------------------------------
         if signal_conf:
-            score += 0.10 * max(0.0, min(1.0, float(signal_conf)))
-            reasons.append(f"strategy {float(signal_conf):.0%}")
+            vote(1.0, float(signal_conf), f"strategy {float(signal_conf):.0%}")
+
+        # --- the slower chart -------------------------------------------
+        bias, strength = self._higher_tf_bias(symbol)
+        if bias == want:
+            vote(1.0, 0.5 + 0.5 * max(0.2, strength), f"{self._higher_timeframe()} {bias}")
+        elif bias != "neutral":
+            vote(1.0, 0.5 - 0.5 * max(0.35, strength), f"{self._higher_timeframe()} {bias} against")
+
+        # --- regime and the raw features --------------------------------
         regime = ai.get("regime_obj") if isinstance(ai.get("regime_obj"), dict) else ai.get("regime")
         regime_name = str((regime or {}).get("name") if isinstance(regime, dict) else regime or "")
         if regime_name:
-            if "trend" in regime_name.lower():
-                score += 0.05
-            elif "chop" in regime_name.lower() or "range" in regime_name.lower():
-                score -= 0.08
-            reasons.append(f"regime {regime_name}")
-        bias, strength = self._higher_tf_bias(symbol)
-        if bias == want:
-            score += 0.12 * strength
-            reasons.append(f"{self._higher_timeframe()} {bias}")
-        elif bias != "neutral":
-            score -= 0.18 * max(0.35, strength)
-            reasons.append(f"{self._higher_timeframe()} {bias} against")
+            low = regime_name.lower()
+            if "trend" in low:
+                vote(0.5, 0.75, f"regime {regime_name}")
+            elif "chop" in low or "range" in low:
+                vote(0.5, 0.3, f"regime {regime_name}")
+            else:
+                reasons.append(f"regime {regime_name}")
         feats = ai.get("features") or {}
         try:
             er = float(feats.get("er10") or 0)
             atr_pct = float(feats.get("atr_pct") or 0)
         except (TypeError, ValueError):
             er = atr_pct = 0.0
-        if er and er < 0.18:
-            score -= 0.10
-            reasons.append("chop (low efficiency)")
+        if er:
+            vote(0.5, 0.25 if er < 0.18 else 0.6, "chop (low efficiency)" if er < 0.18 else "")
         if atr_pct and atr_pct < 0.00025:
-            score -= 0.10
-            reasons.append("volatility too low")
+            vote(0.5, 0.25, "volatility too low")
+
+        floor = float(getattr(self, "min_signal_quality", 0.55) or 0.55)
+        if votes:
+            total = sum(w for w, _ in votes) or 1.0
+            score = sum(w * v for w, v in votes) / total
+        else:
+            # Nothing had an opinion. The strategy's own gates already
+            # passed, so this must not be the thing that refuses.
+            score = floor
+            reasons.append("nothing to judge it by — the strategy's own gates stand")
         score = max(0.0, min(1.0, score))
         return {"score": score, "reasons": reasons, "bias": bias, "ai": direction, "confidence": conf}
 
@@ -1971,6 +2083,10 @@ class Trader:
             desc["last_action"] = slot.get("last_action") or "idle"
             desc["last_reason"] = slot.get("last_reason") or ""
             desc["last_ts"] = slot.get("last_ts") or ""
+            # What the strategy is saying *right now*, between closes.
+            desc["live_action"] = slot.get("live_action") or ""
+            desc["live_reason"] = slot.get("live_reason") or ""
+            desc["live_ts"] = slot.get("live_ts") or ""
             # The running tally of refusals: one bar's reason is an anecdote,
             # the tally is the answer to "why has it not traded all week".
             try:
@@ -2034,6 +2150,7 @@ class Trader:
             ),
             "min_signal_quality": float(getattr(self, "min_signal_quality", 0.55) or 0.55),
             "last_quality": dict(getattr(self, "last_quality", {}) or {}),
+            "last_block": dict(getattr(self, "last_block", {}) or {}),
             "news_trade": self.news_trading_on(),
             "news_trade_locked": bool(self.prop.enabled),
             "auto_entry": bool(getattr(self, "auto_entry", False)),
@@ -2552,6 +2669,41 @@ class Trader:
                 return vol
         return payload.get("volume")
 
+    async def _blocked(
+        self,
+        source: str,
+        payload: dict[str, Any],
+        code: str,
+        why: str,
+        extra: dict[str, Any] | None = None,
+    ) -> None:
+        """Record, in one place, that a real signal did not become an order.
+
+        "The robot does not trade" was unanswerable because each refusal
+        wrote its own sentence into the log and nothing kept a record. The
+        strategy card said "hold", which was a lie — the strategy did not
+        hold, the desk refused it. Now the refusal lands on the card that
+        produced the signal, and on the desk's own last-block line.
+        """
+        name = str(source or "").split(":", 1)[-1]
+        slot = (getattr(self, "book", None) or {}).get(name)
+        if slot is not None:
+            slot["last_action"] = "blocked"
+            slot["last_reason"] = why
+            slot["last_ts"] = utc_iso()
+        self.last_block = {
+            "code": code,
+            "why": why,
+            "strategy": name,
+            "symbol": str(payload.get("symbol") or ""),
+            "side": str(payload.get("side") or payload.get("action") or ""),
+            "at": utc_iso(),
+        }
+        await self.journal("warning", code, f"Signal not sent — {why}", {**(extra or {}), "block": self.last_block})
+        if slot is not None:
+            self._sync_book_meta()
+            await self.bus.publish("strategy", self.strategy_meta)
+
     async def _dispatch_signal(self, signal, source: str) -> None:
         if not signal:
             return
@@ -2563,27 +2715,36 @@ class Trader:
         if action in {"buy", "sell", "market"}:
             gate = self.license.allow_bot_entry()
             if not gate.get("ok"):
-                await self.journal("warning", "license", f"License blocked robot entry: {gate.get('error')}")
+                await self._blocked(source, payload, "license", str(gate.get("error") or "licence limit"))
                 return
             payload["volume"] = self._robot_volume(payload)
+        # The AI veto lives here and nowhere else.
+        #
+        # It used to be asked twice: once by the strategy, through its own
+        # require_ai_agree parameter inside entry_allowed(), and again
+        # here with the account's setting. Two switches for one rule, in
+        # two places, with different defaults — so turning the desk's
+        # switch off changed nothing on three of the four built-ins, and
+        # the trader could not say which of the two had refused. The
+        # built-ins no longer ask; this is the account's rule.
         if action in {"buy", "sell", "market"} and self.require_ai_agree:
             ai = self.ai.last or {}
             if ai.get("ready"):
                 if float(ai.get("confidence") or 0) < self.min_ai_confidence:
-                    await self.journal(
-                        "warning",
+                    await self._blocked(
+                        source,
+                        payload,
                         "ai_low",
-                        f"AI confidence {float(ai.get('confidence') or 0):.2f} < {self.min_ai_confidence:.2f} — entry skipped",
+                        f"AI confidence {float(ai.get('confidence') or 0):.2f} is under the "
+                        f"{self.min_ai_confidence:.2f} you asked for",
                     )
                     return
                 want = "bull" if action == "buy" else "bear"
                 if action == "market":
                     want = "bull" if str(payload.get("side") or "buy") == "buy" else "bear"
                 if ai.get("direction") not in {want, "neutral"} and ai.get("direction") != want:
-                    await self.journal(
-                        "warning",
-                        "ai_disagree",
-                        f"AI {ai.get('direction')} disagrees with {action} — skipped",
+                    await self._blocked(
+                        source, payload, "ai_disagree", f"the AI reads {ai.get('direction')} against this {action}"
                     )
                     return
         if action in {"buy", "sell", "market"} and not payload.get("comment"):
@@ -2622,24 +2783,26 @@ class Trader:
         }
         if getattr(self, "smart_filters", True):
             if quality < float(getattr(self, "min_signal_quality", 0.55) or 0):
-                await self.journal(
-                    "warning",
+                await self._blocked(
+                    source,
+                    payload,
                     "low_quality",
-                    f"Skipped {side} {symbol}: quality {quality:.2f} < {float(getattr(self, 'min_signal_quality', 0.55)):.2f} "
+                    f"quality {quality:.2f} is under the {float(getattr(self, 'min_signal_quality', 0.55)):.2f} floor "
                     f"({'; '.join(verdict.get('reasons') or []) or 'no supporting read'})",
                     {"quality": verdict},
                 )
                 return
             ok_spread, why = self._spread_ok(symbol)
             if not ok_spread:
-                await self.journal("warning", "spread", f"Skipped {side} {symbol}: {why}")
+                await self._blocked(source, payload, "spread", why)
                 return
         count = self._entries_for_signal(symbol, quality)
         if count <= 0:
-            await self.journal(
-                "info",
+            await self._blocked(
+                source,
+                payload,
                 "slots_full",
-                f"{symbol} already holds {self._open_count(symbol)} of max {self._total_cap()} robot trades — no new entry",
+                f"{symbol} already holds {self._open_count(symbol)} of max {self._total_cap()} robot trades",
             )
             return
         base_volume = float(payload.get("volume") or 0)
@@ -2671,6 +2834,7 @@ class Trader:
     # moment a candle closes.
 
     MAGIC = 908173
+    WATCH_EVERY_SEC = 2.0
 
     def _own_pending_orders(self) -> list[dict[str, Any]]:
         """AURION's resting orders, as plain dicts. Never the trader's own."""

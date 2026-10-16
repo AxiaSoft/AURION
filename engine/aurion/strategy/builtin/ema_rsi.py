@@ -28,7 +28,11 @@ class EmaRsi(BaseStrategy):
         "volume": 0.10,
         "sl_atr": 1.6,
         "tp_atr": 2.4,
-        "min_rr": 1.4,
+        # 2.0 rather than 1.4: measured in two independent samples, the
+        # wider target took this strategy from +0.12R to +0.19R per trade
+        # in one and +0.33R to +0.49R in the other. A cross is early, and
+        # early entries are the ones that can afford a distant target.
+        "min_rr": 2.0,
         "min_ai_confidence": 0.0,
         "with_trend": True,
         # A fresh 8/21 cross is by definition early, so it is judged against

@@ -304,10 +304,16 @@ def test_continuations_are_extra_opportunity_not_a_rename() -> None:
 
 
 def test_demanding_a_zone_removes_signals_rather_than_being_decorative() -> None:
-    """If turning a filter off changes nothing, the filter is not wired in."""
+    """If turning a filter off changes nothing, the filter is not wired in.
+
+    Both runs allow a change of character on purpose. The shipped default
+    refuses it, which is right for trading and wrong for this test: it
+    leaves ten signals in twelve hundred bars, and ten is too few to tell
+    a gate that does nothing from a gate that happened to catch nothing.
+    """
     rows = _walk(seed=3, bars=1200)
-    with_zone = len(_entries(rows, King({"require_zone": True})))
-    without = len(_entries(rows, King({"require_zone": False})))
+    with_zone = len(_entries(rows, King({"require_zone": True, "allow_choch": True})))
+    without = len(_entries(rows, King({"require_zone": False, "allow_choch": True})))
     assert without > with_zone, "require_zone is not actually gating anything"
 
 

@@ -102,6 +102,9 @@ const NAME = "ema_rsi";
 const pill = register('[data-st-on="' + NAME + '"]');
 const sw = register('button.switch[data-st="' + NAME + '"]');
 const card = register('[data-st-card="' + NAME + '"]');
+const act = register('[data-st-act="' + NAME + '"]');
+const ev = register('[data-st-eval="' + NAME + '"]');
+const dot = register('[data-st-dot="' + NAME + '"]');
 const wl = register('[data-st-wl="' + NAME + '"]');
 const pf = register('[data-st-pf="' + NAME + '"]');
 const avg = register('[data-st-avg="' + NAME + '"]');
@@ -151,6 +154,47 @@ check("switching back on repaints the switch", sw.has("on") === true);
 check("...and the pressed state", sw.getAttribute("aria-pressed") === "true");
 check("...and the card is no longer dimmed", card.has("is-off") === false);
 check("an unknown profit factor reads as a dash", pf.textContent === "—");
+
+/* The live state field.
+   A card that only moves when a candle closes shows "idle" for most of
+   every bar, and the desk cannot tell a thinking robot from a stopped
+   one. The engine's watch pass fills live_action between closes; a real
+   decision outranks it for a minute, because "blocked, spread too wide"
+   is the thing the trader needs to read. */
+vm.runInContext(`
+  { const it = S.snap.strategy.items[0];
+  it.last_action = ""; it.last_reason = ""; it.last_ts = "";
+  it.live_action = "sell"; it.live_reason = "momentum is against it";
+  it.live_ts = new Date().toISOString();
+  patchStrategyLive(); }
+`, win, { filename: "app.js" });
+
+check("the card shows what the strategy says right now", act.textContent === "sell");
+check("...coloured as a sell", String(act.className).indexOf("down") >= 0);
+check("...with the live reason", ev.textContent === "momentum is against it");
+check("...and the live marker lit", dot.has("is-live") === true);
+
+vm.runInContext(`
+  { const it = S.snap.strategy.items[0];
+  it.last_action = "blocked";
+  it.last_reason = "quality 0.41 is under the 0.55 floor";
+  it.last_ts = new Date().toISOString();
+  patchStrategyLive(); }
+`, win, { filename: "app.js" });
+
+check("a refusal outranks the live read", act.textContent === "blocked");
+check("...and says which rule refused it", String(ev.textContent).indexOf("0.55") > 0);
+check("...and the live marker goes dark", dot.has("is-live") === false);
+
+vm.runInContext(`
+  { const it = S.snap.strategy.items[0];
+  it.last_ts = new Date(Date.now() - 120000).toISOString();
+  it.live_ts = new Date().toISOString();
+  it.live_action = "hold"; it.live_reason = "waiting for a pullback";
+  patchStrategyLive(); }
+`, win, { filename: "app.js" });
+
+check("an old decision stops hiding the live read", act.textContent === "hold");
 
 console.log(failed ? `\n${failed} failing.` : "\nThe enabled state stays in step.");
 process.exit(failed ? 1 : 0);

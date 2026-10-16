@@ -2046,6 +2046,30 @@ html[data-theme="light"] .set-rail .set-jump button.on{background:linear-gradien
 .q-last .sub{ margin:4px 0 0; font-size:11px }
 .q-last-none{ margin-top:10px }
 
+/* Why the last signal never reached the broker. Amber, because it is
+   not an error and not a fill — it is the desk's own rule speaking. */
+.q-block{
+  margin-top:10px; padding:10px 12px;
+  border:1px solid var(--line); border-inline-start:2px solid var(--amber, #d8a657);
+  border-radius:12px;
+}
+.q-block p{ margin:4px 0 0; font-size:12px; line-height:1.6 }
+.q-block .sub{ font-size:11px }
+
+/* The pulse next to a strategy's state: lit while the watch pass is
+   answering between candle closes, dark when the card is showing a
+   decision that has already been taken. */
+.st-dot{
+  width:6px; height:6px; border-radius:50%;
+  background:var(--line); display:inline-block; flex:0 0 auto;
+}
+.st-dot.is-live{
+  background:var(--candle-up, var(--accent));
+  animation:st-pulse 2s ease-in-out infinite;
+}
+@keyframes st-pulse{ 0%,100%{ opacity:.35 } 50%{ opacity:1 } }
+@media (prefers-reduced-motion: reduce){ .st-dot.is-live{ animation:none; opacity:1 } }
+
 .q-how{ margin-top:12px }
 .q-how summary{
   cursor:pointer; font-size:12px; color:var(--accent-readable, var(--accent));

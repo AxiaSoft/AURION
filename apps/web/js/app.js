@@ -1967,12 +1967,15 @@ function patchStrategyLive() {
     const wl = document.querySelector('[data-st-wl="' + it.name + '"]');
     const pf = document.querySelector('[data-st-pf="' + it.name + '"]');
     const avg = document.querySelector('[data-st-avg="' + it.name + '"]');
+    const state = stState(it);
+    const dot = document.querySelector('[data-st-dot="' + it.name + '"]');
     if (act) {
-      act.textContent = it.last_action || "idle";
-      act.className = "mono " + (it.last_action === "buy" ? "up" : it.last_action === "sell" ? "down" : "");
+      act.textContent = state.act || "idle";
+      act.className = "mono " + stActClass(state.act);
     }
-    if (ev && it.last_reason) {
-      ev.textContent = it.last_reason;
+    if (dot) dot.classList.toggle("is-live", !!state.live);
+    if (ev && state.why) {
+      ev.textContent = state.why;
       // Hovering the line gives the running tally, so a desk that has been
       // quiet all session can be read at a glance: one rule doing all the
       // refusing is a setting to change, a spread of rules is just a slow market.
@@ -2326,6 +2329,32 @@ function bindChartTicket() {
   const sell = $("ct-sell"); if (sell) sell.onclick = () => fire("sell");
   syncChartPending();
 }
+function stState(it) {
+  // What the card should say *now*.
+  //
+  // The card used to show last_action, which only moves when a candle
+  // closes and an order is attempted — so a working robot looked asleep
+  // for fourteen minutes out of every fifteen, and "hold" was shown both
+  // for "the strategy sees nothing" and for "the desk refused it".
+  // The engine's watch pass fills live_action every couple of seconds;
+  // a real decision (an order, or a refusal) outranks it for a minute,
+  // because that is the thing the trader needs to read.
+  const liveAt = Date.parse(it.live_ts || "") || 0;
+  const lastAt = Date.parse(it.last_ts || "") || 0;
+  const fresh = lastAt && Date.now() - lastAt < 60000 && lastAt + 1000 >= liveAt;
+  if (fresh && it.last_action) {
+    return { act: it.last_action, why: it.last_reason || "", live: false };
+  }
+  if (it.live_action) {
+    return { act: it.live_action, why: it.live_reason || "", live: true };
+  }
+  return { act: it.last_action || "idle", why: it.last_reason || "", live: false };
+}
+
+function stActClass(act) {
+  return act === "buy" ? "up" : act === "sell" ? "down" : act === "blocked" ? "warn" : "";
+}
+
 function strategyItems() {
   const st = S.snap?.strategy || {};
   const items = st.items && st.items.length ? st.items : [
@@ -2366,8 +2395,9 @@ function strategyUploadCard() {
 }
 function strategyLiveCards() {
   return strategyItems().map((it) => {
-    const act = it.last_action || "idle";
-    const cls = act === "buy" ? "up" : act === "sell" ? "down" : "";
+    const state = stState(it);
+    const act = state.act || "idle";
+    const cls = stActClass(act);
     const custom = (it.kind || "builtin") !== "builtin";
     return `<div class="card st-card${it.enabled ? "" : " is-off"}" data-st-card="${esc(it.name)}">
       <div class="st-top">
@@ -2379,7 +2409,9 @@ function strategyLiveCards() {
       </div>
       <div class="st-live">
         <span class="pill ${it.enabled?"on":""}" data-st-on="${esc(it.name)}">${it.enabled ? I18N.t("strategies.enable") : I18N.t("strategies.disable")}</span>
-        <b class="mono ${cls}" data-st-act="${esc(it.name)}">${act}</b>
+        <b class="mono ${cls}" data-st-act="${esc(it.name)}">${esc(act)}</b>
+        <i class="st-dot${state.live ? " is-live" : ""}" data-st-dot="${esc(it.name)}"
+           title="${I18N.t("strategies.live_hint")}"></i>
         <span class="pill ghost">${I18N.t(custom ? "strategies.custom" : "strategies.builtin_tag")}</span>
       </div>
       <div class="st-stats">
@@ -2395,7 +2427,7 @@ function strategyLiveCards() {
         <div><span>${I18N.t("strategies.avg")}</span>
           <b class="mono ${clsPnl(it.avg)}" data-st-avg="${esc(it.name)}">${fmt(it.avg || 0)}</b></div>
       </div>
-      <p class="sub" data-st-eval="${esc(it.name)}" title="${esc(refusalTally(it))}">${it.last_reason || I18N.t("strategies.waiting")}</p>
+      <p class="sub" data-st-eval="${esc(it.name)}" title="${esc(refusalTally(it))}">${esc(state.why) || I18N.t("strategies.waiting")}</p>
       ${custom ? `<div class="row st-mng">
         <button type="button" class="btn tiny ghost" data-st-edit="${esc(it.name)}">${I18N.t("strategies.edit")}</button>
         <button type="button" class="btn tiny ghost st-del" data-st-del="${esc(it.name)}">${I18N.t("strategies.delete")}</button>
@@ -2654,6 +2686,28 @@ function slotsDemoHtml(min, cap) {
  * it would do. Three things are said instead: what the number decides, what
  * the number is made of, and what the last signal actually scored.
  */
+/**
+ * The last time a signal was produced and did NOT become an order.
+ *
+ * This is the answer to "why is the robot not trading". It used to exist
+ * only as one line in the journal, under six different kinds, so the
+ * honest answer took scrolling and a guess. The engine now keeps the last
+ * refusal; this shows it where the setting that caused it lives.
+ */
+function blockHtml(st) {
+  const b = st.last_block || {};
+  if (!b.why) return "";
+  const what = [b.side, b.symbol].filter(Boolean).join(" ").toUpperCase();
+  return `<div class="q-block">
+      <div class="q-last-head">
+        <span>${I18N.t("slots.block_title")}</span>
+        <b class="mono">${esc(b.code || "")}</b>
+      </div>
+      <p class="sub">${esc([b.strategy, what].filter(Boolean).join(" · "))}</p>
+      <p>${esc(b.why)}</p>
+    </div>`;
+}
+
 function qualityHtml(st) {
   const v = st.min_signal_quality ?? 0.55;
   const pct = Math.round(v * 100);
@@ -2663,12 +2717,11 @@ function qualityHtml(st) {
   /* The weights are the engine's, not a description of them: see
      signal_quality() in engine/aurion/runtime/trader.py. */
   const parts = [
-    ["slots.q_ai", "+30"],
-    ["slots.q_htf", "±18"],
-    ["slots.q_strategy", "+10"],
-    ["slots.q_edge", "+10"],
-    ["slots.q_regime", "±8"],
-    ["slots.q_chop", "−10"],
+    ["slots.q_ai", "×1.2"],
+    ["slots.q_htf", "×1.0"],
+    ["slots.q_strategy", "×1.0"],
+    ["slots.q_regime", "×0.5"],
+    ["slots.q_chop", "×0.5"],
   ];
 
   return `<div class="field">
@@ -2688,6 +2741,7 @@ function qualityHtml(st) {
       </ol>
     </div>
 
+    ${blockHtml(st)}
     ${hasLast ? `<div class="q-last ${last.passed ? "ok" : "no"}">
       <div class="q-last-head">
         <span>${I18N.t("slots.q_last")}</span>
