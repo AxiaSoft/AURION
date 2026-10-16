@@ -2753,6 +2753,7 @@ function robotPanelHtml() {
   const propOn = (S.snap?.prop || {}).enabled !== false;
   const dg = st.danger_guard || {};
   const rf = st.risk_free || {};
+  const money = st.money || {};
   const auto = Boolean(st.auto_trade);
 
   return `<div class="card robot-hero${auto ? " is-on" : ""}">
@@ -2861,6 +2862,22 @@ function robotPanelHtml() {
         <p class="sub">${I18N.t("strategies.rf_trigger_help")}</p>
       </div>
 
+      <div class="card" id="set-money">
+        <h3 class="card-h">${I18N.t("money.title")}</h3>
+        <p class="sub">${I18N.t("money.help")}</p>
+        <hr class="set-rule" />
+        <label class="field num-field">
+          <span>${I18N.t("money.cap")}</span>
+          <span class="num-wrap">
+            <input id="st-money-cap" type="number" step="0.5" min="0" value="${Number(money.max_loss_per_lot ?? 10)}" />
+            <b class="num-unit">${esc(money.currency || I18N.t("money.unit"))} / ${I18N.t("money.per_lot")}</b>
+          </span>
+        </label>
+        <p class="sub" id="st-money-reach">${esc(moneyReach(money))}</p>
+        <button class="btn tiny" id="st-money-save" type="button">${I18N.t("money.save")}</button>
+        <p class="sub">${I18N.t("money.zero_off")}</p>
+      </div>
+
       <div class="card">
         ${switchRow({
           id: "st-danger",
@@ -2877,6 +2894,25 @@ function robotPanelHtml() {
       </div>
     </div>
 `;
+}
+
+/**
+ * "At this cap, the widest stop on the live symbol is N points."
+ *
+ * A cap in money is the right unit to think in and the wrong one to
+ * read a chart in, so the desk says both. Where the broker has not
+ * reported a tick value the line says that instead of a number: a
+ * made-up distance would be worse than an empty one.
+ */
+function moneyReach(money) {
+  money = money || {};
+  if (!Number(money.max_loss_per_lot)) return I18N.t("money.off");
+  if (!money.priced) return I18N.t("money.unpriced");
+  return I18N.t("money.reach", {
+    s: money.symbol || "",
+    p: money.max_stop_points == null ? "—" : money.max_stop_points,
+    d: money.max_stop_distance == null ? "—" : money.max_stop_distance,
+  });
 }
 
 /**
@@ -5499,6 +5535,17 @@ function bindRobotPanel() {
     if (!echo) continue;
     field.addEventListener("input", () => { echo.textContent = brokerEcho(field.value); });
   }
+
+  const moneySave = $("st-money-save");
+  if (moneySave) moneySave.onclick = async () => {
+    const field = $("st-money-cap");
+    const r = await API.post("/api/money", { max_loss_per_lot: +(field?.value || 0) });
+    if (!r.ok) { toast(r.error || I18N.t("errors.generic")); return; }
+    const reach = $("st-money-reach");
+    if (reach) reach.textContent = moneyReach(r.money || {});
+    toast(I18N.t(Number(r.money?.max_loss_per_lot) ? "money.saved" : "money.saved_off"));
+    await reloadSettings();
+  };
 
   bindPropGuide();
 

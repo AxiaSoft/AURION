@@ -86,6 +86,54 @@ class MT5Bridge:
         self._last_pos_mark = 0.0
         self._agent_beat: dict[int, float] = {}
         self.AGENT_LIVE_SEC = 18.0
+        # The broker's contract specification, per symbol: what one tick is
+        # worth, the lot step, the digits. Money rules cannot be applied
+        # without it, and it changes about as often as the broker changes
+        # its mind, so it is cached and refreshed rather than asked for on
+        # every order. Either source may fill it — the native terminal
+        # directly, or an attached EA that reports its chart's symbol.
+        self._specs: dict[str, dict[str, Any]] = {}
+
+    # ---- contract specification ------------------------------------------
+
+    def remember_spec(self, symbol: str, spec: dict[str, Any] | None) -> None:
+        """Keep what a source said about a symbol, if it said anything."""
+        name = self._norm_sym(symbol)
+        if not name or not isinstance(spec, dict):
+            return
+        clean = {k: v for k, v in spec.items() if v not in (None, "")}
+        if not clean:
+            return
+        clean["symbol"] = str(symbol)
+        self._specs[name] = {**self._specs.get(name, {}), **clean}
+
+    def symbol_spec(self, symbol: str) -> dict[str, Any]:
+        """The contract spec for a symbol, or {} when nobody can say.
+
+        An empty dict is a real answer and callers depend on it: without
+        a tick value, money cannot be computed, and inventing one would
+        put a confident wrong number on somebody's risk.
+        """
+        name = self._norm_sym(symbol)
+        if not name:
+            return {}
+        if self.native.connected:
+            try:
+                info = self.native.symbol_info(str(symbol))
+            except Exception:  # pragma: no cover - terminal misbehaving
+                log.exception("symbol_info failed for %s", symbol)
+                info = {}
+            if info:
+                self.remember_spec(symbol, info)
+        cached = self._specs.get(name)
+        if cached:
+            return dict(cached)
+        # The EA reports its own chart's symbol; a suffix mismatch between
+        # "EURUSD" and "EURUSD.m" must not lose the spec.
+        for key, value in self._specs.items():
+            if self._sym_match(key, name):
+                return dict(value)
+        return {}
 
     def on_event(self, handler: EventHandler) -> None:
         self._handlers.append(handler)
@@ -838,6 +886,8 @@ class MT5Bridge:
             if not agent:
                 return
             chart_id = self._cid(agent.chart_id)
+            if isinstance(message.get("spec"), dict):
+                self.remember_spec(symbol, message.get("spec"))
             agent.ea_name = str(message.get("ea_name") or "AurionBridge")
             agent.version = str(message.get("version") or "1.0.0")
             agent.params = {**agent.params, **params}
@@ -876,6 +926,12 @@ class MT5Bridge:
             await self._refresh_tape_view(prev_tape)
             if agent.symbol:
                 asyncio.create_task(self._prime_agent(agent), name=f"aurion-prime-{chart_id}")
+            return
+        if kind == "spec":
+            # The EA's answer to "what is this contract worth". Sent on
+            # attach and refreshed on a slow timer, because a stop in
+            # money cannot be computed from price alone.
+            self.remember_spec(str(message.get("symbol") or ""), message.get("spec") or message)
             return
         if kind == "bye":
             chart_id = self._cid(message.get("chart_id"))

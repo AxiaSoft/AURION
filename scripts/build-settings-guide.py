@@ -136,6 +136,11 @@ GROUPS: list[dict] = [
             "ar": "تعمل هذه بعد فتح الصفقة. لا يفتح أي منها صفقة جديدة.",
         },
         "rows": [
+            ("runtime.money.max_loss_per_lot", {
+                "fa": "<b>سقف ضرر هر لات، به پول.</b> حد ضرر با قیمت نوشته می‌شود ولی با پول پرداخت می‌شود، و یک «۱٫۴ برابر ATR» روی یک نماد چند دلار و روی نماد دیگر چند صد دلار است. این عدد می‌گوید هر ۱ لات حداکثر چقدر اجازه دارد ضرر بدهد؛ حد ضرر دورتر از آن، نزدیک‌تر آورده می‌شود، سفارش بدون حد ضرر همان‌جا حد ضرر می‌گیرد، و حجم تا جا شدن در بودجهٔ ریسک کوچک می‌شود. هیچ‌وقت حد ضرر را بازتر نمی‌کند. <code>0</code> یعنی خاموش.",
+                "en": "<b>The per-lot stop cap, in money.</b> A stop is written in price and paid in money, and the same \"1.4 × ATR\" is a few dollars on one instrument and several hundred on another. This says how much one lot may lose: a stop further away is pulled in, an order with no stop is given one, and the lot size is reduced until the risk fits the budget. It never widens a stop. <code>0</code> turns it off.",
+                "ar": "<b>سقف خسارة اللوت بالمال.</b> يُكتب الوقف بالسعر ويُدفع بالمال. يحدد هذا الرقم أقصى خسارة للوت الواحد، فيُقرَّب الوقف الأبعد ويُصغَّر الحجم. <code>0</code> يوقفه.",
+            }),
             ("runtime.risk_free.enabled", {
                 "fa": "«ریسک‌فری». وقتی معامله به اندازهٔ کافی در سود رفت، حد ضرر را به آن‌طرف نقطهٔ ورود می‌برد تا دیگر نتواند ضرر بدهد. روی <b>هر</b> پوزیشن اعمال می‌شود، چه ربات بازش کرده باشد چه شما دستی.",
                 "en": "\"Risk free\". Once a trade is far enough ahead, the stop moves past the entry so the position can no longer lose. It applies to <b>every</b> position, whether the robot opened it or you did.",

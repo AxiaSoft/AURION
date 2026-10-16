@@ -19,6 +19,12 @@ Two things this deliberately does not do:
   the chart a lie.
 * **It does not invent levels.** The stop and target drawn are the ones the
   strategy put on the ticket. Where a strategy sends none, none are shown.
+
+One thing it *does* change, and says so on the mark: money management.
+A stop wider than the account's per-lot loss cap would never be sent at
+that distance, so drawing it would show the trader a trade they cannot
+take. ``cap`` is the caller's rule — the engine's — and when it moves a
+level the mark carries ``capped: true`` and the original distance.
 """
 
 from __future__ import annotations
@@ -55,6 +61,7 @@ def replay(
     ai: dict[str, Any] | None = None,
     budget_seconds: float = 6.0,
     on_error: Callable[[str, Exception], None] | None = None,
+    cap: Callable[[str, float, float], float] | None = None,
 ) -> dict[str, Any]:
     """Run each armed strategy across the tail of ``bars``.
 
@@ -115,7 +122,7 @@ def replay(
                 continue
             if not signal or signal.action not in {"buy", "sell"}:
                 continue
-            out.append(_to_mark(signal, name, i, bar))
+            out.append(_to_mark(signal, name, i, bar, cap))
 
     out = _dedupe(out)
     return {
@@ -130,12 +137,27 @@ def replay(
     }
 
 
-def _to_mark(signal, name: str, index: int, bar: dict[str, Any]) -> dict[str, Any]:
+def _to_mark(
+    signal,
+    name: str,
+    index: int,
+    bar: dict[str, Any],
+    cap: Callable[[str, float, float], float] | None = None,
+) -> dict[str, Any]:
     """One strategy signal, in the shape the chart overlay already reads."""
     extra = dict(getattr(signal, "extra", None) or {})
     entry = _norm(extra.get("entry")) or _norm(bar.get("close"))
     sl = _norm(signal.sl)
     tp = _norm(signal.tp)
+    capped = False
+    if cap is not None and entry > 0 and sl > 0:
+        try:
+            tightened = _norm(cap(str(signal.action), entry, sl), sl)
+        except Exception:
+            tightened = sl
+        if tightened > 0 and abs(tightened - sl) > 1e-12:
+            extra["sl_before_cap"] = sl
+            sl, capped = tightened, True
     risk = abs(entry - sl) if sl else 0.0
     reward = abs(tp - entry) if tp else 0.0
     return {
@@ -148,6 +170,7 @@ def _to_mark(signal, name: str, index: int, bar: dict[str, Any]) -> dict[str, An
         "sl": sl,
         "tp": tp,
         "rr": round(reward / risk, 2) if risk > 0 and reward > 0 else 0.0,
+        "capped": capped,
         "volume": _norm(signal.volume),
         "confidence": round(_norm(signal.confidence), 3),
         "strategy": name,

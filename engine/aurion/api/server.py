@@ -295,6 +295,11 @@ async def risk_free_save(body: dict[str, Any] | None = None) -> dict[str, Any]:
     return await trader.set_risk_free(body or {})
 
 
+@app.post("/v1/money")
+async def money_save(body: dict[str, Any] | None = None) -> dict[str, Any]:
+    return await trader.set_money(body or {})
+
+
 @app.post("/v1/danger")
 async def danger_save(body: dict[str, Any] | None = None) -> dict[str, Any]:
     return await trader.set_danger(body or {})

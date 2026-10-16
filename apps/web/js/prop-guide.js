@@ -133,6 +133,13 @@
           ar: "يحسب الصفقات المفتوحة اليوم. 0 بلا حد."
         },
         {
+          id: "money-cap",
+          label: { fa: "همراه این صفحه: سقف ضرر هر لات", en: "Alongside this page: the per-lot stop cap", ar: "إلى جانب هذه الصفحة: سقف خسارة اللوت" },
+          fa: "در تنظیمات ربات یک عدد هست که ضرر هر ۱ لات را به پول محدود می‌کند و حد ضررِ بازتر از آن را نزدیک می‌آورد. درصدهای این صفحه می‌گویند «چقدر از حساب»، آن عدد می‌گوید «چقدر دلار روی هر لات» — دو قفل روی یک در، و برای حساب چلنج هر دو لازم است.",
+          en: "In the robot settings there is a number that limits what one lot may lose, in money, and pulls in any stop wider than that. The percentages here say how much of the account; that number says how many dollars per lot — two locks on one door, and a challenge account wants both.",
+          ar: "في إعدادات الروبوت رقم يحدّ خسارة اللوت الواحد بالمال ويقرّب أي وقف أوسع منه."
+        },
+        {
           id: "pr-risk",
           label: { fa: "ریسک هر معامله", en: "Risk per trade", ar: "مخاطرة الصفقة" },
           fa: "درصدی از <b>اکوییتی</b> که با فاصله تا حد ضرر، حجم را تعیین می‌کند. این عددی است که همه‌چیز از آن می‌آید: با ۰٫۵٪ ریسک، ده ضرر پشت‌سرهم حدود ۵٪ افت می‌سازد — یعنی دقیقاً لبهٔ همان حد افت بالا. اگر حد افت کم است، این را کم کنید، نه حد ضرر معامله را.",

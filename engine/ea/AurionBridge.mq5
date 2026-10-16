@@ -32,6 +32,7 @@ input int    InpHttpPort     = 18765;
 datetime g_last_bar = 0;
 datetime g_deals_from = 0;
 uint     g_last_beat = 0;
+uint     g_last_spec      = 0;
 uint     g_up_since = 0;
 uint     g_next_try = 0;
 int      g_phase = 0;
@@ -53,6 +54,7 @@ bool SendHello();
 void SendTick();
 void SendCandle(const int shift);
 void SendAccount();
+void SendSpec();
 void SendPositions();
 void SendOrders();
 void SendDeals();
@@ -162,6 +164,11 @@ void OnTimer()
       SendCandle(0);
       SendAccount();
       SendPositions();
+      if(now - g_last_spec >= 60000)
+        {
+         g_last_spec = now;
+         SendSpec();
+        }
      }
    if(!FlushOut())
       g_next_try = now + 600;
@@ -187,6 +194,7 @@ void BurstConnect()
          "  file=", InboxName(), "  ", _Symbol, " ", TfName(_Period));
    SendTick();
    SendCandle(0);
+   SendSpec();
    SendAccount();
    SendPositions();
    SendOrders();
@@ -645,6 +653,34 @@ void PumpHistory()
       g_hist_count = 0;
       ArrayFree(g_hist_rates);
      }
+  }
+
+void SendSpec()
+  {
+//--- What one tick of this symbol is worth.
+//
+//  Without it the engine can price a stop in points and nothing else,
+//  and "no stop may cost more than ten dollars a lot" cannot be
+//  enforced at all. The terminal knows; it simply was never asked.
+//  Sent on attach and refreshed slowly, because a contract
+//  specification changes about as often as the broker does.
+   string json = "{";
+   json += "\"type\":\"spec\",";
+   json += "\"symbol\":\"" + JsonEsc(_Symbol) + "\",";
+   json += "\"digits\":" + IntegerToString((int)SymbolInfoInteger(_Symbol, SYMBOL_DIGITS)) + ",";
+   json += "\"point\":" + DoubleToString(SymbolInfoDouble(_Symbol, SYMBOL_POINT), 8) + ",";
+   json += "\"tick_size\":" + DoubleToString(SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_SIZE), 8) + ",";
+   json += "\"tick_value\":" + DoubleToString(SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_VALUE), 8) + ",";
+   json += "\"tick_value_loss\":" + DoubleToString(SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_VALUE_LOSS), 8) + ",";
+   json += "\"contract_size\":" + DoubleToString(SymbolInfoDouble(_Symbol, SYMBOL_TRADE_CONTRACT_SIZE), 2) + ",";
+   json += "\"volume_min\":" + DoubleToString(SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MIN), 2) + ",";
+   json += "\"volume_step\":" + DoubleToString(SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_STEP), 2) + ",";
+   json += "\"volume_max\":" + DoubleToString(SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MAX), 2) + ",";
+   json += "\"stops_level\":" + IntegerToString((int)SymbolInfoInteger(_Symbol, SYMBOL_TRADE_STOPS_LEVEL)) + ",";
+   json += "\"currency\":\"" + JsonEsc(SymbolInfoString(_Symbol, SYMBOL_CURRENCY_PROFIT)) + "\",";
+   json += TapeTag();
+   json += "}";
+   SendRaw(json);
   }
 
 void SendAccount()

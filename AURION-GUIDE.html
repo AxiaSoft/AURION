@@ -278,6 +278,8 @@
     
 
     
+
+    
 <!-- settings-reference:start -->
       <h2 id="fa-16">۱۶. مرجع کامل تنظیمات</h2>
       <p>هر کلیدی که AURION می‌خواند، با مقدار پیش‌فرض واقعی‌اش. این جدول‌ها از
@@ -302,6 +304,7 @@
       <p>این‌ها بعد از باز شدن پوزیشن کار می‌کنند. هیچ‌کدام سفارش جدید باز نمی‌کنند.</p>
       <table>
         <tr><th>کلید</th><th>پیش‌فرض</th><th>توضیح</th></tr>
+        <tr><td><code>runtime.money.max_loss_per_lot</code></td><td><code>10.0</code></td><td><b>سقف ضرر هر لات، به پول.</b> حد ضرر با قیمت نوشته می‌شود ولی با پول پرداخت می‌شود، و یک «۱٫۴ برابر ATR» روی یک نماد چند دلار و روی نماد دیگر چند صد دلار است. این عدد می‌گوید هر ۱ لات حداکثر چقدر اجازه دارد ضرر بدهد؛ حد ضرر دورتر از آن، نزدیک‌تر آورده می‌شود، سفارش بدون حد ضرر همان‌جا حد ضرر می‌گیرد، و حجم تا جا شدن در بودجهٔ ریسک کوچک می‌شود. هیچ‌وقت حد ضرر را بازتر نمی‌کند. <code>0</code> یعنی خاموش.</td></tr>
         <tr><td><code>runtime.risk_free.enabled</code></td><td><code>false</code></td><td>«ریسک‌فری». وقتی معامله به اندازهٔ کافی در سود رفت، حد ضرر را به آن‌طرف نقطهٔ ورود می‌برد تا دیگر نتواند ضرر بدهد. روی <b>هر</b> پوزیشن اعمال می‌شود، چه ربات بازش کرده باشد چه شما دستی.</td></tr>
         <tr><td><code>runtime.risk_free.trigger_pct</code></td><td><code>0.3</code></td><td>چقدر سود لازم است تا این حرکت مسلح شود — بر حسب <b>درصد قیمت ورود</b>، نه پوینت. یک عدد پوینتی به قیمت نماد وابسته است و با تغییر نماد بی‌معنی می‌شود؛ درصد روی همه یک معنی دارد. <b>مثال:</b> با <code>0.3</code>، ورود خرید در ۲۴۰۰ در ۲۴۰۷٫۲ مسلح می‌شود و ورود خرید در ۱٫۰۸۵۰ در ۱٫۰۸۸۳.</td></tr>
         <tr><td><code>runtime.risk_free.lock_pct</code></td><td><code>0.0</code></td><td>حد ضرر چقدر آن‌طرفِ ورود بنشیند. <code>0</code> یعنی خودکار: <b>اسپرد زندهٔ همان لحظه + یک‌دهم تریگر</b>. این مقدار پیش‌فرض عمدی است — حد ضرری که <i>دقیقاً روی</i> قیمت ورود باشد باز هم با ضرر بسته می‌شود، چون برای خروج باید اسپرد رد شود و کمیسیون هم قبلاً گرفته شده.</td></tr>
@@ -569,6 +572,8 @@
     
 
     
+
+    
 <!-- settings-reference:start -->
       <h2 id="en-16">16. Complete settings reference</h2>
       <p>Every key AURION reads, with its real default. These tables are generated from
@@ -593,6 +598,7 @@
       <p>These act after a position exists. None of them opens anything.</p>
       <table>
         <tr><th>Key</th><th>Default</th><th>What it does</th></tr>
+        <tr><td><code>runtime.money.max_loss_per_lot</code></td><td><code>10.0</code></td><td><b>The per-lot stop cap, in money.</b> A stop is written in price and paid in money, and the same "1.4 × ATR" is a few dollars on one instrument and several hundred on another. This says how much one lot may lose: a stop further away is pulled in, an order with no stop is given one, and the lot size is reduced until the risk fits the budget. It never widens a stop. <code>0</code> turns it off.</td></tr>
         <tr><td><code>runtime.risk_free.enabled</code></td><td><code>false</code></td><td>"Risk free". Once a trade is far enough ahead, the stop moves past the entry so the position can no longer lose. It applies to <b>every</b> position, whether the robot opened it or you did.</td></tr>
         <tr><td><code>runtime.risk_free.trigger_pct</code></td><td><code>0.3</code></td><td>How much profit arms the move, as a <b>percentage of the entry price</b> rather than points. A figure in points depends on what the instrument costs and stops meaning anything the moment you trade something else; a percentage means the same everywhere. <b>Example:</b> at <code>0.3</code>, a long at 2400 arms at 2407.2 and a long at 1.0850 arms at 1.0883.</td></tr>
         <tr><td><code>runtime.risk_free.lock_pct</code></td><td><code>0.0</code></td><td>How far past the entry the stop sits. <code>0</code> means derive it: <b>the live spread plus a tenth of the trigger</b>. That default is deliberate — a stop sitting <i>exactly on</i> the open price still closes at a loss, because the spread has to be crossed to get out and the commission was already charged.</td></tr>
@@ -768,6 +774,8 @@
     
 
     
+
+    
 <!-- settings-reference:start -->
       <h2 id="ar-16">١٦. مرجع الإعدادات الكامل</h2>
       <p>كل مفتاح يقرأه AURION مع قيمته الافتراضية الحقيقية. تُولَّد هذه الجداول من
@@ -790,6 +798,7 @@
       <p>تعمل هذه بعد فتح الصفقة. لا يفتح أي منها صفقة جديدة.</p>
       <table>
         <tr><th>المفتاح</th><th>الافتراضي</th><th>الوظيفة</th></tr>
+        <tr><td><code>runtime.money.max_loss_per_lot</code></td><td><code>10.0</code></td><td><b>سقف خسارة اللوت بالمال.</b> يُكتب الوقف بالسعر ويُدفع بالمال. يحدد هذا الرقم أقصى خسارة للوت الواحد، فيُقرَّب الوقف الأبعد ويُصغَّر الحجم. <code>0</code> يوقفه.</td></tr>
         <tr><td><code>runtime.risk_free.enabled</code></td><td><code>false</code></td><td>«بدون مخاطرة». عند تحقيق ربح كافٍ، يُنقل وقف الخسارة خلف نقطة الدخول.</td></tr>
         <tr><td><code>runtime.risk_free.trigger_pct</code></td><td><code>0.3</code></td><td>مقدار الربح الذي يُفعّل النقل، كنسبة مئوية من سعر الدخول وليس بالنقاط، لأن النقاط تعتمد على سعر الأداة. <b>مثال:</b> عند <code>0.3</code> يُفعَّل شراء عند 2400 في 2407.2.</td></tr>
         <tr><td><code>runtime.risk_free.lock_pct</code></td><td><code>0.0</code></td><td>مسافة الوقف خلف نقطة الدخول. <code>0</code> يعني الاشتقاق من السبريد الحي.</td></tr>

@@ -394,6 +394,20 @@
     "guide_search_ph": "e.g. drawdown, hours, news",
     "guide_empty": "Nothing matches that."
   },
+  "money": {
+    "title": "Money management — the per-lot stop cap",
+    "help": "A stop is written in price but paid in money. This number is the most one lot may lose, and every order and every open position is measured against it: a stop further away is pulled in, an order with no stop is given one here, and the lot size is reduced to stay inside your risk budget. It never widens a stop.",
+    "cap": "Max loss per lot",
+    "per_lot": "per lot",
+    "unit": "USD",
+    "save": "Save the cap",
+    "zero_off": "0 turns the rule off and leaves stops wherever the strategy put them.",
+    "off": "The rule is off.",
+    "unpriced": "The broker has not reported a tick value for this symbol, so the cap cannot be applied here. Attach the EA to this symbol's chart.",
+    "reach": "At this cap the widest stop on {s} is about {p} points (a distance of {d}).",
+    "saved": "Per-lot stop cap saved.",
+    "saved_off": "Per-lot stop cap turned off."
+  },
   "exec": {
     "title": "Execution",
     "buy": "Buy market",

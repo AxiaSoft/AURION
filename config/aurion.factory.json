@@ -78,6 +78,9 @@
       "trigger_pct": 0.3,
       "lock_pct": 0.0
     },
+    "money": {
+      "max_loss_per_lot": 10.0
+    },
     "strategies": {
       "ema_rsi": {
         "enabled": false

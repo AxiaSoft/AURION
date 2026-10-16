@@ -11,6 +11,7 @@ from .deals import aggregate_close_deals, history_row_matches
 from ..prop.hours import (broker_offset_minutes, resolve_zone, zone_choices,
                           zone_label, zone_offset_minutes)
 from .gates import fire_blockers as gate_blockers
+from .risk import SymbolSpec, cap_stop, money_at_risk, volume_for_risk
 from .stops import resolve_stop
 from ..ai.engine import AIEngine
 from ..backtest.engine import Backtester
@@ -102,6 +103,11 @@ class Trader:
         # clock rather than asked for.
         self.desk_timezone = "broker"
         self.risk_free_enabled = False
+        # Money management, stated the one way that means the same thing on
+        # every instrument: what a stop is allowed to cost per 1.00 lot.
+        self.max_loss_per_lot = 10.0
+        self._spec_gap_said: set[str] = set()
+        self._cap_note: dict[int, float] = {}
         self.risk_free_trigger_pct = 0.30
         self.risk_free_lock_pct = 0.0
         # Which rule last moved each position's stop, so "this trade is
@@ -267,6 +273,7 @@ class Trader:
             await self.bus.publish("tick", payload)
             if not self.active_symbol and self._is_ea_symbol(sym):
                 self.active_symbol = sym
+            await self._enforce_stop_cap(payload)
             await self._maybe_trail(payload)
             await self._maybe_danger_guard(payload)
             if self._is_ea_symbol(sym):
@@ -914,6 +921,198 @@ class Trader:
             log.exception("strategy book failed")
             await self.journal("error", "book_fault", f"Strategy book crashed: {exc}")
 
+    # ------------------------------------------------------------------
+    # Money management — what a stop is allowed to cost
+    # ------------------------------------------------------------------
+    def symbol_spec(self, symbol: str) -> SymbolSpec:
+        """The broker's contract spec for a symbol, as a SymbolSpec."""
+        try:
+            info = self.bridge.symbol_spec(str(symbol or ""))
+        except Exception:
+            log.exception("symbol spec lookup failed for %s", symbol)
+            info = {}
+        return SymbolSpec.from_info(info, str(symbol or ""))
+
+    def _cap(self) -> float:
+        try:
+            return max(0.0, float(getattr(self, "max_loss_per_lot", 0.0) or 0.0))
+        except (TypeError, ValueError):
+            return 0.0
+
+    async def _no_spec(self, symbol: str) -> None:
+        """Say once per symbol that money cannot be priced here.
+
+        Not silently skipped: a cap the trader believes is protecting
+        them, and is not, is worse than no cap. It is also not a refusal
+        to trade — the stop the strategy chose is still a stop.
+        """
+        key = str(symbol or "")
+        if key in self._spec_gap_said:
+            return
+        self._spec_gap_said.add(key)
+        await self.journal(
+            "warning",
+            "no_spec",
+            f"{key}: the broker has not reported a tick value, so the "
+            f"{self._cap():.2f} per-lot stop cap cannot be applied here. "
+            "Attach AurionBridge to this symbol's chart, or connect the terminal.",
+        )
+
+    async def _apply_money_rules(self, request: dict[str, Any], price: float = 0.0) -> dict[str, Any]:
+        """Hold every outgoing ticket to the per-lot loss cap.
+
+        Three things happen here, in this order, and all three are the
+        same rule seen from different sides:
+
+          * a ticket with no stop gets one, at exactly the cap;
+          * a stop further away than the cap is pulled in to it;
+          * the lot size is reduced until the stop's cost fits the
+            account's risk budget.
+
+        The stop is only ever moved *closer* to the entry. Nothing here
+        widens risk, and nothing here invents a price: with no contract
+        spec the request goes out untouched and the journal says so.
+        """
+        cap = self._cap()
+        if cap <= 0:
+            return request
+        action = str(request.get("action") or "").lower()
+        if action not in {"market", "pending", "limit", "stop", "buy", "sell"}:
+            return request
+        symbol = str(request.get("symbol") or "")
+        side = str(request.get("side") or request.get("action") or "").lower()
+        if side not in {"buy", "sell"} or not symbol:
+            return request
+
+        spec = self.symbol_spec(symbol)
+        if not spec.usable:
+            await self._no_spec(symbol)
+            return request
+
+        entry = float(price or request.get("price") or 0.0)
+        if entry <= 0:
+            tick = self.bridge.ticks.get(symbol)
+            if tick:
+                entry = float((tick.ask if side == "buy" else tick.bid) or 0)
+        if entry <= 0:
+            return request
+
+        capped = cap_stop(side, entry, float(request.get("sl") or 0), spec, cap)
+        if capped is None:
+            return request
+        if capped.capped:
+            before = float(request.get("sl") or 0)
+            request["sl"] = capped.sl
+            await self.journal(
+                "info",
+                "stop_capped",
+                f"{symbol} {side}: stop {('moved to ' + str(capped.sl)) if before else 'set at ' + str(capped.sl)} "
+                f"so one lot risks {capped.money_per_lot:.2f}, not more than {cap:.2f} "
+                f"({capped.reason})",
+                {"before": before, "after": capped.sl, "per_lot": round(capped.money_per_lot, 2)},
+            )
+
+        # Position sizing. The cap bounds what one lot may lose; the
+        # account's own risk budget bounds how many lots that is.
+        budget = self._risk_budget()
+        requested = float(request.get("volume") or 0)
+        if budget > 0 and requested > 0:
+            sized = volume_for_risk(side, entry, float(request.get("sl") or 0), spec, budget, requested)
+            if sized > 0 and sized < requested - 1e-9:
+                await self.journal(
+                    "info",
+                    "sized_down",
+                    f"{symbol}: {requested:.2f} lots would risk "
+                    f"{money_at_risk(side, entry, float(request.get('sl') or 0), requested, spec):.2f}; "
+                    f"sent {sized:.2f} to stay inside the {budget:.2f} budget",
+                    {"requested": requested, "sent": sized, "budget": round(budget, 2)},
+                )
+                request["volume"] = sized
+            elif sized <= 0:
+                # Below the broker's minimum lot the only honest sizes are
+                # "the minimum" or "nothing", and nothing is the one that
+                # respects the budget.
+                await self.journal(
+                    "warning",
+                    "too_small",
+                    f"{symbol}: the budget of {budget:.2f} does not pay for the broker's minimum lot — no entry",
+                )
+                request["volume"] = 0.0
+        return request
+
+    def _risk_budget(self) -> float:
+        """What one trade may lose, in account money.
+
+        Prop's own per-trade percentage when prop is on, because that is
+        the number the trader agreed to with the firm; otherwise the cap
+        itself, read as one lot's worth.
+        """
+        account = self.bridge.account.to_dict() if getattr(self, "bridge", None) else {}
+        equity = 0.0
+        for key in ("equity", "balance"):
+            try:
+                equity = float(account.get(key) or 0)
+            except (TypeError, ValueError):
+                equity = 0.0
+            if equity > 0:
+                break
+        prop = getattr(self, "prop", None)
+        if prop is not None and getattr(prop, "enabled", False) and equity > 0:
+            try:
+                pct = float((prop.profile or {}).get("max_risk_per_trade_pct") or 0)
+            except Exception:
+                pct = 0.0
+            if pct > 0:
+                return equity * pct / 100.0
+        return 0.0
+
+    async def _enforce_stop_cap(self, tick: dict[str, Any]) -> None:
+        """The same rule, applied to positions that are already open.
+
+        A ticket can acquire too much risk after it was sent: the stop
+        is edited in the terminal, the cap is lowered on this page, or
+        the position was opened by hand with no stop at all. The rule is
+        a standing one, so it is enforced on every tick and not only at
+        the moment of entry — and, as everywhere else, it only ever
+        moves a stop closer to the entry.
+        """
+        cap = self._cap()
+        if cap <= 0:
+            return
+        symbol = str(tick.get("symbol") or "")
+        bridge = getattr(self, "bridge", None)
+        if not symbol or bridge is None:
+            return
+        spec = self.symbol_spec(symbol)
+        if not spec.usable:
+            return
+        for pos in list(bridge.positions):
+            if pos.symbol != symbol:
+                continue
+            side = str(pos.type or "").lower()
+            entry = float(pos.price_open or 0)
+            if side not in {"buy", "sell"} or entry <= 0:
+                continue
+            capped = cap_stop(side, entry, float(pos.sl or 0), spec, cap)
+            if capped is None or not capped.capped:
+                continue
+            if abs(self._cap_note.get(pos.ticket, 0.0) - capped.sl) < spec.tick_size / 2:
+                continue        # already asked for this one
+            self._cap_note[pos.ticket] = capped.sl
+            await self.journal(
+                "warning",
+                "stop_capped_live",
+                f"{symbol} #{pos.ticket} risked more than {cap:.2f} per lot — stop pulled to {capped.sl}",
+                {"ticket": pos.ticket, "sl": capped.sl, "per_lot": round(capped.money_per_lot, 2)},
+            )
+            await bridge.send_order({
+                "action": "modify",
+                "ticket": pos.ticket,
+                "symbol": symbol,
+                "sl": capped.sl,
+                "tp": pos.tp,
+            })
+
     async def _maybe_trail(self, tick: dict[str, Any]) -> None:
         """Move protective stops forward, never back.
 
@@ -1139,6 +1338,61 @@ class Trader:
             extra=state,
         )
         return {"ok": True, "risk_free": state}
+
+    def _money_state(self) -> dict[str, Any]:
+        """What the desk needs to draw the money rule and its reach."""
+        cap = self._cap()
+        symbol = str(getattr(self, "active_symbol", "") or "")
+        spec = self.symbol_spec(symbol) if symbol else SymbolSpec()
+        state: dict[str, Any] = {
+            "max_loss_per_lot": cap,
+            "symbol": symbol,
+            "priced": bool(spec.usable),
+            "currency": spec.currency or str((self.bridge.account.to_dict() or {}).get("currency") or ""),
+        }
+        if spec.usable and cap > 0:
+            distance = spec.floor_to_tick(spec.distance_for(cap))
+            state["max_stop_distance"] = spec.round_price(distance)
+            state["max_stop_points"] = round(distance / spec.tick_size, 1) if spec.tick_size else 0
+        return state
+
+    async def set_money(self, body: dict[str, Any]) -> dict[str, Any]:
+        """Set the per-lot loss cap. 0 turns the rule off, loudly."""
+        body = dict(body or {})
+        if "max_loss_per_lot" in body:
+            try:
+                value = float(body.get("max_loss_per_lot") or 0)
+            except (TypeError, ValueError):
+                return {"ok": False, "error": "max_loss_per_lot must be a number"}
+            self.max_loss_per_lot = max(0.0, min(100_000.0, value))
+        self._spec_gap_said.clear()
+        self._cap_note.clear()
+        self._sync_book_meta()
+        self._persist_runtime()
+        await self.bus.publish("strategy", self.strategy_meta)
+        state = self._money_state()
+        await self.journal(
+            "info",
+            "money_cfg",
+            (f"Stop cap set to {state['max_loss_per_lot']:.2f} per lot"
+             if state["max_loss_per_lot"] > 0
+             else "Stop cap OFF — stops are whatever the strategy asks for"),
+            extra=state,
+        )
+        return {"ok": True, "money": state}
+
+    def _chart_stop_cap(self, symbol: str):
+        """A (side, entry, sl) -> sl rule for the chart replay, or None."""
+        cap = self._cap()
+        spec = self.symbol_spec(symbol)
+        if cap <= 0 or not spec.usable:
+            return None
+
+        def rule(side: str, entry: float, sl: float) -> float:
+            out = cap_stop(side, entry, sl, spec, cap)
+            return out.sl if out else sl
+
+        return rule
 
     async def set_danger(self, body: dict[str, Any]) -> dict[str, Any]:
         body = dict(body or {})
@@ -1366,6 +1620,11 @@ class Trader:
         system = cfg.get("system") if isinstance(cfg.get("system"), dict) else {}
         self.desk_timezone = str(system.get("timezone") or "UTC").strip() or "UTC"
         self.prop.desk_timezone = self.desk_timezone
+        money_cfg = runtime.get("money") if isinstance(runtime.get("money"), dict) else {}
+        try:
+            self.max_loss_per_lot = max(0.0, float(money_cfg.get("max_loss_per_lot", 10.0)))
+        except (TypeError, ValueError):
+            self.max_loss_per_lot = 10.0
         rf_cfg = runtime.get("risk_free") if isinstance(runtime.get("risk_free"), dict) else {}
         self.risk_free_enabled = bool(rf_cfg.get("enabled", False))
         self.risk_free_trigger_pct = self._clamp_pct(rf_cfg.get("trigger_pct"), 0.30)
@@ -1782,6 +2041,7 @@ class Trader:
             "pending_orders": len(self._own_pending_orders()),
             "danger_guard": self._danger_state(),
             "risk_free": self._risk_free_state(),
+            "money": self._money_state(),
             "system": self._timezone_state(),
             "auto_limit": self._auto_limit_meta(),
             "prop_enabled": bool(getattr(self.prop, "enabled", True)),
@@ -1836,6 +2096,9 @@ class Trader:
                         "zone_depth": float(getattr(self, "auto_entry_depth", 0.5)),
                         "offset_atr": float(getattr(self, "auto_entry_offset", 0.35)),
                         "expiry_minutes": int(getattr(self, "auto_entry_expiry", 120)),
+                    },
+                    "money": {
+                        "max_loss_per_lot": float(getattr(self, "max_loss_per_lot", 10.0) or 0.0),
                     },
                     "risk_free": {
                         "enabled": bool(self.risk_free_enabled),
@@ -2617,6 +2880,12 @@ class Trader:
                     request[key] = val
                 else:
                     request.pop(key, None)
+            # Money management, before any gate judges the ticket: the
+            # stop the prop rules are asked to approve has to be the stop
+            # that will actually be sent.
+            request = await self._apply_money_rules(request)
+            if float(request.get("volume") or 0) <= 0:
+                return {"ok": False, "error": "volume after sizing is below the broker's minimum lot"}
         if str(request.get("action") or "") == "market" and not self.news_trading_on():
             blocked, why = self.prop._news_blackout(str(request.get("symbol") or ""), force=True)
             if blocked:
@@ -2642,6 +2911,11 @@ class Trader:
         ):
             try:
                 request = await self._apply_auto_entry(request)
+                if str(request.get("action") or "") == "pending":
+                    # The resting price is not the market price, so the
+                    # stop's cost in money is a different number. Price
+                    # it again rather than shipping yesterday's answer.
+                    request = await self._apply_money_rules(request, float(request.get("price") or 0))
             except Exception:
                 log.exception("auto entry planning failed - sending at market")
         await self.journal(
@@ -3310,6 +3584,10 @@ class Trader:
                     # answer to "what did the strategy see".
                     ai={},
                     on_error=lambda name, exc: log.warning("chart replay: %s failed: %s", name, exc),
+                    # The marks obey the money rule too. A stop drawn at a
+                    # distance the engine would refuse to send is a trade
+                    # the trader cannot actually take.
+                    cap=self._chart_stop_cap(symbol),
                 )
             else:
                 # Nothing armed. Falling back to the indicator read keeps the
