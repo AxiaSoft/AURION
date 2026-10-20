@@ -510,7 +510,10 @@ function passthrough(method, enginePath) {
       url = `${enginePath}?${q}`;
     }
     const data = await engine.proxy(method, url, payload);
-    const status = data && data.error === "engine_offline" ? 503 : 200;
+    // 503 means "gone". A request that merely outran its timeout while
+    // the engine kept answering health checks is 504, and the desk reads
+    // the difference rather than painting the engine dead.
+    const status = data && data.error === "engine_offline" ? 503 : data && data.error === "engine_busy" ? 504 : 200;
     res.status(status).json(data);
   };
 }
@@ -855,6 +858,7 @@ guarded.get("/host-logs", (req, res) => {
 guarded.post("/history/reset", passthrough("POST", "/v1/history/reset"));
 guarded.post("/backtest", passthrough("POST", "/v1/backtest"));
 guarded.get("/backtest", passthrough("GET", "/v1/backtest"));
+guarded.get("/analysis", passthrough("GET", "/v1/analysis"));
 guarded.get("/config", passthrough("GET", "/v1/config"));
 guarded.post("/config", passthrough("POST", "/v1/config"));
 guarded.get("/telegram", passthrough("GET", "/v1/telegram"));

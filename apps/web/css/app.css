@@ -2314,3 +2314,25 @@ html[data-theme="light"] .set-rail .set-jump button.on{background:linear-gradien
    entry on its own. Amber rather than red - nothing is broken, a number
    has been asked for that the AI cannot reach. */
 .sub.warn{color:var(--amber, #d8a657)}
+
+/* Live analysis: the "why it is not trading" list. Each item is one
+   reason with its own fix, because a stack of reason codes run together
+   in a sentence is the thing this panel exists to replace. */
+.an-why { margin: 6px 0 0; padding-left: 18px; }
+.an-why li { margin: 0 0 6px; line-height: 1.5; }
+.an-why li b { font-weight: 600; }
+#an-console { max-height: 240px; overflow: auto; }
+#an-console .row-line { display: flex; gap: 10px; align-items: baseline; }
+#an-console .row-line.error > span:last-child { color: var(--down, #ff6b6b); }
+#an-console .row-line.warning > span:last-child { color: var(--warn, #ffb02e); }
+
+/* Trade notifications. Colour carries the news before the words do:
+   an entry is neutral, a profitable exit is the up colour, a loss the
+   down one. Status messages never reach this stack - they are toasts. */
+.notify-card.trade-card { border-left: 3px solid var(--line, #3a3f52); }
+.notify-card.trade-card.is-entry { border-left-color: var(--accent, #6aa6ff); }
+.notify-card.trade-card.is-profit { border-left-color: var(--up, #2ecc71); }
+.notify-card.trade-card.is-loss { border-left-color: var(--down, #ff6b6b); }
+.notify-card.trade-card h4 { margin: 0 0 4px; font-size: 14px; }
+.notify-card.trade-card .sub { margin: 0; }
+#notify-card .field { align-items: center; }

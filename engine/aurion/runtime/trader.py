@@ -874,22 +874,72 @@ class Trader:
         except Exception:
             log.exception("pending sweep failed")
         tg = getattr(self, "telegram", None)
-        if getattr(self, "_pos_bootstrapped", False) and tg:
+        if getattr(self, "_pos_bootstrapped", False):
+            # One event per real entry and exit, published where the
+            # runtime already works out that a position appeared or
+            # disappeared - and behind the same bootstrap flag, so
+            # reconnecting to a desk with eight open trades does not
+            # announce eight entries that happened yesterday.
+            #
+            # The desk decides what to do with these: an entry and an
+            # exit are worth a sound and a Windows toast, a change of
+            # status is not. That judgement belongs on this side of the
+            # bus, so "a trade happened" is a different kind of message
+            # from "something changed", rather than both being a log line
+            # the desk has to pattern-match.
             for item in opened:
-                try:
-                    await tg.notify_open(item)
-                except Exception:
-                    log.exception("telegram open notify failed")
+                await self._announce_trade("entry", item)
             for old in closed_rows:
-                try:
-                    await tg.notify_close(old)
-                except Exception:
-                    log.exception("telegram close notify failed")
+                await self._announce_trade("exit", old)
+            if tg:
+                for item in opened:
+                    try:
+                        await tg.notify_open(item)
+                    except Exception:
+                        log.exception("telegram open notify failed")
+                for old in closed_rows:
+                    try:
+                        await tg.notify_close(old)
+                    except Exception:
+                        log.exception("telegram close notify failed")
         self._pos_bootstrapped = True
         if closed:
             self._sync_book_meta()
             await self.bus.publish("strategy", self.strategy_meta)
             await self.bus.publish("history", {"items": self.store.history(80)})
+
+    async def _announce_trade(self, kind: str, row: dict[str, Any]) -> None:
+        """Say that a trade opened or closed, and how it went.
+
+        An exit is split into profit and loss here rather than on the
+        desk, because the engine is the only side that knows the real
+        figure - the desk sees a position vanish and would have to guess.
+        """
+        try:
+            row = dict(row or {})
+            profit = float(row.get("profit") or 0)
+            result = "flat"
+            if kind == "exit":
+                result = "profit" if profit > 0 else "loss" if profit < 0 else "flat"
+            await self.bus.publish("trade", {
+                "kind": kind,
+                "result": result,
+                "ticket": row.get("ticket"),
+                "symbol": row.get("symbol") or "",
+                "side": str(row.get("type") or row.get("side") or "").lower(),
+                "volume": float(row.get("volume") or 0),
+                "price": float(row.get("price_open") or row.get("price") or 0),
+                "close_price": float(row.get("price_current") or row.get("close") or 0),
+                "profit": profit,
+                "strategy": row.get("strategy") or "",
+                # The account's currency when the row does not carry one,
+                # so the desk never shows a bare number for an amount.
+                "currency": row.get("currency") or getattr(self.bridge.account, "currency", "") or "",
+                "ts": utc_iso(),
+            })
+        except Exception:
+            # A notification is never worth losing the position update for.
+            log.exception("trade announcement failed")
 
     def _is_ea_symbol(self, symbol: str) -> bool:
         want = str(symbol or "").strip()
@@ -3620,6 +3670,7 @@ class Trader:
             "experts": self.experts_state(),
             "last_signal": self.last_signal,
             "gate": self.trade_gate(),
+            "analysis": self._safe_analysis(),
             "gates": self.gates_by_symbol(),
             "license": self.license.public(),
             "robot": list(self.robot_log)[-80:],
@@ -3655,6 +3706,164 @@ class Trader:
         last_sym = str((self.ai.last or {}).get("symbol") or "")
         items = [st for sym, st in by.items() if not active or sym in active or sym == last_sym]
         return items[-12:]
+
+    # ------------------------------------------------------------------
+    # "Why is it not trading, and when will it?"
+    #
+    # Every part of the answer already existed, in five different places:
+    # the gate's reason codes, the strategy's own refusal, the running
+    # refusal tally, the AI read, and the journal. Scattered, they ask the
+    # trader to be the one who joins them up, and a trader watching a
+    # robot do nothing cannot tell a quiet market from a broken install.
+    # This assembles them into one answer about one symbol and one
+    # strategy, in sentences rather than codes.
+    # ------------------------------------------------------------------
+
+    GATE_PLAIN = {
+        "mt5_down": ("MetaTrader is not connected", "Open MetaTrader and attach AurionBridge to the chart."),
+        "kill": ("The kill switch is down", "Release the kill switch on the dashboard."),
+        "safe": ("Safe mode is on after a fault", "Clear safe mode once you have read the fault."),
+        "prop_lock": ("The prop rules have locked trading", "Wait for the next prop period, or relax the profile."),
+        "auto_off": ("Auto-trade is off", "Arm auto-trade. Until then the robot watches and reports but never sends."),
+        "no_strategy": ("No strategy is enabled", "Enable one in Strategies."),
+        "slots_full": ("Every trade slot is already in use", "Close a position or raise the open-trade cap."),
+        "ai_low": ("The AI is not confident enough yet", "Wait, or lower the AI confidence filter."),
+    }
+
+    def _safe_analysis(self) -> dict[str, Any]:
+        """A reporting read must never be the thing that breaks a snapshot."""
+        try:
+            return self.analysis()
+        except Exception:
+            log.exception("analysis unavailable")
+            return {"symbol": self.active_symbol, "blockers": [], "console": [], "fault": True}
+
+    def analysis(self, symbol: str = "", strategy: str = "") -> dict[str, Any]:
+        """One readable account of what the robot is doing right now."""
+        symbol = str(symbol or self.active_symbol or "")
+        timeframe = str(self.active_timeframe or "M15")
+        gate = self.trade_gate()
+
+        name = str(strategy or "")
+        if not name or name not in self.book:
+            enabled = [k for k, v in self.book.items() if v.get("enabled")]
+            name = enabled[0] if enabled else (next(iter(self.book), "") if self.book else "")
+        slot = self.book.get(name) or {}
+        inst = slot.get("inst")
+
+        ai = dict(self.ai.last or {})
+        if symbol:
+            by = dict(getattr(self.ai, "by_symbol", None) or {})
+            ai = dict(by.get(symbol) or ai)
+
+        blockers: list[dict[str, Any]] = []
+        for code in gate.get("reasons") or []:
+            text, fix = self.GATE_PLAIN.get(code, (str(code).replace("_", " "), ""))
+            blockers.append({"code": code, "text": text, "fix": fix, "where": "desk"})
+
+        # The strategy's own verdict, which is a different thing from the
+        # desk's gates: the gates say whether a signal would be allowed
+        # out, this says whether there is one.
+        refusal = str(getattr(inst, "last_refusal", "") or "") if inst else ""
+        live_action = str(slot.get("live_action") or slot.get("last_action") or "")
+        live_reason = str(slot.get("live_reason") or slot.get("last_reason") or "")
+        setup = bool(live_action in {"buy", "sell"})
+        if not setup and name:
+            blockers.append({
+                "code": "no_setup",
+                "text": refusal or live_reason or "no setup on this bar",
+                "fix": "",
+                "where": "strategy",
+            })
+
+        try:
+            refusals = [
+                {"reason": kind, "count": int(count)}
+                for kind, count in (inst.refusal_report(6) if inst and hasattr(inst, "refusal_report") else [])
+            ]
+        except Exception:
+            refusals = []
+
+        # "When" has two honest answers and they are not the same. If
+        # something on the desk is switched off, the answer is "when you
+        # switch it on" - no amount of waiting fixes it. If the only thing
+        # missing is a setup, the answer is the next time this strategy is
+        # asked, which is the close of the current candle.
+        desk_side = [b for b in blockers if b["where"] == "desk"]
+        next_eval = self._next_candle_close(symbol, timeframe)
+        if desk_side:
+            when = "Not until the above is cleared — this will not fix itself with time."
+        elif setup:
+            when = "Now: a setup is on the table and nothing is blocking it."
+        else:
+            when = f"At the next candle close ({timeframe}), when the strategy is asked again."
+
+        return {
+            "symbol": symbol,
+            "timeframe": timeframe,
+            "strategy": name,
+            "strategy_enabled": bool(slot.get("enabled")),
+            "ready": bool(gate.get("ready")),
+            "setup": setup,
+            "action": live_action,
+            "reason": live_reason,
+            "refusal": refusal,
+            "refusals": refusals,
+            "blockers": blockers,
+            "when": when,
+            "next_eval": next_eval,
+            "ai": {
+                "ready": bool(ai.get("ready")),
+                "direction": ai.get("direction") or ai.get("bias") or "",
+                "confidence": float(ai.get("confidence") or 0),
+                "min_confidence": float(self.min_ai_confidence or 0),
+                "gate": bool(self.require_ai_agree),
+                "regime": ai.get("regime") or "",
+                "edge": ai.get("edge"),
+            },
+            "market": self.market_state(),
+            "console": self._analysis_console(symbol, name),
+            "ts": utc_iso(),
+        }
+
+    MINUTES = {
+        "M1": 1, "M5": 5, "M15": 15, "M30": 30,
+        "H1": 60, "H4": 240, "D1": 1440, "W1": 10080,
+    }
+
+    def _next_candle_close(self, symbol: str, timeframe: str) -> dict[str, Any]:
+        """When this strategy is next asked anything, in seconds and in words."""
+        minutes = self.MINUTES.get(str(timeframe or "").upper(), 0)
+        if minutes <= 0:
+            return {"in_seconds": None, "text": ""}
+        period = minutes * 60
+        remaining = int(period - (time.time() % period))
+        if remaining >= 3600:
+            text = f"in about {remaining // 3600}h {(remaining % 3600) // 60}m"
+        elif remaining >= 60:
+            text = f"in about {remaining // 60}m {remaining % 60}s"
+        else:
+            text = f"in {remaining}s"
+        return {"in_seconds": remaining, "text": text}
+
+    def _analysis_console(self, symbol: str, strategy: str) -> list[dict[str, Any]]:
+        """The journal, narrowed to the lines about this symbol and strategy.
+
+        The full robot log is every chart at once, which is the reason
+        nobody reads it. Entries, exits and faults are always kept: those
+        are the lines a trader is actually waiting for.
+        """
+        keep = {"entry", "exit", "signal", "order", "close", "fill", "blocked", "strategy_fault", "backtest"}
+        sym = str(symbol or "").upper()
+        name = str(strategy or "").lower()
+        out: list[dict[str, Any]] = []
+        for item in list(self.robot_log)[-250:]:
+            code = str(item.get("code") or "")
+            message = str(item.get("message") or "")
+            hay = message.upper()
+            if code in keep or (sym and sym in hay) or (name and name in message.lower()):
+                out.append(item)
+        return out[-60:]
 
     def trade_gate(self) -> dict[str, Any]:
         reasons: list[str] = []

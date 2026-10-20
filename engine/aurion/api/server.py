@@ -705,6 +705,12 @@ async def backtest_state() -> dict[str, Any]:
     return {"ok": True, "data": trader.backtest_run or {"running": False, "mode": "idle"}}
 
 
+@app.get("/v1/analysis")
+async def analysis(symbol: str = "", strategy: str = "") -> dict[str, Any]:
+    """What the robot makes of one symbol with one strategy, right now."""
+    return {"ok": True, "data": trader.analysis(symbol, strategy)}
+
+
 @app.get("/v1/license")
 async def license_state() -> dict[str, Any]:
     return {"ok": True, "data": trader.license.public()}

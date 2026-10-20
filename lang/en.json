@@ -231,7 +231,27 @@
     "short": "AI",
     "prev_chart": "Previous chart",
     "next_chart": "Next chart",
-    "no_chart_data": "No AI read on this chart yet — it appears after its first closed candle"
+    "no_chart_data": "No AI read on this chart yet — it appears after its first closed candle",
+    "an": {
+      "title": "Live analysis",
+      "sub": "What the robot makes of this symbol with this strategy, right now.",
+      "watching": "Watching",
+      "with_strategy": "Strategy",
+      "verdict_ready": "A setup is on the table and nothing is blocking it.",
+      "verdict_blocked": "Not trading right now",
+      "why": "Why it is not trading",
+      "when": "When it will trade",
+      "next_eval": "Next look",
+      "console": "Console",
+      "console_empty": "Nothing yet for this symbol. Entries, exits and faults appear here as they happen.",
+      "no_blockers": "Nothing is in the way.",
+      "refusals": "Most common refusals",
+      "ai_conf": "AI confidence",
+      "ai_gate_off": "AI filter off",
+      "strategy_says": "The strategy says",
+      "desk_says": "The desk says",
+      "waiting": "Waiting for the engine…"
+    }
   },
   "strategies": {
     "title": "Strategies",
@@ -831,7 +851,27 @@
   "notify": {
     "bell": "Notifications",
     "empty": "No notifications",
-    "dismiss": "Dismiss"
+    "dismiss": "Dismiss",
+    "sounds": "Notification sounds",
+    "sounds_hint": "Pick what each event sounds like. Played in the desk, and sent to Windows as well when the window is in the background.",
+    "entry": "Trade opened",
+    "entry_hint": "The robot has entered a position.",
+    "exit_profit": "Closed in profit",
+    "exit_loss": "Closed at a loss",
+    "exit_flat": "Closed flat",
+    "lots": "lots",
+    "volume": "Volume",
+    "test": "Test",
+    "windows": "Windows notifications",
+    "windows_hint": "Show entries and exits in the Windows notification area as well.",
+    "status_note": "Status messages — connections, saved settings, reconnects — stay silent and inside the desk. Only a trade makes a sound.",
+    "snd_none": "Silent",
+    "snd_chime": "Chime",
+    "snd_ding": "Ding",
+    "snd_rise": "Rising",
+    "snd_fall": "Falling",
+    "snd_alert": "Alert",
+    "snd_soft": "Soft"
   },
   "owner": {
     "title": "Owner account",

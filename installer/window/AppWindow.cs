@@ -723,7 +723,8 @@ internal sealed class AppWindow : Form
         value.Replace("\\", "\\\\").Replace("\"", "\\\"");
 
     /// <summary>A signal arrived while the window was not visible.</summary>
-    private void ShowSignalToast(string title, string body, string symbol, string timeframe)
+    private void ShowSignalToast(string title, string body, string symbol, string timeframe,
+                                 ToolTipIcon icon = ToolTipIcon.Info)
     {
         _pendingSymbol = symbol ?? "";
         _pendingTimeframe = timeframe ?? "";
@@ -732,7 +733,7 @@ internal sealed class AppWindow : Form
             _tray.Visible = true;
             _tray.BalloonTipTitle = string.IsNullOrWhiteSpace(title) ? "AURION" : title;
             _tray.BalloonTipText = body ?? "";
-            _tray.BalloonTipIcon = ToolTipIcon.Info;
+            _tray.BalloonTipIcon = icon;
             _tray.ShowBalloonTip(8000);
         }
         catch
@@ -805,13 +806,21 @@ internal sealed class AppWindow : Form
             string raw;
             try { raw = e.TryGetWebMessageAsString(); }
             catch { return; }
-            if (string.IsNullOrWhiteSpace(raw) || !raw.Contains("\"signal\"")) return;
+            if (string.IsNullOrWhiteSpace(raw)) return;
+            var isSignal = raw.Contains("\"signal\"");
+            var isTrade = raw.Contains("\"trade\"");
+            if (!isSignal && !isTrade) return;
 
-            // Deliberately a hand-rolled read of four known fields rather than
-            // a JSON dependency: the host has exactly one message to parse and
-            // its shape is defined a few lines away in app.js.
+            // Deliberately a hand-rolled read of a few known fields rather
+            // than a JSON dependency: the host has two messages to parse and
+            // their shape is defined a few lines away in app.js.
+            //
+            // A trade is the one thing worth interrupting someone for, so a
+            // losing exit is raised as a warning rather than a notice - the
+            // icon is the only part of a balloon tip read at a glance.
+            var icon = Field(raw, "level") == "warning" ? ToolTipIcon.Warning : ToolTipIcon.Info;
             ShowSignalToast(Field(raw, "title"), Field(raw, "body"),
-                            Field(raw, "symbol"), Field(raw, "timeframe"));
+                            Field(raw, "symbol"), Field(raw, "timeframe"), icon);
         };
 
         core.DocumentTitleChanged += (_, _) =>

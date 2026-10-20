@@ -802,6 +802,168 @@ function notifyHost(sig) {
   }
 }
 
+/* ---------------------------------------------------------------- sounds
+ *
+ * Entries and exits are the two moments a trader wants to hear about
+ * while they are looking at something else. Everything else - a status
+ * change, a reconnect, a saved setting - is silent and stays inside the
+ * desk, because a robot that chimes at every heartbeat gets muted, and a
+ * muted robot is one that cannot tell you it has just opened a trade.
+ *
+ * The tones are synthesized rather than shipped as audio files: no megabytes
+ * in the installer, nothing to go missing, and a sound that works the same
+ * whether the desk is served from the engine, from a folder or offline.
+ */
+const SOUNDS = {
+  none:   null,
+  chime:  { steps: [[880, 0.00, 0.12], [1320, 0.10, 0.18]], wave: "sine" },
+  ding:   { steps: [[1568, 0.00, 0.22]], wave: "sine" },
+  rise:   { steps: [[523, 0.00, 0.10], [659, 0.08, 0.10], [784, 0.16, 0.20]], wave: "triangle" },
+  fall:   { steps: [[659, 0.00, 0.12], [523, 0.10, 0.12], [392, 0.20, 0.26]], wave: "triangle" },
+  alert:  { steps: [[440, 0.00, 0.10], [440, 0.16, 0.10]], wave: "square" },
+  soft:   { steps: [[330, 0.00, 0.26]], wave: "sine" },
+};
+const SOUND_NAMES = Object.keys(SOUNDS);
+
+const NOTIFY_DEFAULTS = { entry: "chime", profit: "rise", loss: "fall", volume: 0.6, windows: true };
+
+function notifyPrefs() {
+  try {
+    const raw = JSON.parse(localStorage.getItem("aurion.notify") || "{}");
+    const out = { ...NOTIFY_DEFAULTS, ...(raw && typeof raw === "object" ? raw : {}) };
+    for (const key of ["entry", "profit", "loss"]) {
+      if (!SOUND_NAMES.includes(out[key])) out[key] = NOTIFY_DEFAULTS[key];
+    }
+    out.volume = Math.min(1, Math.max(0, Number(out.volume) || 0));
+    out.windows = out.windows !== false;
+    return out;
+  } catch (e) {
+    return { ...NOTIFY_DEFAULTS };
+  }
+}
+
+function saveNotifyPrefs(patch) {
+  const next = { ...notifyPrefs(), ...(patch || {}) };
+  localStorage.setItem("aurion.notify", JSON.stringify(next));
+  return next;
+}
+
+/** Play one named tone. Never throws: a sound is not worth an exception. */
+function playSound(name, volume) {
+  const spec = SOUNDS[name];
+  if (!spec) return;
+  const level = volume === undefined ? notifyPrefs().volume : Number(volume) || 0;
+  if (level <= 0) return;
+  try {
+    const Ctx = window.AudioContext || window.webkitAudioContext;
+    if (!Ctx) return;
+    // One context for the life of the page. Browsers cap how many a page
+    // may create, and a desk that runs for a week would hit it.
+    S._audio = S._audio || new Ctx();
+    const ctx = S._audio;
+    // Autoplay policy parks the context until the user has interacted;
+    // resuming is a no-op once it is already running.
+    if (ctx.state === "suspended") ctx.resume().catch(() => {});
+    const now = ctx.currentTime;
+    for (const [freq, at, len] of spec.steps) {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = spec.wave || "sine";
+      osc.frequency.value = freq;
+      // Shaped rather than switched: an instant start and stop on a pure
+      // tone is a click, and a click is what makes a notification sound
+      // cheap.
+      gain.gain.setValueAtTime(0.0001, now + at);
+      gain.gain.exponentialRampToValueAtTime(Math.max(0.0002, level * 0.28), now + at + 0.012);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + at + len);
+      osc.connect(gain).connect(ctx.destination);
+      osc.start(now + at);
+      osc.stop(now + at + len + 0.02);
+    }
+  } catch (e) {
+    /* no audio device, or a context the browser will not give us */
+  }
+}
+
+/* ------------------------------------------------------------- trade news */
+
+function tradeHeadline(t) {
+  const side = String(t.side || "").toUpperCase();
+  const sym = t.symbol || "";
+  if (t.kind === "entry") return `${I18N.t("notify.entry")} · ${side} ${sym}`;
+  const key = t.result === "profit" ? "notify.exit_profit" : t.result === "loss" ? "notify.exit_loss" : "notify.exit_flat";
+  return `${I18N.t(key)} · ${sym}`;
+}
+
+function tradeDetail(t) {
+  const bits = [];
+  if (t.volume) bits.push(`${fmt(t.volume, 2)} ${I18N.t("notify.lots")}`);
+  if (t.kind === "entry" && t.price) bits.push(`@ ${fmt(t.price, 5)}`);
+  if (t.kind === "exit") bits.push(`${t.profit > 0 ? "+" : ""}${fmt(t.profit, 2)} ${esc(t.currency || "")}`.trim());
+  if (t.strategy) bits.push(String(t.strategy));
+  return bits.join(" · ");
+}
+
+/**
+ * A trade opened or closed: say so out loud, on screen, and in Windows.
+ *
+ * Status changes deliberately do not come through here. They use toast(),
+ * which is silent and never leaves the window - the user asked for the
+ * difference and it is the right one: a notification that interrupts
+ * should mean money has moved.
+ */
+function announceTrade(t) {
+  if (!t || !t.kind) return;
+  const prefs = notifyPrefs();
+  const which = t.kind === "entry" ? "entry" : t.result === "loss" ? "loss" : "profit";
+  if (t.kind === "exit" && t.result === "flat") {
+    // A scratch is still an exit worth seeing, but it is not news.
+    playSound(prefs.entry === "none" ? "none" : "soft", prefs.volume);
+  } else {
+    playSound(prefs[which], prefs.volume);
+  }
+  pushTradeCard(t);
+  if (prefs.windows) notifyHostTrade(t);
+}
+
+function pushTradeCard(t) {
+  const stack = $("notify-stack");
+  if (!stack) return;
+  stack.hidden = false;
+  const id = "trade-" + (t.ticket || Date.now());
+  const tone = t.kind === "entry" ? "is-entry" : t.result === "loss" ? "is-loss" : "is-profit";
+  const card = document.createElement("article");
+  card.className = "notify-card trade-card " + tone;
+  card.setAttribute("data-nid", id);
+  card.innerHTML =
+    `<button type="button" class="n-x" data-nx="${esc(id)}" aria-label="${esc(I18N.t("notify.dismiss"))}">×</button>` +
+    `<h4>${esc(tradeHeadline(t))}</h4>` +
+    `<p class="sub">${esc(tradeDetail(t))}</p>`;
+  stack.prepend(card);
+  if (typeof bindSwipe === "function") bindSwipe(card);
+  while (stack.children.length > 4) stack.lastElementChild.remove();
+  card.querySelector(".n-x").onclick = () => card.remove();
+  setTimeout(() => card.remove(), 12000);
+}
+
+/** The Windows toast, via the desktop host. Entries and exits only. */
+function notifyHostTrade(t) {
+  try {
+    const bridge = window.chrome && window.chrome.webview;
+    if (!bridge || typeof bridge.postMessage !== "function") return;
+    bridge.postMessage(JSON.stringify({
+      type: "trade",
+      title: tradeHeadline(t),
+      body: tradeDetail(t),
+      symbol: t.symbol || "",
+      timeframe: S.timeframe || "",
+      level: t.kind === "exit" && t.result === "loss" ? "warning" : "info",
+    }));
+  } catch (e) {
+    /* running in a plain browser: the on-screen card is the notification */
+  }
+}
+
 function pushSignalCard(sig) {
   const stack = $("notify-stack");
   if (!stack) return;
@@ -3447,6 +3609,121 @@ function bindPropGuide() {
   });
 }
 
+/* The robot's own account of itself: this symbol, this strategy, why it is
+   not trading, when it will, and the lines it prints when it does. All of
+   it existed already - in the gate's reason codes, the strategy's refusal,
+   the AI read and the journal - but scattered across four screens, which
+   left the trader to join them up. A robot doing nothing and a robot that
+   is broken look identical until something says which one this is. */
+/* Which sound marks which event. Three separate choices rather than one
+   on/off switch, because "the robot just opened a trade" and "that trade
+   closed down" are not the same news and a trader learns the difference
+   by ear long before they look at the screen. Status changes are not
+   listed here: they are silent by design. */
+function notifySoundCardHtml() {
+  const p = notifyPrefs();
+  const picker = (key, label, hint) => `<label class="field">
+      <span>${esc(label)}${hint ? `<small class="sub" style="display:block">${esc(hint)}</small>` : ""}</span>
+      <span class="row" style="gap:6px">
+        <select class="ctrl" data-snd="${key}">${SOUND_NAMES.map((n) =>
+          `<option value="${n}" ${p[key] === n ? "selected" : ""}>${esc(I18N.t("notify.snd_" + n))}</option>`).join("")}</select>
+        <button type="button" class="btn tiny ghost" data-sndtest="${key}">${esc(I18N.t("notify.test"))}</button>
+      </span>
+    </label>`;
+  return `<div class="card" id="notify-card" style="margin-top:14px">
+    <h3>${I18N.t("notify.sounds")}</h3>
+    <p class="sub" style="margin:2px 0 10px">${I18N.t("notify.sounds_hint")}</p>
+    ${picker("entry", I18N.t("notify.entry"), I18N.t("notify.entry_hint"))}
+    ${picker("profit", I18N.t("notify.exit_profit"), "")}
+    ${picker("loss", I18N.t("notify.exit_loss"), "")}
+    <label class="field"><span>${I18N.t("notify.volume")}</span>
+      <input id="snd-vol" type="range" min="0" max="100" step="5" value="${Math.round(p.volume * 100)}" />
+    </label>
+    <div class="row" style="justify-content:space-between;margin-top:14px;align-items:flex-start">
+      <div>
+        <div style="font-weight:600">${I18N.t("notify.windows")}</div>
+        <p class="sub" style="margin:2px 0 0">${I18N.t("notify.windows_hint")}</p>
+      </div>
+      <button type="button" class="switch ${p.windows ? "on" : ""}" id="sw-wintoast" aria-pressed="${p.windows}"><i></i></button>
+    </div>
+    <p class="sub" style="margin-top:12px;opacity:.8">${I18N.t("notify.status_note")}</p>
+  </div>`;
+}
+
+function bindNotifySounds(root) {
+  const scope = root || document;
+  scope.querySelectorAll("[data-snd]").forEach((sel) => {
+    sel.onchange = () => {
+      saveNotifyPrefs({ [sel.dataset.snd]: sel.value });
+      // Heard immediately: picking a sound from a list of names means
+      // nothing until it makes a noise.
+      playSound(sel.value);
+    };
+  });
+  scope.querySelectorAll("[data-sndtest]").forEach((btn) => {
+    btn.onclick = () => playSound(notifyPrefs()[btn.dataset.sndtest]);
+  });
+  const vol = scope.querySelector("#snd-vol");
+  if (vol) {
+    vol.oninput = () => saveNotifyPrefs({ volume: Number(vol.value) / 100 });
+    vol.onchange = () => playSound(notifyPrefs().entry);
+  }
+  const win = scope.querySelector("#sw-wintoast");
+  if (win) {
+    win.onclick = () => {
+      const next = !notifyPrefs().windows;
+      saveNotifyPrefs({ windows: next });
+      win.classList.toggle("on", next);
+      win.setAttribute("aria-pressed", String(next));
+    };
+  }
+}
+
+function analysisCardHtml() {
+  const a = S.snap?.analysis;
+  if (!a) return `<div class="card"><h3>${I18N.t("ai.an.title")}</h3><p class="sub">${I18N.t("ai.an.waiting")}</p></div>`;
+  const blockers = a.blockers || [];
+  const ready = !!a.ready && !!a.setup;
+  const conf = Math.round((a.ai?.confidence || 0) * 100);
+  const need = Math.round((a.ai?.min_confidence || 0) * 100);
+  const line = (b) => `<li><b>${esc(b.text || b.code || "")}</b>${b.fix ? `<span class="sub"> — ${esc(b.fix)}</span>` : ""}</li>`;
+  const lines = (a.console || []).slice(-40).reverse();
+  return `<div class="card" id="an-card">
+    <div class="row" style="justify-content:space-between;flex-wrap:wrap;gap:8px">
+      <div>
+        <h3 style="margin:0 0 4px">${I18N.t("ai.an.title")}</h3>
+        <p class="sub" style="margin:0">${I18N.t("ai.an.sub")}</p>
+      </div>
+      <div class="row" style="gap:6px;flex-wrap:wrap">
+        <span class="pill ghost">${I18N.t("ai.an.watching")}: <b class="mono">${esc(a.symbol || "—")} ${esc(a.timeframe || "")}</b></span>
+        <span class="pill ${a.strategy_enabled ? "ok" : "ghost"}">${I18N.t("ai.an.with_strategy")}: <b>${esc(a.strategy || "—")}</b></span>
+        <span class="pill ${a.ai?.gate ? (conf >= need ? "ok" : "no") : "ghost"}">${a.ai?.gate ? `${I18N.t("ai.an.ai_conf")}: ${conf}% / ${need}%` : I18N.t("ai.an.ai_gate_off")}</span>
+      </div>
+    </div>
+    <p class="metric ${ready ? "up" : ""}" style="font-size:18px;margin:12px 0 2px">${ready ? I18N.t("ai.an.verdict_ready") : I18N.t("ai.an.verdict_blocked")}</p>
+    <div class="grid g-2" style="margin-top:10px">
+      <div>
+        <h3 style="font-size:13px">${I18N.t("ai.an.why")}</h3>
+        ${blockers.length
+          ? `<ul class="an-why">${blockers.map(line).join("")}</ul>`
+          : `<p class="sub">${I18N.t("ai.an.no_blockers")}</p>`}
+        ${(a.refusals || []).length
+          ? `<p class="sub" style="margin-top:8px">${I18N.t("ai.an.refusals")}: ${a.refusals.map((r) => `${esc(r.reason)} ×${r.count}`).join(" · ")}</p>`
+          : ""}
+      </div>
+      <div>
+        <h3 style="font-size:13px">${I18N.t("ai.an.when")}</h3>
+        <p class="sub">${esc(a.when || "")}</p>
+        ${a.next_eval?.text ? `<p class="sub"><b>${I18N.t("ai.an.next_eval")}:</b> <span class="mono" id="an-next">${esc(a.next_eval.text)}</span></p>` : ""}
+      </div>
+    </div>
+    <h3 style="font-size:13px;margin-top:14px">${I18N.t("ai.an.console")}</h3>
+    <div class="ai-feed term" id="an-console">${lines.length
+      ? lines.map((r) => `<div class="row-line ${esc(r.level || "info")}"><span class="ts">${esc(String(r.ts || "").slice(11, 19))}</span><span class="mono" style="opacity:.7">${esc(r.code || "")}</span><span>${esc(r.message || "")}</span></div>`).join("")
+      : emptyMini(I18N.t("ai.an.console_empty"))}</div>
+  </div>`;
+}
+
 const views = {
   command() {
     const acc = S.snap?.mt5?.account || {};
@@ -3557,7 +3834,8 @@ const views = {
     const rg = cur.regime_obj || cur.regime;
     const pat = cur.pattern_obj || cur.pattern;
     const feats = cur.features || {};
-    return `<div class="grid g-2">
+    return `${analysisCardHtml()}
+    <div class="grid g-2">
       <div class="card">${chartSliderHtml("ai", aiSlideInnerHtml)}</div>
       <div class="card">
         <h3>${I18N.t("ai.regime")} · ${I18N.t("ai.direction")} (per chart)</h3>
@@ -3899,6 +4177,7 @@ const views = {
           </div>
         </div>
         ${appearanceCardsHtml()}
+        ${notifySoundCardHtml()}
       </section>
       <section class="set-block" id="set-telegram"${tab==="set-telegram"?"":" hidden"}>
         <h2 class="set-title">${I18N.t("telegram.title")}</h2>
@@ -5172,6 +5451,7 @@ function bindView(view) {
   }
   if (view === "settings") {
     bindRobotPanel();
+    bindNotifySounds($("stage"));
     bindTelegramPanel();
     bindSymbolPicker();
     bindUpdatePanel();
@@ -6743,6 +7023,9 @@ function onLive(msg) {
     S.snap.last_signal = sig;
     announceSignal(sig);
     scheduleSync();
+  }
+  if (msg.type === "trade") {
+    announceTrade(msg.data || msg);
   }
   if (msg.type === "history") {
     if (S.view === "history") loadHistory();
