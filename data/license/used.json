@@ -149,6 +149,42 @@
       "identity": "trader@example.com",
       "plan": "m1",
       "machine": "7b54de05c6f08a16598295ed56979a01"
+    },
+    "c8e86becfe472b553aa9ca6addd185592bdf471b9c0d18ecc23759ad2ba11198": {
+      "used": "2026-10-20T23:22:33Z",
+      "identity": "",
+      "plan": "developer",
+      "machine": "7b54de05c6f08a16598295ed56979a01"
+    },
+    "11794d9b337197007ea479747e8bbfc3106b25fd69c48db31c13ad64013993ba": {
+      "used": "2026-10-20T23:22:33Z",
+      "identity": "",
+      "plan": "m1",
+      "machine": "7b54de05c6f08a16598295ed56979a01"
+    },
+    "e94f47f4e05d36a9a6a8462208faefe72d8fbc798c82c6039c883f938d5e6bdb": {
+      "used": "2026-10-20T23:22:34Z",
+      "identity": "",
+      "plan": "developer",
+      "machine": "7b54de05c6f08a16598295ed56979a01"
+    },
+    "4ec9a80285fbb2802d0807d94e5a564d5aa6265bf0662639abb865b2e088a1ad": {
+      "used": "2026-10-20T23:23:42Z",
+      "identity": "trader@example.com",
+      "plan": "m3",
+      "machine": "7b54de05c6f08a16598295ed56979a01"
+    },
+    "6e251b2874c3a65978ebd34356e16280834ffbc31cf0db1748fbff54d1e39a92": {
+      "used": "2026-10-20T23:23:43Z",
+      "identity": "trader@example.com",
+      "plan": "m1",
+      "machine": "7b54de05c6f08a16598295ed56979a01"
+    },
+    "493e7942e6a540a9e2878f95abb552f4111e168b68422ba06e5bffd2d22dbc16": {
+      "used": "2026-10-20T23:23:43Z",
+      "identity": "trader@example.com",
+      "plan": "m1",
+      "machine": "7b54de05c6f08a16598295ed56979a01"
     }
   }
 }

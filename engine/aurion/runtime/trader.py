@@ -12,7 +12,7 @@ from ..prop.hours import (broker_offset_minutes, resolve_zone, zone_choices,
                           zone_label, zone_offset_minutes)
 from .gates import fire_blockers as gate_blockers
 from .risk import SymbolSpec, cap_stop, money_at_risk, volume_for_risk
-from .stops import resolve_stop
+from .stops import resolve_stop, resolve_stop_r
 from ..ai.engine import AIEngine
 from ..backtest.engine import Backtester
 from ..config import ROOT, load, merge, save
@@ -127,6 +127,11 @@ class Trader:
         # Which rule last moved each position's stop, so "this trade is
         # now risk free" is journalled once rather than on every tick.
         self._stop_note: dict[int, str] = {}
+        # The stop a position was opened with, per ticket. Break-even
+        # rewrites pos.sl, so after the first move the broker can no
+        # longer tell us what the original risk was - and R is measured
+        # from the original risk or it is measured from nothing.
+        self._entry_risk: dict[int, float] = {}
         self.danger_sensitivity = 50
         self._danger_seen: dict[int, float] = {}
         self._danger_cooldown: dict[int, float] = {}
@@ -159,6 +164,8 @@ class Trader:
         # Said once: the AI filter has been set above what the AI can
         # report, so it is refusing everything by arithmetic.
         self._ai_ceiling_said = False
+        # The replay runs off the request path; this is the handle to it.
+        self._backtest_task: asyncio.Task | None = None
         self._ai_tick_task: asyncio.Task | None = None
         RING.subscribe(self._on_log)
 
@@ -1206,6 +1213,30 @@ class Trader:
                 "tp": pos.tp,
             })
 
+    def _remember_risk(self, pos: Any) -> float:
+        """The stop this position was opened with, in price.
+
+        Recorded the first time the ticket is seen and never updated,
+        because every later reading of pos.sl may be a stop this very
+        method moved. Tickets that have gone are dropped so a long
+        session does not accumulate them.
+        """
+        ticket = getattr(pos, "ticket", None)
+        if ticket is None:
+            return 0.0
+        known = self._entry_risk.get(ticket)
+        if known is not None:
+            return known
+        entry = float(getattr(pos, "price_open", 0) or 0)
+        sl = float(getattr(pos, "sl", 0) or 0)
+        risk = abs(entry - sl) if (entry > 0 and sl > 0) else 0.0
+        self._entry_risk[ticket] = risk
+        if len(self._entry_risk) > 512:
+            live = {getattr(p, "ticket", None) for p in getattr(self.bridge, "positions", [])}
+            for gone in [t for t in self._entry_risk if t not in live]:
+                self._entry_risk.pop(gone, None)
+        return risk
+
     async def _maybe_trail(self, tick: dict[str, Any]) -> None:
         """Move protective stops forward, never back.
 
@@ -1239,7 +1270,18 @@ class Trader:
         # written for, and this does not.
         use_pct = bool(self.risk_free_enabled) and be_trigger <= 0
 
-        if trailing <= 0 and be_trigger <= 0 and not use_pct:
+        # R-based management, the default. The backtest applies exactly
+        # these rules through the same arithmetic, so what the report
+        # promises is what the robot does. An explicit points setting on
+        # the strategy, or the account's risk-free percentage, still
+        # overrides it - both are someone saying what they want.
+        be_at_r = float(params.get("be_at_r", 0.8) or 0)
+        be_lock_r = float(params.get("be_lock_r", 0.1) or 0)
+        trail_at_r = float(params.get("trail_at_r", 0.0) or 0)
+        trail_r = float(params.get("trail_r", 0.0) or 0)
+        use_r = be_trigger <= 0 and not use_pct and (be_at_r > 0 or trail_r > 0)
+
+        if trailing <= 0 and be_trigger <= 0 and not use_pct and not use_r:
             return
 
         symbol = tick.get("symbol")
@@ -1271,20 +1313,40 @@ class Trader:
                 trigger = entry * self.risk_free_trigger_pct / 100.0
                 lock = entry * self.risk_free_lock_pct / 100.0
 
-            plan = resolve_stop(
-                side,
-                entry,
-                close_px,
-                float(pos.sl or 0),
-                breakeven_points=trigger,
-                breakeven_lock_points=lock,
-                trailing_points=trailing,
-                spread=spread,
-                # A tenth of a spread is not worth a round trip, and
-                # without a floor a fast instrument sends a modify on
-                # every tick and spends its time queueing behind itself.
-                min_step=spread * 0.5,
-            )
+            # A tenth of a spread is not worth a round trip, and without
+            # a floor a fast instrument sends a modify on every tick and
+            # spends its time queueing behind itself.
+            min_step = spread * 0.5
+
+            if use_r:
+                initial = self._remember_risk(pos)
+                if initial <= 0:
+                    continue
+                plan = resolve_stop_r(
+                    side,
+                    entry,
+                    initial,
+                    close_px,
+                    float(pos.sl or 0),
+                    be_at_r=be_at_r,
+                    be_lock_r=be_lock_r,
+                    trail_at_r=trail_at_r,
+                    trail_r=trail_r,
+                    spread=spread,
+                    min_step=min_step,
+                )
+            else:
+                plan = resolve_stop(
+                    side,
+                    entry,
+                    close_px,
+                    float(pos.sl or 0),
+                    breakeven_points=trigger,
+                    breakeven_lock_points=lock,
+                    trailing_points=trailing,
+                    spread=spread,
+                    min_step=min_step,
+                )
             if plan is None:
                 continue
 
@@ -4064,30 +4126,83 @@ class Trader:
         self.backtest_run = {
             "ok": True,
             "running": True,
+            "accepted": True,
             "mode": "backtest",
             "symbol": symbol,
             "timeframe": timeframe,
             "strategy": getattr(inst, "name", str(spec.get("name") or "")),
             "bars": len(bars),
+            "progress": 0,
             "started": started,
         }
         await self.bus.publish("backtest", dict(self.backtest_run))
+        equity = float(body.get("initial_equity") or self.bridge.account.equity or 10_000)
+        self._backtest_task = asyncio.create_task(
+            self._run_backtest(inst, bars, symbol, timeframe, equity, started),
+            name=f"aurion-backtest-{symbol}",
+        )
+        # Answer now. The run itself reports over the bus.
+        #
+        # This used to hold the HTTP request open for the whole replay. The
+        # desk's proxy gives up after 25 seconds and reports "engine
+        # offline", so a backtest that took longer than that - which is most
+        # of them, because the AI is asked for a fresh read on every bar -
+        # finished perfectly in the engine and told the trader their engine
+        # had died. Nothing was wrong except the waiting.
+        return dict(self.backtest_run)
+
+    async def _run_backtest(
+        self,
+        inst: Any,
+        bars: list[dict[str, Any]],
+        symbol: str,
+        timeframe: str,
+        equity: float,
+        started: str,
+    ) -> dict[str, Any]:
+        """The replay itself, off the request path, reporting as it goes."""
+        loop = asyncio.get_running_loop()
+        last_sent = 0.0
+
+        def report(done: int, total: int) -> None:
+            # Called from the worker thread, so the publish has to be
+            # handed back to the loop rather than awaited here.
+            nonlocal last_sent
+            now = time.time()
+            if done < total and now - last_sent < 0.5:
+                return
+            last_sent = now
+            pct = int(round(100.0 * done / max(1, total)))
+            state = {**(self.backtest_run or {}), "running": True, "progress": pct}
+            self.backtest_run = state
+            loop.call_soon_threadsafe(
+                lambda: asyncio.ensure_future(self.bus.publish("backtest", dict(state)))
+            )
+
         try:
             result = await asyncio.to_thread(
-                self.backtester.run,
-                inst,
-                bars,
-                symbol,
-                timeframe,
-                float(body.get("initial_equity") or self.bridge.account.equity or 10_000),
+                self.backtester.run, inst, bars, symbol, timeframe, equity, 1.0, 80, None, report
             )
         except Exception as exc:
+            log.exception("backtest failed")
             result = {"ok": False, "error": str(exc), "mode": "backtest", "symbol": symbol, "timeframe": timeframe}
         result = dict(result or {})
         result["mode"] = "backtest"
         result["running"] = False
+        result["progress"] = 100
         result["started"] = started
         result["finished"] = utc_iso()
         self.backtest_run = result
         await self.bus.publish("backtest", dict(result))
+        await self.journal(
+            "info" if result.get("ok") else "error",
+            "backtest",
+            (
+                f"Backtest finished: {symbol} {timeframe} "
+                f"{(result.get('metrics') or {}).get('trades', 0)} trades, "
+                f"win rate {float((result.get('metrics') or {}).get('win_rate') or 0):.0f}%"
+                if result.get("ok")
+                else f"Backtest failed: {result.get('error')}"
+            ),
+        )
         return result

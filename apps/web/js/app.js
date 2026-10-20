@@ -5088,25 +5088,37 @@ function bindView(view) {
         return;
       }
       S._btBusy = true;
-      setBacktestBusy(true);
-      S.backtest = { running: true, mode: "backtest", symbol, timeframe, strategy: name };
+      setBacktestBusy(true, 0);
+      S.backtest = { running: true, mode: "backtest", symbol, timeframe, strategy: name, progress: 0 };
       headerState();
       try {
+        // The engine accepts the run and answers at once; the result
+        // arrives over the socket. Waiting on this request was the whole
+        // bug: a replay longer than the proxy's 25 second patience came
+        // back as "engine offline" after finishing perfectly.
         const r = await API.post("/api/backtest", {
           symbol,
           timeframe,
           strategy: { kind: "builtin", name },
         });
-        S.backtest = r && typeof r === "object" ? { ...r, running: false, mode: "backtest" } : { ok: false, error: "generic" };
+        if (!r || r.ok === false) {
+          S.backtest = { ok: false, running: false, mode: "backtest", error: (r && r.error) || "generic" };
+          if (S.snap) S.snap.backtest = S.backtest;
+          const box = $("bt-result");
+          if (box) box.innerHTML = renderBacktestCard(S.backtest);
+          toast((r && r.error) || I18N.t("errors.generic"));
+          S._btBusy = false;
+          setBacktestBusy(false);
+          headerState();
+          return;
+        }
+        S.backtest = { ...r, running: true, mode: "backtest" };
         if (S.snap) S.snap.backtest = S.backtest;
-        const box = $("bt-result");
-        if (box) box.innerHTML = renderBacktestCard(S.backtest);
-        if (!r.ok) toast(r.error || I18N.t("errors.generic"));
-        else toast(I18N.t("history.backtest_done"));
+        headerState();
+        watchBacktest();
       } catch (err) {
         S.backtest = { ok: false, running: false, mode: "backtest", error: err && err.message };
         toast(I18N.t("errors.generic"));
-      } finally {
         S._btBusy = false;
         setBacktestBusy(false);
         headerState();
@@ -6165,7 +6177,7 @@ function renderBacktestCard(bt) {
       <span>${I18N.t("history.trades")}</span><b>${fmt(m.trades || (bt.trades || []).length, 0)}</b>
     </div>`;
 }
-function setBacktestBusy(on) {
+function setBacktestBusy(on, progress) {
   const btn = $("h-bt");
   const load = $("bt-load");
   if (btn) {
@@ -6173,6 +6185,59 @@ function setBacktestBusy(on) {
     btn.textContent = I18N.t(on ? "history.backtest_running" : "history.backtest_run");
   }
   if (load) load.classList.toggle("hidden", !on);
+  const say = load ? load.querySelector("span") : null;
+  if (say) {
+    const pct = Number(progress);
+    // A number that moves is the difference between "working" and "hung".
+    say.textContent = on && pct > 0
+      ? `${I18N.t("history.backtest_wait")} · ${Math.min(99, Math.round(pct))}%`
+      : I18N.t("history.backtest_wait");
+  }
+}
+
+/**
+ * Follow a running backtest even if the socket drops.
+ *
+ * The result arrives over the socket, which is the fast path and the one
+ * that carries progress. This is the slow one: it asks the engine for the
+ * run's state every few seconds, so a reconnect in the middle of a replay
+ * cannot leave the page spinning forever.
+ */
+function watchBacktest() {
+  if (S._btPoll) clearInterval(S._btPoll);
+  let misses = 0;
+  S._btPoll = setInterval(async () => {
+    if (!S._btBusy) { clearInterval(S._btPoll); S._btPoll = null; return; }
+    let r = null;
+    try {
+      r = await API.get("/api/backtest");
+    } catch {
+      r = null;
+    }
+    const d = r && r.data ? r.data : null;
+    if (!d) {
+      misses += 1;
+      if (misses >= 10) {        // ~50s with no answer at all
+        clearInterval(S._btPoll); S._btPoll = null;
+        S._btBusy = false;
+        setBacktestBusy(false);
+      }
+      return;
+    }
+    misses = 0;
+    S.backtest = d;
+    if (S.snap) S.snap.backtest = d;
+    if (d.running) {
+      setBacktestBusy(true, d.progress);
+      return;
+    }
+    clearInterval(S._btPoll); S._btPoll = null;
+    S._btBusy = false;
+    setBacktestBusy(false);
+    const box = $("bt-result");
+    if (box) box.innerHTML = renderBacktestCard(d);
+    headerState();
+  }, 5000);
 }
 function historyRows(rows) {
   // Entries and closes both appear, so a trade shows up the moment it opens.
@@ -6687,10 +6752,17 @@ function onLive(msg) {
     S.backtest = d;
     S.snap = S.snap || {};
     S.snap.backtest = d;
-    if (S.view === "history") {
-      setBacktestBusy(Boolean(d.running));
-      const box = $("bt-result");
-      if (box && !d.running) box.innerHTML = renderBacktestCard(d);
+    // The backtest has its own tab. This said "history", which is where it
+    // used to live, so the finished result never reached the screen it was
+    // run from - the page just sat on its spinner.
+    if (S.view === "backtest" || S.view === "history") {
+      setBacktestBusy(Boolean(d.running), d.progress);
+      if (!d.running) {
+        S._btBusy = false;
+        const box = $("bt-result");
+        if (box) box.innerHTML = renderBacktestCard(d);
+        toast(I18N.t(d.ok ? "history.backtest_done" : "errors.generic"));
+      }
     }
     headerState();
   }

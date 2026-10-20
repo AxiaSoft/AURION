@@ -25,7 +25,14 @@ from __future__ import annotations
 
 from typing import Any
 
-__all__ = ["breakeven_target", "trailing_target", "resolve_stop", "StopPlan"]
+__all__ = [
+    "breakeven_target",
+    "trailing_target",
+    "resolve_stop",
+    "resolve_stop_r",
+    "risk_distance",
+    "StopPlan",
+]
 
 
 class StopPlan:
@@ -186,3 +193,69 @@ def resolve_stop(
             return None
 
     return StopPlan(target, reason)
+
+
+def risk_distance(entry: float, initial_sl: float) -> float:
+    """How much one R is worth, in price, for this position.
+
+    Every management rule below is quoted in R rather than in points.
+    Points are not portable: 150 points is a sensible break-even trigger
+    on EURUSD, a rounding error on gold and a fortune on an index. The
+    distance from the entry to the stop the strategy itself chose is the
+    only unit that means the same thing on every instrument, and the
+    strategy already sized it to the instrument's volatility.
+    """
+    entry, initial_sl = _f(entry), _f(initial_sl)
+    if entry <= 0 or initial_sl <= 0:
+        return 0.0
+    return abs(entry - initial_sl)
+
+
+def resolve_stop_r(
+    side: str,
+    entry: float,
+    initial_sl: float,
+    price: float,
+    current_sl: float,
+    *,
+    be_at_r: float = 0.0,
+    be_lock_r: float = 0.0,
+    trail_at_r: float = 0.0,
+    trail_r: float = 0.0,
+    spread: float = 0.0,
+    min_step: float = 0.0,
+) -> StopPlan | None:
+    """The same two rules, expressed in R instead of points.
+
+    `be_at_r=1.0` means "once the trade is one risk-unit in profit, make
+    it unable to lose". `trail_at_r=1.0, trail_r=1.5` means "after one R,
+    follow price one and a half R behind".
+
+    Trailing is armed rather than always-on. An unarmed trailing stop at
+    a distance narrower than the original stop would tighten a brand new
+    position before it has done anything to earn it, which turns normal
+    noise around the entry into a loss.
+    """
+    r = risk_distance(entry, initial_sl)
+    if r <= 0:
+        return None
+
+    trailing_points = 0.0
+    if _f(trail_r) > 0:
+        arm = _f(trail_at_r) * r
+        price, entry_f = _f(price), _f(entry)
+        gain = (price - entry_f) if str(side).strip().lower() == "buy" else (entry_f - price)
+        if gain >= arm:
+            trailing_points = _f(trail_r) * r
+
+    return resolve_stop(
+        side,
+        entry,
+        price,
+        current_sl,
+        breakeven_points=_f(be_at_r) * r,
+        breakeven_lock_points=_f(be_lock_r) * r,
+        trailing_points=trailing_points,
+        spread=spread,
+        min_step=min_step,
+    )

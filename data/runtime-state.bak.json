@@ -1,9 +1,9 @@
 {
   "runtime": {
-    "auto_trade": false,
+    "auto_trade": true,
     "require_ai_agree": true,
     "min_ai_confidence": 0.55,
-    "trade_style": "normal",
+    "trade_style": "scalping",
     "danger_guard": {
       "enabled": false,
       "sensitivity": 50
@@ -18,13 +18,16 @@
       "atr_breakout": {
         "enabled": false
       },
+      "king": {
+        "enabled": false
+      },
       "scalp_impulse": {
         "enabled": false
       }
     }
   },
   "prop": {
-    "enabled": true,
+    "enabled": false,
     "active_profile": "conservative",
     "profile": null
   },
