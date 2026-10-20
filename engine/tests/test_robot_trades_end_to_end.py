@@ -225,3 +225,40 @@ def test_the_spread_gate_reads_a_live_quote_whatever_shape_it_is_in(engine):
     trader.bridge.ticks = {}
     assert trader.tick_of("EURUSD") == {}
     assert trader._spread_ok("EURUSD")[0] is True
+
+
+def test_attaching_a_chart_answers_the_ea_at_once(engine):
+    """Hello must not be held open while the desk loads that chart.
+
+    Over HTTP the EA is one thread inside MetaTrader: it cannot send the
+    history the desk is waiting for until the POST it is blocked on comes
+    back. Taking the market inline on the hello therefore deadlocked for
+    the full eight-second history timeout, every attach, and left the
+    chart with no bars until the next poll.
+    """
+    import time as clock
+
+    Trader = engine
+    trader = Trader()
+
+    async def never_answers(*_args, **_kwargs):
+        await asyncio.sleep(30)       # an EA that cannot reply yet
+        return []
+
+    trader.bridge._request_ea_history = never_answers
+    trader.bridge.on_event(trader._on_bridge)
+
+    async def attach():
+        started = clock.monotonic()
+        await trader.bridge.ingest_http(
+            {"type": "hello", "chart_id": "909", "symbol": "EURUSD", "timeframe": 15,
+             "timeframe_name": "M15", "ea_name": "AurionBridge", "version": "1.18"}
+        )
+        waited = clock.monotonic() - started
+        task = getattr(trader, "_adopt_task", None)
+        if task is not None:
+            task.cancel()
+        return waited
+
+    waited = asyncio.run(attach())
+    assert waited < 1.0, f"the EA was left waiting {waited:.1f}s for its hello to be answered"

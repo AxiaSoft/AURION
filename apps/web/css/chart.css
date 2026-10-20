@@ -541,8 +541,22 @@ html[dir="rtl"] .tv-flyout { transform: translateX(6px) }
 .tvm-search svg { width: 15px; height: 15px; color: var(--faint) }
 .tvm-search .ctrl { height: 28px; font-size: 12px }
 
+/* The chart's own switch, sized from two numbers like the desk's one.
+   It used to be four that disagreed: a 30x17 track, an 11px knob pinned
+   2px from the top - which is one pixel above the middle of a 17px box -
+   and a 13px slide that left it 2px short of the far end. Small enough
+   to pass review and big enough to see. Track height and width are the
+   only numbers now; the knob and its travel are worked out from them, so
+   the knob is centred and lands exactly where the padding says. */
 .tv-switch {
-  width: 30px; height: 17px; flex: none;
+  --tvs-h: 18px;
+  --tvs-w: 32px;
+  --tvs-pad: 3px;
+  --tvs-knob: calc(var(--tvs-h) - var(--tvs-pad) * 2);
+  --tvs-travel: calc(var(--tvs-w) - var(--tvs-h));
+  width: var(--tvs-w); height: var(--tvs-h);
+  min-height: var(--tvs-h); max-height: var(--tvs-h);
+  flex: none; box-sizing: border-box;
   border-radius: 999px;
   background: var(--surface-sunken);
   border: 1px solid var(--line);
@@ -550,14 +564,16 @@ html[dir="rtl"] .tv-flyout { transform: translateX(6px) }
   transition: background var(--dur-1, .12s);
 }
 .tv-switch i {
-  position: absolute; inset-block-start: 2px; inset-inline-start: 2px;
-  width: 11px; height: 11px; border-radius: 50%;
+  position: absolute;
+  inset-block-start: 50%; inset-inline-start: var(--tvs-pad);
+  width: var(--tvs-knob); height: var(--tvs-knob); border-radius: 50%;
   background: var(--muted);
+  transform: translateY(-50%);
   transition: transform var(--dur-2, .18s) var(--ease-1), background var(--dur-1, .12s);
 }
 .tv-switch.on { background: rgb(var(--accent-rgb) / .3); border-color: rgb(var(--accent-rgb) / .5) }
-.tv-switch.on i { transform: translateX(13px); background: var(--accent) }
-html[dir="rtl"] .tv-switch.on i { transform: translateX(-13px) }
+.tv-switch.on i { transform: translate(var(--tvs-travel), -50%); background: var(--accent) }
+html[dir="rtl"] .tv-switch.on i { transform: translate(calc(var(--tvs-travel) * -1), -50%) }
 
 .tvi-active {
   margin: 2px 0 6px; padding: 7px 8px;
@@ -768,6 +784,7 @@ html:fullscreen body { background: var(--bg) }
 /* Touch: make every target reachable with a thumb without changing the
    desktop density. */
 @media (pointer: coarse) {
+  .tv-switch { --tvs-h: 22px; --tvs-w: 40px; --tvs-pad: 4px }
   .tvr-btn { width: 42px; height: 40px }
   .tvf-row, .tvm-row { padding: 10px 9px }
   .tv-nav { opacity: 1; transform: none }

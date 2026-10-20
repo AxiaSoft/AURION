@@ -431,6 +431,18 @@ check("a viewport change is repainted more than once", (() => {
   check("the track cannot be stretched by a global minimum",
     /max-height:\s*var\(--sw-h\)/.test(block));
 
+  // The chart panel has a switch of its own, and it had the same disease
+  // in a smaller size: a 30x17 track with an 11px knob 2px from the top
+  // and a 13px slide - off centre by a pixel, short of the end by two.
+  const tv = chartSliceOf(chartCss, ".tv-switch {");
+  check("the chart's switch is sized from its track too",
+    /--tvs-h:/.test(tv) && /--tvs-knob:\s*calc\(var\(--tvs-h\)/.test(tv) &&
+    /--tvs-travel:\s*calc\(var\(--tvs-w\)/.test(tv));
+  check("and its knob is centred by layout, not by a magic offset",
+    /inset-block-start:\s*50%/.test(chartCss.slice(chartCss.indexOf(".tv-switch i {"))) &&
+    /translateY\(-50%\)/.test(chartCss) &&
+    !/translateX\(13px\)/.test(chartCss));
+
   const coarse = chartSliceOf(appCss, "@media (pointer: coarse)");
   check("touch no longer forces a min-height onto the switch",
     coarse.indexOf(".switch") >= 0 && !/\.switch\{[^}]*min-height/.test(coarse),

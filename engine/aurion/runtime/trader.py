@@ -147,6 +147,9 @@ class Trader:
         # Event faults already reported, so a broken path says so once
         # instead of several times a second.
         self._event_faults: set[str] = set()
+        # The background task that adopts the EA's chart as the desk's
+        # market. One at a time, and never on the ingest path.
+        self._adopt_task: asyncio.Task | None = None
         self._ai_tick_task: asyncio.Task | None = None
         RING.subscribe(self._on_log)
 
@@ -879,6 +882,25 @@ class Trader:
         return any(self.bridge._sym_match(want, a.symbol) for a in self.bridge.active_agents())
 
     async def _adopt_ea_market(self) -> None:
+        """Take the chart the EA just reported as the desk's market.
+
+        Scheduled, never awaited here, and that is the whole point.
+
+        This runs while the bridge is handling the EA's own hello. Taking
+        the market loads its history, and over the HTTP transport the only
+        way to get history is to ask the EA for it and wait - but the EA
+        is a single thread inside MetaTrader that cannot send anything
+        until the POST it is currently blocked on comes back. So the wait
+        could only ever end one way: eight seconds of deadlock, a
+        timeout warning on the desk, a hello answered eight seconds late,
+        and the chart left with no bars until the next poll. Every attach,
+        every re-attach, every terminal restart.
+
+        Handing it to a task lets the hello return at once. The EA reads
+        the request_history command that is already riding on that
+        response, sends the bars on its very next cycle, and the wait ends
+        in well under a second with real data in it.
+        """
         agents = self.bridge.active_agents()
         if not agents:
             if self.active_symbol:
@@ -886,8 +908,33 @@ class Trader:
             return
         if self._is_ea_symbol(self.active_symbol):
             return
+        task = getattr(self, "_adopt_task", None)
+        if task is not None and not task.done():
+            return
         agent = agents[0]
-        await self.set_market(agent.symbol, agent.timeframe or "M15")
+        symbol = str(agent.symbol or "")
+        timeframe = str(agent.timeframe or "M15")
+        if not symbol:
+            return
+        self._adopt_task = asyncio.create_task(
+            self._adopt_market(symbol, timeframe), name=f"aurion-adopt-{symbol}"
+        )
+
+    async def _adopt_market(self, symbol: str, timeframe: str) -> None:
+        try:
+            result = await self.set_market(symbol, timeframe)
+        except Exception as exc:
+            log.exception("adopting %s %s failed", symbol, timeframe)
+            await self.journal(
+                "error", "adopt_fault",
+                f"Could not load {symbol} {timeframe} after the EA attached — {type(exc).__name__}: {exc}",
+            )
+            return
+        if not (result or {}).get("ok"):
+            await self.journal(
+                "warning", "adopt",
+                f"{symbol} {timeframe} was not adopted: {(result or {}).get('error') or 'unknown'}",
+            )
 
     async def _on_closed_candle(self, candle: dict[str, Any]) -> None:
         symbol = candle.get("symbol") or self.active_symbol
