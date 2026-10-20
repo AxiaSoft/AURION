@@ -64,6 +64,42 @@ def test_confidence_is_shrunk_when_there_is_no_edge(tmp_path: Path) -> None:
     assert out["confidence"] <= 0.62
 
 
+def test_the_filter_cannot_be_set_above_what_the_ai_can_report(tmp_path: Path) -> None:
+    """The ceiling is published, and the shipped default is under it.
+
+    Confidence is shrunk towards "no information" in proportion to the
+    measured edge, so it has a ceiling: 1/3 + (1 - 1/3) * 0.30 = 0.53
+    with three classes and no edge. The desk shipped a minimum of 0.55,
+    which is above that - an off switch wearing a market opinion. Every
+    robot entry was refused and the log blamed the AI's confidence.
+    """
+    import json
+    from pathlib import Path as _Path
+
+    models = LiveModels(tmp_path)
+    models.edge = 0.0
+    ceiling = models.confidence_ceiling(3)
+    assert 0.5 < ceiling < 0.55, ceiling
+
+    rng = np.random.default_rng(3)
+    X = rng.normal(size=(400, 8))
+    y = rng.choice([-1, 0, 1], size=400)
+    models.fit(X, y)
+    out = models.infer(X[0])
+    assert out["ready"] is True
+    assert "ceiling" in out, "the gate cannot explain itself without the ceiling"
+    assert float(out["confidence"]) <= float(out["ceiling"]) + 0.06   # pattern bonus
+
+    root = _Path(__file__).resolve().parents[2]
+    factory = json.loads((root / "config" / "aurion.factory.json").read_text(encoding="utf-8"))
+    shipped = float(factory["runtime"]["min_ai_confidence"])
+    assert shipped < ceiling, (
+        f"the shipped minimum AI confidence ({shipped}) is above what the AI can "
+        f"report before it has measured an edge ({ceiling}) - the robot would refuse "
+        f"every entry out of the box"
+    )
+
+
 def test_a_learnable_pattern_raises_the_edge(tmp_path: Path) -> None:
     models = LiveModels(tmp_path)
     rng = np.random.default_rng(11)

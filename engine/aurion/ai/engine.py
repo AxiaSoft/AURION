@@ -332,6 +332,7 @@ class AIEngine:
             "need": int(load().get("ai", {}).get("min_bars_to_train") or 160),
             "activity": list(self.activity)[-16:],
             "confidence": confidence,
+            "ceiling": float(prediction.get("ceiling") or 0.0),
             "confidence_why": why,
             "proba": prediction.get("proba") or {},
             "regime": regime,

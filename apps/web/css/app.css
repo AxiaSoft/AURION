@@ -2309,3 +2309,8 @@ html[data-theme="light"] .set-rail .set-jump button.on{background:linear-gradien
 .ea-chart .pill.ok{ border-color:rgb(var(--accent-rgb) / .35); color:var(--cyan) }
 .ea-chart .pill.no{ border-color:rgba(255,107,138,.35); color:var(--rose) }
 .pill.warn{ border-color:rgba(216,166,87,.45); color:var(--amber, #d8a657) }
+
+/* A help line that is not help: the setting above it is refusing every
+   entry on its own. Amber rather than red - nothing is broken, a number
+   has been asked for that the AI cannot reach. */
+.sub.warn{color:var(--amber, #d8a657)}

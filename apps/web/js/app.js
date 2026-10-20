@@ -2914,10 +2914,11 @@ function robotPanelHtml() {
         <p class="sub">${I18N.t("strategies.ai_gate_help")}</p>
         <hr class="set-rule" />
         ${switchRow({ id: "st-ai", title: I18N.t("strategies.ai_gate_switch"), on: st.require_ai_agree !== false })}
-        <div class="field" style="margin-top:10px"><span class="conf-head">${I18N.t("strategies.min_conf")}<b class="mono conf-pct" id="st-conf-pct">${Math.round((st.min_ai_confidence ?? 0.55) * 100)}%</b></span>
-          <input id="st-conf" type="range" step="0.01" min="0.05" max="0.95" value="${st.min_ai_confidence ?? 0.55}" />
+        <div class="field" style="margin-top:10px"><span class="conf-head">${I18N.t("strategies.min_conf")}<b class="mono conf-pct" id="st-conf-pct">${Math.round((st.min_ai_confidence ?? 0.35) * 100)}%</b></span>
+          <input id="st-conf" type="range" step="0.01" min="0.05" max="0.95" value="${st.min_ai_confidence ?? 0.35}" />
         </div>
         <p class="sub" id="ai-conf-why">${I18N.t("strategies.min_conf_help")}</p>
+        ${aiCeilingWarning(st)}
       </div>
 
       <div class="card">
@@ -2966,6 +2967,30 @@ function robotPanelHtml() {
       </div>
     </div>
 `;
+}
+
+/**
+ * The AI cannot always reach the number the slider is set to.
+ *
+ * Its confidence is pulled back towards "no information" in proportion
+ * to the edge the model has measured out of sample, so it has a
+ * ceiling - about 53% before any edge has been measured. A minimum set
+ * above that is not a strict filter; it is an off switch, and the log
+ * line it produces ("AI confidence 0.31 is under the 0.55 you asked
+ * for") reads like the market's fault rather than the slider's. So the
+ * desk says it where the slider is, before the trader waits a week for
+ * an entry that arithmetic has already refused.
+ */
+function aiCeilingWarning(st) {
+  st = st || {};
+  if (st.require_ai_agree === false) return "";
+  const ceiling = Number((S.snap?.ai || {}).ceiling || 0);
+  const want = Number(st.min_ai_confidence ?? 0.35);
+  if (!(ceiling > 0) || ceiling >= want) return "";
+  return `<p class="sub warn" id="ai-conf-ceiling">${I18N.t("strategies.min_conf_unreachable", {
+    want: Math.round(want * 100),
+    can: Math.round(ceiling * 100),
+  })}</p>`;
 }
 
 /**
@@ -5601,7 +5626,7 @@ function bindRobotPanel() {
   const saveAi = async (quiet) => {
     const r = await API.post("/api/auto", {
       require_ai_agree: $("st-ai")?.classList.contains("on"),
-      min_ai_confidence: +($("st-conf")?.value || 0.55),
+      min_ai_confidence: +($("st-conf")?.value || 0.35),
     });
     if (!quiet) toast(r.ok ? I18N.t("common.save") : r.error);
     await refresh(false);

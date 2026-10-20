@@ -61,7 +61,13 @@ class Trader:
         self.book: dict[str, dict[str, Any]] = {}
         self.auto_trade = False
         self.require_ai_agree = True
-        self.min_ai_confidence = 0.55
+        # Reachable on purpose. The AI's confidence is shrunk towards "no
+        # information" in proportion to the edge it has measured out of
+        # sample, so with three classes and no edge yet it cannot report
+        # more than 0.53 - and the old default of 0.55 was therefore an
+        # off switch that read like a market opinion. See
+        # LiveModels.confidence_ceiling().
+        self.min_ai_confidence = 0.35
         # Robot position sizing: "auto" = each strategy's preset volume,
         # "manual" = the user's fixed lot for every robot entry.
         self.volume_mode = "auto"
@@ -150,6 +156,9 @@ class Trader:
         # The background task that adopts the EA's chart as the desk's
         # market. One at a time, and never on the ingest path.
         self._adopt_task: asyncio.Task | None = None
+        # Said once: the AI filter has been set above what the AI can
+        # report, so it is refusing everything by arithmetic.
+        self._ai_ceiling_said = False
         self._ai_tick_task: asyncio.Task | None = None
         RING.subscribe(self._on_log)
 
@@ -1757,7 +1766,7 @@ class Trader:
         runtime = cfg.get("runtime") or {}
         self.auto_trade = bool(runtime.get("auto_trade", False))
         self.require_ai_agree = bool(runtime.get("require_ai_agree", True))
-        self.min_ai_confidence = float(runtime.get("min_ai_confidence") or 0.55)
+        self.min_ai_confidence = float(runtime.get("min_ai_confidence") or 0.35)
         self.volume_mode = "manual" if str(runtime.get("volume_mode") or "auto") == "manual" else "auto"
         try:
             self.manual_volume = max(0.0, min(1000.0, float(runtime.get("manual_volume") or 0.10)))
@@ -2868,6 +2877,51 @@ class Trader:
             self._sync_book_meta()
             await self.bus.publish("strategy", self.strategy_meta)
 
+    def _ai_ceiling(self) -> float:
+        """The highest confidence the AI can currently report, or 0."""
+        try:
+            return float((self.ai.last or {}).get("ceiling") or 0.0)
+        except Exception:
+            return 0.0
+
+    def _ai_ceiling_note(self) -> str:
+        ceiling = self._ai_ceiling()
+        if ceiling <= 0 or ceiling >= float(getattr(self, "min_ai_confidence", 0.55) or 0):
+            return ""
+        return (
+            f" — and with the edge measured so far the AI cannot go above {ceiling:.2f}, "
+            f"so this setting refuses every entry"
+        )
+
+    async def _warn_unreachable_ai(self) -> None:
+        """Say once that the AI filter has been set to an impossible number.
+
+        The AI's confidence is shrunk towards "no information" in
+        proportion to the edge it has actually measured out of sample, so
+        it has a ceiling - about 0.53 with three classes and no edge yet.
+        A minimum set above that is not a strict filter, it is an off
+        switch with a market-sounding excuse, and the trader reads
+        "AI confidence 0.31 is under the 0.55 you asked for" as the
+        market's fault rather than the slider's.
+        """
+        ceiling = self._ai_ceiling()
+        if ceiling <= 0 or ceiling >= float(getattr(self, "min_ai_confidence", 0.55) or 0):
+            self._ai_ceiling_said = False
+            return
+        if getattr(self, "_ai_ceiling_said", False):
+            return
+        self._ai_ceiling_said = True
+        await self.journal(
+            "warning",
+            "ai_unreachable",
+            f"The AI filter is set to {float(self.min_ai_confidence):.2f}, but the AI cannot "
+            f"report more than {ceiling:.2f} until it measures an edge out of sample. "
+            f"Every robot entry will be refused while both are true. Lower the minimum in "
+            f"Robot, or switch the AI agreement filter off — the strategy's own rules and "
+            f"the quality score still apply.",
+            {"min_ai_confidence": float(self.min_ai_confidence), "ceiling": ceiling},
+        )
+
     async def _safe_dispatch(self, signal, name: str) -> None:
         """Send one strategy's signal, and survive a fault in the path.
 
@@ -2938,8 +2992,9 @@ class Trader:
                         payload,
                         "ai_low",
                         f"AI confidence {float(ai.get('confidence') or 0):.2f} is under the "
-                        f"{self.min_ai_confidence:.2f} you asked for",
+                        f"{self.min_ai_confidence:.2f} you asked for" + self._ai_ceiling_note(),
                     )
+                    await self._warn_unreachable_ai()
                     return
                 want = "bull" if action == "buy" else "bear"
                 if action == "market":

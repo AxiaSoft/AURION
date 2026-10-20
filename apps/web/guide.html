@@ -281,6 +281,8 @@
     
 
     
+
+    
 <!-- settings-reference:start -->
       <h2 id="fa-16">۱۶. مرجع کامل تنظیمات</h2>
       <p>هر کلیدی که AURION می‌خواند، با مقدار پیش‌فرض واقعی‌اش. این جدول‌ها از
@@ -295,7 +297,7 @@
         <tr><td><code>runtime.auto_trade</code></td><td><code>false</code></td><td>کلید اصلی ربات. تا وقتی <code>false</code> است هیچ سفارشی از طرف استراتژی‌ها نمی‌رود — تحلیل و سیگنال ادامه دارد، فقط اجرا قطع است. <b>مثال:</b> برای یک هفته رصد بدون ریسک، این را خاموش بگذارید و لاگ ربات را بخوانید.</td></tr>
         <tr><td><code>runtime.trade_style</code></td><td><code>"normal"</code></td><td><code>normal</code> یا <code>scalping</code>. نرمال روی کندل بسته تصمیم می‌گیرد؛ اسکلپ تهاجمی‌تر و روی تایم‌فریم پایین‌تر است. <b>مثال:</b> روی حساب پراپ با محدودیت ضرر روزانه، <code>normal</code> بمانید — اسکلپ تعداد معامله و در نتیجه تعداد فرصت نقض قانون را بالا می‌برد.</td></tr>
         <tr><td><code>runtime.require_ai_agree</code></td><td><code>true</code></td><td>اگر روشن باشد، سیگنال استراتژی فقط وقتی اجرا می‌شود که هوش مصنوعی هم‌جهت باشد. این یک <b>فیلتر</b> است، نه یک تولیدکنندهٔ سیگنال. <b>مثال:</b> استراتژی خرید می‌دهد، هوش «نزولی» می‌گوید → سفارش نمی‌رود و در لاگ با دلیل ثبت می‌شود.</td></tr>
-        <tr><td><code>runtime.min_ai_confidence</code></td><td><code>0.55</code></td><td>کف اطمینان هوش برای عبور از آن فیلتر، بین ۰ و ۱. <b>مثال:</b> <code>0.55</code> یعنی «۵۵٪ مطمئن یا بیشتر». بردنش به <code>0.75</code> تعداد معاملات را به‌شدت کم می‌کند؛ زیر <code>0.5</code> عملاً فیلتر را خاموش می‌کند.</td></tr>
+        <tr><td><code>runtime.min_ai_confidence</code></td><td><code>0.35</code></td><td>کف اطمینان هوش برای عبور از آن فیلتر، بین ۰ و ۱. <b>مثال:</b> <code>0.55</code> یعنی «۵۵٪ مطمئن یا بیشتر». بردنش به <code>0.75</code> تعداد معاملات را به‌شدت کم می‌کند؛ زیر <code>0.5</code> عملاً فیلتر را خاموش می‌کند.</td></tr>
         <tr><td><code>runtime.min_signal_quality</code></td><td><code>0.55</code></td><td>کیفیت خود سیگنال استراتژی (جدا از هوش). سیگنال ضعیف‌تر از این حذف می‌شود. <b>مثال:</b> در بازار بدون روند، بالا بردن این عدد جلوی ورودهای بی‌کیفیت را می‌گیرد.</td></tr>
         <tr><td><code>runtime.smart_filters</code></td><td><code>true</code></td><td>فیلترهای داخلی (اسپرد غیرعادی، ساعات کم‌نقدینگی، شرایط نامناسب). خاموش کردنش فقط برای تست است.</td></tr>
         <tr><td><code>runtime.min_open_trades</code></td><td><code>1</code></td><td>کمینهٔ پوزیشن باز که ربات تلاش می‌کند حفظ کند.</td></tr>
@@ -576,6 +578,8 @@
     
 
     
+
+    
 <!-- settings-reference:start -->
       <h2 id="en-16">16. Complete settings reference</h2>
       <p>Every key AURION reads, with its real default. These tables are generated from
@@ -590,7 +594,7 @@
         <tr><td><code>runtime.auto_trade</code></td><td><code>false</code></td><td>The master switch. While <code>false</code> no strategy order is ever sent — analysis and signals carry on, only execution stops. <b>Example:</b> to watch for a week with no risk, leave this off and read the robot log.</td></tr>
         <tr><td><code>runtime.trade_style</code></td><td><code>"normal"</code></td><td><code>normal</code> or <code>scalping</code>. Normal decides on the closed candle; scalping is more aggressive and works lower. <b>Example:</b> on a prop account with a daily-loss rule, stay on <code>normal</code> — scalping multiplies the number of trades and therefore the number of chances to break a rule.</td></tr>
         <tr><td><code>runtime.require_ai_agree</code></td><td><code>true</code></td><td>When on, a strategy signal only executes if the AI agrees with its direction. It is a <b>filter</b>, never a source of signals. <b>Example:</b> the strategy says buy, the AI says down → no order, and the log says why.</td></tr>
-        <tr><td><code>runtime.min_ai_confidence</code></td><td><code>0.55</code></td><td>The confidence floor for that filter, 0 to 1. <b>Example:</b> <code>0.55</code> means "55% sure or better". Raising it to <code>0.75</code> cuts the trade count sharply; below <code>0.5</code> the filter is off in all but name.</td></tr>
+        <tr><td><code>runtime.min_ai_confidence</code></td><td><code>0.35</code></td><td>The confidence floor for that filter, 0 to 1. <b>Example:</b> <code>0.55</code> means "55% sure or better". Raising it to <code>0.75</code> cuts the trade count sharply; below <code>0.5</code> the filter is off in all but name.</td></tr>
         <tr><td><code>runtime.min_signal_quality</code></td><td><code>0.55</code></td><td>The quality of the strategy's own signal, separate from the AI. Anything weaker is dropped. <b>Example:</b> in a rangebound market, raising this is what stops low-grade entries.</td></tr>
         <tr><td><code>runtime.smart_filters</code></td><td><code>true</code></td><td>The built-in filters: abnormal spread, thin hours, unsuitable conditions. Turning it off is for testing, not for trading.</td></tr>
         <tr><td><code>runtime.min_open_trades</code></td><td><code>1</code></td><td>The floor on open positions the robot tries to maintain.</td></tr>
@@ -778,6 +782,8 @@
     
 
     
+
+    
 <!-- settings-reference:start -->
       <h2 id="ar-16">١٦. مرجع الإعدادات الكامل</h2>
       <p>كل مفتاح يقرأه AURION مع قيمته الافتراضية الحقيقية. تُولَّد هذه الجداول من
@@ -790,7 +796,7 @@
         <tr><td><code>runtime.auto_trade</code></td><td><code>false</code></td><td>المفتاح الرئيسي. عند <code>false</code> لا يُرسل أي أمر — التحليل مستمر والتنفيذ متوقف فقط.</td></tr>
         <tr><td><code>runtime.trade_style</code></td><td><code>"normal"</code></td><td><code>normal</code> أو <code>scalping</code>. العادي يقرر عند إغلاق الشمعة؛ السكالب أكثر عدوانية.</td></tr>
         <tr><td><code>runtime.require_ai_agree</code></td><td><code>true</code></td><td>عند التفعيل، تُنفَّذ إشارة الاستراتيجية فقط إذا وافق الذكاء الاصطناعي على اتجاهها.</td></tr>
-        <tr><td><code>runtime.min_ai_confidence</code></td><td><code>0.55</code></td><td>الحد الأدنى للثقة، بين ٠ و١. رفعه إلى <code>0.75</code> يقلل عدد الصفقات بشدة.</td></tr>
+        <tr><td><code>runtime.min_ai_confidence</code></td><td><code>0.35</code></td><td>الحد الأدنى للثقة، بين ٠ و١. رفعه إلى <code>0.75</code> يقلل عدد الصفقات بشدة.</td></tr>
         <tr><td><code>runtime.min_signal_quality</code></td><td><code>0.55</code></td><td>جودة إشارة الاستراتيجية نفسها، منفصلة عن الذكاء الاصطناعي.</td></tr>
         <tr><td><code>runtime.smart_filters</code></td><td><code>true</code></td><td>المرشحات المدمجة: السبريد غير الطبيعي والساعات الضعيفة.</td></tr>
         <tr><td><code>runtime.min_open_trades</code></td><td><code>1</code></td><td>الحد الأدنى للصفقات المفتوحة.</td></tr>

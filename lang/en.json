@@ -296,7 +296,7 @@
     "editing": "Editing",
     "ai_gate_switch": "Require AI agreement",
     "ai_gate_help": "When on, the robot only opens a trade when the AI direction agrees with the signal. Turn it off to let the strategy trade on its own.",
-    "min_conf_help": "Minimum AI confidence for a robot entry. 55% is a balanced default — go higher for fewer but safer entries, lower for more (noisier) entries.",
+    "min_conf_help": "Minimum AI confidence for a robot entry. 35% is the balanced default; the AI's confidence is deliberately held back until it has measured an edge, so a number above about 53% refuses everything.",
     "lot_title": "Position size (lot)",
     "lot_help": "How the robot sizes every entry.",
     "lot_auto": "Auto",
@@ -310,7 +310,8 @@
     "record": "Won / lost",
     "pf": "Profit factor",
     "avg": "Average trade",
-    "live_hint": "Live read — the strategy is being asked again between candle closes"
+    "live_hint": "Live read — the strategy is being asked again between candle closes",
+    "min_conf_unreachable": "The AI filter is set to {want}%, but with the edge it has measured so far it cannot report more than {can}%. While both are true every robot entry is refused. Lower this, or switch the AI agreement off — the strategy's own rules and the quality score still apply."
   },
   "sys": {
     "tz_title": "Time zone",
