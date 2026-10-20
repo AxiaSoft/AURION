@@ -144,6 +144,9 @@ class Trader:
         self.license = Guard()
         self.backtest_run: dict[str, Any] = {"running": False, "mode": "idle"}
         self._last_ai_tick = 0.0
+        # Event faults already reported, so a broken path says so once
+        # instead of several times a second.
+        self._event_faults: set[str] = set()
         self._ai_tick_task: asyncio.Task | None = None
         RING.subscribe(self._on_log)
 
@@ -275,6 +278,31 @@ class Trader:
         log.info("broker clock is UTC%+d:%02d", minutes // 60, abs(minutes) % 60)
 
     async def _on_bridge(self, kind: str, payload: dict[str, Any]) -> None:
+        """Route one event from MetaTrader, and never die quietly.
+
+        The bridge catches whatever a handler raises and writes it to the
+        engine log file. Nobody reads an engine log file; the trader reads
+        the desk, where a robot that has stopped processing ticks looks
+        exactly like a quiet market. Faults are journalled instead - once
+        per kind, because a broken tick path would otherwise repeat itself
+        several times a second.
+        """
+        try:
+            await self._route_bridge(kind, payload)
+        except Exception as exc:
+            log.exception("bridge event %s failed", kind)
+            key = f"{kind}:{type(exc).__name__}"
+            if key in self._event_faults:
+                return
+            self._event_faults.add(key)
+            await self.journal(
+                "error",
+                "event_fault",
+                f"A '{kind}' update from MetaTrader could not be processed — "
+                f"{type(exc).__name__}: {exc}. This is a fault in AURION, not in the market.",
+            )
+
+    async def _route_bridge(self, kind: str, payload: dict[str, Any]) -> None:
         if kind == "tick":
             self._note_broker_clock(payload)
             sym = str(payload.get("symbol") or "")
@@ -1000,9 +1028,9 @@ class Trader:
 
         entry = float(price or request.get("price") or 0.0)
         if entry <= 0:
-            tick = self.bridge.ticks.get(symbol)
+            tick = self.tick_of(symbol)
             if tick:
-                entry = float((tick.ask if side == "buy" else tick.bid) or 0)
+                entry = float(tick.get("ask" if side == "buy" else "bid") or 0)
         if entry <= 0:
             return request
 
@@ -1254,10 +1282,24 @@ class Trader:
         return max(0.0, min(50.0, pct))
 
     def _risk_free_state(self) -> dict[str, Any]:
+        """Read defensively, like every other panel in the snapshot.
+
+        _sync_book_meta builds the whole strategies view in one dict. A
+        single attribute this method cannot read raises out of all of it,
+        so the desk loses the strategy cards, the quality score, the money
+        rule and the block reason together - and the trader sees an empty
+        panel rather than the one thing that is actually missing.
+        """
+        def num(name: str, fallback: float) -> float:
+            try:
+                return float(getattr(self, name, fallback))
+            except (TypeError, ValueError):
+                return fallback
+
         return {
-            "enabled": bool(self.risk_free_enabled),
-            "trigger_pct": round(float(self.risk_free_trigger_pct), 4),
-            "lock_pct": round(float(self.risk_free_lock_pct), 4),
+            "enabled": bool(getattr(self, "risk_free_enabled", False)),
+            "trigger_pct": round(num("risk_free_trigger_pct", 0.30), 4),
+            "lock_pct": round(num("risk_free_lock_pct", 0.0), 4),
         }
 
     def _timezone_city(self) -> str:
@@ -1932,13 +1974,72 @@ class Trader:
             return "bear", strength
         return "neutral", strength
 
+    def tick_of(self, symbol: str) -> dict[str, Any]:
+        """The live quote for a symbol, as a plain dict. Never raises.
+
+        The bridge stores quotes as Tick dataclasses, the desk and the
+        tests hand around dicts, and brokers rename the instrument -
+        EURUSD, EURUSD.m, EURUSD-ECN. Every reader that re-invented one
+        of those three facts got a different two of them wrong; the
+        spread gate read `tick.get("bid")` on a dataclass and raised
+        AttributeError, which is not in the exception list it was
+        written to survive, so it took the whole strategy book down on
+        the way out and the robot never sent an order. One accessor, so
+        there is one place to be right.
+        """
+        want = str(symbol or "").strip()
+        if not want:
+            return {}
+        match = getattr(self.bridge, "_sym_match", None)
+
+        def pick(book: Any) -> Any:
+            if not isinstance(book, dict) or not book:
+                return None
+            if want in book:
+                return book[want]
+            if callable(match):
+                for key, value in book.items():
+                    try:
+                        if match(want, str(key)):
+                            return value
+                    except Exception:
+                        continue
+            return None
+
+        row = None
+        for source in ("public_ticks", "ticks"):
+            try:
+                book = getattr(self.bridge, source, None)
+                book = book() if callable(book) else book
+            except Exception:
+                continue
+            row = pick(book)
+            if row is not None:
+                break
+        if row is None:
+            return {}
+        if hasattr(row, "to_dict"):
+            try:
+                row = row.to_dict()
+            except Exception:
+                return {}
+        if isinstance(row, dict):
+            return dict(row)
+        return {
+            "symbol": want,
+            "bid": float(getattr(row, "bid", 0) or 0),
+            "ask": float(getattr(row, "ask", 0) or 0),
+            "time": str(getattr(row, "time", "") or ""),
+        }
+
     def _spread_ok(self, symbol: str) -> tuple[bool, str]:
-        """Reject entries when the spread eats the edge."""
-        try:
-            ticks = self.bridge.public_ticks() or {}
-        except Exception:
-            return True, ""
-        tick = ticks.get(symbol) or {}
+        """Reject entries when the spread eats the edge.
+
+        Open on every doubt: a quote that cannot be read is not evidence
+        of a bad spread, and refusing the trade for it would be the gate
+        inventing a reason. Only a spread it has actually measured says no.
+        """
+        tick = self.tick_of(symbol)
         try:
             bid = float(tick.get("bid") or 0)
             ask = float(tick.get("ask") or 0)
@@ -2109,6 +2210,22 @@ class Trader:
         def _stat(name: str) -> dict[str, Any]:
             return ledger.get(normalise_strategy_tag(name), {})
 
+        def panel(name: str, build: Any, empty: Any) -> Any:
+            """One sub-card of the snapshot, or an empty one with a log line.
+
+            The strategies view is published as a single dict. Anything
+            that raises while building one card used to take the whole
+            dict with it, so a fault in the money rule emptied the
+            strategy cards, the quality score and the block reason as
+            well. A missing card is a bug to fix; a missing panel is a
+            trader who cannot see their robot.
+            """
+            try:
+                return build()
+            except Exception:
+                log.exception("strategy snapshot: %s is unavailable", name)
+                return empty
+
         for desc in items:
             stats = _stat(str(desc.get("name") or ""))
             desc["trades"] = int(stats.get("trades") or 0)
@@ -2136,14 +2253,14 @@ class Trader:
             "trade_style": self.trade_style,
             "min_open_trades": int(getattr(self, "min_open_trades", 1) or 1),
             "max_open_trades": int(getattr(self, "max_open_trades", 2) or 2),
-            "open_trades": self._open_count(),
-            "free_slots": self.free_slots(),
+            "open_trades": panel("open trades", self._open_count, 0),
+            "free_slots": panel("free slots", self.free_slots, 0),
             "smart_filters": bool(getattr(self, "smart_filters", True)),
             # What the caps actually are once the prop profile has had its
             # say. The desk was showing the trader's own number, which is a
             # wish rather than the rule the robot is being held to.
-            "cap_effective": self._total_cap(),
-            "cap_symbol": self._per_symbol_cap(),
+            "cap_effective": panel("cap", self._total_cap, 0),
+            "cap_symbol": panel("symbol cap", self._per_symbol_cap, 0),
             "cap_by_prop": bool(
                 getattr(self.prop, "enabled", False)
                 and self._total_cap() < max(1, int(getattr(self, "max_open_trades", 2) or 2))
@@ -2151,16 +2268,16 @@ class Trader:
             "min_signal_quality": float(getattr(self, "min_signal_quality", 0.55) or 0.55),
             "last_quality": dict(getattr(self, "last_quality", {}) or {}),
             "last_block": dict(getattr(self, "last_block", {}) or {}),
-            "news_trade": self.news_trading_on(),
+            "news_trade": panel("news", self.news_trading_on, False),
             "news_trade_locked": bool(self.prop.enabled),
             "auto_entry": bool(getattr(self, "auto_entry", False)),
             "auto_entry_expiry": int(getattr(self, "auto_entry_expiry", 120)),
-            "pending_orders": len(self._own_pending_orders()),
-            "danger_guard": self._danger_state(),
-            "risk_free": self._risk_free_state(),
-            "money": self._money_state(),
-            "system": self._timezone_state(),
-            "auto_limit": self._auto_limit_meta(),
+            "pending_orders": panel("pending orders", lambda: len(self._own_pending_orders()), 0),
+            "danger_guard": panel("danger guard", self._danger_state, {}),
+            "risk_free": panel("risk free", self._risk_free_state, {}),
+            "money": panel("money rule", self._money_state, {}),
+            "system": panel("clock", self._timezone_state, {}),
+            "auto_limit": panel("auto limit", self._auto_limit_meta, {}),
             "prop_enabled": bool(getattr(self.prop, "enabled", True)),
             "items": items,
             "stats": ledger,
@@ -2342,7 +2459,7 @@ class Trader:
             return
         for name, signal in closes:
             await self.journal("info", "close", f"{name} requested close")
-            await self._dispatch_signal(signal, f"strategy:{name}")
+            await self._safe_dispatch(signal, name)
         if not entries:
             self._sync_book_meta()
             await self.bus.publish("strategy", self.strategy_meta)
@@ -2371,7 +2488,7 @@ class Trader:
                 )
                 break
             await self.journal("info", "dispatch", f"Dispatching {name} {self._signal_bits(signal)[0]}")
-            await self._dispatch_signal(signal, f"strategy:{name}")
+            await self._safe_dispatch(signal, name)
         self._sync_book_meta()
         await self.bus.publish("strategy", self.strategy_meta)
 
@@ -2704,6 +2821,44 @@ class Trader:
             self._sync_book_meta()
             await self.bus.publish("strategy", self.strategy_meta)
 
+    async def _safe_dispatch(self, signal, name: str) -> None:
+        """Send one strategy's signal, and survive a fault in the path.
+
+        A fault between the signal and the broker used to abort the whole
+        closed-bar handler: the remaining strategies were never asked, the
+        desk showed "Strategy book crashed" with a Python message in it,
+        and the next bar did exactly the same thing. That is a robot that
+        never trades and cannot say why. The crash is now owned by the one
+        signal that caused it - named, journalled as an error so it reaches
+        the desk, and left behind as last_block so the "why did nothing
+        happen" card has an answer.
+        """
+        try:
+            await self._dispatch_signal(signal, f"strategy:{name}")
+        except Exception as exc:
+            log.exception("dispatching %s failed", name)
+            payload = {}
+            try:
+                payload = signal.to_dict() if hasattr(signal, "to_dict") else dict(signal or {})
+            except Exception:
+                payload = {}
+            self.last_block = {
+                "at": utc_iso(),
+                "source": f"strategy:{name}",
+                "reason": "fault",
+                "detail": f"{type(exc).__name__}: {exc}",
+                "symbol": payload.get("symbol") or self.active_symbol,
+                "action": payload.get("action") or "",
+            }
+            await self.journal(
+                "error",
+                "dispatch_fault",
+                f"{name}: the order path failed on the way to the broker — "
+                f"{type(exc).__name__}: {exc}. Nothing was sent.",
+                {"signal": payload},
+            )
+            await self.bus.publish("block", self.last_block)
+
     async def _dispatch_signal(self, signal, source: str) -> None:
         if not signal:
             return
@@ -2859,15 +3014,15 @@ class Trader:
         because the alternative is a strategy whose signals silently vanish.
         """
         symbol = str(request.get("symbol") or "")
-        tick = self.bridge.ticks.get(symbol)
+        tick = self.tick_of(symbol)
         if not tick:
             return request
         side = str(request.get("side") or "buy").lower()
         extra = request.get("extra") if isinstance(request.get("extra"), dict) else {}
         plan = plan_entry(
             side,
-            float(getattr(tick, "bid", 0) or 0),
-            float(getattr(tick, "ask", 0) or 0),
+            float(tick.get("bid") or 0),
+            float(tick.get("ask") or 0),
             float(request.get("sl") or 0),
             float(request.get("tp") or 0),
             extra,

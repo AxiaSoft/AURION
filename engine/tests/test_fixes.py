@@ -1128,9 +1128,20 @@ def test_ed25519_official_rfc_vectors() -> None:
     assert ed.verify(sig, b"\x01", pub) is False
 
 
-def test_license_freemium_default_and_locks() -> None:
-    """No key -> freemium: prop/scalping/upload locked, account_type freemium."""
+def test_license_freemium_default_and_locks(tmp_path, monkeypatch) -> None:
+    """No key -> freemium: prop/scalping/upload locked, account_type freemium.
+
+    "No key" has to mean no key. This used to read whatever licence the
+    machine running the tests happened to have activated, so on a
+    developer's own install - or on this repository, which carries a
+    licence state file - the test asserted freemium against a premium
+    guard and failed for a reason that had nothing to do with the code.
+    """
+    from aurion.license import guard as guard_mod
     from aurion.license.guard import Guard
+
+    monkeypatch.setattr(guard_mod, "DIR", tmp_path / "license")
+    monkeypatch.setattr(guard_mod, "STATE", tmp_path / "license" / "state.json")
 
     g = Guard()
     pub = g.public()

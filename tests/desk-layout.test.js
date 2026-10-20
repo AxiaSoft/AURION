@@ -288,8 +288,11 @@ check("a viewport change is repainted more than once", (() => {
 
   // The engine has to publish it or the switch paints from nothing and
   // springs back to off on the next snapshot.
+  // Matched on the field and the method that fills it, not on one exact
+  // spelling of the call: the snapshot now builds each panel behind a
+  // guard so one unavailable card cannot blank the whole strategies view.
   check("the engine publishes the state the switch reads",
-    /"risk_free": self\._risk_free_state\(\)/.test(read("engine/aurion/runtime/trader.py")) &&
+    /"risk_free":[^\n]*_risk_free_state/.test(read("engine/aurion/runtime/trader.py")) &&
     /S\.snap\?\.strategy\?\.risk_free/.test(app));
 
   // Saving is not the same as being seen to save.
@@ -402,6 +405,41 @@ check("a viewport change is repainted more than once", (() => {
   const missing = keys.filter((k) => !(k in (en.strategies || {})));
   check("every label it needs is translated",
     missing.length === 0, missing.length ? missing.join(", ") : `${keys.length} keys`);
+})();
+
+/* =================================================== the toggle geometry == */
+
+/* Reported from a phone: "the circle inside the switch is not centred and
+   the whole box has gone round". One cause, two symptoms. The track was a
+   hard-coded 46x26 with the knob pinned at top:3px, and the touch block
+   raised every control to min-height:38px - so on a coarse pointer the
+   track became 46x38 (a 99px radius on that is a circle) with the knob
+   still sitting 3px from the top.
+   The rules below are read rather than rendered, because jsdom does no
+   layout and this is exactly the kind of defect that only a real screen
+   shows. */
+(() => {
+  const block = chartSliceOf(appCss, ".switch{");
+  check("the switch declares its own height", /--sw-h:\s*\d+px/.test(block));
+  check("the knob is centred by layout, not by a magic offset",
+    /top:\s*50%/.test(appCss.slice(appCss.indexOf(".switch i{"), appCss.indexOf(".switch.on{"))) &&
+    /translateY\(-50%\)/.test(appCss));
+  check("the knob's size comes from the track",
+    /--sw-knob:\s*calc\(var\(--sw-h\)/.test(block));
+  check("the travel comes from the track too",
+    /--sw-travel:\s*calc\(var\(--sw-w\)/.test(block));
+  check("the track cannot be stretched by a global minimum",
+    /max-height:\s*var\(--sw-h\)/.test(block));
+
+  const coarse = chartSliceOf(appCss, "@media (pointer: coarse)");
+  check("touch no longer forces a min-height onto the switch",
+    coarse.indexOf(".switch") >= 0 && !/\.switch\{[^}]*min-height/.test(coarse),
+    coarse.indexOf(".switch") < 0 ? "the coarse block says nothing about the switch" : "min-height is back");
+  check("touch grows both of the switch's numbers together",
+    /--sw-h:\s*\d+px;\s*--sw-w:\s*\d+px/.test(coarse));
+  check("the thumb target is grown around the control, not through it",
+    /\.switch::after\{[^}]*inset:/.test(coarse),
+    "the bigger hit area belongs in the touch block, where it cannot steal a mouse click from a neighbour");
 })();
 
 /* ------------------------------------------------------------------------- */

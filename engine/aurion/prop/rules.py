@@ -236,19 +236,22 @@ class PropEngine:
         return self.profile
 
     def reload_news(self) -> int:
+        """Read the economic calendar off disk. Never touches the network.
+
+        It used to call news_feed.refresh() here, and this runs inside
+        __init__, which runs inside Trader(), which is engine start-up:
+        on a machine with no outbound access that is two downloads at a
+        25 second timeout each before the engine answers its first
+        request, and the desk spends that time telling the trader the
+        engine is not running. The download belongs to the refresh loop
+        that already exists (Trader._news_refresh_loop, on an executor
+        thread, every five minutes and once at start-up) and to the
+        Calendar tab's explicit refresh button - both of which call
+        reload_news() afterwards.
+        """
         cfg = load()
         path = str(cfg["prop"].get("news_calendar_path") or "")
         self.news_events = []
-        if not path:
-            # Nothing configured: fall back to the Forex Factory cache so the
-            # calendar and the blackout filter are never silently empty.
-            try:
-                from .. import news_feed
-
-                news_feed.refresh()
-                path = str(load()["prop"].get("news_calendar_path") or "")
-            except Exception:
-                return 0
         if not path:
             # Last resort: read the feed cache directly rather than trusting a
             # config value this process may have loaded before it was written.
