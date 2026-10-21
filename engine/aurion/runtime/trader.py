@@ -2677,14 +2677,6 @@ class Trader:
                 "lookback": 20, "volume": 0.10, "sl_atr": 1.2, "tp_atr": 2.0,
                 "min_rr": 1.6, "with_trend": True, "require_momentum": True, "min_efficiency": 0.18,
             },
-            # King reads structure, so the style pack tunes *patience*, not
-            # indicators: a wider higher timeframe, a strict discount and a
-            # target that has to pay twice the risk.
-            "king": {
-                "htf_factor": 4, "volume": 0.10, "max_discount": 0.5,
-                "min_displacement_atr": 0.9, "min_rr": 2.0, "tp_atr": 3.0,
-                "require_zone": True, "allow_choch": True,
-            },
         },
         "scalping": {
             "ema_rsi": {
@@ -2698,16 +2690,6 @@ class Trader:
             "atr_breakout": {
                 "lookback": 8, "volume": 0.05, "sl_atr": 0.55, "tp_atr": 0.95,
                 "min_rr": 1.2, "with_trend": True, "require_momentum": False, "min_efficiency": 0.12,
-            },
-            # Scalping does not get to switch the quality gates off. It gets a
-            # closer higher timeframe and a nearer target, because on M1 the
-            # next pool of liquidity is minutes away rather than hours — but
-            # the discount rule, the zone and the 1.5R floor stay, since those
-            # are the reason this strategy wins and the old scalper did not.
-            "king": {
-                "htf_factor": 3, "volume": 0.05, "max_discount": 0.55,
-                "min_displacement_atr": 0.7, "min_rr": 1.5, "tp_atr": 2.0,
-                "require_zone": True, "allow_choch": True,
             },
         },
     }
@@ -3791,12 +3773,43 @@ class Trader:
         # asked, which is the close of the current candle.
         desk_side = [b for b in blockers if b["where"] == "desk"]
         next_eval = self._next_candle_close(symbol, timeframe)
-        if desk_side:
+        if resting:
+            levels = ", ".join(f"{r['type'].replace('_', ' ')} at {r['price']}" for r in resting[:3])
+            when = f"The entry is already planted ({levels}). The trade starts if price reaches it."
+        elif setup and not getattr(self, "auto_entry", False):
+            # Worth saying out loud. With auto entry off the robot takes
+            # the market on a signal and never rests an order, so looking
+            # for a planted entry point on the chart will never find one
+            # - and that is a setting, not a fault.
+            when = (
+                "Now, at market: auto entry is off, so the robot takes the price it is "
+                "given instead of planting an entry point and waiting."
+            )
+        elif desk_side:
             when = "Not until the above is cleared — this will not fix itself with time."
         elif setup:
             when = "Now: a setup is on the table and nothing is blocking it."
         else:
             when = f"At the next candle close ({timeframe}), when the strategy is asked again."
+
+        # Entry points already planted for this symbol. A resting order is
+        # the robot having decided and being in the market's waiting room,
+        # which reads as "doing nothing" unless something says otherwise.
+        resting = []
+        try:
+            for od in self._own_pending_orders():
+                if symbol and str(od.get("symbol") or "") != symbol:
+                    continue
+                resting.append({
+                    "ticket": od.get("ticket"),
+                    "type": od.get("type") or "",
+                    "price": float(od.get("price") or od.get("price_open") or 0),
+                    "sl": float(od.get("sl") or 0),
+                    "tp": float(od.get("tp") or 0),
+                    "volume": float(od.get("volume") or 0),
+                })
+        except Exception:
+            log.exception("resting order read failed")
 
         return {
             "symbol": symbol,
@@ -3805,6 +3818,8 @@ class Trader:
             "strategy_enabled": bool(slot.get("enabled")),
             "ready": bool(gate.get("ready")),
             "setup": setup,
+            "auto_entry": bool(getattr(self, "auto_entry", False)),
+            "resting": resting,
             "action": live_action,
             "reason": live_reason,
             "refusal": refusal,

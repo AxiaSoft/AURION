@@ -86,7 +86,7 @@ function signalAt(index, type) {
     index, time: bar.time, type, side: type, price: entry, entry,
     sl: type === "buy" ? entry - 0.004 : entry + 0.004,
     tp: type === "buy" ? entry + 0.009 : entry - 0.009,
-    rr: 2.25, confidence: 0.84, strategy: "king",
+    rr: 2.25, confidence: 0.84, strategy: "price_action",
     reason: "4x higher timeframe is bull (bos) - price in discount at 41% of range - entry chart choch",
     extra: { htf_bias: "bull", zone: "fvg", equilibrium: 0.41 },
   };
@@ -135,7 +135,7 @@ chart._sigHover = chart._sigHits[0];
 chart.draw();
 const card = log.text.join("\n");
 
-check("the card names the side and the strategy", /BUY/.test(card) && /KING/.test(card));
+check("the card names the side and the strategy", /BUY/.test(card) && /PRICE_ACTION/i.test(card));
 check("the card shows the entry", card.indexOf("Entry") >= 0);
 check("the card shows the stop", card.indexOf("SL") >= 0);
 check("the card shows the target", card.indexOf("TP") >= 0);

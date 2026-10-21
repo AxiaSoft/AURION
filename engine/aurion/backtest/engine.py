@@ -11,6 +11,22 @@ from ..util.clock import utc_iso
 from .metrics import summarize
 
 
+def _bar_time(bar: Any) -> str:
+    """The timestamp MT5 put on a bar, whatever key it arrived under.
+
+    Reported rather than derived: this is the one field that lets someone
+    verify a result against their own terminal, so it is never filled in
+    with "now" when the bar did not carry a time.
+    """
+    if not isinstance(bar, dict):
+        return ""
+    for key in ("time", "ts", "timestamp", "datetime", "date"):
+        val = bar.get(key)
+        if val not in (None, "", 0):
+            return str(val)
+    return ""
+
+
 class Backtester:
     """Offline replay of REAL historical bars supplied by MT5.
 
@@ -138,6 +154,18 @@ class Backtester:
             "trades": trades[-200:],
             "equity_curve": curve[-500:],
             "ts": utc_iso(),
+            # Provenance. The run already refuses to start without real
+            # bars from MT5, but "it is real" is an assertion until the
+            # result says which bars. These are read off the first and
+            # last bar actually replayed, so a trader can open the same
+            # window in MetaTrader and check the figures came from there.
+            "data": {
+                "source": "mt5",
+                "first_bar": _bar_time(bars[0]),
+                "last_bar": _bar_time(bars[-1]),
+                "warmup_bars": int(warmup),
+                "tested_bars": max(0, len(bars) - int(warmup)),
+            },
         }
 
     # ------------------------------------------------------------------
@@ -151,12 +179,12 @@ class Backtester:
     # into losers. Both now go through the same arithmetic.
     # ------------------------------------------------------------------
 
-    # Measured, not guessed. Over three independent samples and all four
-    # built-in strategies, moving the stop to break-even at 0.8R lifted the
-    # win rate by 9 to 18 points and the profit factor in every one of them
-    # (ema_rsi 1.16 -> 1.32, price_action 0.89 -> 1.09, atr_breakout 1.38 ->
-    # 1.59, king 0.96 -> 1.13). Trailing on top of it was neutral at best
-    # and cost king a third of its edge, so it ships available and off.
+    # Measured, not guessed. Over three independent samples and every
+    # built-in strategy, moving the stop to break-even at 0.8R lifted the
+    # win rate by 9 to 18 points and the profit factor in all of them
+    # (ema_rsi 1.16 -> 1.32, price_action 0.89 -> 1.09, atr_breakout
+    # 1.38 -> 1.59). Trailing on top of it was neutral at best and cost
+    # one strategy a third of its edge, so it ships available and off.
     MANAGE_DEFAULTS = {
         "be_at_r": 0.8,
         "be_lock_r": 0.1,

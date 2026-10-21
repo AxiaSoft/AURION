@@ -90,9 +90,6 @@
       },
       "atr_breakout": {
         "enabled": false
-      },
-      "king": {
-        "enabled": false
       }
     },
     "min_open_trades": 1,

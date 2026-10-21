@@ -232,6 +232,11 @@ class CandleChart {
     this.draft = null;
     this.tick = null;
     this.levels = [];
+    /* Resting orders the robot has planted but that have not filled. A
+       position is a trade; one of these is a decision waiting for price,
+       and until it was drawn there was no way to see the robot had made
+       one. */
+    this.orders = [];
     this.pending = { sl: 0, tp: 0 };
     this.dragLevel = null;
     this.signals = [];
@@ -569,6 +574,12 @@ class CandleChart {
     this.draw();
   }
 
+  /** The robot's planted entry points: resting orders, not open trades. */
+  setOrders(orders) {
+    this.orders = Array.isArray(orders) ? orders.filter(Boolean) : [];
+    this.draw();
+  }
+
   setPending(p) {
     p = p || {};
     this.pending = { sl: Number(p.sl || 0) || 0, tp: Number(p.tp || 0) || 0 };
@@ -728,6 +739,15 @@ class CandleChart {
     for (const lv of this.levels || []) {
       for (const k of ["sl", "tp", "price_open", "price_current"]) {
         const n = Number(lv[k]);
+        if (n > 0) { mn = Math.min(mn, n); mx = Math.max(mx, n); }
+      }
+    }
+    // A resting entry sits away from the market by design, so it is the
+    // one level most likely to fall outside the visible range. Drawn but
+    // off-screen is the same as not drawn.
+    for (const od of this.orders || []) {
+      for (const k of ["price", "sl", "tp"]) {
+        const n = Number(od[k]);
         if (n > 0) { mn = Math.min(mn, n); mx = Math.max(mx, n); }
       }
     }
@@ -933,6 +953,7 @@ class CandleChart {
     this.drawings.forEach((d) => { if (d.visible !== false) this.paintShape(L, d, false); });
     if (this.draft) this.paintShape(L, this.draft, true);
     this.paintLevels(L);
+    this.paintOrders(L);
     this.paintPending(L);
     this.paintSignals(L);
     this.paintLastPrice(L);
@@ -1442,6 +1463,73 @@ class CandleChart {
       ctx.lineWidth = 1.4;
     }
   }
+  /**
+   * The robot's planted entry points.
+   *
+   * Deliberately drawn unlike an open position: the entry is a dashed
+   * line with an arrow at the price and the word WAITING on the tag, and
+   * the stop and target are faint. An open trade is solid and filled.
+   * The difference has to be readable at a glance, because "the robot
+   * has decided and is waiting for price" and "the robot is in" are
+   * different states of mind for whoever is watching the chart.
+   */
+  paintOrders(L) {
+    const ctx = this.ctx;
+    const T = chartTheme();
+    for (const od of this.orders || []) {
+      const price = Number(od.price || 0);
+      if (!price) continue;
+      const side = String(od.type || od.side || "").toLowerCase();
+      const isBuy = side.includes("buy");
+      const col = isBuy ? T.up : T.down;
+      const y = L.yOf(price);
+
+      ctx.save();
+      ctx.strokeStyle = col;
+      ctx.globalAlpha = 0.9;
+      ctx.lineWidth = 1.6;
+      ctx.setLineDash([7, 5]);
+      ctx.beginPath(); ctx.moveTo(L.plotL, y); ctx.lineTo(L.plotR, y); ctx.stroke();
+      ctx.setLineDash([]);
+
+      // The stop and the target travel with the order, so the whole
+      // ticket is visible before it is live, not after.
+      for (const [p, c] of [[Number(od.sl || 0), T.down], [Number(od.tp || 0), T.up]]) {
+        if (!p) continue;
+        const yy = L.yOf(p);
+        ctx.strokeStyle = c;
+        ctx.globalAlpha = 0.4;
+        ctx.lineWidth = 1;
+        ctx.setLineDash([2, 5]);
+        ctx.beginPath(); ctx.moveTo(L.plotL, yy); ctx.lineTo(L.plotR, yy); ctx.stroke();
+        ctx.setLineDash([]);
+      }
+      ctx.globalAlpha = 1;
+
+      const kind = String(od.type || "").replace(/_/g, " ").toUpperCase() || (isBuy ? "BUY" : "SELL");
+      const text = `${kind} ${this.fmtPrice(price)} · ${this.i18n("chart.order_waiting", "WAITING")}`;
+      ctx.font = "11px IBM Plex Mono, Vazirmatn, monospace";
+      const tw = ctx.measureText(text).width + 26;
+      const bx = L.plotR - tw - 8;
+      ctx.fillStyle = T.panel;
+      ctx.fillRect(bx, y - 10, tw, 20);
+      ctx.strokeStyle = col;
+      ctx.lineWidth = 1;
+      ctx.strokeRect(bx + 0.5, y - 9.5, tw - 1, 19);
+      // A small arrow pointing the way the order would take the market.
+      ctx.fillStyle = col;
+      ctx.beginPath();
+      if (isBuy) { ctx.moveTo(bx + 8, y + 4); ctx.lineTo(bx + 13, y - 4); ctx.lineTo(bx + 18, y + 4); }
+      else { ctx.moveTo(bx + 8, y - 4); ctx.lineTo(bx + 13, y + 4); ctx.lineTo(bx + 18, y - 4); }
+      ctx.closePath(); ctx.fill();
+      ctx.textAlign = "left";
+      ctx.textBaseline = "middle";
+      ctx.fillText(text, bx + 22, y);
+      ctx.restore();
+    }
+    ctx.lineWidth = 1.4;
+  }
+
   paintPending(L) {
     const ctx = this.ctx;
     const sl = Number(this.pending && this.pending.sl || 0);

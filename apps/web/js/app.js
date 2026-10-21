@@ -2318,7 +2318,6 @@ function stAbout(name) {
     ema_rsi: "strategies.ema_rsi_about",
     price_action: "strategies.price_action_about",
     atr_breakout: "strategies.atr_breakout_about",
-    king: "strategies.king_about",
   };
   return I18N.t(about[name] || "strategies.active");
 }
@@ -2541,7 +2540,6 @@ function strategyItems() {
     {name:"ema_rsi", enabled:false, last_action:"idle"},
     {name:"price_action", enabled:false, last_action:"idle"},
     {name:"atr_breakout", enabled:false, last_action:"idle"},
-    {name:"king", enabled:false, last_action:"idle"},
   ];
   return items;
 }
@@ -3714,6 +3712,10 @@ function analysisCardHtml() {
       <div>
         <h3 style="font-size:13px">${I18N.t("ai.an.when")}</h3>
         <p class="sub">${esc(a.when || "")}</p>
+        ${(a.resting || []).length
+          ? `<ul class="an-why">${a.resting.map((r) => `<li><b>${esc(String(r.type || "").replace(/_/g, " ").toUpperCase())} ${fmt(r.volume, 2)} @ ${fmt(r.price, 5)}</b>
+               <span class="sub"> — SL ${r.sl ? fmt(r.sl, 5) : "—"} / TP ${r.tp ? fmt(r.tp, 5) : "—"}</span></li>`).join("")}</ul>`
+          : ""}
         ${a.next_eval?.text ? `<p class="sub"><b>${I18N.t("ai.an.next_eval")}:</b> <span class="mono" id="an-next">${esc(a.next_eval.text)}</span></p>` : ""}
       </div>
     </div>
@@ -6455,7 +6457,30 @@ function renderBacktestCard(bt) {
       <span>${I18N.t("history.rr")}</span><b>${fmt(m.avg_rr,2)}</b>
       <span>${I18N.t("history.net")}</span><b class="${clsPnl(m.net)}">${fmt(m.net)}</b>
       <span>${I18N.t("history.trades")}</span><b>${fmt(m.trades || (bt.trades || []).length, 0)}</b>
-    </div>`;
+    </div>
+    ${btProvenance(bt)}`;
+}
+
+/**
+ * Where the numbers above came from.
+ *
+ * The engine refuses to replay anything but real MT5 bars, but a refusal
+ * in the source code is not something a trader can see. Printing the
+ * first and last bar of the window that was actually replayed turns
+ * "these are real" from a claim into something checkable against their
+ * own terminal.
+ */
+function btProvenance(bt) {
+  const d = (bt && bt.data) || {};
+  if (!d.first_bar && !d.last_bar && !bt.bars) return "";
+  const span = d.first_bar && d.last_bar
+    ? `${esc(String(d.first_bar))} → ${esc(String(d.last_bar))}`
+    : "—";
+  return `<p class="sub bt-prov" style="margin-top:10px">
+    ${I18N.t("bt.prov_source")} · <b class="mono">${esc(String(d.source || "mt5").toUpperCase())}</b>
+    · ${I18N.t("bt.prov_window")} <b class="mono">${span}</b>
+    · ${I18N.t("bt.prov_bars")} <b class="mono">${fmt(d.tested_bars || bt.bars || 0, 0)}</b>${d.warmup_bars ? ` (+${fmt(d.warmup_bars, 0)} ${I18N.t("bt.prov_warmup")})` : ""}
+  </p>`;
 }
 function setBacktestBusy(on, progress) {
   const btn = $("h-bt");
@@ -6629,22 +6654,52 @@ function applyChartLevels(force) {
   }
   const symbol = (S.chartFocus && S.chartFocus.symbol) || S.symbol || "";
   const pos = (S.snap?.positions || []).filter((r) => r && (!symbol || r.symbol === symbol));
+  // Resting orders: the entry points the robot has planted and that have
+  // not filled yet. The chart only ever drew open positions, so a robot
+  // that had made its decision and was waiting at a price looked exactly
+  // like a robot doing nothing.
+  const ord = (S.snap?.orders || []).filter((r) => r && (!symbol || r.symbol === symbol));
   if (S.chart && typeof S.chart.setLevels === "function") S.chart.setLevels(pos);
+  if (S.chart && typeof S.chart.setOrders === "function") S.chart.setOrders(ord);
   syncChartPending();
   const box = $("chart-levels");
   if (!box) return;
-  const sig = pos.map((r) => `${r.ticket}:${r.sl}:${r.tp}:${r.profit}`).join("|");
+  const sig = pos.map((r) => `${r.ticket}:${r.sl}:${r.tp}:${r.profit}`).join("|")
+    + "#" + ord.map((r) => `${r.ticket}:${r.price}:${r.sl}:${r.tp}`).join("|");
   if (box.dataset.sig === sig) return;
   box.dataset.sig = sig;
-  if (!pos.length) { box.innerHTML = ""; return; }
-  box.innerHTML = pos.map((r) => `<div class="lvl-chip">
+  if (!pos.length && !ord.length) { box.innerHTML = ""; return; }
+  const posHtml = pos.map((r) => `<div class="lvl-chip">
       <b>${esc(r.symbol || "")} ${esc(r.type || "")} ${fmt(r.volume, 2)}</b>
       <span class="sl">SL ${r.sl ? fmt(r.sl, 5) : "—"}</span>
       <span class="tp">TP ${r.tp ? fmt(r.tp, 5) : "—"}</span>
       <span class="sub">${esc(strategyLabel(r.strategy))}</span>
       <button class="btn tiny ghost" type="button" data-close="${r.ticket}">${I18N.t("exec.close")}</button>
     </div>`).join("");
+  const ordHtml = ord.map((r) => `<div class="lvl-chip is-resting">
+      <b>${esc(String(r.type || "").replace(/_/g, " ").toUpperCase())} ${fmt(r.volume, 2)} @ ${fmt(r.price, 5)}</b>
+      <span class="wait">${I18N.t("chart.order_waiting")}</span>
+      <span class="sl">SL ${r.sl ? fmt(r.sl, 5) : "—"}</span>
+      <span class="tp">TP ${r.tp ? fmt(r.tp, 5) : "—"}</span>
+      <span class="sub">${esc(strategyLabel(r.strategy))}</span>
+      <button class="btn tiny ghost" type="button" data-cancel="${r.ticket}">${I18N.t("chart.order_cancel")}</button>
+    </div>`).join("");
+  box.innerHTML = ordHtml + posHtml;
   bindCloseButtons(box);
+  bindCancelButtons(box);
+}
+
+/** Cancel a resting order the robot planted but that has not filled. */
+function bindCancelButtons(root) {
+  (root || document).querySelectorAll("[data-cancel]").forEach((btn) => {
+    btn.onclick = async () => {
+      btn.disabled = true;
+      const r = await API.post("/api/order", { action: "cancel", ticket: +btn.dataset.cancel });
+      if (!r || !r.ok) { btn.disabled = false; toast((r && r.error) || I18N.t("errors.generic")); return; }
+      toast(I18N.t("chart.order_cancelled"));
+      await refresh(false);
+    };
+  });
 }
 function bindChartDesk() {
   const cv = $("cv-desk");

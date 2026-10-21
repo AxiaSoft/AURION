@@ -61,16 +61,21 @@ FORBIDDEN_MODULES = {
 }
 
 
-BUILTIN_NAMES = ("ema_rsi", "price_action", "atr_breakout", "king")
+BUILTIN_NAMES = ("ema_rsi", "price_action", "atr_breakout")
 
 # Strategies that used to ship and no longer do. Saved runtime state, MT5
 # comments on open positions and a trader's own config all still name them, so
 # they resolve to their replacement instead of raising. Dropping the entry
 # would turn an upgrade into "unknown builtin strategy" on first boot.
-LEGACY_BUILTINS = {"scalp_impulse": "king"}
+# King was withdrawn. Saved runtime state, a trader's own config and the
+# comment on any position it opened all still name it, so it resolves to
+# price_action - the surviving strategy that also trades structure - rather
+# than raising. Dropping these entries would turn an upgrade into "unknown
+# builtin strategy" on the first boot after the update.
+LEGACY_BUILTINS = {"scalp_impulse": "price_action", "king": "price_action"}
 
-# "scalp_impulse" stays reserved after its retirement: an uploaded file with
-# that name would collide with the alias above and silently shadow King.
+# Both names stay reserved after retirement: an uploaded file called either
+# would collide with the aliases above and silently shadow the real target.
 RESERVED_NAMES = set(BUILTIN_NAMES) | set(LEGACY_BUILTINS) | {"template", "base"}
 
 
@@ -198,14 +203,12 @@ class StrategyLoader:
     def load_builtin(self, name: str, params: dict[str, Any] | None = None) -> BaseStrategy:
         from .builtin.atr_breakout import ATRBreakout
         from .builtin.ema_rsi import EmaRsi
-        from .builtin.king import King
         from .builtin.price_action import PriceAction
 
         mapping = {
             "ema_rsi": EmaRsi,
             "price_action": PriceAction,
             "atr_breakout": ATRBreakout,
-            "king": King,
         }
         name = resolve_builtin(name)
         if name not in mapping:

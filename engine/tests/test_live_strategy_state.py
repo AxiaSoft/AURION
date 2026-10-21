@@ -56,7 +56,7 @@ class _Strategy:
 def _watcher(action: str = "buy") -> tuple[Trader, _Strategy]:
     t = Trader.__new__(Trader)
     inst = _Strategy(action)
-    t.book = {"king": {"enabled": True, "inst": inst}}
+    t.book = {"price_action": {"enabled": True, "inst": inst}}
     t.active_symbol = "EURUSD"
     t.active_timeframe = "M15"
     t._is_ea_symbol = lambda s: True
@@ -82,7 +82,7 @@ def _watcher(action: str = "buy") -> tuple[Trader, _Strategy]:
 def test_the_card_is_answered_between_candle_closes() -> None:
     t, inst = _watcher("sell")
     asyncio.run(t._watch_strategies({"symbol": "EURUSD"}))
-    slot = t.book["king"]
+    slot = t.book["price_action"]
     assert inst.calls == 1, "the watch pass has to actually ask the strategy"
     assert slot["live_action"] == "sell"
     assert slot["live_reason"]
@@ -92,8 +92,8 @@ def test_the_card_is_answered_between_candle_closes() -> None:
 def test_a_strategy_with_no_setup_reads_as_hold_and_says_why() -> None:
     t, inst = _watcher("")
     asyncio.run(t._watch_strategies({"symbol": "EURUSD"}))
-    assert t.book["king"]["live_action"] == "hold"
-    assert t.book["king"]["live_reason"] == "watched"
+    assert t.book["price_action"]["live_action"] == "hold"
+    assert t.book["price_action"]["live_reason"] == "watched"
 
 
 def test_the_watch_pass_leaves_no_trace_on_the_strategy() -> None:

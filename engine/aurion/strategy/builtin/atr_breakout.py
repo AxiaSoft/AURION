@@ -103,12 +103,21 @@ class ATRBreakout(BaseStrategy):
         confidence = 0.5 + 0.25 * efficiency(frame)
         if bias == ("bull" if side == "buy" else "bear"):
             confidence += 0.2 * strength
+        # A breakout has already left its level behind, so the better
+        # price is the retest: the zone runs from the broken level back
+        # to where price is now. If it never comes back the order simply
+        # expires, which is the trade-off the setting exists to offer.
+        broken = high if side == "buy" else low
+        extra: dict[str, Any] = {"atr": atr, "entry": close, "setup": "breakout retest"}
+        if broken > 0 and atr > 0:
+            extra["zone"] = {"low": min(broken, close), "high": max(broken, close)}
         return StrategySignal(
             side,
             ctx.symbol,
             volume=vol,
             sl=sl,
             tp=tp,
+            extra=extra,
             confidence=round(min(0.99, confidence), 3),
             reason=(
                 f"close {close:.5f} cleared the {n}-bar "

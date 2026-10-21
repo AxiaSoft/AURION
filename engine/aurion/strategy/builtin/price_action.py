@@ -167,6 +167,15 @@ class PriceAction(BaseStrategy):
         )
         self.accepted()
         confidence = min(0.99, 0.45 * score + 0.3 + 0.25 * efficiency(frame))
+        # This strategy only takes a pattern that is *at* a level - it
+        # refuses one that is not - so the level is the honest place to
+        # rest the order: support for a long, resistance for a short.
+        # The zone runs from that level to the market, and the planner's
+        # depth setting decides how far back into it to wait.
+        level = low if side == "buy" else high
+        extra: dict[str, Any] = {"atr": atr, "entry": price, "setup": pattern.get("name") or "pattern"}
+        if level > 0 and atr > 0:
+            extra["zone"] = {"low": min(level, price), "high": max(level, price)}
         return StrategySignal(
             side,
             ctx.symbol,
@@ -176,4 +185,5 @@ class PriceAction(BaseStrategy):
             reason=f"{pattern.get('reason') or pattern['name']} — {why}",
             comment="AURION pa",
             confidence=round(confidence, 3),
+            extra=extra,
         )

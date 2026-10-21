@@ -20,10 +20,9 @@ import pandas as pd
 from aurion.strategy.base import BaseStrategy, StrategyContext
 from aurion.strategy.builtin.atr_breakout import ATRBreakout
 from aurion.strategy.builtin.ema_rsi import EmaRsi
-from aurion.strategy.builtin.king import King
 from aurion.strategy.builtin.price_action import PriceAction
 
-STRATEGIES = [King, EmaRsi, PriceAction, ATRBreakout]
+STRATEGIES = [EmaRsi, PriceAction, ATRBreakout]
 
 
 def _candles(bars: int = 420, seed: int = 7) -> list[dict]:

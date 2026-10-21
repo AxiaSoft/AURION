@@ -2336,3 +2336,13 @@ html[data-theme="light"] .set-rail .set-jump button.on{background:linear-gradien
 .notify-card.trade-card h4 { margin: 0 0 4px; font-size: 14px; }
 .notify-card.trade-card .sub { margin: 0; }
 #notify-card .field { align-items: center; }
+
+/* A planted entry is not an open trade. The chip says so before the
+   numbers do: dashed edge for "decided, waiting for price", solid for
+   "in". Same reasoning as the dashed line on the chart itself. */
+.lvl-chip.is-resting { border-style: dashed; opacity: .92; }
+.lvl-chip.is-resting .wait {
+  font-size: 10px; letter-spacing: .08em; text-transform: uppercase;
+  padding: 1px 6px; border-radius: 999px;
+  background: var(--line, #2a2f3e); color: var(--muted, #9aa3b8);
+}

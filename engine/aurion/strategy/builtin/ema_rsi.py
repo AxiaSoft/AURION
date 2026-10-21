@@ -132,6 +132,20 @@ class EmaRsi(BaseStrategy):
         bias, strength = trend_bias(frame)
         confidence = 0.5 + 0.25 * (1.0 if bias == ("bull" if side == "buy" else "bear") else 0.0) * strength
         confidence += 0.25 * efficiency(frame)
+        # What the entry planner needs to rest this order at a price
+        # instead of taking the market. Without an ATR it has no scale to
+        # measure "a better price" on and silently falls back to a market
+        # order, which is why auto entry appeared to do nothing at all.
+        # A pullback entry has a real level behind it - the slow EMA the
+        # strategy waited for price to touch - so that one carries a zone
+        # as well; a fresh cross has no such level and gets the offset.
+        extra: dict[str, Any] = {"atr": atr_now, "entry": price, "setup": entry_kind}
+        if entry_kind == "pullback":
+            anchor = float(slow.iloc[-1])
+            if anchor > 0:
+                extra["zone"] = (
+                    {"low": min(anchor, price), "high": max(anchor, price)}
+                )
         return StrategySignal(
             side,
             ctx.symbol,
@@ -144,4 +158,5 @@ class EmaRsi(BaseStrategy):
                 f"RSI={rsi_now:.1f} — {why}"
             ),
             comment="AURION ema_rsi",
+            extra=extra,
         )

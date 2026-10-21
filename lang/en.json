@@ -274,7 +274,6 @@
     "ema_rsi_about": "EMA cross + RSI filter",
     "price_action_about": "Candlestick pattern + AI bias",
     "atr_breakout_about": "N-bar high/low breakout",
-    "king_about": "Structure + imbalance, higher timeframe",
     "live": "Live strategy status",
     "single_rule": "One strategy at a time — switching one on turns the others off. Stats below update after every closed trade.",
     "waiting": "Waiting for the next closed bar",
@@ -1098,7 +1097,11 @@
   },
   "bt": {
     "results": "Backtest results",
-    "results_hint": "The latest backtest appears here."
+    "results_hint": "The latest backtest appears here.",
+    "prov_source": "Source",
+    "prov_window": "window",
+    "prov_bars": "bars replayed",
+    "prov_warmup": "warm-up"
   },
   "chart": {
     "regime_hint": "The slider above shows direction and regime per chart — move between charts with the arrows.",
@@ -1187,7 +1190,12 @@
     "risk": "Risk",
     "rewardv": "Reward",
     "position_note": "These are the numbers of the drawing, not a forecast.",
-    "position_side": "The stop or the target is on the wrong side of the entry for this direction."
+    "position_side": "The stop or the target is on the wrong side of the entry for this direction.",
+    "order_waiting": "WAITING",
+    "order_cancel": "Cancel",
+    "order_cancelled": "Resting order cancelled",
+    "order_planted": "Entry planted",
+    "order_none": "No entry planted"
   },
   "signal": {
     "buy": "Buy signal",

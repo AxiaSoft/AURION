@@ -39,7 +39,6 @@ sys.path.insert(0, str(ROOT / "engine"))
 from aurion.strategy.base import StrategyContext  # noqa: E402
 from aurion.strategy.builtin.atr_breakout import ATRBreakout  # noqa: E402
 from aurion.strategy.builtin.ema_rsi import EmaRsi  # noqa: E402
-from aurion.strategy.builtin.king import King  # noqa: E402
 from aurion.strategy.builtin.price_action import PriceAction  # noqa: E402
 
 # name -> (price, tick size, daily range as a fraction of price)
@@ -52,7 +51,6 @@ PROFILES = {
 }
 
 STRATEGIES = {
-    "king": King,
     "atr_breakout": ATRBreakout,
     "ema_rsi": EmaRsi,
     "price_action": PriceAction,

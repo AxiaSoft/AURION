@@ -43,7 +43,7 @@ def record_close(store, **over):
         "net": 48.3,
         "parts": 1,
         "source": "mt5",
-        "strategy": "king",
+        "strategy": "price_action",
         "comment": "AURION king",
         "kind": "close",
         "entry": "out",
@@ -222,7 +222,7 @@ def test_only_closed_rows_are_audited(store):
 
 def test_the_strategy_ledger_uses_the_net_the_broker_charged(store):
     """A strategy whose gross wins are eaten by swap is not a winner."""
-    record_close(store, strategy="king", profit=52.5, swap=-1.2,
+    record_close(store, strategy="price_action", profit=52.5, swap=-1.2,
                  commission=-3.0, net=48.3)
     led = store.strategy_ledger()
-    assert led["king"]["net"] == 48.3
+    assert led["price_action"]["net"] == 48.3

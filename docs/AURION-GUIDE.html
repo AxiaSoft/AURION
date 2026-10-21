@@ -121,7 +121,6 @@
         <tr><td><code>ema_rsi</code></td><td>EMA ۸/۲۱ — RSI ۱۴ — حد ۱.۶ ATR — هدف ۲.۴ ATR</td><td>EMA ۳/۸ — RSI ۷ — حد ۰.۷ — هدف ۱.۱</td></tr>
         <tr><td><code>price_action</code></td><td>امتیاز الگو ≥ ۰.۶۲ — حد ۱.۴ / هدف ۲.۲</td><td>امتیاز ≥ ۰.۵۵ — حد ۰.۷ / هدف ۱.۰۵</td></tr>
         <tr><td><code>atr_breakout</code></td><td>نگاه ۲۰ کندل — حد ۱.۲ / هدف ۲.۰</td><td>نگاه ۸ کندل — حد ۰.۵۵ / هدف ۰.۹۵</td></tr>
-        <tr><td><code>king</code></td><td>تایم بالاتر ۴× — حداقل پای حرکت ۰.۹ ATR — حداقل نسبت ۲.۰ — فقط نیمهٔ تخفیف</td><td>تایم بالاتر ۳× — پای ۰.۷ ATR — نسبت ۱.۵ — لات ۰.۰۵</td></tr>
       </table>
       <p class="muted">انتخاب اسکلپ به‌تنهایی هیچ استراتژی‌ای را روشن نمی‌کند. هر استراتژی را جدا در تنظیمات یا صفحهٔ استراتژی‌ها روشن کنید.</p>
 
@@ -155,16 +154,6 @@
         <li><b>خرید:</b> کلوز کندل بسته بالاتر از سقف N کندل قبلی.</li>
         <li><b>فروش:</b> کلوز پایین‌تر از کف N کندل قبلی.</li>
         <li>اگر ATR نسبت به قیمت خیلی کوچک باشد (بازار مرده) سیگنال نمی‌دهد.</li>
-      </ul>
-
-      <h3><code>king</code> — ساختار بازار</h3>
-      <ul>
-        <li>جهت را فقط <b>تایم بالاتر</b> تعیین می‌کند (کندل‌ها ۴ تا ۴ تا جمع می‌شوند)؛ هیچ میانگین متحرکی تصمیم نمی‌گیرد.</li>
-        <li>خرید فقط در <b>نیمهٔ پایین</b> دامنه (تخفیف) و فروش فقط در نیمهٔ بالا (پریمیوم) — همین یک فیلتر جلوی خرید در سقف را می‌گیرد.</li>
-        <li>تایم ورود باید با <b>کلوز</b> سقف/کف قبلی را بشکند؛ فتیله حساب نیست.</li>
-        <li>پای حرکتی که ساختار را شکسته باید حداقل چند برابر ATR باشد.</li>
-        <li>ورود فقط از داخل یک <b>ناحیهٔ عدم تعادل (FVG)</b> پرنشده یا آخرین اوردربلاک. بدون ناحیه، سیگنالی داده نمی‌شود.</li>
-        <li>حد ضرر پشت نقطهٔ ابطال و هدف روی نزدیک‌ترین <b>نقدینگی</b>؛ اگر نسبت سود به ضرر کمتر از حد تعیین‌شده باشد سیگنال لغو می‌شود.</li>
       </ul>
 
       <h2 id="fa-7">۷. پراپ — فیلتر روی همان سیگنال</h2>
@@ -322,7 +311,6 @@
         <tr><td><code>ema_rsi</code></td><td>8/21, RSI 14, SL 1.6 ATR, TP 2.4</td><td>3/8, RSI 7, SL 0.7, TP 1.1</td></tr>
         <tr><td><code>price_action</code></td><td>score ≥ 0.62, SL 1.4 / TP 2.2</td><td>score ≥ 0.55, SL 0.7 / TP 1.05</td></tr>
         <tr><td><code>atr_breakout</code></td><td>lookback 20, SL 1.2 / TP 2.0</td><td>lookback 8, SL 0.55 / TP 0.95</td></tr>
-        <tr><td><code>king</code></td><td>4x higher timeframe, leg ≥ 0.9 ATR, 2.0R floor, discount only</td><td>3x higher timeframe, leg ≥ 0.7 ATR, 1.5R floor, lot 0.05</td></tr>
       </table>
       <p>Picking Scalping also forces an H1/H4/D1 active timeframe down to <b>M1</b>. It does not enable any strategy by itself.</p>
 
@@ -332,7 +320,6 @@
         <li><code>ema_rsi</code> — buy when fast EMA crosses up through slow and RSI ≥ 42; sell on a cross down with RSI ≤ 58.</li>
         <li><code>price_action</code> — strongest of hammer / star / engulfing / morning-evening star / pin-break / HH-LL. Needs score ≥ the style threshold and AI agreement when AI is ready. Doji is neutral (no entry). HH/LL score 0.58: Normal (0.62) ignores it alone; Scalping (0.55) can take it.</li>
         <li><code>atr_breakout</code> — buy if the closed bar closes above the prior N-bar high; sell below the N-bar low. Dead ATR is skipped.</li>
-        <li><code>king</code> — higher-timeframe structure sets direction; entry only from a discount, inside an unmitigated imbalance, after a break on a close, with the target at liquidity.</li>
       </ul>
 
       <h2 id="en-7">7. Prop — filter, not a style</h2>
@@ -460,7 +447,6 @@
         <tr><td><code>ema_rsi</code></td><td>8/21 RSI14 حد 1.6 هدف 2.4</td><td>3/8 RSI7 حد 0.7 هدف 1.1</td></tr>
         <tr><td><code>price_action</code></td><td>درجة ≥ 0.62</td><td>درجة ≥ 0.55</td></tr>
         <tr><td><code>atr_breakout</code></td><td>20 شمعة</td><td>8 شموع</td></tr>
-        <tr><td><code>king</code></td><td>إطار أعلى ×4 — ساق ≥ 0.9 ATR — 2.0R</td><td>إطار أعلى ×3 — ساق ≥ 0.7 ATR — 1.5R</td></tr>
       </table>
       <p>السكالب يسحب H1/H4/D1 إلى <b>M1</b>. لا يفعّل أي استراتيجية وحده.</p>
 
@@ -469,7 +455,6 @@
         <li><code>ema_rsi</code> — شراء عند تقاطع سريع صاعد و RSI ≥ 42؛ بيع عند تقاطع هابط و RSI ≤ 58.</li>
         <li><code>price_action</code> — أقوى نمط (مطرقة، نجم، ابتلاع، نجمة صباح/مساء، كسر دبوس، HH/LL). الدوجي محايد.</li>
         <li><code>atr_breakout</code> — إغلاق فوق أعلى N أو تحت أدنى N.</li>
-        <li><code>king</code> — الاتجاه من الإطار الأعلى، والدخول من خصم داخل فجوة قيمة عادلة بعد كسر بالإغلاق.</li>
       </ul>
 
       <h2 id="ar-5">٥. البروب</h2>

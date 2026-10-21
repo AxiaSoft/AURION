@@ -277,46 +277,6 @@ window.AURION_DEMO_FIXTURES = {
       "gross_profit": 0,
       "gross_loss": 0,
       "last_trade_ts": null
-     },
-     {
-      "name": "king",
-      "version": "2.0.0",
-      "language": "en",
-      "params": {
-       "lookback": 8,
-       "volume": 0.05,
-       "sl_atr": 0.9,
-       "tp_atr": 1.4,
-       "min_rr": 1.3,
-       "min_body": 0.35,
-       "min_close_loc": 0.65,
-       "with_trend": true,
-       "trend_fast": 20,
-       "trend_slow": 50,
-       "counter_trend_block": 0.35,
-       "require_momentum": false,
-       "require_volatility": true,
-       "min_atr_pct": 0.00015,
-       "min_efficiency": 0.2
-      },
-      "class": "ScalpImpulse",
-      "enabled": false,
-      "kind": "builtin",
-      "last_action": "idle",
-      "last_reason": "",
-      "last_ts": "",
-      "trades": 0,
-      "wins": 0,
-      "losses": 0,
-      "net": 0,
-      "win_rate": 0,
-      "profit_factor": 0,
-      "avg": 0,
-      "best": 0,
-      "worst": 0,
-      "gross_profit": 0,
-      "gross_loss": 0,
-      "last_trade_ts": null
      }
     ],
     "stats": {
@@ -349,20 +309,6 @@ window.AURION_DEMO_FIXTURES = {
       "last_ts": null
      },
      "atr_breakout": {
-      "trades": 0,
-      "wins": 0,
-      "losses": 0,
-      "net": 0,
-      "gross_profit": 0,
-      "gross_loss": 0,
-      "best": 0,
-      "worst": 0,
-      "win_rate": 0,
-      "profit_factor": 0,
-      "avg": 0,
-      "last_ts": null
-     },
-     "king": {
       "trades": 0,
       "wins": 0,
       "losses": 0,
@@ -562,8 +508,24 @@ window.AURION_DEMO_FIXTURES = {
    "agents": [],
    "experts": {
     "shipped": [
-     { "id": "bridge", "file": "AurionBridge.mq5", "role": "bridge", "required": true, "version": "1.18", "available": true, "bytes": 39222 },
-     { "id": "chart_agent", "file": "AurionChartAgent.mq5", "role": "agent", "required": false, "version": "1.18", "available": true, "bytes": 1010 }
+     {
+      "id": "bridge",
+      "file": "AurionBridge.mq5",
+      "role": "bridge",
+      "required": true,
+      "version": "1.18",
+      "available": true,
+      "bytes": 39222
+     },
+     {
+      "id": "chart_agent",
+      "file": "AurionChartAgent.mq5",
+      "role": "agent",
+      "required": false,
+      "version": "1.18",
+      "available": true,
+      "bytes": 1010
+     }
     ],
     "version": "1.18",
     "charts": [],
@@ -1912,27 +1874,6 @@ window.AURION_DEMO_FIXTURES = {
        "require_momentum": true,
        "require_volatility": true,
        "min_efficiency": 0.18
-      },
-      "kind": "builtin"
-     },
-     "king": {
-      "enabled": false,
-      "params": {
-       "lookback": 8,
-       "volume": 0.05,
-       "sl_atr": 0.9,
-       "tp_atr": 1.4,
-       "min_rr": 1.3,
-       "min_body": 0.35,
-       "min_close_loc": 0.65,
-       "with_trend": true,
-       "trend_fast": 20,
-       "trend_slow": 50,
-       "counter_trend_block": 0.35,
-       "require_momentum": false,
-       "require_volatility": true,
-       "min_atr_pct": 0.00015,
-       "min_efficiency": 0.2
       },
       "kind": "builtin"
      }
