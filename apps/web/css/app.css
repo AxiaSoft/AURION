@@ -2375,3 +2375,250 @@ html[data-theme="light"] .set-rail .set-jump button.on{background:linear-gradien
 }
 .bgpic-acts{display:flex;gap:8px;flex-wrap:wrap}
 #bgpic-dim-wrap{margin-top:12px}
+
+/* ===========================================================================
+   Sound & Notifications
+
+   Its own tab now. It used to be the third card at the bottom of
+   Personalisation, which put "what the robot sounds like when it opens a
+   trade" behind a heading about themes - and left it unfound.
+
+   A row is a mark, a label, a choice and a preview, laid out on one line so
+   the three events read as a set rather than as three unrelated fields. The
+   mark carries the same colour the trade cards use, so a row is recognisable
+   before it is read.
+   =========================================================================== */
+.snd-wrap{display:flex;flex-direction:column;gap:14px}
+.snd-lead{margin:0;max-width:62ch}
+.snd-card{display:flex;flex-direction:column;gap:4px}
+.snd-head{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.snd-head h3{margin:0}
+.snd-card .sub{margin:0}
+
+.snd-vol-read{
+  font-family:var(--mono, monospace);font-size:12px;color:var(--muted);
+  padding:3px 9px;border:1px solid var(--line);border-radius:999px;
+}
+.snd-vol{display:flex;align-items:center;gap:12px;margin-top:10px}
+.snd-vol input[type="range"]{flex:1;min-width:0}
+.snd-mute{font-size:15px;line-height:1}
+
+.snd-rows{display:flex;flex-direction:column;gap:8px;margin-top:10px}
+.snd-row{
+  display:grid;
+  grid-template-columns:auto minmax(0,1fr) minmax(130px,190px) auto;
+  align-items:center;gap:12px;
+  padding:10px 12px;
+  border:1px solid var(--line);border-radius:12px;
+  background:rgb(var(--wash) / .03);
+}
+/* Silent is a legitimate choice, not an error - it is dimmed, not marked. */
+.snd-row.is-off{opacity:.62}
+.snd-mark{
+  display:inline-flex;align-items:center;justify-content:center;
+  width:30px;height:30px;flex:none;border-radius:9px;font-size:14px;
+  background:rgb(var(--wash) / .06);color:var(--ink);
+}
+.snd-mark.t-entry{color:var(--gold)}
+.snd-mark.t-up{color:var(--up, #3ddc97)}
+.snd-mark.t-down{color:var(--down, #ff6b6b)}
+.snd-text{display:flex;flex-direction:column;gap:2px;min-width:0}
+.snd-text b{font-weight:600}
+.snd-text small{color:var(--muted);font-size:11px;line-height:1.45}
+.snd-pick{width:100%}
+.snd-note{margin-top:12px !important;opacity:.8}
+
+.snd-deliver{
+  display:flex;align-items:flex-start;justify-content:space-between;
+  gap:16px;margin-top:10px;
+}
+
+/* On a narrow desk the four columns stop fitting: the choice and its preview
+   drop to a second line rather than squeezing the label to nothing. */
+@media (max-width:620px){
+  .snd-row{grid-template-columns:auto minmax(0,1fr);row-gap:10px}
+  .snd-pick{grid-column:1 / -1}
+  .snd-play{grid-column:1 / -1;justify-self:start}
+}
+
+/* ===========================================================================
+   Theme builder: colours, the backdrop gallery and the picture picker.
+   =========================================================================== */
+.tb-sec{margin-top:20px;padding-top:16px;border-top:1px solid var(--line)}
+.tb-sec h4{margin:0 0 4px;font-size:13px;font-weight:600;letter-spacing:.01em}
+.tb-sec > .sub{margin:0 0 12px;max-width:68ch}
+.tb-sec .warn{color:var(--gold)}
+
+.col-rows{display:flex;flex-direction:column;gap:8px}
+.col-row{
+  display:flex;align-items:center;gap:12px;
+  padding:9px 12px;border:1px solid var(--line);border-radius:12px;
+  background:rgb(var(--wash) / .03);
+}
+.col-text{display:flex;flex-direction:column;gap:1px;min-width:0;flex:1}
+.col-text b{font-weight:600}
+.col-text small{color:var(--muted);font-size:11px}
+/* The swatch is the control, so it gets a real hit area rather than the
+   28px the browser hands out by default. */
+.col-swatch{
+  width:46px;height:30px;flex:none;padding:0;cursor:pointer;
+  border:1px solid var(--line);border-radius:9px;background:none;
+}
+.col-swatch::-webkit-color-swatch-wrapper{padding:2px}
+.col-swatch::-webkit-color-swatch{border:none;border-radius:7px}
+.col-swatch::-moz-color-swatch{border:none;border-radius:7px}
+
+/* Each tile paints the backdrop it stands for, so the choice is made by
+   looking rather than by reading nine adjectives. */
+.bg-tiles{
+  display:grid;gap:10px;
+  grid-template-columns:repeat(auto-fill,minmax(104px,1fr));
+}
+.bg-tile{
+  display:flex;flex-direction:column;gap:6px;
+  padding:6px;border:1px solid var(--line);border-radius:12px;
+  background:rgb(var(--wash) / .03);cursor:pointer;text-align:center;
+  color:inherit;font:inherit;
+}
+.bg-tile:hover{border-color:rgb(var(--accent-rgb) / .45)}
+.bg-tile.on{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent) inset}
+.bg-tile:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.bgt-art{
+  display:block;height:54px;border-radius:8px;
+  background:var(--bg2) center/cover no-repeat;
+}
+.bgt-name{font-size:11px;color:var(--muted);line-height:1.3}
+.bg-tile.on .bgt-name{color:var(--ink)}
+
+/* Miniatures of the nine built-in backdrops. Deliberately hand-drawn here
+   rather than reused from themes.css: those rules are full-page, fixed and
+   animated, and shrinking one into a 54px tile would drag a fixed-position
+   animation into a grid cell. */
+.bgt-art[data-bgart="soft"]{background:radial-gradient(120% 90% at 30% 0,rgb(var(--accent-rgb) / .35),transparent 60%),var(--bg)}
+.bgt-art[data-bgart="blobs"]{background:radial-gradient(55% 70% at 25% 30%,rgb(var(--accent-rgb) / .55),transparent 70%),radial-gradient(50% 60% at 75% 70%,rgb(var(--accent-3-rgb) / .5),transparent 70%),var(--bg)}
+.bgt-art[data-bgart="aurora"]{background:linear-gradient(115deg,rgb(var(--accent-3-rgb) / .6),rgb(var(--accent-rgb) / .45) 45%,transparent 75%),var(--bg)}
+.bgt-art[data-bgart="grid"]{background:
+  repeating-linear-gradient(0deg,rgb(var(--accent-rgb) / .3) 0 1px,transparent 1px 11px),
+  repeating-linear-gradient(90deg,rgb(var(--accent-rgb) / .3) 0 1px,transparent 1px 11px),var(--bg)}
+.bgt-art[data-bgart="waves"]{background:linear-gradient(180deg,transparent 45%,rgb(var(--accent-rgb) / .45) 100%),var(--bg)}
+.bgt-art[data-bgart="dusk"]{background:linear-gradient(180deg,#2a1120 0%,rgb(var(--accent-rgb) / .4) 100%),var(--bg)}
+.bgt-art[data-bgart="layered"]{background:linear-gradient(180deg,rgb(var(--s9) / 1) 0 33%,rgb(var(--s6) / 1) 33% 66%,rgb(var(--s3) / 1) 66% 100%)}
+.bgt-art[data-bgart="flat"]{background:var(--bg2)}
+.bgt-art[data-bgart="none"]{background:var(--bg)}
+
+.bgpic-row{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+
+/* ===========================================================================
+   Spacing, as a rule instead of as 95 inline styles.
+
+   Reported from the live desk: in places buttons sit flush against the top
+   or bottom of their card, and containers touch each other with no gap.
+
+   The cause was not any one of those places. There was no rule anywhere
+   saying two stacked cards are separated - the gap came from a hand-written
+   style="margin-top:14px" on each card, ninety-five of them across the desk,
+   and wherever one was forgotten the cards touched. Fixing the handful of
+   reported spots would have left every screen we did not happen to open
+   still broken, and the next card added would start out broken too.
+
+   So the rule is stated once, here, in terms of what follows what. Three
+   things make this safe to add late:
+
+     - it only ever sets margin on a *following* sibling, so nothing shifts
+       at the top or bottom edge of a container;
+     - an inline style still wins over it, so every place that already
+       spaces itself deliberately keeps exactly the spacing it had. This
+       fills gaps, it does not overrule intent;
+     - margin-block-start, not margin-top, so it stays correct when the desk
+       is in Persian or Arabic.
+   =========================================================================== */
+:root{
+  --stack-gap:14px;   /* between two containers */
+  --stack-gap-sm:10px; /* between a block of text and the control under it */
+}
+
+/* --- containers that follow containers ---------------------------------- */
+.card + .card,
+.card + .grid,
+.grid + .card,
+.grid + .grid,
+.card + .row,
+.row + .card,
+.card + .table-wrap,
+.table-wrap + .card,
+.set-block > * + *{
+  margin-block-start:var(--stack-gap);
+}
+
+/* A section heading needs more air above it than below: it belongs to what
+   comes after it, and without this it floats mid-way between the two. */
+.set-block > * + .set-title,
+.card > * + h3,
+.card > * + h4{
+  margin-block-start:18px;
+}
+
+/* --- controls that follow text ------------------------------------------ */
+/* The reported "button stuck to the text above it": a <p class="sub"> ends
+   with margin 0 and the button has none of its own, so they touch. */
+.card > p + .btn,
+.card > p + .row,
+.card > .sub + .btn,
+.card > .sub + .row,
+.card > .field + .btn,
+.card > .field + .row,
+.card > .row + .row,
+.card > p + .switch,
+.card > .fields + .btn,
+.card > .fields + .row{
+  margin-block-start:var(--stack-gap-sm);
+}
+
+/* The reported "button stuck to the bottom": a button as the final thing in
+   a card sat on the card's 14px of padding alone, which reads as flush when
+   the element above it has no margin of its own. */
+.card > .btn:last-child,
+.card > .row:last-child > .btn{
+  margin-block-end:2px;
+}
+
+/* --- rows of controls ---------------------------------------------------- */
+/* .row already carries a gap. Buttons placed next to each other *without*
+   a .row wrapper had nothing, which is the other half of "the buttons are
+   touching". Adjacent controls always get the same gap the rows use. */
+.btn + .btn,
+.btn + .icon-btn,
+.icon-btn + .btn,
+.icon-btn + .icon-btn,
+.btn + .switch,
+.switch + .btn{
+  margin-inline-start:var(--ctl-gap);
+}
+/* …except inside a flex or grid container, where the container's own gap
+   already does the job and a margin would double it. */
+.row > .btn + .btn,
+.row > .btn + .icon-btn,
+.row > .icon-btn + .btn,
+.row > .icon-btn + .icon-btn,
+.row > .btn + .switch,
+.row > .switch + .btn,
+.grid > .btn + .btn,
+.bgpic-acts > .btn + .btn,
+.lang-pills > * + *,
+.seg > * + *{
+  margin-inline-start:0;
+}
+
+/* --- the last paragraph in a card --------------------------------------- */
+/* A trailing note printed right on the card's bottom padding reads as an
+   overflow rather than as a note. */
+.card > p:last-child,
+.card > .sub:last-child{
+  margin-block-end:0;
+}
+
+/* On a narrow desk the gaps shrink with everything else; keeping 14px there
+   wastes a quarter of the screen on air. */
+@media (max-width:760px){
+  :root{ --stack-gap:11px; --stack-gap-sm:8px }
+}

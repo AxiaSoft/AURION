@@ -2184,3 +2184,23 @@ html[data-bg="photo"] .aurora::after{
     background-attachment:scroll;
   }
 }
+
+/* ===========================================================================
+   Backdrop effects.
+
+   Applied to the backdrop layer itself rather than to each of the ten
+   backdrops, so one declaration covers the lot: the desk-drawn gradients,
+   the aurora, the grid and the trader's own picture all take the same
+   effect. A trader who likes the aurora but finds it loud can calm it
+   instead of abandoning it.
+
+   It goes on .aurora, not on .aurora::before, because the grid and wave
+   backdrops paint across both the ::before and the ::after and an effect
+   applied to only one of them would blur half a background. The element is
+   fixed and behind everything, so filtering it costs one composited layer
+   and never touches the panels or the text above it.
+   =========================================================================== */
+.aurora{ filter:var(--bg-fx, none) }
+
+/* The photo backdrop already sets filter:none on its own layers so the
+   picture is shown as it is; the effect still arrives from the parent. */

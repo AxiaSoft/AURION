@@ -271,6 +271,137 @@
     return out;
   }
 
+  /* -------------------------------------------------------------------------
+     Colour and font overrides.
+
+     The builder used to move only the seven material numbers, so a trader
+     could make Neumorphism flatter but not change a single colour: the page,
+     the panels, the text and the typeface all came from the theme and could
+     not be touched. These five let the whole interface be recoloured without
+     leaving the theme.
+
+     Everything is derived from three choices rather than asking for fifteen
+     hex codes. A surface is never one colour - the desk stacks nine shades
+     so a card reads as sitting above the page - so the chosen panel colour
+     becomes the bottom of that ladder and the rest is mixed towards white
+     keeping the separation the design relies on. Picking nine shades by hand
+     is how a theme ends up flat and unreadable.
+     ------------------------------------------------------------------------- */
+  var FONTS = {
+    theme:  "",                                        /* whatever the page already asks for */
+    outfit: "Outfit,Vazirmatn,system-ui,sans-serif",
+    vazir:  "Vazirmatn,Outfit,system-ui,sans-serif",
+    mono:   "\"IBM Plex Mono\",Vazirmatn,ui-monospace,monospace",
+    system: "system-ui,-apple-system,Segoe UI,sans-serif",
+  };
+
+  var COLOR_KEYS = ["page", "panel", "ink"];
+
+  /* Effects over the backdrop.
+
+     These apply to every background, not just to a picture the trader
+     supplied: the built-in backdrops are drawn by the desk, and a trader who
+     likes the aurora but finds it loud should be able to calm it without
+     having to abandon it. Expressed as a filter so one declaration covers
+     all ten backdrops instead of ten hand-written variants. */
+  var FX = {
+    none:   "",
+    blur:   "blur(26px)",
+    dim:    "brightness(.55)",
+    bright: "brightness(1.35)",
+    grey:   "saturate(0)",
+    warm:   "sepia(.45) saturate(1.3) hue-rotate(-14deg)",
+    cool:   "saturate(1.15) hue-rotate(150deg)",
+  };
+
+  function hexToRgb(hex) {
+    var h = String(hex || "").trim().replace(/^#/, "");
+    if (h.length === 3) h = h[0] + h[0] + h[1] + h[1] + h[2] + h[2];
+    if (!/^[0-9a-fA-F]{6}$/.test(h)) return null;
+    return [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)];
+  }
+
+  function rgbToHex(c) {
+    return "#" + c.map(function (n) {
+      var v = Math.max(0, Math.min(255, Math.round(n))).toString(16);
+      return v.length === 1 ? "0" + v : v;
+    }).join("");
+  }
+
+  function mix(a, b, t) {
+    return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
+  }
+
+  /* Perceived brightness, not the plain average: the eye reads green as far
+     brighter than blue, and a navy panel would otherwise be called light. */
+  function luma(c) { return (0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]) / 255; }
+
+  /** Turn the three chosen colours into the variables the desk actually uses. */
+  function colourCss(colours) {
+    var out = "";
+    var panel = hexToRgb(colours.panel);
+    var page = hexToRgb(colours.page);
+    var ink = hexToRgb(colours.ink);
+
+    if (page) {
+      var pageLight = luma(page) > 0.5;
+      out += "--bg:" + rgbToHex(page) + ";";
+      out += "--bg2:" + rgbToHex(mix(page, pageLight ? [0, 0, 0] : [255, 255, 255], 0.05)) + ";";
+      out += "--deep:" + rgbToHex(mix(page, [0, 0, 0], 0.25)) + ";";
+    }
+
+    if (panel) {
+      var light = luma(panel) > 0.5;
+      var towards = light ? [0, 0, 0] : [255, 255, 255];
+      for (var i = 1; i <= 9; i++) {
+        var t = ((i - 1) / 8) * 0.075;
+        var shade = mix(panel, towards, t);
+        out += "--s" + i + ":" + shade.map(function (n) { return Math.round(n); }).join(" ") + ";";
+      }
+      /* Hairlines and hovers are drawn as a translucent wash over the panel.
+         On a light panel a white wash is invisible, so the wash flips. */
+      out += "--wash:" + (light ? "0 0 0" : "255 255 255") + ";";
+      out += "--field:" + rgbToHex(mix(panel, towards, 0.055)) + ";";
+      out += "--field2:" + rgbToHex(mix(panel, towards, 0.035)) + ";";
+      out += "--field-hi:" + rgbToHex(mix(panel, towards, 0.085)) + ";";
+      out += "--chart-panel:" + rgbToHex(mix(panel, towards, 0.02)) + ";";
+    }
+
+    if (ink) {
+      var base = panel || page || [0, 0, 0];
+      out += "--ink:" + rgbToHex(ink) + ";";
+      /* Secondary text is the same colour faded into the surface behind it,
+         which keeps the hue of the chosen text instead of greying it out. */
+      out += "--muted:" + rgbToHex(mix(ink, base, 0.42)) + ";";
+      out += "--faint:" + rgbToHex(mix(ink, base, 0.62)) + ";";
+      out += "--chart-text:" + rgbToHex(ink) + ";";
+      out += "--chart-muted:" + rgbToHex(mix(ink, base, 0.42)) + ";";
+    }
+
+    if (colours.font && FONTS[colours.font]) out += "--font:" + FONTS[colours.font] + ";";
+    return out;
+  }
+
+  /** The backdrop effect chosen for a theme, or "none". */
+  function activeFx(id) {
+    var edit = readEdits()[id];
+    return edit && FX[edit.fx] !== undefined && edit.fx ? edit.fx : "none";
+  }
+
+  /** The colour and font overrides in force for a theme, if any. */
+  function themeColours(id) {
+    var edit = readEdits()[id];
+    var out = {};
+    if (!edit) return out;
+    for (var i = 0; i < COLOR_KEYS.length; i++) {
+      var k = COLOR_KEYS[i];
+      if (hexToRgb(edit[k])) out[k] = edit[k];
+    }
+    if (edit.font && FONTS[edit.font]) out.font = edit.font;
+    if (edit.fx && FX[edit.fx]) out.fx = edit.fx;
+    return out;
+  }
+
   /* ------------------------------------------------------- per-theme edits */
 
   function readEdits() {
@@ -302,6 +433,11 @@
       }
       if (typeof edit.accent === "string") out.accent = edit.accent;
       if (BACKDROPS.indexOf(edit.bg) !== -1) out.bg = edit.bg;
+      for (var ci = 0; ci < COLOR_KEYS.length; ci++) {
+        if (hexToRgb(edit[COLOR_KEYS[ci]])) out[COLOR_KEYS[ci]] = edit[COLOR_KEYS[ci]];
+      }
+      if (edit.font && FONTS[edit.font]) out.font = edit.font;
+      if (edit.fx && FX[edit.fx]) out.fx = edit.fx;
     }
     return out;
   }
@@ -328,6 +464,18 @@
       if (LIMITS[key]) next[key] = clamp(patch[key], LIMITS[key][0], LIMITS[key][1]);
       else if (key === "accent" && typeof patch[key] === "string") next.accent = patch[key];
       else if (key === "bg" && BACKDROPS.indexOf(patch[key]) !== -1) next.bg = patch[key];
+      else if (COLOR_KEYS.indexOf(key) !== -1) {
+        // An empty value means "back to the theme's own colour", which is
+        // how the clear button works without a second code path.
+        if (!patch[key]) delete next[key];
+        else if (hexToRgb(patch[key])) next[key] = rgbToHex(hexToRgb(patch[key]));
+      } else if (key === "fx") {
+        if (!patch[key] || patch[key] === "none") delete next.fx;
+        else if (FX[patch[key]]) next.fx = patch[key];
+      } else if (key === "font") {
+        if (!patch[key] || patch[key] === "theme") delete next.font;
+        else if (FONTS[patch[key]]) next.font = patch[key];
+      }
     }
     all[id] = next;
     write(LS_EDITS, JSON.stringify(all));
@@ -468,11 +616,21 @@
       "--blur:" + clamp(k.blur, 0, 60) + "px;" +
       "--radius-lg:" + clamp(k.radius, 0, 40) + "px;" +
       "--shadow-strength:" + (clamp(k.shadow, 0, 200) / 100).toFixed(3) + ";" +
-      "--motion-scale:" + (motion / 100).toFixed(3) + "}" +
+      "--motion-scale:" + (motion / 100).toFixed(3) + ";" +
+      /* The trader's colours ride in the same rule as the knobs, so they
+         keep the same place in the cascade: above every theme in
+         themes.css, below "liquid glass off" and the cheap rendering
+         tier. A colour the trader chose must still not be allowed to
+         re-introduce translucency those two have ruled out. */
+      colourCss(themeColours(id)) + "}" +
       /* The picture rides on a custom property so css/themes.css owns the
          layout - position, size and the scrim over it - and this file only
          ever hands over the source. CSS url() has to be quoted: a data URL
          is full of characters that are not valid unquoted. */
+      /* The effect is a variable the backdrop rules read, so it lands on
+         whichever backdrop is showing. Declared even when empty, because
+         "none" has to be able to clear an effect set a moment ago. */
+      "html[data-bg]{--bg-fx:" + (FX[activeFx(id)] || "none") + "}" +
       (bg === "photo"
         ? "html[data-bg=\"photo\"]{--bg-photo:url(\"" + picture.replace(/"/g, "%22") + "\");" +
           "--bg-photo-dim:" + (getBgDim() / 100).toFixed(3) + "}"
@@ -543,6 +701,11 @@
     setBgImage: setBgImage,
     getBgDim: getBgDim,
     setBgDim: setBgDim,
+    FONTS: FONTS,
+    COLOR_KEYS: COLOR_KEYS,
+    FX: FX,
+    fx: activeFx,
+    colours: themeColours,
   };
 
   apply();

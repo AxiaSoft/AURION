@@ -54,6 +54,7 @@ function icon(name) {
     info: '<circle cx="12" cy="12" r="9"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>',
     flask: '<path d="M9 3h6"/><path d="M10 3v5a6 6 0 00-3 5.2V19a1 1 0 001 1h8a1 1 0 001-1v-5.8A6 6 0 0014 8V3"/>',
     user: '<circle cx="12" cy="8" r="3.2"/><path d="M5 19c1.4-3.2 3.8-5 7-5s5.6 1.8 7 5"/>',
+    bell: '<path d="M18 16V11a6 6 0 10-12 0v5l-1.6 2.2a.6.6 0 00.5.95h14.2a.6.6 0 00.5-.95z"/><path d="M10 21.5a2.2 2.2 0 004 0"/>',
     cal: '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18"/><path d="M8 3v4M16 3v4"/><circle cx="8.5" cy="14.5" r="1.2"/><circle cx="15.5" cy="14.5" r="1.2"/><circle cx="12" cy="17.5" r="1.2"/>',
   };
   return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">${p[name] || ""}</svg>`;
@@ -456,12 +457,50 @@ function themeBuilderHtml() {
   const k = AurionTheme.knobs();
   const unlocked = themesUnlocked();
   const picture = AurionTheme.getBgImage();
+  const colours = AurionTheme.colours(current);
+  const fx = AurionTheme.fx(current);
 
-  const backdrops = AurionTheme.BACKDROPS
+  /* The backdrop used to be a dropdown of nine words. "Layered depth" and
+     "Soft gradient" describe nothing you can picture, so choosing one meant
+     trying all nine. It is a gallery now: each tile paints the backdrop it
+     stands for, at the size of a thumbnail, using the same rules the page
+     does - so the tile is the background, not an artist's impression. */
+  const tiles = AurionTheme.BACKDROPS
     .filter((b) => b !== "photo" || picture)
-    .map((b) => `<option value="${b}"${b === k.bg ? " selected" : ""}>${
-      esc(I18N.t(b === "photo" ? "themes.bg_custom" : "themes.bg_" + b))}</option>`)
+    .map((b) => {
+      const on = b === k.bg;
+      const label = I18N.t(b === "photo" ? "themes.bg_custom" : "themes.bg_" + b);
+      const art = b === "photo"
+        ? `<span class="bgt-art" data-bgart="photo" style="background-image:url(&quot;${esc(picture)}&quot;)"></span>`
+        : `<span class="bgt-art" data-bgart="${b}"></span>`;
+      return `<button type="button" class="bg-tile${on ? " on" : ""}" data-bgpick="${b}"
+                role="radio" aria-checked="${on}" tabindex="${on ? 0 : -1}">
+          ${art}<span class="bgt-name">${esc(label)}</span>
+        </button>`;
+    }).join("");
+
+  const fxOptions = Object.keys(AurionTheme.FX)
+    .map((f) => `<option value="${f}"${f === fx ? " selected" : ""}>${esc(I18N.t("themes.fx_" + f))}</option>`)
     .join("");
+
+  const fontOptions = Object.keys(AurionTheme.FONTS)
+    .map((f) => `<option value="${f}"${f === (colours.font || "theme") ? " selected" : ""}>${
+      esc(I18N.t("themes.f_" + f))}</option>`)
+    .join("");
+
+  /* A colour row shows the colour in force, which is not the same as the
+     colour chosen: with nothing chosen the swatch has to show what the theme
+     is already using, or the trader is editing blind. */
+  const colourRow = (key, label, hint) => {
+    const chosen = colours[key] || "";
+    return `<div class="col-row" data-colrow="${key}">
+        <span class="col-text"><b>${esc(label)}</b><small>${esc(hint)}</small></span>
+        <input type="color" class="col-swatch" data-colour="${key}"
+               value="${esc(chosen || themeColourNow(key))}" aria-label="${esc(label)}" />
+        <button type="button" class="btn tiny ghost col-clear" data-colclear="${key}"${
+          chosen ? "" : " hidden"}>${esc(I18N.t("themes.c_clear"))}</button>
+      </div>`;
+  };
 
   return `
       <div class="card tc-custom" id="set-theme-custom" style="margin-top:14px"${unlocked ? "" : " hidden"}>
@@ -469,12 +508,9 @@ function themeBuilderHtml() {
         <p class="sub" style="margin:0 0 2px">${I18N.t("themes.builder_hint")}</p>
         <p class="sub" id="knob-editing" style="margin:0">${
           esc(I18N.t("themes.editing", { name: themeName(current) }))}${
-          AurionTheme.edited(current) ? ` · <b>${esc(I18N.t("themes.edited_tag"))}</b>` : ""}</p>
+          AurionTheme.edited(current) ? ` \u00B7 <b>${esc(I18N.t("themes.edited_tag"))}</b>` : ""}</p>
+
         <div class="knob-grid">
-          <label class="knob">
-            <span class="knob-head"><span>${I18N.t("themes.backdrop")}</span></span>
-            <select class="ctrl" id="knob-bg" aria-label="${esc(I18N.t("themes.backdrop"))}">${backdrops}</select>
-          </label>
           ${themeKnobHtml("surface", I18N.t("themes.surface"), k.surface, "%")}
           ${themeKnobHtml("border", I18N.t("themes.border"), k.border, "%")}
           ${themeKnobHtml("blur", I18N.t("themes.blur"), k.blur, "px")}
@@ -483,11 +519,35 @@ function themeBuilderHtml() {
           ${themeKnobHtml("motion", I18N.t("themes.motion"), k.motion, "%")}
         </div>
 
-        <div class="bgpic" id="set-bgpic">
-          <div class="bgpic-head">
-            <b>${esc(I18N.t("themes.bg_image"))}</b>
-            <span class="sub">${esc(I18N.t("themes.bg_hint"))}</span>
+        <div class="tb-sec">
+          <h4>${esc(I18N.t("themes.colours_title"))}</h4>
+          <p class="sub">${esc(I18N.t("themes.colours_hint"))}</p>
+          <div class="col-rows">
+            ${colourRow("page", I18N.t("themes.c_page"), I18N.t("themes.c_page_hint"))}
+            ${colourRow("panel", I18N.t("themes.c_panel"), I18N.t("themes.c_panel_hint"))}
+            ${colourRow("ink", I18N.t("themes.c_ink"), I18N.t("themes.c_ink_hint"))}
           </div>
+          <p class="sub warn" id="col-warn" hidden>${esc(I18N.t("themes.contrast_warn"))}</p>
+          <label class="field" style="margin-top:14px">
+            <span>${esc(I18N.t("themes.font_title"))}</span>
+            <select class="ctrl" id="knob-font">${fontOptions}</select>
+          </label>
+        </div>
+
+        <div class="tb-sec">
+          <h4>${esc(I18N.t("themes.gallery_title"))}</h4>
+          <p class="sub">${esc(I18N.t("themes.gallery_hint"))}</p>
+          <div class="bg-tiles" id="knob-bgtiles" role="radiogroup"
+               aria-label="${esc(I18N.t("themes.backdrop"))}">${tiles}</div>
+          <label class="field" style="margin-top:12px">
+            <span>${esc(I18N.t("themes.fx_title"))}</span>
+            <select class="ctrl" id="knob-fx">${fxOptions}</select>
+          </label>
+        </div>
+
+        <div class="tb-sec bgpic" id="set-bgpic">
+          <h4>${esc(I18N.t("themes.bg_image"))}</h4>
+          <p class="sub">${esc(I18N.t("themes.bg_hint"))}</p>
           <div class="bgpic-row">
             <div class="bgpic-thumb"${picture ? ` style="background-image:url(&quot;${esc(picture)}&quot;)"` : ""}
                  id="bgpic-thumb" aria-hidden="true"></div>
@@ -507,9 +567,27 @@ function themeBuilderHtml() {
           <p class="sub" style="margin:8px 0 0">${esc(I18N.t("themes.bg_image_hint"))}</p>
         </div>
 
-        <button type="button" class="btn ghost tiny" id="knob-reset" style="margin-top:12px">${
+        <button type="button" class="btn ghost tiny" id="knob-reset" style="margin-top:16px">${
           esc(I18N.t("themes.reset_this", { name: themeName(current) }))}</button>
       </div>`;
+}
+
+/* What the page is actually painting for one of the three editable colours,
+   so an untouched swatch opens on the real colour rather than on black. */
+function themeColourNow(key) {
+  const prop = key === "page" ? "--bg" : key === "ink" ? "--ink" : "--s5";
+  try {
+    const raw = getComputedStyle(document.documentElement).getPropertyValue(prop).trim();
+    if (!raw) return key === "ink" ? "#e8edf7" : "#0b0d14";
+    // --s5 is a bare "r g b" triplet, the others are already hex.
+    if (/^\d/.test(raw)) {
+      const n = raw.split(/[\s,]+/).map(Number);
+      return "#" + n.slice(0, 3).map((v) => Math.max(0, Math.min(255, v | 0)).toString(16).padStart(2, "0")).join("");
+    }
+    return raw.startsWith("#") ? raw : (key === "ink" ? "#e8edf7" : "#0b0d14");
+  } catch {
+    return key === "ink" ? "#e8edf7" : "#0b0d14";
+  }
 }
 
 /* A theme's display name, with the id as the last resort so a theme added to
@@ -630,13 +708,42 @@ function bindThemesGallery() {
       if (key === "radius") paintCustomPreview();
       markThemeEdited();
     };
-    const bg = $("knob-bg");
-    if (bg) bg.onchange = () => {
-      AurionTheme.edit({ bg: bg.value });
-      const dim = $("bgpic-dim-wrap");
-      if (dim) dim.hidden = bg.value !== "photo";
-      markThemeEdited();
+    const tiles = $("knob-bgtiles");
+    if (tiles) tiles.onclick = (e) => {
+      const b = e.target.closest("[data-bgpick]");
+      if (!b) return;
+      AurionTheme.edit({ bg: b.dataset.bgpick });
+      renderSettingsKnobs();
     };
+
+    const fx = $("knob-fx");
+    if (fx) fx.onchange = () => { AurionTheme.edit({ fx: fx.value }); markThemeEdited(); };
+
+    const font = $("knob-font");
+    if (font) font.onchange = () => { AurionTheme.edit({ font: font.value }); markThemeEdited(); };
+
+    /* Colours repaint live while the picker is open, which is the only way
+       to judge a colour: a swatch in a dialog tells you nothing about how
+       the same colour reads behind a table of numbers. */
+    panel.addEventListener("input", (e) => {
+      const sw = e.target.closest("[data-colour]");
+      if (!sw) return;
+      AurionTheme.edit({ [sw.dataset.colour]: sw.value });
+      const row = sw.closest("[data-colrow]");
+      const clear = row && row.querySelector("[data-colclear]");
+      if (clear) clear.hidden = false;
+      warnOnContrast();
+      markThemeEdited();
+      repaintChartsForTheme();
+    });
+
+    panel.addEventListener("click", (e) => {
+      const b = e.target.closest("[data-colclear]");
+      if (!b) return;
+      AurionTheme.edit({ [b.dataset.colclear]: "" });
+      renderSettingsKnobs();
+      repaintChartsForTheme();
+    });
     const reset = $("knob-reset");
     if (reset) reset.onclick = () => {
       const name = themeName(AurionTheme.effective());
@@ -719,6 +826,30 @@ function shrinkImage(fileObj, max) {
   });
 }
 
+/* Warn, do not forbid.
+
+   A trader is allowed to make a choice we would not, but silently shipping
+   an unreadable desk is a different thing: this says so and leaves the
+   colour alone. The threshold is on perceived brightness rather than on a
+   full contrast ratio, because the warning is about "can you read this at a
+   glance", and the two colours being compared are a large text colour and
+   the surface right behind it. */
+function warnOnContrast() {
+  const warn = $("col-warn");
+  if (!warn || typeof AurionTheme === "undefined") return;
+  const c = AurionTheme.colours(AurionTheme.effective());
+  const hex = (v) => {
+    const m = /^#?([0-9a-f]{6})$/i.exec(String(v || ""));
+    if (!m) return null;
+    const n = parseInt(m[1], 16);
+    return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+  };
+  const luma = (x) => (0.2126 * x[0] + 0.7152 * x[1] + 0.0722 * x[2]) / 255;
+  const ink = hex(c.ink) || hex(themeColourNow("ink"));
+  const panel = hex(c.panel) || hex(themeColourNow("panel"));
+  warn.hidden = !(ink && panel && Math.abs(luma(ink) - luma(panel)) < 0.28);
+}
+
 /** Keep the "edited" tag beside the builder heading honest. */
 function markThemeEdited() {
   const line = $("knob-editing");
@@ -746,22 +877,50 @@ function renderSettingsKnobs() {
   });
 
   const picture = AurionTheme.getBgImage();
-  const bg = $("knob-bg");
-  if (bg) {
-    // The "your picture" option only exists while a picture does.
-    const has = Array.prototype.some.call(bg.options, (o) => o.value === "photo");
-    if (picture && !has) {
-      const opt = document.createElement("option");
-      opt.value = "photo";
-      opt.textContent = I18N.t("themes.bg_custom");
-      bg.appendChild(opt);
-    } else if (!picture && has) {
-      Array.prototype.slice.call(bg.options)
-        .filter((o) => o.value === "photo")
-        .forEach((o) => o.remove());
+
+  /* The gallery is rebuilt rather than marked, because the "your picture"
+     tile appears and disappears with the picture itself. */
+  const tiles = $("knob-bgtiles");
+  if (tiles) {
+    tiles.querySelectorAll("[data-bgpick]").forEach((b) => {
+      const on = b.dataset.bgpick === k.bg;
+      b.classList.toggle("on", on);
+      b.setAttribute("aria-checked", String(on));
+      b.tabIndex = on ? 0 : -1;
+    });
+    const photoTile = tiles.querySelector('[data-bgpick="photo"]');
+    if (picture && !photoTile) {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "bg-tile";
+      b.dataset.bgpick = "photo";
+      b.setAttribute("role", "radio");
+      b.setAttribute("aria-checked", "false");
+      b.tabIndex = -1;
+      b.innerHTML = `<span class="bgt-art" data-bgart="photo"></span>` +
+        `<span class="bgt-name">${esc(I18N.t("themes.bg_custom"))}</span>`;
+      b.querySelector(".bgt-art").style.backgroundImage = `url("${picture}")`;
+      tiles.appendChild(b);
+    } else if (picture && photoTile) {
+      photoTile.querySelector(".bgt-art").style.backgroundImage = `url("${picture}")`;
+    } else if (!picture && photoTile) {
+      photoTile.remove();
     }
-    bg.value = k.bg;
   }
+
+  const colours = AurionTheme.colours(AurionTheme.effective());
+  document.querySelectorAll("[data-colour]").forEach((sw) => {
+    const key = sw.dataset.colour;
+    sw.value = colours[key] || themeColourNow(key);
+    const row = sw.closest("[data-colrow]");
+    const clear = row && row.querySelector("[data-colclear]");
+    if (clear) clear.hidden = !colours[key];
+  });
+  const font = $("knob-font");
+  if (font) font.value = colours.font || "theme";
+  const fx = $("knob-fx");
+  if (fx) fx.value = AurionTheme.fx(AurionTheme.effective());
+  warnOnContrast();
 
   const thumb = $("bgpic-thumb");
   if (thumb) thumb.style.backgroundImage = picture ? `url("${picture}")` : "";
@@ -3910,52 +4069,140 @@ function bindPropGuide() {
    listed here: they are silent by design. */
 function notifySoundCardHtml() {
   const p = notifyPrefs();
-  const picker = (key, label, hint) => `<label class="field">
-      <span>${esc(label)}${hint ? `<small class="sub" style="display:block">${esc(hint)}</small>` : ""}</span>
-      <span class="row" style="gap:6px">
-        <select class="ctrl" data-snd="${key}">${SOUND_NAMES.map((n) =>
-          `<option value="${n}" ${p[key] === n ? "selected" : ""}>${esc(I18N.t("notify.snd_" + n))}</option>`).join("")}</select>
-        <button type="button" class="btn tiny ghost" data-sndtest="${key}">${esc(I18N.t("notify.test"))}</button>
+  const muted = !(p.volume > 0);
+
+  /* One row per event, not a column of identical dropdowns.
+     The old panel was three <label><select> pairs stacked in a card, and the
+     only way to tell which row was which was to read the text beside it. A
+     row now carries the mark it is about - the same arrow the trade cards
+     use for a buy, the same green and red as a closed trade - so the setting
+     looks like the thing it controls. */
+  const row = (key, tone, mark, label, hint) => {
+    const value = p[key] || "none";
+    const off = value === "none";
+    return `<div class="snd-row${off ? " is-off" : ""}" data-sndrow="${key}">
+      <span class="snd-mark t-${tone}" aria-hidden="true">${mark}</span>
+      <span class="snd-text">
+        <b>${esc(label)}</b>
+        ${hint ? `<small>${esc(hint)}</small>` : ""}
       </span>
-    </label>`;
-  return `<div class="card" id="notify-card" style="margin-top:14px">
-    <h3>${I18N.t("notify.sounds")}</h3>
-    <p class="sub" style="margin:2px 0 10px">${I18N.t("notify.sounds_hint")}</p>
-    ${picker("entry", I18N.t("notify.entry"), I18N.t("notify.entry_hint"))}
-    ${picker("profit", I18N.t("notify.exit_profit"), "")}
-    ${picker("loss", I18N.t("notify.exit_loss"), "")}
-    <label class="field"><span>${I18N.t("notify.volume")}</span>
-      <input id="snd-vol" type="range" min="0" max="100" step="5" value="${Math.round(p.volume * 100)}" />
-    </label>
-    <div class="row" style="justify-content:space-between;margin-top:14px;align-items:flex-start">
-      <div>
-        <div style="font-weight:600">${I18N.t("notify.windows")}</div>
-        <p class="sub" style="margin:2px 0 0">${I18N.t("notify.windows_hint")}</p>
+      <select class="ctrl snd-pick" data-snd="${key}" aria-label="${esc(label)}">${
+        SOUND_NAMES.map((n) =>
+          `<option value="${n}"${value === n ? " selected" : ""}>${esc(I18N.t("notify.snd_" + n))}</option>`
+        ).join("")}</select>
+      <button type="button" class="btn tiny ghost snd-play" data-sndtest="${key}"
+              aria-label="${esc(I18N.t("notify.preview"))}"${off || muted ? " disabled" : ""}>
+        ${esc(I18N.t("notify.preview"))}
+      </button>
+    </div>`;
+  };
+
+  return `<div class="snd-wrap" id="notify-card">
+    <p class="sub snd-lead">${esc(I18N.t("notify.lead"))}</p>
+
+    <div class="card snd-card">
+      <div class="snd-head">
+        <h3>${esc(I18N.t("notify.master_title"))}</h3>
+        <span class="snd-vol-read" id="snd-vol-read">${muted ? esc(I18N.t("notify.muted")) : Math.round(p.volume * 100) + "%"}</span>
       </div>
-      <button type="button" class="switch ${p.windows ? "on" : ""}" id="sw-wintoast" aria-pressed="${p.windows}"><i></i></button>
+      <p class="sub">${esc(I18N.t("notify.master_hint"))}</p>
+      <div class="snd-vol">
+        <button type="button" class="icon-btn snd-mute" id="snd-mute"
+                aria-label="${esc(I18N.t("notify.muted"))}" aria-pressed="${muted}">${muted ? "\uD83D\uDD07" : "\uD83D\uDD0A"}</button>
+        <input id="snd-vol" type="range" min="0" max="100" step="5" value="${Math.round(p.volume * 100)}"
+               aria-label="${esc(I18N.t("notify.master_title"))}" />
+      </div>
     </div>
-    <p class="sub" style="margin-top:12px;opacity:.8">${I18N.t("notify.status_note")}</p>
+
+    <div class="card snd-card">
+      <div class="snd-head"><h3>${esc(I18N.t("notify.events_title"))}</h3></div>
+      <p class="sub">${esc(I18N.t("notify.events_hint"))}</p>
+      <div class="snd-rows">
+        ${row("entry", "entry", "\u2197", I18N.t("notify.entry"), I18N.t("notify.entry_hint"))}
+        ${row("profit", "up", "\u2714", I18N.t("notify.exit_profit"), "")}
+        ${row("loss", "down", "\u2716", I18N.t("notify.exit_loss"), "")}
+      </div>
+      <p class="sub snd-note">${esc(I18N.t("notify.status_note"))}</p>
+    </div>
+
+    <div class="card snd-card">
+      <div class="snd-head"><h3>${esc(I18N.t("notify.delivery_title"))}</h3></div>
+      <div class="snd-deliver">
+        <div class="snd-text">
+          <b>${esc(I18N.t("notify.windows"))}</b>
+          <small>${esc(I18N.t("notify.windows_hint"))}</small>
+        </div>
+        <button type="button" class="switch ${p.windows ? "on" : ""}" id="sw-wintoast"
+                aria-pressed="${p.windows}"><i></i></button>
+      </div>
+    </div>
   </div>`;
 }
 
 function bindNotifySounds(root) {
   const scope = root || document;
+
+  /* The panel has three states that have to agree with each other: the
+     master volume, whether a row is set to Silent, and whether its preview
+     button can do anything. Keeping that in one place means a row cannot
+     end up offering a preview that plays nothing. */
+  const refresh = () => {
+    const p = notifyPrefs();
+    const muted = !(p.volume > 0);
+
+    const read = scope.querySelector("#snd-vol-read");
+    if (read) read.textContent = muted ? I18N.t("notify.muted") : Math.round(p.volume * 100) + "%";
+
+    const mute = scope.querySelector("#snd-mute");
+    if (mute) {
+      mute.setAttribute("aria-pressed", String(muted));
+      mute.textContent = muted ? "\uD83D\uDD07" : "\uD83D\uDD0A";
+    }
+
+    scope.querySelectorAll("[data-sndrow]").forEach((rowEl) => {
+      const key = rowEl.dataset.sndrow;
+      const off = (p[key] || "none") === "none";
+      rowEl.classList.toggle("is-off", off);
+      const play = rowEl.querySelector("[data-sndtest]");
+      if (play) play.disabled = off || muted;
+    });
+  };
+
   scope.querySelectorAll("[data-snd]").forEach((sel) => {
     sel.onchange = () => {
       saveNotifyPrefs({ [sel.dataset.snd]: sel.value });
+      refresh();
       // Heard immediately: picking a sound from a list of names means
       // nothing until it makes a noise.
       playSound(sel.value);
     };
   });
+
   scope.querySelectorAll("[data-sndtest]").forEach((btn) => {
     btn.onclick = () => playSound(notifyPrefs()[btn.dataset.sndtest]);
   });
+
   const vol = scope.querySelector("#snd-vol");
   if (vol) {
-    vol.oninput = () => saveNotifyPrefs({ volume: Number(vol.value) / 100 });
+    vol.oninput = () => { saveNotifyPrefs({ volume: Number(vol.value) / 100 }); refresh(); };
     vol.onchange = () => playSound(notifyPrefs().entry);
   }
+
+  /* Mute remembers the level it muted from, so unmuting returns to where the
+     trader had it rather than to an arbitrary default. */
+  const mute = scope.querySelector("#snd-mute");
+  if (mute) {
+    mute.onclick = () => {
+      const p = notifyPrefs();
+      const now = p.volume > 0;
+      const next = now ? 0 : (Number(mute.dataset.last) || 0.6);
+      if (now) mute.dataset.last = String(p.volume);
+      saveNotifyPrefs({ volume: next });
+      if (vol) vol.value = String(Math.round(next * 100));
+      refresh();
+    };
+  }
+
   const win = scope.querySelector("#sw-wintoast");
   if (win) {
     win.onclick = () => {
@@ -3965,6 +4212,8 @@ function bindNotifySounds(root) {
       win.setAttribute("aria-pressed", String(next));
     };
   }
+
+  refresh();
 }
 
 function analysisCardHtml() {
@@ -4393,6 +4642,7 @@ const views = {
         ${grp(I18N.t("rail.personalize"))}
         ${tabBtn("set-lang", I18N.t("settings.language"), "book", I18N.t("rail.lang_hint"))}
         ${tabBtn("set-personal", I18N.t("settings.personal"), "user", I18N.t("rail.personal_hint"))}
+        ${tabBtn("set-notify", I18N.t("notify.title"), "bell", I18N.t("rail.notify_hint"))}
         ${tabBtn("set-telegram", I18N.t("telegram.title"), "spark", I18N.t("rail.telegram_hint"))}
         ${grp(I18N.t("rail.system"))}
         ${tabBtn("set-update", I18N.t("upd.title"), "pulse", I18N.t("rail.update_hint"))}
@@ -4470,6 +4720,9 @@ const views = {
           </div>
         </div>
         ${appearanceCardsHtml()}
+      </section>
+      <section class="set-block" id="set-notify"${tab==="set-notify"?"":" hidden"}>
+        <h2 class="set-title">${I18N.t("notify.title")}</h2>
         ${notifySoundCardHtml()}
       </section>
       <section class="set-block" id="set-telegram"${tab==="set-telegram"?"":" hidden"}>
@@ -5385,7 +5638,8 @@ async function bindUpdatePanel(){
 }
 
 function showSetTab(id) {
-  const allow = ["set-robot", "set-strats", "set-prop", "set-mt5", "set-lang", "set-personal", "set-telegram", "set-update", "set-system"];
+  const allow = ["set-robot", "set-strats", "set-prop", "set-mt5", "set-lang", "set-personal",
+                 "set-notify", "set-telegram", "set-update", "set-system"];
   const next = allow.includes(id) ? id : (allow.includes(S.setTab) ? S.setTab : "set-robot");
   S.setTab = next;
   try { localStorage.setItem("aurion.setTab", next); } catch { /* */ }
