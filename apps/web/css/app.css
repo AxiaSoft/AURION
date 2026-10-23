@@ -437,6 +437,11 @@ html[dir="rtl"] .switch.on i{transform:translate(calc(var(--sw-travel) * -1),-50
 .st-card.is-off{transition:opacity .2s var(--ease)}
 .st-top{display:flex;align-items:center;justify-content:space-between;gap:12px}
 .auto-banner{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:14px}
+/* When the banner IS the card rather than sitting inside one, that bottom
+   margin is spacing BETWEEN containers, which the stack above already owns.
+   Left in, it made the strategy banner sit further from the cards below it
+   than those cards sit from each other. */
+.card.auto-banner{margin-bottom:0}
 .manual-box{margin-top:16px;padding-top:12px;border-top:1px solid var(--line)}
 .tabs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px}
 .tabs button{
@@ -2637,6 +2642,33 @@ html[data-theme="light"] .set-rail .set-jump button.on{background:linear-gradien
 .card > .btn:last-child,
 .card > .row:last-child > .btn{
   margin-block-end:2px;
+}
+
+/* …and the same neutralisation for containers.
+ *
+ * This is the bug behind "one of the containers has moved up/down". The
+ * rules above give any container following another a top margin, but .grid
+ * and .cmd already space their children with gap. Inside a grid the two
+ * never add up the way they do in a plain block:
+ *
+ *     .grid.g-2 > .card:nth-child(1)   first child, no margin
+ *     .grid.g-2 > .card:nth-child(2)   .card + .card, so 14px on top
+ *
+ * Both sit in the SAME ROW, so the second card is pushed 14px below its
+ * neighbour and the row stops lining up - which is exactly what the
+ * strategy cards were doing. In .cmd it is less visible but no less wrong:
+ * every gap there was 28px instead of 14px.
+ *
+ * A container that spaces its own children owns that spacing. */
+/* The child selectors are spelled out rather than written as "> * + *".
+ * That shorter form is one class (0,1,0) and the rule it has to beat,
+ * ".card + .card", is two (0,2,0) - so it would have lost the cascade and
+ * changed nothing. Naming both ends through :is() makes this (0,3,0),
+ * which wins on specificity rather than on source order. */
+.grid > :is(.card, .grid, .row, .table-wrap) + :is(.card, .grid, .row, .table-wrap),
+.cmd > :is(.card, .grid, .row, .table-wrap) + :is(.card, .grid, .row, .table-wrap),
+.set-desk > :is(.card, .grid, .row, .table-wrap) + :is(.card, .grid, .row, .table-wrap){
+  margin-block-start:0;
 }
 
 /* --- rows of controls ---------------------------------------------------- */

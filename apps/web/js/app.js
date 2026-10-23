@@ -4531,7 +4531,12 @@ const views = {
   strategies() {
     const st = S.snap?.strategy || {};
     const sig = S.snap?.last_signal;
-    return `<div class="card auto-banner">
+    /* Wrapped in .cmd like every other view. Without it the three blocks
+       were loose in the page and leaned on sibling margins to space
+       themselves, which is what left the banner sitting at a different
+       distance from the cards than the cards sit from each other. */
+    return `<div class="cmd">
+      <div class="card auto-banner">
         <div>
           <h3 style="margin:0 0 6px">${I18N.t("strategies.live")}</h3>
           <p class="sub">${st.auto_trade ? I18N.t("exec.auto_on") : I18N.t("exec.auto_off")} · ${I18N.t("style.title")}: ${I18N.t("style." + (st.trade_style||"normal"))}</p>
@@ -4540,7 +4545,8 @@ const views = {
         <span class="pill" id="st-live-sig">${sig ? `${sig.action||"—"} ${sig.symbol||""}` : I18N.t("strategies.waiting")}</span>
       </div>
       <div class="grid g-2" id="st-live-grid">${strategyLiveCards()}</div>
-      ${strategyUploadCard()}`;
+      ${strategyUploadCard()}
+    </div>`;
   },
   execution() {
     const pos = S.snap?.positions || [];
