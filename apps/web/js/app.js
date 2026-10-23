@@ -426,10 +426,6 @@ function themesGalleryHtml() {
   const current = AurionTheme.effective();
   const custom = AurionTheme.getCustom();
   const cards = AurionTheme.THEMES.map((t) => themeCardHtml(t, current, custom)).join("");
-  const backdrops = ["soft", "blobs", "aurora", "grid", "waves", "dusk", "layered", "flat", "none"]
-    .map((b) => `<option value="${b}"${b === custom.bg ? " selected" : ""}>${esc(I18N.t("themes.bg_" + b))}</option>`)
-    .join("");
-
   const unlocked = themesUnlocked();
 
   return `
@@ -445,23 +441,83 @@ function themesGalleryHtml() {
         <p class="sub" style="margin:12px 0 0">${I18N.t("themes.recommended")}</p>
       </div>
 
-      <div class="card tc-custom" id="set-theme-custom" style="margin-top:14px"${current === "custom" && unlocked ? "" : " hidden"}>
-        <h3 style="margin:0 0 4px">${I18N.t("themes.custom_title")}</h3>
-        <p class="sub" style="margin:0">${I18N.t("themes.custom_hint")}</p>
+      ${themeBuilderHtml()}`;
+}
+
+/* The builder used to be the "custom" theme's private panel: it was hidden
+   unless that one card was selected, and its sliders wrote to a slot only
+   that theme read. So a trader who liked Neumorphism but wanted less shadow
+   had nowhere to go, and picking a background meant abandoning the theme
+   they had chosen. The panel is now simply "the theme you are using": it is
+   always shown, it edits whichever theme is active, and the edits are kept
+   per theme so nothing is lost by switching away and back. */
+function themeBuilderHtml() {
+  const current = AurionTheme.effective();
+  const k = AurionTheme.knobs();
+  const unlocked = themesUnlocked();
+  const picture = AurionTheme.getBgImage();
+
+  const backdrops = AurionTheme.BACKDROPS
+    .filter((b) => b !== "photo" || picture)
+    .map((b) => `<option value="${b}"${b === k.bg ? " selected" : ""}>${
+      esc(I18N.t(b === "photo" ? "themes.bg_custom" : "themes.bg_" + b))}</option>`)
+    .join("");
+
+  return `
+      <div class="card tc-custom" id="set-theme-custom" style="margin-top:14px"${unlocked ? "" : " hidden"}>
+        <h3 style="margin:0 0 4px">${I18N.t("themes.builder_title")}</h3>
+        <p class="sub" style="margin:0 0 2px">${I18N.t("themes.builder_hint")}</p>
+        <p class="sub" id="knob-editing" style="margin:0">${
+          esc(I18N.t("themes.editing", { name: themeName(current) }))}${
+          AurionTheme.edited(current) ? ` · <b>${esc(I18N.t("themes.edited_tag"))}</b>` : ""}</p>
         <div class="knob-grid">
           <label class="knob">
             <span class="knob-head"><span>${I18N.t("themes.backdrop")}</span></span>
             <select class="ctrl" id="knob-bg" aria-label="${esc(I18N.t("themes.backdrop"))}">${backdrops}</select>
           </label>
-          ${themeKnobHtml("surface", I18N.t("themes.surface"), custom.surface, "%")}
-          ${themeKnobHtml("border", I18N.t("themes.border"), custom.border, "%")}
-          ${themeKnobHtml("blur", I18N.t("themes.blur"), custom.blur, "px")}
-          ${themeKnobHtml("radius", I18N.t("themes.radius"), custom.radius, "px")}
-          ${themeKnobHtml("shadow", I18N.t("themes.shadow"), custom.shadow, "%")}
-          ${themeKnobHtml("motion", I18N.t("themes.motion"), custom.motion, "%")}
+          ${themeKnobHtml("surface", I18N.t("themes.surface"), k.surface, "%")}
+          ${themeKnobHtml("border", I18N.t("themes.border"), k.border, "%")}
+          ${themeKnobHtml("blur", I18N.t("themes.blur"), k.blur, "px")}
+          ${themeKnobHtml("radius", I18N.t("themes.radius"), k.radius, "px")}
+          ${themeKnobHtml("shadow", I18N.t("themes.shadow"), k.shadow, "%")}
+          ${themeKnobHtml("motion", I18N.t("themes.motion"), k.motion, "%")}
         </div>
-        <button type="button" class="btn ghost tiny" id="knob-reset" style="margin-top:12px">${I18N.t("themes.reset")}</button>
+
+        <div class="bgpic" id="set-bgpic">
+          <div class="bgpic-head">
+            <b>${esc(I18N.t("themes.bg_image"))}</b>
+            <span class="sub">${esc(I18N.t("themes.bg_hint"))}</span>
+          </div>
+          <div class="bgpic-row">
+            <div class="bgpic-thumb"${picture ? ` style="background-image:url(&quot;${esc(picture)}&quot;)"` : ""}
+                 id="bgpic-thumb" aria-hidden="true"></div>
+            <div class="bgpic-acts">
+              <input type="file" id="bgpic-file" accept="image/*" hidden />
+              <button type="button" class="btn tiny" id="bgpic-pick">${esc(I18N.t("themes.bg_image_pick"))}</button>
+              <button type="button" class="btn ghost tiny" id="bgpic-clear"${picture ? "" : " hidden"}>${
+                esc(I18N.t("themes.bg_image_clear"))}</button>
+            </div>
+          </div>
+          <label class="knob" id="bgpic-dim-wrap"${picture && k.bg === "photo" ? "" : " hidden"}>
+            <span class="knob-head"><span>${esc(I18N.t("themes.bg_dim"))}</span><b id="bgpic-dim-v">${
+              AurionTheme.getBgDim()}%</b></span>
+            <input type="range" id="bgpic-dim" min="0" max="90" step="5" value="${AurionTheme.getBgDim()}"
+                   aria-label="${esc(I18N.t("themes.bg_dim"))}" />
+          </label>
+          <p class="sub" style="margin:8px 0 0">${esc(I18N.t("themes.bg_image_hint"))}</p>
+        </div>
+
+        <button type="button" class="btn ghost tiny" id="knob-reset" style="margin-top:12px">${
+          esc(I18N.t("themes.reset_this", { name: themeName(current) }))}</button>
       </div>`;
+}
+
+/* A theme's display name, with the id as the last resort so a theme added to
+   the table before its strings are translated still reads as something. */
+function themeName(id) {
+  const key = "themes." + id + "_name";
+  const out = I18N.t(key);
+  return out === key ? id : out;
 }
 
 /* Marking in place rather than re-rendering: rebuilding the settings tab on
@@ -479,7 +535,13 @@ function markThemeCards() {
     b.tabIndex = on ? 0 : -1;
   });
   const panel = $("set-theme-custom");
-  if (panel) panel.hidden = current !== "custom" || !themesUnlocked();
+  if (panel) {
+    panel.hidden = !themesUnlocked();
+    /* The builder follows the selection, because it edits whatever is
+       active: switching theme has to reload the sliders or they would be
+       showing - and writing - the previous theme's numbers. */
+    renderSettingsKnobs();
+  }
   paintCustomPreview();
 }
 
@@ -558,7 +620,7 @@ function bindThemesGallery() {
       if (!slider) return;
       const key = slider.dataset.knob;
       const value = Number(slider.value);
-      AurionTheme.setCustom({ [key]: value });
+      AurionTheme.edit({ [key]: value });
       const out = $("knob-v-" + key);
       if (out) {
         const suffix = key === "blur" || key === "radius" ? "px" : "%";
@@ -566,36 +628,155 @@ function bindThemesGallery() {
           ? I18N.t("themes.motion_off") : value + suffix;
       }
       if (key === "radius") paintCustomPreview();
+      markThemeEdited();
     };
     const bg = $("knob-bg");
-    if (bg) bg.onchange = () => AurionTheme.setCustom({ bg: bg.value });
+    if (bg) bg.onchange = () => {
+      AurionTheme.edit({ bg: bg.value });
+      const dim = $("bgpic-dim-wrap");
+      if (dim) dim.hidden = bg.value !== "photo";
+      markThemeEdited();
+    };
     const reset = $("knob-reset");
     if (reset) reset.onclick = () => {
-      AurionTheme.resetCustom();
+      const name = themeName(AurionTheme.effective());
+      AurionTheme.reset();
       renderSettingsKnobs();
-      toast(I18N.t("themes.reset_done"));
+      toast(I18N.t("themes.reset_this_done", { name }));
     };
   }
+
+  bindBackgroundPicture();
+}
+
+/* The trader's own background picture.
+
+   It never leaves the machine: the file is read in the page, scaled down and
+   kept in this browser's storage. Scaling is not cosmetic - a modern phone
+   photo is several megabytes, and storage rejects that outright, so an
+   unscaled picture would simply fail to stick. 1920px on the long edge is
+   more than a desk background ever shows. */
+const BG_MAX_EDGE = 1920;
+
+function bindBackgroundPicture() {
+  const file = $("bgpic-file");
+  const pick = $("bgpic-pick");
+  const clear = $("bgpic-clear");
+  const dim = $("bgpic-dim");
+  if (pick && file) pick.onclick = () => file.click();
+
+  if (file) file.onchange = () => {
+    const f = file.files && file.files[0];
+    file.value = "";
+    if (!f) return;
+    shrinkImage(f, BG_MAX_EDGE).then((dataUrl) => {
+      AurionTheme.setBgImage(dataUrl);
+      // Choosing a picture means wanting to see it; selecting the backdrop
+      // by hand afterwards would be a step with only one sensible answer.
+      AurionTheme.edit({ bg: "photo" });
+      renderSettingsKnobs();
+      toast(I18N.t("themes.bg_image_set"));
+    }).catch(() => toast(I18N.t("themes.bg_image_bad")));
+  };
+
+  if (clear) clear.onclick = () => {
+    AurionTheme.setBgImage("");
+    if (AurionTheme.knobs().bg === "photo") AurionTheme.edit({ bg: "soft" });
+    renderSettingsKnobs();
+  };
+
+  if (dim) dim.oninput = () => {
+    AurionTheme.setBgDim(Number(dim.value));
+    const out = $("bgpic-dim-v");
+    if (out) out.textContent = dim.value + "%";
+  };
+}
+
+/** Read a picture file, scale its long edge down to max, return a data URL. */
+function shrinkImage(fileObj, max) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error("unreadable"));
+    reader.onload = () => {
+      const img = new Image();
+      img.onerror = () => reject(new Error("not an image"));
+      img.onload = () => {
+        try {
+          const scale = Math.min(1, max / Math.max(img.width, img.height));
+          const w = Math.max(1, Math.round(img.width * scale));
+          const h = Math.max(1, Math.round(img.height * scale));
+          const cv = document.createElement("canvas");
+          cv.width = w; cv.height = h;
+          cv.getContext("2d").drawImage(img, 0, 0, w, h);
+          // JPEG, not PNG: a photograph as PNG is several times larger and
+          // storage is the binding limit here, not fidelity.
+          resolve(cv.toDataURL("image/jpeg", 0.82));
+        } catch (err) { reject(err); }
+      };
+      img.src = String(reader.result || "");
+    };
+    reader.readAsDataURL(fileObj);
+  });
+}
+
+/** Keep the "edited" tag beside the builder heading honest. */
+function markThemeEdited() {
+  const line = $("knob-editing");
+  if (!line || typeof AurionTheme === "undefined") return;
+  const current = AurionTheme.effective();
+  line.innerHTML = esc(I18N.t("themes.editing", { name: themeName(current) }))
+    + (AurionTheme.edited(current) ? ` \u00B7 <b>${esc(I18N.t("themes.edited_tag"))}</b>` : "");
 }
 
 /* After a reset the sliders are stale. Only their values are rewritten - the
    panel itself stays, so focus and scroll stay with it. */
 function renderSettingsKnobs() {
   if (typeof AurionTheme === "undefined") return;
-  const custom = AurionTheme.getCustom();
+  const k = AurionTheme.knobs();
   document.querySelectorAll("[data-knob]").forEach((slider) => {
     const key = slider.dataset.knob;
-    if (custom[key] === undefined) return;
-    slider.value = custom[key];
+    if (k[key] === undefined) return;
+    slider.value = k[key];
     const out = $("knob-v-" + key);
     if (out) {
       const suffix = key === "blur" || key === "radius" ? "px" : "%";
-      out.textContent = key === "motion" && Number(custom[key]) === 0
-        ? I18N.t("themes.motion_off") : custom[key] + suffix;
+      out.textContent = key === "motion" && Number(k[key]) === 0
+        ? I18N.t("themes.motion_off") : k[key] + suffix;
     }
   });
+
+  const picture = AurionTheme.getBgImage();
   const bg = $("knob-bg");
-  if (bg) bg.value = custom.bg;
+  if (bg) {
+    // The "your picture" option only exists while a picture does.
+    const has = Array.prototype.some.call(bg.options, (o) => o.value === "photo");
+    if (picture && !has) {
+      const opt = document.createElement("option");
+      opt.value = "photo";
+      opt.textContent = I18N.t("themes.bg_custom");
+      bg.appendChild(opt);
+    } else if (!picture && has) {
+      Array.prototype.slice.call(bg.options)
+        .filter((o) => o.value === "photo")
+        .forEach((o) => o.remove());
+    }
+    bg.value = k.bg;
+  }
+
+  const thumb = $("bgpic-thumb");
+  if (thumb) thumb.style.backgroundImage = picture ? `url("${picture}")` : "";
+  const clear = $("bgpic-clear");
+  if (clear) clear.hidden = !picture;
+  const dimWrap = $("bgpic-dim-wrap");
+  if (dimWrap) dimWrap.hidden = !(picture && k.bg === "photo");
+  const dim = $("bgpic-dim");
+  if (dim) dim.value = AurionTheme.getBgDim();
+  const dimOut = $("bgpic-dim-v");
+  if (dimOut) dimOut.textContent = AurionTheme.getBgDim() + "%";
+
+  const reset = $("knob-reset");
+  if (reset) reset.textContent = I18N.t("themes.reset_this", { name: themeName(AurionTheme.effective()) });
+  markThemeEdited();
   paintCustomPreview();
 }
 
@@ -666,11 +847,11 @@ function bindAppearance() {
     if (!b) return;
     if (b.dataset.locked) { toast(I18N.t("themes.locked_toast")); show("upgrade"); return; }
     AurionSkin.setAccent(b.dataset.accent);
-    // Picking an accent while the custom theme is active is part of building
-    // it, so it is remembered with the rest of that theme's knobs rather than
-    // being reset the next time the theme is applied.
-    if (typeof AurionTheme !== "undefined" && AurionTheme.effective() === "custom") {
-      AurionTheme.setCustom({ accent: b.dataset.accent }, { silent: true });
+    // Picking an accent is part of building the theme, whichever theme it
+    // is, so it is remembered with the rest of that theme's knobs rather
+    // than being reset the next time the theme is applied.
+    if (typeof AurionTheme !== "undefined") {
+      AurionTheme.edit({ accent: b.dataset.accent }, { silent: true });
     }
     markAppearancePills();
     paintCustomPreview();
@@ -2085,12 +2266,13 @@ function patchLive() {
     if (psub) psub.textContent = I18N.t(propOn ? "risk.prop_on" : "risk.prop_off");
     const rfLive = S.snap?.strategy?.risk_free || {};
     paintSwitch($("st-rf"), rfLive.enabled);
-    const rfTrig = $("st-rf-trigger");
-    if (rfTrig && document.activeElement !== rfTrig) {
-      rfTrig.value = rfLive.trigger_pct ?? 0.3;
-      rfTrig.disabled = !rfLive.enabled;
-      const pct = $("st-rf-pct");
-      if (pct) pct.textContent = Number(rfTrig.value).toFixed(2) + "%";
+    const rfSteps = $("st-rf-steps");
+    if (rfSteps && document.activeElement !== rfSteps) {
+      rfSteps.value = rfLive.steps ?? 3;
+      const n = $("st-rf-steps-n");
+      if (n) n.textContent = String(rfSteps.value);
+      const ladder = $("st-rf-ladder");
+      if (ladder) ladder.innerHTML = rfLadderHtml(rfLive);
     }
 
     const dgLive = S.snap?.strategy?.danger_guard || {};
@@ -2452,6 +2634,31 @@ function paintLotEverywhere(v) {
       el.value = String(v);
     }
   });
+}
+
+/**
+ * The protection ladder, written as targets rather than as a number.
+ *
+ * This panel used to show "0.20" - a percentage of the entry price -
+ * which says nothing about when the stop actually moves. The rungs are
+ * evenly spaced on the way to the trade's own target, so they can be
+ * named: reaching TP1 locks the entry, TP2 locks TP1, and so on. Same
+ * arithmetic as runtime/stops.py, just said out loud.
+ */
+function rfLadderHtml(rf) {
+  const rungs = (rf && rf.rungs) || [];
+  if (!rungs.length) return "";
+  return rungs.map((r) => {
+    const to = r.moves_to === "entry"
+      ? I18N.t("strategies.rf_to_entry")
+      : String(r.moves_to || "").toUpperCase();
+    return `<div class="rf-rung">
+      <b class="rf-rung-tag">${esc(String(r.label || "").toUpperCase())}</b>
+      <span class="rf-rung-arrow" aria-hidden="true">&rarr;</span>
+      <span class="rf-rung-to">${esc(to)}</span>
+      <span class="sub rf-rung-at">${I18N.t("strategies.rf_rung_at", { pct: Math.round((r.fraction || 0) * 100) })}</span>
+    </div>`;
+  }).join("");
 }
 
 function rememberTicket() {
@@ -3170,10 +3377,12 @@ function robotPanelHtml() {
           subId: "st-rf-sub",
           on: rf.enabled,
         })}
-        <div class="field" style="margin-top:10px"><span class="conf-head">${I18N.t("strategies.rf_trigger")}<b class="mono conf-pct" id="st-rf-pct">${(rf.trigger_pct ?? 0.3).toFixed(2)}%</b></span>
-          <input id="st-rf-trigger" type="range" step="0.05" min="0.05" max="3" value="${rf.trigger_pct ?? 0.3}" ${rf.enabled ? "" : "disabled"} />
+        <div class="field" style="margin-top:10px">
+          <span class="conf-head">${I18N.t("strategies.rf_steps")}<b class="mono conf-pct" id="st-rf-steps-n">${rf.steps ?? 3}</b></span>
+          <input id="st-rf-steps" type="range" step="1" min="1" max="5" value="${rf.steps ?? 3}" />
         </div>
-        <p class="sub">${I18N.t("strategies.rf_trigger_help")}</p>
+        <div id="st-rf-ladder" class="rf-ladder">${rfLadderHtml(rf)}</div>
+        <p class="sub">${I18N.t("strategies.rf_ladder_help")}</p>
       </div>
 
       <div class="card" id="set-money">
@@ -6183,15 +6392,10 @@ function bindRobotPanel() {
     rfSw.dataset.busy = "1";
     const on = !rfSw.classList.contains("on");
     paintSwitch(rfSw, on);
-    // The slider follows the switch: a trigger you can drag while the
-    // rule is off reads as though it were doing something.
-    const trig = $("st-rf-trigger");
-    if (trig) trig.disabled = !on;
     try {
-      const r = await API.post("/api/risk_free", { enabled: on });
+      const r = await API.post("/api/risk_free", { enabled: on, ladder: on });
       if (!r.ok) {
         paintSwitch(rfSw, !on);
-        if (trig) trig.disabled = on;
         toast(r.error || I18N.t("errors.generic"));
         return;
       }
@@ -6201,14 +6405,29 @@ function bindRobotPanel() {
       delete rfSw.dataset.busy;
     }
   };
-  const rfTrigger = $("st-rf-trigger");
-  if (rfTrigger) {
-    const pct = $("st-rf-pct");
-    rfTrigger.addEventListener("input", () => {
-      if (pct) pct.textContent = Number(rfTrigger.value).toFixed(2) + "%";
+  const rfSteps = $("st-rf-steps");
+  if (rfSteps) {
+    const n = $("st-rf-steps-n");
+    rfSteps.addEventListener("input", () => {
+      if (n) n.textContent = String(rfSteps.value);
+      // Redraw the named rungs as the slider moves, so the trader is
+      // choosing between "TP1, TP2, TP3" and not between 3 and 4.
+      const ladder = $("st-rf-ladder");
+      const steps = Math.max(1, Math.min(5, +rfSteps.value || 3));
+      if (ladder) {
+        ladder.innerHTML = rfLadderHtml({
+          steps,
+          rungs: Array.from({ length: steps }, (_, i) => ({
+            step: i + 1,
+            label: `TP${i + 1}`,
+            moves_to: i === 0 ? "entry" : `TP${i}`,
+            fraction: (i + 1) / steps,
+          })),
+        });
+      }
     });
-    rfTrigger.addEventListener("change", async () => {
-      const r = await API.post("/api/risk_free", { trigger_pct: +rfTrigger.value });
+    rfSteps.addEventListener("change", async () => {
+      const r = await API.post("/api/risk_free", { steps: +rfSteps.value });
       if (!r.ok) toast(r.error || I18N.t("errors.generic"));
       await refresh(false);
     });

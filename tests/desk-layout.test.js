@@ -279,12 +279,19 @@ check("a viewport change is repainted more than once", (() => {
   const en = JSON.parse(read("lang/en.json"));
 
   check("the robot settings have a risk-free switch",
-    /id: "st-rf"/.test(app) && /API\.post\("\/api\/risk_free", \{ enabled: on \}\)/.test(app));
+    /id: "st-rf"/.test(app) &&
+    /API\.post\("\/api\/risk_free", \{ enabled: on, ladder: on \}\)/.test(app));
 
-  check("and a trigger the switch enables and disables",
-    /id="st-rf-trigger"/.test(app) &&
-    /trigger_pct: \+rfTrigger\.value/.test(app) &&
-    /if \(trig\) trig\.disabled = !on/.test(app));
+  /* The switch used to sit next to a raw percentage slider: the trader set
+     "0.20" with no way to know that meant a fifth of the way to target. It
+     now sets how many targets the stop climbs, and the rungs are listed by
+     the names the trader already uses - TP1, TP2 - so the setting reads as
+     the behaviour it buys. */
+  check("and a step count with the rungs named TP1, TP2 …",
+    /id="st-rf-steps"/.test(app) &&
+    /API\.post\("\/api\/risk_free", \{ steps: \+rfSteps\.value \}\)/.test(app) &&
+    /rfLadderHtml/.test(app) &&
+    !/st-rf-trigger/.test(app));
 
   // The engine has to publish it or the switch paints from nothing and
   // springs back to off on the next snapshot.

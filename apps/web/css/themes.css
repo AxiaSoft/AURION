@@ -2147,3 +2147,40 @@ html[data-skin="mono"][data-theme="light"]{
 
 /* The custom theme's "no backdrop" choice means no backdrop. */
 html[data-bg="none"] #bg-fx::before{ display:none }
+
+/* ===========================================================================
+   The trader's own background picture.
+
+   Chosen in Settings -> Theme and stored on this machine as a data URL;
+   themes.js hands it over as --bg-photo and nothing else. It is painted on
+   the same .aurora element every other backdrop uses, so it inherits the
+   fixed, behind-everything placement already proven there, and it works with
+   any theme - glass, neumorphism, cyber - because it only replaces what is
+   *behind* the panels.
+
+   The scrim matters: a bright holiday photo behind translucent panels makes
+   white text unreadable. --bg-photo-dim is a user-controlled black veil over
+   the picture, which keeps contrast in the trader's hands instead of
+   forbidding light pictures.
+   =========================================================================== */
+html[data-bg="photo"] .aurora{ opacity:1 }
+html[data-bg="photo"] .aurora::before{
+  background:var(--bg-photo, none) center center / cover no-repeat fixed, var(--bg);
+  filter:none;
+  opacity:1;
+}
+html[data-bg="photo"] .aurora::after{
+  content:"";
+  position:fixed; inset:0;
+  background:#000;
+  opacity:var(--bg-photo-dim, .45);
+  filter:none;
+  animation:none;
+}
+/* Fixed attachment is a known scrolling cost on phones; there the picture
+   simply scrolls with the page. */
+@media (max-width:760px){
+  html[data-bg="photo"] .aurora::before{
+    background-attachment:scroll;
+  }
+}

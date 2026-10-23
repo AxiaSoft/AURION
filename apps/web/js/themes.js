@@ -38,6 +38,16 @@
 
   var LS_SKIN = "aurion.theme.skin";
   var LS_CUSTOM = "aurion.theme.custom";
+  /* Per-theme edits, keyed by theme id: {"neu":{"blur":12,"bg":"waves"}, ...}.
+     The builder used to write to one slot that only the "custom" theme read,
+     so picking Neumorphism and moving a slider appeared to do nothing. Every
+     theme is now editable and keeps its own edits, and the originals are
+     never overwritten - they are the table above, so "reset" is exact. */
+  var LS_EDITS = "aurion.theme.edits";
+  /* A background picture the trader chose, as a data URL. Local to this
+     machine; it is never sent anywhere. */
+  var LS_BGIMG = "aurion.theme.bgimage";
+  var LS_BGDIM = "aurion.theme.bgdim";
   var LS_PAID = "aurion.theme.paid";
   var DEFAULT_SKIN = "glass";
 
@@ -145,7 +155,7 @@
 
   /* The morphism families a theme can belong to. Kept as a list so the UI can
      describe a theme without knowing the CSS. */
-  var BACKDROPS = ["soft", "blobs", "aurora", "grid", "waves", "dusk", "layered", "flat", "none"];
+  var BACKDROPS = ["soft", "blobs", "aurora", "grid", "waves", "dusk", "layered", "flat", "none", "photo"];
 
   /* ------------------------------------------------------------------ util */
 
@@ -261,6 +271,102 @@
     return out;
   }
 
+  /* ------------------------------------------------------- per-theme edits */
+
+  function readEdits() {
+    var raw = read(LS_EDITS, "");
+    if (!raw) return {};
+    try {
+      var parsed = JSON.parse(raw);
+      return parsed && typeof parsed === "object" ? parsed : {};
+    } catch (e) { return {}; }
+  }
+
+  /** The theme's own numbers with this trader's edits laid over the top. */
+  function themeKnobs(id) {
+    var t = BY_ID[id] || BY_ID[DEFAULT_SKIN];
+    var out = {};
+    for (var k in BASE_KNOBS) {
+      if (!Object.prototype.hasOwnProperty.call(BASE_KNOBS, k)) continue;
+      out[k] = t.knobs[k] === undefined ? BASE_KNOBS[k] : t.knobs[k];
+    }
+    out.bg = t.bg;
+    out.accent = t.accent;
+
+    var edit = readEdits()[id];
+    if (edit && typeof edit === "object") {
+      for (var key in LIMITS) {
+        if (!Object.prototype.hasOwnProperty.call(LIMITS, key)) continue;
+        if (edit[key] === undefined || edit[key] === null) continue;
+        out[key] = clamp(edit[key], LIMITS[key][0], LIMITS[key][1]);
+      }
+      if (typeof edit.accent === "string") out.accent = edit.accent;
+      if (BACKDROPS.indexOf(edit.bg) !== -1) out.bg = edit.bg;
+    }
+    return out;
+  }
+
+  /** Has this theme been changed from how it shipped? */
+  function isEdited(id) {
+    var edit = readEdits()[id];
+    if (!edit) return false;
+    for (var k in edit) {
+      if (Object.prototype.hasOwnProperty.call(edit, k)) return true;
+    }
+    return false;
+  }
+
+  /** Edit the theme currently in use - built-in ones included. */
+  function editTheme(patch, opts) {
+    var id = effectiveTheme();
+    if (id === "custom") return setCustom(patch, opts);
+
+    var all = readEdits();
+    var next = all[id] && typeof all[id] === "object" ? all[id] : {};
+    for (var key in patch) {
+      if (!Object.prototype.hasOwnProperty.call(patch, key)) continue;
+      if (LIMITS[key]) next[key] = clamp(patch[key], LIMITS[key][0], LIMITS[key][1]);
+      else if (key === "accent" && typeof patch[key] === "string") next.accent = patch[key];
+      else if (key === "bg" && BACKDROPS.indexOf(patch[key]) !== -1) next.bg = patch[key];
+    }
+    all[id] = next;
+    write(LS_EDITS, JSON.stringify(all));
+    if (!(opts && opts.silent)) apply();
+    if (next.accent) applyAccent(next.accent);
+    return themeKnobs(id);
+  }
+
+  /** Put the theme in use back to how it shipped. */
+  function resetTheme() {
+    var id = effectiveTheme();
+    if (id === "custom") return resetCustom();
+    var all = readEdits();
+    delete all[id];
+    write(LS_EDITS, JSON.stringify(all));
+    apply();
+    applyAccent(BY_ID[id].accent);
+    return themeKnobs(id);
+  }
+
+  /* ---------------------------------------------- the trader's own picture */
+
+  function getBgImage() { return read(LS_BGIMG, "") || ""; }
+
+  function setBgImage(dataUrl) {
+    if (!dataUrl) write(LS_BGIMG, null);
+    else write(LS_BGIMG, String(dataUrl));
+    apply();
+    return getBgImage();
+  }
+
+  function getBgDim() { return clamp(read(LS_BGDIM, 45), 0, 90); }
+
+  function setBgDim(value) {
+    write(LS_BGDIM, String(clamp(value, 0, 90)));
+    apply();
+    return getBgDim();
+  }
+
   function setCustom(patch, opts) {
     var next = getCustom();
     for (var key in patch) {
@@ -282,19 +388,11 @@
     return getCustom();
   }
 
-  /** The knobs actually in force right now, theme defaults or custom. */
+  /** The knobs actually in force right now: the theme, plus any edits. */
   function activeKnobs() {
     var id = effectiveTheme();
     if (id === "custom") return getCustom();
-    var t = BY_ID[id] || BY_ID[DEFAULT_SKIN];
-    var out = {};
-    for (var k in BASE_KNOBS) {
-      if (!Object.prototype.hasOwnProperty.call(BASE_KNOBS, k)) continue;
-      out[k] = t.knobs[k] === undefined ? BASE_KNOBS[k] : t.knobs[k];
-    }
-    out.bg = t.bg;
-    out.accent = t.accent;
-    return out;
+    return themeKnobs(id);
   }
 
   function applyAccent(accentId) {
@@ -345,7 +443,12 @@
     var k = activeKnobs();
 
     el.dataset.skin = id;
-    el.dataset.bg = k.bg || "soft";
+    /* "photo" is the trader's own picture. If they picked it and then removed
+       the file we fall back rather than leave an empty page. */
+    var bg = k.bg || "soft";
+    var picture = getBgImage();
+    if (bg === "photo" && !picture) bg = "soft";
+    el.dataset.bg = bg;
     /* Premium gates the accent row too, so while it is locked the theme's own
        accent is pinned - the desk still looks designed, it just looks the one
        way this theme was designed to look. */
@@ -365,7 +468,15 @@
       "--blur:" + clamp(k.blur, 0, 60) + "px;" +
       "--radius-lg:" + clamp(k.radius, 0, 40) + "px;" +
       "--shadow-strength:" + (clamp(k.shadow, 0, 200) / 100).toFixed(3) + ";" +
-      "--motion-scale:" + (motion / 100).toFixed(3) + "}"
+      "--motion-scale:" + (motion / 100).toFixed(3) + "}" +
+      /* The picture rides on a custom property so css/themes.css owns the
+         layout - position, size and the scrim over it - and this file only
+         ever hands over the source. CSS url() has to be quoted: a data URL
+         is full of characters that are not valid unquoted. */
+      (bg === "photo"
+        ? "html[data-bg=\"photo\"]{--bg-photo:url(\"" + picture.replace(/"/g, "%22") + "\");" +
+          "--bg-photo-dim:" + (getBgDim() / 100).toFixed(3) + "}"
+        : "")
     );
   }
 
@@ -423,6 +534,15 @@
     setCustom: setCustom,
     resetCustom: resetCustom,
     defaultCustom: defaultCustom,
+    BACKDROPS: BACKDROPS,
+    themeKnobs: themeKnobs,
+    edit: editTheme,
+    reset: resetTheme,
+    edited: isEdited,
+    getBgImage: getBgImage,
+    setBgImage: setBgImage,
+    getBgDim: getBgDim,
+    setBgDim: setBgDim,
   };
 
   apply();

@@ -28,8 +28,18 @@ const WEB = path.join(__dirname, "..", "apps", "web");
 // — a hard-coded date turns this suite into a time bomb that starts failing
 // the month after it was written.
 const NOW = new Date();
-const dayInThisMonth = (day, hhmm) =>
-  `${NOW.getUTCFullYear()}-${String(NOW.getUTCMonth() + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}T${hhmm}:00Z`;
+// Offsets from today, not days of the Gregorian month.
+//
+// The first version pinned the fixture to the 5th and 7th of the current
+// Gregorian month, which quietly broke the moment the desk defaulted to the
+// Jalali calendar: the grid shows the Persian month, and Aban 1405 starts on
+// 23 October, so "the 5th" was simply not on screen and the dot checks read
+// zero. Anchoring to today keeps the events inside whichever month the grid
+// opens on, in every calendar system.
+const dayOffset = (days, hhmm) => {
+  const d = new Date(Date.UTC(NOW.getUTCFullYear(), NOW.getUTCMonth(), NOW.getUTCDate() + days));
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(d.getUTCDate()).padStart(2, "0")}T${hhmm}:00Z`;
+};
 
 const NEWS = {
   ok: true,
@@ -39,9 +49,9 @@ const NEWS = {
     blackout_before: 15,
     blackout_after: 15,
     events: [
-      { time: dayInThisMonth(5, "12:30"), currency: "USD", impact: "high", title: "Non-Farm Payrolls" },
-      { time: dayInThisMonth(5, "14:00"), currency: "EUR", impact: "medium", title: "ECB Press Conference" },
-      { time: dayInThisMonth(7, "01:00"), currency: "AUD", impact: "low", title: "RBA Rate Decision" },
+      { time: dayOffset(1, "12:30"), currency: "USD", impact: "high", title: "Non-Farm Payrolls" },
+      { time: dayOffset(1, "14:00"), currency: "EUR", impact: "medium", title: "ECB Press Conference" },
+      { time: dayOffset(3, "01:00"), currency: "AUD", impact: "low", title: "RBA Rate Decision" },
     ],
   },
 };

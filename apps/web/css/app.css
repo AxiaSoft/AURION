@@ -2346,3 +2346,32 @@ html[data-theme="light"] .set-rail .set-jump button.on{background:linear-gradien
   padding: 1px 6px; border-radius: 999px;
   background: var(--line, #2a2f3e); color: var(--muted, #9aa3b8);
 }
+
+/* The risk-free ladder, named rather than numbered.
+   A rung is "TP2 -> TP1": the target that has to be reached and the
+   level the stop moves to when it is. Printed as a row each so the
+   escalation is readable top to bottom. */
+.rf-ladder{display:flex;flex-direction:column;gap:6px;margin:10px 0 2px}
+.rf-rung{
+  display:flex;align-items:center;gap:8px;flex-wrap:wrap;
+  padding:7px 10px;border:1px solid var(--line);border-radius:10px;
+  background:rgb(var(--wash) / .03);font-size:12px;
+}
+.rf-rung-tag{
+  font-family:var(--mono, monospace);font-size:11px;letter-spacing:.04em;
+  padding:2px 7px;border-radius:999px;background:var(--gold);color:var(--on-accent);
+}
+.rf-rung-arrow{color:var(--muted)}
+.rf-rung-to{font-weight:500;color:var(--ink)}
+.rf-rung-at{margin-inline-start:auto;font-size:11px}
+
+/* The trader's own background picture, inside the theme builder. */
+.bgpic{margin-top:14px;padding-top:14px;border-top:1px solid var(--line)}
+.bgpic-head{display:flex;flex-direction:column;gap:2px;margin-bottom:10px}
+.bgpic-row{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.bgpic-thumb{
+  width:112px;height:66px;flex:none;border-radius:10px;
+  border:1px solid var(--line);background:var(--s2) center/cover no-repeat;
+}
+.bgpic-acts{display:flex;gap:8px;flex-wrap:wrap}
+#bgpic-dim-wrap{margin-top:12px}

@@ -5,7 +5,7 @@
   "scripts": {
     "start": "node backend/src/index.js",
     "engine": "python engine/main.py --host 127.0.0.1 --port 18765",
-    "test": "npm run test:syntax && npm run test:unit && npm run test:static && npm run test:render && npm run test:layout && npm run test:demo && npm run test:msi && npm run test:prereq && npm run test:icons && npm run test:csharp && npm run test:guide && npm run test:admin && npm run test:store && npm run test:updatepanel && npm run test:endpoints && npm run test:propguide && npm run test:notify && npm run test:appearance",
+    "test": "npm run test:syntax && npm run test:unit && npm run test:static && npm run test:render && npm run test:layout && npm run test:demo && npm run test:msi && npm run test:prereq && npm run test:icons && npm run test:csharp && npm run test:guide && npm run test:admin && npm run test:store && npm run test:updatepanel && npm run test:endpoints && npm run test:propguide && npm run test:notify && npm run test:appearance && npm run test:theming",
     "test:unit": "node --test apps/web/js/*.test.cjs",
     "test:static": "node apps/web/js/check-views.mjs && node apps/web/js/check-calls.mjs",
     "test:render": "node tests/desk-render.test.js",
@@ -24,7 +24,8 @@
     "test:endpoints": "node tests/endpoints.test.js",
     "test:propguide": "node tests/prop-guide.test.js",
     "test:notify": "node tests/notifications.test.js",
-    "test:appearance": "node tests/appearance.test.js"
+    "test:appearance": "node tests/appearance.test.js",
+    "test:theming": "node tests/theming.test.js"
   },
   "devDependencies": {
     "acorn": "^8.12.1",
