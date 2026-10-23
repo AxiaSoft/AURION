@@ -157,6 +157,39 @@
      describe a theme without knowing the CSS. */
   var BACKDROPS = ["soft", "blobs", "aurora", "grid", "waves", "dusk", "layered", "flat", "none", "photo"];
 
+  /* ---------------------------------------------------------- wallpapers --
+   *
+   * AURION ships twenty photographs in assets/bg - a dark and a light cut of
+   * ten scenes. Until now each one was nailed to the theme of the same name
+   * in css/themes.css: the only way to see the ocean photograph was to use
+   * the Ocean theme, and a trader who liked that picture on Midnight had no
+   * way to say so.
+   *
+   * They are a library now. Any theme can wear any of them, the choice is
+   * remembered per theme (so Midnight and Ocean can each keep their own),
+   * and the dark or light cut is chosen from the mode in force rather than
+   * picked by hand - a dark photograph under a light desk is nobody's
+   * intention, and asking the trader to re-choose on every mode switch
+   * would be busywork.
+   *
+   * The names are the file stems in assets/bg. Adding one is a line here and
+   * two files on disk. */
+  var WALLPAPERS = [
+    "aurora", "clay", "cyber", "frost", "midnight",
+    "minimal", "mono", "neu", "ocean", "sunset"
+  ];
+
+  /* "" means the theme keeps whatever css/themes.css gives it; "none" means
+     the trader asked for no photograph at all, which is not the same thing
+     and has to survive a reload. */
+  function wallUrl(name, light) {
+    if (!name || name === "none" || WALLPAPERS.indexOf(name) === -1) return "";
+    /* Relative to the DOCUMENT, not to css/themes.css: this lands in a
+       <style> element in index.html, so "../assets" would resolve one
+       directory too high and silently load nothing. */
+    return "assets/bg/" + name + "-" + (light ? "light" : "dark") + ".jpg";
+  }
+
   /* ------------------------------------------------------------------ util */
 
   function read(key, fallback) {
@@ -268,6 +301,11 @@
     }
     if (typeof parsed.accent === "string") out.accent = parsed.accent;
     if (BACKDROPS.indexOf(parsed.bg) !== -1) out.bg = parsed.bg;
+    /* getCustom rebuilds from a whitelist rather than returning what was
+       stored, so anything not named here is silently dropped on the way
+       out - which is how the wallpaper was saved correctly and then read
+       back as "none chosen". */
+    if (parsed.wall === "none" || WALLPAPERS.indexOf(parsed.wall) !== -1) out.wall = parsed.wall;
     return out;
   }
 
@@ -388,6 +426,21 @@
     return edit && FX[edit.fx] !== undefined && edit.fx ? edit.fx : "none";
   }
 
+  /* The photograph a theme ships with, independent of any choice laid over
+     it. css/themes.css names each file after its skin, so the mapping is the
+     id itself - except Glass and Custom, which ship with none. */
+  function themeOwnWall(id) {
+    return WALLPAPERS.indexOf(id) === -1 ? "" : id;
+  }
+
+  /** Which wallpaper this theme has been given: "" = the theme's own. */
+  function activeWall(id) {
+    var edit = (id === "custom" ? getCustom() : readEdits()[id]) || {};
+    var w = edit.wall;
+    if (w === "none") return "none";
+    return WALLPAPERS.indexOf(w) === -1 ? "" : w;
+  }
+
   /** The colour and font overrides in force for a theme, if any. */
   function themeColours(id) {
     var edit = readEdits()[id];
@@ -438,6 +491,7 @@
       }
       if (edit.font && FONTS[edit.font]) out.font = edit.font;
       if (edit.fx && FX[edit.fx]) out.fx = edit.fx;
+      if (edit.wall === "none" || WALLPAPERS.indexOf(edit.wall) !== -1) out.wall = edit.wall;
     }
     return out;
   }
@@ -475,6 +529,11 @@
       } else if (key === "font") {
         if (!patch[key] || patch[key] === "theme") delete next.font;
         else if (FONTS[patch[key]]) next.font = patch[key];
+      } else if (key === "wall") {
+        /* "" clears the choice and hands the theme back to its own
+           photograph; "none" is the trader actively asking for none. */
+        if (!patch[key]) delete next.wall;
+        else if (patch[key] === "none" || WALLPAPERS.indexOf(patch[key]) !== -1) next.wall = patch[key];
       }
     }
     all[id] = next;
@@ -522,6 +581,10 @@
       if (LIMITS[key]) next[key] = clamp(patch[key], LIMITS[key][0], LIMITS[key][1]);
       else if (key === "accent" && typeof patch[key] === "string") next.accent = patch[key];
       else if (key === "bg" && BACKDROPS.indexOf(patch[key]) !== -1) next.bg = patch[key];
+      else if (key === "wall") {
+        if (!patch[key]) delete next.wall;
+        else if (patch[key] === "none" || WALLPAPERS.indexOf(patch[key]) !== -1) next.wall = patch[key];
+      }
     }
     write(LS_CUSTOM, JSON.stringify(next));
     if (!(opts && opts.silent)) apply();
@@ -583,6 +646,18 @@
     } catch (e) { /* the theme's palette still applies without its knobs */ }
   }
 
+  /** The CSS for a theme's chosen wallpaper, or "" to leave it alone. */
+  function wallCss(id) {
+    var choice = activeWall(id);
+    if (!choice) return "";
+    if (choice === "none") return "html[data-skin][data-theme]{--theme-bg:none}";
+    var el = root();
+    var light = Boolean(el && el.dataset && el.dataset.theme === "light");
+    var url = wallUrl(choice, light);
+    if (!url) return "";
+    return "html[data-skin][data-theme]{--theme-bg:url(\"" + url.replace(/"/g, "%22") + "\")}";
+  }
+
   /** Write the active theme onto <html>. */
   function apply() {
     var el = root();
@@ -631,6 +706,13 @@
          whichever backdrop is showing. Declared even when empty, because
          "none" has to be able to clear an effect set a moment ago. */
       "html[data-bg]{--bg-fx:" + (FX[activeFx(id)] || "none") + "}" +
+      /* The chosen wallpaper, if this theme has been given one.
+       *
+       * It overrides --theme-bg, which css/themes.css sets per skin. This
+       * rule carries [data-skin][data-theme] and lands in a <style> at the
+       * end of <head>, so it outranks those on both specificity and source
+       * order - the same place the trader's colours already win from. */
+      wallCss(id) +
       (bg === "photo"
         ? "html[data-bg=\"photo\"]{--bg-photo:url(\"" + picture.replace(/"/g, "%22") + "\");" +
           "--bg-photo-dim:" + (getBgDim() / 100).toFixed(3) + "}"
@@ -671,6 +753,21 @@
       new MutationObserver(function () {
         if (global.AurionSkin) global.AurionSkin.apply();
       }).observe(el, { attributes: true, attributeFilter: ["data-skin"] });
+
+      /* Light/dark is set straight onto <html> by the desk, without coming
+         through here. A wallpaper has a dark and a light cut, so the
+         published rule has to be rebuilt when the mode flips - otherwise
+         the desk goes light and keeps the night photograph.
+         Guarded on the value actually changing: apply() rewrites
+         data-skin/data-bg/data-motion, and reacting to its own writes would
+         be an endless loop. */
+      var lastMode = el.dataset ? el.dataset.theme : "";
+      new MutationObserver(function () {
+        var now = el.dataset ? el.dataset.theme : "";
+        if (now === lastMode) return;
+        lastMode = now;
+        if (activeWall(effectiveTheme())) apply();
+      }).observe(el, { attributes: true, attributeFilter: ["data-theme"] });
     } catch (e) { /* not fatal */ }
   }
 
@@ -706,6 +803,10 @@
     FX: FX,
     fx: activeFx,
     colours: themeColours,
+    WALLPAPERS: WALLPAPERS,
+    wall: activeWall,
+    themeWall: themeOwnWall,
+    wallUrl: wallUrl,
   };
 
   apply();

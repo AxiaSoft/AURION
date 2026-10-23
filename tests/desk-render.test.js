@@ -114,7 +114,10 @@ function check(name, ok, detail) {
 
   // One eval: jsdom gives each win.eval() its own lexical scope, so separate
   // calls would not share the top-level const bindings the way a browser does.
-  const bundle = ["js/i18n.js", "js/api.js", "js/calendar.js", "js/charts.js", "js/app.js"]
+  /* themes.js and skins.js own the appearance layer; the settings view calls
+     straight into AurionTheme, so a bundle without them renders a builder
+     with no gallery in it and the checks below would pass on nothing. */
+  const bundle = ["js/themes.js", "js/skins.js", "js/i18n.js", "js/api.js", "js/calendar.js", "js/charts.js", "js/app.js"]
     .map((f) => fs.readFileSync(path.join(WEB, f), "utf8"))
     .join("\n;\n");
   // Publish the top-level bindings: jsdom gives each win.eval() its own lexical
@@ -279,7 +282,36 @@ function check(name, ok, detail) {
     check("the final equity is the last curve point", /1,?048/.test(plain));
   }
 
-  // ---------- 7. symbol picker ----------
+  // ---------- 7. the background-image gallery renders ----------
+  //
+  // The request was for the shipped photographs to be choosable on any
+  // theme. What matters here is that the tiles reach the DOM with real
+  // image URLs and translated names, not just that the data layer works.
+  {
+    const AT = win.AurionTheme;
+    AT.setPaid(true);
+    AT.set("midnight");
+    let threw = "";
+    let html2 = "";
+    try { html2 = String(T.settingsThemeBuilderHtml ? T.settingsThemeBuilderHtml() : ""); } catch (e) { threw = e.message; }
+    if (!html2) {
+      // The builder markup is produced inside the settings view; render that.
+      try { html2 = String(T.views.settings()); } catch (e) { threw = e.message; }
+    }
+    check("the settings view renders with the gallery in it", threw === "", threw || "ok");
+    check("every shipped picture has a tile",
+      AT.WALLPAPERS.every((w) => html2.includes("assets/bg/" + w + "-")),
+      AT.WALLPAPERS.filter((w) => !html2.includes("assets/bg/" + w + "-")).join(", ") || "all 10");
+    check("the tiles are a radio group the keyboard can reach",
+      /id="knob-walls"[^>]*role="radiogroup"/.test(html2));
+    check("'theme's own' and 'no picture' are both offered",
+      html2.includes('data-wallpick=""') && html2.includes('data-wallpick="none"'));
+    const names = html2.replace(/<[^>]+>/g, " ");
+    check("the picture names are translated, not raw keys",
+      !/themes\.wall_/.test(names), (names.match(/themes\.wall_\w+/g) || []).join(", ") || "none");
+  }
+
+  // ---------- 8. symbol picker ----------
   const pickerSrc = fs.readFileSync(path.join(WEB, "js/app.js"), "utf8");
   check("symbol picker writes to the hidden field the engine reads", /id="pr-syms" type="hidden"|type="hidden" id="pr-syms"/.test(pickerSrc));
 

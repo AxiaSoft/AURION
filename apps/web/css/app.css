@@ -2739,3 +2739,27 @@ html[data-theme="light"] .set-rail .set-jump button.on{background:linear-gradien
 @media (prefers-reduced-motion:reduce){
   #bt-extra-card.is-fresh{animation:none}
 }
+
+/* ===== Background images =====
+   The photographs AURION ships, offered to every theme. A photograph needs
+   a larger tile than a flat gradient does - at 54px a landscape is a smear -
+   so these are taller and wider than the drawn-backdrop tiles next to them. */
+.wall-tiles{grid-template-columns:repeat(auto-fill,minmax(132px,1fr))}
+.wall-art{height:78px;background:var(--bg2) center/cover no-repeat}
+/* "Theme's own" is painted from the theme's own file, set inline by the
+   renderer - deliberately NOT from var(--theme-bg), which a choice already
+   made would have overridden, leaving the tile offering the picture you are
+   looking at. Themes that ship no picture (Glass, Custom) fall through to
+   the .is-none treatment below. */
+.wall-tile .wall-art{position:relative}
+/* "No picture": the page colour on its own, which is exactly what choosing
+   it produces. */
+.wall-art.is-none{
+  background-image:none;
+  background-color:var(--bg);
+  border:1px dashed var(--line);
+}
+@media (max-width:760px){
+  .wall-tiles{grid-template-columns:repeat(auto-fill,minmax(112px,1fr))}
+  .wall-art{height:66px}
+}

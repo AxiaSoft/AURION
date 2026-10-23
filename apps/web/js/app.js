@@ -526,6 +526,38 @@ function themeBuilderHtml() {
         </button>`;
     }).join("");
 
+  /* The twenty photographs AURION ships, offered to every theme.
+     Each tile is the picture itself at thumbnail size, in the cut that
+     matches the mode in force - so what you see on the tile is what lands
+     on the desk. */
+  const wallNow = AurionTheme.wall(current);
+  const lightNow = document.documentElement.dataset.theme === "light";
+  const wallTile = (value, label, style, extra) =>
+    `<button type="button" class="bg-tile wall-tile${value === wallNow ? " on" : ""}"
+             data-wallpick="${esc(value)}" role="radio" aria-checked="${value === wallNow}"
+             tabindex="${value === wallNow ? 0 : -1}">
+       <span class="bgt-art wall-art${extra || ""}"${style}></span>
+       <span class="bgt-name">${esc(label)}</span>
+     </button>`;
+
+  /* The "theme's own" tile must show the picture the THEME ships with, not
+     whatever is on the page: once a choice has been made it overrides
+     --theme-bg globally, so a tile painted from that variable would show the
+     chosen picture and offer to switch you to it. */
+  const ownWall = AurionTheme.themeWall(current);
+  const ownStyle = ownWall
+    ? ` style="background-image:url(&quot;${esc(AurionTheme.wallUrl(ownWall, lightNow))}&quot;)"`
+    : "";
+
+  const wallTiles = [
+    wallTile("", I18N.t("themes.wall_theme"), ownStyle, ownWall ? "" : " is-none"),
+    wallTile("none", I18N.t("themes.wall_none"), "", " is-none"),
+  ].concat(AurionTheme.WALLPAPERS.map((w) => wallTile(
+    w,
+    I18N.t("themes.wall_" + w),
+    ` style="background-image:url(&quot;${esc(AurionTheme.wallUrl(w, lightNow))}&quot;)"`
+  ))).join("");
+
   const fxOptions = Object.keys(AurionTheme.FX)
     .map((f) => `<option value="${f}"${f === fx ? " selected" : ""}>${esc(I18N.t("themes.fx_" + f))}</option>`)
     .join("");
@@ -590,6 +622,13 @@ function themeBuilderHtml() {
             <span>${esc(I18N.t("themes.fx_title"))}</span>
             <select class="ctrl" id="knob-fx">${fxOptions}</select>
           </label>
+        </div>
+
+        <div class="tb-sec">
+          <h4>${esc(I18N.t("themes.wall_title"))}</h4>
+          <p class="sub">${esc(I18N.t("themes.wall_hint"))}</p>
+          <div class="bg-tiles wall-tiles" id="knob-walls" role="radiogroup"
+               aria-label="${esc(I18N.t("themes.wall_pick"))}">${wallTiles}</div>
         </div>
 
         <div class="tb-sec bgpic" id="set-bgpic">
@@ -763,6 +802,15 @@ function bindThemesGallery() {
       renderSettingsKnobs();
     };
 
+    const walls = $("knob-walls");
+    if (walls) walls.onclick = (e) => {
+      const b = e.target.closest("[data-wallpick]");
+      if (!b) return;
+      AurionTheme.edit({ wall: b.dataset.wallpick });
+      markWallTiles();
+      markThemeEdited();
+    };
+
     const fx = $("knob-fx");
     if (fx) fx.onchange = () => { AurionTheme.edit({ fx: fx.value }); markThemeEdited(); };
 
@@ -908,6 +956,30 @@ function markThemeEdited() {
 
 /* After a reset the sliders are stale. Only their values are rewritten - the
    panel itself stays, so focus and scroll stay with it. */
+/* Mark the selected wallpaper, and keep every tile showing the cut that
+   matches the mode in force - a light desk must not advertise the night
+   version of a picture it is about to load in daylight. */
+function markWallTiles() {
+  const walls = $("knob-walls");
+  if (!walls || !window.AurionTheme) return;
+  const current = AurionTheme.effective();
+  const chosen = AurionTheme.wall(current);
+  const light = document.documentElement.dataset.theme === "light";
+  walls.querySelectorAll("[data-wallpick]").forEach((b) => {
+    const value = b.dataset.wallpick;
+    const on = value === chosen;
+    b.classList.toggle("on", on);
+    b.setAttribute("aria-checked", String(on));
+    b.tabIndex = on ? 0 : -1;
+    // "" is the theme's own picture, which is named after the theme itself.
+    const name = value === "" ? AurionTheme.themeWall(current) : value;
+    const url = AurionTheme.wallUrl(name, light);
+    const art = b.querySelector(".wall-art");
+    if (art && url) art.style.backgroundImage = `url("${url}")`;
+    else if (art && value === "") art.style.backgroundImage = "";
+  });
+}
+
 function renderSettingsKnobs() {
   if (typeof AurionTheme === "undefined") return;
   const k = AurionTheme.knobs();
@@ -922,6 +994,8 @@ function renderSettingsKnobs() {
         ? I18N.t("themes.motion_off") : k[key] + suffix;
     }
   });
+
+  markWallTiles();
 
   const picture = AurionTheme.getBgImage();
 
