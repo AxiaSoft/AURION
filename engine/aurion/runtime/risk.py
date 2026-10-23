@@ -167,7 +167,41 @@ class StopCap:
         return self.sl > 0
 
 
-def protective_stop(side: str, entry: float, spec: SymbolSpec, max_loss_per_lot: float) -> float:
+# The lot the money cap is quoted against.
+#
+# "Max loss per lot = 10" has to mean something specific before a stop
+# can be placed from it, and the only reading that matches how the
+# number is used is "ten dollars for one micro lot". Quoting it against
+# a full 1.0 lot instead produced a stop a hundred times tighter than
+# the trader's own risk budget on a 0.01-lot ticket - minutes of noise
+# rather than the move being traded - and, because the distance was
+# then fixed, raising the lot did not raise the risk, it just made the
+# same tiny stop cost more.
+#
+# Quoting against 0.01 gives both halves of what the setting promises:
+# a 0.01-lot ticket risks the cap, and doubling the lot doubles the
+# money at risk over the same, instrument-appropriate distance.
+REFERENCE_LOT = 0.01
+
+
+def risk_budget(max_loss_per_lot: float, volume: float) -> float:
+    """The money this ticket is allowed to lose, at its own size."""
+    cap = _f(max_loss_per_lot)
+    volume = _f(volume)
+    if cap <= 0:
+        return 0.0
+    if volume <= 0:
+        volume = REFERENCE_LOT
+    return cap * (volume / REFERENCE_LOT)
+
+
+def protective_stop(
+    side: str,
+    entry: float,
+    spec: SymbolSpec,
+    max_loss_per_lot: float,
+    volume: float = REFERENCE_LOT,
+) -> float:
     """A stop at exactly the cap, for an order that arrived without one.
 
     An entry with no stop is not a small risk, it is an unbounded one,
@@ -180,7 +214,9 @@ def protective_stop(side: str, entry: float, spec: SymbolSpec, max_loss_per_lot:
     side = str(side or "").lower()
     if not spec.usable or entry <= 0 or cap <= 0 or side not in {"buy", "sell"}:
         return 0.0
-    distance = spec.floor_to_tick(spec.distance_for(cap))
+    volume = _f(volume) or REFERENCE_LOT
+    budget = risk_budget(cap, volume)
+    distance = spec.floor_to_tick(spec.distance_for(budget, volume))
     if distance <= 0:
         return 0.0
     return spec.round_price(entry - distance if side == "buy" else entry + distance)
@@ -192,6 +228,7 @@ def cap_stop(
     sl: float,
     spec: SymbolSpec,
     max_loss_per_lot: float,
+    volume: float = REFERENCE_LOT,
 ) -> StopCap | None:
     """Pull ``sl`` in until one lot cannot lose more than the cap.
 
@@ -209,35 +246,39 @@ def cap_stop(
     if not spec.usable or cap <= 0 or entry <= 0 or side not in {"buy", "sell"}:
         return None
 
-    limit = spec.floor_to_tick(spec.distance_for(cap))
+    volume = _f(volume) or REFERENCE_LOT
+    budget = risk_budget(cap, volume)
+    limit = spec.floor_to_tick(spec.distance_for(budget, volume))
     if limit <= 0:
         return None
 
     if sl <= 0:
-        placed = protective_stop(side, entry, spec, cap)
+        placed = protective_stop(side, entry, spec, cap, volume)
         if placed <= 0:
             return None
-        return StopCap(placed, limit, spec.money(limit), True, "no stop was attached")
+        return StopCap(placed, limit, spec.money(limit, volume), True, "no stop was attached")
 
     distance = entry - sl if side == "buy" else sl - entry
     if distance <= 0:
         # Wrong side of the entry: replace it rather than "cap" it, since
         # the ticket as written protects nothing at all.
-        placed = protective_stop(side, entry, spec, cap)
+        placed = protective_stop(side, entry, spec, cap, volume)
         if placed <= 0:
             return None
-        return StopCap(placed, limit, spec.money(limit), True, "the stop was on the wrong side of the entry")
+        return StopCap(placed, limit, spec.money(limit, volume), True,
+                       "the stop was on the wrong side of the entry")
 
     if distance <= limit:
-        return StopCap(spec.round_price(sl), distance, spec.money(distance), False, "")
+        return StopCap(spec.round_price(sl), distance, spec.money(distance, volume), False, "")
 
     tightened = spec.round_price(entry - limit if side == "buy" else entry + limit)
     return StopCap(
         tightened,
         limit,
-        spec.money(limit),
+        spec.money(limit, volume),
         True,
-        f"stop was {spec.money(distance):.2f} per lot, capped at {cap:.2f}",
+        f"stop risked {spec.money(distance, volume):.2f} at {volume:g} lots, "
+        f"capped at {budget:.2f}",
     )
 
 

@@ -519,7 +519,17 @@ class PropEngine:
             return {"ok": False, "error": news}
         volume = float(request.get("volume") or 0)
         if volume > float(self.profile["max_lot"]):
-            return {"ok": False, "error": f"lot {volume} exceeds max {self.profile['max_lot']}"}
+            # Name the rule and where it lives. "exceeds max 0.01" on its
+            # own reads like the lot box is broken, when in fact a prop
+            # ceiling the trader set somewhere else is doing its job.
+            return {
+                "ok": False,
+                "error": (
+                    f"lot {volume} exceeds the {self.profile.get('id') or 'prop'} prop ceiling of "
+                    f"{self.profile['max_lot']} — raise 'max lot' in Prop risk, "
+                    f"or switch the prop profile off"
+                ),
+            }
         desk = str(request.get("source") or "") == "desk"
         if (not desk) and len(positions) >= int(self.profile["max_open_trades"]) and action in {"market", "buy", "sell", "pending"}:
             return {"ok": False, "error": "max open trades reached"}

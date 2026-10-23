@@ -111,6 +111,89 @@ def breakeven_target(
     return None
 
 
+def ladder_milestones(entry: float, take_profit: float, steps: int = 3) -> list[float]:
+    """The prices on the way to the target, nearest first.
+
+    With a target and three steps these are a third, two thirds and the
+    target itself. They are the rungs the stop climbs: reaching one locks
+    in the one below it.
+    """
+    entry, take_profit = _f(entry), _f(take_profit)
+    steps = int(steps or 0)
+    if entry <= 0 or take_profit <= 0 or steps < 1:
+        return []
+    span = take_profit - entry
+    if span == 0:
+        return []
+    return [entry + span * (i / steps) for i in range(1, steps + 1)]
+
+
+def ladder_target(
+    side: str,
+    entry: float,
+    take_profit: float,
+    price: float,
+    *,
+    steps: int = 3,
+    lock_points: float = 0.0,
+    spread: float = 0.0,
+) -> tuple[float, int] | None:
+    """Stop that ratchets up a rung each time profit reaches the next one.
+
+    A single break-even rule protects the trade but not the profit: once
+    the stop is at entry it stays there while an open winner gives back
+    everything it made. This walks the stop up behind price instead.
+
+        reaching rung 1  ->  stop to break-even (plus the spread)
+        reaching rung 2  ->  stop to rung 1
+        reaching rung 3  ->  stop to rung 2
+
+    Returns (stop, rung reached) or None when no rung has been reached
+    yet. The stop is never returned on the wrong side of the market: a
+    rung that has only just been touched can sit at the current price,
+    and asking the broker for that is a rejection, not a protection.
+    """
+    side = str(side or "").strip().lower()
+    if side not in {"buy", "sell"}:
+        return None
+    entry, price = _f(entry), _f(price)
+    if entry <= 0 or price <= 0:
+        return None
+
+    rungs = ladder_milestones(entry, take_profit, steps)
+    if not rungs:
+        return None
+
+    # The target has to be in the direction of the trade, or the "profit"
+    # being measured is a loss.
+    if side == "buy" and rungs[-1] <= entry:
+        return None
+    if side == "sell" and rungs[-1] >= entry:
+        return None
+
+    lock = _f(lock_points)
+    if lock <= 0:
+        lock = _f(spread)
+
+    reached = 0
+    for i, rung in enumerate(rungs, start=1):
+        if side == "buy" and price >= rung:
+            reached = i
+        elif side == "sell" and price <= rung:
+            reached = i
+    if reached < 1:
+        return None
+
+    # One rung below the one just reached; the first rung locks the entry.
+    target = entry + (lock if side == "buy" else -lock) if reached == 1 else rungs[reached - 2]
+
+    if side == "buy" and target >= price:
+        return None
+    if side == "sell" and target <= price:
+        return None
+    return target, reached
+
+
 def trailing_target(side: str, price: float, distance_points: float) -> float | None:
     """The stop that follows price at a fixed distance, or None."""
     distance = _f(distance_points)

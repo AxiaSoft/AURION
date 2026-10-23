@@ -5,6 +5,10 @@ reached: an order on its way out is capped and sized, an open position
 that drifts outside the cap is pulled back inside it, and a symbol whose
 contract the broker never described is reported rather than guessed at.
 
+The cap is quoted against one micro lot (REFERENCE_LOT in runtime/risk),
+so on this contract a $10 cap is 0.10000 of price - the numbers below
+are that, not the old per-1.00-lot reading.
+
 The trader is built without running its constructor — it would want a
 database, a licence and a terminal — and given exactly the three
 collaborators these methods touch: a bridge, a journal and an account.
@@ -70,9 +74,11 @@ def test_an_outgoing_order_has_its_stop_capped() -> None:
     bridge = FakeBridge()
     t = _trader(bridge)
     out = run(t._apply_money_rules(
-        {"action": "market", "side": "buy", "symbol": "TEST", "volume": 0.10, "sl": 1.09000, "price": 1.10000}
+        {"action": "market", "side": "buy", "symbol": "TEST", "volume": 0.10, "sl": 0.90000, "price": 1.10000}
     ))
-    assert out["sl"] == pytest.approx(1.09900)
+    # One tick of slack: the distance is floored to whole ticks so the
+    # cap is a ceiling, which can leave the stop a tick inside it.
+    assert out["sl"] == pytest.approx(1.00000, abs=1e-5 + 1e-9)
     assert any(code == "stop_capped" for _, code, _ in t.logged)
 
 
@@ -82,7 +88,7 @@ def test_an_order_without_a_stop_is_given_one() -> None:
     out = run(t._apply_money_rules(
         {"action": "market", "side": "sell", "symbol": "TEST", "volume": 0.10, "price": 1.10000}
     ))
-    assert out["sl"] == pytest.approx(1.10100)
+    assert out["sl"] == pytest.approx(1.20000, abs=1e-5 + 1e-9)
 
 
 def test_a_tight_stop_is_not_touched() -> None:
@@ -99,9 +105,10 @@ def test_the_entry_price_comes_from_the_tick_when_the_order_has_none() -> None:
     bridge = FakeBridge(tick=SimpleNamespace(bid=1.09998, ask=1.10000))
     t = _trader(bridge)
     out = run(t._apply_money_rules(
-        {"action": "market", "side": "buy", "symbol": "TEST", "volume": 0.10, "sl": 1.00000}
+        {"action": "market", "side": "buy", "symbol": "TEST", "volume": 0.10, "sl": 0.50000}
     ))
-    assert out["sl"] == pytest.approx(1.09900)
+    # Entry read from the ask (1.10000), limit 0.10000 -> 1.00000.
+    assert out["sl"] == pytest.approx(1.00000, abs=1e-5 + 1e-9)
 
 
 def test_prop_risk_budget_sizes_the_lot_down() -> None:
@@ -130,9 +137,9 @@ def test_a_budget_that_cannot_pay_for_the_minimum_lot_sends_nothing() -> None:
 def test_without_a_spec_nothing_is_invented_and_it_is_said_once() -> None:
     bridge = FakeBridge(spec={})
     t = _trader(bridge)
-    request = {"action": "market", "side": "buy", "symbol": "TEST", "volume": 0.10, "sl": 1.00000, "price": 1.10000}
+    request = {"action": "market", "side": "buy", "symbol": "TEST", "volume": 0.10, "sl": 0.50000, "price": 1.10000}
     out = run(t._apply_money_rules(dict(request)))
-    assert out["sl"] == pytest.approx(1.00000)       # untouched
+    assert out["sl"] == pytest.approx(0.50000)       # untouched
     run(t._apply_money_rules(dict(request)))
     assert sum(1 for _, code, _ in t.logged if code == "no_spec") == 1
 
@@ -141,9 +148,9 @@ def test_a_cap_of_zero_leaves_everything_alone() -> None:
     bridge = FakeBridge()
     t = _trader(bridge, cap=0.0)
     out = run(t._apply_money_rules(
-        {"action": "market", "side": "buy", "symbol": "TEST", "volume": 0.10, "sl": 1.00000, "price": 1.10000}
+        {"action": "market", "side": "buy", "symbol": "TEST", "volume": 0.10, "sl": 0.50000, "price": 1.10000}
     ))
-    assert out["sl"] == pytest.approx(1.00000)
+    assert out["sl"] == pytest.approx(0.50000)
 
 
 def test_closing_an_order_is_not_a_money_decision() -> None:
@@ -162,11 +169,11 @@ def _pos(ticket: int, sl: float, side: str = "buy"):
 
 
 def test_an_open_position_outside_the_cap_is_pulled_back_in() -> None:
-    bridge = FakeBridge(positions=[_pos(7, 1.09000)])
+    bridge = FakeBridge(positions=[_pos(7, 0.90000)])
     t = _trader(bridge)
     run(t._enforce_stop_cap({"symbol": "TEST"}))
     assert bridge.sent and bridge.sent[0]["action"] == "modify"
-    assert bridge.sent[0]["sl"] == pytest.approx(1.09900)
+    assert bridge.sent[0]["sl"] == pytest.approx(1.00000, abs=1e-5 + 1e-9)
     assert bridge.sent[0]["ticket"] == 7
 
 
@@ -174,11 +181,11 @@ def test_a_position_with_no_stop_at_all_gets_one() -> None:
     bridge = FakeBridge(positions=[_pos(8, 0.0, side="sell")])
     t = _trader(bridge)
     run(t._enforce_stop_cap({"symbol": "TEST"}))
-    assert bridge.sent[0]["sl"] == pytest.approx(1.10100)
+    assert bridge.sent[0]["sl"] == pytest.approx(1.20000, abs=1e-5 + 1e-9)
 
 
 def test_the_same_modify_is_not_sent_on_every_tick() -> None:
-    bridge = FakeBridge(positions=[_pos(9, 1.09000)])
+    bridge = FakeBridge(positions=[_pos(9, 0.90000)])
     t = _trader(bridge)
     run(t._enforce_stop_cap({"symbol": "TEST"}))
     run(t._enforce_stop_cap({"symbol": "TEST"}))
@@ -186,7 +193,7 @@ def test_the_same_modify_is_not_sent_on_every_tick() -> None:
 
 
 def test_a_position_already_inside_the_cap_is_left_alone() -> None:
-    bridge = FakeBridge(positions=[_pos(10, 1.09950)])
+    bridge = FakeBridge(positions=[_pos(10, 1.05000)])
     t = _trader(bridge)
     run(t._enforce_stop_cap({"symbol": "TEST"}))
     assert bridge.sent == []
@@ -197,5 +204,5 @@ def test_the_chart_marks_use_the_same_rule() -> None:
     t = _trader(bridge)
     rule = t._chart_stop_cap("TEST")
     assert rule is not None
-    assert rule("buy", 1.10000, 1.09000) == pytest.approx(1.09900)
+    assert rule("buy", 1.10000, 0.90000, 0.01) == pytest.approx(1.00000, abs=1e-5 + 1e-9)
     assert _trader(FakeBridge(spec={}))._chart_stop_cap("TEST") is None

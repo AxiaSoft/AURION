@@ -12,7 +12,7 @@ from ..prop.hours import (broker_offset_minutes, resolve_zone, zone_choices,
                           zone_label, zone_offset_minutes)
 from .gates import fire_blockers as gate_blockers
 from .risk import SymbolSpec, cap_stop, money_at_risk, volume_for_risk
-from .stops import resolve_stop, resolve_stop_r
+from .stops import ladder_target, resolve_stop, resolve_stop_r
 from ..ai.engine import AIEngine
 from ..backtest.engine import Backtester
 from ..config import ROOT, load, merge, save
@@ -94,6 +94,10 @@ class Trader:
         self.auto_entry_expiry = 120
         self._auto_entry_sweep = 0.0
         self._auto_entry_tickets: set[int] = set()
+        # Entries on the wire, per symbol. Held from just before the send
+        # until MetaTrader reports the position (or the send fails), so a
+        # second signal arriving in the gap cannot reuse the same slot.
+        self._entry_inflight: dict[str, int] = {}
         # Danger guard: tick-level protective exit. Hard-disabled while prop
         # rules are on — a challenge account only exits through the prop book.
         self.danger_enabled = False
@@ -124,6 +128,11 @@ class Trader:
         self._cap_note: dict[int, float] = {}
         self.risk_free_trigger_pct = 0.30
         self.risk_free_lock_pct = 0.0
+        # Laddered protection. One break-even move stops a winner turning
+        # into a loser but does nothing about a winner giving its profit
+        # back; these walk the stop up a rung at a time behind price.
+        self.risk_free_ladder = True
+        self.risk_free_steps = 3
         # Which rule last moved each position's stop, so "this trade is
         # now risk free" is journalled once rather than on every tick.
         self._stop_note: dict[int, str] = {}
@@ -1147,7 +1156,13 @@ class Trader:
         if entry <= 0:
             return request
 
-        capped = cap_stop(side, entry, float(request.get("sl") or 0), spec, cap)
+        # At the lot this ticket is actually being sent with. Measuring
+        # the cap against a notional one lot is what made the stop on a
+        # 0.01-lot ticket a hundred times tighter than the trader asked.
+        capped = cap_stop(
+            side, entry, float(request.get("sl") or 0), spec, cap,
+            float(request.get("volume") or 0),
+        )
         if capped is None:
             return request
         if capped.capped:
@@ -1243,7 +1258,8 @@ class Trader:
             entry = float(pos.price_open or 0)
             if side not in {"buy", "sell"} or entry <= 0:
                 continue
-            capped = cap_stop(side, entry, float(pos.sl or 0), spec, cap)
+            capped = cap_stop(side, entry, float(pos.sl or 0), spec, cap,
+                              float(getattr(pos, "volume", 0) or 0))
             if capped is None or not capped.capped:
                 continue
             if abs(self._cap_note.get(pos.ticket, 0.0) - capped.sl) < spec.tick_size / 2:
@@ -1331,7 +1347,8 @@ class Trader:
         trail_r = float(params.get("trail_r", 0.0) or 0)
         use_r = be_trigger <= 0 and not use_pct and (be_at_r > 0 or trail_r > 0)
 
-        if trailing <= 0 and be_trigger <= 0 and not use_pct and not use_r:
+        ladder_on = bool(getattr(self, "risk_free_ladder", False))
+        if trailing <= 0 and be_trigger <= 0 and not use_pct and not use_r and not ladder_on:
             return
 
         symbol = tick.get("symbol")
@@ -1367,6 +1384,52 @@ class Trader:
             # a floor a fast instrument sends a modify on every tick and
             # spends its time queueing behind itself.
             min_step = spread * 0.5
+
+            # The ladder comes first when it is armed and the position has
+            # a target to measure rungs against. It protects strictly more
+            # than a single break-even move, and resolve_stop below would
+            # only ever pull the stop back towards entry.
+            ladder = None
+            if getattr(self, "risk_free_ladder", False) and entry > 0:
+                ladder = ladder_target(
+                    side,
+                    entry,
+                    float(pos.tp or 0),
+                    close_px,
+                    steps=int(getattr(self, "risk_free_steps", 3) or 3),
+                    lock_points=lock,
+                    spread=spread,
+                )
+            if ladder is not None:
+                target, rung = ladder
+                current = float(pos.sl or 0)
+                # Forward only. A rung already locked is never given up,
+                # and a stop that would not move by a meaningful amount
+                # is not worth a round trip to the broker.
+                better = (
+                    current <= 0
+                    or (side == "buy" and target > current + min_step)
+                    or (side == "sell" and target < current - min_step)
+                )
+                if not better:
+                    continue
+                note = f"ladder{rung}"
+                if self._stop_note.get(pos.ticket) != note:
+                    self._stop_note[pos.ticket] = note
+                    await self.journal(
+                        "info",
+                        "risk_free",
+                        f"{symbol} #{pos.ticket} reached TP{rung} — stop moved up to "
+                        f"{'break-even' if rung == 1 else f'TP{rung - 1}'} to protect the profit",
+                    )
+                await bridge.send_order({
+                    "action": "modify",
+                    "ticket": pos.ticket,
+                    "symbol": symbol,
+                    "sl": target,
+                    "tp": pos.tp,
+                })
+                continue
 
             if use_r:
                 initial = self._remember_risk(pos)
@@ -1464,10 +1527,24 @@ class Trader:
             except (TypeError, ValueError):
                 return fallback
 
+        steps = int(num("risk_free_steps", 3)) or 3
         return {
             "enabled": bool(getattr(self, "risk_free_enabled", False)),
             "trigger_pct": round(num("risk_free_trigger_pct", 0.30), 4),
             "lock_pct": round(num("risk_free_lock_pct", 0.0), 4),
+            "ladder": bool(getattr(self, "risk_free_ladder", True)),
+            "steps": steps,
+            # Spelled out for the desk so the panel can say "at TP1, the
+            # stop moves to break-even" instead of printing a bare 0.20.
+            "rungs": [
+                {
+                    "step": i,
+                    "label": f"TP{i}",
+                    "moves_to": "entry" if i == 1 else f"TP{i - 1}",
+                    "fraction": round(i / steps, 4),
+                }
+                for i in range(1, steps + 1)
+            ],
         }
 
     def _timezone_city(self) -> str:
@@ -1535,6 +1612,11 @@ class Trader:
         if "lock_pct" in body:
             self.risk_free_lock_pct = self._clamp_pct(
                 body.get("lock_pct"), self.risk_free_lock_pct)
+        if "ladder" in body:
+            self.risk_free_ladder = bool(body.get("ladder"))
+        if "steps" in body:
+            self.risk_free_steps = self._clamp_int(
+                body.get("steps"), int(getattr(self, "risk_free_steps", 3) or 3), 1, 5)
 
         # Rebuild the snapshot and push it, exactly as set_danger does.
         #
@@ -1552,8 +1634,13 @@ class Trader:
         await self.journal(
             "info",
             "risk_free_cfg",
-            ("Risk free ON - stops move past entry at "
-             f"+{state['trigger_pct']}%" if state["enabled"] else "Risk free OFF"),
+            (
+                f"Risk free ladder ON - stop climbs a rung at each of "
+                f"{state['steps']} targets (TP1 locks the entry)"
+                if state["ladder"] else
+                (f"Risk free ON - stops move past entry at +{state['trigger_pct']}%"
+                 if state["enabled"] else "Risk free OFF")
+            ),
             extra=state,
         )
         return {"ok": True, "risk_free": state}
@@ -1607,8 +1694,8 @@ class Trader:
         if cap <= 0 or not spec.usable:
             return None
 
-        def rule(side: str, entry: float, sl: float) -> float:
-            out = cap_stop(side, entry, sl, spec, cap)
+        def rule(side: str, entry: float, sl: float, volume: float = 0.0) -> float:
+            out = cap_stop(side, entry, sl, spec, cap, volume)
             return out.sl if out else sl
 
         return rule
@@ -1923,6 +2010,8 @@ class Trader:
         self.risk_free_enabled = bool(rf_cfg.get("enabled", False))
         self.risk_free_trigger_pct = self._clamp_pct(rf_cfg.get("trigger_pct"), 0.30)
         self.risk_free_lock_pct = self._clamp_pct(rf_cfg.get("lock_pct"), 0.0)
+        self.risk_free_ladder = bool(rf_cfg.get("ladder", True))
+        self.risk_free_steps = self._clamp_int(rf_cfg.get("steps"), 3, 1, 5)
         # License gates: freemium accounts lose prop + scalping + news trading.
         # Persisted premium-era settings are silently downgraded on boot.
         if self.news_trade and not self.license.feature("news"):
@@ -2047,6 +2136,73 @@ class Trader:
         except Exception:
             return sum(1 for p in rows if str(getattr(p, "symbol", "")) == symbol)
 
+    def _resting_count(self, symbol: str = "") -> int:
+        """Robot orders waiting at a price. Each one is a trade in waiting."""
+        try:
+            rows = self._own_pending_orders()
+        except Exception:
+            return 0
+        if not symbol:
+            return len(rows)
+        out = 0
+        for row in rows:
+            other = str(row.get("symbol") or "")
+            try:
+                same = bool(self.bridge._sym_match(other, symbol))
+            except Exception:
+                same = other == symbol
+            if same:
+                out += 1
+        return out
+
+    def _inflight_count(self, symbol: str = "") -> int:
+        """Entries sent but not yet confirmed by MT5."""
+        book = getattr(self, "_entry_inflight", None) or {}
+        if not symbol:
+            return sum(int(v) for v in book.values())
+        total = 0
+        for other, n in book.items():
+            try:
+                same = bool(self.bridge._sym_match(str(other), symbol))
+            except Exception:
+                same = str(other) == symbol
+            if same:
+                total += int(n)
+        return total
+
+    def _committed_count(self, symbol: str = "") -> int:
+        """Everything that is, or is about to be, a position.
+
+        The open-trade cap used to be measured against live positions
+        alone, which is the one number that lags. An order resting at a
+        price will become a position without anyone asking again, and an
+        entry already on the wire is a position MetaTrader has simply not
+        reported yet. Counting only what has already landed let a cap of
+        one produce two trades: the second signal looked at an empty book
+        because the first had not arrived.
+        """
+        return (
+            self._open_count(symbol)
+            + self._resting_count(symbol)
+            + self._inflight_count(symbol)
+        )
+
+    def _hold_slot(self, symbol: str) -> None:
+        book = getattr(self, "_entry_inflight", None)
+        if book is None:
+            book = self._entry_inflight = {}
+        key = str(symbol or "")
+        book[key] = int(book.get(key) or 0) + 1
+
+    def _release_slot(self, symbol: str) -> None:
+        book = getattr(self, "_entry_inflight", None) or {}
+        key = str(symbol or "")
+        left = int(book.get(key) or 0) - 1
+        if left > 0:
+            book[key] = left
+        else:
+            book.pop(key, None)
+
     def _per_symbol_cap(self) -> int:
         """How many positions may share one symbol (prop wins when armed)."""
         if getattr(self.prop, "enabled", False):
@@ -2066,10 +2222,16 @@ class Trader:
         return cap
 
     def free_slots(self, symbol: str = "") -> int:
-        """Robot entries still allowed right now (never negative)."""
-        left = self._total_cap() - self._open_count()
+        """Robot entries still allowed right now (never negative).
+
+        Measured against commitments rather than arrivals - see
+        _committed_count. A resting order and an entry on the wire both
+        hold their slot, so the ceiling means the same thing whether or
+        not MetaTrader has caught up.
+        """
+        left = self._total_cap() - self._committed_count()
         if symbol:
-            left = min(left, self._per_symbol_cap() - self._open_count(symbol))
+            left = min(left, self._per_symbol_cap() - self._committed_count(symbol))
         return max(0, left)
 
     def _entries_for_signal(self, symbol: str, quality: float) -> int:
@@ -2506,6 +2668,8 @@ class Trader:
                         "enabled": bool(self.risk_free_enabled),
                         "trigger_pct": float(self.risk_free_trigger_pct),
                         "lock_pct": float(self.risk_free_lock_pct),
+                        "ladder": bool(getattr(self, "risk_free_ladder", True)),
+                        "steps": int(getattr(self, "risk_free_steps", 3) or 3),
                     },
                     "danger_guard": {
                         "enabled": bool(self.danger_enabled),
@@ -3173,9 +3337,19 @@ class Trader:
                 # Let MT5 report the new position before sizing the next one,
                 # so the ceiling is counted against a fresh book.
                 await asyncio.sleep(0.6)
-                if self.free_slots(symbol) <= 0:
-                    break
-            result = await self.execute(dict(payload))
+            # Re-check every time, including the first. Between deciding
+            # how many to open and actually opening them, another signal
+            # or a fill may have taken the last slot.
+            if self.free_slots(symbol) <= 0:
+                break
+            self._hold_slot(symbol)
+            try:
+                result = await self.execute(dict(payload))
+            finally:
+                # The hold is released either way: on success the position
+                # or the resting order now holds the slot itself, and on
+                # failure nothing should keep holding it.
+                self._release_slot(symbol)
             if not (result or {}).get("ok"):
                 break
 
@@ -3766,6 +3940,25 @@ class Trader:
         except Exception:
             refusals = []
 
+        # Entry points already planted for this symbol. A resting order is
+        # the robot having decided and being in the market's waiting room,
+        # which reads as "doing nothing" unless something says otherwise.
+        resting = []
+        try:
+            for od in self._own_pending_orders():
+                if symbol and str(od.get("symbol") or "") != symbol:
+                    continue
+                resting.append({
+                    "ticket": od.get("ticket"),
+                    "type": od.get("type") or "",
+                    "price": float(od.get("price") or od.get("price_open") or 0),
+                    "sl": float(od.get("sl") or 0),
+                    "tp": float(od.get("tp") or 0),
+                    "volume": float(od.get("volume") or 0),
+                })
+        except Exception:
+            log.exception("resting order read failed")
+
         # "When" has two honest answers and they are not the same. If
         # something on the desk is switched off, the answer is "when you
         # switch it on" - no amount of waiting fixes it. If the only thing
@@ -3791,25 +3984,6 @@ class Trader:
             when = "Now: a setup is on the table and nothing is blocking it."
         else:
             when = f"At the next candle close ({timeframe}), when the strategy is asked again."
-
-        # Entry points already planted for this symbol. A resting order is
-        # the robot having decided and being in the market's waiting room,
-        # which reads as "doing nothing" unless something says otherwise.
-        resting = []
-        try:
-            for od in self._own_pending_orders():
-                if symbol and str(od.get("symbol") or "") != symbol:
-                    continue
-                resting.append({
-                    "ticket": od.get("ticket"),
-                    "type": od.get("type") or "",
-                    "price": float(od.get("price") or od.get("price_open") or 0),
-                    "sl": float(od.get("sl") or 0),
-                    "tp": float(od.get("tp") or 0),
-                    "volume": float(od.get("volume") or 0),
-                })
-        except Exception:
-            log.exception("resting order read failed")
 
         return {
             "symbol": symbol,
@@ -4105,6 +4279,7 @@ class Trader:
         self._danger_seen = {}
         self._danger_cooldown = {}
         self._danger_inflight = set()
+        self._entry_inflight = {}
         self.last_signal = None
         self.active_symbol = ""
         self.active_timeframe = "M15"

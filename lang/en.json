@@ -578,7 +578,8 @@
     "perf_now_rich": "Full effects are on.",
     "accent": "Accent colour",
     "accent_hint": "Buttons, switches, highlights and chart overlays follow this colour.",
-    "accent_locked": "On the free plan the accent comes from the theme itself."
+    "accent_locked": "On the free plan the accent comes from the theme itself.",
+    "liquid_glass_forced": "The renderer on this machine has blur switched off, so there is nothing for this to turn on."
   },
   "style": {
     "title": "Trade model",

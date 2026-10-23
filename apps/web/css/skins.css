@@ -762,3 +762,144 @@ html[data-theme="light"] :is(.st-src, .tg-src)::placeholder{ color:#6b7b93 }
 html[data-theme="light"] :is(.term, .robot-term, .st-src)::-webkit-scrollbar-thumb{
   background:rgba(255,255,255,.22);
 }
+
+/* ===========================================================================
+   16. Opaque mode: one flat surface, no translucency anywhere
+   ===========================================================================
+   There are two ways the frosted look goes away, and until now they did not
+   agree with each other:
+
+     data-glass="off"    the trader switched liquid glass off
+     data-perf="fast"    the machine cannot afford it, chosen or detected
+
+   Both removed `backdrop-filter`, but only the first replaced the translucent
+   surface colours. Everything resolving through --glass/--glass2, every panel
+   with an alpha background, and the whole Settings page - which sets its own
+   55%-opaque card on top of the shared one - kept their transparency and were
+   left showing the wallpaper straight through with no blur to soften it. The
+   header was the most obvious, because it sits over moving content.
+
+   So: one selector list, applied to both states, that makes every surface
+   solid. Anything added later that uses --glass, --glass2 or --surface is
+   covered automatically; alpha backgrounds written inline still have to be
+   listed, which is why the explicit block below exists. */
+
+html[data-glass="off"],
+html[data-perf="fast"]{
+  --glass:rgb(var(--s5));
+  --glass2:rgb(var(--s8));
+}
+
+/* Cards, including the Settings page's own heavier override. Settings used
+   `.set-main .set-block .card`, two classes deeper than the rule that turned
+   glass off, so it won on specificity and stayed see-through in every mode. */
+html[data-glass="off"] .card,
+html[data-perf="fast"] .card,
+html[data-glass="off"] .set-main .set-block .card,
+html[data-perf="fast"] .set-main .set-block .card{
+  background:linear-gradient(180deg, rgb(var(--s7)), rgb(var(--s4)));
+}
+
+html[data-glass="off"] .set-main .set-panel,
+html[data-perf="fast"] .set-main .set-panel,
+html[data-glass="off"] .set-panel,
+html[data-perf="fast"] .set-panel{
+  background:rgb(var(--s3));
+}
+
+/* The sticky section jumper fades to transparent at its bottom edge so the
+   content appears to slide under it. With no blur that is just a hole. */
+html[data-glass="off"] .set-jump,
+html[data-perf="fast"] .set-jump{
+  background:rgb(var(--s1));
+}
+
+html[data-glass="off"] .chart-box .empty,
+html[data-perf="fast"] .chart-box .empty{
+  background:rgb(var(--s1));
+}
+
+html[data-glass="off"] .plan-card.popular,
+html[data-perf="fast"] .plan-card.popular{
+  background:linear-gradient(180deg, rgb(var(--s5)), rgb(var(--s4)));
+}
+
+/* Light theme keeps its own paler stack. */
+html[data-theme="light"][data-glass="off"] .card,
+html[data-theme="light"][data-perf="fast"] .card,
+html[data-theme="light"][data-glass="off"] .set-main .set-block .card,
+html[data-theme="light"][data-perf="fast"] .set-main .set-block .card{
+  background:#ffffff;
+}
+html[data-theme="light"][data-glass="off"] .set-main .set-panel,
+html[data-theme="light"][data-perf="fast"] .set-main .set-panel,
+html[data-theme="light"][data-glass="off"] .set-jump,
+html[data-theme="light"][data-perf="fast"] .set-jump{
+  background:rgb(var(--s2));
+}
+
+/* ---------------------------------------------------------------------------
+   The toggle itself, when the machine has already made the decision.
+   Offering a switch that cannot do anything is worse than not offering it:
+   the trader flips it, nothing changes, and the desk looks broken. On the
+   fast tier it is disabled and says why. */
+html[data-perf="fast"] #sw-glass{
+  opacity:.45;
+  pointer-events:none;
+  filter:grayscale(1);
+}
+.glass-forced-note{ display:none }
+html[data-perf="fast"] .glass-forced-note{ display:block }
+
+/* ===========================================================================
+   17. Header controls are all the same height
+   ===========================================================================
+   The bar mixed three different control heights side by side: .icon-btn and
+   .menu-btn are 42px squares, .btn.tiny carries --ctl-h:32px, and the status
+   chips sit at 28px. Next to each other on one row the 10px difference reads
+   as misalignment rather than hierarchy - the text buttons looked like they
+   had slipped down.
+
+   One number for every *button* in the bar. The status chips stay smaller on
+   purpose: they are readouts, not controls, and shrinking the gap between a
+   thing you press and a thing you read would be the wrong fix. They are
+   centred on the same axis, which is what makes the row look level. */
+.top{ --hdr-ctl-h:38px }
+
+.top .icon-btn,
+.top .menu-btn,
+.top .btn,
+.top .btn.tiny{
+  height:var(--hdr-ctl-h);
+  min-height:var(--hdr-ctl-h);
+  --ctl-h:var(--hdr-ctl-h);
+  box-sizing:border-box;
+  align-self:center;
+  flex:none;
+}
+
+/* Square ones stay square at whatever the row height is. */
+.top .icon-btn,
+.top .menu-btn{
+  width:var(--hdr-ctl-h);
+  min-width:var(--hdr-ctl-h);
+  padding:0;
+}
+
+/* Text buttons keep their own horizontal padding but share the height, and
+   centre their label inside it now that the height is set from outside. */
+.top .btn,
+.top .btn.tiny{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  line-height:1;
+}
+
+.top .st-chip{ align-self:center }
+
+/* Narrow screens shrink the whole row together rather than one control at a
+   time, so the heights never drift apart again. */
+@media (max-width:760px){
+  .top{ --hdr-ctl-h:34px }
+}

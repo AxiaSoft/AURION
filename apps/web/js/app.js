@@ -1071,7 +1071,24 @@ function dismissCalendarCard() {
   try { if (window.Calendar && typeof Calendar.unpin === "function") Calendar.unpin(); } catch {}
 }
 
+/**
+ * True when the renderer has already decided there will be no blur.
+ *
+ * The fast tier - picked by the trader or detected on a machine that
+ * cannot afford thirty blurred layers - strips every backdrop-filter.
+ * The liquid-glass switch cannot put them back, so offering it as a live
+ * control means flipping it does nothing and the desk looks broken.
+ */
+function glassForced() {
+  try {
+    return window.AurionSkin && AurionSkin.effectivePerf() === "fast";
+  } catch { return false; }
+}
+
 function glassOn() {
+  // A forced-off renderer is reported as off, so the switch and the
+  // surfaces agree with what is actually on screen.
+  if (glassForced()) return false;
   if (document.documentElement && document.documentElement.dataset.glass) {
     return document.documentElement.dataset.glass !== "off";
   }
@@ -1081,8 +1098,11 @@ function paintGlassSwitch() {
   const sw = $("sw-glass");
   if (!sw) return;
   const on = glassOn();
+  const forced = glassForced();
   sw.classList.toggle("on", on);
   sw.setAttribute("aria-pressed", on ? "true" : "false");
+  sw.disabled = forced;
+  sw.setAttribute("aria-disabled", forced ? "true" : "false");
 }
 function setGlassNow(on) {
   const next = on ? "on" : "off";
@@ -2358,7 +2378,7 @@ function chartTicketHtml() {
       </div>
       <div class="ct-grid ct-grid-3">
         <label class="field"><span>${I18N.t("exec.volume")}</span>
-          <input id="ct-vol" type="number" step="0.01" min="0.01" value="${esc(t.vol || "0.10")}" />
+          <input id="ct-vol" type="number" step="0.01" min="0.01" value="${esc(String(t.vol || ticketLot()))}" />
         </label>
         <label class="field"><span>${I18N.t("exec.sl")}</span>
           <input id="ct-sl" type="number" step="0.0001" value="${esc(t.sl || "")}" placeholder="${esc(I18N.t("exec.chart_click"))}" />
@@ -2379,10 +2399,65 @@ function chartTicketHtml() {
       <p class="sub" id="ct-msg"></p>
     </div>`;
 }
+/**
+ * The lot size, from the one place that owns it.
+ *
+ * There used to be two: Settings persisted `manual_volume` on the
+ * engine, while the manual ticket and the EA chart each started from a
+ * hard-coded 0.10 and remembered their own value in the page. Changing
+ * the lot in Settings left the ticket on its old number, so "my lot is
+ * 0.01" and "the ticket says 0.10" were both true at once.
+ */
+function deskLot() {
+  const st = (S.snap && S.snap.strategy) || {};
+  const v = Number(st.manual_volume);
+  return v > 0 ? v : 0.10;
+}
+
+/** Lot the ticket should show: what the user last typed, else the setting. */
+function ticketLot() {
+  const typed = Number((S.ticket || {}).vol);
+  return typed > 0 ? typed : deskLot();
+}
+
+/**
+ * Push a lot change back to the engine so every panel agrees.
+ *
+ * Called from the ticket and the EA chart, which previously could only
+ * change their own copy. Quiet and debounced: this fires on every edit
+ * of a number field.
+ */
+let _lotSaveTimer = null;
+function persistLot(value) {
+  const v = Number(value);
+  if (!(v > 0)) return;
+  if (Math.abs(v - deskLot()) < 1e-9) return;
+  clearTimeout(_lotSaveTimer);
+  _lotSaveTimer = setTimeout(async () => {
+    const r = await API.post("/api/auto", { manual_volume: v });
+    if (r && r.ok) {
+      // Keep the local snapshot honest straight away, so a re-render
+      // before the next poll does not flash the old number back.
+      if (S.snap && S.snap.strategy) S.snap.strategy.manual_volume = v;
+      paintLotEverywhere(v);
+    }
+  }, 350);
+}
+
+/** Mirror one lot value into every lot input on the page. */
+function paintLotEverywhere(v) {
+  ["ct-vol", "st-vol"].forEach((id) => {
+    const el = $(id);
+    if (el && document.activeElement !== el && Number(el.value) !== Number(v)) {
+      el.value = String(v);
+    }
+  });
+}
+
 function rememberTicket() {
   S.ticket = {
     strategy: "@" + operatorName(),
-    vol: String($("ct-vol")?.value || "0.10"),
+    vol: String($("ct-vol")?.value || deskLot()),
     sl: String($("ct-sl")?.value || ""),
     tp: String($("ct-tp")?.value || ""),
   };
@@ -2471,8 +2546,14 @@ function bindChartTicket() {
   ["ct-vol", "ct-sl", "ct-tp"].forEach((id) => {
     const el = $(id);
     if (!el) return;
-    el.addEventListener("change", () => { rememberTicket(); syncChartPending(); });
-    el.addEventListener("input", () => { rememberTicket(); syncChartPending(); });
+    const touched = () => {
+      rememberTicket();
+      syncChartPending();
+      // A lot typed here is the lot everywhere, not just on this ticket.
+      if (id === "ct-vol") persistLot(el.value);
+    };
+    el.addEventListener("change", touched);
+    el.addEventListener("input", touched);
   });
   const arm = (kind) => {
     S._pickLevel = kind;
@@ -4174,8 +4255,9 @@ const views = {
             <div>
               <div style="font-weight:600">${I18N.t("settings.liquid_glass")}</div>
               <p class="sub" style="margin:2px 0 0">${I18N.t("settings.liquid_glass_hint")}</p>
+              <p class="sub glass-forced-note" style="margin:4px 0 0">${I18N.t("settings.liquid_glass_forced")}</p>
             </div>
-            <button type="button" class="switch ${glassOn()?"on":""}" id="sw-glass" aria-pressed="${glassOn()}"><i></i></button>
+            <button type="button" class="switch ${glassOn()?"on":""}" id="sw-glass" aria-pressed="${glassOn()}"${glassForced() ? " disabled aria-disabled=\"true\"" : ""}><i></i></button>
           </div>
         </div>
         ${appearanceCardsHtml()}
@@ -5575,7 +5657,7 @@ function bindView(view) {
     };
     paintGlassSwitch();
     const glass = $("sw-glass");
-    if (glass) glass.onclick = () => setGlass(!glassOn());
+    if (glass) glass.onclick = () => { if (!glassForced()) setGlass(!glassOn()); };
     bindAppearance();
     markAppearancePills();
     markThemeCards();
@@ -6013,7 +6095,11 @@ function bindRobotPanel() {
   };
   const stVol = $("st-vol");
   if (stVol) {
-    const commit = () => saveVol("manual", true);
+    const commit = async () => {
+      await saveVol("manual", true);
+      // Same number on the ticket and the EA chart, immediately.
+      paintLotEverywhere(Number(stVol.value) || deskLot());
+    };
     stVol.addEventListener("change", commit);
     stVol.addEventListener("keydown", (e) => { if (e.key === "Enter") commit(); });
   }
