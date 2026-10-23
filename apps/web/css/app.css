@@ -706,18 +706,30 @@ html[dir="rtl"] .nav button:hover{transform:translateX(-2px)}
   padding:0;
   z-index:5;
 }
+/* The three bars are centred on the button, not pinned to pixel offsets.
+ *
+ * They used to be placed at inset-inline-start:12px with tops of 14/20/26,
+ * which is the centre of a 42px square and only of a 42px square. The
+ * header then started sizing its controls from --hdr-ctl-h - 38px, and 34px
+ * below 760px - so on a phone the bars sat 3px low and 4px off to one side.
+ * Anchoring to 50% keeps them centred at every size the header asks for. */
 .menu-btn span{
-  position:absolute;inset-inline-start:12px;
+  position:absolute;
+  inset-inline-start:50%;
+  top:50%;
+  margin-inline-start:-9px;      /* half the bar's width; no transform needed */
   width:18px;height:1.6px;border-radius:99px;
   background:var(--ink);
-  transition:transform .28s var(--ease), opacity .2s, top .28s;
+  transition:transform .28s var(--ease), opacity .2s;
 }
-.menu-btn span:nth-child(1){top:14px}
-.menu-btn span:nth-child(2){top:20px}
-.menu-btn span:nth-child(3){top:26px}
-#desk.menu-open .menu-btn span:nth-child(1){top:20px;transform:rotate(45deg)}
+/* translateY(-50%) lifts each bar by half its own 1.6px height so it is
+   centred on its anchor; the 6px is the gap between bars. */
+.menu-btn span:nth-child(1){transform:translateY(calc(-50% - 6px))}
+.menu-btn span:nth-child(2){transform:translateY(-50%)}
+.menu-btn span:nth-child(3){transform:translateY(calc(-50% + 6px))}
+#desk.menu-open .menu-btn span:nth-child(1){transform:translateY(-50%) rotate(45deg)}
 #desk.menu-open .menu-btn span:nth-child(2){opacity:0}
-#desk.menu-open .menu-btn span:nth-child(3){top:20px;transform:rotate(-45deg)}
+#desk.menu-open .menu-btn span:nth-child(3){transform:translateY(-50%) rotate(-45deg)}
 
 .nav-scrim{
   display:none;
@@ -1884,9 +1896,54 @@ html.theming[data-glass="off"] *{
 }
 
 /* ---- Soft theme/glass morph: veil covers the swap, then glides out ---- */
+/* The veil that covers a theme, appearance or language change.
+ *
+ * It used to be a bare rectangle of --bg, so a slow change looked like the
+ * desk had blanked rather than like it was working. It now carries a small
+ * card that says what is changing, with a spinner.
+ *
+ * Two deliberate choices. The backdrop is the same soft gradient the desk
+ * boots on, not flat black - a black screen mid-session reads as a crash.
+ * And the card is painted in fixed AURION colours rather than in theme
+ * variables: it is on screen precisely while those variables are being
+ * swapped, so a card that followed them would change colour underneath the
+ * message explaining that colours are changing. */
 #theme-veil{
   position:fixed;inset:0;z-index:9999;pointer-events:none;opacity:0;
-  background:var(--bg);
+  background:
+    radial-gradient(120% 90% at 30% 0%, rgba(62,224,196,.16), transparent 60%),
+    radial-gradient(90% 80% at 85% 100%, rgba(124,108,255,.14), transparent 65%),
+    #06070b;
+  display:grid;place-items:center;
+}
+#theme-veil .tv-card{
+  display:flex;align-items:center;gap:14px;
+  padding:16px 22px;
+  border-radius:18px;
+  border:1px solid rgba(255,255,255,.10);
+  background:rgba(18,20,30,.92);
+  box-shadow:0 20px 60px rgba(0,0,0,.45);
+  color:#e8edf7;
+  font-family:Outfit,Vazirmatn,system-ui,sans-serif;
+  /* It fades in a touch behind the veil so it does not flash into view on a
+     change that finishes quickly. */
+  opacity:0;transform:translateY(6px);
+  transition:opacity .22s ease-out .08s, transform .22s ease-out .08s;
+}
+#theme-veil.is-busy .tv-card{opacity:1;transform:none}
+#theme-veil .tv-text{display:flex;flex-direction:column;gap:2px;text-align:start}
+#theme-veil .tv-text b{font-weight:500;font-size:14px}
+#theme-veil .tv-text small{font-size:12px;color:#8b93a7}
+#theme-veil .tv-spin{
+  width:22px;height:22px;flex:none;border-radius:50%;
+  border:2px solid rgba(255,255,255,.16);
+  border-top-color:#3ee0c4;
+  animation:tv-spin .7s linear infinite;
+}
+@keyframes tv-spin{to{transform:rotate(1turn)}}
+/* Someone who has asked for less movement still gets the card, just still. */
+@media (prefers-reduced-motion:reduce){
+  #theme-veil .tv-spin{animation:none;border-top-color:#3ee0c4}
 }
 /* During the morph window every themed property glides on one shared curve,
    so the swap reads as a slow dissolve instead of a cut. */
@@ -1908,7 +1965,7 @@ html.theming *,html.theming *::before,html.theming *::after{
     text-shadow .5s cubic-bezier(.33,0,.2,1) !important;
 }
 @media (prefers-reduced-motion:reduce){
-  #theme-veil{display:none}
+  #theme-veil{display:grid}
   html.theming *,html.theming *::before,html.theming *::after{transition:none !important}
 }
 
@@ -2621,4 +2678,64 @@ html[data-theme="light"] .set-rail .set-jump button.on{background:linear-gradien
    wastes a quarter of the screen on air. */
 @media (max-width:760px){
   :root{ --stack-gap:11px; --stack-gap-sm:8px }
+}
+
+/* The "update finished" screen a premium machine sees instead of the key
+   gate. Painted in fixed AURION colours like the transition veil: it is the
+   first thing on screen after a restart, before any theme work has run. */
+.upd-welcome{
+  position:fixed;inset:0;z-index:10000;
+  display:grid;place-items:center;padding:20px;
+  background:
+    radial-gradient(120% 90% at 30% 0%, rgba(62,224,196,.16), transparent 60%),
+    radial-gradient(90% 80% at 85% 100%, rgba(124,108,255,.14), transparent 65%),
+    #06070b;
+  opacity:0;transition:opacity .22s ease-out;
+}
+.upd-welcome.is-in{opacity:1}
+.upd-welcome .upd-card{
+  max-width:420px;width:100%;text-align:center;
+  transform:translateY(8px);transition:transform .22s ease-out;
+}
+.upd-welcome.is-in .upd-card{transform:none}
+.upd-welcome .upd-mark{
+  width:52px;height:52px;margin:0 auto 14px;
+  display:grid;place-items:center;border-radius:16px;
+  background:rgb(var(--accent-rgb) / .14);color:var(--accent);
+}
+.upd-welcome .upd-mark svg{width:26px;height:26px}
+.upd-welcome h2{margin:0 0 8px}
+.upd-welcome .lede{margin:0 0 12px}
+.upd-welcome .mono{margin:0 0 16px;opacity:.75}
+.gate-updated{margin:0 0 10px}
+
+/* ===== Backtest results ===== */
+.bt-kv{margin-block-end:12px}
+.bt-curve{
+  position:relative;height:200px;margin:4px 0 8px;
+  border-radius:14px;border:1px solid var(--line);
+  background:rgb(var(--s2) / .35);
+  overflow:hidden;
+}
+.bt-curve canvas{display:block;width:100%;height:100%}
+.bt-sub{margin:18px 0 6px;font-size:14px;font-weight:500}
+/* The trade list is long by design; cap it and let it scroll rather than
+   pushing everything below it off the page. */
+.bt-trades{max-height:360px;overflow:auto}
+.bt-trades table{width:100%}
+.bt-trades thead th{position:sticky;top:0;z-index:1;background:var(--s2, #11141c)}
+.bt-trades td{white-space:nowrap}
+.pill.tiny{font-size:10px;padding:2px 7px}
+/* A brief highlight when a finished run is scrolled into view. */
+#bt-extra-card.is-fresh{animation:bt-fresh 1.4s ease-out}
+@keyframes bt-fresh{
+  0%{box-shadow:0 0 0 2px rgb(var(--accent-rgb) / .55)}
+  100%{box-shadow:0 0 0 2px rgb(var(--accent-rgb) / 0)}
+}
+@media (max-width:760px){
+  .bt-curve{height:168px}
+  .bt-trades{max-height:300px}
+}
+@media (prefers-reduced-motion:reduce){
+  #bt-extra-card.is-fresh{animation:none}
 }

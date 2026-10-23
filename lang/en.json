@@ -1078,7 +1078,12 @@
     "replace_note": "Note: files are replaced and a backup is taken first.",
     "backup": "Backup",
     "restart_hint": "Restart the system to apply it fully.",
-    "restart": "Restart system"
+    "restart": "Restart system",
+    "updated_title": "AURION is up to date",
+    "updated_body": "The update to version {v} finished successfully. Nothing in your setup has changed — your strategies, keys and settings are exactly as you left them.",
+    "updated_cta": "Continue",
+    "updated_gate": "Updated to version {v} successfully. Sign in with your key, or continue in free mode.",
+    "updated_from": "Updated from {old}"
   },
   "about": {
     "version": "Version",
@@ -1118,7 +1123,23 @@
     "prov_source": "Source",
     "prov_window": "window",
     "prov_bars": "bars replayed",
-    "prov_warmup": "warm-up"
+    "prov_warmup": "warm-up",
+    "curve": "Equity curve",
+    "curve_hint": "Account equity through the replayed window, one point per bar.",
+    "dd": "Max drawdown",
+    "peak": "Peak equity",
+    "final": "Final equity",
+    "start": "Starting equity",
+    "trades_title": "Trades taken",
+    "t_when": "Opened",
+    "t_side": "Side",
+    "t_entry": "Entry",
+    "t_exit": "Exit",
+    "t_pnl": "Profit",
+    "t_why": "Closed by",
+    "no_trades": "This run took no trades. Nothing matched the strategy's conditions in the replayed window.",
+    "empty": "No backtest has been run yet. Pick a symbol, timeframe and strategy above, then run one.",
+    "showing": "Showing {n} of {total} trades"
   },
   "chart": {
     "regime_hint": "The slider above shows direction and regime per chart — move between charts with the arrows.",
@@ -1409,5 +1430,11 @@
     "step6": "Drag AurionBridge onto each chart you want on the desk. The chart appears here within a second or two.",
     "guide_note": "Updating later is the same three steps: save the new file, recompile, remove the old expert from the chart and attach the new one.",
     "copied": "AURION already copied version {v} into {n} MetaTrader folder(s) on {at} UTC. All that is left is to compile it (F7) and attach it to the chart again."
+  },
+  "ui": {
+    "switch_theme": "Changing theme",
+    "switch_mode": "Changing appearance",
+    "switch_lang": "Changing language",
+    "switch_wait": "One moment"
   }
 }

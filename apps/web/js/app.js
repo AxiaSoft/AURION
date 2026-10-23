@@ -234,50 +234,97 @@ function markLangPills() {
 const THEME_ICON_SUN = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>';
 const THEME_ICON_MOON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3 7 7 0 0 0 21 12.8z"/></svg>';
 let __themeMorphT = null;
-function morphTheme(apply) {
+/* Cover the desk while a theme, appearance or language change is applied.
+ *
+ * `apply` may be synchronous (a theme swap) or return a promise (a language
+ * change has to fetch and re-render). The veil stays up until that work is
+ * finished, so the trader never sees a half-translated desk, and the card
+ * on top of it says which of the three is happening.
+ *
+ * Returns a promise that settles when the veil has lifted. */
+function morphTheme(apply, opts) {
+  const o = opts || {};
   const root = document.documentElement;
   let veil = null;
   try { veil = document.getElementById("theme-veil"); } catch {}
   let reduce = false;
   try { reduce = Boolean(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches); } catch {}
-  if (reduce || !veil || !root) { apply(); return; }
+
+  const label = () => {
+    const title = document.getElementById("theme-veil-title");
+    const sub = document.getElementById("theme-veil-sub");
+    if (title) title.textContent = o.title || I18N.t("ui.switch_theme");
+    if (sub) sub.textContent = o.sub || I18N.t("ui.switch_wait");
+  };
+
+  if (!veil || !root) return Promise.resolve(apply());
+
   if (__themeMorphT) { clearTimeout(__themeMorphT); __themeMorphT = null; }
+  label();
+
+  /* Reduced motion keeps the cover and the message - they are information,
+     not decoration - and simply drops the fades. */
+  if (reduce) {
+    veil.style.transition = "none";
+    veil.style.opacity = "1";
+    veil.classList.add("is-busy");
+    return Promise.resolve()
+      .then(apply)
+      .then(() => {
+        veil.style.opacity = "0";
+        veil.classList.remove("is-busy");
+      });
+  }
+
   let before = "#06070b";
   try { before = getComputedStyle(root).getPropertyValue("--bg").trim() || before; } catch {}
-  // Phase 1 — a soft cover in the current background colour.
-  veil.style.transition = "none";
-  veil.style.backgroundColor = before;
-  veil.style.opacity = "0";
-  void veil.offsetWidth;
-  veil.style.transition = "opacity .18s ease-out";
-  veil.style.opacity = "1";
-  // Phase 2 — flip the theme/glass state while covered, then lift the veil on
-  // the same curve the page is still gliding. The .theming class is added
-  // HERE (not during the cover) so element transitions run under the fade
-  // instead of being hidden behind it — that's what makes it read as a morph.
-  __themeMorphT = setTimeout(() => {
-    root.classList.add("theming");
-    apply();
-    let after = before;
-    try { after = getComputedStyle(root).getPropertyValue("--bg").trim() || before; } catch {}
-    veil.style.transition = "opacity .55s cubic-bezier(.33,0,.2,1), background-color .55s cubic-bezier(.33,0,.2,1)";
-    veil.style.backgroundColor = after;
+
+  return new Promise((resolve) => {
+    // Phase 1 — a soft cover over the desk as it stands.
+    veil.style.transition = "none";
     veil.style.opacity = "0";
+    void veil.offsetWidth;
+    veil.style.transition = "opacity .18s ease-out";
+    veil.style.opacity = "1";
+    veil.classList.add("is-busy");
+
+    // Phase 2 — do the work while covered. The .theming class is added HERE
+    // (not during the cover) so element transitions run under the fade
+    // instead of being hidden behind it — that's what makes it read as a
+    // morph rather than a cut.
     __themeMorphT = setTimeout(() => {
-      root.classList.remove("theming");
-      veil.style.transition = "";
-      veil.style.backgroundColor = "";
-      veil.style.opacity = "";
-      __themeMorphT = null;
-    }, 580);
-  }, 210);
+      root.classList.add("theming");
+      Promise.resolve()
+        .then(apply)
+        .catch((e) => { try { console.error(e); } catch {} })
+        .then(() => {
+          // The labels may have just changed language; restate them before
+          // the card is seen on the way out.
+          label();
+          veil.style.transition = "opacity .55s cubic-bezier(.33,0,.2,1)";
+          veil.style.opacity = "0";
+          veil.classList.remove("is-busy");
+          __themeMorphT = setTimeout(() => {
+            root.classList.remove("theming");
+            veil.style.transition = "";
+            veil.style.backgroundColor = "";
+            veil.style.opacity = "";
+            __themeMorphT = null;
+            resolve();
+          }, 580);
+        });
+    }, 210);
+  });
 }
+
 function setTheme(mode) {
   const m = mode === "light" ? "light" : mode === "dark" ? "dark" : "auto";
   if (m === themeMode() && resolveTheme(m) === currentTheme()) { paintThemeBtn(); markThemePills(); return; }
-  morphTheme(() => setThemeNow(m));
+  morphTheme(() => setThemeNow(m), { title: I18N.t("ui.switch_mode") });
 }
-function setGlass(on) { morphTheme(() => setGlassNow(on)); }
+function setGlass(on) {
+  return morphTheme(() => setGlassNow(on), { title: I18N.t("ui.switch_mode") });
+}
 function currentTheme() {
   return (document.documentElement && document.documentElement.dataset.theme) === "light" ? "light" : "dark";
 }
@@ -4545,10 +4592,10 @@ const views = {
         <div id="bt-load" class="bt-load${running ? "" : " hidden"}"><i></i><span>${I18N.t("history.backtest_wait")}</span></div>
         <div id="bt-result">${renderBacktestCard(bt)}</div>
       </div>
-      <div class="card">
+      <div class="card" id="bt-extra-card">
         <h3>📊 ${I18N.t("bt.results")}</h3>
         <p class="sub">${I18N.t("bt.results_hint")}</p>
-        <div id="bt-extra"></div>
+        <div id="bt-extra">${renderBacktestExtra(bt)}</div>
       </div>
     </div>`;
   },
@@ -5903,6 +5950,11 @@ function bindView(view) {
     S._termPoll = setInterval(() => { if (S.view === "terminal") fillHostTerm(); }, 2500);
   }
   if (view === "backtest") {
+    // The card is rendered as HTML; the curve needs a canvas that exists.
+    const btNow = S.backtest || S.snap?.backtest || {};
+    if (btNow.ok && Array.isArray(btNow.equity_curve) && btNow.equity_curve.length > 1) {
+      requestAnimationFrame(() => drawEquityCurve(btNow.equity_curve.map(Number).filter((x) => Number.isFinite(x))));
+    }
     const goBt = $("h-bt");
     if (goBt) goBt.onclick = async () => {
       if (S._btBusy) return;
@@ -5930,8 +5982,7 @@ function bindView(view) {
         if (!r || r.ok === false) {
           S.backtest = { ok: false, running: false, mode: "backtest", error: (r && r.error) || "generic" };
           if (S.snap) S.snap.backtest = S.backtest;
-          const box = $("bt-result");
-          if (box) box.innerHTML = renderBacktestCard(S.backtest);
+          paintBacktestResults(S.backtest);
           toast((r && r.error) || I18N.t("errors.generic"));
           S._btBusy = false;
           setBacktestBusy(false);
@@ -7041,6 +7092,218 @@ function btProvenance(bt) {
     · ${I18N.t("bt.prov_bars")} <b class="mono">${fmt(d.tested_bars || bt.bars || 0, 0)}</b>${d.warmup_bars ? ` (+${fmt(d.warmup_bars, 0)} ${I18N.t("bt.prov_warmup")})` : ""}
   </p>`;
 }
+/* ---------------------------------------------------------- backtest results
+ *
+ * The "Backtest results" card was an empty div. The engine has been
+ * returning an equity curve and the trade list all along (backtest/engine.py
+ * sends `equity_curve` and `trades`) and the desk threw both away, so a
+ * finished run was six numbers in a box with no way to see HOW it got
+ * there - a run that made its money in one lucky bar looked identical to a
+ * steady one.
+ *
+ * Everything drawn here is measured output from the replay. Nothing is
+ * modelled, smoothed or filled in. */
+function renderBacktestExtra(bt) {
+  bt = bt || S.backtest || {};
+  if (bt.running) return "";
+  if (!bt.ok) return `<p class="sub">${I18N.t("bt.empty")}</p>`;
+
+  const curve = Array.isArray(bt.equity_curve) ? bt.equity_curve.map(Number).filter((x) => Number.isFinite(x)) : [];
+  const trades = Array.isArray(bt.trades) ? bt.trades : [];
+  const m = bt.metrics || {};
+
+  let head = "";
+  if (curve.length > 1) {
+    const start = curve[0];
+    const final = curve[curve.length - 1];
+    let peak = curve[0];
+    let dd = 0;
+    for (const v of curve) { if (v > peak) peak = v; const d = peak - v; if (d > dd) dd = d; }
+    head = `<div class="kv bt-kv">
+      <span>${I18N.t("bt.start")}</span><b class="mono">${fmt(start)}</b>
+      <span>${I18N.t("bt.final")}</span><b class="mono ${clsPnl(final - start)}">${fmt(final)}</b>
+      <span>${I18N.t("bt.peak")}</span><b class="mono">${fmt(peak)}</b>
+      <span>${I18N.t("bt.dd")}</span><b class="mono ${dd > 0 ? "down" : ""}">${fmt(dd)}</b>
+    </div>
+    <div class="bt-curve"><canvas id="bt-curve"></canvas></div>
+    <p class="sub">${I18N.t("bt.curve_hint")}</p>`;
+  }
+
+  let table = `<p class="sub">${I18N.t("bt.no_trades")}</p>`;
+  if (trades.length) {
+    const total = Number(m.trades || trades.length);
+    const rows = trades.slice().reverse().map((t) => {
+      const side = String(t.type || "").toLowerCase();
+      return `<tr>
+        <td class="mono">${esc(btWhen(t.time))}</td>
+        <td><span class="pill tiny ${side === "buy" ? "up" : "down"}">${esc(side.toUpperCase() || "—")}</span></td>
+        <td class="mono">${fmt(t.entry, 5)}</td>
+        <td class="mono">${fmt(t.exit, 5)}</td>
+        <td class="mono ${clsPnl(t.profit)}">${fmt(t.profit)}</td>
+        <td class="sub">${esc(String(t.exit_reason || "—"))}</td>
+      </tr>`;
+    }).join("");
+    table = `<h4 class="bt-sub">${I18N.t("bt.trades_title")}</h4>
+      <p class="sub">${esc(I18N.t("bt.showing", { n: trades.length, total }))}</p>
+      <div class="table-wrap bt-trades">
+        <table>
+          <thead><tr>
+            <th>${I18N.t("bt.t_when")}</th><th>${I18N.t("bt.t_side")}</th>
+            <th>${I18N.t("bt.t_entry")}</th><th>${I18N.t("bt.t_exit")}</th>
+            <th>${I18N.t("bt.t_pnl")}</th><th>${I18N.t("bt.t_why")}</th>
+          </tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>`;
+  }
+  return head + table;
+}
+
+/** Bar times arrive as ISO strings or epoch seconds depending on the feed. */
+function btWhen(v) {
+  if (v == null || v === "") return "—";
+  let d = null;
+  if (typeof v === "number") d = new Date(v > 1e11 ? v : v * 1000);
+  else d = new Date(String(v));
+  if (!d || isNaN(d.getTime())) return String(v);
+  try {
+    return d.toLocaleString(I18N.locale(), { month: "short", day: "2-digit", hour: "2-digit", minute: "2-digit" });
+  } catch (e) {
+    return d.toISOString().slice(0, 16).replace("T", " ");
+  }
+}
+
+/* Draw the equity curve on its canvas.
+ *
+ * Deliberately plain: one line, a zero-profit baseline, filled above and
+ * below in profit/loss colour. Reading "did it climb or grind down" must
+ * not require interpreting a legend. */
+function drawEquityCurve(curve) {
+  const cv = $("bt-curve");
+  if (!cv || !Array.isArray(curve) || curve.length < 2) return;
+  const box = cv.parentElement;
+  const dpr = Math.min(2, window.devicePixelRatio || 1);
+  const w = Math.max(240, (box ? box.clientWidth : 0) || 240);
+  const h = Math.max(140, (box ? box.clientHeight : 0) || 180);
+  cv.width = Math.round(w * dpr);
+  cv.height = Math.round(h * dpr);
+  cv.style.width = w + "px";
+  cv.style.height = h + "px";
+  const g = cv.getContext("2d");
+  if (!g) return;
+  g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  g.clearRect(0, 0, w, h);
+
+  /* Custom properties are not guaranteed to come back resolved: an
+     unregistered property whose value is `var(--candle-up)` can be handed
+     back as that literal text. --ok and --bad are both aliases, so follow
+     the chain a few links before giving up. */
+  const css = getComputedStyle(document.documentElement);
+  const pick = (name, fallback) => {
+    let v = (css.getPropertyValue(name) || "").trim();
+    for (let i = 0; i < 4 && /^var\(\s*--/.test(v); i++) {
+      const ref = v.slice(v.indexOf("--")).split(/[,)]/)[0].trim();
+      v = (css.getPropertyValue(ref) || "").trim();
+    }
+    return v && !/^var\(/.test(v) ? v : fallback;
+  };
+  // --ok / --bad are the desk's profit and loss colours; they follow the
+  // active theme, so the curve is never the wrong green in a light skin.
+  const up = pick("--ok", "#2fd48a");
+  const down = pick("--bad", "#ff5f6d");
+  const grid = pick("--line", "rgba(255,255,255,.08)");
+
+  const base = curve[0];
+  let lo = Math.min(...curve, base);
+  let hi = Math.max(...curve, base);
+  if (hi - lo < 1e-9) { hi = base + 1; lo = base - 1; }
+  const pad = (hi - lo) * 0.08;
+  lo -= pad; hi += pad;
+  const padL = 8, padR = 8, padT = 10, padB = 10;
+  const x = (i) => padL + (i / (curve.length - 1)) * (w - padL - padR);
+  const y = (v) => padT + (1 - (v - lo) / (hi - lo)) * (h - padT - padB);
+
+  // The starting-equity line: above it the run is in profit, below it is not.
+  g.strokeStyle = grid;
+  g.lineWidth = 1;
+  g.setLineDash([4, 4]);
+  g.beginPath();
+  g.moveTo(padL, y(base));
+  g.lineTo(w - padR, y(base));
+  g.stroke();
+  g.setLineDash([]);
+
+  const ended = curve[curve.length - 1] >= base;
+  const colour = ended ? up : down;
+
+  const fill = g.createLinearGradient(0, padT, 0, h - padB);
+  // A var() can resolve to anything; only a plain hex can take an alpha
+  // suffix. Anything else falls back to a flat global alpha below.
+  const soft = /^#[0-9a-f]{6}$/i.test(colour) ? colour + "3a" : "";
+  fill.addColorStop(0, soft || colour);
+  fill.addColorStop(1, "transparent");
+  g.beginPath();
+  g.moveTo(x(0), y(curve[0]));
+  for (let i = 1; i < curve.length; i++) g.lineTo(x(i), y(curve[i]));
+  g.lineTo(x(curve.length - 1), y(base));
+  g.lineTo(x(0), y(base));
+  g.closePath();
+  g.save();
+  if (!soft) g.globalAlpha = 0.22;
+  g.fillStyle = fill;
+  g.fill();
+  g.restore();
+
+  g.beginPath();
+  g.moveTo(x(0), y(curve[0]));
+  for (let i = 1; i < curve.length; i++) g.lineTo(x(i), y(curve[i]));
+  g.strokeStyle = colour;
+  g.lineWidth = 2;
+  g.lineJoin = "round";
+  g.stroke();
+
+  // Where it finished.
+  g.beginPath();
+  g.arc(x(curve.length - 1), y(curve[curve.length - 1]), 3.5, 0, Math.PI * 2);
+  g.fillStyle = colour;
+  g.fill();
+}
+
+/**
+ * Put a finished run on screen: the summary in its own card, the curve and
+ * the trade list in the results card, and - when the run has just finished -
+ * bring the results into view. A replay can take minutes; the trader will
+ * have scrolled away or be reading something else, and a result that lands
+ * silently off-screen is a result they do not know they have.
+ */
+function paintBacktestResults(bt, opts) {
+  bt = bt || S.backtest || {};
+  const box = $("bt-result");
+  if (box) box.innerHTML = renderBacktestCard(bt);
+  const extra = $("bt-extra");
+  if (extra) {
+    extra.innerHTML = renderBacktestExtra(bt);
+    if (bt.ok && Array.isArray(bt.equity_curve) && bt.equity_curve.length > 1) {
+      requestAnimationFrame(() => drawEquityCurve(bt.equity_curve.map(Number).filter((x) => Number.isFinite(x))));
+    }
+  }
+  if (opts && opts.reveal) {
+    const target = $("bt-extra-card") || extra;
+    if (target && target.scrollIntoView) {
+      let smooth = true;
+      try { smooth = !window.matchMedia("(prefers-reduced-motion: reduce)").matches; } catch (e) { /* */ }
+      try { target.scrollIntoView({ behavior: smooth ? "smooth" : "auto", block: "start" }); } catch (e) { target.scrollIntoView(); }
+    }
+    // A flash on the card so the eye lands on what just changed.
+    const card = $("bt-extra-card");
+    if (card) {
+      card.classList.remove("is-fresh");
+      void card.offsetWidth;
+      card.classList.add("is-fresh");
+    }
+  }
+}
+
 function setBacktestBusy(on, progress) {
   const btn = $("h-bt");
   const load = $("bt-load");
@@ -7098,8 +7361,8 @@ function watchBacktest() {
     clearInterval(S._btPoll); S._btPoll = null;
     S._btBusy = false;
     setBacktestBusy(false);
-    const box = $("bt-result");
-    if (box) box.innerHTML = renderBacktestCard(d);
+    paintBacktestResults(d, { reveal: true });
+    if (d.ok) toast(I18N.t("history.backtest_done"));
     headerState();
   }, 5000);
 }
@@ -7570,7 +7833,24 @@ function onLive(msg) {
     scheduleSync();
   }
   if (msg.type === "ai" && S.snap) {
-    S.snap.ai = msg.data && msg.data.direction !== undefined ? msg.data : (msg.data || msg);
+    const state = msg.data && msg.data.direction !== undefined ? msg.data : (msg.data || msg);
+    S.snap.ai = state;
+
+    /* Keep the per-chart list in step with the live read.
+     *
+     * The Intelligence panel does not read S.snap.ai when a chart is
+     * attached - it reads S.snap.ai_by_symbol, which only a full snapshot
+     * fetch ever filled in. So every live inference landed in a field the
+     * panel was not looking at, and the analysis sat there unchanged until
+     * something forced a reload. That is the "I have to refresh the app to
+     * see it" fault: the data was arriving the whole time. */
+    const sym = state && state.symbol ? String(state.symbol) : "";
+    if (sym) {
+      const list = Array.isArray(S.snap.ai_by_symbol) ? S.snap.ai_by_symbol.slice() : [];
+      const at = list.findIndex((x) => x && String(x.symbol) === sym);
+      if (at >= 0) list[at] = state; else list.push(state);
+      S.snap.ai_by_symbol = list.slice(-12);
+    }
     scheduleSync();
   }
   if (msg.type === "agents") {
@@ -7686,17 +7966,32 @@ function onLive(msg) {
 }
 
 async function setLang(lang) {
-  await I18N.load(lang);
-  if (API.token) {
-    const r = await API.post("/api/auth/language", { language: lang });
-    if (r.ok && r.data && r.data.token) API.setToken(r.data.token);
-  }
+  if (lang === I18N.lang) return;
+  return morphTheme(async () => {
+    await I18N.load(lang);
+    repaintForLanguage();
+
+    /* Telling the engine is housekeeping, not something the trader waits
+       for. It used to be awaited before a single label was redrawn, which
+       put a network round trip in front of every language change and is
+       most of why switching felt slow. */
+    if (API.token) {
+      API.post("/api/auth/language", { language: lang })
+        .then((r) => { if (r && r.ok && r.data && r.data.token) API.setToken(r.data.token); })
+        .catch(() => { /* the desk is already in the new language */ });
+    }
+  }, { title: I18N.t("ui.switch_lang") });
+}
+
+/** Redraw everything that holds text, in whatever language is now in force. */
+function repaintForLanguage() {
   I18N.apply();
   markLangPills();
   paintThemeBtn();
   const langBtn = $("btn-lang");
   if (langBtn) langBtn.textContent = I18N.lang.toUpperCase();
-  if (!$("desk").classList.contains("hidden")) {
+  const desk = $("desk");
+  if (desk && !desk.classList.contains("hidden")) {
     headerState();
     S.mountedView = null;
     show(S.view, { animate: false });
@@ -7930,6 +8225,22 @@ function paintGate() {
   if (!card) return;
   I18N.apply(card);
   markLangPills();
+
+  /* A machine without a key still needs to be told the update worked -
+     otherwise the key screen after an update looks like the update broke
+     something. */
+  const upd = S._updated;
+  let note = card.querySelector(".gate-updated");
+  if (upd && upd.updated) {
+    if (!note) {
+      note = document.createElement("p");
+      note.className = "ok gate-updated";
+      card.insertBefore(note, card.firstChild.nextSibling);
+    }
+    note.textContent = I18N.t("upd.updated_gate", { v: S.version || "" });
+  } else if (note) {
+    note.remove();
+  }
   const Lic = S._gateLic;
   const line = $("gate-state");
   // The engine needs a few seconds to boot. Past that, waiting silently is a
@@ -8249,8 +8560,101 @@ async function playWelcome() {
   });
 }
 
+/* ---------------------------------------------------------------- update --
+   Did AURION just update, and what should the trader see because of it?
+
+   Three separate things were wrong here.
+
+   The key screen appeared after every update even for a premium machine.
+   That was not a licence fault: fetchLicense() gives up after a single
+   failed call, and immediately after an update the engine is still
+   restarting, so the one call fails, boot reads "no licence" and falls
+   through to the gate. The gate's own poll then succeeds a second later and
+   prints "premium active" underneath the key box - which is exactly the
+   contradiction that was reported, and why "continue free" let the trader
+   straight in with premium working.
+
+   Second, nothing ever said the update had worked.
+
+   Third, a first install must not claim to be an update. We only know an
+   update happened if we have seen a DIFFERENT version on this machine
+   before; with nothing recorded, this is a fresh install and stays silent. */
+const LS_SEEN_VERSION = "aurion.seenVersion";
+
+function updateCheck(version) {
+  if (!version) return { updated: false, from: "" };
+  let seen = "";
+  try { seen = localStorage.getItem(LS_SEEN_VERSION) || ""; } catch (e) { /* */ }
+  try { localStorage.setItem(LS_SEEN_VERSION, version); } catch (e) { /* */ }
+  // No record at all = first run on this machine, not an update.
+  return { updated: Boolean(seen) && seen !== version, from: seen };
+}
+
+/** Ask for the licence more than once; the engine may still be starting. */
+async function fetchLicenseSettled(tries, waitMs) {
+  const n = tries || 6;
+  const wait = waitMs || 700;
+  for (let i = 0; i < n; i++) {
+    const lic = await fetchLicense();
+    if (lic) return lic;
+    S._gateTries = (S._gateTries || 0) + 1;
+    if (i < n - 1) await new Promise((r) => setTimeout(r, wait));
+  }
+  return null;
+}
+
+/** "The update worked" - shown to a premium machine, which has no gate. */
+function showUpdateWelcome(version, from) {
+  return new Promise((resolve) => {
+    const host = document.createElement("div");
+    host.className = "upd-welcome";
+    host.innerHTML = `
+      <div class="auth-card upd-card" role="dialog" aria-modal="true" aria-labelledby="upd-w-title">
+        <div class="upd-mark" aria-hidden="true">${icon("spark")}</div>
+        <h2 id="upd-w-title">${esc(I18N.t("upd.updated_title"))}</h2>
+        <p class="lede">${esc(I18N.t("upd.updated_body", { v: version }))}</p>
+        ${from ? `<p class="sub mono">${esc(I18N.t("upd.updated_from", { old: from }))}</p>` : ""}
+        <button class="btn block" type="button" id="upd-w-go">${esc(I18N.t("upd.updated_cta"))}</button>
+      </div>`;
+    document.body.appendChild(host);
+    requestAnimationFrame(() => host.classList.add("is-in"));
+    const go = () => {
+      host.classList.remove("is-in");
+      setTimeout(() => { host.remove(); resolve(); }, 220);
+    };
+    host.querySelector("#upd-w-go").onclick = go;
+    host.querySelector("#upd-w-go").focus();
+    // Enter works too; this screen has exactly one thing to do.
+    host.onkeydown = (e) => { if (e.key === "Enter" || e.key === "Escape") go(); };
+  });
+}
+
 async function boot() {
   bindChrome();
+
+  // A canvas does not reflow. Redraw the equity curve when the box it lives
+  // in changes size, or a phone rotation leaves it stretched.
+  let btResizeT = null;
+  window.addEventListener("resize", () => {
+    if (!$("bt-curve")) return;
+    if (btResizeT) clearTimeout(btResizeT);
+    btResizeT = setTimeout(() => {
+      const bt = S.backtest || S.snap?.backtest || {};
+      if (bt.ok && Array.isArray(bt.equity_curve)) {
+        drawEquityCurve(bt.equity_curve.map(Number).filter((x) => Number.isFinite(x)));
+      }
+    }, 150);
+  });
+
+
+  /* A cached language pack paints instantly and the fresh one lands a moment
+     later. On the rare occasion the words actually changed - a new build
+     with new strings - redraw rather than leave the trader on yesterday's
+     labels until they navigate. */
+  window.addEventListener("aurion:i18n", () => {
+    try { repaintForLanguage(); } catch (e) { /* not worth breaking the desk */ }
+  });
+
   bindStrategyDropTarget();
   await I18N.load(I18N.lang);
   I18N.apply();
@@ -8263,17 +8667,24 @@ async function boot() {
       S.buildDate = meta.data.build_date || new Date().toISOString().slice(0,10);
     }
   } catch {}
+  const upd = updateCheck(S.version);
+  S._updated = upd;
+
   // Product-key gate: premium machines skip the key screen entirely and land
   // on the desk; freemium/expired machines always meet the gate first.
-  const lic = await fetchLicense();
+  //
+  // The licence lookup runs alongside the welcome clip rather than before
+  // it, so the retries that stop a still-starting engine from being read as
+  // "no licence" cost no extra waiting.
+  const welcome = playWelcome();
+  const lic = await fetchLicenseSettled();
   S._gateLic = lic;
+  await welcome;
+
   if (lic && lic.premium) {
-    const welcome = playWelcome();
-    const desk = licenseSessionEnter("auto", lic);
-    await welcome;
-    return desk;
+    if (upd.updated) await showUpdateWelcome(S.version, upd.from);
+    return licenseSessionEnter("auto", lic);
   }
-  await playWelcome();
   showGate(lic);
 }
 

@@ -27,7 +27,26 @@ const fs = require("fs");
 const path = require("path");
 
 const WEB = path.join(__dirname, "..", "apps", "web");
-const FILES = ["app.css", "themes.css", "skins.css"];
+
+/* The sheet order is READ FROM index.html, never written down here.
+ *
+ * It was written down here once, as ["app.css", "themes.css", "skins.css"],
+ * and that single transposition made this whole file lie: the page loads
+ * skins.css BEFORE themes.css, so a theme rule of equal specificity beats
+ * the "liquid glass off" override in the browser and lost to it here. Every
+ * opacity assertion below passed while the real header stayed translucent.
+ *
+ * Source order is half of the cascade. A test that hard-codes it is testing
+ * a stylesheet arrangement that does not exist. */
+const FILES = (() => {
+  const html = fs.readFileSync(path.join(WEB, "index.html"), "utf8");
+  const out = [];
+  const re = /<link[^>]+rel=["']stylesheet["'][^>]*href=["']css\/([^"'?]+)/gi;
+  let m;
+  while ((m = re.exec(html))) out.push(m[1]);
+  if (!out.length) throw new Error("no stylesheets found in index.html");
+  return out;
+})();
 
 let failed = 0;
 function check(name, cond) {
@@ -36,6 +55,27 @@ function check(name, cond) {
 }
 
 /* ------------------------------------------------------- tiny CSS model -- */
+
+/* Split "a, b:is(c, d), e" on the commas that separate selectors, NOT on the
+ * ones inside :is()/:where()/:not().
+ *
+ * A plain .split(",") tore `html[...] :is(.nav, .top, .hdr-drawer)` into three
+ * pieces, the last of which was the fragment ".top)". It matched nothing, so
+ * the rule that makes the header opaque was absent from the model entirely -
+ * and the model happily reported the header solid on the strength of a
+ * weaker rule that did survive the split. */
+function splitSelectorGroup(text) {
+  const out = [];
+  let depth = 0, cur = "";
+  for (const ch of text) {
+    if (ch === "(") depth++;
+    else if (ch === ")") depth--;
+    if (ch === "," && depth === 0) { out.push(cur); cur = ""; continue; }
+    cur += ch;
+  }
+  out.push(cur);
+  return out.map((x) => x.trim().replace(/\s+/g, " ")).filter(Boolean);
+}
 
 /** Flatten the stylesheets into ordered {selector, decls} rules. */
 function rules() {
@@ -62,7 +102,7 @@ function rules() {
     const re = /([^{}]+)\{([^{}]*)\}/g;
     let r;
     while ((r = re.exec(css))) {
-      const sels = r[1].split(",").map((s) => s.trim()).filter(Boolean);
+      const sels = splitSelectorGroup(r[1]);
       const decls = {};
       for (const d of r[2].split(";")) {
         const k = d.indexOf(":");
@@ -76,15 +116,45 @@ function rules() {
 }
 
 /** CSS specificity (ids, classes+attrs+pseudo-classes, elements). */
+/* Specificity, with :is()/:not() handled the way browsers actually do it.
+ *
+ * The naive version counted every class inside :is(...) separately and the
+ * :is itself as another pseudo-class, so
+ * `html[data-glass="off"] :is(.nav, .top, .hdr-drawer)` scored as if it had
+ * four classes. In a browser :is() contributes the specificity of its
+ * SINGLE most specific argument, so that selector is (0,2,1) - exactly
+ * equal to `html[data-skin] .top` in themes.css, which loads afterwards and
+ * therefore wins. That tie is the whole reason the header stayed
+ * translucent, and the inflated score was hiding it. */
 function specificity(sel) {
   const s = sel.replace(/::[\w-]+/g, " ");
-  const ids = (s.match(/#[\w-]+/g) || []).length;
-  const cls = (s.match(/\.[\w-]+/g) || []).length
-            + (s.match(/\[[^\]]+\]/g) || []).length
-            + (s.match(/:(?!:)[\w-]+/g) || []).length;
-  const el = (s.replace(/[#.][\w-]+|\[[^\]]+\]|:(?!:)[\w-]+/g, " ")
-               .match(/\b[a-zA-Z][\w-]*\b/g) || []).length;
-  return ids * 10000 + cls * 100 + el;
+  const triple = [0, 0, 0]; // ids, classes+attrs+pseudo-classes, elements
+
+  // Pull out :is()/:where()/:not() first and score them by their best branch.
+  let rest = s;
+  const fnRe = /:(is|where|not|has)\(([^()]*(?:\([^()]*\)[^()]*)*)\)/g;
+  let m;
+  while ((m = fnRe.exec(s))) {
+    rest = rest.replace(m[0], " ");
+    if (m[1] === "where") continue; // :where() always contributes zero
+    let best = [0, 0, 0];
+    for (const branch of splitSelectorGroup(m[2])) {
+      const b = specificity(branch);
+      const bt = [Math.floor(b / 10000), Math.floor((b % 10000) / 100), b % 100];
+      if (bt[0] > best[0] || (bt[0] === best[0] && bt[1] > best[1]) ||
+          (bt[0] === best[0] && bt[1] === best[1] && bt[2] > best[2])) best = bt;
+    }
+    triple[0] += best[0]; triple[1] += best[1]; triple[2] += best[2];
+  }
+
+  triple[0] += (rest.match(/#[\w-]+/g) || []).length;
+  triple[1] += (rest.match(/\.[\w-]+/g) || []).length
+             + (rest.match(/\[[^\]]+\]/g) || []).length
+             + (rest.match(/:(?!:)[\w-]+/g) || []).length;
+  triple[2] += (rest.replace(/[#.][\w-]+|\[[^\]]+\]|:(?!:)[\w-]+/g, " ")
+                    .match(/\b[a-zA-Z][\w-]*\b/g) || []).length;
+
+  return triple[0] * 10000 + triple[1] * 100 + triple[2];
 }
 
 /**
@@ -140,6 +210,26 @@ function stepMatches(part, step, attrs) {
 
 const ALL = rules();
 
+/* Expand `var(--x)` so a colour defined one hop away can still be judged.
+ *
+ * Every theme paints its card with `background:var(--card-bg)`, and
+ * --card-bg is a gradient of translucent stops declared elsewhere. Reading
+ * the literal string "var(--card-bg)" and asking whether it looks
+ * see-through answers "no" for every theme on the desk. */
+function resolveVars(value, chain, rootAttrs, depth) {
+  if (depth === undefined) depth = 0;
+  if (!value || depth > 4) return value || "";
+  return String(value).replace(/var\((--[\w-]+)(?:\s*,[^()]*)?\)/g, (whole, name) => {
+    /* Custom properties are looked up on <html>, not on the element.
+       They inherit, and every one of them in this codebase is declared on
+       the root; asking for them at the element finds nothing, because a
+       declaration only counts here when the selector's last step lands on
+       the element itself. */
+    const win = winning(name, [chain[0]], rootAttrs);
+    return win ? resolveVars(win.decls[name], chain, rootAttrs, depth + 1) : whole;
+  });
+}
+
 /** The declaration that actually wins for this element. */
 function winning(prop, chain, rootAttrs) {
   let best = null, bestSpec = -1, bestIdx = -1;
@@ -161,13 +251,32 @@ function winning(prop, chain, rootAttrs) {
  * version of this test passed every surface regardless. So the
  * slash-alpha form is matched wherever it appears in the value, and the
  * legacy four-argument rgba() form separately. */
+/* Is this colour see-through?
+ *
+ * Twice now this function has answered "no" to something translucent and
+ * hidden a real fault: first for `rgb(var(--s7) / .62)`, where a naive
+ * `[^)]*` stopped at the var()'s own bracket, and then for
+ * `rgb(var(--s2) / calc(var(--surface-alpha) * .62))`, the form every theme
+ * in themes.css actually uses - which it read as opaque and passed.
+ *
+ * So the rule is inverted: anything with a slash-alpha is treated as
+ * translucent unless the alpha is provably 1. A calc() we cannot evaluate
+ * is reported as translucent, because "I could not tell" must never come
+ * out as "it is solid" - that is the answer that lets the bug ship. */
 function isTranslucent(value) {
   if (!value) return false;
   const v = String(value);
-  // modern: <colour> / <alpha>)
-  for (const m of v.matchAll(/\/\s*([0-9]*\.?[0-9]+)\s*\)/g)) {
-    if (parseFloat(m[1]) < 1) return true;
+
+  // modern: <colour> / <alpha>, where alpha may be a number, a percentage,
+  // a var() or a calc().
+  for (const m of v.matchAll(/\/\s*([^)]*(?:\([^)]*\))?[^)]*)\)/g)) {
+    const alpha = m[1].trim();
+    if (/^[0-9]*\.?[0-9]+$/.test(alpha)) { if (parseFloat(alpha) < 1) return true; continue; }
+    if (/^[0-9]*\.?[0-9]+%$/.test(alpha)) { if (parseFloat(alpha) < 100) return true; continue; }
+    // not a literal we can evaluate - calc(), var(), anything else
+    return true;
   }
+
   // legacy: rgba(r, g, b, a)
   for (const m of v.matchAll(/rgba\(\s*[^)]*?,\s*([0-9]*\.?[0-9]+)\s*\)/g)) {
     if (parseFloat(m[1]) < 1) return true;
@@ -177,10 +286,30 @@ function isTranslucent(value) {
 
 const html = (attrs) => ({ classes: [], tags: ["html"], attrs });
 
+/* The attributes the real <html> always carries.
+ *
+ * themes.js sets data-skin, data-bg and data-motion on every boot, before
+ * anything is painted. Leaving them out of the simulated root here meant
+ * every `html[data-skin] ...` rule in themes.css was silently skipped - and
+ * those are exactly the rules that compete with "liquid glass off". The
+ * header was reported translucent twice while this file reported it solid.
+ *
+ * A theme id has to be named: `html[data-skin="frost"] .top` restates the
+ * header background, so "any theme" is not good enough to prove the
+ * override holds. The default theme is the one most desks run. */
+function desk(extra) {
+  return Object.assign({
+    "data-theme": "dark",
+    "data-skin": "glass",
+    "data-bg": "soft",
+    "data-motion": "full",
+  }, extra || {});
+}
+
 /* ------------------------------------------------- 1. header heights -- */
 
 {
-  const root = { "data-theme": "dark" };
+  const root = desk();
   const top = { classes: ["top"], tags: ["header"] };
   const buttons = {
     "menu button": { classes: ["menu-btn"], tags: ["button"] },
@@ -224,29 +353,34 @@ const SURFACES = {
 
 for (const [attr, label] of [["data-glass", "glass switched off"],
                              ["data-perf", "fast renderer (weak machine)"]]) {
-  const root = { "data-theme": "dark", [attr]: attr === "data-glass" ? "off" : "fast" };
+  const root = desk({ [attr]: attr === "data-glass" ? "off" : "fast" });
   for (const [name, tail] of Object.entries(SURFACES)) {
     const chain = [html(root), ...tail];
     const win = winning("background", chain, root) || winning("background-color", chain, root);
-    const value = win ? (win.decls.background || win.decls["background-color"]) : "";
+    const value = win
+      ? resolveVars(win.decls.background || win.decls["background-color"], chain, root)
+      : "";
     check(`${label}: ${name} is solid`,
       (win && !isTranslucent(value)) ||
       (!win ? "no background rule won at all" : `wins "${win.sel}" -> ${value}`));
   }
   for (const v of ["--glass", "--glass2"]) {
     const win = winning(v, [html(root)], root);
+    const value = resolveVars(win && win.decls[v], [html(root)], root);
     check(`${label}: ${v} is opaque`,
-      (win && !isTranslucent(win.decls[v])) ||
-      (!win ? `${v} never set` : `${win.sel} -> ${win.decls[v]}`));
+      (win && !isTranslucent(value)) ||
+      (!win ? `${v} never set` : `${win.sel} -> ${value}`));
   }
 }
 
 // The frosted look must survive when it is actually wanted.
 {
-  const root = { "data-theme": "dark", "data-glass": "on", "data-perf": "rich" };
-  const win = winning("background", [html(root), { classes: ["card"] }], root);
+  const root = desk({ "data-glass": "on", "data-perf": "rich" });
+  const chain = [html(root), { classes: ["card"] }];
+  const win = winning("background", chain, root);
+  const value = resolveVars(win && win.decls.background, chain, root);
   check("with glass on and a capable renderer the card is still frosted",
-    isTranslucent(win && win.decls.background) || `wins ${win && win.sel}`);
+    isTranslucent(value) || `wins ${win && win.sel} -> ${value.slice(0, 90)}`);
 }
 
 /* -------------------------------------- the toggle cannot lie to you -- */
@@ -259,7 +393,8 @@ for (const [attr, label] of [["data-glass", "glass switched off"],
     /function glassOn\(\)[\s\S]{0,260}glassForced\(\)/.test(src));
   check("the switch is disabled when it cannot do anything", /sw\.disabled = forced/.test(src));
   check("clicking it while forced does nothing", /if \(!glassForced\(\)\) setGlass/.test(src));
-  check("the fast tier greys the switch out", /html\[data-perf="fast"\] #sw-glass/.test(css));
+  check("the fast tier greys the switch out",
+    /\[data-perf="fast"\][^{]*#sw-glass/.test(css));
 }
 
 console.log(failed ? `\nappearance: ${failed} check(s) failed` : "\nappearance: all checks passed");
