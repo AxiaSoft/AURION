@@ -61,8 +61,28 @@ FORBIDDEN_MODULES = {
 }
 
 
-BUILTIN_NAMES = ("ema_rsi", "price_action", "atr_breakout", "scalp_impulse")
-RESERVED_NAMES = set(BUILTIN_NAMES) | {"template", "base"}
+BUILTIN_NAMES = ("ema_rsi", "price_action", "atr_breakout")
+
+# Strategies that used to ship and no longer do. Saved runtime state, MT5
+# comments on open positions and a trader's own config all still name them, so
+# they resolve to their replacement instead of raising. Dropping the entry
+# would turn an upgrade into "unknown builtin strategy" on first boot.
+# King was withdrawn. Saved runtime state, a trader's own config and the
+# comment on any position it opened all still name it, so it resolves to
+# price_action - the surviving strategy that also trades structure - rather
+# than raising. Dropping these entries would turn an upgrade into "unknown
+# builtin strategy" on the first boot after the update.
+LEGACY_BUILTINS = {"scalp_impulse": "price_action", "king": "price_action"}
+
+# Both names stay reserved after retirement: an uploaded file called either
+# would collide with the aliases above and silently shadow the real target.
+RESERVED_NAMES = set(BUILTIN_NAMES) | set(LEGACY_BUILTINS) | {"template", "base"}
+
+
+def resolve_builtin(name: str) -> str:
+    """Current id for a built-in, following one retirement if necessary."""
+    key = str(name or "")
+    return LEGACY_BUILTINS.get(key, key)
 
 
 class StrategyValidationError(ValueError):
@@ -184,14 +204,13 @@ class StrategyLoader:
         from .builtin.atr_breakout import ATRBreakout
         from .builtin.ema_rsi import EmaRsi
         from .builtin.price_action import PriceAction
-        from .builtin.scalp_impulse import ScalpImpulse
 
         mapping = {
             "ema_rsi": EmaRsi,
             "price_action": PriceAction,
             "atr_breakout": ATRBreakout,
-            "scalp_impulse": ScalpImpulse,
         }
+        name = resolve_builtin(name)
         if name not in mapping:
             raise StrategyValidationError(f"unknown builtin strategy '{name}'")
         inst = mapping[name](params or {})

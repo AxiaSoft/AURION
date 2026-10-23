@@ -24,6 +24,23 @@ const { JSDOM, VirtualConsole } = require(require.resolve("jsdom"));
 
 const WEB = path.join(__dirname, "..", "apps", "web");
 
+// The calendar opens on the *current* month, so the fixture has to land in it
+// — a hard-coded date turns this suite into a time bomb that starts failing
+// the month after it was written.
+const NOW = new Date();
+// Offsets from today, not days of the Gregorian month.
+//
+// The first version pinned the fixture to the 5th and 7th of the current
+// Gregorian month, which quietly broke the moment the desk defaulted to the
+// Jalali calendar: the grid shows the Persian month, and Aban 1405 starts on
+// 23 October, so "the 5th" was simply not on screen and the dot checks read
+// zero. Anchoring to today keeps the events inside whichever month the grid
+// opens on, in every calendar system.
+const dayOffset = (days, hhmm) => {
+  const d = new Date(Date.UTC(NOW.getUTCFullYear(), NOW.getUTCMonth(), NOW.getUTCDate() + days));
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(d.getUTCDate()).padStart(2, "0")}T${hhmm}:00Z`;
+};
+
 const NEWS = {
   ok: true,
   data: {
@@ -32,9 +49,9 @@ const NEWS = {
     blackout_before: 15,
     blackout_after: 15,
     events: [
-      { time: "2026-09-05T12:30:00Z", currency: "USD", impact: "high", title: "Non-Farm Payrolls" },
-      { time: "2026-09-05T14:00:00Z", currency: "EUR", impact: "medium", title: "ECB Press Conference" },
-      { time: "2026-09-07T01:00:00Z", currency: "AUD", impact: "low", title: "RBA Rate Decision" },
+      { time: dayOffset(1, "12:30"), currency: "USD", impact: "high", title: "Non-Farm Payrolls" },
+      { time: dayOffset(1, "14:00"), currency: "EUR", impact: "medium", title: "ECB Press Conference" },
+      { time: dayOffset(3, "01:00"), currency: "AUD", impact: "low", title: "RBA Rate Decision" },
     ],
   },
 };
@@ -205,7 +222,64 @@ function check(name, ok, detail) {
   const dayPanel = doc.getElementById("cal-day").textContent.length;
   check("clicking a day fills the detail panel", threw === "" && dayPanel > 0, threw || `${dayPanel} chars`);
 
-  // ---------- 6. symbol picker ----------
+  // ---------- 6. the backtest results card renders in a real DOM ----------
+  //
+  // The card was an empty <div> for a long time, so the thing worth proving
+  // is that a finished run now puts its curve and its trades on screen
+  // through the real template and the real translation pack.
+  {
+    const curve = [1000, 1012, 991, 1033, 1048];
+    T.S.backtest = {
+      ok: true, running: false, mode: "backtest",
+      symbol: "EURUSD", timeframe: "M15", strategy: "ema_rsi", bars: 900,
+      metrics: { win_rate: 60, profit_factor: 1.7, sharpe: 0.9, avg_rr: 1.4, net: 48, trades: 5 },
+      equity_curve: curve,
+      trades: [
+        { type: "buy", entry: 1.0812, exit: 1.0840, profit: 28, time: "2026-01-02T08:00:00Z", exit_reason: "tp" },
+        { type: "sell", entry: 1.0851, exit: 1.0862, profit: -11, time: "2026-01-02T11:00:00Z", exit_reason: "sl" },
+      ],
+    };
+    let threw = "";
+    let html = "";
+    try { html = String(T.views.backtest()); } catch (e) { threw = e.message; }
+    check("views.backtest() renders without throwing", threw === "", threw || "ok");
+    check("the results card is no longer an empty div",
+      /id="bt-extra">\s*\S/.test(html), html.includes('id="bt-extra"') ? "has content" : "no bt-extra at all");
+    check("a finished run draws an equity-curve canvas", html.includes('id="bt-curve"'));
+
+    check("the results card can be scrolled to", html.includes('id="bt-extra-card"'));
+
+    // Every string must come from the Persian pack, not leak as a raw key.
+    const text = html.replace(/<[^>]+>/g, " ");
+    /* fmt() localises, so under the Persian pack every figure comes back in
+       Persian digits. Fold them to ASCII before asserting on values -
+       otherwise this checks the locale, not the arithmetic. */
+    const ascii = (x) => String(x)
+      .replace(/[\u06F0-\u06F9]/g, (c) => String(c.charCodeAt(0) - 0x06F0))
+      .replace(/[\u0660-\u0669]/g, (c) => String(c.charCodeAt(0) - 0x0660))
+      .replace(/\u066B/g, ".").replace(/[\u060C\u066C]/g, ",");
+    const plain = ascii(text);
+    const raw = text.match(/\b(?:bt|history|upd)\.[a-z_]+/g) || [];
+    check("no untranslated keys in the backtest view", raw.length === 0, [...new Set(raw)].join(", ") || "none");
+
+    check("the trades it took are listed",
+      plain.includes("1.0812") && plain.includes("1.0862"),
+      plain.slice(plain.indexOf("1.08") - 10, plain.indexOf("1.08") + 60));
+    check("a losing trade is shown as a loss, not an absolute value",
+      /[-\u2212]\s?11/.test(plain), plain.includes("11") ? "11 present" : "no 11 at all");
+
+    /* A drawdown is a fall from a peak that PRECEDES it. In
+       [1000, 1012, 991, 1033, 1048] the only such fall is 1012 -> 991, so
+       the answer is 21. (1033 is higher than 991 but comes after it, which
+       is exactly the trap a naive max-minus-min would fall into: that
+       would report 1048 - 991 = 57 and overstate the risk.) */
+    check("the drawdown is measured peak-to-trough, not max-minus-min",
+      /\b21\b/.test(plain) && !/\b57\b/.test(plain),
+      (plain.match(/-?\d[\d,]*(?:\.\d+)?/g) || []).join(" ").slice(0, 100));
+    check("the final equity is the last curve point", /1,?048/.test(plain));
+  }
+
+  // ---------- 7. symbol picker ----------
   const pickerSrc = fs.readFileSync(path.join(WEB, "js/app.js"), "utf8");
   check("symbol picker writes to the hidden field the engine reads", /id="pr-syms" type="hidden"|type="hidden" id="pr-syms"/.test(pickerSrc));
 

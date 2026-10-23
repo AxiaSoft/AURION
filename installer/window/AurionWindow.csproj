@@ -41,6 +41,14 @@
     <FileVersion>$(AurionVersion)</FileVersion>
     <InformationalVersion>$(AurionVersion)</InformationalVersion>
 
+    <!-- ApplicationConfiguration.Initialize() is source-generated from
+         these. Its default high DPI mode is SystemAware, which contradicts
+         the PerMonitorV2 in app.manifest; the manifest wins at process
+         start and WinForms is then left scaling for a mode it is not in. -->
+    <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
+    <ApplicationVisualStyles>true</ApplicationVisualStyles>
+    <ApplicationUseCompatibleTextRendering>false</ApplicationUseCompatibleTextRendering>
+
     <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
     <GenerateDocumentationFile>false</GenerateDocumentationFile>
     <DebugType>none</DebugType>
@@ -67,6 +75,14 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- The backdrop the loading screen shares with the setup wizard and
+         the uninstaller. Three separate programs a customer meets weeks
+         apart; the only thing that makes them read as one product is
+         that they are drawn by the same code. -->
+    <Compile Include="..\shell\shared\Aurora.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
     <!-- ApplicationIcon only sets the icon Explorer shows on the .exe. The
          window and its taskbar button use Form.Icon, which defaults to the
          stock WinForms icon unless we set it - so the same .ico is embedded
@@ -75,24 +91,34 @@
   </ItemGroup>
 
   <!--
-    Build the icon from the logo, here, every time.
+    Rebuild the icon from the logo. OFF unless asked for.
 
-    The icon is consumed in exactly two places and both of them are in this
-    file, so this is where it should be guaranteed — not in the shell script
-    that usually runs first, because the failure it prevents happens whether
-    or not that script was used:
+    This used to run before every build, and it is what broke every build on
+    the one machine that mattered:
 
         CSC : error CS7065: Error building Win32 resources,
-              Icon stream is not in the expected format.
+              "Unable to read beyond the end of the stream."
 
-    which is what the compiler says when aurion.ico is a renamed .png. One
-    second of PowerShell removes the whole class of problem and keeps the
-    icon honest: whatever apps/web/icons/mark.png is, that is the icon.
+    make-icon.ps1 wrote the icon's 16-bit fields through BinaryWriter.Write,
+    which Windows PowerShell 5.1 resolves to the Char overload: one UTF-8
+    byte instead of two. Directory entries came out 14 bytes wide instead of
+    16, every image offset drifted, and the last one pointed past the end of
+    the file. PowerShell 7 picks the numeric overload, so the icon committed
+    to the repository is valid and the regenerated one was not. The build
+    log even said "product icon: 7 images" moments earlier - it was reading
+    the good file, which this target then replaced.
 
-    ContinueOnError, because a machine without PowerShell should fall back
-    to the committed icon rather than lose the build over its artwork.
+    The generator is fixed and validates its own output now. The target is
+    still off by default, because regenerating a known-good, tested artefact
+    on every single build buys nothing and can only go wrong. The icon is
+    checked by tests/icons-are-icons.test.js, and build-msi.ps1 already
+    rebuilds it when apps/web/icons/mark.png is newer - which is the only
+    moment it actually needs rebuilding.
+
+        dotnet build -p:AurionRebuildIcon=true
   -->
-  <Target Name="BuildProductIcon" BeforeTargets="BeforeBuild" Condition="'$(OS)' == 'Windows_NT'">
+  <Target Name="BuildProductIcon" BeforeTargets="BeforeBuild"
+          Condition="'$(OS)' == 'Windows_NT' And '$(AurionRebuildIcon)' == 'true'">
     <PropertyGroup>
       <AurionLogo>$(MSBuildThisFileDirectory)..\..\apps\web\icons\mark.png</AurionLogo>
       <AurionIcon>$(MSBuildThisFileDirectory)..\assets\generated\aurion.ico</AurionIcon>
@@ -101,7 +127,7 @@
     <Exec Condition="Exists('$(AurionLogo)') And Exists('$(AurionMakeIcon)')"
           Command="powershell -NoProfile -ExecutionPolicy Bypass -File &quot;$(AurionMakeIcon)&quot; -Source &quot;$(AurionLogo)&quot; -Destination &quot;$(AurionIcon)&quot;"
           ContinueOnError="true"
-          StandardOutputImportance="low" />
+          StandardOutputImportance="normal" />
   </Target>
 
 </Project>

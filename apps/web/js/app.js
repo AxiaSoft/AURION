@@ -54,6 +54,7 @@ function icon(name) {
     info: '<circle cx="12" cy="12" r="9"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>',
     flask: '<path d="M9 3h6"/><path d="M10 3v5a6 6 0 00-3 5.2V19a1 1 0 001 1h8a1 1 0 001-1v-5.8A6 6 0 0014 8V3"/>',
     user: '<circle cx="12" cy="8" r="3.2"/><path d="M5 19c1.4-3.2 3.8-5 7-5s5.6 1.8 7 5"/>',
+    bell: '<path d="M18 16V11a6 6 0 10-12 0v5l-1.6 2.2a.6.6 0 00.5.95h14.2a.6.6 0 00.5-.95z"/><path d="M10 21.5a2.2 2.2 0 004 0"/>',
     cal: '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18"/><path d="M8 3v4M16 3v4"/><circle cx="8.5" cy="14.5" r="1.2"/><circle cx="15.5" cy="14.5" r="1.2"/><circle cx="12" cy="17.5" r="1.2"/>',
   };
   return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">${p[name] || ""}</svg>`;
@@ -201,6 +202,22 @@ function askConfirm(opts) {
     setTimeout(() => yes && yes.focus(), 20);
   });
 }
+/**
+ * Which build of the desk is actually running.
+ *
+ * Every asset is cache-busted with a ?v= token, so when a change does not
+ * appear there are three candidates - the browser kept the old file, a
+ * service worker served it, or the desk being looked at is an installed
+ * copy that git never touched - and no way to tell them apart by looking.
+ * Printing the token the running app.js was loaded with settles it in one
+ * glance: if this does not match the token in index.html, the page is old.
+ */
+function buildTag() {
+  const tag = document.querySelector('script[src*="js/app.js?v="]');
+  if (!tag) return "dev";
+  return String(tag.src).split("v=").pop() || "dev";
+}
+
 function fmt(n, d = 2) {
   if (n === null || n === undefined || n === "" || Number.isNaN(Number(n))) return "—";
   try {
@@ -217,50 +234,97 @@ function markLangPills() {
 const THEME_ICON_SUN = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>';
 const THEME_ICON_MOON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3 7 7 0 0 0 21 12.8z"/></svg>';
 let __themeMorphT = null;
-function morphTheme(apply) {
+/* Cover the desk while a theme, appearance or language change is applied.
+ *
+ * `apply` may be synchronous (a theme swap) or return a promise (a language
+ * change has to fetch and re-render). The veil stays up until that work is
+ * finished, so the trader never sees a half-translated desk, and the card
+ * on top of it says which of the three is happening.
+ *
+ * Returns a promise that settles when the veil has lifted. */
+function morphTheme(apply, opts) {
+  const o = opts || {};
   const root = document.documentElement;
   let veil = null;
   try { veil = document.getElementById("theme-veil"); } catch {}
   let reduce = false;
   try { reduce = Boolean(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches); } catch {}
-  if (reduce || !veil || !root) { apply(); return; }
+
+  const label = () => {
+    const title = document.getElementById("theme-veil-title");
+    const sub = document.getElementById("theme-veil-sub");
+    if (title) title.textContent = o.title || I18N.t("ui.switch_theme");
+    if (sub) sub.textContent = o.sub || I18N.t("ui.switch_wait");
+  };
+
+  if (!veil || !root) return Promise.resolve(apply());
+
   if (__themeMorphT) { clearTimeout(__themeMorphT); __themeMorphT = null; }
+  label();
+
+  /* Reduced motion keeps the cover and the message - they are information,
+     not decoration - and simply drops the fades. */
+  if (reduce) {
+    veil.style.transition = "none";
+    veil.style.opacity = "1";
+    veil.classList.add("is-busy");
+    return Promise.resolve()
+      .then(apply)
+      .then(() => {
+        veil.style.opacity = "0";
+        veil.classList.remove("is-busy");
+      });
+  }
+
   let before = "#06070b";
   try { before = getComputedStyle(root).getPropertyValue("--bg").trim() || before; } catch {}
-  // Phase 1 — a soft cover in the current background colour.
-  veil.style.transition = "none";
-  veil.style.backgroundColor = before;
-  veil.style.opacity = "0";
-  void veil.offsetWidth;
-  veil.style.transition = "opacity .18s ease-out";
-  veil.style.opacity = "1";
-  // Phase 2 — flip the theme/glass state while covered, then lift the veil on
-  // the same curve the page is still gliding. The .theming class is added
-  // HERE (not during the cover) so element transitions run under the fade
-  // instead of being hidden behind it — that's what makes it read as a morph.
-  __themeMorphT = setTimeout(() => {
-    root.classList.add("theming");
-    apply();
-    let after = before;
-    try { after = getComputedStyle(root).getPropertyValue("--bg").trim() || before; } catch {}
-    veil.style.transition = "opacity .55s cubic-bezier(.33,0,.2,1), background-color .55s cubic-bezier(.33,0,.2,1)";
-    veil.style.backgroundColor = after;
+
+  return new Promise((resolve) => {
+    // Phase 1 — a soft cover over the desk as it stands.
+    veil.style.transition = "none";
     veil.style.opacity = "0";
+    void veil.offsetWidth;
+    veil.style.transition = "opacity .18s ease-out";
+    veil.style.opacity = "1";
+    veil.classList.add("is-busy");
+
+    // Phase 2 — do the work while covered. The .theming class is added HERE
+    // (not during the cover) so element transitions run under the fade
+    // instead of being hidden behind it — that's what makes it read as a
+    // morph rather than a cut.
     __themeMorphT = setTimeout(() => {
-      root.classList.remove("theming");
-      veil.style.transition = "";
-      veil.style.backgroundColor = "";
-      veil.style.opacity = "";
-      __themeMorphT = null;
-    }, 580);
-  }, 210);
+      root.classList.add("theming");
+      Promise.resolve()
+        .then(apply)
+        .catch((e) => { try { console.error(e); } catch {} })
+        .then(() => {
+          // The labels may have just changed language; restate them before
+          // the card is seen on the way out.
+          label();
+          veil.style.transition = "opacity .55s cubic-bezier(.33,0,.2,1)";
+          veil.style.opacity = "0";
+          veil.classList.remove("is-busy");
+          __themeMorphT = setTimeout(() => {
+            root.classList.remove("theming");
+            veil.style.transition = "";
+            veil.style.backgroundColor = "";
+            veil.style.opacity = "";
+            __themeMorphT = null;
+            resolve();
+          }, 580);
+        });
+    }, 210);
+  });
 }
+
 function setTheme(mode) {
   const m = mode === "light" ? "light" : mode === "dark" ? "dark" : "auto";
   if (m === themeMode() && resolveTheme(m) === currentTheme()) { paintThemeBtn(); markThemePills(); return; }
-  morphTheme(() => setThemeNow(m));
+  morphTheme(() => setThemeNow(m), { title: I18N.t("ui.switch_mode") });
 }
-function setGlass(on) { morphTheme(() => setGlassNow(on)); }
+function setGlass(on) {
+  return morphTheme(() => setGlassNow(on), { title: I18N.t("ui.switch_mode") });
+}
 function currentTheme() {
   return (document.documentElement && document.documentElement.dataset.theme) === "light" ? "light" : "dark";
 }
@@ -410,10 +474,6 @@ function themesGalleryHtml() {
   const current = AurionTheme.effective();
   const custom = AurionTheme.getCustom();
   const cards = AurionTheme.THEMES.map((t) => themeCardHtml(t, current, custom)).join("");
-  const backdrops = ["soft", "blobs", "aurora", "grid", "waves", "dusk", "layered", "flat", "none"]
-    .map((b) => `<option value="${b}"${b === custom.bg ? " selected" : ""}>${esc(I18N.t("themes.bg_" + b))}</option>`)
-    .join("");
-
   const unlocked = themesUnlocked();
 
   return `
@@ -429,23 +489,160 @@ function themesGalleryHtml() {
         <p class="sub" style="margin:12px 0 0">${I18N.t("themes.recommended")}</p>
       </div>
 
-      <div class="card tc-custom" id="set-theme-custom" style="margin-top:14px"${current === "custom" && unlocked ? "" : " hidden"}>
-        <h3 style="margin:0 0 4px">${I18N.t("themes.custom_title")}</h3>
-        <p class="sub" style="margin:0">${I18N.t("themes.custom_hint")}</p>
-        <div class="knob-grid">
-          <label class="knob">
-            <span class="knob-head"><span>${I18N.t("themes.backdrop")}</span></span>
-            <select class="ctrl" id="knob-bg" aria-label="${esc(I18N.t("themes.backdrop"))}">${backdrops}</select>
-          </label>
-          ${themeKnobHtml("surface", I18N.t("themes.surface"), custom.surface, "%")}
-          ${themeKnobHtml("border", I18N.t("themes.border"), custom.border, "%")}
-          ${themeKnobHtml("blur", I18N.t("themes.blur"), custom.blur, "px")}
-          ${themeKnobHtml("radius", I18N.t("themes.radius"), custom.radius, "px")}
-          ${themeKnobHtml("shadow", I18N.t("themes.shadow"), custom.shadow, "%")}
-          ${themeKnobHtml("motion", I18N.t("themes.motion"), custom.motion, "%")}
-        </div>
-        <button type="button" class="btn ghost tiny" id="knob-reset" style="margin-top:12px">${I18N.t("themes.reset")}</button>
+      ${themeBuilderHtml()}`;
+}
+
+/* The builder used to be the "custom" theme's private panel: it was hidden
+   unless that one card was selected, and its sliders wrote to a slot only
+   that theme read. So a trader who liked Neumorphism but wanted less shadow
+   had nowhere to go, and picking a background meant abandoning the theme
+   they had chosen. The panel is now simply "the theme you are using": it is
+   always shown, it edits whichever theme is active, and the edits are kept
+   per theme so nothing is lost by switching away and back. */
+function themeBuilderHtml() {
+  const current = AurionTheme.effective();
+  const k = AurionTheme.knobs();
+  const unlocked = themesUnlocked();
+  const picture = AurionTheme.getBgImage();
+  const colours = AurionTheme.colours(current);
+  const fx = AurionTheme.fx(current);
+
+  /* The backdrop used to be a dropdown of nine words. "Layered depth" and
+     "Soft gradient" describe nothing you can picture, so choosing one meant
+     trying all nine. It is a gallery now: each tile paints the backdrop it
+     stands for, at the size of a thumbnail, using the same rules the page
+     does - so the tile is the background, not an artist's impression. */
+  const tiles = AurionTheme.BACKDROPS
+    .filter((b) => b !== "photo" || picture)
+    .map((b) => {
+      const on = b === k.bg;
+      const label = I18N.t(b === "photo" ? "themes.bg_custom" : "themes.bg_" + b);
+      const art = b === "photo"
+        ? `<span class="bgt-art" data-bgart="photo" style="background-image:url(&quot;${esc(picture)}&quot;)"></span>`
+        : `<span class="bgt-art" data-bgart="${b}"></span>`;
+      return `<button type="button" class="bg-tile${on ? " on" : ""}" data-bgpick="${b}"
+                role="radio" aria-checked="${on}" tabindex="${on ? 0 : -1}">
+          ${art}<span class="bgt-name">${esc(label)}</span>
+        </button>`;
+    }).join("");
+
+  const fxOptions = Object.keys(AurionTheme.FX)
+    .map((f) => `<option value="${f}"${f === fx ? " selected" : ""}>${esc(I18N.t("themes.fx_" + f))}</option>`)
+    .join("");
+
+  const fontOptions = Object.keys(AurionTheme.FONTS)
+    .map((f) => `<option value="${f}"${f === (colours.font || "theme") ? " selected" : ""}>${
+      esc(I18N.t("themes.f_" + f))}</option>`)
+    .join("");
+
+  /* A colour row shows the colour in force, which is not the same as the
+     colour chosen: with nothing chosen the swatch has to show what the theme
+     is already using, or the trader is editing blind. */
+  const colourRow = (key, label, hint) => {
+    const chosen = colours[key] || "";
+    return `<div class="col-row" data-colrow="${key}">
+        <span class="col-text"><b>${esc(label)}</b><small>${esc(hint)}</small></span>
+        <input type="color" class="col-swatch" data-colour="${key}"
+               value="${esc(chosen || themeColourNow(key))}" aria-label="${esc(label)}" />
+        <button type="button" class="btn tiny ghost col-clear" data-colclear="${key}"${
+          chosen ? "" : " hidden"}>${esc(I18N.t("themes.c_clear"))}</button>
       </div>`;
+  };
+
+  return `
+      <div class="card tc-custom" id="set-theme-custom" style="margin-top:14px"${unlocked ? "" : " hidden"}>
+        <h3 style="margin:0 0 4px">${I18N.t("themes.builder_title")}</h3>
+        <p class="sub" style="margin:0 0 2px">${I18N.t("themes.builder_hint")}</p>
+        <p class="sub" id="knob-editing" style="margin:0">${
+          esc(I18N.t("themes.editing", { name: themeName(current) }))}${
+          AurionTheme.edited(current) ? ` \u00B7 <b>${esc(I18N.t("themes.edited_tag"))}</b>` : ""}</p>
+
+        <div class="knob-grid">
+          ${themeKnobHtml("surface", I18N.t("themes.surface"), k.surface, "%")}
+          ${themeKnobHtml("border", I18N.t("themes.border"), k.border, "%")}
+          ${themeKnobHtml("blur", I18N.t("themes.blur"), k.blur, "px")}
+          ${themeKnobHtml("radius", I18N.t("themes.radius"), k.radius, "px")}
+          ${themeKnobHtml("shadow", I18N.t("themes.shadow"), k.shadow, "%")}
+          ${themeKnobHtml("motion", I18N.t("themes.motion"), k.motion, "%")}
+        </div>
+
+        <div class="tb-sec">
+          <h4>${esc(I18N.t("themes.colours_title"))}</h4>
+          <p class="sub">${esc(I18N.t("themes.colours_hint"))}</p>
+          <div class="col-rows">
+            ${colourRow("page", I18N.t("themes.c_page"), I18N.t("themes.c_page_hint"))}
+            ${colourRow("panel", I18N.t("themes.c_panel"), I18N.t("themes.c_panel_hint"))}
+            ${colourRow("ink", I18N.t("themes.c_ink"), I18N.t("themes.c_ink_hint"))}
+          </div>
+          <p class="sub warn" id="col-warn" hidden>${esc(I18N.t("themes.contrast_warn"))}</p>
+          <label class="field" style="margin-top:14px">
+            <span>${esc(I18N.t("themes.font_title"))}</span>
+            <select class="ctrl" id="knob-font">${fontOptions}</select>
+          </label>
+        </div>
+
+        <div class="tb-sec">
+          <h4>${esc(I18N.t("themes.gallery_title"))}</h4>
+          <p class="sub">${esc(I18N.t("themes.gallery_hint"))}</p>
+          <div class="bg-tiles" id="knob-bgtiles" role="radiogroup"
+               aria-label="${esc(I18N.t("themes.backdrop"))}">${tiles}</div>
+          <label class="field" style="margin-top:12px">
+            <span>${esc(I18N.t("themes.fx_title"))}</span>
+            <select class="ctrl" id="knob-fx">${fxOptions}</select>
+          </label>
+        </div>
+
+        <div class="tb-sec bgpic" id="set-bgpic">
+          <h4>${esc(I18N.t("themes.bg_image"))}</h4>
+          <p class="sub">${esc(I18N.t("themes.bg_hint"))}</p>
+          <div class="bgpic-row">
+            <div class="bgpic-thumb"${picture ? ` style="background-image:url(&quot;${esc(picture)}&quot;)"` : ""}
+                 id="bgpic-thumb" aria-hidden="true"></div>
+            <div class="bgpic-acts">
+              <input type="file" id="bgpic-file" accept="image/*" hidden />
+              <button type="button" class="btn tiny" id="bgpic-pick">${esc(I18N.t("themes.bg_image_pick"))}</button>
+              <button type="button" class="btn ghost tiny" id="bgpic-clear"${picture ? "" : " hidden"}>${
+                esc(I18N.t("themes.bg_image_clear"))}</button>
+            </div>
+          </div>
+          <label class="knob" id="bgpic-dim-wrap"${picture && k.bg === "photo" ? "" : " hidden"}>
+            <span class="knob-head"><span>${esc(I18N.t("themes.bg_dim"))}</span><b id="bgpic-dim-v">${
+              AurionTheme.getBgDim()}%</b></span>
+            <input type="range" id="bgpic-dim" min="0" max="90" step="5" value="${AurionTheme.getBgDim()}"
+                   aria-label="${esc(I18N.t("themes.bg_dim"))}" />
+          </label>
+          <p class="sub" style="margin:8px 0 0">${esc(I18N.t("themes.bg_image_hint"))}</p>
+        </div>
+
+        <button type="button" class="btn ghost tiny" id="knob-reset" style="margin-top:16px">${
+          esc(I18N.t("themes.reset_this", { name: themeName(current) }))}</button>
+      </div>`;
+}
+
+/* What the page is actually painting for one of the three editable colours,
+   so an untouched swatch opens on the real colour rather than on black. */
+function themeColourNow(key) {
+  const prop = key === "page" ? "--bg" : key === "ink" ? "--ink" : "--s5";
+  try {
+    const raw = getComputedStyle(document.documentElement).getPropertyValue(prop).trim();
+    if (!raw) return key === "ink" ? "#e8edf7" : "#0b0d14";
+    // --s5 is a bare "r g b" triplet, the others are already hex.
+    if (/^\d/.test(raw)) {
+      const n = raw.split(/[\s,]+/).map(Number);
+      return "#" + n.slice(0, 3).map((v) => Math.max(0, Math.min(255, v | 0)).toString(16).padStart(2, "0")).join("");
+    }
+    return raw.startsWith("#") ? raw : (key === "ink" ? "#e8edf7" : "#0b0d14");
+  } catch {
+    return key === "ink" ? "#e8edf7" : "#0b0d14";
+  }
+}
+
+/* A theme's display name, with the id as the last resort so a theme added to
+   the table before its strings are translated still reads as something. */
+function themeName(id) {
+  const key = "themes." + id + "_name";
+  const out = I18N.t(key);
+  return out === key ? id : out;
 }
 
 /* Marking in place rather than re-rendering: rebuilding the settings tab on
@@ -463,7 +660,13 @@ function markThemeCards() {
     b.tabIndex = on ? 0 : -1;
   });
   const panel = $("set-theme-custom");
-  if (panel) panel.hidden = current !== "custom" || !themesUnlocked();
+  if (panel) {
+    panel.hidden = !themesUnlocked();
+    /* The builder follows the selection, because it edits whatever is
+       active: switching theme has to reload the sliders or they would be
+       showing - and writing - the previous theme's numbers. */
+    renderSettingsKnobs();
+  }
   paintCustomPreview();
 }
 
@@ -542,7 +745,7 @@ function bindThemesGallery() {
       if (!slider) return;
       const key = slider.dataset.knob;
       const value = Number(slider.value);
-      AurionTheme.setCustom({ [key]: value });
+      AurionTheme.edit({ [key]: value });
       const out = $("knob-v-" + key);
       if (out) {
         const suffix = key === "blur" || key === "radius" ? "px" : "%";
@@ -550,36 +753,236 @@ function bindThemesGallery() {
           ? I18N.t("themes.motion_off") : value + suffix;
       }
       if (key === "radius") paintCustomPreview();
+      markThemeEdited();
     };
-    const bg = $("knob-bg");
-    if (bg) bg.onchange = () => AurionTheme.setCustom({ bg: bg.value });
+    const tiles = $("knob-bgtiles");
+    if (tiles) tiles.onclick = (e) => {
+      const b = e.target.closest("[data-bgpick]");
+      if (!b) return;
+      AurionTheme.edit({ bg: b.dataset.bgpick });
+      renderSettingsKnobs();
+    };
+
+    const fx = $("knob-fx");
+    if (fx) fx.onchange = () => { AurionTheme.edit({ fx: fx.value }); markThemeEdited(); };
+
+    const font = $("knob-font");
+    if (font) font.onchange = () => { AurionTheme.edit({ font: font.value }); markThemeEdited(); };
+
+    /* Colours repaint live while the picker is open, which is the only way
+       to judge a colour: a swatch in a dialog tells you nothing about how
+       the same colour reads behind a table of numbers. */
+    panel.addEventListener("input", (e) => {
+      const sw = e.target.closest("[data-colour]");
+      if (!sw) return;
+      AurionTheme.edit({ [sw.dataset.colour]: sw.value });
+      const row = sw.closest("[data-colrow]");
+      const clear = row && row.querySelector("[data-colclear]");
+      if (clear) clear.hidden = false;
+      warnOnContrast();
+      markThemeEdited();
+      repaintChartsForTheme();
+    });
+
+    panel.addEventListener("click", (e) => {
+      const b = e.target.closest("[data-colclear]");
+      if (!b) return;
+      AurionTheme.edit({ [b.dataset.colclear]: "" });
+      renderSettingsKnobs();
+      repaintChartsForTheme();
+    });
     const reset = $("knob-reset");
     if (reset) reset.onclick = () => {
-      AurionTheme.resetCustom();
+      const name = themeName(AurionTheme.effective());
+      AurionTheme.reset();
       renderSettingsKnobs();
-      toast(I18N.t("themes.reset_done"));
+      toast(I18N.t("themes.reset_this_done", { name }));
     };
   }
+
+  bindBackgroundPicture();
+}
+
+/* The trader's own background picture.
+
+   It never leaves the machine: the file is read in the page, scaled down and
+   kept in this browser's storage. Scaling is not cosmetic - a modern phone
+   photo is several megabytes, and storage rejects that outright, so an
+   unscaled picture would simply fail to stick. 1920px on the long edge is
+   more than a desk background ever shows. */
+const BG_MAX_EDGE = 1920;
+
+function bindBackgroundPicture() {
+  const file = $("bgpic-file");
+  const pick = $("bgpic-pick");
+  const clear = $("bgpic-clear");
+  const dim = $("bgpic-dim");
+  if (pick && file) pick.onclick = () => file.click();
+
+  if (file) file.onchange = () => {
+    const f = file.files && file.files[0];
+    file.value = "";
+    if (!f) return;
+    shrinkImage(f, BG_MAX_EDGE).then((dataUrl) => {
+      AurionTheme.setBgImage(dataUrl);
+      // Choosing a picture means wanting to see it; selecting the backdrop
+      // by hand afterwards would be a step with only one sensible answer.
+      AurionTheme.edit({ bg: "photo" });
+      renderSettingsKnobs();
+      toast(I18N.t("themes.bg_image_set"));
+    }).catch(() => toast(I18N.t("themes.bg_image_bad")));
+  };
+
+  if (clear) clear.onclick = () => {
+    AurionTheme.setBgImage("");
+    if (AurionTheme.knobs().bg === "photo") AurionTheme.edit({ bg: "soft" });
+    renderSettingsKnobs();
+  };
+
+  if (dim) dim.oninput = () => {
+    AurionTheme.setBgDim(Number(dim.value));
+    const out = $("bgpic-dim-v");
+    if (out) out.textContent = dim.value + "%";
+  };
+}
+
+/** Read a picture file, scale its long edge down to max, return a data URL. */
+function shrinkImage(fileObj, max) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error("unreadable"));
+    reader.onload = () => {
+      const img = new Image();
+      img.onerror = () => reject(new Error("not an image"));
+      img.onload = () => {
+        try {
+          const scale = Math.min(1, max / Math.max(img.width, img.height));
+          const w = Math.max(1, Math.round(img.width * scale));
+          const h = Math.max(1, Math.round(img.height * scale));
+          const cv = document.createElement("canvas");
+          cv.width = w; cv.height = h;
+          cv.getContext("2d").drawImage(img, 0, 0, w, h);
+          // JPEG, not PNG: a photograph as PNG is several times larger and
+          // storage is the binding limit here, not fidelity.
+          resolve(cv.toDataURL("image/jpeg", 0.82));
+        } catch (err) { reject(err); }
+      };
+      img.src = String(reader.result || "");
+    };
+    reader.readAsDataURL(fileObj);
+  });
+}
+
+/* Warn, do not forbid.
+
+   A trader is allowed to make a choice we would not, but silently shipping
+   an unreadable desk is a different thing: this says so and leaves the
+   colour alone. The threshold is on perceived brightness rather than on a
+   full contrast ratio, because the warning is about "can you read this at a
+   glance", and the two colours being compared are a large text colour and
+   the surface right behind it. */
+function warnOnContrast() {
+  const warn = $("col-warn");
+  if (!warn || typeof AurionTheme === "undefined") return;
+  const c = AurionTheme.colours(AurionTheme.effective());
+  const hex = (v) => {
+    const m = /^#?([0-9a-f]{6})$/i.exec(String(v || ""));
+    if (!m) return null;
+    const n = parseInt(m[1], 16);
+    return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+  };
+  const luma = (x) => (0.2126 * x[0] + 0.7152 * x[1] + 0.0722 * x[2]) / 255;
+  const ink = hex(c.ink) || hex(themeColourNow("ink"));
+  const panel = hex(c.panel) || hex(themeColourNow("panel"));
+  warn.hidden = !(ink && panel && Math.abs(luma(ink) - luma(panel)) < 0.28);
+}
+
+/** Keep the "edited" tag beside the builder heading honest. */
+function markThemeEdited() {
+  const line = $("knob-editing");
+  if (!line || typeof AurionTheme === "undefined") return;
+  const current = AurionTheme.effective();
+  line.innerHTML = esc(I18N.t("themes.editing", { name: themeName(current) }))
+    + (AurionTheme.edited(current) ? ` \u00B7 <b>${esc(I18N.t("themes.edited_tag"))}</b>` : "");
 }
 
 /* After a reset the sliders are stale. Only their values are rewritten - the
    panel itself stays, so focus and scroll stay with it. */
 function renderSettingsKnobs() {
   if (typeof AurionTheme === "undefined") return;
-  const custom = AurionTheme.getCustom();
+  const k = AurionTheme.knobs();
   document.querySelectorAll("[data-knob]").forEach((slider) => {
     const key = slider.dataset.knob;
-    if (custom[key] === undefined) return;
-    slider.value = custom[key];
+    if (k[key] === undefined) return;
+    slider.value = k[key];
     const out = $("knob-v-" + key);
     if (out) {
       const suffix = key === "blur" || key === "radius" ? "px" : "%";
-      out.textContent = key === "motion" && Number(custom[key]) === 0
-        ? I18N.t("themes.motion_off") : custom[key] + suffix;
+      out.textContent = key === "motion" && Number(k[key]) === 0
+        ? I18N.t("themes.motion_off") : k[key] + suffix;
     }
   });
-  const bg = $("knob-bg");
-  if (bg) bg.value = custom.bg;
+
+  const picture = AurionTheme.getBgImage();
+
+  /* The gallery is rebuilt rather than marked, because the "your picture"
+     tile appears and disappears with the picture itself. */
+  const tiles = $("knob-bgtiles");
+  if (tiles) {
+    tiles.querySelectorAll("[data-bgpick]").forEach((b) => {
+      const on = b.dataset.bgpick === k.bg;
+      b.classList.toggle("on", on);
+      b.setAttribute("aria-checked", String(on));
+      b.tabIndex = on ? 0 : -1;
+    });
+    const photoTile = tiles.querySelector('[data-bgpick="photo"]');
+    if (picture && !photoTile) {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "bg-tile";
+      b.dataset.bgpick = "photo";
+      b.setAttribute("role", "radio");
+      b.setAttribute("aria-checked", "false");
+      b.tabIndex = -1;
+      b.innerHTML = `<span class="bgt-art" data-bgart="photo"></span>` +
+        `<span class="bgt-name">${esc(I18N.t("themes.bg_custom"))}</span>`;
+      b.querySelector(".bgt-art").style.backgroundImage = `url("${picture}")`;
+      tiles.appendChild(b);
+    } else if (picture && photoTile) {
+      photoTile.querySelector(".bgt-art").style.backgroundImage = `url("${picture}")`;
+    } else if (!picture && photoTile) {
+      photoTile.remove();
+    }
+  }
+
+  const colours = AurionTheme.colours(AurionTheme.effective());
+  document.querySelectorAll("[data-colour]").forEach((sw) => {
+    const key = sw.dataset.colour;
+    sw.value = colours[key] || themeColourNow(key);
+    const row = sw.closest("[data-colrow]");
+    const clear = row && row.querySelector("[data-colclear]");
+    if (clear) clear.hidden = !colours[key];
+  });
+  const font = $("knob-font");
+  if (font) font.value = colours.font || "theme";
+  const fx = $("knob-fx");
+  if (fx) fx.value = AurionTheme.fx(AurionTheme.effective());
+  warnOnContrast();
+
+  const thumb = $("bgpic-thumb");
+  if (thumb) thumb.style.backgroundImage = picture ? `url("${picture}")` : "";
+  const clear = $("bgpic-clear");
+  if (clear) clear.hidden = !picture;
+  const dimWrap = $("bgpic-dim-wrap");
+  if (dimWrap) dimWrap.hidden = !(picture && k.bg === "photo");
+  const dim = $("bgpic-dim");
+  if (dim) dim.value = AurionTheme.getBgDim();
+  const dimOut = $("bgpic-dim-v");
+  if (dimOut) dimOut.textContent = AurionTheme.getBgDim() + "%";
+
+  const reset = $("knob-reset");
+  if (reset) reset.textContent = I18N.t("themes.reset_this", { name: themeName(AurionTheme.effective()) });
+  markThemeEdited();
   paintCustomPreview();
 }
 
@@ -650,11 +1053,11 @@ function bindAppearance() {
     if (!b) return;
     if (b.dataset.locked) { toast(I18N.t("themes.locked_toast")); show("upgrade"); return; }
     AurionSkin.setAccent(b.dataset.accent);
-    // Picking an accent while the custom theme is active is part of building
-    // it, so it is remembered with the rest of that theme's knobs rather than
-    // being reset the next time the theme is applied.
-    if (typeof AurionTheme !== "undefined" && AurionTheme.effective() === "custom") {
-      AurionTheme.setCustom({ accent: b.dataset.accent }, { silent: true });
+    // Picking an accent is part of building the theme, whichever theme it
+    // is, so it is remembered with the rest of that theme's knobs rather
+    // than being reset the next time the theme is applied.
+    if (typeof AurionTheme !== "undefined") {
+      AurionTheme.edit({ accent: b.dataset.accent }, { silent: true });
     }
     markAppearancePills();
     paintCustomPreview();
@@ -720,13 +1123,23 @@ function signalHeadline(sig) {
 function signalDetail(sig) {
   const bits = [];
   const lots = signalLots(sig);
+  // The entry comes first. It is the only number that is useless a minute
+  // later, so burying it behind the lot size was the wrong order.
+  const entry = signalPrice(sig, "entry") || signalPrice(sig, "price");
   const sl = signalPrice(sig, "sl");
   const tp = signalPrice(sig, "tp");
-  if (lots) bits.push(`${I18N.t("signal.lots")} ${fmt(lots, 2)}`);
+  if (entry) bits.push(`${I18N.t("signal.entry")} ${fmt(entry, 5)}`);
   if (sl) bits.push(`${I18N.t("signal.sl")} ${fmt(sl, 5)}`);
   if (tp) bits.push(`${I18N.t("signal.tp")} ${fmt(tp, 5)}`);
+  if (lots) bits.push(`${I18N.t("signal.lots")} ${fmt(lots, 2)}`);
   if (sig.confidence) bits.push(`${I18N.t("signal.confidence")} ${Math.round(Number(sig.confidence) * 100)}%`);
   return bits.join(" · ");
+}
+
+/** "from king" — which strategy is responsible for this mark. */
+function signalSource(sig) {
+  const name = String(sig.strategy || (sig.extra && sig.extra.strategy) || "");
+  return name ? `${I18N.t("signal.from_strategy")} ${strategyLabel(name)}` : "";
 }
 
 function announceSignal(sig) {
@@ -766,9 +1179,175 @@ function notifyHost(sig) {
       body: signalDetail(sig),
       symbol: sig.symbol || "",
       timeframe: sig.timeframe || S.timeframe || "",
+      // Echoed back on click so the desk can pin the exact mark, not just
+      // the symbol - the Windows toast is a round trip through the host.
+      time: sig.time || sig.ts || "",
+      side: String(sig.action || sig.side || "").toLowerCase(),
     }));
   } catch (e) {
     /* no host: the in-desk card is the whole notification */
+  }
+}
+
+/* ---------------------------------------------------------------- sounds
+ *
+ * Entries and exits are the two moments a trader wants to hear about
+ * while they are looking at something else. Everything else - a status
+ * change, a reconnect, a saved setting - is silent and stays inside the
+ * desk, because a robot that chimes at every heartbeat gets muted, and a
+ * muted robot is one that cannot tell you it has just opened a trade.
+ *
+ * The tones are synthesized rather than shipped as audio files: no megabytes
+ * in the installer, nothing to go missing, and a sound that works the same
+ * whether the desk is served from the engine, from a folder or offline.
+ */
+const SOUNDS = {
+  none:   null,
+  chime:  { steps: [[880, 0.00, 0.12], [1320, 0.10, 0.18]], wave: "sine" },
+  ding:   { steps: [[1568, 0.00, 0.22]], wave: "sine" },
+  rise:   { steps: [[523, 0.00, 0.10], [659, 0.08, 0.10], [784, 0.16, 0.20]], wave: "triangle" },
+  fall:   { steps: [[659, 0.00, 0.12], [523, 0.10, 0.12], [392, 0.20, 0.26]], wave: "triangle" },
+  alert:  { steps: [[440, 0.00, 0.10], [440, 0.16, 0.10]], wave: "square" },
+  soft:   { steps: [[330, 0.00, 0.26]], wave: "sine" },
+};
+const SOUND_NAMES = Object.keys(SOUNDS);
+
+const NOTIFY_DEFAULTS = { entry: "chime", profit: "rise", loss: "fall", volume: 0.6, windows: true };
+
+function notifyPrefs() {
+  try {
+    const raw = JSON.parse(localStorage.getItem("aurion.notify") || "{}");
+    const out = { ...NOTIFY_DEFAULTS, ...(raw && typeof raw === "object" ? raw : {}) };
+    for (const key of ["entry", "profit", "loss"]) {
+      if (!SOUND_NAMES.includes(out[key])) out[key] = NOTIFY_DEFAULTS[key];
+    }
+    out.volume = Math.min(1, Math.max(0, Number(out.volume) || 0));
+    out.windows = out.windows !== false;
+    return out;
+  } catch (e) {
+    return { ...NOTIFY_DEFAULTS };
+  }
+}
+
+function saveNotifyPrefs(patch) {
+  const next = { ...notifyPrefs(), ...(patch || {}) };
+  localStorage.setItem("aurion.notify", JSON.stringify(next));
+  return next;
+}
+
+/** Play one named tone. Never throws: a sound is not worth an exception. */
+function playSound(name, volume) {
+  const spec = SOUNDS[name];
+  if (!spec) return;
+  const level = volume === undefined ? notifyPrefs().volume : Number(volume) || 0;
+  if (level <= 0) return;
+  try {
+    const Ctx = window.AudioContext || window.webkitAudioContext;
+    if (!Ctx) return;
+    // One context for the life of the page. Browsers cap how many a page
+    // may create, and a desk that runs for a week would hit it.
+    S._audio = S._audio || new Ctx();
+    const ctx = S._audio;
+    // Autoplay policy parks the context until the user has interacted;
+    // resuming is a no-op once it is already running.
+    if (ctx.state === "suspended") ctx.resume().catch(() => {});
+    const now = ctx.currentTime;
+    for (const [freq, at, len] of spec.steps) {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = spec.wave || "sine";
+      osc.frequency.value = freq;
+      // Shaped rather than switched: an instant start and stop on a pure
+      // tone is a click, and a click is what makes a notification sound
+      // cheap.
+      gain.gain.setValueAtTime(0.0001, now + at);
+      gain.gain.exponentialRampToValueAtTime(Math.max(0.0002, level * 0.28), now + at + 0.012);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + at + len);
+      osc.connect(gain).connect(ctx.destination);
+      osc.start(now + at);
+      osc.stop(now + at + len + 0.02);
+    }
+  } catch (e) {
+    /* no audio device, or a context the browser will not give us */
+  }
+}
+
+/* ------------------------------------------------------------- trade news */
+
+function tradeHeadline(t) {
+  const side = String(t.side || "").toUpperCase();
+  const sym = t.symbol || "";
+  if (t.kind === "entry") return `${I18N.t("notify.entry")} · ${side} ${sym}`;
+  const key = t.result === "profit" ? "notify.exit_profit" : t.result === "loss" ? "notify.exit_loss" : "notify.exit_flat";
+  return `${I18N.t(key)} · ${sym}`;
+}
+
+function tradeDetail(t) {
+  const bits = [];
+  if (t.volume) bits.push(`${fmt(t.volume, 2)} ${I18N.t("notify.lots")}`);
+  if (t.kind === "entry" && t.price) bits.push(`@ ${fmt(t.price, 5)}`);
+  if (t.kind === "exit") bits.push(`${t.profit > 0 ? "+" : ""}${fmt(t.profit, 2)} ${esc(t.currency || "")}`.trim());
+  if (t.strategy) bits.push(String(t.strategy));
+  return bits.join(" · ");
+}
+
+/**
+ * A trade opened or closed: say so out loud, on screen, and in Windows.
+ *
+ * Status changes deliberately do not come through here. They use toast(),
+ * which is silent and never leaves the window - the user asked for the
+ * difference and it is the right one: a notification that interrupts
+ * should mean money has moved.
+ */
+function announceTrade(t) {
+  if (!t || !t.kind) return;
+  const prefs = notifyPrefs();
+  const which = t.kind === "entry" ? "entry" : t.result === "loss" ? "loss" : "profit";
+  if (t.kind === "exit" && t.result === "flat") {
+    // A scratch is still an exit worth seeing, but it is not news.
+    playSound(prefs.entry === "none" ? "none" : "soft", prefs.volume);
+  } else {
+    playSound(prefs[which], prefs.volume);
+  }
+  pushTradeCard(t);
+  if (prefs.windows) notifyHostTrade(t);
+}
+
+function pushTradeCard(t) {
+  const stack = $("notify-stack");
+  if (!stack) return;
+  stack.hidden = false;
+  const id = "trade-" + (t.ticket || Date.now());
+  const tone = t.kind === "entry" ? "is-entry" : t.result === "loss" ? "is-loss" : "is-profit";
+  const card = document.createElement("article");
+  card.className = "notify-card trade-card " + tone;
+  card.setAttribute("data-nid", id);
+  card.innerHTML =
+    `<button type="button" class="n-x" data-nx="${esc(id)}" aria-label="${esc(I18N.t("notify.dismiss"))}">×</button>` +
+    `<h4>${esc(tradeHeadline(t))}</h4>` +
+    `<p class="sub">${esc(tradeDetail(t))}</p>`;
+  stack.prepend(card);
+  if (typeof bindSwipe === "function") bindSwipe(card);
+  while (stack.children.length > 4) stack.lastElementChild.remove();
+  card.querySelector(".n-x").onclick = () => card.remove();
+  setTimeout(() => card.remove(), 12000);
+}
+
+/** The Windows toast, via the desktop host. Entries and exits only. */
+function notifyHostTrade(t) {
+  try {
+    const bridge = window.chrome && window.chrome.webview;
+    if (!bridge || typeof bridge.postMessage !== "function") return;
+    bridge.postMessage(JSON.stringify({
+      type: "trade",
+      title: tradeHeadline(t),
+      body: tradeDetail(t),
+      symbol: t.symbol || "",
+      timeframe: S.timeframe || "",
+      level: t.kind === "exit" && t.result === "loss" ? "warning" : "info",
+    }));
+  } catch (e) {
+    /* running in a plain browser: the on-screen card is the notification */
   }
 }
 
@@ -784,8 +1363,9 @@ function pushSignalCard(sig) {
     `<button type="button" class="n-x" data-nx="${esc(id)}" aria-label="${esc(I18N.t("notify.dismiss"))}">×</button>` +
     `<h4>${esc(signalHeadline(sig))}</h4>` +
     `<p class="sub">${esc(signalDetail(sig) || I18N.t("signal.no_levels"))}</p>` +
+    (signalSource(sig) ? `<p class="sub dim">${esc(signalSource(sig))}</p>` : "") +
     `<button type="button" class="btn tiny" data-sig-open="${esc(sig.symbol || "")}"
-             data-sig-tf="${esc(sig.timeframe || "")}">${esc(I18N.t("signal.open_chart"))}</button>`;
+             data-sig-tf="${esc(sig.timeframe || "")}">${esc(I18N.t("signal.open_ea_chart"))}</button>`;
   stack.prepend(card);
   bindSwipe(card);
 
@@ -793,20 +1373,58 @@ function pushSignalCard(sig) {
   while (stack.children.length > 4) stack.lastElementChild.remove();
 
   card.querySelector("[data-sig-open]").onclick = () => {
-    openSignalChart(sig.symbol, sig.timeframe);
+    openSignalChart(sig.symbol, sig.timeframe, sig);
     card.remove();
   };
   card.querySelector(".n-x").onclick = () => card.remove();
 }
 
-/** Take the trader to the chart the signal is about. */
-function openSignalChart(symbol, timeframe) {
-  if (symbol) S.symbol = symbol;
-  if (timeframe) S.timeframe = timeframe;
-  show("markets", { animate: true, closeMenu: true });
-  if (symbol) {
-    try { pickMarket(symbol, timeframe || S.timeframe); } catch (e) { /* view will catch up */ }
+/**
+ * Take the trader to the EA chart the signal is about.
+ *
+ * It used to open the Markets view, which is the symbol browser: the right
+ * instrument, but a different chart from the one the EA is attached to, and
+ * without the tools or the signal overlay. Clicking a notification should
+ * land on the chart where the trade would be managed, with the signal that
+ * sent you there already highlighted.
+ */
+function openSignalChart(symbol, timeframe, sig) {
+  if (!symbol) { show("charts", { animate: true, closeMenu: true }); return; }
+  // Remembered so bindChartDesk can pin the card once the signals for this
+  // symbol have actually loaded - they are fetched asynchronously and are
+  // not here yet at this point.
+  S.pendingSignal = sig && typeof sig === "object" ? { ...sig, symbol } : null;
+  // Landing on a chart with the overlay switched off would answer nothing,
+  // so following a signal turns the signals back on.
+  if (S.pendingSignal) {
+    S.signalsEnabled = true;
+    S.showSignals = true;
+    localStorage.setItem("aurion.signalsEnabled", "1");
   }
+  openChartDesk(symbol, timeframe || S.timeframe);
+  if (S.pendingSignal) fetchChartSignals(symbol, timeframe || S.timeframe);
+}
+
+/**
+ * Put the card for a just-arrived signal on screen without the trader
+ * having to find the arrow and hover it.
+ *
+ * Matched on time first and index second, because the replayed history and
+ * the live bus number their bars differently; the time is the only identity
+ * both agree on.
+ */
+function pinPendingSignal() {
+  const want = S.pendingSignal;
+  if (!want || !S.chart || typeof S.chart.pinSignal !== "function") return;
+  const list = S.chartSignals || [];
+  if (!list.length) return;
+  const side = String(want.action || want.side || "").toLowerCase();
+  const match =
+    list.find((s) => want.time && s.time === want.time && s.type === side) ||
+    list.filter((s) => s.type === side).slice(-1)[0] ||
+    list[list.length - 1];
+  if (match) S.chart.pinSignal(match);
+  S.pendingSignal = null;
 }
 
 /* The host posts back when its toast is clicked, and tells us whether the
@@ -822,7 +1440,7 @@ function bindHostBridge() {
       }
       if (!msg || typeof msg !== "object") return;
       if (msg.type === "visibility") window.__aurionWindowHidden = Boolean(msg.hidden);
-      if (msg.type === "open-signal") openSignalChart(msg.symbol, msg.timeframe);
+      if (msg.type === "open-signal") openSignalChart(msg.symbol, msg.timeframe, msg.time || msg.side ? msg : null);
     });
   } catch (e) {
     /* running in a browser, not the desk window */
@@ -840,7 +1458,24 @@ function dismissCalendarCard() {
   try { if (window.Calendar && typeof Calendar.unpin === "function") Calendar.unpin(); } catch {}
 }
 
+/**
+ * True when the renderer has already decided there will be no blur.
+ *
+ * The fast tier - picked by the trader or detected on a machine that
+ * cannot afford thirty blurred layers - strips every backdrop-filter.
+ * The liquid-glass switch cannot put them back, so offering it as a live
+ * control means flipping it does nothing and the desk looks broken.
+ */
+function glassForced() {
+  try {
+    return window.AurionSkin && AurionSkin.effectivePerf() === "fast";
+  } catch { return false; }
+}
+
 function glassOn() {
+  // A forced-off renderer is reported as off, so the switch and the
+  // surfaces agree with what is actually on screen.
+  if (glassForced()) return false;
   if (document.documentElement && document.documentElement.dataset.glass) {
     return document.documentElement.dataset.glass !== "off";
   }
@@ -850,8 +1485,11 @@ function paintGlassSwitch() {
   const sw = $("sw-glass");
   if (!sw) return;
   const on = glassOn();
+  const forced = glassForced();
   sw.classList.toggle("on", on);
   sw.setAttribute("aria-pressed", on ? "true" : "false");
+  sw.disabled = forced;
+  sw.setAttribute("aria-disabled", forced ? "true" : "false");
 }
 function setGlassNow(on) {
   const next = on ? "on" : "off";
@@ -1652,6 +2290,16 @@ function bindCloseButtons(root) {
   });
 }
 
+function eaStale() {
+  const ea = (S.snap && S.snap.experts) || {};
+  return Array.isArray(ea.stale) ? ea.stale : [];
+}
+
+function eaStaleLabel() {
+  const ea = (S.snap && S.snap.experts) || {};
+  return I18N.t("ea.stale_pill", { n: eaStale().length, v: String(ea.version || "") });
+}
+
 function patchLive() {
   const v = S.view;
   paintNavAcc();
@@ -1674,6 +2322,14 @@ function patchLive() {
     if (cmdMt) cmdMt.innerHTML = `<i class="dot dot-mt5 ${mt5Live() ? "live" : "down"}"></i><span>${I18N.t(mt5Live() ? "status.mt5_live" : "status.mt5_down")}</span>`;
     const cmdEa = $("cmd-ea");
     if (cmdEa) cmdEa.textContent = I18N.t("status.ea_attached", { n: liveAgents().length });
+    // An expert older than the one this build ships is worth saying on the
+    // front page, not only on a settings tab nobody opens twice a year.
+    const eaVer = $("wiz-eaver");
+    if (eaVer) {
+      const stale = eaStale();
+      eaVer.hidden = stale.length === 0;
+      if (stale.length) eaVer.textContent = eaStaleLabel();
+    }
     const strip = $("conn-strip");
     if (strip) {
       const eng = strip.querySelector(".pill-engine");
@@ -1695,8 +2351,6 @@ function patchLive() {
     paintPositions("live-pos", pos, ["symbol","type","volume","strategy","price_open","price_current","sl","tp","profit","profit_pct"], true);
     applyChartLevels();
     paintChartSlider("ol", outlookSlideInnerHtml);
-    const ai = $("live-ai");
-    if (ai) ai.innerHTML = aiBlock(S.snap?.ai);
   }
   if (v === "markets") {
     fillSymbolSelect("sym", S.symbol);
@@ -1816,6 +2470,17 @@ function patchLive() {
     paintSwitch($("prop-enable"), propOn);
     const psub = $("prop-enable-sub");
     if (psub) psub.textContent = I18N.t(propOn ? "risk.prop_on" : "risk.prop_off");
+    const rfLive = S.snap?.strategy?.risk_free || {};
+    paintSwitch($("st-rf"), rfLive.enabled);
+    const rfSteps = $("st-rf-steps");
+    if (rfSteps && document.activeElement !== rfSteps) {
+      rfSteps.value = rfLive.steps ?? 3;
+      const n = $("st-rf-steps-n");
+      if (n) n.textContent = String(rfSteps.value);
+      const ladder = $("st-rf-ladder");
+      if (ladder) ladder.innerHTML = rfLadderHtml(rfLive);
+    }
+
     const dgLive = S.snap?.strategy?.danger_guard || {};
     paintSwitch($("st-danger"), dgLive.enabled);
     const dgSwLive = $("st-danger");
@@ -1890,11 +2555,21 @@ function patchStrategyLive() {
     const wl = document.querySelector('[data-st-wl="' + it.name + '"]');
     const pf = document.querySelector('[data-st-pf="' + it.name + '"]');
     const avg = document.querySelector('[data-st-avg="' + it.name + '"]');
+    const state = stState(it);
+    const dot = document.querySelector('[data-st-dot="' + it.name + '"]');
     if (act) {
-      act.textContent = it.last_action || "idle";
-      act.className = "mono " + (it.last_action === "buy" ? "up" : it.last_action === "sell" ? "down" : "");
+      act.textContent = state.act || "idle";
+      act.className = "mono " + stActClass(state.act);
     }
-    if (ev && it.last_reason) ev.textContent = it.last_reason;
+    if (dot) dot.classList.toggle("is-live", !!state.live);
+    if (ev && state.why) {
+      ev.textContent = state.why;
+      // Hovering the line gives the running tally, so a desk that has been
+      // quiet all session can be read at a glance: one rule doing all the
+      // refusing is a setting to change, a spread of rules is just a slow market.
+      const tally = refusalTally(it);
+      if (tally) ev.setAttribute("title", tally); else ev.removeAttribute("title");
+    }
     if (on || sw) paintStrategyEnabled(it.name, it.enabled);
     if (wr) wr.textContent = fmt(it.win_rate || 0, 1) + "%";
     if (net) {
@@ -2051,7 +2726,6 @@ function stAbout(name) {
     ema_rsi: "strategies.ema_rsi_about",
     price_action: "strategies.price_action_about",
     atr_breakout: "strategies.atr_breakout_about",
-    scalp_impulse: "strategies.scalp_about",
   };
   return I18N.t(about[name] || "strategies.active");
 }
@@ -2092,7 +2766,7 @@ function chartTicketHtml() {
       </div>
       <div class="ct-grid ct-grid-3">
         <label class="field"><span>${I18N.t("exec.volume")}</span>
-          <input id="ct-vol" type="number" step="0.01" min="0.01" value="${esc(t.vol || "0.10")}" />
+          <input id="ct-vol" type="number" step="0.01" min="0.01" value="${esc(String(t.vol || ticketLot()))}" />
         </label>
         <label class="field"><span>${I18N.t("exec.sl")}</span>
           <input id="ct-sl" type="number" step="0.0001" value="${esc(t.sl || "")}" placeholder="${esc(I18N.t("exec.chart_click"))}" />
@@ -2113,10 +2787,90 @@ function chartTicketHtml() {
       <p class="sub" id="ct-msg"></p>
     </div>`;
 }
+/**
+ * The lot size, from the one place that owns it.
+ *
+ * There used to be two: Settings persisted `manual_volume` on the
+ * engine, while the manual ticket and the EA chart each started from a
+ * hard-coded 0.10 and remembered their own value in the page. Changing
+ * the lot in Settings left the ticket on its old number, so "my lot is
+ * 0.01" and "the ticket says 0.10" were both true at once.
+ */
+function deskLot() {
+  const st = (S.snap && S.snap.strategy) || {};
+  const v = Number(st.manual_volume);
+  return v > 0 ? v : 0.10;
+}
+
+/** Lot the ticket should show: what the user last typed, else the setting. */
+function ticketLot() {
+  const typed = Number((S.ticket || {}).vol);
+  return typed > 0 ? typed : deskLot();
+}
+
+/**
+ * Push a lot change back to the engine so every panel agrees.
+ *
+ * Called from the ticket and the EA chart, which previously could only
+ * change their own copy. Quiet and debounced: this fires on every edit
+ * of a number field.
+ */
+let _lotSaveTimer = null;
+function persistLot(value) {
+  const v = Number(value);
+  if (!(v > 0)) return;
+  if (Math.abs(v - deskLot()) < 1e-9) return;
+  clearTimeout(_lotSaveTimer);
+  _lotSaveTimer = setTimeout(async () => {
+    const r = await API.post("/api/auto", { manual_volume: v });
+    if (r && r.ok) {
+      // Keep the local snapshot honest straight away, so a re-render
+      // before the next poll does not flash the old number back.
+      if (S.snap && S.snap.strategy) S.snap.strategy.manual_volume = v;
+      paintLotEverywhere(v);
+    }
+  }, 350);
+}
+
+/** Mirror one lot value into every lot input on the page. */
+function paintLotEverywhere(v) {
+  ["ct-vol", "st-vol"].forEach((id) => {
+    const el = $(id);
+    if (el && document.activeElement !== el && Number(el.value) !== Number(v)) {
+      el.value = String(v);
+    }
+  });
+}
+
+/**
+ * The protection ladder, written as targets rather than as a number.
+ *
+ * This panel used to show "0.20" - a percentage of the entry price -
+ * which says nothing about when the stop actually moves. The rungs are
+ * evenly spaced on the way to the trade's own target, so they can be
+ * named: reaching TP1 locks the entry, TP2 locks TP1, and so on. Same
+ * arithmetic as runtime/stops.py, just said out loud.
+ */
+function rfLadderHtml(rf) {
+  const rungs = (rf && rf.rungs) || [];
+  if (!rungs.length) return "";
+  return rungs.map((r) => {
+    const to = r.moves_to === "entry"
+      ? I18N.t("strategies.rf_to_entry")
+      : String(r.moves_to || "").toUpperCase();
+    return `<div class="rf-rung">
+      <b class="rf-rung-tag">${esc(String(r.label || "").toUpperCase())}</b>
+      <span class="rf-rung-arrow" aria-hidden="true">&rarr;</span>
+      <span class="rf-rung-to">${esc(to)}</span>
+      <span class="sub rf-rung-at">${I18N.t("strategies.rf_rung_at", { pct: Math.round((r.fraction || 0) * 100) })}</span>
+    </div>`;
+  }).join("");
+}
+
 function rememberTicket() {
   S.ticket = {
     strategy: "@" + operatorName(),
-    vol: String($("ct-vol")?.value || "0.10"),
+    vol: String($("ct-vol")?.value || deskLot()),
     sl: String($("ct-sl")?.value || ""),
     tp: String($("ct-tp")?.value || ""),
   };
@@ -2205,8 +2959,14 @@ function bindChartTicket() {
   ["ct-vol", "ct-sl", "ct-tp"].forEach((id) => {
     const el = $(id);
     if (!el) return;
-    el.addEventListener("change", () => { rememberTicket(); syncChartPending(); });
-    el.addEventListener("input", () => { rememberTicket(); syncChartPending(); });
+    const touched = () => {
+      rememberTicket();
+      syncChartPending();
+      // A lot typed here is the lot everywhere, not just on this ticket.
+      if (id === "ct-vol") persistLot(el.value);
+    };
+    el.addEventListener("change", touched);
+    el.addEventListener("input", touched);
   });
   const arm = (kind) => {
     S._pickLevel = kind;
@@ -2242,13 +3002,38 @@ function bindChartTicket() {
   const sell = $("ct-sell"); if (sell) sell.onclick = () => fire("sell");
   syncChartPending();
 }
+function stState(it) {
+  // What the card should say *now*.
+  //
+  // The card used to show last_action, which only moves when a candle
+  // closes and an order is attempted — so a working robot looked asleep
+  // for fourteen minutes out of every fifteen, and "hold" was shown both
+  // for "the strategy sees nothing" and for "the desk refused it".
+  // The engine's watch pass fills live_action every couple of seconds;
+  // a real decision (an order, or a refusal) outranks it for a minute,
+  // because that is the thing the trader needs to read.
+  const liveAt = Date.parse(it.live_ts || "") || 0;
+  const lastAt = Date.parse(it.last_ts || "") || 0;
+  const fresh = lastAt && Date.now() - lastAt < 60000 && lastAt + 1000 >= liveAt;
+  if (fresh && it.last_action) {
+    return { act: it.last_action, why: it.last_reason || "", live: false };
+  }
+  if (it.live_action) {
+    return { act: it.live_action, why: it.live_reason || "", live: true };
+  }
+  return { act: it.last_action || "idle", why: it.last_reason || "", live: false };
+}
+
+function stActClass(act) {
+  return act === "buy" ? "up" : act === "sell" ? "down" : act === "blocked" ? "warn" : "";
+}
+
 function strategyItems() {
   const st = S.snap?.strategy || {};
   const items = st.items && st.items.length ? st.items : [
     {name:"ema_rsi", enabled:false, last_action:"idle"},
     {name:"price_action", enabled:false, last_action:"idle"},
     {name:"atr_breakout", enabled:false, last_action:"idle"},
-    {name:"scalp_impulse", enabled:false, last_action:"idle"},
   ];
   return items;
 }
@@ -2282,8 +3067,9 @@ function strategyUploadCard() {
 }
 function strategyLiveCards() {
   return strategyItems().map((it) => {
-    const act = it.last_action || "idle";
-    const cls = act === "buy" ? "up" : act === "sell" ? "down" : "";
+    const state = stState(it);
+    const act = state.act || "idle";
+    const cls = stActClass(act);
     const custom = (it.kind || "builtin") !== "builtin";
     return `<div class="card st-card${it.enabled ? "" : " is-off"}" data-st-card="${esc(it.name)}">
       <div class="st-top">
@@ -2295,7 +3081,9 @@ function strategyLiveCards() {
       </div>
       <div class="st-live">
         <span class="pill ${it.enabled?"on":""}" data-st-on="${esc(it.name)}">${it.enabled ? I18N.t("strategies.enable") : I18N.t("strategies.disable")}</span>
-        <b class="mono ${cls}" data-st-act="${esc(it.name)}">${act}</b>
+        <b class="mono ${cls}" data-st-act="${esc(it.name)}">${esc(act)}</b>
+        <i class="st-dot${state.live ? " is-live" : ""}" data-st-dot="${esc(it.name)}"
+           title="${I18N.t("strategies.live_hint")}"></i>
         <span class="pill ghost">${I18N.t(custom ? "strategies.custom" : "strategies.builtin_tag")}</span>
       </div>
       <div class="st-stats">
@@ -2311,13 +3099,19 @@ function strategyLiveCards() {
         <div><span>${I18N.t("strategies.avg")}</span>
           <b class="mono ${clsPnl(it.avg)}" data-st-avg="${esc(it.name)}">${fmt(it.avg || 0)}</b></div>
       </div>
-      <p class="sub" data-st-eval="${esc(it.name)}">${it.last_reason || I18N.t("strategies.waiting")}</p>
+      <p class="sub" data-st-eval="${esc(it.name)}" title="${esc(refusalTally(it))}">${esc(state.why) || I18N.t("strategies.waiting")}</p>
       ${custom ? `<div class="row st-mng">
         <button type="button" class="btn tiny ghost" data-st-edit="${esc(it.name)}">${I18N.t("strategies.edit")}</button>
         <button type="button" class="btn tiny ghost st-del" data-st-del="${esc(it.name)}">${I18N.t("strategies.delete")}</button>
       </div>` : ""}
     </div>`;
   }).join("");
+}
+
+function refusalTally(it) {
+  const rows = Array.isArray(it && it.refusals) ? it.refusals : [];
+  if (!rows.length) return "";
+  return rows.map(r => `${r.reason} × ${r.count}`).join("\n");
 }
 
 function strategyEditorEls() {
@@ -2564,6 +3358,28 @@ function slotsDemoHtml(min, cap) {
  * it would do. Three things are said instead: what the number decides, what
  * the number is made of, and what the last signal actually scored.
  */
+/**
+ * The last time a signal was produced and did NOT become an order.
+ *
+ * This is the answer to "why is the robot not trading". It used to exist
+ * only as one line in the journal, under six different kinds, so the
+ * honest answer took scrolling and a guess. The engine now keeps the last
+ * refusal; this shows it where the setting that caused it lives.
+ */
+function blockHtml(st) {
+  const b = st.last_block || {};
+  if (!b.why) return "";
+  const what = [b.side, b.symbol].filter(Boolean).join(" ").toUpperCase();
+  return `<div class="q-block">
+      <div class="q-last-head">
+        <span>${I18N.t("slots.block_title")}</span>
+        <b class="mono">${esc(b.code || "")}</b>
+      </div>
+      <p class="sub">${esc([b.strategy, what].filter(Boolean).join(" · "))}</p>
+      <p>${esc(b.why)}</p>
+    </div>`;
+}
+
 function qualityHtml(st) {
   const v = st.min_signal_quality ?? 0.55;
   const pct = Math.round(v * 100);
@@ -2573,12 +3389,11 @@ function qualityHtml(st) {
   /* The weights are the engine's, not a description of them: see
      signal_quality() in engine/aurion/runtime/trader.py. */
   const parts = [
-    ["slots.q_ai", "+30"],
-    ["slots.q_htf", "±18"],
-    ["slots.q_strategy", "+10"],
-    ["slots.q_edge", "+10"],
-    ["slots.q_regime", "±8"],
-    ["slots.q_chop", "−10"],
+    ["slots.q_ai", "×1.2"],
+    ["slots.q_htf", "×1.0"],
+    ["slots.q_strategy", "×1.0"],
+    ["slots.q_regime", "×0.5"],
+    ["slots.q_chop", "×0.5"],
   ];
 
   return `<div class="field">
@@ -2598,6 +3413,7 @@ function qualityHtml(st) {
       </ol>
     </div>
 
+    ${blockHtml(st)}
     ${hasLast ? `<div class="q-last ${last.passed ? "ok" : "no"}">
       <div class="q-last-head">
         <span>${I18N.t("slots.q_last")}</span>
@@ -2662,6 +3478,8 @@ function robotPanelHtml() {
   const newsPrem = licFeat("news");
   const propOn = (S.snap?.prop || {}).enabled !== false;
   const dg = st.danger_guard || {};
+  const rf = st.risk_free || {};
+  const money = st.money || {};
   const auto = Boolean(st.auto_trade);
 
   return `<div class="card robot-hero${auto ? " is-on" : ""}">
@@ -2713,6 +3531,23 @@ function robotPanelHtml() {
         ${newsPrem ? "" : `<p class="sub lock-note">${I18N.t("lock.news")} <a href="#" data-go-upgrade>${I18N.t("lic.upgrade_cta")}</a></p>`}
       </div>
 
+      <div class="card" id="set-autoentry">
+        ${switchRow({
+          id: "st-autoentry",
+          title: I18N.t("autoentry.title"),
+          sub: I18N.t("autoentry.help"),
+          subId: "st-autoentry-sub",
+          on: Boolean(st.auto_entry),
+        })}
+        <ul class="set-list">
+          <li>${I18N.t("autoentry.point_pending")}</li>
+          <li>${I18N.t("autoentry.point_levels")}</li>
+          <li>${I18N.t("autoentry.point_expiry", { m: st.auto_entry_expiry ?? 120 })}</li>
+        </ul>
+        <p class="sub">${I18N.t("autoentry.tradeoff")}</p>
+        ${st.auto_entry && st.pending_orders ? `<p class="sub">${I18N.t("autoentry.waiting", { n: st.pending_orders })}</p>` : ""}
+      </div>
+
       <div class="card">
         <h3 class="card-h">${I18N.t("strategies.lot_title")}
           ${!licFeat("volume_mode") ? `<span class="pill no">${I18N.t("themes.premium_tag")}</span>` : ""}</h3>
@@ -2733,10 +3568,43 @@ function robotPanelHtml() {
         <p class="sub">${I18N.t("strategies.ai_gate_help")}</p>
         <hr class="set-rule" />
         ${switchRow({ id: "st-ai", title: I18N.t("strategies.ai_gate_switch"), on: st.require_ai_agree !== false })}
-        <div class="field" style="margin-top:10px"><span class="conf-head">${I18N.t("strategies.min_conf")}<b class="mono conf-pct" id="st-conf-pct">${Math.round((st.min_ai_confidence ?? 0.55) * 100)}%</b></span>
-          <input id="st-conf" type="range" step="0.01" min="0.05" max="0.95" value="${st.min_ai_confidence ?? 0.55}" />
+        <div class="field" style="margin-top:10px"><span class="conf-head">${I18N.t("strategies.min_conf")}<b class="mono conf-pct" id="st-conf-pct">${Math.round((st.min_ai_confidence ?? 0.35) * 100)}%</b></span>
+          <input id="st-conf" type="range" step="0.01" min="0.05" max="0.95" value="${st.min_ai_confidence ?? 0.35}" />
         </div>
         <p class="sub" id="ai-conf-why">${I18N.t("strategies.min_conf_help")}</p>
+        ${aiCeilingWarning(st)}
+      </div>
+
+      <div class="card">
+        ${switchRow({
+          id: "st-rf",
+          title: I18N.t("strategies.rf_title"),
+          sub: I18N.t("strategies.rf_help"),
+          subId: "st-rf-sub",
+          on: rf.enabled,
+        })}
+        <div class="field" style="margin-top:10px">
+          <span class="conf-head">${I18N.t("strategies.rf_steps")}<b class="mono conf-pct" id="st-rf-steps-n">${rf.steps ?? 3}</b></span>
+          <input id="st-rf-steps" type="range" step="1" min="1" max="5" value="${rf.steps ?? 3}" />
+        </div>
+        <div id="st-rf-ladder" class="rf-ladder">${rfLadderHtml(rf)}</div>
+        <p class="sub">${I18N.t("strategies.rf_ladder_help")}</p>
+      </div>
+
+      <div class="card" id="set-money">
+        <h3 class="card-h">${I18N.t("money.title")}</h3>
+        <p class="sub">${I18N.t("money.help")}</p>
+        <hr class="set-rule" />
+        <label class="field num-field">
+          <span>${I18N.t("money.cap")}</span>
+          <span class="num-wrap">
+            <input id="st-money-cap" type="number" step="0.5" min="0" value="${Number(money.max_loss_per_lot ?? 10)}" />
+            <b class="num-unit">${esc(money.currency || I18N.t("money.unit"))} / ${I18N.t("money.per_lot")}</b>
+          </span>
+        </label>
+        <p class="sub" id="st-money-reach">${esc(moneyReach(money))}</p>
+        <button class="btn tiny" id="st-money-save" type="button">${I18N.t("money.save")}</button>
+        <p class="sub">${I18N.t("money.zero_off")}</p>
       </div>
 
       <div class="card">
@@ -2755,6 +3623,197 @@ function robotPanelHtml() {
       </div>
     </div>
 `;
+}
+
+/**
+ * The AI cannot always reach the number the slider is set to.
+ *
+ * Its confidence is pulled back towards "no information" in proportion
+ * to the edge the model has measured out of sample, so it has a
+ * ceiling - about 53% before any edge has been measured. A minimum set
+ * above that is not a strict filter; it is an off switch, and the log
+ * line it produces ("AI confidence 0.31 is under the 0.55 you asked
+ * for") reads like the market's fault rather than the slider's. So the
+ * desk says it where the slider is, before the trader waits a week for
+ * an entry that arithmetic has already refused.
+ */
+function aiCeilingWarning(st) {
+  st = st || {};
+  if (st.require_ai_agree === false) return "";
+  const ceiling = Number((S.snap?.ai || {}).ceiling || 0);
+  const want = Number(st.min_ai_confidence ?? 0.35);
+  if (!(ceiling > 0) || ceiling >= want) return "";
+  return `<p class="sub warn" id="ai-conf-ceiling">${I18N.t("strategies.min_conf_unreachable", {
+    want: Math.round(want * 100),
+    can: Math.round(ceiling * 100),
+  })}</p>`;
+}
+
+/**
+ * "At this cap, the widest stop on the live symbol is N points."
+ *
+ * A cap in money is the right unit to think in and the wrong one to
+ * read a chart in, so the desk says both. Where the broker has not
+ * reported a tick value the line says that instead of a number: a
+ * made-up distance would be worse than an empty one.
+ */
+function moneyReach(money) {
+  money = money || {};
+  if (!Number(money.max_loss_per_lot)) return I18N.t("money.off");
+  if (!money.priced) return I18N.t("money.unpriced");
+  return I18N.t("money.reach", {
+    s: money.symbol || "",
+    p: money.max_stop_points == null ? "—" : money.max_stop_points,
+    d: money.max_stop_distance == null ? "—" : money.max_stop_distance,
+  });
+}
+
+/**
+ * The desk clock.
+ *
+ * In System rather than in prop risk, because which hours a prop firm
+ * allows is their rule and what time it is where you sit is not. Asking
+ * the same question once per profile is how the answers start
+ * disagreeing with each other.
+ *
+ * "Broker time" is the default and is not a question at all: MetaTrader
+ * stamps every tick with its server's clock, so the offset is worked
+ * out rather than asked for. It is the right default because prop
+ * trading hours are quoted in broker time by the firms themselves.
+ */
+/**
+ * The MetaTrader side of the install: which experts AURION ships, which
+ * version each attached chart is actually running, and how to install them.
+ *
+ * AURION can update itself. The two .mq5 files inside MetaTrader cannot:
+ * only the person at the terminal can recompile and re-attach them. So an
+ * update used to leave the desk talking a newer protocol to an older
+ * expert, silently, with everything still showing "connected". The card
+ * puts both numbers side by side and says plainly when they differ.
+ */
+function expertsCardHtml() {
+  const ea = (S.snap && S.snap.experts) || {};
+  const ships = Array.isArray(ea.shipped) ? ea.shipped : [];
+  const charts = Array.isArray(ea.charts) ? ea.charts : [];
+  const stale = Array.isArray(ea.stale) ? ea.stale : [];
+  const shipped = String(ea.version || "—");
+
+  const warn = stale.length ? `<div class="ea-warn" id="ea-warn">
+      <b>${I18N.t("ea.outdated_title")}</b>
+      <p>${I18N.t("ea.outdated_body", { shipped: esc(shipped) })}</p>
+      <ul>${stale.map((c) => `<li><span class="mono">${esc(c.symbol || "—")} ${esc(c.timeframe || "")}</span>
+        — ${I18N.t("ea.running", { v: esc(c.version || "?") })}</li>`).join("")}</ul>
+    </div>` : "";
+
+  const rows = ships.map((x) => {
+    const file = String(x.file || "");
+    const bad = !x.available;
+    return `<div class="ea-row${bad ? " is-missing" : ""}">
+      <div>
+        <b class="mono">${esc(file)}</b>
+        <span class="pill ${x.required ? "" : "ghost"}">${I18N.t(x.required ? "ea.required" : "ea.optional")}</span>
+        <p class="sub">${I18N.t("ea." + String(x.id || "bridge") + "_about")}</p>
+      </div>
+      <div class="ea-row-end">
+        <b class="mono">v${esc(x.version || "—")}</b>
+        <button type="button" class="btn tiny ghost" data-ea-save="${esc(String(x.id || ""))}"
+          ${bad ? "disabled" : ""}>${I18N.t("ea.save_file")}</button>
+      </div>
+    </div>`;
+  }).join("");
+
+  const chartRows = charts.length
+    ? charts.map((c) => {
+        const cls = c.state === "ok" ? "ok" : c.state === "newer" ? "" : "no";
+        const word = I18N.t("ea.state_" + (c.state === "ok" ? "ok" : c.state === "newer" ? "newer" : c.state === "unknown" ? "unknown" : "old"));
+        return `<div class="ea-chart">
+          <span class="mono">${esc(c.symbol || "—")} ${esc(c.timeframe || "")}</span>
+          <span class="sub">${esc(c.ea_name || "AurionBridge")}${c.tester ? " · " + I18N.t("ea.tester") : ""}</span>
+          <b class="mono">v${esc(c.version || "?")}</b>
+          <span class="pill ${cls}">${word}</span>
+        </div>`;
+      }).join("")
+    : `<p class="sub">${I18N.t("ea.no_charts")}</p>`;
+
+  // If the installer already copied the files next to MetaTrader, say so:
+  // it turns "go and find the folder" into "press F7".
+  const inst = (ea.installed && ea.installed.folders && ea.installed.folders.length) ? ea.installed : null;
+  const copied = inst ? `<p class="sub ea-copied">${I18N.t("ea.copied", {
+    n: inst.folders.length,
+    v: esc(String(inst.version || "")),
+    at: esc(String(inst.at || "").replace("T", " ").slice(0, 16)),
+  })}</p>` : "";
+
+  const steps = [1, 2, 3, 4, 5, 6].map((n) => `<li>${I18N.t("ea.step" + n, {
+    folder: esc(String(ea.folder || "MQL5/Experts/Aurion")),
+    port: esc(String(ea.http_port_hint || 18765)),
+    v: esc(shipped),
+  })}</li>`).join("");
+
+  return `<div class="card" id="ea-card">
+      <h3>${I18N.t("ea.title")}</h3>
+      <p class="sub">${I18N.t("ea.help", { v: esc(shipped) })}</p>
+      ${warn}
+      <div class="ea-list">${rows || `<p class="sub">${I18N.t("ea.none_shipped")}</p>`}</div>
+      ${copied}
+      <h4 class="ea-sub">${I18N.t("ea.attached")}</h4>
+      <div class="ea-charts">${chartRows}</div>
+      <details class="ea-guide">
+        <summary>${I18N.t("ea.guide_title")}</summary>
+        <ol>${steps}</ol>
+        <p class="sub">${I18N.t("ea.guide_note")}</p>
+      </details>
+      <p class="sub ea-upd-note" id="ea-upd-note" hidden></p>
+    </div>`;
+}
+
+function timezoneCardHtml() {
+  const sys = S.snap?.strategy?.system || {};
+  const current = String(sys.timezone || "UTC");
+  const choices = Array.isArray(sys.choices) && sys.choices.length
+    ? sys.choices
+    : [{ group: "", id: "UTC", city: "UTC", offset: "+00:00" }];
+
+  // The engine sends objects now: a city, the offset in force today and
+  // the region to group under. A raw "Asia/Tehran" is a database key;
+  // "Tehran (+03:30)" is where somebody lives.
+  const label = (z) => {
+    if (z.id === "broker") {
+      return z.offset ? `${I18N.t("sys.tz_broker")} ${z.offset}` : I18N.t("sys.tz_broker");
+    }
+    if (z.id === "local") return I18N.t("sys.tz_local");
+    return z.offset ? `${z.city} (${z.offset})` : z.city;
+  };
+
+  const groups = [];
+  for (const z of choices) {
+    const key = z.group || "";
+    let bucket = groups.find((g) => g.key === key);
+    if (!bucket) { bucket = { key, items: [] }; groups.push(bucket); }
+    bucket.items.push(z);
+  }
+
+  const options = groups.map((g) => {
+    const opts = g.items.map((z) =>
+      `<option value="${esc(z.id)}"${z.id === current ? " selected" : ""}>${esc(label(z))}</option>`
+    ).join("");
+    return g.key ? `<optgroup label="${esc(g.key)}">${opts}</optgroup>` : opts;
+  }).join("");
+
+  const known = sys.broker_offset_minutes;
+  const detail = current === "broker" && known === null
+    ? I18N.t("sys.tz_broker_waiting")
+    : I18N.t("sys.tz_now", { z: esc(sys.label || current) });
+
+  return `<div class="card">
+      <h3>${I18N.t("sys.tz_title")}</h3>
+      <p class="sub">${I18N.t("sys.tz_help")}</p>
+      <div class="field" style="margin-top:10px">
+        <span>${I18N.t("sys.tz_title")}</span>
+        <select id="sys-tz" class="ctrl">${options}</select>
+      </div>
+      <p class="sub" id="sys-tz-now">${detail}</p>
+    </div>`;
 }
 
 function profileLabel(id) {
@@ -2823,6 +3882,74 @@ function propNum(id, labelKey, unitKey, value, opts) {
     </label>`;
 }
 
+/**
+ * A prop trading hour, written in your clock and shown in the broker's.
+ *
+ * These used to be plain text boxes labelled "time", and the time they
+ * meant was UTC with nothing saying so. A trader in Tehran typing 07:00
+ * was setting 10:30 their own morning, which is how the conservative
+ * profile came to look as though prop mode simply refused to trade.
+ *
+ * So the field is in the desk's chosen zone - the one in System
+ * settings - and the line underneath says what that is for the broker,
+ * because that is the clock the firm's rulebook is written in. The
+ * conversion is arithmetic on an offset the engine publishes; doing it
+ * with a second timezone implementation in the browser is how the two
+ * end up disagreeing about the week the clocks change.
+ */
+function propTime(id, labelKey, value, placeholder) {
+  const sys = S.snap?.strategy?.system || {};
+  const zone = String(sys.label || sys.timezone || "UTC");
+
+  // type="time" rather than a text box.
+  //
+  // The browser then draws hours and minutes as two spinnable fields in
+  // the user's own locale, validates them, and refuses 25:70 - none of
+  // which a free-text box did. It was previously possible to save "7pm"
+  // or "07.00" and get a window that never opened, with nothing saying
+  // why.
+  return `<label class="field num-field">
+      <span>${I18N.t(labelKey)} <b class="tz-tag">${esc(zone)}</b></span>
+      <span class="num-wrap">
+        <input id="${id}" type="time" step="60" value="${esc(normalTime(value, placeholder))}" />
+      </span>
+      <small class="sub prop-at-broker" data-for="${id}">${esc(brokerEcho(value))}</small>
+    </label>`;
+}
+
+/** "7:5" and "07.00" both mean 07:00; type="time" wants it spelled out. */
+function normalTime(value, fallback) {
+  const m = /^\s*(\d{1,2})\s*[:.]\s*(\d{1,2})\s*$/.exec(String(value ?? ""));
+  if (!m) return fallback || "00:00";
+  const hh = Math.min(23, +m[1]);
+  const mm = Math.min(59, +m[2]);
+  return String(hh).padStart(2, "0") + ":" + String(mm).padStart(2, "0");
+}
+
+/** "07:00 here = 06:30 broker", or an empty string when it cannot be said. */
+function brokerEcho(text) {
+  const sys = S.snap?.strategy?.system || {};
+  const mine = sys.offset_minutes;
+  const broker = sys.broker_offset_minutes;
+
+  if (mine === null || mine === undefined) return "";
+  if (broker === null || broker === undefined) {
+    // Honest rather than converted against a zero it has not earned.
+    return I18N.t("risk.hours_broker_unknown");
+  }
+
+  const m = /^\s*(\d{1,2})\s*:\s*(\d{2})\s*$/.exec(String(text || ""));
+  if (!m) return "";
+  const hh = +m[1], mm = +m[2];
+  if (hh > 23 || mm > 59) return "";
+
+  // Same instant, read on the broker's clock.
+  let at = hh * 60 + mm - mine + broker;
+  at = ((at % 1440) + 1440) % 1440;
+  const out = String(Math.floor(at / 60)).padStart(2, "0") + ":" + String(at % 60).padStart(2, "0");
+  return I18N.t("risk.hours_broker", { t: out });
+}
+
 function propText(id, labelKey, unitKey, value, placeholder) {
   const wide = I18N.t(unitKey).length > 12 ? " wide-unit" : "";
   return `<label class="field num-field${wide}">
@@ -2868,8 +3995,8 @@ function propFormHtml() {
           ${propNum("pr-maxhold", "risk.max_hold", "risk.u_hours", pr.max_hold_hours||0, {step:"0.1", min:0, zeroOff:true})}
           ${propNum("pr-gap", "risk.gap", "risk.u_minutes", pr.min_minutes_between_trades||0, {min:0, zeroOff:true})}
           ${propNum("pr-cl", "risk.consec", "risk.u_trades", pr.max_consecutive_losses||0, {min:0, zeroOff:true})}
-          ${propText("pr-hs", "risk.hours_start", "risk.u_time", (pr.trading_hours&&pr.trading_hours.start)||"00:15", "00:15")}
-          ${propText("pr-he", "risk.hours_end", "risk.u_time", (pr.trading_hours&&pr.trading_hours.end)||"23:45", "23:45")}
+          ${propTime("pr-hs", "risk.hours_start", (pr.trading_hours&&pr.trading_hours.start)||"00:15", "00:15")}
+          ${propTime("pr-he", "risk.hours_end", (pr.trading_hours&&pr.trading_hours.end)||"23:45", "23:45")}
           ${propNum("pr-fri", "risk.friday", "risk.u_utc_hour", pr.friday_close_utc_hour||21, {min:0, max:23})}
           ${propNum("pr-nb", "risk.news_before", "risk.u_minutes", pr.news_blackout_before||15, {min:0})}
           ${propNum("pr-na", "risk.news_after", "risk.u_minutes", pr.news_blackout_after||15, {min:0})}
@@ -2917,6 +4044,274 @@ function propFormHtml() {
         ${locked ? "" : `<button class="btn block" id="pr-save" type="button">${I18N.t("risk.save")}</button>`}`;
 }
 
+
+/**
+ * The prop guide, rendered under the prop form.
+ *
+ * Help that lives in another document is help nobody reads at the moment
+ * they need it, which is while looking at the box. Each entry is tied to
+ * a control by id, and tests/prop-guide.test.js refuses a control without
+ * one — so a new setting cannot ship undocumented.
+ */
+function propGuideHtml() {
+  const G = (typeof PROP_GUIDE !== "undefined") ? PROP_GUIDE : null;
+  if (!G) return "";
+  const lang = I18N.lang || "en";
+  const sections = G.SECTIONS.map((sec, i) => `
+      <details class="pg-sec" data-pg-sec="${esc(sec.id)}"${i === 0 ? " open" : ""}>
+        <summary>${esc(G.pick(sec.title, lang))}</summary>
+        <p class="sub pg-lede">${G.pick(sec.lede, lang)}</p>
+        ${sec.rows.map((row) => `
+          <div class="pg-row" data-pg-row="${esc(row.id)}"
+               data-pg-find="${esc((G.pick(row.label, lang) + " " + G.pick(row, lang)).toLowerCase())}">
+            <b class="pg-k">${esc(G.pick(row.label, lang))}</b>
+            <p class="pg-v">${G.pick(row, lang)}</p>
+          </div>`).join("")}
+      </details>`).join("");
+  return `<div class="card prop-guide" id="prop-guide">
+      <h3>${I18N.t("risk.guide_title")}</h3>
+      <p class="sub">${I18N.t("risk.guide_lede")}</p>
+      <label class="field"><span>${I18N.t("risk.guide_search")}</span>
+        <input id="prop-guide-q" type="search" placeholder="${esc(I18N.t("risk.guide_search_ph"))}" />
+      </label>
+      <p class="sub" id="prop-guide-empty" hidden>${I18N.t("risk.guide_empty")}</p>
+      ${sections}
+    </div>`;
+}
+
+/** Filter the guide as the box is typed in; empty query restores it. */
+function bindPropGuide() {
+  const q = document.getElementById("prop-guide-q");
+  if (!q || q.dataset.bound) return;
+  q.dataset.bound = "1";
+  const empty = document.getElementById("prop-guide-empty");
+  q.addEventListener("input", () => {
+    const want = q.value.trim().toLowerCase();
+    let hits = 0;
+    document.querySelectorAll("#prop-guide .pg-sec").forEach((sec) => {
+      let shown = 0;
+      sec.querySelectorAll(".pg-row").forEach((row) => {
+        const ok = !want || (row.dataset.pgFind || "").includes(want);
+        row.hidden = !ok;
+        if (ok) shown++;
+      });
+      sec.hidden = shown === 0;
+      if (want && shown) sec.open = true;
+      hits += shown;
+    });
+    if (empty) empty.hidden = hits !== 0;
+  });
+}
+
+/* The robot's own account of itself: this symbol, this strategy, why it is
+   not trading, when it will, and the lines it prints when it does. All of
+   it existed already - in the gate's reason codes, the strategy's refusal,
+   the AI read and the journal - but scattered across four screens, which
+   left the trader to join them up. A robot doing nothing and a robot that
+   is broken look identical until something says which one this is. */
+/* Which sound marks which event. Three separate choices rather than one
+   on/off switch, because "the robot just opened a trade" and "that trade
+   closed down" are not the same news and a trader learns the difference
+   by ear long before they look at the screen. Status changes are not
+   listed here: they are silent by design. */
+function notifySoundCardHtml() {
+  const p = notifyPrefs();
+  const muted = !(p.volume > 0);
+
+  /* One row per event, not a column of identical dropdowns.
+     The old panel was three <label><select> pairs stacked in a card, and the
+     only way to tell which row was which was to read the text beside it. A
+     row now carries the mark it is about - the same arrow the trade cards
+     use for a buy, the same green and red as a closed trade - so the setting
+     looks like the thing it controls. */
+  const row = (key, tone, mark, label, hint) => {
+    const value = p[key] || "none";
+    const off = value === "none";
+    return `<div class="snd-row${off ? " is-off" : ""}" data-sndrow="${key}">
+      <span class="snd-mark t-${tone}" aria-hidden="true">${mark}</span>
+      <span class="snd-text">
+        <b>${esc(label)}</b>
+        ${hint ? `<small>${esc(hint)}</small>` : ""}
+      </span>
+      <select class="ctrl snd-pick" data-snd="${key}" aria-label="${esc(label)}">${
+        SOUND_NAMES.map((n) =>
+          `<option value="${n}"${value === n ? " selected" : ""}>${esc(I18N.t("notify.snd_" + n))}</option>`
+        ).join("")}</select>
+      <button type="button" class="btn tiny ghost snd-play" data-sndtest="${key}"
+              aria-label="${esc(I18N.t("notify.preview"))}"${off || muted ? " disabled" : ""}>
+        ${esc(I18N.t("notify.preview"))}
+      </button>
+    </div>`;
+  };
+
+  return `<div class="snd-wrap" id="notify-card">
+    <p class="sub snd-lead">${esc(I18N.t("notify.lead"))}</p>
+
+    <div class="card snd-card">
+      <div class="snd-head">
+        <h3>${esc(I18N.t("notify.master_title"))}</h3>
+        <span class="snd-vol-read" id="snd-vol-read">${muted ? esc(I18N.t("notify.muted")) : Math.round(p.volume * 100) + "%"}</span>
+      </div>
+      <p class="sub">${esc(I18N.t("notify.master_hint"))}</p>
+      <div class="snd-vol">
+        <button type="button" class="icon-btn snd-mute" id="snd-mute"
+                aria-label="${esc(I18N.t("notify.muted"))}" aria-pressed="${muted}">${muted ? "\uD83D\uDD07" : "\uD83D\uDD0A"}</button>
+        <input id="snd-vol" type="range" min="0" max="100" step="5" value="${Math.round(p.volume * 100)}"
+               aria-label="${esc(I18N.t("notify.master_title"))}" />
+      </div>
+    </div>
+
+    <div class="card snd-card">
+      <div class="snd-head"><h3>${esc(I18N.t("notify.events_title"))}</h3></div>
+      <p class="sub">${esc(I18N.t("notify.events_hint"))}</p>
+      <div class="snd-rows">
+        ${row("entry", "entry", "\u2197", I18N.t("notify.entry"), I18N.t("notify.entry_hint"))}
+        ${row("profit", "up", "\u2714", I18N.t("notify.exit_profit"), "")}
+        ${row("loss", "down", "\u2716", I18N.t("notify.exit_loss"), "")}
+      </div>
+      <p class="sub snd-note">${esc(I18N.t("notify.status_note"))}</p>
+    </div>
+
+    <div class="card snd-card">
+      <div class="snd-head"><h3>${esc(I18N.t("notify.delivery_title"))}</h3></div>
+      <div class="snd-deliver">
+        <div class="snd-text">
+          <b>${esc(I18N.t("notify.windows"))}</b>
+          <small>${esc(I18N.t("notify.windows_hint"))}</small>
+        </div>
+        <button type="button" class="switch ${p.windows ? "on" : ""}" id="sw-wintoast"
+                aria-pressed="${p.windows}"><i></i></button>
+      </div>
+    </div>
+  </div>`;
+}
+
+function bindNotifySounds(root) {
+  const scope = root || document;
+
+  /* The panel has three states that have to agree with each other: the
+     master volume, whether a row is set to Silent, and whether its preview
+     button can do anything. Keeping that in one place means a row cannot
+     end up offering a preview that plays nothing. */
+  const refresh = () => {
+    const p = notifyPrefs();
+    const muted = !(p.volume > 0);
+
+    const read = scope.querySelector("#snd-vol-read");
+    if (read) read.textContent = muted ? I18N.t("notify.muted") : Math.round(p.volume * 100) + "%";
+
+    const mute = scope.querySelector("#snd-mute");
+    if (mute) {
+      mute.setAttribute("aria-pressed", String(muted));
+      mute.textContent = muted ? "\uD83D\uDD07" : "\uD83D\uDD0A";
+    }
+
+    scope.querySelectorAll("[data-sndrow]").forEach((rowEl) => {
+      const key = rowEl.dataset.sndrow;
+      const off = (p[key] || "none") === "none";
+      rowEl.classList.toggle("is-off", off);
+      const play = rowEl.querySelector("[data-sndtest]");
+      if (play) play.disabled = off || muted;
+    });
+  };
+
+  scope.querySelectorAll("[data-snd]").forEach((sel) => {
+    sel.onchange = () => {
+      saveNotifyPrefs({ [sel.dataset.snd]: sel.value });
+      refresh();
+      // Heard immediately: picking a sound from a list of names means
+      // nothing until it makes a noise.
+      playSound(sel.value);
+    };
+  });
+
+  scope.querySelectorAll("[data-sndtest]").forEach((btn) => {
+    btn.onclick = () => playSound(notifyPrefs()[btn.dataset.sndtest]);
+  });
+
+  const vol = scope.querySelector("#snd-vol");
+  if (vol) {
+    vol.oninput = () => { saveNotifyPrefs({ volume: Number(vol.value) / 100 }); refresh(); };
+    vol.onchange = () => playSound(notifyPrefs().entry);
+  }
+
+  /* Mute remembers the level it muted from, so unmuting returns to where the
+     trader had it rather than to an arbitrary default. */
+  const mute = scope.querySelector("#snd-mute");
+  if (mute) {
+    mute.onclick = () => {
+      const p = notifyPrefs();
+      const now = p.volume > 0;
+      const next = now ? 0 : (Number(mute.dataset.last) || 0.6);
+      if (now) mute.dataset.last = String(p.volume);
+      saveNotifyPrefs({ volume: next });
+      if (vol) vol.value = String(Math.round(next * 100));
+      refresh();
+    };
+  }
+
+  const win = scope.querySelector("#sw-wintoast");
+  if (win) {
+    win.onclick = () => {
+      const next = !notifyPrefs().windows;
+      saveNotifyPrefs({ windows: next });
+      win.classList.toggle("on", next);
+      win.setAttribute("aria-pressed", String(next));
+    };
+  }
+
+  refresh();
+}
+
+function analysisCardHtml() {
+  const a = S.snap?.analysis;
+  if (!a) return `<div class="card"><h3>${I18N.t("ai.an.title")}</h3><p class="sub">${I18N.t("ai.an.waiting")}</p></div>`;
+  const blockers = a.blockers || [];
+  const ready = !!a.ready && !!a.setup;
+  const conf = Math.round((a.ai?.confidence || 0) * 100);
+  const need = Math.round((a.ai?.min_confidence || 0) * 100);
+  const line = (b) => `<li><b>${esc(b.text || b.code || "")}</b>${b.fix ? `<span class="sub"> — ${esc(b.fix)}</span>` : ""}</li>`;
+  const lines = (a.console || []).slice(-40).reverse();
+  return `<div class="card" id="an-card">
+    <div class="row" style="justify-content:space-between;flex-wrap:wrap;gap:8px">
+      <div>
+        <h3 style="margin:0 0 4px">${I18N.t("ai.an.title")}</h3>
+        <p class="sub" style="margin:0">${I18N.t("ai.an.sub")}</p>
+      </div>
+      <div class="row" style="gap:6px;flex-wrap:wrap">
+        <span class="pill ghost">${I18N.t("ai.an.watching")}: <b class="mono">${esc(a.symbol || "—")} ${esc(a.timeframe || "")}</b></span>
+        <span class="pill ${a.strategy_enabled ? "ok" : "ghost"}">${I18N.t("ai.an.with_strategy")}: <b>${esc(a.strategy || "—")}</b></span>
+        <span class="pill ${a.ai?.gate ? (conf >= need ? "ok" : "no") : "ghost"}">${a.ai?.gate ? `${I18N.t("ai.an.ai_conf")}: ${conf}% / ${need}%` : I18N.t("ai.an.ai_gate_off")}</span>
+      </div>
+    </div>
+    <p class="metric ${ready ? "up" : ""}" style="font-size:18px;margin:12px 0 2px">${ready ? I18N.t("ai.an.verdict_ready") : I18N.t("ai.an.verdict_blocked")}</p>
+    <div class="grid g-2" style="margin-top:10px">
+      <div>
+        <h3 style="font-size:13px">${I18N.t("ai.an.why")}</h3>
+        ${blockers.length
+          ? `<ul class="an-why">${blockers.map(line).join("")}</ul>`
+          : `<p class="sub">${I18N.t("ai.an.no_blockers")}</p>`}
+        ${(a.refusals || []).length
+          ? `<p class="sub" style="margin-top:8px">${I18N.t("ai.an.refusals")}: ${a.refusals.map((r) => `${esc(r.reason)} ×${r.count}`).join(" · ")}</p>`
+          : ""}
+      </div>
+      <div>
+        <h3 style="font-size:13px">${I18N.t("ai.an.when")}</h3>
+        <p class="sub">${esc(a.when || "")}</p>
+        ${(a.resting || []).length
+          ? `<ul class="an-why">${a.resting.map((r) => `<li><b>${esc(String(r.type || "").replace(/_/g, " ").toUpperCase())} ${fmt(r.volume, 2)} @ ${fmt(r.price, 5)}</b>
+               <span class="sub"> — SL ${r.sl ? fmt(r.sl, 5) : "—"} / TP ${r.tp ? fmt(r.tp, 5) : "—"}</span></li>`).join("")}</ul>`
+          : ""}
+        ${a.next_eval?.text ? `<p class="sub"><b>${I18N.t("ai.an.next_eval")}:</b> <span class="mono" id="an-next">${esc(a.next_eval.text)}</span></p>` : ""}
+      </div>
+    </div>
+    <h3 style="font-size:13px;margin-top:14px">${I18N.t("ai.an.console")}</h3>
+    <div class="ai-feed term" id="an-console">${lines.length
+      ? lines.map((r) => `<div class="row-line ${esc(r.level || "info")}"><span class="ts">${esc(String(r.ts || "").slice(11, 19))}</span><span class="mono" style="opacity:.7">${esc(r.code || "")}</span><span>${esc(r.message || "")}</span></div>`).join("")
+      : emptyMini(I18N.t("ai.an.console_empty"))}</div>
+  </div>`;
+}
+
 const views = {
   command() {
     const acc = S.snap?.mt5?.account || {};
@@ -2934,6 +4329,7 @@ const views = {
             <span class="pill"><i class="dot ${S.snap ? "live" : "down"}"></i>${I18N.t(S.snap ? "status.engine_live" : "status.engine_down")}</span>
             <span class="pill" id="wiz-mt5"><i class="dot ${mt5Live() ? "live" : "down"}"></i>${I18N.t(mt5Live() ? "status.mt5_live" : "status.mt5_down")}</span>
             <span class="pill" id="wiz-ea">${I18N.t("status.ea_attached", { n: agents.length })}</span>
+            <span class="pill warn" id="wiz-eaver"${eaStale().length ? "" : " hidden"}>${eaStaleLabel()}</span>
           </div>
         </div>
         <div class="card glass-rise">
@@ -2962,25 +4358,28 @@ const views = {
         ${kpi("command.balance", acc.balance, acc.currency)}
         ${kpi("command.margin", acc.margin, acc.currency)}
       </div>
-      <div class="grid g-2">
-        <div class="card">
-          <h3>${I18N.t("command.positions")}</h3>
-          <div id="live-pos">${pos.length ? table(pos, ["symbol","type","volume","strategy","price_open","price_current","sl","tp","profit","profit_pct"], true) : emptyMini(I18N.t("status.no_positions"))}</div>
-        </div>
-        <div class="cmd-side">
-          <div class="card">
-            <h3>${I18N.t("account.type")}</h3>
-            <p class="metric" id="cmd-acc-type">${accTypeLabel(acc.account_label || acc.account_type || "unknown")}</p>
-            <p class="sub">${[acc.company, acc.server, acc.margin_mode, acc.leverage ? "1:"+acc.leverage : ""].filter(Boolean).join(" · ")}</p>
-            <div class="kv" style="margin-top:12px">
-              <span>${I18N.t("command.free_margin")}</span><b class="mono" data-metric="command.free_margin">${fmt(acc.margin_free)} ${acc.currency||""}</b>
-              <span>${I18N.t("command.leverage")}</span><b class="mono" data-metric="command.leverage">${acc.leverage ? "1:"+acc.leverage : "—"}</b>
-            </div>
-          </div>
-          <div class="card">
-            <h3>${I18N.t("ai.title")}</h3>
-            <div id="live-ai">${aiBlock(S.snap?.ai)}</div>
-          </div>
+      <!-- Positions get the full width of the command centre.
+           They used to share a two-column row with the account card and an
+           AI summary, which left the close button squeezed against the edge
+           of a horizontally scrolling table - the one control on this screen
+           that is pressed in a hurry.
+
+           The AI summary is gone rather than moved: it printed a single
+           bias with no symbol next to it, so on a desk with four charts
+           open it was not merely unhelpful, it was ambiguous in a direction
+           a trader could act on. The per-chart version in the Intelligence
+           view says which symbol it means, and that is where it belongs. -->
+      <div class="card pos-card">
+        <h3>${I18N.t("command.positions")}</h3>
+        <div id="live-pos">${pos.length ? table(pos, ["symbol","type","volume","strategy","price_open","price_current","sl","tp","profit","profit_pct"], true) : emptyMini(I18N.t("status.no_positions"))}</div>
+      </div>
+      <div class="card">
+        <h3>${I18N.t("account.type")}</h3>
+        <p class="metric" id="cmd-acc-type">${accTypeLabel(acc.account_label || acc.account_type || "unknown")}</p>
+        <p class="sub">${[acc.company, acc.server, acc.margin_mode, acc.leverage ? "1:"+acc.leverage : ""].filter(Boolean).join(" · ")}</p>
+        <div class="kv" style="margin-top:12px">
+          <span>${I18N.t("command.free_margin")}</span><b class="mono" data-metric="command.free_margin">${fmt(acc.margin_free)} ${acc.currency||""}</b>
+          <span>${I18N.t("command.leverage")}</span><b class="mono" data-metric="command.leverage">${acc.leverage ? "1:"+acc.leverage : "—"}</b>
         </div>
       </div>
       <div class="card" id="live-st-wrap">
@@ -3023,7 +4422,8 @@ const views = {
     const rg = cur.regime_obj || cur.regime;
     const pat = cur.pattern_obj || cur.pattern;
     const feats = cur.features || {};
-    return `<div class="grid g-2">
+    return `${analysisCardHtml()}
+    <div class="grid g-2">
       <div class="card">${chartSliderHtml("ai", aiSlideInnerHtml)}</div>
       <div class="card">
         <h3>${I18N.t("ai.regime")} · ${I18N.t("ai.direction")} (per chart)</h3>
@@ -3192,10 +4592,10 @@ const views = {
         <div id="bt-load" class="bt-load${running ? "" : " hidden"}"><i></i><span>${I18N.t("history.backtest_wait")}</span></div>
         <div id="bt-result">${renderBacktestCard(bt)}</div>
       </div>
-      <div class="card">
+      <div class="card" id="bt-extra-card">
         <h3>📊 ${I18N.t("bt.results")}</h3>
         <p class="sub">${I18N.t("bt.results_hint")}</p>
-        <div id="bt-extra"></div>
+        <div id="bt-extra">${renderBacktestExtra(bt)}</div>
       </div>
     </div>`;
   },
@@ -3289,6 +4689,7 @@ const views = {
         ${grp(I18N.t("rail.personalize"))}
         ${tabBtn("set-lang", I18N.t("settings.language"), "book", I18N.t("rail.lang_hint"))}
         ${tabBtn("set-personal", I18N.t("settings.personal"), "user", I18N.t("rail.personal_hint"))}
+        ${tabBtn("set-notify", I18N.t("notify.title"), "bell", I18N.t("rail.notify_hint"))}
         ${tabBtn("set-telegram", I18N.t("telegram.title"), "spark", I18N.t("rail.telegram_hint"))}
         ${grp(I18N.t("rail.system"))}
         ${tabBtn("set-update", I18N.t("upd.title"), "pulse", I18N.t("rail.update_hint"))}
@@ -3316,7 +4717,7 @@ const views = {
       </section>
       <section class="set-block" id="set-prop"${tab==="set-prop"?"":" hidden"}>
         <h2 class="set-title">${I18N.t("risk.title")}</h2>
-        ${licFeat("prop") ? `${propStatusHtml()}<div class="card">${propFormHtml()}</div>` : lockedUpgradeCard("prop")}
+        ${licFeat("prop") ? `${propStatusHtml()}<div class="card">${propFormHtml()}</div>${propGuideHtml()}` : lockedUpgradeCard("prop")}
       </section>
       <section class="set-block" id="set-mt5"${tab==="set-mt5"?"":" hidden"}>
         <h2 class="set-title">MetaTrader 5</h2>
@@ -3342,7 +4743,7 @@ const views = {
             <button type="button" data-lang="fa">فارسی</button>
             <button type="button" data-lang="ar">العربية</button>
           </div>
-          <p class="sub">AURION 1.0.0</p>
+          <p class="sub">AURION 1.0.0 · <span class="mono" id="build-tag">${esc(buildTag())}</span></p>
           <a class="btn block ghost" href="guide.html?v=desk45" target="_blank" rel="noopener">${I18N.t("guide.open")}</a>
           <a class="btn block ghost" href="guide-backtest.html?v=desk45" target="_blank" rel="noopener">${I18N.t("guide.backtest")}</a>
         </div>
@@ -3360,11 +4761,16 @@ const views = {
             <div>
               <div style="font-weight:600">${I18N.t("settings.liquid_glass")}</div>
               <p class="sub" style="margin:2px 0 0">${I18N.t("settings.liquid_glass_hint")}</p>
+              <p class="sub glass-forced-note" style="margin:4px 0 0">${I18N.t("settings.liquid_glass_forced")}</p>
             </div>
-            <button type="button" class="switch ${glassOn()?"on":""}" id="sw-glass" aria-pressed="${glassOn()}"><i></i></button>
+            <button type="button" class="switch ${glassOn()?"on":""}" id="sw-glass" aria-pressed="${glassOn()}"${glassForced() ? " disabled aria-disabled=\"true\"" : ""}><i></i></button>
           </div>
         </div>
         ${appearanceCardsHtml()}
+      </section>
+      <section class="set-block" id="set-notify"${tab==="set-notify"?"":" hidden"}>
+        <h2 class="set-title">${I18N.t("notify.title")}</h2>
+        ${notifySoundCardHtml()}
       </section>
       <section class="set-block" id="set-telegram"${tab==="set-telegram"?"":" hidden"}>
         <h2 class="set-title">${I18N.t("telegram.title")}</h2>
@@ -3397,6 +4803,8 @@ const views = {
       </section>
       <section class="set-block" id="set-system"${tab==="set-system"?"":" hidden"}>
         <h2 class="set-title">${I18N.t("host.system")}</h2>
+        ${expertsCardHtml()}
+        ${timezoneCardHtml()}
         <div class="card">
           <h3>${I18N.t("host.restart")}</h3>
           <p class="sub">${I18N.t("host.restart_hint")}</p>
@@ -3824,19 +5232,10 @@ function tapeBanner() {
   if (mode === "live") return ""; // chart names live inside the outlook slider now — no banner needed
   return `<div class="tape-banner is-idle" id="tape-banner">${I18N.t("tape.waiting")}</div>`;
 }
-function aiBlock(ai) {
-  if (!ai) return emptyMini(I18N.t("status.ai_idle"));
-  const d = shownDir(ai);
-  const hint = !ai.ready ? `<span class="badge-hint">${I18N.t("ai.untrained")}</span>` : "";
-  const outlook = ai.outlook || {};
-  return `<div class="kv">
-    <span>${I18N.t("ai.direction")}</span><b>${dirLabel(d)}${hint}</b>
-    <span>${I18N.t("ai.confidence")}</span><b class="mono">${fmt((ai.confidence||0)*100,1)}%</b>
-    <span>${I18N.t("ai.regime")}</span><b>${regLabel(ai.regime)}</b>
-    <span>${I18N.t("ai.pattern")}</span><b>${ai.pattern?.name || "—"}</b>
-    <span>${I18N.t("ai.samples")}</span><b class="mono">${ai.samples || 0}${ai.need ? " / " + ai.need : ""}</b>
-  </div><p class="sub">${esc(outlook.text || ai.reason || I18N.t("status.ai_idle"))}</p>`;
-}
+/* aiBlock() lived here. It rendered a single AI bias with no symbol
+   attached, which on a multi-chart desk is a direction without a subject.
+   The Intelligence view renders the same data per chart, labelled, so this
+   one was deleted rather than relocated. */
 function posProfitPct(r) {
   if (r && r.profit_pct !== undefined && r.profit_pct !== null && r.profit_pct !== "") return Number(r.profit_pct);
   const o = Number(r && r.price_open), c = Number(r && r.price_current);
@@ -3844,20 +5243,49 @@ function posProfitPct(r) {
   const raw = (c - o) / o * 100;
   return String(r.type || "").toLowerCase() === "sell" ? -raw : raw;
 }
+/**
+ * One cell's text, for both the initial render and the live patch.
+ *
+ * It lived twice - once in table() and once in paintPositions() - and the
+ * two copies formatted a different set of columns, so a price rendered with
+ * five decimals on load and with however many the engine sent on the first
+ * tick after it. Shared now, because a number that changes shape when it
+ * updates is read as a number that changed.
+ */
+const CELL_PRICE = ["price", "price_open", "price_current", "price_close", "sl", "tp"];
+const CELL_MONEY = ["profit", "net", "swap", "commission", "fees"];
+function cellText(k, v) {
+  if (k === "profit_pct") {
+    return (v === null || v === undefined || Number.isNaN(Number(v))) ? "—" : fmt(v, 2) + "%";
+  }
+  if (k === "strategy") return strategyLabel(v);
+  if (v === "" || v === null || v === undefined) return "—";
+  if (k === "volume") return fmt(v, 2);
+  if (CELL_PRICE.includes(k)) return fmt(v, 5);
+  if (CELL_MONEY.includes(k)) return fmt(v, 2);
+  return String(v);
+}
+/** Columns where a minus sign means something and should be coloured. */
+function cellSigned(k) {
+  return k === "profit" || k === "profit_pct" || k === "net" ||
+         k === "swap" || k === "commission";
+}
 function table(rows, keys, closable) {
   const head = keys.map((k) => `<th>${I18N.t("table." + k) !== "table." + k ? I18N.t("table." + k) : k}</th>`).join("");
   const body = rows.map((r) => `<tr data-ticket="${r.ticket || ""}">${keys.map((k) => {
     const v = k === "profit_pct" ? posProfitPct(r) : r[k];
-    const signed = k === "profit" || k === "profit_pct";
-    const c = signed ? clsPnl(v) : "";
-    let text;
-    if (k === "profit_pct") text = (v === null || v === undefined || Number.isNaN(Number(v))) ? "—" : fmt(v, 2) + "%";
-    else if (k === "strategy") text = strategyLabel(v);
-    else if (k === "profit" || k === "volume" || k === "price_open" || k === "price_current") text = fmt(v, k === "volume" ? 2 : 5);
-    else text = (v ?? "—");
+    // Every money column is signed, not just profit. A swap of -4.10 shown
+    // in the same colour as a profit of 4.10 is a column the eye skips.
+    const c = cellSigned(k) ? clsPnl(v) : "";
+    const text = cellText(k, v);
     return `<td class="mono ${c}" data-k="${k}">${text}</td>`;
   }).join("")}${closable ? `<td><button class="btn tiny ghost" type="button" data-close="${r.ticket}">${I18N.t("exec.close")}</button></td>` : ""}</tr>`).join("");
-  return `<div class="table-wrap"><table><thead><tr>${head}${closable?"<th></th>":""}</tr></thead><tbody>${body}</tbody></table></div>`;
+  // A colgroup, so the CSS can fix the column widths. Without declared
+  // widths a fixed-layout table divides itself evenly, and with no fixed
+  // layout at all the columns re-measure on every price tick and the row
+  // shifts under the pointer.
+  const cols = keys.map((k) => `<col class="c-${esc(k)}">`).join("") + (closable ? `<col class="c-close">` : "");
+  return `<div class="table-wrap"><table><colgroup>${cols}</colgroup><thead><tr>${head}${closable?"<th></th>":""}</tr></thead><tbody>${body}</tbody></table></div>`;
 }
 function paintPositions(boxId, rows, keys, closable) {
   const box = $(boxId);
@@ -3876,13 +5304,9 @@ function paintPositions(boxId, rows, keys, closable) {
         const td = tr.querySelector(`[data-k="${k}"]`);
         if (!td) return;
         const v = k === "profit_pct" ? posProfitPct(r) : r[k];
-        let text;
-        if (k === "profit_pct") text = (v === null || v === undefined || Number.isNaN(Number(v))) ? "—" : fmt(v, 2) + "%";
-        else if (k === "strategy") text = strategyLabel(v);
-        else if (k === "profit" || k === "volume" || k === "price_open" || k === "price_current") text = fmt(v, k === "volume" ? 2 : 5);
-        else text = (v ?? "—");
+        const text = cellText(k, v);
         if (td.textContent !== text) td.textContent = text;
-        if (k === "profit" || k === "profit_pct") {
+        if (cellSigned(k)) {
           td.classList.toggle("up", Number(v) > 0);
           td.classList.toggle("down", Number(v) < 0);
         }
@@ -4118,6 +5542,52 @@ function bindTelegramPanel() {
   });
 }
 
+/**
+ * The expert card's two jobs: hand over the file, and carry the warning
+ * from the last update forward.
+ *
+ * Saving the .mq5 from here matters more than it looks. The alternative
+ * instruction is "find the AURION folder on disk, then find engine/ea" -
+ * which is where people give up, keep the old expert attached, and then
+ * report that the desk is behaving strangely.
+ */
+async function bindExpertsCard() {
+  document.querySelectorAll("[data-ea-save]").forEach((btn) => {
+    btn.onclick = async () => {
+      const id = btn.getAttribute("data-ea-save") || "bridge";
+      const r = await API.get("/api/experts/source?id=" + encodeURIComponent(id));
+      if (!r.ok || !r.data || !r.data.source) return toast(I18N.t("ea.save_failed"));
+      const blob = new Blob([r.data.source], { type: "text/plain;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = r.data.file || "AurionBridge.mq5";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 4000);
+      toast(I18N.t("ea.saved", { file: r.data.file || "" }));
+    };
+  });
+
+  // Did the last update change the experts? If it did, say so here as
+  // well as in the update panel - this is the card the user will be on
+  // when they go to do something about it.
+  const note = document.getElementById("ea-upd-note");
+  if (!note) return;
+  try {
+    const st = await API.get("/api/system/update/state");
+    const last = st && st.data && st.data.last_applied;
+    if (last && last.ea_changed) {
+      note.hidden = false;
+      note.textContent = I18N.t("ea.changed_by_update", {
+        v: String(last.version || ""),
+        n: String((last.ea_files || []).length || 2),
+      });
+    }
+  } catch {}
+}
+
 async function bindUpdatePanel(){
   const urlDisplay = document.getElementById('upd-url-display');
   const autoEl = document.getElementById('upd-auto');
@@ -4183,7 +5653,14 @@ async function bindUpdatePanel(){
         applyBtn.textContent = I18N.t('upd.installing');
         const ar = await API.post('/api/system/update/apply', { update_id: upd.id });
         if(ar.ok){
-          resultEl.innerHTML = '<p class="ok">✅ '+I18N.t('upd.installed').replace('%s', esc(ar.version||upd.version))+'<br>'+I18N.t('upd.files')+': '+(ar.applied||[]).length+'<br>'+I18N.t('upd.backup')+': '+esc(ar.backup_dir||'')+'</p><p class="sub">'+I18N.t('upd.restart_hint')+'</p><button class="btn" id="upd-restart" type="button">🔄 '+I18N.t('upd.restart')+'</button>';
+          // An update that replaced the MetaTrader experts is only half
+          // applied: nothing out here can press F7 inside MetaEditor.
+          const eaLine = ar.ea_changed
+            ? '<p class="sub" style="color:var(--amber,#d8a657)">'
+              + I18N.t('ea.changed_by_update', { v: String(ar.version||upd.version||''), n: String((ar.ea_files||[]).length||2) })
+              + '</p>'
+            : '';
+          resultEl.innerHTML = '<p class="ok">✅ '+I18N.t('upd.installed').replace('%s', esc(ar.version||upd.version))+'<br>'+I18N.t('upd.files')+': '+(ar.applied||[]).length+'<br>'+I18N.t('upd.backup')+': '+esc(ar.backup_dir||'')+'</p>'+eaLine+'<p class="sub">'+I18N.t('upd.restart_hint')+'</p><button class="btn" id="upd-restart" type="button">🔄 '+I18N.t('upd.restart')+'</button>';
           const rb = document.getElementById('upd-restart');
           if(rb) rb.onclick = () => restartSystem();
         } else {
@@ -4208,7 +5685,8 @@ async function bindUpdatePanel(){
 }
 
 function showSetTab(id) {
-  const allow = ["set-robot", "set-strats", "set-prop", "set-mt5", "set-lang", "set-personal", "set-telegram", "set-update", "set-system"];
+  const allow = ["set-robot", "set-strats", "set-prop", "set-mt5", "set-lang", "set-personal",
+                 "set-notify", "set-telegram", "set-update", "set-system"];
   const next = allow.includes(id) ? id : (allow.includes(S.setTab) ? S.setTab : "set-robot");
   S.setTab = next;
   try { localStorage.setItem("aurion.setTab", next); } catch { /* */ }
@@ -4472,6 +5950,11 @@ function bindView(view) {
     S._termPoll = setInterval(() => { if (S.view === "terminal") fillHostTerm(); }, 2500);
   }
   if (view === "backtest") {
+    // The card is rendered as HTML; the curve needs a canvas that exists.
+    const btNow = S.backtest || S.snap?.backtest || {};
+    if (btNow.ok && Array.isArray(btNow.equity_curve) && btNow.equity_curve.length > 1) {
+      requestAnimationFrame(() => drawEquityCurve(btNow.equity_curve.map(Number).filter((x) => Number.isFinite(x))));
+    }
     const goBt = $("h-bt");
     if (goBt) goBt.onclick = async () => {
       if (S._btBusy) return;
@@ -4483,25 +5966,36 @@ function bindView(view) {
         return;
       }
       S._btBusy = true;
-      setBacktestBusy(true);
-      S.backtest = { running: true, mode: "backtest", symbol, timeframe, strategy: name };
+      setBacktestBusy(true, 0);
+      S.backtest = { running: true, mode: "backtest", symbol, timeframe, strategy: name, progress: 0 };
       headerState();
       try {
+        // The engine accepts the run and answers at once; the result
+        // arrives over the socket. Waiting on this request was the whole
+        // bug: a replay longer than the proxy's 25 second patience came
+        // back as "engine offline" after finishing perfectly.
         const r = await API.post("/api/backtest", {
           symbol,
           timeframe,
           strategy: { kind: "builtin", name },
         });
-        S.backtest = r && typeof r === "object" ? { ...r, running: false, mode: "backtest" } : { ok: false, error: "generic" };
+        if (!r || r.ok === false) {
+          S.backtest = { ok: false, running: false, mode: "backtest", error: (r && r.error) || "generic" };
+          if (S.snap) S.snap.backtest = S.backtest;
+          paintBacktestResults(S.backtest);
+          toast((r && r.error) || I18N.t("errors.generic"));
+          S._btBusy = false;
+          setBacktestBusy(false);
+          headerState();
+          return;
+        }
+        S.backtest = { ...r, running: true, mode: "backtest" };
         if (S.snap) S.snap.backtest = S.backtest;
-        const box = $("bt-result");
-        if (box) box.innerHTML = renderBacktestCard(S.backtest);
-        if (!r.ok) toast(r.error || I18N.t("errors.generic"));
-        else toast(I18N.t("history.backtest_done"));
+        headerState();
+        watchBacktest();
       } catch (err) {
         S.backtest = { ok: false, running: false, mode: "backtest", error: err && err.message };
         toast(I18N.t("errors.generic"));
-      } finally {
         S._btBusy = false;
         setBacktestBusy(false);
         headerState();
@@ -4555,9 +6049,11 @@ function bindView(view) {
   }
   if (view === "settings") {
     bindRobotPanel();
+    bindNotifySounds($("stage"));
     bindTelegramPanel();
     bindSymbolPicker();
     bindUpdatePanel();
+    bindExpertsCard();
     bindStrategyToggles();
     bindPropForm();
     bindPropEnable();
@@ -4675,7 +6171,7 @@ function bindView(view) {
     };
     paintGlassSwitch();
     const glass = $("sw-glass");
-    if (glass) glass.onclick = () => setGlass(!glassOn());
+    if (glass) glass.onclick = () => { if (!glassForced()) setGlass(!glassOn()); };
     bindAppearance();
     markAppearancePills();
     markThemeCards();
@@ -5020,7 +6516,7 @@ function bindRobotPanel() {
   const saveAi = async (quiet) => {
     const r = await API.post("/api/auto", {
       require_ai_agree: $("st-ai")?.classList.contains("on"),
-      min_ai_confidence: +($("st-conf")?.value || 0.55),
+      min_ai_confidence: +($("st-conf")?.value || 0.35),
     });
     if (!quiet) toast(r.ok ? I18N.t("common.save") : r.error);
     await refresh(false);
@@ -5113,7 +6609,11 @@ function bindRobotPanel() {
   };
   const stVol = $("st-vol");
   if (stVol) {
-    const commit = () => saveVol("manual", true);
+    const commit = async () => {
+      await saveVol("manual", true);
+      // Same number on the ticket and the EA chart, immediately.
+      paintLotEverywhere(Number(stVol.value) || deskLot());
+    };
     stVol.addEventListener("change", commit);
     stVol.addEventListener("keydown", (e) => { if (e.key === "Enter") commit(); });
   }
@@ -5137,6 +6637,107 @@ function bindRobotPanel() {
       delete news.dataset.busy;
     }
   };
+  // Auto entry point: rest the robot's order at a price with the stop and
+  // target attached, instead of taking the market the second a candle shuts.
+  const autoEntry = $("st-autoentry");
+  if (autoEntry) autoEntry.onclick = async () => {
+    if (autoEntry.disabled || autoEntry.dataset.busy) return;
+    autoEntry.dataset.busy = "1";
+    const on = !autoEntry.classList.contains("on");
+    paintSwitch(autoEntry, on);
+    try {
+      const r = await API.post("/api/auto", { auto_entry: { enabled: on } });
+      if (!r.ok) {
+        paintSwitch(autoEntry, !on);
+        if (licGateToast(r)) return;
+        toast(r.error || I18N.t("errors.generic"));
+        return;
+      }
+      toast(I18N.t(on ? "autoentry.on" : "autoentry.off"));
+      await reloadSettings();
+    } finally {
+      delete autoEntry.dataset.busy;
+    }
+  };
+  // The broker line follows the field as it is typed, or it is a
+  // conversion of whatever was there when the page was drawn.
+  for (const id of ["pr-hs", "pr-he"]) {
+    const field = $(id);
+    if (!field) continue;
+    const echo = document.querySelector(`.prop-at-broker[data-for="${id}"]`);
+    if (!echo) continue;
+    field.addEventListener("input", () => { echo.textContent = brokerEcho(field.value); });
+  }
+
+  const moneySave = $("st-money-save");
+  if (moneySave) moneySave.onclick = async () => {
+    const field = $("st-money-cap");
+    const r = await API.post("/api/money", { max_loss_per_lot: +(field?.value || 0) });
+    if (!r.ok) { toast(r.error || I18N.t("errors.generic")); return; }
+    const reach = $("st-money-reach");
+    if (reach) reach.textContent = moneyReach(r.money || {});
+    toast(I18N.t(Number(r.money?.max_loss_per_lot) ? "money.saved" : "money.saved_off"));
+    await reloadSettings();
+  };
+
+  bindPropGuide();
+
+  const tzSel = $("sys-tz");
+  if (tzSel) tzSel.onchange = async () => {
+    const r = await API.post("/api/timezone", { timezone: tzSel.value });
+    if (!r.ok) { toast(r.error || I18N.t("errors.generic")); return; }
+    const label = r.system?.label || tzSel.value;
+    toast(I18N.t("sys.tz_set", { z: label }));
+    await reloadSettings();
+  };
+
+  const rfSw = $("st-rf");
+  if (rfSw) rfSw.onclick = async () => {
+    if (rfSw.disabled || rfSw.dataset.busy) return;
+    rfSw.dataset.busy = "1";
+    const on = !rfSw.classList.contains("on");
+    paintSwitch(rfSw, on);
+    try {
+      const r = await API.post("/api/risk_free", { enabled: on, ladder: on });
+      if (!r.ok) {
+        paintSwitch(rfSw, !on);
+        toast(r.error || I18N.t("errors.generic"));
+        return;
+      }
+      toast(I18N.t(on ? "strategies.rf_on" : "strategies.rf_off"));
+      await reloadSettings();
+    } finally {
+      delete rfSw.dataset.busy;
+    }
+  };
+  const rfSteps = $("st-rf-steps");
+  if (rfSteps) {
+    const n = $("st-rf-steps-n");
+    rfSteps.addEventListener("input", () => {
+      if (n) n.textContent = String(rfSteps.value);
+      // Redraw the named rungs as the slider moves, so the trader is
+      // choosing between "TP1, TP2, TP3" and not between 3 and 4.
+      const ladder = $("st-rf-ladder");
+      const steps = Math.max(1, Math.min(5, +rfSteps.value || 3));
+      if (ladder) {
+        ladder.innerHTML = rfLadderHtml({
+          steps,
+          rungs: Array.from({ length: steps }, (_, i) => ({
+            step: i + 1,
+            label: `TP${i + 1}`,
+            moves_to: i === 0 ? "entry" : `TP${i}`,
+            fraction: (i + 1) / steps,
+          })),
+        });
+      }
+    });
+    rfSteps.addEventListener("change", async () => {
+      const r = await API.post("/api/risk_free", { steps: +rfSteps.value });
+      if (!r.ok) toast(r.error || I18N.t("errors.generic"));
+      await refresh(false);
+    });
+  }
+
   const dgSw = $("st-danger");
   if (dgSw) dgSw.onclick = async () => {
     if (dgSw.disabled || dgSw.dataset.busy) return;
@@ -5466,9 +7067,244 @@ function renderBacktestCard(bt) {
       <span>${I18N.t("history.rr")}</span><b>${fmt(m.avg_rr,2)}</b>
       <span>${I18N.t("history.net")}</span><b class="${clsPnl(m.net)}">${fmt(m.net)}</b>
       <span>${I18N.t("history.trades")}</span><b>${fmt(m.trades || (bt.trades || []).length, 0)}</b>
-    </div>`;
+    </div>
+    ${btProvenance(bt)}`;
 }
-function setBacktestBusy(on) {
+
+/**
+ * Where the numbers above came from.
+ *
+ * The engine refuses to replay anything but real MT5 bars, but a refusal
+ * in the source code is not something a trader can see. Printing the
+ * first and last bar of the window that was actually replayed turns
+ * "these are real" from a claim into something checkable against their
+ * own terminal.
+ */
+function btProvenance(bt) {
+  const d = (bt && bt.data) || {};
+  if (!d.first_bar && !d.last_bar && !bt.bars) return "";
+  const span = d.first_bar && d.last_bar
+    ? `${esc(String(d.first_bar))} → ${esc(String(d.last_bar))}`
+    : "—";
+  return `<p class="sub bt-prov" style="margin-top:10px">
+    ${I18N.t("bt.prov_source")} · <b class="mono">${esc(String(d.source || "mt5").toUpperCase())}</b>
+    · ${I18N.t("bt.prov_window")} <b class="mono">${span}</b>
+    · ${I18N.t("bt.prov_bars")} <b class="mono">${fmt(d.tested_bars || bt.bars || 0, 0)}</b>${d.warmup_bars ? ` (+${fmt(d.warmup_bars, 0)} ${I18N.t("bt.prov_warmup")})` : ""}
+  </p>`;
+}
+/* ---------------------------------------------------------- backtest results
+ *
+ * The "Backtest results" card was an empty div. The engine has been
+ * returning an equity curve and the trade list all along (backtest/engine.py
+ * sends `equity_curve` and `trades`) and the desk threw both away, so a
+ * finished run was six numbers in a box with no way to see HOW it got
+ * there - a run that made its money in one lucky bar looked identical to a
+ * steady one.
+ *
+ * Everything drawn here is measured output from the replay. Nothing is
+ * modelled, smoothed or filled in. */
+function renderBacktestExtra(bt) {
+  bt = bt || S.backtest || {};
+  if (bt.running) return "";
+  if (!bt.ok) return `<p class="sub">${I18N.t("bt.empty")}</p>`;
+
+  const curve = Array.isArray(bt.equity_curve) ? bt.equity_curve.map(Number).filter((x) => Number.isFinite(x)) : [];
+  const trades = Array.isArray(bt.trades) ? bt.trades : [];
+  const m = bt.metrics || {};
+
+  let head = "";
+  if (curve.length > 1) {
+    const start = curve[0];
+    const final = curve[curve.length - 1];
+    let peak = curve[0];
+    let dd = 0;
+    for (const v of curve) { if (v > peak) peak = v; const d = peak - v; if (d > dd) dd = d; }
+    head = `<div class="kv bt-kv">
+      <span>${I18N.t("bt.start")}</span><b class="mono">${fmt(start)}</b>
+      <span>${I18N.t("bt.final")}</span><b class="mono ${clsPnl(final - start)}">${fmt(final)}</b>
+      <span>${I18N.t("bt.peak")}</span><b class="mono">${fmt(peak)}</b>
+      <span>${I18N.t("bt.dd")}</span><b class="mono ${dd > 0 ? "down" : ""}">${fmt(dd)}</b>
+    </div>
+    <div class="bt-curve"><canvas id="bt-curve"></canvas></div>
+    <p class="sub">${I18N.t("bt.curve_hint")}</p>`;
+  }
+
+  let table = `<p class="sub">${I18N.t("bt.no_trades")}</p>`;
+  if (trades.length) {
+    const total = Number(m.trades || trades.length);
+    const rows = trades.slice().reverse().map((t) => {
+      const side = String(t.type || "").toLowerCase();
+      return `<tr>
+        <td class="mono">${esc(btWhen(t.time))}</td>
+        <td><span class="pill tiny ${side === "buy" ? "up" : "down"}">${esc(side.toUpperCase() || "—")}</span></td>
+        <td class="mono">${fmt(t.entry, 5)}</td>
+        <td class="mono">${fmt(t.exit, 5)}</td>
+        <td class="mono ${clsPnl(t.profit)}">${fmt(t.profit)}</td>
+        <td class="sub">${esc(String(t.exit_reason || "—"))}</td>
+      </tr>`;
+    }).join("");
+    table = `<h4 class="bt-sub">${I18N.t("bt.trades_title")}</h4>
+      <p class="sub">${esc(I18N.t("bt.showing", { n: trades.length, total }))}</p>
+      <div class="table-wrap bt-trades">
+        <table>
+          <thead><tr>
+            <th>${I18N.t("bt.t_when")}</th><th>${I18N.t("bt.t_side")}</th>
+            <th>${I18N.t("bt.t_entry")}</th><th>${I18N.t("bt.t_exit")}</th>
+            <th>${I18N.t("bt.t_pnl")}</th><th>${I18N.t("bt.t_why")}</th>
+          </tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>`;
+  }
+  return head + table;
+}
+
+/** Bar times arrive as ISO strings or epoch seconds depending on the feed. */
+function btWhen(v) {
+  if (v == null || v === "") return "—";
+  let d = null;
+  if (typeof v === "number") d = new Date(v > 1e11 ? v : v * 1000);
+  else d = new Date(String(v));
+  if (!d || isNaN(d.getTime())) return String(v);
+  try {
+    return d.toLocaleString(I18N.locale(), { month: "short", day: "2-digit", hour: "2-digit", minute: "2-digit" });
+  } catch (e) {
+    return d.toISOString().slice(0, 16).replace("T", " ");
+  }
+}
+
+/* Draw the equity curve on its canvas.
+ *
+ * Deliberately plain: one line, a zero-profit baseline, filled above and
+ * below in profit/loss colour. Reading "did it climb or grind down" must
+ * not require interpreting a legend. */
+function drawEquityCurve(curve) {
+  const cv = $("bt-curve");
+  if (!cv || !Array.isArray(curve) || curve.length < 2) return;
+  const box = cv.parentElement;
+  const dpr = Math.min(2, window.devicePixelRatio || 1);
+  const w = Math.max(240, (box ? box.clientWidth : 0) || 240);
+  const h = Math.max(140, (box ? box.clientHeight : 0) || 180);
+  cv.width = Math.round(w * dpr);
+  cv.height = Math.round(h * dpr);
+  cv.style.width = w + "px";
+  cv.style.height = h + "px";
+  const g = cv.getContext("2d");
+  if (!g) return;
+  g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  g.clearRect(0, 0, w, h);
+
+  /* Custom properties are not guaranteed to come back resolved: an
+     unregistered property whose value is `var(--candle-up)` can be handed
+     back as that literal text. --ok and --bad are both aliases, so follow
+     the chain a few links before giving up. */
+  const css = getComputedStyle(document.documentElement);
+  const pick = (name, fallback) => {
+    let v = (css.getPropertyValue(name) || "").trim();
+    for (let i = 0; i < 4 && /^var\(\s*--/.test(v); i++) {
+      const ref = v.slice(v.indexOf("--")).split(/[,)]/)[0].trim();
+      v = (css.getPropertyValue(ref) || "").trim();
+    }
+    return v && !/^var\(/.test(v) ? v : fallback;
+  };
+  // --ok / --bad are the desk's profit and loss colours; they follow the
+  // active theme, so the curve is never the wrong green in a light skin.
+  const up = pick("--ok", "#2fd48a");
+  const down = pick("--bad", "#ff5f6d");
+  const grid = pick("--line", "rgba(255,255,255,.08)");
+
+  const base = curve[0];
+  let lo = Math.min(...curve, base);
+  let hi = Math.max(...curve, base);
+  if (hi - lo < 1e-9) { hi = base + 1; lo = base - 1; }
+  const pad = (hi - lo) * 0.08;
+  lo -= pad; hi += pad;
+  const padL = 8, padR = 8, padT = 10, padB = 10;
+  const x = (i) => padL + (i / (curve.length - 1)) * (w - padL - padR);
+  const y = (v) => padT + (1 - (v - lo) / (hi - lo)) * (h - padT - padB);
+
+  // The starting-equity line: above it the run is in profit, below it is not.
+  g.strokeStyle = grid;
+  g.lineWidth = 1;
+  g.setLineDash([4, 4]);
+  g.beginPath();
+  g.moveTo(padL, y(base));
+  g.lineTo(w - padR, y(base));
+  g.stroke();
+  g.setLineDash([]);
+
+  const ended = curve[curve.length - 1] >= base;
+  const colour = ended ? up : down;
+
+  const fill = g.createLinearGradient(0, padT, 0, h - padB);
+  // A var() can resolve to anything; only a plain hex can take an alpha
+  // suffix. Anything else falls back to a flat global alpha below.
+  const soft = /^#[0-9a-f]{6}$/i.test(colour) ? colour + "3a" : "";
+  fill.addColorStop(0, soft || colour);
+  fill.addColorStop(1, "transparent");
+  g.beginPath();
+  g.moveTo(x(0), y(curve[0]));
+  for (let i = 1; i < curve.length; i++) g.lineTo(x(i), y(curve[i]));
+  g.lineTo(x(curve.length - 1), y(base));
+  g.lineTo(x(0), y(base));
+  g.closePath();
+  g.save();
+  if (!soft) g.globalAlpha = 0.22;
+  g.fillStyle = fill;
+  g.fill();
+  g.restore();
+
+  g.beginPath();
+  g.moveTo(x(0), y(curve[0]));
+  for (let i = 1; i < curve.length; i++) g.lineTo(x(i), y(curve[i]));
+  g.strokeStyle = colour;
+  g.lineWidth = 2;
+  g.lineJoin = "round";
+  g.stroke();
+
+  // Where it finished.
+  g.beginPath();
+  g.arc(x(curve.length - 1), y(curve[curve.length - 1]), 3.5, 0, Math.PI * 2);
+  g.fillStyle = colour;
+  g.fill();
+}
+
+/**
+ * Put a finished run on screen: the summary in its own card, the curve and
+ * the trade list in the results card, and - when the run has just finished -
+ * bring the results into view. A replay can take minutes; the trader will
+ * have scrolled away or be reading something else, and a result that lands
+ * silently off-screen is a result they do not know they have.
+ */
+function paintBacktestResults(bt, opts) {
+  bt = bt || S.backtest || {};
+  const box = $("bt-result");
+  if (box) box.innerHTML = renderBacktestCard(bt);
+  const extra = $("bt-extra");
+  if (extra) {
+    extra.innerHTML = renderBacktestExtra(bt);
+    if (bt.ok && Array.isArray(bt.equity_curve) && bt.equity_curve.length > 1) {
+      requestAnimationFrame(() => drawEquityCurve(bt.equity_curve.map(Number).filter((x) => Number.isFinite(x))));
+    }
+  }
+  if (opts && opts.reveal) {
+    const target = $("bt-extra-card") || extra;
+    if (target && target.scrollIntoView) {
+      let smooth = true;
+      try { smooth = !window.matchMedia("(prefers-reduced-motion: reduce)").matches; } catch (e) { /* */ }
+      try { target.scrollIntoView({ behavior: smooth ? "smooth" : "auto", block: "start" }); } catch (e) { target.scrollIntoView(); }
+    }
+    // A flash on the card so the eye lands on what just changed.
+    const card = $("bt-extra-card");
+    if (card) {
+      card.classList.remove("is-fresh");
+      void card.offsetWidth;
+      card.classList.add("is-fresh");
+    }
+  }
+}
+
+function setBacktestBusy(on, progress) {
   const btn = $("h-bt");
   const load = $("bt-load");
   if (btn) {
@@ -5476,6 +7312,59 @@ function setBacktestBusy(on) {
     btn.textContent = I18N.t(on ? "history.backtest_running" : "history.backtest_run");
   }
   if (load) load.classList.toggle("hidden", !on);
+  const say = load ? load.querySelector("span") : null;
+  if (say) {
+    const pct = Number(progress);
+    // A number that moves is the difference between "working" and "hung".
+    say.textContent = on && pct > 0
+      ? `${I18N.t("history.backtest_wait")} · ${Math.min(99, Math.round(pct))}%`
+      : I18N.t("history.backtest_wait");
+  }
+}
+
+/**
+ * Follow a running backtest even if the socket drops.
+ *
+ * The result arrives over the socket, which is the fast path and the one
+ * that carries progress. This is the slow one: it asks the engine for the
+ * run's state every few seconds, so a reconnect in the middle of a replay
+ * cannot leave the page spinning forever.
+ */
+function watchBacktest() {
+  if (S._btPoll) clearInterval(S._btPoll);
+  let misses = 0;
+  S._btPoll = setInterval(async () => {
+    if (!S._btBusy) { clearInterval(S._btPoll); S._btPoll = null; return; }
+    let r = null;
+    try {
+      r = await API.get("/api/backtest");
+    } catch {
+      r = null;
+    }
+    const d = r && r.data ? r.data : null;
+    if (!d) {
+      misses += 1;
+      if (misses >= 10) {        // ~50s with no answer at all
+        clearInterval(S._btPoll); S._btPoll = null;
+        S._btBusy = false;
+        setBacktestBusy(false);
+      }
+      return;
+    }
+    misses = 0;
+    S.backtest = d;
+    if (S.snap) S.snap.backtest = d;
+    if (d.running) {
+      setBacktestBusy(true, d.progress);
+      return;
+    }
+    clearInterval(S._btPoll); S._btPoll = null;
+    S._btBusy = false;
+    setBacktestBusy(false);
+    paintBacktestResults(d, { reveal: true });
+    if (d.ok) toast(I18N.t("history.backtest_done"));
+    headerState();
+  }, 5000);
 }
 function historyRows(rows) {
   // Entries and closes both appear, so a trade shows up the moment it opens.
@@ -5485,11 +7374,17 @@ function historyRows(rows) {
 /**
  * Present a history row the way MetaTrader's own statement does.
  *
- * Three columns instead of one "profit", because that single column was the
- * reason the desk and MT5 seemed to disagree: MT5's Profit is gross, and the
- * balance moves by profit + swap + commission. Showing only the gross figure
- * next to a balance that moved by the net one is a contradiction the trader is
- * left to work out. Now both are visible and they reconcile by inspection.
+ * The columns are deliberately the terminal's columns, in the terminal's
+ * order: open time, position, symbol, type, volume, open price, S/L, T/P,
+ * close time, close price, commission, swap, profit. A trader checking the
+ * desk against MT5 should be reading two copies of the same table, not
+ * translating between two layouts and two conventions.
+ *
+ * Swap and commission are their own columns rather than one "fees", because
+ * that is how the terminal reports them and because a single lumped figure
+ * cannot be checked against anything. Net is the one column MT5 does not
+ * have, and it is the one that explains the balance: MT5's Profit is gross,
+ * and the account moves by profit + swap + commission.
  */
 function historyRowView(row) {
   const num = (v) => (v === null || v === undefined || v === "" ? 0 : Number(v) || 0);
@@ -5500,8 +7395,13 @@ function historyRowView(row) {
   const isClose = String(row.kind || row.entry || "").toLowerCase().match(/close|out/);
   return {
     ...row,
+    // Both ends of the position, as the terminal lists them.
+    ts_open: row.time_open || row.ts_open || "",
+    price_close: isClose ? row.price : "",
+    price_open: row.price_open || "",
     profit: isClose ? profit : "",
-    fees: isClose && (swap || comm) ? Number((swap + comm).toFixed(2)) : "",
+    swap: isClose && swap ? Number(swap.toFixed(2)) : "",
+    commission: isClose && comm ? Number(comm.toFixed(2)) : "",
     net: isClose ? Number(net.toFixed(2)) : "",
     // A close recorded from the last floating price rather than from an MT5
     // deal is marked, instead of being presented as fact.
@@ -5515,8 +7415,9 @@ async function loadHistory() {
   const r = await API.get("/api/history?limit=400");
   const rows = historyRows(r.data || []).map(historyRowView);
   if (!rows.length) { box.innerHTML = emptyMini(I18N.t("status.no_history")); return; }
-  box.innerHTML = table(rows, ["ts","ticket","symbol","side","volume","price","sl","tp",
-                               "profit","fees","net","source","strategy","comment"]);
+  box.innerHTML = table(rows, ["ts_open","ts","ticket","symbol","side","volume",
+                               "price_open","price_close","sl","tp",
+                               "commission","swap","profit","net","source","strategy","comment"]);
 }
 
 async function hardRefresh() {
@@ -5575,22 +7476,52 @@ function applyChartLevels(force) {
   }
   const symbol = (S.chartFocus && S.chartFocus.symbol) || S.symbol || "";
   const pos = (S.snap?.positions || []).filter((r) => r && (!symbol || r.symbol === symbol));
+  // Resting orders: the entry points the robot has planted and that have
+  // not filled yet. The chart only ever drew open positions, so a robot
+  // that had made its decision and was waiting at a price looked exactly
+  // like a robot doing nothing.
+  const ord = (S.snap?.orders || []).filter((r) => r && (!symbol || r.symbol === symbol));
   if (S.chart && typeof S.chart.setLevels === "function") S.chart.setLevels(pos);
+  if (S.chart && typeof S.chart.setOrders === "function") S.chart.setOrders(ord);
   syncChartPending();
   const box = $("chart-levels");
   if (!box) return;
-  const sig = pos.map((r) => `${r.ticket}:${r.sl}:${r.tp}:${r.profit}`).join("|");
+  const sig = pos.map((r) => `${r.ticket}:${r.sl}:${r.tp}:${r.profit}`).join("|")
+    + "#" + ord.map((r) => `${r.ticket}:${r.price}:${r.sl}:${r.tp}`).join("|");
   if (box.dataset.sig === sig) return;
   box.dataset.sig = sig;
-  if (!pos.length) { box.innerHTML = ""; return; }
-  box.innerHTML = pos.map((r) => `<div class="lvl-chip">
+  if (!pos.length && !ord.length) { box.innerHTML = ""; return; }
+  const posHtml = pos.map((r) => `<div class="lvl-chip">
       <b>${esc(r.symbol || "")} ${esc(r.type || "")} ${fmt(r.volume, 2)}</b>
       <span class="sl">SL ${r.sl ? fmt(r.sl, 5) : "—"}</span>
       <span class="tp">TP ${r.tp ? fmt(r.tp, 5) : "—"}</span>
       <span class="sub">${esc(strategyLabel(r.strategy))}</span>
       <button class="btn tiny ghost" type="button" data-close="${r.ticket}">${I18N.t("exec.close")}</button>
     </div>`).join("");
+  const ordHtml = ord.map((r) => `<div class="lvl-chip is-resting">
+      <b>${esc(String(r.type || "").replace(/_/g, " ").toUpperCase())} ${fmt(r.volume, 2)} @ ${fmt(r.price, 5)}</b>
+      <span class="wait">${I18N.t("chart.order_waiting")}</span>
+      <span class="sl">SL ${r.sl ? fmt(r.sl, 5) : "—"}</span>
+      <span class="tp">TP ${r.tp ? fmt(r.tp, 5) : "—"}</span>
+      <span class="sub">${esc(strategyLabel(r.strategy))}</span>
+      <button class="btn tiny ghost" type="button" data-cancel="${r.ticket}">${I18N.t("chart.order_cancel")}</button>
+    </div>`).join("");
+  box.innerHTML = ordHtml + posHtml;
   bindCloseButtons(box);
+  bindCancelButtons(box);
+}
+
+/** Cancel a resting order the robot planted but that has not filled. */
+function bindCancelButtons(root) {
+  (root || document).querySelectorAll("[data-cancel]").forEach((btn) => {
+    btn.onclick = async () => {
+      btn.disabled = true;
+      const r = await API.post("/api/order", { action: "cancel", ticket: +btn.dataset.cancel });
+      if (!r || !r.ok) { btn.disabled = false; toast((r && r.error) || I18N.t("errors.generic")); return; }
+      toast(I18N.t("chart.order_cancelled"));
+      await refresh(false);
+    };
+  });
 }
 function bindChartDesk() {
   const cv = $("cv-desk");
@@ -5623,6 +7554,9 @@ function bindChartDesk() {
   S.chart.setTool("cursor");
   S.chart.setSessions(chartSessionsOn());
   S.chart.setSignals(S.chartSignals || [], S.showSignals);
+  // Arriving here from a notification: if the marks for this symbol are
+  // already loaded, pin straight away rather than waiting for the next poll.
+  if (S.pendingSignal && S.pendingSignal.symbol === S.chartFocus.symbol) pinPendingSignal();
   applyChartLevels(true);
   bindChartTicket();
 
@@ -5738,6 +7672,9 @@ async function fetchChartSignals(symbol, timeframe) {
       S.chartSignals = [];
     }
     if (S.chart && typeof S.chart.setSignals === "function") S.chart.setSignals(S.chartSignals, S.showSignals);
+    // A notification that was clicked before the marks existed is honoured
+    // here, now that they do.
+    if (S.pendingSignal && S.pendingSignal.symbol === symbol) pinPendingSignal();
     // per user request: no bottom list — signals only on canvas (CandleChart overlay)
 
   } catch (e) {
@@ -5896,7 +7833,24 @@ function onLive(msg) {
     scheduleSync();
   }
   if (msg.type === "ai" && S.snap) {
-    S.snap.ai = msg.data && msg.data.direction !== undefined ? msg.data : (msg.data || msg);
+    const state = msg.data && msg.data.direction !== undefined ? msg.data : (msg.data || msg);
+    S.snap.ai = state;
+
+    /* Keep the per-chart list in step with the live read.
+     *
+     * The Intelligence panel does not read S.snap.ai when a chart is
+     * attached - it reads S.snap.ai_by_symbol, which only a full snapshot
+     * fetch ever filled in. So every live inference landed in a field the
+     * panel was not looking at, and the analysis sat there unchanged until
+     * something forced a reload. That is the "I have to refresh the app to
+     * see it" fault: the data was arriving the whole time. */
+    const sym = state && state.symbol ? String(state.symbol) : "";
+    if (sym) {
+      const list = Array.isArray(S.snap.ai_by_symbol) ? S.snap.ai_by_symbol.slice() : [];
+      const at = list.findIndex((x) => x && String(x.symbol) === sym);
+      if (at >= 0) list[at] = state; else list.push(state);
+      S.snap.ai_by_symbol = list.slice(-12);
+    }
     scheduleSync();
   }
   if (msg.type === "agents") {
@@ -5964,6 +7918,9 @@ function onLive(msg) {
     announceSignal(sig);
     scheduleSync();
   }
+  if (msg.type === "trade") {
+    announceTrade(msg.data || msg);
+  }
   if (msg.type === "history") {
     if (S.view === "history") loadHistory();
   }
@@ -5972,10 +7929,17 @@ function onLive(msg) {
     S.backtest = d;
     S.snap = S.snap || {};
     S.snap.backtest = d;
-    if (S.view === "history") {
-      setBacktestBusy(Boolean(d.running));
-      const box = $("bt-result");
-      if (box && !d.running) box.innerHTML = renderBacktestCard(d);
+    // The backtest has its own tab. This said "history", which is where it
+    // used to live, so the finished result never reached the screen it was
+    // run from - the page just sat on its spinner.
+    if (S.view === "backtest" || S.view === "history") {
+      setBacktestBusy(Boolean(d.running), d.progress);
+      if (!d.running) {
+        S._btBusy = false;
+        const box = $("bt-result");
+        if (box) box.innerHTML = renderBacktestCard(d);
+        toast(I18N.t(d.ok ? "history.backtest_done" : "errors.generic"));
+      }
     }
     headerState();
   }
@@ -6002,17 +7966,32 @@ function onLive(msg) {
 }
 
 async function setLang(lang) {
-  await I18N.load(lang);
-  if (API.token) {
-    const r = await API.post("/api/auth/language", { language: lang });
-    if (r.ok && r.data && r.data.token) API.setToken(r.data.token);
-  }
+  if (lang === I18N.lang) return;
+  return morphTheme(async () => {
+    await I18N.load(lang);
+    repaintForLanguage();
+
+    /* Telling the engine is housekeeping, not something the trader waits
+       for. It used to be awaited before a single label was redrawn, which
+       put a network round trip in front of every language change and is
+       most of why switching felt slow. */
+    if (API.token) {
+      API.post("/api/auth/language", { language: lang })
+        .then((r) => { if (r && r.ok && r.data && r.data.token) API.setToken(r.data.token); })
+        .catch(() => { /* the desk is already in the new language */ });
+    }
+  }, { title: I18N.t("ui.switch_lang") });
+}
+
+/** Redraw everything that holds text, in whatever language is now in force. */
+function repaintForLanguage() {
   I18N.apply();
   markLangPills();
   paintThemeBtn();
   const langBtn = $("btn-lang");
   if (langBtn) langBtn.textContent = I18N.lang.toUpperCase();
-  if (!$("desk").classList.contains("hidden")) {
+  const desk = $("desk");
+  if (desk && !desk.classList.contains("hidden")) {
     headerState();
     S.mountedView = null;
     show(S.view, { animate: false });
@@ -6222,11 +8201,22 @@ function licErrText(code, r) {
   return text;
 }
 
+/**
+ * Ask the engine (through the desk) what licence this machine holds.
+ *
+ * Returns the licence on success. On failure it records *why* on S._gateErr
+ * so the gate can say something more useful than "waiting" forever — the
+ * engine takes a few seconds to import numpy and sklearn, but it can also be
+ * simply not running, and those two look identical from here.
+ */
 async function fetchLicense() {
   try {
     const r = await API.get("/api/license");
-    if (r && r.ok && r.data) return r.data;
-  } catch { /* engine still booting */ }
+    if (r && r.ok && r.data) { S._gateErr = ""; return r.data; }
+    S._gateErr = (r && (r.detail || r.error)) || "engine_offline";
+  } catch (e) {
+    S._gateErr = (e && e.message) || "network";
+  }
   return null;
 }
 
@@ -6235,13 +8225,40 @@ function paintGate() {
   if (!card) return;
   I18N.apply(card);
   markLangPills();
+
+  /* A machine without a key still needs to be told the update worked -
+     otherwise the key screen after an update looks like the update broke
+     something. */
+  const upd = S._updated;
+  let note = card.querySelector(".gate-updated");
+  if (upd && upd.updated) {
+    if (!note) {
+      note = document.createElement("p");
+      note.className = "ok gate-updated";
+      card.insertBefore(note, card.firstChild.nextSibling);
+    }
+    note.textContent = I18N.t("upd.updated_gate", { v: S.version || "" });
+  } else if (note) {
+    note.remove();
+  }
   const Lic = S._gateLic;
   const line = $("gate-state");
+  // The engine needs a few seconds to boot. Past that, waiting silently is a
+  // dead end: say it is offline, show what the desk actually got back, and
+  // offer a retry instead of an ellipsis that never resolves.
+  const stalled = !Lic && (S._gateTries || 0) >= 4;
   if (line) {
     if (Lic && Lic.premium) line.textContent = I18N.t("keygate.state_prem");
     else if (Lic) line.textContent = I18N.t("keygate.state_free");
-    else line.textContent = I18N.t("keygate.engine_wait");
+    else line.textContent = I18N.t(stalled ? "keygate.engine_down" : "keygate.engine_wait");
   }
+  const detail = $("gate-detail");
+  if (detail) {
+    detail.hidden = !stalled;
+    detail.textContent = stalled ? `${I18N.t("keygate.engine_hint")} · ${S._gateErr || "engine_offline"}` : "";
+  }
+  const retry = $("gate-retry");
+  if (retry) retry.hidden = !stalled;
   const buy = $("gate-buy");
   const store = (Lic && Lic.store_url) || "";
   if (buy) {
@@ -6258,13 +8275,31 @@ function showGate(lic) {
   setShell("auth");
   paintGate();
   bindGate();
-  // While the gate is up, keep re-checking (engine boot, key activated elsewhere).
+  // While the gate is up, keep re-checking (engine boot, key activated
+  // elsewhere). Poll every second to begin with -- the common case is an
+  // engine that is simply still importing numpy, and five seconds of dead
+  // screen for that is needless -- then back off once it is clearly not
+  // coming, so a dead engine is not hammered forever.
   if (S._gateTimer) clearInterval(S._gateTimer);
-  S._gateTimer = setInterval(async () => {
-    if (!$("auth") || $("auth").classList.contains("hidden")) { clearInterval(S._gateTimer); S._gateTimer = null; return; }
+  S._gateTries = S._gateLic ? 0 : (S._gateTries || 0);
+  const poll = async () => {
+    const auth = $("auth");
+    if (!auth || auth.classList.contains("hidden")) { clearInterval(S._gateTimer); S._gateTimer = null; return; }
     const next = await fetchLicense();
-    if (next) { S._gateLic = next; paintGate(); }
-  }, 5000);
+    if (next) {
+      S._gateLic = next;
+      S._gateTries = 0;
+    } else {
+      S._gateTries = (S._gateTries || 0) + 1;
+      // 1s while it might still be booting, 5s once it plainly is not.
+      if (S._gateTries === 4) {
+        clearInterval(S._gateTimer);
+        S._gateTimer = setInterval(poll, 5000);
+      }
+    }
+    paintGate();
+  };
+  S._gateTimer = setInterval(poll, 1000);
 }
 
 function bindGate() {
@@ -6281,6 +8316,16 @@ function bindGate() {
   if (key) key.addEventListener("keydown", (e) => { if (e.key === "Enter") gateActivate(); });
   const free = $("gate-free");
   if (free) free.onclick = () => licenseSessionEnter("freemium");
+  const retry = $("gate-retry");
+  if (retry) retry.onclick = async () => {
+    retry.disabled = true;
+    S._gateTries = 0;
+    paintGate();
+    const lic = await fetchLicense();
+    if (lic) S._gateLic = lic; else S._gateTries = 4;
+    retry.disabled = false;
+    paintGate();
+  };
 }
 
 async function gateActivate() {
@@ -6515,8 +8560,101 @@ async function playWelcome() {
   });
 }
 
+/* ---------------------------------------------------------------- update --
+   Did AURION just update, and what should the trader see because of it?
+
+   Three separate things were wrong here.
+
+   The key screen appeared after every update even for a premium machine.
+   That was not a licence fault: fetchLicense() gives up after a single
+   failed call, and immediately after an update the engine is still
+   restarting, so the one call fails, boot reads "no licence" and falls
+   through to the gate. The gate's own poll then succeeds a second later and
+   prints "premium active" underneath the key box - which is exactly the
+   contradiction that was reported, and why "continue free" let the trader
+   straight in with premium working.
+
+   Second, nothing ever said the update had worked.
+
+   Third, a first install must not claim to be an update. We only know an
+   update happened if we have seen a DIFFERENT version on this machine
+   before; with nothing recorded, this is a fresh install and stays silent. */
+const LS_SEEN_VERSION = "aurion.seenVersion";
+
+function updateCheck(version) {
+  if (!version) return { updated: false, from: "" };
+  let seen = "";
+  try { seen = localStorage.getItem(LS_SEEN_VERSION) || ""; } catch (e) { /* */ }
+  try { localStorage.setItem(LS_SEEN_VERSION, version); } catch (e) { /* */ }
+  // No record at all = first run on this machine, not an update.
+  return { updated: Boolean(seen) && seen !== version, from: seen };
+}
+
+/** Ask for the licence more than once; the engine may still be starting. */
+async function fetchLicenseSettled(tries, waitMs) {
+  const n = tries || 6;
+  const wait = waitMs || 700;
+  for (let i = 0; i < n; i++) {
+    const lic = await fetchLicense();
+    if (lic) return lic;
+    S._gateTries = (S._gateTries || 0) + 1;
+    if (i < n - 1) await new Promise((r) => setTimeout(r, wait));
+  }
+  return null;
+}
+
+/** "The update worked" - shown to a premium machine, which has no gate. */
+function showUpdateWelcome(version, from) {
+  return new Promise((resolve) => {
+    const host = document.createElement("div");
+    host.className = "upd-welcome";
+    host.innerHTML = `
+      <div class="auth-card upd-card" role="dialog" aria-modal="true" aria-labelledby="upd-w-title">
+        <div class="upd-mark" aria-hidden="true">${icon("spark")}</div>
+        <h2 id="upd-w-title">${esc(I18N.t("upd.updated_title"))}</h2>
+        <p class="lede">${esc(I18N.t("upd.updated_body", { v: version }))}</p>
+        ${from ? `<p class="sub mono">${esc(I18N.t("upd.updated_from", { old: from }))}</p>` : ""}
+        <button class="btn block" type="button" id="upd-w-go">${esc(I18N.t("upd.updated_cta"))}</button>
+      </div>`;
+    document.body.appendChild(host);
+    requestAnimationFrame(() => host.classList.add("is-in"));
+    const go = () => {
+      host.classList.remove("is-in");
+      setTimeout(() => { host.remove(); resolve(); }, 220);
+    };
+    host.querySelector("#upd-w-go").onclick = go;
+    host.querySelector("#upd-w-go").focus();
+    // Enter works too; this screen has exactly one thing to do.
+    host.onkeydown = (e) => { if (e.key === "Enter" || e.key === "Escape") go(); };
+  });
+}
+
 async function boot() {
   bindChrome();
+
+  // A canvas does not reflow. Redraw the equity curve when the box it lives
+  // in changes size, or a phone rotation leaves it stretched.
+  let btResizeT = null;
+  window.addEventListener("resize", () => {
+    if (!$("bt-curve")) return;
+    if (btResizeT) clearTimeout(btResizeT);
+    btResizeT = setTimeout(() => {
+      const bt = S.backtest || S.snap?.backtest || {};
+      if (bt.ok && Array.isArray(bt.equity_curve)) {
+        drawEquityCurve(bt.equity_curve.map(Number).filter((x) => Number.isFinite(x)));
+      }
+    }, 150);
+  });
+
+
+  /* A cached language pack paints instantly and the fresh one lands a moment
+     later. On the rare occasion the words actually changed - a new build
+     with new strings - redraw rather than leave the trader on yesterday's
+     labels until they navigate. */
+  window.addEventListener("aurion:i18n", () => {
+    try { repaintForLanguage(); } catch (e) { /* not worth breaking the desk */ }
+  });
+
   bindStrategyDropTarget();
   await I18N.load(I18N.lang);
   I18N.apply();
@@ -6529,19 +8667,29 @@ async function boot() {
       S.buildDate = meta.data.build_date || new Date().toISOString().slice(0,10);
     }
   } catch {}
+  const upd = updateCheck(S.version);
+  S._updated = upd;
+
   // Product-key gate: premium machines skip the key screen entirely and land
   // on the desk; freemium/expired machines always meet the gate first.
-  const lic = await fetchLicense();
+  //
+  // The licence lookup runs alongside the welcome clip rather than before
+  // it, so the retries that stop a still-starting engine from being read as
+  // "no licence" cost no extra waiting.
+  const welcome = playWelcome();
+  const lic = await fetchLicenseSettled();
   S._gateLic = lic;
+  await welcome;
+
   if (lic && lic.premium) {
-    const welcome = playWelcome();
-    const desk = licenseSessionEnter("auto", lic);
-    await welcome;
-    return desk;
+    if (upd.updated) await showUpdateWelcome(S.version, upd.from);
+    return licenseSessionEnter("auto", lic);
   }
-  await playWelcome();
   showGate(lic);
 }
 
 boot();
+// Say which build this is before anything else can go wrong, so "the
+// change is not there" can be answered without guessing.
+try { console.info("AURION desk build", buildTag()); } catch (e) { /* no DOM yet */ }
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});

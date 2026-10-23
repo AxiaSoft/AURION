@@ -2147,3 +2147,60 @@ html[data-skin="mono"][data-theme="light"]{
 
 /* The custom theme's "no backdrop" choice means no backdrop. */
 html[data-bg="none"] #bg-fx::before{ display:none }
+
+/* ===========================================================================
+   The trader's own background picture.
+
+   Chosen in Settings -> Theme and stored on this machine as a data URL;
+   themes.js hands it over as --bg-photo and nothing else. It is painted on
+   the same .aurora element every other backdrop uses, so it inherits the
+   fixed, behind-everything placement already proven there, and it works with
+   any theme - glass, neumorphism, cyber - because it only replaces what is
+   *behind* the panels.
+
+   The scrim matters: a bright holiday photo behind translucent panels makes
+   white text unreadable. --bg-photo-dim is a user-controlled black veil over
+   the picture, which keeps contrast in the trader's hands instead of
+   forbidding light pictures.
+   =========================================================================== */
+html[data-bg="photo"] .aurora{ opacity:1 }
+html[data-bg="photo"] .aurora::before{
+  background:var(--bg-photo, none) center center / cover no-repeat fixed, var(--bg);
+  filter:none;
+  opacity:1;
+}
+html[data-bg="photo"] .aurora::after{
+  content:"";
+  position:fixed; inset:0;
+  background:#000;
+  opacity:var(--bg-photo-dim, .45);
+  filter:none;
+  animation:none;
+}
+/* Fixed attachment is a known scrolling cost on phones; there the picture
+   simply scrolls with the page. */
+@media (max-width:760px){
+  html[data-bg="photo"] .aurora::before{
+    background-attachment:scroll;
+  }
+}
+
+/* ===========================================================================
+   Backdrop effects.
+
+   Applied to the backdrop layer itself rather than to each of the ten
+   backdrops, so one declaration covers the lot: the desk-drawn gradients,
+   the aurora, the grid and the trader's own picture all take the same
+   effect. A trader who likes the aurora but finds it loud can calm it
+   instead of abandoning it.
+
+   It goes on .aurora, not on .aurora::before, because the grid and wave
+   backdrops paint across both the ::before and the ::after and an effect
+   applied to only one of them would blur half a background. The element is
+   fixed and behind everything, so filtering it costs one composited layer
+   and never touches the panels or the text above it.
+   =========================================================================== */
+.aurora{ filter:var(--bg-fx, none) }
+
+/* The photo backdrop already sets filter:none on its own layers so the
+   picture is shown as it is; the effect still arrives from the parent. */

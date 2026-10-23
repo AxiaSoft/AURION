@@ -75,13 +75,60 @@ internal static class Prerequisites
     // vendor releases a patch and does not silently rot into "refuses the
     // real file" the way a stale hash does.
     // ---------------------------------------------------------------------
+    private const string PythonFullVersion = "3.12.7";
+    private const string PythonExeName = "python-" + PythonFullVersion + "-amd64.exe";
+    private const string PythonZipName = "python-" + PythonFullVersion + "-embed-amd64.zip";
+    private const string GetPipName = "get-pip.py";
+    private const string PythonExeName2 = "python.exe";
     private const string PythonUrl =
-        "https://www.python.org/ftp/python/3.12.7/python-3.12.7-amd64.exe";
+        "https://www.python.org/ftp/python/" + PythonFullVersion + "/" + PythonExeName;
     private const string PythonPublisher = "Python Software Foundation";
 
-    private const string NodeUrl =
-        "https://nodejs.org/dist/v20.17.0/node-v20.17.0-x64.msi";
-    private const string NodePublisher = "OpenJS Foundation";
+    // ---------------------------------------------------------------------
+    // Bundled runtimes
+    //
+    // installer\tools\fetch-vendor.ps1 downloads these on the build machine
+    // and stage.ps1 puts them in the payload, so a customer's machine
+    // installs AURION without reaching the network at all. That machine is
+    // the worst possible place to be discovering a proxy, an expired root
+    // certificate or a blocked vendor domain: nobody can log into it and the
+    // only symptom is a desk that does not start.
+    //
+    // The filenames are a contract with fetch-vendor.ps1. A test keeps them
+    // in step. When the folder is absent - a build that skipped the bundle -
+    // every one of these falls back to downloading, exactly as before.
+    // ---------------------------------------------------------------------
+
+    /// <summary>A file shipped in the payload, or "" when it was not bundled.</summary>
+    private static string Bundled(string installDir, string name)
+    {
+        try
+        {
+            var path = Path.Combine(installDir, "vendor", name);
+            return File.Exists(path) ? path : "";
+        }
+        catch
+        {
+            return "";
+        }
+    }
+
+    // Node arrives as the official zip, not the MSI, and is unpacked into the
+    // installation folder.
+    //
+    // The MSI is per-machine: it raises a UAC prompt that a trader running a
+    // per-user install was never warned about, fails outright on a managed
+    // laptop, and - the reason this was rewritten - puts node.exe somewhere
+    // only a PATH refresh can find. A zip under the install folder needs no
+    // elevation, no PATH, and no administrator; it is found by absolute path
+    // and it leaves with the uninstall.
+    //
+    // A zip carries no Authenticode signature, so it is verified against the
+    // SHA-256 published alongside it on nodejs.org over https instead.
+    private const string NodeVersion = "v20.17.0";
+    private const string NodeZipName = "node-" + NodeVersion + "-win-x64.zip";
+    private const string NodeZipUrl = "https://nodejs.org/dist/" + NodeVersion + "/" + NodeZipName;
+    private const string NodeSumsUrl = "https://nodejs.org/dist/" + NodeVersion + "/SHASUMS256.txt";
 
     // Microsoft's evergreen bootstrapper: a tiny stub that fetches the current
     // runtime itself. Deliberately not version-pinned - that is the supported
@@ -94,6 +141,29 @@ internal static class Prerequisites
     /// <summary>The Python interpreter found by the last inspection.</summary>
     public static string PythonCommand { get; private set; } = "";
 
+    /// <summary>The node.exe found by the last inspection, absolute when known.</summary>
+    public static string NodeCommand { get; private set; } = "";
+
+    /// <summary>AURION's own copy of Node, if it has been unpacked.</summary>
+    public static string PrivateNode(string installDir) =>
+        Path.Combine(installDir, "runtime", "node", "node.exe");
+
+    /// <summary>
+    /// AURION's own Python, if it has been installed.
+    ///
+    /// Private on purpose, and it is the whole answer to "I want to upgrade
+    /// the system Python". The engine is pinned to NumPy 1.26.4 because it
+    /// is the last official Windows wheel that does not require x86-64-v2,
+    /// and that wheel exists only for CPython 3.9 to 3.12. Depending on
+    /// whatever Python the machine happens to have meant that upgrading it -
+    /// an ordinary, sensible thing to do - silently broke the engine.
+    ///
+    /// So AURION brings its own, inside its own folder, on PATH for nobody.
+    /// The machine's Python can be 3.15, or absent, and neither matters.
+    /// </summary>
+    public static string PrivatePython(string installDir) =>
+        Path.Combine(installDir, "runtime", "python", "python.exe");
+
     /// <summary>Everything AURION needs, in the order it is shown.</summary>
     public static List<Requirement> Build() => new()
     {
@@ -101,8 +171,8 @@ internal static class Prerequisites
         {
             Id = "python",
             Title = "Python 3.12",
-            Why = "Runs the trading engine, the AI models and the strategies.",
-            Source = "python.org",
+            Why = "Runs the engine. Installed inside AURION, so upgrading the machine's own Python cannot break it.",
+            Source = "python.org (into AURION's folder, no administrator)",
             Size = "25 MB",
         },
         new Requirement
@@ -118,8 +188,8 @@ internal static class Prerequisites
             Id = "node",
             Title = "Node.js 20",
             Why = "Runs the desk's API between the engine and this window.",
-            Source = "nodejs.org",
-            Size = "28 MB",
+            Source = "nodejs.org (unpacked into AURION's own folder, no administrator)",
+            Size = "30 MB",
         },
         new Requirement
         {
@@ -147,18 +217,36 @@ internal static class Prerequisites
     /// Ask the machine what it already has. Fast, offline, and safe to run on
     /// every launch - the whole point is that a prepared machine never waits.
     /// </summary>
-    public static async Task InspectAsync(IEnumerable<Requirement> items, string installDir)
+    public static async Task InspectAsync(
+        IEnumerable<Requirement> items, string installDir, IProgress<string>? say = null)
     {
         var list = items.ToList();
-        var python = FindPython();
+
+        // Off the UI thread, all of it.
+        //
+        // This method is async, but everything it did first was not: three
+        // `py -3.1x` probes, a `where python`, a `python --version`, then
+        // the same again for Node. On a machine that has none of them every
+        // one of those runs to its timeout, and they were running on the
+        // thread that paints the window. The setup panel appeared unpainted
+        // and Windows marked AURION "not responding" for the best part of a
+        // minute before the first line of text arrived.
+        var (python, nodeCommand, pythonVersion) = await Task.Run(() =>
+        {
+            var py = FindPython(installDir);
+            var nd = FindNode(installDir);
+            return (py, nd, py.Length > 0 ? PythonVersionOf(py) : "");
+        });
+
         PythonCommand = python;
+        NodeCommand = nodeCommand;
 
         foreach (var req in list)
         {
             switch (req.Id)
             {
                 case "python":
-                    Settle(req, python.Length > 0, PythonVersionOf(python),
+                    Settle(req, python.Length > 0, pythonVersion,
                         "No supported Python found. The engine needs 3.10, 3.11 or 3.12.");
                     break;
 
@@ -168,12 +256,20 @@ internal static class Prerequisites
                         Settle(req, false, "", "Waiting for Python.");
                         break;
                     }
-                    Settle(req, await ImportsWorkAsync(python), "fastapi, numpy, scikit-learn",
+                    // The slowest check by a wide margin on a first run,
+                    // and the only one with nothing to show for itself.
+                    var imports = say is null
+                        ? await ImportsWorkAsync(python)
+                        : await WithHeartbeatResult(
+                            "Checking the engine's libraries", say, default,
+                            () => ImportsWorkAsync(python));
+
+                    Settle(req, imports, "fastapi, numpy, scikit-learn",
                         "The engine's Python libraries are not installed.");
                     break;
 
                 case "node":
-                    var node = await NodeVersionAsync();
+                    var node = await NodeVersionAsync(installDir, nodeCommand);
                     Settle(req, node.Length > 0, node, "Node.js 18 or newer was not found.");
                     break;
 
@@ -189,6 +285,48 @@ internal static class Prerequisites
                     break;
             }
         }
+
+        // Hand the launcher absolute paths. start-aurion.cmd runs in a console
+        // whose environment was captured before any of this happened, so PATH
+        // is the one thing it cannot trust.
+        WriteRuntimeEnv(installDir);
+    }
+
+    /// <summary>
+    /// Record the interpreters where the launcher can read them.
+    ///
+    /// data\runtime.env is two KEY=value lines, parsed by start-aurion.cmd with
+    /// a plain for /f. It is a cache, never a requirement: every consumer falls
+    /// back to searching when a path in here no longer exists.
+    /// </summary>
+    public static void WriteRuntimeEnv(string installDir)
+    {
+        try
+        {
+            var lines = new List<string>();
+            var py = AbsolutePython();
+            if (py.Length > 0) lines.Add("PYTHON=" + py);
+            if (NodeCommand.Length > 0 && File.Exists(NodeCommand)) lines.Add("NODE=" + NodeCommand);
+            if (lines.Count == 0) return;
+
+            var dir = Path.Combine(installDir, "data");
+            Directory.CreateDirectory(dir);
+            File.WriteAllLines(Path.Combine(dir, "runtime.env"), lines);
+        }
+        catch
+        {
+            // A cache that could not be written costs a PATH lookup, nothing more.
+        }
+    }
+
+    /// <summary>The full path of the interpreter behind PythonCommand, or "".</summary>
+    private static string AbsolutePython()
+    {
+        if (PythonCommand.Length == 0) return "";
+        var (exe, args) = Split(PythonCommand);
+        var text = Capture(exe, (args + " -c \"import sys; print(sys.executable)\"").Trim()).Trim();
+        var first = text.Split('\n').FirstOrDefault()?.Trim() ?? "";
+        return first.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) && File.Exists(first) ? first : "";
     }
 
     private static void Settle(Requirement req, bool ok, string found, string problem)
@@ -198,22 +336,128 @@ internal static class Prerequisites
         req.Problem = ok ? "" : problem;
     }
 
-    /// <summary>The best supported interpreter on this machine, or "".</summary>
-    private static string FindPython()
+    /// <summary>
+    /// The interpreter AURION should use: its own first, the machine's only
+    /// as a fallback for installations that predate the private runtime.
+    /// </summary>
+    private static string FindPython(string installDir)
     {
-        foreach (var v in PythonVersions)
+        var mine = PrivatePython(installDir);
+        if (File.Exists(mine) && PythonVersionOf(Quoted(mine)).Length > 0) return Quoted(mine);
+
+        // Where python.org records what it installed.
+        //
+        // A machine had a perfectly good CPython 3.12.7 and AURION could
+        // not see it. It was not on PATH, because we install with
+        // PrependPath=0 on purpose; `py` could not find it, because we
+        // install with Include_launcher=0 on purpose; and bare `python`
+        // resolved to the Microsoft Store alias, which is refused. Three
+        // deliberate decisions adding up to an interpreter that exists,
+        // works, and is invisible.
+        //
+        // Every python.org installer writes its location here regardless
+        // of all three.
+        foreach (var version in PythonVersions)
         {
-            if (RunQuiet("py", $"-{v} -c \"import sys\"")) return $"py -{v}";
+            foreach (var root in new[] { Microsoft.Win32.Registry.CurrentUser,
+                                         Microsoft.Win32.Registry.LocalMachine })
+            {
+                try
+                {
+                    using var key = root.OpenSubKey(
+                        $@"Software\Python\PythonCore\{version}\InstallPath");
+                    var dir = key?.GetValue(null) as string;
+                    if (string.IsNullOrWhiteSpace(dir)) continue;
+
+                    var candidate = Path.Combine(dir, PythonExeName2);
+                    if (File.Exists(candidate) && PythonVersionOf(Quoted(candidate)).Length > 0)
+                    {
+                        return Quoted(candidate);
+                    }
+                }
+                catch
+                {
+                    // An unreadable key means "not there", never a crash.
+                }
+            }
+        }
+
+        // py.exe is an app execution alias too on a machine with no Python,
+        // and launching it opens the Microsoft Store rather than answering.
+        // Each of the three probes below then runs to its timeout for
+        // nothing: twelve seconds of a bare machine's first launch spent
+        // waiting for a program that was never going to reply.
+        if (!IsStoreAlias(WhereIs("py")))
+        {
+            foreach (var v in PythonVersions)
+            {
+                if (RunQuiet("py", $"-{v} -c \"import sys\"")) return $"py -{v}";
+            }
         }
         // No launcher, or no versioned entry: fall back to whatever `python`
-        // is, but only accept it if it is a version the engine supports.
-        var bare = PythonVersionOf("python");
-        if (bare.Length > 0 && PythonVersions.Any(v => bare.Contains(" " + v + ".")))
+        // is, but only accept it if it is a version the engine supports and
+        // is not the Store alias.
+        if (!IsStoreAlias(WhereIs("python")))
         {
-            return "python";
+            var bare = PythonVersionOf("python");
+            if (bare.Length > 0 && PythonVersions.Any(v => bare.Contains(" " + v + ".")))
+            {
+                return "python";
+            }
         }
         return "";
     }
+
+    /// <summary>Quote a path so Split() hands it back in one piece.</summary>
+    private static string Quoted(string path) => "\"" + path + "\"";
+
+    /// <summary>
+    /// Reject the Microsoft Store's Python.
+    ///
+    /// %LocalAppData%\Microsoft\WindowsApps\python.exe is not an
+    /// interpreter, it is an app execution alias, and it behaves like one.
+    /// It resolves only inside an interactive session belonging to the user
+    /// who installed it, it redirects writes away from site-packages, and
+    /// started detached through wscript it exits without producing output
+    /// or a log.
+    ///
+    /// On the machine this was found on, it had been recorded in
+    /// runtime.env on a first run and believed ever since: the engine and
+    /// the desk wrote nothing whatsoever, and the launcher returned 1 with
+    /// nothing to say about why.
+    /// </summary>
+    /// <summary>What the PATH would actually run for a bare name, or "".</summary>
+    private static string WhereIs(string name)
+    {
+        try
+        {
+            var p = new Process
+            {
+                StartInfo = new ProcessStartInfo("where.exe", name)
+                {
+                    UseShellExecute = false,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    CreateNoWindow = true
+                }
+            };
+            p.Start();
+            var first = p.StandardOutput.ReadLine() ?? "";
+            p.StandardError.ReadToEnd();
+            if (!p.WaitForExit(4000))
+            {
+                try { p.Kill(entireProcessTree: true); } catch { }
+            }
+            return first.Trim();
+        }
+        catch
+        {
+            return "";
+        }
+    }
+
+    private static bool IsStoreAlias(string path) =>
+        path.Contains("\\WindowsApps\\", StringComparison.OrdinalIgnoreCase);
 
     private static string PythonVersionOf(string command)
     {
@@ -224,18 +468,75 @@ internal static class Prerequisites
         return m.Success ? m.Value : "";
     }
 
-    private static async Task<bool> ImportsWorkAsync(string python)
+    /// <summary>
+    /// Can this interpreter import what the engine needs?
+    ///
+    /// Four minutes, not four seconds. On a machine that has never run the
+    /// engine, importing numpy and scikit-learn compiles several thousand
+    /// files to bytecode on the way, and on a slow disk that is a minute or
+    /// more. It only ever happens once - every later import reads the cache
+    /// - but giving up on it is indistinguishable from the libraries not
+    /// being installed, and leads straight to reinstalling them.
+    /// </summary>
+    private static async Task<bool> ImportsWorkAsync(string python, CancellationToken ct = default)
     {
         var (exe, args) = Split(python);
         return await Task.Run(() =>
-            RunQuiet(exe, (args + " -c \"import fastapi, numpy, sklearn\"").Trim()));
+            RunQuiet(exe, (args + " -c \"import fastapi, numpy, sklearn\"").Trim(),
+                timeoutMs: 240_000), ct);
     }
 
-    private static async Task<string> NodeVersionAsync()
+    /// <summary>
+    /// node.exe, by absolute path wherever possible.
+    ///
+    /// Order: AURION's own copy, then PATH, then the two places the official
+    /// installers use. Asking PATH alone is what left a freshly prepared
+    /// machine insisting Node was missing - this process inherited its
+    /// environment before Node existed and nothing it did could change that.
+    /// </summary>
+    private static string FindNode(string installDir)
+    {
+        var mine = PrivateNode(installDir);
+        if (File.Exists(mine)) return mine;
+
+        foreach (var dir in (Environment.GetEnvironmentVariable("PATH") ?? "").Split(';'))
+        {
+            if (dir.Trim().Length == 0) continue;
+            try
+            {
+                var candidate = Path.Combine(dir.Trim(), "node.exe");
+                if (File.Exists(candidate)) return candidate;
+            }
+            catch
+            {
+                // An unparseable PATH entry is not an error, it is just not Node.
+            }
+        }
+
+        string[] usual =
+        {
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "nodejs", "node.exe"),
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "Programs", "nodejs", "node.exe"),
+        };
+        return usual.FirstOrDefault(File.Exists) ?? "";
+    }
+
+    /// <param name="known">
+    /// What InspectAsync already resolved, so this does not search for Node
+    /// a second time. On a machine that has none, that search is a run of
+    /// child processes that each wait out a timeout, and doing it twice in
+    /// one pass doubled the slowest part of a first launch for no reason.
+    /// </param>
+    private static async Task<string> NodeVersionAsync(string installDir, string known = "")
     {
         return await Task.Run(() =>
         {
-            var text = Capture("node", "--version").Trim();     // "v20.17.0"
+            var exe = known.Length > 0 ? known : FindNode(installDir);
+            if (exe.Length == 0) return "";
+            NodeCommand = exe;
+
+            var text = Capture(exe, "--version").Trim();        // "v20.17.0"
             var m = Regex.Match(text, @"^v(\d+)\.");
             if (!m.Success) return "";
             return int.TryParse(m.Groups[1].Value, out var major) && major >= 18
@@ -295,12 +596,8 @@ internal static class Prerequisites
         // fails on somebody else's machine is unsupportable otherwise: the
         // one line still on screen is never the line that mattered.
         var log = Path.Combine(installDir, "data", "logs", "setup.log");
-        var recorder = new Progress<string>(text =>
-        {
-            say.Report(text);
-            Write(log, text);
-        });
-        Write(log, $"--- setup started, {missing.Count()} item(s) missing ---");
+        using var recorder = new Recorder(say, log);
+        recorder.Report($"--- setup started, {missing.Count()} item(s) missing ---");
         say = recorder;
 
         foreach (var req in missing)
@@ -311,11 +608,11 @@ internal static class Prerequisites
             {
                 switch (req.Id)
                 {
-                    case "python": await InstallPythonAsync(work, say, ct); break;
+                    case "python": await InstallPythonAsync(work, installDir, say, ct); break;
                     case "pydeps": await InstallPythonLibsAsync(installDir, say, ct); break;
-                    case "node": await InstallNodeAsync(work, say, ct); break;
+                    case "node": await InstallNodeAsync(work, installDir, say, ct); break;
                     case "nodedeps": await InstallNodeLibsAsync(installDir, say, ct); break;
-                    case "webview": await InstallWebViewAsync(work, say, ct); break;
+                    case "webview": await InstallWebViewAsync(work, installDir, say, ct); break;
                 }
                 req.State = ReqState.Installed;
                 req.Problem = "";
@@ -329,39 +626,374 @@ internal static class Prerequisites
             {
                 req.State = ReqState.Failed;
                 req.Problem = ex.Message;
-                Write(log, $"{req.Id}: FAILED - {ex}");
+                recorder.Log($"{req.Id}: FAILED - {ex}");
             }
         }
 
-        Write(log, "--- setup finished ---");
+        recorder.Log("--- setup finished ---");
         try { Directory.Delete(work, recursive: true); } catch { /* temp files */ }
     }
 
-    private static async Task InstallPythonAsync(string work, IProgress<string> say, CancellationToken ct)
+    private static async Task InstallPythonAsync(string work, string installDir, IProgress<string> say, CancellationToken ct)
     {
-        var file = await DownloadAsync(PythonUrl, Path.Combine(work, "python-setup.exe"),
-            PythonPublisher, "Python", say, ct);
-
-        say.Report("Installing Python…");
-        // Per-user, on PATH, with pip. Never InstallAllUsers: a desk that
-        // installs into %LocalAppData% has no business writing to Program
-        // Files, and a per-user Python needs no elevation prompt.
-        await RunAsync(file, "/quiet InstallAllUsers=0 PrependPath=1 Include_pip=1 Include_test=0",
-            elevate: false, ct);
-
-        // The new interpreter is not on this process's PATH, so re-detect.
-        RefreshPath();
-        PythonCommand = FindPython();
-        if (PythonCommand.Length == 0)
+        var file = Bundled(installDir, PythonExeName);
+        if (file.Length > 0)
         {
-            throw new InvalidOperationException(
-                "Python installed but could not be found afterwards. A sign-out and back in usually fixes the PATH.");
+            say.Report("Using the Python that ships with AURION…");
+            // Still verified. It came out of our own MSI, but the check costs
+            // nothing and a bundle is only as good as the thing that made it.
+            if (!SignedBy(file, PythonPublisher))
+            {
+                throw new InvalidOperationException(
+                    "The bundled Python installer is not signed by " + PythonPublisher + ".");
+            }
         }
+        else
+        {
+            file = await DownloadAsync(PythonUrl, Path.Combine(work, "python-setup.exe"),
+                PythonPublisher, "Python", say, ct);
+        }
+
+        var target = Path.Combine(installDir, "runtime", "python");
+
+        // Everything here is "ours, and only ours".
+        //
+        // TargetDir puts the interpreter inside the installation, so the
+        // engine's pinned NumPy cannot be broken by someone upgrading the
+        // machine's Python - which is an ordinary thing to do and used to
+        // be fatal. PrependPath=0 and AssociateFiles=0 because a trading
+        // desk has no business owning the PATH or the .py extension.
+        // Include_launcher=0 so py.exe in C:\Windows is left exactly as it
+        // was found. No elevation is needed for any of it.
+        var options =
+            "InstallAllUsers=0 TargetDir=\"" + target + "\" " +
+            "PrependPath=0 AssociateFiles=0 Shortcuts=0 " +
+            "Include_launcher=0 InstallLauncherAllUsers=0 " +
+            "Include_pip=1 Include_test=0 Include_doc=0 Include_tcltk=0";
+
+        // /log, always.
+        //
+        // python.org's installer is a Burn bundle: with /quiet it prints
+        // nothing, writes nothing to stdout and reports failure as a bare
+        // exit code. The first time it refused to install there was
+        // literally nothing to look at - the row went red, Node installed
+        // happily afterwards, and the only visible fact was that Python
+        // had not appeared. /log is the one way to find out why.
+        var installLog = Path.Combine(installDir, "data", "logs", "python-install.log");
+        Directory.CreateDirectory(Path.GetDirectoryName(installLog)!);
+
+        // Wait for Windows Installer to be free before starting.
+        //
+        // This is almost certainly why Python failed where Node did not.
+        // Node is a zip - unpacking it answers to nobody. Python is an MSI
+        // bundle, and Windows permits exactly one installation at a time
+        // across the whole machine. AURION is very often launched from its
+        // own MSI's finish page, while that MSI is still finalising, so
+        // the Python bundle asks for the installer mutex, cannot have it,
+        // and exits 1618 immediately: no download, no progress, no
+        // message. The row goes red and Node installs happily afterwards,
+        // which is exactly the shape of the report.
+        await WaitForWindowsInstaller(say, ct);
+
+        Exception? quiet = null;
+        for (var attempt = 1; attempt <= 3; attempt++)
+        {
+            try
+            {
+                say.Report(attempt == 1
+                    ? "Installing Python into AURION's own folder…"
+                    : $"Windows was busy with another installation. Trying again ({attempt} of 3)…");
+                await WithHeartbeat("Installing Python into AURION's own folder", say, ct, () =>
+                    RunAsync(file, $"/quiet /log \"{installLog}\" {options}", elevate: false, ct));
+                quiet = null;
+                break;
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                quiet = ex;
+
+                // 1618 is "another installation is in progress" and is the
+                // one failure that is worth simply waiting out.
+                if (!ex.Message.Contains("code 1618") || attempt == 3) break;
+                await Task.Delay(TimeSpan.FromSeconds(15), ct);
+            }
+        }
+
+        if (quiet is not null)
+        {
+            // Try again where it can speak.
+            //
+            // /passive shows the installer's own progress bar and, more
+            // importantly, lets it put a UAC prompt on screen. /quiet
+            // cannot: a bundle that decides it needs elevation simply
+            // fails, and it fails with a number. This asks no questions
+            // that /quiet would not have asked - it is the same unattended
+            // install with a window.
+            say.Report("The silent install did not work. Trying again visibly…");
+            try
+            {
+                await WithHeartbeat("Installing Python", say, ct, () =>
+                    RunAsync(file, $"/passive /log \"{installLog}\" {options}", elevate: false, ct));
+            }
+            catch (Exception visible) when (visible is not OperationCanceledException)
+            {
+                // Neither mode of the MSI bundle would run. Unpack a Python
+                // instead - no Windows Installer, no mutex, no elevation,
+                // nothing to race. Exactly how Node is installed, which is
+                // the one runtime that has never failed to install here.
+                say.Report("The Python installer will not run on this machine. "
+                           + "Unpacking a copy instead…");
+                try
+                {
+                    await UnpackPythonAsync(installDir, say, ct);
+                    return;
+                }
+                catch (Exception unpack) when (unpack is not OperationCanceledException)
+                {
+                    throw new InvalidOperationException(
+                        "Python could not be installed. " + Explain(quiet!.Message) +
+                        Environment.NewLine + Environment.NewLine +
+                        "Unpacking a copy did not work either: " + unpack.Message +
+                        Environment.NewLine + Environment.NewLine +
+                        "What the installer logged:" + Environment.NewLine +
+                        Decisive(installLog) +
+                        Environment.NewLine +
+                        "    (full log: " + installLog + ")", visible);
+                }
+            }
+        }
+
+        var mine = PrivatePython(installDir);
+        if (File.Exists(mine))
+        {
+            PythonCommand = Quoted(mine);
+            WriteRuntimeEnv(installDir);
+            say.Report("Python is ready, inside AURION.");
+            return;
+        }
+
+        // Succeeded, installed nothing.
+        //
+        // This is the real behaviour that cost several builds to find, and
+        // it looks like success from every angle. If this user already has
+        // CPython 3.12.7 - which they will, if an earlier AURION installed
+        // it before the private runtime existed - the bundle detects its
+        // own packages as Present, switches to Modify, plans "execute:
+        // None" for all fifty-two of them, ignores TargetDir completely,
+        // and exits 0:
+        //
+        //     Detected package: core_JustForMe, state: Present
+        //     Plan begin, 52 packages, action: Modify
+        //     Apply complete, result: 0x0
+        //
+        // So an exit code of zero is not the question. Whether python.exe
+        // is now in runtime\python is the question, and it is not.
+        RefreshPath();
+
+        // The one it already has, if the registry knows where it is.
+        PythonCommand = FindPython(installDir);
+        if (PythonCommand.Length > 0)
+        {
+            say.Report("Python is already installed on this machine. Using it.");
+            WriteRuntimeEnv(installDir);
+            return;
+        }
+
+        // Nothing usable anywhere. Unpack our own, which cannot be
+        // declined on the grounds of already being there.
+        say.Report("The installer had nothing to do and left no Python behind. "
+                   + "Unpacking a copy instead…");
+        await UnpackPythonAsync(installDir, say, ct);
+    }
+
+    /// <summary>
+    /// Install Python by unpacking it, the way Node is installed.
+    ///
+    /// python.org's embeddable build is a zip of files. No Windows
+    /// Installer, so nothing to queue behind and no machine-wide mutex to
+    /// lose a race to; no elevation; no registry; nothing that can refuse.
+    /// It is the same interpreter, built without the installer, the
+    /// launcher, tkinter, the test suite and the documentation.
+    ///
+    /// Two things have to be done by hand that the full installer does for
+    /// you. The ._pth file ships with "import site" commented out, which
+    /// leaves site-packages disabled and makes pip useless; and there is no
+    /// pip at all, which is what the bundled get-pip.py is for - it carries
+    /// its own copy inside it and needs no network.
+    /// </summary>
+    private static async Task UnpackPythonAsync(string installDir, IProgress<string> say, CancellationToken ct)
+    {
+        var zip = Bundled(installDir, PythonZipName);
+        if (zip.Length == 0)
+        {
+            throw new FileNotFoundException(
+                "This build does not carry " + PythonZipName + ", so there is nothing to unpack.");
+        }
+
+        var target = Path.Combine(installDir, "runtime", "python");
+
+        await WithHeartbeat("Unpacking Python", say, ct, () => Task.Run(() =>
+        {
+            if (Directory.Exists(target)) Directory.Delete(target, recursive: true);
+            Directory.CreateDirectory(target);
+            System.IO.Compression.ZipFile.ExtractToDirectory(zip, target);
+
+            // Turn site-packages back on. Without this pip installs into a
+            // directory the interpreter will not look in, and every import
+            // the engine needs fails with the libraries sitting right there.
+            foreach (var pth in Directory.GetFiles(target, "python*._pth"))
+            {
+                var lines = File.ReadAllLines(pth)
+                    .Select(l => l.Trim() == "#import site" ? "import site" : l)
+                    .ToList();
+                if (!lines.Any(l => l.Trim() == "import site")) lines.Add("import site");
+                if (!lines.Any(l => l.Trim() == "Lib\\site-packages")) lines.Add("Lib\\site-packages");
+                File.WriteAllLines(pth, lines);
+            }
+            Directory.CreateDirectory(Path.Combine(target, "Lib", "site-packages"));
+        }, ct));
+
+        var exe = PrivatePython(installDir);
+        if (!File.Exists(exe))
+        {
+            throw new InvalidOperationException("Python unpacked but python.exe is not in " + target + ".");
+        }
+
+        // The embeddable build has no pip. get-pip.py carries one.
+        var getPip = Bundled(installDir, GetPipName);
+        if (getPip.Length == 0)
+        {
+            throw new FileNotFoundException(
+                "This build does not carry " + GetPipName + ", so pip cannot be installed.");
+        }
+
+        say.Report("Setting up pip…");
+        await RunAsync(exe, $"\"{getPip}\" --no-warn-script-location --no-input",
+            elevate: false, ct, null, say);
+
+        PythonCommand = Quoted(exe);
+        WriteRuntimeEnv(installDir);
+        say.Report("Python is ready, inside AURION.");
+    }
+
+    /// <summary>
+    /// The lines of a Burn log that say what went wrong.
+    ///
+    /// python.org's installer writes thousands of lines and the useful one
+    /// is rarely the last. Quoting the tail produced four lines about
+    /// cleaning up temporary files. This pulls the ones that name a
+    /// failure, which is what somebody reading an error box needs.
+    /// </summary>
+    private static string Decisive(string path)
+    {
+        try
+        {
+            if (!File.Exists(path)) return "    (the installer wrote no log at all)";
+
+            using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+            using var reader = new StreamReader(stream);
+
+            var interesting = reader.ReadToEnd()
+                .Split('\n')
+                .Select(l => l.TrimEnd('\r').Trim())
+                .Where(l => l.Length > 0)
+                .Where(l => l.Contains("Error", StringComparison.OrdinalIgnoreCase)
+                            || l.Contains("Failed", StringComparison.OrdinalIgnoreCase)
+                            || l.Contains("Exit code", StringComparison.OrdinalIgnoreCase)
+                            || l.Contains("cannot", StringComparison.OrdinalIgnoreCase)
+                            || l.Contains("Detected related", StringComparison.OrdinalIgnoreCase))
+                .Distinct()
+                .TakeLast(6)
+                .Select(l => "    " + (l.Length > 160 ? l[..160] + "…" : l))
+                .ToList();
+
+            return interesting.Count > 0
+                ? string.Join(Environment.NewLine, interesting)
+                : "    (nothing in the log names a failure)";
+        }
+        catch
+        {
+            return "    (the log could not be read)";
+        }
+    }
+
+    /// <summary>
+    /// Block until no other MSI installation is running, or two minutes.
+    ///
+    /// Windows serialises installations with a machine-wide mutex called
+    /// _MSIExecute. Asking for it politely first turns the most likely
+    /// failure of a first run - AURION started from its own installer's
+    /// finish page, racing the installer that started it - into a short,
+    /// explained wait.
+    /// </summary>
+    private static async Task WaitForWindowsInstaller(IProgress<string> say, CancellationToken ct)
+    {
+        var told = false;
+        for (var i = 0; i < 60; i++)
+        {
+            ct.ThrowIfCancellationRequested();
+
+            bool busy;
+            try
+            {
+                // Opening it is enough to know. It is never held here: the
+                // handle is released immediately, and failing to open it
+                // means somebody else has it.
+                using var mutex = System.Threading.Mutex.OpenExisting("Global\\_MSIExecute");
+                busy = !mutex.WaitOne(0);
+                if (!busy) mutex.ReleaseMutex();
+            }
+            catch (System.Threading.WaitHandleCannotBeOpenedException)
+            {
+                busy = false;      // Nothing is installing. The usual case.
+            }
+            catch
+            {
+                busy = false;      // Not worth failing a setup over.
+            }
+
+            if (!busy) return;
+
+            if (!told)
+            {
+                say.Report("Waiting for Windows to finish another installation…");
+                told = true;
+            }
+            await Task.Delay(2000, ct);
+        }
+    }
+
+    /// <summary>
+    /// Turn an installer exit code into something worth reading.
+    ///
+    /// These are the ones that actually come back from python.org's
+    /// bundle, and every one of them means something a person could act
+    /// on - which "finished with code 1603" does not.
+    /// </summary>
+    private static string Explain(string message)
+    {
+        var codes = new (string Code, string Means)[]
+        {
+            ("1602", "The installation was cancelled - usually a declined administrator prompt."),
+            ("1603", "The installer hit a fatal error. The usual causes are antivirus holding a file, or a half-removed Python already on the machine."),
+            ("1618", "Another installation is already running. Windows allows only one at a time."),
+            ("1638", "This version of Python is already installed. It may need removing from Settings first."),
+            ("5",    "Access was denied writing to the installation folder."),
+            ("1",    "The installer rejected its options."),
+        };
+
+        foreach (var (code, means) in codes)
+        {
+            if (message.Contains("code " + code)) return means;
+        }
+        return message;
     }
 
     private static async Task InstallPythonLibsAsync(string installDir, IProgress<string> say, CancellationToken ct)
     {
-        if (PythonCommand.Length == 0) PythonCommand = FindPython();
+        // Off the UI thread, like every other probe: FindPython runs a
+        // series of child processes and waits for each one.
+        if (PythonCommand.Length == 0) PythonCommand = await Task.Run(() => FindPython(installDir), ct);
         if (PythonCommand.Length == 0) throw new InvalidOperationException("Python is not available yet.");
 
         var requirements = Path.Combine(installDir, "engine", "requirements.txt");
@@ -371,23 +1003,175 @@ internal static class Prerequisites
         }
 
         var (exe, args) = Split(PythonCommand);
-        say.Report("Updating pip…");
-        await RunAsync(exe, (args + " -m pip install --upgrade pip").Trim(), elevate: false, ct);
+
+        // Wheels bundled by fetch-vendor.ps1 mean no PyPI, no proxy, no
+        // ninety-megabyte download on somebody else's laptop.
+        var wheels = Path.Combine(installDir, "vendor", "wheels");
+        var offline = Directory.Exists(wheels) && Directory.GetFiles(wheels, "*.whl").Length > 0;
+
+        // Upgrading pip needs the network. Doing it immediately before an
+        // installation whose entire purpose is to need no network is a
+        // contradiction, and on a machine that genuinely has none it is
+        // where setup appeared to hang: pip retries, backs off and retries,
+        // for a minute or more, behind a line of text reading "Updating
+        // pip…". It is a nicety at the best of times. It is skipped when
+        // the bundle is going to be used.
+        if (!offline)
+        {
+            say.Report("Updating pip…");
+            try
+            {
+                await RunAsync(exe,
+                    (args + " -m pip install --upgrade pip --retries 1 --timeout 15 --no-input").Trim(),
+                    elevate: false, ct, null, say);
+            }
+            catch (Exception ex)
+            {
+                say.Report("pip could not be updated (" + ex.Message + ") - carrying on.");
+            }
+        }
+
+        if (offline)
+        {
+            say.Report("Installing the engine's libraries from the copies that ship with AURION…");
+            await RunAsync(exe,
+                (args + $" -m pip install --no-index --find-links \"{wheels}\" -r \"{requirements}\"" +
+                 " --no-input --disable-pip-version-check").Trim(),
+                elevate: false, ct, null, say);
+            return;
+        }
 
         say.Report("Installing the engine's libraries… this is the long one.");
-        await RunAsync(exe, (args + $" -m pip install -r \"{requirements}\"").Trim(), elevate: false, ct);
+        await RunAsync(exe,
+            (args + $" -m pip install -r \"{requirements}\" --no-input --disable-pip-version-check").Trim(),
+            elevate: false, ct, null, say);
     }
 
-    private static async Task InstallNodeAsync(string work, IProgress<string> say, CancellationToken ct)
+    /// <summary>
+    /// Unpack Node into the installation folder. No installer, no elevation.
+    ///
+    /// Nothing outside AURION's own directory is touched, so there is no UAC
+    /// prompt to decline, no PATH to go stale, and nothing left behind when
+    /// AURION is uninstalled.
+    /// </summary>
+    private static async Task InstallNodeAsync(string work, string installDir, IProgress<string> say, CancellationToken ct)
     {
-        var file = await DownloadAsync(NodeUrl, Path.Combine(work, "node-setup.msi"),
-            NodePublisher, "Node.js", say, ct);
+        var zip = Bundled(installDir, NodeZipName);
+        if (zip.Length > 0)
+        {
+            say.Report("Using the Node.js that ships with AURION…");
+            // fetch-vendor.ps1 bundles nodejs.org's checksum list next to the
+            // zip precisely so this can still be checked with no network.
+            var sums = Bundled(installDir, "SHASUMS256.txt");
+            if (sums.Length > 0)
+            {
+                // SHA-256 over 28 MB, off the UI thread. Short, but this
+                // runs while the setup panel is meant to be showing
+                // progress, and a frozen window is how the whole thing
+                // looked broken in the first place.
+                var text = await File.ReadAllTextAsync(sums, ct);
+                await Task.Run(() => VerifyAgainstSums(zip, text, NodeZipName), ct);
+            }
+        }
+        else
+        {
+            zip = Path.Combine(work, NodeZipName);
+            // The empty publisher is deliberate: a zip has no Authenticode
+            // signature, and the line below is what replaces that check.
+            await DownloadAsync(NodeZipUrl, zip, "", "Node.js", say, ct);
 
-        say.Report("Installing Node.js…");
-        // Node's MSI is per-machine, so this one does need elevation. The
-        // prompt is Windows's own and the user is told it is coming.
-        await RunAsync("msiexec.exe", $"/i \"{file}\" /qn /norestart", elevate: true, ct);
-        RefreshPath();
+            say.Report("Checking the Node.js download…");
+            await VerifyAgainstPublishedSumAsync(zip, NodeSumsUrl, NodeZipName, ct);
+        }
+
+        var runtime = Path.Combine(installDir, "runtime");
+        var target = Path.Combine(runtime, "node");
+        var staging = Path.Combine(runtime, "node-new");
+
+        // Unzipping Node is around 50 MB of files and says nothing while it
+        // happens; so does deleting and moving the tree afterwards, which
+        // was being done on the UI thread.
+        await WithHeartbeat("Unpacking Node.js", say, ct, () => Task.Run(() =>
+        {
+            if (Directory.Exists(staging)) Directory.Delete(staging, recursive: true);
+            Directory.CreateDirectory(runtime);
+            System.IO.Compression.ZipFile.ExtractToDirectory(zip, staging);
+
+            // The zip holds a single node-vX.Y.Z-win-x64 folder; promote its
+            // contents so node.exe sits where PrivateNode() says it does.
+            var inner = Directory.GetDirectories(staging).FirstOrDefault() ?? staging;
+            if (Directory.Exists(target)) Directory.Delete(target, recursive: true);
+            Directory.Move(inner, target);
+            try { Directory.Delete(staging, recursive: true); } catch { /* already empty */ }
+        }, ct));
+
+        var node = PrivateNode(installDir);
+        if (!File.Exists(node))
+        {
+            throw new InvalidOperationException("Node.js unpacked but node.exe is not where it should be.");
+        }
+        NodeCommand = node;
+        WriteRuntimeEnv(installDir);
+        say.Report("Node.js is ready.");
+    }
+
+    /// <summary>
+    /// Verify a download against the checksum file the vendor publishes next
+    /// to it.
+    ///
+    /// A zip has no Authenticode signature, so the publisher check that
+    /// guards the .exe downloads cannot be used. The checksum list is fetched
+    /// over https from the same origin and is not pinned, so it keeps being
+    /// correct when the pinned version is bumped.
+    /// </summary>
+    private static async Task VerifyAgainstPublishedSumAsync(
+        string file, string sumsUrl, string name, CancellationToken ct)
+    {
+        var sums = await Http.GetStringAsync(sumsUrl, ct);
+        try
+        {
+            VerifyAgainstSums(file, sums, name);
+        }
+        catch
+        {
+            // Only a *downloaded* file is deleted on a bad checksum. The
+            // bundled copy lives in the installation and deleting it would
+            // turn a verification failure into a broken install that needs a
+            // repair; the exception is enough to stop it being used.
+            File.Delete(file);
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// The comparison itself, so the bundled path can reuse it.
+    /// Throws without touching the file - see the caller above.
+    /// </summary>
+    private static void VerifyAgainstSums(string file, string sums, string name)
+    {
+        var wanted = sums
+            .Split('\n')
+            .Select(line => line.Trim())
+            .FirstOrDefault(line => line.EndsWith(" " + name, StringComparison.OrdinalIgnoreCase)
+                                 || line.EndsWith("*" + name, StringComparison.OrdinalIgnoreCase));
+        if (wanted is null)
+        {
+            throw new InvalidOperationException($"{name} is not listed in the vendor's checksum file.");
+        }
+
+        var expected = wanted.Split(' ')[0].Trim();
+        string actual;
+        using (var stream = File.OpenRead(file))
+        {
+            actual = Convert.ToHexString(
+                System.Security.Cryptography.SHA256.HashData(stream)).ToLowerInvariant();
+        }
+
+        if (!string.Equals(actual, expected, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException(
+                $"{name} does not match the checksum published for it. It was not used.");
+        }
     }
 
     private static async Task InstallNodeLibsAsync(string installDir, IProgress<string> say, CancellationToken ct)
@@ -398,19 +1182,54 @@ internal static class Prerequisites
             throw new DirectoryNotFoundException("The backend folder is missing from the installation.");
         }
 
+        if (NodeCommand.Length == 0 || !File.Exists(NodeCommand))
+        {
+            NodeCommand = await Task.Run(() => FindNode(installDir), ct);
+        }
+        if (NodeCommand.Length == 0) throw new InvalidOperationException("Node.js is not available yet.");
+
         say.Report("Installing the desk API's packages…");
-        // npm is a .cmd shim, so it has to go through the shell.
-        await RunAsync("cmd.exe", "/c npm install --omit=dev --no-audit --no-fund",
-            elevate: false, ct, backend);
+
+        // npm is run as a script through node, by absolute path, rather than
+        // as the npm.cmd shim through the shell: the shim is only reachable
+        // via a PATH this process may not have, and AURION's own copy of Node
+        // is deliberately not on PATH at all.
+        var cli = Path.Combine(Path.GetDirectoryName(NodeCommand)!,
+            "node_modules", "npm", "bin", "npm-cli.js");
+        if (File.Exists(cli))
+        {
+            await RunAsync(NodeCommand, $"\"{cli}\" install --omit=dev --no-audit --no-fund",
+                elevate: false, ct, backend, say);
+        }
+        else
+        {
+            // A system-wide Node installed by the MSI keeps npm on PATH.
+            await RunAsync("cmd.exe", "/c npm install --omit=dev --no-audit --no-fund",
+                elevate: false, ct, backend, say);
+        }
     }
 
-    private static async Task InstallWebViewAsync(string work, IProgress<string> say, CancellationToken ct)
+    private static async Task InstallWebViewAsync(string work, string installDir, IProgress<string> say, CancellationToken ct)
     {
-        var file = await DownloadAsync(WebViewUrl, Path.Combine(work, "webview2-setup.exe"),
-            WebViewPublisher, "WebView2", say, ct);
+        var file = Bundled(installDir, "MicrosoftEdgeWebview2Setup.exe");
+        if (file.Length > 0)
+        {
+            say.Report("Using the WebView2 installer that ships with AURION…");
+            if (!SignedBy(file, WebViewPublisher))
+            {
+                throw new InvalidOperationException(
+                    "The bundled WebView2 installer is not signed by " + WebViewPublisher + ".");
+            }
+        }
+        else
+        {
+            file = await DownloadAsync(WebViewUrl, Path.Combine(work, "webview2-setup.exe"),
+                WebViewPublisher, "WebView2", say, ct);
+        }
 
         say.Report("Installing the WebView2 runtime…");
-        await RunAsync(file, "/silent /install", elevate: false, ct);
+        await WithHeartbeat("Installing the WebView2 runtime", say, ct, () =>
+            RunAsync(file, "/silent /install", elevate: false, ct));
     }
 
     // ---------------------------------------------------------------------
@@ -456,7 +1275,9 @@ internal static class Prerequisites
             throw new InvalidOperationException($"The {label} download was too small to be real.");
         }
 
-        if (!SignedBy(target, expectedPublisher))
+        // An empty publisher means the caller verifies integrity another way
+        // (see VerifyAgainstPublishedSumAsync); it never means "unchecked".
+        if (expectedPublisher.Length > 0 && !SignedBy(target, expectedPublisher))
         {
             File.Delete(target);
             throw new InvalidOperationException(
@@ -493,9 +1314,79 @@ internal static class Prerequisites
     // Processes
     // ---------------------------------------------------------------------
 
-    private static async Task RunAsync(string exe, string args, bool elevate, CancellationToken ct,
-        string? workingDirectory = null)
+    /// <summary>
+    /// Run something slow while the screen keeps saying how long it has been.
+    ///
+    /// Some steps cannot narrate themselves. python-3.12.7-amd64.exe is run
+    /// with /quiet, which means exactly that: it prints nothing for one to
+    /// three minutes. A static line of text for three minutes is a hang as
+    /// far as anybody watching is concerned, and the usual response to a
+    /// hang is to kill the installer halfway through laying down a Python.
+    ///
+    /// A counter is a small thing, but it is the difference between "this
+    /// is stuck" and "this is working".
+    /// </summary>
+    private static async Task WithHeartbeat(
+        string message, IProgress<string> say, CancellationToken ct, Func<Task> work)
     {
+        using var beat = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        var clock = Stopwatch.StartNew();
+
+        var ticking = Task.Run(async () =>
+        {
+            try
+            {
+                while (!beat.Token.IsCancellationRequested)
+                {
+                    await Task.Delay(2000, beat.Token);
+                    var t = clock.Elapsed;
+                    var spent = t.TotalMinutes >= 1
+                        ? $"{(int)t.TotalMinutes}m {t.Seconds:00}s"
+                        : $"{t.Seconds}s";
+                    say.Report($"{message}  ({spent})");
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                // The work finished. That is the only way out of this loop.
+            }
+        }, beat.Token);
+
+        try
+        {
+            await work();
+        }
+        finally
+        {
+            beat.Cancel();
+            try { await ticking; } catch (OperationCanceledException) { }
+        }
+    }
+
+    /// <summary>WithHeartbeat, for work that produces an answer.</summary>
+    private static async Task<T> WithHeartbeatResult<T>(
+        string message, IProgress<string> say, CancellationToken ct, Func<Task<T>> work)
+    {
+        var result = default(T)!;
+        await WithHeartbeat(message, say, ct, async () => { result = await work(); });
+        return result;
+    }
+
+    /// <summary>
+    /// Run a program to completion, showing what it is saying while it does.
+    ///
+    /// <paramref name="tail"/> is the difference between a setup screen and
+    /// a frozen one. pip installing numpy, scipy and scikit-learn takes
+    /// minutes, and it used to do so behind one unchanging line of text.
+    /// Nothing was wrong, but there is no way for anyone to know that, and
+    /// the first thing anybody does with a hang is kill it. pip and npm both
+    /// narrate their work perfectly well; this just lets it through.
+    /// </summary>
+    private static async Task RunAsync(string exe, string args, bool elevate, CancellationToken ct,
+        string? workingDirectory = null, IProgress<string>? tail = null)
+    {
+        var watch = tail is not null && !elevate;
+
         var psi = new ProcessStartInfo
         {
             FileName = exe,
@@ -504,11 +1395,37 @@ internal static class Prerequisites
             CreateNoWindow = !elevate,
             WindowStyle = ProcessWindowStyle.Hidden,
             WorkingDirectory = workingDirectory ?? Path.GetTempPath(),
+            RedirectStandardOutput = watch,
+            RedirectStandardError = watch,
         };
         if (elevate) psi.Verb = "runas";
 
         using var proc = Process.Start(psi)
             ?? throw new InvalidOperationException($"Could not start {Path.GetFileName(exe)}.");
+
+        if (watch)
+        {
+            var last = DateTime.MinValue;
+            void Relay(object _, DataReceivedEventArgs e)
+            {
+                var line = e.Data?.Trim();
+                if (string.IsNullOrEmpty(line)) return;
+
+                // Throttled: pip can emit hundreds of lines a second while
+                // unpacking, and marshalling every one of them to the UI
+                // thread is its own way of making a window stop painting.
+                var now = DateTime.UtcNow;
+                if (now - last < TimeSpan.FromMilliseconds(400)) return;
+                last = now;
+
+                tail!.Report(line.Length > 120 ? line[..120] + "…" : line);
+            }
+
+            proc.OutputDataReceived += Relay;
+            proc.ErrorDataReceived += Relay;
+            proc.BeginOutputReadLine();
+            proc.BeginErrorReadLine();
+        }
 
         await proc.WaitForExitAsync(ct);
 
@@ -520,7 +1437,24 @@ internal static class Prerequisites
         }
     }
 
-    private static bool RunQuiet(string exe, string args)
+    /// <summary>
+    /// Run something and report whether it succeeded.
+    ///
+    /// <paramref name="timeoutMs"/> defaults to a figure suited to the
+    /// question "is this interpreter here?", which is answered in well
+    /// under a second or not at all. It is badly wrong for the other
+    /// question asked through this method - "can it import numpy and
+    /// scikit-learn?" - because the first time anything imports those on a
+    /// machine, Python compiles several thousand files to bytecode, and
+    /// that takes tens of seconds.
+    ///
+    /// Four seconds for both meant the first launch on a fully prepared
+    /// machine killed the import halfway and reported the libraries as
+    /// missing. The second launch found a warm cache, took two seconds and
+    /// worked - which is precisely how it was reported: hangs once, fine
+    /// afterwards.
+    /// </summary>
+    private static bool RunQuiet(string exe, string args, int timeoutMs = 4000)
     {
         try
         {
@@ -533,8 +1467,20 @@ internal static class Prerequisites
             };
             using var p = Process.Start(psi);
             if (p is null) return false;
-            p.WaitForExit(8000);
-            return p.HasExited && p.ExitCode == 0;
+
+            // Four seconds, not eight, and the probe is killed if it
+            // overruns. An interpreter that cannot answer "import sys" in
+            // four seconds is not one the engine is going to run on, and
+            // these probes are tried one after another: on a bare machine
+            // the old budget added up to most of a minute of waiting for
+            // programs that were never there. A timed-out probe used to be
+            // left running, too.
+            if (!p.WaitForExit(timeoutMs))
+            {
+                try { p.Kill(entireProcessTree: true); } catch { }
+                return false;
+            }
+            return p.ExitCode == 0;
         }
         catch
         {
@@ -556,7 +1502,10 @@ internal static class Prerequisites
             using var p = Process.Start(psi);
             if (p is null) return "";
             var text = p.StandardOutput.ReadToEnd() + p.StandardError.ReadToEnd();
-            p.WaitForExit(8000);
+            if (!p.WaitForExit(4000))
+            {
+                try { p.Kill(entireProcessTree: true); } catch { }
+            }
             return text;
         }
         catch
@@ -586,23 +1535,103 @@ internal static class Prerequisites
     }
 
     /// <summary>Append one line to the setup log, and never fail doing it.</summary>
-    private static void Write(string path, string text)
+    /// <summary>
+    /// Writes every line to the log, then forwards it to the screen.
+    ///
+    /// The ordering matters, and so does the thread. This used to be a
+    /// Progress&lt;string&gt;, whose callback runs on the thread that
+    /// created it - the UI thread. Each line therefore did a
+    /// CreateDirectory and an open-append-close from the message loop.
+    ///
+    /// That was survivable while setup reported five or six lines in
+    /// total. Then pip and npm output started being relayed, five lines a
+    /// second for several minutes, and on a bare machine with Defender
+    /// scanning every write to a .log it stopped being survivable: the
+    /// message loop spent its time in file I/O and the window went grey.
+    /// The fix for a frozen screen had frozen the screen.
+    ///
+    /// Report runs on whichever thread produced the line - the background
+    /// reader, for the high-frequency case - and the file is held open for
+    /// the session instead of being reopened per line. Only the handover
+    /// to the UI goes through a Progress.
+    /// </summary>
+    private sealed class Recorder : IProgress<string>, IDisposable
     {
-        try
+        private readonly IProgress<string> _screen;
+        private readonly object _gate = new();
+        private StreamWriter? _file;
+
+        public Recorder(IProgress<string> screen, string path)
         {
-            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-            File.AppendAllText(path, $"{DateTime.Now:u}  {text}{Environment.NewLine}");
+            _screen = screen;
+            try
+            {
+                Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+                var stream = new FileStream(path, FileMode.Append, FileAccess.Write,
+                    FileShare.ReadWrite);
+                _file = new StreamWriter(stream) { AutoFlush = true };
+            }
+            catch
+            {
+                // Logging must never be the reason setup stops.
+                _file = null;
+            }
         }
-        catch
+
+        public void Report(string value)
         {
-            // Logging must never be the reason setup stops.
+            Log(value);
+            _screen.Report(value);
+        }
+
+        /// <summary>
+        /// Write to the log without putting it on screen.
+        ///
+        /// For the things worth keeping but not worth showing - a full
+        /// stack trace belongs in the file, not across a setup panel.
+        /// It also has to go through here rather than File.AppendAllText,
+        /// which would hit a sharing violation against the handle this
+        /// class holds open and lose the line silently.
+        /// </summary>
+        public void Log(string value)
+        {
+            lock (_gate)
+            {
+                try { _file?.WriteLine($"{DateTime.Now:u}  {value}"); }
+                catch { /* logging must never be the reason setup stops */ }
+            }
+        }
+
+        public void Dispose()
+        {
+            lock (_gate)
+            {
+                try { _file?.Dispose(); } catch { }
+                _file = null;
+            }
         }
     }
 
     private static string Megabytes(long bytes) => (bytes / 1024d / 1024d).ToString("0.0") + " MB";
 
+    /// <summary>
+    /// Break "py -3.12" into a program and its arguments.
+    ///
+    /// A quoted path is taken whole: the private interpreter lives under
+    /// %LocalAppData%\Programs\AURION, and splitting that on its first
+    /// space would hand the compiler half a directory name.
+    /// </summary>
     private static (string exe, string args) Split(string command)
     {
+        if (command.StartsWith('"'))
+        {
+            var close = command.IndexOf('"', 1);
+            if (close > 0)
+            {
+                return (command[1..close], command[(close + 1)..].Trim());
+            }
+        }
+
         var at = command.IndexOf(' ');
         return at < 0 ? (command, "") : (command[..at], command[(at + 1)..]);
     }

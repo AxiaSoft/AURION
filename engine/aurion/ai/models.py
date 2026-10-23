@@ -202,6 +202,23 @@ class LiveModels:
         except Exception:
             return
 
+    def confidence_ceiling(self, classes: int = 3) -> float:
+        """The highest confidence this model is able to report right now.
+
+        Confidence is deliberately shrunk towards "no information" in
+        proportion to the edge the model actually showed out of sample,
+        which means the number has a ceiling, and the ceiling is low
+        until an edge has been measured: with three classes and no edge
+        it is 1/3 + (1 - 1/3) * 0.30 = 0.53. A trader whose minimum
+        confidence is set above that has asked for something arithmetic
+        cannot deliver, and the robot refuses every entry for a reason
+        that reads like a market opinion. Published so the desk and the
+        gate can say that plainly instead.
+        """
+        base = 1.0 / max(2, int(classes or 3))
+        shrink = 0.30 + 0.70 * max(0.0, min(1.0, float(getattr(self, "edge", 0.0) or 0.0)))
+        return round(base + (1.0 - base) * shrink, 4)
+
     def infer(self, x: np.ndarray) -> dict[str, Any]:
         if not self.ready:
             return {"ready": False, "direction": "neutral", "confidence": 0.0, "proba": {}, "regime_id": -1}
@@ -252,6 +269,7 @@ class LiveModels:
             "direction": direction,
             "label": best,
             "confidence": confidence,
+            "ceiling": self.confidence_ceiling(len(mapping) or 3),
             "proba": mapping,
             "regime_id": rid,
         }

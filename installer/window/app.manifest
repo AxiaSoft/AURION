@@ -2,13 +2,24 @@
 <assembly manifestVersion="1.0" xmlns="urn:schemas-microsoft-com:asm.v1">
   <assemblyIdentity version="1.0.0.0" name="AxiaSoft.AURION.Window" />
 
-  <!-- Per-monitor DPI awareness: the desk is a web UI, so it must re-layout
-       crisply when the window moves between a laptop screen and an external
-       monitor with a different scale factor. -->
+  <!-- DPI awareness is NOT declared here.
+
+       It used to be, as PerMonitorV2, and the project now asks for the same
+       thing through ApplicationHighDpiMode. Declaring it in both places is
+       what the compiler means by:
+
+           warning WFAC010: Remove high DPI settings from app.manifest and
+           configure via Application.SetHighDpiMode API or
+           'ApplicationHighDpiMode' project property
+
+       The project property wins because it is the half WinForms can see:
+       the manifest is applied by the loader before any managed code runs,
+       so WinForms never learns what mode it is in and lays controls out for
+       96 DPI regardless. That is what made the setup panel look unfinished
+       on a 150% display. ApplicationConfiguration.Initialize() sets the mode
+       before the first window exists, which is early enough. -->
   <application xmlns="urn:schemas-microsoft-com:asm.v3">
     <windowsSettings>
-      <dpiAwareness xmlns="http://schemas.microsoft.com/SMI/2016/WindowsSettings">PerMonitorV2</dpiAwareness>
-      <dpiAware xmlns="http://schemas.microsoft.com/SMI/2005/WindowsSettings">true/pm</dpiAware>
       <longPathAware xmlns="http://schemas.microsoft.com/SMI/2016/WindowsSettings">true</longPathAware>
     </windowsSettings>
   </application>

@@ -1,13 +1,15 @@
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
 import threading
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
-from ..config import ROOT, load
+from ..config import DATA_DIR, ROOT, load
+from ..strategy.loader import BUILTIN_NAMES, LEGACY_BUILTINS
 from ..util.clock import utc_iso
 
 SCHEMA = """
@@ -96,7 +98,11 @@ CREATE INDEX IF NOT EXISTS idx_trades_ticket ON trades(ticket);
 CREATE INDEX IF NOT EXISTS idx_events_ts ON events(ts);
 """
 
-STRATEGY_TAGS = ("ema_rsi", "price_action", "atr_breakout", "scalp_impulse")
+# Parsed out of MT5 comments, so this is a *historical* list, not the list of
+# strategies that currently ship: trades opened by scalp_impulse before it was
+# retired still carry its tag, and a history that silently stopped attributing
+# them would quietly rewrite the record.
+STRATEGY_TAGS = tuple(BUILTIN_NAMES) + tuple(LEGACY_BUILTINS)
 _SKIP_TAGS = {"", "desk", "manual", "robot", "close", "flatten", "order", "aurion"}
 
 
@@ -154,7 +160,7 @@ def _is_close_row(kind: str, entry: str, profit: Any) -> bool:
 class Store:
     def __init__(self, path: Path | None = None) -> None:
         cfg = load()
-        data_dir = ROOT / cfg["paths"]["data"]
+        data_dir = DATA_DIR if os.environ.get("AURION_DATA_DIR") else ROOT / cfg["paths"]["data"]
         data_dir.mkdir(parents=True, exist_ok=True)
         self.path = path or (data_dir / "aurion.engine.db")
         self._lock = threading.RLock()
@@ -358,10 +364,37 @@ class Store:
                 row["strategy"] = parse_strategy_tag(str(row.get("comment") or ""))
             if closed_only and not _is_close_row(row.get("kind"), row.get("entry"), row.get("profit")):
                 continue
-            out.append(row)
+            out.append(self._expand_raw(row))
             if len(out) >= int(limit or 500):
                 break
         return out
+
+    @staticmethod
+    def _expand_raw(row: dict[str, Any]) -> dict[str, Any]:
+        """Lift the fields that only live in the stored JSON blob.
+
+        The trades table has a column per figure MT5 reports plus a ``raw``
+        blob for everything else - net, the open side of the position, which
+        deals closed it, and whether the numbers came from MetaTrader or from
+        the last floating price. The desk was reading ``row.net`` and
+        ``row.source`` off a row that only ever carried ``raw`` as a string,
+        so net was silently recomputed on the client and the "this is an
+        estimate" marker could never appear. Columns still win: they are what
+        the reconciliation writes.
+        """
+        try:
+            raw = json.loads(row.get("raw") or "{}")
+        except Exception:
+            raw = {}
+        if not isinstance(raw, dict):
+            return row
+        merged = dict(row)
+        for key in ("net", "source", "parts", "price_open", "time_open",
+                    "entry_commission", "order", "deals"):
+            value = raw.get(key)
+            if value not in (None, "") and merged.get(key) in (None, ""):
+                merged[key] = value
+        return merged
 
     def pending_reconcile(self, limit: int = 40) -> list[dict[str, Any]]:
         """Closed rows whose figures came from the last floating price.
@@ -386,30 +419,82 @@ class Store:
                 out.append({"id": row.get("id"), "ticket": row.get("ticket")})
         return out
 
+    def closed_rows_for_audit(self, limit: int = 60) -> list[dict[str, Any]]:
+        """Recent closed rows, in the shape ``history_row_matches`` compares.
+
+        Separate from ``pending_reconcile`` because it returns rows that are
+        already believed to be correct. A figure that was right when it was
+        written can still be wrong later: MT5 posts swap overnight and some
+        brokers book commission as a separate deal minutes after the close,
+        and nothing re-reads a row that was never marked as an estimate.
+        """
+        rows = self.query(
+            """SELECT id, ticket, ts, volume, price, profit, swap, commission, raw
+               FROM trades
+               WHERE lower(coalesce(kind,'')) IN ('close','out','inout')
+               ORDER BY id DESC LIMIT ?""",
+            (int(limit or 60),),
+        )
+        out: list[dict[str, Any]] = []
+        for row in rows:
+            try:
+                raw = json.loads(row.get("raw") or "{}")
+            except Exception:
+                raw = {}
+            out.append({
+                "id": row.get("id"),
+                "ticket": row.get("ticket"),
+                "time": row.get("ts"),
+                "volume": row.get("volume"),
+                "price": row.get("price"),
+                "profit": row.get("profit"),
+                "swap": row.get("swap"),
+                "commission": row.get("commission"),
+                "net": raw.get("net"),
+                "source": raw.get("source") or "",
+            })
+        return out
+
     def apply_reconciliation(self, row_id: int, totals: dict[str, Any]) -> bool:
         """Replace an estimated close with MetaTrader's own figures."""
-        rows = self.query("SELECT raw FROM trades WHERE id=? LIMIT 1", (int(row_id),))
+        rows = self.query("SELECT raw, ts FROM trades WHERE id=? LIMIT 1", (int(row_id),))
         if not rows:
             return False
         try:
             raw = json.loads(rows[0].get("raw") or "{}")
         except Exception:
             raw = {}
+        # Everything MT5 knows about the position, not just the money. The
+        # estimated row was stamped with the moment the desk noticed the
+        # close and carried the position's full volume; both are wrong for a
+        # partial close, and a history sorted on the wrong timestamp does not
+        # line up with the terminal's however right the profit is.
         raw.update({
             "profit": totals.get("profit"),
             "swap": totals.get("swap"),
             "commission": totals.get("commission"),
+            "entry_commission": totals.get("entry_commission"),
             "net": totals.get("net"),
             "parts": totals.get("parts"),
+            "deals": totals.get("deals") or [],
+            "order": totals.get("order"),
+            "price": totals.get("price") or raw.get("price"),
+            "price_open": totals.get("open_price") or raw.get("price_open"),
+            "time_open": totals.get("open_time") or raw.get("time_open"),
+            "volume": totals.get("volume") or raw.get("volume"),
+            "time": totals.get("close_time") or raw.get("time"),
             "source": "mt5",
         })
         self.execute(
-            """UPDATE trades SET profit=?, swap=?, commission=?, price=?, raw=? WHERE id=?""",
+            """UPDATE trades SET ts=?, profit=?, swap=?, commission=?, price=?, volume=?, raw=?
+               WHERE id=?""",
             (
+                totals.get("close_time") or rows[0].get("ts"),
                 totals.get("profit"),
                 totals.get("swap"),
                 totals.get("commission"),
                 totals.get("price") or None,
+                totals.get("volume") or None,
                 json.dumps(raw, ensure_ascii=False),
                 int(row_id),
             ),

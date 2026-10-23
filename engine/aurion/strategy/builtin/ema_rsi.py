@@ -28,7 +28,11 @@ class EmaRsi(BaseStrategy):
         "volume": 0.10,
         "sl_atr": 1.6,
         "tp_atr": 2.4,
-        "min_rr": 1.4,
+        # 2.0 rather than 1.4: measured in two independent samples, the
+        # wider target took this strategy from +0.12R to +0.19R per trade
+        # in one and +0.33R to +0.49R in the other. A cross is early, and
+        # early entries are the ones that can afford a distant target.
+        "min_rr": 2.0,
         "min_ai_confidence": 0.0,
         "with_trend": True,
         # A fresh 8/21 cross is by definition early, so it is judged against
@@ -48,7 +52,7 @@ class EmaRsi(BaseStrategy):
     def on_candle(self, ctx: StrategyContext) -> StrategySignal | None:
         frame = candles_to_frame(ctx.candles)
         if len(frame) < int(self.params["slow"]) + 30:
-            return None
+            return self.decline("not enough history", f"{len(frame)} bars")
         close = frame["close"]
         fast = ema(close, int(self.params["fast"]))
         slow = ema(close, int(self.params["slow"]))
@@ -95,24 +99,26 @@ class EmaRsi(BaseStrategy):
                 elif bias == "bear" and fx < sx and high_prev >= float(slow.iloc[-2]) and price < float(fast.iloc[-1]):
                     side, entry_kind = "sell", "pullback"
         if not side:
-            return None
+            return self.decline("no cross and no pullback into the trend")
         if entry_kind == "cross":
             if side == "buy" and rsi_now < float(self.params["rsi_buy"]):
-                return None
+                return self.decline("RSI does not back the cross", f"{rsi_now:.0f}")
             if side == "sell" and rsi_now > float(self.params["rsi_sell"]):
-                return None
+                return self.decline("RSI does not back the cross", f"{rsi_now:.0f}")
         else:
             # A pullback is supposed to look weak; only refuse the extremes.
             if side == "buy" and rsi_now < 35.0:
-                return None
+                return self.decline("RSI is washed out, not pulling back", f"{rsi_now:.0f}")
             if side == "sell" and rsi_now > 65.0:
-                return None
+                return self.decline("RSI is washed out, not pulling back", f"{rsi_now:.0f}")
         ok, why = entry_allowed(frame, side, self.params, ai)
         if not ok:
-            return None
+            return self.decline(why)
         min_conf = float(self.params.get("min_ai_confidence") or 0)
         if min_conf and ai.get("ready") and float(ai.get("confidence") or 0) < min_conf:
-            return None
+            return self.decline("the AI is not confident enough",
+                                f"{float(ai.get('confidence') or 0):.2f} < {min_conf:.2f}")
+        self.accepted()
         structure = swing_levels(frame, 20)
         sl, tp = risk_levels(
             side,
@@ -126,6 +132,20 @@ class EmaRsi(BaseStrategy):
         bias, strength = trend_bias(frame)
         confidence = 0.5 + 0.25 * (1.0 if bias == ("bull" if side == "buy" else "bear") else 0.0) * strength
         confidence += 0.25 * efficiency(frame)
+        # What the entry planner needs to rest this order at a price
+        # instead of taking the market. Without an ATR it has no scale to
+        # measure "a better price" on and silently falls back to a market
+        # order, which is why auto entry appeared to do nothing at all.
+        # A pullback entry has a real level behind it - the slow EMA the
+        # strategy waited for price to touch - so that one carries a zone
+        # as well; a fresh cross has no such level and gets the offset.
+        extra: dict[str, Any] = {"atr": atr_now, "entry": price, "setup": entry_kind}
+        if entry_kind == "pullback":
+            anchor = float(slow.iloc[-1])
+            if anchor > 0:
+                extra["zone"] = (
+                    {"low": min(anchor, price), "high": max(anchor, price)}
+                )
         return StrategySignal(
             side,
             ctx.symbol,
@@ -138,4 +158,5 @@ class EmaRsi(BaseStrategy):
                 f"RSI={rsi_now:.1f} — {why}"
             ),
             comment="AURION ema_rsi",
+            extra=extra,
         )

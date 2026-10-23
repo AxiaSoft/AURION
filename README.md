@@ -4,6 +4,37 @@ Intelligent live execution operating system for **MetaTrader 5**.
 
 AURION never invents candles, fills, equity, or AI signals. If the terminal is unreachable the desk shows a disconnected state and waits for a real tape.
 
+## Try the desk in a browser
+
+**<https://axiasoft.github.io/AURION/>** — the real desk, running on sample data.
+
+There is no Node desk and no Python engine behind a static site, so that page
+loads [`apps/web/js/demo.js`](apps/web/js/demo.js), which answers the API and
+the websocket from canned responses captured off a running desk. There is no
+key screen and nothing is locked: the demo reports a paid licence, so prop
+profiles, scalping, strategy upload, Telegram, news, chart signals and the
+themes are all open. You get the book, the account, the AI panel, and a live
+chart you can pan, zoom and draw on — enough to find out whether the desk
+suits you before installing anything.
+
+The one rule above still holds: the demo is the single place where AURION
+shows data that did not come from a terminal, it is labelled as such in a
+banner on every screen, and every write — orders, key activation, config — is
+refused rather than faked. It is there to show you the interface, not to trade.
+
+**It is not in the MSI.** `apps/web/demo/` and `js/demo.js` are dropped from
+the installer payload and the tag that loads them is stripped out of the
+installed `index.html`, because an installed copy has a real desk and a real
+engine and must never have a fake tape sitting next to the live one. The
+staging script fails the build if either survives — see
+[`installer/README.md`](installer/README.md).
+
+Regenerate the captured responses with a desk running locally:
+
+```bash
+npm run demo:capture
+```
+
 ```
 MT5 terminal ── AurionBridge.mq5 ──┐
                                    ├── Python engine (AI, strategies, prop, backtest)
@@ -52,7 +83,37 @@ AURION-<version>-x64.msi
 
 Double-click it. The wizard checks the environment, installs to
 `%LocalAppData%\Programs\AURION` (changeable), creates the shortcuts you pick and
-can start the desk when it finishes. **No administrator rights are required.**
+can start the desk when it finishes. **No administrator rights are required**
+to install AURION itself.
+
+### A machine with nothing on it
+
+**You do not have to install Python or Node.js first.** The environment page
+lists what is missing; when the wizard finishes, a window opens, tells you what
+it is about to fetch and how large it is, and installs it once you say go:
+
+| Missing | What setup installs | From |
+|---|---|---|
+| Python 3.10-3.12 | Python 3.12, per-user, added to `PATH` | python.org |
+| The engine's packages | `pip install -r engine\requirements.txt` | PyPI |
+| Node.js 18+ | Node.js 20 — **this one asks for administrator rights**, because Node's own installer is per-machine | nodejs.org |
+| The desk API's packages | `npm install` in `backend\` | npm |
+| WebView2 | The evergreen runtime, if Windows does not already have it | Microsoft |
+
+Every download is checked against its vendor's Authenticode signature before it
+is allowed to run, and the whole run is logged to `data\logs\setup.log`.
+Nothing is bundled inside the MSI, so the runtimes are always the vendors'
+current ones rather than whatever was current when AURION shipped.
+
+The same check runs every time AURION starts, so a machine that loses its
+Python later is offered the fix instead of an error. To do it on demand:
+`AURION.exe --setup`.
+
+Deploying to machines you image yourself and want none of this on:
+`msiexec /i AURION-<version>-x64.msi /qn AURION_SKIP_PROVISION=1`.
+
+Written up in Persian, including the failure modes and where to look:
+[`docs/fa/prerequisites.md`](docs/fa/prerequisites.md).
 
 Upgrade, Repair, Modify and Uninstall all run from **Settings → Apps → AURION**
 and use the same branded wizard. Your settings, trading history, licence state
@@ -65,17 +126,25 @@ Building the MSI, silent-install switches, logging and the release checklist:
 The key server (`store/`) and the owner tooling (`admin/`) are hosted separately
 and are deliberately not part of the MSI.
 
+## VS Code
+
+`Ctrl+Shift+P` → **Tasks: Run Task** — update from GitHub, build the MSI, start
+and stop the app, run the suites. `Ctrl+Shift+B` builds the MSI.
+Defined in [`.vscode/tasks.json`](.vscode/tasks.json); the raw commands, with
+the three things that catch people out on the first pull, are written up in
+Persian in [`docs/fa/vscode.md`](docs/fa/vscode.md).
+
 ## Windows — running from the source tree
 
 Copy the **full** tree to `D:\aurion` (not nested `D:\aurion\aurion`).
 
 | When | What to run |
 |---|---|
-| First time | Install **Python 3.10-3.12** (never 3.13/3.14) + **Node.js 18-30**, `pip install -r engine\requirements.txt`, then `npm install` in `backend\` |
+| First time | Install **Python 3.10-3.12** (never 3.13/3.14) + **Node.js 18-30**, `pip install -r engine\requirements.txt`, then `npm install` in `backend\` — or just run `start-aurion.cmd` and let it do all of that for you |
 | Every later day | **`start-aurion.cmd`** |
 | Stop | **`stop-aurion.cmd`** |
 
-`start-aurion.cmd` checks the prerequisites, waits for `/api/health` before opening the browser, and runs engine + desk **hidden**. Logs live inside the dashboard (**Terminal**).
+`start-aurion.cmd` checks the prerequisites — and, if any are missing, hands over to the same setup window the installer uses rather than leaving you with an error — waits for `/api/health` before opening the browser, and runs engine + desk **hidden**. Logs live inside the dashboard (**Terminal**).
 
 Python must be **3.10, 3.11 or 3.12** (3.12 preferred). **Never 3.13 or 3.14** — `engine/main.py` exits on them and `numpy==1.26.4` has no 3.13 wheels. Node **18 to 30** is fine, including **26**.
 
@@ -93,9 +162,48 @@ bash scripts/start.sh
 
 Execution still needs a Windows/VPS MetaTrader 5 terminal with AurionBridge attached.
 
+## From a clone — the short version
+
+Two processes, no build step. The engine owns MT5, the AI and the strategies;
+the desk serves `apps/web` and proxies the engine.
+
+```bash
+git clone https://github.com/AxiaSoft/AURION.git && cd AURION
+
+python3 -m venv .venv && . .venv/bin/activate     # Python 3.10–3.12, never 3.13+
+pip install -r engine/requirements.txt
+npm install && npm --prefix backend install
+
+python engine/main.py --host 127.0.0.1 --port 18765 &   # engine
+node backend/src/index.js                               # desk → http://127.0.0.1:8080
+```
+
+First launch creates the administrator. There is no factory password.
+
+### Configuration
+
+Everything is optional and documented in [`.env.example`](.env.example). The
+two that matter most:
+
+| Variable | What it does |
+|---|---|
+| `AURION_DATA_DIR` | Move everything written at runtime (databases, JWT secret, logs, exports, licence state) out of the source tree. Honoured by the desk **and** the engine. |
+| `AURION_FRAME_ANCESTORS` / `AURION_ALLOWED_ORIGINS` | Required to run behind a reverse proxy. The desk is a local application by default: it refuses to be framed and accepts CORS only from loopback. |
+
+### Tests
+
+```bash
+npm test                              # JS: syntax, chart/theme units, static guards, jsdom render, demo
+pytest engine/tests -q                # engine: 160 tests
+node scripts/check-lang.mjs           # en / fa / ar key parity
+npm --prefix store/keyserver test     # key server + Ed25519 parity with the engine
+```
+
+All four are wired into a GitHub Actions pipeline — [`.github/ci-workflow.yml`](.github/ci-workflow.yml). It ships parked next to the workflows directory rather than inside it; [`.github/README.md`](.github/README.md) has the one command that activates it.
+
 ## MetaTrader 5
 
-Compile `engine/ea/AurionBridge.mq5` with **F7**. Version must be **1.17**. Attach it to every chart you want on the desk. AutoTrading green. Not Strategy Tester.
+Compile `engine/ea/AurionBridge.mq5` with **F7**. Version must be **1.18**. Attach it to every chart you want on the desk. AutoTrading green. Not Strategy Tester.
 
 WebRequest is optional. If you want HTTP too, allow-list:
 

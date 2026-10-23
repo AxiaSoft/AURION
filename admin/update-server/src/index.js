@@ -31,12 +31,54 @@ app.disable("x-powered-by");
 app.set("trust proxy", 1);
 
 // security headers
+/* Security headers.
+ *
+ * The policy here used to be "default-src 'none'; frame-ancestors
+ * 'none'" on EVERY response, HTML included. For a JSON API that is
+ * right. For a page it is fatal in a way that looks like bad work
+ * rather than a blocked request: default-src 'none' means no style-src
+ * and no script-src either, so the browser threw away the panel's own
+ * <style> and <script> and drew the markup bare. The panel was reported
+ * as "raw HTML with nothing graphical about it" - it was, because the
+ * server had forbidden it its own stylesheet.
+ *
+ * So: keep 'none' for everything that is not a page, and give pages a
+ * policy that allows exactly what they contain - their own inline style
+ * and script, and fetches back to this origin. Nothing is loaded from
+ * anywhere else, which is what the strict policy was protecting.
+ */
+const PAGE_CSP = [
+  "default-src 'self'",
+  "style-src 'self' 'unsafe-inline'",
+  "script-src 'self' 'unsafe-inline'",
+  "img-src 'self' data:",
+  "connect-src 'self'",
+  "form-action 'none'",
+  "base-uri 'none'",
+].join("; ");
+
+const API_CSP = "default-src 'none'";
+
+// Framing is refused, because a page that can be framed can be clicked
+// through. ALLOW_FRAMING=1 lifts it for showing the panel inside a
+// preview pane while developing; it is off unless asked for.
+const ALLOW_FRAMING = String(process.env.ALLOW_FRAMING || "") === "1";
+
+/** Pages call this; everything else keeps the locked-down default. */
+function pageHeaders(res) {
+  res.setHeader("Content-Type", "text/html; charset=utf-8");
+  res.setHeader("Cache-Control", "no-store");
+  res.setHeader("Content-Security-Policy",
+    PAGE_CSP + "; frame-ancestors " + (ALLOW_FRAMING ? "*" : "'none'"));
+}
+
 app.use((req, res, next) => {
   res.setHeader("X-Content-Type-Options", "nosniff");
-  res.setHeader("X-Frame-Options", "DENY");
+  if (!ALLOW_FRAMING) res.setHeader("X-Frame-Options", "DENY");
   res.setHeader("Referrer-Policy", "no-referrer");
   res.setHeader("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
-  res.setHeader("Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'");
+  res.setHeader("Content-Security-Policy",
+    API_CSP + "; frame-ancestors " + (ALLOW_FRAMING ? "*" : "'none'"));
   if (process.env.NODE_ENV === "production") {
     res.setHeader("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
   }
@@ -403,174 +445,120 @@ app.post("/api/admin/updates/:id/unpublish", requireAdmin, async (req, res) => {
 // health
 app.get("/api/health", (req,res) => res.json({ ok:true, service:"aurion-update-server", time: new Date().toISOString() }));
 
-// Hidden admin panel - serves static HTML at /admin/<HASH>
+/* The panel itself.
+ *
+ * It used to be a template literal several hundred lines long inside
+ * this file, with every piece of its own JavaScript escaped so the
+ * literal would survive. It looked like an unstyled HTML document
+ * because it effectively was one: emoji headings, alert() for every
+ * message, and none of AURION's interface anywhere near it.
+ *
+ * It is now a file, styled like the rest of the product, and this
+ * route only decides who may see it.
+ */
+const PANEL_FILE = path.join(__dirname, "..", "public", "panel.html");
+
 app.get(`/admin/${ADMIN_PANEL_HASH}`, (req, res) => {
-  res.setHeader("Content-Type", "text/html; charset=utf-8");
-  res.send(`
-<!DOCTYPE html>
-<html lang="fa" dir="rtl">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>AURION Update Panel - Hidden</title>
+  pageHeaders(res);
+  res.sendFile(PANEL_FILE, (err) => {
+    if (err && !res.headersSent) res.status(500).send("panel.html is missing from the install");
+  });
+});
+
+/* The front page.
+ *
+ * Opening http://127.0.0.1:8898 answered "Cannot GET /" - Express's
+ * default 404, which reads like the server is broken when in fact it
+ * is running perfectly and the panel simply lives at another path.
+ *
+ * This says so. It does NOT link to the panel: the hash in that URL is
+ * the only thing standing between the open internet and the publish
+ * button, and a public page that prints it would hand it over.
+ */
+app.get("/", async (req, res) => {
+  let published = 0;
+  let latest = "-";
+  try {
+    const all = await store.list("updates", 1000);
+    const live = all.filter((u) => u.published);
+    published = live.length;
+    if (live.length) latest = live[live.length - 1].version;
+  } catch {
+    /* an empty store is not an error */
+  }
+
+  pageHeaders(res);
+  res.send(`<!DOCTYPE html>
+<html lang="fa" dir="rtl"><head>
+<meta charset="utf-8" /><meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>AURION — سرور آپدیت</title>
 <style>
-  body{font-family: Vazirmatn, Tahoma, sans-serif; background:#06070b; color:#e6e8f0; margin:0; padding:20px; direction:rtl}
-  .container{max-width:1100px; margin:0 auto}
-  h1{color:#fff; font-size:24px}
-  .card{background:#0f111a; border:1px solid #1e2330; border-radius:12px; padding:20px; margin:15px 0}
-  input, textarea, button{font-family:inherit; padding:10px; border-radius:8px; border:1px solid #2a3042; background:#151a28; color:#fff; width:100%; box-sizing:border-box; margin:5px 0}
-  button{background:#4f46e5; border:none; cursor:pointer; font-weight:bold; width:auto; padding:10px 20px}
-  button.danger{background:#e53e3e}
-  button.success{background:#38a169}
-  button.secondary{background:#2d3748}
-  .update{border:1px solid #2a3042; border-radius:10px; padding:15px; margin:10px 0; background:#111424}
-  .badge{padding:3px 8px; border-radius:20px; font-size:12px; display:inline-block}
-  .badge-published{background:#38a169; color:#fff}
-  .badge-draft{background:#d69e2e; color:#000}
-  .file-item{display:flex; justify-content:space-between; align-items:center; background:#0a0c14; padding:8px 12px; border-radius:6px; margin:5px 0; font-family:monospace; font-size:13px}
-  .hidden-info{color:#718096; font-size:12px; margin-top:10px}
-</style>
-</head>
-<body>
-<div class="container">
-  <h1>🔒 پنل مخفی آپدیت AURION</h1>
-  <p class="hidden-info">این پنل مخفی است - فقط با لینک مستقیم قابل دسترسی است. داشبورد به صورت خودکار این پنل را چک می‌کند.</p>
-  
-  <div class="card">
-    <h3>🔑 توکن ادمین</h3>
-    <input id="adminToken" type="password" placeholder="ADMIN_TOKEN را وارد کنید">
-    <button onclick="saveToken()">ذخیره توکن</button>
-    <span id="tokenStatus"></span>
+ :root{--bg:#06070b;--lift:#0d101a;--ink:#e8edf7;--muted:#8b93a7;
+       --line:rgb(255 255 255 / .08);--cyan:#3ee0c4;--violet:#7c6cff}
+ *{box-sizing:border-box}
+ body{margin:0;min-height:100vh;color:var(--ink);
+   font:14px/1.8 Vazirmatn,Tahoma,"Segoe UI",system-ui,sans-serif;
+   background:
+     radial-gradient(900px 500px at 88% -5%,rgb(124 108 255 / .18),transparent 60%),
+     radial-gradient(700px 420px at 5% 20%,rgb(62 224 196 / .13),transparent 60%),
+     linear-gradient(180deg,var(--lift),var(--bg));
+   display:grid;place-items:center;padding:24px}
+ .card{max-width:620px;width:100%;background:rgb(255 255 255 / .03);
+   border:1px solid var(--line);border-radius:18px;padding:26px}
+ h1{font-size:20px;font-weight:500;margin:0 0 2px;letter-spacing:.06em}
+ .sub{color:var(--muted);font-size:12px;margin:0 0 18px}
+ .live{display:inline-flex;align-items:center;gap:8px;font-size:13px;color:var(--cyan)}
+ .live i{width:8px;height:8px;border-radius:99px;background:var(--cyan);display:inline-block}
+ dl{display:grid;grid-template-columns:auto 1fr;gap:6px 14px;margin:18px 0 0;font-size:13px}
+ dt{color:var(--muted)} dd{margin:0;direction:ltr;text-align:right}
+ .box{margin-top:20px;border:1px solid var(--line);border-radius:14px;padding:14px;font-size:13px}
+ code{background:rgb(0 0 0 / .35);border:1px solid var(--line);border-radius:8px;
+   padding:2px 8px;direction:ltr;display:inline-block;color:var(--cyan)}
+</style></head><body>
+<div class="card">
+  <h1>AURION — سرور آپدیت</h1>
+  <p class="sub">AxiaSoft update service</p>
+  <span class="live"><i></i> در حال اجرا</span>
+  <dl>
+    <dt>پورت</dt><dd>${PORT}</dd>
+    <dt>انتشارهای منتشرشده</dt><dd>${published}</dd>
+    <dt>آخرین نسخه</dt><dd>${latest}</dd>
+    <dt>توکن ادمین</dt><dd>${ADMIN_TOKEN ? "تنظیم شده" : "تنظیم نشده"}</dd>
+  </dl>
+  <div class="box">
+    <b>پنل اینجا نیست.</b> آدرس پنل شامل <code>ADMIN_PANEL_HASH</code> است و
+    عمداً در این صفحه چاپ نمی‌شود:<br />
+    <code>/admin/&lt;ADMIN_PANEL_HASH&gt;</code><br />
+    مقدارش در <code>admin/update-server/.env</code> است و هنگام اجرای
+    <code>start-update-server.cmd</code> روی صفحه چاپ می‌شود.
   </div>
-
-  <div class="card">
-    <h3>➕ ایجاد آپدیت جدید (Draft)</h3>
-    <input id="newVersion" placeholder="نسخه مثلا 1.0.1">
-    <textarea id="newChangelog" rows="3" placeholder="تغییرات..."></textarea>
-    <label><input type="checkbox" id="newMandatory"> آپدیت اجباری</label><br>
-    <button onclick="createUpdate()">ایجاد Draft</button>
+  <div class="box">
+    ساده‌تر: پنل یکپارچهٔ AURION همین کار را به‌علاوهٔ تلگرام و ساخت لایسنس انجام می‌دهد و
+    توکن را خودش می‌خواند — <code>admin\start-panel.cmd</code> →
+    <code>http://127.0.0.1:8900</code>
   </div>
-
-  <div class="card">
-    <h3>📦 لیست آپدیت‌ها</h3>
-    <button onclick="loadUpdates()" class="secondary">بارگذاری لیست</button>
-    <div id="updatesList"></div>
-  </div>
-</div>
-
-<script>
-let adminToken = localStorage.getItem('aurion_update_admin_token') || '';
-document.getElementById('adminToken').value = adminToken;
-
-function saveToken(){
-  adminToken = document.getElementById('adminToken').value.trim();
-  localStorage.setItem('aurion_update_admin_token', adminToken);
-  document.getElementById('tokenStatus').textContent = ' ✅ ذخیره شد';
-}
-
-function apiHeaders(){
-  return { 'Content-Type':'application/json', 'X-Admin-Token': adminToken };
-}
-
-async function createUpdate(){
-  const version = document.getElementById('newVersion').value.trim();
-  const changelog = document.getElementById('newChangelog').value.trim();
-  const mandatory = document.getElementById('newMandatory').checked;
-  if(!version){ alert('نسخه لازم است'); return; }
-  const res = await fetch('/api/admin/updates', { method:'POST', headers: apiHeaders(), body: JSON.stringify({ version, changelog, mandatory }) });
-  const data = await res.json();
-  if(data.ok){ alert('Draft ایجاد شد: '+data.update.id); loadUpdates(); }
-  else alert('خطا: '+(data.error||'unknown'));
-}
-
-async function loadUpdates(){
-  const res = await fetch('/api/admin/updates', { headers: apiHeaders() });
-  const data = await res.json();
-  if(!data.ok){ document.getElementById('updatesList').innerHTML = 'خطا: '+(data.error||''); return; }
-  const list = data.updates;
-  let html = '';
-  for(const u of list){
-    html += \`<div class="update">
-      <div><strong>\${u.version}</strong> <span class="badge \${u.published?'badge-published':'badge-draft'}">\${u.published?'منتشر شده':'پیش‌نویس'}</span> ID: \${u.id}</div>
-      <div style="color:#a0aec0; font-size:13px; margin:5px 0">\${u.changelog||''}</div>
-      <div style="font-size:12px; color:#718096">ایجاد: \${u.created_at} | انتشار: \${u.published_at||'-'} | فایل‌ها: \${(u.files||[]).length}</div>
-      <div style="margin-top:10px">
-        <input type="file" id="fileInput-\${u.id}" multiple>
-        <input type="text" id="targetPath-\${u.id}" placeholder="مسیر هدف (اختیاری) مثلا engine/aurion/config.py - اگر خالی باشد نام اصلی">
-        <button onclick="uploadFiles('\${u.id}')">آپلود فایل</button>
-      </div>
-      <div id="files-\${u.id}">\${(u.files||[]).map(f=>\`<div class="file-item"><span>\${f.path} (\${f.size} bytes) hash:\${f.hash.slice(0,12)}...</span><button class="danger" onclick="deleteFile('\${u.id}','\${f.id}')">حذف</button></div>\`).join('')}</div>
-      <div style="margin-top:10px">
-        \${!u.published ? \`<button class="success" onclick="publishUpdate('\${u.id}')">✅ انتشار - داشبورد آپدیت را می‌بیند</button>
-        <button class="danger" onclick="deleteUpdate('\${u.id}')">حذف Draft</button>\` : \`<button class="danger" onclick="unpublishUpdate('\${u.id}')">❌ لغو انتشار (داشبورد متوجه لغو نمی‌شود)</button>\`}
-      </div>
-    </div>\`;
-  }
-  document.getElementById('updatesList').innerHTML = html || 'هیچ آپدیتی نیست';
-}
-
-async function uploadFiles(updateId){
-  const input = document.getElementById('fileInput-'+updateId);
-  const targetPathInput = document.getElementById('targetPath-'+updateId);
-  if(!input.files.length){ alert('فایل انتخاب کنید'); return; }
-  const form = new FormData();
-  const targetPaths = [];
-  for(let i=0;i<input.files.length;i++){
-    form.append('files', input.files[i]);
-    // if single target path provided and single file, use it, else use file name
-    if(targetPathInput.value.trim() && input.files.length===1){
-      targetPaths.push(targetPathInput.value.trim());
-    } else {
-      targetPaths.push(input.files[i].name);
-    }
-  }
-  form.append('targetPaths', JSON.stringify(targetPaths));
-  const res = await fetch('/api/admin/updates/'+updateId+'/files', { method:'POST', headers: { 'X-Admin-Token': adminToken }, body: form });
-  const data = await res.json();
-  if(data.ok){ alert('آپلود شد'); loadUpdates(); }
-  else alert('خطا: '+(data.error||''));
-}
-
-async function deleteFile(updateId, fileId){
-  if(!confirm('حذف فایل؟')) return;
-  const res = await fetch('/api/admin/updates/'+updateId+'/files/'+fileId, { method:'DELETE', headers: apiHeaders() });
-  const data = await res.json();
-  if(data.ok) loadUpdates(); else alert(data.error);
-}
-
-async function publishUpdate(id){
-  if(!confirm('انتشار آپدیت؟ بعد از انتشار داشبوردها آپدیت را می‌بینند')) return;
-  const res = await fetch('/api/admin/updates/'+id+'/publish', { method:'POST', headers: apiHeaders() });
-  const data = await res.json();
-  if(data.ok){ alert('منتشر شد ✅'); loadUpdates(); } else alert(data.error);
-}
-
-async function unpublishUpdate(id){
-  if(!confirm('لغو انتشار؟ داشبورد متوجه لغو نمی‌شود و فقط آپدیت قبلی را می‌بیند یا هیچ')) return;
-  const res = await fetch('/api/admin/updates/'+id+'/unpublish', { method:'POST', headers: apiHeaders() });
-  const data = await res.json();
-  if(data.ok){ alert('لغو شد - داشبورد چیزی نمی‌بیند'); loadUpdates(); } else alert(data.error);
-}
-
-async function deleteUpdate(id){
-  if(!confirm('حذف کامل Draft؟')) return;
-  const res = await fetch('/api/admin/updates/'+id, { method:'DELETE', headers: apiHeaders() });
-  const data = await res.json();
-  if(data.ok) loadUpdates(); else alert(data.error);
-}
-
-loadUpdates();
-</script>
-</body>
-</html>
-  `);
+</div></body></html>`);
 });
 
 // 404 for other admin paths - keep hidden
-app.use("/admin", (req,res) => res.status(404).send("Not found"));
+// Any other /admin path: no hint that a panel exists, but not the bare
+// word "Not found" either - that is what made a mistyped hash look like
+// a dead server.
+app.use("/admin", (req, res) => res.status(404)
+  .type("text/plain; charset=utf-8")
+  .send("AURION update server is running. This is not the panel address."));
 
 app.listen(PORT, () => {
   console.log(`AURION Update Server listening on ${PORT}`);
   console.log(`Admin panel: http://127.0.0.1:${PORT}/admin/${ADMIN_PANEL_HASH}`);
+  if (!ADMIN_TOKEN) {
+    // Said here, because the alternative is a panel that loads, answers
+    // 401 to every button, and explains neither.
+    console.log("");
+    console.log("  WARNING: ADMIN_TOKEN is not set, so every admin action returns 401.");
+    console.log("           Put one in update-server/.env and restart.");
+    console.log("           start-update-server.cmd writes one for you.");
+    console.log("");
+  }
   console.log(`Public API: /api/updates/latest , /api/updates/check`);
 });

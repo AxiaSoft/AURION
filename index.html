@@ -4,6 +4,11 @@
   apps/web. This sends the visitor straight there so the published site is
   the application itself rather than a page about it.
 
+  ?demo=1 switches the desk onto apps/web/js/demo.js, which answers the API
+  and the websocket from canned data. Pages has no Node desk and no Python
+  engine behind it, so without that the site is a shell where every request
+  fails. The demo refuses every write, and says so in a banner.
+
   A meta refresh as well as the script, because the redirect has to work
   before and without JavaScript, and a visible link underneath for the case
   where both are refused.
@@ -11,8 +16,8 @@
 <html lang="en" data-theme="dark">
 <head>
 <meta charset="utf-8" />
-<meta http-equiv="refresh" content="0; url=apps/web/index.html" />
-<link rel="canonical" href="apps/web/index.html" />
+<meta http-equiv="refresh" content="0; url=apps/web/index.html?demo=1" />
+<link rel="canonical" href="apps/web/index.html?demo=1" />
 <title>AURION</title>
 <link rel="icon" href="apps/web/icons/mark.png" />
 <style>
@@ -27,8 +32,8 @@
 <main>
   <img src="apps/web/icons/mark.png" alt="AURION" />
   <p>Opening the desk…</p>
-  <p><a href="apps/web/index.html">Continue</a></p>
+  <p><a href="apps/web/index.html?demo=1">Continue</a></p>
 </main>
-<script>location.replace("apps/web/index.html");</script>
+<script>location.replace("apps/web/index.html?demo=1");</script>
 </body>
 </html>

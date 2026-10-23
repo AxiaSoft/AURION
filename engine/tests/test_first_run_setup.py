@@ -161,11 +161,18 @@ def test_a_reboot_request_counts_as_success() -> None:
     assert "3010" in src, "exit code 3010 means 'installed, wants a reboot' and is not a failure"
 
 
-def test_the_launcher_points_at_the_window() -> None:
+def test_the_launcher_runs_the_fix_instead_of_describing_it() -> None:
+    """Pointing at the cure is not the cure.
+
+    This used to assert the console path *mentioned* the desk window. It now
+    asserts it starts it: a trader who double-clicks start-aurion.cmd on a
+    bare machine should get the setup screen, not a paragraph and exit 1.
+    """
     launcher = LAUNCHER.read_text(encoding="utf-8", errors="replace")
     block = launcher[launcher.index(":NEEDINSTALL"):]
-    assert "desk window" in block, \
-        "the console path should send people to the thing that can fix it for them"
+    assert "AURION.exe --setup" in block, "the console path still only gives advice"
+    assert "AURION_SETUP_DONE" in block, "nothing stops the hand-off looping"
+    assert ":BYHAND" in block, "there is no fallback when setup cannot run"
 
 
 def test_a_bare_machine_can_reach_the_explanation() -> None:
@@ -238,7 +245,7 @@ TESTS = [
     test_the_python_libraries_come_from_the_pinned_file,
     test_node_is_installed_per_machine_and_python_per_user,
     test_a_reboot_request_counts_as_success,
-    test_the_launcher_points_at_the_window,
+    test_the_launcher_runs_the_fix_instead_of_describing_it,
 ]
 
 if __name__ == "__main__":

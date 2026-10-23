@@ -2,6 +2,10 @@
 //| AurionBridge.mq5                                                 |
 //| Live chart agent for the AURION engine.                          |
 //|                                                                  |
+//| v1.18 — the desk can now see which expert is attached. Hello     |
+//|   carries the version from one #define instead of a literal      |
+//|   typed twice, and the desk compares it with the version it       |
+//|   ships: an old expert on a chart is reported, not guessed at.   |
 //| v1.17 — tape separation. Every message (tick, candle, account,   |
 //|   positions, orders, deals, bye, result) now carries tester=true |
 //|   when it runs inside the Strategy Tester, so the desk keeps the |
@@ -17,9 +21,18 @@
 //+------------------------------------------------------------------+
 #property copyright "AURION"
 #property link      "https://aurion.local"
-#property version   "1.17"
+// One version string for this expert.
+//
+// It used to be typed in three places - the property, the hello message
+// and the description - and the one on the wire is the one the desk
+// judges, so a missed edit meant the desk saw 1.16 from a 1.17 expert and
+// nobody could tell. AURION_EA_VERSION is the value sent to the engine;
+// engine/tests/test_ea_version.py fails the build if the #property below
+// drifts from it, because #property will not take a macro.
+#define AURION_EA_VERSION "1.18"
+#property version   "1.18"
 #property strict
-#property description "AURION live bridge 1.17 — tape separation + instant position push"
+#property description "AURION live bridge 1.18 — reports its own version to the desk"
 
 input string InpEngineHost   = "127.0.0.1";
 input int    InpEnginePort   = 18766;
@@ -32,6 +45,7 @@ input int    InpHttpPort     = 18765;
 datetime g_last_bar = 0;
 datetime g_deals_from = 0;
 uint     g_last_beat = 0;
+uint     g_last_spec      = 0;
 uint     g_up_since = 0;
 uint     g_next_try = 0;
 int      g_phase = 0;
@@ -53,6 +67,7 @@ bool SendHello();
 void SendTick();
 void SendCandle(const int shift);
 void SendAccount();
+void SendSpec();
 void SendPositions();
 void SendOrders();
 void SendDeals();
@@ -103,7 +118,7 @@ int OnInit()
    g_deals_from = TimeCurrent();
    g_last_bar = iTime(_Symbol, _Period, 0);
    EventSetMillisecondTimer(50);
-   Print("AURION: v1.17 FILE+HTTP  ", InpEngineHost, ":", InpHttpPort,
+   Print("AURION: v" + AURION_EA_VERSION + " FILE+HTTP  ", InpEngineHost, ":", InpHttpPort,
          "  common=", TerminalInfoString(TERMINAL_COMMONDATA_PATH),
          "\\Files\\", InboxName());
    Print("AURION: WebRequest is optional. File inbox feeds the desk even if HTTP is blocked.");
@@ -162,6 +177,11 @@ void OnTimer()
       SendCandle(0);
       SendAccount();
       SendPositions();
+      if(now - g_last_spec >= 60000)
+        {
+         g_last_spec = now;
+         SendSpec();
+        }
      }
    if(!FlushOut())
       g_next_try = now + 600;
@@ -183,10 +203,11 @@ void BurstConnect()
    g_up_since = now;
    g_last_beat = now;
    g_phase = 2;
-   Print("AURION: hello delivered v1.17  HTTP port=", ActiveHttpPort(),
+   Print("AURION: hello delivered v" + AURION_EA_VERSION + "  HTTP port=", ActiveHttpPort(),
          "  file=", InboxName(), "  ", _Symbol, " ", TfName(_Period));
    SendTick();
    SendCandle(0);
+   SendSpec();
    SendAccount();
    SendPositions();
    SendOrders();
@@ -526,7 +547,7 @@ bool SendHello()
    json += "\"timeframe\":" + IntegerToString(PeriodSeconds(_Period) / 60) + ",";
    json += "\"timeframe_name\":\"" + TfName(_Period) + "\",";
    json += "\"ea_name\":\"" + JsonEsc(InpEaName) + "\",";
-   json += "\"version\":\"1.17\",";
+   json += "\"version\":\"" + AURION_EA_VERSION + "\",";
    json += "\"transport\":\"file+http\",";
    json += TapeTag();
    json += "}";
@@ -645,6 +666,34 @@ void PumpHistory()
       g_hist_count = 0;
       ArrayFree(g_hist_rates);
      }
+  }
+
+void SendSpec()
+  {
+//--- What one tick of this symbol is worth.
+//
+//  Without it the engine can price a stop in points and nothing else,
+//  and "no stop may cost more than ten dollars a lot" cannot be
+//  enforced at all. The terminal knows; it simply was never asked.
+//  Sent on attach and refreshed slowly, because a contract
+//  specification changes about as often as the broker does.
+   string json = "{";
+   json += "\"type\":\"spec\",";
+   json += "\"symbol\":\"" + JsonEsc(_Symbol) + "\",";
+   json += "\"digits\":" + IntegerToString((int)SymbolInfoInteger(_Symbol, SYMBOL_DIGITS)) + ",";
+   json += "\"point\":" + DoubleToString(SymbolInfoDouble(_Symbol, SYMBOL_POINT), 8) + ",";
+   json += "\"tick_size\":" + DoubleToString(SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_SIZE), 8) + ",";
+   json += "\"tick_value\":" + DoubleToString(SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_VALUE), 8) + ",";
+   json += "\"tick_value_loss\":" + DoubleToString(SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_VALUE_LOSS), 8) + ",";
+   json += "\"contract_size\":" + DoubleToString(SymbolInfoDouble(_Symbol, SYMBOL_TRADE_CONTRACT_SIZE), 2) + ",";
+   json += "\"volume_min\":" + DoubleToString(SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MIN), 2) + ",";
+   json += "\"volume_step\":" + DoubleToString(SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_STEP), 2) + ",";
+   json += "\"volume_max\":" + DoubleToString(SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MAX), 2) + ",";
+   json += "\"stops_level\":" + IntegerToString((int)SymbolInfoInteger(_Symbol, SYMBOL_TRADE_STOPS_LEVEL)) + ",";
+   json += "\"currency\":\"" + JsonEsc(SymbolInfoString(_Symbol, SYMBOL_CURRENCY_PROFIT)) + "\",";
+   json += TapeTag();
+   json += "}";
+   SendRaw(json);
   }
 
 void SendAccount()
@@ -789,7 +838,14 @@ void SendOrders()
       json += "\"symbol\":\"" + JsonEsc(OrderGetString(ORDER_SYMBOL)) + "\",";
       json += "\"type\":\"" + OrderTypeName((ENUM_ORDER_TYPE)OrderGetInteger(ORDER_TYPE)) + "\",";
       json += "\"volume\":" + DoubleToString(OrderGetDouble(ORDER_VOLUME_CURRENT), 2) + ",";
-      json += "\"price\":" + DoubleToString(OrderGetDouble(ORDER_PRICE_OPEN), _Digits);
+      json += "\"price\":" + DoubleToString(OrderGetDouble(ORDER_PRICE_OPEN), _Digits) + ",";
+      json += "\"sl\":" + DoubleToString(OrderGetDouble(ORDER_SL), _Digits) + ",";
+      json += "\"tp\":" + DoubleToString(OrderGetDouble(ORDER_TP), _Digits) + ",";
+      json += "\"magic\":" + IntegerToString(OrderGetInteger(ORDER_MAGIC)) + ",";
+      // The desk expires its own resting orders, which it cannot do without
+      // knowing when each one was placed.
+      json += "\"time\":\"" + TimeToString((datetime)OrderGetInteger(ORDER_TIME_SETUP), TIME_DATE|TIME_SECONDS) + "\",";
+      json += "\"comment\":\"" + JsonEsc(OrderGetString(ORDER_COMMENT)) + "\"";
       json += "}";
      }
    json += "]}";
@@ -853,6 +909,8 @@ void HandleCommand(const string line)
    string type = Extract(line, "type");
    if(type == "hello" || type == "pong" || type == "ping") return;
    if(type == "order" || type == "market") { TradeMarket(line); return; }
+   if(type == "pending") { TradePending(line); return; }
+   if(type == "cancel") { TradeCancel(line); return; }
    if(type == "close") { TradeClose(line); return; }
    if(type == "modify") { TradeModify(line); return; }
    if(type == "flatten") { Flatten(); return; }
@@ -947,6 +1005,73 @@ void TradeMarket(const string line)
      }
    bool good = ok && (res.retcode == TRADE_RETCODE_DONE || res.retcode == TRADE_RETCODE_PLACED || res.retcode == TRADE_RETCODE_DONE_PARTIAL);
    Reply(good, "retcode=" + IntegerToString(res.retcode) + " " + res.comment);
+  }
+
+// A resting order at a price the robot chose, with the stop and target
+// already attached. The trade only starts if the market comes back to it,
+// which is the whole point: no burst of market orders on the candle close,
+// and the entry is paid at the level rather than at whatever the impulse
+// candle happened to leave behind.
+void TradePending(const string line)
+  {
+   string want = Extract(line, "symbol");
+   if(want != "" && !SameSymbol(want, _Symbol)) return;
+   if(g_tester) { Reply(false, "tester tape is read-only - live orders stay on the main chart"); return; }
+   if(!TerminalInfoInteger(TERMINAL_TRADE_ALLOWED)) { Reply(false, "terminal AutoTrading is OFF"); return; }
+   if(!MQLInfoInteger(MQL_TRADE_ALLOWED)) { Reply(false, "AutoTrading is OFF on this chart"); return; }
+   string kind = Extract(line, "order_type");
+   StringToLower(kind);
+   double volume = StringToDouble(Extract(line, "volume"));
+   double price  = StringToDouble(Extract(line, "price"));
+   double sl = StringToDouble(Extract(line, "sl"));
+   double tp = StringToDouble(Extract(line, "tp"));
+   if(volume <= 0) { Reply(false, "volume required"); return; }
+   if(price <= 0)  { Reply(false, "price required for a pending order"); return; }
+   MqlTradeRequest req;
+   MqlTradeResult res;
+   ZeroMemory(req);
+   ZeroMemory(res);
+   req.action = TRADE_ACTION_PENDING;
+   req.symbol = _Symbol;
+   req.volume = volume;
+   req.price = NormalizeDouble(price, _Digits);
+   req.deviation = 30;
+   req.magic = 908173;
+   req.type_time = ORDER_TIME_GTC;
+   req.type_filling = FillOf(_Symbol);
+   string cmt = Extract(line, "comment");
+   if(cmt == "") cmt = "AURION";
+   if(StringLen(cmt) > 31) cmt = StringSubstr(cmt, 0, 31);
+   req.comment = cmt;
+   if(kind == "sell_limit")      req.type = ORDER_TYPE_SELL_LIMIT;
+   else if(kind == "sell_stop")  req.type = ORDER_TYPE_SELL_STOP;
+   else if(kind == "buy_stop")   req.type = ORDER_TYPE_BUY_STOP;
+   else                          req.type = ORDER_TYPE_BUY_LIMIT;
+   if(sl > 0.0) req.sl = NormalizeDouble(sl, _Digits);
+   if(tp > 0.0) req.tp = NormalizeDouble(tp, _Digits);
+   bool ok = OrderSend(req, res);
+   bool good = ok && (res.retcode == TRADE_RETCODE_DONE || res.retcode == TRADE_RETCODE_PLACED);
+   Reply(good, "retcode=" + IntegerToString(res.retcode) + " " + res.comment);
+   if(good) SendOrders();
+  }
+
+// The desk cancels a resting order that waited too long. Only its own:
+// the magic number is checked engine-side before the ticket is sent.
+void TradeCancel(const string line)
+  {
+   ulong ticket = (ulong)StringToInteger(Extract(line, "ticket"));
+   if(ticket == 0) { Reply(false, "ticket required"); return; }
+   if(!OrderSelect(ticket)) { Reply(false, "order not found"); return; }
+   MqlTradeRequest req;
+   MqlTradeResult res;
+   ZeroMemory(req);
+   ZeroMemory(res);
+   req.action = TRADE_ACTION_REMOVE;
+   req.order = ticket;
+   bool ok = OrderSend(req, res);
+   Reply(ok && (res.retcode == TRADE_RETCODE_DONE || res.retcode == TRADE_RETCODE_PLACED),
+         "retcode=" + IntegerToString(res.retcode));
+   SendOrders();
   }
 
 void TradeClose(const string line)
