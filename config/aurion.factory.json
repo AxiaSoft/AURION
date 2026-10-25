@@ -9,6 +9,9 @@
     "ar"
   ],
   "default_language": "en",
+  "system": {
+    "timezone": "broker"
+  },
   "backend": {
     "host": "0.0.0.0",
     "port": 8080,
@@ -31,7 +34,7 @@
     "server": "",
     "timeout_ms": 10000,
     "portable": false,
-    "ea_listen_host": "0.0.0.0",
+    "ea_listen_host": "127.0.0.1",
     "ea_listen_port": 18766,
     "symbols": [],
     "timeframes": [
@@ -64,11 +67,19 @@
   "runtime": {
     "auto_trade": false,
     "require_ai_agree": true,
-    "min_ai_confidence": 0.55,
+    "min_ai_confidence": 0.35,
     "trade_style": "normal",
     "danger_guard": {
       "enabled": false,
       "sensitivity": 50
+    },
+    "risk_free": {
+      "enabled": false,
+      "trigger_pct": 0.3,
+      "lock_pct": 0.0
+    },
+    "money": {
+      "max_loss_per_lot": 10.0
     },
     "strategies": {
       "ema_rsi": {
@@ -79,15 +90,18 @@
       },
       "atr_breakout": {
         "enabled": false
-      },
-      "scalp_impulse": {
-        "enabled": false
       }
     },
     "min_open_trades": 1,
     "max_open_trades": 2,
     "smart_filters": true,
-    "min_signal_quality": 0.55
+    "min_signal_quality": 0.55,
+    "auto_entry": {
+      "enabled": false,
+      "zone_depth": 0.5,
+      "offset_atr": 0.35,
+      "expiry_minutes": 120
+    }
   },
   "prop": {
     "active_profile": "conservative",
@@ -110,6 +124,11 @@
       "sms_url": "",
       "sms_token": ""
     }
+  },
+  "update_server": {
+    "url": "",
+    "auto_check": false,
+    "interval_hours": 6
   },
   "paths": {
     "data": "data",

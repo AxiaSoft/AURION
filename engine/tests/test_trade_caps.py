@@ -41,11 +41,21 @@ def test_max_is_the_ceiling_and_prop_can_lower_it() -> None:
 
 
 def test_the_effective_caps_reach_the_desk() -> None:
+    """Both ceilings are published, however the snapshot builds them.
+
+    Matched on the field name and the method that fills it rather than on
+    one exact line: the snapshot now builds each panel through a guard so
+    that one unavailable card cannot blank the whole strategies view, and
+    a test that pins the spelling of the call turns a safety improvement
+    into a failure.
+    """
     src = _src()
-    for key in ('"cap_effective": self._total_cap()',
-                '"cap_symbol": self._per_symbol_cap()',
-                '"cap_by_prop"'):
-        assert key in src, f"{key} must be published or the desk shows a wish, not the rule"
+    for field, source in (("cap_effective", "_total_cap"),
+                          ("cap_symbol", "_per_symbol_cap")):
+        line = next((ln for ln in src.splitlines() if f'"{field}":' in ln), "")
+        assert line, f"{field} must be published or the desk shows a wish, not the rule"
+        assert source in line, f"{field} must be filled from {source}(), not from the trader's own wish"
+    assert '"cap_by_prop"' in src
 
 
 def test_the_desk_labels_say_which_is_which() -> None:

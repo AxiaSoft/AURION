@@ -54,6 +54,19 @@ internal sealed class AppWindow : Form
     public AppWindow(bool setupOnly = false)
     {
         _setupOnly = setupOnly;
+
+        // Scale with the display.
+        //
+        // app.manifest declares PerMonitorV2, but every control here is
+        // positioned in raw pixels against fonts in points, and nothing told
+        // WinForms to scale the layout. On a laptop running at 125% or 150%
+        // - which is the default on most machines sold in the last decade -
+        // the panels were laid out for 96 DPI and drawn on a display that is
+        // not: cramped, clipped and overlapping. It did not look like a
+        // window that had failed to scale, it looked like one that had not
+        // finished loading, which is exactly how it was reported.
+        AutoScaleMode = AutoScaleMode.Dpi;
+
         Text = setupOnly ? "AURION setup" : "AURION";
         BackColor = Color.FromArgb(0x06, 0x07, 0x0B);
         StartPosition = FormStartPosition.CenterScreen;
@@ -107,12 +120,42 @@ internal sealed class AppWindow : Form
         else
         {
             _splash.Status = "Starting the engine…";
-            if (!StartDesk()) return;
+
+            // Everything written to the logs from here on belongs to this
+            // run. Without these marks the failure box quotes whatever
+            // happened to be at the end of a file that has been appended to
+            // since September, which is worse than saying nothing.
+            MarkLogs();
+
+            var launcher = StartDesk();
+            if (launcher is null) return;
 
             var clock = Stopwatch.StartNew();
             while (clock.Elapsed < StartupBudget)
             {
                 await Task.Delay(500);
+
+                // A launcher that exits non-zero has usually worked out what
+                // is wrong and written it down, and waiting out the rest of
+                // three minutes only delays the news.
+                //
+                // Usually, not always. start-aurion.cmd gives the desk 45
+                // seconds and then exits 1 itself - and on a first run, the
+                // engine's first import of numpy and scikit-learn alone can
+                // take longer than that. Treating that exit as fatal turned
+                // a slow start into a failure, which is a worse bug than the
+                // one the fail-fast was added to fix. So an early exit is
+                // believed and a late one is not: by thirty seconds nothing
+                // has been imported yet, and an exit that soon means a
+                // missing prerequisite or a broken tree.
+                if (launcher.HasExited && launcher.ExitCode != 0
+                    && clock.Elapsed < TimeSpan.FromSeconds(30))
+                {
+                    await Task.Delay(1500);              // let the logs flush
+                    if (await DeskIsAnsweringAsync()) break;
+                    ShowStartupFailure(Diagnosis(launcher.ExitCode));
+                    return;
+                }
 
                 // Honest progress: the elapsed share of the budget, capped well
                 // short of full, because reaching 100% before the desk answers
@@ -128,7 +171,8 @@ internal sealed class AppWindow : Form
 
             if (!await DeskIsAnsweringAsync())
             {
-                ShowStartupFailure();
+                var code = launcher.HasExited ? launcher.ExitCode : (int?)null;
+                ShowStartupFailure(Diagnosis(code));
                 return;
             }
         }
@@ -139,7 +183,19 @@ internal sealed class AppWindow : Form
     }
 
     /// <summary>
-    /// Check what the machine has, and offer to fetch what it does not.
+    /// Make this machine able to run AURION, on the loading screen, now.
+    ///
+    /// This is the whole first-run experience and it is deliberately not a
+    /// wizard. A trader who has just run an installer and ticked "launch
+    /// AURION" has already said what they want; asking them a second time,
+    /// in a window that may not even have focus, is how a bare machine ended
+    /// up installing nothing and timing out three minutes later.
+    ///
+    /// So: look, install, look again - all of it narrated on the splash,
+    /// exactly the way start-aurion.cmd does it from a console. The setup
+    /// panel still exists, but it is now the *failure* surface. It appears
+    /// only when something could not be installed and there is a decision
+    /// worth putting in front of somebody.
     /// </summary>
     /// <returns>false when the window is closing and boot should stop.</returns>
     private async Task<bool> EnsurePrerequisitesAsync()
@@ -149,40 +205,148 @@ internal sealed class AppWindow : Form
         // trader asked for the check on purpose, in which case show it.
         if (!_setupOnly && await DeskIsAnsweringAsync()) return true;
 
-        _splash.Status = "Checking this machine…";
+        _splash.Visible = true;
+        _splash.BringToFront();
+        _splash.Status = "Checking what this machine has\u2026";
+        _splash.Progress = 0.04f;
+
+        // Checking whether numpy and scikit-learn import is the slowest
+        // thing that happens before the desk appears, and on a first run it
+        // is slow for a reason nobody can see: Python is compiling several
+        // thousand files to bytecode. Left silent it reads as a hang on the
+        // one launch where the machine is doing the most work.
+        var checking = new Progress<string>(text => _splash.Status = text + "\u2026");
+
         var items = Prerequisites.Build();
-        await Prerequisites.InspectAsync(items, _installDir);
+        try
+        {
+            await Prerequisites.InspectAsync(items, _installDir, checking);
+        }
+        catch (Exception ex)
+        {
+            // Detection itself failing is not a reason to stop: the launcher
+            // runs the same checks again and can still get there.
+            Note("the prerequisite check could not complete: " + ex);
+        }
 
-        if (items.All(r => r.State == ReqState.Present) && !_setupOnly) return true;
+        var missing = items.Where(r => r.State is ReqState.Missing or ReqState.Failed).ToList();
 
+        if (missing.Count == 0)
+        {
+            if (!_setupOnly) return true;
+            _splash.Status = "Everything AURION needs is already installed.";
+            _splash.Progress = 1f;
+            await Task.Delay(1800);
+            return true;
+        }
+
+        // ------------------------------------------------------------------
+        // Install, right here, without being asked
+        // ------------------------------------------------------------------
+        Note("missing on this machine: " + string.Join(", ", missing.Select(r => r.Id)));
+        _splash.Status = "Installing " + Readable(missing) + "\u2026";
+        _splash.Progress = 0.08f;
+
+        // Not disposed on purpose: the install runs on continuations that can
+        // outlive this scope, and a cancelled token source is cheap.
+        var cancel = new CancellationTokenSource();
+        FormClosing += (_, _) => cancel.Cancel();
+
+        // Progress is derived from how many requirements the machine actually
+        // has now, never from a guess about how long a download will take.
+        var say = new Progress<string>(text =>
+        {
+            _splash.Status = text;
+            var settled = items.Count(r => r.State is ReqState.Present or ReqState.Installed);
+            _splash.Progress = 0.08f + 0.62f * settled / Math.Max(1, items.Count);
+        });
+
+        var trouble = "";
+        try
+        {
+            await Prerequisites.InstallAsync(missing, _installDir, say, cancel.Token);
+
+            // Ask the machine again rather than trusting the installers: what
+            // matters is whether the thing is now detectable, not whether a
+            // setup program said it succeeded.
+            _splash.Status = "Checking again\u2026";
+            await Prerequisites.InspectAsync(items, _installDir, checking);
+        }
+        catch (OperationCanceledException)
+        {
+            return false;
+        }
+        catch (Exception ex)
+        {
+            trouble = ex.Message;
+            Note("setup stopped: " + ex);
+        }
+
+        if (items.All(r => r.State is ReqState.Present or ReqState.Installed))
+        {
+            _splash.Status = "Ready. Starting the desk\u2026";
+            _splash.Progress = 0.75f;
+            await Task.Delay(600);
+            return true;
+        }
+
+        // ------------------------------------------------------------------
+        // Only now is there anything worth interrupting somebody for
+        // ------------------------------------------------------------------
+        return await ShowSetupPanelAsync(items, cancel, trouble);
+    }
+
+    /// <summary>"Python 3.12, Node.js 20 and 2 more things".</summary>
+    private static string Readable(List<Requirement> missing)
+    {
+        var names = missing.Select(r => r.Title).ToList();
+        if (names.Count == 1) return names[0];
+        if (names.Count == 2) return names[0] + " and " + names[1];
+        return string.Join(", ", names.Take(names.Count - 1)) + " and " + names[^1];
+    }
+
+    /// <summary>
+    /// The screen for when automatic setup did not get there.
+    ///
+    /// It says what is still missing and why, and offers to try again. This
+    /// is no longer part of a normal first run - reaching it means something
+    /// needs a human.
+    /// </summary>
+    private async Task<bool> ShowSetupPanelAsync(
+        List<Requirement> items, CancellationTokenSource cancel, string trouble)
+    {
         var setup = new SetupPanel(items);
         var done = new TaskCompletionSource<bool>();
 
         setup.SkipRequested += (_, _) => done.TrySetResult(true);
+        setup.CancelRequested += (_, _) => cancel.Cancel();
         setup.InstallRequested += async (_, _) =>
         {
+            // A retry needs a token that has not already been cancelled.
+            var retry = new CancellationTokenSource();
             setup.Working(true);
             var say = new Progress<string>(setup.Say);
             try
             {
-                var missing = items.Where(r => r.State is ReqState.Missing or ReqState.Failed).ToList();
-                await Prerequisites.InstallAsync(missing, _installDir, say, CancellationToken.None);
+                var still = items.Where(r => r.State is ReqState.Missing or ReqState.Failed).ToList();
+                await Prerequisites.InstallAsync(still, _installDir, say, retry.Token);
 
-                // Ask the machine again rather than trusting the installers:
-                // what matters is whether the thing is now detectable, not
-                // whether a setup program said it succeeded.
-                setup.Say("Checking again…");
-                await Prerequisites.InspectAsync(items, _installDir);
+                setup.Say("Checking again\u2026");
+                await Prerequisites.InspectAsync(items, _installDir, say);
                 setup.Render();
 
                 if (items.All(r => r.State is ReqState.Present or ReqState.Installed))
                 {
-                    setup.Say("Ready. Starting the desk…");
+                    setup.Say("Ready. Starting the desk\u2026");
                     await Task.Delay(700);
                     done.TrySetResult(true);
                     return;
                 }
                 setup.Say("Some of it did not install. The details are on the rows above.");
+            }
+            catch (OperationCanceledException)
+            {
+                setup.Say("Stopped.");
             }
             catch (Exception ex)
             {
@@ -198,6 +362,10 @@ internal sealed class AppWindow : Form
         _splash.Visible = false;
         Controls.Add(setup);
         setup.BringToFront();
+        setup.Render();
+        setup.Say(trouble.Length > 0
+            ? "Automatic setup stopped: " + trouble
+            : "Some of this could not be installed automatically.");
 
         FormClosing += (_, _) => done.TrySetResult(false);
         var proceed = await done.Task;
@@ -208,12 +376,30 @@ internal sealed class AppWindow : Form
 
         _splash.Visible = true;
         _splash.BringToFront();
-        _splash.Status = "Starting AURION…";
+        _splash.Status = "Starting AURION\u2026";
         return true;
     }
 
-    /// <summary>Runs the application's own launcher, hidden, and lets it do its job.</summary>
-    private bool StartDesk()
+    /// <summary>One line into data\logs\window.log, and never fail writing it.</summary>
+    private void Note(string text)
+    {
+        try
+        {
+            var log = Path.Combine(_installDir, "data", "logs", "window.log");
+            Directory.CreateDirectory(Path.GetDirectoryName(log)!);
+            File.AppendAllText(log, $"{DateTime.Now:u}  {text}{Environment.NewLine}");
+        }
+        catch
+        {
+            // Logging must never be the reason a first run stops.
+        }
+    }
+
+    /// <summary>
+    /// Runs the application's own launcher, hidden, and lets it do its job.
+    /// </summary>
+    /// <returns>The launcher process, or null when it could not be started.</returns>
+    private Process? StartDesk()
     {
         var starter = Path.Combine(_installDir, "start-aurion.cmd");
         if (!File.Exists(starter))
@@ -223,7 +409,7 @@ internal sealed class AppWindow : Form
                 "Use Settings > Apps > AURION > Modify > Repair to restore it.",
                 "AURION", MessageBoxButtons.OK, MessageBoxIcon.Error);
             Close();
-            return false;
+            return null;
         }
 
         var psi = new ProcessStartInfo
@@ -240,17 +426,221 @@ internal sealed class AppWindow : Form
         // script; when it is absent the script behaves exactly as it always did.
         psi.Environment["AURION_NO_BROWSER"] = "1";
 
+        // A child inherits this process's environment, and this process's
+        // environment was captured before setup installed anything. Rebuild
+        // PATH from the registry so the launcher sees the Python that was
+        // installed four seconds ago, and add AURION's own Node to it.
+        psi.Environment["PATH"] = CurrentPath();
+
         try
         {
-            Process.Start(psi);
-            return true;
+            return Process.Start(psi);
         }
         catch (Exception ex)
         {
             MessageBox.Show(this, $"AURION could not be started:\n\n{ex.Message}",
                 "AURION", MessageBoxButtons.OK, MessageBoxIcon.Error);
             Close();
-            return false;
+            return null;
+        }
+    }
+
+    /// <summary>PATH as the registry has it now, plus AURION's private Node.</summary>
+    private string CurrentPath()
+    {
+        var parts = new List<string>();
+        foreach (var scope in new[] { EnvironmentVariableTarget.Machine, EnvironmentVariableTarget.User })
+        {
+            try
+            {
+                var value = Environment.GetEnvironmentVariable("PATH", scope);
+                if (!string.IsNullOrWhiteSpace(value)) parts.Add(value);
+            }
+            catch
+            {
+                // An unreadable scope falls back to what this process already has.
+            }
+        }
+        // Appended, never substituted. The registry copy is read to pick up
+        // a runtime installed seconds ago, not to decide what the launcher
+        // is allowed to find - and handing a child a PATH with this
+        // process's own entries removed is the same mistake :REFRESHPATH
+        // made in start-aurion.cmd, where it left the machine unable to
+        // locate powershell.exe.
+        parts.Insert(0, Environment.GetEnvironmentVariable("PATH") ?? "");
+
+        // Both of AURION's own runtimes, so the launcher finds them even
+        // when nothing on this machine has ever heard of them.
+        parts.Add(Path.Combine(_installDir, "runtime", "node"));
+        parts.Add(Path.Combine(_installDir, "runtime", "python"));
+        parts.Add(Path.Combine(_installDir, "runtime", "python", "Scripts"));
+
+        return string.Join(';', parts.Where(p => p.Length > 0).Distinct());
+    }
+
+    /// <summary>How long each log was when this run started.</summary>
+    private readonly Dictionary<string, long> _logMarks = new();
+
+    private string LogPath(string name) => Path.Combine(_installDir, "data", "logs", name);
+
+    /// <summary>
+    /// Remember where each log ends, so a failure can quote this run only.
+    ///
+    /// engine.log and desk.log are appended to, never truncated. Quoting
+    /// their last few lines meant quoting a successful start from three
+    /// weeks ago and presenting it as the reason today's run failed.
+    /// </summary>
+    private void MarkLogs()
+    {
+        foreach (var name in new[] { "engine.log", "desk.log", "setup.log", "python-install.log" })
+        {
+            try
+            {
+                var path = LogPath(name);
+                _logMarks[name] = File.Exists(path) ? new FileInfo(path).Length : 0L;
+            }
+            catch
+            {
+                _logMarks[name] = 0L;
+            }
+        }
+    }
+
+    /// <summary>Whatever this run appended to one log, trimmed to fit a dialog.</summary>
+    private string NewIn(string name, int maxLines)
+    {
+        try
+        {
+            var path = LogPath(name);
+            if (!File.Exists(path)) return "";
+
+            var from = _logMarks.TryGetValue(name, out var mark) ? mark : 0L;
+            using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+            if (stream.Length <= from) return "";
+            stream.Position = from;
+
+            using var reader = new StreamReader(stream);
+            var lines = reader.ReadToEnd()
+                .Split('\n')
+                .Select(l => l.TrimEnd('\r'))
+                .Where(l => l.Trim().Length > 0)
+                .ToList();
+            return lines.Count == 0 ? "" : string.Join(Environment.NewLine, lines.TakeLast(maxLines));
+        }
+        catch
+        {
+            return "";
+        }
+    }
+
+    /// <summary>
+    /// Everything known about why the desk is not answering.
+    ///
+    /// Written for somebody who cannot be asked to open a log: what this run
+    /// actually printed, which interpreters were used, and - the single most
+    /// common cause that no log will ever mention - what else is holding
+    /// port 8080.
+    /// </summary>
+    private string Diagnosis(int? launcherExitCode)
+    {
+        var parts = new List<string>();
+
+        var engine = NewIn("engine.log", 6);
+        var desk = NewIn("desk.log", 6);
+        var setup = NewIn("setup.log", 8);
+
+        if (engine.Length > 0) parts.Add("The engine said:" + Environment.NewLine + engine);
+        if (desk.Length > 0) parts.Add("The desk said:" + Environment.NewLine + desk);
+
+        if (engine.Length == 0 && desk.Length == 0)
+        {
+            parts.Add("Neither the engine nor the desk wrote anything this time, "
+                      + "so they did not get as far as starting.");
+
+            // Which makes setup.log the only account of what did happen.
+            // Leaving it out was how a failure got reported as four facts
+            // and no reason.
+            if (setup.Length > 0)
+            {
+                parts.Add("Setup said:" + Environment.NewLine + setup);
+            }
+
+            // python.org's bundle only speaks when asked to, and only here.
+            var pythonInstall = NewIn("python-install.log", 4);
+            if (pythonInstall.Length > 0)
+            {
+                parts.Add("The Python installer said:" + Environment.NewLine + pythonInstall);
+            }
+            else
+            {
+                parts.Add("The launcher wrote nothing either, so it stopped before "
+                          + "it could choose an interpreter.");
+            }
+        }
+
+        var runtimes = Runtimes();
+        if (runtimes.Length > 0) parts.Add(runtimes);
+
+        var holder = WhoHasPort8080();
+        if (holder.Length > 0) parts.Add(holder);
+
+        if (launcherExitCode is int code && code != 0)
+        {
+            parts.Add($"The launcher stopped with code {code}.");
+        }
+
+        var all = string.Join(Environment.NewLine + Environment.NewLine, parts);
+        Note("startup failed. " + all.Replace(Environment.NewLine, " | "));
+        return all;
+    }
+
+    /// <summary>The interpreters setup recorded, so a wrong one is visible.</summary>
+    private string Runtimes()
+    {
+        try
+        {
+            var file = Path.Combine(_installDir, "data", "runtime.env");
+            if (!File.Exists(file)) return "";
+            var lines = File.ReadAllLines(file).Where(l => l.Contains('=')).ToList();
+            // Labelled as what it is. This is the file from the last
+            // successful setup, not necessarily what this run chose - and
+            // reading it as the latter wasted a round trip.
+            return lines.Count == 0
+                ? ""
+                : "Recorded by the last setup (not necessarily what ran now):"
+                  + Environment.NewLine + string.Join(Environment.NewLine, lines);
+        }
+        catch
+        {
+            return "";
+        }
+    }
+
+    /// <summary>
+    /// Name whatever else is listening on 8080.
+    ///
+    /// No log can report this, because the process that would have written
+    /// the log is the one that could not bind. It is also the most common
+    /// cause after a missing prerequisite, and the only one the trader can
+    /// act on without help.
+    /// </summary>
+    private string WhoHasPort8080()
+    {
+        try
+        {
+            var mine = System.Net.NetworkInformation.IPGlobalProperties.GetIPGlobalProperties()
+                .GetActiveTcpListeners()
+                .Any(e => e.Port == 8080);
+            if (!mine) return "Nothing is listening on port 8080.";
+
+            // Something has it. If it were ours the health check would have
+            // answered, so it is another program.
+            return "Port 8080 is held by another program. AURION's desk cannot "
+                 + "start while something else has it.";
+        }
+        catch
+        {
+            return "";
         }
     }
 
@@ -267,18 +657,24 @@ internal sealed class AppWindow : Form
         }
     }
 
-    private void ShowStartupFailure()
+    private void ShowStartupFailure(string reason = "")
     {
         var logs = Path.Combine(_installDir, "data", "logs");
         _splash.Status = "AURION did not finish starting.";
         _splash.Progress = 0f;
+
+        var said = reason.Trim().Length > 0
+            ? "AURION could not start the desk.\n\nFrom this attempt:\n\n" + reason.Trim() + "\n\n"
+            : "AURION did not finish starting within three minutes, and nothing "
+              + "was written explaining why.\n\n";
+
         MessageBox.Show(this,
-            "AURION did not finish starting within three minutes.\n\n" +
-            "The engine and desk write the real reason here:\n" +
+            said +
+            "The full logs are here:\n" +
             $"    {Path.Combine(logs, "engine.log")}\n" +
-            $"    {Path.Combine(logs, "desk.log")}\n\n" +
-            "The usual causes are a missing prerequisite or port 8080 being held " +
-            "by another program.",
+            $"    {Path.Combine(logs, "desk.log")}\n" +
+            $"    {Path.Combine(logs, "window.log")}\n\n" +
+            "Starting AURION again will check the machine and repair anything missing.",
             "AURION", MessageBoxButtons.OK, MessageBoxIcon.Warning);
     }
 
@@ -327,7 +723,8 @@ internal sealed class AppWindow : Form
         value.Replace("\\", "\\\\").Replace("\"", "\\\"");
 
     /// <summary>A signal arrived while the window was not visible.</summary>
-    private void ShowSignalToast(string title, string body, string symbol, string timeframe)
+    private void ShowSignalToast(string title, string body, string symbol, string timeframe,
+                                 ToolTipIcon icon = ToolTipIcon.Info)
     {
         _pendingSymbol = symbol ?? "";
         _pendingTimeframe = timeframe ?? "";
@@ -336,7 +733,7 @@ internal sealed class AppWindow : Form
             _tray.Visible = true;
             _tray.BalloonTipTitle = string.IsNullOrWhiteSpace(title) ? "AURION" : title;
             _tray.BalloonTipText = body ?? "";
-            _tray.BalloonTipIcon = ToolTipIcon.Info;
+            _tray.BalloonTipIcon = icon;
             _tray.ShowBalloonTip(8000);
         }
         catch
@@ -409,13 +806,21 @@ internal sealed class AppWindow : Form
             string raw;
             try { raw = e.TryGetWebMessageAsString(); }
             catch { return; }
-            if (string.IsNullOrWhiteSpace(raw) || !raw.Contains("\"signal\"")) return;
+            if (string.IsNullOrWhiteSpace(raw)) return;
+            var isSignal = raw.Contains("\"signal\"");
+            var isTrade = raw.Contains("\"trade\"");
+            if (!isSignal && !isTrade) return;
 
-            // Deliberately a hand-rolled read of four known fields rather than
-            // a JSON dependency: the host has exactly one message to parse and
-            // its shape is defined a few lines away in app.js.
+            // Deliberately a hand-rolled read of a few known fields rather
+            // than a JSON dependency: the host has two messages to parse and
+            // their shape is defined a few lines away in app.js.
+            //
+            // A trade is the one thing worth interrupting someone for, so a
+            // losing exit is raised as a warning rather than a notice - the
+            // icon is the only part of a balloon tip read at a glance.
+            var icon = Field(raw, "level") == "warning" ? ToolTipIcon.Warning : ToolTipIcon.Info;
             ShowSignalToast(Field(raw, "title"), Field(raw, "body"),
-                            Field(raw, "symbol"), Field(raw, "timeframe"));
+                            Field(raw, "symbol"), Field(raw, "timeframe"), icon);
         };
 
         core.DocumentTitleChanged += (_, _) =>

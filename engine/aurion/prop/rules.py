@@ -6,9 +6,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from ..config import ROOT, abspath, load
+from ..config import DATA_DIR, ROOT, abspath, load
 from ..util.clock import utc_iso
 from ..util.log import get
+from .hours import window_open
 from .profiles import LOCKED_IDS, get_profile
 
 log = get("prop")
@@ -17,7 +18,7 @@ log = get("prop")
 # re-baseline on every boot (a restart in the middle of a losing day would wipe
 # the daily-loss guard); with it the baseline is bound to one account + one UTC
 # day and is never reused for a different login.
-STATE_FILE = ROOT / "data" / "prop-day.json"
+STATE_FILE = DATA_DIR / "prop-day.json"
 
 
 def account_key(account: dict[str, Any] | None) -> str:
@@ -53,6 +54,10 @@ class PropEngine:
         self.day_stamp: str = ""
         self.high_water: float | None = None
         self.locked = False
+        # Set by the trader: the desk-wide timezone and, when the setting
+        # is "broker", the offset worked out from MetaTrader's own clock.
+        self.desk_timezone = "UTC"
+        self.broker_minutes: int | None = None
         self.lock_reason = ""
         self.violations: list[dict[str, Any]] = []
         self.news_events: list[dict[str, Any]] = []
@@ -231,19 +236,22 @@ class PropEngine:
         return self.profile
 
     def reload_news(self) -> int:
+        """Read the economic calendar off disk. Never touches the network.
+
+        It used to call news_feed.refresh() here, and this runs inside
+        __init__, which runs inside Trader(), which is engine start-up:
+        on a machine with no outbound access that is two downloads at a
+        25 second timeout each before the engine answers its first
+        request, and the desk spends that time telling the trader the
+        engine is not running. The download belongs to the refresh loop
+        that already exists (Trader._news_refresh_loop, on an executor
+        thread, every five minutes and once at start-up) and to the
+        Calendar tab's explicit refresh button - both of which call
+        reload_news() afterwards.
+        """
         cfg = load()
         path = str(cfg["prop"].get("news_calendar_path") or "")
         self.news_events = []
-        if not path:
-            # Nothing configured: fall back to the Forex Factory cache so the
-            # calendar and the blackout filter are never silently empty.
-            try:
-                from .. import news_feed
-
-                news_feed.refresh()
-                path = str(load()["prop"].get("news_calendar_path") or "")
-            except Exception:
-                return 0
         if not path:
             # Last resort: read the feed cache directly rather than trusting a
             # config value this process may have loaded before it was written.
@@ -343,17 +351,19 @@ class PropEngine:
         }
 
     def _in_hours(self) -> tuple[bool, str]:
-        hours = self.profile.get("trading_hours") or {}
-        now = datetime.now(timezone.utc)
-        if now.weekday() not in set(hours.get("weekdays") or [0, 1, 2, 3, 4]):
-            if not self.profile.get("allow_weekend"):
-                return False, "outside allowed weekdays"
-        start = str(hours.get("start") or "00:00")
-        end = str(hours.get("end") or "23:59")
-        hm = now.strftime("%H:%M")
-        if not (start <= hm <= end):
-            return False, f"outside trading hours {start}-{end} UTC"
-        return True, ""
+        """Delegated to prop/hours.py, which is pure and therefore testable
+        at an hour other than the one it happens to be.
+
+        The zone is not a prop setting. It is chosen once in System
+        settings and every profile is read in it; a profile may still
+        name its own, but none of the shipped ones do.
+        """
+        return window_open(
+            self.profile.get("trading_hours"),
+            allow_weekend=bool(self.profile.get("allow_weekend")),
+            default_zone=self.desk_timezone,
+            broker_minutes=self.broker_minutes,
+        )
 
     def _news_blackout(self, symbol: str, force: bool = False) -> tuple[bool, str]:
         if not force and not self.profile.get("news_filter"):
@@ -509,7 +519,17 @@ class PropEngine:
             return {"ok": False, "error": news}
         volume = float(request.get("volume") or 0)
         if volume > float(self.profile["max_lot"]):
-            return {"ok": False, "error": f"lot {volume} exceeds max {self.profile['max_lot']}"}
+            # Name the rule and where it lives. "exceeds max 0.01" on its
+            # own reads like the lot box is broken, when in fact a prop
+            # ceiling the trader set somewhere else is doing its job.
+            return {
+                "ok": False,
+                "error": (
+                    f"lot {volume} exceeds the {self.profile.get('id') or 'prop'} prop ceiling of "
+                    f"{self.profile['max_lot']} — raise 'max lot' in Prop risk, "
+                    f"or switch the prop profile off"
+                ),
+            }
         desk = str(request.get("source") or "") == "desk"
         if (not desk) and len(positions) >= int(self.profile["max_open_trades"]) and action in {"market", "buy", "sell", "pending"}:
             return {"ok": False, "error": "max open trades reached"}

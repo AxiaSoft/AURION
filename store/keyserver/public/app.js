@@ -435,7 +435,6 @@ async function render(){
   // badges
   updateBadges();
   $("year").textContent=new Date().getFullYear();
-  $("admin-hash-hint").textContent=ADMIN_HASH.slice(0,12)+"...";
 
   if(!state.products.length){
     const r=await api("/api/products");

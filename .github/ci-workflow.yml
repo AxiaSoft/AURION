@@ -1,0 +1,124 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  desk:
+    name: Desk (Node ${{ matrix.node }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ["18", "20", "22"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+
+      - name: Install desk dependencies
+        run: |
+          npm install --no-audit --no-fund
+          npm --prefix backend install --no-audit --no-fund
+
+      # Syntax check, chart/theme/strategy unit tests, the static "did a
+      # refactor delete a view / call something that does not exist" guards,
+      # and the jsdom render regression suite.
+      - name: Test
+        run: npm test
+
+      - name: Boot the desk and hit /api/health
+        env:
+          AURION_DATA_DIR: ${{ runner.temp }}/aurion-data
+        run: |
+          node backend/src/index.js &
+          desk=$!
+          for i in $(seq 1 40); do
+            if curl -fsS http://127.0.0.1:8080/api/health >/dev/null; then ok=1; break; fi
+            sleep 0.5
+          done
+          curl -fsS http://127.0.0.1:8080/api/health
+          kill $desk
+          test "${ok:-0}" = "1"
+
+  engine:
+    name: Engine (Python ${{ matrix.python }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # The engine refuses to run on 3.13+ (no numpy 1.26.4 wheels).
+        python: ["3.10", "3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+          cache: pip
+
+      - name: Install engine dependencies
+        run: |
+          python -m pip install --upgrade pip
+          # MetaTrader5 is Windows-only and commented out of requirements.txt.
+          pip install -r engine/requirements.txt
+          pip install pytest
+
+      - name: Tests
+        env:
+          AURION_DATA_DIR: ${{ runner.temp }}/aurion-data
+        run: pytest engine/tests -q
+
+      - name: Boot the engine and hit /health
+        env:
+          AURION_DATA_DIR: ${{ runner.temp }}/aurion-boot
+        run: |
+          python engine/main.py --host 127.0.0.1 --port 18765 &
+          for i in $(seq 1 60); do
+            if curl -fsS http://127.0.0.1:18765/health >/dev/null; then ok=1; break; fi
+            sleep 0.5
+          done
+          curl -fsS http://127.0.0.1:18765/health
+          test "${ok:-0}" = "1"
+
+  keyserver:
+    name: Key server
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # key-parity.mjs shells out to the Python engine to prove both Ed25519
+      # implementations agree, so this job needs both runtimes.
+      - name: Install
+        run: |
+          pip install -r engine/requirements.txt
+          npm --prefix store/keyserver install --no-audit --no-fund
+
+      - name: Tests
+        working-directory: store/keyserver
+        run: npm test
+
+  translations:
+    name: Translation parity
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: en / fa / ar must define the same keys
+        run: node scripts/check-lang.mjs

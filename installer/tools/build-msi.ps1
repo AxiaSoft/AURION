@@ -21,6 +21,16 @@
     user's store. Unsigned MSIs make SmartScreen shout at your customers, so
     sign every public release.
 
+.PARAMETER NoBundle
+    Do not bundle Python, Node, WebView2 and the engine's wheels into the
+    MSI. The installed app falls back to downloading them on first run, the
+    way it did before. Makes the MSI about 150 MB smaller and the first run
+    on a customer's machine dependent on their network.
+
+.PARAMETER SkipWheels
+    Bundle everything except the Python wheels. Use when the build machine
+    has no Python to collect them with.
+
 .PARAMETER SkipNpm
     Passed through to stage.ps1. Local iteration only.
 
@@ -44,6 +54,8 @@ param(
     [string] $Version,
     [string] $CertThumbprint,
     [switch] $SkipNpm,
+    [switch] $NoBundle,
+    [switch] $SkipWheels,
     [switch] $InstallDotnet,
     [ValidateSet("Release", "Debug")] [string] $Configuration = "Release"
 )
@@ -64,7 +76,7 @@ function Step([string] $text) {
 
 # Bumped whenever this script changes, so a stale copy is obvious at a glance
 # instead of failing with a confusing parameter error.
-$ScriptRevision = "22"
+$ScriptRevision = "33"
 
 Write-Host ""
 Write-Host "  AURION installer build" -ForegroundColor White
@@ -379,6 +391,50 @@ if (Test-Path $icoPath) {
 # ---------------------------------------------------------------------------
 # 3. Payload
 # ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# 2b. The runtimes the MSI carries
+# ---------------------------------------------------------------------------
+# Downloading Python and Node on the *customer's* machine is how a bare
+# install turns into a support call: that machine is behind a proxy nobody
+# told us about, and the only symptom is a desk that never starts. Fetch them
+# here instead, on a machine with a developer and a console, and ship them.
+#
+# -NoBundle restores the old behaviour for a quick local build.
+if ($NoBundle) {
+    Step "Skipping the bundled runtimes (-NoBundle)"
+    Write-Host "  the installed app will download Python and Node on first run" -ForegroundColor Yellow
+} else {
+    Step "Fetching the runtimes to bundle"
+    # A failure here is only fatal if the bundle is not already complete.
+    #
+    # The runtimes are cached between builds, so the common case after one
+    # successful fetch is that nothing needs the network at all. Losing a
+    # build to a momentary refusal from nodejs.org, with 139 MB of verified
+    # payload already sitting on disk, is not an acceptable trade.
+    try {
+        & (Join-Path $PSScriptRoot "fetch-vendor.ps1") -SkipWheels:$SkipWheels
+    } catch {
+        $vendorDir = Join-Path $installerDir "vendor"
+        $needed = @("python-3.12.7-amd64.exe", "node-v20.17.0-win-x64.zip",
+                    "SHASUMS256.txt", "MicrosoftEdgeWebview2Setup.exe")
+        $have = $needed | Where-Object { Test-Path -LiteralPath (Join-Path $vendorDir $_) }
+
+        if ($have.Count -eq $needed.Count) {
+            Write-Host ""
+            Write-Host "  The runtimes could not be refreshed:" -ForegroundColor Yellow
+            Write-Host "    $($_.Exception.Message.Split([Environment]::NewLine)[0])" -ForegroundColor Yellow
+            Write-Host "  Every bundled runtime is already present, so the build continues with those." -ForegroundColor Yellow
+            Write-Host ""
+        } else {
+            $missing = $needed | Where-Object { $have -notcontains $_ }
+            throw ("The runtimes could not be collected and the bundle is incomplete.`n" +
+                   "  missing: $($missing -join ', ')`n" +
+                   "  $($_.Exception.Message)`n" +
+                   "  Build with -NoBundle to produce an MSI that downloads them on the target machine instead.")
+        }
+    }
+}
+
 Step "Staging payload"
 # stage.ps1 throws on failure; $ErrorActionPreference = "Stop" turns that into
 # a terminating error here, so there is nothing extra to check. ($LASTEXITCODE
@@ -394,6 +450,57 @@ Step "Staging payload"
 # where Files.wxs harvests it with everything else.
 # ---------------------------------------------------------------------------
 Step "Building the desk window"
+
+# ---------------------------------------------------------------------------
+# The icon, checked the way the compiler reads it
+# ---------------------------------------------------------------------------
+# A malformed .ico does not produce a message about icons. It produces:
+#
+#     CSC : error CS7065: Error building Win32 resources,
+#           "Unable to read beyond the end of the stream."
+#
+# which names neither the file nor the problem, and cost two full build
+# cycles on a machine nobody here can see. The arithmetic that actually goes
+# wrong is checked here instead, immediately before the compile and after
+# anything that might have rewritten the file, so the build says what is
+# wrong with which file.
+function Test-ProductIcon {
+    param([string] $Path)
+
+    if (-not (Test-Path -LiteralPath $Path)) { throw "The product icon is missing: $Path" }
+    $b = [System.IO.File]::ReadAllBytes($Path)
+
+    if ($b.Length -lt 6) { throw "The product icon is only $($b.Length) bytes long: $Path" }
+    if ([BitConverter]::ToUInt16($b, 0) -ne 0 -or [BitConverter]::ToUInt16($b, 2) -ne 1) {
+        throw "The product icon is not an icon - it may be a renamed PNG: $Path"
+    }
+
+    $count = [BitConverter]::ToUInt16($b, 4)
+    if ($count -lt 1) { throw "The product icon contains no images: $Path" }
+
+    $directoryEnd = 6 + 16 * $count
+    if ($b.Length -lt $directoryEnd) {
+        throw "The product icon claims $count images but is too short to list them: $Path"
+    }
+
+    for ($i = 0; $i -lt $count; $i++) {
+        $at     = 6 + 16 * $i
+        $size   = [BitConverter]::ToUInt32($b, $at + 8)
+        $offset = [BitConverter]::ToUInt32($b, $at + 12)
+        if ($offset -lt $directoryEnd -or ($offset + $size) -gt $b.Length) {
+            throw ("The product icon is malformed: image $i covers $offset..$($offset + $size) " +
+                   "but the file is $($b.Length) bytes and its directory ends at $directoryEnd.`n" +
+                   "  $Path`n" +
+                   "  Rebuild it with:`n" +
+                   "    powershell -ExecutionPolicy Bypass -File installer\tools\make-icon.ps1 ``n" +
+                   "      -Source apps\web\icons\mark.png -Destination $Path`n" +
+                   "  or restore the committed one with: git checkout -- $Path")
+        }
+    }
+    Write-Host "  product icon verified: $count images, $($b.Length) bytes" -ForegroundColor Gray
+}
+
+Test-ProductIcon -Path (Join-Path $assetsDir "aurion.ico")
 
 $windowProject = Join-Path $installerDir "window\AurionWindow.csproj"
 $stageApp = Join-Path $installerDir "stage\app"
@@ -413,6 +520,41 @@ if ($LASTEXITCODE -ne 0) { throw "Building the desk window (AURION.exe) failed."
 
 $windowExe = Join-Path $stageApp "AURION.exe"
 if (-not (Test-Path $windowExe)) { throw "AURION.exe was not produced in $stageApp." }
+Write-Host ("  AURION.exe  {0:N1} MB" -f ((Get-Item $windowExe).Length / 1MB)) -ForegroundColor Gray
+
+# ---------------------------------------------------------------------------
+# 3c. The uninstaller
+# ---------------------------------------------------------------------------
+# AURION-Uninstall.exe is what Control Panel runs, because Windows
+# Installer's own uninstall is an unnamed progress bar and cannot ask the
+# only question that matters - whether the trade history goes with the
+# application.
+#
+# It lands in the staged payload beside AURION.exe, so Files.wxs harvests
+# it with everything else, and Actions.wxs repoints UninstallString at it
+# after RegisterProduct has had its say.
+Step "Building the uninstaller"
+
+$uninstallProject = Join-Path $installerDir "shell\uninstall\AurionUninstall.csproj"
+
+& $dotnetExe publish $uninstallProject `
+    -c $Configuration `
+    -r win-x64 `
+    --self-contained true `
+    -p:PublishSingleFile=true `
+    -p:IncludeNativeLibrariesForSelfExtract=true `
+    -p:EnableCompressionInSingleFile=true `
+    -p:AurionVersion=$Version `
+    -o $stageApp `
+    --nologo -v quiet
+
+if ($LASTEXITCODE -ne 0) { throw "Building the uninstaller (AURION-Uninstall.exe) failed." }
+
+$uninstallExe = Join-Path $stageApp "AURION-Uninstall.exe"
+if (-not (Test-Path $uninstallExe)) {
+    throw "AURION-Uninstall.exe was not produced in $stageApp."
+}
+Write-Host ("  AURION-Uninstall.exe  {0:N1} MB" -f ((Get-Item $uninstallExe).Length / 1MB)) -ForegroundColor Gray
 
 # A self-contained single-file publish also drops its own .pdb and the
 # deps/runtimeconfig files next to the exe; none of them belong in a shipped
@@ -421,10 +563,49 @@ Get-ChildItem $stageApp -File |
     Where-Object { $_.Extension -in @(".pdb", ".xml") -or $_.Name -like "*.deps.json" } |
     Remove-Item -Force -ErrorAction SilentlyContinue
 
-Write-Host ("  AURION.exe  {0:N1} MB" -f ((Get-Item $windowExe).Length / 1MB)) -ForegroundColor Gray
 
 # ---------------------------------------------------------------------------
 # 4. Compile
+# ---------------------------------------------------------------------------
+# 3d. The setup wizard
+# ---------------------------------------------------------------------------
+# AURION-Setup.exe is the file a customer is actually given. It runs the
+# MSI beside it with /qn and draws the whole experience itself, because
+# Windows Installer's dialogs can be given a banner bitmap and a licence
+# page and nothing else - the typeface, the spacing and the word "Setup"
+# in the title bar stay Microsoft's.
+#
+# Built here, with the other two executables, and not after the MSI.
+#
+# It has no dependency on the MSI: it finds the .msi beside itself when it
+# runs. Building it last meant two things, both bad. A C# mistake in it
+# was only discovered after a four and a half minute MSI compile - and
+# when that compile failed, as it did twice on ICE77, the wizard was never
+# produced at all. The report that followed was "I click
+# AURION-Setup.exe and nothing happens", which was true: there was no
+# such file.
+Step "Building the setup wizard"
+
+$setupProject = Join-Path $installerDir "shell\setup\AurionSetup.csproj"
+$setupStage   = Join-Path $installerDir "bin\setup-publish"
+
+& $dotnetExe publish $setupProject `
+    -c $Configuration `
+    -r win-x64 `
+    --self-contained true `
+    -p:PublishSingleFile=true `
+    -p:IncludeNativeLibrariesForSelfExtract=true `
+    -p:EnableCompressionInSingleFile=true `
+    -p:AurionVersion=$Version `
+    -o $setupStage `
+    --nologo -v quiet
+
+if ($LASTEXITCODE -ne 0) { throw "Building the setup wizard (AURION-Setup.exe) failed." }
+
+$setupBuilt = Join-Path $setupStage "AURION-Setup.exe"
+if (-not (Test-Path $setupBuilt)) { throw "AURION-Setup.exe was not produced in $setupStage." }
+Write-Host ("  AURION-Setup.exe  {0:N1} MB" -f ((Get-Item $setupBuilt).Length / 1MB)) -ForegroundColor Gray
+
 # ---------------------------------------------------------------------------
 Step "Compiling MSI"
 
@@ -457,6 +638,11 @@ $wixpdb = [IO.Path]::ChangeExtension($built.FullName, ".wixpdb")
 if (Test-Path $wixpdb) { Copy-Item $wixpdb $outputDir -Force }
 $msi = Get-Item (Join-Path $outputDir $built.Name)
 
+
+# The wizard ships beside the package it installs.
+Copy-Item $setupBuilt $outputDir -Force
+$setupExe = Get-Item (Join-Path $outputDir "AURION-Setup.exe")
+
 # ---------------------------------------------------------------------------
 # 5. Sign (optional but expected for public releases)
 # ---------------------------------------------------------------------------
@@ -469,6 +655,11 @@ if ($CertThumbprint) {
 
     & $signtool.FullName sign /sha1 $CertThumbprint /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 /d "AURION" $msi.FullName
     if ($LASTEXITCODE -ne 0) { throw "Signing failed." }
+
+    # The wizard is the file the customer double-clicks, so it is the one
+    # SmartScreen judges. Signing the MSI and not this would be backwards.
+    & $signtool.FullName sign /sha1 $CertThumbprint /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 /d "AURION setup" $setupExe.FullName
+    if ($LASTEXITCODE -ne 0) { throw "Signing the setup wizard failed." }
     Write-Host "  signed" -ForegroundColor Green
 } else {
     Write-Host ""
@@ -483,13 +674,32 @@ Set-Content -Path "$($msi.FullName).sha256" -Value "$hash  $($msi.Name)" -Encodi
 
 Write-Host ""
 Write-Host "  BUILD OK" -ForegroundColor Green
-Write-Host ("  {0}" -f $msi.FullName)
-Write-Host ("  {0} MB" -f [math]::Round($msi.Length / 1MB, 1))
 Write-Host ("  SHA-256 {0}" -f $hash) -ForegroundColor DarkGray
 Write-Host ""
-Write-Host "  Try it:" -ForegroundColor White
-Write-Host "    msiexec /i `"$($msi.Name)`"                      full wizard"
+
+# Everything that now exists, by name and size.
+#
+# "I click AURION-Setup.exe and nothing happens" turned out to mean the
+# file had never been produced: the wizard was built after the MSI, and
+# the MSI compile had failed. Listing what is actually on disk at the end
+# of a build removes that entire class of confusion - if a name is not in
+# this list, it does not exist.
+Write-Host "  In $outputDir" -ForegroundColor White
+foreach ($item in Get-ChildItem $outputDir -File | Sort-Object Name) {
+    $size = if ($item.Length -ge 1MB) {
+        "{0,8:N1} MB" -f ($item.Length / 1MB)
+    } else {
+        "{0,8:N0} KB" -f ($item.Length / 1KB)
+    }
+    Write-Host ("    {0}  {1}" -f $size, $item.Name)
+}
+
+Write-Host ""
+Write-Host "  Give the customer AURION-Setup.exe and the .msi beside it." -ForegroundColor White
+Write-Host "  Running the .msi directly still works; it just shows Windows' own dialogs."
+Write-Host ""
+Write-Host "  Other ways in:" -ForegroundColor White
 Write-Host "    msiexec /i `"$($msi.Name)`" /qn                  silent install"
 Write-Host "    msiexec /i `"$($msi.Name)`" /l*v install.log     with a verbose log"
-Write-Host "    msiexec /x `"$($msi.Name)`"                      uninstall wizard"
+Write-Host "    msiexec /x `"$($msi.Name)`"                      uninstall"
 Write-Host ""

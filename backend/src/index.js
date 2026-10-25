@@ -67,16 +67,42 @@ try {
 } catch { /* keep going without file tee */ }
 const app = express();
 app.disable("x-powered-by");
+
+// ---------------------------------------------------------------------------
+// Deployment overrides.
+//
+// The desk is a *local* application: by default nothing may frame it and only
+// loopback origins may call it. Running it behind a reverse proxy (a remote
+// VPS, a preview/tunnel host, a container) needs both of those relaxed for
+// exactly the hosts the operator names — never implicitly.
+//
+//   AURION_ALLOWED_ORIGINS  comma-separated extra CORS origins
+//                           ("https://desk.example.com"), or "*" for any.
+//   AURION_FRAME_ANCESTORS  comma-separated hosts allowed to frame the desk,
+//                           or "*" for any. Unset keeps X-Frame-Options: DENY.
+// ---------------------------------------------------------------------------
+const envList = (name) => String(process.env[name] || "")
+  .split(",").map((s) => s.trim()).filter(Boolean);
+
+const extraOrigins = envList("AURION_ALLOWED_ORIGINS");
+const originWildcard = extraOrigins.includes("*");
+const frameAncestors = envList("AURION_FRAME_ANCESTORS");
+
 // Security headers
 app.use((req, res, next) => {
   res.setHeader("X-Content-Type-Options", "nosniff");
-  res.setHeader("X-Frame-Options", "DENY");
+  if (frameAncestors.length === 0) {
+    res.setHeader("X-Frame-Options", "DENY");
+  }
   res.setHeader("X-XSS-Protection", "0");
   res.setHeader("Referrer-Policy", "no-referrer");
   res.setHeader("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
   // CSP for API - very strict
   if (req.path.startsWith("/api/") || req.path.startsWith("/v1/")) {
     res.setHeader("Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'");
+  } else if (frameAncestors.length) {
+    const sources = frameAncestors.includes("*") ? "*" : frameAncestors.join(" ");
+    res.setHeader("Content-Security-Policy", `frame-ancestors ${sources}`);
   }
   if (process.env.NODE_ENV === "production") {
     res.setHeader("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
@@ -88,6 +114,7 @@ app.use(cors({
   origin: (origin, cb) => {
     if (!origin) return cb(null, true); // curl, same-origin
     if (allowedOriginRegex.test(origin)) return cb(null, true);
+    if (originWildcard || extraOrigins.includes(origin)) return cb(null, true);
     // For development, allow file:// is handled as no origin
     return cb(null, false);
   },
@@ -483,7 +510,10 @@ function passthrough(method, enginePath) {
       url = `${enginePath}?${q}`;
     }
     const data = await engine.proxy(method, url, payload);
-    const status = data && data.error === "engine_offline" ? 503 : 200;
+    // 503 means "gone". A request that merely outran its timeout while
+    // the engine kept answering health checks is 504, and the desk reads
+    // the difference rather than painting the engine dead.
+    const status = data && data.error === "engine_offline" ? 503 : data && data.error === "engine_busy" ? 504 : 200;
     res.status(status).json(data);
   };
 }
@@ -780,11 +810,19 @@ guarded.post("/strategies/apply", passthrough("POST", "/v1/strategies/apply"));
 guarded.post("/strategies/toggle", passthrough("POST", "/v1/strategies/toggle"));
 guarded.post("/auto", passthrough("POST", "/v1/auto"));
 guarded.post("/danger", passthrough("POST", "/v1/danger"));
+guarded.post("/risk_free", passthrough("POST", "/v1/risk_free"));
+guarded.post("/money", passthrough("POST", "/v1/money"));
+guarded.post("/timezone", passthrough("POST", "/v1/timezone"));
 guarded.post("/strategies/upload", passthrough("POST", "/v1/strategies/upload"));
 guarded.get("/strategies/source", passthrough("GET", "/v1/strategies/source"));
 guarded.post("/strategies/update", passthrough("POST", "/v1/strategies/update"));
 guarded.post("/strategies/delete", passthrough("POST", "/v1/strategies/delete"));
 guarded.get("/strategies/template", passthrough("GET", "/v1/strategies/template"));
+// The MetaTrader experts: which ones this build ships, which version each
+// attached chart is running, and the source itself so the desk can hand the
+// user the file to compile instead of telling them to go and find it.
+guarded.get("/experts", passthrough("GET", "/v1/experts"));
+guarded.get("/experts/source", passthrough("GET", "/v1/experts/source"));
 guarded.get("/prop", passthrough("GET", "/v1/prop"));
 guarded.post("/prop", passthrough("POST", "/v1/prop"));
 guarded.post("/prop/unlock", passthrough("POST", "/v1/prop/unlock"));
@@ -820,6 +858,7 @@ guarded.get("/host-logs", (req, res) => {
 guarded.post("/history/reset", passthrough("POST", "/v1/history/reset"));
 guarded.post("/backtest", passthrough("POST", "/v1/backtest"));
 guarded.get("/backtest", passthrough("GET", "/v1/backtest"));
+guarded.get("/analysis", passthrough("GET", "/v1/analysis"));
 guarded.get("/config", passthrough("GET", "/v1/config"));
 guarded.post("/config", passthrough("POST", "/v1/config"));
 guarded.get("/telegram", passthrough("GET", "/v1/telegram"));

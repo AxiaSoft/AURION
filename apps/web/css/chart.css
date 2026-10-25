@@ -25,7 +25,10 @@
   display: grid;
   grid-template-rows: var(--tv-bar) 1fr 26px;
   height: calc(100vh - 128px);
-  min-height: 460px;
+  height: calc(100dvh - 128px);
+  /* A floor, but never taller than the screen: on a phone in landscape a
+     flat 460px is more than the viewport and the footer falls off. */
+  min-height: min(460px, calc(100dvh - 128px));
   border: 1px solid var(--line);
   border-radius: var(--radius-lg);
   background: var(--surface-1);
@@ -114,6 +117,16 @@
   position: relative;
   transition: grid-template-columns var(--dur-3, .24s) var(--ease-1);
 }
+/* Closing the dock collapses its column.
+
+   Note the selector weight: this is (0,3,0), and the mobile override
+   below is a bare .tv-body at (0,1,0). A media query adds nothing to
+   specificity, so this rule wins at every width unless something of
+   equal weight says otherwise - which is why the mobile block repeats
+   it. Without that, closing the dock on a phone put .tv-stage into the
+   first column of "var(--tv-rail) 1fr 0", and --tv-rail is 0px there:
+   the chart was given zero width and vanished. Opening the dock brought
+   it straight back, because then this rule did not apply. */
 .tv.no-dock .tv-body { grid-template-columns: var(--tv-rail) 1fr 0 }
 .tv.no-dock .tv-dock { opacity: 0; pointer-events: none }
 
@@ -282,7 +295,75 @@ html[dir="rtl"] .tv-flyout { transform: translateX(6px) }
   pointer-events: none;
 }
 
+/* ------------------------------------------------- selection style bar -- */
+/* Colour and thickness used to live behind a double-click, in a dock most
+   people never opened. Selecting a shape now brings its controls to it. */
+
+.tv-style {
+  position: absolute; inset-block-start: 10px; inset-inline-start: 10px;
+  z-index: 6;
+  display: flex; align-items: center; gap: 4px; flex-wrap: wrap;
+  max-inline-size: calc(100% - 20px);
+  padding: 5px 7px;
+  border: 1px solid var(--line); border-radius: var(--radius-pill, 999px);
+  background: var(--surface-floating);
+  box-shadow: 0 8px 26px rgba(0, 0, 0, .28);
+}
+.tv-style[hidden] { display: none; }
+.tv-style .tvs-kind {
+  padding-inline: 4px 2px;
+  font-size: 11px; color: var(--muted); white-space: nowrap;
+}
+.tv-style .tvs-div {
+  inline-size: 1px; block-size: 16px; margin-inline: 3px;
+  background: var(--line);
+}
+.tv-style .tvs-dot {
+  inline-size: 18px; block-size: 18px; padding: 0;
+  border: 1px solid rgba(255, 255, 255, .22); border-radius: 50%;
+  background: var(--c, #e8c07a);
+  cursor: pointer;
+}
+.tv-style .tvs-dot.on,
+.tv-style .tvs-dot:hover { outline: 2px solid var(--accent, #e8c07a); outline-offset: 2px; }
+.tv-style .tvs-custom {
+  position: relative; overflow: hidden;
+  background: conic-gradient(#ef5350, #ff9f43, #2fbf71, #36a3ff, #7c6cff, #ef5350);
+}
+.tv-style .tvs-custom input {
+  position: absolute; inset: -6px; inline-size: 30px; block-size: 30px;
+  padding: 0; border: 0; background: transparent; opacity: 0; cursor: pointer;
+}
+.tv-style .tvs-w {
+  display: grid; place-items: center;
+  inline-size: 22px; block-size: 22px; padding: 0;
+  border: 1px solid transparent; border-radius: 6px;
+  background: transparent; cursor: pointer;
+}
+.tv-style .tvs-w i {
+  display: block; inline-size: 14px; block-size: var(--h, 1px);
+  border-radius: 2px; background: var(--text, #e6edf3);
+}
+.tv-style .tvs-w.on,
+.tv-style .tvs-w:hover { border-color: var(--line); background: var(--surface-raised, rgba(255, 255, 255, .06)); }
+.tv-style .tvs-btn {
+  display: inline-grid; place-items: center;
+  block-size: 22px; min-inline-size: 22px; padding-inline: 6px;
+  border: 1px solid transparent; border-radius: 6px;
+  background: transparent; color: var(--muted);
+  font-size: 10px; font-family: var(--mono, monospace);
+  cursor: pointer;
+}
+.tv-style .tvs-btn svg { inline-size: 14px; block-size: 14px; }
+.tv-style .tvs-btn:hover { border-color: var(--line); color: var(--text); }
+.tv-style .tvs-btn.on { color: var(--accent, #e8c07a); border-color: var(--line); }
+.tv-style .tvs-btn.danger:hover { color: var(--down, #ef5350); }
+
 /* --------------------------------------------------------------- dock -- */
+
+/* Only ever visible where the dock floats over the chart; see the 980px
+   block below, which is where the dock stops being a column. */
+.tv-scrim { display: none }
 
 .tv-dock {
   display: flex; flex-direction: column;
@@ -460,8 +541,22 @@ html[dir="rtl"] .tv-flyout { transform: translateX(6px) }
 .tvm-search svg { width: 15px; height: 15px; color: var(--faint) }
 .tvm-search .ctrl { height: 28px; font-size: 12px }
 
+/* The chart's own switch, sized from two numbers like the desk's one.
+   It used to be four that disagreed: a 30x17 track, an 11px knob pinned
+   2px from the top - which is one pixel above the middle of a 17px box -
+   and a 13px slide that left it 2px short of the far end. Small enough
+   to pass review and big enough to see. Track height and width are the
+   only numbers now; the knob and its travel are worked out from them, so
+   the knob is centred and lands exactly where the padding says. */
 .tv-switch {
-  width: 30px; height: 17px; flex: none;
+  --tvs-h: 18px;
+  --tvs-w: 32px;
+  --tvs-pad: 3px;
+  --tvs-knob: calc(var(--tvs-h) - var(--tvs-pad) * 2);
+  --tvs-travel: calc(var(--tvs-w) - var(--tvs-h));
+  width: var(--tvs-w); height: var(--tvs-h);
+  min-height: var(--tvs-h); max-height: var(--tvs-h);
+  flex: none; box-sizing: border-box;
   border-radius: 999px;
   background: var(--surface-sunken);
   border: 1px solid var(--line);
@@ -469,14 +564,16 @@ html[dir="rtl"] .tv-flyout { transform: translateX(6px) }
   transition: background var(--dur-1, .12s);
 }
 .tv-switch i {
-  position: absolute; inset-block-start: 2px; inset-inline-start: 2px;
-  width: 11px; height: 11px; border-radius: 50%;
+  position: absolute;
+  inset-block-start: 50%; inset-inline-start: var(--tvs-pad);
+  width: var(--tvs-knob); height: var(--tvs-knob); border-radius: 50%;
   background: var(--muted);
+  transform: translateY(-50%);
   transition: transform var(--dur-2, .18s) var(--ease-1), background var(--dur-1, .12s);
 }
 .tv-switch.on { background: rgb(var(--accent-rgb) / .3); border-color: rgb(var(--accent-rgb) / .5) }
-.tv-switch.on i { transform: translateX(13px); background: var(--accent) }
-html[dir="rtl"] .tv-switch.on i { transform: translateX(-13px) }
+.tv-switch.on i { transform: translate(var(--tvs-travel), -50%); background: var(--accent) }
+html[dir="rtl"] .tv-switch.on i { transform: translate(calc(var(--tvs-travel) * -1), -50%) }
 
 .tvi-active {
   margin: 2px 0 6px; padding: 7px 8px;
@@ -502,16 +599,57 @@ html[dir="rtl"] .tv-switch.on i { transform: translateX(-13px) }
    leaves the chart with everything it needs.
 */
 body.chart-full #nav,
+body.chart-full .top,
 body.chart-full .topbar,
 body.chart-full .nav-scrim { display: none !important }
-body.chart-full #stage { padding: 0 !important; max-width: none !important }
+
+/* Hiding the sidebar is not the same as reclaiming its space.
+   #desk is a two-column grid - "nav stage" - with a fixed first track, so
+   display:none on the rail left a --nav-wide empty strip down the side and
+   the chart rendered into what was left. The header was never hidden at
+   all: the rule named .topbar and the element is .top, so a "fullscreen"
+   chart kept a header above it, was told to be 100vh tall inside the
+   shorter row that header left behind, and overflowed - which is the
+   defect, on desktop and mobile alike. Collapse the grid to a single cell
+   that is the whole viewport, and the chart genuinely has the screen. */
+body.chart-full #desk {
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+  grid-template-areas: "stage";
+  height: 100dvh;
+}
+body.chart-full .stage,
+body.chart-full #stage {
+  padding: 0 !important;
+  max-width: none !important;
+  overflow: hidden !important;
+}
+/* No page scroll behind a chart that owns the viewport - on a phone that
+   is what turns a pan gesture into a rubber-band. */
+body.chart-full { overflow: hidden }
 body.chart-full .tv {
+  /* dvh, not vh. Where the browser refuses requestFullscreen - iOS Safari
+     on iPhone refuses it outright - the app-level class is the whole
+     mechanism, and there 100vh is the viewport with the URL bar retracted:
+     the status footer ends up underneath browser chrome. */
   height: 100vh;
+  height: 100dvh;
+  /* The desktop min-height would otherwise make the chart taller than a
+     phone held sideways, pushing the footer off a screen that cannot
+     scroll. */
+  min-height: 0;
   border: 0; border-radius: 0;
 }
+/* Notches and home indicators belong to the chrome, not the chart. */
+body.chart-full .tv-status { padding-bottom: var(--safe-b, 0px) }
 body.chart-full .view-head, body.chart-full .tapebar { display: none !important }
 html:fullscreen .tv,
-.tv:fullscreen { height: 100vh; border: 0; border-radius: 0; background: var(--bg) }
+.tv:fullscreen {
+  height: 100vh;
+  height: 100dvh;
+  min-height: 0;
+  border: 0; border-radius: 0; background: var(--bg);
+}
 /* The page itself is what goes fullscreen, so it has to carry the page
    colour - a transparent <html> over the browser's black is not the theme. */
 html:fullscreen { background: var(--bg) }
@@ -526,8 +664,14 @@ html:fullscreen body { background: var(--bg) }
 /* Laptop and below: the dock becomes an overlay so the chart keeps its
    width, and the top bar drops the button labels. */
 @media (max-width: 980px) {
-  .tv { --tv-dock: 0px; height: calc(100vh - 116px) }
+  .tv {
+    --tv-dock: 0px;
+    height: calc(100vh - 116px);
+    height: calc(100dvh - 116px);
+    min-height: min(460px, calc(100dvh - 116px));
+  }
   .tv-body { grid-template-columns: var(--tv-rail) 1fr }
+  .tv-scrim { display: block }
   .tv-dock {
     position: absolute; inset-block: 0; inset-inline-end: 0;
     width: min(300px, 82vw);
@@ -539,36 +683,99 @@ html:fullscreen body { background: var(--bg) }
   html[dir="rtl"] .tv-dock { box-shadow: var(--shadow-lg, 12px 0 40px rgb(0 0 0 / .35)) }
   .tv.no-dock .tv-dock { transform: translateX(100%) }
   html[dir="rtl"] .tv.no-dock .tv-dock { transform: translateX(-100%) }
+
+  /* A scrim under the overlay dock.
+     At this width the dock is 82vw, so opening it hides nearly the whole
+     chart - and with nothing to tap, the only way back was to find the
+     one small button that had opened it. Tapping the chart closes it,
+     which is what anybody tries first. */
+  .tv-scrim {
+    position: absolute; inset: 0; z-index: 25;
+    background: rgb(0 0 0 / .45);
+    opacity: 1;
+    transition: opacity var(--dur-2, .18s) var(--ease-1);
+  }
+  .tv.no-dock .tv-scrim { opacity: 0; pointer-events: none }
   .tvb-label { display: none }
   .tv-btn { padding: 0 7px }
 }
 
 /* Tablet: the rail turns into a horizontal strip under the top bar - a
-   vertical rail on a short screen wastes the only dimension that matters. */
+   vertical rail on a short screen wastes the only dimension that matters.
+
+   This was written as though the rail were a child of .tv. It is not: the
+   markup is .tv > (.tv-top, .tv-body, .tv-status) and the rail lives
+   inside .tv-body, beside the stage and the dock. Everything below
+   followed from that mistake.
+
+   .tv was given a fourth row for the rail and .tv-body was pinned to row
+   3. With only three children, auto-placement then put the status bar in
+   row 2 - between the top bar and the chart - and left row 4 empty. The
+   rail, meanwhile, got grid-row: 2 inside .tv-body, where row 2 does not
+   exist, so its containing block collapsed and the absolute offset of
+   var(--tv-bar) pushed it out of the clipped area entirely. On a phone
+   there were no drawing tools at all, and the chart had a stray bar
+   above it.
+
+   Three rows, like every other width. The rail is positioned against
+   .tv-body, which is what actually contains it. */
 @media (max-width: 720px) {
-  .tv { --tv-rail: 0px; height: calc(100vh - 104px); grid-template-rows: var(--tv-bar) auto 1fr 26px }
-  .tv-body { grid-template-columns: 1fr; grid-row: 3 }
+  .tv {
+    --tv-rail: 0px;
+    height: calc(100vh - 104px);
+    height: calc(100dvh - 104px);
+    min-height: min(420px, calc(100dvh - 104px));
+  }
+  body.chart-full .tv { height: 100dvh }
+  /* Both selectors, at matching weight. The rail, the scrim and the dock
+     are all out of flow at this width, so .tv-stage is the only grid
+     item and it needs the one column whether the dock is open or not. */
+  .tv-body,
+  .tv.no-dock .tv-body { grid-template-columns: 1fr }
   .tv-rail {
-    grid-row: 2;
     flex-direction: row;
+    align-items: center;
     width: 100%;
+    height: 44px;
     padding: 4px 6px;
     border-inline-end: 0;
     border-bottom: 1px solid var(--line);
     overflow-x: auto;
-    position: absolute; inset-block-start: var(--tv-bar); inset-inline: 0;
+    overflow-y: hidden;
+    position: absolute; inset-block-start: 0; inset-inline: 0;
+    background: var(--surface-2);
     z-index: 20;
   }
-  .tv-stage { padding-top: 44px }
+  /* Span whatever columns exist, however many that turns out to be.
+
+     The rule above fixes the cause - a heavier .tv.no-dock selector
+     redefining the columns - but it only works by out-weighing it, and
+     that is a contest this file has now lost twice. grid-column has no
+     competing declaration anywhere, so the stage occupies the full
+     track list even if something later defines three columns again, or
+     five. At this width the rail, the scrim and the dock are all out of
+     flow and the stage is the only grid item, so spanning everything is
+     also simply what it should do. */
+  .tv-stage { padding-top: 44px; grid-column: 1 / -1; grid-row: 1 }
   .tvr-sep { width: 1px; height: 22px; margin: 0 4px }
-  .tv-flyout { inset-inline-start: 8px; inset-block-start: calc(var(--tv-bar) + 46px) !important }
+  /* Just under the rail, which is 44px tall and starts at the top of
+     .tv-body. The old value was calc(var(--tv-bar) + 46px) - 92px - and
+     came from the same mistake as everything else here: it measured from
+     the top of .tv, as though .tv-body were not already below the top
+     bar. The tool menu opened 44px adrift of the button that opened it. */
+  .tv-flyout { inset-inline-start: 8px; inset-block-start: 48px !important }
   .tv-nav { inset-inline-end: 72px }
   .tv-sym b { font-size: 13px }
   .tv-seg { display: none }
 }
 
 @media (max-width: 520px) {
-  .tv { height: calc(100vh - 92px) }
+  .tv {
+    height: calc(100vh - 92px);
+    height: calc(100dvh - 92px);
+    min-height: min(380px, calc(100dvh - 92px));
+  }
+  body.chart-full .tv { height: 100dvh }
   .tv-status #tv-status-hint { display: none }
   .tv-round { width: 32px; height: 32px }
   .tvr-btn { width: 40px; height: 38px }
@@ -577,6 +784,7 @@ html:fullscreen body { background: var(--bg) }
 /* Touch: make every target reachable with a thumb without changing the
    desktop density. */
 @media (pointer: coarse) {
+  .tv-switch { --tvs-h: 22px; --tvs-w: 40px; --tvs-pad: 4px }
   .tvr-btn { width: 42px; height: 40px }
   .tvf-row, .tvm-row { padding: 10px 9px }
   .tv-nav { opacity: 1; transform: none }

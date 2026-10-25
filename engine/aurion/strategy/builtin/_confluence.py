@@ -57,6 +57,33 @@ def trend_bias(frame: pd.DataFrame, fast: int = 50, slow: int = 200) -> tuple[st
     return "neutral", strength
 
 
+def htf_bias(frame: pd.DataFrame, factor: int = 4, fast: int = 20, slow: int = 50) -> tuple[str, float]:
+    """The trend one timeframe up: ("bull"|"bear"|"neutral", 0..1).
+
+    Every built-in used to answer "which way" using the chart it trades on,
+    and on the chart it trades on a pullback looks exactly like a reversal.
+    That is the mechanism behind the complaint that the robot sells rallies
+    and buys dips in a falling market: the entry chart is not a long enough
+    lever to tell a correction from a turn.
+
+    Aggregating the same bars up by ``factor`` and reading the slow trend
+    there costs nothing — no extra data, no second subscription — and it is
+    the one filter that a counter-trend entry cannot pass.
+    """
+    from ._structure import resample          # local: _structure is heavier
+
+    factor = max(1, int(factor or 1))
+    if factor == 1:
+        return trend_bias(frame, fast, slow)
+    if len(frame) < (fast + 5) * factor:
+        # Not enough history up there to have an opinion. Saying "neutral"
+        # rather than guessing keeps this filter from blocking everything
+        # on a freshly attached chart.
+        return "neutral", 0.0
+    higher = resample(frame, factor)
+    return trend_bias(higher, fast, slow)
+
+
 def macd_bias(frame: pd.DataFrame) -> str:
     """Momentum read that does not flicker every single bar.
 
@@ -188,6 +215,20 @@ def entry_allowed(
             return False, f"slow trend is {bias}"
         if bias == want:
             notes.append("with trend")
+    if params.get("require_htf", False):
+        # Direction belongs to the higher timeframe. The entry chart may
+        # disagree all it likes about timing; it does not get a vote on
+        # which way the trade goes.
+        bias, strength = htf_bias(
+            frame,
+            int(params.get("htf_factor", 4) or 4),
+            int(params.get("htf_fast", 20) or 20),
+            int(params.get("htf_slow", 50) or 50),
+        )
+        if bias != "neutral" and bias != want and strength >= float(params.get("htf_block", 0.15) or 0.0):
+            return False, f"higher timeframe is {bias}"
+        if bias == want:
+            notes.append("higher timeframe agrees")
     if params.get("require_momentum", True):
         mom = macd_bias(frame)
         if mom != "neutral" and mom != want:

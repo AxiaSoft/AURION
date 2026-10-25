@@ -1,8 +1,14 @@
 const fs = require("fs");
 const path = require("path");
-const { CONFIG, DATA } = require("./paths");
+const { CONFIG, DATA, ROOT } = require("./paths");
 
-const FACTORY = path.join(path.dirname(CONFIG), "aurion.factory.json");
+// The factory defaults always ship with the source tree, even when the live
+// config has been relocated with AURION_CONFIG_DIR.
+const FACTORY_CANDIDATES = [
+  path.join(path.dirname(CONFIG), "aurion.factory.json"),
+  path.join(ROOT, "config", "aurion.factory.json"),
+];
+const FACTORY = FACTORY_CANDIDATES.find((p) => fs.existsSync(p)) || FACTORY_CANDIDATES[0];
 
 function ensureConfig() {
   // First-run bootstrap. The MSI deliberately does NOT ship config/aurion.json

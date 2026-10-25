@@ -27,7 +27,33 @@ internal sealed class SplashPanel : Panel
     private static readonly Color Cyan = Color.FromArgb(0x3E, 0xE0, 0xC4);
     private static readonly Color Violet = Color.FromArgb(0x7C, 0x6C, 0xFF);
 
-    private readonly System.Windows.Forms.Timer _ticker = new() { Interval = 16 };
+    // 30 frames a second, not 62.
+    //
+    // The sweep is a band gliding along a four pixel bar. Nobody has ever
+    // been able to tell those two rates apart on that, and the difference
+    // is half the painting.
+    private readonly System.Windows.Forms.Timer _ticker = new() { Interval = 33 };
+
+    // Built once each, not once per frame.
+    //
+    // Creating a Font goes through the font engine, and MeasureString is
+    // the most expensive text call GDI+ has. This panel did three of each,
+    // plus a full-window gradient, two radial glows and several brushes,
+    // sixty-two times a second. On a developer's machine that is invisible.
+    // On a bare VM with no graphics acceleration it saturates the core the
+    // message loop runs on, and Windows greys the window out and writes
+    // "not responding" across the title bar - while the thing it is waiting
+    // for is working perfectly well on a background thread.
+    private readonly Font _titleFont = new("Segoe UI", 22f, FontStyle.Regular, GraphicsUnit.Point);
+    private readonly Font _subFont = new("Segoe UI", 9f, FontStyle.Regular, GraphicsUnit.Point);
+    private readonly Font _statusFont = new("Segoe UI", 8.5f, FontStyle.Regular, GraphicsUnit.Point);
+    private readonly SolidBrush _inkBrush = new(Ink);
+    private readonly SolidBrush _mutedBrush = new(Muted);
+    private readonly SolidBrush _trackBrush = new(Color.FromArgb(38, 255, 255, 255));
+
+    // Everything that does not move: the wash, the glows, the mark and the
+    // two lines of wordmark. Redrawn only when the panel changes size.
+    private Bitmap? _backdrop;
     private readonly Image? _mark;
     private float _sweep;          // 0..1, position of the indeterminate band
     private float _shown;          // eased value actually painted
@@ -49,7 +75,10 @@ internal sealed class SplashPanel : Panel
                 // Ease towards the target so a jump from 0.2 to 0.9 glides.
                 _shown += (_target - _shown) * 0.12f;
             }
-            Invalidate();
+            // Only the strip holding the bar and the status line. Painting
+            // the whole panel to animate four pixels of progress is what
+            // made this expensive in the first place.
+            Invalidate(AnimatedStrip());
         };
         _ticker.Start();
     }
@@ -68,39 +97,81 @@ internal sealed class SplashPanel : Panel
         set { _target = value; if (value >= 0f && _shown <= 0f) _shown = 0.02f; Invalidate(); }
     }
 
+    /// <summary>The band of the panel the animation actually touches.</summary>
+    private Rectangle AnimatedStrip()
+    {
+        var centreY = Height / 2;
+        return new Rectangle(0, centreY + 38, Width, 64);
+    }
+
+    protected override void OnResize(EventArgs e)
+    {
+        // The backdrop is sized to the panel, so it cannot outlive a resize.
+        _backdrop?.Dispose();
+        _backdrop = null;
+        base.OnResize(e);
+        Invalidate();
+    }
+
+    protected override void OnVisibleChanged(EventArgs e)
+    {
+        // No reason to paint a panel nobody is looking at. The desk window
+        // keeps this alive behind the WebView for the whole session.
+        if (Visible) _ticker.Start(); else _ticker.Stop();
+        base.OnVisibleChanged(e);
+    }
+
     protected override void Dispose(bool disposing)
     {
-        if (disposing) _ticker.Dispose();
+        if (disposing)
+        {
+            _ticker.Dispose();
+            _backdrop?.Dispose();
+            _titleFont.Dispose();
+            _subFont.Dispose();
+            _statusFont.Dispose();
+            _inkBrush.Dispose();
+            _mutedBrush.Dispose();
+            _trackBrush.Dispose();
+        }
         base.Dispose(disposing);
     }
 
-    protected override void OnPaint(PaintEventArgs e)
+    /// <summary>
+    /// Draw the parts that never change, once, into a bitmap.
+    ///
+    /// The wash is a gradient the size of the window and the glows are two
+    /// radial gradients a third of it across. None of them move. Redrawing
+    /// them every frame to animate a progress bar was most of the cost of
+    /// this panel.
+    /// </summary>
+    private Bitmap BuildBackdrop(int w, int h)
     {
-        var g = e.Graphics;
+        var bmp = new Bitmap(w, h);
+        using var g = Graphics.FromImage(bmp);
         g.SmoothingMode = SmoothingMode.AntiAlias;
         g.TextRenderingHint = TextRenderingHint.ClearTypeGridFit;
         g.InterpolationMode = InterpolationMode.HighQualityBicubic;
 
-        var w = Width;
-        var h = Height;
-        if (w <= 0 || h <= 0) return;
-
-        // Backdrop: the brand wash, then two soft lights, matching the desk's
-        // own sign-in screen closely enough that the handover is unnoticeable.
-        using (var wash = new LinearGradientBrush(new Rectangle(0, 0, w, h), Lift, Base, 90f))
-            g.FillRectangle(wash, 0, 0, w, h);
-        DrawGlow(g, new PointF(w * 0.22f, h * 0.18f), w * 0.42f, Violet, 0.16f);
-        DrawGlow(g, new PointF(w * 0.82f, h * 0.30f), w * 0.34f, Cyan, 0.12f);
+        // The same backdrop the setup wizard and the uninstaller are
+        // painted on. Four lights rather than two, a vignette, and a
+        // sparse dither that stops the gradients banding into visible
+        // arcs on an 8-bit display.
+        Aurion.Shell.Aurora.Paint(g, w, h);
 
         var centreY = h / 2f;
 
-        // Mark. The .ico carries an opaque brand-black tile, which would read as
-        // a hard square floating on the wash, so it is clipped to a rounded
+        // Mark. The .ico carries an opaque brand-black tile, which would read
+        // as a hard square floating on the wash, so it is clipped to a rounded
         // rectangle - the same corner treatment the desk gives its own logo.
         if (_mark is not null)
         {
             float size = Math.Min(96, Math.Max(56, h / 6));
-            var box = new RectangleF((w - size) / 2f, centreY - size - 52, size, size);
+            var box = new RectangleF((w - size) / 2f, centreY - size - 58, size, size);
+
+            // A halo, so the mark sits in the light rather than on it.
+            Aurion.Shell.Aurora.Halo(g, box.X + size / 2f, box.Y + size / 2f, size * 0.62f);
+
             using var clip = RoundedRect(box, size * 0.26f);
             var saved = g.Save();
             g.SetClip(clip);
@@ -108,22 +179,59 @@ internal sealed class SplashPanel : Panel
             g.Restore(saved);
         }
 
-        // Wordmark
-        using (var title = new Font("Segoe UI", 22f, FontStyle.Regular, GraphicsUnit.Point))
-        using (var ink = new SolidBrush(Ink))
-        {
-            var text = "AURION";
-            var size = g.MeasureString(text, title);
-            g.DrawString(text, title, ink, (w - size.Width) / 2f, centreY - 34);
-        }
+        // Letter-spaced by hand, one glyph at a time.
+        //
+        // GDI+ has no tracking. A six-letter wordmark set solid at 22pt
+        // reads as a word; the same letters opened up read as a mark,
+        // which is what this is. It is drawn once into the bitmap, so
+        // the per-glyph cost never appears again.
+        DrawTracked(g, "AURION", _titleFont, _inkBrush, w, centreY - 38, 7f);
 
-        using (var sub = new Font("Segoe UI", 9f, FontStyle.Regular, GraphicsUnit.Point))
-        using (var muted = new SolidBrush(Muted))
+        var subText = "Live execution for MetaTrader 5";
+        var subSize = g.MeasureString(subText, _subFont);
+        g.DrawString(subText, _subFont, _mutedBrush, (w - subSize.Width) / 2f, centreY + 6);
+
+        return bmp;
+    }
+
+    /// <summary>Draw a centred string with extra space between letters.</summary>
+    private static void DrawTracked(Graphics g, string text, Font font, Brush brush,
+        int width, float y, float tracking)
+    {
+        var widths = new float[text.Length];
+        var total = 0f;
+        for (var i = 0; i < text.Length; i++)
         {
-            var text = "Live execution for MetaTrader 5";
-            var size = g.MeasureString(text, sub);
-            g.DrawString(text, sub, muted, (w - size.Width) / 2f, centreY + 4);
+            // MeasureString pads; MeasureCharacterRanges is exact, but for
+            // a six-letter wordmark the padding is consistent enough and
+            // far cheaper to reason about.
+            widths[i] = g.MeasureString(text[i].ToString(), font).Width - font.Size * 0.42f;
+            total += widths[i] + tracking;
         }
+        total -= tracking;
+
+        var x = (width - total) / 2f;
+        for (var i = 0; i < text.Length; i++)
+        {
+            g.DrawString(text[i].ToString(), font, brush, x - font.Size * 0.21f, y);
+            x += widths[i] + tracking;
+        }
+    }
+
+    protected override void OnPaint(PaintEventArgs e)
+    {
+        var g = e.Graphics;
+        var w = Width;
+        var h = Height;
+        if (w <= 0 || h <= 0) return;
+
+        _backdrop ??= BuildBackdrop(w, h);
+        g.DrawImageUnscaled(_backdrop, 0, 0);
+
+        g.SmoothingMode = SmoothingMode.AntiAlias;
+        g.TextRenderingHint = TextRenderingHint.ClearTypeGridFit;
+
+        var centreY = h / 2f;
 
         // Progress track
         var barW = Math.Min(360, w - 96);
@@ -131,8 +239,7 @@ internal sealed class SplashPanel : Panel
         var barY = centreY + 46;
         const float barH = 4f;
 
-        using (var track = new SolidBrush(Color.FromArgb(38, 255, 255, 255)))
-            FillPill(g, track, barX, barY, barW, barH);
+        FillPill(g, _trackBrush, barX, barY, barW, barH);
 
         using (var fill = new LinearGradientBrush(
                    new RectangleF(barX, barY, barW, barH), Cyan, Violet, 0f))
@@ -159,10 +266,8 @@ internal sealed class SplashPanel : Panel
         // Status line
         if (_status.Length > 0)
         {
-            using var font = new Font("Segoe UI", 8.5f, FontStyle.Regular, GraphicsUnit.Point);
-            using var brush = new SolidBrush(Muted);
-            var size = g.MeasureString(_status, font);
-            g.DrawString(_status, font, brush, (w - size.Width) / 2f, barY + 18);
+            var size = g.MeasureString(_status, _statusFont);
+            g.DrawString(_status, _statusFont, _mutedBrush, (w - size.Width) / 2f, barY + 18);
         }
     }
 

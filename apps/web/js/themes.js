@@ -38,6 +38,16 @@
 
   var LS_SKIN = "aurion.theme.skin";
   var LS_CUSTOM = "aurion.theme.custom";
+  /* Per-theme edits, keyed by theme id: {"neu":{"blur":12,"bg":"waves"}, ...}.
+     The builder used to write to one slot that only the "custom" theme read,
+     so picking Neumorphism and moving a slider appeared to do nothing. Every
+     theme is now editable and keeps its own edits, and the originals are
+     never overwritten - they are the table above, so "reset" is exact. */
+  var LS_EDITS = "aurion.theme.edits";
+  /* A background picture the trader chose, as a data URL. Local to this
+     machine; it is never sent anywhere. */
+  var LS_BGIMG = "aurion.theme.bgimage";
+  var LS_BGDIM = "aurion.theme.bgdim";
   var LS_PAID = "aurion.theme.paid";
   var DEFAULT_SKIN = "glass";
 
@@ -145,7 +155,40 @@
 
   /* The morphism families a theme can belong to. Kept as a list so the UI can
      describe a theme without knowing the CSS. */
-  var BACKDROPS = ["soft", "blobs", "aurora", "grid", "waves", "dusk", "layered", "flat", "none"];
+  var BACKDROPS = ["soft", "blobs", "aurora", "grid", "waves", "dusk", "layered", "flat", "none", "photo"];
+
+  /* ---------------------------------------------------------- wallpapers --
+   *
+   * AURION ships twenty photographs in assets/bg - a dark and a light cut of
+   * ten scenes. Until now each one was nailed to the theme of the same name
+   * in css/themes.css: the only way to see the ocean photograph was to use
+   * the Ocean theme, and a trader who liked that picture on Midnight had no
+   * way to say so.
+   *
+   * They are a library now. Any theme can wear any of them, the choice is
+   * remembered per theme (so Midnight and Ocean can each keep their own),
+   * and the dark or light cut is chosen from the mode in force rather than
+   * picked by hand - a dark photograph under a light desk is nobody's
+   * intention, and asking the trader to re-choose on every mode switch
+   * would be busywork.
+   *
+   * The names are the file stems in assets/bg. Adding one is a line here and
+   * two files on disk. */
+  var WALLPAPERS = [
+    "aurora", "clay", "cyber", "frost", "midnight",
+    "minimal", "mono", "neu", "ocean", "sunset"
+  ];
+
+  /* "" means the theme keeps whatever css/themes.css gives it; "none" means
+     the trader asked for no photograph at all, which is not the same thing
+     and has to survive a reload. */
+  function wallUrl(name, light) {
+    if (!name || name === "none" || WALLPAPERS.indexOf(name) === -1) return "";
+    /* Relative to the DOCUMENT, not to css/themes.css: this lands in a
+       <style> element in index.html, so "../assets" would resolve one
+       directory too high and silently load nothing. */
+    return "assets/bg/" + name + "-" + (light ? "light" : "dark") + ".jpg";
+  }
 
   /* ------------------------------------------------------------------ util */
 
@@ -258,7 +301,277 @@
     }
     if (typeof parsed.accent === "string") out.accent = parsed.accent;
     if (BACKDROPS.indexOf(parsed.bg) !== -1) out.bg = parsed.bg;
+    /* getCustom rebuilds from a whitelist rather than returning what was
+       stored, so anything not named here is silently dropped on the way
+       out - which is how the wallpaper was saved correctly and then read
+       back as "none chosen". */
+    if (parsed.wall === "none" || WALLPAPERS.indexOf(parsed.wall) !== -1) out.wall = parsed.wall;
     return out;
+  }
+
+  /* -------------------------------------------------------------------------
+     Colour and font overrides.
+
+     The builder used to move only the seven material numbers, so a trader
+     could make Neumorphism flatter but not change a single colour: the page,
+     the panels, the text and the typeface all came from the theme and could
+     not be touched. These five let the whole interface be recoloured without
+     leaving the theme.
+
+     Everything is derived from three choices rather than asking for fifteen
+     hex codes. A surface is never one colour - the desk stacks nine shades
+     so a card reads as sitting above the page - so the chosen panel colour
+     becomes the bottom of that ladder and the rest is mixed towards white
+     keeping the separation the design relies on. Picking nine shades by hand
+     is how a theme ends up flat and unreadable.
+     ------------------------------------------------------------------------- */
+  var FONTS = {
+    theme:  "",                                        /* whatever the page already asks for */
+    outfit: "Outfit,Vazirmatn,system-ui,sans-serif",
+    vazir:  "Vazirmatn,Outfit,system-ui,sans-serif",
+    mono:   "\"IBM Plex Mono\",Vazirmatn,ui-monospace,monospace",
+    system: "system-ui,-apple-system,Segoe UI,sans-serif",
+  };
+
+  var COLOR_KEYS = ["page", "panel", "ink"];
+
+  /* Effects over the backdrop.
+
+     These apply to every background, not just to a picture the trader
+     supplied: the built-in backdrops are drawn by the desk, and a trader who
+     likes the aurora but finds it loud should be able to calm it without
+     having to abandon it. Expressed as a filter so one declaration covers
+     all ten backdrops instead of ten hand-written variants. */
+  var FX = {
+    none:   "",
+    blur:   "blur(26px)",
+    dim:    "brightness(.55)",
+    bright: "brightness(1.35)",
+    grey:   "saturate(0)",
+    warm:   "sepia(.45) saturate(1.3) hue-rotate(-14deg)",
+    cool:   "saturate(1.15) hue-rotate(150deg)",
+  };
+
+  function hexToRgb(hex) {
+    var h = String(hex || "").trim().replace(/^#/, "");
+    if (h.length === 3) h = h[0] + h[0] + h[1] + h[1] + h[2] + h[2];
+    if (!/^[0-9a-fA-F]{6}$/.test(h)) return null;
+    return [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)];
+  }
+
+  function rgbToHex(c) {
+    return "#" + c.map(function (n) {
+      var v = Math.max(0, Math.min(255, Math.round(n))).toString(16);
+      return v.length === 1 ? "0" + v : v;
+    }).join("");
+  }
+
+  function mix(a, b, t) {
+    return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
+  }
+
+  /* Perceived brightness, not the plain average: the eye reads green as far
+     brighter than blue, and a navy panel would otherwise be called light. */
+  function luma(c) { return (0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]) / 255; }
+
+  /** Turn the three chosen colours into the variables the desk actually uses. */
+  function colourCss(colours) {
+    var out = "";
+    var panel = hexToRgb(colours.panel);
+    var page = hexToRgb(colours.page);
+    var ink = hexToRgb(colours.ink);
+
+    if (page) {
+      var pageLight = luma(page) > 0.5;
+      out += "--bg:" + rgbToHex(page) + ";";
+      out += "--bg2:" + rgbToHex(mix(page, pageLight ? [0, 0, 0] : [255, 255, 255], 0.05)) + ";";
+      out += "--deep:" + rgbToHex(mix(page, [0, 0, 0], 0.25)) + ";";
+    }
+
+    if (panel) {
+      var light = luma(panel) > 0.5;
+      var towards = light ? [0, 0, 0] : [255, 255, 255];
+      for (var i = 1; i <= 9; i++) {
+        var t = ((i - 1) / 8) * 0.075;
+        var shade = mix(panel, towards, t);
+        out += "--s" + i + ":" + shade.map(function (n) { return Math.round(n); }).join(" ") + ";";
+      }
+      /* Hairlines and hovers are drawn as a translucent wash over the panel.
+         On a light panel a white wash is invisible, so the wash flips. */
+      out += "--wash:" + (light ? "0 0 0" : "255 255 255") + ";";
+      out += "--field:" + rgbToHex(mix(panel, towards, 0.055)) + ";";
+      out += "--field2:" + rgbToHex(mix(panel, towards, 0.035)) + ";";
+      out += "--field-hi:" + rgbToHex(mix(panel, towards, 0.085)) + ";";
+      out += "--chart-panel:" + rgbToHex(mix(panel, towards, 0.02)) + ";";
+    }
+
+    if (ink) {
+      var base = panel || page || [0, 0, 0];
+      out += "--ink:" + rgbToHex(ink) + ";";
+      /* Secondary text is the same colour faded into the surface behind it,
+         which keeps the hue of the chosen text instead of greying it out. */
+      out += "--muted:" + rgbToHex(mix(ink, base, 0.42)) + ";";
+      out += "--faint:" + rgbToHex(mix(ink, base, 0.62)) + ";";
+      out += "--chart-text:" + rgbToHex(ink) + ";";
+      out += "--chart-muted:" + rgbToHex(mix(ink, base, 0.42)) + ";";
+    }
+
+    if (colours.font && FONTS[colours.font]) out += "--font:" + FONTS[colours.font] + ";";
+    return out;
+  }
+
+  /** The backdrop effect chosen for a theme, or "none". */
+  function activeFx(id) {
+    var edit = readEdits()[id];
+    return edit && FX[edit.fx] !== undefined && edit.fx ? edit.fx : "none";
+  }
+
+  /* The photograph a theme ships with, independent of any choice laid over
+     it. css/themes.css names each file after its skin, so the mapping is the
+     id itself - except Glass and Custom, which ship with none. */
+  function themeOwnWall(id) {
+    return WALLPAPERS.indexOf(id) === -1 ? "" : id;
+  }
+
+  /** Which wallpaper this theme has been given: "" = the theme's own. */
+  function activeWall(id) {
+    var edit = (id === "custom" ? getCustom() : readEdits()[id]) || {};
+    var w = edit.wall;
+    if (w === "none") return "none";
+    return WALLPAPERS.indexOf(w) === -1 ? "" : w;
+  }
+
+  /** The colour and font overrides in force for a theme, if any. */
+  function themeColours(id) {
+    var edit = readEdits()[id];
+    var out = {};
+    if (!edit) return out;
+    for (var i = 0; i < COLOR_KEYS.length; i++) {
+      var k = COLOR_KEYS[i];
+      if (hexToRgb(edit[k])) out[k] = edit[k];
+    }
+    if (edit.font && FONTS[edit.font]) out.font = edit.font;
+    if (edit.fx && FX[edit.fx]) out.fx = edit.fx;
+    return out;
+  }
+
+  /* ------------------------------------------------------- per-theme edits */
+
+  function readEdits() {
+    var raw = read(LS_EDITS, "");
+    if (!raw) return {};
+    try {
+      var parsed = JSON.parse(raw);
+      return parsed && typeof parsed === "object" ? parsed : {};
+    } catch (e) { return {}; }
+  }
+
+  /** The theme's own numbers with this trader's edits laid over the top. */
+  function themeKnobs(id) {
+    var t = BY_ID[id] || BY_ID[DEFAULT_SKIN];
+    var out = {};
+    for (var k in BASE_KNOBS) {
+      if (!Object.prototype.hasOwnProperty.call(BASE_KNOBS, k)) continue;
+      out[k] = t.knobs[k] === undefined ? BASE_KNOBS[k] : t.knobs[k];
+    }
+    out.bg = t.bg;
+    out.accent = t.accent;
+
+    var edit = readEdits()[id];
+    if (edit && typeof edit === "object") {
+      for (var key in LIMITS) {
+        if (!Object.prototype.hasOwnProperty.call(LIMITS, key)) continue;
+        if (edit[key] === undefined || edit[key] === null) continue;
+        out[key] = clamp(edit[key], LIMITS[key][0], LIMITS[key][1]);
+      }
+      if (typeof edit.accent === "string") out.accent = edit.accent;
+      if (BACKDROPS.indexOf(edit.bg) !== -1) out.bg = edit.bg;
+      for (var ci = 0; ci < COLOR_KEYS.length; ci++) {
+        if (hexToRgb(edit[COLOR_KEYS[ci]])) out[COLOR_KEYS[ci]] = edit[COLOR_KEYS[ci]];
+      }
+      if (edit.font && FONTS[edit.font]) out.font = edit.font;
+      if (edit.fx && FX[edit.fx]) out.fx = edit.fx;
+      if (edit.wall === "none" || WALLPAPERS.indexOf(edit.wall) !== -1) out.wall = edit.wall;
+    }
+    return out;
+  }
+
+  /** Has this theme been changed from how it shipped? */
+  function isEdited(id) {
+    var edit = readEdits()[id];
+    if (!edit) return false;
+    for (var k in edit) {
+      if (Object.prototype.hasOwnProperty.call(edit, k)) return true;
+    }
+    return false;
+  }
+
+  /** Edit the theme currently in use - built-in ones included. */
+  function editTheme(patch, opts) {
+    var id = effectiveTheme();
+    if (id === "custom") return setCustom(patch, opts);
+
+    var all = readEdits();
+    var next = all[id] && typeof all[id] === "object" ? all[id] : {};
+    for (var key in patch) {
+      if (!Object.prototype.hasOwnProperty.call(patch, key)) continue;
+      if (LIMITS[key]) next[key] = clamp(patch[key], LIMITS[key][0], LIMITS[key][1]);
+      else if (key === "accent" && typeof patch[key] === "string") next.accent = patch[key];
+      else if (key === "bg" && BACKDROPS.indexOf(patch[key]) !== -1) next.bg = patch[key];
+      else if (COLOR_KEYS.indexOf(key) !== -1) {
+        // An empty value means "back to the theme's own colour", which is
+        // how the clear button works without a second code path.
+        if (!patch[key]) delete next[key];
+        else if (hexToRgb(patch[key])) next[key] = rgbToHex(hexToRgb(patch[key]));
+      } else if (key === "fx") {
+        if (!patch[key] || patch[key] === "none") delete next.fx;
+        else if (FX[patch[key]]) next.fx = patch[key];
+      } else if (key === "font") {
+        if (!patch[key] || patch[key] === "theme") delete next.font;
+        else if (FONTS[patch[key]]) next.font = patch[key];
+      } else if (key === "wall") {
+        /* "" clears the choice and hands the theme back to its own
+           photograph; "none" is the trader actively asking for none. */
+        if (!patch[key]) delete next.wall;
+        else if (patch[key] === "none" || WALLPAPERS.indexOf(patch[key]) !== -1) next.wall = patch[key];
+      }
+    }
+    all[id] = next;
+    write(LS_EDITS, JSON.stringify(all));
+    if (!(opts && opts.silent)) apply();
+    if (next.accent) applyAccent(next.accent);
+    return themeKnobs(id);
+  }
+
+  /** Put the theme in use back to how it shipped. */
+  function resetTheme() {
+    var id = effectiveTheme();
+    if (id === "custom") return resetCustom();
+    var all = readEdits();
+    delete all[id];
+    write(LS_EDITS, JSON.stringify(all));
+    apply();
+    applyAccent(BY_ID[id].accent);
+    return themeKnobs(id);
+  }
+
+  /* ---------------------------------------------- the trader's own picture */
+
+  function getBgImage() { return read(LS_BGIMG, "") || ""; }
+
+  function setBgImage(dataUrl) {
+    if (!dataUrl) write(LS_BGIMG, null);
+    else write(LS_BGIMG, String(dataUrl));
+    apply();
+    return getBgImage();
+  }
+
+  function getBgDim() { return clamp(read(LS_BGDIM, 45), 0, 90); }
+
+  function setBgDim(value) {
+    write(LS_BGDIM, String(clamp(value, 0, 90)));
+    apply();
+    return getBgDim();
   }
 
   function setCustom(patch, opts) {
@@ -268,6 +581,10 @@
       if (LIMITS[key]) next[key] = clamp(patch[key], LIMITS[key][0], LIMITS[key][1]);
       else if (key === "accent" && typeof patch[key] === "string") next.accent = patch[key];
       else if (key === "bg" && BACKDROPS.indexOf(patch[key]) !== -1) next.bg = patch[key];
+      else if (key === "wall") {
+        if (!patch[key]) delete next.wall;
+        else if (patch[key] === "none" || WALLPAPERS.indexOf(patch[key]) !== -1) next.wall = patch[key];
+      }
     }
     write(LS_CUSTOM, JSON.stringify(next));
     if (!(opts && opts.silent)) apply();
@@ -282,19 +599,11 @@
     return getCustom();
   }
 
-  /** The knobs actually in force right now, theme defaults or custom. */
+  /** The knobs actually in force right now: the theme, plus any edits. */
   function activeKnobs() {
     var id = effectiveTheme();
     if (id === "custom") return getCustom();
-    var t = BY_ID[id] || BY_ID[DEFAULT_SKIN];
-    var out = {};
-    for (var k in BASE_KNOBS) {
-      if (!Object.prototype.hasOwnProperty.call(BASE_KNOBS, k)) continue;
-      out[k] = t.knobs[k] === undefined ? BASE_KNOBS[k] : t.knobs[k];
-    }
-    out.bg = t.bg;
-    out.accent = t.accent;
-    return out;
+    return themeKnobs(id);
   }
 
   function applyAccent(accentId) {
@@ -337,6 +646,18 @@
     } catch (e) { /* the theme's palette still applies without its knobs */ }
   }
 
+  /** The CSS for a theme's chosen wallpaper, or "" to leave it alone. */
+  function wallCss(id) {
+    var choice = activeWall(id);
+    if (!choice) return "";
+    if (choice === "none") return "html[data-skin][data-theme]{--theme-bg:none}";
+    var el = root();
+    var light = Boolean(el && el.dataset && el.dataset.theme === "light");
+    var url = wallUrl(choice, light);
+    if (!url) return "";
+    return "html[data-skin][data-theme]{--theme-bg:url(\"" + url.replace(/"/g, "%22") + "\")}";
+  }
+
   /** Write the active theme onto <html>. */
   function apply() {
     var el = root();
@@ -345,7 +666,12 @@
     var k = activeKnobs();
 
     el.dataset.skin = id;
-    el.dataset.bg = k.bg || "soft";
+    /* "photo" is the trader's own picture. If they picked it and then removed
+       the file we fall back rather than leave an empty page. */
+    var bg = k.bg || "soft";
+    var picture = getBgImage();
+    if (bg === "photo" && !picture) bg = "soft";
+    el.dataset.bg = bg;
     /* Premium gates the accent row too, so while it is locked the theme's own
        accent is pinned - the desk still looks designed, it just looks the one
        way this theme was designed to look. */
@@ -365,7 +691,32 @@
       "--blur:" + clamp(k.blur, 0, 60) + "px;" +
       "--radius-lg:" + clamp(k.radius, 0, 40) + "px;" +
       "--shadow-strength:" + (clamp(k.shadow, 0, 200) / 100).toFixed(3) + ";" +
-      "--motion-scale:" + (motion / 100).toFixed(3) + "}"
+      "--motion-scale:" + (motion / 100).toFixed(3) + ";" +
+      /* The trader's colours ride in the same rule as the knobs, so they
+         keep the same place in the cascade: above every theme in
+         themes.css, below "liquid glass off" and the cheap rendering
+         tier. A colour the trader chose must still not be allowed to
+         re-introduce translucency those two have ruled out. */
+      colourCss(themeColours(id)) + "}" +
+      /* The picture rides on a custom property so css/themes.css owns the
+         layout - position, size and the scrim over it - and this file only
+         ever hands over the source. CSS url() has to be quoted: a data URL
+         is full of characters that are not valid unquoted. */
+      /* The effect is a variable the backdrop rules read, so it lands on
+         whichever backdrop is showing. Declared even when empty, because
+         "none" has to be able to clear an effect set a moment ago. */
+      "html[data-bg]{--bg-fx:" + (FX[activeFx(id)] || "none") + "}" +
+      /* The chosen wallpaper, if this theme has been given one.
+       *
+       * It overrides --theme-bg, which css/themes.css sets per skin. This
+       * rule carries [data-skin][data-theme] and lands in a <style> at the
+       * end of <head>, so it outranks those on both specificity and source
+       * order - the same place the trader's colours already win from. */
+      wallCss(id) +
+      (bg === "photo"
+        ? "html[data-bg=\"photo\"]{--bg-photo:url(\"" + picture.replace(/"/g, "%22") + "\");" +
+          "--bg-photo-dim:" + (getBgDim() / 100).toFixed(3) + "}"
+        : "")
     );
   }
 
@@ -402,6 +753,21 @@
       new MutationObserver(function () {
         if (global.AurionSkin) global.AurionSkin.apply();
       }).observe(el, { attributes: true, attributeFilter: ["data-skin"] });
+
+      /* Light/dark is set straight onto <html> by the desk, without coming
+         through here. A wallpaper has a dark and a light cut, so the
+         published rule has to be rebuilt when the mode flips - otherwise
+         the desk goes light and keeps the night photograph.
+         Guarded on the value actually changing: apply() rewrites
+         data-skin/data-bg/data-motion, and reacting to its own writes would
+         be an endless loop. */
+      var lastMode = el.dataset ? el.dataset.theme : "";
+      new MutationObserver(function () {
+        var now = el.dataset ? el.dataset.theme : "";
+        if (now === lastMode) return;
+        lastMode = now;
+        if (activeWall(effectiveTheme())) apply();
+      }).observe(el, { attributes: true, attributeFilter: ["data-theme"] });
     } catch (e) { /* not fatal */ }
   }
 
@@ -423,6 +789,24 @@
     setCustom: setCustom,
     resetCustom: resetCustom,
     defaultCustom: defaultCustom,
+    BACKDROPS: BACKDROPS,
+    themeKnobs: themeKnobs,
+    edit: editTheme,
+    reset: resetTheme,
+    edited: isEdited,
+    getBgImage: getBgImage,
+    setBgImage: setBgImage,
+    getBgDim: getBgDim,
+    setBgDim: setBgDim,
+    FONTS: FONTS,
+    COLOR_KEYS: COLOR_KEYS,
+    FX: FX,
+    fx: activeFx,
+    colours: themeColours,
+    WALLPAPERS: WALLPAPERS,
+    wall: activeWall,
+    themeWall: themeOwnWall,
+    wallUrl: wallUrl,
   };
 
   apply();

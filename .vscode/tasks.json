@@ -1,0 +1,170 @@
+{
+  // AURION tasks.
+  //
+  // Ctrl+Shift+P -> "Tasks: Run Task", or Ctrl+Shift+B for the default build
+  // (Build MSI). Nothing here is magic: every task is a command you can also
+  // paste into the terminal, and the README documents the same ones. They
+  // live here so the order and the flags stop being something to remember.
+  //
+  // The MSI build is Windows-only -- WiX is an MSBuild SDK and produces a
+  // Windows Installer package. On Linux and macOS those tasks run the
+  // authoring lint instead and say why.
+  "version": "2.0.0",
+
+  "tasks": [
+    // ---------------------------------------------------------------- update
+    {
+      "label": "AURION: Update from GitHub",
+      "detail": "Stop the app, pull the current branch, then refresh Node and Python dependencies",
+      "dependsOrder": "sequence",
+      "dependsOn": [
+        "aurion:stop",
+        "aurion:pull",
+        "aurion:npm-root",
+        "aurion:npm-backend",
+        "aurion:pip"
+      ],
+      "problemMatcher": [],
+      "group": "none"
+    },
+
+    {
+      // Stopping first, and not only because an update should not race a
+      // running app: stop-aurion.cmd flushes the dashboard's settings into
+      // config\aurion.json and data\, which are tracked files. Doing it
+      // before the pull is what makes the autostash below see a settled
+      // working tree instead of a write landing mid-merge.
+      "label": "aurion:stop",
+      "hide": true,
+      "type": "shell",
+      "windows": { "command": ".\\stop-aurion.cmd" },
+      "linux": { "command": "pkill -f 'engine/main.py' || true; pkill -f 'backend/src/index.js' || true" },
+      "osx": { "command": "pkill -f 'engine/main.py' || true; pkill -f 'backend/src/index.js' || true" },
+      "problemMatcher": []
+    },
+
+    {
+      // --ff-only refuses to invent a merge commit: if the branch has moved
+      // in a way that needs a real merge, you want to know, not to find out
+      // later from a conflicted tree.
+      //
+      // --autostash exists because this repository tracks files the running
+      // app rewrites -- data\runtime-state.json, data\settings-backup.json,
+      // the licence state. Without it the first pull after ever launching
+      // AURION stops with "local changes would be overwritten". With it they
+      // are set aside and put back, and your licence state survives.
+      //
+      // The branch is named explicitly rather than left to a bare `git pull`.
+      // A clone only gets an upstream for the branch it checked out, so on
+      // any other branch a bare pull quietly falls back to the default one
+      // and stops with "Not possible to fast-forward" -- which reads like a
+      // broken repository and is really just a missing upstream. $(...) is a
+      // subexpression in PowerShell as well as in bash, so this is one line
+      // on every platform.
+      "label": "aurion:pull",
+      "hide": true,
+      "type": "shell",
+      "command": "git pull --ff-only --autostash origin $(git rev-parse --abbrev-ref HEAD)",
+      "problemMatcher": []
+    },
+
+    { "label": "aurion:npm-root", "hide": true, "type": "shell",
+      "command": "npm install --no-audit --no-fund", "problemMatcher": [] },
+
+    { "label": "aurion:npm-backend", "hide": true, "type": "shell",
+      "command": "npm install --no-audit --no-fund --prefix backend", "problemMatcher": [] },
+
+    {
+      // Python 3.10-3.12 only. engine/main.py refuses 3.13+ because
+      // numpy==1.26.4 has no wheels for it.
+      "label": "aurion:pip",
+      "hide": true,
+      "type": "shell",
+      "windows": { "command": "python -m pip install -r engine\\requirements.txt" },
+      "linux": { "command": "python3 -m pip install -r engine/requirements.txt" },
+      "osx": { "command": "python3 -m pip install -r engine/requirements.txt" },
+      "problemMatcher": []
+    },
+
+    // ------------------------------------------------------------------ MSI
+    {
+      "label": "AURION: Build MSI",
+      "detail": "installer\\output\\AURION-<version>-x64.msi  (Windows, needs .NET SDK 6+)",
+      "type": "shell",
+      "windows": {
+        "command": "powershell -ExecutionPolicy Bypass -File installer\\tools\\build-msi.ps1"
+      },
+      "linux": {
+        "command": "echo 'The MSI can only be built on Windows (WiX is an MSBuild SDK). Running the authoring lint instead.' && python3 installer/tools/check-authoring.py"
+      },
+      "osx": {
+        "command": "echo 'The MSI can only be built on Windows (WiX is an MSBuild SDK). Running the authoring lint instead.' && python3 installer/tools/check-authoring.py"
+      },
+      "group": { "kind": "build", "isDefault": true },
+      "problemMatcher": []
+    },
+
+    {
+      // -SkipNpm reuses installer\stage\app\backend\node_modules from the
+      // previous build. Fine while iterating on the installer itself; never
+      // for something you hand to anyone.
+      "label": "AURION: Build MSI (fast, local iteration only)",
+      "detail": "Reuses the staged node_modules - not for a release",
+      "type": "shell",
+      "windows": {
+        "command": "powershell -ExecutionPolicy Bypass -File installer\\tools\\build-msi.ps1 -SkipNpm"
+      },
+      "problemMatcher": []
+    },
+
+    {
+      "label": "AURION: Check installer authoring",
+      "detail": "Lints the WiX sources - runs anywhere, no Windows needed",
+      "type": "shell",
+      "windows": { "command": "python installer\\tools\\check-authoring.py" },
+      "linux": { "command": "python3 installer/tools/check-authoring.py" },
+      "osx": { "command": "python3 installer/tools/check-authoring.py" },
+      "problemMatcher": []
+    },
+
+    // ---------------------------------------------------------------- run it
+    {
+      "label": "AURION: Start",
+      "detail": "Engine + desk, then the browser on http://127.0.0.1:8080",
+      "type": "shell",
+      "windows": { "command": ".\\start-aurion.cmd" },
+      "linux": { "command": "bash scripts/start.sh" },
+      "osx": { "command": "bash scripts/start.sh" },
+      "problemMatcher": []
+    },
+
+    {
+      "label": "AURION: Stop",
+      "detail": "Flushes settings, then stops the engine and the desk",
+      "type": "shell",
+      "windows": { "command": ".\\stop-aurion.cmd" },
+      "linux": { "command": "pkill -f 'engine/main.py' || true; pkill -f 'backend/src/index.js' || true" },
+      "osx": { "command": "pkill -f 'engine/main.py' || true; pkill -f 'backend/src/index.js' || true" },
+      "problemMatcher": []
+    },
+
+    // ---------------------------------------------------------------- checks
+    {
+      "label": "AURION: Test",
+      "detail": "npm test (desk, web, demo, installer contract) and the engine suite",
+      "dependsOrder": "sequence",
+      "dependsOn": ["aurion:test-node", "aurion:test-python"],
+      "group": { "kind": "test", "isDefault": true },
+      "problemMatcher": []
+    },
+
+    { "label": "aurion:test-node", "hide": true, "type": "shell",
+      "command": "npm test", "problemMatcher": [] },
+
+    { "label": "aurion:test-python", "hide": true, "type": "shell",
+      "windows": { "command": "python -m pytest engine\\tests -q" },
+      "linux": { "command": "python3 -m pytest engine/tests -q" },
+      "osx": { "command": "python3 -m pytest engine/tests -q" },
+      "problemMatcher": [] }
+  ]
+}

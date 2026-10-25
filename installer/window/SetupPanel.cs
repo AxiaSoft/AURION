@@ -96,6 +96,12 @@ internal sealed class SetupPanel : Panel
     /// <summary>Raised when the trader would rather go on without them.</summary>
     public event EventHandler? SkipRequested;
 
+    /// <summary>Raised when the trader stops work that is already running.</summary>
+    public event EventHandler? CancelRequested;
+
+    private bool _busy;
+    private bool _started;
+
     public SetupPanel(List<Requirement> items)
     {
         _items = items;
@@ -106,8 +112,14 @@ internal sealed class SetupPanel : Panel
 
         _install.FlatAppearance.BorderSize = 0;
         _skip.FlatAppearance.BorderColor = Line;
-        _install.Click += (_, _) => InstallRequested?.Invoke(this, EventArgs.Empty);
-        _skip.Click += (_, _) => SkipRequested?.Invoke(this, EventArgs.Empty);
+        _install.Click += (_, _) => Begin();
+        _skip.Click += (_, _) =>
+        {
+            // One button, two jobs, and the label always says which: before
+            // the work starts it declines it, during the work it stops it.
+            if (_busy) CancelRequested?.Invoke(this, EventArgs.Empty);
+            else SkipRequested?.Invoke(this, EventArgs.Empty);
+        };
 
         var buttons = new FlowLayoutPanel
         {
@@ -151,6 +163,7 @@ internal sealed class SetupPanel : Panel
         var failed = _items.Count(r => r.State == ReqState.Failed);
         _install.Visible = missing > 0;
         _install.Text = failed > 0 ? "Try again" : "Install what is missing";
+        if (!_busy) _skip.Text = "Continue anyway";
 
         if (missing == 0 && failed == 0)
         {
@@ -158,6 +171,13 @@ internal sealed class SetupPanel : Panel
             _lead.Text = "Starting the desk…";
             _skip.Visible = false;
         }
+    }
+
+    private void Begin()
+    {
+        if (_started) return;
+        _started = true;
+        InstallRequested?.Invoke(this, EventArgs.Empty);
     }
 
     /// <summary>A line of running commentary under the list.</summary>
@@ -171,10 +191,16 @@ internal sealed class SetupPanel : Panel
     public void Working(bool busy)
     {
         if (InvokeRequired) { BeginInvoke(new Action(() => Working(busy))); return; }
+        _busy = busy;
+        if (!busy) _started = false;
         _install.Enabled = !busy;
-        _skip.Enabled = !busy;
         _install.BackColor = busy ? Line : Cyan;
         _install.ForeColor = busy ? Muted : Color.FromArgb(0x06, 0x10, 0x14);
+
+        // Never disabled: a download that cannot be stopped is a hang with a
+        // progress bar. Only its meaning changes.
+        _skip.Enabled = true;
+        _skip.Text = busy ? "Cancel" : "Continue anyway";
     }
 
     private Control Row(Requirement req)

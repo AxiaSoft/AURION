@@ -12,7 +12,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
-from ..config import ROOT, load
+from ..config import DATA_DIR, ROOT, load
 from .ed25519 import sign as _ed_sign
 from .ed25519 import verify as _ed_verify
 from .material import ED25519_PUBLIC_HEX, ISSUER, PRODUCT
@@ -57,7 +57,7 @@ HEARTBEAT_MIN_INTERVAL_SEC = 12 * 3600
 
 log = logging.getLogger(__name__)
 
-DIR = ROOT / "data" / "license"
+DIR = DATA_DIR / "license"
 STATE = DIR / "state.json"
 USED = DIR / "used.json"
 KEY_RE = re.compile(r"^(AXIA|AXI-DEV)(?:-[A-Z0-9]{2,4})+$")
@@ -338,13 +338,27 @@ def normalize_key(key: str) -> str:
     return re.sub(r"[^A-Z0-9\-]", "", str(key or "").upper())
 
 
-def mint(plan: str, note: str = "") -> str:
+def mint(plan: str, note: str = "", offline: bool = False) -> str:
     """Mint a license key. Runs ONLY on the owner signing machine: without the
     AXIASOFT_KEY_PRIVATE seed there is no way to produce valid keys — that is
-    the whole point of the asymmetric (Ed25519) design."""
+    the whole point of the asymmetric (Ed25519) design.
+
+    offline=True mints an AXIO- key: the same plan, carrying a FULL Ed25519
+    signature instead of a 15-byte prefix of one. A truncated signature
+    cannot be verified at all — that is why ordinary customer keys need the
+    key server, and why a trader on a desk with no internet could not turn
+    Premium on. A full signature is checkable by anyone holding the public
+    key, which every copy of AURION ships with.
+
+    The trade is deliberate and worth stating: an AXIO key cannot be revoked
+    and cannot be capped to a number of machines, because nothing it needs is
+    on a server. It is the key you issue to somebody whose desk will never
+    see the internet, not the default."""
     plan = str(plan or "").lower()
     if plan not in PLANS or plan == "trial":
         raise ValueError("plan must be m1, m3, m6, y1 or developer")
+    if offline and plan not in PAID_PLANS:
+        raise ValueError("offline keys are for paid plans: m1, m3, m6, y1")
     priv = _priv()
     if not priv:
         raise RuntimeError(
@@ -360,6 +374,12 @@ def mint(plan: str, note: str = "") -> str:
         sgroups = [sig[i : i + 4] for i in range(0, len(sig), 4)]
         groups = [nonce[:4], nonce[4:8], nonce[8:12], nonce[12:16]] + sgroups
         return "AXI-DEV-" + "-".join(groups)
+    if offline:
+        sig = _b32(_ed_sign(priv, body.encode("utf-8")), 103)
+        sgroups = [sig[i : i + 4] for i in range(0, len(sig), 4)]
+        groups = [plan.upper(), nonce[:4], nonce[4:8], nonce[8:12], nonce[12:16]] + sgroups
+        return "AXIO-" + "-".join(groups)
+
     sig = _b32(_ed_sign(priv, body.encode("utf-8"))[:15], 24)
     sgroups = [sig[i : i + 4] for i in range(0, 24, 4)]
     groups = [plan.upper(), nonce[:4], nonce[4:8], nonce[8:12], nonce[12:16]] + sgroups
@@ -390,6 +410,28 @@ def decode_key(key: str) -> dict[str, Any] | None:
         if not _ed_verify(raw_sig, body.encode("utf-8"), _pub()):
             return None
         return {"plan": plan, "nonce": nonce, "key": k, "verified": True}
+    if k.startswith("AXIO-"):
+        # Offline customer key: same body as every other key, but carrying
+        # the whole signature, so this verdict is final and needs nothing
+        # else. No server, no clock skew, no "internet_required".
+        if len(parts) != 32:
+            return None
+        plan = parts[1].lower()
+        if plan not in PAID_PLANS:
+            return None
+        rest = parts[2:]
+        nonce = "".join(rest[:4])
+        sig_s = "".join(rest[4:])
+        if len(nonce) != 16 or len(sig_s) != 103:
+            return None
+        try:
+            raw_sig = _b32dec(sig_s, 64)
+        except (ValueError, OverflowError):
+            return None
+        body = f"{PRODUCT}|{plan}|{nonce}"
+        if not _ed_verify(raw_sig, body.encode("utf-8"), _pub()):
+            return None
+        return {"plan": plan, "nonce": nonce, "key": k, "verified": True, "offline": True}
     if k.startswith("AXIA-"):
         if len(parts) != 12:
             return None
@@ -772,15 +814,56 @@ class Guard:
 
         expires = None
         activated_iso = None
+
+        if parsed.get("offline"):
+            # Nothing to ask anyone. The signature over PRODUCT|plan|nonce
+            # was checked against the bundled public key in decode_key, and
+            # that is the entire proof of authenticity - the same proof the
+            # owner key has always relied on.
+            #
+            # The term comes from the plan, as it always has: PLANS[plan]
+            # already carries the day count the rest of the code expects,
+            # and public() already turns an expiry into days_left. There is
+            # no new clock here, only one that finally gets wound up without
+            # a server.
+            days = int(PLANS.get(plan, {}).get("days") or 0)
+            now = _now()
+            activated_iso = _iso(now)
+            expires = now + timedelta(days=days) if days > 0 else None
+
+            self._mark_used(parsed_key, who, plan)
+            self.state = {
+                "plan": plan,
+                "identity": who,
+                "activated": activated_iso,
+                "expires": _iso(expires),
+                "key_hash": kh,
+                "machine": machine_id(),
+                "bot_trades": 0,
+                "last_seen": _iso(now),
+                "issuer": ISSUER,
+                "product": PRODUCT,
+                "offline": True,
+            }
+            self._write(self.state)
+            return {"ok": True, "license": self.public()}
+
         if is_dev:
             # Owner key (AXI-DEV-…, full Ed25519 — already signature-verified
             # locally with the public key). When a key server is reachable it
             # also REGISTERS there: machine cap + one-click revocation, so a
             # leaked owner key can be killed without rotating anything.
+            # The owner key is Ed25519-signed and was verified locally in
+            # decode_key, so the server call is a courtesy: it registers the
+            # machine and makes one-click revocation possible. It was being
+            # treated as mandatory, which meant the one key that provably
+            # does not need the internet was the one refusing to work
+            # without it.
+            verdict = None
             try:
                 verdict = self._consume_online(parsed_key)
-            except Exception as exc:
-                return {"ok": False, "error": "internet_required", "detail": str(exc)}
+            except Exception:
+                verdict = None
             if verdict is not None:
                 if not verdict.get("ok"):
                     return {"ok": False, "error": str(verdict.get("error") or "activation_failed")}
@@ -823,17 +906,27 @@ class Guard:
         return {"ok": True, "license": self.public()}
 
 
-if __name__ == "__main__":  # CLI key mint:  python -m aurion.license.guard <plan> [note]
+if __name__ == "__main__":  # CLI key mint:  python -m aurion.license.guard <plan> [note] [--offline]
     import sys
 
-    _plan = str(sys.argv[1] if len(sys.argv) > 1 else "developer").lower()
-    _note = str(sys.argv[2] if len(sys.argv) > 2 else "cli")
+    _args = [a for a in sys.argv[1:] if a != "--offline"]
+    _offline = "--offline" in sys.argv
+    _plan = str(_args[0] if _args else "developer").lower()
+    _note = str(_args[1] if len(_args) > 1 else "cli")
     try:
-        key = mint(_plan, _note)
+        key = mint(_plan, _note, offline=_offline)
         src = _priv_source()
         print(key)
         if src:
-            print(f"# minted via {src} plan={_plan} note={_note}", file=sys.stderr)
+            kind = "offline (AXIO)" if _offline else "online (AXIA/AXI-DEV)"
+            print(f"# minted via {src} plan={_plan} note={_note} kind={kind}", file=sys.stderr)
+        if _offline:
+            print(
+                "# this key activates with no internet and CANNOT be revoked "
+                "or machine-capped - issue it only to a desk that will never "
+                "be online",
+                file=sys.stderr,
+            )
     except ValueError as exc:
         print(f"error: {exc}  (plans: m1, m3, m6, y1, developer)", file=sys.stderr)
         sys.exit(2)

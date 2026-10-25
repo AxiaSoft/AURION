@@ -6,14 +6,25 @@ import time
 from collections import deque
 from typing import Any
 
-from .deals import aggregate_close_deals
+from .auto_entry import expired_orders, plan_entry
+from .deals import aggregate_close_deals, history_row_matches
+from ..prop.hours import (broker_offset_minutes, resolve_zone, zone_choices,
+                          zone_label, zone_offset_minutes)
+from .gates import fire_blockers as gate_blockers
+from .risk import SymbolSpec, cap_stop, money_at_risk, volume_for_risk
+from .stops import ladder_target, resolve_stop, resolve_stop_r
 from ..ai.engine import AIEngine
 from ..backtest.engine import Backtester
 from ..config import ROOT, load, merge, save
 from ..mt5.bridge import MT5Bridge
 from ..prop.rules import PropEngine
 from ..strategy.base import StrategyContext
-from ..strategy.loader import StrategyLoader, StrategyValidationError
+from ..strategy.loader import (
+    BUILTIN_NAMES,
+    LEGACY_BUILTINS,
+    StrategyLoader,
+    StrategyValidationError,
+)
 from ..license.guard import Guard
 from ..util.clock import utc_iso
 from ..util.market import block_reason as market_block_reason, session as market_session
@@ -50,7 +61,13 @@ class Trader:
         self.book: dict[str, dict[str, Any]] = {}
         self.auto_trade = False
         self.require_ai_agree = True
-        self.min_ai_confidence = 0.55
+        # Reachable on purpose. The AI's confidence is shrunk towards "no
+        # information" in proportion to the edge it has measured out of
+        # sample, so with three classes and no edge yet it cannot report
+        # more than 0.53 - and the old default of 0.55 was therefore an
+        # off switch that read like a market opinion. See
+        # LiveModels.confidence_ceiling().
+        self.min_ai_confidence = 0.35
         # Robot position sizing: "auto" = each strategy's preset volume,
         # "manual" = the user's fixed lot for every robot entry.
         self.volume_mode = "auto"
@@ -68,9 +85,62 @@ class Trader:
         self.min_signal_quality = 0.55
         self.last_quality: dict[str, Any] = {}
         self.news_trade = False
+        # Auto entry point: the robot names a price and waits there with the
+        # stop and target already attached, instead of buying the market the
+        # instant a candle closes.
+        self.auto_entry = False
+        self.auto_entry_depth = 0.5
+        self.auto_entry_offset = 0.35
+        self.auto_entry_expiry = 120
+        self._auto_entry_sweep = 0.0
+        self._auto_entry_tickets: set[int] = set()
+        # Entries on the wire, per symbol. Held from just before the send
+        # until MetaTrader reports the position (or the send fails), so a
+        # second signal arriving in the gap cannot reuse the same slot.
+        self._entry_inflight: dict[str, int] = {}
         # Danger guard: tick-level protective exit. Hard-disabled while prop
         # rules are on — a challenge account only exits through the prop book.
         self.danger_enabled = False
+        # Risk free, as a desk setting rather than a strategy parameter.
+        #
+        # It was reachable only through strategy params, which means a
+        # trader who opens a position by hand - or runs the desk with no
+        # strategy loaded - got nothing. Protecting a trade is not a
+        # property of a strategy; it is a property of the account.
+        # Chosen once, in System settings, and used by everything that
+        # has to know what time it is for this trader - prop windows
+        # first among them. "broker" is worked out from MetaTrader's own
+        # clock rather than asked for.
+        self.desk_timezone = "broker"
+        self.risk_free_enabled = False
+        # The last time a real signal was refused on its way to the broker,
+        # and by what. Published, because this is the question the desk
+        # could never answer.
+        self.last_block: dict[str, Any] = {}
+        # How often the cards are re-asked between bar closes. Two seconds
+        # looks live to a person and costs a few milliseconds of one
+        # thread; the strategies are pure functions of the candles.
+        self._watch_at = 0.0
+        # Money management, stated the one way that means the same thing on
+        # every instrument: what a stop is allowed to cost per 1.00 lot.
+        self.max_loss_per_lot = 10.0
+        self._spec_gap_said: set[str] = set()
+        self._cap_note: dict[int, float] = {}
+        self.risk_free_trigger_pct = 0.30
+        self.risk_free_lock_pct = 0.0
+        # Laddered protection. One break-even move stops a winner turning
+        # into a loser but does nothing about a winner giving its profit
+        # back; these walk the stop up a rung at a time behind price.
+        self.risk_free_ladder = True
+        self.risk_free_steps = 3
+        # Which rule last moved each position's stop, so "this trade is
+        # now risk free" is journalled once rather than on every tick.
+        self._stop_note: dict[int, str] = {}
+        # The stop a position was opened with, per ticket. Break-even
+        # rewrites pos.sl, so after the first move the broker can no
+        # longer tell us what the original risk was - and R is measured
+        # from the original risk or it is measured from nothing.
+        self._entry_risk: dict[int, float] = {}
         self.danger_sensitivity = 50
         self._danger_seen: dict[int, float] = {}
         self._danger_cooldown: dict[int, float] = {}
@@ -94,6 +164,17 @@ class Trader:
         self.license = Guard()
         self.backtest_run: dict[str, Any] = {"running": False, "mode": "idle"}
         self._last_ai_tick = 0.0
+        # Event faults already reported, so a broken path says so once
+        # instead of several times a second.
+        self._event_faults: set[str] = set()
+        # The background task that adopts the EA's chart as the desk's
+        # market. One at a time, and never on the ingest path.
+        self._adopt_task: asyncio.Task | None = None
+        # Said once: the AI filter has been set above what the AI can
+        # report, so it is refusing everything by arithmetic.
+        self._ai_ceiling_said = False
+        # The replay runs off the request path; this is the handle to it.
+        self._backtest_task: asyncio.Task | None = None
         self._ai_tick_task: asyncio.Task | None = None
         RING.subscribe(self._on_log)
 
@@ -207,15 +288,60 @@ class Trader:
         self.store.close()
         self.started = False
 
+    def _note_broker_clock(self, payload: dict[str, Any]) -> None:
+        """Learn the broker's timezone from the tick that already says it.
+
+        MetaTrader stamps every tick with its server's own time. The
+        difference between that and the clock here is the broker's
+        offset, so nobody has to know their broker runs on EET, or
+        notice when it shifts for summer time, for the prop window to
+        line up with the session they actually watch.
+        """
+        if str(getattr(self, "desk_timezone", "UTC")).lower() != "broker":
+            return
+        minutes = broker_offset_minutes(str(payload.get("time") or ""))
+        if minutes is None or minutes == self.prop.broker_minutes:
+            return
+        self.prop.broker_minutes = minutes
+        log.info("broker clock is UTC%+d:%02d", minutes // 60, abs(minutes) % 60)
+
     async def _on_bridge(self, kind: str, payload: dict[str, Any]) -> None:
+        """Route one event from MetaTrader, and never die quietly.
+
+        The bridge catches whatever a handler raises and writes it to the
+        engine log file. Nobody reads an engine log file; the trader reads
+        the desk, where a robot that has stopped processing ticks looks
+        exactly like a quiet market. Faults are journalled instead - once
+        per kind, because a broken tick path would otherwise repeat itself
+        several times a second.
+        """
+        try:
+            await self._route_bridge(kind, payload)
+        except Exception as exc:
+            log.exception("bridge event %s failed", kind)
+            key = f"{kind}:{type(exc).__name__}"
+            if key in self._event_faults:
+                return
+            self._event_faults.add(key)
+            await self.journal(
+                "error",
+                "event_fault",
+                f"A '{kind}' update from MetaTrader could not be processed — "
+                f"{type(exc).__name__}: {exc}. This is a fault in AURION, not in the market.",
+            )
+
+    async def _route_bridge(self, kind: str, payload: dict[str, Any]) -> None:
         if kind == "tick":
+            self._note_broker_clock(payload)
             sym = str(payload.get("symbol") or "")
             await self.bus.publish("tick", payload)
             if not self.active_symbol and self._is_ea_symbol(sym):
                 self.active_symbol = sym
+            await self._enforce_stop_cap(payload)
             await self._maybe_trail(payload)
             await self._maybe_danger_guard(payload)
             if self._is_ea_symbol(sym):
+                await self._watch_strategies(payload)
                 await self._maybe_strategy_tick(payload)
                 self._schedule_live_ai(sym)
             return
@@ -482,7 +608,49 @@ class Trader:
             if self.store.apply_reconciliation(int(item["id"]), totals):
                 fixed += 1
                 log.info("reconciled close %s with MT5: net %.2f", ticket, totals["net"])
+        fixed += self._audit_closed_rows(rows)
         return fixed
+
+    def _audit_closed_rows(self, deal_rows: list[dict[str, Any]]) -> int:
+        """Re-check rows that were already believed to agree with MT5.
+
+        Being right when written is not the same as being right. MT5 posts
+        swap at rollover, and some brokers book commission as its own deal
+        minutes after the close - both land on a position whose history row
+        was finished and never looked at again. Nothing marks those rows as
+        estimates, so the estimate sweep above will never revisit them and
+        the desk drifts away from the terminal one overnight charge at a
+        time.
+
+        Only rows whose position still appears in the deal window are
+        checked; outside it there is nothing to compare against and silence
+        is the correct answer, not a warning.
+        """
+        try:
+            stored = self.store.closed_rows_for_audit(60)
+        except Exception:
+            return 0
+        repaired = 0
+        for row in stored:
+            try:
+                ticket = int(row.get("ticket") or 0)
+            except (TypeError, ValueError):
+                continue
+            if not ticket:
+                continue
+            totals = aggregate_close_deals(deal_rows, ticket)
+            if not totals:
+                continue
+            drift = history_row_matches(row, totals)
+            if not drift:
+                continue
+            if self.store.apply_reconciliation(int(row["id"]), totals):
+                repaired += 1
+                log.info(
+                    "history row %s for ticket %s drifted from MT5 on %s - corrected",
+                    row.get("id"), ticket, ", ".join(drift),
+                )
+        return repaired
 
     async def _sync_position_book(self, rows: list[dict[str, Any]]) -> None:
         current: dict[int, dict[str, Any]] = {}
@@ -575,6 +743,7 @@ class Trader:
             deal_swap = None
             deal_comm = None
             deal_price = None
+            deal_totals: dict[str, Any] | None = None
             try:
                 # Every closing deal for this position, not just the first:
                 # a partial close produces several and MT5 reports their sum.
@@ -585,6 +754,7 @@ class Trader:
                 ]
                 totals = aggregate_close_deals(rows, ticket)
                 if totals:
+                    deal_totals = totals
                     deal_profit = totals["profit"]
                     deal_swap = totals["swap"]
                     deal_comm = totals["commission"]
@@ -611,6 +781,7 @@ class Trader:
                     ]
                     totals = aggregate_close_deals(rows, ticket)
                     if totals:
+                        deal_totals = totals
                         deal_profit = totals["profit"]
                         deal_swap = totals["swap"]
                         deal_comm = totals["commission"]
@@ -619,18 +790,35 @@ class Trader:
                         deal_parts = totals["parts"]
                 except Exception:
                     pass
+            mt5_view = deal_totals or {}
             close_trade = {
-                "time": utc_iso(),
+                # MetaTrader's close time, not the moment the desk noticed
+                # the position had gone. They differ by a second normally
+                # and by minutes after a reconnect, and a history sorted on
+                # the wrong one does not line up with the terminal's.
+                "time": mt5_view.get("close_time") or utc_iso(),
                 "ticket": ticket,
                 "symbol": old.get("symbol"),
                 "side": old.get("type") or old.get("side"),
-                "volume": old.get("volume"),
+                # The closed volume from the deals: a partial close moves
+                # less than the position was carrying.
+                "volume": mt5_view.get("volume") or old.get("volume"),
                 "price": deal_price or old.get("price_current") or old.get("price_open"),
+                # Carried so a row can be matched against MetaTrader's
+                # History tab, which lists a position by its open side too.
+                "price_open": mt5_view.get("open_price") or old.get("price_open"),
+                "time_open": mt5_view.get("open_time") or old.get("time"),
+                "order": mt5_view.get("order"),
+                "deals": mt5_view.get("deals") or [],
                 "sl": old.get("sl"),
                 "tp": old.get("tp"),
                 "profit": deal_profit if deal_profit is not None else (old.get("profit") or 0),
                 "swap": deal_swap if deal_swap is not None else (old.get("swap") or 0),
                 "commission": deal_comm if deal_comm is not None else 0,
+                # Brokers that bill on the way in put the whole commission on
+                # the entry deal; shown separately so "why is net below
+                # Profit" is answerable from the desk.
+                "entry_commission": mt5_view.get("entry_commission") or 0,
                 # net is what the balance actually moved by; MT5's Profit column
                 # is gross, and a desk that mixes the two can never reconcile.
                 "net": deal_net if deal_net is not None else round(
@@ -668,23 +856,99 @@ class Trader:
             await self._danger_scan(list(current.values()))
         except Exception:
             log.exception("danger guard scan failed")
-        tg = getattr(self, "telegram", None)
-        if getattr(self, "_pos_bootstrapped", False) and tg:
+        if getattr(self, "_pos_bootstrapped", False) and opened:
+            # A resting order that finally filled is the moment the robot
+            # actually entered, so that is when it is counted - not when the
+            # order was placed. A freemium allowance spent on an order the
+            # market never came back to would be a bill for a trade that
+            # never happened.
             for item in opened:
                 try:
-                    await tg.notify_open(item)
+                    if int(item.get("ticket") or 0) not in self._auto_entry_tickets:
+                        continue
+                    self._auto_entry_tickets.discard(int(item.get("ticket") or 0))
+                    self.prop.note_entry()
+                    self.license.note_bot_fill()
+                    await self.bus.publish("license", self.license.public())
+                    await self.journal(
+                        "info",
+                        "auto_entry_filled",
+                        f"Resting order filled: {item.get('type') or ''} {item.get('symbol') or ''} "
+                        f"at {item.get('price_open') or item.get('price_current') or '—'}",
+                    )
                 except Exception:
-                    log.exception("telegram open notify failed")
+                    log.exception("auto-entry fill accounting failed")
+        try:
+            await self.sweep_pending()
+        except Exception:
+            log.exception("pending sweep failed")
+        tg = getattr(self, "telegram", None)
+        if getattr(self, "_pos_bootstrapped", False):
+            # One event per real entry and exit, published where the
+            # runtime already works out that a position appeared or
+            # disappeared - and behind the same bootstrap flag, so
+            # reconnecting to a desk with eight open trades does not
+            # announce eight entries that happened yesterday.
+            #
+            # The desk decides what to do with these: an entry and an
+            # exit are worth a sound and a Windows toast, a change of
+            # status is not. That judgement belongs on this side of the
+            # bus, so "a trade happened" is a different kind of message
+            # from "something changed", rather than both being a log line
+            # the desk has to pattern-match.
+            for item in opened:
+                await self._announce_trade("entry", item)
             for old in closed_rows:
-                try:
-                    await tg.notify_close(old)
-                except Exception:
-                    log.exception("telegram close notify failed")
+                await self._announce_trade("exit", old)
+            if tg:
+                for item in opened:
+                    try:
+                        await tg.notify_open(item)
+                    except Exception:
+                        log.exception("telegram open notify failed")
+                for old in closed_rows:
+                    try:
+                        await tg.notify_close(old)
+                    except Exception:
+                        log.exception("telegram close notify failed")
         self._pos_bootstrapped = True
         if closed:
             self._sync_book_meta()
             await self.bus.publish("strategy", self.strategy_meta)
             await self.bus.publish("history", {"items": self.store.history(80)})
+
+    async def _announce_trade(self, kind: str, row: dict[str, Any]) -> None:
+        """Say that a trade opened or closed, and how it went.
+
+        An exit is split into profit and loss here rather than on the
+        desk, because the engine is the only side that knows the real
+        figure - the desk sees a position vanish and would have to guess.
+        """
+        try:
+            row = dict(row or {})
+            profit = float(row.get("profit") or 0)
+            result = "flat"
+            if kind == "exit":
+                result = "profit" if profit > 0 else "loss" if profit < 0 else "flat"
+            await self.bus.publish("trade", {
+                "kind": kind,
+                "result": result,
+                "ticket": row.get("ticket"),
+                "symbol": row.get("symbol") or "",
+                "side": str(row.get("type") or row.get("side") or "").lower(),
+                "volume": float(row.get("volume") or 0),
+                "price": float(row.get("price_open") or row.get("price") or 0),
+                "close_price": float(row.get("price_current") or row.get("close") or 0),
+                "profit": profit,
+                "strategy": row.get("strategy") or "",
+                # The account's currency when the row does not carry one,
+                # so the desk never shows a bare number for an amount.
+                "currency": row.get("currency") or getattr(self.bridge.account, "currency", "") or "",
+                "ts": utc_iso(),
+            })
+        except Exception:
+            # A notification is never worth losing the position update for.
+            log.exception("trade announcement failed")
 
     def _is_ea_symbol(self, symbol: str) -> bool:
         want = str(symbol or "").strip()
@@ -693,6 +957,25 @@ class Trader:
         return any(self.bridge._sym_match(want, a.symbol) for a in self.bridge.active_agents())
 
     async def _adopt_ea_market(self) -> None:
+        """Take the chart the EA just reported as the desk's market.
+
+        Scheduled, never awaited here, and that is the whole point.
+
+        This runs while the bridge is handling the EA's own hello. Taking
+        the market loads its history, and over the HTTP transport the only
+        way to get history is to ask the EA for it and wait - but the EA
+        is a single thread inside MetaTrader that cannot send anything
+        until the POST it is currently blocked on comes back. So the wait
+        could only ever end one way: eight seconds of deadlock, a
+        timeout warning on the desk, a hello answered eight seconds late,
+        and the chart left with no bars until the next poll. Every attach,
+        every re-attach, every terminal restart.
+
+        Handing it to a task lets the hello return at once. The EA reads
+        the request_history command that is already riding on that
+        response, sends the bars on its very next cycle, and the wait ends
+        in well under a second with real data in it.
+        """
         agents = self.bridge.active_agents()
         if not agents:
             if self.active_symbol:
@@ -700,8 +983,33 @@ class Trader:
             return
         if self._is_ea_symbol(self.active_symbol):
             return
+        task = getattr(self, "_adopt_task", None)
+        if task is not None and not task.done():
+            return
         agent = agents[0]
-        await self.set_market(agent.symbol, agent.timeframe or "M15")
+        symbol = str(agent.symbol or "")
+        timeframe = str(agent.timeframe or "M15")
+        if not symbol:
+            return
+        self._adopt_task = asyncio.create_task(
+            self._adopt_market(symbol, timeframe), name=f"aurion-adopt-{symbol}"
+        )
+
+    async def _adopt_market(self, symbol: str, timeframe: str) -> None:
+        try:
+            result = await self.set_market(symbol, timeframe)
+        except Exception as exc:
+            log.exception("adopting %s %s failed", symbol, timeframe)
+            await self.journal(
+                "error", "adopt_fault",
+                f"Could not load {symbol} {timeframe} after the EA attached — {type(exc).__name__}: {exc}",
+            )
+            return
+        if not (result or {}).get("ok"):
+            await self.journal(
+                "warning", "adopt",
+                f"{symbol} {timeframe} was not adopted: {(result or {}).get('error') or 'unknown'}",
+            )
 
     async def _on_closed_candle(self, candle: dict[str, Any]) -> None:
         symbol = candle.get("symbol") or self.active_symbol
@@ -713,6 +1021,7 @@ class Trader:
             rows = self.store.candles(symbol, timeframe, 1500)
         if not rows:
             return
+        state: dict[str, Any] | None = None
         try:
             votes = []
             for name, slot in self.book.items():
@@ -726,55 +1035,452 @@ class Trader:
             self.ai._strategy_votes = votes
             state = await asyncio.to_thread(self.ai.on_closed_bar, rows, symbol, timeframe)
         except Exception as exc:
+            # An AI fault must not stop the strategies.
+            #
+            # This used to `return`, which meant one exception out of the
+            # model silently switched the entire robot off: no strategy
+            # was evaluated, no signal was produced, and nothing in the
+            # log said the book had been skipped - only that the AI had
+            # failed. The product says everywhere that the AI is a filter
+            # and never a source of signals, and the default for
+            # execution.flatten_on_ai_fault is false for the same reason.
+            #
+            # The strategies still run. If require_ai_agree is on, the
+            # gate in _dispatch_signal then refuses the entry for want of
+            # an opinion - which is the correct, conservative outcome and
+            # is journalled with a reason.
             log.exception("AI on_closed_bar failed")
-            await self.journal("error", "ai_fault", f"AI failed on {symbol} {timeframe}: {exc}")
-            return
-        if state.get("retrain_due"):
-            asyncio.create_task(self._bg_train(rows, symbol, timeframe), name=f"aurion-train-{symbol}")
-        self.store.record_signal({**state, "source": "ai"})
-        await self.bus.publish("ai", state)
-        shown = state.get("display_direction") or state.get("hint") or state.get("direction") or "n/a"
-        await self.journal(
-            "info",
-            "ai_bar",
-            f"AI {symbol} {timeframe}: {shown} "
-            f"conf={float(state.get('confidence') or 0):.2f} samples={state.get('samples') or 0} "
-            f"— {state.get('reason') or 'no reason'}",
-            extra={"symbol": symbol, "timeframe": timeframe, "activity": (state.get("activity") or [])[-6:]},
-        )
+            await self.journal(
+                "error",
+                "ai_fault",
+                f"AI failed on {symbol} {timeframe}: {exc} — strategies still evaluated",
+            )
+
+        if state:
+            if state.get("retrain_due"):
+                asyncio.create_task(self._bg_train(rows, symbol, timeframe), name=f"aurion-train-{symbol}")
+            self.store.record_signal({**state, "source": "ai"})
+            await self.bus.publish("ai", state)
+            shown = state.get("display_direction") or state.get("hint") or state.get("direction") or "n/a"
+            await self.journal(
+                "info",
+                "ai_bar",
+                f"AI {symbol} {timeframe}: {shown} "
+                f"conf={float(state.get('confidence') or 0):.2f} samples={state.get('samples') or 0} "
+                f"— {state.get('reason') or 'no reason'}",
+                extra={"symbol": symbol, "timeframe": timeframe, "activity": (state.get("activity") or [])[-6:]},
+            )
+
         ctx = self._ctx(symbol, timeframe)
-        may_fire = bool(
-            self.auto_trade
-            and not self.kill_switch
-            and not self.safe_mode
-            and not (self.prop.enabled and self.prop.locked)
-            and self.bridge.tape_mode() == "live"
-        )
+        blocked = self.fire_blockers()
+        may_fire = not blocked
         try:
-            await self._run_enabled_strategies(ctx, execute=may_fire)
+            await self._run_enabled_strategies(ctx, execute=may_fire, blocked=blocked)
         except Exception as exc:
             log.exception("strategy book failed")
             await self.journal("error", "book_fault", f"Strategy book crashed: {exc}")
 
-    async def _maybe_trail(self, tick: dict[str, Any]) -> None:
-        points = float((self.strategy.params if self.strategy else {}).get("trailing_points") or 0)
-        if points <= 0:
+    # ------------------------------------------------------------------
+    # Money management — what a stop is allowed to cost
+    # ------------------------------------------------------------------
+    def symbol_spec(self, symbol: str) -> SymbolSpec:
+        """The broker's contract spec for a symbol, as a SymbolSpec."""
+        try:
+            info = self.bridge.symbol_spec(str(symbol or ""))
+        except Exception:
+            log.exception("symbol spec lookup failed for %s", symbol)
+            info = {}
+        return SymbolSpec.from_info(info, str(symbol or ""))
+
+    def _cap(self) -> float:
+        try:
+            return max(0.0, float(getattr(self, "max_loss_per_lot", 0.0) or 0.0))
+        except (TypeError, ValueError):
+            return 0.0
+
+    async def _no_spec(self, symbol: str) -> None:
+        """Say once per symbol that money cannot be priced here.
+
+        Not silently skipped: a cap the trader believes is protecting
+        them, and is not, is worse than no cap. It is also not a refusal
+        to trade — the stop the strategy chose is still a stop.
+        """
+        key = str(symbol or "")
+        if key in self._spec_gap_said:
             return
+        self._spec_gap_said.add(key)
+        await self.journal(
+            "warning",
+            "no_spec",
+            f"{key}: the broker has not reported a tick value, so the "
+            f"{self._cap():.2f} per-lot stop cap cannot be applied here. "
+            "Attach AurionBridge to this symbol's chart, or connect the terminal.",
+        )
+
+    async def _apply_money_rules(self, request: dict[str, Any], price: float = 0.0) -> dict[str, Any]:
+        """Hold every outgoing ticket to the per-lot loss cap.
+
+        Three things happen here, in this order, and all three are the
+        same rule seen from different sides:
+
+          * a ticket with no stop gets one, at exactly the cap;
+          * a stop further away than the cap is pulled in to it;
+          * the lot size is reduced until the stop's cost fits the
+            account's risk budget.
+
+        The stop is only ever moved *closer* to the entry. Nothing here
+        widens risk, and nothing here invents a price: with no contract
+        spec the request goes out untouched and the journal says so.
+        """
+        cap = self._cap()
+        if cap <= 0:
+            return request
+        action = str(request.get("action") or "").lower()
+        if action not in {"market", "pending", "limit", "stop", "buy", "sell"}:
+            return request
+        symbol = str(request.get("symbol") or "")
+        side = str(request.get("side") or request.get("action") or "").lower()
+        if side not in {"buy", "sell"} or not symbol:
+            return request
+
+        spec = self.symbol_spec(symbol)
+        if not spec.usable:
+            await self._no_spec(symbol)
+            return request
+
+        entry = float(price or request.get("price") or 0.0)
+        if entry <= 0:
+            tick = self.tick_of(symbol)
+            if tick:
+                entry = float(tick.get("ask" if side == "buy" else "bid") or 0)
+        if entry <= 0:
+            return request
+
+        # At the lot this ticket is actually being sent with. Measuring
+        # the cap against a notional one lot is what made the stop on a
+        # 0.01-lot ticket a hundred times tighter than the trader asked.
+        capped = cap_stop(
+            side, entry, float(request.get("sl") or 0), spec, cap,
+            float(request.get("volume") or 0),
+        )
+        if capped is None:
+            return request
+        if capped.capped:
+            before = float(request.get("sl") or 0)
+            request["sl"] = capped.sl
+            await self.journal(
+                "info",
+                "stop_capped",
+                f"{symbol} {side}: stop {('moved to ' + str(capped.sl)) if before else 'set at ' + str(capped.sl)} "
+                f"so one lot risks {capped.money_per_lot:.2f}, not more than {cap:.2f} "
+                f"({capped.reason})",
+                {"before": before, "after": capped.sl, "per_lot": round(capped.money_per_lot, 2)},
+            )
+
+        # Position sizing. The cap bounds what one lot may lose; the
+        # account's own risk budget bounds how many lots that is.
+        budget = self._risk_budget()
+        requested = float(request.get("volume") or 0)
+        if budget > 0 and requested > 0:
+            sized = volume_for_risk(side, entry, float(request.get("sl") or 0), spec, budget, requested)
+            if sized > 0 and sized < requested - 1e-9:
+                await self.journal(
+                    "info",
+                    "sized_down",
+                    f"{symbol}: {requested:.2f} lots would risk "
+                    f"{money_at_risk(side, entry, float(request.get('sl') or 0), requested, spec):.2f}; "
+                    f"sent {sized:.2f} to stay inside the {budget:.2f} budget",
+                    {"requested": requested, "sent": sized, "budget": round(budget, 2)},
+                )
+                request["volume"] = sized
+            elif sized <= 0:
+                # Below the broker's minimum lot the only honest sizes are
+                # "the minimum" or "nothing", and nothing is the one that
+                # respects the budget.
+                await self.journal(
+                    "warning",
+                    "too_small",
+                    f"{symbol}: the budget of {budget:.2f} does not pay for the broker's minimum lot — no entry",
+                )
+                request["volume"] = 0.0
+        return request
+
+    def _risk_budget(self) -> float:
+        """What one trade may lose, in account money.
+
+        Prop's own per-trade percentage when prop is on, because that is
+        the number the trader agreed to with the firm; otherwise the cap
+        itself, read as one lot's worth.
+        """
+        account = self.bridge.account.to_dict() if getattr(self, "bridge", None) else {}
+        equity = 0.0
+        for key in ("equity", "balance"):
+            try:
+                equity = float(account.get(key) or 0)
+            except (TypeError, ValueError):
+                equity = 0.0
+            if equity > 0:
+                break
+        prop = getattr(self, "prop", None)
+        if prop is not None and getattr(prop, "enabled", False) and equity > 0:
+            try:
+                pct = float((prop.profile or {}).get("max_risk_per_trade_pct") or 0)
+            except Exception:
+                pct = 0.0
+            if pct > 0:
+                return equity * pct / 100.0
+        return 0.0
+
+    async def _enforce_stop_cap(self, tick: dict[str, Any]) -> None:
+        """The same rule, applied to positions that are already open.
+
+        A ticket can acquire too much risk after it was sent: the stop
+        is edited in the terminal, the cap is lowered on this page, or
+        the position was opened by hand with no stop at all. The rule is
+        a standing one, so it is enforced on every tick and not only at
+        the moment of entry — and, as everywhere else, it only ever
+        moves a stop closer to the entry.
+        """
+        cap = self._cap()
+        if cap <= 0:
+            return
+        symbol = str(tick.get("symbol") or "")
+        bridge = getattr(self, "bridge", None)
+        if not symbol or bridge is None:
+            return
+        spec = self.symbol_spec(symbol)
+        if not spec.usable:
+            return
+        for pos in list(bridge.positions):
+            if pos.symbol != symbol:
+                continue
+            side = str(pos.type or "").lower()
+            entry = float(pos.price_open or 0)
+            if side not in {"buy", "sell"} or entry <= 0:
+                continue
+            capped = cap_stop(side, entry, float(pos.sl or 0), spec, cap,
+                              float(getattr(pos, "volume", 0) or 0))
+            if capped is None or not capped.capped:
+                continue
+            if abs(self._cap_note.get(pos.ticket, 0.0) - capped.sl) < spec.tick_size / 2:
+                continue        # already asked for this one
+            self._cap_note[pos.ticket] = capped.sl
+            await self.journal(
+                "warning",
+                "stop_capped_live",
+                f"{symbol} #{pos.ticket} risked more than {cap:.2f} per lot — stop pulled to {capped.sl}",
+                {"ticket": pos.ticket, "sl": capped.sl, "per_lot": round(capped.money_per_lot, 2)},
+            )
+            await bridge.send_order({
+                "action": "modify",
+                "ticket": pos.ticket,
+                "symbol": symbol,
+                "sl": capped.sl,
+                "tp": pos.tp,
+            })
+
+    def _remember_risk(self, pos: Any) -> float:
+        """The stop this position was opened with, in price.
+
+        Recorded the first time the ticket is seen and never updated,
+        because every later reading of pos.sl may be a stop this very
+        method moved. Tickets that have gone are dropped so a long
+        session does not accumulate them.
+        """
+        ticket = getattr(pos, "ticket", None)
+        if ticket is None:
+            return 0.0
+        known = self._entry_risk.get(ticket)
+        if known is not None:
+            return known
+        entry = float(getattr(pos, "price_open", 0) or 0)
+        sl = float(getattr(pos, "sl", 0) or 0)
+        risk = abs(entry - sl) if (entry > 0 and sl > 0) else 0.0
+        self._entry_risk[ticket] = risk
+        if len(self._entry_risk) > 512:
+            live = {getattr(p, "ticket", None) for p in getattr(self.bridge, "positions", [])}
+            for gone in [t for t in self._entry_risk if t not in live]:
+                self._entry_risk.pop(gone, None)
+        return risk
+
+    async def _maybe_trail(self, tick: dict[str, Any]) -> None:
+        """Move protective stops forward, never back.
+
+        Two rules, resolved together because a position has one stop:
+
+          breakeven_points        profit that arms the risk-free move
+          breakeven_lock_points   how far past entry the stop then sits
+          trailing_points         distance the stop follows price at
+
+        The arithmetic is in runtime/stops.py, deliberately free of
+        MetaTrader and testable on its own. This method is only the part
+        that has to touch a broker: pick the closing price for each side,
+        ask what the stop should be, and send at most one modify.
+
+        Closing price, not the convenient one. A long is closed at the
+        bid and a short at the ask, so measuring a long's profit against
+        the ask - as the old trailing code effectively did by comparing
+        against whichever came in the tick - says a position is in profit
+        by a spread more than it is. On the break-even rule that is the
+        difference between a stop that cannot lose and one that loses
+        exactly the spread, every time.
+        """
+        params = (self.strategy.params if self.strategy else {}) or {}
+        trailing = float(params.get("trailing_points") or 0)
+        be_trigger = float(params.get("breakeven_points") or 0)
+        be_lock = float(params.get("breakeven_lock_points") or 0)
+
+        # The account setting, for every position rather than only the
+        # ones a loaded strategy happens to own. A strategy that names
+        # its own points still wins: it knows the instrument it was
+        # written for, and this does not.
+        use_pct = bool(self.risk_free_enabled) and be_trigger <= 0
+
+        # R-based management, the default. The backtest applies exactly
+        # these rules through the same arithmetic, so what the report
+        # promises is what the robot does. An explicit points setting on
+        # the strategy, or the account's risk-free percentage, still
+        # overrides it - both are someone saying what they want.
+        be_at_r = float(params.get("be_at_r", 0.8) or 0)
+        be_lock_r = float(params.get("be_lock_r", 0.1) or 0)
+        trail_at_r = float(params.get("trail_at_r", 0.0) or 0)
+        trail_r = float(params.get("trail_r", 0.0) or 0)
+        use_r = be_trigger <= 0 and not use_pct and (be_at_r > 0 or trail_r > 0)
+
+        ladder_on = bool(getattr(self, "risk_free_ladder", False))
+        if trailing <= 0 and be_trigger <= 0 and not use_pct and not use_r and not ladder_on:
+            return
+
         symbol = tick.get("symbol")
         bid, ask = float(tick.get("bid") or 0), float(tick.get("ask") or 0)
         if not symbol or not (bid or ask):
             return
-        for pos in self.bridge.positions:
+        spread = max(0.0, ask - bid) if (bid and ask) else 0.0
+
+        bridge = getattr(self, "bridge", None)
+        if bridge is None:
+            return
+
+        for pos in list(bridge.positions):
             if pos.symbol != symbol:
                 continue
-            if pos.type == "buy" and bid:
-                new_sl = bid - points
-                if new_sl > float(pos.sl or 0) and new_sl < bid:
-                    await self.bridge.send_order({"action": "modify", "ticket": pos.ticket, "symbol": symbol, "sl": new_sl, "tp": pos.tp})
-            elif pos.type == "sell" and ask:
-                new_sl = ask + points
-                if (not pos.sl or new_sl < float(pos.sl)) and new_sl > ask:
-                    await self.bridge.send_order({"action": "modify", "ticket": pos.ticket, "symbol": symbol, "sl": new_sl, "tp": pos.tp})
+
+            side = str(pos.type or "").lower()
+            close_px = bid if side == "buy" else ask
+            if not close_px:
+                continue
+
+            entry = float(pos.price_open or 0)
+            trigger, lock = be_trigger, be_lock
+            if use_pct and entry > 0:
+                # A percentage is the same number on every instrument,
+                # which is the only kind of number one box in the desk
+                # can sensibly ask for. 150 points is a fair trigger on
+                # EURUSD and meaningless on gold.
+                trigger = entry * self.risk_free_trigger_pct / 100.0
+                lock = entry * self.risk_free_lock_pct / 100.0
+
+            # A tenth of a spread is not worth a round trip, and without
+            # a floor a fast instrument sends a modify on every tick and
+            # spends its time queueing behind itself.
+            min_step = spread * 0.5
+
+            # The ladder comes first when it is armed and the position has
+            # a target to measure rungs against. It protects strictly more
+            # than a single break-even move, and resolve_stop below would
+            # only ever pull the stop back towards entry.
+            ladder = None
+            if getattr(self, "risk_free_ladder", False) and entry > 0:
+                ladder = ladder_target(
+                    side,
+                    entry,
+                    float(pos.tp or 0),
+                    close_px,
+                    steps=int(getattr(self, "risk_free_steps", 3) or 3),
+                    lock_points=lock,
+                    spread=spread,
+                )
+            if ladder is not None:
+                target, rung = ladder
+                current = float(pos.sl or 0)
+                # Forward only. A rung already locked is never given up,
+                # and a stop that would not move by a meaningful amount
+                # is not worth a round trip to the broker.
+                better = (
+                    current <= 0
+                    or (side == "buy" and target > current + min_step)
+                    or (side == "sell" and target < current - min_step)
+                )
+                if not better:
+                    continue
+                note = f"ladder{rung}"
+                if self._stop_note.get(pos.ticket) != note:
+                    self._stop_note[pos.ticket] = note
+                    await self.journal(
+                        "info",
+                        "risk_free",
+                        f"{symbol} #{pos.ticket} reached TP{rung} — stop moved up to "
+                        f"{'break-even' if rung == 1 else f'TP{rung - 1}'} to protect the profit",
+                    )
+                await bridge.send_order({
+                    "action": "modify",
+                    "ticket": pos.ticket,
+                    "symbol": symbol,
+                    "sl": target,
+                    "tp": pos.tp,
+                })
+                continue
+
+            if use_r:
+                initial = self._remember_risk(pos)
+                if initial <= 0:
+                    continue
+                plan = resolve_stop_r(
+                    side,
+                    entry,
+                    initial,
+                    close_px,
+                    float(pos.sl or 0),
+                    be_at_r=be_at_r,
+                    be_lock_r=be_lock_r,
+                    trail_at_r=trail_at_r,
+                    trail_r=trail_r,
+                    spread=spread,
+                    min_step=min_step,
+                )
+            else:
+                plan = resolve_stop(
+                    side,
+                    entry,
+                    close_px,
+                    float(pos.sl or 0),
+                    breakeven_points=trigger,
+                    breakeven_lock_points=lock,
+                    trailing_points=trailing,
+                    spread=spread,
+                    min_step=min_step,
+                )
+            if plan is None:
+                continue
+
+            # Said once per position, not once per tick. The journal is
+            # read by people.
+            if self._stop_note.get(pos.ticket) != plan.reason:
+                self._stop_note[pos.ticket] = plan.reason
+                if plan.reason == "breakeven":
+                    await self.journal(
+                        "info",
+                        "risk_free",
+                        f"{symbol} #{pos.ticket} is now risk free - stop moved past entry",
+                    )
+
+            await bridge.send_order({
+                "action": "modify",
+                "ticket": pos.ticket,
+                "symbol": symbol,
+                "sl": plan.sl,
+                "tp": pos.tp,
+            })
 
     # ------------------------------------------------------------------
     # Danger guard — automatic protective exit
@@ -794,6 +1500,205 @@ class Trader:
             "active": self._danger_armed(),
             "blocked_by_prop": bool(getattr(prop, "enabled", False)),
         }
+
+    @staticmethod
+    def _clamp_pct(value: Any, fallback: float) -> float:
+        """A percentage of the entry price, kept inside the believable."""
+        try:
+            pct = float(value)
+        except (TypeError, ValueError):
+            return fallback
+        if pct != pct:        # NaN
+            return fallback
+        return max(0.0, min(50.0, pct))
+
+    def _risk_free_state(self) -> dict[str, Any]:
+        """Read defensively, like every other panel in the snapshot.
+
+        _sync_book_meta builds the whole strategies view in one dict. A
+        single attribute this method cannot read raises out of all of it,
+        so the desk loses the strategy cards, the quality score, the money
+        rule and the block reason together - and the trader sees an empty
+        panel rather than the one thing that is actually missing.
+        """
+        def num(name: str, fallback: float) -> float:
+            try:
+                return float(getattr(self, name, fallback))
+            except (TypeError, ValueError):
+                return fallback
+
+        steps = int(num("risk_free_steps", 3)) or 3
+        return {
+            "enabled": bool(getattr(self, "risk_free_enabled", False)),
+            "trigger_pct": round(num("risk_free_trigger_pct", 0.30), 4),
+            "lock_pct": round(num("risk_free_lock_pct", 0.0), 4),
+            "ladder": bool(getattr(self, "risk_free_ladder", True)),
+            "steps": steps,
+            # Spelled out for the desk so the panel can say "at TP1, the
+            # stop moves to break-even" instead of printing a bare 0.20.
+            "rungs": [
+                {
+                    "step": i,
+                    "label": f"TP{i}",
+                    "moves_to": "entry" if i == 1 else f"TP{i - 1}",
+                    "fraction": round(i / steps, 4),
+                }
+                for i in range(1, steps + 1)
+            ],
+        }
+
+    def _timezone_city(self) -> str:
+        """The chosen zone as somebody would say it out loud."""
+        from ..prop.hours import ZONES
+
+        for _, iana, city, _m in ZONES:
+            if iana == self.desk_timezone:
+                return city
+        return self.desk_timezone
+
+    def _timezone_state(self) -> dict[str, Any]:
+        minutes = self.prop.broker_minutes
+        return {
+            "timezone": self.desk_timezone,
+            "label": zone_label(self.desk_timezone, minutes),
+            "city": self._timezone_city(),
+            "broker_offset_minutes": minutes,
+            # The chosen zone's offset today, so the desk can convert a
+            # time to broker time by arithmetic rather than by shipping
+            # a second implementation of timezones to the browser.
+            "offset_minutes": zone_offset_minutes(self.desk_timezone, minutes),
+            # Cities, not database keys, and grouped by region. Built
+            # fresh each time so the offsets shown are today's, summer
+            # time included.
+            "choices": zone_choices(minutes),
+        }
+
+    async def set_timezone(self, body: dict[str, Any]) -> dict[str, Any]:
+        """The desk's clock. Everything that needs to know the time uses it.
+
+        Deliberately not a prop setting. Which hours a prop firm allows
+        is their rule; what time it is where you sit is not, and asking
+        the same question once per profile is how the answers start
+        disagreeing.
+        """
+        wanted = str((body or {}).get("timezone") or "").strip()
+        if not wanted:
+            return {"ok": False, "error": "no timezone given"}
+
+        if wanted.lower() not in {"broker", "local"} and resolve_zone(wanted) is None:
+            return {"ok": False, "error": f"'{wanted}' is not a timezone this machine knows"}
+
+        self.desk_timezone = wanted
+        self.prop.desk_timezone = wanted
+        if wanted.lower() != "broker":
+            # A stale broker offset must not colour the new choice.
+            self.prop.broker_minutes = self.prop.broker_minutes
+
+        merge({"system": {"timezone": wanted}})
+        self._sync_book_meta()
+        await self.bus.publish("strategy", self.strategy_meta)
+
+        state = self._timezone_state()
+        await self.journal("info", "timezone", f"Desk clock set to {state['label']}", extra=state)
+        return {"ok": True, "system": state}
+
+    async def set_risk_free(self, body: dict[str, Any]) -> dict[str, Any]:
+        body = dict(body or {})
+        if "enabled" in body:
+            self.risk_free_enabled = bool(body.get("enabled"))
+        if "trigger_pct" in body:
+            self.risk_free_trigger_pct = self._clamp_pct(
+                body.get("trigger_pct"), self.risk_free_trigger_pct)
+        if "lock_pct" in body:
+            self.risk_free_lock_pct = self._clamp_pct(
+                body.get("lock_pct"), self.risk_free_lock_pct)
+        if "ladder" in body:
+            self.risk_free_ladder = bool(body.get("ladder"))
+        if "steps" in body:
+            self.risk_free_steps = self._clamp_int(
+                body.get("steps"), int(getattr(self, "risk_free_steps", 3) or 3), 1, 5)
+
+        # Rebuild the snapshot and push it, exactly as set_danger does.
+        #
+        # Leaving these two lines out is why the switch turned itself
+        # back off: the value was saved and persisted correctly, but
+        # strategy_meta still carried the old state, so the desk reloaded
+        # its settings, read enabled=false and repainted the switch off.
+        # From the outside that is indistinguishable from a setting that
+        # refuses to save.
+        self._sync_book_meta()
+        self._persist_runtime()
+        await self.bus.publish("strategy", self.strategy_meta)
+
+        state = self._risk_free_state()
+        await self.journal(
+            "info",
+            "risk_free_cfg",
+            (
+                f"Risk free ladder ON - stop climbs a rung at each of "
+                f"{state['steps']} targets (TP1 locks the entry)"
+                if state["ladder"] else
+                (f"Risk free ON - stops move past entry at +{state['trigger_pct']}%"
+                 if state["enabled"] else "Risk free OFF")
+            ),
+            extra=state,
+        )
+        return {"ok": True, "risk_free": state}
+
+    def _money_state(self) -> dict[str, Any]:
+        """What the desk needs to draw the money rule and its reach."""
+        cap = self._cap()
+        symbol = str(getattr(self, "active_symbol", "") or "")
+        spec = self.symbol_spec(symbol) if symbol else SymbolSpec()
+        state: dict[str, Any] = {
+            "max_loss_per_lot": cap,
+            "symbol": symbol,
+            "priced": bool(spec.usable),
+            "currency": spec.currency or str((self.bridge.account.to_dict() or {}).get("currency") or ""),
+        }
+        if spec.usable and cap > 0:
+            distance = spec.floor_to_tick(spec.distance_for(cap))
+            state["max_stop_distance"] = spec.round_price(distance)
+            state["max_stop_points"] = round(distance / spec.tick_size, 1) if spec.tick_size else 0
+        return state
+
+    async def set_money(self, body: dict[str, Any]) -> dict[str, Any]:
+        """Set the per-lot loss cap. 0 turns the rule off, loudly."""
+        body = dict(body or {})
+        if "max_loss_per_lot" in body:
+            try:
+                value = float(body.get("max_loss_per_lot") or 0)
+            except (TypeError, ValueError):
+                return {"ok": False, "error": "max_loss_per_lot must be a number"}
+            self.max_loss_per_lot = max(0.0, min(100_000.0, value))
+        self._spec_gap_said.clear()
+        self._cap_note.clear()
+        self._sync_book_meta()
+        self._persist_runtime()
+        await self.bus.publish("strategy", self.strategy_meta)
+        state = self._money_state()
+        await self.journal(
+            "info",
+            "money_cfg",
+            (f"Stop cap set to {state['max_loss_per_lot']:.2f} per lot"
+             if state["max_loss_per_lot"] > 0
+             else "Stop cap OFF — stops are whatever the strategy asks for"),
+            extra=state,
+        )
+        return {"ok": True, "money": state}
+
+    def _chart_stop_cap(self, symbol: str):
+        """A (side, entry, sl) -> sl rule for the chart replay, or None."""
+        cap = self._cap()
+        spec = self.symbol_spec(symbol)
+        if cap <= 0 or not spec.usable:
+            return None
+
+        def rule(side: str, entry: float, sl: float, volume: float = 0.0) -> float:
+            out = cap_stop(side, entry, sl, spec, cap, volume)
+            return out.sl if out else sl
+
+        return rule
 
     async def set_danger(self, body: dict[str, Any]) -> dict[str, Any]:
         body = dict(body or {})
@@ -954,6 +1859,81 @@ class Trader:
             }
         )
 
+    async def _watch_strategies(self, tick: dict[str, Any]) -> None:
+        """Keep the strategy cards honest between bar closes.
+
+        A card that only changes when a candle closes is a card that says
+        "idle" for fourteen minutes out of fifteen, and the trader cannot
+        tell a thinking robot from a stopped one. This asks every armed
+        strategy the same question the live engine will ask at the close —
+        on the bar as it stands — and publishes the answer. It never
+        trades: the decision that counts is still taken on a closed bar,
+        because a signal measured on half a candle is not a signal.
+        """
+        now = time.time()
+        if now - float(getattr(self, "_watch_at", 0.0) or 0.0) < self.WATCH_EVERY_SEC:
+            return
+        self._watch_at = now
+        symbol = str(tick.get("symbol") or self.active_symbol or "")
+        if not symbol or not self._is_ea_symbol(symbol):
+            return
+        armed = [(name, slot) for name, slot in self.book.items() if slot.get("enabled") and slot.get("inst")]
+        if not armed:
+            return
+        ctx = self._ctx(symbol, self.active_timeframe, tick)
+        if not ctx.candles or len(ctx.candles) < 30:
+            return
+
+        def look() -> dict[str, tuple[str, str]]:
+            out: dict[str, tuple[str, str]] = {}
+            for name, slot in armed:
+                inst = slot.get("inst")
+                # The tally of "why it stayed out" is per closed bar and the
+                # desk reads it; asking thirty times a minute would drown it.
+                # Snapshot it, ask, put it back.
+                tally = dict(getattr(inst, "refusals", {}) or {})
+                last_kind = getattr(inst, "last_refusal_kind", "")
+                last_why = getattr(inst, "last_refusal", "")
+                try:
+                    signal = inst.on_candle(ctx)
+                except Exception as exc:        # a watch pass must never arm safe mode
+                    out[name] = ("fault", str(exc))
+                    continue
+                finally:
+                    if hasattr(inst, "refusals"):
+                        inst.refusals = tally
+                action = str(getattr(signal, "action", "") or "") if signal else ""
+                if signal and action in {"buy", "sell", "close", "close_all", "flatten"}:
+                    out[name] = (action, str(getattr(signal, "reason", "") or action))
+                else:
+                    out[name] = ("hold", str(getattr(inst, "last_refusal", "") or "no setup on this bar"))
+                # And the strategy is left exactly as the last closed bar
+                # left it, so nothing the watch saw can leak into a trade.
+                if hasattr(inst, "last_refusal"):
+                    inst.last_refusal = last_why
+                    inst.last_refusal_kind = last_kind
+            return out
+
+        try:
+            seen = await asyncio.to_thread(look)
+        except Exception:
+            log.exception("strategy watch failed")
+            return
+        changed = False
+        for name, (action, why) in seen.items():
+            slot = self.book.get(name)
+            if slot is None:
+                continue
+            if slot.get("live_action") != action or slot.get("live_reason") != why:
+                changed = True
+            slot["live_action"] = action
+            slot["live_reason"] = why
+            slot["live_ts"] = utc_iso()
+        if not changed:
+            return
+        self._sync_book_meta()
+        await self.bus.publish("strategy", self.strategy_meta)
+
     async def _maybe_strategy_tick(self, tick: dict[str, Any]) -> None:
         if not self.auto_trade:
             return
@@ -985,7 +1965,7 @@ class Trader:
         runtime = cfg.get("runtime") or {}
         self.auto_trade = bool(runtime.get("auto_trade", False))
         self.require_ai_agree = bool(runtime.get("require_ai_agree", True))
-        self.min_ai_confidence = float(runtime.get("min_ai_confidence") or 0.55)
+        self.min_ai_confidence = float(runtime.get("min_ai_confidence") or 0.35)
         self.volume_mode = "manual" if str(runtime.get("volume_mode") or "auto") == "manual" else "auto"
         try:
             self.manual_volume = max(0.0, min(1000.0, float(runtime.get("manual_volume") or 0.10)))
@@ -1002,9 +1982,36 @@ class Trader:
         except (TypeError, ValueError):
             self.min_signal_quality = 0.55
         self.news_trade = bool(runtime.get("news_trade", False))
+        # Auto entry point: rest the robot's trade at a price instead of
+        # taking the market. See runtime/auto_entry.py for why.
+        auto_cfg = runtime.get("auto_entry") if isinstance(runtime.get("auto_entry"), dict) else {}
+        self.auto_entry = bool(auto_cfg.get("enabled", False))
+        try:
+            self.auto_entry_depth = max(0.0, min(1.0, float(auto_cfg.get("zone_depth", 0.5))))
+        except (TypeError, ValueError):
+            self.auto_entry_depth = 0.5
+        try:
+            self.auto_entry_offset = max(0.0, min(5.0, float(auto_cfg.get("offset_atr", 0.35))))
+        except (TypeError, ValueError):
+            self.auto_entry_offset = 0.35
+        self.auto_entry_expiry = self._clamp_int(auto_cfg.get("expiry_minutes"), 120, 0, 10080)
         danger_cfg = runtime.get("danger_guard") if isinstance(runtime.get("danger_guard"), dict) else {}
         self.danger_enabled = bool(danger_cfg.get("enabled", False))
         self.danger_sensitivity = clamp_sensitivity(danger_cfg.get("sensitivity", 50))
+        system = cfg.get("system") if isinstance(cfg.get("system"), dict) else {}
+        self.desk_timezone = str(system.get("timezone") or "UTC").strip() or "UTC"
+        self.prop.desk_timezone = self.desk_timezone
+        money_cfg = runtime.get("money") if isinstance(runtime.get("money"), dict) else {}
+        try:
+            self.max_loss_per_lot = max(0.0, float(money_cfg.get("max_loss_per_lot", 10.0)))
+        except (TypeError, ValueError):
+            self.max_loss_per_lot = 10.0
+        rf_cfg = runtime.get("risk_free") if isinstance(runtime.get("risk_free"), dict) else {}
+        self.risk_free_enabled = bool(rf_cfg.get("enabled", False))
+        self.risk_free_trigger_pct = self._clamp_pct(rf_cfg.get("trigger_pct"), 0.30)
+        self.risk_free_lock_pct = self._clamp_pct(rf_cfg.get("lock_pct"), 0.0)
+        self.risk_free_ladder = bool(rf_cfg.get("ladder", True))
+        self.risk_free_steps = self._clamp_int(rf_cfg.get("steps"), 3, 1, 5)
         # License gates: freemium accounts lose prop + scalping + news trading.
         # Persisted premium-era settings are silently downgraded on boot.
         if self.news_trade and not self.license.feature("news"):
@@ -1025,9 +2032,9 @@ class Trader:
                 merge({"prop": {"enabled": False}})
             except Exception:
                 pass
-        saved = runtime.get("strategies") or {}
+        saved = self._migrate_retired_strategies(runtime.get("strategies") or {})
         self.book = {}
-        for name in ("ema_rsi", "price_action", "atr_breakout", "scalp_impulse"):
+        for name in BUILTIN_NAMES:
             spec = saved.get(name) or {}
             inst = self.loader.load_builtin(name, spec.get("params") or {})
             self.book[name] = {
@@ -1129,6 +2136,73 @@ class Trader:
         except Exception:
             return sum(1 for p in rows if str(getattr(p, "symbol", "")) == symbol)
 
+    def _resting_count(self, symbol: str = "") -> int:
+        """Robot orders waiting at a price. Each one is a trade in waiting."""
+        try:
+            rows = self._own_pending_orders()
+        except Exception:
+            return 0
+        if not symbol:
+            return len(rows)
+        out = 0
+        for row in rows:
+            other = str(row.get("symbol") or "")
+            try:
+                same = bool(self.bridge._sym_match(other, symbol))
+            except Exception:
+                same = other == symbol
+            if same:
+                out += 1
+        return out
+
+    def _inflight_count(self, symbol: str = "") -> int:
+        """Entries sent but not yet confirmed by MT5."""
+        book = getattr(self, "_entry_inflight", None) or {}
+        if not symbol:
+            return sum(int(v) for v in book.values())
+        total = 0
+        for other, n in book.items():
+            try:
+                same = bool(self.bridge._sym_match(str(other), symbol))
+            except Exception:
+                same = str(other) == symbol
+            if same:
+                total += int(n)
+        return total
+
+    def _committed_count(self, symbol: str = "") -> int:
+        """Everything that is, or is about to be, a position.
+
+        The open-trade cap used to be measured against live positions
+        alone, which is the one number that lags. An order resting at a
+        price will become a position without anyone asking again, and an
+        entry already on the wire is a position MetaTrader has simply not
+        reported yet. Counting only what has already landed let a cap of
+        one produce two trades: the second signal looked at an empty book
+        because the first had not arrived.
+        """
+        return (
+            self._open_count(symbol)
+            + self._resting_count(symbol)
+            + self._inflight_count(symbol)
+        )
+
+    def _hold_slot(self, symbol: str) -> None:
+        book = getattr(self, "_entry_inflight", None)
+        if book is None:
+            book = self._entry_inflight = {}
+        key = str(symbol or "")
+        book[key] = int(book.get(key) or 0) + 1
+
+    def _release_slot(self, symbol: str) -> None:
+        book = getattr(self, "_entry_inflight", None) or {}
+        key = str(symbol or "")
+        left = int(book.get(key) or 0) - 1
+        if left > 0:
+            book[key] = left
+        else:
+            book.pop(key, None)
+
     def _per_symbol_cap(self) -> int:
         """How many positions may share one symbol (prop wins when armed)."""
         if getattr(self.prop, "enabled", False):
@@ -1148,10 +2222,16 @@ class Trader:
         return cap
 
     def free_slots(self, symbol: str = "") -> int:
-        """Robot entries still allowed right now (never negative)."""
-        left = self._total_cap() - self._open_count()
+        """Robot entries still allowed right now (never negative).
+
+        Measured against commitments rather than arrivals - see
+        _committed_count. A resting order and an entry on the wire both
+        hold their slot, so the ceiling means the same thing whether or
+        not MetaTrader has caught up.
+        """
+        left = self._total_cap() - self._committed_count()
         if symbol:
-            left = min(left, self._per_symbol_cap() - self._open_count(symbol))
+            left = min(left, self._per_symbol_cap() - self._committed_count(symbol))
         return max(0, left)
 
     def _entries_for_signal(self, symbol: str, quality: float) -> int:
@@ -1224,13 +2304,72 @@ class Trader:
             return "bear", strength
         return "neutral", strength
 
+    def tick_of(self, symbol: str) -> dict[str, Any]:
+        """The live quote for a symbol, as a plain dict. Never raises.
+
+        The bridge stores quotes as Tick dataclasses, the desk and the
+        tests hand around dicts, and brokers rename the instrument -
+        EURUSD, EURUSD.m, EURUSD-ECN. Every reader that re-invented one
+        of those three facts got a different two of them wrong; the
+        spread gate read `tick.get("bid")` on a dataclass and raised
+        AttributeError, which is not in the exception list it was
+        written to survive, so it took the whole strategy book down on
+        the way out and the robot never sent an order. One accessor, so
+        there is one place to be right.
+        """
+        want = str(symbol or "").strip()
+        if not want:
+            return {}
+        match = getattr(self.bridge, "_sym_match", None)
+
+        def pick(book: Any) -> Any:
+            if not isinstance(book, dict) or not book:
+                return None
+            if want in book:
+                return book[want]
+            if callable(match):
+                for key, value in book.items():
+                    try:
+                        if match(want, str(key)):
+                            return value
+                    except Exception:
+                        continue
+            return None
+
+        row = None
+        for source in ("public_ticks", "ticks"):
+            try:
+                book = getattr(self.bridge, source, None)
+                book = book() if callable(book) else book
+            except Exception:
+                continue
+            row = pick(book)
+            if row is not None:
+                break
+        if row is None:
+            return {}
+        if hasattr(row, "to_dict"):
+            try:
+                row = row.to_dict()
+            except Exception:
+                return {}
+        if isinstance(row, dict):
+            return dict(row)
+        return {
+            "symbol": want,
+            "bid": float(getattr(row, "bid", 0) or 0),
+            "ask": float(getattr(row, "ask", 0) or 0),
+            "time": str(getattr(row, "time", "") or ""),
+        }
+
     def _spread_ok(self, symbol: str) -> tuple[bool, str]:
-        """Reject entries when the spread eats the edge."""
-        try:
-            ticks = self.bridge.public_ticks() or {}
-        except Exception:
-            return True, ""
-        tick = ticks.get(symbol) or {}
+        """Reject entries when the spread eats the edge.
+
+        Open on every doubt: a quote that cannot be read is not evidence
+        of a bad spread, and refusing the trade for it would be the gate
+        inventing a reason. Only a spread it has actually measured says no.
+        """
+        tick = self.tick_of(symbol)
         try:
             bid = float(tick.get("bid") or 0)
             ask = float(tick.get("ask") or 0)
@@ -1252,12 +2391,21 @@ class Trader:
         return True, ""
 
     def signal_quality(self, symbol: str, side: str, signal_conf: float = 0.0) -> dict[str, Any]:
-        """Blend every read we have into one 0..1 score for this entry.
+        """Blend every read that *has* an opinion into one 0..1 score.
 
-        Model probability, its measured out-of-sample edge, the strategy's own
-        confidence, candle pattern, market regime and the higher timeframe all
-        move the same number — so the robot stops taking the setups that only
-        one of them liked.
+        This used to start at 0.5 and add or subtract fixed amounts. That
+        arithmetic had a fault which switched the robot off entirely on a
+        fresh install: an AI that has not finished training took 0.05 off
+        the score for "still learning", a model with no measured edge
+        added nothing, and the default floor is 0.55 — so a perfectly
+        good setup scored about 0.51 and was skipped for "low quality".
+        Nobody could see it, because the thing that silenced the robot was
+        the absence of evidence rather than evidence against.
+
+        Now each read is a vote with a weight, and a read with nothing to
+        say simply does not vote. No votes at all means the score is the
+        floor: the robot trades the strategy's own judgement, which is
+        what it is for.
         """
         want = "bull" if str(side).lower() in {"buy", "long"} else "bear"
         ai: dict[str, Any] = {}
@@ -1269,60 +2417,79 @@ class Trader:
                     ai = dict(last)
         except Exception:
             ai = {}
+
         reasons: list[str] = []
-        score = 0.5
+        votes: list[tuple[float, float]] = []      # (weight, 0..1 value)
+
+        def vote(weight: float, value: float, note: str) -> None:
+            votes.append((max(0.0, weight), max(0.0, min(1.0, value))))
+            if note:
+                reasons.append(note)
+
+        # --- the model, only when it is actually ready ------------------
         conf = float(ai.get("confidence") or 0)
         direction = str(ai.get("direction") or ai.get("display_direction") or "neutral")
-        if ai.get("ready"):
-            if direction == want:
-                score += 0.30 * conf
-                reasons.append(f"ai {direction} {conf:.0%}")
-            elif direction == "neutral":
-                score -= 0.05
-                reasons.append("ai neutral")
-            else:
-                score -= 0.30 * max(conf, 0.5)
-                reasons.append(f"ai {direction} against")
-        else:
-            score -= 0.05
-            reasons.append("ai still learning")
-        # Measured edge of the model (holdout accuracy) — an untested model is
-        # not allowed to push the score up much.
         try:
             edge = float((self.ai.models.metrics or {}).get("edge") or 0)
         except Exception:
             edge = 0.0
-        score += 0.10 * max(0.0, min(1.0, edge))
+        if ai.get("ready"):
+            # An untested model is allowed an opinion, not a loud one.
+            weight = 0.6 + 0.6 * max(0.0, min(1.0, edge))
+            if direction == want:
+                vote(weight, 0.5 + 0.5 * conf, f"ai {direction} {conf:.0%}")
+            elif direction == "neutral":
+                vote(weight * 0.5, 0.5, "ai neutral")
+            else:
+                vote(weight, 0.5 - 0.5 * max(conf, 0.5), f"ai {direction} against")
+        else:
+            # Not a penalty. A model that has not finished learning knows
+            # nothing about this trade, and knowing nothing is not a
+            # reason to refuse it.
+            reasons.append("ai still learning (not counted)")
+
+        # --- the strategy's own confidence ------------------------------
         if signal_conf:
-            score += 0.10 * max(0.0, min(1.0, float(signal_conf)))
-            reasons.append(f"strategy {float(signal_conf):.0%}")
+            vote(1.0, float(signal_conf), f"strategy {float(signal_conf):.0%}")
+
+        # --- the slower chart -------------------------------------------
+        bias, strength = self._higher_tf_bias(symbol)
+        if bias == want:
+            vote(1.0, 0.5 + 0.5 * max(0.2, strength), f"{self._higher_timeframe()} {bias}")
+        elif bias != "neutral":
+            vote(1.0, 0.5 - 0.5 * max(0.35, strength), f"{self._higher_timeframe()} {bias} against")
+
+        # --- regime and the raw features --------------------------------
         regime = ai.get("regime_obj") if isinstance(ai.get("regime_obj"), dict) else ai.get("regime")
         regime_name = str((regime or {}).get("name") if isinstance(regime, dict) else regime or "")
         if regime_name:
-            if "trend" in regime_name.lower():
-                score += 0.05
-            elif "chop" in regime_name.lower() or "range" in regime_name.lower():
-                score -= 0.08
-            reasons.append(f"regime {regime_name}")
-        bias, strength = self._higher_tf_bias(symbol)
-        if bias == want:
-            score += 0.12 * strength
-            reasons.append(f"{self._higher_timeframe()} {bias}")
-        elif bias != "neutral":
-            score -= 0.18 * max(0.35, strength)
-            reasons.append(f"{self._higher_timeframe()} {bias} against")
+            low = regime_name.lower()
+            if "trend" in low:
+                vote(0.5, 0.75, f"regime {regime_name}")
+            elif "chop" in low or "range" in low:
+                vote(0.5, 0.3, f"regime {regime_name}")
+            else:
+                reasons.append(f"regime {regime_name}")
         feats = ai.get("features") or {}
         try:
             er = float(feats.get("er10") or 0)
             atr_pct = float(feats.get("atr_pct") or 0)
         except (TypeError, ValueError):
             er = atr_pct = 0.0
-        if er and er < 0.18:
-            score -= 0.10
-            reasons.append("chop (low efficiency)")
+        if er:
+            vote(0.5, 0.25 if er < 0.18 else 0.6, "chop (low efficiency)" if er < 0.18 else "")
         if atr_pct and atr_pct < 0.00025:
-            score -= 0.10
-            reasons.append("volatility too low")
+            vote(0.5, 0.25, "volatility too low")
+
+        floor = float(getattr(self, "min_signal_quality", 0.55) or 0.55)
+        if votes:
+            total = sum(w for w, _ in votes) or 1.0
+            score = sum(w * v for w, v in votes) / total
+        else:
+            # Nothing had an opinion. The strategy's own gates already
+            # passed, so this must not be the thing that refuses.
+            score = floor
+            reasons.append("nothing to judge it by — the strategy's own gates stand")
         score = max(0.0, min(1.0, score))
         return {"score": score, "reasons": reasons, "bias": bias, "ai": direction, "confidence": conf}
 
@@ -1347,6 +2514,19 @@ class Trader:
             desc["last_action"] = slot.get("last_action") or "idle"
             desc["last_reason"] = slot.get("last_reason") or ""
             desc["last_ts"] = slot.get("last_ts") or ""
+            # What the strategy is saying *right now*, between closes.
+            desc["live_action"] = slot.get("live_action") or ""
+            desc["live_reason"] = slot.get("live_reason") or ""
+            desc["live_ts"] = slot.get("live_ts") or ""
+            # The running tally of refusals: one bar's reason is an anecdote,
+            # the tally is the answer to "why has it not traded all week".
+            try:
+                desc["refusals"] = [
+                    {"reason": kind, "count": int(count)}
+                    for kind, count in (inst.refusal_report(5) if hasattr(inst, "refusal_report") else [])
+                ]
+            except Exception:
+                desc["refusals"] = []
             items.append(desc)
         try:
             # The persistent ledger, not a scan of the trade table: a strategy's
@@ -1359,6 +2539,22 @@ class Trader:
 
         def _stat(name: str) -> dict[str, Any]:
             return ledger.get(normalise_strategy_tag(name), {})
+
+        def panel(name: str, build: Any, empty: Any) -> Any:
+            """One sub-card of the snapshot, or an empty one with a log line.
+
+            The strategies view is published as a single dict. Anything
+            that raises while building one card used to take the whole
+            dict with it, so a fault in the money rule emptied the
+            strategy cards, the quality score and the block reason as
+            well. A missing card is a bug to fix; a missing panel is a
+            trader who cannot see their robot.
+            """
+            try:
+                return build()
+            except Exception:
+                log.exception("strategy snapshot: %s is unavailable", name)
+                return empty
 
         for desc in items:
             stats = _stat(str(desc.get("name") or ""))
@@ -1387,29 +2583,62 @@ class Trader:
             "trade_style": self.trade_style,
             "min_open_trades": int(getattr(self, "min_open_trades", 1) or 1),
             "max_open_trades": int(getattr(self, "max_open_trades", 2) or 2),
-            "open_trades": self._open_count(),
-            "free_slots": self.free_slots(),
+            "open_trades": panel("open trades", self._open_count, 0),
+            "free_slots": panel("free slots", self.free_slots, 0),
             "smart_filters": bool(getattr(self, "smart_filters", True)),
             # What the caps actually are once the prop profile has had its
             # say. The desk was showing the trader's own number, which is a
             # wish rather than the rule the robot is being held to.
-            "cap_effective": self._total_cap(),
-            "cap_symbol": self._per_symbol_cap(),
+            "cap_effective": panel("cap", self._total_cap, 0),
+            "cap_symbol": panel("symbol cap", self._per_symbol_cap, 0),
             "cap_by_prop": bool(
                 getattr(self.prop, "enabled", False)
                 and self._total_cap() < max(1, int(getattr(self, "max_open_trades", 2) or 2))
             ),
             "min_signal_quality": float(getattr(self, "min_signal_quality", 0.55) or 0.55),
             "last_quality": dict(getattr(self, "last_quality", {}) or {}),
-            "news_trade": self.news_trading_on(),
+            "last_block": dict(getattr(self, "last_block", {}) or {}),
+            "news_trade": panel("news", self.news_trading_on, False),
             "news_trade_locked": bool(self.prop.enabled),
-            "danger_guard": self._danger_state(),
-            "auto_limit": self._auto_limit_meta(),
+            "auto_entry": bool(getattr(self, "auto_entry", False)),
+            "auto_entry_expiry": int(getattr(self, "auto_entry_expiry", 120)),
+            "pending_orders": panel("pending orders", lambda: len(self._own_pending_orders()), 0),
+            "danger_guard": panel("danger guard", self._danger_state, {}),
+            "risk_free": panel("risk free", self._risk_free_state, {}),
+            "money": panel("money rule", self._money_state, {}),
+            "system": panel("clock", self._timezone_state, {}),
+            "auto_limit": panel("auto limit", self._auto_limit_meta, {}),
             "prop_enabled": bool(getattr(self.prop, "enabled", True)),
             "items": items,
             "stats": ledger,
             "class": first.__class__.__name__ if first else "",
         }
+
+    @staticmethod
+    def _migrate_retired_strategies(saved: dict[str, Any]) -> dict[str, Any]:
+        """Carry a retired built-in's saved state over to its replacement.
+
+        A trader who had scalp_impulse armed should come back from the upgrade
+        with King armed, not with auto-trading quietly switched off and no
+        explanation. Only the *enabled* flag and the kind travel: the old
+        parameters described an indicator strategy and mean nothing to a
+        structural one, so forwarding them would be worse than dropping them.
+        """
+        if not isinstance(saved, dict):
+            return {}
+        out = dict(saved)
+        for old_name, new_name in LEGACY_BUILTINS.items():
+            spec = out.pop(old_name, None)
+            if not isinstance(spec, dict):
+                continue
+            existing = out.get(new_name)
+            if isinstance(existing, dict) and existing.get("enabled"):
+                continue
+            out[new_name] = {
+                "enabled": bool(spec.get("enabled")),
+                "kind": "builtin",
+            }
+        return out
 
     def _persist_runtime(self) -> None:
         merge(
@@ -1426,6 +2655,22 @@ class Trader:
                     "smart_filters": bool(getattr(self, "smart_filters", True)),
                     "min_signal_quality": float(getattr(self, "min_signal_quality", 0.55) or 0.55),
                     "news_trade": self.news_trade,
+                    "auto_entry": {
+                        "enabled": bool(getattr(self, "auto_entry", False)),
+                        "zone_depth": float(getattr(self, "auto_entry_depth", 0.5)),
+                        "offset_atr": float(getattr(self, "auto_entry_offset", 0.35)),
+                        "expiry_minutes": int(getattr(self, "auto_entry_expiry", 120)),
+                    },
+                    "money": {
+                        "max_loss_per_lot": float(getattr(self, "max_loss_per_lot", 10.0) or 0.0),
+                    },
+                    "risk_free": {
+                        "enabled": bool(self.risk_free_enabled),
+                        "trigger_pct": float(self.risk_free_trigger_pct),
+                        "lock_pct": float(self.risk_free_lock_pct),
+                        "ladder": bool(getattr(self, "risk_free_ladder", True)),
+                        "steps": int(getattr(self, "risk_free_steps", 3) or 3),
+                    },
                     "danger_guard": {
                         "enabled": bool(self.danger_enabled),
                         "sensitivity": int(self.danger_sensitivity),
@@ -1458,7 +2703,28 @@ class Trader:
             return str(signal.get("action") or ""), str(signal.get("reason") or "")
         return "", ""
 
-    async def _run_enabled_strategies(self, ctx: StrategyContext, execute: bool = False) -> None:
+    def fire_blockers(self) -> list[str]:
+        """Every reason a signal would not be sent right now, by name.
+
+        "Signal seen but auto-trade is not armed (or a gate is closed)"
+        was the only thing the log said when a strategy fired and nothing
+        happened, and it is five possibilities in one sentence. A trader
+        looking at that cannot tell whether they forgot the switch, the
+        kill switch is down, prop has locked them out, or the tape is not
+        live - and every one of those has a different fix.
+        """
+        return gate_blockers(
+            auto_trade=bool(self.auto_trade),
+            kill_switch=bool(self.kill_switch),
+            safe_mode=bool(self.safe_mode),
+            prop_enabled=bool(self.prop.enabled),
+            prop_locked=bool(self.prop.locked),
+            tape_mode=self.bridge.tape_mode(),
+        )
+
+    async def _run_enabled_strategies(
+        self, ctx: StrategyContext, execute: bool = False, blocked: list[str] | None = None
+    ) -> None:
         closes: list[tuple[str, Any]] = []
         entries: list[tuple[str, Any]] = []
         enabled = [name for name, slot in self.book.items() if slot.get("enabled") and slot.get("inst")]
@@ -1493,8 +2759,13 @@ class Trader:
                 return
             action, reason = self._signal_bits(signal)
             if not signal or action in {"", "hold", "none"}:
+                # "no setup on this bar" is true and useless. A strategy that
+                # declines now says which rule stopped it, and that sentence
+                # is what the desk shows — otherwise a quiet robot and a
+                # broken one look exactly the same from the outside.
+                said = str(getattr(inst, "last_refusal", "") or "")
                 slot["last_action"] = "hold"
-                slot["last_reason"] = reason or "no setup on this bar"
+                slot["last_reason"] = reason or said or "no setup on this bar"
                 slot["last_ts"] = utc_iso()
                 await self.journal("info", "hold", f"{name}: hold — {slot['last_reason']}")
                 continue
@@ -1508,17 +2779,19 @@ class Trader:
                 entries.append((name, signal))
         if not execute:
             if closes or entries:
+                why = ", ".join(blocked) if blocked else "a gate is closed"
                 await self.journal(
                     "warning",
                     "not_armed",
-                    "Signal seen but auto-trade is not armed (or a gate is closed) — order not sent.",
+                    f"Signal seen but not sent — {why}.",
+                    extra={"blocked": list(blocked or [])},
                 )
             self._sync_book_meta()
             await self.bus.publish("strategy", self.strategy_meta)
             return
         for name, signal in closes:
             await self.journal("info", "close", f"{name} requested close")
-            await self._dispatch_signal(signal, f"strategy:{name}")
+            await self._safe_dispatch(signal, name)
         if not entries:
             self._sync_book_meta()
             await self.bus.publish("strategy", self.strategy_meta)
@@ -1547,7 +2820,7 @@ class Trader:
                 )
                 break
             await self.journal("info", "dispatch", f"Dispatching {name} {self._signal_bits(signal)[0]}")
-            await self._dispatch_signal(signal, f"strategy:{name}")
+            await self._safe_dispatch(signal, name)
         self._sync_book_meta()
         await self.bus.publish("strategy", self.strategy_meta)
 
@@ -1568,10 +2841,6 @@ class Trader:
                 "lookback": 20, "volume": 0.10, "sl_atr": 1.2, "tp_atr": 2.0,
                 "min_rr": 1.6, "with_trend": True, "require_momentum": True, "min_efficiency": 0.18,
             },
-            "scalp_impulse": {
-                "lookback": 8, "volume": 0.05, "sl_atr": 0.9, "tp_atr": 1.4,
-                "min_rr": 1.3, "with_trend": True, "require_momentum": False, "min_efficiency": 0.2,
-            },
         },
         "scalping": {
             "ema_rsi": {
@@ -1585,10 +2854,6 @@ class Trader:
             "atr_breakout": {
                 "lookback": 8, "volume": 0.05, "sl_atr": 0.55, "tp_atr": 0.95,
                 "min_rr": 1.2, "with_trend": True, "require_momentum": False, "min_efficiency": 0.12,
-            },
-            "scalp_impulse": {
-                "lookback": 5, "volume": 0.05, "sl_atr": 0.5, "tp_atr": 0.8,
-                "min_rr": 1.1, "with_trend": False, "require_momentum": False, "min_efficiency": 0.12,
             },
         },
     }
@@ -1651,6 +2916,24 @@ class Trader:
             if body.get("news_trade") and not self.license.feature("news"):
                 return {"ok": False, "error": "premium_required", "feature": "news", "upgrade": True}
             self.news_trade = bool(body.get("news_trade"))
+        if "auto_entry" in body:
+            # Accept the bare switch the desk sends, or the full object when
+            # an advanced user tunes the depth from the API.
+            raw = body.get("auto_entry")
+            auto = raw if isinstance(raw, dict) else {"enabled": bool(raw)}
+            if "enabled" in auto:
+                self.auto_entry = bool(auto.get("enabled"))
+            for key, attr, lo, hi in (
+                ("zone_depth", "auto_entry_depth", 0.0, 1.0),
+                ("offset_atr", "auto_entry_offset", 0.0, 5.0),
+            ):
+                if key in auto:
+                    try:
+                        setattr(self, attr, max(lo, min(hi, float(auto.get(key)))))
+                    except (TypeError, ValueError):
+                        pass
+            if "expiry_minutes" in auto:
+                self.auto_entry_expiry = self._clamp_int(auto.get("expiry_minutes"), 120, 0, 10080)
         if "prop_enabled" in body:
             if body.get("prop_enabled") and not self.license.feature("prop"):
                 return {"ok": False, "error": "premium_required", "feature": "prop", "upgrade": True}
@@ -1817,6 +3100,124 @@ class Trader:
                 return vol
         return payload.get("volume")
 
+    async def _blocked(
+        self,
+        source: str,
+        payload: dict[str, Any],
+        code: str,
+        why: str,
+        extra: dict[str, Any] | None = None,
+    ) -> None:
+        """Record, in one place, that a real signal did not become an order.
+
+        "The robot does not trade" was unanswerable because each refusal
+        wrote its own sentence into the log and nothing kept a record. The
+        strategy card said "hold", which was a lie — the strategy did not
+        hold, the desk refused it. Now the refusal lands on the card that
+        produced the signal, and on the desk's own last-block line.
+        """
+        name = str(source or "").split(":", 1)[-1]
+        slot = (getattr(self, "book", None) or {}).get(name)
+        if slot is not None:
+            slot["last_action"] = "blocked"
+            slot["last_reason"] = why
+            slot["last_ts"] = utc_iso()
+        self.last_block = {
+            "code": code,
+            "why": why,
+            "strategy": name,
+            "symbol": str(payload.get("symbol") or ""),
+            "side": str(payload.get("side") or payload.get("action") or ""),
+            "at": utc_iso(),
+        }
+        await self.journal("warning", code, f"Signal not sent — {why}", {**(extra or {}), "block": self.last_block})
+        if slot is not None:
+            self._sync_book_meta()
+            await self.bus.publish("strategy", self.strategy_meta)
+
+    def _ai_ceiling(self) -> float:
+        """The highest confidence the AI can currently report, or 0."""
+        try:
+            return float((self.ai.last or {}).get("ceiling") or 0.0)
+        except Exception:
+            return 0.0
+
+    def _ai_ceiling_note(self) -> str:
+        ceiling = self._ai_ceiling()
+        if ceiling <= 0 or ceiling >= float(getattr(self, "min_ai_confidence", 0.55) or 0):
+            return ""
+        return (
+            f" — and with the edge measured so far the AI cannot go above {ceiling:.2f}, "
+            f"so this setting refuses every entry"
+        )
+
+    async def _warn_unreachable_ai(self) -> None:
+        """Say once that the AI filter has been set to an impossible number.
+
+        The AI's confidence is shrunk towards "no information" in
+        proportion to the edge it has actually measured out of sample, so
+        it has a ceiling - about 0.53 with three classes and no edge yet.
+        A minimum set above that is not a strict filter, it is an off
+        switch with a market-sounding excuse, and the trader reads
+        "AI confidence 0.31 is under the 0.55 you asked for" as the
+        market's fault rather than the slider's.
+        """
+        ceiling = self._ai_ceiling()
+        if ceiling <= 0 or ceiling >= float(getattr(self, "min_ai_confidence", 0.55) or 0):
+            self._ai_ceiling_said = False
+            return
+        if getattr(self, "_ai_ceiling_said", False):
+            return
+        self._ai_ceiling_said = True
+        await self.journal(
+            "warning",
+            "ai_unreachable",
+            f"The AI filter is set to {float(self.min_ai_confidence):.2f}, but the AI cannot "
+            f"report more than {ceiling:.2f} until it measures an edge out of sample. "
+            f"Every robot entry will be refused while both are true. Lower the minimum in "
+            f"Robot, or switch the AI agreement filter off — the strategy's own rules and "
+            f"the quality score still apply.",
+            {"min_ai_confidence": float(self.min_ai_confidence), "ceiling": ceiling},
+        )
+
+    async def _safe_dispatch(self, signal, name: str) -> None:
+        """Send one strategy's signal, and survive a fault in the path.
+
+        A fault between the signal and the broker used to abort the whole
+        closed-bar handler: the remaining strategies were never asked, the
+        desk showed "Strategy book crashed" with a Python message in it,
+        and the next bar did exactly the same thing. That is a robot that
+        never trades and cannot say why. The crash is now owned by the one
+        signal that caused it - named, journalled as an error so it reaches
+        the desk, and left behind as last_block so the "why did nothing
+        happen" card has an answer.
+        """
+        try:
+            await self._dispatch_signal(signal, f"strategy:{name}")
+        except Exception as exc:
+            log.exception("dispatching %s failed", name)
+            payload = {}
+            try:
+                payload = signal.to_dict() if hasattr(signal, "to_dict") else dict(signal or {})
+            except Exception:
+                payload = {}
+            self.last_block = {
+                "at": utc_iso(),
+                "source": f"strategy:{name}",
+                "reason": "fault",
+                "detail": f"{type(exc).__name__}: {exc}",
+                "symbol": payload.get("symbol") or self.active_symbol,
+                "action": payload.get("action") or "",
+            }
+            await self.journal(
+                "error",
+                "dispatch_fault",
+                f"{name}: the order path failed on the way to the broker — "
+                f"{type(exc).__name__}: {exc}. Nothing was sent.",
+                {"signal": payload},
+            )
+            await self.bus.publish("block", self.last_block)
+
     async def _dispatch_signal(self, signal, source: str) -> None:
         if not signal:
             return
@@ -1828,27 +3229,37 @@ class Trader:
         if action in {"buy", "sell", "market"}:
             gate = self.license.allow_bot_entry()
             if not gate.get("ok"):
-                await self.journal("warning", "license", f"License blocked robot entry: {gate.get('error')}")
+                await self._blocked(source, payload, "license", str(gate.get("error") or "licence limit"))
                 return
             payload["volume"] = self._robot_volume(payload)
+        # The AI veto lives here and nowhere else.
+        #
+        # It used to be asked twice: once by the strategy, through its own
+        # require_ai_agree parameter inside entry_allowed(), and again
+        # here with the account's setting. Two switches for one rule, in
+        # two places, with different defaults — so turning the desk's
+        # switch off changed nothing on three of the four built-ins, and
+        # the trader could not say which of the two had refused. The
+        # built-ins no longer ask; this is the account's rule.
         if action in {"buy", "sell", "market"} and self.require_ai_agree:
             ai = self.ai.last or {}
             if ai.get("ready"):
                 if float(ai.get("confidence") or 0) < self.min_ai_confidence:
-                    await self.journal(
-                        "warning",
+                    await self._blocked(
+                        source,
+                        payload,
                         "ai_low",
-                        f"AI confidence {float(ai.get('confidence') or 0):.2f} < {self.min_ai_confidence:.2f} — entry skipped",
+                        f"AI confidence {float(ai.get('confidence') or 0):.2f} is under the "
+                        f"{self.min_ai_confidence:.2f} you asked for" + self._ai_ceiling_note(),
                     )
+                    await self._warn_unreachable_ai()
                     return
                 want = "bull" if action == "buy" else "bear"
                 if action == "market":
                     want = "bull" if str(payload.get("side") or "buy") == "buy" else "bear"
                 if ai.get("direction") not in {want, "neutral"} and ai.get("direction") != want:
-                    await self.journal(
-                        "warning",
-                        "ai_disagree",
-                        f"AI {ai.get('direction')} disagrees with {action} — skipped",
+                    await self._blocked(
+                        source, payload, "ai_disagree", f"the AI reads {ai.get('direction')} against this {action}"
                     )
                     return
         if action in {"buy", "sell", "market"} and not payload.get("comment"):
@@ -1887,24 +3298,26 @@ class Trader:
         }
         if getattr(self, "smart_filters", True):
             if quality < float(getattr(self, "min_signal_quality", 0.55) or 0):
-                await self.journal(
-                    "warning",
+                await self._blocked(
+                    source,
+                    payload,
                     "low_quality",
-                    f"Skipped {side} {symbol}: quality {quality:.2f} < {float(getattr(self, 'min_signal_quality', 0.55)):.2f} "
+                    f"quality {quality:.2f} is under the {float(getattr(self, 'min_signal_quality', 0.55)):.2f} floor "
                     f"({'; '.join(verdict.get('reasons') or []) or 'no supporting read'})",
                     {"quality": verdict},
                 )
                 return
             ok_spread, why = self._spread_ok(symbol)
             if not ok_spread:
-                await self.journal("warning", "spread", f"Skipped {side} {symbol}: {why}")
+                await self._blocked(source, payload, "spread", why)
                 return
         count = self._entries_for_signal(symbol, quality)
         if count <= 0:
-            await self.journal(
-                "info",
+            await self._blocked(
+                source,
+                payload,
                 "slots_full",
-                f"{symbol} already holds {self._open_count(symbol)} of max {self._total_cap()} robot trades — no new entry",
+                f"{symbol} already holds {self._open_count(symbol)} of max {self._total_cap()} robot trades",
             )
             return
         base_volume = float(payload.get("volume") or 0)
@@ -1924,11 +3337,130 @@ class Trader:
                 # Let MT5 report the new position before sizing the next one,
                 # so the ceiling is counted against a fresh book.
                 await asyncio.sleep(0.6)
-                if self.free_slots(symbol) <= 0:
-                    break
-            result = await self.execute(dict(payload))
+            # Re-check every time, including the first. Between deciding
+            # how many to open and actually opening them, another signal
+            # or a fill may have taken the last slot.
+            if self.free_slots(symbol) <= 0:
+                break
+            self._hold_slot(symbol)
+            try:
+                result = await self.execute(dict(payload))
+            finally:
+                # The hold is released either way: on success the position
+                # or the resting order now holds the slot itself, and on
+                # failure nothing should keep holding it.
+                self._release_slot(symbol)
             if not (result or {}).get("ok"):
                 break
+
+    # ---- auto entry point ------------------------------------------------
+    # The robot names the price it wants and leaves the order sitting there
+    # with the stop and target attached, instead of hitting the market the
+    # moment a candle closes.
+
+    MAGIC = 908173
+    WATCH_EVERY_SEC = 2.0
+
+    def _own_pending_orders(self) -> list[dict[str, Any]]:
+        """AURION's resting orders, as plain dicts. Never the trader's own."""
+        out: list[dict[str, Any]] = []
+        bridge = getattr(self, "bridge", None)
+        for order in getattr(bridge, "orders", None) or []:
+            row = order.to_dict() if hasattr(order, "to_dict") else dict(order or {})
+            try:
+                if int(row.get("magic") or 0) != self.MAGIC:
+                    continue
+            except (TypeError, ValueError):
+                continue
+            out.append(row)
+        return out
+
+    async def _apply_auto_entry(self, request: dict[str, Any]) -> dict[str, Any]:
+        """Rewrite a robot market order into a resting order, when asked.
+
+        Returns the request to send: either a pending order, or the original
+        market order when there is no better price to wait for. Never raises
+        and never swallows the trade - a failed plan means "go to market",
+        because the alternative is a strategy whose signals silently vanish.
+        """
+        symbol = str(request.get("symbol") or "")
+        tick = self.tick_of(symbol)
+        if not tick:
+            return request
+        side = str(request.get("side") or "buy").lower()
+        extra = request.get("extra") if isinstance(request.get("extra"), dict) else {}
+        plan = plan_entry(
+            side,
+            float(tick.get("bid") or 0),
+            float(tick.get("ask") or 0),
+            float(request.get("sl") or 0),
+            float(request.get("tp") or 0),
+            extra,
+            zone_depth=float(getattr(self, "auto_entry_depth", 0.5)),
+            offset_atr=float(getattr(self, "auto_entry_offset", 0.35)),
+            expiry_minutes=int(getattr(self, "auto_entry_expiry", 120)),
+        )
+        if not plan:
+            await self.journal(
+                "info",
+                "auto_entry_market",
+                f"Auto entry found no better price for {side} {symbol} — sending at market",
+            )
+            return request
+        out = {
+            **request,
+            "action": "pending",
+            "order_type": plan["order_type"],
+            "price": plan["price"],
+            "auto_entry": True,
+        }
+        if plan.get("sl"):
+            out["sl"] = plan["sl"]
+        if plan.get("tp"):
+            out["tp"] = plan["tp"]
+        await self.journal(
+            "info",
+            "auto_entry",
+            f"Auto entry: {plan['order_type'].replace('_', ' ')} {symbol} at {plan['price']} "
+            f"({plan['improvement']} better than {plan['market']}) with SL {out.get('sl') or '—'} / "
+            f"TP {out.get('tp') or '—'}"
+            + (f", RR {plan['rr']}" if plan.get("rr") else ""),
+            {"plan": dict(plan)},
+        )
+        return out
+
+    async def sweep_pending(self, force: bool = False) -> int:
+        """Cancel our resting orders that have waited past their shelf life.
+
+        A pending order is a decision with a timestamp on it. The structure
+        that justified the level does not survive forever, and an order left
+        from yesterday is not a trade anyone chose to take today.
+        """
+        expiry = int(getattr(self, "auto_entry_expiry", 120))
+        if expiry <= 0:
+            return 0
+        now = time.time()
+        if not force and now - float(getattr(self, "_auto_entry_sweep", 0.0)) < 30.0:
+            return 0
+        self._auto_entry_sweep = now
+        tickets = expired_orders(self._own_pending_orders(), now, expiry, self.MAGIC)
+        killed = 0
+        for ticket in tickets:
+            result = await self.bridge.send_order({"action": "cancel", "ticket": ticket})
+            if (result or {}).get("ok"):
+                killed += 1
+                await self.journal(
+                    "info",
+                    "auto_entry_expired",
+                    f"Cancelled resting order {ticket} — unfilled after {expiry} minutes",
+                )
+            else:
+                await self.journal(
+                    "warning",
+                    "auto_entry_cancel",
+                    f"Could not cancel resting order {ticket}: {(result or {}).get('error') or 'unknown'}",
+                )
+        return killed
 
     def _resolve_symbol(self, request: dict[str, Any]) -> str:
         symbol = str(request.get("symbol") or "").strip()
@@ -2037,6 +3569,12 @@ class Trader:
                     request[key] = val
                 else:
                     request.pop(key, None)
+            # Money management, before any gate judges the ticket: the
+            # stop the prop rules are asked to approve has to be the stop
+            # that will actually be sent.
+            request = await self._apply_money_rules(request)
+            if float(request.get("volume") or 0) <= 0:
+                return {"ok": False, "error": "volume after sizing is below the broker's minimum lot"}
         if str(request.get("action") or "") == "market" and not self.news_trading_on():
             blocked, why = self.prop._news_blackout(str(request.get("symbol") or ""), force=True)
             if blocked:
@@ -2051,6 +3589,24 @@ class Trader:
         if not (self.bridge.connected or self.bridge.active_agents() or self.bridge.native.connected or self.bridge._ea_clients):
             await self.journal("error", "mt5_down", "MT5 is not reachable — AURION will not fabricate a fill")
             return {"ok": False, "error": "MetaTrader 5 is not reachable. AURION will not fabricate a fill."}
+        # Auto entry point. Deliberately the last step before the wire: every
+        # gate above - prop, news, quality, the open-trade ceiling - judges
+        # the trade the strategy asked for, and swapping the order type under
+        # them earlier would change what they were asked to approve.
+        if (
+            str(request.get("action") or "") == "market"
+            and getattr(self, "auto_entry", False)
+            and (source.startswith("strategy") or source in {"robot", "strategy_tick"})
+        ):
+            try:
+                request = await self._apply_auto_entry(request)
+                if str(request.get("action") or "") == "pending":
+                    # The resting price is not the market price, so the
+                    # stop's cost in money is a different number. Price
+                    # it again rather than shipping yesterday's answer.
+                    request = await self._apply_money_rules(request, float(request.get("price") or 0))
+            except Exception:
+                log.exception("auto entry planning failed - sending at market")
         await self.journal(
             "info",
             "send",
@@ -2059,6 +3615,23 @@ class Trader:
         )
         result = await self.bridge.send_order(request)
         action_now = str(request.get("action") or "")
+        if result.get("ok") and action_now == "pending" and request.get("auto_entry"):
+            # The trade has not started yet; it starts if price comes to the
+            # level. Remember the ticket so the fill can be accounted for,
+            # and tag it so the strategy still owns the trade hours later.
+            try:
+                ticket = int(result.get("order") or result.get("deal") or 0)
+            except (TypeError, ValueError):
+                ticket = 0
+            if ticket:
+                self._auto_entry_tickets.add(ticket)
+            self._remember_open(request, result)
+            await self.journal(
+                "info",
+                "auto_entry_placed",
+                f"Resting {str(request.get('order_type') or '').replace('_', ' ')} {request.get('symbol')} "
+                f"at {request.get('price')} — the trade starts only if price reaches it",
+            )
         if result.get("ok") and action_now in {"market", "buy", "sell"}:
             self.prop.note_entry()
             self._remember_open(request, result)
@@ -2246,8 +3819,14 @@ class Trader:
             "orders": [o.to_dict() for o in self.bridge.orders],
             "ticks": {k: v.to_dict() for k, v in self.bridge.public_ticks().items()},
             "agents": [a.to_dict() for a in self.bridge.public_agents()],
+            # Which experts this build ships, and which version each chart is
+            # actually running. An update can replace the .mq5 on disk; only
+            # the trader can recompile it in MetaTrader, so the desk has to
+            # be able to see the difference and say so.
+            "experts": self.experts_state(),
             "last_signal": self.last_signal,
             "gate": self.trade_gate(),
+            "analysis": self._safe_analysis(),
             "gates": self.gates_by_symbol(),
             "license": self.license.public(),
             "robot": list(self.robot_log)[-80:],
@@ -2257,6 +3836,17 @@ class Trader:
             "market": self.market_state(),
             "ts": utc_iso(),
         }
+
+    def experts_state(self) -> dict[str, Any]:
+        """The MetaTrader side of the install, shipped against running."""
+        from ..mt5 import experts
+
+        try:
+            agents = [a.to_dict() for a in self.bridge.public_agents()]
+            return experts.state(agents)
+        except Exception:        # a reporting read must never break a snapshot
+            log.exception("experts state failed")
+            return {"shipped": [], "version": "", "charts": [], "stale": [], "outdated": False}
 
     def _ai_by_symbol(self) -> list[dict[str, Any]]:
         """Per-chart AI states for the desk's multi-chart direction slider.
@@ -2272,6 +3862,197 @@ class Trader:
         last_sym = str((self.ai.last or {}).get("symbol") or "")
         items = [st for sym, st in by.items() if not active or sym in active or sym == last_sym]
         return items[-12:]
+
+    # ------------------------------------------------------------------
+    # "Why is it not trading, and when will it?"
+    #
+    # Every part of the answer already existed, in five different places:
+    # the gate's reason codes, the strategy's own refusal, the running
+    # refusal tally, the AI read, and the journal. Scattered, they ask the
+    # trader to be the one who joins them up, and a trader watching a
+    # robot do nothing cannot tell a quiet market from a broken install.
+    # This assembles them into one answer about one symbol and one
+    # strategy, in sentences rather than codes.
+    # ------------------------------------------------------------------
+
+    GATE_PLAIN = {
+        "mt5_down": ("MetaTrader is not connected", "Open MetaTrader and attach AurionBridge to the chart."),
+        "kill": ("The kill switch is down", "Release the kill switch on the dashboard."),
+        "safe": ("Safe mode is on after a fault", "Clear safe mode once you have read the fault."),
+        "prop_lock": ("The prop rules have locked trading", "Wait for the next prop period, or relax the profile."),
+        "auto_off": ("Auto-trade is off", "Arm auto-trade. Until then the robot watches and reports but never sends."),
+        "no_strategy": ("No strategy is enabled", "Enable one in Strategies."),
+        "slots_full": ("Every trade slot is already in use", "Close a position or raise the open-trade cap."),
+        "ai_low": ("The AI is not confident enough yet", "Wait, or lower the AI confidence filter."),
+    }
+
+    def _safe_analysis(self) -> dict[str, Any]:
+        """A reporting read must never be the thing that breaks a snapshot."""
+        try:
+            return self.analysis()
+        except Exception:
+            log.exception("analysis unavailable")
+            return {"symbol": self.active_symbol, "blockers": [], "console": [], "fault": True}
+
+    def analysis(self, symbol: str = "", strategy: str = "") -> dict[str, Any]:
+        """One readable account of what the robot is doing right now."""
+        symbol = str(symbol or self.active_symbol or "")
+        timeframe = str(self.active_timeframe or "M15")
+        gate = self.trade_gate()
+
+        name = str(strategy or "")
+        if not name or name not in self.book:
+            enabled = [k for k, v in self.book.items() if v.get("enabled")]
+            name = enabled[0] if enabled else (next(iter(self.book), "") if self.book else "")
+        slot = self.book.get(name) or {}
+        inst = slot.get("inst")
+
+        ai = dict(self.ai.last or {})
+        if symbol:
+            by = dict(getattr(self.ai, "by_symbol", None) or {})
+            ai = dict(by.get(symbol) or ai)
+
+        blockers: list[dict[str, Any]] = []
+        for code in gate.get("reasons") or []:
+            text, fix = self.GATE_PLAIN.get(code, (str(code).replace("_", " "), ""))
+            blockers.append({"code": code, "text": text, "fix": fix, "where": "desk"})
+
+        # The strategy's own verdict, which is a different thing from the
+        # desk's gates: the gates say whether a signal would be allowed
+        # out, this says whether there is one.
+        refusal = str(getattr(inst, "last_refusal", "") or "") if inst else ""
+        live_action = str(slot.get("live_action") or slot.get("last_action") or "")
+        live_reason = str(slot.get("live_reason") or slot.get("last_reason") or "")
+        setup = bool(live_action in {"buy", "sell"})
+        if not setup and name:
+            blockers.append({
+                "code": "no_setup",
+                "text": refusal or live_reason or "no setup on this bar",
+                "fix": "",
+                "where": "strategy",
+            })
+
+        try:
+            refusals = [
+                {"reason": kind, "count": int(count)}
+                for kind, count in (inst.refusal_report(6) if inst and hasattr(inst, "refusal_report") else [])
+            ]
+        except Exception:
+            refusals = []
+
+        # Entry points already planted for this symbol. A resting order is
+        # the robot having decided and being in the market's waiting room,
+        # which reads as "doing nothing" unless something says otherwise.
+        resting = []
+        try:
+            for od in self._own_pending_orders():
+                if symbol and str(od.get("symbol") or "") != symbol:
+                    continue
+                resting.append({
+                    "ticket": od.get("ticket"),
+                    "type": od.get("type") or "",
+                    "price": float(od.get("price") or od.get("price_open") or 0),
+                    "sl": float(od.get("sl") or 0),
+                    "tp": float(od.get("tp") or 0),
+                    "volume": float(od.get("volume") or 0),
+                })
+        except Exception:
+            log.exception("resting order read failed")
+
+        # "When" has two honest answers and they are not the same. If
+        # something on the desk is switched off, the answer is "when you
+        # switch it on" - no amount of waiting fixes it. If the only thing
+        # missing is a setup, the answer is the next time this strategy is
+        # asked, which is the close of the current candle.
+        desk_side = [b for b in blockers if b["where"] == "desk"]
+        next_eval = self._next_candle_close(symbol, timeframe)
+        if resting:
+            levels = ", ".join(f"{r['type'].replace('_', ' ')} at {r['price']}" for r in resting[:3])
+            when = f"The entry is already planted ({levels}). The trade starts if price reaches it."
+        elif setup and not getattr(self, "auto_entry", False):
+            # Worth saying out loud. With auto entry off the robot takes
+            # the market on a signal and never rests an order, so looking
+            # for a planted entry point on the chart will never find one
+            # - and that is a setting, not a fault.
+            when = (
+                "Now, at market: auto entry is off, so the robot takes the price it is "
+                "given instead of planting an entry point and waiting."
+            )
+        elif desk_side:
+            when = "Not until the above is cleared — this will not fix itself with time."
+        elif setup:
+            when = "Now: a setup is on the table and nothing is blocking it."
+        else:
+            when = f"At the next candle close ({timeframe}), when the strategy is asked again."
+
+        return {
+            "symbol": symbol,
+            "timeframe": timeframe,
+            "strategy": name,
+            "strategy_enabled": bool(slot.get("enabled")),
+            "ready": bool(gate.get("ready")),
+            "setup": setup,
+            "auto_entry": bool(getattr(self, "auto_entry", False)),
+            "resting": resting,
+            "action": live_action,
+            "reason": live_reason,
+            "refusal": refusal,
+            "refusals": refusals,
+            "blockers": blockers,
+            "when": when,
+            "next_eval": next_eval,
+            "ai": {
+                "ready": bool(ai.get("ready")),
+                "direction": ai.get("direction") or ai.get("bias") or "",
+                "confidence": float(ai.get("confidence") or 0),
+                "min_confidence": float(self.min_ai_confidence or 0),
+                "gate": bool(self.require_ai_agree),
+                "regime": ai.get("regime") or "",
+                "edge": ai.get("edge"),
+            },
+            "market": self.market_state(),
+            "console": self._analysis_console(symbol, name),
+            "ts": utc_iso(),
+        }
+
+    MINUTES = {
+        "M1": 1, "M5": 5, "M15": 15, "M30": 30,
+        "H1": 60, "H4": 240, "D1": 1440, "W1": 10080,
+    }
+
+    def _next_candle_close(self, symbol: str, timeframe: str) -> dict[str, Any]:
+        """When this strategy is next asked anything, in seconds and in words."""
+        minutes = self.MINUTES.get(str(timeframe or "").upper(), 0)
+        if minutes <= 0:
+            return {"in_seconds": None, "text": ""}
+        period = minutes * 60
+        remaining = int(period - (time.time() % period))
+        if remaining >= 3600:
+            text = f"in about {remaining // 3600}h {(remaining % 3600) // 60}m"
+        elif remaining >= 60:
+            text = f"in about {remaining // 60}m {remaining % 60}s"
+        else:
+            text = f"in {remaining}s"
+        return {"in_seconds": remaining, "text": text}
+
+    def _analysis_console(self, symbol: str, strategy: str) -> list[dict[str, Any]]:
+        """The journal, narrowed to the lines about this symbol and strategy.
+
+        The full robot log is every chart at once, which is the reason
+        nobody reads it. Entries, exits and faults are always kept: those
+        are the lines a trader is actually waiting for.
+        """
+        keep = {"entry", "exit", "signal", "order", "close", "fill", "blocked", "strategy_fault", "backtest"}
+        sym = str(symbol or "").upper()
+        name = str(strategy or "").lower()
+        out: list[dict[str, Any]] = []
+        for item in list(self.robot_log)[-250:]:
+            code = str(item.get("code") or "")
+            message = str(item.get("message") or "")
+            hay = message.upper()
+            if code in keep or (sym and sym in hay) or (name and name in message.lower()):
+                out.append(item)
+        return out[-60:]
 
     def trade_gate(self) -> dict[str, Any]:
         reasons: list[str] = []
@@ -2498,6 +4279,7 @@ class Trader:
         self._danger_seen = {}
         self._danger_cooldown = {}
         self._danger_inflight = set()
+        self._entry_inflight = {}
         self.last_signal = None
         self.active_symbol = ""
         self.active_timeframe = "M15"
@@ -2677,9 +4459,43 @@ class Trader:
                 bars = bars or []
         if not bars or len(bars) < 30:
             return {"ok": False, "error": "no_candles", "symbol": symbol, "timeframe": timeframe}
+        # The marks on the chart have to be the armed strategies' own output.
+        # They used to be a fixed EMA-cross detector that ran regardless of
+        # what the trader had switched on, so the chart and the order book
+        # were two different systems and only one of them placed trades.
+        armed = [(name, slot.get("inst")) for name, slot in self.book.items() if slot.get("enabled")]
         try:
-            from ..signals.chart_signals import get_chart_signals
-            result = get_chart_signals(bars, strict=bool(strict))
+            if armed:
+                from ..signals.strategy_signals import replay
+
+                result = await asyncio.to_thread(
+                    replay,
+                    bars,
+                    armed,
+                    symbol,
+                    timeframe,
+                    # No AI read is passed in on purpose. There is only
+                    # today's, and applying it to a bar from last Tuesday
+                    # would be look-ahead dressed up as confluence. A
+                    # strategy with require_ai_agree therefore shows its
+                    # pure structural setups here, which is the honest
+                    # answer to "what did the strategy see".
+                    ai={},
+                    on_error=lambda name, exc: log.warning("chart replay: %s failed: %s", name, exc),
+                    # The marks obey the money rule too. A stop drawn at a
+                    # distance the engine would refuse to send is a trade
+                    # the trader cannot actually take.
+                    cap=self._chart_stop_cap(symbol),
+                )
+            else:
+                # Nothing armed. Falling back to the indicator read keeps the
+                # chart useful, but it is labelled so nobody mistakes it for
+                # what the robot would do.
+                from ..signals.chart_signals import get_chart_signals
+
+                result = await asyncio.to_thread(get_chart_signals, bars, bool(strict))
+                result["source"] = "indicator"
+                result["strategies"] = []
             result["symbol"] = symbol
             result["timeframe"] = timeframe
             return result
@@ -2709,30 +4525,83 @@ class Trader:
         self.backtest_run = {
             "ok": True,
             "running": True,
+            "accepted": True,
             "mode": "backtest",
             "symbol": symbol,
             "timeframe": timeframe,
             "strategy": getattr(inst, "name", str(spec.get("name") or "")),
             "bars": len(bars),
+            "progress": 0,
             "started": started,
         }
         await self.bus.publish("backtest", dict(self.backtest_run))
+        equity = float(body.get("initial_equity") or self.bridge.account.equity or 10_000)
+        self._backtest_task = asyncio.create_task(
+            self._run_backtest(inst, bars, symbol, timeframe, equity, started),
+            name=f"aurion-backtest-{symbol}",
+        )
+        # Answer now. The run itself reports over the bus.
+        #
+        # This used to hold the HTTP request open for the whole replay. The
+        # desk's proxy gives up after 25 seconds and reports "engine
+        # offline", so a backtest that took longer than that - which is most
+        # of them, because the AI is asked for a fresh read on every bar -
+        # finished perfectly in the engine and told the trader their engine
+        # had died. Nothing was wrong except the waiting.
+        return dict(self.backtest_run)
+
+    async def _run_backtest(
+        self,
+        inst: Any,
+        bars: list[dict[str, Any]],
+        symbol: str,
+        timeframe: str,
+        equity: float,
+        started: str,
+    ) -> dict[str, Any]:
+        """The replay itself, off the request path, reporting as it goes."""
+        loop = asyncio.get_running_loop()
+        last_sent = 0.0
+
+        def report(done: int, total: int) -> None:
+            # Called from the worker thread, so the publish has to be
+            # handed back to the loop rather than awaited here.
+            nonlocal last_sent
+            now = time.time()
+            if done < total and now - last_sent < 0.5:
+                return
+            last_sent = now
+            pct = int(round(100.0 * done / max(1, total)))
+            state = {**(self.backtest_run or {}), "running": True, "progress": pct}
+            self.backtest_run = state
+            loop.call_soon_threadsafe(
+                lambda: asyncio.ensure_future(self.bus.publish("backtest", dict(state)))
+            )
+
         try:
             result = await asyncio.to_thread(
-                self.backtester.run,
-                inst,
-                bars,
-                symbol,
-                timeframe,
-                float(body.get("initial_equity") or self.bridge.account.equity or 10_000),
+                self.backtester.run, inst, bars, symbol, timeframe, equity, 1.0, 80, None, report
             )
         except Exception as exc:
+            log.exception("backtest failed")
             result = {"ok": False, "error": str(exc), "mode": "backtest", "symbol": symbol, "timeframe": timeframe}
         result = dict(result or {})
         result["mode"] = "backtest"
         result["running"] = False
+        result["progress"] = 100
         result["started"] = started
         result["finished"] = utc_iso()
         self.backtest_run = result
         await self.bus.publish("backtest", dict(result))
+        await self.journal(
+            "info" if result.get("ok") else "error",
+            "backtest",
+            (
+                f"Backtest finished: {symbol} {timeframe} "
+                f"{(result.get('metrics') or {}).get('trades', 0)} trades, "
+                f"win rate {float((result.get('metrics') or {}).get('win_rate') or 0):.0f}%"
+                if result.get("ok")
+                else f"Backtest failed: {result.get('error')}"
+            ),
+        )
         return result

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import sys
 from pathlib import Path
 
@@ -173,6 +174,7 @@ def test_desk_order_skips_per_symbol_cap() -> None:
     from aurion.prop.rules import PropEngine
 
     prop = PropEngine()
+    prop.enabled = True
     prop.set_profile({"id": "conservative"})
     prop.profile["trading_hours"] = {"start": "00:00", "end": "23:59", "weekdays": [0, 1, 2, 3, 4, 5, 6]}
     prop.profile["allow_weekend"] = True
@@ -367,6 +369,13 @@ def test_features_include_macd_and_hour() -> None:
     assert len(frame) > 20
 
 
+class _NoBridge:
+    """Trader stand-in for the tests: no terminal attached, no deal history."""
+
+    deals: list = []
+    native = type("_NoNative", (), {"connected": False})()
+
+
 def test_sync_position_book_writes_history() -> None:
     import asyncio
     import tempfile
@@ -398,6 +407,7 @@ def test_sync_position_book_writes_history() -> None:
     trader.auto_trade = False
     trader.robot_log = deque(maxlen=10)
     trader.prop = type("P", (), {"note_closed_trade": lambda self, x: None})()
+    trader.bridge = _NoBridge()
 
     async def dummy(*_a, **_k):
         return None
@@ -468,7 +478,12 @@ def test_deals_are_not_written_to_store() -> None:
 
 def test_ea_has_send_deals_v117() -> None:
     src = (ROOT / "engine" / "ea" / "AurionBridge.mq5").read_text(encoding="utf-8")
-    assert "#property version   \"1.17\"" in src
+    # The version is no longer pinned here. It is bumped whenever the expert
+    # changes, and a test that has to be edited for every bump is a test
+    # people edit without reading. What must hold is that the expert has a
+    # version at all and that every copy of it agrees - which is
+    # engine/tests/test_ea_version.py's whole job.
+    assert re.search(r'#property version\s+"[0-9][0-9.]*"', src), "the expert must declare a version"
     assert "void SendDeals()" in src
     assert "HistoryDealGetTicket" in src
     assert "HistorySelect" in src
@@ -646,6 +661,7 @@ def test_telegram_skips_bootstrap_then_notifies() -> None:
     trader.auto_trade = False
     trader.robot_log = deque(maxlen=10)
     trader.prop = type("P", (), {"note_closed_trade": lambda self, x: None})()
+    trader.bridge = _NoBridge()
     notes: list[tuple] = []
 
     class Tg:
@@ -839,9 +855,9 @@ def test_telegram_remote_settings() -> None:
     assert any(c[0] == "auto" and c[1].get("trade_style") == "scalping" for c in calls)
     kb = bot._desk_keyboard()
     data = {btn["callback_data"] for row in kb["inline_keyboard"] for btn in row}
-    assert "auto:on" in data
-    assert "kill:on" in data
-    assert "style:scalping" in data
+    assert "auto:toggle" in data
+    assert "kill:toggle" in data
+    assert "style:toggle" in data
     assert "status" in data
     assert "ai" in data
 
@@ -1112,9 +1128,20 @@ def test_ed25519_official_rfc_vectors() -> None:
     assert ed.verify(sig, b"\x01", pub) is False
 
 
-def test_license_freemium_default_and_locks() -> None:
-    """No key -> freemium: prop/scalping/upload locked, account_type freemium."""
+def test_license_freemium_default_and_locks(tmp_path, monkeypatch) -> None:
+    """No key -> freemium: prop/scalping/upload locked, account_type freemium.
+
+    "No key" has to mean no key. This used to read whatever licence the
+    machine running the tests happened to have activated, so on a
+    developer's own install - or on this repository, which carries a
+    licence state file - the test asserted freemium against a premium
+    guard and failed for a reason that had nothing to do with the code.
+    """
+    from aurion.license import guard as guard_mod
     from aurion.license.guard import Guard
+
+    monkeypatch.setattr(guard_mod, "DIR", tmp_path / "license")
+    monkeypatch.setattr(guard_mod, "STATE", tmp_path / "license" / "state.json")
 
     g = Guard()
     pub = g.public()
