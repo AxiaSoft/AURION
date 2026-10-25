@@ -2672,30 +2672,34 @@ html[data-theme="light"] .set-rail .set-jump button.on{background:linear-gradien
 }
 
 /* --- rows of controls ---------------------------------------------------- */
-/* .row already carries a gap. Buttons placed next to each other *without*
-   a .row wrapper had nothing, which is the other half of "the buttons are
-   touching". Adjacent controls always get the same gap the rows use. */
-.btn + .btn,
-.btn + .icon-btn,
-.icon-btn + .btn,
-.icon-btn + .icon-btn,
-.btn + .switch,
-.switch + .btn{
-  margin-inline-start:var(--ctl-gap);
-}
-/* …except inside a flex or grid container, where the container's own gap
-   already does the job and a margin would double it. */
-.row > .btn + .btn,
-.row > .btn + .icon-btn,
-.row > .icon-btn + .btn,
-.row > .icon-btn + .icon-btn,
-.row > .btn + .switch,
-.row > .switch + .btn,
-.grid > .btn + .btn,
-.bgpic-acts > .btn + .btn,
-.lang-pills > * + *,
-.seg > * + *{
-  margin-inline-start:0;
+/* There used to be a blanket rule here: every .btn following another .btn
+ * got margin-inline-start, with a hand-written list of containers where it
+ * was cancelled again because their own gap already did the job.
+ *
+ * That was the wrong way round, and the list was never going to be
+ * complete. A scan of this stylesheet found 38 flex/grid containers that
+ * lay their children out in a row AND declare their own gap AND hold
+ * buttons - from .top-actions and .hdr-status to .tabs, .st-top and
+ * .plan-grid. Every one of them was spacing its buttons twice.
+ *
+ * The header is where it showed. Eight controls, seven gaps, 8px of gap
+ * plus 10px of margin each - and 12px on a touch device, where --ctl-gap
+ * grows. 56px of spacing became 140px, which is what pushed the emergency
+ * button off the side of a phone screen.
+ *
+ * Meanwhile the rule existed for exactly ONE place that genuinely had no
+ * gap: the confirm dialog's buttons. So the blanket is gone and that one
+ * container is spaced the way every other row of controls is - by the
+ * container, which is the thing that knows how its children are laid out.
+ *
+ * The scan is now tests/header-spacing.test.js, so a new gapped container
+ * cannot quietly bring this back. */
+.modal-actions{
+  display:flex;
+  align-items:center;
+  justify-content:flex-end;
+  gap:var(--ctl-gap);
+  flex-wrap:wrap;
 }
 
 /* --- the last paragraph in a card --------------------------------------- */

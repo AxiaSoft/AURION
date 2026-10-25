@@ -261,18 +261,25 @@ check(
     "the reported 'stuck to the bottom'"
   );
 
+  /* This used to assert that ".btn + .btn" appeared in the stylesheet, and
+     it passed happily while that very rule was doubling the spacing in 38
+     containers and pushing the emergency button off the side of a phone.
+     Asserting a selector exists says nothing about what it does.
+
+     Rows of controls are spaced by their container now. The detailed
+     checks live in tests/header-spacing.test.js, which re-derives the
+     gapped containers from this file rather than naming them. */
   check(
-    "two controls side by side are never touching",
-    /\.btn \+ \.btn/.test(bare) && /\.icon-btn \+ \.icon-btn/.test(bare),
-    "the reported 'buttons touching'"
+    "controls are spaced by their container, not by a blanket sibling margin",
+    !/\.btn \+ \.btn\s*,?[\s\S]{0,200}?margin-inline-start:\s*var/.test(bare),
+    "no blanket rule to double a container's gap"
   );
 
-  /* The same margin applied twice - once by the container's gap and once by
-     the sibling rule - is its own bug, and a less visible one. */
   check(
-    "the gap is not doubled inside containers that already space their children",
-    /\.row > \.btn \+ \.btn\s*,[\s\S]{0,400}?margin-inline-start:0/.test(bare),
-    "neutralised inside .row and friends"
+    "the one row of controls that had no container gap has been given one",
+    /\.modal-actions\{[^}]*display:flex[^}]*\}/.test(bare.replace(/\s/g, "")) ||
+      /\.modal-actions\s*\{[^}]*gap:/.test(bare),
+    "the confirm dialog's buttons"
   );
 
   /* Logical properties, because the desk runs right-to-left in Persian and
