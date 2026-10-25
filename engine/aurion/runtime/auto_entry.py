@@ -138,6 +138,122 @@ def plan_entry(
     })
 
 
+#: A confirming candle must close this far through its own range in the
+#: trade's direction. 0.55 is just past the midpoint - enough to say the
+#: bar ended in our favour without demanding a marubozu.
+CONFIRM_CLOSE_LOC = 0.55
+
+#: Rejection: the wick on the far side of the level, as a share of range.
+#: This is the trace left when price went to the level and was pushed back.
+CONFIRM_WICK = 0.22
+
+
+def confirm_entry(
+    side: str,
+    candles: list[dict[str, Any]],
+    level: float = 0.0,
+    *,
+    mode: str = "normal",
+    lookback: int = 3,
+) -> dict[str, Any]:
+    """Has the market agreed with the plan yet?
+
+    Planting an order at a level and letting it fill on touch takes every
+    trade the level ever offers, including the one where price walks
+    straight through. That is the difference between a level holding and a
+    level merely being visited, and it is the whole reason a discretionary
+    trader waits for the candle to close before committing.
+
+    So: price must reach the level, and then the market must say something
+    about it. We ask for three things a trader would look at anyway -
+
+      * price actually traded at or through the level (it is live, not a
+        hypothetical),
+      * the confirming bar closed in our direction, in the upper (buy) or
+        lower (sell) part of its own range,
+      * that bar left a rejection wick on the level's side, which is what
+        a defended level looks like.
+
+    ``mode`` is the trader's call, because waiting costs fills:
+      ``off``    - no confirmation, fill on touch as before,
+      ``normal`` - close direction plus either rejection or location,
+      ``strict`` - close direction, location and rejection, all three.
+
+    Returns a verdict dict rather than a bare bool so the desk can show the
+    trader *why* a planted entry has not fired yet. Never raises: an
+    unreadable candle list means "not confirmed", never a crash in the
+    trade path.
+    """
+    side = str(side or "").lower()
+    mode = str(mode or "normal").lower()
+    if mode not in {"off", "normal", "strict"}:
+        mode = "normal"
+    if side not in {"buy", "sell"}:
+        return {"confirmed": False, "reason": "unknown side", "mode": mode}
+    if mode == "off":
+        return {"confirmed": True, "reason": "confirmation disabled", "mode": mode}
+
+    bars = [b for b in (candles or []) if isinstance(b, dict)]
+    if len(bars) < 1:
+        return {"confirmed": False, "reason": "no candles yet", "mode": mode}
+    window = bars[-max(1, int(lookback)):]
+
+    level = _num(level)
+    if level > 0:
+        reached = any(
+            (_num(b.get("low")) <= level) if side == "buy" else (_num(b.get("high")) >= level)
+            for b in window
+        )
+        if not reached:
+            return {
+                "confirmed": False,
+                "reason": "price has not reached the entry yet",
+                "mode": mode,
+                "level": round(level, 6),
+            }
+
+    bar = window[-1]
+    o, h, l, c = (_num(bar.get("open")), _num(bar.get("high")),
+                  _num(bar.get("low")), _num(bar.get("close")))
+    rng = h - l
+    if rng <= 0 or o <= 0 or c <= 0:
+        return {"confirmed": False, "reason": "unusable confirming candle", "mode": mode}
+
+    # Where in its own range the bar closed, read from our side of the trade.
+    loc = (c - l) / rng
+    close_loc = loc if side == "buy" else 1.0 - loc
+    # The wick on the side price was pushed back from.
+    wick = (min(o, c) - l) / rng if side == "buy" else (h - max(o, c)) / rng
+    direction_ok = (c > o) if side == "buy" else (c < o)
+    location_ok = close_loc >= CONFIRM_CLOSE_LOC
+    rejection_ok = wick >= CONFIRM_WICK
+
+    if mode == "strict":
+        ok = direction_ok and location_ok and rejection_ok
+    else:
+        ok = direction_ok and (location_ok or rejection_ok)
+
+    if ok:
+        reason = "candle closed with the trade"
+        if rejection_ok:
+            reason += " and rejected the level"
+    elif not direction_ok:
+        reason = "last candle closed against the trade"
+    elif mode == "strict" and not rejection_ok:
+        reason = "no rejection wick at the level"
+    else:
+        reason = "candle closed mid-range, no commitment yet"
+
+    return {
+        "confirmed": bool(ok),
+        "reason": reason,
+        "mode": mode,
+        "close_loc": round(close_loc, 3),
+        "wick": round(wick, 3),
+        "direction_ok": bool(direction_ok),
+    }
+
+
 def _zone_price(side: str, zone: Any, depth: float) -> float | None:
     """The price inside the strategy's own zone to wait at.
 

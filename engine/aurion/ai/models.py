@@ -102,7 +102,13 @@ class LiveModels:
         meta = self.directory / "live.metrics.json"
         meta.write_text(json.dumps({"samples": self.samples, "metrics": self.metrics, "updated": self.updated}, indent=2), encoding="utf-8")
 
-    def fit(self, X: np.ndarray, y: np.ndarray) -> dict[str, Any]:
+    def fit(
+        self,
+        X: np.ndarray,
+        y: np.ndarray,
+        columns: list[str] | None = None,
+        purge: int = 0,
+    ) -> dict[str, Any]:
         if X.size == 0 or len(np.unique(y)) < 2 or len(X) < 80:
             return {"ok": False, "error": "not enough labelled real bars to train"}
         n = len(X)
@@ -114,7 +120,13 @@ class LiveModels:
             count = int(mask.sum()) or 1
             weight[mask] *= n / (len(classes) * count)
         cut = max(60, int(n * 0.8))
-        X_tr, y_tr, w_tr = X[:cut], y[:cut], weight[:cut]
+        # Labels look `purge` bars into the future, so the last `purge`
+        # training rows are scored by bars that sit in the test set. Drop
+        # them: a holdout is only a holdout if the model never saw what
+        # decided its answers. The effect is small at this sample size,
+        # but `edge` sets live confidence and must not borrow from it.
+        train_end = max(40, cut - max(0, int(purge)))
+        X_tr, y_tr, w_tr = X[:train_end], y[:train_end], weight[:train_end]
         X_te, y_te = X[cut:], y[cut:]
         self.direction.fit(X_tr, y_tr, clf__sample_weight=w_tr)
         # Boosted trees on the same split — kept only if the holdout says it
@@ -136,8 +148,10 @@ class LiveModels:
                 boost = candidate
             except Exception:
                 boost = None
-        vol_idx = 9 if X.shape[1] > 9 else min(7, X.shape[1] - 1)
-        vol = X[:, [vol_idx, min(vol_idx + 1, X.shape[1] - 1)]]
+        # The regime detector wants the volatility pair. Name them, do not
+        # count to them: matrix() drops absent columns, so a fixed index
+        # quietly points somewhere else the moment the feature set moves.
+        vol = self._volatility_columns(X, columns)
         self.regime.partial_fit(vol)
         pred_in = self.direction.predict(X_tr)
         acc_in = float((pred_in == y_tr).mean())
@@ -185,6 +199,19 @@ class LiveModels:
         }
         self.persist()
         return {"ok": True, "metrics": self.metrics}
+
+    @staticmethod
+    def _volatility_columns(X: np.ndarray, columns: list[str] | None) -> np.ndarray:
+        """Pick the volatility features by name, with a positional fallback."""
+        wanted = ("atr_pct", "bb_width", "range_pct")
+        if columns and len(columns) == X.shape[1]:
+            idx = [columns.index(name) for name in wanted if name in columns]
+            if idx:
+                return X[:, idx[:2]] if len(idx) >= 2 else X[:, [idx[0], idx[0]]]
+        # No column names supplied (an older cached caller): fall back to
+        # the historical positions rather than refusing to fit.
+        vol_idx = 9 if X.shape[1] > 9 else min(7, X.shape[1] - 1)
+        return X[:, [vol_idx, min(vol_idx + 1, X.shape[1] - 1)]]
 
     def partial(self, x: np.ndarray, y: int) -> None:
         if not self.ready:

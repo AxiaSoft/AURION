@@ -6,7 +6,7 @@ import time
 from collections import deque
 from typing import Any
 
-from .auto_entry import expired_orders, plan_entry
+from .auto_entry import confirm_entry, expired_orders, plan_entry
 from .deals import aggregate_close_deals, history_row_matches
 from ..prop.hours import (broker_offset_minutes, resolve_zone, zone_choices,
                           zone_label, zone_offset_minutes)
@@ -92,6 +92,7 @@ class Trader:
         self.auto_entry_depth = 0.5
         self.auto_entry_offset = 0.35
         self.auto_entry_expiry = 120
+        self.auto_entry_confirm = "normal"
         self._auto_entry_sweep = 0.0
         self._auto_entry_tickets: set[int] = set()
         # Entries on the wire, per symbol. Held from just before the send
@@ -1995,6 +1996,8 @@ class Trader:
         except (TypeError, ValueError):
             self.auto_entry_offset = 0.35
         self.auto_entry_expiry = self._clamp_int(auto_cfg.get("expiry_minutes"), 120, 0, 10080)
+        confirm = str(auto_cfg.get("confirm", "normal") or "normal").lower()
+        self.auto_entry_confirm = confirm if confirm in {"off", "normal", "strict"} else "normal"
         danger_cfg = runtime.get("danger_guard") if isinstance(runtime.get("danger_guard"), dict) else {}
         self.danger_enabled = bool(danger_cfg.get("enabled", False))
         self.danger_sensitivity = clamp_sensitivity(danger_cfg.get("sensitivity", 50))
@@ -2602,6 +2605,7 @@ class Trader:
             "news_trade_locked": bool(self.prop.enabled),
             "auto_entry": bool(getattr(self, "auto_entry", False)),
             "auto_entry_expiry": int(getattr(self, "auto_entry_expiry", 120)),
+            "auto_entry_confirm": str(getattr(self, "auto_entry_confirm", "normal")),
             "pending_orders": panel("pending orders", lambda: len(self._own_pending_orders()), 0),
             "danger_guard": panel("danger guard", self._danger_state, {}),
             "risk_free": panel("risk free", self._risk_free_state, {}),
@@ -3407,12 +3411,34 @@ class Trader:
                 f"Auto entry found no better price for {side} {symbol} — sending at market",
             )
             return request
+        # The entry point is planted. Now wait for the market to agree with
+        # it. A resting order fills on touch, which takes the trade where
+        # price merely visited the level as readily as the one where the
+        # level held - so before committing, ask the candles whether this
+        # is a level being defended or a level being walked through.
+        verdict = confirm_entry(
+            side,
+            self._confirm_candles(symbol),
+            float(plan.get("price") or 0),
+            mode=str(getattr(self, "auto_entry_confirm", "normal")),
+        )
+        if not verdict.get("confirmed"):
+            await self.journal(
+                "info",
+                "auto_entry_waiting",
+                f"Entry planted for {side} {symbol} at {plan['price']} — waiting for "
+                f"confirmation: {verdict.get('reason')}",
+                {"plan": dict(plan), "confirm": dict(verdict)},
+            )
+            return {**request, "action": "hold", "auto_entry_waiting": True,
+                    "confirm": dict(verdict), "plan": dict(plan)}
         out = {
             **request,
             "action": "pending",
             "order_type": plan["order_type"],
             "price": plan["price"],
             "auto_entry": True,
+            "confirm": dict(verdict),
         }
         if plan.get("sl"):
             out["sl"] = plan["sl"]
@@ -3428,6 +3454,30 @@ class Trader:
             {"plan": dict(plan)},
         )
         return out
+
+    def _confirm_candles(self, symbol: str, count: int = 6) -> list[dict[str, Any]]:
+        """The last few closed bars, for the entry confirmation check."""
+        timeframe = str(getattr(self, "active_timeframe", "") or "M15")
+        count = max(2, int(count))
+        # The bridge holds the live series; the store is the fallback when
+        # this symbol is not the one being streamed.
+        try:
+            bridge = getattr(self, "bridge", None)
+            if bridge is not None:
+                live = [c.to_dict() if hasattr(c, "to_dict") else dict(c or {})
+                        for c in (bridge.candles_of(symbol, timeframe) or [])]
+                if len(live) >= 2:
+                    return live[-count:]
+        except Exception:
+            log.exception("could not read live candles to confirm entry for %s", symbol)
+        store = getattr(self, "store", None)
+        if store is None:
+            return []
+        try:
+            return list(store.candles(symbol, timeframe, count) or [])
+        except Exception:
+            log.exception("could not read candles to confirm entry for %s", symbol)
+            return []
 
     async def sweep_pending(self, force: bool = False) -> int:
         """Cancel our resting orders that have waited past their shelf life.
@@ -3600,6 +3650,19 @@ class Trader:
         ):
             try:
                 request = await self._apply_auto_entry(request)
+                if request.get("auto_entry_waiting"):
+                    # Planted, not entered. This is a deferral, not a
+                    # rejection: the setup stands and the next closed
+                    # candle gets another vote. Returning here is what
+                    # keeps "hold" off the wire.
+                    return {
+                        "ok": True,
+                        "held": True,
+                        "auto_entry_waiting": True,
+                        "confirm": request.get("confirm"),
+                        "plan": request.get("plan"),
+                        "error": None,
+                    }
                 if str(request.get("action") or "") == "pending":
                     # The resting price is not the market price, so the
                     # stop's cost in money is a different number. Price

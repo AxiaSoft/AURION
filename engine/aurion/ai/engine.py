@@ -8,7 +8,7 @@ import numpy as np
 from ..config import ROOT, abspath, load
 from ..util.clock import utc_iso
 from ..util.log import get
-from .features import FEATURE_COLUMNS, build_feature_frame, last_features, matrix
+from .features import FEATURE_COLUMNS, build_feature_frame, last_features, matrix, matrix_columns
 from .models import LiveModels
 from .patterns import detect, regime_from_features
 
@@ -196,7 +196,9 @@ class AIEngine:
         # Drop the leftover tail already sliced; also drop pure-noise if any NaN.
         mask = np.isfinite(X).all(axis=1)
         X, y = X[mask], y[mask]
-        result = self.models.fit(X, y)
+        # Pass the column names so the model addresses features by name,
+        # and the label horizon so it can purge the overlap at the split.
+        result = self.models.fit(X, y, columns=matrix_columns(frame.iloc[sl]), purge=HORIZON)
         self.bars_since_train = 0
         if result.get("ok"):
             log.info("retrained on %s %s bars=%s", symbol, timeframe, self.models.samples)
