@@ -421,8 +421,25 @@
     dim:    "brightness(.55)",
     bright: "brightness(1.35)",
     grey:   "saturate(0)",
-    warm:   "sepia(.45) saturate(1.3) hue-rotate(-14deg)",
-    cool:   "saturate(1.15) hue-rotate(150deg)",
+    /* Warm and cool are a matched pair: the same sepia tone, with cool
+       turned through 180 degrees so the amber becomes blue.
+
+       They used to be swapped on screen. "Cool" was a bare
+       hue-rotate(150deg) with no sepia under it, which does not tint
+       anything - it spins every hue in the picture a long way round the
+       wheel, so a blue sea came out orange. Measured over a spread of
+       sample colours it warmed them by +20.7, while "warm" managed only
+       +10.1: the cool setting was the warmer of the two.
+
+       The sepia has to be strong. A partial one leaves the original hues
+       alive underneath, and the 180-degree turn then inverts THOSE as
+       well - navy went to orange again. Measurement puts the threshold
+       for a consistent tone at .75; .8 clears it with margin while
+       keeping as much of the picture's own colour as possible.
+       See tests/bg-effects.test.js, which computes this rather than
+       taking the names on trust. */
+    warm:   "sepia(.8) saturate(1.35)",
+    cool:   "sepia(.8) hue-rotate(180deg) saturate(1.35)",
   };
 
   function hexToRgb(hex) {
