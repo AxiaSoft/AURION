@@ -1535,6 +1535,37 @@ input[type=range]{width:100%;accent-color:var(--cyan);height:28px;cursor:pointer
 }
 .chart-ticket .ct-head h3{margin:0 0 2px;font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
 .ct-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin:10px 0}
+/* The three-field variant of the same grid (symbol/timeframe/strategy on
+   the backtest, volume/SL/TP on the manual ticket).
+
+   This used to be declared ~90 lines further down, AFTER the media
+   query meant to narrow it. Same selector, same specificity, so the
+   later unconditional rule won at every width and the @media rule was
+   dead: on a phone the three controls stayed in three columns about
+   110px wide and ran into each other. The whole ladder lives here now,
+   in one place, in the order it has to resolve in. */
+.ct-grid-3{grid-template-columns:repeat(3,minmax(0,1fr))}
+/* A grid item defaults to min-width:auto, so a long option label can
+   push a track wider than its share and squeeze the others. */
+.ct-grid>*{min-width:0}
+/* The gap owns the spacing between fields. .field also carries its own
+   14px bottom margin, which on a wrapped grid made the space between
+   rows 22px while the columns sat 8px apart. */
+.ct-grid>.field{margin-bottom:0}
+
+@media (max-width:900px){
+  .ct-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+  /* re-stated: the rule above would otherwise take the 3-up grid to two */
+  .ct-grid-3{grid-template-columns:repeat(3,minmax(0,1fr))}
+}
+@media (max-width:820px){
+  .ct-grid-3{grid-template-columns:repeat(2,minmax(0,1fr))}
+}
+/* One per row on a phone. Two columns leaves a ~150px select holding a
+   symbol name and a dropdown arrow, which is the complaint. */
+@media (max-width:560px){
+  .ct-grid,.ct-grid-3{grid-template-columns:minmax(0,1fr)}
+}
 .ct-actions{margin-top:4px}
 .ct-actions .btn.on{border-color:var(--gold);color:var(--gold)}
 .st-up-hero{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:12px}
@@ -1566,7 +1597,6 @@ input[type=range]{width:100%;accent-color:var(--cyan);height:28px;cursor:pointer
   .top-actions{grid-area:actions}
 }
 @media (max-width:900px){
-  .ct-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
   .st-eq{display:none}
 }
 @media (max-width:820px){
@@ -1618,10 +1648,8 @@ input[type=range]{width:100%;accent-color:var(--cyan);height:28px;cursor:pointer
 @media (max-width:820px){
   .chart-work .chart-box{height:220px;min-height:200px}
   .chart-box{height:220px}
-  .ct-grid-3{grid-template-columns:repeat(2,minmax(0,1fr))}
   .ct-actions{flex-wrap:wrap}
 }
-.ct-grid-3{grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
 .welcome{
   position:fixed;inset:0;z-index:400;display:grid;place-items:center;
   background:var(--deep);
