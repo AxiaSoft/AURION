@@ -269,6 +269,30 @@ check("status is shown with the desk's own dot, not a coloured circle", () => {
   if (dots < 8) throw new Error("expected the About rows to use .dot live/down, found " + dots);
 });
 
+/* An emoji written as a \uXXXX escape is still an emoji on the screen, but
+   it is plain ASCII in the file, so every scan above walks straight past
+   it. This is not hypothetical: the mute button in the sound settings was
+   carrying "\\uD83D\\uDD07" (a speaker) through the whole emoji sweep
+   undetected, because the sweep read the source rather than what the
+   source produces. */
+check("no emoji is smuggled in as a unicode escape", () => {
+  const bad = [];
+  for (const file of [...DESK, ...SHOP, ...ADMIN]) {
+    const text = fs.readFileSync(file, "utf8");
+    /* Surrogate pairs first - every pictograph outside the BMP is written
+       as two escapes - then lone escapes in the symbol blocks. */
+    const decoded = text
+      .replace(/\\u(d8[0-9a-f]{2})\\u(d[c-f][0-9a-f]{2})/gi,
+        (_, hi, lo) => String.fromCharCode(parseInt(hi, 16), parseInt(lo, 16)))
+      .replace(/\\u(2[0-9a-f]{3}|f[0-9a-f]{3})/gi,
+        (_, hex) => String.fromCharCode(parseInt(hex, 16)));
+    if (decoded === text) continue;
+    const found = offenders(decoded);
+    if (found.length) bad.push(report(path.relative(ROOT, file), found));
+  }
+  if (bad.length) throw new Error(bad.join("\n"));
+});
+
 check("the chart marker tool ships no emoji of its own", () => {
   const charts = fs.readFileSync(path.join(ROOT, "apps/web/js/charts.js"), "utf8");
   if (/onText\(\s*kind === "emoji"/.test(charts)) {

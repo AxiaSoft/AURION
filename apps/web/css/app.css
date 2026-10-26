@@ -478,8 +478,46 @@ html[dir="rtl"] .switch.on i{transform:translate(calc(var(--sw-travel) * -1),-50
 }
 .notify-card h4{margin:0 0 4px;font-size:13px;font-weight:500}
 .notify-card p{margin:0;color:var(--muted);font-size:12px;line-height:1.55}
-.notify-card .n-x{
-  position:absolute;top:8px;inset-inline-end:8px;border:0;background:transparent;color:var(--faint);
+/* One close button for every kind of notification - the trade cards, the
+   signal cards, the engine's own notes and the ordinary toasts. It used to
+   be a literal "x" character typed into the markup, which is a glyph
+   pretending to be an icon: it inherits the text font, so its weight and
+   size change with the theme, and a screen reader reads it as the letter. */
+.notify-card .n-x,
+.toast .n-x{
+  position:absolute;top:7px;inset-inline-end:7px;
+  width:24px;height:24px;display:grid;place-items:center;
+  border:0;border-radius:8px;background:transparent;color:var(--faint);
+  cursor:pointer;padding:0;
+  transition:color .16s var(--ease), background .16s var(--ease);
+}
+.notify-card .n-x svg,
+.toast .n-x svg{width:13px;height:13px}
+.notify-card .n-x:hover,
+.toast .n-x:hover{color:var(--ink);background:rgb(var(--wash) / .08)}
+
+/* While a card is being dragged it must not animate back to where it was
+   on every pointermove, and it must not select its own text. Once it is
+   released, the transition is what carries it off the screen. */
+.notify-card.swiping,
+.toast.swiping{transition:none;cursor:grabbing}
+.notify-card.n-out,
+.toast.n-out{
+  transition:transform .22s var(--ease), opacity .22s var(--ease);
+  pointer-events:none;
+}
+.notify-card{user-select:none;-webkit-user-select:none}
+
+/* A touch target of 24px is fine for a mouse and mean for a thumb. */
+@media (pointer:coarse){
+  .notify-card .n-x,
+  .toast .n-x{width:34px;height:34px;top:4px;inset-inline-end:4px}
+  .toast{padding-inline-end:44px}
+}
+
+@media (prefers-reduced-motion:reduce){
+  .notify-card.n-out,
+  .toast.n-out{transition:none}
 }
 .pay-veil{
   position:fixed;inset:0;z-index:280;display:grid;place-items:center;
@@ -587,6 +625,11 @@ html[dir="rtl"] .set-h{letter-spacing:0;text-transform:none}
   flex:1;border:1px solid var(--line);background:transparent;border-radius:999px;padding:8px 0;color:var(--muted);
   transition:background .25s,color .25s,transform .25s,border-color .25s;
 }
+/* The theme pills carry an icon beside their label now, in place of the
+   sun and moon emoji they used to print. An <svg> with no size is 300px
+   wide by spec, so this is load-bearing, not decoration. */
+.lang-pills button{display:inline-flex;align-items:center;gap:6px}
+.lang-pills button svg{width:14px;height:14px;flex:none}
 .lang-pills button:hover{color:var(--ink);border-color:rgb(var(--wash) / .18)}
 .lang-pills button.on{color:var(--on-accent);background:var(--gold);border-color:transparent;font-weight:500}
 
@@ -917,11 +960,17 @@ tr:hover td{background:rgb(var(--wash) / .02)}
   display:grid;gap:8px;z-index:50;max-width:min(360px, calc(100vw - 32px));
 }
 .toast{
+  position:relative;
   background:var(--glass2);border:1px solid var(--line);border-radius:14px;
-  padding:10px 14px;box-shadow:var(--shadow);backdrop-filter:blur(16px);
+  padding-block:10px;padding-inline:14px 38px;box-shadow:var(--shadow);backdrop-filter:blur(16px);
   animation:toastIn .35s var(--ease-out);
   text-align:start;
+  /* Swipeable on a finger as well as a mouse. pan-y leaves vertical page
+     scrolling to the browser and claims only the horizontal axis, so a
+     toast cannot trap a scroll that was meant for the page behind it. */
+  touch-action:pan-y;cursor:grab;user-select:none;-webkit-user-select:none;
 }
+.toast .toast-msg{display:block;min-width:0;overflow-wrap:anywhere}
 
 .modal{
   position:fixed;inset:0;background:rgba(4,5,8,.55);display:grid;place-items:center;z-index:40;
@@ -2507,7 +2556,7 @@ html[dir="rtl"] .q-how[open] summary::before{ transform:rotate(0deg) }
 }
 .snd-vol{display:flex;align-items:center;gap:12px;margin-top:10px}
 .snd-vol input[type="range"]{flex:1;min-width:0}
-.snd-mute{font-size:15px;line-height:1}
+.snd-mute svg{width:17px;height:17px}
 
 .snd-rows{display:flex;flex-direction:column;gap:8px;margin-top:10px}
 .snd-row{
@@ -2525,14 +2574,35 @@ html[dir="rtl"] .q-how[open] summary::before{ transform:rotate(0deg) }
   width:30px;height:30px;flex:none;border-radius:9px;font-size:14px;
   background:rgb(var(--wash) / .06);color:var(--ink);
 }
+.snd-mark svg{width:16px;height:16px}
 .snd-mark.t-entry{color:var(--gold)}
 .snd-mark.t-up{color:var(--up, #3ddc97)}
 .snd-mark.t-down{color:var(--down, #ff6b6b)}
+.snd-mark.t-notice{color:var(--muted)}
 .snd-text{display:flex;flex-direction:column;gap:2px;min-width:0}
 .snd-text b{font-weight:600}
 .snd-text small{color:var(--muted);font-size:11px;line-height:1.45}
 .snd-pick{width:100%}
-.snd-note{margin-top:12px !important;opacity:.8}
+.snd-note{margin-block-start:12px !important;opacity:.8}
+
+/* The chosen file sits on its own line under the row's controls: it is a
+   detail about the row, not a fifth column competing with them, and the
+   name of a file is as long as the trader's file name happens to be. */
+.snd-file{
+  grid-column:1 / -1;
+  display:flex;align-items:center;gap:8px;min-width:0;
+  padding-block-start:2px;
+}
+.snd-up{display:inline-flex;align-items:center;gap:6px;cursor:pointer;flex:none}
+.snd-up svg{width:13px;height:13px}
+.snd-fname{
+  font-size:11px;color:var(--muted);min-width:0;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
+.snd-del{flex:none;color:var(--muted)}
+.snd-del:hover{color:var(--rose)}
+.snd-del svg,.snd-play svg{width:15px;height:15px}
+.snd-play:disabled{opacity:.4;cursor:not-allowed}
 
 .snd-deliver{
   display:flex;align-items:flex-start;justify-content:space-between;

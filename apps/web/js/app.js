@@ -81,6 +81,14 @@ function icon(name) {
     send: '<path d="M21 3.5L10.8 13.7"/><path d="M21 3.5l-6.6 17.3-3.6-7.1-7.1-3.6z"/>',
     star: '<polygon points="12,3.6 14.4,9 20.2,9.6 15.8,13.5 17.1,19.2 12,16.2 6.9,19.2 8.2,13.5 3.8,9.6 9.6,9"/>',
     minus: '<line x1="5.5" y1="12" x2="18.5" y2="12"/>',
+    sun: '<circle cx="12" cy="12" r="4.2"/><line x1="12" y1="2.4" x2="12" y2="5"/><line x1="12" y1="19" x2="12" y2="21.6"/><line x1="2.4" y1="12" x2="5" y2="12"/><line x1="19" y1="12" x2="21.6" y2="12"/><line x1="5.2" y1="5.2" x2="7" y2="7"/><line x1="17" y1="17" x2="18.8" y2="18.8"/><line x1="18.8" y1="5.2" x2="17" y2="7"/><line x1="7" y1="17" x2="5.2" y2="18.8"/>',
+    moon: '<path d="M20.2 14.3A8.4 8.4 0 0 1 9.7 3.8a8.4 8.4 0 1 0 10.5 10.5z"/>',
+    themeAuto: '<circle cx="12" cy="12" r="8.4"/><path d="M12 3.6a8.4 8.4 0 0 1 0 16.8z" fill="currentColor" stroke="none"/>',
+    volume: '<path d="M4 9.5h3.2L12 5.6v12.8L7.2 14.5H4z"/><path d="M16 9.2a4 4 0 0 1 0 5.6"/><path d="M18.4 6.6a7.5 7.5 0 0 1 0 10.8"/>',
+    volumeOff: '<path d="M4 9.5h3.2L12 5.6v12.8L7.2 14.5H4z"/><line x1="16.5" y1="9.5" x2="21" y2="14.5"/><line x1="21" y1="9.5" x2="16.5" y2="14.5"/>',
+    play: '<path d="M8 5.6 18 12 8 18.4z"/>',
+    trash: '<path d="M4.5 6.5h15"/><path d="M9.5 6.5V4.8h5v1.7"/><path d="M6.5 6.5 7.4 19a1.4 1.4 0 0 0 1.4 1.3h6.4a1.4 1.4 0 0 0 1.4-1.3l.9-12.5"/><line x1="10.3" y1="10" x2="10.6" y2="16.6"/><line x1="13.7" y1="10" x2="13.4" y2="16.6"/>',
+    upload: '<path d="M12 15.5V4.2"/><path d="m7.6 8.6 4.4-4.4 4.4 4.4"/><path d="M4.5 15v3.3a1.6 1.6 0 0 0 1.6 1.6h11.8a1.6 1.6 0 0 0 1.6-1.6V15"/>',
     plus: '<line x1="12" y1="5.5" x2="12" y2="18.5"/><line x1="5.5" y1="12" x2="18.5" y2="12"/>',
     target: '<circle cx="12" cy="12" r="7.2"/><line x1="12" y1="1.8" x2="12" y2="5.2"/><line x1="12" y1="18.8" x2="12" y2="22.2"/><line x1="1.8" y1="12" x2="5.2" y2="12"/><line x1="18.8" y1="12" x2="22.2" y2="12"/><circle cx="12" cy="12" r="1.6"/>',
     download: '<path d="M12 3.5v11"/><polyline points="7.5,10 12,14.5 16.5,10"/><path d="M4.5 17.5v1.5a2 2 0 002 2h11a2 2 0 002-2v-1.5"/>',
@@ -164,17 +172,139 @@ function overlayHost() {
   return document.body;
 }
 
-function toast(msg) {
+/**
+ * Dismiss one notification, on a mouse or a finger, by swipe or by button.
+ *
+ * Pointer events rather than touch events, so this is one implementation
+ * for both: a mouse drag across a toast dismisses it exactly as a thumb
+ * does, which is what "whether mobile or computer" asks for.
+ *
+ * Four things here are not obvious and each one was a way to get stuck:
+ *
+ *   - the threshold is a fraction of the card's own width, not a fixed
+ *     88px. A notification is 380px on a desk and can be a third of that
+ *     on a narrow phone, where 88px is most of the card.
+ *   - a fast flick counts even if it is short. Requiring the full distance
+ *     makes a deliberate, slow drag the only way to dismiss, which is the
+ *     opposite of what a flick is for.
+ *   - pointercancel is handled. The browser takes the pointer away when it
+ *     decides the gesture is a scroll, and without this the card stays
+ *     where the finger left it: half off-screen, half transparent, for
+ *     ever.
+ *   - a drag that starts on a button is not a swipe. The close button and
+ *     the "open chart" button live inside the card, and capturing their
+ *     pointer would mean they could never be clicked.
+ */
+function bindDismiss(el, onGone) {
+  if (!el || el._dismissBound) return;
+  el._dismissBound = true;
+
+  const finish = () => {
+    if (el._gone) return;
+    el._gone = true;
+    if (typeof onGone === "function") onGone(el);
+    else el.remove();
+  };
+
+  /* Slide the card out the way it was thrown before removing it, so the
+     list closing up reads as a consequence of the gesture. */
+  const fling = (dir) => {
+    el.classList.add("n-out");
+    el.style.transform = `translateX(${dir * Math.max(240, el.offsetWidth)}px)`;
+    el.style.opacity = "0";
+    const done = () => finish();
+    el.addEventListener("transitionend", done, { once: true });
+    // A card in a hidden tab gets no transitionend, so it would never leave.
+    setTimeout(done, 320);
+  };
+
+  const reset = () => {
+    el.classList.remove("swiping");
+    el.style.transform = "";
+    el.style.opacity = "";
+  };
+
+  let id = null, x0 = 0, t0 = 0, dx = 0;
+
+  el.addEventListener("pointerdown", (e) => {
+    if (el._gone) return;
+    if (e.button !== undefined && e.button !== 0) return;
+    // Let the controls inside the card have their own clicks.
+    if (e.target.closest("button, a, input, select, textarea")) return;
+    id = e.pointerId; x0 = e.clientX; t0 = Date.now(); dx = 0;
+    el.classList.add("swiping");
+    try { el.setPointerCapture(id); } catch { /* synthetic pointer */ }
+  });
+
+  el.addEventListener("pointermove", (e) => {
+    if (id === null || e.pointerId !== id) return;
+    dx = e.clientX - x0;
+    el.style.transform = `translateX(${dx}px)`;
+    el.style.opacity = String(Math.max(0.15, 1 - Math.abs(dx) / (el.offsetWidth || 320)));
+  });
+
+  const release = (e) => {
+    if (id === null || (e && e.pointerId !== id)) return;
+    try { el.releasePointerCapture(id); } catch { /* already gone */ }
+    id = null;
+    const width = el.offsetWidth || 320;
+    const far = Math.abs(dx) > Math.max(56, width * 0.3);
+    const fast = Math.abs(dx) > 28 && Math.abs(dx) / Math.max(1, Date.now() - t0) > 0.45;
+    if (far || fast) fling(dx < 0 ? -1 : 1);
+    else reset();
+    dx = 0;
+  };
+  el.addEventListener("pointerup", release);
+  el.addEventListener("pointercancel", () => { id = null; dx = 0; reset(); });
+
+  const x = el.querySelector("[data-nx]");
+  if (x) x.onclick = (e) => { e.stopPropagation(); finish(); };
+  el._dismiss = finish;
+}
+
+/* Ordinary notifications arrive in bursts - saving a form can raise three
+   in a row - and three chimes on top of each other is a noise, not a
+   notification. One sound per window, the rest are seen and not heard. */
+let _lastNoticeSound = 0;
+function noticeSound() {
+  const now = Date.now();
+  if (now - _lastNoticeSound < 900) return;
+  _lastNoticeSound = now;
+  const p = notifyPrefs();
+  playSound(p.notice, p.volume, "notice");
+}
+
+/**
+ * The ordinary notification: a short message in the corner.
+ *
+ * It now has a close button and can be swiped away, because it used to do
+ * neither - it sat there for 3.2 seconds whatever you did, and on a phone
+ * it covered the controls underneath for all of them. It also makes a
+ * sound, which it did not before.
+ *
+ * `opts.silent` exists for the places where a sound would be absurd: the
+ * sound settings panel itself, which raises a toast to confirm the sound
+ * you just picked.
+ */
+function toast(msg, opts) {
   const wrap = $("toasts");
   if (!wrap) return;
+  opts = opts || {};
   const host = overlayHost();
   if (wrap.parentElement !== host) host.appendChild(wrap);
   while (wrap.children.length >= 2) wrap.firstElementChild.remove();
   const el = document.createElement("div");
   el.className = "toast";
-  el.textContent = msg;
+  el.innerHTML = `<span class="toast-msg"></span>` +
+    `<button type="button" class="n-x" data-nx="toast"
+             aria-label="${esc(I18N.t("notify.dismiss"))}">${icon("close")}</button>`;
+  // textContent, not innerHTML: a toast often carries a server message.
+  el.querySelector(".toast-msg").textContent = msg;
   wrap.appendChild(el);
-  setTimeout(() => el.remove(), 3200);
+  const timer = setTimeout(() => { if (el._dismiss) el._dismiss(); else el.remove(); }, 3200);
+  bindDismiss(el, () => { clearTimeout(timer); el.remove(); });
+  if (!opts.silent) noticeSound();
+  return el;
 }
 function modalOpen() {
   const host = $("desk-modal");
@@ -1570,13 +1700,37 @@ const SOUNDS = {
 };
 const SOUND_NAMES = Object.keys(SOUNDS);
 
-const NOTIFY_DEFAULTS = { entry: "chime", profit: "rise", loss: "fall", volume: 0.6, windows: true };
+/* `notice` is the ordinary-notification slot: the toasts the desk raises for
+   a saved setting, a reconnect, a refused action. It used to be silent by
+   design, on the reasoning that a robot which chimes at every heartbeat
+   gets muted. The user asked for it to be audible, so it is - but quietly
+   (a single soft tone), rate-limited below so a burst of toasts cannot
+   machine-gun, and settable to Silent like every other slot. */
+const NOTIFY_DEFAULTS = { entry: "chime", profit: "rise", loss: "fall", notice: "soft", volume: 0.6, windows: true };
+
+/* Every slot the trader can assign a sound to, and the built-in tone each
+   one falls back to if a custom file is chosen and later goes missing. */
+const SOUND_SLOTS = ["entry", "profit", "loss", "notice"];
+
+/* A notification sound is a second or two. The cap is generous enough for
+   any real chime and small enough that a trader cannot wire a whole track
+   into the entry slot and then wonder why the desk is slow to start. */
+const SOUND_MAX_BYTES = 2 * 1024 * 1024;
 
 function notifyPrefs() {
   try {
     const raw = JSON.parse(localStorage.getItem("aurion.notify") || "{}");
     const out = { ...NOTIFY_DEFAULTS, ...(raw && typeof raw === "object" ? raw : {}) };
-    for (const key of ["entry", "profit", "loss"]) {
+    for (const key of SOUND_SLOTS) {
+      /* "custom" is a legal value only while a file is actually stored for
+         the slot. If the file has gone - a cleared profile, a different
+         machine - the slot falls back to its built-in tone rather than
+         going silently dead, because a notification that stops making a
+         noise is indistinguishable from one that stopped arriving. */
+      if (out[key] === "custom") {
+        if (CUSTOM_SOUNDS.has(key)) continue;
+        out[key] = NOTIFY_DEFAULTS[key];
+      }
       if (!SOUND_NAMES.includes(out[key])) out[key] = NOTIFY_DEFAULTS[key];
     }
     out.volume = Math.min(1, Math.max(0, Number(out.volume) || 0));
@@ -1593,22 +1747,176 @@ function saveNotifyPrefs(patch) {
   return next;
 }
 
+/* --------------------------------------------------- custom sound files
+ *
+ * The built-in tones are synthesized, which is why they cost nothing and
+ * cannot go missing. A file the trader chooses is the opposite on both
+ * counts, so it is handled with more care than a preference string:
+ *
+ *   - it lives in IndexedDB, not localStorage. An .ogg is tens or hundreds
+ *     of kilobytes and localStorage holds strings in a ~5MB budget shared
+ *     with everything else the desk keeps; base64 would inflate it by a
+ *     third and one sound file could evict the whole of the rest.
+ *   - it is decoded once at the moment it is chosen. A file that the
+ *     browser cannot decode is rejected there and then, with the reason on
+ *     screen, instead of being accepted and then failing silently at the
+ *     one moment it mattered - when a trade opened and nobody heard it.
+ *   - the decoded buffer is cached in memory, so playing it is the same
+ *     cost as playing a synthesized tone and a burst of notifications does
+ *     not re-decode the file each time.
+ */
+const SOUND_DB = "aurion-sounds";
+const SOUND_STORE = "files";
+/** slot -> { name, size, blob, buffer } for whatever is currently loaded. */
+const CUSTOM_SOUNDS = new Map();
+
+function soundDb() {
+  return new Promise((resolve, reject) => {
+    if (!window.indexedDB) { reject(new Error("no indexeddb")); return; }
+    const req = window.indexedDB.open(SOUND_DB, 1);
+    req.onupgradeneeded = () => {
+      const db = req.result;
+      if (!db.objectStoreNames.contains(SOUND_STORE)) db.createObjectStore(SOUND_STORE);
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error || new Error("indexeddb refused"));
+  });
+}
+
+function soundTx(mode, fn) {
+  return soundDb().then((db) => new Promise((resolve, reject) => {
+    const tx = db.transaction(SOUND_STORE, mode);
+    const req = fn(tx.objectStore(SOUND_STORE));
+    tx.oncomplete = () => resolve(req ? req.result : undefined);
+    tx.onerror = () => reject(tx.error || new Error("sound store failed"));
+    tx.onabort = () => reject(tx.error || new Error("sound store aborted"));
+  }));
+}
+
+/** The shared AudioContext, created on demand. */
+function audioCtx() {
+  const Ctx = window.AudioContext || window.webkitAudioContext;
+  if (!Ctx) return null;
+  // One context for the life of the page. Browsers cap how many a page may
+  // create, and a desk that runs for a week would hit it.
+  if (!S._audio) S._audio = new Ctx();
+  // Autoplay policy parks the context until the user has interacted;
+  // resuming is a no-op once it is already running.
+  if (S._audio.state === "suspended") S._audio.resume().catch(() => {});
+  return S._audio;
+}
+
+/**
+ * Accept a file for one slot: decode it, keep it, and say what went wrong
+ * if it cannot be used.
+ *
+ * Resolves to the stored record, rejects with a translated message. The
+ * decode is the real test - the extension and the MIME type are what the
+ * file claims to be, and a renamed .mp3 or a truncated download claims the
+ * same thing as a good one.
+ */
+async function putCustomSound(slot, file) {
+  if (!SOUND_SLOTS.includes(slot)) throw new Error("bad slot");
+  if (!file) throw new Error(I18N.t("notify.snd_err_type"));
+  const named = String(file.name || "");
+  const isOgg = /\.ogg$/i.test(named) || /ogg/i.test(file.type || "");
+  if (!isOgg) throw new Error(I18N.t("notify.snd_err_type"));
+  if (file.size > SOUND_MAX_BYTES) throw new Error(I18N.t("notify.snd_err_big"));
+
+  const bytes = await file.arrayBuffer();
+  const ctx = audioCtx();
+  if (!ctx) throw new Error(I18N.t("notify.snd_err_decode"));
+  let buffer;
+  try {
+    // decodeAudioData detaches the buffer it is given, so it gets a copy -
+    // the original is still needed to store the blob.
+    buffer = await ctx.decodeAudioData(bytes.slice(0));
+  } catch {
+    /* Vorbis in an Ogg container is understood everywhere the desk runs;
+       what usually lands here is a file that is not really Ogg at all. */
+    throw new Error(I18N.t("notify.snd_err_decode"));
+  }
+  if (!buffer || !buffer.duration) throw new Error(I18N.t("notify.snd_err_decode"));
+
+  const rec = { name: named, size: file.size, blob: new Blob([bytes], { type: "audio/ogg" }) };
+  try {
+    await soundTx("readwrite", (st) => st.put({ name: rec.name, size: rec.size, blob: rec.blob }, slot));
+  } catch {
+    /* Private browsing can refuse IndexedDB. The sound still works for this
+       session; it just will not survive a restart, and saying so is better
+       than refusing the file. */
+    toast(I18N.t("notify.snd_err_store"), { silent: true });
+  }
+  CUSTOM_SOUNDS.set(slot, { ...rec, buffer });
+  return rec;
+}
+
+async function delCustomSound(slot) {
+  CUSTOM_SOUNDS.delete(slot);
+  try { await soundTx("readwrite", (st) => st.delete(slot)); } catch { /* nothing stored */ }
+}
+
+/**
+ * Bring any stored files back into memory at boot.
+ *
+ * Decoding is deferred to first play: a desk that starts with four custom
+ * sounds should not spend the first moments of its life decoding audio
+ * nobody has asked to hear yet.
+ */
+async function loadCustomSounds() {
+  for (const slot of SOUND_SLOTS) {
+    try {
+      const rec = await soundTx("readonly", (st) => st.get(slot));
+      if (rec && rec.blob) CUSTOM_SOUNDS.set(slot, { ...rec, buffer: null });
+    } catch { /* no store yet, or a browser that will not give us one */ }
+  }
+}
+
+async function customBuffer(slot) {
+  const rec = CUSTOM_SOUNDS.get(slot);
+  if (!rec) return null;
+  if (rec.buffer) return rec.buffer;
+  const ctx = audioCtx();
+  if (!ctx) return null;
+  try {
+    rec.buffer = await ctx.decodeAudioData(await rec.blob.arrayBuffer());
+    return rec.buffer;
+  } catch {
+    // Stored once, undecodable now: drop it rather than retry on every
+    // notification for the rest of the session.
+    CUSTOM_SOUNDS.delete(slot);
+    return null;
+  }
+}
+
+function playCustomSound(slot, level) {
+  customBuffer(slot).then((buf) => {
+    const ctx = audioCtx();
+    if (!buf || !ctx) return;
+    const src = ctx.createBufferSource();
+    const gain = ctx.createGain();
+    src.buffer = buf;
+    gain.gain.value = Math.max(0.0001, level);
+    src.connect(gain).connect(ctx.destination);
+    src.start();
+  }).catch(() => { /* a sound is not worth an exception */ });
+}
+
 /** Play one named tone. Never throws: a sound is not worth an exception. */
-function playSound(name, volume) {
-  const spec = SOUNDS[name];
-  if (!spec) return;
+function playSound(name, volume, slot) {
   const level = volume === undefined ? notifyPrefs().volume : Number(volume) || 0;
   if (level <= 0) return;
+  if (name === "custom") {
+    if (slot && CUSTOM_SOUNDS.has(slot)) { playCustomSound(slot, level); return; }
+    // The file has gone; fall through to the slot's built-in tone so the
+    // event is still audible.
+    name = (slot && NOTIFY_DEFAULTS[slot]) || "chime";
+  }
+  const spec = SOUNDS[name];
+  if (!spec) return;
   try {
-    const Ctx = window.AudioContext || window.webkitAudioContext;
-    if (!Ctx) return;
-    // One context for the life of the page. Browsers cap how many a page
-    // may create, and a desk that runs for a week would hit it.
-    S._audio = S._audio || new Ctx();
-    const ctx = S._audio;
-    // Autoplay policy parks the context until the user has interacted;
-    // resuming is a no-op once it is already running.
-    if (ctx.state === "suspended") ctx.resume().catch(() => {});
+    const ctx = audioCtx();
+    if (!ctx) return;
     const now = ctx.currentTime;
     for (const [freq, at, len] of spec.steps) {
       const osc = ctx.createOscillator();
@@ -1665,7 +1973,7 @@ function announceTrade(t) {
     // A scratch is still an exit worth seeing, but it is not news.
     playSound(prefs.entry === "none" ? "none" : "soft", prefs.volume);
   } else {
-    playSound(prefs[which], prefs.volume);
+    playSound(prefs[which], prefs.volume, which);
   }
   pushTradeCard(t);
   if (prefs.windows) notifyHostTrade(t);
@@ -1681,13 +1989,14 @@ function pushTradeCard(t) {
   card.className = "notify-card trade-card " + tone;
   card.setAttribute("data-nid", id);
   card.innerHTML =
-    `<button type="button" class="n-x" data-nx="${esc(id)}" aria-label="${esc(I18N.t("notify.dismiss"))}">×</button>` +
+    `<button type="button" class="n-x" data-nx="${esc(id)}" aria-label="${esc(I18N.t("notify.dismiss"))}">${icon("close")}</button>` +
     `<h4>${esc(tradeHeadline(t))}</h4>` +
     `<p class="sub">${esc(tradeDetail(t))}</p>`;
   stack.prepend(card);
-  if (typeof bindSwipe === "function") bindSwipe(card);
+  /* Local card: dismissing it is a removal, not a request. Routing it
+     through the server dismissal is what used to clear the whole stack. */
+  bindDismiss(card);
   while (stack.children.length > 4) stack.lastElementChild.remove();
-  card.querySelector(".n-x").onclick = () => card.remove();
   setTimeout(() => card.remove(), 12000);
 }
 
@@ -1718,14 +2027,14 @@ function pushSignalCard(sig) {
   card.className = "notify-card signal-card " + (side === "sell" ? "is-sell" : "is-buy");
   card.setAttribute("data-nid", id);
   card.innerHTML =
-    `<button type="button" class="n-x" data-nx="${esc(id)}" aria-label="${esc(I18N.t("notify.dismiss"))}">×</button>` +
+    `<button type="button" class="n-x" data-nx="${esc(id)}" aria-label="${esc(I18N.t("notify.dismiss"))}">${icon("close")}</button>` +
     `<h4>${esc(signalHeadline(sig))}</h4>` +
     `<p class="sub">${esc(signalDetail(sig) || I18N.t("signal.no_levels"))}</p>` +
     (signalSource(sig) ? `<p class="sub dim">${esc(signalSource(sig))}</p>` : "") +
     `<button type="button" class="btn tiny" data-sig-open="${esc(sig.symbol || "")}"
              data-sig-tf="${esc(sig.timeframe || "")}">${esc(I18N.t("signal.open_ea_chart"))}</button>`;
   stack.prepend(card);
-  bindSwipe(card);
+  bindDismiss(card);
 
   // Signals stack up during a busy session; keep the newest few.
   while (stack.children.length > 4) stack.lastElementChild.remove();
@@ -1734,7 +2043,6 @@ function pushSignalCard(sig) {
     openSignalChart(sig.symbol, sig.timeframe, sig);
     card.remove();
   };
-  card.querySelector(".n-x").onclick = () => card.remove();
 }
 
 /**
@@ -4559,6 +4867,7 @@ function notifySoundCardHtml() {
   const row = (key, tone, mark, label, hint) => {
     const value = p[key] || "none";
     const off = value === "none";
+    const file = CUSTOM_SOUNDS.get(key);
     return `<div class="snd-row${off ? " is-off" : ""}" data-sndrow="${key}">
       <span class="snd-mark t-${tone}" aria-hidden="true">${mark}</span>
       <span class="snd-text">
@@ -4568,11 +4877,24 @@ function notifySoundCardHtml() {
       <select class="ctrl snd-pick" data-snd="${key}" aria-label="${esc(label)}">${
         SOUND_NAMES.map((n) =>
           `<option value="${n}"${value === n ? " selected" : ""}>${esc(I18N.t("notify.snd_" + n))}</option>`
-        ).join("")}</select>
-      <button type="button" class="btn tiny ghost snd-play" data-sndtest="${key}"
-              aria-label="${esc(I18N.t("notify.preview"))}"${off || muted ? " disabled" : ""}>
-        ${esc(I18N.t("notify.preview"))}
-      </button>
+        ).join("")}${
+        /* Offered only when a file is actually loaded, so the list can
+           never name a sound that does not exist. */
+        file ? `<option value="custom"${value === "custom" ? " selected" : ""}>${esc(I18N.t("notify.snd_custom"))}</option>` : ""}</select>
+      <button type="button" class="icon-btn snd-play" data-sndtest="${key}"
+              title="${esc(I18N.t("notify.preview"))}"
+              aria-label="${esc(I18N.t("notify.preview"))}"${off || muted ? " disabled" : ""}>${icon("play")}</button>
+
+      <div class="snd-file">
+        <label class="btn tiny ghost snd-up">
+          ${icon("upload")}<span>${esc(I18N.t(file ? "notify.snd_replace" : "notify.snd_choose"))}</span>
+          <input type="file" accept=".ogg,audio/ogg" data-sndfile="${key}" hidden />
+        </label>
+        ${file ? `<span class="snd-fname" title="${esc(file.name)}">${esc(file.name)}</span>
+          <button type="button" class="icon-btn snd-del" data-snddel="${key}"
+                  title="${esc(I18N.t("notify.snd_remove"))}"
+                  aria-label="${esc(I18N.t("notify.snd_remove"))}">${icon("trash")}</button>` : ""}
+      </div>
     </div>`;
   };
 
@@ -4587,7 +4909,7 @@ function notifySoundCardHtml() {
       <p class="sub">${esc(I18N.t("notify.master_hint"))}</p>
       <div class="snd-vol">
         <button type="button" class="icon-btn snd-mute" id="snd-mute"
-                aria-label="${esc(I18N.t("notify.muted"))}" aria-pressed="${muted}">${muted ? "\uD83D\uDD07" : "\uD83D\uDD0A"}</button>
+                aria-label="${esc(I18N.t("notify.muted"))}" aria-pressed="${muted}">${muted ? icon("volumeOff") : icon("volume")}</button>
         <input id="snd-vol" type="range" min="0" max="100" step="5" value="${Math.round(p.volume * 100)}"
                aria-label="${esc(I18N.t("notify.master_title"))}" />
       </div>
@@ -4597,11 +4919,12 @@ function notifySoundCardHtml() {
       <div class="snd-head"><h3>${esc(I18N.t("notify.events_title"))}</h3></div>
       <p class="sub">${esc(I18N.t("notify.events_hint"))}</p>
       <div class="snd-rows">
-        ${row("entry", "entry", "\u2197", I18N.t("notify.entry"), I18N.t("notify.entry_hint"))}
-        ${row("profit", "up", "\u2714", I18N.t("notify.exit_profit"), "")}
-        ${row("loss", "down", "\u2716", I18N.t("notify.exit_loss"), "")}
+        ${row("entry", "entry", icon("chart"), I18N.t("notify.entry"), I18N.t("notify.entry_hint"))}
+        ${row("profit", "up", icon("check"), I18N.t("notify.exit_profit"), "")}
+        ${row("loss", "down", icon("close"), I18N.t("notify.exit_loss"), "")}
+        ${row("notice", "notice", icon("info"), I18N.t("notify.notice"), I18N.t("notify.notice_hint"))}
       </div>
-      <p class="sub snd-note">${esc(I18N.t("notify.status_note"))}</p>
+      <p class="sub snd-note">${esc(I18N.t("notify.custom_note"))}</p>
     </div>
 
     <div class="card snd-card">
@@ -4616,6 +4939,20 @@ function notifySoundCardHtml() {
       </div>
     </div>
   </div>`;
+}
+
+/* The rows carry the name of the loaded file, so adding or removing one
+   changes the markup and not just a value. Repaint in place rather than
+   re-showing the view, which would scroll the panel back to the top. */
+function repaintSoundPanel() {
+  const host = document.getElementById("notify-card");
+  if (!host) return;
+  const next = document.createElement("div");
+  next.innerHTML = notifySoundCardHtml();
+  const fresh = next.firstElementChild;
+  if (!fresh) return;
+  host.replaceWith(fresh);
+  bindNotifySounds(fresh.parentElement || document);
 }
 
 function bindNotifySounds(root) {
@@ -4635,7 +4972,7 @@ function bindNotifySounds(root) {
     const mute = scope.querySelector("#snd-mute");
     if (mute) {
       mute.setAttribute("aria-pressed", String(muted));
-      mute.textContent = muted ? "\uD83D\uDD07" : "\uD83D\uDD0A";
+      mute.innerHTML = muted ? icon("volumeOff") : icon("volume");
     }
 
     scope.querySelectorAll("[data-sndrow]").forEach((rowEl) => {
@@ -4649,16 +4986,53 @@ function bindNotifySounds(root) {
 
   scope.querySelectorAll("[data-snd]").forEach((sel) => {
     sel.onchange = () => {
-      saveNotifyPrefs({ [sel.dataset.snd]: sel.value });
+      const slot = sel.dataset.snd;
+      saveNotifyPrefs({ [slot]: sel.value });
       refresh();
       // Heard immediately: picking a sound from a list of names means
       // nothing until it makes a noise.
-      playSound(sel.value);
+      playSound(sel.value, undefined, slot);
     };
   });
 
   scope.querySelectorAll("[data-sndtest]").forEach((btn) => {
-    btn.onclick = () => playSound(notifyPrefs()[btn.dataset.sndtest]);
+    const slot = btn.dataset.sndtest;
+    btn.onclick = () => playSound(notifyPrefs()[slot], undefined, slot);
+  });
+
+  /* Choosing a file. The work happens in putCustomSound, which decodes it
+     before accepting it; everything here is about saying what happened.
+     The input is cleared afterwards so picking the same file twice - after
+     fixing it, say - still fires a change event. */
+  scope.querySelectorAll("[data-sndfile]").forEach((input) => {
+    input.onchange = async () => {
+      const slot = input.dataset.sndfile;
+      const file = input.files && input.files[0];
+      input.value = "";
+      if (!file) return;
+      try {
+        await putCustomSound(slot, file);
+        saveNotifyPrefs({ [slot]: "custom" });
+        repaintSoundPanel();
+        // Played straight away: a sound you chose but have not heard in
+        // place is a sound you do not know you have chosen.
+        playSound("custom", undefined, slot);
+        toast(I18N.t("notify.snd_added"), { silent: true });
+      } catch (err) {
+        toast(String((err && err.message) || I18N.t("notify.snd_err_decode")), { silent: true });
+      }
+    };
+  });
+
+  scope.querySelectorAll("[data-snddel]").forEach((btn) => {
+    btn.onclick = async () => {
+      const slot = btn.dataset.snddel;
+      await delCustomSound(slot);
+      // Back to the slot's built-in tone rather than to silence: removing
+      // a file is not the same as asking for no sound.
+      if (notifyPrefs()[slot] === "custom") saveNotifyPrefs({ [slot]: NOTIFY_DEFAULTS[slot] });
+      repaintSoundPanel();
+    };
   });
 
   const vol = scope.querySelector("#snd-vol");
@@ -5202,9 +5576,9 @@ const views = {
         <div class="card">
           <p class="sub" style="margin:0 0 6px">${I18N.t("settings.theme")}</p>
           <div class="lang-pills" id="set-themes">
-            <button type="button" data-themebtn="auto">\uD83C\uDF13 ${I18N.t("settings.theme_auto")}</button>
-            <button type="button" data-themebtn="dark">\uD83C\uDF19 ${I18N.t("settings.theme_dark")}</button>
-            <button type="button" data-themebtn="light">\u2600\uFE0F ${I18N.t("settings.theme_light")}</button>
+            <button type="button" data-themebtn="auto">${icon("themeAuto")} ${I18N.t("settings.theme_auto")}</button>
+            <button type="button" data-themebtn="dark">${icon("moon")} ${I18N.t("settings.theme_dark")}</button>
+            <button type="button" data-themebtn="light">${icon("sun")} ${I18N.t("settings.theme_light")}</button>
           </div>
           <div class="row" style="justify-content:space-between;margin-top:16px;align-items:flex-start">
             <div>
@@ -8679,45 +9053,61 @@ async function loadNotifies() {
   } catch { S.notes = []; }
   paintNotifies();
 }
+/**
+ * Paint the notifications that came from the engine.
+ *
+ * It repaints only its own cards. It used to rebuild the whole stack from
+ * S.notes, which quietly destroyed every trade and signal card sitting
+ * there - those are raised locally and are not in S.notes, so a routine
+ * poll with nothing new in it would clear the screen of the trade alert
+ * that had just arrived. Server cards are marked, and nothing else in the
+ * stack is touched.
+ */
 function paintNotifies() {
   const stack = $("notify-stack");
   const dot = $("bell-dot");
   const notes = (S.notes || []).filter((n) => !n.dismissed);
   if (dot) dot.hidden = !notes.length;
   if (!stack) return;
-  if (!notes.length) { stack.hidden = true; stack.innerHTML = ""; return; }
-  stack.hidden = false;
-  stack.innerHTML = notes.slice(0, 4).map((n) => `<article class="notify-card" data-nid="${esc(n.id)}">
-    <button type="button" class="n-x" data-nx="${esc(n.id)}" aria-label="${I18N.t("notify.dismiss")}">×</button>
-    <h4>${esc(n.title || "")}</h4><p>${esc(n.body || "")}</p>
-  </article>`).join("");
-  stack.querySelectorAll(".notify-card").forEach(bindSwipe);
-  stack.querySelectorAll("[data-nx]").forEach((b) => {
-    b.onclick = () => dismissNote(b.getAttribute("data-nx"));
-  });
-}
-function bindSwipe(card) {
-  let x0 = 0, dx = 0, on = false;
-  card.onpointerdown = (e) => { on = true; x0 = e.clientX; card.setPointerCapture(e.pointerId); card.classList.add("swiping"); };
-  card.onpointermove = (e) => {
-    if (!on) return;
-    dx = e.clientX - x0;
-    card.style.transform = `translateX(${dx}px)`;
-    card.style.opacity = String(Math.max(0.2, 1 - Math.abs(dx) / 220));
-  };
-  card.onpointerup = () => {
-    on = false;
-    card.classList.remove("swiping");
-    if (Math.abs(dx) > 88) dismissNote(card.getAttribute("data-nid"));
-    else { card.style.transform = ""; card.style.opacity = ""; }
-    dx = 0;
-  };
+
+  stack.querySelectorAll('[data-note="server"]').forEach((el) => el.remove());
+  for (const n of notes.slice(0, 4)) {
+    const card = document.createElement("article");
+    card.className = "notify-card";
+    card.setAttribute("data-note", "server");
+    card.setAttribute("data-nid", String(n.id));
+    card.innerHTML =
+      `<button type="button" class="n-x" data-nx="${esc(n.id)}"
+               aria-label="${esc(I18N.t("notify.dismiss"))}">${icon("close")}</button>` +
+      `<h4>${esc(n.title || "")}</h4><p>${esc(n.body || "")}</p>`;
+    stack.appendChild(card);
+    bindDismiss(card, () => dismissNote(n.id));
+  }
+  // Hidden only when there is genuinely nothing left, server or local.
+  stack.hidden = stack.children.length === 0;
 }
 async function dismissNote(id) {
   if (!id) return;
-  await API.post("/api/notify/" + encodeURIComponent(id) + "/dismiss", {});
+  /* Drop it locally first and never let the request decide. The card has
+     already slid off the screen by the time this runs; if the engine is
+     unreachable, putting it back would be the wrong answer to "I dismissed
+     that". It will not return unless the engine still has it on the next
+     poll, which is the correct behaviour for a note that was never
+     actually dismissed. */
   S.notes = (S.notes || []).filter((n) => n.id !== id);
-  paintNotifies();
+  /* Matched by reading the attribute rather than by building a selector
+     from it: note ids come from the engine, and CSS.escape is not
+     available in every runtime the desk has to survive (older WebViews
+     among them). A scan over at most four cards costs nothing. */
+  const wanted = String(id);
+  document.querySelectorAll('[data-note="server"]').forEach((el) => {
+    if (el.getAttribute("data-nid") === wanted) el.remove();
+  });
+  const stack = $("notify-stack");
+  if (stack) stack.hidden = stack.children.length === 0;
+  const dot = $("bell-dot");
+  if (dot) dot.hidden = !(S.notes || []).filter((n) => !n.dismissed).length;
+  try { await API.post("/api/notify/" + encodeURIComponent(id) + "/dismiss", {}); } catch { /* offline */ }
 }
 function showPayResult(ok, extra) {
   const veil = $("pay-veil");
@@ -9295,6 +9685,12 @@ function showUpdateWelcome(version, from) {
 
 async function boot() {
   bindChrome();
+
+  /* Bring any custom notification sounds back from IndexedDB before the
+     first notification can fire. Deliberately not awaited: a slow or
+     refused store must not hold up the desk, and until it resolves the
+     slots fall back to their built-in tones. */
+  loadCustomSounds().catch(() => { /* built-in tones are the fallback */ });
 
   // A canvas does not reflow. Redraw the equity curve when the box it lives
   // in changes size, or a phone rotation leaves it stretched.

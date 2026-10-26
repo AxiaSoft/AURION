@@ -887,7 +887,19 @@
     "muted": "Silent",
     "preview": "Play",
     "current": "Now: {name}",
-    "off_tag": "off"
+    "off_tag": "off",
+    "notice": "Ordinary notifications",
+    "notice_hint": "Saved settings, reconnects, refusals - the messages that appear in the corner",
+    "snd_custom": "My own file",
+    "snd_choose": "Choose .ogg",
+    "snd_replace": "Replace",
+    "snd_remove": "Remove file",
+    "snd_added": "Sound saved",
+    "custom_note": "Status changes are quiet by design. Any row can play a file of your own instead of a built-in tone - Ogg Vorbis (.ogg), up to 2 MB.",
+    "snd_err_type": "That is not an .ogg file",
+    "snd_err_big": "That file is larger than 2 MB",
+    "snd_err_decode": "This file could not be played - it may not be a real Ogg Vorbis file",
+    "snd_err_store": "The sound works now but could not be saved for next time"
   },
   "owner": {
     "title": "Owner account",
