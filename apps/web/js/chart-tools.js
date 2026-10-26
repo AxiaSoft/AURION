@@ -94,6 +94,10 @@
     flag: "M6 21V4M6 4h11l-2.5 4L17 12H6",
     emoji: "M12 3a9 9 0 100 18 9 9 0 000-18M9 10v.01M15 10v.01M8.5 14c1.8 2 5.2 2 7 0",
     brush: "M4 17c4-6 8 2 12-4 2-3 4-4 4-4",
+    // A pencil: the barrel, the collar where the wood starts, and the
+    // mark it has just left. Used for the button that opens the drawing
+    // tools, where "brush" read as a stray squiggle at 20px.
+    pencil: "M4 20h4L19.5 8.5a2.1 2.1 0 0 0 -3 -3L5 17v3|M14.5 7l3 3",
     highlighter: "M5 18h5l9-9-4-4-9 9zM4 21h16",
     freearrow: "M3 17c5-8 9 2 14-8M14 5h4v4",
     zoomIn: "M11 5a6 6 0 100 12 6 6 0 000-12M20 20l-4.5-4.5M8 11h6M11 8v6",
@@ -402,7 +406,7 @@
     <div class="tv-toolscrim" id="tv-toolscrim" aria-hidden="true"></div>
     <button type="button" class="tv-toolsfab" id="tv-toolsfab"
             aria-label="${esc(tt("chart.tools", "Drawing tools"))}" aria-expanded="false">
-      ${svg(I.brush)}
+      ${svg(I.pencil)}
     </button>`;
   }
 
@@ -1344,11 +1348,24 @@
       }
       if (e.target.closest("#tv-undo")) { chart.undo(); return; }
       if (e.target.closest("#tv-redo")) { chart.redo(); return; }
-      if (e.target.closest("#tv-scrim")) { toggleDock(false); return; }
-      if (e.target.closest("#tv-toolsfab")) { toggleTools(); return; }
-      if (e.target.closest("#tv-toolscrim")) { toggleTools(false); return; }
       if (e.target.closest("#tv-dock-toggle")) { toggleDock(); return; }
       if (e.target.closest("#tv-full")) setFullscreen(!ui.fullscreen);
+    };
+
+    /* ---- overlays: the FAB and the two scrims --------------------------
+     *
+     * These three are built by railHtml/html into .tv-body, NOT into the
+     * header - so wiring them onto .tv-top meant their clicks never
+     * reached a handler at all. The tools FAB did nothing on a phone,
+     * and neither scrim could be tapped to dismiss what it covered.
+     * They are bound on #tv, which is the one element that contains all
+     * three of them.
+     */
+    const root = $("tv");
+    if (root) root.onclick = (e) => {
+      if (e.target.closest("#tv-toolsfab")) { toggleTools(); return; }
+      if (e.target.closest("#tv-toolscrim")) { toggleTools(false); return; }
+      if (e.target.closest("#tv-scrim")) { toggleDock(false); }
     };
 
     /* ---- menus (delegated on the body, they live outside #tv) ---------- */
