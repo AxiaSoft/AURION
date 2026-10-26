@@ -3,8 +3,9 @@
  *
  * Two requests. Every in-app notification must be dismissable by a swipe
  * or a close button, on a phone and on a desk alike; ordinary
- * notifications must make a sound; and any sound must be replaceable with
- * an .ogg file the trader supplies.
+ * notifications must make a sound; and any sound must be replaceable by an
+ * .ogg file placed in the source tree - apps/web/assets/sounds/<event>.ogg
+ * - rather than uploaded from the desk.
  *
  * The interesting part of this file is not the new features, it is the
  * two defects the work uncovered, which are checked here as regressions:
@@ -79,45 +80,6 @@ function makeAudio(played) {
   };
 }
 
-/** Enough IndexedDB for a key/value store, so persistence can be tested. */
-function makeIdb(backing) {
-  const later = (fn) => setTimeout(fn, 0);
-  return {
-    open() {
-      const req = { result: null, onsuccess: null, onerror: null, onupgradeneeded: null };
-      later(() => {
-        const db = {
-          objectStoreNames: { contains: () => backing._made === true },
-          createObjectStore: () => { backing._made = true; },
-          transaction() {
-            const tx = { oncomplete: null, onerror: null, onabort: null };
-            const store = {
-              put(value, key) { backing.set(key, value); later(() => tx.oncomplete && tx.oncomplete()); return {}; },
-              get(key) { const r = { result: backing.get(key) }; later(() => tx.oncomplete && tx.oncomplete()); return r; },
-              delete(key) { backing.delete(key); later(() => tx.oncomplete && tx.oncomplete()); return {}; },
-            };
-            tx.objectStore = () => store;
-            return tx;
-          },
-        };
-        req.result = db;
-        if (req.onupgradeneeded) req.onupgradeneeded();
-        if (req.onsuccess) req.onsuccess();
-      });
-      return req;
-    },
-  };
-}
-
-/** A stand-in for a File: the four members putCustomSound actually reads. */
-function fakeFile(name, bytes, type) {
-  const buf = Buffer.isBuffer(bytes) ? bytes : Buffer.from(bytes, "latin1");
-  return {
-    name, type: type === undefined ? "audio/ogg" : type, size: buf.length,
-    arrayBuffer: async () => buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.length),
-  };
-}
-
 const OGG = Buffer.concat([Buffer.from("OggS", "latin1"), Buffer.alloc(600)]);
 const NOT_OGG = Buffer.concat([Buffer.from("ID3\u0003", "latin1"), Buffer.alloc(600)]);
 
@@ -131,7 +93,10 @@ async function boot() {
   const win = dom.window;
   const played = [];
   const posted = [];
-  const store = new Map();
+  /* Which files this pretend build ships. The desk fetches
+     assets/sounds/<slot>.ogg at boot, so shipping one is a matter of
+     putting it in here. */
+  const shipped = new Map();
 
   win.fetch = async (url, opt) => {
     const href = String(url);
@@ -140,6 +105,12 @@ async function boot() {
        with an empty object leaves I18N with nothing, every label renders
        as its own key, and the translation checks below would pass on a
        panel that is entirely untranslated. */
+    const snd = /\/?assets\/sounds\/([a-z]+)\.ogg/.exec(href);
+    if (snd) {
+      const body = shipped.get(snd[1]);
+      if (!body) return { ok: false, status: 404, arrayBuffer: async () => new ArrayBuffer(0) };
+      return { ok: true, status: 200, arrayBuffer: async () => body.buffer.slice(body.byteOffset, body.byteOffset + body.length) };
+    }
     const lang = /\/lang\/([a-z]{2})\.json/.exec(href);
     if (lang) {
       const body = JSON.parse(fs.readFileSync(path.join(ROOT, "lang", lang[1] + ".json"), "utf8"));
@@ -152,16 +123,15 @@ async function boot() {
   win.IntersectionObserver = class { observe() {} unobserve() {} disconnect() {} };
   win.URL.createObjectURL = () => "blob:stub";
   win.AudioContext = makeAudio(played);
-  win.indexedDB = makeIdb(store);
 
   const bundle = ["js/themes.js", "js/skins.js", "js/i18n.js", "js/api.js", "js/calendar.js", "js/charts.js", "js/app.js"]
     .map((f) => fs.readFileSync(path.join(WEB, f), "utf8")).join("\n;\n");
   win.eval(bundle +
     "\n;window.__T = { S, toast, bindDismiss, paintNotifies, dismissNote, pushTradeCard, playSound," +
-    " notifyPrefs, saveNotifyPrefs, putCustomSound, delCustomSound, loadCustomSounds, CUSTOM_SOUNDS," +
+    " notifyPrefs, saveNotifyPrefs, loadSoundFiles, SOUND_FILES, SOUND_DIR," +
     " SOUND_SLOTS, NOTIFY_DEFAULTS, notifySoundCardHtml, icon, I18N };");
   await new Promise((r) => setTimeout(r, 60));
-  return { win, doc: win.document, T: win.__T, played, posted, store };
+  return { win, doc: win.document, T: win.__T, played, posted, shipped };
 }
 
 /* Pointer plumbing. jsdom has no PointerEvent and no pointer capture, so
@@ -189,7 +159,7 @@ async function swipe(win, el, dx, opts) {
 }
 
 (async () => {
-  const { win, doc, T, played, posted, store } = await boot();
+  const { win, doc, T, played, posted, shipped } = await boot();
   const stack = () => doc.getElementById("notify-stack");
   /* Messages are shown to the trader, so they are asserted as text. That
      only means anything with a pack loaded. */
@@ -391,118 +361,140 @@ async function swipe(win, el, dx, opts) {
     T.saveNotifyPrefs({ volume: 0.6 });
   });
 
-  /* ----------------------------- the trader's own .ogg -------------------- */
+  /* --------------------- .ogg files shipped with the build ---------------- */
 
-  await check("every notification slot can take a file, not just trades", () => {
-    if (!T.SOUND_SLOTS.includes("notice")) throw new Error("ordinary notifications are not a slot");
+  await check("there is no way to upload a sound from the desk", () => {
+    /* Removed by request: the sounds belong in the build, so that every
+       installation of the product sounds the same. */
     const html = T.notifySoundCardHtml();
-    for (const slot of T.SOUND_SLOTS) {
-      if (!html.includes(`data-sndfile="${slot}"`)) throw new Error("no file picker for " + slot);
+    if (/<input[^>]+type="file"/.test(html)) throw new Error("a file input is still in the panel");
+    for (const gone of ["data-sndfile", "data-snddel", "snd-up", "snd-fname"]) {
+      if (html.includes(gone)) throw new Error(gone + " is still rendered");
+    }
+    const appJs = fs.readFileSync(path.join(WEB, "js", "app.js"), "utf8");
+    for (const gone of ["putCustomSound", "delCustomSound", "CUSTOM_SOUNDS", "indexedDB"]) {
+      if (appJs.includes(gone)) throw new Error(gone + " is still in the source");
     }
   });
 
-  await check("the picker asks for .ogg", () => {
-    const html = T.notifySoundCardHtml();
-    const m = /<input type="file" accept="([^"]+)"/.exec(html);
-    if (!m) throw new Error("no file input");
-    if (!/\.ogg/.test(m[1]) || !/audio\/ogg/.test(m[1])) throw new Error("accepts " + m[1]);
+  await check("the desk looks for one file per event, named after it", () => {
+    /* The contract the README documents. If these names drift, the files
+       a customer drops in stop being found and nothing says why. */
+    if (T.SOUND_DIR !== "assets/sounds/") throw new Error("the folder moved to " + T.SOUND_DIR);
+    const want = ["entry", "profit", "loss", "notice"];
+    const got = T.SOUND_SLOTS.slice().sort();
+    if (got.join(",") !== want.slice().sort().join(",")) throw new Error("slots are " + got.join(","));
   });
 
-  await check("a real .ogg is accepted and kept", async () => {
-    const rec = await T.putCustomSound("entry", fakeFile("chime.ogg", OGG));
-    if (!rec || rec.name !== "chime.ogg") throw new Error("not returned");
-    if (!T.CUSTOM_SOUNDS.has("entry")) throw new Error("not held in memory");
-    if (!store.has("entry")) throw new Error("not written to the store");
+  await check("the README documents exactly the names the code looks for", () => {
+    /* Documentation that disagrees with the code is worse than none: the
+       customer follows it, the sound never plays, and nothing explains it. */
+    const readme = fs.readFileSync(path.join(WEB, "assets", "sounds", "README.md"), "utf8");
+    for (const slot of T.SOUND_SLOTS) {
+      if (!readme.includes("`" + slot + ".ogg`")) throw new Error(slot + ".ogg is not documented");
+    }
+    const named = [...readme.matchAll(/`([a-z]+)\.ogg`/g)].map((m) => m[1]);
+    const stray = named.filter((n) => !T.SOUND_SLOTS.includes(n));
+    if (stray.length) throw new Error("the README names files the desk never looks for: " + stray.join(", "));
   });
 
-  await check("a file that is not .ogg is refused", async () => {
-    let msg = null;
-    try { await T.putCustomSound("loss", fakeFile("beep.mp3", OGG, "audio/mpeg")); }
-    catch (e) { msg = e.message; }
-    if (!msg) throw new Error("an .mp3 was accepted");
-    if (/^[a-z_.]+$/.test(msg)) throw new Error("the refusal is a raw i18n key: " + msg);
-  });
-
-  await check("a file that cannot actually be played is refused", async () => {
-    /* The point of decoding at the moment it is chosen. An .mp3 renamed
-       to .ogg passes the extension and the MIME type, and would otherwise
-       be accepted and then fail silently - at the one moment it mattered,
-       when a trade opened and nobody heard it. */
-    let msg = null;
-    try { await T.putCustomSound("loss", fakeFile("fake.ogg", NOT_OGG)); }
-    catch (e) { msg = e.message; }
-    if (!msg) throw new Error("an undecodable file was accepted");
-    if (T.CUSTOM_SOUNDS.has("loss")) throw new Error("it was kept anyway");
-    if (store.has("loss")) throw new Error("it was written to the store anyway");
-  });
-
-  await check("an oversized file is refused", async () => {
-    const big = { name: "huge.ogg", type: "audio/ogg", size: 9 * 1024 * 1024, arrayBuffer: async () => OGG.buffer };
-    let msg = null;
-    try { await T.putCustomSound("profit", big); } catch (e) { msg = e.message; }
-    if (!msg) throw new Error("a 9MB file was accepted");
-  });
-
-  await check("the chosen file is what gets played", async () => {
-    await T.putCustomSound("entry", fakeFile("mine.ogg", OGG));
-    T.saveNotifyPrefs({ entry: "custom", volume: 0.6 });
+  await check("a slot with no file in the build keeps its built-in tone", async () => {
+    shipped.clear();
+    T.SOUND_FILES.clear();
+    await T.loadSoundFiles();
+    if (T.SOUND_FILES.size) throw new Error("found files that were not shipped");
+    win.localStorage.removeItem("aurion.notify");
+    const prefs = T.notifyPrefs();
+    if (prefs.entry !== T.NOTIFY_DEFAULTS.entry) throw new Error("entry defaulted to " + prefs.entry);
     played.length = 0;
-    T.playSound("custom", 0.6, "entry");
+    T.playSound(prefs.entry, 0.6, "entry");
+    if (!played.filter((x) => x.kind === "tone").length) throw new Error("the slot went silent");
+  });
+
+  await check("a shipped file is found and used", async () => {
+    shipped.set("entry", OGG);
+    T.SOUND_FILES.clear();
+    await T.loadSoundFiles();
+    if (!T.SOUND_FILES.has("entry")) throw new Error("entry.ogg was not picked up");
+    played.length = 0;
+    T.playSound("file", 0.6, "entry");
     await new Promise((r) => setTimeout(r, 40));
     const files = played.filter((p) => p.kind === "file");
     if (!files.length) throw new Error("it played a built-in tone instead of the file");
     if (!files[0].buffer || files[0].buffer._tag !== "decoded") throw new Error("the buffer was not the decoded file");
   });
 
-  await check("removing the file returns the slot to its built-in tone", async () => {
-    await T.delCustomSound("entry");
-    if (store.has("entry")) throw new Error("still in the store");
+  await check("a shipped file becomes that event's default", async () => {
+    /* The point of shipping it. A sound nobody selects is a sound nobody
+       hears. */
+    win.localStorage.removeItem("aurion.notify");
+    shipped.set("profit", OGG);
+    T.SOUND_FILES.clear();
+    await T.loadSoundFiles();
     const prefs = T.notifyPrefs();
-    if (prefs.entry === "custom") throw new Error("the slot still claims a file it does not have");
-    if (prefs.entry !== T.NOTIFY_DEFAULTS.entry) throw new Error("fell back to " + prefs.entry);
+    if (prefs.profit !== "file") throw new Error("profit defaulted to " + prefs.profit);
+    if (prefs.loss !== T.NOTIFY_DEFAULTS.loss) throw new Error("a slot with no file was changed too");
   });
 
-  await check("a slot whose file has vanished is still audible", async () => {
-    /* A cleared profile, or a different machine. Silence here would be
+  await check("a trader's own choice outranks the shipped file", async () => {
+    win.localStorage.setItem("aurion.notify", JSON.stringify({ profit: "ding" }));
+    const prefs = T.notifyPrefs();
+    if (prefs.profit !== "ding") throw new Error("the shipped file overrode an explicit choice");
+  });
+
+  await check("a file that is not really Ogg falls back to the tone", async () => {
+    /* A renamed .mp3, or a truncated copy. Decoding is what tells the
+       difference, and the failure must not be silence - silence is
        indistinguishable from the notification no longer arriving. */
-    win.localStorage.setItem("aurion.notify", JSON.stringify({ profit: "custom", volume: 0.6 }));
-    T.CUSTOM_SOUNDS.delete("profit");
+    shipped.clear();
+    shipped.set("loss", NOT_OGG);
+    T.SOUND_FILES.clear();
+    await T.loadSoundFiles();
     played.length = 0;
-    T.playSound("custom", 0.6, "profit");
+    T.playSound("file", 0.6, "loss");
+    await new Promise((r) => setTimeout(r, 60));
+    if (played.some((p) => p.kind === "file")) throw new Error("an undecodable file was played");
+    if (T.SOUND_FILES.has("loss")) throw new Error("it was kept after failing to decode");
+    played.length = 0;
+    T.playSound("file", 0.6, "loss");
     await new Promise((r) => setTimeout(r, 30));
-    if (!played.length) throw new Error("the slot went silent");
+    if (!played.filter((x) => x.kind === "tone").length) throw new Error("the slot went silent instead");
   });
 
-  await check("a stored file comes back after a restart", async () => {
-    await T.putCustomSound("notice", fakeFile("ping.ogg", OGG));
-    T.CUSTOM_SOUNDS.clear();                       // as if the page had reloaded
-    await T.loadCustomSounds();
-    const rec = T.CUSTOM_SOUNDS.get("notice");
-    if (!rec) throw new Error("not restored from the store");
-    if (rec.name !== "ping.ogg") throw new Error("restored the wrong record: " + rec.name);
+  await check("a 404 page is not mistaken for a sound", async () => {
+    /* A dev server that answers every unknown path with index.html would
+       otherwise register an HTML page as entry.ogg. */
+    shipped.clear();
+    shipped.set("notice", Buffer.from("<!doctype html><html></html>", "latin1"));
+    T.SOUND_FILES.clear();
+    await T.loadSoundFiles();
+    if (T.SOUND_FILES.has("notice")) throw new Error("an HTML page was accepted as a sound");
   });
 
-  await check("the file's name is shown once it is loaded", () => {
-    const html = T.notifySoundCardHtml();
-    if (!html.includes("ping.ogg")) throw new Error("the trader cannot see which file is in use");
-    if (!html.includes('data-snddel="notice"')) throw new Error("no way to remove it again");
-  });
-
-  await check('"my own file" is only offered when there is one', () => {
-    T.CUSTOM_SOUNDS.delete("loss");
+  await check('"Sound file" is offered only when the build ships one', async () => {
+    shipped.clear();
+    shipped.set("notice", OGG);
+    T.SOUND_FILES.clear();
+    await T.loadSoundFiles();
     const html = T.notifySoundCardHtml();
     const lossRow = html.slice(html.indexOf('data-sndrow="loss"'), html.indexOf('data-sndrow="notice"'));
-    if (lossRow.includes('value="custom"')) throw new Error("a slot with no file offers one anyway");
+    if (lossRow.includes('value="file"')) throw new Error("a slot with no file offers one anyway");
     const noticeRow = html.slice(html.indexOf('data-sndrow="notice"'));
-    if (!noticeRow.includes('value="custom"')) throw new Error("a slot with a file does not offer it");
+    if (!noticeRow.includes('value="file"')) throw new Error("a slot with a file does not offer it");
+  });
+
+  await check("the shipped sound can be previewed from the panel", () => {
+    const html = T.notifySoundCardHtml();
+    for (const slot of T.SOUND_SLOTS) {
+      if (!html.includes(`data-sndtest="${slot}"`)) throw new Error("no preview button for " + slot);
+    }
   });
 
   /* ------------------------------------------------------- the panel ------ */
 
   await check("the sound panel is translated in all three languages", async () => {
     const packs = ["en", "fa", "ar"].map((l) => JSON.parse(fs.readFileSync(path.join(ROOT, "lang", l + ".json"), "utf8")));
-    const need = ["notice", "notice_hint", "snd_custom", "snd_choose", "snd_replace", "snd_remove",
-      "snd_added", "custom_note", "snd_err_type", "snd_err_big", "snd_err_decode", "snd_err_store", "dismiss"];
+    const need = ["notice", "notice_hint", "snd_file", "custom_note", "dismiss"];
     const missing = [];
     packs.forEach((p, i) => {
       for (const k of need) if (!p.notify || !p.notify[k]) missing.push(["en", "fa", "ar"][i] + ".notify." + k);

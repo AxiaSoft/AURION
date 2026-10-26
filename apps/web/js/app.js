@@ -87,8 +87,6 @@ function icon(name) {
     volume: '<path d="M4 9.5h3.2L12 5.6v12.8L7.2 14.5H4z"/><path d="M16 9.2a4 4 0 0 1 0 5.6"/><path d="M18.4 6.6a7.5 7.5 0 0 1 0 10.8"/>',
     volumeOff: '<path d="M4 9.5h3.2L12 5.6v12.8L7.2 14.5H4z"/><line x1="16.5" y1="9.5" x2="21" y2="14.5"/><line x1="21" y1="9.5" x2="16.5" y2="14.5"/>',
     play: '<path d="M8 5.6 18 12 8 18.4z"/>',
-    trash: '<path d="M4.5 6.5h15"/><path d="M9.5 6.5V4.8h5v1.7"/><path d="M6.5 6.5 7.4 19a1.4 1.4 0 0 0 1.4 1.3h6.4a1.4 1.4 0 0 0 1.4-1.3l.9-12.5"/><line x1="10.3" y1="10" x2="10.6" y2="16.6"/><line x1="13.7" y1="10" x2="13.4" y2="16.6"/>',
-    upload: '<path d="M12 15.5V4.2"/><path d="m7.6 8.6 4.4-4.4 4.4 4.4"/><path d="M4.5 15v3.3a1.6 1.6 0 0 0 1.6 1.6h11.8a1.6 1.6 0 0 0 1.6-1.6V15"/>',
     plus: '<line x1="12" y1="5.5" x2="12" y2="18.5"/><line x1="5.5" y1="12" x2="18.5" y2="12"/>',
     target: '<circle cx="12" cy="12" r="7.2"/><line x1="12" y1="1.8" x2="12" y2="5.2"/><line x1="12" y1="18.8" x2="12" y2="22.2"/><line x1="1.8" y1="12" x2="5.2" y2="12"/><line x1="18.8" y1="12" x2="22.2" y2="12"/><circle cx="12" cy="12" r="1.6"/>',
     download: '<path d="M12 3.5v11"/><polyline points="7.5,10 12,14.5 16.5,10"/><path d="M4.5 17.5v1.5a2 2 0 002 2h11a2 2 0 002-2v-1.5"/>',
@@ -1720,15 +1718,22 @@ const SOUND_MAX_BYTES = 2 * 1024 * 1024;
 function notifyPrefs() {
   try {
     const raw = JSON.parse(localStorage.getItem("aurion.notify") || "{}");
-    const out = { ...NOTIFY_DEFAULTS, ...(raw && typeof raw === "object" ? raw : {}) };
+    const saved = raw && typeof raw === "object" ? raw : {};
+    const out = { ...NOTIFY_DEFAULTS, ...saved };
+    /* A sound shipped with the build is what that event should sound like,
+       so it is the default for its slot. An explicit choice by the trader
+       always wins - this only fills in slots they have never touched. */
+    for (const key of SOUND_SLOTS) {
+      if (saved[key] === undefined && SOUND_FILES.has(key)) out[key] = "file";
+    }
     for (const key of SOUND_SLOTS) {
       /* "custom" is a legal value only while a file is actually stored for
          the slot. If the file has gone - a cleared profile, a different
          machine - the slot falls back to its built-in tone rather than
          going silently dead, because a notification that stops making a
          noise is indistinguishable from one that stopped arriving. */
-      if (out[key] === "custom") {
-        if (CUSTOM_SOUNDS.has(key)) continue;
+      if (out[key] === "file") {
+        if (SOUND_FILES.has(key)) continue;
         out[key] = NOTIFY_DEFAULTS[key];
       }
       if (!SOUND_NAMES.includes(out[key])) out[key] = NOTIFY_DEFAULTS[key];
@@ -1747,51 +1752,32 @@ function saveNotifyPrefs(patch) {
   return next;
 }
 
-/* --------------------------------------------------- custom sound files
+/* ------------------------------------------------- sound files in the build
  *
  * The built-in tones are synthesized, which is why they cost nothing and
- * cannot go missing. A file the trader chooses is the opposite on both
- * counts, so it is handled with more care than a preference string:
+ * cannot go missing. A product sound is a file, and it is shipped with the
+ * build rather than uploaded from the desk: the person choosing the sounds
+ * is the one assembling the installer, the choice should be the same on
+ * every machine the product is installed on, and a per-machine upload
+ * would mean every customer hears something different.
  *
- *   - it lives in IndexedDB, not localStorage. An .ogg is tens or hundreds
- *     of kilobytes and localStorage holds strings in a ~5MB budget shared
- *     with everything else the desk keeps; base64 would inflate it by a
- *     third and one sound file could evict the whole of the rest.
- *   - it is decoded once at the moment it is chosen. A file that the
- *     browser cannot decode is rejected there and then, with the reason on
- *     screen, instead of being accepted and then failing silently at the
- *     one moment it mattered - when a trade opened and nobody heard it.
- *   - the decoded buffer is cached in memory, so playing it is the same
- *     cost as playing a synthesized tone and a burst of notifications does
- *     not re-decode the file each time.
+ * Drop an Ogg Vorbis file into apps/web/assets/sounds/, named after the
+ * event it belongs to:
+ *
+ *     entry.ogg     a position was opened
+ *     profit.ogg    a position closed in profit
+ *     loss.ogg      a position closed at a loss
+ *     notice.ogg    an ordinary notification
+ *
+ * Nothing else is needed - no manifest to edit and no rebuild. A slot
+ * whose file is present uses it by default; a slot whose file is absent
+ * keeps its built-in tone, and either way the trader can still override
+ * the choice in Settings. Files are fetched once at boot and decoded on
+ * first use, so a burst of notifications does not re-read them.
  */
-const SOUND_DB = "aurion-sounds";
-const SOUND_STORE = "files";
-/** slot -> { name, size, blob, buffer } for whatever is currently loaded. */
-const CUSTOM_SOUNDS = new Map();
-
-function soundDb() {
-  return new Promise((resolve, reject) => {
-    if (!window.indexedDB) { reject(new Error("no indexeddb")); return; }
-    const req = window.indexedDB.open(SOUND_DB, 1);
-    req.onupgradeneeded = () => {
-      const db = req.result;
-      if (!db.objectStoreNames.contains(SOUND_STORE)) db.createObjectStore(SOUND_STORE);
-    };
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error || new Error("indexeddb refused"));
-  });
-}
-
-function soundTx(mode, fn) {
-  return soundDb().then((db) => new Promise((resolve, reject) => {
-    const tx = db.transaction(SOUND_STORE, mode);
-    const req = fn(tx.objectStore(SOUND_STORE));
-    tx.oncomplete = () => resolve(req ? req.result : undefined);
-    tx.onerror = () => reject(tx.error || new Error("sound store failed"));
-    tx.onabort = () => reject(tx.error || new Error("sound store aborted"));
-  }));
-}
+const SOUND_DIR = "assets/sounds/";
+/** slot -> { url, bytes, buffer } for whatever shipped with this build. */
+const SOUND_FILES = new Map();
 
 /** The shared AudioContext, created on demand. */
 function audioCtx() {
@@ -1806,91 +1792,59 @@ function audioCtx() {
   return S._audio;
 }
 
-/**
- * Accept a file for one slot: decode it, keep it, and say what went wrong
- * if it cannot be used.
- *
- * Resolves to the stored record, rejects with a translated message. The
- * decode is the real test - the extension and the MIME type are what the
- * file claims to be, and a renamed .mp3 or a truncated download claims the
- * same thing as a good one.
- */
-async function putCustomSound(slot, file) {
-  if (!SOUND_SLOTS.includes(slot)) throw new Error("bad slot");
-  if (!file) throw new Error(I18N.t("notify.snd_err_type"));
-  const named = String(file.name || "");
-  const isOgg = /\.ogg$/i.test(named) || /ogg/i.test(file.type || "");
-  if (!isOgg) throw new Error(I18N.t("notify.snd_err_type"));
-  if (file.size > SOUND_MAX_BYTES) throw new Error(I18N.t("notify.snd_err_big"));
-
-  const bytes = await file.arrayBuffer();
-  const ctx = audioCtx();
-  if (!ctx) throw new Error(I18N.t("notify.snd_err_decode"));
-  let buffer;
+function soundFileUrl(slot) {
+  const rel = SOUND_DIR + slot + ".ogg";
   try {
-    // decodeAudioData detaches the buffer it is given, so it gets a copy -
-    // the original is still needed to store the blob.
-    buffer = await ctx.decodeAudioData(bytes.slice(0));
-  } catch {
-    /* Vorbis in an Ogg container is understood everywhere the desk runs;
-       what usually lands here is a file that is not really Ogg at all. */
-    throw new Error(I18N.t("notify.snd_err_decode"));
-  }
-  if (!buffer || !buffer.duration) throw new Error(I18N.t("notify.snd_err_decode"));
-
-  const rec = { name: named, size: file.size, blob: new Blob([bytes], { type: "audio/ogg" }) };
-  try {
-    await soundTx("readwrite", (st) => st.put({ name: rec.name, size: rec.size, blob: rec.blob }, slot));
-  } catch {
-    /* Private browsing can refuse IndexedDB. The sound still works for this
-       session; it just will not survive a restart, and saying so is better
-       than refusing the file. */
-    toast(I18N.t("notify.snd_err_store"), { silent: true });
-  }
-  CUSTOM_SOUNDS.set(slot, { ...rec, buffer });
-  return rec;
-}
-
-async function delCustomSound(slot) {
-  CUSTOM_SOUNDS.delete(slot);
-  try { await soundTx("readwrite", (st) => st.delete(slot)); } catch { /* nothing stored */ }
+    if (typeof AurionTheme !== "undefined" && AurionTheme.assetUrl) return AurionTheme.assetUrl(rel);
+  } catch { /* fall through to the relative form */ }
+  return rel;
 }
 
 /**
- * Bring any stored files back into memory at boot.
+ * Find out which sounds this build actually ships.
  *
- * Decoding is deferred to first play: a desk that starts with four custom
- * sounds should not spend the first moments of its life decoding audio
- * nobody has asked to hear yet.
+ * A missing file is the normal case, not an error: it simply means that
+ * event keeps its built-in tone. Only the bytes are fetched here - the
+ * decode happens on first play - so four absent files cost four 404s at
+ * boot and nothing else.
  */
-async function loadCustomSounds() {
-  for (const slot of SOUND_SLOTS) {
+async function loadSoundFiles() {
+  await Promise.all(SOUND_SLOTS.map(async (slot) => {
+    const url = soundFileUrl(slot);
     try {
-      const rec = await soundTx("readonly", (st) => st.get(slot));
-      if (rec && rec.blob) CUSTOM_SOUNDS.set(slot, { ...rec, buffer: null });
-    } catch { /* no store yet, or a browser that will not give us one */ }
-  }
+      const res = await fetch(url, { cache: "force-cache" });
+      if (!res || !res.ok) return;
+      const bytes = await res.arrayBuffer();
+      // A dev server that answers 404s with index.html would otherwise
+      // register an HTML page as a sound.
+      if (!bytes || bytes.byteLength < 64) return;
+      SOUND_FILES.set(slot, { url, bytes, buffer: null });
+    } catch { /* not shipped in this build */ }
+  }));
 }
 
-async function customBuffer(slot) {
-  const rec = CUSTOM_SOUNDS.get(slot);
+async function soundFileBuffer(slot) {
+  const rec = SOUND_FILES.get(slot);
   if (!rec) return null;
   if (rec.buffer) return rec.buffer;
   const ctx = audioCtx();
   if (!ctx) return null;
   try {
-    rec.buffer = await ctx.decodeAudioData(await rec.blob.arrayBuffer());
+    // decodeAudioData detaches what it is given, so it gets a copy and the
+    // original bytes stay available for the next decode.
+    rec.buffer = await ctx.decodeAudioData(rec.bytes.slice(0));
     return rec.buffer;
   } catch {
-    // Stored once, undecodable now: drop it rather than retry on every
-    // notification for the rest of the session.
-    CUSTOM_SOUNDS.delete(slot);
+    /* Shipped but not playable - a file that is not really Ogg Vorbis, or
+       a truncated copy. Drop it rather than retry on every notification,
+       and let the slot fall back to its built-in tone. */
+    SOUND_FILES.delete(slot);
     return null;
   }
 }
 
-function playCustomSound(slot, level) {
-  customBuffer(slot).then((buf) => {
+function playSoundFile(slot, level) {
+  soundFileBuffer(slot).then((buf) => {
     const ctx = audioCtx();
     if (!buf || !ctx) return;
     const src = ctx.createBufferSource();
@@ -1906,10 +1860,10 @@ function playCustomSound(slot, level) {
 function playSound(name, volume, slot) {
   const level = volume === undefined ? notifyPrefs().volume : Number(volume) || 0;
   if (level <= 0) return;
-  if (name === "custom") {
-    if (slot && CUSTOM_SOUNDS.has(slot)) { playCustomSound(slot, level); return; }
-    // The file has gone; fall through to the slot's built-in tone so the
-    // event is still audible.
+  if (name === "file") {
+    if (slot && SOUND_FILES.has(slot)) { playSoundFile(slot, level); return; }
+    // This build ships no file for the slot; fall through to its built-in
+    // tone so the event is still audible.
     name = (slot && NOTIFY_DEFAULTS[slot]) || "chime";
   }
   const spec = SOUNDS[name];
@@ -4867,7 +4821,7 @@ function notifySoundCardHtml() {
   const row = (key, tone, mark, label, hint) => {
     const value = p[key] || "none";
     const off = value === "none";
-    const file = CUSTOM_SOUNDS.get(key);
+    const shipped = SOUND_FILES.has(key);
     return `<div class="snd-row${off ? " is-off" : ""}" data-sndrow="${key}">
       <span class="snd-mark t-${tone}" aria-hidden="true">${mark}</span>
       <span class="snd-text">
@@ -4878,23 +4832,12 @@ function notifySoundCardHtml() {
         SOUND_NAMES.map((n) =>
           `<option value="${n}"${value === n ? " selected" : ""}>${esc(I18N.t("notify.snd_" + n))}</option>`
         ).join("")}${
-        /* Offered only when a file is actually loaded, so the list can
-           never name a sound that does not exist. */
-        file ? `<option value="custom"${value === "custom" ? " selected" : ""}>${esc(I18N.t("notify.snd_custom"))}</option>` : ""}</select>
+        /* Offered only when this build actually ships a file for the
+           slot, so the list can never name a sound that does not exist. */
+        shipped ? `<option value="file"${value === "file" ? " selected" : ""}>${esc(I18N.t("notify.snd_file"))}</option>` : ""}</select>
       <button type="button" class="icon-btn snd-play" data-sndtest="${key}"
               title="${esc(I18N.t("notify.preview"))}"
               aria-label="${esc(I18N.t("notify.preview"))}"${off || muted ? " disabled" : ""}>${icon("play")}</button>
-
-      <div class="snd-file">
-        <label class="btn tiny ghost snd-up">
-          ${icon("upload")}<span>${esc(I18N.t(file ? "notify.snd_replace" : "notify.snd_choose"))}</span>
-          <input type="file" accept=".ogg,audio/ogg" data-sndfile="${key}" hidden />
-        </label>
-        ${file ? `<span class="snd-fname" title="${esc(file.name)}">${esc(file.name)}</span>
-          <button type="button" class="icon-btn snd-del" data-snddel="${key}"
-                  title="${esc(I18N.t("notify.snd_remove"))}"
-                  aria-label="${esc(I18N.t("notify.snd_remove"))}">${icon("trash")}</button>` : ""}
-      </div>
     </div>`;
   };
 
@@ -4941,20 +4884,6 @@ function notifySoundCardHtml() {
   </div>`;
 }
 
-/* The rows carry the name of the loaded file, so adding or removing one
-   changes the markup and not just a value. Repaint in place rather than
-   re-showing the view, which would scroll the panel back to the top. */
-function repaintSoundPanel() {
-  const host = document.getElementById("notify-card");
-  if (!host) return;
-  const next = document.createElement("div");
-  next.innerHTML = notifySoundCardHtml();
-  const fresh = next.firstElementChild;
-  if (!fresh) return;
-  host.replaceWith(fresh);
-  bindNotifySounds(fresh.parentElement || document);
-}
-
 function bindNotifySounds(root) {
   const scope = root || document;
 
@@ -4998,41 +4927,6 @@ function bindNotifySounds(root) {
   scope.querySelectorAll("[data-sndtest]").forEach((btn) => {
     const slot = btn.dataset.sndtest;
     btn.onclick = () => playSound(notifyPrefs()[slot], undefined, slot);
-  });
-
-  /* Choosing a file. The work happens in putCustomSound, which decodes it
-     before accepting it; everything here is about saying what happened.
-     The input is cleared afterwards so picking the same file twice - after
-     fixing it, say - still fires a change event. */
-  scope.querySelectorAll("[data-sndfile]").forEach((input) => {
-    input.onchange = async () => {
-      const slot = input.dataset.sndfile;
-      const file = input.files && input.files[0];
-      input.value = "";
-      if (!file) return;
-      try {
-        await putCustomSound(slot, file);
-        saveNotifyPrefs({ [slot]: "custom" });
-        repaintSoundPanel();
-        // Played straight away: a sound you chose but have not heard in
-        // place is a sound you do not know you have chosen.
-        playSound("custom", undefined, slot);
-        toast(I18N.t("notify.snd_added"), { silent: true });
-      } catch (err) {
-        toast(String((err && err.message) || I18N.t("notify.snd_err_decode")), { silent: true });
-      }
-    };
-  });
-
-  scope.querySelectorAll("[data-snddel]").forEach((btn) => {
-    btn.onclick = async () => {
-      const slot = btn.dataset.snddel;
-      await delCustomSound(slot);
-      // Back to the slot's built-in tone rather than to silence: removing
-      // a file is not the same as asking for no sound.
-      if (notifyPrefs()[slot] === "custom") saveNotifyPrefs({ [slot]: NOTIFY_DEFAULTS[slot] });
-      repaintSoundPanel();
-    };
   });
 
   const vol = scope.querySelector("#snd-vol");
@@ -9686,11 +9580,10 @@ function showUpdateWelcome(version, from) {
 async function boot() {
   bindChrome();
 
-  /* Bring any custom notification sounds back from IndexedDB before the
-     first notification can fire. Deliberately not awaited: a slow or
-     refused store must not hold up the desk, and until it resolves the
-     slots fall back to their built-in tones. */
-  loadCustomSounds().catch(() => { /* built-in tones are the fallback */ });
+  /* Find out which notification sounds this build ships. Deliberately not
+     awaited: a slow fetch must not hold up the desk, and until it resolves
+     the slots fall back to their built-in tones. */
+  loadSoundFiles().catch(() => { /* built-in tones are the fallback */ });
 
   // A canvas does not reflow. Redraw the equity curve when the box it lives
   // in changes size, or a phone rotation leaves it stretched.

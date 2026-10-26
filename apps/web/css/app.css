@@ -627,8 +627,15 @@ html[dir="rtl"] .set-h{letter-spacing:0;text-transform:none}
 }
 /* The theme pills carry an icon beside their label now, in place of the
    sun and moon emoji they used to print. An <svg> with no size is 300px
-   wide by spec, so this is load-bearing, not decoration. */
-.lang-pills button{display:inline-flex;align-items:center;gap:6px}
+   wide by spec, so this is load-bearing, not decoration.
+
+   justify-content is not optional here. These pills are flex:1, so they
+   are wider than their contents, and a flex row with no justification
+   packs everything against the leading edge - which is how the labels in
+   the personalisation section ended up left-aligned instead of centred.
+   text-align cannot fix it: it aligns text inside an item, not the items
+   inside the row. */
+.lang-pills button{display:inline-flex;align-items:center;justify-content:center;gap:6px}
 .lang-pills button svg{width:14px;height:14px;flex:none}
 .lang-pills button:hover{color:var(--ink);border-color:rgb(var(--wash) / .18)}
 .lang-pills button.on{color:var(--on-accent);background:var(--gold);border-color:transparent;font-weight:500}
@@ -2585,23 +2592,7 @@ html[dir="rtl"] .q-how[open] summary::before{ transform:rotate(0deg) }
 .snd-pick{width:100%}
 .snd-note{margin-block-start:12px !important;opacity:.8}
 
-/* The chosen file sits on its own line under the row's controls: it is a
-   detail about the row, not a fifth column competing with them, and the
-   name of a file is as long as the trader's file name happens to be. */
-.snd-file{
-  grid-column:1 / -1;
-  display:flex;align-items:center;gap:8px;min-width:0;
-  padding-block-start:2px;
-}
-.snd-up{display:inline-flex;align-items:center;gap:6px;cursor:pointer;flex:none}
-.snd-up svg{width:13px;height:13px}
-.snd-fname{
-  font-size:11px;color:var(--muted);min-width:0;
-  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
-}
-.snd-del{flex:none;color:var(--muted)}
-.snd-del:hover{color:var(--rose)}
-.snd-del svg,.snd-play svg{width:15px;height:15px}
+.snd-play svg{width:15px;height:15px}
 .snd-play:disabled{opacity:.4;cursor:not-allowed}
 
 .snd-deliver{
