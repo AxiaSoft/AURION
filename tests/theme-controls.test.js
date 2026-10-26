@@ -120,6 +120,60 @@ check("a chosen wallpaper is published at all", () => {
   if (!/ocean-/.test(css)) throw new Error("the chosen scene is not in the published CSS");
 });
 
+check("every attribute the published rule relies on is actually on <html>", () => {
+  /* The check that was missing, and the bug it let through.
+
+     Specificity only matters if the selector MATCHES. An earlier version of
+     this fix keyed the trader's rule on [data-theme], which reads like a
+     permanent fixture of <html> but is written by app.js at boot - after
+     themes.js has already run and published. The rule matched nothing on
+     the first paint, every wallpaper disappeared and the desk came up
+     black, while a specificity-only check like the one below stayed green.
+
+     So: scoring the selector is not enough. Every attribute it names has
+     to be one the engine has actually set by the time it publishes. */
+  const fresh = makeWindow();
+  fresh.AurionTheme.setPaid(true);
+  fresh.AurionTheme.set("ocean");
+  fresh.AurionTheme.edit({ wall: "sunset" });
+
+  const present = Object.keys(fresh.document.documentElement.dataset)
+    /* dataset keys are camelCase; the selectors spell them out */
+    .map((k) => "data-" + k.replace(/[A-Z]/g, (m) => "-" + m.toLowerCase()));
+
+  const sel = /html(\[[^\]]+\])+(?=\{)/.exec(fresh.__published());
+  if (!sel) throw new Error("nothing was published at all");
+  const needed = (sel[0].match(/\[([a-z-]+)[\]=]/g) || [])
+    .map((x) => x.replace(/[[\]=]/g, ""));
+  const missing = needed.filter((a) => present.indexOf(a) === -1);
+  if (missing.length) {
+    throw new Error("the published rule requires " + missing.join(", ") +
+      " but apply() only sets " + present.join(", ") +
+      " - the rule would never match and the wallpaper would vanish");
+  }
+});
+
+check("the guards match a real <html> too", () => {
+  const fresh = makeWindow();
+  fresh.AurionTheme.setPaid(true);
+  fresh.AurionTheme.set("ocean");
+  const present = Object.keys(fresh.document.documentElement.dataset)
+    .map((k) => "data-" + k.replace(/[A-Z]/g, (m) => "-" + m.toLowerCase()));
+  /* data-glass is conditional by design - it exists only when the trader
+     has switched translucency off - so it is exempt. */
+  const exempt = ["data-glass"];
+  [/html\[data-glass="off"\](\[[^\]]+\])+/,
+   /html\[data-perf="fast"\](\[[^\]]+\])+\{[\s\S]{0,80}--blur/,
+   /html(\[[^\]]+\])+\{\s*--motion-scale:0/].forEach((re, i) => {
+    const m = re.exec(themesCss);
+    if (!m) throw new Error("guard " + i + " is missing");
+    const sel2 = /html(\[[^\]]+\])+/.exec(m[0])[0];
+    const needed = (sel2.match(/\[([a-z-]+)[\]=]/g) || []).map((x) => x.replace(/[[\]=]/g, ""));
+    const missing = needed.filter((a) => exempt.indexOf(a) === -1 && present.indexOf(a) === -1);
+    if (missing.length) throw new Error("guard " + i + " needs " + missing.join(", ") + ", which is never set");
+  });
+});
+
 check("the trader's rule outranks the per-theme default in LIGHT mode", () => {
   /* The per-theme light rules look like html[data-skin="ocean"][data-theme="light"].
      That is two attributes. The published rule has to beat it, and it cannot
@@ -384,10 +438,10 @@ check("every new string exists in all three languages", () => {
 
 check("the browser is forced to pick up every file that changed", () => {
   const html = read("index.html");
-  const want = ["js/skins.js?v=desk97", "js/themes.js?v=desk121", "js/app.js?v=desk127",
-    "css/themes.css?v=desk111", "css/app.css?v=desk129", "js/colorpicker.js?v=desk1"];
+  const want = ["js/skins.js?v=desk97", "js/themes.js?v=desk122", "js/app.js?v=desk127",
+    "css/themes.css?v=desk112", "css/app.css?v=desk129", "js/colorpicker.js?v=desk1"];
   want.forEach((w) => { if (!html.includes(w)) throw new Error("index.html is missing " + w); });
-  if (!read("sw.js").includes("aurion-shell-v113")) throw new Error("the service worker cache was not bumped");
+  if (!read("sw.js").includes("aurion-shell-v114")) throw new Error("the service worker cache was not bumped");
 });
 
 /* ----------------------------------------------------------------- report */

@@ -732,12 +732,12 @@
   function wallCss(id) {
     var choice = activeWall(id);
     if (!choice) return "";
-    if (choice === "none") return "html[data-skin][data-theme][data-bg]{--theme-bg:none}";
+    if (choice === "none") return "html[data-skin][data-bg][data-motion]{--theme-bg:none}";
     var el = root();
     var light = Boolean(el && el.dataset && el.dataset.theme === "light");
     var url = wallUrl(choice, light);
     if (!url) return "";
-    return "html[data-skin][data-theme][data-bg]{--theme-bg:url(\"" + url.replace(/"/g, "%22") + "\")}";
+    return "html[data-skin][data-bg][data-motion]{--theme-bg:url(\"" + url.replace(/"/g, "%22") + "\")}";
   }
 
   /** Write the active theme onto <html>. */
@@ -769,7 +769,7 @@
     el.dataset.motion = motion === 0 ? "off" : motion < 70 ? "soft" : "full";
 
     publish(
-      /* [data-bg] is carried only to win a specificity fight, and it is
+      /* [data-bg] and [data-motion] are carried only to win a specificity fight, and it is
          always present because apply() sets it a few lines above.
 
          Without it this rule scored 2 attributes - exactly what
@@ -786,7 +786,7 @@
          rendering tier and prefers-reduced-motion also score 2 and have
          to stay ABOVE the trader's choices. They are lifted to 4
          attributes in themes.css for the same reason. */
-      "html[data-skin][data-theme][data-bg]{" +
+      "html[data-skin][data-bg][data-motion]{" +
       "--surface-alpha:" + (clamp(k.surface, 0, 100) / 100).toFixed(3) + ";" +
       "--border-alpha:" + (clamp(k.border, 0, 100) / 100).toFixed(3) + ";" +
       "--blur:" + clamp(k.blur, 0, 60) + "px;" +

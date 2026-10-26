@@ -1375,15 +1375,21 @@ html[data-motion="off"] *::after{
    translucency" and "no movement" answer a capability or an accessibility
    preference, not taste, so a colour or a knob must not be able to put
    blur back. They carry four attributes because the trader's own rule now
-   carries three - see the note in themes.js publish(). Every attribute
-   named here is always present on <html>. */
-html[data-glass="off"][data-skin][data-theme][data-bg],
-html[data-perf="fast"][data-skin][data-theme][data-bg]{
+   carries three - see the note in themes.js publish().
+
+   Every attribute named here is one that the theme engine itself writes on
+   <html> in the same pass that publishes the trader's rule. That is the
+   whole point: an earlier version keyed on [data-theme], which looks just
+   as permanent but is written later, by app.js at boot. The rules then
+   matched nothing on the first paint and the desk came up black. Only
+   attributes set by apply() may appear here. */
+html[data-glass="off"][data-skin][data-bg][data-motion][data-perf],
+html[data-perf="fast"][data-skin][data-bg][data-motion][data-perf]{
   --surface-alpha:1;
   --blur:0px;
 }
 @media (prefers-reduced-motion:reduce){
-  html[data-skin][data-theme][data-bg][data-motion]{ --motion-scale:0 }
+  html[data-skin][data-bg][data-motion][data-perf]{ --motion-scale:0 }
 }
 
 /* Cheap tier: the same removal of blur app.css already does, restated for the
