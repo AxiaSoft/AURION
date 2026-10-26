@@ -54,6 +54,9 @@ function makeChartEnv() {
       removeItem: (k) => store.delete(k),
     },
     prompt: () => "x",
+    // Real timers: the chart uses one for press-and-hold, and a stub
+    // that never fires would hide whatever that code does.
+    setTimeout, clearTimeout,
     console,
   };
   win.window = win; win.globalThis = win;
@@ -424,12 +427,20 @@ check("a locked object cannot be grabbed by its handle",
   const tx = Math.round(L2.plotL + 200);
   const heldT = L2.start + L2.iOf(tx);
   const stepT = Math.round(L2.bw * 5);
-  const touch = (a, b) => ({ touches: [{ clientX: a, clientY: 100 }, { clientX: b, clientY: 300 }], preventDefault() {} });
-  chart.onTouch(touch(tx - 40, tx + 40));
-  chart.onTouch(touch(tx - 40 + stepT, tx + 40 + stepT));
+  // Pointer events, not touch events: the chart listens on one stream now.
+  // Two fingers land, then both slide the same distance - separation is
+  // unchanged, so this is a pure two-finger pan with no zoom in it.
+  const finger = (id, x) => ({ pointerId: id, pointerType: "touch", clientX: x,
+    clientY: id === 1 ? 100 : 300, button: 0, buttons: 1, preventDefault() {} });
+  chart.onDown(finger(1, tx - 40));
+  chart.onDown(finger(2, tx + 40));
+  chart.onMove(finger(1, tx - 40 + stepT));
+  chart.onMove(finger(2, tx + 40 + stepT));
   check("two fingers carry the chart the way they move",
     (() => { const L3 = chart.layout(); return Math.abs(L3.start + L3.iOf(tx + stepT) - heldT) <= 1; })());
-  chart.pinch = null;
+  chart.onUp(finger(1, tx - 40 + stepT));
+  chart.onUp(finger(2, tx + 40 + stepT));
+  check("and the gesture leaves nothing behind", !chart.pinch && !chart.drag && chart.pointers.size === 0);
 
   // ---- shift + wheel ---------------------------------------------------
   chart.fit(); chart.pan(60);

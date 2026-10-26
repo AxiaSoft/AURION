@@ -266,15 +266,34 @@ class CandleChart {
        catching and turning into a fatal-looking error box. */
     this.ro = new ResizeObserver(() => this.scheduleDraw());
     this.ro.observe(canvas.parentElement || canvas);
+    /* ---- input ---------------------------------------------------------
+       Pointer events only. This canvas used to listen for pointerdown AND
+       touchstart, and a touchscreen fires both for the same finger: a
+       two-finger pinch ran the zoom from the touch handler while a pan
+       drag, started by the first finger's pointerdown, was still live
+       underneath it. The chart zoomed and slid at once and neither
+       gesture felt like it was being obeyed.
+
+       One stream, one source of truth. Pointer events already report
+       touch, pen and mouse, and `touch-action:none` on the canvas means
+       the browser hands us every gesture instead of scrolling the page.
+       Multi-finger work is done by tracking the live pointers in a map,
+       which is also the only way to know a second finger has arrived. */
     canvas.addEventListener("wheel", (e) => this.onWheel(e), { passive: false });
     canvas.addEventListener("pointerdown", (e) => this.onDown(e));
     canvas.addEventListener("pointermove", (e) => this.onMove(e));
     canvas.addEventListener("pointerup", (e) => this.onUp(e));
-    canvas.addEventListener("pointerleave", () => { this.hover = null; this._sigHover = null; this.draw(); });
+    // A cancelled pointer is not an "up": the browser took the gesture
+    // away (a system edge-swipe, a call arriving, the finger sliding off
+    // a captured surface). Without this the drag it started would never
+    // end, and the chart would follow the pointer around for ever after.
+    canvas.addEventListener("pointercancel", (e) => this.onCancel(e));
+    canvas.addEventListener("lostpointercapture", (e) => this.onCancel(e));
+    canvas.addEventListener("pointerleave", (e) => {
+      if (this.pointers && this.pointers.size) return; // mid-gesture, not a real leave
+      this.hover = null; this._sigHover = null; this.draw();
+    });
     canvas.addEventListener("contextmenu", (e) => this.onContext(e));
-    canvas.addEventListener("touchstart", (e) => this.onTouch(e), { passive: false });
-    canvas.addEventListener("touchmove", (e) => this.onTouch(e), { passive: false });
-    canvas.addEventListener("touchend", () => { this.pinch = null; });
     canvas.addEventListener("dblclick", (e) => this.onDouble(e));
   }
 
@@ -2363,7 +2382,10 @@ class CandleChart {
         ctx.fillStyle = d.locked ? T.muted : T.text;
         ctx.strokeStyle = T.panel;
         ctx.lineWidth = 1.5;
-        ctx.beginPath(); ctx.arc(pt.x, pt.y, 4.5, 0, Math.PI * 2);
+        // Draw the handle the size it can actually be grabbed at, so the
+        // target the trader aims for is the target shapeAt() tests.
+        const r = this.coarse ? 9 : 4.5;
+        ctx.beginPath(); ctx.arc(pt.x, pt.y, r, 0, Math.PI * 2);
         ctx.fill(); ctx.stroke();
       });
     }
@@ -2680,7 +2702,7 @@ class CandleChart {
   }
 
   shapeAt(L, x, y) {
-    const near = 8;
+    const near = this.grabRadius;
     for (let i = this.drawings.length - 1; i >= 0; i--) {
       const d = this.drawings[i];
       if (d.visible === false) continue;
@@ -3057,7 +3079,19 @@ class CandleChart {
   }
 
   onDown(e) {
+    this._pointerType = (e && e.pointerType) || "mouse";
+    if (!this.pointers) this.pointers = new Map();
+    if (e && e.pointerId != null) {
+      this.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY, id: e.pointerId });
+    }
+    // Second finger: stop whatever one finger was doing and frame the
+    // chart instead. Third and beyond are ignored rather than guessed at.
+    if (this.pointers.size === 2) { this.beginPinch(); return; }
+    if (this.pointers.size > 2) return;
+
     this._moved = false;
+    this._downAt = e ? { x: e.clientX, y: e.clientY } : null;
+    this.armLongPress(e);
     const raw = this.hit(e);
     if (!raw) return;
     const hit = this.snapHit(raw);
@@ -3116,9 +3150,10 @@ class CandleChart {
       const need = this.needs(this.draft.kind);
       if (need === -1) return;
       const keys = this.anchorKeys(this.draft);
-      const at = this.placed(this.draft);
+      const at = this.draft.fixed != null ? this.draft.fixed : this.placed(this.draft);
       if (at < need) {
         this.draft[keys[at]] = this.point(hit);
+        this.draft.fixed = at + 1;
         if (at + 1 >= need) this.commitDraft();
         else this.draw();
         return;
@@ -3196,7 +3231,13 @@ class CandleChart {
       this.draft = { kind: this.tool, pts: [pt], a: pt, b: pt, color: this.colorFor(this.tool), width: this.tool === "highlighter" ? 2 : 1.4 };
       return;
     }
-    this.draft = { kind: this.tool, a: pt, b: pt, color: this.colorFor(this.tool) };
+    // `fixed` is how many anchors the trader has actually committed, which
+    // is not the same as how many are filled in. Both a and b are set from
+    // the first point so the shape has something to paint while it is
+    // being dragged out - but counting filled anchors made a brand-new
+    // draft look finished, and the click-click branch above could never
+    // run. See the note on commitDraft().
+    this.draft = { kind: this.tool, a: pt, b: pt, fixed: 1, color: this.colorFor(this.tool) };
   }
 
   colorFor(tool) {
@@ -3207,9 +3248,21 @@ class CandleChart {
     return T.gold;
   }
 
+  /**
+   * Turn the draft into a real object.
+   *
+   * Two ways in, and both have to work: drag one point to the other, or
+   * click once for each end. The second was dead code for a long time -
+   * a fresh two-point draft fills both `a` and `b` with the first point
+   * so there is something to paint, and the old count of "placed"
+   * anchors could not tell that apart from a finished shape. It mattered
+   * most on a phone, where dragging a precise line is hard and tapping
+   * twice is the natural way to do it.
+   */
   commitDraft() {
     if (!this.draft) return;
     const d = this.draft;
+    delete d.fixed;
     this.draft = null;
     if ((d.kind === "long" || d.kind === "short") && d.a && d.b && !d.c) {
       // The target starts at twice the risk, which is a starting point and
@@ -3227,7 +3280,25 @@ class CandleChart {
   }
 
   onMove(e) {
-    this._moved = true;
+    if (e && e.pointerId != null && this.pointers && this.pointers.has(e.pointerId)) {
+      this.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY, id: e.pointerId });
+    }
+    if (this.pinch) { if (e && e.preventDefault) e.preventDefault(); this.movePinch(); return; }
+    if (this.pointers && this.pointers.size > 1) return;
+
+    // A finger never holds perfectly still, so treating any movement at
+    // all as a drag meant a tap on a touchscreen was never a tap: the
+    // click-to-select and click-to-set-price paths, both guarded by
+    // `!this._moved`, could not be reached with a finger. Allow a little
+    // wander before calling it a drag, and more of it for a finger.
+    if (!this._moved && this._downAt) {
+      const slop = this.tapSlop;
+      if (Math.hypot(e.clientX - this._downAt.x, e.clientY - this._downAt.y) > slop) {
+        this._moved = true;
+        this.clearLongPress();   // it became a drag, so it is not a press
+      }
+    } else if (!this._downAt) this._moved = true;
+
     const raw = this.hit(e);
     if (!raw) return;
     const hit = this.snapHit(raw);
@@ -3304,7 +3375,9 @@ class CandleChart {
         this.draft.b = pt;
       } else {
         const keys = this.anchorKeys(this.draft);
-        const at = Math.max(1, this.placed(this.draft));
+        const at = this.draft.fixed != null
+          ? this.draft.fixed
+          : Math.max(1, this.placed(this.draft));
         this.draft[keys[Math.min(at, keys.length - 1)]] = pt;
       }
     }
@@ -3312,6 +3385,49 @@ class CandleChart {
   }
 
   onUp(e) {
+    if (e && e.pointerId != null && this.pointers) this.pointers.delete(e.pointerId);
+    this.clearLongPress();
+    if (this._longFired) {
+      // The menu is already open from the press. Letting this up run on
+      // would immediately select or deselect underneath it.
+      this._longFired = false;
+      this.drag = null;
+      this.canvas.style.cursor = this.cursorFor();
+      return;
+    }
+    if (this.pinch) {
+      // One finger lifted out of a pinch. Do not fall through into the
+      // click handling below - the gesture was a zoom, not a tap, and
+      // finishing it as a tap would select or deselect under the hand.
+      if (!this.pointers || this.pointers.size < 2) this.pinch = null;
+      if (this.pointers && this.pointers.size) return;
+      this.drag = null;
+      this.canvas.style.cursor = this.cursorFor();
+      this.draw();
+      return;
+    }
+    if (this.pointers && this.pointers.size) return;
+
+    // Double tap. The browser's own dblclick is not dependable from a
+    // finger once the canvas has taken the gesture with touch-action:
+    // none, and everything it does here - open a drawing's settings,
+    // refit the chart, restore the price axis - is worth having on a
+    // phone. Recognise it ourselves: two taps, close together in time
+    // and in space.
+    if (e && (e.pointerType === "touch" || e.pointerType === "pen") && !this._moved) {
+      const now = Date.now();
+      const last = this._lastTap;
+      if (last && now - last.at < 320 &&
+          Math.hypot(e.clientX - last.x, e.clientY - last.y) < 28) {
+        this._lastTap = null;
+        this.drag = null;
+        this.canvas.style.cursor = this.cursorFor();
+        this.onDouble(e);
+        return;
+      }
+      this._lastTap = { at: now, x: e.clientX, y: e.clientY };
+    }
+
     if (this.drag && (this.drag.mode === "free" || this.drag.mode === "stretch")) {
       if (this.drag.mode === "stretch" && this._stretch) this._stretch.until = Date.now() + 700;
       this.drag = null;
@@ -3375,23 +3491,177 @@ class CandleChart {
     return false;
   }
 
-  onTouch(e) {
-    if (e.touches.length === 2) {
-      e.preventDefault();
-      const [t1, t2] = e.touches;
-      const d = Math.hypot(t1.clientX - t2.clientX, t1.clientY - t2.clientY);
-      const mid = (t1.clientX + t2.clientX) / 2;
-      if (!this.pinch) { this.pinch = { d, span: this.span, mid, off: this.offset }; return; }
-      const k = this.pinch.d / (d || 1);
-      this.span = Math.max(8, Math.min(Math.max(20, this.rows().length), Math.round(this.pinch.span * k)));
-      const L = this._L || this.layout();
-      if (L) {
-        const dx = mid - this.pinch.mid;
-        this.offset = this.pinch.off + Math.round(dx / L.bw);
-        this.clampOffset();
+  /* ===================================================== touch gestures == */
+
+  /**
+   * Is this a finger?
+   *
+   * The last pointer to touch the canvas is the honest answer once the
+   * trader has interacted. Before that there is nothing to go on, so the
+   * device's own capability stands in - otherwise the first tap on a
+   * phone is tested against mouse tolerances, and the handles are drawn
+   * at mouse size until something has already been grabbed.
+   *
+   * A hybrid laptop reports coarse too, and that is the right default:
+   * generous targets cost a mouse user nothing.
+   */
+  get coarse() {
+    if (this._pointerType) return this._pointerType === "touch" || this._pointerType === "pen";
+    if (this._coarseDevice == null) {
+      try {
+        const mm = (this.win || (typeof window !== "undefined" ? window : null));
+        this._coarseDevice = !!(mm && mm.matchMedia && mm.matchMedia("(pointer: coarse)").matches);
+      } catch { this._coarseDevice = false; }
+    }
+    return this._coarseDevice;
+  }
+
+  /**
+   * How close counts as "on it", in CSS pixels.
+   *
+   * 8px is a mouse tolerance: a cursor is a single pixel and the user can
+   * see exactly where it is. A fingertip covers roughly 9mm of glass -
+   * about 40px - and the finger hides the very thing it is reaching for.
+   * Grabbing a trendline on a phone was close to impossible at 8px, which
+   * is why the drawing tools felt broken on mobile and fine on a desktop.
+   *
+   * The handles are drawn larger to match when a finger is in use, so the
+   * target the trader sees is the target the code actually tests.
+   */
+  get grabRadius() { return this.coarse ? 22 : 8; }
+
+  /** How far a pointer may wander before it stops counting as a tap. */
+  get tapSlop() { return this.coarse ? 10 : 3; }
+
+  /** The two live pointers, oldest first, or null. */
+  _pinchPair() {
+    if (!this.pointers || this.pointers.size < 2) return null;
+    const it = this.pointers.values();
+    return [it.next().value, it.next().value];
+  }
+
+  /**
+   * Begin a pinch, abandoning whatever one finger had started.
+   *
+   * The second finger landing is a change of intent: the trader is no
+   * longer drawing a trendline, they are framing the chart. Anything the
+   * first finger began has to be rolled back, or a pinch leaves a stray
+   * two-pixel line behind every time.
+   */
+  beginPinch() {
+    const pair = this._pinchPair();
+    if (!pair) return;
+    const [a, b] = pair;
+    if (this.drag && this.drag.mode === "shape") this.undo(true);
+    this.drag = null;
+    this.dragLevel = null;
+    if (this.draft && this.needs(this.draft.kind) !== -1) this.draft = null;
+    else if (this.draft) this.draft = null;
+    const L = this._L || this.layout();
+    this.pinch = {
+      d: Math.hypot(a.x - b.x, a.y - b.y),
+      mid: (a.x + b.x) / 2,
+      span: this.span,
+      off: this.offset,
+      // Zoom about the point between the fingers rather than the middle
+      // of the screen, so the bars under the hand stay under the hand.
+      anchor: L ? ((a.x + b.x) / 2 - L.padL) / (L.bw || 1) + L.start : null,
+    };
+    this.canvas.style.cursor = this.cursorFor();
+  }
+
+  /** Update zoom and position from the two live fingers. */
+  movePinch() {
+    const pair = this._pinchPair();
+    if (!pair || !this.pinch) return;
+    const [a, b] = pair;
+    const d = Math.hypot(a.x - b.x, a.y - b.y);
+    const mid = (a.x + b.x) / 2;
+    const k = this.pinch.d / (d || 1);
+    const most = Math.max(20, this.rows().length);
+    this.span = Math.max(8, Math.min(most, Math.round(this.pinch.span * k)));
+    const L = this.layout();
+    if (L) {
+      // Hold the anchor bar under the midpoint of the fingers, then apply
+      // however far that midpoint has travelled. Pinch and two-finger pan
+      // are one gesture, which is how every map and every chart the
+      // trader already uses behaves.
+      if (this.pinch.anchor != null) {
+        const want = (mid - L.padL) / (L.bw || 1) + L.start;
+        this.offset += Math.round(want - this.pinch.anchor);
+      } else {
+        this.offset = this.pinch.off + Math.round((mid - this.pinch.mid) / (L.bw || 1));
+      }
+      this.clampOffset();
+    }
+    // One paint per frame, not one per finger per event. A pinch reports
+    // a move for each finger and a phone can deliver them faster than it
+    // can paint, so painting synchronously here lets the work pile up
+    // behind the gesture and the chart lags the hand.
+    this.scheduleDraw();
+  }
+
+  /**
+   * Long press: the finger's right-click.
+   *
+   * The context menu - object settings, delete, the price actions - was
+   * reachable only by right-dragging, which a touchscreen cannot do. On
+   * a phone the menu simply did not exist, so a drawing could be made
+   * and then never configured or removed except through the object list.
+   *
+   * Press and hold opens the same menu, at the same place, with the same
+   * shape resolved underneath it.
+   */
+  armLongPress(e) {
+    this.clearLongPress();
+    if (!e || (e.pointerType !== "touch" && e.pointerType !== "pen")) return;
+    if (e.button && e.button !== 0) return;
+    const x = e.clientX, y = e.clientY;
+    const after = (typeof setTimeout === "function") ? setTimeout : null;
+    if (!after) return;   // no timer in this host; press-and-hold simply does nothing
+    this._longTimer = after(() => {
+      this._longTimer = null;
+      // Only if the finger is still down and alone: a second finger means
+      // a pinch, and a lifted finger means it was a tap after all.
+      if (!this.pointers || this.pointers.size !== 1) return;
+      if (this._moved) return;
+      this._longFired = true;
+      this.drag = null;
+      this.dragLevel = null;
+      if (this.draft && this.placed(this.draft) <= 1) this.draft = null;
+      const hit = this.hit({ clientX: x, clientY: y });
+      const found = hit ? this.shapeAt(hit.L, hit.x, hit.y) : null;
+      if (found && found.shape) this.select(found.shape);
+      if (typeof this.opts.onMenu === "function") {
+        this.opts.onMenu({
+          x, y,
+          shape: found ? found.shape : null,
+          price: hit ? hit.p : null,
+          touch: true,
+        });
       }
       this.draw();
-    } else this.pinch = null;
+    }, 480);
+  }
+
+  clearLongPress() {
+    if (this._longTimer && typeof clearTimeout === "function") clearTimeout(this._longTimer);
+    this._longTimer = null;
+  }
+
+  /** A pointer went away for any reason: drop it and tidy up. */
+  onCancel(e) {
+    this.clearLongPress();
+    this._longFired = false;
+    if (e && this.pointers) this.pointers.delete(e.pointerId);
+    if (this.pointers && this.pointers.size < 2) this.pinch = null;
+    if (this.pointers && this.pointers.size === 0) {
+      this.drag = null;
+      this.dragLevel = null;
+      this._priceClick = null;
+      this.canvas.style.cursor = this.cursorFor();
+      this.draw();
+    }
   }
 }
 
