@@ -272,6 +272,60 @@ check("every scene resolves to a real file in both cuts", () => {
   });
 });
 
+check("resetting a theme leaves it with a backdrop, not a blank desk", () => {
+  /* Every theme claims a picture of its own through themeWall(). The
+     stylesheet has to actually define one for each, or "reset" hands the
+     theme back a --theme-bg that nobody declares and the desk goes bare.
+     That is what happened to AURION: the gallery offered its picture and
+     the tile showed it, but no rule in themes.css named it, so choosing
+     "the theme's own" - which is what reset restores - produced nothing. */
+  const bare = [];
+  ["glass", "frost", "neu", "clay", "aurora", "cyber",
+   "minimal", "midnight", "ocean", "sunset", "mono"].forEach((skin) => {
+    if (!T.themeWall(skin)) return;          // genuinely ships none
+    const dark = new RegExp('html\\[data-skin="' + skin + '"\\]\\{[^}]*--theme-bg');
+    const light = new RegExp('html\\[data-skin="' + skin + '"\\]\\[data-theme="light"\\]\\{[^}]*--theme-bg');
+    if (!dark.test(themesCss) || !light.test(themesCss)) bare.push(skin);
+  });
+  if (bare.length) {
+    throw new Error("these themes promise a picture that no rule defines, so a reset " +
+      "leaves them blank: " + bare.join(", "));
+  }
+});
+
+check("the files a theme's own backdrop points at exist", () => {
+  const urls = themesCss.match(/--theme-bg:url\("\.\.\/([^"]+)"\)/g) || [];
+  if (urls.length < 22) throw new Error("only " + urls.length + " theme backdrops declared");
+  urls.forEach((u) => {
+    const rel = /--theme-bg:url\("\.\.\/([^"]+)"\)/.exec(u)[1];
+    if (!fs.existsSync(path.join(WEB, rel))) throw new Error("missing " + rel);
+  });
+});
+
+check("a background effect reaches the shipped wallpapers", () => {
+  /* The effect was applied to .aurora alone. The twenty wallpapers are
+     painted by #bg-fx::before - a different element - so every effect
+     appeared to do nothing on any of them while working fine on a flat
+     colour or the trader's own photograph. */
+  const fxRules = themesCss.match(/[^{}\n]*\{[^}]*filter:var\(--bg-fx[^}]*\}/g) || [];
+  const targets = fxRules.map((r) => r.slice(0, r.indexOf("{")).trim());
+  if (!targets.some((t) => t === ".aurora")) {
+    throw new Error("the flat colour and the custom photo lost their effect");
+  }
+  if (!targets.some((t) => t.indexOf("#bg-fx") !== -1)) {
+    throw new Error("the shipped wallpapers never receive --bg-fx: " + targets.join(" | "));
+  }
+});
+
+check("every effect is a real filter the wallpaper layer can take", () => {
+  const fx = T.FX;
+  Object.keys(fx).forEach((k) => {
+    const v = fx[k];
+    if (k === "none") { if (v) throw new Error('"none" must be empty'); return; }
+    if (!/^[a-z-]+\([^)]*\)/.test(v)) throw new Error(k + " is not a filter function: " + v);
+  });
+});
+
 check("the AURION theme's own backdrop is offered like any other", () => {
   /* It was the one picture a trader could see on their desk and not find
      anywhere in the gallery. */
@@ -502,9 +556,9 @@ check("every new string exists in all three languages", () => {
 check("the browser is forced to pick up every file that changed", () => {
   const html = read("index.html");
   const want = ["js/skins.js?v=desk98", "js/themes.js?v=desk124", "js/app.js?v=desk130",
-    "css/themes.css?v=desk114", "css/app.css?v=desk129", "js/colorpicker.js?v=desk2"];
+    "css/themes.css?v=desk115", "css/app.css?v=desk129", "js/colorpicker.js?v=desk2"];
   want.forEach((w) => { if (!html.includes(w)) throw new Error("index.html is missing " + w); });
-  if (!read("sw.js").includes("aurion-shell-v117")) throw new Error("the service worker cache was not bumped");
+  if (!read("sw.js").includes("aurion-shell-v118")) throw new Error("the service worker cache was not bumped");
 });
 
 /* ----------------------------------------------------------------- report */

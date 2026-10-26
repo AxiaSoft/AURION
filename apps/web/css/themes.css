@@ -1982,6 +1982,21 @@ html[data-perf="fast"] .tc-lock{ background:rgb(var(--s1) / .9) }
    are capped at roughly half what they could carry, because restraint is the
    whole of those two themes. */
 
+/* AURION's own backdrop.
+
+   The other ten themes name a file in assets/bg. AURION's is the orb the
+   desk and the sign-in screen have always been painted with, which lives
+   beside the other artwork rather than in the gallery folder - and because
+   this rule did not exist, resetting the theme left it with no --theme-bg
+   at all. The gallery offered the picture, the tile showed it, and choosing
+   "the theme's own" produced nothing. */
+html[data-skin="glass"]{
+  --theme-bg:url("../assets/login-orb.png");
+}
+html[data-skin="glass"][data-theme="light"]{
+  --theme-bg:url("../assets/login-orb-light.png");
+}
+
 html[data-skin="frost"]{
   --theme-bg:url("../assets/bg/frost-dark.jpg");
 }
@@ -2121,13 +2136,19 @@ html[data-bg="photo"] .aurora::after{
    effect. A trader who likes the aurora but finds it loud can calm it
    instead of abandoning it.
 
-   It goes on .aurora, not on .aurora::before, because the grid and wave
-   backdrops paint across both the ::before and the ::after and an effect
-   applied to only one of them would blur half a background. The element is
-   fixed and behind everything, so filtering it costs one composited layer
-   and never touches the panels or the text above it.
+   It goes on .aurora rather than on .aurora::before so that the flat colour
+   and the trader's own photograph are filtered as one picture rather than
+   half of one. The element is fixed and behind everything, so filtering it
+   costs one composited layer and never touches the panels or the text.
+
+   The shipped wallpapers are NOT on .aurora. They are painted by
+   #bg-fx::before, a different element entirely, which is why choosing an
+   effect appeared to do nothing on any of the twenty pictures: the filter
+   was being applied to a layer the wallpaper was covering. Both layers
+   carry it now.
    =========================================================================== */
 .aurora{ filter:var(--bg-fx, none) }
+#bg-fx::before{ filter:var(--bg-fx, none) }
 
 /* The photo backdrop already sets filter:none on its own layers so the
    picture is shown as it is; the effect still arrives from the parent. */
