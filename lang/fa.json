@@ -1426,7 +1426,8 @@
     "wall_cut_dark": "دارک",
     "wall_cut_light": "لایت",
     "wall_missing": "این تصویر بارگذاری نشد. میز همچنان پس‌زمینهٔ خود تم را نشان می‌دهد.",
-    "wall_missing_path": "مسیر امتحان‌شده: {path}"
+    "wall_missing_path": "مسیر امتحان‌شده: {path}",
+    "wall_theme_none": "این تم تصویری ندارد"
   },
   "ea": {
     "title": "اکسپرت‌های متاتریدر ۵",

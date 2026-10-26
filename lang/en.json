@@ -1426,7 +1426,8 @@
     "wall_cut_dark": "Dark",
     "wall_cut_light": "Light",
     "wall_missing": "This picture could not be loaded. The desk is still showing the theme's own background.",
-    "wall_missing_path": "Tried: {path}"
+    "wall_missing_path": "Tried: {path}",
+    "wall_theme_none": "This theme has no picture"
   },
   "ea": {
     "title": "Expert Advisors (MetaTrader 5)",

@@ -548,8 +548,14 @@ function themeBuilderHtml() {
      wants that. */
   const darkLabel = I18N.t("themes.wall_cut_dark");
   const lightLabel = I18N.t("themes.wall_cut_light");
+  /* The first tile hands the theme back its own picture. Themes like AURION
+     and Custom ship none, and the tile was then simply empty - which reads
+     as a picture that failed to load rather than as a theme that has none.
+     It says which it is. */
   const wallTiles = [
-    wallTile("", I18N.t("themes.wall_theme"), ownStyle, ownWall ? "" : " is-none"),
+    wallTile("",
+      ownWall ? I18N.t("themes.wall_theme") : I18N.t("themes.wall_theme_none"),
+      ownStyle, ownWall ? "" : " is-none"),
     wallTile("none", I18N.t("themes.wall_none"), "", " is-none"),
   ].concat(AurionTheme.WALLPAPERS.flatMap((w) => {
     const name = I18N.t("themes.wall_" + w);

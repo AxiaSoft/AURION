@@ -454,7 +454,7 @@ check("choosing a shipped accent clears the custom one", () => {
 check("every new string exists in all three languages", () => {
   const keys = ["wall_cut_dark", "wall_cut_light", "wall_missing", "bg_crop", "bg_fit_cover", "bg_fit_contain",
     "bg_zoom", "bg_recentre", "bg_crop_hint", "pick_colour", "solid", "gradient",
-    "angle", "hex", "accent_custom"];
+    "angle", "hex", "accent_custom", "wall_theme_none"];
   ["en", "fa", "ar"].forEach((lang) => {
     const d = JSON.parse(fs.readFileSync(path.join(ROOT, "lang", lang + ".json"), "utf8"));
     keys.forEach((k) => {
@@ -469,10 +469,10 @@ check("every new string exists in all three languages", () => {
 
 check("the browser is forced to pick up every file that changed", () => {
   const html = read("index.html");
-  const want = ["js/skins.js?v=desk97", "js/themes.js?v=desk123", "js/app.js?v=desk128",
+  const want = ["js/skins.js?v=desk97", "js/themes.js?v=desk123", "js/app.js?v=desk129",
     "css/themes.css?v=desk113", "css/app.css?v=desk129", "js/colorpicker.js?v=desk1"];
   want.forEach((w) => { if (!html.includes(w)) throw new Error("index.html is missing " + w); });
-  if (!read("sw.js").includes("aurion-shell-v115")) throw new Error("the service worker cache was not bumped");
+  if (!read("sw.js").includes("aurion-shell-v116")) throw new Error("the service worker cache was not bumped");
 });
 
 /* ----------------------------------------------------------------- report */

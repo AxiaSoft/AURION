@@ -1426,7 +1426,8 @@
     "wall_cut_dark": "داكن",
     "wall_cut_light": "فاتح",
     "wall_missing": "تعذّر تحميل هذه الصورة. لا يزال المكتب يعرض خلفية السمة نفسها.",
-    "wall_missing_path": "المسار المُجرَّب: {path}"
+    "wall_missing_path": "المسار المُجرَّب: {path}",
+    "wall_theme_none": "لا صورة لهذه السمة"
   },
   "ea": {
     "title": "خبراء ميتاتريدر 5",
