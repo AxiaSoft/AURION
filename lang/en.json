@@ -1139,7 +1139,14 @@
     "t_why": "Closed by",
     "no_trades": "This run took no trades. Nothing matched the strategy's conditions in the replayed window.",
     "empty": "No backtest has been run yet. Pick a symbol, timeframe and strategy above, then run one.",
-    "showing": "Showing {n} of {total} trades"
+    "showing": "Showing {n} of {total} trades",
+    "live_running": "Replay in progress",
+    "live_equity": "Equity now",
+    "live_trades": "Trades closed",
+    "live_bar": "Bar reached",
+    "live_position": "Open position",
+    "live_chart_hint": "The symbol's live chart. The replay works through history while the market here keeps updating.",
+    "live_curve_hint": "Equity as the replay builds it. The finished curve replaces this when the run ends."
   },
   "chart": {
     "regime_hint": "The slider above shows direction and regime per chart — move between charts with the arrows.",

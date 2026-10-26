@@ -2768,12 +2768,41 @@ html[data-theme="light"] .set-rail .set-jump button.on{background:linear-gradien
   0%{box-shadow:0 0 0 2px rgb(var(--accent-rgb) / .55)}
   100%{box-shadow:0 0 0 2px rgb(var(--accent-rgb) / 0)}
 }
+
+/* ----- while the replay runs -----
+   Shown inside the same results card, so the run is watched where the
+   result will appear. */
+.bt-live{margin-block-end:14px}
+.bt-prog{
+  position:relative;display:flex;align-items:center;gap:10px;
+  height:10px;margin:10px 0 14px;border-radius:999px;
+  background:rgb(var(--s2) / .55);border:1px solid var(--line);
+}
+.bt-prog i{
+  display:block;height:100%;border-radius:999px;
+  background:linear-gradient(90deg, rgb(var(--accent-rgb) / .55), rgb(var(--accent-rgb)));
+  transition:width .45s ease;
+}
+.bt-prog b{
+  position:absolute;inset-inline-end:0;inset-block-start:-22px;
+  font-size:12px;opacity:.8;font-weight:600;
+}
+.bt-live-chart{
+  position:relative;height:240px;margin:4px 0 8px;
+  border-radius:14px;border:1px solid var(--line);
+  background:rgb(var(--s2) / .35);
+  overflow:hidden;
+}
+.bt-live-chart canvas{display:block;width:100%;height:100%}
+
 @media (max-width:760px){
   .bt-curve{height:168px}
+  .bt-live-chart{height:200px}
   .bt-trades{max-height:300px}
 }
 @media (prefers-reduced-motion:reduce){
   #bt-extra-card.is-fresh{animation:none}
+  .bt-prog i{transition:none}
 }
 
 /* ===== Background images =====

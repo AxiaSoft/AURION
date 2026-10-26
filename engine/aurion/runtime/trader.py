@@ -4626,7 +4626,7 @@ class Trader:
         loop = asyncio.get_running_loop()
         last_sent = 0.0
 
-        def report(done: int, total: int) -> None:
+        def report(done: int, total: int, live: dict[str, Any] | None = None) -> None:
             # Called from the worker thread, so the publish has to be
             # handed back to the loop rather than awaited here.
             nonlocal last_sent
@@ -4635,7 +4635,13 @@ class Trader:
                 return
             last_sent = now
             pct = int(round(100.0 * done / max(1, total)))
+            # Carry the replay's own state through, so the desk can draw
+            # the test as it happens instead of showing a spinner and a
+            # percentage. Namespaced under "live" so nothing here can be
+            # mistaken for a finished result.
             state = {**(self.backtest_run or {}), "running": True, "progress": pct}
+            if isinstance(live, dict):
+                state["live"] = dict(live)
             self.backtest_run = state
             loop.call_soon_threadsafe(
                 lambda: asyncio.ensure_future(self.bus.publish("backtest", dict(state)))

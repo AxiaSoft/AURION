@@ -27,6 +27,23 @@ def _bar_time(bar: Any) -> str:
     return ""
 
 
+def _thin(values: list[float], most: int) -> list[float]:
+    """Evenly sample a long series down to something a sparkline can draw.
+
+    The live curve is republished twice a second while a replay runs, so
+    sending every point would grow without bound over a long test. The
+    first and last points are always kept: the ends are the two the eye
+    actually reads.
+    """
+    n = len(values)
+    if n <= most:
+        return [round(float(v), 2) for v in values]
+    stepf = (n - 1) / float(most - 1)
+    out = [values[int(round(k * stepf))] for k in range(most)]
+    out[-1] = values[-1]
+    return [round(float(v), 2) for v in out]
+
+
 class Backtester:
     """Offline replay of REAL historical bars supplied by MT5.
 
@@ -71,7 +88,27 @@ class Backtester:
         for i in range(warmup, len(bars)):
             if progress is not None and (i - warmup) % step == 0:
                 try:
-                    progress(i - warmup, total)
+                    # Carry the run's state, not just how far along it is.
+                    # A percentage says the engine is alive; it does not
+                    # let the desk show the replay happening. The curve is
+                    # thinned to something a sparkline can use, and only
+                    # the tail of the trade list travels - the whole thing
+                    # arrives at the end anyway.
+                    progress(i - warmup, total, {
+                        "equity": round(equity, 2),
+                        "peak": round(peak, 2),
+                        "equity_curve": _thin(curve, 240),
+                        "trades_so_far": len(trades),
+                        "recent_trades": trades[-12:],
+                        "at": _bar_time(bars[i]),
+                        "open_side": (position or {}).get("side"),
+                    })
+                except TypeError:
+                    # An older two-argument reporter. Keep it working.
+                    try:
+                        progress(i - warmup, total)
+                    except Exception:
+                        progress = None
                 except Exception:
                     progress = None         # a broken reporter must not stop the run
             window = bars[: i + 1]

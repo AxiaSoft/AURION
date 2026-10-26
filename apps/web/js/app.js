@@ -4670,11 +4670,16 @@ const views = {
           <button class="btn" id="h-bt" type="button"${running || !items.length ? " disabled" : ""}>${running ? I18N.t("history.backtest_running") : I18N.t("history.backtest_run")}</button>
         </div>
         <div id="bt-load" class="bt-load${running ? "" : " hidden"}"><i></i><span>${I18N.t("history.backtest_wait")}</span></div>
-        <div id="bt-result">${renderBacktestCard(bt)}</div>
       </div>
+      <!-- One container for everything a run produces. The summary used to
+           sit in the form card above and the curve down here, so a finished
+           result was split across two cards with the form wedged between
+           them. Running state, summary and detail now share this card. -->
       <div class="card" id="bt-extra-card">
         <h3>📊 ${I18N.t("bt.results")}</h3>
         <p class="sub">${I18N.t("bt.results_hint")}</p>
+        <div id="bt-live">${renderBacktestLive(bt)}</div>
+        <div id="bt-result">${renderBacktestCard(bt)}</div>
         <div id="bt-extra">${renderBacktestExtra(bt)}</div>
       </div>
     </div>`;
@@ -6048,6 +6053,10 @@ function bindView(view) {
       S._btBusy = true;
       setBacktestBusy(true, 0);
       S.backtest = { running: true, mode: "backtest", symbol, timeframe, strategy: name, progress: 0 };
+      // Put the live panel up and scroll to it immediately. The run is
+      // watched in the same place the result will appear, so the trader
+      // never has to hunt for either.
+      paintBacktestResults(S.backtest, { reveal: true });
       headerState();
       try {
         // The engine accepts the run and answers at once; the result
@@ -7133,10 +7142,121 @@ function bindPropForm() {
   };
 }
 
+/* ------------------------------------------------- backtest, while running
+ *
+ * A replay can run for minutes. Until now the only sign of life was a
+ * spinner and a percentage, which tells the trader the engine has not
+ * hung but nothing about what it is finding. The engine publishes a live
+ * snapshot on every progress tick (backtest/engine.py passes equity, the
+ * thinned curve, the trade count and the bar it has reached), so the run
+ * is drawn as it happens: the symbol's own chart, the equity curve
+ * forming, and the counters moving.
+ */
+function renderBacktestLive(bt) {
+  bt = bt || S.backtest || {};
+  if (!bt.running) return "";
+  const live = (bt.live && typeof bt.live === "object") ? bt.live : {};
+  const pct = Math.max(0, Math.min(99, Math.round(Number(bt.progress) || 0)));
+  const symbol = String(bt.symbol || "");
+  const tf = String(bt.timeframe || S.timeframe || "M15");
+  const curve = Array.isArray(live.equity_curve)
+    ? live.equity_curve.map(Number).filter((x) => Number.isFinite(x))
+    : [];
+
+  // Only state the engine actually reported. A run that has not yet sent
+  // its first snapshot shows a dash, never a stand-in number.
+  const eq = Number.isFinite(Number(live.equity)) ? fmt(Number(live.equity)) : "—";
+  const done = Number.isFinite(Number(live.trades_so_far)) ? fmt(Number(live.trades_so_far), 0) : "—";
+  const at = live.at ? esc(String(live.at)) : "—";
+  const side = live.open_side ? esc(String(live.open_side)).toUpperCase() : "—";
+
+  return `<div class="bt-live">
+    <div class="tape-banner is-backtest" style="margin:0 0 10px">
+      ${I18N.t("bt.live_running")} · ${esc(symbol)} ${esc(tf)} · ${esc(String(bt.strategy || ""))}
+    </div>
+    <div class="bt-prog" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${pct}">
+      <i style="width:${pct}%"></i><b class="mono">${pct}%</b>
+    </div>
+    <div class="kv bt-kv">
+      <span>${I18N.t("bt.live_equity")}</span><b class="mono">${eq}</b>
+      <span>${I18N.t("bt.live_trades")}</span><b class="mono">${done}</b>
+      <span>${I18N.t("bt.live_bar")}</span><b class="mono">${at}</b>
+      <span>${I18N.t("bt.live_position")}</span><b class="mono">${side}</b>
+    </div>
+    <div class="bt-live-chart">
+      <canvas data-mini="${esc(symbol)}" data-tf="${esc(tf)}" id="bt-live-chart"></canvas>
+    </div>
+    <p class="sub">${I18N.t("bt.live_chart_hint")}</p>
+    ${curve.length > 1 ? `<div class="bt-curve"><canvas id="bt-curve"></canvas></div>
+    <p class="sub">${I18N.t("bt.live_curve_hint")}</p>` : ""}
+  </div>`;
+}
+
+/* Keep the live panel current without rebuilding it.
+ *
+ * Snapshots arrive about twice a second. Re-writing innerHTML on each one
+ * would throw away the chart canvas and re-request the symbol's candles
+ * at that same rate, so the markup is built once per run and only the
+ * values that moved are written afterwards. The candle chart refreshes on
+ * its own slower schedule - it is showing the live market, which does not
+ * change meaningfully between ticks of a replay.
+ */
+function paintBacktestLive(box, bt, running) {
+  if (!running) {
+    if (box.innerHTML !== "") box.innerHTML = "";
+    box.removeAttribute("data-run");
+    S._btChartAt = 0;
+    return;
+  }
+  const key = `${bt.symbol || ""}|${bt.timeframe || ""}|${bt.strategy || ""}`;
+  const snap = (bt.live && typeof bt.live === "object") ? bt.live : {};
+  const lc = Array.isArray(snap.equity_curve)
+    ? snap.equity_curve.map(Number).filter((x) => Number.isFinite(x))
+    : [];
+
+  // Rebuild only when the run changes, or when the curve's canvas first
+  // becomes needed (the first snapshot arrives after the panel is up).
+  const fresh = box.getAttribute("data-run") !== key;
+  const needsCurve = lc.length > 1 && !box.querySelector("#bt-curve");
+  if (fresh || needsCurve) {
+    box.innerHTML = renderBacktestLive(bt);
+    box.setAttribute("data-run", key);
+    if (fresh) S._btChartAt = 0;
+  } else {
+    const pct = Math.max(0, Math.min(99, Math.round(Number(bt.progress) || 0)));
+    const bar = box.querySelector(".bt-prog i");
+    const num = box.querySelector(".bt-prog b");
+    const prog = box.querySelector(".bt-prog");
+    if (bar) bar.style.width = pct + "%";
+    if (num) num.textContent = pct + "%";
+    if (prog) prog.setAttribute("aria-valuenow", String(pct));
+    const cells = box.querySelectorAll(".bt-kv b");
+    if (cells.length >= 4) {
+      cells[0].textContent = Number.isFinite(Number(snap.equity)) ? fmt(Number(snap.equity)) : "—";
+      cells[1].textContent = Number.isFinite(Number(snap.trades_so_far)) ? fmt(Number(snap.trades_so_far), 0) : "—";
+      cells[2].textContent = snap.at ? String(snap.at) : "—";
+      cells[3].textContent = snap.open_side ? String(snap.open_side).toUpperCase() : "—";
+    }
+  }
+
+  if (lc.length > 1) requestAnimationFrame(() => drawEquityCurve(lc));
+
+  // The symbol's real candles, fetched the way the watchlist thumbnails
+  // are. Rate-limited: a replay publishes far faster than the market moves.
+  const now = Date.now();
+  if (bt.symbol && now - (S._btChartAt || 0) > 10000) {
+    S._btChartAt = now;
+    paintMiniCharts();
+  }
+}
+
 function renderBacktestCard(bt) {
   bt = bt || S.backtest || {};
   if (bt.running) return "";
-  if (!bt || (!bt.ok && !bt.error && bt.mode !== "backtest")) return `<p class="sub">${I18N.t("history.backtest_empty")}</p>`;
+  // The empty state belongs to one element now that both halves of the
+  // result share a card: renderBacktestExtra owns it. Saying it twice in
+  // the same box read like a fault.
+  if (!bt || (!bt.ok && !bt.error && bt.mode !== "backtest")) return "";
   if (!bt.ok) return `<p class="err">${esc(bt.error || I18N.t("errors.generic"))}</p>`;
   const m = bt.metrics || {};
   return `<div class="tape-banner is-backtest" style="margin:12px 0 10px">${I18N.t("tape.showing_backtest")} · ${esc(bt.symbol || "")} ${esc(bt.timeframe || "")} · ${esc(bt.strategy || "")}</div>
@@ -7358,12 +7478,20 @@ function drawEquityCurve(curve) {
  */
 function paintBacktestResults(bt, opts) {
   bt = bt || S.backtest || {};
+  const running = Boolean(bt.running);
+
+  // The live panel and the finished result occupy the same card and are
+  // never both meaningful, so each render clears the other. Without this
+  // the running view stayed on screen underneath the result.
+  const liveBox = $("bt-live");
+  if (liveBox) paintBacktestLive(liveBox, bt, running);
+
   const box = $("bt-result");
   if (box) box.innerHTML = renderBacktestCard(bt);
   const extra = $("bt-extra");
   if (extra) {
     extra.innerHTML = renderBacktestExtra(bt);
-    if (bt.ok && Array.isArray(bt.equity_curve) && bt.equity_curve.length > 1) {
+    if (!running && bt.ok && Array.isArray(bt.equity_curve) && bt.equity_curve.length > 1) {
       requestAnimationFrame(() => drawEquityCurve(bt.equity_curve.map(Number).filter((x) => Number.isFinite(x))));
     }
   }
@@ -7436,6 +7564,9 @@ function watchBacktest() {
     if (S.snap) S.snap.backtest = d;
     if (d.running) {
       setBacktestBusy(true, d.progress);
+      // Keep the live panel moving on the fallback path too, so a dropped
+      // socket costs refresh rate and not the live view itself.
+      if (S.view === "backtest") paintBacktestResults(d);
       return;
     }
     clearInterval(S._btPoll); S._btPoll = null;
@@ -8014,10 +8145,14 @@ function onLive(msg) {
     // run from - the page just sat on its spinner.
     if (S.view === "backtest" || S.view === "history") {
       setBacktestBusy(Boolean(d.running), d.progress);
+      // This is the fast path, and it used to refresh only #bt-result:
+      // the curve and trade table below it kept the previous run's
+      // numbers, and nothing scrolled, so a result the trader had
+      // scrolled away from landed off-screen. Paint the whole card and
+      // reveal it on completion, exactly as the polling fallback does.
+      paintBacktestResults(d, { reveal: !d.running });
       if (!d.running) {
         S._btBusy = false;
-        const box = $("bt-result");
-        if (box) box.innerHTML = renderBacktestCard(d);
         toast(I18N.t(d.ok ? "history.backtest_done" : "errors.generic"));
       }
     }
