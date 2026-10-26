@@ -1826,7 +1826,9 @@ input[type=range]{width:100%;accent-color:var(--cyan);height:28px;cursor:pointer
 .cal-tip{scrollbar-width:thin;cursor:default}
 .cal-tip.pinned{border-color:rgb(var(--accent-rgb) / .55);box-shadow:0 20px 60px rgba(0,0,0,.55)}
 .cal-tip-x{position:absolute;inset-inline-end:6px;top:6px;width:20px;height:20px;border:0;
-  border-radius:6px;background:rgb(var(--wash) / .07);color:var(--muted);cursor:pointer;font-size:12px;line-height:1}
+  border-radius:6px;background:rgb(var(--wash) / .07);color:var(--muted);cursor:pointer;line-height:1;
+  display:grid;place-items:center;padding:0}
+.cal-tip-x svg{width:12px;height:12px}
 .cal-tip-x:hover{color:var(--ink);background:rgb(var(--wash) / .14)}
 .cal-cell.pinned{border-color:var(--cyan);background:rgb(var(--accent-rgb) / .08)}
 
@@ -2185,8 +2187,22 @@ html[data-theme="light"] .set-rail .set-jump button.on{background:linear-gradien
   list-style:none; padding:4px 0;
 }
 .q-how summary::-webkit-details-marker{ display:none }
-.q-how summary::before{ content:"› "; display:inline-block; transition:transform .16s var(--ease) }
-.q-how[open] summary::before{ content:"⌄ " }
+/* A drawn chevron that turns, rather than swapping one text glyph for
+   another. The old pair ("\203A" then "\2304") relied on two characters
+   that are not in every font and do not share a size or a baseline, so the
+   marker jumped as the section opened. This is one shape, rotated. */
+.q-how summary::before{
+  content:""; display:inline-block; width:12px; height:12px;
+  margin-inline-end:6px; vertical-align:-1px;
+  background-color:currentColor;
+  -webkit-mask:var(--ico-chevron) center/12px 12px no-repeat;
+          mask:var(--ico-chevron) center/12px 12px no-repeat;
+  transform:rotate(-90deg);
+  transition:transform .16s var(--ease);
+}
+html[dir="rtl"] .q-how summary::before{ transform:rotate(90deg) }
+.q-how[open] summary::before,
+html[dir="rtl"] .q-how[open] summary::before{ transform:rotate(0deg) }
 .q-how .sub{ margin:4px 0 8px }
 .q-table{ display:grid; grid-template-columns:1fr auto; gap:6px 12px; font-size:11.5px; color:var(--muted) }
 .q-table b{ color:var(--ink) }
@@ -2856,3 +2872,42 @@ html[data-theme="light"] .set-rail .set-jump button.on{background:linear-gradien
   .wall-tiles{grid-template-columns:repeat(auto-fill,minmax(112px,1fr))}
   .wall-art{height:66px}
 }
+
+
+/* ======================================================================
+   Icons in place of emoji
+   ----------------------------------------------------------------------
+   The interface used to lean on emoji for status and for the little mark
+   in front of a button or a heading. They were never really ours: every
+   operating system draws them differently, they ignore the accent colour
+   and the theme, they do not scale with the text, and several of them
+   carried meaning that only reads in one culture.
+
+   Everything is now the same 24x24 stroked SVG the navigation already
+   used, inherited in currentColor, so an icon takes the colour and the
+   weight of whatever sits around it. These rules only give those inline
+   SVGs a size; .btn is already inline-flex with a gap, so nothing else
+   has to change.
+   ====================================================================== */
+:root{
+  --ico-chevron:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6,9.5 12,15.5 18,9.5'/%3E%3C/svg%3E");
+}
+.btn > svg{ width:16px; height:16px; flex:none }
+.btn.tiny > svg{ width:14px; height:14px }
+/* A button holding nothing but an icon should be square, not a wide pill
+   with a lonely mark in the middle. */
+.btn > svg:only-child{ width:16px; height:16px; margin:0 -2px }
+
+.card h3 > svg{
+  width:15px; height:15px; flex:none;
+  vertical-align:-2px; margin-inline-end:7px;
+  color:var(--cyan);
+}
+/* The heading is uppercase small-caps text; letting it be a flex row keeps
+   the icon on the same optical line as the words in both directions. */
+.card h3:has(> svg){ display:flex; align-items:center; gap:0 }
+.card h3 > svg + *{ min-width:0 }
+
+/* Inline status marks inside the About table and the update panel. */
+.kv b > .dot{ display:inline-block; vertical-align:1px; margin-inline-start:6px }
+p.ok > svg, .ok > svg{ width:15px; height:15px; vertical-align:-3px; margin-inline-end:5px }

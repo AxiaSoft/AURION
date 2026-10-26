@@ -56,6 +56,32 @@ function icon(name) {
     user: '<circle cx="12" cy="8" r="3.2"/><path d="M5 19c1.4-3.2 3.8-5 7-5s5.6 1.8 7 5"/>',
     bell: '<path d="M18 16V11a6 6 0 10-12 0v5l-1.6 2.2a.6.6 0 00.5.95h14.2a.6.6 0 00.5-.95z"/><path d="M10 21.5a2.2 2.2 0 004 0"/>',
     cal: '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18"/><path d="M8 3v4M16 3v4"/><circle cx="8.5" cy="14.5" r="1.2"/><circle cx="15.5" cy="14.5" r="1.2"/><circle cx="12" cy="17.5" r="1.2"/>',
+    /* Added when the emoji were taken out of the interface. Same grammar as
+       the rest: 24x24, stroked in currentColor, no fills, so they inherit
+       whatever colour and size the control around them already uses. */
+    bellOff: '<path d="M18 16V11a6 6 0 00-8.3-5.5"/><path d="M6.3 7.7A6 6 0 006 11v5l-1.6 2.2a.6.6 0 00.5.95h12.3"/><path d="M10 21.5a2.2 2.2 0 004 0"/><line x1="3" y1="3" x2="21" y2="21"/>',
+    eye: '<path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z"/><circle cx="12" cy="12" r="3"/>',
+    eyeOff: '<path d="M10.6 6a9.8 9.8 0 011.4-.1c6 0 9.5 6.1 9.5 6.1a17 17 0 01-2.8 3.5"/><path d="M6.3 7.8A16.7 16.7 0 002.5 12S6 18.1 12 18.1a9.4 9.4 0 004-.85"/><path d="M9.9 9.9a3 3 0 004.2 4.2"/><line x1="3" y1="3" x2="21" y2="21"/>',
+    refresh: '<path d="M20.5 12a8.5 8.5 0 11-2.6-6.1"/><polyline points="20.5,3.5 20.5,8 16,8"/>',
+    chart: '<line x1="4" y1="20" x2="20" y2="20"/><rect x="6" y="12" width="3.2" height="6" rx="1"/><rect x="11.4" y="8" width="3.2" height="10" rx="1"/><rect x="16.8" y="4.5" width="3.2" height="13.5" rx="1"/>',
+    search: '<circle cx="11" cy="11" r="6.5"/><line x1="15.8" y1="15.8" x2="20.5" y2="20.5"/>',
+    clipboard: '<rect x="5" y="4.5" width="14" height="17" rx="2"/><path d="M9 4.5a1.5 1.5 0 011.5-1.5h3A1.5 1.5 0 0115 4.5v1H9z"/><line x1="9" y1="11" x2="15" y2="11"/><line x1="9" y1="15" x2="13.5" y2="15"/>',
+    wrench: '<path d="M14.8 6.2a4.6 4.6 0 00-6 6L4 17l3 3 4.8-4.8a4.6 4.6 0 006-6l-2.6 2.6-2.4-.6-.6-2.4z"/>',
+    building: '<path d="M4 21V6a2 2 0 012-2h7a2 2 0 012 2v15"/><path d="M15 10h3a2 2 0 012 2v9"/><line x1="2.5" y1="21" x2="21.5" y2="21"/><path d="M8 8h3M8 12h3M8 16h3"/>',
+    check: '<polyline points="4.5,12.5 9.5,17.5 19.5,6.5"/>',
+    hourglass: '<path d="M7 3h10"/><path d="M7 21h10"/><path d="M7 3v3.2c0 1 .4 1.9 1.1 2.6L12 12l-3.9 3.2A3.6 3.6 0 007 17.8V21"/><path d="M17 3v3.2c0 1-.4 1.9-1.1 2.6L12 12l3.9 3.2c.7.7 1.1 1.6 1.1 2.6V21"/>',
+    close: '<line x1="6" y1="6" x2="18" y2="18"/><line x1="18" y1="6" x2="6" y2="18"/>',
+    chevron: '<polyline points="6,9.5 12,15.5 18,9.5"/>',
+    heart: '<path d="M12 20s-7.5-4.4-7.5-9.4A4.1 4.1 0 0112 8.2a4.1 4.1 0 017.5 2.4c0 5-7.5 9.4-7.5 9.4z"/>',
+    lock: '<rect x="4.5" y="10.5" width="15" height="10" rx="2"/><path d="M8 10.5V7.8a4 4 0 018 0v2.7"/>',
+    headset: '<path d="M4.5 14v-2a7.5 7.5 0 0115 0v2"/><rect x="2.8" y="13.5" width="4" height="6" rx="1.6"/><rect x="17.2" y="13.5" width="4" height="6" rx="1.6"/><path d="M19.2 19.5a3.4 3.4 0 01-3.4 2.3H13"/>',
+    megaphone: '<path d="M4 10v4a1.6 1.6 0 001.6 1.6H7l3.6 3.2a.8.8 0 001.4-.6V5.8a.8.8 0 00-1.4-.6L7 8.4H5.6A1.6 1.6 0 004 10z"/><path d="M16.5 9a4 4 0 010 6"/><path d="M19 6.5a7.5 7.5 0 010 11"/>',
+    phone: '<path d="M7.6 3.5h-3A1.6 1.6 0 003 5.2 16.4 16.4 0 0018.8 21a1.6 1.6 0 001.7-1.6v-3a1.1 1.1 0 00-.95-1.1l-3-.45a1.1 1.1 0 00-1 .4l-1.2 1.4a12.6 12.6 0 01-5.1-5.1l1.4-1.2a1.1 1.1 0 00.4-1l-.45-3a1.1 1.1 0 00-1.1-.95z"/>',
+    mail: '<rect x="3" y="5.5" width="18" height="13" rx="2"/><polyline points="3.6,6.8 12,13 20.4,6.8"/>',
+    send: '<path d="M21 3.5L10.8 13.7"/><path d="M21 3.5l-6.6 17.3-3.6-7.1-7.1-3.6z"/>',
+    star: '<polygon points="12,3.6 14.4,9 20.2,9.6 15.8,13.5 17.1,19.2 12,16.2 6.9,19.2 8.2,13.5 3.8,9.6 9.6,9"/>',
+    download: '<path d="M12 3.5v11"/><polyline points="7.5,10 12,14.5 16.5,10"/><path d="M4.5 17.5v1.5a2 2 0 002 2h11a2 2 0 002-2v-1.5"/>',
+    box: '<polygon points="12,3 20.5,7.5 12,12 3.5,7.5"/><polyline points="3.5,7.5 3.5,16.5 12,21 20.5,16.5 20.5,7.5"/><line x1="12" y1="12" x2="12" y2="21"/>',
   };
   return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">${p[name] || ""}</svg>`;
 }
@@ -4730,8 +4756,8 @@ const views = {
           <span class="legend mono" id="tick-lbl">${tickLabel()}</span>
         </div>
         <div class="row" style="margin-bottom:8px;gap:6px">
-          <button type="button" class="btn tiny ${S.signalsEnabled?"on":"ghost"}" id="sig-toggle-m">${S.signalsEnabled?"🔔 Signals ON":"🔕 Signals OFF"}</button>
-          <button type="button" class="btn tiny ghost" id="sig-show-m" style="${S.signalsEnabled?"":"display:none"}">${S.showSignals?"👁️":"🚫"}</button>
+          <button type="button" class="btn tiny ${S.signalsEnabled?"on":"ghost"}" id="sig-toggle-m">${S.signalsEnabled?icon("bell")+" Signals ON":icon("bellOff")+" Signals OFF"}</button>
+          <button type="button" class="btn tiny ghost" id="sig-show-m" style="${S.signalsEnabled?"":"display:none"}">${S.showSignals?icon("eye"):icon("eyeOff")}</button>
           ${!licFeat("chart_signals")?`<span class="pill no" style="font-size:10px">PREMIUM</span>`:""}
         </div>
         <div class="chart-box"><canvas id="cv"></canvas>${!eaLive() || !S.candles.length ? emptyCard(I18N.t("markets.empty"), symbols.length ? I18N.t("markets.loading_tf") : I18N.t("exec.no_ea_symbol")) : ""}</div>
@@ -4897,7 +4923,7 @@ const views = {
       <div class="row" style="margin:10px 0;flex-wrap:wrap;gap:8px" id="term-live-tools">
         <input class="ctrl grow" id="log-q" data-i18n-ph="terminal.placeholder" placeholder="" style="flex:1;min-width:180px" />
         <button class="btn tiny ghost" id="log-clr" type="button">${I18N.t("terminal.clear")}</button>
-        <button class="btn tiny" id="term-restart" type="button" title="Immediate restart of system terminals">🔄 ${I18N.t("terminal.restart")||"Restart Terminals"}</button>
+        <button class="btn tiny" id="term-restart" type="button" title="Immediate restart of system terminals">${icon("refresh")} ${I18N.t("terminal.restart")||"Restart Terminals"}</button>
       </div>
       <div class="term" id="term">${renderLogs()}</div>
     </div>`;
@@ -4910,7 +4936,7 @@ const views = {
     return `<div class="cmd">
       ${tapeBanner()}
       <div class="card" id="bt-card">
-        <h3>🧪 ${I18N.t("history.backtest")}</h3>
+        <h3>${icon("flask")} ${I18N.t("history.backtest")}</h3>
         <p class="sub">${I18N.t("history.backtest_hint")}</p>
         <div class="ct-grid ct-grid-3">
           <label class="field"><span>${I18N.t("markets.symbol")}</span>${symbolSelectHtml("bt-sym", S.symbol)}</label>
@@ -4931,7 +4957,7 @@ const views = {
            result was split across two cards with the form wedged between
            them. Running state, summary and detail now share this card. -->
       <div class="card" id="bt-extra-card">
-        <h3>📊 ${I18N.t("bt.results")}</h3>
+        <h3>${icon("chart")} ${I18N.t("bt.results")}</h3>
         <p class="sub">${I18N.t("bt.results_hint")}</p>
         <div id="bt-live">${renderBacktestLive(bt)}</div>
         <div id="bt-result">${renderBacktestCard(bt)}</div>
@@ -5135,8 +5161,8 @@ const views = {
           <p class="sub" id="upd-last-check">${I18N.t("upd.last_check")}: -</p>
           <div id="upd-status"></div>
           <div class="row" style="margin-top:10px;gap:8px">
-            <button class="btn" id="upd-check" type="button">🔍 ${I18N.t("upd.check")}</button>
-            <button class="btn ghost" id="upd-manifest" type="button">📋 ${I18N.t("upd.manifest")}</button>
+            <button class="btn" id="upd-check" type="button">${icon("search")} ${I18N.t("upd.check")}</button>
+            <button class="btn ghost" id="upd-manifest" type="button">${icon("clipboard")} ${I18N.t("upd.manifest")}</button>
           </div>
           <div id="upd-result" style="margin-top:12px"></div>
         </div>
@@ -5181,22 +5207,22 @@ const views = {
       </div>
       <div class="grid g-2">
         <div class="card">
-          <h3>🛠️ ${I18N.t("about.specs")}</h3>
+          <h3>${icon("wrench")} ${I18N.t("about.specs")}</h3>
           <div class="kv">
             <span>${I18N.t("about.sys_name")}</span><b>AURION</b>
             <span>${I18N.t("about.version")}</span><b class="mono">v${esc(ver)}</b>
-            <span>${I18N.t("about.state")}</span><b>${S.snap?.engine === 'online' ? I18N.t("about.online") + ' 🟢' : I18N.t("about.offline") + ' 🔴'}</b>
-            <span>MT5</span><b>${mt5Live() ? I18N.t("about.connected") + ' 🟢' : I18N.t("about.disconnected") + ' 🔴'}</b>
+            <span>${I18N.t("about.state")}</span><b>${S.snap?.engine === 'online' ? I18N.t("about.online") + ' <i class="dot live" aria-hidden="true"></i>' : I18N.t("about.offline") + ' <i class="dot down" aria-hidden="true"></i>'}</b>
+            <span>MT5</span><b>${mt5Live() ? I18N.t("about.connected") + ' <i class="dot live" aria-hidden="true"></i>' : I18N.t("about.disconnected") + ' <i class="dot down" aria-hidden="true"></i>'}</b>
             <span>EA Charts</span><b class="mono">${liveAgents().length}</b>
             <span>${I18N.t("about.active_strategy")}</span><b>${esc(S.snap?.strategy?.name||'—')}</b>
-            <span>${I18N.t("about.autotrade")}</span><b>${S.snap?.strategy?.auto_trade ? I18N.t("about.on") + ' 🟢' : I18N.t("about.off") + ' 🔴'}</b>
-            <span>${I18N.t("about.kill")}</span><b>${S.snap?.kill_switch ? I18N.t("about.armed") + ' 🔴' : I18N.t("about.off") + ' 🟢'}</b>
-            <span>Prop</span><b>${S.snap?.prop?.enabled !== false ? I18N.t("about.enabled") + ' 🟢' : I18N.t("about.disabled") + ' 🔴'}</b>
+            <span>${I18N.t("about.autotrade")}</span><b>${S.snap?.strategy?.auto_trade ? I18N.t("about.on") + ' <i class="dot live" aria-hidden="true"></i>' : I18N.t("about.off") + ' <i class="dot down" aria-hidden="true"></i>'}</b>
+            <span>${I18N.t("about.kill")}</span><b>${S.snap?.kill_switch ? I18N.t("about.armed") + ' <i class="dot down" aria-hidden="true"></i>' : I18N.t("about.off") + ' <i class="dot live" aria-hidden="true"></i>'}</b>
+            <span>Prop</span><b>${S.snap?.prop?.enabled !== false ? I18N.t("about.enabled") + ' <i class="dot live" aria-hidden="true"></i>' : I18N.t("about.disabled") + ' <i class="dot down" aria-hidden="true"></i>'}</b>
             <span>${I18N.t("about.language")}</span><b>${I18N.lang.toUpperCase()}</b>
           </div>
         </div>
         <div class="card">
-          <h3>🏢 ${I18N.t("about.maker")}</h3>
+          <h3>${icon("building")} ${I18N.t("about.maker")}</h3>
           <div style="display:flex;align-items:center;gap:14px;margin:12px 0">
             <img src="assets/axiasoft-logo.png?v=desk49" alt="Axiasoft" style="width:56px;height:56px;object-fit:contain;background:transparent;border:none;border-radius:0" />
             <div>
@@ -5211,13 +5237,13 @@ const views = {
             <span>${I18N.t("about.update")}</span><b id="about-update-status">${I18N.t("about.checking")}</b>
           </div>
           <div class="row" style="margin-top:14px">
-            <button class="btn tiny" id="about-check-update" type="button">🔄 ${I18N.t("about.check")}</button>
-            <button class="btn tiny ghost" id="about-copy-ver" type="button">📋 ${I18N.t("about.copy_ver")}</button>
+            <button class="btn tiny" id="about-check-update" type="button">${icon("refresh")} ${I18N.t("about.check")}</button>
+            <button class="btn tiny ghost" id="about-copy-ver" type="button">${icon("clipboard")} ${I18N.t("about.copy_ver")}</button>
           </div>
         </div>
       </div>
       <div class="card">
-        <h3>📋 ${I18N.t("about.changelog")}</h3>
+        <h3>${icon("clipboard")} ${I18N.t("about.changelog")}</h3>
         <div id="about-changelog" class="sub" style="max-height:240px;overflow:auto;line-height:1.8">
           <p>${I18N.t("upd.loading")}</p>
         </div>
@@ -5964,8 +5990,10 @@ async function bindUpdatePanel(){
       auto_check_interval_hours: Number(intervalEl.value)||6,
     };
     const r = await API.post('/api/system/update/settings', body);
-    const txt = r.ok ? I18N.t('upd.saved') + ' ✅' : (r.error||I18N.t('upd.error'));
-    if(saveMsg) saveMsg.textContent = txt;
+    const txt = r.ok ? I18N.t('upd.saved') : (r.error||I18N.t('upd.error'));
+    /* The tick is an icon in the panel; the toast is plain text by nature,
+       and its own wording already says the save succeeded. */
+    if(saveMsg) saveMsg.innerHTML = (r.ok ? icon("check") + ' ' : '') + esc(txt);
     toast(txt);
   };
   if(autoEl) autoEl.onclick = () => paintSwitch(autoEl, !autoEl.classList.contains('on'));
@@ -5979,13 +6007,13 @@ async function bindUpdatePanel(){
       return;
     }
     if(!r.update_available){
-      if(resultEl) resultEl.innerHTML = '<p class="ok">✅ '+I18N.t('upd.uptodate')+' - '+I18N.t('about.version')+' '+esc((r.latest&&r.latest.version)||'')+'</p>';
+      if(resultEl) resultEl.innerHTML = '<p class="ok">'+icon("check")+' '+I18N.t('upd.uptodate')+' - '+I18N.t('about.version')+' '+esc((r.latest&&r.latest.version)||'')+'</p>';
       if(lastCheckEl) lastCheckEl.textContent = I18N.t('upd.last_check')+': '+(r.last_check||new Date().toISOString())+' - '+I18N.t('upd.uptodate');
       return;
     }
     const upd = r.latest;
     if(resultEl){
-      resultEl.innerHTML = '<div class="card" style="background:rgb(var(--s9))"><h3>🆕 '+I18N.t('upd.available')+': '+esc(upd.version||'')+'</h3><p class="sub">'+esc(upd.changelog||'')+'</p><p class="sub">'+I18N.t('upd.files_changed')+': '+(upd.files||[]).length+'</p><div style="max-height:200px;overflow:auto;margin:8px 0">'+(upd.files||[]).map(f=>'<div class="file-item" style="display:flex;justify-content:space-between;background:rgb(var(--s3));padding:6px;border-radius:4px;margin:3px 0"><span>'+esc(f.path)+'</span><span style="font-size:11px">'+(f.size||'')+' bytes</span></div>').join('')+'</div><button class="btn" id="upd-apply-btn" type="button">⬇️ '+I18N.t('upd.download_apply')+'</button><p class="sub" style="margin-top:8px;color:var(--gold)">'+I18N.t('upd.replace_note')+'</p></div>';
+      resultEl.innerHTML = '<div class="card" style="background:rgb(var(--s9))"><h3>'+icon("spark")+' '+I18N.t('upd.available')+': '+esc(upd.version||'')+'</h3><p class="sub">'+esc(upd.changelog||'')+'</p><p class="sub">'+I18N.t('upd.files_changed')+': '+(upd.files||[]).length+'</p><div style="max-height:200px;overflow:auto;margin:8px 0">'+(upd.files||[]).map(f=>'<div class="file-item" style="display:flex;justify-content:space-between;background:rgb(var(--s3));padding:6px;border-radius:4px;margin:3px 0"><span>'+esc(f.path)+'</span><span style="font-size:11px">'+(f.size||'')+' bytes</span></div>').join('')+'</div><button class="btn" id="upd-apply-btn" type="button">'+icon("download")+' '+I18N.t('upd.download_apply')+'</button><p class="sub" style="margin-top:8px;color:var(--gold)">'+I18N.t('upd.replace_note')+'</p></div>';
       const applyBtn = document.getElementById('upd-apply-btn');
       if(applyBtn) applyBtn.onclick = async () => {
         if(!confirm(I18N.t('upd.confirm').replace('%s', upd.version))) return;
@@ -6000,7 +6028,7 @@ async function bindUpdatePanel(){
               + I18N.t('ea.changed_by_update', { v: String(ar.version||upd.version||''), n: String((ar.ea_files||[]).length||2) })
               + '</p>'
             : '';
-          resultEl.innerHTML = '<p class="ok">✅ '+I18N.t('upd.installed').replace('%s', esc(ar.version||upd.version))+'<br>'+I18N.t('upd.files')+': '+(ar.applied||[]).length+'<br>'+I18N.t('upd.backup')+': '+esc(ar.backup_dir||'')+'</p>'+eaLine+'<p class="sub">'+I18N.t('upd.restart_hint')+'</p><button class="btn" id="upd-restart" type="button">🔄 '+I18N.t('upd.restart')+'</button>';
+          resultEl.innerHTML = '<p class="ok">'+icon("check")+' '+I18N.t('upd.installed').replace('%s', esc(ar.version||upd.version))+'<br>'+I18N.t('upd.files')+': '+(ar.applied||[]).length+'<br>'+I18N.t('upd.backup')+': '+esc(ar.backup_dir||'')+'</p>'+eaLine+'<p class="sub">'+I18N.t('upd.restart_hint')+'</p><button class="btn" id="upd-restart" type="button">'+icon("refresh")+' '+I18N.t('upd.restart')+'</button>';
           const rb = document.getElementById('upd-restart');
           if(rb) rb.onclick = () => restartSystem();
         } else {
@@ -6070,7 +6098,9 @@ function bindView(view) {
         if (!licFeat("chart_signals")) { toast(I18N.t("lic.err_locked")); show("upgrade"); return; }
         S.signalsEnabled = !S.signalsEnabled;
         localStorage.setItem("aurion.signalsEnabled", S.signalsEnabled ? "1" : "0");
-        sigToggleM.textContent = S.signalsEnabled ? "🔔 Signals ON" : "🔕 Signals OFF";
+        sigToggleM.innerHTML = S.signalsEnabled
+          ? icon("bell") + " Signals ON"
+          : icon("bellOff") + " Signals OFF";
         sigToggleM.classList.toggle("on", S.signalsEnabled);
         sigToggleM.classList.toggle("ghost", !S.signalsEnabled);
         const showBtn = $("sig-show-m");
@@ -6082,7 +6112,7 @@ function bindView(view) {
       if (sigShowM) sigShowM.onclick = () => {
         S.showSignals = !S.showSignals;
         localStorage.setItem("aurion.showSignals", S.showSignals ? "1" : "0");
-        sigShowM.textContent = S.showSignals ? "👁️" : "🚫";
+        sigShowM.innerHTML = S.showSignals ? icon("eye") : icon("eyeOff");
         if (S.chart) S.chart.setSignals(S.chartSignals, S.showSignals);
       };
     }
@@ -6259,7 +6289,7 @@ function bindView(view) {
       });
       if (!ok) return;
       tr.disabled = true;
-      tr.textContent = "⏳ Restarting...";
+      tr.innerHTML = icon("hourglass") + " Restarting...";
       try {
         const r = await API.post("/api/terminals/restart", {});
         toast(r.ok ? (I18N.t("terminal.restart_ok")||"Terminals restarted") : (r.error||I18N.t("errors.generic")));
@@ -6267,7 +6297,7 @@ function bindView(view) {
         toast(I18N.t("errors.generic"));
       } finally {
         tr.disabled = false;
-        tr.textContent = "🔄 "+(I18N.t("terminal.restart")||"Restart Terminals");
+        tr.innerHTML = icon("refresh") + " " + esc(I18N.t("terminal.restart")||"Restart Terminals");
       }
     };
     const tabs = $("term-tabs");
@@ -6539,7 +6569,11 @@ function bindView(view) {
     if(chk) chk.onclick = async () => {
       const r = await API.post('/api/system/update/check', {});
       const el = $("about-update-status");
-      if(el) el.textContent = r.ok ? (r.update_available ? I18N.t('upd.available')+': '+(r.latest?.version||'') : I18N.t('upd.uptodate')+' ✅') : ''+I18N.t('upd.error')+': '+(r.error||'');
+      if(el) el.innerHTML = r.ok
+        ? (r.update_available
+            ? esc(I18N.t('upd.available')+': '+(r.latest?.version||''))
+            : icon("check") + ' ' + esc(I18N.t('upd.uptodate')))
+        : esc(I18N.t('upd.error')+': '+(r.error||''));
       const logEl = $("about-changelog");
       if(logEl && r.ok && r.latest){
         logEl.innerHTML = '<b>'+I18N.t('about.version')+' '+esc(r.latest.version||'')+'</b><br>'+esc(r.latest.changelog||'')+'<br><br>'+ (r.latest.files||[]).map(f=>'<div style="font-family:monospace;font-size:12px">'+esc(f.path)+'</div>').join('');
@@ -6555,7 +6589,9 @@ function bindView(view) {
         const r = await API.get('/api/system/update/state');
         const el = $("about-update-status");
         if(el && r.ok && r.data){
-          el.textContent = r.data.update_available ? I18N.t('upd.available')+': '+(r.data.latest?.version||'') : I18N.t('upd.uptodate')+' ✅ - v'+(S.version||'1.0.0');
+          el.innerHTML = r.data.update_available
+            ? esc(I18N.t('upd.available')+': '+(r.data.latest?.version||''))
+            : icon("check") + ' ' + esc(I18N.t('upd.uptodate')+' - v'+(S.version||'1.0.0'));
         }
         const logEl = $("about-changelog");
         if(logEl){

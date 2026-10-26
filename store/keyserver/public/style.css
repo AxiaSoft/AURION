@@ -112,7 +112,15 @@ section.view{margin-top:8px;padding-bottom:30px}
 .card.plan .price{font-size:18px;color:var(--gold);font-weight:700}
 .card.plan .price small{font-size:12px;color:var(--muted);font-weight:400}
 .card.plan ul{text-align:right;list-style:none;display:grid;gap:6px;margin:8px 0;font-size:13px;color:var(--muted)}
-.card.plan ul li::before{content:"✓";color:var(--cyan);margin-left:6px}
+/* A drawn tick, so the bullet does not depend on the system font having
+   U+2713 and does not change weight from one platform to the next. */
+.card.plan ul li{position:relative;padding-inline-start:20px}
+.card.plan ul li::before{
+  content:"";position:absolute;inset-inline-start:0;top:.42em;
+  width:13px;height:13px;background-color:var(--cyan);
+  -webkit-mask:var(--ico-check) center/13px 13px no-repeat;
+          mask:var(--ico-check) center/13px 13px no-repeat;
+}
 .card.plan .actions{display:flex;gap:8px;margin-top:auto}
 .card.plan .actions .btn{flex:1}
 
@@ -212,3 +220,29 @@ td .row{gap:6px}
  * reads this file implements !important, and being last costs nothing.
  */
 [hidden]{display:none !important}
+
+
+/* ---- icons -------------------------------------------------------------
+   The shop marked things with emoji and with stray typographic characters:
+   a padlock, a star, a heart written as U+2661, a tick as U+2713. The
+   system font decided how each one looked, they ignored the page colours,
+   and on some platforms they arrived in full colour inside grey text.
+   They are drawn shapes now, inheriting currentColor. These rules only
+   give them a size and let the "on" states take a colour.
+   ------------------------------------------------------------------------ */
+:root{
+  --ico-check:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='4.5,12.5 9.5,17.5 19.5,6.5'/%3E%3C/svg%3E");
+}
+.btn svg, .sub svg, li svg, td svg, h1 svg, b svg, a svg{
+  width:1em;height:1em;flex:none;vertical-align:-.14em;
+}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:7px}
+.icon-btn svg{width:18px;height:18px}
+.trust svg, .hero-badges span svg{width:13px;height:13px;vertical-align:-.16em;margin-inline-end:3px;flex:none}
+.lock svg{width:28px;height:28px}
+.hero-mark svg{width:64px;height:64px;color:var(--cyan)}
+.i-star{color:var(--gold)}
+.i-heart{color:var(--cyan)}
+.i-ok{color:var(--cyan)}
+.i-no{color:var(--muted);opacity:.7}
+td svg{width:15px;height:15px}

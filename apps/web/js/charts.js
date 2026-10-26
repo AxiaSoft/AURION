@@ -2560,6 +2560,26 @@ class CandleChart {
     ctx.textBaseline = "middle";
     ctx.textAlign = d.align === "center" ? "center" : (d.align === "end" ? "right" : "left");
 
+    /* The marker tool used to stamp the pushpin emoji. An emoji is not ours
+       to draw: every platform paints it differently, it ignores the chart's
+       colour, and it does not scale with the rest of the annotations. When
+       no text is given, the marker is now a drawn pin in the object's own
+       colour, exactly like the flag above it. Anything the trader types in
+       themselves is still their own content and is drawn as typed. */
+    if (kind === "emoji" && !text) {
+      const h = size * 1.5;
+      ctx.strokeStyle = color; ctx.fillStyle = color;
+      ctx.lineWidth = 1.5; ctx.lineCap = "round";
+      ctx.beginPath();
+      ctx.moveTo(at.x, at.y); ctx.lineTo(at.x, at.y - h * 0.42);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(at.x, at.y - h * 0.68, h * 0.28, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+      return;
+    }
+
     if (kind === "flag") {
       ctx.strokeStyle = color; ctx.fillStyle = color;
       ctx.lineWidth = 1.5;
@@ -3064,7 +3084,9 @@ class CandleChart {
 
   askText(kind, pt, after) {
     const finish = (txt) => {
-      if (!txt && kind !== "note") return;
+      /* A marker with no words is a pin, not a mistake, so it is allowed
+         through the same way an empty note is. */
+      if (!txt && kind !== "note" && kind !== "emoji") return;
       const obj = this.addObject({
         kind, a: pt, text: txt,
         color: chartTheme().gold,
@@ -3072,10 +3094,10 @@ class CandleChart {
       if (typeof after === "function") after(obj);
     };
     if (typeof this.opts.onText === "function") {
-      this.opts.onText(kind === "emoji" ? "📌" : "", finish);
+      this.opts.onText("", finish);
       return;
     }
-    finish(window.prompt("", kind === "emoji" ? "📌" : "") || "");
+    finish(window.prompt("", "") || "");
   }
 
   onDown(e) {

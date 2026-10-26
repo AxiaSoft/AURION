@@ -362,7 +362,16 @@ const Calendar = {
           )
           .join("")
       : `<div class="cal-tip-none">${esc(t("calendar.no_events"))}</div>`;
-    return `<button type="button" class="cal-tip-x" aria-label="${esc(t("calendar.close"))}">✕</button>` +
+    /* Drawn, not typed. The close mark used to be the character U+2715,
+       which is missing from a good many fonts and renders at a different
+       weight in each of the rest. The shape is inlined here rather than
+       borrowed from app.js, because this file is loaded first and should
+       not depend on that one having run. */
+    const xMark =
+      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"' +
+      ' stroke-linecap="round" aria-hidden="true">' +
+      '<line x1="7" y1="7" x2="17" y2="17"/><line x1="17" y1="7" x2="7" y2="17"/></svg>';
+    return `<button type="button" class="cal-tip-x" aria-label="${esc(t("calendar.close"))}">${xMark}</button>` +
       `<div class="cal-tip-h">${esc(t("calendar.day"))}</div>${lines}<div class="cal-tip-sep"></div>${body}`;
   },
 
