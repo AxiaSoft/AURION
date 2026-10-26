@@ -381,7 +381,6 @@ html[data-skin="custom"][data-theme="light"]{
 }
 
 
-
 /* ===========================================================================
    3. Morphism, applied with a hierarchy
    ===========================================================================
@@ -1225,129 +1224,28 @@ html[data-skin="custom"]{ --sat:130%; --head-weight:500 }
   will-change:transform;
   transition:opacity var(--dur-4) var(--ease-1);
 }
-html[data-bg="flat"] .aurora,
-html[data-bg="none"] .aurora{
+html[data-bg="flat"] .aurora{
   background:var(--bg);
   animation:none;
 }
-html[data-bg="flat"] .aurora::before,
-html[data-bg="none"] .aurora::before{ background:var(--bg) }
-html[data-bg="none"] .aurora::after{ opacity:0 }
+html[data-bg="flat"] .aurora::before{ background:var(--bg) }
 html[data-bg="flat"] .aurora::after{ opacity:.12 }
 
-/* ---- blobs: glassmorphism ---------------------------------------------- */
-html[data-bg="blobs"] .aurora,
-html[data-bg="aurora"] .aurora,
-html[data-bg="waves"] .aurora,
-html[data-bg="dusk"] .aurora,
-html[data-bg="layered"] .aurora,
-html[data-bg="grid"] .aurora{
-  background:
-    linear-gradient(180deg, rgb(var(--s1) / .35), rgb(var(--s1) / .8) 82%),
-    var(--bg);
-  animation:none;
-}
-html[data-bg="blobs"] .aurora::before,
-html[data-bg="aurora"] .aurora::before,
-html[data-bg="waves"] .aurora::before,
-html[data-bg="dusk"] .aurora::before,
-html[data-bg="layered"] .aurora::before,
-html[data-bg="grid"] .aurora::before{
-  background:
-    linear-gradient(180deg, rgb(var(--s1) / .5), rgb(var(--s1) / .86) 82%),
-    var(--bg);
-}
-
-html[data-bg="blobs"] #bg-fx b:nth-child(1),
-html[data-bg="aurora"] #bg-fx b:nth-child(1){
-  inset-inline-start:-10%; top:-16%;
-  width:60vw; height:60vw; max-width:900px; max-height:900px;
-  background:rgb(var(--accent-rgb) / .5);
-  opacity:.16;
-}
-html[data-bg="blobs"] #bg-fx b:nth-child(2),
-html[data-bg="aurora"] #bg-fx b:nth-child(2){
-  inset-inline-end:-14%; top:6%;
-  width:52vw; height:52vw; max-width:800px; max-height:800px;
-  background:rgb(var(--accent-3-rgb) / .5);
-  opacity:.14;
-}
-html[data-bg="blobs"] #bg-fx b:nth-child(3),
-html[data-bg="aurora"] #bg-fx b:nth-child(3){
-  inset-inline-start:24%; bottom:-24%;
-  width:56vw; height:56vw; max-width:880px; max-height:880px;
-  background:rgb(var(--accent-rgb) / .35);
-  opacity:.12;
-}
-/* Only the aurora theme actually drifts. Three transforms on three composited
-   layers is the whole cost - no filters are animated, no layout is touched. */
-html[data-bg="aurora"][data-motion="full"][data-perf="rich"] #bg-fx b:nth-child(1){
-  animation:bgDriftA 34s var(--ease) infinite alternate;
-}
-html[data-bg="aurora"][data-motion="full"][data-perf="rich"] #bg-fx b:nth-child(2){
-  animation:bgDriftB 42s var(--ease) infinite alternate;
-}
-html[data-bg="aurora"][data-motion="full"][data-perf="rich"] #bg-fx b:nth-child(3){
-  animation:bgDriftC 38s var(--ease) infinite alternate;
-}
-@keyframes bgDriftA{ from{transform:translate3d(0,0,0) scale(1)}    to{transform:translate3d(8vw,6vh,0) scale(1.12)} }
-@keyframes bgDriftB{ from{transform:translate3d(0,0,0) scale(1.05)} to{transform:translate3d(-7vw,9vh,0) scale(.95)} }
-@keyframes bgDriftC{ from{transform:translate3d(0,0,0) scale(.95)}  to{transform:translate3d(6vw,-8vh,0) scale(1.1)} }
 
 /* ---- grid: cyber -------------------------------------------------------
    A perspective-free grid and one horizon glow. Background-position is not
    animated: the grid is static and only the glow breathes, on opacity. */
-html[data-bg="grid"] #bg-fx{
-  background-image:
-    linear-gradient(rgb(var(--accent-rgb) / .07) 1px, transparent 1px),
-    linear-gradient(90deg, rgb(var(--accent-rgb) / .07) 1px, transparent 1px);
-  background-size:52px 52px, 52px 52px;
-  mask-image:linear-gradient(180deg, transparent, #000 35%, #000 70%, transparent);
-  -webkit-mask-image:linear-gradient(180deg, transparent, #000 35%, #000 70%, transparent);
-}
-html[data-bg="grid"] #bg-fx b:nth-child(1){
-  inset-inline-start:50%; top:62%;
-  width:120vw; height:40vh;
-  transform:translateX(-50%);
-  border-radius:50%;
-  background:rgb(var(--accent-rgb) / .4);
-  opacity:.12;
-}
-html[data-bg="grid"][data-motion="full"][data-perf="rich"] #bg-fx b:nth-child(1){
-  animation:bgPulse 7s var(--ease) infinite alternate;
-}
+
 @keyframes bgPulse{ from{opacity:.08} to{opacity:.18} }
 
 /* ---- waves: ocean ------------------------------------------------------ */
-html[data-bg="waves"] #bg-fx{
-  background-image:
-    radial-gradient(120vw 40vh at 50% 100%, rgb(var(--accent-rgb) / .16), transparent 70%),
-    radial-gradient(90vw 32vh at 20% 106%, rgb(var(--accent-3-rgb) / .12), transparent 70%);
-}
-html[data-bg="waves"] #bg-fx b:nth-child(1){
-  inset-inline-start:-20%; bottom:-30%;
-  width:90vw; height:60vh;
-  background:rgb(var(--accent-rgb) / .3);
-  opacity:.1;
-}
-html[data-bg="waves"][data-motion="full"][data-perf="rich"] #bg-fx b:nth-child(1){
-  animation:bgDriftB 46s var(--ease) infinite alternate;
-}
+
 
 /* ---- dusk: sunset ------------------------------------------------------ */
-html[data-bg="dusk"] #bg-fx{
-  background-image:
-    radial-gradient(70vw 50vh at 78% 8%, rgb(var(--accent-rgb) / .2), transparent 62%),
-    linear-gradient(180deg, rgb(var(--accent-3-rgb) / .1), transparent 45%);
-}
+
 
 /* ---- layered: midnight -------------------------------------------------- */
-html[data-bg="layered"] #bg-fx{
-  background-image:
-    radial-gradient(100vw 60vh at 50% -18%, rgb(var(--accent-3-rgb) / .14), transparent 65%),
-    radial-gradient(70vw 40vh at 8% 110%, rgb(var(--accent-rgb) / .09), transparent 65%),
-    linear-gradient(180deg, transparent 40%, rgb(var(--s1) / .5));
-}
+
 
 /* Cheap tier and reduced motion: the layers stay, the movement does not. */
 html[data-perf="fast"] #bg-fx b,
@@ -1473,13 +1371,19 @@ html[data-motion="off"] *::after{
    They are heard because js/themes.js publishes the knobs as a rule of equal
    weight that this file is loaded after - not as inline properties, which
    nothing can override. */
-html[data-glass="off"][data-skin],
-html[data-perf="fast"][data-skin]{
+/* These three have to stay ABOVE anything the trader chose: "no
+   translucency" and "no movement" answer a capability or an accessibility
+   preference, not taste, so a colour or a knob must not be able to put
+   blur back. They carry four attributes because the trader's own rule now
+   carries three - see the note in themes.js publish(). Every attribute
+   named here is always present on <html>. */
+html[data-glass="off"][data-skin][data-theme][data-bg],
+html[data-perf="fast"][data-skin][data-theme][data-bg]{
   --surface-alpha:1;
   --blur:0px;
 }
 @media (prefers-reduced-motion:reduce){
-  html[data-skin][data-theme]{ --motion-scale:0 }
+  html[data-skin][data-theme][data-bg][data-motion]{ --motion-scale:0 }
 }
 
 /* Cheap tier: the same removal of blur app.css already does, restated for the
@@ -1886,7 +1790,6 @@ html[data-skin][data-theme="light"] .pay-veil{ background:rgb(var(--wash) / .34)
 /* A backdrop tuned for a dark page is too loud on a light one: the same
    blobs at the same opacity turn a white desk into a poster. */
 html[data-theme="light"] #bg-fx b{ opacity:.55 }
-html[data-theme="light"][data-bg="grid"] #bg-fx b{ opacity:.4 }
 
 /* Cyber and Monochrome want their own scrollbar: one because everything
    else on the page is lit, the other because nothing is. */
@@ -2146,7 +2049,7 @@ html[data-skin="mono"][data-theme="light"]{
 /* ---- the two cases where it still steps aside ------------------------- */
 
 /* The custom theme's "no backdrop" choice means no backdrop. */
-html[data-bg="none"] #bg-fx::before{ display:none }
+
 
 /* ===========================================================================
    The trader's own background picture.
@@ -2165,10 +2068,28 @@ html[data-bg="none"] #bg-fx::before{ display:none }
    =========================================================================== */
 html[data-bg="photo"] .aurora{ opacity:1 }
 html[data-bg="photo"] .aurora::before{
-  background:var(--bg-photo, none) center center / cover no-repeat fixed, var(--bg);
+  /* The focus point and the fit are the trader's, not ours.
+     "cover, centred" is the right default and the wrong only option: the
+     subject of a photograph is rarely in the middle, and a desk is a much
+     wider frame than the phone that took it, so centring crops exactly
+     the part someone chose the picture for.
+     Zoom is a transform on the layer rather than a background-size,
+     because a size in percent stops meaning "cover" as soon as the two
+     aspect ratios disagree and letterboxes the picture instead. The focus
+     point doubles as the transform origin, so zooming in stays on the
+     chosen spot rather than drifting back to the centre. */
+  background:var(--bg-photo, none)
+             var(--bg-photo-x, 50%) var(--bg-photo-y, 50%)
+             / var(--bg-photo-fit, cover) no-repeat fixed,
+             var(--bg);
+  transform:scale(var(--bg-photo-zoom, 1));
+  transform-origin:var(--bg-photo-x, 50%) var(--bg-photo-y, 50%);
   filter:none;
   opacity:1;
 }
+/* "contain" leaves bare page behind the picture; paint it so the edges are
+   the page colour rather than whatever happens to be underneath. */
+html[data-bg="photo"] .aurora{ background:var(--bg) }
 html[data-bg="photo"] .aurora::after{
   content:"";
   position:fixed; inset:0;
@@ -2204,3 +2125,157 @@ html[data-bg="photo"] .aurora::after{
 
 /* The photo backdrop already sets filter:none on its own layers so the
    picture is shown as it is; the effect still arrives from the parent. */
+
+
+/* ===========================================================================
+   The accent gradient.
+
+   Offered for the accent and for nothing else. Page, panel and text are
+   large areas read behind numbers, and a gradient under a column of prices
+   costs legibility while adding nothing; the accent lands on buttons,
+   badges and chips, which are small, deliberate, and where a little
+   richness is actually seen.
+
+   Everything that needs ONE colour - focus rings, borders, chart series,
+   the derived readable ink - keeps reading --accent. Only solid accent
+   fills opt in here, so turning the gradient on can never leave a
+   one-pixel border trying to paint a gradient.
+   =========================================================================== */
+html[data-accent-grad="on"] :is(.btn.primary, .btn:not(.ghost):not(.danger):not(.tiny)){
+  background-image:var(--accent-gradient);
+  background-color:transparent;
+  color:var(--accent-grad-ink, var(--accent-ink));
+  border-color:transparent;
+}
+html[data-accent-grad="on"] .pill.on,
+html[data-accent-grad="on"] .seg-btn.on,
+html[data-accent-grad="on"] .bt-prog i{
+  background-image:var(--accent-gradient);
+  color:var(--accent-grad-ink, var(--accent-ink));
+}
+/* The swatch in Settings has to show the gradient it is offering. */
+.acc-swatch[data-grad="on"]{ background-image:var(--accent-gradient) }
+
+/* ===========================================================================
+   The desk's own colour picker.
+
+   It is a popover rather than a modal on purpose: recolouring is judged
+   against real content, so the page behind has to stay visible and live.
+   Fixed positioning keeps it put while the settings panel scrolls.
+   =========================================================================== */
+.cp-pop{
+  position:fixed; z-index:6000; width:248px;
+  display:flex; flex-direction:column; gap:10px;
+  padding:12px;
+  background:rgb(var(--s6));
+  border:1px solid rgb(var(--wash) / .14);
+  border-radius:var(--r-3, 14px);
+  box-shadow:0 18px 48px rgb(0 0 0 / .42);
+  color:var(--ink);
+}
+.cp-head{ display:flex; align-items:center; gap:8px }
+.cp-head b{ flex:1; font-size:13px; font-weight:650 }
+.cp-x{
+  width:24px; height:24px; line-height:1; font-size:17px;
+  background:none; border:0; border-radius:8px; color:var(--muted); cursor:pointer;
+}
+.cp-x:hover{ background:rgb(var(--wash) / .10); color:var(--ink) }
+
+.cp-tabs{ display:flex; gap:4px; padding:3px; background:rgb(var(--wash) / .07); border-radius:10px }
+.cp-tab{
+  flex:1; padding:5px 8px; font-size:12px; cursor:pointer;
+  background:none; border:0; border-radius:8px; color:var(--muted);
+}
+.cp-tab.on{ background:rgb(var(--s4)); color:var(--ink) }
+
+.cp-legs{ display:flex; gap:8px }
+.cp-leg{
+  flex:1; height:24px; cursor:pointer;
+  border:1px solid rgb(var(--wash) / .16); border-radius:8px;
+}
+.cp-leg.on{ border-color:var(--accent); box-shadow:0 0 0 2px rgb(var(--wash) / .10) }
+
+/* The saturation/value field. Its background is written by the script,
+   because it has to track the chosen hue. */
+.cp-sv{
+  position:relative; height:132px; border-radius:10px; cursor:crosshair;
+  touch-action:none;                      /* or a finger scrolls the panel */
+}
+.cp-hue{
+  position:relative; height:14px; border-radius:7px; cursor:ew-resize;
+  touch-action:none;
+  background:linear-gradient(to right,#f00,#ff0,#0f0,#0ff,#00f,#f0f,#f00);
+}
+.cp-sv i, .cp-hue i{
+  position:absolute; width:14px; height:14px; border-radius:50%;
+  border:2px solid #fff; box-shadow:0 0 0 1px rgb(0 0 0 / .45);
+  transform:translate(-50%,-50%); pointer-events:none;
+}
+.cp-hue i{ top:50% }
+
+.cp-angle{ display:flex; align-items:center; gap:8px; font-size:12px; color:var(--muted) }
+.cp-angle input{ flex:1 }
+
+.cp-foot{ display:flex; align-items:center; gap:8px }
+.cp-prev{
+  width:32px; height:28px; border-radius:8px; flex:none;
+  border:1px solid rgb(var(--wash) / .16);
+}
+.cp-hex{
+  flex:1; min-width:0; padding:6px 8px;
+  font:500 12px/1 var(--mono, ui-monospace, monospace);
+  text-transform:lowercase;
+  background:var(--field); color:var(--ink);
+  border:1px solid rgb(var(--wash) / .14); border-radius:8px;
+}
+.cp-swatches{ display:grid; grid-template-columns:repeat(6,1fr); gap:6px }
+.cp-sw{
+  height:20px; cursor:pointer;
+  border:1px solid rgb(var(--wash) / .14); border-radius:6px;
+}
+.cp-sw:hover{ transform:scale(1.08) }
+
+/* The swatch that opens it, in the settings rows. */
+.col-swatch{
+  width:44px; height:28px; flex:none; cursor:pointer; padding:0;
+  border:1px solid rgb(var(--wash) / .18); border-radius:9px;
+}
+.col-swatch:hover{ border-color:var(--accent) }
+
+/* ---------------------------------------------------------------------------
+   Framing the trader's picture.
+   The stage carries the desk's proportions, so what is framed here is what
+   lands behind the panels.
+   --------------------------------------------------------------------------- */
+.bgpic-framehint{ margin:10px 0 6px }
+.bgpic-stage{
+  position:relative; aspect-ratio:16/9; overflow:hidden;
+  border:1px solid rgb(var(--wash) / .14); border-radius:12px;
+  background:var(--bg2); cursor:grab; touch-action:none;
+}
+.bgpic-stage.dragging{ cursor:grabbing }
+.bgpic-stage:focus-visible{ outline:2px solid var(--accent); outline-offset:2px }
+.bgpic-img{ position:absolute; inset:0; background-repeat:no-repeat }
+/* A rule-of-thirds guide, so the drag has something to aim at. */
+.bgpic-stage::after{
+  content:""; position:absolute; inset:0; pointer-events:none;
+  background:
+    linear-gradient(to right, transparent 33.3%, rgb(255 255 255 / .18) 33.3% 33.5%,
+      transparent 33.5% 66.6%, rgb(255 255 255 / .18) 66.6% 66.8%, transparent 66.8%),
+    linear-gradient(to bottom, transparent 33.3%, rgb(255 255 255 / .18) 33.3% 33.5%,
+      transparent 33.5% 66.6%, rgb(255 255 255 / .18) 66.6% 66.8%, transparent 66.8%);
+  opacity:0; transition:opacity var(--dur-2, .18s) ease;
+}
+.bgpic-stage:hover::after, .bgpic-stage.dragging::after, .bgpic-stage:focus-visible::after{ opacity:1 }
+.bgpic-fit{ display:flex; align-items:center; gap:6px; margin:10px 0 2px }
+.bgpic-fit .grow{ flex:1 }
+.bgpic-fit .btn.on{ border-color:var(--accent); color:var(--ink) }
+
+/* The cut label on a wallpaper tile: which of the two versions this is. */
+.wall-cut{
+  position:absolute; inset:auto 5px 5px auto;
+  padding:1px 6px; border-radius:999px;
+  font:600 10px/1.6 inherit; font-style:normal;
+  background:rgb(0 0 0 / .55); color:#fff; backdrop-filter:blur(4px);
+}
+.wall-art{ position:relative }

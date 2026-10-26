@@ -135,13 +135,33 @@ check(
 
 /* --------------------------------------- 3. any background with any theme */
 {
+  /* "waves" used to be one of eight drawn backdrops. They have been retired:
+     a moving gradient behind a price column costs legibility, and because
+     the drawn layer was opaque it hid any wallpaper chosen underneath it.
+     The point of this check survives the retirement - the backdrop is still
+     chosen independently of the theme - so it is made against a backdrop
+     that still exists. */
+  const t = loadTheme();
+  t.api.set("cyber");
+  t.api.setBgImage("data:image/jpeg;base64,AAAA");
+  t.api.edit({ bg: "photo" });
+  check(
+    "a theme can be given a background it did not ship with",
+    t.html.dataset.bg === "photo" && t.html.dataset.skin === "cyber",
+    `skin=${t.html.dataset.skin} bg=${t.html.dataset.bg}`
+  );
+}
+
+{
+  /* And an upgrading trader who still has a retired backdrop stored must
+     land on the flat colour rather than on a blank desk. */
   const t = loadTheme();
   t.api.set("cyber");
   t.api.edit({ bg: "waves" });
   check(
-    "a theme can be given a background it did not ship with",
-    t.html.dataset.bg === "waves" && t.html.dataset.skin === "cyber",
-    `skin=${t.html.dataset.skin} bg=${t.html.dataset.bg}`
+    "a retired drawn backdrop migrates to the flat colour",
+    t.html.dataset.bg === "flat",
+    `bg=${t.html.dataset.bg}`
   );
 }
 

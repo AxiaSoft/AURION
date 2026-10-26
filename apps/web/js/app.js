@@ -507,24 +507,10 @@ function themeBuilderHtml() {
   const colours = AurionTheme.colours(current);
   const fx = AurionTheme.fx(current);
 
-  /* The backdrop used to be a dropdown of nine words. "Layered depth" and
-     "Soft gradient" describe nothing you can picture, so choosing one meant
-     trying all nine. It is a gallery now: each tile paints the backdrop it
-     stands for, at the size of a thumbnail, using the same rules the page
-     does - so the tile is the background, not an artist's impression. */
-  const tiles = AurionTheme.BACKDROPS
-    .filter((b) => b !== "photo" || picture)
-    .map((b) => {
-      const on = b === k.bg;
-      const label = I18N.t(b === "photo" ? "themes.bg_custom" : "themes.bg_" + b);
-      const art = b === "photo"
-        ? `<span class="bgt-art" data-bgart="photo" style="background-image:url(&quot;${esc(picture)}&quot;)"></span>`
-        : `<span class="bgt-art" data-bgart="${b}"></span>`;
-      return `<button type="button" class="bg-tile${on ? " on" : ""}" data-bgpick="${b}"
-                role="radio" aria-checked="${on}" tabindex="${on ? 0 : -1}">
-          ${art}<span class="bgt-name">${esc(label)}</span>
-        </button>`;
-    }).join("");
+  /* The backdrop gallery is gone along with the backdrops it offered.
+     What is behind the desk is now one of three honest things: the flat
+     themed colour, one of the twenty photographs, or the trader's own
+     picture - and the last two each have their own section below. */
 
   /* The twenty photographs AURION ships, offered to every theme.
      Each tile is the picture itself at thumbnail size, in the cut that
@@ -532,11 +518,12 @@ function themeBuilderHtml() {
      on the desk. */
   const wallNow = AurionTheme.wall(current);
   const lightNow = document.documentElement.dataset.theme === "light";
-  const wallTile = (value, label, style, extra) =>
+  const wallTile = (value, label, style, extra, badge) =>
     `<button type="button" class="bg-tile wall-tile${value === wallNow ? " on" : ""}"
              data-wallpick="${esc(value)}" role="radio" aria-checked="${value === wallNow}"
              tabindex="${value === wallNow ? 0 : -1}">
-       <span class="bgt-art wall-art${extra || ""}"${style}></span>
+       <span class="bgt-art wall-art${extra || ""}"${style}>${
+         badge ? `<i class="wall-cut">${esc(badge)}</i>` : ""}</span>
        <span class="bgt-name">${esc(label)}</span>
      </button>`;
 
@@ -549,14 +536,28 @@ function themeBuilderHtml() {
     ? ` style="background-image:url(&quot;${esc(AurionTheme.wallUrl(ownWall, lightNow))}&quot;)"`
     : "";
 
+  /* Every scene, in both cuts.
+     It used to show ten tiles and silently pick the cut that matched the
+     desk's mode, which meant the night version of a picture simply could
+     not be asked for on a light desk. Both are offered now, each labelled,
+     and the first tile of each pair still follows the mode for anyone who
+     wants that. */
+  const dayLabel = I18N.t("themes.wall_day");
+  const nightLabel = I18N.t("themes.wall_night");
   const wallTiles = [
     wallTile("", I18N.t("themes.wall_theme"), ownStyle, ownWall ? "" : " is-none"),
     wallTile("none", I18N.t("themes.wall_none"), "", " is-none"),
-  ].concat(AurionTheme.WALLPAPERS.map((w) => wallTile(
-    w,
-    I18N.t("themes.wall_" + w),
-    ` style="background-image:url(&quot;${esc(AurionTheme.wallUrl(w, lightNow))}&quot;)"`
-  ))).join("");
+  ].concat(AurionTheme.WALLPAPERS.flatMap((w) => {
+    const name = I18N.t("themes.wall_" + w);
+    return [
+      wallTile(`${w}@night`, name,
+        ` style="background-image:url(&quot;${esc(AurionTheme.wallUrl(w + "@night", false))}&quot;)"`,
+        "", nightLabel),
+      wallTile(`${w}@day`, name,
+        ` style="background-image:url(&quot;${esc(AurionTheme.wallUrl(w + "@day", true))}&quot;)"`,
+        "", dayLabel),
+    ];
+  })).join("");
 
   const fxOptions = Object.keys(AurionTheme.FX)
     .map((f) => `<option value="${f}"${f === fx ? " selected" : ""}>${esc(I18N.t("themes.fx_" + f))}</option>`)
@@ -572,10 +573,16 @@ function themeBuilderHtml() {
      is already using, or the trader is editing blind. */
   const colourRow = (key, label, hint) => {
     const chosen = colours[key] || "";
+    const shown = chosen || themeColourNow(key);
+    /* A button, not <input type="color">. The native control opens an
+       operating-system window over the desk, which hides the surface being
+       recoloured - and its input event fires faster than the page can
+       repaint. Both are fixed by owning the picker. */
     return `<div class="col-row" data-colrow="${key}">
         <span class="col-text"><b>${esc(label)}</b><small>${esc(hint)}</small></span>
-        <input type="color" class="col-swatch" data-colour="${key}"
-               value="${esc(chosen || themeColourNow(key))}" aria-label="${esc(label)}" />
+        <button type="button" class="col-swatch" data-colour="${key}"
+                style="background:${esc(shown)}"
+                aria-label="${esc(label)}" aria-haspopup="dialog"></button>
         <button type="button" class="btn tiny ghost col-clear" data-colclear="${key}"${
           chosen ? "" : " hidden"}>${esc(I18N.t("themes.c_clear"))}</button>
       </div>`;
@@ -616,8 +623,6 @@ function themeBuilderHtml() {
         <div class="tb-sec">
           <h4>${esc(I18N.t("themes.gallery_title"))}</h4>
           <p class="sub">${esc(I18N.t("themes.gallery_hint"))}</p>
-          <div class="bg-tiles" id="knob-bgtiles" role="radiogroup"
-               aria-label="${esc(I18N.t("themes.backdrop"))}">${tiles}</div>
           <label class="field" style="margin-top:12px">
             <span>${esc(I18N.t("themes.fx_title"))}</span>
             <select class="ctrl" id="knob-fx">${fxOptions}</select>
@@ -644,12 +649,34 @@ function themeBuilderHtml() {
                 esc(I18N.t("themes.bg_image_clear"))}</button>
             </div>
           </div>
-          <label class="knob" id="bgpic-dim-wrap"${picture && k.bg === "photo" ? "" : " hidden"}>
-            <span class="knob-head"><span>${esc(I18N.t("themes.bg_dim"))}</span><b id="bgpic-dim-v">${
-              AurionTheme.getBgDim()}%</b></span>
-            <input type="range" id="bgpic-dim" min="0" max="90" step="5" value="${AurionTheme.getBgDim()}"
-                   aria-label="${esc(I18N.t("themes.bg_dim"))}" />
-          </label>
+          <div id="bgpic-frame"${picture && k.bg === "photo" ? "" : " hidden"}>
+            <p class="sub bgpic-framehint">${esc(I18N.t("themes.bg_crop_hint"))}</p>
+            <!-- Drag the picture inside this box to choose what the desk
+                 shows. The box has the shape of the desk, so what is framed
+                 here is what lands behind the panels. -->
+            <div class="bgpic-stage" id="bgpic-stage" tabindex="0"
+                 role="application" aria-label="${esc(I18N.t("themes.bg_crop"))}">
+              <div class="bgpic-img" id="bgpic-img"></div>
+            </div>
+            <div class="bgpic-fit" role="radiogroup" aria-label="${esc(I18N.t("themes.bg_fit"))}">
+              <button type="button" class="btn tiny" data-bgfit="cover">${esc(I18N.t("themes.bg_fit_cover"))}</button>
+              <button type="button" class="btn tiny" data-bgfit="contain">${esc(I18N.t("themes.bg_fit_contain"))}</button>
+              <span class="grow"></span>
+              <button type="button" class="btn tiny ghost" id="bgpic-recentre">${esc(I18N.t("themes.bg_recentre"))}</button>
+            </div>
+            <label class="knob">
+              <span class="knob-head"><span>${esc(I18N.t("themes.bg_zoom"))}</span><b id="bgpic-zoom-v">${
+                AurionTheme.getBgCrop().zoom}%</b></span>
+              <input type="range" id="bgpic-zoom" min="100" max="300" step="5"
+                     value="${AurionTheme.getBgCrop().zoom}" aria-label="${esc(I18N.t("themes.bg_zoom"))}" />
+            </label>
+            <label class="knob" id="bgpic-dim-wrap">
+              <span class="knob-head"><span>${esc(I18N.t("themes.bg_dim"))}</span><b id="bgpic-dim-v">${
+                AurionTheme.getBgDim()}%</b></span>
+              <input type="range" id="bgpic-dim" min="0" max="90" step="5" value="${AurionTheme.getBgDim()}"
+                     aria-label="${esc(I18N.t("themes.bg_dim"))}" />
+            </label>
+          </div>
           <p class="sub" style="margin:8px 0 0">${esc(I18N.t("themes.bg_image_hint"))}</p>
         </div>
 
@@ -794,14 +821,6 @@ function bindThemesGallery() {
       if (key === "radius") paintCustomPreview();
       markThemeEdited();
     };
-    const tiles = $("knob-bgtiles");
-    if (tiles) tiles.onclick = (e) => {
-      const b = e.target.closest("[data-bgpick]");
-      if (!b) return;
-      AurionTheme.edit({ bg: b.dataset.bgpick });
-      renderSettingsKnobs();
-    };
-
     const walls = $("knob-walls");
     if (walls) walls.onclick = (e) => {
       const b = e.target.closest("[data-wallpick]");
@@ -819,17 +838,53 @@ function bindThemesGallery() {
 
     /* Colours repaint live while the picker is open, which is the only way
        to judge a colour: a swatch in a dialog tells you nothing about how
-       the same colour reads behind a table of numbers. */
-    panel.addEventListener("input", (e) => {
+       the same colour reads behind a table of numbers.
+
+       What changed is the COST of that live repaint. The old handler ran
+       the full path on every pointer move - republish the whole theme
+       stylesheet, re-derive every token, then redraw every chart on the
+       page. A drag fires that far faster than the screen refreshes, so the
+       work queued up behind the finger and the picker felt stuck.
+
+       Now a drag does the cheap half only: the changed variable is written
+       straight onto <html>, which the browser resolves without any
+       stylesheet being rebuilt. The expensive half - persisting the choice
+       and redrawing the charts - waits for the drag to settle. */
+    panel.addEventListener("click", (e) => {
       const sw = e.target.closest("[data-colour]");
       if (!sw) return;
-      AurionTheme.edit({ [sw.dataset.colour]: sw.value });
-      const row = sw.closest("[data-colrow]");
-      const clear = row && row.querySelector("[data-colclear]");
-      if (clear) clear.hidden = false;
-      warnOnContrast();
-      markThemeEdited();
-      repaintChartsForTheme();
+      const key = sw.dataset.colour;
+      const colours = AurionTheme.colours(AurionTheme.effective());
+      const before = colours[key] || themeColourNow(key);
+
+      AurionPicker.open({
+        value: before,
+        anchor: sw,
+        title: I18N.t("themes.c_" + key),
+        swatches: Object.keys(AurionSkin.ACCENTS).map((id) => AurionSkin.ACCENTS[id].hex)
+          .filter(Boolean).slice(0, 12),
+        onInput(hex) {
+          /* Preview only - nothing is stored and no sheet is rebuilt. */
+          previewColour(key, hex);
+          sw.style.background = hex;
+        },
+        onCommit(hex) {
+          AurionTheme.edit({ [key]: hex });
+          sw.style.background = hex;
+          const row = sw.closest("[data-colrow]");
+          const clear = row && row.querySelector("[data-colclear]");
+          if (clear) clear.hidden = false;
+          warnOnContrast();
+          markThemeEdited();
+          repaintChartsForTheme();
+        },
+        onClose() {
+          /* Whatever is stored is the truth; drop any preview on top. */
+          clearColourPreview();
+          AurionTheme.apply();
+          repaintChartsForTheme();
+        },
+      });
     });
 
     panel.addEventListener("click", (e) => {
@@ -849,6 +904,141 @@ function bindThemesGallery() {
   }
 
   bindBackgroundPicture();
+  bindCropStage();
+}
+
+
+/* ---------------------------------------------------------------------------
+   Live colour preview.
+
+   The point of previewing inside the app is to judge a colour against real
+   content, so it has to be instant. Writing the derived variables as an
+   INLINE style on <html> is what makes it instant: inline declarations beat
+   every stylesheet without anything being rebuilt or re-parsed, so a drag
+   costs one style recalculation instead of a full theme republish.
+
+   Nothing here is stored. Whatever the trader settles on is written properly
+   on commit, and clearColourPreview() takes the scaffolding back down.
+   --------------------------------------------------------------------------- */
+let previewVars = [];
+
+function previewColour(key, hex) {
+  const live = Object.assign({}, AurionTheme.colours(AurionTheme.effective()), { [key]: hex });
+  const css = AurionTheme.colourCss(live);
+  clearColourPreview();
+  const root = document.documentElement;
+  css.split(";").forEach((decl) => {
+    const i = decl.indexOf(":");
+    if (i < 1) return;
+    const name = decl.slice(0, i).trim();
+    if (!name.startsWith("--")) return;
+    root.style.setProperty(name, decl.slice(i + 1).trim());
+    previewVars.push(name);
+  });
+}
+
+function clearColourPreview() {
+  const root = document.documentElement;
+  previewVars.forEach((n) => root.style.removeProperty(n));
+  previewVars = [];
+}
+
+/* ---------------------------------------------------------------------------
+   Framing the trader's own picture.
+
+   Dragging the picture is the whole interaction: the stage has the desk's
+   own proportions, so what sits inside the frame is what ends up behind the
+   panels. Zoom is a slider because a pinch gesture cannot be assumed on a
+   desk machine, and the keyboard arrows do the same job for anyone not
+   using a pointer.
+   --------------------------------------------------------------------------- */
+function syncCropStage() {
+  const img = document.getElementById("bgpic-img");
+  if (!img) return;
+  const pic = AurionTheme.getBgImage();
+  const c = AurionTheme.getBgCrop();
+  img.style.backgroundImage = pic ? `url("${pic}")` : "none";
+  img.style.backgroundSize = c.fit;
+  img.style.backgroundPosition = `${c.x}% ${c.y}%`;
+  img.style.transform = `scale(${c.zoom / 100})`;
+  img.style.transformOrigin = `${c.x}% ${c.y}%`;
+  const zoom = document.getElementById("bgpic-zoom");
+  const zoomV = document.getElementById("bgpic-zoom-v");
+  if (zoom) zoom.value = String(c.zoom);
+  if (zoomV) zoomV.textContent = c.zoom + "%";
+  document.querySelectorAll("[data-bgfit]").forEach((b) => {
+    b.classList.toggle("on", b.dataset.bgfit === c.fit);
+  });
+}
+
+function bindCropStage() {
+  const stage = document.getElementById("bgpic-stage");
+  if (!stage || stage.dataset.bound) return;
+  stage.dataset.bound = "1";
+
+  /* Dragging moves the focus point the OPPOSITE way to the pointer, because
+     the trader is dragging the picture, not the window onto it - pulling the
+     photo left has to reveal what is on its right. */
+  let from = null;
+  stage.addEventListener("pointerdown", (e) => {
+    const c = AurionTheme.getBgCrop();
+    from = { x: e.clientX, y: e.clientY, cx: c.x, cy: c.y };
+    try { stage.setPointerCapture(e.pointerId); } catch (err) { /* older engines */ }
+    stage.classList.add("dragging");
+  });
+  stage.addEventListener("pointermove", (e) => {
+    if (!from) return;
+    const r = stage.getBoundingClientRect();
+    const nx = from.cx - ((e.clientX - from.x) / Math.max(1, r.width)) * 100;
+    const ny = from.cy - ((e.clientY - from.y) / Math.max(1, r.height)) * 100;
+    AurionTheme.setBgCrop({ x: nx, y: ny }, { silent: true });
+    syncCropStage();
+  });
+  const end = () => {
+    if (!from) return;
+    from = null;
+    stage.classList.remove("dragging");
+    AurionTheme.setBgCrop({});     /* one real apply when the drag settles */
+    markThemeEdited();
+  };
+  stage.addEventListener("pointerup", end);
+  stage.addEventListener("pointercancel", end);
+
+  stage.addEventListener("keydown", (e) => {
+    const step = e.shiftKey ? 10 : 2;
+    const c = AurionTheme.getBgCrop();
+    const map = {
+      ArrowLeft: { x: c.x - step }, ArrowRight: { x: c.x + step },
+      ArrowUp: { y: c.y - step }, ArrowDown: { y: c.y + step },
+    };
+    if (!map[e.key]) return;
+    e.preventDefault();
+    AurionTheme.setBgCrop(map[e.key]);
+    syncCropStage();
+    markThemeEdited();
+  });
+
+  const zoom = document.getElementById("bgpic-zoom");
+  if (zoom) {
+    zoom.addEventListener("input", () => {
+      AurionTheme.setBgCrop({ zoom: Number(zoom.value) }, { silent: true });
+      syncCropStage();
+    });
+    zoom.addEventListener("change", () => { AurionTheme.setBgCrop({}); markThemeEdited(); });
+  }
+  document.querySelectorAll("[data-bgfit]").forEach((b) => {
+    b.addEventListener("click", () => {
+      AurionTheme.setBgCrop({ fit: b.dataset.bgfit });
+      syncCropStage();
+      markThemeEdited();
+    });
+  });
+  const re = document.getElementById("bgpic-recentre");
+  if (re) re.addEventListener("click", () => {
+    AurionTheme.resetBgCrop();
+    syncCropStage();
+    markThemeEdited();
+  });
 }
 
 /* The trader's own background picture.
@@ -883,7 +1073,7 @@ function bindBackgroundPicture() {
 
   if (clear) clear.onclick = () => {
     AurionTheme.setBgImage("");
-    if (AurionTheme.knobs().bg === "photo") AurionTheme.edit({ bg: "soft" });
+    if (AurionTheme.knobs().bg === "photo") AurionTheme.edit({ bg: "flat" });
     renderSettingsKnobs();
   };
 
@@ -999,40 +1189,20 @@ function renderSettingsKnobs() {
 
   const picture = AurionTheme.getBgImage();
 
-  /* The gallery is rebuilt rather than marked, because the "your picture"
-     tile appears and disappears with the picture itself. */
-  const tiles = $("knob-bgtiles");
-  if (tiles) {
-    tiles.querySelectorAll("[data-bgpick]").forEach((b) => {
-      const on = b.dataset.bgpick === k.bg;
-      b.classList.toggle("on", on);
-      b.setAttribute("aria-checked", String(on));
-      b.tabIndex = on ? 0 : -1;
-    });
-    const photoTile = tiles.querySelector('[data-bgpick="photo"]');
-    if (picture && !photoTile) {
-      const b = document.createElement("button");
-      b.type = "button";
-      b.className = "bg-tile";
-      b.dataset.bgpick = "photo";
-      b.setAttribute("role", "radio");
-      b.setAttribute("aria-checked", "false");
-      b.tabIndex = -1;
-      b.innerHTML = `<span class="bgt-art" data-bgart="photo"></span>` +
-        `<span class="bgt-name">${esc(I18N.t("themes.bg_custom"))}</span>`;
-      b.querySelector(".bgt-art").style.backgroundImage = `url("${picture}")`;
-      tiles.appendChild(b);
-    } else if (picture && photoTile) {
-      photoTile.querySelector(".bgt-art").style.backgroundImage = `url("${picture}")`;
-    } else if (!picture && photoTile) {
-      photoTile.remove();
-    }
+  /* The trader's picture now has its own framing panel instead of a tile. */
+  const frame = $("bgpic-frame");
+  if (frame) {
+    const onPhoto = Boolean(picture) && k.bg === "photo";
+    frame.hidden = !onPhoto;
+    if (onPhoto) syncCropStage();
   }
+  const clearBtn = $("bgpic-clear");
+  if (clearBtn) clearBtn.hidden = !picture;
 
   const colours = AurionTheme.colours(AurionTheme.effective());
   document.querySelectorAll("[data-colour]").forEach((sw) => {
     const key = sw.dataset.colour;
-    sw.value = colours[key] || themeColourNow(key);
+    sw.style.background = colours[key] || themeColourNow(key);
     const row = sw.closest("[data-colrow]");
     const clear = row && row.querySelector("[data-colclear]");
     if (clear) clear.hidden = !colours[key];
@@ -1047,8 +1217,6 @@ function renderSettingsKnobs() {
   if (thumb) thumb.style.backgroundImage = picture ? `url("${picture}")` : "";
   const clear = $("bgpic-clear");
   if (clear) clear.hidden = !picture;
-  const dimWrap = $("bgpic-dim-wrap");
-  if (dimWrap) dimWrap.hidden = !(picture && k.bg === "photo");
   const dim = $("bgpic-dim");
   if (dim) dim.value = AurionTheme.getBgDim();
   const dimOut = $("bgpic-dim-v");
@@ -1067,13 +1235,30 @@ function appearanceCardsHtml() {
   // Freemium wears the accent its theme was designed with. The row still shows
   // every colour - a locked door you cannot see is just a wall.
   const accentOpen = themesUnlocked();
+  /* The trader's own accent sits at the end of the shipped ones, and it is
+     the only colour on the desk that may be a gradient: the accent lands on
+     buttons, badges and chips, which are small and deliberate. A gradient
+     under a page, a panel or a column of text would be read behind numbers
+     all day, and costs legibility for nothing. */
+  const customAcc = AurionSkin.customAccent();
+  const accGrad = AurionSkin.accentGradient();
+  const customSwatch = `
+    <button type="button" class="accent-dot accent-custom${accent === "custom" ? " on" : ""}"
+            data-accent-custom="1" aria-haspopup="dialog"
+            aria-label="${esc(I18N.t("themes.accent_custom"))}"
+            title="${esc(I18N.t("themes.accent_custom"))}"
+            data-grad="${accGrad && accGrad.on ? "on" : "off"}"
+            style="background:${accGrad && accGrad.on
+              ? `linear-gradient(${accGrad.angle}deg, ${esc(accGrad.from)}, ${esc(accGrad.to)})`
+              : esc(customAcc || "#3ee0c4")}"></button>`;
+
   const swatches = Object.keys(AurionSkin.ACCENTS).map((id) => {
     const c = AurionSkin.ACCENTS[id];
     return `<button type="button" class="accent-dot ${id === accent ? "on" : ""}" data-accent="${id}"
               title="${id}" aria-label="${id}" aria-pressed="${id === accent}"
               ${accentOpen ? "" : 'data-locked="1"'}
               style="background:linear-gradient(135deg, ${c[0]}, ${c[2]})"></button>`;
-  }).join("");
+  }).join("") + (accentOpen ? customSwatch : "");
 
   return `
       <h3 class="set-h">${I18N.t("themes.title")}</h3>
@@ -1123,8 +1308,36 @@ function bindAppearance() {
 
   const accents = $("set-accents");
   if (accents) accents.onclick = (e) => {
+    const custom = e.target.closest("[data-accent-custom]");
+    if (custom) {
+      const g = AurionSkin.accentGradient();
+      AurionPicker.open({
+        value: AurionSkin.customAccent() || "#3ee0c4",
+        anchor: custom,
+        title: I18N.t("themes.accent_custom"),
+        swatches: Object.keys(AurionSkin.ACCENTS).map((id) => AurionSkin.ACCENTS[id][0]).slice(0, 12),
+        gradient: g && g.on ? g : { on: false, from: AurionSkin.customAccent() || "#3ee0c4", to: "#7c6cff", angle: 135 },
+        onInput(v) {
+          /* Accent is a handful of variables, so the honest apply is
+             already cheap enough to run on every frame. */
+          if (typeof v === "string") { AurionSkin.setAccentGradient(null); AurionSkin.setCustomAccent(v); }
+          else { AurionSkin.setCustomAccent(v.from); AurionSkin.setAccentGradient(v); }
+        },
+        onCommit(v) {
+          if (typeof v === "string") { AurionSkin.setAccentGradient(null); AurionSkin.setCustomAccent(v); }
+          else { AurionSkin.setCustomAccent(v.from); AurionSkin.setAccentGradient(v); }
+          renderSettingsKnobs();
+          repaintChartsForTheme();
+        },
+      });
+      return;
+    }
+
     const b = e.target.closest("[data-accent]");
     if (!b) return;
+    /* A shipped accent and a custom one cannot both be in force. */
+    AurionSkin.setAccentGradient(null);
+    AurionSkin.setCustomAccent("");
     if (b.dataset.locked) { toast(I18N.t("themes.locked_toast")); show("upgrade"); return; }
     AurionSkin.setAccent(b.dataset.accent);
     // Picking an accent is part of building the theme, whichever theme it

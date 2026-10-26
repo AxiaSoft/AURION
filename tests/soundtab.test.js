@@ -198,10 +198,16 @@ check(
   const t = loadTheme();
   t.api.set("aurora");
 
+  /* This began as a check that the backdrop dropdown had become a gallery.
+     The drawn backdrops it offered have since been retired altogether, so
+     the enduring point - that a background is chosen by looking at it, not
+     by reading a list of adjectives - now rests on the wallpaper gallery,
+     which is where the twenty photographs are chosen. */
   check(
     "backgrounds are chosen from a gallery, not from a list of adjectives",
-    /data-bgpick=/.test(app) && /bgt-art/.test(app) && !/id="knob-bg"/.test(app),
-    "tiles replaced the dropdown"
+    /data-wallpick=/.test(app) && /bgt-art/.test(app) &&
+      !/id="knob-bg"/.test(app) && !/data-bgpick=/.test(app),
+    "a gallery of pictures, and no dropdown"
   );
   check(
     "every built-in backdrop has a tile to paint it",

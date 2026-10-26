@@ -48,6 +48,14 @@
      machine; it is never sent anywhere. */
   var LS_BGIMG = "aurion.theme.bgimage";
   var LS_BGDIM = "aurion.theme.bgdim";
+  /* How the trader's own picture is framed. A background that can only be
+     "cover, centred" crops whatever matters in the photograph as often as
+     not - the subject is rarely in the middle, and a desk is a far wider
+     frame than a phone photo. */
+  var LS_BGFIT = "aurion.theme.bgfit";    /* cover | contain              */
+  var LS_BGZOOM = "aurion.theme.bgzoom";  /* 100..300 (%)                 */
+  var LS_BGX = "aurion.theme.bgx";        /* 0..100 (%) horizontal focus  */
+  var LS_BGY = "aurion.theme.bgy";        /* 0..100 (%) vertical focus    */
   var LS_PAID = "aurion.theme.paid";
   var DEFAULT_SKIN = "glass";
 
@@ -155,7 +163,30 @@
 
   /* The morphism families a theme can belong to. Kept as a list so the UI can
      describe a theme without knowing the CSS. */
-  var BACKDROPS = ["soft", "blobs", "aurora", "grid", "waves", "dusk", "layered", "flat", "none", "photo"];
+  /* What can sit behind the desk.
+   *
+   * There used to be ten entries here, eight of them backdrops the desk
+   * DREW: soft gradients, drifting blobs, an aurora, a grid, waves. They
+   * are gone. Two reasons, and the second is the one that mattered:
+   *
+   *   - they competed with the thing the desk exists to show. A price
+   *     column over a moving gradient is harder to read than the same
+   *     column over a flat panel.
+   *   - they were opaque and sat in the same layer as the photographs,
+   *     so choosing a wallpaper while a drawn backdrop was active did
+   *     nothing anyone could see.
+   *
+   * What is left is honest: a flat themed colour, or a picture - one of
+   * the twenty AURION ships, or the trader's own. */
+  var BACKDROPS = ["flat", "photo"];
+
+  /* Anything stored by an older build maps onto the flat backdrop. Without
+     this a desk left on "blobs" would read an unknown value and keep it. */
+  var RETIRED_BACKDROPS = ["soft", "blobs", "aurora", "grid", "waves", "dusk", "layered", "none"];
+
+  function liveBackdrop(v) {
+    return BACKDROPS.indexOf(v) === -1 ? "flat" : v;
+  }
 
   /* ---------------------------------------------------------- wallpapers --
    *
@@ -182,12 +213,34 @@
   /* "" means the theme keeps whatever css/themes.css gives it; "none" means
      the trader asked for no photograph at all, which is not the same thing
      and has to survive a reload. */
+  /* A choice is either a scene ("ocean"), which follows the desk's own
+     light/dark mode, or a scene pinned to one cut ("ocean@day"). Both cuts
+     of all ten scenes are offered: "show me the night version of this
+     picture on a light desk" is a legitimate thing to want, and silently
+     swapping the cut underneath made it impossible to ask for. */
+  function splitWall(choice) {
+    var v = String(choice || "");
+    var at = v.indexOf("@");
+    if (at === -1) return { name: v, cut: "" };
+    return { name: v.slice(0, at), cut: v.slice(at + 1) };
+  }
+
+  /** Is this a wallpaper choice the library can actually serve? */
+  function validWall(choice) {
+    var p = splitWall(choice);
+    if (WALLPAPERS.indexOf(p.name) === -1) return false;
+    return p.cut === "" || p.cut === "day" || p.cut === "night";
+  }
+
   function wallUrl(name, light) {
-    if (!name || name === "none" || WALLPAPERS.indexOf(name) === -1) return "";
+    var p = splitWall(name);
+    if (!p.name || p.name === "none" || WALLPAPERS.indexOf(p.name) === -1) return "";
+    /* An explicit cut wins over the mode; without one the mode decides. */
+    var useLight = p.cut === "day" ? true : p.cut === "night" ? false : Boolean(light);
     /* Relative to the DOCUMENT, not to css/themes.css: this lands in a
        <style> element in index.html, so "../assets" would resolve one
        directory too high and silently load nothing. */
-    return "assets/bg/" + name + "-" + (light ? "light" : "dark") + ".jpg";
+    return "assets/bg/" + p.name + "-" + (useLight ? "light" : "dark") + ".jpg";
   }
 
   /* ------------------------------------------------------------------ util */
@@ -438,7 +491,7 @@
     var edit = (id === "custom" ? getCustom() : readEdits()[id]) || {};
     var w = edit.wall;
     if (w === "none") return "none";
-    return WALLPAPERS.indexOf(w) === -1 ? "" : w;
+    return validWall(w) ? w : "";
   }
 
   /** The colour and font overrides in force for a theme, if any. */
@@ -518,6 +571,7 @@
       if (LIMITS[key]) next[key] = clamp(patch[key], LIMITS[key][0], LIMITS[key][1]);
       else if (key === "accent" && typeof patch[key] === "string") next.accent = patch[key];
       else if (key === "bg" && BACKDROPS.indexOf(patch[key]) !== -1) next.bg = patch[key];
+      else if (key === "bg" && RETIRED_BACKDROPS.indexOf(patch[key]) !== -1) next.bg = "flat";
       else if (COLOR_KEYS.indexOf(key) !== -1) {
         // An empty value means "back to the theme's own colour", which is
         // how the clear button works without a second code path.
@@ -533,7 +587,7 @@
         /* "" clears the choice and hands the theme back to its own
            photograph; "none" is the trader actively asking for none. */
         if (!patch[key]) delete next.wall;
-        else if (patch[key] === "none" || WALLPAPERS.indexOf(patch[key]) !== -1) next.wall = patch[key];
+        else if (patch[key] === "none" || validWall(patch[key])) next.wall = patch[key];
       }
     }
     all[id] = next;
@@ -568,6 +622,33 @@
 
   function getBgDim() { return clamp(read(LS_BGDIM, 45), 0, 90); }
 
+  /* The framing of the trader's own picture, as one object. */
+  function getBgCrop() {
+    var fit = read(LS_BGFIT, "cover");
+    return {
+      fit: fit === "contain" ? "contain" : "cover",
+      zoom: clamp(read(LS_BGZOOM, 100), 100, 300),
+      x: clamp(read(LS_BGX, 50), 0, 100),
+      y: clamp(read(LS_BGY, 50), 0, 100),
+    };
+  }
+
+  function setBgCrop(next, opts) {
+    next = next || {};
+    if (next.fit !== undefined) write(LS_BGFIT, next.fit === "contain" ? "contain" : "cover");
+    if (next.zoom !== undefined) write(LS_BGZOOM, String(clamp(next.zoom, 100, 300)));
+    if (next.x !== undefined) write(LS_BGX, String(clamp(next.x, 0, 100)));
+    if (next.y !== undefined) write(LS_BGY, String(clamp(next.y, 0, 100)));
+    if (!(opts && opts.silent)) apply();
+    return getBgCrop();
+  }
+
+  function resetBgCrop() {
+    write(LS_BGFIT, null); write(LS_BGZOOM, null); write(LS_BGX, null); write(LS_BGY, null);
+    apply();
+    return getBgCrop();
+  }
+
   function setBgDim(value) {
     write(LS_BGDIM, String(clamp(value, 0, 90)));
     apply();
@@ -581,9 +662,10 @@
       if (LIMITS[key]) next[key] = clamp(patch[key], LIMITS[key][0], LIMITS[key][1]);
       else if (key === "accent" && typeof patch[key] === "string") next.accent = patch[key];
       else if (key === "bg" && BACKDROPS.indexOf(patch[key]) !== -1) next.bg = patch[key];
+      else if (key === "bg" && RETIRED_BACKDROPS.indexOf(patch[key]) !== -1) next.bg = "flat";
       else if (key === "wall") {
         if (!patch[key]) delete next.wall;
-        else if (patch[key] === "none" || WALLPAPERS.indexOf(patch[key]) !== -1) next.wall = patch[key];
+        else if (patch[key] === "none" || validWall(patch[key])) next.wall = patch[key];
       }
     }
     write(LS_CUSTOM, JSON.stringify(next));
@@ -650,12 +732,12 @@
   function wallCss(id) {
     var choice = activeWall(id);
     if (!choice) return "";
-    if (choice === "none") return "html[data-skin][data-theme]{--theme-bg:none}";
+    if (choice === "none") return "html[data-skin][data-theme][data-bg]{--theme-bg:none}";
     var el = root();
     var light = Boolean(el && el.dataset && el.dataset.theme === "light");
     var url = wallUrl(choice, light);
     if (!url) return "";
-    return "html[data-skin][data-theme]{--theme-bg:url(\"" + url.replace(/"/g, "%22") + "\")}";
+    return "html[data-skin][data-theme][data-bg]{--theme-bg:url(\"" + url.replace(/"/g, "%22") + "\")}";
   }
 
   /** Write the active theme onto <html>. */
@@ -668,9 +750,11 @@
     el.dataset.skin = id;
     /* "photo" is the trader's own picture. If they picked it and then removed
        the file we fall back rather than leave an empty page. */
-    var bg = k.bg || "soft";
+    /* liveBackdrop maps anything an older build stored onto a backdrop
+       that still exists, so a desk left on "blobs" comes back flat. */
+    var bg = liveBackdrop(k.bg);
     var picture = getBgImage();
-    if (bg === "photo" && !picture) bg = "soft";
+    if (bg === "photo" && !picture) bg = "flat";
     el.dataset.bg = bg;
     /* Premium gates the accent row too, so while it is locked the theme's own
        accent is pinned - the desk still looks designed, it just looks the one
@@ -685,7 +769,24 @@
     el.dataset.motion = motion === 0 ? "off" : motion < 70 ? "soft" : "full";
 
     publish(
-      "html[data-skin][data-theme]{" +
+      /* [data-bg] is carried only to win a specificity fight, and it is
+         always present because apply() sets it a few lines above.
+
+         Without it this rule scored 2 attributes - exactly what
+         themes.css scores for html[data-skin="ocean"][data-theme="light"]
+         - and lost the tie on source order, because this <style> is
+         created while themes.js runs in <head>, BEFORE the stylesheet
+         links below it. The visible effect was that on a light desk a
+         chosen wallpaper and any custom colour were silently replaced by
+         the theme's own, on ten of the twelve themes. Dark mode worked,
+         which is what made it look intermittent.
+
+         Moving the element to the end of <head> would have fixed that
+         and broken something else: "liquid glass off", the cheap
+         rendering tier and prefers-reduced-motion also score 2 and have
+         to stay ABOVE the trader's choices. They are lifted to 4
+         attributes in themes.css for the same reason. */
+      "html[data-skin][data-theme][data-bg]{" +
       "--surface-alpha:" + (clamp(k.surface, 0, 100) / 100).toFixed(3) + ";" +
       "--border-alpha:" + (clamp(k.border, 0, 100) / 100).toFixed(3) + ";" +
       "--blur:" + clamp(k.blur, 0, 60) + "px;" +
@@ -714,8 +815,23 @@
        * order - the same place the trader's colours already win from. */
       wallCss(id) +
       (bg === "photo"
-        ? "html[data-bg=\"photo\"]{--bg-photo:url(\"" + picture.replace(/"/g, "%22") + "\");" +
-          "--bg-photo-dim:" + (getBgDim() / 100).toFixed(3) + "}"
+        ? (function () {
+            var c = getBgCrop();
+            /* The framing is published as plain CSS values so themes.css
+               owns how they are used. Zoom is a scale on the layer rather
+               than a background-size, which keeps "cover" meaning cover at
+               every zoom level - a background-size in percent would letterbox
+               the picture the moment the aspect ratios disagreed. The focus
+               point is both the background-position and the transform
+               origin, so zooming in keeps looking at the chosen spot
+               instead of drifting back to the middle. */
+            return "html[data-bg=\"photo\"]{--bg-photo:url(\"" + picture.replace(/"/g, "%22") + "\");" +
+              "--bg-photo-dim:" + (getBgDim() / 100).toFixed(3) + ";" +
+              "--bg-photo-fit:" + c.fit + ";" +
+              "--bg-photo-zoom:" + (c.zoom / 100).toFixed(3) + ";" +
+              "--bg-photo-x:" + c.x + "%;" +
+              "--bg-photo-y:" + c.y + "%}";
+          }())
         : "")
     );
   }
@@ -790,6 +906,8 @@
     resetCustom: resetCustom,
     defaultCustom: defaultCustom,
     BACKDROPS: BACKDROPS,
+    validWall: validWall,
+    splitWall: splitWall,
     themeKnobs: themeKnobs,
     edit: editTheme,
     reset: resetTheme,
@@ -798,11 +916,15 @@
     setBgImage: setBgImage,
     getBgDim: getBgDim,
     setBgDim: setBgDim,
+    getBgCrop: getBgCrop,
+    setBgCrop: setBgCrop,
+    resetBgCrop: resetBgCrop,
     FONTS: FONTS,
     COLOR_KEYS: COLOR_KEYS,
     FX: FX,
     fx: activeFx,
     colours: themeColours,
+    colourCss: colourCss,
     WALLPAPERS: WALLPAPERS,
     wall: activeWall,
     themeWall: themeOwnWall,
