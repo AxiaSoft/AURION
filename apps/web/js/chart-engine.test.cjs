@@ -200,12 +200,14 @@ const off0 = chart.offset;
 chart.pan(20);
 check("pan scrolls back", chart.offset === off0 + 20);
 chart.pan(-9999);
-check("pan stops in the empty margin past the newest bar",
-  chart.offset === chart.minOffset() && chart.offset < 0);
-check("...and that margin becomes real space on the right",
-  (() => { const L = chart.layout(); return L.cells > L.rows.length; })());
+check("pan stops at the newest bar instead of running into empty space",
+  chart.offset === 0);
+check("...and every cell on screen still holds a bar",
+  (() => { const L = chart.layout(); return L.cells === L.rows.length; })());
 chart.pan(99999);
-check("pan cannot scroll past the oldest", chart.offset <= chart.maxOffset());
+check("pan stops at the oldest bar", chart.offset === chart.maxOffset());
+check("...and the window is still full of bars, not stretched remnants",
+  (() => { const L = chart.layout(); return L.rows.length === chart.span; })());
 chart.fit();
 
 chart.setAutoScale(true);
@@ -293,12 +295,18 @@ check("a locked object cannot be grabbed by its handle",
   const back = chart.xyOf(L, pMid);
   check("...so it paints back onto the same pixel", Math.abs(back.x - xMid) < 1);
 
-  // ---- and so does one past the last candle ---------------------------
-  chart.pan(-30);                                          // into the empty margin
+  // ---- the right-hand edge is the newest bar --------------------------
+  // The chart no longer scrolls into an empty margin, so there is no blank
+  // space past the last candle to anchor anything in. A point dropped at
+  // the very right edge therefore lands on the newest bar rather than
+  // beyond it, and must still paint back exactly where it was put.
+  chart.pan(-30);                                          // asks to go past the newest
+  check("asking to scroll past the newest bar does nothing", chart.offset === 0);
   const L2 = chart.layout();
   const xFar = Math.round(L2.plotR - 20);
   const far = chart.point(chart.hit({ clientX: xFar, clientY: 220 }));
-  check("a point can be placed past the newest candle", far.gx > chart.rows().length - 1);
+  check("a point at the right edge lands on the newest bar, not past it",
+    far.gx <= chart.rows().length - 0.5);
   check("...and paints where it was placed",
     Math.abs(chart.xyOf(L2, far).x - xFar) < 1.5);
   chart.fit();
@@ -470,6 +478,12 @@ check("a locked object cannot be grabbed by its handle",
   const move = (x, y) => chart.onMove({ clientX: x, clientY: y });
   const up = (btn, x, y) => chart.onUp({ button: btn, clientX: x, clientY: y, pointerId: 1 });
 
+  // Start a little way back in history: with the empty right margin gone,
+  // a chart sitting at the newest bar has nowhere left to scroll forward
+  // to, so a drag that asked to would correctly do nothing and the check
+  // would be testing the clamp rather than the gesture.
+  chart.pan(40);
+  before.offset = chart.offset;
   down(2, 400, 200);
   check("the right button starts a free drag", chart.drag && chart.drag.mode === "free");
   check("...and does not start a drawing", chart.draft === null);

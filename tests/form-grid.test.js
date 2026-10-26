@@ -157,8 +157,15 @@ ok(/\.field input,\.field select,\.ctrl\{[\s\S]*?min-width:0/.test(css), "contro
 
 /* ------------------------------------------------- the markup is as modelled */
 const app = fs.readFileSync(path.join(__dirname, "..", "apps/web/js/app.js"), "utf8");
+/* One, not two. The manual ticket used to be the second three-up grid -
+   volume, stop and target as three identical columns. It is laid out by
+   job now (a stepper for the lot, a row each for the levels), so the
+   backtest form is the only three-up grid left. The ticket's own layout
+   is covered by tests/ea-chart-ux.test.js. */
 const uses = [...app.matchAll(/class="ct-grid ct-grid-3"/g)].length;
-ok(uses === 2, `both three-up grids carry the class pair (${uses})`);
+ok(uses === 1, `the backtest form is the remaining three-up grid (${uses})`);
+ok(/id="bt-card"[\s\S]{0,600}class="ct-grid ct-grid-3"/.test(app),
+  "and it is the backtest form that has it");
 const btView = app.slice(app.indexOf("backtest() {"), app.indexOf("\n  history() {"));
 ok(btView.includes('class="ct-grid ct-grid-3"'), "the backtest form uses the three-up grid");
 const fields = [...btView.matchAll(/<label class="field">/g)].length;

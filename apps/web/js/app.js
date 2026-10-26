@@ -80,6 +80,9 @@ function icon(name) {
     mail: '<rect x="3" y="5.5" width="18" height="13" rx="2"/><polyline points="3.6,6.8 12,13 20.4,6.8"/>',
     send: '<path d="M21 3.5L10.8 13.7"/><path d="M21 3.5l-6.6 17.3-3.6-7.1-7.1-3.6z"/>',
     star: '<polygon points="12,3.6 14.4,9 20.2,9.6 15.8,13.5 17.1,19.2 12,16.2 6.9,19.2 8.2,13.5 3.8,9.6 9.6,9"/>',
+    minus: '<line x1="5.5" y1="12" x2="18.5" y2="12"/>',
+    plus: '<line x1="12" y1="5.5" x2="12" y2="18.5"/><line x1="5.5" y1="12" x2="18.5" y2="12"/>',
+    target: '<circle cx="12" cy="12" r="7.2"/><line x1="12" y1="1.8" x2="12" y2="5.2"/><line x1="12" y1="18.8" x2="12" y2="22.2"/><line x1="1.8" y1="12" x2="5.2" y2="12"/><line x1="18.8" y1="12" x2="22.2" y2="12"/><circle cx="12" cy="12" r="1.6"/>',
     download: '<path d="M12 3.5v11"/><polyline points="7.5,10 12,14.5 16.5,10"/><path d="M4.5 17.5v1.5a2 2 0 002 2h11a2 2 0 002-2v-1.5"/>',
     box: '<polygon points="12,3 20.5,7.5 12,12 3.5,7.5"/><polyline points="3.5,7.5 3.5,16.5 12,21 20.5,16.5 20.5,7.5"/><line x1="12" y1="12" x2="12" y2="21"/>',
   };
@@ -2714,11 +2717,9 @@ function patchLive() {
     const ticks = S.snap?.ticks || {};
     const symbols = liveSymbols().map((x) => x.symbol).filter((s) => ticks[s]);
     const box = $("live-ticks");
-    if (box) {
-      box.innerHTML = symbols.length
-        ? `<div class="table-wrap"><table><thead><tr><th>${I18N.t("markets.symbol")}</th><th>${I18N.t("markets.bid")}</th><th>${I18N.t("markets.ask")}</th></tr></thead><tbody>${symbols.map((s)=>`<tr><td>${s}</td><td class="mono">${fmt(ticks[s].bid,5)}</td><td class="mono">${fmt(ticks[s].ask,5)}</td></tr>`).join("")}</tbody></table></div>`
-        : emptyMini(I18N.t("status.waiting_ticks"));
-    }
+    /* One template for the first paint and the refresh. They used to be
+       two copies of the same markup and had already begun to disagree. */
+    if (box) box.innerHTML = symbols.length ? watchlistHtml() : emptyMini(I18N.t("status.waiting_ticks"));
     const empty = document.querySelector(".chart-box .empty");
     if (empty && eaLive() && S.candles.length) empty.remove();
   }
@@ -2849,7 +2850,7 @@ function patchLive() {
     if (lk) lk.disabled = !propOn;
     if (uk) uk.disabled = !propOn;
   }
-  if (v === "charts" || v === "markets") applyChartLevels();
+  if (v === "charts" || v === "markets") { applyChartLevels(); paintTicketPrices(); }
   if ((v === "execution" || (v === "terminal" && S.termTab === "robot")) && $("robot-term")) {
     const box = $("robot-term");
     if (box && document.activeElement !== $("log-q")) box.innerHTML = renderRobotLogs($("log-q")?.value || "");
@@ -3111,37 +3112,99 @@ function preferredStrategy() {
   if (on.length) return on[0].name;
   return "";
 }
+/**
+ * The manual ticket, on the chart and in the EA chart's Trade panel.
+ *
+ * The old layout was a row of three identical number fields followed by
+ * six ghost buttons of equal weight - set SL, set TP, clear SL, clear TP,
+ * buy, sell - all the same size and colour. The two that send money
+ * looked exactly like the four that do not, the pair of clear buttons
+ * took as much room as the order itself, and on a phone the whole lot
+ * wrapped into a block of near-identical pills.
+ *
+ * It is laid out by job now. Volume has steppers, because the lot is
+ * nudged far more often than it is typed. Stop and target own a row each
+ * with their two verbs - take it from the chart, clear it - as small
+ * icon buttons rather than full-width text. Buy and sell are one pair at
+ * the bottom, sized for a thumb, each showing the side of the spread it
+ * would actually cross, so the price you are hitting is on the button you
+ * press rather than somewhere else on the screen.
+ *
+ * Every id the existing wiring binds to is kept, so this is a change of
+ * layout and not of behaviour.
+ */
 function chartTicketHtml() {
   const t = S.ticket || S.manual || {};
   const who = operatorName();
+  const sym = (S.chartFocus && S.chartFocus.symbol) || S.symbol;
+  const tick = (S.snap && S.snap.ticks && S.snap.ticks[sym]) || {};
   return `<div class="chart-ticket" id="chart-ticket">
       <div class="ct-head">
         <h3>${I18N.t("exec.manual")}</h3>
         <p class="sub">${I18N.t("exec.chart_hint")} · ${esc(who)}</p>
       </div>
-      <div class="ct-grid ct-grid-3">
-        <label class="field"><span>${I18N.t("exec.volume")}</span>
-          <input id="ct-vol" type="number" step="0.01" min="0.01" value="${esc(String(t.vol || ticketLot()))}" />
-        </label>
-        <label class="field"><span>${I18N.t("exec.sl")}</span>
-          <input id="ct-sl" type="number" step="0.0001" value="${esc(t.sl || "")}" placeholder="${esc(I18N.t("exec.chart_click"))}" />
-        </label>
-        <label class="field"><span>${I18N.t("exec.tp")}</span>
-          <input id="ct-tp" type="number" step="0.0001" value="${esc(t.tp || "")}" placeholder="${esc(I18N.t("exec.chart_click"))}" />
-        </label>
+
+      <div class="ct-row ct-vol">
+        <span class="ct-lab">${I18N.t("exec.volume")}</span>
+        <div class="ct-step">
+          <button type="button" class="ct-pm" data-vol="-1" aria-label="-">${icon("minus")}</button>
+          <input id="ct-vol" type="number" step="0.01" min="0.01" inputmode="decimal"
+                 value="${esc(String(t.vol || ticketLot()))}" />
+          <button type="button" class="ct-pm" data-vol="1" aria-label="+">${icon("plus")}</button>
+        </div>
       </div>
-      <div class="row ct-actions">
-        <button class="btn tiny ghost" type="button" id="ct-pick-sl">${I18N.t("exec.set_sl")}</button>
-        <button class="btn tiny ghost" type="button" id="ct-pick-tp">${I18N.t("exec.set_tp")}</button>
-        <button class="btn tiny ghost" type="button" id="ct-clear-sl">${I18N.t("exec.clear_sl")}</button>
-        <button class="btn tiny ghost" type="button" id="ct-clear-tp">${I18N.t("exec.clear_tp")}</button>
-        <span class="grow"></span>
-        <button class="btn" type="button" id="ct-buy">${I18N.t("exec.buy")}</button>
-        <button class="btn danger" type="button" id="ct-sell">${I18N.t("exec.sell")}</button>
+
+      <div class="ct-levels">
+        <div class="ct-row ct-lv">
+          <span class="ct-lab sl">${I18N.t("exec.sl")}</span>
+          <input id="ct-sl" type="number" step="0.0001" inputmode="decimal"
+                 value="${esc(t.sl || "")}" placeholder="${esc(I18N.t("exec.chart_click"))}" />
+          <button type="button" class="ct-ic" id="ct-pick-sl"
+                  title="${esc(I18N.t("exec.set_sl"))}" aria-label="${esc(I18N.t("exec.set_sl"))}">${icon("target")}</button>
+          <button type="button" class="ct-ic" id="ct-clear-sl"
+                  title="${esc(I18N.t("exec.clear_sl"))}" aria-label="${esc(I18N.t("exec.clear_sl"))}">${icon("close")}</button>
+        </div>
+        <div class="ct-row ct-lv">
+          <span class="ct-lab tp">${I18N.t("exec.tp")}</span>
+          <input id="ct-tp" type="number" step="0.0001" inputmode="decimal"
+                 value="${esc(t.tp || "")}" placeholder="${esc(I18N.t("exec.chart_click"))}" />
+          <button type="button" class="ct-ic" id="ct-pick-tp"
+                  title="${esc(I18N.t("exec.set_tp"))}" aria-label="${esc(I18N.t("exec.set_tp"))}">${icon("target")}</button>
+          <button type="button" class="ct-ic" id="ct-clear-tp"
+                  title="${esc(I18N.t("exec.clear_tp"))}" aria-label="${esc(I18N.t("exec.clear_tp"))}">${icon("close")}</button>
+        </div>
+      </div>
+
+      <div class="ct-sides">
+        <button class="ct-side sell" type="button" id="ct-sell">
+          <span>${I18N.t("exec.sell")}</span>
+          <b class="mono" id="ct-bid">${fmt(tick.bid, 5)}</b>
+        </button>
+        <button class="ct-side buy" type="button" id="ct-buy">
+          <span>${I18N.t("exec.buy")}</span>
+          <b class="mono" id="ct-ask">${fmt(tick.ask, 5)}</b>
+        </button>
       </div>
       <p class="sub" id="ct-msg"></p>
     </div>`;
 }
+
+/**
+ * Keep the two prices on the buy and sell buttons live.
+ *
+ * They are on the buttons so the trader can see what they are about to
+ * cross without looking away, which only holds if they keep up with the
+ * feed rather than freezing at whatever the price was when the panel was
+ * built.
+ */
+function paintTicketPrices() {
+  const sym = (S.chartFocus && S.chartFocus.symbol) || S.symbol;
+  const tick = (S.snap && S.snap.ticks && S.snap.ticks[sym]) || null;
+  const bid = $("ct-bid"), ask = $("ct-ask");
+  if (bid) bid.textContent = tick ? fmt(tick.bid, 5) : "—";
+  if (ask) ask.textContent = tick ? fmt(tick.ask, 5) : "—";
+}
+
 /**
  * The lot size, from the one place that owns it.
  *
@@ -3311,6 +3374,20 @@ async function sendDeskOrder(opts) {
 function bindChartTicket() {
   const host = $("chart-ticket");
   if (!host) return;
+  paintTicketPrices();
+  /* Steppers move the lot by one step of the input, so the control and the
+     keyboard agree on what "one more" means. */
+  host.querySelectorAll("[data-vol]").forEach((b) => {
+    b.onclick = () => {
+      const el = $("ct-vol");
+      if (!el) return;
+      const step = Number(el.step) || 0.01;
+      const dir = Number(b.getAttribute("data-vol")) || 0;
+      const next = Math.max(step, Math.round(((Number(el.value) || 0) + dir * step) / step) * step);
+      el.value = String(Number(next.toFixed(6)));
+      el.dispatchEvent(new Event("input", { bubbles: true }));
+    };
+  });
   ["ct-vol", "ct-sl", "ct-tp"].forEach((id) => {
     const el = $(id);
     if (!el) return;
@@ -4748,25 +4825,31 @@ const views = {
     const items = liveSymbols();
     const symbols = items.map((x) => x.symbol);
     const live = mt5Live();
-    return `<div class="grid g-chart">
-      <div class="card">
-        <div class="row" style="margin-bottom:10px;gap:8px;flex-wrap:wrap">
-          ${symbolSelectHtml("sym", S.symbol)}
-          <select class="ctrl" id="tf">${["M1","M5","M15","M30","H1","H4","D1"].map((t)=>`<option ${t===S.timeframe?"selected":""}>${t}</option>`).join("")}</select>
-          <span class="legend mono" id="tick-lbl">${tickLabel()}</span>
-        </div>
-        <div class="row" style="margin-bottom:8px;gap:6px">
-          <button type="button" class="btn tiny ${S.signalsEnabled?"on":"ghost"}" id="sig-toggle-m">${S.signalsEnabled?icon("bell")+" Signals ON":icon("bellOff")+" Signals OFF"}</button>
-          <button type="button" class="btn tiny ghost" id="sig-show-m" style="${S.signalsEnabled?"":"display:none"}">${S.showSignals?icon("eye"):icon("eyeOff")}</button>
-          ${!licFeat("chart_signals")?`<span class="pill no" style="font-size:10px">PREMIUM</span>`:""}
+    return `<div class="grid g-chart mk">
+      <div class="card mk-chart">
+        <!-- One toolbar instead of two stacked rows. The instrument controls
+             and the signal switches used to sit on separate lines, which on
+             a phone meant four rows of chrome above a chart that had barely
+             any height left. -->
+        <div class="mk-bar">
+          <div class="mk-pick">
+            ${symbolSelectHtml("sym", S.symbol)}
+            <select class="ctrl" id="tf">${["M1","M5","M15","M30","H1","H4","D1"].map((t)=>`<option ${t===S.timeframe?"selected":""}>${t}</option>`).join("")}</select>
+          </div>
+          <span class="legend mono mk-tick" id="tick-lbl">${tickLabel()}</span>
+          <div class="mk-sig">
+            <button type="button" class="btn tiny ${S.signalsEnabled?"on":"ghost"}" id="sig-toggle-m">${S.signalsEnabled?icon("bell")+" Signals ON":icon("bellOff")+" Signals OFF"}</button>
+            <button type="button" class="btn tiny ghost" id="sig-show-m" style="${S.signalsEnabled?"":"display:none"}">${S.showSignals?icon("eye"):icon("eyeOff")}</button>
+            ${!licFeat("chart_signals")?`<span class="pill no" style="font-size:10px">PREMIUM</span>`:""}
+          </div>
         </div>
         <div class="chart-box"><canvas id="cv"></canvas>${!eaLive() || !S.candles.length ? emptyCard(I18N.t("markets.empty"), symbols.length ? I18N.t("markets.loading_tf") : I18N.t("exec.no_ea_symbol")) : ""}</div>
         ${eaLive() ? chartTicketHtml() : ""}
         <!-- Chart signals list removed per user request — signals only on chart canvas itself -->
       </div>
-      <div class="card">
+      <div class="card mk-watch">
         <h3>${I18N.t("markets.title")}</h3>
-        <div id="live-ticks">${symbols.length ? `<div class="table-wrap"><table><thead><tr><th>${I18N.t("markets.symbol")}</th><th>${I18N.t("markets.bid")}</th><th>${I18N.t("markets.ask")}</th></tr></thead><tbody>${symbols.map((s)=>`<tr><td>${s}</td><td class="mono">${fmt(ticks[s]?.bid,5)}</td><td class="mono">${fmt(ticks[s]?.ask,5)}</td></tr>`).join("")}</tbody></table></div>` : emptyMini(I18N.t("exec.no_ea_symbol"))}</div>
+        <div id="live-ticks">${symbols.length ? watchlistHtml() : emptyMini(I18N.t("exec.no_ea_symbol"))}</div>
       </div>
     </div>`;
   },
@@ -5347,6 +5430,68 @@ function metric(key, value, suffix, signed) {
   return `<div class="card"><h3>${I18N.t(key)}</h3><p class="metric mono ${signed?clsPnl(value):""}" data-metric="${key}">${fmt(value)}${suffix ? " " + suffix : ""}</p></div>`;
 }
 function emptyMini(text) { return `<div class="empty" style="min-height:120px"><p>${text}</p></div>`; }
+
+/**
+ * The watchlist beside the chart.
+ *
+ * It used to be a three-column table of symbol, bid and ask, rendered from
+ * two copies of the same template - one for the first paint and one for
+ * the tick refresh - which had already drifted apart. It gave no sense of
+ * which symbol the chart was showing, cost a round trip to the dropdown to
+ * change it, and said nothing a trader actually watches for.
+ *
+ * Each symbol is now a row you can press to put it on the chart, the
+ * current one is marked, and the spread is shown because that is the
+ * number that decides whether a setup is worth taking. The arrow is the
+ * direction of the last change in the bid, held in `tickMemo` between
+ * refreshes - it is measured, not decorative, and a symbol that has not
+ * moved since the previous tick gets no arrow at all.
+ */
+const tickMemo = new Map();
+
+function watchRowsHtml() {
+  const ticks = (S.snap && S.snap.ticks) || {};
+  const items = liveSymbols().filter((x) => ticks[x.symbol]);
+  if (!items.length) return "";
+  return items.map((it) => {
+    const t = ticks[it.symbol] || {};
+    const bid = Number(t.bid), ask = Number(t.ask);
+    const prev = tickMemo.get(it.symbol);
+    let dir = "";
+    if (Number.isFinite(bid) && Number.isFinite(prev)) {
+      if (bid > prev) dir = "up";
+      else if (bid < prev) dir = "down";
+    }
+    if (Number.isFinite(bid)) tickMemo.set(it.symbol, bid);
+    const spread = (Number.isFinite(bid) && Number.isFinite(ask)) ? ask - bid : null;
+    const on = it.symbol === S.symbol;
+    return `<button type="button" class="wl-row${on ? " is-on" : ""}" data-wl="${esc(it.symbol)}"
+        aria-current="${on ? "true" : "false"}">
+      <span class="wl-id">
+        <b>${esc(it.symbol)}</b>
+        ${it.timeframe ? `<i class="wl-tf">${esc(it.timeframe)}</i>` : ""}
+      </span>
+      <span class="wl-quote">
+        <b class="mono wl-bid ${dir}">${fmt(bid, 5)}</b>
+        <b class="mono wl-ask">${fmt(ask, 5)}</b>
+      </span>
+      <span class="mono wl-sp">${spread === null ? "—" : fmt(spread, 5)}</span>
+    </button>`;
+  }).join("");
+}
+
+function watchlistHtml() {
+  const rows = watchRowsHtml();
+  if (!rows) return emptyMini(I18N.t("status.waiting_ticks"));
+  return `<div class="wl">
+    <div class="wl-head">
+      <span>${I18N.t("markets.symbol")}</span>
+      <span class="wl-quote"><i>${I18N.t("markets.bid")}</i><i>${I18N.t("markets.ask")}</i></span>
+      <span>${I18N.t("markets.spread")}</span>
+    </div>
+    <div class="wl-list">${rows}</div>
+  </div>`;
+}
 function shownDir(ai) {
   ai = ai || {};
   if (ai.ready) return ai.direction || "neutral";
@@ -6085,6 +6230,19 @@ function bindView(view) {
     }
   }
   if (view === "markets") {
+    /* Delegated, because the watchlist is replaced wholesale on every tick
+       refresh; a handler bound to the rows themselves would be thrown away
+       with them a second later. */
+    const wl = $("live-ticks");
+    if (wl) wl.onclick = (ev) => {
+      const row = ev.target.closest("[data-wl]");
+      if (!row) return;
+      const sym = row.getAttribute("data-wl");
+      if (!sym || sym === S.symbol) return;
+      const sel = $("sym");
+      if (sel) sel.value = sym;
+      pickMarket(sym, S.timeframe);
+    };
     const cv = $("cv");
     if (cv) {
       S.chart = new CandleChart(cv, { onPrice: onChartPrice, onPending: onChartPending });

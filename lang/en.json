@@ -198,6 +198,7 @@
     "timeframe": "Timeframe",
     "bid": "Bid",
     "ask": "Ask",
+    "spread": "Spread",
     "empty": "No AurionBridge chart is attached. Only those charts are loaded.",
     "loading_tf": "Fetching real CopyRates history from the attached EA…"
   },

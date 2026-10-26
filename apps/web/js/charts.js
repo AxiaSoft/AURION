@@ -773,7 +773,7 @@ class CandleChart {
     for (const ind of this.indicators) {
       const def = this.indicatorDef(ind.type);
       if (!def || def.pane !== "main" || ind.visible === false) continue;
-      const out = this.indicatorValues(ind, rows);
+      const out = this.indicatorValues(ind, rows, start);
       for (const plot of def.plots) {
         for (const v of (out[plot.key] || [])) {
           if (v === null || !Number.isFinite(v)) continue;
@@ -839,19 +839,55 @@ class CandleChart {
     };
   }
 
-  /* ---- indicator values, memoised per frame ---------------------------- */
-  indicatorValues(ind, rows) {
+  /* ---- indicator values, memoised per frame ----------------------------
+   *
+   * Computed over the WHOLE series and then cut to the visible window -
+   * never computed over the window itself.
+   *
+   * This used to be handed `L.rows`, the slice on screen, which meant every
+   * indicator started its warm-up at the left edge of the viewport instead
+   * of at the start of history. An EMA(50) needs fifty closes before it has
+   * a value, so the leftmost fifty bars of a 120-bar window had nothing
+   * drawn: the line began 41% of the way across the chart and the trader saw
+   * a half-drawn indicator. Scrolling back did not help, because the window
+   * moved with the viewport and the warm-up moved with it - the line stayed
+   * stubbornly half-drawn wherever you looked, which is exactly how it was
+   * reported.
+   *
+   * The data to do this properly was always loaded; only the range passed to
+   * calc() was wrong. Measured on 600 bars with a 120-bar window, the blank
+   * counts were EMA(50) 49, MACD 25, BB/SMA/Donchian 19, RSI/ATR 13. All of
+   * them are now zero wherever history reaches back far enough, and where it
+   * genuinely does not - the first bars ever recorded - the gap is real and
+   * is still shown as a gap rather than invented.
+   */
+  indicatorValues(ind, rows, start) {
     const def = this.indicatorDef(ind.type);
     if (!def) return {};
-    const stamp = ind.id + "|" + rows.length + "|" + (rows[0] && rows[0].t) + "|" +
-      (rows[rows.length - 1] && rows[rows.length - 1].c) + "|" + JSON.stringify(ind.params);
+    const full = this.rows();
+    const stamp = ind.id + "|" + full.length + "|" + (full[0] && full[0].t) + "|" +
+      (full[full.length - 1] && full[full.length - 1].c) + "|" + JSON.stringify(ind.params);
     this._indCache = this._indCache || new Map();
     const hit = this._indCache.get(ind.id);
-    if (hit && hit.stamp === stamp) return hit.out;
-    let out = {};
-    try { out = def.calc(rows, ind.params) || {}; } catch { out = {}; }
-    this._indCache.set(ind.id, { stamp, out });
-    return out;
+    let out;
+    if (hit && hit.stamp === stamp) out = hit.out;
+    else {
+      out = {};
+      try { out = def.calc(full, ind.params) || {}; } catch { out = {}; }
+      this._indCache.set(ind.id, { stamp, out });
+    }
+
+    /* Cut to the window the caller is painting. Callers that do not say
+       which window they mean get the whole thing, which is what the
+       indicator list and the settings dialog want. */
+    if (start === undefined || start === null) return out;
+    const from = Math.max(0, Math.round(start));
+    const len = Array.isArray(rows) ? rows.length : full.length - from;
+    const cut = {};
+    for (const key of Object.keys(out)) {
+      cut[key] = Array.isArray(out[key]) ? out[key].slice(from, from + len) : out[key];
+    }
+    return cut;
   }
   paintSessions(L) {
     if (!this.sessions) return;
@@ -992,9 +1028,11 @@ class CandleChart {
     const T = chartTheme();
     ctx.strokeStyle = T.grid;
     ctx.lineWidth = 1;
-    for (let i = 0; i <= 4; i++) {
-      const y = L.plotT + ((L.plotB - L.plotT) * i) / 4;
-      ctx.beginPath(); ctx.moveTo(L.plotL, y); ctx.lineTo(L.plotR, y); ctx.stroke();
+    /* The same ticks the axis prints, so every horizontal rule has a number
+       against it. They used to be independent - five evenly spaced lines
+       and five evenly spaced labels - which agreed only by coincidence. */
+    for (const t of this.priceTicks(L)) {
+      ctx.beginPath(); ctx.moveTo(L.plotL, t.y); ctx.lineTo(L.plotR, t.y); ctx.stroke();
     }
     // Vertical rules on a round number of bars rather than every bar: a grid
     // you cannot see through is not a grid.
@@ -1142,7 +1180,7 @@ class CandleChart {
     for (const ind of this.indicators) {
       const def = this.indicatorDef(ind.type);
       if (!def || def.pane !== "main" || ind.visible === false) continue;
-      const out = this.indicatorValues(ind, L.rows);
+      const out = this.indicatorValues(ind, L.rows, L.start);
       if (def.band && out[def.band[0]] && out[def.band[1]]) {
         this.paintBand(L, out[def.band[0]], out[def.band[1]], this.plotColor(def.plots[0].color, ind));
       }
@@ -1203,7 +1241,7 @@ class CandleChart {
     const T = chartTheme();
     for (const pane of L.panes) {
       const { ind, def, top, bot } = pane;
-      const out = this.indicatorValues(ind, L.rows);
+      const out = this.indicatorValues(ind, L.rows, L.start);
       let mn = Infinity, mx = -Infinity;
       if (def.range) { mn = def.range[0]; mx = def.range[1]; }
       else {
@@ -1298,6 +1336,74 @@ class CandleChart {
     ctx.setLineDash([]);
   }
 
+  /**
+   * The prices to print up the right-hand axis.
+   *
+   * The axis used to print exactly five numbers, at nought, a quarter, a
+   * half, three quarters and all of the plot height. That had two costs.
+   * The values were whatever happened to fall at those fractions, so the
+   * axis read 1.10374, 1.10521, 1.10668 - arithmetically spaced numbers
+   * nobody can scan - and on a tall chart five of them left most of the
+   * axis blank, so reading a level off the chart meant hovering for the
+   * crosshair instead of just looking.
+   *
+   * Now the step is chosen from the 1-2-5 series, so the labels land on
+   * round numbers, and as many are printed as will fit without touching.
+   * Ticks are generated in price space and then positioned through the
+   * axis's own mapping, which means a logarithmic or inverted axis gets
+   * correct, if unevenly spaced, lines for free; anything that still
+   * crowds after mapping is dropped rather than overprinted.
+   *
+   * In percent mode the same reasoning is applied to the percentages,
+   * because round prices are not round percentages.
+   */
+  priceTicks(L) {
+    const plotH = Math.max(1, L.plotB - L.plotT);
+    const minGap = 26;                       // px between label centres
+    const maxN = Math.max(2, Math.min(40, Math.floor(plotH / minGap)));
+    const nice = (raw) => {
+      if (!(raw > 0) || !Number.isFinite(raw)) return 1;
+      const e = Math.pow(10, Math.floor(Math.log10(raw)));
+      const m = raw / e;
+      return (m <= 1 ? 1 : m <= 2 ? 2 : m <= 5 ? 5 : 10) * e;
+    };
+
+    const first = L.rows[0];
+    const pct = this.scale.percent && first && first.c;
+    const base = pct ? first.c : 0;
+
+    /* Work in whatever units the axis is labelled in, so the round numbers
+       are the ones the trader actually reads. */
+    const toUnit = (p) => (pct ? ((p - base) / base) * 100 : p);
+    const toPrice = (u) => (pct ? base * (1 + u / 100) : u);
+
+    let lo = toUnit(L.mn), hi = toUnit(L.mx);
+    if (lo > hi) { const t = lo; lo = hi; hi = t; }
+    const range = hi - lo;
+    if (!(range > 0) || !Number.isFinite(range)) return [];
+
+    const step = nice(range / maxN);
+    const out = [];
+    const start = Math.ceil(lo / step) * step;
+    for (let v = start, guard = 0; v <= hi + step * 1e-6 && guard < 200; v += step, guard++) {
+      /* Floating point: 0.1 + 0.2 must not label itself 0.30000000000000004. */
+      const u = Math.abs(v) < step * 1e-9 ? 0 : Number(v.toFixed(10));
+      const price = toPrice(u);
+      const y = L.yOf(price);
+      if (!Number.isFinite(y) || y < L.plotT - 0.5 || y > L.plotB + 0.5) continue;
+      out.push({ y, text: pct ? u.toFixed(2) + "%" : this.fmtPrice(price) });
+    }
+
+    /* A log or inverted axis can bunch the mapped positions even though the
+       values were evenly spaced, so thin anything that ended up too close. */
+    out.sort((a, b) => a.y - b.y);
+    const kept = [];
+    for (const t of out) {
+      if (!kept.length || t.y - kept[kept.length - 1].y >= minGap - 6) kept.push(t);
+    }
+    return kept;
+  }
+
   /** Price axis on the right, time axis along the bottom. */
   paintAxes(L) {
     const ctx = this.ctx;
@@ -1311,14 +1417,8 @@ class CandleChart {
     ctx.fillStyle = T.muted;
     ctx.textAlign = "right";
     ctx.textBaseline = "middle";
-    const first = L.rows[0];
-    for (let i = 0; i <= 4; i++) {
-      const y = L.plotT + ((L.plotB - L.plotT) * i) / 4;
-      const p = L.pOf(y);
-      const text = this.scale.percent && first && first.c
-        ? (((p - first.c) / first.c) * 100).toFixed(2) + "%"
-        : this.fmtPrice(p);
-      ctx.fillText(text, L.w - 8, Math.min(L.plotB - 2, Math.max(L.plotT + 2, y)));
+    for (const t of this.priceTicks(L)) {
+      ctx.fillText(t.text, L.w - 8, Math.min(L.plotB - 2, Math.max(L.plotT + 2, t.y)));
     }
 
     if (this.tick && (this.tick.bid || this.tick.ask)) {
@@ -2817,10 +2917,27 @@ class CandleChart {
 
   /* ========================================================== navigation == */
 
-  maxOffset() { return Math.max(0, this.rows().length - Math.round(this.span * 0.2)); }
+  /**
+   * The travel limits: the chart stops at its own two ends.
+   *
+   * Both bounds used to allow scrolling into nothing. maxOffset let the
+   * window run on until only a fifth of it still held bars, so dragging
+   * left eventually left a handful of stretched candles adrift; minOffset
+   * allowed the window to be pulled 45% of a screen past the newest bar,
+   * into an empty right-hand margin. The margin is a convention borrowed
+   * from desktop terminals, but it was reported as a bug here - you push
+   * the chart and end up staring at blank space - so the chart now simply
+   * stops when the data does, by hand and by wheel alike.
+   *
+   * Scrolled fully back, the oldest bar sits at the left edge; scrolled
+   * fully forward, the newest sits at the right. The window always stays
+   * full of bars. When there is less history than fits on screen there is
+   * nowhere to go at all, and both bounds collapse to zero.
+   */
+  maxOffset() { return Math.max(0, this.rows().length - this.span); }
 
-  /** How far past the newest bar the chart may be pulled. */
-  minOffset() { return -Math.floor(this.span * 0.45); }
+  /** The newest bar is the right-hand edge; there is nothing beyond it. */
+  minOffset() { return 0; }
 
   /**
    * Zoom.
@@ -2865,6 +2982,41 @@ class CandleChart {
 
   clampOffset() {
     this.offset = Math.max(this.minOffset(), Math.min(this.maxOffset(), this.offset));
+  }
+
+  /**
+   * Begin a pan, recording enough to move the chart on both axes.
+   *
+   * A finger had only ever been able to push the chart sideways. The price
+   * axis was reachable by dragging with the right button held, or by
+   * dragging the axis itself - neither of which a touchscreen can do - so
+   * on a phone the chart could not be moved up or down at all, and a
+   * candle that sat above or below the window was simply unreachable.
+   *
+   * The same drag now carries the price range it started from, so the
+   * gesture can move time and price together. Which of those actually
+   * happens is decided in onMove: a finger gets both axes, a left mouse
+   * drag keeps to time alone, because on a desktop the right button
+   * already does the two-axis drag and quietly changing what the left one
+   * does would move the chart under people who were not asking for it.
+   */
+  panDrag(e, raw) {
+    const L = (raw && raw.L) || this._L || this.layout();
+    const kind = (e && e.pointerType) || this._pointerType || "mouse";
+    return {
+      mode: "pan",
+      /* The pointer that started THIS drag, not what the device is capable
+         of. A touchscreen laptop reports a coarse pointer even while a
+         mouse is being used, and that must not change what the mouse does. */
+      twoAxis: kind === "touch" || kind === "pen",
+      x: e.clientX,
+      y: e.clientY,
+      off: this.offset,
+      mn: L ? L.mn : null,
+      mx: L ? L.mx : null,
+      plotH: L ? (L.plotB - L.plotT) : 1,
+      bw: L ? L.bw : 1,
+    };
   }
 
   /**
@@ -3160,7 +3312,7 @@ class CandleChart {
 
     /* ---- middle button or held space always pans ---------------------- */
     if (e.button === 1 || this._space || this.tool === "pan") {
-      this.drag = { mode: "pan", x: e.clientX, off: this.offset };
+      this.drag = this.panDrag(e, raw);
       this.canvas.setPointerCapture(e.pointerId);
       this.canvas.style.cursor = "grabbing";
       return;
@@ -3208,7 +3360,7 @@ class CandleChart {
       }
       if (this.selected) this.select(null);
       if (this.pickPrice) { this._priceClick = hit.p; return; }
-      this.drag = { mode: "pan", x: e.clientX, off: this.offset };
+      this.drag = this.panDrag(e, raw);
       this.canvas.setPointerCapture(e.pointerId);
       this.canvas.style.cursor = "grabbing";
       return;
@@ -3352,6 +3504,11 @@ class CandleChart {
           const dx = e.clientX - this.drag.x;
           this.offset = this.drag.off + Math.round(dx / L.bw);
           this.clampOffset();
+        }
+        /* A finger moves the chart wherever it goes, price included. See
+           panDrag for why the left mouse button deliberately does not. */
+        if (this.drag.twoAxis && this.drag.mn !== null && this.drag.mn !== undefined) {
+          this.panPrice(this.drag, e.clientY - this.drag.y);
         }
       } else if (this.drag.mode === "free") {
         const dx = e.clientX - this.drag.x;

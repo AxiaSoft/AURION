@@ -2911,3 +2911,180 @@ html[dir="rtl"] .q-how[open] summary::before{ transform:rotate(0deg) }
 /* Inline status marks inside the About table and the update panel. */
 .kv b > .dot{ display:inline-block; vertical-align:1px; margin-inline-start:6px }
 p.ok > svg, .ok > svg{ width:15px; height:15px; vertical-align:-3px; margin-inline-end:5px }
+
+
+/* ======================================================================
+   Markets, redesigned
+   ----------------------------------------------------------------------
+   The view was a chart card beside a three-column table of symbol, bid
+   and ask. The table said nothing a trader watches for, gave no sign of
+   which symbol was on the chart, and the controls above the chart sat on
+   two separate rows - on a phone that was four rows of chrome above a
+   chart with no height left.
+   ====================================================================== */
+
+/* ---- toolbar ---------------------------------------------------------- */
+.mk-bar{
+  display:flex;align-items:center;gap:10px;flex-wrap:wrap;
+  margin-block-end:10px;
+}
+.mk-pick{display:flex;gap:8px;min-width:0;flex:1 1 260px}
+.mk-pick > *{min-width:0}
+.mk-pick .ctrl{flex:1 1 auto}
+.mk-tick{
+  flex:0 1 auto;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  color:var(--gold);font-size:12px;
+}
+.mk-sig{display:flex;align-items:center;gap:6px;flex:0 0 auto;margin-inline-start:auto}
+
+/* The chart is the point of the view, so it gets the height. */
+.mk-chart .chart-box{min-height:clamp(300px,52vh,620px)}
+
+/* ---- watchlist -------------------------------------------------------- */
+.mk-watch{display:flex;flex-direction:column;min-height:0}
+.mk-watch > #live-ticks{flex:1 1 auto;min-height:0;display:flex;flex-direction:column}
+.wl{display:flex;flex-direction:column;min-height:0;gap:2px}
+.wl-head,
+.wl-row{
+  display:grid;
+  grid-template-columns:minmax(0,1.1fr) minmax(0,1.5fr) minmax(0,.6fr);
+  align-items:center;gap:10px;
+}
+.wl-head{
+  padding:0 10px 6px;font-size:10px;letter-spacing:.06em;text-transform:uppercase;
+  color:var(--muted);border-bottom:1px solid var(--line);
+}
+html[dir="rtl"] .wl-head{letter-spacing:0;text-transform:none;font-size:11px}
+.wl-head .wl-quote{display:grid;grid-template-columns:1fr 1fr;gap:8px;text-align:end}
+.wl-head .wl-quote i{font-style:normal}
+.wl-head > span:last-child{text-align:end}
+
+.wl-list{overflow:auto;min-height:0;padding-top:4px;display:flex;flex-direction:column;gap:2px}
+.wl-row{
+  width:100%;text-align:start;cursor:pointer;
+  padding:9px 10px;border:1px solid transparent;border-radius:12px;
+  background:transparent;color:var(--ink);font:inherit;
+  transition:background .16s var(--ease), border-color .16s var(--ease);
+}
+.wl-row:hover{background:rgb(var(--wash) / .06)}
+.wl-row.is-on{
+  background:rgb(var(--accent-rgb) / .10);
+  border-color:rgb(var(--accent-rgb) / .35);
+}
+.wl-id{display:flex;align-items:baseline;gap:6px;min-width:0}
+.wl-id b{font-weight:600;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.wl-tf{
+  font-style:normal;font-size:10px;color:var(--muted);
+  border:1px solid var(--line);border-radius:999px;padding:1px 6px;flex:none;
+}
+.wl-quote{display:grid;grid-template-columns:1fr 1fr;gap:8px;text-align:end;min-width:0}
+.wl-quote b{font-weight:500;font-size:12.5px;overflow:hidden;text-overflow:ellipsis}
+.wl-ask{color:var(--muted)}
+/* Direction of the last change in the bid. Colour only - no arrow glyph,
+   and nothing at all when the price has not moved. */
+.wl-bid.up{color:var(--candle-up, var(--cyan))}
+.wl-bid.down{color:var(--rose)}
+.wl-sp{text-align:end;font-size:12px;color:var(--muted)}
+
+/* ---- phone ------------------------------------------------------------
+   The watchlist stops being a column beside the chart and becomes a short
+   list under it, with the rows left as rows: a horizontal strip of cards
+   reads worse here, because the columns are what let you compare spreads
+   down the list at a glance. */
+@media (max-width:1013px){
+  .mk-watch{max-height:none}
+  .wl-list{max-height:min(46vh,340px)}
+}
+@media (max-width:560px){
+  .mk-bar{gap:8px}
+  .mk-pick{flex:1 1 100%}
+  .mk-sig{margin-inline-start:0;flex:1 1 100%}
+  .mk-sig .btn{flex:1 1 auto}
+  .mk-tick{flex:1 1 100%;order:3}
+  .mk-chart .chart-box{min-height:clamp(260px,42vh,420px)}
+  .wl-head,
+  .wl-row{grid-template-columns:minmax(0,1fr) minmax(0,1.3fr) minmax(0,.55fr);gap:6px}
+  .wl-row{padding:11px 8px}          /* a comfortable thumb target */
+  .wl-id b{font-size:12.5px}
+  .wl-quote b{font-size:12px}
+}
+
+/* ======================================================================
+   The manual ticket, redesigned
+   ----------------------------------------------------------------------
+   Three identical number fields and six ghost buttons of equal weight,
+   where the two that send money looked exactly like the four that do
+   not. Laid out by job instead: a stepper for the lot, a row each for
+   stop and target with their verbs as icon buttons, and one pair of
+   order buttons sized for a thumb.
+   ====================================================================== */
+.ct-row{display:flex;align-items:center;gap:8px}
+.ct-lab{
+  flex:0 0 auto;min-width:56px;font-size:11px;color:var(--muted);
+  letter-spacing:.04em;text-transform:uppercase;
+}
+html[dir="rtl"] .ct-lab{letter-spacing:0;text-transform:none;font-size:12px}
+.ct-lab.sl{color:var(--rose)}
+.ct-lab.tp{color:var(--cyan)}
+
+.ct-vol{margin-block:10px}
+.ct-step{
+  display:flex;align-items:center;gap:0;flex:1 1 auto;min-width:0;
+  border:1px solid var(--line);border-radius:12px;overflow:hidden;
+  background:rgb(var(--s1) / .5);
+}
+.ct-step input{
+  flex:1 1 auto;min-width:0;width:100%;
+  border:0;background:transparent;color:var(--ink);
+  text-align:center;font:500 14px/1 IBM Plex Mono, Vazirmatn, monospace;
+  padding:10px 4px;
+}
+.ct-step input::-webkit-outer-spin-button,
+.ct-step input::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
+.ct-step input[type=number]{-moz-appearance:textfield;appearance:textfield}
+.ct-pm{
+  flex:none;width:38px;height:38px;display:grid;place-items:center;
+  border:0;background:rgb(var(--wash) / .05);color:var(--ink);cursor:pointer;
+}
+.ct-pm:hover{background:rgb(var(--accent-rgb) / .16)}
+.ct-pm svg{width:15px;height:15px}
+
+.ct-levels{display:grid;gap:8px;margin-block-end:12px}
+.ct-lv input{
+  flex:1 1 auto;min-width:0;
+  border:1px solid var(--line);border-radius:12px;
+  background:rgb(var(--s1) / .5);color:var(--ink);
+  padding:9px 10px;font:500 13px/1 IBM Plex Mono, Vazirmatn, monospace;
+}
+.ct-ic{
+  flex:none;width:34px;height:34px;display:grid;place-items:center;
+  border:1px solid var(--line);border-radius:10px;
+  background:transparent;color:var(--muted);cursor:pointer;
+  transition:color .16s var(--ease), border-color .16s var(--ease);
+}
+.ct-ic svg{width:15px;height:15px}
+.ct-ic:hover{color:var(--ink);border-color:rgb(var(--accent-rgb) / .45)}
+/* Armed: the chart is waiting for the trader to click a price. */
+.ct-ic.on{color:var(--gold);border-color:var(--gold);background:rgb(var(--wash) / .06)}
+
+.ct-sides{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-block-start:4px}
+.ct-side{
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;
+  min-height:52px;padding:8px 10px;border-radius:14px;border:1px solid transparent;
+  cursor:pointer;font:inherit;color:#061014;
+  transition:transform .18s var(--ease), filter .18s;
+}
+.ct-side span{font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;opacity:.85}
+html[dir="rtl"] .ct-side span{letter-spacing:0;text-transform:none;font-size:12px}
+.ct-side b{font-size:14px;font-weight:600}
+.ct-side.buy{background:linear-gradient(135deg,var(--accent),var(--accent-2) 60%,var(--accent-3))}
+.ct-side.sell{background:linear-gradient(135deg,#ff8aa3,#ff6b8a 60%,#e8536f)}
+.ct-side:hover{filter:brightness(1.06)}
+.ct-side:active{transform:translateY(1px)}
+
+@media (max-width:560px){
+  .ct-lab{min-width:44px}
+  .ct-side{min-height:58px}       /* thumb-sized, since this one sends an order */
+  .ct-pm{width:42px;height:42px}
+  .ct-ic{width:38px;height:38px}
+}
