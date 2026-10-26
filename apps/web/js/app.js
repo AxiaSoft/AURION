@@ -1284,22 +1284,16 @@ function appearanceCardsHtml() {
   // Freemium wears the accent its theme was designed with. The row still shows
   // every colour - a locked door you cannot see is just a wall.
   const accentOpen = themesUnlocked();
-  /* The trader's own accent sits at the end of the shipped ones, and it is
-     the only colour on the desk that may be a gradient: the accent lands on
-     buttons, badges and chips, which are small and deliberate. A gradient
-     under a page, a panel or a column of text would be read behind numbers
-     all day, and costs legibility for nothing. */
+  /* The trader's own accent sits at the end of the shipped ones. It is a
+     flat colour: the gradient that briefly lived here has been removed by
+     request. */
   const customAcc = AurionSkin.customAccent();
-  const accGrad = AurionSkin.accentGradient();
   const customSwatch = `
     <button type="button" class="accent-dot accent-custom${accent === "custom" ? " on" : ""}"
             data-accent-custom="1" aria-haspopup="dialog"
             aria-label="${esc(I18N.t("themes.accent_custom"))}"
             title="${esc(I18N.t("themes.accent_custom"))}"
-            data-grad="${accGrad && accGrad.on ? "on" : "off"}"
-            style="background:${accGrad && accGrad.on
-              ? `linear-gradient(${accGrad.angle}deg, ${esc(accGrad.from)}, ${esc(accGrad.to)})`
-              : esc(customAcc || "#3ee0c4")}"></button>`;
+            style="background:${esc(customAcc || "#3ee0c4")}"></button>`;
 
   const swatches = Object.keys(AurionSkin.ACCENTS).map((id) => {
     const c = AurionSkin.ACCENTS[id];
@@ -1359,22 +1353,22 @@ function bindAppearance() {
   if (accents) accents.onclick = (e) => {
     const custom = e.target.closest("[data-accent-custom]");
     if (custom) {
-      const g = AurionSkin.accentGradient();
       AurionPicker.open({
         value: AurionSkin.customAccent() || "#3ee0c4",
         anchor: custom,
         title: I18N.t("themes.accent_custom"),
         swatches: Object.keys(AurionSkin.ACCENTS).map((id) => AurionSkin.ACCENTS[id][0]).slice(0, 12),
-        gradient: g && g.on ? g : { on: false, from: AurionSkin.customAccent() || "#3ee0c4", to: "#7c6cff", angle: 135 },
-        onInput(v) {
-          /* Accent is a handful of variables, so the honest apply is
-             already cheap enough to run on every frame. */
-          if (typeof v === "string") { AurionSkin.setAccentGradient(null); AurionSkin.setCustomAccent(v); }
-          else { AurionSkin.setCustomAccent(v.from); AurionSkin.setAccentGradient(v); }
+        onInput(hex) {
+          /* The accent is a handful of variables, so the honest apply is
+             cheap enough to run on every frame - and the dot has to move
+             with the drag, not wait for it to end. */
+          AurionSkin.setCustomAccent(hex);
+          custom.style.background = hex;
+          custom.classList.add("on");
         },
-        onCommit(v) {
-          if (typeof v === "string") { AurionSkin.setAccentGradient(null); AurionSkin.setCustomAccent(v); }
-          else { AurionSkin.setCustomAccent(v.from); AurionSkin.setAccentGradient(v); }
+        onCommit(hex) {
+          AurionSkin.setCustomAccent(hex);
+          custom.style.background = hex;
           renderSettingsKnobs();
           repaintChartsForTheme();
         },
@@ -1385,7 +1379,6 @@ function bindAppearance() {
     const b = e.target.closest("[data-accent]");
     if (!b) return;
     /* A shipped accent and a custom one cannot both be in force. */
-    AurionSkin.setAccentGradient(null);
     AurionSkin.setCustomAccent("");
     if (b.dataset.locked) { toast(I18N.t("themes.locked_toast")); show("upgrade"); return; }
     AurionSkin.setAccent(b.dataset.accent);

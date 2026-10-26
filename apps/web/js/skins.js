@@ -21,7 +21,7 @@
 
   var LS_PERF = "aurion.perf";
   var LS_ACCENT = "aurion.accent";
-  /* A hand-picked accent, and an optional gradient built from it.
+  /* A hand-picked accent.
 
      The note above ACCENTS explains why a free picker was dropped the
      first time: most hand-picked values fight the dark surfaces or go
@@ -30,13 +30,8 @@
      for refusing the choice. A custom value goes through exactly the same
      readability derivation as a preset: the ink on top is measured, never
      stored, so an unwise colour stays legible even when it is not pretty.
-
-     The gradient is accent-only on purpose. Panels, page and text are
-     large areas read behind numbers; a gradient there costs legibility
-     for nothing. On an accent it lands on buttons and badges, which are
-     small and deliberate. */
+ */
   var LS_ACCENT_HEX = "aurion.accent.hex";
-  var LS_ACCENT_GRAD = "aurion.accent.grad";
 
   function read(key, fallback) {
     try {
@@ -189,41 +184,6 @@
   }
 
   function customHex() { return normHex(read(LS_ACCENT_HEX, "")) || ""; }
-
-  /** The accent gradient, or null when the trader has not asked for one. */
-  function getAccentGradient() {
-    try {
-      var raw = read(LS_ACCENT_GRAD, "");
-      if (!raw) return null;
-      var g = JSON.parse(raw);
-      if (!g || !g.on) return null;
-      var from = normHex(g.from), to = normHex(g.to);
-      if (!from || !to) return null;
-      var angle = Number(g.angle);
-      if (!isFinite(angle)) angle = 135;
-      return { on: true, from: from, to: to, angle: ((angle % 360) + 360) % 360 };
-    } catch (e) { return null; }
-  }
-
-  /* Passing null, false or {on:false} turns the gradient off. Anything that
-     carries two usable stops turns it ON, whether or not it bothered to say
-     on:true - an object describing a gradient that silently disables the
-     gradient is a trap for the next caller. */
-  function setAccentGradient(next) {
-    var wantsOff = !next || next.on === false ||
-      (next.on === undefined && !(normHex(next.from) && normHex(next.to)));
-    if (wantsOff) write(LS_ACCENT_GRAD, null);
-    else {
-      write(LS_ACCENT_GRAD, JSON.stringify({
-        on: true,
-        from: normHex(next.from) || "#3ee0c4",
-        to: normHex(next.to) || "#7c6cff",
-        angle: ((Number(next.angle) || 0) % 360 + 360) % 360,
-      }));
-    }
-    apply();
-    return getAccentGradient();
-  }
 
   function setCustomAccent(hex) {
     var h = normHex(hex);
@@ -422,25 +382,15 @@
     el.style.setProperty("--scroll-thumb-hover", a[0]);
     el.style.setProperty("--accent-readable", legibleOnPage(a[0]));
 
-    /* The gradient is published as a paint value, and as a flag so a rule
-       can choose between it and the flat colour. It is deliberately NOT
-       fed into --accent itself: everything that needs a single colour -
-       a focus ring, a border, a chart series, the derived ink - still
-       gets one, and only the handful of large accent fills opt in.
-       --accent-grad-ink is measured against the darker of the two stops,
-       because that is the worst case for a label sitting on the band. */
-    var grad = getAccentGradient();
-    if (grad) {
-      el.style.setProperty("--accent-gradient",
-        "linear-gradient(" + grad.angle + "deg, " + grad.from + ", " + grad.to + ")");
-      el.style.setProperty("--accent-grad-ink",
-        readableInk(luminance(grad.from) < luminance(grad.to) ? grad.from : grad.to));
-      el.dataset.accentGrad = "on";
-    } else {
-      el.style.removeProperty("--accent-gradient");
-      el.style.removeProperty("--accent-grad-ink");
-      delete el.dataset.accentGrad;
-    }
+    /* The accent was briefly allowed to be a two-stop gradient. It is a
+       flat colour again, by request. Any gradient a trader saved while it
+       existed is cleared on the next apply(), so an upgrade cannot leave a
+       stale --accent-gradient painted on buttons with nothing in the
+       interface able to turn it off. */
+    el.style.removeProperty("--accent-gradient");
+    el.style.removeProperty("--accent-grad-ink");
+    if (el.dataset.accentGrad) delete el.dataset.accentGrad;
+    try { localStorage.removeItem("aurion.accent.grad"); } catch (e) { /* no store, nothing stale */ }
   }
 
   // Both readability values depend on the light/dark theme, so they are
@@ -469,8 +419,6 @@
     derivedStops: derivedStops,
     customAccent: customHex,
     setCustomAccent: setCustomAccent,
-    accentGradient: getAccentGradient,
-    setAccentGradient: setAccentGradient,
     getAccent: getAccent,
     storedAccent: storedAccent,
     setAccent: setAccent,

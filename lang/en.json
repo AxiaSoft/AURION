@@ -1418,16 +1418,14 @@
     "bg_recentre": "Re-centre",
     "bg_crop_hint": "Drag the picture to choose what the desk shows. The frame has the shape of your screen.",
     "pick_colour": "Pick a colour",
-    "solid": "Solid",
-    "gradient": "Gradient",
-    "angle": "Angle",
     "hex": "Hex value",
     "accent_custom": "Your own accent",
     "wall_cut_dark": "Dark",
     "wall_cut_light": "Light",
     "wall_missing": "This picture could not be loaded. The desk is still showing the theme's own background.",
     "wall_missing_path": "Tried: {path}",
-    "wall_theme_none": "This theme has no picture"
+    "wall_theme_none": "This theme has no picture",
+    "wall_aurion": "AURION"
   },
   "ea": {
     "title": "Expert Advisors (MetaTrader 5)",

@@ -244,24 +244,44 @@ check("the settings screen no longer builds a backdrop gallery", () => {
 /* ------------------------------------ 3. both cuts of every wallpaper */
 
 check("every scene resolves to a real file in both cuts", () => {
+  /* Compare the two cuts against each other rather than against a filename
+     pattern. Most pictures are assets/bg/<name>-<cut>.jpg, but AURION's own
+     backdrop is the orb the desk has always been painted with and lives
+     beside the other artwork as a PNG - asserting the pattern would demand
+     a duplicate of a file that already exists. */
   T.WALLPAPERS.forEach((w) => {
-    [["@day", "light"], ["@night", "dark"]].forEach(([suffix, cut]) => {
-      if (!T.validWall(w + suffix)) throw new Error(w + suffix + " rejected by validWall");
-      /* The pin has to win over the desk's own mode, in BOTH directions,
-         or "night version on a light desk" is still unreachable. */
-      [true, false].forEach((lightDesk) => {
-        const url = T.wallUrl(w + suffix, lightDesk);
-        if (!url.endsWith(w + "-" + cut + ".jpg")) {
-          throw new Error(w + suffix + " on a " + (lightDesk ? "light" : "dark") +
-            " desk resolved to " + url);
-        }
-        const onDisk = path.join(WEB, url);
-        if (!fs.existsSync(onDisk)) throw new Error("missing asset " + url);
-      });
+    if (!T.validWall(w + "@day") || !T.validWall(w + "@night")) {
+      throw new Error(w + " does not offer both cuts");
+    }
+    const day = T.wallUrl(w + "@day", false);
+    const night = T.wallUrl(w + "@night", true);
+    if (!day || !night) throw new Error(w + " has a cut with no file");
+    if (day === night) throw new Error(w + " uses the same file for both cuts");
+    /* The pin has to win over the desk's own mode, in BOTH directions, or
+       "the night picture on a light desk" is still unreachable. */
+    [true, false].forEach((lightDesk) => {
+      if (T.wallUrl(w + "@day", lightDesk) !== day) throw new Error(w + "@day follows the desk mode");
+      if (T.wallUrl(w + "@night", lightDesk) !== night) throw new Error(w + "@night follows the desk mode");
     });
     /* Unpinned still follows the desk. */
-    if (!T.wallUrl(w, true).endsWith(w + "-light.jpg")) throw new Error(w + " ignores light mode");
-    if (!T.wallUrl(w, false).endsWith(w + "-dark.jpg")) throw new Error(w + " ignores dark mode");
+    if (T.wallUrl(w, true) !== day) throw new Error(w + " ignores light mode");
+    if (T.wallUrl(w, false) !== night) throw new Error(w + " ignores dark mode");
+    [day, night].forEach((u) => {
+      if (!fs.existsSync(path.join(WEB, u))) throw new Error("missing asset " + u);
+    });
+  });
+});
+
+check("the AURION theme's own backdrop is offered like any other", () => {
+  /* It was the one picture a trader could see on their desk and not find
+     anywhere in the gallery. */
+  if (T.WALLPAPERS.indexOf("aurion") === -1) throw new Error("aurion is not in the gallery");
+  if (T.themeWall("glass") !== "aurion") {
+    throw new Error('the default theme reports "' + T.themeWall("glass") + '" as its own picture');
+  }
+  ["en", "fa", "ar"].forEach((lang) => {
+    const d = JSON.parse(fs.readFileSync(path.join(ROOT, "lang", lang + ".json"), "utf8"));
+    if (!d.themes.wall_aurion) throw new Error(lang + " has no name for it");
   });
 });
 
@@ -410,32 +430,44 @@ check("a custom accent colour takes effect", () => {
   if (!win.__props["--accent-ink"]) throw new Error("no readable ink was derived");
 });
 
-check("the accent gradient publishes and can be turned off again", () => {
-  const S = win.AurionSkin;
-  S.setAccentGradient({ from: "#ff6600", to: "#7c6cff", angle: 135 });
-  const g = win.__props["--accent-gradient"];
-  if (!g || !/linear-gradient\(135deg/.test(g)) throw new Error("no gradient published, got " + g);
-  if (!win.__props["--accent-grad-ink"]) throw new Error("no ink derived for the gradient");
-  S.setAccentGradient(null);
-  if (win.__props["--accent-gradient"]) throw new Error("the gradient survived being turned off");
+check("the accent gradient is gone, everywhere", () => {
+  /* Offered once, then withdrawn by request. Removing a feature means
+     removing it from the engine, the stylesheet, the picker and the
+     strings - a leftover --accent-gradient still painted on buttons with
+     nothing left in the interface able to switch it off is worse than
+     never having shipped it. */
+  const skins = read("js/skins.js");
+  if (/setAccentGradient|getAccentGradient/.test(skins)) throw new Error("skins.js still exposes the gradient API");
+  if (/accentGradient:/.test(skins)) throw new Error("skins.js still exports it");
+  const app = stripComments(read("js/app.js"));
+  if (/accentGradient|accent-grad/.test(app)) throw new Error("app.js still references it");
+  const css = read("css/themes.css");
+  if (/--accent-gradient|data-accent-grad/.test(css)) throw new Error("themes.css still paints it");
+  const picker = stripComments(read("js/colorpicker.js"));
+  if (/opts\.gradient|cp-tabs|cp-leg|cp-angle/.test(picker)) throw new Error("the picker still has a gradient editor");
+  ["en", "fa", "ar"].forEach((lang) => {
+    const d = JSON.parse(fs.readFileSync(path.join(ROOT, "lang", lang + ".json"), "utf8"));
+    ["solid", "gradient", "angle"].forEach((k) => {
+      if (d.themes[k]) throw new Error(lang + " still carries themes." + k);
+    });
+  });
+  /* And a trader who saved one before it was withdrawn must not be left
+     with it painted on. */
+  if (!/removeItem\("aurion\.accent\.grad"\)/.test(skins)) {
+    throw new Error("a stored gradient is never cleared on upgrade");
+  }
 });
 
-check("the gradient never leaks onto the page, panels or text", () => {
-  /* The user was explicit: gradient support is for the accent alone. A
-     gradient behind a column of prices costs legibility and earns nothing. */
-  const grad = themesCss.slice(themesCss.indexOf("The accent gradient."));
-  const rules = grad.match(/^[^@{}\n][^{}]*\{[^}]*\}/gm) || [];
-  rules.forEach((r) => {
-    if (!/var\(--accent-gradient\)/.test(r)) return;
-    const sel = r.slice(0, r.indexOf("{"));
-    if (/(^|[\s,])(html|body|\.aurora|\.card|\.panel)\b/.test(sel.replace(/html\[data-accent-grad="on"\]/g, ""))) {
-      throw new Error("the accent gradient is being painted on a large surface: " + sel.trim());
-    }
-  });
-  /* And nothing may feed a gradient into the single-colour token, or every
-     border and focus ring on the desk tries to paint one. */
-  if (/--accent:\s*linear-gradient/.test(read("js/skins.js"))) {
-    throw new Error("--accent must stay a single colour");
+check("the accent swatch shows the colour while it is being dragged", () => {
+  /* The dot is the only thing on screen reporting what the accent now is;
+     updating it on release makes the picker feel a step behind the hand. */
+  const app = stripComments(read("js/app.js"));
+  const i = app.indexOf("data-accent-custom]");
+  const block = app.slice(i, i + 1200);
+  const onInput = /onInput\(hex\)\s*\{[\s\S]*?\n        \}/.exec(block);
+  if (!onInput) throw new Error("the custom accent has no live preview");
+  if (!/custom\.style\.background\s*=\s*hex/.test(onInput[0])) {
+    throw new Error("the swatch is not repainted during the drag");
   }
 });
 
@@ -444,7 +476,7 @@ check("choosing a shipped accent clears the custom one", () => {
   const i = app.indexOf('const b = e.target.closest("[data-accent]")');
   if (i < 0) throw new Error("the shipped-accent handler is gone");
   const near = app.slice(i, i + 400);
-  if (!/setCustomAccent\(""\)/.test(near) || !/setAccentGradient\(null\)/.test(near)) {
+  if (!/setCustomAccent\(""\)/.test(near)) {
     throw new Error("a stored custom accent would keep overriding the shipped one");
   }
 });
@@ -453,8 +485,8 @@ check("choosing a shipped accent clears the custom one", () => {
 
 check("every new string exists in all three languages", () => {
   const keys = ["wall_cut_dark", "wall_cut_light", "wall_missing", "bg_crop", "bg_fit_cover", "bg_fit_contain",
-    "bg_zoom", "bg_recentre", "bg_crop_hint", "pick_colour", "solid", "gradient",
-    "angle", "hex", "accent_custom", "wall_theme_none"];
+    "bg_zoom", "bg_recentre", "bg_crop_hint", "pick_colour",
+    "hex", "accent_custom", "wall_theme_none", "wall_aurion"];
   ["en", "fa", "ar"].forEach((lang) => {
     const d = JSON.parse(fs.readFileSync(path.join(ROOT, "lang", lang + ".json"), "utf8"));
     keys.forEach((k) => {
@@ -469,10 +501,10 @@ check("every new string exists in all three languages", () => {
 
 check("the browser is forced to pick up every file that changed", () => {
   const html = read("index.html");
-  const want = ["js/skins.js?v=desk97", "js/themes.js?v=desk123", "js/app.js?v=desk129",
-    "css/themes.css?v=desk113", "css/app.css?v=desk129", "js/colorpicker.js?v=desk1"];
+  const want = ["js/skins.js?v=desk98", "js/themes.js?v=desk124", "js/app.js?v=desk130",
+    "css/themes.css?v=desk114", "css/app.css?v=desk129", "js/colorpicker.js?v=desk2"];
   want.forEach((w) => { if (!html.includes(w)) throw new Error("index.html is missing " + w); });
-  if (!read("sw.js").includes("aurion-shell-v116")) throw new Error("the service worker cache was not bumped");
+  if (!read("sw.js").includes("aurion-shell-v117")) throw new Error("the service worker cache was not bumped");
 });
 
 /* ----------------------------------------------------------------- report */

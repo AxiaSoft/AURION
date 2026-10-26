@@ -20,7 +20,6 @@
    work. That split is what keeps the desk responsive while a colour is
    being chosen.
 
-   It can also edit a two-stop gradient, which only the accent uses.
    =========================================================================== */
 (function (global) {
   "use strict";
@@ -137,9 +136,8 @@
    * opts.anchor     element to sit beside
    * opts.title      heading
    * opts.swatches   array of "#rrggbb" offered as one-tap choices
-   * opts.gradient   null, or {on,from,to,angle} to show the gradient editor
-   * opts.onInput    (hex|gradientObject) - fires continuously; keep it cheap
-   * opts.onCommit   (hex|gradientObject) - fires when the choice settles
+   * opts.onInput    (hex) - fires continuously; keep it cheap
+   * opts.onCommit   (hex) - fires when the choice settles
    */
   function show(opts) {
     opts = opts || {};
@@ -147,14 +145,6 @@
 
     var hex = normHex(opts.value) || "#3ee0c4";
     var hsv = hexToHsv(hex);
-    var grad = opts.gradient ? {
-      on: Boolean(opts.gradient.on),
-      from: normHex(opts.gradient.from) || hex,
-      to: normHex(opts.gradient.to) || "#7c6cff",
-      angle: Number(opts.gradient.angle) || 135,
-    } : null;
-    /* Which stop the field is editing while the gradient editor is open. */
-    var leg = "from";
 
     var node = el("div", "cp-pop");
     node.setAttribute("role", "dialog");
@@ -163,18 +153,8 @@
     node.innerHTML =
       '<div class="cp-head"><b></b><button type="button" class="cp-x" aria-label="' +
         t("common.close", "Close") + '">\u00D7</button></div>' +
-      (grad ? '<div class="cp-tabs" role="tablist">' +
-        '<button type="button" class="cp-tab on" data-tab="solid">' + t("themes.solid", "Solid") + '</button>' +
-        '<button type="button" class="cp-tab" data-tab="grad">' + t("themes.gradient", "Gradient") + '</button>' +
-        '</div>' : "") +
-      (grad ? '<div class="cp-legs" hidden>' +
-        '<button type="button" class="cp-leg on" data-leg="from"></button>' +
-        '<button type="button" class="cp-leg" data-leg="to"></button>' +
-        '</div>' : "") +
       '<div class="cp-sv"><i></i></div>' +
       '<div class="cp-hue"><i></i></div>' +
-      (grad ? '<label class="cp-angle" hidden><span></span>' +
-        '<input type="range" min="0" max="360" step="1" /></label>' : "") +
       '<div class="cp-foot">' +
         '<span class="cp-prev"></span>' +
         '<input class="cp-hex" spellcheck="false" maxlength="7" aria-label="' +
@@ -191,16 +171,6 @@
     var prev = node.querySelector(".cp-prev");
     var hexIn = node.querySelector(".cp-hex");
     var swatchBox = node.querySelector(".cp-swatches");
-    var tabs = node.querySelectorAll(".cp-tab");
-    var legs = node.querySelector(".cp-legs");
-    var angleWrap = node.querySelector(".cp-angle");
-    var angleIn = angleWrap ? angleWrap.querySelector("input") : null;
-
-    if (angleWrap) {
-      angleWrap.querySelector("span").textContent = t("themes.angle", "Angle");
-      angleIn.value = String(grad.angle);
-    }
-
     (opts.swatches || []).forEach(function (s) {
       var h = normHex(s);
       if (!h) return;
@@ -220,7 +190,7 @@
     var queued = null;
     var frame = 0;
     function report(commit) {
-      var payload = grad && grad.on ? { on: true, from: grad.from, to: grad.to, angle: grad.angle } : current();
+      var payload = current();
       if (commit) {
         if (frame) { global.cancelAnimationFrame(frame); frame = 0; queued = null; }
         if (opts.onCommit) opts.onCommit(payload);
@@ -250,16 +220,7 @@
       hueDot.style.background = hsvToHex(hsv[0], 1, 1);
       if (doc.activeElement !== hexIn) hexIn.value = now;
 
-      if (grad && grad.on) {
-        grad[leg] = now;
-        prev.style.background = "linear-gradient(" + grad.angle + "deg, " + grad.from + ", " + grad.to + ")";
-        var a = node.querySelector('[data-leg="from"]');
-        var b = node.querySelector('[data-leg="to"]');
-        if (a) a.style.background = grad.from;
-        if (b) b.style.background = grad.to;
-      } else {
-        prev.style.background = now;
-      }
+      prev.style.background = now;
     }
 
     function setHex(h, commit) {
@@ -290,38 +251,6 @@
       report(false);
     });
     hexIn.addEventListener("change", function () { report(true); });
-
-    if (grad) {
-      Array.prototype.forEach.call(tabs, function (tab) {
-        tab.addEventListener("click", function () {
-          var wantGrad = tab.dataset.tab === "grad";
-          Array.prototype.forEach.call(tabs, function (x) { x.classList.toggle("on", x === tab); });
-          grad.on = wantGrad;
-          legs.hidden = !wantGrad;
-          angleWrap.hidden = !wantGrad;
-          if (wantGrad) { leg = "from"; hsv = hexToHsv(grad.from); }
-          paint();
-          report(true);
-        });
-      });
-      node.querySelectorAll("[data-leg]").forEach(function (b) {
-        b.addEventListener("click", function () {
-          leg = b.dataset.leg;
-          node.querySelectorAll("[data-leg]").forEach(function (x) { x.classList.toggle("on", x === b); });
-          hsv = hexToHsv(grad[leg]);
-          paint();
-        });
-      });
-      angleIn.addEventListener("input", function () {
-        grad.angle = Number(angleIn.value) || 0;
-        paint();
-        report(false);
-      });
-      angleIn.addEventListener("change", function () { report(true); });
-      if (grad.on) {
-        node.querySelector('[data-tab="grad"]').click();
-      }
-    }
 
     node.querySelector(".cp-x").addEventListener("click", close);
 

@@ -2133,34 +2133,6 @@ html[data-bg="photo"] .aurora::after{
    picture is shown as it is; the effect still arrives from the parent. */
 
 
-/* ===========================================================================
-   The accent gradient.
-
-   Offered for the accent and for nothing else. Page, panel and text are
-   large areas read behind numbers, and a gradient under a column of prices
-   costs legibility while adding nothing; the accent lands on buttons,
-   badges and chips, which are small, deliberate, and where a little
-   richness is actually seen.
-
-   Everything that needs ONE colour - focus rings, borders, chart series,
-   the derived readable ink - keeps reading --accent. Only solid accent
-   fills opt in here, so turning the gradient on can never leave a
-   one-pixel border trying to paint a gradient.
-   =========================================================================== */
-html[data-accent-grad="on"] :is(.btn.primary, .btn:not(.ghost):not(.danger):not(.tiny)){
-  background-image:var(--accent-gradient);
-  background-color:transparent;
-  color:var(--accent-grad-ink, var(--accent-ink));
-  border-color:transparent;
-}
-html[data-accent-grad="on"] .pill.on,
-html[data-accent-grad="on"] .seg-btn.on,
-html[data-accent-grad="on"] .bt-prog i{
-  background-image:var(--accent-gradient);
-  color:var(--accent-grad-ink, var(--accent-ink));
-}
-/* The swatch in Settings has to show the gradient it is offering. */
-.acc-swatch[data-grad="on"]{ background-image:var(--accent-gradient) }
 
 /* ===========================================================================
    The desk's own colour picker.
@@ -2187,22 +2159,6 @@ html[data-accent-grad="on"] .bt-prog i{
 }
 .cp-x:hover{ background:rgb(var(--wash) / .10); color:var(--ink) }
 
-.cp-tabs{ display:flex; gap:4px; padding:3px; background:rgb(var(--wash) / .07); border-radius:10px }
-.cp-tab{
-  flex:1; padding:5px 8px; font-size:12px; cursor:pointer;
-  background:none; border:0; border-radius:8px; color:var(--muted);
-}
-.cp-tab.on{ background:rgb(var(--s4)); color:var(--ink) }
-
-.cp-legs{ display:flex; gap:8px }
-.cp-leg{
-  flex:1; height:24px; cursor:pointer;
-  border:1px solid rgb(var(--wash) / .16); border-radius:8px;
-}
-.cp-leg.on{ border-color:var(--accent); box-shadow:0 0 0 2px rgb(var(--wash) / .10) }
-
-/* The saturation/value field. Its background is written by the script,
-   because it has to track the chosen hue. */
 .cp-sv{
   position:relative; height:132px; border-radius:10px; cursor:crosshair;
   touch-action:none;                      /* or a finger scrolls the panel */
@@ -2219,8 +2175,6 @@ html[data-accent-grad="on"] .bt-prog i{
 }
 .cp-hue i{ top:50% }
 
-.cp-angle{ display:flex; align-items:center; gap:8px; font-size:12px; color:var(--muted) }
-.cp-angle input{ flex:1 }
 
 .cp-foot{ display:flex; align-items:center; gap:8px }
 .cp-prev{

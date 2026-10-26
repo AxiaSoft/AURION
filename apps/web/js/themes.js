@@ -206,9 +206,27 @@
    * The names are the file stems in assets/bg. Adding one is a line here and
    * two files on disk. */
   var WALLPAPERS = [
+    "aurion",
     "aurora", "clay", "cyber", "frost", "midnight",
     "minimal", "mono", "neu", "ocean", "sunset"
   ];
+
+  /* Most wallpapers follow one naming rule - assets/bg/<name>-<cut>.jpg -
+     and need no entry here. AURION's own backdrop does not: it is the orb
+     the desk and the sign-in screen have always been painted with, and it
+     lives beside them as a PNG rather than in the gallery folder.
+
+     It was therefore the one picture a trader could see on screen and not
+     find in the list. Pointing at the real files is better than copying
+     three megabytes of PNG into assets/bg just to satisfy the pattern. */
+  var WALL_SRC = {
+    aurion: { dark: "assets/login-orb.png", light: "assets/login-orb-light.png" },
+  };
+
+  /* Which picture a theme ships with. Usually the one that shares its name;
+     the default theme is called AURION on screen but "glass" in storage, so
+     it is spelled out. */
+  var THEME_OWN_WALL = { glass: "aurion" };
 
   /* "" means the theme keeps whatever css/themes.css gives it; "none" means
      the trader asked for no photograph at all, which is not the same thing
@@ -240,6 +258,8 @@
     /* Relative to the DOCUMENT, not to css/themes.css: this lands in a
        <style> element in index.html, so "../assets" would resolve one
        directory too high and silently load nothing. */
+    var special = WALL_SRC[p.name];
+    if (special) return useLight ? special.light : special.dark;
     return "assets/bg/" + p.name + "-" + (useLight ? "light" : "dark") + ".jpg";
   }
 
@@ -483,6 +503,7 @@
      it. css/themes.css names each file after its skin, so the mapping is the
      id itself - except Glass and Custom, which ship with none. */
   function themeOwnWall(id) {
+    if (THEME_OWN_WALL[id]) return THEME_OWN_WALL[id];
     return WALLPAPERS.indexOf(id) === -1 ? "" : id;
   }
 

@@ -31,21 +31,27 @@ let f=0;const ok=(c,m,d)=>{if(!c){f++;console.log("FAIL "+m+(d?"  — "+d:""))}e
 T.setPaid(true);
 ok(T.effective()!=="","the harness has a theme to work on");
 
-ok(Array.isArray(T.WALLPAPERS)&&T.WALLPAPERS.length===10,"ten wallpapers are offered",String(T.WALLPAPERS.length));
-// every advertised file must exist on disk, in both cuts
+ok(Array.isArray(T.WALLPAPERS)&&T.WALLPAPERS.length===11,"eleven wallpapers are offered",String(T.WALLPAPERS.length));
+/* Resolve through wallUrl rather than rebuilding the filename here. Most
+   pictures follow assets/bg/<name>-<cut>.jpg, but AURION's own backdrop is
+   the orb the desk has always used, which lives beside the other artwork as
+   a PNG. A test that reconstructs the pattern would demand a copy of a file
+   that already exists somewhere else. */
 const missing=[];
-T.WALLPAPERS.forEach(w=>["dark","light"].forEach(c=>{
-  const p=path.join(WEB,"assets","bg",`${w}-${c}.jpg`);
-  if(!fs.existsSync(p))missing.push(`${w}-${c}.jpg`);
+T.WALLPAPERS.forEach(w=>[["dark","night"],["light","day"]].forEach(([c,cut])=>{
+  const url=T.wallUrl(`${w}@${cut}`, c==="light");
+  if(!url){missing.push(`${w}@${cut} (no url)`);return}
+  if(!fs.existsSync(path.join(WEB,url)))missing.push(url);
 }));
-ok(!missing.length,"every tile points at a file that exists",missing.join(", ")||"all 20 present");
+ok(!missing.length,"every tile points at a file that exists",missing.join(", ")||"all 22 present");
 
 // and nothing on disk is left out of the gallery
 const onDisk=fs.readdirSync(path.join(WEB,"assets","bg")).filter(x=>x.endsWith(".jpg"));
 const stems=[...new Set(onDisk.map(x=>x.replace(/-(dark|light)\.jpg$/,"")))].sort();
-ok(JSON.stringify(stems)===JSON.stringify([...T.WALLPAPERS].sort()),
+const stranded=stems.filter(x=>T.WALLPAPERS.indexOf(x)===-1);
+ok(!stranded.length,
   "every picture shipped is in the gallery — none left stranded",
-  stems.filter(x=>T.WALLPAPERS.indexOf(x)===-1).join(", ")||"none missing");
+  stranded.join(", ")||"none missing");
 
 T.set("midnight");
 ok(T.wall("midnight")==="","a theme starts on its own picture");
@@ -109,8 +115,12 @@ T.set("midnight");
 T.edit({wall:"ocean"});
 ok(T.themeWall("midnight")==="midnight",
   "a theme's own picture is named after the theme, whatever is laid over it",T.themeWall("midnight"));
-ok(T.themeWall("glass")==="" && T.themeWall("custom")==="",
-  "themes that ship no picture say so rather than inventing a filename");
+/* The default theme is "glass" in storage and AURION on screen, and it does
+   ship a picture - the orb. It was the one backdrop a trader could see and
+   not find in the list. Custom genuinely ships none. */
+ok(T.themeWall("glass")==="aurion","the default theme offers its own backdrop",T.themeWall("glass"));
+ok(T.themeWall("custom")==="",
+  "a theme that ships no picture says so rather than inventing a filename");
 
 // the custom theme too
 T.set("custom");

@@ -299,9 +299,17 @@ function check(name, ok, detail) {
       try { html2 = String(T.views.settings()); } catch (e) { threw = e.message; }
     }
     check("the settings view renders with the gallery in it", threw === "", threw || "ok");
-    check("every shipped picture has a tile",
-      AT.WALLPAPERS.every((w) => html2.includes("assets/bg/" + w + "-")),
-      AT.WALLPAPERS.filter((w) => !html2.includes("assets/bg/" + w + "-")).join(", ") || "all 10");
+    /* Ask the engine where each picture lives instead of assuming
+       assets/bg/<name>-<cut>.jpg. AURION's own backdrop is the orb the desk
+       has always used and sits beside the other artwork as a PNG. */
+    const tileMissing = AT.WALLPAPERS.filter((w) => {
+      const dark = AT.wallUrl(w + "@night", false);
+      const light = AT.wallUrl(w + "@day", true);
+      return !(dark && html2.includes(dark)) || !(light && html2.includes(light));
+    });
+    check("every shipped picture has a tile, in both cuts",
+      tileMissing.length === 0,
+      tileMissing.join(", ") || "all " + AT.WALLPAPERS.length);
     check("the tiles are a radio group the keyboard can reach",
       /id="knob-walls"[^>]*role="radiogroup"/.test(html2));
     check("'theme's own' and 'no picture' are both offered",
