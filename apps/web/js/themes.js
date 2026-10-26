@@ -728,6 +728,41 @@
     } catch (e) { /* the theme's palette still applies without its knobs */ }
   }
 
+  /* Where the shipped wallpapers really live.
+
+     The twenty pictures are addressed twice: themes.css names them as
+     "../assets/bg/x.jpg", which the browser resolves against the STYLESHEET,
+     and this file names them for a <style> it injects into the document,
+     which resolves against the DOCUMENT. Those two bases agree only while
+     the desk is served from the root of the web folder.
+
+     The backend serves index.html for every unmatched path, so the desk can
+     legitimately be sitting on a URL with a segment in it - and a
+     document-relative "assets/bg/x.jpg" would then resolve to a path the
+     catch-all answers with index.html. The browser gets HTML where it
+     expected a JPEG, decodes nothing, and paints nothing: a wallpaper that
+     silently fails to appear while every value involved looks correct.
+
+     So the published URL is made absolute against the stylesheet that owns
+     the pictures. Both routes then point at the same file no matter where
+     the document is. */
+  function assetUrl(rel) {
+    try {
+      var doc = global.document;
+      var links = doc ? doc.getElementsByTagName("link") : [];
+      for (var i = 0; i < links.length; i++) {
+        var href = links[i].getAttribute && links[i].getAttribute("href");
+        if (href && href.indexOf("css/themes.css") !== -1) {
+          /* links[i].href is already absolute; the pictures sit one level
+             up from css/, exactly as themes.css spells it. */
+          return new global.URL("../" + rel, links[i].href).href;
+        }
+      }
+      if (doc && doc.baseURI) return new global.URL(rel, doc.baseURI).href;
+    } catch (e) { /* fall through to the relative form */ }
+    return rel;
+  }
+
   /** The CSS for a theme's chosen wallpaper, or "" to leave it alone. */
   function wallCss(id) {
     var choice = activeWall(id);
@@ -737,7 +772,8 @@
     var light = Boolean(el && el.dataset && el.dataset.theme === "light");
     var url = wallUrl(choice, light);
     if (!url) return "";
-    return "html[data-skin][data-bg][data-motion]{--theme-bg:url(\"" + url.replace(/"/g, "%22") + "\")}";
+    return "html[data-skin][data-bg][data-motion]{--theme-bg:url(\"" +
+      assetUrl(url).replace(/"/g, "%22") + "\")}";
   }
 
   /** Write the active theme onto <html>. */
@@ -907,6 +943,7 @@
     defaultCustom: defaultCustom,
     BACKDROPS: BACKDROPS,
     validWall: validWall,
+    assetUrl: assetUrl,
     splitWall: splitWall,
     themeKnobs: themeKnobs,
     edit: editTheme,

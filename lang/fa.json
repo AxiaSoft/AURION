@@ -1410,8 +1410,6 @@
     "wall_neu": "نرم",
     "wall_ocean": "اقیانوس",
     "wall_sunset": "غروب",
-    "wall_day": "روز",
-    "wall_night": "شب",
     "bg_crop": "قاب‌بندی",
     "bg_fit": "اندازه",
     "bg_fit_cover": "پرکردن",
@@ -1424,7 +1422,11 @@
     "gradient": "گرادیان",
     "angle": "زاویه",
     "hex": "کد رنگ",
-    "accent_custom": "رنگ تأکید دلخواه"
+    "accent_custom": "رنگ تأکید دلخواه",
+    "wall_cut_dark": "دارک",
+    "wall_cut_light": "لایت",
+    "wall_missing": "این تصویر بارگذاری نشد. میز همچنان پس‌زمینهٔ خود تم را نشان می‌دهد.",
+    "wall_missing_path": "مسیر امتحان‌شده: {path}"
   },
   "ea": {
     "title": "اکسپرت‌های متاتریدر ۵",

@@ -1410,8 +1410,6 @@
     "wall_neu": "Soft",
     "wall_ocean": "Ocean",
     "wall_sunset": "Sunset",
-    "wall_day": "Day",
-    "wall_night": "Night",
     "bg_crop": "Framing",
     "bg_fit": "Fit",
     "bg_fit_cover": "Fill",
@@ -1424,7 +1422,11 @@
     "gradient": "Gradient",
     "angle": "Angle",
     "hex": "Hex value",
-    "accent_custom": "Your own accent"
+    "accent_custom": "Your own accent",
+    "wall_cut_dark": "Dark",
+    "wall_cut_light": "Light",
+    "wall_missing": "This picture could not be loaded. The desk is still showing the theme's own background.",
+    "wall_missing_path": "Tried: {path}"
   },
   "ea": {
     "title": "Expert Advisors (MetaTrader 5)",

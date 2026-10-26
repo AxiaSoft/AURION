@@ -278,6 +278,37 @@ check("the gallery offers both cuts of each scene", () => {
   }
 });
 
+check("the cut is named in the title, not stamped on the thumbnail", () => {
+  const app = stripComments(read("js/app.js"));
+  /* The label has to reach the tile's NAME. */
+  if (!/\$\{name\}\s+\$\{darkLabel\}/.test(app) || !/\$\{name\}\s+\$\{lightLabel\}/.test(app)) {
+    throw new Error("the cut is not part of the tile's name");
+  }
+  /* And nothing may be drawn over the artwork. */
+  if (/wall-cut/.test(app) || /wall-cut/.test(read("css/themes.css"))) {
+    throw new Error("the badge over the thumbnail is still there");
+  }
+});
+
+check("a wallpaper that cannot be loaded is reported, not swallowed", () => {
+  const app = stripComments(read("js/app.js"));
+  if (!/function verifyWallpaper/.test(app)) throw new Error("nothing checks that the picture loads");
+  if (!/wall-warn/.test(read("css/themes.css"))) throw new Error("the warning has no styling");
+  const fn = /function verifyWallpaper[\s\S]*?\n}/.exec(app)[0];
+  if (!/onerror/.test(fn)) throw new Error("the probe never handles failure");
+  if (!/wall_missing/.test(fn)) throw new Error("the failure is not put into words");
+  if (!/assetUrl/.test(fn)) throw new Error("the probe must test the same URL the stylesheet uses");
+});
+
+check("the published wallpaper URL does not depend on where the desk is served", () => {
+  /* The backend answers every unmatched path with index.html, so a
+     document-relative asset path resolves to HTML on any sub-path. */
+  const t = read("js/themes.js");
+  if (!/function assetUrl/.test(t)) throw new Error("no absolute resolution");
+  const wc = /function wallCss[\s\S]*?\n  }/.exec(t)[0];
+  if (!/assetUrl\(/.test(wc)) throw new Error("wallCss still publishes a bare relative path");
+});
+
 /* ------------------------------------------- 4. framing a custom picture */
 
 check("the framing knobs round-trip and clamp", () => {
@@ -421,7 +452,7 @@ check("choosing a shipped accent clears the custom one", () => {
 /* ----------------------------------------------- 7. strings and cache */
 
 check("every new string exists in all three languages", () => {
-  const keys = ["wall_day", "wall_night", "bg_crop", "bg_fit_cover", "bg_fit_contain",
+  const keys = ["wall_cut_dark", "wall_cut_light", "wall_missing", "bg_crop", "bg_fit_cover", "bg_fit_contain",
     "bg_zoom", "bg_recentre", "bg_crop_hint", "pick_colour", "solid", "gradient",
     "angle", "hex", "accent_custom"];
   ["en", "fa", "ar"].forEach((lang) => {
@@ -438,10 +469,10 @@ check("every new string exists in all three languages", () => {
 
 check("the browser is forced to pick up every file that changed", () => {
   const html = read("index.html");
-  const want = ["js/skins.js?v=desk97", "js/themes.js?v=desk122", "js/app.js?v=desk127",
-    "css/themes.css?v=desk112", "css/app.css?v=desk129", "js/colorpicker.js?v=desk1"];
+  const want = ["js/skins.js?v=desk97", "js/themes.js?v=desk123", "js/app.js?v=desk128",
+    "css/themes.css?v=desk113", "css/app.css?v=desk129", "js/colorpicker.js?v=desk1"];
   want.forEach((w) => { if (!html.includes(w)) throw new Error("index.html is missing " + w); });
-  if (!read("sw.js").includes("aurion-shell-v114")) throw new Error("the service worker cache was not bumped");
+  if (!read("sw.js").includes("aurion-shell-v115")) throw new Error("the service worker cache was not bumped");
 });
 
 /* ----------------------------------------------------------------- report */

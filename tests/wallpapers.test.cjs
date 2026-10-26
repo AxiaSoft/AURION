@@ -54,10 +54,17 @@ ok(!/--theme-bg/.test(css()),"and publishes no override");
 // pick the ocean picture while on midnight — the whole point of the request
 T.edit({wall:"ocean"});
 ok(T.wall("midnight")==="ocean","any theme can wear any picture");
-ok(/--theme-bg:url\("assets\/bg\/ocean-dark\.jpg"\)/.test(css()),
+/* The published URL is absolute now. themes.css addresses the pictures as
+   "../assets/bg/x.jpg" - resolved against the stylesheet - while an injected
+   <style> resolves against the document, and those two bases only agree
+   while the desk sits at the root. The backend answers every unmatched path
+   with index.html, so on any other path the relative form would have
+   resolved to HTML instead of a JPEG and the wallpaper would have silently
+   failed to paint. Both routes are pinned to the same file now. */
+ok(/--theme-bg:url\("[^"]*\/assets\/bg\/ocean-dark\.jpg"\)/.test(css()),
   "the dark cut is published for a dark desk",(css().match(/--theme-bg:[^}]*/)||[""])[0]);
 ok(!/\.\.\/assets/.test(css()),
-  "the path is relative to the document, not to css/themes.css");
+  "the published path never leans on the stylesheet's folder");
 
 // flip to light: the cut must follow
 el.dataset.theme="light";

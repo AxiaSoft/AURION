@@ -518,12 +518,16 @@ function themeBuilderHtml() {
      on the desk. */
   const wallNow = AurionTheme.wall(current);
   const lightNow = document.documentElement.dataset.theme === "light";
-  const wallTile = (value, label, style, extra, badge) =>
+  /* The cut is part of the picture's NAME - "Aurora Dark" - rather than a
+     badge stamped across the artwork. A label printed over the thumbnail
+     covers the very thing the tile exists to show, and the gallery is a
+     list of pictures to pick from, so each one should simply say what it
+     is. */
+  const wallTile = (value, label, style, extra) =>
     `<button type="button" class="bg-tile wall-tile${value === wallNow ? " on" : ""}"
              data-wallpick="${esc(value)}" role="radio" aria-checked="${value === wallNow}"
-             tabindex="${value === wallNow ? 0 : -1}">
-       <span class="bgt-art wall-art${extra || ""}"${style}>${
-         badge ? `<i class="wall-cut">${esc(badge)}</i>` : ""}</span>
+             tabindex="${value === wallNow ? 0 : -1}" title="${esc(label)}">
+       <span class="bgt-art wall-art${extra || ""}"${style}></span>
        <span class="bgt-name">${esc(label)}</span>
      </button>`;
 
@@ -542,20 +546,18 @@ function themeBuilderHtml() {
      not be asked for on a light desk. Both are offered now, each labelled,
      and the first tile of each pair still follows the mode for anyone who
      wants that. */
-  const dayLabel = I18N.t("themes.wall_day");
-  const nightLabel = I18N.t("themes.wall_night");
+  const darkLabel = I18N.t("themes.wall_cut_dark");
+  const lightLabel = I18N.t("themes.wall_cut_light");
   const wallTiles = [
     wallTile("", I18N.t("themes.wall_theme"), ownStyle, ownWall ? "" : " is-none"),
     wallTile("none", I18N.t("themes.wall_none"), "", " is-none"),
   ].concat(AurionTheme.WALLPAPERS.flatMap((w) => {
     const name = I18N.t("themes.wall_" + w);
     return [
-      wallTile(`${w}@night`, name,
-        ` style="background-image:url(&quot;${esc(AurionTheme.wallUrl(w + "@night", false))}&quot;)"`,
-        "", nightLabel),
-      wallTile(`${w}@day`, name,
-        ` style="background-image:url(&quot;${esc(AurionTheme.wallUrl(w + "@day", true))}&quot;)"`,
-        "", dayLabel),
+      wallTile(`${w}@night`, `${name} ${darkLabel}`,
+        ` style="background-image:url(&quot;${esc(AurionTheme.wallUrl(w + "@night", false))}&quot;)"`),
+      wallTile(`${w}@day`, `${name} ${lightLabel}`,
+        ` style="background-image:url(&quot;${esc(AurionTheme.wallUrl(w + "@day", true))}&quot;)"`),
     ];
   })).join("");
 
@@ -634,6 +636,7 @@ function themeBuilderHtml() {
           <p class="sub">${esc(I18N.t("themes.wall_hint"))}</p>
           <div class="bg-tiles wall-tiles" id="knob-walls" role="radiogroup"
                aria-label="${esc(I18N.t("themes.wall_pick"))}">${wallTiles}</div>
+          <div class="wall-warn" id="wall-warn" role="status" hidden></div>
         </div>
 
         <div class="tb-sec bgpic" id="set-bgpic">
@@ -827,6 +830,7 @@ function bindThemesGallery() {
       if (!b) return;
       AurionTheme.edit({ wall: b.dataset.wallpick });
       markWallTiles();
+      verifyWallpaper();
       markThemeEdited();
     };
 
@@ -1149,6 +1153,44 @@ function markThemeEdited() {
 /* Mark the selected wallpaper, and keep every tile showing the cut that
    matches the mode in force - a light desk must not advertise the night
    version of a picture it is about to load in daylight. */
+/* Does the wallpaper the desk is currently asking for actually load?
+
+   Every value in this chain can be correct while nothing appears on screen -
+   the URL resolves, the variable is published, the rule wins the cascade,
+   and the browser still gets a 404 or an HTML error page where it expected
+   a JPEG. That failure is invisible by design: an unloadable
+   background-image just paints nothing.
+
+   So it is checked, and said out loud with the path that was tried. A
+   trader who sees "this picture could not be loaded" can report something
+   useful; a trader looking at an unchanged desk cannot. */
+function verifyWallpaper() {
+  const box = document.getElementById("wall-warn");
+  if (!box || !window.AurionTheme) return;
+  const current = AurionTheme.effective();
+  const choice = AurionTheme.wall(current);
+  const hide = () => { box.hidden = true; box.innerHTML = ""; };
+
+  /* "" hands the theme its own picture and "none" asks for bare colour;
+     neither is a URL this check can meaningfully test. */
+  if (!choice || choice === "none") return hide();
+
+  const light = document.documentElement.dataset.theme === "light";
+  const rel = AurionTheme.wallUrl(choice, light);
+  if (!rel) return hide();
+  const url = AurionTheme.assetUrl ? AurionTheme.assetUrl(rel) : rel;
+
+  const probe = new Image();
+  probe.onload = hide;
+  probe.onerror = () => {
+    box.hidden = false;
+    box.innerHTML =
+      `<span>${esc(I18N.t("themes.wall_missing"))}</span>` +
+      `<code>${esc(url)}</code>`;
+  };
+  probe.src = url;
+}
+
 function markWallTiles() {
   const walls = $("knob-walls");
   if (!walls || !window.AurionTheme) return;
@@ -1186,6 +1228,7 @@ function renderSettingsKnobs() {
   });
 
   markWallTiles();
+  verifyWallpaper();
 
   const picture = AurionTheme.getBgImage();
 
