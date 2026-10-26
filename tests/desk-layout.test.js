@@ -221,8 +221,16 @@ check("a viewport change is repainted more than once", (() => {
   // Belt and braces for the same bug. grid-column has no competing
   // declaration anywhere, so the stage spans the whole track list even
   // if something later defines three columns again.
+  //
+  // Only grid-column is the subject here. This used to also pin
+  // padding-top to 44px, which was the height of the tool strip that
+  // once sat above the stage - incidental to the bug being guarded, and
+  // it failed the moment the tools became a sheet that comes up from
+  // the bottom instead. Assert the thing the check is named after.
   check("and the stage spans every column there turns out to be",
-    /\.tv-stage \{ padding-top: 44px; grid-column: 1 \/ -1/.test(chartCss));
+    /\.tv-stage \{[^}]*grid-column:\s*1\s*\/\s*-1/.test(
+      mobile.replace(/\s+/g, " ")) ||
+    /\.tv-stage \{[^}]*grid-column:\s*1\s*\/\s*-1/.test(plain));
 
   check("every heavy .tv-body layout rule is answered at the mobile breakpoint",
     unanswered.length === 0,

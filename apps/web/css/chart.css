@@ -154,6 +154,10 @@
   transition: background var(--dur-1, .12s), color var(--dur-1, .12s);
 }
 .tvr-btn svg { width: 18px; height: 18px }
+/* The group name rides along in the markup for the mobile tool sheet and
+   is never shown beside the icons on a desktop rail. */
+.tvr-name { display: none }
+.tv-toolsfab, .tv-toolscrim { display: none }
 .tvr-btn:hover { background: var(--surface-hover); color: var(--ink) }
 .tvr-btn.on { background: rgb(var(--accent-rgb) / .16); color: var(--accent-readable, var(--accent)) }
 .tvr-btn.danger:hover { color: var(--rose) }
@@ -679,6 +683,18 @@ html:fullscreen body { background: var(--bg) }
     box-shadow: var(--shadow-lg, -12px 0 40px rgb(0 0 0 / .35));
     transform: translateX(0);
     transition: transform var(--dur-3, .24s) var(--ease-1), opacity var(--dur-2, .18s);
+    /* Opaque, because here it floats ON the chart.
+       --surface-2 is rgb(... / var(--surface-alpha)) and that alpha is
+       .62, which reads as a tasteful tint when the dock is a column with
+       the page behind it - and as a bug when it is a panel sitting over
+       a moving candle chart.
+
+       --surface-floating is not enough either: the theme builder lets
+       the trader set --surface-alpha anywhere between 0 and 1, and at a
+       low setting even that token stays see-through. --s6 is the same
+       colour --surface-2 is built from, written with no alpha at all,
+       so this is opaque in every theme including hand-built ones. */
+    background: rgb(var(--s6));
   }
   html[dir="rtl"] .tv-dock { box-shadow: var(--shadow-lg, 12px 0 40px rgb(0 0 0 / .35)) }
   .tv.no-dock .tv-dock { transform: translateX(100%) }
@@ -743,7 +759,11 @@ html:fullscreen body { background: var(--bg) }
     overflow-x: auto;
     overflow-y: hidden;
     position: absolute; inset-block-start: 0; inset-inline: 0;
-    background: var(--surface-2);
+    /* Opaque for the same reason as the dock: at this width the rail is
+       lifted out of the layout and sits on top of the chart, so a
+       part-transparent background shows candles running underneath the
+       tool buttons. */
+    background: rgb(var(--s6));
     z-index: 20;
   }
   /* Span whatever columns exist, however many that turns out to be.
@@ -756,14 +776,118 @@ html:fullscreen body { background: var(--bg) }
      five. At this width the rail, the scrim and the dock are all out of
      flow and the stage is the only grid item, so spanning everything is
      also simply what it should do. */
-  .tv-stage { padding-top: 44px; grid-column: 1 / -1; grid-row: 1 }
+  /* No rail above the stage any more - the tools are a sheet that comes
+     up from the bottom, so the chart gets the whole height. */
+  .tv-stage { padding-top: 0; grid-column: 1 / -1; grid-row: 1 }
   .tvr-sep { width: 1px; height: 22px; margin: 0 4px }
   /* Just under the rail, which is 44px tall and starts at the top of
      .tv-body. The old value was calc(var(--tv-bar) + 46px) - 92px - and
      came from the same mistake as everything else here: it measured from
      the top of .tv, as though .tv-body were not already below the top
      bar. The tool menu opened 44px adrift of the button that opened it. */
-  .tv-flyout { inset-inline-start: 8px; inset-block-start: 48px !important }
+  /* ---- the drawing tools, as a sheet -------------------------------
+     Ten groups and five switches do not fit across a phone, and the old
+     44px strip solved that by hiding most of them behind a sideways
+     scroll with nothing to say they were there. A sheet shows all of
+     them at once, named, at a size a thumb can hit. */
+  .tv-rail {
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-content: flex-start;
+    justify-content: flex-start;
+    gap: 6px;
+    width: 100%;
+    height: auto;
+    max-height: 62dvh;
+    padding: 10px 10px calc(10px + env(safe-area-inset-bottom, 0px));
+    border: 0;
+    border-top: 1px solid var(--line);
+    border-radius: 18px 18px 0 0;
+    overflow-y: auto;
+    overflow-x: hidden;
+    position: absolute;
+    inset-block-start: auto;
+    inset-block-end: 0;
+    inset-inline: 0;
+    background: rgb(var(--s6));
+    box-shadow: var(--shadow-lg, 0 -14px 44px rgb(0 0 0 / .45));
+    z-index: 40;
+    transform: translateY(101%);
+    transition: transform var(--dur-3, .24s) var(--ease-1);
+  }
+  .tv.tools-open .tv-rail { transform: none }
+
+  /* A grab bar, so it reads as something that can be dismissed. */
+  .tv-rail::before {
+    content: "";
+    flex: 0 0 100%;
+    height: 4px; width: 38px;
+    margin: 0 auto 6px;
+    border-radius: 999px;
+    background: var(--line);
+  }
+
+  .tvr-group { width: auto; flex: 1 1 calc(33.333% - 6px); min-width: 96px }
+  .tvr-btn {
+    width: 100%;
+    height: auto;
+    min-height: 62px;
+    padding: 9px 6px;
+    gap: 5px;
+    grid-auto-flow: row;
+    place-items: center;
+    background: var(--surface-sunken, rgb(var(--s4)));
+    color: var(--ink);
+  }
+  .tvr-group .tvr-btn { padding-inline-end: 18px }
+  .tvr-btn svg { width: 21px; height: 21px }
+  .tvr-name {
+    display: block;
+    font-size: 11px; line-height: 1.25;
+    max-width: 100%;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  /* The five switches at the end are not tool groups; let them sit on one
+     row as square-ish cells rather than stretching like the groups do. */
+  .tv-rail > .tvr-btn { flex: 1 1 calc(20% - 6px); min-width: 62px }
+  .tvr-sep { flex: 0 0 100%; width: 100%; height: 1px; margin: 4px 0; background: var(--line) }
+  .tvr-more {
+    inset-block-start: 6px;
+    inset-inline-end: 4px;
+    width: 18px; height: 18px;
+  }
+
+  .tv-toolscrim {
+    display: block;
+    position: absolute; inset: 0;
+    z-index: 35;
+    background: rgb(0 0 0 / .45);
+    opacity: 0; pointer-events: none;
+    transition: opacity var(--dur-2, .18s) var(--ease-1);
+  }
+  .tv.tools-open .tv-toolscrim { opacity: 1; pointer-events: auto }
+
+  .tv-toolsfab {
+    display: grid; place-items: center;
+    position: absolute;
+    inset-block-end: calc(14px + env(safe-area-inset-bottom, 0px));
+    inset-inline-start: 14px;
+    width: 46px; height: 46px;
+    z-index: 36;
+    border: 1px solid var(--line);
+    border-radius: 50%;
+    background: rgb(var(--s6));
+    color: var(--ink);
+    box-shadow: var(--shadow-lg, 0 6px 22px rgb(0 0 0 / .4));
+    cursor: pointer;
+  }
+  .tv-toolsfab svg { width: 20px; height: 20px }
+  .tv.tools-open .tv-toolsfab {
+    background: rgb(var(--accent-rgb) / .22);
+    color: var(--accent-readable, var(--accent));
+  }
+
+  .tv-flyout { inset-inline-start: 8px; inset-block-end: 8px; inset-block-start: auto !important; z-index: 42 }
   .tv-nav { inset-inline-end: 72px }
   .tv-sym b { font-size: 13px }
   .tv-seg { display: none }
@@ -778,16 +902,24 @@ html:fullscreen body { background: var(--bg) }
   body.chart-full .tv { height: 100dvh }
   .tv-status #tv-status-hint { display: none }
   .tv-round { width: 32px; height: 32px }
-  .tvr-btn { width: 40px; height: 38px }
+  /* The rail is a sheet at this width and sizes its own cells; the old
+     40x38 icon button here was from when it was still a strip. */
+  .tvr-group { min-width: 88px }
 }
 
 /* Touch: make every target reachable with a thumb without changing the
    desktop density. */
 @media (pointer: coarse) {
   .tv-switch { --tvs-h: 22px; --tvs-w: 40px; --tvs-pad: 4px }
-  .tvr-btn { width: 42px; height: 40px }
   .tvf-row, .tvm-row { padding: 10px 9px }
   .tv-nav { opacity: 1; transform: none }
+}
+
+/* Fat targets on the rail, but only where the rail is still a strip of
+   icon buttons. Below 720px it is the tool sheet, which lays out its own
+   cells - an unqualified width here fought that and collapsed them. */
+@media (pointer: coarse) and (min-width: 721px) {
+  .tvr-btn { width: 42px; height: 40px }
 }
 
 @media (prefers-reduced-motion: reduce) {

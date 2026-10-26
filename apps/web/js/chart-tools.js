@@ -349,6 +349,14 @@
     } catch (e) { return fallback; }
   }
 
+  /** Is the dock an overlay over the chart rather than a column beside it?
+      Matches the 980px breakpoint in chart.css where the dock starts to
+      float; keep the two in step. */
+  function narrow() {
+    try { return window.matchMedia("(max-width: 980px)").matches; }
+    catch (e) { return false; }
+  }
+
   function read(k, fb) {
     try { const v = localStorage.getItem(k); return v === null ? fb : v; } catch (e) { return fb; }
   }
@@ -371,7 +379,7 @@
       return `<div class="tvr-group" data-group="${g.id}">
         <button type="button" class="tvr-btn" data-tool="${tool.id}"
                 title="${esc(tool.label)}${tool.key ? " (" + tool.key.toUpperCase() + ")" : ""}"
-                aria-label="${esc(tool.label)}">${svg(I[tool.icon])}</button>
+                aria-label="${esc(tool.label)}">${svg(I[tool.icon])}<span class="tvr-name">${esc(g.label)}</span></button>
         ${many ? `<button type="button" class="tvr-more" data-flyout="${g.id}"
                 aria-label="${esc(g.label)}" aria-haspopup="true" aria-expanded="false"></button>` : ""}
       </div>`;
@@ -381,16 +389,21 @@
       ${groups}
       <div class="tvr-sep"></div>
       <button type="button" class="tvr-btn" id="tv-magnet" title="${esc(tt("chart.magnet", "Magnet"))}"
-              aria-pressed="false">${svg(I.magnet)}</button>
+              aria-pressed="false">${svg(I.magnet)}<span class="tvr-name">${esc(tt("chart.magnet", "Magnet"))}</span></button>
       <button type="button" class="tvr-btn" id="tv-toollock" title="${esc(tt("chart.tool_lock", "Keep the tool armed"))}"
-              aria-pressed="true">${svg(I.pin)}</button>
+              aria-pressed="true">${svg(I.pin)}<span class="tvr-name">${esc(tt("chart.tool_lock", "Keep the tool armed"))}</span></button>
       <button type="button" class="tvr-btn" id="tv-lockall" title="${esc(tt("chart.lock_all", "Lock all drawings"))}"
-              aria-pressed="false">${svg(I.lock)}</button>
+              aria-pressed="false">${svg(I.lock)}<span class="tvr-name">${esc(tt("chart.lock_all", "Lock all drawings"))}</span></button>
       <button type="button" class="tvr-btn" id="tv-hideall" title="${esc(tt("chart.hide_all", "Hide all drawings"))}"
-              aria-pressed="false">${svg(I.eye)}</button>
-      <button type="button" class="tvr-btn danger" id="tv-clear" title="${esc(tt("chart.delete_all", "Remove all drawings"))}">${svg(I.trash)}</button>
+              aria-pressed="false">${svg(I.eye)}<span class="tvr-name">${esc(tt("chart.hide_all", "Hide all drawings"))}</span></button>
+      <button type="button" class="tvr-btn danger" id="tv-clear" title="${esc(tt("chart.delete_all", "Remove all drawings"))}">${svg(I.trash)}<span class="tvr-name">${esc(tt("chart.delete_all", "Remove all drawings"))}</span></button>
     </nav>
-    <div class="tv-flyout" id="tv-flyout" hidden></div>`;
+    <div class="tv-flyout" id="tv-flyout" hidden></div>
+    <div class="tv-toolscrim" id="tv-toolscrim" aria-hidden="true"></div>
+    <button type="button" class="tv-toolsfab" id="tv-toolsfab"
+            aria-label="${esc(tt("chart.tools", "Drawing tools"))}" aria-expanded="false">
+      ${svg(I.brush)}
+    </button>`;
   }
 
   function topHtml(o) {
@@ -434,7 +447,13 @@
   function html(o) {
     o = o || {};
     loadLastTools();
-    ui.dockOpen = read(LS_DOCK, "1") === "1";
+    // The dock is a column beside the chart on a desktop and an overlay
+    // on top of it on a phone, so "open" does not mean the same thing in
+    // both places. Defaulting it open put an 82vw panel over the chart
+    // the moment the page was opened on mobile - the chart was behind
+    // its own sidebar before the trader had done anything. Remember the
+    // trader's own choice either way; only the default differs.
+    ui.dockOpen = read(LS_DOCK, narrow() ? "0" : "1") === "1";
     return `<div class="tv${ui.dockOpen ? "" : " no-dock"}" id="tv">
       ${topHtml(o)}
       <div class="tv-body">
@@ -755,11 +774,19 @@
     const groupBtn = document.querySelector('.tvr-group[data-group="' + tool.group + '"] .tvr-btn');
     if (groupBtn) {
       groupBtn.dataset.tool = id;
-      groupBtn.innerHTML = svg(I[tool.icon]);
+      // Keep the group's name on the button. It is invisible on a desktop
+      // and it is what makes the mobile tool sheet readable, so rewriting
+      // innerHTML with the icon alone silently emptied the sheet's labels
+      // as soon as the trader picked anything.
+      const group = GROUPS.find((g) => g.id === tool.group);
+      groupBtn.innerHTML = svg(I[tool.icon]) +
+        '<span class="tvr-name">' + esc(group ? group.label : tool.label) + "</span>";
       groupBtn.title = tool.label + (tool.key ? " (" + tool.key.toUpperCase() + ")" : "");
       groupBtn.setAttribute("aria-label", tool.label);
     }
     closeFlyout();
+    // Choosing a tool is the end of the errand the sheet was opened for.
+    toggleTools(false);
     markTool();
   }
 
@@ -1043,6 +1070,28 @@
     if (tv && tv.classList.contains("no-dock")) toggleDock(true);
   }
 
+  /**
+   * The drawing tools, as a sheet rather than a strip.
+   *
+   * On a narrow screen the rail used to flatten into a 44px horizontal
+   * scroller holding ten tool groups and five switches - twenty-five
+   * targets in a band the height of one thumb, most of them off-screen
+   * behind a sideways scroll with no indication they were there. Here
+   * it opens as a labelled grid instead: everything visible at once,
+   * named, and big enough to hit.
+   */
+  function toggleTools(open) {
+    const tv = $("tv");
+    if (!tv) return;
+    const next = open === undefined ? !tv.classList.contains("tools-open") : !!open;
+    tv.classList.toggle("tools-open", next);
+    const fab = $("tv-toolsfab");
+    if (fab) fab.setAttribute("aria-expanded", next ? "true" : "false");
+    // The sheet and the dock both cover the chart; two of them at once
+    // leaves nothing to look at.
+    if (next) toggleDock(false);
+  }
+
   function toggleDock(open) {
     const tv = $("tv");
     if (!tv) return;
@@ -1296,6 +1345,8 @@
       if (e.target.closest("#tv-undo")) { chart.undo(); return; }
       if (e.target.closest("#tv-redo")) { chart.redo(); return; }
       if (e.target.closest("#tv-scrim")) { toggleDock(false); return; }
+      if (e.target.closest("#tv-toolsfab")) { toggleTools(); return; }
+      if (e.target.closest("#tv-toolscrim")) { toggleTools(false); return; }
       if (e.target.closest("#tv-dock-toggle")) { toggleDock(); return; }
       if (e.target.closest("#tv-full")) setFullscreen(!ui.fullscreen);
     };
