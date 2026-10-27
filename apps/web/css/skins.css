@@ -800,10 +800,14 @@ html[data-skin][data-theme][data-perf="fast"] .set-main .set-block .card{
   background:linear-gradient(180deg, rgb(var(--s7)), rgb(var(--s4)));
 }
 
-html[data-skin][data-theme][data-glass="off"] .set-main .set-panel,
-html[data-skin][data-theme][data-perf="fast"] .set-main .set-panel,
-html[data-skin][data-theme][data-glass="off"] .set-panel,
-html[data-skin][data-theme][data-perf="fast"] .set-panel{
+/* The settings panel itself. This rule used to name `.set-panel`, which no
+   view has ever rendered - the live element is `.set-block` inside
+   `.set-main`. So with glass off the one surface that is nothing but glass
+   kept its .55 alpha and stayed see-through, while every card inside it
+   went solid. Grounding the panel is what makes glass-off mean anything
+   here; the frosted half lives in app.css. */
+html[data-skin][data-theme][data-glass="off"] .set-main .set-block,
+html[data-skin][data-theme][data-perf="fast"] .set-main .set-block{
   background:rgb(var(--s3));
 }
 
@@ -831,8 +835,11 @@ html[data-skin][data-theme="light"][data-glass="off"] .set-main .set-block .card
 html[data-skin][data-theme="light"][data-perf="fast"] .set-main .set-block .card{
   background:#ffffff;
 }
-html[data-skin][data-theme="light"][data-glass="off"] .set-main .set-panel,
-html[data-skin][data-theme="light"][data-perf="fast"] .set-main .set-panel,
+/* The second copy of the `.set-panel` mistake. The light theme was
+   therefore missing a grounding rule for the settings panel too, so
+   light + glass off showed the wallpaper straight through it. */
+html[data-skin][data-theme="light"][data-glass="off"] .set-main .set-block,
+html[data-skin][data-theme="light"][data-perf="fast"] .set-main .set-block,
 html[data-skin][data-theme="light"][data-glass="off"] .set-jump,
 html[data-skin][data-theme="light"][data-perf="fast"] .set-jump{
   background:rgb(var(--s2));

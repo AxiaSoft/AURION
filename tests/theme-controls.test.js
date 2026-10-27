@@ -516,12 +516,63 @@ check("the accent swatch shows the colour while it is being dragged", () => {
   /* The dot is the only thing on screen reporting what the accent now is;
      updating it on release makes the picker feel a step behind the hand. */
   const app = stripComments(read("js/app.js"));
-  const i = app.indexOf("data-accent-custom]");
+  /* Anchored on the handler itself. A bare "data-accent-custom]" also
+     matches the re-marking loop, which now reads that attribute too, and
+     the window would open on the wrong function. */
+  const i = app.indexOf('const custom = e.target.closest("[data-accent-custom]")');
+  if (i < 0) throw new Error("the custom-accent handler is gone");
   const block = app.slice(i, i + 1200);
   const onInput = /onInput\(hex\)\s*\{[\s\S]*?\n        \}/.exec(block);
   if (!onInput) throw new Error("the custom accent has no live preview");
-  if (!/custom\.style\.background\s*=\s*hex/.test(onInput[0])) {
+  /* The repaint may be written inline or delegated to the shared apply
+     helper - three callers need it now, so it lives in one place. Either
+     is fine; what must not happen is the drag leaving the dot behind. */
+  const inline = /custom\.style\.background\s*=\s*hex/.test(onInput[0]);
+  const delegated = /applyCustomAccent\(\s*hex\s*,\s*custom\s*\)/.test(onInput[0]);
+  if (!inline && !delegated) {
     throw new Error("the swatch is not repainted during the drag");
+  }
+  if (delegated) {
+    const h = /function applyCustomAccent\([\s\S]*?\n\}/.exec(app);
+    if (!h) throw new Error("onInput delegates to applyCustomAccent, which does not exist");
+    if (!/dot\.style\.background\s*=/.test(h[0])) {
+      throw new Error("applyCustomAccent never repaints the swatch it was handed");
+    }
+  }
+});
+
+check("pressing the custom swatch applies the custom accent on that one click", () => {
+  /* Coming back from a shipped accent used to take three gestures: open
+     the picker, drag off the stored colour, drag back onto it. The colour
+     was remembered the whole time - selecting it is the click. */
+  const app = stripComments(read("js/app.js"));
+  const i = app.indexOf('const custom = e.target.closest("[data-accent-custom]")');
+  if (i < 0) throw new Error("the custom-accent handler is gone");
+  const block = app.slice(i, i + 900);
+  const openAt = block.indexOf("AurionPicker.open");
+  if (openAt < 0) throw new Error("the custom swatch no longer opens the picker");
+  const beforeOpen = block.slice(0, openAt);
+  if (!/applyCustomAccent\(/.test(beforeOpen)) {
+    throw new Error("the accent is only applied from inside the picker, so the click alone does nothing");
+  }
+  /* And it must apply the colour the desk already stored, not a constant. */
+  if (!/customAccent\(\)/.test(beforeOpen)) {
+    throw new Error("the click does not re-apply the stored custom colour");
+  }
+});
+
+check("the custom swatch is unmarked when a shipped accent is chosen", () => {
+  /* It is marked by data-accent-custom, not data-accent, so the loop that
+     re-marks the shipped dots used to skip it and two accents appeared to
+     be selected at once. */
+  const app = stripComments(read("js/app.js"));
+  const m = /function markAppearancePills\([\s\S]*?\n\}/.exec(app);
+  if (!m) throw new Error("markAppearancePills is gone");
+  if (!/\[data-accent-custom\]/.test(m[0])) {
+    throw new Error("markAppearancePills never touches the custom swatch");
+  }
+  if (!/accent === "custom"/.test(m[0])) {
+    throw new Error("the custom swatch is not marked from the accent actually in force");
   }
 });
 
@@ -555,10 +606,11 @@ check("every new string exists in all three languages", () => {
 
 check("the browser is forced to pick up every file that changed", () => {
   const html = read("index.html");
-  const want = ["js/skins.js?v=desk98", "js/themes.js?v=desk125", "js/app.js?v=desk134",
-    "css/themes.css?v=desk115", "css/app.css?v=desk133", "js/colorpicker.js?v=desk2"];
+  const want = ["js/skins.js?v=desk98", "js/themes.js?v=desk126", "js/app.js?v=desk135",
+    "css/themes.css?v=desk115", "css/app.css?v=desk134", "css/skins.css?v=desk120",
+    "js/colorpicker.js?v=desk2"];
   want.forEach((w) => { if (!html.includes(w)) throw new Error("index.html is missing " + w); });
-  if (!read("sw.js").includes("aurion-shell-v123")) throw new Error("the service worker cache was not bumped");
+  if (!read("sw.js").includes("aurion-shell-v124")) throw new Error("the service worker cache was not bumped");
 });
 
 /* ----------------------------------------------------------------- report */

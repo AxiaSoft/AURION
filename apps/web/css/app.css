@@ -453,13 +453,19 @@ html[dir="rtl"] .switch.on i{transform:translate(calc(var(--sw-travel) * -1),-50
 .acc-type[data-kind="real"]{color:var(--gold)}
 .acc-type[data-kind="contest"],.acc-type[data-kind="prop_challenge"]{color:var(--violet)}
 .acc-type[data-kind="prop_funded"]{color:var(--ok)}
-#btn-refresh{min-width:42px}
 .icon-btn{
   width:42px;height:42px;border-radius:12px;border:1px solid var(--line);
   background:rgb(var(--wash) / .03);color:var(--ink);padding:0;position:relative;
   display:inline-grid;place-items:center;
+  /* A flex row will happily shrink a fixed-width button when the header
+     runs out of room, and refresh - being first to wrap - was the one it
+     chose. Opting out keeps the row uniform at every width. */
+  flex:0 0 auto;
 }
-.icon-btn svg{width:18px;height:18px}
+/* Every header glyph is drawn into the same 18px square from the same
+   24-unit viewBox, so the optical centre of each one lands on the centre
+   of its button and no icon moves when its neighbour changes. */
+.icon-btn svg{width:18px;height:18px;display:block}
 .icon-btn i{
   position:absolute;top:8px;inset-inline-end:8px;width:7px;height:7px;border-radius:99px;
   background:var(--rose);box-shadow:0 0 8px var(--rose);
@@ -650,6 +656,9 @@ html[dir="rtl"] .set-h{letter-spacing:0;text-transform:none}
     "nav top"
     "nav stage";
   background:transparent;
+  /* Containing block for the header status drawer, which is positioned
+     into the stage area from outside the header. */
+  position:relative;
 }
 .nav{grid-area:nav}
 .top{grid-area:top}
@@ -1301,6 +1310,52 @@ fieldset.prop-fields.is-locked{
   .draw-frame.open .draw-tools{display:flex !important}
 }
 
+/* Open positions, docked between a chart's toolbar and its canvas.
+
+   In the flow rather than over the chart, which is the whole point: it
+   cannot land on the toolbar buttons and it cannot cover price. The row
+   scrolls sideways when more is open than will fit, so the strip's height
+   is the same whether nothing is open or six things are, and the canvas
+   below it never moves. */
+.pos-strip{
+  display:flex;align-items:center;gap:10px;min-height:40px;
+  margin:8px 0 6px;padding:5px 10px;
+  border:1px solid var(--line);border-radius:12px;
+  background:rgb(var(--wash) / .03);
+}
+.pos-strip-h{
+  flex:0 0 auto;font-size:11px;color:var(--muted);letter-spacing:.02em;
+  text-transform:uppercase;white-space:nowrap;
+}
+html[dir="rtl"] .pos-strip-h{letter-spacing:0;text-transform:none}
+.pos-strip-list{
+  display:flex;align-items:center;gap:6px;min-width:0;flex:1 1 auto;
+  overflow-x:auto;overflow-y:hidden;scrollbar-width:thin;
+}
+.pos-strip-list::-webkit-scrollbar{height:4px}
+.pos-strip-list::-webkit-scrollbar-thumb{background:rgb(var(--wash) / .18);border-radius:99px}
+.pos-none{font-size:12px;color:var(--faint);white-space:nowrap}
+.pos-chip{
+  flex:0 0 auto;display:inline-flex;align-items:center;gap:6px;
+  padding:4px 9px;border-radius:999px;font-size:11.5px;
+  border:1px solid var(--line);background:rgb(var(--s5) / .5);
+  white-space:nowrap;
+}
+.pos-chip b{font-weight:600;font-size:10.5px;letter-spacing:.04em}
+.pos-chip.is-buy{border-inline-start:3px solid var(--candle-up)}
+.pos-chip.is-sell{border-inline-start:3px solid var(--candle-down)}
+.pos-chip.is-buy b{color:var(--candle-up)}
+.pos-chip.is-sell b{color:var(--candle-down)}
+.pos-chip .pos-at{color:var(--muted)}
+.pos-chip .pos-pl{font-weight:600}
+@media (max-width:560px){
+  /* The label would eat a third of a phone's width; the coloured edge of
+     each chip already says what the row is. */
+  .pos-strip-h{display:none}
+  .pos-strip{min-height:36px;gap:0}
+  .pos-chip .pos-at{display:none}
+}
+
 .chart-box{position:relative}
 .chart-levels{
   position:absolute;inset-inline-end:8px;bottom:8px;z-index:6;
@@ -1441,7 +1496,12 @@ html[dir="rtl"] .chart-stage.sw-prev{animation-name:slideFromRight}
 
 /* desk52 — mobile pull-down drawer (statuses + equity hidden by the narrow header) */
 .hdr-drawer-btn{display:none}
-.hdr-drawer{position:absolute;top:100%;inset-inline:10px;margin-top:8px;z-index:95;
+/* Positioned into the stage's grid area rather than hung off the header:
+   an absolutely positioned child of a grid container is laid out against
+   the grid area it is assigned, so this lands exactly under the header
+   without needing a measured offset - and, being outside `.top`, its
+   backdrop-filter has real content behind it to frost. */
+.hdr-drawer{grid-area:stage;position:absolute;top:0;inset-inline:10px;margin-top:8px;z-index:95;
   border:1px solid var(--line);border-radius:16px;padding:12px;
   background:rgb(var(--s2) / .94);backdrop-filter:blur(24px) saturate(150%);
   -webkit-backdrop-filter:blur(24px) saturate(150%);
@@ -1495,7 +1555,10 @@ input[type=range]{width:100%;accent-color:var(--cyan);height:28px;cursor:pointer
   .conn-strip{gap:6px}
 }
 @media (max-width:560px){
-  .top-actions #btn-refresh{width:38px;min-width:38px;height:38px}
+  /* This used to name #btn-refresh alone, so on a phone the refresh key
+     was a 38px box sitting between two 42px ones - the odd button in the
+     row. If the header has to get tighter it gets tighter as a set. */
+  .top-actions .icon-btn{width:38px;min-width:38px;height:38px}
 }
 
 /* desk41 — compact header, tab rail, chart ticket, upload */
@@ -1621,6 +1684,26 @@ input[type=range]{width:100%;accent-color:var(--cyan);height:28px;cursor:pointer
    symbol name and a dropdown arrow, which is the complaint. */
 @media (max-width:560px){
   .ct-grid,.ct-grid-3{grid-template-columns:minmax(0,1fr)}
+}
+/* Backtest form on a phone.
+
+   One option per row is right - two columns leaves a 150px select trying
+   to hold a symbol name and an arrow. But stacking the label above the
+   control makes each option a two-line block ~68px tall, so the three
+   choices spread over about 220px with the run button somewhere below
+   the fold. Putting the label beside its control halves that: the three
+   options read as one compact group again, and the select still gets the
+   whole remaining width. */
+@media (max-width:560px){
+  #bt-card .ct-grid{gap:6px}
+  #bt-card .ct-grid > .field{
+    flex-direction:row;align-items:center;gap:10px;
+  }
+  #bt-card .ct-grid > .field > span{
+    flex:0 0 8.5ch;min-width:0;
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  }
+  #bt-card .ct-grid > .field > :not(span){flex:1 1 auto;min-width:0}
 }
 .ct-actions{margin-top:4px}
 .ct-actions .btn.on{border-color:var(--gold);color:var(--gold)}
@@ -2104,9 +2187,17 @@ html[dir="rtl"] .set-rail .sj-grp{letter-spacing:0;text-transform:none;font-size
 .set-rail .sj-txt small{font-size:11px;color:var(--faint);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .set-rail button.on .sj-txt small{color:var(--muted)}
 .set-main{min-width:0;display:flex;flex-direction:column;gap:14px}
+/* Settings panels are glass, like every other surface on the desk.
+   They used to carry the alpha without the blur, which is not frosting -
+   it is a hole: the wallpaper showed through sharp and the text sat on
+   top of it. The blur is the half that makes a translucent panel read as
+   a panel, so the two always ship together. The de-frosted counterpart
+   lives in skins.css next to the other glass-off grounding rules. */
 .set-main .set-block{
   margin:0;padding:18px 20px 20px;border:1px solid var(--line);border-radius:20px;
   background:rgb(var(--s3) / .55);
+  backdrop-filter:blur(18px) saturate(130%);
+  -webkit-backdrop-filter:blur(18px) saturate(130%);
   animation:setIn .28s var(--ease-out) both;
 }
 @keyframes setIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
@@ -2445,10 +2536,26 @@ html[dir="rtl"] .q-how[open] summary::before{ transform:rotate(0deg) }
   display:flex; align-items:flex-start; justify-content:space-between; gap:12px;
   padding:10px 12px; border:1px solid var(--line); border-radius:12px;
 }
+/* The file name is monospaced and unbreakable. "AurionChartAgent.mq5" is
+   four characters longer than "AurionBridge.mq5", which on a phone was
+   just enough to push the left column past the row: the end column is
+   flex:0 0 auto and cannot give way, so the Save button was carried out
+   through the card's edge. Letting the name wrap is what keeps it in. */
+.ea-row-main{ min-width:0 }
+.ea-row-file{ overflow-wrap:anywhere }
 .ea-row.is-missing{ opacity:.55 }
 .ea-row .sub{ margin:4px 0 0; font-size:11px; line-height:1.7; max-width:46ch }
 .ea-row .pill{ font-size:10px; margin-inline-start:6px }
 .ea-row-end{ display:flex; align-items:center; gap:8px; flex:0 0 auto }
+/* Below this width there is no room for a description column and a
+   version-plus-button column side by side, so the row becomes two lines
+   with the controls aligned to the end of the second. */
+@media (max-width:560px){
+  .ea-row{ flex-wrap:wrap }
+  .ea-row-main{ flex:1 1 100% }
+  .ea-row-end{ flex:1 1 100%; justify-content:flex-end }
+  .ea-row .sub{ max-width:none }
+}
 
 .ea-sub{ margin:16px 0 6px; font-size:13px; font-weight:600 }
 .ea-charts{ display:flex; flex-direction:column; gap:6px }
@@ -2634,6 +2741,44 @@ html[dir="rtl"] .q-how[open] summary::before{ transform:rotate(0deg) }
 .col-swatch::-webkit-color-swatch-wrapper{padding:2px}
 .col-swatch::-webkit-color-swatch{border:none;border-radius:7px}
 .col-swatch::-moz-color-swatch{border:none;border-radius:7px}
+
+/* Candle preview.
+
+   Eight bars drawn in CSS from --candle-up / --candle-down, the same two
+   variables the chart canvas reads. The picker writes those variables
+   onto <html> while the finger is still moving, so these restyle live and
+   the trader is choosing against the thing they are changing rather than
+   against a word. Each bar carries its own --t/--h/--w so the row has the
+   irregular shape of a real sequence instead of eight identical blocks. */
+.cndl-h{margin:18px 0 2px;font-size:13px;font-weight:600}
+.cndl-prev{
+  display:flex;align-items:stretch;gap:7px;
+  height:92px;margin:10px 0 12px;padding:10px 12px;
+  border:1px solid var(--line);border-radius:14px;
+  background:var(--chart-panel, rgb(var(--s2) / .5));
+  overflow:hidden;
+}
+.cndl{
+  position:relative;flex:1 1 0;min-width:0;align-self:stretch;
+}
+/* The wick: a hairline through the full height of the bar's span. */
+.cndl::before{
+  content:"";position:absolute;inset-block:calc(var(--t) - var(--w)) auto;
+  height:calc(var(--h) + var(--w) * 2);
+  inset-inline-start:50%;width:2px;transform:translateX(-50%);
+  border-radius:2px;background:currentColor;opacity:.75;
+}
+/* The body. */
+.cndl::after{
+  content:"";position:absolute;inset-inline:0;
+  top:var(--t);height:var(--h);
+  border-radius:3px;background:currentColor;
+}
+.cndl.is-up{color:var(--candle-up)}
+.cndl.is-down{color:var(--candle-down)}
+@media (max-width:560px){
+  .cndl-prev{height:76px;gap:5px}
+}
 
 /* Each tile paints the backdrop it stands for, so the choice is made by
    looking rather than by reading nine adjectives. */

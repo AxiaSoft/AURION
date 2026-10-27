@@ -778,6 +778,27 @@ function themeBuilderHtml() {
             ${colourRow("panel", I18N.t("themes.c_panel"), I18N.t("themes.c_panel_hint"))}
             ${colourRow("ink", I18N.t("themes.c_ink"), I18N.t("themes.c_ink_hint"))}
           </div>
+
+          <h4 class="cndl-h">${esc(I18N.t("themes.candles_title"))}</h4>
+          <p class="sub">${esc(I18N.t("themes.candles_hint"))}</p>
+          <!-- The preview is drawn in CSS from the same two variables the
+               chart canvas reads, which is what makes it live: the picker's
+               drag writes the variable straight onto <html> and these bars
+               restyle on the same frame. A canvas would have had to be told
+               to repaint, and there is no chart on the settings page to
+               repaint anyway. -->
+          <div class="cndl-prev" id="cndl-prev" aria-hidden="true">
+            ${[
+              ["up", 34, 62, 10], ["up", 22, 48, 14], ["down", 30, 44, 12],
+              ["up", 18, 70, 8], ["down", 40, 36, 16], ["down", 26, 52, 11],
+              ["up", 20, 58, 13], ["up", 30, 46, 9],
+            ].map(([dir, top, body, wick]) =>
+              `<i class="cndl is-${dir}" style="--t:${top}%;--h:${body}%;--w:${wick}%"></i>`).join("")}
+          </div>
+          <div class="col-rows">
+            ${colourRow("candle_up", I18N.t("themes.c_candle_up"), I18N.t("themes.c_candle_up_hint"))}
+            ${colourRow("candle_down", I18N.t("themes.c_candle_down"), I18N.t("themes.c_candle_down_hint"))}
+          </div>
           <p class="sub warn" id="col-warn" hidden>${esc(I18N.t("themes.contrast_warn"))}</p>
           <label class="field" style="margin-top:14px">
             <span>${esc(I18N.t("themes.font_title"))}</span>
@@ -853,8 +874,19 @@ function themeBuilderHtml() {
 
 /* What the page is actually painting for one of the three editable colours,
    so an untouched swatch opens on the real colour rather than on black. */
+/* The CSS variable each colour row is editing. The candle pair are read
+   back the same way as the rest, so a row with nothing chosen still shows
+   the colour the active theme is really drawing with. */
+const COLOUR_VARS = {
+  page: "--bg",
+  ink: "--ink",
+  panel: "--s5",
+  candle_up: "--candle-up",
+  candle_down: "--candle-down",
+};
+
 function themeColourNow(key) {
-  const prop = key === "page" ? "--bg" : key === "ink" ? "--ink" : "--s5";
+  const prop = COLOUR_VARS[key] || "--s5";
   try {
     const raw = getComputedStyle(document.documentElement).getPropertyValue(prop).trim();
     if (!raw) return key === "ink" ? "#e8edf7" : "#0b0d14";
@@ -909,7 +941,12 @@ function paintCustomPreview() {
   const art = document.querySelector('.tc-art[data-art="custom"]');
   if (!art) return;
   const custom = AurionTheme.getCustom();
-  const acc = AurionSkin.ACCENTS[custom.accent] || AurionSkin.ACCENTS.aurora;
+  /* "custom" is not a key in ACCENTS - it is a stored hex - so reading the
+     table alone made the preview fall back to aurora and show the wrong
+     colour for the one accent the trader chose by hand. */
+  const acc = AurionSkin.getAccent() === "custom"
+    ? AurionSkin.accentTriplet("custom")
+    : (AurionSkin.ACCENTS[custom.accent] || AurionSkin.ACCENTS.aurora);
   art.style.setProperty("--p-accent", acc[0]);
   art.style.setProperty("--p-accent2", acc[2]);
   art.style.setProperty("--p-radius", Math.max(2, Math.round(custom.radius * 0.45)) + "px");
@@ -1498,9 +1535,39 @@ function markAppearancePills() {
     b.classList.toggle("on", on);
     b.setAttribute("aria-pressed", on ? "true" : "false");
   });
+  /* The trader's own swatch is marked by data-accent-custom, not
+     data-accent, so the loop above never touched it: picking a shipped
+     accent left the custom dot still showing as selected until the whole
+     settings page happened to be re-rendered, and two accents appeared
+     to be in force at once. */
+  document.querySelectorAll("[data-accent-custom]").forEach((b) => {
+    const on = accent === "custom";
+    b.classList.toggle("on", on);
+    b.setAttribute("aria-pressed", on ? "true" : "false");
+    const hex = AurionSkin.customAccent();
+    if (hex) b.style.background = hex;
+  });
   document.querySelectorAll("[data-perfbtn]").forEach((b) => b.classList.toggle("on", b.dataset.perfbtn === perf));
   const now = $("set-perf-now");
   if (now) now.textContent = perfNowLabel();
+}
+
+/* Put the trader's own colour in force and make every control that shows
+   the accent agree with it. One place, because this now runs from three
+   callers - the click that selects custom, every frame of the drag, and
+   the commit - and they were drifting apart. */
+function applyCustomAccent(hex, dot) {
+  if (typeof AurionSkin === "undefined") return;
+  const applied = AurionSkin.setCustomAccent(hex);
+  if (!applied) return;
+  if (dot) dot.style.background = applied;
+  /* The accent belongs to the theme being edited, exactly as a shipped
+     one does, or it is lost the next time that theme is applied. */
+  if (typeof AurionTheme !== "undefined") {
+    AurionTheme.edit({ accent: "custom" }, { silent: true });
+  }
+  markAppearancePills();
+  paintCustomPreview();
 }
 
 function bindAppearance() {
@@ -1510,8 +1577,16 @@ function bindAppearance() {
   if (accents) accents.onclick = (e) => {
     const custom = e.target.closest("[data-accent-custom]");
     if (custom) {
+      /* Pressing this dot selects the trader's own accent. It used to do
+         nothing but open the picker, so coming back from a shipped accent
+         took a click to open it, a drag to move off the colour that was
+         already stored, and a drag back - three gestures to re-apply a
+         colour the desk had remembered all along. Selecting it is now the
+         click; the picker that follows is for changing it. */
+      const startHex = AurionSkin.customAccent() || "#3ee0c4";
+      applyCustomAccent(startHex, custom);
       AurionPicker.open({
-        value: AurionSkin.customAccent() || "#3ee0c4",
+        value: startHex,
         anchor: custom,
         title: I18N.t("themes.accent_custom"),
         swatches: Object.keys(AurionSkin.ACCENTS).map((id) => AurionSkin.ACCENTS[id][0]).slice(0, 12),
@@ -1519,13 +1594,10 @@ function bindAppearance() {
           /* The accent is a handful of variables, so the honest apply is
              cheap enough to run on every frame - and the dot has to move
              with the drag, not wait for it to end. */
-          AurionSkin.setCustomAccent(hex);
-          custom.style.background = hex;
-          custom.classList.add("on");
+          applyCustomAccent(hex, custom);
         },
         onCommit(hex) {
-          AurionSkin.setCustomAccent(hex);
-          custom.style.background = hex;
+          applyCustomAccent(hex, custom);
           renderSettingsKnobs();
           repaintChartsForTheme();
         },
@@ -4403,8 +4475,8 @@ function expertsCardHtml() {
     const file = String(x.file || "");
     const bad = !x.available;
     return `<div class="ea-row${bad ? " is-missing" : ""}">
-      <div>
-        <b class="mono">${esc(file)}</b>
+      <div class="ea-row-main">
+        <b class="mono ea-row-file">${esc(file)}</b>
         <span class="pill ${x.required ? "" : "ghost"}">${I18N.t(x.required ? "ea.required" : "ea.optional")}</span>
         <p class="sub">${I18N.t("ea." + String(x.id || "bridge") + "_about")}</p>
       </div>
@@ -5111,6 +5183,7 @@ const views = {
             ${!licFeat("chart_signals")?`<span class="pill no" style="font-size:10px">PREMIUM</span>`:""}
           </div>
         </div>
+        ${positionsStripHtml(S.symbol)}
         <div class="chart-box"><canvas id="cv"></canvas>${!eaLive() || !S.candles.length ? emptyCard(I18N.t("markets.empty"), symbols.length ? I18N.t("markets.loading_tf") : I18N.t("exec.no_ea_symbol")) : ""}</div>
         ${eaLive() ? chartTicketHtml() : ""}
         <!-- Chart signals list removed per user request — signals only on chart canvas itself -->
@@ -5253,7 +5326,8 @@ const views = {
         <span>${I18N.t("charts.signal")}</span><b>${a.last_signal?.direction || a.last_signal?.action || "—"}</b>
         <span>${I18N.t("charts.state")}</span><b>${a.status || "online"}</b>
       </div>
-      ${tester && !clickable ? `<p class="sub">${I18N.t("tape.showing_backtest")}</p>` : `<div class="chart-box" style="height:200px;margin-top:10px"><canvas data-mini="${a.symbol||""}" data-tf="${a.timeframe||""}"></canvas></div>
+      ${tester && !clickable ? `<p class="sub">${I18N.t("tape.showing_backtest")}</p>` : `${positionsStripHtml(a.symbol)}
+      <div class="chart-box" style="height:200px"><canvas data-mini="${a.symbol||""}" data-tf="${a.timeframe||""}"></canvas></div>
       <p class="sub">${I18N.t("charts.open_hint")}</p>`}
     </div>`;
     if (agents.length || testers.length) {
@@ -8396,6 +8470,67 @@ function setChartSessions(on) {
   if (S.chart && typeof S.chart.setSessions === "function") S.chart.setSessions(S.chartSessions);
 }
 
+/* ===========================================================================
+   Open positions beside a chart
+   ===========================================================================
+   What is open on this instrument belonged next to the chart of it, and was
+   only ever reachable from a tab inside the drawing dock - so the one page a
+   trader watches while a trade runs was the one page that did not say the
+   trade existed.
+
+   It is a strip in the normal flow, between the toolbar and the canvas. Not
+   an overlay: an overlay either sits on the buttons or sits on the price,
+   and both were ruled out. Being in the flow it also cannot be scrolled
+   away from or hidden behind anything, and it holds its height when there
+   is nothing open so the chart below it never jumps.
+*/
+function positionsFor(symbol) {
+  return (S.snap?.positions || []).filter((r) => r && (!symbol || r.symbol === symbol));
+}
+
+function positionsSig(symbol) {
+  return positionsFor(symbol)
+    .map((r) => `${r.ticket}:${r.type}:${r.volume}:${r.price_open}:${r.profit}`).join("|");
+}
+
+function positionsStripBody(symbol) {
+  const pos = positionsFor(symbol);
+  return pos.length
+    ? pos.map((r) => {
+        const dir = String(r.type || "").toLowerCase().includes("sell") ? "sell" : "buy";
+        const pl = Number(r.profit);
+        return `<span class="pos-chip is-${dir}" title="${esc(strategyLabel(r.strategy))}">
+          <b>${esc(String(r.type || dir).toUpperCase())}</b>
+          <span class="mono">${fmt(r.volume, 2)}</span>
+          <span class="mono pos-at">@ ${fmt(r.price_open, 5)}</span>
+          <span class="mono pos-pl ${clsPnl(pl)}">${Number.isFinite(pl) ? (pl > 0 ? "+" : "") + fmt(pl, 2) : "—"}</span>
+        </span>`;
+      }).join("")
+    : `<span class="pos-none">${esc(I18N.t("status.no_positions"))}</span>`;
+}
+
+function positionsStripHtml(symbol) {
+  return `<div class="pos-strip" data-pos-strip="${esc(symbol || "")}" data-sig="${esc(positionsSig(symbol))}">
+      <span class="pos-strip-h">${esc(I18N.t("command.positions"))}</span>
+      <div class="pos-strip-list">${positionsStripBody(symbol)}</div>
+    </div>`;
+}
+
+/* Repaint in place. The strip is rebuilt from the snapshot rather than
+   re-rendering the view, because re-rendering a chart card would tear down
+   the canvas the trader is looking at. Guarded by a signature so a snapshot
+   that changed nothing about the open trades does not touch the DOM. */
+function paintPositionStrips() {
+  document.querySelectorAll("[data-pos-strip]").forEach((el) => {
+    const sym = el.dataset.posStrip || "";
+    const sig = positionsSig(sym);
+    if (el.dataset.sig === sig) return;
+    el.dataset.sig = sig;
+    const list = el.querySelector(".pos-strip-list");
+    if (list) list.innerHTML = positionsStripBody(sym);
+  });
+}
+
 function applyChartLevels(force) {
   if (!force) {
     if (S._lvlTimer) return;
@@ -8409,6 +8544,9 @@ function applyChartLevels(force) {
   // that had made its decision and was waiting at a price looked exactly
   // like a robot doing nothing.
   const ord = (S.snap?.orders || []).filter((r) => r && (!symbol || r.symbol === symbol));
+  /* Same trigger as the chart's own levels: whatever moved the lines on the
+     canvas has to move the strip above it, or the two disagree. */
+  paintPositionStrips();
   if (S.chart && typeof S.chart.setLevels === "function") S.chart.setLevels(pos);
   if (S.chart && typeof S.chart.setOrders === "function") S.chart.setOrders(ord);
   syncChartPending();

@@ -406,7 +406,13 @@
     system: "system-ui,-apple-system,Segoe UI,sans-serif",
   };
 
-  var COLOR_KEYS = ["page", "panel", "ink"];
+  /* candle_up / candle_down are the direction colours on every chart. They
+     used to be fixed per theme on the grounds that "up" must mean the same
+     thing everywhere, which is true of the meaning but not of the hue: a
+     trader who cannot separate the shipped green from the shipped red has
+     no way to read the chart at all. The pair is editable, the roles are
+     not - up is still up. */
+  var COLOR_KEYS = ["page", "panel", "ink", "candle_up", "candle_down"];
 
   /* Effects over the backdrop.
 
@@ -505,6 +511,15 @@
       out += "--chart-text:" + rgbToHex(ink) + ";";
       out += "--chart-muted:" + rgbToHex(mix(ink, base, 0.42)) + ";";
     }
+
+    /* The direction pair. --ok and --bad already resolve to these two in
+       the base sheet, so recolouring the candles also recolours every
+       profit and loss figure on the desk - which is the point: a trader
+       who changed "up" to blue should not still be reading green P/L. */
+    var cu = hexToRgb(colours.candle_up);
+    var cd = hexToRgb(colours.candle_down);
+    if (cu) out += "--candle-up:" + rgbToHex(cu) + ";";
+    if (cd) out += "--candle-down:" + rgbToHex(cd) + ";";
 
     if (colours.font && FONTS[colours.font]) out += "--font:" + FONTS[colours.font] + ";";
     return out;
