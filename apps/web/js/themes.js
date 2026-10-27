@@ -100,61 +100,73 @@
       id: "glass", accent: "aurora", bg: "soft", morph: "glass",
       knobs: { surface: 62, border: 10, blur: 18, radius: 22, shadow: 100, motion: 100 },
       swatch: ["#070910", "#151c2b", "#3ee0c4"],
+      candles: { dark: ["#26d07c", "#f4475b"], light: ["#0f9d58", "#d93025"] },
     },
     {
       id: "frost", accent: "ice", bg: "blobs", morph: "glass",
       knobs: { surface: 30, border: 22, blur: 34, radius: 24, shadow: 75, motion: 100 },
       swatch: ["#070c18", "#22304e", "#a5f3fc"],
+      candles: { dark: ["#2cdda8", "#f1415f"], light: ["#0b9d71", "#d20427"] },
     },
     {
       id: "neu", accent: "steel", bg: "flat", morph: "neu",
       knobs: { surface: 100, border: 0, blur: 0, radius: 26, shadow: 130, motion: 90 },
       swatch: ["#1b1f27", "#252b36", "#94a3b8"],
+      candles: { dark: ["#4cbd7d", "#d65c64"], light: ["#21874d", "#b6202a"] },
     },
     {
       id: "clay", accent: "orchid", bg: "flat", morph: "clay",
       knobs: { surface: 100, border: 0, blur: 0, radius: 32, shadow: 140, motion: 125 },
       swatch: ["#191325", "#3d2f5c", "#c084fc"],
+      candles: { dark: ["#39d08f", "#ed457d"], light: ["#13955d", "#ce094a"] },
     },
     {
       id: "aurora", accent: "violet", bg: "aurora", morph: "glass",
       knobs: { surface: 46, border: 15, blur: 28, radius: 26, shadow: 110, motion: 120 },
       swatch: ["#070919", "#2a2266", "#8b7bff"],
+      candles: { dark: ["#2fda9b", "#f73b6d"], light: ["#0d9c67", "#d60039"] },
     },
     {
       id: "cyber", accent: "magenta", bg: "grid", morph: "cyber",
       knobs: { surface: 78, border: 38, blur: 8, radius: 8, shadow: 95, motion: 110 },
       swatch: ["#030410", "#10183a", "#e879f9"],
+      candles: { dark: ["#10f975", "#fa3899"], light: ["#00a849", "#d6006b"] },
     },
     {
       id: "minimal", accent: "sky", bg: "none", morph: "flat",
       knobs: { surface: 100, border: 14, blur: 0, radius: 10, shadow: 30, motion: 70 },
       swatch: ["#0c0e13", "#1e222a", "#38bdf8"],
+      candles: { dark: ["#40c985", "#e05652"], light: ["#189054", "#c11b15"] },
     },
     {
       id: "midnight", accent: "indigo", bg: "layered", morph: "solid",
       knobs: { surface: 94, border: 10, blur: 6, radius: 16, shadow: 115, motion: 90 },
       swatch: ["#04060f", "#182148", "#818cf8"],
+      candles: { dark: ["#34d595", "#ef4360"], light: ["#109862", "#d00628"] },
     },
     {
       id: "ocean", accent: "azure", bg: "waves", morph: "glass",
       knobs: { surface: 54, border: 14, blur: 24, radius: 22, shadow: 100, motion: 100 },
       swatch: ["#020e16", "#0c3c50", "#4cc9f0"],
+      candles: { dark: ["#2adfbb", "#eb474d"], light: ["#099f81", "#cb0b11"] },
     },
     {
       id: "sunset", accent: "sunset", bg: "dusk", morph: "glass",
       knobs: { surface: 56, border: 14, blur: 22, radius: 26, shadow: 105, motion: 105 },
       swatch: ["#16080d", "#46212a", "#fb923c"],
+      candles: { dark: ["#3bce85", "#f15941"], light: ["#159354", "#d22004"] },
     },
     {
       id: "mono", accent: "graphite", bg: "none", morph: "flat",
       knobs: { surface: 100, border: 18, blur: 0, radius: 4, shadow: 20, motion: 55 },
       swatch: ["#09090a", "#212123", "#d4d4d8"],
+      candles: { dark: ["#65a485", "#c07277"], light: ["#327754", "#9f383f"] },
     },
     {
       id: "custom", accent: "aurora", bg: "soft", morph: "glass",
       knobs: { surface: 62, border: 10, blur: 18, radius: 22, shadow: 100, motion: 100 },
       swatch: ["#06070b", "#161a26", "#3ee0c4"],
+      candles: { dark: ["#26d07c", "#f4475b"], light: ["#0f9d58", "#d93025"] },
     },
   ];
 
@@ -547,6 +559,52 @@
     return validWall(w) ? w : "";
   }
 
+  /**
+   * The candle pair a theme ships with, for the cut currently on screen.
+   *
+   * Each theme names its own, because a pair that reads well on the glass
+   * desk's near-black panel is not the same pair that reads well on
+   * sunset's warm maroon or on a white light-mode card. Both cuts are
+   * stated rather than derived: the dark pairs are bright on a dark
+   * surface and the light pairs are deep on a white one, which is the
+   * opposite adjustment, not a scaling of the same colour.
+   *
+   * The default theme's pairs are the two that were hard-coded in
+   * app.css before this existed, so the desk a trader already knows does
+   * not change colour underneath them.
+   */
+  function themeCandles(id, light) {
+    var t = BY_ID[id] || BY_ID[DEFAULT_SKIN];
+    var c = t && t.candles;
+    if (!c) return null;
+    var pair = light ? c.light : c.dark;
+    return pair && pair.length === 2 ? { candle_up: pair[0], candle_down: pair[1] } : null;
+  }
+
+  /** Is the desk showing its light cut right now? */
+  function isLightCut() {
+    var el = root();
+    return Boolean(el && el.dataset && el.dataset.theme === "light");
+  }
+
+  /**
+   * What colourCss should actually publish for a theme: the pair the theme
+   * ships, with anything the trader chose laid over the top.
+   *
+   * Kept separate from themeColours(), which stays edits-only. The
+   * settings rows use that one to decide whether to offer "Clear", and
+   * folding the shipped pair into it would have made every theme look
+   * permanently edited with a Clear button that cleared nothing.
+   */
+  function publishedColours(id) {
+    var out = themeCandles(id, isLightCut()) || {};
+    var chosen = themeColours(id);
+    for (var k in chosen) {
+      if (Object.prototype.hasOwnProperty.call(chosen, k)) out[k] = chosen[k];
+    }
+    return out;
+  }
+
   /** The colour and font overrides in force for a theme, if any. */
   function themeColours(id) {
     var edit = readEdits()[id];
@@ -887,7 +945,7 @@
          themes.css, below "liquid glass off" and the cheap rendering
          tier. A colour the trader chose must still not be allowed to
          re-introduce translucency those two have ruled out. */
-      colourCss(themeColours(id)) + "}" +
+      colourCss(publishedColours(id)) + "}" +
       /* The picture rides on a custom property so css/themes.css owns the
          layout - position, size and the scrim over it - and this file only
          ever hands over the source. CSS url() has to be quoted: a data URL
@@ -971,7 +1029,12 @@
         var now = el.dataset ? el.dataset.theme : "";
         if (now === lastMode) return;
         lastMode = now;
-        if (activeWall(effectiveTheme())) apply();
+        /* Unconditional now. It used to re-apply only when the theme had
+           a wallpaper, since the wallpaper was the one thing that had a
+           per-cut variant. Every theme now also ships a per-cut candle
+           pair, so a desk going light with no wallpaper set would have
+           kept painting the dark pair on white cards. */
+        apply();
       }).observe(el, { attributes: true, attributeFilter: ["data-theme"] });
     } catch (e) { /* not fatal */ }
   }
@@ -1014,6 +1077,8 @@
     FX: FX,
     fx: activeFx,
     colours: themeColours,
+    candles: themeCandles,
+    published: publishedColours,
     colourCss: colourCss,
     WALLPAPERS: WALLPAPERS,
     wall: activeWall,

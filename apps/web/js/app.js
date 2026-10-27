@@ -1127,7 +1127,14 @@ function bindThemesGallery() {
 let previewVars = [];
 
 function previewColour(key, hex) {
-  const live = Object.assign({}, AurionTheme.colours(AurionTheme.effective()), { [key]: hex });
+  /* Built on what is actually published, not on the edits alone. Every
+     theme now ships a candle pair, so a preview that started from the
+     edit list would have dropped the other half of the pair out of the
+     declaration block for the duration of the drag. */
+  const base = typeof AurionTheme.published === "function"
+    ? AurionTheme.published(AurionTheme.effective())
+    : AurionTheme.colours(AurionTheme.effective());
+  const live = Object.assign({}, base, { [key]: hex });
   const css = AurionTheme.colourCss(live);
   clearColourPreview();
   const root = document.documentElement;
