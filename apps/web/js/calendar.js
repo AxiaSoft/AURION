@@ -14,6 +14,20 @@
 const Calendar = {
   // Which calendar drives the grid; the other two are shown as companions.
   system: localStorage.getItem("aurion.cal.system") || "jalali",
+  /* Month grid or agenda list.
+   *
+   * A seven-column month is a desktop shape. Measured on the old layout, a
+   * 390px phone gave each cell a 30px content box, and into that went a
+   * two-digit day, two companion dates (~30px), up to four 7px impact dots
+   * (~37px) and an absolutely positioned "Closed" tag over the number. At
+   * 320px the content box was 20px. The grid is kept - it is how people
+   * think about a month - but a phone opens on the agenda, which answers
+   * the question a trader actually has ("what is coming, and when") in a
+   * shape that fits a narrow screen.
+   *
+   * Stored, so the choice survives a reload; the width only decides the
+   * first time. */
+  mode: localStorage.getItem("aurion.cal.mode") || "",
   anchor: null, // UTC ms of any day inside the displayed month
   events: [], // normalised news rows from GET /api/news
   byDay: new Map(), // "YYYY-MM-DD" -> [event, ...]
@@ -178,6 +192,15 @@ const Calendar = {
 
   /* ---------------- render ---------------- */
 
+  /** Month grid or agenda. Falls back to the screen's shape the first time. */
+  effectiveMode() {
+    if (this.mode === "month" || this.mode === "agenda") return this.mode;
+    const narrow = typeof window !== "undefined" && window.matchMedia
+      ? window.matchMedia("(max-width:760px)").matches
+      : false;
+    return narrow ? "agenda" : "month";
+  },
+
   view() {
     if (!this.anchor) {
       const now = new Date();
@@ -187,84 +210,85 @@ const Calendar = {
     const t = (k, v) => I18N.t(k, v);
     const { cells, label } = this.cells(this.anchor);
     const companions = this.CALENDARS.filter((c) => c !== this.system);
-    const header = `${this.monthName(this.anchor, this.system)} ${label.y}`;
-    const wd = this._weekdayList("short");
-    const fw = this.firstWeekday();
-    const order = [];
-    for (let i = 0; i < 7; i += 1) order.push(wd[(fw + i) % 7]);
-
-    const sess = this.session || {};
-    const weekend = sess.state === "weekend";
+    const mode = this.effectiveMode();
+    const n = this._monthCount(cells);
 
     return `
-    <div class="cal-wrap">
-      <div class="cal-bar card">
-        <div class="cal-title">
-          <div class="cal-h1">${esc(t("calendar.title"))}</div>
-          <div class="cal-h2">${esc(t("calendar.hint"))}</div>
+    <div class="cal" data-mode="${mode}">
+      <header class="cal-top card">
+        <div class="cal-top-l">
+          <h3 class="cal-month">${esc(this.monthName(this.anchor, this.system))}
+            <span class="cal-year">${esc(String(label.y))}</span></h3>
+          <p class="cal-alt">${companions
+            .map((c) => esc(this.monthName(this.anchor, c)))
+            .join(" \u00B7 ")}</p>
         </div>
-        <div class="cal-controls">
-          <div class="seg" id="cal-sys">
-            ${this.CALENDARS.map(
-              (c) =>
-                `<button type="button" data-sys="${c}" class="${c === this.system ? "on" : ""}">${esc(
-                  t(`calendar.${c}`),
-                )}</button>`,
-            ).join("")}
-          </div>
+
+        <div class="cal-top-r">
           <div class="cal-nav">
-            <button type="button" class="btn sm" id="cal-prev" title="${esc(t("calendar.prev"))}">‹</button>
-            <button type="button" class="btn sm" id="cal-today">${esc(t("calendar.today"))}</button>
-            <button type="button" class="btn sm" id="cal-next" title="${esc(t("calendar.next"))}">›</button>
+            <button type="button" class="cal-arrow" id="cal-prev"
+              aria-label="${esc(t("calendar.prev"))}">${this._chevron("start")}</button>
+            <button type="button" class="cal-now" id="cal-today">${esc(t("calendar.today"))}</button>
+            <button type="button" class="cal-arrow" id="cal-next"
+              aria-label="${esc(t("calendar.next"))}">${this._chevron("end")}</button>
+          </div>
+          <div class="cal-segs">
+            <div class="cal-seg" id="cal-mode" role="tablist" aria-label="${esc(t("calendar.view"))}">
+              ${[["month", "calendar.view_month"], ["agenda", "calendar.view_agenda"]]
+                .map(([m, k]) => `<button type="button" role="tab" data-mode="${m}"
+                  aria-selected="${m === mode}" class="${m === mode ? "on" : ""}">${esc(t(k))}</button>`)
+                .join("")}
+            </div>
+            <div class="cal-seg" id="cal-sys" role="tablist" aria-label="${esc(t("calendar.title"))}">
+              ${this.CALENDARS.map((c) => `<button type="button" role="tab" data-sys="${c}"
+                aria-selected="${c === this.system}" class="${c === this.system ? "on" : ""}">${esc(t(`calendar.${c}`))}</button>`)
+                .join("")}
+            </div>
           </div>
         </div>
-      </div>
+      </header>
 
-      <div class="cal-month-label card">
-        <span class="cal-ml-main">${esc(header)}</span>
-        <span class="cal-ml-sub">${companions
-          .map((c) => `${esc(t(`calendar.${c}`))}: ${esc(this.monthName(this.anchor, c))}`)
-          .join(" · ")}</span>
-        <span class="cal-ml-count">${esc(t("calendar.month_events", { n: this._monthCount(cells) }))}</span>
-      </div>
+      ${this._statusHtml(n)}
 
-      <div class="cal-grid card" id="cal-grid">
-        <div class="cal-head">
-          ${order.map((d, i) => `<div class="cal-hd ${i >= 5 ? "wk" : ""}">${esc(d)}</div>`).join("")}
-        </div>
-        <div class="cal-body">
-          ${cells
-            .map((c) => this._cell(c, companions))
-            .join("")}
-        </div>
-      </div>
-
-      <div class="cal-side">
-        <div class="card cal-day" id="cal-day">${this._dayPanel(this.selected)}</div>
-        <div class="card cal-legend">
-          <div class="cal-lg-h">${esc(t("calendar.legend"))}</div>
-          ${["high", "medium", "low", "holiday"]
-            .map(
-              (lv) =>
-                `<div class="cal-lg"><span class="dot i-${lv}"></span>${esc(t(`calendar.impact_${lv}`))}</div>`,
-            )
-            .join("")}
-          <div class="cal-lg cal-lg-note">${esc(t("calendar.blackout_note", this.blackout))}</div>
-          <div class="cal-lg cal-lg-src">${
-            this.source
-              ? esc(t("calendar.source_set"))
-              : esc(t("calendar.source_missing"))
-          }</div>
-        </div>
-        ${
-          weekend
-            ? `<div class="card cal-closed"><div class="cal-c-h">${esc(t("calendar.closed"))}</div><div class="cal-c-b">${esc(
-                t("calendar.closed_note"),
-              )}</div></div>`
-            : ""
-        }
+      <div class="cal-main">
+        <section class="cal-pane card" id="cal-pane">
+          ${mode === "agenda" ? this._agenda(cells) : this._grid(cells, companions)}
+        </section>
+        <aside class="cal-aside">
+          <div class="card cal-day" id="cal-day">${this._dayPanel(this.selected)}</div>
+          <div class="card cal-legend">
+            <h4>${esc(t("calendar.legend"))}</h4>
+            <ul>
+              ${["high", "medium", "low", "holiday"]
+                .map((lv) => `<li><span class="dot i-${lv}"></span>${esc(t(`calendar.impact_${lv}`))}</li>`)
+                .join("")}
+            </ul>
+            <p class="cal-fine">${esc(t("calendar.blackout_note", this.blackout))}</p>
+          </div>
+        </aside>
       </div>
     </div>`;
+  },
+
+  /* Drawn rather than typed: the arrows were the characters U+2039 and
+     U+203A, which point the wrong way in a right-to-left layout and are
+     missing from several of the fonts the theme engine can select. An
+     inline path mirrors with the writing direction and always renders. */
+  _chevron(side) {
+    const d = side === "start" ? "M15 5 8 12l7 7" : "M9 5l7 7-7 7";
+    return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"
+      stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${d}"/></svg>`;
+  },
+
+  /** The one-line state of the month: how much news, and whether we trade. */
+  _statusHtml(n) {
+    const t = (k, v) => I18N.t(k, v);
+    const weekend = (this.session || {}).state === "weekend";
+    const bits = [`<span class="cal-chip"><b>${esc(String(n))}</b> ${esc(t("calendar.month_events_short"))}</span>`];
+    if (weekend) bits.push(`<span class="cal-chip is-closed">${esc(t("calendar.closed"))}</span>`);
+    bits.push(`<span class="cal-chip ${this.source ? "is-ok" : "is-warn"}">${
+      esc(this.source ? t("calendar.source_set") : t("calendar.source_missing"))}</span>`);
+    return `<div class="cal-status">${bits.join("")}</div>`;
   },
 
   _monthCount(cells) {
@@ -273,65 +297,123 @@ const Calendar = {
     return n;
   },
 
+  /* ------------------------------------------------------------- month */
+
+  _grid(cells, companions) {
+    const wd = this._weekdayList("short");
+    const fw = this.firstWeekday();
+    const order = [];
+    for (let i = 0; i < 7; i += 1) order.push({ name: wd[(fw + i) % 7], dow: (fw + i) % 7 });
+    return `
+      <div class="cal-grid" id="cal-grid">
+        <div class="cal-head" aria-hidden="true">
+          ${order.map((d) => `<span class="cal-hd${d.dow === 0 || d.dow === 6 ? " wk" : ""}">${esc(d.name)}</span>`).join("")}
+        </div>
+        <div class="cal-body" role="grid">
+          ${cells.map((c) => this._cell(c, companions)).join("")}
+        </div>
+      </div>`;
+  },
+
   _cell(c, companions) {
     const key = this._dayKey(c.ms);
     const evs = this.byDay.get(key) || [];
     const dow = new Date(c.ms).getDay();
     const isWeekend = dow === 0 || dow === 6;
     const today = key === this._dayKey(Date.now());
-    const cls = [
-      "cal-cell",
-      c.inMonth ? "" : "out",
-      isWeekend ? "wk" : "",
-      today ? "today" : "",
-      key === this.selected ? "sel" : "",
-      evs.length ? "has" : "",
-    ]
-      .filter(Boolean)
-      .join(" ");
-    const dots = ["high", "medium", "low", "holiday"]
-      .filter((lv) => evs.some((e) => e.level === lv))
-      .map((lv) => `<span class="dot i-${lv}"></span>`)
-      .join("");
+    const cls = ["cal-cell"];
+    if (!c.inMonth) cls.push("out");
+    if (isWeekend) cls.push("wk");
+    if (today) cls.push("today");
+    if (key === this.selected) cls.push("sel");
+    if (evs.length) cls.push("has");
+
+    /* At most three, and ordered by what matters. A fourth dot did not fit
+       in a phone cell, and "there is news here, some of it high impact" is
+       the whole message - the day panel carries the detail. */
+    const levels = ["high", "medium", "low", "holiday"].filter((lv) => evs.some((e) => e.level === lv));
+    const dots = levels.slice(0, 3).map((lv) => `<i class="dot i-${lv}"></i>`).join("");
+    const more = levels.length > 3 ? `<i class="cal-more"></i>` : "";
+
+    /* Companion dates are desktop-only, hidden in CSS rather than dropped
+       here, so the same markup serves both and a resize needs no re-render. */
     const subs = companions
-      .map((sys) => `<span class="cal-sub">${this.parts(c.ms, sys).d}</span>`)
+      .map((sys) => `<span class="cal-sub" data-sys="${sys}">${this.parts(c.ms, sys).d}</span>`)
       .join("");
-    return `<div class="${cls}" data-day="${key}" tabindex="0" role="button"
-        aria-label="${esc(`${c.primary.d} ${this.monthName(c.ms, this.system)}`)}">
-      <div class="cal-d">${c.primary.d}</div>
-      <div class="cal-subs">${subs}</div>
-      <div class="cal-dots">${dots}</div>
-      ${isWeekend ? `<div class="cal-wk-tag">${esc(I18N.t("calendar.closed_short"))}</div>` : ""}
+
+    const label = `${c.primary.d} ${this.monthName(c.ms, this.system)}` +
+      (evs.length ? ` \u2014 ${I18N.t("calendar.day_events", { n: evs.length })}` : "");
+    return `<button type="button" class="${cls.join(" ")}" data-day="${key}"
+        role="gridcell" aria-selected="${key === this.selected}" aria-label="${esc(label)}">
+      <span class="cal-d">${c.primary.d}</span>
+      <span class="cal-subs">${subs}</span>
+      <span class="cal-dots">${dots}${more}</span>
+    </button>`;
+  },
+
+  /* ------------------------------------------------------------ agenda */
+
+  /** Every day of the month that has events, in order. */
+  _agenda(cells) {
+    const t = (k, v) => I18N.t(k, v);
+    const days = cells
+      .filter((c) => c.inMonth)
+      .map((c) => ({ c, key: this._dayKey(c.ms), evs: this.byDay.get(this._dayKey(c.ms)) || [] }))
+      .filter((d) => d.evs.length);
+    if (!days.length) {
+      return `<div class="cal-agenda is-empty">
+        <p class="cal-none">${esc(t("calendar.agenda_none"))}</p>
+      </div>`;
+    }
+    const todayKey = this._dayKey(Date.now());
+    return `<div class="cal-agenda" id="cal-agenda">
+      ${days.map(({ c, key, evs }) => {
+        const p = c.primary;
+        const dow = this._weekdayList("short")[new Date(c.ms).getDay()];
+        return `<section class="cal-ag-day${key === todayKey ? " today" : ""}${key === this.selected ? " sel" : ""}"
+            data-day="${key}">
+          <header class="cal-ag-h">
+            <span class="cal-ag-n">${p.d}</span>
+            <span class="cal-ag-t"><b>${esc(dow)}</b>
+              <small>${esc(this.monthName(c.ms, this.system))}</small></span>
+            <span class="cal-ag-c">${esc(t("calendar.day_events", { n: evs.length }))}</span>
+          </header>
+          <div class="cal-evs">${evs.map((e) => this._ev(e)).join("")}</div>
+        </section>`;
+      }).join("")}
     </div>`;
   },
+
+  /* -------------------------------------------------------- day detail */
 
   _dayPanel(key) {
     const t = (k, v) => I18N.t(k, v);
     const evs = (this.byDay.get(key) || []).slice();
     const ms = this._fromDayKey(key);
-    const title = Number.isFinite(ms)
-      ? this.CALENDARS.map((sys) => {
-          const p = this.parts(ms, sys);
-          return `<span class="cal-dp-sys"><b>${esc(t(`calendar.${sys}`))}</b> ${esc(
-            `${p.d} ${this.monthName(ms, sys)} ${p.y}`,
-          )}</span>`;
-        }).join("")
-      : esc(key);
-    const dow = Number.isFinite(ms) ? new Date(ms).getDay() : -1;
+    const ok = Number.isFinite(ms);
+    const dow = ok ? new Date(ms).getDay() : -1;
     const weekend = dow === 0 || dow === 6;
-    return `
-      <div class="cal-dp-h">${title}</div>
-      ${weekend ? `<div class="cal-dp-wk">${esc(t("calendar.closed_note"))}</div>` : ""}
-      ${
-        evs.length
-          ? `<div class="cal-evs">${evs.map((e) => this._ev(e)).join("")}</div>`
-          : `<div class="cal-none">${esc(t("calendar.no_events"))}</div>`
-      }`;
+    /* All three systems, always. This is the one place with room for them,
+       which is why the grid cell no longer tries to carry them on a phone. */
+    const head = ok
+      ? `<h4 class="cal-dp-main">${esc(`${this.parts(ms, this.system).d} ${this.monthName(ms, this.system)} ${this.parts(ms, this.system).y}`)}</h4>
+         <dl class="cal-dp-sys">
+           ${this.CALENDARS.filter((s) => s !== this.system).map((sys) => {
+             const p = this.parts(ms, sys);
+             return `<div><dt>${esc(t(`calendar.${sys}`))}</dt><dd>${esc(`${p.d} ${this.monthName(ms, sys)} ${p.y}`)}</dd></div>`;
+           }).join("")}
+         </dl>`
+      : `<h4 class="cal-dp-main">${esc(key)}</h4>`;
+    return `${head}
+      ${weekend ? `<p class="cal-dp-wk">${esc(t("calendar.closed_note"))}</p>` : ""}
+      ${evs.length
+        ? `<div class="cal-evs">${evs.map((e) => this._ev(e)).join("")}</div>`
+        : `<p class="cal-none">${esc(t("calendar.no_events"))}</p>`}`;
   },
 
   _ev(e) {
     const t = (k, v) => I18N.t(k, v);
-    return `<div class="cal-ev i-${e.level}">
+    return `<article class="cal-ev i-${e.level}">
       <span class="cal-ev-time">${esc(e.time)}</span>
       <span class="cal-ev-body">
         <span class="cal-ev-t">${esc(e.title || t("calendar.untitled"))}</span>
@@ -340,9 +422,13 @@ const Calendar = {
           <span class="cal-ev-imp">${esc(t(`calendar.impact_${e.level}`))}</span>
         </span>
       </span>
-    </div>`;
+    </article>`;
   },
 
+  /* A quick peek for a mouse, on hover only. It is deliberately NOT shown
+     on click any more: clicking already fills the day panel, so a pinned
+     card put the same text on screen twice, floating over the grid it was
+     describing. Touch devices never see it - they get the panel. */
   _tipFor(key, evs) {
     const t = (k, v) => I18N.t(k, v);
     const ms = this._fromDayKey(key);
@@ -353,26 +439,12 @@ const Calendar = {
       )}</b></div>`;
     }).join("");
     const body = evs.length
-      ? evs
-          .map(
-            (e) =>
-              `<div class="cal-tip-ev"><span class="dot i-${e.level}"></span><b>${esc(e.time)}</b> ${esc(
-                e.currency,
-              )} — ${esc(e.title || t("calendar.untitled"))}</div>`,
-          )
-          .join("")
+      ? evs.slice(0, 4).map((e) =>
+          `<div class="cal-tip-ev"><span class="dot i-${e.level}"></span><b>${esc(e.time)}</b> ${esc(
+            e.currency)} \u2014 ${esc(e.title || t("calendar.untitled"))}</div>`).join("") +
+        (evs.length > 4 ? `<div class="cal-tip-none">${esc(t("calendar.day_events", { n: evs.length }))}</div>` : "")
       : `<div class="cal-tip-none">${esc(t("calendar.no_events"))}</div>`;
-    /* Drawn, not typed. The close mark used to be the character U+2715,
-       which is missing from a good many fonts and renders at a different
-       weight in each of the rest. The shape is inlined here rather than
-       borrowed from app.js, because this file is loaded first and should
-       not depend on that one having run. */
-    const xMark =
-      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"' +
-      ' stroke-linecap="round" aria-hidden="true">' +
-      '<line x1="7" y1="7" x2="17" y2="17"/><line x1="17" y1="7" x2="7" y2="17"/></svg>';
-    return `<button type="button" class="cal-tip-x" aria-label="${esc(t("calendar.close"))}">${xMark}</button>` +
-      `<div class="cal-tip-h">${esc(t("calendar.day"))}</div>${lines}<div class="cal-tip-sep"></div>${body}`;
+    return `<div class="cal-tip-h">${esc(t("calendar.day"))}</div>${lines}<div class="cal-tip-sep"></div>${body}`;
   },
 
   /* ---------------- wiring ---------------- */
@@ -397,33 +469,100 @@ const Calendar = {
   },
 
   bind(root) {
-    this._tipPinned = false;
-    this._pinnedCell = null;
     const $$ = (s) => root.querySelector(s);
-    const grid = $$("#cal-grid");
+    const pane = $$("#cal-pane");
     const day = $$("#cal-day");
-    // Reuse one tooltip, parented to <body> so no transformed ancestor can
-    // hijack its fixed positioning.
+
+    /* ------------------------------------------------- the hover peek */
+    /* One element, parented to <body> so no transformed ancestor can
+       hijack its fixed positioning. Only ever created where a real mouse
+       exists: on a touch screen it could be shown but never dismissed. */
+    const fine = typeof window !== "undefined" && window.matchMedia
+      ? window.matchMedia("(hover:hover) and (pointer:fine)").matches
+      : true;
     let tip = document.getElementById("cal-tip");
-    if (!tip) {
+    if (fine && !tip) {
       tip = document.createElement("div");
       tip.className = "cal-tip";
       tip.id = "cal-tip";
       tip.hidden = true;
       document.body.appendChild(tip);
     }
-    this.tip = tip;
+    this.tip = fine ? tip : null;
+
+    const hideTip = () => { if (tip) tip.hidden = true; };
+    /* Kept on the instance: the desk calls it when the view changes, and
+       the card lives on <body> so it would otherwise outlive the grid. */
+    this.unpin = hideTip;
+
+    const showTip = (cell) => {
+      if (!tip) return;
+      const key = cell.dataset.day;
+      tip.innerHTML = this._tipFor(key, this.byDay.get(key) || []);
+      tip.hidden = false;
+      const r = cell.getBoundingClientRect();
+      const w = Math.min(tip.offsetWidth || 260, window.innerWidth - 16);
+      const h = tip.offsetHeight || 160;
+      tip.style.maxWidth = `${window.innerWidth - 16}px`;
+      const left = Math.min(Math.max(8, r.left + r.width / 2 - w / 2), window.innerWidth - w - 8);
+      tip.style.left = `${Math.max(8, left)}px`;
+      let top = r.bottom + 8;
+      if (top + h > window.innerHeight - 8) top = r.top - h - 8;
+      tip.style.top = `${Math.max(8, Math.min(top, window.innerHeight - h - 8))}px`;
+    };
+
+    /* ------------------------------------------------------ selection */
+
+    /* CSS.escape is not in every engine the desk runs on, and a bare `CSS`
+       reference throws rather than reading undefined. Day keys are
+       YYYY-MM-DD, so the fallback only has to refuse anything else. */
+    const esckey = (k) => (typeof CSS !== "undefined" && CSS.escape
+      ? CSS.escape(k)
+      : String(k).replace(/[^0-9-]/g, ""));
+
+    const select = (key, opts) => {
+      if (!key) return;
+      this.selected = key;
+      if (day) day.innerHTML = this._dayPanel(key);
+      root.querySelectorAll("[data-day].sel").forEach((el) => {
+        el.classList.remove("sel");
+        if (el.hasAttribute("aria-selected")) el.setAttribute("aria-selected", "false");
+      });
+      root.querySelectorAll(`[data-day="${esckey(key)}"]`)
+        .forEach((el) => {
+          el.classList.add("sel");
+          if (el.hasAttribute("aria-selected")) el.setAttribute("aria-selected", "true");
+        });
+      /* On a phone the day panel is below the grid, so a tap that changed
+         it off-screen looked like nothing happened. */
+      if (opts && opts.reveal && day && typeof day.scrollIntoView === "function") {
+        const stacked = window.matchMedia && window.matchMedia("(max-width:1100px)").matches;
+        if (stacked) {
+          try { day.scrollIntoView({ behavior: "smooth", block: "nearest" }); } catch (e) { /* older engines */ }
+        }
+      }
+    };
+
+    /* ------------------------------------------------------- controls */
 
     $$("#cal-sys")?.addEventListener("click", (e) => {
       const btn = e.target.closest("button[data-sys]");
       if (!btn) return;
       this.system = btn.dataset.sys;
-      localStorage.setItem("aurion.cal.system", this.system);
+      try { localStorage.setItem("aurion.cal.system", this.system); } catch (_) { /* private mode */ }
+      this.rerender();
+    });
+
+    $$("#cal-mode")?.addEventListener("click", (e) => {
+      const btn = e.target.closest("button[data-mode]");
+      if (!btn) return;
+      this.mode = btn.dataset.mode;
+      try { localStorage.setItem("aurion.cal.mode", this.mode); } catch (_) { /* private mode */ }
+      hideTip();
       this.rerender();
     });
 
     const shift = (months) => {
-      const p = this.parts(this.anchor, this.system);
       const approx = { jalali: 30.4, hijri: 29.5, gregorian: 30.4 }[this.system] || 30.4;
       // Step by whole months in the primary calendar: land on its 1st, then move.
       let ms = this.anchor;
@@ -431,14 +570,8 @@ const Calendar = {
         const cur = this.parts(ms, this.system);
         let y = cur.y;
         let m = cur.m + Math.sign(months);
-        if (m > 12) {
-          m = 1;
-          y += 1;
-        } else if (m < 1) {
-          m = 12;
-          y -= 1;
-        }
-        // Find the first UTC day whose primary parts equal (y, m, 1).
+        if (m > 12) { m = 1; y += 1; } else if (m < 1) { m = 12; y -= 1; }
+        // Find the first day whose primary parts equal (y, m, 1).
         const probeDate = new Date(ms);
         probeDate.setDate(probeDate.getDate() + Math.sign(months) * Math.round(approx));
         let probe = probeDate.getTime();
@@ -453,6 +586,7 @@ const Calendar = {
       }
       this.anchor = ms;
       this.selected = this._dayKey(ms);
+      hideTip();
       this.rerender();
     };
 
@@ -462,116 +596,65 @@ const Calendar = {
       const now = new Date();
       this.anchor = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 12).getTime();
       this.selected = this._dayKey(Date.now());
+      hideTip();
       this.rerender();
     });
 
-    grid?.addEventListener("click", (e) => {
-      const cell = e.target.closest(".cal-cell");
-      if (!cell) return;
-      // Clicking pins the hover card so it can be read and scrolled at leisure.
-      const wasPinned = this._tipPinned && this._pinnedCell === cell;
-      root.querySelectorAll(".cal-cell.pinned").forEach((el) => el.classList.remove("pinned"));
-      this._tipPinned = !wasPinned;
-      this._pinnedCell = wasPinned ? null : cell;
-      if (this._tipPinned) {
-        cell.classList.add("pinned");
-        showTip(cell);
-        if (tip) tip.classList.add("pinned");
-      } else if (tip) {
-        tip.hidden = true;
-        tip.classList.remove("pinned");
-      }
-      this.selected = cell.dataset.day;
-      if (day) day.innerHTML = this._dayPanel(this.selected);
-      grid.querySelectorAll(".cal-cell.sel").forEach((el) => el.classList.remove("sel"));
-      cell.classList.add("sel");
+    /* -------------------------------------------------------- the pane */
+
+    /* One listener for both layouts: a grid cell and an agenda day both
+       carry data-day, so selecting works the same in either. */
+    pane?.addEventListener("click", (e) => {
+      const el = e.target.closest("[data-day]");
+      if (!el || !pane.contains(el)) return;
+      select(el.dataset.day, { reveal: true });
     });
 
-    const showTip = (cell) => {
-      if (!tip) return;
-      const key = cell.dataset.day;
-      tip.innerHTML = this._tipFor(key, this.byDay.get(key) || []);
-      tip.hidden = false;
-      const r = cell.getBoundingClientRect();
-      const w = Math.min(tip.offsetWidth || 260, window.innerWidth - 16);
-      const h = tip.offsetHeight || 160;
-      tip.style.maxWidth = `${window.innerWidth - 16}px`;
-      const left = Math.min(Math.max(8, r.left + r.width / 2 - w / 2), window.innerWidth - w - 8);
-      tip.style.left = `${Math.max(8, left)}px`;
-      // Prefer below the cell; flip above only when it would overflow, and
-      // never let it leave the viewport.
-      let top = r.bottom + 8;
-      if (top + h > window.innerHeight - 8) top = r.top - h - 8;
-      tip.style.top = `${Math.max(8, Math.min(top, window.innerHeight - h - 8))}px`;
-    };
-    const hideTip = () => {
-      // A pinned tip survives leaving the cell; only an outside click or the
-      // close button dismisses it.
-      if (tip && !this._tipPinned) tip.hidden = true;
-    };
-    const unpin = () => {
-      this._tipPinned = false;
-      if (tip) {
-        tip.hidden = true;
-        tip.classList.remove("pinned");
-      }
-      root.querySelectorAll(".cal-cell.pinned").forEach((el) => el.classList.remove("pinned"));
-    };
-    // The card is parented to <body> so no transformed ancestor can break its
-    // fixed positioning - which also means it outlives the calendar view. Two
-    // guards: the desk calls unpin() when it changes view, and the card removes
-    // itself if the grid it belongs to ever leaves the document.
-    this.unpin = unpin;
-    if (typeof MutationObserver !== "undefined" && grid) {
+    /* The cells are real buttons now, so Enter and Space already activate
+       them. Arrow keys are what a grid still has to add. */
+    pane?.addEventListener("keydown", (e) => {
+      const cell = e.target.closest(".cal-cell");
+      if (!cell) return;
+      const STEP = { ArrowLeft: -1, ArrowRight: 1, ArrowUp: -7, ArrowDown: 7 };
+      let step = STEP[e.key];
+      if (step === undefined) return;
+      // Left and right follow the reading direction, not the screen.
+      if ((e.key === "ArrowLeft" || e.key === "ArrowRight") &&
+          document.documentElement.getAttribute("dir") === "rtl") step = -step;
+      e.preventDefault();
+      const all = [...pane.querySelectorAll(".cal-cell")];
+      const i = all.indexOf(cell);
+      const next = all[i + step];
+      if (!next) return;
+      next.focus();
+      select(next.dataset.day);
+    });
+
+    if (fine) {
+      pane?.addEventListener("mouseover", (e) => {
+        const cell = e.target.closest(".cal-cell");
+        if (cell && pane.contains(cell)) showTip(cell);
+      });
+      pane?.addEventListener("mouseleave", hideTip);
+      pane?.addEventListener("focusin", (e) => {
+        const cell = e.target.closest(".cal-cell");
+        if (cell) showTip(cell);
+      });
+      pane?.addEventListener("focusout", hideTip);
+      // Scrolling moves the grid out from under a fixed-position card.
+      window.addEventListener("scroll", hideTip, { passive: true, capture: true });
+    }
+
+    /* The card lives on <body>, so it has to remove itself if the pane it
+       describes ever leaves the document. */
+    if (typeof MutationObserver !== "undefined" && pane && tip) {
       const watcher = new MutationObserver(() => {
-        if (!document.body.contains(grid)) {
-          unpin();
+        if (!document.body.contains(pane)) {
+          hideTip();
           watcher.disconnect();
         }
       });
       watcher.observe(document.body, { childList: true, subtree: true });
     }
-    grid?.addEventListener("mouseover", (e) => {
-      const cell = e.target.closest(".cal-cell");
-      if (cell) showTip(cell);
-    });
-    grid?.addEventListener("mouseout", (e) => {
-      if (!e.target.closest(".cal-cell")) return;
-      // Moving onto the tooltip itself must not dismiss it, otherwise it can
-      // never be reached to scroll.
-      if (e.relatedTarget && tip && tip.contains(e.relatedTarget)) return;
-      hideTip();
-    });
-    // Hovering the card keeps it open; leaving it for good hides it.
-    tip?.addEventListener("mouseenter", () => { this._tipHover = true; });
-    tip?.addEventListener("mouseleave", () => {
-      this._tipHover = false;
-      hideTip();
-    });
-    tip?.addEventListener("click", (e) => {
-      if (e.target.closest(".cal-tip-x")) unpin();
-      e.stopPropagation();
-    });
-    // Click anywhere else on the page dismisses a pinned card.
-    document.addEventListener("click", (e) => {
-      if (!this._tipPinned) return;
-      if (tip && tip.contains(e.target)) return;
-      if (e.target.closest && e.target.closest(".cal-cell")) return;
-      unpin();
-    });
-    grid?.addEventListener("focusin", (e) => {
-      const cell = e.target.closest(".cal-cell");
-      if (cell) showTip(cell);
-    });
-    grid?.addEventListener("focusout", hideTip);
-    grid?.addEventListener("keydown", (e) => {
-      if (e.key === "Enter" || e.key === " ") {
-        const cell = e.target.closest(".cal-cell");
-        if (cell) {
-          e.preventDefault();
-          cell.click();
-        }
-      }
-    });
   },
 };

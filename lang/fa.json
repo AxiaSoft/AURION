@@ -1007,14 +1007,18 @@
   },
   "calendar": {
     "title": "تقویم اقتصادی",
-    "hint": "رویدادهای خبری روی تقویم با رنگ اهمیت؛ نشانگر را روی روز نگه دارید تا ساعت و جزئیات را ببینید.",
+    "view": "نما",
+    "view_month": "ماه",
+    "view_agenda": "فهرست",
+    "agenda_none": "برای این ماه خبری ثبت نشده است.",
+    "day_events": "{n} رویداد",
+    "month_events_short": "رویداد در این ماه",
     "jalali": "شمسی",
     "gregorian": "میلادی",
     "hijri": "قمری",
     "today": "امروز",
     "prev": "ماه قبل",
     "next": "ماه بعد",
-    "month_events": "{n} رویداد در این ماه",
     "legend": "راهنما",
     "impact_high": "اهمیت بالا",
     "impact_medium": "اهمیت متوسط",
@@ -1025,7 +1029,6 @@
     "source_missing": "فایل تقویم اقتصادی تنظیم نشده است",
     "closed": "بازار تعطیل است",
     "closed_note": "شنبه و یکشنبه بازار فارکس تعطیل است؛ در این دو روز معامله‌ای باز نمی‌شود.",
-    "closed_short": "تعطیل",
     "no_events": "رویدادی ثبت نشده است.",
     "day": "روز",
     "untitled": "بدون عنوان",
@@ -1035,8 +1038,7 @@
     "weekday_thursday": "پنجشنبه",
     "weekday_friday": "جمعه",
     "weekday_saturday": "شنبه",
-    "weekday_sunday": "یکشنبه",
-    "close": "بستن"
+    "weekday_sunday": "یکشنبه"
   },
   "rail": {
     "trading": "معامله",

@@ -1834,72 +1834,215 @@ input[type=range]{width:100%;accent-color:var(--cyan);height:28px;cursor:pointer
  * Telegram admin panel, strategy drop-zone filename.
  * ======================================================================== */
 
-/* ---- calendar ---- */
-.cal-wrap{display:grid;grid-template-columns:minmax(0,1fr) 320px;gap:12px;align-items:start}
-@media (max-width:1100px){.cal-wrap{grid-template-columns:minmax(0,1fr)}}
-.cal-bar{display:flex;gap:12px;align-items:flex-start;justify-content:space-between;flex-wrap:wrap}
-.cal-h1{font-size:18px;font-weight:600}
-.cal-h2{color:var(--muted);font-size:12px;margin-top:2px}
-.cal-controls{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
-.cal-nav{display:flex;gap:6px}
-.seg{display:inline-flex;border:1px solid var(--line);border-radius:999px;padding:2px;background:var(--bg2)}
-.seg button{border:0;background:transparent;color:var(--muted);padding:6px 12px;border-radius:999px;cursor:pointer;font:inherit;font-size:12px}
-.seg button.on{background:var(--glass2);color:var(--ink)}
-.cal-month-label{display:flex;gap:10px;align-items:baseline;flex-wrap:wrap}
-.cal-ml-main{font-size:16px;font-weight:600}
-.cal-ml-sub{color:var(--muted);font-size:12px}
-.cal-ml-count{margin-inline-start:auto;color:var(--faint);font-size:12px}
-.cal-grid{padding:10px}
+/* ---- calendar ---------------------------------------------------------
+   Rebuilt for both shapes. The old layout was four stacked cards and a
+   `minmax(0,1fr) 320px` grid that collapsed at 1100px, which on a 390px
+   phone left each of the seven columns a 30px content box - measured -
+   while the cell still tried to carry a two-digit day, two companion
+   dates, four impact dots and an absolutely positioned "Closed" tag.
+
+   Now: one header, one status strip, one content pane and one aside.
+   Desktop puts pane and aside side by side; narrow screens stack them and
+   the pane defaults to the agenda. Everything that does not fit a small
+   cell moved to the day panel, which has the room for it. ---- */
+
+.cal{display:flex;flex-direction:column;gap:12px}
+
+/* header ---------------------------------------------------------- */
+.cal-top{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;
+  gap:12px 16px;padding:14px 16px}
+.cal-top-l{min-width:0}
+.cal-month{margin:0;font-size:1.22rem;font-weight:650;letter-spacing:.2px;line-height:1.2}
+.cal-year{font-weight:400;opacity:.5;margin-inline-start:6px}
+.cal-alt{margin:2px 0 0;font-size:.78rem;opacity:.6}
+.cal-top-r{display:flex;flex-wrap:wrap;align-items:center;gap:10px}
+
+.cal-nav{display:flex;align-items:center;gap:4px;padding:3px;border-radius:12px;
+  background:rgb(var(--wash) / .05);border:1px solid rgb(var(--wash) / .08)}
+.cal-arrow{display:grid;place-items:center;width:34px;height:34px;padding:0;border:0;
+  border-radius:9px;background:transparent;color:inherit;cursor:pointer;
+  transition:background .15s ease,color .15s ease}
+.cal-arrow svg{width:18px;height:18px}
+/* The chevron is drawn pointing the way the text runs. */
+[dir="rtl"] .cal-arrow svg{transform:scaleX(-1)}
+.cal-now{height:34px;padding:0 14px;border:0;border-radius:9px;background:transparent;
+  color:inherit;font:inherit;font-size:.82rem;font-weight:600;cursor:pointer;
+  transition:background .15s ease}
+.cal-arrow:hover,.cal-now:hover{background:rgb(var(--wash) / .1)}
+.cal-arrow:focus-visible,.cal-now:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+
+.cal-segs{display:flex;flex-wrap:wrap;gap:8px}
+.cal-seg{display:flex;padding:3px;border-radius:12px;background:rgb(var(--wash) / .05);
+  border:1px solid rgb(var(--wash) / .08)}
+.cal-seg button{height:30px;padding:0 12px;border:0;border-radius:9px;background:transparent;
+  color:inherit;font:inherit;font-size:.78rem;font-weight:600;cursor:pointer;white-space:nowrap;
+  opacity:.62;transition:background .15s ease,opacity .15s ease,color .15s ease}
+.cal-seg button:hover{opacity:.9}
+.cal-seg button.on{opacity:1;color:var(--accent);background:rgb(var(--accent-rgb) / .14)}
+.cal-seg button:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+
+/* status strip ---------------------------------------------------- */
+.cal-status{display:flex;flex-wrap:wrap;gap:8px}
+.cal-chip{display:inline-flex;align-items:center;gap:6px;padding:5px 11px;border-radius:999px;
+  font-size:.76rem;line-height:1.3;background:rgb(var(--wash) / .06);
+  border:1px solid rgb(var(--wash) / .09)}
+.cal-chip b{font-weight:700}
+.cal-chip.is-ok{color:var(--ok);border-color:rgb(var(--accent-rgb) / .22)}
+.cal-chip.is-warn{color:var(--gold);border-color:rgba(232,192,122,.25);background:rgba(232,192,122,.1)}
+.cal-chip.is-closed{color:var(--bad);border-color:rgba(255,107,138,.25);background:rgba(255,107,138,.1)}
+
+/* two panes ------------------------------------------------------- */
+.cal-main{display:grid;grid-template-columns:minmax(0,1fr) 330px;gap:12px;align-items:start}
+.cal-pane{padding:10px;min-width:0}
+.cal-aside{display:flex;flex-direction:column;gap:12px;position:sticky;top:8px}
+
+/* month grid ------------------------------------------------------ */
+.cal-grid{display:flex;flex-direction:column;gap:6px}
 .cal-head,.cal-body{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:6px}
-.cal-hd{color:var(--faint);font-size:11px;text-align:center;padding:4px 0}
-.cal-hd.wk{color:var(--bad);opacity:.75}
-.cal-cell{position:relative;border:1px solid var(--line);border-radius:12px;background:var(--bg2);
-  padding:6px 7px 18px;min-height:74px;cursor:pointer;outline:0;transition:border-color .15s,background .15s}
-.cal-cell:hover,.cal-cell:focus-visible{border-color:rgb(var(--accent-rgb) / .45)}
-.cal-cell.out{opacity:.38}
-.cal-cell.wk{background:rgba(255,107,138,.06)}
-.cal-cell.today{border-color:var(--cyan)}
-.cal-cell.sel{background:var(--glass2);border-color:var(--violet)}
-.cal-d{font-size:15px;font-weight:600;line-height:1.2}
-.cal-subs{display:flex;gap:6px;margin-top:2px}
-.cal-sub{font-size:10px;color:var(--faint)}
-.cal-dots{position:absolute;inset-inline-start:7px;bottom:6px;display:flex;gap:3px}
-.dot{width:7px;height:7px;border-radius:50%;display:inline-block;background:var(--faint)}
+.cal-hd{text-align:center;font-size:.72rem;font-weight:600;opacity:.5;padding:2px 0;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cal-hd.wk{opacity:.35}
+
+.cal-cell{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;
+  min-width:0;padding:6px 2px;border:1px solid rgb(var(--wash) / .07);border-radius:12px;
+  background:rgb(var(--wash) / .02);color:inherit;font:inherit;cursor:pointer;
+  aspect-ratio:1 / 1;transition:background .15s ease,border-color .15s ease,transform .1s ease}
+.cal-cell:hover{background:rgb(var(--wash) / .07)}
+.cal-cell:active{transform:scale(.97)}
+.cal-cell:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.cal-cell.out{opacity:.3}
+/* Weekends read as a tint. The old text tag did not fit the cell and
+   landed on top of the day number; the day panel says it in words. */
+.cal-cell.wk{background:rgb(var(--wash) / .055)}
+.cal-cell.today{border-color:rgb(var(--accent-rgb) / .5)}
+.cal-cell.sel{background:rgb(var(--accent-rgb) / .16);border-color:var(--accent)}
+
+.cal-d{font-size:.95rem;font-weight:600;line-height:1.1;font-variant-numeric:tabular-nums}
+.cal-cell.today .cal-d{color:var(--accent)}
+.cal-subs{display:flex;gap:4px;font-size:.62rem;opacity:.45;line-height:1;
+  font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;max-width:100%}
+.cal-sub + .cal-sub::before{content:"\00B7";margin-inline-end:4px;opacity:.6}
+.cal-dots{display:flex;align-items:center;gap:3px;min-height:6px}
+.cal-dots .dot{width:5px;height:5px;border-radius:50%}
+.cal-more{width:3px;height:3px;border-radius:50%;background:currentColor;opacity:.45}
+
 .dot.i-high{background:var(--bad)}
 .dot.i-medium{background:var(--gold)}
 .dot.i-low{background:var(--ok)}
-.dot.i-holiday{background:var(--violet)}
-.cal-wk-tag{position:absolute;inset-inline-end:6px;top:6px;font-size:9px;color:var(--bad);opacity:.8}
-.cal-side{display:grid;gap:12px}
-.cal-dp-h{display:flex;flex-direction:column;gap:3px;font-size:12px}
-.cal-dp-sys b{color:var(--muted);font-weight:500;font-size:11px;margin-inline-end:4px}
-.cal-dp-wk{margin-top:8px;font-size:11px;color:var(--bad)}
-.cal-evs{display:grid;gap:6px;margin-top:10px}
-.cal-ev{display:flex;gap:8px;align-items:flex-start;border:1px solid var(--line);border-radius:10px;
-  padding:7px 8px;background:var(--bg2);border-inline-start-width:3px}
-.cal-ev.i-high{border-inline-start-color:var(--bad)}
-.cal-ev.i-medium{border-inline-start-color:var(--gold)}
-.cal-ev.i-low{border-inline-start-color:var(--ok)}
-.cal-ev.i-holiday{border-inline-start-color:var(--violet)}
-.cal-ev-time{font-family:"IBM Plex Mono",monospace;font-size:11px;color:var(--muted);min-width:42px}
-.cal-ev-t{display:block;font-size:12px}
-.cal-ev-m{display:flex;gap:6px;margin-top:2px;font-size:10px;color:var(--faint)}
-.cal-ev-ccy{font-family:"IBM Plex Mono",monospace;color:var(--cyan)}
-.cal-none{margin-top:10px;color:var(--faint);font-size:12px}
-.cal-legend{display:grid;gap:6px}
-.cal-lg-h{font-size:12px;font-weight:600;margin-bottom:2px}
-.cal-lg{display:flex;gap:8px;align-items:center;font-size:12px;color:var(--muted)}
-.cal-lg-note,.cal-lg-src{color:var(--faint);font-size:11px;display:block}
-.cal-closed{border-color:rgba(255,107,138,.35)}
-.cal-c-h{color:var(--bad);font-size:13px;font-weight:600}
-.cal-c-b{color:var(--muted);font-size:12px;margin-top:4px}
-.cal-tip{position:fixed;z-index:90;max-width:280px;background:var(--glass2);border:1px solid var(--line);
-  border-radius:12px;padding:9px 10px;box-shadow:var(--shadow);backdrop-filter:blur(10px);pointer-events:auto}
-.cal-tip-h{font-size:10px;color:var(--faint);text-transform:uppercase;letter-spacing:.06em}
-.cal-tip-sys{display:flex;justify-content:space-between;gap:10px;font-size:11px;color:var(--muted);margin-top:3px}
-.cal-tip-sep{height:1px;background:var(--line);margin:7px 0}
-.cal-tip-ev{display:flex;gap:6px;align-items:center;font-size:11px;margin-top:4px}
-.cal-tip-none{font-size:11px;color:var(--faint);margin-top:4px}
+.dot.i-holiday{background:rgb(var(--wash) / .45)}
+
+/* agenda ---------------------------------------------------------- */
+.cal-agenda{display:flex;flex-direction:column;gap:8px}
+.cal-agenda.is-empty{padding:28px 12px;text-align:center}
+.cal-ag-day{border:1px solid rgb(var(--wash) / .08);border-radius:14px;overflow:hidden;
+  background:rgb(var(--wash) / .02);cursor:pointer;transition:border-color .15s ease}
+.cal-ag-day:hover{border-color:rgb(var(--wash) / .16)}
+.cal-ag-day.today{border-color:rgb(var(--accent-rgb) / .45)}
+.cal-ag-day.sel{border-color:var(--accent);background:rgb(var(--accent-rgb) / .06)}
+.cal-ag-h{display:flex;align-items:center;gap:10px;padding:9px 12px;
+  background:rgb(var(--wash) / .04)}
+.cal-ag-n{display:grid;place-items:center;flex:0 0 auto;width:30px;height:30px;border-radius:9px;
+  font-size:.85rem;font-weight:700;font-variant-numeric:tabular-nums;
+  background:rgb(var(--wash) / .08)}
+.cal-ag-day.today .cal-ag-n{background:rgb(var(--accent-rgb) / .18);color:var(--accent)}
+.cal-ag-t{display:flex;flex-direction:column;min-width:0;line-height:1.25}
+.cal-ag-t b{font-size:.82rem;font-weight:650}
+.cal-ag-t small{font-size:.7rem;opacity:.55}
+.cal-ag-c{margin-inline-start:auto;font-size:.72rem;opacity:.55;white-space:nowrap}
+.cal-ag-day .cal-evs{padding:8px 10px}
+
+/* events ---------------------------------------------------------- */
+.cal-evs{display:flex;flex-direction:column;gap:6px}
+.cal-ev{position:relative;display:flex;gap:10px;align-items:flex-start;padding:8px 10px 8px 12px;
+  border-radius:10px;background:rgb(var(--wash) / .04)}
+.cal-ev::before{content:"";position:absolute;inset-block:8px;inset-inline-start:4px;width:3px;
+  border-radius:2px;background:rgb(var(--wash) / .3)}
+.cal-ev.i-high::before{background:var(--bad)}
+.cal-ev.i-medium::before{background:var(--gold)}
+.cal-ev.i-low::before{background:var(--ok)}
+.cal-ev-time{flex:0 0 auto;font-size:.76rem;font-weight:650;opacity:.8;padding-top:1px;
+  font-variant-numeric:tabular-nums}
+.cal-ev-body{display:flex;flex-direction:column;gap:3px;min-width:0}
+.cal-ev-t{font-size:.82rem;line-height:1.35;overflow-wrap:anywhere}
+.cal-ev-m{display:flex;flex-wrap:wrap;align-items:center;gap:6px;font-size:.7rem}
+.cal-ev-ccy{font-weight:700;opacity:.65;letter-spacing:.4px}
+.cal-ev-imp{padding:1px 7px;border-radius:999px;background:rgb(var(--wash) / .06)}
+.cal-ev.i-high .cal-ev-imp{color:var(--bad);background:rgba(255,107,138,.12)}
+.cal-ev.i-medium .cal-ev-imp{color:var(--gold);background:rgba(232,192,122,.12)}
+.cal-ev.i-low .cal-ev-imp{color:var(--ok);background:rgb(var(--accent-rgb) / .12)}
+
+/* day panel ------------------------------------------------------- */
+.cal-day{padding:14px;max-height:none}
+.cal-dp-main{margin:0 0 8px;font-size:1rem;font-weight:650}
+.cal-dp-sys{display:flex;flex-wrap:wrap;gap:6px 14px;margin:0 0 10px;padding:0 0 10px;
+  border-bottom:1px solid rgb(var(--wash) / .08)}
+.cal-dp-sys div{display:flex;gap:6px;align-items:baseline;min-width:0}
+.cal-dp-sys dt{font-size:.7rem;opacity:.5}
+.cal-dp-sys dd{margin:0;font-size:.76rem;font-weight:600}
+.cal-dp-wk{margin:0 0 10px;padding:8px 10px;border-radius:10px;font-size:.76rem;line-height:1.5;
+  color:var(--bad);background:rgba(255,107,138,.09);border:1px solid rgba(255,107,138,.2)}
+.cal-none{margin:0;font-size:.8rem;opacity:.5;text-align:center;padding:10px 0}
+
+/* legend ---------------------------------------------------------- */
+.cal-legend{padding:14px}
+.cal-legend h4{margin:0 0 8px;font-size:.8rem;font-weight:650;opacity:.75}
+.cal-legend ul{list-style:none;margin:0;padding:0;display:flex;flex-wrap:wrap;gap:6px 14px}
+.cal-legend li{display:flex;align-items:center;gap:7px;font-size:.76rem;opacity:.8}
+.cal-legend .dot{width:8px;height:8px;border-radius:50%;flex:0 0 auto}
+.cal-fine{margin:10px 0 0;font-size:.7rem;line-height:1.5;opacity:.5}
+
+/* hover peek ------------------------------------------------------ */
+.cal-tip{position:fixed;z-index:70;width:270px;max-height:60vh;overflow:auto;padding:11px 13px;
+  border-radius:14px;font-size:.78rem;pointer-events:none;
+  background:var(--chart-panel,rgba(12,14,22,.96));border:1px solid rgb(var(--wash) / .14);
+  box-shadow:0 18px 44px rgba(0,0,0,.4)}
+.cal-tip[hidden]{display:none}
+.cal-tip-h{font-size:.68rem;text-transform:uppercase;letter-spacing:.7px;opacity:.45;margin-bottom:5px}
+.cal-tip-sys{display:flex;justify-content:space-between;gap:10px;padding:1px 0;font-size:.74rem}
+.cal-tip-sys span{opacity:.55}
+.cal-tip-sep{height:1px;margin:8px 0;background:rgb(var(--wash) / .1)}
+.cal-tip-ev{display:flex;align-items:baseline;gap:6px;padding:3px 0;font-size:.74rem;line-height:1.35}
+.cal-tip-ev .dot{width:6px;height:6px;border-radius:50%;flex:0 0 auto;align-self:center}
+.cal-tip-none{font-size:.74rem;opacity:.5;padding:3px 0}
+
+/* ---- narrow: stack, and let the pane breathe ---- */
+@media (max-width:1100px){
+  .cal-main{grid-template-columns:minmax(0,1fr)}
+  /* Sticky is meaningless once the aside is a block below the pane, and
+     it used to pin the panel over the content while scrolling. */
+  .cal-aside{position:static}
+}
+
+@media (max-width:760px){
+  .cal{gap:10px}
+  .cal-top{padding:12px;gap:10px}
+  .cal-top-l,.cal-top-r{width:100%}
+  .cal-month{font-size:1.08rem}
+  .cal-top-r{justify-content:space-between}
+  .cal-nav{flex:1 1 auto;justify-content:space-between}
+  .cal-now{flex:1 1 auto;text-align:center}
+  .cal-segs{width:100%}
+  .cal-seg{flex:1 1 auto}
+  .cal-seg button{flex:1 1 0;padding:0 6px;text-align:center}
+  .cal-pane{padding:8px}
+  /* Six gaps of 4px and 16px of padding leave ~48px a column at 390px -
+     a legible tap target once the cell carries only the number and its
+     dots. The companion dates moved to the day panel. */
+  .cal-grid,.cal-head,.cal-body{gap:4px}
+  .cal-cell{padding:4px 1px;border-radius:10px;gap:2px}
+  .cal-subs{display:none}
+  .cal-d{font-size:.88rem}
+  .cal-hd{font-size:.64rem}
+  .cal-ev{padding:7px 9px 7px 11px}
+  .cal-day,.cal-legend{padding:12px}
+}
+
+@media (max-width:360px){
+  .cal-grid,.cal-head,.cal-body{gap:3px}
+  .cal-cell{border-radius:8px}
+  .cal-d{font-size:.8rem}
+  .cal-dots .dot{width:4px;height:4px}
+}
 
 /* ---- allowed-symbols picker ---- */
 .sym-field{position:relative}
@@ -1943,33 +2086,11 @@ input[type=range]{width:100%;accent-color:var(--cyan);height:28px;cursor:pointer
 /* news-blackout notice on the command tab */
 .tape-banner.is-news{border-color:rgba(232,192,122,.5);color:var(--gold);background:rgba(232,192,122,.1)}
 
-/* v58 — calendar fixes: the day panel must not stretch the page, and the
-   tooltip lives on <body> so #stage's transform cannot move it. */
-.cal-side{align-self:start;position:sticky;top:8px}
-.cal-day{max-height:min(60vh,520px);overflow:auto;overscroll-behavior:contain}
-.cal-evs{gap:6px}
-.cal-ev{position:relative;padding-inline-start:12px;align-items:center}
-.cal-ev::before{content:"";position:absolute;inset-inline-start:0;top:6px;bottom:6px;width:3px;border-radius:2px;background:var(--faint)}
-.cal-ev.i-high::before{background:var(--bad)}
-.cal-ev.i-medium::before{background:var(--gold)}
-.cal-ev.i-low::before{background:var(--ok)}
-.cal-ev.i-holiday::before{background:var(--violet)}
-.cal-ev-imp{padding:1px 6px;border-radius:999px;background:rgb(var(--wash) / .06)}
-.cal-ev.i-high .cal-ev-imp{color:var(--bad);background:rgba(255,107,138,.12)}
-.cal-ev.i-medium .cal-ev-imp{color:var(--gold);background:rgba(232,192,122,.12)}
-.cal-ev.i-low .cal-ev-imp{color:var(--ok);background:rgb(var(--accent-rgb) / .12)}
 .cal-ev.i-holiday .cal-ev-imp{color:#c9c2ff;background:rgb(var(--accent-3-rgb) / .14)}
-.cal-tip{max-width:min(320px,calc(100vw - 16px));max-height:min(60vh,420px);overflow:auto}
-
-/* v60 — the tooltip is interactive: scrollable, and it can be pinned. */
-.cal-tip{scrollbar-width:thin;cursor:default}
-.cal-tip.pinned{border-color:rgb(var(--accent-rgb) / .55);box-shadow:0 20px 60px rgba(0,0,0,.55)}
-.cal-tip-x{position:absolute;inset-inline-end:6px;top:6px;width:20px;height:20px;border:0;
-  border-radius:6px;background:rgb(var(--wash) / .07);color:var(--muted);cursor:pointer;line-height:1;
-  display:grid;place-items:center;padding:0}
-.cal-tip-x svg{width:12px;height:12px}
-.cal-tip-x:hover{color:var(--ink);background:rgb(var(--wash) / .14)}
-.cal-cell.pinned{border-color:var(--cyan);background:rgb(var(--accent-rgb) / .08)}
+/* The peek is hover-only and never pinned, so it takes no pointer events
+   and needs no close button; width and clamping live in the calendar
+   block above. */
+.cal-tip{max-width:min(320px,calc(100vw - 16px));scrollbar-width:thin}
 
 /* ---- Themed slim scrollbars: thin at rest, thicker on hover ---- */
 *{

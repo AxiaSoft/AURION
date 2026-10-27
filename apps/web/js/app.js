@@ -2147,13 +2147,12 @@ function bindHostBridge() {
 }
 
 
+/* The calendar's hover peek is parented to <body>, so it survives the view
+   it describes; the desk hides it on every view change. It can no longer be
+   pinned, so there is no pinned state left to unwind. */
 function dismissCalendarCard() {
   const tip = document.getElementById("cal-tip");
-  if (tip) {
-    tip.hidden = true;
-    tip.classList.remove("pinned");
-  }
-  document.querySelectorAll(".cal-cell.pinned").forEach((el) => el.classList.remove("pinned"));
+  if (tip) tip.hidden = true;
   try { if (window.Calendar && typeof Calendar.unpin === "function") Calendar.unpin(); } catch {}
 }
 
