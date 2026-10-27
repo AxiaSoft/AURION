@@ -3294,3 +3294,35 @@ html[dir="rtl"] .ct-side span{letter-spacing:0;text-transform:none;font-size:12p
   .ct-pm{width:42px;height:42px}
   .ct-ic{width:38px;height:38px}
 }
+
+/* ===========================================================================
+   The page name is not printed in the header
+   ---------------------------------------------------------------------------
+   The nav rail already marks which page is open, so the heading repeated
+   what was on screen two inches to its left - and on a phone it was doing
+   that while competing with the status chips and the action row for the one
+   line all three share.
+
+   It is hidden rather than deleted, and show() keeps writing to it. That
+   <h2> is the only thing that announces a page change to a screen reader:
+   the view swaps underneath without a navigation, so with no heading that
+   user gets silence. Hiding it this way keeps the announcement and drops
+   the pixels.
+
+   Nothing else has to move. The `title` grid column is minmax(0,1fr),
+   sized by the track and not by its contents, so with the heading out of
+   flow it stays as empty flexible space - which is exactly what keeps the
+   menu button at one end and the actions at the other. On a desktop the
+   header is a flex row and .hdr-status already carries margin-inline-start:
+   auto, so that end stays pinned too.
+
+   Declared last, because three earlier rules also select `.top h2` at this
+   specificity and source order is what decides between them.
+   =========================================================================== */
+.top h2{
+  position:absolute;
+  width:1px;height:1px;
+  margin:-1px;padding:0;border:0;
+  clip-path:inset(50%);
+  overflow:hidden;white-space:nowrap;
+}

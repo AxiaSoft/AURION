@@ -493,6 +493,36 @@ ok(/AurionTheme\.colourCss\(/.test(preview),
 ok(/candle_up:\s*"--candle-up"/.test(appJsNC) && /candle_down:\s*"--candle-down"/.test(appJsNC),
   "an unset candle row shows the colour the active theme is really drawing with");
 
+/* =======================================================================
+   The header does not print the page name
+   ======================================================================= */
+
+const h2Path = [el("header", "", ["top"]), el("h2", "page-title", [])];
+for (const w of [1400, 1200, 1013, 820, 560, 390]) {
+  const pos = resolve(appRules, h2Path, "position", w);
+  const wd = resolve(appRules, h2Path, "width", w);
+  ok(pos && pos.val === "absolute" && wd && wd.val === "1px",
+    `at ${w}px the page name is not shown (position:${pos ? pos.val : "static"}, width:${wd ? wd.val : "auto"})`);
+}
+
+/* Hidden, not deleted: it is the only thing that announces a page change
+   to a screen reader, since the view swaps with no navigation. */
+ok(/<h2 id="page-title">/.test(html), "the heading is still in the page for assistive tech");
+const paint = /const paint = \(\) => \{[\s\S]*?\n  \};/.exec(appJsNC)[0];
+ok(/\$\("page-title"\)/.test(paint) && /title\.textContent =/.test(paint),
+  "and show() still writes the current page into it");
+
+/* It was the flexible middle of the header. Taking it out of flow must
+   not let the two ends collapse together. */
+for (const w of [1200, 1013, 820]) {
+  const cols = resolve(appRules, [el("header", "", ["top"])], "grid-template-columns", w);
+  ok(cols && /minmax\(0,\s*1fr\)/.test(cols.val),
+    `at ${w}px the header keeps a flexible column where the name was (${cols ? cols.val : "none"})`);
+}
+const statusPush = resolve(appRules, [el("div", "hdr-status", ["hdr-status"])], "margin-inline-start", 1400);
+ok(statusPush && statusPush.val === "auto",
+  "and on a desktop the status block still pins itself to the end of the row");
+
 /* ----------------------------------------------------------------- report */
 console.log("");
 console.log(failed ? `desk-chrome: ${failed} FAILED` : "desk-chrome: all checks passed");
