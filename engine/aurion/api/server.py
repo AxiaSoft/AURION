@@ -2,9 +2,8 @@ from __future__ import annotations
 
 import asyncio
 import json
-from typing import Any
-
 import os
+from typing import Any
 
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
@@ -30,8 +29,12 @@ try:
     _feed_cfg = (load() or {}).get("feed") or {}
 except Exception:
     _feed_cfg = {}
+#: AURION_FEED_PROVIDER overrides the configured provider for one run.
+#: Support needs a way to force the offline provider on a machine that
+#: cannot reach the internet, without editing a customer's config file
+#: and then having to remember to put it back.
 feed = build_feed(
-    provider=_feed_cfg.get("provider") or "",
+    provider=os.environ.get("AURION_FEED_PROVIDER") or _feed_cfg.get("provider") or "",
     interval=float(_feed_cfg.get("interval") or 1.0),
     watchlist=_feed_cfg.get("watchlist") or None,
 )
