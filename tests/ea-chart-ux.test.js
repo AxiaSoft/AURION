@@ -30,33 +30,6 @@ const ROOT = path.resolve(__dirname, "..");
 const WEB = path.join(ROOT, "apps", "web");
 const results = [];
 
-
-/**
- * Return the full text of the element whose opening tag contains `at`.
- *
- * Counts nested <div> open/close pairs, so "is X inside Y" can be asked
- * of real markup instead of guessing at character distances.
- */
-function sliceElement(html, at) {
-  if (at < 0) return null;
-  const start = html.lastIndexOf("<", at);
-  if (start < 0) return null;
-  let i = start, depth = 0;
-  const tag = /<(\/?)div\b|\/>/g;
-  tag.lastIndex = start;
-  let m;
-  while ((m = tag.exec(html))) {
-    if (m[0] === "/>") continue;
-    depth += m[1] ? -1 : 1;
-    i = m.index + m[0].length;
-    if (depth === 0) {
-      const close = html.indexOf(">", i);
-      return html.slice(start, close < 0 ? i : close + 1);
-    }
-  }
-  return html.slice(start);
-}
-
 function check(name, fn) {
   try {
     fn();
@@ -351,7 +324,7 @@ if (!jsdom) {
   win.IntersectionObserver = class { observe() {} unobserve() {} disconnect() {} };
   win.URL.createObjectURL = () => "blob:stub";
 
-  const bundle = ["js/themes.js", "js/skins.js", "js/i18n.js", "js/api.js", "js/feed.js", "js/calendar.js", "js/charts.js", "js/app.js"]
+  const bundle = ["js/themes.js", "js/skins.js", "js/i18n.js", "js/api.js", "js/calendar.js", "js/charts.js", "js/app.js"]
     .map((f) => fs.readFileSync(path.join(WEB, f), "utf8")).join("\n;\n");
   let T = null;
   try {
@@ -440,16 +413,9 @@ if (!jsdom) {
     check("the markets toolbar is one row, not two stacked ones", () => {
       const html = T.views.markets();
       if (!html.includes('class="mk-bar"')) throw new Error("no single toolbar");
-      /* Measured by containment, not by how many characters apart the two
-         happen to be. The original check allowed 600 characters between
-         them, which quietly made the test about markup length: replacing
-         the instrument <select> with a searchable picker broke it while
-         the toolbar was still a single row. What actually matters is that
-         both sit inside the same .mk-bar. */
-      const bar = sliceElement(html, html.indexOf('class="mk-bar"'));
-      if (!bar) throw new Error("the toolbar element could not be read");
-      if (!bar.includes("mk-pick")) throw new Error("the instrument controls are outside the bar");
-      if (!bar.includes("mk-sig")) throw new Error("the signal switches are outside the bar");
+      if (!/mk-pick[\s\S]{0,600}mk-sig/.test(html)) {
+        throw new Error("instrument controls and signal switches are not in the same bar");
+      }
     });
 
     check("every class the markets view uses has a rule in the stylesheet", () => {

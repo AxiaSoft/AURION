@@ -52,7 +52,6 @@ const { JSDOM, VirtualConsole } = jsdom;
 const ALIGNED_ON_PURPOSE = [
   { sel: ".set-jump", why: "the settings rail is a navigation list: icon, title and subtitle read from the start edge" },
   { sel: ".nav", why: "the sidebar is a navigation list, not a row of buttons" },
-  { sel: ".sympick", why: "the instrument picker is a combobox, not a button: the symbol reads from the start edge and the chevron is pushed to the end, the same way a <select> renders" },
 ];
 
 (async () => {
@@ -81,7 +80,7 @@ const ALIGNED_ON_PURPOSE = [
   win.IntersectionObserver = class { observe() {} unobserve() {} disconnect() {} };
   win.URL.createObjectURL = () => "blob:stub";
 
-  const bundle = ["js/themes.js", "js/skins.js", "js/i18n.js", "js/api.js", "js/feed.js", "js/calendar.js", "js/charts.js", "js/app.js"]
+  const bundle = ["js/themes.js", "js/skins.js", "js/i18n.js", "js/api.js", "js/calendar.js", "js/charts.js", "js/app.js"]
     .map((f) => fs.readFileSync(path.join(WEB, f), "utf8")).join("\n;\n");
   win.eval(bundle + ";window.__T = { views, S, I18N, appearanceCardsHtml, notifySoundCardHtml };");
   await new Promise((r) => setTimeout(r, 200));

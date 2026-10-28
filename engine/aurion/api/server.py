@@ -2,43 +2,21 @@ from __future__ import annotations
 
 import asyncio
 import json
-import os
 from typing import Any
+
+import os
 
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse
 
 from ..config import heal_packaged_files, load, merge, save
-from ..feed import build_feed, search as symbol_search, grouped as symbol_groups
-from ..feed import UNIVERSE as SYMBOL_UNIVERSE, normalise as norm_symbol
 from ..mt5.protocol import parse_ea_json
 from ..runtime.trader import Trader
 from ..strategy.loader import BUILTIN_NAMES
 from ..util.log import RING
 
 trader = Trader()
-
-#: AURION's own price source.
-#:
-#: The MetaTrader bridge used to be the only way a price could reach the
-#: screen, which made the terminal a hard dependency of the chart. The feed
-#: is independent of it; the bridge stays for broker account execution.
-_feed_cfg = {}
-try:
-    _feed_cfg = (load() or {}).get("feed") or {}
-except Exception:
-    _feed_cfg = {}
-#: AURION_FEED_PROVIDER overrides the configured provider for one run.
-#: Support needs a way to force the offline provider on a machine that
-#: cannot reach the internet, without editing a customer's config file
-#: and then having to remember to put it back.
-feed = build_feed(
-    provider=os.environ.get("AURION_FEED_PROVIDER") or _feed_cfg.get("provider") or "",
-    interval=float(_feed_cfg.get("interval") or 1.0),
-    watchlist=_feed_cfg.get("watchlist") or None,
-)
-
 app = FastAPI(title="AURION Engine", version="1.0.0")
 # Secure CORS: only localhost and app://aurion, never *
 app.add_middleware(
@@ -57,33 +35,6 @@ app.add_middleware(
 )
 
 
-def _wire_feed_to_bus() -> None:
-    """Push feed updates to the desk instead of making it poll.
-
-    The desk already renders `tick` and `candle` events off the trader's
-    bus -- setTick() and setLastBar() -- so the forming candle moves the
-    moment a price lands, with no change to the browser at all.  Polling
-    from the page would have capped the chart at the refresh interval,
-    which is exactly what "the open candle must update every second"
-    rules out.
-
-    The poll runs on a plain thread and the bus is asyncio, so each event
-    is marshalled onto the engine's loop.  `run_coroutine_threadsafe`
-    returns a future we deliberately drop: waiting on it would make the
-    feed thread run at the speed of the slowest websocket client.
-    """
-    loop = asyncio.get_running_loop()
-
-    def sink(event: str, payload: dict[str, Any]) -> None:
-        try:
-            asyncio.run_coroutine_threadsafe(trader.bus.publish(event, payload), loop)
-        except Exception:
-            # A closed loop during shutdown is not worth a log line per tick.
-            pass
-
-    feed.on_update(sink)
-
-
 @app.on_event("startup")
 async def _startup() -> None:
     try:
@@ -94,21 +45,10 @@ async def _startup() -> None:
     except Exception:
         pass
     await trader.start()
-    try:
-        _wire_feed_to_bus()
-        feed.start()
-    except Exception:
-        # A feed that cannot start must not stop the engine from booting;
-        # status() reports the failure and the desk shows it.
-        pass
 
 
 @app.on_event("shutdown")
 async def _shutdown() -> None:
-    try:
-        feed.stop()
-    except Exception:
-        pass
     await trader.stop()
 
 
@@ -634,96 +574,6 @@ async def symbols_available() -> dict[str, Any]:
             "source": "broker" if broker else ("charts" if online else ("watchlist" if watch else "default")),
         },
     }
-
-
-# ---------------------------------------------------------------- feed
-#
-# AURION's independent market data. These endpoints never consult the
-# MetaTrader bridge, which is the whole point: a chart must draw with no
-# terminal attached.
-
-
-@app.get("/v1/feed/status")
-async def feed_status() -> dict[str, Any]:
-    """Provider, freshness and the honesty flags the desk has to display."""
-    return {"ok": True, "data": feed.status()}
-
-
-@app.get("/v1/feed/symbols")
-async def feed_symbols(q: str = "", limit: int = 50, kind: str = "") -> dict[str, Any]:
-    """Symbol search for the chart's picker.
-
-    Ranked by liquidity then match quality, so "jpy" leads with USDJPY
-    rather than nine exotics that merely start with those letters.
-    """
-    kinds = [k.strip() for k in str(kind or "").split(",") if k.strip()] or None
-    hits = symbol_search(q, max(1, min(int(limit or 50), 500)), kinds)
-    return {
-        "ok": True,
-        "data": {
-            "query": q,
-            "count": len(hits),
-            "total": len(SYMBOL_UNIVERSE),
-            "symbols": [h.to_dict() for h in hits],
-        },
-    }
-
-
-@app.get("/v1/feed/groups")
-async def feed_groups() -> dict[str, Any]:
-    """The whole universe bucketed by kind, for a grouped dropdown."""
-    return {"ok": True, "data": {"groups": symbol_groups(), "total": len(SYMBOL_UNIVERSE)}}
-
-
-@app.get("/v1/feed/quotes")
-async def feed_quotes(symbols: str = "") -> dict[str, Any]:
-    """Latest price per symbol, from the feed's cache.
-
-    Asking also subscribes, so opening a chart starts the symbol updating
-    without a second call.
-    """
-    wanted = [x for x in (norm_symbol(p) for p in str(symbols or "").split(",")) if x]
-    if wanted:
-        feed.subscribe(*wanted)
-    live = feed.ticks()
-    out = {name: tick.to_dict() for name, tick in live.items() if not wanted or name in wanted}
-    return {"ok": True, "data": {"quotes": out, "status": feed.status()}}
-
-
-@app.get("/v1/feed/candles")
-async def feed_candles(symbol: str = "EURUSD", timeframe: str = "M15", count: int = 240) -> dict[str, Any]:
-    """Bars for a chart, independent of any terminal."""
-    name = norm_symbol(symbol)
-    if name not in SYMBOL_UNIVERSE:
-        return {"ok": False, "error": "unknown_symbol", "data": {"symbol": name}}
-    feed.subscribe(name)
-    bars = feed.candles(name, timeframe, max(1, min(int(count or 240), 5000)))
-    rec = SYMBOL_UNIVERSE[name]
-    return {
-        "ok": True,
-        "data": {
-            "symbol": name,
-            "timeframe": str(timeframe or "M15").upper(),
-            "spec": rec.to_dict(),
-            "count": len(bars),
-            "candles": [b.to_dict() for b in bars],
-            "status": feed.status(),
-        },
-    }
-
-
-@app.post("/v1/feed/subscribe")
-async def feed_subscribe(body: dict[str, Any]) -> dict[str, Any]:
-    """Set or extend what the feed polls."""
-    body = body or {}
-    syms = body.get("symbols") or []
-    if isinstance(syms, str):
-        syms = [p for p in syms.split(",") if p.strip()]
-    if body.get("replace"):
-        for existing in feed.subscriptions:
-            feed.unsubscribe(existing)
-    added = feed.subscribe(*syms)
-    return {"ok": True, "data": {"added": added, "subscriptions": feed.subscriptions}}
 
 
 @app.get("/v1/news")

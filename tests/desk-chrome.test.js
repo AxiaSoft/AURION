@@ -508,30 +508,8 @@ for (const w of [1400, 1200, 1013, 820, 560, 390]) {
 /* Hidden, not deleted: it is the only thing that announces a page change
    to a screen reader, since the view swaps with no navigation. */
 ok(/<h2 id="page-title">/.test(html), "the heading is still in the page for assistive tech");
-/* Read show()'s own body by matching braces.
-
-   This used to grab the first `const paint = () => {` anywhere in the
-   file and run to the next line closing at two-space indent. That is not
-   show()'s paint -- it only reached the right code because nothing
-   happened to close in between, so adding any unrelated two-space
-   arrow function earlier in the file broke a passing test without
-   changing the behaviour it describes. */
-function bodyOf(src, signature) {
-  const at = src.indexOf(signature);
-  if (at < 0) throw new Error("could not find " + signature);
-  let i = src.indexOf("{", at), depth = 0;
-  for (let j = i; j < src.length; j += 1) {
-    const c = src[j];
-    if (c === "{") depth += 1;
-    else if (c === "}") {
-      depth -= 1;
-      if (depth === 0) return src.slice(i, j + 1);
-    }
-  }
-  throw new Error("unbalanced braces in " + signature);
-}
-const showBody = bodyOf(appJsNC, "function show(view, opts)");
-ok(/\$\("page-title"\)/.test(showBody) && /\.textContent = I18N\.t\(/.test(showBody),
+const paint = /const paint = \(\) => \{[\s\S]*?\n  \};/.exec(appJsNC)[0];
+ok(/\$\("page-title"\)/.test(paint) && /title\.textContent =/.test(paint),
   "and show() still writes the current page into it");
 
 /* It was the flexible middle of the header. Taking it out of flow must

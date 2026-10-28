@@ -124,7 +124,7 @@ async function boot() {
   win.URL.createObjectURL = () => "blob:stub";
   win.AudioContext = makeAudio(played);
 
-  const bundle = ["js/themes.js", "js/skins.js", "js/i18n.js", "js/api.js", "js/feed.js", "js/calendar.js", "js/charts.js", "js/app.js"]
+  const bundle = ["js/themes.js", "js/skins.js", "js/i18n.js", "js/api.js", "js/calendar.js", "js/charts.js", "js/app.js"]
     .map((f) => fs.readFileSync(path.join(WEB, f), "utf8")).join("\n;\n");
   win.eval(bundle +
     "\n;window.__T = { S, toast, bindDismiss, paintNotifies, dismissNote, pushTradeCard, playSound," +

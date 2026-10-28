@@ -13,7 +13,7 @@ const path = require("node:path");
 const vm = require("node:vm");
 
 const here = __dirname;
-const SCRIPTS = ["skins.js", "themes.js", "i18n.js", "api.js", "feed.js", "calendar.js",
+const SCRIPTS = ["skins.js", "themes.js", "i18n.js", "api.js", "calendar.js",
   "chart-series.js", "charts.js", "chart-tools.js", "app.js"];
 
 function makeWindow() {

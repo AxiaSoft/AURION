@@ -131,7 +131,7 @@ function check(name, ok, detail) {
   /* themes.js and skins.js own the appearance layer; the settings view calls
      straight into AurionTheme, so a bundle without them renders a builder
      with no gallery in it and the checks below would pass on nothing. */
-  const bundle = ["js/themes.js", "js/skins.js", "js/i18n.js", "js/api.js", "js/feed.js", "js/calendar.js", "js/charts.js", "js/app.js"]
+  const bundle = ["js/themes.js", "js/skins.js", "js/i18n.js", "js/api.js", "js/calendar.js", "js/charts.js", "js/app.js"]
     .map((f) => fs.readFileSync(path.join(WEB, f), "utf8"))
     .join("\n;\n");
   // Publish the top-level bindings: jsdom gives each win.eval() its own lexical
