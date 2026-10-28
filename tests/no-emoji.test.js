@@ -249,13 +249,34 @@ check("the icons are drawn shapes that inherit the surrounding colour", () => {
   }
 });
 
-check("an icon put inside a button is given a size", () => {
-  /* An inline <svg> with no width collapses or balloons to the default
-     300x150 replaced-element box, which is how an icon swap turns into a
-     broken layout. */
+check("an icon carries its own size, wherever it is dropped", () => {
+  /* An inline <svg> with no width balloons to the default 300x150
+     replaced-element box. This was only ever checked for .btn, so it
+     kept happening everywhere else: the About page's "Update: [tick] up
+     to date" shipped with a tick the size of a card because a <b> is not
+     a .btn and no rule named it.
+
+     Naming each new container in CSS does not hold -- the next call site
+     just breaks again. So require the size at the source: icon() emits
+     width/height itself. They are geometry attributes, which sit below
+     every author rule in the cascade, so .btn > svg and friends still
+     win and this is purely a floor for containers nobody styled. */
+  const deskIcon = new Function(
+    appJs.slice(appJs.indexOf("function icon(name)"), appJs.indexOf("function $(id)")) +
+    "; return icon;")();
+  const markup = deskIcon("check");
+  if (!/<svg\b[^>]*\bwidth="[^"]+"/.test(markup) || !/<svg\b[^>]*\bheight="[^"]+"/.test(markup)) {
+    throw new Error("icon() emits an <svg> with no width/height: " + markup.slice(0, 80));
+  }
+
   const css = fs.readFileSync(path.join(ROOT, "apps/web/css/app.css"), "utf8");
   if (!/\.btn\s*>\s*svg\s*\{[^}]*width/.test(css)) {
     throw new Error("app.css never sizes an svg inside .btn");
+  }
+  /* The two text contexts that were broken; .ok already had one. */
+  for (const sel of [".ab-upd svg", "p.sub > svg"]) {
+    const re = new RegExp(sel.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/\s+/g, "\\s*") + "[^{]*\\{[^}]*width");
+    if (!re.test(css)) throw new Error("app.css never sizes " + sel);
   }
   const shopCss = fs.readFileSync(path.join(ROOT, "store/keyserver/public/style.css"), "utf8");
   if (!/\.btn svg[^{]*\{[^}]*width/.test(shopCss)) {

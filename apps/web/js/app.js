@@ -92,7 +92,18 @@ function icon(name) {
     download: '<path d="M12 3.5v11"/><polyline points="7.5,10 12,14.5 16.5,10"/><path d="M4.5 17.5v1.5a2 2 0 002 2h11a2 2 0 002-2v-1.5"/>',
     box: '<polygon points="12,3 20.5,7.5 12,12 3.5,7.5"/><polyline points="3.5,7.5 3.5,16.5 12,21 20.5,16.5 20.5,7.5"/><line x1="12" y1="12" x2="12" y2="21"/>',
   };
-  return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">${p[name] || ""}</svg>`;
+  /* width/height are geometry attributes, not CSS, so every rule in the
+     stylesheet still beats them no matter how it is written or where it
+     sits in the cascade -- .btn > svg keeps its 16px, .nav button svg
+     its 20px. What they give is a floor.
+
+     Without one an icon dropped somewhere the stylesheet does not name
+     has no intrinsic size, and the browser falls back to the default
+     300x150 replaced-element box. That is not a subtle mis-layout: it
+     is a tick the size of a card, which is what "Update: [check] up to
+     date" on the About page had become. Sizing to 1em means a stray
+     icon matches the text it sits in instead. */
+  return `<svg width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">${p[name] || ""}</svg>`;
 }
 
 function $(id) { return document.getElementById(id); }

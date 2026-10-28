@@ -3206,6 +3206,25 @@ html[dir="rtl"] .q-how[open] summary::before{ transform:rotate(0deg) }
 :root{
   --ico-chevron:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6,9.5 12,15.5 18,9.5'/%3E%3C/svg%3E");
 }
+/* ------------------------------------------------------------------
+   Icons dropped into running text
+
+   icon() emits an <svg> with a viewBox and no CSS size, so it relies
+   entirely on a rule naming its container. Two places had none -- the
+   About page's "Update: [check] up to date" and the update panel's
+   save message -- and with no intrinsic size the browser falls back to
+   the default 300x150 replaced-element box. That is a tick the size of
+   a card, on every screen.
+
+   icon() now also carries width/height="1em" as geometry attributes,
+   which sit below all author CSS and so act as a floor that every rule
+   here still overrides. These give the two text contexts the same
+   treatment .ok already had: sized to the text and sitting on its
+   baseline rather than on top of it.
+   ------------------------------------------------------------------ */
+.ab-upd svg,
+p.sub > svg{ width:14px; height:14px; vertical-align:-2px; margin-inline-end:4px; flex:none }
+
 .btn > svg{ width:16px; height:16px; flex:none }
 .btn.tiny > svg{ width:14px; height:14px }
 /* A button holding nothing but an icon should be square, not a wide pill
