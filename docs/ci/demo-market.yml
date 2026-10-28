@@ -1,0 +1,64 @@
+# Keep the published demo's charts real.
+#
+# The demo is a static page on GitHub Pages, so it has no backend that
+# could fetch a price, and it cannot fetch one itself: Yahoo sends no
+# Access-Control-Allow-Origin, so a call from github.io is refused.
+#
+# This runs the capture on a GitHub runner, where CORS does not apply,
+# and commits the result next to the demo. The demo then loads real
+# market candles with no network call of its own.
+#
+# It commits only when the capture succeeded and the data actually
+# changed, so a failed fetch leaves the previous real file in place
+# rather than replacing it with nothing.
+
+name: demo market data
+
+on:
+  schedule:
+    # Twice a day. The demo does not need to be live -- it needs to be
+    # real -- and a quieter schedule keeps the history readable.
+    - cron: "17 6,18 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: demo-market-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  capture:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Capture real candles
+        run: node scripts/capture-demo-market.mjs
+
+      - name: Check the capture against its own tests
+        # The file is about to be committed and served to visitors as
+        # real market data. If the shape is wrong, it should not ship.
+        run: |
+          npm install --no-audit --no-fund
+          node tests/demo-market.test.js
+
+      - name: Commit if anything moved
+        run: |
+          if git diff --quiet -- apps/web/demo/market.js; then
+            echo "market data unchanged - nothing to commit"
+            exit 0
+          fi
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add apps/web/demo/market.js
+          git commit -m "demo: refresh real market candles
+
+          Captured by scripts/capture-demo-market.mjs on a runner, because
+          Yahoo sends no CORS header and the static demo cannot fetch it."
+          git push origin HEAD:${{ github.ref_name }}

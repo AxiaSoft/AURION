@@ -62,6 +62,12 @@
   // key gate appears.  Same-origin and parser-time, so none of the reasons
   // document.write is usually a mistake apply.
   document.write('<script src="demo/fixtures.js?v=desk111"><\/script>');
+  // Real market candles, captured server-side by
+  // scripts/capture-demo-market.mjs and refreshed by a scheduled Action.
+  // Yahoo sends no CORS header, so the browser cannot fetch this itself;
+  // and a <script> tag works from file://, where fetch() of a local file
+  // does not. Missing is survivable -- candles() falls back below.
+  document.write('<script src="demo/market.js?v=desk138"><\/script>');
 
   /* ====================================================== sample market == */
 
@@ -117,9 +123,37 @@
    * market rather than as noise: pure Brownian motion has no trends to see,
    * and a trend is the thing every panel on this desk is about.
    */
+  /**
+   * Real recorded candles for a symbol and timeframe, or null.
+   *
+   * Timestamps are left exactly as the market made them. Sliding them
+   * forward so the newest bar reads "now" would be inventing when the
+   * trade happened, and on a file captured over a weekend it would draw
+   * weekend candles on an instrument that was shut.
+   */
+  function realBars(symbol, timeframe) {
+    const m = window.AURION_DEMO_MARKET;
+    const sym = m && m.symbols && m.symbols[symbol];
+    const bars = sym && sym.timeframes && sym.timeframes[timeframe];
+    return Array.isArray(bars) && bars.length ? bars : null;
+  }
+
+  /** True when the chart a visitor is looking at is real market data. */
+  function usingRealMarket() {
+    const m = window.AURION_DEMO_MARKET;
+    return Boolean(m && m.symbols && Object.keys(m.symbols).length);
+  }
+
   function candles(symbol, timeframe, count) {
     const key = `${symbol}|${timeframe}|${count}`;
     if (barCache.has(key)) return barCache.get(key);
+
+    const real = realBars(symbol, timeframe);
+    if (real) {
+      const bars = real.slice(-count);
+      barCache.set(key, bars);
+      return bars;
+    }
 
     const inst = instrument(symbol);
     const rand = rng(key);
@@ -415,7 +449,8 @@
       const symbol = u.searchParams.get("symbol") || "EURUSD";
       const tf = u.searchParams.get("timeframe") || "M15";
       const count = Math.min(Number(u.searchParams.get("count")) || 800, 1500);
-      return { ok: true, data: candles(symbol, tf, count), count, synthetic: true };
+      const bars = candles(symbol, tf, count);
+      return { ok: true, data: bars, count, synthetic: !realBars(symbol, tf) };
     }
 
     if (p === "/api/chart/signals") return { ok: true, data: [] };
@@ -614,16 +649,36 @@
 
   /* ============================================================= banner == */
 
+  /* Two sets, because the demo must say which of the two it is showing.
+     The charts are now real market history when market.js is present, and
+     claiming "sample data" over a real chart is as misleading as the
+     reverse. The live tape is still simulated in both cases -- there is
+     no engine here to stream a price -- and the banner says so. */
   const BANNER = {
     en: ["Demo", "Sample data, every feature unlocked. No broker, no engine, nothing is traded."],
     fa: ["دمو", "داده‌ی نمونه، همه‌ی قابلیت‌ها باز. بدون بروکر، بدون موتور، هیچ معامله‌ای انجام نمی‌شود."],
     ar: ["عرض", "بيانات نموذجية وكل الميزات مفتوحة. بلا وسيط ولا محرك، ولا تنفيذ لأي صفقة."],
   };
+  const BANNER_REAL = {
+    en: ["Demo", "Real market candles recorded %s. Live prices are simulated; nothing is traded."],
+    fa: ["دمو", "کندل‌های واقعی بازار، ثبت‌شده در %s. قیمت لحظه‌ای شبیه‌سازی است و هیچ معامله‌ای انجام نمی‌شود."],
+    ar: ["عرض", "شموع سوق حقيقية مسجّلة في %s. الأسعار اللحظية محاكاة ولا تنفيذ لأي صفقة."],
+  };
+
+  /** The capture date, as a plain yyyy-mm-dd, or null. */
+  function capturedOn() {
+    const at = window.AURION_DEMO_MARKET && window.AURION_DEMO_MARKET.captured_at;
+    return typeof at === "string" && at.length >= 10 ? at.slice(0, 10) : null;
+  }
 
   function banner() {
     let lang = "en";
     try { lang = localStorage.getItem("aurion.lang") || "en"; } catch {}
-    const [tag, text] = BANNER[lang] || BANNER.en;
+    const on = capturedOn();
+    const real = usingRealMarket() && on;
+    const pack = real ? (BANNER_REAL[lang] || BANNER_REAL.en) : (BANNER[lang] || BANNER.en);
+    const tag = pack[0];
+    const text = real ? pack[1].replace("%s", on) : pack[1];
     const rtl = lang === "fa" || lang === "ar";
     const el = document.createElement("div");
     el.id = "demo-banner";
