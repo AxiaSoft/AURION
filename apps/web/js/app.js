@@ -5843,8 +5843,19 @@ const views = {
     </div>`;
   },
   history() {
+    const mode = pnlMode();
     return `<div class="cmd">
       ${tapeBanner()}
+      <section class="card pnl-card">
+        <h3>${icon("pulse")} ${I18N.t("pnl.title")}</h3>
+        <p class="sub">${I18N.t("pnl.hint")}</p>
+        <div id="h-pnl-stats"></div>
+        <div class="pc-seg" id="h-pnl-mode" role="tablist" aria-label="${esc(I18N.t("pnl.modes"))}">
+          ${pnlModes().map((m) => `<button type="button" role="tab" data-mode="${m.id}"
+            aria-selected="${m.id === mode}" class="${m.id === mode ? "on" : ""}">${esc(I18N.t(m.key))}</button>`).join("")}
+        </div>
+        <div class="pc-host" id="h-pnl"></div>
+      </section>
       <div class="card">
         <div class="row" style="margin-bottom:12px;flex-wrap:wrap">
           <button class="btn tiny" id="h-exp" type="button">${I18N.t("history.export")}</button>
@@ -8930,11 +8941,89 @@ function historyRowView(row) {
   };
 }
 
+/* Which of the eight charts the history page is showing. Kept across
+   reloads because a trader who works from the drawdown view wants the
+   drawdown view, not the equity curve, every time they open the page. */
+function pnlModes() {
+  /* Read through the global rather than caching it at load time: app.js is
+     evaluated by several harnesses that do not load every script the page
+     does, and a missing analytics module should cost the history page its
+     chart, not take the whole desk down with a ReferenceError. */
+  const mod = typeof PNL !== "undefined" ? PNL : null;
+  return mod ? mod.modes() : [];
+}
+function pnlMode() {
+  const ids = new Set(pnlModes().map((m) => m.id));
+  try {
+    const saved = localStorage.getItem("aurion.history.pnl.mode");
+    if (saved && ids.has(saved)) return saved;
+  } catch (_) { /* private mode */ }
+  return "equity";
+}
+
+/**
+ * Draw the chart at the size the card actually gives it.
+ *
+ * Measured rather than scaled: an SVG stretched by a viewBox stretches its
+ * labels with it, so the same markup reads as 6px type on a phone and 20px
+ * on a desktop. Reading clientWidth and drawing at that size keeps the axis
+ * legible on both. The fallback matters for jsdom, where every element
+ * measures zero.
+ */
+function paintPnl() {
+  const host = $("h-pnl");
+  if (!host || !S._pnl || typeof PNL === "undefined") return;
+  const w = Math.max(260, host.clientWidth || 640);
+  const h = w < 420 ? 200 : w < 700 ? 230 : 260;
+  host.innerHTML = PNL.render(pnlMode(), S._pnl, w, h);
+  const stats = $("h-pnl-stats");
+  if (stats) stats.innerHTML = PNL.summary(S._pnl.stats);
+}
+
+function bindPnl() {
+  const seg = $("h-pnl-mode");
+  if (!seg || seg.dataset.bound === "1") return;
+  seg.dataset.bound = "1";
+  seg.addEventListener("click", (ev) => {
+    const btn = ev.target.closest("button[data-mode]");
+    if (!btn) return;
+    try { localStorage.setItem("aurion.history.pnl.mode", btn.dataset.mode); } catch (_) { /* private mode */ }
+    for (const b of seg.querySelectorAll("button[data-mode]")) {
+      const on = b === btn;
+      b.classList.toggle("on", on);
+      b.setAttribute("aria-selected", String(on));
+    }
+    paintPnl();
+  });
+
+  /* The card is wider on a rotated phone and narrower when the sidebar
+     opens, and a chart drawn at pixel sizes has to be told. */
+  if (!S._pnlResize && typeof ResizeObserver === "function") {
+    const host = $("h-pnl");
+    if (host) {
+      S._pnlResize = new ResizeObserver(() => {
+        clearTimeout(S._pnlResizeT);
+        S._pnlResizeT = setTimeout(() => { if (S.view === "history") paintPnl(); }, 120);
+      });
+      S._pnlResize.observe(host);
+    }
+  }
+}
+
 async function loadHistory() {
   const box = $("h-body");
   if (!box) return;
   const r = await API.get("/api/history?limit=400");
-  const rows = historyRows(r.data || []).map(historyRowView);
+  const raw = historyRows(r.data || []);
+  /* The charts read the ledger the engine sent, not the view model: the
+     table formatting blanks profit on entry rows and rounds the rest for
+     display, neither of which should reach a sum. */
+  if (typeof PNL !== "undefined") {
+    S._pnl = PNL.series(raw);
+    paintPnl();
+    bindPnl();
+  }
+  const rows = raw.map(historyRowView);
   if (!rows.length) { box.innerHTML = emptyMini(I18N.t("status.no_history")); return; }
   box.innerHTML = table(rows, ["ts_open","ts","ticket","symbol","side","volume",
                                "price_open","price_close","sl","tp",

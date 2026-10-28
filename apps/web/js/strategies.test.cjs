@@ -124,6 +124,7 @@ const probe = `
   patchStrategyLive();
   globalThis.__afterOff = true;
 `;
+vm.runInContext(fs.readFileSync(path.join(here, "pnl-charts.js"), "utf8"), win, { filename: "pnl-charts.js" });
 vm.runInContext(fs.readFileSync(path.join(here, "app.js"), "utf8") + probe, win, { filename: "app.js" });
 
 let failed = 0;

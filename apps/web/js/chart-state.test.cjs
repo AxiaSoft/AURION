@@ -84,7 +84,7 @@ const win = {
 };
 win.window = win; win.globalThis = win;
 vm.createContext(win);
-for (const f of ["chart-series.js", "charts.js", "chart-tools.js"]) {
+for (const f of ["chart-series.js", "charts.js", "chart-tools.js", "pnl-charts.js"]) {
   vm.runInContext(fs.readFileSync(path.join(here, f), "utf8") +
     (f === "charts.js" ? "\n;globalThis.CandleChart = CandleChart;" : ""), win, { filename: f });
 }

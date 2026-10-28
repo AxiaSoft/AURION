@@ -3821,3 +3821,63 @@ html[dir="rtl"] .cmd-acct-hero > span{letter-spacing:0;text-transform:none}
   .cmd-subs{grid-template-columns:repeat(auto-fit,minmax(120px,1fr))}
   .cmd-sub b{font-size:15px}
 }
+
+/* ------------------------------------------------------------------
+   History: the account's profit and loss, drawn
+
+   The ledger answers "what happened"; these answer "how is it going".
+   Colours come from --ok/--bad, which are aliases of the theme's candle
+   colours, so the curve is never the wrong green in a light skin and it
+   follows a user's own candle choice without a second setting.
+   ------------------------------------------------------------------ */
+.pnl-card .pc-seg{ margin:12px 0 10px }
+.pc-seg{ display:flex; flex-wrap:wrap; gap:4px; padding:3px; border-radius:12px;
+  background:rgb(var(--wash) / .05); border:1px solid var(--line) }
+.pc-seg button{ height:30px; padding:0 11px; border:0; border-radius:9px; background:transparent;
+  color:var(--ink); opacity:.72; font:inherit; font-size:12.5px; cursor:pointer;
+  white-space:nowrap; text-align:center }
+.pc-seg button:hover{ opacity:.9 }
+.pc-seg button.on{ opacity:1; color:var(--accent); background:rgb(var(--accent-rgb) / .14) }
+.pc-seg button:focus-visible{ outline:2px solid var(--accent); outline-offset:1px }
+
+.pc-host{ width:100%; min-height:180px; overflow:hidden }
+.pc-svg{ display:block; width:100%; height:auto; overflow:visible }
+
+.pc-grid{ stroke:var(--line); stroke-width:1 }
+.pc-zero{ stroke:rgb(var(--wash) / .34); stroke-width:1; stroke-dasharray:4 4 }
+.pc-axis{ fill:var(--muted); font-size:11px; font-family:inherit }
+.pc-name{ font-size:11.5px; fill:var(--ink); opacity:.82 }
+.pc-val{ font-size:11.5px; font-variant-numeric:tabular-nums }
+.pc-big{ fill:var(--ink); font-size:22px; font-weight:650; font-family:inherit }
+.pc-empty{ fill:var(--muted); font-size:13px; font-family:inherit }
+
+.pc-line{ fill:none; stroke-width:2; stroke-linejoin:round; stroke-linecap:round }
+.pc-line.is-up, .pc-dot.is-up{ stroke:var(--ok) }
+.pc-line.is-down, .pc-dot.is-down{ stroke:var(--bad) }
+.pc-dot{ fill:var(--panel); stroke-width:2 }
+.pc-area{ stroke:none; fill-opacity:.16 }
+.pc-area.is-up{ fill:var(--ok) }
+.pc-area.is-down{ fill:var(--bad) }
+.pc-bar.is-up, .pc-key.is-up{ fill:var(--ok) }
+.pc-bar.is-down, .pc-key.is-down{ fill:var(--bad) }
+.pc-bar.is-flat, .pc-key.is-flat{ fill:var(--muted) }
+.pc-arc{ stroke-linecap:butt }
+.pc-arc.is-up{ stroke:var(--ok) }
+.pc-arc.is-down{ stroke:var(--bad) }
+.pc-arc.is-flat{ stroke:var(--muted) }
+text.pc-val.is-up{ fill:var(--ok) }
+text.pc-val.is-down{ fill:var(--bad) }
+
+.pc-stats{ display:grid; grid-template-columns:repeat(4, minmax(0,1fr)); gap:8px; margin:12px 0 2px }
+.pc-stat{ display:flex; flex-direction:column; gap:2px; padding:8px 10px; border-radius:10px;
+  background:rgb(var(--wash) / .04); border:1px solid var(--line); min-width:0 }
+.pc-stat span{ font-size:11px; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis }
+.pc-stat b{ font-size:14px; font-variant-numeric:tabular-nums; overflow:hidden; text-overflow:ellipsis }
+
+@media (max-width:900px){
+  .pc-stats{ grid-template-columns:repeat(2, minmax(0,1fr)) }
+  .pc-seg{ gap:3px }
+  .pc-seg button{ flex:1 1 auto; height:28px; padding:0 8px; font-size:12px }
+  .pc-stat{ padding:7px 9px }
+  .pc-stat b{ font-size:13px }
+}

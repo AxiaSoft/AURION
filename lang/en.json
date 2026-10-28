@@ -558,7 +558,8 @@
     "trades": "Trades",
     "export_done": "File “{name}” downloaded",
     "fees": "Swap + commission",
-    "source": "Source"
+    "source": "Source",
+    "no_strategy": "manual"
   },
   "settings": {
     "title": "Settings",
@@ -1494,5 +1495,28 @@
     "switch_mode": "Changing appearance",
     "switch_lang": "Changing language",
     "switch_wait": "One moment"
+  },
+  "pnl": {
+    "title": "Profit and loss",
+    "hint": "Built from the closed trades in the ledger below. Nothing is modelled or estimated.",
+    "modes": "Chart type",
+    "m_equity": "Equity curve",
+    "m_trades": "Per trade",
+    "m_daily": "Daily",
+    "m_drawdown": "Drawdown",
+    "m_donut": "Win / loss",
+    "m_hist": "Distribution",
+    "m_symbol": "By symbol",
+    "m_strategy": "By strategy",
+    "empty": "No closed trades yet",
+    "best": "Best trade",
+    "worst": "Worst trade",
+    "maxdd": "Max drawdown",
+    "fees": "Swap + commission",
+    "wins": "Wins",
+    "losses": "Losses",
+    "flat": "Break even",
+    "oldest": "oldest",
+    "newest": "newest"
   }
 }
