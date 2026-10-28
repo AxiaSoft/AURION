@@ -2679,6 +2679,152 @@ function pruneDeadSymbols() {
   }
   return changed;
 }
+/* ------------------------------------------------------------------
+   Searchable instrument picker.
+
+   The markets toolbar used a <select>, which on a desk with a dozen
+   EAs attached means scrolling a native dropdown to find the one pair
+   you want. This is a combobox: type to filter, arrows to move, Enter
+   to choose, Escape to dismiss.
+
+   The list is still the attached charts -- those are the only symbols
+   the terminal sends bars for -- so this changes how you find a symbol,
+   not which symbols exist.
+   ------------------------------------------------------------------ */
+
+/** Filter the attached charts by symbol or label. */
+function searchSymbols(query) {
+  const all = liveSymbols();
+  const q = String(query || "").trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
+  if (!q) return all;
+  const score = (it) => {
+    const name = String(it.symbol || "").toUpperCase();
+    if (name === q) return 0;
+    if (name.startsWith(q)) return 1;
+    if (name.includes(q)) return 2;
+    if (String(it.label || "").toUpperCase().includes(q)) return 3;
+    return -1;
+  };
+  return all
+    .map((it) => ({ it, s: score(it) }))
+    .filter((x) => x.s >= 0)
+    .sort((a, b) => a.s - b.s || a.it.symbol.localeCompare(b.it.symbol))
+    .map((x) => x.it);
+}
+
+function symbolPickerHtml(id, selected) {
+  const items = liveSymbols();
+  const cur = selected || S.symbol || "";
+  if (!items.length) {
+    return `<div class="sympick is-empty" id="${id}">
+      <button type="button" class="ctrl sympick-btn" id="${id}-btn" disabled>
+        <span class="sympick-cur">${esc(I18N.t("exec.no_ea_symbol"))}</span>
+      </button></div>`;
+  }
+  return `<div class="sympick" id="${id}">
+    <button type="button" class="ctrl sympick-btn" id="${id}-btn"
+            aria-haspopup="listbox" aria-expanded="false">
+      <span class="sympick-cur">${esc(cur || I18N.t("markets.symbol"))}</span>
+      ${icon("chevron")}
+    </button>
+    <div class="sympick-pop" id="${id}-pop" hidden>
+      <div class="sympick-search">
+        ${icon("search")}
+        <input type="text" id="${id}-q" class="sympick-q" autocomplete="off" spellcheck="false"
+               placeholder="${esc(I18N.t("markets.search_sym"))}"
+               aria-label="${esc(I18N.t("markets.search_sym"))}">
+      </div>
+      <ul class="sympick-list" id="${id}-list" role="listbox"></ul>
+    </div>
+  </div>`;
+}
+
+function symbolRowsHtml(rows, cur) {
+  if (!rows.length) return `<li class="sympick-none">${esc(I18N.t("markets.no_sym_match"))}</li>`;
+  return rows.map((r) => `<li role="option" class="sympick-row${r.symbol === cur ? " on" : ""}"
+      data-sym="${esc(r.symbol)}" aria-selected="${r.symbol === cur}">
+    <span class="sympick-n">${esc(r.symbol)}</span>
+    <span class="sympick-d">${esc(r.timeframe || "")}</span>
+  </li>`).join("");
+}
+
+/**
+ * Wire a picker. `onPick(symbol)` fires on selection.
+ *
+ * Named "instrument" deliberately: bindSymbolPicker is already taken by
+ * the prop-risk panel further down this file, and because both are plain
+ * function declarations the later one silently wins. Do not reuse it.
+ */
+function bindInstrumentPicker(id, onPick) {
+  const root = $(id);
+  if (!root || root.classList.contains("is-empty")) return;
+  const btn = $(`${id}-btn`);
+  const pop = $(`${id}-pop`);
+  const input = $(`${id}-q`);
+  const list = $(`${id}-list`);
+  if (!btn || !pop || !input || !list) return;
+
+  let rows = [];
+  let active = -1;
+
+  const mark = () => {
+    [...list.children].forEach((el, i) => el.classList.toggle("active", i === active));
+    const el = list.children[active];
+    if (el && typeof el.scrollIntoView === "function") {
+      try { el.scrollIntoView({ block: "nearest" }); } catch (e) { /* older engines */ }
+    }
+  };
+  const renderRows = () => {
+    const cur = String(S.symbol || "").toUpperCase();
+    rows = searchSymbols(input.value);
+    list.innerHTML = symbolRowsHtml(rows, cur);
+    active = rows.findIndex((r) => r.symbol === cur);
+    mark();
+  };
+  const open = () => {
+    pop.hidden = false;
+    btn.setAttribute("aria-expanded", "true");
+    input.value = "";
+    renderRows();
+    input.focus();
+  };
+  const close = () => {
+    pop.hidden = true;
+    btn.setAttribute("aria-expanded", "false");
+  };
+  const choose = (name) => {
+    if (!name) return;
+    close();
+    const label = btn.querySelector(".sympick-cur");
+    if (label) label.textContent = name;
+    if (typeof onPick === "function") onPick(name);
+  };
+
+  btn.onclick = (e) => { e.stopPropagation(); if (pop.hidden) open(); else close(); };
+  input.oninput = renderRows;
+  input.onkeydown = (e) => {
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault();
+      if (!rows.length) return;
+      active = (active + (e.key === "ArrowDown" ? 1 : -1) + rows.length) % rows.length;
+      mark();
+    } else if (e.key === "Enter") {
+      e.preventDefault();
+      if (rows[active]) choose(rows[active].symbol);
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      close();
+      btn.focus();
+    }
+  };
+  list.onclick = (e) => {
+    const row = e.target.closest("[data-sym]");
+    if (row) choose(row.getAttribute("data-sym"));
+  };
+  root._away = (e) => { if (!root.contains(e.target)) close(); };
+  document.addEventListener("click", root._away);
+}
+
 function symbolSelectHtml(id, selected) {
   const items = liveSymbols();
   const cur = selected || S.symbol || "";
@@ -2892,15 +3038,34 @@ function bindGateSlider() {
 function kpi(key, value, suffix, signed) {
   return `<div class="kpi"><span>${I18N.t(key)}</span><b class="mono ${signed?clsPnl(value):""}" data-metric="${key}">${fmt(value)}${suffix ? " " + suffix : ""}</b></div>`;
 }
-function openChartDesk(symbol, timeframe) {
+function openChartDesk(symbol, timeframe, opts) {
   if (!symbol) return;
   S.chartFocus = { symbol, timeframe: timeframe || S.timeframe || "M15" };
   S.symbol = symbol;
   S.timeframe = S.chartFocus.timeframe;
+  /* Read once when the workspace mounts, then cleared. Opening a chart
+     from the grid should fill the screen; switching symbol from inside
+     the workspace, or landing here any other way, must not change what
+     the user already set. */
+  S.chartFocusFull = Boolean(opts && opts.fullscreen);
   show("charts", { animate: true, closeMenu: true });
 }
 function closeChartDesk() {
   S.chartFocus = null;
+  S.chartFocusFull = false;
+  /* Back must always land on the ordinary chart list, never on a
+     fullscreen desk with no navigation. The workspace's own back button
+     drops fullscreen before calling this, but it is not the only route
+     in -- closing from anywhere else has to be just as safe. */
+  try {
+    if (typeof AurionChartUI !== "undefined" && AurionChartUI.isFullscreen()) {
+      AurionChartUI.setFullscreen(false);
+    }
+  } catch (e) { /* non-fatal */ }
+  try {
+    if (document.fullscreenElement && document.exitFullscreen) document.exitFullscreen().catch(() => {});
+  } catch (e) { /* non-fatal */ }
+  document.body.classList.remove("chart-full");
   show("charts", { animate: true, closeMenu: false });
 }
 
@@ -3051,7 +3216,10 @@ function patchLive() {
     paintChartSlider("ol", outlookSlideInnerHtml);
   }
   if (v === "markets") {
-    fillSymbolSelect("sym", S.symbol);
+    /* A combobox, not a <select>: the list is rebuilt when it opens, so
+       the refresh only keeps the closed label in step. */
+    const curLbl = document.querySelector("#sym .sympick-cur");
+    if (curLbl && S.symbol && curLbl.textContent !== S.symbol) curLbl.textContent = S.symbol;
     const lbl = $("tick-lbl");
     if (lbl) lbl.textContent = tickLabel();
     const ticks = S.snap?.ticks || {};
@@ -5179,7 +5347,7 @@ const views = {
              any height left. -->
         <div class="mk-bar">
           <div class="mk-pick">
-            ${symbolSelectHtml("sym", S.symbol)}
+            ${symbolPickerHtml("sym", S.symbol)}
             <select class="ctrl" id="tf">${["M1","M5","M15","M30","H1","H4","D1"].map((t)=>`<option ${t===S.timeframe?"selected":""}>${t}</option>`).join("")}</select>
           </div>
           <span class="legend mono mk-tick" id="tick-lbl">${tickLabel()}</span>
@@ -5618,67 +5786,96 @@ const views = {
       </section></div></div>`;
   },
   about() {
+    /* Rebuilt. The old page was one long string of inline styles with the
+       system state folded into a key/value list -- every row read
+       "Something: Word" with a coloured dot wedged inside the value, so
+       the one thing a trader opens this page to check, whether the desk
+       is actually running, was the hardest thing on it to see.
+
+       Now the state is a row of tiles that can be read at a glance, and
+       the styling lives in app.css where it can follow the theme. */
     const ver = S.version || S.snap?.version || S._gateLic?.version || "1.0.0";
     const L = (S.snap && S.snap.license) || {};
-    const buildDate = S.buildDate || new Date().toISOString().slice(0,10);
-    return `<div class="cmd">
-      <div class="card" style="text-align:center;padding:32px 24px">
-        <div style="width:96px;height:96px;margin:0 auto 16px;border-radius:24px;overflow:hidden;background:var(--deep);box-shadow:0 12px 32px rgba(0,0,0,.4)">
-          <img src="icons/mark.png?v=desk49" alt="AURION" style="width:100%;height:100%;object-fit:cover;transform:scale(1.08)" />
-        </div>
-        <h2 style="margin:0 0 6px;font-size:28px;letter-spacing:.12em">AURION</h2>
-        <p class="sub" style="font-size:14px">${I18N.t("about.version")} <b class="mono" style="color:var(--cyan)">v${esc(ver)}</b> • ${I18N.t("about.build")} ${esc(buildDate)}</p>
-        <p class="sub" style="margin-top:12px;max-width:520px;margin-left:auto;margin-right:auto;line-height:1.8">${I18N.t("about.blurb")}</p>
-        <div style="margin:20px auto 0;display:flex;gap:8px;justify-content:center;flex-wrap:wrap">
-          <span class="pill ok">MT5 Live</span>
-          <span class="pill ok">AI ${L.premium? 'PRO' : 'Free'}</span>
+    const buildDate = S.buildDate || new Date().toISOString().slice(0, 10);
+    const engineUp = S.snap?.engine === "online";
+    const charts = liveAgents().length;
+
+    /* ok: true green, false red, null neutral -- "not switched on" is not
+       a fault, and painting it red would cry wolf. */
+    const stat = (label, ok, value) => `<div class="ab-stat${ok === null ? " is-idle" : ok ? " is-ok" : " is-bad"}">
+      <span class="ab-stat-k">${esc(label)}</span>
+      <span class="ab-stat-v"><i class="dot ${ok === null ? "" : ok ? "live" : "down"}" aria-hidden="true"></i>${esc(value)}</span>
+    </div>`;
+
+    return `<div class="cmd about">
+      <section class="card ab-hero">
+        <div class="ab-mark"><img src="icons/mark.png?v=desk49" alt="AURION" /></div>
+        <h2 class="ab-name">AURION</h2>
+        <p class="ab-ver">
+          <b class="mono">v${esc(ver)}</b>
+          <span class="ab-dot-sep" aria-hidden="true"></span>
+          <span>${I18N.t("about.build")} ${esc(buildDate)}</span>
+        </p>
+        <p class="ab-blurb">${I18N.t("about.blurb")}</p>
+        <div class="ab-tags">
+          <span class="pill ${mt5Live() ? "ok" : ""}">MT5</span>
+          <span class="pill ${L.premium ? "ok" : ""}">AI ${L.premium ? "PRO" : "Free"}</span>
           <span class="pill">Prop Guard</span>
-          <span class="pill">v${esc(ver)}</span>
         </div>
-      </div>
+      </section>
+
+      <section class="card">
+        <h3>${icon("pulse")} ${I18N.t("about.glance")}</h3>
+        <div class="ab-stats">
+          ${stat(I18N.t("about.engine"), engineUp, I18N.t(engineUp ? "about.online" : "about.offline"))}
+          ${stat("MT5", mt5Live(), I18N.t(mt5Live() ? "about.connected" : "about.disconnected"))}
+          ${stat(I18N.t("about.ea_charts"), charts > 0, String(charts))}
+          ${stat(I18N.t("about.autotrade"), S.snap?.strategy?.auto_trade ? true : null, I18N.t(S.snap?.strategy?.auto_trade ? "about.on" : "about.off"))}
+          ${stat(I18N.t("about.kill"), S.snap?.kill_switch ? false : null, I18N.t(S.snap?.kill_switch ? "about.armed" : "about.off"))}
+          ${stat("Prop", S.snap?.prop?.enabled !== false ? true : null, I18N.t(S.snap?.prop?.enabled !== false ? "about.enabled" : "about.disabled"))}
+        </div>
+      </section>
+
       <div class="grid g-2">
-        <div class="card">
+        <section class="card">
           <h3>${icon("wrench")} ${I18N.t("about.specs")}</h3>
-          <div class="kv">
+          <div class="kv ab-kv">
             <span>${I18N.t("about.sys_name")}</span><b>AURION</b>
             <span>${I18N.t("about.version")}</span><b class="mono">v${esc(ver)}</b>
-            <span>${I18N.t("about.state")}</span><b>${S.snap?.engine === 'online' ? I18N.t("about.online") + ' <i class="dot live" aria-hidden="true"></i>' : I18N.t("about.offline") + ' <i class="dot down" aria-hidden="true"></i>'}</b>
-            <span>MT5</span><b>${mt5Live() ? I18N.t("about.connected") + ' <i class="dot live" aria-hidden="true"></i>' : I18N.t("about.disconnected") + ' <i class="dot down" aria-hidden="true"></i>'}</b>
-            <span>EA Charts</span><b class="mono">${liveAgents().length}</b>
-            <span>${I18N.t("about.active_strategy")}</span><b>${esc(S.snap?.strategy?.name||'—')}</b>
-            <span>${I18N.t("about.autotrade")}</span><b>${S.snap?.strategy?.auto_trade ? I18N.t("about.on") + ' <i class="dot live" aria-hidden="true"></i>' : I18N.t("about.off") + ' <i class="dot down" aria-hidden="true"></i>'}</b>
-            <span>${I18N.t("about.kill")}</span><b>${S.snap?.kill_switch ? I18N.t("about.armed") + ' <i class="dot down" aria-hidden="true"></i>' : I18N.t("about.off") + ' <i class="dot live" aria-hidden="true"></i>'}</b>
-            <span>Prop</span><b>${S.snap?.prop?.enabled !== false ? I18N.t("about.enabled") + ' <i class="dot live" aria-hidden="true"></i>' : I18N.t("about.disabled") + ' <i class="dot down" aria-hidden="true"></i>'}</b>
-            <span>${I18N.t("about.language")}</span><b>${I18N.lang.toUpperCase()}</b>
+            <span>${I18N.t("about.build")}</span><b class="mono">${esc(buildDate)}</b>
+            <span>${I18N.t("about.active_strategy")}</span><b>${esc(S.snap?.strategy?.name || "—")}</b>
+            <span>${I18N.t("about.language")}</span><b>${esc(I18N.lang.toUpperCase())}</b>
           </div>
-        </div>
-        <div class="card">
+        </section>
+
+        <section class="card ab-maker">
           <h3>${icon("building")} ${I18N.t("about.maker")}</h3>
-          <div style="display:flex;align-items:center;gap:14px;margin:12px 0">
-            <img src="assets/axiasoft-logo.png?v=desk49" alt="Axiasoft" style="width:56px;height:56px;object-fit:contain;background:transparent;border:none;border-radius:0" />
+          <div class="ab-brand">
+            <img src="assets/axiasoft-logo.png?v=desk49" alt="Axiasoft" />
             <div>
-              <b style="font-size:18px">Axiasoft</b><br>
+              <b>Axiasoft</b>
               <span class="sub">${I18N.t("about.developer_of")} • 2024-${copyrightYear()}</span>
             </div>
           </div>
-          <div class="kv" style="margin-top:12px">
+          <div class="kv ab-kv">
             <span>${I18N.t("about.product")}</span><b>AURION Live Desk</b>
-            <span>${I18N.t("about.license")}</span><b>${L.premium ? planLabel(L) : 'Freemium'}</b>
+            <span>${I18N.t("about.license")}</span><b>${esc(L.premium ? planLabel(L) : "Freemium")}</b>
             <span>${I18N.t("about.support")}</span><b>support@axiasoft</b>
             <span>${I18N.t("about.update")}</span><b id="about-update-status">${I18N.t("about.checking")}</b>
           </div>
-          <div class="row" style="margin-top:14px">
+          <div class="ab-actions">
             <button class="btn tiny" id="about-check-update" type="button">${icon("refresh")} ${I18N.t("about.check")}</button>
             <button class="btn tiny ghost" id="about-copy-ver" type="button">${icon("clipboard")} ${I18N.t("about.copy_ver")}</button>
           </div>
-        </div>
+        </section>
       </div>
-      <div class="card">
+
+      <section class="card">
         <h3>${icon("clipboard")} ${I18N.t("about.changelog")}</h3>
-        <div id="about-changelog" class="sub" style="max-height:240px;overflow:auto;line-height:1.8">
+        <div id="about-changelog" class="ab-log sub">
           <p>${I18N.t("upd.loading")}</p>
         </div>
-      </div>
+      </section>
     </div>`;
   },
   profile() {
@@ -6573,7 +6770,22 @@ function bindView(view) {
     } else {
       paintMiniCharts();
       $("stage")?.querySelectorAll("[data-open-chart]").forEach((el) => {
-        el.onclick = () => openChartDesk(el.dataset.sym, el.dataset.tf);
+        el.onclick = () => {
+          /* Ask the browser for fullscreen here, inside the click.
+             requestFullscreen is only granted during a user gesture, and
+             by the time the workspace has mounted that gesture is over --
+             the request would be refused and the chart would open in a
+             window instead. The desk's own fullscreen (body.chart-full)
+             is applied on mount regardless, so a refusal still fills the
+             desk; this is what also takes the browser chrome away. */
+          try {
+            const root = document.documentElement;
+            if (!document.fullscreenElement && root.requestFullscreen) {
+              root.requestFullscreen().catch(() => {});
+            }
+          } catch (e) { /* the app-level fullscreen still applies */ }
+          openChartDesk(el.dataset.sym, el.dataset.tf, { fullscreen: true });
+        };
       });
     }
   }
@@ -6587,8 +6799,8 @@ function bindView(view) {
       if (!row) return;
       const sym = row.getAttribute("data-wl");
       if (!sym || sym === S.symbol) return;
-      const sel = $("sym");
-      if (sel) sel.value = sym;
+      const cur = document.querySelector("#sym .sympick-cur");
+      if (cur) cur.textContent = sym;
       pickMarket(sym, S.timeframe);
     };
     const cv = $("cv");
@@ -6623,9 +6835,9 @@ function bindView(view) {
       };
     }
     if (eaLive() && defaultSymbol() && !S.candles.length) primeEaChart();
-    const sym = $("sym"), tf = $("tf");
-    if (sym) sym.onchange = () => pickMarket(sym.value, S.timeframe);
-    if (tf) tf.onchange = () => pickMarket(S.symbol || sym.value, tf.value);
+    bindInstrumentPicker("sym", (name) => pickMarket(name, S.timeframe));
+    const tf = $("tf");
+    if (tf) tf.onchange = () => pickMarket(S.symbol || defaultSymbol(), tf.value);
   }
   if (view === "calendar") {
     Calendar.mount($("cal-root"));
@@ -8636,6 +8848,10 @@ function bindChartDesk() {
     AurionChartUI.bind(S.chart, {
       symbol: S.chartFocus.symbol,
       timeframe: S.chartFocus.timeframe,
+      // The attached charts, so the workspace can offer a searchable list
+      // instead of making the user go back to the grid to switch.
+      symbols: liveSymbols(),
+      onSymbol: (sym) => openChartDesk(sym, S.chartFocus ? S.chartFocus.timeframe : S.timeframe),
       toast,
       // Destructive actions go through the desk's own dialog rather than
       // the browser's, which the installer window styles differently.
@@ -8669,6 +8885,15 @@ function bindChartDesk() {
       },
       onTimeframe: (tf) => switchChartTimeframe(tf),
     });
+
+    /* Opened from the grid: fill the screen immediately. Consumed here so
+       that a later re-mount -- switching timeframe rebuilds this whole
+       workspace -- does not drag the user back into fullscreen after they
+       have left it. */
+    if (S.chartFocusFull) {
+      S.chartFocusFull = false;
+      try { AurionChartUI.setFullscreen(true); } catch (e) { /* non-fatal */ }
+    }
   }
 
   (async () => {

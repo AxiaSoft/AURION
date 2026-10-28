@@ -1,11 +1,11 @@
 {
   "name": "aurion",
   "private": true,
-  "description": "AURION — run the desk from the repo root",
+  "description": "AURION \u2014 run the desk from the repo root",
   "scripts": {
     "start": "node backend/src/index.js",
     "engine": "python engine/main.py --host 127.0.0.1 --port 18765",
-    "test": "npm run test:syntax && npm run test:unit && npm run test:static && npm run test:render && npm run test:layout && npm run test:demo && npm run test:msi && npm run test:prereq && npm run test:icons && npm run test:csharp && npm run test:guide && npm run test:admin && npm run test:store && npm run test:updatepanel && npm run test:endpoints && npm run test:propguide && npm run test:notify && npm run test:appearance && npm run test:theming && npm run test:soundtab && npm run test:btresults && npm run test:liveupdate && npm run test:wallpapers && npm run test:stlayout && npm run test:hdrspacing && npm run test:chartmobile && npm run test:btlive && npm run test:chartwiring && npm run test:formgrid && npm run test:themectl && npm run test:langtoken && npm run test:bgfx && npm run test:noemoji && npm run test:chartux && npm run test:notifydismiss && npm run test:btncentre && npm run test:deskchrome && npm run test:candles && npm run test:calendar",
+    "test": "npm run test:syntax && npm run test:unit && npm run test:static && npm run test:render && npm run test:layout && npm run test:demo && npm run test:msi && npm run test:prereq && npm run test:icons && npm run test:csharp && npm run test:guide && npm run test:admin && npm run test:store && npm run test:updatepanel && npm run test:endpoints && npm run test:propguide && npm run test:notify && npm run test:appearance && npm run test:theming && npm run test:soundtab && npm run test:btresults && npm run test:liveupdate && npm run test:wallpapers && npm run test:stlayout && npm run test:hdrspacing && npm run test:chartmobile && npm run test:btlive && npm run test:chartwiring && npm run test:formgrid && npm run test:themectl && npm run test:langtoken && npm run test:bgfx && npm run test:noemoji && npm run test:chartux && npm run test:notifydismiss && npm run test:btncentre && npm run test:deskchrome && npm run test:candles && npm run test:calendar && npm run test:symsearch",
     "test:unit": "node --test apps/web/js/*.test.cjs",
     "test:static": "node apps/web/js/check-views.mjs && node apps/web/js/check-calls.mjs",
     "test:render": "node tests/desk-render.test.js",
@@ -41,6 +41,7 @@
     "test:deskchrome": "node tests/desk-chrome.test.js",
     "test:candles": "node tests/theme-candles.test.js",
     "test:calendar": "node tests/calendar-layout.test.js",
+    "test:symsearch": "node tests/symbol-search-about.test.js",
     "test:formgrid": "node tests/form-grid.test.js",
     "test:themectl": "node tests/theme-controls.test.js",
     "test:langtoken": "node tests/lang-token.test.js",

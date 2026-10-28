@@ -51,13 +51,30 @@
 }
 .tv-top::-webkit-scrollbar { display: none }
 
+/* The instrument is a control now, not a caption: it opens a searchable
+   list of the attached charts. It keeps its old look until hovered, so
+   the top bar does not turn into a row of competing buttons. */
 .tv-sym {
   display: flex; align-items: baseline; gap: 6px;
-  padding: 0 8px 0 2px;
+  padding: 0 8px;
   white-space: nowrap;
+  background: transparent; border: 1px solid transparent; border-radius: 10px;
+  color: inherit; font: inherit; cursor: pointer;
+  min-height: 32px;
+  transition: background .18s ease, border-color .18s ease;
 }
+.tv-sym:hover, .tv-sym[aria-expanded="true"] {
+  background: rgba(255,255,255,.06);
+  border-color: rgba(255,255,255,.10);
+}
+.tv-sym:focus-visible { outline: 2px solid var(--accent, #3ee0c4); outline-offset: 1px }
 .tv-sym b { font-size: 14px; letter-spacing: .01em }
 .tv-sym span { font-size: 11px; color: var(--muted); font-family: "IBM Plex Mono", monospace }
+.tv-sym-caret {
+  width: 14px; height: 14px; align-self: center; opacity: .55;
+  transform: rotate(90deg);
+}
+.tv-sym[aria-expanded="true"] .tv-sym-caret { transform: rotate(-90deg) }
 
 .tv-btn, .tv-icon {
   display: inline-flex; align-items: center; gap: 6px;

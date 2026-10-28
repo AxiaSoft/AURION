@@ -3447,3 +3447,136 @@ html[dir="rtl"] .ct-side span{letter-spacing:0;text-transform:none;font-size:12p
   clip-path:inset(50%);
   overflow:hidden;white-space:nowrap;
 }
+
+/* ------------------------------------------------------------------
+   Searchable instrument picker
+
+   Replaces the native <select> in the markets toolbar. Built on the
+   same --ctl-* scale as the timeframe select beside it so the two line
+   up, and uses the desk's glass for the popup.
+   ------------------------------------------------------------------ */
+.sympick{position:relative;flex:1 1 auto;min-width:0}
+.sympick-btn{
+  display:flex;align-items:center;gap:8px;
+  /* Explicit: the value sits at the start and the caret at the end, the
+     way a <select> reads. Without it the label inherits the desk's
+     centring and the caret drifts into the middle of the control. */
+  justify-content:space-between;
+  width:100%;text-align:start;cursor:pointer;
+}
+/* With no chart attached there is no value and no caret, only a message,
+   so it is centred like any other button label. */
+.sympick.is-empty .sympick-btn{justify-content:center;text-align:center}
+.sympick-btn[disabled]{cursor:default;opacity:.65}
+.sympick-cur{
+  font-weight:650;letter-spacing:.02em;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;
+}
+.sympick-btn svg{width:16px;height:16px;flex:none;opacity:.7;
+  transition:transform .2s var(--ease)}
+.sympick-btn[aria-expanded="true"] svg{transform:rotate(180deg)}
+
+.sympick-pop{
+  position:absolute;z-index:60;inset-inline-start:0;top:calc(100% + 6px);
+  width:min(320px, 86vw);
+  background:var(--glass2);
+  backdrop-filter:blur(28px) saturate(140%);
+  -webkit-backdrop-filter:blur(28px) saturate(140%);
+  border:1px solid var(--line);border-radius:16px;
+  box-shadow:0 24px 60px rgba(0,0,0,.45);
+  overflow:hidden;
+}
+.sympick-pop[hidden]{display:none}
+.sympick-search{
+  display:flex;align-items:center;gap:8px;
+  padding:10px 12px;border-bottom:1px solid var(--line);
+}
+.sympick-search svg{width:16px;height:16px;flex:none;opacity:.6}
+.sympick-q{
+  flex:1 1 auto;min-width:0;background:transparent;border:0;outline:none;
+  color:var(--ink);font:inherit;padding:0;
+}
+.sympick-list{
+  list-style:none;margin:0;padding:6px;
+  max-height:min(50vh, 320px);overflow:auto;overscroll-behavior:contain;
+}
+.sympick-row{
+  display:flex;align-items:center;gap:10px;
+  padding:9px 10px;border-radius:10px;cursor:pointer;
+}
+.sympick-row.active,.sympick-row:hover{background:rgb(var(--wash) / .07)}
+.sympick-row.on{box-shadow:inset 0 0 0 1px rgb(var(--accent-rgb) / .45)}
+.sympick-n{font-weight:650;letter-spacing:.02em;flex:1 1 auto}
+.sympick-d{
+  color:var(--muted);font-size:12px;flex:none;
+  font-family:"IBM Plex Mono",monospace;
+}
+.sympick-none{padding:16px 12px;text-align:center;color:var(--muted);font-size:13px}
+
+/* ------------------------------------------------------------------
+   About
+
+   Rebuilt from a string of inline styles. The state of the desk used to
+   be a key/value list with coloured dots wedged into the values, which
+   made the one thing this page is opened to check the hardest thing on
+   it to read. It is a row of tiles now.
+   ------------------------------------------------------------------ */
+.about .ab-hero{
+  text-align:center;
+  padding:34px 24px 28px;
+  display:flex;flex-direction:column;align-items:center;gap:10px;
+}
+.ab-mark{
+  width:92px;height:92px;border-radius:24px;overflow:hidden;
+  background:var(--deep);box-shadow:0 14px 34px rgba(0,0,0,.42);
+}
+.ab-mark img{width:100%;height:100%;object-fit:cover;transform:scale(1.08);display:block}
+.ab-name{margin:0;margin-block-start:6px;font-size:28px;letter-spacing:.14em}
+.ab-ver{
+  margin:0;display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:center;
+  color:var(--muted);font-size:13px;
+}
+.ab-ver b{color:var(--accent)}
+.ab-dot-sep{width:3px;height:3px;border-radius:50%;background:currentColor;opacity:.5}
+.ab-blurb{
+  margin:0;margin-block-start:4px;max-width:52ch;line-height:1.8;color:var(--muted);font-size:14px;
+}
+.ab-tags{display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin-block-start:6px}
+
+/* The state tiles. Auto-fit rather than a fixed count: six tiles sit on
+   one row on a desktop and reflow to two on a phone with no breakpoint
+   to keep in step. */
+.ab-stats{
+  display:grid;gap:10px;
+  grid-template-columns:repeat(auto-fit,minmax(150px,1fr));
+}
+.ab-stat{
+  display:flex;flex-direction:column;gap:5px;
+  padding:12px 14px;border-radius:14px;
+  background:rgb(var(--wash) / .04);
+  border:1px solid var(--line);
+  border-inline-start:2px solid rgb(var(--wash) / .14);
+}
+.ab-stat.is-ok{border-inline-start-color:var(--ok,#26d07c)}
+.ab-stat.is-bad{border-inline-start-color:var(--bad,#f4475b)}
+.ab-stat-k{font-size:11px;letter-spacing:.07em;text-transform:uppercase;color:var(--muted)}
+.ab-stat-v{display:flex;align-items:center;gap:7px;font-weight:650;font-size:15px}
+
+.ab-kv{margin-block-start:10px}
+/* The maker card sits beside the shorter specs card in a two-column
+   grid. Pushing its buttons to the bottom keeps the pair level instead
+   of leaving the taller card's actions floating mid-way up. */
+.ab-maker{display:flex;flex-direction:column}
+.ab-maker .ab-actions{margin-block-start:auto;padding-block-start:14px}
+.ab-brand{display:flex;align-items:center;gap:14px;margin-block:12px 4px}
+.ab-brand img{width:52px;height:52px;object-fit:contain;flex:none}
+.ab-brand b{font-size:17px;display:block}
+.ab-brand .sub{font-size:12px}
+.ab-actions{display:flex;gap:8px;flex-wrap:wrap;margin-block-start:14px}
+.ab-log{max-height:260px;overflow:auto;line-height:1.8;overscroll-behavior:contain}
+
+@media (max-width:560px){
+  .about .ab-hero{padding:26px 16px 22px}
+  .ab-name{font-size:24px}
+  .ab-stats{grid-template-columns:repeat(auto-fit,minmax(130px,1fr))}
+}

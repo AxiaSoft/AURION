@@ -508,7 +508,13 @@ for (const w of [1400, 1200, 1013, 820, 560, 390]) {
 /* Hidden, not deleted: it is the only thing that announces a page change
    to a screen reader, since the view swaps with no navigation. */
 ok(/<h2 id="page-title">/.test(html), "the heading is still in the page for assistive tech");
-const paint = /const paint = \(\) => \{[\s\S]*?\n  \};/.exec(appJsNC)[0];
+/* Anchored to the top-level helper inside show(). The pattern used to be
+   unanchored, so it matched the first nested "const paint" in the file
+   and only reached this one because the span happened to run that far --
+   any new nested arrow function in between silently broke it. */
+const paintMatch = /\n  const paint = \(\) => \{[\s\S]*?\n  \};/.exec(appJsNC);
+if (!paintMatch) throw new Error("could not find the paint() helper inside show()");
+const paint = paintMatch[0];
 ok(/\$\("page-title"\)/.test(paint) && /title\.textContent =/.test(paint),
   "and show() still writes the current page into it");
 

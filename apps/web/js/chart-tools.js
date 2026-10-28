@@ -416,7 +416,11 @@
     return `<header class="tv-top">
       <button type="button" class="tv-icon" id="tv-back" title="${esc(tt("common.back", "Back"))}"
               aria-label="${esc(tt("common.back", "Back"))}">${svg(I.chevron, "flip")}</button>
-      <div class="tv-sym"><b>${esc(o.symbol)}</b><span id="tv-tf-label">${esc(o.timeframe)}</span></div>
+      <button type="button" class="tv-sym" data-menu="symbol" aria-haspopup="true"
+              title="${esc(tt("chart.switch_symbol", "Switch instrument"))}">
+        <b>${esc(o.symbol)}</b><span id="tv-tf-label">${esc(o.timeframe)}</span>
+        ${svg(I.chevron, "tv-sym-caret")}
+      </button>
       <div class="tv-seg" role="group" aria-label="${esc(tt("markets.timeframe", "Timeframe"))}">${tfs}</div>
       <button type="button" class="tv-btn" data-menu="tf" aria-haspopup="true">${svg(I.clock)}<span class="tvb-label" id="tv-tf-more">${esc(tt("chart.more_tf", "More"))}</span></button>
       <span class="tv-div"></span>
@@ -593,6 +597,38 @@
       section("hours", tt("chart.tf_hours", "Hours")) +
       section("days", tt("chart.tf_days", "Days and longer")) +
       `<p class="tvm-note">${esc(tt("chart.tf_note", "These are the intervals MetaTrader serves for this symbol."))}</p>`;
+  }
+
+  /**
+   * Pick the charted instrument, with a search box.
+   *
+   * The symbol used to be a label: the only way to chart something else
+   * was to go back to the list and click a different card. With several
+   * EAs attached that is a lot of clicking, and with many it is a lot of
+   * scrolling, which is why this filters.
+   *
+   * The list is the attached charts, because those are the only symbols
+   * the terminal is actually sending bars for -- offering anything else
+   * would be offering a chart that cannot be drawn.
+   */
+  function menuSymbols(query) {
+    const all = (ui.ctx && ui.ctx.symbols) || [];
+    const q = String(query || "").trim().toUpperCase();
+    const hits = q
+      ? all.filter((s) => String(s.symbol || "").toUpperCase().includes(q) ||
+                          String(s.label || "").toUpperCase().includes(q))
+      : all;
+    const cur = ui.ctx && ui.ctx.symbol;
+    const rows = hits.map((s) => `<button type="button" class="tvm-row${s.symbol === cur ? " on" : ""}"
+        data-pick-sym="${esc(s.symbol)}">
+        <span class="tvm-key">${esc(s.symbol)}</span>
+        <span>${esc(s.timeframe || "")}</span>
+        ${s.symbol === cur ? svg(I.tick, "tvm-tick") : ""}</button>`).join("");
+    return `<div class="tvm-search">${svg(I.search)}
+        <input class="ctrl" id="tv-sym-q" value="${esc(query || "")}" autocomplete="off"
+               placeholder="${esc(tt("chart.search_sym", "Search instrument"))}" />
+      </div>
+      ${rows || `<p class="tvm-note">${esc(tt("chart.no_sym", "No attached chart matches that."))}</p>`}`;
   }
 
   function menuTypes() {
@@ -1332,6 +1368,18 @@
           const q = el.querySelector("#tv-ind-q");
           if (q) { q.focus(); q.oninput = () => { el.innerHTML = menuIndicators(q.value); el.querySelector("#tv-ind-q").focus(); }; }
         }
+        if (name === "symbol") {
+          const el = openMenu(menu, name, menuSymbols(""));
+          const q = el.querySelector("#tv-sym-q");
+          if (q) {
+            q.focus();
+            q.oninput = () => {
+              el.innerHTML = menuSymbols(q.value);
+              const again = el.querySelector("#tv-sym-q");
+              if (again) { again.focus(); again.setSelectionRange(again.value.length, again.value.length); }
+            };
+          }
+        }
         if (name === "settings") openMenu(menu, name, menuSettings());
         return;
       }
@@ -1380,6 +1428,16 @@
 
         const tf = e.target.closest("[data-pick-tf]");
         if (tf) { closeMenu(); if (ui.ctx.onTimeframe) ui.ctx.onTimeframe(tf.dataset.pickTf); return; }
+
+        const sym = e.target.closest("[data-pick-sym]");
+        if (sym) {
+          closeMenu();
+          const picked = sym.dataset.pickSym;
+          // Re-charting the symbol already shown would tear the workspace
+          // down and rebuild it for no change the user can see.
+          if (picked && picked !== ui.ctx.symbol && ui.ctx.onSymbol) ui.ctx.onSymbol(picked);
+          return;
+        }
 
         const ty = e.target.closest("[data-pick-type]");
         if (ty) {

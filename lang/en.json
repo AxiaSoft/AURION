@@ -200,7 +200,9 @@
     "ask": "Ask",
     "spread": "Spread",
     "empty": "No AurionBridge chart is attached. Only those charts are loaded.",
-    "loading_tf": "Fetching real CopyRates history from the attached EA…"
+    "loading_tf": "Fetching real CopyRates history from the attached EA…",
+    "search_sym": "Search instrument…",
+    "no_sym_match": "No attached chart matches"
   },
   "ai": {
     "title": "Intelligence",
@@ -1122,7 +1124,10 @@
     "copy_ver": "Copy version",
     "copied": "Copied",
     "changelog": "Changelog",
-    "blurb": "AURION is a live execution desk for MetaTrader 5."
+    "blurb": "AURION is a live execution desk for MetaTrader 5.",
+    "glance": "At a glance",
+    "engine": "Engine",
+    "ea_charts": "EA charts"
   },
   "bt": {
     "results": "Backtest results",
@@ -1247,7 +1252,10 @@
     "order_cancel": "Cancel",
     "order_cancelled": "Resting order cancelled",
     "order_planted": "Entry planted",
-    "order_none": "No entry planted"
+    "order_none": "No entry planted",
+    "switch_symbol": "Switch instrument",
+    "search_sym": "Search instrument",
+    "no_sym": "No attached chart matches that."
   },
   "signal": {
     "buy": "Buy signal",

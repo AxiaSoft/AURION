@@ -264,9 +264,21 @@ check("an icon put inside a button is given a size", () => {
 });
 
 check("status is shown with the desk's own dot, not a coloured circle", () => {
-  const about = appJs.slice(appJs.indexOf('I18N.t("about.sys_name")'), appJs.indexOf('I18N.t("about.maker")'));
-  const dots = (about.match(/class="dot (live|down)"/g) || []).length;
-  if (dots < 8) throw new Error("expected the About rows to use .dot live/down, found " + dots);
+  /* This used to count eight copies of a literal class="dot live" in the
+     About source. The page now builds its status tiles from a single
+     helper, so the literals are gone while the rendered markup is the
+     same -- counting copies was measuring the duplication, not the
+     behaviour. Check what actually reaches the DOM instead. */
+  const about = appJs.slice(appJs.indexOf("  about() {"), appJs.indexOf('I18N.t("about.changelog")'));
+  if (!about) throw new Error("could not find the About view");
+
+  const emitsDot = /class="dot \$\{[^}]*"live"[^}]*"down"[^}]*\}"/.test(about.replace(/\s+/g, " "));
+  if (!emitsDot) throw new Error("the About status markup no longer emits .dot live/down");
+
+  /* Every state on the page must go through that helper, so none can
+     quietly regress to a bare word or a coloured glyph. */
+  const tiles = (about.match(/\$\{stat\(/g) || []).length;
+  if (tiles < 6) throw new Error("expected at least 6 status tiles, found " + tiles);
 });
 
 /* An emoji written as a \uXXXX escape is still an emoji on the screen, but

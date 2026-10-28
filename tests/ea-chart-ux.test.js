@@ -413,8 +413,19 @@ if (!jsdom) {
     check("the markets toolbar is one row, not two stacked ones", () => {
       const html = T.views.markets();
       if (!html.includes('class="mk-bar"')) throw new Error("no single toolbar");
-      if (!/mk-pick[\s\S]{0,600}mk-sig/.test(html)) {
-        throw new Error("instrument controls and signal switches are not in the same bar");
+      /* This used to assert the two groups sat within 600 characters of
+         each other in the source, as a stand-in for "same bar". That
+         broke the moment the instrument <select> became a searchable
+         combobox, which is more markup but no more rows. Ask the DOM
+         where the elements actually are. */
+      const box = win.document.createElement("div");
+      box.innerHTML = html;
+      const bar = box.querySelector(".mk-bar");
+      if (!bar) throw new Error("no single toolbar");
+      if (!bar.querySelector(".mk-pick")) throw new Error("the instrument controls are outside the bar");
+      if (!bar.querySelector(".mk-sig")) throw new Error("the signal switches are outside the bar");
+      if (box.querySelectorAll(".mk-bar").length !== 1) {
+        throw new Error("the toolbar was split into " + box.querySelectorAll(".mk-bar").length + " rows");
       }
     });
 
