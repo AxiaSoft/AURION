@@ -486,10 +486,24 @@ if (!jsdom) {
     });
 
     check("the About page is told what to do on a phone", () => {
-      const sec = appCss.slice(appCss.indexOf(".ab-hero"));
-      if (!/@media \(max-width:560px\)\{[\s\S]{0,400}\.ab-/.test(sec.replace(/\s*\n\s*/g, ""))) {
+      const sec = appCss.slice(appCss.indexOf(".about .ab-grid")).replace(/\s*\n\s*/g, "");
+      if (!/@media\s*\(max-width:560px\)\{[\s\S]{0,500}?\.ab-/.test(sec)) {
         throw new Error("no narrow-screen rules for the About page");
       }
+    });
+
+    check("the two-column About layout collapses before it runs out of room", () => {
+      /* A sticky 300px rail beside the detail is right on a desktop and
+         wrong the moment the pair no longer fits; the rail has to stop
+         being a rail rather than squeezing the content next to it. */
+      const sec = appCss.slice(appCss.indexOf(".about .ab-grid")).replace(/\s*\n\s*/g, "");
+      if (!/\.about \.ab-grid\{[^}]*grid-template-columns:minmax\(0,300px\)/.test(sec)) {
+        throw new Error("the desktop layout is not two columns");
+      }
+      const m = /@media\s*\(max-width:900px\)\{([\s\S]{0,300}?)\}\}/.exec(sec);
+      if (!m) throw new Error("the two-column layout never collapses");
+      if (!/grid-template-columns:minmax\(0,1fr\)/.test(m[1])) throw new Error("it collapses to something other than one column");
+      if (!/position:static/.test(m[1])) throw new Error("the rail is still sticky once stacked");
     });
 
     check("the version shown is the real one, not a hard-coded string", () => {

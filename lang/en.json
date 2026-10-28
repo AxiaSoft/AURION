@@ -253,7 +253,8 @@
       "ai_gate_off": "AI filter off",
       "strategy_says": "The strategy says",
       "desk_says": "The desk says",
-      "waiting": "Waiting for the engine…"
+      "waiting": "Waiting for the engine…",
+      "needs": "Needs"
     }
   },
   "strategies": {
@@ -420,7 +421,9 @@
     "guide_lede": "Every setting on this page: what it does, what its number means and what a sensible value looks like. No instrument is named — the right number depends on your symbol, broker and session.",
     "guide_search": "Search the guide",
     "guide_search_ph": "e.g. drawdown, hours, news",
-    "guide_empty": "Nothing matches that."
+    "guide_empty": "Nothing matches that.",
+    "of_limit": "of {n} allowed",
+    "no_limit": "No limit set"
   },
   "money": {
     "title": "Money management — the per-lot stop cap",
@@ -482,7 +485,10 @@
     "pick_sl": "Click the chart to place stop-loss",
     "pick_tp": "Click the chart to place take-profit",
     "clear_sl": "Clear SL",
-    "clear_tp": "Clear TP"
+    "clear_tp": "Clear TP",
+    "close_title": "Close position",
+    "close_confirm": "Close this position at the current market price?",
+    "close_confirm_one": "Close {what} at the current market price?"
   },
   "charts": {
     "title": "EA chart agents",
@@ -1255,7 +1261,9 @@
     "order_none": "No entry planted",
     "switch_symbol": "Switch instrument",
     "search_sym": "Search instrument",
-    "no_sym": "No attached chart matches that."
+    "no_sym": "No attached chart matches that.",
+    "pos_expand": "Show open trades",
+    "pos_collapse": "Hide open trades"
   },
   "signal": {
     "buy": "Buy signal",

@@ -2411,6 +2411,30 @@ function bindChrome() {
   }, true);
 }
 
+/**
+ * The build stamp, written DSK-DDMMYY.
+ *
+ * The wire format stays ISO (YYYY-MM-DD): it is unambiguous, it sorts,
+ * and the backend derives it from a file mtime. Only the display is
+ * reshaped, here, so nothing that parses build_date has to change and
+ * there is one place to look when the format is questioned.
+ *
+ * Deliberately not localised. A build stamp is an identifier a user
+ * reads back to support, so it has to be the same six digits in every
+ * language -- Persian digits in a support ticket help nobody.
+ */
+function buildTag(iso) {
+  const raw = String(iso || "").trim();
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(raw);
+  if (!m) {
+    /* Never invent a date. If the engine sent something unexpected,
+       show it as it came rather than stamping today over it. */
+    return raw ? "DSK-" + raw : "DSK-\u2014";
+  }
+  const [, y, mo, d] = m;
+  return `DSK-${d}${mo}${y.slice(2)}`;
+}
+
 function copyrightYear() {
   const tag = I18N.lang === "fa" ? "fa-IR-u-ca-persian" : I18N.lang === "ar" ? "ar-SA-u-ca-islamic-umalqura" : "en-GB-u-ca-gregory";
   try {
@@ -3035,9 +3059,6 @@ function bindGateSlider() {
   }
 }
 
-function kpi(key, value, suffix, signed) {
-  return `<div class="kpi"><span>${I18N.t(key)}</span><b class="mono ${signed?clsPnl(value):""}" data-metric="${key}">${fmt(value)}${suffix ? " " + suffix : ""}</b></div>`;
-}
 function openChartDesk(symbol, timeframe, opts) {
   if (!symbol) return;
   S.chartFocus = { symbol, timeframe: timeframe || S.timeframe || "M15" };
@@ -3144,11 +3165,45 @@ function patchMetric(key, value, suffix, signed) {
   el.classList.toggle("down", Boolean(signed && Number(value) < 0));
 }
 
+/**
+ * Wire the close buttons under `root`.
+ *
+ * Closing is real money and cannot be undone, so it asks first -- the
+ * control now sits on a chip beside a chart, where a mis-tap on a phone
+ * is easy. The button also disables itself while the request is in
+ * flight: the old handler would happily fire a second close for the
+ * same ticket if the first was slow, and the second arrives after the
+ * position is gone.
+ */
 function bindCloseButtons(root) {
   (root || document).querySelectorAll("[data-close]").forEach((b) => {
+    if (b.dataset.bound === "1") return;
+    b.dataset.bound = "1";
     b.onclick = async () => {
-      await API.post("/api/order", { action: "close", ticket: +b.dataset.close });
-      await refresh(false);
+      if (b.disabled) return;
+      const what = b.dataset.closeWhat || "";
+      const ok = await askConfirm({
+        title: I18N.t("exec.close_title"),
+        body: what ? I18N.t("exec.close_confirm_one", { what }) : I18N.t("exec.close_confirm"),
+        ok: I18N.t("exec.close"),
+        cancel: I18N.t("common.cancel"),
+        danger: true,
+      });
+      if (!ok) return;
+      b.disabled = true;
+      try {
+        const r = await API.post("/api/order", { action: "close", ticket: +b.dataset.close });
+        if (r && r.ok === false) toast(r.message || r.error || I18N.t("errors.generic"));
+        await refresh(false);
+      } catch (err) {
+        toast((err && err.message) || I18N.t("errors.generic"));
+      } finally {
+        /* The button is usually gone by now, repainted away with the
+           position. Re-enabling matters for the case where it is not:
+           a refused close must leave a control the trader can press
+           again. */
+        b.disabled = false;
+      }
     };
   });
 }
@@ -3295,18 +3350,22 @@ function patchLive() {
       msg.textContent = mt.last_error || (mt.connected ? I18N.t("status.mt5_live") : I18N.t("status.mt5_down"));
     }
     const pstat = S.snap?.prop || {};
+    const pprof = pstat.profile || {};
     const st = $("risk-state");
     if (st) {
-      st.textContent = pstat.enabled === false ? I18N.t("risk.prop_off") : (pstat.locked ? I18N.t("status.safe_mode") : I18N.t("status.prop_ok"));
-      st.className = "metric " + (pstat.locked ? "down" : "up");
+      const off = pstat.enabled === false;
+      st.textContent = off ? I18N.t("risk.prop_off") : (pstat.locked ? I18N.t("status.safe_mode") : I18N.t("status.prop_ok"));
+      st.className = "pr-state " + (off ? "is-off" : pstat.locked ? "is-locked" : "is-ok");
     }
-    const dpl = $("risk-dpl");
-    if (dpl) {
-      dpl.textContent = fmt(pstat.daily_pl_pct) + "%";
-      dpl.className = "mono " + clsPnl(pstat.daily_pl_pct);
-    }
-    const dd = $("risk-dd");
-    if (dd) dd.textContent = fmt(pstat.drawdown_pct) + "%";
+    const lockWhy = $("risk-lock");
+    if (lockWhy) lockWhy.textContent = pstat.lock_reason || "";
+    /* The meters move by themselves, so the bar has to be patched with
+       the figure above it. Patching only the number -- which is what
+       happened before these became meters -- leaves a bar frozen at
+       whatever it was when the page was rendered, which is worse than
+       no bar: it reads as a live measurement and is not one. */
+    paintPropMeter("risk-dpl", pstat.daily_pl_pct, pprof.max_daily_loss_pct);
+    paintPropMeter("risk-dd", pstat.drawdown_pct, pprof.max_drawdown_pct);
     const autoOn = Boolean(S.snap?.strategy?.auto_trade);
     paintSwitch($("st-auto"), autoOn);
     const autoSub = $("st-auto-sub");
@@ -4769,32 +4828,91 @@ function propLocked(pr) {
   return Boolean(pr && (pr.locked === true || (pr.id && pr.id !== "custom")));
 }
 
+/**
+ * How much of the prop account's rope is left.
+ *
+ * Rebuilt. This was a switch, a one-word verdict, two bare percentages
+ * and a single unlabelled bar. The bar tracked drawdown against its
+ * limit, but nothing said so -- and the daily loss, which is the rule
+ * that actually stops most accounts, had no bar at all. A figure like
+ * "-1.4%" means nothing without the limit it is counting towards.
+ *
+ * Both rules get a meter against their own limit, so the question a
+ * prop trader opens this page to answer -- how close am I -- is the
+ * thing the page answers.
+ */
+function propMeter(labelKey, used, limit, idUsed) {
+  const lim = Math.abs(Number(limit) || 0);
+  const amt = Math.abs(Number(used) || 0);
+  /* With no limit configured there is nothing to be a fraction of, so
+     the figure is shown on its own rather than against an invented
+     denominator. */
+  const pct = lim > 0 ? Math.min(100, (amt / lim) * 100) : 0;
+  const near = lim > 0 && pct >= 75;
+  const over = lim > 0 && pct >= 100;
+  return `<div class="pr-meter${over ? " is-over" : near ? " is-near" : ""}">
+      <div class="pr-meter-head">
+        <span>${I18N.t(labelKey)}</span>
+        <b class="mono" id="${idUsed}">${fmt(used)}%</b>
+      </div>
+      <div class="pr-meter-bar" role="img"
+           aria-label="${esc(I18N.t(labelKey))} ${fmt(amt)}% / ${fmt(lim)}%">
+        <i style="--w:${pct}%"></i>
+      </div>
+      <p class="pr-meter-foot sub">${lim > 0
+        ? I18N.t("risk.of_limit", { n: fmt(lim) + "%" })
+        : I18N.t("risk.no_limit")}</p>
+    </div>`;
+}
+
+/** Move one meter: the figure, its colour, and the bar under it. */
+function paintPropMeter(id, used, limit) {
+  const el = $(id);
+  if (!el) return;
+  el.textContent = fmt(used) + "%";
+  el.className = "mono " + clsPnl(used);
+  const box = el.closest(".pr-meter");
+  if (!box) return;
+  const lim = Math.abs(Number(limit) || 0);
+  const amt = Math.abs(Number(used) || 0);
+  const pct = lim > 0 ? Math.min(100, (amt / lim) * 100) : 0;
+  const fill = box.querySelector(".pr-meter-bar > i");
+  if (fill) fill.style.setProperty("--w", pct + "%");
+  box.classList.toggle("is-near", lim > 0 && pct >= 75 && pct < 100);
+  box.classList.toggle("is-over", lim > 0 && pct >= 100);
+}
+
 function propStatusHtml() {
   const p = S.snap?.prop || {};
   const pr = p.profile || {};
-  const w = Math.min(100, Math.abs(p.drawdown_pct || 0) / (pr.max_drawdown_pct || 10) * 100);
   const on = p.enabled !== false;
-  return `<div class="card" style="margin-bottom:14px">
-      <div class="auto-banner" style="margin:0 0 12px">
+  return `<section class="card pr-status">
+      <div class="auto-banner pr-switch">
         <div>
-          <h3 style="margin:0 0 6px">${I18N.t("risk.prop_switch")}</h3>
+          <h3>${I18N.t("risk.prop_switch")}</h3>
           <p class="sub" id="prop-enable-sub">${on ? I18N.t("risk.prop_on") : I18N.t("risk.prop_off")}</p>
         </div>
-        <button type="button" class="switch ${on?"on":""}" id="prop-enable" data-prop-enable aria-pressed="${on}"><i></i></button>
+        <button type="button" class="switch ${on ? "on" : ""}" id="prop-enable" data-prop-enable aria-pressed="${on}"><i></i></button>
       </div>
-      <p class="metric ${p.locked?"down":"up"}" id="risk-state">${!on ? I18N.t("risk.prop_off") : (p.locked ? I18N.t("status.safe_mode") : I18N.t("status.prop_ok"))}</p>
+
+      <p class="pr-state ${!on ? "is-off" : p.locked ? "is-locked" : "is-ok"}" id="risk-state">${
+        !on ? I18N.t("risk.prop_off") : (p.locked ? I18N.t("status.safe_mode") : I18N.t("status.prop_ok"))
+      }</p>
       <p class="sub" id="risk-lock">${p.lock_reason || ""}</p>
-      <div class="kv" style="margin-top:12px">
-        <span>${I18N.t("command.daily_pl")}</span><b class="mono ${clsPnl(p.daily_pl_pct)}" id="risk-dpl">${fmt(p.daily_pl_pct)}%</b>
-        <span>${I18N.t("command.drawdown")}</span><b class="mono" id="risk-dd">${fmt(p.drawdown_pct)}%</b>
+
+      <div class="pr-meters">
+        ${propMeter("command.daily_pl", p.daily_pl_pct, pr.max_daily_loss_pct, "risk-dpl")}
+        ${propMeter("command.drawdown", p.drawdown_pct, pr.max_drawdown_pct, "risk-dd")}
       </div>
-      <div class="bar" style="margin-top:10px"><i style="--w:${w}%"></i></div>
-      <div class="row" style="margin-top:12px">
+
+      <div class="pr-acts">
         <button class="btn tiny danger" id="pr-lock" type="button"${on ? "" : " disabled"}>${I18N.t("risk.lock")}</button>
         <button class="btn tiny" id="pr-unlock" type="button"${on ? "" : " disabled"}>${I18N.t("risk.unlock")}</button>
       </div>
-    </div>`;
+    </section>`;
 }
+
+
 /**
  * One numeric prop-rule field.
  *
@@ -4901,46 +5019,69 @@ function propText(id, labelKey, unitKey, value, placeholder) {
     </label>`;
 }
 
+/**
+ * The prop rule-book.
+ *
+ * Rebuilt for both sizes. The rules were a flat wall of number boxes
+ * in a fixed two-column grid: ten of them under "limits", nine under
+ * "time", then the filters. Two columns is too few for a desktop --
+ * short numeric fields left half the row empty -- and too many for a
+ * phone, where the pair squeezed to about eight characters each.
+ *
+ * The grid auto-fits now, so the same markup is four across on a wide
+ * screen and one on a phone, and each section is a card of its own so
+ * the eye has somewhere to stop between twenty-odd settings.
+ */
 function propFormHtml() {
   const p = S.snap?.prop || {};
   const pr = p.profile || {};
   const locked = propLocked(pr);
   const dis = locked ? " disabled" : "";
   const ids = ["conservative", "ftmo_challenge", "fundingpips", "the5ers", "custom"];
-  return `<label class="field"><span>${I18N.t("risk.preset")}</span>
-          <select class="ctrl" id="pr-preset">
-            ${ids.map((id)=>`<option value="${id}" ${pr.id===id?"selected":""}>${esc(profileLabel(id))}</option>`).join("")}
-          </select>
-        </label>
-        <input type="hidden" id="pr-id" value="${esc(pr.id||"custom")}" />
-        <p class="sub" id="pr-about">${esc(profileAbout(pr))}</p>
-        ${locked ? `<p class="sub prop-lock-note">${I18N.t("risk.preset_locked")}</p>` : ""}
-        <fieldset class="prop-fields${locked?" is-locked":""}"${locked?" disabled":""}>
+  return `<section class="card pr-preset-card">
+      <label class="field"><span>${I18N.t("risk.preset")}</span>
+        <select class="ctrl" id="pr-preset">
+          ${ids.map((id) => `<option value="${id}" ${pr.id === id ? "selected" : ""}>${esc(profileLabel(id))}</option>`).join("")}
+        </select>
+      </label>
+      <input type="hidden" id="pr-id" value="${esc(pr.id || "custom")}" />
+      <p class="sub" id="pr-about">${esc(profileAbout(pr))}</p>
+      ${locked ? `<p class="sub prop-lock-note">${I18N.t("risk.preset_locked")}</p>` : ""}
+    </section>
+
+    <fieldset class="prop-fields${locked ? " is-locked" : ""}"${locked ? " disabled" : ""}>
+      <section class="card pr-sec">
         <h4 class="set-h">${I18N.t("risk.sec_limits")}</h4>
-        <div class="grid g-2">
-          ${propNum("pr-dday", "risk.daily_loss", "risk.u_pct_balance", pr.max_daily_loss_pct||2, {step:"0.1", min:0})}
-          ${propNum("pr-mdd", "risk.max_dd", "risk.u_pct_balance", pr.max_drawdown_pct||5, {step:"0.1", min:0})}
-          ${propNum("pr-dtp", "risk.daily_profit", "risk.u_pct_balance", pr.max_daily_profit_pct||0, {step:"0.1", min:0, zeroOff:true})}
-          ${propNum("pr-pt", "risk.profit_target", "risk.u_pct_balance", pr.profit_target_pct||0, {step:"0.1", min:0, zeroOff:true})}
-          ${propNum("pr-lot", "risk.max_lot", "risk.u_lots", pr.max_lot||0.5, {step:"0.01", min:0})}
-          ${propNum("pr-lotsym", "risk.max_lot_symbol", "risk.u_lots", pr.max_lot_per_symbol||0, {step:"0.01", min:0, zeroOff:true})}
-          ${propNum("pr-n", "risk.max_trades", "risk.u_trades", pr.max_open_trades||2, {min:0})}
-          ${propNum("pr-ps", "risk.per_symbol", "risk.u_positions", pr.max_positions_per_symbol||1, {min:0})}
-          ${propNum("pr-dayn", "risk.max_day_trades", "risk.u_per_day", pr.max_trades_per_day||0, {min:0, zeroOff:true})}
-          ${propNum("pr-risk", "risk.risk_pct", "risk.u_pct_equity", pr.max_risk_per_trade_pct||0.5, {step:"0.1", min:0})}
+        <div class="pr-grid">
+          ${propNum("pr-dday", "risk.daily_loss", "risk.u_pct_balance", pr.max_daily_loss_pct || 2, { step: "0.1", min: 0 })}
+          ${propNum("pr-mdd", "risk.max_dd", "risk.u_pct_balance", pr.max_drawdown_pct || 5, { step: "0.1", min: 0 })}
+          ${propNum("pr-dtp", "risk.daily_profit", "risk.u_pct_balance", pr.max_daily_profit_pct || 0, { step: "0.1", min: 0, zeroOff: true })}
+          ${propNum("pr-pt", "risk.profit_target", "risk.u_pct_balance", pr.profit_target_pct || 0, { step: "0.1", min: 0, zeroOff: true })}
+          ${propNum("pr-lot", "risk.max_lot", "risk.u_lots", pr.max_lot || 0.5, { step: "0.01", min: 0 })}
+          ${propNum("pr-lotsym", "risk.max_lot_symbol", "risk.u_lots", pr.max_lot_per_symbol || 0, { step: "0.01", min: 0, zeroOff: true })}
+          ${propNum("pr-n", "risk.max_trades", "risk.u_trades", pr.max_open_trades || 2, { min: 0 })}
+          ${propNum("pr-ps", "risk.per_symbol", "risk.u_positions", pr.max_positions_per_symbol || 1, { min: 0 })}
+          ${propNum("pr-dayn", "risk.max_day_trades", "risk.u_per_day", pr.max_trades_per_day || 0, { min: 0, zeroOff: true })}
+          ${propNum("pr-risk", "risk.risk_pct", "risk.u_pct_equity", pr.max_risk_per_trade_pct || 0.5, { step: "0.1", min: 0 })}
         </div>
+      </section>
+
+      <section class="card pr-sec">
         <h4 class="set-h">${I18N.t("risk.sec_time")}</h4>
-        <div class="grid g-2">
-          ${propNum("pr-holdmin", "risk.min_hold", "risk.u_minutes", pr.min_hold_minutes||0, {step:"0.1", min:0, zeroOff:true})}
-          ${propNum("pr-maxhold", "risk.max_hold", "risk.u_hours", pr.max_hold_hours||0, {step:"0.1", min:0, zeroOff:true})}
-          ${propNum("pr-gap", "risk.gap", "risk.u_minutes", pr.min_minutes_between_trades||0, {min:0, zeroOff:true})}
-          ${propNum("pr-cl", "risk.consec", "risk.u_trades", pr.max_consecutive_losses||0, {min:0, zeroOff:true})}
-          ${propTime("pr-hs", "risk.hours_start", (pr.trading_hours&&pr.trading_hours.start)||"00:15", "00:15")}
-          ${propTime("pr-he", "risk.hours_end", (pr.trading_hours&&pr.trading_hours.end)||"23:45", "23:45")}
-          ${propNum("pr-fri", "risk.friday", "risk.u_utc_hour", pr.friday_close_utc_hour||21, {min:0, max:23})}
-          ${propNum("pr-nb", "risk.news_before", "risk.u_minutes", pr.news_blackout_before||15, {min:0})}
-          ${propNum("pr-na", "risk.news_after", "risk.u_minutes", pr.news_blackout_after||15, {min:0})}
+        <div class="pr-grid">
+          ${propNum("pr-holdmin", "risk.min_hold", "risk.u_minutes", pr.min_hold_minutes || 0, { step: "0.1", min: 0, zeroOff: true })}
+          ${propNum("pr-maxhold", "risk.max_hold", "risk.u_hours", pr.max_hold_hours || 0, { step: "0.1", min: 0, zeroOff: true })}
+          ${propNum("pr-gap", "risk.gap", "risk.u_minutes", pr.min_minutes_between_trades || 0, { min: 0, zeroOff: true })}
+          ${propNum("pr-cl", "risk.consec", "risk.u_trades", pr.max_consecutive_losses || 0, { min: 0, zeroOff: true })}
+          ${propTime("pr-hs", "risk.hours_start", (pr.trading_hours && pr.trading_hours.start) || "00:15", "00:15")}
+          ${propTime("pr-he", "risk.hours_end", (pr.trading_hours && pr.trading_hours.end) || "23:45", "23:45")}
+          ${propNum("pr-fri", "risk.friday", "risk.u_utc_hour", pr.friday_close_utc_hour || 21, { min: 0, max: 23 })}
+          ${propNum("pr-nb", "risk.news_before", "risk.u_minutes", pr.news_blackout_before || 15, { min: 0 })}
+          ${propNum("pr-na", "risk.news_after", "risk.u_minutes", pr.news_blackout_after || 15, { min: 0 })}
         </div>
+      </section>
+
+      <section class="card pr-sec">
         <h4 class="set-h">${I18N.t("risk.sec_filters")}</h4>
         <div class="field sym-field">
           <span>${I18N.t("risk.symbols")}</span>
@@ -4952,7 +5093,7 @@ function propFormHtml() {
                      stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>
               </span>
             </button>
-            <input type="hidden" id="pr-syms" value="${esc(pr.allowed_symbols||"")}" />
+            <input type="hidden" id="pr-syms" value="${esc(pr.allowed_symbols || "")}" />
             <div class="sym-panel" id="pr-syms-panel" hidden>
               <div class="sym-head">
                 <input class="sym-q" id="pr-syms-q" type="search"
@@ -4968,20 +5109,26 @@ function propFormHtml() {
           </div>
           <p class="sub">${I18N.t("risk.symbols_none_sel")}</p>
         </div>
+
         <label class="field"><span>${I18N.t("risk.violation")}</span>
           <select class="ctrl" id="pr-vio">
-            <option value="lock" ${pr.on_violation==="lock"?"selected":""}>lock</option>
-            <option value="flatten_and_lock" ${pr.on_violation!=="lock"?"selected":""}>flatten_and_lock</option>
+            <option value="lock" ${pr.on_violation === "lock" ? "selected" : ""}>lock</option>
+            <option value="flatten_and_lock" ${pr.on_violation !== "lock" ? "selected" : ""}>flatten_and_lock</option>
           </select>
         </label>
-        <div class="row" style="margin:8px 0 12px;flex-wrap:wrap">
-          <label class="row" style="gap:8px"><input type="checkbox" id="pr-news" ${pr.news_filter?"checked":""}/> ${I18N.t("risk.news")}</label>
-          <label class="row" style="gap:8px"><input type="checkbox" id="pr-we" ${pr.allow_weekend?"checked":""}/> ${I18N.t("risk.weekend")}</label>
-          <label class="row" style="gap:8px"><input type="checkbox" id="pr-hold" ${pr.allow_hold_over_weekend?"checked":""}/> ${I18N.t("risk.hold_weekend")}</label>
-          <label class="row" style="gap:8px"><input type="checkbox" id="pr-hedge" ${pr.hedging_allowed!==false?"checked":""}${dis}/> ${I18N.t("risk.hedge")}</label>
+
+        <!-- Switches, not a row of loose checkboxes. Each one is a rule
+             with a consequence, and a bare checkbox beside a label gave
+             no clue which of them were on at a glance. -->
+        <div class="pr-checks">
+          <label class="pr-check"><input type="checkbox" id="pr-news" ${pr.news_filter ? "checked" : ""}/><span>${I18N.t("risk.news")}</span></label>
+          <label class="pr-check"><input type="checkbox" id="pr-we" ${pr.allow_weekend ? "checked" : ""}/><span>${I18N.t("risk.weekend")}</span></label>
+          <label class="pr-check"><input type="checkbox" id="pr-hold" ${pr.allow_hold_over_weekend ? "checked" : ""}/><span>${I18N.t("risk.hold_weekend")}</span></label>
+          <label class="pr-check"><input type="checkbox" id="pr-hedge" ${pr.hedging_allowed !== false ? "checked" : ""}${dis}/><span>${I18N.t("risk.hedge")}</span></label>
         </div>
-        </fieldset>
-        ${locked ? "" : `<button class="btn block" id="pr-save" type="button">${I18N.t("risk.save")}</button>`}`;
+      </section>
+    </fieldset>
+    ${locked ? "" : `<div class="pr-save"><button class="btn block" id="pr-save" type="button">${I18N.t("risk.save")}</button></div>`}`;
 }
 
 
@@ -5209,40 +5356,79 @@ function bindNotifySounds(root) {
   refresh();
 }
 
+/**
+ * Why the robot is or is not about to trade.
+ *
+ * Rebuilt. This was a single card carrying a verdict, two columns of
+ * prose, a confidence figure written "45% / 60%" and a forty-line
+ * console, all inline-styled. The verdict is the headline and it was
+ * the same size as everything around it; the confidence -- the number
+ * that decides whether anything happens -- was two figures in a pill
+ * with no sense of how far apart they were.
+ *
+ * Now the verdict leads, the confidence is a bar against its threshold
+ * so the gap is visible rather than arithmetic, and the reasons sit
+ * directly under the verdict they explain.
+ */
 function analysisCardHtml() {
   const a = S.snap?.analysis;
-  if (!a) return `<div class="card"><h3>${I18N.t("ai.an.title")}</h3><p class="sub">${I18N.t("ai.an.waiting")}</p></div>`;
+  if (!a) {
+    return `<section class="card ai-verdict is-wait">
+      <h3>${I18N.t("ai.an.title")}</h3>
+      <p class="sub">${I18N.t("ai.an.waiting")}</p>
+    </section>`;
+  }
   const blockers = a.blockers || [];
-  const ready = !!a.ready && !!a.setup;
+  const ready = Boolean(a.ready && a.setup);
   const conf = Math.round((a.ai?.confidence || 0) * 100);
   const need = Math.round((a.ai?.min_confidence || 0) * 100);
+  const gate = Boolean(a.ai?.gate);
   const line = (b) => `<li><b>${esc(b.text || b.code || "")}</b>${b.fix ? `<span class="sub"> — ${esc(b.fix)}</span>` : ""}</li>`;
   const lines = (a.console || []).slice(-40).reverse();
-  return `<div class="card" id="an-card">
-    <div class="row" style="justify-content:space-between;flex-wrap:wrap;gap:8px">
-      <div>
-        <h3 style="margin:0 0 4px">${I18N.t("ai.an.title")}</h3>
-        <p class="sub" style="margin:0">${I18N.t("ai.an.sub")}</p>
+
+  /* The threshold is drawn on the bar rather than printed beside it:
+     "62% / 60%" and "58% / 60%" read almost the same and mean opposite
+     things. Only shown when the gate is actually in use. */
+  const meter = gate ? `<div class="ai-conf">
+      <div class="ai-conf-head">
+        <span>${I18N.t("ai.an.ai_conf")}</span>
+        <b class="mono ${conf >= need ? "up" : "down"}">${conf}%</b>
       </div>
-      <div class="row" style="gap:6px;flex-wrap:wrap">
-        <span class="pill ghost">${I18N.t("ai.an.watching")}: <b class="mono">${esc(a.symbol || "—")} ${esc(a.timeframe || "")}</b></span>
-        <span class="pill ${a.strategy_enabled ? "ok" : "ghost"}">${I18N.t("ai.an.with_strategy")}: <b>${esc(a.strategy || "—")}</b></span>
-        <span class="pill ${a.ai?.gate ? (conf >= need ? "ok" : "no") : "ghost"}">${a.ai?.gate ? `${I18N.t("ai.an.ai_conf")}: ${conf}% / ${need}%` : I18N.t("ai.an.ai_gate_off")}</span>
+      <div class="ai-conf-bar" role="img"
+           aria-label="${esc(I18N.t("ai.an.ai_conf"))} ${conf}% / ${need}%">
+        <i class="ai-conf-fill ${conf >= need ? "is-ok" : ""}" style="--w:${Math.max(0, Math.min(100, conf))}%"></i>
+        <i class="ai-conf-need" style="--at:${Math.max(0, Math.min(100, need))}%"></i>
       </div>
+      <p class="ai-conf-foot sub">${I18N.t("ai.an.needs")} <b class="mono">${need}%</b></p>
+    </div>` : `<p class="sub ai-conf-off">${I18N.t("ai.an.ai_gate_off")}</p>`;
+
+  return `<section class="card ai-verdict ${ready ? "is-ready" : "is-blocked"}" id="an-card">
+    <div class="ai-v-head">
+      <div class="ai-v-lead">
+        <p class="kicker">${I18N.t("ai.an.title")}</p>
+        <p class="ai-v-state">${ready ? I18N.t("ai.an.verdict_ready") : I18N.t("ai.an.verdict_blocked")}</p>
+        <p class="sub">${I18N.t("ai.an.sub")}</p>
+      </div>
+      ${meter}
     </div>
-    <p class="metric ${ready ? "up" : ""}" style="font-size:18px;margin:12px 0 2px">${ready ? I18N.t("ai.an.verdict_ready") : I18N.t("ai.an.verdict_blocked")}</p>
-    <div class="grid g-2" style="margin-top:10px">
+
+    <div class="ai-v-tags">
+      <span class="pill ghost">${I18N.t("ai.an.watching")}: <b class="mono">${esc(a.symbol || "—")} ${esc(a.timeframe || "")}</b></span>
+      <span class="pill ${a.strategy_enabled ? "ok" : "ghost"}">${I18N.t("ai.an.with_strategy")}: <b>${esc(a.strategy || "—")}</b></span>
+    </div>
+
+    <div class="ai-v-cols">
       <div>
-        <h3 style="font-size:13px">${I18N.t("ai.an.why")}</h3>
+        <h4 class="ai-h">${I18N.t("ai.an.why")}</h4>
         ${blockers.length
           ? `<ul class="an-why">${blockers.map(line).join("")}</ul>`
           : `<p class="sub">${I18N.t("ai.an.no_blockers")}</p>`}
         ${(a.refusals || []).length
-          ? `<p class="sub" style="margin-top:8px">${I18N.t("ai.an.refusals")}: ${a.refusals.map((r) => `${esc(r.reason)} ×${r.count}`).join(" · ")}</p>`
+          ? `<p class="sub ai-refuse">${I18N.t("ai.an.refusals")}: ${a.refusals.map((r) => `${esc(r.reason)} ×${r.count}`).join(" · ")}</p>`
           : ""}
       </div>
       <div>
-        <h3 style="font-size:13px">${I18N.t("ai.an.when")}</h3>
+        <h4 class="ai-h">${I18N.t("ai.an.when")}</h4>
         <p class="sub">${esc(a.when || "")}</p>
         ${(a.resting || []).length
           ? `<ul class="an-why">${a.resting.map((r) => `<li><b>${esc(String(r.type || "").replace(/_/g, " ").toUpperCase())} ${fmt(r.volume, 2)} @ ${fmt(r.price, 5)}</b>
@@ -5251,20 +5437,37 @@ function analysisCardHtml() {
         ${a.next_eval?.text ? `<p class="sub"><b>${I18N.t("ai.an.next_eval")}:</b> <span class="mono" id="an-next">${esc(a.next_eval.text)}</span></p>` : ""}
       </div>
     </div>
-    <h3 style="font-size:13px;margin-top:14px">${I18N.t("ai.an.console")}</h3>
-    <div class="ai-feed term" id="an-console">${lines.length
-      ? lines.map((r) => `<div class="row-line ${esc(r.level || "info")}"><span class="ts">${esc(String(r.ts || "").slice(11, 19))}</span><span class="mono" style="opacity:.7">${esc(r.code || "")}</span><span>${esc(r.message || "")}</span></div>`).join("")
-      : emptyMini(I18N.t("ai.an.console_empty"))}</div>
-  </div>`;
+
+    <details class="ai-console" open>
+      <summary><h4 class="ai-h">${I18N.t("ai.an.console")}</h4></summary>
+      <div class="ai-feed term" id="an-console">${lines.length
+        ? lines.map((r) => `<div class="row-line ${esc(r.level || "info")}"><span class="ts">${esc(String(r.ts || "").slice(11, 19))}</span><span class="mono an-code">${esc(r.code || "")}</span><span>${esc(r.message || "")}</span></div>`).join("")
+        : emptyMini(I18N.t("ai.an.console_empty"))}</div>
+    </details>
+  </section>`;
 }
 
 const views = {
   command() {
+    /* Rebuilt for both sizes.
+
+       Six figures sat in one rigid six-column strip, every one the same
+       size: equity next to margin, profit next to balance. They are not
+       the same kind of fact -- equity and the day's profit are what a
+       trader opens the desk to see, and the leverage is reference you
+       look up once a month -- but the layout insisted they were, and on
+       a phone it became three rows of identical boxes to scroll past.
+
+       They are one account card now, with the money that moves given
+       the room, the reference figures beneath it, and the account's
+       identity folded in rather than repeated in a card of its own
+       further down the page. */
     const acc = S.snap?.mt5?.account || {};
     const prop = S.snap?.prop || {};
     const pos = S.snap?.positions || [];
     const agents = liveAgents();
-    const wizard = `<div class="hero" id="cmd-wizard" style="margin-bottom:14px"${agents.length ? " hidden" : ""}>
+    const cur = acc.currency || "";
+    const wizard = `<div class="hero" id="cmd-wizard"${agents.length ? " hidden" : ""}>
         <div class="hero-copy">
           <p class="kicker">${I18N.t("command.ready")}</p>
           <h3>${I18N.t("command.hero")}</h3>
@@ -5289,21 +5492,46 @@ const views = {
           <button class="btn block" id="go-settings" type="button">${I18N.t("wizard.verify")}</button>
         </div>
       </div>`;
+
+    /* A secondary figure: smaller than equity, still a real number. */
+    const sub = (key, value, suffix, signed) => `<div class="cmd-sub">
+        <span>${I18N.t(key)}</span>
+        <b class="mono ${signed ? clsPnl(value) : ""}" data-metric="${key}">${fmt(value)}${suffix ? " " + suffix : ""}</b>
+      </div>`;
+
     return `<div class="cmd">
       ${tapeBanner()}
       ${marketBanner()}
       ${chartSliderHtml("ol", outlookSlideInnerHtml)}
       ${gateHtml()}
       ${wizard}
-      ${agents.length || testerAgents().length ? `<div class="card" id="ea-strip" style="margin:0"><h3 style="margin:0 0 8px">${I18N.t("nav.charts")}</h3><div class="hero-chips">${agents.map((a) => `<span class="pill is-live"><i class="dot live"></i>${esc(a.symbol)} · ${esc(a.timeframe || "")} · ${I18N.t(isTesterAgent(a) ? "tape.backtest" : "tape.live")}</span>`).join("")}${testerAgents().map((a) => `<span class="pill is-backtest">${esc(a.symbol)} · ${esc(a.timeframe || "")} · ${I18N.t("tape.backtest")}</span>`).join("")}</div></div>` : ""}
-      <div class="cmd-strip">
-        ${kpi("command.equity", acc.equity, acc.currency)}
-        ${kpi("command.profit", acc.profit, acc.currency, true)}
-        ${kpi("command.daily_pl", prop.daily_pl_pct, "%", true)}
-        ${kpi("command.drawdown", prop.drawdown_pct, "%")}
-        ${kpi("command.balance", acc.balance, acc.currency)}
-        ${kpi("command.margin", acc.margin, acc.currency)}
-      </div>
+      ${agents.length || testerAgents().length ? `<div class="card" id="ea-strip"><h3 class="cmd-ea-h">${I18N.t("nav.charts")}</h3><div class="hero-chips">${agents.map((a) => `<span class="pill is-live"><i class="dot live"></i>${esc(a.symbol)} · ${esc(a.timeframe || "")} · ${I18N.t(isTesterAgent(a) ? "tape.backtest" : "tape.live")}</span>`).join("")}${testerAgents().map((a) => `<span class="pill is-backtest">${esc(a.symbol)} · ${esc(a.timeframe || "")} · ${I18N.t("tape.backtest")}</span>`).join("")}</div></div>` : ""}
+
+      <section class="card cmd-acct">
+        <header class="cmd-acct-top">
+          <div class="cmd-acct-who">
+            <p class="metric" id="cmd-acc-type">${accTypeLabel(acc.account_label || acc.account_type || "unknown")}</p>
+            <p class="sub">${esc([acc.company, acc.server, acc.margin_mode, acc.leverage ? "1:" + acc.leverage : ""].filter(Boolean).join(" · "))}</p>
+          </div>
+          <div class="cmd-acct-hero">
+            <span>${I18N.t("command.equity")}</span>
+            <b class="mono" data-metric="command.equity">${fmt(acc.equity)}${cur ? " " + cur : ""}</b>
+            <i class="mono ${clsPnl(acc.profit)}" data-metric="command.profit">${fmt(acc.profit)}${cur ? " " + cur : ""}</i>
+          </div>
+        </header>
+        <div class="cmd-subs">
+          ${sub("command.balance", acc.balance, cur)}
+          ${sub("command.margin", acc.margin, cur)}
+          ${sub("command.free_margin", acc.margin_free, cur)}
+          <div class="cmd-sub">
+            <span>${I18N.t("command.leverage")}</span>
+            <b class="mono" data-metric="command.leverage">${acc.leverage ? "1:" + acc.leverage : "—"}</b>
+          </div>
+          ${sub("command.daily_pl", prop.daily_pl_pct, "%", true)}
+          ${sub("command.drawdown", prop.drawdown_pct, "%")}
+        </div>
+      </section>
+
       <!-- Positions get the full width of the command centre.
            They used to share a two-column row with the account card and an
            AI summary, which left the close button squeezed against the edge
@@ -5319,21 +5547,14 @@ const views = {
         <h3>${I18N.t("command.positions")}</h3>
         <div id="live-pos">${pos.length ? table(pos, ["symbol","type","volume","strategy","price_open","price_current","sl","tp","profit","profit_pct"], true) : emptyMini(I18N.t("status.no_positions"))}</div>
       </div>
-      <div class="card">
-        <h3>${I18N.t("account.type")}</h3>
-        <p class="metric" id="cmd-acc-type">${accTypeLabel(acc.account_label || acc.account_type || "unknown")}</p>
-        <p class="sub">${[acc.company, acc.server, acc.margin_mode, acc.leverage ? "1:"+acc.leverage : ""].filter(Boolean).join(" · ")}</p>
-        <div class="kv" style="margin-top:12px">
-          <span>${I18N.t("command.free_margin")}</span><b class="mono" data-metric="command.free_margin">${fmt(acc.margin_free)} ${acc.currency||""}</b>
-          <span>${I18N.t("command.leverage")}</span><b class="mono" data-metric="command.leverage">${acc.leverage ? "1:"+acc.leverage : "—"}</b>
-        </div>
-      </div>
+
       <div class="card" id="live-st-wrap">
         <h3>${I18N.t("strategies.live")}</h3>
         <div class="grid g-2" id="live-st">${strategyLiveCards()}</div>
       </div>
     </div>`;
   },
+
   markets() {
     const ticks = S.snap?.ticks || {};
     const items = liveSymbols();
@@ -5369,36 +5590,82 @@ const views = {
     </div>`;
   },
   intelligence() {
-    // v54: merged slider — direction+regime per chart, features per selected chart
+    /* Rebuilt for both sizes.
+
+       The page was the analysis card followed by a flat 2x2 of equal
+       cards: the chart slider, regime+pattern, the activity feed and
+       the feature dump. Everything had the same weight, so the reading
+       order was whatever the grid happened to do -- and on a phone that
+       meant scrolling past eighteen raw feature numbers to reach what
+       the robot actually thinks.
+
+       Now the verdict leads, what it concluded comes next as tiles,
+       and the raw material -- features, activity -- sits underneath
+       where it belongs: useful when you go looking, not in the way. */
     const cur = currentAiSlideState() || S.snap?.ai || {};
     const feed = (cur.activity || S.snap?.ai?.activity || []).slice(-16).reverse();
     const rg = cur.regime_obj || cur.regime;
     const pat = cur.pattern_obj || cur.pattern;
     const feats = cur.features || {};
-    return `${analysisCardHtml()}
-    <div class="grid g-2">
-      <div class="card">${chartSliderHtml("ai", aiSlideInnerHtml)}</div>
-      <div class="card">
-        <h3>${I18N.t("ai.regime")} · ${I18N.t("ai.direction")} (per chart)</h3>
-        <p class="metric" id="ai-regime">${regLabel(typeof rg === "string" ? {name: rg} : rg)}</p>
-        <p class="sub">${esc((rg && typeof rg === "object" ? rg.reason : "") || "")}</p>
-        <h3 style="margin-top:16px">${I18N.t("ai.pattern")}</h3>
-        <p class="metric" id="ai-pattern" style="font-size:20px">${esc(typeof pat === "string" ? pat : (pat?.name || "—"))}</p>
-        <p class="sub">${esc((pat && typeof pat === "object" ? pat.reason : "") || I18N.t("status.ai_idle"))}</p>
-        <p class="sub" style="margin-top:8px">${I18N.t("chart.regime_hint")}</p>
+    const rgObj = typeof rg === "string" ? { name: rg } : (rg || {});
+    const patName = typeof pat === "string" ? pat : (pat?.name || "—");
+    const patWhy = (pat && typeof pat === "object" ? pat.reason : "") || "";
+    const samples = Number(cur.samples || 0);
+    const need = Number(cur.need || 0);
+
+    return `<div class="cmd ai-page">
+      ${analysisCardHtml()}
+
+      <section class="card">
+        ${chartSliderHtml("ai", aiSlideInnerHtml)}
+      </section>
+
+      <div class="ai-read">
+        <section class="card ai-read-card">
+          <h4 class="ai-h">${I18N.t("ai.regime")}</h4>
+          <p class="ai-read-v" id="ai-regime">${regLabel(rgObj)}</p>
+          <p class="sub">${esc(rgObj.reason || "")}</p>
+        </section>
+        <section class="card ai-read-card">
+          <h4 class="ai-h">${I18N.t("ai.pattern")}</h4>
+          <p class="ai-read-v" id="ai-pattern">${esc(patName)}</p>
+          <p class="sub">${esc(patWhy || I18N.t("status.ai_idle"))}</p>
+        </section>
+        <section class="card ai-read-card">
+          <h4 class="ai-h">${I18N.t("ai.samples")}</h4>
+          <p class="ai-read-v mono"><b id="ai-samples">${samples}</b>${need ? `<em class="ai-need"> / ${need}</em>` : ""}</p>
+          <p class="sub">${I18N.t("ai.auto_learn")}</p>
+          <button class="btn tiny ghost" id="btn-train" type="button">${icon("refresh")} ${I18N.t("ai.retrain")}</button>
+        </section>
       </div>
-      <div class="card">
-        <h3>${I18N.t("ai.activity")}</h3>
-        <div class="ai-feed term" id="ai-feed">${feed.length ? feed.map((row) => `<div class="row-line"><span class="ts">${esc(row.ts || "")}</span><span>${esc(row.text || "")}</span></div>`).join("") : emptyMini(I18N.t("status.ai_idle"))}</div>
-      </div>
-      <div class="card">
-        <h3>${I18N.t("ai.features")} <span class="slide-sym mono" id="ai-feat-sym">${esc(cur.symbol || "")}</span></h3>
-        <div class="kv" id="ai-feat">${Object.keys(feats).length ? Object.entries(feats).slice(0,18).map(([k,v])=>`<span>${esc(k)}</span><b class="mono">${fmt(v,5)}</b>`).join("") : emptyMini(I18N.t("status.ai_idle"))}</div>
-        <p class="sub" id="ai-why">${esc((cur.confidence_why && cur.confidence_why.text) || cur.reason || I18N.t("ai.conf_help"))}</p>
-        <div class="row" style="margin-top:14px">
-          <button class="btn tiny ghost" id="btn-train" type="button">${I18N.t("ai.retrain")}</button>
-          <span class="sub">${I18N.t("ai.auto_learn")} · ${I18N.t("ai.samples")}: <b class="mono" id="ai-samples">${cur.samples || 0}</b>${cur.need ? " / " + cur.need : ""}</span>
-        </div>
+
+      <p class="sub ai-hint">${I18N.t("chart.regime_hint")}</p>
+
+      <div class="grid g-2">
+        <section class="card">
+          <h3>${icon("pulse")} ${I18N.t("ai.activity")}</h3>
+          <div class="ai-feed term" id="ai-feed">${feed.length
+            ? feed.map((row) => `<div class="row-line"><span class="ts">${esc(row.ts || "")}</span><span>${esc(row.text || "")}</span></div>`).join("")
+            : emptyMini(I18N.t("status.ai_idle"))}</div>
+        </section>
+
+        <!-- The feature dump. Folded away by default: it is eighteen
+             raw numbers that matter when a result is being questioned
+             and are noise the rest of the time, and on a phone they
+             pushed everything else off the screen. -->
+        <section class="card">
+          <details class="ai-feats">
+            <summary>
+              <h3>${icon("wrench")} ${I18N.t("ai.features")}
+                <span class="slide-sym mono" id="ai-feat-sym">${esc(cur.symbol || "")}</span>
+              </h3>
+            </summary>
+            <div class="kv ai-feat-kv" id="ai-feat">${Object.keys(feats).length
+              ? Object.entries(feats).slice(0, 18).map(([k, v]) => `<span>${esc(k)}</span><b class="mono">${fmt(v, 5)}</b>`).join("")
+              : emptyMini(I18N.t("status.ai_idle"))}</div>
+          </details>
+          <p class="sub ai-why" id="ai-why">${esc((cur.confidence_why && cur.confidence_why.text) || cur.reason || I18N.t("ai.conf_help"))}</p>
+        </section>
       </div>
     </div>`;
   },
@@ -5682,7 +5949,7 @@ const views = {
       </section>
       <section class="set-block" id="set-prop"${tab==="set-prop"?"":" hidden"}>
         <h2 class="set-title">${I18N.t("risk.title")}</h2>
-        ${licFeat("prop") ? `${propStatusHtml()}<div class="card">${propFormHtml()}</div>${propGuideHtml()}` : lockedUpgradeCard("prop")}
+        ${licFeat("prop") ? `${propStatusHtml()}${propFormHtml()}${propGuideHtml()}` : lockedUpgradeCard("prop")}
       </section>
       <section class="set-block" id="set-mt5"${tab==="set-mt5"?"":" hidden"}>
         <h2 class="set-title">MetaTrader 5</h2>
@@ -5786,14 +6053,16 @@ const views = {
       </section></div></div>`;
   },
   about() {
-    /* Rebuilt. The old page was one long string of inline styles with the
-       system state folded into a key/value list -- every row read
-       "Something: Word" with a coloured dot wedged inside the value, so
-       the one thing a trader opens this page to check, whether the desk
-       is actually running, was the hardest thing on it to see.
+    /* Second pass. The first rebuild fixed the content -- state as
+       tiles instead of a key/value list -- but kept a single centred
+       column, which on a desktop is a narrow ribbon of cards down the
+       middle of a wide screen with the identity block eating the whole
+       first fold.
 
-       Now the state is a row of tiles that can be read at a glance, and
-       the styling lives in app.css where it can follow the theme. */
+       It is two columns now: an identity rail that stays put while the
+       detail scrolls beside it, collapsing to a compact banner on a
+       phone where a 92px logo above centred text is simply a screen the
+       trader has to scroll past. */
     const ver = S.version || S.snap?.version || S._gateLic?.version || "1.0.0";
     const L = (S.snap && S.snap.license) || {};
     const buildDate = S.buildDate || new Date().toISOString().slice(0, 10);
@@ -5808,74 +6077,80 @@ const views = {
     </div>`;
 
     return `<div class="cmd about">
-      <section class="card ab-hero">
-        <div class="ab-mark"><img src="icons/mark.png?v=desk49" alt="AURION" /></div>
-        <h2 class="ab-name">AURION</h2>
-        <p class="ab-ver">
-          <b class="mono">v${esc(ver)}</b>
-          <span class="ab-dot-sep" aria-hidden="true"></span>
-          <span>${I18N.t("about.build")} ${esc(buildDate)}</span>
-        </p>
-        <p class="ab-blurb">${I18N.t("about.blurb")}</p>
-        <div class="ab-tags">
-          <span class="pill ${mt5Live() ? "ok" : ""}">MT5</span>
-          <span class="pill ${L.premium ? "ok" : ""}">AI ${L.premium ? "PRO" : "Free"}</span>
-          <span class="pill">Prop Guard</span>
-        </div>
-      </section>
-
-      <section class="card">
-        <h3>${icon("pulse")} ${I18N.t("about.glance")}</h3>
-        <div class="ab-stats">
-          ${stat(I18N.t("about.engine"), engineUp, I18N.t(engineUp ? "about.online" : "about.offline"))}
-          ${stat("MT5", mt5Live(), I18N.t(mt5Live() ? "about.connected" : "about.disconnected"))}
-          ${stat(I18N.t("about.ea_charts"), charts > 0, String(charts))}
-          ${stat(I18N.t("about.autotrade"), S.snap?.strategy?.auto_trade ? true : null, I18N.t(S.snap?.strategy?.auto_trade ? "about.on" : "about.off"))}
-          ${stat(I18N.t("about.kill"), S.snap?.kill_switch ? false : null, I18N.t(S.snap?.kill_switch ? "about.armed" : "about.off"))}
-          ${stat("Prop", S.snap?.prop?.enabled !== false ? true : null, I18N.t(S.snap?.prop?.enabled !== false ? "about.enabled" : "about.disabled"))}
-        </div>
-      </section>
-
-      <div class="grid g-2">
-        <section class="card">
-          <h3>${icon("wrench")} ${I18N.t("about.specs")}</h3>
-          <div class="kv ab-kv">
-            <span>${I18N.t("about.sys_name")}</span><b>AURION</b>
-            <span>${I18N.t("about.version")}</span><b class="mono">v${esc(ver)}</b>
-            <span>${I18N.t("about.build")}</span><b class="mono">${esc(buildDate)}</b>
-            <span>${I18N.t("about.active_strategy")}</span><b>${esc(S.snap?.strategy?.name || "—")}</b>
-            <span>${I18N.t("about.language")}</span><b>${esc(I18N.lang.toUpperCase())}</b>
-          </div>
-        </section>
-
-        <section class="card ab-maker">
-          <h3>${icon("building")} ${I18N.t("about.maker")}</h3>
-          <div class="ab-brand">
-            <img src="assets/axiasoft-logo.png?v=desk49" alt="Axiasoft" />
-            <div>
-              <b>Axiasoft</b>
-              <span class="sub">${I18N.t("about.developer_of")} • 2024-${copyrightYear()}</span>
+      <div class="ab-grid">
+        <aside class="card ab-id">
+          <div class="ab-id-top">
+            <div class="ab-mark"><img src="icons/mark.png?v=desk49" alt="AURION" /></div>
+            <div class="ab-id-name">
+              <h2 class="ab-name">AURION</h2>
+              <p class="ab-ver">
+                <b class="mono">v${esc(ver)}</b>
+                <span class="ab-dot-sep" aria-hidden="true"></span>
+                <span class="mono">${esc(buildTag(buildDate))}</span>
+              </p>
             </div>
           </div>
-          <div class="kv ab-kv">
-            <span>${I18N.t("about.product")}</span><b>AURION Live Desk</b>
-            <span>${I18N.t("about.license")}</span><b>${esc(L.premium ? planLabel(L) : "Freemium")}</b>
-            <span>${I18N.t("about.support")}</span><b>support@axiasoft</b>
-            <span>${I18N.t("about.update")}</span><b id="about-update-status">${I18N.t("about.checking")}</b>
+          <p class="ab-blurb">${I18N.t("about.blurb")}</p>
+          <div class="ab-tags">
+            <span class="pill ${mt5Live() ? "ok" : ""}">MT5</span>
+            <span class="pill ${L.premium ? "ok" : ""}">AI ${L.premium ? "PRO" : "Free"}</span>
+            <span class="pill">Prop Guard</span>
           </div>
           <div class="ab-actions">
             <button class="btn tiny" id="about-check-update" type="button">${icon("refresh")} ${I18N.t("about.check")}</button>
             <button class="btn tiny ghost" id="about-copy-ver" type="button">${icon("clipboard")} ${I18N.t("about.copy_ver")}</button>
           </div>
-        </section>
-      </div>
+          <p class="ab-upd sub">${I18N.t("about.update")}: <b id="about-update-status">${I18N.t("about.checking")}</b></p>
+        </aside>
 
-      <section class="card">
-        <h3>${icon("clipboard")} ${I18N.t("about.changelog")}</h3>
-        <div id="about-changelog" class="ab-log sub">
-          <p>${I18N.t("upd.loading")}</p>
+        <div class="ab-main">
+          <section class="card">
+            <h3>${icon("pulse")} ${I18N.t("about.glance")}</h3>
+            <div class="ab-stats">
+              ${stat(I18N.t("about.engine"), engineUp, I18N.t(engineUp ? "about.online" : "about.offline"))}
+              ${stat("MT5", mt5Live(), I18N.t(mt5Live() ? "about.connected" : "about.disconnected"))}
+              ${stat(I18N.t("about.ea_charts"), charts > 0, String(charts))}
+              ${stat(I18N.t("about.autotrade"), S.snap?.strategy?.auto_trade ? true : null, I18N.t(S.snap?.strategy?.auto_trade ? "about.on" : "about.off"))}
+              ${stat(I18N.t("about.kill"), S.snap?.kill_switch ? false : null, I18N.t(S.snap?.kill_switch ? "about.armed" : "about.off"))}
+              ${stat("Prop", S.snap?.prop?.enabled !== false ? true : null, I18N.t(S.snap?.prop?.enabled !== false ? "about.enabled" : "about.disabled"))}
+            </div>
+          </section>
+
+          <section class="card">
+            <h3>${icon("wrench")} ${I18N.t("about.specs")}</h3>
+            <div class="kv ab-kv">
+              <span>${I18N.t("about.sys_name")}</span><b>AURION</b>
+              <span>${I18N.t("about.product")}</span><b>AURION Live Desk</b>
+              <span>${I18N.t("about.version")}</span><b class="mono">v${esc(ver)}</b>
+              <span>${I18N.t("about.build")}</span><b class="mono">${esc(buildTag(buildDate))}</b>
+              <span>${I18N.t("about.license")}</span><b>${esc(L.premium ? planLabel(L) : "Freemium")}</b>
+              <span>${I18N.t("about.active_strategy")}</span><b>${esc(S.snap?.strategy?.name || "—")}</b>
+              <span>${I18N.t("about.language")}</span><b>${esc(I18N.lang.toUpperCase())}</b>
+            </div>
+          </section>
+
+          <section class="card">
+            <h3>${icon("building")} ${I18N.t("about.maker")}</h3>
+            <div class="ab-brand">
+              <img src="assets/axiasoft-logo.png?v=desk49" alt="Axiasoft" />
+              <div>
+                <b>Axiasoft</b>
+                <span class="sub">${I18N.t("about.developer_of")} • 2024-${copyrightYear()}</span>
+              </div>
+            </div>
+            <div class="kv ab-kv">
+              <span>${I18N.t("about.support")}</span><b>support@axiasoft</b>
+            </div>
+          </section>
+
+          <section class="card">
+            <h3>${icon("clipboard")} ${I18N.t("about.changelog")}</h3>
+            <div id="about-changelog" class="ab-log sub">
+              <p>${I18N.t("upd.loading")}</p>
+            </div>
+          </section>
         </div>
-      </section>
+      </div>
     </div>`;
   },
   profile() {
@@ -6769,8 +7044,16 @@ function bindView(view) {
       bindChartDesk();
     } else {
       paintMiniCharts();
+      /* Each card carries a strip of its open trades, and those can be
+         closed from here. Bound before the card handler below so the
+         buttons exist by the time anything can be pressed. */
+      bindCloseButtons($("stage"));
       $("stage")?.querySelectorAll("[data-open-chart]").forEach((el) => {
-        el.onclick = () => {
+        el.onclick = (ev) => {
+          /* The whole card opens the chart, but it now contains real
+             controls -- closing a position must not also throw the
+             trader into a fullscreen chart on the way. */
+          if (ev && ev.target && ev.target.closest("button, a, input, select, textarea")) return;
           /* Ask the browser for fullscreen here, inside the click.
              requestFullscreen is only granted during a user gesture, and
              by the time the workspace has mounted that gesture is over --
@@ -6790,6 +7073,9 @@ function bindView(view) {
     }
   }
   if (view === "markets") {
+    /* Open trades on this chart can be closed from the strip above it,
+       which is the whole point of showing them there. */
+    bindCloseButtons($("stage"));
     /* Delegated, because the watchlist is replaced wholesale on every tick
        refresh; a handler bound to the rows themselves would be thrown away
        with them a second later. */
@@ -7299,7 +7585,11 @@ function bindView(view) {
     };
     const copy = $("about-copy-ver");
     if(copy) copy.onclick = async () => {
-      try { await navigator.clipboard.writeText(S.version||'1.0.0'); toast(I18N.t('about.copied') + ': v'+(S.version||'')); } catch {}
+      /* Copy the build stamp with the version. This string exists to be
+         pasted into a support message, and "v1.4.0" alone does not say
+         which build of it the customer is running. */
+      const line = `v${S.version || "1.0.0"} ${buildTag(S.buildDate)}`;
+      try { await navigator.clipboard.writeText(line); toast(I18N.t("about.copied") + ": " + line); } catch {}
     };
     // auto check - async IIFE
     (async () => {
@@ -8717,11 +9007,19 @@ function positionsStripBody(symbol) {
     ? pos.map((r) => {
         const dir = String(r.type || "").toLowerCase().includes("sell") ? "sell" : "buy";
         const pl = Number(r.profit);
+        /* The chip names the trade in its own label rather than relying
+           on the chip's text, because a screen reader reaching a bare
+           cross has no way to say which of four open trades it closes. */
+        const what = `${r.symbol || ""} ${String(r.type || dir).toUpperCase()} ${fmt(r.volume, 2)}`.trim();
         return `<span class="pos-chip is-${dir}" title="${esc(strategyLabel(r.strategy))}">
           <b>${esc(String(r.type || dir).toUpperCase())}</b>
           <span class="mono">${fmt(r.volume, 2)}</span>
           <span class="mono pos-at">@ ${fmt(r.price_open, 5)}</span>
           <span class="mono pos-pl ${clsPnl(pl)}">${Number.isFinite(pl) ? (pl > 0 ? "+" : "") + fmt(pl, 2) : "—"}</span>
+          <button type="button" class="pos-x" data-close="${esc(String(r.ticket))}"
+                  data-close-what="${esc(what)}"
+                  title="${esc(I18N.t("exec.close"))} ${esc(what)}"
+                  aria-label="${esc(I18N.t("exec.close"))} ${esc(what)}">${icon("close")}</button>
         </span>`;
       }).join("")
     : `<span class="pos-none">${esc(I18N.t("status.no_positions"))}</span>`;
@@ -8745,7 +9043,13 @@ function paintPositionStrips() {
     if (el.dataset.sig === sig) return;
     el.dataset.sig = sig;
     const list = el.querySelector(".pos-strip-list");
-    if (list) list.innerHTML = positionsStripBody(sym);
+    if (list) {
+      list.innerHTML = positionsStripBody(sym);
+      /* innerHTML threw the old buttons away along with their handlers.
+         Without this the close control works until the first snapshot
+         arrives and then silently stops. */
+      bindCloseButtons(list);
+    }
   });
 }
 
@@ -8793,6 +9097,107 @@ function applyChartLevels(force) {
   box.innerHTML = ordHtml + posHtml;
   bindCloseButtons(box);
   bindCancelButtons(box);
+  paintChartPositions(pos, ord);
+}
+
+/* Collapsed state of the on-chart panel, remembered across views. */
+const LS_CHART_POS = "aurion.chart.pos.collapsed";
+
+/**
+ * The open trades, drawn on the EA chart itself.
+ *
+ * What was there before was a row of chips inside the dock's Trade
+ * pane. The dock is shut by default on a phone, so a trader with money
+ * in the market could look straight at the chart and see nothing but
+ * the lines -- and the chips never showed the one number that is
+ * actually moving, the running profit.
+ *
+ * This panel sits in the corner of the chart, always visible, and
+ * collapses to a single summary pill so it can be got out of the way
+ * without being lost. It is anchored opposite the zoom controls so it
+ * covers neither them nor the newest candles.
+ */
+function paintChartPositions(pos, ord) {
+  const host = $("tv-pos");
+  if (!host) return;
+  pos = pos || [];
+  ord = ord || [];
+
+  if (!pos.length && !ord.length) {
+    /* Nothing open: the panel goes away entirely rather than sitting
+       there saying "no positions" over the chart. */
+    host.hidden = true;
+    host.innerHTML = "";
+    host.dataset.sig = "";
+    return;
+  }
+  host.hidden = false;
+
+  const collapsed = localStorage.getItem(LS_CHART_POS) === "1";
+  const sig = pos.map((r) => `${r.ticket}:${r.sl}:${r.tp}:${r.profit}:${r.volume}`).join("|")
+    + "#" + ord.map((r) => `${r.ticket}:${r.price}:${r.sl}:${r.tp}`).join("|")
+    + "#" + (collapsed ? "c" : "o");
+  if (host.dataset.sig === sig) return;
+  host.dataset.sig = sig;
+
+  const net = pos.reduce((a, r) => a + (Number(r.profit) || 0), 0);
+  const netTxt = (net > 0 ? "+" : "") + fmt(net, 2);
+  const summary = `<button type="button" class="tv-pos-sum" data-pos-toggle
+      aria-expanded="${!collapsed}" aria-controls="tv-pos-body"
+      title="${esc(I18N.t(collapsed ? "chart.pos_expand" : "chart.pos_collapse"))}">
+      <span class="tv-pos-n">${pos.length}${ord.length ? `<em>+${ord.length}</em>` : ""}</span>
+      <span class="tv-pos-net mono ${clsPnl(net)}">${esc(netTxt)}</span>
+      ${icon("chevron")}
+    </button>`;
+
+  const row = (r) => {
+    const dir = String(r.type || "").toLowerCase().includes("sell") ? "sell" : "buy";
+    const pl = Number(r.profit);
+    const what = `${r.symbol || ""} ${String(r.type || dir).toUpperCase()} ${fmt(r.volume, 2)}`.trim();
+    return `<div class="tv-pos-row is-${dir}">
+      <span class="tv-pos-dir">${esc(String(r.type || dir).toUpperCase())}</span>
+      <span class="tv-pos-vol mono">${fmt(r.volume, 2)}</span>
+      <span class="tv-pos-at mono">${fmt(r.price_open, 5)}</span>
+      <span class="tv-pos-pl mono ${clsPnl(pl)}">${Number.isFinite(pl) ? (pl > 0 ? "+" : "") + fmt(pl, 2) : "—"}</span>
+      <span class="tv-pos-lv mono"><em class="sl">SL</em>${r.sl ? fmt(r.sl, 5) : "—"}</span>
+      <span class="tv-pos-lv mono"><em class="tp">TP</em>${r.tp ? fmt(r.tp, 5) : "—"}</span>
+      <button type="button" class="tv-pos-x" data-close="${esc(String(r.ticket))}"
+              data-close-what="${esc(what)}"
+              title="${esc(I18N.t("exec.close"))} ${esc(what)}"
+              aria-label="${esc(I18N.t("exec.close"))} ${esc(what)}">${icon("close")}</button>
+    </div>`;
+  };
+
+  /* A planted entry that has not filled yet is not a position, and
+     showing it as one would overstate the exposure. It is marked as
+     waiting and carries a cancel, not a close. */
+  const restRow = (r) => `<div class="tv-pos-row is-resting">
+      <span class="tv-pos-dir">${esc(String(r.type || "").replace(/_/g, " ").toUpperCase())}</span>
+      <span class="tv-pos-vol mono">${fmt(r.volume, 2)}</span>
+      <span class="tv-pos-at mono">${fmt(r.price, 5)}</span>
+      <span class="tv-pos-pl tv-pos-wait">${esc(I18N.t("chart.order_waiting"))}</span>
+      <span class="tv-pos-lv mono"><em class="sl">SL</em>${r.sl ? fmt(r.sl, 5) : "—"}</span>
+      <span class="tv-pos-lv mono"><em class="tp">TP</em>${r.tp ? fmt(r.tp, 5) : "—"}</span>
+      <button type="button" class="tv-pos-x" data-cancel="${esc(String(r.ticket))}"
+              title="${esc(I18N.t("chart.order_cancel"))}"
+              aria-label="${esc(I18N.t("chart.order_cancel"))}">${icon("close")}</button>
+    </div>`;
+
+  host.className = "tv-pos" + (collapsed ? " is-collapsed" : "");
+  host.innerHTML = summary
+    + `<div class="tv-pos-body" id="tv-pos-body"${collapsed ? " hidden" : ""}>`
+    + ord.map(restRow).join("") + pos.map(row).join("")
+    + `</div>`;
+
+  const tog = host.querySelector("[data-pos-toggle]");
+  if (tog) tog.onclick = () => {
+    const now = localStorage.getItem(LS_CHART_POS) === "1";
+    localStorage.setItem(LS_CHART_POS, now ? "0" : "1");
+    host.dataset.sig = "";              // force the next paint to redraw
+    paintChartPositions(pos, ord);
+  };
+  bindCloseButtons(host);
+  bindCancelButtons(host);
 }
 
 /** Cancel a resting order the robot planted but that has not filled. */

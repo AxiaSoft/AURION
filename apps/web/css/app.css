@@ -1147,17 +1147,6 @@ tr:hover td{background:rgb(var(--wash) / .02)}
 .gate-card .pill.on{color:var(--on-accent);background:var(--cyan);border-color:transparent}
 .gate-why{margin:0;padding-inline-start:18px;color:var(--muted);font-size:13px;line-height:1.7}
 .cmd{display:flex;flex-direction:column;gap:14px}
-.cmd-strip{
-  display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:10px;
-}
-.kpi{
-  background:linear-gradient(180deg, rgb(var(--s7) / .7), rgb(var(--s4) / .52));
-  border:1px solid var(--line);border-radius:18px;padding:12px 14px;
-  min-width:0;
-}
-.kpi span{display:block;font-size:11px;color:var(--muted);margin-bottom:6px}
-.kpi b{display:block;font-size:clamp(16px,1.8vw,22px);font-weight:500}
-.cmd-side{display:grid;gap:14px;align-content:start}
 
 /* ===========================================================================
    Open positions
@@ -1251,10 +1240,8 @@ fieldset.prop-fields.is-locked{
   #desk.menu-open .top{z-index:90}
 }
 @media (max-width:1100px){
-  .cmd-strip{grid-template-columns:repeat(3,minmax(0,1fr))}
 }
 @media (max-width:820px){
-  .cmd-strip{grid-template-columns:repeat(2,minmax(0,1fr))}
 }
 
 @media (prefers-reduced-motion:reduce){
@@ -3516,36 +3503,39 @@ html[dir="rtl"] .ct-side span{letter-spacing:0;text-transform:none;font-size:12p
 /* ------------------------------------------------------------------
    About
 
-   Rebuilt from a string of inline styles. The state of the desk used to
-   be a key/value list with coloured dots wedged into the values, which
-   made the one thing this page is opened to check the hardest thing on
-   it to read. It is a row of tiles now.
+   Two columns on a desktop: an identity rail that stays put while the
+   detail scrolls beside it. One column on a phone, with the identity
+   block folded into a compact banner -- a 92px logo above centred text
+   was a whole screen to scroll past before reaching anything useful.
    ------------------------------------------------------------------ */
-.about .ab-hero{
-  text-align:center;
-  padding:34px 24px 28px;
-  display:flex;flex-direction:column;align-items:center;gap:10px;
+.about .ab-grid{
+  display:grid;gap:14px;align-items:start;
+  grid-template-columns:minmax(0,300px) minmax(0,1fr);
 }
+.ab-main{display:flex;flex-direction:column;gap:14px;min-width:0}
+
+.ab-id{position:sticky;top:12px;display:flex;flex-direction:column;gap:12px}
+.ab-id-top{display:flex;align-items:center;gap:14px}
 .ab-mark{
-  width:92px;height:92px;border-radius:24px;overflow:hidden;
-  background:var(--deep);box-shadow:0 14px 34px rgba(0,0,0,.42);
+  width:64px;height:64px;flex:none;border-radius:18px;overflow:hidden;
+  background:var(--deep);box-shadow:0 12px 28px rgba(0,0,0,.4);
 }
 .ab-mark img{width:100%;height:100%;object-fit:cover;transform:scale(1.08);display:block}
-.ab-name{margin:0;margin-block-start:6px;font-size:28px;letter-spacing:.14em}
+.ab-id-name{min-width:0}
+.ab-name{margin:0;font-size:22px;letter-spacing:.14em;line-height:1.1}
 .ab-ver{
-  margin:0;display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:center;
-  color:var(--muted);font-size:13px;
+  margin:0;margin-block-start:5px;display:flex;align-items:center;gap:8px;
+  flex-wrap:wrap;color:var(--muted);font-size:12px;
 }
 .ab-ver b{color:var(--accent)}
-.ab-dot-sep{width:3px;height:3px;border-radius:50%;background:currentColor;opacity:.5}
-.ab-blurb{
-  margin:0;margin-block-start:4px;max-width:52ch;line-height:1.8;color:var(--muted);font-size:14px;
-}
-.ab-tags{display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin-block-start:6px}
+.ab-dot-sep{width:3px;height:3px;border-radius:50%;background:currentColor;opacity:.5;flex:none}
+.ab-blurb{margin:0;line-height:1.75;color:var(--muted);font-size:13.5px}
+.ab-tags{display:flex;gap:8px;flex-wrap:wrap}
+.ab-actions{display:flex;gap:8px;flex-wrap:wrap}
+.ab-upd{margin:0;font-size:12px}
 
-/* The state tiles. Auto-fit rather than a fixed count: six tiles sit on
-   one row on a desktop and reflow to two on a phone with no breakpoint
-   to keep in step. */
+/* The state tiles. Auto-fit rather than a fixed count: they reflow from
+   three across to two to one with no breakpoint to keep in step. */
 .ab-stats{
   display:grid;gap:10px;
   grid-template-columns:repeat(auto-fit,minmax(150px,1fr));
@@ -3560,23 +3550,255 @@ html[dir="rtl"] .ct-side span{letter-spacing:0;text-transform:none;font-size:12p
 .ab-stat.is-ok{border-inline-start-color:var(--ok,#26d07c)}
 .ab-stat.is-bad{border-inline-start-color:var(--bad,#f4475b)}
 .ab-stat-k{font-size:11px;letter-spacing:.07em;text-transform:uppercase;color:var(--muted)}
+html[dir="rtl"] .ab-stat-k{letter-spacing:0;text-transform:none}
 .ab-stat-v{display:flex;align-items:center;gap:7px;font-weight:650;font-size:15px}
 
 .ab-kv{margin-block-start:10px}
-/* The maker card sits beside the shorter specs card in a two-column
-   grid. Pushing its buttons to the bottom keeps the pair level instead
-   of leaving the taller card's actions floating mid-way up. */
-.ab-maker{display:flex;flex-direction:column}
-.ab-maker .ab-actions{margin-block-start:auto;padding-block-start:14px}
 .ab-brand{display:flex;align-items:center;gap:14px;margin-block:12px 4px}
-.ab-brand img{width:52px;height:52px;object-fit:contain;flex:none}
-.ab-brand b{font-size:17px;display:block}
+.ab-brand img{width:48px;height:48px;object-fit:contain;flex:none}
+.ab-brand b{font-size:16px;display:block}
 .ab-brand .sub{font-size:12px}
-.ab-actions{display:flex;gap:8px;flex-wrap:wrap;margin-block-start:14px}
-.ab-log{max-height:260px;overflow:auto;line-height:1.8;overscroll-behavior:contain}
+.ab-log{max-height:300px;overflow:auto;line-height:1.8;overscroll-behavior:contain}
+
+/* Below this the rail has no room to be a rail. */
+@media (max-width:900px){
+  .about .ab-grid{grid-template-columns:minmax(0,1fr)}
+  .ab-id{position:static}
+}
+@media (max-width:560px){
+  .ab-mark{width:52px;height:52px;border-radius:15px}
+  .ab-name{font-size:19px}
+  .ab-stats{grid-template-columns:repeat(auto-fit,minmax(132px,1fr))}
+  .ab-stat{padding:10px 12px}
+  .ab-stat-v{font-size:14px}
+  .ab-actions .btn{flex:1 1 auto}
+}
+
+/* The close control on a markets position chip. Open trades were shown
+   there but could only be closed from the command centre, which meant
+   leaving the chart you were watching to act on it. */
+.pos-x{
+  width:18px;height:18px;flex:none;display:inline-flex;
+  align-items:center;justify-content:center;
+  margin-inline-start:2px;padding:0;
+  border-radius:6px;border:1px solid transparent;cursor:pointer;
+  background:transparent;color:var(--muted);
+}
+.pos-x svg{width:11px;height:11px}
+.pos-x:hover{background:rgba(255,107,138,.18);color:var(--bad);border-color:rgba(255,107,138,.42)}
+.pos-x:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.pos-x[disabled]{opacity:.5;cursor:default}
+
+/* ------------------------------------------------------------------
+   Intelligence
+
+   The page was the analysis card followed by a flat 2x2 of equal
+   cards, so the reading order was whatever the grid happened to do.
+   The verdict leads now, the reading comes next, and the raw material
+   sits underneath.
+   ------------------------------------------------------------------ */
+.ai-page{display:flex;flex-direction:column;gap:14px}
+
+.ai-verdict{border-inline-start:3px solid rgb(var(--wash) / .16)}
+.ai-verdict.is-ready{border-inline-start-color:var(--ok,#26d07c)}
+.ai-verdict.is-blocked{border-inline-start-color:var(--gold,#e8c07a)}
+.ai-v-head{
+  display:flex;gap:18px;align-items:flex-start;justify-content:space-between;
+  flex-wrap:wrap;
+}
+.ai-v-lead{min-width:0;flex:1 1 260px}
+.ai-v-state{
+  margin:4px 0 4px;font-size:24px;font-weight:700;line-height:1.15;
+  letter-spacing:-.01em;
+}
+.ai-verdict.is-ready .ai-v-state{color:var(--ok,#26d07c)}
+.ai-verdict.is-blocked .ai-v-state{color:var(--gold,#e8c07a)}
+
+/* The threshold is drawn, not printed: "62% / 60%" and "58% / 60%"
+   read almost the same and mean opposite things. */
+.ai-conf{flex:0 1 240px;min-width:200px}
+.ai-conf-head{display:flex;align-items:baseline;justify-content:space-between;gap:10px;font-size:12px;color:var(--muted)}
+.ai-conf-head b{font-size:19px;font-weight:700}
+.ai-conf-bar{
+  position:relative;height:8px;border-radius:999px;margin-block-start:6px;
+  background:rgb(var(--wash) / .10);overflow:hidden;
+}
+.ai-conf-fill{
+  position:absolute;inset-block:0;inset-inline-start:0;width:var(--w,0%);
+  border-radius:999px;background:var(--gold,#e8c07a);
+  transition:width .35s var(--ease);
+}
+.ai-conf-fill.is-ok{background:var(--ok,#26d07c)}
+.ai-conf-need{
+  position:absolute;inset-block:-2px;inset-inline-start:var(--at,0%);
+  width:2px;background:var(--ink);opacity:.75;border-radius:2px;
+}
+.ai-conf-foot{margin:5px 0 0;font-size:11.5px}
+.ai-conf-off{flex:0 1 240px;margin:0}
+
+.ai-v-tags{display:flex;gap:8px;flex-wrap:wrap;margin-block-start:14px}
+.ai-v-cols{
+  display:grid;gap:16px;margin-block-start:16px;
+  grid-template-columns:repeat(auto-fit,minmax(240px,1fr));
+}
+.ai-h{
+  margin:0 0 8px;font-size:11.5px;letter-spacing:.08em;text-transform:uppercase;
+  color:var(--muted);font-weight:650;
+}
+html[dir="rtl"] .ai-h{letter-spacing:0;text-transform:none}
+.ai-refuse{margin-block-start:8px}
+
+.ai-console{margin-block-start:16px}
+.ai-console > summary{cursor:pointer;list-style:none}
+.ai-console > summary::-webkit-details-marker{display:none}
+.ai-console > summary h4{display:inline-block}
+.ai-console > summary::after{content:"";margin-inline-start:6px}
+.an-code{opacity:.7}
+
+/* What the model read. Three tiles rather than two big cards, because
+   each holds one short answer. */
+.ai-read{
+  display:grid;gap:14px;
+  grid-template-columns:repeat(auto-fit,minmax(220px,1fr));
+}
+.ai-read-card{display:flex;flex-direction:column;gap:4px}
+.ai-read-v{margin:0;font-size:20px;font-weight:700;line-height:1.2}
+.ai-need{font-style:normal;font-weight:500;color:var(--muted);font-size:15px}
+.ai-read-card .btn{margin-block-start:auto;align-self:flex-start}
+.ai-hint{margin:0}
+
+.ai-feats > summary{cursor:pointer;list-style:none}
+.ai-feats > summary::-webkit-details-marker{display:none}
+.ai-feats > summary h3{display:inline-flex;align-items:center;gap:8px;margin:0}
+.ai-feat-kv{margin-block-start:12px;max-height:320px;overflow:auto;overscroll-behavior:contain}
+.ai-why{margin-block-start:12px}
 
 @media (max-width:560px){
-  .about .ab-hero{padding:26px 16px 22px}
-  .ab-name{font-size:24px}
-  .ab-stats{grid-template-columns:repeat(auto-fit,minmax(130px,1fr))}
+  .ai-v-state{font-size:20px}
+  .ai-conf,.ai-conf-off{flex:1 1 100%;min-width:0}
+  .ai-read{grid-template-columns:minmax(0,1fr)}
+  .ai-feat-kv{max-height:260px}
+}
+
+/* ------------------------------------------------------------------
+   Prop risk
+
+   The status was a switch, a one-word verdict, two bare percentages
+   and a single unlabelled bar; the rules were a flat wall of number
+   boxes in a fixed two-column grid -- too few columns for a desktop,
+   too many for a phone.
+   ------------------------------------------------------------------ */
+.pr-status{display:flex;flex-direction:column;gap:12px}
+.pr-switch{margin-block-end:0}
+.pr-switch h3{margin:0 0 6px}
+.pr-state{margin:0;font-size:19px;font-weight:700;line-height:1.2}
+.pr-state.is-ok{color:var(--ok,#26d07c)}
+.pr-state.is-locked{color:var(--bad,#f4475b)}
+.pr-state.is-off{color:var(--muted)}
+
+/* One meter per rule, each against its own limit. A figure like
+   "-1.4%" means nothing without the number it counts towards. */
+.pr-meters{
+  display:grid;gap:14px;
+  grid-template-columns:repeat(auto-fit,minmax(220px,1fr));
+}
+.pr-meter{
+  padding:12px 14px;border-radius:14px;
+  background:rgb(var(--wash) / .04);border:1px solid var(--line);
+}
+.pr-meter-head{display:flex;align-items:baseline;justify-content:space-between;gap:10px;font-size:12px;color:var(--muted)}
+.pr-meter-head b{font-size:18px;font-weight:700}
+.pr-meter-bar{
+  position:relative;height:7px;border-radius:999px;margin-block-start:8px;
+  background:rgb(var(--wash) / .10);overflow:hidden;
+}
+.pr-meter-bar > i{
+  display:block;height:100%;width:var(--w,0%);border-radius:999px;
+  background:var(--ok,#26d07c);transition:width .35s var(--ease),background .25s var(--ease);
+}
+.pr-meter.is-near .pr-meter-bar > i{background:var(--gold,#e8c07a)}
+.pr-meter.is-over .pr-meter-bar > i{background:var(--bad,#f4475b)}
+.pr-meter.is-over{border-color:rgba(255,107,138,.42)}
+.pr-meter-foot{margin:6px 0 0;font-size:11.5px}
+.pr-acts{display:flex;gap:8px;flex-wrap:wrap}
+
+.pr-preset-card{margin-block-start:14px}
+.pr-sec{margin-block-start:14px}
+.pr-sec .set-h{margin-block-start:0}
+
+/* Auto-fit: four across on a wide desktop, one on a phone, with no
+   breakpoint list to keep in step with the number of fields. */
+.pr-grid{
+  display:grid;gap:12px;
+  grid-template-columns:repeat(auto-fit,minmax(210px,1fr));
+}
+
+.pr-checks{
+  display:grid;gap:8px;margin-block-start:12px;
+  grid-template-columns:repeat(auto-fit,minmax(220px,1fr));
+}
+.pr-check{
+  display:flex;align-items:center;gap:10px;
+  padding:10px 12px;border-radius:12px;cursor:pointer;
+  background:rgb(var(--wash) / .04);border:1px solid var(--line);
+  font-size:13px;
+}
+.pr-check:hover{background:rgb(var(--wash) / .07)}
+.pr-check input{flex:none;width:16px;height:16px;accent-color:var(--accent);cursor:pointer}
+.pr-check:has(input:checked){border-color:rgb(var(--accent-rgb) / .45)}
+.pr-check span{min-width:0}
+
+.pr-save{margin-block-start:14px}
+
+@media (max-width:560px){
+  .pr-meters,.pr-grid,.pr-checks{grid-template-columns:minmax(0,1fr)}
+  .pr-state{font-size:17px}
+  .pr-acts .btn{flex:1 1 auto}
+}
+
+/* ------------------------------------------------------------------
+   Command centre — the account card
+
+   Six figures used to sit in one rigid six-column strip, every one the
+   same size: equity beside margin, profit beside balance. They are not
+   the same kind of fact. The money that moves gets the room; the
+   reference figures sit under it.
+   ------------------------------------------------------------------ */
+.cmd-ea-h{margin:0 0 8px}
+.cmd-acct{display:flex;flex-direction:column;gap:16px}
+.cmd-acct-top{
+  display:flex;align-items:flex-start;justify-content:space-between;
+  gap:18px;flex-wrap:wrap;
+}
+.cmd-acct-who{min-width:0;flex:1 1 220px}
+.cmd-acct-who .metric{margin:0}
+.cmd-acct-who .sub{margin:4px 0 0}
+
+.cmd-acct-hero{display:flex;flex-direction:column;align-items:flex-end;gap:2px;min-width:0}
+.cmd-acct-hero > span{font-size:11px;letter-spacing:.07em;text-transform:uppercase;color:var(--muted)}
+html[dir="rtl"] .cmd-acct-hero > span{letter-spacing:0;text-transform:none}
+.cmd-acct-hero > b{
+  font-size:clamp(26px,3.4vw,38px);font-weight:600;line-height:1.1;
+  letter-spacing:-.015em;
+}
+.cmd-acct-hero > i{font-style:normal;font-size:14px;font-weight:600}
+
+.cmd-subs{
+  display:grid;gap:10px;
+  grid-template-columns:repeat(auto-fit,minmax(140px,1fr));
+}
+.cmd-sub{
+  min-width:0;padding:10px 12px;border-radius:14px;
+  background:rgb(var(--wash) / .04);border:1px solid var(--line);
+}
+.cmd-sub span{display:block;font-size:11px;color:var(--muted);margin-block-end:4px}
+.cmd-sub b{display:block;font-size:16px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+@media (max-width:560px){
+  /* The headline drops under the account identity rather than being
+     squeezed beside it, and aligns with everything else on the page. */
+  .cmd-acct-top{flex-direction:column;gap:12px}
+  .cmd-acct-hero{align-items:flex-start}
+  .cmd-subs{grid-template-columns:repeat(auto-fit,minmax(120px,1fr))}
+  .cmd-sub b{font-size:15px}
 }

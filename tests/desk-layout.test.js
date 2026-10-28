@@ -41,8 +41,23 @@ check("nothing still tries to fill the card that was removed",
   appJs.indexOf('$("live-ai")') < 0);
 
 check("the per-chart version survives, because that one says which symbol", (() => {
+  /* The guarantee is that every AI reading on this page is tied to a
+     named chart -- that is the whole reason the symbol-less card was
+     cut from the command centre. It used to be checked by looking for
+     the literal "ai.direction" in the view, which stopped being true
+     when the direction moved into the per-chart slider it is rendered
+     by; the reading was still per-chart, the token had just moved. */
   const view = appJs.slice(appJs.indexOf("  intelligence() {"), appJs.indexOf("  calendar() {"));
-  return view.indexOf("ai-feat-sym") > 0 && view.indexOf("ai.direction") > 0;
+  if (view.indexOf("ai-feat-sym") < 0) return "the feature block no longer names its symbol";
+  if (!/chartSliderHtml\("ai", aiSlideInnerHtml\)/.test(view)) {
+    return "the intelligence view no longer mounts the per-chart AI slider";
+  }
+  /* ...and the slider it mounts is the thing that prints the direction,
+     with the chart it belongs to beside it. */
+  const slide = appJs.slice(appJs.indexOf("function aiSlideInnerHtml("), appJs.indexOf("function aiSlideInnerHtml(") + 2400);
+  if (slide.indexOf("ai.direction") < 0) return "the slider no longer shows a direction";
+  if (slide.indexOf("slide-sym") < 0) return "the direction is no longer labelled with its chart";
+  return true;
 })());
 
 /* ====================================================== positions, wider == */
