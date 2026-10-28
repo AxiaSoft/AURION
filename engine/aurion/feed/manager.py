@@ -64,6 +64,12 @@ class FeedManager:
         self._thread: threading.Thread | None = None
         self._stop = threading.Event()
 
+        #: Push targets. The desk already renders `tick` and `candle`
+        #: events off the trader's bus, so the feed emits into that rather
+        #: than making the browser poll -- which is what makes the forming
+        #: candle move in real time instead of once a refresh.
+        self._observers: list[Any] = []
+
         self.started_at = 0.0
         self.last_poll = 0.0
         self.last_change = 0.0
@@ -94,6 +100,25 @@ class FeedManager:
     @property
     def running(self) -> bool:
         return bool(self._thread and self._thread.is_alive())
+
+    def on_update(self, callback: Any) -> None:
+        """Register a sink for feed events.
+
+        `callback(event, payload)` is invoked from the poll thread with
+        event in {"tick", "candle"} and a plain dict payload.  Called
+        OUTSIDE the manager's lock: a sink that blocks (or that calls back
+        into the manager) must not be able to deadlock the poller.
+        """
+        if callable(callback) and callback not in self._observers:
+            self._observers.append(callback)
+
+    def _emit(self, events: list[tuple[str, dict]]) -> None:
+        for name, payload in events:
+            for cb in list(self._observers):
+                try:
+                    cb(name, payload)
+                except Exception as exc:  # a bad sink must not kill the feed
+                    self.last_error = f"observer: {exc}"
 
     # -------------------------------------------------------- subscription
 
@@ -245,14 +270,17 @@ class FeedManager:
         self.last_error = ""
 
         changed = 0
+        events: list[tuple[str, dict]] = []
         for name, q in (result.quotes or {}).items():
-            if self._accept(name, q):
+            if self._accept(name, q, events):
                 changed += 1
         if changed:
             self.last_change = time.time()
+        # Outside the lock, deliberately. See on_update().
+        self._emit(events)
         return changed
 
-    def _accept(self, name: str, q: Quote) -> bool:
+    def _accept(self, name: str, q: Quote, events: list[tuple[str, dict]] | None = None) -> bool:
         """Record a quote, ignoring prints we have already seen.
 
         A poll that is faster than the source means the same print arrives
@@ -265,27 +293,38 @@ class FeedManager:
             if prev is not None and prev.at == q.at and prev.mid == q.mid:
                 return False
             self._quotes[name] = q
-            self._ticks[name] = q.to_tick()
+            tick = q.to_tick()
+            self._ticks[name] = tick
+            touched: list[Candle] = []
             for tf in LIVE_TIMEFRAMES:
                 if (name, tf) in self._primed:
-                    self._fold(name, tf, q)
+                    bar = self._fold(name, tf, q)
+                    if bar is not None:
+                        touched.append(bar)
+        if events is not None:
+            events.append(("tick", tick.to_dict()))
+            # One event per timeframe being charted. Only primed pairs are
+            # folded, so this is bounded by what has actually been opened.
+            for bar in touched:
+                events.append(("candle", bar.to_dict()))
         return True
 
-    def _fold(self, name: str, tf: str, q: Quote) -> None:
+    def _fold(self, name: str, tf: str, q: Quote) -> Candle | None:
         """Merge a quote into the forming bar, rolling over at the boundary.
 
-        Called with `_lock` held.
+        Called with `_lock` held. Returns the bar that changed, so the
+        caller can push it to the desk without re-reading the buffer.
         """
         key = (name, tf)
         buf = self._bars.get(key)
         if buf is None:
-            return
+            return None
         step = tf_seconds(tf)
         stamp = (q.at or q.received) // 1000
         slot = stamp - (stamp % step)
         price = q.mid
         if not price:
-            return
+            return None
 
         last = buf[-1] if buf else None
         if last is not None and last.time_msc // 1000 == slot:
@@ -293,20 +332,22 @@ class FeedManager:
             last.low = min(last.low, price)
             last.close = price
             last.volume += 1
-            return
+            return last
         if last is not None and last.time_msc // 1000 > slot:
             # A late print for a bar we have already closed. Dropping it is
             # correct: rewriting a closed candle would change history under
             # an indicator that has already consumed it.
-            return
-        buf.append(Candle(
+            return None
+        fresh = Candle(
             symbol=name, timeframe=tf,
             time=datetime.fromtimestamp(slot, tz=timezone.utc).isoformat(),
             time_msc=slot * 1000,
             # A new bar opens at the price that opened it, not at the
             # previous close: a gap is real information.
             open=price, high=price, low=price, close=price, volume=1,
-        ))
+        )
+        buf.append(fresh)
+        return fresh
 
     def _loop(self) -> None:
         while not self._stop.is_set():

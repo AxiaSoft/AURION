@@ -871,6 +871,16 @@ guarded.post("/telegram/unlink", passthrough("POST", "/v1/telegram/unlink"));
 guarded.get("/market/session", passthrough("GET", "/v1/market/session"));
 guarded.get("/news", passthrough("GET", "/v1/news"));
 guarded.get("/symbols", passthrough("GET", "/v1/symbols"));
+
+/* AURION's own market data. These are what let a chart draw with no
+   MetaTrader terminal attached, so they must not sit behind any of the
+   EA-related gating the older market routes carry. */
+guarded.get("/feed/status", passthrough("GET", "/v1/feed/status"));
+guarded.get("/feed/symbols", passthrough("GET", "/v1/feed/symbols"));
+guarded.get("/feed/groups", passthrough("GET", "/v1/feed/groups"));
+guarded.get("/feed/quotes", passthrough("GET", "/v1/feed/quotes"));
+guarded.get("/feed/candles", passthrough("GET", "/v1/feed/candles"));
+guarded.post("/feed/subscribe", passthrough("POST", "/v1/feed/subscribe"));
 // The Telegram control plane is deliberately NOT proxied here. The dashboard is
 // a client of the bot only; admin lives in admin/telegram-panel/ and talks to
 // the engine's local-only /v1/telegram/admin directly.

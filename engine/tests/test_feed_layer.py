@@ -520,3 +520,92 @@ def test_the_poll_thread_starts_and_stops():
     finally:
         m.stop()
     assert not m.running
+
+
+# ------------------------------------------------- push to the desk
+
+
+def test_updates_are_pushed_not_polled():
+    """The forming candle must move when a price lands, not on a refresh.
+
+    The desk already renders `tick` and `candle` events off the trader's
+    bus, so the feed emitting into it is what makes the open bar update in
+    real time with no browser-side polling.
+    """
+    m = _mgr()
+    seen: list[tuple[str, dict]] = []
+    m.on_update(lambda ev, payload: seen.append((ev, payload)))
+    m.candles("EURUSD", "M1", 10)
+
+    slot = m.candles("EURUSD", "M1", 10)[-1].time_msc // 1000
+    m.provider.at = (slot + 5) * 1000
+    m.provider.price = 1.2345
+    m.poll_once()
+
+    kinds = [e for e, _ in seen]
+    assert "tick" in kinds
+    assert "candle" in kinds
+    tick = next(p for e, p in seen if e == "tick")
+    assert tick["symbol"] == "EURUSD"
+    bar = next(p for e, p in seen if e == "candle")
+    # The pushed bar is the one still forming, carrying the new price.
+    assert bar["timeframe"] == "M1"
+    assert bar["close"] == pytest.approx(1.2345)
+    assert bar["time_msc"] // 1000 == slot
+
+
+def test_nothing_is_pushed_when_the_price_has_not_moved():
+    m = _mgr()
+    m.candles("EURUSD", "M1", 10)
+    m.poll_once()
+    seen: list[str] = []
+    m.on_update(lambda ev, payload: seen.append(ev))
+    m.poll_once()  # identical print
+    assert seen == []
+
+
+def test_only_charted_timeframes_are_pushed():
+    """Priming is what opts a timeframe in, so traffic stays bounded."""
+    m = _mgr()
+    m.candles("EURUSD", "M1", 10)
+    m.candles("EURUSD", "M15", 10)
+    seen: list[dict] = []
+    m.on_update(lambda ev, p: seen.append(p) if ev == "candle" else None)
+    m.provider.at += 60_000
+    m.provider.price = 1.2
+    m.poll_once()
+    assert sorted(b["timeframe"] for b in seen) == ["M1", "M15"]
+
+
+def test_a_broken_observer_cannot_kill_the_feed():
+    m = _mgr()
+    m.candles("EURUSD", "M1", 10)
+
+    def bad(ev, payload):
+        raise RuntimeError("sink exploded")
+
+    good: list[str] = []
+    m.on_update(bad)
+    m.on_update(lambda ev, p: good.append(ev))
+    m.provider.at += 60_000
+    m.provider.price = 1.25
+    assert m.poll_once() == 1
+    assert good, "a failing sink must not stop the others"
+
+
+def test_observers_are_called_outside_the_lock():
+    """A sink that calls back into the manager must not deadlock it."""
+    m = _mgr()
+    m.candles("EURUSD", "M1", 10)
+    reentered: list[int] = []
+
+    def sink(ev, payload):
+        # Re-entering the manager from the callback is exactly what the
+        # API bridge does when it serialises status() for a client.
+        reentered.append(len(m.subscriptions))
+
+    m.on_update(sink)
+    m.provider.at += 60_000
+    m.provider.price = 1.26
+    m.poll_once()
+    assert reentered

@@ -2679,6 +2679,174 @@ function pruneDeadSymbols() {
   }
   return changed;
 }
+/* ------------------------------------------------------------------
+   Instrument picker.
+
+   The old control was a <select> built only from attached MetaTrader
+   charts, so with no EA it read "no EA symbol" and could not be used at
+   all. This is a combobox over AURION's own universe: type to filter,
+   arrow keys to move, Enter to choose. ~150 symbols are held in memory,
+   so filtering is instant and costs no request per keystroke.
+   ------------------------------------------------------------------ */
+
+/** Symbols offered by the picker: anything an EA is charting, then the feed. */
+function chartSymbols() {
+  const out = [];
+  const seen = new Set();
+  for (const it of liveSymbols()) {
+    if (seen.has(it.symbol)) continue;
+    seen.add(it.symbol);
+    out.push({ name: it.symbol, description: it.label, kind: "ea", ea: true });
+  }
+  for (const s of Feed.search("", 1000)) {
+    if (seen.has(s.name)) continue;
+    seen.add(s.name);
+    out.push(s);
+  }
+  return out;
+}
+
+function symbolPickerHtml(id, selected) {
+  const cur = String(selected || S.symbol || "").toUpperCase();
+  const spec = Feed.spec(cur);
+  const sub = spec ? spec.description : "";
+  return `<div class="sympick" id="${id}">
+    <button type="button" class="ctrl sympick-btn" id="${id}-btn"
+      aria-haspopup="listbox" aria-expanded="false">
+      <span class="sympick-cur">${esc(cur || I18N.t("feed.pick"))}</span>
+      ${sub ? `<span class="sympick-sub">${esc(sub)}</span>` : ""}
+      ${icon("chevron")}
+    </button>
+    <div class="sympick-pop" id="${id}-pop" hidden>
+      <div class="sympick-search">
+        ${icon("search")}
+        <input type="text" id="${id}-q" class="sympick-q" autocomplete="off"
+          spellcheck="false" placeholder="${esc(I18N.t("feed.search"))}"
+          aria-label="${esc(I18N.t("feed.search"))}">
+      </div>
+      <ul class="sympick-list" id="${id}-list" role="listbox"></ul>
+    </div>
+  </div>`;
+}
+
+function symbolRowsHtml(rows, cur) {
+  if (!rows.length) return `<li class="sympick-none">${esc(I18N.t("feed.no_match"))}</li>`;
+  return rows.map((r) => `<li role="option" class="sympick-row${r.name === cur ? " on" : ""}"
+      data-sym="${esc(r.name)}" aria-selected="${r.name === cur}">
+    <span class="sympick-n">${esc(r.name)}</span>
+    <span class="sympick-d">${esc(r.description || "")}</span>
+    ${r.ea ? `<span class="sympick-tag is-ea">EA</span>`
+      : `<span class="sympick-tag k-${esc(r.kind || "")}">${esc(I18N.t("feed.kind_" + (r.kind || "exotic")))}</span>`}
+  </li>`).join("");
+}
+
+/**
+ * Wire a picker. `onPick(symbol)` fires on selection.
+ *
+ * The popup closes on outside click and on Escape, and the list is
+ * rebuilt from memory on every keystroke.
+ *
+ * Named "instrument" rather than "symbol" on purpose: bindSymbolPicker
+ * is already taken by the prop-risk panel further down this file, and
+ * because both are plain declarations the later one silently wins. That
+ * cost an afternoon once; do not reuse the name.
+ */
+function bindInstrumentPicker(id, onPick) {
+  const root = $(id);
+  if (!root) return;
+  const btn = $(`${id}-btn`);
+  const pop = $(`${id}-pop`);
+  const input = $(`${id}-q`);
+  const list = $(`${id}-list`);
+  if (!btn || !pop || !input || !list) return;
+
+  let rows = [];
+  let active = -1;
+
+  const renderRows = () => {
+    const cur = String(S.symbol || "").toUpperCase();
+    const q = input.value;
+    rows = q.trim()
+      ? Feed.search(q, 60)
+      : chartSymbols().slice(0, 60);
+    list.innerHTML = symbolRowsHtml(rows, cur);
+    active = rows.findIndex((r) => r.name === cur);
+    mark();
+  };
+  const mark = () => {
+    [...list.children].forEach((el, i) => el.classList.toggle("active", i === active));
+    const el = list.children[active];
+    if (el && typeof el.scrollIntoView === "function") {
+      try { el.scrollIntoView({ block: "nearest" }); } catch (e) { /* older engines */ }
+    }
+  };
+  const open = () => {
+    pop.hidden = false;
+    btn.setAttribute("aria-expanded", "true");
+    input.value = "";
+    renderRows();
+    input.focus();
+  };
+  const close = () => {
+    pop.hidden = true;
+    btn.setAttribute("aria-expanded", "false");
+  };
+  const choose = (name) => {
+    if (!name) return;
+    close();
+    const cur = $(`${id}-btn`);
+    if (cur) {
+      const n = cur.querySelector(".sympick-cur");
+      if (n) n.textContent = name;
+      const spec = Feed.spec(name);
+      const sub = cur.querySelector(".sympick-sub");
+      if (sub) sub.textContent = spec ? spec.description : "";
+    }
+    if (typeof onPick === "function") onPick(name);
+  };
+
+  btn.onclick = (e) => {
+    e.stopPropagation();
+    if (pop.hidden) open(); else close();
+  };
+  input.oninput = renderRows;
+  input.onkeydown = (e) => {
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault();
+      if (!rows.length) return;
+      active = (active + (e.key === "ArrowDown" ? 1 : -1) + rows.length) % rows.length;
+      mark();
+    } else if (e.key === "Enter") {
+      e.preventDefault();
+      if (rows[active]) choose(rows[active].name);
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      close();
+      btn.focus();
+    }
+  };
+  list.onclick = (e) => {
+    const row = e.target.closest("[data-sym]");
+    if (row) choose(row.getAttribute("data-sym"));
+  };
+  // One document listener per picker instance would pile up across
+  // re-renders; the view is rebuilt wholesale, so bind it to the root and
+  // let the old node be garbage with its handler.
+  root._away = (e) => { if (!root.contains(e.target)) close(); };
+  document.addEventListener("click", root._away);
+}
+
+/** The one-line truth about the feed, shown under the chart toolbar. */
+function paintFeedNotice() {
+  const el = $("feed-note");
+  if (!el) return;
+  const note = Feed.notice();
+  if (!note) { el.hidden = true; el.textContent = ""; return; }
+  el.hidden = false;
+  el.className = `feed-note is-${note.kind}`;
+  el.textContent = I18N.t(note.key);
+}
+
 function symbolSelectHtml(id, selected) {
   const items = liveSymbols();
   const cur = selected || S.symbol || "";
@@ -3051,7 +3219,11 @@ function patchLive() {
     paintChartSlider("ol", outlookSlideInnerHtml);
   }
   if (v === "markets") {
-    fillSymbolSelect("sym", S.symbol);
+    /* The picker is a combobox now, not a <select>, so the refresh only
+       has to keep its label honest -- the list is built on open. */
+    const curLbl = document.querySelector("#sym .sympick-cur");
+    if (curLbl && S.symbol && curLbl.textContent !== S.symbol) curLbl.textContent = S.symbol;
+    paintFeedNotice();
     const lbl = $("tick-lbl");
     if (lbl) lbl.textContent = tickLabel();
     const ticks = S.snap?.ticks || {};
@@ -5167,10 +5339,10 @@ const views = {
     </div>`;
   },
   markets() {
-    const ticks = S.snap?.ticks || {};
-    const items = liveSymbols();
-    const symbols = items.map((x) => x.symbol);
-    const live = mt5Live();
+    /* Nothing here is derived from the attached terminals any more: the
+       picker reads AURION's own universe and the watchlist reads whatever
+       is quoting. The four locals that used to sit here all computed EA
+       state that the markup no longer asks about. */
     return `<div class="grid g-chart mk">
       <div class="card mk-chart">
         <!-- One toolbar instead of two stacked rows. The instrument controls
@@ -5179,7 +5351,7 @@ const views = {
              any height left. -->
         <div class="mk-bar">
           <div class="mk-pick">
-            ${symbolSelectHtml("sym", S.symbol)}
+            ${symbolPickerHtml("sym", S.symbol)}
             <select class="ctrl" id="tf">${["M1","M5","M15","M30","H1","H4","D1"].map((t)=>`<option ${t===S.timeframe?"selected":""}>${t}</option>`).join("")}</select>
           </div>
           <span class="legend mono mk-tick" id="tick-lbl">${tickLabel()}</span>
@@ -5189,14 +5361,18 @@ const views = {
             ${!licFeat("chart_signals")?`<span class="pill no" style="font-size:10px">PREMIUM</span>`:""}
           </div>
         </div>
+        <p class="feed-note" id="feed-note" hidden></p>
         ${positionsStripHtml(S.symbol)}
-        <div class="chart-box"><canvas id="cv"></canvas>${!eaLive() || !S.candles.length ? emptyCard(I18N.t("markets.empty"), symbols.length ? I18N.t("markets.loading_tf") : I18N.t("exec.no_ea_symbol")) : ""}</div>
+        <!-- The empty state no longer depends on an EA: AURION has its own
+             feed, so a blank chart means "no bars yet", not "attach a
+             terminal". -->
+        <div class="chart-box"><canvas id="cv"></canvas>${!S.candles.length ? emptyCard(I18N.t("markets.empty"), I18N.t("markets.loading_tf")) : ""}</div>
         ${eaLive() ? chartTicketHtml() : ""}
         <!-- Chart signals list removed per user request — signals only on chart canvas itself -->
       </div>
       <div class="card mk-watch">
         <h3>${I18N.t("markets.title")}</h3>
-        <div id="live-ticks">${symbols.length ? watchlistHtml() : emptyMini(I18N.t("exec.no_ea_symbol"))}</div>
+        <div id="live-ticks">${watchlistHtml()}</div>
       </div>
     </div>`;
   },
@@ -5799,7 +5975,22 @@ const tickMemo = new Map();
 
 function watchRowsHtml() {
   const ticks = (S.snap && S.snap.ticks) || {};
-  const items = liveSymbols().filter((x) => ticks[x.symbol]);
+  /* Anything quoting belongs here, whether the quote came from an attached
+     EA or from AURION's own feed. Deriving the list from liveSymbols()
+     meant the watchlist stayed empty with no terminal running, even while
+     prices were arriving over the socket and being stored right here. */
+  const seen = new Set();
+  const items = [];
+  for (const x of liveSymbols()) {
+    if (!ticks[x.symbol] || seen.has(x.symbol)) continue;
+    seen.add(x.symbol);
+    items.push(x);
+  }
+  for (const name of Object.keys(ticks)) {
+    if (seen.has(name)) continue;
+    seen.add(name);
+    items.push({ symbol: name, timeframe: "", label: name });
+  }
   if (!items.length) return "";
   return items.map((it) => {
     const t = ticks[it.symbol] || {};
@@ -6587,8 +6778,8 @@ function bindView(view) {
       if (!row) return;
       const sym = row.getAttribute("data-wl");
       if (!sym || sym === S.symbol) return;
-      const sel = $("sym");
-      if (sel) sel.value = sym;
+      const cur = document.querySelector("#sym .sympick-cur");
+      if (cur) cur.textContent = sym;
       pickMarket(sym, S.timeframe);
     };
     const cv = $("cv");
@@ -6623,9 +6814,18 @@ function bindView(view) {
       };
     }
     if (eaLive() && defaultSymbol() && !S.candles.length) primeEaChart();
-    const sym = $("sym"), tf = $("tf");
-    if (sym) sym.onchange = () => pickMarket(sym.value, S.timeframe);
-    if (tf) tf.onchange = () => pickMarket(S.symbol || sym.value, tf.value);
+    bindInstrumentPicker("sym", (name) => pickMarket(name, S.timeframe));
+    paintFeedNotice();
+    /* With no EA and nothing charted yet, open on something rather than an
+       empty canvas the user has to go and populate by hand. */
+    if (!S.candles.length && !S.symbol) {
+      const first = (Feed.search("", 1) || [])[0];
+      if (first) pickMarket(first.name, S.timeframe || "M15");
+    } else if (!S.candles.length && S.symbol && !eaOwns(S.symbol)) {
+      loadFeedChart(S.symbol, S.timeframe || "M15");
+    }
+    const tf = $("tf");
+    if (tf) tf.onchange = () => pickMarket(S.symbol, tf.value);
   }
   if (view === "calendar") {
     Calendar.mount($("cal-root"));
@@ -8756,13 +8956,55 @@ async function fetchChartSignals(symbol, timeframe) {
   }
 }
 
+/**
+ * Draw a chart straight from AURION's own feed.
+ *
+ * Deliberately does not touch /api/market, which drives the MetaTrader
+ * bridge: asking a terminal we are not using to switch symbol would be a
+ * side effect nobody asked for.
+ */
+async function loadFeedChart(symbol, timeframe) {
+  const box = document.querySelector(".chart-box");
+  if (S.view === "markets" && box && !box.querySelector(".empty")) {
+    box.insertAdjacentHTML("beforeend", emptyCard(I18N.t("markets.empty"), I18N.t("markets.loading_tf")));
+  }
+  const res = await Feed.candles(symbol, timeframe, 800);
+  // A later click may have landed while this was in flight.
+  if (S.symbol !== symbol || S.timeframe !== timeframe) return;
+  S.candles = res.candles || [];
+  Feed.subscribe([symbol]);
+  if (S.view !== "markets") return;
+  const lbl = $("tick-lbl");
+  if (lbl) lbl.textContent = tickLabel();
+  if (S.chart) S.chart.setBars(S.candles);
+  const empty = document.querySelector(".chart-box .empty");
+  if (empty && S.candles.length) empty.remove();
+  else if (!S.candles.length && $("cv") && !$("cv").parentElement.querySelector(".empty")) {
+    $("cv").parentElement.insertAdjacentHTML(
+      "beforeend",
+      emptyCard(I18N.t("markets.empty"), I18N.t(res.ok ? "status.waiting_ticks" : "feed.error")),
+    );
+  }
+  paintFeedNotice();
+}
+
+/** True when a MetaTrader chart is feeding this symbol. */
+function eaOwns(symbol) {
+  return liveSymbols().some((x) => x.symbol === symbol);
+}
+
 async function pickMarket(symbol, timeframe) {
   if (!symbol) return;
-  if (!liveSymbols().some((x) => x.symbol === symbol)) {
-    S.candles = [];
+  S.symbol = symbol; S.timeframe = timeframe;
+  /* No EA on this symbol is no longer a dead end. AURION has its own feed,
+     so the chart draws from that instead of blanking -- which is the whole
+     point of the instrument search: you can chart anything, attached or
+     not. The EA path still wins when it is there, because those are the
+     broker's own prices for an account we may be trading. */
+  if (!eaOwns(symbol)) {
+    await loadFeedChart(symbol, timeframe);
     return;
   }
-  S.symbol = symbol; S.timeframe = timeframe;
   if (S.view === "markets") {
     const box = document.querySelector(".chart-box");
     if (box && !box.querySelector(".empty")) {
@@ -9757,6 +9999,13 @@ async function boot() {
   I18N.apply();
   markLangPills();
   if (S.view === "profile" || S.view === "execution") S.view = "command";
+  /* Pull the instrument universe and the feed's health in the background.
+     Nothing on screen blocks on it: if it is slow or the engine is still
+     coming up, the desk still boots and the picker fills in when it
+     lands. */
+  Feed.load().then(() => Feed.loadStatus()).then(() => {
+    if (S.view === "markets") paintFeedNotice();
+  }).catch(() => {});
   try {
     const meta = await API.get('/api/meta');
     if(meta && meta.ok && meta.data){

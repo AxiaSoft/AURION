@@ -54,6 +54,33 @@ app.add_middleware(
 )
 
 
+def _wire_feed_to_bus() -> None:
+    """Push feed updates to the desk instead of making it poll.
+
+    The desk already renders `tick` and `candle` events off the trader's
+    bus -- setTick() and setLastBar() -- so the forming candle moves the
+    moment a price lands, with no change to the browser at all.  Polling
+    from the page would have capped the chart at the refresh interval,
+    which is exactly what "the open candle must update every second"
+    rules out.
+
+    The poll runs on a plain thread and the bus is asyncio, so each event
+    is marshalled onto the engine's loop.  `run_coroutine_threadsafe`
+    returns a future we deliberately drop: waiting on it would make the
+    feed thread run at the speed of the slowest websocket client.
+    """
+    loop = asyncio.get_running_loop()
+
+    def sink(event: str, payload: dict[str, Any]) -> None:
+        try:
+            asyncio.run_coroutine_threadsafe(trader.bus.publish(event, payload), loop)
+        except Exception:
+            # A closed loop during shutdown is not worth a log line per tick.
+            pass
+
+    feed.on_update(sink)
+
+
 @app.on_event("startup")
 async def _startup() -> None:
     try:
@@ -65,6 +92,7 @@ async def _startup() -> None:
         pass
     await trader.start()
     try:
+        _wire_feed_to_bus()
         feed.start()
     except Exception:
         # A feed that cannot start must not stop the engine from booting;

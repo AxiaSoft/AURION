@@ -199,8 +199,8 @@
     "bid": "Bid",
     "ask": "Ask",
     "spread": "Spread",
-    "empty": "No AurionBridge chart is attached. Only those charts are loaded.",
-    "loading_tf": "Fetching real CopyRates history from the attached EA…"
+    "empty": "No chart data yet.",
+    "loading_tf": "Loading price history…"
   },
   "ai": {
     "title": "Intelligence",
@@ -1478,5 +1478,18 @@
     "switch_mode": "Changing appearance",
     "switch_lang": "Changing language",
     "switch_wait": "One moment"
+  },
+  "feed": {
+    "pick": "Choose symbol",
+    "search": "Search instrument…",
+    "no_match": "No instrument matches",
+    "kind_major": "Major",
+    "kind_minor": "Minor",
+    "kind_metal": "Metal",
+    "kind_exotic": "Exotic",
+    "not_tick": "Feed prices are one-minute bars refreshed continuously, not true tick data.",
+    "stale": "No new price for a while — the feed may be behind.",
+    "simulated": "Simulated prices. Not a real market feed — do not trade on this.",
+    "error": "AURION's price feed is unreachable right now."
   }
 }
