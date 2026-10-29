@@ -650,8 +650,8 @@
         <span class="tvm-key">${esc(s.symbol)}</span>
         <span>${esc(s.timeframe || "")}</span>
         ${s.symbol === cur ? svg(I.tick, "tvm-tick") : ""}</button>`).join("");
-    return `<div class="tvm-search">${svg(I.search)}
-        <input class="ctrl" id="tv-sym-q" value="${esc(query || "")}" autocomplete="off"
+    return `<div class="tvm-search dsk-search sm">${svg(I.search)}
+        <input class="dsk-search-i" type="search" id="tv-sym-q" value="${esc(query || "")}" autocomplete="off"
                placeholder="${esc(tt("chart.search_sym", "Search instrument"))}" />
       </div>
       ${rows || `<p class="tvm-note">${esc(tt("chart.no_sym", "No attached chart matches that."))}</p>`}`;
@@ -700,8 +700,8 @@
       return rows ? `<div class="tvm-sec">${esc(g.label)}</div>${rows}` : "";
     }).join("");
 
-    return `<div class="tvm-search">${svg(I.search)}
-        <input class="ctrl" id="tv-ind-q" value="${esc(query || "")}" placeholder="${esc(tt("chart.search_ind", "Search indicators"))}" />
+    return `<div class="tvm-search dsk-search sm">${svg(I.search)}
+        <input class="dsk-search-i" type="search" id="tv-ind-q" value="${esc(query || "")}" placeholder="${esc(tt("chart.search_ind", "Search indicators"))}" />
       </div>
       ${active ? `<div class="tvm-sec">${esc(tt("chart.on_chart", "On this chart"))}</div>${active}` : ""}
       ${groups || `<p class="tvm-note">${esc(tt("chart.no_ind", "Nothing matches that."))}</p>`}`;

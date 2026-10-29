@@ -2038,7 +2038,6 @@ input[type=range]{width:100%;accent-color:var(--cyan);height:28px;cursor:pointer
 .sym-caret{color:var(--faint)}
 .sym-panel{position:absolute;z-index:60;inset-inline:0;top:calc(100% + 6px);background:var(--glass2);
   border:1px solid var(--line);border-radius:14px;padding:8px;box-shadow:var(--shadow);backdrop-filter:blur(12px)}
-.sym-q{width:100%;margin-bottom:6px}
 .sym-acts{display:flex;gap:6px;margin-bottom:6px}
 .sym-list{max-height:230px;overflow:auto;display:grid;gap:2px}
 .sym-row{display:flex;gap:8px;align-items:center;padding:5px 7px;border-radius:8px;cursor:pointer;font-size:12px}
@@ -3499,15 +3498,9 @@ html[dir="rtl"] .ct-side span{letter-spacing:0;text-transform:none;font-size:12p
   overflow:hidden;
 }
 .sympick-pop[hidden]{display:none}
-.sympick-search{
-  display:flex;align-items:center;gap:8px;
-  padding:10px 12px;border-bottom:1px solid var(--line);
-}
-.sympick-search svg{width:16px;height:16px;flex:none;opacity:.6}
-.sympick-q{
-  flex:1 1 auto;min-width:0;background:transparent;border:0;outline:none;
-  color:var(--ink);font:inherit;padding:0;
-}
+/* The popover's search is the shared .dsk-search shell in a padded
+   header, so it reads as the same control as every other search box. */
+.sympick-search{ padding:10px 10px 8px }
 .sympick-list{
   list-style:none;margin:0;padding:6px;
   max-height:min(50vh, 320px);overflow:auto;overscroll-behavior:contain;
@@ -3758,6 +3751,57 @@ html[dir="rtl"] .ai-h{letter-spacing:0;text-transform:none}
   grid-template-columns:repeat(auto-fit,minmax(210px,1fr));
 }
 
+/* ------------------------------------------------------------------
+   Every field in a row sits on the same line
+
+   The fields in this grid are not the same shape. propNum writes a
+   label, an input and a unit; some labels carry a "0 = off" note and
+   the time fields add the broker's clock underneath. Because a grid
+   item fills from the top, a label that wraps to three lines pushed its
+   input three lines down -- which is why "min time in trade", the
+   longest label on the page in Persian at 49 characters, sat below the
+   four fields beside it.
+
+   Rather than trim the label or guess a height, each field becomes a
+   four-row grid -- label, slack, input, footnote -- and the slack row
+   takes up whatever is left. The input and its footnote are therefore
+   pinned to the bottom of a cell, and since grid rows are equal height
+   every input in a row lands on exactly the same line however long the
+   labels above them run. The footnote row is reserved on every field,
+   so a field with a broker echo is no taller than one without.
+   ------------------------------------------------------------------ */
+.pr-grid{ align-items:stretch }
+.pr-grid .field{
+  margin-block-end:0;
+  display:grid;
+  grid-template-rows:auto 1fr auto auto;
+  gap:6px;
+  block-size:100%;
+}
+.pr-grid .field > span:first-child{ grid-row:1; align-self:start; line-height:1.3 }
+.pr-grid .field > .num-wrap{ grid-row:3 }
+/* Both the real echo and the empty reservation share row 4: the
+   reservation is blank, so an overlap costs nothing and every field
+   keeps the same height. */
+.pr-grid .field > .prop-at-broker{ grid-row:4; margin:0 }
+.pr-grid .field::after{ content:""; grid-row:4; min-block-size:1.05em }
+
+/* The unit belongs beside the number, not wrapped underneath it. The
+   input is width:100%, so without a flex row here the <b> was pushed
+   onto a line of its own and made the field taller than its neighbours. */
+.num-wrap{ display:flex; align-items:center; gap:8px; min-width:0 }
+.num-wrap input{ flex:1 1 auto; min-width:0 }
+.num-unit{
+  flex:none; font-size:11px; font-weight:600; color:var(--muted);
+  white-space:nowrap; letter-spacing:.02em;
+}
+.num-field.wide-unit .num-unit{ font-size:10.5px }
+/* The "0 = off" hint reads as an aside, not as part of the name. */
+.unit-note{
+  display:inline; font-style:normal; font-size:10.5px; opacity:.72;
+  margin-inline-start:5px; white-space:nowrap;
+}
+
 .pr-checks{
   display:grid;gap:8px;margin-block-start:12px;
   grid-template-columns:repeat(auto-fit,minmax(220px,1fr));
@@ -3897,26 +3941,9 @@ text.pc-val.is-down{ fill:var(--bad) }
    rule sits on the card and not on a wrapper.
    ------------------------------------------------------------------ */
 .ch-find{ display:flex; align-items:center; gap:10px; margin-block:2px 12px; flex-wrap:wrap }
-.ch-find-box{
-  display:flex; align-items:center; gap:8px; flex:1 1 260px; min-width:0;
-  padding:0 10px; height:38px; border-radius:12px;
-  background:rgb(var(--wash) / .05); border:1px solid var(--line);
-}
-.ch-find-box:focus-within{ border-color:var(--accent); box-shadow:0 0 0 3px rgb(var(--accent-rgb) / .14) }
-.ch-find-box > svg{ width:16px; height:16px; flex:none; opacity:.6 }
-.ch-q{
-  flex:1 1 auto; min-width:0; height:100%;
-  background:none; border:0; outline:0; color:var(--ink); font:inherit; font-size:13.5px;
-}
-.ch-q::placeholder{ color:var(--muted) }
-.ch-find-x{
-  flex:none; display:grid; place-items:center; width:22px; height:22px;
-  border:0; border-radius:50%; background:rgb(var(--wash) / .1);
-  color:var(--muted); cursor:pointer; padding:0;
-}
-.ch-find-x:hover{ color:var(--ink) }
-.ch-find-x[hidden]{ display:none }
-.ch-find-x svg{ width:12px; height:12px }
+/* Only the width it should claim in its row; everything it looks like
+   comes from .dsk-search, which every search on the desk now shares. */
+.ch-find-box{ flex:1 1 260px }
 .ch-find-n{ font-variant-numeric:tabular-nums; white-space:nowrap }
 
 .chart-card[hidden]{ display:none }
@@ -3928,5 +3955,89 @@ text.pc-val.is-down{ fill:var(--bad) }
 
 @media (max-width:620px){
   .ch-find{ gap:8px; margin-block-end:10px }
-  .ch-find-box{ flex:1 1 100%; height:36px }
+  .ch-find-box{ flex:1 1 100% }
 }
+
+/* ------------------------------------------------------------------
+   One search field for the whole desk
+
+   There were seven search boxes and no two were built the same way:
+   two bare input[type=search], two .ctrl text inputs, three wrapped in
+   their own one-off chrome. None of them reset the native appearance,
+   which is why clicking one produced a hard square box -- that is the
+   browser's own search widget and focus ring showing through, complete
+   with a stray clear button in WebKit.
+
+   This is the component they all use now: a rounded shell that owns the
+   border, the background and the focus ring, with the icon and the
+   input living inside it. The input itself is stripped bare, so the
+   shell is the only thing drawing anything and every search on the desk
+   is the same object.
+   ------------------------------------------------------------------ */
+
+/* Safety net. Any search input anywhere -- including ones added later,
+   and the two inside the chart workspace -- loses its native skin. */
+input[type="search"]{ -webkit-appearance:none; appearance:none }
+input[type="search"]::-webkit-search-cancel-button,
+input[type="search"]::-webkit-search-decoration,
+input[type="search"]::-webkit-search-results-button,
+input[type="search"]::-webkit-search-results-decoration{
+  -webkit-appearance:none; appearance:none; display:none;
+}
+
+.dsk-search{
+  display:flex; align-items:center; gap:8px;
+  inline-size:100%; min-inline-size:0;
+  padding-inline:11px;
+  min-block-size:var(--ctl-h);
+  border-radius:var(--ctl-r);
+  background:var(--field);
+  border:1px solid var(--line);
+  color:var(--ink);
+  transition:border .25s var(--ease), box-shadow .25s var(--ease), background .25s var(--ease);
+}
+.dsk-search:hover{ border-color:rgb(var(--wash) / .18) }
+/* focus-within, not :focus -- the ring belongs to the shell, because the
+   input inside it has no border of its own to light up. */
+.dsk-search:focus-within{
+  border-color:rgb(var(--accent-rgb) / .55);
+  box-shadow:0 0 0 4px rgb(var(--accent-rgb) / .12);
+  background:var(--field-hi);
+}
+.dsk-search > svg{ inline-size:16px; block-size:16px; flex:none; opacity:.55 }
+.dsk-search:focus-within > svg{ opacity:.9; color:rgb(var(--accent-rgb)) }
+
+.dsk-search-i,
+.dsk-search > input{
+  flex:1 1 auto; min-inline-size:0;
+  -webkit-appearance:none; appearance:none;
+  background:none; border:0; outline:none; box-shadow:none;
+  padding:0; margin:0;
+  min-block-size:calc(var(--ctl-h) - 2px);
+  color:var(--ink); font:inherit;
+}
+.dsk-search > input:focus{ border:0; box-shadow:none; background:none }
+.dsk-search-i::placeholder,
+.dsk-search > input::placeholder{ color:var(--muted) }
+
+/* The clear button, where a box has one. */
+.dsk-search-x{
+  flex:none; display:grid; place-items:center;
+  inline-size:22px; block-size:22px; padding:0;
+  border:0; border-radius:50%;
+  background:rgb(var(--wash) / .1); color:var(--muted); cursor:pointer;
+}
+.dsk-search-x:hover{ color:var(--ink); background:rgb(var(--wash) / .16) }
+.dsk-search-x[hidden]{ display:none }
+.dsk-search-x svg{ inline-size:12px; block-size:12px }
+
+/* A compact variant for panels and popovers. */
+.dsk-search.sm{ min-block-size:34px; padding-inline:9px; border-radius:11px }
+.dsk-search.sm > svg{ inline-size:15px; block-size:15px }
+.dsk-search.sm .dsk-search-i,
+.dsk-search.sm > input{ min-block-size:32px; font-size:12.5px }
+
+/* The two that already had their own shell are re-based onto this one
+   rather than left to drift. */
+.sympick-search{ border-block-end:1px solid var(--line) }
+.tvm-search > .ctrl{ height:auto }

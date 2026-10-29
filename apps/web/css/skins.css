@@ -572,16 +572,6 @@ table tbody tr,
   box-shadow:0 24px 60px rgba(0,0,0,.45);
 }
 .sym-head{ margin-bottom:8px }
-.sym-q{
-  width:100%;
-  min-height:38px;
-  padding:8px 12px;
-  border-radius:var(--sk-r-sm);
-  background:var(--field2);
-  border:1px solid var(--line);
-  color:var(--ink);
-}
-.sym-q:focus{ outline:none; border-color:rgb(var(--accent-rgb) / .55) }
 .sym-acts{ display:flex; gap:8px; margin-bottom:8px }
 .sym-acts .btn{ flex:1 }
 .sym-list{

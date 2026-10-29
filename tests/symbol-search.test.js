@@ -374,8 +374,15 @@ check("the grid and the picker rank a query the same way", () => {
 });
 
 check("the search chrome is styled and has narrow-screen rules", () => {
-  for (const sel of [".ch-find", ".ch-find-box", ".ch-q", ".ch-find-x", ".chart-card[hidden]"]) {
+  // The box no longer carries chrome of its own: every search on the desk
+  // is the shared .dsk-search shell, and .ch-find* only places it in the
+  // row. So the shell is what has to be styled, plus the layout classes.
+  for (const sel of [".ch-find", ".ch-find-box", ".dsk-search", ".dsk-search-i",
+                     ".dsk-search-x", ".chart-card[hidden]"]) {
     if (!appCss.includes(sel)) throw new Error("no rule for " + sel);
+  }
+  if (!/\.dsk-search:focus-within\{/.test(appCss)) {
+    throw new Error("the shell draws no focus ring, so the input would show its own");
   }
   const at = appCss.indexOf(".ch-find{");
   const narrow = appCss.slice(at).indexOf("@media (max-width:620px)");

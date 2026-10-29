@@ -2778,10 +2778,11 @@ function symbolPickerHtml(id, selected) {
     </button>
     <div class="sympick-pop" id="${id}-pop" hidden>
       <div class="sympick-search">
-        ${icon("search")}
-        <input type="text" id="${id}-q" class="sympick-q" autocomplete="off" spellcheck="false"
+        <span class="dsk-search sm">${icon("search")}
+        <input type="search" id="${id}-q" class="dsk-search-i" autocomplete="off" spellcheck="false"
                placeholder="${esc(I18N.t("markets.search_sym"))}"
                aria-label="${esc(I18N.t("markets.search_sym"))}">
+        </span>
       </div>
       <ul class="sympick-list" id="${id}-list" role="listbox"></ul>
     </div>
@@ -2975,10 +2976,11 @@ function symbolFieldHtml(id, selected) {
     </button>
     <div class="sympick-pop" id="${pick}-pop" hidden>
       <div class="sympick-search">
-        ${icon("search")}
-        <input type="text" id="${pick}-q" class="sympick-q" autocomplete="off" spellcheck="false"
+        <span class="dsk-search sm">${icon("search")}
+        <input type="search" id="${pick}-q" class="dsk-search-i" autocomplete="off" spellcheck="false"
                placeholder="${esc(I18N.t("markets.search_sym"))}"
                aria-label="${esc(I18N.t("markets.search_sym"))}">
+        </span>
       </div>
       <ul class="sympick-list" id="${pick}-list" role="listbox"></ul>
     </div>
@@ -5252,8 +5254,10 @@ function propFormHtml() {
             <input type="hidden" id="pr-syms" value="${esc(pr.allowed_symbols || "")}" />
             <div class="sym-panel" id="pr-syms-panel" hidden>
               <div class="sym-head">
-                <input class="sym-q" id="pr-syms-q" type="search"
-                       placeholder="${esc(I18N.t("risk.symbols_search"))}" />
+                <span class="dsk-search sm">${icon("search")}
+                  <input id="pr-syms-q" type="search" class="dsk-search-i"
+                         placeholder="${esc(I18N.t("risk.symbols_search"))}" />
+                </span>
               </div>
               <div class="sym-acts">
                 <button type="button" class="btn tiny ghost" id="pr-syms-all">${esc(I18N.t("risk.symbols_all"))}</button>
@@ -5315,7 +5319,9 @@ function propGuideHtml() {
       <h3>${I18N.t("risk.guide_title")}</h3>
       <p class="sub">${I18N.t("risk.guide_lede")}</p>
       <label class="field"><span>${I18N.t("risk.guide_search")}</span>
-        <input id="prop-guide-q" type="search" placeholder="${esc(I18N.t("risk.guide_search_ph"))}" />
+        <span class="dsk-search">${icon("search")}
+          <input id="prop-guide-q" type="search" class="dsk-search-i" placeholder="${esc(I18N.t("risk.guide_search_ph"))}" />
+        </span>
       </label>
       <p class="sub" id="prop-guide-empty" hidden>${I18N.t("risk.guide_empty")}</p>
       ${sections}
@@ -5953,13 +5959,13 @@ const views = {
          would tear those down and repaint them from nothing. */
       const total = agents.length + testers.length;
       const search = total > 1 ? `<div class="ch-find">
-        <div class="ch-find-box">
+        <div class="ch-find-box dsk-search">
           ${icon("search")}
-          <input type="text" id="ch-q" class="ch-q" autocomplete="off" spellcheck="false"
+          <input type="search" id="ch-q" class="dsk-search-i" autocomplete="off" spellcheck="false"
                  placeholder="${esc(I18N.t("charts.search"))}"
                  aria-label="${esc(I18N.t("charts.search"))}"
                  aria-controls="ch-grid" value="${esc(S.chartQuery || "")}">
-          <button type="button" class="ch-find-x" id="ch-q-clear" hidden
+          <button type="button" class="dsk-search-x" id="ch-q-clear" hidden
                   aria-label="${esc(I18N.t("common.close"))}">${icon("close")}</button>
         </div>
         <span class="ch-find-n sub" id="ch-q-n" aria-live="polite"></span>
@@ -5981,7 +5987,9 @@ const views = {
       </div>
       <p class="sub" id="term-hint">${I18N.t("terminal.hint")}</p>
       <div class="row" style="margin:10px 0;flex-wrap:wrap;gap:8px" id="term-live-tools">
-        <input class="ctrl grow" id="log-q" data-i18n-ph="terminal.placeholder" placeholder="" style="flex:1;min-width:180px" />
+        <span class="dsk-search" style="flex:1;min-width:180px">${icon("search")}
+          <input id="log-q" class="dsk-search-i" type="search" data-i18n-ph="terminal.placeholder" placeholder="" />
+        </span>
         <button class="btn tiny ghost" id="log-clr" type="button">${I18N.t("terminal.clear")}</button>
         <button class="btn tiny" id="term-restart" type="button" title="Immediate restart of system terminals">${icon("refresh")} ${I18N.t("terminal.restart")||"Restart Terminals"}</button>
       </div>
