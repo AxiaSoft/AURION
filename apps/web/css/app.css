@@ -3887,3 +3887,46 @@ text.pc-val.is-down{ fill:var(--bad) }
   .pc-stat{ padding:7px 9px }
   .pc-stat b{ font-size:13px }
 }
+
+/* ------------------------------------------------------------------
+   Finding a chart among the attached EAs
+
+   The grid is reordered rather than rebuilt -- the cards hold live
+   canvases -- so the matches are moved with `order` and the misses are
+   hidden. A grid container orders its own children, which is why the
+   rule sits on the card and not on a wrapper.
+   ------------------------------------------------------------------ */
+.ch-find{ display:flex; align-items:center; gap:10px; margin-block:2px 12px; flex-wrap:wrap }
+.ch-find-box{
+  display:flex; align-items:center; gap:8px; flex:1 1 260px; min-width:0;
+  padding:0 10px; height:38px; border-radius:12px;
+  background:rgb(var(--wash) / .05); border:1px solid var(--line);
+}
+.ch-find-box:focus-within{ border-color:var(--accent); box-shadow:0 0 0 3px rgb(var(--accent-rgb) / .14) }
+.ch-find-box > svg{ width:16px; height:16px; flex:none; opacity:.6 }
+.ch-q{
+  flex:1 1 auto; min-width:0; height:100%;
+  background:none; border:0; outline:0; color:var(--ink); font:inherit; font-size:13.5px;
+}
+.ch-q::placeholder{ color:var(--muted) }
+.ch-find-x{
+  flex:none; display:grid; place-items:center; width:22px; height:22px;
+  border:0; border-radius:50%; background:rgb(var(--wash) / .1);
+  color:var(--muted); cursor:pointer; padding:0;
+}
+.ch-find-x:hover{ color:var(--ink) }
+.ch-find-x[hidden]{ display:none }
+.ch-find-x svg{ width:12px; height:12px }
+.ch-find-n{ font-variant-numeric:tabular-nums; white-space:nowrap }
+
+.chart-card[hidden]{ display:none }
+/* The card the trader is most likely to be after, marked so the eye
+   lands on it without having to read the grid. */
+.chart-card.is-hit{ border-color:rgb(var(--accent-rgb) / .55) }
+.ch-none[hidden]{ display:none }
+.ch-none{ text-align:center; padding:18px 0 }
+
+@media (max-width:620px){
+  .ch-find{ gap:8px; margin-block-end:10px }
+  .ch-find-box{ flex:1 1 100%; height:36px }
+}

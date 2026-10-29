@@ -505,7 +505,8 @@
     "open_hint": "Click the card to open the full chart and draw",
     "signals_title": "Chart Signals (EMA8/21 + RSI14 + ATR14)",
     "signals_hint": "Strict intelligent analysis to avoid loss. User-activated premium feature.",
-    "no_signals": "No strict signals on this window"
+    "no_signals": "No strict signals on this window",
+    "search": "Search charts"
   },
   "terminal": {
     "title": "Terminal",

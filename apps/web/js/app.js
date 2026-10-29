@@ -2728,18 +2728,32 @@ function pruneDeadSymbols() {
    ------------------------------------------------------------------ */
 
 /** Filter the attached charts by symbol or label. */
+/** Normalise a query the way both searches compare against: EURUSD = eur/usd. */
+function symbolQuery(query) {
+  return String(query || "").trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
+}
+
+/**
+ * How well an instrument answers a query. Lower is better, -1 is no match.
+ *
+ * Shared by the picker and the EA chart grid so the two never disagree
+ * about what "EUR" ought to find, or in what order.
+ */
+function symbolScore(symbol, label, q) {
+  if (!q) return 0;
+  const name = String(symbol || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+  if (name === q) return 0;
+  if (name.startsWith(q)) return 1;
+  if (name.includes(q)) return 2;
+  if (String(label || "").toUpperCase().includes(q)) return 3;
+  return -1;
+}
+
 function searchSymbols(query) {
   const all = liveSymbols();
-  const q = String(query || "").trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
+  const q = symbolQuery(query);
   if (!q) return all;
-  const score = (it) => {
-    const name = String(it.symbol || "").toUpperCase();
-    if (name === q) return 0;
-    if (name.startsWith(q)) return 1;
-    if (name.includes(q)) return 2;
-    if (String(it.label || "").toUpperCase().includes(q)) return 3;
-    return -1;
-  };
+  const score = (it) => symbolScore(it.symbol, it.label, q);
   return all
     .map((it) => ({ it, s: score(it) }))
     .filter((x) => x.s >= 0)
@@ -2790,7 +2804,12 @@ function symbolRowsHtml(rows, cur) {
  * the prop-risk panel further down this file, and because both are plain
  * function declarations the later one silently wins. Do not reuse it.
  */
-function bindInstrumentPicker(id, onPick) {
+function bindInstrumentPicker(id, opts) {
+  /* `opts` may be the pick handler on its own -- the markets toolbar has
+     always called it that way -- or {current, onPick} when the picker is
+     a form field that owns its value instead of steering S.symbol. */
+  const onPick = typeof opts === "function" ? opts : (opts && opts.onPick);
+  const current = (opts && opts.current) || (() => S.symbol);
   const root = $(id);
   if (!root || root.classList.contains("is-empty")) return;
   const btn = $(`${id}-btn`);
@@ -2810,7 +2829,7 @@ function bindInstrumentPicker(id, onPick) {
     }
   };
   const renderRows = () => {
-    const cur = String(S.symbol || "").toUpperCase();
+    const cur = String(current() || "").toUpperCase();
     rows = searchSymbols(input.value);
     list.innerHTML = symbolRowsHtml(rows, cur);
     active = rows.findIndex((r) => r.symbol === cur);
@@ -2860,35 +2879,158 @@ function bindInstrumentPicker(id, onPick) {
   document.addEventListener("click", root._away);
 }
 
-function symbolSelectHtml(id, selected) {
-  const items = liveSymbols();
-  const cur = selected || S.symbol || "";
-  if (!items.length) {
-    return `<select class="ctrl" id="${id}" disabled><option value="">${esc(I18N.t("exec.no_ea_symbol"))}</option></select>`;
+/* ------------------------------------------------------------------
+   The same searchable picker, as a form field.
+
+   The order ticket and the backtest still chose their instrument from a
+   native <select>: fine with three charts attached, unusable with
+   thirty, and inconsistent with the markets toolbar which has had a
+   search box for a while.
+
+   Both places read the value as `$("ex-sym").value` and listen for
+   `change` on it, in half a dozen spots. Rather than rewrite every
+   reader -- and risk missing one, which would fail silently as an order
+   placed on the wrong instrument -- the field keeps a hidden <input>
+   under the same id. `.value` and `change` go on working exactly as
+   they did; only the thing the trader touches has changed.
+   ------------------------------------------------------------------ */
+/**
+ * Filter and reorder the EA chart grid in place.
+ *
+ * In place, because every card owns a live canvas: re-rendering the view
+ * on each keystroke would destroy and repaint them all. Instead the cards
+ * stay where they are in the DOM and CSS `order` moves them, so the best
+ * match sits at the top of the grid under the search box and the trader
+ * taps it to open the full chart.
+ */
+function applyChartSearch(query) {
+  const q = symbolQuery(query);
+  const cards = [...document.querySelectorAll(".ch-grid .chart-card")];
+  if (!cards.length) return 0;
+  let shown = 0;
+  for (const card of cards) {
+    const sym = card.getAttribute("data-sym") || "";
+    const score = symbolScore(sym, card.getAttribute("data-tf") || "", q);
+    const hit = score >= 0;
+    card.hidden = !hit;
+    /* Ranked, then alphabetical, so the order is stable while typing
+       rather than reshuffling on every character. */
+    card.style.order = hit ? String(score) : "";
+    card.classList.toggle("is-hit", Boolean(q) && hit && score <= 1);
+    if (hit) shown += 1;
   }
-  return `<select class="ctrl" id="${id}">${items.map((it) => `<option value="${esc(it.symbol)}" ${it.symbol === cur ? "selected" : ""}>${esc(it.label)}</option>`).join("")}</select>`;
+  const none = $("ch-none");
+  if (none) none.hidden = shown > 0;
+  const count = $("ch-q-n");
+  if (count) count.textContent = q ? `${shown}/${cards.length}` : "";
+  const clear = $("ch-q-clear");
+  if (clear) clear.hidden = !q;
+  return shown;
 }
-function fillSymbolSelect(id, selected) {
-  const sel = $(id);
-  if (!sel || sel.tagName !== "SELECT") return;
+
+function bindChartSearch() {
+  const input = $("ch-q");
+  if (!input) return;
+  /* Survives the re-render a snapshot causes, so a search is not wiped
+     out from under the trader every time the engine reports in. */
+  const run = () => { S.chartQuery = input.value; applyChartSearch(input.value); };
+  input.oninput = run;
+  input.onkeydown = (e) => {
+    if (e.key === "Escape") {
+      e.preventDefault();
+      input.value = "";
+      run();
+    } else if (e.key === "Enter") {
+      /* Enter opens the top match: searching for a chart and then
+         having to aim at it with a finger is the long way round. */
+      e.preventDefault();
+      const first = [...document.querySelectorAll(".ch-grid .chart-card[data-open-chart]")]
+        .filter((c) => !c.hidden)
+        .sort((a, b) => Number(a.style.order || 0) - Number(b.style.order || 0))[0];
+      if (first) first.click();
+    }
+  };
+  const clear = $("ch-q-clear");
+  if (clear) clear.onclick = () => { input.value = ""; run(); input.focus(); };
+  run();
+}
+
+function symbolFieldHtml(id, selected) {
   const items = liveSymbols();
-  const want = selected || sel.value || S.symbol || "";
-  const prev = [...sel.options].map((o) => o.value + "\t" + o.text).join("|");
-  const next = items.length ? items.map((it) => it.symbol + "\t" + it.label).join("|") : "\t";
-  if (prev === next) {
-    sel.disabled = !items.length;
+  const cur = items.some((it) => it.symbol === selected) ? selected : (items[0] || {}).symbol || "";
+  const pick = `${id}-pick`;
+  if (!items.length) {
+    return `<div class="sympick is-empty" id="${pick}">
+      <input type="hidden" id="${id}" value="">
+      <button type="button" class="ctrl sympick-btn" id="${pick}-btn" disabled>
+        <span class="sympick-cur">${esc(I18N.t("exec.no_ea_symbol"))}</span>
+      </button></div>`;
+  }
+  return `<div class="sympick" id="${pick}">
+    <input type="hidden" id="${id}" value="${esc(cur)}">
+    <button type="button" class="ctrl sympick-btn" id="${pick}-btn"
+            aria-haspopup="listbox" aria-expanded="false">
+      <span class="sympick-cur">${esc(cur || I18N.t("markets.symbol"))}</span>
+      ${icon("chevron")}
+    </button>
+    <div class="sympick-pop" id="${pick}-pop" hidden>
+      <div class="sympick-search">
+        ${icon("search")}
+        <input type="text" id="${pick}-q" class="sympick-q" autocomplete="off" spellcheck="false"
+               placeholder="${esc(I18N.t("markets.search_sym"))}"
+               aria-label="${esc(I18N.t("markets.search_sym"))}">
+      </div>
+      <ul class="sympick-list" id="${pick}-list" role="listbox"></ul>
+    </div>
+  </div>`;
+}
+
+/** Wire a symbol field. `onPick(symbol)` runs after the value is set. */
+function bindSymbolField(id, onPick) {
+  const hidden = $(id);
+  if (!hidden) return;
+  bindInstrumentPicker(`${id}-pick`, {
+    current: () => hidden.value,
+    onPick: (name) => {
+      hidden.value = name;
+      /* A real event, so the handlers already listening for `change` on
+         the old <select> keep firing. Without this the ticket would
+         forget the instrument between renders. */
+      try { hidden.dispatchEvent(new Event("change", { bubbles: true })); }
+      catch (_) { /* very old engines */ }
+      if (typeof onPick === "function") onPick(name);
+    },
+  });
+}
+
+/**
+ * Keep a field in step with the attached charts without rebuilding it.
+ *
+ * If the instrument it is showing has gone
+ * away the field falls back to one that exists, so an order can never be
+ * sent on a symbol the terminal stopped reporting.
+ */
+function fillSymbolField(id, selected) {
+  const hidden = $(id);
+  const root = $(`${id}-pick`);
+  if (!hidden || !root) return;
+  const items = liveSymbols();
+  const btn = root.querySelector(".sympick-cur");
+  if (!items.length) {
+    hidden.value = "";
+    root.classList.add("is-empty");
+    if (btn) btn.textContent = I18N.t("exec.no_ea_symbol");
+    const b = $(`${id}-pick-btn`); if (b) b.disabled = true;
     return;
   }
-  if (!items.length) {
-    sel.innerHTML = `<option value="">${esc(I18N.t("exec.no_ea_symbol"))}</option>`;
-    sel.disabled = true;
-    sel.value = "";
-    return;
-  }
-  sel.disabled = false;
-  sel.innerHTML = items.map((it) => `<option value="${esc(it.symbol)}" ${it.symbol === want ? "selected" : ""}>${esc(it.label)}</option>`).join("");
-  sel.value = items.some((it) => it.symbol === want) ? want : items[0].symbol;
+  root.classList.remove("is-empty");
+  const b = $(`${id}-pick-btn`); if (b) b.disabled = false;
+  const want = items.some((it) => it.symbol === hidden.value) ? hidden.value
+    : (items.some((it) => it.symbol === selected) ? selected : items[0].symbol);
+  if (hidden.value !== want) hidden.value = want;
+  if (btn && btn.textContent !== want) btn.textContent = want;
 }
+
 function setManualTradeEnabled(on) {
   const buy = $("ex-buy");
   const sell = $("ex-sell");
@@ -3342,7 +3484,7 @@ function patchLive() {
     }
   }
   if (v === "execution") {
-    fillSymbolSelect("ex-sym", defaultSymbol());
+    fillSymbolField("ex-sym", defaultSymbol());
     setManualTradeEnabled(liveSymbols().length > 0);
     paintSwitch($("ex-auto"), Boolean(S.snap?.strategy?.auto_trade));
     const pos = S.snap?.positions || [];
@@ -5748,7 +5890,7 @@ const views = {
           <h3 style="margin:0 0 8px">${I18N.t("exec.manual")}</h3>
           <p class="sub">${I18N.t("exec.manual_hint")}</p>
           <div class="grid g-2">
-            <label class="field"><span>${I18N.t("markets.symbol")}</span>${symbolSelectHtml("ex-sym", defaultSymbol())}</label>
+            <label class="field"><span>${I18N.t("markets.symbol")}</span>${symbolFieldHtml("ex-sym", defaultSymbol())}</label>
             <label class="field"><span>${I18N.t("exec.volume")}</span><input id="ex-vol" type="number" step="0.01" min="0.01" value="0.10" /></label>
             <label class="field"><span>${I18N.t("exec.sl")}</span><input id="ex-sl" type="number" step="0.0001" value="" placeholder="0" /></label>
             <label class="field"><span>${I18N.t("exec.tp")}</span><input id="ex-tp" type="number" step="0.0001" value="" placeholder="0" /></label>
@@ -5801,8 +5943,31 @@ const views = {
       <p class="sub">${I18N.t("charts.open_hint")}</p>`}
     </div>`;
     if (agents.length || testers.length) {
-      return `${testers.length ? `<h3 style="margin:4px 0 8px">${I18N.t("tape.backtest")}</h3><div class="grid g-2">${testers.map((a) => chartCard(a, true, false)).join("")}</div>` : ""}
-      ${agents.length ? `<div class="grid g-2">${agents.map((a) => chartCard(a, isTesterAgent(a), true)).join("")}</div>` : ""}`;
+      /* A search over the attached charts. With thirty EAs on the
+         terminal, finding the one pair you want meant scrolling a wall
+         of identical cards. Typing here brings the matches to the top
+         of the grid -- they are reordered rather than merely filtered,
+         so the best match is the first thing under the box and one tap
+         opens it. The cards themselves are never re-rendered: each
+         holds a live canvas, and rebuilding the grid on a keystroke
+         would tear those down and repaint them from nothing. */
+      const total = agents.length + testers.length;
+      const search = total > 1 ? `<div class="ch-find">
+        <div class="ch-find-box">
+          ${icon("search")}
+          <input type="text" id="ch-q" class="ch-q" autocomplete="off" spellcheck="false"
+                 placeholder="${esc(I18N.t("charts.search"))}"
+                 aria-label="${esc(I18N.t("charts.search"))}"
+                 aria-controls="ch-grid" value="${esc(S.chartQuery || "")}">
+          <button type="button" class="ch-find-x" id="ch-q-clear" hidden
+                  aria-label="${esc(I18N.t("common.close"))}">${icon("close")}</button>
+        </div>
+        <span class="ch-find-n sub" id="ch-q-n" aria-live="polite"></span>
+      </div>` : "";
+      return `${search}
+      ${testers.length ? `<h3 style="margin:4px 0 8px">${I18N.t("tape.backtest")}</h3><div class="grid g-2 ch-grid">${testers.map((a) => chartCard(a, true, false)).join("")}</div>` : ""}
+      ${agents.length ? `<div class="grid g-2 ch-grid" id="ch-grid">${agents.map((a) => chartCard(a, isTesterAgent(a), true)).join("")}</div>` : ""}
+      <p class="ch-none sub" id="ch-none" hidden>${esc(I18N.t("markets.no_sym_match"))}</p>`;
     }
     return `<div class="card">${emptyCard(I18N.t("status.no_eas"), I18N.t("wizard.step3") + " — " + I18N.t("charts.empty_hint"))}</div>`;
   },
@@ -5834,7 +5999,7 @@ const views = {
         <h3>${icon("flask")} ${I18N.t("history.backtest")}</h3>
         <p class="sub">${I18N.t("history.backtest_hint")}</p>
         <div class="ct-grid ct-grid-3">
-          <label class="field"><span>${I18N.t("markets.symbol")}</span>${symbolSelectHtml("bt-sym", S.symbol)}</label>
+          <label class="field"><span>${I18N.t("markets.symbol")}</span>${symbolFieldHtml("bt-sym", S.symbol)}</label>
           <label class="field"><span>${I18N.t("markets.timeframe")}</span>
             <select class="ctrl" id="bt-tf">${["M1","M5","M15","M30","H1","H4","D1"].map((t)=>`<option ${t===(S.timeframe||"M15")?"selected":""}>${t}</option>`).join("")}</select>
           </label>
@@ -7084,6 +7249,7 @@ function bindView(view) {
       bindChartDesk();
     } else {
       paintMiniCharts();
+      bindChartSearch();
       /* Each card carries a strip of its open trades, and those can be
          closed from here. Bound before the card handler below so the
          buttons exist by the time anything can be pressed. */
@@ -7268,8 +7434,13 @@ function bindView(view) {
         if ($("ex-tp")) $("ex-tp").value = S.manual.tp;
       }
     };
+    bindSymbolField("ex-sym");
     const exSym = $("ex-sym");
-    if (exSym) exSym.onchange = () => { if (exSym.value) S.symbol = exSym.value; };
+    /* addEventListener, not onchange: bindSymbolField already dispatches
+       change and rememberManual is listening for it too. Assigning
+       onchange here would have been fine with a <select>, but the two
+       listeners now matter and one must not overwrite the other. */
+    if (exSym) exSym.addEventListener("change", () => { if (exSym.value) S.symbol = exSym.value; });
     const buy = $("ex-buy"); if (buy) buy.onclick = () => send("buy");
     const sell = $("ex-sell"); if (sell) sell.onclick = () => send("sell");
     const ro = $("robot-open");
@@ -7364,6 +7535,7 @@ function bindView(view) {
     S._termPoll = setInterval(() => { if (S.view === "terminal") fillHostTerm(); }, 2500);
   }
   if (view === "backtest") {
+    bindSymbolField("bt-sym");
     // The card is rendered as HTML; the curve needs a canvas that exists.
     const btNow = S.backtest || S.snap?.backtest || {};
     if (btNow.ok && Array.isArray(btNow.equity_curve) && btNow.equity_curve.length > 1) {
