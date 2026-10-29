@@ -8872,7 +8872,8 @@ function renderBacktestLive(bt) {
       <span>${I18N.t("bt.live_position")}</span><b class="mono">${side}</b>
     </div>
     <div class="bt-live-chart">
-      <canvas data-mini="${esc(symbol)}" data-tf="${esc(tf)}" id="bt-live-chart"></canvas>
+      <canvas id="bt-replay"></canvas>
+      <span class="bt-replay-at mono" id="bt-replay-at">${at}</span>
     </div>
     <p class="sub">${I18N.t("bt.live_chart_hint")}</p>
     ${curve.length > 1 ? `<div class="bt-curve"><canvas id="bt-curve"></canvas></div>
@@ -8893,7 +8894,6 @@ function paintBacktestLive(box, bt, running) {
   if (!running) {
     if (box.innerHTML !== "") box.innerHTML = "";
     box.removeAttribute("data-run");
-    S._btChartAt = 0;
     return;
   }
   const key = `${bt.symbol || ""}|${bt.timeframe || ""}|${bt.strategy || ""}`;
@@ -8909,7 +8909,6 @@ function paintBacktestLive(box, bt, running) {
   if (fresh || needsCurve) {
     box.innerHTML = renderBacktestLive(bt);
     box.setAttribute("data-run", key);
-    if (fresh) S._btChartAt = 0;
   } else {
     const pct = Math.max(0, Math.min(99, Math.round(Number(bt.progress) || 0)));
     const bar = box.querySelector(".bt-prog i");
@@ -8929,12 +8928,141 @@ function paintBacktestLive(box, bt, running) {
 
   if (lc.length > 1) requestAnimationFrame(() => drawEquityCurve(lc));
 
-  // The symbol's real candles, fetched the way the watchlist thumbnails
-  // are. Rate-limited: a replay publishes far faster than the market moves.
-  const now = Date.now();
-  if (bt.symbol && now - (S._btChartAt || 0) > 10000) {
-    S._btChartAt = now;
-    paintMiniCharts();
+  /* The bars the replay is walking, not the ones the market is making.
+     This panel used to draw the symbol's live candles beside a replay
+     of a window that had already finished: two unrelated things in one
+     card, the bigger of them labelled as the test. The engine sends the
+     bars it is actually replaying now, so that is what is drawn. */
+  const stamp = box.querySelector("#bt-replay-at");
+  if (stamp) stamp.textContent = snap.at ? String(snap.at) : "";
+  if (Array.isArray(snap.replay_bars) && snap.replay_bars.length > 1) {
+    requestAnimationFrame(() => drawReplayChart(snap.replay_bars, snap.marks || []));
+  }
+}
+
+/**
+ * The bars a backtest is replaying, with its trades marked on them.
+ *
+ * Drawn here rather than through the chart workspace because this is a
+ * different job: a few hundred bars that are replaced wholesale twice a
+ * second, with no interaction, no indicators and no drawing tools. The
+ * workspace would rebuild its whole state on every update.
+ */
+function drawReplayChart(bars, marks) {
+  const cv = $("bt-replay");
+  if (!cv || !Array.isArray(bars) || bars.length < 2) return;
+  const box = cv.parentElement;
+  const dpr = Math.min(2, window.devicePixelRatio || 1);
+  const w = Math.max(240, (box ? box.clientWidth : 0) || 240);
+  const h = Math.max(160, (box ? box.clientHeight : 0) || 200);
+  cv.width = Math.round(w * dpr);
+  cv.height = Math.round(h * dpr);
+  cv.style.width = w + "px";
+  cv.style.height = h + "px";
+  const g = cv.getContext("2d");
+  if (!g) return;
+  g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  g.clearRect(0, 0, w, h);
+
+  // Same colour resolution as the equity curve: a custom property can
+  // come back as the literal text "var(--something)".
+  const css = getComputedStyle(document.documentElement);
+  const pick = (name, fallback) => {
+    let v = (css.getPropertyValue(name) || "").trim();
+    for (let i = 0; i < 4 && /^var\(\s*--/.test(v); i++) {
+      const ref = v.slice(v.indexOf("--")).split(/[,)]/)[0].trim();
+      v = (css.getPropertyValue(ref) || "").trim();
+    }
+    return v && !/^var\(/.test(v) ? v : fallback;
+  };
+  // The trader's own candle colours, so the replay is not a different
+  // green from every other chart on the desk.
+  const up = pick("--candle-up", pick("--ok", "#26d07c"));
+  const down = pick("--candle-down", pick("--bad", "#f4475b"));
+  const line = pick("--line", "rgba(255,255,255,.08)");
+  const ink = pick("--muted", "rgba(255,255,255,.55)");
+
+  const num = (v) => (Number.isFinite(Number(v)) ? Number(v) : 0);
+  let lo = Infinity, hi = -Infinity;
+  for (const b of bars) {
+    const l = num(b.l), hgh = num(b.h);
+    if (l > 0) lo = Math.min(lo, l);
+    if (hgh > 0) hi = Math.max(hi, hgh);
+  }
+  if (!Number.isFinite(lo) || !Number.isFinite(hi) || hi - lo < 1e-9) return;
+  const pad = (hi - lo) * 0.08;
+  lo -= pad; hi += pad;
+
+  const padL = 6, padR = 48, padT = 8, padB = 8;
+  const iw = Math.max(1, w - padL - padR);
+  const x = (i) => padL + ((i + 0.5) / bars.length) * iw;
+  const y = (v) => padT + (1 - (v - lo) / (hi - lo)) * (h - padT - padB);
+  const bw = Math.max(1, Math.min(9, (iw / bars.length) * 0.68));
+
+  // The last price, labelled on the right, because that is the number
+  // the replay is standing on.
+  const lastC = num(bars[bars.length - 1].c);
+  g.strokeStyle = line;
+  g.lineWidth = 1;
+  g.beginPath();
+  g.moveTo(padL, Math.round(y(lastC)) + 0.5);
+  g.lineTo(w - padR, Math.round(y(lastC)) + 0.5);
+  g.stroke();
+
+  for (let i = 0; i < bars.length; i++) {
+    const b = bars[i];
+    const o = num(b.o), c = num(b.c), hg = num(b.h), l = num(b.l);
+    if (!o || !c) continue;
+    const rising = c >= o;
+    g.strokeStyle = g.fillStyle = rising ? up : down;
+    const cx = Math.round(x(i)) + 0.5;
+    g.lineWidth = 1;
+    g.beginPath();
+    g.moveTo(cx, y(hg));
+    g.lineTo(cx, y(l));
+    g.stroke();
+    const top = y(Math.max(o, c));
+    const bot = y(Math.min(o, c));
+    g.fillRect(cx - bw / 2, top, bw, Math.max(1, bot - top));
+  }
+
+  // Where the run entered and left.
+  const at = new Map();
+  bars.forEach((b, i) => { if (b && b.t) at.set(String(b.t), i); });
+  for (const m of (marks || [])) {
+    const i = at.get(String(m && m.t));
+    if (i === undefined) continue;
+    const price = num(m.price);
+    if (!price) continue;
+    const cx = x(i), cy = y(price);
+    const isIn = m.kind === "in";
+    const buy = String(m.side || "").toLowerCase() === "buy";
+    g.fillStyle = isIn ? (buy ? up : down) : ink;
+    g.beginPath();
+    if (isIn) {
+      // A triangle pointing the way the trade was taken.
+      const d = buy ? -1 : 1;
+      g.moveTo(cx, cy + d * 7);
+      g.lineTo(cx - 5, cy + d * 13);
+      g.lineTo(cx + 5, cy + d * 13);
+      g.closePath();
+      g.fill();
+      if (m.open) { g.strokeStyle = g.fillStyle; g.lineWidth = 1.5; g.stroke(); }
+    } else {
+      g.fillStyle = num(m.profit) >= 0 ? up : down;
+      g.beginPath();
+      g.arc(cx, cy, 3.2, 0, Math.PI * 2);
+      g.fill();
+    }
+  }
+
+  // The price axis: three labels, enough to read the scale.
+  g.fillStyle = ink;
+  g.font = "10px ui-monospace, monospace";
+  g.textAlign = "start";
+  g.textBaseline = "middle";
+  for (const v of [hi - pad, (hi + lo) / 2, lo + pad]) {
+    g.fillText(fmt(v, 2), w - padR + 6, y(v));
   }
 }
 

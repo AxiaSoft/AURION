@@ -104,11 +104,14 @@ const stub = `
   const fmt=(v,d=2)=>Number(v||0).toFixed(d);
   const clsPnl=(n)=>Number(n)>0?'up':Number(n)<0?'down':'';
   const S={backtest:null};
-  let curveDraws=0, chartPaints=0;
+  let curveDraws=0, chartPaints=0, replayDraws=0, replayBars=0, replayMarks=0;
   const requestAnimationFrame=(f)=>{f();};
   const drawEquityCurve=(c)=>{curveDraws++; S._lastCurve=c;};
+  // Still stubbed, so that a panel which went back to pulling the live
+  // feed would register here rather than throwing.
   const paintMiniCharts=()=>{chartPaints++;};
-  const counts=()=>({curveDraws, chartPaints});
+  const drawReplayChart=(b,m)=>{replayDraws++; replayBars=(b||[]).length; replayMarks=(m||[]).length;};
+  const counts=()=>({curveDraws, chartPaints, replayDraws, replayBars, replayMarks});
 `;
 const api = new Function(
   stub + grab('renderBacktestLive') + '\n' + grab('paintBacktestLive') +
@@ -166,8 +169,11 @@ ok(api.renderBacktestLive({ running: false, ok: true }) === '',
   'a finished run renders no live panel');
 
 const started = api.renderBacktestLive({ running: true, symbol: 'EURUSD', timeframe: 'M15', strategy: 'ema_rsi', progress: 0 });
-ok(started.includes('data-mini="EURUSD"'), "the running panel charts the run's own symbol");
-ok(started.includes('data-tf="M15"'), 'the chart uses the timeframe being replayed');
+// The panel used to embed the watchlist's live-feed thumbnail here, so
+// the chart on screen was the market as it is now while the figures
+// beside it replayed a window in the past. It draws the replay itself.
+ok(!started.includes('data-mini'), 'the running panel no longer shows the live market');
+ok(started.includes('id="bt-replay"'), 'the running panel has its own replay canvas');
 ok(started.includes('EURUSD') && started.includes('ema_rsi'), 'the panel names the symbol and strategy');
 ok(started.includes('role="progressbar"'), 'progress is announced to assistive tech');
 ok(!started.includes('id="bt-curve"'), 'no equity canvas before any equity has been reported');
@@ -193,14 +199,14 @@ box.attrs.id = 'bt-live';
 api.paintBacktestLive(box, mid, true);
 const afterFirst = { ...api.counts(), parses: box.parses };
 ok(box.parses === 1, 'the panel is built once when the run starts');
-ok(afterFirst.chartPaints === 1, "the symbol's candles are fetched when the panel appears");
+ok(afterFirst.chartPaints === 0, 'the panel never reaches for the live market feed');
 ok(afterFirst.curveDraws === 1, 'the live curve is drawn');
 
 const next = { ...mid, progress: 55, live: { ...mid.live, equity: 10400, trades_so_far: 9, at: '2026.01.05 09:00:00', open_side: null } };
 api.paintBacktestLive(box, next, true);
 ok(box.parses === 1, 'a later snapshot updates in place instead of rebuilding');
 ok(api.counts().curveDraws === 2, 'the curve is redrawn on the new snapshot');
-ok(api.counts().chartPaints === 1, 'the candle chart is not re-requested on every snapshot');
+ok(api.counts().chartPaints === 0, 'and still never reaches for it on a later snapshot');
 ok(box.querySelector('.bt-prog i').style.width === '55%', 'the progress bar moved');
 ok(box.querySelector('.bt-prog').getAttribute('aria-valuenow') === '55', 'the announced value moved too');
 const kv = box.querySelectorAll('.bt-kv b');
@@ -213,7 +219,36 @@ ok(kv[3].textContent === '—', 'a closed position reads as a dash, not a stale 
 const other = { ...mid, symbol: 'XAUUSD' };
 api.paintBacktestLive(box, other, true);
 ok(box.parses === 2, 'a different run rebuilds the panel');
-ok(box.innerHTML.includes('data-mini="XAUUSD"'), 'and charts the new symbol');
+ok(box.innerHTML.includes('id="bt-replay"'), 'and gives the new run a replay canvas');
+ok(!box.innerHTML.includes('data-mini'), 'without dragging the live feed back in');
+
+/* ------------------------------------------- the replay is what is drawn */
+const withBars = {
+  ...mid,
+  live: {
+    ...mid.live,
+    at: 'b2',
+    replay_bars: [
+      { t: 'b0', o: 1, h: 2, l: 0.5, c: 1.5 },
+      { t: 'b1', o: 1.5, h: 2.5, l: 1, c: 1.2 },
+      { t: 'b2', o: 1.2, h: 1.8, l: 0.9, c: 1.7 },
+    ],
+    marks: [{ t: 'b1', kind: 'in', side: 'buy', price: 1.5, volume: 0.1 }],
+  },
+};
+const box2 = makeEl();
+box2.attrs.id = 'bt-live';
+const before = api.counts().replayDraws;
+api.paintBacktestLive(box2, withBars, true);
+const after = api.counts();
+ok(after.replayDraws === before + 1, 'a progress update draws the bars being replayed');
+ok(after.replayBars === 3, 'every bar the engine sent reaches the chart');
+ok(after.replayMarks === 1, "and so do the run's own trades");
+
+const moved = { ...withBars, live: { ...withBars.live, at: 'b3', replay_bars: [...withBars.live.replay_bars, { t: 'b3', o: 1.7, h: 2.2, l: 1.6, c: 2.1 }] } };
+api.paintBacktestLive(box2, moved, true);
+ok(api.counts().replayDraws === before + 2, 'the chart is repainted as the replay moves on');
+ok(api.counts().replayBars === 4, 'the new bar is on it');
 
 api.paintBacktestLive(box, { running: false, ok: true }, false);
 ok(box.innerHTML === '', 'the live panel clears when the run finishes');

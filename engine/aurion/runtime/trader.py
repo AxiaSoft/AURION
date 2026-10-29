@@ -4596,6 +4596,11 @@ class Trader:
             "bars": len(bars),
             "progress": 0,
             "started": started,
+            # Stated, so the result can be read against the settings it
+            # was produced under rather than assumed to be defaults.
+            "volume_mode": str(getattr(self, "volume_mode", "auto")),
+            "manual_volume": float(getattr(self, "manual_volume", 0.0) or 0.0),
+            "max_open": int(self._total_cap()),
         }
         await self.bus.publish("backtest", dict(self.backtest_run))
         equity = float(body.get("initial_equity") or self.bridge.account.equity or 10_000)
@@ -4648,8 +4653,16 @@ class Trader:
             )
 
         try:
+            # Replay with the desk's own settings, not the backtester's
+            # defaults. The lot mode decides what each entry is sized at
+            # and the open-trade cap decides how many may run at once;
+            # with neither passed through, a replay reported the result
+            # of a 0.1-lot, one-trade-at-a-time robot nobody is running.
             result = await asyncio.to_thread(
-                self.backtester.run, inst, bars, symbol, timeframe, equity, 1.0, 80, None, report
+                self.backtester.run, inst, bars, symbol, timeframe, equity, 1.0, 80, None, report,
+                str(getattr(self, "volume_mode", "auto")),
+                float(getattr(self, "manual_volume", 0.0) or 0.0),
+                int(self._total_cap()),
             )
         except Exception as exc:
             log.exception("backtest failed")

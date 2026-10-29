@@ -4188,3 +4188,14 @@ input[type="search"]::-webkit-search-results-decoration{
   .lang-grid{ grid-template-columns:1fr }
   .sys-guides .btn{ flex:1 1 100% }
 }
+
+/* The bar the replay is standing on, over its own chart.
+   .bt-live-chart is already positioned, so this needs no extra rule. */
+.bt-replay-at{
+  position:absolute; inset-block-start:8px; inset-inline-start:10px;
+  font-size:10.5px; color:var(--muted);
+  background:rgb(var(--wash) / .14);
+  padding:2px 7px; border-radius:6px;
+  pointer-events:none;
+}
+.bt-replay-at:empty{ display:none }

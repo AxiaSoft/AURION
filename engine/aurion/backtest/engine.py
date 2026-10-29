@@ -27,6 +27,38 @@ def _bar_time(bar: Any) -> str:
     return ""
 
 
+# How many replayed bars travel with each progress update. Enough for
+# the desk to draw a chart that is recognisably moving, small enough
+# that the cost per update does not grow with the length of the run.
+_REPLAY_BARS = 160
+
+
+def _slim(bar: Any) -> dict[str, Any]:
+    """A bar reduced to what a chart needs.
+
+    MT5 bars carry spread, tick volume and real volume as well; none of
+    that is drawn, and all of it would be sent twice a second.
+    """
+    if not isinstance(bar, dict):
+        return {}
+    def num(*keys: str) -> float:
+        for k in keys:
+            v = bar.get(k)
+            if v not in (None, ""):
+                try:
+                    return round(float(v), 6)
+                except (TypeError, ValueError):
+                    return 0.0
+        return 0.0
+    return {
+        "t": _bar_time(bar),
+        "o": num("open", "o"),
+        "h": num("high", "h"),
+        "l": num("low", "l"),
+        "c": num("close", "c"),
+    }
+
+
 def _thin(values: list[float], most: int) -> list[float]:
     """Evenly sample a long series down to something a sparkline can draw.
 
@@ -62,6 +94,9 @@ class Backtester:
         warmup: int = 80,
         ai: AIEngine | None = None,
         progress: Any = None,
+        volume_mode: str = "auto",
+        manual_volume: float = 0.0,
+        max_open: int = 1,
     ) -> dict[str, Any]:
         """Replay real bars. `progress(done, total)` is optional and never fatal.
 
@@ -69,6 +104,20 @@ class Backtester:
         bars is not instant. Without a progress callback the only thing the
         desk could do was wait on one HTTP request and eventually decide the
         engine had died - which is exactly what it did.
+
+        `volume_mode` and `manual_volume` are the desk's own lot setting,
+        passed in so a replay sizes its trades the way the live robot
+        would: manual pins every entry to the trader's fixed lot, auto
+        leaves the strategy's own volume alone. The backtest used to
+        ignore the setting entirely and fall back to a hard-coded 0.1
+        lot, so the money it reported was not the money the same signals
+        would have made.
+
+        `max_open` is how many positions may run at once, matching the
+        live cap. It was fixed at one: every signal after the first was
+        silently dropped until the open trade closed, which is why a
+        strategy that fires in clusters showed a handful of trades over
+        a window where the robot would have taken many.
         """
         if not bars or len(bars) < warmup + 5:
             return {"ok": False, "error": "not enough real historical bars from MT5 to backtest"}
@@ -78,7 +127,8 @@ class Backtester:
         peak = initial_equity
         curve = [equity]
         trades: list[dict[str, Any]] = []
-        position: dict[str, Any] | None = None
+        positions: list[dict[str, Any]] = []
+        cap = max(1, int(max_open or 1))
         brain = ai or AIEngine()
         ctx_start = self._ctx(strategy, symbol, timeframe, bars[:warmup], None, equity, [], brain)
         strategy.on_start(ctx_start)
@@ -94,6 +144,16 @@ class Backtester:
                     # thinned to something a sparkline can use, and only
                     # the tail of the trade list travels - the whole thing
                     # arrives at the end anyway.
+                    # The bars being replayed travel with the progress.
+                    #
+                    # Without them the desk had nothing of the test to
+                    # draw, so it drew the only candles it had - the live
+                    # market - beside a replay of a window that had
+                    # finished hours ago. Two unrelated things in one
+                    # panel, the larger of them labelled as the test.
+                    # A window of the most recent bars is enough to show
+                    # the replay moving and is a fixed cost per update.
+                    seen = bars[max(warmup, i - _REPLAY_BARS + 1): i + 1]
                     progress(i - warmup, total, {
                         "equity": round(equity, 2),
                         "peak": round(peak, 2),
@@ -101,7 +161,12 @@ class Backtester:
                         "trades_so_far": len(trades),
                         "recent_trades": trades[-12:],
                         "at": _bar_time(bars[i]),
-                        "open_side": (position or {}).get("side"),
+                        "open_side": (positions[0].get("type") if positions else None),
+                        "open_count": len(positions),
+                        "replay_bars": [_slim(b) for b in seen],
+                        # Where the trades sit on those bars, so they can
+                        # be marked rather than merely counted.
+                        "marks": self._marks(trades, positions, seen),
                     })
                 except TypeError:
                     # An older two-argument reporter. Keep it working.
@@ -116,26 +181,28 @@ class Backtester:
             price = float(bar.get("close") or bar.get("c") or 0)
             if price <= 0:
                 continue
-            if position:
-                hit = self._hit(position, bar)
+            # Settle every open trade against this bar before asking the
+            # strategy anything. Iterated over a copy, because closing
+            # removes from the list being walked.
+            for pos in list(positions):
+                hit = self._hit(pos, bar)
                 if hit:
-                    pnl = self._pnl(position, hit["price"], point_value)
+                    pnl = self._pnl(pos, hit["price"], point_value)
                     equity += pnl
-                    risk0 = position.get("initial_sl") or position.get("sl")
+                    risk0 = pos.get("initial_sl") or pos.get("sl")
                     trades.append({
-                        **position,
+                        **pos,
                         "exit": hit["price"],
                         "profit": pnl,
                         "exit_time": bar.get("time"),
                         "exit_reason": hit["reason"],
-                        "risk": abs(position["entry"] - float(risk0)) * position["volume"] * point_value if risk0 else 0,
+                        "risk": abs(pos["entry"] - float(risk0)) * pos["volume"] * point_value if risk0 else 0,
                     })
-                    position = None
+                    positions.remove(pos)
                 else:
                     # Manage the stop the way the live robot manages it.
-                    self._manage(position, bar, manage)
+                    self._manage(pos, bar, manage)
             account = {"equity": equity, "balance": equity, "profit": 0, "currency": "USD"}
-            positions = [position] if position else []
             state = brain.infer(window, symbol, timeframe)
             ctx = self._ctx(strategy, symbol, timeframe, window, bar, equity, positions, brain, state)
             signal = strategy.on_candle(ctx)
@@ -145,16 +212,18 @@ class Backtester:
                 continue
             payload = signal.to_dict() if hasattr(signal, "to_dict") else dict(signal)
             action = payload.get("action")
-            if action == "close" and position:
-                pnl = self._pnl(position, price, point_value)
-                equity += pnl
-                trades.append({**position, "exit": price, "profit": pnl, "exit_time": bar.get("time"), "exit_reason": payload.get("reason") or "strategy", "risk": self._risk(position, point_value)})
-                position = None
-            elif action in {"buy", "sell"} and not position:
-                position = {
+            if action == "close" and positions:
+                # A close signal flattens the book, the way it does live.
+                for pos in list(positions):
+                    pnl = self._pnl(pos, price, point_value)
+                    equity += pnl
+                    trades.append({**pos, "exit": price, "profit": pnl, "exit_time": bar.get("time"), "exit_reason": payload.get("reason") or "strategy", "risk": self._risk(pos, point_value)})
+                positions = []
+            elif action in {"buy", "sell"} and len(positions) < cap:
+                positions.append({
                     "symbol": symbol,
                     "type": action,
-                    "volume": float(payload.get("volume") or 0.1),
+                    "volume": self._entry_volume(payload, volume_mode, manual_volume),
                     "entry": price,
                     "sl": float(payload.get("sl") or 0),
                     # The stop as it was placed. Break-even and trailing
@@ -164,15 +233,16 @@ class Backtester:
                     "tp": float(payload.get("tp") or 0),
                     "time": bar.get("time"),
                     "reason": payload.get("reason"),
-                }
+                })
             peak = max(peak, equity)
             curve.append(equity)
-        if position:
+        for pos in list(positions):
             last = float(bars[-1].get("close") or 0)
-            pnl = self._pnl(position, last, point_value)
+            pnl = self._pnl(pos, last, point_value)
             equity += pnl
-            trades.append({**position, "exit": last, "profit": pnl, "exit_time": bars[-1].get("time"), "exit_reason": "eod", "risk": self._risk(position, point_value)})
+            trades.append({**pos, "exit": last, "profit": pnl, "exit_time": bars[-1].get("time"), "exit_reason": "eod", "risk": self._risk(pos, point_value)})
             curve.append(equity)
+        positions = []
         metrics = summarize(trades, curve, initial_equity)
         if progress is not None:
             try:
@@ -302,6 +372,64 @@ class Backtester:
             params=getattr(strategy, "params", {}),
             now=str((window[-1] or {}).get("time") or utc_iso()),
         )
+
+    def _entry_volume(self, payload: dict[str, Any], mode: str, manual: float) -> float:
+        """The lot this entry would actually have been given.
+
+        Mirrors the live robot's rule (runtime/trader.py::_robot_volume):
+        manual mode pins every robot trade to the trader's fixed lot,
+        auto leaves the strategy's own volume alone. The replay used to
+        ignore the setting and fall back to a hard-coded 0.1, so a desk
+        set to trade 1.0 lots was shown the profit of a 0.1-lot run.
+        """
+        if str(mode or "auto") == "manual":
+            try:
+                fixed = float(manual or 0)
+            except (TypeError, ValueError):
+                fixed = 0.0
+            if fixed > 0:
+                return fixed
+        try:
+            vol = float(payload.get("volume") or 0)
+        except (TypeError, ValueError):
+            vol = 0.0
+        # Last resort only: a strategy that names no size still has to
+        # trade something, or the run reports nothing at all.
+        return vol if vol > 0 else 0.1
+
+    def _marks(
+        self,
+        trades: list[dict[str, Any]],
+        positions: list[dict[str, Any]],
+        window: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        """Entries and exits that fall inside the bars being sent.
+
+        Filtered to the window rather than sent whole: a long run
+        accumulates hundreds of trades and only the ones on screen can
+        be drawn. Open positions are included so a trade in progress is
+        visible before it has a result.
+        """
+        if not window:
+            return []
+        times = {_bar_time(b) for b in window}
+        out: list[dict[str, Any]] = []
+        for t in trades[-60:]:
+            at_in = str(t.get("time") or "")
+            if at_in in times:
+                out.append({"t": at_in, "kind": "in", "side": t.get("type"),
+                            "price": t.get("entry"), "volume": t.get("volume")})
+            at_out = str(t.get("exit_time") or "")
+            if at_out in times:
+                out.append({"t": at_out, "kind": "out", "side": t.get("type"),
+                            "price": t.get("exit"), "profit": round(float(t.get("profit") or 0), 2),
+                            "reason": t.get("exit_reason")})
+        for pos in positions:
+            at_in = str(pos.get("time") or "")
+            if at_in in times:
+                out.append({"t": at_in, "kind": "in", "side": pos.get("type"),
+                            "price": pos.get("entry"), "volume": pos.get("volume"), "open": True})
+        return out
 
     def _hit(self, position: dict[str, Any], bar: dict[str, Any]) -> dict[str, Any] | None:
         high = float(bar.get("high") or bar.get("h") or 0)
