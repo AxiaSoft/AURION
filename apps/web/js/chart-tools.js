@@ -437,14 +437,30 @@
   }
 
   function dockHtml(o) {
+    /* Positions get a tab of their own because the floating panel on the
+       chart cannot be relied on at phone widths: it is anchored to the
+       same bottom-start corner as the drawing-tools button, which is
+       drawn over it. The tab carries a count so a trader can see there
+       is something open without opening the panel to find out. */
+    /* Which tab opens first differs by screen, because the panel means
+       different things on each. On a desktop it is docked open beside
+       the chart and Objects is what a drawing workspace should greet
+       you with. On a phone it is shut by default and opening it is a
+       deliberate act -- and the reason it was given a Positions tab at
+       all is that the open book is hard to see there. So the phone
+       leads with the trades and keeps drawings one tap away. */
+    const first = narrow() ? "positions" : "objects";
+    const on = (id) => (id === first ? ' class="on"' : "");
     return `<aside class="tv-dock" id="tv-dock" aria-label="${esc(tt("chart.panel", "Side panel"))}">
       <div class="tvd-tabs" role="tablist">
-        <button type="button" role="tab" data-dock="objects" class="on">${esc(tt("chart.objects", "Objects"))}</button>
+        <button type="button" role="tab" data-dock="positions"${on("positions")}>${esc(tt("chart.positions", "Positions"))}<span class="tvd-badge" id="tvd-pos-n" hidden></span></button>
+        <button type="button" role="tab" data-dock="objects"${on("objects")}>${esc(tt("chart.objects", "Objects"))}</button>
         <button type="button" role="tab" data-dock="props">${esc(tt("chart.properties", "Properties"))}</button>
         ${o.ticket ? `<button type="button" role="tab" data-dock="trade">${esc(tt("chart.trade", "Trade"))}</button>` : ""}
         <button type="button" class="tvd-close" id="tv-dock-close" aria-label="${esc(tt("common.close", "Close"))}">${svg(I.close)}</button>
       </div>
-      <div class="tvd-body" id="tvd-objects" data-pane="objects"></div>
+      <div class="tvd-body tvd-pos" id="tvd-pos" data-pane="positions"${first === "positions" ? "" : " hidden"}></div>
+      <div class="tvd-body" id="tvd-objects" data-pane="objects"${first === "objects" ? "" : " hidden"}></div>
       <div class="tvd-body" id="tvd-props" data-pane="props" hidden></div>
       ${o.ticket ? `<div class="tvd-body" data-pane="trade" hidden>
         <div class="chart-levels" id="chart-levels"></div>

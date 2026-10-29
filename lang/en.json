@@ -1264,7 +1264,8 @@
     "search_sym": "Search instrument",
     "no_sym": "No attached chart matches that.",
     "pos_expand": "Show open trades",
-    "pos_collapse": "Hide open trades"
+    "pos_collapse": "Hide open trades",
+    "positions": "Positions"
   },
   "signal": {
     "buy": "Buy signal",

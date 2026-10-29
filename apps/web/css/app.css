@@ -3273,6 +3273,12 @@ p.ok > svg, .ok > svg{ width:15px; height:15px; vertical-align:-3px; margin-inli
 /* The chart is the point of the view, so it gets the height. */
 .mk-chart .chart-box{min-height:clamp(300px,52vh,620px)}
 
+/* The open book under the market grid. Both columns wide, because it is
+   the Command Centre's table and that table needs the room; at one
+   column it simply follows the watchlist. */
+.mk-pos{grid-column:1 / -1}
+.mk-pos .table-wrap{max-height:min(360px,42vh)}
+
 /* ---- watchlist -------------------------------------------------------- */
 .mk-watch{display:flex;flex-direction:column;min-height:0}
 .mk-watch > #live-ticks{flex:1 1 auto;min-height:0;display:flex;flex-direction:column}

@@ -3296,6 +3296,9 @@ function patchLive() {
     if (box) box.innerHTML = symbols.length ? watchlistHtml() : emptyMini(I18N.t("status.waiting_ticks"));
     const empty = document.querySelector(".chart-box .empty");
     if (empty && eaLive() && S.candles.length) empty.remove();
+    /* Same patcher the Command Centre uses, so the table updates in place
+       instead of being rebuilt under the trader's cursor. */
+    paintPositions("mk-pos", allPositions(), MK_POS_COLS, true);
   }
   if (v === "intelligence") {
     // v54: per-chart intelligence — slider controls which chart's regime+features we show
@@ -5597,6 +5600,21 @@ const views = {
       <div class="card mk-watch">
         <h3>${I18N.t("markets.title")}</h3>
         <div id="live-ticks">${symbols.length ? watchlistHtml() : emptyMini(I18N.t("exec.no_ea_symbol"))}</div>
+      </div>
+
+      <!-- The whole book, not just this instrument.
+
+           The strip above the chart is filtered to the symbol on screen,
+           which is the right thing there and the wrong thing on its own:
+           switching to EURUSD made three open gold trades disappear from
+           the page. This is the Command Centre's table, in the view a
+           trader actually watches the market from, so the exposure is
+           visible without leaving for another page. -->
+      <div class="card pos-card mk-pos">
+        <h3>${I18N.t("command.positions")}</h3>
+        <div id="mk-pos">${allPositions().length
+          ? table(allPositions(), MK_POS_COLS, true)
+          : emptyMini(I18N.t("status.no_positions"))}</div>
       </div>
     </div>`;
   },
@@ -9096,6 +9114,17 @@ function positionsFor(symbol) {
   return (S.snap?.positions || []).filter((r) => r && (!symbol || r.symbol === symbol));
 }
 
+/** Every open position, whatever instrument it is on. */
+function allPositions() {
+  return (S.snap?.positions || []).filter(Boolean);
+}
+
+/* The Command Centre's columns, minus profit_pct: the Markets grid gives
+   this card half the width the Command Centre does, and the percentage is
+   the one figure already implied by the two beside it. */
+const MK_POS_COLS = ["symbol", "type", "volume", "strategy", "price_open",
+                     "price_current", "sl", "tp", "profit"];
+
 function positionsSig(symbol) {
   return positionsFor(symbol)
     .map((r) => `${r.ticket}:${r.type}:${r.volume}:${r.price_open}:${r.profit}`).join("|");
@@ -9219,26 +9248,44 @@ const LS_CHART_POS = "aurion.chart.pos.collapsed";
  */
 function paintChartPositions(pos, ord) {
   const host = $("tv-pos");
-  if (!host) return;
+  const dock = $("tvd-pos");
+  if (!host && !dock) return;
   pos = pos || [];
   ord = ord || [];
 
+  /* The tab counter is the only sign of an open trade while the dock is
+     shut, so it is kept in step even when there is nothing to list. */
+  const badge = $("tvd-pos-n");
+  if (badge) {
+    const n = pos.length + ord.length;
+    badge.textContent = String(n);
+    badge.hidden = n === 0;
+  }
+
   if (!pos.length && !ord.length) {
-    /* Nothing open: the panel goes away entirely rather than sitting
-       there saying "no positions" over the chart. */
+    /* Nothing open: the floating panel goes away entirely rather than
+       sitting there saying "no positions" over the chart. The dock pane
+       is a tab the trader chose to open, so it answers instead. */
+    if (dock) {
+      dock.innerHTML = `<p class="tvd-empty">${esc(I18N.t("status.no_positions"))}</p>`;
+      dock.dataset.sig = "";
+    }
+    if (!host) return;
     host.hidden = true;
     host.innerHTML = "";
     host.dataset.sig = "";
     return;
   }
-  host.hidden = false;
+  if (host) host.hidden = false;
 
   const collapsed = localStorage.getItem(LS_CHART_POS) === "1";
   const sig = pos.map((r) => `${r.ticket}:${r.sl}:${r.tp}:${r.profit}:${r.volume}`).join("|")
     + "#" + ord.map((r) => `${r.ticket}:${r.price}:${r.sl}:${r.tp}`).join("|")
     + "#" + (collapsed ? "c" : "o");
-  if (host.dataset.sig === sig) return;
-  host.dataset.sig = sig;
+  /* Both hosts are gated together: the dock pane is built from the same
+     rows, so if neither has fallen behind there is nothing to redraw. */
+  const fresh = (!host || host.dataset.sig === sig) && (!dock || dock.dataset.sig === sig);
+  if (fresh) return;
 
   const net = pos.reduce((a, r) => a + (Number(r.profit) || 0), 0);
   const netTxt = (net > 0 ? "+" : "") + fmt(net, 2);
@@ -9283,21 +9330,36 @@ function paintChartPositions(pos, ord) {
               aria-label="${esc(I18N.t("chart.order_cancel"))}">${icon("close")}</button>
     </div>`;
 
-  host.className = "tv-pos" + (collapsed ? " is-collapsed" : "");
-  host.innerHTML = summary
-    + `<div class="tv-pos-body" id="tv-pos-body"${collapsed ? " hidden" : ""}>`
-    + ord.map(restRow).join("") + pos.map(row).join("")
-    + `</div>`;
+  const rows = ord.map(restRow).join("") + pos.map(row).join("");
 
-  const tog = host.querySelector("[data-pos-toggle]");
-  if (tog) tog.onclick = () => {
-    const now = localStorage.getItem(LS_CHART_POS) === "1";
-    localStorage.setItem(LS_CHART_POS, now ? "0" : "1");
-    host.dataset.sig = "";              // force the next paint to redraw
-    paintChartPositions(pos, ord);
-  };
-  bindCloseButtons(host);
-  bindCancelButtons(host);
+  if (host) {
+    host.dataset.sig = sig;
+    host.className = "tv-pos" + (collapsed ? " is-collapsed" : "");
+    host.innerHTML = summary
+      + `<div class="tv-pos-body" id="tv-pos-body"${collapsed ? " hidden" : ""}>`
+      + rows
+      + `</div>`;
+
+    const tog = host.querySelector("[data-pos-toggle]");
+    if (tog) tog.onclick = () => {
+      const now = localStorage.getItem(LS_CHART_POS) === "1";
+      localStorage.setItem(LS_CHART_POS, now ? "0" : "1");
+      host.dataset.sig = "";            // force the next paint to redraw
+      paintChartPositions(pos, ord);
+    };
+    bindCloseButtons(host);
+    bindCancelButtons(host);
+  }
+
+  /* The same rows in the side panel. No summary pill and no collapse:
+     the dock is already a place the trader opened on purpose, and the
+     count lives on its tab. */
+  if (dock) {
+    dock.dataset.sig = sig;
+    dock.innerHTML = `<div class="tv-pos-body tvd-pos-list">${rows}</div>`;
+    bindCloseButtons(dock);
+    bindCancelButtons(dock);
+  }
 }
 
 /** Cancel a resting order the robot planted but that has not filled. */
