@@ -432,8 +432,13 @@
       <button type="button" class="tv-icon" id="tv-redo" title="${esc(tt("chart.redo", "Redo"))} (Ctrl+Shift+Z)" disabled>${svg(I.redo)}</button>
       <span class="tv-div"></span>
       <button type="button" class="tv-icon" id="tv-dock-toggle" title="${esc(tt("chart.panel", "Side panel"))}" aria-pressed="true">${svg(I.panel)}</button>
-      <button type="button" class="tv-icon" id="tv-full" title="${esc(tt("chart.fullscreen", "Fullscreen"))} (F)">${svg(I.full)}</button>
     </header>`;
+    /* No fullscreen toggle here any more.
+       The chart is opened fullscreen from the grid and the back button
+       beside the instrument is the way out, so a second control that
+       only ever un-did the state the page had just been opened in was
+       one button too many -- and the easiest one to hit by accident on
+       a phone, where it sat directly under the thumb. */
   }
 
   function dockHtml(o) {
@@ -1216,11 +1221,6 @@
     if (!tv) return;
     ui.fullscreen = on;
     document.body.classList.toggle("chart-full", on);
-    const btn = $("tv-full");
-    if (btn) {
-      btn.innerHTML = svg(on ? I.exit : I.full);
-      btn.setAttribute("aria-pressed", on ? "true" : "false");
-    }
     /* The whole document goes fullscreen, not the workspace element.
        Asking only for #tv looked tidier and was wrong: everything that
        floats - the confirm dialog, the toasts, these menus - lives outside
@@ -1265,7 +1265,8 @@
         // will not turn off". One press puts the cursor back.
         if (c.tool !== "cursor") { pickTool("cursor"); return; }
         if (c.selected) { c.select(null); return; }
-        if (ui.fullscreen) setFullscreen(false);
+        /* Escape no longer drops fullscreen either. It used to leave the
+           chart in the same half-state the device back button did. */
         return;
       case "Delete": case "Backspace":
         if (c.deleteSelected()) e.preventDefault();
@@ -1283,7 +1284,6 @@
       default: break;
     }
     const k = e.key.toLowerCase();
-    if (k === "f") { e.preventDefault(); setFullscreen(!ui.fullscreen); return; }
     if (SHORTCUT[k]) { e.preventDefault(); pickTool(SHORTCUT[k]); }
   }
 
@@ -1423,7 +1423,6 @@
       if (e.target.closest("#tv-undo")) { chart.undo(); return; }
       if (e.target.closest("#tv-redo")) { chart.redo(); return; }
       if (e.target.closest("#tv-dock-toggle")) { toggleDock(); return; }
-      if (e.target.closest("#tv-full")) setFullscreen(!ui.fullscreen);
     };
 
     /* ---- overlays: the FAB and the two scrims --------------------------
@@ -1525,7 +1524,16 @@
       document.addEventListener("keydown", onKey);
       document.addEventListener("keyup", onKeyUp);
       document.addEventListener("fullscreenchange", () => {
-        if (!document.fullscreenElement && ui.fullscreen) setFullscreen(false);
+        /* Deliberately not calling setFullscreen(false) here.
+           On Android the device's own back button exits the browser's
+           fullscreen, and this listener used to take the desk's
+           fullscreen down with it -- so back collapsed the chart to a
+           window while leaving the trader on the chart page, which is
+           neither where they were nor where they asked to go. The
+           browser's fullscreen and the desk's are now separate: losing
+           the first leaves the chart filling the desk, and the only way
+           out of the chart is its own back button, which lands on the
+           charts list. */
         // The browser resizes the viewport over a transition, so the frame
         // painted on the way in is the old geometry. The engine's resize
         // observer catches most of it; this covers the case where the box

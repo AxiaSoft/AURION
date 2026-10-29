@@ -191,8 +191,13 @@ const topHandler = src.slice(src.indexOf('const top = document.querySelector(".t
 for (const id of ["tv-toolsfab", "tv-toolscrim", "tv-scrim"]) {
   ok(!topHandler.includes(`#${id}`), `the top bar no longer claims #${id}`);
 }
+// The fullscreen toggle was removed: the chart opens fullscreen from the
+// grid and the back button is the way out, so a control whose only job
+// was to undo the state the page opened in is gone, along with its F
+// shortcut and its click branch.
+ok(!src.includes("tv-full"), "the fullscreen toggle is gone, not just hidden");
 // controls that really are in the header must stay there
-for (const id of ["tv-back", "tv-undo", "tv-redo", "tv-dock-toggle", "tv-full"]) {
+for (const id of ["tv-back", "tv-undo", "tv-redo", "tv-dock-toggle"]) {
   ok(topHandler.includes(`#${id}`), `#${id} stays on the top bar handler`);
   ok(contains(byClass.get("tv-top"), byId.get(id)), `#${id} really is in the top bar`);
 }

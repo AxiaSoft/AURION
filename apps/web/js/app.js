@@ -380,12 +380,6 @@ function askConfirm(opts) {
  * Printing the token the running app.js was loaded with settles it in one
  * glance: if this does not match the token in index.html, the page is old.
  */
-function buildTag() {
-  const tag = document.querySelector('script[src*="js/app.js?v="]');
-  if (!tag) return "dev";
-  return String(tag.src).split("v=").pop() || "dev";
-}
-
 function fmt(n, d = 2) {
   if (n === null || n === undefined || n === "" || Number.isNaN(Number(n))) return "—";
   try {
@@ -3445,6 +3439,8 @@ function patchLive() {
     paintPositions("mk-pos", allPositions(), MK_POS_COLS, true);
   }
   if (v === "intelligence") {
+    // The card that is literally named "live analysis" has to move too.
+    patchAnalysisCard();
     // v54: per-chart intelligence — slider controls which chart's regime+features we show
     const ai = currentAiSlideState() || S.snap?.ai || {};
     paintChartSlider("ai", aiSlideInnerHtml);
@@ -4383,27 +4379,110 @@ function usersCardHtml() {
       ${logHtml}
     </div>`;
 }
+/**
+ * Licence, as a state and then an action.
+ *
+ * This card existed but was never placed on any page -- it was written,
+ * its buttons were bound, and nothing ever rendered it, so the only way
+ * to enter a key was the upgrade page. It now lives in Settings ->
+ * System, where someone looking for "where do I activate this" will
+ * actually look.
+ *
+ * Rebuilt around the question being asked. The old version opened with
+ * a reseller logo and a three-row key/value table, and the state -- am
+ * I licensed, for how much longer -- had to be read out of it. The
+ * state is the headline now, with the remaining days drawn as a bar
+ * when there is a term to run down, and the key field below it is only
+ * what you came to do. On a trial or an expired licence the card says
+ * so in its own right rather than leaving it to be inferred from a
+ * date.
+ */
 function licenseCardHtml() {
   const L = (S.snap && S.snap.license) || {};
-  const trial = L.trial !== false && !L.paid && !L.developer;
+  const paid = Boolean(L.paid || L.developer);
+  const trial = L.trial !== false && !paid;
+  const days = L.days_left;
+  const total = Number((L.plans && L.plans[L.plan] && L.plans[L.plan].days) || 0);
+  // Only a licence with a known term can show progress; a perpetual or
+  // developer one has nothing to run down and gets no bar.
+  const pct = paid && total && days != null
+    ? Math.max(0, Math.min(100, Math.round((days / total) * 100)))
+    : null;
+  const expiring = days != null && days <= 7;
+  const state = paid ? (expiring ? "is-warn" : "is-ok") : (trial ? "is-trial" : "is-bad");
+  const stateLabel = paid
+    ? (expiring ? I18N.t("license.st_expiring") : I18N.t("license.st_active"))
+    : (trial ? I18N.t("license.st_trial") : I18N.t("license.st_none"));
   const remain = L.bot_remaining;
-  return `<div class="card${trial ? " lic-banner" : ""}">
-      <div class="axiasoft-slot" style="margin:0 0 12px;max-width:none">
-        <img src="assets/axiasoft-logo.png?v=desk45" alt="Axiasoft" class="axiasoft-logo" />
-        <span>${I18N.t("auth.licensed_by")}</span>
+
+  return `<div class="card lic-card ${state}" id="lic-card">
+      <div class="lic-head">
+        <div class="lic-lead">
+          <p class="kicker">${I18N.t("license.title")}</p>
+          <p class="lic-state"><i class="lic-dot"></i>${esc(stateLabel)}</p>
+          <p class="sub">${esc(L.plan_label || L.plan || I18N.t("license.trial"))}</p>
+        </div>
+        <div class="lic-facts">
+          <div><span>${I18N.t("license.expires")}</span><b class="mono">${esc(L.expires || "—")}</b></div>
+          <div><span>${I18N.t("license.remaining")}</span><b class="mono">${remain == null ? "—" : esc(String(remain))}</b></div>
+        </div>
       </div>
-      <div class="kv">
-        <span>${I18N.t("license.plan")}</span><b>${esc(L.plan_label || L.plan || I18N.t("license.trial"))}</b>
-        <span>${I18N.t("license.expires")}</span><b class="mono">${esc(L.expires || "—")}</b>
-        <span>${I18N.t("license.remaining")}</span><b class="mono">${remain == null ? "—" : remain}</b>
+
+      ${pct != null ? `<div class="lic-bar" role="img"
+           aria-label="${esc(I18N.t("upgrade.days"))} ${esc(String(days))}">
+        <i style="--w:${pct}%"></i>
       </div>
-      <p class="sub" id="lic-msg">${L.paid || L.developer ? I18N.t("license.ok") : I18N.t("license.need")}</p>
-      <label class="field"><span>${I18N.t("license.key")}</span>
-        <input id="lic-key" autocomplete="off" placeholder="AXIA-M1-...." />
-      </label>
-      <button class="btn block" id="lic-go" type="button">${I18N.t("license.activate")}</button>
-      <button class="btn ghost block" id="lic-upd" type="button">${I18N.t("license.check_updates")}</button>
+      <p class="sub lic-bar-foot">${I18N.t("upgrade.days")}: <b class="mono">${fmt(days, 0)}</b></p>` : ""}
+
+      <div class="lic-act">
+        <label class="field">
+          <span>${I18N.t("license.key")}</span>
+          <input id="lic-key" dir="ltr" spellcheck="false" autocomplete="off"
+                 placeholder="AXIA-M1-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX" />
+        </label>
+        <button class="btn" id="lic-go" type="button">${I18N.t("license.activate")}</button>
+      </div>
+      <p class="sub" id="lic-msg">${paid ? I18N.t("license.ok") : I18N.t("license.need")}</p>
+
+      <div class="lic-foot">
+        <button class="btn tiny ghost" id="lic-upd" type="button">${I18N.t("license.check_updates")}</button>
+        <span class="sub mono" id="build-tag">${esc(buildTag(S.buildDate))}</span>
+      </div>
       <p class="sub" id="lic-upd-msg"></p>
+    </div>`;
+}
+
+/**
+ * The interface language, as three readable choices rather than pills.
+ *
+ * It used to be a row of three small pills on a page of its own in the
+ * settings rail, which is a whole section for one decision taken once.
+ * It moves into System beside the other machine-level settings, and
+ * each language is now a card carrying its own name in its own script
+ * plus the English name, so it can be found by someone who cannot yet
+ * read the language the desk is currently in. Sized for both: three
+ * across on a desktop, stacking to full width on a phone.
+ */
+function languageCardHtml() {
+  const LANGS = [
+    { id: "en", native: "English", name: "English", dir: "ltr" },
+    { id: "fa", native: "\u0641\u0627\u0631\u0633\u06cc", name: "Persian", dir: "rtl" },
+    { id: "ar", native: "\u0627\u0644\u0639\u0631\u0628\u064a\u0629", name: "Arabic", dir: "rtl" },
+  ];
+  const cur = I18N.lang;
+  return `<div class="card">
+      <h3>${I18N.t("settings.language")}</h3>
+      <p class="sub">${I18N.t("settings.language_hint")}</p>
+      <div class="lang-grid" id="set-langs" role="radiogroup"
+           aria-label="${esc(I18N.t("settings.language"))}">
+        ${LANGS.map((l) => `<button type="button" role="radio" data-lang="${l.id}"
+            aria-checked="${l.id === cur ? "true" : "false"}"
+            class="lang-opt${l.id === cur ? " on" : ""}">
+          <span class="lang-native" dir="${l.dir}">${esc(l.native)}</span>
+          <span class="lang-name">${esc(l.name)}</span>
+          <i class="lang-tick">${icon("check")}</i>
+        </button>`).join("")}
+      </div>
     </div>`;
 }
 
@@ -5535,9 +5614,10 @@ function bindNotifySounds(root) {
 function analysisCardHtml() {
   const a = S.snap?.analysis;
   if (!a) {
-    return `<section class="card ai-verdict is-wait">
+    return `<section class="card ai-verdict is-wait" id="an-card">
       <h3>${I18N.t("ai.an.title")}</h3>
       <p class="sub">${I18N.t("ai.an.waiting")}</p>
+      <p class="an-live"><i class="an-live-dot"></i><span id="an-live"></span></p>
     </section>`;
   }
   const blockers = a.blockers || [];
@@ -5570,6 +5650,7 @@ function analysisCardHtml() {
         <p class="kicker">${I18N.t("ai.an.title")}</p>
         <p class="ai-v-state">${ready ? I18N.t("ai.an.verdict_ready") : I18N.t("ai.an.verdict_blocked")}</p>
         <p class="sub">${I18N.t("ai.an.sub")}</p>
+        <p class="an-live"><i class="an-live-dot"></i><span id="an-live"></span></p>
       </div>
       ${meter}
     </div>
@@ -5607,6 +5688,89 @@ function analysisCardHtml() {
         : emptyMini(I18N.t("ai.an.console_empty"))}</div>
     </details>
   </section>`;
+}
+
+/**
+ * Keep the live analysis card actually live.
+ *
+ * The card was built once, when the page was mounted, and never touched
+ * again. patchLive refreshed the regime, the features and the activity
+ * feed beside it, but never the verdict, the confidence meter, the
+ * blockers, the resting orders or the console -- so the one card on the
+ * page called "live analysis" was the only thing on it that was frozen,
+ * and the only way to move it was to reload the page by hand.
+ *
+ * It is rebuilt rather than patched field by field, because the card
+ * changes shape and not only values: blockers come and go, resting
+ * orders appear, and the meter is absent entirely when the gate is off.
+ * Three things make rebuilding safe at this rate. It is skipped when
+ * the markup has not changed, which is the common case between ticks,
+ * so there is no flicker and no selection lost while nothing is
+ * happening. The console's scroll position is carried across, so a
+ * trader reading back through it is not yanked to the top. And the
+ * console's open or closed state is kept, because that is the reader's
+ * choice and not the server's.
+ */
+function patchAnalysisCard() {
+  const card = $("an-card");
+  if (!card) return;
+
+  const next = analysisCardHtml();
+  if (S._anHtml !== next) {
+    S._anHtml = next;
+
+    const con = $("an-console");
+    // The list is newest-first, so scrollTop 0 means "reading the live
+    // end" and anything else means the trader has scrolled back.
+    const keep = con ? con.scrollTop : 0;
+    const details = card.querySelector("details.ai-console");
+    const wasOpen = details ? details.open : true;
+
+    const host = document.createElement("div");
+    host.innerHTML = next;
+    const fresh = host.firstElementChild;
+    if (!fresh) return;
+    card.replaceWith(fresh);
+
+    const d2 = fresh.querySelector("details.ai-console");
+    if (d2) d2.open = wasOpen;
+    const c2 = fresh.querySelector("#an-console");
+    if (c2 && keep > 0) c2.scrollTop = keep;
+    bindCloseButtons(fresh);
+  }
+  stampAnalysisAge();
+}
+
+/**
+ * How long ago the analysis on screen was produced.
+ *
+ * Deliberately not part of the card's markup: it changes every second,
+ * and if it were in there the "has anything changed?" comparison above
+ * would be true on every tick and the card would be rebuilt constantly
+ * for no reason. So the card carries an empty placeholder and this
+ * writes into it.
+ */
+function stampAnalysisAge() {
+  const el = $("an-live");
+  if (!el) return;
+  const at = S._anAt || 0;
+  if (!at) { el.textContent = ""; return; }
+  const secs = Math.max(0, Math.round((Date.now() - at) / 1000));
+  el.textContent = secs < 2
+    ? I18N.t("ai.an.live_now")
+    : I18N.t("ai.an.live_ago", { s: secs });
+}
+
+/** A one-second tick, only while the page that shows it is open. */
+function startAnalysisClock() {
+  stopAnalysisClock();
+  S._anClock = setInterval(() => {
+    if (S.view !== "intelligence") { stopAnalysisClock(); return; }
+    stampAnalysisAge();
+  }, 1000);
+}
+function stopAnalysisClock() {
+  if (S._anClock) { clearInterval(S._anClock); S._anClock = null; }
 }
 
 const views = {
@@ -6132,7 +6296,6 @@ const views = {
         ${tabBtn("set-prop", I18N.t("risk.title"), "shield", I18N.t("rail.prop_hint"))}
         ${tabBtn("set-mt5", "MetaTrader 5", "term", I18N.t("rail.mt5_hint"))}
         ${grp(I18N.t("rail.personalize"))}
-        ${tabBtn("set-lang", I18N.t("settings.language"), "book", I18N.t("rail.lang_hint"))}
         ${tabBtn("set-personal", I18N.t("settings.personal"), "user", I18N.t("rail.personal_hint"))}
         ${tabBtn("set-notify", I18N.t("notify.title"), "bell", I18N.t("rail.notify_hint"))}
         ${tabBtn("set-telegram", I18N.t("telegram.title"), "spark", I18N.t("rail.telegram_hint"))}
@@ -6178,19 +6341,6 @@ const views = {
             <button class="btn ghost" id="s-dis" type="button">${I18N.t("settings.disconnect")}</button>
           </div>
           <p class="sub" id="s-msg">${mt.last_error || (mt.connected ? I18N.t("status.mt5_live") : I18N.t("status.mt5_down"))}</p>
-        </div>
-      </section>
-      <section class="set-block" id="set-lang"${tab==="set-lang"?"":" hidden"}>
-        <h2 class="set-title">${I18N.t("settings.language")}</h2>
-        <div class="card">
-          <div class="lang-pills" id="set-langs">
-            <button type="button" data-lang="en">English</button>
-            <button type="button" data-lang="fa">فارسی</button>
-            <button type="button" data-lang="ar">العربية</button>
-          </div>
-          <p class="sub">AURION 1.0.0 · <span class="mono" id="build-tag">${esc(buildTag())}</span></p>
-          <a class="btn block ghost" href="guide.html?v=desk45" target="_blank" rel="noopener">${I18N.t("guide.open")}</a>
-          <a class="btn block ghost" href="guide-backtest.html?v=desk45" target="_blank" rel="noopener">${I18N.t("guide.backtest")}</a>
         </div>
       </section>
       <section class="set-block" id="set-personal"${tab==="set-personal"?"":" hidden"}>
@@ -6248,8 +6398,17 @@ const views = {
       </section>
       <section class="set-block" id="set-system"${tab==="set-system"?"":" hidden"}>
         <h2 class="set-title">${I18N.t("host.system")}</h2>
+        ${licenseCardHtml()}
+        ${languageCardHtml()}
         ${expertsCardHtml()}
         ${timezoneCardHtml()}
+        <div class="card">
+          <h3>${I18N.t("guide.open")}</h3>
+          <div class="sys-guides">
+            <a class="btn ghost" href="guide.html?v=desk45" target="_blank" rel="noopener">${icon("book")} ${I18N.t("guide.open")}</a>
+            <a class="btn ghost" href="guide-backtest.html?v=desk45" target="_blank" rel="noopener">${icon("flask")} ${I18N.t("guide.backtest")}</a>
+          </div>
+        </div>
         <div class="card">
           <h3>${I18N.t("host.restart")}</h3>
           <p class="sub">${I18N.t("host.restart_hint")}</p>
@@ -7231,8 +7390,13 @@ async function bindUpdatePanel(){
 }
 
 function showSetTab(id) {
-  const allow = ["set-robot", "set-strats", "set-prop", "set-mt5", "set-lang", "set-personal",
+  const allow = ["set-robot", "set-strats", "set-prop", "set-mt5", "set-personal",
                  "set-notify", "set-telegram", "set-update", "set-system"];
+  // Language used to be a section of its own and is now part of System.
+  // A desk that was last left on it -- the choice is remembered across
+  // restarts -- would otherwise open on a tab that no longer exists.
+  if (id === "set-lang" || (!id && S.setTab === "set-lang")) id = "set-system";
+  if (S.setTab === "set-lang") S.setTab = "set-system";
   const next = allow.includes(id) ? id : (allow.includes(S.setTab) ? S.setTab : "set-robot");
   S.setTab = next;
   try { localStorage.setItem("aurion.setTab", next); } catch { /* */ }
@@ -7343,6 +7507,11 @@ function bindView(view) {
     Calendar.mount($("cal-root"));
   }
   if (view === "intelligence") {
+    // The card was just drawn from the current snapshot, so the cache
+    // starts in step with what is on screen and the age starts now.
+    S._anHtml = null;
+    S._anAt = S._anAt || Date.now();
+    startAnalysisClock();
     // Per-chart AI slider — manual only, no timer anywhere.
     bindChartSlider("ai", aiSlideInnerHtml);
     const b = $("btn-train");
@@ -9787,6 +9956,11 @@ async function refresh(rebuild = false) {
       rebuild = false;
       const r = await API.get("/api/snapshot");
       if (r && r.ok) {
+        // When the engine's reading of the market actually changes, note
+        // the moment, so the analysis card can say how old what it is
+        // showing is rather than implying it is always current.
+        const anSig = JSON.stringify(r.data?.analysis || null);
+        if (anSig !== S._anSig) { S._anSig = anSig; S._anAt = Date.now(); }
         S.snap = r.data;
         if (Array.isArray(S.snap.robot) && S.snap.robot.length) {
           S.robotLogs = S.snap.robot.slice();
@@ -10760,5 +10934,5 @@ async function boot() {
 boot();
 // Say which build this is before anything else can go wrong, so "the
 // change is not there" can be answered without guessing.
-try { console.info("AURION desk build", buildTag()); } catch (e) { /* no DOM yet */ }
+try { console.info("AURION desk build", buildTag(S.buildDate)); } catch (e) { /* no DOM yet */ }
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});

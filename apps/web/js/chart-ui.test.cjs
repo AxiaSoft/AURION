@@ -120,7 +120,11 @@ check("the four menus are present",
 check("navigation controls are present",
   ["tv-zin", "tv-zout", "tv-auto", "tv-fit"].every((id) => has('id="' + id + '"')));
 check("undo and redo are in the bar", has('id="tv-undo"') && has('id="tv-redo"'));
-check("fullscreen is in the bar", has('id="tv-full"'));
+// The fullscreen toggle was deliberately removed: the chart is opened
+// fullscreen from the grid and the back button is the way out, so a
+// control whose only job was to undo the state the page opened in was
+// one button too many -- and on a phone it sat right under the thumb.
+check("the fullscreen toggle is gone", !has('id="tv-full"'));
 
 /* ------------------------------------------------------- accessibility -- */
 
