@@ -276,7 +276,7 @@ const Calendar = {
      inline path mirrors with the writing direction and always renders. */
   _chevron(side) {
     const d = side === "start" ? "M15 5 8 12l7 7" : "M9 5l7 7-7 7";
-    return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"
+    return `<svg aria-hidden="true" focusable="false" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"
       stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${d}"/></svg>`;
   },
 

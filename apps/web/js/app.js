@@ -103,7 +103,19 @@ function icon(name) {
      is a tick the size of a card, which is what "Update: [check] up to
      date" on the About page had become. Sizing to 1em means a stray
      icon matches the text it sits in instead. */
-  return `<svg width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">${p[name] || ""}</svg>`;
+  /* aria-hidden on every one of them, always.
+
+     An icon in this interface is either sitting beside its own label,
+     in which case a screen reader announcing it says the name twice,
+     or it is alone inside a control, in which case the NAME BELONGS
+     TO THE CONTROL and not to the glyph - a button whose only content
+     is an <svg> needs an aria-label on the button, and the moment it
+     has one the svg underneath is decoration. There is no third case
+     here, so there is no reason for any caller to decide. focusable
+     is pinned to false because IE-era SVG is still focusable in some
+     engines and a tab stop on a decorative glyph is a tab stop that
+     announces nothing. */
+  return `<svg width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">${p[name] || ""}</svg>`;
 }
 
 function $(id) { return document.getElementById(id); }
@@ -393,8 +405,8 @@ function markLangPills() {
     b.classList.toggle("on", b.getAttribute("data-lang") === I18N.lang);
   });
 }
-const THEME_ICON_SUN = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>';
-const THEME_ICON_MOON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3 7 7 0 0 0 21 12.8z"/></svg>';
+const THEME_ICON_SUN = '<svg aria-hidden="true" focusable="false" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>';
+const THEME_ICON_MOON = '<svg aria-hidden="true" focusable="false" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3 7 7 0 0 0 21 12.8z"/></svg>';
 let __themeMorphT = null;
 /* Cover the desk while a theme, appearance or language change is applied.
  *
@@ -594,10 +606,10 @@ function setThemeNow(mode) {
    function only draws, and the morph the light/dark switch already uses is
    reused for the swap so a theme change reads the same way. */
 const THEME_TICK =
-  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12.5 4.5 4.5L19 7"/></svg>';
+  '<svg aria-hidden="true" focusable="false" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12.5 4.5 4.5L19 7"/></svg>';
 
 const THEME_LOCK =
-  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4.5" y="10.5" width="15" height="9.5" rx="2.2"/><path d="M8 10.5V7a4 4 0 118 0v3.5"/></svg>';
+  '<svg aria-hidden="true" focusable="false" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4.5" y="10.5" width="15" height="9.5" rx="2.2"/><path d="M8 10.5V7a4 4 0 118 0v3.5"/></svg>';
 
 /* One question, asked in three places: the gallery, the accent row and the
    upgrade screen all have to agree about what this desk is allowed to wear. */
@@ -873,7 +885,8 @@ function themeBuilderHtml() {
             <div class="bgpic-thumb"${picture ? ` style="background-image:url(&quot;${esc(picture)}&quot;)"` : ""}
                  id="bgpic-thumb" aria-hidden="true"></div>
             <div class="bgpic-acts">
-              <input type="file" id="bgpic-file" accept="image/*" hidden />
+              <input type="file" id="bgpic-file" accept="image/*" hidden
+                     aria-label="${esc(I18N.t("themes.bg_picture"))}" />
               <button type="button" class="btn tiny" id="bgpic-pick">${esc(I18N.t("themes.bg_image_pick"))}</button>
               <button type="button" class="btn ghost tiny" id="bgpic-clear"${picture ? "" : " hidden"}>${
                 esc(I18N.t("themes.bg_image_clear"))}</button>
@@ -3935,6 +3948,7 @@ function chartTicketHtml() {
         <div class="ct-step">
           <button type="button" class="ct-pm" data-vol="-1" aria-label="-">${icon("minus")}</button>
           <input id="ct-vol" type="number" step="0.01" min="0.01" inputmode="decimal"
+                 aria-label="${esc(I18N.t("exec.volume"))}"
                  value="${esc(String(t.vol || ticketLot()))}" />
           <button type="button" class="ct-pm" data-vol="1" aria-label="+">${icon("plus")}</button>
         </div>
@@ -3944,6 +3958,7 @@ function chartTicketHtml() {
         <div class="ct-row ct-lv">
           <span class="ct-lab sl">${I18N.t("exec.sl")}</span>
           <input id="ct-sl" type="number" step="0.0001" inputmode="decimal"
+                 aria-label="${esc(I18N.t("exec.sl"))}"
                  value="${esc(t.sl || "")}" placeholder="${esc(I18N.t("exec.chart_click"))}" />
           <button type="button" class="ct-ic" id="ct-pick-sl"
                   title="${esc(I18N.t("exec.set_sl"))}" aria-label="${esc(I18N.t("exec.set_sl"))}">${icon("target")}</button>
@@ -3953,6 +3968,7 @@ function chartTicketHtml() {
         <div class="ct-row ct-lv">
           <span class="ct-lab tp">${I18N.t("exec.tp")}</span>
           <input id="ct-tp" type="number" step="0.0001" inputmode="decimal"
+                 aria-label="${esc(I18N.t("exec.tp"))}"
                  value="${esc(t.tp || "")}" placeholder="${esc(I18N.t("exec.chart_click"))}" />
           <button type="button" class="ct-ic" id="ct-pick-tp"
                   title="${esc(I18N.t("exec.set_tp"))}" aria-label="${esc(I18N.t("exec.set_tp"))}">${icon("target")}</button>
@@ -4274,8 +4290,10 @@ function strategyUploadCard() {
         <small>${I18N.t("strategies.browse")}</small>
         <small class="st-drop-name mono" id="st-drop-name"></small>
       </label>
-      <input class="ctrl" id="st-file" placeholder="my_strategy.py" />
-      <textarea id="st-src" class="ctrl st-src" placeholder="# Python strategy"></textarea>
+      <input class="ctrl" id="st-file" placeholder="my_strategy.py"
+             aria-label="${esc(I18N.t("strategies.file_name"))}" />
+      <textarea id="st-src" class="ctrl st-src" placeholder="# Python strategy"
+                aria-label="${esc(I18N.t("strategies.source"))}"></textarea>
       <div class="row" style="margin-top:10px;align-items:center;gap:8px">
         <button class="btn" id="st-up" type="button">${I18N.t("strategies.upload")}</button>
         <a class="btn tiny ghost" id="st-cancel" href="#" hidden>${I18N.t("strategies.cancel")}</a>
@@ -4295,7 +4313,7 @@ function strategyLiveCards() {
           <h3 style="margin:0">${esc(it.name)}</h3>
           <p class="sub">${custom ? I18N.t("strategies.custom_about") : stAbout(it.name)}</p>
         </div>
-        <button type="button" class="switch ${it.enabled?"on":""}" data-st="${esc(it.name)}" aria-pressed="${it.enabled}"><i></i></button>
+        ${switchHtml({ on: it.enabled, label: it.name, attrs: `data-st="${esc(it.name)}"` })}
       </div>
       <div class="st-live">
         <span class="pill ${it.enabled?"on":""}" data-st-on="${esc(it.name)}">${it.enabled ? I18N.t("strategies.enable") : I18N.t("strategies.disable")}</span>
@@ -4700,7 +4718,8 @@ function qualityHtml(st) {
   return `<div class="field">
       <span class="conf-head">${I18N.t("slots.quality")}
         <b class="mono conf-pct" id="st-quality-pct">${pct}%</b></span>
-      <input id="st-quality" type="range" step="0.01" min="0.20" max="0.90" value="${v}" />
+      <input id="st-quality" type="range" step="0.01" min="0.20" max="0.90" value="${v}"
+             aria-label="${esc(I18N.t("slots.quality"))}" aria-describedby="st-quality-note" />
       <div class="scale-legend"><span>${I18N.t("slots.q_loose")}</span><span>${I18N.t("slots.q_tight")}</span></div>
     </div>
     <p class="sub" id="st-quality-note">${I18N.t("slots.q_now_" + (pct >= 70 ? "tight" : pct >= 45 ? "mid" : "loose"))}</p>
@@ -4737,14 +4756,38 @@ function qualityHtml(st) {
 /* One switch on its own row: a heading, a line of explanation and the
    control, always in that order and always the same height. The robot page
    used to build this shape four different ways with inline styles. */
+/**
+ * A toggle switch.
+ *
+ * Every switch on the desk goes through here because the audit found
+ * sixteen of them that were a <button> containing a single empty <i>:
+ * no text, no label, nothing. To a screen reader - and to voice
+ * control, which needs a name to be ABLE to say "click auto trade" -
+ * those controls did not exist. They all sat beside a visible
+ * heading, which a sighted user reads as the label and an assistive
+ * one never gets, because nothing connected the two.
+ *
+ * aria-pressed rather than role="switch": the desk already updates
+ * aria-pressed from a dozen places and a button with aria-pressed is
+ * announced as a toggle. Splitting the vocabulary would have meant
+ * two state attributes to keep in step, which is how one of them
+ * ends up stale.
+ */
+function switchHtml(o) {
+  const on = Boolean(o.on);
+  return `<button type="button" class="switch${on ? " on" : ""}${o.cls ? " " + o.cls : ""}"${
+    o.id ? ` id="${o.id}"` : ""}${o.attrs ? " " + o.attrs : ""}${
+    o.disabled ? ' disabled aria-disabled="true"' : ""} aria-pressed="${on}" aria-label="${
+    esc(o.label || "")}"><i></i></button>`;
+}
+
 function switchRow(o) {
   return `<div class="set-switch">
       <div class="set-switch-txt">
         <h3>${o.title}</h3>
         ${o.sub ? `<p class="sub"${o.subId ? ` id="${o.subId}"` : ""}>${o.sub}</p>` : ""}
       </div>
-      <button type="button" class="switch ${o.on ? "on" : ""}" id="${o.id}"
-        ${o.disabled ? "disabled" : ""} aria-pressed="${Boolean(o.on)}"><i></i></button>
+      ${switchHtml({ id: o.id, on: o.on, disabled: o.disabled, label: o.title })}
     </div>`;
 }
 
@@ -4869,8 +4912,9 @@ function robotPanelHtml() {
         <p class="sub">${I18N.t("strategies.ai_gate_help")}</p>
         <hr class="set-rule" />
         ${switchRow({ id: "st-ai", title: I18N.t("strategies.ai_gate_switch"), on: st.require_ai_agree !== false })}
-        <div class="field" style="margin-top:10px"><span class="conf-head">${I18N.t("strategies.min_conf")}<b class="mono conf-pct" id="st-conf-pct">${Math.round((st.min_ai_confidence ?? 0.35) * 100)}%</b></span>
-          <input id="st-conf" type="range" step="0.01" min="0.05" max="0.95" value="${st.min_ai_confidence ?? 0.35}" />
+        <div class="field conf-field"><span class="conf-head">${I18N.t("strategies.min_conf")}<b class="mono conf-pct" id="st-conf-pct">${Math.round((st.min_ai_confidence ?? 0.35) * 100)}%</b></span>
+          <input id="st-conf" type="range" step="0.01" min="0.05" max="0.95" value="${st.min_ai_confidence ?? 0.35}"
+                 aria-label="${esc(I18N.t("strategies.min_conf"))}" />
         </div>
         <p class="sub" id="ai-conf-why">${I18N.t("strategies.min_conf_help")}</p>
         ${aiCeilingWarning(st)}
@@ -4884,9 +4928,10 @@ function robotPanelHtml() {
           subId: "st-rf-sub",
           on: rf.enabled,
         })}
-        <div class="field" style="margin-top:10px">
+        <div class="field conf-field">
           <span class="conf-head">${I18N.t("strategies.rf_steps")}<b class="mono conf-pct" id="st-rf-steps-n">${rf.steps ?? 3}</b></span>
-          <input id="st-rf-steps" type="range" step="1" min="1" max="5" value="${rf.steps ?? 3}" />
+          <input id="st-rf-steps" type="range" step="1" min="1" max="5" value="${rf.steps ?? 3}"
+                 aria-label="${esc(I18N.t("strategies.rf_steps"))}" />
         </div>
         <div id="st-rf-ladder" class="rf-ladder">${rfLadderHtml(rf)}</div>
         <p class="sub">${I18N.t("strategies.rf_ladder_help")}</p>
@@ -4917,8 +4962,9 @@ function robotPanelHtml() {
           on: dg.enabled,
           disabled: propOn,
         })}
-        <div class="field" style="margin-top:10px"><span class="conf-head">${I18N.t("strategies.danger_sens")}<b class="mono conf-pct" id="st-danger-pct">${dg.sensitivity ?? 50}%</b></span>
-          <input id="st-danger-sens" type="range" step="1" min="1" max="100" value="${dg.sensitivity ?? 50}" ${propOn ? "disabled" : ""} />
+        <div class="field conf-field"><span class="conf-head">${I18N.t("strategies.danger_sens")}<b class="mono conf-pct" id="st-danger-pct">${dg.sensitivity ?? 50}%</b></span>
+          <input id="st-danger-sens" type="range" step="1" min="1" max="100" value="${dg.sensitivity ?? 50}" ${propOn ? "disabled" : ""}
+                 aria-label="${esc(I18N.t("strategies.danger_sens"))}" />
         </div>
         <p class="sub">${I18N.t("strategies.danger_sens_help")}</p>
       </div>
@@ -5111,7 +5157,8 @@ function timezoneCardHtml() {
       <p class="sub">${I18N.t("sys.tz_help")}</p>
       <div class="field" style="margin-top:10px">
         <span>${I18N.t("sys.tz_title")}</span>
-        <select id="sys-tz" class="ctrl">${options}</select>
+        <select id="sys-tz" class="ctrl" aria-label="${esc(I18N.t("host.timezone"))}"
+                aria-describedby="sys-tz-now">${options}</select>
       </div>
       <p class="sub" id="sys-tz-now">${detail}</p>
     </div>`;
@@ -5194,7 +5241,7 @@ function propStatusHtml() {
           <h3>${I18N.t("risk.prop_switch")}</h3>
           <p class="sub" id="prop-enable-sub">${on ? I18N.t("risk.prop_on") : I18N.t("risk.prop_off")}</p>
         </div>
-        <button type="button" class="switch ${on ? "on" : ""}" id="prop-enable" data-prop-enable aria-pressed="${on}"><i></i></button>
+        ${switchHtml({ id: "prop-enable", on, label: I18N.t("risk.prop_switch"), attrs: "data-prop-enable" })}
       </div>
 
       <p class="pr-state ${!on ? "is-off" : p.locked ? "is-locked" : "is-ok"}" id="risk-state">${
@@ -5391,7 +5438,7 @@ function propFormHtml() {
             <button type="button" class="sym-btn" id="pr-syms-btn" aria-haspopup="true" aria-expanded="false">
               <span class="sym-chips" id="pr-syms-label">${esc(I18N.t("risk.symbols_pick"))}</span>
               <span class="sym-caret" aria-hidden="true">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                <svg aria-hidden="true" focusable="false" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
                      stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>
               </span>
             </button>
@@ -5400,6 +5447,7 @@ function propFormHtml() {
               <div class="sym-head">
                 <span class="dsk-search sm">${icon("search")}
                   <input id="pr-syms-q" type="search" class="dsk-search-i"
+                         aria-label="${esc(I18N.t("risk.symbols_search"))}"
                          placeholder="${esc(I18N.t("risk.symbols_search"))}" />
                 </span>
               </div>
@@ -5572,8 +5620,7 @@ function notifySoundCardHtml() {
           <b>${esc(I18N.t("notify.windows"))}</b>
           <small>${esc(I18N.t("notify.windows_hint"))}</small>
         </div>
-        <button type="button" class="switch ${p.windows ? "on" : ""}" id="sw-wintoast"
-                aria-pressed="${p.windows}"><i></i></button>
+        ${switchHtml({ id: "sw-wintoast", on: p.windows, label: I18N.t("notify.windows") })}
       </div>
     </div>
   </div>`;
@@ -6074,12 +6121,15 @@ const views = {
         <div class="mk-bar">
           <div class="mk-pick">
             ${symbolPickerHtml("sym", S.symbol)}
-            <select class="ctrl" id="tf">${["M1","M5","M15","M30","H1","H4","D1"].map((t)=>`<option ${t===S.timeframe?"selected":""}>${t}</option>`).join("")}</select>
+            <select class="ctrl" id="tf" aria-label="${esc(I18N.t("chart.timeframe"))}">${["M1","M5","M15","M30","H1","H4","D1"].map((t)=>`<option ${t===S.timeframe?"selected":""}>${t}</option>`).join("")}</select>
           </div>
           <span class="legend mono mk-tick" id="tick-lbl">${tickLabel()}</span>
           <div class="mk-sig">
             <button type="button" class="btn tiny ${S.signalsEnabled?"on":"ghost"}" id="sig-toggle-m">${S.signalsEnabled?icon("bell")+" Signals ON":icon("bellOff")+" Signals OFF"}</button>
-            <button type="button" class="btn tiny ghost" id="sig-show-m" style="${S.signalsEnabled?"":"display:none"}">${S.showSignals?icon("eye"):icon("eyeOff")}</button>
+            <button type="button" class="btn tiny ghost" id="sig-show-m" aria-pressed="${Boolean(S.showSignals)}"
+                    aria-label="${esc(I18N.t(S.showSignals ? "chart.signals_hide" : "chart.signals_show"))}"
+                    title="${esc(I18N.t(S.showSignals ? "chart.signals_hide" : "chart.signals_show"))}"${
+              S.signalsEnabled ? "" : " hidden"}>${S.showSignals?icon("eye"):icon("eyeOff")}</button>
             ${!licFeat("chart_signals")?`<span class="pill no" style="font-size:10px">PREMIUM</span>`:""}
           </div>
         </div>
@@ -6231,7 +6281,7 @@ const views = {
             <p class="sub">${armed ? I18N.t("exec.auto_on") : I18N.t("exec.auto_off")}</p>
             <p class="sub">${I18N.t("exec.auto_hint")}</p>
           </div>
-          <button type="button" class="switch ${armed?"on":""}" id="ex-auto"><i></i></button>
+          ${switchHtml({ id: "ex-auto", on: armed, label: I18N.t("exec.auto") })}
         </div>
         <div class="kv" id="live-signal">
           <span>${I18N.t("exec.last_signal")}</span><b>${sig ? `${sig.action||"—"} ${sig.symbol||""}` : "—"}</b>
@@ -6334,7 +6384,9 @@ const views = {
       <p class="sub" id="term-hint">${I18N.t("terminal.hint")}</p>
       <div class="row" style="margin:10px 0;flex-wrap:wrap;gap:8px" id="term-live-tools">
         <span class="dsk-search" style="flex:1;min-width:180px">${icon("search")}
-          <input id="log-q" class="dsk-search-i" type="search" data-i18n-ph="terminal.placeholder" placeholder="" />
+          <input id="log-q" class="dsk-search-i" type="search" data-i18n-ph="terminal.placeholder"
+                 aria-label="${esc(I18N.t("terminal.placeholder"))}"
+                 placeholder="${esc(I18N.t("terminal.placeholder"))}" />
         </span>
         <button class="btn tiny ghost" id="log-clr" type="button">${I18N.t("terminal.clear")}</button>
         <button class="btn tiny" id="term-restart" type="button" title="Immediate restart of system terminals">${icon("refresh")} ${I18N.t("terminal.restart")||"Restart Terminals"}</button>
@@ -6547,9 +6599,11 @@ const views = {
         <div class="grid g-2" id="st-live-grid">${strategyLiveCards()}</div>
         ${licFeat("strategy_upload") ? `<div class="card stx-upload">
           <h3>${I18N.t("strategies.upload")}</h3>
-          <textarea id="st-src" class="ctrl stx-src" placeholder="# Python strategy"></textarea>
+          <textarea id="st-src" class="ctrl stx-src" placeholder="# Python strategy"
+                    aria-label="${esc(I18N.t("strategies.source"))}"></textarea>
           <div class="row stx-upload-row">
-            <input class="ctrl" id="st-file" placeholder="my_strategy.py" />
+            <input class="ctrl" id="st-file" placeholder="my_strategy.py"
+                 aria-label="${esc(I18N.t("strategies.file_name"))}" />
             <button class="btn tiny" id="st-up" type="button">${I18N.t("strategies.upload")}</button>
             <a class="btn tiny ghost" id="st-tpl" href="#">${I18N.t("strategies.template")}</a>
             <a class="btn tiny ghost" id="st-cancel" href="#" hidden>${I18N.t("strategies.cancel")}</a>
@@ -6562,11 +6616,20 @@ const views = {
 
       ${block("set-mt5", "MetaTrader 5", I18N.t("settings.why_mt5"), `
         <div class="card">
-          <label class="field"><span data-i18n="settings.mt5_path"></span><input id="s-path" /></label>
-          <label class="field"><span data-i18n="settings.mt5_login"></span><input id="s-login" type="number" /></label>
-          <label class="field"><span data-i18n="settings.mt5_server"></span><input id="s-server" /></label>
-          <label class="field"><span data-i18n="settings.mt5_password"></span><input id="s-pass" type="password" /></label>
-          <p class="sub" data-i18n="settings.password_note"></p>
+          <!-- Rendered with their text, not with an empty <span data-i18n>
+               filled in afterwards by I18N.apply(). These four were the
+               only fields on the desk built that way, and between render
+               and apply they were four unlabelled boxes - which is also
+               what they stayed as if apply() never reached them. -->
+          <label class="field"><span>${esc(I18N.t("settings.mt5_path"))}</span>
+            <input id="s-path" autocomplete="off" spellcheck="false" /></label>
+          <label class="field"><span>${esc(I18N.t("settings.mt5_login"))}</span>
+            <input id="s-login" type="number" inputmode="numeric" autocomplete="off" /></label>
+          <label class="field"><span>${esc(I18N.t("settings.mt5_server"))}</span>
+            <input id="s-server" autocomplete="off" spellcheck="false" /></label>
+          <label class="field"><span>${esc(I18N.t("settings.mt5_password"))}</span>
+            <input id="s-pass" type="password" autocomplete="current-password" /></label>
+          <p class="sub">${esc(I18N.t("settings.password_note"))}</p>
           <div class="row stx-acts">
             <button class="btn" id="s-save" type="button">${I18N.t("settings.save")}</button>
             <button class="btn" id="s-con" type="button">${I18N.t("settings.connect")}</button>
@@ -6589,8 +6652,8 @@ const views = {
               <p class="sub">${I18N.t("settings.liquid_glass_hint")}</p>
               <p class="sub glass-forced-note">${I18N.t("settings.liquid_glass_forced")}</p>
             </div>
-            <button type="button" class="switch ${glassOn() ? "on" : ""}" id="sw-glass" aria-pressed="${glassOn()}"${
-              glassForced() ? " disabled aria-disabled=\"true\"" : ""}><i></i></button>
+            ${switchHtml({ id: "sw-glass", on: glassOn(), disabled: glassForced(),
+              label: I18N.t("settings.liquid_glass") })}
           </div>
         </div>
         ${appearanceCardsHtml()}`)}
@@ -6606,7 +6669,7 @@ const views = {
           <h3>${I18N.t("upd.settings")}</h3>
           <div class="stx-toggle">
             <div class="stx-toggle-txt"><b>${I18N.t("upd.auto")}</b></div>
-            <button type="button" class="switch" id="upd-auto"><i></i></button>
+            ${switchHtml({ id: "upd-auto", label: I18N.t("upd.auto") })}
           </div>
           <label class="field"><span>${I18N.t("upd.interval")}</span>
             <input id="upd-interval" type="number" min="1" max="168" value="6" />
@@ -6844,7 +6907,8 @@ const views = {
             ? `<div class="row"><input class="ctrl" id="pf-td" placeholder="000000" style="max-width:120px"/><button class="btn tiny danger" id="pf-toff" type="button">${I18N.t("profile.totp_disable")}</button></div>`
             : `<button class="btn tiny" id="pf-ton" type="button">${I18N.t("profile.totp_start")}</button>
                <p class="secret-box hidden" id="pf-tsec"></p>
-               <div class="row hidden" id="pf-trow"><input class="ctrl" id="pf-tc" placeholder="000000" style="max-width:120px"/><button class="btn tiny" id="pf-tok" type="button">${I18N.t("profile.totp_confirm")}</button></div>`}
+               <div class="row hidden" id="pf-trow"><input class="ctrl pf-code" id="pf-tc" placeholder="000000" inputmode="numeric"
+                 autocomplete="one-time-code" aria-label="${esc(I18N.t("profile.totp_confirm"))}"/><button class="btn tiny" id="pf-tok" type="button">${I18N.t("profile.totp_confirm")}</button></div>`}
         </div>
       </div>
       <div class="card${paid ? "" : " lic-banner"}">
@@ -7224,7 +7288,11 @@ function cellSigned(k) {
          k === "swap" || k === "commission";
 }
 function table(rows, keys, closable) {
-  const head = keys.map((k) => `<th>${I18N.t("table." + k) !== "table." + k ? I18N.t("table." + k) : k}</th>`).join("");
+  /* scope="col" on every header. Without it a screen reader reading a
+     positions row cell by cell announces the value and not which
+     column it came from, which on a table of eight numeric columns
+     is the whole of the information. */
+  const head = keys.map((k) => `<th scope="col">${I18N.t("table." + k) !== "table." + k ? I18N.t("table." + k) : k}</th>`).join("");
   const body = rows.map((r) => `<tr data-ticket="${r.ticket || ""}">${keys.map((k) => {
     const v = k === "profit_pct" ? posProfitPct(r) : r[k];
     // Every money column is signed, not just profit. A swap of -4.10 shown
@@ -7238,7 +7306,7 @@ function table(rows, keys, closable) {
   // layout at all the columns re-measure on every price tick and the row
   // shifts under the pointer.
   const cols = keys.map((k) => `<col class="c-${esc(k)}">`).join("") + (closable ? `<col class="c-close">` : "");
-  return `<div class="table-wrap"><table><colgroup>${cols}</colgroup><thead><tr>${head}${closable?"<th></th>":""}</tr></thead><tbody>${body}</tbody></table></div>`;
+  return `<div class="table-wrap"><table><colgroup>${cols}</colgroup><thead><tr>${head}${closable ? `<th scope="col"><span class="sr-only">${esc(I18N.t("exec.close"))}</span></th>` : ""}</tr></thead><tbody>${body}</tbody></table></div>`;
 }
 function paintPositions(boxId, rows, keys, closable) {
   const box = $(boxId);

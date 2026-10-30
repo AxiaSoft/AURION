@@ -1894,14 +1894,9 @@ html[data-motion="off"] .theme-card.on::after{ animation:none; opacity:0 }
    illegibility and nothing is covered up.
    =========================================================================== */
 
-/* For text that only the screen reader needs - the padlock is decorative, so
-   the reason a card cannot be chosen has to be said in words somewhere. */
-.sr-only{
-  position:absolute; width:1px; height:1px;
-  margin:-1px; padding:0; border:0;
-  clip:rect(0 0 0 0); clip-path:inset(50%);
-  overflow:hidden; white-space:nowrap;
-}
+/* .sr-only moved to app.css. It is a base utility that the themes sheet
+   happened to be the first to need; leaving it here meant a rule every
+   view depends on was only loaded because the theme gallery exists. */
 
 /* ---- the note above the grid --------------------------------------------- */
 .theme-locked-note{

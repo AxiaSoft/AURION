@@ -129,7 +129,7 @@
 
   function svg(path, cls) {
     const body = String(path || "").split("|").map((d) => '<path d="' + d + '"/>').join("");
-    return '<svg class="' + (cls || "") + '" viewBox="0 0 24 24" fill="none" stroke="currentColor" ' +
+    return '<svg aria-hidden="true" focusable="false" class="' + (cls || "") + '" viewBox="0 0 24 24" fill="none" stroke="currentColor" ' +
       'stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + body + "</svg>";
   }
 

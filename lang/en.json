@@ -340,7 +340,9 @@
     "rf_steps": "Targets on the way",
     "rf_ladder_help": "Each target the trade reaches drags the stop up to the one below it, so profit already made cannot be given back. The first one makes the trade risk free.",
     "rf_to_entry": "break-even",
-    "rf_rung_at": "at {pct}% of the way to target"
+    "rf_rung_at": "at {pct}% of the way to target",
+    "file_name": "Strategy file name",
+    "source": "Strategy source code"
   },
   "sys": {
     "tz_title": "Time zone",
@@ -781,7 +783,8 @@
     "factory_type": "Type FACTORY in capital letters",
     "factory_go": "Erase everything and restore factory",
     "factory_confirm": "This cannot be undone. All desk data returns to factory. Continue?",
-    "factory_going": "Wiping AURION and restarting…"
+    "factory_going": "Wiping AURION and restarting…",
+    "timezone": "Desk time zone"
   },
   "license": {
     "title": "Axiasoft license",
@@ -1292,7 +1295,10 @@
     "no_sym": "No attached chart matches that.",
     "pos_expand": "Show open trades",
     "pos_collapse": "Hide open trades",
-    "positions": "Positions"
+    "positions": "Positions",
+    "timeframe": "Timeframe",
+    "signals_show": "Show signals on the chart",
+    "signals_hide": "Hide signals on the chart"
   },
   "signal": {
     "buy": "Buy signal",
@@ -1484,7 +1490,8 @@
     "wall_missing": "This picture could not be loaded. The desk is still showing the theme's own background.",
     "wall_missing_path": "Tried: {path}",
     "wall_theme_none": "This theme has no picture",
-    "wall_aurion": "AURION"
+    "wall_aurion": "AURION",
+    "bg_picture": "Background picture"
   },
   "ea": {
     "title": "Expert Advisors (MetaTrader 5)",

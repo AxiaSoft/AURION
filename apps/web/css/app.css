@@ -1500,6 +1500,9 @@ html[dir="rtl"] .chart-stage.sw-prev{animation-name:slideFromRight}
 
 /* desk53 — settings: AI-confidence range + lot mode */
 .conf-head{display:flex;align-items:center;justify-content:space-between;gap:10px}
+/* A slider and its read-out, set off from the switch above it. Was
+   three identical inline margin-tops. */
+.conf-field{margin-block-start:10px}
 .conf-pct{font-size:16px;color:var(--cyan);min-width:3.4ch;text-align:end}
 input[type=range]{width:100%;accent-color:var(--cyan);height:28px;cursor:pointer}
 .badge-hint{
@@ -3524,6 +3527,21 @@ html[dir="rtl"] .ct-side span{letter-spacing:0;text-transform:none;font-size:12p
   margin:-1px;padding:0;border:0;
   clip-path:inset(50%);
   overflow:hidden;white-space:nowrap;
+}
+
+/* Text only the screen reader needs.
+
+   Used where a visible label would be redundant to the eye but its
+   absence leaves the control nameless: the close column of a
+   positions table, the reason a locked theme card cannot be chosen.
+   Not display:none and not visibility:hidden - both remove the text
+   from the accessibility tree as well, which is the opposite of the
+   point. */
+.sr-only{
+  position:absolute; width:1px; height:1px;
+  margin:-1px; padding:0; border:0;
+  clip:rect(0 0 0 0); clip-path:inset(50%);
+  overflow:hidden; white-space:nowrap;
 }
 
 /* ------------------------------------------------------------------

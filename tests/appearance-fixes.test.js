@@ -78,7 +78,10 @@ check("the Markets toolbar still puts the two controls side by side", () => {
   const bar = appJs.slice(appJs.indexOf('<div class="mk-pick">'));
   const head = bar.slice(0, 400);
   if (!/symbolPickerHtml\("sym"/.test(head)) throw new Error("the instrument picker left .mk-pick");
-  if (!/<select class="ctrl" id="tf">/.test(head)) throw new Error("the timeframe select left .mk-pick");
+  /* Matched on the id alone. The first version of this pinned the whole
+     opening tag, so adding an aria-label to the select - which it badly
+     needed - failed a check about LAYOUT. */
+  if (!/<select[^>]*\bid="tf"/.test(head)) throw new Error("the timeframe select left .mk-pick");
   return "sympick + select#tf";
 });
 

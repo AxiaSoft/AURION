@@ -65,3 +65,6 @@ admin/telegram-panel/panel.token
 # different on every install, and a joblib blob in the history is a
 # binary nobody can review.
 engine/models/
+
+# Vendored UI/UX design-intelligence skill (tooling, not product code)
+.claude/skills/
