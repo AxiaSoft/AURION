@@ -884,7 +884,12 @@
     "totp_copy": "Copy secret",
     "no_mail": "No Gmail on this account",
     "no_phone": "No mobile on this account",
-    "save_profile": "Save profile"
+    "save_profile": "Save profile",
+    "prefs": "Preferences",
+    "current_plan": "Current plan",
+    "why_prefs": "How the desk addresses you, and the clock and language it uses.",
+    "why_security": "How you sign in, and what stands between this account and someone else.",
+    "why_plan": "What is active now, what you can move to, and what you have paid."
   },
   "notify": {
     "bell": "Notifications",

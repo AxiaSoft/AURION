@@ -1707,7 +1707,7 @@ html[data-skin] .keybox{ border-radius:var(--radius-md) }
    blanket background here would have quietly removed that. */
 html[data-skin] .plan-card{ border-radius:var(--radius-lg) }
 html[data-skin] .notify-stack .notify-card{ border-radius:var(--radius-md) }
-html[data-skin] .prof-ava{ border-radius:var(--radius-lg) }
+html[data-skin] .pfx-ava{ border-radius:var(--radius-lg) }
 
 /* Native controls that are not switches still exist in forms, and an
    unstyled checkbox in a themed dialog is the one thing that gives a skin

@@ -6834,23 +6834,39 @@ const views = {
     </div>`;
   },
   profile() {
+    /* Rebuilt.
+
+       Four cards, and the last one was doing four unrelated jobs under
+       four <h3>s: what plan is active, which plans exist, the pay
+       button, and the payment history. Four sections inside one card
+       is four sections pretending to be one, and it put "Pay and
+       activate" in the middle of a stack rather than at the end of the
+       thing it pays for.
+
+       The first card had the same fault in miniature - it was an
+       identity banner AND an edit form AND a language switcher AND a
+       save button. Who you are and what you would like changed are
+       not the same question; the banner states, the form edits.
+
+       Ten inline margins set the vertical rhythm by hand, every one a
+       different number. They are gone: spacing is the card's job. */
     const u = S.user || {};
     const L = (S.snap && S.snap.license) || {};
     const paid = Boolean(L.paid || L.developer);
     const initials = String(u.display_name || u.username || "A").replace(/[^A-Za-z0-9\u0600-\u06FF]/g, "").slice(0, 2).toUpperCase() || "A";
-    const since = u.created ? String(u.created).slice(0, 10) : "—";
-    const last = u.last_login ? String(u.last_login).replace("T", " ").slice(0, 16) : "—";
+    const since = u.created ? String(u.created).slice(0, 10) : "\u2014";
+    const last = u.last_login ? String(u.last_login).replace("T", " ").slice(0, 16) : "\u2014";
     const popular = "m6";
-    const toman = (rial) => rial ? fmt(rial / 10, 0) : "—";
+    const toman = (rial) => rial ? fmt(rial / 10, 0) : "\u2014";
     const plans = (S.plans || []).map((p) => {
       const on = S._plan === p.id ? " on" : "";
       const pop = p.id === popular ? " popular" : "";
-      const per = p.amount && p.days ? fmt((p.amount / 10) / (p.days / 30), 0) : "—";
-      return `<button type="button" class="plan-card${on}${pop}" data-plan="${p.id}">
+      const per = p.amount && p.days ? fmt((p.amount / 10) / (p.days / 30), 0) : "\u2014";
+      return `<button type="button" class="plan-card${on}${pop}" data-plan="${p.id}" aria-pressed="${Boolean(on)}">
         ${p.id === popular ? `<span class="plan-tag">${I18N.t("profile.popular")}</span>` : ""}
         <h4>${esc(p.label)}</h4>
         <div class="plan-price"><b>${toman(p.amount)}</b><small>${I18N.lang === "en" ? "Toman" : I18N.t("profile.per_month")}</small></div>
-        <p class="plan-per">${per} · ${I18N.t("profile.per_month")}</p>
+        <p class="plan-per">${per} \u00b7 ${I18N.t("profile.per_month")}</p>
         <ul>
           <li>${I18N.t("profile.feature_live")}</li>
           <li>${I18N.t("profile.feature_days", { n: p.days })}</li>
@@ -6858,71 +6874,121 @@ const views = {
         </ul>
       </button>`;
     }).join("");
-    const pays = (S.pays || []).map((p) => `<div class="pay-row"><span>${esc(p.plan)} · ${esc(p.status)}</span><b class="mono">${p.amount ? fmt(p.amount / 10, 0) : "—"}</b></div>`).join("");
+    const pays = (S.pays || []).map((p) => `<div class="pay-row"><span>${esc(p.plan)} \u00b7 ${esc(p.status)}</span><b class="mono">${p.amount ? fmt(p.amount / 10, 0) : "\u2014"}</b></div>`).join("");
     const tz = u.timezone || "Asia/Tehran";
     const zones = ["Asia/Tehran", "UTC", "Europe/Berlin", "Europe/London", "Asia/Dubai", "America/New_York"];
-    return `<div class="cmd">
-      <div class="card">
-        <div class="prof-hero">
-          <div class="prof-ava">${esc(initials)}</div>
-          <div>
-            <h2 class="set-title" style="margin:0">${esc(u.display_name || u.username || I18N.t("profile.title"))}</h2>
-            <p class="sub">@${esc(u.username || "")}</p>
-            <div class="prof-meta">
-              <span class="chip on">${esc(u.role || "trader")}</span>
-              <span class="chip">${I18N.t("profile.member")} ${esc(since)}</span>
-              <span class="chip">${I18N.t("profile.last_seen")} ${esc(last)}</span>
-              <button type="button" class="chip" id="pf-copy">@${esc(u.username || "")} · ${I18N.t("profile.copy")}</button>
-            </div>
+
+    /* A contact line states whether it is there and whether it is
+       proven, in words. "Verified" in a different colour is not an
+       answer to "is this verified?" for anyone who cannot see the
+       colour. */
+    const contact = (label, value, none) => `<div class="pfx-row">
+        <span>${esc(label)}</span>
+        <b>${value ? esc(value) : `<em class="pfx-none">${esc(none)}</em>`}</b>
+        ${value ? `<span class="badge-ok">${esc(I18N.t("profile.verified"))}</span>` : ""}
+      </div>`;
+
+    const head = (title, why) => `<header class="pfx-head">
+        <h3>${esc(title)}</h3>
+        ${why ? `<p class="sub">${esc(why)}</p>` : ""}
+      </header>`;
+
+    return `<div class="cmd pfx">
+      <!-- 1. Who this is. It states; it does not edit. -->
+      <header class="card pfx-id">
+        <div class="pfx-ava" aria-hidden="true">${esc(initials)}</div>
+        <div class="pfx-who">
+          <h2 class="pfx-name">${esc(u.display_name || u.username || I18N.t("profile.title"))}</h2>
+          <p class="sub">@${esc(u.username || "")}</p>
+          <div class="pfx-chips">
+            <span class="chip on">${esc(u.role || "trader")}</span>
+            <span class="chip">${I18N.t("profile.member")} ${esc(since)}</span>
+            <span class="chip">${I18N.t("profile.last_seen")} ${esc(last)}</span>
+            <button type="button" class="chip" id="pf-copy">${icon("clipboard")} @${esc(u.username || "")} \u00b7 ${I18N.t("profile.copy")}</button>
           </div>
         </div>
-        <div class="grid g-2" style="margin-top:16px">
-          <label class="field"><span>${I18N.t("profile.name")}</span><input id="pf-name" value="${esc(u.display_name || "")}" placeholder="${esc(I18N.t("profile.name_ph"))}" /></label>
+      </header>
+
+      <!-- 2. The two things you come here to change, side by side on a
+              desktop. Preferences are harmless and security is not, so
+              they do not share a Save button. -->
+      <div class="pfx-cols">
+        <section class="card">
+          ${head(I18N.t("profile.prefs"), I18N.t("profile.why_prefs"))}
+          <label class="field"><span>${I18N.t("profile.name")}</span>
+            <input id="pf-name" value="${esc(u.display_name || "")}" placeholder="${esc(I18N.t("profile.name_ph"))}" /></label>
           <label class="field"><span>${I18N.t("profile.tz")}</span>
             <select class="ctrl" id="pf-tz">${zones.map((z) => `<option value="${z}" ${z === tz ? "selected" : ""}>${z}</option>`).join("")}</select>
           </label>
-        </div>
-        <div class="lang-pills" id="pf-langs" style="margin:8px 0 12px">
-          <button type="button" data-lang="en">EN</button>
-          <button type="button" data-lang="fa">فارسی</button>
-          <button type="button" data-lang="ar">العربية</button>
-        </div>
-        <button class="btn" id="pf-save" type="button">${I18N.t("profile.save_profile")}</button>
-      </div>
-      <div class="grid g-2">
-        <div class="card prof-sec">
-          <h3>${I18N.t("profile.identity")}</h3>
-          <p>${u.gmail ? esc(u.gmail) : I18N.t("profile.no_mail")} ${u.gmail ? `<span class="badge-ok">${I18N.t("profile.verified")}</span>` : ""}</p>
-          <p style="margin-top:10px">${u.phone ? esc(u.phone) : I18N.t("profile.no_phone")} ${u.phone ? `<span class="badge-ok">${I18N.t("profile.verified")}</span>` : ""}</p>
-        </div>
-        <div class="card prof-sec">
-          <h3>${I18N.t("profile.security")}</h3>
-          <label class="field"><span>${I18N.t("profile.current")}</span><input id="pf-cur" type="password" autocomplete="current-password" /></label>
-          <label class="field"><span>${I18N.t("profile.next")}</span><input id="pf-next" type="password" autocomplete="new-password" /></label>
-          <label class="field"><span>${I18N.t("auth.pass2")}</span><input id="pf-next2" type="password" autocomplete="new-password" /></label>
-          <button class="btn tiny" id="pf-pass" type="button">${I18N.t("profile.password")}</button>
-          <h3 style="margin-top:16px">${I18N.t("profile.totp")}</h3>
-          <p class="sub">${I18N.t(u.totp_enabled ? "profile.totp_on" : "profile.totp_off")}</p>
+          <div class="field">
+            <span id="pf-lang-lab">${I18N.t("profile.lang")}</span>
+            <div class="lang-pills" id="pf-langs" role="group" aria-labelledby="pf-lang-lab">
+              <button type="button" data-lang="en">EN</button>
+              <button type="button" data-lang="fa">\u0641\u0627\u0631\u0633\u06cc</button>
+              <button type="button" data-lang="ar">\u0627\u0644\u0639\u0631\u0628\u064a\u0629</button>
+            </div>
+          </div>
+          <button class="btn block" id="pf-save" type="button">${I18N.t("profile.save_profile")}</button>
+
+          <hr class="pfx-rule" />
+          ${head(I18N.t("profile.identity"))}
+          ${contact(I18N.t("profile.gmail"), u.gmail, I18N.t("profile.no_mail"))}
+          ${contact(I18N.t("profile.phone"), u.phone, I18N.t("profile.no_phone"))}
+        </section>
+
+        <section class="card">
+          ${head(I18N.t("profile.security"), I18N.t("profile.why_security"))}
+          <label class="field"><span>${I18N.t("profile.current")}</span>
+            <input id="pf-cur" type="password" autocomplete="current-password" /></label>
+          <label class="field"><span>${I18N.t("profile.next")}</span>
+            <input id="pf-next" type="password" autocomplete="new-password" /></label>
+          <label class="field"><span>${I18N.t("auth.pass2")}</span>
+            <input id="pf-next2" type="password" autocomplete="new-password" /></label>
+          <button class="btn block" id="pf-pass" type="button">${I18N.t("profile.password")}</button>
+
+          <hr class="pfx-rule" />
+          ${head(I18N.t("profile.totp"))}
+          <p class="sub pfx-state ${u.totp_enabled ? "is-on" : "is-off"}">${
+            I18N.t(u.totp_enabled ? "profile.totp_on" : "profile.totp_off")}</p>
           ${u.totp_enabled
-            ? `<div class="row"><input class="ctrl" id="pf-td" placeholder="000000" style="max-width:120px"/><button class="btn tiny danger" id="pf-toff" type="button">${I18N.t("profile.totp_disable")}</button></div>`
+            ? `<div class="row pfx-acts">
+                 <input class="ctrl pf-code" id="pf-td" placeholder="000000" inputmode="numeric"
+                        autocomplete="one-time-code" aria-label="${esc(I18N.t("profile.totp_disable"))}" />
+                 <button class="btn tiny danger" id="pf-toff" type="button">${I18N.t("profile.totp_disable")}</button>
+               </div>`
             : `<button class="btn tiny" id="pf-ton" type="button">${I18N.t("profile.totp_start")}</button>
                <p class="secret-box hidden" id="pf-tsec"></p>
-               <div class="row hidden" id="pf-trow"><input class="ctrl pf-code" id="pf-tc" placeholder="000000" inputmode="numeric"
-                 autocomplete="one-time-code" aria-label="${esc(I18N.t("profile.totp_confirm"))}"/><button class="btn tiny" id="pf-tok" type="button">${I18N.t("profile.totp_confirm")}</button></div>`}
-        </div>
+               <div class="row pfx-acts hidden" id="pf-trow">
+                 <input class="ctrl pf-code" id="pf-tc" placeholder="000000" inputmode="numeric"
+                        autocomplete="one-time-code" aria-label="${esc(I18N.t("profile.totp_confirm"))}" />
+                 <button class="btn tiny" id="pf-tok" type="button">${I18N.t("profile.totp_confirm")}</button>
+               </div>`}
+        </section>
       </div>
-      <div class="card${paid ? "" : " lic-banner"}">
-        <h3>${I18N.t("profile.plan")}</h3>
+
+      <!-- 3. The plan, as three things rather than one card with four
+              headings in it: what is running, what you could move to,
+              and what you have already paid. -->
+      <section class="card pfx-plan${paid ? "" : " lic-banner"}">
+        ${head(I18N.t("profile.current_plan"), I18N.t("profile.why_plan"))}
         <p class="metric">${esc(L.plan_label || L.plan || I18N.t("profile.trial"))}</p>
         <p class="sub">${paid && L.days_left != null ? I18N.t("profile.remaining", { n: L.days_left }) : I18N.t("profile.trial")}</p>
-        <p class="sub">${L.expires || ""}</p>
-        <h3 style="margin-top:14px">${I18N.t(paid ? "profile.renew" : "profile.choose")}</h3>
+        ${L.expires ? `<p class="sub">${esc(L.expires)}</p>` : ""}
+      </section>
+
+      <section class="card">
+        ${head(I18N.t(paid ? "profile.renew" : "profile.choose"))}
         <div class="plan-grid" id="plan-grid">${plans || `<p class="sub">${I18N.t("profile.gateway_off")}</p>`}</div>
+        <!-- The pay button sits at the end of the thing it pays for,
+             not in the middle of a stack with the receipts below it. -->
         <button class="btn block" id="pf-pay" type="button">${I18N.t("profile.pay")}</button>
         <p class="sub" id="pf-pay-msg"></p>
-        <h3 style="margin-top:16px">${I18N.t("profile.history")}</h3>
+      </section>
+
+      <section class="card">
+        ${head(I18N.t("profile.history"))}
         <div id="pf-pays">${pays || `<p class="sub">${I18N.t("profile.pay_none")}</p>`}</div>
-      </div>
+      </section>
     </div>`;
   },
 };

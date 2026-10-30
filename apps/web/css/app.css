@@ -595,16 +595,8 @@ html[dir="rtl"] .switch.on i{transform:translate(calc(var(--sw-travel) * -1),-50
 .plan-card ul{margin:0;padding:0;list-style:none;display:grid;gap:6px}
 .plan-card li{font-size:12px;color:var(--muted);padding-inline-start:16px;position:relative}
 .plan-card li::before{content:"";position:absolute;inset-inline-start:0;top:6px;width:7px;height:7px;border-radius:99px;background:var(--cyan)}
-.prof-hero{display:flex;align-items:center;gap:16px;flex-wrap:wrap}
-.prof-ava{
-  width:76px;height:76px;border-radius:24px;display:grid;place-items:center;
-  background:linear-gradient(135deg,var(--accent),var(--accent-3));color:#061014;font-weight:600;font-size:26px;
-  box-shadow:0 12px 28px rgb(var(--accent-rgb) / .18);
-}
-.prof-meta{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
 .chip{display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:999px;border:1px solid var(--line);font-size:11px;color:var(--muted)}
 .chip.on{border-color:rgb(var(--accent-rgb) / .35);color:var(--cyan)}
-.prof-sec{margin-top:4px}
 .pay-row{display:flex;justify-content:space-between;gap:10px;padding:8px 0;border-bottom:1px solid var(--line);font-size:13px}
 .secret-box{
   font-family:"IBM Plex Mono",monospace;font-size:13px;letter-spacing:.08em;
@@ -613,10 +605,76 @@ html[dir="rtl"] .switch.on i{transform:translate(calc(var(--sw-travel) * -1),-50
 }
 .badge-ok{color:var(--cyan);font-size:11px}
 .badge-no{color:var(--rose);font-size:11px}
-.prof-id{display:flex;align-items:center;gap:14px;margin-bottom:14px}
-.prof-ava{
-  width:64px;height:64px;border-radius:20px;display:grid;place-items:center;
-  background:linear-gradient(135deg,var(--accent),var(--accent-3));color:#061014;font-weight:600;font-size:22px;
+/* ------------------------------------------------------------------
+   Profile - rebuilt
+
+   .prof-ava was declared TWICE in this file, nineteen lines apart:
+   76px with a shadow, then 64px without. The second silently won, so
+   the first had been dead for however long and the avatar was a size
+   nobody chose. Same fault as the settings rail had. One rule now.
+   ------------------------------------------------------------------ */
+.pfx-id{display:flex; align-items:center; gap:18px; flex-wrap:wrap}
+.pfx-ava{
+  inline-size:72px; block-size:72px; border-radius:22px;
+  display:grid; place-items:center; flex:none;
+  background:linear-gradient(135deg, var(--accent), var(--accent-3));
+  color:var(--on-accent); font-weight:600; font-size:25px;
+  box-shadow:0 12px 28px rgb(var(--accent-rgb) / .18);
+}
+.pfx-who{min-inline-size:0; flex:1 1 240px}
+.pfx-name{margin:0; font-size:21px; font-weight:600; letter-spacing:-.01em}
+.pfx-who > .sub{margin:2px 0 0}
+.pfx-chips{display:flex; flex-wrap:wrap; gap:6px; margin-block-start:10px}
+.pfx-chips .chip{cursor:default}
+.pfx-chips button.chip{cursor:pointer}
+.pfx-chips button.chip:hover{border-color:rgb(var(--accent-rgb) / .35); color:var(--ink)}
+
+/* Preferences beside security. They never share a Save button:
+   one is harmless and the other is not. */
+.pfx-cols{
+  display:grid; gap:14px; align-items:start;
+  grid-template-columns:repeat(auto-fit, minmax(320px, 1fr));
+}
+
+/* One heading grammar for every section on the page, so a section is
+   recognisable as a section without counting <h3>s. */
+.pfx-head{margin:0 0 12px}
+.pfx-head h3{margin:0}
+.pfx-head .sub{margin:4px 0 0; font-size:12.5px; max-inline-size:52ch}
+
+/* A rule between two jobs inside one card - password and 2FA are one
+   subject, so they share a card, but they are not one form. */
+.pfx-rule{
+  border:0; border-block-start:1px solid var(--line);
+  margin-block:20px 16px;
+}
+
+.pfx-row{
+  display:flex; align-items:baseline; gap:10px;
+  padding-block:9px; border-block-end:1px solid var(--line); font-size:13px;
+}
+.pfx-row:last-child{border-block-end:0}
+.pfx-row > span{color:var(--muted); min-inline-size:7.5rem}
+.pfx-row > b{font-weight:600; min-inline-size:0; overflow-wrap:anywhere}
+.pfx-none{font-style:normal; color:var(--faint); font-weight:400}
+
+/* Two-factor on and two-factor off read differently in WORDS first.
+   The colour is the second signal, not the only one. */
+.pfx-state{margin:0 0 10px}
+.pfx-state.is-on{color:var(--ok)}
+.pfx-state.is-off{color:var(--muted)}
+
+.pfx-acts{margin-block-start:10px; gap:8px; align-items:center; flex-wrap:wrap}
+.pf-code{max-inline-size:140px; font-variant-numeric:tabular-nums; letter-spacing:.14em}
+
+@media (max-width:560px){
+  .pfx-ava{inline-size:56px; block-size:56px; border-radius:18px; font-size:20px}
+  .pfx-id{gap:14px}
+  .pfx-name{font-size:19px}
+  /* A label column of 7.5rem next to a long email leaves the value
+     about four characters wide on a phone. */
+  .pfx-row{flex-direction:column; gap:2px}
+  .pfx-row > span{min-inline-size:0}
 }
 /* The chart's own toolbar used to live here: a row of 28 equal buttons that
    collapsed behind a hamburger below 900px. It has been replaced wholesale by

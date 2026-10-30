@@ -758,6 +758,53 @@ if (!jsdom) {
       if (!/var\(--accent-rgb\)/.test(rule)) throw new Error("the light rail does not use the accent");
     });
 
+    /* ---- 2c. profile --------------------------------------------------- */
+
+    check("one card does not do four unrelated jobs", () => {
+      /* The plan card had four <h3>s in it: what is active, what you
+         could buy, the pay button, and the receipts. Four sections
+         inside one card is four sections pretending to be one, and it
+         put "Pay and activate" in the middle of a stack. */
+      const d = frag(T.views.profile());
+      for (const card of d.querySelectorAll(".card")) {
+        const n = card.querySelectorAll(".pfx-head").length;
+        if (n > 2) throw new Error(`a card carries ${n} section headings`);
+      }
+      const pay = d.querySelector("#pf-pay");
+      const grid = d.querySelector("#plan-grid");
+      if (!pay || !grid) throw new Error("the plan chooser lost a part");
+      if (pay.closest(".card") !== grid.closest(".card")) {
+        throw new Error("the pay button is not in the card it pays for");
+      }
+      /* And the receipts are not between them. */
+      if (d.querySelector("#pf-pays").closest(".card") === grid.closest(".card")) {
+        throw new Error("the payment history shares a card with the chooser");
+      }
+    });
+
+    check("preferences and security do not share a save button", () => {
+      const d = frag(T.views.profile());
+      const prefs = d.querySelector("#pf-save").closest(".card");
+      const pass = d.querySelector("#pf-pass").closest(".card");
+      if (prefs === pass) throw new Error("one Save covers both a display name and a password");
+    });
+
+    check("two-factor state is a word before it is a colour", () => {
+      const d = frag(T.views.profile());
+      const state = d.querySelector(".pfx-state");
+      if (!state || !state.textContent.trim()) throw new Error("the 2FA state is not stated");
+      if (!/is-(on|off)/.test(state.className)) throw new Error("the 2FA state carries no class to colour");
+    });
+
+    check("the avatar is sized once, not twice", () => {
+      /* .prof-ava was declared twice nineteen lines apart - 76px with a
+         shadow, then 64px without - so the avatar was a size nobody
+         chose and half the rule had been dead for months. */
+      const n = (appCss.match(/^\.pfx-ava\s*\{/gm) || []).length;
+      if (n !== 1) throw new Error(`.pfx-ava is declared ${n} times`);
+      if (/^\.prof-ava\s*\{/m.test(appCss)) throw new Error("the old duplicated rule is still here");
+    });
+
     /* ---- 3. About ----------------------------------------------------- */
 
     check("the About page shows the build stamp in the new format", () => {

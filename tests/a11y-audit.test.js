@@ -98,23 +98,65 @@ T.S.snap = {
 const VIEWS = ["command", "markets", "intelligence", "calendar", "strategies", "execution",
   "charts", "terminal", "backtest", "history", "upgrade", "settings", "about", "profile"];
 
+/* Rendering each view once covers the branch the fixture happens to
+   take and nothing else. The first pass of this audit passed Profile
+   clean while a 2FA code box with no label sat in the branch that
+   renders when two-factor is already ON - a state the fixture did not
+   have. A control is not accessible because the happy path is.
+   These are the state flips that change what the views emit. */
+const STATES = [
+  ["default", () => {}],
+  ["nothing connected", () => {
+    T.S.snap.mt5.connected = false;
+    T.S.snap.agents = [];
+    T.S.snap.engine = "offline";
+    T.S.snap.positions = [];
+    T.S.snap.orders = [];
+  }],
+  ["two-factor on, free plan, prop off", () => {
+    T.S.user = { ...(T.S.user || {}), totp_enabled: true, gmail: "a@b.c", phone: "+1" };
+    T.S.snap.license = { premium: false, plan: "trial", paid: false };
+    T.S.snap.prop.enabled = false;
+    T.S.snap.telegram = { enabled: true, chats: [{ id: 1, title: "Desk" }] };
+  }],
+  ["locked out and killed", () => {
+    T.S.snap.kill_switch = true;
+    T.S.snap.prop.locked = true;
+    T.S.snap.prop.lock_reason = "daily loss reached";
+    T.S.snap.strategy.auto_trade = false;
+  }],
+];
+
 const failures = [];
-const fail = (rule, where) => failures.push(`${rule}\n      ${where}`);
+const fail = (rule, where) => { if (where) failures.push(`${rule}\n      ${where}`); };
 const txt = (el) => (el.textContent || "").replace(/\s+/g, " ").trim();
 const named = (el) => Boolean(txt(el) || el.getAttribute("aria-label") ||
   el.getAttribute("aria-labelledby") || el.getAttribute("title"));
+
+const BASE_SNAP = JSON.stringify(T.S.snap);
+const BASE_USER = JSON.stringify(T.S.user || {});
+const seen = new Set();
+
+for (const [stateName, apply] of STATES) {
+  T.S.snap = JSON.parse(BASE_SNAP);
+  T.S.user = JSON.parse(BASE_USER);
+  apply();
 
 for (const view of VIEWS) {
   let html;
   try {
     html = T.views[view]();
   } catch (e) {
-    fail("a view throws while rendering", `${view}: ${e.message}`);
+    fail("a view throws while rendering", `${view} [${stateName}]: ${e.message}`);
     continue;
   }
   const d = win.document.createElement("div");
   d.innerHTML = html;
-  const at = (s) => `${view}: ${s}`;
+  /* The same defect found in four states is one defect. */
+  const at = (s) => {
+    const key = `${view}|${s}`;
+    return seen.has(key) ? null : (seen.add(key), `${view} [${stateName}]: ${s}`);
+  };
 
   /* 1. A control with no accessible name does not exist.
         Not to a screen reader, and not to voice control, which needs
@@ -175,6 +217,8 @@ for (const view of VIEWS) {
   }
 }
 
+}
+
 /* 7. Source-level: every icon leaves the icon() helper hidden, so no
       caller has to remember. Written against the source because the
       point is that there is ONE place to get it wrong. */
@@ -201,8 +245,8 @@ if (failures.length) {
     for (const w of where.slice(0, 8)) console.log("      " + w);
     if (where.length > 8) console.log(`      … and ${where.length - 8} more`);
   }
-  console.log(`\na11y audit: ${failures.length} findings across ${VIEWS.length} views`);
+  console.log(`\na11y audit: ${failures.length} findings across ${VIEWS.length} views \u00d7 ${STATES.length} states`);
   done(1);
 }
-console.log(`a11y audit: ${VIEWS.length} views clean`);
+console.log(`a11y audit: ${VIEWS.length} views \u00d7 ${STATES.length} states clean`);
 done(0);
