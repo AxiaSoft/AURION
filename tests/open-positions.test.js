@@ -60,7 +60,7 @@ function decl(body, prop) {
 }
 /** The narrow-screen block that holds the chart's mobile layout. */
 function mobileBlock(css) {
-  const at = css.indexOf("@media (max-width:620px)");
+  const at = css.indexOf("@media (max-width:560px)");
   if (at < 0) throw new Error("no 620px block in chart.css");
   return css.slice(at, css.indexOf("\n}", at));
 }

@@ -1662,11 +1662,11 @@ html[data-theme="light"] .tc-art{ box-shadow:inset 0 0 0 1px rgb(var(--wash) / .
 /* ---- responsive --------------------------------------------------------
    Phones get two columns rather than one: a theme is chosen by comparison,
    and a single column turns that into scrolling and memory. */
-@media (max-width:860px){
+@media (max-width:900px){
   .theme-grid{ grid-template-columns:repeat(auto-fill, minmax(150px, 1fr)); gap:10px }
   .tc-art{ height:76px }
 }
-@media (max-width:520px){
+@media (max-width:560px){
   .theme-grid{ grid-template-columns:repeat(2, minmax(0, 1fr)) }
   .tc-art{ height:68px; padding:6px }
   .tc-desc{ display:none }

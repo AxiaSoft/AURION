@@ -385,7 +385,7 @@ check("the search chrome is styled and has narrow-screen rules", () => {
     throw new Error("the shell draws no focus ring, so the input would show its own");
   }
   const at = appCss.indexOf(".ch-find{");
-  const narrow = appCss.slice(at).indexOf("@media (max-width:620px)");
+  const narrow = appCss.slice(at).indexOf("@media (max-width:560px)");
   if (narrow < 0) throw new Error("the search box has no phone rules");
   if (!/\.chart-card\[hidden\]\{\s*display:none/.test(appCss)) {
     throw new Error("hidden cards would still occupy a grid cell");

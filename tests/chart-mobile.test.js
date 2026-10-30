@@ -144,10 +144,10 @@ console.log("\nthe side panel on first open");
     /read\(LS_DOCK,\s*narrow\(\)\s*\?\s*"0"\s*:\s*"1"\)/.test(tools));
   check("...and 'narrow' is the same 980px breakpoint the stylesheet floats it at",
     /matchMedia\(\s*"\(max-width:\s*980px\)"\s*\)/.test(tools) &&
-    /@media \(max-width: 980px\)/.test(rawCss));
+    /@media \(max-width: 1000px\)/.test(rawCss));
   const floatsAt = (rawCss.match(/@media \(max-width: (\d+)px\)/g) || []);
   check("...which is a breakpoint that exists in the file",
-    floatsAt.includes("@media (max-width: 980px)") || floatsAt.join(" "));
+    floatsAt.includes("@media (max-width: 1000px)") || floatsAt.join(" "));
 }
 
 /* ================================= the tools, laid out for a thumb === */
@@ -178,8 +178,10 @@ console.log("\nthe drawing tools");
   check("the desktop rail is left exactly as it was",
     (dw && dw.value === "36px") || `width resolved to ${dw && dw.value}`);
 
-  // The coarse-pointer sizing must not reach into the sheet.
-  const coarseRule = /@media \(pointer: coarse\) and \(min-width: 721px\)/.test(rawCss);
+  // The coarse-pointer sizing must not reach into the sheet. 761 and
+  // not 760: min-width and max-width of the same number both match at
+  // exactly that width, and the later rule silently wins.
+  const coarseRule = /@media \(pointer: coarse\) and \(min-width: 761px\)/.test(rawCss);
   check("the coarse-pointer button size is scoped above the sheet's breakpoint",
     coarseRule);
 }

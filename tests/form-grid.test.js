@@ -112,9 +112,22 @@ ok(Math.round(track(PHONE, 3)) < 120,
   `the old 3-column layout gave each control only ${Math.round(track(PHONE, 3))}px`);
 
 /* ------------------------------------------- the rest of the ladder */
+/* The ladder moved when the sheet's twenty-three ad-hoc breakpoints
+   were collapsed onto seven. This grid used to go three-across above
+   820 while the page header around it collapsed at 900, so a tablet
+   between the two had a stacked header over a three-column form. Both
+   flip at 900 now, and the width-by-width behaviour below is the
+   consequence, not an accident:
+
+     <= 560   one across
+     <= 900   two across     (was three between 821 and 900)
+     >  900   three across
+
+   max-width:900px matches AT 900, so 900 itself is the tablet. */
 ok(cols(760) === 2, `at 760px it is two across (got ${cols(760)})`);
 ok(cols(820) === 2, `at 820px it is two across (got ${cols(820)})`);
-ok(cols(900) === 3, `at 900px it is still three across (got ${cols(900)})`);
+ok(cols(900) === 2, `at 900px it is two across (got ${cols(900)})`);
+ok(cols(901) === 3, `one pixel above the breakpoint it is three across (got ${cols(901)})`);
 ok(cols(1400) === 3, `on a desktop it is three across (got ${cols(1400)})`);
 
 /* the 4-up grid is unaffected except where it should be */

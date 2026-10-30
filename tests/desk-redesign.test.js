@@ -815,7 +815,7 @@ check("every rebuilt section has narrow-screen rules", () => {
 
 check("the positions list sheds detail rather than overflowing on a phone", () => {
   const flat = chartCss.replace(/\s*\n\s*/g, "");
-  if (!/@media\s*\(max-width:620px\)\{[^@]*\.tv-pos-lv,\.tv-pos-at\{display:none\}/.test(flat)) {
+  if (!/@media\s*\(max-width:\s*560px\)\{[^@]*\.tv-pos-lv,\.tv-pos-at\{display:none\}/.test(flat)) {
     throw new Error("the list keeps all six columns on a phone");
   }
 });

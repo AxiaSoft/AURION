@@ -222,7 +222,7 @@ check("a viewport change is repainted more than once", (() => {
   // the text between the previous } and the next {, and reading it as
   // the selector made this check fail on rules it had no quarrel with.
   const plain = chartCss.replace(/\/\*[\s\S]*?\*\//g, "");
-  const mobile = chartSliceOf(plain, "@media (max-width: 720px)");
+  const mobile = chartSliceOf(plain, "@media (max-width: 760px)");
 
   // Rules outside any media query that set columns on .tv-body.
   const base = [...plain.replace(/@media[^{]*\{[\s\S]*?\n\}/g, "")
@@ -250,6 +250,56 @@ check("a viewport change is repainted more than once", (() => {
   check("every heavy .tv-body layout rule is answered at the mobile breakpoint",
     unanswered.length === 0,
     unanswered.length ? unanswered.join(" | ") : `${base.length} checked`);
+})();
+
+/* ------------------------------------------------------- the breakpoints --
+
+   The sheets carried twenty-three distinct widths, including 1013px,
+   1120px and 860px - twenty-three separate occasions of dragging a
+   browser edge until one card stopped looking wrong. The cost was not
+   untidiness: different parts of the SAME page reflowed at different
+   widths, so between 820 and 900 the header had collapsed and the
+   content grid had not.                                              */
+
+(() => {
+  const SCALE = [1200, 1100, 1000, 900, 760, 560, 380];
+  const sheets = ["app", "themes", "chart"];
+  const stray = [];
+  const minmax = [];
+
+  for (const name of sheets) {
+    const css = read(`apps/web/css/${name}.css`).replace(/\/\*[\s\S]*?\*\//g, "");
+    for (const m of css.matchAll(/@media[^{]+/g)) {
+      for (const q of m[0].matchAll(/(max-width|min-width):\s*(\d+)px/g)) {
+        const n = Number(q[2]);
+        /* A min-width pairs with its max-width MINUS ONE. Both match at
+           exactly the shared number, and which rule wins is then decided
+           by source order rather than by the author. */
+        const want = q[1] === "min-width" ? SCALE.map((s) => s + 1) : SCALE;
+        if (!want.includes(n)) stray.push(`${name}.css: ${q[1]}:${n}px`);
+        if (q[1] === "min-width" && SCALE.includes(n)) minmax.push(`${name}.css: min-width:${n}px overlaps max-width:${n}px`);
+      }
+    }
+  }
+
+  check("every breakpoint comes from the documented scale",
+    stray.length === 0, stray.length ? stray.join(" | ") : `${sheets.length} sheets, 7 steps`);
+
+  check("no min-width sits on the same pixel as a max-width",
+    minmax.length === 0, minmax.join(" | ") || "ranges are exclusive");
+
+  check("the scale is written down where the breakpoints are",
+    /Breakpoints - the whole scale/.test(read("apps/web/css/app.css")),
+    "a scale nobody can find is a scale nobody follows");
+
+  /* An empty media block is a rule that was deleted without its
+     wrapper, and it reads as deliberate to the next person. */
+  const empties = [];
+  for (const name of sheets) {
+    const css = read(`apps/web/css/${name}.css`);
+    for (const m of css.matchAll(/@media[^{]+\{\s*\}/g)) empties.push(`${name}.css: ${m[0].slice(0, 36)}`);
+  }
+  check("no media query is left empty", empties.length === 0, empties.join(" | ") || "none");
 })();
 
 /* ------------------------------------------------------- control metrics --

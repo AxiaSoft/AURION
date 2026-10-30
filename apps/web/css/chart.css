@@ -694,13 +694,13 @@ html:fullscreen body { background: var(--bg) }
 
 /* --------------------------------------------------------- responsive -- */
 
-@media (max-width: 1180px) {
+@media (max-width: 1200px) {
   .tv { --tv-dock: 250px }
 }
 
 /* Laptop and below: the dock becomes an overlay so the chart keeps its
    width, and the top bar drops the button labels. */
-@media (max-width: 980px) {
+@media (max-width: 1000px) {
   .tv {
     --tv-dock: 0px;
     height: calc(100vh - 116px);
@@ -768,7 +768,7 @@ html:fullscreen body { background: var(--bg) }
 
    Three rows, like every other width. The rail is positioned against
    .tv-body, which is what actually contains it. */
-@media (max-width: 720px) {
+@media (max-width: 760px) {
   .tv {
     --tv-rail: 0px;
     height: calc(100vh - 104px);
@@ -926,7 +926,7 @@ html:fullscreen body { background: var(--bg) }
   .tv-seg { display: none }
 }
 
-@media (max-width: 520px) {
+@media (max-width: 560px) {
   .tv {
     height: calc(100vh - 92px);
     height: calc(100dvh - 92px);
@@ -951,7 +951,7 @@ html:fullscreen body { background: var(--bg) }
 /* Fat targets on the rail, but only where the rail is still a strip of
    icon buttons. Below 720px it is the tool sheet, which lays out its own
    cells - an unqualified width here fought that and collapsed them. */
-@media (pointer: coarse) and (min-width: 721px) {
+@media (pointer: coarse) and (min-width: 761px) {
   .tvr-btn { width: 42px; height: 40px }
 }
 
@@ -1021,7 +1021,7 @@ html:fullscreen body { background: var(--bg) }
 /* On a phone the levels are the first thing to go: the direction, the
    size and what it is making are what a trader needs at a glance, and
    SL/TP are a tap away in the ticket. */
-@media (max-width:620px){
+@media (max-width: 560px){
   .tv-pos-row{grid-template-columns:auto auto 1fr auto;gap:6px}
   .tv-pos-lv,.tv-pos-at{display:none}
   .tv-pos-body{max-height:30vh}

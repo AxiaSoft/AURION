@@ -279,7 +279,10 @@ ok(badSub.length === 0,
 /* the FAB is still reachable on a phone and still hidden on a desktop */
 ok(/\.tv-toolsfab, \.tv-toolscrim \{ display: none \}/.test(css),
   "both overlays are off by default");
-const phone = css.slice(css.indexOf("@media (max-width: 720px)"));
+/* The breakpoint is named from the documented scale in app.css, not
+   guessed. It used to be a literal that happened to be the width
+   someone stopped dragging at. */
+const phone = css.slice(css.indexOf("@media (max-width: 760px)"));
 ok(/\.tv-toolsfab \{[\s\S]*?display: grid/.test(phone), "the FAB appears on a narrow screen");
 ok(/\.tv-toolsfab \{[\s\S]*?z-index: 36/.test(phone), "the FAB sits above the scrim it opens");
 const scrimZ = /\.tv-toolscrim \{[\s\S]*?z-index: (\d+)/.exec(phone);
