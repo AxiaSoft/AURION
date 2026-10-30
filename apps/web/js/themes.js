@@ -920,6 +920,36 @@
     return rel;
   }
 
+  /* Resolve a url() token read back out of a computed custom property.
+   *
+   * --theme-bg reaches the page by two routes with two different bases:
+   * themes.css spells its twenty pictures "../assets/bg/x.jpg", resolved
+   * against the STYLESHEET, while the <style> this file injects carries
+   * an already-absolute URL from assetUrl(). getComputedStyle hands back
+   * a custom property as the raw token either way - it does not resolve
+   * it - so anything that wants to fetch the picture (the theme veil,
+   * which has to wait for it to decode before it lifts) has to apply the
+   * stylesheet's base itself or quietly 404.
+   */
+  function cssUrl(raw) {
+    var m = /url\(\s*(['"]?)([^'")]+)\1\s*\)/.exec(String(raw == null ? "" : raw));
+    if (!m) return "";
+    var src = m[2];
+    if (/^(?:data:|blob:|https?:|\/\/|\/)/i.test(src)) return src;
+    try {
+      var doc = global.document;
+      var links = doc ? doc.getElementsByTagName("link") : [];
+      for (var i = 0; i < links.length; i++) {
+        var href = links[i].getAttribute && links[i].getAttribute("href");
+        if (href && href.indexOf("css/themes.css") !== -1) {
+          return new global.URL(src, links[i].href).href;
+        }
+      }
+      if (doc && doc.baseURI) return new global.URL(src, doc.baseURI).href;
+    } catch (e) { /* fall through to the raw form */ }
+    return src;
+  }
+
   /** The CSS for a theme's chosen wallpaper, or "" to leave it alone. */
   function wallCss(id) {
     var choice = activeWall(id);
@@ -1133,6 +1163,7 @@
     wall: activeWall,
     themeWall: themeOwnWall,
     wallUrl: wallUrl,
+    cssUrl: cssUrl,
   };
 
   apply();

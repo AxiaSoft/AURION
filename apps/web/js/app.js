@@ -408,6 +408,113 @@ function markLangPills() {
 const THEME_ICON_SUN = '<svg aria-hidden="true" focusable="false" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>';
 const THEME_ICON_MOON = '<svg aria-hidden="true" focusable="false" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3 7 7 0 0 0 21 12.8z"/></svg>';
 let __themeMorphT = null;
+
+/* Everything a theme, appearance or language change still has in flight
+ * after `apply()` has returned.
+ *
+ * Returning from apply() only means the new values are in the DOM. The
+ * browser has not necessarily recalculated style, and two of the things
+ * a theme carries are not style at all but files it has to go and fetch:
+ * the typeface and the wallpaper. Both arrive late, and both arrived
+ * after the cover had lifted.
+ */
+const MORPH_SAMPLE = "AURION 0123 آوریون نمودار";
+const MORPH_WEIGHTS = ["400", "500", "600"];
+const MORPH_ASSET_TIMEOUT = 6000;
+
+/* The faces the desk is about to render in.
+ *
+ * Every @font-face here is font-display:swap, which behind a veil is
+ * exactly the wrong behaviour: the browser paints fallback text at once
+ * and swaps the real face in whenever it turns up - reliably after the
+ * cover has gone. And document.fonts.ready alone does not help, because
+ * a face is only requested once something needs it; asked immediately
+ * after the swap, the set is still "loaded" and the promise is already
+ * resolved. So the faces are asked for by name, in the weights the desk
+ * uses, with sample text spanning both the Latin and the Arabic
+ * unicode-range subsets - otherwise only the subset covering the
+ * default probe string is fetched. */
+function morphFontsReady() {
+  let fonts = null;
+  try { fonts = document.fonts; } catch {}
+  if (!fonts || typeof fonts.load !== "function") return Promise.resolve();
+  let fam = "";
+  try {
+    fam = getComputedStyle(document.body || document.documentElement).fontFamily || "";
+  } catch {}
+  const jobs = [];
+  if (fam) {
+    for (const w of MORPH_WEIGHTS) {
+      try { jobs.push(fonts.load(w + " 1em " + fam, MORPH_SAMPLE)); } catch {}
+    }
+  }
+  return Promise.all(jobs)
+    .catch(() => {})
+    .then(() => { try { return fonts.ready; } catch { return null; } })
+    .catch(() => {});
+}
+
+/* The wallpaper the new theme paints behind the desk.
+ *
+ * A theme can carry one of twenty photographs, each with a dark and a
+ * light cut, so a theme swap AND a light/dark flip can both change it.
+ * Nothing waited for it: the veil came off over the old picture and the
+ * new one faded in underneath the desk a moment later. */
+function morphWallReady() {
+  let raw = "";
+  try {
+    raw = getComputedStyle(document.documentElement).getPropertyValue("--theme-bg") || "";
+  } catch {}
+  let src = "";
+  try {
+    src = (typeof AurionTheme !== "undefined" && AurionTheme.cssUrl)
+      ? AurionTheme.cssUrl(raw) : "";
+  } catch {}
+  if (!src) return Promise.resolve();
+  return new Promise((done) => {
+    let img = null;
+    try { img = new Image(); } catch { done(); return; }
+    /* A picture that will not load must not hold the desk hostage
+       behind a cover it can never lift. */
+    const t = setTimeout(done, MORPH_ASSET_TIMEOUT);
+    const end = () => { clearTimeout(t); done(); };
+    img.onload = () => {
+      /* decode() is the difference between "the bytes are here" and
+         "painting it will not stall" - which is the question being
+         asked. */
+      if (typeof img.decode === "function") img.decode().then(end, end);
+      else end();
+    };
+    img.onerror = end;
+    img.src = src;
+  });
+}
+
+/* Two frames. A requestAnimationFrame callback runs BEFORE the paint it
+   belongs to, so one frame proves nothing; the second only runs once the
+   first has been painted. */
+function morphFrames() {
+  return new Promise((done) => {
+    if (typeof requestAnimationFrame !== "function") { setTimeout(done, 32); return; }
+    requestAnimationFrame(() => requestAnimationFrame(() => done()));
+  });
+}
+
+function morphSettled() {
+  /* Flush style and layout first. Until the browser has recalculated it
+     does not know which font it needs or which picture it is about to
+     paint, so asking either of them before this line is asking a
+     question about the theme that has just been replaced. */
+  try { void document.documentElement.offsetWidth; } catch {}
+  return Promise.all([morphFontsReady(), morphWallReady()])
+    .catch(() => {})
+    .then(morphFrames)
+    /* One more flush-and-frame after the assets land: fonts reflow text
+       and the wallpaper repaints the backdrop, and both of those are
+       work the browser has only just been told about. */
+    .then(morphFrames)
+    .catch(() => {});
+}
 /* Cover the desk while a theme, appearance or language change is applied.
  *
  * `apply` may be synchronous (a theme swap) or return a promise (a language
@@ -436,23 +543,7 @@ function morphTheme(apply, opts) {
   if (__themeMorphT) { clearTimeout(__themeMorphT); __themeMorphT = null; }
   label();
 
-  /* `apply` returning is not the same as the change being on screen.
-
-     The veil used to start fading the moment the promise settled, which
-     is before style recalculation, before the new typeface has loaded on
-     a language change, and before any canvas has repainted. So the cover
-     came off over a desk that was still visibly assembling itself - the
-     exact thing it exists to hide. Wait for the fonts, then for two
-     frames: the first is where the browser does the work, the second
-     only runs once that work has been painted. */
-  const painted = () => {
-    let fonts = Promise.resolve();
-    try { if (document.fonts && document.fonts.ready) fonts = document.fonts.ready; } catch {}
-    return Promise.resolve(fonts).catch(() => {}).then(() => new Promise((done) => {
-      if (typeof requestAnimationFrame !== "function") { setTimeout(done, 32); return; }
-      requestAnimationFrame(() => requestAnimationFrame(() => done()));
-    }));
-  };
+  const painted = () => morphSettled();
 
   /* While the work runs the desk is not usable, so it must not be
      clickable either - the veil was pointer-events:none, which made it a
@@ -496,12 +587,20 @@ function morphTheme(apply, opts) {
     veil.style.opacity = "1";
     busy(true);
 
-    // Phase 2 — do the work while covered. The .theming class is added HERE
-    // (not during the cover) so element transitions run under the fade
-    // instead of being hidden behind it — that's what makes it read as a
-    // morph rather than a cut.
+    /* Phase 2 — do the work, all of it, while the desk is covered.
+     *
+     * This used to add a `.theming` class that put a 500ms transition on
+     * every themed property, deliberately timed to run UNDER the fade so
+     * the swap "read as a morph rather than a cut". That is precisely
+     * backwards. What it produced was a cover that lifted off a desk
+     * which then changed colour in front of you - the loading state
+     * ended and the work started, so the veil was decorating the change
+     * rather than hiding it. The dissolve is gone: behind an opaque
+     * cover there is nothing for a cross-fade to be seen by, and the
+     * only thing it can still be seen by is the one moment it must not
+     * be. The desk changes instantly, settles completely, and is then
+     * revealed finished. */
     __themeMorphT = setTimeout(() => {
-      root.classList.add("theming");
       Promise.resolve()
         .then(apply)
         .catch((e) => { try { console.error(e); } catch {} })
@@ -514,7 +613,6 @@ function morphTheme(apply, opts) {
           veil.style.opacity = "0";
           busy(false);
           __themeMorphT = setTimeout(() => {
-            root.classList.remove("theming");
             veil.style.transition = "";
             veil.style.backgroundColor = "";
             veil.style.opacity = "";

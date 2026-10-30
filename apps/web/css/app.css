@@ -2325,13 +2325,6 @@ html[data-glass="off"] *{
   backdrop-filter:none !important;
   -webkit-backdrop-filter:none !important;
 }
-/* While the morph runs, "no blur" participates as blur(0px) so
-   backdrop-filter ramps smoothly to zero instead of snapping. The at-rest
-   state falls back to the zero-cost `none` when the class is removed. */
-html.theming[data-glass="off"] *{
-  backdrop-filter:blur(0px) !important;
-  -webkit-backdrop-filter:blur(0px) !important;
-}
 
 /* ---- Soft theme/glass morph: veil covers the swap, then glides out ---- */
 /* The veil that covers a theme, appearance or language change.
@@ -2390,28 +2383,19 @@ html.theming[data-glass="off"] *{
 @media (prefers-reduced-motion:reduce){
   #theme-veil .tv-spin{animation:none;border-top-color:#3ee0c4}
 }
-/* During the morph window every themed property glides on one shared curve,
-   so the swap reads as a slow dissolve instead of a cut. */
-html.theming *,html.theming *::before,html.theming *::after{
-  transition:
-    background .5s cubic-bezier(.33,0,.2,1),
-    color .5s cubic-bezier(.33,0,.2,1),
-    border-color .5s cubic-bezier(.33,0,.2,1),
-    box-shadow .5s cubic-bezier(.33,0,.2,1),
-    outline-color .5s cubic-bezier(.33,0,.2,1),
-    fill .5s cubic-bezier(.33,0,.2,1),
-    stroke .5s cubic-bezier(.33,0,.2,1),
-    opacity .5s cubic-bezier(.33,0,.2,1),
-    filter .5s cubic-bezier(.33,0,.2,1),
-    backdrop-filter .55s cubic-bezier(.33,0,.2,1),
-    -webkit-backdrop-filter .55s cubic-bezier(.33,0,.2,1),
-    accent-color .5s cubic-bezier(.33,0,.2,1),
-    caret-color .5s cubic-bezier(.33,0,.2,1),
-    text-shadow .5s cubic-bezier(.33,0,.2,1) !important;
-}
+/* There used to be a `.theming` class here that put a 500ms transition on
+   every themed property for the length of the swap.
+
+   It is gone, and so is the class. It was added on purpose at the moment
+   the work began and timed to run underneath the veil's fade, so the
+   change "read as a morph rather than a cut" - but an opaque cover means
+   there is nobody to see a cross-fade, and the only stretch in which it
+   WAS visible was the fade-out: the loading state ended and the desk then
+   changed colour in front of the trader, which is the one thing a cover
+   over a change exists to prevent. The swap is instant now, behind the
+   cover, and the cover lifts off a finished desk. */
 @media (prefers-reduced-motion:reduce){
   #theme-veil{display:grid}
-  html.theming *,html.theming *::before,html.theming *::after{transition:none !important}
 }
 
 /* ===== Settings redesign: side rail + content ===== */
