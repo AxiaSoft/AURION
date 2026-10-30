@@ -57,7 +57,7 @@ win.AudioContext = class {};
 win.HTMLCanvasElement.prototype.getContext = () => null;
 win.requestAnimationFrame = (f) => { f(0); return 1; };
 win.eval(src + ';window.__T={patchAnalysisCard,analysisCardHtml,morphElement,stampAnalysisAge,'
-  + 'btProvenance,btLotProvenance,S,I18N};');
+  + 'btProvenance,btLotProvenance,onLive,S,I18N};');
 
 const T = win.__T;
 const S = T.S;
@@ -288,6 +288,62 @@ const prov = (bt) => {
   }
   ok(!/EURUSD|XAUUSD|gold/i.test(JSON.stringify(packs.map(([, p]) => btKeys.map((k) => p.bt[k])))),
     'the new help text names no specific instrument');
+}
+
+/* ===================================== N. the live analysis arrives on the
+   socket, not only on the ten-second poll.
+
+   The reported symptom was that the "live" analysis moved in visible
+   ~10s steps. The cause was that analysisCardHtml reads S.snap.analysis,
+   and the ONLY writer of that was the /api/snapshot poll - the socket's
+   "ai" branch wrote S.snap.ai and nothing else. So the engine now
+   publishes an "analysis" topic and onLive has to apply it. */
+{
+  const t0 = Date.now();
+  S.view = 'intelligence';
+  S.snap = S.snap || {};
+  S.snap.analysis = { symbol: 'AAA', reason: 'first', ts: '1' };
+  S._anSig = JSON.stringify(S.snap.analysis);
+  S._anAt = t0 - 9000;
+
+  let polled = 0;
+  const realGet = win.API && win.API.get;
+  if (realGet) win.API.get = (...a) => { polled += 1; return realGet(...a); };
+
+  const host = doc.createElement('div');
+  host.id = 'an-card';
+  doc.body.appendChild(host);
+  S._anHtml = '';
+  T.patchAnalysisCard();
+  /* The first paint may legitimately swap the bare stub for the real
+     card element. Identity is only meaningful from there on, so take the
+     node the desk settled on as the baseline. */
+  const settled = doc.getElementById('an-card');
+  const before = settled ? settled.innerHTML : '';
+
+  T.onLive({ type: 'analysis', data: { symbol: 'AAA', reason: 'second', ts: '2' } });
+
+  ok(S.snap.analysis && S.snap.analysis.reason === 'second',
+    'an "analysis" socket message lands in S.snap.analysis');
+  ok(polled === 0,
+    'it applies the push without waiting for, or triggering, a snapshot poll');
+  ok(S._anAt >= t0,
+    'the freshness stamp is reset by the push, so the card does not claim to be 9s old');
+  ok(S._anSig === JSON.stringify({ symbol: 'AAA', reason: 'second', ts: '2' }),
+    'the push keeps _anSig in step, so the next poll does not re-stamp the same data');
+
+  const after = doc.getElementById('an-card') ? doc.getElementById('an-card').innerHTML : '';
+  ok(after !== before, 'the card repainted in place, straight from the socket message');
+  ok(doc.getElementById('an-card') === settled,
+    'and it was morphed, not replaced - the page did not refresh under the user');
+
+  /* a junk message must not blank the card out */
+  const keep = S.snap.analysis;
+  T.onLive({ type: 'analysis', data: null });
+  ok(S.snap.analysis === keep, 'an empty analysis push is ignored rather than clearing the card');
+
+  if (realGet) win.API.get = realGet;
+  host.remove();
 }
 
 console.log(fails ? `\n${fails} failed` : '\nall good');

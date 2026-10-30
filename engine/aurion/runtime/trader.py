@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import shutil
 import time
 from collections import deque
@@ -345,6 +346,9 @@ class Trader:
                 await self._watch_strategies(payload)
                 await self._maybe_strategy_tick(payload)
                 self._schedule_live_ai(sym)
+            # Last, so it reports the state the handlers above just left
+            # behind rather than the one they started from.
+            await self._push_analysis()
             return
         if kind == "candle":
             self.store.upsert_candle(payload)
@@ -1062,6 +1066,9 @@ class Trader:
                 asyncio.create_task(self._bg_train(rows, symbol, timeframe), name=f"aurion-train-{symbol}")
             self.store.record_signal({**state, "source": "ai"})
             await self.bus.publish("ai", state)
+            # A closed bar is the one moment the analysis is guaranteed to
+            # have moved, so it goes out now rather than on the next tick.
+            await self._push_analysis(force=True)
             shown = state.get("display_direction") or state.get("hint") or state.get("direction") or "n/a"
             await self.journal(
                 "info",
@@ -3964,6 +3971,69 @@ class Trader:
         "slots_full": ("Every trade slot is already in use", "Close a position or raise the open-trade cap."),
         "ai_low": ("The AI is not confident enough yet", "Wait, or lower the AI confidence filter."),
     }
+
+    # How often the live analysis may be recomputed and pushed. Ticks
+    # arrive several times a second; the analysis is in-memory state
+    # (no pandas, no strategy call) but there is no point redrawing a
+    # panel faster than a person can read it.
+    ANALYSIS_PUSH_SECONDS = 0.7
+
+    async def _push_analysis(self, force: bool = False) -> None:
+        """Send the live analysis the moment it changes.
+
+        The analysis used to travel only inside the full snapshot, which
+        the desk polls every ten seconds or so. So the panel named "live
+        analysis" was up to ten seconds stale and visibly jumped in
+        steps, which is what the trader was describing when they said it
+        refreshes instead of being live.
+
+        This publishes on its own topic instead, driven by the tick
+        stream. It is throttled so a busy symbol cannot flood the socket,
+        and -- more importantly -- it only sends when the content has
+        actually changed, so a quiet market costs one comparison per
+        tick and no traffic at all. Because it recomputes from current
+        state, every cause of a change is caught here: a new AI read, a
+        strategy refusal, a gate opening, an order being planted.
+        """
+        now = time.time()
+        if not force and now - getattr(self, "_analysis_sent_at", 0.0) < self.ANALYSIS_PUSH_SECONDS:
+            return
+        self._analysis_sent_at = now
+        try:
+            data = self._safe_analysis()
+        except Exception:
+            log.exception("analysis push failed")
+            return
+        sig = self._analysis_signature(data)
+        if not force and sig == getattr(self, "_analysis_sig", None):
+            return
+        self._analysis_sig = sig
+        await self.bus.publish("analysis", data)
+
+    # Fields that change on their own as time passes rather than because
+    # the robot's reading changed. Counting them would make every
+    # comparison unequal, so the throttle would publish on every tick and
+    # the desk would restamp "updated just now" forever - the age would
+    # stop meaning anything at all.
+    # "next_eval" is dropped whole: it is only a countdown (in_seconds plus
+    # the "in about 2m 1s" text rendered from it). It still travels in the
+    # payload - it just does not get a vote on whether this is new.
+    ANALYSIS_CLOCK_FIELDS = frozenset({
+        "ts", "utc", "in_seconds", "seconds", "countdown", "next_eval",
+    })
+
+    def _analysis_signature(self, data: Any) -> str:
+        def strip(node: Any) -> Any:
+            if isinstance(node, dict):
+                return {k: strip(v) for k, v in node.items()
+                        if k not in self.ANALYSIS_CLOCK_FIELDS}
+            if isinstance(node, list):
+                return [strip(v) for v in node]
+            return node
+        try:
+            return json.dumps(strip(data), sort_keys=True, default=str)
+        except Exception:
+            return repr(data)
 
     def _safe_analysis(self) -> dict[str, Any]:
         """A reporting read must never be the thing that breaks a snapshot."""

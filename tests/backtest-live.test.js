@@ -105,7 +105,14 @@ const stub = `
   const clsPnl=(n)=>Number(n)>0?'up':Number(n)<0?'down':'';
   const S={backtest:null};
   let curveDraws=0, chartPaints=0, replayDraws=0, replayBars=0, replayMarks=0;
-  const requestAnimationFrame=(f)=>{f();};
+  // Synchronous by default so the assertions below can read the result
+  // straight after painting. rafQueue() switches to a real deferred
+  // frame, which is what exposed the crash at the end of a run.
+  let rafQ=null;
+  const requestAnimationFrame=(f)=>{ if(rafQ){rafQ.push(f);return rafQ.length;} f(); };
+  const rafDefer=()=>{rafQ=[];};
+  const rafFlush=()=>{const q=rafQ||[];rafQ=null;let err=null;
+    for(const f of q){try{f();}catch(e){err=e;}} return err;};
   const drawEquityCurve=(c)=>{curveDraws++; S._lastCurve=c;};
   // Still stubbed, so that a panel which went back to pulling the live
   // feed would register here rather than throwing.
@@ -118,6 +125,7 @@ const stub = `
   const API={get:()=>{fetches++; return new Promise(()=>{});}};
   const ResizeObserver=class{observe(){}disconnect(){}};
   const fetchCount=()=>fetches;
+  const S_=S;
 `;
 /* paintReplay and the window it chooses are real here. Stubbing them
    would have let the panel fall back to the live feed -- which is the
@@ -126,7 +134,7 @@ const api = new Function(
   stub + ['btNormBar', 'btReplayWindow', 'btWatchReplaySize', 'ensureBacktestBars',
           'paintReplay', 'renderBacktestLive', 'paintBacktestLive'].map(grab).join('\n') +
   '\nconst BT_REPLAY_SPAN = ' + (src.match(/BT_REPLAY_SPAN = (\d+)/) || [, '160'])[1] + ';' +
-  '\nreturn {renderBacktestLive, paintBacktestLive, btReplayWindow, btNormBar, S, counts, fetchCount};'
+  '\nreturn {renderBacktestLive, paintBacktestLive, btReplayWindow, btNormBar, S, counts, fetchCount, rafDefer, rafFlush};'
 )();
 
 /* ------------------------------------------------ 1. one container */
@@ -322,6 +330,62 @@ ok(box.getAttribute('data-run') === null, 'and forgets which run it was showing'
   ok(api.btNormBar(null) === null, 'and so is nothing at all');
 
   api.S._btBars = null;
+}
+
+/* ------------------------------- the crash at the end of a run
+
+   Reported from a real desk:
+
+     Uncaught TypeError: Cannot read properties of null (reading 'marks')
+     at app.js:9086
+
+   paintReplay stored the window on S._btReplay and then scheduled
+   requestAnimationFrame(() => drawReplayChart(bars, S._btReplay.marks)).
+   The frame does not run until the next paint. A run that finished in
+   between set S._btReplay to null, the frame then dereferenced it, and
+   the desk died with "AURION could not finish loading" -- after every
+   backtest, which is exactly when a trader is looking at it.
+
+   The marks are now held in the closure. This reproduces the ordering
+   rather than grepping for it: a grep cannot tell a closure read from
+   a state read. */
+{
+  const bar = (t, c) => ({ t, o: c, h: c + 1, l: c - 1, c });
+  const sent = [];
+  for (let i = 0; i < 40; i++) sent.push(bar('b' + i, 100 + i));
+  const run = {
+    symbol: 'EURUSD', timeframe: 'M15', strategy: 'ema_rsi', running: true,
+    live: { at: 'b39', replay_bars: sent, marks: [{ t: 'b10', kind: 'in', side: 'buy' }] },
+  };
+
+  const host = makeEl();
+  host.attrs.id = 'bt-live';
+
+  api.rafDefer();                       // frames now queue instead of running
+  api.paintBacktestLive(host, run, true);
+  api.S._btReplay = null;               // the run finishes before the frame fires
+  const err = api.rafFlush();
+
+  ok(!err, 'the pending frame does not throw when the run ended first'
+    + (err ? ' — ' + err.message : ''));
+  ok(api.counts().replayDraws > 0, 'and it still drew the chart it was scheduled for');
+
+  /* The same ordering, but with the panel torn down entirely. */
+  api.rafDefer();
+  api.paintBacktestLive(host, run, true);
+  api.S._btReplay = null;
+  api.S.backtest = null;
+  const err2 = api.rafFlush();
+  ok(!err2, 'nor when the whole run object is gone'
+    + (err2 ? ' — ' + err2.message : ''));
+
+  /* And the source must not read the state back out of S inside the
+     frame, which is the shape of the bug rather than this one instance. */
+  const body = src.slice(src.indexOf('function paintReplay('));
+  const fn = body.slice(0, body.indexOf('\n}\n'));
+  const raf = fn.slice(fn.indexOf('requestAnimationFrame'));
+  ok(!/S\._btReplay\s*\./.test(raf.slice(0, raf.indexOf('\n'))),
+    'the scheduled frame reads its data from the closure, not from S');
 }
 
 /* ------------------------------------------------ styling and language */

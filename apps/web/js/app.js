@@ -9082,8 +9082,14 @@ function paintReplay(box, bt, snap) {
     if (note) { note.hidden = true; note.textContent = ""; }
     // Kept so the chart can be redrawn when the panel is resized or
     // revealed, without waiting for the next snapshot.
-    S._btReplay = { bars, marks: Array.isArray(snap.marks) ? snap.marks : [] };
-    requestAnimationFrame(() => drawReplayChart(bars, S._btReplay.marks));
+    // Both held in the closure, NOT read back out of S when the frame
+    // runs. A requestAnimationFrame callback fires on the next paint,
+    // and a run that finishes in between sets S._btReplay to null --
+    // so reading S._btReplay.marks there threw
+    // "Cannot read properties of null" at the end of every backtest.
+    const marks = Array.isArray(snap.marks) ? snap.marks : [];
+    S._btReplay = { bars, marks };
+    requestAnimationFrame(() => drawReplayChart(bars, marks));
     return;
   }
   S._btReplay = null;
@@ -10402,6 +10408,28 @@ function onLive(msg) {
       S.snap.ai_by_symbol = list.slice(-12);
     }
     scheduleSync();
+  }
+  /* The live analysis, pushed the moment the engine's reading changes.
+   *
+   * It used to arrive only inside the ten-second snapshot poll, so the
+   * panel called "live analysis" was up to ten seconds behind and moved
+   * in visible steps. This applies it straight away and repaints the one
+   * card, in place, rather than going through scheduleSync and redrawing
+   * the view around it. */
+  if (msg.type === "analysis") {
+    const data = msg.data || null;
+    if (data && typeof data === "object") {
+      S.snap = S.snap || {};
+      S.snap.analysis = data;
+      /* The engine only sends this when the content actually changed, so
+       * arrival IS the change: stamp the age from here and keep _anSig in
+       * step, or the next snapshot poll would see "different from last
+       * time" and reset the clock all over again. */
+      try { S._anSig = JSON.stringify(data); } catch { S._anSig = String(Date.now()); }
+      S._anAt = Date.now();
+      if (S.view === "intelligence") patchAnalysisCard();
+    }
+    return;
   }
   if (msg.type === "agents") {
     S.snap = S.snap || {};
