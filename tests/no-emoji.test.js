@@ -274,7 +274,7 @@ check("an icon carries its own size, wherever it is dropped", () => {
     throw new Error("app.css never sizes an svg inside .btn");
   }
   /* The two text contexts that were broken; .ok already had one. */
-  for (const sel of [".ab-upd svg", "p.sub > svg"]) {
+  for (const sel of [".abx-upd svg", "p.sub > svg"]) {
     const re = new RegExp(sel.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/\s+/g, "\\s*") + "[^{]*\\{[^}]*width");
     if (!re.test(css)) throw new Error("app.css never sizes " + sel);
   }
@@ -284,22 +284,30 @@ check("an icon carries its own size, wherever it is dropped", () => {
   }
 });
 
-check("status is shown with the desk's own dot, not a coloured circle", () => {
-  /* This used to count eight copies of a literal class="dot live" in the
-     About source. The page now builds its status tiles from a single
-     helper, so the literals are gone while the rendered markup is the
-     same -- counting copies was measuring the duplication, not the
-     behaviour. Check what actually reaches the DOM instead. */
+check("status is shown with a mark, not with colour alone", () => {
+  /* This has been narrowed twice. It began by counting copies of a
+     literal class="dot live" in the About source, which measured the
+     duplication rather than the behaviour; then it pinned the shared
+     .dot element the status tiles used.
+
+     The rebuilt page draws its own dot inside each chip (.abx-chip-dot)
+     rather than borrowing the desk's, because the chip is a different
+     shape. The thing worth protecting survives both rewrites and is
+     neither of those class names: a state must never be carried by
+     colour alone, and every state on the page must go through one
+     helper so none can quietly regress to a bare word or a glyph. */
   const about = appJs.slice(appJs.indexOf("  about() {"), appJs.indexOf('I18N.t("about.changelog")'));
   if (!about) throw new Error("could not find the About view");
 
-  const emitsDot = /class="dot \$\{[^}]*"live"[^}]*"down"[^}]*\}"/.test(about.replace(/\s+/g, " "));
-  if (!emitsDot) throw new Error("the About status markup no longer emits .dot live/down");
-
-  /* Every state on the page must go through that helper, so none can
-     quietly regress to a bare word or a coloured glyph. */
-  const tiles = (about.match(/\$\{stat\(/g) || []).length;
-  if (tiles < 6) throw new Error("expected at least 6 status tiles, found " + tiles);
+  const flat = about.replace(/\s+/g, " ");
+  if (!/class="abx-chip-dot"/.test(flat)) {
+    throw new Error("the About status markup carries no mark beside the colour");
+  }
+  if (!/is-idle[\s\S]{0,40}is-ok[\s\S]{0,40}is-bad/.test(flat)) {
+    throw new Error("the three states are not all distinguished");
+  }
+  const chips = (about.match(/\$\{chip\(/g) || []).length;
+  if (chips < 6) throw new Error("expected at least 6 status chips, found " + chips);
 });
 
 /* An emoji written as a \uXXXX escape is still an emoji on the screen, but

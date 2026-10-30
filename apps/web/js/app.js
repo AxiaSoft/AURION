@@ -6508,103 +6508,120 @@ const views = {
       </section></div></div>`;
   },
   about() {
-    /* Second pass. The first rebuild fixed the content -- state as
-       tiles instead of a key/value list -- but kept a single centred
-       column, which on a desktop is a narrow ribbon of cards down the
-       middle of a wide screen with the identity block eating the whole
-       first fold.
+    /* Rebuilt from scratch, third pass.
 
-       It is two columns now: an identity rail that stays put while the
-       detail scrolls beside it, collapsing to a compact banner on a
-       phone where a 92px logo above centred text is simply a screen the
-       trader has to scroll past. */
+       The previous version was an identity rail beside a stack of four
+       cards. It worked, but it answered the questions in the wrong
+       order: the first fold was a logo and a blurb, and the one thing a
+       trader opens this page for in a hurry - is the system actually
+       running, and what exactly do I paste into a support message - was
+       below it or buried in a key/value table.
+
+       So it is built around the answer now. A banner that states what
+       this is and what build it is, with the two support actions in it.
+       Then a single row of live state. Then the reference detail, which
+       is the part you read rather than scan. The changelog is a dated
+       timeline instead of a paragraph of text, because a list of
+       versions is a list.
+
+       Mobile is not a fold-down of the desktop: the banner becomes one
+       column with a smaller mark, the state row becomes two columns of
+       chips, and the detail cards stack in reading order. */
     const ver = S.version || S.snap?.version || S._gateLic?.version || "1.0.0";
     const L = (S.snap && S.snap.license) || {};
     const buildDate = S.buildDate || new Date().toISOString().slice(0, 10);
     const engineUp = S.snap?.engine === "online";
     const charts = liveAgents().length;
+    const auto = Boolean(S.snap?.strategy?.auto_trade);
+    const kill = Boolean(S.snap?.kill_switch);
+    const prop = S.snap?.prop?.enabled !== false;
 
-    /* ok: true green, false red, null neutral -- "not switched on" is not
-       a fault, and painting it red would cry wolf. */
-    const stat = (label, ok, value) => `<div class="ab-stat${ok === null ? " is-idle" : ok ? " is-ok" : " is-bad"}">
-      <span class="ab-stat-k">${esc(label)}</span>
-      <span class="ab-stat-v"><i class="dot ${ok === null ? "" : ok ? "live" : "down"}" aria-hidden="true"></i>${esc(value)}</span>
+    /* ok: true reads well, false reads badly, null is neutral. "Not
+       switched on" is not a fault and must not be painted as one - a
+       page that cries wolf about auto-trade being off is a page nobody
+       reads the red on. */
+    const chip = (label, ok, value) => `<div class="abx-chip${
+      ok === null ? " is-idle" : ok ? " is-ok" : " is-bad"}">
+      <i class="abx-chip-dot" aria-hidden="true"></i>
+      <span class="abx-chip-k">${esc(label)}</span>
+      <b class="abx-chip-v">${esc(value)}</b>
     </div>`;
 
-    return `<div class="cmd about">
-      <div class="ab-grid">
-        <aside class="card ab-id">
-          <div class="ab-id-top">
-            <div class="ab-mark"><img src="icons/mark.png?v=desk49" alt="AURION" /></div>
-            <div class="ab-id-name">
-              <h2 class="ab-name">AURION</h2>
-              <p class="ab-ver">
-                <b class="mono">v${esc(ver)}</b>
-                <span class="ab-dot-sep" aria-hidden="true"></span>
-                <span class="mono">${esc(buildTag(buildDate))}</span>
-              </p>
-            </div>
+    const row = (k, v, mono) =>
+      `<div class="abx-row"><span>${esc(k)}</span><b${mono ? ' class="mono"' : ""}>${esc(v)}</b></div>`;
+
+    return `<div class="cmd about abx">
+      <!-- 1. What this is, and exactly which build of it. The copy
+              button exists so a support message carries both. -->
+      <header class="abx-hero">
+        <span class="abx-hero-wash" aria-hidden="true"></span>
+        <div class="abx-mark"><img src="icons/mark.png?v=desk49" alt="AURION" /></div>
+        <div class="abx-headline">
+          <h2 class="abx-name">AURION <small>${esc(I18N.t("about.product_sub"))}</small></h2>
+          <p class="abx-blurb">${I18N.t("about.blurb")}</p>
+          <div class="abx-tags">
+            <span class="abx-tag mono">v${esc(ver)}</span>
+            <span class="abx-tag mono">${esc(buildTag(buildDate))}</span>
+            <span class="abx-tag${L.premium ? " is-pro" : ""}">${esc(L.premium ? planLabel(L) : "Freemium")}</span>
           </div>
-          <p class="ab-blurb">${I18N.t("about.blurb")}</p>
-          <div class="ab-tags">
-            <span class="pill ${mt5Live() ? "ok" : ""}">MT5</span>
-            <span class="pill ${L.premium ? "ok" : ""}">AI ${L.premium ? "PRO" : "Free"}</span>
-            <span class="pill">Prop Guard</span>
-          </div>
-          <div class="ab-actions">
-            <button class="btn tiny" id="about-check-update" type="button">${icon("refresh")} ${I18N.t("about.check")}</button>
-            <button class="btn tiny ghost" id="about-copy-ver" type="button">${icon("clipboard")} ${I18N.t("about.copy_ver")}</button>
-          </div>
-          <p class="ab-upd sub">${I18N.t("about.update")}: <b id="about-update-status">${I18N.t("about.checking")}</b></p>
-        </aside>
-
-        <div class="ab-main">
-          <section class="card">
-            <h3>${icon("pulse")} ${I18N.t("about.glance")}</h3>
-            <div class="ab-stats">
-              ${stat(I18N.t("about.engine"), engineUp, I18N.t(engineUp ? "about.online" : "about.offline"))}
-              ${stat("MT5", mt5Live(), I18N.t(mt5Live() ? "about.connected" : "about.disconnected"))}
-              ${stat(I18N.t("about.ea_charts"), charts > 0, String(charts))}
-              ${stat(I18N.t("about.autotrade"), S.snap?.strategy?.auto_trade ? true : null, I18N.t(S.snap?.strategy?.auto_trade ? "about.on" : "about.off"))}
-              ${stat(I18N.t("about.kill"), S.snap?.kill_switch ? false : null, I18N.t(S.snap?.kill_switch ? "about.armed" : "about.off"))}
-              ${stat("Prop", S.snap?.prop?.enabled !== false ? true : null, I18N.t(S.snap?.prop?.enabled !== false ? "about.enabled" : "about.disabled"))}
-            </div>
-          </section>
-
-          <section class="card">
-            <h3>${icon("wrench")} ${I18N.t("about.specs")}</h3>
-            <div class="kv ab-kv">
-              <span>${I18N.t("about.sys_name")}</span><b>AURION</b>
-              <span>${I18N.t("about.product")}</span><b>AURION Live Desk</b>
-              <span>${I18N.t("about.version")}</span><b class="mono">v${esc(ver)}</b>
-              <span>${I18N.t("about.build")}</span><b class="mono">${esc(buildTag(buildDate))}</b>
-              <span>${I18N.t("about.license")}</span><b>${esc(L.premium ? planLabel(L) : "Freemium")}</b>
-              <span>${I18N.t("about.active_strategy")}</span><b>${esc(S.snap?.strategy?.name || "—")}</b>
-              <span>${I18N.t("about.language")}</span><b>${esc(I18N.lang.toUpperCase())}</b>
-            </div>
-          </section>
-
-          <section class="card">
-            <h3>${icon("building")} ${I18N.t("about.maker")}</h3>
-            <div class="ab-brand">
-              <img src="assets/axiasoft-logo.png?v=desk49" alt="Axiasoft" />
-              <div>
-                <b>Axiasoft</b>
-                <span class="sub">${I18N.t("about.developer_of")} • 2024-${copyrightYear()}</span>
-              </div>
-            </div>
-            <div class="kv ab-kv">
-              <span>${I18N.t("about.support")}</span><b>support@axiasoft</b>
-            </div>
-          </section>
-
-          <section class="card">
-            <h3>${icon("clipboard")} ${I18N.t("about.changelog")}</h3>
-            <div id="about-changelog" class="ab-log sub">
-              <p>${I18N.t("upd.loading")}</p>
-            </div>
-          </section>
         </div>
+        <div class="abx-acts">
+          <button class="btn tiny" id="about-check-update" type="button">${
+            icon("refresh")} ${I18N.t("about.check")}</button>
+          <button class="btn tiny ghost" id="about-copy-ver" type="button">${
+            icon("clipboard")} ${I18N.t("about.copy_ver")}</button>
+          <p class="abx-upd sub">${I18N.t("about.update")}: <b id="about-update-status">${
+            I18N.t("about.checking")}</b></p>
+        </div>
+      </header>
+
+      <!-- 2. Is it running? One row, six answers, no scrolling. -->
+      <section class="abx-state" aria-label="${esc(I18N.t("about.glance"))}">
+        ${chip(I18N.t("about.engine"), engineUp, I18N.t(engineUp ? "about.online" : "about.offline"))}
+        ${chip("MT5", mt5Live(), I18N.t(mt5Live() ? "about.connected" : "about.disconnected"))}
+        ${chip(I18N.t("about.ea_charts"), charts > 0, String(charts))}
+        ${chip(I18N.t("about.autotrade"), auto ? true : null, I18N.t(auto ? "about.on" : "about.off"))}
+        ${chip(I18N.t("about.kill"), kill ? false : null, I18N.t(kill ? "about.armed" : "about.off"))}
+        ${chip("Prop", prop ? true : null, I18N.t(prop ? "about.enabled" : "about.disabled"))}
+      </section>
+
+      <!-- 3. The detail. Read, not scanned. -->
+      <div class="abx-cols">
+        <section class="card abx-card">
+          <h3>${icon("wrench")} ${I18N.t("about.specs")}</h3>
+          <div class="abx-rows">
+            ${row(I18N.t("about.product"), "AURION Live Desk")}
+            ${row(I18N.t("about.version"), "v" + ver, true)}
+            ${row(I18N.t("about.build"), buildTag(buildDate), true)}
+            ${row(I18N.t("about.license"), L.premium ? planLabel(L) : "Freemium")}
+            ${row(I18N.t("about.active_strategy"), S.snap?.strategy?.name || "\u2014")}
+            ${row(I18N.t("about.language"), I18N.lang.toUpperCase(), true)}
+          </div>
+        </section>
+
+        <section class="card abx-card">
+          <h3>${icon("building")} ${I18N.t("about.maker")}</h3>
+          <div class="abx-maker">
+            <img src="assets/axiasoft-logo.png?v=desk49" alt="Axiasoft" />
+            <div class="abx-maker-t">
+              <b>Axiasoft</b>
+              <span class="sub">${I18N.t("about.developer_of")} &middot; 2024-${copyrightYear()}</span>
+            </div>
+          </div>
+          <div class="abx-rows">
+            ${row(I18N.t("about.support"), "support@axiasoft")}
+          </div>
+        </section>
+
+        <section class="card abx-card abx-span">
+          <h3>${icon("clipboard")} ${I18N.t("about.changelog")}</h3>
+          <!-- Filled by the update check; the markup it writes is plain
+               text and headings, which the timeline styles from the
+               outside rather than requiring it to know about them. -->
+          <div id="about-changelog" class="abx-log sub">
+            <p>${I18N.t("upd.loading")}</p>
+          </div>
+        </section>
       </div>
     </div>`;
   },

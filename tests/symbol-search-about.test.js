@@ -398,7 +398,7 @@ if (!jsdom) {
 
     check("the About page renders", () => {
       if (about.includes("[object")) throw new Error("the view returned a Promise");
-      if (!/class="cmd about"/.test(about)) throw new Error("the page has no root class to style");
+      if (!/class="cmd about\b/.test(about)) throw new Error("the page has no root class to style");
     });
 
     check("it keeps everything the old page could do", () => {
@@ -407,15 +407,23 @@ if (!jsdom) {
       }
     });
 
-    check("the state of the desk is shown as tiles, not buried in a list", () => {
+    check("the state of the desk is shown at a glance, not buried in a list", () => {
+      /* Rebuilt page: the six state tiles became one row of chips, high
+         up, above the reference detail. The shape changed; the promise
+         did not - six answers, each with a name and a value, without
+         scrolling or reading a table. */
       const box = win.document.createElement("div");
       box.innerHTML = about;
-      const tiles = box.querySelectorAll(".ab-stat");
-      if (tiles.length < 6) throw new Error(tiles.length + " status tiles");
-      for (const t of tiles) {
-        if (!t.querySelector(".ab-stat-k") || !t.querySelector(".ab-stat-v")) {
-          throw new Error("a tile is missing its label or its value");
+      const chips = box.querySelectorAll(".abx-chip");
+      if (chips.length < 6) throw new Error(chips.length + " state chips");
+      for (const c of chips) {
+        if (!c.querySelector(".abx-chip-k") || !c.querySelector(".abx-chip-v")) {
+          throw new Error("a chip is missing its label or its value");
         }
+      }
+      /* And it is above the detail, not below it. */
+      if (about.indexOf("abx-state") > about.indexOf("abx-cols")) {
+        throw new Error("the live state is printed below the reference detail");
       }
     });
 
@@ -423,7 +431,7 @@ if (!jsdom) {
       const render = () => {
         const box = win.document.createElement("div");
         box.innerHTML = T.views.about();
-        return box.querySelector(".ab-stat");
+        return box.querySelector(".abx-chip");
       };
       T.S.snap.engine = "online";
       const up = render();
@@ -432,8 +440,11 @@ if (!jsdom) {
       T.S.snap.engine = "online";
       if (!up.classList.contains("is-ok")) throw new Error("a running engine is not marked good");
       if (!down.classList.contains("is-bad")) throw new Error("a stopped engine is not marked bad");
-      if (!up.querySelector(".dot.live")) throw new Error("no live dot when the engine is up");
-      if (!down.querySelector(".dot.down")) throw new Error("no down dot when the engine is stopped");
+      /* The dot is part of the chip now rather than a shared .dot
+         element, but it still has to be there: the state must not be
+         carried by colour alone. */
+      if (!up.querySelector(".abx-chip-dot")) throw new Error("no state dot when the engine is up");
+      if (!down.querySelector(".abx-chip-dot")) throw new Error("no state dot when the engine is stopped");
     });
 
     check("something merely switched off is not painted as a fault", () => {
@@ -442,9 +453,9 @@ if (!jsdom) {
       T.S.snap.strategy.auto_trade = false;
       const box = win.document.createElement("div");
       box.innerHTML = T.views.about();
-      const tiles = [...box.querySelectorAll(".ab-stat")];
-      const auto = tiles.find((t) => /auto/i.test(t.querySelector(".ab-stat-k").textContent));
-      if (!auto) throw new Error("no auto-trade tile");
+      const chips = [...box.querySelectorAll(".abx-chip")];
+      const auto = chips.find((c) => /auto/i.test(c.querySelector(".abx-chip-k").textContent));
+      if (!auto) throw new Error("no auto-trade chip");
       if (auto.classList.contains("is-bad")) throw new Error("auto-trade off is painted as a fault");
       if (!auto.classList.contains("is-idle")) throw new Error("auto-trade off is not marked as idle");
     });
@@ -453,20 +464,20 @@ if (!jsdom) {
       T.S.snap.kill_switch = true;
       const box = win.document.createElement("div");
       box.innerHTML = T.views.about();
-      const tiles = [...box.querySelectorAll(".ab-stat")];
-      const kill = tiles.find((t) => /kill/i.test(t.querySelector(".ab-stat-k").textContent));
+      const chips = [...box.querySelectorAll(".abx-chip")];
+      const kill = chips.find((c) => /kill/i.test(c.querySelector(".abx-chip-k").textContent));
       T.S.snap.kill_switch = false;
-      if (!kill) throw new Error("no kill-switch tile");
+      if (!kill) throw new Error("no kill-switch chip");
       if (!kill.classList.contains("is-bad")) throw new Error("an armed kill switch is not flagged");
     });
 
     check("the number of attached charts is counted, not asserted", () => {
       const box = win.document.createElement("div");
       box.innerHTML = T.views.about();
-      const tiles = [...box.querySelectorAll(".ab-stat")];
-      const ch = tiles.find((t) => /chart/i.test(t.querySelector(".ab-stat-k").textContent));
-      if (!ch) throw new Error("no EA chart tile");
-      const n = ch.querySelector(".ab-stat-v").textContent.trim();
+      const chips = [...box.querySelectorAll(".abx-chip")];
+      const ch = chips.find((c) => /chart/i.test(c.querySelector(".abx-chip-k").textContent));
+      if (!ch) throw new Error("no EA chart chip");
+      const n = ch.querySelector(".abx-chip-v").textContent.trim();
       if (n !== "5") throw new Error("reads " + JSON.stringify(n) + " with 5 agents attached");
     });
 
@@ -478,7 +489,7 @@ if (!jsdom) {
     check("every class the About page uses has a rule in the stylesheet", () => {
       const used = new Set();
       for (const m of about.matchAll(/class="([^"]+)"/g)) {
-        for (const c of m[1].split(/\s+/)) if (/^ab-/.test(c)) used.add(c);
+        for (const c of m[1].split(/\s+/)) if (/^abx/.test(c)) used.add(c);
       }
       if (used.size < 8) throw new Error("only " + used.size + " named classes; the page is still inline-styled");
       const missing = [...used].filter((c) => !appCss.includes("." + c));
@@ -486,24 +497,51 @@ if (!jsdom) {
     });
 
     check("the About page is told what to do on a phone", () => {
-      const sec = appCss.slice(appCss.indexOf(".about .ab-grid")).replace(/\s*\n\s*/g, "");
-      if (!/@media\s*\(max-width:560px\)\{[\s\S]{0,500}?\.ab-/.test(sec)) {
-        throw new Error("no narrow-screen rules for the About page");
+      /* Whitespace stripped entirely: these are formatted rules, and a
+         check that breaks when someone adds a space is a check that
+         gets deleted rather than fixed. */
+      const sec = appCss.slice(appCss.indexOf(".abx{")).replace(/\s+/g, "");
+      const m = /@media\(max-width:560px\)\{([\s\S]{0,1400}?)\}\}/.exec(sec);
+      if (!m) throw new Error("no narrow-screen rules for the About page");
+      /* A phone is not a narrow desktop. The banner has to become one
+         column, the mark has to stop being 84px of logo above the fold,
+         and the state row has to stop trying to fit six chips across. */
+      if (!/\.abx-hero\{grid-template-columns:minmax\(0,1fr\)/.test(m[1])) {
+        throw new Error("the banner still tries to be multi-column on a phone");
+      }
+      if (!/\.abx-mark\{inline-size:56px/.test(m[1])) throw new Error("the mark is not reduced on a phone");
+      if (!/\.abx-state\{grid-template-columns:repeat\(2/.test(m[1])) {
+        throw new Error("the state row does not re-flow on a phone");
+      }
+      if (!/\.abx-cols\{grid-template-columns:minmax\(0,1fr\)/.test(m[1])) {
+        throw new Error("the detail cards do not stack on a phone");
       }
     });
 
-    check("the two-column About layout collapses before it runs out of room", () => {
-      /* A sticky 300px rail beside the detail is right on a desktop and
-         wrong the moment the pair no longer fits; the rail has to stop
-         being a rail rather than squeezing the content next to it. */
-      const sec = appCss.slice(appCss.indexOf(".about .ab-grid")).replace(/\s*\n\s*/g, "");
-      if (!/\.about \.ab-grid\{[^}]*grid-template-columns:minmax\(0,300px\)/.test(sec)) {
-        throw new Error("the desktop layout is not two columns");
+    check("the layout gives way in stages rather than all at once", () => {
+      /* The banner is three columns on a desktop - mark, headline,
+         actions. The actions are the first thing with nowhere to go, so
+         they drop to their own row at 900px while the mark and the
+         headline stay side by side; everything collapses to one column
+         only on a phone. Degrading in one step would waste the tablet
+         width entirely. */
+      const sec = appCss.slice(appCss.indexOf(".abx{")).replace(/\s+/g, "");
+      if (!/\.abx-hero\{[^}]*grid-template-columns:autominmax\(0,1fr\)auto/.test(sec)) {
+        throw new Error("the banner is not three columns on a desktop");
       }
-      const m = /@media\s*\(max-width:900px\)\{([\s\S]{0,300}?)\}\}/.exec(sec);
-      if (!m) throw new Error("the two-column layout never collapses");
-      if (!/grid-template-columns:minmax\(0,1fr\)/.test(m[1])) throw new Error("it collapses to something other than one column");
-      if (!/position:static/.test(m[1])) throw new Error("the rail is still sticky once stacked");
+      const mid = /@media\(max-width:900px\)\{([\s\S]{0,900}?)\}\}/.exec(sec);
+      if (!mid) throw new Error("the banner never gives way");
+      if (!/\.abx-hero\{grid-template-columns:autominmax\(0,1fr\);/.test(mid[1])) {
+        throw new Error("the middle step is not two columns");
+      }
+      if (!/\.abx-acts\{grid-column:1\/-1/.test(mid[1])) {
+        throw new Error("the actions do not take a row of their own");
+      }
+      /* And the detail grid never needs a breakpoint to do the right
+         thing, because it is auto-fit. */
+      if (!/\.abx-cols\{[^}]*repeat\(auto-fit,minmax\(300px/.test(sec)) {
+        throw new Error("the detail grid is hand-broken instead of auto-fit");
+      }
     });
 
     check("the version shown is the real one, not a hard-coded string", () => {

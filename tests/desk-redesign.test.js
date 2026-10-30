@@ -651,14 +651,25 @@ if (!jsdom) {
       if (!/buildTag\(/.test(h[0])) throw new Error("the copied string has no build stamp");
     });
 
-    check("the About page is two columns on a desktop and one on a phone", () => {
+    check("the About page leads with what it is and whether it is running", () => {
+      /* Rebuilt from scratch. It used to be an identity rail beside a
+         stack of cards, and this check pinned that shape. The shape is
+         not the point - the order is. A trader opens this page to find
+         out whether the system is up and what to paste into a support
+         message, and both of those now come before the reference
+         detail rather than after a logo and a blurb. */
       const d = frag(T.views.about());
-      if (!d.querySelector(".ab-grid")) throw new Error("no About grid");
-      if (!d.querySelector(".ab-id")) throw new Error("no identity rail");
-      if (!d.querySelector(".ab-main")) throw new Error("no detail column");
-      const css = appCss.slice(appCss.indexOf(".about .ab-grid")).replace(/\s*\n\s*/g, "");
-      if (!/@media\s*\(max-width:900px\)\{[^}]*\.ab-grid\{grid-template-columns:minmax\(0,1fr\)\}/.test(css)) {
-        throw new Error("the two columns never collapse");
+      const hero = d.querySelector(".abx-hero");
+      if (!hero) throw new Error("no banner");
+      if (!hero.querySelector("#about-copy-ver")) {
+        throw new Error("the support actions are not in the banner");
+      }
+      if (!d.querySelector(".abx-state")) throw new Error("no live state row");
+      if (!d.querySelector(".abx-cols")) throw new Error("no detail grid");
+      const html = T.views.about();
+      const order = ["abx-hero", "abx-state", "abx-cols"].map((c) => html.indexOf(c));
+      if (order.some((i) => i < 0) || order[0] > order[1] || order[1] > order[2]) {
+        throw new Error("the page is not in the order banner, state, detail");
       }
     });
   }

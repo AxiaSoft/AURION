@@ -3248,7 +3248,7 @@ html[dir="rtl"] .q-how[open] summary::before{ transform:rotate(0deg) }
    treatment .ok already had: sized to the text and sitting on its
    baseline rather than on top of it.
    ------------------------------------------------------------------ */
-.ab-upd svg,
+.abx-upd svg,
 p.sub > svg{ width:14px; height:14px; vertical-align:-2px; margin-inline-end:4px; flex:none }
 
 .btn > svg{ width:16px; height:16px; flex:none }
@@ -3557,77 +3557,166 @@ html[dir="rtl"] .ct-side span{letter-spacing:0;text-transform:none;font-size:12p
 .sympick-none{padding:16px 12px;text-align:center;color:var(--muted);font-size:13px}
 
 /* ------------------------------------------------------------------
-   About
+   About - rebuilt
 
-   Two columns on a desktop: an identity rail that stays put while the
-   detail scrolls beside it. One column on a phone, with the identity
-   block folded into a compact banner -- a 92px logo above centred text
-   was a whole screen to scroll past before reaching anything useful.
+   Built around the order the questions get asked in, rather than around
+   the logo. A banner (what this is, which build, the two support
+   actions), a row of live state, then the reference detail.
+
+   All of it is drawn from the desk's own variables - no fixed colours -
+   because this page has to survive twelve themes and both cuts. The
+   only decorative thing on it is one accent wash in the banner, which
+   is a gradient of --accent-rgb at low alpha and therefore follows the
+   theme rather than fighting it.
    ------------------------------------------------------------------ */
-.about .ab-grid{
-  display:grid;gap:14px;align-items:start;
-  grid-template-columns:minmax(0,300px) minmax(0,1fr);
-}
-.ab-main{display:flex;flex-direction:column;gap:14px;min-width:0}
+.abx{ display:flex; flex-direction:column; gap:14px }
 
-.ab-id{position:sticky;top:12px;display:flex;flex-direction:column;gap:12px}
-.ab-id-top{display:flex;align-items:center;gap:14px}
-.ab-mark{
-  width:64px;height:64px;flex:none;border-radius:18px;overflow:hidden;
-  background:var(--deep);box-shadow:0 12px 28px rgba(0,0,0,.4);
-}
-.ab-mark img{width:100%;height:100%;object-fit:cover;transform:scale(1.08);display:block}
-.ab-id-name{min-width:0}
-.ab-name{margin:0;font-size:22px;letter-spacing:.14em;line-height:1.1}
-.ab-ver{
-  margin:0;margin-block-start:5px;display:flex;align-items:center;gap:8px;
-  flex-wrap:wrap;color:var(--muted);font-size:12px;
-}
-.ab-ver b{color:var(--accent)}
-.ab-dot-sep{width:3px;height:3px;border-radius:50%;background:currentColor;opacity:.5;flex:none}
-.ab-blurb{margin:0;line-height:1.75;color:var(--muted);font-size:13.5px}
-.ab-tags{display:flex;gap:8px;flex-wrap:wrap}
-.ab-actions{display:flex;gap:8px;flex-wrap:wrap}
-.ab-upd{margin:0;font-size:12px}
-
-/* The state tiles. Auto-fit rather than a fixed count: they reflow from
-   three across to two to one with no breakpoint to keep in step. */
-.ab-stats{
-  display:grid;gap:10px;
-  grid-template-columns:repeat(auto-fit,minmax(150px,1fr));
-}
-.ab-stat{
-  display:flex;flex-direction:column;gap:5px;
-  padding:12px 14px;border-radius:14px;
-  background:rgb(var(--wash) / .04);
+/* ---- 1. the banner ---- */
+.abx-hero{
+  position:relative; overflow:hidden; isolation:isolate;
+  display:grid; gap:18px; align-items:center;
+  grid-template-columns:auto minmax(0,1fr) auto;
+  padding:22px 24px;
+  border-radius:var(--radius-lg, 18px);
   border:1px solid var(--line);
-  border-inline-start:2px solid rgb(var(--wash) / .14);
+  background:var(--glass2, rgb(var(--wash) / .04));
 }
-.ab-stat.is-ok{border-inline-start-color:var(--ok,#26d07c)}
-.ab-stat.is-bad{border-inline-start-color:var(--bad,#f4475b)}
-.ab-stat-k{font-size:11px;letter-spacing:.07em;text-transform:uppercase;color:var(--muted)}
-html[dir="rtl"] .ab-stat-k{letter-spacing:0;text-transform:none}
-.ab-stat-v{display:flex;align-items:center;gap:7px;font-weight:650;font-size:15px}
+/* One wash, pinned behind the content, sized so it reads as light
+   coming off the mark rather than as a coloured panel. */
+.abx-hero-wash{
+  position:absolute; z-index:-1; inset-block:-60%; inset-inline-start:-10%;
+  inline-size:58%;
+  background:radial-gradient(closest-side, rgb(var(--accent-rgb) / .16), transparent 70%);
+  pointer-events:none;
+}
+.abx-mark{
+  inline-size:84px; block-size:84px; flex:none;
+  display:grid; place-items:center;
+  border-radius:22px;
+  border:1px solid rgb(var(--accent-rgb) / .3);
+  background:rgb(var(--wash) / .05);
+}
+.abx-mark img{ inline-size:58px; block-size:58px; object-fit:contain }
+.abx-headline{ min-inline-size:0 }
+.abx-name{
+  margin:0; font-size:26px; font-weight:700; letter-spacing:.06em;
+  display:flex; align-items:baseline; gap:10px; flex-wrap:wrap;
+}
+.abx-name small{
+  font-size:13px; font-weight:500; letter-spacing:.02em; color:var(--muted);
+}
+.abx-blurb{ margin:6px 0 0; color:var(--muted); line-height:1.75; max-inline-size:62ch }
+.abx-tags{ display:flex; flex-wrap:wrap; gap:6px; margin-block-start:12px }
+.abx-tag{
+  padding:4px 10px; border-radius:999px;
+  border:1px solid var(--line); background:rgb(var(--wash) / .05);
+  font-size:11.5px; font-weight:600; letter-spacing:.02em; white-space:nowrap;
+}
+.abx-tag.is-pro{
+  border-color:rgb(var(--accent-rgb) / .45);
+  background:rgb(var(--accent-rgb) / .12);
+  color:var(--accent);
+}
+.abx-acts{ display:flex; flex-direction:column; align-items:stretch; gap:8px; flex:none }
+.abx-acts .btn{ justify-content:center; white-space:nowrap }
+.abx-upd{ margin:2px 0 0; font-size:12px; text-align:center }
+.abx-upd svg{ inline-size:14px; block-size:14px; vertical-align:-2px; margin-inline-end:4px }
 
-.ab-kv{margin-block-start:10px}
-.ab-brand{display:flex;align-items:center;gap:14px;margin-block:12px 4px}
-.ab-brand img{width:48px;height:48px;object-fit:contain;flex:none}
-.ab-brand b{font-size:16px;display:block}
-.ab-brand .sub{font-size:12px}
-.ab-log{max-height:300px;overflow:auto;line-height:1.8;overscroll-behavior:contain}
+/* ---- 2. the live state row ---- */
+.abx-state{
+  display:grid; gap:8px;
+  grid-template-columns:repeat(auto-fit, minmax(168px, 1fr));
+}
+.abx-chip{
+  display:flex; align-items:center; gap:9px; min-inline-size:0;
+  padding:11px 13px;
+  border-radius:13px;
+  border:1px solid var(--line);
+  background:rgb(var(--wash) / .03);
+}
+.abx-chip-dot{
+  inline-size:8px; block-size:8px; border-radius:50%; flex:none;
+  background:rgb(var(--wash) / .35);
+}
+/* The state is carried by the dot and by the value's colour, never by
+   the chip's own background: six filled panels in a row is a warning
+   light for everything, which is a warning light for nothing. */
+.abx-chip.is-ok .abx-chip-dot{ background:var(--ok); box-shadow:0 0 0 3px rgb(var(--accent-rgb) / .12) }
+.abx-chip.is-bad .abx-chip-dot{ background:var(--bad) }
+.abx-chip.is-ok .abx-chip-v{ color:var(--ok) }
+.abx-chip.is-bad .abx-chip-v{ color:var(--bad) }
+.abx-chip-k{
+  font-size:11.5px; color:var(--muted); letter-spacing:.02em;
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-inline-size:0;
+}
+.abx-chip-v{
+  margin-inline-start:auto; font-size:13px; font-weight:650;
+  white-space:nowrap; font-variant-numeric:tabular-nums;
+}
 
-/* Below this the rail has no room to be a rail. */
+/* ---- 3. the detail ---- */
+.abx-cols{
+  display:grid; gap:14px; align-items:start;
+  grid-template-columns:repeat(auto-fit, minmax(300px, 1fr));
+}
+/* The detail cards are .card plus a column, so a heading, a block and a
+   list inside one keep their spacing without each card inventing it. */
+.abx-card{ display:flex; flex-direction:column; min-inline-size:0 }
+.abx-card > h3{ margin:0 }
+.abx-span{ grid-column:1 / -1 }
+.abx-rows{ display:flex; flex-direction:column; margin-block-start:10px }
+/* A rule between rows rather than around each one: this is a reference
+   list, and twenty boxed rows is a table pretending to be tiles. */
+.abx-row{
+  display:flex; align-items:baseline; justify-content:space-between; gap:14px;
+  padding:9px 0;
+  border-block-end:1px solid var(--line);
+  font-size:13px;
+}
+.abx-row:last-child{ border-block-end:0; padding-block-end:0 }
+.abx-row > span{ color:var(--muted); min-inline-size:0 }
+.abx-row > b{ font-weight:650; text-align:end; overflow-wrap:anywhere }
+
+.abx-maker{ display:flex; align-items:center; gap:14px; margin-block-start:10px }
+.abx-maker img{ inline-size:46px; block-size:46px; object-fit:contain; flex:none }
+.abx-maker-t{ min-inline-size:0 }
+.abx-maker-t b{ display:block; font-size:15px }
+.abx-maker-t .sub{ font-size:12px }
+
+/* The changelog is a list of versions, so it is drawn as one: a rail
+   down the inline-start edge with the heading of each entry sitting on
+   it. The update check writes plain <b>/<br> into this box, so the
+   styling has to work from the outside. */
+.abx-log{
+  margin-block-start:10px;
+  max-block-size:320px; overflow:auto; overscroll-behavior:contain;
+  line-height:1.8;
+  padding-inline-start:16px;
+  border-inline-start:2px solid var(--line);
+}
+.abx-log b{ color:var(--ink); font-weight:650 }
+.abx-log p{ margin:0 0 8px }
+
+/* ---- narrow ---- */
 @media (max-width:900px){
-  .about .ab-grid{grid-template-columns:minmax(0,1fr)}
-  .ab-id{position:static}
+  .abx-hero{ grid-template-columns:auto minmax(0,1fr); padding:18px }
+  /* The actions drop to their own full-width row rather than squeezing
+     into a third column that is no longer there. */
+  .abx-acts{ grid-column:1 / -1; flex-direction:row; flex-wrap:wrap }
+  .abx-acts .btn{ flex:1 1 150px }
+  .abx-upd{ flex:1 1 100%; text-align:start }
 }
 @media (max-width:560px){
-  .ab-mark{width:52px;height:52px;border-radius:15px}
-  .ab-name{font-size:19px}
-  .ab-stats{grid-template-columns:repeat(auto-fit,minmax(132px,1fr))}
-  .ab-stat{padding:10px 12px}
-  .ab-stat-v{font-size:14px}
-  .ab-actions .btn{flex:1 1 auto}
+  .abx-hero{ grid-template-columns:minmax(0,1fr); gap:12px; padding:16px }
+  .abx-mark{ inline-size:56px; block-size:56px; border-radius:16px }
+  .abx-mark img{ inline-size:38px; block-size:38px }
+  .abx-name{ font-size:21px }
+  .abx-blurb{ font-size:13px }
+  .abx-state{ grid-template-columns:repeat(2, minmax(0,1fr)) }
+  .abx-chip{ padding:9px 10px; gap:7px }
+  .abx-chip-k{ font-size:11px }
+  .abx-chip-v{ font-size:12.5px }
+  .abx-cols{ grid-template-columns:minmax(0,1fr) }
 }
 
 /* The close control on a markets position chip. Open trades were shown
