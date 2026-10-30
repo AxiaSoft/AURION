@@ -3926,7 +3926,10 @@ class Trader:
             "experts": self.experts_state(),
             "last_signal": self.last_signal,
             "gate": self.trade_gate(),
-            "analysis": self._safe_analysis(),
+            "analysis": {
+                **self._safe_analysis(),
+                "by_symbol": self._analysis_by_symbol(),
+            },
             "gates": self.gates_by_symbol(),
             "license": self.license.public(),
             "robot": list(self.robot_log)[-80:],
@@ -4048,6 +4051,8 @@ class Trader:
         except Exception:
             log.exception("analysis push failed")
             return
+        data = dict(data)
+        data["by_symbol"] = self._analysis_by_symbol()
         sig = self._analysis_signature(data)
         if not force and sig == getattr(self, "_analysis_sig", None):
             return
@@ -4086,6 +4091,52 @@ class Trader:
         except Exception:
             log.exception("analysis unavailable")
             return {"symbol": self.active_symbol, "blockers": [], "console": [], "fault": True}
+
+    # How many watched charts the per-symbol analysis will cover. The
+    # desk's direction slider caps itself at 12 the same way, and this
+    # runs several times a second, so an unbounded loop here would be a
+    # slow leak rather than an obvious bug.
+    ANALYSIS_SYMBOL_CAP = 12
+
+    def _watched_symbols(self) -> list[str]:
+        """The symbols the desk's direction slider is stepping through.
+
+        Deliberately the same source the slider uses - charts with the
+        EA actually attached - so stepping to a slide can never land on
+        a symbol this has no analysis for.
+        """
+        out: list[str] = []
+        seen: set[str] = set()
+        try:
+            agents = self.bridge.public_agents() or []
+        except Exception:
+            agents = []
+        for a in agents:
+            sym = str(getattr(a, "symbol", "") or "")
+            if sym and sym not in seen:
+                seen.add(sym)
+                out.append(sym)
+        active = str(self.active_symbol or "")
+        if active and active not in seen:
+            out.insert(0, active)
+        return out[: self.ANALYSIS_SYMBOL_CAP]
+
+    def _analysis_by_symbol(self) -> dict[str, Any]:
+        """One analysis per watched chart, keyed by symbol.
+
+        The Intelligence page shows the direction slider above the live
+        analysis, and stepping the slider has to move both. Without this
+        the analysis only ever described the active symbol, so the two
+        halves of the page disagreed as soon as the trader pressed the
+        arrow.
+        """
+        out: dict[str, Any] = {}
+        for sym in self._watched_symbols():
+            try:
+                out[sym] = self.analysis(sym)
+            except Exception:
+                log.exception("analysis failed for %s", sym)
+        return out
 
     def analysis(self, symbol: str = "", strategy: str = "") -> dict[str, Any]:
         """One readable account of what the robot is doing right now."""

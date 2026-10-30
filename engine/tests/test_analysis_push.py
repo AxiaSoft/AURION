@@ -255,3 +255,102 @@ def test_stop_cancels_the_loop():
 
     src = inspect.getsource(Trader.stop)
     assert "_analysis_stop" in src and "_analysis_task" in src
+
+
+# --------------------------------------------------------------------
+# One analysis per watched chart.
+#
+# The desk puts the direction slider above the live analysis and steps
+# both with the same arrows, so the engine has to describe every symbol
+# the slider can land on - not just the active one.
+# --------------------------------------------------------------------
+
+
+class _Agent:
+    def __init__(self, symbol):
+        self.symbol = symbol
+
+
+def _with_agents(t, symbols):
+    t.bridge.public_agents = lambda: [_Agent(s) for s in symbols]
+
+
+def test_every_watched_symbol_is_analysed():
+    t, _ = _trader()
+    _with_agents(t, ["EURUSD", "GBPUSD", "XAUUSD"])
+    by = t._analysis_by_symbol()
+    assert set(by) == {"EURUSD", "GBPUSD", "XAUUSD"}
+    for sym, a in by.items():
+        assert a["symbol"] == sym, "an analysis was filed under the wrong symbol"
+
+
+def test_the_slider_can_never_land_on_an_unanalysed_symbol():
+    """_watched_symbols must match what the desk's slider walks."""
+    t, _ = _trader()
+    _with_agents(t, ["GBPUSD", "XAUUSD"])
+    t.active_symbol = "EURUSD"          # active but no chart attached
+    syms = t._watched_symbols()
+    assert "EURUSD" in syms, "the active symbol dropped out of the slider set"
+    assert set(syms) == {"EURUSD", "GBPUSD", "XAUUSD"}
+
+
+def test_duplicate_charts_are_collapsed():
+    """Two charts on one symbol are one slide, so one analysis."""
+    t, _ = _trader()
+    _with_agents(t, ["EURUSD", "EURUSD", "GBPUSD"])
+    assert t._watched_symbols().count("EURUSD") == 1
+
+
+def test_the_symbol_count_is_capped():
+    t, _ = _trader()
+    _with_agents(t, [f"SYM{i}" for i in range(40)])
+    assert len(t._watched_symbols()) == Trader.ANALYSIS_SYMBOL_CAP
+
+
+def test_one_broken_symbol_does_not_lose_the_others():
+    t, _ = _trader()
+    _with_agents(t, ["EURUSD", "GBPUSD"])
+    real = t.analysis
+
+    def flaky(symbol="", strategy=""):
+        if symbol == "EURUSD":
+            raise RuntimeError("boom")
+        return real(symbol, strategy)
+
+    t.analysis = flaky
+    by = t._analysis_by_symbol()
+    assert "GBPUSD" in by and "EURUSD" not in by
+
+
+def test_no_agents_still_describes_the_active_symbol():
+    t, _ = _trader()
+    _with_agents(t, [])
+    by = t._analysis_by_symbol()
+    assert set(by) == {"EURUSD"}
+
+
+def test_the_push_carries_the_map():
+    async def go():
+        t, sent = _trader()
+        _with_agents(t, ["EURUSD", "GBPUSD"])
+        await t._push_analysis(force=True)
+        return sent[-1]
+
+    payload = asyncio.run(go())
+    assert "by_symbol" in payload
+    assert set(payload["by_symbol"]) == {"EURUSD", "GBPUSD"}
+    # the top level is still the active symbol's own analysis
+    assert payload["symbol"] == "EURUSD"
+
+
+def test_a_change_on_a_watched_symbol_is_a_change():
+    """A non-active symbol moving must still reach the desk.
+
+    The signature is taken over the whole payload including the map, so
+    a trader parked on slide 2 sees it update.
+    """
+    t, _ = _trader()
+    _with_agents(t, ["EURUSD", "GBPUSD"])
+    a = t._analysis_signature({"by_symbol": {"GBPUSD": {"reason": "x"}}})
+    b = t._analysis_signature({"by_symbol": {"GBPUSD": {"reason": "y"}}})
+    assert a != b

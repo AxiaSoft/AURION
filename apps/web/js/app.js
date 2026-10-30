@@ -5601,8 +5601,31 @@ function bindNotifySounds(root) {
  * so the gap is visible rather than arithmetic, and the reasons sit
  * directly under the verdict they explain.
  */
-function analysisCardHtml() {
+/**
+ * The analysis for the chart the direction slider is currently on.
+ *
+ * The engine sends one analysis per watched symbol under by_symbol,
+ * alongside the active symbol's own. The Intelligence page puts the
+ * slider above this card, so pressing the arrow has to move both --
+ * otherwise the page shows one symbol's direction over another
+ * symbol's reasoning, which is worse than showing nothing.
+ *
+ * Falls back to the active-symbol analysis whenever the map is absent
+ * (an older engine) or does not carry the slide's symbol.
+ */
+function currentAnalysis() {
   const a = S.snap?.analysis;
+  if (!a) return null;
+  const by = a.by_symbol;
+  if (!by || typeof by !== "object") return a;
+  const slides = aiSlides();
+  const idx = (S.aiSlide | 0) >= slides.length ? 0 : (S.aiSlide | 0);
+  const sym = String((slides[idx] && slides[idx].symbol) || "");
+  return (sym && by[sym]) || a;
+}
+
+function analysisCardHtml() {
+  const a = currentAnalysis();
   if (!a) {
     return `<section class="card ai-verdict is-wait" id="an-card">
       <h3>${I18N.t("ai.an.title")}</h3>
@@ -5968,12 +5991,15 @@ const views = {
     const samples = Number(cur.samples || 0);
     const need = Number(cur.need || 0);
 
+    /* The direction slider leads and the live analysis sits directly
+       under it: the slider is what picks the symbol, so the thing it
+       controls has to come after it rather than above it. */
     return `<div class="cmd ai-page">
-      ${analysisCardHtml()}
-
       <section class="card">
         ${chartSliderHtml("ai", aiSlideInnerHtml)}
       </section>
+
+      ${analysisCardHtml()}
 
       <div class="ai-read">
         <section class="card ai-read-card">
@@ -6837,6 +6863,11 @@ function stepChartSlider(kind, delta, jumpTo, renderInner) {
       const samp = $("ai-samples");
       if (samp) samp.textContent = String(ai.samples || 0);
     } catch {}
+    /* The live analysis sits directly under this slider and describes
+       whichever chart it is on, so it moves with the arrows. Kept out
+       of the try above: a failure painting one of those small fields
+       must not be what stops the main card following the arrow. */
+    try { patchAnalysisCard(); } catch {}
   }
 }
 function bindChartSlider(kind, renderInner) {

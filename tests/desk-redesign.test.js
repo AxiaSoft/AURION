@@ -406,13 +406,28 @@ if (!jsdom) {
 
     /* ---- 5. the AI page ---------------------------------------------- */
 
-    check("the AI page leads with the verdict, not with a feature dump", () => {
+    check("the AI page leads with the direction picker, then the verdict", () => {
+      /* The original rule here was "lead with the verdict, not with a
+         feature dump". The feature-dump half still stands. The first
+         half changed on request: the direction slider is what chooses
+         which symbol is being analysed, so it has to sit above the
+         analysis it controls rather than below it. */
       const d = frag(T.views.intelligence());
-      const first = d.querySelector("section.card, div.card");
-      if (!first || !first.classList.contains("ai-verdict")) {
-        throw new Error("the first card is " + (first ? first.className : "(none)"));
+      const cards = [...d.querySelectorAll("section.card, div.card")];
+      const idxSlider = cards.findIndex((c) => c.querySelector("#ai-slide-stage"));
+      const idxVerdict = cards.findIndex((c) => c.classList.contains("ai-verdict"));
+      if (idxSlider !== 0) {
+        throw new Error("the direction picker is not first (it is at " + idxSlider + ")");
+      }
+      if (idxVerdict !== 1) {
+        throw new Error("the verdict does not follow it (it is at " + idxVerdict + ")");
       }
       if (!d.querySelector(".ai-v-state")) throw new Error("there is no verdict line");
+      // and the raw material is still not what greets you
+      const idxFeat = cards.findIndex((c) => c.querySelector("#ai-feat"));
+      if (idxFeat > -1 && idxFeat < idxVerdict) {
+        throw new Error("the feature dump is above the verdict again");
+      }
     });
 
     check("a blocked robot says so and says why in the same place", () => {

@@ -57,7 +57,8 @@ win.AudioContext = class {};
 win.HTMLCanvasElement.prototype.getContext = () => null;
 win.requestAnimationFrame = (f) => { f(0); return 1; };
 win.eval(src + ';window.__T={patchAnalysisCard,analysisCardHtml,morphElement,'
-  + 'btProvenance,btLotProvenance,onLive,S,I18N};');
+  + 'btProvenance,btLotProvenance,onLive,currentAnalysis,stepChartSlider,'
+  + 'aiSlideInnerHtml,views,S,I18N};');
 
 const T = win.__T;
 const S = T.S;
@@ -345,6 +346,95 @@ const prov = (bt) => {
 
   if (realGet) win.API.get = realGet;
   host.remove();
+}
+
+/* ================== N. the direction slider picks the analysed symbol
+
+   The Intelligence page used to put the live analysis above the
+   direction slider, and the analysis only ever described the active
+   symbol. So pressing the arrow moved the direction to GBPUSD while
+   the reasoning underneath still described EURUSD - two halves of one
+   page disagreeing about what was being watched. */
+{
+  const an = (sym, reason) => ({
+    symbol: sym, timeframe: 'M15', strategy: 'ema_rsi', strategy_enabled: true,
+    ready: false, setup: null, when: 'waiting', reason,
+    ai: { confidence: 0.5, min_confidence: 0.6, gate: true },
+    blockers: [{ text: reason, fix: 'wait' }],
+    console: [], refusals: [], resting: [],
+  });
+
+  S.snap = {
+    tape: 'live',
+    agents: [
+      { symbol: 'EURUSD', timeframe: 'M15', online: true },
+      { symbol: 'GBPUSD', timeframe: 'M15', online: true },
+    ],
+    ai: { symbol: 'EURUSD', confidence: 0.5 },
+    ai_by_symbol: [
+      { symbol: 'EURUSD', confidence: 0.5, reason: 'eur' },
+      { symbol: 'GBPUSD', confidence: 0.7, reason: 'gbp' },
+    ],
+    analysis: {
+      ...an('EURUSD', 'spread too wide'),
+      by_symbol: {
+        EURUSD: an('EURUSD', 'spread too wide'),
+        GBPUSD: an('GBPUSD', 'news window'),
+      },
+    },
+  };
+  S.view = 'intelligence';
+  S.aiSlide = 0;
+
+  /* --- the page order --- */
+  const html = T.views.intelligence();
+  const iSlider = html.indexOf('ai-slide-stage');
+  const iCard = html.indexOf('id="an-card"');
+  ok(iSlider > -1 && iCard > -1, 'the page renders both the slider and the analysis card');
+  ok(iSlider < iCard, 'the direction container comes first, the live analysis under it');
+
+  /* --- the analysis follows the slide --- */
+  ok(T.currentAnalysis().symbol === 'EURUSD', 'slide 0 analyses EURUSD');
+  S.aiSlide = 1;
+  ok(T.currentAnalysis().symbol === 'GBPUSD', 'slide 1 analyses GBPUSD');
+
+  /* --- and the rendered card actually says so --- */
+  S.aiSlide = 0;
+  const host = doc.createElement('div');
+  host.id = 'an-card';
+  doc.body.appendChild(host);
+  S._anHtml = '';
+  T.patchAnalysisCard();
+  const first = doc.getElementById('an-card');
+  ok(/EURUSD/.test(first.textContent), 'the card names EURUSD while on slide 0');
+
+  S.aiSlide = 1;
+  T.patchAnalysisCard();
+  const second = doc.getElementById('an-card');
+  ok(/GBPUSD/.test(second.textContent), 'and names GBPUSD once the slide moved');
+  ok(!/EURUSD/.test(second.textContent), 'the previous symbol is gone from the card');
+  ok(second === first, 'the card morphed in place rather than being replaced');
+
+  /* --- pressing the arrow is what does it, not the test calling patch --- */
+  S.aiSlide = 0;
+  T.patchAnalysisCard();
+  ok(/EURUSD/.test(doc.getElementById('an-card').textContent), 'back to EURUSD');
+  const stage = doc.createElement('div');
+  stage.id = 'ai-slide-stage';
+  doc.body.appendChild(stage);
+  T.stepChartSlider('ai', 1, undefined, T.aiSlideInnerHtml);
+  ok(S.aiSlide === 1, 'the arrow advanced the slider');
+  ok(/GBPUSD/.test(doc.getElementById('an-card').textContent),
+    'and the arrow alone moved the live analysis with it');
+
+  /* --- an engine that does not send the map must still work --- */
+  S.snap.analysis = an('EURUSD', 'spread too wide');
+  ok(T.currentAnalysis().symbol === 'EURUSD',
+    'with no by_symbol map it falls back to the active analysis');
+
+  stage.remove();
+  host.remove();
+  doc.getElementById('an-card')?.remove();
 }
 
 console.log(fails ? `\n${fails} failed` : '\nall good');
