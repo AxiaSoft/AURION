@@ -2854,6 +2854,14 @@ function bindInstrumentPicker(id, opts) {
      a form field that owns its value instead of steering S.symbol. */
   const onPick = typeof opts === "function" ? opts : (opts && opts.onPick);
   const current = (opts && opts.current) || (() => S.symbol);
+
+  /* First, before anything is looked up by id. While the list is open
+     its popover lives on <body> (see `open` below), so a re-render
+     that replaces this picker leaves the old popover orphaned there -
+     carrying the same ids as the new one. Sweeping it up afterwards is
+     too late: getElementById would already have handed us the corpse. */
+  for (const stale of document.querySelectorAll(`body > [data-portal="${id}"]`)) stale.remove();
+
   const root = $(id);
   if (!root || root.classList.contains("is-empty")) return;
   const btn = $(`${id}-btn`);
@@ -2879,15 +2887,83 @@ function bindInstrumentPicker(id, opts) {
     active = rows.findIndex((r) => r.symbol === cur);
     mark();
   };
+  /* ---- where the popover is allowed to live ------------------------
+     The list used to be position:absolute inside .sympick, which works
+     until the picker is put in a card - and on the backtest page it is.
+     .card sets overflow:hidden, so the dropdown was sliced off at the
+     card's bottom edge: a couple of rows visible, nothing scrollable,
+     and no way to reach the rest. .card also sets backdrop-filter,
+     which makes it a containing block for fixed-position descendants
+     too, so switching to position:fixed in place would have been cut
+     off by exactly the same box.
+
+     The only thing that escapes a clipping ancestor is not being
+     inside it. On open the popover is moved to <body> and positioned
+     from the button's rectangle; on close it goes home. That also
+     makes the placement answerable rather than hopeful: it is clamped
+     into the viewport, it flips above the control when there is more
+     room up there, and its height is whatever space actually exists -
+     so the list always has somewhere to scroll instead of running off
+     the bottom of the screen. */
+  const GAP = 6, EDGE = 8, MIN_H = 160, MAX_H = 420, MIN_W = 240, MAX_W = 360;
+
+  const place = () => {
+    if (!document.body.contains(btn)) { close(); return; }
+    const r = btn.getBoundingClientRect();
+    const vw = window.innerWidth || document.documentElement.clientWidth || 0;
+    const vh = window.innerHeight || document.documentElement.clientHeight || 0;
+    if (!vw || !vh) return;
+
+    const w = Math.min(Math.max(r.width, MIN_W), Math.max(MIN_W, Math.min(MAX_W, vw - EDGE * 2)));
+    const rtl = (document.documentElement.getAttribute("dir") || "").toLowerCase() === "rtl";
+    let left = rtl ? r.right - w : r.left;
+    left = Math.max(EDGE, Math.min(left, vw - w - EDGE));
+
+    const below = vh - r.bottom - GAP - EDGE;
+    const above = r.top - GAP - EDGE;
+    /* Only flip when going up genuinely buys room, so the list does not
+       jump sides on a small scroll. */
+    const up = below < MIN_H && above > below;
+    const room = Math.max(MIN_H, Math.min(MAX_H, up ? above : below));
+
+    pop.classList.toggle("is-up", up);
+    pop.style.width = `${Math.round(w)}px`;
+    pop.style.left = `${Math.round(left)}px`;
+    pop.style.maxHeight = `${Math.round(room)}px`;
+    if (up) {
+      pop.style.top = "auto";
+      pop.style.bottom = `${Math.round(vh - r.top + GAP)}px`;
+    } else {
+      pop.style.bottom = "auto";
+      pop.style.top = `${Math.round(r.bottom + GAP)}px`;
+    }
+  };
+
+  const onMove = () => { if (!pop.hidden) place(); };
+
   const open = () => {
+    pop.setAttribute("data-portal", id);
+    document.body.appendChild(pop);
     pop.hidden = false;
     btn.setAttribute("aria-expanded", "true");
     input.value = "";
     renderRows();
+    place();
+    /* Capture: a scroll inside any pane has to move the popover with
+       its button, and those events do not bubble to window. */
+    window.addEventListener("scroll", onMove, true);
+    window.addEventListener("resize", onMove);
     input.focus();
   };
   const close = () => {
+    window.removeEventListener("scroll", onMove, true);
+    window.removeEventListener("resize", onMove);
     pop.hidden = true;
+    pop.classList.remove("is-up");
+    pop.removeAttribute("style");
+    pop.removeAttribute("data-portal");
+    if (root.isConnected) root.appendChild(pop);
+    else pop.remove();
     btn.setAttribute("aria-expanded", "false");
   };
   const choose = (name) => {
@@ -2919,7 +2995,10 @@ function bindInstrumentPicker(id, opts) {
     const row = e.target.closest("[data-sym]");
     if (row) choose(row.getAttribute("data-sym"));
   };
-  root._away = (e) => { if (!root.contains(e.target)) close(); };
+  /* The popover is not a descendant of root while it is open, so a
+     click on one of its own rows has to be excluded explicitly or the
+     list closes before it can be chosen. */
+  root._away = (e) => { if (!root.contains(e.target) && !pop.contains(e.target)) close(); };
   document.addEventListener("click", root._away);
 }
 
@@ -6125,7 +6204,12 @@ const views = {
             ${!licFeat("chart_signals")?`<span class="pill no" style="font-size:10px">PREMIUM</span>`:""}
           </div>
         </div>
-        ${positionsStripHtml(S.symbol)}
+        <!-- No positions strip here. This page already carries the whole
+             book in .mk-pos below, and a strip above the chart filtered
+             to the symbol on screen meant the same trade was printed
+             twice on one page, in two different shapes, with the upper
+             copy disagreeing with the lower one the moment you switched
+             instrument. One book, one place. -->
         <div class="chart-box"><canvas id="cv"></canvas>${!eaLive() || !S.candles.length ? emptyCard(I18N.t("markets.empty"), symbols.length ? I18N.t("markets.loading_tf") : I18N.t("exec.no_ea_symbol")) : ""}</div>
         ${eaLive() ? chartTicketHtml() : ""}
         <!-- Chart signals list removed per user request — signals only on chart canvas itself -->
@@ -7913,8 +7997,16 @@ function bindView(view) {
           : icon("bellOff") + " Signals OFF";
         sigToggleM.classList.toggle("on", S.signalsEnabled);
         sigToggleM.classList.toggle("ghost", !S.signalsEnabled);
+        /* The template hides this button with the `hidden` attribute,
+           so it has to be un-hidden the same way. It used to clear
+           style.display instead, which does nothing at all while
+           [hidden]{display:none} is still matching - the eye only
+           turned up later, when some unrelated snapshot re-rendered
+           the toolbar and the template re-evaluated the attribute.
+           That is the "appears late" bug: the state had changed
+           immediately, the button just had no way to show it. */
         const showBtn = $("sig-show-m");
-        if (showBtn) showBtn.style.display = S.signalsEnabled ? "" : "none";
+        if (showBtn) showBtn.hidden = !S.signalsEnabled;
         if (S.signalsEnabled) await fetchChartSignals(S.symbol, S.timeframe);
         else { S.chartSignals = []; if (S.chart) S.chart.setSignals([], S.showSignals); }
       };
@@ -7923,6 +8015,13 @@ function bindView(view) {
         S.showSignals = !S.showSignals;
         localStorage.setItem("aurion.showSignals", S.showSignals ? "1" : "0");
         sigShowM.innerHTML = S.showSignals ? icon("eye") : icon("eyeOff");
+        /* The icon is the only thing that changed, and an icon is not a
+           name. Without these the button announces "show signals" for
+           as long as the page is open, whichever state it is in. */
+        const lbl = I18N.t(S.showSignals ? "chart.signals_hide" : "chart.signals_show");
+        sigShowM.setAttribute("aria-pressed", String(S.showSignals));
+        sigShowM.setAttribute("aria-label", lbl);
+        sigShowM.setAttribute("title", lbl);
         if (S.chart) S.chart.setSignals(S.chartSignals, S.showSignals);
       };
     }

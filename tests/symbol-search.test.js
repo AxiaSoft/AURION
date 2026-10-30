@@ -139,6 +139,93 @@ check("typing filters the list and the chosen name reaches the button", () => {
   return "filtered, chosen, closed";
 });
 
+/* ----------------------------------------- the list has to be reachable */
+
+check("the open list escapes the card that would otherwise clip it", () => {
+  /* The backtest field lives in a .card, and .card is overflow:hidden
+     with a backdrop-filter. Absolutely positioned, the list was sliced
+     off at the card's bottom edge - two rows visible, the rest
+     unreachable, and nothing to scroll because the scrollable element
+     itself was outside the clip. position:fixed would have been cut by
+     the same box, because a backdrop-filter makes an element a
+     containing block for fixed children too. So it leaves. */
+  const { win } = field("bt-sym", "GBPUSD");
+  const pop = win.document.getElementById("bt-sym-pick-pop");
+  if (pop.parentNode === win.document.body) throw new Error("it is parked on body while shut");
+  click(win, win.document.getElementById("bt-sym-pick-btn"));
+  if (pop.parentNode !== win.document.body) {
+    throw new Error("while open it is still inside " + pop.parentNode.className);
+  }
+  if (pop.getAttribute("data-portal") !== "bt-sym-pick") throw new Error("it is not tagged as portaled");
+  return "on body while open";
+});
+
+check("and goes home when it closes, so a re-render cannot strand it", () => {
+  const { win } = field("bt-sym", "GBPUSD");
+  const pop = win.document.getElementById("bt-sym-pick-pop");
+  const home = pop.parentNode;
+  click(win, win.document.getElementById("bt-sym-pick-btn"));
+  click(win, win.document.getElementById("bt-sym-pick-btn"));
+  if (pop.parentNode !== home) throw new Error("it stayed on body after closing");
+  if (!pop.hidden) throw new Error("it is still showing");
+  if (pop.getAttribute("style")) throw new Error("it kept its positioning: " + pop.getAttribute("style"));
+  if (pop.hasAttribute("data-portal")) throw new Error("it is still tagged as portaled");
+  return "back in the field, unstyled";
+});
+
+check("a re-render while the list is open does not leave a ghost behind", () => {
+  /* Two nodes carrying the same ids is worse than a stray node:
+     getElementById answers with one of them and the handlers wire
+     themselves to the corpse, so the new picker opens an empty list.
+     Binding sweeps up first, before anything is looked up by id. */
+  const { win, T } = field("bt-sym", "GBPUSD");
+  click(win, win.document.getElementById("bt-sym-pick-btn"));
+  const ghost = win.document.getElementById("bt-sym-pick-pop");
+  const host = win.document.querySelector("#bt-sym-pick").parentNode;
+  host.innerHTML = T.symbolFieldHtml("bt-sym", "GBPUSD");   // the re-render
+  T.bindSymbolField("bt-sym");
+  if (ghost.isConnected) throw new Error("the old popover is still in the document");
+  if (win.document.querySelectorAll("#bt-sym-pick-pop").length !== 1) {
+    throw new Error("two popovers answer to the same id");
+  }
+  /* And the fresh one works, which is the thing the ghost broke. */
+  click(win, win.document.getElementById("bt-sym-pick-btn"));
+  const rows = win.document.querySelectorAll("#bt-sym-pick-list .sympick-row").length;
+  if (rows !== SYMS.length) throw new Error(rows + " rows after the re-render");
+  return "swept, and the new one lists " + rows;
+});
+
+check("clicking a row in the portaled list chooses it rather than dismissing it", () => {
+  /* The click-away handler asks whether the click landed inside the
+     picker. Once the list is on <body> it is not inside the picker any
+     more, so without an explicit exception every row press would close
+     the list instead of picking from it. */
+  const { win, hidden } = field("bt-sym", "GBPUSD");
+  click(win, win.document.getElementById("bt-sym-pick-btn"));
+  const row = win.document.querySelector('#bt-sym-pick-list [data-sym="XAUUSD"]');
+  row.dispatchEvent(new win.MouseEvent("click", { bubbles: true }));
+  /* The document-level away handler runs on the same bubbling click. */
+  if (hidden.value !== "XAUUSD") throw new Error("the row press chose " + hidden.value);
+  return "chose XAUUSD";
+});
+
+check("the list is sized and placed from the button, not from the stylesheet", () => {
+  const { win } = field("bt-sym", "GBPUSD");
+  const pop = win.document.getElementById("bt-sym-pick-pop");
+  click(win, win.document.getElementById("bt-sym-pick-btn"));
+  for (const prop of ["left", "width", "maxHeight"]) {
+    if (!pop.style[prop]) throw new Error("no " + prop + " was computed");
+  }
+  if (!pop.style.top && !pop.style.bottom) throw new Error("it is pinned to neither edge");
+  /* Clamped into the viewport rather than trusting the button to be
+     somewhere sensible. */
+  if (parseFloat(pop.style.left) < 0) throw new Error("it is placed off the left edge");
+  const src = read("js/app.js");
+  if (!/Math\.min\(left, vw - w - EDGE\)/.test(src)) throw new Error("the right edge is not clamped");
+  if (!/const up = below < MIN_H && above > below/.test(src)) throw new Error("it never flips above the control");
+  return "placed, clamped, flippable";
+});
+
 check("the field tracks its own value, not the desk's current symbol", () => {
   /* The backtest and the ticket are forms: choosing an instrument to
      test must not be the same act as changing the chart on screen. */

@@ -525,5 +525,51 @@ check("the tiles did not break the row alignment that was already there", () => 
   return "still a four-row grid";
 });
 
+/* ------------------------------------------------------------------
+   The signals eye on the Markets toolbar
+   ------------------------------------------------------------------ */
+
+check("turning signals on reveals the eye the same way the markup hid it", () => {
+  /* The toolbar hides the eye with the `hidden` attribute. The toggle
+     un-hid it by clearing style.display, which does nothing at all
+     while [hidden]{display:none} is still matching - so the button only
+     turned up later, when some unrelated snapshot re-rendered the
+     toolbar and the template re-evaluated the attribute. That is the
+     "it appears late" report: the state changed at once, the button
+     just had no way to show it. Hide and reveal must use one mechanism. */
+  const view = appJs.slice(appJs.indexOf("  markets() {"), appJs.indexOf("  intelligence() {"));
+  if (!/S\.signalsEnabled \? "" : " hidden"/.test(view)) {
+    throw new Error("the markup no longer hides the eye with the hidden attribute");
+  }
+  /* Comments stripped: the one above this fix names the old mechanism
+     in order to explain it, and a check that trips over its own
+     explanation is a check that gets deleted rather than fixed. */
+  const nc = (t) => t.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+  const handler = nc(appJs.slice(appJs.indexOf('const sigToggleM = $("sig-toggle-m")'),
+    appJs.indexOf('const sigShowM = $("sig-show-m")')));
+  if (/style\.display/.test(handler)) {
+    throw new Error("the toggle is still fighting the hidden attribute with style.display");
+  }
+  if (!/showBtn\.hidden = !S\.signalsEnabled/.test(handler)) {
+    throw new Error("the toggle does not set .hidden");
+  }
+  return "hidden attribute both ways";
+});
+
+check("the eye says which state it is in, not just which icon it wears", () => {
+  /* An icon is not an accessible name. It swapped eye for eye-off and
+     left aria-pressed, aria-label and the tooltip frozen at whatever
+     they were when the page rendered. */
+  const at = appJs.indexOf('const sigShowM = $("sig-show-m")');
+  const handler = appJs.slice(at, at + 1100);
+  for (const attr of ["aria-pressed", "aria-label", "title"]) {
+    if (!handler.includes(attr)) throw new Error(attr + " is never updated when the eye is pressed");
+  }
+  if (!/chart\.signals_hide/.test(handler) || !/chart\.signals_show/.test(handler)) {
+    throw new Error("the new name is not taken from the two translated strings");
+  }
+  return "pressed + label + title";
+});
+
 console.log(fails ? "\nappearance-fixes: " + fails + " FAILED" : "\nappearance-fixes: all checks passed");
 process.exit(fails ? 1 : 0);

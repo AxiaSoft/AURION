@@ -426,12 +426,20 @@ const boxAt = (src) => {
   if (!m) throw new Error("no chart box found in this view");
   return m.index;
 };
+/* Markets is the exception, and deliberately so.
+
+   It used to carry the strip above its chart like every other chart
+   does. But this page also carries .mk-pos, the whole open book, and
+   the strip is filtered to the instrument on screen - so one trade was
+   printed twice on one page in two different shapes, and the upper
+   copy contradicted the lower one the moment the symbol changed. The
+   rule is one book in one place per page; here that place is the
+   table, because it is the one that does not lie when you switch
+   instrument. */
 const markets = /markets\(\) \{[\s\S]*?\n  \},/.exec(appJsNC)[0];
-ok(/positionsStripHtml\(/.test(markets), "the Markets chart shows open positions");
-ok(markets.indexOf("positionsStripHtml(") < boxAt(markets),
-  "and the strip is above the chart box, so it cannot cover price");
-ok(markets.indexOf('class="mk-bar"') < markets.indexOf("positionsStripHtml("),
-  "and below the toolbar, so it cannot cover the buttons");
+ok(!/positionsStripHtml\(/.test(markets),
+  "the Markets chart does not repeat the book above the chart");
+ok(/id="mk-pos"/.test(markets), "because the whole book is on the page already");
 
 const chartCard = /const chartCard = \([\s\S]*?\n    \};/.exec(appJsNC)[0];
 ok(/positionsStripHtml\(/.test(chartCard), "each EA chart card shows open positions");

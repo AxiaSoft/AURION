@@ -455,21 +455,66 @@
        all is that the open book is hard to see there. So the phone
        leads with the trades and keeps drawings one tap away. */
     const first = narrow() ? "positions" : "objects";
-    const on = (id) => (id === first ? ' class="on"' : "");
-    return `<aside class="tv-dock" id="tv-dock" aria-label="${esc(tt("chart.panel", "Side panel"))}">
-      <div class="tvd-tabs" role="tablist">
-        <button type="button" role="tab" data-dock="positions"${on("positions")}>${esc(tt("chart.positions", "Positions"))}<span class="tvd-badge" id="tvd-pos-n" hidden></span></button>
-        <button type="button" role="tab" data-dock="objects"${on("objects")}>${esc(tt("chart.objects", "Objects"))}</button>
-        <button type="button" role="tab" data-dock="props">${esc(tt("chart.properties", "Properties"))}</button>
-        ${o.ticket ? `<button type="button" role="tab" data-dock="trade">${esc(tt("chart.trade", "Trade"))}</button>` : ""}
+
+    /* Rebuilt.
+
+       It was four tab labels and a close button on one 28px-high line
+       inside a 290px column - 250px below 1200px. "Positions" with its
+       count, "Objects", "Properties" and "Trade" do not fit in that,
+       so the row overflowed: the labels were shaved and the close
+       button was pushed past the edge, which is how a panel ends up
+       with no visible way to shut it. The tabs are a scroller now and
+       the close has its own place in a titled header, so neither can
+       crowd the other out at any width.
+
+       It also only looked like a tab strip. role="tablist" and
+       role="tab" were there, but nothing said which tab was current
+       and nothing tied a tab to the panel it governed, so the whole
+       control announced as four unlabelled buttons; the panes were
+       plain divs. The selected state was a 2px bottom border sitting
+       directly on the strip's own 1px divider, so on a dim screen the
+       current tab was a slightly thicker line.
+
+       And they were 28px tall with a 26px close - this is the panel
+       you use while holding a phone. Everything here is at least 44px
+       where the pointer is coarse. */
+    const tabs = [
+      ["positions", tt("chart.positions", "Positions"), "tvd-pos"],
+      ["objects", tt("chart.objects", "Objects"), "tvd-objects"],
+      ["props", tt("chart.properties", "Properties"), "tvd-props"],
+    ];
+    if (o.ticket) tabs.push(["trade", tt("chart.trade", "Trade"), "tvd-trade"]);
+
+    const tab = ([id, label, pane]) => {
+      const cur = id === first;
+      return `<button type="button" role="tab" id="tvd-tab-${id}" data-dock="${id}"
+        aria-controls="${pane}" aria-selected="${cur}" tabindex="${cur ? 0 : -1}"
+        class="tvd-tab${cur ? " on" : ""}"><span class="tvd-tab-t">${esc(label)}</span>${
+        id === "positions" ? `<span class="tvd-badge" id="tvd-pos-n" hidden></span>` : ""}</button>`;
+    };
+    /* A tabpanel that scrolls has to be focusable, or a keyboard user
+       can reach the tabs and then not the content under them. */
+    const pane = (name, id, cls, body) => `<div class="tvd-body${cls ? " " + cls : ""}" id="${id}"
+      role="tabpanel" aria-labelledby="tvd-tab-${name}" tabindex="0"
+      data-pane="${name}"${first === name ? "" : " hidden"}>${body || ""}</div>`;
+
+    /* The region is named by its own visible heading rather than by a
+       duplicate aria-label, and the tab strip gets a name of its own -
+       otherwise a screen reader reads "Side panel" three times over on
+       the way in, for the region, its heading and its tablist. */
+    return `<aside class="tv-dock" id="tv-dock" aria-labelledby="tvd-title">
+      <div class="tvd-head">
+        <h2 class="tvd-title" id="tvd-title">${esc(tt("chart.panel", "Side panel"))}</h2>
         <button type="button" class="tvd-close" id="tv-dock-close" aria-label="${esc(tt("common.close", "Close"))}">${svg(I.close)}</button>
       </div>
-      <div class="tvd-body tvd-pos" id="tvd-pos" data-pane="positions"${first === "positions" ? "" : " hidden"}></div>
-      <div class="tvd-body" id="tvd-objects" data-pane="objects"${first === "objects" ? "" : " hidden"}></div>
-      <div class="tvd-body" id="tvd-props" data-pane="props" hidden></div>
-      ${o.ticket ? `<div class="tvd-body" data-pane="trade" hidden>
-        <div class="chart-levels" id="chart-levels"></div>
-        ${o.ticket}</div>` : ""}
+      <div class="tvd-tabs" role="tablist" aria-label="${esc(tt("chart.panel_tabs", "Panel sections"))}">
+        ${tabs.map(tab).join("")}
+      </div>
+      ${pane("positions", "tvd-pos", "tvd-pos")}
+      ${pane("objects", "tvd-objects")}
+      ${pane("props", "tvd-props")}
+      ${o.ticket ? pane("trade", "tvd-trade", "",
+        `<div class="chart-levels" id="chart-levels"></div>${o.ticket}`) : ""}
     </aside>`;
   }
 
@@ -1123,12 +1168,52 @@
     }
   }
 
-  function showDock(tab) {
+  function showDock(tab, focus) {
     ui.dockTab = tab;
-    document.querySelectorAll("[data-dock]").forEach((b) => b.classList.toggle("on", b.dataset.dock === tab));
+    document.querySelectorAll("[data-dock]").forEach((b) => {
+      const cur = b.dataset.dock === tab;
+      b.classList.toggle("on", cur);
+      /* The class paints it; these are what say so out loud. A roving
+         tabindex is also what makes Tab leave the strip after one stop
+         instead of walking through every tab in it. */
+      b.setAttribute("aria-selected", String(cur));
+      b.tabIndex = cur ? 0 : -1;
+      if (cur && focus) b.focus();
+      /* Keep the chosen tab in view when the strip is scrolled. */
+      if (cur && typeof b.scrollIntoView === "function") {
+        try { b.scrollIntoView({ block: "nearest", inline: "nearest" }); } catch (e) { /* older engines */ }
+      }
+    });
     document.querySelectorAll(".tvd-body").forEach((p) => { p.hidden = p.dataset.pane !== tab; });
     const tv = $("tv");
     if (tv && tv.classList.contains("no-dock")) toggleDock(true);
+  }
+
+  /* Arrow keys move between tabs, Home and End jump to the ends. This
+     is the half of the tab pattern that cannot be done with markup,
+     and without it the roving tabindex above would be a trap: one tab
+     reachable, the other three unreachable by keyboard entirely. */
+  function dockKey(e) {
+    const el = e.target;
+    const strip = el && typeof el.closest === "function" && el.closest(".tvd-tabs");
+    if (!strip) return;
+    const keys = { ArrowRight: 1, ArrowLeft: -1, ArrowDown: 1, ArrowUp: -1 };
+    const items = [...strip.querySelectorAll("[data-dock]")];
+    if (!items.length) return;
+    const rtl = (document.documentElement.getAttribute("dir") || "").toLowerCase() === "rtl";
+    let next = -1;
+    if (e.key === "Home") next = 0;
+    else if (e.key === "End") next = items.length - 1;
+    else if (keys[e.key]) {
+      let step = keys[e.key];
+      /* Left and right follow the writing direction; up and down never do. */
+      if (rtl && (e.key === "ArrowRight" || e.key === "ArrowLeft")) step = -step;
+      const at = items.indexOf(el.closest("[data-dock]"));
+      if (at < 0) return;
+      next = (at + step + items.length) % items.length;
+    } else return;
+    e.preventDefault();
+    showDock(items[next].dataset.dock, true);
   }
 
   /**
@@ -1232,6 +1317,11 @@
 
   function onKey(e) {
     if (!ui.chart || !$("tv")) return;
+    /* Someone earlier in the chain has already acted on this - the tab
+       strip's arrow keys, for one. Panning the chart as well would move
+       the price out from under the trader as a side effect of changing
+       a tab. */
+    if (e.defaultPrevented) return;
     const el = e.target;
     if (el && /^(input|textarea|select)$/i.test(el.tagName)) return;
     if (el && el.isContentEditable) return;
@@ -1511,6 +1601,10 @@
           if (ind) c.updateIndicator(ind.id, { params: { [p.dataset.key]: Number(p.value) || 1 } });
         }
       });
+      /* Before onKey: the tab strip owns the arrow keys while focus is
+         inside it, and the chart's own arrow-key panning must not also
+         fire and scroll the price out from under the trader. */
+      document.addEventListener("keydown", dockKey);
       document.addEventListener("keydown", onKey);
       document.addEventListener("keyup", onKeyUp);
       document.addEventListener("fullscreenchange", () => {
@@ -1695,6 +1789,9 @@
 
   Object.assign(UI, {
     bind, refresh, pickTool, setFullscreen, showDock, closeMenu, markTool, markRailState,
+    /* Exported so the tab strip's keyboard map can be exercised against
+       a rendered panel without standing up a whole chart engine. */
+    dockKey,
     isFullscreen: () => ui.fullscreen,
   });
 })(typeof window !== "undefined" ? window : this);

@@ -393,25 +393,97 @@ html[dir="rtl"] .tv-flyout { transform: translateX(6px) }
   background: var(--surface-2);
   transition: opacity var(--dur-2, .18s) var(--ease-1);
 }
-.tvd-tabs {
-  display: flex; align-items: center; gap: 2px;
-  padding: 5px 5px 0;
+/* The panel says what it is and carries its own close, instead of
+   hanging the close off the end of the tab row where four labels were
+   already competing for 250px. */
+.tvd-head {
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 6px 6px 11px;
   border-bottom: 1px solid var(--line);
 }
-.tvd-tabs button {
-  height: 28px; padding: 0 9px;
-  border: 0; border-bottom: 2px solid transparent;
+.tvd-title {
+  margin: 0; flex: 1 1 auto; min-width: 0;
+  font-size: 11px; font-weight: 600; letter-spacing: .06em;
+  text-transform: uppercase; color: var(--faint);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+html[dir="rtl"] .tvd-title { letter-spacing: 0; text-transform: none; font-size: 12px }
+.tvd-close {
+  flex: none; inline-size: 30px; block-size: 30px;
+  display: grid; place-items: center;
+  border: 0; border-radius: var(--radius-sm, 8px);
+  background: transparent; color: var(--faint); cursor: pointer;
+}
+.tvd-close:hover { background: var(--surface-hover); color: var(--ink) }
+.tvd-close svg { width: 14px; height: 14px }
+
+/* A scroller, not a squeeze. Four labels plus a count do not fit in a
+   250px column, and the old row had neither wrap nor scroll, so the
+   overflow simply went off the edge - taking the close button with it.
+   The tabs keep their full labels and the row scrolls sideways when it
+   has to. */
+.tvd-tabs {
+  display: flex; align-items: stretch; gap: 2px;
+  padding: 0 5px;
+  border-bottom: 1px solid var(--line);
+  overflow-x: auto; overflow-y: hidden;
+  scrollbar-width: none; -ms-overflow-style: none;
+  scroll-snap-type: x proximity;
+}
+.tvd-tabs::-webkit-scrollbar { display: none }
+.tvd-tab {
+  position: relative;
+  flex: 0 0 auto; scroll-snap-align: start;
+  display: inline-flex; align-items: center; gap: 2px;
+  min-block-size: 36px; padding: 0 10px;
+  border: 0;
+  /* Always present, transparent until selected. Adding the marker as a
+     border only on the current tab would make it 2px taller than its
+     neighbours, so the strip would twitch every time a tab changed. */
+  border-block-end: 2px solid transparent;
   background: transparent;
   color: var(--muted);
-  font: inherit; font-size: 12px;
+  font: inherit; font-size: 12px; white-space: nowrap;
   cursor: pointer;
 }
-.tvd-tabs button:hover { color: var(--ink) }
-.tvd-tabs button.on { color: var(--ink); border-bottom-color: var(--accent) }
-.tvd-close { margin-inline-start: auto; width: 26px; display: grid; place-items: center; color: var(--faint) }
-.tvd-close svg { width: 13px; height: 13px }
+.tvd-tab:hover { color: var(--ink) }
+/* The marker is drawn as its own element, inset by the padding, so it
+   underlines the label rather than the whole hit area. It stops at the
+   bottom edge instead of bleeding 1px past it: this strip is a
+   horizontal scroller, so anything outside the padding box is clipped,
+   and a marker hanging below would simply be cut off. */
+.tvd-tab::after {
+  content: ""; position: absolute;
+  inset-inline: 8px; inset-block-end: 0;
+  block-size: 2px; border-radius: 2px 2px 0 0;
+  background: transparent;
+}
+.tvd-tab.on { color: var(--ink); font-weight: 600 }
+.tvd-tab.on::after { background: var(--accent) }
+/* Weight is the second signal, so the current tab is never accent
+   colour alone. In forced colours a background is repainted by the
+   system and the marker would vanish, so the reserved border above
+   takes over - no layout change, because the space is already there. */
+@media (forced-colors: active) {
+  .tvd-tab.on { border-block-end-color: CanvasText }
+}
+.tvd-tab-t { overflow: hidden; text-overflow: ellipsis }
+
+/* This panel is used one-handed on a phone. A 28px tab and a 26px close
+   are both below the 44px floor; where the pointer is coarse they get
+   it, and the strip gets the room to show it. */
+@media (pointer: coarse) {
+  .tvd-tab { min-block-size: 44px; padding: 0 14px }
+  .tvd-close { inline-size: 44px; block-size: 44px }
+  .tvd-head { padding: 4px 4px 4px 11px }
+}
 
 .tvd-body { flex: 1; overflow-y: auto; padding: 9px; scrollbar-width: thin }
+/* The pane is focusable so a keyboard can scroll it, which means it can
+   also be focused by a mouse click - without this it would take a focus
+   ring for a click in the middle of a list. */
+.tvd-body:focus { outline: none }
+.tvd-body:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px }
 
 /* The open trades, in the side panel. The rows are the chart panel's own,
    so the two never drift apart; only the chrome around them differs. */

@@ -84,7 +84,9 @@ function pxOf(value) {
 
 check("there is exactly one open-positions container", () => {
   if (/id="tv-pos"/.test(toolsJs)) throw new Error("the floating panel is back in the markup");
-  if (!/id="tvd-pos"/.test(toolsJs)) throw new Error("the dock container is missing");
+  /* The id, not the whole attribute: the dock's panes come from one
+     helper now, so only the id itself is a literal in the source. */
+  if (!/"tvd-pos"/.test(toolsJs)) throw new Error("the dock container is missing");
   if (/\.tv-pos\{/.test(chartCss)) throw new Error("the floating panel's rule is back");
   if (/tv-pos-sum/.test(appJs)) throw new Error("the floating summary pill is back");
   if (/\.tv\.tools-open\s+\.tv-pos\s*\{/.test(chartCss)) {
@@ -104,20 +106,19 @@ check("the shared row styling survived the removal", () => {
 
 /* ================================================ 2. the side-panel tab */
 
-check("the side panel has a Positions tab and a pane for it", () => {
-  if (!/data-dock="positions"/.test(toolsJs)) throw new Error("no Positions tab");
-  if (!/data-pane="positions"/.test(toolsJs)) throw new Error("no Positions pane");
-  if (!/id="tvd-pos"/.test(toolsJs)) throw new Error("the pane has no id for app.js to paint into");
-  return "tab + pane";
-});
-
 check("the tab is offered whether or not a ticket is open", () => {
   /* The Trade tab is conditional on o.ticket. Positions must not be:
-     the whole point is seeing trades you did not open from this chart. */
+     the whole point is seeing trades you did not open from this chart.
+     Positions therefore has to come from the base table, and Trade
+     from the conditional push. */
   const dock = toolsJs.slice(toolsJs.indexOf("function dockHtml"), toolsJs.indexOf("function html(o)"));
-  const line = dock.split("\n").find((l) => l.includes('data-dock="positions"'));
-  if (!line) throw new Error("tab not found in dockHtml");
-  if (/o\.ticket\s*\?/.test(line)) throw new Error("the Positions tab is behind a ticket check");
+  const base = /const tabs = \[([\s\S]*?)\];/.exec(dock);
+  if (!base) throw new Error("the tab table is gone");
+  if (!/"positions"/.test(base[1])) throw new Error("Positions is not an unconditional tab");
+  if (/ticket/.test(base[1])) throw new Error("the base tab table is behind a ticket check");
+  if (!/if \(o\.ticket\) tabs\.push\(\["trade"/.test(dock)) {
+    throw new Error("Trade is no longer the conditional one");
+  }
   return "unconditional";
 });
 
@@ -248,14 +249,21 @@ check("the Markets page shows the open book, not just the chart's instrument", (
   return "both instruments listed";
 });
 
-check("the per-symbol strip above the chart is left alone", () => {
-  /* The strip answers "what am I holding in this instrument" and is
-     still the right thing directly above its chart. The new card is an
-     addition, not a replacement. */
+check("Markets shows the book once, in the table", () => {
+  /* This used to assert the opposite: the per-symbol strip above the
+     chart and the whole-book card below it were both meant to be here,
+     the strip answering "what am I holding in this instrument".
+
+     Two answers to one question on one page is one answer too many.
+     The strip is filtered to the symbol on screen and the table is
+     not, so the same trade appeared twice in two shapes, and switching
+     instrument made the upper copy disagree with the lower one. The
+     table is the one that stays true, so the table is the one that
+     stays. */
   const view = appJs.slice(appJs.indexOf("  markets() {"), appJs.indexOf("  intelligence() {"));
-  if (!/positionsStripHtml\(S\.symbol\)/.test(view)) throw new Error("the per-symbol strip was removed");
-  if (!/class="card pos-card mk-pos"/.test(view)) throw new Error("the new card is missing");
-  return "both present";
+  if (/positionsStripHtml\(/.test(view)) throw new Error("the per-symbol strip is back");
+  if (!/class="card pos-card mk-pos"/.test(view)) throw new Error("the whole-book card is missing");
+  return "one book, in the table";
 });
 
 check("the Markets table is patched live, like the Command Centre's", () => {
@@ -293,14 +301,110 @@ check("exactly one tab is selected, and the phone leads with positions", () => {
     throw new Error("the default tab is not chosen by screen width");
   }
   /* And the pane that is shown must be the tab that is marked, or the
-     panel opens on a highlighted tab showing someone else's content. */
-  if (!/data-pane="positions"\$\{first === "positions" \? "" : " hidden"\}/.test(dock)) {
-    throw new Error("the positions pane's hidden state is not tied to the default tab");
+     panel opens on a highlighted tab showing someone else's content.
+     One helper now decides both, from `first`, which is the structural
+     reason it cannot go wrong - so that is what is pinned here, and
+     the rendered result is checked on a real phone-width DOM below. */
+  if (!/\$\{first === name \? "" : " hidden"\}/.test(dock)) {
+    throw new Error("a pane's hidden state is not tied to the default tab");
   }
-  if (!/data-pane="objects"\$\{first === "objects" \? "" : " hidden"\}/.test(dock)) {
-    throw new Error("the objects pane's hidden state is not tied to the default tab");
+  if (!/aria-selected="\$\{cur\}"/.test(dock) || !/const cur = id === first/.test(dock)) {
+    throw new Error("the selected tab is not tied to the default tab");
   }
   return "narrow -> positions, wide -> objects";
+});
+
+check("the side panel has a Positions tab and a pane for it", () => withChart((win) => {
+  /* Asserted against the rendered panel rather than the source. The
+     tabs are built from a table now, so there is no literal
+     data-dock="positions" left to grep for - and grepping for one was
+     always the weaker test: it proved a string existed, not that a tab
+     and its pane were both produced and pointed at each other. */
+  const tab = win.document.querySelector('[data-dock="positions"]');
+  if (!tab) throw new Error("no Positions tab");
+  const pane = win.document.querySelector('[data-pane="positions"]');
+  if (!pane) throw new Error("no Positions pane");
+  if (pane.id !== "tvd-pos") throw new Error("the pane has no id for app.js to paint into");
+  /* And the two are tied together, which is what makes it a tab rather
+     than a button that happens to show something. */
+  if (tab.getAttribute("aria-controls") !== pane.id) throw new Error("the tab does not point at its pane");
+  if (pane.getAttribute("aria-labelledby") !== tab.id) throw new Error("the pane is not named by its tab");
+  return "tab + pane, cross-referenced";
+}));
+
+check("the tabs are a tab strip to a screen reader, not four buttons", () => withChart((win) => {
+  /* It carried role="tablist" and role="tab" and nothing else: no tab
+     said whether it was the current one, none named the pane it
+     governed, and the panes were plain divs. The roles were decoration. */
+  const strip = win.document.querySelector(".tvd-tabs");
+  if (!strip || strip.getAttribute("role") !== "tablist") throw new Error("no tablist");
+  if (!strip.getAttribute("aria-label")) throw new Error("the tablist is unnamed");
+  const tabs = [...strip.querySelectorAll('[role="tab"]')];
+  if (tabs.length < 3) throw new Error(tabs.length + " tabs");
+  const sel = tabs.filter((t) => t.getAttribute("aria-selected") === "true");
+  if (sel.length !== 1) throw new Error(sel.length + " tabs claim to be selected");
+  /* One stop for the whole strip, not one per tab. */
+  const stops = tabs.filter((t) => t.tabIndex === 0);
+  if (stops.length !== 1) throw new Error(stops.length + " tab stops in the strip");
+  if (stops[0] !== sel[0]) throw new Error("the tab stop is not the selected tab");
+  for (const t of tabs) {
+    const pane = win.document.getElementById(t.getAttribute("aria-controls") || "");
+    if (!pane) throw new Error(t.dataset.dock + " controls nothing");
+    if (pane.getAttribute("role") !== "tabpanel") throw new Error(t.dataset.dock + "'s pane is not a tabpanel");
+    /* A pane that scrolls must be reachable by keyboard. */
+    if (pane.tabIndex !== 0) throw new Error(t.dataset.dock + "'s pane cannot be focused to scroll it");
+  }
+  return tabs.length + " tabs, 1 selected, 1 stop";
+}));
+
+check("the close button is not inside the tab strip", () => withChart((win) => {
+  /* It used to be the last child of the tablist, so it was announced as
+     part of the tab sequence - and with four labels in a 250px column
+     it was the thing that got pushed off the edge. */
+  const strip = win.document.querySelector(".tvd-tabs");
+  const close = win.document.getElementById("tv-dock-close");
+  if (!close) throw new Error("the panel has no close button");
+  if (strip.contains(close)) throw new Error("the close button is still inside the tablist");
+  if (!close.getAttribute("aria-label")) throw new Error("the close button has no name");
+  return "in its own header";
+}));
+
+check("arrow keys move between the tabs", () => withChart((win) => {
+  /* A roving tabindex without arrow keys is a trap: one tab reachable,
+     the rest unreachable from the keyboard entirely.
+
+     The handler is attached here rather than relying on the app having
+     done it, because the app attaches it inside bind(), which wants a
+     live chart engine. That the app does attach it is asserted
+     separately, below. */
+  win.document.addEventListener("keydown", win.AurionChartUI.dockKey);
+  const tabs = [...win.document.querySelectorAll('.tvd-tabs [role="tab"]')];
+  const start = tabs.find((t) => t.getAttribute("aria-selected") === "true");
+  start.dispatchEvent(new win.KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }));
+  const now = win.document.querySelectorAll('.tvd-tabs [aria-selected="true"]');
+  if (now.length !== 1) throw new Error(now.length + " tabs selected after an arrow key");
+  if (now[0] === start) throw new Error("the arrow key did not move the selection");
+  /* End goes to the last tab, and the move is exclusive. */
+  now[0].dispatchEvent(new win.KeyboardEvent("keydown", { key: "End", bubbles: true }));
+  const last = win.document.querySelector('.tvd-tabs [aria-selected="true"]');
+  if (last !== tabs[tabs.length - 1]) throw new Error("End did not reach the last tab");
+  return "arrows and End";
+}));
+
+check("and the desk actually attaches that keyboard map", () => {
+  /* The half the DOM test above cannot see. It must also come before
+     the chart's own key handler, which pans on the arrow keys - two
+     handlers acting on one press would change the tab and scroll the
+     price out from under the trader. */
+  const dk = toolsJs.indexOf('addEventListener("keydown", dockKey)');
+  const ok = toolsJs.indexOf('addEventListener("keydown", onKey)');
+  if (dk < 0) throw new Error("dockKey is never attached");
+  if (ok < 0) throw new Error("the chart key handler is gone");
+  if (dk > ok) throw new Error("the chart pans before the tab strip gets the key");
+  if (!/if \(e\.defaultPrevented\) return;/.test(toolsJs)) {
+    throw new Error("the chart handler does not stand down once the key is handled");
+  }
+  return "attached, and first";
 });
 
 check("on a phone the side panel opens on the trades, with one pane showing", () => {

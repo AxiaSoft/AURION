@@ -300,7 +300,10 @@ if (!jsdom) {
       if (/id="tv-pos"/.test(chartJs)) throw new Error("the on-chart panel is back in the markup");
       if (/\.tv-pos\{/.test(chartCss)) throw new Error("the on-chart panel's rule is back");
       if (/tv-pos-sum/.test(appJs)) throw new Error("the floating summary pill is back");
-      if (!/id="tvd-pos"/.test(chartJs)) throw new Error("the dock container went too");
+      /* Matched as an id rather than as a whole id="..." attribute: the
+         dock's panes are built by one helper now, so the attribute is
+         assembled at runtime and only the id itself is a literal. */
+      if (!/"tvd-pos"/.test(chartJs)) throw new Error("the dock container went too");
     });
 
     [...win.document.querySelectorAll("#tvd-pos")].forEach((n) => n.remove());
