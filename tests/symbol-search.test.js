@@ -213,15 +213,23 @@ check("the list is sized and placed from the button, not from the stylesheet", (
   const { win } = field("bt-sym", "GBPUSD");
   const pop = win.document.getElementById("bt-sym-pick-pop");
   click(win, win.document.getElementById("bt-sym-pick-btn"));
-  for (const prop of ["left", "width", "maxHeight"]) {
+  for (const prop of ["insetInlineStart", "inlineSize", "maxBlockSize"]) {
     if (!pop.style[prop]) throw new Error("no " + prop + " was computed");
   }
-  if (!pop.style.top && !pop.style.bottom) throw new Error("it is pinned to neither edge");
-  /* Clamped into the viewport rather than trusting the button to be
-     somewhere sensible. */
-  if (parseFloat(pop.style.left) < 0) throw new Error("it is placed off the left edge");
+  if (!pop.style.insetBlockStart && !pop.style.insetBlockEnd) {
+    throw new Error("it is pinned to neither edge");
+  }
+  /* Logical, not physical, and that is load-bearing. The stylesheet
+     pins the box with inset-inline-start, which is `right` on an RTL
+     page. An inline `left` does not replace that, it competes with it,
+     and a fixed box with a width and both edges pinned resolves by
+     dropping `left` - so the menu welded itself to the edge of the
+     screen instead of sitting under its button. */
+  if (pop.style.left || pop.style.right) throw new Error("it is placed with physical insets again");
+  if (parseFloat(pop.style.insetInlineStart) < 0) throw new Error("it is placed off the start edge");
   const src = read("js/app.js");
-  if (!/Math\.min\(left, vw - w - EDGE\)/.test(src)) throw new Error("the right edge is not clamped");
+  if (!/Math\.min\(left, vw - w - EDGE\)/.test(src)) throw new Error("the far edge is not clamped");
+  if (!/rtl \? vw - \(left \+ w\) : left/.test(src)) throw new Error("the RTL offset is not mirrored");
   if (!/const up = below < MIN_H && above > below/.test(src)) throw new Error("it never flips above the control");
   return "placed, clamped, flippable";
 });

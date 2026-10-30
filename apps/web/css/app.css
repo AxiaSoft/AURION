@@ -227,17 +227,23 @@ html[data-theme="light"] #auth::before{opacity:1}
   align-items:stretch;
 }
 .auth-brand{padding:28px 8px;animation:rise .8s var(--ease-out)}
+/* No plate. The mark used to sit in a rounded square with its own
+   surface, a hairline and a shadow - a frame drawn around something
+   that already has a silhouette, so the shape you read first was the
+   frame. It was also object-fit:cover at scale(1.08), which cropped
+   the logo to fill a box it never fitted.
+
+   The image stands on its own, uncropped, and takes the room the
+   plate used to take up. */
 .auth-logo-slot{
-  width:132px;height:132px;margin:0 0 20px;
-  border-radius:32px;overflow:hidden;flex:none;
-  background:var(--deep);
-  box-shadow:0 16px 40px rgba(0,0,0,.4), 0 0 0 1px rgb(var(--wash) / .06);
+  width:164px;height:164px;margin:0 0 20px;
+  flex:none;
   animation:floaty 6s var(--ease) infinite;
 }
 .auth-logo{
   display:block;width:100%;height:100%;
-  object-fit:cover;object-position:center;
-  transform:scale(1.08);
+  object-fit:contain;object-position:center;
+  filter:drop-shadow(0 14px 34px rgb(0 0 0 / .45));
 }
 .axiasoft-slot{
   display:flex;align-items:center;gap:10px;margin:16px 0 0;
@@ -776,16 +782,14 @@ html[dir="rtl"] .set-h{letter-spacing:0;text-transform:none}
   display:flex;align-items:center;gap:12px;
   padding:2px 4px 16px;
 }
+/* Unboxed, same reasoning as .auth-logo-slot above. */
 .nav-logo{
-  width:84px;height:84px;flex:none;
-  border-radius:22px;overflow:hidden;
-  background:var(--deep);
-  box-shadow:0 10px 28px rgba(0,0,0,.35), 0 0 0 1px rgb(var(--wash) / .06);
+  width:104px;height:104px;flex:none;
 }
 .nav .mark{
   display:block;width:100%;height:100%;
-  object-fit:cover;object-position:center;
-  transform:scale(1.08);
+  object-fit:contain;object-position:center;
+  filter:drop-shadow(0 8px 22px rgb(0 0 0 / .38));
   border-radius:0;animation:none;
 }
 .nav-brand{min-width:0;display:flex;flex-direction:column;gap:3px}
@@ -1167,7 +1171,7 @@ tr:hover td{background:rgb(var(--wash) / .02)}
   .nav-scrim{display:block}
   .nav .mark,.nav-head,.nav-logo,.nav button span,.nav .spacer{display:revert}
   .nav-head{display:flex}
-  .nav-logo{display:block;width:88px;height:88px}
+  .nav-logo{display:block;width:108px;height:108px}
   .nav button{
     width:100%;
     min-width:0;
@@ -1222,7 +1226,7 @@ tr:hover td{background:rgb(var(--wash) / .02)}
     padding:4px 4px 8px;
     text-align:center;
   }
-  .auth-logo-slot{margin-inline:auto;width:120px;height:120px;border-radius:30px;margin-bottom:14px}
+  .auth-logo-slot{margin-inline:auto;width:142px;height:142px;margin-bottom:14px}
   .auth-brand h1{font-size:clamp(28px,9vw,40px)}
   .auth-points{display:none}
   .hero{grid-template-columns:minmax(0,1fr)}
@@ -1327,6 +1331,13 @@ tr:hover td{background:rgb(var(--wash) / .02)}
   .pos-card td{padding:10px 8px}
   .pos-card col.c-close{width:76px}
 }
+/* The card is the control (see chartCard in app.js), so it needs what a
+   control needs: a visible focus ring for the keyboard, and a cursor
+   that says it can be pressed. */
+.chart-card[role="button"]{cursor:pointer}
+.chart-card[role="button"]:focus-visible{
+  outline:2px solid var(--accent); outline-offset:2px;
+}
 .chart-card{cursor:pointer}
 .chart-card:hover{transform:translateY(-2px);border-color:rgb(var(--accent-rgb) / .28)}
 
@@ -1340,7 +1351,6 @@ tr:hover td{background:rgb(var(--wash) / .02)}
    button sounds like written out as prose. There is a button now;
    the card click stays as a mouse convenience.
    ------------------------------------------------------------------ */
-.chart-open{margin-block-start:10px}
 /* The card keeps its hover lift, but the real control shows its own
    focus ring - the lift is not a focus indicator. */
 .chart-card:focus-within{border-color:rgb(var(--accent-rgb) / .45)}
@@ -1751,7 +1761,7 @@ input[type=range]{width:100%;accent-color:var(--cyan);height:28px;cursor:pointer
 .st-eq{font-size:12px;color:var(--gold);white-space:nowrap;max-width:16ch;overflow:hidden;text-overflow:ellipsis}
 .top-actions{flex-wrap:nowrap;gap:6px}
 .top-actions .btn.tiny{padding:7px 10px;min-height:32px}
-.nav-logo{width:48px;height:48px;border-radius:14px}
+.nav-logo{width:62px;height:62px}
 .nav-head{padding:2px 4px 12px}
 .nav-brand b{font-size:13px;letter-spacing:.12em}
 .nav button.nav-tab, .nav button{
@@ -2170,7 +2180,10 @@ input[type=range]{width:100%;accent-color:var(--cyan);height:28px;cursor:pointer
 .sym-caret{color:var(--faint)}
 .sym-panel{position:absolute;z-index:60;inset-inline:0;top:calc(100% + 6px);background:var(--glass2);
   border:1px solid var(--line);border-radius:14px;padding:8px;box-shadow:var(--shadow);backdrop-filter:blur(12px)}
-.sym-acts{display:flex;gap:6px;margin-bottom:6px}
+/* Spacing between siblings, added by the panel, never subtracted off a
+   first or last child -- the desk's rule everywhere else. */
+.sym-panel > * + *{margin-block-start:8px}
+.sym-acts{display:flex;gap:6px}
 .sym-list{max-height:230px;overflow:auto;display:grid;gap:2px}
 .sym-row{display:flex;gap:8px;align-items:center;padding:5px 7px;border-radius:8px;cursor:pointer;font-size:12px}
 .sym-row:hover{background:rgb(var(--wash) / .05)}
@@ -2334,7 +2347,13 @@ html.theming[data-glass="off"] *{
  * swapped, so a card that followed them would change colour underneath the
  * message explaining that colours are changing. */
 #theme-veil{
-  position:fixed;inset:0;z-index:9999;pointer-events:none;opacity:0;
+  position:fixed;inset:0;z-index:9999;opacity:0;
+  /* At rest it must not swallow clicks; while the change runs it must.
+     It was pointer-events:none in both states, which made it a picture
+     of a loading screen rather than one - the desk underneath stayed
+     fully clickable throughout, so a second theme could be started on
+     top of the first. */
+  pointer-events:none;
   background:
     radial-gradient(120% 90% at 30% 0%, rgba(62,224,196,.16), transparent 60%),
     radial-gradient(90% 80% at 85% 100%, rgba(124,108,255,.14), transparent 65%),
@@ -2355,6 +2374,7 @@ html.theming[data-glass="off"] *{
   opacity:0;transform:translateY(6px);
   transition:opacity .22s ease-out .08s, transform .22s ease-out .08s;
 }
+#theme-veil.is-busy{ pointer-events:auto; cursor:progress }
 #theme-veil.is-busy .tv-card{opacity:1;transform:none}
 #theme-veil .tv-text{display:flex;flex-direction:column;gap:2px;text-align:start}
 #theme-veil .tv-text b{font-weight:500;font-size:14px}
@@ -2467,19 +2487,109 @@ html[dir="rtl"] .set-rail .sj-grp{letter-spacing:0;text-transform:none;font-size
   border-bottom:1px solid var(--line);
 }
 .set-main .set-block .card{background:rgb(var(--s5) / .55)}
+/* ---- the rail as a bottom sheet on a phone ---------------------------
+ *
+ * Until 1000px the rail turned into a sideways-scrolling strip of chips:
+ * three of eight sections visible, no sign the other five existed, and
+ * the group headings and the line of text under each name - the part
+ * that says what the section actually decides - both switched off to
+ * make room. A list that has to hide its own contents to fit is the
+ * wrong shape for the space.
+ *
+ * So below the breakpoint it leaves the flow entirely and becomes a
+ * sheet anchored to the bottom edge, with a button in its place naming
+ * the section you are on. Open, it is the complete rail, headings and
+ * descriptions intact, with its items under the thumb instead of at the
+ * top of the screen.
+ */
+.sj-open,.sj-scrim,.sj-grab,.sj-sheet-head{display:none}
+
 @media (max-width:1000px){
   .set-desk.set-rail{grid-template-columns:1fr;gap:12px}
-  .set-rail .set-jump{
-    position:sticky;top:0;flex-direction:row;overflow-x:auto;overflow-y:hidden;max-height:none;
-    border-radius:14px;padding:6px;gap:4px;scrollbar-width:none;
+
+  /* The closed state: one row that answers "where am I". */
+  .sj-open{
+    display:flex;align-items:center;gap:10px;width:100%;text-align:start;
+    min-block-size:52px;padding:8px 12px;
+    border:1px solid var(--line);border-radius:14px;
+    background:linear-gradient(180deg, rgb(var(--s4) / .92), rgb(var(--s2) / .88));
+    backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
+    color:var(--ink);font-size:13px;
   }
-  .set-rail .set-jump::-webkit-scrollbar{display:none}
-  .set-rail .sj-grp{display:none}
-  .set-rail .set-jump button{width:auto;padding:7px 10px;white-space:nowrap}
-  .set-rail .sj-txt small{display:none}
-  .set-rail .sj-ic{width:24px;height:24px;border-radius:7px}
+  .sj-open .sj-txt{flex:1 1 auto;min-width:0}
+  .sj-open .sj-txt b{font-weight:500;display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .sj-open .sj-txt small{font-size:11px;color:var(--faint)}
+  .sj-open .sj-ic{
+    width:30px;height:30px;flex:none;display:grid;place-items:center;border-radius:9px;
+    background:rgb(var(--accent-rgb) / .16);color:var(--cyan);
+  }
+  .sj-open .sj-ic svg{width:16px;height:16px}
+  .sj-open-ch{flex:none;display:grid;place-items:center;color:var(--faint);transition:rotate .2s var(--ease)}
+  .sj-open-ch svg{width:16px;height:16px}
+  .sj-open[aria-expanded="true"] .sj-open-ch{rotate:180deg}
+
+  .sj-scrim{
+    display:block;position:fixed;inset:0;z-index:60;
+    background:rgb(0 0 0 / .5);opacity:0;pointer-events:none;
+    transition:opacity .24s var(--ease);
+  }
+  .sj-scrim[hidden]{display:none}
+  .set-rail.sheet-open .sj-scrim{opacity:1;pointer-events:auto}
+
+  /* The sheet itself. It is always in the DOM and always laid out -
+     translated off the bottom edge rather than display:none - because
+     it has to be able to slide, and because a drag that starts on a
+     box that does not exist yet cannot be smooth. */
+  .set-rail .set-jump{
+    position:fixed;inset-inline:0;inset-block-end:0;top:auto;z-index:61;
+    flex-direction:column;gap:2px;
+    max-height:min(78dvh, 620px);overflow-y:auto;overscroll-behavior:contain;
+    border:1px solid var(--line);border-block-end:0;
+    border-start-start-radius:22px;border-start-end-radius:22px;
+    border-end-start-radius:0;border-end-end-radius:0;
+    padding:0 10px calc(14px + env(safe-area-inset-bottom)) 10px;
+    box-shadow:0 -18px 44px rgb(0 0 0 / .34);
+    transform:translateY(102%);
+    transition:transform .3s cubic-bezier(.32,.72,0,1);
+    visibility:hidden;
+  }
+  .set-rail.sheet-open .set-jump{transform:translateY(0);visibility:visible}
+
+  /* The grab handle. 44px of target around a 4px bar: the bar is the
+     signal, the padding is the thing a thumb can actually hit. */
+  .sj-grab{
+    display:grid;place-items:center;position:sticky;top:0;z-index:2;
+    block-size:28px;padding-block:12px 8px;margin-inline:-10px;
+    touch-action:none;cursor:grab;
+    background:linear-gradient(180deg, rgb(var(--s4) / .98), rgb(var(--s4) / .92));
+  }
+  .sj-grab:active{cursor:grabbing}
+  .sj-grab span{display:block;inline-size:42px;block-size:4px;border-radius:999px;background:rgb(var(--wash) / .22)}
+
+  .sj-sheet-head{
+    display:flex;align-items:center;justify-content:space-between;gap:10px;
+    position:sticky;top:48px;z-index:2;
+    padding:2px 2px 8px;margin-inline:-10px;padding-inline:12px;
+    background:rgb(var(--s4) / .96);
+  }
+  .sj-sheet-head b{font-size:13px;font-weight:500;color:var(--ink)}
+  .sj-close{
+    inline-size:36px;block-size:36px;flex:none;display:grid;place-items:center;
+    border:1px solid var(--line);border-radius:10px;
+    background:rgb(var(--wash) / .05);color:var(--muted);
+  }
+  .sj-close svg{width:16px;height:16px}
+
+  /* Inside the sheet the rail keeps everything it had on the desktop -
+     the headings, the descriptions - and only grows its targets. */
+  .set-rail .set-jump button[data-jump]{min-block-size:48px;padding:9px 10px}
+
   .set-main .set-block{padding:14px;border-radius:16px}
   .set-main .set-title{font-size:16px}
+}
+
+@media (max-width:1000px) and (prefers-reduced-motion:reduce){
+  .set-rail .set-jump,.sj-scrim,.sj-open-ch{transition:none}
 }
 
 /* ---- the rail carries state, not just names ---- */
@@ -2518,6 +2628,12 @@ html[dir="rtl"] .set-rail .sj-grp{letter-spacing:0;text-transform:none;font-size
 /* The light-mode rail used to be painted with two literal rgba teals,
    so choosing any other accent left the selected item the wrong colour
    on light and the right one on dark. Both now come from the theme. */
+@media (max-width:1000px){
+  html[data-theme="light"] .sj-open{background:linear-gradient(180deg,#fff,rgb(var(--s2)))}
+  html[data-theme="light"] .sj-grab{background:#fff}
+  html[data-theme="light"] .sj-sheet-head{background:#fff}
+  html[data-theme="light"] .sj-scrim{background:rgb(0 0 0 / .34)}
+}
 html[data-theme="light"] .set-rail .set-jump{
   background:linear-gradient(180deg, rgb(var(--s4) / .9), rgb(var(--s2) / .78));
 }
@@ -3796,179 +3912,125 @@ html[dir="rtl"] .ct-side span{letter-spacing:0;text-transform:none;font-size:12p
    and on a phone collapsed into a ragged left-aligned stack. Centred
    on a single measure it is the same shape at every width, and the
    reading order is the order the questions come in. */
-.abx-hero{
+/* One panel. The page was a hero followed by a grid of three cards,
+   which is three bordered boxes and three shadows to hold eleven short
+   facts - furniture standing in for content. Everything lives in a
+   single .abx-panel now, divided by rules rather than by borders. */
+.abx-panel{
   position:relative; overflow:hidden; isolation:isolate;
+  padding:0;
+}
+.abx-hero{
+  position:relative; z-index:1;
   display:flex; flex-direction:column; align-items:center; text-align:center;
   gap:0;
-  padding:40px 24px 32px;
-  border-radius:var(--radius-lg, 18px);
-  border:1px solid var(--line);
-  background:
-    linear-gradient(180deg, rgb(var(--wash) / .07), rgb(var(--wash) / .02)),
-    var(--glass2, rgb(var(--wash) / .04));
-  box-shadow:0 18px 44px rgb(0 0 0 / .18);
+  padding:44px 24px 34px;
 }
-/* A one-pixel highlight along the top edge. It is what makes a dark
-   surface read as raised rather than as a hole. */
-.abx-hero::before{
-  content:""; position:absolute; inset-inline:0; inset-block-start:0; block-size:1px;
-  background:linear-gradient(90deg, transparent, rgb(var(--wash) / .22), transparent);
-  pointer-events:none;
-}
-/* Centred wash behind the mark rather than off one shoulder, now that
-   the mark is the thing the page opens on. */
+/* The accent wash, behind everything, centred under the mark. */
 .abx-hero-wash{
-  position:absolute; z-index:-1;
-  inset-block-start:-38%; inset-inline-start:50%;
-  inline-size:min(520px, 120%); aspect-ratio:1;
-  transform:translateX(-50%);
-  background:radial-gradient(closest-side, rgb(var(--accent-rgb) / .17), transparent 70%);
+  position:absolute; z-index:0;
+  inset-block-start:-30%; inset-inline-start:50%;
+  translate:-50% 0;
+  inline-size:min(760px, 120%); aspect-ratio:1;
+  background:radial-gradient(closest-side, rgb(var(--accent-rgb) / .16), transparent 70%);
   pointer-events:none;
 }
-.abx-mark{
-  position:relative;
-  inline-size:96px; block-size:96px; flex:none;
-  display:grid; place-items:center;
-  border-radius:26px;
-  border:1px solid rgb(var(--accent-rgb) / .34);
-  background:
-    radial-gradient(120% 120% at 30% 15%, rgb(var(--accent-rgb) / .16), transparent 62%),
-    rgb(var(--wash) / .05);
-  box-shadow:0 10px 26px rgb(var(--accent-rgb) / .14), inset 0 1px 0 rgb(var(--wash) / .14);
+.abx-panel::before{
+  content:""; position:absolute; inset:0 0 auto 0; block-size:1px; z-index:1;
+  background:linear-gradient(90deg, transparent, rgb(var(--accent-rgb) / .45), rgb(var(--accent-3-rgb) / .35), transparent);
 }
-.abx-mark img{ inline-size:64px; block-size:64px; object-fit:contain }
+
+/* The mark is the mark, not a mark in a box.
+
+   It sat in an 84px rounded tile with its own surface, border and
+   shadow - a square frame drawn around a logo that already has its
+   own silhouette, so the shape you read first was the frame. The
+   image stands on its own now and is the size the tile used to be,
+   which is what it was competing with for attention in the first
+   place. */
+.abx-mark{
+  inline-size:124px; block-size:124px;
+  object-fit:contain;
+  /* A logo with no plate under it needs its own lift, or it reads as
+     printed onto the panel. */
+  filter:drop-shadow(0 10px 26px rgb(0 0 0 / .4));
+}
 .abx-name{
-  margin:20px 0 0; font-size:clamp(28px, 4vw, 38px); font-weight:700;
-  letter-spacing:.055em; line-height:1.1;
-  display:flex; align-items:baseline; justify-content:center; gap:10px; flex-wrap:wrap;
+  margin:20px 0 0; font-size:clamp(26px, 4vw, 36px); font-weight:650;
+  letter-spacing:.06em; line-height:1.1;
 }
 .abx-name small{
-  font-size:13px; font-weight:500; letter-spacing:.02em; color:var(--muted);
+  display:block; margin-block-start:7px;
+  font-size:12px; font-weight:500; letter-spacing:.14em;
+  text-transform:uppercase; color:var(--muted);
 }
-/* A centred paragraph needs a measure or it runs the full width of a
-   desktop card and stops being readable. */
+html[dir="rtl"] .abx-name small{ letter-spacing:0; text-transform:none; font-size:13px }
 .abx-blurb{
-  margin:12px auto 0; color:var(--muted); line-height:1.75;
-  max-inline-size:56ch; font-size:14.5px;
+  margin:12px auto 0; max-inline-size:56ch;
+  color:var(--muted); font-size:14px; line-height:1.8;
 }
 .abx-tags{ display:flex; flex-wrap:wrap; justify-content:center; gap:7px; margin-block-start:20px }
 .abx-tag{
-  padding:5px 12px; border-radius:999px;
-  border:1px solid var(--line);
-  background:linear-gradient(180deg, rgb(var(--wash) / .08), rgb(var(--wash) / .03));
-  font-size:11.5px; font-weight:600; letter-spacing:.02em; white-space:nowrap;
+  display:inline-flex; align-items:center; min-block-size:26px; padding:0 11px;
+  border-radius:var(--radius-pill, 999px);
+  border:1px solid var(--line); background:rgb(var(--wash) / .05);
+  color:var(--muted); font-size:12px;
 }
 .abx-tag.is-pro{
   border-color:rgb(var(--accent-rgb) / .45);
   background:rgb(var(--accent-rgb) / .12);
-  color:var(--accent);
+  color:var(--ink); font-weight:600;
 }
-/* Side by side where there is room, stacked and full-width where there
-   is not - never a narrow column of buttons in a desktop gutter. */
 .abx-acts{
   display:flex; flex-wrap:wrap; justify-content:center; gap:10px;
-  margin-block-start:24px;
+  margin-block-start:22px;
 }
 .abx-acts .btn{ justify-content:center; white-space:nowrap; min-inline-size:190px }
 .abx-upd{ margin:14px 0 0; font-size:12px; text-align:center }
 .abx-upd svg{ inline-size:14px; block-size:14px; vertical-align:-2px; margin-inline-end:4px }
 
-/* ---- 3. the detail ---- */
-.abx-cols{
-  display:grid; gap:14px; align-items:start;
-  grid-template-columns:repeat(auto-fit, minmax(300px, 1fr));
-}
-/* The detail cards are .card plus a column, so a heading, a block and a
-   list inside one keep their spacing without each card inventing it. */
-.abx-card{
-  display:flex; flex-direction:column; min-inline-size:0;
-  transition:border-color .2s var(--ease);
-}
-.abx-card:hover{ border-color:rgb(var(--wash) / .16) }
-/* The section icon sits in its own tinted square rather than floating
-   loose against the first word of the heading. */
-.abx-card{ align-items:center; text-align:center }
-.abx-card > h3{
-  margin:0; display:flex; align-items:center; justify-content:center; gap:10px;
-  font-size:15px; letter-spacing:.01em;
-}
-.abx-card > h3 svg{
-  inline-size:30px; block-size:30px; padding:7px; flex:none;
-  border-radius:9px; color:var(--accent);
-  background:rgb(var(--accent-rgb) / .1);
-  border:1px solid rgb(var(--accent-rgb) / .16);
-  box-sizing:border-box;
-}
-.abx-span{ grid-column:1 / -1 }
-/* Facts as centred label-over-value stacks. A justified row cannot be
-   centred - it pushes the two halves to opposite edges and leaves a
-   gap of nothing between a short label and a long value. */
+/* The facts, as a band inside the same panel. A rule above them does
+   the work the card border used to, at a fraction of the weight. */
 .abx-facts{
-  display:grid; gap:14px; margin-block-start:16px;
-  grid-template-columns:repeat(auto-fit, minmax(130px, 1fr));
+  position:relative; z-index:1;
+  display:grid; grid-template-columns:repeat(auto-fit, minmax(170px, 1fr));
+  gap:20px 18px;
+  padding:26px 24px;
+  border-block-start:1px solid var(--line);
 }
-.abx-fact{
-  display:flex; flex-direction:column; align-items:center; gap:4px;
-  min-inline-size:0; text-align:center;
-}
+.abx-fact{ display:flex; flex-direction:column; align-items:center; gap:5px; text-align:center; min-inline-size:0 }
 .abx-fact > span{ font-size:11px; color:var(--muted); letter-spacing:.04em; text-transform:uppercase }
 html[dir="rtl"] .abx-fact > span{ letter-spacing:0; text-transform:none }
 .abx-fact > b{ font-weight:650; font-size:13.5px; overflow-wrap:anywhere }
 
 .abx-maker{
-  display:flex; flex-direction:column; align-items:center; gap:6px;
-  margin-block-start:16px; text-align:center;
+  position:relative; z-index:1;
+  display:flex; flex-direction:column; align-items:center; gap:8px; text-align:center;
+  padding:24px;
+  border-block-start:1px solid var(--line);
+  background:rgb(var(--wash) / .02);
 }
-.abx-maker img{ inline-size:52px; block-size:52px; object-fit:contain; flex:none }
+/* Unboxed here too, and bigger, for the same reason as the mark. */
+.abx-maker img{ inline-size:74px; block-size:74px; object-fit:contain; flex:none }
 .abx-maker b{ font-size:15px }
 .abx-maker .sub{ font-size:12px }
 
-.abx-log{
-  position:relative;
-  margin-block-start:14px;
-  max-block-size:320px; overflow:auto; overscroll-behavior:contain;
-  line-height:1.8;
-  padding-inline-start:20px;
-}
-.abx-log::before{
-  content:""; position:absolute; inset-block:4px 0; inset-inline-start:3px;
-  inline-size:2px; border-radius:2px;
-  background:linear-gradient(180deg, rgb(var(--accent-rgb) / .45), var(--line) 38%, transparent);
-}
-.abx-log b{ color:var(--ink); font-weight:650 }
-.abx-log p{ margin:0 0 10px }
-/* Each version heading gets a node on the rail. */
-.abx-log :is(h1,h2,h3,h4,b:first-child){ position:relative }
-/* Only a heading that FOLLOWS something gets the gap above it, so the
-   first entry sits flush with the top of the rail. Written as a
-   sibling rule rather than as :first-child{margin:0} because this
-   sheet's convention is that spacing is only ever added between
-   things, never subtracted back off an edge. */
-.abx-log :is(h1,h2,h3,h4){
-  margin:0 0 6px; font-size:13px; font-weight:650; color:var(--ink);
-}
-.abx-log * + :is(h1,h2,h3,h4){ margin-block-start:14px }
-.abx-log :is(h1,h2,h3,h4)::before{
-  content:""; position:absolute; inset-inline-start:-20px; inset-block-start:.55em;
-  inline-size:8px; block-size:8px; border-radius:50%;
-  background:var(--accent); box-shadow:0 0 0 3px rgb(var(--accent-rgb) / .14);
-}
-
 /* ---- narrow ----
-   The hero is a centred flex column at every width, so none of this
-   is re-laying it out; it is only scale. */
+   One centred column at every width, so none of this is re-laying it
+   out; it is only scale. */
 @media (max-width:760px){
-  .abx-hero{ padding:30px 18px 24px }
+  .abx-hero{ padding:34px 18px 26px }
   .abx-acts{ inline-size:100% }
   .abx-acts .btn{ flex:1 1 100%; min-inline-size:0 }
+  .abx-facts{ padding:22px 18px }
 }
 @media (max-width:560px){
-  .abx-hero{ padding:26px 16px 20px }
-  .abx-mark{ inline-size:72px; block-size:72px; border-radius:20px }
-  .abx-mark img{ inline-size:46px; block-size:46px }
+  .abx-hero{ padding:28px 16px 22px }
+  .abx-mark{ inline-size:92px; block-size:92px }
+  .abx-maker img{ inline-size:60px; block-size:60px }
   .abx-name{ margin-block-start:16px }
   .abx-blurb{ font-size:13.5px; margin-block-start:10px }
-  .abx-cols{ grid-template-columns:minmax(0,1fr) }
+  .abx-facts{ gap:16px 14px; padding:20px 14px }
 }
 
 /* The close control on a markets position chip. Open trades were shown
@@ -4562,13 +4624,29 @@ input[type="search"]::-webkit-search-results-decoration{
 .dsk-search > svg{ inline-size:16px; block-size:16px; flex:none; opacity:.55 }
 .dsk-search:focus-within > svg{ opacity:.9; color:rgb(var(--accent-rgb)) }
 
+/* The input owns no box. Not a smaller box, not a borderless box - none.
+
+   It used to declare its own min-block-size, which meant there were two
+   heights in play: the shell's and the input's. They were kept in step
+   by hand, in three places, and in the compact shell they had already
+   fallen out of step - a 42px input inside a 34px box, so the box grew
+   to fit its own contents and the "small" variant was not small. Worse,
+   an input that is sized and painted independently of the thing drawn
+   around it is a second box, and a second box is what draws a second
+   rectangle when it takes focus.
+
+   So: the shell is the control. It has the height, the padding, the
+   border, the radius and the focus ring. The input stretches to fill
+   it and contributes nothing of its own. There is no longer a pair of
+   values that can disagree. */
 .dsk-search-i,
 .dsk-search > input{
   flex:1 1 auto; min-inline-size:0;
+  align-self:stretch;
   -webkit-appearance:none; appearance:none;
   background:none; border:0; outline:none; box-shadow:none;
   padding:0; margin:0;
-  min-block-size:calc(var(--ctl-h) - 2px);
+  min-block-size:0; block-size:auto;
   color:var(--ink); font:inherit;
 }
 .dsk-search > input:focus{ border:0; box-shadow:none; background:none }
@@ -4614,7 +4692,10 @@ input[type="search"]::-webkit-search-results-decoration{
   border:0; border-radius:0;
   outline:none; box-shadow:none;
   padding:0; margin:0;
-  min-block-size:calc(var(--ctl-h) - 2px);
+  /* No height here either - see the note on .dsk-search-i above. This
+     rule exists to out-specify `.field input`, which sets min-height;
+     zeroing it is what hands the height back to the shell. */
+  min-block-size:0;
 }
 .field .dsk-search-i:focus,
 .field .dsk-search-i:focus-visible,
@@ -4631,8 +4712,9 @@ input[type="search"]::-webkit-search-results-decoration{
 /* A compact variant for panels and popovers. */
 .dsk-search.sm{ min-block-size:34px; padding-inline:9px; border-radius:11px }
 .dsk-search.sm > svg{ inline-size:15px; block-size:15px }
+/* Only the type size. The height is the shell's, as above. */
 .dsk-search.sm .dsk-search-i,
-.dsk-search.sm > input{ min-block-size:32px; font-size:12.5px }
+.dsk-search.sm > input{ font-size:12.5px }
 
 /* The two that already had their own shell are re-based onto this one
    rather than left to drift. */

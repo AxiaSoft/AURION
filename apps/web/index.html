@@ -96,9 +96,9 @@
   <script src="js/skins.js?v=desk98"></script>
   <script src="js/themes.js?v=desk128"></script>
   <script src="js/colorpicker.js?v=desk2"></script>
-  <link rel="stylesheet" href="css/app.css?v=desk167" />
-  <link rel="stylesheet" href="css/skins.css?v=desk167" />
-  <link rel="stylesheet" href="css/chart.css?v=desk167" />
+  <link rel="stylesheet" href="css/app.css?v=desk168" />
+  <link rel="stylesheet" href="css/skins.css?v=desk168" />
+  <link rel="stylesheet" href="css/chart.css?v=desk168" />
   <link rel="stylesheet" href="css/themes.css?v=desk116" />
 </head>
 <body class="mode-desk">
@@ -106,7 +106,9 @@
   <!-- The theme's backdrop. Three composited layers, transformed and never
        repainted; which of them is visible is entirely up to [data-bg]. -->
   <div id="bg-fx" aria-hidden="true"><b></b><b></b><b></b></div>
-  <div id="theme-veil" aria-hidden="true">
+  <!-- role=status, so the message is announced rather than only shown.
+       aria-hidden is toggled off while the change runs (see morphTheme). -->
+  <div id="theme-veil" role="status" aria-live="polite" aria-hidden="true">
     <div class="tv-card" id="theme-veil-card">
       <div class="tv-spin" aria-hidden="true"></div>
       <div class="tv-text">
@@ -227,14 +229,14 @@
     the real desk pays one parse and nothing else.
   -->
   <script src="js/demo.js?v=desk111"></script>
-  <script src="js/i18n.js?v=lang6faaec8b59"></script>
+  <script src="js/i18n.js?v=langef7fc851ce"></script>
   <script src="js/api.js?v=desk85"></script>
   <script src="js/calendar.js?v=desk139"></script>
   <script src="js/chart-series.js?v=desk97"></script>
   <script src="js/charts.js?v=desk125"></script>
-  <script src="js/chart-tools.js?v=desk167"></script>
+  <script src="js/chart-tools.js?v=desk168"></script>
   <script src="js/prop-guide.js?v=desk118"></script>
   <script src="js/pnl-charts.js?v=desk141"></script>
-  <script src="js/app.js?v=desk167"></script>
+  <script src="js/app.js?v=desk168"></script>
 </body>
 </html>

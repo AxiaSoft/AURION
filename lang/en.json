@@ -515,7 +515,6 @@
     "signals_hint": "Strict intelligent analysis to avoid loss. User-activated premium feature.",
     "no_signals": "No strict signals on this window",
     "search": "Search charts",
-    "open": "Open chart",
     "open_sr": "Open the full {sym} {tf} chart",
     "live_now": "Live charts"
   },
@@ -618,7 +617,11 @@
     "why_system": "Licence, language, time zone, and the controls that restart or reset the desk.",
     "search": "Search settings",
     "search_none": "Nothing matches",
-    "search_n": "{n} of {t}"
+    "search_n": "{n} of {t}",
+    "sheet_open": "All settings",
+    "sheet_title": "Settings sections",
+    "sheet_close": "Close the list",
+    "sheet_drag": "Drag to close"
   },
   "style": {
     "title": "Trade model",

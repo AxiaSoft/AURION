@@ -580,10 +580,16 @@ check("choosing a shipped accent clears the custom one", () => {
   const app = read("js/app.js");
   const i = app.indexOf('const b = e.target.closest("[data-accent]")');
   if (i < 0) throw new Error("the shipped-accent handler is gone");
-  const near = app.slice(i, i + 400);
-  if (!/setCustomAccent\(""\)/.test(near)) {
-    throw new Error("a stored custom accent would keep overriding the shipped one");
-  }
+  /* Window widened and anchored on setAccent rather than on a byte
+     count: the clear still has to happen, and still has to happen
+     first, but it now sits inside the morphTheme callback that covers
+     the recolour, which pushed it past a fixed 400 characters. */
+  const near = app.slice(i, app.indexOf("markAppearancePills()", i));
+  const clearAt = near.indexOf('setCustomAccent("")');
+  const setAt = near.indexOf("setAccent(b.dataset.accent)");
+  if (clearAt < 0) throw new Error("a stored custom accent would keep overriding the shipped one");
+  if (setAt < 0) throw new Error("the shipped accent is never applied");
+  if (clearAt > setAt) throw new Error("the custom accent is cleared after the shipped one is applied");
 });
 
 /* ----------------------------------------------- 7. strings and cache */
@@ -606,11 +612,11 @@ check("every new string exists in all three languages", () => {
 
 check("the browser is forced to pick up every file that changed", () => {
   const html = read("index.html");
-  const want = ["js/skins.js?v=desk98", "js/themes.js?v=desk128", "js/app.js?v=desk167",
-    "css/themes.css?v=desk116", "css/app.css?v=desk167", "css/skins.css?v=desk167",
+  const want = ["js/skins.js?v=desk98", "js/themes.js?v=desk128", "js/app.js?v=desk168",
+    "css/themes.css?v=desk116", "css/app.css?v=desk168", "css/skins.css?v=desk168",
     "js/colorpicker.js?v=desk2"];
   want.forEach((w) => { if (!html.includes(w)) throw new Error("index.html is missing " + w); });
-  if (!read("sw.js").includes("aurion-shell-v157")) throw new Error("the service worker cache was not bumped");
+  if (!read("sw.js").includes("aurion-shell-v158")) throw new Error("the service worker cache was not bumped");
 });
 
 /* ----------------------------------------------------------------- report */

@@ -436,17 +436,51 @@ function morphTheme(apply, opts) {
   if (__themeMorphT) { clearTimeout(__themeMorphT); __themeMorphT = null; }
   label();
 
+  /* `apply` returning is not the same as the change being on screen.
+
+     The veil used to start fading the moment the promise settled, which
+     is before style recalculation, before the new typeface has loaded on
+     a language change, and before any canvas has repainted. So the cover
+     came off over a desk that was still visibly assembling itself - the
+     exact thing it exists to hide. Wait for the fonts, then for two
+     frames: the first is where the browser does the work, the second
+     only runs once that work has been painted. */
+  const painted = () => {
+    let fonts = Promise.resolve();
+    try { if (document.fonts && document.fonts.ready) fonts = document.fonts.ready; } catch {}
+    return Promise.resolve(fonts).catch(() => {}).then(() => new Promise((done) => {
+      if (typeof requestAnimationFrame !== "function") { setTimeout(done, 32); return; }
+      requestAnimationFrame(() => requestAnimationFrame(() => done()));
+    }));
+  };
+
+  /* While the work runs the desk is not usable, so it must not be
+     clickable either - the veil was pointer-events:none, which made it a
+     picture of a loading screen rather than one. aria-busy and the live
+     region are the same statement for anyone not looking at it. */
+  const busy = (on) => {
+    veil.classList.toggle("is-busy", on);
+    try {
+      root.setAttribute("aria-busy", on ? "true" : "false");
+      if (on) veil.removeAttribute("aria-hidden");
+      else veil.setAttribute("aria-hidden", "true");
+    } catch {}
+  };
+
   /* Reduced motion keeps the cover and the message - they are information,
      not decoration - and simply drops the fades. */
   if (reduce) {
     veil.style.transition = "none";
     veil.style.opacity = "1";
-    veil.classList.add("is-busy");
+    busy(true);
     return Promise.resolve()
       .then(apply)
+      .catch((e) => { try { console.error(e); } catch {} })
+      .then(painted)
       .then(() => {
+        label();
         veil.style.opacity = "0";
-        veil.classList.remove("is-busy");
+        busy(false);
       });
   }
 
@@ -460,7 +494,7 @@ function morphTheme(apply, opts) {
     void veil.offsetWidth;
     veil.style.transition = "opacity .18s ease-out";
     veil.style.opacity = "1";
-    veil.classList.add("is-busy");
+    busy(true);
 
     // Phase 2 — do the work while covered. The .theming class is added HERE
     // (not during the cover) so element transitions run under the fade
@@ -471,13 +505,14 @@ function morphTheme(apply, opts) {
       Promise.resolve()
         .then(apply)
         .catch((e) => { try { console.error(e); } catch {} })
+        .then(painted)
         .then(() => {
           // The labels may have just changed language; restate them before
           // the card is seen on the way out.
           label();
           veil.style.transition = "opacity .55s cubic-bezier(.33,0,.2,1)";
           veil.style.opacity = "0";
-          veil.classList.remove("is-busy");
+          busy(false);
           __themeMorphT = setTimeout(() => {
             root.classList.remove("theming");
             veil.style.transition = "";
@@ -1670,20 +1705,29 @@ function bindAppearance() {
 
     const b = e.target.closest("[data-accent]");
     if (!b) return;
-    /* A shipped accent and a custom one cannot both be in force. */
-    AurionSkin.setCustomAccent("");
     if (b.dataset.locked) { toast(I18N.t("themes.locked_toast")); show("upgrade"); return; }
-    AurionSkin.setAccent(b.dataset.accent);
-    // Picking an accent is part of building the theme, whichever theme it
-    // is, so it is remembered with the rest of that theme's knobs rather
-    // than being reset the next time the theme is applied.
-    if (typeof AurionTheme !== "undefined") {
-      AurionTheme.edit({ accent: b.dataset.accent }, { silent: true });
-    }
-    markAppearancePills();
-    paintCustomPreview();
-    // The chart reads its colours once when it paints, so it has to be asked.
-    repaintChartsForTheme();
+    /* Under the veil, like every other appearance change. Picking an
+       accent recolours every control, every chart and every chip on the
+       desk; doing it in the open meant watching the page change in
+       pieces, with the charts arriving last because they only recolour
+       when asked. The drag inside the colour picker deliberately does
+       NOT go through here - it has to track the pointer frame by frame,
+       and a cover over a live preview is a contradiction. */
+    morphTheme(() => {
+      /* A shipped accent and a custom one cannot both be in force. */
+      AurionSkin.setCustomAccent("");
+      AurionSkin.setAccent(b.dataset.accent);
+      // Picking an accent is part of building the theme, whichever theme
+      // it is, so it is remembered with the rest of that theme's knobs
+      // rather than being reset the next time the theme is applied.
+      if (typeof AurionTheme !== "undefined") {
+        AurionTheme.edit({ accent: b.dataset.accent }, { silent: true });
+      }
+      markAppearancePills();
+      paintCustomPreview();
+      // The chart reads its colours once when it paints, so it has to be asked.
+      repaintChartsForTheme();
+    }, { title: I18N.t("ui.switch_theme") });
   };
 
   bindThemesGallery();
@@ -1691,10 +1735,16 @@ function bindAppearance() {
   const perf = $("set-perf");
   if (perf) perf.onclick = (e) => {
     const b = e.target.closest("[data-perfbtn]"); if (!b) return;
-    AurionSkin.setPerfMode(b.dataset.perfbtn);
-    // Re-marking in place, not re-rendering: a full settings re-render was
-    // rebuilding the tab and losing the pressed state until you navigated away.
-    markAppearancePills();
+    /* Performance mode turns the desk's blur and shadows on or off, which
+       is as big a visual change as a theme swap, so it gets the same
+       cover. */
+    morphTheme(() => {
+      AurionSkin.setPerfMode(b.dataset.perfbtn);
+      // Re-marking in place, not re-rendering: a full settings re-render
+      // was rebuilding the tab and losing the pressed state until you
+      // navigated away.
+      markAppearancePills();
+    }, { title: I18N.t("ui.switch_mode") });
   };
 }
 
@@ -2916,6 +2966,7 @@ function bindInstrumentPicker(id, opts) {
 
     const w = Math.min(Math.max(r.width, MIN_W), Math.max(MIN_W, Math.min(MAX_W, vw - EDGE * 2)));
     const rtl = (document.documentElement.getAttribute("dir") || "").toLowerCase() === "rtl";
+    /* Physical left, clamped so the box is always wholly on screen. */
     let left = rtl ? r.right - w : r.left;
     left = Math.max(EDGE, Math.min(left, vw - w - EDGE));
 
@@ -2927,15 +2978,30 @@ function bindInstrumentPicker(id, opts) {
     const room = Math.max(MIN_H, Math.min(MAX_H, up ? above : below));
 
     pop.classList.toggle("is-up", up);
-    pop.style.width = `${Math.round(w)}px`;
-    pop.style.left = `${Math.round(left)}px`;
-    pop.style.maxHeight = `${Math.round(room)}px`;
+
+    /* Written as logical properties, which is not decoration.
+
+       The stylesheet pins this box with inset-inline-start, and in a
+       right-to-left page that maps to `right`. Setting `left` inline
+       does not replace it - it joins it. A fixed box with a width and
+       both edges pinned is over-constrained, and in RTL the rule is
+       that `left` is the one ignored, so the menu stayed welded to the
+       right edge of the screen no matter what was measured for it.
+       That is the whole bug: the symbol list opened against the side
+       of the window instead of under its button.
+
+       So the offset is expressed the way the stylesheet expresses it,
+       from the inline start edge, which in RTL is measured from the
+       right. One property, one answer, no contest to resolve. */
+    pop.style.insetInlineStart = `${Math.round(rtl ? vw - (left + w) : left)}px`;
+    pop.style.inlineSize = `${Math.round(w)}px`;
+    pop.style.maxBlockSize = `${Math.round(room)}px`;
     if (up) {
-      pop.style.top = "auto";
-      pop.style.bottom = `${Math.round(vh - r.top + GAP)}px`;
+      pop.style.insetBlockStart = "auto";
+      pop.style.insetBlockEnd = `${Math.round(vh - r.top + GAP)}px`;
     } else {
-      pop.style.bottom = "auto";
-      pop.style.top = `${Math.round(r.bottom + GAP)}px`;
+      pop.style.insetBlockEnd = "auto";
+      pop.style.insetBlockStart = `${Math.round(r.bottom + GAP)}px`;
     }
   };
 
@@ -5522,13 +5588,16 @@ function propFormHtml() {
             </button>
             <input type="hidden" id="pr-syms" value="${esc(pr.allowed_symbols || "")}" />
             <div class="sym-panel" id="pr-syms-panel" hidden>
-              <div class="sym-head">
-                <span class="dsk-search sm">${icon("search")}
-                  <input id="pr-syms-q" type="search" class="dsk-search-i"
-                         aria-label="${esc(I18N.t("risk.symbols_search"))}"
-                         placeholder="${esc(I18N.t("risk.symbols_search"))}" />
-                </span>
-              </div>
+              <!-- The search shell sits directly in the panel. It used to be
+                   wrapped in a .sym-head div whose only rule lived in
+                   skins.css, so the gap under the search box existed when a
+                   skin was on and vanished when it was off. The panel spaces
+                   its own children now, the way every other card does. -->
+              <span class="dsk-search sm">${icon("search")}
+                <input id="pr-syms-q" type="search" class="dsk-search-i"
+                       aria-label="${esc(I18N.t("risk.symbols_search"))}"
+                       placeholder="${esc(I18N.t("risk.symbols_search"))}" />
+              </span>
               <div class="sym-acts">
                 <button type="button" class="btn tiny ghost" id="pr-syms-all">${esc(I18N.t("risk.symbols_all"))}</button>
                 <button type="button" class="btn tiny ghost" id="pr-syms-none">${esc(I18N.t("risk.symbols_none"))}</button>
@@ -6450,11 +6519,20 @@ const views = {
        "Click the card to open the full chart", which is what a
        missing button sounds like when you write it as prose.
 
-       There is a real <button> now. It carries data-open-chart too,
-       so it runs the same handler; the card keeps its own click as a
-       mouse convenience, and that handler already bails when the
-       event starts inside a button, so the two never double-fire. */
-    const chartCard = (a, tester, clickable) => `<div class="card chart-card"${clickable ? " data-open-chart" : ""} data-sym="${a.symbol||""}" data-tf="${a.timeframe||""}">
+       The fix was a second control: a real <button> carrying the same
+       data-open-chart, next to a card that kept its own click. That
+       was wrong twice over. It never worked - the shared handler bails
+       whenever the click starts inside a button, a guard written for
+       the card and then applied to the button as well, so pressing the
+       button did precisely nothing. And even working it would have
+       been two targets for one action, the second one a full-width bar
+       under every card repeating the card's own job.
+
+       One target. The card itself is the control: a real role, a real
+       tab stop, a real name, and Enter and Space handled alongside the
+       click. Nothing inside it is a second way in. */
+    const chartCard = (a, tester, clickable) => `<div class="card chart-card"${clickable ? ` data-open-chart role="button" tabindex="0"
+      aria-label="${esc(I18N.t("charts.open_sr", { sym: a.symbol || "", tf: a.timeframe || "" }))}"` : ""} data-sym="${a.symbol||""}" data-tf="${a.timeframe||""}">
       <h3>${a.symbol || "\u2014"} \u00b7 ${a.timeframe || ""} <span class="pill is-sm ${tester ? "is-backtest" : ""}">${I18N.t(tester ? "tape.backtest" : "tape.live")}</span></h3>
       <p class="metric is-sm">${a.ea_name || "AurionBridge"}</p>
       <div class="kv">
@@ -6464,10 +6542,7 @@ const views = {
       </div>
       ${tester && !clickable ? `<p class="sub">${I18N.t("tape.showing_backtest")}</p>` : `${positionsStripHtml(a.symbol)}
       <div class="chart-box chart-mini"><canvas data-mini="${a.symbol||""}" data-tf="${a.timeframe||""}"></canvas></div>
-      ${clickable ? `<button type="button" class="btn tiny block chart-open" data-open-chart
-              data-sym="${a.symbol||""}" data-tf="${a.timeframe||""}"
-              aria-label="${esc(I18N.t("charts.open_sr", { sym: a.symbol || "", tf: a.timeframe || "" }))}"
-        >${I18N.t("charts.open")}</button>` : ""}`}
+`}
     </div>`;
     if (agents.length || testers.length) {
       /* A search over the attached charts. With thirty EAs on the
@@ -6679,6 +6754,22 @@ const views = {
       </button>`;
     const grp = (label) => `<div class="sj-grp">${label}</div>`;
 
+    /* The closed sheet names the section you are in, so the icon and the
+       title have to be reachable outside tabBtn's template. One table,
+       read by both. */
+    const SECTIONS = {
+      "set-robot": ["bolt", I18N.t("settings.sec_robot")],
+      "set-prop": ["shield", I18N.t("risk.title")],
+      "set-mt5": ["term", "MetaTrader 5"],
+      "set-personal": ["user", I18N.t("settings.personal")],
+      "set-notify": ["bell", I18N.t("notify.title")],
+      "set-telegram": ["spark", I18N.t("telegram.title")],
+      "set-update": ["pulse", I18N.t("upd.title")],
+      "set-system": ["gear", I18N.t("host.system")],
+    };
+    const tabIcon = (id) => (SECTIONS[id] || SECTIONS["set-robot"])[0];
+    const tabTitle = (id) => (SECTIONS[id] || SECTIONS["set-robot"])[1];
+
     /* Title plus the one line that says what the section decides.
        Settings sections are not self-explanatory from their names and
        this is the only place that can say so. */
@@ -6690,7 +6781,35 @@ const views = {
     const block = (id, title, why, body) => `<section class="set-block" id="${id}"${
       tab === id ? "" : " hidden"}>${head(title, why)}${body}</section>`;
 
-    return `<div class="set-desk set-rail stx"><nav class="set-jump" id="set-jump" aria-label="settings">
+    /* On a phone the rail used to become a horizontal strip of eight
+       chips that scrolled sideways, with the group headings and the
+       one-line descriptions both switched off. Three of the eight were
+       visible, there was nothing to say the other five existed, and the
+       text that explains what each section decides - the whole reason
+       the rail is worth its width - was the first thing dropped.
+
+       It is a bottom sheet instead: closed, it costs one button that
+       names the section you are in; opened, it is the full rail,
+       headings and descriptions included, within thumb reach. */
+    return `<div class="set-desk set-rail stx">
+      <button type="button" class="sj-open" id="set-sheet-open"
+              aria-controls="set-jump" aria-expanded="false">
+        <span class="sj-ic">${icon(tabIcon(tab))}</span>
+        <span class="sj-txt"><b id="set-sheet-now">${esc(tabTitle(tab))}</b><small>${
+          esc(I18N.t("settings.sheet_open"))}</small></span>
+        <span class="sj-open-ch" aria-hidden="true">${icon("chevron")}</span>
+      </button>
+      <div class="sj-scrim" id="set-sheet-scrim" hidden></div>
+      <nav class="set-jump" id="set-jump" aria-label="settings">
+        <!-- Sheet furniture: inert on desktop, where the nav is a plain
+             rail and none of it is shown. -->
+        <div class="sj-grab" id="set-sheet-grab" role="presentation"
+             aria-label="${esc(I18N.t("settings.sheet_drag"))}"><span></span></div>
+        <div class="sj-sheet-head">
+          <b>${esc(I18N.t("settings.sheet_title"))}</b>
+          <button type="button" class="sj-close" id="set-sheet-close"
+                  aria-label="${esc(I18N.t("settings.sheet_close"))}">${icon("close")}</button>
+        </div>
         <!-- Nine sections across three groups is past the point where
              reading the rail is faster than typing. The box filters the
              rail itself rather than opening a results page: the thing
@@ -6708,16 +6827,16 @@ const views = {
           <p class="sj-find-n sub" id="set-q-n" aria-live="polite" hidden></p>
         </div>
         ${grp(I18N.t("rail.trading"))}
-        ${tabBtn("set-robot", I18N.t("settings.sec_robot"), "bolt", I18N.t("rail.robot_hint"))}
-        ${tabBtn("set-prop", I18N.t("risk.title"), "shield", I18N.t("rail.prop_hint"))}
-        ${tabBtn("set-mt5", "MetaTrader 5", "term", I18N.t("rail.mt5_hint"))}
+        ${tabBtn("set-robot", tabTitle("set-robot"), tabIcon("set-robot"), I18N.t("rail.robot_hint"))}
+        ${tabBtn("set-prop", tabTitle("set-prop"), tabIcon("set-prop"), I18N.t("rail.prop_hint"))}
+        ${tabBtn("set-mt5", tabTitle("set-mt5"), tabIcon("set-mt5"), I18N.t("rail.mt5_hint"))}
         ${grp(I18N.t("rail.personalize"))}
-        ${tabBtn("set-personal", I18N.t("settings.personal"), "user", I18N.t("rail.personal_hint"))}
-        ${tabBtn("set-notify", I18N.t("notify.title"), "bell", I18N.t("rail.notify_hint"))}
-        ${tabBtn("set-telegram", I18N.t("telegram.title"), "spark", I18N.t("rail.telegram_hint"))}
+        ${tabBtn("set-personal", tabTitle("set-personal"), tabIcon("set-personal"), I18N.t("rail.personal_hint"))}
+        ${tabBtn("set-notify", tabTitle("set-notify"), tabIcon("set-notify"), I18N.t("rail.notify_hint"))}
+        ${tabBtn("set-telegram", tabTitle("set-telegram"), tabIcon("set-telegram"), I18N.t("rail.telegram_hint"))}
         ${grp(I18N.t("rail.system"))}
-        ${tabBtn("set-update", I18N.t("upd.title"), "pulse", I18N.t("rail.update_hint"))}
-        ${tabBtn("set-system", I18N.t("host.system"), "gear", I18N.t("rail.system_hint"))}
+        ${tabBtn("set-update", tabTitle("set-update"), tabIcon("set-update"), I18N.t("rail.update_hint"))}
+        ${tabBtn("set-system", tabTitle("set-system"), tabIcon("set-system"), I18N.t("rail.system_hint"))}
       </nav><div class="set-main">
 
       ${block("set-robot", I18N.t("settings.sec_robot"), I18N.t("settings.why_robot"),
@@ -6835,20 +6954,27 @@ const views = {
       </div></div>`;
   },
   about() {
-    /* Rebuilt, centred, and with the desk's live state taken out.
+    /* One container.
 
-       This page carried a six-chip row saying whether the engine was
-       up, whether MetaTrader was connected, how many EA charts were
-       attached, and so on. That is the Command centre's job and it
-       is answered there, on the screen a trader actually watches. On
-       an About page it was a second, slower copy of the truth - and
-       a copy that is only right while the page is open is worse than
-       no copy, because it invites you to trust it.
+       It was a centred banner followed by a grid of three cards:
+       specs, maker, changelog. Three bordered boxes to hold eleven
+       short facts and a paragraph, which is a lot of furniture for
+       very little content - and on a phone they stacked into three
+       separate scroll-lengths of mostly empty card. The page is one
+       panel now, read top to bottom.
 
-       So this is now what an About page is: what the product is,
-       which build you are running, who made it, and what changed.
-       Everything is centred on one column that holds its measure on
-       a desktop and stays a single readable stack on a phone. */
+       Two things are gone outright. The changelog was a card that
+       spent most of its life saying "loading", filled by the update
+       check with whatever the server happened to return; what the
+       page is actually for is telling you which build you have, and
+       the update line above already says whether that build is
+       current. And "copy version" copied a string the page prints in
+       full two lines further down, in a selectable form, so it was a
+       button to do by hand what the hand could already do.
+
+       The desk's live state went in an earlier pass, for the same
+       reason: it was the Command centre's job answered on a page
+       nobody watches. */
     const ver = S.version || S.snap?.version || S._gateLic?.version || "1.0.0";
     const L = (S.snap && S.snap.license) || {};
     const buildDate = S.buildDate || new Date().toISOString().slice(0, 10);
@@ -6863,62 +6989,44 @@ const views = {
       </div>`;
 
     return `<div class="cmd about abx">
-      <!-- 1. What this is, and exactly which build of it. -->
-      <header class="abx-hero">
+      <section class="card abx-panel">
         <span class="abx-hero-wash" aria-hidden="true"></span>
-        <div class="abx-mark"><img src="icons/mark.png?v=desk49" alt="AURION" /></div>
-        <h2 class="abx-name">AURION <small>${esc(I18N.t("about.product_sub"))}</small></h2>
-        <p class="abx-blurb">${I18N.t("about.blurb")}</p>
-        <div class="abx-tags">
-          <span class="abx-tag mono">v${esc(ver)}</span>
-          <span class="abx-tag mono">${esc(buildTag(buildDate))}</span>
-          <span class="abx-tag${L.premium ? " is-pro" : ""}">${esc(L.premium ? planLabel(L) : "Freemium")}</span>
+
+        <!-- 1. What this is, and exactly which build of it. -->
+        <header class="abx-hero">
+          <img class="abx-mark" src="icons/mark.png?v=desk49" alt="AURION" />
+          <h2 class="abx-name">AURION <small>${esc(I18N.t("about.product_sub"))}</small></h2>
+          <p class="abx-blurb">${I18N.t("about.blurb")}</p>
+          <div class="abx-tags">
+            <span class="abx-tag mono">v${esc(ver)}</span>
+            <span class="abx-tag mono">${esc(buildTag(buildDate))}</span>
+            <span class="abx-tag${L.premium ? " is-pro" : ""}">${esc(L.premium ? planLabel(L) : "Freemium")}</span>
+          </div>
+          <div class="abx-acts">
+            <button class="btn" id="about-check-update" type="button">${
+              icon("refresh")} ${I18N.t("about.check")}</button>
+          </div>
+          <p class="abx-upd sub">${I18N.t("about.update")}: <b id="about-update-status">${
+            I18N.t("about.checking")}</b></p>
+        </header>
+
+        <!-- 2. The reference detail, in the same panel. -->
+        <div class="abx-facts">
+          ${fact(I18N.t("about.product"), "AURION Live Desk")}
+          ${fact(I18N.t("about.version"), "v" + ver, true)}
+          ${fact(I18N.t("about.build"), buildTag(buildDate), true)}
+          ${fact(I18N.t("about.license"), L.premium ? planLabel(L) : "Freemium")}
+          ${fact(I18N.t("about.language"), I18N.lang.toUpperCase(), true)}
+          ${fact(I18N.t("about.support"), "support@axiasoft")}
         </div>
-        <div class="abx-acts">
-          <button class="btn" id="about-check-update" type="button">${
-            icon("refresh")} ${I18N.t("about.check")}</button>
-          <button class="btn ghost" id="about-copy-ver" type="button">${
-            icon("clipboard")} ${I18N.t("about.copy_ver")}</button>
-        </div>
-        <p class="abx-upd sub">${I18N.t("about.update")}: <b id="about-update-status">${
-          I18N.t("about.checking")}</b></p>
-      </header>
 
-      <!-- 2. The reference detail. Read, not scanned. -->
-      <div class="abx-cols">
-        <section class="card abx-card">
-          <h3>${icon("wrench")} ${I18N.t("about.specs")}</h3>
-          <div class="abx-facts">
-            ${fact(I18N.t("about.product"), "AURION Live Desk")}
-            ${fact(I18N.t("about.version"), "v" + ver, true)}
-            ${fact(I18N.t("about.build"), buildTag(buildDate), true)}
-            ${fact(I18N.t("about.license"), L.premium ? planLabel(L) : "Freemium")}
-            ${fact(I18N.t("about.language"), I18N.lang.toUpperCase(), true)}
-          </div>
-        </section>
-
-        <section class="card abx-card">
-          <h3>${icon("building")} ${I18N.t("about.maker")}</h3>
-          <div class="abx-maker">
-            <img src="assets/axiasoft-logo.png?v=desk49" alt="Axiasoft" />
-            <b>Axiasoft</b>
-            <span class="sub">${I18N.t("about.developer_of")} &middot; 2024-${copyrightYear()}</span>
-          </div>
-          <div class="abx-facts">
-            ${fact(I18N.t("about.support"), "support@axiasoft")}
-          </div>
-        </section>
-
-        <section class="card abx-card abx-span">
-          <h3>${icon("clipboard")} ${I18N.t("about.changelog")}</h3>
-          <!-- Filled by the update check; the markup it writes is plain
-               text and headings, which the timeline styles from the
-               outside rather than requiring it to know about them. -->
-          <div id="about-changelog" class="abx-log sub">
-            <p>${I18N.t("upd.loading")}</p>
-          </div>
-        </section>
-      </div>
+        <!-- 3. Who made it. -->
+        <footer class="abx-maker">
+          <img src="assets/axiasoft-logo.png?v=desk49" alt="Axiasoft" />
+          <b>Axiasoft</b>
+          <span class="sub">${I18N.t("about.developer_of")} &middot; 2024-${copyrightYear()}</span>
+        </footer>
+      </section>
     </div>`;
   },
   profile() {
@@ -7895,11 +8003,136 @@ function bindSettingsSearch() {
        typed enough to leave one. */
     if (e.key === "Enter") {
       const first = buttons.find((b) => !b.hidden);
-      if (first) { showSetTab(first.dataset.jump); first.focus(); }
+      if (first) { showSetTab(first.dataset.jump); first.focus(); closeSetSheet(false); }
     }
   });
   if (clear) clear.onclick = () => { q.value = ""; apply(); q.focus(); };
   apply();
+}
+
+/* The settings rail as a bottom sheet, below the rail's breakpoint.
+ *
+ * It has to be genuinely controllable - opened and closed by dragging as
+ * well as by tapping - because a sheet that only a button can close is a
+ * panel wearing a sheet's clothes, and the grab handle at the top of one
+ * is a promise that it can be thrown away with a flick.
+ *
+ * The same <nav> is the desktop rail, so none of this may leave anything
+ * behind when the window widens: every piece of state is a class or an
+ * attribute that `closeSetSheet` removes.
+ */
+const SET_SHEET_MQ = "(max-width: 1000px)";
+function setSheetOn() {
+  try { return Boolean(window.matchMedia && window.matchMedia(SET_SHEET_MQ).matches); } catch { return false; }
+}
+let __setSheetReturn = null;
+function closeSetSheet(focusBack) {
+  const desk = document.querySelector(".set-desk.set-rail");
+  const nav = $("set-jump");
+  const btn = $("set-sheet-open");
+  const scrim = $("set-sheet-scrim");
+  if (!desk) return;
+  desk.classList.remove("sheet-open");
+  if (nav) nav.style.transform = "";
+  if (scrim) { scrim.hidden = true; scrim.style.opacity = ""; }
+  if (btn) btn.setAttribute("aria-expanded", "false");
+  const back = focusBack === false ? null : (__setSheetReturn || btn);
+  __setSheetReturn = null;
+  try { if (back && back.isConnected) back.focus(); } catch {}
+}
+function openSetSheet() {
+  const desk = document.querySelector(".set-desk.set-rail");
+  const nav = $("set-jump");
+  const btn = $("set-sheet-open");
+  const scrim = $("set-sheet-scrim");
+  if (!desk || !nav) return;
+  __setSheetReturn = btn || null;
+  if (scrim) scrim.hidden = false;
+  desk.classList.add("sheet-open");
+  if (btn) btn.setAttribute("aria-expanded", "true");
+  /* Focus goes to the section you are on, not to the top of the list:
+     the sheet opens to let you move away from here, so "here" is the
+     right place to start arrowing from. */
+  try {
+    const cur = nav.querySelector("button[data-jump].on") || nav.querySelector("button[data-jump]");
+    if (cur) cur.focus({ preventScroll: true });
+  } catch {}
+}
+function toggleSetSheet() {
+  const desk = document.querySelector(".set-desk.set-rail");
+  if (desk && desk.classList.contains("sheet-open")) closeSetSheet();
+  else openSetSheet();
+}
+
+function bindSetSheet() {
+  const desk = document.querySelector(".set-desk.set-rail");
+  const nav = $("set-jump");
+  if (!desk || !nav || nav.dataset.sheetBound === "1") return;
+  nav.dataset.sheetBound = "1";
+
+  const btn = $("set-sheet-open");
+  const scrim = $("set-sheet-scrim");
+  const grab = $("set-sheet-grab");
+  if (btn) btn.onclick = toggleSetSheet;
+  if (scrim) scrim.onclick = () => closeSetSheet();
+  const x = $("set-sheet-close");
+  if (x) x.onclick = () => closeSetSheet();
+
+  /* Esc closes, from anywhere inside the sheet. Registered on the nav
+     rather than globally so the search box's own Escape - which clears
+     the filter - still wins while it has focus and still has something
+     to clear. */
+  nav.addEventListener("keydown", (e) => {
+    if (e.key !== "Escape" || !desk.classList.contains("sheet-open")) return;
+    const q = $("set-q");
+    if (document.activeElement === q && q && q.value) return;
+    e.preventDefault();
+    closeSetSheet();
+  });
+
+  /* The drag. Pointer events, so one path covers touch, pen and mouse.
+     Dragging down past a quarter of the sheet's height, or flicking
+     downwards at any distance, closes it; anything less springs back.
+     The transform is removed in both outcomes so the CSS transition
+     owns the animation again. */
+  if (grab && typeof grab.setPointerCapture === "function") {
+    let y0 = 0, t0 = 0, dy = 0, dragging = false;
+    const move = (e) => {
+      if (!dragging) return;
+      dy = Math.max(0, e.clientY - y0);
+      nav.style.transition = "none";
+      nav.style.transform = "translateY(" + dy + "px)";
+      if (scrim) scrim.style.opacity = String(Math.max(0, 1 - dy / 260));
+    };
+    const end = (e) => {
+      if (!dragging) return;
+      dragging = false;
+      try { grab.releasePointerCapture(e.pointerId); } catch {}
+      nav.style.transition = "";
+      nav.style.transform = "";
+      if (scrim) scrim.style.opacity = "";
+      const ms = Date.now() - t0;
+      const flick = ms < 260 && dy > 40;
+      if (flick || dy > nav.offsetHeight * 0.25) closeSetSheet();
+    };
+    grab.addEventListener("pointerdown", (e) => {
+      if (!desk.classList.contains("sheet-open")) return;
+      dragging = true; y0 = e.clientY; t0 = Date.now(); dy = 0;
+      try { grab.setPointerCapture(e.pointerId); } catch {}
+    });
+    grab.addEventListener("pointermove", move);
+    grab.addEventListener("pointerup", end);
+    grab.addEventListener("pointercancel", end);
+  }
+
+  /* Widening the window past the breakpoint must not leave the desk
+     holding a scrim and an aria-expanded that no longer mean anything. */
+  try {
+    const mq = window.matchMedia(SET_SHEET_MQ);
+    const sync = () => { if (!mq.matches) closeSetSheet(false); };
+    if (mq.addEventListener) mq.addEventListener("change", sync);
+    else if (mq.addListener) mq.addListener(sync);
+  } catch {}
 }
 
 function showSetTab(id) {
@@ -7919,6 +8152,15 @@ function showSetTab(id) {
   document.querySelectorAll(".set-block").forEach((el) => {
     el.hidden = el.id !== S.setTab;
   });
+  /* The closed sheet's job is to say where you are, so it is restated
+     here rather than at the call sites - every one of them changes the
+     answer. */
+  const now = $("set-sheet-now");
+  const on = document.querySelector("#set-jump [data-jump].on .sj-txt b");
+  if (now && on) now.textContent = on.textContent;
+  const ic = document.querySelector("#set-sheet-open .sj-ic");
+  const onIc = document.querySelector("#set-jump [data-jump].on .sj-ic");
+  if (ic && onIc) ic.innerHTML = onIc.innerHTML;
 }
 function bindView(view) {
   if (view === "command") {
@@ -7939,8 +8181,8 @@ function bindView(view) {
          buttons exist by the time anything can be pressed. */
       bindCloseButtons($("stage"));
       $("stage")?.querySelectorAll("[data-open-chart]").forEach((el) => {
-        el.onclick = (ev) => {
-          /* The whole card opens the chart, but it now contains real
+        const open = (ev) => {
+          /* The whole card opens the chart, but it contains real
              controls -- closing a position must not also throw the
              trader into a fullscreen chart on the way. */
           if (ev && ev.target && ev.target.closest("button, a, input, select, textarea")) return;
@@ -7958,6 +8200,17 @@ function bindView(view) {
             }
           } catch (e) { /* the app-level fullscreen still applies */ }
           openChartDesk(el.dataset.sym, el.dataset.tf, { fullscreen: true });
+        };
+        el.onclick = open;
+        /* The card is role="button", so it has to answer to a button's
+           keys. Space scrolls the page by default and Enter does
+           nothing at all on a div, which is the whole reason a plain
+           click handler on a container is not a control. */
+        el.onkeydown = (ev) => {
+          if (ev.key !== "Enter" && ev.key !== " " && ev.key !== "Spacebar") return;
+          if (ev.target && ev.target !== el && ev.target.closest("button, a, input, select, textarea")) return;
+          ev.preventDefault();
+          open(ev);
         };
       });
     }
@@ -8403,9 +8656,14 @@ function bindView(view) {
     if (jump) jump.onclick = (e) => {
       const b = e.target.closest("[data-jump]"); if (!b) return;
       showSetTab(b.dataset.jump);
+      /* Picking a section is the sheet's whole purpose, so it is also
+         the commonest way to dismiss it. Leaving it up over the section
+         it just opened would hide the answer behind the question. */
+      closeSetSheet();
     };
     showSetTab(S.setTab || "set-robot");
     bindSettingsSearch();
+    bindSetSheet();
     const sav = $("s-save");
     if (sav) sav.onclick = () => saveAccountSettings(false);
     const con = $("s-con");
@@ -8493,18 +8751,6 @@ function bindView(view) {
             ? esc(I18N.t('upd.available')+': '+(r.latest?.version||''))
             : icon("check") + ' ' + esc(I18N.t('upd.uptodate')))
         : esc(I18N.t('upd.error')+': '+(r.error||''));
-      const logEl = $("about-changelog");
-      if(logEl && r.ok && r.latest){
-        logEl.innerHTML = '<b>'+I18N.t('about.version')+' '+esc(r.latest.version||'')+'</b><br>'+esc(r.latest.changelog||'')+'<br><br>'+ (r.latest.files||[]).map(f=>'<div style="font-family:monospace;font-size:12px">'+esc(f.path)+'</div>').join('');
-      }
-    };
-    const copy = $("about-copy-ver");
-    if(copy) copy.onclick = async () => {
-      /* Copy the build stamp with the version. This string exists to be
-         pasted into a support message, and "v1.4.0" alone does not say
-         which build of it the customer is running. */
-      const line = `v${S.version || "1.0.0"} ${buildTag(S.buildDate)}`;
-      try { await navigator.clipboard.writeText(line); toast(I18N.t("about.copied") + ": " + line); } catch {}
     };
     // auto check - async IIFE
     (async () => {
@@ -8515,14 +8761,6 @@ function bindView(view) {
           el.innerHTML = r.data.update_available
             ? esc(I18N.t('upd.available')+': '+(r.data.latest?.version||''))
             : icon("check") + ' ' + esc(I18N.t('upd.uptodate')+' - v'+(S.version||'1.0.0'));
-        }
-        const logEl = $("about-changelog");
-        if(logEl){
-          if(r.ok && r.data && r.data.latest){
-            logEl.innerHTML = '<b>'+I18N.t('about.version')+' '+esc(r.data.latest.version||'')+'</b><br>'+esc(r.data.latest.changelog||'')+'';
-          } else {
-            logEl.innerHTML = '<p>'+I18N.t('upd.uptodate')+' - v'+esc(S.version||'1.0.0')+'</p><p class="sub">AURION Live Desk - Axiasoft</p>';
-          }
         }
       } catch {}
     })();

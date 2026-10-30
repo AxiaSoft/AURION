@@ -274,7 +274,7 @@ if (!jsdom) {
          it now contains real controls inside it. Without a guard the
          close press bubbles up and throws the trader into a fullscreen
          chart on the way to confirming. */
-      const h = /\$\("stage"\)\?\.querySelectorAll\("\[data-open-chart\]"\)[\s\S]{0,1400}?\n      \}\);/.exec(appJs);
+      const h = /\$\("stage"\)\?\.querySelectorAll\("\[data-open-chart\]"\)[\s\S]{0,2200}?\n      \}\);/.exec(appJs);
       if (!h) throw new Error("could not find the chart-grid handler");
       const body = h[0];
       if (!/closest\("button/.test(body)) {
@@ -283,6 +283,27 @@ if (!jsdom) {
       const guardAt = body.indexOf("closest(\"button");
       const openAt = body.indexOf("openChartDesk(");
       if (guardAt > openAt) throw new Error("the guard runs after the chart has already opened");
+    });
+
+    check("the card is the only way to open a chart, and it is a real control", () => {
+      /* There were two: the card, and a full-width button inside it
+         carrying the same data-open-chart. The button never worked -
+         the shared handler bails whenever the click starts inside a
+         button, a guard written for the card and then inherited by
+         the button - so it was a dead control repeating the card's
+         own job. It is gone, which means the card itself has to carry
+         the semantics the button was added to provide. */
+      const card = appJs.slice(appJs.indexOf("const chartCard = ("), appJs.indexOf("if (agents.length || testers.length)"));
+      if (/class="btn tiny block chart-open"/.test(card)) throw new Error("the dead open button is back");
+      if (!/role="button"/.test(card)) throw new Error("the card has no role");
+      if (!/tabindex="0"/.test(card)) throw new Error("the card is not a tab stop");
+      if (!/aria-label="\$\{esc\(I18N\.t\("charts\.open_sr"/.test(card)) {
+        throw new Error("the card has no accessible name");
+      }
+      const h = /\$\("stage"\)\?\.querySelectorAll\("\[data-open-chart\]"\)[\s\S]{0,2200}?\n      \}\);/.exec(appJs)[0];
+      if (!/el\.onkeydown/.test(h)) throw new Error("a role=button that ignores the keyboard is a div with a costume");
+      if (!/ev\.key !== "Enter" && ev\.key !== " "/.test(h)) throw new Error("Enter and Space are not both handled");
+      if (!/preventDefault/.test(h)) throw new Error("Space will scroll the page as well as open the chart");
     });
 
     check("the chart grid binds the close buttons it renders", () => {
@@ -705,6 +726,72 @@ if (!jsdom) {
       }
     });
 
+    check("on a phone the rail is a sheet, not a strip that hides six of its eight entries", () => {
+      /* Below 1000px the rail used to become a horizontal scroller:
+         .sj-grp display:none, .sj-txt small display:none, and eight
+         chips in a row that showed about three. The headings and the
+         line of text saying what each section decides were the first
+         things dropped, which is backwards - they are the reason the
+         rail earns its space. */
+      const d = frag(T.views.settings());
+      const open = d.querySelector("#set-sheet-open");
+      if (!open) throw new Error("nothing opens the sheet");
+      if (open.getAttribute("aria-controls") !== "set-jump") throw new Error("the trigger is not tied to the nav");
+      if (open.getAttribute("aria-expanded") !== "false") throw new Error("the trigger does not report its state");
+      if (!d.querySelector("#set-sheet-now")) throw new Error("the closed sheet does not name the current section");
+      for (const id of ["set-sheet-scrim", "set-sheet-grab", "set-sheet-close"]) {
+        if (!d.querySelector("#" + id)) throw new Error("the sheet has no " + id);
+      }
+
+      const m = /@media \(max-width:1000px\)\{([\s\S]*?)\n\}\n/.exec(appCss);
+      if (!m) throw new Error("the 1000px rung is gone");
+      const rung = m[1];
+      if (/\.sj-grp\{display:none\}/.test(rung.replace(/\s+/g, ""))) {
+        throw new Error("the group headings are hidden again");
+      }
+      if (/\.sj-txt small\{display:none\}/.test(rung)) {
+        throw new Error("the descriptions are hidden again");
+      }
+      if (/overflow-x:auto/.test(rung)) throw new Error("the sideways scroller is back");
+      const tight = rung.replace(/\s+/g, "");
+      if (!/\.set-rail\.set-jump\{[^}]*position:fixed/.test(tight)) throw new Error("the sheet is not anchored to the viewport");
+      if (!/inset-block-end:0/.test(tight)) throw new Error("the sheet is not at the bottom edge");
+      if (!/\.set-rail\.sheet-open\.set-jump\{transform:translateY\(0\)/.test(tight)) {
+        throw new Error("opening the sheet does not bring it on screen");
+      }
+      /* A sheet that slides has to be laid out while closed, so it is
+         translated away rather than displayed none. */
+      if (/\.set-rail\.set-jump\{[^}]*display:none/.test(tight)) throw new Error("the closed sheet is display:none and cannot slide");
+      if (!/touch-action:none/.test(tight)) throw new Error("the handle will be stolen by the page's own scrolling");
+      /* The desktop rail must be untouched by all of it. */
+      if (!/^\.sj-open,\.sj-scrim,\.sj-grab,\.sj-sheet-head\{display:none\}/m.test(appCss)) {
+        throw new Error("the sheet furniture shows on the desktop rail too");
+      }
+    });
+
+    check("the sheet can be closed by dragging it away, not only by a button", () => {
+      /* The handle at the top of a sheet is a promise. A sheet that
+         draws one and then only responds to a close button has told
+         the thumb something untrue. */
+      const fn = appJs.slice(appJs.indexOf("function bindSetSheet()"), appJs.indexOf("function showSetTab("));
+      if (!fn) throw new Error("the sheet is never bound");
+      for (const ev of ["pointerdown", "pointermove", "pointerup", "pointercancel"]) {
+        if (!fn.includes(ev)) throw new Error("the drag does not handle " + ev);
+      }
+      if (!/setPointerCapture/.test(fn)) throw new Error("the drag is lost the moment the finger leaves the handle");
+      if (!/offsetHeight \* 0\.25/.test(fn)) throw new Error("there is no distance threshold");
+      if (!/flick/.test(fn)) throw new Error("a fast short flick does not close it");
+      /* And the three other ways out. */
+      if (!/scrim\.onclick/.test(fn)) throw new Error("tapping outside does not close it");
+      if (!/e\.key !== "Escape"/.test(fn)) throw new Error("Escape does not close it");
+      if (!/mq\.matches/.test(fn)) throw new Error("widening the window leaves the sheet state behind");
+      /* Choosing a section is the commonest dismissal of all. */
+      const bind = appJs.slice(appJs.indexOf('const jump = $("set-jump");'));
+      if (!/showSetTab\(b\.dataset\.jump\);[\s\S]{0,400}?closeSetSheet\(\);/.test(bind)) {
+        throw new Error("picking a section leaves the sheet covering it");
+      }
+    });
+
     check("but the broker section still states whether it is connected", () => {
       /* Removing the rail tag must not remove the information. It
          belongs in the section, where you can act on it. */
@@ -879,12 +966,21 @@ if (!jsdom) {
       if (/2026-10-28/.test(d.textContent)) throw new Error("the raw ISO date is still printed");
     });
 
-    check("the version line a user copies carries the build too", () => {
-      /* It exists to be pasted into a support message, and "v2.4.1"
-         alone does not say which build. */
-      const h = /const copy = \$\("about-copy-ver"\);[\s\S]{0,700}?\n    \};/.exec(appJs);
-      if (!h) throw new Error("the copy handler is gone");
-      if (!/buildTag\(/.test(h[0])) throw new Error("the copied string has no build stamp");
+    check("the build stamp is printed, not hidden behind a copy button", () => {
+      /* This used to assert that the copy-to-clipboard button put the
+         build stamp next to the version, because "v2.4.1" alone does
+         not say which build a customer is running.
+
+         The requirement survives; the button does not. It copied a
+         string the page already prints in full, in selectable text,
+         two lines further down - a control to do by hand what the
+         hand could already do. What matters is that the stamp is on
+         the page at all, so that is what is checked. */
+      const about = appJs.slice(appJs.indexOf("  about() {"), appJs.indexOf("\n  profile() {"));
+      if (/about-copy-ver/.test(about)) throw new Error("the copy button is back");
+      if ((about.match(/buildTag\(buildDate\)/g) || []).length < 2) {
+        throw new Error("the build stamp is not printed beside the version");
+      }
     });
 
     check("the About page leads with what it is, and says nothing about state", () => {
@@ -901,15 +997,21 @@ if (!jsdom) {
       const d = frag(T.views.about());
       const hero = d.querySelector(".abx-hero");
       if (!hero) throw new Error("no banner");
-      if (!hero.querySelector("#about-copy-ver")) {
-        throw new Error("the support actions are not in the banner");
+      if (!hero.querySelector("#about-check-update")) {
+        throw new Error("the update check is not in the banner");
       }
       if (d.querySelector(".abx-state")) throw new Error("the live state row is back");
-      if (!d.querySelector(".abx-cols")) throw new Error("no detail grid");
+      if (!d.querySelector(".abx-facts")) throw new Error("no detail");
+      /* And all of it in one container, not a banner plus a grid of
+         cards: three bordered boxes and three shadows were holding
+         eleven short facts, which is furniture standing in for
+         content. */
+      const panels = d.querySelectorAll(".card");
+      if (panels.length !== 1) throw new Error(panels.length + " cards on the page, expected 1");
       const html = T.views.about();
-      const order = ["abx-hero", "abx-cols"].map((c) => html.indexOf(c));
-      if (order.some((i) => i < 0) || order[0] > order[1]) {
-        throw new Error("the page is not in the order banner, detail");
+      const order = ["abx-hero", "abx-facts", "abx-maker"].map((c) => html.indexOf(c));
+      if (order.some((i) => i < 0) || order[0] > order[1] || order[1] > order[2]) {
+        throw new Error("the page is not in the order banner, facts, maker");
       }
     });
   }

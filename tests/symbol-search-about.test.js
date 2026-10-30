@@ -402,7 +402,11 @@ if (!jsdom) {
     });
 
     check("it keeps everything the old page could do", () => {
-      for (const id of ["about-update-status", "about-check-update", "about-copy-ver", "about-changelog"]) {
+      /* Two ids left the page on purpose and are asserted gone
+         elsewhere: about-copy-ver copied a string the page already
+         prints in selectable text, and about-changelog was a card
+         that spent most of its life saying "loading". */
+      for (const id of ["about-update-status", "about-check-update"]) {
         if (!about.includes(`id="${id}"`)) throw new Error("#" + id + " was lost in the rewrite");
       }
     });
@@ -429,10 +433,10 @@ if (!jsdom) {
       const sec = appCss.slice(appCss.indexOf(".abx{")).replace(/\s+/g, "");
       if (!/\.abx-hero\{[^}]*align-items:center/.test(sec)) throw new Error("the hero does not centre its contents");
       if (!/\.abx-hero\{[^}]*text-align:center/.test(sec)) throw new Error("the hero's text is not centred");
-      if (!/\.abx-card\{align-items:center;text-align:center\}/.test(sec)) {
-        throw new Error("the detail cards are not centred");
-      }
+      if (!/\.abx-maker\{[^}]*align-items:center/.test(sec)) throw new Error("the maker block is not centred");
+      if (!/\.abx-maker\{[^}]*text-align:center/.test(sec)) throw new Error("the maker's text is not centred");
       if (!/\.abx-fact\{[^}]*align-items:center/.test(sec)) throw new Error("the facts are not centred");
+      if (!/\.abx-fact\{[^}]*text-align:center/.test(sec)) throw new Error("the facts' text is not centred");
       if (!/\.abx-tags\{[^}]*justify-content:center/.test(sec)) throw new Error("the tags are not centred");
       if (!/\.abx-acts\{[^}]*justify-content:center/.test(sec)) throw new Error("the actions are not centred");
     });
@@ -476,9 +480,11 @@ if (!jsdom) {
       if (/\.abx-hero\{[^}]*grid-template-columns/.test(m[1])) {
         throw new Error("the phone rules are re-laying the hero out instead of scaling it");
       }
-      if (!/\.abx-mark\{inline-size:72px/.test(m[1])) throw new Error("the mark is not reduced on a phone");
-      if (!/\.abx-cols\{grid-template-columns:minmax\(0,1fr\)/.test(m[1])) {
-        throw new Error("the detail cards do not stack on a phone");
+      if (!/\.abx-mark\{inline-size:92px/.test(m[1])) throw new Error("the mark is not reduced on a phone");
+      /* The facts band is auto-fit, so it needs no breakpoint to stack -
+         only tightening up. */
+      if (!/\.abx-facts\{[^}]*padding:20px14px/.test(m[1])) {
+        throw new Error("the facts band keeps its desktop padding on a phone");
       }
       /* The buttons go full width rather than sitting as two stubs. */
       const t = /@media\(max-width:760px\)\{([\s\S]{0,600}?)\}\}/.exec(sec);
@@ -486,8 +492,8 @@ if (!jsdom) {
         throw new Error("the actions do not go full width on a narrow screen");
       }
       /* And the detail grid never needs a breakpoint, because it is auto-fit. */
-      if (!/\.abx-cols\{[^}]*repeat\(auto-fit,minmax\(300px/.test(sec)) {
-        throw new Error("the detail grid is hand-broken instead of auto-fit");
+      if (!/\.abx-facts\{[^}]*repeat\(auto-fit,minmax\(170px/.test(sec)) {
+        throw new Error("the facts band is hand-broken instead of auto-fit");
       }
     });
 
@@ -503,6 +509,41 @@ if (!jsdom) {
 /* ======================================================================
    Translations
    ====================================================================== */
+
+check("the mark is never framed, and is never cropped to fit a frame", () => {
+  /* Every place the logo appeared, it appeared inside a rounded square
+     with its own surface, hairline and shadow - a frame drawn around
+     something that already has a silhouette, so the shape read first
+     was the frame. Worse, each one used object-fit:cover with a
+     scale(1.08), which crops a logo to fill a box it was never
+     drawn for. */
+  const places = [
+    [".auth-logo-slot", ".auth-logo"],
+    [".nav-logo", ".nav .mark"],
+  ];
+  const body = (sel) => {
+    const re = new RegExp("(?:^|\\})\\s*" + sel.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\s*\\{([^}]*)\\}", "m");
+    const m = appCss.match(re);
+    if (!m) throw new Error("no rule for " + sel);
+    return m[1];
+  };
+  for (const [slot, img] of places) {
+    const sb = body(slot);
+    for (const framing of ["border-radius", "background", "box-shadow"]) {
+      if (new RegExp(framing + "\\s*:").test(sb)) throw new Error(slot + " still draws a " + framing);
+    }
+    const ib = body(img);
+    if (/object-fit\s*:\s*cover/.test(ib)) throw new Error(img + " is still cropped to fill its box");
+    if (!/object-fit\s*:\s*contain/.test(ib)) throw new Error(img + " is not fitted whole");
+    if (/transform\s*:\s*scale/.test(ib)) throw new Error(img + " is still scaled up to hide the crop");
+  }
+  /* And on the About page, where the plate was an .abx-mark div. */
+  const mark = body(".abx-mark");
+  if (!/object-fit\s*:\s*contain/.test(mark)) throw new Error(".abx-mark is not fitted whole");
+  if (/background\s*:/.test(mark)) throw new Error(".abx-mark is still a plate");
+  if (!/inline-size:124px/.test(mark.replace(/\s+/g, ""))) throw new Error("the About mark was not enlarged");
+  return "3 marks, unboxed and uncropped";
+});
 
 check("every new string is translated in all three languages", () => {
   const want = { markets: ["search_sym", "no_sym_match"], about: ["glance", "engine", "ea_charts"] };
