@@ -676,41 +676,39 @@ if (!jsdom) {
 
     /* ---- 2b. settings ------------------------------------------------- */
 
-    check("the settings rail says which sections need attention", () => {
-      /* Ten identically-shaped names cannot answer the question people
-         bring to a settings page: which of these is not set up? */
+    check("the settings rail is names, not a second column of tags", () => {
+      /* Four of the ten entries used to carry a state word - "on",
+         "off", "linked", "not linked". The intent was to answer
+         "which of these needs attention", but four tags among ten
+         names is not an answer; it is more text to read before you
+         can find the entry you came for, and it duplicated what each
+         section already says at the top of itself. */
       const d = frag(T.views.settings());
       const rail = d.querySelector("#set-jump");
-      const mt5 = rail.querySelector('[data-jump="set-mt5"] .sj-state');
-      if (!mt5) throw new Error("the broker link shows no state in the rail");
-      if (!mt5.className.includes("is-ok")) throw new Error("a connected terminal does not read as connected");
-
-      const keep = T.S.snap.mt5.connected;
-      T.S.snap.mt5.connected = false;
-      const d2 = frag(T.views.settings());
-      T.S.snap.mt5.connected = keep;
-      const off = d2.querySelector('[data-jump="set-mt5"] .sj-state');
-      if (!off.className.includes("is-bad")) throw new Error("a disconnected terminal is not flagged");
-    });
-
-    check("a switched-off feature is not painted as a fault", () => {
-      /* Nothing trades without MT5, so not connected IS bad. Telegram
-         being off is a choice, and a page that reds every disabled
-         feature is a page whose red stops meaning anything. */
-      const d = frag(T.views.settings());
-      const tg = d.querySelector('[data-jump="set-telegram"] .sj-state');
-      if (!tg) throw new Error("telegram shows no state");
-      if (tg.className.includes("is-bad")) throw new Error("telegram being off is shown as a fault");
-      if (!tg.className.includes("is-idle")) throw new Error("telegram off is not shown as merely off");
-    });
-
-    check("sections that cannot be wrong carry no state mark", () => {
-      const d = frag(T.views.settings());
-      for (const id of ["set-personal", "set-strats", "set-update", "set-system"]) {
-        if (d.querySelector(`[data-jump="${id}"] .sj-state`)) {
-          throw new Error(id + " has a state mark but nothing to be wrong about");
+      if (!rail) throw new Error("the rail is gone");
+      if (rail.querySelector(".sj-state")) throw new Error("a state tag is still in the rail");
+      const buttons = [...rail.querySelectorAll("button[data-jump]")];
+      if (buttons.length < 8) throw new Error("the rail lost entries");
+      for (const b of buttons) {
+        const kids = [...b.children].map((x) => x.className);
+        if (kids.some((c) => !/sj-(ic|txt)/.test(c))) {
+          throw new Error("a rail entry carries something other than its icon and name: " + kids.join(","));
         }
       }
+    });
+
+    check("but the broker section still states whether it is connected", () => {
+      /* Removing the rail tag must not remove the information. It
+         belongs in the section, where you can act on it. */
+      const keep = T.S.snap.mt5.connected;
+      try {
+        T.S.snap.mt5.connected = true;
+        const on = frag(T.views.settings()).querySelector("#s-msg").textContent;
+        T.S.snap.mt5.connected = false;
+        const off = frag(T.views.settings()).querySelector("#s-msg").textContent;
+        if (!on.trim() || !off.trim()) throw new Error("the broker section says nothing about its state");
+        if (on === off) throw new Error("connected and disconnected read the same");
+      } finally { T.S.snap.mt5.connected = keep; }
     });
 
     check("every settings section says what it decides", () => {

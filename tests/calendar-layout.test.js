@@ -322,7 +322,6 @@ async function boot(viewport, hover) {
   `);
   win.eval(calJs + "\n;window.__CAL = Calendar;");
   const Cal = win.__CAL;
-  Cal.mode = "";
   Cal.anchor = null;
   Cal.selected = "";
   await Cal.load();
@@ -338,7 +337,7 @@ async function boot(viewport, hover) {
   /* ---- desktop opens on the month grid ---- */
   const d = await boot(1280, true);
   ok(d.errs.length === 0, "the calendar boots clean on desktop", d.errs.join(" | ") || "no errors");
-  ok(d.Cal.effectiveMode() === "month", "a desktop opens on the month grid");
+  ok(d.doc.querySelector(".cal-grid"), "a desktop opens on the month grid");
   ok(d.doc.querySelectorAll(".cal-cell").length === 42, "42 day cells",
     String(d.doc.querySelectorAll(".cal-cell").length));
   ok(d.doc.querySelectorAll(".cal-cell .cal-sub").length === 84,
@@ -351,34 +350,44 @@ async function boot(viewport, hover) {
     busy ? `${busy.querySelectorAll(".dot").length} dots` : "no busy cell");
   ok(busy && busy.querySelector(".cal-more"), "a fourth impact level is shown as an overflow pip");
 
-  /* ---- a phone opens on the agenda ---- */
+  /* ---- a phone gets the same grid, and it has to work ----
+
+     There used to be a second "list" layout and a phone opened on it,
+     because the seven-column grid did not survive a narrow screen.
+     The list is gone, so the grid is now the only thing a phone gets
+     and there is no fallback to hide behind: it has to be usable at
+     390px, and these checks are what "usable" means. */
   const p = await boot(390, false);
   ok(p.errs.length === 0, "the calendar boots clean on a phone", p.errs.join(" | ") || "no errors");
-  ok(p.Cal.effectiveMode() === "agenda", "a phone opens on the agenda, not a 7-column grid");
-  /* The list is today, and only today.
-     It used to be every day of the month that carried an event, in date
-     order - which on a busy month was forty sections to scroll through to
-     reach the one day that mattered. The month grid already answers "what
-     is coming"; the list answers "what is on today". Yesterday is over,
-     and tomorrow has a cell of its own.
-     The fixture puts four events on today and one on tomorrow, so this
-     also proves the neighbouring day is excluded rather than merely
-     sorted to the bottom. */
-  const days = p.doc.querySelectorAll(".cal-ag-day");
-  ok(days.length === 1, "the list shows exactly one day", `${days.length} days`);
-  const todayKey = p.Cal._dayKey(Date.now());
-  ok(days[0] && days[0].dataset.day === todayKey,
-    "...and the day it shows is today", `${days[0]?.dataset.day} vs ${todayKey}`);
-  ok(p.doc.querySelectorAll(".cal-agenda .cal-ev").length === 4,
-    "every one of today's events is listed, and no other day's",
-    String(p.doc.querySelectorAll(".cal-agenda .cal-ev").length));
+  ok(p.doc.querySelector(".cal-grid"), "a phone gets the month grid");
+  ok(!p.doc.querySelector("#cal-mode"), "and no view switch, because there is one view");
+
+  const pcells = [...p.doc.querySelectorAll(".cal-cell")];
+  ok(pcells.length >= 28, "the whole month is drawn", `${pcells.length} cells`);
+  /* Every cell is a real button, so it is tappable and focusable. */
+  ok(pcells.every((c) => c.tagName === "BUTTON"), "every day is a button on a phone too");
+  /* The companion dates are what used to overflow the 30px cell. They
+     are hidden at this width and live in the day panel instead.
+     Read from the sheet, not from getComputedStyle: this harness
+     mounts the calendar into a bare document with no stylesheet, so
+     every computed value would come back as the initial one. */
+  const calCss = require("fs").readFileSync("apps/web/css/app.css", "utf8");
+  const hideAt = calCss.indexOf(".cal-subs{display:none}");
+  /* app.css has several max-width:760px blocks; find the one this rule
+     is actually inside by walking back to its opening @media. */
+  const owner = calCss.lastIndexOf("@media", hideAt);
+  ok(hideAt > 0 && /^@media \(max-width:\s*760px\)/.test(calCss.slice(owner, owner + 32)),
+    "the companion dates are dropped from the cell on a phone",
+    calCss.slice(owner, owner + 30));
+
   /* A touch device must never be given a card it cannot dismiss. */
   ok(!p.doc.getElementById("cal-tip"), "no hover tooltip is created on a touch device");
 
-  /* Tapping an agenda day fills the same panel a grid cell would. */
-  const target = days[days.length - 1];
+  /* Tapping a cell fills the day panel - on a phone that panel is the
+     only place the detail exists. */
+  const target = pcells.find((c) => c.querySelectorAll(".dot").length) || pcells[10];
   target.dispatchEvent(new p.win.MouseEvent("click", { bubbles: true }));
-  ok(p.Cal.selected === target.dataset.day, "tapping an agenda day selects it", p.Cal.selected);
+  ok(p.Cal.selected === target.dataset.day, "tapping a day selects it", p.Cal.selected);
   const panel = p.doc.getElementById("cal-day").textContent;
   ok(panel.length > 20, "...and fills the day panel", `${panel.length} chars`);
   ok(target.classList.contains("sel"), "...and the tapped day is marked as selected");
@@ -387,17 +396,12 @@ async function boot(viewport, hover) {
   const dl = p.doc.querySelectorAll("#cal-day .cal-dp-sys div").length;
   ok(dl === 2, "the day panel carries the two companion calendars the cell dropped", `${dl} shown`);
 
-  /* ---- the mode switch ---- */
+  /* ---- there is no second mode to switch to ---- */
   const m = await boot(1280, true);
-  m.doc.querySelector('#cal-mode button[data-mode="agenda"]').dispatchEvent(new m.win.MouseEvent("click", { bubbles: true }));
-  await new Promise((r) => setTimeout(r, 60));
-  ok(m.Cal.mode === "agenda", "the view switch changes mode", m.Cal.mode);
-  ok(m.doc.querySelector(".cal-agenda") && !m.doc.querySelector(".cal-grid"),
-    "...and repaints the pane as an agenda");
-  ok(m.win.localStorage.getItem("aurion.cal.mode") === "agenda", "...and the choice is remembered");
-  m.doc.querySelector('#cal-mode button[data-mode="month"]').dispatchEvent(new m.win.MouseEvent("click", { bubbles: true }));
-  await new Promise((r) => setTimeout(r, 60));
-  ok(m.doc.querySelector(".cal-grid") && !m.doc.querySelector(".cal-agenda"), "...and back again");
+  ok(!m.doc.querySelector("#cal-mode"), "the view switch is gone on a desktop too");
+  ok(m.doc.querySelector(".cal-grid"), "and the desktop still gets the grid");
+  ok(!m.doc.querySelector(".cal-agenda"), "with no agenda anywhere");
+  ok(typeof m.Cal.effectiveMode !== "function", "and no mode resolver left behind");
 
   /* ---- keyboard ---- */
   const k = await boot(1280, true);

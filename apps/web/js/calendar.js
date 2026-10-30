@@ -14,20 +14,18 @@
 const Calendar = {
   // Which calendar drives the grid; the other two are shown as companions.
   system: localStorage.getItem("aurion.cal.system") || "jalali",
-  /* Month grid or agenda list.
+  /* The month grid, and only the month grid.
    *
-   * A seven-column month is a desktop shape. Measured on the old layout, a
-   * 390px phone gave each cell a 30px content box, and into that went a
-   * two-digit day, two companion dates (~30px), up to four 7px impact dots
-   * (~37px) and an absolutely positioned "Closed" tag over the number. At
-   * 320px the content box was 20px. The grid is kept - it is how people
-   * think about a month - but a phone opens on the agenda, which answers
-   * the question a trader actually has ("what is coming, and when") in a
-   * shape that fits a narrow screen.
+   * There used to be a second "list" mode, and a view switch to reach it.
+   * It existed because the seven-column grid did not survive a phone: at
+   * 390px each cell had a 30px content box holding a two-digit day, two
+   * companion dates and up to four impact dots. That is fixed - the
+   * companion dates moved into the day panel and the cells are ~48px at
+   * 390px now - so the list was answering a question the grid had stopped
+   * asking badly, while costing a mode, a stored preference, a second
+   * empty state and a whole parallel layout to keep in step.
    *
-   * Stored, so the choice survives a reload; the width only decides the
-   * first time. */
-  mode: localStorage.getItem("aurion.cal.mode") || "",
+   * One shape, every width. */
   anchor: null, // UTC ms of any day inside the displayed month
   events: [], // normalised news rows from GET /api/news
   byDay: new Map(), // "YYYY-MM-DD" -> [event, ...]
@@ -192,15 +190,6 @@ const Calendar = {
 
   /* ---------------- render ---------------- */
 
-  /** Month grid or agenda. Falls back to the screen's shape the first time. */
-  effectiveMode() {
-    if (this.mode === "month" || this.mode === "agenda") return this.mode;
-    const narrow = typeof window !== "undefined" && window.matchMedia
-      ? window.matchMedia("(max-width:760px)").matches
-      : false;
-    return narrow ? "agenda" : "month";
-  },
-
   view() {
     if (!this.anchor) {
       const now = new Date();
@@ -210,11 +199,10 @@ const Calendar = {
     const t = (k, v) => I18N.t(k, v);
     const { cells, label } = this.cells(this.anchor);
     const companions = this.CALENDARS.filter((c) => c !== this.system);
-    const mode = this.effectiveMode();
     const n = this._monthCount(cells);
 
     return `
-    <div class="cal" data-mode="${mode}">
+    <div class="cal">
       <header class="cal-top card">
         <div class="cal-top-l">
           <h3 class="cal-month">${esc(this.monthName(this.anchor, this.system))}
@@ -233,12 +221,6 @@ const Calendar = {
               aria-label="${esc(t("calendar.next"))}">${this._chevron("end")}</button>
           </div>
           <div class="cal-segs">
-            <div class="cal-seg" id="cal-mode" role="tablist" aria-label="${esc(t("calendar.view"))}">
-              ${[["month", "calendar.view_month"], ["agenda", "calendar.view_agenda"]]
-                .map(([m, k]) => `<button type="button" role="tab" data-mode="${m}"
-                  aria-selected="${m === mode}" class="${m === mode ? "on" : ""}">${esc(t(k))}</button>`)
-                .join("")}
-            </div>
             <div class="cal-seg" id="cal-sys" role="tablist" aria-label="${esc(t("calendar.title"))}">
               ${this.CALENDARS.map((c) => `<button type="button" role="tab" data-sys="${c}"
                 aria-selected="${c === this.system}" class="${c === this.system ? "on" : ""}">${esc(t(`calendar.${c}`))}</button>`)
@@ -252,7 +234,7 @@ const Calendar = {
 
       <div class="cal-main">
         <section class="cal-pane card" id="cal-pane">
-          ${mode === "agenda" ? this._agenda(cells) : this._grid(cells, companions)}
+          ${this._grid(cells, companions)}
         </section>
         <aside class="cal-aside">
           <div class="card cal-day" id="cal-day">${this._dayPanel(this.selected)}</div>
@@ -351,52 +333,6 @@ const Calendar = {
     </button>`;
   },
 
-  /* ------------------------------------------------------------ agenda */
-
-  /**
-   * Today. Only today.
-   *
-   * The list used to be every day of the month that carried an event,
-   * which on a busy month was forty sections and several screens of
-   * scrolling - and the day a trader actually needs was somewhere in the
-   * middle of it. The month grid is already the "what is coming" view and
-   * it does that better than a list can. The list answers one question:
-   * what is on today. Yesterday is over and tomorrow has its own cell.
-   *
-   * When the month being browsed is not the one today falls in there is
-   * nothing to show, so it says so and points at the Today button in the
-   * header rather than quietly rendering an empty box.
-   */
-  _agenda(cells) {
-    const t = (k, v) => I18N.t(k, v);
-    const todayKey = this._dayKey(Date.now());
-    const days = cells
-      .filter((c) => c.inMonth)
-      .map((c) => ({ c, key: this._dayKey(c.ms), evs: this.byDay.get(this._dayKey(c.ms)) || [] }))
-      .filter((d) => d.key === todayKey);
-    const away = !days.length;
-    if (away || !days[0].evs.length) {
-      return `<div class="cal-agenda is-empty">
-        <p class="cal-none">${esc(t(away ? "calendar.agenda_away" : "calendar.agenda_none"))}</p>
-      </div>`;
-    }
-    return `<div class="cal-agenda" id="cal-agenda">
-      ${days.map(({ c, key, evs }) => {
-        const p = c.primary;
-        const dow = this._weekdayList("short")[new Date(c.ms).getDay()];
-        return `<section class="cal-ag-day${key === todayKey ? " today" : ""}${key === this.selected ? " sel" : ""}"
-            data-day="${key}">
-          <header class="cal-ag-h">
-            <span class="cal-ag-n">${p.d}</span>
-            <span class="cal-ag-t"><b>${esc(dow)}</b>
-              <small>${esc(this.monthName(c.ms, this.system))}</small></span>
-            <span class="cal-ag-c">${esc(t("calendar.day_events", { n: evs.length }))}</span>
-          </header>
-          <div class="cal-evs">${evs.map((e) => this._ev(e)).join("")}</div>
-        </section>`;
-      }).join("")}
-    </div>`;
-  },
 
   /* -------------------------------------------------------- day detail */
 
@@ -567,15 +503,6 @@ const Calendar = {
       this.rerender();
     });
 
-    $$("#cal-mode")?.addEventListener("click", (e) => {
-      const btn = e.target.closest("button[data-mode]");
-      if (!btn) return;
-      this.mode = btn.dataset.mode;
-      try { localStorage.setItem("aurion.cal.mode", this.mode); } catch (_) { /* private mode */ }
-      hideTip();
-      this.rerender();
-    });
-
     const shift = (months) => {
       const approx = { jalali: 30.4, hijri: 29.5, gregorian: 30.4 }[this.system] || 30.4;
       // Step by whole months in the primary calendar: land on its 1st, then move.
@@ -616,8 +543,8 @@ const Calendar = {
 
     /* -------------------------------------------------------- the pane */
 
-    /* One listener for both layouts: a grid cell and an agenda day both
-       carry data-day, so selecting works the same in either. */
+    /* Grid cells carry data-day; one delegated listener selects any
+       of them. */
     pane?.addEventListener("click", (e) => {
       const el = e.target.closest("[data-day]");
       if (!el || !pane.contains(el)) return;

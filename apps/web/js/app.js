@@ -6587,25 +6587,19 @@ const views = {
        the end overriding all of them. That is now one block. */
     const mt = S.snap?.mt5 || {};
     const tab = S.setTab || "set-robot";
-    const tg = S.snap?.telegram || {};
-    const auto = Boolean(S.snap?.strategy?.auto_trade);
 
-    /* A state word beside a rail label, or nothing at all.
+    /* The rail is names and nothing else.
 
-       "Nothing at all" is the default and is used for every section
-       whose state is a matter of taste - the theme is never wrong, so
-       a mark beside it would be noise. Only the four that can be
-       misconfigured carry one, and being switched OFF is shown as
-       off, not as a fault: a settings page that paints every disabled
-       feature red is a page whose red means nothing. */
-    const state = (txt, ok) => txt
-      ? `<em class="sj-state${ok === null ? " is-idle" : ok ? " is-ok" : " is-bad"}">${esc(txt)}</em>`
-      : "";
-
-    const tabBtn = (id, label, ic, desc, mark) => `<button type="button" data-jump="${id}" class="${tab === id ? "on" : ""}">
+       It used to carry a state word beside four of the ten entries -
+       "on", "off", "linked", "not linked". The idea was that a
+       settings page should answer "which of these needs attention",
+       but four tags among ten names is not an answer, it is a second
+       column of text to read before you can find the one you came
+       for. Each section states its own condition at the top, in the
+       place where you can act on it; the rail just gets you there. */
+    const tabBtn = (id, label, ic, desc) => `<button type="button" data-jump="${id}" class="${tab === id ? "on" : ""}">
         <span class="sj-ic">${icon(ic)}</span>
         <span class="sj-txt"><b>${label}</b>${desc ? `<small>${desc}</small>` : ""}</span>
-        ${mark || ""}
       </button>`;
     const grp = (label) => `<div class="sj-grp">${label}</div>`;
 
@@ -6622,19 +6616,14 @@ const views = {
 
     return `<div class="set-desk set-rail stx"><nav class="set-jump" id="set-jump" aria-label="settings">
         ${grp(I18N.t("rail.trading"))}
-        ${tabBtn("set-robot", I18N.t("settings.sec_robot"), "bolt", I18N.t("rail.robot_hint"),
-          state(I18N.t(auto ? "settings.state_on" : "settings.state_off"), auto ? true : null))}
+        ${tabBtn("set-robot", I18N.t("settings.sec_robot"), "bolt", I18N.t("rail.robot_hint"))}
         ${tabBtn("set-strats", I18N.t("nav.strategies"), "layers", I18N.t("rail.strats_hint"))}
-        ${tabBtn("set-prop", I18N.t("risk.title"), "shield", I18N.t("rail.prop_hint"),
-          state(I18N.t(S.snap?.prop?.enabled ? "settings.state_on" : "settings.state_off"),
-            S.snap?.prop?.enabled ? true : null))}
-        ${tabBtn("set-mt5", "MetaTrader 5", "term", I18N.t("rail.mt5_hint"),
-          state(I18N.t(mt.connected ? "settings.state_linked" : "settings.state_unlinked"), Boolean(mt.connected)))}
+        ${tabBtn("set-prop", I18N.t("risk.title"), "shield", I18N.t("rail.prop_hint"))}
+        ${tabBtn("set-mt5", "MetaTrader 5", "term", I18N.t("rail.mt5_hint"))}
         ${grp(I18N.t("rail.personalize"))}
         ${tabBtn("set-personal", I18N.t("settings.personal"), "user", I18N.t("rail.personal_hint"))}
         ${tabBtn("set-notify", I18N.t("notify.title"), "bell", I18N.t("rail.notify_hint"))}
-        ${tabBtn("set-telegram", I18N.t("telegram.title"), "spark", I18N.t("rail.telegram_hint"),
-          state(I18N.t(tg.enabled ? "settings.state_on" : "settings.state_off"), tg.enabled ? true : null))}
+        ${tabBtn("set-telegram", I18N.t("telegram.title"), "spark", I18N.t("rail.telegram_hint"))}
         ${grp(I18N.t("rail.system"))}
         ${tabBtn("set-update", I18N.t("upd.title"), "pulse", I18N.t("rail.update_hint"))}
         ${tabBtn("set-system", I18N.t("host.system"), "gear", I18N.t("rail.system_hint"))}

@@ -397,30 +397,40 @@ check("the explanation is translated everywhere, and says what is still allowed"
 
 const calJs = read("apps/web/js/calendar.js");
 
-check("the list shows today, and only today", () => {
-  const i = calJs.indexOf("_agenda(cells) {");
-  const fn = calJs.slice(i, calJs.indexOf("_dayPanel(key)", i));
-  if (!/const todayKey = this\._dayKey\(Date\.now\(\)\)/.test(fn)) {
-    throw new Error("the list no longer works out what today is");
+/* The "list" (agenda) mode and its two checks are gone with it. The
+   grid is the only layout now, so "the list shows today and only
+   today" has nothing left to assert. What the list was protecting
+   against - an unbounded column of events - still applies to the day
+   panel beside the grid, and that is checked below. */
+
+check("there is one calendar layout, and no switch to a second", () => {
+  /* The list mode is gone. These assert the removal was complete
+     rather than merely hidden: a dead branch behind a removed button
+     is worse than the button, because nothing renders it and nothing
+     keeps it honest. */
+  for (const dead of ["_agenda", "effectiveMode", "cal-mode", "aurion.cal.mode", "data-mode"]) {
+    if (calJs.includes(dead)) throw new Error("calendar.js still carries " + dead);
   }
-  if (!/\.filter\(\(d\) => d\.key === todayKey\)/.test(fn)) {
-    throw new Error("the list is not filtered down to today");
+  if (/cal-ag|cal-agenda/.test(appCss)) throw new Error("the agenda's styles are still in app.css");
+  for (const lang of ["en", "fa", "ar"]) {
+    const d = JSON.parse(read("lang/" + lang + ".json")).calendar;
+    for (const k of ["view", "view_month", "view_agenda", "agenda_away", "agenda_none"]) {
+      if (d[k]) throw new Error(`${lang}.calendar.${k} is still defined`);
+    }
   }
-  if (/\.filter\(\(d\) => d\.evs\.length\)/.test(fn)) {
-    throw new Error("it is still rendering every day of the month that has events");
-  }
-  return "one day";
+  return "grid only";
 });
 
-check("browsing to another month says so rather than showing an empty box", () => {
-  const i = calJs.indexOf("_agenda(cells) {");
-  const fn = calJs.slice(i, calJs.indexOf("_dayPanel(key)", i));
-  if (!/calendar\.agenda_away/.test(fn)) throw new Error("no message for a month without today in it");
-  for (const lang of ["en", "fa", "ar"]) {
-    const d = JSON.parse(read("lang/" + lang + ".json"));
-    if (!d.calendar || !d.calendar.agenda_away) throw new Error("calendar.agenda_away missing from " + lang);
+check("the grid a phone is left with keeps its cells tappable", () => {
+  /* With no list to fall back to, the grid has to survive 390px on
+     its own. The companion dates are what used to overflow the cell. */
+  const hide = appCss.indexOf(".cal-subs{display:none}");
+  if (hide < 0) throw new Error("the companion dates are no longer dropped on a phone");
+  const owner = appCss.lastIndexOf("@media", hide);
+  if (!/^@media \(max-width:\s*760px\)/.test(appCss.slice(owner, owner + 32))) {
+    throw new Error("they are dropped at the wrong width: " + appCss.slice(owner, owner + 30));
   }
-  return "translated in three";
+  return "cell carries the number and its dots";
 });
 
 check("the month view's side list can no longer outgrow the page", () => {
@@ -441,13 +451,6 @@ check("the side list scrolls its events, not its heading", () => {
   return "heading pinned";
 });
 
-check("the list itself has a backstop too", () => {
-  const body = exact(appCss, ".cal-agenda");
-  if (!/max-block-size:/.test(body) || !/overflow:\s*auto/.test(body)) {
-    throw new Error("one holiday with thirty releases would still run off the screen");
-  }
-  return "capped";
-});
 
 /* ================================================ 8. the prop-risk numbers */
 
