@@ -2044,6 +2044,18 @@ input[type=range]{width:100%;accent-color:var(--cyan);height:28px;cursor:pointer
 .sym-row:hover{background:rgb(var(--wash) / .05)}
 .sym-row.on{background:rgb(var(--accent-rgb) / .1)}
 .sym-empty{color:var(--faint);font-size:12px;padding:8px 4px}
+
+/* The one line that explains why the light desk's theme card is short.
+   Styled as a notice rather than a warning: nothing has gone wrong. */
+.lite-lock{
+  margin:10px 0 0;
+  padding:10px 12px;
+  border-radius:var(--ctl-r);
+  border:1px solid rgb(var(--accent-rgb) / .28);
+  background:rgb(var(--accent-rgb) / .07);
+  color:var(--muted);
+  line-height:1.7;
+}
 .sym-foot{margin-top:6px;color:var(--faint);font-size:11px;border-top:1px solid var(--line);padding-top:6px}
 
 /* ---- Telegram admin ---- */
@@ -3260,9 +3272,20 @@ p.ok > svg, .ok > svg{ width:15px; height:15px; vertical-align:-3px; margin-inli
   display:flex;align-items:center;gap:10px;flex-wrap:wrap;
   margin-block-end:10px;
 }
-.mk-pick{display:flex;gap:8px;min-width:0;flex:1 1 260px}
-.mk-pick > *{min-width:0}
+/* The instrument control is a <button> inside a positioned wrapper and the
+   timeframe is a native <select>. Two different elements standing side by
+   side, which is why they did not match: the select sized itself from its
+   content ("M15") while the picker sized itself from the symbol, and the
+   button kept its own min-height inside a wrapper that was being stretched
+   by the row. Equal flex basis gives them one width, stretch plus a
+   full-height button gives them one height, and the select borrows the
+   picker's type so the two labels carry the same weight. */
+.mk-pick{display:flex;gap:8px;min-width:0;flex:1 1 260px;align-items:stretch}
+.mk-pick > *{min-width:0;flex:1 1 0}
 .mk-pick .ctrl{flex:1 1 auto}
+.mk-pick .sympick{display:flex}
+.mk-pick .sympick-btn{block-size:100%}
+.mk-pick > select.ctrl{font-weight:650;letter-spacing:.02em}
 .mk-tick{
   flex:0 1 auto;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
   color:var(--gold);font-size:12px;
@@ -4000,10 +4023,18 @@ input[type="search"]::-webkit-search-results-decoration{
 /* focus-within, not :focus -- the ring belongs to the shell, because the
    input inside it has no border of its own to light up. */
 .dsk-search:focus-within{
-  border-color:rgb(var(--accent-rgb) / .55);
-  box-shadow:0 0 0 4px rgb(var(--accent-rgb) / .12);
+  /* Firmer than the old .55/.12 pair, because the inner input no longer
+     draws a focus outline of its own (see themes.css section 7): this
+     rounded ring is now the whole indication that the box has focus. */
+  border-color:rgb(var(--accent-rgb) / .9);
+  box-shadow:0 0 0 3px rgb(var(--accent-rgb) / .18);
   background:var(--field-hi);
 }
+/* Belt and braces, independent of whether a skin is active: nothing inside
+   a search shell ever draws its own rectangle. */
+.dsk-search-i:focus,
+.dsk-search-i:focus-visible,
+.dsk-search > input:focus-visible{ outline:none; box-shadow:none; border:0 }
 .dsk-search > svg{ inline-size:16px; block-size:16px; flex:none; opacity:.55 }
 .dsk-search:focus-within > svg{ opacity:.9; color:rgb(var(--accent-rgb)) }
 

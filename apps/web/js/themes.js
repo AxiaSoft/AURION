@@ -612,11 +612,42 @@
     if (!edit) return out;
     for (var i = 0; i < COLOR_KEYS.length; i++) {
       var k = COLOR_KEYS[i];
+      if (!lightAllows(k)) continue;
       if (hexToRgb(edit[k])) out[k] = edit[k];
     }
     if (edit.font && FONTS[edit.font]) out.font = edit.font;
-    if (edit.fx && FX[edit.fx]) out.fx = edit.fx;
+    if (edit.fx && FX[edit.fx] && lightAllows("fx")) out.fx = edit.fx;
     return out;
+  }
+
+  /* --------------------------------------------------- the light-mode lock
+
+     A light desk is not a blank canvas.
+
+     Page, panel and ink colours, the candle pair, the visual effect and the
+     six surface knobs are all tuned per theme against a near-white
+     background, and that background leaves almost no room. Darkening a
+     panel a shade on a dark desk costs nothing; the same move on a light
+     one walks body text down towards the background with no second colour
+     left to compensate, and the trader who did it has no way of knowing
+     which of the twelve things they touched caused it. So the light cut
+     ships as it was drawn, and only the three choices that cannot break it
+     stay open: the typeface, the accent, and the pictures.
+
+     The gate sits on the READ path rather than only in the editor. That
+     matters: a theme personalised on a dark desk quietly reverts to its
+     shipped light values the moment the desk is switched to light, and
+     comes back exactly as it was on the way out. Nothing is deleted and
+     nothing has to be re-chosen. */
+
+  var LIGHT_EDITABLE = ["accent", "font", "bg", "wall"];
+
+  /** Is the desk in the cut where personalisation is held back? */
+  function lightLocked() { return isLightCut(); }
+
+  /** May this edit key take effect right now? */
+  function lightAllows(key) {
+    return !isLightCut() || LIGHT_EDITABLE.indexOf(key) !== -1;
   }
 
   /* ------------------------------------------------------- per-theme edits */
@@ -646,15 +677,17 @@
       for (var key in LIMITS) {
         if (!Object.prototype.hasOwnProperty.call(LIMITS, key)) continue;
         if (edit[key] === undefined || edit[key] === null) continue;
+        if (!lightAllows(key)) continue;
         out[key] = clamp(edit[key], LIMITS[key][0], LIMITS[key][1]);
       }
       if (typeof edit.accent === "string") out.accent = edit.accent;
       if (BACKDROPS.indexOf(edit.bg) !== -1) out.bg = edit.bg;
       for (var ci = 0; ci < COLOR_KEYS.length; ci++) {
+        if (!lightAllows(COLOR_KEYS[ci])) continue;
         if (hexToRgb(edit[COLOR_KEYS[ci]])) out[COLOR_KEYS[ci]] = edit[COLOR_KEYS[ci]];
       }
       if (edit.font && FONTS[edit.font]) out.font = edit.font;
-      if (edit.fx && FX[edit.fx]) out.fx = edit.fx;
+      if (edit.fx && FX[edit.fx] && lightAllows("fx")) out.fx = edit.fx;
       if (edit.wall === "none" || WALLPAPERS.indexOf(edit.wall) !== -1) out.wall = edit.wall;
     }
     return out;
@@ -795,7 +828,20 @@
   /** The knobs actually in force right now: the theme, plus any edits. */
   function activeKnobs() {
     var id = effectiveTheme();
-    if (id === "custom") return getCustom();
+    if (id === "custom") {
+      var c = getCustom();
+      if (!isLightCut()) return c;
+      /* The custom theme is nothing but knobs, so the lock has to be
+         applied to its stored copy rather than skipped on overlay. Work on
+         a duplicate: getCustom() hands back the object that gets written
+         straight back to storage. */
+      var out = {}, d = defaultCustom(), ck;
+      for (ck in c) { if (Object.prototype.hasOwnProperty.call(c, ck)) out[ck] = c[ck]; }
+      for (ck in LIMITS) {
+        if (Object.prototype.hasOwnProperty.call(LIMITS, ck)) out[ck] = d[ck];
+      }
+      return out;
+    }
     return themeKnobs(id);
   }
 
@@ -1074,6 +1120,9 @@
     resetBgCrop: resetBgCrop,
     FONTS: FONTS,
     COLOR_KEYS: COLOR_KEYS,
+    LIGHT_EDITABLE: LIGHT_EDITABLE,
+    lightLocked: lightLocked,
+    lightAllows: lightAllows,
     FX: FX,
     fx: activeFx,
     colours: themeColours,

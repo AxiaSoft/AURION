@@ -1340,6 +1340,18 @@ html[data-skin] :focus-visible{
 html[data-skin="mono"] :focus-visible,
 html[data-skin="minimal"] :focus-visible{ outline-color:var(--ink) }
 
+/* ...with one exception, and it is not a compromise on access.
+
+   A search box is a rounded shell with a borderless, square, edge-to-edge
+   input filling it. An outline drawn on the *input* is therefore a hard
+   rectangle sitting inside the shell's curve - and because text inputs
+   match :focus-visible on pointer focus as well as keyboard focus, it
+   appeared on every single click on every search box on the desk. The
+   shell carries the ring instead (.dsk-search:focus-within in app.css):
+   same accent, same always-on, but it follows the corner radius. */
+html[data-skin] .dsk-search-i:focus-visible,
+html[data-skin] .dsk-search > input:focus-visible{ outline:none }
+
 /* Motion off - by the theme's own knob or by the operating system - stops
    everything decorative and keeps everything that communicates state. */
 html[data-motion="off"] *,
@@ -1703,6 +1715,33 @@ html[data-skin] .prof-ava{ border-radius:var(--radius-lg) }
 html[data-skin] input[type=checkbox],
 html[data-skin] input[type=radio],
 html[data-skin] progress{ accent-color:var(--accent) }
+
+/* And a skin dresses text fields ONLY.
+
+   The skins above all style `.field input` wholesale. That is right for a
+   text box and wrong for everything else that can sit inside a .field -
+   and the allowed-symbols picker puts a whole list of checkboxes and a
+   search box inside one. On Neo the rule handed each 13px native checkbox
+   `box-shadow: inset 4px 4px 9px dark, inset -4px -4px 9px light`, which
+   renders as a pair of soft squares above and below the tick; Clay did the
+   same with its single inset. Hence "extra squares around the symbol
+   checkboxes". The native control, tinted by accent-color, is already
+   themed; it does not want a surface. The search input does not want one
+   either, because its shell is the surface.
+
+   Listed after every skin so it wins on order as well as on specificity -
+   each selector here carries one more attribute than the [data-skin="x"]
+   rules it has to beat. */
+html[data-skin] .field input[type="checkbox"],
+html[data-skin] .field input[type="radio"],
+html[data-skin] .field input[type="range"],
+html[data-skin] .field input[type="color"],
+html[data-skin] .field input[type="hidden"],
+html[data-skin] .field .dsk-search-i{
+  background:none;
+  border:0;
+  box-shadow:none;
+}
 
 /* The empty state's orb is the only decorative animation on a data page. It
    keeps its float, at the theme's own amplitude, and stops with everything

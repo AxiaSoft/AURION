@@ -1427,6 +1427,7 @@
     "f_mono": "IBM Plex Mono",
     "f_system": "System font",
     "contrast_warn": "Text and panels are close in brightness here — this will be hard to read.",
+    "light_locked": "On a light desk the theme is fixed. Only the typeface, the accent colour and the pictures can be changed: every other colour here is tuned against a near-white background with no room to spare, and a small change to one of them takes text below readable contrast. Switch to the dark desk to personalise the rest - nothing you set there is lost.",
     "gallery_title": "Drawn backdrops",
     "gallery_hint": "Shapes and gradients the desk draws itself. They cost nothing to load and follow your colours. For photographs, see Background images below.",
     "fx_title": "Effect",

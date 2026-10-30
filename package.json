@@ -1,7 +1,7 @@
 {
   "name": "aurion",
   "private": true,
-  "description": "AURION \u2014 run the desk from the repo root",
+  "description": "AURION — run the desk from the repo root",
   "scripts": {
     "start": "node backend/src/index.js",
     "engine": "python engine/main.py --host 127.0.0.1 --port 18765",
@@ -24,7 +24,7 @@
     "test:endpoints": "node tests/endpoints.test.js",
     "test:propguide": "node tests/prop-guide.test.js",
     "test:notify": "node tests/notifications.test.js",
-    "test:appearance": "node tests/appearance.test.js",
+    "test:appearance": "node tests/appearance-fixes.test.js",
     "test:theming": "node tests/theming.test.js",
     "test:soundtab": "node tests/soundtab.test.js",
     "test:btresults": "node tests/backtest-results.test.js",

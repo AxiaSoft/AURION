@@ -564,6 +564,14 @@ function setThemeNow(mode) {
   paintThemeBtn();
   markThemePills();
   refreshChartPalette();
+  /* The theme builder offers a different set of controls in each cut - the
+     light desk is locked to the typeface, the accent and the pictures - so
+     the card has to be redrawn when the cut changes underneath it.
+     Otherwise switching to light leaves a page full of colour swatches
+     that no longer do anything. */
+  try {
+    if (S.view === "settings") show("settings", { animate: false, closeMenu: false, nav: false });
+  } catch {}
 }
 /* ===========================================================================
    Appearance — skin, accent, wallpaper, rendering tier.
@@ -785,7 +793,10 @@ function themeBuilderHtml() {
           esc(I18N.t("themes.editing", { name: themeName(current) }))}${
           AurionTheme.edited(current) ? ` \u00B7 <b>${esc(I18N.t("themes.edited_tag"))}</b>` : ""}</p>
 
-        <div class="knob-grid">
+        ${lightNow ? `<p class="sub lite-lock" id="theme-lite-lock">${
+          esc(I18N.t("themes.light_locked"))}</p>` : ""}
+
+        <div class="knob-grid"${lightNow ? " hidden" : ""}>
           ${themeKnobHtml("surface", I18N.t("themes.surface"), k.surface, "%")}
           ${themeKnobHtml("border", I18N.t("themes.border"), k.border, "%")}
           ${themeKnobHtml("blur", I18N.t("themes.blur"), k.blur, "px")}
@@ -795,6 +806,12 @@ function themeBuilderHtml() {
         </div>
 
         <div class="tb-sec">
+          <!-- On a light desk this section is the typeface and nothing
+               else. The colours and the candle pair are not disabled
+               controls that can be hovered and wondered about, they are
+               simply not offered; the one line above says why once, for
+               the whole card. -->
+          <div${lightNow ? " hidden" : ""}>
           <h4>${esc(I18N.t("themes.colours_title"))}</h4>
           <p class="sub">${esc(I18N.t("themes.colours_hint"))}</p>
           <div class="col-rows">
@@ -824,13 +841,15 @@ function themeBuilderHtml() {
             ${colourRow("candle_down", I18N.t("themes.c_candle_down"), I18N.t("themes.c_candle_down_hint"))}
           </div>
           <p class="sub warn" id="col-warn" hidden>${esc(I18N.t("themes.contrast_warn"))}</p>
+          </div>
+          ${lightNow ? `<h4>${esc(I18N.t("themes.font_title"))}</h4>` : ""}
           <label class="field" style="margin-top:14px">
             <span>${esc(I18N.t("themes.font_title"))}</span>
             <select class="ctrl" id="knob-font">${fontOptions}</select>
           </label>
         </div>
 
-        <div class="tb-sec">
+        <div class="tb-sec"${lightNow ? " hidden" : ""}>
           <h4>${esc(I18N.t("themes.gallery_title"))}</h4>
           <p class="sub">${esc(I18N.t("themes.gallery_hint"))}</p>
           <label class="field" style="margin-top:12px">
