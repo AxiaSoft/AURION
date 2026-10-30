@@ -56,7 +56,7 @@ win.URL.createObjectURL = () => 'blob:x';
 win.AudioContext = class {};
 win.HTMLCanvasElement.prototype.getContext = () => null;
 win.requestAnimationFrame = (f) => { f(0); return 1; };
-win.eval(src + ';window.__T={patchAnalysisCard,analysisCardHtml,morphElement,stampAnalysisAge,'
+win.eval(src + ';window.__T={patchAnalysisCard,analysisCardHtml,morphElement,'
   + 'btProvenance,btLotProvenance,onLive,S,I18N};');
 
 const T = win.__T;
@@ -140,16 +140,17 @@ if (con) {
     'a scrolled console keeps its scroll position');
 }
 
-/* The age stamp lives outside the cached markup and is written by
-   stampAnalysisAge. Reconciling it would blank it on every tick. */
-S._anAt = Date.now() - 5000;
-T.stampAnalysisAge();
-const stamped = doc.getElementById('an-live').textContent;
-ok(stamped.length > 0, 'the age stamp is written');
+/* The "updated 5 seconds ago" stamp is gone entirely.
+
+   It was added so the card could admit it was stale, which was honest
+   while the data only arrived on the ten-second poll. Now that the
+   engine pushes the analysis as it changes, the stamp was just a
+   distraction reporting on itself, and the user asked for it to go. */
 S.snap = snap(0.72, [{ text: 'only' }]);
 T.patchAnalysisCard();
-ok(doc.getElementById('an-live').textContent === stamped,
-  'and an update does not blank it');
+ok(!doc.getElementById('an-live'), 'no age-stamp element is rendered');
+ok(!/an-live/.test(doc.getElementById('an-card').outerHTML),
+  'and nothing is left of its markup');
 
 /* Structure that genuinely changes must still change. */
 S.snap = snap(0.90, [], true);
@@ -301,10 +302,8 @@ const prov = (bt) => {
 {
   const t0 = Date.now();
   S.view = 'intelligence';
-  S.snap = S.snap || {};
-  S.snap.analysis = { symbol: 'AAA', reason: 'first', ts: '1' };
+  S.snap = snap(0.55, [{ text: 'spread too wide', fix: 'wait' }]);
   S._anSig = JSON.stringify(S.snap.analysis);
-  S._anAt = t0 - 9000;
 
   let polled = 0;
   const realGet = win.API && win.API.get;
@@ -321,16 +320,18 @@ const prov = (bt) => {
   const settled = doc.getElementById('an-card');
   const before = settled ? settled.innerHTML : '';
 
-  T.onLive({ type: 'analysis', data: { symbol: 'AAA', reason: 'second', ts: '2' } });
+  /* A payload whose difference is actually visible on the card. With
+     the age stamp gone, a push that renders identically would be
+     indistinguishable from no push at all. */
+  const pushed = snap(0.91, [{ text: 'news window', fix: 'wait for 14:30' }]).analysis;
+  T.onLive({ type: 'analysis', data: pushed });
 
-  ok(S.snap.analysis && S.snap.analysis.reason === 'second',
+  ok(S.snap.analysis === pushed,
     'an "analysis" socket message lands in S.snap.analysis');
   ok(polled === 0,
     'it applies the push without waiting for, or triggering, a snapshot poll');
-  ok(S._anAt >= t0,
-    'the freshness stamp is reset by the push, so the card does not claim to be 9s old');
-  ok(S._anSig === JSON.stringify({ symbol: 'AAA', reason: 'second', ts: '2' }),
-    'the push keeps _anSig in step, so the next poll does not re-stamp the same data');
+  ok(S._anSig === JSON.stringify(pushed),
+    'the push keeps _anSig in step, so the next poll does not rebuild the same card');
 
   const after = doc.getElementById('an-card') ? doc.getElementById('an-card').innerHTML : '';
   ok(after !== before, 'the card repainted in place, straight from the socket message');

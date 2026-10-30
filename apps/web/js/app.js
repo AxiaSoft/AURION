@@ -5607,7 +5607,6 @@ function analysisCardHtml() {
     return `<section class="card ai-verdict is-wait" id="an-card">
       <h3>${I18N.t("ai.an.title")}</h3>
       <p class="sub">${I18N.t("ai.an.waiting")}</p>
-      <p class="an-live"><i class="an-live-dot"></i><span id="an-live"></span></p>
     </section>`;
   }
   const blockers = a.blockers || [];
@@ -5640,7 +5639,6 @@ function analysisCardHtml() {
         <p class="kicker">${I18N.t("ai.an.title")}</p>
         <p class="ai-v-state">${ready ? I18N.t("ai.an.verdict_ready") : I18N.t("ai.an.verdict_blocked")}</p>
         <p class="sub">${I18N.t("ai.an.sub")}</p>
-        <p class="an-live"><i class="an-live-dot"></i><span id="an-live"></span></p>
       </div>
       ${meter}
     </div>
@@ -5732,7 +5730,6 @@ function patchAnalysisCard() {
     morphElement(card, fresh);
     bindCloseButtons($("an-card") || card);
   }
-  stampAnalysisAge();
 }
 
 /* Attributes that belong to the person reading the page, not to the
@@ -5771,10 +5768,6 @@ function morphElement(from, to) {
     if (!seen.has(at.name) && !MORPH_KEEP.has(at.name)) from.removeAttribute(at.name);
   }
 
-  // The age stamp is written by stampAnalysisAge, not by the markup,
-  // which ships it empty. Copying that across would blank it every tick.
-  if (from.id === "an-live") return;
-
   const fromKids = Array.from(from.childNodes);
   const toKids = Array.from(to.childNodes);
   const n = Math.max(fromKids.length, toKids.length);
@@ -5793,37 +5786,6 @@ function morphElement(from, to) {
   }
 }
 
-/**
- * How long ago the analysis on screen was produced.
- *
- * Deliberately not part of the card's markup: it changes every second,
- * and if it were in there the "has anything changed?" comparison above
- * would be true on every tick and the card would be rebuilt constantly
- * for no reason. So the card carries an empty placeholder and this
- * writes into it.
- */
-function stampAnalysisAge() {
-  const el = $("an-live");
-  if (!el) return;
-  const at = S._anAt || 0;
-  if (!at) { el.textContent = ""; return; }
-  const secs = Math.max(0, Math.round((Date.now() - at) / 1000));
-  el.textContent = secs < 2
-    ? I18N.t("ai.an.live_now")
-    : I18N.t("ai.an.live_ago", { s: secs });
-}
-
-/** A one-second tick, only while the page that shows it is open. */
-function startAnalysisClock() {
-  stopAnalysisClock();
-  S._anClock = setInterval(() => {
-    if (S.view !== "intelligence") { stopAnalysisClock(); return; }
-    stampAnalysisAge();
-  }, 1000);
-}
-function stopAnalysisClock() {
-  if (S._anClock) { clearInterval(S._anClock); S._anClock = null; }
-}
 
 const views = {
   command() {
@@ -7560,10 +7522,8 @@ function bindView(view) {
   }
   if (view === "intelligence") {
     // The card was just drawn from the current snapshot, so the cache
-    // starts in step with what is on screen and the age starts now.
+    // starts in step with what is on screen.
     S._anHtml = null;
-    S._anAt = S._anAt || Date.now();
-    startAnalysisClock();
     // Per-chart AI slider — manual only, no timer anywhere.
     bindChartSlider("ai", aiSlideInnerHtml);
     const b = $("btn-train");
@@ -10294,11 +10254,10 @@ async function refresh(rebuild = false) {
       rebuild = false;
       const r = await API.get("/api/snapshot");
       if (r && r.ok) {
-        // When the engine's reading of the market actually changes, note
-        // the moment, so the analysis card can say how old what it is
-        // showing is rather than implying it is always current.
+        // Track the engine's reading so this poll and the socket push
+        // below do not rebuild the same card twice for the same content.
         const anSig = JSON.stringify(r.data?.analysis || null);
-        if (anSig !== S._anSig) { S._anSig = anSig; S._anAt = Date.now(); }
+        if (anSig !== S._anSig) S._anSig = anSig;
         S.snap = r.data;
         if (Array.isArray(S.snap.robot) && S.snap.robot.length) {
           S.robotLogs = S.snap.robot.slice();
@@ -10421,12 +10380,10 @@ function onLive(msg) {
     if (data && typeof data === "object") {
       S.snap = S.snap || {};
       S.snap.analysis = data;
-      /* The engine only sends this when the content actually changed, so
-       * arrival IS the change: stamp the age from here and keep _anSig in
-       * step, or the next snapshot poll would see "different from last
-       * time" and reset the clock all over again. */
+      /* Keep _anSig in step, or the next snapshot poll would see
+       * "different from last time" and rebuild the card a second time
+       * for content that is already on screen. */
       try { S._anSig = JSON.stringify(data); } catch { S._anSig = String(Date.now()); }
-      S._anAt = Date.now();
       if (S.view === "intelligence") patchAnalysisCard();
     }
     return;

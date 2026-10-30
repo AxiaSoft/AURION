@@ -83,7 +83,7 @@ function desk() {
   win.URL.createObjectURL = () => "blob:x";
   win.AudioContext = class {};
   win.eval(src + ";window.__T={views,S,I18N,showSetTab,patchLive,analysisCardHtml," +
-    "patchAnalysisCard,stampAnalysisAge,licenseCardHtml,languageCardHtml};");
+    "patchAnalysisCard,licenseCardHtml,languageCardHtml};");
   return win;
 }
 
@@ -172,26 +172,37 @@ check("a reader who closed the console keeps it closed through an update", () =>
   return "stayed closed";
 });
 
-check("the card says how old its reading is, and the stamp is not in the cache", () => {
+check("the card carries no \"updated N seconds ago\" stamp at all", () => {
+  // The stamp was honest while the analysis only arrived on the
+  // ten-second poll: the card needed a way to admit it was stale. The
+  // engine pushes the analysis as it changes now, so the stamp was
+  // reporting on itself rather than on the market, and the user asked
+  // for it to go. It must not creep back.
   const win = desk();
   const T = win.__T, S = T.S, doc = win.document;
   S.snap = { analysis: analysis(0.5, [], []), ai: {} };
   S.view = "intelligence";
   doc.getElementById("host").innerHTML = T.analysisCardHtml();
-  if (!doc.getElementById("an-live")) throw new Error("no age stamp on the card");
+  if (doc.getElementById("an-live")) throw new Error("the age stamp is back on the card");
   T.patchLive();
-  const node = doc.getElementById("an-card");
-  S._anAt = Date.now() - 9000;
-  T.stampAnalysisAge();
-  const aged = doc.getElementById("an-live").textContent;
-  if (!aged) throw new Error("the stamp stayed empty");
-  // If the stamp were part of the card's markup the comparison would
-  // differ every second and the card would be rebuilt constantly.
-  T.patchLive();
-  if (doc.getElementById("an-card") !== node) {
-    throw new Error("the ticking stamp is inside the cached markup and forces a rebuild");
+  const card = doc.getElementById("an-card");
+  if (/an-live/.test(card.outerHTML)) throw new Error("age-stamp markup survives");
+  if (/\d+\s*(s|seconds?)\s*ago/i.test(card.textContent)) {
+    throw new Error("the card still prints an age");
   }
-  return "stamp updates without rebuilding";
+  return "no age stamp";
+});
+
+check("nothing is left in the source to restart the age clock", () => {
+  const dead = ["stamp" + "AnalysisAge", "start" + "AnalysisClock",
+                "stop" + "AnalysisClock", "_an" + "At"];
+  for (const name of dead) {
+    if (appJs.includes(name)) throw new Error(name + " is still in app.js");
+  }
+  // The signature stays: it is what stops the poll rebuilding a card
+  // the socket push has already drawn.
+  if (!appJs.includes("_anSig")) throw new Error("the change check went with it");
+  return "clock fully removed";
 });
 
 check("the waiting card can be swapped once an analysis arrives", () => {
@@ -208,34 +219,6 @@ check("the waiting card can be swapped once an analysis arrives", () => {
     throw new Error("the waiting card was never replaced by the real one");
   }
   return "wait -> real card";
-});
-
-check("the age is restamped when the engine's reading actually changes", () => {
-  // Without this the card would say "updated now" forever, which is a
-  // worse lie than the frozen card was -- it would look live while
-  // showing a reading from an hour ago. Checked against the source
-  // because it happens inside the polling path, which needs a real
-  // engine to drive.
-  const m = /const r = await API\.get\("\/api\/snapshot"\);[\s\S]{0,600}?S\.snap = r\.data;/.exec(appJs);
-  if (!m) throw new Error("the snapshot path has moved");
-  if (!/S\._anAt = Date\.now\(\)/.test(m[0])) {
-    throw new Error("a new analysis does not reset the age stamp");
-  }
-  // and only when it changed, not on every poll
-  if (!/S\._anSig/.test(m[0])) {
-    throw new Error("the age is restamped on every poll, so it always reads as fresh");
-  }
-  return "restamped on change only";
-});
-
-check("the age clock only runs while the page that shows it is open", () => {
-  const m = /function startAnalysisClock\(\)[\s\S]*?\n}/.exec(appJs);
-  if (!m) throw new Error("no clock");
-  if (!/S\.view !== "intelligence"/.test(m[0])) {
-    throw new Error("the clock does not stop when the trader leaves the page");
-  }
-  if (!/function stopAnalysisClock/.test(appJs)) throw new Error("the clock cannot be stopped");
-  return "stops on leaving";
 });
 
 /* ================================================= 2. the EA chart === */

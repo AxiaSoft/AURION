@@ -254,9 +254,7 @@
       "strategy_says": "The strategy says",
       "desk_says": "The desk says",
       "waiting": "Waiting for the engine…",
-      "needs": "Needs",
-      "live_now": "updating live",
-      "live_ago": "updated {s}s ago"
+      "needs": "Needs"
     }
   },
   "strategies": {
