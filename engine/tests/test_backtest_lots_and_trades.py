@@ -194,6 +194,55 @@ def test_the_lot_actually_scales_the_money():
     assert large["metrics"]["net"] == pytest.approx(small["metrics"]["net"] * 10, rel=1e-6)
 
 
+# ------------------------------------------- and the result says so ---
+#
+# The replay honoured the desk's lot setting for a long time and said
+# nothing about it in the result. The desk's provenance line therefore
+# rendered nothing at all, which meant a run under the right lot rule
+# and a run under the wrong one produced identical output and a trader
+# had no way to tell them apart. "It used your settings" is an
+# assertion until the result names them.
+
+
+@pytest.mark.parametrize("mode,lot,cap", [
+    ("auto", 0.0, 1),
+    ("manual", 0.37, 3),
+    ("manual", 0.0, 2),
+    ("auto", 1.5, 9),
+])
+def test_the_result_reports_the_lot_rule_it_ran_under(mode, lot, cap):
+    res = run(Always(volume=0.2), volume_mode=mode, manual_volume=lot, max_open=cap)
+    assert res["ok"]
+    for key in ("volume_mode", "manual_volume", "max_open"):
+        assert key in res, f"the result does not report {key}"
+    assert res["volume_mode"] == mode
+    assert res["manual_volume"] == pytest.approx(lot)
+    assert res["max_open"] == cap
+
+
+def test_the_reported_mode_is_normalised_not_echoed():
+    # Whatever the desk sends, the result must name one of two things,
+    # because the desk switches its wording on the exact string.
+    for sent in ("MANUAL", "Manual", "manual"):
+        assert run(Always(), volume_mode=sent, manual_volume=0.1, max_open=1)["volume_mode"] == "manual"
+    for sent in ("auto", "AUTO", "", None, "nonsense"):
+        assert run(Always(), volume_mode=sent, manual_volume=0.0, max_open=1)["volume_mode"] == "auto"
+
+
+def test_the_reported_cap_is_the_one_actually_enforced():
+    # Not the number that was asked for - the number in force. A cap of
+    # 0 or -3 is clamped to 1 internally, and reporting the raw request
+    # would describe a run that did not happen.
+    for bad in (0, -3, None):
+        res = run(Always(), volume_mode="auto", manual_volume=0.0, max_open=bad)
+        assert res["max_open"] == 1
+
+
+def test_the_reported_lot_is_never_negative():
+    res = run(Always(), volume_mode="manual", manual_volume=-2.0, max_open=1)
+    assert res["manual_volume"] >= 0.0
+
+
 # -------------------------------------------------- how many at once ---
 
 @pytest.mark.parametrize("cap", [1, 2, 5, 9])

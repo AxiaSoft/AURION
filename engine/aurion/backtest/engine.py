@@ -130,6 +130,10 @@ class Backtester:
         trades: list[dict[str, Any]] = []
         positions: list[dict[str, Any]] = []
         cap = max(1, int(max_open or 1))
+        # Normalised once here and reported in the result below, so what
+        # the desk prints is what the replay sized its entries with.
+        mode = "manual" if str(volume_mode or "auto").lower() == "manual" else "auto"
+        lot = max(0.0, float(manual_volume or 0.0))
         brain = ai or AIEngine()
         feats = self._precompute_features(bars)
         ctx_start = self._ctx(strategy, symbol, timeframe, bars[:warmup], None, equity, [], brain)
@@ -275,6 +279,18 @@ class Backtester:
                 "warmup_bars": int(warmup),
                 "tested_bars": max(0, len(bars) - int(warmup)),
             },
+            # The lot rule this run actually used, for the same reason as
+            # `data` above. The replay has honoured the desk's auto/fixed
+            # lot setting and its open-trade cap for a while, but the
+            # result said nothing about either, so a run under the right
+            # rule and a run under the wrong one produced identical
+            # output. "It used your settings" is an assertion until the
+            # result names them. These are the values in force here, not
+            # the ones that were requested, so the 0.1 fallback inside
+            # _entry_volume cannot hide behind a reported 0.0.
+            "volume_mode": mode,
+            "manual_volume": lot,
+            "max_open": cap,
         }
 
     # ------------------------------------------------------------------

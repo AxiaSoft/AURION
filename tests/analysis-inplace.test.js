@@ -243,6 +243,41 @@ const prov = (bt) => {
   ok(!/undefined|NaN|null/.test(auto + fixed), 'no placeholder leaks into the text');
 }
 
+/* ------------------------------------------- the desk and the engine agree
+
+   The bug this exists for: the desk grew a line that printed
+   bt.volume_mode / bt.manual_volume / bt.max_open, and the engine's
+   backtest result carried none of them. Every real run therefore
+   printed nothing, while the desk-side test passed the whole time
+   because its fixture handed those fields in by hand. A fixture that
+   supplies the very thing under test cannot fail.
+
+   So the field names are read out of the engine source and checked
+   against what the desk actually looks for. */
+{
+  const eng = fs.readFileSync(path.join(ROOT, 'engine', 'aurion', 'backtest', 'engine.py'), 'utf8');
+  const result = eng.slice(eng.indexOf('return {\n            "ok": True,\n            "mode": "backtest"'));
+  const emitted = new Set([...result.slice(0, result.indexOf('\n        }')).matchAll(/^\s{12}"([a-z_]+)":/gm)].map((m) => m[1]));
+
+  for (const key of ['volume_mode', 'manual_volume', 'max_open']) {
+    ok(emitted.has(key), `the engine's backtest result carries ${key}`);
+  }
+
+  const app = fs.readFileSync(path.join(WEB, 'js', 'app.js'), 'utf8');
+  const i = app.indexOf('function btLotProvenance(');
+  const body = app.slice(i, app.indexOf('\nfunction ', i + 10));
+  /* String literals are stripped first: the i18n namespace for these
+     very lines is also "bt.", so I18N.t("bt.prov_lot_auto") would
+     otherwise look like a field read off the run. */
+  const code = body.replace(/"[^"]*"|'[^']*'|`[^`]*`/g, '""');
+  const read = [...code.matchAll(/\bbt\.([a-z_]+)/g)].map((m) => m[1]);
+  ok(read.length > 0, 'btLotProvenance reads something off the run');
+  for (const field of new Set(read)) {
+    ok(emitted.has(field),
+      `btLotProvenance reads bt.${field}, which the engine actually sends`);
+  }
+}
+
 /* ---------------------------------------------------------- translated */
 {
   const packs = ['en', 'fa', 'ar'].map((l) => [l, JSON.parse(fs.readFileSync(path.join(ROOT, 'lang', l + '.json'), 'utf8'))]);
