@@ -3470,6 +3470,15 @@ function show(view, opts) {
     }
     S.chart = null;
     document.querySelectorAll("body > .dd-menu").forEach((m) => m.remove());
+    /* Same reason as the calendar card above: the settings sheet, its
+       scrim and its floating bar are parented to <body> so the stage's
+       entrance transform cannot become their containing block. Which
+       means the stage being rebuilt on the next line does not remove
+       them - and it is unconditional rather than guarded on a view
+       change, because Settings re-renders itself in place when the
+       light cut or the breakpoint changes, and a leftover copy would
+       give the document two #set-jump. */
+    sweepSetSheet();
     stage.innerHTML = views[view] ? views[view]() : "";
     I18N.apply(stage);
     bindView(view);
@@ -6792,13 +6801,6 @@ const views = {
        names the section you are in; opened, it is the full rail,
        headings and descriptions included, within thumb reach. */
     return `<div class="set-desk set-rail stx">
-      <button type="button" class="sj-open" id="set-sheet-open"
-              aria-controls="set-jump" aria-expanded="false">
-        <span class="sj-ic">${icon(tabIcon(tab))}</span>
-        <span class="sj-txt"><b id="set-sheet-now">${esc(tabTitle(tab))}</b><small>${
-          esc(I18N.t("settings.sheet_open"))}</small></span>
-        <span class="sj-open-ch" aria-hidden="true">${icon("chevron")}</span>
-      </button>
       <div class="sj-scrim" id="set-sheet-scrim" hidden></div>
       <nav class="set-jump" id="set-jump" aria-label="settings">
         <!-- Sheet furniture: inert on desktop, where the nav is a plain
@@ -6826,6 +6828,13 @@ const views = {
           </span>
           <p class="sj-find-n sub" id="set-q-n" aria-live="polite" hidden></p>
         </div>
+        <!-- The entries are a region of their own so that, as a sheet,
+             the handle, the title and the search can hold still while
+             only the list scrolls. It was two stacked position:sticky
+             boxes with hand-counted top offsets, which drifted the
+             moment either one changed height. On the desktop rail the
+             wrapper is display:contents and changes nothing. -->
+        <div class="sj-list">
         ${grp(I18N.t("rail.trading"))}
         ${tabBtn("set-robot", tabTitle("set-robot"), tabIcon("set-robot"), I18N.t("rail.robot_hint"))}
         ${tabBtn("set-prop", tabTitle("set-prop"), tabIcon("set-prop"), I18N.t("rail.prop_hint"))}
@@ -6837,7 +6846,25 @@ const views = {
         ${grp(I18N.t("rail.system"))}
         ${tabBtn("set-update", tabTitle("set-update"), tabIcon("set-update"), I18N.t("rail.update_hint"))}
         ${tabBtn("set-system", tabTitle("set-system"), tabIcon("set-system"), I18N.t("rail.system_hint"))}
-      </nav><div class="set-main">
+        </div>
+      </nav>
+      <!-- The opener is last in the DOM because it is last on the
+           screen: a floating bar on the bottom edge, not a row at the
+           top of the page. It sat above the sections, which put the
+           control furthest from the thumb and spent a line of the
+           page's height on it; and because the bar is fixed, the
+           sections now reserve room for it rather than sliding under
+           it. -->
+      <div class="sj-bar" id="set-sheet-bar">
+        <button type="button" class="sj-open" id="set-sheet-open"
+                aria-controls="set-jump" aria-expanded="false">
+          <span class="sj-ic">${icon(tabIcon(tab))}</span>
+          <span class="sj-txt"><b id="set-sheet-now">${esc(tabTitle(tab))}</b><small>${
+            esc(I18N.t("settings.sheet_open"))}</small></span>
+          <span class="sj-open-ch" aria-hidden="true">${icon("chevron")}</span>
+        </button>
+      </div>
+      <div class="set-main">
 
       ${block("set-robot", I18N.t("settings.sec_robot"), I18N.t("settings.why_robot"),
         robotPanelHtml())}
@@ -7998,7 +8025,19 @@ function bindSettingsSearch() {
 
   q.addEventListener("input", apply);
   q.addEventListener("keydown", (e) => {
-    if (e.key === "Escape") { q.value = ""; apply(); }
+    if (e.key === "Escape" && q.value) {
+      q.value = "";
+      apply();
+      /* The sheet also listens for Escape, on the nav this box sits
+         inside. Without this the box cleared itself and the event then
+         bubbled up and shut the sheet, so one keypress undid the
+         filter AND threw away the list - a typo cost you the page.
+         Stopped only when there was something to clear, so an Escape
+         on an empty box still closes the sheet, which is what it
+         should do. */
+      e.preventDefault();
+      e.stopPropagation();
+    }
     /* Enter opens the only thing left, which is what you meant if you
        typed enough to leave one. */
     if (e.key === "Enter") {
@@ -8022,18 +8061,59 @@ function bindSettingsSearch() {
  * attribute that `closeSetSheet` removes.
  */
 const SET_SHEET_MQ = "(max-width: 1000px)";
+
+/* The sheet, the scrim and the floating bar are all position:fixed, and
+ * all three were rendered inside the stage - which is wrong here for the
+ * same reason the calendar's day card is parented to <body>.
+ *
+ * `.stage.is-entering` animates `rise`, a transform, for 480ms on every
+ * view change. A transformed ancestor becomes the containing block for
+ * its fixed descendants, so for the first half-second after opening
+ * Settings the sheet and the bar were positioned against the stage
+ * rather than the viewport - and the stage is overflow:auto, so they
+ * were clipped by it too. They jumped into place once the animation
+ * ended. On top of that they were z-index 60/61, under the mobile
+ * header at 90: the sheet slid behind it and the scrim left it lit and
+ * clickable.
+ *
+ * So they are moved to <body> on mount. Nothing has to move them back:
+ * the stage is rebuilt wholesale on every view change, so the sweep
+ * below runs there and the template supplies fresh copies next time. */
+function sweepSetSheet() {
+  document.querySelectorAll("body > [data-sheet-portal]").forEach((n) => n.remove());
+  try { document.body.classList.remove("has-set-bar"); } catch {}
+}
+function portalSetSheet() {
+  if (!setSheetOn()) return;
+  for (const id of ["set-sheet-scrim", "set-jump", "set-sheet-bar"]) {
+    const el = document.getElementById(id);
+    if (!el || el.parentElement === document.body) continue;
+    el.dataset.sheetPortal = "1";
+    document.body.appendChild(el);
+  }
+  /* The sheet rules are written against .set-jump.is-sheet rather than
+     .set-rail .set-jump, because once it is parented to <body> there is
+     no .set-rail above it for a descendant selector to find. Same
+     specificity, declared later, and it says what it means: these are
+     the sheet's rules, not the rail's. */
+  const nav = document.getElementById("set-jump");
+  if (nav) nav.classList.add("is-sheet");
+  /* Toasts stack on the bottom edge too, which is now the bar's. */
+  try { document.body.classList.add("has-set-bar"); } catch {}
+}
 function setSheetOn() {
   try { return Boolean(window.matchMedia && window.matchMedia(SET_SHEET_MQ).matches); } catch { return false; }
 }
 let __setSheetReturn = null;
 function closeSetSheet(focusBack) {
-  const desk = document.querySelector(".set-desk.set-rail");
   const nav = $("set-jump");
   const btn = $("set-sheet-open");
   const scrim = $("set-sheet-scrim");
-  if (!desk) return;
-  desk.classList.remove("sheet-open");
-  if (nav) nav.style.transform = "";
+  /* The open state is a class on <html>, not on the settings desk: the
+     sheet is portaled out of the desk, so a class there can no longer
+     reach it. */
+  document.documentElement.classList.remove("set-sheet-open");
+  if (nav) { nav.style.transform = ""; nav.style.transition = ""; }
   if (scrim) { scrim.hidden = true; scrim.style.opacity = ""; }
   if (btn) btn.setAttribute("aria-expanded", "false");
   const back = focusBack === false ? null : (__setSheetReturn || btn);
@@ -8041,14 +8121,13 @@ function closeSetSheet(focusBack) {
   try { if (back && back.isConnected) back.focus(); } catch {}
 }
 function openSetSheet() {
-  const desk = document.querySelector(".set-desk.set-rail");
   const nav = $("set-jump");
   const btn = $("set-sheet-open");
   const scrim = $("set-sheet-scrim");
-  if (!desk || !nav) return;
+  if (!nav) return;
   __setSheetReturn = btn || null;
   if (scrim) scrim.hidden = false;
-  desk.classList.add("sheet-open");
+  document.documentElement.classList.add("set-sheet-open");
   if (btn) btn.setAttribute("aria-expanded", "true");
   /* Focus goes to the section you are on, not to the top of the list:
      the sheet opens to let you move away from here, so "here" is the
@@ -8058,9 +8137,11 @@ function openSetSheet() {
     if (cur) cur.focus({ preventScroll: true });
   } catch {}
 }
+function setSheetIsOpen() {
+  return document.documentElement.classList.contains("set-sheet-open");
+}
 function toggleSetSheet() {
-  const desk = document.querySelector(".set-desk.set-rail");
-  if (desk && desk.classList.contains("sheet-open")) closeSetSheet();
+  if (setSheetIsOpen()) closeSetSheet();
   else openSetSheet();
 }
 
@@ -8069,6 +8150,7 @@ function bindSetSheet() {
   const nav = $("set-jump");
   if (!desk || !nav || nav.dataset.sheetBound === "1") return;
   nav.dataset.sheetBound = "1";
+  portalSetSheet();
 
   const btn = $("set-sheet-open");
   const scrim = $("set-sheet-scrim");
@@ -8083,9 +8165,9 @@ function bindSetSheet() {
      the filter - still wins while it has focus and still has something
      to clear. */
   nav.addEventListener("keydown", (e) => {
-    if (e.key !== "Escape" || !desk.classList.contains("sheet-open")) return;
-    const q = $("set-q");
-    if (document.activeElement === q && q && q.value) return;
+    if (e.key !== "Escape" || !setSheetIsOpen()) return;
+    /* The search box stops the event when it had a filter to clear. */
+    if (e.defaultPrevented) return;
     e.preventDefault();
     closeSetSheet();
   });
@@ -8116,7 +8198,7 @@ function bindSetSheet() {
       if (flick || dy > nav.offsetHeight * 0.25) closeSetSheet();
     };
     grab.addEventListener("pointerdown", (e) => {
-      if (!desk.classList.contains("sheet-open")) return;
+      if (!setSheetIsOpen()) return;
       dragging = true; y0 = e.clientY; t0 = Date.now(); dy = 0;
       try { grab.setPointerCapture(e.pointerId); } catch {}
     });
@@ -8129,7 +8211,14 @@ function bindSetSheet() {
      holding a scrim and an aria-expanded that no longer mean anything. */
   try {
     const mq = window.matchMedia(SET_SHEET_MQ);
-    const sync = () => { if (!mq.matches) closeSetSheet(false); };
+    /* Crossing the breakpoint changes where the nav has to live, which
+       is a re-render rather than something to unpick by hand - and it
+       is the same call setThemeNow already makes when the light cut
+       changes which controls the page offers. */
+    const sync = () => {
+      closeSetSheet(false);
+      try { if (S.view === "settings") show("settings", { animate: false, closeMenu: false, nav: false }); } catch {}
+    };
     if (mq.addEventListener) mq.addEventListener("change", sync);
     else if (mq.addListener) mq.addListener(sync);
   } catch {}
@@ -8593,6 +8682,14 @@ function bindView(view) {
     };
   }
   if (view === "settings") {
+    /* Orphan sweep first, before anything calls getElementById: the
+       sheet furniture is parented to <body>, and a stale copy left
+       there would be found ahead of the one just rendered - jsdom and
+       browsers both resolve a duplicate id by tree order, and the
+       portaled corpse comes first. show() sweeps before it rebuilds
+       the stage, so this is belt and braces for anyone who re-renders
+       the view directly. */
+    sweepSetSheet();
     bindRobotPanel();
     bindNotifySounds($("stage"));
     bindTelegramPanel();

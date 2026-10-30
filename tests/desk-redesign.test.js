@@ -739,7 +739,7 @@ if (!jsdom) {
       if (open.getAttribute("aria-controls") !== "set-jump") throw new Error("the trigger is not tied to the nav");
       if (open.getAttribute("aria-expanded") !== "false") throw new Error("the trigger does not report its state");
       if (!d.querySelector("#set-sheet-now")) throw new Error("the closed sheet does not name the current section");
-      for (const id of ["set-sheet-scrim", "set-sheet-grab", "set-sheet-close"]) {
+      for (const id of ["set-sheet-scrim", "set-sheet-grab", "set-sheet-close", "set-sheet-bar"]) {
         if (!d.querySelector("#" + id)) throw new Error("the sheet has no " + id);
       }
 
@@ -754,19 +754,89 @@ if (!jsdom) {
       }
       if (/overflow-x:auto/.test(rung)) throw new Error("the sideways scroller is back");
       const tight = rung.replace(/\s+/g, "");
-      if (!/\.set-rail\.set-jump\{[^}]*position:fixed/.test(tight)) throw new Error("the sheet is not anchored to the viewport");
+      if (!/\.set-jump\.is-sheet\{[^}]*position:fixed/.test(tight)) throw new Error("the sheet is not anchored to the viewport");
       if (!/inset-block-end:0/.test(tight)) throw new Error("the sheet is not at the bottom edge");
-      if (!/\.set-rail\.sheet-open\.set-jump\{transform:translateY\(0\)/.test(tight)) {
+      if (!/html\.set-sheet-open\.set-jump\.is-sheet\{transform:translateY\(0\)/.test(tight)) {
         throw new Error("opening the sheet does not bring it on screen");
       }
       /* A sheet that slides has to be laid out while closed, so it is
          translated away rather than displayed none. */
-      if (/\.set-rail\.set-jump\{[^}]*display:none/.test(tight)) throw new Error("the closed sheet is display:none and cannot slide");
+      if (/\.set-jump\.is-sheet\{[^}]*display:none/.test(tight)) throw new Error("the closed sheet is display:none and cannot slide");
       if (!/touch-action:none/.test(tight)) throw new Error("the handle will be stolen by the page's own scrolling");
       /* The desktop rail must be untouched by all of it. */
-      if (!/^\.sj-open,\.sj-scrim,\.sj-grab,\.sj-sheet-head\{display:none\}/m.test(appCss)) {
+      if (!/^\.sj-open,\.sj-scrim,\.sj-grab,\.sj-sheet-head,\.sj-bar\{display:none\}/m.test(appCss)) {
         throw new Error("the sheet furniture shows on the desktop rail too");
       }
+    });
+
+    check("the opener floats on the bottom edge and the sections clear it", () => {
+      /* It was a row at the top of the page: the furthest point from
+         the thumb, and a line of height spent on a screen that has
+         none spare. Now fixed to the bottom - which means the page
+         below it has to reserve the room, or the last section sits
+         under it unreachable. */
+      const d = frag(T.views.settings());
+      const bar = d.querySelector("#set-sheet-bar");
+      if (!bar) throw new Error("there is no bar");
+      if (!bar.contains(d.querySelector("#set-sheet-open"))) throw new Error("the opener is not in the bar");
+      /* Last in the DOM as well as last on the screen, so the reading
+         order and the tab order match what the eye sees. */
+      const main = d.querySelector(".set-main");
+      if (!main) throw new Error("no main column");
+      if (!(bar.compareDocumentPosition(main) & 4)) {
+        throw new Error("the bar still comes before the sections in the DOM");
+      }
+      const m = /@media \(max-width:1000px\)\{([\s\S]*?)\n\}\n/.exec(appCss);
+      const tight = m[1].replace(/\s+/g, "");
+      if (!/\.sj-bar\{[^}]*position:fixed/.test(tight)) throw new Error("the bar does not float");
+      if (!/\.sj-bar\{[^}]*inset-block-end:/.test(tight)) throw new Error("the bar is not on the bottom edge");
+      if (!/\.set-main\{padding-block-end:/.test(tight)) {
+        throw new Error("the sections run underneath the floating bar");
+      }
+      /* Toasts land on the same edge. */
+      if (!/body\.has-set-bar\.toast-wrap\{inset-block-end:/.test(tight)) {
+        throw new Error("a toast would appear on top of the bar");
+      }
+      /* And the bar steps aside rather than sitting behind the sheet. */
+      if (!/html\.set-sheet-open\.sj-bar\{opacity:0/.test(tight)) {
+        throw new Error("the bar stays put under the open sheet");
+      }
+    });
+
+    check("the sheet is parented to the body, not to the animating stage", () => {
+      /* .stage.is-entering animates `rise`, a transform, for 480ms on
+         every view change, and a transformed ancestor becomes the
+         containing block for its fixed descendants. Rendered inside
+         the stage, the sheet and the bar were positioned against the
+         stage rather than the viewport for the first half-second on
+         the page - and the stage is overflow:auto, so they were
+         clipped by it as well. Same fault, same cure, as the
+         calendar's day card. */
+      if (!/function sweepSetSheet\(\)/.test(appJs)) throw new Error("there is no sweep");
+      const portal = appJs.slice(appJs.indexOf("function portalSetSheet()"), appJs.indexOf("function bindSetSheet()"));
+      if (!/document\.body\.appendChild/.test(portal)) throw new Error("nothing is portaled");
+      for (const id of ["set-sheet-scrim", "set-jump", "set-sheet-bar"]) {
+        if (!portal.includes(id)) throw new Error(id + " is left behind in the stage");
+      }
+      /* Unconditional, and before the stage is rebuilt: Settings
+         re-renders itself in place when the light cut or the
+         breakpoint changes, and a guarded sweep would leave a portaled
+         copy behind and give the document two #set-jump. */
+      /* Anchored on show()'s own paint: "const paint = () => {" alone
+         also matches the gate-slide renderer earlier in the file. */
+      const show = appJs.slice(appJs.indexOf("const paint = () => {\n    S._paintTimer = null;"),
+                               appJs.indexOf("S.mountedView = view;"));
+      const sweepAt = show.indexOf("sweepSetSheet()");
+      const wipeAt = show.indexOf("stage.innerHTML =");
+      if (sweepAt < 0) throw new Error("leaving settings leaves the sheet on screen");
+      if (sweepAt > wipeAt) throw new Error("the sweep runs after the new copy has been rendered");
+      if (/if \(changing\) sweepSetSheet/.test(appJs)) throw new Error("the sweep is guarded on a view change");
+      /* Portaled out of .set-rail, so the open state cannot be a class
+         on the settings desk and the rules cannot be scoped to it. */
+      if (/desk\.classList\.(add|remove)\("sheet-open"\)/.test(appJs)) {
+        throw new Error("the open state is still a class on the desk the sheet no longer lives in");
+      }
+      if (!/classList\.add\("is-sheet"\)/.test(portal)) throw new Error("the portaled nav is not marked, so the sheet rules cannot reach it");
     });
 
     check("the sheet can be closed by dragging it away, not only by a button", () => {
@@ -784,11 +854,48 @@ if (!jsdom) {
       /* And the three other ways out. */
       if (!/scrim\.onclick/.test(fn)) throw new Error("tapping outside does not close it");
       if (!/e\.key !== "Escape"/.test(fn)) throw new Error("Escape does not close it");
-      if (!/mq\.matches/.test(fn)) throw new Error("widening the window leaves the sheet state behind");
+      if (!/mq\.matches|S\.view === "settings"/.test(fn)) throw new Error("crossing the breakpoint leaves the sheet state behind");
       /* Choosing a section is the commonest dismissal of all. */
       const bind = appJs.slice(appJs.indexOf('const jump = $("set-jump");'));
       if (!/showSetTab\(b\.dataset\.jump\);[\s\S]{0,400}?closeSetSheet\(\);/.test(bind)) {
         throw new Error("picking a section leaves the sheet covering it");
+      }
+    });
+
+    check("only the entries scroll, so a drag on the handle is not a scroll", () => {
+      /* The handle and the title were position:sticky inside the
+         scrolling nav, with hand-counted top offsets that came apart
+         as soon as either changed height - and a drag starting on a
+         sticky handle inside a scroller is competing with that
+         scroller. The nav is a flex column now: handle, title and
+         search are flex:none, and a single region holds the list. */
+      const d = frag(T.views.settings());
+      const list = d.querySelector("#set-jump .sj-list");
+      if (!list) throw new Error("the entries are not in a region of their own");
+      const n = list.querySelectorAll("button[data-jump]").length;
+      if (n !== 8) throw new Error("the list holds " + n + " entries, expected 8");
+      if (d.querySelector("#set-jump > button[data-jump]")) {
+        throw new Error("an entry is outside the scrolling region");
+      }
+      /* On the rail the wrapper must not exist as far as layout goes. */
+      if (!/^\.sj-list\{display:contents\}/m.test(appCss)) {
+        throw new Error("the wrapper changes the desktop rail's layout");
+      }
+      const m = /@media \(max-width:1000px\)\{([\s\S]*?)\n\}\n/.exec(appCss);
+      const tight = m[1].replace(/\s+/g, "");
+      if (!/\.sj-list\{[^}]*overflow-y:auto/.test(tight)) throw new Error("the list does not scroll");
+      if (!/\.sj-list\{[^}]*flex:1 1 auto/.test(tight.replace(/flex:1 1 auto/g, "flex:1 1 auto"))
+          && !/\.sj-list\{[^}]*flex:11auto/.test(tight)) {
+        throw new Error("the list does not take the leftover height");
+      }
+      if (!/\.set-jump\.is-sheet\{[^}]*overflow:hidden/.test(tight)) {
+        throw new Error("the sheet itself still scrolls, so it fights the drag");
+      }
+      /* Comments stripped first: this block explains the sticky boxes
+         it replaced, and the explanation is not the thing being
+         forbidden. */
+      if (/position:sticky/.test(tight.replace(/\/\*[\s\S]*?\*\//g, ""))) {
+        throw new Error("the sticky offsets are back");
       }
     });
 

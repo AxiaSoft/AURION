@@ -2502,94 +2502,129 @@ html[dir="rtl"] .set-rail .sj-grp{letter-spacing:0;text-transform:none;font-size
  * descriptions intact, with its items under the thumb instead of at the
  * top of the screen.
  */
-.sj-open,.sj-scrim,.sj-grab,.sj-sheet-head{display:none}
+.sj-open,.sj-scrim,.sj-grab,.sj-sheet-head,.sj-bar{display:none}
+/* The entries are their own region only when the sheet needs to scroll
+   them; on the rail the wrapper must not exist as far as layout is
+   concerned. */
+.sj-list{display:contents}
 
 @media (max-width:1000px){
   .set-desk.set-rail{grid-template-columns:1fr;gap:12px}
 
-  /* The closed state: one row that answers "where am I". */
+  /* ---- the opener: a floating bar on the bottom edge ---------------
+     It was a row at the top of the page, which is the furthest point
+     from the thumb on a phone and cost a line of height on a screen
+     that has none to spare. Fixed to the bottom instead, and because
+     it floats, .set-main reserves its height so the last section is
+     not stuck underneath it. */
+  .sj-bar{
+    display:block;position:fixed;z-index:92;
+    inset-inline:10px;inset-block-end:calc(10px + env(safe-area-inset-bottom));
+    transition:opacity .2s var(--ease), translate .24s var(--ease);
+  }
   .sj-open{
     display:flex;align-items:center;gap:10px;width:100%;text-align:start;
-    min-block-size:52px;padding:8px 12px;
-    border:1px solid var(--line);border-radius:14px;
-    background:linear-gradient(180deg, rgb(var(--s4) / .92), rgb(var(--s2) / .88));
-    backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
+    min-block-size:56px;padding:8px 14px;
+    border:1px solid var(--line);border-radius:16px;
+    background:rgb(var(--s2) / .86);
+    backdrop-filter:blur(20px) saturate(150%);-webkit-backdrop-filter:blur(20px) saturate(150%);
+    box-shadow:0 10px 30px rgb(0 0 0 / .32);
     color:var(--ink);font-size:13px;
   }
   .sj-open .sj-txt{flex:1 1 auto;min-width:0}
   .sj-open .sj-txt b{font-weight:500;display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .sj-open .sj-txt small{font-size:11px;color:var(--faint)}
   .sj-open .sj-ic{
-    width:30px;height:30px;flex:none;display:grid;place-items:center;border-radius:9px;
+    width:32px;height:32px;flex:none;display:grid;place-items:center;border-radius:10px;
     background:rgb(var(--accent-rgb) / .16);color:var(--cyan);
   }
   .sj-open .sj-ic svg{width:16px;height:16px}
   .sj-open-ch{flex:none;display:grid;place-items:center;color:var(--faint);transition:rotate .2s var(--ease)}
   .sj-open-ch svg{width:16px;height:16px}
-  .sj-open[aria-expanded="true"] .sj-open-ch{rotate:180deg}
 
+  /* Once the sheet is up, the bar is behind it and saying nothing the
+     sheet is not already saying, so it gets out of the way instead of
+     sitting underneath. */
+  html.set-sheet-open .sj-bar{opacity:0;translate:0 12px;pointer-events:none}
+
+  /* Nothing may end up underneath the bar. 56px of control, 10px of
+     gap at each end, plus the home indicator. */
+  .set-main{padding-block-end:calc(86px + env(safe-area-inset-bottom))}
+  /* Toasts share the bottom edge, so they stack above it rather than
+     on top of it. */
+  body.has-set-bar .toast-wrap{inset-block-end:calc(86px + env(safe-area-inset-bottom))}
+
+  /* ---- the sheet -------------------------------------------------- */
   .sj-scrim{
-    display:block;position:fixed;inset:0;z-index:60;
+    display:block;position:fixed;inset:0;z-index:150;
     background:rgb(0 0 0 / .5);opacity:0;pointer-events:none;
     transition:opacity .24s var(--ease);
   }
   .sj-scrim[hidden]{display:none}
-  .set-rail.sheet-open .sj-scrim{opacity:1;pointer-events:auto}
+  html.set-sheet-open .sj-scrim{opacity:1;pointer-events:auto}
 
-  /* The sheet itself. It is always in the DOM and always laid out -
-     translated off the bottom edge rather than display:none - because
-     it has to be able to slide, and because a drag that starts on a
-     box that does not exist yet cannot be smooth. */
-  .set-rail .set-jump{
-    position:fixed;inset-inline:0;inset-block-end:0;top:auto;z-index:61;
-    flex-direction:column;gap:2px;
-    max-height:min(78dvh, 620px);overflow-y:auto;overscroll-behavior:contain;
+  /* z-index 151, over the mobile header at 90 and under the navigation
+     drawer at 200. At 61 the sheet slid behind the header and the
+     scrim left it lit and still clickable. */
+  .set-jump.is-sheet{
+    position:fixed;inset-inline:0;inset-block-end:0;top:auto;z-index:151;
+    display:flex;flex-direction:column;gap:0;
+    max-height:min(76dvh, 640px);overflow:hidden;overscroll-behavior:contain;
     border:1px solid var(--line);border-block-end:0;
     border-start-start-radius:22px;border-start-end-radius:22px;
     border-end-start-radius:0;border-end-end-radius:0;
-    padding:0 10px calc(14px + env(safe-area-inset-bottom)) 10px;
+    padding:0;
     box-shadow:0 -18px 44px rgb(0 0 0 / .34);
     transform:translateY(102%);
     transition:transform .3s cubic-bezier(.32,.72,0,1);
     visibility:hidden;
   }
-  .set-rail.sheet-open .set-jump{transform:translateY(0);visibility:visible}
+  html.set-sheet-open .set-jump.is-sheet{transform:translateY(0);visibility:visible}
 
-  /* The grab handle. 44px of target around a 4px bar: the bar is the
-     signal, the padding is the thing a thumb can actually hit. */
+  /* The handle, the title and the search hold still; only the list
+     scrolls. This was two stacked position:sticky boxes with
+     hand-counted offsets, which came apart as soon as either changed
+     height - and with the nav itself scrolling, a drag that began on
+     the handle fought the scroll. */
   .sj-grab{
-    display:grid;place-items:center;position:sticky;top:0;z-index:2;
-    block-size:28px;padding-block:12px 8px;margin-inline:-10px;
+    display:grid;place-items:center;flex:none;
+    block-size:28px;padding-block:12px 6px;
     touch-action:none;cursor:grab;
-    background:linear-gradient(180deg, rgb(var(--s4) / .98), rgb(var(--s4) / .92));
   }
   .sj-grab:active{cursor:grabbing}
   .sj-grab span{display:block;inline-size:42px;block-size:4px;border-radius:999px;background:rgb(var(--wash) / .22)}
 
   .sj-sheet-head{
-    display:flex;align-items:center;justify-content:space-between;gap:10px;
-    position:sticky;top:48px;z-index:2;
-    padding:2px 2px 8px;margin-inline:-10px;padding-inline:12px;
-    background:rgb(var(--s4) / .96);
+    display:flex;align-items:center;justify-content:space-between;gap:10px;flex:none;
+    padding:0 12px 10px;
   }
   .sj-sheet-head b{font-size:13px;font-weight:500;color:var(--ink)}
   .sj-close{
-    inline-size:36px;block-size:36px;flex:none;display:grid;place-items:center;
-    border:1px solid var(--line);border-radius:10px;
+    inline-size:40px;block-size:40px;flex:none;display:grid;place-items:center;
+    border:1px solid var(--line);border-radius:11px;
     background:rgb(var(--wash) / .05);color:var(--muted);
   }
   .sj-close svg{width:16px;height:16px}
 
+  .set-jump.is-sheet .sj-find{flex:none;padding:0 12px 10px}
+
+  .sj-list{
+    display:flex;flex-direction:column;gap:2px;
+    flex:1 1 auto;min-block-size:0;overflow-y:auto;overscroll-behavior:contain;
+    padding:0 10px calc(14px + env(safe-area-inset-bottom));
+    scrollbar-width:thin;
+  }
+
   /* Inside the sheet the rail keeps everything it had on the desktop -
      the headings, the descriptions - and only grows its targets. */
-  .set-rail .set-jump button[data-jump]{min-block-size:48px;padding:9px 10px}
+  .set-jump.is-sheet button[data-jump]{min-block-size:48px;padding:9px 10px}
 
   .set-main .set-block{padding:14px;border-radius:16px}
   .set-main .set-title{font-size:16px}
 }
 
 @media (max-width:1000px) and (prefers-reduced-motion:reduce){
-  .set-rail .set-jump,.sj-scrim,.sj-open-ch{transition:none}
+  .set-jump.is-sheet,.sj-scrim,.sj-open-ch,.sj-bar{transition:none}
 }
 
 /* ---- the rail carries state, not just names ---- */
@@ -2629,12 +2664,11 @@ html[dir="rtl"] .set-rail .sj-grp{letter-spacing:0;text-transform:none;font-size
    so choosing any other accent left the selected item the wrong colour
    on light and the right one on dark. Both now come from the theme. */
 @media (max-width:1000px){
-  html[data-theme="light"] .sj-open{background:linear-gradient(180deg,#fff,rgb(var(--s2)))}
-  html[data-theme="light"] .sj-grab{background:#fff}
-  html[data-theme="light"] .sj-sheet-head{background:#fff}
+  html[data-theme="light"] .sj-open{background:rgb(255 255 255 / .9)}
   html[data-theme="light"] .sj-scrim{background:rgb(0 0 0 / .34)}
 }
-html[data-theme="light"] .set-rail .set-jump{
+html[data-theme="light"] .set-rail .set-jump,
+html[data-theme="light"] .set-jump.is-sheet{
   background:linear-gradient(180deg, rgb(var(--s4) / .9), rgb(var(--s2) / .78));
 }
 html[data-theme="light"] .set-rail .set-jump button.on{
