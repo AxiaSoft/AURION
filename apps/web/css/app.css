@@ -594,7 +594,6 @@ html[dir="rtl"] .switch.on i{transform:translate(calc(var(--sw-travel) * -1),-50
 .set-title{margin:0 0 12px;font-size:18px;font-weight:500}
 .set-h{margin:16px 0 10px;font-size:12px;color:var(--muted);font-weight:500;letter-spacing:.04em;text-transform:uppercase}
 html[dir="rtl"] .set-h{letter-spacing:0;text-transform:none}
-.set-jump{position:sticky;top:0;z-index:5;padding:4px 0 12px;background:linear-gradient(180deg, rgb(var(--s1) / .92), rgb(var(--s1) / .72) 70%, transparent)}
 .st-live{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:10px}
 .st-live .pill.on{color:var(--on-accent);background:var(--cyan);border-color:transparent}
 .st-stats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-top:10px;padding-top:8px;border-top:1px solid var(--line)}
@@ -1363,23 +1362,10 @@ html[dir="rtl"] .pos-strip-h{letter-spacing:0;text-transform:none}
 
 /* Settings — two columns on desktop, stacked elsewhere */
 .set-desk{display:flex;flex-direction:column;gap:8px;max-width:1120px}
-.set-jump{
-  display:flex;flex-wrap:wrap;gap:6px;
-  position:sticky;top:0;z-index:6;
-  padding:6px 0 12px;
-  background:linear-gradient(180deg, rgb(var(--s1) / .94), rgb(var(--s1) / .72) 70%, transparent);
-}
 .set-block .grid.g-2{align-items:start}
 @media (min-width:1100px){
   .set-block > .grid.g-2{grid-template-columns:repeat(2,minmax(0,1fr))}
   .set-block .card{min-height:0}
-}
-@media (max-width:900px){
-  .set-jump{flex-wrap:nowrap;overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none}
-  .set-jump::-webkit-scrollbar{display:none}
-  .set-jump button{flex:none;white-space:nowrap}
-  .set-title{font-size:16px}
-  .set-block{margin-bottom:16px}
 }
 .ai-feed{max-height:280px;overflow:auto;margin-top:10px}
 .ai-feed .row-line{display:flex;gap:8px;font-size:12px;padding:4px 0;border-bottom:1px solid rgb(var(--wash) / .04)}
@@ -1528,7 +1514,6 @@ input[type=range]{width:100%;accent-color:var(--cyan);height:28px;cursor:pointer
 #btn-restart{display:none !important}
 .conn-strip{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:0}
 .conn-strip .pill{min-height:34px}
-.set-jump button.on{background:var(--gold);color:var(--on-accent);border-color:transparent;font-weight:500}
 .set-block[hidden]{display:none !important}
 .set-desk .set-block{margin:0}
 @media (max-width:1100px){
@@ -1625,15 +1610,6 @@ input[type=range]{width:100%;accent-color:var(--cyan);height:28px;cursor:pointer
   color:var(--ink);
 }
 .nav button.on::before{width:0;opacity:0}
-.set-jump{
-  display:flex;gap:4px;padding:4px;border:1px solid var(--line);border-radius:14px;
-  background:rgb(var(--s2) / .55);margin-bottom:14px;
-}
-.set-jump button{
-  flex:1;min-width:0;border:0;background:transparent;color:var(--muted);
-  border-radius:10px;padding:10px 8px;font-size:12px;
-}
-.set-jump button.on{background:var(--ink);color:var(--on-accent);font-weight:600}
 
 .chart-ticket{
   margin-top:10px;padding:12px;border:1px solid var(--line);border-radius:16px;
@@ -2354,8 +2330,61 @@ html[dir="rtl"] .set-rail .sj-grp{letter-spacing:0;text-transform:none;font-size
   .set-main .set-block{padding:14px;border-radius:16px}
   .set-main .set-title{font-size:16px}
 }
-html[data-theme="light"] .set-rail .set-jump{background:linear-gradient(180deg, rgba(255,255,255,.86), rgba(255,255,255,.7))}
-html[data-theme="light"] .set-rail .set-jump button.on{background:linear-gradient(135deg, rgba(20,150,130,.14), rgba(90,80,220,.08))}
+
+/* ---- the rail carries state, not just names ---- */
+.set-rail .set-jump button{position:relative}
+.sj-state{
+  margin-inline-start:auto; flex:none; font-style:normal;
+  font-size:10.5px; font-weight:600; line-height:1;
+  padding:4px 7px; border-radius:999px; white-space:nowrap;
+  border:1px solid var(--line); background:rgb(var(--wash) / .05); color:var(--muted);
+}
+/* Off is not a fault. A settings page that paints every disabled
+   feature red is a page whose red stops meaning anything. */
+.sj-state.is-idle{color:var(--muted)}
+.sj-state.is-ok{color:var(--ok); border-color:rgb(var(--accent-rgb) / .3)}
+.sj-state.is-bad{color:var(--bad); border-color:var(--bad)}
+
+/* ---- every section says what it decides ---- */
+.stx-head{margin:0 0 14px; padding-block-end:12px; border-block-end:1px solid var(--line)}
+.stx-head .set-title{margin:0; padding:0; border:0}
+.stx-why{margin:5px 0 0; font-size:12.5px; max-inline-size:62ch}
+.stx-note{margin:0 0 10px}
+.stx-toggle{
+  display:flex; align-items:flex-start; justify-content:space-between;
+  gap:16px; margin-block-start:16px;
+}
+.stx-toggle-txt{min-inline-size:0}
+.stx-toggle-txt > b{display:block; font-weight:600}
+.stx-toggle-txt > p{margin:2px 0 0}
+.stx-acts{margin-block-start:10px; gap:8px; flex-wrap:wrap}
+.stx-result{margin-block-start:12px}
+.stx-src{min-block-size:120px; inline-size:100%; resize:vertical}
+.stx-upload-row{margin-block-start:10px; align-items:center; gap:8px; flex-wrap:wrap}
+
+@media (max-width:1000px){
+  /* The rail is a scrolling chip bar here, so the state word has to
+     stop pushing itself to the far edge of a chip that no longer has
+     a far edge. */
+  .sj-state{margin-inline-start:0; font-size:10px; padding:3px 6px}
+  .stx-head{margin-block-end:12px; padding-block-end:10px}
+  .stx-why{font-size:12px}
+}
+@media (max-width:560px){
+  /* A switch beside a two-line explanation leaves the text about
+     eleven characters wide on a phone. It goes under instead. */
+  .stx-toggle{flex-direction:column; gap:10px}
+}
+
+/* The light-mode rail used to be painted with two literal rgba teals,
+   so choosing any other accent left the selected item the wrong colour
+   on light and the right one on dark. Both now come from the theme. */
+html[data-theme="light"] .set-rail .set-jump{
+  background:linear-gradient(180deg, rgb(var(--s4) / .9), rgb(var(--s2) / .78));
+}
+html[data-theme="light"] .set-rail .set-jump button.on{
+  background:linear-gradient(135deg, rgb(var(--accent-rgb) / .12), rgb(var(--accent-3-rgb) / .07));
+}
 
 /* ===========================================================================
    The robot page, and the two shapes it is built from

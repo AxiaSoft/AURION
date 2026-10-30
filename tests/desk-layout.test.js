@@ -356,9 +356,20 @@ check("a viewport change is repainted more than once", (() => {
 
   // The clock lives in System, not in prop risk: which hours a firm
   // allows is their rule, what time it is where you sit is not.
+  /* Which settings section owns the clock. Written against the
+     section boundaries rather than a fixed-width window after the id,
+     because the window broke the moment another card was added above
+     it - which says nothing about where the timezone lives. */
+  const setSection = (id) => {
+    const start = app.indexOf(`block("${id}"`);
+    if (start < 0) return "";
+    const next = app.indexOf('\n      ${block("', start + 1);
+    return app.slice(start, next < 0 ? app.indexOf("</div></div>`;", start) : next);
+  };
   check("the timezone is a System setting, not a prop one",
     /function timezoneCardHtml\(\)/.test(app) &&
-    /id="set-system"[\s\S]{0,200}timezoneCardHtml\(\)/.test(app) &&
+    /timezoneCardHtml\(\)/.test(setSection("set-system")) &&
+    !/timezoneCardHtml\(\)/.test(setSection("set-prop")) &&
     /API\.post\("\/api\/timezone"/.test(app));
 
   // Prop windows then read in it, which is the point of moving it.

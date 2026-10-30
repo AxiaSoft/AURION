@@ -674,6 +674,90 @@ if (!jsdom) {
       }
     });
 
+    /* ---- 2b. settings ------------------------------------------------- */
+
+    check("the settings rail says which sections need attention", () => {
+      /* Ten identically-shaped names cannot answer the question people
+         bring to a settings page: which of these is not set up? */
+      const d = frag(T.views.settings());
+      const rail = d.querySelector("#set-jump");
+      const mt5 = rail.querySelector('[data-jump="set-mt5"] .sj-state');
+      if (!mt5) throw new Error("the broker link shows no state in the rail");
+      if (!mt5.className.includes("is-ok")) throw new Error("a connected terminal does not read as connected");
+
+      const keep = T.S.snap.mt5.connected;
+      T.S.snap.mt5.connected = false;
+      const d2 = frag(T.views.settings());
+      T.S.snap.mt5.connected = keep;
+      const off = d2.querySelector('[data-jump="set-mt5"] .sj-state');
+      if (!off.className.includes("is-bad")) throw new Error("a disconnected terminal is not flagged");
+    });
+
+    check("a switched-off feature is not painted as a fault", () => {
+      /* Nothing trades without MT5, so not connected IS bad. Telegram
+         being off is a choice, and a page that reds every disabled
+         feature is a page whose red stops meaning anything. */
+      const d = frag(T.views.settings());
+      const tg = d.querySelector('[data-jump="set-telegram"] .sj-state');
+      if (!tg) throw new Error("telegram shows no state");
+      if (tg.className.includes("is-bad")) throw new Error("telegram being off is shown as a fault");
+      if (!tg.className.includes("is-idle")) throw new Error("telegram off is not shown as merely off");
+    });
+
+    check("sections that cannot be wrong carry no state mark", () => {
+      const d = frag(T.views.settings());
+      for (const id of ["set-personal", "set-strats", "set-update", "set-system"]) {
+        if (d.querySelector(`[data-jump="${id}"] .sj-state`)) {
+          throw new Error(id + " has a state mark but nothing to be wrong about");
+        }
+      }
+    });
+
+    check("every settings section says what it decides", () => {
+      /* A heading that repeats the rail label tells you nothing twice. */
+      const d = frag(T.views.settings());
+      const blocks = [...d.querySelectorAll(".set-block")];
+      if (blocks.length < 9) throw new Error("only " + blocks.length + " sections");
+      for (const b of blocks) {
+        const h = b.querySelector(".stx-head");
+        if (!h) throw new Error(b.id + " has no section header");
+        if (!h.querySelector(".set-title")) throw new Error(b.id + " lost its title");
+        const why = h.querySelector(".stx-why");
+        const title = h.querySelector(".set-title").textContent.trim();
+        /* The harness runs without a loaded dictionary, so I18N.t
+           echoes the key back - which is enough to prove the line is
+           there and is a different string from the heading, and not
+           enough to prove it is a sentence. The sentences are checked
+           by check-lang.mjs, which is where they live. */
+        if (!why || !why.textContent.trim()) {
+          throw new Error(b.id + " does not say what it is for");
+        }
+        if (why.textContent.trim() === title) {
+          throw new Error(b.id + " just repeats its own heading");
+        }
+      }
+    });
+
+    check("the settings shell is declared once, not three times", () => {
+      /* .set-jump had three complete from-scratch definitions in this
+         stylesheet, each overridden by the next. Grepping for it found
+         a rule and proved nothing about which one was in force. */
+      const bases = (appCss.match(/^\.set-jump\s*\{/gm) || []).length;
+      if (bases) throw new Error(bases + " unscoped .set-jump base rule(s) are back");
+      const scoped = (appCss.match(/^\.set-rail \.set-jump\s*\{/gm) || []).length;
+      if (scoped !== 1) throw new Error("the rail is declared " + scoped + " times outside media queries");
+    });
+
+    check("the light-mode rail follows the chosen accent", () => {
+      /* It was two literal rgba teals, so any other accent came out
+         right on dark and wrong on light. */
+      const i = appCss.indexOf('html[data-theme="light"] .set-rail .set-jump button.on');
+      if (i < 0) throw new Error("the light rail override is gone");
+      const rule = appCss.slice(i, appCss.indexOf("}", i));
+      if (/rgba\(/.test(rule)) throw new Error("the light rail is still painted with a literal colour");
+      if (!/var\(--accent-rgb\)/.test(rule)) throw new Error("the light rail does not use the accent");
+    });
+
     /* ---- 3. About ----------------------------------------------------- */
 
     check("the About page shows the build stamp in the new format", () => {
@@ -741,6 +825,7 @@ check("the rebuilt sections dropped their inline styles", () => {
     ["command", "  command() {", "  markets() {"],
     ["intelligence", "  intelligence() {", "  calendar() {"],
     ["about", "  about() {", "  profile() {"],
+    ["settings", "  settings() {", "  about() {"],
     ["propStatusHtml", "function propStatusHtml() {", "/**\n * One numeric prop-rule field."],
     ["propFormHtml", "function propFormHtml() {", "/**\n * The prop guide"],
     ["analysisCardHtml", "function analysisCardHtml() {", "\nconst views = {"],

@@ -69,9 +69,20 @@ function loadTheme() {
 
 /* ======================================================= 1. the sound tab */
 
+/* The settings sections are emitted by a block() helper, so the id is
+   an argument rather than a literal in the markup. Slicing on the
+   helper call is what makes "which section is this card in?" a
+   question the source can answer at all. */
+function setSection(id) {
+  const start = app.indexOf(`block("${id}"`);
+  if (start < 0) return "";
+  const next = app.indexOf('\n      ${block("', start + 1);
+  return app.slice(start, next < 0 ? app.indexOf("</div></div>`;", start) : next);
+}
+
 check(
   "Sound & Notifications is a tab of its own",
-  /tabBtn\("set-notify"/.test(app) && /id="set-notify"/.test(app),
+  /tabBtn\("set-notify"/.test(app) && setSection("set-notify").length > 0,
   "rail entry + section"
 );
 
@@ -83,13 +94,13 @@ check(
 
 /* The report was specifically that it is still inside Personalisation. */
 {
-  const start = app.indexOf('id="set-personal"');
-  const end = app.indexOf('id="set-notify"');
-  const personal = app.slice(start, end);
+  const personal = setSection("set-personal");
+  const notify = setSection("set-notify");
   check(
     "the sound panel is no longer rendered inside Personalisation",
-    start !== -1 && end !== -1 && !personal.includes("notifySoundCardHtml()"),
-    "personal section is theme + appearance only"
+    personal.length > 0 && notify.includes("notifySoundCardHtml()") &&
+      !personal.includes("notifySoundCardHtml()"),
+    "personal section is theme + appearance only, and the sounds live in their own tab"
   );
 }
 

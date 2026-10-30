@@ -6465,121 +6465,167 @@ const views = {
     </div>`;
   },
   settings() {
+    /* Rewritten.
+
+       Ten sections behind a rail of ten identical names. The rail told
+       you what each section was CALLED and nothing about whether it
+       needed you, so the question people actually bring to a settings
+       page - which of these is not set up? - could only be answered by
+       opening all ten. Each rail item now carries its own state, read
+       from the same snapshot the rest of the desk reads: the broker
+       either is connected or is not, the robot either is armed or is
+       not, and you can see that without clicking.
+
+       Each section also says what it is for. A heading that repeats
+       the rail label is a heading that tells you nothing twice.
+
+       The shell is the same two-pane rail - it works, and showSetTab
+       and five test suites are wired to it - but its stylesheet is
+       not: .set-jump had been declared from scratch in three separate
+       places, each one a complete component, with the rail block at
+       the end overriding all of them. That is now one block. */
     const mt = S.snap?.mt5 || {};
     const tab = S.setTab || "set-robot";
-    const fa = (S.lang || I18N.lang || "fa") === "fa";
-    const tabBtn = (id, label, ic, desc) => `<button type="button" data-jump="${id}" class="${tab===id?"on":""}">
-        <span class="sj-ic">${icon(ic)}</span><span class="sj-txt"><b>${label}</b>${desc ? `<small>${desc}</small>` : ""}</span></button>`;
+    const tg = S.snap?.telegram || {};
+    const auto = Boolean(S.snap?.strategy?.auto_trade);
+
+    /* A state word beside a rail label, or nothing at all.
+
+       "Nothing at all" is the default and is used for every section
+       whose state is a matter of taste - the theme is never wrong, so
+       a mark beside it would be noise. Only the four that can be
+       misconfigured carry one, and being switched OFF is shown as
+       off, not as a fault: a settings page that paints every disabled
+       feature red is a page whose red means nothing. */
+    const state = (txt, ok) => txt
+      ? `<em class="sj-state${ok === null ? " is-idle" : ok ? " is-ok" : " is-bad"}">${esc(txt)}</em>`
+      : "";
+
+    const tabBtn = (id, label, ic, desc, mark) => `<button type="button" data-jump="${id}" class="${tab === id ? "on" : ""}">
+        <span class="sj-ic">${icon(ic)}</span>
+        <span class="sj-txt"><b>${label}</b>${desc ? `<small>${desc}</small>` : ""}</span>
+        ${mark || ""}
+      </button>`;
     const grp = (label) => `<div class="sj-grp">${label}</div>`;
-    return `<div class="set-desk set-rail"><nav class="set-jump" id="set-jump" aria-label="settings">
+
+    /* Title plus the one line that says what the section decides.
+       Settings sections are not self-explanatory from their names and
+       this is the only place that can say so. */
+    const head = (title, why) => `<header class="stx-head">
+        <h2 class="set-title">${title}</h2>
+        ${why ? `<p class="stx-why sub">${why}</p>` : ""}
+      </header>`;
+
+    const block = (id, title, why, body) => `<section class="set-block" id="${id}"${
+      tab === id ? "" : " hidden"}>${head(title, why)}${body}</section>`;
+
+    return `<div class="set-desk set-rail stx"><nav class="set-jump" id="set-jump" aria-label="settings">
         ${grp(I18N.t("rail.trading"))}
-        ${tabBtn("set-robot", I18N.t("settings.sec_robot"), "bolt", I18N.t("rail.robot_hint"))}
+        ${tabBtn("set-robot", I18N.t("settings.sec_robot"), "bolt", I18N.t("rail.robot_hint"),
+          state(I18N.t(auto ? "settings.state_on" : "settings.state_off"), auto ? true : null))}
         ${tabBtn("set-strats", I18N.t("nav.strategies"), "layers", I18N.t("rail.strats_hint"))}
-        ${tabBtn("set-prop", I18N.t("risk.title"), "shield", I18N.t("rail.prop_hint"))}
-        ${tabBtn("set-mt5", "MetaTrader 5", "term", I18N.t("rail.mt5_hint"))}
+        ${tabBtn("set-prop", I18N.t("risk.title"), "shield", I18N.t("rail.prop_hint"),
+          state(I18N.t(S.snap?.prop?.enabled ? "settings.state_on" : "settings.state_off"),
+            S.snap?.prop?.enabled ? true : null))}
+        ${tabBtn("set-mt5", "MetaTrader 5", "term", I18N.t("rail.mt5_hint"),
+          state(I18N.t(mt.connected ? "settings.state_linked" : "settings.state_unlinked"), Boolean(mt.connected)))}
         ${grp(I18N.t("rail.personalize"))}
         ${tabBtn("set-personal", I18N.t("settings.personal"), "user", I18N.t("rail.personal_hint"))}
         ${tabBtn("set-notify", I18N.t("notify.title"), "bell", I18N.t("rail.notify_hint"))}
-        ${tabBtn("set-telegram", I18N.t("telegram.title"), "spark", I18N.t("rail.telegram_hint"))}
+        ${tabBtn("set-telegram", I18N.t("telegram.title"), "spark", I18N.t("rail.telegram_hint"),
+          state(I18N.t(tg.enabled ? "settings.state_on" : "settings.state_off"), tg.enabled ? true : null))}
         ${grp(I18N.t("rail.system"))}
         ${tabBtn("set-update", I18N.t("upd.title"), "pulse", I18N.t("rail.update_hint"))}
         ${tabBtn("set-system", I18N.t("host.system"), "gear", I18N.t("rail.system_hint"))}
       </nav><div class="set-main">
-      <section class="set-block" id="set-robot"${tab==="set-robot"?"":" hidden"}>
-        <h2 class="set-title">${I18N.t("settings.sec_robot")}</h2>
-        ${robotPanelHtml()}
-      </section>
-      <section class="set-block" id="set-strats"${tab==="set-strats"?"":" hidden"}>
-        <h2 class="set-title">${I18N.t("strategies.live")}</h2>
-        <p class="sub" style="margin:0 0 10px">${I18N.t("strategies.single_rule")}</p>
+
+      ${block("set-robot", I18N.t("settings.sec_robot"), I18N.t("settings.why_robot"),
+        robotPanelHtml())}
+
+      ${block("set-strats", I18N.t("strategies.live"), I18N.t("settings.why_strats"), `
+        <p class="sub stx-note">${I18N.t("strategies.single_rule")}</p>
         <div class="grid g-2" id="st-live-grid">${strategyLiveCards()}</div>
-        ${licFeat("strategy_upload") ? `<div class="card" style="margin-top:14px">
+        ${licFeat("strategy_upload") ? `<div class="card stx-upload">
           <h3>${I18N.t("strategies.upload")}</h3>
-          <textarea id="st-src" class="ctrl" style="min-height:120px;width:100%;resize:vertical" placeholder="# Python strategy"></textarea>
-          <div class="row" style="margin-top:10px;align-items:center;gap:8px">
+          <textarea id="st-src" class="ctrl stx-src" placeholder="# Python strategy"></textarea>
+          <div class="row stx-upload-row">
             <input class="ctrl" id="st-file" placeholder="my_strategy.py" />
             <button class="btn tiny" id="st-up" type="button">${I18N.t("strategies.upload")}</button>
             <a class="btn tiny ghost" id="st-tpl" href="#">${I18N.t("strategies.template")}</a>
             <a class="btn tiny ghost" id="st-cancel" href="#" hidden>${I18N.t("strategies.cancel")}</a>
           </div>
           <p class="sub" id="st-up-msg"></p>
-        </div>` : `<div style="margin-top:14px">${lockedUpgradeCard("strategy_upload")}</div>`}
-      </section>
-      <section class="set-block" id="set-prop"${tab==="set-prop"?"":" hidden"}>
-        <h2 class="set-title">${I18N.t("risk.title")}</h2>
-        ${licFeat("prop") ? `${propStatusHtml()}${propFormHtml()}${propGuideHtml()}` : lockedUpgradeCard("prop")}
-      </section>
-      <section class="set-block" id="set-mt5"${tab==="set-mt5"?"":" hidden"}>
-        <h2 class="set-title">MetaTrader 5</h2>
+        </div>` : lockedUpgradeCard("strategy_upload")}`)}
+
+      ${block("set-prop", I18N.t("risk.title"), I18N.t("settings.why_prop"),
+        licFeat("prop") ? `${propStatusHtml()}${propFormHtml()}${propGuideHtml()}` : lockedUpgradeCard("prop"))}
+
+      ${block("set-mt5", "MetaTrader 5", I18N.t("settings.why_mt5"), `
         <div class="card">
           <label class="field"><span data-i18n="settings.mt5_path"></span><input id="s-path" /></label>
           <label class="field"><span data-i18n="settings.mt5_login"></span><input id="s-login" type="number" /></label>
           <label class="field"><span data-i18n="settings.mt5_server"></span><input id="s-server" /></label>
           <label class="field"><span data-i18n="settings.mt5_password"></span><input id="s-pass" type="password" /></label>
           <p class="sub" data-i18n="settings.password_note"></p>
-          <div class="row" style="margin-top:10px">
+          <div class="row stx-acts">
             <button class="btn" id="s-save" type="button">${I18N.t("settings.save")}</button>
             <button class="btn" id="s-con" type="button">${I18N.t("settings.connect")}</button>
             <button class="btn ghost" id="s-dis" type="button">${I18N.t("settings.disconnect")}</button>
           </div>
           <p class="sub" id="s-msg">${mt.last_error || (mt.connected ? I18N.t("status.mt5_live") : I18N.t("status.mt5_down"))}</p>
-        </div>
-      </section>
-      <section class="set-block" id="set-personal"${tab==="set-personal"?"":" hidden"}>
-        <h2 class="set-title">${I18N.t("settings.personal")}</h2>
+        </div>`)}
+
+      ${block("set-personal", I18N.t("settings.personal"), I18N.t("settings.why_personal"), `
         <div class="card">
-          <p class="sub" style="margin:0 0 6px">${I18N.t("settings.theme")}</p>
+          <p class="sub stx-note">${I18N.t("settings.theme")}</p>
           <div class="lang-pills" id="set-themes">
             <button type="button" data-themebtn="auto">${icon("themeAuto")} ${I18N.t("settings.theme_auto")}</button>
             <button type="button" data-themebtn="dark">${icon("moon")} ${I18N.t("settings.theme_dark")}</button>
             <button type="button" data-themebtn="light">${icon("sun")} ${I18N.t("settings.theme_light")}</button>
           </div>
-          <div class="row" style="justify-content:space-between;margin-top:16px;align-items:flex-start">
-            <div>
-              <div style="font-weight:600">${I18N.t("settings.liquid_glass")}</div>
-              <p class="sub" style="margin:2px 0 0">${I18N.t("settings.liquid_glass_hint")}</p>
-              <p class="sub glass-forced-note" style="margin:4px 0 0">${I18N.t("settings.liquid_glass_forced")}</p>
+          <div class="stx-toggle">
+            <div class="stx-toggle-txt">
+              <b>${I18N.t("settings.liquid_glass")}</b>
+              <p class="sub">${I18N.t("settings.liquid_glass_hint")}</p>
+              <p class="sub glass-forced-note">${I18N.t("settings.liquid_glass_forced")}</p>
             </div>
-            <button type="button" class="switch ${glassOn()?"on":""}" id="sw-glass" aria-pressed="${glassOn()}"${glassForced() ? " disabled aria-disabled=\"true\"" : ""}><i></i></button>
+            <button type="button" class="switch ${glassOn() ? "on" : ""}" id="sw-glass" aria-pressed="${glassOn()}"${
+              glassForced() ? " disabled aria-disabled=\"true\"" : ""}><i></i></button>
           </div>
         </div>
-        ${appearanceCardsHtml()}
-      </section>
-      <section class="set-block" id="set-notify"${tab==="set-notify"?"":" hidden"}>
-        <h2 class="set-title">${I18N.t("notify.title")}</h2>
-        ${notifySoundCardHtml()}
-      </section>
-      <section class="set-block" id="set-telegram"${tab==="set-telegram"?"":" hidden"}>
-        <h2 class="set-title">${I18N.t("telegram.title")}</h2>
-        ${licFeat("telegram") ? telegramPanelHtml() : lockedUpgradeCard("telegram")}
-      </section>
-      <section class="set-block" id="set-update" hidden>
-        <h2 class="set-title">${I18N.t("upd.title")}</h2>
+        ${appearanceCardsHtml()}`)}
+
+      ${block("set-notify", I18N.t("notify.title"), I18N.t("settings.why_notify"),
+        notifySoundCardHtml())}
+
+      ${block("set-telegram", I18N.t("telegram.title"), I18N.t("settings.why_telegram"),
+        licFeat("telegram") ? telegramPanelHtml() : lockedUpgradeCard("telegram"))}
+
+      ${block("set-update", I18N.t("upd.title"), I18N.t("settings.why_update"), `
         <div class="card">
           <h3>${I18N.t("upd.settings")}</h3>
-          <label class="field" style="flex-direction:row;align-items:center;justify-content:space-between;margin-top:12px">
-            <span>${I18N.t("upd.auto")}</span>
+          <div class="stx-toggle">
+            <div class="stx-toggle-txt"><b>${I18N.t("upd.auto")}</b></div>
             <button type="button" class="switch" id="upd-auto"><i></i></button>
-          </label>
+          </div>
           <label class="field"><span>${I18N.t("upd.interval")}</span>
             <input id="upd-interval" type="number" min="1" max="168" value="6" />
           </label>
           <button class="btn block" id="upd-save" type="button">${I18N.t("upd.save")}</button>
           <p class="sub" id="upd-save-msg"></p>
         </div>
-        <div class="card" style="margin-top:14px">
+        <div class="card">
           <h3>${I18N.t("upd.status")}</h3>
           <p class="sub" id="upd-last-check">${I18N.t("upd.last_check")}: -</p>
           <div id="upd-status"></div>
-          <div class="row" style="margin-top:10px;gap:8px">
+          <div class="row stx-acts">
             <button class="btn" id="upd-check" type="button">${icon("search")} ${I18N.t("upd.check")}</button>
             <button class="btn ghost" id="upd-manifest" type="button">${icon("clipboard")} ${I18N.t("upd.manifest")}</button>
           </div>
-          <div id="upd-result" style="margin-top:12px"></div>
-        </div>
-      </section>
-      <section class="set-block" id="set-system"${tab==="set-system"?"":" hidden"}>
-        <h2 class="set-title">${I18N.t("host.system")}</h2>
+          <div id="upd-result" class="stx-result"></div>
+        </div>`)}
+
+      ${block("set-system", I18N.t("host.system"), I18N.t("settings.why_system"), `
         ${licenseCardHtml()}
         ${languageCardHtml()}
         ${expertsCardHtml()}
@@ -6603,8 +6649,8 @@ const views = {
             <input id="factory-confirm" autocomplete="off" placeholder="FACTORY" />
           </label>
           <button class="btn danger block" id="sys-factory" type="button">${I18N.t("host.factory_go")}</button>
-        </div>
-      </section></div></div>`;
+        </div>`)}
+      </div></div>`;
   },
   about() {
     /* Rebuilt from scratch, third pass.
