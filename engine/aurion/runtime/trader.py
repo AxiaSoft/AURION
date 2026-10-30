@@ -2845,6 +2845,14 @@ class Trader:
                 "lookback": 20, "volume": 0.10, "sl_atr": 1.2, "tp_atr": 2.0,
                 "min_rr": 1.6, "with_trend": True, "require_momentum": True, "min_efficiency": 0.18,
             },
+            # smart_money's own gates (HTF structure, discount/premium)
+            # already do what with_trend/require_momentum do on the
+            # others, so the style pack only moves the speed knobs.
+            "smart_money": {
+                "volume": 0.10, "setup_bars": 20, "sweep_bars": 3, "disp_bars": 3,
+                "min_displacement": 1.0, "min_rr": 1.5, "equilibrium": 0.62,
+                "require_htf": True,
+            },
         },
         "scalping": {
             "ema_rsi": {
@@ -2858,6 +2866,14 @@ class Trader:
             "atr_breakout": {
                 "lookback": 8, "volume": 0.05, "sl_atr": 0.55, "tp_atr": 0.95,
                 "min_rr": 1.2, "with_trend": True, "require_momentum": False, "min_efficiency": 0.12,
+            },
+            # Scalping cannot wait 20 bars for a retrace, so the whole
+            # sequence is compressed and the higher-timeframe check is
+            # dropped: on a scalp the HTF has not moved since the sweep.
+            "smart_money": {
+                "volume": 0.05, "setup_bars": 8, "sweep_bars": 2, "disp_bars": 2,
+                "min_displacement": 0.7, "min_rr": 1.15, "equilibrium": 0.7,
+                "require_htf": False,
             },
         },
     }

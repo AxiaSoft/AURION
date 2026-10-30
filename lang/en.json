@@ -280,6 +280,7 @@
     "ema_rsi_about": "EMA cross + RSI filter",
     "price_action_about": "Candlestick pattern + AI bias",
     "atr_breakout_about": "N-bar high/low breakout",
+    "smart_money_about": "Liquidity sweep → displacement → retrace into the zone",
     "live": "Live strategy status",
     "single_rule": "One strategy at a time — switching one on turns the others off. Stats below update after every closed trade.",
     "waiting": "Waiting for the next closed bar",

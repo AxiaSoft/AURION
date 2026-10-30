@@ -214,6 +214,6 @@ def test_the_withdrawn_strategies_resolve_instead_of_raising() -> None:
     assert "scalp_impulse" in RESERVED_NAMES
 
 
-def test_the_surviving_builtins_are_the_three_that_ship() -> None:
-    assert set(BUILTIN_NAMES) == {"ema_rsi", "price_action", "atr_breakout"}
+def test_the_surviving_builtins_are_the_four_that_ship() -> None:
+    assert set(BUILTIN_NAMES) == {"ema_rsi", "price_action", "atr_breakout", "smart_money"}
     assert LEGACY_BUILTINS["king"] in BUILTIN_NAMES

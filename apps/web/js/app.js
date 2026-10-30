@@ -3796,6 +3796,7 @@ function stAbout(name) {
     ema_rsi: "strategies.ema_rsi_about",
     price_action: "strategies.price_action_about",
     atr_breakout: "strategies.atr_breakout_about",
+    smart_money: "strategies.smart_money_about",
   };
   return I18N.t(about[name] || "strategies.active");
 }
