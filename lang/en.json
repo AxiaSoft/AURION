@@ -172,6 +172,7 @@
   },
   "command": {
     "title": "Command centre",
+    "title_account": "Account",
     "balance": "Balance",
     "equity": "Equity",
     "margin": "Margin",

@@ -3341,6 +3341,27 @@ function show(view, opts) {
   S._paintTimer = window.setTimeout(paint, 120);
 }
 
+/**
+ * Move the bar under a command-centre risk figure.
+ *
+ * Kept beside patchMetric rather than inside it because only two
+ * figures on the page have a limit to be a fraction of, and giving
+ * every metric an optional bar argument would mean eight call sites
+ * passing undefined.
+ */
+function patchRiskBar(key, value, limit) {
+  const b = document.querySelector(`[data-metric="${key}"]`);
+  const row = b && b.closest(".ccx-risk-row");
+  if (!row) return;
+  const fill = row.querySelector(".ccx-risk-bar > i");
+  const lim = Math.abs(Number(limit) || 0);
+  const amt = Math.abs(Number(value) || 0);
+  const pct = lim > 0 ? Math.min(100, (amt / lim) * 100) : 0;
+  if (fill) fill.style.setProperty("--w", pct + "%");
+  row.classList.toggle("is-near", lim > 0 && pct >= 75 && pct < 100);
+  row.classList.toggle("is-over", lim > 0 && pct >= 100);
+}
+
 function patchMetric(key, value, suffix, signed) {
   const el = document.querySelector(`[data-metric="${key}"]`);
   if (!el) return;
@@ -3447,6 +3468,13 @@ function patchLive() {
     patchMetric("command.profit", acc.profit, acc.currency, true);
     patchMetric("command.daily_pl", prop.daily_pl_pct, "%", true);
     patchMetric("command.drawdown", prop.drawdown_pct, "%");
+    /* The two risk figures carry a bar against their prop limit, and a
+       bar that only moves on a full re-render is worse than no bar: it
+       reads as live and is not. patchMetric writes text only, so the
+       fill and the warning state are moved here. */
+    const prof = prop.profile || {};
+    patchRiskBar("command.daily_pl", prop.daily_pl_pct, prof.max_daily_loss_pct);
+    patchRiskBar("command.drawdown", prop.drawdown_pct, prof.max_drawdown_pct);
     patchMetric("command.margin", acc.margin, acc.currency);
     patchMetric("command.free_margin", acc.margin_free, acc.currency);
     patchMetric("command.leverage", acc.leverage ? "1:" + acc.leverage : "—", "");
@@ -5899,44 +5927,115 @@ const views = {
         </div>
       </div>`;
 
-    /* A secondary figure: smaller than equity, still a real number. */
-    const sub = (key, value, suffix, signed) => `<div class="cmd-sub">
+    /* A reference figure. Quieter than equity on purpose: balance and
+       leverage are looked up, not watched, and giving them the same
+       weight as the money that is moving is why the old six-up strip
+       read as a wall. */
+    const ref = (key, value, suffix) => `<div class="ccx-ref-row">
         <span>${I18N.t(key)}</span>
-        <b class="mono ${signed ? clsPnl(value) : ""}" data-metric="${key}">${fmt(value)}${suffix ? " " + suffix : ""}</b>
+        <b class="mono" data-metric="${key}">${fmt(value)}${suffix ? " " + suffix : ""}</b>
       </div>`;
 
-    return `<div class="cmd">
+    /* A risk figure, against the limit it is a fraction of.
+
+       On the old page the day's P/L and the drawdown were two more
+       tiles in a row of six, indistinguishable from the margin. They
+       are the two numbers on this screen that can end an account, and
+       a percentage with nothing beside it does not say how much room
+       is left. Each one is shown against its prop limit, with a bar,
+       and turns as it approaches. With no limit set there is no
+       fraction to draw, so it shows the figure alone rather than
+       inventing a denominator. */
+    const risk = (key, value, limit, signed) => {
+      const lim = Math.abs(Number(limit) || 0);
+      const amt = Math.abs(Number(value) || 0);
+      const pct = lim > 0 ? Math.min(100, (amt / lim) * 100) : 0;
+      const state = lim > 0 && pct >= 100 ? " is-over" : lim > 0 && pct >= 75 ? " is-near" : "";
+      return `<div class="ccx-risk-row${state}">
+          <div class="ccx-risk-head">
+            <span>${I18N.t(key)}</span>
+            <b class="mono ${signed ? clsPnl(value) : ""}" data-metric="${key}">${fmt(value)}%</b>
+          </div>
+          <div class="ccx-risk-bar" role="img"
+               aria-label="${esc(I18N.t(key))} ${fmt(amt)}% / ${fmt(lim)}%">
+            <i style="--w:${pct}%"></i>
+          </div>
+          <p class="ccx-risk-foot sub">${lim > 0
+            ? I18N.t("risk.of_limit", { n: fmt(lim) + "%" })
+            : I18N.t("risk.no_limit")}</p>
+        </div>`;
+    };
+
+    const prof = prop.profile || {};
+    const chartPills = agents.map((a) =>
+      `<span class="ccx-pill is-live"><i class="dot live"></i>${esc(a.symbol)} <small>${
+        esc(a.timeframe || "")}</small></span>`).join("")
+      + testerAgents().map((a) =>
+        `<span class="ccx-pill is-test">${esc(a.symbol)} <small>${
+          esc(a.timeframe || "")}</small></span>`).join("");
+
+    return `<div class="cmd ccx">
       ${tapeBanner()}
       ${marketBanner()}
       ${chartSliderHtml("ol", outlookSlideInnerHtml)}
       ${gateHtml()}
       ${wizard}
-      ${agents.length || testerAgents().length ? `<div class="card" id="ea-strip"><h3 class="cmd-ea-h">${I18N.t("nav.charts")}</h3><div class="hero-chips">${agents.map((a) => `<span class="pill is-live"><i class="dot live"></i>${esc(a.symbol)} · ${esc(a.timeframe || "")} · ${I18N.t(isTesterAgent(a) ? "tape.backtest" : "tape.live")}</span>`).join("")}${testerAgents().map((a) => `<span class="pill is-backtest">${esc(a.symbol)} · ${esc(a.timeframe || "")} · ${I18N.t("tape.backtest")}</span>`).join("")}</div></div>` : ""}
 
-      <section class="card cmd-acct">
-        <header class="cmd-acct-top">
-          <div class="cmd-acct-who">
-            <p class="metric" id="cmd-acc-type">${accTypeLabel(acc.account_label || acc.account_type || "unknown")}</p>
-            <p class="sub">${esc([acc.company, acc.server, acc.margin_mode, acc.leverage ? "1:" + acc.leverage : ""].filter(Boolean).join(" · "))}</p>
-          </div>
-          <div class="cmd-acct-hero">
-            <span>${I18N.t("command.equity")}</span>
-            <b class="mono" data-metric="command.equity">${fmt(acc.equity)}${cur ? " " + cur : ""}</b>
-            <i class="mono ${clsPnl(acc.profit)}" data-metric="command.profit">${fmt(acc.profit)}${cur ? " " + cur : ""}</i>
-          </div>
-        </header>
-        <div class="cmd-subs">
-          ${sub("command.balance", acc.balance, cur)}
-          ${sub("command.margin", acc.margin, cur)}
-          ${sub("command.free_margin", acc.margin_free, cur)}
-          <div class="cmd-sub">
-            <span>${I18N.t("command.leverage")}</span>
-            <b class="mono" data-metric="command.leverage">${acc.leverage ? "1:" + acc.leverage : "—"}</b>
-          </div>
-          ${sub("command.daily_pl", prop.daily_pl_pct, "%", true)}
-          ${sub("command.drawdown", prop.drawdown_pct, "%")}
+      <!-- 1. The masthead.
+
+           Who you are trading as, how much you have, and whether the
+           thing is actually connected - in one band, because those
+           three are read together and were previously spread over an
+           account card and a separate card that contained nothing but
+           a row of badges. Folding the chart strip in here also means
+           the page no longer opens with a card's worth of chrome
+           wrapped around six pills. -->
+      <header class="card ccx-head">
+        <div class="ccx-id">
+          <p class="ccx-id-type" id="cmd-acc-type">${accTypeLabel(acc.account_label || acc.account_type || "unknown")}</p>
+          <p class="ccx-id-sub sub">${esc([acc.company, acc.server, acc.margin_mode,
+            acc.leverage ? "1:" + acc.leverage : ""].filter(Boolean).join(" \u00B7 "))}</p>
         </div>
-      </section>
+        <div class="ccx-equity">
+          <span class="ccx-equity-k">${I18N.t("command.equity")}</span>
+          <b class="mono" data-metric="command.equity">${fmt(acc.equity)}${cur ? " " + cur : ""}</b>
+          <i class="mono ${clsPnl(acc.profit)}" data-metric="command.profit">${fmt(acc.profit)}${cur ? " " + cur : ""}</i>
+        </div>
+        <div class="ccx-link" id="ea-strip">
+          <span class="ccx-pill${S.snap ? " is-live" : " is-down"}"><i class="dot ${
+            S.snap ? "live" : "down"}"></i>${I18N.t(S.snap ? "status.engine_live" : "status.engine_down")}</span>
+          <span class="ccx-pill${mt5Live() ? " is-live" : " is-down"}"><i class="dot ${
+            mt5Live() ? "live" : "down"}"></i>${I18N.t(mt5Live() ? "status.mt5_live" : "status.mt5_down")}</span>
+          ${chartPills}
+        </div>
+      </header>
+
+      <!-- 2. Risk beside reference.
+
+           Two different jobs, so two panels rather than one strip of
+           six identical boxes. The left-hand pair can end an account
+           and is watched; the right-hand four are looked up. On a
+           desktop they sit side by side, which is the width the old
+           single-column stack was throwing away. -->
+      <div class="ccx-pair">
+        <section class="card ccx-risk">
+          <h3>${I18N.t("risk.sec_limits")}</h3>
+          ${risk("command.daily_pl", prop.daily_pl_pct, prof.max_daily_loss_pct, true)}
+          ${risk("command.drawdown", prop.drawdown_pct, prof.max_drawdown_pct)}
+        </section>
+        <section class="card ccx-ref">
+          <h3>${I18N.t("command.title_account")}</h3>
+          <div class="ccx-ref-rows">
+            ${ref("command.balance", acc.balance, cur)}
+            ${ref("command.margin", acc.margin, cur)}
+            ${ref("command.free_margin", acc.margin_free, cur)}
+            <div class="ccx-ref-row">
+              <span>${I18N.t("command.leverage")}</span>
+              <b class="mono" data-metric="command.leverage">${acc.leverage ? "1:" + acc.leverage : "\u2014"}</b>
+            </div>
+          </div>
+        </section>
+      </div>
 
       <!-- Positions get the full width of the command centre.
            They used to share a two-column row with the account card and an

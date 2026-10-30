@@ -580,21 +580,56 @@ if (!jsdom) {
 
     /* ---- 6b. the command centre -------------------------------------- */
 
-    check("the account figures are no longer six identical boxes", () => {
+    check("the account figures are not all the same size", () => {
+      /* This has survived two rebuilds because the fault it guards
+         against keeps being tempting: putting every number the broker
+         reports in one row of equal boxes. Equity is watched, the
+         leverage is looked up once a month, and the day's P/L can end
+         the account - three different jobs. */
       const d = frag(T.views.command());
-      if (d.querySelector(".cmd-strip")) throw new Error("the flat six-column strip is still there");
-      const hero = d.querySelector(".cmd-acct-hero");
-      if (!hero) throw new Error("there is no headline figure");
-      if (!d.querySelectorAll(".cmd-sub").length) throw new Error("there are no secondary figures");
+      if (d.querySelector(".cmd-strip")) throw new Error("the flat six-column strip is back");
+      if (!d.querySelector(".ccx-equity")) throw new Error("there is no headline figure");
+      if (!d.querySelectorAll(".ccx-ref-row").length) throw new Error("there are no reference figures");
+      if (!d.querySelectorAll(".ccx-risk-row").length) throw new Error("the risk figures are not set apart");
     });
 
-    check("equity is the headline and the reference figures sit under it", () => {
+    check("equity is the headline, risk is measured, reference is listed", () => {
       const d = frag(T.views.command());
-      const hero = d.querySelector('.cmd-acct-hero [data-metric="command.equity"]');
-      if (!hero) throw new Error("equity is not the headline figure");
+      if (!d.querySelector('.ccx-equity [data-metric="command.equity"]')) {
+        throw new Error("equity is not the headline figure");
+      }
+      /* The two that can end an account are shown against the limit
+         they are a fraction of - a bare percentage does not say how
+         much room is left. */
+      for (const k of ["command.daily_pl", "command.drawdown"]) {
+        const row = d.querySelector(`.ccx-risk-row [data-metric="${k}"]`);
+        if (!row) throw new Error(k + " is not shown as a risk figure");
+        if (!row.closest(".ccx-risk-row").querySelector(".ccx-risk-bar")) {
+          throw new Error(k + " has no bar against its limit");
+        }
+      }
       for (const k of ["command.balance", "command.margin", "command.free_margin", "command.leverage"]) {
-        const el = d.querySelector(`.cmd-sub [data-metric="${k}"]`);
-        if (!el) throw new Error(k + " is not a secondary figure");
+        if (!d.querySelector(`.ccx-ref-row [data-metric="${k}"]`)) {
+          throw new Error(k + " is not a reference figure");
+        }
+      }
+    });
+
+    check("a risk bar that reads as live actually moves", () => {
+      /* patchMetric writes text only. A bar left behind by the live
+         patcher is worse than no bar at all: it looks current and is
+         not. */
+      const src = appJs.slice(appJs.indexOf('if (v === "command" && mt5Live())'));
+      const body = src.slice(0, src.indexOf("\n  if (v ==="));
+      if (!/patchRiskBar\("command\.daily_pl"/.test(body)) {
+        throw new Error("the daily P/L bar is never moved by the live patcher");
+      }
+      if (!/patchRiskBar\("command\.drawdown"/.test(body)) {
+        throw new Error("the drawdown bar is never moved by the live patcher");
+      }
+      const fn = appJs.slice(appJs.indexOf("function patchRiskBar"));
+      if (!/is-over/.test(fn.slice(0, 900))) {
+        throw new Error("the bar moves but never changes state at the limit");
       }
     });
 
@@ -611,9 +646,13 @@ if (!jsdom) {
 
     check("the account identity is folded in, not repeated in its own card", () => {
       const d = frag(T.views.command());
-      const acct = d.querySelector(".cmd-acct");
-      if (!acct.querySelector("#cmd-acc-type")) throw new Error("the account type left the account card");
-      if (!/Broker/.test(acct.textContent)) throw new Error("the broker is no longer shown");
+      const head = d.querySelector(".ccx-head");
+      if (!head) throw new Error("there is no masthead");
+      if (!head.querySelector("#cmd-acc-type")) throw new Error("the account type left the masthead");
+      if (!/Broker/.test(head.textContent)) throw new Error("the broker is no longer shown");
+      /* And the chart strip is folded in rather than being a card of
+         its own wrapped around a row of badges. */
+      if (!head.querySelector("#ea-strip")) throw new Error("the chart strip is still a separate card");
     });
 
     check("the command centre keeps positions full width and the strategy list", () => {
@@ -682,7 +721,7 @@ if (!jsdom) {
 check("every rebuilt section has narrow-screen rules", () => {
   const flat = appCss.replace(/\s*\n\s*/g, "");
   const want = {
-    "the command centre": /@media\s*\(max-width:560px\)\{[^@]*\.cmd-acct-top\{flex-direction:column/,
+    "the command centre": /@media\s*\(max-width:560px\)\{[^@]*\.ccx-head\{\s*grid-template-columns:minmax\(0,1fr\)/,
     "prop risk": /@media\s*\(max-width:560px\)\{[^@]*\.pr-meters,\.pr-grid,\.pr-checks\{grid-template-columns:minmax\(0,1fr\)\}/,
     "the AI page": /@media\s*\(max-width:560px\)\{[^@]*\.ai-read\{grid-template-columns:minmax\(0,1fr\)\}/,
   };

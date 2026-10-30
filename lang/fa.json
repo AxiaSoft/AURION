@@ -172,6 +172,7 @@
   },
   "command": {
     "title": "مرکز فرمان",
+    "title_account": "حساب",
     "balance": "بالانس",
     "equity": "اکوئیتی",
     "margin": "مارجین",

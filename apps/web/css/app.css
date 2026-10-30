@@ -4007,50 +4007,110 @@ html[dir="rtl"] .prop-fields .field input[type="time"]{ text-align:end }
 }
 
 /* ------------------------------------------------------------------
-   Command centre — the account card
+   Command centre - rebuilt
 
-   Six figures used to sit in one rigid six-column strip, every one the
-   same size: equity beside margin, profit beside balance. They are not
-   the same kind of fact. The money that moves gets the room; the
-   reference figures sit under it.
+   The page used to be nine full-width cards in a column. On a wide
+   screen that is a long scroll with the right-hand half of the window
+   empty, and the account's six figures sat in one strip of identical
+   boxes: equity beside margin, the day's P/L beside the leverage.
+
+   They are not the same kind of fact. Three bands now:
+
+     1. a masthead - who you are trading as, how much, and whether it
+        is connected. The chart strip is folded in here; it used to be
+        a whole card wrapped around a row of badges.
+     2. risk beside reference. The two figures that can end an account
+        are watched and get bars against their prop limits; the four
+        that are looked up get a quiet list. Side by side on a desktop,
+        which is the width the old single column was wasting.
+     3. positions and strategies, unchanged - they already own their
+        full width for good reason.
    ------------------------------------------------------------------ */
-.cmd-ea-h{margin:0 0 8px}
-.cmd-acct{display:flex;flex-direction:column;gap:16px}
-.cmd-acct-top{
-  display:flex;align-items:flex-start;justify-content:space-between;
-  gap:18px;flex-wrap:wrap;
-}
-.cmd-acct-who{min-width:0;flex:1 1 220px}
-.cmd-acct-who .metric{margin:0}
-.cmd-acct-who .sub{margin:4px 0 0}
 
-.cmd-acct-hero{display:flex;flex-direction:column;align-items:flex-end;gap:2px;min-width:0}
-.cmd-acct-hero > span{font-size:11px;letter-spacing:.07em;text-transform:uppercase;color:var(--muted)}
-html[dir="rtl"] .cmd-acct-hero > span{letter-spacing:0;text-transform:none}
-.cmd-acct-hero > b{
-  font-size:clamp(26px,3.4vw,38px);font-weight:600;line-height:1.1;
-  letter-spacing:-.015em;
+/* ---- 1. the masthead ---- */
+.ccx-head{
+  display:grid; gap:16px 22px; align-items:center;
+  grid-template-columns:minmax(0,1fr) auto;
 }
-.cmd-acct-hero > i{font-style:normal;font-size:14px;font-weight:600}
+.ccx-id{ min-inline-size:0 }
+.ccx-id-type{ margin:0; font-size:17px; font-weight:650; letter-spacing:.01em }
+.ccx-id-sub{ margin:4px 0 0; font-size:12px; overflow-wrap:anywhere }
 
-.cmd-subs{
-  display:grid;gap:10px;
-  grid-template-columns:repeat(auto-fit,minmax(140px,1fr));
+.ccx-equity{ display:flex; flex-direction:column; align-items:flex-end; gap:2px; min-inline-size:0 }
+.ccx-equity-k{ font-size:11px; letter-spacing:.07em; text-transform:uppercase; color:var(--muted) }
+html[dir="rtl"] .ccx-equity-k{ letter-spacing:0; text-transform:none }
+.ccx-equity > b{
+  font-size:clamp(26px,3.4vw,38px); font-weight:600; line-height:1.1;
+  letter-spacing:-.015em; white-space:nowrap;
 }
-.cmd-sub{
-  min-width:0;padding:10px 12px;border-radius:14px;
-  background:rgb(var(--wash) / .04);border:1px solid var(--line);
-}
-.cmd-sub span{display:block;font-size:11px;color:var(--muted);margin-block-end:4px}
-.cmd-sub b{display:block;font-size:16px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ccx-equity > i{ font-style:normal; font-size:14px; font-weight:600 }
 
+/* The connection row spans both columns and wraps, because the number
+   of attached charts is not something the layout can predict. */
+.ccx-link{
+  grid-column:1 / -1;
+  display:flex; flex-wrap:wrap; gap:6px; align-items:center;
+  padding-block-start:14px;
+  border-block-start:1px solid var(--line);
+}
+.ccx-pill{
+  display:inline-flex; align-items:center; gap:6px;
+  padding:5px 11px; border-radius:999px;
+  border:1px solid var(--line); background:rgb(var(--wash) / .05);
+  font-size:11.5px; font-weight:600; white-space:nowrap;
+}
+.ccx-pill small{ font-weight:500; opacity:.6 }
+.ccx-pill.is-live{ border-color:rgb(var(--accent-rgb) / .35) }
+.ccx-pill.is-down{ border-color:rgb(var(--wash) / .14); color:var(--muted) }
+/* A backtest chart is marked as one. Reading a tester's symbol as a
+   live position is the kind of mistake that gets acted on. */
+.ccx-pill.is-test{ border-style:dashed; color:var(--muted) }
+
+/* ---- 2. risk beside reference ---- */
+.ccx-pair{
+  display:grid; gap:14px; align-items:start;
+  grid-template-columns:repeat(auto-fit, minmax(290px, 1fr));
+}
+.ccx-risk > h3,.ccx-ref > h3{ margin:0 0 12px }
+.ccx-risk-row + .ccx-risk-row{ margin-block-start:14px }
+.ccx-risk-head{ display:flex; align-items:baseline; justify-content:space-between; gap:12px }
+.ccx-risk-head span{ font-size:12px; color:var(--muted) }
+.ccx-risk-head b{ font-size:17px; font-weight:650; font-variant-numeric:tabular-nums }
+.ccx-risk-bar{
+  margin-block-start:7px; block-size:6px; border-radius:999px; overflow:hidden;
+  background:rgb(var(--wash) / .09);
+}
+.ccx-risk-bar > i{
+  display:block; block-size:100%; inline-size:var(--w, 0%);
+  border-radius:inherit; background:var(--accent);
+  transition:inline-size .3s var(--ease), background .3s var(--ease);
+}
+/* It turns before it is too late to do anything about it, not when the
+   limit has already been hit. */
+.ccx-risk-row.is-near .ccx-risk-bar > i{ background:var(--warning) }
+.ccx-risk-row.is-over .ccx-risk-bar > i{ background:var(--bad) }
+.ccx-risk-row.is-over .ccx-risk-head b{ color:var(--bad) }
+.ccx-risk-foot{ margin:5px 0 0; font-size:11px }
+
+.ccx-ref-rows{ display:flex; flex-direction:column }
+.ccx-ref-row{
+  display:flex; align-items:baseline; justify-content:space-between; gap:14px;
+  padding:9px 0; border-block-end:1px solid var(--line); font-size:13px;
+}
+.ccx-ref-row:last-child{ border-block-end:0; padding-block-end:0 }
+.ccx-ref-row > span{ color:var(--muted); min-inline-size:0 }
+.ccx-ref-row > b{
+  font-weight:650; white-space:nowrap; font-variant-numeric:tabular-nums;
+}
+
+/* ---- narrow ---- */
 @media (max-width:560px){
   /* The headline drops under the account identity rather than being
      squeezed beside it, and aligns with everything else on the page. */
-  .cmd-acct-top{flex-direction:column;gap:12px}
-  .cmd-acct-hero{align-items:flex-start}
-  .cmd-subs{grid-template-columns:repeat(auto-fit,minmax(120px,1fr))}
-  .cmd-sub b{font-size:15px}
+  .ccx-head{ grid-template-columns:minmax(0,1fr); gap:12px }
+  .ccx-equity{ align-items:flex-start }
+  .ccx-link{ padding-block-start:12px }
+  .ccx-risk-head b{ font-size:16px }
 }
 
 /* ------------------------------------------------------------------

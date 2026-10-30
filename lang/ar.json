@@ -172,6 +172,7 @@
   },
   "command": {
     "title": "مركز القيادة",
+    "title_account": "الحساب",
     "balance": "الرصيد",
     "equity": "حقوق الملكية",
     "margin": "الهامش",
