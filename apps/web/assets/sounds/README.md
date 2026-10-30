@@ -1,66 +1,87 @@
 # Notification sounds
 
-Drop an **Ogg Vorbis** file in this folder, named after the event it belongs
-to. Nothing else is needed: no manifest to edit, no code to change, no
-rebuild step. The desk looks for these four names at start-up.
+The desk knows **six sounds by name**, and each name is one **Ogg Vorbis**
+file in this folder. These files are part of the source, not an optional
+extra that may or may not be present in a release: a given name sounds the
+same on every machine the product is installed on.
 
-| File | Plays when |
-| --- | --- |
-| `entry.ogg` | the robot opens a position |
-| `profit.ogg` | a position closes in profit |
-| `loss.ogg` | a position closes at a loss |
-| `notice.ogg` | an ordinary notification appears (saved settings, reconnects, refusals) |
+| File | Name in the desk | فارسی | Character |
+| --- | --- | --- | --- |
+| `chime.ogg` | Chime | زنگ | two bell strikes a fifth apart |
+| `ding.ogg` | Ding | دینگ | one bright strike, short |
+| `rise.ogg` | Rising | صعودی | a rising triad — bullish |
+| `fall.ogg` | Falling | نزولی | a falling triad — bearish |
+| `alert.ogg` | Alert | هشدار | two clipped pulses on one pitch |
+| `soft.ogg` | Soft | ملایم | one low note that fades in |
 
-The names are fixed and lower-case. `Entry.ogg` or `entry.OGG` will not be
-found on a case-sensitive server, and no other extension is read - the desk
+The names are fixed and lower-case. `Chime.ogg` or `chime.OGG` will not be
+found on a case-sensitive server, and no other extension is read — the desk
 asks for `.ogg` and only `.ogg`.
 
-## What happens to a slot with no file
+## Which sound plays when
 
-It keeps its built-in synthesized tone. A missing file is the normal case,
-not an error, so three of these four can be absent and the fourth will still
-work.
+The **sound** and the **event** are separate things. The six files above are
+the sounds; the desk has four events, and each event is pointed at one of
+the six in **Settings → Sound & Notifications**:
 
-## What the trader sees
+| Event | Default sound |
+| --- | --- |
+| the robot opens a position | Chime |
+| a position closes in profit | Rising |
+| a position closes at a loss | Falling |
+| an ordinary notification (saved settings, reconnects, refusals) | Soft |
 
-A row in **Settings → Sound & Notifications** gains a *Sound file* option
-when - and only when - this build ships a file for that event, so the list
-can never name a sound that does not exist. The shipped file becomes that
-event's default; a trader who picks a different tone keeps their choice, and
-they can always switch back.
+That indirection is why there is no per-event file and no *Sound file*
+option in the panel: every option in that list is already a file.
 
-## Requirements
+## Regenerating them
+
+The files are generated rather than recorded, so they are reproducible,
+license-clean and tiny:
+
+```sh
+python3 scripts/make-sounds.py
+```
+
+That script is the definition of what each sound is — frequencies,
+envelopes and all — so a change to one of them is a change to a few lines
+of Python rather than an opaque binary dropped into the tree. It needs
+`numpy` and `soundfile`.
+
+## Replacing one by hand
+
+Nothing stops you overwriting a file with a recording. If you do:
 
 - **Ogg Vorbis.** It is the one format every browser and WebView the desk
   runs in can decode. A file renamed to `.ogg` is not an Ogg file: the desk
-  decodes it before use and will fall back to the built-in tone if it cannot.
-- **Keep it short** - a second or two. This is a notification, and it plays
+  decodes it before use and falls back to the synthesized tone if it cannot.
+- **Keep it short** — a second or two. This is a notification, and it plays
   while the trader is looking at something else.
-- **Keep it small.** The files are fetched once at start-up. A few tens of
-  kilobytes each is the right order; a whole music track is not.
+- **Keep it small.** The files are fetched once at start-up. The generated
+  ones are 6–12 kB each; that is the right order.
 - **Normalise the level.** The desk applies the master volume from Settings
   on top of whatever is in the file, so a file recorded hot will be loud
-  relative to the built-in tones at the same slider position.
-
-## Converting
+  relative to the others at the same slider position.
 
 ```sh
-ffmpeg -i chime.wav -c:a libvorbis -q:a 4 -ac 1 entry.ogg
+ffmpeg -i source.wav -c:a libvorbis -q:a 4 -ac 1 chime.ogg
 ```
 
-`-q:a 4` is ample for a short notification and `-ac 1` (mono) halves the size
-for no audible loss on a sound this brief.
+## If a file is missing
+
+That sound falls back to a synthesized tone of the same name, built into
+`apps/web/js/app.js` (the `SOUNDS` table, whose frequencies match this
+folder). The desk is never silent just because a file has not been added —
+it just sounds plainer. A missing file is a degraded state, not an error.
 
 ## Checking it worked
 
-Open **Settings → Sound & Notifications**. If the file was found, the row for
-that event offers *Sound file* and has it selected; press the play button
-beside it to hear exactly what will play. If the option is missing, the file
-was not found or could not be decoded - check the spelling of the name first,
-then that it is genuinely Ogg Vorbis:
+Open **Settings → Sound & Notifications** and press the play button beside
+a row to hear exactly what will play. To confirm a file is genuinely Ogg
+Vorbis:
 
 ```sh
-ffprobe entry.ogg        # should report: Audio: vorbis
+ffprobe chime.ogg        # should report: Audio: vorbis
 ```
 
 The files are copied into the installer automatically with the rest of

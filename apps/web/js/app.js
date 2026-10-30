@@ -1794,32 +1794,19 @@ const NOTIFY_DEFAULTS = { entry: "chime", profit: "rise", loss: "fall", notice: 
    one falls back to if a custom file is chosen and later goes missing. */
 const SOUND_SLOTS = ["entry", "profit", "loss", "notice"];
 
-/* A notification sound is a second or two. The cap is generous enough for
-   any real chime and small enough that a trader cannot wire a whole track
-   into the entry slot and then wonder why the desk is slow to start. */
-const SOUND_MAX_BYTES = 2 * 1024 * 1024;
 
 function notifyPrefs() {
   try {
     const raw = JSON.parse(localStorage.getItem("aurion.notify") || "{}");
     const saved = raw && typeof raw === "object" ? raw : {};
     const out = { ...NOTIFY_DEFAULTS, ...saved };
-    /* A sound shipped with the build is what that event should sound like,
-       so it is the default for its slot. An explicit choice by the trader
-       always wins - this only fills in slots they have never touched. */
     for (const key of SOUND_SLOTS) {
-      if (saved[key] === undefined && SOUND_FILES.has(key)) out[key] = "file";
-    }
-    for (const key of SOUND_SLOTS) {
-      /* "custom" is a legal value only while a file is actually stored for
-         the slot. If the file has gone - a cleared profile, a different
-         machine - the slot falls back to its built-in tone rather than
-         going silently dead, because a notification that stops making a
-         noise is indistinguishable from one that stopped arriving. */
-      if (out[key] === "file") {
-        if (SOUND_FILES.has(key)) continue;
-        out[key] = NOTIFY_DEFAULTS[key];
-      }
+      /* "file" was a per-slot choice back when a build could ship one
+         opaque recording per event. The sounds are now named -- bell,
+         ding, rise, fall, alert, soft -- and each name is itself a file
+         in the source tree, so there is nothing left for a separate
+         "file" option to mean. Anything saved under the old scheme
+         falls back to the slot's default rather than going dead. */
       if (!SOUND_NAMES.includes(out[key])) out[key] = NOTIFY_DEFAULTS[key];
     }
     out.volume = Math.min(1, Math.max(0, Number(out.volume) || 0));
@@ -1845,22 +1832,27 @@ function saveNotifyPrefs(patch) {
  * every machine the product is installed on, and a per-machine upload
  * would mean every customer hears something different.
  *
- * Drop an Ogg Vorbis file into apps/web/assets/sounds/, named after the
- * event it belongs to:
+ * The files are named after the SOUND, not after the event. That is the
+ * whole point: there are six sounds the desk knows about, every slot
+ * picks one of them by name, and each name is one file in the source
+ * tree. Drop Ogg Vorbis files into apps/web/assets/sounds/:
  *
- *     entry.ogg     a position was opened
- *     profit.ogg    a position closed in profit
- *     loss.ogg      a position closed at a loss
- *     notice.ogg    an ordinary notification
+ *     chime.ogg     bell            (fa: زنگ)
+ *     ding.ogg      ding            (fa: دینگ)
+ *     rise.ogg      bullish / up    (fa: صعودی)
+ *     fall.ogg      bearish / down  (fa: نزولی)
+ *     alert.ogg     warning         (fa: هشدار)
+ *     soft.ogg      gentle          (fa: ملایم)
  *
- * Nothing else is needed - no manifest to edit and no rebuild. A slot
- * whose file is present uses it by default; a slot whose file is absent
- * keeps its built-in tone, and either way the trader can still override
- * the choice in Settings. Files are fetched once at boot and decoded on
- * first use, so a burst of notifications does not re-read them.
+ * Nothing else is needed - no manifest to edit and no rebuild. A sound
+ * whose file is present plays that file wherever it is selected; a sound
+ * whose file is absent falls back to its synthesized tone, so the desk
+ * is never silent just because a file has not been added yet. Files are
+ * fetched once at boot and decoded on first use, so a burst of
+ * notifications does not re-read them.
  */
 const SOUND_DIR = "assets/sounds/";
-/** slot -> { url, bytes, buffer } for whatever shipped with this build. */
+/** sound name -> { url, bytes, buffer } for whatever is in the source. */
 const SOUND_FILES = new Map();
 
 /** The shared AudioContext, created on demand. */
@@ -1876,25 +1868,28 @@ function audioCtx() {
   return S._audio;
 }
 
-function soundFileUrl(slot) {
-  const rel = SOUND_DIR + slot + ".ogg";
+function soundFileUrl(name) {
+  const rel = SOUND_DIR + name + ".ogg";
   try {
     if (typeof AurionTheme !== "undefined" && AurionTheme.assetUrl) return AurionTheme.assetUrl(rel);
   } catch { /* fall through to the relative form */ }
   return rel;
 }
 
+/** The six sounds that can be backed by a file. "none" is silence. */
+const SOUND_FILE_NAMES = SOUND_NAMES.filter((n) => n !== "none");
+
 /**
- * Find out which sounds this build actually ships.
+ * Find out which sounds this source tree actually carries.
  *
- * A missing file is the normal case, not an error: it simply means that
- * event keeps its built-in tone. Only the bytes are fetched here - the
- * decode happens on first play - so four absent files cost four 404s at
+ * A missing file is the normal case, not an error: that sound simply
+ * keeps its synthesized tone. Only the bytes are fetched here - the
+ * decode happens on first play - so six absent files cost six 404s at
  * boot and nothing else.
  */
 async function loadSoundFiles() {
-  await Promise.all(SOUND_SLOTS.map(async (slot) => {
-    const url = soundFileUrl(slot);
+  await Promise.all(SOUND_FILE_NAMES.map(async (name) => {
+    const url = soundFileUrl(name);
     try {
       const res = await fetch(url, { cache: "force-cache" });
       if (!res || !res.ok) return;
@@ -1902,13 +1897,13 @@ async function loadSoundFiles() {
       // A dev server that answers 404s with index.html would otherwise
       // register an HTML page as a sound.
       if (!bytes || bytes.byteLength < 64) return;
-      SOUND_FILES.set(slot, { url, bytes, buffer: null });
-    } catch { /* not shipped in this build */ }
+      SOUND_FILES.set(name, { url, bytes, buffer: null });
+    } catch { /* no file for this sound in this tree */ }
   }));
 }
 
-async function soundFileBuffer(slot) {
-  const rec = SOUND_FILES.get(slot);
+async function soundFileBuffer(name) {
+  const rec = SOUND_FILES.get(name);
   if (!rec) return null;
   if (rec.buffer) return rec.buffer;
   const ctx = audioCtx();
@@ -1919,16 +1914,16 @@ async function soundFileBuffer(slot) {
     rec.buffer = await ctx.decodeAudioData(rec.bytes.slice(0));
     return rec.buffer;
   } catch {
-    /* Shipped but not playable - a file that is not really Ogg Vorbis, or
-       a truncated copy. Drop it rather than retry on every notification,
-       and let the slot fall back to its built-in tone. */
-    SOUND_FILES.delete(slot);
+    /* Present but not playable - a file that is not really Ogg Vorbis,
+       or a truncated copy. Drop it rather than retry on every
+       notification, and let the sound fall back to its tone. */
+    SOUND_FILES.delete(name);
     return null;
   }
 }
 
-function playSoundFile(slot, level) {
-  soundFileBuffer(slot).then((buf) => {
+function playSoundFile(name, level) {
+  soundFileBuffer(name).then((buf) => {
     const ctx = audioCtx();
     if (!buf || !ctx) return;
     const src = ctx.createBufferSource();
@@ -1944,12 +1939,10 @@ function playSoundFile(slot, level) {
 function playSound(name, volume, slot) {
   const level = volume === undefined ? notifyPrefs().volume : Number(volume) || 0;
   if (level <= 0) return;
-  if (name === "file") {
-    if (slot && SOUND_FILES.has(slot)) { playSoundFile(slot, level); return; }
-    // This build ships no file for the slot; fall through to its built-in
-    // tone so the event is still audible.
-    name = (slot && NOTIFY_DEFAULTS[slot]) || "chime";
-  }
+  // A sound backed by a real file in the source plays that file. The
+  // synthesized tone of the same name is the fallback for a tree where
+  // the file has not been added.
+  if (name !== "none" && SOUND_FILES.has(name)) { playSoundFile(name, level); return; }
   const spec = SOUNDS[name];
   if (!spec) return;
   try {
@@ -5455,7 +5448,6 @@ function notifySoundCardHtml() {
   const row = (key, tone, mark, label, hint) => {
     const value = p[key] || "none";
     const off = value === "none";
-    const shipped = SOUND_FILES.has(key);
     return `<div class="snd-row${off ? " is-off" : ""}" data-sndrow="${key}">
       <span class="snd-mark t-${tone}" aria-hidden="true">${mark}</span>
       <span class="snd-text">
@@ -5465,10 +5457,7 @@ function notifySoundCardHtml() {
       <select class="ctrl snd-pick" data-snd="${key}" aria-label="${esc(label)}">${
         SOUND_NAMES.map((n) =>
           `<option value="${n}"${value === n ? " selected" : ""}>${esc(I18N.t("notify.snd_" + n))}</option>`
-        ).join("")}${
-        /* Offered only when this build actually ships a file for the
-           slot, so the list can never name a sound that does not exist. */
-        shipped ? `<option value="file"${value === "file" ? " selected" : ""}>${esc(I18N.t("notify.snd_file"))}</option>` : ""}</select>
+        ).join("")}</select>
       <button type="button" class="icon-btn snd-play" data-sndtest="${key}"
               title="${esc(I18N.t("notify.preview"))}"
               aria-label="${esc(I18N.t("notify.preview"))}"${off || muted ? " disabled" : ""}>${icon("play")}</button>
@@ -5711,6 +5700,23 @@ function analysisCardHtml() {
  * console's open or closed state is kept, because that is the reader's
  * choice and not the server's.
  */
+/**
+ * Update the live analysis in place.
+ *
+ * This used to build the whole card and swap it in with replaceWith.
+ * Every time any one number moved, the entire card was thrown away and
+ * a new one put in its place -- the verdict, the meter, the blockers,
+ * the console, all of it. That is why the page looked like it was
+ * reloading itself: nothing was actually reloading, but every node on
+ * the card was a different node from one second to the next, so the
+ * browser repainted the lot, selections died and anything mid-scroll
+ * jumped.
+ *
+ * Now the new markup is built off-screen and reconciled against what
+ * is already there, so only the handful of nodes whose content really
+ * changed are touched. A confidence figure ticking from 61% to 62%
+ * rewrites one number and leaves the rest of the card alone.
+ */
 function patchAnalysisCard() {
   const card = $("an-card");
   if (!card) return;
@@ -5718,27 +5724,72 @@ function patchAnalysisCard() {
   const next = analysisCardHtml();
   if (S._anHtml !== next) {
     S._anHtml = next;
-
-    const con = $("an-console");
-    // The list is newest-first, so scrollTop 0 means "reading the live
-    // end" and anything else means the trader has scrolled back.
-    const keep = con ? con.scrollTop : 0;
-    const details = card.querySelector("details.ai-console");
-    const wasOpen = details ? details.open : true;
-
     const host = document.createElement("div");
     host.innerHTML = next;
     const fresh = host.firstElementChild;
     if (!fresh) return;
-    card.replaceWith(fresh);
-
-    const d2 = fresh.querySelector("details.ai-console");
-    if (d2) d2.open = wasOpen;
-    const c2 = fresh.querySelector("#an-console");
-    if (c2 && keep > 0) c2.scrollTop = keep;
-    bindCloseButtons(fresh);
+    morphElement(card, fresh);
+    bindCloseButtons($("an-card") || card);
   }
   stampAnalysisAge();
+}
+
+/* Attributes that belong to the person reading the page, not to the
+   render: re-applying them would fight whatever they just did. */
+const MORPH_KEEP = new Set(["open", "value", "checked", "selected"]);
+
+/**
+ * Make `from` look like `to`, reusing every node that can be reused.
+ *
+ * Small on purpose. It walks the two trees in step and only writes
+ * where they differ, which is what keeps the DOM -- and therefore
+ * scroll position, focus, text selection and any open <details> --
+ * alive across an update.
+ */
+function morphElement(from, to) {
+  if (!from || !to) return;
+  if (from.nodeName !== to.nodeName) {
+    from.replaceWith(to);
+    return;
+  }
+
+  // Attributes, in both directions.
+  const seen = new Set();
+  for (const at of Array.from(to.attributes || [])) {
+    seen.add(at.name);
+    // Never re-apply these. A <details> the reader has closed reports no
+    // "open" attribute, while the freshly built markup always carries
+    // one, so copying it across reopened the console on every update --
+    // the update fighting the reader, which is the whole complaint.
+    // Their initial value comes from the first render and is then left
+    // to whatever the reader does with it.
+    if (MORPH_KEEP.has(at.name)) continue;
+    if (from.getAttribute(at.name) !== at.value) from.setAttribute(at.name, at.value);
+  }
+  for (const at of Array.from(from.attributes || [])) {
+    if (!seen.has(at.name) && !MORPH_KEEP.has(at.name)) from.removeAttribute(at.name);
+  }
+
+  // The age stamp is written by stampAnalysisAge, not by the markup,
+  // which ships it empty. Copying that across would blank it every tick.
+  if (from.id === "an-live") return;
+
+  const fromKids = Array.from(from.childNodes);
+  const toKids = Array.from(to.childNodes);
+  const n = Math.max(fromKids.length, toKids.length);
+  for (let i = 0; i < n; i++) {
+    const a = fromKids[i];
+    const b = toKids[i];
+    if (!b) { if (a) a.remove(); continue; }
+    if (!a) { from.appendChild(b.cloneNode(true)); continue; }
+    if (a.nodeType === 3 && b.nodeType === 3) {
+      if (a.nodeValue !== b.nodeValue) a.nodeValue = b.nodeValue;
+    } else if (a.nodeType === 1 && b.nodeType === 1) {
+      morphElement(a, b);
+    } else if (a.nodeType !== b.nodeType || a.nodeValue !== b.nodeValue) {
+      a.replaceWith(b.cloneNode(true));
+    }
+  }
 }
 
 /**
@@ -8874,6 +8925,7 @@ function renderBacktestLive(bt) {
     <div class="bt-live-chart">
       <canvas id="bt-replay"></canvas>
       <span class="bt-replay-at mono" id="bt-replay-at">${at}</span>
+      <p class="bt-replay-note" id="bt-replay-note" hidden></p>
     </div>
     <p class="sub">${I18N.t("bt.live_chart_hint")}</p>
     ${curve.length > 1 ? `<div class="bt-curve"><canvas id="bt-curve"></canvas></div>
@@ -8894,6 +8946,7 @@ function paintBacktestLive(box, bt, running) {
   if (!running) {
     if (box.innerHTML !== "") box.innerHTML = "";
     box.removeAttribute("data-run");
+    S._btReplay = null;
     return;
   }
   const key = `${bt.symbol || ""}|${bt.timeframe || ""}|${bt.strategy || ""}`;
@@ -8931,13 +8984,139 @@ function paintBacktestLive(box, bt, running) {
   /* The bars the replay is walking, not the ones the market is making.
      This panel used to draw the symbol's live candles beside a replay
      of a window that had already finished: two unrelated things in one
-     card, the bigger of them labelled as the test. The engine sends the
-     bars it is actually replaying now, so that is what is drawn. */
+     card, the bigger of them labelled as the test. */
   const stamp = box.querySelector("#bt-replay-at");
   if (stamp) stamp.textContent = snap.at ? String(snap.at) : "";
-  if (Array.isArray(snap.replay_bars) && snap.replay_bars.length > 1) {
-    requestAnimationFrame(() => drawReplayChart(snap.replay_bars, snap.marks || []));
+  paintReplay(box, bt, snap);
+}
+
+/* ------------------------------------------------------------------ *
+ * The replay chart's data.
+ *
+ * The engine sends the bars it is replaying, and when they arrive they
+ * are what gets drawn - they are the tested window by definition. But
+ * the desk must not be left with an empty frame when they do not
+ * arrive: an engine from an older build sends no replay bars at all,
+ * and the first snapshot of a run can land before any have been cut.
+ * Showing nothing in that case is exactly the blank panel this is
+ * meant to fix.
+ *
+ * So the desk keeps its own copy of the symbol's candles - the same
+ * ones the engine is replaying, since a run tests the EA's most recent
+ * history - and winds them forward to whichever bar the run says it
+ * has reached. Same picture, drawn from whichever source answered.
+ * ------------------------------------------------------------------ */
+
+const BT_REPLAY_SPAN = 160;
+
+/** Engine bars are {t,o,h,l,c}; the candles API speaks {time,open,...}. */
+function btNormBar(b) {
+  if (!b || typeof b !== "object") return null;
+  const t = b.t != null ? b.t : b.time;
+  const o = Number(b.o != null ? b.o : b.open);
+  const h = Number(b.h != null ? b.h : b.high);
+  const l = Number(b.l != null ? b.l : b.low);
+  const c = Number(b.c != null ? b.c : b.close);
+  if (![o, h, l, c].every(Number.isFinite) || !(o > 0) || !(c > 0)) return null;
+  return { t: t == null ? "" : String(t), o, h, l, c };
+}
+
+/** Fetch the run's candles once, then repaint with what came back. */
+function ensureBacktestBars(bt) {
+  const key = `${bt.symbol || ""}|${bt.timeframe || ""}`;
+  if (!bt.symbol) return;
+  const have = S._btBars;
+  if (have && have.key === key && (have.bars || have.pending)) return;
+  S._btBars = { key, pending: true, bars: null };
+  API.get(`/api/candles?symbol=${encodeURIComponent(bt.symbol)}`
+        + `&timeframe=${encodeURIComponent(bt.timeframe || S.timeframe || "M15")}&count=1500`)
+    .then((r) => {
+      const bars = (r && r.data ? r.data : []).map(btNormBar).filter(Boolean);
+      S._btBars = { key, pending: false, bars };
+      // Draw the snapshot that could not be drawn when it arrived. The
+      // run is taken from the closure rather than read back out of S,
+      // so this still repaints when the caller drives the panel
+      // directly instead of through the usual snapshot plumbing.
+      const box = $("bt-live");
+      if (!box) return;
+      const now = (S.backtest && S.backtest.running) ? S.backtest : bt;
+      if (!now || !now.running) return;
+      paintReplay(box, now, (now.live && typeof now.live === "object") ? now.live : {});
+    })
+    .catch(() => { S._btBars = { key, pending: false, bars: null }; });
+}
+
+/** The window of bars to draw, and where it came from. */
+function btReplayWindow(bt, snap) {
+  const sent = Array.isArray(snap.replay_bars)
+    ? snap.replay_bars.map(btNormBar).filter(Boolean) : [];
+  if (sent.length > 1) return { bars: sent, source: "engine" };
+
+  const cache = S._btBars;
+  const key = `${bt.symbol || ""}|${bt.timeframe || ""}`;
+  if (!cache || cache.key !== key || !Array.isArray(cache.bars) || cache.bars.length < 2) {
+    return { bars: [], source: cache && cache.pending ? "loading" : "none" };
   }
+  const bars = cache.bars;
+  const at = snap.at ? String(snap.at) : "";
+  let end = -1;
+  if (at) {
+    for (let i = bars.length - 1; i >= 0; i--) {
+      if (bars[i].t === at) { end = i; break; }
+    }
+  }
+  // Without a bar to stand on this would just be the live market again,
+  // which is the thing the panel is not allowed to show.
+  if (end < 1) return { bars: [], source: "unmatched" };
+  return { bars: bars.slice(Math.max(0, end - BT_REPLAY_SPAN + 1), end + 1), source: "desk" };
+}
+
+function paintReplay(box, bt, snap) {
+  const note = box.querySelector("#bt-replay-note");
+  btWatchReplaySize(box);
+  const { bars, source } = btReplayWindow(bt, snap);
+  if (source !== "engine") ensureBacktestBars(bt);
+
+  if (bars.length > 1) {
+    if (note) { note.hidden = true; note.textContent = ""; }
+    // Kept so the chart can be redrawn when the panel is resized or
+    // revealed, without waiting for the next snapshot.
+    S._btReplay = { bars, marks: Array.isArray(snap.marks) ? snap.marks : [] };
+    requestAnimationFrame(() => drawReplayChart(bars, S._btReplay.marks));
+    return;
+  }
+  S._btReplay = null;
+  const cv = $("bt-replay");
+  if (cv && cv.getContext) {
+    const g = cv.getContext("2d");
+    if (g) g.clearRect(0, 0, cv.width, cv.height);
+  }
+  if (note) {
+    note.hidden = false;
+    note.textContent = I18N.t(source === "unmatched" ? "bt.replay_outside" : "bt.replay_wait");
+  }
+}
+
+/**
+ * Repaint when the panel changes size.
+ *
+ * The other way this chart ends up blank: a canvas measured while its
+ * card was still hidden has no width to be drawn into, and nothing
+ * redraws it once the card is revealed. Watching the box covers both
+ * being shown and the window being resized.
+ */
+function btWatchReplaySize(box) {
+  const frame = box.querySelector(".bt-live-chart");
+  if (!frame || !frame.dataset || frame.dataset.sized === "1") return;
+  frame.dataset.sized = "1";
+  if (typeof ResizeObserver !== "function") return;
+  const ro = new ResizeObserver(() => {
+    if (!S._btReplay || !document.getElementById("bt-replay")) return;
+    requestAnimationFrame(() => {
+      if (S._btReplay) drawReplayChart(S._btReplay.bars, S._btReplay.marks);
+    });
+  });
+  ro.observe(frame);
 }
 
 /**
@@ -9106,7 +9285,31 @@ function btProvenance(bt) {
     ${I18N.t("bt.prov_source")} · <b class="mono">${esc(String(d.source || "mt5").toUpperCase())}</b>
     · ${I18N.t("bt.prov_window")} <b class="mono">${span}</b>
     · ${I18N.t("bt.prov_bars")} <b class="mono">${fmt(d.tested_bars || bt.bars || 0, 0)}</b>${d.warmup_bars ? ` (+${fmt(d.warmup_bars, 0)} ${I18N.t("bt.prov_warmup")})` : ""}
+    ${btLotProvenance(bt)}
   </p>`;
+}
+
+/**
+ * The robot settings the replay was run under.
+ *
+ * A result is only readable against the settings that produced it. The
+ * replay follows the desk's own lot mode and open-trade cap -- manual
+ * pins every entry to the fixed lot, auto leaves the strategy its own
+ * size -- and without saying so, a trader set to 1.0 lots had no way to
+ * tell whether the figures in front of them were theirs or a default's.
+ */
+function btLotProvenance(bt) {
+  const mode = String((bt && bt.volume_mode) || "").toLowerCase();
+  if (mode !== "auto" && mode !== "manual") return "";
+  const manual = Number(bt.manual_volume);
+  const lot = mode === "manual" && Number.isFinite(manual) && manual > 0
+    ? `${I18N.t("bt.prov_lot_manual")} <b class="mono">${fmt(manual, 2)}</b>`
+    : `${I18N.t("bt.prov_lot_auto")}`;
+  const cap = Number(bt.max_open);
+  const capTxt = Number.isFinite(cap) && cap > 0
+    ? ` · ${I18N.t("bt.prov_max_open")} <b class="mono">${fmt(cap, 0)}</b>`
+    : "";
+  return `· ${lot}${capTxt}`;
 }
 /* ---------------------------------------------------------- backtest results
  *

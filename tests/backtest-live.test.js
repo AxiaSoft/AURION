@@ -112,10 +112,21 @@ const stub = `
   const paintMiniCharts=()=>{chartPaints++;};
   const drawReplayChart=(b,m)=>{replayDraws++; replayBars=(b||[]).length; replayMarks=(m||[]).length;};
   const counts=()=>({curveDraws, chartPaints, replayDraws, replayBars, replayMarks});
+  // Only the canvas lookup; the panel itself is passed in as \`box\`.
+  const $=()=>null;
+  let fetches=0;
+  const API={get:()=>{fetches++; return new Promise(()=>{});}};
+  const ResizeObserver=class{observe(){}disconnect(){}};
+  const fetchCount=()=>fetches;
 `;
+/* paintReplay and the window it chooses are real here. Stubbing them
+   would have let the panel fall back to the live feed -- which is the
+   one thing it must never do -- without a single test noticing. */
 const api = new Function(
-  stub + grab('renderBacktestLive') + '\n' + grab('paintBacktestLive') +
-  '\nreturn {renderBacktestLive, paintBacktestLive, S, counts};'
+  stub + ['btNormBar', 'btReplayWindow', 'btWatchReplaySize', 'ensureBacktestBars',
+          'paintReplay', 'renderBacktestLive', 'paintBacktestLive'].map(grab).join('\n') +
+  '\nconst BT_REPLAY_SPAN = ' + (src.match(/BT_REPLAY_SPAN = (\d+)/) || [, '160'])[1] + ';' +
+  '\nreturn {renderBacktestLive, paintBacktestLive, btReplayWindow, btNormBar, S, counts, fetchCount};'
 )();
 
 /* ------------------------------------------------ 1. one container */
@@ -253,6 +264,65 @@ ok(api.counts().replayBars === 4, 'the new bar is on it');
 api.paintBacktestLive(box, { running: false, ok: true }, false);
 ok(box.innerHTML === '', 'the live panel clears when the run finishes');
 ok(box.getAttribute('data-run') === null, 'and forgets which run it was showing');
+
+/* ----------------------------------- the chart when the engine sends none
+
+   Reported as "the live chart is blank". An older engine - or one whose
+   progress payload is trimmed - sends no replay_bars at all, and the
+   panel then had nothing to draw. The desk now falls back to the candles
+   it can fetch for itself. What it must NOT do is draw the live market:
+   a replay that silently becomes "now" is worse than a blank box,
+   because it looks right. */
+{
+  const bar = (t, c) => ({ t, o: c, h: c + 1, l: c - 1, c });
+  const cached = [];
+  for (let i = 0; i < 400; i++) cached.push(bar('2024-01-01T' + String(i).padStart(4, '0'), 100 + i));
+  const run = { symbol: 'EURUSD', timeframe: 'M15', running: true };
+
+  api.S._btBars = null;
+  ok(api.btReplayWindow(run, {}).source === 'none',
+    'with nothing cached and nothing sent, the window is empty');
+
+  api.S._btBars = { key: 'EURUSD|M15', pending: false, bars: cached };
+
+  const w = api.btReplayWindow(run, { at: cached[300].t });
+  ok(w.source === 'desk', 'the desk supplies the window when the engine sends none');
+  ok(w.bars.length === 160, `the window is bounded (${w.bars.length})`);
+  ok(w.bars[w.bars.length - 1].t === cached[300].t,
+    'the window ends exactly on the bar the replay has reached');
+  ok(w.bars[0].t === cached[141].t, 'and starts one span earlier');
+
+  const later = api.btReplayWindow(run, { at: cached[340].t });
+  ok(later.bars[later.bars.length - 1].t === cached[340].t,
+    'the window moves forward with the run');
+
+  ok(api.btReplayWindow(run, { at: '1999-01-01T0000' }).source === 'unmatched',
+    'a bar the desk has never seen yields no window');
+  ok(api.btReplayWindow(run, { at: '1999-01-01T0000' }).bars.length === 0,
+    'and emphatically not the live tail');
+  ok(api.btReplayWindow(run, {}).source === 'unmatched',
+    'no reported bar yields no window either');
+
+  ok(api.btReplayWindow({ symbol: 'GBPUSD', timeframe: 'M15', running: true },
+    { at: cached[300].t }).source === 'none',
+    'a cache for another symbol is not reused');
+
+  /* The engine still wins when it does send bars. */
+  const sent = [bar('e1', 10), bar('e2', 11), bar('e3', 12)];
+  const eng = api.btReplayWindow(run, { at: cached[300].t, replay_bars: sent });
+  ok(eng.source === 'engine' && eng.bars.length === 3,
+    'engine-sent bars still take precedence');
+
+  /* Both bar shapes normalise: the progress payload uses {t,o,h,l,c},
+     /api/candles uses {time,open,high,low,close}. */
+  const n = api.btNormBar({ time: 'x', open: '1.5', high: '2', low: '1', close: '1.8' });
+  ok(n && n.t === 'x' && n.o === 1.5 && n.c === 1.8, 'the candles endpoint shape is accepted');
+  ok(api.btNormBar({ t: 'x', o: 0, h: 1, l: 0, c: 1 }) === null, 'a zero price is rejected');
+  ok(api.btNormBar({ t: 'x', o: NaN, h: 1, l: 1, c: 1 }) === null, 'a non-finite price is rejected');
+  ok(api.btNormBar(null) === null, 'and so is nothing at all');
+
+  api.S._btBars = null;
+}
 
 /* ------------------------------------------------ styling and language */
 ok(/\.bt-live-chart\{[^}]*height:/.test(css), 'the live chart has a height, so its canvas can size itself');

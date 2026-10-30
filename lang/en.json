@@ -907,8 +907,7 @@
     "off_tag": "off",
     "notice": "Ordinary notifications",
     "notice_hint": "Saved settings, reconnects, refusals - the messages that appear in the corner",
-    "custom_note": "Status changes are quiet by design. A row offers \"Sound file\" when this build ships one for that event; otherwise it uses the built-in tone.",
-    "snd_file": "Sound file (shipped)"
+    "custom_note": "Every sound is a file that lives in the source tree, so a given name sounds the same on every machine the product is installed on. Choose which sound each event plays."
   },
   "owner": {
     "title": "Owner account",
@@ -1173,7 +1172,12 @@
     "live_bar": "Bar reached",
     "live_position": "Open position",
     "live_chart_hint": "The symbol's live chart. The replay works through history while the market here keeps updating.",
-    "live_curve_hint": "Equity as the replay builds it. The finished curve replaces this when the run ends."
+    "live_curve_hint": "Equity as the replay builds it. The finished curve replaces this when the run ends.",
+    "replay_wait": "Lining up the replayed bars…",
+    "replay_outside": "The bar being replayed is outside the history this desk holds.",
+    "prov_lot_auto": "lot: automatic (the strategy's own)",
+    "prov_lot_manual": "lot: fixed at",
+    "prov_max_open": "max open"
   },
   "chart": {
     "regime_hint": "The slider above shows direction and regime per chart — move between charts with the arrows.",
