@@ -73,50 +73,33 @@ function pxOf(value) {
   return terms.reduce((a, t) => a + (t.trim().startsWith("-") ? -1 : 1) * parseFloat(t.replace(/[^\d.]/g, "")), 0);
 }
 
-/* ============================================ 1. the phone-sized overlap */
+/* ========================= 1. there is only ONE open-positions container
 
-check("the tools button and the positions panel share the bottom-start corner", () => {
-  /* The premise of the whole fix. If this ever stops being true the
-     arithmetic below is measuring nothing. */
-  const fab = rule(chartCss, ".tv-toolsfab");
-  if (!/inset-inline-start/.test(fab)) throw new Error("the tools button is no longer start-anchored");
-  const pos = rule(mobileBlock(chartCss), ".tv-pos");
-  if (!/inset-inline-start/.test(pos)) throw new Error("the positions panel is no longer start-anchored");
-  return "both inset-inline-start";
-});
+   There used to be two: a panel floating over the chart and the dock's
+   own Positions pane, both painted from the same rows. Four checks used
+   to live here making sure the floating one did not collide with the
+   drawing-tools button in the same corner. The overlay has been removed
+   on request, so that entire class of bug is gone with it - what is
+   left to protect is that it does not come back. */
 
-check("on a phone the positions panel clears the tools button", () => {
-  const fab = rule(chartCss, ".tv-toolsfab");
-  const fabBottom = pxOf(decl(fab, "inset-block-end"));
-  const fabH = pxOf(decl(fab, "height"));
-  const fabTop = fabBottom + fabH;            // how far up the screen the button reaches
-
-  const pos = rule(mobileBlock(chartCss), ".tv-pos");
-  const posBottom = pxOf(decl(pos, "bottom") || decl(pos, "inset-block-end"));
-
-  if (posBottom < fabTop) {
-    throw new Error("the panel starts at " + posBottom + "px but the button reaches "
-      + fabTop + "px, so it is drawn underneath it again");
+check("there is exactly one open-positions container", () => {
+  if (/id="tv-pos"/.test(toolsJs)) throw new Error("the floating panel is back in the markup");
+  if (!/id="tvd-pos"/.test(toolsJs)) throw new Error("the dock container is missing");
+  if (/\.tv-pos\{/.test(chartCss)) throw new Error("the floating panel's rule is back");
+  if (/tv-pos-sum/.test(appJs)) throw new Error("the floating summary pill is back");
+  if (/\.tv\.tools-open\s+\.tv-pos\s*\{/.test(chartCss)) {
+    throw new Error("the rule hiding the floating panel survived the panel itself");
   }
-  return "panel at " + posBottom + "px, button ends at " + fabTop + "px";
+  return "dock only";
 });
 
-check("the panel is not left under the button by z-index either", () => {
-  /* Belt and braces: clearing it vertically is the real fix, but a
-     later layout change that moves it back must not also find it
-     buried. */
-  const fabZ = Number(decl(rule(chartCss, ".tv-toolsfab"), "z-index"));
-  const posZ = Number(decl(rule(mobileBlock(chartCss), ".tv-pos"), "z-index"));
-  if (!(posZ >= fabZ)) throw new Error("positions z-index " + posZ + " is below the button's " + fabZ);
-  return posZ + " >= " + fabZ;
-});
-
-check("opening the tools sheet puts the floating panel away", () => {
-  const m = mobileBlock(chartCss);
-  if (!/\.tv\.tools-open\s+\.tv-pos\s*\{[^}]*display:\s*none/.test(m)) {
-    throw new Error("two stacked panels would share the corner while the sheet is open");
+check("the shared row styling survived the removal", () => {
+  /* The dock list reuses .tv-pos-row and friends; only the overlay's
+     own container and summary pill were meant to go. */
+  for (const cls of [".tv-pos-body", ".tv-pos-row", ".tv-pos-pl", ".tv-pos-dir"]) {
+    if (!chartCss.includes(cls)) throw new Error(cls + " was deleted with the overlay");
   }
-  return "hidden while the sheet is open";
+  return "rows still styled";
 });
 
 /* ================================================ 2. the side-panel tab */
@@ -188,15 +171,12 @@ function withChart(fn) {
   return fn(win, T);
 }
 
-check("the side panel lists the same trades as the chart panel", () => withChart((win, T) => {
+check("the one container lists every open trade and resting order", () => withChart((win, T) => {
   T.paintChartPositions(POS, ORD);
   const dock = win.document.getElementById("tvd-pos");
-  const float = win.document.getElementById("tv-pos");
   const d = dock.querySelectorAll(".tv-pos-row").length;
-  const f = float.querySelectorAll(".tv-pos-row").length;
-  if (d !== 3) throw new Error("dock shows " + d + " rows, expected 3");
-  if (d !== f) throw new Error("dock has " + d + " rows but the chart panel has " + f);
-  return d + " rows in both";
+  if (d !== 3) throw new Error("the container shows " + d + " rows, expected 3");
+  return d + " rows";
 }));
 
 check("the side panel's close and cancel buttons are wired, not decorative", () => withChart((win, T) => {
@@ -214,23 +194,20 @@ check("the side panel's close and cancel buttons are wired, not decorative", () 
   return "2 closes, 1 cancel, all bound";
 }));
 
-check("an empty book empties both, and a refill fills both again", () => withChart((win, T) => {
+check("an empty book empties it, and a refill fills it again", () => withChart((win, T) => {
   T.paintChartPositions(POS, ORD);
   T.paintChartPositions([], []);
   const dock = win.document.getElementById("tvd-pos");
-  const float = win.document.getElementById("tv-pos");
   const badge = win.document.getElementById("tvd-pos-n");
-  if (!float.hidden) throw new Error("the floating panel stayed on an empty book");
   if (!badge.hidden) throw new Error("the badge stayed on an empty book");
-  if (!dock.textContent.trim()) throw new Error("the side panel went blank instead of saying so");
-  if (dock.querySelector(".tv-pos-row")) throw new Error("the side panel kept its rows");
+  if (!dock.textContent.trim()) throw new Error("the container went blank instead of saying so");
+  if (dock.querySelector(".tv-pos-row")) throw new Error("the container kept its rows");
 
   /* The repaint is signature-gated. Going empty and back must not leave
      a stale signature that swallows the redraw. */
   T.paintChartPositions(POS, ORD);
   const d = dock.querySelectorAll(".tv-pos-row").length;
-  if (d !== 3) throw new Error("after refilling, the side panel shows " + d + " rows");
-  if (float.hidden) throw new Error("the floating panel stayed hidden after refilling");
+  if (d !== 3) throw new Error("after refilling, the container shows " + d + " rows");
   if (badge.hidden || badge.textContent !== "3") throw new Error("badge reads '" + badge.textContent + "'");
   return "emptied and refilled";
 }));

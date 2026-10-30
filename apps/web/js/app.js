@@ -532,19 +532,38 @@ function markThemePills() {
     b.classList.toggle("on", b.getAttribute("data-themebtn") === cur);
   });
 }
+/**
+ * Canvas art does not inherit CSS.
+ *
+ * charts.js reads the desk's colour variables once and caches the result
+ * against window.__aurionThemeRev, because re-reading getComputedStyle
+ * on every frame is expensive. Anything that changes those variables
+ * therefore has to say so, or the canvas keeps painting yesterday's
+ * palette while the HTML around it has already changed.
+ *
+ * This was bumped only by the light/dark toggle, so picking new candle
+ * colours in the theme editor recoloured every P/L figure on the desk
+ * and left the actual candles untouched.
+ */
+function refreshChartPalette() {
+  try { window.__aurionThemeRev = (window.__aurionThemeRev | 0) + 1; } catch {}
+  if (S.chart && S.candles && S.candles.length && typeof S.chart.setBars === "function") {
+    try { S.chart.setBars(S.candles); } catch {}
+  }
+  // The watchlist sparklines are canvas too, and they read the same pair.
+  try { paintMiniCharts(); } catch {}
+}
+
 function setThemeNow(mode) {
   const m = mode === "light" ? "light" : mode === "dark" ? "dark" : "auto";
   const next = resolveTheme(m);
   if (document.documentElement) document.documentElement.dataset.theme = next;
   try { localStorage.setItem("aurion.theme", m); } catch {}
-  try { window.__aurionThemeRev = (window.__aurionThemeRev | 0) + 1; } catch {}
   const meta = document.querySelector('meta[name="theme-color"]');
   if (meta) meta.setAttribute("content", next === "light" ? "#e9edf4" : "#06070b");
   paintThemeBtn();
   markThemePills();
-  if (S.chart && S.candles && S.candles.length && typeof S.chart.setBars === "function") {
-    try { S.chart.setBars(S.candles); } catch {}
-  }
+  refreshChartPalette();
 }
 /* ===========================================================================
    Appearance — skin, accent, wallpaper, rendering tier.
@@ -1649,10 +1668,15 @@ function bindAppearance() {
 
 /* The chart canvases read their colours once, so an accent or skin change has
    to ask them to redraw - the same thing a theme switch already does. */
+/* Kept as the name the theme editor calls, but it now goes through
+   refreshChartPalette.
+
+   This used to redraw the chart without telling charts.js its colours
+   had moved, so every repaint re-read the SAME cached palette: the bars
+   were rebuilt faithfully in the old colours and picking a new candle
+   colour appeared to do nothing at all. */
 function repaintChartsForTheme() {
-  if (S.chart && S.candles && S.candles.length && typeof S.chart.setBars === "function") {
-    try { S.chart.setBars(S.candles); } catch {}
-  }
+  refreshChartPalette();
 }
 
 /* Closes the pinned calendar day card, wherever we are. Safe to call when the
@@ -9908,7 +9932,6 @@ function applyChartLevels(force) {
 }
 
 /* Collapsed state of the on-chart panel, remembered across views. */
-const LS_CHART_POS = "aurion.chart.pos.collapsed";
 
 /**
  * The open trades, drawn on the EA chart itself.
@@ -9925,9 +9948,8 @@ const LS_CHART_POS = "aurion.chart.pos.collapsed";
  * covers neither them nor the newest candles.
  */
 function paintChartPositions(pos, ord) {
-  const host = $("tv-pos");
   const dock = $("tvd-pos");
-  if (!host && !dock) return;
+  if (!dock) return;
   pos = pos || [];
   ord = ord || [];
 
@@ -9941,39 +9963,14 @@ function paintChartPositions(pos, ord) {
   }
 
   if (!pos.length && !ord.length) {
-    /* Nothing open: the floating panel goes away entirely rather than
-       sitting there saying "no positions" over the chart. The dock pane
-       is a tab the trader chose to open, so it answers instead. */
-    if (dock) {
-      dock.innerHTML = `<p class="tvd-empty">${esc(I18N.t("status.no_positions"))}</p>`;
-      dock.dataset.sig = "";
-    }
-    if (!host) return;
-    host.hidden = true;
-    host.innerHTML = "";
-    host.dataset.sig = "";
+    dock.innerHTML = `<p class="tvd-empty">${esc(I18N.t("status.no_positions"))}</p>`;
+    dock.dataset.sig = "";
     return;
   }
-  if (host) host.hidden = false;
 
-  const collapsed = localStorage.getItem(LS_CHART_POS) === "1";
   const sig = pos.map((r) => `${r.ticket}:${r.sl}:${r.tp}:${r.profit}:${r.volume}`).join("|")
-    + "#" + ord.map((r) => `${r.ticket}:${r.price}:${r.sl}:${r.tp}`).join("|")
-    + "#" + (collapsed ? "c" : "o");
-  /* Both hosts are gated together: the dock pane is built from the same
-     rows, so if neither has fallen behind there is nothing to redraw. */
-  const fresh = (!host || host.dataset.sig === sig) && (!dock || dock.dataset.sig === sig);
-  if (fresh) return;
-
-  const net = pos.reduce((a, r) => a + (Number(r.profit) || 0), 0);
-  const netTxt = (net > 0 ? "+" : "") + fmt(net, 2);
-  const summary = `<button type="button" class="tv-pos-sum" data-pos-toggle
-      aria-expanded="${!collapsed}" aria-controls="tv-pos-body"
-      title="${esc(I18N.t(collapsed ? "chart.pos_expand" : "chart.pos_collapse"))}">
-      <span class="tv-pos-n">${pos.length}${ord.length ? `<em>+${ord.length}</em>` : ""}</span>
-      <span class="tv-pos-net mono ${clsPnl(net)}">${esc(netTxt)}</span>
-      ${icon("chevron")}
-    </button>`;
+    + "#" + ord.map((r) => `${r.ticket}:${r.price}:${r.sl}:${r.tp}`).join("|");
+  if (dock.dataset.sig === sig) return;
 
   const row = (r) => {
     const dir = String(r.type || "").toLowerCase().includes("sell") ? "sell" : "buy";
@@ -10010,34 +10007,13 @@ function paintChartPositions(pos, ord) {
 
   const rows = ord.map(restRow).join("") + pos.map(row).join("");
 
-  if (host) {
-    host.dataset.sig = sig;
-    host.className = "tv-pos" + (collapsed ? " is-collapsed" : "");
-    host.innerHTML = summary
-      + `<div class="tv-pos-body" id="tv-pos-body"${collapsed ? " hidden" : ""}>`
-      + rows
-      + `</div>`;
-
-    const tog = host.querySelector("[data-pos-toggle]");
-    if (tog) tog.onclick = () => {
-      const now = localStorage.getItem(LS_CHART_POS) === "1";
-      localStorage.setItem(LS_CHART_POS, now ? "0" : "1");
-      host.dataset.sig = "";            // force the next paint to redraw
-      paintChartPositions(pos, ord);
-    };
-    bindCloseButtons(host);
-    bindCancelButtons(host);
-  }
-
   /* The same rows in the side panel. No summary pill and no collapse:
      the dock is already a place the trader opened on purpose, and the
      count lives on its tab. */
-  if (dock) {
-    dock.dataset.sig = sig;
-    dock.innerHTML = `<div class="tv-pos-body tvd-pos-list">${rows}</div>`;
-    bindCloseButtons(dock);
-    bindCancelButtons(dock);
-  }
+  dock.dataset.sig = sig;
+  dock.innerHTML = `<div class="tv-pos-body tvd-pos-list">${rows}</div>`;
+  bindCloseButtons(dock);
+  bindCancelButtons(dock);
 }
 
 /** Cancel a resting order the robot planted but that has not filled. */
@@ -11242,6 +11218,13 @@ async function boot() {
      later. On the rare occasion the words actually changed - a new build
      with new strings - redraw rather than leave the trader on yesterday's
      labels until they navigate. */
+  /* AurionTheme fires this whenever it rewrites the colour variables -
+     a different theme, an edited colour, a reset. Nothing was listening,
+     so the canvases never learned their palette had moved. */
+  window.addEventListener("aurion:theme", () => {
+    try { refreshChartPalette(); } catch (e) { /* never break the desk over paint */ }
+  });
+
   window.addEventListener("aurion:i18n", () => {
     try { repaintForLanguage(); } catch (e) { /* not worth breaking the desk */ }
   });

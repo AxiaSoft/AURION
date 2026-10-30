@@ -493,16 +493,6 @@
             <canvas id="cv-desk"></canvas>
             <div class="tv-hint" id="tv-hint" hidden></div>
             <div class="tv-style" id="tv-style" hidden></div>
-            <!-- Open trades, on the chart rather than behind a tab.
-
-                 They used to live only in the dock's Trade pane, which
-                 is shut by default on a phone: a trader with money in
-                 the market could look straight at the chart and see no
-                 sign of it. This sits in the corner, collapses to a
-                 single summary pill, and is anchored away from the
-                 zoom controls so it covers neither them nor the price
-                 action. -->
-            <div class="tv-pos" id="tv-pos" hidden></div>
             <div class="tv-nav">
               <button type="button" class="tv-round" id="tv-zin" title="${esc(tt("draw.zoom_in", "Zoom in"))} (+)">${svg(I.zoomIn)}</button>
               <button type="button" class="tv-round" id="tv-zout" title="${esc(tt("draw.zoom_out", "Zoom out"))} (−)">${svg(I.zoomOut)}</button>

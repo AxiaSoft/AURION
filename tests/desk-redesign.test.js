@@ -292,31 +292,27 @@ if (!jsdom) {
 
     /* ---- 2. positions on the EA chart -------------------------------- */
 
-    check("the EA chart has a place for open trades outside the dock", () => {
-      /* They used to live only in the dock's Trade pane, which is shut
-         by default on a phone. */
-      if (!/id="tv-pos"/.test(chartJs)) throw new Error("no on-chart positions host");
-      const stage = /<div class="chart-box" id="tv-chartbox">[\s\S]*?<div class="tv-nav">/.exec(chartJs);
-      if (!stage || !/id="tv-pos"/.test(stage[0])) {
-        throw new Error("the panel is not inside the chart stage");
-      }
+    check("there is no second open-trades panel floating over the chart", () => {
+      /* There were two places showing the same book: a panel anchored
+         over the chart and the dock's own pane. Asked for the overlay
+         to go and the single container to stay. This guards the
+         removal - the markup, the painter and the stylesheet. */
+      if (/id="tv-pos"/.test(chartJs)) throw new Error("the on-chart panel is back in the markup");
+      if (/\.tv-pos\{/.test(chartCss)) throw new Error("the on-chart panel's rule is back");
+      if (/tv-pos-sum/.test(appJs)) throw new Error("the floating summary pill is back");
+      if (!/id="tvd-pos"/.test(chartJs)) throw new Error("the dock container went too");
     });
 
-    const mountPos = () => {
-      const host = win.document.createElement("div");
-      host.id = "tv-pos";
-      host.hidden = true;
-      win.document.body.appendChild(host);
-      return host;
-    };
-    [...win.document.querySelectorAll("#tv-pos")].forEach((n) => n.remove());
-    const posHost = mountPos();
+    [...win.document.querySelectorAll("#tvd-pos")].forEach((n) => n.remove());
+    const posHost = win.document.createElement("div");
+    posHost.id = "tvd-pos";
+    win.document.body.appendChild(posHost);
 
-    check("the panel appears only when something is actually open", () => {
+    check("the one container says so when nothing is open", () => {
       T.paintChartPositions([], []);
-      if (!posHost.hidden) throw new Error("an empty panel sits over the chart");
-      T.paintChartPositions(basePos, []);
-      if (posHost.hidden) throw new Error("the panel stayed hidden with two trades open");
+      if (!/tvd-empty/.test(posHost.innerHTML)) {
+        throw new Error("an empty book leaves the container blank");
+      }
     });
 
     check("each open trade is a row, and shows what it is making", () => {
@@ -333,10 +329,12 @@ if (!jsdom) {
     check("a profit reads as a gain and a loss as a loss", () => {
       T.paintChartPositions(basePos, []);
       const rows = [...posHost.querySelectorAll(".tv-pos-row")];
-      const up = rows[0].querySelector(".tv-pos-pl");
-      const down = rows[1].querySelector(".tv-pos-pl");
-      if (!up.className.includes("up")) throw new Error("+12.40 is not marked as a gain");
-      if (!down.className.includes("down")) throw new Error("-4.20 is not marked as a loss");
+      if (!rows[0].querySelector(".tv-pos-pl").className.includes("up")) {
+        throw new Error("+12.40 is not marked as a gain");
+      }
+      if (!rows[1].querySelector(".tv-pos-pl").className.includes("down")) {
+        throw new Error("-4.20 is not marked as a loss");
+      }
     });
 
     check("the direction of each trade is distinguishable", () => {
@@ -346,62 +344,29 @@ if (!jsdom) {
       if (!rows[1].classList.contains("is-sell")) throw new Error("the sell is not marked");
     });
 
-    check("the summary totals the open trades rather than listing them twice", () => {
-      T.paintChartPositions(basePos, []);
-      const sum = posHost.querySelector(".tv-pos-sum");
-      if (!sum) throw new Error("no summary");
-      if (sum.querySelector(".tv-pos-n").textContent.trim() !== "2") throw new Error("the count is wrong");
-      const net = sum.querySelector(".tv-pos-net").textContent.trim();
-      if (net !== "+8.2") throw new Error("net reads " + net + ", expected +8.2 (12.4 - 4.2)");
-    });
-
     check("a resting order is not counted as an open position", () => {
       /* It has not filled; showing it as exposure would overstate the
          position, and it needs a cancel rather than a close. */
       const ord = [{ ticket: 9, symbol: "EURUSD", type: "buy_limit", volume: 0.1, price: 1.07, sl: 1.06, tp: 1.09 }];
       T.paintChartPositions(basePos, ord);
-      const sum = posHost.querySelector(".tv-pos-sum");
-      if (sum.querySelector(".tv-pos-n").textContent.replace(/\s/g, "") !== "2+1") {
-        throw new Error("the summary reads " + JSON.stringify(sum.querySelector(".tv-pos-n").textContent));
-      }
       const resting = posHost.querySelector(".tv-pos-row.is-resting");
       if (!resting) throw new Error("the resting order is not marked as waiting");
       if (resting.querySelector("[data-close]")) throw new Error("a resting order offers a close");
       if (!resting.querySelector("[data-cancel]")) throw new Error("a resting order offers no cancel");
     });
 
-    check("it can be collapsed out of the way and stays collapsed", () => {
-      T.paintChartPositions(basePos, []);
-      const sum = posHost.querySelector(".tv-pos-sum");
-      if (posHost.querySelector(".tv-pos-body").hidden) throw new Error("it started collapsed");
-      sum.dispatchEvent(new win.MouseEvent("click", { bubbles: true }));
-      if (!posHost.querySelector(".tv-pos-body").hidden) throw new Error("clicking the summary did not collapse it");
-      /* A fresh paint, as a snapshot would trigger, must respect it. */
-      T.paintChartPositions(basePos, []);
-      if (!posHost.querySelector(".tv-pos-body").hidden) throw new Error("the next repaint re-opened it");
-      posHost.querySelector(".tv-pos-sum").dispatchEvent(new win.MouseEvent("click", { bubbles: true }));
-      if (posHost.querySelector(".tv-pos-body").hidden) throw new Error("it could not be reopened");
-    });
-
-    check("the summary still shows the total while collapsed", () => {
-      /* Collapsing must not hide the fact that money is at risk. */
-      T.paintChartPositions(basePos, []);
-      posHost.querySelector(".tv-pos-sum").dispatchEvent(new win.MouseEvent("click", { bubbles: true }));
-      const sum = posHost.querySelector(".tv-pos-sum");
-      if (sum.hidden) throw new Error("the summary was hidden too");
-      if (!/8\.2/.test(sum.textContent)) throw new Error("the net is not visible when collapsed");
-      if (sum.getAttribute("aria-expanded") !== "false") throw new Error("the collapsed state is not announced");
-      sum.dispatchEvent(new win.MouseEvent("click", { bubbles: true }));
-    });
-
-    check("the on-chart panel is anchored clear of the zoom controls", () => {
-      /* Standing instruction: positions must not get in the way of the
-         buttons or the chart. The nav sits bottom-end, so this sits
-         bottom-start and leaves room for it. */
-      const rule = /\.tv-pos\{[^}]*\}/.exec(chartCss);
-      if (!rule) throw new Error("no .tv-pos rule");
-      if (!/inset-inline-start:/.test(rule[0])) throw new Error("the panel is not anchored to the start edge");
-      if (!/max-width:min\(/.test(rule[0])) throw new Error("the panel can grow across the whole chart");
+    check("the dock tab still carries the count while the pane is shut", () => {
+      /* With the overlay gone this badge is the only sign of an open
+         trade when the dock is closed, so it matters more than before. */
+      const badge = win.document.createElement("span");
+      badge.id = "tvd-pos-n";
+      win.document.body.appendChild(badge);
+      T.paintChartPositions(basePos, [{ ticket: 9, type: "buy_limit", volume: 0.1, price: 1.07 }]);
+      if (badge.textContent !== "3") throw new Error("the badge reads " + badge.textContent);
+      if (badge.hidden) throw new Error("the badge is hidden with trades open");
+      T.paintChartPositions([], []);
+      if (!badge.hidden) throw new Error("the badge lingers with an empty book");
+      badge.remove();
     });
 
     /* ---- 5. the AI page ---------------------------------------------- */
@@ -714,10 +679,10 @@ check("every rebuilt section has narrow-screen rules", () => {
   if (missing.length) throw new Error("no phone rules for: " + missing.join(", "));
 });
 
-check("the on-chart positions panel sheds detail rather than overflowing", () => {
+check("the positions list sheds detail rather than overflowing on a phone", () => {
   const flat = chartCss.replace(/\s*\n\s*/g, "");
   if (!/@media\s*\(max-width:620px\)\{[^@]*\.tv-pos-lv,\.tv-pos-at\{display:none\}/.test(flat)) {
-    throw new Error("the panel keeps all six columns on a phone");
+    throw new Error("the list keeps all six columns on a phone");
   }
 });
 
