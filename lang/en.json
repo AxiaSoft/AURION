@@ -1026,6 +1026,7 @@
     "view_month": "Month",
     "view_agenda": "Agenda",
     "agenda_none": "No news events recorded for this month.",
+    "agenda_away": "The list shows today only. Today is not in the month you are looking at - use Today in the header to come back to it.",
     "day_events": "{n} events",
     "month_events_short": "events this month",
     "jalali": "Jalali",

@@ -355,12 +355,22 @@ async function boot(viewport, hover) {
   const p = await boot(390, false);
   ok(p.errs.length === 0, "the calendar boots clean on a phone", p.errs.join(" | ") || "no errors");
   ok(p.Cal.effectiveMode() === "agenda", "a phone opens on the agenda, not a 7-column grid");
+  /* The list is today, and only today.
+     It used to be every day of the month that carried an event, in date
+     order - which on a busy month was forty sections to scroll through to
+     reach the one day that mattered. The month grid already answers "what
+     is coming"; the list answers "what is on today". Yesterday is over,
+     and tomorrow has a cell of its own.
+     The fixture puts four events on today and one on tomorrow, so this
+     also proves the neighbouring day is excluded rather than merely
+     sorted to the bottom. */
   const days = p.doc.querySelectorAll(".cal-ag-day");
-  ok(days.length >= 2, "the agenda lists every day that has news", `${days.length} days`);
-  const order = [...days].map((x) => x.dataset.day);
-  ok(order.join() === [...order].sort().join(), "the agenda is in date order", order.join(" "));
-  ok(p.doc.querySelectorAll(".cal-agenda .cal-ev").length === 5,
-    "every event of the month is listed",
+  ok(days.length === 1, "the list shows exactly one day", `${days.length} days`);
+  const todayKey = p.Cal._dayKey(Date.now());
+  ok(days[0] && days[0].dataset.day === todayKey,
+    "...and the day it shows is today", `${days[0]?.dataset.day} vs ${todayKey}`);
+  ok(p.doc.querySelectorAll(".cal-agenda .cal-ev").length === 4,
+    "every one of today's events is listed, and no other day's",
     String(p.doc.querySelectorAll(".cal-agenda .cal-ev").length));
   /* A touch device must never be given a card it cannot dismiss. */
   ok(!p.doc.getElementById("cal-tip"), "no hover tooltip is created on a touch device");

@@ -390,5 +390,134 @@ check("the explanation is translated everywhere, and says what is still allowed"
   return en.length + " chars";
 });
 
+/* ================================================ 2. the calendar's heights */
+
+const calJs = read("apps/web/js/calendar.js");
+
+check("the list shows today, and only today", () => {
+  const i = calJs.indexOf("_agenda(cells) {");
+  const fn = calJs.slice(i, calJs.indexOf("_dayPanel(key)", i));
+  if (!/const todayKey = this\._dayKey\(Date\.now\(\)\)/.test(fn)) {
+    throw new Error("the list no longer works out what today is");
+  }
+  if (!/\.filter\(\(d\) => d\.key === todayKey\)/.test(fn)) {
+    throw new Error("the list is not filtered down to today");
+  }
+  if (/\.filter\(\(d\) => d\.evs\.length\)/.test(fn)) {
+    throw new Error("it is still rendering every day of the month that has events");
+  }
+  return "one day";
+});
+
+check("browsing to another month says so rather than showing an empty box", () => {
+  const i = calJs.indexOf("_agenda(cells) {");
+  const fn = calJs.slice(i, calJs.indexOf("_dayPanel(key)", i));
+  if (!/calendar\.agenda_away/.test(fn)) throw new Error("no message for a month without today in it");
+  for (const lang of ["en", "fa", "ar"]) {
+    const d = JSON.parse(read("lang/" + lang + ".json"));
+    if (!d.calendar || !d.calendar.agenda_away) throw new Error("calendar.agenda_away missing from " + lang);
+  }
+  return "translated in three";
+});
+
+check("the month view's side list can no longer outgrow the page", () => {
+  const body = exact(appCss, ".cal-day");
+  if (/max-height:\s*none/.test(body)) throw new Error("it is still explicitly uncapped");
+  if (!/max-block-size:\s*min\(/.test(body)) throw new Error("no ceiling on the side list: " + body.trim());
+  return (body.match(/max-block-size:[^;]*/) || [""])[0];
+});
+
+check("the side list scrolls its events, not its heading", () => {
+  /* Scrolling the whole card would take the date out of view, and then
+     a list of times means nothing. */
+  const evs = rule(appCss, ".cal-day .cal-evs");
+  if (!/overflow:\s*auto/.test(evs)) throw new Error("the events do not scroll");
+  if (!/min-block-size:\s*0/.test(evs)) throw new Error("a flex child without min-size:0 will not shrink to scroll");
+  const card = exact(appCss, ".cal-day");
+  if (!/display:\s*flex/.test(card)) throw new Error("the card is not a flex column, so the cap cannot reach the list");
+  return "heading pinned";
+});
+
+check("the list itself has a backstop too", () => {
+  const body = exact(appCss, ".cal-agenda");
+  if (!/max-block-size:/.test(body) || !/overflow:\s*auto/.test(body)) {
+    throw new Error("one holiday with thirty releases would still run off the screen");
+  }
+  return "capped";
+});
+
+/* ================================================ 8. the prop-risk numbers */
+
+check("the prop page really does mix input types in one grid", () => {
+  /* The premise: if they were all type=number there would be nothing to
+     reconcile and these rules would be noise. */
+  const i = appJs.indexOf("function propNum");
+  if (i < 0) throw new Error("propNum is gone");
+  if (!/type="number"/.test(appJs.slice(i, i + 900))) throw new Error("propNum stopped using type=number");
+  const j = appJs.indexOf("function propTime");
+  if (!/type="time"/.test(appJs.slice(j, j + 2600))) throw new Error("propTime stopped using type=time");
+  return "number + time";
+});
+
+check("every value sits at the same height, by height and not by floor", () => {
+  const body = rule(appCss, '.prop-fields .field input[type="number"]');
+  if (/^[\s\S]*$/.test(body) && !/block-size:var\(--ctl-h\)/.test(body)) {
+    throw new Error("still only a minimum height: " + body.trim());
+  }
+  if (!/line-height:/.test(body)) throw new Error("no shared line-height, so each type seats its own way");
+  if (!/padding-block:\s*0/.test(body)) throw new Error("vertical padding can still shift a value off the line");
+  return "fixed block-size + line-height";
+});
+
+check("every value sits at the same side", () => {
+  const body = rule(appCss, '.prop-fields .field input[type="number"]');
+  if (!/text-align:start/.test(body)) throw new Error("no shared alignment");
+  if (!/direction:ltr/.test(appCss.slice(appCss.indexOf(".prop-fields .field input[type=\"number\"],\n.prop-fields .field input[type=\"time\"]")))) {
+    throw new Error("the digits are not laid out left to right");
+  }
+  if (!appCss.includes('html[dir="rtl"] .prop-fields .field input[type="number"]')) {
+    throw new Error("nothing re-seats the value on an RTL desk, which is where it was reported");
+  }
+  return "ltr digits, page-start seat";
+});
+
+check("a column of numbers lines up digit for digit", () => {
+  const body = rule(appCss, '.prop-fields .field input[type="number"]');
+  if (!/font-variant-numeric:tabular-nums/.test(body)) {
+    throw new Error("proportional figures make a ragged column out of an aligned one");
+  }
+  return "tabular-nums";
+});
+
+check("the spinner arrows are gone from the risk limits", () => {
+  if (!/\.prop-fields input\[type="number"\]::-webkit-inner-spin-button/.test(appCss)) {
+    throw new Error("the webkit spinners survive, and they eat inline-end space unevenly");
+  }
+  if (!/\.prop-fields input\[type="number"\]\{[^}]*appearance:textfield/.test(appCss)) {
+    throw new Error("no appearance:textfield, so Firefox keeps its spinner");
+  }
+  return "both engines";
+});
+
+check("the settings are laid out as tiles", () => {
+  const body = exact(appCss, ".pr-grid .field");
+  if (!/border-radius:/.test(body) || !/background:/.test(body) || !/border:/.test(body)) {
+    throw new Error("the fields have no surface of their own: " + body.trim());
+  }
+  return "surface + edge + radius";
+});
+
+check("the tiles did not break the row alignment that was already there", () => {
+  /* There is a deliberate four-row grid making every input in a row land
+     on the same line whatever the labels above them do. Giving the field
+     a padding box must not disturb it. */
+  const body = exact(appCss, ".pr-grid .field");
+  if (!/grid-template-rows:auto 1fr auto auto/.test(body)) {
+    throw new Error("the four-row alignment grid was overwritten: " + body.trim());
+  }
+  if (!/block-size:100%/.test(body)) throw new Error("the fields no longer fill their cell");
+  return "still a four-row grid";
+});
+
 console.log(fails ? "\nappearance-fixes: " + fails + " FAILED" : "\nappearance-fixes: all checks passed");
 process.exit(fails ? 1 : 0);

@@ -353,19 +353,33 @@ const Calendar = {
 
   /* ------------------------------------------------------------ agenda */
 
-  /** Every day of the month that has events, in order. */
+  /**
+   * Today. Only today.
+   *
+   * The list used to be every day of the month that carried an event,
+   * which on a busy month was forty sections and several screens of
+   * scrolling - and the day a trader actually needs was somewhere in the
+   * middle of it. The month grid is already the "what is coming" view and
+   * it does that better than a list can. The list answers one question:
+   * what is on today. Yesterday is over and tomorrow has its own cell.
+   *
+   * When the month being browsed is not the one today falls in there is
+   * nothing to show, so it says so and points at the Today button in the
+   * header rather than quietly rendering an empty box.
+   */
   _agenda(cells) {
     const t = (k, v) => I18N.t(k, v);
+    const todayKey = this._dayKey(Date.now());
     const days = cells
       .filter((c) => c.inMonth)
       .map((c) => ({ c, key: this._dayKey(c.ms), evs: this.byDay.get(this._dayKey(c.ms)) || [] }))
-      .filter((d) => d.evs.length);
-    if (!days.length) {
+      .filter((d) => d.key === todayKey);
+    const away = !days.length;
+    if (away || !days[0].evs.length) {
       return `<div class="cal-agenda is-empty">
-        <p class="cal-none">${esc(t("calendar.agenda_none"))}</p>
+        <p class="cal-none">${esc(t(away ? "calendar.agenda_away" : "calendar.agenda_none"))}</p>
       </div>`;
     }
-    const todayKey = this._dayKey(Date.now());
     return `<div class="cal-agenda" id="cal-agenda">
       ${days.map(({ c, key, evs }) => {
         const p = c.primary;

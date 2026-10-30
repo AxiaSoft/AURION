@@ -1919,7 +1919,10 @@ input[type=range]{width:100%;accent-color:var(--cyan);height:28px;cursor:pointer
 .dot.i-holiday{background:rgb(var(--wash) / .45)}
 
 /* agenda ---------------------------------------------------------- */
-.cal-agenda{display:flex;flex-direction:column;gap:8px}
+/* One day's worth, so the cap is a backstop rather than the usual case:
+   a public holiday with thirty releases on it must not push the legend
+   and the rest of the page off the screen. */
+.cal-agenda{display:flex;flex-direction:column;gap:8px;max-block-size:min(72vh,640px);overflow:auto}
 .cal-agenda.is-empty{padding:28px 12px;text-align:center}
 .cal-ag-day{border:1px solid rgb(var(--wash) / .08);border-radius:14px;overflow:hidden;
   background:rgb(var(--wash) / .02);cursor:pointer;transition:border-color .15s ease}
@@ -1959,7 +1962,19 @@ input[type=range]{width:100%;accent-color:var(--cyan);height:28px;cursor:pointer
 .cal-ev.i-low .cal-ev-imp{color:var(--ok);background:rgb(var(--accent-rgb) / .12)}
 
 /* day panel ------------------------------------------------------- */
-.cal-day{padding:14px;max-height:none}
+/* The side list was explicitly uncapped. A day carrying a dozen releases
+   then made this column taller than the month grid beside it, and the
+   page had to be scrolled past the whole calendar to get back out of it -
+   on the view whose entire job is to be glanced at. It gets a sensible
+   ceiling and the EVENTS scroll inside it; the date and the three
+   calendar systems are pinned, because they are what tells you which day
+   you are looking at. */
+.cal-day{
+  padding:14px;
+  display:flex; flex-direction:column; min-block-size:0;
+  max-block-size:min(72vh,640px);
+}
+.cal-day .cal-evs{ overflow:auto; min-block-size:0; padding-inline-end:4px }
 .cal-dp-main{margin:0 0 8px;font-size:1rem;font-weight:650}
 .cal-dp-sys{display:flex;flex-wrap:wrap;gap:6px 14px;margin:0 0 10px;padding:0 0 10px;
   border-bottom:1px solid rgb(var(--wash) / .08)}
@@ -3800,6 +3815,15 @@ html[dir="rtl"] .ai-h{letter-spacing:0;text-transform:none}
   grid-template-rows:auto 1fr auto auto;
   gap:6px;
   block-size:100%;
+  /* Tiles, rather than a wall of loose labels: each setting gets a
+     surface of its own, so the eye has an edge to follow down a column
+     of twenty of them and the grid reads as laid out rather than
+     scattered. The four rows above are untouched - the padding box sits
+     outside them, so every input in a row still lands on one line. */
+  padding:11px 12px;
+  border-radius:12px;
+  background:rgb(var(--wash) / .03);
+  border:1px solid var(--line);
 }
 .pr-grid .field > span:first-child{ grid-row:1; align-self:start; line-height:1.3 }
 .pr-grid .field > .num-wrap{ grid-row:3 }
@@ -3823,6 +3847,51 @@ html[dir="rtl"] .ai-h{letter-spacing:0;text-transform:none}
 .unit-note{
   display:inline; font-style:normal; font-size:10.5px; opacity:.72;
   margin-inline-start:5px; white-space:nowrap;
+}
+
+/* ------------------------------------------------------------------
+   The number inside the box
+
+   The boxes were already lined up with each other (the four-row grid
+   above). What was not lined up was their CONTENTS. Three input types
+   share these grids - number, time and text - and each seats its value
+   its own way: a number is centred in whatever height the box happens
+   to end up, a time control is a row of segments with its own metrics,
+   and the browser reserves inline-end room for spinner arrows on some
+   fields and not on others. Read down a column and the digits sat at
+   three different heights, none of them quite at the start of the box.
+
+   So: a height rather than a floor, one line-height for all of them,
+   one text alignment, and tabular figures so a column of numbers is a
+   column rather than a ragged edge. The spinners go with them. They are
+   a poor control for a risk limit - 0.1% and 1% of an account are not
+   one click apart - and they are the easiest thing on the page to catch
+   by accident while scrolling it.
+   ------------------------------------------------------------------ */
+.prop-fields .field input[type="number"],
+.prop-fields .field input[type="text"],
+.prop-fields .field input[type="time"],
+.prop-fields .field select{
+  block-size:var(--ctl-h);
+  min-block-size:var(--ctl-h);
+  line-height:calc(var(--ctl-h) - 2px);
+  padding-block:0;
+  text-align:start;
+  font-variant-numeric:tabular-nums;
+}
+/* A quantity reads left to right in every language the desk speaks, so
+   the digits are laid out LTR - but the box they sit in follows the
+   page, which is why they hug the far edge on a Persian desk unless
+   they are told otherwise. Direction and alignment are set separately
+   for exactly that reason: correct digit order, consistent seat. */
+.prop-fields .field input[type="number"],
+.prop-fields .field input[type="time"]{ direction:ltr }
+html[dir="rtl"] .prop-fields .field input[type="number"],
+html[dir="rtl"] .prop-fields .field input[type="time"]{ text-align:end }
+.prop-fields input[type="number"]{ -moz-appearance:textfield; appearance:textfield }
+.prop-fields input[type="number"]::-webkit-outer-spin-button,
+.prop-fields input[type="number"]::-webkit-inner-spin-button{
+  -webkit-appearance:none; appearance:none; margin:0;
 }
 
 .pr-checks{
