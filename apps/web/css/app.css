@@ -442,7 +442,6 @@ html[dir="rtl"] .switch.on i{transform:translate(calc(var(--sw-travel) * -1),-50
    Left in, it made the strategy banner sit further from the cards below it
    than those cards sit from each other. */
 .card.auto-banner{margin-bottom:0}
-.manual-box{margin-top:16px;padding-top:12px;border-top:1px solid var(--line)}
 .tabs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px}
 .tabs button{
   border:1px solid var(--line);background:transparent;color:var(--muted);
@@ -1039,6 +1038,40 @@ tr:hover td{background:rgb(var(--wash) / .02)}
 }
 
 .kv{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px 12px;font-size:13px;min-width:0}
+
+/* ------------------------------------------------------------------
+   Execution - rebuilt
+
+   One card used to hold the robot's arming switch, a signal readout,
+   "close every position at market" and a full order ticket. Four
+   jobs, one box, and the destructive one in the middle of it.
+   ------------------------------------------------------------------ */
+.exx-cols{
+  display:grid; gap:14px; align-items:start;
+  grid-template-columns:repeat(auto-fit, minmax(340px, 1fr));
+}
+
+/* "MetaTrader is not connected" means nothing on this page can trade.
+   It was a grey footnote under the fold. It leads now. */
+.exx-off{
+  margin:0 0 14px; padding:12px 14px; border-radius:var(--radius-lg);
+  border:1px solid rgb(var(--bad) / .35);
+  background:rgb(var(--bad) / .08);
+  color:var(--ink); font-size:13px;
+}
+
+.exx-send{margin-block-start:10px; gap:8px; flex-wrap:wrap}
+
+/* The emergency zone. Last on the page, alone, and fenced, because
+   it closes every open position at market with no undo. The border
+   is the point - nothing you reach for by habit is inside it. */
+.exx-danger{
+  margin-block-start:18px;
+  border:1px solid rgb(var(--bad) / .4);
+  background:linear-gradient(180deg, rgb(var(--bad) / .06), rgb(var(--s4) / .5));
+}
+.exx-danger .pfx-head h3{color:var(--bad)}
+.exx-danger .btn.danger{min-inline-size:min(100%, 260px)}
 .kv span{color:var(--muted);overflow-wrap:anywhere}
 .kv b{min-width:0;text-align:end}
 .bar{height:6px;border-radius:99px;background:rgb(var(--wash) / .06);overflow:hidden}

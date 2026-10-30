@@ -492,7 +492,11 @@
     "clear_tp": "Clear TP",
     "close_title": "Close position",
     "close_confirm": "Close this position at the current market price?",
-    "close_confirm_one": "Close {what} at the current market price?"
+    "close_confirm_one": "Close {what} at the current market price?",
+    "orders": "Pending orders",
+    "danger": "Emergency",
+    "manual_why": "A ticket you send yourself. The robot is not involved.",
+    "danger_why": "Closes every open position on this account at market, now. There is no undo."
   },
   "charts": {
     "title": "EA chart agents",

@@ -130,7 +130,7 @@ if (!jsdom) {
     .map(read).join("\n;\n");
   let T = null;
   try {
-    win.eval(bundle + "\n;window.__T = { S, views, propStatusHtml, propFormHtml, analysisCardHtml, positionsStripHtml, paintChartPositions, patchLive, bindCloseButtons, API, setConfirm(f){ askConfirm = f; } };");
+    win.eval(bundle + "\n;window.__T = { S, views, I18N, propStatusHtml, propFormHtml, analysisCardHtml, positionsStripHtml, paintChartPositions, patchLive, bindCloseButtons, API, setConfirm(f){ askConfirm = f; } };");
     T = win.__T;
   } catch (e) {
     console.log("FAIL  the desk bundle loads\n      " + e.message);
@@ -803,6 +803,63 @@ if (!jsdom) {
       const n = (appCss.match(/^\.pfx-ava\s*\{/gm) || []).length;
       if (n !== 1) throw new Error(`.pfx-ava is declared ${n} times`);
       if (/^\.prof-ava\s*\{/m.test(appCss)) throw new Error("the old duplicated rule is still here");
+    });
+
+    /* ---- 2d. execution -------------------------------------------------- */
+
+    check("the pending-orders heading is not the words \"no pending orders\"", () => {
+      /* It was. The heading over the table was I18N.t("status.no_orders"),
+         so with two live orders the page announced "No pending orders"
+         and then listed two. */
+      const S2 = JSON.parse(JSON.stringify(T.S.snap || {}));
+      T.S.snap.orders = [{ ticket: 1, symbol: "EURUSD", type: "buy limit", volume: 0.1, price: 1.05 }];
+      let d;
+      try { d = frag(T.views.execution()); } finally { T.S.snap = S2; }
+      const empty = T.I18N.t("status.no_orders");
+      const heads = [...d.querySelectorAll("h3")].map((h) => h.textContent.trim());
+      if (heads.includes(empty)) throw new Error("the heading is still the empty-state sentence");
+      if (!heads.includes(T.I18N.t("exec.orders"))) throw new Error("the orders section lost its heading");
+    });
+
+    check("flatten-all is fenced off and last", () => {
+      /* Close every position at market, no undo. It used to sit in the
+         middle of the left card, directly above the manual buy/sell
+         buttons - one slip from the controls you use all day. */
+      const d = frag(T.views.execution());
+      const flat = d.querySelector("#ex-flat");
+      if (!flat) throw new Error("the emergency control vanished");
+      const zone = flat.closest(".exx-danger");
+      if (!zone) throw new Error("the emergency control is not in a marked-off zone");
+      const buy = d.querySelector("#ex-buy");
+      if (buy && buy.closest(".card") === zone) throw new Error("the manual ticket shares the danger zone");
+      /* Nothing interactive after it. */
+      const all = [...d.querySelectorAll("button, input, select")];
+      if (all.indexOf(flat) !== all.length - 1) throw new Error("something sits after the emergency control");
+    });
+
+    check("the disconnected notice leads instead of trailing", () => {
+      /* "MetaTrader is not connected" means nothing on this page can
+         trade at all. It was a grey <p class="sub"> at the bottom,
+         under the order ticket it invalidates. mt5Live() is true when
+         mt5.connected OR any agent is live, so both have to go. */
+      const keep = JSON.parse(JSON.stringify(T.S.snap || {}));
+      T.S.snap.mt5 = { connected: false };
+      T.S.snap.agents = [];
+      let d;
+      try { d = frag(T.views.execution()); } finally { T.S.snap = keep; }
+      const off = d.querySelector(".exx-off");
+      if (!off) throw new Error("no notice is shown while MetaTrader is down");
+      /* Not "above everything" - gateHtml() can put a licence gate
+         first, and that outranks it. Above the thing it invalidates:
+         the order ticket, and the rest of the page with it. */
+      const ticket = d.querySelector("#ex-buy").closest(".card");
+      /* DOCUMENT_POSITION_FOLLOWING = 4 */
+      if (!(off.compareDocumentPosition(ticket) & 4)) {
+        throw new Error("the notice sits below the ticket it invalidates");
+      }
+      if (!(off.compareDocumentPosition(d.querySelector(".exx-cols")) & 4)) {
+        throw new Error("the notice is not above the body of the page");
+      }
     });
 
     /* ---- 3. About ----------------------------------------------------- */

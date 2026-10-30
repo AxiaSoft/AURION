@@ -6268,28 +6268,52 @@ const views = {
     </div>`;
   },
   execution() {
+    /* Rebuilt. Two real bugs came out of this page, not just layout.
+
+       ONE: the heading over the pending-orders table was
+       I18N.t("status.no_orders") - the string "No pending orders".
+       So the moment you actually had orders, the page printed "No
+       pending orders" and then listed them underneath. It now has a
+       heading of its own.
+
+       TWO: "Flatten all" - close every live position at market, no
+       undo - sat in the MIDDLE of the left card, directly above the
+       manual buy/sell form. A destructive irreversible control was
+       one slip away from the controls you use all day. It is now
+       last on the page, alone, in its own marked-off zone.
+
+       The left card was also doing four unrelated jobs at once (the
+       robot's arming switch, a signal readout, the emergency button
+       and a whole order ticket) and the "MetaTrader is not
+       connected" line - which means nothing here can trade at all -
+       was a grey footnote at the bottom. It leads now. */
     const pos = S.snap?.positions || [];
     const orders = S.snap?.orders || [];
     const st = S.snap?.strategy || {};
     const armed = Boolean(st.auto_trade);
     const sig = S.snap?.last_signal;
-    return `<div class="cmd">${gateHtml()}<div class="grid g-2">
-      <div class="card">
-        <div class="auto-banner">
-          <div>
-            <h3 style="margin:0 0 6px">${I18N.t("exec.auto")}</h3>
-            <p class="sub">${armed ? I18N.t("exec.auto_on") : I18N.t("exec.auto_off")}</p>
-            <p class="sub">${I18N.t("exec.auto_hint")}</p>
+    const syms = liveSymbols().length;
+    const head = (title, why) => `<header class="pfx-head"><h3>${esc(title)}</h3>${
+      why ? `<p class="sub">${esc(why)}</p>` : ""}</header>`;
+    return `<div class="cmd exx">${gateHtml()}
+      ${mt5Live() ? "" : `<p class="exx-off">${I18N.t("errors.no_mt5")}</p>`}
+      <div class="exx-cols">
+        <section class="card">
+          <div class="auto-banner">
+            <div>
+              ${head(I18N.t("exec.auto"), armed ? I18N.t("exec.auto_on") : I18N.t("exec.auto_off"))}
+              <p class="sub">${I18N.t("exec.auto_hint")}</p>
+            </div>
+            ${switchHtml({ id: "ex-auto", on: armed, label: I18N.t("exec.auto") })}
           </div>
-          ${switchHtml({ id: "ex-auto", on: armed, label: I18N.t("exec.auto") })}
-        </div>
-        <div class="kv" id="live-signal">
-          <span>${I18N.t("exec.last_signal")}</span><b>${sig ? `${sig.action||"—"} ${sig.symbol||""}` : "—"}</b>
-          <span>${I18N.t("strategies.active")}</span><b>${st.name || I18N.t("strategies.none")}</b>
-        </div>
-        <button class="btn danger block" id="ex-flat" type="button" style="margin-top:14px">${I18N.t("exec.emergency")}</button>
-        <div class="manual-box">
-          <h3 style="margin:0 0 8px">${I18N.t("exec.manual")}</h3>
+          <div class="kv" id="live-signal">
+            <span>${I18N.t("exec.last_signal")}</span><b>${sig ? `${sig.action || "\u2014"} ${sig.symbol || ""}` : "\u2014"}</b>
+            <span>${I18N.t("strategies.active")}</span><b>${st.name || I18N.t("strategies.none")}</b>
+          </div>
+        </section>
+
+        <section class="card">
+          ${head(I18N.t("exec.manual"), I18N.t("exec.manual_why"))}
           <p class="sub">${I18N.t("exec.manual_hint")}</p>
           <div class="grid g-2">
             <label class="field"><span>${I18N.t("markets.symbol")}</span>${symbolFieldHtml("ex-sym", defaultSymbol())}</label>
@@ -6297,23 +6321,34 @@ const views = {
             <label class="field"><span>${I18N.t("exec.sl")}</span><input id="ex-sl" type="number" step="0.0001" value="" placeholder="0" /></label>
             <label class="field"><span>${I18N.t("exec.tp")}</span><input id="ex-tp" type="number" step="0.0001" value="" placeholder="0" /></label>
           </div>
-          <p class="sub" id="ex-ea-hint">${liveSymbols().length ? I18N.t("exec.pick_symbol") : I18N.t("exec.no_ea_symbol")}</p>
-          <div class="row" style="margin-top:8px">
-            <button class="btn" id="ex-buy" type="button"${liveSymbols().length ? "" : " disabled"}>${I18N.t("exec.buy")}</button>
-            <button class="btn danger" id="ex-sell" type="button"${liveSymbols().length ? "" : " disabled"}>${I18N.t("exec.sell")}</button>
+          <p class="sub" id="ex-ea-hint">${syms ? I18N.t("exec.pick_symbol") : I18N.t("exec.no_ea_symbol")}</p>
+          <div class="row exx-send">
+            <button class="btn" id="ex-buy" type="button"${syms ? "" : " disabled"}>${I18N.t("exec.buy")}</button>
+            <button class="btn danger" id="ex-sell" type="button"${syms ? "" : " disabled"}>${I18N.t("exec.sell")}</button>
           </div>
           <p class="sub" id="ex-msg"></p>
-        </div>
-        ${mt5Live()?"":`<p class="sub" style="margin-top:10px">${I18N.t("errors.no_mt5")}</p>`}
+        </section>
+
+        <section class="card">
+          ${head(I18N.t("command.positions"))}
+          <div id="live-exec-pos">${pos.length ? table(pos, ["ticket","symbol","type","volume","strategy","price_open","sl","tp","profit","profit_pct"], true) : emptyMini(I18N.t("status.no_positions"))}</div>
+        </section>
+
+        <section class="card">
+          <!-- This heading used to be the words "No pending orders",
+               printed directly above a table of pending orders. -->
+          ${head(I18N.t("exec.orders"))}
+          <div id="live-exec-ord">${orders.length ? table(orders, ["ticket","symbol","type","volume","price"]) : emptyMini(I18N.t("status.no_orders"))}</div>
+        </section>
       </div>
-      <div class="card">
-        <h3>${I18N.t("command.positions")}</h3>
-        <div id="live-exec-pos">${pos.length ? table(pos, ["ticket","symbol","type","volume","strategy","price_open","sl","tp","profit","profit_pct"], true) : emptyMini(I18N.t("status.no_positions"))}</div>
-        <h3 style="margin-top:16px">${I18N.t("status.no_orders")}</h3>
-        <div id="live-exec-ord">${orders.length ? table(orders, ["ticket","symbol","type","volume","price"]) : emptyMini(I18N.t("status.no_orders"))}</div>
-      </div>
-    </div>
-    ${robotPanelBox()}</div>`;
+      ${robotPanelBox()}
+      <!-- Last on the page, alone, and fenced. Nothing you reach for
+           by habit is anywhere near it. -->
+      <section class="card exx-danger">
+        ${head(I18N.t("exec.danger"), I18N.t("exec.danger_why"))}
+        <button class="btn danger" id="ex-flat" type="button">${I18N.t("exec.emergency")}</button>
+      </section>
+    </div>`;
   },
   charts() {
     if (S.chartFocus) {
