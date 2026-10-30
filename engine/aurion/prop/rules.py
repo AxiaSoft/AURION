@@ -296,7 +296,18 @@ class PropEngine:
     def metrics(self, account: dict[str, Any]) -> dict[str, Any]:
         equity = float(account.get("equity") or 0)
         balance = float(account.get("balance") or 0)
-        if equity <= 0 and balance <= 0:
+        # Prop off means prop is off. The daily P/L and the drawdown are
+        # measured against a prop profile's limits; with the guard
+        # disabled there is no limit to measure against, and computing
+        # them anyway meant the desk had two live percentages on the
+        # Command centre that nothing could act on and nothing would
+        # enforce. It also kept rolling a day baseline and a high-water
+        # mark in the background for a feature that was switched off.
+        #
+        # allow_order() already bypasses when disabled (see below), so
+        # these figures had no second reader. They are zero now, and the
+        # desk hides the panel rather than drawing two empty bars.
+        if not self.enabled or (equity <= 0 and balance <= 0):
             return {
                 "ready": False,
                 "locked": self.locked,

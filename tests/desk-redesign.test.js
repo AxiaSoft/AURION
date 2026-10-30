@@ -650,9 +650,14 @@ if (!jsdom) {
       if (!head) throw new Error("there is no masthead");
       if (!head.querySelector("#cmd-acc-type")) throw new Error("the account type left the masthead");
       if (!/Broker/.test(head.textContent)) throw new Error("the broker is no longer shown");
-      /* And the chart strip is folded in rather than being a card of
-         its own wrapped around a row of badges. */
-      if (!head.querySelector("#ea-strip")) throw new Error("the chart strip is still a separate card");
+      /* The masthead used to also carry an #ea-strip of attached-chart
+         badges. It has gone: it repeated, as pills, exactly what the
+         status area underneath already said in words, and it was the
+         widest thing in the masthead, so the equity figure - the one
+         number this page exists for - was pushed off the first line on
+         anything narrower than a desktop. The masthead is now identity
+         on one side and equity on the other, and nothing else. */
+      if (head.querySelector("#ea-strip")) throw new Error("the chart pill strip is back in the masthead");
     });
 
     check("the command centre keeps positions full width and the strategy list", () => {
@@ -715,7 +720,10 @@ if (!jsdom) {
       /* A heading that repeats the rail label tells you nothing twice. */
       const d = frag(T.views.settings());
       const blocks = [...d.querySelectorAll(".set-block")];
-      if (blocks.length < 9) throw new Error("only " + blocks.length + " sections");
+      /* Eight, not nine: the Strategies section was a second copy of
+         the Strategies page - same cards, same uploader, same element
+         ids - so whichever one rendered second won the ids. */
+      if (blocks.length !== 8) throw new Error(blocks.length + " sections, expected 8");
       for (const b of blocks) {
         const h = b.querySelector(".stx-head");
         if (!h) throw new Error(b.id + " has no section header");
@@ -876,25 +884,29 @@ if (!jsdom) {
       if (!/buildTag\(/.test(h[0])) throw new Error("the copied string has no build stamp");
     });
 
-    check("the About page leads with what it is and whether it is running", () => {
-      /* Rebuilt from scratch. It used to be an identity rail beside a
-         stack of cards, and this check pinned that shape. The shape is
-         not the point - the order is. A trader opens this page to find
-         out whether the system is up and what to paste into a support
-         message, and both of those now come before the reference
-         detail rather than after a logo and a blurb. */
+    check("the About page leads with what it is, and says nothing about state", () => {
+      /* Rebuilt twice. It was an identity rail beside a stack of cards;
+         then a banner, a six-chip live-state row, and a detail grid.
+         The state row has now gone too. It answered "is the engine up,
+         is MT5 connected, how many charts" - which is the Command
+         centre's entire job, answered there on the screen a trader
+         actually watches. Here it was a slower second copy, right only
+         while the page happened to be open.
+
+         What is left is what the page is uniquely for: what this build
+         is, and what to paste into a support message. */
       const d = frag(T.views.about());
       const hero = d.querySelector(".abx-hero");
       if (!hero) throw new Error("no banner");
       if (!hero.querySelector("#about-copy-ver")) {
         throw new Error("the support actions are not in the banner");
       }
-      if (!d.querySelector(".abx-state")) throw new Error("no live state row");
+      if (d.querySelector(".abx-state")) throw new Error("the live state row is back");
       if (!d.querySelector(".abx-cols")) throw new Error("no detail grid");
       const html = T.views.about();
-      const order = ["abx-hero", "abx-state", "abx-cols"].map((c) => html.indexOf(c));
-      if (order.some((i) => i < 0) || order[0] > order[1] || order[1] > order[2]) {
-        throw new Error("the page is not in the order banner, state, detail");
+      const order = ["abx-hero", "abx-cols"].map((c) => html.indexOf(c));
+      if (order.some((i) => i < 0) || order[0] > order[1]) {
+        throw new Error("the page is not in the order banner, detail");
       }
     });
   }

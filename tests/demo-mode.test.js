@@ -199,7 +199,20 @@ async function main() {
     /EURUSD/.test(txt()) && /XAUUSD/.test(txt()) && /US500/.test(txt()),
     `${rows.length} table rows`);
 
-  check("the AI panel is populated", /63%/.test(txt()));
+  /* The AI reading used to be asserted here, on the Command centre,
+     because a "live outlook" slider sat at the top of it. That slider
+     is gone - it printed one bias with a confidence percentage and no
+     symbol beside it, which on a desk with four charts attached was
+     ambiguous in a direction a visitor could act on. The per-chart
+     version in Intelligence says which symbol it means, so that is
+     where the demo has to prove the AI produced something. */
+  const navIntel = Array.from(window.document.querySelectorAll("nav a, nav button, [data-view]"))
+    .find((el) => /intelligence|هوش/i.test(el.textContent || ""));
+  check("the intelligence view is reachable", Boolean(navIntel),
+    navIntel ? (navIntel.textContent || "").trim().slice(0, 24) : "no nav entry");
+  if (navIntel) { navIntel.click(); await sleep(800); }
+  check("the AI panel is populated", /\d+%/.test(txt()),
+    (txt().match(/\d+%/g) || []).slice(0, 3).join(" "));
 
   // Premium. Everything the licence gates must be open, or the demo is a
   // tour of padlocks.

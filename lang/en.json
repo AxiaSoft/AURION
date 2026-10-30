@@ -615,7 +615,10 @@
     "why_notify": "Which events make a sound, and how loud.",
     "why_telegram": "Send trade events to a Telegram chat. Read-only — it cannot place orders.",
     "why_update": "Which build you are on, and whether to fetch new ones automatically.",
-    "why_system": "Licence, language, time zone, and the controls that restart or reset the desk."
+    "why_system": "Licence, language, time zone, and the controls that restart or reset the desk.",
+    "search": "Search settings",
+    "search_none": "Nothing matches",
+    "search_n": "{n} of {t}"
   },
   "style": {
     "title": "Trade model",

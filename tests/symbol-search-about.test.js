@@ -407,78 +407,44 @@ if (!jsdom) {
       }
     });
 
-    check("the state of the desk is shown at a glance, not buried in a list", () => {
-      /* Rebuilt page: the six state tiles became one row of chips, high
-         up, above the reference detail. The shape changed; the promise
-         did not - six answers, each with a name and a value, without
-         scrolling or reading a table. */
+    check("the page reports no live desk state", () => {
+      /* It used to open with six chips - engine, MT5, EA charts,
+         auto-trade, kill switch, prop - which is the Command centre's
+         job, answered on the screen a trader actually watches. Here it
+         was a second, slower copy of the truth, and a copy that is
+         only right while the page is open is worse than none: it
+         invites you to trust it. */
       const box = win.document.createElement("div");
       box.innerHTML = about;
-      const chips = box.querySelectorAll(".abx-chip");
-      if (chips.length < 6) throw new Error(chips.length + " state chips");
-      for (const c of chips) {
-        if (!c.querySelector(".abx-chip-k") || !c.querySelector(".abx-chip-v")) {
-          throw new Error("a chip is missing its label or its value");
-        }
-      }
-      /* And it is above the detail, not below it. */
-      if (about.indexOf("abx-state") > about.indexOf("abx-cols")) {
-        throw new Error("the live state is printed below the reference detail");
+      if (box.querySelector(".abx-state, .abx-chip")) throw new Error("the state row is still here");
+      for (const dead of ["mt5Live(", "liveAgents(", "kill_switch", "auto_trade", "snap?.engine"]) {
+        if (T.views.about.toString().includes(dead)) throw new Error("About still reads " + dead);
       }
     });
 
-    check("a running engine reads as good and a stopped one as bad", () => {
-      const render = () => {
-        const box = win.document.createElement("div");
-        box.innerHTML = T.views.about();
-        return box.querySelector(".abx-chip");
-      };
-      T.S.snap.engine = "online";
-      const up = render();
-      T.S.snap.engine = "offline";
-      const down = render();
-      T.S.snap.engine = "online";
-      if (!up.classList.contains("is-ok")) throw new Error("a running engine is not marked good");
-      if (!down.classList.contains("is-bad")) throw new Error("a stopped engine is not marked bad");
-      /* The dot is part of the chip now rather than a shared .dot
-         element, but it still has to be there: the state must not be
-         carried by colour alone. */
-      if (!up.querySelector(".abx-chip-dot")) throw new Error("no state dot when the engine is up");
-      if (!down.querySelector(".abx-chip-dot")) throw new Error("no state dot when the engine is stopped");
+    check("everything on the page is centred", () => {
+      /* The brief was "everything centred". That has to hold for the
+         text as well as the boxes, or it is a centred logo above a
+         left-aligned page. */
+      const sec = appCss.slice(appCss.indexOf(".abx{")).replace(/\s+/g, "");
+      if (!/\.abx-hero\{[^}]*align-items:center/.test(sec)) throw new Error("the hero does not centre its contents");
+      if (!/\.abx-hero\{[^}]*text-align:center/.test(sec)) throw new Error("the hero's text is not centred");
+      if (!/\.abx-card\{align-items:center;text-align:center\}/.test(sec)) {
+        throw new Error("the detail cards are not centred");
+      }
+      if (!/\.abx-fact\{[^}]*align-items:center/.test(sec)) throw new Error("the facts are not centred");
+      if (!/\.abx-tags\{[^}]*justify-content:center/.test(sec)) throw new Error("the tags are not centred");
+      if (!/\.abx-acts\{[^}]*justify-content:center/.test(sec)) throw new Error("the actions are not centred");
     });
 
-    check("something merely switched off is not painted as a fault", () => {
-      /* Auto-trade off is a choice, not a failure. Painting it red would
-         cry wolf and make a real fault easier to miss. */
-      T.S.snap.strategy.auto_trade = false;
-      const box = win.document.createElement("div");
-      box.innerHTML = T.views.about();
-      const chips = [...box.querySelectorAll(".abx-chip")];
-      const auto = chips.find((c) => /auto/i.test(c.querySelector(".abx-chip-k").textContent));
-      if (!auto) throw new Error("no auto-trade chip");
-      if (auto.classList.contains("is-bad")) throw new Error("auto-trade off is painted as a fault");
-      if (!auto.classList.contains("is-idle")) throw new Error("auto-trade off is not marked as idle");
-    });
-
-    check("an armed kill switch is painted as a fault, because it stops trading", () => {
-      T.S.snap.kill_switch = true;
-      const box = win.document.createElement("div");
-      box.innerHTML = T.views.about();
-      const chips = [...box.querySelectorAll(".abx-chip")];
-      const kill = chips.find((c) => /kill/i.test(c.querySelector(".abx-chip-k").textContent));
-      T.S.snap.kill_switch = false;
-      if (!kill) throw new Error("no kill-switch chip");
-      if (!kill.classList.contains("is-bad")) throw new Error("an armed kill switch is not flagged");
-    });
-
-    check("the number of attached charts is counted, not asserted", () => {
-      const box = win.document.createElement("div");
-      box.innerHTML = T.views.about();
-      const chips = [...box.querySelectorAll(".abx-chip")];
-      const ch = chips.find((c) => /chart/i.test(c.querySelector(".abx-chip-k").textContent));
-      if (!ch) throw new Error("no EA chart chip");
-      const n = ch.querySelector(".abx-chip-v").textContent.trim();
-      if (n !== "5") throw new Error("reads " + JSON.stringify(n) + " with 5 agents attached");
+    check("a centred page still holds a readable measure", () => {
+      /* Centred text with no cap is a line a metre wide on a 1440px
+         desktop. The column is bounded and the paragraph is bounded
+         inside it. */
+      const sec = appCss.slice(appCss.indexOf(".abx{")).replace(/\s+/g, "");
+      if (!/\.abx\{[^}]*max-inline-size:900px/.test(sec)) throw new Error("the page has no maximum width");
+      if (!/\.abx\{[^}]*margin-inline:auto/.test(sec)) throw new Error("the page is not centred in the view");
+      if (!/\.abx-blurb\{[^}]*max-inline-size:56ch/.test(sec)) throw new Error("the blurb has no measure");
     });
 
     check("the rewrite dropped the inline styles it used to be made of", () => {
@@ -496,49 +462,30 @@ if (!jsdom) {
       if (missing.length) throw new Error("no CSS for: " + missing.join(", "));
     });
 
-    check("the About page is told what to do on a phone", () => {
-      /* Whitespace stripped entirely: these are formatted rules, and a
-         check that breaks when someone adds a space is a check that
-         gets deleted rather than fixed. */
+    check("one column at every width, scaled rather than re-laid-out", () => {
+      /* The old hero was a three-column band that had to be broken down
+         in two steps. A centred column is already the phone layout, so
+         the narrow rules only change scale - and that is the point:
+         there is no second layout to keep in step. */
       const sec = appCss.slice(appCss.indexOf(".abx{")).replace(/\s+/g, "");
-      const m = /@media\(max-width:560px\)\{([\s\S]{0,1400}?)\}\}/.exec(sec);
+      if (!/\.abx-hero\{[^}]*flex-direction:column/.test(sec)) {
+        throw new Error("the hero is not a single column on a desktop");
+      }
+      const m = /@media\(max-width:560px\)\{([\s\S]{0,900}?)\}\}/.exec(sec);
       if (!m) throw new Error("no narrow-screen rules for the About page");
-      /* A phone is not a narrow desktop. The banner has to become one
-         column, the mark has to stop being 84px of logo above the fold,
-         and the state row has to stop trying to fit six chips across. */
-      if (!/\.abx-hero\{grid-template-columns:minmax\(0,1fr\)/.test(m[1])) {
-        throw new Error("the banner still tries to be multi-column on a phone");
+      if (/\.abx-hero\{[^}]*grid-template-columns/.test(m[1])) {
+        throw new Error("the phone rules are re-laying the hero out instead of scaling it");
       }
-      if (!/\.abx-mark\{inline-size:56px/.test(m[1])) throw new Error("the mark is not reduced on a phone");
-      if (!/\.abx-state\{grid-template-columns:repeat\(2/.test(m[1])) {
-        throw new Error("the state row does not re-flow on a phone");
-      }
+      if (!/\.abx-mark\{inline-size:72px/.test(m[1])) throw new Error("the mark is not reduced on a phone");
       if (!/\.abx-cols\{grid-template-columns:minmax\(0,1fr\)/.test(m[1])) {
         throw new Error("the detail cards do not stack on a phone");
       }
-    });
-
-    check("the layout gives way in stages rather than all at once", () => {
-      /* The banner is three columns on a desktop - mark, headline,
-         actions. The actions are the first thing with nowhere to go, so
-         they drop to their own row at 900px while the mark and the
-         headline stay side by side; everything collapses to one column
-         only on a phone. Degrading in one step would waste the tablet
-         width entirely. */
-      const sec = appCss.slice(appCss.indexOf(".abx{")).replace(/\s+/g, "");
-      if (!/\.abx-hero\{[^}]*grid-template-columns:autominmax\(0,1fr\)auto/.test(sec)) {
-        throw new Error("the banner is not three columns on a desktop");
+      /* The buttons go full width rather than sitting as two stubs. */
+      const t = /@media\(max-width:760px\)\{([\s\S]{0,600}?)\}\}/.exec(sec);
+      if (!t || !/\.abx-acts\.btn\{flex:11100%/.test(t[1])) {
+        throw new Error("the actions do not go full width on a narrow screen");
       }
-      const mid = /@media\(max-width:900px\)\{([\s\S]{0,900}?)\}\}/.exec(sec);
-      if (!mid) throw new Error("the banner never gives way");
-      if (!/\.abx-hero\{grid-template-columns:autominmax\(0,1fr\);/.test(mid[1])) {
-        throw new Error("the middle step is not two columns");
-      }
-      if (!/\.abx-acts\{grid-column:1\/-1/.test(mid[1])) {
-        throw new Error("the actions do not take a row of their own");
-      }
-      /* And the detail grid never needs a breakpoint to do the right
-         thing, because it is auto-fit. */
+      /* And the detail grid never needs a breakpoint, because it is auto-fit. */
       if (!/\.abx-cols\{[^}]*repeat\(auto-fit,minmax\(300px/.test(sec)) {
         throw new Error("the detail grid is hand-broken instead of auto-fit");
       }

@@ -181,7 +181,11 @@ ok(/id="bt-card"[\s\S]{0,600}class="ct-grid ct-grid-3"/.test(app),
   "and it is the backtest form that has it");
 const btView = app.slice(app.indexOf("backtest() {"), app.indexOf("\n  history() {"));
 ok(btView.includes('class="ct-grid ct-grid-3"'), "the backtest form uses the three-up grid");
-const fields = [...btView.matchAll(/<label class="field">/g)].length;
+/* A .field is a <label> when it wraps a real input and a <div> when it
+   wraps a custom widget - the symbol picker is a button plus a popover,
+   and a <label> around that forwards every click into the popover's
+   search box. Count the fields, not the tag they happen to use. */
+const fields = [...btView.matchAll(/<(?:label|div) class="field">/g)].length;
 ok(fields === 3, `the backtest form has exactly three fields (${fields}), as the grid assumes`);
 for (const id of ["bt-sym", "bt-tf", "bt-st"]) {
   ok(btView.includes(id), `${id} is one of them`);

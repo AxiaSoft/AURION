@@ -286,8 +286,11 @@ html[dir="rtl"] .brand-row h1{letter-spacing:.04em}
 .auth-card h2{margin:8px 0 6px;font-size:clamp(20px,4vw,26px);font-weight:500}
 .lede{color:var(--muted);margin:0 0 22px;line-height:1.7;font-size:14px}
 .field{display:flex;flex-direction:column;gap:8px;margin-bottom:14px}
+/* A .field's caption is a <span> when the control is a custom widget
+   and a <label for> when it is a real input. Both look the same. */
+.field > span,.field > label{font-size:12px;color:var(--muted);letter-spacing:.02em}
 .field span{font-size:12px;color:var(--muted);letter-spacing:.02em}
-html[dir="rtl"] .field span{letter-spacing:0}
+html[dir="rtl"] .field span,html[dir="rtl"] .field > label{letter-spacing:0}
 .field input,.field select,.ctrl{
   background:var(--field);
   color:var(--ink);
@@ -2408,7 +2411,17 @@ html.theming *,html.theming *::before,html.theming *::after{
   backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
   max-height:calc(100vh - var(--top) - 24px);overflow-y:auto;scrollbar-width:thin;
 }
-.set-rail .sj-grp{
+.set-rail /* The rail's search. It sits above the first group heading and
+   scrolls with the rail rather than pinning, because the rail is
+   nine entries long and a sticky box would cost more height than it
+   saves. */
+.sj-find{ padding:2px 2px 10px; display:flex; flex-direction:column; gap:6px }
+.sj-find-n{ margin:0; font-size:11.5px; padding-inline:2px }
+.sj-find-n[hidden]{ display:none }
+.set-jump button[data-jump][hidden]{ display:none }
+.set-jump .sj-grp[hidden]{ display:none }
+
+.sj-grp{
   font-size:10.5px;color:var(--faint);letter-spacing:.06em;text-transform:uppercase;
   padding:10px 10px 4px;font-weight:500;
 }
@@ -3739,7 +3752,12 @@ html[dir="rtl"] .ct-side span{letter-spacing:0;text-transform:none;font-size:12p
    is a gradient of --accent-rgb at low alpha and therefore follows the
    theme rather than fighting it.
    ------------------------------------------------------------------ */
-.abx{ display:flex; flex-direction:column; gap:14px }
+.abx{
+  display:flex; flex-direction:column; gap:14px;
+  /* One measure, centred in the view. Without a cap a centred page on a
+     1440px desktop is a line of text a metre wide with a logo over it. */
+  inline-size:100%; max-inline-size:900px; margin-inline:auto;
+}
 
 /* ---- 1. the banner ---- */
 /* Modernised. The hero was a flat bordered box with one wash behind
@@ -3751,11 +3769,18 @@ html[dir="rtl"] .ct-side span{letter-spacing:0;text-transform:none;font-size:12p
    the band off the page. The grid gained a defined row so the mark,
    the headline and the actions share one baseline instead of each
    centring itself. */
+/* Centred, one column, both sizes.
+
+   It was a three-column band - mark, headline, actions - which on a
+   desktop put the two support buttons in a narrow gutter on the right
+   and on a phone collapsed into a ragged left-aligned stack. Centred
+   on a single measure it is the same shape at every width, and the
+   reading order is the order the questions come in. */
 .abx-hero{
   position:relative; overflow:hidden; isolation:isolate;
-  display:grid; gap:20px 22px; align-items:center;
-  grid-template-columns:auto minmax(0,1fr) auto;
-  padding:26px 26px;
+  display:flex; flex-direction:column; align-items:center; text-align:center;
+  gap:0;
+  padding:40px 24px 32px;
   border-radius:var(--radius-lg, 18px);
   border:1px solid var(--line);
   background:
@@ -3770,39 +3795,45 @@ html[dir="rtl"] .ct-side span{letter-spacing:0;text-transform:none;font-size:12p
   background:linear-gradient(90deg, transparent, rgb(var(--wash) / .22), transparent);
   pointer-events:none;
 }
-/* One wash, pinned behind the content, sized so it reads as light
-   coming off the mark rather than as a coloured panel. */
+/* Centred wash behind the mark rather than off one shoulder, now that
+   the mark is the thing the page opens on. */
 .abx-hero-wash{
-  position:absolute; z-index:-1; inset-block:-60%; inset-inline-start:-10%;
-  inline-size:58%;
-  background:radial-gradient(closest-side, rgb(var(--accent-rgb) / .16), transparent 70%);
+  position:absolute; z-index:-1;
+  inset-block-start:-38%; inset-inline-start:50%;
+  inline-size:min(520px, 120%); aspect-ratio:1;
+  transform:translateX(-50%);
+  background:radial-gradient(closest-side, rgb(var(--accent-rgb) / .17), transparent 70%);
   pointer-events:none;
 }
 .abx-mark{
   position:relative;
-  inline-size:88px; block-size:88px; flex:none;
+  inline-size:96px; block-size:96px; flex:none;
   display:grid; place-items:center;
-  border-radius:24px;
+  border-radius:26px;
   border:1px solid rgb(var(--accent-rgb) / .34);
   background:
     radial-gradient(120% 120% at 30% 15%, rgb(var(--accent-rgb) / .16), transparent 62%),
     rgb(var(--wash) / .05);
   box-shadow:0 10px 26px rgb(var(--accent-rgb) / .14), inset 0 1px 0 rgb(var(--wash) / .14);
 }
-.abx-mark img{ inline-size:60px; block-size:60px; object-fit:contain }
-.abx-headline{ min-inline-size:0 }
+.abx-mark img{ inline-size:64px; block-size:64px; object-fit:contain }
 .abx-name{
-  margin:0; font-size:clamp(26px, 3.4vw, 34px); font-weight:700; letter-spacing:.055em;
-  line-height:1.1;
-  display:flex; align-items:baseline; gap:10px; flex-wrap:wrap;
+  margin:20px 0 0; font-size:clamp(28px, 4vw, 38px); font-weight:700;
+  letter-spacing:.055em; line-height:1.1;
+  display:flex; align-items:baseline; justify-content:center; gap:10px; flex-wrap:wrap;
 }
 .abx-name small{
   font-size:13px; font-weight:500; letter-spacing:.02em; color:var(--muted);
 }
-.abx-blurb{ margin:8px 0 0; color:var(--muted); line-height:1.7; max-inline-size:62ch; font-size:14px }
-.abx-tags{ display:flex; flex-wrap:wrap; gap:6px; margin-block-start:12px }
+/* A centred paragraph needs a measure or it runs the full width of a
+   desktop card and stops being readable. */
+.abx-blurb{
+  margin:12px auto 0; color:var(--muted); line-height:1.75;
+  max-inline-size:56ch; font-size:14.5px;
+}
+.abx-tags{ display:flex; flex-wrap:wrap; justify-content:center; gap:7px; margin-block-start:20px }
 .abx-tag{
-  padding:5px 11px; border-radius:999px;
+  padding:5px 12px; border-radius:999px;
   border:1px solid var(--line);
   background:linear-gradient(180deg, rgb(var(--wash) / .08), rgb(var(--wash) / .03));
   font-size:11.5px; font-weight:600; letter-spacing:.02em; white-space:nowrap;
@@ -3812,66 +3843,15 @@ html[dir="rtl"] .ct-side span{letter-spacing:0;text-transform:none;font-size:12p
   background:rgb(var(--accent-rgb) / .12);
   color:var(--accent);
 }
-.abx-acts{ display:flex; flex-direction:column; align-items:stretch; gap:8px; flex:none }
-.abx-acts .btn{ justify-content:center; white-space:nowrap }
-.abx-upd{ margin:2px 0 0; font-size:12px; text-align:center }
+/* Side by side where there is room, stacked and full-width where there
+   is not - never a narrow column of buttons in a desktop gutter. */
+.abx-acts{
+  display:flex; flex-wrap:wrap; justify-content:center; gap:10px;
+  margin-block-start:24px;
+}
+.abx-acts .btn{ justify-content:center; white-space:nowrap; min-inline-size:190px }
+.abx-upd{ margin:14px 0 0; font-size:12px; text-align:center }
 .abx-upd svg{ inline-size:14px; block-size:14px; vertical-align:-2px; margin-inline-end:4px }
-
-/* ---- 2. the live state row ---- */
-.abx-state{
-  display:grid; gap:8px;
-  grid-template-columns:repeat(auto-fit, minmax(168px, 1fr));
-}
-.abx-chip{
-  position:relative; overflow:hidden;
-  display:flex; align-items:center; gap:10px; min-inline-size:0;
-  padding:12px 14px;
-  border-radius:14px;
-  border:1px solid var(--line);
-  background:linear-gradient(180deg, rgb(var(--wash) / .055), rgb(var(--wash) / .02));
-  transition:border-color .2s var(--ease), transform .2s var(--ease);
-}
-.abx-chip:hover{ border-color:rgb(var(--wash) / .18); transform:translateY(-1px) }
-/* A hairline down the leading edge, tinted by state. It is the only
-   place the state colours a surface rather than a dot or a word, and
-   4px of edge cannot become the "everything is on fire" wall that
-   six filled panels would. */
-.abx-chip::before{
-  content:""; position:absolute; inset-block:0; inset-inline-start:0; inline-size:3px;
-  background:rgb(var(--wash) / .14);
-}
-.abx-chip.is-ok::before{ background:var(--ok) }
-.abx-chip.is-bad::before{ background:var(--bad) }
-.abx-chip-dot{
-  inline-size:8px; block-size:8px; border-radius:50%; flex:none;
-  background:rgb(var(--wash) / .35);
-}
-/* Online is the one state worth a heartbeat. It is a slow, low-contrast
-   pulse on a 8px dot, and it stops entirely under reduced-motion. */
-.abx-chip.is-ok .abx-chip-dot{ animation:abx-pulse 2.6s var(--ease) infinite }
-@keyframes abx-pulse{
-  0%,100%{ box-shadow:0 0 0 0 rgb(var(--accent-rgb) / .28) }
-  50%{ box-shadow:0 0 0 5px rgb(var(--accent-rgb) / 0) }
-}
-@media (prefers-reduced-motion:reduce){
-  .abx-chip.is-ok .abx-chip-dot{ animation:none }
-  .abx-chip:hover{ transform:none }
-}
-/* The state is carried by the dot and by the value's colour, never by
-   the chip's own background: six filled panels in a row is a warning
-   light for everything, which is a warning light for nothing. */
-.abx-chip.is-ok .abx-chip-dot{ background:var(--ok); box-shadow:0 0 0 3px rgb(var(--accent-rgb) / .12) }
-.abx-chip.is-bad .abx-chip-dot{ background:var(--bad) }
-.abx-chip.is-ok .abx-chip-v{ color:var(--ok) }
-.abx-chip.is-bad .abx-chip-v{ color:var(--bad) }
-.abx-chip-k{
-  font-size:11.5px; color:var(--muted); letter-spacing:.02em;
-  overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-inline-size:0;
-}
-.abx-chip-v{
-  margin-inline-start:auto; font-size:13px; font-weight:650;
-  white-space:nowrap; font-variant-numeric:tabular-nums;
-}
 
 /* ---- 3. the detail ---- */
 .abx-cols{
@@ -3887,8 +3867,9 @@ html[dir="rtl"] .ct-side span{letter-spacing:0;text-transform:none;font-size:12p
 .abx-card:hover{ border-color:rgb(var(--wash) / .16) }
 /* The section icon sits in its own tinted square rather than floating
    loose against the first word of the heading. */
+.abx-card{ align-items:center; text-align:center }
 .abx-card > h3{
-  margin:0; display:flex; align-items:center; gap:10px;
+  margin:0; display:flex; align-items:center; justify-content:center; gap:10px;
   font-size:15px; letter-spacing:.01em;
 }
 .abx-card > h3 svg{
@@ -3899,33 +3880,29 @@ html[dir="rtl"] .ct-side span{letter-spacing:0;text-transform:none;font-size:12p
   box-sizing:border-box;
 }
 .abx-span{ grid-column:1 / -1 }
-.abx-rows{ display:flex; flex-direction:column; margin-block-start:10px }
-/* A rule between rows rather than around each one: this is a reference
-   list, and twenty boxed rows is a table pretending to be tiles. */
-.abx-row{
-  display:flex; align-items:baseline; justify-content:space-between; gap:14px;
-  padding:9px 0;
-  border-block-end:1px solid var(--line);
-  font-size:13px;
+/* Facts as centred label-over-value stacks. A justified row cannot be
+   centred - it pushes the two halves to opposite edges and leaves a
+   gap of nothing between a short label and a long value. */
+.abx-facts{
+  display:grid; gap:14px; margin-block-start:16px;
+  grid-template-columns:repeat(auto-fit, minmax(130px, 1fr));
 }
-.abx-row:last-child{ border-block-end:0; padding-block-end:0 }
-.abx-row > span{ color:var(--muted); min-inline-size:0 }
-.abx-row > b{ font-weight:650; text-align:end; overflow-wrap:anywhere }
+.abx-fact{
+  display:flex; flex-direction:column; align-items:center; gap:4px;
+  min-inline-size:0; text-align:center;
+}
+.abx-fact > span{ font-size:11px; color:var(--muted); letter-spacing:.04em; text-transform:uppercase }
+html[dir="rtl"] .abx-fact > span{ letter-spacing:0; text-transform:none }
+.abx-fact > b{ font-weight:650; font-size:13.5px; overflow-wrap:anywhere }
 
-.abx-maker{ display:flex; align-items:center; gap:14px; margin-block-start:10px }
-.abx-maker img{ inline-size:46px; block-size:46px; object-fit:contain; flex:none }
-.abx-maker-t{ min-inline-size:0 }
-.abx-maker-t b{ display:block; font-size:15px }
-.abx-maker-t .sub{ font-size:12px }
+.abx-maker{
+  display:flex; flex-direction:column; align-items:center; gap:6px;
+  margin-block-start:16px; text-align:center;
+}
+.abx-maker img{ inline-size:52px; block-size:52px; object-fit:contain; flex:none }
+.abx-maker b{ font-size:15px }
+.abx-maker .sub{ font-size:12px }
 
-/* The changelog is a list of versions, so it is drawn as one: a rail
-   down the inline-start edge with the heading of each entry sitting on
-   it. The update check writes plain <b>/<br> into this box, so the
-   styling has to work from the outside. */
-/* The changelog as a timeline. It was a flat column of paragraphs
-   behind a plain 2px rule, so a list of versions did not look like a
-   list of versions. The rail fades out at the bottom rather than
-   stopping dead, which also hints there is more to scroll. */
 .abx-log{
   position:relative;
   margin-block-start:14px;
@@ -3957,25 +3934,20 @@ html[dir="rtl"] .ct-side span{letter-spacing:0;text-transform:none;font-size:12p
   background:var(--accent); box-shadow:0 0 0 3px rgb(var(--accent-rgb) / .14);
 }
 
-/* ---- narrow ---- */
-@media (max-width:900px){
-  .abx-hero{ grid-template-columns:auto minmax(0,1fr); padding:18px }
-  /* The actions drop to their own full-width row rather than squeezing
-     into a third column that is no longer there. */
-  .abx-acts{ grid-column:1 / -1; flex-direction:row; flex-wrap:wrap }
-  .abx-acts .btn{ flex:1 1 150px }
-  .abx-upd{ flex:1 1 100%; text-align:start }
+/* ---- narrow ----
+   The hero is a centred flex column at every width, so none of this
+   is re-laying it out; it is only scale. */
+@media (max-width:760px){
+  .abx-hero{ padding:30px 18px 24px }
+  .abx-acts{ inline-size:100% }
+  .abx-acts .btn{ flex:1 1 100%; min-inline-size:0 }
 }
 @media (max-width:560px){
-  .abx-hero{ grid-template-columns:minmax(0,1fr); gap:12px; padding:16px }
-  .abx-mark{ inline-size:56px; block-size:56px; border-radius:16px }
-  .abx-mark img{ inline-size:38px; block-size:38px }
-  .abx-name{ font-size:21px }
-  .abx-blurb{ font-size:13px }
-  .abx-state{ grid-template-columns:repeat(2, minmax(0,1fr)) }
-  .abx-chip{ padding:9px 10px; gap:7px }
-  .abx-chip-k{ font-size:11px }
-  .abx-chip-v{ font-size:12.5px }
+  .abx-hero{ padding:26px 16px 20px }
+  .abx-mark{ inline-size:72px; block-size:72px; border-radius:20px }
+  .abx-mark img{ inline-size:46px; block-size:46px }
+  .abx-name{ margin-block-start:16px }
+  .abx-blurb{ font-size:13.5px; margin-block-start:10px }
   .abx-cols{ grid-template-columns:minmax(0,1fr) }
 }
 
@@ -4342,31 +4314,31 @@ html[dir="rtl"] .ccx-equity-k{ letter-spacing:0; text-transform:none }
 
 /* The connection row spans both columns and wraps, because the number
    of attached charts is not something the layout can predict. */
-.ccx-link{
-  grid-column:1 / -1;
-  display:flex; flex-wrap:wrap; gap:6px; align-items:center;
-  padding-block-start:14px;
-  border-block-start:1px solid var(--line);
-}
-.ccx-pill{
-  display:inline-flex; align-items:center; gap:6px;
-  padding:6px 12px; border-radius:999px;
-  border:1px solid var(--line);
-  background:linear-gradient(180deg, rgb(var(--wash) / .08), rgb(var(--wash) / .03));
-  font-size:11.5px; font-weight:600; white-space:nowrap;
-}
-.ccx-pill small{ font-weight:500; opacity:.6 }
-.ccx-pill.is-live{ border-color:rgb(var(--accent-rgb) / .35) }
-.ccx-pill.is-down{ border-color:rgb(var(--wash) / .14); color:var(--muted) }
-/* A backtest chart is marked as one. Reading a tester's symbol as a
-   live position is the kind of mistake that gets acted on. */
-.ccx-pill.is-test{ border-style:dashed; color:var(--muted) }
-
 /* ---- 2. risk beside reference ---- */
+/* The two panels are one row, and they START on one line.
+
+   They were align-items:start on an auto-fit grid, which lines up the
+   TOP OF EACH CARD but says nothing about what is inside them. The
+   risk panel's first row began at y=0 of its body while the account
+   panel's first row carried 9px of its own top padding, so the two
+   columns of figures sat nine pixels out of step - close enough to
+   look like a mistake and not close enough to look deliberate.
+
+   stretch, so both cards are the height of the taller one, and a
+   shared .ccx-panel wrapper so the first line of content starts at
+   the same offset in both. */
 .ccx-pair{
-  display:grid; gap:14px; align-items:start;
+  display:grid; gap:14px; align-items:stretch;
   grid-template-columns:repeat(auto-fit, minmax(290px, 1fr));
 }
+/* With prop off there is no risk panel, so the account panel must not
+   stretch to fill a two-column grid on its own. */
+.ccx-pair.is-solo{ grid-template-columns:minmax(0,1fr) }
+.ccx-risk,.ccx-ref{ display:flex; flex-direction:column }
+.ccx-panel{ flex:1 1 auto; display:flex; flex-direction:column; justify-content:flex-start }
+/* The account list's first row would otherwise open with the padding
+   that separates it from the row above - a gap with nothing above it. */
+.ccx-ref-rows > .ccx-ref-row:first-child{ padding-block-start:0 }
 .ccx-risk > h3,.ccx-ref > h3{
   margin:0 0 14px; font-size:13px; font-weight:650;
   letter-spacing:.06em; text-transform:uppercase; color:var(--muted);
@@ -4424,7 +4396,6 @@ html[dir="rtl"] .ccx-risk-bar > i{
   .ccx-head{ grid-template-columns:minmax(0,1fr); gap:12px }
   .ccx-equity{ align-items:flex-start }
   .ccx-equity > b{ font-size:clamp(28px,9vw,36px) }
-  .ccx-link{ padding-block-start:12px }
   .ccx-risk-head b{ font-size:16px }
 }
 
@@ -4594,6 +4565,48 @@ input[type="search"]::-webkit-search-results-decoration{
 .dsk-search-x:hover{ color:var(--ink); background:rgb(var(--wash) / .16) }
 .dsk-search-x[hidden]{ display:none }
 .dsk-search-x svg{ inline-size:12px; block-size:12px }
+
+/* ---- the reset that has to win -------------------------------------
+
+   An oval kept appearing inside three of these boxes when they were
+   clicked: the backtest symbol search, the prop allowed-symbols
+   search and the prop guide search. What those three have in common
+   is that they sit inside a .field, and `.field input` (0,1,1) sets
+   a background, a border, a border-radius and a min-height on ANY
+   input under it. `.dsk-search-i` is (0,1,0) and simply loses; the
+   themed override in themes.css only resets background, border and
+   box-shadow, and only when a skin is active.
+
+   So the input kept its own rounded box inside the shell's rounded
+   box - a pill within a pill - and the moment it took focus the
+   browser drew the focus ring around THAT radius rather than around
+   the shell. Hence an ellipse, inside the box, on click.
+
+   This is the rule that settles it: it out-specifies `.field input`
+   in every state, needs no skin, and covers the radius and the
+   height that the themed reset never mentioned. */
+.field .dsk-search-i,
+.field .dsk-search > input,
+.dsk-search .dsk-search-i,
+.dsk-search > input{
+  -webkit-appearance:none; appearance:none;
+  background:none; background-image:none;
+  border:0; border-radius:0;
+  outline:none; box-shadow:none;
+  padding:0; margin:0;
+  min-block-size:calc(var(--ctl-h) - 2px);
+}
+.field .dsk-search-i:focus,
+.field .dsk-search-i:focus-visible,
+.field .dsk-search > input:focus,
+.field .dsk-search > input:focus-visible,
+.dsk-search .dsk-search-i:focus,
+.dsk-search .dsk-search-i:focus-visible,
+.dsk-search > input:focus,
+.dsk-search > input:focus-visible{
+  background:none; border:0; border-radius:0;
+  outline:none; box-shadow:none;
+}
 
 /* A compact variant for panels and popovers. */
 .dsk-search.sm{ min-block-size:34px; padding-inline:9px; border-radius:11px }

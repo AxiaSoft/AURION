@@ -3494,7 +3494,6 @@ function patchLive() {
     const pos = S.snap?.positions || [];
     paintPositions("live-pos", pos, ["symbol","type","volume","strategy","price_open","price_current","sl","tp","profit","profit_pct"], true);
     applyChartLevels();
-    paintChartSlider("ol", outlookSlideInnerHtml);
   }
   if (v === "markets") {
     /* A combobox, not a <select>: the list is rebuilt when it opens, so
@@ -5510,11 +5509,11 @@ function propGuideHtml() {
   return `<div class="card prop-guide" id="prop-guide">
       <h3>${I18N.t("risk.guide_title")}</h3>
       <p class="sub">${I18N.t("risk.guide_lede")}</p>
-      <label class="field"><span>${I18N.t("risk.guide_search")}</span>
+      <div class="field"><label for="prop-guide-q">${I18N.t("risk.guide_search")}</label>
         <span class="dsk-search">${icon("search")}
           <input id="prop-guide-q" type="search" class="dsk-search-i" placeholder="${esc(I18N.t("risk.guide_search_ph"))}" />
         </span>
-      </label>
+      </div>
       <p class="sub" id="prop-guide-empty" hidden>${I18N.t("risk.guide_empty")}</p>
       ${sections}
     </div>`;
@@ -6014,17 +6013,15 @@ const views = {
     };
 
     const prof = prop.profile || {};
-    const chartPills = agents.map((a) =>
-      `<span class="ccx-pill is-live"><i class="dot live"></i>${esc(a.symbol)} <small>${
-        esc(a.timeframe || "")}</small></span>`).join("")
-      + testerAgents().map((a) =>
-        `<span class="ccx-pill is-test">${esc(a.symbol)} <small>${
-          esc(a.timeframe || "")}</small></span>`).join("");
+    /* Prop off, no risk panel. The two figures are measured against a
+       prop profile's limits; with the guard disabled the engine stops
+       computing them, so drawing two bars at 0% would be reporting a
+       measurement nobody took. */
+    const propOn = prop.enabled !== false;
 
     return `<div class="cmd ccx">
       ${tapeBanner()}
       ${marketBanner()}
-      ${chartSliderHtml("ol", outlookSlideInnerHtml)}
       ${gateHtml()}
       ${wizard}
 
@@ -6048,13 +6045,6 @@ const views = {
           <b class="mono" data-metric="command.equity">${fmt(acc.equity)}${cur ? " " + cur : ""}</b>
           <i class="mono ${clsPnl(acc.profit)}" data-metric="command.profit">${fmt(acc.profit)}${cur ? " " + cur : ""}</i>
         </div>
-        <div class="ccx-link" id="ea-strip">
-          <span class="ccx-pill${S.snap ? " is-live" : " is-down"}"><i class="dot ${
-            S.snap ? "live" : "down"}"></i>${I18N.t(S.snap ? "status.engine_live" : "status.engine_down")}</span>
-          <span class="ccx-pill${mt5Live() ? " is-live" : " is-down"}"><i class="dot ${
-            mt5Live() ? "live" : "down"}"></i>${I18N.t(mt5Live() ? "status.mt5_live" : "status.mt5_down")}</span>
-          ${chartPills}
-        </div>
       </header>
 
       <!-- 2. Risk beside reference.
@@ -6064,15 +6054,17 @@ const views = {
            and is watched; the right-hand four are looked up. On a
            desktop they sit side by side, which is the width the old
            single-column stack was throwing away. -->
-      <div class="ccx-pair">
-        <section class="card ccx-risk">
+      <div class="ccx-pair${propOn ? "" : " is-solo"}">
+        ${propOn ? `<section class="card ccx-risk">
           <h3>${I18N.t("risk.sec_limits")}</h3>
-          ${risk("command.daily_pl", prop.daily_pl_pct, prof.max_daily_loss_pct, true)}
-          ${risk("command.drawdown", prop.drawdown_pct, prof.max_drawdown_pct)}
-        </section>
+          <div class="ccx-panel">
+            ${risk("command.daily_pl", prop.daily_pl_pct, prof.max_daily_loss_pct, true)}
+            ${risk("command.drawdown", prop.drawdown_pct, prof.max_drawdown_pct)}
+          </div>
+        </section>` : ""}
         <section class="card ccx-ref">
           <h3>${I18N.t("command.title_account")}</h3>
-          <div class="ccx-ref-rows">
+          <div class="ccx-panel"><div class="ccx-ref-rows">
             ${ref("command.balance", acc.balance, cur)}
             ${ref("command.margin", acc.margin, cur)}
             ${ref("command.free_margin", acc.margin_free, cur)}
@@ -6080,7 +6072,7 @@ const views = {
               <span>${I18N.t("command.leverage")}</span>
               <b class="mono" data-metric="command.leverage">${acc.leverage ? "1:" + acc.leverage : "\u2014"}</b>
             </div>
-          </div>
+          </div></div>
         </section>
       </div>
 
@@ -6316,7 +6308,7 @@ const views = {
           ${head(I18N.t("exec.manual"), I18N.t("exec.manual_why"))}
           <p class="sub">${I18N.t("exec.manual_hint")}</p>
           <div class="grid g-2">
-            <label class="field"><span>${I18N.t("markets.symbol")}</span>${symbolFieldHtml("ex-sym", defaultSymbol())}</label>
+            <div class="field"><span>${I18N.t("markets.symbol")}</span>${symbolFieldHtml("ex-sym", defaultSymbol())}</div>
             <label class="field"><span>${I18N.t("exec.volume")}</span><input id="ex-vol" type="number" step="0.01" min="0.01" value="0.10" /></label>
             <label class="field"><span>${I18N.t("exec.sl")}</span><input id="ex-sl" type="number" step="0.0001" value="" placeholder="0" /></label>
             <label class="field"><span>${I18N.t("exec.tp")}</span><input id="ex-tp" type="number" step="0.0001" value="" placeholder="0" /></label>
@@ -6454,7 +6446,7 @@ const views = {
         <h3>${icon("flask")} ${I18N.t("history.backtest")}</h3>
         <p class="sub">${I18N.t("history.backtest_hint")}</p>
         <div class="ct-grid ct-grid-3">
-          <label class="field"><span>${I18N.t("markets.symbol")}</span>${symbolFieldHtml("bt-sym", S.symbol)}</label>
+          <div class="field"><span>${I18N.t("markets.symbol")}</span>${symbolFieldHtml("bt-sym", S.symbol)}</div>
           <label class="field"><span>${I18N.t("markets.timeframe")}</span>
             <select class="ctrl" id="bt-tf">${["M1","M5","M15","M30","H1","H4","D1"].map((t)=>`<option ${t===(S.timeframe||"M15")?"selected":""}>${t}</option>`).join("")}</select>
           </label>
@@ -6615,9 +6607,24 @@ const views = {
       tab === id ? "" : " hidden"}>${head(title, why)}${body}</section>`;
 
     return `<div class="set-desk set-rail stx"><nav class="set-jump" id="set-jump" aria-label="settings">
+        <!-- Nine sections across three groups is past the point where
+             reading the rail is faster than typing. The box filters the
+             rail itself rather than opening a results page: the thing
+             you are looking for is one of these entries, so the answer
+             is "which of these", not "here is a list of matches". -->
+        <div class="sj-find">
+          <span class="dsk-search sm">${icon("search")}
+            <input type="search" id="set-q" class="dsk-search-i" autocomplete="off" spellcheck="false"
+                   placeholder="${esc(I18N.t("settings.search"))}"
+                   aria-label="${esc(I18N.t("settings.search"))}"
+                   aria-controls="set-jump" />
+            <button type="button" class="dsk-search-x" id="set-q-clear" hidden
+                    aria-label="${esc(I18N.t("common.close"))}">${icon("close")}</button>
+          </span>
+          <p class="sj-find-n sub" id="set-q-n" aria-live="polite" hidden></p>
+        </div>
         ${grp(I18N.t("rail.trading"))}
         ${tabBtn("set-robot", I18N.t("settings.sec_robot"), "bolt", I18N.t("rail.robot_hint"))}
-        ${tabBtn("set-strats", I18N.t("nav.strategies"), "layers", I18N.t("rail.strats_hint"))}
         ${tabBtn("set-prop", I18N.t("risk.title"), "shield", I18N.t("rail.prop_hint"))}
         ${tabBtn("set-mt5", "MetaTrader 5", "term", I18N.t("rail.mt5_hint"))}
         ${grp(I18N.t("rail.personalize"))}
@@ -6632,22 +6639,13 @@ const views = {
       ${block("set-robot", I18N.t("settings.sec_robot"), I18N.t("settings.why_robot"),
         robotPanelHtml())}
 
-      ${block("set-strats", I18N.t("strategies.live"), I18N.t("settings.why_strats"), `
-        <p class="sub stx-note">${I18N.t("strategies.single_rule")}</p>
-        <div class="grid g-2" id="st-live-grid">${strategyLiveCards()}</div>
-        ${licFeat("strategy_upload") ? `<div class="card stx-upload">
-          <h3>${I18N.t("strategies.upload")}</h3>
-          <textarea id="st-src" class="ctrl stx-src" placeholder="# Python strategy"
-                    aria-label="${esc(I18N.t("strategies.source"))}"></textarea>
-          <div class="row stx-upload-row">
-            <input class="ctrl" id="st-file" placeholder="my_strategy.py"
-                 aria-label="${esc(I18N.t("strategies.file_name"))}" />
-            <button class="btn tiny" id="st-up" type="button">${I18N.t("strategies.upload")}</button>
-            <a class="btn tiny ghost" id="st-tpl" href="#">${I18N.t("strategies.template")}</a>
-            <a class="btn tiny ghost" id="st-cancel" href="#" hidden>${I18N.t("strategies.cancel")}</a>
-          </div>
-          <p class="sub" id="st-up-msg"></p>
-        </div>` : lockedUpgradeCard("strategy_upload")}`)}
+      <!-- The Strategies section used to live here, and it was a
+           second copy of the Strategies page in the nav: the same live
+           cards from strategyLiveCards(), the same uploader, the same
+           element ids. Two places to change a strategy is one place
+           too many, and duplicate ids across two views is a bug
+           waiting for both to render at once. The nav page is the one
+           that stayed. -->
 
       ${block("set-prop", I18N.t("risk.title"), I18N.t("settings.why_prop"),
         licFeat("prop") ? `${propStatusHtml()}${propFormHtml()}${propGuideHtml()}` : lockedUpgradeCard("prop"))}
@@ -6721,7 +6719,6 @@ const views = {
           <div id="upd-status"></div>
           <div class="row stx-acts">
             <button class="btn" id="upd-check" type="button">${icon("search")} ${I18N.t("upd.check")}</button>
-            <button class="btn ghost" id="upd-manifest" type="button">${icon("clipboard")} ${I18N.t("upd.manifest")}</button>
           </div>
           <div id="upd-result" class="stx-result"></div>
         </div>`)}
@@ -6754,94 +6751,65 @@ const views = {
       </div></div>`;
   },
   about() {
-    /* Rebuilt from scratch, third pass.
+    /* Rebuilt, centred, and with the desk's live state taken out.
 
-       The previous version was an identity rail beside a stack of four
-       cards. It worked, but it answered the questions in the wrong
-       order: the first fold was a logo and a blurb, and the one thing a
-       trader opens this page for in a hurry - is the system actually
-       running, and what exactly do I paste into a support message - was
-       below it or buried in a key/value table.
+       This page carried a six-chip row saying whether the engine was
+       up, whether MetaTrader was connected, how many EA charts were
+       attached, and so on. That is the Command centre's job and it
+       is answered there, on the screen a trader actually watches. On
+       an About page it was a second, slower copy of the truth - and
+       a copy that is only right while the page is open is worse than
+       no copy, because it invites you to trust it.
 
-       So it is built around the answer now. A banner that states what
-       this is and what build it is, with the two support actions in it.
-       Then a single row of live state. Then the reference detail, which
-       is the part you read rather than scan. The changelog is a dated
-       timeline instead of a paragraph of text, because a list of
-       versions is a list.
-
-       Mobile is not a fold-down of the desktop: the banner becomes one
-       column with a smaller mark, the state row becomes two columns of
-       chips, and the detail cards stack in reading order. */
+       So this is now what an About page is: what the product is,
+       which build you are running, who made it, and what changed.
+       Everything is centred on one column that holds its measure on
+       a desktop and stays a single readable stack on a phone. */
     const ver = S.version || S.snap?.version || S._gateLic?.version || "1.0.0";
     const L = (S.snap && S.snap.license) || {};
     const buildDate = S.buildDate || new Date().toISOString().slice(0, 10);
-    const engineUp = S.snap?.engine === "online";
-    const charts = liveAgents().length;
-    const auto = Boolean(S.snap?.strategy?.auto_trade);
-    const kill = Boolean(S.snap?.kill_switch);
-    const prop = S.snap?.prop?.enabled !== false;
 
-    /* ok: true reads well, false reads badly, null is neutral. "Not
-       switched on" is not a fault and must not be painted as one - a
-       page that cries wolf about auto-trade being off is a page nobody
-       reads the red on. */
-    const chip = (label, ok, value) => `<div class="abx-chip${
-      ok === null ? " is-idle" : ok ? " is-ok" : " is-bad"}">
-      <i class="abx-chip-dot" aria-hidden="true"></i>
-      <span class="abx-chip-k">${esc(label)}</span>
-      <b class="abx-chip-v">${esc(value)}</b>
-    </div>`;
-
-    const row = (k, v, mono) =>
-      `<div class="abx-row"><span>${esc(k)}</span><b${mono ? ' class="mono"' : ""}>${esc(v)}</b></div>`;
+    /* A fact, stated as a label above its value rather than as a row
+       with the two pushed to opposite edges. A justified row cannot
+       be centred, and on a phone it strands a short label against a
+       long value with a gap of nothing in between. */
+    const fact = (k, v, mono) => `<div class="abx-fact">
+        <span>${esc(k)}</span>
+        <b${mono ? ' class="mono"' : ""}>${esc(v)}</b>
+      </div>`;
 
     return `<div class="cmd about abx">
-      <!-- 1. What this is, and exactly which build of it. The copy
-              button exists so a support message carries both. -->
+      <!-- 1. What this is, and exactly which build of it. -->
       <header class="abx-hero">
         <span class="abx-hero-wash" aria-hidden="true"></span>
         <div class="abx-mark"><img src="icons/mark.png?v=desk49" alt="AURION" /></div>
-        <div class="abx-headline">
-          <h2 class="abx-name">AURION <small>${esc(I18N.t("about.product_sub"))}</small></h2>
-          <p class="abx-blurb">${I18N.t("about.blurb")}</p>
-          <div class="abx-tags">
-            <span class="abx-tag mono">v${esc(ver)}</span>
-            <span class="abx-tag mono">${esc(buildTag(buildDate))}</span>
-            <span class="abx-tag${L.premium ? " is-pro" : ""}">${esc(L.premium ? planLabel(L) : "Freemium")}</span>
-          </div>
+        <h2 class="abx-name">AURION <small>${esc(I18N.t("about.product_sub"))}</small></h2>
+        <p class="abx-blurb">${I18N.t("about.blurb")}</p>
+        <div class="abx-tags">
+          <span class="abx-tag mono">v${esc(ver)}</span>
+          <span class="abx-tag mono">${esc(buildTag(buildDate))}</span>
+          <span class="abx-tag${L.premium ? " is-pro" : ""}">${esc(L.premium ? planLabel(L) : "Freemium")}</span>
         </div>
         <div class="abx-acts">
-          <button class="btn tiny" id="about-check-update" type="button">${
+          <button class="btn" id="about-check-update" type="button">${
             icon("refresh")} ${I18N.t("about.check")}</button>
-          <button class="btn tiny ghost" id="about-copy-ver" type="button">${
+          <button class="btn ghost" id="about-copy-ver" type="button">${
             icon("clipboard")} ${I18N.t("about.copy_ver")}</button>
-          <p class="abx-upd sub">${I18N.t("about.update")}: <b id="about-update-status">${
-            I18N.t("about.checking")}</b></p>
         </div>
+        <p class="abx-upd sub">${I18N.t("about.update")}: <b id="about-update-status">${
+          I18N.t("about.checking")}</b></p>
       </header>
 
-      <!-- 2. Is it running? One row, six answers, no scrolling. -->
-      <section class="abx-state" aria-label="${esc(I18N.t("about.glance"))}">
-        ${chip(I18N.t("about.engine"), engineUp, I18N.t(engineUp ? "about.online" : "about.offline"))}
-        ${chip("MT5", mt5Live(), I18N.t(mt5Live() ? "about.connected" : "about.disconnected"))}
-        ${chip(I18N.t("about.ea_charts"), charts > 0, String(charts))}
-        ${chip(I18N.t("about.autotrade"), auto ? true : null, I18N.t(auto ? "about.on" : "about.off"))}
-        ${chip(I18N.t("about.kill"), kill ? false : null, I18N.t(kill ? "about.armed" : "about.off"))}
-        ${chip("Prop", prop ? true : null, I18N.t(prop ? "about.enabled" : "about.disabled"))}
-      </section>
-
-      <!-- 3. The detail. Read, not scanned. -->
+      <!-- 2. The reference detail. Read, not scanned. -->
       <div class="abx-cols">
         <section class="card abx-card">
           <h3>${icon("wrench")} ${I18N.t("about.specs")}</h3>
-          <div class="abx-rows">
-            ${row(I18N.t("about.product"), "AURION Live Desk")}
-            ${row(I18N.t("about.version"), "v" + ver, true)}
-            ${row(I18N.t("about.build"), buildTag(buildDate), true)}
-            ${row(I18N.t("about.license"), L.premium ? planLabel(L) : "Freemium")}
-            ${row(I18N.t("about.active_strategy"), S.snap?.strategy?.name || "\u2014")}
-            ${row(I18N.t("about.language"), I18N.lang.toUpperCase(), true)}
+          <div class="abx-facts">
+            ${fact(I18N.t("about.product"), "AURION Live Desk")}
+            ${fact(I18N.t("about.version"), "v" + ver, true)}
+            ${fact(I18N.t("about.build"), buildTag(buildDate), true)}
+            ${fact(I18N.t("about.license"), L.premium ? planLabel(L) : "Freemium")}
+            ${fact(I18N.t("about.language"), I18N.lang.toUpperCase(), true)}
           </div>
         </section>
 
@@ -6849,13 +6817,11 @@ const views = {
           <h3>${icon("building")} ${I18N.t("about.maker")}</h3>
           <div class="abx-maker">
             <img src="assets/axiasoft-logo.png?v=desk49" alt="Axiasoft" />
-            <div class="abx-maker-t">
-              <b>Axiasoft</b>
-              <span class="sub">${I18N.t("about.developer_of")} &middot; 2024-${copyrightYear()}</span>
-            </div>
+            <b>Axiasoft</b>
+            <span class="sub">${I18N.t("about.developer_of")} &middot; 2024-${copyrightYear()}</span>
           </div>
-          <div class="abx-rows">
-            ${row(I18N.t("about.support"), "support@axiasoft")}
+          <div class="abx-facts">
+            ${fact(I18N.t("about.support"), "support@axiasoft")}
           </div>
         </section>
 
@@ -7142,31 +7108,11 @@ function currentAiSlideState() {
   const idx = (S.aiSlide | 0) >= slides.length ? 0 : (S.aiSlide | 0);
   return (slides[idx] && slides[idx].state) || (S.snap && S.snap.ai) || {};
 }
-function currentOlSlideState() {
-  const slides = aiSlides();
-  const idx = (S.olSlide | 0) >= slides.length ? 0 : (S.olSlide | 0);
-  return (slides[idx] && slides[idx].state) || (S.snap && S.snap.ai) || {};
-}
-function outlookSlideInnerHtml(slide) {
-  const st = slide.state || null;
-  const has = Boolean(st && (st.symbol || st.reason || st.ready));
-  const d = has ? shownDir(st) : "neutral";
-  const p = Math.round((has ? (st.outlook_strength != null ? st.outlook_strength : (st.confidence || 0)) : 0) * 100);
-  const title = slide.symbol ? (slide.timeframe ? slide.symbol + " · " + slide.timeframe : slide.symbol) : "";
-  const text = !has ? I18N.t("ai.no_chart_data") : (st.outlook_text || st.reason || I18N.t("status.ai_idle"));
-  // v54: also show regime per-chart in outlook banner (merged)
-  const regime = st && (st.regime_obj || st.regime);
-  const regimeName = regime ? (typeof regime === "string" ? regime : (regime.name || "")) : "";
-  const regimeLbl = regimeName ? `<span class="pill ghost" style="margin-inline-start:8px;font-size:10px">${esc(regLabel(regimeName && typeof regimeName === "string" ? {name:regimeName} : regime))}</span>` : "";
-  return `<div class="outlook-banner dir-${d}">
-    <div>
-      <p class="kicker">${I18N.t("ai.outlook")}${title ? `<span class="slide-sym mono">${esc(title)}</span>` : ""}${regimeLbl}</p>
-      <p class="metric ${d === "bull" ? "up" : d === "bear" ? "down" : ""}">${dirLabel(d)}</p>
-      <p class="sub">${esc(text)}</p>
-    </div>
-    <b class="mono">${p}%</b>
-  </div>`;
-}
+/* The "live outlook" slider that used to sit at the top of the Command
+   centre is gone, and so are currentOlSlideState() and
+   outlookSlideInnerHtml() with it. The slider's own machinery
+   (chartSliderHtml / bindChartSlider / paintChartSlider) stays - the
+   Intelligence view still uses it for the "ai" kind. */
 function sliderIndexKey(kind) { return kind === "ol" ? "olSlide" : "aiSlide"; }
 // Generic per-chart slider (ai = direction hero, ol = command outlook).
 // Manual only: prev/next buttons and dot jumps — deliberately NO timer.
@@ -7798,21 +7744,82 @@ async function bindUpdatePanel(){
     }
   };
 
-  const manifestBtn = document.getElementById('upd-manifest');
-  if(manifestBtn) manifestBtn.onclick = async () => {
-    const r = await API.get('/api/system/update/manifest');
-    if(resultEl){
-      if(r.ok){
-        resultEl.innerHTML = '<h4>'+I18N.t('upd.local_files')+' ('+(r.data.files||[]).length+')</h4><div style="max-height:300px;overflow:auto">'+(r.data.files||[]).slice(0,100).map(f=>'<div style="font-family:monospace;font-size:12px;padding:2px">'+esc(f.path)+' - '+esc(f.hash.slice(0,12))+'</div>').join('')+'</div><p class="sub">'+I18N.t('about.version')+': '+esc(r.data.version||'')+'</p>';
-      } else {
-        resultEl.innerHTML = '<p class="err">' + I18N.t('upd.error') + '</p>';
-      }
+  /* The "local files" view is gone. It listed up to a hundred paths
+     from the install directory with a truncated hash beside each, which
+     is a developer's integrity check wearing a settings page's clothes:
+     nothing a trader can read tells them whether those hashes are
+     right, and nothing on the screen acted on them. The update check
+     above already answers the question this was next to - is there a
+     newer build - and the API endpoint is untouched for anyone who
+     wants it from a terminal. */
+}
+
+/**
+ * Filter the settings rail as you type.
+ *
+ * It matches on the entry's name AND on its one-line description,
+ * because people search for what a section DOES ("spread", "daily
+ * loss") rather than for what it is called. A group heading is hidden
+ * when nothing under it survives, otherwise the rail ends up with
+ * three headings and one button.
+ *
+ * It deliberately does not change the open section. Typing is a way of
+ * looking, and a page that navigates away on every keystroke cannot be
+ * looked at.
+ */
+function bindSettingsSearch() {
+  const q = $("set-q");
+  const rail = $("set-jump");
+  if (!q || !rail || q.dataset.bound === "1") return;
+  q.dataset.bound = "1";
+  const clear = $("set-q-clear");
+  const count = $("set-q-n");
+  const buttons = [...rail.querySelectorAll("button[data-jump]")];
+  const groups = [...rail.querySelectorAll(".sj-grp")];
+
+  const apply = () => {
+    const term = q.value.trim().toLowerCase();
+    if (clear) clear.hidden = !term;
+    let shown = 0;
+    for (const b of buttons) {
+      const hit = !term || b.textContent.toLowerCase().includes(term);
+      b.hidden = !hit;
+      if (hit) shown += 1;
     }
+    /* A heading belongs to the buttons that follow it up to the next
+       heading, so walk forward rather than guessing from the DOM. */
+    for (const g of groups) {
+      let any = false;
+      for (let n = g.nextElementSibling; n && !n.classList.contains("sj-grp"); n = n.nextElementSibling) {
+        if (n.matches("button[data-jump]") && !n.hidden) { any = true; break; }
+      }
+      g.hidden = !any;
+    }
+    if (count) {
+      count.hidden = !term;
+      count.textContent = shown
+        ? I18N.t("settings.search_n", { n: shown, t: buttons.length })
+        : I18N.t("settings.search_none");
+    }
+    rail.classList.toggle("is-filtered", Boolean(term));
   };
+
+  q.addEventListener("input", apply);
+  q.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") { q.value = ""; apply(); }
+    /* Enter opens the only thing left, which is what you meant if you
+       typed enough to leave one. */
+    if (e.key === "Enter") {
+      const first = buttons.find((b) => !b.hidden);
+      if (first) { showSetTab(first.dataset.jump); first.focus(); }
+    }
+  });
+  if (clear) clear.onclick = () => { q.value = ""; apply(); q.focus(); };
+  apply();
 }
 
 function showSetTab(id) {
-  const allow = ["set-robot", "set-strats", "set-prop", "set-mt5", "set-personal",
+  const allow = ["set-robot", "set-prop", "set-mt5", "set-personal",
                  "set-notify", "set-telegram", "set-update", "set-system"];
   // Language used to be a section of its own and is now part of System.
   // A desk that was last left on it -- the choice is remembered across
@@ -7832,7 +7839,6 @@ function showSetTab(id) {
 function bindView(view) {
   if (view === "command") {
     const b = $("go-settings"); if (b) b.onclick = () => show("settings");
-    bindChartSlider("ol", outlookSlideInnerHtml);
     bindGateSlider();
     bindStrategyToggles();
     bindCloseButtons($("stage"));
@@ -8300,6 +8306,7 @@ function bindView(view) {
       showSetTab(b.dataset.jump);
     };
     showSetTab(S.setTab || "set-robot");
+    bindSettingsSearch();
     const sav = $("s-save");
     if (sav) sav.onclick = () => saveAccountSettings(false);
     const con = $("s-con");

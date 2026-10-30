@@ -284,30 +284,40 @@ check("an icon carries its own size, wherever it is dropped", () => {
   }
 });
 
-check("status is shown with a mark, not with colour alone", () => {
-  /* This has been narrowed twice. It began by counting copies of a
-     literal class="dot live" in the About source, which measured the
-     duplication rather than the behaviour; then it pinned the shared
-     .dot element the status tiles used.
+check("About states no desk status at all", () => {
+  /* This check has been narrowed three times. It began by counting a
+     literal class="dot live" in the About source, then pinned the
+     shared .dot element, then the chip's own .abx-chip-dot.
 
-     The rebuilt page draws its own dot inside each chip (.abx-chip-dot)
-     rather than borrowing the desk's, because the chip is a different
-     shape. The thing worth protecting survives both rewrites and is
-     neither of those class names: a state must never be carried by
-     colour alone, and every state on the page must go through one
-     helper so none can quietly regress to a bare word or a glyph. */
-  const about = appJs.slice(appJs.indexOf("  about() {"), appJs.indexOf('I18N.t("about.changelog")'));
+     The page no longer has the thing it was guarding. About carried a
+     six-chip row - engine up, MT5 connected, charts attached - which
+     was a second, slower copy of what the Command centre says. A copy
+     of the truth that is only right while the page is open is worse
+     than no copy, because it invites you to trust it.
+
+     So the assertion inverts: About must NOT report live state. The
+     colour-alone rule it used to enforce is now checked below, on the
+     page that actually has state to report. */
+  const about = appJs.slice(appJs.indexOf("  about() {"), appJs.indexOf("\n  profile() {"));
   if (!about) throw new Error("could not find the About view");
+  for (const dead of ["abx-chip", "abx-state", "mt5Live(", "liveAgents(", "kill_switch", "auto_trade"]) {
+    if (about.includes(dead)) throw new Error("About still reports desk state: " + dead);
+  }
+});
 
-  const flat = about.replace(/\s+/g, " ");
-  if (!/class="abx-chip-dot"/.test(flat)) {
-    throw new Error("the About status markup carries no mark beside the colour");
+check("the risk figures say their numbers, not just their colour", () => {
+  /* Where the state went. A bar that turns amber at 75% and red at
+     100% is telling a sighted user something and nobody else, so the
+     figure and its limit are in the accessible name too. */
+  const cmd = appJs.slice(appJs.indexOf("  command() {"), appJs.indexOf("\n  markets() {"));
+  if (!cmd) throw new Error("could not find the Command view");
+  const bar = cmd.slice(cmd.indexOf('class="ccx-risk-bar"'));
+  if (!/role="img"/.test(bar.slice(0, 200))) throw new Error("the risk bar is not exposed as an image");
+  if (!/aria-label="\$\{esc\(I18N\.t\(key\)\)\} \$\{fmt\(amt\)\}% \/ \$\{fmt\(lim\)\}%"/.test(bar.slice(0, 400))) {
+    throw new Error("the risk bar does not announce its value against its limit");
   }
-  if (!/is-idle[\s\S]{0,40}is-ok[\s\S]{0,40}is-bad/.test(flat)) {
-    throw new Error("the three states are not all distinguished");
-  }
-  const chips = (about.match(/\$\{chip\(/g) || []).length;
-  if (chips < 6) throw new Error("expected at least 6 status chips, found " + chips);
+  /* And the state is a class on the row, not only a fill colour. */
+  if (!/is-over[\s\S]{0,60}is-near/.test(cmd)) throw new Error("the two thresholds are not distinguished as state");
 });
 
 /* An emoji written as a \uXXXX escape is still an emoji on the screen, but
