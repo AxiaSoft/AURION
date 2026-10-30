@@ -396,6 +396,45 @@ if (!jsdom) {
 
     const about = T.views.about();
 
+    check("the copyright years are real, and all of them are in one calendar", () => {
+      /* The footer read `2024-${copyrightYear()}`: a Gregorian year typed
+         in by hand, joined to a year formatted in whichever calendar the
+         interface uses. On the Persian desk that rendered "2024-۱۴۰۵" -
+         two calendars inside one range, describing a span that is not
+         real in either of them. A year is not a portable number; the
+         instant behind it is, so the range is built by converting one. */
+      const about = appJs.slice(appJs.indexOf("  about() {"), appJs.indexOf("\n  profile() {"));
+      if (/\b20\d\d\s*[-\u2013]/.test(about)) throw new Error("a hard-coded Gregorian year is still in the footer");
+      if (!/copyrightRange\(\)/.test(about)) throw new Error("the footer does not use the range helper");
+
+      /* Digits are the giveaway: fa renders Persian digits, ar renders
+         Arabic-Indic ones, and a Latin digit anywhere in those means a
+         year escaped the conversion. */
+      const DIGITS = { fa: /[\u06F0-\u06F9]/, ar: /[\u0660-\u0669]/, en: /[0-9]/ };
+      const seen = {};
+      for (const lang of ["en", "fa", "ar"]) {
+        win.__T.I18N.lang = lang;
+        const out = win.eval("copyrightRange()");
+        seen[lang] = out;
+        if (!DIGITS[lang].test(out)) throw new Error(lang + " produced no " + lang + " digits: " + out);
+        if (lang !== "en" && /[0-9]/.test(out)) {
+          throw new Error(lang + " mixes Latin digits into its own calendar: " + out);
+        }
+        /* Two distinct years, both present, in ascending order. */
+        const years = out.match(/[\d\u06F0-\u06F9\u0660-\u0669]+/g) || [];
+        if (years.length !== 2) throw new Error(lang + " is not a range of two years: " + out);
+      }
+      win.__T.I18N.lang = "en";
+
+      /* The English range is Gregorian, so its ends can be read back
+         as numbers: it must start at the first release and end at the
+         year the desk is actually running in. */
+      const [a, b] = (seen.en.match(/\d{4}/g) || []).map(Number);
+      if (a !== 2024) throw new Error("the first release moved: " + seen.en);
+      if (b !== new Date().getFullYear()) throw new Error("the range does not end this year: " + seen.en);
+      return Object.values(seen).join("  /  ");
+    });
+
     check("the About page renders", () => {
       if (about.includes("[object")) throw new Error("the view returned a Promise");
       if (!/class="cmd about\b/.test(about)) throw new Error("the page has no root class to style");

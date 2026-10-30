@@ -1737,10 +1737,37 @@ html[data-skin] .field input[type="radio"],
 html[data-skin] .field input[type="range"],
 html[data-skin] .field input[type="color"],
 html[data-skin] .field input[type="hidden"],
-html[data-skin] .field .dsk-search-i{
+html[data-skin] .field .dsk-search-i,
+html[data-skin] .field .dsk-search > input{
   background:none;
   border:0;
   box-shadow:none;
+}
+
+/* ...and the same again for the focused state, which this block did not
+   cover and which is where it actually showed.
+
+   `html[data-skin] .field input:focus` up at the top of this file is
+   (0,3,2) and so outranked the (0,3,1) reset above the moment the box
+   was clicked. It paints three things on the inner input: a
+   `background:var(--field-hi)`, a `border-color`, and
+   `box-shadow:0 0 0 4px rgb(var(--accent-rgb) / .14)`. The input is
+   edge-to-edge inside the shell and `border-radius:0`, so what the eye
+   got was a hard-cornered filled rectangle laid over the shell with a
+   4px accent halo around it - a box drawn inside a box, visible on
+   every click, on whatever colour the skin's accent happens to be.
+
+   The resting reset without a focus twin is half a reset. The shell
+   owns this control's box in every state: .dsk-search:focus-within in
+   app.css draws the ring, on the shell, following its corner radius. */
+html[data-skin] .field .dsk-search-i:focus,
+html[data-skin] .field .dsk-search-i:focus-visible,
+html[data-skin] .field .dsk-search > input:focus,
+html[data-skin] .field .dsk-search > input:focus-visible{
+  background:none;
+  border:0;
+  box-shadow:none;
+  outline:none;
 }
 
 /* The empty state's orb is the only decorative animation on a data page. It
