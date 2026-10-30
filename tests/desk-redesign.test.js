@@ -756,7 +756,9 @@ if (!jsdom) {
       const tight = rung.replace(/\s+/g, "");
       if (!/\.set-jump\.is-sheet\{[^}]*position:fixed/.test(tight)) throw new Error("the sheet is not anchored to the viewport");
       if (!/inset-block-end:0/.test(tight)) throw new Error("the sheet is not at the bottom edge");
-      if (!/html\.set-sheet-open\.set-jump\.is-sheet\{transform:translateY\(0\)/.test(tight)) {
+      /* The open rule is a two-selector list (plain and skinned), so the
+         marker can be followed by a comma as well as by a brace. */
+      if (!/html\.set-sheet-open\.set-jump\.is-sheet[,{][^}]*transform:translateY\(0\)/.test(tight)) {
         throw new Error("opening the sheet does not bring it on screen");
       }
       /* A sheet that slides has to be laid out while closed, so it is
@@ -803,7 +805,7 @@ if (!jsdom) {
       }
     });
 
-    check("the sheet is parented to the body, not to the animating stage", () => {
+    check("the sheet is parented out of the animating stage, into #desk", () => {
       /* .stage.is-entering animates `rise`, a transform, for 480ms on
          every view change, and a transformed ancestor becomes the
          containing block for its fixed descendants. Rendered inside
@@ -814,7 +816,12 @@ if (!jsdom) {
          calendar's day card. */
       if (!/function sweepSetSheet\(\)/.test(appJs)) throw new Error("there is no sweep");
       const portal = appJs.slice(appJs.indexOf("function portalSetSheet()"), appJs.indexOf("function bindSetSheet()"));
-      if (!/document\.body\.appendChild/.test(portal)) throw new Error("nothing is portaled");
+      /* Into #desk, not <body>. Escaping the transform is only half of
+         it: #app is `position:relative; z-index:1`, so from <body> the
+         sheet is ranked against #app's 1 rather than the drawer's 210
+         and covered the side menu. */
+      if (!/host\.appendChild/.test(portal)) throw new Error("nothing is portaled");
+      if (!/getElementById\("desk"\)/.test(appJs)) throw new Error("the host is not #desk");
       for (const id of ["set-sheet-scrim", "set-jump", "set-sheet-bar"]) {
         if (!portal.includes(id)) throw new Error(id + " is left behind in the stage");
       }

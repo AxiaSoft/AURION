@@ -440,8 +440,14 @@ html[data-skin] .hdr-drawer{
   backdrop-filter:blur(var(--blur-md));
   -webkit-backdrop-filter:blur(var(--blur-md));
 }
+/* The settings rail, and the bottom bar that stands in for it on a
+   phone. They are listed together deliberately: the bar is the rail
+   collapsed, so it must be the same surface in every skin, and keeping
+   them in one selector is what stops the two drifting apart. */
 html[data-skin] .set-jump,
 html[data-skin] .set-jump:hover,
+html[data-skin] .sj-open,
+html[data-skin] .sj-open:hover,
 html[data-skin] .set-rail .set-jump,
 html[data-skin] .set-rail .set-jump:hover{
   background:linear-gradient(180deg,
@@ -674,6 +680,7 @@ html[data-skin="neu"] .card,
 html[data-skin="neu"] .auth-card,
 html[data-skin="neu"] .modal-card,
 html[data-skin="neu"] .set-jump,
+html[data-skin="neu"] .sj-open,
 html[data-skin="neu"] .set-rail .set-jump{
   background:rgb(var(--s3));
   border:0;

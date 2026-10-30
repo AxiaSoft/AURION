@@ -6993,10 +6993,10 @@ const views = {
            it. -->
       <div class="sj-bar" id="set-sheet-bar">
         <button type="button" class="sj-open" id="set-sheet-open"
-                aria-controls="set-jump" aria-expanded="false">
+                aria-controls="set-jump" aria-expanded="false"
+                aria-label="${esc(I18N.t("settings.sheet_open"))}">
           <span class="sj-ic">${icon(tabIcon(tab))}</span>
-          <span class="sj-txt"><b id="set-sheet-now">${esc(tabTitle(tab))}</b><small>${
-            esc(I18N.t("settings.sheet_open"))}</small></span>
+          <b class="sj-now" id="set-sheet-now">${esc(tabTitle(tab))}</b>
           <span class="sj-open-ch" aria-hidden="true">${icon("chevron")}</span>
         </button>
       </div>
@@ -8215,17 +8215,34 @@ const SET_SHEET_MQ = "(max-width: 1000px)";
  * So they are moved to <body> on mount. Nothing has to move them back:
  * the stage is rebuilt wholesale on every view change, so the sweep
  * below runs there and the template supplies fresh copies next time. */
+/* Where the sheet is re-parented to.
+ *
+ * #desk, not <body>. Escaping the stage's transform is only half the
+ * requirement: #app is `position:relative; z-index:1`, which makes it a
+ * stacking context, so a sheet parented to <body> is compared against
+ * #app's z-index of 1 rather than against the drawer's 210. Any
+ * positive z-index then paints the sheet over the entire application,
+ * and the bottom bar sat on top of the side menu. #desk is inside that
+ * stacking context, is the drawer's own parent, and carries no
+ * transform or filter of its own - so fixed positioning still resolves
+ * against the viewport while z-index finally means what it says. */
+function sheetHost() {
+  return document.getElementById("desk") || document.body;
+}
 function sweepSetSheet() {
-  document.querySelectorAll("body > [data-sheet-portal]").forEach((n) => n.remove());
+  document.querySelectorAll("[data-sheet-portal]").forEach((n) => {
+    if (n.parentElement === document.body || n.parentElement === document.getElementById("desk")) n.remove();
+  });
   try { document.body.classList.remove("has-set-bar"); } catch {}
 }
 function portalSetSheet() {
   if (!setSheetOn()) return;
+  const host = sheetHost();
   for (const id of ["set-sheet-scrim", "set-jump", "set-sheet-bar"]) {
     const el = document.getElementById(id);
-    if (!el || el.parentElement === document.body) continue;
+    if (!el || el.parentElement === host) continue;
     el.dataset.sheetPortal = "1";
-    document.body.appendChild(el);
+    host.appendChild(el);
   }
   /* The sheet rules are written against .set-jump.is-sheet rather than
      .set-rail .set-jump, because once it is parented to <body> there is

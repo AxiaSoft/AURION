@@ -324,6 +324,9 @@ html .cal-cell.pinned:hover{ border-color:var(--accent); transform:none }
 .set-jump,
 .set-jump:hover,
 .set-jump:focus-within,
+.sj-open,
+.sj-open:hover,
+.sj-open:focus-visible,
 .set-rail .set-jump,
 .set-rail .set-jump:hover,
 .set-rail .set-jump:focus-within{
@@ -803,7 +806,9 @@ html[data-skin][data-theme][data-perf="fast"] .set-main .set-block{
 /* The sticky section jumper fades to transparent at its bottom edge so the
    content appears to slide under it. With no blur that is just a hole. */
 html[data-skin][data-theme][data-glass="off"] .set-jump,
-html[data-skin][data-theme][data-perf="fast"] .set-jump{
+html[data-skin][data-theme][data-perf="fast"] .set-jump,
+html[data-skin][data-theme][data-glass="off"] .sj-open,
+html[data-skin][data-theme][data-perf="fast"] .sj-open{
   background:rgb(var(--s1));
 }
 
@@ -830,7 +835,9 @@ html[data-skin][data-theme="light"][data-perf="fast"] .set-main .set-block .card
 html[data-skin][data-theme="light"][data-glass="off"] .set-main .set-block,
 html[data-skin][data-theme="light"][data-perf="fast"] .set-main .set-block,
 html[data-skin][data-theme="light"][data-glass="off"] .set-jump,
-html[data-skin][data-theme="light"][data-perf="fast"] .set-jump{
+html[data-skin][data-theme="light"][data-perf="fast"] .set-jump,
+html[data-skin][data-theme="light"][data-glass="off"] .sj-open,
+html[data-skin][data-theme="light"][data-perf="fast"] .sj-open{
   background:rgb(var(--s2));
 }
 
