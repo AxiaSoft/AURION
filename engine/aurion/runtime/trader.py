@@ -157,6 +157,8 @@ class Trader:
         self._last_bar_time: dict[tuple[str, str], str] = {}
         self._news_stop = asyncio.Event()
         self._news_task: asyncio.Task | None = None
+        self._analysis_stop = asyncio.Event()
+        self._analysis_task: asyncio.Task | None = None
         self.robot_log: deque[dict[str, Any]] = deque(maxlen=600)
         self._known_pos: dict[int, dict[str, Any]] = {}
         self._pending_tag: list[dict[str, Any]] = []
@@ -258,10 +260,22 @@ class Trader:
         # Do not persist on boot — a failed overlay read would rewrite saved settings.
         self._news_stop = asyncio.Event()
         self._news_task = asyncio.create_task(self._news_refresh_loop(), name="aurion-news")
+        self._analysis_stop = asyncio.Event()
+        self._analysis_task = asyncio.create_task(
+            self._analysis_loop(), name="aurion-analysis"
+        )
         log.info("AURION engine started")
         await self.journal("info", "boot", "Engine online. Robot is idle until a strategy is enabled and auto-trade is armed.")
 
     async def stop(self) -> None:
+        self._analysis_stop.set()
+        if getattr(self, "_analysis_task", None):
+            self._analysis_task.cancel()
+            try:
+                await self._analysis_task
+            except (asyncio.CancelledError, Exception):
+                pass
+            self._analysis_task = None
         self._news_stop.set()
         if self._news_task:
             self._news_task.cancel()
@@ -3976,7 +3990,37 @@ class Trader:
     # arrive several times a second; the analysis is in-memory state
     # (no pandas, no strategy call) but there is no point redrawing a
     # panel faster than a person can read it.
-    ANALYSIS_PUSH_SECONDS = 0.7
+    # The desk repaints the Intelligence card from this, so the number is
+    # the worst-case age of what a trader is looking at. One analysis
+    # costs ~0.4ms of pure in-memory state, so 5/second is 0.2% of a
+    # core - the cadence is limited by what is useful, not by cost.
+    ANALYSIS_PUSH_SECONDS = 0.2
+    # How often the engine asks itself whether the reading changed. This
+    # exists because ticks are NOT a reliable heartbeat: they only arrive
+    # while an MT5 EA is attached and the market is open. Driving the
+    # live card from ticks alone left it frozen on a closed market, on a
+    # demo account with no EA, and on any symbol the EA was not watching
+    # - which is exactly when a trader stares at it hardest.
+    ANALYSIS_LOOP_SECONDS = 0.25
+
+    async def _analysis_loop(self) -> None:
+        """Keep the live analysis live, whatever is or is not feeding us.
+
+        _push_analysis only publishes when the content actually changed,
+        so an idle engine sends nothing at all and this costs a
+        sub-millisecond comparison a few times a second.
+        """
+        while not self._analysis_stop.is_set():
+            try:
+                await self._push_analysis()
+            except Exception:
+                log.exception("analysis push failed")
+            try:
+                await asyncio.wait_for(
+                    self._analysis_stop.wait(), timeout=self.ANALYSIS_LOOP_SECONDS
+                )
+            except asyncio.TimeoutError:
+                continue
 
     async def _push_analysis(self, force: bool = False) -> None:
         """Send the live analysis the moment it changes.

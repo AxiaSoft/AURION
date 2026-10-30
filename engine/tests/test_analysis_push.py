@@ -141,3 +141,117 @@ def test_every_declared_clock_field_is_actually_ignored(field):
     a = {"reason": "x", field: "a"}
     b = {"reason": "x", field: "b"}
     assert t._analysis_signature(a) == t._analysis_signature(b)
+
+
+# --------------------------------------------------------------------
+# The loop. Ticks are not a heartbeat.
+#
+# The push was first driven only from _route_bridge("tick"), and ticks
+# come from exactly one place: an attached MT5 EA. So the "live"
+# analysis was frozen whenever there was no EA, the market was shut, or
+# the EA was not watching that symbol - and the card silently fell back
+# to the ten-second snapshot poll. The loop is what makes the guarantee
+# independent of anything feeding us.
+# --------------------------------------------------------------------
+
+
+def test_the_loop_publishes_a_change_with_no_ticks_at_all():
+    async def go():
+        t, sent = _trader()
+        t._analysis_stop = asyncio.Event()
+        task = asyncio.create_task(t._analysis_loop())
+        await asyncio.sleep(0.6)                 # settle the first reading
+        baseline = len(sent)
+        t.auto_trade = not t.auto_trade          # never route a tick
+        for _ in range(100):
+            if len(sent) > baseline:
+                break
+            await asyncio.sleep(0.01)
+        t._analysis_stop.set()
+        task.cancel()
+        try:
+            await task
+        except Exception:
+            pass
+        return len(sent) - baseline
+
+    assert asyncio.run(go()) == 1
+
+
+def test_the_loop_is_silent_while_nothing_changes():
+    async def go():
+        t, sent = _trader()
+        t._analysis_stop = asyncio.Event()
+        task = asyncio.create_task(t._analysis_loop())
+        await asyncio.sleep(0.6)
+        baseline = len(sent)
+        await asyncio.sleep(1.5)                 # many loop turns
+        t._analysis_stop.set()
+        task.cancel()
+        try:
+            await task
+        except Exception:
+            pass
+        return len(sent) - baseline
+
+    assert asyncio.run(go()) == 0, "an idle engine must not stream the same card forever"
+
+
+def test_the_cadence_is_under_a_second():
+    """A trader asked for 'in the moment'. Keep it honest.
+
+    One analysis is ~0.4ms of in-memory state, so there is no cost
+    argument for letting this drift back up to seconds.
+    """
+    assert Trader.ANALYSIS_LOOP_SECONDS <= 0.5
+    assert Trader.ANALYSIS_PUSH_SECONDS <= 0.5
+
+
+def test_a_raising_push_does_not_kill_the_loop():
+    """One bad reading must not silently end live updates for the session."""
+
+    async def go():
+        t, sent = _trader()
+        boom = {"n": 0}
+
+        async def bad(force=False):
+            boom["n"] += 1
+            raise RuntimeError("nope")
+
+        t._push_analysis = bad
+        t._analysis_stop = asyncio.Event()
+        task = asyncio.create_task(t._analysis_loop())
+        await asyncio.sleep(0.8)
+        alive = not task.done()
+        t._analysis_stop.set()
+        task.cancel()
+        try:
+            await task
+        except Exception:
+            pass
+        return alive, boom["n"]
+
+    alive, calls = asyncio.run(go())
+    assert alive, "the loop died on the first failure"
+    assert calls > 1, "it stopped retrying"
+
+
+def test_start_actually_wires_the_loop():
+    """The loop is useless if nothing ever starts it.
+
+    Checked against the source because reaching this through start()
+    would need a broker bridge, a licence and a Telegram token.
+    """
+    import inspect
+
+    src = inspect.getsource(Trader.start)
+    assert "_analysis_loop" in src, "start() never launches the analysis loop"
+    assert "create_task" in src
+
+
+def test_stop_cancels_the_loop():
+    """A task left running would keep a stopped engine alive."""
+    import inspect
+
+    src = inspect.getsource(Trader.stop)
+    assert "_analysis_stop" in src and "_analysis_task" in src
