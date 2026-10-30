@@ -514,7 +514,10 @@
     "signals_title": "Chart Signals (EMA8/21 + RSI14 + ATR14)",
     "signals_hint": "Strict intelligent analysis to avoid loss. User-activated premium feature.",
     "no_signals": "No strict signals on this window",
-    "search": "Search charts"
+    "search": "Search charts",
+    "open": "Open chart",
+    "open_sr": "Open the full {sym} {tf} chart",
+    "live_now": "Live charts"
   },
   "terminal": {
     "title": "Terminal",

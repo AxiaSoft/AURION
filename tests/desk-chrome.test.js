@@ -414,17 +414,28 @@ const levels = /function applyChartLevels\([\s\S]*?\n\}/.exec(appJsNC)[0];
 ok(/paintPositionStrips\(\)/.test(levels),
   "whatever moves the lines on the canvas also moves the strip above it");
 
-/* Both charts, and in both cases before the chart box - never over it. */
+/* Both charts, and in both cases before the chart box - never over it.
+
+   Located by regex, not by indexOf('class="chart-box"'): the card's
+   box carries a modifier now (chart-box chart-mini) and an exact
+   string match silently returns -1, which reads as "the box is at
+   position -1, so the strip is below it" and fails for the wrong
+   reason. Match the class in the list, not the whole attribute. */
+const boxAt = (src) => {
+  const m = /class="chart-box(?:[ "])/.exec(src);
+  if (!m) throw new Error("no chart box found in this view");
+  return m.index;
+};
 const markets = /markets\(\) \{[\s\S]*?\n  \},/.exec(appJsNC)[0];
 ok(/positionsStripHtml\(/.test(markets), "the Markets chart shows open positions");
-ok(markets.indexOf("positionsStripHtml(") < markets.indexOf('class="chart-box"'),
+ok(markets.indexOf("positionsStripHtml(") < boxAt(markets),
   "and the strip is above the chart box, so it cannot cover price");
 ok(markets.indexOf('class="mk-bar"') < markets.indexOf("positionsStripHtml("),
   "and below the toolbar, so it cannot cover the buttons");
 
 const chartCard = /const chartCard = \([\s\S]*?\n    \};/.exec(appJsNC)[0];
 ok(/positionsStripHtml\(/.test(chartCard), "each EA chart card shows open positions");
-ok(chartCard.indexOf("positionsStripHtml(") < chartCard.indexOf('class="chart-box"'),
+ok(chartCard.indexOf("positionsStripHtml(") < boxAt(chartCard),
   "in the same defined place, above its chart box");
 
 /* In the flow, not floating over anything. */

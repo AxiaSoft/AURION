@@ -1327,6 +1327,38 @@ tr:hover td{background:rgb(var(--wash) / .02)}
 .chart-card{cursor:pointer}
 .chart-card:hover{transform:translateY(-2px);border-color:rgb(var(--accent-rgb) / .28)}
 
+/* ------------------------------------------------------------------
+   Charts - rebuilt
+
+   The card's only way in was el.onclick on a <div>, so opening a
+   chart - the whole point of the page - was impossible from a
+   keyboard and invisible to a screen reader. The hint under it said
+   "Click the card to open the full chart", which is what a missing
+   button sounds like written out as prose. There is a button now;
+   the card click stays as a mouse convenience.
+   ------------------------------------------------------------------ */
+.chart-open{margin-block-start:10px}
+/* The card keeps its hover lift, but the real control shows its own
+   focus ring - the lift is not a focus indicator. */
+.chart-card:focus-within{border-color:rgb(var(--accent-rgb) / .45)}
+
+/* Was style="height:200px". .chart-box's height is set at two places
+   in this file and the later one wins unconditionally, so a mini
+   preview has to out-specify it rather than restate it. */
+.chart-box.chart-mini{height:200px}
+@media (max-width:560px){
+  .chart-box.chart-mini{height:170px}
+}
+
+/* Was style="margin:4px 0 8px" on an <h3>, and the live grid had no
+   heading at all - so with both present, one band was labelled and
+   the other just began. */
+.chx-h{margin:4px 0 8px}
+
+/* Was style="font-size:11px" / style="font-size:18px" inline. */
+.pill.is-sm{font-size:11px}
+.metric.is-sm{font-size:18px}
+
 .danger-zone{
   border-color:rgba(255,107,138,.38) !important;
   background:linear-gradient(180deg, rgba(196,59,92,.14), rgb(var(--s4) / .55));

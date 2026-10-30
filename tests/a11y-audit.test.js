@@ -215,6 +215,26 @@ for (const view of VIEWS) {
   for (const im of d.querySelectorAll("img")) {
     if (im.getAttribute("alt") === null) fail("an image has no alt attribute", at(im.getAttribute("src") || ""));
   }
+
+  /* 6b. A thing the desk binds a click to must be reachable without a
+         mouse. The Charts page shipped its whole purpose - open this
+         chart - as el.onclick on a bare <div>: no tabindex, no role,
+         no key handler, so a keyboard user could not open a chart at
+         all and a screen reader was told nothing was there.
+
+         Only data-* hooks the desk actually binds clicks to are
+         listed; a native button or link is reachable by definition. */
+  const CLICK_HOOKS = ["[data-open-chart]", "[data-close]", "[data-cancel]", "[data-plan]", "[data-jump]", "[data-metric][data-open]"];
+  for (const el of d.querySelectorAll(CLICK_HOOKS.join(","))) {
+    const tag = el.tagName.toLowerCase();
+    if (tag === "button" || tag === "a" || tag === "summary" || tag === "input") continue;
+    if (el.hasAttribute("tabindex") && el.getAttribute("tabindex") !== "-1") continue;
+    /* A container is fine as a redundant mouse target as long as a
+       real control inside it does the same job. */
+    if (el.querySelector("button, a, [tabindex]:not([tabindex=\"-1\"])")) continue;
+    fail("a click target cannot be reached from a keyboard",
+      at(`<${tag} class="${el.className}">`));
+  }
 }
 
 }

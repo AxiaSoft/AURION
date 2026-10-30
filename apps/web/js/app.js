@@ -6367,17 +6367,31 @@ const views = {
     }
     const agents = liveAgents();
     const testers = testerAgents();
+    /* The card used to be a bare <div> whose only way in was
+       el.onclick. Opening a chart - the entire point of this page -
+       could not be done from a keyboard at all, and a screen reader
+       was told nothing was there. The hint underneath literally read
+       "Click the card to open the full chart", which is what a
+       missing button sounds like when you write it as prose.
+
+       There is a real <button> now. It carries data-open-chart too,
+       so it runs the same handler; the card keeps its own click as a
+       mouse convenience, and that handler already bails when the
+       event starts inside a button, so the two never double-fire. */
     const chartCard = (a, tester, clickable) => `<div class="card chart-card"${clickable ? " data-open-chart" : ""} data-sym="${a.symbol||""}" data-tf="${a.timeframe||""}">
-      <h3>${a.symbol || "—"} · ${a.timeframe || ""} <span class="pill ${tester ? "is-backtest" : ""}" style="font-size:11px">${I18N.t(tester ? "tape.backtest" : "tape.live")}</span></h3>
-      <p class="metric" style="font-size:18px">${a.ea_name || "AurionBridge"}</p>
+      <h3>${a.symbol || "\u2014"} \u00b7 ${a.timeframe || ""} <span class="pill is-sm ${tester ? "is-backtest" : ""}">${I18N.t(tester ? "tape.backtest" : "tape.live")}</span></h3>
+      <p class="metric is-sm">${a.ea_name || "AurionBridge"}</p>
       <div class="kv">
         <span>${I18N.t("charts.chart")}</span><b class="mono">${a.chart_id || "—"}</b>
         <span>${I18N.t("charts.signal")}</span><b>${a.last_signal?.direction || a.last_signal?.action || "—"}</b>
         <span>${I18N.t("charts.state")}</span><b>${a.status || "online"}</b>
       </div>
       ${tester && !clickable ? `<p class="sub">${I18N.t("tape.showing_backtest")}</p>` : `${positionsStripHtml(a.symbol)}
-      <div class="chart-box" style="height:200px"><canvas data-mini="${a.symbol||""}" data-tf="${a.timeframe||""}"></canvas></div>
-      <p class="sub">${I18N.t("charts.open_hint")}</p>`}
+      <div class="chart-box chart-mini"><canvas data-mini="${a.symbol||""}" data-tf="${a.timeframe||""}"></canvas></div>
+      ${clickable ? `<button type="button" class="btn tiny block chart-open" data-open-chart
+              data-sym="${a.symbol||""}" data-tf="${a.timeframe||""}"
+              aria-label="${esc(I18N.t("charts.open_sr", { sym: a.symbol || "", tf: a.timeframe || "" }))}"
+        >${I18N.t("charts.open")}</button>` : ""}`}
     </div>`;
     if (agents.length || testers.length) {
       /* A search over the attached charts. With thirty EAs on the
@@ -6402,8 +6416,8 @@ const views = {
         <span class="ch-find-n sub" id="ch-q-n" aria-live="polite"></span>
       </div>` : "";
       return `${search}
-      ${testers.length ? `<h3 style="margin:4px 0 8px">${I18N.t("tape.backtest")}</h3><div class="grid g-2 ch-grid">${testers.map((a) => chartCard(a, true, false)).join("")}</div>` : ""}
-      ${agents.length ? `<div class="grid g-2 ch-grid" id="ch-grid">${agents.map((a) => chartCard(a, isTesterAgent(a), true)).join("")}</div>` : ""}
+      ${testers.length ? `<h3 class="chx-h">${I18N.t("tape.backtest")}</h3><div class="grid g-2 ch-grid">${testers.map((a) => chartCard(a, true, false)).join("")}</div>` : ""}
+      ${agents.length ? `${testers.length ? `<h3 class="chx-h">${I18N.t("charts.live_now")}</h3>` : ""}<div class="grid g-2 ch-grid" id="ch-grid">${agents.map((a) => chartCard(a, isTesterAgent(a), true)).join("")}</div>` : ""}
       <p class="ch-none sub" id="ch-none" hidden>${esc(I18N.t("markets.no_sym_match"))}</p>`;
     }
     return `<div class="card">${emptyCard(I18N.t("status.no_eas"), I18N.t("wizard.step3") + " — " + I18N.t("charts.empty_hint"))}</div>`;
