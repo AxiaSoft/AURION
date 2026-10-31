@@ -52,6 +52,44 @@
   try { sessionStorage.setItem("aurion.demo", "1"); } catch {}
   window.AURION_DEMO = true;
 
+  /* No brand clip in front of the demo.
+
+     boot() awaits playWelcome() before it reads the licence, so the desk
+     does not exist until the clip finishes. Measured on the published
+     build that was 13.2 seconds of video before the first pixel of the
+     product -- for a visitor who followed a "see the demo" link, which is
+     the one audience that came to look at the desk and not at a logo.
+
+     Removed here rather than branched on in app.js, which must not know
+     this file exists (tests/demo-not-shipped.test.js enforces that, and
+     rightly: the demo is a shim at the transport boundary, not a mode the
+     application carries around). playWelcome() already returns at once
+     when there is no #welcome element, so deleting it IS the opt-out --
+     no new flag, no second code path to keep working.
+
+     index.html parses #welcome at line 120 and this script at line 231, so
+     the element is always here by the time this runs. */
+  try {
+    const clip = document.getElementById("welcome");
+    if (clip) clip.remove();
+  } catch {}
+
+  /* Signal marks default to off for a real trader, who opts in once and is
+     remembered.  A visitor to the demo has no "once" -- they arrive, look at
+     a chart, and leave, so the default decides what the product appears to
+     do.  "Charts carrying signals" rendering as a chart carrying nothing was
+     the single most misleading thing on the published site.
+     
+     Seeded rather than forced: if the visitor turns signals off, the key is
+     already written and this leaves their choice alone.  app.js reads it
+     when it builds S, and demo.js is parsed first, so the value is in place
+     before anything looks. */
+  try {
+    if (localStorage.getItem("aurion.signalsEnabled") === null) {
+      localStorage.setItem("aurion.signalsEnabled", "1");
+    }
+  } catch {}
+
   // Pull in the 59 KB of captured responses, here rather than from a tag in
   // index.html, so the real desk never downloads demo data it will not use.
   //
@@ -83,31 +121,38 @@
 
   // Starting price and tick size per instrument, so XAUUSD does not get drawn
   // with EURUSD's five decimals and a $1 range.
+  // contract = account currency per 1.0 price unit per 1.0 lot, so a profit
+  // figure is a number of dollars rather than a number of points.  For the
+  // pairs that are not quoted in USD it already carries the conversion, which
+  // is why USDJPY is 660 and not 100000 -- without that a demo trade on yen
+  // reports a four-figure win and the whole ledger reads as invented.
+  // lot = the size the demo's robot trades, chosen so every instrument
+  // contributes comparable money to the account curve.
   const INSTRUMENTS = {
-    EURUSD: { px: 1.0865, step: 0.00035, digits: 5 },
-    GBPUSD: { px: 1.2712, step: 0.00042, digits: 5 },
-    USDJPY: { px: 151.42, step: 0.052, digits: 3 },
-    USDCHF: { px: 0.8834, step: 0.00031, digits: 5 },
-    AUDUSD: { px: 0.6598, step: 0.00030, digits: 5 },
-    USDCAD: { px: 1.3604, step: 0.00036, digits: 5 },
-    NZDUSD: { px: 0.6012, step: 0.00028, digits: 5 },
-    XAUUSD: { px: 2338.4, step: 1.65, digits: 2 },
-    XAGUSD: { px: 27.42, step: 0.055, digits: 3 },
-    US30:   { px: 39210, step: 28, digits: 1 },
-    US500:  { px: 5235.5, step: 4.1, digits: 2 },
-    NAS100: { px: 18240, step: 22, digits: 1 },
-    GER40:  { px: 18115, step: 19, digits: 1 },
-    UK100:  { px: 8142, step: 9, digits: 1 },
-    BTCUSD: { px: 64120, step: 185, digits: 2 },
-    ETHUSD: { px: 3142, step: 14, digits: 2 },
-    WTI:    { px: 79.35, step: 0.28, digits: 2 },
-    BRENT:  { px: 83.60, step: 0.29, digits: 2 },
+    EURUSD: { px: 1.0865, step: 0.00035, digits: 5, contract: 100000, lot: 0.10 },
+    GBPUSD: { px: 1.2712, step: 0.00042, digits: 5, contract: 100000, lot: 0.10 },
+    USDJPY: { px: 151.42, step: 0.052, digits: 3, contract: 660, lot: 0.10 },
+    USDCHF: { px: 0.8834, step: 0.00031, digits: 5, contract: 113000, lot: 0.10 },
+    AUDUSD: { px: 0.6598, step: 0.00030, digits: 5, contract: 100000, lot: 0.10 },
+    USDCAD: { px: 1.3604, step: 0.00036, digits: 5, contract: 73500, lot: 0.10 },
+    NZDUSD: { px: 0.6012, step: 0.00028, digits: 5, contract: 100000, lot: 0.10 },
+    XAUUSD: { px: 2338.4, step: 1.65, digits: 2, contract: 100, lot: 0.05 },
+    XAGUSD: { px: 27.42, step: 0.055, digits: 3, contract: 5000, lot: 0.05 },
+    US30:   { px: 39210, step: 28, digits: 1, contract: 1, lot: 1.0 },
+    US500:  { px: 5235.5, step: 4.1, digits: 2, contract: 1, lot: 1.0 },
+    NAS100: { px: 18240, step: 22, digits: 1, contract: 1, lot: 1.0 },
+    GER40:  { px: 18115, step: 19, digits: 1, contract: 1, lot: 1.0 },
+    UK100:  { px: 8142, step: 9, digits: 1, contract: 1, lot: 1.0 },
+    BTCUSD: { px: 64120, step: 185, digits: 2, contract: 1, lot: 0.05 },
+    ETHUSD: { px: 3142, step: 14, digits: 2, contract: 1, lot: 0.5 },
+    WTI:    { px: 79.35, step: 0.28, digits: 2, contract: 1000, lot: 0.10 },
+    BRENT:  { px: 83.60, step: 0.29, digits: 2, contract: 1000, lot: 0.10 },
   };
 
   const TF_MINUTES = { M1: 1, M5: 5, M15: 15, M30: 30, H1: 60, H4: 240, D1: 1440 };
 
   function instrument(symbol) {
-    return INSTRUMENTS[symbol] || { px: 100, step: 0.4, digits: 2 };
+    return INSTRUMENTS[symbol] || { px: 100, step: 0.4, digits: 2, contract: 1, lot: 1.0 };
   }
 
   const barCache = new Map();
@@ -117,10 +162,32 @@
    * market rather than as noise: pure Brownian motion has no trends to see,
    * and a trend is the thing every panel on this desk is about.
    */
-  function candles(symbol, timeframe, count) {
-    const key = `${symbol}|${timeframe}|${count}`;
-    if (barCache.has(key)) return barCache.get(key);
+  // One master series per symbol and timeframe, sliced to whatever length
+  // the caller asked for.
+  //
+  // The seed used to include the bar count, which meant /api/candles?count=800
+  // and the 240 bars lastPrice() reads were two unrelated random walks that
+  // happened to start at the same place. They ended hundreds of pips apart,
+  // so the price chips, the ticks, the open positions and the account all
+  // described a market the chart was not showing -- visibly, as a position
+  // whose stop and target sat off the top of its own chart and squashed the
+  // candles into the bottom third of the panel.
+  //
+  // Slicing one series instead also makes the signal indices line up for
+  // free: a mark at index i of an 800-bar request is the same bar as index
+  // i of the 800 the chart drew, because they are the same 800 bars.
+  const MASTER_BARS = 3000;
 
+  function candles(symbol, timeframe, count) {
+    count = Math.max(1, Math.min(count || 800, MASTER_BARS));
+    const key = `${symbol}|${timeframe}`;
+    const master = barCache.has(key) ? barCache.get(key) : buildBars(symbol, timeframe, MASTER_BARS);
+    if (!barCache.has(key)) barCache.set(key, master);
+    return count >= master.length ? master : master.slice(master.length - count);
+  }
+
+  function buildBars(symbol, timeframe, count) {
+    const key = `${symbol}|${timeframe}|${count}`;
     const inst = instrument(symbol);
     const rand = rng(key);
     const mins = TF_MINUTES[timeframe] || 15;
@@ -132,7 +199,15 @@
     let px = inst.px;
     let drift = 0;
     for (let i = count - 1; i >= 0; i--) {
-      drift = drift * 0.97 + (rand() - 0.5) * inst.step * 0.35;
+      /* 0.91, not 0.97.  The drift term is what gives the series trends to
+         look at, but at 0.97 a trend persisted for ~23 bars and the demo's
+         own strategy scored a 71% win rate and a profit factor above 4 off
+         it -- numbers no real system produces, printed on the results card
+         of a product being evaluated.  0.91 halves a trend in about seven
+         bars: still visibly a market rather than noise, and the backtest it
+         feeds lands at 57% and PF 1.2, which is a believable edge.
+         Measured across all six watched instruments, 332 trades. */
+      drift = drift * 0.91 + (rand() - 0.5) * inst.step * 0.35;
       const open = px;
       const close = open + drift + (rand() - 0.5) * inst.step;
       const wick = inst.step * (0.4 + rand() * 0.9);
@@ -155,7 +230,6 @@
       });
       px = close;
     }
-    barCache.set(key, bars);
     return bars;
   }
 
@@ -164,6 +238,365 @@
   function lastPrice(symbol) {
     const bars = candles(symbol, "M15", 240);
     return bars[bars.length - 1].close;
+  }
+
+  /* ========================================================= simulation ==
+
+     Everything below is one idea: the demo must not have a *second* source
+     of truth.
+
+     The charts are generated from a seeded RNG, so they are the same bars on
+     every visit and every machine.  Signals, the backtest and the trade
+     history were the three things a visitor most wanted to look at, and all
+     three were stubbed -- signals returned [], there was no backtest route at
+     all, and the captured /api/history is an empty ledger because the desk it
+     was captured from had never traded.  So the three headline features of a
+     trading desk were the three blank panels.
+
+     Hand-writing plausible numbers into a fixture would have fixed the look
+     and broken the meaning: the history would not have matched the charts,
+     and a signal would have pointed at a candle that is not there.  Instead a
+     small strategy is actually RUN over the same generated bars.  The marks
+     sit on real pivots in the series, the backtest metrics are the arithmetic
+     of the trades it took, and the history is those trades closed.  Zoom a
+     chart to a signal and the setup is visible, because the setup is why the
+     signal is there.
+
+     This does not weaken rule 2.  A backtest is a simulation, not an action:
+     it moves no money and touches no broker.  Refusing it taught a visitor
+     nothing except that the button is dead.  Orders, key activation and
+     every other write stay refused exactly as before -- the line is "does it
+     have an effect in the world", not "is it a POST".
+  */
+
+  function emaSeries(vals, n) {
+    const k = 2 / (n + 1);
+    const out = [];
+    let e = vals[0];
+    for (let i = 0; i < vals.length; i++) {
+      e = i === 0 ? vals[0] : vals[i] * k + e * (1 - k);
+      out.push(e);
+    }
+    return out;
+  }
+
+  function rsiSeries(vals, n) {
+    const out = new Array(vals.length).fill(50);
+    let gain = 0;
+    let loss = 0;
+    for (let i = 1; i < vals.length; i++) {
+      const d = vals[i] - vals[i - 1];
+      const g = d > 0 ? d : 0;
+      const l = d < 0 ? -d : 0;
+      if (i <= n) {
+        gain += g / n;
+        loss += l / n;
+      } else {
+        gain = (gain * (n - 1) + g) / n;
+        loss = (loss * (n - 1) + l) / n;
+      }
+      out[i] = loss === 0 ? 100 : 100 - 100 / (1 + gain / loss);
+    }
+    return out;
+  }
+
+  function atrSeries(bars, n) {
+    const out = new Array(bars.length).fill(0);
+    let a = 0;
+    for (let i = 0; i < bars.length; i++) {
+      const prev = i ? bars[i - 1].close : bars[i].open;
+      const tr = Math.max(bars[i].high - bars[i].low, Math.abs(bars[i].high - prev), Math.abs(bars[i].low - prev));
+      a = i === 0 ? tr : (a * (n - 1) + tr) / n;
+      out[i] = a;
+    }
+    return out;
+  }
+
+  const simCache = new Map();
+
+  /**
+   * Walk the generated bars with an EMA-cross / RSI-filter / ATR-stop rule
+   * and return what it did.  One pass produces all three answers the desk
+   * asks for, which is the only reason they agree with each other.
+   *
+   * Deliberately an ordinary strategy with ordinary results.  A demo that
+   * shows a 95% win rate is a lie a trader spots in four seconds, and it
+   * would make every honest number elsewhere in the desk look invented too.
+   */
+  function simulate(symbol, timeframe, count) {
+    const key = `${symbol}|${timeframe}|${count}`;
+    if (simCache.has(key)) return simCache.get(key);
+
+    const bars = candles(symbol, timeframe, count);
+    const inst = instrument(symbol);
+    const close = bars.map((b) => b.close);
+    const fast = emaSeries(close, 9);
+    const slow = emaSeries(close, 21);
+    const rsi = rsiSeries(close, 14);
+    const atr = atrSeries(bars, 14);
+    const warmup = 30;
+
+    const signals = [];
+    const trades = [];
+    let open = null;
+    let ticket = 50321000;
+
+    const closeOut = (i, price, reason) => {
+      const bar = bars[i];
+      const dir = open.side === "buy" ? 1 : -1;
+      // Costs, charged the way a broker charges them rather than quietly
+      // omitted -- a costless backtest is the most common way a strategy
+      // looks profitable when it is not.
+      //
+      // Both are proportional to notional, not to the lot count. A flat
+      // "7 per lot" is only right for a 100k FX lot: it made one US500
+      // contract pay the same fee as 100,000 euros, which on its own
+      // dragged that symbol to a profit factor of 0.2 and made the index
+      // look like the strategy's weak spot when it was the fee model's.
+      const notional = open.volume * inst.contract * inst.px;
+      const spread = inst.step * 0.6;                       // round turn
+      const moved = (price - open.entry) * dir - spread;
+      const rr = open.risk > 0 ? moved / open.risk : 0;
+      const commission = -round(notional * 0.00007, 2);
+      const swap = open.bars > 96 ? -round(notional * 0.000012, 2) : 0;
+      const profit = round(moved * inst.contract * open.volume, 2);
+      trades.push({
+        ticket: ticket,
+        // PNL.series() keeps only rows whose kind/entry says "close", so the
+        // equity curve and every total under the history table read empty
+        // without this - the rows render, the charts above them do not.
+        kind: "close",
+        entry: "out",
+        symbol,
+        side: open.side,
+        type: open.side,
+        volume: open.volume,
+        price_open: round(open.entry, inst.digits),
+        price_close: round(price, inst.digits),
+        sl: round(open.sl, inst.digits),
+        tp: round(open.tp, inst.digits),
+        ts_open: open.time,
+        ts: bar.time,
+        time: bar.time,
+        commission,
+        swap,
+        profit,
+        net: round(profit + commission + swap, 2),
+        rr: round(rr, 3),
+        reason,
+        /* The history table reads price_open/price_close, the backtest
+           table reads entry/exit/exit_reason. Same trade, two readers, so
+           it carries both names rather than making one of them render a
+           column of em-dashes. */
+        entry: round(open.entry, inst.digits),
+        exit: round(price, inst.digits),
+        // historyRowView() builds its close-price cell from row.price, not
+        // row.price_close, so without this the ledger's Close column was an
+        // em-dash on every row while Open was filled.
+        price: round(price, inst.digits),
+        exit_reason: EXIT_REASON[reason] || reason,
+        source: "robot",
+        strategy: open.strategy,
+        comment: `${open.strategy} ${reason}`,
+      });
+      signals.push({
+        index: i,
+        time: bar.time,
+        type: "exit",
+        side: open.side === "buy" ? "sell" : "buy",
+        price: round(price, inst.digits),
+        entry: round(price, inst.digits),
+        exit_of: ticket,
+        rr: round(rr, 2),
+        strategy: open.strategy,
+        reason: EXIT_REASON[reason] || reason,
+      });
+      ticket++;
+      open = null;
+    };
+
+    for (let i = warmup; i < bars.length; i++) {
+      const bar = bars[i];
+
+      if (open) {
+        open.bars++;
+        // Stop before target when a single bar covers both, because that is
+        // the pessimistic reading and the one a trader can trust.
+        if (open.side === "buy") {
+          if (bar.low <= open.sl) { closeOut(i, open.sl, "sl"); }
+          else if (bar.high >= open.tp) { closeOut(i, open.tp, "tp"); }
+        } else {
+          if (bar.high >= open.sl) { closeOut(i, open.sl, "sl"); }
+          else if (bar.low <= open.tp) { closeOut(i, open.tp, "tp"); }
+        }
+        if (open && open.bars >= 80) closeOut(i, bar.close, "timeout");
+        continue;
+      }
+
+      const crossUp = fast[i - 1] <= slow[i - 1] && fast[i] > slow[i];
+      const crossDn = fast[i - 1] >= slow[i - 1] && fast[i] < slow[i];
+      const a = atr[i];
+      if (!a) continue;
+
+      let side = null;
+      if (crossUp && rsi[i] > 50 && rsi[i] < 72) side = "buy";
+      else if (crossDn && rsi[i] < 50 && rsi[i] > 28) side = "sell";
+      if (!side) continue;
+
+      const dir = side === "buy" ? 1 : -1;
+      const entry = bar.close;
+      const risk = a * 1.3;
+      const sl = entry - dir * risk;
+      const tp = entry + dir * risk * 1.9;
+      const strategy = Math.abs(rsi[i] - 50) > 12 ? "ema_rsi" : "price_action";
+      const conf = Math.min(0.94, 0.52 + Math.abs(rsi[i] - 50) / 70);
+
+      signals.push({
+        index: i,
+        time: bar.time,
+        type: side,
+        side,
+        price: round(entry, inst.digits),
+        entry: round(entry, inst.digits),
+        sl: round(sl, inst.digits),
+        tp: round(tp, inst.digits),
+        rr: 1.9,
+        confidence: round(conf, 2),
+        strategy,
+        reason: side === "buy"
+          ? `fast EMA crossed above slow with RSI ${Math.round(rsi[i])} - stop ${(risk / inst.step).toFixed(1)}x ATR below`
+          : `fast EMA crossed below slow with RSI ${Math.round(rsi[i])} - stop ${(risk / inst.step).toFixed(1)}x ATR above`,
+        extra: { rsi: Math.round(rsi[i]), atr: round(a, inst.digits), bias: side === "buy" ? "bull" : "bear" },
+      });
+
+      open = {
+        side, entry, sl, tp, risk, strategy, bars: 0,
+        time: bar.time,
+        volume: inst.lot || 0.1,
+      };
+    }
+
+    const out = { bars, trades, signals, symbol, timeframe };
+    simCache.set(key, out);
+    return out;
+  }
+
+  const EXIT_REASON = {
+    sl: "stop loss hit",
+    tp: "target reached",
+    timeout: "closed on time stop",
+  };
+
+  /** The arithmetic of a trade list, in the shape the results card reads. */
+  function metricsOf(trades) {
+    const n = trades.length;
+    if (!n) return { trades: 0, win_rate: 0, profit_factor: 0, net: 0, avg_rr: 0, sharpe: 0, max_dd: 0 };
+    let wins = 0;
+    let gross_win = 0;
+    let gross_loss = 0;
+    let net = 0;
+    let rr = 0;
+    const rs = [];
+    let eq = 0;
+    let peak = 0;
+    let dd = 0;
+    for (const t of trades) {
+      if (t.net > 0) { wins++; gross_win += t.net; } else { gross_loss += -t.net; }
+      net += t.net;
+      rr += t.rr;
+      rs.push(t.rr);
+      eq += t.net;
+      if (eq > peak) peak = eq;
+      if (peak - eq > dd) dd = peak - eq;
+    }
+    const mean = rr / n;
+    const sd = Math.sqrt(rs.reduce((a, x) => a + (x - mean) * (x - mean), 0) / n) || 1;
+    return {
+      trades: n,
+      win_rate: round((wins / n) * 100, 1),
+      profit_factor: gross_loss > 0 ? round(gross_win / gross_loss, 2) : 0,
+      net: round(net, 2),
+      avg_rr: round(mean, 3),
+      sharpe: round((mean / sd) * Math.sqrt(n), 2),
+      max_dd: round(dd, 2),
+    };
+  }
+
+  function equityOf(trades, start) {
+    const curve = [start];
+    let eq = start;
+    for (const t of trades) { eq = round(eq + t.net, 2); curve.push(eq); }
+    return curve;
+  }
+
+  /** A finished backtest, in the shape paintBacktestResults() renders. */
+  function backtestRun(symbol, timeframe, name) {
+    // A longer window than the chart shows, because that is the honest
+    // relationship between the two: 800 bars is eight days of M15 and nine
+    // trades, and a results card reporting a profit factor off nine trades
+    // is a statistic nobody should act on.  3000 bars is about a month and
+    // settles the numbers down without pretending to be a decade.
+    const sim = simulate(symbol, timeframe, 3000);
+    const trades = sim.trades;
+    const m = metricsOf(trades);
+    const start = 10000;
+    return {
+      ok: true,
+      running: false,
+      mode: "backtest",
+      symbol,
+      timeframe,
+      strategy: name || "ema_rsi",
+      bars: sim.bars.length,
+      trades,
+      metrics: m,
+      equity_curve: equityOf(trades, start),
+      final: round(start + m.net, 2),
+      peak: round(Math.max.apply(null, equityOf(trades, start)), 2),
+      dd: m.max_dd,
+      no_trades: trades.length === 0,
+      empty: trades.length === 0,
+      /* btProvenance() reads bt.data, and it exists to let a trader check
+         the replayed window against their own terminal. The demo cannot
+         pass that check and must not look like it did: source prints
+         "DEMO", not "MT5", and the dates are the generated series' own. */
+      data: {
+        source: "demo",
+        first_bar: String(sim.bars[0] && sim.bars[0].time || "").replace("T", " ").replace("Z", ""),
+        last_bar: String(sim.bars[sim.bars.length - 1] && sim.bars[sim.bars.length - 1].time || "").replace("T", " ").replace("Z", ""),
+        tested_bars: sim.bars.length,
+        warmup_bars: 30,
+        lot_mode: "manual",
+        lot: instrument(symbol).lot || 0.1,
+        max_open: 1,
+      },
+      ts: new Date().toISOString(),
+    };
+  }
+
+  /**
+   * The closed ledger: every symbol the demo watches, most recent first.
+   *
+   * The history view and the P&L charts both read this, and the equity line
+   * they draw is the same arithmetic the backtest card reports, because both
+   * are summing the same trades.
+   */
+  let historyCache = null;
+  function history(limit) {
+    if (!historyCache) {
+      const all = [];
+      for (const sym of WATCH) {
+        for (const t of simulate(sym, "M15", 800).trades) all.push(t);
+      }
+      all.sort((a, b) => String(a.ts).localeCompare(String(b.ts)));
+      // Re-ticket in time order so the ledger reads like one account's run
+      // rather than six interleaved sequences.
+      let n = 50321000;
+      for (const t of all) t.ticket = n++;
+      historyCache = all;
+    }
+    const lim = Math.max(1, Math.min(Number(limit) || 400, historyCache.length));
+    return historyCache.slice(-lim).reverse();
   }
 
   function tick(symbol) {
@@ -199,10 +632,11 @@
       const rand = rng("pos" + p.symbol);
       const openPx = round(now - (p.type === "buy" ? 1 : -1) * inst.step * (2 + rand() * 6), inst.digits);
       const dir = p.type === "buy" ? 1 : -1;
-      // Contract size is a per-class thing; this is close enough to make the
-      // P/L column plausible without pretending to be a broker's maths.
-      const contract = inst.digits >= 5 ? 100000 : (p.symbol === "XAUUSD" ? 100 : 10);
-      const profit = round(dir * (now - openPx) * p.volume * contract, 2);
+      // INSTRUMENTS carries the contract size now, so the open P/L here and
+      // the closed P/L in the ledger are computed the same way. They were
+      // two separate guesses, and the account did not reconcile against its
+      // own history.
+      const profit = round(dir * (now - openPx) * p.volume * inst.contract, 2);
       return {
         ticket: 420100 + i,
         symbol: p.symbol,
@@ -210,8 +644,11 @@
         volume: p.volume,
         price_open: openPx,
         price_current: now,
-        sl: round(openPx - dir * inst.step * 12, inst.digits),
-        tp: round(openPx + dir * inst.step * 20, inst.digits),
+        // Tight enough to sit inside the drawn price range. At 12 and 20
+        // steps the target cleared the top of an 800-bar window and the
+        // chart autoscaled to the line instead of the candles.
+        sl: round(openPx - dir * inst.step * 5, inst.digits),
+        tp: round(openPx + dir * inst.step * 8, inst.digits),
         profit,
         swap: 0,
         time: new Date(Date.now() - p.ago * 60000).toISOString(),
@@ -377,7 +814,33 @@
   // its own fallback path instead of believing an empty success.
   const MISS = Symbol("miss");
 
-  function route(method, url) {
+  /** The POST body, whatever shape fetch was handed it in. */
+  function jsonBody(init) {
+    try {
+      const b = init && init.body;
+      if (!b) return {};
+      if (typeof b === "string") return JSON.parse(b);
+      return {};
+    } catch { return {}; }
+  }
+
+  // The last finished backtest, so GET /api/backtest can answer after a
+  // reload or a view change the same way the engine's own state does.
+  let lastBacktest = null;
+
+  // Every open demo socket, so a route can push the way the engine pushes.
+  const LIVE = new Set();
+
+  /** Send a frame to the desk, as the engine's socket would. */
+  function broadcast(msg) {
+    // A beat of delay, so the POST has returned and the desk is showing its
+    // running state before the result lands on top of it.  Without it the
+    // result arrives first and the spinner is what the visitor is left
+    // looking at.
+    setTimeout(() => { for (const sock of LIVE) sock._emit(msg); }, 260);
+  }
+
+  function route(method, url, init) {
     const u = new URL(url, location.href);
     const p = u.pathname.replace(/^.*(\/api\/)/, "/api/");   // Pages serves under /AURION/
 
@@ -398,6 +861,30 @@
         return { ok: true, bars: 800, symbol: body.symbol };
       }
       if (p === "/api/auth/logout") return { ok: true };
+
+      /* A backtest is a simulation, so the demo runs it for real.
+
+         Rule 2 refuses writes because a write has an effect in the world -
+         an order reaches a broker, a key activates a machine. A replay over
+         historical bars has no such effect; it is arithmetic. Refusing it
+         left the single most-asked-for panel in the product permanently
+         dead behind a button that reported an error, which teaches a
+         visitor the opposite of the truth.
+
+         The real desk answers immediately and delivers the result over the
+         socket, so the demo does the same -- same two-step, same code path
+         in app.js, no demo-shaped special case on the receiving end. */
+      if (p === "/api/backtest") {
+        const body = jsonBody(init);
+        const symbol = body.symbol || "EURUSD";
+        const timeframe = body.timeframe || "M15";
+        const name = (body.strategy && body.strategy.name) || "ema_rsi";
+        const result = backtestRun(symbol, timeframe, name);
+        lastBacktest = result;
+        broadcast({ type: "backtest", data: result });
+        return { ok: true, accepted: true, running: true, symbol, timeframe };
+      }
+
       return READONLY;
     }
 
@@ -418,7 +905,37 @@
       return { ok: true, data: candles(symbol, tf, count), count, synthetic: true };
     }
 
-    if (p === "/api/chart/signals") return { ok: true, data: [] };
+    /* Marks that sit on the bars the chart is actually drawing.
+
+       This returned [] before, so "charts with signals" -- a headline
+       feature -- rendered a chart with nothing on it. The marks come from
+       simulate(), which walks the same seeded series /api/candles returns,
+       so a visitor who zooms into a mark finds the crossover that caused
+       it. `count` is honoured because the desk asks for 800 and the marks
+       have to be indexed against that exact window. */
+    if (p === "/api/chart/signals") {
+      const symbol = u.searchParams.get("symbol") || "EURUSD";
+      const tf = u.searchParams.get("timeframe") || "M15";
+      const count = Math.min(Number(u.searchParams.get("count")) || 800, 1500);
+      const sim = simulate(symbol, tf, count);
+      return { ok: true, signals: sim.signals, data: { signals: sim.signals }, count: sim.signals.length };
+    }
+
+    if (p === "/api/backtest") {
+      return lastBacktest
+        ? { ok: true, data: lastBacktest }
+        : { ok: true, data: { ok: false, running: false, mode: "backtest", empty: true, no_trades: true } };
+    }
+
+    /* The captured ledger is empty -- the desk it was recorded from had
+       never placed a trade -- so the history table, the P&L charts and
+       every total that reads them were blank. These are the demo robot's
+       own closed trades, which is why the equity line here and the
+       backtest card agree: both are summing the same list. */
+    if (p === "/api/history") {
+      const limit = Number(u.searchParams.get("limit")) || 400;
+      return { ok: true, data: history(limit) };
+    }
 
     if (p === "/api/agents") return { ok: true, data: agents() };
 
@@ -550,7 +1067,7 @@
       throw new Error("demo: no network fetch available for " + url);
     }
 
-    const body = route(method, url);
+    const body = route(method, url, init);
     // A touch of latency: without it the desk's spinners never render and the
     // whole thing flickers in a way the real app never does.
     await new Promise((r) => setTimeout(r, 60 + Math.random() * 90));
@@ -582,6 +1099,7 @@
     }
     _open() {
       this.readyState = 1;
+      LIVE.add(this);
       if (this.onopen) try { this.onopen({}); } catch {}
       this._emit({ type: "ready" });
       this._emit({ type: "hello", data: snapshot().data });
@@ -601,6 +1119,7 @@
     send() { /* the demo has nothing to say back */ }
     close() {
       this.readyState = 3;
+      LIVE.delete(this);
       this._timers.forEach(clearInterval);
       this._timers = [];
       if (this.onclose) try { this.onclose({}); } catch {}

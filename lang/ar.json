@@ -639,7 +639,7 @@
     "verify": "التحقق من الشريط الحي"
   },
   "table": {
-    "time": "الوقت",
+    "ts_open": "وقت الفتح",
     "ts": "الوقت",
     "ticket": "التذكرة",
     "symbol": "الرمز",
@@ -648,14 +648,20 @@
     "volume": "الحجم",
     "price": "السعر",
     "price_open": "الدخول",
+    "price_close": "سعر الإغلاق",
     "price_current": "آخر",
     "sl": "وقف",
     "tp": "هدف",
+    "commission": "العمولة",
+    "swap": "المبادلة",
     "profit": "الربح",
     "profit_pct": "الربح ٪",
+    "net": "الصافي",
+    "source": "المصدر",
+    "strategy": "الاستراتيجية",
     "comment": "تعليق",
     "event": "حدث",
-    "strategy": "الاستراتيجية"
+    "time": "الوقت"
   },
   "logs": {
     "connected": "اتصل الشريط الحي",

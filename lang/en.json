@@ -639,7 +639,7 @@
     "verify": "Verify live tape"
   },
   "table": {
-    "time": "Time",
+    "ts_open": "Open time",
     "ts": "Time",
     "ticket": "Ticket",
     "symbol": "Symbol",
@@ -648,14 +648,20 @@
     "volume": "Volume",
     "price": "Price",
     "price_open": "Open",
+    "price_close": "Close price",
     "price_current": "Last",
     "sl": "SL",
     "tp": "TP",
+    "commission": "Commission",
+    "swap": "Swap",
     "profit": "Profit",
     "profit_pct": "P/L %",
+    "net": "Net",
+    "source": "Source",
+    "strategy": "Strategy",
     "comment": "Comment",
     "event": "Event",
-    "strategy": "Strategy"
+    "time": "Time"
   },
   "logs": {
     "connected": "Live tape connected",

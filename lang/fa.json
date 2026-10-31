@@ -639,7 +639,7 @@
     "verify": "تأیید نوار زنده"
   },
   "table": {
-    "time": "زمان",
+    "ts_open": "زمان باز شدن",
     "ts": "زمان",
     "ticket": "تیکت",
     "symbol": "نماد",
@@ -648,14 +648,20 @@
     "volume": "حجم",
     "price": "قیمت",
     "price_open": "ورود",
+    "price_close": "قیمت بستن",
     "price_current": "آخرین",
     "sl": "حد ضرر",
     "tp": "حد سود",
+    "commission": "کارمزد",
+    "swap": "سواپ",
     "profit": "سود",
     "profit_pct": "سود ٪",
+    "net": "خالص",
+    "source": "منبع",
+    "strategy": "استراتژی",
     "comment": "توضیح",
     "event": "رویداد",
-    "strategy": "استراتژی"
+    "time": "زمان"
   },
   "logs": {
     "connected": "نوار زنده متصل شد",

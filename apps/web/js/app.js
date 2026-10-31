@@ -7680,12 +7680,23 @@ function posProfitPct(r) {
  */
 const CELL_PRICE = ["price", "price_open", "price_current", "price_close", "sl", "tp"];
 const CELL_MONEY = ["profit", "net", "swap", "commission", "fees"];
+/* Columns holding an instant rather than a quantity.
+
+   These fell through to String(v), so the history ledger printed
+   "2026-10-31T15:45:00Z" in two of its first three columns - the raw
+   transport format, complete with the T and the Z, in the table a trader
+   is meant to read against their MT5 statement. btWhen() already renders
+   these properly for the backtest's own trade table; the history table
+   simply never called it. */
+const CELL_TIME = ["ts", "ts_open", "time", "time_open", "time_close"];
+
 function cellText(k, v) {
   if (k === "profit_pct") {
     return (v === null || v === undefined || Number.isNaN(Number(v))) ? "—" : fmt(v, 2) + "%";
   }
   if (k === "strategy") return strategyLabel(v);
   if (v === "" || v === null || v === undefined) return "—";
+  if (CELL_TIME.includes(k)) return btWhen(v);
   if (k === "volume") return fmt(v, 2);
   if (CELL_PRICE.includes(k)) return fmt(v, 5);
   if (CELL_MONEY.includes(k)) return fmt(v, 2);
@@ -12012,6 +12023,7 @@ async function playWelcome() {
       if (settled) return;
       settled = true;
       clearTimeout(safety);
+      try { clearInterval(stall); } catch (e) { /* not armed yet */ }
       try {
         if (vid) { vid.pause(); vid.removeAttribute("src"); vid.load(); }
       } catch { /* */ }
@@ -12046,10 +12058,41 @@ async function playWelcome() {
     if (!vid) { wrap.hidden = true; resolve(); return; }
     const sources = welcomeSrcList();
     let i = 0;
+    /* A ceiling, and a stall watchdog underneath it.
+
+       The ceiling used to be two minutes. That is not a safety net, it is
+       a hostage situation: boot() awaits this promise before it reads the
+       licence, so anything that stops the clip from ENDING - a codec the
+       machine does not have, a half-written file, a frame pipeline that
+       never starts in a kiosk shell - left the desk behind a black
+       rectangle for 120 seconds with a Skip button as the only way out.
+       Measured on the static build, which is where it bites hardest: the
+       desk simply never arrived.
+
+       So: 15s absolute, and separately a watchdog that gives up if
+       currentTime has not advanced for 4s while the clip is supposedly
+       playing. The watchdog is the one that matters - a stall is not a
+       slow clip, and waiting out the whole duration for it is just the
+       old bug with a smaller number. */
+    const WELCOME_CEILING_MS = 15000;
+    const WELCOME_STALL_MS = 4000;
+    let lastTime = -1;
+    let stall = 0;
+    const watchStall = () => {
+      clearInterval(stall);
+      stall = setInterval(() => {
+        if (settled) { clearInterval(stall); return; }
+        const t = vid && isFinite(vid.currentTime) ? vid.currentTime : 0;
+        if (t > lastTime + 0.05) { lastTime = t; return; }
+        clearInterval(stall);
+        done();
+      }, WELCOME_STALL_MS);
+    };
     const armSafety = () => {
-      const ms = Math.min(((vid.duration && isFinite(vid.duration) ? vid.duration : 12) * 1000) + 900, 120000);
+      const natural = (vid.duration && isFinite(vid.duration) ? vid.duration : 12) * 1000 + 900;
       clearTimeout(safety);
-      safety = setTimeout(done, ms);
+      safety = setTimeout(done, Math.min(natural, WELCOME_CEILING_MS));
+      watchStall();
     };
     const tryPlay = () => {
       if (settled) return;
@@ -12087,7 +12130,7 @@ async function playWelcome() {
       }
     };
     tryPlay();
-    safety = setTimeout(done, 120000);
+    safety = setTimeout(done, WELCOME_CEILING_MS);
   });
 }
 
