@@ -330,6 +330,56 @@ check("the bar and the sheet wear the theme, not colours of their own", () => {
   return ground.length + " glass-off + " + perf.length + " perf rules";
 });
 
+check("every section opens at its top, not wherever you last were", () => {
+  /* Sections are swapped by toggling `hidden`, which says nothing
+     about where the page is scrolled to. Read halfway down a long
+     section, pick another one, and it opened already scrolled into its
+     own middle with its heading above the fold - and nothing on screen
+     to say you were not at the beginning of it. */
+  const { doc, stage, T, render } = boot(false);
+  render();
+  /* jsdom has no layout, so the scroller needs a scrollTop that can be
+     written and read back. */
+  let top = 0;
+  Object.defineProperty(stage, "scrollTop", {
+    get: () => top, set: (v) => { top = v; }, configurable: true,
+  });
+  for (const id of ["set-prop", "set-mt5", "set-system", "set-robot", "set-notify"]) {
+    top = 640;
+    const btn = doc.querySelector(`#set-jump [data-jump="${id}"]`);
+    ok(btn, "no entry for " + id);
+    btn.click();
+    const shown = doc.querySelector(".set-block:not([hidden])");
+    eq(shown && shown.id, id, "picking " + id + " did not open it");
+    eq(top, 0, "opening " + id + " left the page scrolled to " + top);
+  }
+  return "5 sections";
+});
+
+check("saving something does not throw you back to the top", () => {
+  /* The other half of the same rule. showSetTab also runs on every
+     re-render of the view - a setting saved, a licence arriving, the
+     light cut flipping - and reloadSettings deliberately restores the
+     scroll offset across those, so that saving a field does not move
+     the page you are working on. Only a real change of section may
+     scroll. */
+  const { stage, T, render } = boot(false);
+  render();
+  let top = 0;
+  Object.defineProperty(stage, "scrollTop", {
+    get: () => top, set: (v) => { top = v; }, configurable: true,
+  });
+  top = 640;
+  T.showSetTab(T.S.setTab);
+  eq(top, 640, "re-rendering the same section moved the page to " + top);
+
+  const src = fs.readFileSync(path.join(WEB, "js/app.js"), "utf8");
+  const fn = src.slice(src.indexOf("function showSetTab("), src.indexOf("function bindView("));
+  if (!/\bmoved\b/.test(fn)) throw new Error("showSetTab scrolls unconditionally");
+  if (!/if \(moved\)/.test(fn)) throw new Error("the scroll is not guarded on a real change");
+  return "preserved at 640";
+});
+
 check("the bar comes after the sections, as it does on screen", () => {
   const { doc, $ } = boot(false);
   const bar = doc.querySelector("#set-sheet-bar");

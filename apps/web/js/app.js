@@ -2637,50 +2637,27 @@ function buildTag(iso) {
   return `DSK-${d}${mo}${y.slice(2)}`;
 }
 
-/* The first public release, as a real instant rather than a year typed
-   into a string. A copyright range needs one, because "2024" is only a
-   year in the Gregorian calendar: the same stretch of time is 1402/1403
-   in the Persian calendar and 1445/1446 in the Hijri one, and which of
-   the two it lands in depends on the date, not the year. Convert the
-   instant and every calendar gets a true answer. */
-const FIRST_RELEASE = Date.UTC(2024, 0, 1);
-
 function copyrightLocale() {
   return I18N.lang === "fa" ? "fa-IR-u-ca-persian"
     : I18N.lang === "ar" ? "ar-SA-u-ca-islamic-umalqura"
     : "en-GB-u-ca-gregory";
 }
+
+/* The current year, in the calendar the interface is using.
+ *
+ * Only the current year: no "from - to" span. It was a range, which
+ * meant carrying a first-release instant around and formatting two
+ * years with Intl.formatRange to get the separator and the Hijri era
+ * right. A single year needs none of that, and it still cannot be a
+ * literal - "2026" is a year in the Gregorian calendar only, and the
+ * same moment is 1405 on the Persian desk and 1448 on the Arabic one.
+ * Formatting the instant is what makes it roll over on its own, in
+ * every calendar, with no date left in the source to go stale. */
 function copyrightYear() {
   try {
     return new Intl.DateTimeFormat(copyrightLocale(), { year: "numeric" }).format(new Date());
   } catch {
     return String(new Date().getFullYear());
-  }
-}
-/* "first release - this year", in the desk's own calendar.
- *
- * The About page had `2024-${copyrightYear()}`: a Gregorian year typed
- * in by hand, joined to a year formatted in whichever calendar the
- * interface is using. On the Persian desk that read "2024-۱۴۰۵" - two
- * different calendars inside one range, so the span it described was
- * not a real one in either.
- *
- * Intl formats the range itself rather than being handed a hyphen,
- * which is what gets the separator and the era right: Persian wants
- * "۱۴۰۲ تا ۱۴۰۵", and the Hijri calendar carries a "هـ" that belongs
- * after the pair, not after each end. */
-function copyrightRange() {
-  const now = new Date();
-  const from = new Date(FIRST_RELEASE);
-  try {
-    const f = new Intl.DateTimeFormat(copyrightLocale(), { year: "numeric" });
-    /* Within the first year there is no range to show. */
-    if (f.format(from) === f.format(now)) return f.format(now);
-    if (typeof f.formatRange === "function") return f.formatRange(from, now);
-    return f.format(from) + "\u2013" + f.format(now);
-  } catch {
-    const a = from.getFullYear(), b = now.getFullYear();
-    return a === b ? String(b) : a + "\u2013" + b;
   }
 }
 
@@ -7187,7 +7164,7 @@ const views = {
         <footer class="abx-maker">
           <img src="assets/axiasoft-logo.png?v=desk49" alt="Axiasoft" />
           <b>Axiasoft</b>
-          <span class="sub">${I18N.t("about.developer_of")} &middot; ${copyrightRange()}</span>
+          <span class="sub">${I18N.t("about.developer_of")} &middot; ${copyrightYear()}</span>
         </footer>
       </section>
     </div>`;
@@ -8386,6 +8363,7 @@ function showSetTab(id) {
   if (id === "set-lang" || (!id && S.setTab === "set-lang")) id = "set-system";
   if (S.setTab === "set-lang") S.setTab = "set-system";
   const next = allow.includes(id) ? id : (allow.includes(S.setTab) ? S.setTab : "set-robot");
+  const moved = next !== S.setTab;
   S.setTab = next;
   try { localStorage.setItem("aurion.setTab", next); } catch { /* */ }
   document.querySelectorAll("#set-jump [data-jump]").forEach((b) => {
@@ -8403,6 +8381,26 @@ function showSetTab(id) {
   const ic = document.querySelector("#set-sheet-open .sj-ic");
   const onIc = document.querySelector("#set-jump [data-jump].on .sj-ic");
   if (ic && onIc) ic.innerHTML = onIc.innerHTML;
+
+  /* Arriving at a section means arriving at the top of it.
+   *
+   * The sections are swapped by toggling `hidden`, which does nothing
+   * to where the page is scrolled to. Read halfway down a long section
+   * - the robot page, or system - then pick another one, and the new
+   * section opens already scrolled into its own middle, with its
+   * heading above the fold. There is nothing to tell you that you are
+   * not at the beginning of it.
+   *
+   * Only when the section actually changes. showSetTab is also called
+   * on every re-render of the view - saving a setting, a licence
+   * arriving, the light cut flipping - and reloadSettings deliberately
+   * restores the scroll offset across those so that saving something
+   * does not throw you back to the top of the page you are working
+   * on. Guarding on a real change leaves that alone. */
+  if (moved) {
+    const stage = $("stage");
+    if (stage) { try { stage.scrollTop = 0; } catch { /* */ } }
+  }
 }
 function bindView(view) {
   if (view === "command") {

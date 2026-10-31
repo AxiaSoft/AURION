@@ -396,16 +396,26 @@ if (!jsdom) {
 
     const about = T.views.about();
 
-    check("the copyright years are real, and all of them are in one calendar", () => {
-      /* The footer read `2024-${copyrightYear()}`: a Gregorian year typed
-         in by hand, joined to a year formatted in whichever calendar the
-         interface uses. On the Persian desk that rendered "2024-۱۴۰۵" -
-         two calendars inside one range, describing a span that is not
-         real in either of them. A year is not a portable number; the
-         instant behind it is, so the range is built by converting one. */
+    check("the copyright is this year, and only this year", () => {
+      /* Two faults, fixed in two passes.
+
+         First the footer read `2024-${copyrightYear()}`: a Gregorian
+         year typed in by hand, joined to a year formatted in whichever
+         calendar the interface uses. On the Persian desk that rendered
+         "2024-۱۴۰۵" - two calendars inside one range, describing a span
+         that is real in neither.
+
+         Then the range itself went: the page shows the current year
+         alone. Inverted from the assertion that used to live here,
+         which demanded exactly two years. A year still cannot be a
+         literal - "2026" is Gregorian only, and the same moment is
+         1405 on the Persian desk and 1448 on the Arabic one - so it is
+         still formatted from an instant, which is also what makes it
+         roll over on its own. */
       const about = appJs.slice(appJs.indexOf("  about() {"), appJs.indexOf("\n  profile() {"));
-      if (/\b20\d\d\s*[-\u2013]/.test(about)) throw new Error("a hard-coded Gregorian year is still in the footer");
-      if (!/copyrightRange\(\)/.test(about)) throw new Error("the footer does not use the range helper");
+      if (/\b(19|20)\d\d\b/.test(about)) throw new Error("a hard-coded year is back in the footer");
+      if (!/copyrightYear\(\)/.test(about)) throw new Error("the footer does not format the year");
+      if (/copyrightRange/.test(appJs)) throw new Error("the range helper is back");
 
       /* Digits are the giveaway: fa renders Persian digits, ar renders
          Arabic-Indic ones, and a Latin digit anywhere in those means a
@@ -414,24 +424,29 @@ if (!jsdom) {
       const seen = {};
       for (const lang of ["en", "fa", "ar"]) {
         win.__T.I18N.lang = lang;
-        const out = win.eval("copyrightRange()");
+        const out = win.eval("copyrightYear()");
         seen[lang] = out;
         if (!DIGITS[lang].test(out)) throw new Error(lang + " produced no " + lang + " digits: " + out);
         if (lang !== "en" && /[0-9]/.test(out)) {
           throw new Error(lang + " mixes Latin digits into its own calendar: " + out);
         }
-        /* Two distinct years, both present, in ascending order. */
+        /* One year, and no separator left over from the range. */
         const years = out.match(/[\d\u06F0-\u06F9\u0660-\u0669]+/g) || [];
-        if (years.length !== 2) throw new Error(lang + " is not a range of two years: " + out);
+        if (years.length !== 1) throw new Error(lang + " shows " + years.length + " years, not one: " + out);
+        if (/[\u2013\u2014]|\u062A\u0627/.test(out)) throw new Error(lang + " still prints a range: " + out);
       }
       win.__T.I18N.lang = "en";
 
-      /* The English range is Gregorian, so its ends can be read back
-         as numbers: it must start at the first release and end at the
-         year the desk is actually running in. */
-      const [a, b] = (seen.en.match(/\d{4}/g) || []).map(Number);
-      if (a !== 2024) throw new Error("the first release moved: " + seen.en);
-      if (b !== new Date().getFullYear()) throw new Error("the range does not end this year: " + seen.en);
+      /* English is Gregorian, so it can be read back as a number and
+         compared with the year the desk is actually running in. */
+      if (Number(seen.en) !== new Date().getFullYear()) {
+        throw new Error("the footer is not showing this year: " + seen.en);
+      }
+
+      /* And it is the rendered page that must be free of a range, not
+         just the helper. */
+      const sub = /class="sub">([^<]*)</.exec(about.replace(/\$\{[^}]*\}/g, "")) || [];
+      if (sub[1] && /\d/.test(sub[1])) throw new Error("a year is hard-coded beside the helper: " + sub[1]);
       return Object.values(seen).join("  /  ");
     });
 
