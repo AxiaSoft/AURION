@@ -481,6 +481,7 @@
     "need_volume": "Volume must be greater than zero.",
     "sending": "Sending order to MetaTrader 5…",
     "no_ea_symbol": "No live EA chart. Attach AurionBridge to a symbol first.",
+    "no_ea_symbol_short": "No symbol",
     "pick_symbol": "Only symbols with AurionBridge attached are listed.",
     "chart_hint": "Set SL and TP on the chart, then buy or sell from here.",
     "chart_click": "Click Set SL / Set TP, then the chart",

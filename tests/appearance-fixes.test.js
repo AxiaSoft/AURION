@@ -85,15 +85,29 @@ check("the Markets toolbar still puts the two controls side by side", () => {
   return "sympick + select#tf";
 });
 
-check("the two controls are given the same width", () => {
-  const body = rule(appCss, ".mk-pick > *");
-  /* flex:1 1 0 - a zero basis - is the only way two items of unequal
-     content width end up the same size. `auto` sizes from content first,
-     which is what made the symbol wider than M15. */
-  if (!/flex:\s*1\s+1\s+0\b/.test(body)) {
-    throw new Error(".mk-pick > * is '" + body.trim() + "', which still sizes from content");
+check("neither control takes its width from its own text", () => {
+  /* This began as "the two controls are given the same width", because
+     an `auto` basis made the symbol wider than M15. Equal halves were
+     the wrong cure for the right diagnosis: with no EA attached the
+     symbol button carries a message rather than a ticker, and a
+     content-sized basis then handed it 403px of a 411px row and left
+     the timeframe a 30px stub. The invariant worth pinning is the one
+     underneath - a label must never size a control - so the symbol
+     picker takes the row's slack from a zero basis and the timeframe
+     keeps a bounded seat of its own. */
+  const base = rule(appCss, ".mk-pick > *");
+  if (!/flex:\s*1\s+1\s+0\b/.test(base)) {
+    throw new Error(".mk-pick > * is '" + base.trim() + "', which still sizes from content");
   }
-  return body.trim();
+  const sym = exact(appCss, ".mk-pick > .sympick");
+  if (!/flex:\s*1\s+1\s+0\b/.test(sym)) {
+    throw new Error("the symbol picker sizes from content: '" + sym.trim() + "'");
+  }
+  const tf = exact(appCss, ".mk-pick > .dd-wrap");
+  if (!/flex:\s*0\s+0\s+auto/.test(tf) || !/inline-size:\s*clamp\(/.test(tf)) {
+    throw new Error("the timeframe control has no fixed seat: '" + tf.trim() + "'");
+  }
+  return "zero basis + a clamped seat";
 });
 
 check("the two controls are given the same height", () => {
@@ -112,13 +126,19 @@ check("the two controls are given the same height", () => {
 });
 
 check("the two controls read with the same weight", () => {
-  const sel = rule(appCss, ".mk-pick > select.ctrl");
-  const cur = rule(appCss, ".sympick-cur");
-  const w = (s) => (s.match(/font-weight:\s*(\d+)/) || [])[1];
-  if (!w(sel) || w(sel) !== w(cur)) {
-    throw new Error("select is weight " + w(sel) + ", the picker's label is " + w(cur));
+  /* This used to read the weight off `.mk-pick > select.ctrl`. That
+     element is the native <select>, which enhanceSelects hides and
+     replaces with a .dd-btn - so the rule was dressing something
+     invisible and the two labels matched only by luck. Both visible
+     labels are now weighted by one declaration. */
+  const body = rule(appCss, ".mk-pick .dd-label");
+  if (!/\.mk-pick \.sympick-cur/.test(
+    (appCss.match(/[^{}]*\.mk-pick \.dd-label[^{}]*\{/) || [""])[0])) {
+    throw new Error("the timeframe label and the symbol label are weighted separately");
   }
-  return "both " + w(sel);
+  const w = (body.match(/font-weight:\s*(\d+)/) || [])[1];
+  if (!w) throw new Error("no font-weight on the shared label rule");
+  return "both " + w;
 });
 
 /* ======================================================= 7. the search boxes */

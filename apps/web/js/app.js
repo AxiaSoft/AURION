@@ -2453,34 +2453,61 @@ function closeAllDropdowns() {
   document.querySelectorAll("body > .dd-menu").forEach((m) => { m.hidden = true; });
 }
 
-function placeDropdownMenu(btn, menu) {
+/* One placement routine for every popover menu.
+
+   The symbol picker and the enhanced <select> menus used to carry two
+   copies of this geometry, which is how they drifted apart: one clamped
+   its width to a 240px floor, the other to 168px, so a narrow trigger
+   grew a menu wider than itself. A menu is a continuation of the control
+   that opened it, so its width is the trigger's width - nothing else -
+   and it stays short, scrolling whatever does not fit.
+
+   Only logical properties are written. The stylesheet pins
+   inset-inline-start, and adding a physical `left` over-constrains the
+   box: in RTL the physical value loses and the menu welds itself to the
+   window edge. */
+const POP_GAP = 6;     // breathing room between trigger and menu
+const POP_EDGE = 8;    // keep-out margin at the viewport edge
+const POP_MIN_H = 140; // below this there is no point opening downwards
+const POP_MAX_H = 300; // a menu is a short list with a scrollbar, not a page
+
+function placePopover(btn, pop, opts) {
+  const o = opts || {};
+  const minW = o.minW || 96;
+  const maxH = o.maxH || POP_MAX_H;
   const r = btn.getBoundingClientRect();
   const vw = window.innerWidth;
   const vh = window.innerHeight;
+
+  // The trigger's own width, only ever reined in by the viewport or by
+  // the floor that keeps a tiny control's menu readable.
+  const w = Math.max(minW, Math.min(r.width, vw - POP_EDGE * 2));
+  pop.style.inlineSize = w + "px";
+
+  const below = vh - r.bottom - POP_GAP - POP_EDGE;
+  const above = r.top - POP_GAP - POP_EDGE;
+  const up = below < POP_MIN_H && above > below;
+  if (up) {
+    pop.style.insetBlockStart = "auto";
+    pop.style.insetBlockEnd = (vh - r.top + POP_GAP) + "px";
+    pop.style.maxBlockSize = Math.max(POP_MIN_H, Math.min(maxH, above)) + "px";
+  } else {
+    pop.style.insetBlockEnd = "auto";
+    pop.style.insetBlockStart = (r.bottom + POP_GAP) + "px";
+    pop.style.maxBlockSize = Math.max(POP_MIN_H, Math.min(maxH, below)) + "px";
+  }
+  pop.classList.toggle("is-up", up);
+
+  // Align the menu's leading edge with the trigger's, in writing-mode
+  // terms, then pull it back inside the viewport.
   const rtl = document.documentElement.dir === "rtl";
-  const width = Math.max(r.width, 168);
-  menu.style.minWidth = width + "px";
-  menu.style.maxWidth = Math.min(380, vw - 16) + "px";
-  const spaceBelow = vh - r.bottom - 10;
-  const spaceAbove = r.top - 10;
-  if (spaceBelow < 148 && spaceAbove > spaceBelow) {
-    menu.style.top = "auto";
-    menu.style.bottom = (vh - r.top + 6) + "px";
-    menu.style.maxHeight = Math.max(120, Math.min(280, spaceAbove)) + "px";
-  } else {
-    menu.style.bottom = "auto";
-    menu.style.top = (r.bottom + 6) + "px";
-    menu.style.maxHeight = Math.max(120, Math.min(280, spaceBelow)) + "px";
-  }
-  if (rtl) {
-    const right = Math.max(8, vw - r.right);
-    menu.style.left = "auto";
-    menu.style.right = right + "px";
-  } else {
-    const left = Math.min(r.left, vw - width - 8);
-    menu.style.right = "auto";
-    menu.style.left = Math.max(8, left) + "px";
-  }
+  const startPx = rtl ? vw - r.right : r.left;
+  const maxStart = vw - w - POP_EDGE;
+  pop.style.insetInlineStart = Math.max(POP_EDGE, Math.min(startPx, maxStart)) + "px";
+}
+
+function placeDropdownMenu(btn, menu) {
+  placePopover(btn, menu);
 }
 
 function enhanceSelects(root) {
@@ -2497,7 +2524,8 @@ function enhanceSelects(root) {
     sel.tabIndex = -1;
     const btn = document.createElement("button");
     btn.type = "button";
-    btn.className = "dd-btn";
+    // .ctrl is what makes this the same shell as the symbol picker
+    btn.className = "ctrl dd-btn";
     btn.setAttribute("aria-haspopup", "listbox");
     btn.setAttribute("aria-expanded", "false");
     const menu = document.createElement("div");
@@ -2512,9 +2540,11 @@ function enhanceSelects(root) {
       const opts = [...sel.options];
       const cur = opts[sel.selectedIndex];
       const label = cur ? cur.text : "—";
-      btn.innerHTML = `<span class="dd-label">${esc(label)}</span><span class="dd-caret" aria-hidden="true"></span>`;
+      btn.innerHTML = `<span class="dd-label">${esc(label)}</span>${icon("chevron")}`;
       menu.innerHTML = opts.map((o, i) =>
-        `<button type="button" class="dd-opt${o.selected ? " on" : ""}" role="option" data-i="${i}" ${o.disabled ? "disabled" : ""}>${esc(o.text)}</button>`
+        `<button type="button" class="dd-opt${o.selected ? " on" : ""}" role="option"` +
+        ` aria-selected="${o.selected ? "true" : "false"}" data-i="${i}"` +
+        `${o.disabled ? " disabled" : ""}>${esc(o.text)}</button>`
       ).join("") || `<button type="button" class="dd-opt" disabled>—</button>`;
     };
     const close = () => {
@@ -2971,9 +3001,17 @@ function symbolPickerHtml(id, selected) {
   const items = liveSymbols();
   const cur = selected || S.symbol || "";
   if (!items.length) {
+    /* A short label, because this one sits in a flex row next to the
+       timeframe picker. The full sentence is 55 characters; rendered
+       inside the button it set the flex basis of the whole control and
+       squeezed its neighbour down to a clipped 30px stub. The
+       explanation is still here, as the tooltip and in the empty card
+       below the chart - it is just no longer load-bearing for the
+       layout. */
     return `<div class="sympick is-empty" id="${id}">
-      <button type="button" class="ctrl sympick-btn" id="${id}-btn" disabled>
-        <span class="sympick-cur">${esc(I18N.t("exec.no_ea_symbol"))}</span>
+      <button type="button" class="ctrl sympick-btn" id="${id}-btn" disabled
+              title="${esc(I18N.t("exec.no_ea_symbol"))}">
+        <span class="sympick-cur">${esc(I18N.t("exec.no_ea_symbol_short"))}</span>
       </button></div>`;
   }
   return `<div class="sympick" id="${id}">
@@ -3068,54 +3106,18 @@ function bindInstrumentPicker(id, opts) {
      room up there, and its height is whatever space actually exists -
      so the list always has somewhere to scroll instead of running off
      the bottom of the screen. */
-  const GAP = 6, EDGE = 8, MIN_H = 160, MAX_H = 420, MIN_W = 240, MAX_W = 360;
-
+  /* The geometry itself is placePopover's, shared with every other
+     dropdown on the desk, so the symbol list and a timeframe list open
+     the same way: at the width of the control that was clicked, short,
+     and scrolling the rest. The only local concession is a floor wide
+     enough for the search field this popover carries and the others
+     do not. */
   const place = () => {
     if (!document.body.contains(btn)) { close(); return; }
-    const r = btn.getBoundingClientRect();
     const vw = window.innerWidth || document.documentElement.clientWidth || 0;
     const vh = window.innerHeight || document.documentElement.clientHeight || 0;
     if (!vw || !vh) return;
-
-    const w = Math.min(Math.max(r.width, MIN_W), Math.max(MIN_W, Math.min(MAX_W, vw - EDGE * 2)));
-    const rtl = (document.documentElement.getAttribute("dir") || "").toLowerCase() === "rtl";
-    /* Physical left, clamped so the box is always wholly on screen. */
-    let left = rtl ? r.right - w : r.left;
-    left = Math.max(EDGE, Math.min(left, vw - w - EDGE));
-
-    const below = vh - r.bottom - GAP - EDGE;
-    const above = r.top - GAP - EDGE;
-    /* Only flip when going up genuinely buys room, so the list does not
-       jump sides on a small scroll. */
-    const up = below < MIN_H && above > below;
-    const room = Math.max(MIN_H, Math.min(MAX_H, up ? above : below));
-
-    pop.classList.toggle("is-up", up);
-
-    /* Written as logical properties, which is not decoration.
-
-       The stylesheet pins this box with inset-inline-start, and in a
-       right-to-left page that maps to `right`. Setting `left` inline
-       does not replace it - it joins it. A fixed box with a width and
-       both edges pinned is over-constrained, and in RTL the rule is
-       that `left` is the one ignored, so the menu stayed welded to the
-       right edge of the screen no matter what was measured for it.
-       That is the whole bug: the symbol list opened against the side
-       of the window instead of under its button.
-
-       So the offset is expressed the way the stylesheet expresses it,
-       from the inline start edge, which in RTL is measured from the
-       right. One property, one answer, no contest to resolve. */
-    pop.style.insetInlineStart = `${Math.round(rtl ? vw - (left + w) : left)}px`;
-    pop.style.inlineSize = `${Math.round(w)}px`;
-    pop.style.maxBlockSize = `${Math.round(room)}px`;
-    if (up) {
-      pop.style.insetBlockStart = "auto";
-      pop.style.insetBlockEnd = `${Math.round(vh - r.top + GAP)}px`;
-    } else {
-      pop.style.insetBlockEnd = "auto";
-      pop.style.insetBlockStart = `${Math.round(r.bottom + GAP)}px`;
-    }
+    placePopover(btn, pop, { minW: 180 });
   };
 
   const onMove = () => { if (!pop.hidden) place(); };
@@ -3264,8 +3266,9 @@ function symbolFieldHtml(id, selected) {
   if (!items.length) {
     return `<div class="sympick is-empty" id="${pick}">
       <input type="hidden" id="${id}" value="">
-      <button type="button" class="ctrl sympick-btn" id="${pick}-btn" disabled>
-        <span class="sympick-cur">${esc(I18N.t("exec.no_ea_symbol"))}</span>
+      <button type="button" class="ctrl sympick-btn" id="${pick}-btn" disabled
+              title="${esc(I18N.t("exec.no_ea_symbol"))}">
+        <span class="sympick-cur">${esc(I18N.t("exec.no_ea_symbol_short"))}</span>
       </button></div>`;
   }
   return `<div class="sympick" id="${pick}">
@@ -3322,8 +3325,9 @@ function fillSymbolField(id, selected) {
   if (!items.length) {
     hidden.value = "";
     root.classList.add("is-empty");
-    if (btn) btn.textContent = I18N.t("exec.no_ea_symbol");
-    const b = $(`${id}-pick-btn`); if (b) b.disabled = true;
+    if (btn) btn.textContent = I18N.t("exec.no_ea_symbol_short");
+    const b = $(`${id}-pick-btn`);
+    if (b) { b.disabled = true; b.title = I18N.t("exec.no_ea_symbol"); }
     return;
   }
   root.classList.remove("is-empty");

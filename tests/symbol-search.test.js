@@ -227,10 +227,24 @@ check("the list is sized and placed from the button, not from the stylesheet", (
      screen instead of sitting under its button. */
   if (pop.style.left || pop.style.right) throw new Error("it is placed with physical insets again");
   if (parseFloat(pop.style.insetInlineStart) < 0) throw new Error("it is placed off the start edge");
+  /* The geometry now lives in placePopover, shared with every other
+     dropdown on the desk so the two cannot drift apart again; these
+     read the one routine rather than the picker's former private copy. */
   const src = read("js/app.js");
-  if (!/Math\.min\(left, vw - w - EDGE\)/.test(src)) throw new Error("the far edge is not clamped");
-  if (!/rtl \? vw - \(left \+ w\) : left/.test(src)) throw new Error("the RTL offset is not mirrored");
-  if (!/const up = below < MIN_H && above > below/.test(src)) throw new Error("it never flips above the control");
+  if (!/function placePopover\(/.test(src)) throw new Error("the shared placement routine is gone");
+  if (!/placePopover\(btn, pop, \{ minW: \d+ \}\)/.test(src)) {
+    throw new Error("the picker no longer uses the shared placement routine");
+  }
+  if (!/const maxStart = vw - w - POP_EDGE;/.test(src)) throw new Error("the far edge is not clamped");
+  if (!/Math\.max\(POP_EDGE, Math\.min\(startPx, maxStart\)\)/.test(src)) {
+    throw new Error("the near edge is not clamped");
+  }
+  if (!/const startPx = rtl \? vw - r\.right : r\.left;/.test(src)) {
+    throw new Error("the RTL offset is not mirrored");
+  }
+  if (!/const up = below < POP_MIN_H && above > below;/.test(src)) {
+    throw new Error("it never flips above the control");
+  }
   return "placed, clamped, flippable";
 });
 

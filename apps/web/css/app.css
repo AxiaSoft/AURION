@@ -337,43 +337,21 @@ html[dir="rtl"] .field span,html[dir="rtl"] .field > label{letter-spacing:0}
   background:var(--field-hi);
 }
 
-/* Custom glass dropdown — native Windows popups are white-on-white */
-.dd-wrap{position:relative;min-width:140px;flex:1 1 148px;max-width:100%}
+/* Custom dropdown - native Windows select popups are white-on-white.
+
+   How this looks is not defined here. The button is the same .ctrl
+   shell, the menu the same glass popover and the options the same rows
+   as the symbol picker, by sharing its rules rather than restating
+   them - see the .sympick section. Two separate style blocks are how
+   the two controls drifted into visibly different dropdowns sitting on
+   the same toolbar. What is left here is structure. */
+.dd-wrap{position:relative;flex:1 1 148px;min-width:0;max-width:100%}
 .dd-native{
   position:absolute !important;opacity:0 !important;pointer-events:none !important;
   width:1px !important;height:1px !important;padding:0 !important;margin:0 !important;
   border:0 !important;inset-inline-start:0;top:0;overflow:hidden;
 }
-.dd-btn{
-  width:100%;display:flex;align-items:center;justify-content:space-between;gap:10px;
-  background:var(--field);color:var(--ink);border:1px solid var(--line);border-radius:14px;
-  padding:12px 14px;text-align:start;min-height:46px;
-  transition:border .25s var(--ease), box-shadow .25s var(--ease), background .25s;
-}
-.dd-btn:hover{background:var(--field-hi);border-color:rgb(var(--wash) / .14)}
-.dd-label{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--ink)}
-.dd-caret{
-  width:8px;height:8px;flex:none;margin-top:-3px;
-  border-inline-end:1.7px solid #c9d0de;border-bottom:1.7px solid #c9d0de;
-  transform:rotate(45deg);opacity:.85;
-}
-.dd-wrap.open .dd-caret{transform:rotate(225deg);margin-top:3px}
-.dd-menu{
-  position:fixed;z-index:240;
-  background:var(--field2);color:var(--ink);
-  border:1px solid rgb(var(--wash) / .14);
-  border-radius:14px;padding:6px;
-  box-shadow:0 22px 56px rgba(0,0,0,.62);
-  backdrop-filter:blur(calc(var(--blur, 18px) * 22 / 18)) saturate(140%);
-  -webkit-backdrop-filter:blur(calc(var(--blur, 18px) * 22 / 18)) saturate(140%);
-  overflow:auto;overscroll-behavior:contain;
-}
-.dd-opt{
-  width:100%;display:block;border:0;background:transparent;color:var(--ink);
-  text-align:start;padding:10px 12px;border-radius:10px;min-height:40px;font:inherit;
-}
-.dd-opt:hover,.dd-opt:focus{background:rgb(var(--accent-rgb) / .14);color:#fff;outline:none}
-.dd-opt.on{background:rgb(var(--accent-rgb) / .2);color:var(--cyan);font-weight:500}
+.dd-menu[hidden]{display:none}
 .dd-opt:disabled{opacity:.4;pointer-events:none}
 /* A cluster, not a line.
 
@@ -3773,10 +3751,21 @@ p.ok > svg, .ok > svg{ width:15px; height:15px; vertical-align:-3px; margin-inli
    picker's type so the two labels carry the same weight. */
 .mk-pick{display:flex;gap:8px;min-width:0;flex:1 1 260px;align-items:stretch}
 .mk-pick > *{min-width:0;flex:1 1 0}
-.mk-pick .ctrl{flex:1 1 auto}
 .mk-pick .sympick{display:flex}
-.mk-pick .sympick-btn{block-size:100%}
-.mk-pick > select.ctrl{font-weight:650;letter-spacing:.02em}
+.mk-pick .sympick-btn,.mk-pick .dd-btn{block-size:100%}
+/* The symbol picker absorbs the slack and the timeframe keeps a fixed
+   seat, rather than the two bidding for the row with their content.
+
+   `flex:1 1 auto` gave both of them a content-sized basis, so the
+   longest label won the row: with no EA attached the symbol button
+   carried a 55-character sentence, took 403px of a 411px row and left
+   the timeframe a 30px stub with its label clipped and spilling over
+   the tick readout. A label is content; it must not be able to resize
+   a neighbouring control. The sentence is shortened at the source too,
+   but the row no longer depends on that. */
+.mk-pick > .sympick{flex:1 1 0;min-inline-size:0}
+.mk-pick > .dd-wrap{flex:0 0 auto;inline-size:clamp(104px, 28%, 148px)}
+.mk-pick .dd-label,.mk-pick .sympick-cur{font-weight:650;letter-spacing:.02em}
 .mk-tick{
   flex:0 1 auto;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
   color:var(--gold);font-size:12px;
@@ -3997,7 +3986,7 @@ html[dir="rtl"] .ct-side span{letter-spacing:0;text-transform:none;font-size:12p
    up, and uses the desk's glass for the popup.
    ------------------------------------------------------------------ */
 .sympick{position:relative;flex:1 1 auto;min-width:0}
-.sympick-btn{
+.sympick-btn,.dd-btn{
   display:flex;align-items:center;gap:8px;
   /* Explicit: the value sits at the start and the caret at the end, the
      way a <select> reads. Without it the label inherits the desk's
@@ -4008,14 +3997,15 @@ html[dir="rtl"] .ct-side span{letter-spacing:0;text-transform:none;font-size:12p
 /* With no chart attached there is no value and no caret, only a message,
    so it is centred like any other button label. */
 .sympick.is-empty .sympick-btn{justify-content:center;text-align:center}
-.sympick-btn[disabled]{cursor:default;opacity:.65}
-.sympick-cur{
+.sympick-btn[disabled],.dd-btn[disabled]{cursor:default;opacity:.65}
+.sympick-cur,.dd-label{
   font-weight:650;letter-spacing:.02em;
   overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;
 }
-.sympick-btn svg{width:16px;height:16px;flex:none;opacity:.7;
+.sympick-btn svg,.dd-btn svg{width:16px;height:16px;flex:none;opacity:.7;
   transition:transform .2s var(--ease)}
-.sympick-btn[aria-expanded="true"] svg{transform:rotate(180deg)}
+.sympick-btn[aria-expanded="true"] svg,
+.dd-btn[aria-expanded="true"] svg{transform:rotate(180deg)}
 
 /* Fixed, and moved to <body> while open. It was absolute inside
    .sympick, which is correct until the picker sits in a .card - and on
@@ -4029,11 +4019,14 @@ html[dir="rtl"] .ct-side span{letter-spacing:0;text-transform:none;font-size:12p
    button's rectangle, because clamping to the viewport and flipping
    above the control are measurements, not rules a stylesheet can
    express. What stays here is what it looks like. */
-.sympick-pop{
-  position:fixed;z-index:120;
+.sympick-pop,.dd-menu{
+  position:fixed;z-index:240;
   inset-block-start:0;inset-inline-start:0;
-  inline-size:min(320px, 86vw);
-  max-block-size:min(60vh, 420px);
+  /* Both are overwritten inline by placePopover from the trigger
+     rectangle; these are only the pre-measurement fallback, kept in
+     step with POP_MAX_H so a menu never opens tall. */
+  inline-size:min(260px, 86vw);
+  max-block-size:min(60vh, 300px);
   display:flex;flex-direction:column;
   background:var(--glass2);
   backdrop-filter:blur(calc(var(--blur, 18px) * 28 / 18)) saturate(140%);
@@ -4055,12 +4048,21 @@ html[dir="rtl"] .ct-side span{letter-spacing:0;text-transform:none;font-size:12p
   overflow:auto;overscroll-behavior:contain;
   -webkit-overflow-scrolling:touch;
 }
-.sympick-row{
+.sympick-row,.dd-opt{
   display:flex;align-items:center;gap:10px;
   padding:9px 10px;border-radius:10px;cursor:pointer;
 }
-.sympick-row.active,.sympick-row:hover{background:rgb(var(--wash) / .07)}
-.sympick-row.on{box-shadow:inset 0 0 0 1px rgb(var(--accent-rgb) / .45)}
+/* The generic menu has no list element of its own, so the popover is
+   also the scroller: same padding and same contained overscroll as
+   .sympick-list. */
+.dd-menu{padding:6px;overflow:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch}
+.dd-opt{
+  inline-size:100%;border:0;background:transparent;color:var(--ink);
+  text-align:start;font:inherit;min-block-size:40px;
+}
+.sympick-row.active,.sympick-row:hover,
+.dd-opt:hover,.dd-opt:focus-visible{background:rgb(var(--wash) / .07);outline:none}
+.sympick-row.on,.dd-opt.on{box-shadow:inset 0 0 0 1px rgb(var(--accent-rgb) / .45)}
 .sympick-n{font-weight:650;letter-spacing:.02em;flex:1 1 auto}
 .sympick-d{
   color:var(--muted);font-size:12px;flex:none;
