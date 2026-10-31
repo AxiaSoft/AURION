@@ -101,31 +101,45 @@ function sheetFor(skin, opts) {
   const dom = new JSDOM(
     `<!doctype html><html${attrs}${skin ? ` data-skin="${skin}"` : ""}><head>` +
     css.map((c, i) => `<style data-src="${FILES[i]}">${c}</style>`).join("") +
-    `</head><body>${MARKUP}${MARKUP_EXTRA}</body></html>`);
+    `</head><body>${o.markup !== undefined ? o.markup : MARKUP + MARKUP_EXTRA}</body></html>`);
   const doc = dom.window.document;
   const flat = [];
   let order = 0;
   for (const sh of doc.styleSheets) {
     const src = sh.ownerNode ? sh.ownerNode.getAttribute("data-src") : "?";
-    const walk = (list) => {
+    const walk = (list, mq) => {
       for (const r of list) {
-        if (r.cssRules && r.conditionText !== undefined) { walk(r.cssRules); continue; }
+        if (r.cssRules && r.conditionText !== undefined) {
+          walk(r.cssRules, (mq ? mq + " and " : "") + r.conditionText);
+          continue;
+        }
         if (!r.selectorText) continue;
-        flat.push({ src, sel: r.selectorText, style: r.style, order: order++ });
+        flat.push({ src, mq, sel: r.selectorText, style: r.style, order: order++ });
       }
     };
-    try { walk(sh.cssRules); } catch { /* unparsable at-rule */ }
+    try { walk(sh.cssRules, ""); } catch { /* unparsable at-rule */ }
   }
   return { doc, flat };
 }
 
 /* The declaration a browser would use for `prop` on `el`, counting only
    rules that apply when the control is at rest or focused. */
-function winner(flat, el, prop) {
+function winner(flat, el, prop, width) {
   const cands = [];
   for (const r of flat) {
     const v = r.style.getPropertyValue(prop);
     if (!v) continue;
+    /* Width is opt-in. The checks above compare one viewport against
+       itself, so for them a media query is noise; the rail-versus-sheet
+       comparison is the one that has to know which side of the 1000px
+       breakpoint it is standing on. */
+    if (width && r.mq) {
+      if (/prefers-reduced-motion|forced-colors|print/.test(r.mq)) continue;
+      const mx = /max-width:\s*(\d+)px/.exec(r.mq);
+      const mn = /min-width:\s*(\d+)px/.exec(r.mq);
+      if (mx && width > Number(mx[1])) continue;
+      if (mn && width < Number(mn[1])) continue;
+    }
     /* `continue`, not `break`. A rule's selector list is a set of
        alternatives, so giving up at the first one that does not match
        silently drops every rule whose matching selector is not written
@@ -268,6 +282,112 @@ check("the sheet keeps its own shape on top of the theme's colour", () => {
   }
   if (bad.length) throw new Error(bad.join("\n      "));
   return SKIN_LIST.length + " skins";
+});
+
+/* ------------------------------------------------------------------
+   The sheet's entries must look like the rail's.
+
+   Everything that gave those buttons an appearance was scoped to
+   `.set-rail .set-jump button` - the ancestor the sheet is deliberately
+   portaled out of. So on a phone they lost their display, background,
+   border, width and text alignment in one go and rendered as bare UA
+   buttons: white blocks with the icon and the two lines of text spilled
+   out of their flex boxes. The rules describe the jumper, not the rail,
+   and are scoped to `.set-jump` now.
+
+   Comparing the two shapes property by property is the only check that
+   catches this class of fault, because nothing is misspelled and no
+   rule is missing - they simply stop matching.
+   ------------------------------------------------------------------ */
+
+const ENTRIES = `
+  <div class="sj-find"><span class="dsk-search sm"><input class="dsk-search-i"></span><p class="sj-find-n"></p></div>
+  <div class="sj-grp">Group</div>
+  <button data-jump="robot" class="on"><span class="sj-ic"><svg></svg></span><span class="sj-txt"><b>Robot</b><small>d</small></span></button>
+  <button data-jump="prop"><span class="sj-ic"><svg></svg></span><span class="sj-txt"><b>Prop</b><small>d</small></span></button>`;
+
+/* The sheet lives outside .set-main but inside #desk; the rail lives in
+   the stage. Both are rendered so each document is realistic. */
+const RAIL_MARKUP = `<div id="app"><section id="desk"><main class="stage">
+  <div class="set-desk set-rail stx"><nav class="set-jump"><div class="sj-list">${ENTRIES}</div></nav>
+  <div class="set-main"></div></div></main></section></div>`;
+const SHEET_MARKUP = `<div id="app"><section id="desk"><main class="stage">
+  <div class="set-desk set-rail stx"><div class="set-main"></div></div></main>
+  <nav class="set-jump is-sheet" data-sheet-portal="1"><div class="sj-list">${ENTRIES}</div></nav>
+  </section></div>`;
+
+const PARITY_PROPS = ["display", "background", "color", "border", "border-radius",
+  "padding", "font-size", "width", "height", "place-items", "flex-direction",
+  "align-items", "gap", "text-align", "white-space", "overflow", "text-overflow",
+  "min-width", "font-weight", "letter-spacing", "text-transform"];
+
+/* The deliberate differences, named so that they stay deliberate. The
+   sheet gives its search box the same 12px gutter as the list beneath
+   it, where the rail tucks it into the panel's own 8px padding. */
+const PARITY_EXCEPT = { ".sj-find": ["padding"] };
+
+const PARITY_TARGETS = [
+  ["the entry button", "button[data-jump]:not(.on)"],
+  ["the selected entry", "button[data-jump].on"],
+  ["the entry's icon", "button[data-jump]:not(.on) .sj-ic"],
+  ["the selected icon", "button[data-jump].on .sj-ic"],
+  ["the label stack", ".sj-txt"],
+  ["the label", ".sj-txt b"],
+  ["the description", ".sj-txt small"],
+  ["the group heading", ".sj-grp"],
+  ["the search box", ".sj-find"],
+];
+
+check("on a phone the sheet's entries are dressed exactly like the rail's", () => {
+  const bad = [];
+  for (const theme of ["dark", "light"]) {
+    const rail = sheetFor("aurora", { theme, markup: RAIL_MARKUP });
+    const sheet = sheetFor("aurora", { theme, markup: SHEET_MARKUP });
+    for (const [name, sel] of PARITY_TARGETS) {
+      const re = rail.doc.querySelector(".set-rail " + sel);
+      const se = sheet.doc.querySelector(".is-sheet " + sel);
+      if (!re || !se) { bad.push(theme + " " + name + ": no such element"); continue; }
+      const skip = PARITY_EXCEPT[sel] || [];
+      for (const prop of PARITY_PROPS) {
+        if (skip.includes(prop)) continue;
+        const a = winner(rail.flat, re, prop, 1440);
+        const b = winner(sheet.flat, se, prop, 390);
+        const av = a ? a.v.trim() : "(none)";
+        const bv = b ? b.v.trim() : "(none)";
+        if (av !== bv) bad.push(`${theme} ${name} ${prop}: rail=${av} sheet=${bv}`);
+      }
+    }
+  }
+  if (bad.length) throw new Error(bad.length + " differences:\n      " + bad.join("\n      "));
+  return PARITY_TARGETS.length + " parts x 2 themes";
+});
+
+check("nothing that paints an entry is scoped to the rail any more", () => {
+  /* The structural half of the same point: .set-rail may only carry
+     what is genuinely about the rail's own shape - its grid column and
+     its sticky positioning. Anything else there is invisible on a
+     phone. */
+  const app = fs.readFileSync(path.join(WEB, "css/app.css"), "utf8");
+  const ALLOWED = [".set-desk.set-rail", ".set-rail .set-jump{"];
+  const offenders = [];
+  /* Not [^@{}\n] for the first character: that consumes the leading
+     dot, so `.set-rail ...{` at column 0 - which is how every one of
+     them is written - could never match and the guard passed on an
+     empty set. */
+  const re = /^(?!@)[^{}\n]*\.set-rail[^{}\n]*\{/gm;
+  let m;
+  while ((m = re.exec(app))) {
+    const sel = m[0].trim();
+    if (ALLOWED.some((a) => sel.includes(a))) continue;
+    /* A rule listing the sheet alongside is fine - it reaches both. */
+    const whole = app.slice(app.lastIndexOf("\n", m.index) + 1, m.index + m[0].length);
+    if (/is-sheet/.test(whole)) continue;
+    offenders.push(sel);
+  }
+  if (offenders.length) {
+    throw new Error("these only reach the desktop rail:\n      " + offenders.join("\n      "));
+  }
+  return "clean";
 });
 
 check("the shell is what lights up on focus", () => {

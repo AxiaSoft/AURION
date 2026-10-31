@@ -2415,11 +2415,11 @@ html[data-glass="off"] *{
   backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
   max-height:calc(100vh - var(--top) - 24px);overflow-y:auto;scrollbar-width:thin;
 }
-.set-rail /* The rail's search. It sits above the first group heading and
+/* The jumper's search. It sits above the first group heading and
    scrolls with the rail rather than pinning, because the rail is
    nine entries long and a sticky box would cost more height than it
    saves. */
-.sj-find{ padding:2px 2px 10px; display:flex; flex-direction:column; gap:6px }
+.set-jump .sj-find{ padding:2px 2px 10px; display:flex; flex-direction:column; gap:6px }
 .sj-find-n{ margin:0; font-size:11.5px; padding-inline:2px }
 .sj-find-n[hidden]{ display:none }
 .set-jump button[data-jump][hidden]{ display:none }
@@ -2429,28 +2429,41 @@ html[data-glass="off"] *{
   font-size:10.5px;color:var(--faint);letter-spacing:.06em;text-transform:uppercase;
   padding:10px 10px 4px;font-weight:500;
 }
-html[dir="rtl"] .set-rail .sj-grp{letter-spacing:0;text-transform:none;font-size:11px}
-.set-rail .set-jump button{
+html[dir="rtl"] .sj-grp{letter-spacing:0;text-transform:none;font-size:11px}
+
+/* ---- the entries ----
+ *
+ * Scoped to .set-jump, NOT to .set-rail. These describe the jumper, and
+ * the jumper has two shapes: the sticky rail on a desktop and the
+ * bottom sheet on a phone. The sheet is re-parented out of .set-rail to
+ * escape the stage's transform, so every rule that reached these
+ * buttons through that ancestor stopped applying the moment it moved -
+ * and a button with no author background is a white UA button, with the
+ * icon and the two lines of text falling out of their flex boxes. Only
+ * what is genuinely about the RAIL (the sticky positioning, the grid
+ * column) may be scoped to .set-rail.
+ */
+.set-jump button{
   display:flex;align-items:center;gap:10px;flex:none;width:100%;text-align:start;
   border:1px solid transparent;background:transparent;color:var(--muted);
   border-radius:12px;padding:8px 10px;font-size:13px;line-height:1.2;
   transition:background .18s var(--ease),color .18s var(--ease),border-color .18s var(--ease),transform .18s var(--ease);
 }
-.set-rail .set-jump button:hover{background:rgb(var(--wash) / .05);color:var(--ink)}
-.set-rail .set-jump button.on{
+.set-jump button:hover{background:rgb(var(--wash) / .05);color:var(--ink)}
+.set-jump button.on{
   background:linear-gradient(135deg, rgb(var(--accent-rgb) / .16), rgb(var(--accent-3-rgb) / .10));
   border-color:rgb(var(--accent-rgb) / .28);color:var(--ink);font-weight:500;
 }
-.set-rail .sj-ic{
+.set-jump .sj-ic{
   width:30px;height:30px;flex:none;display:grid;place-items:center;border-radius:9px;
   background:rgb(var(--wash) / .05);color:var(--muted);
 }
-.set-rail .sj-ic svg{width:16px;height:16px}
-.set-rail button.on .sj-ic{background:rgb(var(--accent-rgb) / .16);color:var(--cyan)}
-.set-rail .sj-txt{display:flex;flex-direction:column;gap:2px;min-width:0}
-.set-rail .sj-txt b{font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.set-rail .sj-txt small{font-size:11px;color:var(--faint);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.set-rail button.on .sj-txt small{color:var(--muted)}
+.set-jump .sj-ic svg{width:16px;height:16px}
+.set-jump button.on .sj-ic{background:rgb(var(--accent-rgb) / .16);color:var(--cyan)}
+.set-jump .sj-txt{display:flex;flex-direction:column;gap:2px;min-width:0}
+.set-jump .sj-txt b{font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.set-jump .sj-txt small{font-size:11px;color:var(--faint);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.set-jump button.on .sj-txt small{color:var(--muted)}
 .set-main{min-width:0;display:flex;flex-direction:column;gap:14px}
 /* Settings panels are glass, like every other surface on the desk.
    They used to carry the alpha without the blur, which is not frosting -
@@ -2652,7 +2665,7 @@ html[dir="rtl"] .set-rail .sj-grp{letter-spacing:0;text-transform:none;font-size
 }
 
 /* ---- the rail carries state, not just names ---- */
-.set-rail .set-jump button{position:relative}
+.set-jump button{position:relative}
 
 /* ---- every section says what it decides ---- */
 .stx-head{margin:0 0 14px; padding-block-end:12px; border-block-end:1px solid var(--line)}
@@ -2695,7 +2708,7 @@ html[data-theme="light"] .set-jump.is-sheet,
 html[data-theme="light"] .sj-open{
   background:linear-gradient(180deg, rgb(var(--s4) / .9), rgb(var(--s2) / .78));
 }
-html[data-theme="light"] .set-rail .set-jump button.on{
+html[data-theme="light"] .set-jump button.on{
   background:linear-gradient(135deg, rgb(var(--accent-rgb) / .12), rgb(var(--accent-3-rgb) / .07));
 }
 

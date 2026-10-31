@@ -960,9 +960,17 @@ if (!jsdom) {
 
     check("the light-mode rail follows the chosen accent", () => {
       /* It was two literal rgba teals, so any other accent came out
-         right on dark and wrong on light. */
-      const i = appCss.indexOf('html[data-theme="light"] .set-rail .set-jump button.on');
+         right on dark and wrong on light.
+
+         Retargeted: the selector lost its `.set-rail` ancestor, because
+         scoping the entries to the rail meant none of this reached the
+         same entries once they were portaled into the bottom sheet. The
+         override now covers both shapes. */
+      const i = appCss.indexOf('html[data-theme="light"] .set-jump button.on');
       if (i < 0) throw new Error("the light rail override is gone");
+      if (appCss.includes('html[data-theme="light"] .set-rail .set-jump button.on')) {
+        throw new Error("the light override is scoped to the rail again, so the sheet misses it");
+      }
       const rule = appCss.slice(i, appCss.indexOf("}", i));
       if (/rgba\(/.test(rule)) throw new Error("the light rail is still painted with a literal colour");
       if (!/var\(--accent-rgb\)/.test(rule)) throw new Error("the light rail does not use the accent");
