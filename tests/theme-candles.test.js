@@ -195,6 +195,29 @@ const NEAR_ACCENT = 42;     /* degrees a candle may stray from its theme */
 const chroma = (c) => (Math.max(...c) - Math.min(...c)) / 255;
 const ACHROMATIC = 0.12;
 
+/* There are two legitimate ways to build a candle pair, and they need
+   different rules.
+
+   A TONAL pair - every theme but the default - is two shades of the
+   theme's own accent hue. That is what makes the desk feel of a piece,
+   and because hue says nothing about direction there, lightness has to
+   carry it: the pair must separate by contrast, both ends must sit near
+   the accent, and the rise must be the one that stands further off the
+   panel.
+
+   A SEMANTIC pair is green up, red down. The default theme uses it
+   because it is the theme a trader meets without choosing it, and
+   green-up/red-down is the convention every chart they have ever seen
+   already taught them. There the hue IS the signal, so a lightness test
+   would be measuring the wrong thing - #26d07c against #f4475b is only
+   1.76:1 and nobody has ever confused them. What has to be checked
+   instead is that the two are genuinely far apart in hue and that they
+   are the desk's own --ok/--bad rather than some other green and red.
+
+   Both kinds must be visible on their own panel. */
+const SEMANTIC = new Set([T.DEFAULT, "custom"]);
+const MIN_PAIR_HUE = 60;
+
 let worstPanel = { v: Infinity }, worstSep = { v: Infinity };
 for (const t of T.THEMES) {
   for (const cut of ["dark", "light"]) {
@@ -208,6 +231,15 @@ for (const t of T.THEMES) {
       ok(false, `${t.id}/${cut} is hard to see on its own panel (up ${cu.toFixed(2)}, down ${cd.toFixed(2)})`);
     }
 
+    if (SEMANTIC.has(t.id)) {
+      const g = hueGap(up, dn);
+      if (g < MIN_PAIR_HUE) {
+        ok(false, `${t.id}/${cut} up and down are only ${g.toFixed(0)} deg apart - `
+          + `a semantic pair is told apart by hue, so that is the whole signal`);
+      }
+      continue;
+    }
+
     const k = contrast(up, dn);
     if (k < worstSep.v) worstSep = { v: k, who: `${t.id}/${cut}` };
     if (k < MIN_PAIR_K) {
@@ -215,6 +247,31 @@ for (const t of T.THEMES) {
         + `they share a hue by design, so this is the only thing telling them apart`);
     }
   }
+}
+
+/* The default theme's pair is not merely "a green and a red": it is the
+   same pair the P&L figures use. If they drift apart, a rising candle
+   and a winning number stop being the same colour on the one desk most
+   traders will ever see. */
+{
+  const cssVar = (name, block) => {
+    const m = new RegExp(name + ":\\s*(#[0-9a-f]{3,6})", "i").exec(block);
+    return m ? m[1] : "";
+  };
+  const want = { dark: [cssVar("--ok", rootBlock), cssVar("--bad", rootBlock)],
+                 light: [cssVar("--ok", lightBlock), cssVar("--bad", lightBlock)] };
+  const defTheme = T.THEMES.find((t) => t.id === T.DEFAULT);
+  const drift = [];
+  for (const cut of ["dark", "light"]) {
+    for (const [slot, name] of [[0, "--ok"], [1, "--bad"]]) {
+      const got = String(defTheme.candles[cut][slot]).toLowerCase();
+      const exp = String(want[cut][slot] || "").toLowerCase();
+      if (!exp) { drift.push(`${name}/${cut} not found in the stylesheet`); continue; }
+      if (got !== exp) drift.push(`${cut} ${name}: candle ${got} vs text ${exp}`);
+    }
+  }
+  ok(drift.length === 0,
+    `the default theme's candles are exactly --ok/--bad (${drift.join(", ") || "both cuts match"})`);
 }
 ok(worstPanel.v >= MIN_ON_PANEL,
   `every candle clears ${MIN_ON_PANEL}:1 on its own chart panel (worst ${worstPanel.v.toFixed(2)} at ${worstPanel.who})`);
@@ -230,7 +287,9 @@ ok(worstSep.v >= MIN_PAIR_K,
    violet one with mint (88 deg). */
 let strays = [];
 for (const t of T.THEMES) {
-  if (t.id === "custom") continue;
+  /* The semantic pair is deliberately off-palette - that is the point
+     of it - so it is not measured against the accent. */
+  if (SEMANTIC.has(t.id)) continue;
   const accent = hex2rgb(t.swatch[2]);
   if (chroma(accent) < 0.2) continue;   /* Relief and Mono have no hue to match */
   for (const cut of ["dark", "light"]) {
@@ -253,6 +312,10 @@ ok(strays.length === 0,
    near-white on the dark cut and near-black on the light one. */
 let swapped = [];
 for (const t of T.THEMES) {
+  /* Green up and red down needs no help from contrast to say which way
+     the bar went, and on a white panel a red is simply darker than a
+     green of the same conviction. Emphasis is the tonal pairs' rule. */
+  if (SEMANTIC.has(t.id)) continue;
   for (const cut of ["dark", "light"]) {
     const p2 = PANEL[t.id + ":" + cut];
     if (!p2) continue;

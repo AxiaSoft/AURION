@@ -65,8 +65,8 @@
      theme, on every skin, whatever accent the user picks - a trader reads
      these before they read anything else, and an accent that turned profit
      violet would be a genuine hazard. They are deliberately NOT --accent. */
-  --candle-up:#66ffe5;
-  --candle-down:#299986;
+  --candle-up:#26d07c;
+  --candle-down:#f4475b;
   /* --ok / --bad are NOT the candle pair.
      They were aliases of it, which is why Relief and Mono - whose
      candles are deliberately one colour light and the same colour dark -
@@ -2330,8 +2330,8 @@ html[data-theme="light"]{
   --violet:var(--accent-3);
   --gold:#8a6a1c;
   --rose:#d63a5c;
-  --candle-up:#005748;
-  --candle-down:#28a48f;
+  --candle-up:#0f9d58;
+  --candle-down:#d93025;
   --ok:#0f9d58;
   --bad:#d93025;
   --shadow:0 20px 50px rgba(30,40,70,.16);

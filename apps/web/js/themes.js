@@ -100,7 +100,13 @@
       id: "glass", accent: "aurora", bg: "soft", morph: "glass",
       knobs: { surface: 62, border: 10, blur: 18, radius: 22, shadow: 100, motion: 100 },
       swatch: ["#070910", "#151c2b", "#3ee0c4"],
-      candles: { dark: ["#66ffe5", "#299986"], light: ["#005748", "#28a48f"] },
+      /* The default theme keeps the universal pair. Every other theme
+         draws its candles from its own accent, which is what makes the
+         desk feel of a piece - but the default is the one a trader
+         meets first and never chose, and green-up/red-down is the one
+         convention every chart they have ever seen already taught them.
+         These are --ok and --bad exactly, not an approximation of them. */
+      candles: { dark: ["#26d07c", "#f4475b"], light: ["#0f9d58", "#d93025"] },
     },
     {
       id: "frost", accent: "ice", bg: "blobs", morph: "glass",
@@ -166,7 +172,7 @@
       id: "custom", accent: "aurora", bg: "soft", morph: "glass",
       knobs: { surface: 62, border: 10, blur: 18, radius: 22, shadow: 100, motion: 100 },
       swatch: ["#06070b", "#161a26", "#3ee0c4"],
-      candles: { dark: ["#66ffe5", "#299986"], light: ["#005748", "#28a48f"] },
+      candles: { dark: ["#26d07c", "#f4475b"], light: ["#0f9d58", "#d93025"] },
     },
   ];
 
