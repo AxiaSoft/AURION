@@ -143,7 +143,7 @@ check("on a desktop it stays in the rail, untouched", () => {
   const nav = $("set-jump");
   ok(stage.contains(nav), "the rail was portaled out of the page on a desktop");
   ok(!nav.classList.contains("is-sheet"), "the desktop rail is wearing the sheet's rules");
-  ok(!doc.body.classList.contains("has-set-bar"), "the desktop reserves room for a bar it does not show");
+
   ok(nav.closest(".set-desk"), "the rail left its grid");
   ok(!nav.classList.contains("is-sheet"), "the rail carries the sheet marker");
 });
@@ -239,7 +239,11 @@ check("leaving settings takes the sheet with it", () => {
   const { doc, T } = boot(true);
   T.sweepSetSheet();
   eq(doc.querySelectorAll("[data-sheet-portal]").length, 0, "something was left on screen");
-  ok(!doc.body.classList.contains("has-set-bar"), "toasts still dodge a bar that is gone");
+  /* The bar used to lift the toasts off the bottom edge through a
+     body class. Notifications are at the top of the window now, so
+     that class has no job left and no longer exists. */
+  ok(!/has-set-bar/.test(fs.readFileSync(path.join(WEB, "js/app.js"), "utf8")),
+     "the toast dodge is back");
 });
 
 check("re-rendering settings in place does not leave two of everything", () => {

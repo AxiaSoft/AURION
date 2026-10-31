@@ -796,12 +796,17 @@ if (!jsdom) {
         throw new Error("the sections run underneath the floating bar");
       }
       /* Toasts land on the same edge. */
-      if (!/body\.has-set-bar\.toast-wrap\{inset-block-end:/.test(tight)) {
-        throw new Error("a toast would appear on top of the bar");
+      /* Inverted. The bar used to push the toasts up off the bottom
+         edge; notifications live at the top centre of the window now,
+         so there is nothing down here for the bar to collide with and
+         the dodge - and the body class that drove it - are gone. */
+      if (/has-set-bar/.test(appCss)) {
+        throw new Error("the toasts still dodge a bar they can no longer reach");
       }
-      /* And the bar steps aside rather than sitting behind the sheet. */
-      if (!/html\.set-sheet-open\.sj-bar\{opacity:0/.test(tight)) {
-        throw new Error("the bar stays put under the open sheet");
+      /* `tight` is the mobile rung only; the toasts are placed once,
+         at base scope, for both sizes. */
+      if (!/\.toast-wrap\{[^}]*inset-block-start:/.test(appCss.replace(/\s+/g, ""))) {
+        throw new Error("the toasts are not anchored to the top edge");
       }
     });
 

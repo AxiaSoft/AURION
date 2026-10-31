@@ -956,7 +956,7 @@ html[dir="rtl"] .top-actions{justify-content:flex-start}
 @keyframes leave{from{opacity:1;transform:none}to{opacity:0;transform:translateY(-6px)}}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.45}}
 @keyframes floaty{0%,100%{transform:translateY(0)}50%{transform:translateY(-4px)}}
-@keyframes toastIn{from{opacity:0;transform:translateY(10px) scale(.96)}to{opacity:1;transform:none}}
+@keyframes toastIn{from{opacity:0;transform:translateY(-14px) scale(.96)}to{opacity:1;transform:none}}
 
 .grid{display:grid;gap:14px;min-width:0}
 .g-4{grid-template-columns:repeat(4,minmax(0,1fr))}
@@ -1102,12 +1102,33 @@ tr:hover td{background:rgb(var(--wash) / .02)}
 }
 .gauge b{position:relative;z-index:1;font-size:22px}
 
+/* Notifications arrive at the top centre, the way the operating system
+ * puts them there - on a desk and on a phone alike.
+ *
+ * Two things this needs that a bottom-right corner did not:
+ *
+ *   - the strip is the full width of the window so the banner can be
+ *     centred in it, which would put an invisible fixed bar across the
+ *     header and swallow every click on it. The strip is
+ *     pointer-events:none and only the banners themselves take input.
+ *   - it sits above the whole application without a large z-index.
+ *     #toasts is a child of <body> and #app is `position:relative;
+ *     z-index:1`, so the strip is ranked against that 1 rather than
+ *     against the header's 90 or the drawer's 210. 50 is already over
+ *     everything inside the app.
+ */
 .toast-wrap{
-  position:fixed;inset-block-end:20px;inset-inline-end:20px;
-  display:grid;gap:8px;z-index:50;max-width:min(360px, calc(100vw - 32px));
+  position:fixed;z-index:50;
+  inset-block-start:calc(var(--safe-t) + 12px);
+  inset-inline:0;
+  display:grid;gap:8px;justify-items:center;
+  padding-inline:12px;
+  pointer-events:none;
 }
 .toast{
   position:relative;
+  pointer-events:auto;
+  inline-size:min(420px, 100%);
   background:var(--glass2);border:1px solid var(--line);border-radius:14px;
   padding-block:10px;padding-inline:14px 38px;box-shadow:var(--shadow);backdrop-filter:blur(16px);
   animation:toastIn .35s var(--ease-out);
@@ -1267,7 +1288,6 @@ tr:hover td{background:rgb(var(--wash) / .02)}
   .top-actions .btn#btn-kill{font-size:11px;padding:8px 10px}
   .lang-pills button{font-size:12px}
   .auth-brand .lede{display:none}
-  .toast-wrap{inset-inline:12px;inset-block-end:12px;max-width:none}
 }
 
 /* Command desk — one strip, then two columns */
@@ -2589,7 +2609,9 @@ html[dir="rtl"] .sj-grp{letter-spacing:0;text-transform:none;font-size:11px}
   /* Nothing may end up underneath it: 44px of pill, 10px of gap at each
      end, plus the home indicator. */
   .set-main{padding-block-end:calc(74px + env(safe-area-inset-bottom))}
-  body.has-set-bar .toast-wrap{inset-block-end:calc(74px + env(safe-area-inset-bottom))}
+  /* The bar used to push the toasts up as well. Notifications are at
+     the top of the window now, so there is nothing left down here for
+     it to collide with. */
 
   /* ---- the scrim and the sheet ----
      z-index 150/151: over the mobile header at 90, under the navigation

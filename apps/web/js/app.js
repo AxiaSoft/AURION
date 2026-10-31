@@ -8212,7 +8212,7 @@ function sweepSetSheet() {
   document.querySelectorAll("[data-sheet-portal]").forEach((n) => {
     if (n.parentElement === document.body || n.parentElement === document.getElementById("desk")) n.remove();
   });
-  try { document.body.classList.remove("has-set-bar"); } catch {}
+
 }
 function portalSetSheet() {
   if (!setSheetOn()) return;
@@ -8231,7 +8231,7 @@ function portalSetSheet() {
   const nav = document.getElementById("set-jump");
   if (nav) nav.classList.add("is-sheet");
   /* Toasts stack on the bottom edge too, which is now the bar's. */
-  try { document.body.classList.add("has-set-bar"); } catch {}
+
 }
 function setSheetOn() {
   try { return Boolean(window.matchMedia && window.matchMedia(SET_SHEET_MQ).matches); } catch { return false; }
