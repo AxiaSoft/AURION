@@ -1389,9 +1389,12 @@ html[data-motion="off"] #bg-fx b{ opacity:.55 }
    layout pass. */
 
 /* Page and panel entrances, retimed to the theme. */
-html[data-skin] .stage.is-entering{ animation:rise calc(var(--dur-3) * 1.1) var(--ease-2) }
-html[data-skin] .stage.is-leaving{ animation:leave var(--dur-1) var(--ease-1) both }
-html[data-skin] .stage .card{ animation:rise calc(var(--dur-3) * 1.3) var(--ease-2) both }
+/* riseIn/leaveOut, not rise/leave: a running opacity animation kills
+   backdrop-filter on the pane and on everything inside it for as long
+   as it runs. These are the themed timings of the same movement. */
+html[data-skin] .stage.is-entering{ animation:riseIn calc(var(--dur-3) * 1.1) var(--ease-2) }
+html[data-skin] .stage.is-leaving{ animation:leaveOut var(--dur-1) var(--ease-1) both }
+html[data-skin] .stage .card{ animation:riseIn calc(var(--dur-3) * 1.3) var(--ease-2) both }
 
 /* The rail's selected marker slides between destinations instead of blinking
    on under the new one. */

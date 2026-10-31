@@ -275,7 +275,7 @@ html[dir="rtl"] .auth-brand h1{letter-spacing:.04em}
   box-shadow:var(--shadow);
   backdrop-filter:blur(calc(var(--blur, 18px) * 28 / 18)) saturate(140%);
   -webkit-backdrop-filter:blur(calc(var(--blur, 18px) * 28 / 18)) saturate(140%);
-  animation:rise .7s var(--ease-out) .08s both;
+  animation:riseIn .7s var(--ease-out) .08s both;  /* riseIn: this pane is glass */
   text-align:start;
 }
 .hero{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(280px,.85fr);gap:18px;align-items:stretch}
@@ -283,7 +283,7 @@ html[dir="rtl"] .auth-brand h1{letter-spacing:.04em}
 .hero-copy h3{margin:0 0 12px;font-size:clamp(26px,4vw,40px);font-weight:500;line-height:1.25}
 .hero-copy > p{margin:0 0 18px;color:var(--muted);max-width:52ch;font-size:15px}
 .hero-chips{display:flex;flex-wrap:wrap;gap:8px}
-.glass-rise{animation:rise .65s var(--ease-out) .1s both}
+.glass-rise{animation:riseIn .65s var(--ease-out) .1s both}
 .brand-row{display:flex;align-items:center;gap:14px;margin-bottom:22px}
 .brand-row img{width:52px;height:52px;border-radius:14px;flex:none}
 .brand-row h1{margin:0;font-size:clamp(22px,4vw,28px);letter-spacing:.18em;font-weight:600}
@@ -941,9 +941,24 @@ html[dir="rtl"] .top-actions{justify-content:flex-start}
   padding:18px 20px max(28px, var(--safe-b));
   -webkit-overflow-scrolling:touch;
 }
-.stage.is-leaving{animation:leave .16s var(--ease) both}
-.stage.is-entering{animation:rise .45s var(--ease-out)}
-.stage .card{animation:rise .55s var(--ease-out) both}
+/* Page and panel entrances MOVE, they do not fade - and that is not a
+   style preference, it is what backdrop-filter requires.
+
+   Measured in Chrome: while an opacity animation is RUNNING on a glass
+   pane or on any ancestor of one, the blur samples nothing and the pane
+   renders flat. Not while opacity is below 1 - for the whole animation,
+   even once it has reached 1, because the element stays promoted to its
+   own backdrop root until the animation ends. The same test with a
+   transform animation keeps the blur intact throughout.
+
+   So `rise` (opacity 0->1 plus a translate) on .stage and on every .card
+   meant that switching page showed flat, borderless panels for the
+   entrance - up to .26s of stagger on top of .55s - and then snapped
+   them to glass all at once when the last animation finished. That snap
+   was the bug. `riseIn` is the same movement with the fade removed. */
+.stage.is-leaving{animation:leaveOut .16s var(--ease) both}
+.stage.is-entering{animation:riseIn .45s var(--ease-out)}
+.stage .card{animation:riseIn .55s var(--ease-out) both}
 .stage .grid > .card:nth-child(1){animation-delay:.02s}
 .stage .grid > .card:nth-child(2){animation-delay:.06s}
 .stage .grid > .card:nth-child(3){animation-delay:.1s}
@@ -953,6 +968,9 @@ html[dir="rtl"] .top-actions{justify-content:flex-start}
 .stage .grid > .card:nth-child(n+7){animation-delay:.26s}
 
 @keyframes rise{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+/* Glass-safe variants: transform only, no opacity. See .stage.is-entering. */
+@keyframes riseIn{from{transform:translateY(10px)}to{transform:none}}
+@keyframes leaveOut{from{transform:none}to{transform:translateY(-6px)}}
 @keyframes leave{from{opacity:1;transform:none}to{opacity:0;transform:translateY(-6px)}}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.45}}
 @keyframes floaty{0%,100%{transform:translateY(0)}50%{transform:translateY(-4px)}}
@@ -2506,7 +2524,9 @@ html[dir="rtl"] .sj-grp{letter-spacing:0;text-transform:none;font-size:11px}
   -webkit-backdrop-filter:blur(calc(var(--blur, 18px) * 18 / 18)) saturate(130%);
   animation:setIn .28s var(--ease-out) both;
 }
-@keyframes setIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+/* Transform only - the settings panes are glass too, and a running
+   opacity animation would flatten them for its whole .28s. */
+@keyframes setIn{from{transform:translateY(6px)}to{transform:none}}
 .set-main .set-title{
   font-size:19px;font-weight:500;margin:0 0 14px;padding-bottom:12px;
   border-bottom:1px solid var(--line);
