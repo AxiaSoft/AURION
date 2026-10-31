@@ -52,27 +52,26 @@
   try { sessionStorage.setItem("aurion.demo", "1"); } catch {}
   window.AURION_DEMO = true;
 
-  /* No brand clip in front of the demo.
+  /* The brand clip plays in the demo too.
 
-     boot() awaits playWelcome() before it reads the licence, so the desk
-     does not exist until the clip finishes. Measured on the published
-     build that was 13.2 seconds of video before the first pixel of the
-     product -- for a visitor who followed a "see the demo" link, which is
-     the one audience that came to look at the desk and not at a logo.
+     It used to be deleted here. The reasoning was that boot() awaits
+     playWelcome() before it reads the licence, so the desk does not
+     exist until the clip finishes, and a visitor who followed a "see
+     the demo" link waits (measured) 10.9 seconds of video before the
+     first pixel of the product.
 
-     Removed here rather than branched on in app.js, which must not know
-     this file exists (tests/demo-not-shipped.test.js enforces that, and
-     rightly: the demo is a shim at the transport boundary, not a mode the
-     application carries around). playWelcome() already returns at once
-     when there is no #welcome element, so deleting it IS the opt-out --
-     no new flag, no second code path to keep working.
+     That was the wrong call to make silently: the clip is the opening
+     of the product, the demo is what most people will ever see of it,
+     and a demo that quietly drops a piece of the real experience is
+     not showing the product. It is restored, and the cost is paid down
+     where it actually comes from instead - playWelcome() already
+     renders Skip on the first frame, and the licence call runs
+     alongside the clip rather than after it, so skipping lands on a
+     desk that is already loaded.
 
-     index.html parses #welcome at line 120 and this script at line 231, so
-     the element is always here by the time this runs. */
-  try {
-    const clip = document.getElementById("welcome");
-    if (clip) clip.remove();
-  } catch {}
+     Nothing here branches on the demo any more, which also keeps
+     app.js honest: it must not know this file exists
+     (tests/demo-not-shipped.test.js enforces that). */
 
   /* Signal marks default to off for a real trader, who opts in once and is
      remembered.  A visitor to the demo has no "once" -- they arrive, look at
@@ -99,7 +98,7 @@
   // <script>, an import() -- races the licence call that decides whether the
   // key gate appears.  Same-origin and parser-time, so none of the reasons
   // document.write is usually a mistake apply.
-  document.write('<script src="demo/fixtures.js?v=desk111"><\/script>');
+  document.write('<script src="demo/fixtures.js?v=desk182"><\/script>');
 
   /* ====================================================== sample market == */
 
@@ -323,8 +322,9 @@
    * shows a 95% win rate is a lie a trader spots in four seconds, and it
    * would make every honest number elsewhere in the desk look invented too.
    */
-  function simulate(symbol, timeframe, count) {
-    const key = `${symbol}|${timeframe}|${count}`;
+  function simulate(symbol, timeframe, count, strategyName) {
+    const rule = strategyName === "smart_money" ? "smart_money" : "ema_rsi";
+    const key = `${symbol}|${timeframe}|${count}|${rule}`;
     if (simCache.has(key)) return simCache.get(key);
 
     const bars = candles(symbol, timeframe, count);
@@ -433,23 +433,141 @@
         continue;
       }
 
-      const crossUp = fast[i - 1] <= slow[i - 1] && fast[i] > slow[i];
-      const crossDn = fast[i - 1] >= slow[i - 1] && fast[i] < slow[i];
       const a = atr[i];
       if (!a) continue;
 
       let side = null;
-      if (crossUp && rsi[i] > 50 && rsi[i] < 72) side = "buy";
-      else if (crossDn && rsi[i] < 50 && rsi[i] > 28) side = "sell";
-      if (!side) continue;
+      let entry = bar.close;
+      let risk = 0;
+      let rrTarget = 1.9;
+      let strategy = "ema_rsi";
+      let conf = 0.6;
+      let reasonText = "";
+      let extra = null;
+
+      if (rule === "smart_money") {
+        /* The engine's sequence, in the same order, because the order is
+           the idea: a pool of liquidity is taken, displacement follows the
+           other way, that move leaves a gap behind, and the entry is the
+           retrace into the gap -- not the displacement. The sequence plays
+           out across bars; sweep, displacement and retrace are three
+           different bars, not one.
+           See engine/aurion/strategy/builtin/smart_money.py.
+
+           Two constants differ from that file and it is worth saying why.
+           The engine wants 1.0 ATR of displacement over 3 bars and a
+           retrace into the discount half at 0.62 of the leg. Measured on
+           THIS demo's series, a 3-bar move of 1.0 ATR sits at the 99th
+           percentile (p50 -0.21, p90 0.52): the generated walk has no
+           volatility clustering, so a real market's "brisk" is this
+           series' once-a-year. At the engine's numbers the demo took 1
+           trade in 3000 bars and the results card was empty. Calibrated
+           to this series instead: 0.55 ATR is its p90, which is the same
+           STATEMENT -- "an unusually strong three-bar move" -- against a
+           different distribution, and the equilibrium is relaxed to 0.78.
+
+           It still trades far less than ema_rsi (about 10 trades per
+           3000 bars against 53), and that is not a defect to tune away:
+           the real strategy took 158 trades where the other three took
+           6081. A structural setup is rare. */
+        const SWING_K = 2, SETUP = 20, DISP = 3;
+        const MIN_DISP = 0.55, PAD = 0.35, EQ = 0.78, BUF = 0.25, MIN_RR = 1.5;
+
+        const swingHigh = (j) => {
+          for (let k = 1; k <= SWING_K; k++)
+            if (bars[j].high <= bars[j - k].high || bars[j].high <= bars[j + k].high) return false;
+          return true;
+        };
+        const swingLow = (j) => {
+          for (let k = 1; k <= SWING_K; k++)
+            if (bars[j].low >= bars[j - k].low || bars[j].low >= bars[j + k].low) return false;
+          return true;
+        };
+
+        let found = null;
+        for (let js = i - 2; js >= i - SETUP && !found; js--) {
+          if (js - SWING_K - 1 < warmup) break;
+          // 1. the pool that was taken: a swing run through and closed back inside
+          let swept = null;
+          for (let m = js - SWING_K - 1; m >= Math.max(warmup, js - SETUP); m--) {
+            if (swingHigh(m) && bars[js].high > bars[m].high && bars[js].close < bars[m].high) {
+              swept = { dir: -1, level: bars[m].high, extreme: bars[js].high }; break;
+            }
+            if (swingLow(m) && bars[js].low < bars[m].low && bars[js].close > bars[m].low) {
+              swept = { dir: 1, level: bars[m].low, extreme: bars[js].low }; break;
+            }
+          }
+          if (!swept) continue;
+
+          // 2. displacement away from the pool, in the bars after it
+          const jd = Math.min(js + DISP, i - 1);
+          const travel = (bars[jd].close - bars[js].close) * swept.dir;
+          if (travel < MIN_DISP * a) continue;
+
+          // 3. the imbalance that move left behind (a three-bar gap)
+          let zoneHi = null, zoneLo = null;
+          for (let j = jd; j > js + 1; j--) {
+            if (swept.dir === 1 && bars[j].low > bars[j - 2].high) { zoneLo = bars[j - 2].high; zoneHi = bars[j].low; break; }
+            if (swept.dir === -1 && bars[j].high < bars[j - 2].low) { zoneLo = bars[j].high; zoneHi = bars[j - 2].low; break; }
+          }
+          if (zoneHi === null) continue;
+
+          // the impulse itself, which is the leg the entry is priced against
+          let ih = -Infinity, il = Infinity;
+          for (let j = js; j <= jd; j++) { if (bars[j].high > ih) ih = bars[j].high; if (bars[j].low < il) il = bars[j].low; }
+          found = { swept, zoneHi, zoneLo, travel, ih, il };
+        }
+        if (!found) continue;
+
+        // 4. price has to come back to the zone -- this bar, after the move
+        const pad = a * PAD;
+        if (!(bar.low <= found.zoneHi + pad && bar.high >= found.zoneLo - pad)) continue;
+
+        // 5. and on the right side of the leg: longs in the discount half
+        const legLo = found.swept.dir === 1 ? found.swept.extreme : found.il;
+        const legHi = found.swept.dir === 1 ? found.ih : found.swept.extreme;
+        const span = legHi - legLo;
+        if (span <= 0) continue;
+        const pos = (bar.close - legLo) / span;
+        if (found.swept.dir === 1 && pos > EQ) continue;
+        if (found.swept.dir === -1 && pos < 1 - EQ) continue;
+
+        side = found.swept.dir === 1 ? "buy" : "sell";
+        entry = bar.close;
+        // The stop belongs behind the sweep's extreme: that price is what
+        // says the idea was wrong. sl_atr is only the floor.
+        const struct = Math.abs(entry - found.swept.extreme) + a * BUF;
+        risk = Math.max(struct, a * 1.3);
+        rrTarget = (a * 2.6) / risk;
+        if (rrTarget < MIN_RR) continue;
+        strategy = "smart_money";
+        conf = Math.min(0.94, 0.55 + Math.min(found.travel / a - MIN_DISP, 1) * 0.25);
+        reasonText = side === "buy"
+          ? `liquidity swept below ${round(found.swept.level, inst.digits)}, ${(found.travel / a).toFixed(1)}x ATR displacement up, retrace into the gap`
+          : `liquidity swept above ${round(found.swept.level, inst.digits)}, ${(found.travel / a).toFixed(1)}x ATR displacement down, retrace into the gap`;
+        extra = { sweep: round(found.swept.level, inst.digits), displacement: round(found.travel / a, 2),
+                  zone: [round(found.zoneLo, inst.digits), round(found.zoneHi, inst.digits)],
+                  leg_pos: round(pos, 2), bias: side === "buy" ? "bull" : "bear" };
+      } else {
+        const crossUp = fast[i - 1] <= slow[i - 1] && fast[i] > slow[i];
+        const crossDn = fast[i - 1] >= slow[i - 1] && fast[i] < slow[i];
+        if (crossUp && rsi[i] > 50 && rsi[i] < 72) side = "buy";
+        else if (crossDn && rsi[i] < 50 && rsi[i] > 28) side = "sell";
+        if (!side) continue;
+        entry = bar.close;
+        risk = a * 1.3;
+        rrTarget = 1.9;
+        strategy = Math.abs(rsi[i] - 50) > 12 ? "ema_rsi" : "price_action";
+        conf = Math.min(0.94, 0.52 + Math.abs(rsi[i] - 50) / 70);
+        reasonText = side === "buy"
+          ? `fast EMA crossed above slow with RSI ${Math.round(rsi[i])} - stop ${(risk / inst.step).toFixed(1)}x ATR below`
+          : `fast EMA crossed below slow with RSI ${Math.round(rsi[i])} - stop ${(risk / inst.step).toFixed(1)}x ATR above`;
+        extra = { rsi: Math.round(rsi[i]), atr: round(a, inst.digits), bias: side === "buy" ? "bull" : "bear" };
+      }
 
       const dir = side === "buy" ? 1 : -1;
-      const entry = bar.close;
-      const risk = a * 1.3;
       const sl = entry - dir * risk;
-      const tp = entry + dir * risk * 1.9;
-      const strategy = Math.abs(rsi[i] - 50) > 12 ? "ema_rsi" : "price_action";
-      const conf = Math.min(0.94, 0.52 + Math.abs(rsi[i] - 50) / 70);
+      const tp = entry + dir * risk * rrTarget;
 
       signals.push({
         index: i,
@@ -460,13 +578,11 @@
         entry: round(entry, inst.digits),
         sl: round(sl, inst.digits),
         tp: round(tp, inst.digits),
-        rr: 1.9,
+        rr: round(rrTarget, 2),
         confidence: round(conf, 2),
         strategy,
-        reason: side === "buy"
-          ? `fast EMA crossed above slow with RSI ${Math.round(rsi[i])} - stop ${(risk / inst.step).toFixed(1)}x ATR below`
-          : `fast EMA crossed below slow with RSI ${Math.round(rsi[i])} - stop ${(risk / inst.step).toFixed(1)}x ATR above`,
-        extra: { rsi: Math.round(rsi[i]), atr: round(a, inst.digits), bias: side === "buy" ? "bull" : "bear" },
+        reason: reasonText,
+        extra,
       });
 
       open = {
@@ -536,7 +652,7 @@
     // trades, and a results card reporting a profit factor off nine trades
     // is a statistic nobody should act on.  3000 bars is about a month and
     // settles the numbers down without pretending to be a decade.
-    const sim = simulate(symbol, timeframe, 3000);
+    const sim = simulate(symbol, timeframe, 3000, name);
     const trades = sim.trades;
     const m = metricsOf(trades);
     const start = 10000;

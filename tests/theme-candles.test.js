@@ -172,29 +172,65 @@ ok(T.BY_ID.custom.candles.dark.join() === T.BY_ID[def].candles.dark.join(),
 /* ------------------------------------------------------------- legibility */
 
 const MIN_ON_PANEL = 3.0;   /* WCAG 1.4.11, non-text contrast */
-const MIN_HUE_GAP = 60;     /* up and down must not read as the same colour */
-let worstPanel = { v: Infinity }, worstGap = { v: Infinity };
+const MIN_HUE_GAP = 60;     /* two chromatic colours must not read alike */
+const MIN_PAIR_K = 2.2;     /* ...and an achromatic pair separates by light */
+
+/* "Unmistakable" is the requirement; hue is only one way to achieve it.
+
+   Relief is a steel theme and Mono is a graphite one, and a green/red
+   pair on either is a sticker from another product. They now rise in
+   near-white and fall in grey, which is what the theme is made of -- and
+   a luminance split is, if anything, the more robust signal, because it
+   survives every form of colour blindness. A hue-gap rule applied to
+   those pairs measures nothing: the hue of #8a95a5 is noise.
+
+   So the rule is: a pair must be separated by hue OR by luminance.
+   Chroma here is absolute (max-min over 255), not HSV saturation, which
+   divides by the maximum channel and so calls the dark slate #1f2733
+   "39% saturated" when it is visually neutral. */
+const chroma = (c) => (Math.max(...c) - Math.min(...c)) / 255;
+const ACHROMATIC = 0.12;
+
+let worstPanel = { v: Infinity }, worstSep = { v: Infinity };
 for (const t of T.THEMES) {
   for (const cut of ["dark", "light"]) {
     const panel = PANEL[t.id + ":" + cut];
     if (!panel) { ok(false, `no panel colour known for ${t.id}/${cut}`); continue; }
     const up = hex2rgb(t.candles[cut][0]), dn = hex2rgb(t.candles[cut][1]);
-    const cu = contrast(up, panel), cd = contrast(dn, panel), g = hueGap(up, dn);
+    const cu = contrast(up, panel), cd = contrast(dn, panel);
     if (cu < worstPanel.v) worstPanel = { v: cu, who: `${t.id}/${cut} up` };
     if (cd < worstPanel.v) worstPanel = { v: cd, who: `${t.id}/${cut} down` };
-    if (g < worstGap.v) worstGap = { v: g, who: `${t.id}/${cut}` };
     if (cu < MIN_ON_PANEL || cd < MIN_ON_PANEL) {
       ok(false, `${t.id}/${cut} is hard to see on its own panel (up ${cu.toFixed(2)}, down ${cd.toFixed(2)})`);
     }
-    if (g < MIN_HUE_GAP) {
-      ok(false, `${t.id}/${cut} up and down are too close in hue (${g.toFixed(0)} deg)`);
+
+    const mono = chroma(up) < ACHROMATIC && chroma(dn) < ACHROMATIC;
+    if (mono) {
+      const k = contrast(up, dn);
+      if (k < worstSep.v) worstSep = { v: k, who: `${t.id}/${cut} (luminance)`, unit: ":1" };
+      if (k < MIN_PAIR_K) {
+        ok(false, `${t.id}/${cut} is an achromatic pair that does not separate by light (${k.toFixed(2)}:1)`);
+      }
+    } else {
+      const g = hueGap(up, dn);
+      if (g / 60 * 2.2 < worstSep.v) worstSep = { v: g / 60 * 2.2, who: `${t.id}/${cut} (hue ${g.toFixed(0)} deg)`, unit: "" };
+      if (g < MIN_HUE_GAP) {
+        ok(false, `${t.id}/${cut} up and down are too close in hue (${g.toFixed(0)} deg)`);
+      }
+      /* A chromatic pair must not ALSO be a luminance trap: two colours
+         60 degrees apart that render as the same grey are the pair a
+         colour-blind trader cannot read at all. */
+      const k = contrast(up, dn);
+      if (k < 1.25) {
+        ok(false, `${t.id}/${cut} differs only in hue -- identical in luminance (${k.toFixed(2)}:1)`);
+      }
     }
   }
 }
 ok(worstPanel.v >= MIN_ON_PANEL,
   `every candle clears ${MIN_ON_PANEL}:1 on its own chart panel (worst ${worstPanel.v.toFixed(2)} at ${worstPanel.who})`);
-ok(worstGap.v >= MIN_HUE_GAP,
-  `up and down stay ${MIN_HUE_GAP} deg apart everywhere (worst ${worstGap.v.toFixed(0)} deg at ${worstGap.who})`);
+ok(worstSep.v >= MIN_PAIR_K,
+  `up and down stay unmistakable in every theme (worst ${worstSep.who})`);
 
 /* The pairs have to be visibly different FROM EACH OTHER, not merely
    unequal.
@@ -221,7 +257,14 @@ for (const cut of ["dark", "light"]) {
     const need = FAMILY_WINDOW[which] * MIN_WINDOW_USE;
     // Measured on a circle, relative to the family's own mean, so the reds
     // straddling 0 degrees are not read as a 350-degree spread.
-    const hs = T.THEMES.filter((t) => t.id !== "custom").map((t) => hue(hex2rgb(t.candles[cut][slot])));
+    const hs = T.THEMES
+      .filter((t) => t.id !== "custom")
+      /* Achromatic themes contribute a hue the eye cannot see. Counting
+         it inflates the spread: with Relief and Mono included this read
+         127% of the window, which would let a genuinely monotonous
+         chromatic table hide behind two greys. */
+      .filter((t) => chroma(hex2rgb(t.candles[cut][slot])) >= ACHROMATIC)
+      .map((t) => hue(hex2rgb(t.candles[cut][slot])));
     const rad = hs.map((h) => (h * Math.PI) / 180);
     const mean = Math.atan2(
       rad.reduce((a, r) => a + Math.sin(r), 0) / rad.length,
@@ -246,8 +289,25 @@ for (const cut of ["dark", "light"]) {
 let swapped = [];
 for (const t of T.THEMES) {
   for (const cut of ["dark", "light"]) {
-    const up = hue(hex2rgb(t.candles[cut][0]));
-    const dn = hue(hex2rgb(t.candles[cut][1]));
+    const upc = hex2rgb(t.candles[cut][0]), dnc = hex2rgb(t.candles[cut][1]);
+    /* An achromatic theme has no green and no red to be on the wrong
+       side of; for those the direction cue is light, and it is checked
+       above. Asking for the hue of #8b8b91 gets an answer, which is the
+       trap: it is 240, and that means nothing. */
+    if (chroma(upc) < ACHROMATIC && chroma(dnc) < ACHROMATIC) {
+      /* The rising candle must still be the emphatic one. "Brighter" is
+         the wrong test: on a light panel the colour that asserts itself
+         is the dark one, which is why Relief rises near-white on the
+         dark cut and near-black on the light one. What holds in both is
+         that the rise stands further off the panel than the fall. */
+      const p2 = PANEL[t.id + ":" + cut];
+      if (p2 && contrast(upc, p2) <= contrast(dnc, p2)) {
+        swapped.push(`${t.id}/${cut} (achromatic, but the fall stands out more than the rise)`);
+      }
+      continue;
+    }
+    const up = hue(upc);
+    const dn = hue(dnc);
     const isGreen = up > 80 && up < 200;
     const isRed = dn < 30 || dn > 320;
     if (!isGreen || !isRed) swapped.push(`${t.id}/${cut} (up ${up.toFixed(0)}, down ${dn.toFixed(0)})`);

@@ -112,7 +112,7 @@
       id: "neu", accent: "steel", bg: "flat", morph: "neu",
       knobs: { surface: 100, border: 0, blur: 0, radius: 26, shadow: 130, motion: 90 },
       swatch: ["#1b1f27", "#252b36", "#94a3b8"],
-      candles: { dark: ["#7bc49a", "#cd6f6a"], light: ["#3d7d58", "#a34a43"] },
+      candles: { dark: ["#f4f7fb", "#8a95a5"], light: ["#1f2733", "#6b7889"] },
     },
     {
       id: "clay", accent: "orchid", bg: "flat", morph: "clay",
@@ -148,7 +148,7 @@
       id: "ocean", accent: "azure", bg: "waves", morph: "glass",
       knobs: { surface: 54, border: 14, blur: 24, radius: 22, shadow: 100, motion: 100 },
       swatch: ["#020e16", "#0c3c50", "#4cc9f0"],
-      candles: { dark: ["#1fe0d2", "#ff6a52"], light: ["#00897f", "#cc3a1e"] },
+      candles: { dark: ["#1fe0d2", "#ff6a52"], light: ["#00897f", "#a8341a"] },
     },
     {
       id: "sunset", accent: "sunset", bg: "dusk", morph: "glass",
@@ -160,7 +160,7 @@
       id: "mono", accent: "graphite", bg: "none", morph: "flat",
       knobs: { surface: 100, border: 18, blur: 0, radius: 4, shadow: 20, motion: 55 },
       swatch: ["#09090a", "#212123", "#d4d4d8"],
-      candles: { dark: ["#86b79b", "#b9767c"], light: ["#3f6f54", "#9c4a50"] },
+      candles: { dark: ["#f2f2f4", "#8b8b91"], light: ["#1b1b1e", "#74747a"] },
     },
     {
       id: "custom", accent: "aurora", bg: "soft", morph: "glass",

@@ -718,7 +718,7 @@ html[data-skin="neu"] .nav button.nav-tab:active{
 }
 /* Colour is not the only indicator: the pressed item also carries the
    accent on its label, so the state survives a greyscale screen. */
-html[data-skin="neu"] .nav button.nav-tab.on{ color:var(--accent-ink) }
+html[data-skin="neu"] .nav button.nav-tab.on{ color:var(--ink); font-weight:650 }
 
 /* The settings page. .set-jump was already here; the blocks it jumps to
    were not, so the rail was embossed and the panels beside it were still
@@ -744,7 +744,8 @@ html[data-skin="neu"] .set-jump button.on,
 html[data-skin="neu"] .sj-bar button.on{
   background:rgb(var(--s2));
   box-shadow:var(--neu-in);
-  color:var(--accent-ink);
+  color:var(--ink);
+  font-weight:650;
 }
 
 /* The candles, so the chart is made of the same material as the panel it
@@ -850,7 +851,8 @@ html[data-skin="clay"] .nav button.nav-tab.on,
 html[data-skin="clay"] .nav button.nav-tab:active{
   background:rgb(var(--s3));
   box-shadow:inset 0 4px 10px rgb(var(--shadow-rgb) / .34);
-  color:var(--accent-ink);
+  color:var(--ink);
+  font-weight:650;
 }
 html[data-skin="clay"] .nav button.nav-tab:hover{ transform:translateY(calc(var(--lift) * 1.5)) }
 
@@ -882,7 +884,8 @@ html[data-skin="clay"] .set-jump button.on,
 html[data-skin="clay"] .sj-bar button.on{
   background:rgb(var(--s3));
   box-shadow:inset 0 4px 10px rgb(var(--shadow-rgb) / .34);
-  color:var(--accent-ink);
+  color:var(--ink);
+  font-weight:650;
 }
 
 html[data-skin="clay"]{ --candle-style:velvet }
@@ -1519,6 +1522,33 @@ html[data-motion="off"] *::after{
    as permanent but is written later, by app.js at boot. The rules then
    matched nothing on the first paint and the desk came up black. Only
    attributes set by apply() may appear here. */
+/* ---- the mobile sheet, in the two solid families ----------------------
+   Relief and Velvet are not glass themes, and the settings sheet was the
+   one surface still behaving like one: it is parented to the body, so it
+   escapes the panel rules above and was picking up the shared frosting.
+   On a material desk a translucent sheet reads as an unfinished panel,
+   not as depth. Both get a solid surface and their own edge instead, and
+   the backdrop-filter is removed outright rather than set to zero so
+   there is no compositor layer left behind it. */
+@media (max-width: 900px){
+  html[data-skin="neu"] .set-jump.is-sheet,
+  html[data-skin="neu"] .sj-bar{
+    background:rgb(var(--s3));
+    backdrop-filter:none;
+    -webkit-backdrop-filter:none;
+    border:0;
+    box-shadow:0 -10px 26px rgb(var(--shadow-rgb) / .3), var(--neu-out-sm);
+  }
+  html[data-skin="clay"] .set-jump.is-sheet,
+  html[data-skin="clay"] .sj-bar{
+    background:rgb(var(--s2));
+    backdrop-filter:none;
+    -webkit-backdrop-filter:none;
+    border:0;
+    box-shadow:0 -12px 30px rgb(var(--shadow-rgb) / .28), var(--clay-out);
+  }
+}
+
 html[data-glass="off"][data-skin][data-bg][data-motion][data-perf],
 html[data-perf="fast"][data-skin][data-bg][data-motion][data-perf]{
   --surface-alpha:1;
