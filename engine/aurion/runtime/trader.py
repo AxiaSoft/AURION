@@ -17,8 +17,6 @@ from .stops import ladder_target, resolve_stop, resolve_stop_r
 from ..ai.engine import AIEngine
 from ..backtest.engine import Backtester
 from ..config import ROOT, load, merge, save
-from ..market.hub import MarketHub
-from ..market.mt5_provider import MT5Provider
 from ..mt5.bridge import MT5Bridge
 from ..prop.rules import PropEngine
 from ..strategy.base import StrategyContext
@@ -55,13 +53,6 @@ class Trader:
         self.bus = Bus()
         self.store = Store()
         self.bridge = MT5Bridge()
-        # Every price the engine serves goes out through the hub, with
-        # MetaTrader registered as the first provider. Today that is the
-        # only one, so routing resolves to the bridge exactly as the
-        # direct calls used to; the seam exists so an independent feed
-        # is a registration rather than a rewrite of every caller.
-        self.market = MarketHub()
-        self.market.register(MT5Provider(self.bridge))
         self.ai = AIEngine()
         self.prop = PropEngine()
         self.loader = StrategyLoader()

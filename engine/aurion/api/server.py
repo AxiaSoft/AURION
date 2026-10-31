@@ -143,33 +143,11 @@ async def ticks() -> dict[str, Any]:
 
 @app.get("/v1/candles")
 async def candles(symbol: str, timeframe: str = "M15", count: int = 800) -> dict[str, Any]:
-    # Routed through the market hub rather than reaching into the
-    # bridge's private _candles_for. The answer is identical while
-    # MetaTrader is the only provider - MT5Provider.covers keeps the
-    # old "EA attached, or bars still cached" rule verbatim - but the
-    # endpoint no longer knows what a terminal is.
-    provider = trader.market.provider_for(symbol)
-    if provider is None:
-        return {"ok": False, "error": "no market data source for that symbol",
-                "data": [], "count": 0, "synthetic": False}
-    bars = [c.to_dict() for c in await trader.market.history(symbol, timeframe, count)]
-    return {"ok": True, "data": bars, "count": len(bars), "synthetic": False,
-            "source": provider.name}
-
-
-@app.get("/v1/instruments")
-async def instruments() -> dict[str, Any]:
-    """What can be charted, independent of how it is being priced.
-
-    The desk currently derives its symbol list from EA chart agents,
-    which is why it has nothing to show when no terminal is attached.
-    This is the replacement: a merged list from every registered
-    provider, so the same endpoint keeps working when a feed is added
-    behind MetaTrader.
-    """
-    items = trader.market.instruments()
-    return {"ok": True, "data": [i.to_dict() for i in items], "count": len(items),
-            "sources": trader.market.status()["sources"]}
+    cached = trader.bridge._candles_for(symbol, timeframe)
+    if not trader._is_ea_symbol(symbol) and not cached:
+        return {"ok": False, "error": "no AurionBridge on that symbol", "data": [], "count": 0, "synthetic": False}
+    bars = await trader.bridge.pull_candles(symbol, timeframe, count)
+    return {"ok": True, "data": bars, "count": len(bars), "synthetic": False}
 
 
 @app.get("/v1/agents")
