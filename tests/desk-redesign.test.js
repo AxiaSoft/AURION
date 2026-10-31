@@ -861,7 +861,12 @@ if (!jsdom) {
         if (!fn.includes(ev)) throw new Error("the drag does not handle " + ev);
       }
       if (!/setPointerCapture/.test(fn)) throw new Error("the drag is lost the moment the finger leaves the handle");
-      if (!/offsetHeight \* 0\.25/.test(fn)) throw new Error("there is no distance threshold");
+      /* The threshold is "a quarter of the sheet", however the height
+         is spelled - reading it into a local to reuse it for the
+         release animation is the same rule, so match the intent. */
+      if (!/offsetHeight/.test(fn) || !/\*\s*0\.25/.test(fn)) {
+        throw new Error("there is no distance threshold proportional to the sheet height");
+      }
       if (!/flick/.test(fn)) throw new Error("a fast short flick does not close it");
       /* And the three other ways out. */
       if (!/scrim\.onclick/.test(fn)) throw new Error("tapping outside does not close it");

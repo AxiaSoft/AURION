@@ -2618,13 +2618,22 @@ html[dir="rtl"] .sj-grp{letter-spacing:0;text-transform:none;font-size:11px}
      drawer and its scrim at 210/200. Both are reachable now only because
      the sheet is parented into #desk - from <body> it was measured
      against #app's z-index of 1 and covered the side menu. */
+  /* Opening and closing are not the same gesture and are not timed the
+     same. Coming in, the sheet is the thing you asked for, so it takes
+     its time and decelerates into place; going out, it is already
+     answered, so it accelerates away and gets off the screen. Matching
+     the two makes the entry feel sluggish or the exit feel abrupt. */
   .sj-scrim{
     display:block;position:fixed;inset:0;z-index:150;
     background:rgb(0 0 0 / .5);opacity:0;pointer-events:none;
-    transition:opacity .24s var(--ease);
+    visibility:hidden;
+    transition:opacity 240ms cubic-bezier(.3,0,.8,.15), visibility 0s linear 240ms;
   }
   .sj-scrim[hidden]{display:none}
-  html.set-sheet-open .sj-scrim{opacity:1;pointer-events:auto}
+  html.set-sheet-open .sj-scrim{
+    opacity:1;pointer-events:auto;visibility:visible;
+    transition:opacity 320ms cubic-bezier(.22,1,.36,1), visibility 0s linear 0s;
+  }
 
   html .set-jump.is-sheet,
   html[data-skin] .set-jump.is-sheet{
@@ -2651,11 +2660,33 @@ html[dir="rtl"] .sj-grp{letter-spacing:0;text-transform:none;font-size:11px}
     backdrop-filter:blur(calc(var(--blur, 18px) * 18 / 18)) saturate(150%);
     -webkit-backdrop-filter:blur(calc(var(--blur, 18px) * 18 / 18)) saturate(150%);
     transform:translateY(102%);
-    transition:transform .3s cubic-bezier(.32,.72,0,1);
+    /* visibility carries a delay equal to the slide, or the close is not
+       an animation at all: without it the element turns invisible on the
+       first frame and the 300ms it spends travelling happens where
+       nobody can see it. Measured before this line existed - the sheet
+       read as "vanishes", because it did.
+
+       0s linear <delay> rather than a duration: visibility is discrete,
+       so this holds `visible` for the whole slide and flips once at the
+       end, which is exactly what is wanted. */
+    transition:transform 250ms cubic-bezier(.3,0,.8,.15),
+               visibility 0s linear 250ms;
     visibility:hidden;
+    /* The sheet is the only thing moving while it moves; promoting it
+       once keeps the first frame from being the expensive one. */
+    will-change:transform;
   }
   html.set-sheet-open .set-jump.is-sheet,
-  html[data-skin].set-sheet-open .set-jump.is-sheet{transform:translateY(0);visibility:visible}
+  html[data-skin].set-sheet-open .set-jump.is-sheet{
+    transform:translateY(0);
+    visibility:visible;
+    transition:transform 420ms cubic-bezier(.22,1,.36,1),
+               visibility 0s linear 0s;
+  }
+  /* While a finger owns it, nothing is eased: the sheet is pinned to the
+     pointer. The class is removed on release so the curves above take
+     the hand-off. */
+  .set-jump.is-sheet.is-dragging{transition:none}
 
   /* The handle, the title and the search hold still; only the list
      scrolls. This was two stacked position:sticky boxes with

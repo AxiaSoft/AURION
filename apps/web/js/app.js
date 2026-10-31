@@ -8275,6 +8275,15 @@ function setSheetOn() {
   try { return Boolean(window.matchMedia && window.matchMedia(SET_SHEET_MQ).matches); } catch { return false; }
 }
 let __setSheetReturn = null;
+/* The scrim is display:none while it is irrelevant, and that is the one
+   thing it must not be while it is fading out. Hiding it in the same
+   frame as the class comes off deletes the fade entirely - measured: the
+   scrim went from opaque to gone in 4ms. So the teardown waits for the
+   transition, and the wait is cancellable because reopening during it is
+   an ordinary thing to do. */
+const SET_SHEET_OUT_MS = 250;
+let __setSheetHide = 0;
+
 function closeSetSheet(focusBack) {
   const nav = $("set-jump");
   const btn = $("set-sheet-open");
@@ -8283,8 +8292,22 @@ function closeSetSheet(focusBack) {
      sheet is portaled out of the desk, so a class there can no longer
      reach it. */
   document.documentElement.classList.remove("set-sheet-open");
-  if (nav) { nav.style.transform = ""; nav.style.transition = ""; }
-  if (scrim) { scrim.hidden = true; scrim.style.opacity = ""; }
+  if (nav) {
+    nav.classList.remove("is-dragging");
+    nav.style.transform = "";
+    nav.style.transition = "";
+  }
+  if (scrim) {
+    scrim.style.opacity = "";
+    clearTimeout(__setSheetHide);
+    /* Reduced motion has no transition to wait for. */
+    let still = 0;
+    try { still = window.matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : SET_SHEET_OUT_MS; } catch { still = SET_SHEET_OUT_MS; }
+    if (!still) scrim.hidden = true;
+    else __setSheetHide = setTimeout(() => {
+      if (!setSheetIsOpen()) scrim.hidden = true;
+    }, still + 30);
+  }
   if (btn) btn.setAttribute("aria-expanded", "false");
   const back = focusBack === false ? null : (__setSheetReturn || btn);
   __setSheetReturn = null;
@@ -8296,7 +8319,16 @@ function openSetSheet() {
   const scrim = $("set-sheet-scrim");
   if (!nav) return;
   __setSheetReturn = btn || null;
-  if (scrim) scrim.hidden = false;
+  clearTimeout(__setSheetHide);
+  if (scrim) {
+    scrim.hidden = false;
+    /* A transition needs a frame at the starting value to run from.
+       Unhiding and adding the class in one frame gave the scrim no
+       opacity:0 to leave, so it snapped to full black - measured at
+       opacity 1 nine milliseconds in. Reading offsetWidth forces the
+       style to be committed first. */
+    void scrim.offsetWidth;
+  }
   document.documentElement.classList.add("set-sheet-open");
   if (btn) btn.setAttribute("aria-expanded", "true");
   /* Focus goes to the section you are on, not to the top of the list:
@@ -8349,27 +8381,55 @@ function bindSetSheet() {
      owns the animation again. */
   if (grab && typeof grab.setPointerCapture === "function") {
     let y0 = 0, t0 = 0, dy = 0, dragging = false;
+    let lastY = 0, lastT = 0, vel = 0;   /* px/ms, signed: + is downwards */
     const move = (e) => {
       if (!dragging) return;
-      dy = Math.max(0, e.clientY - y0);
-      nav.style.transition = "none";
-      nav.style.transform = "translateY(" + dy + "px)";
-      if (scrim) scrim.style.opacity = String(Math.max(0, 1 - dy / 260));
+      const raw = e.clientY - y0;
+      /* Downwards is the gesture. Upwards is not an error, so it is
+         answered with resistance rather than ignored outright - a sheet
+         that does not move at all under the finger reads as broken. */
+      dy = raw >= 0 ? raw : -Math.sqrt(-raw) * 2.2;
+      const now = e.timeStamp || Date.now();
+      const dt = now - lastT;
+      if (dt > 0) { vel = (e.clientY - lastY) / dt; lastY = e.clientY; lastT = now; }
+      nav.style.transform = "translateY(" + dy.toFixed(1) + "px)";
+      if (scrim) scrim.style.opacity = String(Math.max(0, 1 - Math.max(0, dy) / 260));
     };
     const end = (e) => {
       if (!dragging) return;
       dragging = false;
       try { grab.releasePointerCapture(e.pointerId); } catch {}
-      nav.style.transition = "";
+      nav.classList.remove("is-dragging");
+
+      const h = nav.offsetHeight || 1;
+      const ms = Date.now() - t0;
+      const flick = (ms < 260 && dy > 40) || vel > 0.5;
+      const closing = flick || dy > h * 0.25;
+
+      /* Hand the rest of the travel back to CSS at a speed that
+         continues the gesture instead of restarting it. A fast flick
+         finishes in little over a frame or two; letting go halfway
+         settles over the remaining distance. Without this the sheet
+         always took the full 250ms however hard it was thrown, which is
+         the moment a gesture stops feeling attached to the finger. */
+      const left = closing ? Math.max(0, h - dy) : Math.max(0, dy);
+      const speed = Math.max(Math.abs(vel), 0.8);        /* px/ms floor */
+      const dur = Math.round(Math.min(360, Math.max(120, left / speed)));
+      nav.style.transition = "transform " + dur + "ms cubic-bezier(.22,.61,.36,1)";
       nav.style.transform = "";
       if (scrim) scrim.style.opacity = "";
-      const ms = Date.now() - t0;
-      const flick = ms < 260 && dy > 40;
-      if (flick || dy > nav.offsetHeight * 0.25) closeSetSheet();
+      /* Let the inline curve own this one movement, then get out of the
+         way so the stylesheet is in charge again. */
+      setTimeout(() => { if (!dragging) nav.style.transition = ""; }, dur + 40);
+
+      if (closing) closeSetSheet();
     };
     grab.addEventListener("pointerdown", (e) => {
       if (!setSheetIsOpen()) return;
       dragging = true; y0 = e.clientY; t0 = Date.now(); dy = 0;
+      lastY = e.clientY; lastT = e.timeStamp || Date.now(); vel = 0;
+      nav.style.transition = "";
+      nav.classList.add("is-dragging");
       try { grab.setPointerCapture(e.pointerId); } catch {}
     });
     grab.addEventListener("pointermove", move);
