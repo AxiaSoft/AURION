@@ -35,6 +35,7 @@ const WEB = path.join(ROOT, "apps", "web");
 const read = (p) => fs.readFileSync(path.join(WEB, p), "utf8");
 
 const appCss = read("css/app.css");
+const skinsCss = read("css/skins.css");
 const appJs = read("js/app.js");
 const chartJs = read("js/chart-tools.js");
 const fa = JSON.parse(fs.readFileSync(path.join(ROOT, "lang", "fa.json"), "utf8"));
@@ -136,18 +137,28 @@ check("the trailing broker note cannot make a time field taller than a plain one
   return "row 4 reserved on every field";
 });
 
-check("the unit sits beside the number instead of wrapping under it", () => {
-  // .field input is width:100%, so inside a plain inline wrapper the
-  // <b> had nowhere to go but the next line.
-  const wrap = rule(appCss, ".num-wrap");
-  if (!wrap) throw new Error(".num-wrap has no rule at all");
-  if (!/display:\s*flex/.test(wrap)) throw new Error(".num-wrap is not a row: " + wrap);
-  const input = rule(appCss, ".num-wrap input");
-  if (!/flex:\s*1/.test(input || "")) throw new Error("the input does not take the free space");
-  const unit = rule(appCss, ".num-unit");
+check("the unit sits inside the box, at the end of the number, without wrapping", () => {
+  /* Retargeted, because this was testing a rule that never ran.
+     It asserted a flex row on a bare `.num-wrap` in app.css. That rule
+     existed, but `.num-field .num-wrap` in skins.css is (0,2,0) against
+     its (0,1,0) and skins.css is loaded second, so every desk has always
+     rendered the overlay instead: the wrapper is position:relative, the
+     input reserves room at its end, and the unit is absolutely placed in
+     that room. The flex rules have been deleted and this now checks the
+     layout that actually applies.
+     The seat itself - digits left, suffix right, in every language - is
+     covered in tests/number-fields.test.js. */
+  const wrap = rule(skinsCss, ".num-field .num-wrap");
+  if (!wrap) throw new Error(".num-field .num-wrap has no rule at all");
+  if (!/position:\s*relative/.test(wrap)) throw new Error("the wrapper is not a positioning context: " + wrap);
+  const input = rule(skinsCss, ".num-field .num-wrap input");
+  if (!/padding-right:\s*var\(--unit-gap/.test(input || "")) {
+    throw new Error("no room reserved for the suffix at the end of the value: " + input);
+  }
+  const unit = rule(skinsCss, ".num-field .num-unit");
+  if (!/position:\s*absolute/.test(unit || "")) throw new Error("the unit is not placed in that room");
   if (!/white-space:\s*nowrap/.test(unit || "")) throw new Error("the unit may still wrap");
-  if (!/flex:\s*none/.test(unit || "")) throw new Error("the unit is not held to its own width");
-  return "flex row, input flexes, unit nowrap";
+  return "overlay suffix, room reserved, nowrap";
 });
 
 check("the field no longer carries the bottom margin the grid already spaces", () => {

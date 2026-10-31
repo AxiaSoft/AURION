@@ -460,13 +460,27 @@ table tbody tr,
 }
 .num-field .num-wrap input{
   width:100%;
-  /* Room for the suffix. Long units ("hour, UTC (0-23)") get their own line
-     under the input on narrow screens rather than colliding with the value. */
-  padding-inline-end:var(--unit-gap, 96px);
+  /* Room for the suffix, reserved on the PHYSICAL right.
+
+     This was padding-inline-end, which is the right instinct for almost
+     everything on the desk and exactly wrong here. The suffix is pinned
+     to the right-hand end of the box in every language, because the
+     value it belongs to is laid out left-to-right in every language
+     (see "Where the digits sit" in app.css). An inline-end gap flips to
+     the LEFT on a Persian or Arabic desk: the room was reserved on the
+     side with nothing in it, the digits were pushed off the left edge
+     towards the middle of the box, and they ran into the unit text
+     sitting at the other end. */
+  padding-right:var(--unit-gap, 96px);
 }
 .num-field .num-unit{
   position:absolute;
-  inset-inline-end:12px;
+  /* Physical, and for the same reason as the padding above: the suffix
+     belongs at the right-hand end of the value, not at the end of the
+     page's reading direction. Only the box is pinned - the text inside
+     it still renders in the page's own direction, so a multi-word
+     Persian unit reads correctly where it stands. */
+  right:12px;
   top:50%;
   transform:translateY(-50%);
   font-size:11px;
@@ -490,9 +504,19 @@ table tbody tr,
 .num-field input[type=number]::-webkit-inner-spin-button{ -webkit-appearance:none; margin:0 }
 .num-field input[type=number]{ -moz-appearance:textfield; appearance:textfield }
 
+/* On a narrow screen the suffix stays where it is and the gap shrinks.
+
+   It used to drop to the bottom-left corner of the box, with the input
+   given padding-bottom:22px to make room - which left every numeric
+   field on a phone 22px taller than every other control, with its value
+   sitting up against the top edge rather than on the centre line. It
+   also put the unit on the opposite side from the one it occupies on a
+   desktop, so the same field had two different shapes. One layout at
+   every width: the unit is already capped at 60% with an ellipsis, so a
+   long one shortens instead of wrapping. */
 @media (max-width:720px){
-  .num-field .num-wrap input{ padding-inline-end:12px; padding-bottom:22px }
-  .num-field .num-unit{ top:auto; bottom:6px; transform:none; inset-inline-start:12px; inset-inline-end:auto }
+  .num-field .num-wrap input{ --unit-gap:72px }
+  .num-field.wide-unit .num-wrap input{ --unit-gap:104px }
 }
 
 /* --- the symbol picker --------------------------------------------------
@@ -668,7 +692,7 @@ html[data-theme="light"] .sym-panel{ box-shadow:0 24px 60px rgba(20,28,45,.28) }
    Two collisions in the settings pages, both from a fixed-width element
    sitting beside text that can grow: a long unit suffix over a long number,
    and the confidence percentage over its own label. */
-.num-field .num-wrap input{ padding-inline-end:var(--unit-gap, 92px) }
+.num-field .num-wrap input{ padding-right:var(--unit-gap, 92px) }
 /* Long units - "hour, UTC (0-23)", "HH:MM, broker time" - need more room than
    "lots" does, so the field says how much rather than every field paying for
    the longest one. */

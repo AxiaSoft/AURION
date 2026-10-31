@@ -4342,15 +4342,18 @@ html[dir="rtl"] .ai-h{letter-spacing:0;text-transform:none}
 .pr-grid .field > .prop-at-broker{ grid-row:4; margin:0 }
 .pr-grid .field::after{ content:""; grid-row:4; min-block-size:1.05em }
 
-/* The unit belongs beside the number, not wrapped underneath it. The
-   input is width:100%, so without a flex row here the <b> was pushed
-   onto a line of its own and made the field taller than its neighbours. */
-.num-wrap{ display:flex; align-items:center; gap:8px; min-width:0 }
-.num-wrap input{ flex:1 1 auto; min-width:0 }
-.num-unit{
-  flex:none; font-size:11px; font-weight:600; color:var(--muted);
-  white-space:nowrap; letter-spacing:.02em;
-}
+/* The unit suffix sits INSIDE the box, at its right-hand end, and the
+   rules that put it there live in skins.css under `.num-field .num-wrap`.
+
+   There used to be a second, conflicting layout here: a flex row that
+   made the unit a sibling box beside the input rather than an overlay
+   inside it. It never took effect - `.num-field .num-wrap` outweighs a
+   bare `.num-wrap` and skins.css is loaded second - so the file read as
+   though the component were a flex row while every desk rendered it as
+   an overlay. Two descriptions of one component is one too many; the
+   dead one is gone and the overlay is the only owner. Anything
+   structural added here must beat (0,2,0) or it will be ignored in the
+   same silent way. */
 .num-field.wide-unit .num-unit{ font-size:10.5px }
 /* The "0 = off" hint reads as an aside, not as part of the name. */
 .unit-note{
@@ -4380,26 +4383,74 @@ html[dir="rtl"] .ai-h{letter-spacing:0;text-transform:none}
 .prop-fields .field input[type="number"],
 .prop-fields .field input[type="text"],
 .prop-fields .field input[type="time"],
-.prop-fields .field select{
+.prop-fields .field select,
+.num-field .num-wrap input{
   block-size:var(--ctl-h);
   min-block-size:var(--ctl-h);
   line-height:calc(var(--ctl-h) - 2px);
   padding-block:0;
-  text-align:start;
+}
+
+/* ------------------------------------------------------------------
+   Where the digits sit
+
+   One seat for every numeric box on the desk, and it is a PHYSICAL
+   seat: the value at the left-hand end, the unit at the right-hand
+   end, in English and in Persian and in Arabic alike. A quantity
+   reads left to right in every language the desk speaks - 2.5 is 2.5
+   in all three - so the box does not follow the page.
+
+   Three separate things put the number in the wrong place before,
+   and each one reads as correct in the source, which is why this is
+   written out rather than left to be re-derived:
+
+     1. `direction:ltr` paired with `text-align:end`. Inside an
+        element already forced to LTR, `end` means RIGHT. The pair was
+        meant to say "LTR digits, seated at the start"; what it did
+        was park every prop number hard against the right edge of its
+        box on a Persian desk.
+
+     2. `unicode-bidi:plaintext`, inherited from the base input rule
+        at the top of this file. It resolves a box's direction from
+        its first strong character, so an all-digit box seated itself
+        one way and the same box with a letter in it seated itself the
+        other. The alignment depended on the value - which is the
+        "sometimes right, sometimes not" of the report. It is correct
+        for a free-text field and wrong for a quantity, so it is
+        turned off here and nowhere else.
+
+     3. logical padding reserving room for the suffix.
+        `padding-inline-end` flips to the LEFT on an RTL page, so the
+        gap opened on the side the digits were not on: the number was
+        pushed off the left edge into the middle of the box and into
+        the unit text. Fixed in skins.css, which owns that padding.
+
+   Scope note: this used to apply only under `.prop-fields`, so the
+   nine numeric boxes elsewhere in settings - the robot's trade
+   counts and volume, the money cap, the MT5 login, the update
+   interval, the three on the execution ticket - were seated by the
+   base rule alone and matched neither each other nor the prop tiles.
+   It is keyed on the input type now, so a numeric box is seated the
+   same way wherever it is added.
+   ------------------------------------------------------------------ */
+input[type="number"],
+input[type="time"],
+.num-field .num-wrap input{
+  direction:ltr;
+  text-align:left;
+  unicode-bidi:normal;
   font-variant-numeric:tabular-nums;
 }
-/* A quantity reads left to right in every language the desk speaks, so
-   the digits are laid out LTR - but the box they sit in follows the
-   page, which is why they hug the far edge on a Persian desk unless
-   they are told otherwise. Direction and alignment are set separately
-   for exactly that reason: correct digit order, consistent seat. */
-.prop-fields .field input[type="number"],
-.prop-fields .field input[type="time"]{ direction:ltr }
-html[dir="rtl"] .prop-fields .field input[type="number"],
-html[dir="rtl"] .prop-fields .field input[type="time"]{ text-align:end }
-.prop-fields input[type="number"]{ -moz-appearance:textfield; appearance:textfield }
-.prop-fields input[type="number"]::-webkit-outer-spin-button,
-.prop-fields input[type="number"]::-webkit-inner-spin-button{
+
+/* Spinners off, everywhere rather than on one page. They are a poor
+   control for a risk limit - 0.1% and 1% of an account are not one
+   click apart - they are the easiest thing on the page to catch by
+   accident while scrolling it, and because the browser reserves room
+   for them on some fields and not others they are a second way for a
+   column of numbers to end up ragged. */
+input[type="number"]{ -moz-appearance:textfield; appearance:textfield }
+input[type="number"]::-webkit-outer-spin-button,
+input[type="number"]::-webkit-inner-spin-button{
   -webkit-appearance:none; appearance:none; margin:0;
 }
 

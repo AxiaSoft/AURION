@@ -476,30 +476,54 @@ check("every value sits at the same height, by height and not by floor", () => {
 });
 
 check("every value sits at the same side", () => {
-  const body = rule(appCss, '.prop-fields .field input[type="number"]');
-  if (!/text-align:start/.test(body)) throw new Error("no shared alignment");
-  if (!/direction:ltr/.test(appCss.slice(appCss.indexOf(".prop-fields .field input[type=\"number\"],\n.prop-fields .field input[type=\"time\"]")))) {
-    throw new Error("the digits are not laid out left to right");
+  /* INVERTED, because the rule this used to require is the one that put
+     the number in the wrong place.
+
+     It demanded `text-align:start` plus an `html[dir="rtl"]` override
+     that re-seated the value with `text-align:end`. Inside an element
+     already forced to `direction:ltr`, `end` means RIGHT - so on a
+     Persian desk every prop number sat hard against the right-hand edge,
+     which is the opposite of what the assertion's own name claims. The
+     seat is physical now and there is no RTL branch to contradict it:
+     digits left, suffix right, the same box in all three languages.
+     Resolved against the live cascade in tests/number-fields.test.js. */
+  /* Anchored on the block's banner, not via rule(): rule() takes the
+     FIRST selector containing the string, and `input[type="number"]`
+     also appears inside `.prop-fields .field input[type="number"]`
+     further up, which is the height rule and says nothing about sides. */
+  const seat = appCss.slice(appCss.indexOf("Where the digits sit"));
+  const body = seat.slice(0, seat.indexOf("}") + 1);
+  if (!/text-align:left/.test(body || "")) throw new Error("no shared physical alignment: " + body);
+  if (!/direction:ltr/.test(body || "")) throw new Error("the digits are not laid out left to right");
+  if (!/unicode-bidi:normal/.test(body || "")) {
+    throw new Error("plaintext bidi still lets the value decide its own seat");
   }
-  if (!appCss.includes('html[dir="rtl"] .prop-fields .field input[type="number"]')) {
-    throw new Error("nothing re-seats the value on an RTL desk, which is where it was reported");
+  if (/html\[dir="rtl"\][^{]*input\[type="number"\]/.test(appCss.replace(/\/\*[\s\S]*?\*\//g, ""))) {
+    throw new Error("an RTL override is back, and it will flip the seat again");
   }
-  return "ltr digits, page-start seat";
+  return "ltr digits, physical left seat, no RTL branch";
 });
 
 check("a column of numbers lines up digit for digit", () => {
-  const body = rule(appCss, '.prop-fields .field input[type="number"]');
-  if (!/font-variant-numeric:tabular-nums/.test(body)) {
+  // Retargeted: tabular figures moved from the prop-only height rule onto
+  // the shared seat, so every numeric box on the desk gets them and not
+  // just the seventeen on this page.
+  const seat = appCss.slice(appCss.indexOf("Where the digits sit"));
+  const body = seat.slice(0, seat.indexOf("}") + 1);
+  if (!/font-variant-numeric:tabular-nums/.test(body || "")) {
     throw new Error("proportional figures make a ragged column out of an aligned one");
   }
   return "tabular-nums";
 });
 
 check("the spinner arrows are gone from the risk limits", () => {
-  if (!/\.prop-fields input\[type="number"\]::-webkit-inner-spin-button/.test(appCss)) {
+  // Retargeted: the spinners are suppressed desk-wide now rather than on
+  // this one page, because uneven spinner space was itself a way for a
+  // column of numbers to sit ragged.
+  if (!/^input\[type="number"\]::-webkit-inner-spin-button/m.test(appCss)) {
     throw new Error("the webkit spinners survive, and they eat inline-end space unevenly");
   }
-  if (!/\.prop-fields input\[type="number"\]\{[^}]*appearance:textfield/.test(appCss)) {
+  if (!/^input\[type="number"\]\{[^}]*appearance:textfield/m.test(appCss)) {
     throw new Error("no appearance:textfield, so Firefox keeps its spinner");
   }
   return "both engines";
