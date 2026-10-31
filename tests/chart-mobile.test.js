@@ -140,8 +140,19 @@ console.log("the side panel where it floats over the chart\n");
 
 console.log("\nthe side panel on first open");
 {
-  check("the dock's default is decided by viewport, not hard-coded open",
-    /read\(LS_DOCK,\s*narrow\(\)\s*\?\s*"0"\s*:\s*"1"\)/.test(tools));
+  /* Retargeted, and deliberately made stricter.
+     This used to accept `read(LS_DOCK, narrow() ? "0" : "1")` - a default
+     decided by viewport. That is not enough, because the stored value is
+     one preference shared by every width: a trader who opened the dock at
+     a desk arrived on a phone to find a 300px panel sitting on top of the
+     chart from the first frame, which reads as "half the chart is
+     missing". Where the dock is an overlay it does not get to remember
+     being open at all; the stored state applies again as soon as there is
+     room for it to be a column. */
+  check("the dock cannot open over the chart on a narrow screen",
+    /ui\.dockOpen = narrow\(\) \? false : read\(LS_DOCK, "1"\) === "1";/.test(tools));
+  check("...and the stored preference still applies where it is a column",
+    /read\(LS_DOCK, "1"\)/.test(tools));
   check("...and 'narrow' is the same 980px breakpoint the stylesheet floats it at",
     /matchMedia\(\s*"\(max-width:\s*980px\)"\s*\)/.test(tools) &&
     /@media \(max-width: 1000px\)/.test(rawCss));

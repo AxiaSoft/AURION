@@ -124,6 +124,59 @@ function sessionOpensBetween(prev, next) {
 }
 
 
+/**
+ * Which sessions close between one bar and the next.
+ *
+ * The mirror of sessionOpensBetween, and it has to exist separately rather
+ * than being inferred from "the band ended here": the band is painted per
+ * bar, so the last tinted candle is the last bar INSIDE the session, which
+ * is not the same thing as the bar the session closed on. London closing at
+ * 16:00 belongs on the 16:00 candle, not on the 15:45 one.
+ */
+function sessionClosesBetween(prev, next) {
+  if (!(prev instanceof Date) || !(next instanceof Date)) return [];
+  if (isNaN(prev.getTime()) || isNaN(next.getTime())) return [];
+  const gapHours = (next.getTime() - prev.getTime()) / 3600000;
+  if (gapHours <= 0) return [];
+  // Same rule as the open: a weekend gap closed every session, and marking
+  // four closes on the Monday candle is noise rather than information.
+  if (gapHours >= 24) return [];
+
+  return MARKET_SESSIONS.filter((s) => {
+    const was = sessionCovers(s, prev.getUTCHours() + prev.getUTCMinutes() / 60);
+    const now = sessionCovers(s, next.getUTCHours() + next.getUTCMinutes() / 60);
+    if (was && !now) return true;
+    // On a coarse timeframe a whole session can open and close between two
+    // candles, so the transition has to be looked for hour by hour.
+    if (gapHours > 1) {
+      for (let h = 1; h < gapHours; h++) {
+        const at = new Date(prev.getTime() + h * 3600000);
+        const before = new Date(at.getTime() - 3600000);
+        if (sessionCovers(s, before.getUTCHours()) && !sessionCovers(s, at.getUTCHours())) return true;
+      }
+    }
+    return false;
+  });
+}
+
+
+/**
+ * The centre's name in the trader's language.
+ *
+ * The table keeps the English name because it is also the fallback: a desk
+ * running a language pack that has not been updated yet shows "London"
+ * rather than a raw key.
+ */
+function sessionLabel(s) {
+  if (!s) return "";
+  try {
+    const key = "chart.session." + s.id;
+    const v = (typeof I18N !== "undefined" && I18N && I18N.t) ? I18N.t(key) : key;
+    return (!v || v === key) ? s.label : v;
+  } catch (e) { return s.label; }
+}
+
+
 /* ===========================================================================
    The chart engine
    ===========================================================================
@@ -910,40 +963,74 @@ class CandleChart {
       }
     }
 
-    // The open itself, on the candle where it happens. The band says a session
-    // is running; this says exactly when it started, which is the bar traders
-    // actually mark up.
+    /* The open and the close, each on the candle where it actually happens.
+       The band says a session is running. These two say where it started and
+       where it ended, which is the thing a trader marks up - a tint alone
+       cannot be read off to a precise bar.
+
+       Open and close must be told apart without reading the text, so they
+       differ in three ways at once and never in colour alone: the open sits
+       at the BOTTOM with a filled chip and a long dash, the close sits at the
+       TOP with an outlined chip and a fine dash. Colour still says which
+       centre it is; position and weight say which end of the session. */
     ctx.font = "10px IBM Plex Mono, Vazirmatn, monospace";
-    for (let i = 1; i < rows.length; i++) {
-      const prevAt = new Date(rows[i - 1].time || rows[i - 1].ts || 0);
-      const at = new Date(rows[i].time || rows[i].ts || 0);
-      const opens = sessionOpensBetween(prevAt, at);
-      if (!opens.length) continue;
 
-      const x = Math.round(L.xOf(i) - L.bw / 2) + 0.5;
-      opens.forEach((s, n) => {
-        const tint = `rgb(${s.tint[0]},${s.tint[1]},${s.tint[2]})`;
-        ctx.strokeStyle = tint;
-        ctx.setLineDash([3, 3]);
-        ctx.lineWidth = 1.2;
-        ctx.beginPath();
-        ctx.moveTo(x, L.plotT);
-        ctx.lineTo(x, L.plotB);
-        ctx.stroke();
-        ctx.setLineDash([]);
+    const mark = (x, s, n, kind) => {
+      const tint = `rgb(${s.tint[0]},${s.tint[1]},${s.tint[2]})`;
+      const open = kind === "open";
 
-        // A flag at the bottom, stacked when two centres open on one candle.
-        const label = `${s.label} ${String(s.open).padStart(2, "0")}:00`;
-        const tw = ctx.measureText(label).width + 10;
-        const ly = L.plotB - 16 - n * 15;
-        const lx = Math.min(x + 3, L.plotR - tw - 2);
+      ctx.strokeStyle = tint;
+      ctx.setLineDash(open ? [3, 3] : [1, 3]);
+      ctx.lineWidth = open ? 1.2 : 1;
+      ctx.beginPath();
+      ctx.moveTo(x, L.plotT);
+      ctx.lineTo(x, L.plotB);
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      const hour = open ? s.open : s.close;
+      const label = `${sessionLabel(s)} ${String(hour).padStart(2, "0")}:00`;
+      const tw = ctx.measureText(label).width + 10;
+      // Stacked away from its own edge, so two centres changing on one candle
+      // do not print on top of each other.
+      const ly = open ? (L.plotB - 16 - n * 15) : (L.plotT + 3 + n * 15);
+      const lx = Math.min(x + 3, L.plotR - tw - 2);
+
+      if (open) {
         ctx.fillStyle = tint;
         ctx.globalAlpha = 0.9;
         ctx.fillRect(lx, ly, tw, 13);
         ctx.globalAlpha = 1;
         ctx.fillStyle = "#06070b";
-        ctx.fillText(label, lx + 5, ly + 10);
-      });
+      } else {
+        /* Outlined, so a close never reads as the heavier of the two marks.
+           The chip is filled with the chart's own panel colour and the text
+           drawn in the chart's own foreground, because those two are the one
+           pair guaranteed to be legible in every theme including light. The
+           centre's colour is carried by the border instead - putting it in
+           the text would hand a mid-tint like the Tokyo gold a contrast
+           ratio nobody can read on a pale background. */
+        const T = chartTheme();
+        ctx.fillStyle = T.panel;
+        ctx.fillRect(lx, ly, tw, 13);
+        ctx.strokeStyle = tint;
+        ctx.lineWidth = 1;
+        ctx.strokeRect(lx + 0.5, ly + 0.5, tw - 1, 12);
+        ctx.fillStyle = T.text;
+      }
+      ctx.fillText(label, lx + 5, ly + 10);
+    };
+
+    for (let i = 1; i < rows.length; i++) {
+      const prevAt = new Date(rows[i - 1].time || rows[i - 1].ts || 0);
+      const at = new Date(rows[i].time || rows[i].ts || 0);
+      const opens = sessionOpensBetween(prevAt, at);
+      const closes = sessionClosesBetween(prevAt, at);
+      if (!opens.length && !closes.length) continue;
+
+      const x = Math.round(L.xOf(i) - L.bw / 2) + 0.5;
+      opens.forEach((s, n) => mark(x, s, n, "open"));
+      closes.forEach((s, n) => mark(x, s, n, "close"));
     }
     ctx.restore();
 
@@ -958,8 +1045,9 @@ class CandleChart {
       ctx.fillStyle = `rgba(${s.tint[0]},${s.tint[1]},${s.tint[2]},${live ? 0.95 : 0.4})`;
       ctx.fillRect(lx, L.plotT + 7, 7, 7);
       ctx.fillStyle = live ? chartTheme().text : chartTheme().muted;
-      ctx.fillText(s.label, lx + 11, L.plotT + 6);
-      lx += ctx.measureText(s.label).width + 26;
+      const name = sessionLabel(s);
+      ctx.fillText(name, lx + 11, L.plotT + 6);
+      lx += ctx.measureText(name).width + 26;
     }
     ctx.restore();
   }
@@ -3846,7 +3934,8 @@ class CandleChart {
 
 if (typeof module !== "undefined" && module.exports) {
   module.exports = {
-    MARKET_SESSIONS, sessionCovers, sessionsAt, sessionOpensBetween,
+    MARKET_SESSIONS, sessionCovers, sessionsAt, sessionOpensBetween, sessionClosesBetween,
+    sessionLabel,
     SHAPE_POINTS, SHAPE_LABELS, CandleChart,
   };
 }

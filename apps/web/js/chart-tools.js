@@ -345,12 +345,66 @@
       .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
   }
 
-  /** i18n with a fallback: the chrome is translated, tool names are terms. */
+  /**
+   * i18n with a fallback.
+   *
+   * Note what this does NOT read: global.I18N.
+   *
+   * i18n.js declares the desk's translator as `const I18N = {...}` at the
+   * top level of a classic script. A top-level const is a global LEXICAL
+   * binding - every other script can see the bare name `I18N`, but it is
+   * never installed as a property of window. `global.I18N` was therefore
+   * undefined on every desk in every browser, this helper returned its
+   * English fallback every single time, and the whole chart workspace -
+   * the rail, the four menus, the dock, the properties panel - stayed in
+   * English no matter what language the trader had chosen. The ninety-odd
+   * chart.* keys already sitting in the language packs had never once been
+   * reached.
+   *
+   * The bare name is read first, with the window property kept as a second
+   * chance for any host that does attach it.
+   */
   function tt(key, fallback) {
     try {
-      const v = global.I18N ? global.I18N.t(key) : key;
-      return v === key ? fallback : v;
+      const i = (typeof I18N !== "undefined" && I18N && I18N.t) ? I18N : (global.I18N || null);
+      const v = (i && i.t) ? i.t(key) : key;
+      return (!v || v === key) ? fallback : v;
     } catch (e) { return fallback; }
+  }
+
+  /**
+   * A table row's name in the trader's language.
+   *
+   * The tables in this file stay in English on purpose: they are the
+   * fallback as well as the source of truth, so a desk running a language
+   * pack that has not caught up with a newly added tool shows that tool's
+   * English name rather than a raw dotted key.
+   *
+   * The key is derived from the row's own id and nothing else, which keeps
+   * the rule the whole file is built on - a new tool is one row in one
+   * table - true, at the cost of one line per language file.
+   *
+   * This used to read "tool names are terms", and left the entire rail,
+   * every flyout, every menu and every object name in English on a desk
+   * the trader had set to Persian. Some of them genuinely are terms of
+   * art; which ones is a decision for the translator, who can leave a row
+   * in English by translating it to itself. It is not a decision this file
+   * gets to make on their behalf.
+   */
+  function nameOf(kind, row) {
+    if (!row) return "";
+    return tt("chart." + kind + "." + row.id, row.label || row.id);
+  }
+
+  /**
+   * An indicator's name and one-line description, translated.
+   *
+   * Returns the same [name, description] pair INDICATOR_TEXT holds, so
+   * every caller keeps working unchanged.
+   */
+  function indicatorText(id) {
+    const fb = INDICATOR_TEXT[id] || [id, ""];
+    return [tt("chart.ind." + id, fb[0]), tt("chart.ind_d." + id, fb[1])];
   }
 
   /** Is the dock an overlay over the chart rather than a column beside it?
@@ -382,10 +436,10 @@
       const many = g.tools.length > 1;
       return `<div class="tvr-group" data-group="${g.id}">
         <button type="button" class="tvr-btn" data-tool="${tool.id}"
-                title="${esc(tool.label)}${tool.key ? " (" + tool.key.toUpperCase() + ")" : ""}"
-                aria-label="${esc(tool.label)}">${svg(I[tool.icon])}<span class="tvr-name">${esc(g.label)}</span></button>
+                title="${esc(nameOf("tool", tool))}${tool.key ? " (" + tool.key.toUpperCase() + ")" : ""}"
+                aria-label="${esc(nameOf("tool", tool))}">${svg(I[tool.icon])}<span class="tvr-name">${esc(nameOf("grp", g))}</span></button>
         ${many ? `<button type="button" class="tvr-more" data-flyout="${g.id}"
-                aria-label="${esc(g.label)}" aria-haspopup="true" aria-expanded="false"></button>` : ""}
+                aria-label="${esc(nameOf("grp", g))}" aria-haspopup="true" aria-expanded="false"></button>` : ""}
       </div>`;
     }).join("");
 
@@ -527,7 +581,18 @@
     // the moment the page was opened on mobile - the chart was behind
     // its own sidebar before the trader had done anything. Remember the
     // trader's own choice either way; only the default differs.
-    ui.dockOpen = read(LS_DOCK, narrow() ? "0" : "1") === "1";
+    /* Where the dock is a column it may remember being open. Where it is an
+       overlay it may not.
+
+       The stored preference is one value shared by every width, so a trader
+       who opened the dock at a desk arrived on a phone to find a 300px
+       panel - most of a phone screen - sitting on top of the chart from the
+       first frame. That reads as "half the chart is missing", and the cure
+       was to tap the dock button, which is a poor thing to have to discover.
+       On a narrow screen the chart opens as a chart; the dock is one tap
+       away and its stored state is honoured again the moment there is room
+       for it to be a column. */
+    ui.dockOpen = narrow() ? false : read(LS_DOCK, "1") === "1";
     return `<div class="tv${ui.dockOpen ? "" : " no-dock"}" id="tv">
       ${topHtml(o)}
       <div class="tv-body">
@@ -560,7 +625,7 @@
 
   global.AurionChartUI = {
     GROUPS, TOOL_BY_ID, CHART_TYPES, TIMEFRAMES, INDICATOR_GROUPS, INDICATOR_TEXT, ICONS: I,
-    html, svg, esc, tt, state: ui,
+    html, svg, esc, tt, nameOf, indicatorText, state: ui,
   };
 })(typeof window !== "undefined" ? window : this);
 
@@ -586,6 +651,7 @@
 
   const { GROUPS, TOOL_BY_ID, CHART_TYPES, TIMEFRAMES, INDICATOR_GROUPS, INDICATOR_TEXT, ICONS: I } = UI;
   const svg = UI.svg, esc = UI.esc, tt = UI.tt, ui = UI.state;
+  const nameOf = UI.nameOf, indicatorText = UI.indicatorText;
 
   const LS_DOCK = "aurion.chart.dock";
   const LS_GROUP = "aurion.chart.lasttool";
@@ -657,7 +723,7 @@
     TIMEFRAMES.forEach((t) => by[t.group].push(t));
     const section = (key, label) => `<div class="tvm-sec">${esc(label)}</div>` +
       by[key].map((t) => `<button type="button" class="tvm-row${t.id === ui.ctx.timeframe ? " on" : ""}" data-pick-tf="${t.id}">
-        <span class="tvm-key">${esc(t.short)}</span><span>${esc(t.label)}</span>
+        <span class="tvm-key">${esc(t.short)}</span><span>${esc(nameOf("tf", t))}</span>
         ${t.id === ui.ctx.timeframe ? svg(I.tick, "tvm-tick") : ""}</button>`).join("");
     return section("minutes", tt("chart.tf_minutes", "Minutes")) +
       section("hours", tt("chart.tf_hours", "Hours")) +
@@ -699,7 +765,7 @@
 
   function menuTypes() {
     return CHART_TYPES.map((t) => `<button type="button" class="tvm-row${t.id === ui.chart.type ? " on" : ""}" data-pick-type="${t.id}">
-      ${svg(I[t.icon], "tvm-ico")}<span>${esc(t.label)}</span>
+      ${svg(I[t.icon], "tvm-ico")}<span>${esc(nameOf("type", t))}</span>
       ${t.id === ui.chart.type ? svg(I.tick, "tvm-tick") : ""}</button>`).join("");
   }
 
@@ -709,7 +775,7 @@
     const q = String(query || "").trim().toLowerCase();
     const active = ui.chart.indicators.map((ind) => {
       const def = lib.INDICATOR_BY_ID[ind.type] || {};
-      const text = INDICATOR_TEXT[ind.type] || [ind.type, ""];
+      const text = indicatorText(ind.type);
       const params = Object.keys(ind.params || {}).map((k) =>
         `<label class="tvi-param"><span>${esc(k)}</span>
           <input type="number" data-ind-param="${ind.id}" data-key="${esc(k)}" value="${esc(ind.params[k])}" min="1" step="1" /></label>`).join("");
@@ -728,16 +794,21 @@
     const groups = INDICATOR_GROUPS.map((g) => {
       const rows = lib.INDICATORS.filter((d) => d.group === g.id).filter((d) => {
         if (!q) return true;
-        const text = INDICATOR_TEXT[d.id] || [d.id, ""];
-        return (d.id + " " + text[0] + " " + text[1]).toLowerCase().indexOf(q) >= 0;
+        /* Search the English AND the translated name. A trader who knows
+           the indicator as "RSI" must still find it on a Persian desk, and
+           one reading the Persian list must be able to type what they see. */
+        const en = INDICATOR_TEXT[d.id] || [d.id, ""];
+        const text = indicatorText(d.id);
+        return (d.id + " " + en[0] + " " + en[1] + " " + text[0] + " " + text[1])
+          .toLowerCase().indexOf(q) >= 0;
       }).map((d) => {
-        const text = INDICATOR_TEXT[d.id] || [d.id, ""];
+        const text = indicatorText(d.id);
         return `<button type="button" class="tvm-row wide" data-add-ind="${d.id}">
           <span class="tvm-ico mono">${esc(d.short)}</span>
           <span class="tvm-text"><b>${esc(text[0])}</b><small>${esc(text[1])}</small></span>
           ${svg(I.plus, "tvm-tick")}</button>`;
       }).join("");
-      return rows ? `<div class="tvm-sec">${esc(g.label)}</div>${rows}` : "";
+      return rows ? `<div class="tvm-sec">${esc(nameOf("indgrp", g))}</div>${rows}` : "";
     }).join("");
 
     return `<div class="tvm-search dsk-search sm">${svg(I.search)}
@@ -787,7 +858,7 @@
     markRailState();
     const tool = TOOL_BY_ID[active];
     const st = $("tv-status-tool");
-    if (st) st.textContent = tool ? tool.label : tt("chart.mode_navigate", "Navigate");
+    if (st) st.textContent = tool ? nameOf("tool", tool) : tt("chart.mode_navigate", "Navigate");
     const hint = $("tv-status-hint");
     if (hint) {
       const need = global.SHAPE_POINTS ? global.SHAPE_POINTS[c.tool] : null;
@@ -886,9 +957,9 @@
       // as soon as the trader picked anything.
       const group = GROUPS.find((g) => g.id === tool.group);
       groupBtn.innerHTML = svg(I[tool.icon]) +
-        '<span class="tvr-name">' + esc(group ? group.label : tool.label) + "</span>";
-      groupBtn.title = tool.label + (tool.key ? " (" + tool.key.toUpperCase() + ")" : "");
-      groupBtn.setAttribute("aria-label", tool.label);
+        '<span class="tvr-name">' + esc(group ? nameOf("grp", group) : nameOf("tool", tool)) + "</span>";
+      groupBtn.title = nameOf("tool", tool) + (tool.key ? " (" + tool.key.toUpperCase() + ")" : "");
+      groupBtn.setAttribute("aria-label", nameOf("tool", tool));
     }
     closeFlyout();
     // Choosing a tool is the end of the errand the sheet was opened for.
@@ -908,9 +979,9 @@
     const fly = $("tv-flyout");
     const group = GROUPS.find((g) => g.id === groupId);
     if (!fly || !group) return;
-    fly.innerHTML = `<div class="tvf-head">${esc(group.label)}</div>` +
+    fly.innerHTML = `<div class="tvf-head">${esc(nameOf("grp", group))}</div>` +
       group.tools.map((t) => `<button type="button" class="tvf-row${ui.chart.tool === t.id ? " on" : ""}" data-tool="${t.id}">
-        ${svg(I[t.icon])}<span>${esc(t.label)}</span>${t.key ? `<kbd>${esc(t.key.toUpperCase())}</kbd>` : ""}</button>`).join("");
+        ${svg(I[t.icon])}<span>${esc(nameOf("tool", t))}</span>${t.key ? `<kbd>${esc(t.key.toUpperCase())}</kbd>` : ""}</button>`).join("");
     fly.hidden = false;
     const r = anchor.getBoundingClientRect();
     const box = document.querySelector(".tv-body").getBoundingClientRect();
@@ -924,7 +995,7 @@
   function objectName(d) {
     if (d.name) return d.name;
     const tool = TOOL_BY_ID[d.kind];
-    return tool ? tool.label : d.kind;
+    return tool ? nameOf("tool", tool) : d.kind;
   }
 
   function renderObjects() {
@@ -1081,7 +1152,7 @@
       data-swatch="${c}" style="--c:${c}" title="${esc(c)}" aria-label="${esc(c)}"></button>`).join("");
     const widths = [1, 1.5, 2.5, 4].map((w) => `<button type="button" class="tvs-w${Math.abs(width - w) < 0.26 ? " on" : ""}"
       data-swidth="${w}" title="${esc(tt("chart.thickness", "Thickness"))} ${w}"><i style="--h:${w}px"></i></button>`).join("");
-    return `<span class="tvs-kind">${esc((TOOL_BY_ID[d.kind] || {}).label || d.kind)}</span>
+    return `<span class="tvs-kind">${esc(nameOf("tool", TOOL_BY_ID[d.kind]) || d.kind)}</span>
       <span class="tvs-div"></span>
       ${dots}
       <label class="tvs-dot tvs-custom" title="${esc(tt("chart.color_custom", "Custom colour"))}">
@@ -1149,7 +1220,7 @@
         <button type="button" class="tv-icon tiny danger" data-obj-del="${d.id}"
           title="${esc(tt("common.delete", "Delete"))}">${svg(I.trash)}</button>
       </div>
-      <p class="tvp-kind">${esc((TOOL_BY_ID[d.kind] || {}).label || d.kind)}</p>
+      <p class="tvp-kind">${esc(nameOf("tool", TOOL_BY_ID[d.kind]) || d.kind)}</p>
       ${fields}
       ${FIELD.coords(d)}`;
   }
@@ -1269,15 +1340,40 @@
     if (!box || typeof ResizeObserver === "undefined") return;
     if (ui.sizeWatch) { try { ui.sizeWatch.disconnect(); } catch (e) { /* gone */ } }
 
+    /* Coalesced, because a CSS transition fires this on every frame - but
+       coalesced with a TRAILING edge, which is the whole point.
+
+       This was a leading-edge throttle: paint on the first notification,
+       then silently drop everything for 60ms. A burst of resizes that ENDS
+       inside a dropped window therefore left the canvas holding the first,
+       mid-flight geometry with no repaint ever scheduled to correct it, and
+       a canvas only re-measures when it paints. On a phone the mount is
+       exactly such a burst - the dynamic viewport settling as the address
+       bar resolves, the rail reflowing at the tablet breakpoint, the
+       grid-template-columns transition on .tv-body - so the chart came up
+       at the size it had part-way through and stayed there. The only thing
+       that fixed it was some later event that forced a paint, which is why
+       tapping the dock appeared to be the cure: toggleDock calls
+       redrawSoon.
+
+       Now the last notification in a burst always gets its paint. */
     let last = 0;
+    let trailing = 0;
+    const paint = () => {
+      try { if (ui.chart) ui.chart.draw(); } catch (e) { /* unmounted */ }
+    };
     ui.sizeWatch = new ResizeObserver(() => {
-      // Coalesced: a transition fires this on every frame.
       const now = Date.now();
-      if (now - last < 60) return;
+      if (now - last < 60) {
+        // Inside the quiet window: do not paint now, but guarantee one
+        // paint after the burst has finished.
+        clearTimeout(trailing);
+        trailing = setTimeout(() => { last = Date.now(); paint(); }, 80);
+        return;
+      }
       last = now;
-      requestAnimationFrame(() => {
-        try { if (ui.chart) ui.chart.draw(); } catch (e) { /* unmounted */ }
-      });
+      clearTimeout(trailing);
+      requestAnimationFrame(paint);
     });
     ui.sizeWatch.observe(box);
   }
@@ -1394,7 +1490,7 @@
     const typeLabel = $("tv-type-label");
     if (typeLabel) {
       const t = CHART_TYPES.find((x) => x.id === chart.type);
-      typeLabel.textContent = t ? t.label : chart.type;
+      typeLabel.textContent = t ? nameOf("type", t) : chart.type;
     }
 
     /* ---- rail ---------------------------------------------------------- */
@@ -1549,7 +1645,7 @@
           c.setType(ty.dataset.pickType);
           const lbl = $("tv-type-label");
           const def = CHART_TYPES.find((x) => x.id === c.type);
-          if (lbl && def) lbl.textContent = def.label;
+          if (lbl && def) lbl.textContent = nameOf("type", def);
           menu.innerHTML = menuTypes();
           return;
         }
@@ -1631,6 +1727,14 @@
 
     // And the catch-all, for every size change nothing above predicted.
     watchSize();
+
+    /* Mount gets the same treatment every other viewport change already
+       got. Opening the chart is a layout change like any other - arguably
+       the largest one - yet it was the only one with no repaint ladder
+       behind it, so a first paint taken before the layout settled was
+       never corrected and the trader had to poke something to fix it.
+       0/120/360ms, the same three beats as a dock toggle. */
+    redrawSoon();
 
     /* ---- navigation ----------------------------------------------------- */
     const box = $("tv-chartbox");
