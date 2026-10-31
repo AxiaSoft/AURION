@@ -1106,6 +1106,7 @@
     "status": "Update status",
     "last_check": "Last check",
     "check": "Check for updates",
+    "open_panel": "Open system updates",
     "manifest": "Show local files",
     "available": "Update available",
     "none": "No update found",

@@ -8038,17 +8038,19 @@ async function bindUpdatePanel(){
   const checkBtn = document.getElementById('upd-check');
   if(checkBtn) checkBtn.onclick = async () => {
     if(resultEl) resultEl.innerHTML = '<p class="sub">' + I18N.t('upd.checking') + '</p>';
-    const r = await API.post('/api/system/update/check', {});
-    if(!r.ok){
-      if(resultEl) resultEl.innerHTML = '<p class="err">' + I18N.t('upd.error') + ': '+esc(r.error||'')+'</p>';
+    /* The same check as the licence box and About - this is the one
+       place that can also install what it finds. */
+    const res = await checkForUpdate();
+    if(!res.ok){
+      if(resultEl) resultEl.innerHTML = '<p class="err">' + I18N.t('upd.error') + ': '+esc(res.error||'')+'</p>';
       return;
     }
-    if(!r.update_available){
-      if(resultEl) resultEl.innerHTML = '<p class="ok">'+icon("check")+' '+I18N.t('upd.uptodate')+' - '+I18N.t('about.version')+' '+esc((r.latest&&r.latest.version)||'')+'</p>';
-      if(lastCheckEl) lastCheckEl.textContent = I18N.t('upd.last_check')+': '+(r.last_check||new Date().toISOString())+' - '+I18N.t('upd.uptodate');
+    if(!res.available){
+      if(resultEl) resultEl.innerHTML = '<p class="ok">'+icon("check")+' '+I18N.t('upd.uptodate')+' - '+I18N.t('about.version')+' '+esc(res.version)+'</p>';
+      if(lastCheckEl) lastCheckEl.textContent = I18N.t('upd.last_check')+': '+(res.lastCheck||new Date().toISOString())+' - '+I18N.t('upd.uptodate');
       return;
     }
-    const upd = r.latest;
+    const upd = res.latest;
     if(resultEl){
       resultEl.innerHTML = '<div class="card" style="background:rgb(var(--s9))"><h3>'+icon("spark")+' '+I18N.t('upd.available')+': '+esc(upd.version||'')+'</h3><p class="sub">'+esc(upd.changelog||'')+'</p><p class="sub">'+I18N.t('upd.files_changed')+': '+(upd.files||[]).length+'</p><div style="max-height:200px;overflow:auto;margin:8px 0">'+(upd.files||[]).map(f=>'<div class="file-item" style="display:flex;justify-content:space-between;background:rgb(var(--s3));padding:6px;border-radius:4px;margin:3px 0"><span>'+esc(f.path)+'</span><span style="font-size:11px">'+(f.size||'')+' bytes</span></div>').join('')+'</div><button class="btn" id="upd-apply-btn" type="button">'+icon("download")+' '+I18N.t('upd.download_apply')+'</button><p class="sub" style="margin-top:8px;color:var(--gold)">'+I18N.t('upd.replace_note')+'</p></div>';
       const applyBtn = document.getElementById('upd-apply-btn');
@@ -8885,20 +8887,18 @@ function bindView(view) {
     const licUpd = $("lic-upd");
     if (licUpd) licUpd.onclick = async () => {
       const box = $("lic-upd-msg");
-      const r = await API.get("/api/updates");
-      if (!r.ok && r.error) {
-        if (box) box.textContent = r.error;
-        return;
-      }
-      const d = r.data || r;
-      if (!d.configured) {
-        if (box) box.textContent = I18N.t("license.up_to_date") + " (GitHub repo not set)";
-        return;
-      }
-      if (d.newer) {
-        if (box) box.textContent = I18N.t("license.newer") + (d.latest ? " — " + d.latest : "");
-        if (d.url) window.open(d.url, "_blank", "noopener");
-      } else if (box) box.textContent = I18N.t("license.up_to_date");
+      if (box) box.textContent = I18N.t("upd.checking");
+      const res = await checkForUpdate();
+      if (!box) return;
+      /* The licence box can report an update but not install one, so
+         when there is one it hands over to the section that can,
+         rather than growing a second copy of that flow. */
+      box.innerHTML = updateSummaryHtml(res) + (res.available
+        ? ` <button class="btn tiny ghost" id="lic-upd-go" type="button">${
+            esc(I18N.t("upd.open_panel"))}</button>`
+        : "");
+      const go = $("lic-upd-go");
+      if (go) go.onclick = () => showSetTab("set-update");
     };
     const jump = $("set-jump");
     if (jump) jump.onclick = (e) => {
@@ -8991,14 +8991,11 @@ function bindView(view) {
   }
   if (view === "about") {
     const chk = $("about-check-update");
-    if(chk) chk.onclick = async () => {
-      const r = await API.post('/api/system/update/check', {});
+    if (chk) chk.onclick = async () => {
       const el = $("about-update-status");
-      if(el) el.innerHTML = r.ok
-        ? (r.update_available
-            ? esc(I18N.t('upd.available')+': '+(r.latest?.version||''))
-            : icon("check") + ' ' + esc(I18N.t('upd.uptodate')))
-        : esc(I18N.t('upd.error')+': '+(r.error||''));
+      if (el) el.textContent = I18N.t("upd.checking");
+      const res = await checkForUpdate();
+      if (el) el.innerHTML = updateSummaryHtml(res);
     };
     // auto check - async IIFE
     (async () => {
@@ -12095,6 +12092,55 @@ function updateCheck(version) {
   try { localStorage.setItem(LS_SEEN_VERSION, version); } catch (e) { /* */ }
   // No record at all = first run on this machine, not an update.
   return { updated: Boolean(seen) && seen !== version, from: seen };
+}
+
+/* The desk's only update check.
+ *
+ * There were two, against two different servers. The licence box's
+ * "check for updates" asked the engine for a GitHub releases lookup,
+ * which reads `license.github_repo` from the config. On a customer's
+ * machine that key is not set, so the engine answered
+ * {configured:false} and the desk printed "You are on the latest
+ * published build" beside it: a reassurance about a check that never
+ * happened. Even configured, it compares a public release tag, which
+ * is not the channel the product actually updates from - that is
+ * `update_server_url`, reached through /api/system/update/check, and
+ * the only one that can produce a changelog, a file manifest, a
+ * backup and an install.
+ *
+ * So there is one check now, it is the real one, and all three callers
+ * - the licence box, the Update section and the About page - come
+ * through here. They differ only in how much of the answer they show.
+ */
+async function checkForUpdate() {
+  try {
+    const r = await API.post("/api/system/update/check", {});
+    if (!r || !r.ok) return { ok: false, error: (r && r.error) || "" };
+    const latest = r.latest || null;
+    return {
+      ok: true,
+      available: Boolean(r.update_available),
+      version: (latest && latest.version) || "",
+      lastCheck: r.last_check || "",
+      latest,
+    };
+  } catch (e) {
+    return { ok: false, error: String((e && e.message) || e || "") };
+  }
+}
+
+/* The one-line form of that answer, for the two places that report an
+ * update without being able to install one. */
+function updateSummaryHtml(res) {
+  if (!res.ok) {
+    return `<span class="err">${esc(I18N.t("upd.error"))}${res.error ? " \u2014 " + esc(res.error) : ""}</span>`;
+  }
+  if (!res.available) {
+    return `<span class="ok">${icon("check")} ${esc(I18N.t("upd.uptodate"))}${
+      res.version ? " \u2014 " + esc(res.version) : ""}</span>`;
+  }
+  return `<span>${icon("spark")} ${esc(I18N.t("upd.available"))}${
+    res.version ? ": " + esc(res.version) : ""}</span>`;
 }
 
 /** Ask for the licence more than once; the engine may still be starting. */
