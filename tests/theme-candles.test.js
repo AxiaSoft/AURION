@@ -172,19 +172,23 @@ ok(T.BY_ID.custom.candles.dark.join() === T.BY_ID[def].candles.dark.join(),
 /* ------------------------------------------------------------- legibility */
 
 const MIN_ON_PANEL = 3.0;   /* WCAG 1.4.11, non-text contrast */
-const MIN_HUE_GAP = 60;     /* two chromatic colours must not read alike */
-const MIN_PAIR_K = 2.2;     /* ...and an achromatic pair separates by light */
+const MIN_PAIR_K = 2.5;     /* up and down separate by light, in every theme */
+const NEAR_ACCENT = 42;     /* degrees a candle may stray from its theme */
 
-/* "Unmistakable" is the requirement; hue is only one way to achieve it.
+/* Every theme draws its candles out of its OWN colour, both directions.
+   Relief is the reference the rest were built to match: it rises in
+   near-white and falls in grey, one steel family split by intensity.
+   That model is now the rule everywhere - Velvet rises in pale lilac and
+   falls in purple, Midnight in periwinkle and indigo, Sunset in peach
+   and burnt orange.
 
-   Relief is a steel theme and Mono is a graphite one, and a green/red
-   pair on either is a sticker from another product. They now rise in
-   near-white and fall in grey, which is what the theme is made of -- and
-   a luminance split is, if anything, the more robust signal, because it
-   survives every form of colour blindness. A hue-gap rule applied to
-   those pairs measures nothing: the hue of #8a95a5 is noise.
+   Which means hue is no longer the thing that separates up from down -
+   by design they share one. Luminance is, so the luminance rule that
+   used to apply only to the two grey themes now applies to all of them,
+   and at a higher bar than before (2.5, where Relief itself measures
+   2.82 and 3.35). That is also the more robust signal: it survives every
+   form of colour blindness, which a green/red pair does not.
 
-   So the rule is: a pair must be separated by hue OR by luminance.
    Chroma here is absolute (max-min over 255), not HSV saturation, which
    divides by the maximum channel and so calls the dark slate #1f2733
    "39% saturated" when it is visually neutral. */
@@ -204,117 +208,109 @@ for (const t of T.THEMES) {
       ok(false, `${t.id}/${cut} is hard to see on its own panel (up ${cu.toFixed(2)}, down ${cd.toFixed(2)})`);
     }
 
-    const mono = chroma(up) < ACHROMATIC && chroma(dn) < ACHROMATIC;
-    if (mono) {
-      const k = contrast(up, dn);
-      if (k < worstSep.v) worstSep = { v: k, who: `${t.id}/${cut} (luminance)`, unit: ":1" };
-      if (k < MIN_PAIR_K) {
-        ok(false, `${t.id}/${cut} is an achromatic pair that does not separate by light (${k.toFixed(2)}:1)`);
-      }
-    } else {
-      const g = hueGap(up, dn);
-      if (g / 60 * 2.2 < worstSep.v) worstSep = { v: g / 60 * 2.2, who: `${t.id}/${cut} (hue ${g.toFixed(0)} deg)`, unit: "" };
-      if (g < MIN_HUE_GAP) {
-        ok(false, `${t.id}/${cut} up and down are too close in hue (${g.toFixed(0)} deg)`);
-      }
-      /* A chromatic pair must not ALSO be a luminance trap: two colours
-         60 degrees apart that render as the same grey are the pair a
-         colour-blind trader cannot read at all. */
-      const k = contrast(up, dn);
-      if (k < 1.25) {
-        ok(false, `${t.id}/${cut} differs only in hue -- identical in luminance (${k.toFixed(2)}:1)`);
-      }
+    const k = contrast(up, dn);
+    if (k < worstSep.v) worstSep = { v: k, who: `${t.id}/${cut}` };
+    if (k < MIN_PAIR_K) {
+      ok(false, `${t.id}/${cut} up and down do not separate by light (${k.toFixed(2)}:1) - `
+        + `they share a hue by design, so this is the only thing telling them apart`);
     }
   }
 }
 ok(worstPanel.v >= MIN_ON_PANEL,
   `every candle clears ${MIN_ON_PANEL}:1 on its own chart panel (worst ${worstPanel.v.toFixed(2)} at ${worstPanel.who})`);
 ok(worstSep.v >= MIN_PAIR_K,
-  `up and down stay unmistakable in every theme (worst ${worstSep.who})`);
+  `up and down stay unmistakable in every theme (worst ${worstSep.v.toFixed(2)}:1 at ${worstSep.who})`);
+
+/* The point of the exercise: a candle must look like the theme it is in.
+   swatch[2] is the theme's accent - the colour the desk is actually
+   painted in - so both candles are measured against that, not against
+   each other. This is the assertion that would have caught the table
+   this replaced, where Velvet was a purple theme with green candles
+   (116 deg away), Cyber a magenta one with lime (156 deg) and Aurora a
+   violet one with mint (88 deg). */
+let strays = [];
+for (const t of T.THEMES) {
+  if (t.id === "custom") continue;
+  const accent = hex2rgb(t.swatch[2]);
+  if (chroma(accent) < 0.2) continue;   /* Relief and Mono have no hue to match */
+  for (const cut of ["dark", "light"]) {
+    for (const [slot, dir] of [[0, "up"], [1, "down"]]) {
+      const c = hex2rgb(t.candles[cut][slot]);
+      if (chroma(c) < ACHROMATIC) { strays.push(`${t.id}/${cut} ${dir} is grey in a coloured theme`); continue; }
+      const g = hueGap(c, accent);
+      if (g > NEAR_ACCENT) strays.push(`${t.id}/${cut} ${dir} is ${g.toFixed(0)} deg off the theme accent`);
+    }
+  }
+}
+ok(strays.length === 0,
+  `every candle is drawn from its own theme's accent (${strays.join(", ") || "all 18 coloured pairs on-palette"})`);
+
+/* Direction has to keep meaning the same thing. With hue carrying the
+   theme rather than the direction, the invariant that survives is the
+   one Relief already used: the rise is the colour that stands further
+   off the panel. "Brighter" is the wrong test - on a light panel the
+   colour that asserts itself is the dark one, which is why Relief rises
+   near-white on the dark cut and near-black on the light one. */
+let swapped = [];
+for (const t of T.THEMES) {
+  for (const cut of ["dark", "light"]) {
+    const p2 = PANEL[t.id + ":" + cut];
+    if (!p2) continue;
+    const up = hex2rgb(t.candles[cut][0]), dn = hex2rgb(t.candles[cut][1]);
+    if (contrast(up, p2) <= contrast(dn, p2)) {
+      swapped.push(`${t.id}/${cut} (the fall stands out more than the rise)`);
+    }
+  }
+}
+ok(swapped.length === 0,
+  `the rise is always the emphatic one (${swapped.join(", ") || "all 24 correct"})`);
+
+/* A number has nothing but its colour. Candles may go monochrome
+   because a candle also has a position and a direction; profit and loss
+   text may not. --ok/--bad used to be aliases of the candle pair, which
+   is exactly how Relief ended up printing both in grey. */
+const okHex = /--ok:\s*(#[0-9a-f]{6})/i.exec(rootBlock);
+const badHex = /--bad:\s*(#[0-9a-f]{6})/i.exec(rootBlock);
+ok(okHex && badHex, "profit and loss have their own colours, not var(--candle-up/down)");
+if (okHex && badHex) {
+  const g = hueGap(hex2rgb(okHex[1]), hex2rgb(badHex[1]));
+  ok(g >= 60, `profit and loss are two plainly different hues (${g.toFixed(0)} deg apart)`);
+}
 
 /* The pairs have to be visibly different FROM EACH OTHER, not merely
    unequal.
 
    "No two themes share a pair" passed happily on a table where every up
    colour sat between hue 146 and 168 -- twelve shades of the same green,
-   differing in the last digit of a hex code and in nothing a person could
-   see. Each theme is supposed to draw its candles out of its own palette,
-   so the spread across the table is the thing to measure: cyber's acid
-   lime, sunset's warm olive and ocean's aqua are the same direction in
-   three genuinely different greens.
+   differing in the last digit of a hex code and in nothing a person
+   could see. That is the complaint this table was rebuilt to answer, so
+   the spread across the themes is the thing to measure: Sunset's peach,
+   Cyber's neon pink, Midnight's periwinkle and Ocean's azure are the
+   same direction in genuinely different colours.
 
-   Still inside the family rule below -- this widens the range the greens
-   and reds are drawn from, it does not let a theme pick a blue. */
-/* As a fraction of the window each family is allowed, not as a flat
-   number of degrees: the rising rule below permits hue 80-200 (120 deg)
-   and the falling rule permits 320-30 (70 deg), so demanding the same
-   absolute spread of both would quietly require the reds to use their
-   entire legal range and leave no room to tune one. */
-const FAMILY_WINDOW = { rising: 120, falling: 70 };
-const MIN_WINDOW_USE = 0.45;
+   Now that each theme follows its own accent, the spread is no longer
+   confined to a "green window" - the honest measure is simply how much
+   of the hue circle the table covers. */
+const MIN_SPREAD = 150;
 for (const cut of ["dark", "light"]) {
   for (const [slot, which] of [[0, "rising"], [1, "falling"]]) {
-    const need = FAMILY_WINDOW[which] * MIN_WINDOW_USE;
-    // Measured on a circle, relative to the family's own mean, so the reds
-    // straddling 0 degrees are not read as a 350-degree spread.
+    /* Achromatic themes contribute a hue the eye cannot see; counting
+       the hue of #8a95a5 as 216 deg would inflate the spread and let a
+       monotonous chromatic table hide behind two greys. */
     const hs = T.THEMES
       .filter((t) => t.id !== "custom")
-      /* Achromatic themes contribute a hue the eye cannot see. Counting
-         it inflates the spread: with Relief and Mono included this read
-         127% of the window, which would let a genuinely monotonous
-         chromatic table hide behind two greys. */
       .filter((t) => chroma(hex2rgb(t.candles[cut][slot])) >= ACHROMATIC)
       .map((t) => hue(hex2rgb(t.candles[cut][slot])));
-    const rad = hs.map((h) => (h * Math.PI) / 180);
-    const mean = Math.atan2(
-      rad.reduce((a, r) => a + Math.sin(r), 0) / rad.length,
-      rad.reduce((a, r) => a + Math.cos(r), 0) / rad.length);
-    const off = hs.map((h) => {
-      let d = h - (mean * 180) / Math.PI;
-      while (d > 180) d -= 360;
-      while (d < -180) d += 360;
-      return d;
-    });
-    const spread = Math.max(...off) - Math.min(...off);
-    ok(spread >= need,
-      `the ${cut} ${which} colours span ${spread.toFixed(0)} deg of hue across the themes, ` +
-      `${((spread / FAMILY_WINDOW[which]) * 100).toFixed(0)}% of the family's window ` +
-      `(>= ${(MIN_WINDOW_USE * 100).toFixed(0)}%, or the table is one colour twelve times)`);
+    /* Widest gap on the circle: the colours occupy everything else. */
+    const sorted = [...hs].sort((a, b) => a - b);
+    let widest = 360 - (sorted[sorted.length - 1] - sorted[0]);
+    for (let i = 1; i < sorted.length; i++) widest = Math.max(widest, sorted[i] - sorted[i - 1]);
+    const spread = 360 - widest;
+    ok(spread >= MIN_SPREAD,
+      `the ${cut} ${which} colours span ${spread.toFixed(0)} deg of hue across the themes ` +
+      `(>= ${MIN_SPREAD}, or the table is one colour eleven times)`);
   }
 }
-
-/* Direction has to keep meaning the same thing. Whatever the theme, the
-   rising colour is the greener of the two and the falling one the redder
-   - a theme that swapped them would be a trap, not a style. */
-let swapped = [];
-for (const t of T.THEMES) {
-  for (const cut of ["dark", "light"]) {
-    const upc = hex2rgb(t.candles[cut][0]), dnc = hex2rgb(t.candles[cut][1]);
-    /* An achromatic theme has no green and no red to be on the wrong
-       side of; for those the direction cue is light, and it is checked
-       above. Asking for the hue of #8b8b91 gets an answer, which is the
-       trap: it is 240, and that means nothing. */
-    if (chroma(upc) < ACHROMATIC && chroma(dnc) < ACHROMATIC) {
-      /* The rising candle must still be the emphatic one. "Brighter" is
-         the wrong test: on a light panel the colour that asserts itself
-         is the dark one, which is why Relief rises near-white on the
-         dark cut and near-black on the light one. What holds in both is
-         that the rise stands further off the panel than the fall. */
-      const p2 = PANEL[t.id + ":" + cut];
-      if (p2 && contrast(upc, p2) <= contrast(dnc, p2)) {
-        swapped.push(`${t.id}/${cut} (achromatic, but the fall stands out more than the rise)`);
-      }
-      continue;
-    }
-    const up = hue(upc);
-    const dn = hue(dnc);
-    const isGreen = up > 80 && up < 200;
-    const isRed = dn < 30 || dn > 320;
-    if (!isGreen || !isRed) swapped.push(`${t.id}/${cut} (up ${up.toFixed(0)}, down ${dn.toFixed(0)})`);
-  }
-}
-ok(swapped.length === 0,
-  `up is always the green family and down the red family (${swapped.join(", ") || "all 24 correct"})`);
 
 /* --------------------------------------------------- the trader still wins */
 

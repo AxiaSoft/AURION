@@ -1,4 +1,4 @@
-const CACHE = "aurion-shell-v174";
+const CACHE = "aurion-shell-v175";
 
 self.addEventListener("install", (event) => {
   event.waitUntil(self.skipWaiting());

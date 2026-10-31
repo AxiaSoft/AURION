@@ -119,9 +119,15 @@ a:hover{ color:var(--accent-readable, var(--accent)) }
 #btn-kill.kills{ box-shadow:0 0 0 1px var(--rose), 0 0 24px rgba(255,107,138,.3) }
 
 /* Direction never follows the accent - stated here as well as in app.css so
-   nothing can quietly override it. Green is up and red is down, always. */
-.up, .metric.up, .dot.i-low{ color:var(--candle-up) }
-.down, .metric.down{ color:var(--candle-down) }
+   nothing can quietly override it.
+
+   --ok/--bad, NOT the candle pair. This said "green is up and red is down,
+   always" while pointing at --candle-up, which stopped being green the day
+   Relief got its steel candles: profit and loss both printed grey, measured
+   rgb(244,247,251) against rgb(138,149,165). Candles wear the theme now, in
+   every skin. A number cannot - it has nothing but its colour. */
+.up, .metric.up, .dot.i-low{ color:var(--ok) }
+.down, .metric.down{ color:var(--bad) }
 
 /* ===========================================================================
    2. Glass, refined
