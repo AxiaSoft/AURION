@@ -1239,6 +1239,39 @@
     }
   }
 
+  /* Keep the chosen tab in view WITHIN its strip, and nowhere else.
+
+     This was b.scrollIntoView({block:"nearest", inline:"nearest"}), which
+     reads like it is scoped and is not: "nearest" only means "do not
+     scroll a container the element is already visible in". It still walks
+     up and scrolls every scrollable ancestor that cannot see it - and
+     .tv was one, because overflow:hidden is a scroll container and the
+     closed dock is parked 300px outside it. One call to line up a tab
+     shunted the entire workspace sideways. (chart.css now makes .tv
+     overflow:clip so it cannot happen again from any direction; this is
+     the other half - not asking for it in the first place.)
+
+     So the strip is scrolled by hand. No ancestor is touched, there is
+     nothing to get wrong on a right-to-left desk, and a tab inside a
+     panel that is not open is simply left alone. */
+  function revealInStrip(btn) {
+    const strip = btn && typeof btn.closest === "function" ? btn.closest(".tvd-tabs") : null;
+    if (!strip) return;
+    /* No ancestor is involved, so there is nothing to guard against: if
+       the panel happens to be closed the strip is simply lined up ready
+       for when it opens. (An earlier draft of this skipped the call for a
+       closed dock by asking narrow() - which lives in the other IIFE in
+       this file and is not in scope here. It threw on the first render,
+       which is the sort of thing a jsdom suite cannot see and a browser
+       reports in one line.) */
+    if (strip.scrollWidth <= strip.clientWidth + 1) return;
+    const start = btn.offsetLeft - strip.offsetLeft;
+    const end = start + btn.offsetWidth;
+    const view = strip.scrollLeft;
+    if (start < view) strip.scrollLeft = start;
+    else if (end > view + strip.clientWidth) strip.scrollLeft = end - strip.clientWidth;
+  }
+
   function showDock(tab, focus) {
     ui.dockTab = tab;
     document.querySelectorAll("[data-dock]").forEach((b) => {
@@ -1249,11 +1282,12 @@
          instead of walking through every tab in it. */
       b.setAttribute("aria-selected", String(cur));
       b.tabIndex = cur ? 0 : -1;
-      if (cur && focus) b.focus();
-      /* Keep the chosen tab in view when the strip is scrolled. */
-      if (cur && typeof b.scrollIntoView === "function") {
-        try { b.scrollIntoView({ block: "nearest", inline: "nearest" }); } catch (e) { /* older engines */ }
-      }
+      /* preventScroll, because focusing an element also asks every
+         scrollable ancestor to reveal it, and at this width the panel
+         this tab belongs to may be parked off-canvas. Revealing it is
+         revealInStrip's job and the strip's alone. */
+      if (cur && focus) { try { b.focus({ preventScroll: true }); } catch (e) { b.focus(); } }
+      if (cur) revealInStrip(b);
     });
     document.querySelectorAll(".tvd-body").forEach((p) => { p.hidden = p.dataset.pane !== tab; });
     const tv = $("tv");

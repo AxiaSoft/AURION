@@ -32,7 +32,30 @@
   border: 1px solid var(--line);
   border-radius: var(--radius-lg);
   background: var(--surface-1);
+  /* clip, not hidden - and this is the whole of a bug that was reported
+     three times.
+
+     overflow:hidden still makes a box a SCROLL CONTAINER. It only hides
+     the scrollbars. At this width the side panel and the tool sheet are
+     parked off-canvas with translateX(-100%) / translateY(101%), which
+     is 300px of scrollable overflow sideways and ~360px downwards sitting
+     inside .tv with nothing to show for it - until something asks the
+     browser to reveal an element that lives in there. showDock() did
+     exactly that on mount, and scrollIntoView() scrolls EVERY scrollable
+     ancestor, not just the strip it was aimed at. So .tv scrolled itself
+     151px sideways to reveal a tab belonging to a panel that was not even
+     open: half the screen empty, the top bar and its controls pushed past
+     the edge, and - because overflow:hidden paints no scrollbar - no way
+     to drag it back. Opening the panel un-parked it, the overflow went
+     away, the browser snapped scrollLeft to 0, and the chart "fixed
+     itself". That is the whole report.
+
+     overflow:clip clips identically and is NOT a scroll container, so
+     there is no scroll offset for anything to set - not scrollIntoView,
+     not focus(), not an on-screen keyboard. hidden stays first as the
+     fallback for an engine that does not know clip. */
   overflow: hidden;
+  overflow: clip;
   position: relative;
 }
 .tv * { min-width: 0 }
