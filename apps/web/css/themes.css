@@ -692,6 +692,64 @@ html[data-skin="neu"] .card:hover{ box-shadow:var(--neu-out), 0 0 0 1px var(--bo
 html[data-skin="neu"] .nav,
 html[data-skin="neu"] .top{ background:rgb(var(--s2)); border-color:transparent }
 html[data-skin="neu"] .nav{ box-shadow:var(--neu-out-sm) }
+
+/* The side panel's own items.
+
+   The panel was embossed and everything inside it was flat, which is the
+   one combination that reads as unfinished rather than as a style: a
+   raised tray holding nothing. In this family a control at rest stands
+   off the page, and the thing you are ON is pressed into it -- that
+   push/pull IS the selection indicator once the borders are gone, and it
+   is the same vocabulary the inputs and buttons already use.
+
+   Hover lifts rather than tints, for the same reason. */
+html[data-skin="neu"] .nav button.nav-tab{
+  background:rgb(var(--s3));
+  border:0;
+  box-shadow:var(--neu-out-sm);
+}
+html[data-skin="neu"] .nav button.nav-tab:hover{
+  box-shadow:6px 6px 14px var(--neu-dark), -6px -6px 14px var(--neu-light);
+}
+html[data-skin="neu"] .nav button.nav-tab.on,
+html[data-skin="neu"] .nav button.nav-tab:active{
+  background:rgb(var(--s2));
+  box-shadow:var(--neu-in);
+}
+/* Colour is not the only indicator: the pressed item also carries the
+   accent on its label, so the state survives a greyscale screen. */
+html[data-skin="neu"] .nav button.nav-tab.on{ color:var(--accent-ink) }
+
+/* The settings page. .set-jump was already here; the blocks it jumps to
+   were not, so the rail was embossed and the panels beside it were still
+   wearing the default glass card. */
+html[data-skin="neu"] .set-main .set-block,
+html[data-skin="neu"] .set-desk .card,
+html[data-skin="neu"] .sym-panel,
+html[data-skin="neu"] .sympick-pop{
+  background:rgb(var(--s3));
+  border:0;
+  backdrop-filter:none;
+  -webkit-backdrop-filter:none;
+  box-shadow:var(--neu-out);
+}
+html[data-skin="neu"] .sj-bar{ background:rgb(var(--s2)); border:0; box-shadow:var(--neu-out-sm) }
+html[data-skin="neu"] .set-jump button,
+html[data-skin="neu"] .sj-bar button{
+  background:rgb(var(--s3));
+  border:0;
+  box-shadow:var(--neu-out-sm);
+}
+html[data-skin="neu"] .set-jump button.on,
+html[data-skin="neu"] .sj-bar button.on{
+  background:rgb(var(--s2));
+  box-shadow:var(--neu-in);
+  color:var(--accent-ink);
+}
+
+/* The candles, so the chart is made of the same material as the panel it
+   sits in. See CandleChart.candleBody(). */
+html[data-skin="neu"]{ --candle-style:relief }
 html[data-skin="neu"] .field input,
 html[data-skin="neu"] .field select,
 html[data-skin="neu"] .ctrl,
@@ -769,6 +827,65 @@ html[data-skin="clay"] .top{ background:rgb(var(--s3) / .96); border-color:trans
 html[data-skin="clay"] .dd-menu,
 html[data-skin="clay"] .toast,
 html[data-skin="clay"] .notify-card{ background:rgb(var(--s7)); border:0 }
+
+/* This family had the thinnest reach of the twelve: it dressed the cards
+   and the buttons and then stopped, so the side panel and the whole
+   settings page were still the default glass desk with a violet accent.
+   "Velvet" has to be the material of the furniture, not of three cards.
+
+   Everything below is the same inflated surface the cards already use --
+   an inner light along the top, an inner shadow along the bottom, a long
+   soft shadow underneath - applied to the pieces that were missed. */
+html[data-skin="clay"] .nav{ box-shadow:var(--clay-out) }
+html[data-skin="clay"] .nav button.nav-tab{
+  border:0;
+  background:rgb(var(--s5));
+  box-shadow:inset 0 -3px 6px rgb(var(--shadow-rgb) / .22),
+             inset 0 3px 6px rgb(var(--wash) / .14),
+             0 6px 14px rgb(var(--shadow-rgb) / calc(.2 * var(--shadow-strength)));
+}
+/* Pressed in, not merely tinted - the counterpart of the inflated rest
+   state, and the thing that makes the selection legible without a border. */
+html[data-skin="clay"] .nav button.nav-tab.on,
+html[data-skin="clay"] .nav button.nav-tab:active{
+  background:rgb(var(--s3));
+  box-shadow:inset 0 4px 10px rgb(var(--shadow-rgb) / .34);
+  color:var(--accent-ink);
+}
+html[data-skin="clay"] .nav button.nav-tab:hover{ transform:translateY(calc(var(--lift) * 1.5)) }
+
+html[data-skin="clay"] .set-main .set-block,
+html[data-skin="clay"] .set-desk .card,
+html[data-skin="clay"] .sym-panel,
+html[data-skin="clay"] .sympick-pop{
+  background:rgb(var(--s5));
+  border:0;
+  backdrop-filter:none;
+  -webkit-backdrop-filter:none;
+  box-shadow:var(--clay-in), var(--clay-out);
+}
+html[data-skin="clay"] .set-jump,
+html[data-skin="clay"] .sj-bar,
+html[data-skin="clay"] .set-rail .set-jump{
+  background:rgb(var(--s5));
+  border:0;
+  box-shadow:var(--clay-out);
+}
+html[data-skin="clay"] .set-jump button,
+html[data-skin="clay"] .sj-bar button{
+  border:0;
+  background:rgb(var(--s6));
+  box-shadow:inset 0 -3px 6px rgb(var(--shadow-rgb) / .22),
+             inset 0 3px 6px rgb(var(--wash) / .14);
+}
+html[data-skin="clay"] .set-jump button.on,
+html[data-skin="clay"] .sj-bar button.on{
+  background:rgb(var(--s3));
+  box-shadow:inset 0 4px 10px rgb(var(--shadow-rgb) / .34);
+  color:var(--accent-ink);
+}
+
+html[data-skin="clay"]{ --candle-style:velvet }
 
 /* ---- cyber: neon on black --------------------------------------------
    The surface almost disappears and the *edge* carries everything: a lit

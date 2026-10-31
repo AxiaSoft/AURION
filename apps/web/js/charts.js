@@ -47,6 +47,21 @@ function chartTheme() {
     violetT: tri(violet, "124,108,255"),
     fib: light ? "#3c4a63" : "#c9d0de",
     tag: light ? "#f0e4bd" : "#1a1408",
+    /* How the body of a candle is made, not what colour it is.
+
+       Relief and Velvet are defined by the way a surface is formed -- one
+       presses shapes into the page with light, the other inflates them --
+       and every panel on the desk followed suit except the one thing a
+       trader actually looks at. The candles stayed flat rectangles, so on
+       those two themes the chart was the one rectangle on screen that had
+       not been themed at all.
+
+       Named by the theme layer rather than sniffed from data-skin here,
+       for the same reason the colours are: css/themes.css owns what a
+       material looks like, and this file owns drawing it. A theme that
+       says nothing gets "flat", which is the rectangle that was always
+       drawn. */
+    material: String(pick("--candle-style", "flat")).replace(/["']/g, "").trim(),
   };
   __aurionChartTheme = T;
   __aurionChartThemeRev = rev;
@@ -1242,11 +1257,72 @@ class CandleChart {
         ctx.lineWidth = 1.2;
         ctx.strokeRect(x - bodyW / 2, top, bodyW, h);
       } else {
-        ctx.globalAlpha = 0.94;
-        ctx.fillRect(x - bodyW / 2, top, bodyW, h);
-        ctx.globalAlpha = 1;
+        this.candleBody(ctx, T, x - bodyW / 2, top, bodyW, h, col);
       }
     });
+  }
+
+  /**
+   * One candle body, in whatever material the theme is made of.
+   *
+   * Flat is the rectangle that has always been drawn and stays the default
+   * for ten of the twelve themes. The other two earn their names here:
+   *
+   *   velvet  soft and inflated - rounded corners and a light wash down
+   *           the top third, so the body reads as a cushion rather than a
+   *           block. The radius is capped against both the width and the
+   *           height, because a two-pixel candle rounded by three pixels
+   *           is a dot and the trader loses the open/close edges.
+   *
+   *   relief  pressed out of the page - the fill, then a lighter top edge
+   *           and a darker bottom edge. One pixel each, drawn inside the
+   *           body so the candle keeps its exact bounds: the top of a body
+   *           IS the open or the close, and an emboss that grew the shape
+   *           by a pixel would be lying about the price.
+   *
+   * Both degrade to the flat rectangle when the body is too small to carry
+   * the detail, which is most of the chart when it is zoomed out.
+   */
+  candleBody(ctx, T, bx, by, bw, bh, col) {
+    const material = T.material;
+
+    if (material === "velvet" && bw >= 3 && bh >= 3) {
+      const r = Math.min(bw * 0.34, bh * 0.34, 3.5);
+      ctx.globalAlpha = 0.96;
+      ctx.beginPath();
+      if (ctx.roundRect) ctx.roundRect(bx, by, bw, bh, r);
+      else ctx.rect(bx, by, bw, bh);
+      ctx.fill();
+      // The inflated highlight. Clipped to the body so it follows the
+      // rounded corners instead of squaring them off again.
+      ctx.save();
+      ctx.clip();
+      ctx.globalAlpha = 0.16;
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(bx, by, bw, Math.max(1, bh * 0.34));
+      ctx.restore();
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = col;
+      return;
+    }
+
+    if (material === "relief" && bw >= 3 && bh >= 3) {
+      ctx.globalAlpha = 0.94;
+      ctx.fillRect(bx, by, bw, bh);
+      ctx.globalAlpha = 0.5;
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(bx, by, bw, 1);
+      ctx.globalAlpha = 0.34;
+      ctx.fillStyle = "#000000";
+      ctx.fillRect(bx, by + bh - 1, bw, 1);
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = col;
+      return;
+    }
+
+    ctx.globalAlpha = 0.94;
+    ctx.fillRect(bx, by, bw, bh);
+    ctx.globalAlpha = 1;
   }
 
   /** Resolve an indicator plot colour name to a real one. */
