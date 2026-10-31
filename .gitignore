@@ -68,3 +68,10 @@ engine/models/
 
 # Vendored UI/UX design-intelligence skill (tooling, not product code)
 .claude/skills/
+
+# Android shell build output and its signing key. The APK is reproducible
+# from apps/android/build.sh, and a keystore in the history would let
+# anyone sign an update that Android accepts as ours.
+apps/android/build/
+*.keystore
+*.jks
