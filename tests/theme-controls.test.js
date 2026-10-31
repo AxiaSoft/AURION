@@ -612,11 +612,11 @@ check("every new string exists in all three languages", () => {
 
 check("the browser is forced to pick up every file that changed", () => {
   const html = read("index.html");
-  const want = ["js/skins.js?v=desk99", "js/themes.js?v=desk129", "js/app.js?v=desk179",
-    "css/themes.css?v=desk119", "css/app.css?v=desk179", "css/skins.css?v=desk179",
+  const want = ["js/skins.js?v=desk99", "js/themes.js?v=desk129", "js/app.js?v=desk180",
+    "css/themes.css?v=desk119", "css/app.css?v=desk180", "css/skins.css?v=desk180",
     "js/colorpicker.js?v=desk2"];
   want.forEach((w) => { if (!html.includes(w)) throw new Error("index.html is missing " + w); });
-  if (!read("sw.js").includes("aurion-shell-v169")) throw new Error("the service worker cache was not bumped");
+  if (!read("sw.js").includes("aurion-shell-v170")) throw new Error("the service worker cache was not bumped");
 });
 
 /* ----------------------------------------------------------------- report */

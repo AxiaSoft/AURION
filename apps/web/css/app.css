@@ -3439,9 +3439,27 @@ html[dir="rtl"] .q-how[open] summary::before{ transform:rotate(0deg) }
  * ".card + .card", is two (0,2,0) - so it would have lost the cascade and
  * changed nothing. Naming both ends through :is() makes this (0,3,0),
  * which wins on specificity rather than on source order. */
-.grid > :is(.card, .grid, .row, .table-wrap) + :is(.card, .grid, .row, .table-wrap),
-.cmd > :is(.card, .grid, .row, .table-wrap) + :is(.card, .grid, .row, .table-wrap),
-.set-desk > :is(.card, .grid, .row, .table-wrap) + :is(.card, .grid, .row, .table-wrap){
+/* The list of containers was the part that rotted. .grid, .cmd and
+ * .set-desk were named when this was written; .ccx-pair, .ai-read,
+ * .exx-cols, .pfx-cols and .snd-wrap were all built afterwards, each of
+ * them a gap-owning grid, and each of them quietly took the margin back.
+ *
+ * It is not a spacing bug when it happens. These grids are align-items:
+ * stretch, so a track is as tall as its tallest item and every item fills
+ * it - but an item fills the track with its MARGIN box. A 14px top margin
+ * on the second card makes its border box 14px shorter than the first
+ * one's, side by side, at the same moment the grid is being asked to make
+ * them equal. That is the reported "the account panel is shorter than the
+ * risk panel beside it" and "the market-regime card is taller than the two
+ * next to it": one rule, two pages, and nothing wrong with either page.
+ *
+ * Written as one :is() over the parents so adding a container is adding a
+ * word. :is() carries the specificity of its most specific argument, so
+ * this is still (0,3,0) and still beats .card + .card (0,2,0) on weight
+ * rather than on source order. tests/card-stacking.test.js walks every
+ * view and fails if a gap-owning container is missing from the list. */
+:is(.grid, .cmd, .set-desk, .ccx-pair, .ai-read, .exx-cols, .pfx-cols, .snd-wrap)
+  > :is(.card, .grid, .row, .table-wrap) + :is(.card, .grid, .row, .table-wrap){
   margin-block-start:0;
 }
 
@@ -4229,6 +4247,13 @@ html[dir="rtl"] .ai-h{letter-spacing:0;text-transform:none}
 .ai-read-card{display:flex;flex-direction:column;gap:4px}
 .ai-read-v{margin:0;font-size:20px;font-weight:700;line-height:1.2}
 .ai-need{font-style:normal;font-weight:500;color:var(--muted);font-size:15px}
+/* The button is pushed to the foot of its card so the three tiles read as
+   one row rather than three ragged ones. `.ai-read-card .btn` is (0,2,0)
+   and the generic "a control that follows a paragraph" rule
+   `.card > p + .btn` is (0,2,1), so the margin:auto never applied and the
+   button sat 10px under the text with the card's whole remaining height
+   below it. Name the paragraph here too and it outweighs it. */
+.ai-read-card > p + .btn,
 .ai-read-card .btn{margin-block-start:auto;align-self:flex-start}
 .ai-hint{margin:0}
 

@@ -136,7 +136,7 @@ function leaveDesk(msg) {
     S._refreshAgain = false;
     S._refreshWait = null;
     S._hardRefreshing = false;
-    S.mountedView = null;
+    S.mountedView = null; S.mountedKey = null;
     API.setToken("");
     S.user = null;
     S.snap = null;
@@ -3560,7 +3560,33 @@ function show(view, opts) {
   if (changing) dismissCalendarCard();
   S.view = view;
   localStorage.setItem("aurion.view", view);
-  if (changing) {
+  /* Top of the page for a new page - and the chart workspace is a new
+     page even though it is the same view.
+
+     This used to be guarded on the view NAME alone, and opening an EA
+     chart does not change it: openChartDesk() sets S.chartFocus and calls
+     show("charts") from the charts view, so `changing` was false and the
+     stage kept whatever scroll offset the card list had. On a desktop the
+     cards fit above the fold and nothing showed. On a phone they are one
+     per row, so reaching any chart but the first means scrolling - and the
+     workspace then mounted into a stage still scrolled several hundred
+     pixels down. The .tv is about one viewport tall, so what you saw was
+     its lower half: chart on half the screen, nothing on the other half,
+     and the entire top bar - back, symbol, timeframe, indicators,
+     settings - above the top edge with no sign it was there. Opening the
+     side panel moved focus into it, the browser scrolled that into view,
+     the offset snapped back to zero and the page "fixed itself".
+     That is the whole bug. It was never the canvas.
+   
+     So the test is what is MOUNTED, not what the view is called: the view
+     plus whatever else decides which page it renders. Re-renders - a tick
+     arriving, a setting saved, reloadSettings restoring its own offset -
+     produce the same key and are left alone. */
+  const mountKey = view + (view === "charts" && S.chartFocus
+    ? "\u0000" + S.chartFocus.symbol + "\u0000" + S.chartFocus.timeframe
+    : "");
+  const remounting = S.mountedKey !== mountKey;
+  if (changing || remounting) {
     try { stage.scrollTop = 0; } catch { /* */ }
   }
   if (API.token) {
@@ -3597,6 +3623,7 @@ function show(view, opts) {
     bindView(view);
     enhanceSelects(stage);
     S.mountedView = view;
+    S.mountedKey = mountKey;
     S.viewMode = viewMode();
     if (view === "command" || view === "execution") S._gatePainted = gateKey();
     stage.classList.remove("is-leaving");
@@ -10707,7 +10734,7 @@ async function hardRefresh() {
   veil.innerHTML = "<span>" + I18N.t("common.refresh") + "…</span>";
   veil.classList.remove("hidden");
   try {
-    S.mountedView = null;
+    S.mountedView = null; S.mountedKey = null;
     await refresh(false);
     if (S.view === "markets" && S.symbol) await pickMarket(S.symbol, S.timeframe);
     if (S.view === "charts") {
@@ -11481,7 +11508,7 @@ function repaintForLanguage() {
   const desk = $("desk");
   if (desk && !desk.classList.contains("hidden")) {
     headerState();
-    S.mountedView = null;
+    S.mountedView = null; S.mountedKey = null;
     show(S.view, { animate: false });
   } else {
     paintGate();
