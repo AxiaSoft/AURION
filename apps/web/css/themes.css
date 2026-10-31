@@ -457,7 +457,7 @@ html[data-skin] .set-rail .set-jump:hover{
   border-radius:var(--radius-lg);
 }
 html[data-skin] .nav button,
-html[data-skin] .set-jump button{ border-radius:var(--radius-md) }
+html[data-skin] .set-jump button[data-jump]{ border-radius:var(--radius-md) }
 html[data-skin] .nav button:hover{ background:var(--surface-hover) }
 
 /* ---- elevated: dialogs, menus, toasts, notifications ------------------ */

@@ -362,6 +362,48 @@ check("on a phone the sheet's entries are dressed exactly like the rail's", () =
   return PARITY_TARGETS.length + " parts x 2 themes";
 });
 
+check("the sheet's own buttons are not dressed as navigation entries", () => {
+  /* The jumper contains three kinds of button: the entries, the
+     sheet's close button, and the search box's clear button. A rule
+     written as `.set-jump button` reaches all three, so the entry
+     treatment - width:100%, an entry's padding, a transparent
+     background, text-align:start - stretched the close button across
+     the whole sheet header and turned the 22px round clear button into
+     a full-width row. The clear button had been wearing that on the
+     desktop rail for as long as the rule existed.
+
+     The entries are the ones with somewhere to jump to, so the rules
+     say so. */
+  const markup = `<div id="app"><section id="desk">
+    <nav class="set-jump is-sheet">
+      <div class="sj-sheet-head"><b>t</b><button class="sj-close" id="set-sheet-close"><svg></svg></button></div>
+      <div class="sj-find"><span class="dsk-search sm"><input class="dsk-search-i">
+        <button class="dsk-search-x" id="set-q-clear"><svg></svg></button></span></div>
+      <div class="sj-list">${ENTRIES}</div>
+    </nav></section></div>`;
+  const { doc, flat } = sheetFor("aurora", { markup });
+  const bad = [];
+  const cases = [
+    ["the close button", "#set-sheet-close", { display: "grid", "inline-size": "36px", "border-radius": "10px" }],
+    ["the search's clear button", "#set-q-clear", { display: "grid", "inline-size": "22px", "border-radius": "50%" }],
+  ];
+  for (const [name, sel, want] of cases) {
+    const el = doc.querySelector(sel);
+    if (!el) { bad.push(name + " is missing"); continue; }
+    for (const [prop, v] of Object.entries(want)) {
+      const w = winner(flat, el, prop, 390);
+      if (!w || w.v.trim() !== v) bad.push(`${name} ${prop} = ${w ? w.v.trim() + " <= " + w.sel : "(none)"}, wanted ${v}`);
+    }
+    /* The specific failure: an entry's full-bleed width. */
+    const width = winner(flat, el, "width", 390);
+    if (width && /100%/.test(width.v)) bad.push(`${name} is stretched to 100% by ${width.sel}`);
+    const pad = winner(flat, el, "padding", 390);
+    if (pad && /8px 10px/.test(pad.v)) bad.push(`${name} wears an entry's padding from ${pad.sel}`);
+  }
+  if (bad.length) throw new Error(bad.join("\n      "));
+  return "2 buttons";
+});
+
 check("nothing that paints an entry is scoped to the rail any more", () => {
   /* The structural half of the same point: .set-rail may only carry
      what is genuinely about the rail's own shape - its grid column and

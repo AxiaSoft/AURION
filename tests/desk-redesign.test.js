@@ -966,7 +966,9 @@ if (!jsdom) {
          scoping the entries to the rail meant none of this reached the
          same entries once they were portaled into the bottom sheet. The
          override now covers both shapes. */
-      const i = appCss.indexOf('html[data-theme="light"] .set-jump button.on');
+      /* `button[data-jump].on`: the jumper's other two buttons - close
+         and clear - must not be caught by the entry rules. */
+      const i = appCss.indexOf('html[data-theme="light"] .set-jump button[data-jump].on');
       if (i < 0) throw new Error("the light rail override is gone");
       if (appCss.includes('html[data-theme="light"] .set-rail .set-jump button.on')) {
         throw new Error("the light override is scoped to the rail again, so the sheet misses it");

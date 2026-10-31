@@ -78,7 +78,7 @@ a:hover{ color:var(--accent-readable, var(--accent)) }
 .btn,
 .btn *,
 .lang-pills button.on,
-.set-jump button.on,
+.set-jump button[data-jump].on,
 .tabs button.on{ color:var(--accent-ink) }
 .chip.on,
 .nav button.on,
@@ -276,10 +276,8 @@ html .tabs button.on:focus{
   filter:none;
   box-shadow:none;
 }
-html .set-jump button.on:hover,
-html .set-jump button.on:focus,
-html .set-rail .set-jump button.on:hover,
-html .set-rail .set-jump button.on:focus{
+html .set-jump button[data-jump].on:hover,
+html .set-jump button[data-jump].on:focus{
   background:var(--accent);
   color:var(--accent-ink);
   transform:none;
@@ -334,7 +332,7 @@ html .cal-cell.pinned:hover{ border-color:var(--accent); transform:none }
   border-color:var(--line);
   transform:none;
 }
-.set-jump button:hover{ background:rgb(var(--wash) / .05); color:var(--ink) }
+.set-jump button[data-jump]:hover{ background:rgb(var(--wash) / .05); color:var(--ink) }
 
 /* Settings pairs. NOT a dense grid: the robot page is authored in deliberate
    pairs - auto trading with news, model with volume, AI gate with the danger
