@@ -273,8 +273,8 @@ html[dir="rtl"] .auth-brand h1{letter-spacing:.04em}
   border-radius:28px;
   padding:36px 32px 28px;
   box-shadow:var(--shadow);
-  backdrop-filter:blur(28px) saturate(140%);
-  -webkit-backdrop-filter:blur(28px) saturate(140%);
+  backdrop-filter:blur(calc(var(--blur, 18px) * 28 / 18)) saturate(140%);
+  -webkit-backdrop-filter:blur(calc(var(--blur, 18px) * 28 / 18)) saturate(140%);
   animation:rise .7s var(--ease-out) .08s both;
   text-align:start;
 }
@@ -356,8 +356,8 @@ html[dir="rtl"] .field span,html[dir="rtl"] .field > label{letter-spacing:0}
   border:1px solid rgb(var(--wash) / .14);
   border-radius:14px;padding:6px;
   box-shadow:0 22px 56px rgba(0,0,0,.62);
-  backdrop-filter:blur(22px) saturate(140%);
-  -webkit-backdrop-filter:blur(22px) saturate(140%);
+  backdrop-filter:blur(calc(var(--blur, 18px) * 22 / 18)) saturate(140%);
+  -webkit-backdrop-filter:blur(calc(var(--blur, 18px) * 22 / 18)) saturate(140%);
   overflow:auto;overscroll-behavior:contain;
 }
 .dd-opt{
@@ -570,7 +570,7 @@ html[dir="rtl"] .switch.on i{transform:translate(calc(var(--sw-travel) * -1),-50
 }
 .pay-veil{
   position:fixed;inset:0;z-index:280;display:grid;place-items:center;
-  background:rgb(var(--s1) / .72);backdrop-filter:blur(16px);padding:18px;
+  background:rgb(var(--s1) / .72);backdrop-filter:blur(calc(var(--blur, 18px) * 16 / 18));padding:18px;
 }
 .pay-card{width:min(520px,100%);text-align:start}
 .pay-card .keybox{
@@ -769,7 +769,7 @@ html[dir="rtl"] .set-h{letter-spacing:0;text-transform:none}
   padding:16px 10px calc(16px + var(--safe-b));
   background:rgb(var(--s2) / .62);
   border-inline-end:1px solid var(--line);
-  backdrop-filter:blur(20px);
+  backdrop-filter:blur(calc(var(--blur, 18px) * 20 / 18));
   /* Vertical only. Skins that give nav buttons a horizontal margin or an outer
      shadow used to push the content past the rail's width and hand it a
      sideways scrollbar. */
@@ -897,8 +897,8 @@ html[dir="rtl"] .nav button:hover{transform:translateX(-2px)}
   position:fixed;inset:0;z-index:70;
   border:0;padding:0;margin:0;
   background:rgba(4,5,10,.56);
-  backdrop-filter:blur(8px);
-  -webkit-backdrop-filter:blur(8px);
+  backdrop-filter:blur(calc(var(--blur, 18px) * 8 / 18));
+  -webkit-backdrop-filter:blur(calc(var(--blur, 18px) * 8 / 18));
 }
 .nav-scrim[hidden]{display:none !important}
 
@@ -909,7 +909,7 @@ html[dir="rtl"] .nav button:hover{transform:translateX(-2px)}
   min-height:var(--top);
   border-bottom:1px solid var(--line);
   background:rgb(var(--s2) / .38);
-  backdrop-filter:blur(18px);
+  backdrop-filter:blur(calc(var(--blur, 18px) * 18 / 18));
   min-width:0;
   z-index:40;
 }
@@ -972,8 +972,8 @@ html[dir="rtl"] .top-actions{justify-content:flex-start}
   border-radius:var(--r);
   padding:16px 16px 14px;
   box-shadow:0 10px 40px rgba(0,0,0,.22);
-  backdrop-filter:blur(18px) saturate(130%);
-  -webkit-backdrop-filter:blur(18px) saturate(130%);
+  backdrop-filter:blur(calc(var(--blur, 18px) * 18 / 18)) saturate(130%);
+  -webkit-backdrop-filter:blur(calc(var(--blur, 18px) * 18 / 18)) saturate(130%);
   position:relative;overflow:hidden;
   min-width:0;
   transition:transform .35s var(--ease), border-color .35s, box-shadow .35s;
@@ -1019,7 +1019,7 @@ tr:hover td{background:rgb(var(--wash) / .02)}
 
 .chart-box{position:relative;height:min(460px,58vh);border-radius:16px;overflow:hidden;background:rgba(0,0,0,.18);min-width:0}
 .chart-box canvas{width:100%;height:100%;display:block;touch-action:none}
-.chart-box .empty{position:absolute;inset:0;background:rgb(var(--s1) / .45);backdrop-filter:blur(6px)}
+.chart-box .empty{position:absolute;inset:0;background:rgb(var(--s1) / .45);backdrop-filter:blur(calc(var(--blur, 18px) * 6 / 18))}
 .legend{font-size:12px;color:var(--muted);min-width:0;overflow:hidden;text-overflow:ellipsis}
 
 .term{
@@ -1130,7 +1130,7 @@ tr:hover td{background:rgb(var(--wash) / .02)}
   pointer-events:auto;
   inline-size:min(420px, 100%);
   background:var(--glass2);border:1px solid var(--line);border-radius:14px;
-  padding-block:10px;padding-inline:14px 38px;box-shadow:var(--shadow);backdrop-filter:blur(16px);
+  padding-block:10px;padding-inline:14px 38px;box-shadow:var(--shadow);backdrop-filter:blur(calc(var(--blur, 18px) * 16 / 18));
   animation:toastIn .35s var(--ease-out);
   text-align:start;
   /* Swipeable on a finger as well as a mouse. pan-y leaves vertical page
@@ -1142,7 +1142,7 @@ tr:hover td{background:rgb(var(--wash) / .02)}
 
 .modal{
   position:fixed;inset:0;background:rgba(4,5,8,.55);display:grid;place-items:center;z-index:40;
-  backdrop-filter:blur(8px);
+  backdrop-filter:blur(calc(var(--blur, 18px) * 8 / 18));
   animation:rise .3s var(--ease);
 }
 .modal .card{width:min(420px,92vw)}
@@ -1174,8 +1174,8 @@ tr:hover td{background:rgb(var(--wash) / .02)}
     border-inline-end:1px solid var(--line);
     border-top:0;
     background:rgb(var(--s2) / .78);
-    backdrop-filter:blur(28px) saturate(150%);
-    -webkit-backdrop-filter:blur(28px) saturate(150%);
+    backdrop-filter:blur(calc(var(--blur, 18px) * 28 / 18)) saturate(150%);
+    -webkit-backdrop-filter:blur(calc(var(--blur, 18px) * 28 / 18)) saturate(150%);
     padding:max(18px, var(--safe-t)) 12px max(18px, var(--safe-b));
     box-shadow:none;
     overflow-x:hidden;
@@ -1326,7 +1326,7 @@ tr:hover td{background:rgb(var(--wash) / .02)}
   overflow:hidden;text-overflow:ellipsis;
 }
 .pos-card td{padding:12px 10px}
-.pos-card th{padding:10px;position:sticky;top:0;z-index:2;background:var(--s2, #11141c);backdrop-filter:blur(8px)}
+.pos-card th{padding:10px;position:sticky;top:0;z-index:2;background:var(--s2, #11141c);backdrop-filter:blur(calc(var(--blur, 18px) * 8 / 18))}
 .pos-card col.c-symbol{width:11%}
 .pos-card col.c-type{width:7%}
 .pos-card col.c-volume{width:7%}
@@ -1412,7 +1412,7 @@ fieldset.prop-fields.is-locked{
 
 .desk-reload{
   position:fixed;inset:0;z-index:300;display:grid;place-items:center;
-  background:rgb(var(--s1) / .72);backdrop-filter:blur(16px);
+  background:rgb(var(--s1) / .72);backdrop-filter:blur(calc(var(--blur, 18px) * 16 / 18));
   color:var(--ink);pointer-events:none;
 }
 .desk-reload span{
@@ -1662,8 +1662,8 @@ html[dir="rtl"] .chart-stage.sw-prev{animation-name:slideFromRight}
    backdrop-filter has real content behind it to frost. */
 .hdr-drawer{grid-area:stage;position:absolute;top:0;inset-inline:10px;margin-top:8px;z-index:95;
   border:1px solid var(--line);border-radius:16px;padding:12px;
-  background:rgb(var(--s2) / .94);backdrop-filter:blur(24px) saturate(150%);
-  -webkit-backdrop-filter:blur(24px) saturate(150%);
+  background:rgb(var(--s2) / .94);backdrop-filter:blur(calc(var(--blur, 18px) * 24 / 18)) saturate(150%);
+  -webkit-backdrop-filter:blur(calc(var(--blur, 18px) * 24 / 18)) saturate(150%);
   box-shadow:0 24px 60px rgba(0,0,0,.5);
 }
 .hdr-drawer:not([hidden]){display:block;animation:hdrDrop .26s var(--ease-out)}
@@ -1912,8 +1912,8 @@ input[type=range]{width:100%;accent-color:var(--cyan);height:28px;cursor:pointer
   inset-inline-end:0;
   z-index:60;
   background:rgb(var(--s2) / .78);
-  backdrop-filter:blur(18px) saturate(140%);
-  -webkit-backdrop-filter:blur(18px) saturate(140%);
+  backdrop-filter:blur(calc(var(--blur, 18px) * 18 / 18)) saturate(140%);
+  -webkit-backdrop-filter:blur(calc(var(--blur, 18px) * 18 / 18)) saturate(140%);
   border-bottom:1px solid var(--line);
 }
 .stage{
@@ -1959,7 +1959,7 @@ input[type=range]{width:100%;accent-color:var(--cyan);height:28px;cursor:pointer
   display:grid;place-items:center;
   border:1px solid rgb(var(--wash) / .18);
   background:rgb(var(--s2) / .72);color:var(--ink);
-  backdrop-filter:blur(12px);
+  backdrop-filter:blur(calc(var(--blur, 18px) * 12 / 18));
 }
 .welcome-sound svg{width:22px;height:22px}
 .welcome:not(.is-muted) .welcome-sound{display:none}
@@ -2199,7 +2199,7 @@ input[type=range]{width:100%;accent-color:var(--cyan);height:28px;cursor:pointer
 .sym-btn{display:flex;justify-content:space-between;align-items:center;gap:8px;width:100%;text-align:start}
 .sym-caret{color:var(--faint)}
 .sym-panel{position:absolute;z-index:60;inset-inline:0;top:calc(100% + 6px);background:var(--glass2);
-  border:1px solid var(--line);border-radius:14px;padding:8px;box-shadow:var(--shadow);backdrop-filter:blur(12px)}
+  border:1px solid var(--line);border-radius:14px;padding:8px;box-shadow:var(--shadow);backdrop-filter:blur(calc(var(--blur, 18px) * 12 / 18))}
 /* Spacing between siblings, added by the panel, never subtracted off a
    first or last child -- the desk's rule everywhere else. */
 .sym-panel > * + *{margin-block-start:8px}
@@ -2432,7 +2432,7 @@ html[data-glass="off"] *{
   position:sticky;top:8px;z-index:6;display:flex;flex-direction:column;gap:2px;flex-wrap:nowrap;
   padding:8px;margin:0;border:1px solid var(--line);border-radius:18px;
   background:linear-gradient(180deg, rgb(var(--s4) / .92), rgb(var(--s2) / .88));
-  backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
+  backdrop-filter:blur(calc(var(--blur, 18px) * 14 / 18));-webkit-backdrop-filter:blur(calc(var(--blur, 18px) * 14 / 18));
   max-height:calc(100vh - var(--top) - 24px);overflow-y:auto;scrollbar-width:thin;
 }
 /* The jumper's search. It sits above the first group heading and
@@ -2502,8 +2502,8 @@ html[dir="rtl"] .sj-grp{letter-spacing:0;text-transform:none;font-size:11px}
 .set-main .set-block{
   margin:0;padding:18px 20px 20px;border:1px solid var(--line);border-radius:20px;
   background:rgb(var(--s3) / .55);
-  backdrop-filter:blur(18px) saturate(130%);
-  -webkit-backdrop-filter:blur(18px) saturate(130%);
+  backdrop-filter:blur(calc(var(--blur, 18px) * 18 / 18)) saturate(130%);
+  -webkit-backdrop-filter:blur(calc(var(--blur, 18px) * 18 / 18)) saturate(130%);
   animation:setIn .28s var(--ease-out) both;
 }
 @keyframes setIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
@@ -2585,8 +2585,8 @@ html[dir="rtl"] .sj-grp{letter-spacing:0;text-transform:none;font-size:11px}
        data-glass rule strips this and skins.css grounds the surface to
        an opaque one in the same breath - which is the half that was
        missing before: the blur went and the transparency stayed. */
-    backdrop-filter:blur(18px) saturate(150%);
-    -webkit-backdrop-filter:blur(18px) saturate(150%);
+    backdrop-filter:blur(calc(var(--blur, 18px) * 18 / 18)) saturate(150%);
+    -webkit-backdrop-filter:blur(calc(var(--blur, 18px) * 18 / 18)) saturate(150%);
   }
   .sj-now{
     font-weight:500;min-inline-size:0;
@@ -2639,8 +2639,8 @@ html[dir="rtl"] .sj-grp{letter-spacing:0;text-transform:none;font-size:11px}
     /* As above: frosting here, colour from the theme, and both removed
        together when liquid glass is off. The sheet is parented out of
        .set-rail, so it cannot inherit the rail's own blur. */
-    backdrop-filter:blur(18px) saturate(150%);
-    -webkit-backdrop-filter:blur(18px) saturate(150%);
+    backdrop-filter:blur(calc(var(--blur, 18px) * 18 / 18)) saturate(150%);
+    -webkit-backdrop-filter:blur(calc(var(--blur, 18px) * 18 / 18)) saturate(150%);
     transform:translateY(102%);
     transition:transform .3s cubic-bezier(.32,.72,0,1);
     visibility:hidden;
@@ -3967,8 +3967,8 @@ html[dir="rtl"] .ct-side span{letter-spacing:0;text-transform:none;font-size:12p
   max-block-size:min(60vh, 420px);
   display:flex;flex-direction:column;
   background:var(--glass2);
-  backdrop-filter:blur(28px) saturate(140%);
-  -webkit-backdrop-filter:blur(28px) saturate(140%);
+  backdrop-filter:blur(calc(var(--blur, 18px) * 28 / 18)) saturate(140%);
+  -webkit-backdrop-filter:blur(calc(var(--blur, 18px) * 28 / 18)) saturate(140%);
   border:1px solid var(--line);border-radius:16px;
   box-shadow:0 24px 60px rgba(0,0,0,.45);
   overflow:hidden;

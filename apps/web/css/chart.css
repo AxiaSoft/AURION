@@ -1074,8 +1074,8 @@ html:fullscreen body { background: var(--bg) }
   max-height:min(34vh,240px);overflow:auto;overscroll-behavior:contain;
   padding:6px;border-radius:14px;
   background:rgb(var(--s3) / .92);
-  backdrop-filter:blur(18px) saturate(140%);
-  -webkit-backdrop-filter:blur(18px) saturate(140%);
+  backdrop-filter:blur(calc(var(--blur, 18px) * 18 / 18)) saturate(140%);
+  -webkit-backdrop-filter:blur(calc(var(--blur, 18px) * 18 / 18)) saturate(140%);
   border:1px solid var(--line);
   box-shadow:0 18px 40px rgba(0,0,0,.4);
 }

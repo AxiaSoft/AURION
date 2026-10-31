@@ -192,8 +192,18 @@ const setBlockPath = [
 ];
 
 const bf = resolve(appRules, setBlockPath, "backdrop-filter", 1200);
-ok(bf && /blur\(\s*\d/.test(bf.val),
+/* The radius is no longer a literal. Every backdrop blur on the desk is
+   expressed as a ratio of the theme's --blur knob, so a theme that asks
+   for no glass -- Relief, Velvet, Minimal, Monochrome -- actually gets
+   none here instead of being frosted at a hard-coded 18px regardless.
+   What this check is for is still true and still checked: the panel is
+   blurred rather than merely see-through. Matching a literal pixel value
+   was never the point, so the pattern accepts the knob as well as a
+   number rather than being deleted. */
+ok(bf && /blur\(\s*(\d|calc\([^)]*var\(--blur)/.test(bf.val),
   `the settings panel is frosted, not merely translucent (backdrop-filter: ${bf ? bf.val : "none"})`);
+ok(bf && /var\(--blur/.test(bf.val),
+  "and it is frosted by the theme's own blur knob, not by a hard-coded radius");
 const wbf = resolve(appRules, setBlockPath, "-webkit-backdrop-filter", 1200);
 ok(wbf && /blur\(/.test(wbf.val), "the settings panel carries the -webkit- prefix too");
 

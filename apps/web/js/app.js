@@ -828,7 +828,7 @@ function themesGalleryHtml() {
 
 /* The builder used to be the "custom" theme's private panel: it was hidden
    unless that one card was selected, and its sliders wrote to a slot only
-   that theme read. So a trader who liked Neumorphism but wanted less shadow
+   that theme read. So a trader who liked Relief but wanted less shadow
    had nowhere to go, and picking a background meant abandoning the theme
    they had chosen. The panel is now simply "the theme you are using": it is
    always shown, it edits whichever theme is active, and the edits are kept

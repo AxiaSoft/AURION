@@ -40,7 +40,7 @@
   var LS_CUSTOM = "aurion.theme.custom";
   /* Per-theme edits, keyed by theme id: {"neu":{"blur":12,"bg":"waves"}, ...}.
      The builder used to write to one slot that only the "custom" theme read,
-     so picking Neumorphism and moving a slider appeared to do nothing. Every
+     so picking Relief and moving a slider appeared to do nothing. Every
      theme is now editable and keeps its own edits, and the originals are
      never overwritten - they are the table above, so "reset" is exact. */
   var LS_EDITS = "aurion.theme.edits";
@@ -106,61 +106,61 @@
       id: "frost", accent: "ice", bg: "blobs", morph: "glass",
       knobs: { surface: 30, border: 22, blur: 34, radius: 24, shadow: 75, motion: 100 },
       swatch: ["#070c18", "#22304e", "#a5f3fc"],
-      candles: { dark: ["#2cdda8", "#f1415f"], light: ["#0b9d71", "#d20427"] },
+      candles: { dark: ["#24e3c6", "#ff5c8a"], light: ["#008e86", "#c81d5c"] },
     },
     {
       id: "neu", accent: "steel", bg: "flat", morph: "neu",
       knobs: { surface: 100, border: 0, blur: 0, radius: 26, shadow: 130, motion: 90 },
       swatch: ["#1b1f27", "#252b36", "#94a3b8"],
-      candles: { dark: ["#4cbd7d", "#d65c64"], light: ["#21874d", "#b6202a"] },
+      candles: { dark: ["#7bc49a", "#cd6f6a"], light: ["#3d7d58", "#a34a43"] },
     },
     {
       id: "clay", accent: "orchid", bg: "flat", morph: "clay",
       knobs: { surface: 100, border: 0, blur: 0, radius: 32, shadow: 140, motion: 125 },
       swatch: ["#191325", "#3d2f5c", "#c084fc"],
-      candles: { dark: ["#39d08f", "#ed457d"], light: ["#13955d", "#ce094a"] },
+      candles: { dark: ["#5fe0a8", "#ff5fa2"], light: ["#128a63", "#c01f6d"] },
     },
     {
       id: "aurora", accent: "violet", bg: "aurora", morph: "glass",
       knobs: { surface: 46, border: 15, blur: 28, radius: 26, shadow: 110, motion: 120 },
       swatch: ["#070919", "#2a2266", "#8b7bff"],
-      candles: { dark: ["#2fda9b", "#f73b6d"], light: ["#0d9c67", "#d60039"] },
+      candles: { dark: ["#45f0b4", "#ff4d93"], light: ["#0e9472", "#c01f6a"] },
     },
     {
       id: "cyber", accent: "magenta", bg: "grid", morph: "cyber",
       knobs: { surface: 78, border: 38, blur: 8, radius: 8, shadow: 95, motion: 110 },
       swatch: ["#030410", "#10183a", "#e879f9"],
-      candles: { dark: ["#10f975", "#fa3899"], light: ["#00a849", "#d6006b"] },
+      candles: { dark: ["#9dff2e", "#ff2bb4"], light: ["#4f9c00", "#c4007a"] },
     },
     {
       id: "minimal", accent: "sky", bg: "none", morph: "flat",
       knobs: { surface: 100, border: 14, blur: 0, radius: 10, shadow: 30, motion: 70 },
       swatch: ["#0c0e13", "#1e222a", "#38bdf8"],
-      candles: { dark: ["#40c985", "#e05652"], light: ["#189054", "#c11b15"] },
+      candles: { dark: ["#4ac46a", "#e8513f"], light: ["#2c8a3f", "#c4321f"] },
     },
     {
       id: "midnight", accent: "indigo", bg: "layered", morph: "solid",
       knobs: { surface: 94, border: 10, blur: 6, radius: 16, shadow: 115, motion: 90 },
       swatch: ["#04060f", "#182148", "#818cf8"],
-      candles: { dark: ["#34d595", "#ef4360"], light: ["#109862", "#d00628"] },
+      candles: { dark: ["#4fd8c0", "#f2537f"], light: ["#0d8a78", "#bf2250"] },
     },
     {
       id: "ocean", accent: "azure", bg: "waves", morph: "glass",
       knobs: { surface: 54, border: 14, blur: 24, radius: 22, shadow: 100, motion: 100 },
       swatch: ["#020e16", "#0c3c50", "#4cc9f0"],
-      candles: { dark: ["#2adfbb", "#eb474d"], light: ["#099f81", "#cb0b11"] },
+      candles: { dark: ["#1fe0d2", "#ff6a52"], light: ["#00897f", "#cc3a1e"] },
     },
     {
       id: "sunset", accent: "sunset", bg: "dusk", morph: "glass",
       knobs: { surface: 56, border: 14, blur: 22, radius: 26, shadow: 105, motion: 105 },
       swatch: ["#16080d", "#46212a", "#fb923c"],
-      candles: { dark: ["#3bce85", "#f15941"], light: ["#159354", "#d22004"] },
+      candles: { dark: ["#89e04a", "#fa5a33"], light: ["#468f12", "#c53a10"] },
     },
     {
       id: "mono", accent: "graphite", bg: "none", morph: "flat",
       knobs: { surface: 100, border: 18, blur: 0, radius: 4, shadow: 20, motion: 55 },
       swatch: ["#09090a", "#212123", "#d4d4d8"],
-      candles: { dark: ["#65a485", "#c07277"], light: ["#327754", "#9f383f"] },
+      candles: { dark: ["#86b79b", "#b9767c"], light: ["#3f6f54", "#9c4a50"] },
     },
     {
       id: "custom", accent: "aurora", bg: "soft", morph: "glass",
@@ -398,7 +398,7 @@
      Colour and font overrides.
 
      The builder used to move only the seven material numbers, so a trader
-     could make Neumorphism flatter but not change a single colour: the page,
+     could make Relief flatter but not change a single colour: the page,
      the panels, the text and the typeface all came from the theme and could
      not be touched. These five let the whole interface be recoloured without
      leaving the theme.

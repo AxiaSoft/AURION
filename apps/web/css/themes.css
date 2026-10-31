@@ -1826,7 +1826,7 @@ html[data-skin] .plan-card.popular{
 
 /* "Enabled" on a strategy card, and the same filled pill wherever it means
    "this one is on". A themed .pill rule carries one more attribute than
-   .st-live .pill.on does, so under Neumorphism the fill was being replaced by
+   .st-live .pill.on does, so under Relief the fill was being replaced by
    the resting surface and under Cyber the transparent edge came back as neon:
    the state was correct in the DOM and invisible on the screen.
 
@@ -1970,7 +1970,7 @@ html[data-motion="off"] .theme-card.on::after{ animation:none; opacity:0 }
   background:rgb(var(--s1) / .62);
   border:1px solid var(--line);
   color:var(--muted);
-  backdrop-filter:blur(6px);
+  backdrop-filter:blur(calc(var(--blur, 18px) * 6 / 18));
   transition:color var(--dur-2) var(--ease-1), border-color var(--dur-2) var(--ease-1);
 }
 .tc-lock svg{ width:12px; height:12px }

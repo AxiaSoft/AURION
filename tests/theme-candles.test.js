@@ -196,6 +196,50 @@ ok(worstPanel.v >= MIN_ON_PANEL,
 ok(worstGap.v >= MIN_HUE_GAP,
   `up and down stay ${MIN_HUE_GAP} deg apart everywhere (worst ${worstGap.v.toFixed(0)} deg at ${worstGap.who})`);
 
+/* The pairs have to be visibly different FROM EACH OTHER, not merely
+   unequal.
+
+   "No two themes share a pair" passed happily on a table where every up
+   colour sat between hue 146 and 168 -- twelve shades of the same green,
+   differing in the last digit of a hex code and in nothing a person could
+   see. Each theme is supposed to draw its candles out of its own palette,
+   so the spread across the table is the thing to measure: cyber's acid
+   lime, sunset's warm olive and ocean's aqua are the same direction in
+   three genuinely different greens.
+
+   Still inside the family rule below -- this widens the range the greens
+   and reds are drawn from, it does not let a theme pick a blue. */
+/* As a fraction of the window each family is allowed, not as a flat
+   number of degrees: the rising rule below permits hue 80-200 (120 deg)
+   and the falling rule permits 320-30 (70 deg), so demanding the same
+   absolute spread of both would quietly require the reds to use their
+   entire legal range and leave no room to tune one. */
+const FAMILY_WINDOW = { rising: 120, falling: 70 };
+const MIN_WINDOW_USE = 0.45;
+for (const cut of ["dark", "light"]) {
+  for (const [slot, which] of [[0, "rising"], [1, "falling"]]) {
+    const need = FAMILY_WINDOW[which] * MIN_WINDOW_USE;
+    // Measured on a circle, relative to the family's own mean, so the reds
+    // straddling 0 degrees are not read as a 350-degree spread.
+    const hs = T.THEMES.filter((t) => t.id !== "custom").map((t) => hue(hex2rgb(t.candles[cut][slot])));
+    const rad = hs.map((h) => (h * Math.PI) / 180);
+    const mean = Math.atan2(
+      rad.reduce((a, r) => a + Math.sin(r), 0) / rad.length,
+      rad.reduce((a, r) => a + Math.cos(r), 0) / rad.length);
+    const off = hs.map((h) => {
+      let d = h - (mean * 180) / Math.PI;
+      while (d > 180) d -= 360;
+      while (d < -180) d += 360;
+      return d;
+    });
+    const spread = Math.max(...off) - Math.min(...off);
+    ok(spread >= need,
+      `the ${cut} ${which} colours span ${spread.toFixed(0)} deg of hue across the themes, ` +
+      `${((spread / FAMILY_WINDOW[which]) * 100).toFixed(0)}% of the family's window ` +
+      `(>= ${(MIN_WINDOW_USE * 100).toFixed(0)}%, or the table is one colour twelve times)`);
+  }
+}
+
 /* Direction has to keep meaning the same thing. Whatever the theme, the
    rising colour is the greener of the two and the falling one the redder
    - a theme that swapped them would be a trap, not a style. */

@@ -144,7 +144,7 @@ a:hover{ color:var(--accent-readable, var(--accent)) }
   background:linear-gradient(180deg, rgb(var(--wash) / .045), transparent);
   pointer-events:none;
 }
-.switch{ backdrop-filter:blur(6px); -webkit-backdrop-filter:blur(6px) }
+.switch{ backdrop-filter:blur(calc(var(--blur, 18px) * 6 / 18)); -webkit-backdrop-filter:blur(calc(var(--blur, 18px) * 6 / 18)) }
 
 /* ===========================================================================
    3. Consistent rhythm and states
@@ -355,8 +355,8 @@ html .cal-cell.pinned:hover{ border-color:var(--accent); transform:none }
    =========================================================================== */
 .modal{
   background:rgba(4, 6, 11, .58);
-  backdrop-filter:blur(6px);
-  -webkit-backdrop-filter:blur(6px);
+  backdrop-filter:blur(calc(var(--blur, 18px) * 6 / 18));
+  -webkit-backdrop-filter:blur(calc(var(--blur, 18px) * 6 / 18));
 }
 html[data-theme="light"] .modal{ background:rgba(18, 24, 38, .38) }
 
@@ -648,8 +648,8 @@ table tbody tr,
 .notify-card,
 .modal-card{
   background:rgb(var(--s6) / .94);
-  backdrop-filter:blur(22px) saturate(140%);
-  -webkit-backdrop-filter:blur(22px) saturate(140%);
+  backdrop-filter:blur(calc(var(--blur, 18px) * 22 / 18)) saturate(140%);
+  -webkit-backdrop-filter:blur(calc(var(--blur, 18px) * 22 / 18)) saturate(140%);
   border:1px solid rgb(var(--wash) / .12);
 }
 html[data-theme="light"] :is(.sym-panel, .dd-menu, .cal-tip, .st-drop, .notify-card, .modal-card){
