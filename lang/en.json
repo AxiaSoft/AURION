@@ -743,8 +743,7 @@
     "emoji": "Marker",
     "triangle": "Triangle",
     "circle": "Circle",
-    "ellipse": "Ellipse",
-    "sessions": "Market sessions"
+    "ellipse": "Ellipse"
   },
   "gate": {
     "title": "Who trades",
@@ -1454,12 +1453,6 @@
       "macd": "Two moving averages, their difference and its signal line.",
       "stoch": "Where the close sits inside the recent range.",
       "atr": "How far price travels in a bar, on average."
-    },
-    "session": {
-      "sydney": "Sydney",
-      "tokyo": "Tokyo",
-      "london": "London",
-      "newyork": "New York"
     }
   },
   "signal": {

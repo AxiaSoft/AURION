@@ -1,32 +1,20 @@
 /**
- * Market sessions draw as spans, in their own band, and a position's
- * levels stay readable.
+ * Reading a signal with a finger, and an open position's levels.
  *
- * Three real defects.
+ * Two defects, both measured in a real browser before anything was
+ * changed, and both about a chart drawn on a canvas - where there is no
+ * DOM to assert against, so these run the real handlers and the real
+ * painters against recording stand-ins.
  *
- *  1. paintSessions read each bar's timestamp as `.time || .ts`, but
- *     norm() turns every incoming bar into a row keyed `t`. Every date
- *     was Invalid, so the bands and the open/close marks drew nothing
- *     at all - in live data as much as in the demo. The feature looked
- *     merely switched off, because the legend asks the wall clock
- *     rather than the chart and kept rendering happily.
+ *  1. A signal card needed several taps and moved the chart. The card
+ *     was a hover construct and a finger never hovers.
  *
- *  2. Once it drew, it was unreadable: full-height tints, a dashed
- *     vertical at every open and close, and a labelled chip on each.
- *     A session is an interval, so it is now one bar per centre in a
- *     reserved strip - and reserved matters, because overlaid it sat
- *     on the candle lows and on the stop line of any trade priced
- *     near the bottom of the screen.
- *
- *  3. A stop and a target were drawn with the candle up/down colours.
+ *  2. A stop and a target were drawn with the candle up/down colours.
  *     Those are built from each theme's own accent and are two shades
  *     of ONE hue by design, so the stop and the target came out the
- *     same colour.
+ *     same colour - on the default glass theme, both teal.
  *
- * This runs the real painters against a recording context rather than
- * reading the source, because a regex cannot prove a thing was drawn.
- *
- *     node tests/chart-sessions.test.js
+ *     node tests/chart-tap-levels.test.js
  */
 const path = require("node:path");
 
@@ -47,7 +35,7 @@ global.document = {
   addEventListener() {},
 };
 
-const { CandleChart, MARKET_SESSIONS } = require(path.join(__dirname, "..", "apps/web/js/charts.js"));
+const { CandleChart } = require(path.join(__dirname, "..", "apps/web/js/charts.js"));
 
 function recorder() {
   const calls = { fillRect: [], strokeRect: [], fillText: [], strokes: [] };
@@ -86,105 +74,14 @@ function makeRows(key) {
   return rows;
 }
 
-const LANE_H = 9;
-const STRIP = MARKET_SESSIONS.length * (LANE_H + 1) - 1 + 5;
-
 function layout(rows) {
   const plotL = 50, plotR = 850, plotT = 20, plotB = 470;
   const bw = (plotR - plotL) / rows.length;
   return {
     rows, plotL, plotR, plotT, plotB, bw, w: 900, h: 560, padR: 78,
-    sessH: STRIP, sessT: plotB + 5,
     xOf: (i) => plotL + i * bw + bw / 2,
     yOf: (p) => plotB - (p - 1.0400) * 100000,
   };
-}
-
-function paint(key, on = true) {
-  const { ctx, calls } = recorder();
-  const c = Object.create(CandleChart.prototype);
-  c.sessions = on;
-  c.ctx = ctx;
-  const L = layout(makeRows(key));
-  c.paintSessions(L);
-  return { calls, L };
-}
-
-/* ------------------------------------------------------------ it draws */
-
-const run = paint("t");
-const lanes = run.calls.fillRect.filter((r) => r.h === LANE_H);
-ok(lanes.length > MARKET_SESSIONS.length,
-  `the session strip is painted (${lanes.length} rects)`);
-
-/* A span is narrower than the whole plot; a full-width rect is the empty
-   track the lane always has. */
-const spans = lanes.filter((r) => r.w < run.L.plotR - run.L.plotL - 1);
-const laneYs = [...new Set(spans.map((r) => Math.round(r.y)))].sort((a, b) => a - b);
-ok(laneYs.length === MARKET_SESSIONS.length,
-  `every centre gets its own row (${laneYs.length} of ${MARKET_SESSIONS.length}: ${laneYs.join(", ")})`);
-
-/* The rows must not sit on each other, or two centres read as one. */
-let stacked = false;
-for (let i = 1; i < laneYs.length; i++) if (laneYs[i] - laneYs[i - 1] < LANE_H) stacked = true;
-ok(!stacked, "the rows are clear of each other");
-
-/* The whole point of the redesign: the strip has its own band and never
-   paints over the price. */
-const intruding = run.calls.fillRect.filter((r) => r.y < run.L.plotB)
-  .concat(run.calls.fillText.filter((t) => t.y < run.L.plotB));
-ok(intruding.length === 0,
-  `nothing is drawn over the plot (${intruding.length} intruding marks)`);
-
-/* A span's edges ARE the open and the close, which is the question the
-   chart is being asked. London opens at 07:00, and with 15-minute bars
-   from midnight that is bar 28. */
-const london = MARKET_SESSIONS.find((s) => s.id === "london");
-const lonLane = laneYs[MARKET_SESSIONS.indexOf(london)];
-const lonSpans = spans.filter((r) => Math.round(r.y) === lonLane).sort((a, b) => a.x - b.x);
-ok(lonSpans.length >= 1 && Math.abs(lonSpans[0].x - run.L.xOf(28)) < 1,
-  `a span starts where its centre opens (London at bar 28, x=${lonSpans[0] && Math.round(lonSpans[0].x)} vs ${Math.round(run.L.xOf(28))})`);
-/* London closes at 16:00, so the last bar it covers is 15:45 - bar 63. */
-ok(lonSpans.length >= 1 && Math.abs((lonSpans[0].x + lonSpans[0].w) - run.L.xOf(63)) < 1,
-  `...and ends where it closes, nine hours later (x=${lonSpans[0] && Math.round(lonSpans[0].x + lonSpans[0].w)} vs ${Math.round(run.L.xOf(63))})`);
-
-/* Named in place, so there is no legend to map colours back to centres. */
-const named = run.calls.fillText.map((t) => t.t);
-ok(MARKET_SESSIONS.every((s) => named.includes(s.label)),
-  `every row is named on the chart (${named.join(", ")})`);
-
-/* The regression itself: rows are keyed `t`, and that must be the key
-   that works. Reading `.time` produced Invalid Date and silence. */
-ok(paint("time").calls.fillRect.filter((r) => r.h === LANE_H && r.w < 790).length > 0,
-  "a row keyed `time` still works, so raw bars are not broken by the fix");
-ok(paint("nonsense").calls.fillText.length === 0,
-  "an unparseable bar draws no spans rather than nonsense ones");
-
-/* Nothing may be drawn when the feature is off - it is a preference. */
-const off = paint("t", false).calls;
-ok(off.fillRect.length === 0 && off.fillText.length === 0,
-  "switching sessions off draws nothing at all");
-
-/* ...and the band it reserves goes back to the price when it is off. */
-{
-  const c = Object.create(CandleChart.prototype);
-  c.sessions = true;
-  const on = c.sessionStripH(560, 14, 26);
-  c.sessions = false;
-  ok(on > 0 && c.sessionStripH(560, 14, 26) === 0,
-    `the strip only reserves height while it is on (${on}px, then 0)`);
-  c.sessions = true;
-  ok(c.sessionStripH(150, 14, 26) === 0,
-    "a short chart keeps its price and drops the strip");
-
-  /* The chart's button bar floats over the foot of the canvas on touch.
-     Measured: 32px tall, starting 44px above the bottom. The strip has
-     to clear it or it is read through a row of buttons. */
-  c._pointerType = "touch";
-  const coarse = c.sessionStripH(560, 14, 26);
-  ok(coarse >= on + 44,
-    `a touch layout reserves room for the floating buttons (${coarse}px vs ${on}px)`);
-  delete c._pointerType;
 }
 
 /* ============================================ a stop is not a down bar */
@@ -324,5 +221,5 @@ const touchUp = { pointerType: "touch", pointerId: 1, clientX: 100, clientY: 100
   ok(!c._sigHover, "a mouse click does not go through the tap path");
 }
 
-console.log(`\nchart-sessions + signal tap: ${passed} of ${passed + failed} checks passed`);
+console.log(`\nchart taps + levels: ${passed} of ${passed + failed} checks passed`);
 process.exitCode = failed ? 1 : 0;

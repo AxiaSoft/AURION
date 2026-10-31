@@ -10823,21 +10823,6 @@ async function hardRefresh() {
     veil.classList.add("hidden");
   }
 }
-/* Market sessions are a per-trader preference, not per chart: someone who
-   wants to see the London open wants it on every symbol they look at. */
-function chartSessionsOn() {
-  if (S.chartSessions !== undefined) return Boolean(S.chartSessions);
-  try { S.chartSessions = localStorage.getItem("aurion.chart.sessions") === "on"; }
-  catch (e) { S.chartSessions = false; }
-  return S.chartSessions;
-}
-
-function setChartSessions(on) {
-  S.chartSessions = Boolean(on);
-  try { localStorage.setItem("aurion.chart.sessions", S.chartSessions ? "on" : "off"); } catch (e) { /* ignore */ }
-  if (S.chart && typeof S.chart.setSessions === "function") S.chart.setSessions(S.chartSessions);
-}
-
 /* ===========================================================================
    Open positions beside a chart
    ===========================================================================
@@ -11097,7 +11082,6 @@ function bindChartDesk() {
     },
   });
   S.chart.setTool("cursor");
-  S.chart.setSessions(chartSessionsOn());
   S.chart.setSignals(S.chartSignals || [], S.showSignals);
   // Arriving here from a notification: if the marks for this symbol are
   // already loaded, pin straight away rather than waiting for the next poll.
@@ -11121,7 +11105,6 @@ function bindChartDesk() {
           .then((yes) => { if (yes) go(); });
       },
       onBack: () => closeChartDesk(),
-      onSessions: (on) => setChartSessions(on),
       // Strategy signals are premium and they come from the engine, so the
       // switch in the chart's settings menu is answered here rather than in
       // the interface layer.

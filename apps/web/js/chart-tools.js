@@ -828,7 +828,6 @@
     const c = ui.chart;
     return `<div class="tvm-sec">${esc(tt("chart.appearance", "Appearance"))}</div>
       ${toggleRow("grid", tt("chart.grid", "Grid"), c.grid)}
-      ${toggleRow("sessions", tt("draw.sessions", "Market sessions"), c.sessions)}
       <div class="tvm-sec">${esc(tt("chart.crosshair", "Crosshair"))}</div>
       <div class="tvm-choice">
         ${["cross", "dot", "none"].map((m) => `<button type="button" data-cross="${m}" class="${c.crosshair === m ? "on" : ""}">${esc(tt("chart.cross_" + m, m))}</button>`).join("")}
@@ -1701,8 +1700,6 @@
           const on = tg.getAttribute("aria-pressed") === "true";
           const what = tg.dataset.toggle;
           if (what === "grid") c.setGrid(!on);
-          if (what === "sessions" && ui.ctx.onSessions) ui.ctx.onSessions(!on);
-          else if (what === "sessions") c.setSessions(!on);
           if (what === "auto") c.setAutoScale(!on);
           if (what === "log") c.setLogScale(!on);
           if (what === "percent") c.setPercentScale(!on);

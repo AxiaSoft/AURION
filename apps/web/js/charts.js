@@ -81,131 +81,6 @@ function chartTheme() {
 
 
 /* ===========================================================================
-   Market sessions
-   ===========================================================================
-   The four centres that set the tone of a trading day. Hours are UTC and do
-   not move; the local clock does, which is exactly why they are stored this
-   way and converted at the edge rather than guessed from the browser.
-
-   Sydney is the one that wraps midnight, so every calculation below has to
-   handle a session whose end hour is smaller than its start - the usual source
-   of an overlay that quietly disappears for two hours a day.
-   =========================================================================== */
-const MARKET_SESSIONS = [
-  { id: "sydney", label: "Sydney", open: 21, close: 6, tint: [124, 108, 255] },
-  { id: "tokyo", label: "Tokyo", open: 0, close: 9, tint: [232, 192, 122] },
-  { id: "london", label: "London", open: 7, close: 16, tint: [62, 224, 196] },
-  { id: "newyork", label: "New York", open: 12, close: 21, tint: [255, 107, 138] },
-];
-
-/** Is this UTC hour inside the session? Handles the midnight wrap. */
-function sessionCovers(session, utcHour) {
-  const h = ((utcHour % 24) + 24) % 24;
-  return session.open <= session.close
-    ? h >= session.open && h < session.close
-    : h >= session.open || h < session.close;
-}
-
-/** Which sessions are open at a moment - London and New York overlap daily. */
-function sessionsAt(date) {
-  if (!(date instanceof Date) || isNaN(date.getTime())) return [];
-  const h = date.getUTCHours() + date.getUTCMinutes() / 60;
-  return MARKET_SESSIONS.filter((s) => sessionCovers(s, h));
-}
-
-
-/**
- * Which sessions open between one bar and the next.
- *
- * The open has to be marked on the candle where it actually happens, so this
- * compares two consecutive bar timestamps rather than asking "is it open now".
- * Two cases it has to survive: a gap in the data - a weekend, or a missing
- * hour - where a whole session may have opened between two bars, and the
- * midnight wrap, where the hour number goes down instead of up.
- */
-function sessionOpensBetween(prev, next) {
-  if (!(prev instanceof Date) || !(next instanceof Date)) return [];
-  if (isNaN(prev.getTime()) || isNaN(next.getTime())) return [];
-  const gapHours = (next.getTime() - prev.getTime()) / 3600000;
-  if (gapHours <= 0) return [];
-  // A gap of a day or more means every session opened in it; marking them all
-  // on one candle would be noise, so the gap itself is left unmarked.
-  if (gapHours >= 24) return [];
-
-  return MARKET_SESSIONS.filter((s) => {
-    const was = sessionCovers(s, prev.getUTCHours() + prev.getUTCMinutes() / 60);
-    const now = sessionCovers(s, next.getUTCHours() + next.getUTCMinutes() / 60);
-    if (!was && now) return true;
-    // On a coarse timeframe a session can open and the bar still land inside
-    // it later; walk the hours in between so a 4H candle still shows the open.
-    if (gapHours > 1) {
-      for (let h = 1; h < gapHours; h++) {
-        const at = new Date(prev.getTime() + h * 3600000);
-        const before = new Date(at.getTime() - 3600000);
-        if (!sessionCovers(s, before.getUTCHours()) && sessionCovers(s, at.getUTCHours())) return true;
-      }
-    }
-    return false;
-  });
-}
-
-
-/**
- * Which sessions close between one bar and the next.
- *
- * The mirror of sessionOpensBetween, and it has to exist separately rather
- * than being inferred from "the band ended here": the band is painted per
- * bar, so the last tinted candle is the last bar INSIDE the session, which
- * is not the same thing as the bar the session closed on. London closing at
- * 16:00 belongs on the 16:00 candle, not on the 15:45 one.
- */
-function sessionClosesBetween(prev, next) {
-  if (!(prev instanceof Date) || !(next instanceof Date)) return [];
-  if (isNaN(prev.getTime()) || isNaN(next.getTime())) return [];
-  const gapHours = (next.getTime() - prev.getTime()) / 3600000;
-  if (gapHours <= 0) return [];
-  // Same rule as the open: a weekend gap closed every session, and marking
-  // four closes on the Monday candle is noise rather than information.
-  if (gapHours >= 24) return [];
-
-  return MARKET_SESSIONS.filter((s) => {
-    const was = sessionCovers(s, prev.getUTCHours() + prev.getUTCMinutes() / 60);
-    const now = sessionCovers(s, next.getUTCHours() + next.getUTCMinutes() / 60);
-    if (was && !now) return true;
-    // On a coarse timeframe a whole session can open and close between two
-    // candles, so the transition has to be looked for hour by hour.
-    if (gapHours > 1) {
-      for (let h = 1; h < gapHours; h++) {
-        const at = new Date(prev.getTime() + h * 3600000);
-        const before = new Date(at.getTime() - 3600000);
-        if (sessionCovers(s, before.getUTCHours()) && !sessionCovers(s, at.getUTCHours())) return true;
-      }
-    }
-    return false;
-  });
-}
-
-
-/**
- * The centre's name in the trader's language.
- *
- * The table keeps the English name because it is also the fallback: a desk
- * running a language pack that has not been updated yet shows "London"
- * rather than a raw key.
- */
-const SESSION_LANE_H = 9;
-
-function sessionLabel(s) {
-  if (!s) return "";
-  try {
-    const key = "chart.session." + s.id;
-    const v = (typeof I18N !== "undefined" && I18N && I18N.t) ? I18N.t(key) : key;
-    return (!v || v === key) ? s.label : v;
-  } catch (e) { return s.label; }
-}
-
-
-/* ===========================================================================
    The chart engine
    ===========================================================================
    A 2D-canvas terminal chart. There is no charting library underneath it -
@@ -291,7 +166,6 @@ class CandleChart {
 
     /* ---- what is shown ------------------------------------------------ */
     this.type = "candles";
-    this.sessions = false;
     this.grid = true;
     this.crosshair = "cross";      // cross | dot | none
     this.tool = "cursor";
@@ -422,7 +296,6 @@ class CandleChart {
         grid: this.grid,
         crosshair: this.crosshair,
         magnet: this.magnet,
-        sessions: this.sessions,
       }));
     } catch { /* not fatal */ }
   }
@@ -433,7 +306,6 @@ class CandleChart {
     if (!st || typeof st !== "object") return;
     if (st.type) this.type = st.type;
     if (typeof st.grid === "boolean") this.grid = st.grid;
-    if (typeof st.sessions === "boolean") this.sessions = st.sessions;
     if (st.crosshair) this.crosshair = st.crosshair;
     if (st.magnet) this.magnet = st.magnet;
     if (st.scale) Object.assign(this.scale, st.scale, { mn: null, mx: null });
@@ -671,7 +543,6 @@ class CandleChart {
     return type;
   }
 
-  setSessions(on) { this.sessions = Boolean(on); this.saveState(); this.draw(); }
 
   setLevels(positions) {
     this.levels = Array.isArray(positions) ? positions.filter(Boolean) : [];
@@ -811,20 +682,6 @@ class CandleChart {
     return { w, h, padL: 10, padR: axisW, padT: 14, padB: 26, gapR: 10 };
   }
 
-  /** Height of the session strip, or 0 when it is off or will not fit. */
-  sessionStripH(h, padT, padB) {
-    if (!this.sessions) return 0;
-    const need = MARKET_SESSIONS.length * (SESSION_LANE_H + 1) - 1 + 5;
-    /* On a touch layout the chart's own button bar floats over the foot
-       of the canvas - measured at 32px tall, 44px up from the bottom -
-       so the strip would be half hidden behind it. Reserve that height
-       as well and draw the strip at the TOP of the reserved band, which
-       leaves the slack underneath for the buttons to sit in. */
-    const clear = this.coarse ? 48 : 0;
-    // A short chart keeps its price. The strip is useful, not essential.
-    return (h - padT - padB - need - clear) >= 140 ? need + clear : 0;
-  }
-
   /**
    * Everything the painters need, computed once per frame.
    *
@@ -843,14 +700,7 @@ class CandleChart {
       const def = this.indicatorDef(i.type);
       return i.visible !== false && def && def.pane === "sub";
     });
-    /* The session strip is reserved out of the height rather than drawn
-       over the plot. Overlaid, it sat on whatever the market happened to
-       be doing at the bottom of the screen - candle lows, and the stop
-       line of any trade priced down there. Given its own band nothing
-       can collide with it, and the price simply gets a slightly shorter
-       plot while it is switched on. */
-    const sessH = this.sessionStripH(h, padT, padB);
-    const usable = h - padT - padB - sessH;
+    const usable = h - padT - padB;
     let paneShare = 0;
     subs.forEach((i) => { paneShare += (this.indicatorDef(i.type).height || 0.18); });
     paneShare = Math.min(0.62, paneShare);
@@ -930,7 +780,6 @@ class CandleChart {
     }
 
     return {
-      sessH, sessT: padT + usable + 5,
       w, h, padL, padR, padT, padB, gapR, rows, start, bw, mn, mx,
       span: mx - mn, log, cells,
       plotL: padL,
@@ -996,98 +845,6 @@ class CandleChart {
     }
     return cut;
   }
-  /**
-   * The trading sessions, as a strip of spans under the candles.
-   *
-   * This began as tinted bands across the full height of the plot, a
-   * dashed vertical line at every open and every close, and a labelled
-   * chip on each one. It was accurate and it was unreadable: on a normal
-   * day that is eight verticals and eight chips over the price, and the
-   * tints stacked into a wash wherever two centres overlapped - which is
-   * most of the day, because London and New York overlap by four hours.
-   *
-   * A session is an interval, so it is drawn as one: a lane per centre,
-   * a bar from its open to its close. The left edge IS the open and the
-   * right edge IS the close, which is the question being asked, and it
-   * costs a 40px strip at the foot of the chart instead of the whole
-   * plot. Each lane keeps its row whether or not it is trading, so the
-   * strip reads as a timetable rather than as a pile of blocks, and the
-   * name is written into the first bar wide enough to hold it - there is
-   * no separate legend to map colours back to centres.
-   */
-  paintSessions(L) {
-    if (!this.sessions || !L.sessH) return;
-    const ctx = this.ctx;
-    const rows = L.rows || [];
-    if (rows.length < 2) return;
-
-    /* Collect each centre's visible spans. `t`, first: all() normalises
-       every incoming bar to a row keyed `t`, and reading `.time` here is
-       what made this whole feature draw nothing at all. */
-    const runs = new Map();
-    let prev = new Set();
-    for (let i = 0; i < rows.length; i++) {
-      const stamp = rows[i].t || rows[i].time || rows[i].ts;
-      const at = stamp ? new Date(stamp) : null;
-      if (!at || isNaN(at.getTime())) continue;
-      const open = new Set(sessionsAt(at).map((s) => s.id));
-      const x = L.xOf(i);
-      for (const id of open) {
-        if (!runs.has(id)) runs.set(id, []);
-        const list = runs.get(id);
-        if (!list.length || !prev.has(id)) list.push({ x0: x, x1: x });
-        else list[list.length - 1].x1 = x;
-      }
-      prev = open;
-    }
-
-    const laneH = SESSION_LANE_H, gap = 1;
-    const top = L.sessT;
-
-    ctx.save();
-    ctx.font = "9px IBM Plex Mono, Vazirmatn, monospace";
-    ctx.textBaseline = "middle";
-    ctx.textAlign = "left";
-
-    MARKET_SESSIONS.forEach((s, lane) => {
-      const y = top + lane * (laneH + gap);
-      const [r, g, b] = s.tint;
-
-      // The empty track, so a closed centre still has a visible row and
-      // the strip does not reshuffle as the chart is panned.
-      ctx.fillStyle = `rgba(${r},${g},${b},.07)`;
-      ctx.fillRect(L.plotL, y, L.plotR - L.plotL, laneH);
-
-      const list = runs.get(s.id) || [];
-      let widest = null;
-      for (const run of list) {
-        const w = Math.max(1.5, run.x1 - run.x0);
-        ctx.fillStyle = `rgba(${r},${g},${b},.5)`;
-        if (ctx.roundRect) {
-          ctx.beginPath();
-          ctx.roundRect(run.x0, y, w, laneH, Math.min(2, laneH / 2));
-          ctx.fill();
-        } else ctx.fillRect(run.x0, y, w, laneH);
-        if (!widest || w > widest.w) widest = { x: run.x0, w };
-      }
-
-      /* One name per lane, in the roomiest span it has on screen. The
-         ink is chosen against the tint rather than against the theme:
-         these bars carry their own colour, so the panel's text colour
-         is not necessarily readable on them. */
-      const name = sessionLabel(s);
-      const tw = ctx.measureText(name).width;
-      if (widest && widest.w > tw + 12) {
-        const lum = (r * 299 + g * 587 + b * 114) / 1000;
-        ctx.fillStyle = lum > 150 ? "rgba(0,0,0,.72)" : "rgba(255,255,255,.92)";
-        ctx.fillText(name, widest.x + 6, y + laneH / 2 + 0.5);
-      }
-    });
-
-    ctx.restore();
-  }
-
-
   /* =============================================================== paint == */
 
   /** Coalesce every redraw request in a frame into one paint. */
@@ -1136,8 +893,6 @@ class CandleChart {
     this.paintLastPrice(L);
     ctx.restore();
 
-    // Below the plot, so outside its clip.
-    this.paintSessions(L);
     this.paintPanes(L);
     this.paintAxes(L);
     this.paintCrosshair(L);
@@ -2110,7 +1865,23 @@ class CandleChart {
   /** Translate if the desk's dictionary is around; fall back to English. */
   i18n(key, fallback) {
     try {
-      const t = window.I18N && window.I18N.t ? window.I18N.t(key) : key;
+      /* The lexical binding, not window.I18N.
+
+         i18n.js declares `const I18N = {...}` at the top level of a
+         classic script. That is a global LEXICAL binding and never a
+         property of window, so `window.I18N` was undefined on every
+         desk and every label routed through here - the signal card's
+         rows, the pending-order tag, the level tags on the price axis -
+         silently rendered its English fallback whatever language the
+         trader had chosen. Measured in the browser: typeof window.I18N
+         "undefined", typeof I18N "object".
+
+         window is still tried second, so a host that does export it
+         there keeps working. */
+      const src = (typeof I18N !== "undefined" && I18N && I18N.t) ? I18N
+        : (typeof window !== "undefined" && window.I18N && window.I18N.t) ? window.I18N
+        : null;
+      const t = src ? src.t(key) : key;
       return !t || t === key ? fallback : t;
     } catch (e) { return fallback; }
   }
@@ -2138,8 +1909,8 @@ class CandleChart {
     ctx.font = "10px IBM Plex Mono, Vazirmatn, monospace";
     for (const pos of this.levels || []) {
       const items = [
-        [Number(pos.sl || 0), T.bad, this.i18n("chart.sl", "SL")],
-        [Number(pos.tp || 0), T.ok, this.i18n("chart.tp", "TP")],
+        [Number(pos.sl || 0), T.bad, this.i18n("signal.sl", "SL")],
+        [Number(pos.tp || 0), T.ok, this.i18n("signal.tp", "TP")],
         [Number(pos.price_open || 0), T.gold, String(pos.type || "POS").toUpperCase()],
       ];
       for (const [p, col, label] of items) {
@@ -4174,8 +3945,6 @@ class CandleChart {
 
 if (typeof module !== "undefined" && module.exports) {
   module.exports = {
-    MARKET_SESSIONS, sessionCovers, sessionsAt, sessionOpensBetween, sessionClosesBetween,
-    sessionLabel,
     SHAPE_POINTS, SHAPE_LABELS, CandleChart,
   };
 }
