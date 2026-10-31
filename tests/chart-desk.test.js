@@ -149,11 +149,17 @@ say(/sessionClosesBetween\(prevAt, at\)/.test(paint),
    which END of the session - these two are told apart by position, by
    dash and by fill as well. */
 say(/setLineDash\(open \? \[3, 3\] : \[1, 3\]\)/.test(paint), "open and close differ in dash");
-say(/L\.plotB - 16 - n \* 15/.test(paint) && /L\.plotT \+ 3 \+ n \* 15/.test(paint),
+say(/L\.plotB - 16 - row \* rowH/.test(paint) && /L\.plotT \+ 3 \+ row \* rowH/.test(paint),
   "open sits at the bottom, close at the top - never colour alone");
 say(/strokeRect/.test(paint), "the close chip is outlined where the open chip is filled");
-say(/n \* 15/.test(paint),
-  "two centres changing on one candle stack instead of overprinting");
+/* Labels used to stack on `n`, the index of the centres changing on ONE
+   candle. Two sessions opening a few bars apart therefore both took the
+   first row and printed through each other. They now stack on what has
+   actually been placed on that edge, which is checked for real - chips
+   are collected from a recording canvas and compared pairwise - in
+   tests/chart-sessions.test.js. */
+say(/taken\.some\(/.test(paint) && /row: r, x: lx, w: tw/.test(paint),
+  "a label takes the first row that is free, so none can overprint");
 
 /* ============================================================== sizing == */
 

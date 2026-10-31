@@ -359,6 +359,10 @@ class CandleChart {
     canvas.addEventListener("lostpointercapture", (e) => this.onCancel(e));
     canvas.addEventListener("pointerleave", (e) => {
       if (this.pointers && this.pointers.size) return; // mid-gesture, not a real leave
+      /* A finger "leaves" the canvas every time it lifts, which would
+         wipe the card in the same frame the tap just opened it. Touch
+         dismisses by tapping somewhere else instead. */
+      if (this.isTouch(e) || this._sigTapped) { this.hover = null; this.draw(); return; }
       this.hover = null; this._sigHover = null; this.draw();
     });
     canvas.addEventListener("contextmenu", (e) => this.onContext(e));
@@ -965,7 +969,14 @@ class CandleChart {
 
     ctx.save();
     for (let i = 0; i < rows.length; i++) {
-      const stamp = rows[i].time || rows[i].ts;
+      /* `t`, first. all() normalises every incoming bar into rows keyed
+         `t` (see the mapping above), so `time`/`ts` are only ever present
+         on the raw input - which is why this read Invalid Date for every
+         bar and the sessions drew nothing at all, in live data as much as
+         in the demo. The legend kept working because it asks the clock,
+         not the chart, which is what made the feature look merely empty
+         rather than broken. */
+      const stamp = rows[i].t || rows[i].time || rows[i].ts;
       const at = stamp ? new Date(stamp) : null;
       if (!at || isNaN(at.getTime())) continue;
       const open = sessionsAt(at);
@@ -989,6 +1000,13 @@ class CandleChart {
        TOP with an outlined chip and a fine dash. Colour still says which
        centre it is; position and weight say which end of the session. */
     ctx.font = "10px IBM Plex Mono, Vazirmatn, monospace";
+    this._sessRowsOpen = [];
+    /* The legend lives in the top-left and the closes stack down from the
+       same corner, so reserve its box before anything is placed. It is
+       measured, not guessed, with the same font the legend uses. */
+    let legendW = 8;
+    for (const s of MARKET_SESSIONS) legendW += ctx.measureText(sessionLabel(s)).width + 26;
+    this._sessRowsClose = [{ row: 0, x: L.plotL, w: legendW, y: L.plotT + 3 }];
 
     const mark = (x, s, n, kind) => {
       const tint = `rgb(${s.tint[0]},${s.tint[1]},${s.tint[2]})`;
@@ -1006,10 +1024,26 @@ class CandleChart {
       const hour = open ? s.open : s.close;
       const label = `${sessionLabel(s)} ${String(hour).padStart(2, "0")}:00`;
       const tw = ctx.measureText(label).width + 10;
-      // Stacked away from its own edge, so two centres changing on one candle
-      // do not print on top of each other.
-      const ly = open ? (L.plotB - 16 - n * 15) : (L.plotT + 3 + n * 15);
       const lx = Math.min(x + 3, L.plotR - tw - 2);
+
+      /* Stack off the real estate, not off the index.
+         `n` only counts the centres changing on THIS candle, so two
+         sessions opening a few bars apart both claimed row 0 and printed
+         through each other - which on a normal day is most of them:
+         "New York 12:0Sydney 21:00". Keep what has actually been placed
+         on each edge and take the first row that is free. A label with
+         nowhere to go is dropped rather than drawn over its neighbour;
+         the dashed line still marks the bar. */
+      const taken = open ? this._sessRowsOpen : this._sessRowsClose;
+      const rowH = 15, maxRows = Math.max(1, Math.floor((L.plotB - L.plotT) / (rowH * 3)));
+      let row = -1;
+      for (let r = 0; r < maxRows; r++) {
+        const y0 = open ? (L.plotB - 16 - r * rowH) : (L.plotT + 3 + r * rowH);
+        const clash = taken.some((b) => b.row === r && lx < b.x + b.w + 3 && lx + tw + 3 > b.x);
+        if (!clash) { row = r; taken.push({ row: r, x: lx, w: tw, y: y0 }); break; }
+      }
+      if (row < 0) return;
+      const ly = open ? (L.plotB - 16 - row * rowH) : (L.plotT + 3 + row * rowH);
 
       if (open) {
         ctx.fillStyle = tint;
@@ -1037,8 +1071,8 @@ class CandleChart {
     };
 
     for (let i = 1; i < rows.length; i++) {
-      const prevAt = new Date(rows[i - 1].time || rows[i - 1].ts || 0);
-      const at = new Date(rows[i].time || rows[i].ts || 0);
+      const prevAt = new Date(rows[i - 1].t || rows[i - 1].time || rows[i - 1].ts || 0);
+      const at = new Date(rows[i].t || rows[i].time || rows[i].ts || 0);
       const opens = sessionOpensBetween(prevAt, at);
       const closes = sessionClosesBetween(prevAt, at);
       if (!opens.length && !closes.length) continue;
@@ -3431,6 +3465,16 @@ class CandleChart {
     this._downAt = e ? { x: e.clientX, y: e.clientY } : null;
     this.armLongPress(e);
     const raw = this.hit(e);
+    /* A finger that lands on a signal is asking to read it. Remember
+       which one, so the lift can answer in one tap: a touch pointer
+       never produces the pointermove that the hover card is built on,
+       so before this a tap did literally nothing, and the card only
+       ever appeared because a real finger wobbles. */
+    this._downSig = null;
+    if (raw && raw.valid && this.isTouch(e)) {
+      const h = this.signalAt(raw.x, raw.y);
+      if (h) this._downSig = h;
+    }
     if (!raw) return;
     const hit = this.snapHit(raw);
 
@@ -3634,6 +3678,32 @@ class CandleChart {
       if (Math.hypot(e.clientX - this._downAt.x, e.clientY - this._downAt.y) > slop) {
         this._moved = true;
         this.clearLongPress();   // it became a drag, so it is not a press
+        /* Re-anchor the drag where it became one. Without this the chart
+           lurches by the whole slop distance on the first real move, and
+           with a bar only a few pixels wide even an unnoticed wobble
+           inside the slop used to round to a whole bar - which is the
+           jump you feel when tapping something on a phone.
+
+           A finger only. A mouse has no wobble to forgive, and moving
+           its anchor would make the pointer and the chart disagree by
+           the slop distance for the rest of the drag. */
+        if (this.isTouch(e) && this.drag && this.drag.mode === "pan") {
+          /* Anchor on the slop boundary, not under the finger. Moving
+             it all the way here would throw away everything this event
+             travelled, so a single large move - a flick, or one coarse
+             event from a slow device - would pan by nothing at all.
+             Taking the point where the gesture crossed the threshold
+             keeps it continuous: the pan starts at exactly zero and
+             grows from there, with the slop deducted once. */
+          const dxT = e.clientX - this._downAt.x;
+          const dyT = e.clientY - this._downAt.y;
+          const dist = Math.hypot(dxT, dyT) || 1;
+          this.drag.x = this._downAt.x + (dxT / dist) * slop;
+          this.drag.y = this._downAt.y + (dyT / dist) * slop;
+          this.drag.off = this.offset;
+          const L0 = this._L || this.layout();
+          if (L0) { this.drag.mn = L0.mn; this.drag.mx = L0.mx; }
+        }
       }
     } else if (!this._downAt) this._moved = true;
 
@@ -3663,6 +3733,11 @@ class CandleChart {
 
     if (this.drag) {
       if (this.drag.mode === "pan") {
+        /* Still inside the tap slop: this may yet be a tap, and a tap
+           must not move the chart by even one bar. Touch only - a mouse
+           drag is deliberate from the first pixel and has always
+           tracked the pointer one to one. */
+        if (!this._moved && this.isTouch(e)) return;
         const L = this._L || this.layout();
         if (L) {
           const dx = e.clientX - this.drag.x;
@@ -3757,6 +3832,46 @@ class CandleChart {
     // refit the chart, restore the price axis - is worth having on a
     // phone. Recognise it ourselves: two taps, close together in time
     // and in space.
+    /* One tap reads a signal.
+     *
+     * The card is a hover construct, and a finger never hovers: the only
+     * pointermove a tap produces is the wobble of the hand holding the
+     * phone, so the card appeared at random and the same wobble panned
+     * the chart under it. A tap that landed on a signal at pointerdown
+     * and has not turned into a drag shows that signal's card here, on
+     * the first tap, and nothing moves.
+     *
+     * Tapping it again, or anywhere else, puts it away - so there is a
+     * way out that does not require finding a close button on a canvas.
+     * It deliberately does not feed the double-tap tracker below: two
+     * taps on a signal are "open it, close it", not "refit the chart".
+     */
+    if (this.isTouch(e) && !this._moved && !this._longFired) {
+      const tapped = this._downSig;
+      const showing = this._sigHover;
+      this._downSig = null;
+      if (tapped) {
+        const same = showing && showing.sig === tapped.sig;
+        this._sigHover = same ? null : tapped;
+        this._pinned = same ? null : tapped.sig;
+        this._sigTapped = !same;
+        this._lastTap = null;
+        this.drag = null;
+        this.canvas.style.cursor = this.cursorFor();
+        this.draw();
+        return;
+      }
+      if (showing || this._pinned) {
+        this._sigHover = null;
+        this._pinned = null;
+        this._sigTapped = false;
+        this.drag = null;
+        this.canvas.style.cursor = this.cursorFor();
+        this.draw();
+        return;
+      }
+    }
+
     if (e && (e.pointerType === "touch" || e.pointerType === "pen") && !this._moved) {
       const now = Date.now();
       const last = this._lastTap;
@@ -3848,6 +3963,21 @@ class CandleChart {
    * A hybrid laptop reports coarse too, and that is the right default:
    * generous targets cost a mouse user nothing.
    */
+  /**
+   * Is THIS event a finger?
+   *
+   * `coarse` answers for the device and deliberately keeps its last
+   * answer, which is right for sizing handles but wrong for deciding
+   * what a gesture meant: on a touchscreen laptop it stays true while a
+   * mouse is being used. Anything that changes behaviour rather than
+   * size asks this instead, and only falls back to the device when the
+   * event itself has nothing to say.
+   */
+  isTouch(e) {
+    if (e && e.pointerType) return e.pointerType === "touch" || e.pointerType === "pen";
+    return this.coarse;
+  }
+
   get coarse() {
     if (this._pointerType) return this._pointerType === "touch" || this._pointerType === "pen";
     if (this._coarseDevice == null) {

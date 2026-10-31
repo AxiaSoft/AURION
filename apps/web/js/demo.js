@@ -52,6 +52,27 @@
   try { sessionStorage.setItem("aurion.demo", "1"); } catch {}
   window.AURION_DEMO = true;
 
+  /* Market sessions start switched on in the demo.
+
+     They are a per-trader preference and default to off on a real desk,
+     which is right - but a demo is a shop window, and a feature nobody
+     thinks to switch on is a feature nobody knows exists. The sessions
+     are also most of the answer to "why did nothing trade overnight",
+     so they belong on screen the first time anyone opens a chart here.
+
+     Seeded as a stored preference rather than read back by the desk:
+     app.js must never mention the demo, because demo.js is stripped
+     out of an installed copy and a reference to it would be left
+     dangling (tests/demo-not-shipped.test.js enforces exactly that).
+     Writing the key means the toggle still owns the setting - switch it
+     off and it stays off, because the value is only seeded when the
+     trader has not expressed a preference at all. */
+  try {
+    if (localStorage.getItem("aurion.chart.sessions") === null) {
+      localStorage.setItem("aurion.chart.sessions", "on");
+    }
+  } catch {}
+
   /* The brand clip plays in the demo too.
 
      It used to be deleted here. The reasoning was that boot() awaits
