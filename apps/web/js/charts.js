@@ -30,6 +30,15 @@ function chartTheme() {
   // of a bar has to mean the same thing in every theme the user can choose.
   const up = pick("--candle-up", "#26d07c");
   const down = pick("--candle-down", "#f4475b");
+  /* A stop and a target are a loss and a profit, not a down bar and an
+     up bar. --candle-up / --candle-down are built from each theme's own
+     accent and are deliberately two shades of ONE hue, so a stop drawn
+     with them came out the same colour as its target - on the glass
+     theme both were teal. --ok and --bad are the semantic pair and stay
+     green and red in every theme, which is the whole reason they were
+     split from the candle colours in the first place. */
+  const ok = pick("--ok", "#26d07c");
+  const bad = pick("--bad", "#f4475b");
   const gold = pick("--gold", "#e8c07a");
   const violet = pick("--violet", "#7c6cff");
   const light = (typeof document !== "undefined" && document.documentElement && document.documentElement.dataset.theme) === "light";
@@ -40,9 +49,11 @@ function chartTheme() {
     text: pick("--chart-text", "#e8edf7"),
     muted: pick("--chart-muted", "#8b93a7"),
     panel: pick("--chart-panel", "rgba(10,12,18,.9)"),
-    up, down, gold, violet,
+    up, down, gold, violet, ok, bad,
     upT: tri(up, "38,208,124"),
     downT: tri(down, "244,71,91"),
+    okT: tri(ok, "38,208,124"),
+    badT: tri(bad, "244,71,91"),
     goldT: tri(gold, "232,192,122"),
     violetT: tri(violet, "124,108,255"),
     fib: light ? "#3c4a63" : "#c9d0de",
@@ -182,6 +193,8 @@ function sessionClosesBetween(prev, next) {
  * running a language pack that has not been updated yet shows "London"
  * rather than a raw key.
  */
+const SESSION_LANE_H = 9;
+
 function sessionLabel(s) {
   if (!s) return "";
   try {
@@ -798,6 +811,20 @@ class CandleChart {
     return { w, h, padL: 10, padR: axisW, padT: 14, padB: 26, gapR: 10 };
   }
 
+  /** Height of the session strip, or 0 when it is off or will not fit. */
+  sessionStripH(h, padT, padB) {
+    if (!this.sessions) return 0;
+    const need = MARKET_SESSIONS.length * (SESSION_LANE_H + 1) - 1 + 5;
+    /* On a touch layout the chart's own button bar floats over the foot
+       of the canvas - measured at 32px tall, 44px up from the bottom -
+       so the strip would be half hidden behind it. Reserve that height
+       as well and draw the strip at the TOP of the reserved band, which
+       leaves the slack underneath for the buttons to sit in. */
+    const clear = this.coarse ? 48 : 0;
+    // A short chart keeps its price. The strip is useful, not essential.
+    return (h - padT - padB - need - clear) >= 140 ? need + clear : 0;
+  }
+
   /**
    * Everything the painters need, computed once per frame.
    *
@@ -816,7 +843,14 @@ class CandleChart {
       const def = this.indicatorDef(i.type);
       return i.visible !== false && def && def.pane === "sub";
     });
-    const usable = h - padT - padB;
+    /* The session strip is reserved out of the height rather than drawn
+       over the plot. Overlaid, it sat on whatever the market happened to
+       be doing at the bottom of the screen - candle lows, and the stop
+       line of any trade priced down there. Given its own band nothing
+       can collide with it, and the price simply gets a slightly shorter
+       plot while it is switched on. */
+    const sessH = this.sessionStripH(h, padT, padB);
+    const usable = h - padT - padB - sessH;
     let paneShare = 0;
     subs.forEach((i) => { paneShare += (this.indicatorDef(i.type).height || 0.18); });
     paneShare = Math.min(0.62, paneShare);
@@ -896,6 +930,7 @@ class CandleChart {
     }
 
     return {
+      sessH, sessT: padT + usable + 5,
       w, h, padL, padR, padT, padB, gapR, rows, start, bw, mn, mx,
       span: mx - mn, log, cells,
       plotL: padL,
@@ -961,143 +996,94 @@ class CandleChart {
     }
     return cut;
   }
+  /**
+   * The trading sessions, as a strip of spans under the candles.
+   *
+   * This began as tinted bands across the full height of the plot, a
+   * dashed vertical line at every open and every close, and a labelled
+   * chip on each one. It was accurate and it was unreadable: on a normal
+   * day that is eight verticals and eight chips over the price, and the
+   * tints stacked into a wash wherever two centres overlapped - which is
+   * most of the day, because London and New York overlap by four hours.
+   *
+   * A session is an interval, so it is drawn as one: a lane per centre,
+   * a bar from its open to its close. The left edge IS the open and the
+   * right edge IS the close, which is the question being asked, and it
+   * costs a 40px strip at the foot of the chart instead of the whole
+   * plot. Each lane keeps its row whether or not it is trading, so the
+   * strip reads as a timetable rather than as a pile of blocks, and the
+   * name is written into the first bar wide enough to hold it - there is
+   * no separate legend to map colours back to centres.
+   */
   paintSessions(L) {
-    if (!this.sessions) return;
+    if (!this.sessions || !L.sessH) return;
     const ctx = this.ctx;
     const rows = L.rows || [];
     if (rows.length < 2) return;
 
-    ctx.save();
+    /* Collect each centre's visible spans. `t`, first: all() normalises
+       every incoming bar to a row keyed `t`, and reading `.time` here is
+       what made this whole feature draw nothing at all. */
+    const runs = new Map();
+    let prev = new Set();
     for (let i = 0; i < rows.length; i++) {
-      /* `t`, first. all() normalises every incoming bar into rows keyed
-         `t` (see the mapping above), so `time`/`ts` are only ever present
-         on the raw input - which is why this read Invalid Date for every
-         bar and the sessions drew nothing at all, in live data as much as
-         in the demo. The legend kept working because it asks the clock,
-         not the chart, which is what made the feature look merely empty
-         rather than broken. */
       const stamp = rows[i].t || rows[i].time || rows[i].ts;
       const at = stamp ? new Date(stamp) : null;
       if (!at || isNaN(at.getTime())) continue;
-      const open = sessionsAt(at);
-      if (!open.length) continue;
-
-      const x = L.xOf(i) - L.bw / 2;
-      for (const s of open) {
-        ctx.fillStyle = `rgba(${s.tint[0]},${s.tint[1]},${s.tint[2]},0.06)`;
-        ctx.fillRect(x, L.plotT, L.bw + 0.5, L.plotB - L.plotT);
+      const open = new Set(sessionsAt(at).map((s) => s.id));
+      const x = L.xOf(i);
+      for (const id of open) {
+        if (!runs.has(id)) runs.set(id, []);
+        const list = runs.get(id);
+        if (!list.length || !prev.has(id)) list.push({ x0: x, x1: x });
+        else list[list.length - 1].x1 = x;
       }
+      prev = open;
     }
 
-    /* The open and the close, each on the candle where it actually happens.
-       The band says a session is running. These two say where it started and
-       where it ended, which is the thing a trader marks up - a tint alone
-       cannot be read off to a precise bar.
+    const laneH = SESSION_LANE_H, gap = 1;
+    const top = L.sessT;
 
-       Open and close must be told apart without reading the text, so they
-       differ in three ways at once and never in colour alone: the open sits
-       at the BOTTOM with a filled chip and a long dash, the close sits at the
-       TOP with an outlined chip and a fine dash. Colour still says which
-       centre it is; position and weight say which end of the session. */
-    ctx.font = "10px IBM Plex Mono, Vazirmatn, monospace";
-    this._sessRowsOpen = [];
-    /* The legend lives in the top-left and the closes stack down from the
-       same corner, so reserve its box before anything is placed. It is
-       measured, not guessed, with the same font the legend uses. */
-    let legendW = 8;
-    for (const s of MARKET_SESSIONS) legendW += ctx.measureText(sessionLabel(s)).width + 26;
-    this._sessRowsClose = [{ row: 0, x: L.plotL, w: legendW, y: L.plotT + 3 }];
-
-    const mark = (x, s, n, kind) => {
-      const tint = `rgb(${s.tint[0]},${s.tint[1]},${s.tint[2]})`;
-      const open = kind === "open";
-
-      ctx.strokeStyle = tint;
-      ctx.setLineDash(open ? [3, 3] : [1, 3]);
-      ctx.lineWidth = open ? 1.2 : 1;
-      ctx.beginPath();
-      ctx.moveTo(x, L.plotT);
-      ctx.lineTo(x, L.plotB);
-      ctx.stroke();
-      ctx.setLineDash([]);
-
-      const hour = open ? s.open : s.close;
-      const label = `${sessionLabel(s)} ${String(hour).padStart(2, "0")}:00`;
-      const tw = ctx.measureText(label).width + 10;
-      const lx = Math.min(x + 3, L.plotR - tw - 2);
-
-      /* Stack off the real estate, not off the index.
-         `n` only counts the centres changing on THIS candle, so two
-         sessions opening a few bars apart both claimed row 0 and printed
-         through each other - which on a normal day is most of them:
-         "New York 12:0Sydney 21:00". Keep what has actually been placed
-         on each edge and take the first row that is free. A label with
-         nowhere to go is dropped rather than drawn over its neighbour;
-         the dashed line still marks the bar. */
-      const taken = open ? this._sessRowsOpen : this._sessRowsClose;
-      const rowH = 15, maxRows = Math.max(1, Math.floor((L.plotB - L.plotT) / (rowH * 3)));
-      let row = -1;
-      for (let r = 0; r < maxRows; r++) {
-        const y0 = open ? (L.plotB - 16 - r * rowH) : (L.plotT + 3 + r * rowH);
-        const clash = taken.some((b) => b.row === r && lx < b.x + b.w + 3 && lx + tw + 3 > b.x);
-        if (!clash) { row = r; taken.push({ row: r, x: lx, w: tw, y: y0 }); break; }
-      }
-      if (row < 0) return;
-      const ly = open ? (L.plotB - 16 - row * rowH) : (L.plotT + 3 + row * rowH);
-
-      if (open) {
-        ctx.fillStyle = tint;
-        ctx.globalAlpha = 0.9;
-        ctx.fillRect(lx, ly, tw, 13);
-        ctx.globalAlpha = 1;
-        ctx.fillStyle = "#06070b";
-      } else {
-        /* Outlined, so a close never reads as the heavier of the two marks.
-           The chip is filled with the chart's own panel colour and the text
-           drawn in the chart's own foreground, because those two are the one
-           pair guaranteed to be legible in every theme including light. The
-           centre's colour is carried by the border instead - putting it in
-           the text would hand a mid-tint like the Tokyo gold a contrast
-           ratio nobody can read on a pale background. */
-        const T = chartTheme();
-        ctx.fillStyle = T.panel;
-        ctx.fillRect(lx, ly, tw, 13);
-        ctx.strokeStyle = tint;
-        ctx.lineWidth = 1;
-        ctx.strokeRect(lx + 0.5, ly + 0.5, tw - 1, 12);
-        ctx.fillStyle = T.text;
-      }
-      ctx.fillText(label, lx + 5, ly + 10);
-    };
-
-    for (let i = 1; i < rows.length; i++) {
-      const prevAt = new Date(rows[i - 1].t || rows[i - 1].time || rows[i - 1].ts || 0);
-      const at = new Date(rows[i].t || rows[i].time || rows[i].ts || 0);
-      const opens = sessionOpensBetween(prevAt, at);
-      const closes = sessionClosesBetween(prevAt, at);
-      if (!opens.length && !closes.length) continue;
-
-      const x = Math.round(L.xOf(i) - L.bw / 2) + 0.5;
-      opens.forEach((s, n) => mark(x, s, n, "open"));
-      closes.forEach((s, n) => mark(x, s, n, "close"));
-    }
-    ctx.restore();
-
-    // A legend, because a coloured band nobody can name is just tinting.
     ctx.save();
-    ctx.font = "10px IBM Plex Mono, Vazirmatn, monospace";
-    ctx.textBaseline = "top";
-    const nowOpen = sessionsAt(new Date()).map((s) => s.id);
-    let lx = L.plotL + 8;
-    for (const s of MARKET_SESSIONS) {
-      const live = nowOpen.includes(s.id);
-      ctx.fillStyle = `rgba(${s.tint[0]},${s.tint[1]},${s.tint[2]},${live ? 0.95 : 0.4})`;
-      ctx.fillRect(lx, L.plotT + 7, 7, 7);
-      ctx.fillStyle = live ? chartTheme().text : chartTheme().muted;
+    ctx.font = "9px IBM Plex Mono, Vazirmatn, monospace";
+    ctx.textBaseline = "middle";
+    ctx.textAlign = "left";
+
+    MARKET_SESSIONS.forEach((s, lane) => {
+      const y = top + lane * (laneH + gap);
+      const [r, g, b] = s.tint;
+
+      // The empty track, so a closed centre still has a visible row and
+      // the strip does not reshuffle as the chart is panned.
+      ctx.fillStyle = `rgba(${r},${g},${b},.07)`;
+      ctx.fillRect(L.plotL, y, L.plotR - L.plotL, laneH);
+
+      const list = runs.get(s.id) || [];
+      let widest = null;
+      for (const run of list) {
+        const w = Math.max(1.5, run.x1 - run.x0);
+        ctx.fillStyle = `rgba(${r},${g},${b},.5)`;
+        if (ctx.roundRect) {
+          ctx.beginPath();
+          ctx.roundRect(run.x0, y, w, laneH, Math.min(2, laneH / 2));
+          ctx.fill();
+        } else ctx.fillRect(run.x0, y, w, laneH);
+        if (!widest || w > widest.w) widest = { x: run.x0, w };
+      }
+
+      /* One name per lane, in the roomiest span it has on screen. The
+         ink is chosen against the tint rather than against the theme:
+         these bars carry their own colour, so the panel's text colour
+         is not necessarily readable on them. */
       const name = sessionLabel(s);
-      ctx.fillText(name, lx + 11, L.plotT + 6);
-      lx += ctx.measureText(name).width + 26;
-    }
+      const tw = ctx.measureText(name).width;
+      if (widest && widest.w > tw + 12) {
+        const lum = (r * 299 + g * 587 + b * 114) / 1000;
+        ctx.fillStyle = lum > 150 ? "rgba(0,0,0,.72)" : "rgba(255,255,255,.92)";
+        ctx.fillText(name, widest.x + 6, y + laneH / 2 + 0.5);
+      }
+    });
+
     ctx.restore();
   }
 
@@ -1139,7 +1125,6 @@ class CandleChart {
     ctx.beginPath();
     ctx.rect(L.plotL, L.plotT, L.plotR - L.plotL, L.plotB - L.plotT);
     ctx.clip();
-    this.paintSessions(L);
     this.paintSeries(L);
     this.paintMainIndicators(L);
     this.drawings.forEach((d) => { if (d.visible !== false) this.paintShape(L, d, false); });
@@ -1151,6 +1136,8 @@ class CandleChart {
     this.paintLastPrice(L);
     ctx.restore();
 
+    // Below the plot, so outside its clip.
+    this.paintSessions(L);
     this.paintPanes(L);
     this.paintAxes(L);
     this.paintCrosshair(L);
@@ -1746,39 +1733,44 @@ class CandleChart {
     }
     ctx.textBaseline = "alphabetic";
   }
+  /**
+   * An open position: three lines, and nothing else over the price.
+   *
+   * The stop and the target used to be 1.6px rules with a tinted band
+   * filling the whole width from each of them back to the entry. On a
+   * trade with any room in it that is most of the chart covered in red
+   * and green wash, with the candles - the thing being looked at -
+   * underneath it. The levels are three prices; three lines say so.
+   *
+   * The entry stays dashed and the stop and target stay solid, so the
+   * three are told apart by more than colour, and their prices are
+   * written on the price axis by paintLevelLabels rather than on top of
+   * the candles.
+   */
   paintLevels(L) {
     const ctx = this.ctx;
+    const T = chartTheme();
+    ctx.save();
     for (const pos of this.levels || []) {
-      const sl = Number(pos.sl || 0);
-      const tp = Number(pos.tp || 0);
       const open = Number(pos.price_open || 0);
       if (open) {
         const y = L.yOf(open);
-        ctx.strokeStyle = "rgba(" + chartTheme().goldT + ",.55)";
+        ctx.strokeStyle = "rgba(" + T.goldT + ",.55)";
+        ctx.lineWidth = 1;
         ctx.setLineDash([3, 4]);
         ctx.beginPath(); ctx.moveTo(L.plotL, y); ctx.lineTo(L.plotR, y); ctx.stroke();
         ctx.setLineDash([]);
       }
-      if (sl) {
-        const y = L.yOf(sl);
-        ctx.strokeStyle = "rgba(" + chartTheme().downT + ",.95)";
-        ctx.lineWidth = 1.6;
+      for (const [price, tint] of [[Number(pos.sl || 0), T.badT], [Number(pos.tp || 0), T.okT]]) {
+        if (!price) continue;
+        const y = L.yOf(price);
+        ctx.strokeStyle = "rgba(" + tint + ",.9)";
+        ctx.lineWidth = 1.2;
         ctx.beginPath(); ctx.moveTo(L.plotL, y); ctx.lineTo(L.plotR, y); ctx.stroke();
-        ctx.fillStyle = "rgba(" + chartTheme().downT + ",.16)";
-        const yOpen = open ? L.yOf(open) : y;
-        ctx.fillRect(L.plotL, Math.min(y, yOpen), L.plotR - L.plotL, Math.abs(yOpen - y));
       }
-      if (tp) {
-        const y = L.yOf(tp);
-        ctx.strokeStyle = "rgba(" + chartTheme().upT + ",.95)";
-        ctx.lineWidth = 1.6;
-        ctx.beginPath(); ctx.moveTo(L.plotL, y); ctx.lineTo(L.plotR, y); ctx.stroke();
-        ctx.fillStyle = "rgba(" + chartTheme().upT + ",.12)";
-        const yOpen = open ? L.yOf(open) : y;
-        ctx.fillRect(L.plotL, Math.min(y, yOpen), L.plotR - L.plotL, Math.abs(yOpen - y));
-      }
-      ctx.lineWidth = 1.4;
     }
+    ctx.restore();
+    ctx.lineWidth = 1.4;
   }
   /**
    * The robot's planted entry points.
@@ -2122,28 +2114,70 @@ class CandleChart {
       return !t || t === key ? fallback : t;
     } catch (e) { return fallback; }
   }
+  /**
+   * The price of each level, on the price axis where prices live.
+   *
+   * These were opaque chips sitting inside the plot against the left
+   * edge, which put three solid blocks over the oldest candles on
+   * screen for the whole life of a trade. The axis already exists to
+   * answer "what price is that line", and a tag there covers nothing.
+   *
+   * Drawn from paintAxes, outside the plot clip, so the gutter is
+   * reachable. The role is only named when its name fits beside the
+   * number; the tag sits on its line either way, and the line's own
+   * dash and colour already say which of the three it is.
+   */
   paintLevelLabels(L) {
     const ctx = this.ctx;
+    const T = chartTheme();
+    const gutter = L.padR - 6;
+    if (gutter < 24) return;
+    ctx.save();
     ctx.textAlign = "left";
     ctx.textBaseline = "middle";
-    ctx.font = "11px IBM Plex Mono, Vazirmatn, monospace";
+    ctx.font = "10px IBM Plex Mono, Vazirmatn, monospace";
     for (const pos of this.levels || []) {
       const items = [
-        [Number(pos.sl || 0), chartTheme().down, "SL"],
-        [Number(pos.tp || 0), chartTheme().up, "TP"],
-        [Number(pos.price_open || 0), chartTheme().gold, String(pos.type || "POS").toUpperCase()],
+        [Number(pos.sl || 0), T.bad, this.i18n("chart.sl", "SL")],
+        [Number(pos.tp || 0), T.ok, this.i18n("chart.tp", "TP")],
+        [Number(pos.price_open || 0), T.gold, String(pos.type || "POS").toUpperCase()],
       ];
       for (const [p, col, label] of items) {
         if (!p) continue;
         const y = Math.min(L.plotB - 2, Math.max(L.plotT + 2, L.yOf(p)));
-        const text = label + " " + this.fmtPrice(p);
-        const tw = Math.min(160, ctx.measureText(text).width + 14);
-        ctx.fillStyle = chartTheme().panel;
-        ctx.fillRect(L.plotL + 6, y - 9, tw, 18);
+        const price = this.fmtPrice(p);
+        const full = label + " " + price;
+        const text = ctx.measureText(full).width + 10 <= gutter ? full : price;
         ctx.fillStyle = col;
-        ctx.fillText(text, L.plotL + 12, y);
+        ctx.fillRect(L.w - L.padR + 3, y - 8, gutter, 16);
+        /* The tag is a solid block of the level's own colour, so the ink
+           on it is picked against that colour and not against the
+           panel - a theme whose target green is pale and whose text is
+           white would otherwise print white on near-white. */
+        ctx.fillStyle = this.inkOn(col);
+        ctx.fillText(text, L.w - L.padR + 7, y);
       }
     }
+    ctx.restore();
+    ctx.textAlign = "left";
+    ctx.textBaseline = "alphabetic";
+    ctx.font = "11px IBM Plex Mono, Vazirmatn, monospace";
+  }
+
+  /** Black or white, whichever can be read on top of `col`. */
+  inkOn(col) {
+    const m = String(col).trim();
+    let r = 0, g = 0, b = 0;
+    const hex = m.match(/^#([0-9a-f]{3}|[0-9a-f]{6})$/i);
+    if (hex) {
+      const h = hex[1].length === 3 ? hex[1].replace(/./g, (c) => c + c) : hex[1];
+      r = parseInt(h.slice(0, 2), 16); g = parseInt(h.slice(2, 4), 16); b = parseInt(h.slice(4, 6), 16);
+    } else {
+      const parts = m.match(/-?\d+(\.\d+)?/g);
+      if (!parts || parts.length < 3) return "#000";
+      [r, g, b] = parts.slice(0, 3).map(Number);
+    }
+    return (r * 299 + g * 587 + b * 114) / 1000 > 150 ? "rgba(0,0,0,.82)" : "rgba(255,255,255,.95)";
   }
 
   /* ============================================================= shapes == */

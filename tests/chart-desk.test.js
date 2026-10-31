@@ -125,41 +125,45 @@ const weekend = [
 say(weekend[0] === 0 && weekend[1] === 0,
   "a weekend gap is left unmarked rather than stamped with every session");
 
-/* Both marks must be drawn from the same bar index as the candle itself.
-   xOf(i) - bw/2 is the candle's own left edge; anything else is "near the
-   candle", which is what the band already was. */
-/* Anchor on the method's own opening line and on the banner comment that
-   follows it. "scheduleDraw()" was the first attempt at an end anchor and
-   it matches `this.scheduleDraw()` up in the constructor, hundreds of
-   lines EARLIER - which silently yields an empty slice and seven checks
-   that pass or fail for reasons having nothing to do with the code. */
+/* The session painter used to be checked here line by line - the dash
+   pattern of a mark, the y of a chip, the expression that stacked the
+   labels. All of it described a drawing that no longer exists: the
+   sessions were tinted bands across the full height of the plot plus a
+   dashed vertical and a labelled chip at every open and every close,
+   and on a normal day that is eight verticals and eight chips laid over
+   the price. They are now one span per centre in a reserved strip.
+
+   Pinning the new drawing the same way would only re-make the same
+   mistake, and a regex cannot show that anything reached the canvas.
+   What the strip has to GUARANTEE is measured for real against a
+   recording context in tests/chart-sessions.test.js: a row per centre,
+   rows clear of each other, a span that starts where its centre opens
+   and ends where it closes, every row named, and - the reason the strip
+   is reserved out of the height rather than overlaid - not one mark
+   inside the price plot.
+
+   What is worth pinning in the source is the contract between this
+   painter and the layout, because the two are written apart and a
+   silent disagreement between them is exactly how the feature broke the
+   first time. */
 const paintFrom = chartsJs.indexOf("  paintSessions(L) {");
 const paintTo = chartsJs.indexOf("paint == */", paintFrom);
 const paint = chartsJs.slice(paintFrom, paintTo);
 say(paintFrom > 0 && paintTo > paintFrom, "the session painter was located in the source");
-say(/const x = Math\.round\(L\.xOf\(i\) - L\.bw \/ 2\) \+ 0\.5;/.test(paint),
-  "marks are anchored to the candle's own x, not to a time axis estimate");
-say(/opens\.forEach\(\(s, n\) => mark\(x, s, n, "open"\)\)/.test(paint) &&
-    /closes\.forEach\(\(s, n\) => mark\(x, s, n, "close"\)\)/.test(paint),
-  "open and close are drawn at that same x");
-say(/sessionClosesBetween\(prevAt, at\)/.test(paint),
-  "the close pass runs per candle pair, like the open pass");
 
-/* Colour says which centre. It must not also be the only thing saying
-   which END of the session - these two are told apart by position, by
-   dash and by fill as well. */
-say(/setLineDash\(open \? \[3, 3\] : \[1, 3\]\)/.test(paint), "open and close differ in dash");
-say(/L\.plotB - 16 - row \* rowH/.test(paint) && /L\.plotT \+ 3 \+ row \* rowH/.test(paint),
-  "open sits at the bottom, close at the top - never colour alone");
-say(/strokeRect/.test(paint), "the close chip is outlined where the open chip is filled");
-/* Labels used to stack on `n`, the index of the centres changing on ONE
-   candle. Two sessions opening a few bars apart therefore both took the
-   first row and printed through each other. They now stack on what has
-   actually been placed on that edge, which is checked for real - chips
-   are collected from a recording canvas and compared pairwise - in
-   tests/chart-sessions.test.js. */
-say(/taken\.some\(/.test(paint) && /row: r, x: lx, w: tw/.test(paint),
-  "a label takes the first row that is free, so none can overprint");
+say(/rows\[i\]\.t \|\| rows\[i\]\.time/.test(paint),
+  "bars are read by the key norm() actually writes, `t` first");
+
+say(/if \(!this\.sessions \|\| !L\.sessH\) return;/.test(paint) &&
+    /const top = L\.sessT;/.test(paint),
+  "the strip draws into the band the layout reserved for it, not over the plot");
+
+say(/sessionStripH\(h, padT, padB\)/.test(chartsJs) &&
+    /const usable = h - padT - padB - sessH;/.test(chartsJs),
+  "...and that band is taken out of the usable height, so the price never shares it");
+
+say(/this\.paintSessions\(L\);/.test(chartsJs.slice(chartsJs.indexOf("ctx.restore();", chartsJs.indexOf("this.paintLastPrice(L);")))),
+  "the strip is painted outside the plot clip, which is the only place it can appear");
 
 /* ============================================================== sizing == */
 

@@ -616,7 +616,7 @@ check("the browser is forced to pick up every file that changed", () => {
     "css/themes.css?v=desk184", "css/app.css?v=desk185", "css/skins.css?v=desk185",
     "js/colorpicker.js?v=desk2"];
   want.forEach((w) => { if (!html.includes(w)) throw new Error("index.html is missing " + w); });
-  if (!read("sw.js").includes("aurion-shell-v176")) throw new Error("the service worker cache was not bumped");
+  if (!read("sw.js").includes("aurion-shell-v177")) throw new Error("the service worker cache was not bumped");
 });
 
 /* ----------------------------------------------------------------- report */
