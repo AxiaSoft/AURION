@@ -118,6 +118,7 @@ find_android_jar() {
   local c
   for c in "${ANDROID_JAR:-}" \
            "${PREFIX:-/usr}/share/java/android.jar" \
+           "$HOME/.android/android-34.jar" \
            "$HOME/android-sdk/android.jar" \
            "$HOME/.android/android.jar" \
            "$HERE/android.jar"; do
@@ -134,51 +135,98 @@ find_android_jar() {
 #
 # aapt2 needs the android: attributes, and the android.jar that Termux's ecj
 # package installs cannot supply them: its build strips resources.arsc, res
-# and assets, leaving a classes-only stub. That stub is right for javac and
-# d8 and wrong for aapt2, which is why the two are looked up separately.
+# and assets, leaving a classes-only stub. Right for javac and d8, useless
+# to aapt2, so the two are looked up separately.
 #
-# Every Android device carries the real thing at
-# /system/framework/framework-res.apk, so nothing has to be downloaded.
+# Candidates are tested by running aapt2 against a one-line manifest that
+# uses an android: attribute. Checking that a file merely contains
+# resources.arsc is not enough: a device's own framework-res.apk passes that
+# test and aapt2 can still refuse to load it.
 
-has_resources() {
-  "$PY_BIN" - "$1" <<'PYEOF' 2>/dev/null
-import sys, zipfile
-try:
-    sys.exit(0 if "resources.arsc" in zipfile.ZipFile(sys.argv[1]).namelist() else 1)
-except Exception:
-    sys.exit(1)
-PYEOF
+PROBE_DIR="$(mktemp -d)"
+trap 'rm -rf "$PROBE_DIR"' EXIT
+
+cat > "$PROBE_DIR/AndroidManifest.xml" <<'PROBEEOF'
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+          package="probe.aurion" android:versionCode="1" />
+PROBEEOF
+
+aapt2_accepts() {
+  [ -f "$1" ] || return 1
+  aapt2 link -o "$PROBE_DIR/probe.apk" -I "$1" \
+       --manifest "$PROBE_DIR/AndroidManifest.xml" >/dev/null 2>&1
+}
+
+SDK_URL="${AURION_SDK_URL:-https://raw.githubusercontent.com/Sable/android-platforms/master/android-34/android.jar}"
+SDK_CACHE="$HOME/.android/android-34.jar"
+
+fetch_platform_jar() {
+  mkdir -p "$(dirname "$SDK_CACHE")"
+  say "downloading a platform android.jar (~26 MB, once) to $SDK_CACHE"
+  say "    $SDK_URL"
+  if command -v curl >/dev/null 2>&1; then
+    curl -fL --progress-bar -o "$SDK_CACHE.part" "$SDK_URL" || return 1
+  elif command -v wget >/dev/null 2>&1; then
+    wget -q --show-progress -O "$SDK_CACHE.part" "$SDK_URL" || return 1
+  else
+    warn "neither curl nor wget is installed: pkg install curl"
+    return 1
+  fi
+  mv "$SDK_CACHE.part" "$SDK_CACHE"
 }
 
 find_framework() {
   local c
+  # A device's framework is copied out of /system first: it is mmapped by
+  # aapt2, and a copy in a normal directory removes one way that can fail.
+  if [ -f /system/framework/framework-res.apk ]; then
+    cp /system/framework/framework-res.apk "$PROBE_DIR/device-framework.apk" 2>/dev/null || true
+  fi
   for c in "${ANDROID_FRAMEWORK:-}" \
            "${ANDROID_JAR:-}" \
+           "$SDK_CACHE" \
            "$HOME/.android/framework-res.apk" \
            "$HERE/framework-res.apk" \
+           "$PROBE_DIR/device-framework.apk" \
            /system/framework/framework-res.apk; do
-    if [ -n "$c" ] && [ -f "$c" ] && has_resources "$c"; then echo "$c"; return 0; fi
+    if [ -n "$c" ] && aapt2_accepts "$c"; then echo "$c"; return 0; fi
   done
   if [ -n "${ANDROID_HOME:-}" ]; then
     for c in $(ls "$ANDROID_HOME"/platforms/android-*/android.jar 2>/dev/null | sort -rV); do
-      if has_resources "$c"; then echo "$c"; return 0; fi
+      if aapt2_accepts "$c"; then echo "$c"; return 0; fi
     done
   fi
   return 1
 }
 
 FRAMEWORK="$(find_framework || true)"
-[ -n "$FRAMEWORK" ] || die "no framework resources found.
 
-aapt2 cannot resolve the android: attributes without them, and the
-android.jar from the ecj package does not carry any - Termux strips
-resources.arsc out of it on purpose.
+if [ -z "$FRAMEWORK" ] && [ -z "${AURION_NO_FETCH:-}" ]; then
+  warn "nothing on this device gave aapt2 usable framework resources."
+  if fetch_platform_jar && aapt2_accepts "$SDK_CACHE"; then
+    FRAMEWORK="$SDK_CACHE"
+  else
+    rm -f "$SDK_CACHE.part"
+  fi
+fi
 
-Normally /system/framework/framework-res.apk on this device answers this.
-If it is unreadable here, copy one off any Android device or out of an SDK
-platform and point the script at it:
+[ -n "$FRAMEWORK" ] || die "no usable framework resources.
 
-    export ANDROID_FRAMEWORK=/path/to/framework-res.apk"
+aapt2 cannot resolve the android: attributes without them. The android.jar
+from the ecj package carries none - Termux strips resources.arsc out of it
+on purpose - and this device's /system/framework/framework-res.apk was not
+accepted either.
+
+Fetch a platform jar by hand and point the script at it:
+
+    pkg install curl
+    mkdir -p ~/.android
+    curl -fL -o ~/.android/android-34.jar \\
+      $SDK_URL
+    export ANDROID_FRAMEWORK=~/.android/android-34.jar
+
+AURION_NO_FETCH=1 stops the script downloading it for you."
 
 ANDROID_JAR_PATH="$(find_android_jar || true)"
 [ -n "$ANDROID_JAR_PATH" ] || die "android.jar not found.

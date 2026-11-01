@@ -42,8 +42,11 @@ pkg install aapt2 d8 ecj apksigner python findutils git
   کامپایل درست است، ولی `aapt2` بدون منابع فریم‌ورک نمی‌تواند صفت‌های
   `android:` را پیدا کند و با انبوه خطای `attribute android:... not found`
   می‌ایستد. منبع واقعی روی هر گوشی هست:
-  `/system/framework/framework-res.apk`. اسکریپت خودش پیدایش می‌کند و هر
-  نامزد را با خواندن فهرست فایل‌هایش می‌سنجد، نه از روی نامش.
+  `/system/framework/framework-res.apk`. ولی `aapt2` همیشه آن را قبول
+  نمی‌کند، پس اسکریپت هر نامزد را با **اجرای واقعی `aapt2`** روی یک منیفست
+  یک‌خطی می‌سنجد، نه با نگاه به محتوایش. اگر هیچ‌کدام قبول نشد، یک
+  `android.jar` کامل (۲۶ مگ، یک‌بار) در `~/.android/` دانلود و کش می‌کند.
+  `AURION_NO_FETCH=1` جلوی دانلود را می‌گیرد.
 
 Gradle عمداً استفاده نشده. افزونهٔ Gradle اندروید یک `aapt2` ساخته‌شده برای
 `linux-x86_64` دانلود می‌کند که روی گوشی aarch64 اصلاً اجرا نمی‌شود؛ دور زدنش
@@ -133,7 +136,8 @@ export AURION_KEY_ALIAS=...
 |---|---|
 | `android.jar not found` | `ANDROID_JAR` را ست کنید |
 | `aapt2` خطای sdk 35 | `TARGET_SDK` در `build.sh` را ۳۴ نگه دارید |
-| `attribute android:... not found` | منابع فریم‌ورک پیدا نشده؛ `export ANDROID_FRAMEWORK=/system/framework/framework-res.apk` |
+| `attribute android:... not found` | منابع فریم‌ورک پیدا نشده |
+| `failed to load include path` | `aapt2` فریم‌ورک گوشی را نپذیرفت؛ اسکریپت خودش یک platform jar دانلود می‌کند |
 | نصب رد می‌شود روی اندروید ۱۱+ | `pack.py` باید `resources.arsc` را ذخیره‌نشده کند؛ خط آخرش را در لاگ ببینید |
 | `javac` اصلاً بالا نمی‌آید | `AURION_JAVAC=ecj ./build.sh` |
 | `./build.sh: Permission denied` | روی حافظهٔ مشترک هستید؛ `bash build.sh` |
