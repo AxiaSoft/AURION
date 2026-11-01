@@ -34,17 +34,51 @@
 set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
-OUT="$HERE/build"
 PKG="com.axiasoft.aurion"
 MIN_SDK=21
 TARGET_SDK=34
-KEYSTORE="${AURION_KEYSTORE:-$HERE/debug.keystore}"
 KS_PASS="${AURION_KEYSTORE_PASS:-aurionaurion}"
 KS_ALIAS="${AURION_KEY_ALIAS:-aurion}"
 
 say()  { printf '\033[1;36m==>\033[0m %s\n' "$*"; }
 warn() { printf '\033[1;33m[!]\033[0m %s\n' "$*" >&2; }
 die()  { printf '\033[1;31m[x]\033[0m %s\n' "$*" >&2; exit 1; }
+
+# --- shared storage ---------------------------------------------------------
+#
+# /storage/emulated/0 is not a normal filesystem. It is mounted noexec and
+# carries no POSIX modes, so a script there cannot be run as ./build.sh and
+# chmod +x does nothing about it. Sources can live there perfectly well;
+# build output and a signing key cannot.
+
+SHARED=0
+case "$HERE" in
+  /storage/*|/sdcard/*|/mnt/media_rw/*|/mnt/runtime/*) SHARED=1 ;;
+esac
+
+if [ "$SHARED" = 1 ]; then
+  warn "running from shared storage ($HERE).
+       Build output goes to \$HOME instead, where file modes work. If
+       ./build.sh was refused, that is noexec, not a broken script: run
+       it as  bash build.sh  from here."
+fi
+
+if [ -n "${AURION_OUT:-}" ]; then
+  OUT="$AURION_OUT"
+elif [ "$SHARED" = 1 ]; then
+  OUT="$HOME/.cache/aurion-apk"
+else
+  OUT="$HERE/build"
+fi
+
+if [ -n "${AURION_KEYSTORE:-}" ]; then
+  KEYSTORE="$AURION_KEYSTORE"
+elif [ "$SHARED" = 1 ]; then
+  # Shared storage is readable by every app with the storage permission.
+  KEYSTORE="$HOME/.aurion-debug.keystore"
+else
+  KEYSTORE="$HERE/debug.keystore"
+fi
 
 # --- tools ------------------------------------------------------------------
 
@@ -236,6 +270,9 @@ apksigner verify --print-certs "$APK" | head -4
 aapt2 dump badging "$APK" | head -3
 
 # Hand it to the file manager so it can actually be tapped.
+if [ "$SHARED" = 1 ]; then
+  cp "$APK" "$HERE/AURION.apk" && say "copied to $HERE/AURION.apk"
+fi
 for d in "$HOME/storage/downloads" "/sdcard/Download"; do
   if [ -d "$d" ]; then cp "$APK" "$d/AURION.apk" && say "copied to $d/AURION.apk"; break; fi
 done

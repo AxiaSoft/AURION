@@ -65,6 +65,20 @@ export ANDROID_JAR=/مسیر/به/android.jar
 
 ## ساخت
 
+> **اگر پروژه در `/storage/emulated/0` است:** آنجا `noexec` مانت می‌شود و
+> هیچ مُد POSIX ندارد، پس `./build.sh` با Permission denied رد می‌شود و
+> `chmod +x` هم کاری نمی‌کند. سورس آنجا مشکلی ندارد، ولی خروجی ساخت و کلید
+> امضا نه. اسکریپت خودش تشخیص می‌دهد: خروجی را به `$HOME/.cache/aurion-apk`
+> می‌برد، کلید را به `$HOME`، و APK نهایی را کنار سورس هم کپی می‌کند. فقط
+> به‌جای `./build.sh` بنویسید:
+>
+> ```bash
+> bash build.sh
+> ```
+>
+> ساده‌تر از همه این است که در `~/AURION` کلون کنید و اصلاً درگیر نشوید.
+
+
 ```bash
 cd apps/android
 ./build.sh
@@ -122,6 +136,7 @@ export AURION_KEY_ALIAS=...
 | `attribute android:... not found` | منابع فریم‌ورک پیدا نشده؛ `export ANDROID_FRAMEWORK=/system/framework/framework-res.apk` |
 | نصب رد می‌شود روی اندروید ۱۱+ | `pack.py` باید `resources.arsc` را ذخیره‌نشده کند؛ خط آخرش را در لاگ ببینید |
 | `javac` اصلاً بالا نمی‌آید | `AURION_JAVAC=ecj ./build.sh` |
+| `./build.sh: Permission denied` | روی حافظهٔ مشترک هستید؛ `bash build.sh` |
 | `ERR_CONNECTION_REFUSED` | دسک اجرا نیست، یا فایروال پورت ۸۰۸۰ را بسته |
 | `ERR_ADDRESS_UNREACHABLE` | گوشی و کامپیوتر روی یک شبکه نیستند |
 | اپ نصب می‌شود ولی موقع باز شدن می‌بندد | `d8` بدون `--lib` اجرا شده؛ اسکریپت این را می‌دهد، دستی نسازید |
