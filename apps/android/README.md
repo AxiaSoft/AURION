@@ -36,6 +36,14 @@ pkg install aapt2 d8 ecj apksigner python findutils git
 - **`ecj` خودش `android.jar` را نصب می‌کند** در
   `$PREFIX/share/java/android.jar`. به همین دلیل `ecj` را نصب می‌کنیم حتی
   وقتی کامپایلر واقعی `javac` است.
+- **ولی آن `android.jar` برای `aapt2` کافی نیست.** اسکریپت ساخت ترموکس
+  عمداً `resources.arsc` و `res` را از آن حذف می‌کند
+  (`rm -Rf android.jar resources.arsc res assets`)، پس فقط کلاس دارد. برای
+  کامپایل درست است، ولی `aapt2` بدون منابع فریم‌ورک نمی‌تواند صفت‌های
+  `android:` را پیدا کند و با انبوه خطای `attribute android:... not found`
+  می‌ایستد. منبع واقعی روی هر گوشی هست:
+  `/system/framework/framework-res.apk`. اسکریپت خودش پیدایش می‌کند و هر
+  نامزد را با خواندن فهرست فایل‌هایش می‌سنجد، نه از روی نامش.
 
 Gradle عمداً استفاده نشده. افزونهٔ Gradle اندروید یک `aapt2` ساخته‌شده برای
 `linux-x86_64` دانلود می‌کند که روی گوشی aarch64 اصلاً اجرا نمی‌شود؛ دور زدنش
@@ -111,7 +119,9 @@ export AURION_KEY_ALIAS=...
 |---|---|
 | `android.jar not found` | `ANDROID_JAR` را ست کنید |
 | `aapt2` خطای sdk 35 | `TARGET_SDK` در `build.sh` را ۳۴ نگه دارید |
-| نصب رد می‌شود روی اندروید ۱۱+ | باید `pack.py` اجرا شده باشد؛ خروجی خطش را در لاگ ببینید |
+| `attribute android:... not found` | منابع فریم‌ورک پیدا نشده؛ `export ANDROID_FRAMEWORK=/system/framework/framework-res.apk` |
+| نصب رد می‌شود روی اندروید ۱۱+ | `pack.py` باید `resources.arsc` را ذخیره‌نشده کند؛ خط آخرش را در لاگ ببینید |
+| `javac` اصلاً بالا نمی‌آید | `AURION_JAVAC=ecj ./build.sh` |
 | `ERR_CONNECTION_REFUSED` | دسک اجرا نیست، یا فایروال پورت ۸۰۸۰ را بسته |
 | `ERR_ADDRESS_UNREACHABLE` | گوشی و کامپیوتر روی یک شبکه نیستند |
 | اپ نصب می‌شود ولی موقع باز شدن می‌بندد | `d8` بدون `--lib` اجرا شده؛ اسکریپت این را می‌دهد، دستی نسازید |

@@ -96,6 +96,56 @@ find_android_jar() {
   return 1
 }
 
+# --- framework resources ----------------------------------------------------
+#
+# aapt2 needs the android: attributes, and the android.jar that Termux's ecj
+# package installs cannot supply them: its build strips resources.arsc, res
+# and assets, leaving a classes-only stub. That stub is right for javac and
+# d8 and wrong for aapt2, which is why the two are looked up separately.
+#
+# Every Android device carries the real thing at
+# /system/framework/framework-res.apk, so nothing has to be downloaded.
+
+has_resources() {
+  "$PY_BIN" - "$1" <<'PYEOF' 2>/dev/null
+import sys, zipfile
+try:
+    sys.exit(0 if "resources.arsc" in zipfile.ZipFile(sys.argv[1]).namelist() else 1)
+except Exception:
+    sys.exit(1)
+PYEOF
+}
+
+find_framework() {
+  local c
+  for c in "${ANDROID_FRAMEWORK:-}" \
+           "${ANDROID_JAR:-}" \
+           "$HOME/.android/framework-res.apk" \
+           "$HERE/framework-res.apk" \
+           /system/framework/framework-res.apk; do
+    if [ -n "$c" ] && [ -f "$c" ] && has_resources "$c"; then echo "$c"; return 0; fi
+  done
+  if [ -n "${ANDROID_HOME:-}" ]; then
+    for c in $(ls "$ANDROID_HOME"/platforms/android-*/android.jar 2>/dev/null | sort -rV); do
+      if has_resources "$c"; then echo "$c"; return 0; fi
+    done
+  fi
+  return 1
+}
+
+FRAMEWORK="$(find_framework || true)"
+[ -n "$FRAMEWORK" ] || die "no framework resources found.
+
+aapt2 cannot resolve the android: attributes without them, and the
+android.jar from the ecj package does not carry any - Termux strips
+resources.arsc out of it on purpose.
+
+Normally /system/framework/framework-res.apk on this device answers this.
+If it is unreadable here, copy one off any Android device or out of an SDK
+platform and point the script at it:
+
+    export ANDROID_FRAMEWORK=/path/to/framework-res.apk"
+
 ANDROID_JAR_PATH="$(find_android_jar || true)"
 [ -n "$ANDROID_JAR_PATH" ] || die "android.jar not found.
 
@@ -119,23 +169,20 @@ say "compiling resources (aapt2)"
 aapt2 compile --dir "$HERE/res" -o "$OUT/res.zip"
 
 say "linking resources (aapt2)"
-# Android 11+ wants resources.arsc stored, not deflated. Newer aapt2 does
-# that by default; older ones need telling. Ask, and fall back if the flag
-# is not understood rather than failing the whole build over it.
-link_args=(
-  -o "$OUT/base.apk"
-  -I "$ANDROID_JAR_PATH"
-  --manifest "$HERE/AndroidManifest.xml"
-  --min-sdk-version "$MIN_SDK"
-  --target-sdk-version "$TARGET_SDK"
-  "$OUT/res.zip"
-)
-if ! aapt2 link -0 arsc "${link_args[@]}" 2>"$OUT/link.err"; then
-  warn "aapt2 rejected -0 arsc; retrying without it"
-  aapt2 link "${link_args[@]}" || { cat "$OUT/link.err" >&2; die "aapt2 link failed"; }
-fi
+say "    framework: $FRAMEWORK"
+# resources.arsc is left however aapt2 wants it here. Older builds reject the
+# -0 flag that would store it, and pack.py re-stores it later anyway, so
+# asking for it would only add a failure mode that is hard to tell apart
+# from a real linker error.
+aapt2 link \
+  -o "$OUT/base.apk" \
+  -I "$FRAMEWORK" \
+  --manifest "$HERE/AndroidManifest.xml" \
+  --min-sdk-version "$MIN_SDK" \
+  --target-sdk-version "$TARGET_SDK" \
+  "$OUT/res.zip" || die "aapt2 link failed (see the errors above)"
 
-say "compiling java ($JAVAC)"
+say "compiling java ($JAVAC against $ANDROID_JAR_PATH)"
 mapfile -t SOURCES < <(find "$HERE/java" -name '*.java')
 [ "${#SOURCES[@]}" -gt 0 ] || die "no java sources under $HERE/java"
 if [ "$JAVAC" = "javac" ]; then

@@ -27,6 +27,12 @@ import zipfile
 
 ALIGNMENT = 4
 
+# Entries Android maps in place and therefore cannot read compressed. Since
+# Android 11 the installer rejects a package whose resources.arsc is
+# deflated, and not every aapt2 build accepts the -0 flag that would have
+# stored it at link time, so it is re-stored here instead of being asked for.
+FORCE_STORED = ("resources.arsc",)
+
 LOCAL_SIG = 0x04034B50
 CENTRAL_SIG = 0x02014B50
 EOCD_SIG = 0x06054B50
@@ -80,13 +86,23 @@ def read_entries(path):
             payload = raw.read(info.compress_size)
             if len(payload) != info.compress_size:
                 raise ValueError("truncated payload for %s" % info.filename)
+
+            method = info.compress_type
+            csize = info.compress_size
+            if info.filename in FORCE_STORED and method != zipfile.ZIP_STORED:
+                # The CRC in a zip is of the uncompressed bytes either way,
+                # so it carries over untouched.
+                payload = z.read(info.filename)
+                method = zipfile.ZIP_STORED
+                csize = len(payload)
+
             out.append(Entry(
                 name=info.filename,
                 data=payload,
                 crc=info.CRC,
-                csize=info.compress_size,
+                csize=csize,
                 usize=info.file_size,
-                method=info.compress_type,
+                method=method,
                 # Bit 3 says "sizes follow in a data descriptor". We write the
                 # sizes into the header, so the claim must be withdrawn.
                 flags=info.flag_bits & ~0x08,
@@ -150,6 +166,9 @@ def check(path, alignment=ALIGNMENT):
         broken = z.testzip()
         if broken:
             raise SystemExit("pack.py: corrupt entry %s" % broken)
+        for name in FORCE_STORED:
+            if name in z.namelist() and z.getinfo(name).compress_type != zipfile.ZIP_STORED:
+                raise SystemExit("pack.py: %s is still compressed" % name)
         with open(path, "rb") as raw:
             for info in z.infolist():
                 if info.compress_type != zipfile.ZIP_STORED:
