@@ -13,16 +13,23 @@
 #     manifest  --aapt2 link----->  base.apk
 #     *.java    --javac/ecj------>  *.class
 #     *.class   --d8------------->  classes.dex
-#     base.apk + classes.dex --zip--> unaligned --zipalign--> --apksigner--> APK
+#     base.apk + classes.dex --pack.py--> aligned --apksigner--> APK
 #
 # Termux setup, once:
 #
 #     pkg update
-#     pkg install aapt2 d8 apksigner zipalign zip openjdk-17 findutils
+#     pkg install aapt2 d8 ecj apksigner python findutils
 #
-# android.jar is the one piece Termux does not package reliably. The script
-# looks for it in the usual places and tells you how to get one if it cannot
-# find it; only the stub is needed, never a whole SDK.
+# Three things that are easy to get wrong, all checked against the package
+# tree rather than assumed:
+#
+#   - There is no openjdk-17 in Termux. The JDK is openjdk-21, and d8 and
+#     apksigner already depend on it, so it arrives without being asked for.
+#   - There is no zipalign at all; nothing in termux-packages provides it.
+#     pack.py does the appending and the aligning in one controlled pass.
+#   - android.jar is shipped by the ecj package, at
+#     $PREFIX/share/java/android.jar. That is why ecj is installed even when
+#     javac is the compiler actually used.
 
 set -euo pipefail
 
@@ -43,12 +50,18 @@ die()  { printf '\033[1;31m[x]\033[0m %s\n' "$*" >&2; exit 1; }
 
 need() {
   command -v "$1" >/dev/null 2>&1 \
-    || die "$1 not found. In Termux: pkg install aapt2 d8 apksigner zipalign zip openjdk-17"
+    || die "$1 not found. In Termux: pkg install aapt2 d8 ecj apksigner python findutils"
 }
 need aapt2
 need apksigner
-need zip
-need keytool
+need keytool          # from openjdk-21, pulled in by d8 and apksigner
+
+PY_BIN=""
+for c in python3 python; do
+  if command -v "$c" >/dev/null 2>&1; then PY_BIN="$c"; break; fi
+done
+[ -n "$PY_BIN" ] || die "python not found. In Termux: pkg install python"
+[ -f "$HERE/pack.py" ] || die "pack.py is missing from $HERE"
 
 DEXER=""
 if command -v d8 >/dev/null 2>&1; then DEXER=d8
@@ -58,7 +71,7 @@ else die "neither d8 nor dx found. In Termux: pkg install d8"; fi
 JAVAC=""
 if command -v javac >/dev/null 2>&1; then JAVAC=javac
 elif command -v ecj >/dev/null 2>&1; then JAVAC=ecj
-else die "no Java compiler. In Termux: pkg install openjdk-17   (or: pkg install ecj)"; fi
+else die "no Java compiler. In Termux: pkg install openjdk-21   (or: pkg install ecj)"; fi
 
 # --- android.jar ------------------------------------------------------------
 
@@ -81,15 +94,15 @@ find_android_jar() {
 ANDROID_JAR_PATH="$(find_android_jar || true)"
 [ -n "$ANDROID_JAR_PATH" ] || die "android.jar not found.
 
-The build needs the platform stub to compile and link against — not a full
-SDK, just the one jar. Any API 30+ copy works. Put it anywhere and point the
-script at it:
+The build needs the platform stub to compile and link against, not a full
+SDK. The ecj package ships one:
 
-    export ANDROID_JAR=/path/to/android.jar
-    $0
+    pkg install ecj
 
-Common places it already exists: \$PREFIX/share/java/android.jar (shipped by
-some Termux aapt builds) or \$ANDROID_HOME/platforms/android-34/android.jar."
+which puts it at \$PREFIX/share/java/android.jar. If you would rather use a
+different API level, point the script at it:
+
+    export ANDROID_JAR=/path/to/android.jar"
 
 # --- build ------------------------------------------------------------------
 
@@ -142,18 +155,11 @@ else
 fi
 [ -f "$OUT/classes.dex" ] || die "no classes.dex produced"
 
-say "packaging"
-cp "$OUT/base.apk" "$OUT/unaligned.apk"
-( cd "$OUT" && zip -q -u unaligned.apk classes.dex )
-
-if command -v zipalign >/dev/null 2>&1; then
-  say "aligning"
-  zipalign -f 4 "$OUT/unaligned.apk" "$OUT/aligned.apk"
-else
-  warn "zipalign not installed (pkg install zipalign) — shipping unaligned;
-       Android 11+ may refuse to install this. Install it and rebuild."
-  cp "$OUT/unaligned.apk" "$OUT/aligned.apk"
-fi
+say "packaging and aligning"
+# Termux has no zipalign, and `zip -u` would wreck the alignment aapt2 set
+# up anyway. pack.py appends classes.dex and lays the whole archive out on
+# 4-byte boundaries in one pass, then verifies its own output.
+"$PY_BIN" "$HERE/pack.py" "$OUT/base.apk" "$OUT/classes.dex" "$OUT/aligned.apk"
 
 if [ ! -f "$KEYSTORE" ]; then
   say "creating a signing key at $KEYSTORE"

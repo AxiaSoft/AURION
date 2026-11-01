@@ -23,8 +23,19 @@ CORS سرور (که فقط loopback را نام برده) اصلاً وارد م
 
 ```bash
 pkg update
-pkg install aapt2 d8 apksigner zipalign zip openjdk-17 findutils git
+pkg install aapt2 d8 ecj apksigner python findutils git
 ```
+
+سه نکته که از روی درخت بسته‌های ترموکس بررسی شده، نه حدس زده:
+
+- **`openjdk-17` وجود ندارد.** JDK ترموکس `openjdk-21` است، و چون `d8` و
+  `apksigner` به آن وابسته‌اند خودبه‌خود نصب می‌شود.
+- **`zipalign` اصلاً بسته ندارد** — هیچ چیزی در `termux-packages` آن را
+  نمی‌دهد. به‌جایش `pack.py` در همین پوشه هم `classes.dex` را اضافه می‌کند و
+  هم کل آرشیو را روی مرز ۴ بایت می‌چیند، در یک مرحله.
+- **`ecj` خودش `android.jar` را نصب می‌کند** در
+  `$PREFIX/share/java/android.jar`. به همین دلیل `ecj` را نصب می‌کنیم حتی
+  وقتی کامپایلر واقعی `javac` است.
 
 Gradle عمداً استفاده نشده. افزونهٔ Gradle اندروید یک `aapt2` ساخته‌شده برای
 `linux-x86_64` دانلود می‌کند که روی گوشی aarch64 اصلاً اجرا نمی‌شود؛ دور زدنش
@@ -32,17 +43,13 @@ Gradle عمداً استفاده نشده. افزونهٔ Gradle اندروید 
 
 ### `android.jar`
 
-تنها قطعه‌ای که ترموکس مطمئن بسته‌بندی نمی‌کند. فقط همین یک فایل لازم است،
-نه کل SDK. هر نسخهٔ API 30 به بالا کار می‌کند.
-
-اول ببینید از قبل دارید یا نه:
+با نصب `ecj` از قبل سر جایش است. بررسی:
 
 ```bash
 ls $PREFIX/share/java/android.jar
-ls $ANDROID_HOME/platforms/android-*/android.jar
 ```
 
-اگر نبود، یکی تهیه کنید و مسیرش را بدهید:
+اگر سطح API دیگری می‌خواهید:
 
 ```bash
 export ANDROID_JAR=/مسیر/به/android.jar
@@ -104,7 +111,7 @@ export AURION_KEY_ALIAS=...
 |---|---|
 | `android.jar not found` | `ANDROID_JAR` را ست کنید |
 | `aapt2` خطای sdk 35 | `TARGET_SDK` در `build.sh` را ۳۴ نگه دارید |
-| نصب رد می‌شود روی اندروید ۱۱+ | `pkg install zipalign` و دوباره بسازید |
+| نصب رد می‌شود روی اندروید ۱۱+ | باید `pack.py` اجرا شده باشد؛ خروجی خطش را در لاگ ببینید |
 | `ERR_CONNECTION_REFUSED` | دسک اجرا نیست، یا فایروال پورت ۸۰۸۰ را بسته |
 | `ERR_ADDRESS_UNREACHABLE` | گوشی و کامپیوتر روی یک شبکه نیستند |
 | اپ نصب می‌شود ولی موقع باز شدن می‌بندد | `d8` بدون `--lib` اجرا شده؛ اسکریپت این را می‌دهد، دستی نسازید |
