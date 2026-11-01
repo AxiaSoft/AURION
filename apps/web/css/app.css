@@ -4607,8 +4607,17 @@ input[type="number"]::-webkit-inner-spin-button{
    order and every data-metric hook are untouched. */
 .ccx-head{
   position:relative; overflow:hidden; isolation:isolate;
-  display:grid; gap:16px 24px; align-items:center;
-  grid-template-columns:minmax(0,1fr) auto;
+  /* stretch, not center: the dividers are the borders of these cells, so
+     centring gave each one the height of its own contents and the two
+     rules came out different lengths. */
+  display:grid; gap:16px 26px; align-items:stretch;
+  /* Even fractions, not "identity then whatever is left".
+     With the identity on 1fr and the figures on auto, the identity
+     column swallowed every spare pixel and pushed the numbers against
+     the right edge - the same void as before, just moved. Equal
+     fractions spread the three zones across the band, so the width is
+     used as rhythm instead of being left over at one end. */
+  grid-template-columns:minmax(0,1.1fr) minmax(0,1fr) minmax(0,1fr);
   background:
     linear-gradient(180deg, rgb(var(--wash) / .06), rgb(var(--wash) / .015)),
     var(--glass2, rgb(var(--wash) / .03));
@@ -4631,21 +4640,61 @@ input[type="number"]::-webkit-inner-spin-button{
 .ccx-id-type{ margin:0; font-size:18px; font-weight:650; letter-spacing:.01em }
 .ccx-id-sub{ margin:5px 0 0; font-size:12px; overflow-wrap:anywhere; line-height:1.6 }
 
-.ccx-equity{ display:flex; flex-direction:column; align-items:flex-end; gap:3px; min-inline-size:0 }
-.ccx-equity-k{ font-size:11px; letter-spacing:.07em; text-transform:uppercase; color:var(--muted) }
-html[dir="rtl"] .ccx-equity-k{ letter-spacing:0; text-transform:none }
-/* Tabular figures, because this number is watched while it changes and
-   proportional digits make it jitter sideways on every tick. */
-.ccx-equity > b{
-  font-size:clamp(30px,4vw,44px); font-weight:650; line-height:1.05;
-  letter-spacing:-.02em; white-space:nowrap; font-variant-numeric:tabular-nums;
+/* Two figures, built the same way.
+
+   The masthead used to pin an identity to one edge and a single number
+   to the other, which on a desktop left some five hundred pixels of
+   nothing between them: the band was full-width but its content was
+   not, so it read as unfinished rather than spacious. The floating P/L
+   was a small chip tucked under the equity, which is the wrong weight
+   for the second number a trader actually watches.
+
+   They are two figures of the same construction now - label, value,
+   unit - at two sizes, which closes the gap with substance instead of
+   padding and lets the pair be read as one statement. */
+.ccx-fig-k{
+  display:block; font-size:11px; letter-spacing:.07em;
+  text-transform:uppercase; color:var(--muted); white-space:nowrap;
 }
-.ccx-equity > i{
-  font-style:normal; font-size:14px; font-weight:650;
-  font-variant-numeric:tabular-nums;
-  padding:2px 9px; border-radius:999px;
-  background:rgb(var(--wash) / .06); border:1px solid var(--line);
+html[dir="rtl"] .ccx-fig-k{ letter-spacing:0; text-transform:none }
+.ccx-fig-v{
+  display:flex; align-items:baseline; gap:7px;
+  margin-block-start:4px; font-weight:650;
 }
+/* Tabular figures, because these are watched while they change and
+   proportional digits make them jitter sideways on every tick. */
+.ccx-fig-n{ font-variant-numeric:tabular-nums; letter-spacing:-.02em; white-space:nowrap }
+/* The unit is not the measurement. At the figure's own size "USD" was
+   as loud as the amount; it belongs one step down, where it labels
+   without competing. */
+.ccx-fig-c{ font-size:13px; font-weight:600; color:var(--muted); letter-spacing:.02em }
+.ccx-fig-pct{
+  display:block; margin-block-start:3px;
+  font-size:12.5px; font-weight:600; font-variant-numeric:tabular-nums;
+}
+
+/* Both figures start at the top of their cell, so the two labels sit on
+   one line. Centring them looked right until the P/L grew a third line
+   for the percentage, after which each label was centred against a
+   different height and the pair read as misaligned by a few pixels -
+   the kind of error that is felt before it is seen. */
+.ccx-equity,.ccx-pl{ display:flex; flex-direction:column; justify-content:flex-start }
+.ccx-id{ display:flex; flex-direction:column; justify-content:center }
+.ccx-equity{
+  min-inline-size:0;
+  border-inline-start:1px solid var(--line);
+  padding-inline-start:26px;
+}
+.ccx-equity .ccx-fig-n{ font-size:clamp(28px,3.2vw,40px); line-height:1.05 }
+
+/* Second, not equal. The rule between them is what makes the pair read
+   as one block rather than two things that happen to be adjacent. */
+.ccx-pl{
+  min-inline-size:0;
+  border-inline-start:1px solid var(--line);
+  padding-inline-start:26px;
+}
+.ccx-pl .ccx-fig-n{ font-size:clamp(19px,2.2vw,26px); line-height:1.1 }
 
 /* The connection row spans both columns and wraps, because the number
    of attached charts is not something the layout can predict. */
@@ -4719,9 +4768,47 @@ html[dir="rtl"] .ccx-risk-bar > i{
   padding:9px 0; border-block-end:1px solid var(--line); font-size:13px;
 }
 .ccx-ref-row:last-child{ border-block-end:0; padding-block-end:0 }
+
+/* With the prop guard off there is no risk panel, so the reference list
+   gets the full width of the desk - and a label pinned to one edge with
+   its value a thousand pixels away on the other is the same void the
+   masthead just lost. Given room, the four become a stat strip: label
+   over value, side by side, each one narrow enough to read as a pair.
+   A width cure, applied only where the width is. On a phone the label
+   and its value are already a hand's breadth apart, so stacking them
+   would double the height of the panel to solve a problem that is not
+   there. 561 is the documented scale's 560 plus one, so this picks up
+   exactly where the phone rules leave off and the two never both
+   match. */
+@media (min-width:561px){
+  .ccx-pair.is-solo .ccx-ref-rows{
+    display:grid; grid-template-columns:repeat(auto-fit,minmax(170px,1fr));
+    gap:0 26px;
+  }
+  .ccx-pair.is-solo .ccx-ref-row{
+    flex-direction:column; align-items:flex-start; gap:4px;
+    padding:13px 0 0; border-block-end:0; border-block-start:1px solid var(--line);
+  }
+  .ccx-pair.is-solo .ccx-ref-row > b{ font-size:16px }
+}
 .ccx-ref-row > span{ color:var(--muted); min-inline-size:0 }
 .ccx-ref-row > b{
   font-weight:650; white-space:nowrap; font-variant-numeric:tabular-nums;
+}
+
+/* ---- the masthead folds in two steps, not one ----
+
+   Three zones do not survive the jump to a phone in one move. Between
+   roughly a tablet and a small laptop the identity takes the whole
+   first line and the two figures share the second, which keeps them
+   side by side - they are a pair, and reading one against the other is
+   the point - for as long as they both fit. Only when they cannot does
+   the column collapse. */
+@media (max-width:900px){
+  .ccx-head{ grid-template-columns:minmax(0,1fr) minmax(0,1fr); align-items:stretch }
+  .ccx-id{ grid-column:1 / -1 }
+  /* First on its own row now, so there is nothing to its left to divide. */
+  .ccx-equity{ border-inline-start:0; padding-inline-start:0 }
 }
 
 /* ---- narrow ---- */
@@ -4729,8 +4816,16 @@ html[dir="rtl"] .ccx-risk-bar > i{
   /* The headline drops under the account identity rather than being
      squeezed beside it, and aligns with everything else on the page. */
   .ccx-head{ grid-template-columns:minmax(0,1fr); gap:12px }
-  .ccx-equity{ align-items:flex-start }
-  .ccx-equity > b{ font-size:clamp(28px,9vw,36px) }
+  .ccx-equity{ align-items:flex-start; border-inline-start:0; padding-inline-start:0 }
+  .ccx-equity .ccx-fig-n{ font-size:clamp(28px,8.5vw,36px) }
+  /* A vertical rule has nothing to divide once the figures are stacked,
+     and the inline padding it carried would indent the P/L out of line
+     with everything above it. */
+  .ccx-pl{
+    border-inline-start:0; padding-inline-start:0;
+    border-block-start:1px solid var(--line); padding-block-start:12px;
+  }
+  .ccx-pl .ccx-fig-n{ font-size:22px }
   .ccx-risk-head b{ font-size:16px }
 }
 

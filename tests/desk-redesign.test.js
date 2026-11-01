@@ -130,7 +130,7 @@ if (!jsdom) {
     .map(read).join("\n;\n");
   let T = null;
   try {
-    win.eval(bundle + "\n;window.__T = { S, views, I18N, propStatusHtml, propFormHtml, analysisCardHtml, positionsStripHtml, paintChartPositions, patchLive, bindCloseButtons, API, setConfirm(f){ askConfirm = f; } };");
+    win.eval(bundle + "\n;window.__T = { S, views, I18N, propStatusHtml, propFormHtml, analysisCardHtml, positionsStripHtml, paintChartPositions, patchLive, bindCloseButtons, API, fmt, fmtSigned, patchMetric, setConfirm(f){ askConfirm = f; } };");
     T = win.__T;
   } catch (e) {
     console.log("FAIL  the desk bundle loads\n      " + e.message);
@@ -661,11 +661,117 @@ if (!jsdom) {
       /* patchMetric takes the first match in the document, so a
          duplicated key silently updates the wrong one. */
       const d = frag(T.views.command());
-      for (const k of ["command.equity", "command.profit", "command.daily_pl", "command.drawdown",
+      for (const k of ["command.equity", "command.profit", "command.profit_pct",
+        "command.daily_pl", "command.drawdown",
         "command.balance", "command.margin", "command.free_margin", "command.leverage"]) {
         const n = d.querySelectorAll(`[data-metric="${k}"]`).length;
         if (n !== 1) throw new Error(k + " appears " + n + " times");
       }
+    });
+
+    check("the masthead spreads across the band instead of hugging its edges", () => {
+      /* The original fault: identity on minmax(0,1fr) and one figure on
+         auto. The 1fr column swallowed every spare pixel, so on a
+         desktop some five hundred pixels of nothing sat between the
+         account name and the number - a full-width band whose content
+         was not. Fractional columns spread the zones; "auto" lets one
+         of them hoard the width again. */
+      const flat = appCss.replace(/\s*\n\s*/g, "");
+      const m = /\.ccx-head\{[^}]*grid-template-columns:([^;}]+)/.exec(flat);
+      if (!m) throw new Error("the masthead has no column track");
+      const cols = m[1].trim();
+      if (/\bauto\b/.test(cols)) {
+        throw new Error("a masthead column is 'auto' again, so one zone takes the slack: " + cols);
+      }
+      if ((cols.match(/fr\b/g) || []).length < 3) {
+        throw new Error("the masthead is not three fractional zones: " + cols);
+      }
+    });
+
+    check("the two watched figures are built the same way and labelled", () => {
+      /* Equity and the floating P/L are the two numbers this page is
+         opened for. The P/L used to be a small chip under the equity,
+         which is not the weight of the second thing you watch. */
+      const d = frag(T.views.command());
+      for (const sel of [".ccx-equity", ".ccx-pl"]) {
+        const zone = d.querySelector(sel);
+        if (!zone) throw new Error(sel + " is missing from the masthead");
+        if (!zone.querySelector(".ccx-fig-k")) throw new Error(sel + " has no label");
+        if (!zone.querySelector(".ccx-fig-n")) throw new Error(sel + " has no figure");
+      }
+    });
+
+    check("a P/L figure says its own direction, not only its colour", () => {
+      /* Colour is never allowed to be the only indicator. fmt() prints
+         the minus on a loss; the plus on a gain was missing, so a
+         profit and a flat account differed by hue alone. */
+      if (typeof T.fmtSigned !== "function") throw new Error("there is no signed formatter");
+      if (T.fmtSigned(12.5) !== "+" + T.fmt(12.5)) throw new Error("a gain carries no plus");
+      if (T.fmtSigned(-12.5) !== T.fmt(-12.5)) throw new Error("a loss gained a second sign");
+      if (T.fmtSigned(0) !== T.fmt(0)) throw new Error("a flat figure was given a sign");
+
+      /* And the rendered masthead must actually use it. */
+      const txt = frag(T.views.command()).querySelector('[data-metric="command.profit"]').textContent;
+      if (!/^[+\u2212-]/.test(txt.trim()) && parseFloat(txt) !== 0) {
+        throw new Error("the floating P/L renders without a sign: " + txt);
+      }
+    });
+
+    check("the currency is a sibling of the figure, so it is not printed twice", () => {
+      /* patchMetric writes textContent. If the unit were inside the
+         [data-metric] element the first live tick would flatten it,
+         and if it were also passed as the suffix it would appear
+         twice. The markup and the patcher have to agree. */
+      const d = frag(T.views.command());
+      const fig = d.querySelector('.ccx-equity [data-metric="command.equity"]');
+      if (!fig) throw new Error("equity is not the headline figure");
+      if (/[A-Z]{3}/.test(fig.textContent)) {
+        throw new Error("the currency is inside the patched element: " + fig.textContent);
+      }
+      if (!d.querySelector(".ccx-equity .ccx-fig-c")) throw new Error("the currency is not shown at all");
+
+      const src = appJs.slice(appJs.indexOf('if (v === "command" && mt5Live())'));
+      const body = src.slice(0, src.indexOf("\n  if (v ==="));
+      if (/patchMetric\("command\.equity",\s*acc\.equity,\s*acc\.currency/.test(body)) {
+        throw new Error("the live patcher still appends the currency, which now doubles it");
+      }
+    });
+
+    check("a live tick does not rewrite a percentage with a space in it", () => {
+      /* patchMetric joined value and suffix with a space, which is right
+         for "USD" and wrong for "%". Every percent figure was therefore
+         rendered one way at first paint and another way one tick later. */
+      const el = win.document.createElement("b");
+      el.setAttribute("data-metric", "probe.pct");
+      win.document.body.appendChild(el);
+      try {
+        T.patchMetric("probe.pct", 0.56, "%", true);
+        if (el.textContent !== "+0.56%") throw new Error('expected "+0.56%", got "' + el.textContent + '"');
+        T.patchMetric("probe.pct", 1200, "USD");
+        if (el.textContent !== T.fmt(1200) + " USD") {
+          throw new Error('a currency lost its space: "' + el.textContent + '"');
+        }
+      } finally { el.remove(); }
+    });
+
+    check("a live tick does not erase a figure that is already text", () => {
+      /* The leverage is handed to the patcher as "1:100". fmt() ran
+         Number() over it, got NaN and wrote an em dash, so the figure
+         was correct at first paint and gone one tick later. */
+      const el = win.document.createElement("b");
+      el.setAttribute("data-metric", "probe.lev");
+      el.textContent = "1:100";
+      win.document.body.appendChild(el);
+      try {
+        T.patchMetric("probe.lev", "1:100", "");
+        if (el.textContent !== "1:100") {
+          throw new Error('the leverage was rewritten as "' + el.textContent + '"');
+        }
+        T.patchMetric("probe.lev", "42.5", "USD");
+        if (el.textContent !== T.fmt(42.5) + " USD") {
+          throw new Error('a numeric string stopped being formatted: "' + el.textContent + '"');
+        }
+      } finally { el.remove(); }
     });
 
     check("the account identity is folded in, not repeated in its own card", () => {

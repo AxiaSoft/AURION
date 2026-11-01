@@ -2398,6 +2398,11 @@ function setGlassNow(on) {
   paintGlassSwitch();
 }
 function clsPnl(n) { return Number(n) > 0 ? "up" : Number(n) < 0 ? "down" : ""; }
+/* A P/L figure reads its own direction.
+   fmt() already prints the minus on a loss, but a gain came out bare and
+   only green said which way it had gone - and colour is never allowed to
+   be the only indicator. The plus is the missing half of that pair. */
+function fmtSigned(n) { return (Number(n) > 0 ? "+" : "") + fmt(n); }
 function mt5Live() {
   const mt = S.snap && S.snap.mt5;
   if (mt && mt.connected) return true;
@@ -3676,7 +3681,20 @@ function patchRiskBar(key, value, limit) {
 function patchMetric(key, value, suffix, signed) {
   const el = document.querySelector(`[data-metric="${key}"]`);
   if (!el) return;
-  const next = `${fmt(value)}${suffix ? " " + suffix : ""}`;
+  /* A currency is a separate word; a percent sign is not. Joining both
+     with a space meant every figure carrying "%" was rendered as
+     "0.56%" at first paint and rewritten as "0.56 %" by the first live
+     tick - a silent shift on the daily P/L and the drawdown long
+     before the masthead gained one. */
+  const sep = suffix === "%" ? "" : " ";
+  /* A value that is already text stays text. The leverage is handed in
+     as "1:100", and fmt() put that through Number(), got NaN and wrote
+     an em dash - so the figure rendered correctly and was then erased
+     by the first live tick. Anything numeric still goes through fmt. */
+  const shown = typeof value === "string" && value !== "" && Number.isNaN(Number(value))
+    ? value
+    : (signed ? fmtSigned(value) : fmt(value));
+  const next = `${shown}${suffix ? sep + suffix : ""}`;
   if (el.textContent !== next) el.textContent = next;
   el.classList.toggle("up", Boolean(signed && Number(value) > 0));
   el.classList.toggle("down", Boolean(signed && Number(value) < 0));
@@ -3775,8 +3793,15 @@ function patchLive() {
     const acc = S.snap?.mt5?.account || {};
     const prop = S.snap?.prop || {};
     patchMetric("command.balance", acc.balance, acc.currency);
-    patchMetric("command.equity", acc.equity, acc.currency);
-    patchMetric("command.profit", acc.profit, acc.currency, true);
+    /* The currency is a sibling of the figure now, not part of its text,
+       so it is no longer passed as a suffix - doing so would print it
+       twice. */
+    patchMetric("command.equity", acc.equity);
+    patchMetric("command.profit", acc.profit, "", true);
+    const balLive = Number(acc.balance) || 0;
+    if (balLive > 0) {
+      patchMetric("command.profit_pct", ((Number(acc.profit) || 0) / balLive) * 100, "%", true);
+    }
     patchMetric("command.daily_pl", prop.daily_pl_pct, "%", true);
     patchMetric("command.drawdown", prop.drawdown_pct, "%");
     /* The two risk figures carry a bar against their prop limit, and a
@@ -6248,6 +6273,12 @@ const views = {
     const pos = S.snap?.positions || [];
     const agents = liveAgents();
     const cur = acc.currency || "";
+    /* Floating P/L as a share of the balance it is working. "+139.61" on
+       its own does not say whether that is a good day or a rounding
+       error; against the balance it does. With no balance there is no
+       denominator, so it shows a dash rather than inventing one. */
+    const balNow = Number(acc.balance) || 0;
+    const plPct = balNow > 0 ? ((Number(acc.profit) || 0) / balNow) * 100 : null;
     const wizard = `<div class="hero" id="cmd-wizard"${agents.length ? " hidden" : ""}>
         <div class="hero-copy">
           <p class="kicker">${I18N.t("command.ready")}</p>
@@ -6301,7 +6332,7 @@ const views = {
       return `<div class="ccx-risk-row${state}">
           <div class="ccx-risk-head">
             <span>${I18N.t(key)}</span>
-            <b class="mono ${signed ? clsPnl(value) : ""}" data-metric="${key}">${fmt(value)}%</b>
+            <b class="mono ${signed ? clsPnl(value) : ""}" data-metric="${key}">${signed ? fmtSigned(value) : fmt(value)}%</b>
           </div>
           <div class="ccx-risk-bar" role="img"
                aria-label="${esc(I18N.t(key))} ${fmt(amt)}% / ${fmt(lim)}%">
@@ -6342,9 +6373,19 @@ const views = {
             acc.leverage ? "1:" + acc.leverage : ""].filter(Boolean).join(" \u00B7 "))}</p>
         </div>
         <div class="ccx-equity">
-          <span class="ccx-equity-k">${I18N.t("command.equity")}</span>
-          <b class="mono" data-metric="command.equity">${fmt(acc.equity)}${cur ? " " + cur : ""}</b>
-          <i class="mono ${clsPnl(acc.profit)}" data-metric="command.profit">${fmt(acc.profit)}${cur ? " " + cur : ""}</i>
+          <span class="ccx-fig-k">${I18N.t("command.equity")}</span>
+          <b class="ccx-fig-v">
+            <span class="mono ccx-fig-n" data-metric="command.equity">${fmt(acc.equity)}</span>
+            ${cur ? `<span class="ccx-fig-c">${esc(cur)}</span>` : ""}
+          </b>
+        </div>
+        <div class="ccx-pl">
+          <span class="ccx-fig-k">${I18N.t("command.profit")}</span>
+          <b class="ccx-fig-v">
+            <span class="mono ccx-fig-n ${clsPnl(acc.profit)}" data-metric="command.profit">${fmtSigned(acc.profit)}</span>
+            ${cur ? `<span class="ccx-fig-c">${esc(cur)}</span>` : ""}
+          </b>
+          <span class="ccx-fig-pct mono ${clsPnl(acc.profit)}" data-metric="command.profit_pct">${plPct === null ? "\u2014" : fmtSigned(plPct) + "%"}</span>
         </div>
       </header>
 
