@@ -68,8 +68,13 @@ if command -v d8 >/dev/null 2>&1; then DEXER=d8
 elif command -v dx >/dev/null 2>&1; then DEXER=dx
 else die "neither d8 nor dx found. In Termux: pkg install d8"; fi
 
-JAVAC=""
-if command -v javac >/dev/null 2>&1; then JAVAC=javac
+# javac is preferred, but on some devices Termux's JDK fails to start over a
+# libicu mismatch. AURION_JAVAC=ecj forces the other one without editing this
+# file; ecj is installed anyway, since it is what ships android.jar.
+JAVAC="${AURION_JAVAC:-}"
+if [ -n "$JAVAC" ]; then
+  command -v "$JAVAC" >/dev/null 2>&1 || die "AURION_JAVAC=$JAVAC is not installed"
+elif command -v javac >/dev/null 2>&1; then JAVAC=javac
 elif command -v ecj >/dev/null 2>&1; then JAVAC=ecj
 else die "no Java compiler. In Termux: pkg install openjdk-21   (or: pkg install ecj)"; fi
 
@@ -135,7 +140,9 @@ mapfile -t SOURCES < <(find "$HERE/java" -name '*.java')
 [ "${#SOURCES[@]}" -gt 0 ] || die "no java sources under $HERE/java"
 if [ "$JAVAC" = "javac" ]; then
   javac --release 8 -nowarn -classpath "$ANDROID_JAR_PATH" \
-        -d "$OUT/classes" "${SOURCES[@]}"
+        -d "$OUT/classes" "${SOURCES[@]}" \
+    || die "javac failed. If it could not start at all, retry with:
+       AURION_JAVAC=ecj $0"
 else
   # Termux's ecj wrapper can hide newer framework symbols unless the stub is
   # handed over as the bootclasspath explicitly.
