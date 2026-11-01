@@ -610,13 +610,127 @@ check("every new string exists in all three languages", () => {
   });
 });
 
+/* ------------------------------------------------------------------
+   A console stays a console in daylight
+
+   skins.css decided that the engine log, the robot log and the
+   strategy source keep light-on-dark text in both themes, and wrote
+   down why. The decision did not reach the screen: it is specificity
+   (0,2,1), the skin layer in themes.css is also (0,2,1), and a tie is
+   broken by source order - themes.css loads last. The consoles came
+   out pale in light mode and nobody had written a rule saying so.
+
+   Checking that some dark rule EXISTS would not catch that, because
+   the dark rule existed the whole time. This resolves the contest the
+   way a browser does: of every rule in the three sheets that sets a
+   background on .term, the one that applies to a light page with a
+   skin must win on specificity, and it must be the dark one.
+   ------------------------------------------------------------------ */
+check("the light-mode console rule actually beats the skin layer", () => {
+  const sheets = ["css/app.css", "css/skins.css", "css/chart.css", "css/themes.css"];
+
+  /* :is() contributes the specificity of its MOST specific argument, not
+     the sum of all of them, and :where() contributes nothing. Counting
+     every class inside :is(.term, .robot-term, .st-src, .tg-src,
+     .secret-box, .keybox) gave that selector (0,7,1) and made it beat the
+     skin layer on paper while losing in the browser - so the first two
+     mutations of this very check sailed through. Resolve the functional
+     pseudo-classes first, then count. */
+  const splitTop = (list) => {
+    const out = []; let depth = 0, cur = "";
+    for (const ch of list) {
+      if (ch === "(") depth += 1;
+      else if (ch === ")") depth -= 1;
+      if (ch === "," && depth === 0) { out.push(cur); cur = ""; continue; }
+      cur += ch;
+    }
+    if (cur.trim()) out.push(cur);
+    return out;
+  };
+  const count = (sel) => {
+    const s = sel.replace(/::[a-z-]+/g, "");
+    return [
+      (s.match(/#[\w-]+/g) || []).length,
+      (s.match(/\.[\w-]+/g) || []).length
+        + (s.match(/\[[^\]]*\]/g) || []).length
+        + (s.match(/:(?!:)[a-z-]+/g) || []).length,
+      (s.match(/(^|[\s>+~])([a-z][\w-]*)/g) || []).length,
+    ];
+  };
+  const specificity = (sel) => {
+    /* Collapse the innermost functional pseudo-class until none are left. */
+    let s = sel, guard = 0;
+    while (/:(is|matches|not|where)\(/.test(s) && guard++ < 20) {
+      s = s.replace(/:(is|matches|not|where)\(([^()]*)\)/, (_, fn, args) => {
+        if (fn === "where") return "";
+        const best = splitTop(args)
+          .map((a) => ({ a: a.trim(), sp: count(a.trim()) }))
+          .sort((x, y) => (x.sp[0] - y.sp[0]) || (x.sp[1] - y.sp[1]) || (x.sp[2] - y.sp[2]))
+          .pop();
+        return best ? best.a : "";
+      });
+    }
+    return count(s);
+  };
+
+  const cmp = (x, y) => (x[0] - y[0]) || (x[1] - y[1]) || (x[2] - y[2]);
+
+  /* A selector list cannot be split on every comma: :is(.term, .robot-term)
+     carries its own. Split at depth zero only - getting this wrong tore
+     "...:is(.term, .st-src)::-webkit-scrollbar-thumb" into pieces and let a
+     scrollbar rule pass for a console rule. */
+  const splitList = splitTop;
+
+  const candidates = [];
+  sheets.forEach((name, sheetIdx) => {
+    const css = read(name).replace(/\/\*[\s\S]*?\*\//g, "");
+    let order = 0;
+    for (const m of css.matchAll(/([^{}]+)\{([^}]*)\}/g)) {
+      order += 1;
+      const body = m[2];
+      if (!/(^|;)\s*background(-color)?\s*:/.test(body)) continue;
+      for (const sel of splitList(m[1])) {
+        const t = sel.trim();
+        if (!t) continue;
+        /* Does this rule reach a .term on a light page with a skin? */
+        const hitsTerm = /\.term\b/.test(t) || /:is\([^)]*\.term\b[^)]*\)/.test(t);
+        if (!hitsTerm) continue;
+        if (/\[data-theme="dark"\]/.test(t)) continue;
+        if (/data-skin="[a-z]+"/.test(t)) continue;   /* only one skin at a time */
+        if (/:hover|:focus|:active/.test(t)) continue;
+        if (/::/.test(t)) continue;   /* a scrollbar thumb is not the console */
+        const bg = /background(-color)?\s*:\s*([^;]+)/.exec(body)[2].trim();
+        candidates.push({ sheet: name, sel: t, bg, spec: specificity(t), sheetIdx, order });
+      }
+    }
+  });
+
+  if (candidates.length < 2) {
+    throw new Error("expected the skin layer and the console rule to both be found, got " + candidates.length);
+  }
+  candidates.sort((x, y) => cmp(x.spec, y.spec)
+    || (x.sheetIdx - y.sheetIdx) || (x.order - y.order));
+  const winner = candidates[candidates.length - 1];
+
+  if (!/\[data-theme="light"\]/.test(winner.sel)) {
+    throw new Error("the rule that wins for a light console is not a light-theme rule: "
+      + winner.sel + " { background:" + winner.bg + " } from " + winner.sheet);
+  }
+  /* And it has to be dark. */
+  const hex = /#([0-9a-f]{6})/i.exec(winner.bg);
+  if (!hex) throw new Error("the winning console background is not a flat colour: " + winner.bg);
+  const n = parseInt(hex[1], 16);
+  const lum = (((n >> 16) & 255) + ((n >> 8) & 255) + (n & 255)) / 3;
+  if (lum > 60) throw new Error("the winning console background is not dark: " + winner.bg);
+});
+
 check("the browser is forced to pick up every file that changed", () => {
   const html = read("index.html");
-  const want = ["js/skins.js?v=desk99", "js/themes.js?v=desk188", "js/app.js?v=desk192",
-    "css/themes.css?v=desk192", "css/app.css?v=desk192", "css/skins.css?v=desk185",
+  const want = ["js/skins.js?v=desk99", "js/themes.js?v=desk188", "js/app.js?v=desk193",
+    "css/themes.css?v=desk193", "css/app.css?v=desk193", "css/skins.css?v=desk185",
     "js/colorpicker.js?v=desk2"];
   want.forEach((w) => { if (!html.includes(w)) throw new Error("index.html is missing " + w); });
-  if (!read("sw.js").includes("aurion-shell-v182")) throw new Error("the service worker cache was not bumped");
+  if (!read("sw.js").includes("aurion-shell-v183")) throw new Error("the service worker cache was not bumped");
 });
 
 /* ----------------------------------------------------------------- report */

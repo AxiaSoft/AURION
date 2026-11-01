@@ -2510,3 +2510,42 @@ html[data-bg="photo"] .aurora::after{
   font:500 11px/1.5 var(--mono, ui-monospace, monospace);
   color:var(--muted); word-break:break-all;
 }
+
+/* ===========================================================================
+   A console stays a console, in daylight too
+   ===========================================================================
+   skins.css already decided this, and said why: "A terminal is a screen.
+   Bleaching the engine log, the robot log and the strategy source to match a
+   white page destroys the one place in the desk where monospaced
+   light-on-dark text is the convention a trader already reads - and where a
+   red error line has to be unmissable."
+
+   The decision never reached the screen. skins.css writes it as
+   html[data-theme="light"] :is(.term, ...), which is specificity (0,2,1).
+   The skin layer in THIS file writes html[data-skin] .term and
+   html[data-skin] .ctrl, also (0,2,1). A tie is broken by source order and
+   this sheet loads last, so every console came out pale: the engine log and
+   the AI feed at rgb(var(--s1) / .55), and the strategy source - a textarea,
+   so it is caught by the .ctrl and textarea rules too - at plain white.
+
+   Re-stating it here with the theme and the skin both in the selector makes
+   it (0,3,1). That beats the skin layer and every per-skin .term override
+   further up on specificity rather than on position, so it does not matter
+   where any of them sit or what is added later.                           */
+html[data-theme="light"][data-skin] :is(.term, .robot-term, .st-src, .tg-src, .secret-box, .keybox){
+  background:#0b0e15;
+  color:#dbe3f0;
+  border:1px solid rgba(20,28,45,.35);
+}
+html[data-theme="light"][data-skin] :is(.st-src, .tg-src)::placeholder{ color:#6b7b93 }
+html[data-theme="light"][data-skin] :is(.term, .robot-term) .l-info{ color:#9fb0c9 }
+html[data-theme="light"][data-skin] :is(.term, .robot-term) .l-warning,
+html[data-theme="light"][data-skin] :is(.term, .robot-term) .l-warn{ color:#f0b955 }
+html[data-theme="light"][data-skin] :is(.term, .robot-term) .l-error,
+html[data-theme="light"][data-skin] :is(.term, .robot-term) .l-err{ color:#ff7d94 }
+html[data-theme="light"][data-skin] :is(.term, .robot-term) .l-ok{ color:#4fd6a3 }
+html[data-theme="light"][data-skin] :is(.term, .robot-term) .ts{ color:#6b7b93 }
+/* The scrollbar inside a dark console should not be a light-theme scrollbar. */
+html[data-theme="light"][data-skin] :is(.term, .robot-term, .st-src)::-webkit-scrollbar-thumb{
+  background:rgba(255,255,255,.22);
+}
