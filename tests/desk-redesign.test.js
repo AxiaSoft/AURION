@@ -774,6 +774,68 @@ if (!jsdom) {
       } finally { el.remove(); }
     });
 
+    check("app.css does not take over a pseudo-element the skin owns", () => {
+      /* skins.css paints every card's specular highlight through
+         .card::after, and it loads after this sheet. When app.css
+         declared .ccx-head::after as well, the later sheet won the
+         background and the insets but not inline-size, so the skin's
+         highlight was painted at 46% of the card's width and anchored
+         to one edge - a hard vertical seam with a lighter block beside
+         it. The masthead read as shaded in two tones.
+
+         Neither author wrote that; it is what two sheets owning one
+         pseudo-element produces. ::after on a card belongs to the
+         skin. ::before may be restated (.card::before lives in this
+         file) but must not be resized, which is the declaration that
+         did the damage. */
+      const rules = [];
+      for (const m of appCss.matchAll(/(?:^|\})\s*([^@{}]*?::(before|after))\s*\{([^}]*)\}/gm)) {
+        for (const part of m[1].split(",")) {
+          const c = /\.([a-zA-Z0-9_-]+)::(?:before|after)$/.exec(part.trim());
+          if (c && c[1] !== "card") rules.push({ cls: c[1], pseudo: m[2], body: m[3] });
+        }
+      }
+      /* A class counts as a card only where the markup literally puts
+         both tokens in one attribute. Template holes are stripped
+         first: class="theme-card${...}" must not read as ".on". */
+      const onACard = (cls) => {
+        for (const m of appJs.matchAll(/class="([^"]*)"/g)) {
+          const tokens = m[1].replace(/\$\{[^}]*\}/g, " ").split(/\s+/);
+          if (tokens.includes(cls) && tokens.includes("card")) return m[1];
+        }
+        return null;
+      };
+      const clash = [];
+      for (const r of rules) {
+        const where = onACard(r.cls);
+        if (!where) continue;
+        if (r.pseudo === "after") {
+          clash.push("." + r.cls + "::after (the skin's highlight)");
+        } else if (/(^|;)\s*(inline-size|width)\s*:/.test(r.body)) {
+          clash.push("." + r.cls + "::before is resized");
+        }
+      }
+      if (clash.length) {
+        throw new Error("app.css fights skins.css for a card's pseudo-element: " + clash.join(", "));
+      }
+    });
+
+    check("the masthead does not re-declare chrome it cannot win", () => {
+      /* Measured in a real browser before this was cut: the masthead's
+         background and box-shadow resolved byte-identical to a plain
+         card's, because themes.css and skins.css both load later and
+         own .card. Re-stating them here only reads as intent that is
+         not there. */
+      const flat = appCss.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\s*\n\s*/g, "");
+      const rule = /\.ccx-head\{([^}]*)\}/.exec(flat);
+      if (!rule) throw new Error("the masthead rule is gone");
+      for (const prop of ["background", "box-shadow", "isolation"]) {
+        if (new RegExp("(^|;)" + prop + ":").test(rule[1])) {
+          throw new Error("the masthead sets " + prop + " again, which the skin overrides anyway");
+        }
+      }
+    });
+
     check("the account identity is folded in, not repeated in its own card", () => {
       const d = frag(T.views.command());
       const head = d.querySelector(".ccx-head");

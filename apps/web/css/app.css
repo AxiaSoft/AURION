@@ -4595,18 +4595,27 @@ input[type="number"]::-webkit-inner-spin-button{
    ------------------------------------------------------------------ */
 
 /* ---- 1. the masthead ---- */
-/* Modernised.
+/* The card's chrome belongs to the skin, not to this file.
 
-   The masthead held the right information in the right order but gave
-   it no depth: a flat card, an account name at 17px and the equity
-   figure beside it, everything on one plane. Equity is the number the
-   page exists to show, so it now reads as the headline and the card
-   is lifted off the page behind it.
+   This block used to re-declare the masthead's background, its shadow,
+   its top hairline and a corner wash, to "lift it off the page". None
+   of it reached the screen: themes.css and skins.css both load after
+   this sheet and own .card, so the background and the shadow resolved
+   identical to any other card, and .ccx-head::before drew the same
+   hairline .card::before already draws.
 
-   Nothing moved. This is weight, depth and rhythm only - the panel
-   order and every data-metric hook are untouched. */
+   One declaration did survive, and it was the one that did damage.
+   skins.css gives every card a specular highlight through .card::after
+   -- full width, 40% of the card's height. The later sheet won the
+   background and the insets but not inline-size, so the highlight was
+   painted at 46% of the width, anchored to the start edge: a hard
+   vertical seam 547px into the card with a lighter block on one side
+   of it. The masthead looked like it had been shaded in two tones.
+
+   The seam is gone because the whole decorative block is gone. Two
+   stylesheets cannot each own one pseudo-element; the skin owns it,
+   and what is left here is layout. */
 .ccx-head{
-  position:relative; overflow:hidden; isolation:isolate;
   /* stretch, not center: the dividers are the borders of these cells, so
      centring gave each one the height of its own contents and the two
      rules came out different lengths. */
@@ -4618,23 +4627,6 @@ input[type="number"]::-webkit-inner-spin-button{
      fractions spread the three zones across the band, so the width is
      used as rhythm instead of being left over at one end. */
   grid-template-columns:minmax(0,1.1fr) minmax(0,1fr) minmax(0,1fr);
-  background:
-    linear-gradient(180deg, rgb(var(--wash) / .06), rgb(var(--wash) / .015)),
-    var(--glass2, rgb(var(--wash) / .03));
-  box-shadow:0 16px 40px rgb(0 0 0 / .16);
-}
-.ccx-head::before{
-  content:""; position:absolute; inset-inline:0; inset-block-start:0; block-size:1px;
-  background:linear-gradient(90deg, transparent, rgb(var(--wash) / .2), transparent);
-  pointer-events:none;
-}
-/* The same light-off-the-corner wash the About hero uses, so the two
-   mastheads in the product are recognisably one idea. */
-.ccx-head::after{
-  content:""; position:absolute; z-index:-1; inset-block:-70%; inset-inline-end:-6%;
-  inline-size:46%;
-  background:radial-gradient(closest-side, rgb(var(--accent-rgb) / .13), transparent 70%);
-  pointer-events:none;
 }
 .ccx-id{ min-inline-size:0 }
 .ccx-id-type{ margin:0; font-size:18px; font-weight:650; letter-spacing:.01em }
