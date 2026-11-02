@@ -175,13 +175,24 @@ check("a genuinely missing warm-up is still shown as missing", () => {
 
 /* ---- 3. the chart stops where its data stops ---------------------------- */
 
+/* These three used to read "there is never any empty space". That pinned
+   a decision which has since been reversed on request: the newest candle
+   is held clear of the price column again, because a chart with the live
+   candle pressed against the axis has nowhere for the next move to
+   appear. The empty space is now deliberate and measured.
+
+   What the checks were really defending is still defended, and is the
+   part that would be a bug: empty space must be EXACTLY the margin that
+   was asked for. One cell more is a gap nobody ordered; one cell fewer
+   means the setting is being ignored somewhere. */
 check("the chart cannot be pushed past the newest bar", () => {
   const { chart } = freshChart();
   chart.pan(-99999);
   if (chart.offset !== 0) throw new Error("offset ran to " + chart.offset);
   const L = chart.layout();
-  if (L.cells !== L.rows.length) {
-    throw new Error(`${L.cells - L.rows.length} empty cells left on the right`);
+  const blank = L.cells - L.rows.length;
+  if (blank !== chart.rightMargin()) {
+    throw new Error(`${blank} empty cells on the right, margin asks for ${chart.rightMargin()}`);
   }
 });
 
@@ -189,12 +200,12 @@ check("the chart cannot be pushed past the oldest bar", () => {
   const { chart } = freshChart();
   chart.pan(99999);
   const L = chart.layout();
-  if (L.rows.length !== chart.span) {
-    throw new Error(`only ${L.rows.length} of ${chart.span} cells hold a bar`);
+  if (L.rows.length !== chart.span - chart.rightMargin()) {
+    throw new Error(`${L.rows.length} bars for a span of ${chart.span} less a ${chart.rightMargin()}-bar margin`);
   }
 });
 
-check("no reachable scroll position leaves empty space", () => {
+check("no reachable scroll position leaves more empty space than the margin", () => {
   /* Swept rather than spot-checked, and at several zoom levels, because
      the bound involves the span and a single sample would miss an
      off-by-one at one particular width. */
@@ -207,10 +218,31 @@ check("no reachable scroll position leaves empty space", () => {
       chart.clampOffset();
       const L = chart.layout();
       if (!L) continue;
-      if (L.cells !== L.rows.length) bad.push(`span ${span}, offset ${chart.offset}: ${L.cells - L.rows.length} blank cells`);
+      const blank = L.cells - L.rows.length;
+      if (blank !== chart.rightMargin()) {
+        bad.push(`span ${span}, offset ${chart.offset}: ${blank} blank cells, margin ${chart.rightMargin()}`);
+      }
     }
   }
   if (bad.length) throw new Error(bad.slice(0, 5).join("\n"));
+});
+
+check("the right margin is the trader's number, not a constant", () => {
+  /* The three checks above all run at the default margin, so hard-coding
+     that default anywhere would satisfy every one of them - proved by
+     mutation. Change the setting and the geometry has to follow it. */
+  const { chart } = freshChart(400);
+  for (const want of [0, 3, 25, 60]) {
+    chart.setRightMargin(want);
+    if (chart.rightMargin() !== want) throw new Error(`asked for ${want}, got ${chart.rightMargin()}`);
+    const L = chart.layout();
+    const blank = L.cells - L.rows.length;
+    if (blank !== want) throw new Error(`margin ${want} produced ${blank} empty cells`);
+  }
+  /* And it is bounded at both ends rather than trusted. */
+  if (chart.setRightMargin(-10) !== 0) throw new Error("a negative margin was accepted");
+  if (chart.setRightMargin(10000) > 60) throw new Error("the margin is not capped");
+  chart.setRightMargin(8);
 });
 
 check("a chart with less history than fits on screen cannot scroll at all", () => {

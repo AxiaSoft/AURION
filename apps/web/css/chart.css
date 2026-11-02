@@ -315,6 +315,37 @@ html[dir="rtl"] .tv-flyout { transform: translateX(6px) }
   transition: opacity var(--dur-2, .18s) var(--ease-1), transform var(--dur-2, .18s) var(--ease-1);
 }
 .tv-stage:hover .tv-nav, .tv-nav:focus-within { opacity: 1; transform: none }
+
+/* Back to the live edge.
+
+   Shown only while the live edge is off screen - a button that does
+   nothing is worse than no button - so unlike its neighbours it does not
+   wait for a hover to appear. Someone scrolled into history needs to see
+   the way back without first discovering that the corner reacts. */
+.tv-nav .tv-latest { border-color: rgb(var(--accent-rgb) / .45) }
+.tv-stage:has(.tv-latest:not([hidden])) .tv-nav { opacity: 1; transform: none }
+
+/* The gap between the newest candle and the price column, in bars.
+
+   Quiet until it is wanted: a slider parked over the chart at full
+   strength is chrome competing with the thing it sits on. */
+.tv-margin {
+  position: absolute; inset-block-end: 14px; inset-inline-start: 12px;
+  display: flex; align-items: center; gap: 8px;
+  padding: 4px 10px; border-radius: 999px;
+  border: 1px solid var(--line);
+  background: rgb(var(--s1) / .72);
+  backdrop-filter: blur(calc(var(--blur, 18px) * 8 / 18));
+  -webkit-backdrop-filter: blur(calc(var(--blur, 18px) * 8 / 18));
+  font-size: 11px; color: var(--muted);
+  opacity: 0;
+  transition: opacity var(--dur-2, .18s) var(--ease-1);
+}
+.tv-stage:hover .tv-margin, .tv-margin:focus-within { opacity: 1 }
+.tv-margin label { white-space: nowrap }
+.tv-margin input[type="range"] { inline-size: 92px; accent-color: var(--accent); block-size: 18px }
+.tv-margin output { min-inline-size: 2ch; text-align: end; color: var(--ink) }
+
 .tv-round {
   display: grid; place-items: center;
   width: 28px; height: 28px;
@@ -327,6 +358,8 @@ html[dir="rtl"] .tv-flyout { transform: translateX(6px) }
   transition: color var(--dur-1, .12s), transform var(--dur-1, .12s);
 }
 .tv-round svg { width: 14px; height: 14px }
+.tv-round { position: relative }
+
 .tv-round:hover { color: var(--ink); transform: translateY(-1px) }
 
 .tv-hint {
@@ -1019,6 +1052,15 @@ html:fullscreen body { background: var(--bg) }
   .tv-nav { inset-inline-end: 72px }
   .tv-sym b { font-size: 13px }
   .tv-seg { display: none }
+  /* A phone has no hover, so the nav would never appear, and a slider
+     parked over the chart sits under a thumb that is trying to pan. The
+     jump button earns its place; the margin is a desk setting.
+     (Folded into this block rather than opening a second one at the same
+     width - there must be exactly one, or a slice of "the phone rules"
+     reads only the first and misses the rest.) */
+  .tv-margin { display: none }
+  .tv-nav { opacity: 1; transform: none }
+  .tv-round { width: 34px; height: 34px }
 }
 
 @media (max-width: 560px) {
@@ -1041,6 +1083,17 @@ html:fullscreen body { background: var(--bg) }
   .tv-switch { --tvs-h: 22px; --tvs-w: 40px; --tvs-pad: 4px }
   .tvf-row, .tvm-row { padding: 10px 9px }
   .tv-nav { opacity: 1; transform: none }
+  /* A thumb needs 44px; these were 32. Grow the target AROUND the control
+     rather than inflating the control, and only where the pointer is
+     coarse, so a mouse never has a click stolen by a neighbour's
+     invisible halo. The gap grows with it: at 5px apart two 44px targets
+     overlap and the wrong button answers.
+     This has to live here, after the width blocks - stated earlier in the
+     sheet it tied with .tv-round at 560px and lost on source order, which
+     is how it shipped at 32px the first time. */
+  .tv-nav { gap: 8px }
+  .tv-round { width: 40px; height: 40px }
+  .tv-round::after { content: ""; position: absolute; inset: -2px; border-radius: 50% }
 }
 
 /* Fat targets on the rail, but only where the rail is still a strip of

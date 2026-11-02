@@ -202,12 +202,21 @@ check("pan scrolls back", chart.offset === off0 + 20);
 chart.pan(-9999);
 check("pan stops at the newest bar instead of running into empty space",
   chart.offset === 0);
-check("...and every cell on screen still holds a bar",
-  (() => { const L = chart.layout(); return L.cells === L.rows.length; })());
+/* This used to read "every cell on screen holds a bar", which pinned a
+   decision that has now been reversed: the newest candle is deliberately
+   held clear of the price column again, so there ARE empty cells on the
+   right. What the check was really protecting is that no cell is empty
+   by accident - the count has to come out at exactly the margin that was
+   asked for, no more and no less. */
+check("...and the only empty cells are the right margin that was asked for",
+  (() => {
+    const L = chart.layout();
+    return L.cells - L.rows.length === chart.rightMargin();
+  })());
 chart.pan(99999);
 check("pan stops at the oldest bar", chart.offset === chart.maxOffset());
 check("...and the window is still full of bars, not stretched remnants",
-  (() => { const L = chart.layout(); return L.rows.length === chart.span; })());
+  (() => { const L = chart.layout(); return L.rows.length === chart.span - chart.rightMargin(); })());
 chart.fit();
 
 chart.setAutoScale(true);
@@ -295,20 +304,32 @@ check("a locked object cannot be grabbed by its handle",
   const back = chart.xyOf(L, pMid);
   check("...so it paints back onto the same pixel", Math.abs(back.x - xMid) < 1);
 
-  // ---- the right-hand edge is the newest bar --------------------------
-  // The chart no longer scrolls into an empty margin, so there is no blank
-  // space past the last candle to anchor anything in. A point dropped at
-  // the very right edge therefore lands on the newest bar rather than
-  // beyond it, and must still paint back exactly where it was put.
+  // ---- the right-hand edge is empty margin, and anchors survive it ----
+  // The blank space past the last candle is back by request: a chart with
+  // the live candle pressed against the price column has nowhere for the
+  // next move to appear. So a point dropped at the right edge now lands
+  // PAST the newest bar, which is the whole point of the margin - and the
+  // thing that must not break is that it paints back exactly where it was
+  // put. It did not, at first: hit() was reporting the last candle's time
+  // out in the margin, so every time-snapping tool dragged the anchor back
+  // onto that candle and the drawing appeared 39px from the pointer.
   chart.pan(-30);                                          // asks to go past the newest
   check("asking to scroll past the newest bar does nothing", chart.offset === 0);
   const L2 = chart.layout();
   const xFar = Math.round(L2.plotR - 20);
   const far = chart.point(chart.hit({ clientX: xFar, clientY: 220 }));
-  check("a point at the right edge lands on the newest bar, not past it",
-    far.gx <= chart.rows().length - 0.5);
+  check("a point in the right margin is allowed to sit past the newest bar",
+    far.gx > chart.rows().length - 0.5);
   check("...and paints where it was placed",
     Math.abs(chart.xyOf(L2, far).x - xFar) < 1.5);
+  // With time snapping ON - the default for most tools - the margin is
+  // where this goes wrong, because there is no bar there to snap to.
+  chart.setSnapTime(true);
+  chart.setTool("trend");
+  const inMargin = chart.point(chart.hit({ clientX: xFar, clientY: 220 }));
+  check("a snapping tool does not drag a margin anchor back onto the last candle",
+    Math.abs(chart.xyOf(L2, inMargin).x - xFar) < 1.5);
+  chart.setTool("cursor");
   chart.fit();
 
   // ---- a snapping tool still snaps ------------------------------------

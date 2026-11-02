@@ -163,6 +163,10 @@ class CandleChart {
      mostly empty space and a re-fit is the right answer. */
   static FIT_FILL = 0.55;
 
+  /* Bars of empty space held between the last candle and the price axis. */
+  static RIGHT_MARGIN = 8;
+  static RIGHT_MARGIN_MAX = 60;
+
   /* 1, 2, 5 x a power of ten - the step sizes a reader expects to see on
      an axis. The price window is snapped to the same ladder the axis
      labels use, so the remembered frame always lands on round numbers. */
@@ -194,6 +198,11 @@ class CandleChart {
     this.offset = 0;               // bars scrolled back from the newest
     this.span = 120;               // bars across the plot
     this.rightPad = 0;             // empty bars kept to the right of the last
+    /* Breathing room between the newest candle and the price column.
+       It used to be zero, so the live candle was pressed against the
+       axis and the thing you look at most - where price is going next -
+       had nowhere to go. Counted in bars so it survives a zoom. */
+    this.margin = CandleChart.RIGHT_MARGIN;
     this.scale = { auto: true, log: false, percent: false, invert: false, lock: false, mn: null, mx: null };
 
     /* ---- transient ----------------------------------------------------- */
@@ -311,6 +320,7 @@ class CandleChart {
         grid: this.grid,
         crosshair: this.crosshair,
         magnet: this.magnet,
+        margin: this.margin,
       }));
     } catch { /* not fatal */ }
   }
@@ -323,6 +333,9 @@ class CandleChart {
     if (typeof st.grid === "boolean") this.grid = st.grid;
     if (st.crosshair) this.crosshair = st.crosshair;
     if (st.magnet) this.magnet = st.magnet;
+    if (Number.isFinite(Number(st.margin))) {
+      this.margin = Math.max(0, Math.min(CandleChart.RIGHT_MARGIN_MAX, Math.round(Number(st.margin))));
+    }
     if (st.scale) Object.assign(this.scale, st.scale, { mn: null, mx: null });
     if (Array.isArray(st.indicators)) {
       this.indicators = st.indicators
@@ -666,7 +679,7 @@ class CandleChart {
    */
   slice() {
     const all = this.rows();
-    this.rightPad = Math.max(0, -this.offset);
+    this.rightPad = Math.max(this.margin || 0, -this.offset);
     const end = all.length - Math.max(0, this.offset);
     const start = Math.max(0, end - this.span + this.rightPad);
     return { rows: all.slice(start, end), start, end };
@@ -2777,8 +2790,15 @@ class CandleChart {
     if (!L) return null;
     const r = this.canvas.getBoundingClientRect();
     const x = e.clientX - r.left, y = e.clientY - r.top;
-    const i = Math.max(0, Math.min(L.rows.length - 1, L.iOf(x)));
-    const row = L.rows[i];
+    const raw = L.iOf(x);
+    const i = Math.max(0, Math.min(L.rows.length - 1, raw));
+    /* Out in the empty margin there is no bar, so there is no bar time
+       either. Reporting the last candle's time there would make every
+       time-snapping tool slide its anchor back onto that candle - the
+       drawing would be placed in the margin and painted somewhere else.
+       An empty time sends the point down the continuous-gx path, which
+       is what the margin exists for. */
+    const row = raw >= 0 && raw < L.rows.length ? L.rows[raw] : null;
     // gx is where the pointer really is, in bar units and unclamped: it can
     // sit between two bars, before the first or out in the empty margin past
     // the last. Everything that is drawn uses it; only the legend and the
@@ -3032,6 +3052,9 @@ class CandleChart {
     this.offset += bars;
     this.clampOffset();
     this.draw();
+    /* Scrolling changes whether the live edge is on screen, and the
+       control that offers to take you back has to know. */
+    this.changed();
   }
 
   clampOffset() {
@@ -3213,10 +3236,47 @@ class CandleChart {
      remembered one is dropped and the next draw re-fits. */
   forgetScaleFit() { this._fit = null; }
 
+  /**
+   * How far the newest candle sits from the price column, in bars.
+   *
+   * A chart with the live candle jammed against the axis is hard to read
+   * precisely because the next move has no room to appear in. The amount
+   * is a preference rather than a constant: a scalper wants a sliver, a
+   * swing trader wants half a screen.
+   */
+  setRightMargin(bars) {
+    const n = Math.round(Number(bars));
+    this.margin = Math.max(0, Math.min(CandleChart.RIGHT_MARGIN_MAX, Number.isFinite(n) ? n : 0));
+    this.forgetScaleFit();
+    this.clampOffset();
+    this.saveState();
+    this.draw();
+    return this.margin;
+  }
+
+  rightMargin() { return this.margin || 0; }
+
+  /** Is the newest candle in view? */
+  atLatest() { return this.offset <= 0; }
+
+  /**
+   * Back to the live edge.
+   *
+   * Scrolling into history is one gesture; getting back was several, and
+   * on a phone it was a long drag with no landmark to stop at.
+   */
+  scrollToLatest() {
+    this.offset = 0;
+    this.forgetScaleFit();
+    this.clampOffset();
+    this.draw();
+    this.changed();
+  }
+
   fit() {
     this.forgetScaleFit();
     this.offset = 0;
-    this.rightPad = 0;
+    this.rightPad = this.margin || 0;
     this.span = Math.min(160, Math.max(30, this.rows().length || 40));
     this.setAutoScale(true);
     this.draw();

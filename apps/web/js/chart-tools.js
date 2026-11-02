@@ -123,6 +123,7 @@
     plus: "M12 5v14M5 12h14",
     search: "M11 4a7 7 0 100 14 7 7 0 000-14M20 20l-4-4",
     chevron: "M9 6l6 6-6 6",
+    toEnd: "M5 12h11M11 7l5 5-5 5M20 5v14",
     panel: "M4 5h16v14H4zM15 5v14",
     tick: "M5 12.5l4.5 4.5L19 7",
   };
@@ -608,6 +609,19 @@
               <button type="button" class="tv-round" id="tv-zout" title="${esc(tt("draw.zoom_out", "Zoom out"))} (−)">${svg(I.zoomOut)}</button>
               <button type="button" class="tv-round" id="tv-auto" title="${esc(tt("chart.auto_scale", "Auto scale"))}">${svg(I.auto)}</button>
               <button type="button" class="tv-round" id="tv-fit" title="${esc(tt("draw.fit", "Reset view"))} (Home)">${svg(I.fit)}</button>
+              <!-- Back to the live edge. Scrolling into history is one
+                   gesture; getting back was a long drag with no landmark
+                   to stop at, which on a phone is most of a screen. It
+                   only exists while there is somewhere to go back to. -->
+              <button type="button" class="tv-round tv-latest" id="tv-latest" hidden
+                title="${esc(tt("chart.to_latest", "Go to the latest candle"))}">${svg(I.toEnd)}</button>
+            </div>
+            <!-- How far the newest candle sits from the price column.
+                 In bars, so it survives a zoom. -->
+            <div class="tv-margin" id="tv-margin">
+              <label for="tv-margin-r">${esc(tt("chart.right_margin", "Right margin"))}</label>
+              <input type="range" id="tv-margin-r" min="0" max="60" step="1" />
+              <output class="mono" id="tv-margin-v"></output>
             </div>
           </div>
         </div>
@@ -1225,6 +1239,7 @@
   }
 
   function refresh() {
+    if (typeof ui.syncNav === "function") ui.syncNav();
     renderObjects();
     renderProps();
     paintStyleBar();
@@ -1774,7 +1789,35 @@
       else if (e.target.closest("#tv-zout")) chart.zoom(-1);
       else if (e.target.closest("#tv-auto")) chart.setAutoScale(true);
       else if (e.target.closest("#tv-fit")) chart.fit();
+      else if (e.target.closest("#tv-latest")) chart.scrollToLatest();
+      syncNav();
     };
+
+    /* The jump button is only useful when the live edge is off-screen, and
+       a control that does nothing is worse than no control. */
+    function syncNav() {
+      const b = $("tv-latest");
+      if (b) b.hidden = chart.atLatest();
+      const r = $("tv-margin-r"), out = $("tv-margin-v");
+      if (r && out) {
+        const m = chart.rightMargin();
+        if (String(r.value) !== String(m)) r.value = String(m);
+        out.textContent = String(m);
+      }
+    }
+    ui.syncNav = syncNav;
+
+    const marg = $("tv-margin-r");
+    if (marg) {
+      marg.value = String(chart.rightMargin());
+      const outEl = $("tv-margin-v");
+      if (outEl) outEl.textContent = String(chart.rightMargin());
+      marg.oninput = () => {
+        chart.setRightMargin(marg.value);
+        if (outEl) outEl.textContent = String(chart.rightMargin());
+      };
+    }
+    syncNav();
 
     /* ---- selection style bar ------------------------------------------- */
     const styleBar = $("tv-style");

@@ -1454,7 +1454,9 @@
       "macd": "Two moving averages, their difference and its signal line.",
       "stoch": "Where the close sits inside the recent range.",
       "atr": "How far price travels in a bar, on average."
-    }
+    },
+    "to_latest": "Go to the latest candle",
+    "right_margin": "Right margin"
   },
   "signal": {
     "buy": "Buy signal",
