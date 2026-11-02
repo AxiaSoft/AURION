@@ -3115,6 +3115,79 @@ html[dir="rtl"] .q-how[open] summary::before{ transform:rotate(0deg) }
      it. Only here: on a mouse it would eat clicks aimed at the neighbour
      for no benefit, and the gap between controls on touch is 12px. */
   .switch::after{content:"";position:absolute;inset:-9px -5px;border-radius:inherit}
+
+  /* ---- and the same treatment for every target a sweep found short ----
+
+     Audited by hit-testing rather than by reading sizes: walk outwards
+     from a control's centre and ask the browser which element answers.
+     That measures the real target, expanders included, and it corrected
+     three wrong readings of my own - a nav tab reported as 5px wide
+     because I had tried to do arithmetic on a pseudo-element's computed
+     insets, #up-store reported unreachable when it is simply disabled,
+     and a first pass of expanders here that measured as having done
+     nothing at all.
+
+     That last one is the reason this block is not all ::after. .btn
+     carries overflow:hidden (for text-overflow:ellipsis, app.css:376),
+     so an expander drawn outside a button is clipped away by the button
+     itself. Every computed style said the rule had applied; the hit test
+     said otherwise, and the hit test was right. So anything built on
+     .btn is given real height instead, and the invisible trick is kept
+     for the few controls that must stay visually small.
+
+     Each growth is bounded by the measured clear space around the
+     control, so none of them reaches into a neighbour and starts
+     answering taps aimed next door. */
+
+  /* Room to grow, so grow properly. All of these measured 28-38px tall
+     with 8px or more of clear space on every side. */
+  .pc-seg>button,.cal-seg>button,.tabs>button{min-height:44px}
+  .cmd .btn.tiny,.stage .row>.btn.tiny{min-height:44px}
+  .cal-arrow,.cal-now{min-height:44px}
+  /* The order ticket. These have to out-specify their own base rules
+     rather than restate them: .ct-ic and .ct-pm are declared further
+     down this file at equal weight, and at equal weight the later rule
+     wins no matter which media query it sits in. Measured, not
+     assumed - the first attempt set the width and silently lost the
+     height to the rule below. */
+  .ct-row .ct-ic,.ct-lv .ct-ic{width:44px;min-width:44px;height:44px}
+  .ct-step .ct-pm{width:44px;height:44px}
+  .ct-row input,.ct-step input{min-height:44px}
+
+  /* Signals on and off, and the AI carousel's arrows: short by a
+     couple of pixels each. */
+  .mk-sig .btn.tiny{min-height:44px}
+  #ai-prev,#ai-next{min-width:44px}
+
+  /* The header stays 34px. That is a deliberate density choice below
+     760 - seven controls have to fit across 390px - so here the target
+     is grown around the control rather than through it, and the
+     button's own overflow has to be opened for that to survive. The
+     labels are short and already nowrap, so nothing spills.
+
+     6px between controls means 3px each side: 40x44, not 44x44.
+     Reaching 44 wide would need wider gaps, and wider gaps do not fit.
+     Saying so is better than rounding the number up. */
+  .top .icon-btn,.top .menu-btn,.top .btn.tiny{position:relative;overflow:visible}
+  .top .icon-btn::after,.top .menu-btn::after,.top .btn.tiny::after{
+    content:"";position:absolute;inset:-5px -3px;border-radius:inherit;
+  }
+
+  /* Carousel dots: 8px of dot is the design and it should stay 8px.
+     36px of gap gives each dot a 44px-wide share of the row. The card
+     clips the bottom of the expander, so the dots also take a little
+     real height - a dot row with 14px of margin under it had nothing
+     below to give. */
+  .chart-dots{gap:36px;padding-block:18px;margin-top:0}
+  .chart-dot{position:relative}
+  .chart-dot::after{content:"";position:absolute;inset:-18px;border-radius:99px}
+
+  /* Closing a position from the chart strip. The strip scrolls
+     sideways and clips vertically (overflow:auto hidden), so an
+     expander cannot escape it: the control is made genuinely bigger
+     instead, as far as the chip around it allows. */
+  .pos-x{width:28px;height:28px;min-width:28px}
+  .pos-x svg{width:14px;height:14px}
 }
 
 /* iOS zooms the page when a text field smaller than 16px takes focus.
