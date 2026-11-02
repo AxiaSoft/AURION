@@ -158,6 +158,21 @@ function shapeId() {
 }
 
 class CandleChart {
+  /* How much of the remembered price window the data must still fill
+     before the scale is allowed to stay put. Below this the chart is
+     mostly empty space and a re-fit is the right answer. */
+  static FIT_FILL = 0.55;
+
+  /* 1, 2, 5 x a power of ten - the step sizes a reader expects to see on
+     an axis. The price window is snapped to the same ladder the axis
+     labels use, so the remembered frame always lands on round numbers. */
+  static niceStep(raw) {
+    if (!(raw > 0) || !Number.isFinite(raw)) return 1;
+    const e = Math.pow(10, Math.floor(Math.log10(raw)));
+    const m = raw / e;
+    return (m <= 1 ? 1 : m <= 2 ? 2 : m <= 5 ? 5 : 10) * e;
+  }
+
   constructor(canvas, opts) {
     this.canvas = canvas;
     this.ctx = canvas.getContext("2d");
@@ -743,6 +758,45 @@ class CandleChart {
     else {
       const pad = (mx - mn) * 0.06 || 0.5;
       mn -= pad; mx += pad;
+
+      /* The price scale holds still unless it has to move.
+
+         It used to be re-fitted on every single draw, which is correct
+         arithmetic and the wrong behaviour: with a live feed the scale
+         changed whenever a tick set a new extreme or a new bar pushed
+         the old one out of the window, so every price mapped to a
+         slightly different row each time. Candles drifting is hard to
+         see. A horizontal reference line drifting is not - the stop and
+         the target never settled. Measured on a 120-bar window: 5.7px
+         when a tick made a new high, another 2.8px when the next candle
+         arrived, several times a minute.
+
+         So the fitted window is remembered and reused while the data
+         still sits inside it and still fills enough of it to be worth
+         looking at. When price genuinely leaves, or the range collapses
+         to less than this much of the window - a different instrument,
+         a zoom, a quiet session after a violent one - it re-fits once,
+         in one visible step, which is a scale change the viewer can
+         follow rather than a permanent tremor. */
+      const keep = this._fit;
+      const span = mx - mn;
+      if (keep && mn >= keep.mn && mx <= keep.mx
+          && span / ((keep.mx - keep.mn) || 1) >= CandleChart.FIT_FILL) {
+        mn = keep.mn; mx = keep.mx;
+      } else {
+        /* Snap outwards to a round step when re-fitting. A frame fitted
+           exactly to the data is discarded by the next tick that
+           overshoots it by a fraction of a pip, which is no better than
+           not remembering one at all - the first attempt at this did
+           exactly that and still drifted 2.8px on a new candle. Rounding
+           out to the ladder the axis already uses gives the window slack
+           to absorb ordinary movement, and makes the one re-fit that
+           does happen land on numbers worth reading. */
+        const step = CandleChart.niceStep(span / 6) || span / 6 || 1;
+        mn = Math.floor(mn / step) * step;
+        mx = Math.ceil(mx / step) * step;
+        this._fit = { mn, mx };
+      }
     }
 
     const log = this.scale.log && mn > 0;
@@ -1301,12 +1355,7 @@ class CandleChart {
     const plotH = Math.max(1, L.plotB - L.plotT);
     const minGap = 26;                       // px between label centres
     const maxN = Math.max(2, Math.min(40, Math.floor(plotH / minGap)));
-    const nice = (raw) => {
-      if (!(raw > 0) || !Number.isFinite(raw)) return 1;
-      const e = Math.pow(10, Math.floor(Math.log10(raw)));
-      const m = raw / e;
-      return (m <= 1 ? 1 : m <= 2 ? 2 : m <= 5 ? 5 : 10) * e;
-    };
+    const nice = CandleChart.niceStep;
 
     const first = L.rows[0];
     const pct = this.scale.percent && first && first.c;
@@ -2950,6 +2999,7 @@ class CandleChart {
    * chart feels amateur. `at` is a bar index in the visible slice.
    */
   zoom(dir, at) {
+    this.forgetScaleFit();
     const total = this.rows().length;
     if (!total) return;
     const before = this.span;
@@ -2978,6 +3028,7 @@ class CandleChart {
    * never mirrored, so direction does not depend on the language at all.
    */
   pan(bars) {
+    this.forgetScaleFit();
     this.offset += bars;
     this.clampOffset();
     this.draw();
@@ -3004,6 +3055,7 @@ class CandleChart {
    * does would move the chart under people who were not asking for it.
    */
   panDrag(e, raw) {
+    this.forgetScaleFit();
     const L = (raw && raw.L) || this._L || this.layout();
     const kind = (e && e.pointerType) || this._pointerType || "mouse";
     return {
@@ -3119,6 +3171,7 @@ class CandleChart {
    * exactly on both, and inverted axes drag the right way round.
    */
   panPrice(start, dy) {
+    this.forgetScaleFit();
     const h = start.plotH || 1;
     const dir = this.scale.invert ? -1 : 1;
     this.scale.auto = false;
@@ -3144,17 +3197,24 @@ class CandleChart {
   }
 
   setAutoScale(on) {
+    this.forgetScaleFit();
     this.scale.auto = on !== false;
     if (this.scale.auto) { this.scale.mn = null; this.scale.mx = null; }
     this.saveState();
     this.draw();
   }
 
-  setLogScale(on) { this.scale.log = Boolean(on); this.saveState(); this.draw(); }
-  setPercentScale(on) { this.scale.percent = Boolean(on); this.saveState(); this.draw(); }
-  setInvertScale(on) { this.scale.invert = Boolean(on); this.saveState(); this.draw(); }
+  setLogScale(on) { this.scale.log = Boolean(on); this.forgetScaleFit(); this.saveState(); this.draw(); }
+  setPercentScale(on) { this.scale.percent = Boolean(on); this.forgetScaleFit(); this.saveState(); this.draw(); }
+  setInvertScale(on) { this.scale.invert = Boolean(on); this.forgetScaleFit(); this.saveState(); this.draw(); }
+
+  /* Deliberate gestures beat the sticky scale: a zoom, a pan or a scale
+     switch is the viewer asking for a different frame, so the
+     remembered one is dropped and the next draw re-fits. */
+  forgetScaleFit() { this._fit = null; }
 
   fit() {
+    this.forgetScaleFit();
     this.offset = 0;
     this.rightPad = 0;
     this.span = Math.min(160, Math.max(30, this.rows().length || 40));
