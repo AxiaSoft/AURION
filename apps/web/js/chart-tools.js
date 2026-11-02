@@ -125,6 +125,8 @@
     chevron: "M9 6l6 6-6 6",
     toEnd: "M5 12h11M11 7l5 5-5 5M20 5v14",
     panel: "M4 5h16v14H4zM15 5v14",
+    /* The positions dock: a pane across the bottom, not down one side. */
+    posdock: "M4 5h16v14H4zM4 14h16",
     tick: "M5 12.5l4.5 4.5L19 7",
   };
 
@@ -489,6 +491,8 @@
       <button type="button" class="tv-icon" id="tv-undo" title="${esc(tt("draw.undo", "Undo"))} (Ctrl+Z)" disabled>${svg(I.undo)}</button>
       <button type="button" class="tv-icon" id="tv-redo" title="${esc(tt("chart.redo", "Redo"))} (Ctrl+Shift+Z)" disabled>${svg(I.redo)}</button>
       <span class="tv-div"></span>
+      <button type="button" class="tv-icon" id="tv-pos-toggle" title="${esc(tt("chart.positions_dock", "Open positions"))}"
+              aria-pressed="false" aria-controls="tv-posdock">${svg(I.posdock)}<span class="tv-icon-n" id="tv-pos-toggle-n" hidden></span></button>
       <button type="button" class="tv-icon" id="tv-dock-toggle" title="${esc(tt("chart.panel", "Side panel"))}" aria-pressed="true">${svg(I.panel)}</button>
     </header>`;
     /* No fullscreen toggle here any more.
@@ -630,6 +634,28 @@
         </div>
         ${dockHtml(o)}
       </div>
+      <!-- Open positions, across the bottom.
+
+           A row of the .tv grid rather than something floating over the
+           chart: when it opens the chart's row shrinks and the candles
+           are redrawn smaller, so nothing a trader is watching is ever
+           hidden behind their own position list. The side panel is
+           untouched and keeps its own copy. -->
+      <section class="tv-posdock" id="tv-posdock" aria-label="${esc(tt("chart.positions", "Positions"))}">
+        <div class="tv-posdock-grip" id="tv-posdock-grip" role="separator"
+             aria-orientation="horizontal" tabindex="0"
+             aria-label="${esc(tt("chart.posdock_resize", "Resize the positions panel"))}"></div>
+        <header class="tv-posdock-head">
+          <h3>${esc(tt("chart.positions", "Positions"))}</h3>
+          <span class="tv-posdock-n" id="tv-posdock-n"></span>
+          <span class="tv-spacer"></span>
+          <span class="tv-posdock-sum mono" id="tv-posdock-sum"></span>
+          <button type="button" class="tv-icon" id="tv-posdock-close"
+                  title="${esc(tt("chart.close", "Close"))}"
+                  aria-label="${esc(tt("chart.close", "Close"))}">${svg(I.close)}</button>
+        </header>
+        <div class="tv-posdock-body" id="tv-posdock-body"></div>
+      </section>
       <footer class="tv-status">
         <span id="tv-status-tool">${esc(tt("chart.mode_navigate", "Navigate"))}</span>
         <span class="tv-div"></span>
@@ -670,6 +696,22 @@
   const svg = UI.svg, esc = UI.esc, tt = UI.tt, ui = UI.state;
   const nameOf = UI.nameOf, indicatorText = UI.indicatorText;
 
+  const LS_POS = "aurion.chart.posdock";
+  const LS_POS_H = "aurion.chart.posdock.h";
+  const POSDOCK_MIN = 96;
+  const POSDOCK_MAX = 420;
+  const POSDOCK_DEF = 176;
+
+  /** Is this a phone-sized screen?
+
+      The describer above has its own narrow(), at the 980px the side
+      panel floats at; this file is two IIFEs and that one is not in
+      scope here. The positions dock folds into cards at 760, so that
+      is the width that decides whether it opens by default. */
+  function posNarrow() {
+    try { return window.matchMedia("(max-width: 760px)").matches; }
+    catch (e) { return false; }
+  }
   const LS_DOCK = "aurion.chart.dock";
   const LS_GROUP = "aurion.chart.lasttool";
   const LS_TOOLLOCK = "aurion.chart.toollock";
@@ -1393,6 +1435,41 @@
     if (next) toggleDock(false);
   }
 
+  /** The height the dock opens to, clamped and remembered. */
+  function posDockHeight(h) {
+    const n = Number(h);
+    if (!Number.isFinite(n)) return POSDOCK_DEF;
+    return Math.max(POSDOCK_MIN, Math.min(POSDOCK_MAX, Math.round(n)));
+  }
+
+  function setPosDockHeight(h) {
+    const tv = $("tv");
+    if (!tv) return POSDOCK_DEF;
+    const v = posDockHeight(h);
+    tv.style.setProperty("--tv-posdock", v + "px");
+    write(LS_POS_H, String(v));
+    return v;
+  }
+
+  /**
+   * Show or hide the positions dock.
+   *
+   * It is a row of the grid, so this genuinely resizes the chart rather
+   * than parking a panel on top of it - which is the point. The canvas
+   * only re-measures when it paints, and the row animates, so the same
+   * redrawSoon the side panel uses is needed here too.
+   */
+  function togglePosDock(open) {
+    const tv = $("tv");
+    if (!tv) return;
+    const next = open === undefined ? !tv.classList.contains("pos-open") : !!open;
+    tv.classList.toggle("pos-open", next);
+    write(LS_POS, next ? "1" : "0");
+    const b = $("tv-pos-toggle");
+    if (b) b.setAttribute("aria-pressed", next ? "true" : "false");
+    redrawSoon();
+  }
+
   function toggleDock(open) {
     const tv = $("tv");
     if (!tv) return;
@@ -1683,6 +1760,7 @@
       if (e.target.closest("#tv-undo")) { chart.undo(); return; }
       if (e.target.closest("#tv-redo")) { chart.redo(); return; }
       if (e.target.closest("#tv-dock-toggle")) { toggleDock(); return; }
+      if (e.target.closest("#tv-pos-toggle")) { togglePosDock(); return; }
     };
 
     /* ---- overlays: the FAB and the two scrims --------------------------
@@ -1697,6 +1775,10 @@
     const root = $("tv");
     if (root) root.onclick = (e) => {
       if (e.target.closest("#tv-toolsfab")) { toggleTools(); return; }
+      /* The dock's own close button is in the dock, which is a sibling
+         of the top bar - the same mistake the comment above records,
+         and caught by the same guard. */
+      if (e.target.closest("#tv-posdock-close")) { togglePosDock(false); return; }
       if (e.target.closest("#tv-toolscrim")) { toggleTools(false); return; }
       if (e.target.closest("#tv-scrim")) { toggleDock(false); }
     };
@@ -1817,6 +1899,59 @@
        never corrected and the trader had to poke something to fix it.
        0/120/360ms, the same three beats as a dock toggle. */
     redrawSoon();
+
+    /* ---- the positions dock ------------------------------------------- */
+    {
+      const tv = $("tv");
+      setPosDockHeight(read(LS_POS_H, String(POSDOCK_DEF)));
+      /* Shut by default on a phone for the same reason the side panel
+         is: the chart is what was opened, and a quarter of a small
+         screen is too much to spend before being asked. */
+      togglePosDock(posNarrow() ? false : read(LS_POS, "0") === "1");
+
+      /* Drag the grip to set the height. Pointer events with capture,
+         so the gesture survives the cursor leaving a 10px strip. */
+      const grip = $("tv-posdock-grip");
+      if (grip && tv) {
+        let y0 = 0, h0 = 0, live = false;
+        const cur = () => {
+          const d = $("tv-posdock");
+          return d ? d.getBoundingClientRect().height : POSDOCK_DEF;
+        };
+        grip.addEventListener("pointerdown", (e) => {
+          if (!tv.classList.contains("pos-open")) return;
+          live = true; y0 = e.clientY; h0 = cur();
+          tv.classList.add("pos-sizing");
+          try { grip.setPointerCapture(e.pointerId); } catch {}
+          e.preventDefault();
+        });
+        grip.addEventListener("pointermove", (e) => {
+          if (!live) return;
+          /* Up is bigger: the dock grows out of the bottom edge. */
+          setPosDockHeight(h0 + (y0 - e.clientY));
+        });
+        const stop = (e) => {
+          if (!live) return;
+          live = false;
+          tv.classList.remove("pos-sizing");
+          try { grip.releasePointerCapture(e.pointerId); } catch {}
+          redrawSoon();
+        };
+        grip.addEventListener("pointerup", stop);
+        grip.addEventListener("pointercancel", stop);
+
+        /* A separator that can only be dragged is unusable without a
+           pointing device, so the arrows resize it too. */
+        grip.addEventListener("keydown", (e) => {
+          const step = e.shiftKey ? 40 : 12;
+          if (e.key === "ArrowUp") setPosDockHeight(cur() + step);
+          else if (e.key === "ArrowDown") setPosDockHeight(cur() - step);
+          else return;
+          e.preventDefault();
+          redrawSoon();
+        });
+      }
+    }
 
     /* ---- the tool sheet is dragged shut, like the settings one --------- */
     if (typeof attachSheetDrag === "function") {

@@ -726,15 +726,15 @@ check("the light-mode console rule actually beats the skin layer", () => {
 
 check("the browser is forced to pick up every file that changed", () => {
   const html = read("index.html");
-  const want = ["js/skins.js?v=desk99", "js/themes.js?v=desk188", "js/app.js?v=desk197",
+  const want = ["js/skins.js?v=desk99", "js/themes.js?v=desk188", "js/app.js?v=desk198",
     "css/themes.css?v=desk196", "css/app.css?v=desk196", "css/skins.css?v=desk185",
     /* The chart sheet changed too. Its files were not listed here, so
        a phone with the old chart-tools.js cached would have kept a
        grab bar that does not drag. */
-    "js/chart-tools.js?v=desk197", "css/chart.css?v=desk197",
+    "js/chart-tools.js?v=desk198", "css/chart.css?v=desk198",
     "js/colorpicker.js?v=desk2"];
   want.forEach((w) => { if (!html.includes(w)) throw new Error("index.html is missing " + w); });
-  if (!read("sw.js").includes("aurion-shell-v187")) throw new Error("the service worker cache was not bumped");
+  if (!read("sw.js").includes("aurion-shell-v188")) throw new Error("the service worker cache was not bumped");
 });
 
 /* ----------------------------------------------------------------- report */

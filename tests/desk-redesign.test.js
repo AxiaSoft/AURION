@@ -343,27 +343,27 @@ if (!jsdom) {
       /* The old chips showed SL, TP and the strategy but never the
          running profit -- the one number that is actually moving. */
       T.paintChartPositions(basePos, []);
-      const rows = posHost.querySelectorAll(".tv-pos-row");
+      const rows = posHost.querySelectorAll(".tvp-row:not(.tvp-head)");
       if (rows.length !== 2) throw new Error(rows.length + " rows for 2 trades");
-      const pls = [...rows].map((r) => r.querySelector(".tv-pos-pl").textContent.trim());
+      const pls = [...rows].map((r) => r.querySelector(".tvp-pl").textContent.trim());
       if (!pls.includes("+12.4")) throw new Error("the winning trade's profit is not shown: " + pls.join(" | "));
       if (!pls.some((t) => t.startsWith("-4.2"))) throw new Error("the losing trade's loss is not shown: " + pls.join(" | "));
     });
 
     check("a profit reads as a gain and a loss as a loss", () => {
       T.paintChartPositions(basePos, []);
-      const rows = [...posHost.querySelectorAll(".tv-pos-row")];
-      if (!rows[0].querySelector(".tv-pos-pl").className.includes("up")) {
+      const rows = [...posHost.querySelectorAll(".tvp-row:not(.tvp-head)")];
+      if (!rows[0].querySelector(".tvp-pl").className.includes("up")) {
         throw new Error("+12.40 is not marked as a gain");
       }
-      if (!rows[1].querySelector(".tv-pos-pl").className.includes("down")) {
+      if (!rows[1].querySelector(".tvp-pl").className.includes("down")) {
         throw new Error("-4.20 is not marked as a loss");
       }
     });
 
     check("the direction of each trade is distinguishable", () => {
       T.paintChartPositions(basePos, []);
-      const rows = [...posHost.querySelectorAll(".tv-pos-row")];
+      const rows = [...posHost.querySelectorAll(".tvp-row:not(.tvp-head)")];
       if (!rows[0].classList.contains("is-buy")) throw new Error("the buy is not marked");
       if (!rows[1].classList.contains("is-sell")) throw new Error("the sell is not marked");
     });
@@ -373,7 +373,7 @@ if (!jsdom) {
          position, and it needs a cancel rather than a close. */
       const ord = [{ ticket: 9, symbol: "EURUSD", type: "buy_limit", volume: 0.1, price: 1.07, sl: 1.06, tp: 1.09 }];
       T.paintChartPositions(basePos, ord);
-      const resting = posHost.querySelector(".tv-pos-row.is-resting");
+      const resting = posHost.querySelector(".tvp-row.is-resting");
       if (!resting) throw new Error("the resting order is not marked as waiting");
       if (resting.querySelector("[data-close]")) throw new Error("a resting order offers a close");
       if (!resting.querySelector("[data-cancel]")) throw new Error("a resting order offers no cancel");
@@ -1348,9 +1348,34 @@ check("every rebuilt section has narrow-screen rules", () => {
 });
 
 check("the positions list sheds detail rather than overflowing on a phone", () => {
-  const flat = chartCss.replace(/\s*\n\s*/g, "");
-  if (!/@media\s*\(max-width:\s*560px\)\{[^@]*\.tv-pos-lv,\.tv-pos-at\{display:none\}/.test(flat)) {
-    throw new Error("the list keeps all six columns on a phone");
+  /* It used to shed detail by hiding two columns outright. The list is
+     rebuilt as labelled cards instead, so nothing is thrown away - but
+     the requirement is the same one: eight columns of numbers must not
+     be left to overflow a phone. What is checked is that the row stops
+     being an eight-column grid and that each figure says what it is,
+     since the column headers are no longer there to say it. */
+  const flat = chartCss.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\s*\n\s*/g, "");
+  const phone = /@media\s*\(max-width:\s*760px\)\s*\{[\s\S]*?\.tv \.tvp-row\{([^}]*)\}/.exec(flat);
+  if (!phone) throw new Error("the list has no phone layout at all");
+  if (!/display:flex/.test(phone[1]) || !/flex-wrap:wrap/.test(phone[1])) {
+    throw new Error("the row is still a fixed grid of columns on a phone");
+  }
+  /* .tv .tvp-row.tvp-head, not .tv .tvp-head: the header carries both
+     classes, so at (0,2,0) it tied with the .tv .tvp-row rule below it
+     and lost on source order. Found in a browser - the sheet read
+     correctly and the header was still on screen. */
+  if (!/\.tv \.tvp-row\.tvp-head\{display:none\}/.test(flat)) {
+    throw new Error("the column headers survive into a layout with no columns");
+  }
+  if (!/content:attr\(data-l\)/.test(flat)) {
+    throw new Error("the figures are unlabelled once the headers are gone");
+  }
+  /* The fold lives in a block that comes BEFORE the base rules, so it
+     only works because every selector in it carries a .tv ancestor. A
+     bare .tvp-row there would lose on source order and silently do
+     nothing. */
+  if (/@media\s*\(max-width:\s*760px\)\s*\{[\s\S]*?[{;]\.tvp-row\{/.test(flat)) {
+    throw new Error("a phone rule has equal weight to the base rule it must beat");
   }
 });
 

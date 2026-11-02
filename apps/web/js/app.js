@@ -11198,72 +11198,126 @@ function applyChartLevels(force) {
  * covers neither them nor the newest candles.
  */
 function paintChartPositions(pos, ord) {
-  const dock = $("tvd-pos");
-  if (!dock) return;
+  const side = $("tvd-pos");
+  const bottom = $("tv-posdock-body");
+  if (!side && !bottom) return;
   pos = pos || [];
   ord = ord || [];
 
-  /* The tab counter is the only sign of an open trade while the dock is
-     shut, so it is kept in step even when there is nothing to list. */
-  const badge = $("tvd-pos-n");
-  if (badge) {
-    const n = pos.length + ord.length;
-    badge.textContent = String(n);
-    badge.hidden = n === 0;
+  const n = pos.length + ord.length;
+
+  /* Three counters, because the list can be out of sight in three
+     different ways: the side panel shut, the bottom dock shut, or the
+     bottom dock open on another tab. A trader with money in the market
+     should never have to go looking to find that out. */
+  [["tvd-pos-n", true], ["tv-pos-toggle-n", true], ["tv-posdock-n", false]].forEach(([id, hide]) => {
+    const e = $(id);
+    if (!e) return;
+    e.textContent = n ? String(n) : "";
+    if (hide) e.hidden = n === 0;
+  });
+
+  /* The floating total. Resting orders have no profit yet and are left
+     out of it rather than counted as zero. */
+  const sumEl = $("tv-posdock-sum");
+  if (sumEl) {
+    const live = pos.map((r) => Number(r.profit)).filter(Number.isFinite);
+    if (live.length) {
+      const t = live.reduce((x, y) => x + y, 0);
+      sumEl.textContent = (t > 0 ? "+" : "") + fmt(t, 2);
+      sumEl.className = "tv-posdock-sum mono " + clsPnl(t);
+    } else {
+      sumEl.textContent = "";
+      sumEl.className = "tv-posdock-sum mono";
+    }
   }
 
-  if (!pos.length && !ord.length) {
-    dock.innerHTML = `<p class="tvd-empty">${esc(I18N.t("status.no_positions"))}</p>`;
-    dock.dataset.sig = "";
+  if (!n) {
+    const empty = `<p class="tvd-empty">${esc(I18N.t("status.no_positions"))}</p>`;
+    [side, bottom].forEach((el) => {
+      if (!el) return;
+      el.innerHTML = empty;
+      el.dataset.sig = "";
+    });
     return;
   }
 
   const sig = pos.map((r) => `${r.ticket}:${r.sl}:${r.tp}:${r.profit}:${r.volume}`).join("|")
     + "#" + ord.map((r) => `${r.ticket}:${r.price}:${r.sl}:${r.tp}`).join("|");
-  if (dock.dataset.sig === sig) return;
+
+  /* One cell builder for both lists, so the two can never drift apart
+     the way the old pair of templates did. The row is a grid whose
+     columns are declared once on the list, which is what lets the
+     figures line up down the column - the old row sized every cell to
+     its own content, so nothing was comparable to the row above it. */
+  const cell = (cls, inner, label) =>
+    `<span class="tvp-c ${cls}"${label ? ` data-l="${esc(label)}"` : ""}>${inner}</span>`;
+
+  const money = (v) => {
+    const x = Number(v);
+    if (!Number.isFinite(x)) return "—";
+    return (x > 0 ? "+" : "") + fmt(x, 2);
+  };
 
   const row = (r) => {
     const dir = String(r.type || "").toLowerCase().includes("sell") ? "sell" : "buy";
     const pl = Number(r.profit);
     const what = `${r.symbol || ""} ${String(r.type || dir).toUpperCase()} ${fmt(r.volume, 2)}`.trim();
-    return `<div class="tv-pos-row is-${dir}">
-      <span class="tv-pos-dir">${esc(String(r.type || dir).toUpperCase())}</span>
-      <span class="tv-pos-vol mono">${fmt(r.volume, 2)}</span>
-      <span class="tv-pos-at mono">${fmt(r.price_open, 5)}</span>
-      <span class="tv-pos-pl mono ${clsPnl(pl)}">${Number.isFinite(pl) ? (pl > 0 ? "+" : "") + fmt(pl, 2) : "—"}</span>
-      <span class="tv-pos-lv mono"><em class="sl">SL</em>${r.sl ? fmt(r.sl, 5) : "—"}</span>
-      <span class="tv-pos-lv mono"><em class="tp">TP</em>${r.tp ? fmt(r.tp, 5) : "—"}</span>
-      <button type="button" class="tv-pos-x" data-close="${esc(String(r.ticket))}"
+    return `<div class="tvp-row is-${dir}">
+      ${cell("tvp-sym", esc(String(r.symbol || "")), I18N.t("table.symbol"))}
+      ${cell("tvp-dir", `<b>${esc(String(r.type || dir).toUpperCase())}</b>`, I18N.t("table.type"))}
+      ${cell("tvp-vol mono", fmt(r.volume, 2), I18N.t("table.volume"))}
+      ${cell("tvp-at mono", fmt(r.price_open, 5), I18N.t("table.price_open"))}
+      ${cell("tvp-sl mono", r.sl ? fmt(r.sl, 5) : "—", I18N.t("table.sl"))}
+      ${cell("tvp-tp mono", r.tp ? fmt(r.tp, 5) : "—", I18N.t("table.tp"))}
+      ${cell("tvp-pl mono " + clsPnl(pl), money(pl), I18N.t("table.profit"))}
+      <span class="tvp-c tvp-act"><button type="button" class="tv-pos-x" data-close="${esc(String(r.ticket))}"
               data-close-what="${esc(what)}"
               title="${esc(I18N.t("exec.close"))} ${esc(what)}"
-              aria-label="${esc(I18N.t("exec.close"))} ${esc(what)}">${icon("close")}</button>
+              aria-label="${esc(I18N.t("exec.close"))} ${esc(what)}">${icon("close")}</button></span>
     </div>`;
   };
 
   /* A planted entry that has not filled yet is not a position, and
      showing it as one would overstate the exposure. It is marked as
      waiting and carries a cancel, not a close. */
-  const restRow = (r) => `<div class="tv-pos-row is-resting">
-      <span class="tv-pos-dir">${esc(String(r.type || "").replace(/_/g, " ").toUpperCase())}</span>
-      <span class="tv-pos-vol mono">${fmt(r.volume, 2)}</span>
-      <span class="tv-pos-at mono">${fmt(r.price, 5)}</span>
-      <span class="tv-pos-pl tv-pos-wait">${esc(I18N.t("chart.order_waiting"))}</span>
-      <span class="tv-pos-lv mono"><em class="sl">SL</em>${r.sl ? fmt(r.sl, 5) : "—"}</span>
-      <span class="tv-pos-lv mono"><em class="tp">TP</em>${r.tp ? fmt(r.tp, 5) : "—"}</span>
-      <button type="button" class="tv-pos-x" data-cancel="${esc(String(r.ticket))}"
+  const restRow = (r) => `<div class="tvp-row is-resting">
+      ${cell("tvp-sym", esc(String(r.symbol || "")), I18N.t("table.symbol"))}
+      ${cell("tvp-dir", `<b>${esc(String(r.type || "").replace(/_/g, " ").toUpperCase())}</b>`, I18N.t("table.type"))}
+      ${cell("tvp-vol mono", fmt(r.volume, 2), I18N.t("table.volume"))}
+      ${cell("tvp-at mono", fmt(r.price, 5), I18N.t("table.price_open"))}
+      ${cell("tvp-sl mono", r.sl ? fmt(r.sl, 5) : "—", I18N.t("table.sl"))}
+      ${cell("tvp-tp mono", r.tp ? fmt(r.tp, 5) : "—", I18N.t("table.tp"))}
+      ${cell("tvp-pl tvp-wait", esc(I18N.t("chart.order_waiting")), I18N.t("table.profit"))}
+      <span class="tvp-c tvp-act"><button type="button" class="tv-pos-x" data-cancel="${esc(String(r.ticket))}"
               title="${esc(I18N.t("chart.order_cancel"))}"
-              aria-label="${esc(I18N.t("chart.order_cancel"))}">${icon("close")}</button>
+              aria-label="${esc(I18N.t("chart.order_cancel"))}">${icon("close")}</button></span>
     </div>`;
 
-  const rows = ord.map(restRow).join("") + pos.map(row).join("");
+  /* Column names, once at the top, instead of the per-cell prefixes the
+     old row carried on every line. The header is hidden where the list
+     folds into stacked cards, which is where the per-cell labels come
+     back via data-l. */
+  const head = `<div class="tvp-row tvp-head" aria-hidden="true">
+      <span class="tvp-c tvp-sym">${esc(I18N.t("table.symbol"))}</span>
+      <span class="tvp-c tvp-dir">${esc(I18N.t("table.type"))}</span>
+      <span class="tvp-c tvp-vol">${esc(I18N.t("table.volume"))}</span>
+      <span class="tvp-c tvp-at">${esc(I18N.t("table.price_open"))}</span>
+      <span class="tvp-c tvp-sl">${esc(I18N.t("table.sl"))}</span>
+      <span class="tvp-c tvp-tp">${esc(I18N.t("table.tp"))}</span>
+      <span class="tvp-c tvp-pl">${esc(I18N.t("table.profit"))}</span>
+      <span class="tvp-c tvp-act"></span>
+    </div>`;
 
-  /* The same rows in the side panel. No summary pill and no collapse:
-     the dock is already a place the trader opened on purpose, and the
-     count lives on its tab. */
-  dock.dataset.sig = sig;
-  dock.innerHTML = `<div class="tv-pos-body tvd-pos-list">${rows}</div>`;
-  bindCloseButtons(dock);
-  bindCancelButtons(dock);
+  const html = `<div class="tvp-list">${head}${ord.map(restRow).join("")}${pos.map(row).join("")}</div>`;
+
+  [side, bottom].forEach((el) => {
+    if (!el || el.dataset.sig === sig) return;
+    el.dataset.sig = sig;
+    el.innerHTML = html;
+    bindCloseButtons(el);
+    bindCancelButtons(el);
+  });
 }
 
 /** Cancel a resting order the robot planted but that has not filled. */

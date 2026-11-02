@@ -96,12 +96,27 @@ check("there is exactly one open-positions container", () => {
 });
 
 check("the shared row styling survived the removal", () => {
-  /* The dock list reuses .tv-pos-row and friends; only the overlay's
-     own container and summary pill were meant to go. */
-  for (const cls of [".tv-pos-body", ".tv-pos-row", ".tv-pos-pl", ".tv-pos-dir"]) {
-    if (!chartCss.includes(cls)) throw new Error(cls + " was deleted with the overlay");
+  /* The list was rebuilt for the bottom dock and the classes went with
+     it: .tv-pos-* became .tvp-*. What has to survive is that the rows
+     are styled at all, and that direction and profit are still told
+     apart by something other than their position in the line. */
+  for (const cls of [".tvp-list", ".tvp-row", ".tvp-pl", ".tvp-dir"]) {
+    if (!chartCss.includes(cls)) throw new Error(cls + " is unstyled");
   }
-  return "rows still styled";
+  if (!/\.is-buy \.tvp-dir b\{color:var\(--candle-up\)\}/.test(chartCss)) {
+    throw new Error("a long is not coloured as one");
+  }
+  /* And the old names must be gone, not left behind as dead rules.
+     Comments are stripped first: the removal is explained in prose
+     that names the classes it removed, and a plain substring search
+     found that prose and called it a surviving rule. */
+  const bare = chartCss.replace(/\/\*[\s\S]*?\*\//g, "");
+  for (const dead of [".tv-pos-row", ".tv-pos-body", ".tv-pos-lv", ".tv-pos-dir", ".tv-pos-at"]) {
+    if (new RegExp(dead.replace(".", "\\.") + "(?![\\w-])").test(bare)) {
+      throw new Error(dead + " is a dead rule nothing can match");
+    }
+  }
+  return "rows styled, old rules removed";
 });
 
 /* ================================================ 2. the side-panel tab */
@@ -126,8 +141,14 @@ check("the tab carries a count, so a shut panel still says something is open", (
   if (!/id="tvd-pos-n"/.test(toolsJs)) throw new Error("no badge element");
   if (!/tvd-badge/.test(chartCss)) throw new Error("the badge is unstyled");
   const fn = appJs.slice(appJs.indexOf("function paintChartPositions"), appJs.indexOf("function bindCancelButtons"));
-  if (!/badge\.hidden\s*=\s*n === 0/.test(fn)) throw new Error("the badge is not hidden when nothing is open");
-  return "counted and hidden at zero";
+  /* There are three counters now - the side tab, the toolbar button
+     and the dock's own header - so they are set in one loop rather
+     than by a line naming `badge`. The requirement is unchanged: a
+     count that disappears rather than sitting at zero. */
+  if (!/e\.hidden = n === 0/.test(fn)) throw new Error("the counters are not hidden when nothing is open");
+  if (!/"tv-pos-toggle-n"/.test(fn)) throw new Error("the toolbar button carries no count");
+  if (!/"tv-posdock-n"/.test(fn)) throw new Error("the bottom dock's header carries no count");
+  return "counted and hidden at zero, in three places";
 });
 
 /* ------------------------------------------------- rendered, in a real DOM */
@@ -175,7 +196,7 @@ function withChart(fn) {
 check("the one container lists every open trade and resting order", () => withChart((win, T) => {
   T.paintChartPositions(POS, ORD);
   const dock = win.document.getElementById("tvd-pos");
-  const d = dock.querySelectorAll(".tv-pos-row").length;
+  const d = dock.querySelectorAll(".tvp-row:not(.tvp-head)").length;
   if (d !== 3) throw new Error("the container shows " + d + " rows, expected 3");
   return d + " rows";
 }));
@@ -202,12 +223,12 @@ check("an empty book empties it, and a refill fills it again", () => withChart((
   const badge = win.document.getElementById("tvd-pos-n");
   if (!badge.hidden) throw new Error("the badge stayed on an empty book");
   if (!dock.textContent.trim()) throw new Error("the container went blank instead of saying so");
-  if (dock.querySelector(".tv-pos-row")) throw new Error("the container kept its rows");
+  if (dock.querySelector(".tvp-row:not(.tvp-head)")) throw new Error("the container kept its rows");
 
   /* The repaint is signature-gated. Going empty and back must not leave
      a stale signature that swallows the redraw. */
   T.paintChartPositions(POS, ORD);
-  const d = dock.querySelectorAll(".tv-pos-row").length;
+  const d = dock.querySelectorAll(".tvp-row:not(.tvp-head)").length;
   if (d !== 3) throw new Error("after refilling, the container shows " + d + " rows");
   if (badge.hidden || badge.textContent !== "3") throw new Error("badge reads '" + badge.textContent + "'");
   return "emptied and refilled";
