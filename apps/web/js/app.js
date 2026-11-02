@@ -3710,6 +3710,39 @@ function patchMetric(key, value, suffix, signed) {
  * same ticket if the first was slow, and the second arrives after the
  * position is gone.
  */
+/**
+ * Close every open position, after asking.
+ *
+ * There were two copies of this, on the header's emergency button and
+ * on the Execution page's, and the chart's positions dock would have
+ * made a third. They had already drifted - one reported failure with
+ * a fallback message and the other showed `undefined` when the engine
+ * sent no error string. One confirmation, one endpoint, one way of
+ * reporting what happened.
+ *
+ * `reason` is passed through to the engine so the audit trail says
+ * which control was pressed.
+ */
+async function flattenAll(reason) {
+  const ok = await askConfirm({
+    title: I18N.t("exec.close_all"),
+    body: I18N.t("exec.confirm_flat"),
+    ok: I18N.t("exec.close_all"),
+    cancel: I18N.t("common.cancel"),
+    danger: true,
+  });
+  if (!ok) return false;
+  try {
+    const r = await API.post("/api/flatten", { reason });
+    toast(r && r.ok ? I18N.t("exec.close_all") : ((r && (r.message || r.error)) || I18N.t("errors.generic")));
+    await refresh(false);
+    return !!(r && r.ok);
+  } catch (err) {
+    toast((err && err.message) || I18N.t("errors.generic"));
+    return false;
+  }
+}
+
 function bindCloseButtons(root) {
   (root || document).querySelectorAll("[data-close]").forEach((b) => {
     if (b.dataset.bound === "1") return;
@@ -9048,19 +9081,7 @@ function bindView(view) {
       }
     };
     const flat = $("ex-flat");
-    if (flat) flat.onclick = async () => {
-      const ok = await askConfirm({
-        title: I18N.t("exec.emergency"),
-        body: I18N.t("exec.confirm_flat"),
-        ok: I18N.t("exec.close_all"),
-        cancel: I18N.t("common.cancel"),
-        danger: true,
-      });
-      if (!ok) return;
-      const r = await API.post("/api/flatten", { reason: "emergency" });
-      toast(r.ok ? I18N.t("exec.close_all") : r.error);
-      await refresh();
-    };
+    if (flat) flat.onclick = () => flattenAll("emergency");
     bindCloseButtons($("stage"));
   }
   if (view === "terminal") {
@@ -11287,6 +11308,27 @@ function paintChartPositions(pos, ord) {
   const dockN = $("tv-posdock-n");
   if (dockN) dockN.textContent = n ? String(n) : "";
 
+  /* Flatten, from the panel that shows what would be flattened.
+
+     Bound here rather than in the desk's own bind() because this is
+     the one place that already knows whether anything is open, and a
+     destructive button that is live while the book is empty is a
+     button that can only do nothing or something surprising. Only
+     positions arm it: a resting order has not filled, so flattening
+     is not what cancels it. */
+  const flat = $("tv-posdock-flat");
+  if (flat) {
+    flat.disabled = pos.length === 0;
+    if (flat.dataset.bound !== "1") {
+      flat.dataset.bound = "1";
+      flat.onclick = async () => {
+        if (flat.disabled) return;
+        flat.disabled = true;
+        try { await flattenAll("chart"); } finally { flat.disabled = pos.length === 0; }
+      };
+    }
+  }
+
   /* And the button says the count out loud, because a screen reader
      announcing "Open positions 9+" is no use to anyone.
 
@@ -12501,19 +12543,7 @@ async function enterDesk() {
     await refresh(false);
   };
   const flatHdr = $("btn-flat");
-  if (flatHdr) flatHdr.onclick = async () => {
-    const ok = await askConfirm({
-      title: I18N.t("exec.close_all"),
-      body: I18N.t("exec.confirm_flat"),
-      ok: I18N.t("exec.close_all"),
-      cancel: I18N.t("common.cancel"),
-      danger: true,
-    });
-    if (!ok) return;
-    const r = await API.post("/api/flatten", { reason: "header" });
-    toast(r.ok ? I18N.t("exec.close_all") : (r.error || I18N.t("errors.generic")));
-    await refresh(false);
-  };
+  if (flatHdr) flatHdr.onclick = () => flattenAll("header");
   const rf = $("btn-refresh");
   if (rf) rf.onclick = () => hardRefresh();
   const rs = $("btn-restart");

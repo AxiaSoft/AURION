@@ -100,12 +100,15 @@ check("the chart is repainted when the row changes size", () => {
   if (!/redrawSoon\(\)/.test(fn)) throw new Error("opening the dock never repaints the chart");
 });
 
-check("the row animates, and stops animating while it is being dragged", () => {
+check("the row animates open and shut, and nothing is left of the drag", () => {
+  /* The second half of this used to require .tv.pos-sizing, which
+     suppressed the row transition while the grip was held. There is
+     no grip and no drag, so that rule would now be dead CSS matching
+     a class nothing ever sets - and dead rules are how a stylesheet
+     stops describing the thing it styles. */
   const base = ruleOf(".tv");
   if (!/transition:grid-template-rows/.test(base)) throw new Error("the dock snaps instead of sliding");
-  if (!/\.tv\.pos-sizing\{transition:none\}/.test(FLAT)) {
-    throw new Error("the row eases towards the finger instead of tracking it");
-  }
+  if (/pos-sizing/.test(FLAT)) throw new Error("the resize-only rule outlived the resize");
 });
 
 check("a shut dock is not reachable by tab or by a screen reader", () => {
@@ -312,23 +315,69 @@ check("the coarse rules carry an ancestor, because the base rules are below them
   }
 });
 
-check("the resize grip can be used without a pointing device", () => {
-  const bind = TOOLS.slice(TOOLS.indexOf('const grip = $("tv-posdock-grip")'),
-                           TOOLS.indexOf("the tool sheet is dragged shut"));
-  if (!/keydown/.test(bind)) throw new Error("the grip is drag-only");
-  if (!/ArrowUp/.test(bind) || !/ArrowDown/.test(bind)) throw new Error("the arrows do not resize it");
-  if (!/role="separator"/.test(TOOLS)) throw new Error("the grip is not announced as a separator");
-  if (!/tabindex="0"/.test(TOOLS)) throw new Error("the grip cannot be focused");
+check("the dock is a section, not a drawer", () => {
+  /* These two checks used to defend the resize: that the grip had
+     keyboard arrows as well as a drag, and that the height was
+     clamped between 96 and 420 and remembered.
+
+     The dock is a fixed section now, by request. That removes the
+     feature and with it every edge it had - a height restored from
+     storage that no longer suits the window, a grip that is a 10px
+     drag target, a separator role to explain a control that only
+     existed to resize. What has to be true instead is that none of
+     it is left half-removed. */
+  if (/tv-posdock-grip/.test(TOOLS)) throw new Error("the grip is still in the markup");
+  if (/posDockHeight|setPosDockHeight/.test(TOOLS)) throw new Error("the height setter survived the grip");
+  if (/POSDOCK_MIN|POSDOCK_MAX/.test(TOOLS)) throw new Error("the clamp survived the thing it clamped");
+  if (/aurion\.chart\.posdock\.h/.test(TOOLS)) throw new Error("the stored height is still being written");
+  if (/tv-posdock-grip/.test(CSS)) throw new Error("the grip's stylesheet outlived the grip");
+  /* And the one height it does open to is the stylesheet's, so there
+     is not a constant in the script to be kept in step with it. */
+  if (!/--tv-posdock:\s*\d+px/.test(CSS)) throw new Error("the dock has no declared height at all");
 });
 
-check("the height is clamped and remembered", () => {
-  const fn = TOOLS.slice(TOOLS.indexOf("function posDockHeight("),
-                         TOOLS.indexOf("function togglePosDock("));
-  if (!/Math\.max\(POSDOCK_MIN, Math\.min\(POSDOCK_MAX/.test(fn)) {
-    throw new Error("the dock can be dragged to any height, including over the whole chart");
+check("the dock can be flattened from the panel that shows the book", () => {
+  if (!/id="tv-posdock-flat"/.test(TOOLS)) throw new Error("there is no close-all button");
+  /* Disabled in the markup: it is painted enabled only once something
+     is actually open, so the first frame cannot offer a destructive
+     action against an empty book. */
+  const btn = /<button[^>]*id="tv-posdock-flat"[\s\S]*?>/.exec(TOOLS);
+  if (!btn || !/\bdisabled\b/.test(btn[0])) throw new Error("it starts live, before anything is known");
+
+  const fn = APP.slice(APP.indexOf("function paintChartPositions("),
+                       APP.indexOf("function bindCancelButtons"));
+  if (!/flat\.disabled = pos\.length === 0/.test(fn)) {
+    throw new Error("it is not armed and disarmed by what is actually open");
   }
-  if (!/write\(LS_POS_H/.test(fn)) throw new Error("the height is forgotten on reload");
-  if (!/Number\.isFinite\(n\)/.test(fn)) throw new Error("a corrupt stored height becomes NaN");
+  if (/flat\.disabled = n === 0/.test(fn)) {
+    throw new Error("a resting order arms it, but flattening is not what cancels one");
+  }
+  if (!/flattenAll\("chart"\)/.test(fn)) throw new Error("it does not go through the shared flatten path");
+});
+
+check("there is one flatten path, not three", () => {
+  /* The header's emergency button and the Execution page's had two
+     copies of this between them and had already drifted - one
+     reported a failure with a fallback message, the other showed
+     `undefined` when the engine sent no error string. The chart's
+     button would have been a third. */
+  if (!/async function flattenAll\(reason\)/.test(APP)) throw new Error("there is no shared flatten");
+  const posts = APP.match(/API\.post\("\/api\/flatten"/g) || [];
+  if (posts.length !== 1) throw new Error(posts.length + " places post to /api/flatten");
+  const fn = APP.slice(APP.indexOf("async function flattenAll(reason)"), APP.indexOf("function bindCloseButtons"));
+  if (!/askConfirm\(/.test(fn)) throw new Error("flattening the account is not confirmed");
+  if (!/danger: true/.test(fn)) throw new Error("the confirmation is not marked destructive");
+  /* Asking is not the same as waiting for the answer. The first
+     version of this check only required that askConfirm appeared,
+     and a mutation that ignored its result - leaving the dialog on
+     screen while the account was flattened behind it - went straight
+     through. The answer has to gate the request. */
+  if (!/const ok = await askConfirm\(/.test(fn)) throw new Error("the answer is not captured");
+  if (!/if \(!ok\) return false;/.test(fn)) throw new Error("the confirmation's answer does not stop the flatten");
+  if (fn.indexOf("if (!ok) return false;") > fn.indexOf('API.post("/api/flatten"')) {
+    throw new Error("the account is flattened before the answer is checked");
+  }
+  if (!/catch \(err\)/.test(fn)) throw new Error("a failed flatten throws into the void");
 });
 
 check("the dock starts shut on a phone, and at the width where it folds", () => {

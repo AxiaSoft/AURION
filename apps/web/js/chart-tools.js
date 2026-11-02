@@ -480,7 +480,15 @@
               aria-label="${esc(tt("common.back", "Back"))}">${svg(I.chevron, "flip")}</button>
       <button type="button" class="tv-sym" data-menu="symbol" aria-haspopup="true"
               title="${esc(tt("chart.switch_symbol", "Switch instrument"))}">
-        <b>${esc(o.symbol)}</b><span id="tv-tf-label">${esc(o.timeframe)}</span>
+        <!-- The instrument, and nothing else.
+
+             It used to carry the timeframe too, which put a second
+             copy of it in the header: the segmented strip and the
+             "More" menu immediately to the right are both the
+             timeframe, and they are the ones you can actually press.
+             A third, unpressable copy inside the instrument button
+             only made the label long enough to look crowded. -->
+        <b>${esc(o.symbol)}</b>
         ${svg(I.chevron, "tv-sym-caret")}
       </button>
       <div class="tv-seg" role="group" aria-label="${esc(tt("markets.timeframe", "Timeframe"))}">${tfs}</div>
@@ -653,14 +661,20 @@
            hidden behind their own position list. The side panel is
            untouched and keeps its own copy. -->
       <section class="tv-posdock" id="tv-posdock" aria-label="${esc(tt("chart.positions", "Positions"))}">
-        <div class="tv-posdock-grip" id="tv-posdock-grip" role="separator"
-             aria-orientation="horizontal" tabindex="0"
-             aria-label="${esc(tt("chart.posdock_resize", "Resize the positions panel"))}"></div>
         <header class="tv-posdock-head">
           <h3>${esc(tt("chart.positions", "Positions"))}</h3>
           <span class="tv-posdock-n" id="tv-posdock-n"></span>
           <span class="tv-spacer"></span>
           <span class="tv-posdock-sum mono" id="tv-posdock-sum"></span>
+          <!-- Flatten the book from the panel that shows it.
+
+               Disabled until there is something to close, so the
+               control states the position of the account rather than
+               offering an action that would do nothing. It is wired
+               in app.js, with the same confirmation and the same
+               endpoint as the header's emergency button. -->
+          <button type="button" class="tv-btn tv-flatten" id="tv-posdock-flat" disabled
+                  title="${esc(tt("exec.close_all", "Close all"))}">${esc(tt("exec.close_all", "Close all"))}</button>
           <button type="button" class="tv-icon" id="tv-posdock-close"
                   title="${esc(tt("chart.close", "Close"))}"
                   aria-label="${esc(tt("chart.close", "Close"))}">${svg(I.close)}</button>
@@ -708,10 +722,17 @@
   const nameOf = UI.nameOf, indicatorText = UI.indicatorText;
 
   const LS_POS = "aurion.chart.posdock";
-  const LS_POS_H = "aurion.chart.posdock.h";
-  const POSDOCK_MIN = 96;
-  const POSDOCK_MAX = 420;
-  const POSDOCK_DEF = 176;
+  /* The dock's height is not declared here at all.
+
+     It used to be dragged taller or shorter by a grip along its top
+     edge, clamped between 96 and 420 and remembered in local storage.
+     It is a section of the desk now rather than a drawer: it opens at
+     one size, the chart's row gives up exactly that much, and there
+     is nothing to adjust, misplace or restore. That one size is
+     --tv-posdock in chart.css, which is also what the grid row and
+     the tools sheet's offset are written in terms of - so there is a
+     single number rather than a constant here that has to be kept in
+     step with a stylesheet. */
 
   /** Is this a phone-sized screen?
 
@@ -1446,22 +1467,6 @@
     if (next) toggleDock(false);
   }
 
-  /** The height the dock opens to, clamped and remembered. */
-  function posDockHeight(h) {
-    const n = Number(h);
-    if (!Number.isFinite(n)) return POSDOCK_DEF;
-    return Math.max(POSDOCK_MIN, Math.min(POSDOCK_MAX, Math.round(n)));
-  }
-
-  function setPosDockHeight(h) {
-    const tv = $("tv");
-    if (!tv) return POSDOCK_DEF;
-    const v = posDockHeight(h);
-    tv.style.setProperty("--tv-posdock", v + "px");
-    write(LS_POS_H, String(v));
-    return v;
-  }
-
   /**
    * Show or hide the positions dock.
    *
@@ -1920,57 +1925,10 @@
     redrawSoon();
 
     /* ---- the positions dock ------------------------------------------- */
-    {
-      const tv = $("tv");
-      setPosDockHeight(read(LS_POS_H, String(POSDOCK_DEF)));
-      /* Shut by default on a phone for the same reason the side panel
-         is: the chart is what was opened, and a quarter of a small
-         screen is too much to spend before being asked. */
-      togglePosDock(posNarrow() ? false : read(LS_POS, "0") === "1");
-
-      /* Drag the grip to set the height. Pointer events with capture,
-         so the gesture survives the cursor leaving a 10px strip. */
-      const grip = $("tv-posdock-grip");
-      if (grip && tv) {
-        let y0 = 0, h0 = 0, live = false;
-        const cur = () => {
-          const d = $("tv-posdock");
-          return d ? d.getBoundingClientRect().height : POSDOCK_DEF;
-        };
-        grip.addEventListener("pointerdown", (e) => {
-          if (!tv.classList.contains("pos-open")) return;
-          live = true; y0 = e.clientY; h0 = cur();
-          tv.classList.add("pos-sizing");
-          try { grip.setPointerCapture(e.pointerId); } catch {}
-          e.preventDefault();
-        });
-        grip.addEventListener("pointermove", (e) => {
-          if (!live) return;
-          /* Up is bigger: the dock grows out of the bottom edge. */
-          setPosDockHeight(h0 + (y0 - e.clientY));
-        });
-        const stop = (e) => {
-          if (!live) return;
-          live = false;
-          tv.classList.remove("pos-sizing");
-          try { grip.releasePointerCapture(e.pointerId); } catch {}
-          redrawSoon();
-        };
-        grip.addEventListener("pointerup", stop);
-        grip.addEventListener("pointercancel", stop);
-
-        /* A separator that can only be dragged is unusable without a
-           pointing device, so the arrows resize it too. */
-        grip.addEventListener("keydown", (e) => {
-          const step = e.shiftKey ? 40 : 12;
-          if (e.key === "ArrowUp") setPosDockHeight(cur() + step);
-          else if (e.key === "ArrowDown") setPosDockHeight(cur() - step);
-          else return;
-          e.preventDefault();
-          redrawSoon();
-        });
-      }
-    }
+    /* Shut by default on a phone for the same reason the side panel
+       is: the chart is what was opened, and a quarter of a small
+       screen is too much to spend before being asked. */
+    togglePosDock(posNarrow() ? false : read(LS_POS, "0") === "1");
 
     /* ---- the tool sheet is dragged shut, like the settings one --------- */
     if (typeof attachSheetDrag === "function") {

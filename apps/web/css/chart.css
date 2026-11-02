@@ -107,11 +107,21 @@
   border-color: rgba(255,255,255,.10);
 }
 .tv-sym:focus-visible { outline: 2px solid var(--accent, #3ee0c4); outline-offset: 1px }
-/* The instrument and its timeframe share a baseline with each other,
-   which is what makes them read as one label rather than two. */
-.tv-sym b, .tv-sym span { align-self: baseline }
+/* No align-self here, and that is the fix.
+
+   The previous attempt at centring this button set align-self:baseline
+   on the text so a 14px instrument and an 11px timeframe would sit on
+   one line. In flexbox, baseline-aligned items are aligned to each
+   other and the resulting group is placed at the START of the cross
+   axis - so the text was pinned 1px from the top of a 32px button
+   while the caret, aligned centre, sat correctly in the middle. It
+   looked exactly as crooked as it was, and it was measured at 8px
+   above centre before this was written.
+
+   With the timeframe gone there is one piece of text, nothing to
+   share a baseline with, and align-items:center on the row is both
+   necessary and sufficient. */
 .tv-sym b { font-size: 14px; letter-spacing: .01em; line-height: 1 }
-.tv-sym span { font-size: 11px; color: var(--muted); font-family: "IBM Plex Mono", monospace; line-height: 1 }
 .tv-sym-caret {
   width: 14px; height: 14px; align-self: center; opacity: .55;
   flex: none;
@@ -202,13 +212,12 @@
    the chart - the most recent candles, bottom right - that the list is
    about. */
 .tv.pos-open { grid-template-rows: var(--tv-bar) 1fr var(--tv-posdock) 26px }
-/* While the grip is held the row must track the finger, not ease
-   towards it a quarter of a second late. */
-.tv.pos-sizing { transition: none }
 
 .tv-posdock {
   display: grid;
-  grid-template-rows: auto auto 1fr;
+  /* Two rows, not three: the resize grip that used to sit above the
+     header is gone with the drag. */
+  grid-template-rows: auto 1fr;
   min-height: 0;
   overflow: hidden;
   border-top: 1px solid var(--line);
@@ -217,25 +226,6 @@
 /* Closed: the row is 0px, so the contents must not be reachable by tab
    or by a screen reader either. */
 .tv:not(.pos-open) .tv-posdock { visibility: hidden }
-
-.tv-posdock-grip {
-  height: 10px;
-  cursor: ns-resize;
-  display: grid;
-  place-items: center;
-  touch-action: none;
-  background: transparent;
-}
-.tv-posdock-grip::after {
-  content: "";
-  width: 42px; height: 3px;
-  border-radius: 999px;
-  background: var(--line);
-  transition: background var(--dur-1, .12s) var(--ease-1);
-}
-.tv-posdock-grip:hover::after,
-.tv-posdock-grip:focus-visible::after { background: rgb(var(--accent)) }
-.tv-posdock-grip:focus-visible { outline: 2px solid rgb(var(--accent)); outline-offset: -2px }
 
 .tv-posdock-head {
   display: flex;
@@ -262,6 +252,36 @@
 }
 .tv-posdock-n:empty { display: none }
 .tv-posdock-sum { font-size: 13px; font-weight: 650 }
+/* Flatten, in the panel that shows what would be flattened.
+
+   Outlined rather than filled: it is the most destructive control on
+   the chart and it sits a few pixels from the button that merely
+   shuts the panel, so it has to be told apart at a glance without
+   shouting the whole time the dock is open. It takes the full danger
+   colour on hover, once a pointer has already settled on it. */
+.tv-flatten {
+  height: 26px;
+  padding: 0 10px;
+  font-size: 12px;
+  font-weight: 650;
+  /* color-mix, not rgb(var(--rose) / .55): --rose and --bad are hex
+     literals, not bare "r g b" triplets, so the rgb(var() / a) form
+     that works for --accent produces an invalid declaration here and
+     the border silently vanishes. There is already one of those in
+     the tree at app.css:1083; this is not a second one. */
+  border: 1px solid color-mix(in srgb, var(--rose) 55%, transparent);
+  color: var(--rose);
+  border-radius: var(--radius-sm, 8px);
+  background: transparent;
+}
+.tv-flatten:hover:not(:disabled) {
+  background: var(--rose);
+  color: #fff;
+  border-color: var(--rose);
+}
+/* Nothing open: it stays, so the panel does not reshuffle the moment
+   the last trade closes, but it plainly cannot be pressed. */
+.tv-flatten:disabled { opacity: .4; cursor: default }
 
 .tv-posdock-body {
   min-height: 0;
@@ -1116,9 +1136,6 @@ html:fullscreen body { background: var(--bg) }
      have taken taps meant for the scrim. */
   .tv.pos-open .tv-rail,
   .tv.pos-open .tv-toolscrim { inset-block-end: calc(-1 * var(--tv-posdock, 176px)) }
-  /* Mid-resize the dock has no transition, so the sheet must not have
-     one either or it lags behind the edge it is tracking. */
-  .tv.pos-sizing .tv-rail, .tv.pos-sizing .tv-toolscrim { transition: none }
 
   /* The grab bar. It was a ::before, which looks identical and cannot
      be touched - the sheet said "drag me" and then did not move. It is
@@ -1297,6 +1314,34 @@ html:fullscreen body { background: var(--bg) }
    desktop density. */
 @media (pointer: coarse) {
   .tv-switch { --tvs-h: 22px; --tvs-w: 40px; --tvs-pad: 4px }
+  /* Flatten needs 44px for a thumb and is 26px tall to fit a 38px
+     header.
+
+     An expander alone cannot do it here. .tv-posdock is
+     overflow:hidden and the header is its first row, so a halo tall
+     enough to reach 44px extends past the dock's own top edge and is
+     clipped there - measured, by hit test: a point 8px above the
+     button did not reach it, while getComputedStyle reported the
+     halo present and 44px tall. A matched rule is not a working one.
+
+     So the header is given the room instead, and the dock is given
+     it back, which keeps the list exactly as long as it was on a
+     desktop. The small halo that remains is inside the header and
+     is not clipped. */
+  .tv { --tv-posdock: 194px }
+  .tv-posdock-head { min-height: 46px }
+  .tv-flatten { position: relative; height: 36px; padding: 0 14px }
+  /* -5px, not -4px: inset on an absolutely positioned child resolves
+     against the PADDING box, and this button has a 1px border, so
+     -4px reaches only 34 + 8 = 42px. Measured by hit test, which is
+     also how the asymmetry showed up - the top edge answered and the
+     bottom did not.
+
+     -4px at the sides rather than -6px: the gap to the close button
+     beside it measures 8px, so 4px is the most this can take without
+     reaching into its neighbour's half and answering taps meant for
+     it. The width is 87px and needs no help. */
+  .tv-flatten::after { content: ""; position: absolute; inset: -5px -4px }
   .tvf-row, .tvm-row { padding: 10px 9px }
   .tv-nav { opacity: 1; transform: none }
   /* A thumb needs 44px; these were 32. Grow the target AROUND the control
@@ -1325,11 +1370,6 @@ html:fullscreen body { background: var(--bg) }
   .tv .tvp-list { gap: 8px 10px }
   .tv .tvp-row:not(.tvp-head) { padding-block: 9px }
 
-  /* The dock's grip is a 10px strip, which is not something a thumb
-     can find. It keeps its height in the layout and takes its target
-     from a halo, so the chart does not lose the room. */
-  .tv .tv-posdock-grip { position: relative }
-  .tv .tv-posdock-grip::before { content: ""; position: absolute; inset: -9px 0 }
 }
 
 /* Fat targets on the rail, but only where the rail is still a strip of

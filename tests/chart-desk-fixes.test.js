@@ -204,12 +204,19 @@ check("opening the positions dock does not move the tools sheet", () => {
   return "sheet and scrim both offset by --tv-posdock";
 });
 
-check("the sheet tracks the dock without lagging while it is resized", () => {
-  /* The dock is drag-resizable and drops its transition mid-drag; a
-     sheet that kept one would trail the edge it is tracking. */
-  const body = ruleBody(CSS, ".tv.pos-sizing .tv-rail,.tv.pos-sizing .tv-toolscrim");
-  if (!has(body, "transition:none")) throw new Error("the sheet animates its way after a live resize");
-  return "no transition mid-resize";
+check("nothing is left behind from the dock's resize", () => {
+  /* This check used to require .tv.pos-sizing on the sheet, so it
+     would not lag behind a dock being dragged taller. The dock is a
+     fixed section now and nothing sets that class, so the rule it
+     asked for would be dead CSS - and a stylesheet full of rules for
+     behaviour that no longer exists is how the next person reads the
+     wrong design out of it. */
+  if (/pos-sizing/.test(CSS)) throw new Error("the resize-only rules outlived the resize");
+  if (/tv-posdock-grip/.test(CSS)) throw new Error("the grip is still styled");
+  /* The compensation that keeps the two independent is still needed:
+     the dock still occupies a grid row, it just cannot be dragged. */
+  if (!/\.tv\.pos-open \.tv-rail/.test(CSS)) throw new Error("the sheet no longer clears the dock at all");
+  return "grip and sizing rules gone, offset kept";
 });
 
 check("the compensation is inside the phone block, where the sheet exists", () => {
@@ -261,6 +268,42 @@ check("the limit holds however hard the sheet is pulled", () => {
   return "bounded upwards at " + cap + "px, free downwards";
 });
 
+check("flatten is a thumb-sized target, and takes it from its own panel", () => {
+  /* Measured, not assumed. An expander alone could not do this:
+     .tv-posdock is overflow:hidden and the header is its first row,
+     so a halo tall enough to reach 44px from a 26px button extended
+     past the dock's top edge and was clipped - a hit test 8px above
+     the button did not reach it while getComputedStyle reported the
+     halo present and 44px tall.
+
+     The header was given the room instead and the dock was given it
+     back, so the list is no shorter than it was. */
+  const coarse = CSS.slice(CSS.indexOf("@media (pointer:coarse){"));
+  if (!coarse) throw new Error("there is no coarse-pointer block");
+  const btn = ruleBody(coarse, ".tv-flatten");
+  if (!btn) throw new Error(".tv-flatten is not grown for a thumb at all");
+  const h = parseFloat(/(?:^|;)height:(\d+)px/.exec(btn)?.[1] || "0");
+  const halo = ruleBody(coarse, ".tv-flatten::after");
+  const ins = /(?:^|;)inset:(-?\d+)px (-?\d+)px/.exec(halo || "");
+  if (!ins) throw new Error("the halo has no inset");
+  const v = -parseFloat(ins[1]);
+  /* inset resolves against the PADDING box, so a 1px border on each
+     edge comes off the total - the reason -4px gave 42px and not 44. */
+  const reach = h - 2 + 2 * v;
+  if (reach < 44) throw new Error(`the target is ${reach}px tall, not 44`);
+  /* And the dock is given back exactly what the header took, or the
+     list is shorter on a phone than on a desktop. */
+  const tv = ruleBody(coarse, ".tv");
+  if (!/--tv-posdock:\s*\d+px/.test(tv || "")) throw new Error("the dock was not given the room back");
+  const head = ruleBody(coarse, ".tv-posdock-head");
+  const hh = parseFloat(/min-height:(\d+)px/.exec(head || "")?.[1] || "0");
+  if (hh < h + 4) throw new Error(`a ${h}px button does not fit a ${hh}px header`);
+  const base = parseFloat(/--tv-posdock:\s*(\d+)px/.exec(ruleBody(CSS, ".tv") || "")?.[1] || "0");
+  const grown = parseFloat(/--tv-posdock:\s*(\d+)px/.exec(tv)[1]);
+  if (grown - base < hh - 38) throw new Error("the dock grew by less than the header did");
+  return `${reach}px tall, dock ${base} -> ${grown}`;
+});
+
 /* ============================ 5. the symbol button's label is centred ==== */
 
 check("the symbol button centres its label both ways", () => {
@@ -276,16 +319,48 @@ check("the symbol button centres its label both ways", () => {
   return "align-items + justify-content: center";
 });
 
-check("the instrument and its timeframe still share a baseline", () => {
-  /* Centring the row must not leave a 14px symbol and an 11px
-     timeframe each centred on their own box, which is how two words
-     stop reading as one label. */
-  const pair = ruleBody(CSS, ".tv-sym b,.tv-sym span");
-  if (!has(pair, "align-self:baseline")) throw new Error("the two text pieces no longer share a baseline");
+check("nothing in the button opts out of that centring", () => {
+  /* This check used to REQUIRE align-self:baseline on the text, so a
+     14px instrument and an 11px timeframe would sit on one line. It
+     was wrong, and it was wrong in the direction that hid the fault
+     it was written alongside: in flexbox, baseline-aligned items are
+     aligned to each other and the group is placed at the START of
+     the cross axis. The text sat 1px from the top of a 32px button
+     while the caret, centred, sat in the middle - measured at 8px
+     off-centre and reported as "the text is at the top and looks
+     bad".
+
+     align-items:center on the row only centres children that have
+     not opted out, so what has to be true is that none of them do. */
+  if (/align-self:baseline/.test(ruleBody(CSS, ".tv-sym b") || "")) {
+    throw new Error("the instrument is baseline-aligned, which pins it to the top of the button");
+  }
+  for (const sel of [".tv-sym b", ".tv-sym span", ".tv-sym b,.tv-sym span"]) {
+    const body = ruleBody(CSS, sel);
+    if (body && /align-self:(?!center)/.test(body)) {
+      throw new Error(sel + " opts out of the row's centring: " + body);
+    }
+  }
   const caret = ruleBody(CSS, ".tv-sym-caret");
   if (!has(caret, "align-self:center")) throw new Error("the caret is not centred");
   if (!has(caret, "flex:none")) throw new Error("the caret can be squeezed when the symbol is long");
-  return "text on a baseline, caret centred";
+  return "no align-self overrides, caret centred";
+});
+
+check("the button carries the instrument and not the timeframe", () => {
+  /* A third copy of the timeframe, inside the instrument button and
+     unpressable, beside the segmented strip and the More menu that
+     are both the timeframe and both work. */
+  const btn = /<button[^>]*class="tv-sym"[\s\S]*?<\/button>/.exec(toolsJs);
+  if (!btn) throw new Error("the symbol button is gone");
+  if (/tv-tf-label/.test(btn[0])) throw new Error("the timeframe is back inside the symbol button");
+  if (!/o\.symbol/.test(btn[0])) throw new Error("the button no longer shows the instrument");
+  /* And the real timeframe controls are still there. */
+  if (!/data-menu="tf"/.test(toolsJs)) throw new Error("the timeframe menu went with it");
+  if (!/aria-label="\$\{esc\(tt\("markets\.timeframe"/.test(toolsJs)) {
+    throw new Error("the timeframe strip went with it");
+  }
+  return "instrument only";
 });
 
 /* ------------------------------------------------------------------ result */
