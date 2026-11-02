@@ -1023,8 +1023,21 @@ if (!jsdom) {
       /* The handle at the top of a sheet is a promise. A sheet that
          draws one and then only responds to a close button has told
          the thumb something untrue. */
-      const fn = appJs.slice(appJs.indexOf("function bindSetSheet()"), appJs.indexOf("function showSetTab("));
-      if (!fn) throw new Error("the sheet is never bound");
+      /* The drag used to be written out inside bindSetSheet. It now
+         lives in attachSheetDrag, shared with the chart's tool sheet,
+         so the region to read is the binding plus the helper it calls
+         - the requirement is that the sheet is draggable, not where
+         the code for it happens to sit. */
+      const bindFn = appJs.slice(appJs.indexOf("function bindSetSheet()"), appJs.indexOf("function showSetTab("));
+      if (!bindFn) throw new Error("the sheet is never bound");
+      if (!/attachSheetDrag\(\{/.test(bindFn)) throw new Error("the sheet never attaches a drag");
+      if (!/handle: grab/.test(bindFn) || !/sheet: nav/.test(bindFn)) {
+        throw new Error("the drag is attached to the wrong elements");
+      }
+      const helper = appJs.slice(appJs.indexOf("function attachSheetDrag("),
+                                 appJs.indexOf("function attachSheetEdgeOpen("));
+      if (!helper) throw new Error("attachSheetDrag is missing");
+      const fn = bindFn + helper;
       for (const ev of ["pointerdown", "pointermove", "pointerup", "pointercancel"]) {
         if (!fn.includes(ev)) throw new Error("the drag does not handle " + ev);
       }

@@ -445,6 +445,9 @@
     }).join("");
 
     return `<nav class="tv-rail" id="tv-rail" aria-label="${esc(tt("chart.tools", "Drawing tools"))}">
+      <!-- A real element, not a ::before. The sheet is dismissed by
+           dragging it, and a pseudo-element cannot take a pointer. -->
+      <div class="tvr-grab" id="tv-rail-grab" role="presentation"></div>
       ${groups}
       <div class="tvr-sep"></div>
       <button type="button" class="tvr-btn" id="tv-magnet" title="${esc(tt("chart.magnet", "Magnet"))}"
@@ -998,7 +1001,36 @@
     fly.hidden = false;
     const r = anchor.getBoundingClientRect();
     const box = document.querySelector(".tv-body").getBoundingClientRect();
-    fly.style.top = Math.max(4, Math.min(r.top - box.top, box.height - fly.offsetHeight - 8)) + "px";
+
+    /* Place it against the button that opened it, on both axes.
+
+       Only `top` used to be set; the inline edge came from the
+       stylesheet as "just past the rail". On a desktop that is right -
+       the rail is a column down one side, so every flyout belongs in
+       the same place. On a phone the rail is a sheet across the bottom
+       and the rail width is 0, so every tool's menu opened hard against
+       the left edge of the screen, nowhere near the tool. */
+    const narrow = window.matchMedia("(max-width: 760px)").matches;
+    if (narrow) {
+      /* Above the button, because below it is the sheet the button
+         lives in and, under that, the thumb. Clamped so a group at
+         either end of the row does not push the menu off the screen. */
+      const w = fly.offsetWidth || 180;
+      /* Measured from the inline start edge, not from the left, so this
+         is the same code in Persian and Arabic. The stylesheet already
+         positions the flyout with inset-inline-start; writing `left`
+         here would fight it in RTL and the menu would land on the
+         opposite side of the screen from its button. */
+      const rtl = document.documentElement.dir === "rtl";
+      const mid = rtl ? (box.right - r.right + r.width / 2) : (r.left - box.left + r.width / 2);
+      const start = Math.max(6, Math.min(mid - w / 2, box.width - w - 6));
+      const above = r.top - box.top - fly.offsetHeight - 8;
+      fly.style.insetInlineStart = start + "px";
+      fly.style.top = Math.max(6, above) + "px";
+    } else {
+      fly.style.insetInlineStart = "";
+      fly.style.top = Math.max(4, Math.min(r.top - box.top, box.height - fly.offsetHeight - 8)) + "px";
+    }
     anchor.setAttribute("aria-expanded", "true");
     requestAnimationFrame(() => fly.classList.add("in"));
   }
@@ -1349,6 +1381,10 @@
     const tv = $("tv");
     if (!tv) return;
     const next = open === undefined ? !tv.classList.contains("tools-open") : !!open;
+    /* A tool's menu belongs to the sheet it was opened from. Leaving it
+       behind when the sheet goes left it stranded over the chart with
+       nothing underneath it and no obvious way to dismiss it. */
+    if (!next) closeFlyout();
     tv.classList.toggle("tools-open", next);
     const fab = $("tv-toolsfab");
     if (fab) fab.setAttribute("aria-expanded", next ? "true" : "false");
@@ -1781,6 +1817,26 @@
        never corrected and the trader had to poke something to fix it.
        0/120/360ms, the same three beats as a dock toggle. */
     redrawSoon();
+
+    /* ---- the tool sheet is dragged shut, like the settings one --------- */
+    if (typeof attachSheetDrag === "function") {
+      attachSheetDrag({
+        handle: $("tv-rail-grab"),
+        sheet: $("tv-rail"),
+        scrim: $("tv-toolscrim"),
+        body: $("tv-rail"),
+        isOpen: () => { const tv = $("tv"); return !!tv && tv.classList.contains("tools-open"); },
+        close: () => toggleTools(false),
+      });
+    }
+    if (typeof attachSheetEdgeOpen === "function") {
+      attachSheetEdgeOpen({
+        stage: $("tv-chartbox"),
+        isOpen: () => { const tv = $("tv"); return !!tv && tv.classList.contains("tools-open"); },
+        open: () => toggleTools(true),
+        when: () => window.matchMedia("(max-width: 760px)").matches,
+      });
+    }
 
     /* ---- navigation ----------------------------------------------------- */
     const box = $("tv-chartbox");

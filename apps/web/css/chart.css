@@ -182,6 +182,8 @@
   scrollbar-width: thin;
 }
 .tv-rail::-webkit-scrollbar { width: 4px }
+/* There is no sheet to dismiss where the rail is a column. */
+.tvr-grab { display: none }
 
 .tvr-group { position: relative; width: 36px }
 .tvr-btn {
@@ -966,6 +968,9 @@ html:fullscreen body { background: var(--bg) }
     border-radius: 18px 18px 0 0;
     overflow-y: auto;
     overflow-x: hidden;
+    /* A pull that runs past the top of the list is this sheet's
+       dismissal gesture, not the page's rubber band. */
+    overscroll-behavior: contain;
     position: absolute;
     inset-block-start: auto;
     inset-block-end: 0;
@@ -978,15 +983,27 @@ html:fullscreen body { background: var(--bg) }
   }
   .tv.tools-open .tv-rail { transform: none }
 
-  /* A grab bar, so it reads as something that can be dismissed. */
-  .tv-rail::before {
-    content: "";
+  /* The grab bar. It was a ::before, which looks identical and cannot
+     be touched - the sheet said "drag me" and then did not move. It is
+     a real element now, with a target tall enough to find without
+     looking and touch-action:none so the browser does not claim the
+     gesture as a scroll before the handler sees it. */
+  .tvr-grab {
     flex: 0 0 100%;
+    height: 22px;
+    margin: -4px 0 2px;
+    display: grid; place-items: center;
+    cursor: grab;
+    touch-action: none;
+  }
+  .tvr-grab::after {
+    content: "";
     height: 4px; width: 38px;
-    margin: 0 auto 6px;
     border-radius: 999px;
     background: var(--line);
   }
+  .tv-rail.is-dragging { transition: none }
+  .tv-rail.is-dragging .tvr-grab { cursor: grabbing }
 
   .tvr-group { width: auto; flex: 1 1 calc(33.333% - 6px); min-width: 96px }
   .tvr-btn {
@@ -1048,7 +1065,13 @@ html:fullscreen body { background: var(--bg) }
     color: var(--accent-readable, var(--accent));
   }
 
-  .tv-flyout { inset-inline-start: 8px; inset-block-end: 8px; inset-block-start: auto !important; z-index: 42 }
+  /* This used to read `inset-inline-start: 8px; inset-block-end: 8px;
+     inset-block-start: auto !important`, which parked every tool's menu
+     in the bottom-left corner of the chart whatever tool it belonged
+     to - and the !important meant the script could not place it either.
+     openFlyout now anchors it above its own button; all that is needed
+     here is to sit above the sheet. */
+  .tv-flyout { z-index: 42 }
   .tv-nav { inset-inline-end: 72px }
   .tv-sym b { font-size: 13px }
   .tv-seg { display: none }

@@ -8358,6 +8358,234 @@ function closeSetSheet(focusBack) {
   __setSheetReturn = null;
   try { if (back && back.isConnected) back.focus(); } catch {}
 }
+/**
+ * Make a bottom sheet draggable.
+ *
+ * Written for the settings sheet and then asked for on the chart's tool
+ * sheet as well, so it is one function rather than two that drift. A
+ * sheet that only closes by its own button is a sheet a thumb argues
+ * with.
+ *
+ * Dragging down past a quarter of the sheet's height, or flicking
+ * downwards at any distance, closes it; anything less springs back.
+ * Upwards is not an error, so it is answered with resistance rather
+ * than ignored outright - a sheet that does not move at all under the
+ * finger reads as broken.
+ *
+ * Pointer events, so one path covers touch, pen and mouse.
+ */
+function attachSheetDrag(o) {
+  const handle = o && o.handle;
+  const sheet = o && o.sheet;
+  if (!handle || !sheet || typeof handle.setPointerCapture !== "function") return;
+  if (handle.dataset.sheetDrag === "1") return;
+  handle.dataset.sheetDrag = "1";
+  const scrim = o.scrim || null;
+  const isOpen = typeof o.isOpen === "function" ? o.isOpen : () => true;
+  const close = typeof o.close === "function" ? o.close : () => {};
+
+  let y0 = 0, t0 = 0, dy = 0, dragging = false;
+  let lastY = 0, lastT = 0, vel = 0;   /* px/ms, signed: + is downwards */
+
+  const move = (e) => {
+    if (!dragging) return;
+    const raw = e.clientY - y0;
+    dy = raw >= 0 ? raw : -Math.sqrt(-raw) * 2.2;
+    const now = e.timeStamp || Date.now();
+    const dt = now - lastT;
+    if (dt > 0) { vel = (e.clientY - lastY) / dt; lastY = e.clientY; lastT = now; }
+    sheet.style.transform = "translateY(" + dy.toFixed(1) + "px)";
+    if (scrim) scrim.style.opacity = String(Math.max(0, 1 - Math.max(0, dy) / 260));
+  };
+
+  const end = (e) => {
+    if (!dragging) return;
+    dragging = false;
+    try { handle.releasePointerCapture(e.pointerId); } catch {}
+    sheet.classList.remove("is-dragging");
+
+    const h = sheet.offsetHeight || 1;
+    const ms = Date.now() - t0;
+    const flick = (ms < 260 && dy > 40) || vel > 0.5;
+    const closing = flick || dy > h * 0.25;
+
+    /* Hand the rest of the travel back to CSS at a speed that continues
+       the gesture instead of restarting it. A fast flick finishes in
+       little over a frame or two; letting go halfway settles over the
+       remaining distance. Without this the sheet always took the full
+       250ms however hard it was thrown, which is the moment a gesture
+       stops feeling attached to the finger. */
+    const left = closing ? Math.max(0, h - dy) : Math.max(0, dy);
+    const speed = Math.max(Math.abs(vel), 0.8);        /* px/ms floor */
+    const dur = Math.round(Math.min(360, Math.max(120, left / speed)));
+    sheet.style.transition = "transform " + dur + "ms cubic-bezier(.22,.61,.36,1)";
+    sheet.style.transform = "";
+    if (scrim) scrim.style.opacity = "";
+    setTimeout(() => { if (!dragging) sheet.style.transition = ""; }, dur + 40);
+
+    if (closing) close();
+  };
+
+  const begin = (el) => (e) => {
+    if (!isOpen()) return;
+    dragging = true; y0 = e.clientY; t0 = Date.now(); dy = 0;
+    lastY = e.clientY; lastT = e.timeStamp || Date.now(); vel = 0;
+    sheet.style.transition = "";
+    sheet.classList.add("is-dragging");
+    try { el.setPointerCapture(e.pointerId); } catch {}
+  };
+
+  handle.addEventListener("pointerdown", begin(handle));
+  handle.addEventListener("pointermove", move);
+  handle.addEventListener("pointerup", end);
+  handle.addEventListener("pointercancel", end);
+
+  /* The sheet itself can be pulled down too, but only once its own
+     scrolling has run out.
+     
+     A sheet that is only dismissible by its 22px handle asks the thumb
+     to aim. Letting the whole surface do it is what a phone user
+     expects - but not while there is still content to scroll, or the
+     gesture steals the scroll and the list becomes unreadable. So: the
+     drag only starts when the body is already at its top, and the
+     first movement decides. Upward from there is a scroll and is handed
+     straight back. */
+  const body = o.body || null;
+  if (body && typeof body.addEventListener === "function") {
+    /* Touch events, not pointer events, and the move listener is not
+       passive.
+
+       The pointer version of this worked in a test harness and did
+       nothing on a real phone: the body scrolls, so the browser claims
+       the gesture for scrolling and fires pointercancel instead of
+       delivering the moves. The only way to keep a downward drag is to
+       call preventDefault on the touchmove that decides it - which a
+       passive listener is not allowed to do. */
+    let armed = false, armY = 0, armId = null;
+
+    body.addEventListener("touchstart", (e) => {
+      if (!isOpen() || e.touches.length !== 1) { armed = false; return; }
+      armed = body.scrollTop <= 0;
+      armY = e.touches[0].clientY;
+      armId = e.touches[0].identifier;
+    }, { passive: true });
+
+    body.addEventListener("touchmove", (e) => {
+      const t = e.touches[0];
+      if (!t) return;
+      const ev = { clientY: t.clientY, pointerId: armId, timeStamp: e.timeStamp };
+      if (dragging) { e.preventDefault(); move(ev); return; }
+      if (!armed) return;
+      const d = t.clientY - armY;
+      /* Upwards is a scroll, and reversing afterwards does not take
+         that back. */
+      if (d < SHEET_DRAG_ARM) { if (d < -2) armed = false; return; }
+      /* The list moved under the finger, so this finger is scrolling. */
+      if (body.scrollTop > 0) { armed = false; return; }
+      armed = false;
+      e.preventDefault();
+      begin(body)({ clientY: armY, pointerId: armId, timeStamp: e.timeStamp });
+      move(ev);
+    }, { passive: false });
+
+    const release = (e) => {
+      armed = false;
+      if (!dragging) return;
+      const t = (e.changedTouches && e.changedTouches[0]) || null;
+      end({ clientY: t ? t.clientY : 0, pointerId: armId, timeStamp: e.timeStamp });
+    };
+    body.addEventListener("touchend", release);
+    body.addEventListener("touchcancel", release);
+  }
+}
+
+/* How far down the finger has to travel before a pull on the sheet's
+   own surface counts as a dismissal rather than a stalled scroll. */
+const SHEET_DRAG_ARM = 12;
+
+/* How close to the bottom edge a swipe has to start, and how far up it
+   has to go, to count as "open the sheet". 28px is about a thumb's
+   width of screen; less and it is unhittable, more and it starts
+   stealing taps from whatever sits along the bottom of the page. */
+const SHEET_EDGE_BAND = 28;
+const SHEET_EDGE_PULL = 40;
+
+/**
+ * Open a bottom sheet by swiping up from the bottom edge of its stage.
+ *
+ * The counterpart to dragging it shut: if the sheet can be thrown away
+ * with the thumb it should be summonable the same way, without
+ * travelling to a button in a corner.
+ *
+ * Pointer events are listened for on the stage rather than the page so
+ * two sheets on two different screens cannot both answer one swipe.
+ */
+function attachSheetEdgeOpen(o) {
+  const stage = o && o.stage;
+  if (!stage) return;
+  /* The stage may be the document. The settings sheet needs that: the
+     bottom strip of a phone screen is covered by chrome that is not a
+     descendant of the settings desk, so a listener on the desk was
+     never reached by the swipe at all - the desk was correctly bound
+     and still did nothing. Views are told apart by `when` instead. */
+  const ds = stage.dataset || (stage.documentElement && stage.documentElement.dataset);
+  const key = o.key || "sheetEdge";
+  if (ds) { if (ds[key] === "1") return; ds[key] = "1"; }
+  const isOpen = typeof o.isOpen === "function" ? o.isOpen : () => false;
+  const open = typeof o.open === "function" ? o.open : () => {};
+  /* Only where the sheet exists. Above the breakpoint the same strip of
+     screen belongs to something else - on the chart it is the bottom of
+     the plot, where a vertical drag pans the price scale - and a
+     gesture that quietly changes meaning with the window width is worse
+     than one that is simply absent. */
+  const when = typeof o.when === "function" ? o.when : () => true;
+
+  /* Touch events, not pointer events, and all of them passive.
+
+     The pointer version armed correctly and then never heard another
+     word: the settings page scrolls, so the browser took the gesture
+     and answered with pointercancel. Touch events keep being delivered
+     while a page scrolls, which is exactly what is needed here - the
+     swipe is allowed to scroll the page a little on its way up, and
+     the sheet opens anyway. Nothing is ever prevented, so no scroll is
+     made worse by listening. */
+  let armed = false, y0 = 0, x0 = 0;
+
+  stage.addEventListener("touchstart", (e) => {
+    if (isOpen() || !when() || e.touches.length !== 1) { armed = false; return; }
+    const t = e.touches[0];
+    const r = typeof stage.getBoundingClientRect === "function"
+      ? stage.getBoundingClientRect()
+      : { bottom: window.innerHeight };
+    /* The *visible* bottom, not the element's. The chart is the size of
+       the viewport so the two agree, but the settings desk is a long
+       scrolling page whose bottom edge is thousands of pixels below the
+       screen - measured against that, the band was somewhere nobody
+       could ever touch. */
+    const vh = (window.visualViewport && window.visualViewport.height) || window.innerHeight;
+    const bottom = Math.min(r.bottom == null ? vh : r.bottom, vh);
+    armed = t.clientY <= bottom && (bottom - t.clientY) <= SHEET_EDGE_BAND;
+    y0 = t.clientY; x0 = t.clientX;
+  }, { passive: true });
+
+  stage.addEventListener("touchmove", (e) => {
+    if (!armed) return;
+    const t = e.touches[0];
+    if (!t) return;
+    const up = y0 - t.clientY;
+    /* A mostly-sideways drag is somebody else's gesture - panning the
+       chart, most likely - and must not be read as a summons. */
+    if (Math.abs(t.clientX - x0) > up) { armed = false; return; }
+    if (up < SHEET_EDGE_PULL) return;
+    armed = false;
+    open();
+  }, { passive: true });
+
+  const off = () => { armed = false; };
+  stage.addEventListener("touchend", off, { passive: true });
+  stage.addEventListener("touchcancel", off, { passive: true });
+}
+
 function openSetSheet() {
   const nav = $("set-jump");
   const btn = $("set-sheet-open");
@@ -8419,68 +8647,20 @@ function bindSetSheet() {
     closeSetSheet();
   });
 
-  /* The drag. Pointer events, so one path covers touch, pen and mouse.
-     Dragging down past a quarter of the sheet's height, or flicking
-     downwards at any distance, closes it; anything less springs back.
-     The transform is removed in both outcomes so the CSS transition
-     owns the animation again. */
-  if (grab && typeof grab.setPointerCapture === "function") {
-    let y0 = 0, t0 = 0, dy = 0, dragging = false;
-    let lastY = 0, lastT = 0, vel = 0;   /* px/ms, signed: + is downwards */
-    const move = (e) => {
-      if (!dragging) return;
-      const raw = e.clientY - y0;
-      /* Downwards is the gesture. Upwards is not an error, so it is
-         answered with resistance rather than ignored outright - a sheet
-         that does not move at all under the finger reads as broken. */
-      dy = raw >= 0 ? raw : -Math.sqrt(-raw) * 2.2;
-      const now = e.timeStamp || Date.now();
-      const dt = now - lastT;
-      if (dt > 0) { vel = (e.clientY - lastY) / dt; lastY = e.clientY; lastT = now; }
-      nav.style.transform = "translateY(" + dy.toFixed(1) + "px)";
-      if (scrim) scrim.style.opacity = String(Math.max(0, 1 - Math.max(0, dy) / 260));
-    };
-    const end = (e) => {
-      if (!dragging) return;
-      dragging = false;
-      try { grab.releasePointerCapture(e.pointerId); } catch {}
-      nav.classList.remove("is-dragging");
-
-      const h = nav.offsetHeight || 1;
-      const ms = Date.now() - t0;
-      const flick = (ms < 260 && dy > 40) || vel > 0.5;
-      const closing = flick || dy > h * 0.25;
-
-      /* Hand the rest of the travel back to CSS at a speed that
-         continues the gesture instead of restarting it. A fast flick
-         finishes in little over a frame or two; letting go halfway
-         settles over the remaining distance. Without this the sheet
-         always took the full 250ms however hard it was thrown, which is
-         the moment a gesture stops feeling attached to the finger. */
-      const left = closing ? Math.max(0, h - dy) : Math.max(0, dy);
-      const speed = Math.max(Math.abs(vel), 0.8);        /* px/ms floor */
-      const dur = Math.round(Math.min(360, Math.max(120, left / speed)));
-      nav.style.transition = "transform " + dur + "ms cubic-bezier(.22,.61,.36,1)";
-      nav.style.transform = "";
-      if (scrim) scrim.style.opacity = "";
-      /* Let the inline curve own this one movement, then get out of the
-         way so the stylesheet is in charge again. */
-      setTimeout(() => { if (!dragging) nav.style.transition = ""; }, dur + 40);
-
-      if (closing) closeSetSheet();
-    };
-    grab.addEventListener("pointerdown", (e) => {
-      if (!setSheetIsOpen()) return;
-      dragging = true; y0 = e.clientY; t0 = Date.now(); dy = 0;
-      lastY = e.clientY; lastT = e.timeStamp || Date.now(); vel = 0;
-      nav.style.transition = "";
-      nav.classList.add("is-dragging");
-      try { grab.setPointerCapture(e.pointerId); } catch {}
-    });
-    grab.addEventListener("pointermove", move);
-    grab.addEventListener("pointerup", end);
-    grab.addEventListener("pointercancel", end);
-  }
+  /* One implementation, used by both sheets. See attachSheetDrag. */
+  attachSheetDrag({ handle: grab, sheet: nav, scrim, body: nav,
+    isOpen: setSheetIsOpen, close: () => closeSetSheet() });
+  attachSheetEdgeOpen({
+    stage: document, key: "setSheetEdge",
+    isOpen: setSheetIsOpen, open: openSetSheet,
+    when: () => {
+      /* Only on the settings page, and only where the nav is a sheet.
+         Listening on the document is what makes the gesture reachable;
+         this is what stops it answering on every other view. */
+      try { return S.view === "settings" && window.matchMedia(SET_SHEET_MQ).matches; }
+      catch { return false; }
+    },
+  });
 
   /* Widening the window past the breakpoint must not leave the desk
      holding a scrim and an aria-expanded that no longer mean anything. */
