@@ -7798,15 +7798,24 @@ function table(rows, keys, closable) {
      positions row cell by cell announces the value and not which
      column it came from, which on a table of eight numeric columns
      is the whole of the information. */
-  const head = keys.map((k) => `<th scope="col">${I18N.t("table." + k) !== "table." + k ? I18N.t("table." + k) : k}</th>`).join("");
+  const label = (k) => (I18N.t("table." + k) !== "table." + k ? I18N.t("table." + k) : k);
+  const head = keys.map((k) => `<th scope="col">${label(k)}</th>`).join("");
   const body = rows.map((r) => `<tr data-ticket="${r.ticket || ""}">${keys.map((k) => {
     const v = k === "profit_pct" ? posProfitPct(r) : r[k];
     // Every money column is signed, not just profit. A swap of -4.10 shown
     // in the same colour as a profit of 4.10 is a column the eye skips.
     const c = cellSigned(k) ? clsPnl(v) : "";
     const text = cellText(k, v);
-    return `<td class="mono ${c}" data-k="${k}">${text}</td>`;
-  }).join("")}${closable ? `<td><button class="btn tiny ghost" type="button" data-close="${r.ticket}">${I18N.t("exec.close")}</button></td>` : ""}</tr>`).join("");
+    /* The column name travels with the cell.
+       Below 760 the table stacks and the header row goes away, and a
+       bare column of numbers with no names is not a smaller table, it
+       is an unreadable one. The label is drawn from this attribute by
+       CSS rather than injected as an element, because paintPositions
+       updates cells with textContent on every tick - which would wipe
+       a real label out of the DOM and leave the first paint looking
+       correct and every one after it wrong. */
+    return `<td class="mono ${c}" data-k="${k}" data-label="${esc(label(k))}">${text}</td>`;
+  }).join("")}${closable ? `<td class="c-act"><button class="btn tiny ghost" type="button" data-close="${r.ticket}">${I18N.t("exec.close")}</button></td>` : ""}</tr>`).join("");
   // A colgroup, so the CSS can fix the column widths. Without declared
   // widths a fixed-layout table divides itself evenly, and with no fixed
   // layout at all the columns re-measure on every price tick and the row

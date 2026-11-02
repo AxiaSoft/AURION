@@ -1380,9 +1380,83 @@ tr:hover td{background:rgb(var(--wash) / .02)}
 .pos-card td[data-k="tp"],.pos-card td[data-k="profit"],
 .pos-card td[data-k="profit_pct"]{text-align:end}
 .pos-card th:nth-child(n+3):nth-child(-n+10){text-align:end}
+/* ---------------------------------------------------------------------
+   Below 760 the table stops being a table.
+
+   A 900px-wide grid in a 340px window is not a narrow table, it is a
+   hidden one: measured on a 390px phone the close button sat at x=857,
+   roughly 560px past the right edge, behind a horizontal scroll. The
+   card's own note above says that exact fault was fixed for the desk -
+   it was simply reintroduced at phone width, where the trader is most
+   likely to be closing something in a hurry.
+
+   So each row becomes its own small card and each cell a labelled line.
+   The header row goes, which means the column names have to come back
+   somewhere, and they come back per cell from data-label. Written
+   with the same reasoning as the positions dock: resize, do not hide.
+   --------------------------------------------------------------------- */
 @media (max-width:760px){
   .pos-card td{padding:10px 8px}
   .pos-card col.c-close{width:76px}
+
+  /* Nothing scrolls sideways any more, so the viewport is the width. */
+  .pos-card .table-wrap{overflow-x:visible;max-height:none}
+  .pos-card table{min-width:0;width:100%;table-layout:auto;display:block}
+  .pos-card colgroup,.pos-card thead{display:none}
+  .pos-card tbody{display:block}
+
+  .pos-card tbody tr{
+    display:block;
+    border:1px solid var(--line);
+    border-radius:12px;
+    padding:10px 12px;
+    background:rgb(var(--wash) / .04);
+  }
+  .pos-card tbody tr + tr{margin-top:8px}
+
+  /* Label on one side, value on the other: the eye reads down the
+     values and across only when it needs the name. */
+  .pos-card tbody td{
+    display:grid;
+    grid-template-columns:minmax(0,1fr) auto;
+    align-items:baseline;
+    gap:12px;
+    padding:5px 0;
+    overflow:visible;
+    text-align:end;
+  }
+  .pos-card tbody td::before{
+    content:attr(data-label);
+    text-align:start;
+    color:var(--muted);
+    /* The cell carries .mono so its digits line up; the label is prose
+       and inheriting from it would set the column names in a
+       typewriter face next to their own values. */
+    font-family:var(--font);
+    font-variant-numeric:normal;
+    font-size:12px;
+    font-weight:500;
+    letter-spacing:.01em;
+  }
+  /* The instrument is the row's title, not one line among ten. */
+  .pos-card tbody td[data-k="symbol"]{
+    display:block;text-align:start;
+    font-size:15px;font-weight:650;
+    padding:0 0 6px;
+    border-bottom:1px solid var(--line);
+    margin-bottom:4px;
+  }
+  .pos-card tbody td[data-k="symbol"]::before{content:none}
+
+  /* The control a trader reaches for under pressure: full width, at the
+     end of its own row, and big enough to hit. */
+  .pos-card tbody td.c-act{
+    display:block;padding:10px 0 0;
+  }
+  .pos-card tbody td.c-act .btn{
+    width:100%;min-height:44px;padding-block:11px;font-size:14px;
+  }
+  .pos-card td:last-child .btn{min-width:0}
 }
 /* The card is the control (see chartCard in app.js), so it needs what a
    control needs: a visible focus ring for the keyboard, and a cursor
