@@ -167,6 +167,11 @@ class CandleChart {
   static RIGHT_MARGIN = 8;
   static RIGHT_MARGIN_MAX = 60;
 
+  /* How near the pointer has to be to grab a stop or a target. A finger
+     covers far more than a mouse and cannot see what it is covering. */
+  static LEVEL_GRAB = 5;
+  static LEVEL_GRAB_TOUCH = 12;
+
   /* 1, 2, 5 x a power of ten - the step sizes a reader expects to see on
      an axis. The price window is snapped to the same ladder the axis
      labels use, so the remembered frame always lands on round numbers. */
@@ -541,6 +546,62 @@ class CandleChart {
     this.draft = null;
     this.canvas.style.cursor = this.cursorFor();
     this.draw();
+  }
+
+  /**
+   * Is the pointer on a stop or a target?
+   *
+   * Only ever on the cursor tool: while a drawing tool is armed the
+   * trader is placing a shape, and grabbing a broker level instead
+   * would be a very expensive surprise.
+   */
+  levelAt(x, y) {
+    if (this.tool !== "cursor") return null;
+    const L = this._L;
+    if (!L || x < L.plotL || x > L.plotR) return null;
+    const reach = this._pointerType === "touch"
+      ? CandleChart.LEVEL_GRAB_TOUCH : CandleChart.LEVEL_GRAB;
+    let best = null;
+    for (const z of this._lvlZones || []) {
+      const d = Math.abs(y - z.y);
+      if (d <= reach && (!best || d < best.d)) best = { z, d };
+    }
+    return best ? best.z : null;
+  }
+
+  beginLevelDrag(zone, price) {
+    this._lvlDrag = { ticket: zone.ticket, kind: zone.kind, symbol: zone.symbol,
+      from: zone.price, price, type: zone.type, open: zone.open };
+    this.canvas.style.cursor = "ns-resize";
+    this.draw();
+  }
+
+  moveLevelDrag(price) {
+    if (!this._lvlDrag) return;
+    this._lvlDrag.price = price;
+    this.draw();
+  }
+
+  /**
+   * Let go.
+   *
+   * The chart does not send the order itself - it reports the intent and
+   * the desk decides, because changing a live stop is real money and the
+   * confirmation, the wording and the failure handling belong with every
+   * other order path rather than in the renderer. The line snaps back to
+   * where it was until the broker says otherwise; showing it at the new
+   * price before the fill would be inventing a state.
+   */
+  endLevelDrag(commit) {
+    const d = this._lvlDrag;
+    this._lvlDrag = null;
+    this.canvas.style.cursor = this.cursorFor();
+    this.draw();
+    if (!d || !commit) return;
+    if (!(d.price > 0) || d.price === d.from) return;
+    if (typeof this.opts.onLevelMove === "function") {
+      try { this.opts.onLevelMove({ ...d }); } catch { /* the chart is still fine */ }
+    }
   }
 
   cursorFor() {
@@ -1567,6 +1628,10 @@ class CandleChart {
   paintLevels(L) {
     const ctx = this.ctx;
     const T = chartTheme();
+    /* Where each stop and target ended up on screen, so a pointer can be
+       tested against them. Rebuilt every paint because the scale moves. */
+    this._lvlZones = [];
+    const drag = this._lvlDrag;
     ctx.save();
     for (const pos of this.levels || []) {
       const open = Number(pos.price_open || 0);
@@ -1578,12 +1643,26 @@ class CandleChart {
         ctx.beginPath(); ctx.moveTo(L.plotL, y); ctx.lineTo(L.plotR, y); ctx.stroke();
         ctx.setLineDash([]);
       }
-      for (const [price, tint] of [[Number(pos.sl || 0), T.badT], [Number(pos.tp || 0), T.okT]]) {
+      for (const [kind, price0, tint] of [["sl", Number(pos.sl || 0), T.badT],
+                                          ["tp", Number(pos.tp || 0), T.okT]]) {
+        const held = drag && drag.ticket === pos.ticket && drag.kind === kind;
+        const price = held ? drag.price : price0;
         if (!price) continue;
         const y = L.yOf(price);
-        ctx.strokeStyle = "rgba(" + tint + ",.9)";
-        ctx.lineWidth = 1.2;
+        ctx.strokeStyle = "rgba(" + tint + "," + (held ? 1 : 0.9) + ")";
+        ctx.lineWidth = held ? 2 : 1.2;
+        if (held) ctx.setLineDash([6, 4]);
         ctx.beginPath(); ctx.moveTo(L.plotL, y); ctx.lineTo(L.plotR, y); ctx.stroke();
+        ctx.setLineDash([]);
+        /* While it is being moved the number has to travel with it, or
+           the trader is dragging a line to a price they cannot read. */
+        if (held) this.tag(L.plotR, y, this.fmtPrice(price), "rgb(" + tint + ")", "end");
+        this._lvlZones.push({
+          ticket: pos.ticket, symbol: pos.symbol, kind, y,
+          price: price0, type: String(pos.type || "").toLowerCase(),
+          sl: Number(pos.sl || 0), tp: Number(pos.tp || 0),
+          open: Number(pos.price_open || 0),
+        });
       }
     }
     ctx.restore();
@@ -3401,6 +3480,18 @@ class CandleChart {
       if (h) this._downSig = h;
     }
     if (!raw) return;
+    /* A stop or a target under the pointer wins the press, ahead of the
+       tools and ahead of selection. It is tested here rather than after
+       them because a level sits ON the chart, and whatever the cursor
+       tool would otherwise do - deselect, begin a marquee - would
+       swallow the grab and the line would simply never move. */
+    const grab = raw.valid ? this.levelAt(raw.x, raw.y) : null;
+    if (grab) {
+      this.clearLongPress();
+      this.beginLevelDrag(grab, raw.p);
+      if (e && e.preventDefault) e.preventDefault();
+      return;
+    }
     const hit = this.snapHit(raw);
 
     /* ---- the right button: take the chart anywhere --------------------
@@ -3593,6 +3684,25 @@ class CandleChart {
     if (this.pinch) { if (e && e.preventDefault) e.preventDefault(); this.movePinch(); return; }
     if (this.pointers && this.pointers.size > 1) return;
 
+    /* A level being dragged owns every move until the pointer lifts. */
+    if (this._lvlDrag) {
+      const lh = this.hit(e);
+      if (lh) this.moveLevelDrag(lh.p);
+      if (e && e.preventDefault) e.preventDefault();
+      return;
+    }
+
+    /* Hovering one says so. A line that can be dragged and gives no sign
+       of it is a feature nobody finds. Only the cursor is touched, and
+       only to set or clear this one shape, so it cannot fight whatever
+       else is steering the pointer. */
+    if (!this.drag && (!this.pointers || !this.pointers.size)) {
+      const hv = this.hit(e);
+      const over = hv && hv.valid ? this.levelAt(hv.x, hv.y) : null;
+      if (over) this.canvas.style.cursor = "ns-resize";
+      else if (this.canvas.style.cursor === "ns-resize") this.canvas.style.cursor = this.cursorFor();
+    }
+
     // A finger never holds perfectly still, so treating any movement at
     // all as a drag meant a tap on a touchscreen was never a tap: the
     // click-to-select and click-to-set-price paths, both guarded by
@@ -3730,6 +3840,11 @@ class CandleChart {
   onUp(e) {
     if (e && e.pointerId != null && this.pointers) this.pointers.delete(e.pointerId);
     this.clearLongPress();
+    if (this._lvlDrag) {
+      if (e && e.pointerId != null && this.pointers) this.pointers.delete(e.pointerId);
+      this.endLevelDrag(true);
+      return;
+    }
     if (this._longFired) {
       // The menu is already open from the press. Letting this up run on
       // would immediately select or deselect underneath it.

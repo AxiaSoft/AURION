@@ -706,7 +706,8 @@
     "close": "Close",
     "delete": "Delete",
     "copy": "Copy",
-    "copied": "Copied"
+    "copied": "Copied",
+    "apply": "Apply"
   },
   "draw": {
     "cursor": "Hand",
@@ -1456,7 +1457,14 @@
       "atr": "How far price travels in a bar, on average."
     },
     "to_latest": "Go to the latest candle",
-    "right_margin": "Right margin"
+    "right_margin": "Right margin",
+    "lvl_move_sl": "Move the stop loss",
+    "lvl_move_tp": "Move the take profit",
+    "lvl_confirm": "{symbol}: move it from {from} to {to}?",
+    "lvl_moved": "Sent to the broker",
+    "lvl_gone": "That position is no longer open",
+    "lvl_sl_side": "A stop has to sit on the losing side of the price",
+    "lvl_tp_side": "A target has to sit on the winning side of the price"
   },
   "signal": {
     "buy": "Buy signal",

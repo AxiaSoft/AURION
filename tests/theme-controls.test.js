@@ -726,11 +726,11 @@ check("the light-mode console rule actually beats the skin layer", () => {
 
 check("the browser is forced to pick up every file that changed", () => {
   const html = read("index.html");
-  const want = ["js/skins.js?v=desk99", "js/themes.js?v=desk188", "js/app.js?v=desk194",
-    "css/themes.css?v=desk194", "css/app.css?v=desk194", "css/skins.css?v=desk185",
+  const want = ["js/skins.js?v=desk99", "js/themes.js?v=desk188", "js/app.js?v=desk195",
+    "css/themes.css?v=desk195", "css/app.css?v=desk195", "css/skins.css?v=desk185",
     "js/colorpicker.js?v=desk2"];
   want.forEach((w) => { if (!html.includes(w)) throw new Error("index.html is missing " + w); });
-  if (!read("sw.js").includes("aurion-shell-v184")) throw new Error("the service worker cache was not bumped");
+  if (!read("sw.js").includes("aurion-shell-v185")) throw new Error("the service worker cache was not bumped");
 });
 
 /* ----------------------------------------------------------------- report */

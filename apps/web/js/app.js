@@ -11098,6 +11098,64 @@ function bindCancelButtons(root) {
     };
   });
 }
+/**
+ * A stop or a target was dragged to a new price on the chart.
+ *
+ * The chart reports the intent and stops there; sending the order is the
+ * desk's job, so this takes the same route as every other change to a
+ * live position - it asks first, it names the old price and the new one,
+ * and it refuses outright the two moves that would be an immediate loss
+ * rather than a plan.
+ *
+ * The chart has already snapped the line back. It stays back until the
+ * broker confirms, because drawing it at the new price before the fill
+ * would be showing a state that does not exist yet.
+ */
+async function onChartLevelMove(d) {
+  if (!d || !d.ticket) return;
+  const isSl = d.kind === "sl";
+  const price = Number(d.price);
+  const pos = (S.snap?.positions || []).find((p) => Number(p.ticket) === Number(d.ticket));
+  if (!pos) { toast(I18N.t("chart.lvl_gone")); return; }
+
+  /* A buy's stop below the price and its target above; a sell's the
+     other way. Dragged to the wrong side the broker rejects it anyway,
+     and a rejection three seconds later is a worse answer than one now. */
+  const buy = String(pos.type || "").toLowerCase().includes("buy");
+  const ref = Number(pos.price_current || pos.price_open || 0);
+  if (ref > 0) {
+    const wrong = isSl ? (buy ? price >= ref : price <= ref)
+                       : (buy ? price <= ref : price >= ref);
+    if (wrong) { toast(I18N.t(isSl ? "chart.lvl_sl_side" : "chart.lvl_tp_side")); return; }
+  }
+
+  const digits = Number(pos.digits) || 5;
+  const shown = price.toFixed(digits);
+  const ok = await askConfirm({
+    title: I18N.t(isSl ? "chart.lvl_move_sl" : "chart.lvl_move_tp"),
+    body: I18N.t("chart.lvl_confirm", {
+      symbol: pos.symbol || d.symbol || "",
+      from: d.from ? Number(d.from).toFixed(digits) : "—",
+      to: shown,
+    }),
+    ok: I18N.t("common.apply"),
+    cancel: I18N.t("common.cancel"),
+  });
+  if (!ok) return;
+
+  const body = {
+    action: "modify",
+    ticket: Number(d.ticket),
+    symbol: pos.symbol || d.symbol || "",
+    sl: isSl ? Number(shown) : Number(pos.sl || 0),
+    tp: isSl ? Number(pos.tp || 0) : Number(shown),
+  };
+  const r = await API.post("/api/order", body);
+  if (!r || !r.ok) { toast((r && r.error) || I18N.t("errors.generic")); return; }
+  toast(I18N.t("chart.lvl_moved"));
+  await refresh(false);
+}
+
 function bindChartDesk() {
   const cv = $("cv-desk");
   if (!cv || !S.chartFocus) return;
@@ -11108,6 +11166,7 @@ function bindChartDesk() {
     key,
     onPrice: onChartPrice,
     onPending: onChartPending,
+    onLevelMove: onChartLevelMove,
     // Text is asked for in place, over the chart, rather than with a
     // browser prompt that steals the window.
     onText: (seed, done) => {
