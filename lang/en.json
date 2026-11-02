@@ -1457,7 +1457,8 @@
       "atr": "How far price travels in a bar, on average."
     },
     "to_latest": "Go to the latest candle",
-    "right_margin": "Right margin",
+    "head_gap": "Room at the live edge",
+    "positions_dock": "Open positions",
     "lvl_move_sl": "Move the stop loss",
     "lvl_move_tp": "Move the take profit",
     "lvl_confirm": "{symbol}: move it from {from} to {to}?",

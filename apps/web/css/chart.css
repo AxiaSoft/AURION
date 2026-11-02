@@ -82,8 +82,20 @@
    list of the attached charts. It keeps its old look until hovered, so
    the top bar does not turn into a row of competing buttons. */
 .tv-sym {
-  display: flex; align-items: baseline; gap: 6px;
-  padding: 0 8px;
+  /* Centred, both ways.
+
+     It was align-items:baseline with no justification, so the three
+     pieces - instrument, timeframe, caret - sat on the text baseline
+     of the largest one and hung towards the leading edge of the
+     button. The caret is an SVG with no baseline of its own, so it
+     was placed by its bottom edge and rode low; the group as a whole
+     was off-centre in a button wide enough to show it.
+
+     Centring the row is the fix, and the two text pieces keep a shared
+     baseline between themselves so the 14px symbol and the 11px
+     timeframe still sit on one line. */
+  display: flex; align-items: center; justify-content: center; gap: 6px;
+  padding: 0 10px;
   white-space: nowrap;
   background: transparent; border: 1px solid transparent; border-radius: 10px;
   color: inherit; font: inherit; cursor: pointer;
@@ -95,10 +107,14 @@
   border-color: rgba(255,255,255,.10);
 }
 .tv-sym:focus-visible { outline: 2px solid var(--accent, #3ee0c4); outline-offset: 1px }
-.tv-sym b { font-size: 14px; letter-spacing: .01em }
-.tv-sym span { font-size: 11px; color: var(--muted); font-family: "IBM Plex Mono", monospace }
+/* The instrument and its timeframe share a baseline with each other,
+   which is what makes them read as one label rather than two. */
+.tv-sym b, .tv-sym span { align-self: baseline }
+.tv-sym b { font-size: 14px; letter-spacing: .01em; line-height: 1 }
+.tv-sym span { font-size: 11px; color: var(--muted); font-family: "IBM Plex Mono", monospace; line-height: 1 }
 .tv-sym-caret {
   width: 14px; height: 14px; align-self: center; opacity: .55;
+  flex: none;
   transform: rotate(90deg);
 }
 .tv-sym[aria-expanded="true"] .tv-sym-caret { transform: rotate(-90deg) }
@@ -116,7 +132,7 @@
   transition: background var(--dur-1, .12s) var(--ease-1), color var(--dur-1, .12s) var(--ease-1),
               border-color var(--dur-1, .12s) var(--ease-1);
 }
-.tv-icon { padding: 0; width: 30px; justify-content: center }
+.tv-icon { padding: 0; width: 30px; justify-content: center; position: relative; overflow: visible }
 .tv-icon.tiny { width: 24px; height: 24px }
 .tv-btn svg, .tv-icon svg { width: 16px; height: 16px; flex: none }
 .tv-icon.tiny svg { width: 13px; height: 13px }
@@ -256,21 +272,40 @@
 
 /* A count on the toolbar button, so the dock can stay shut without the
    trader losing track of whether anything is open. */
-.tv-icon { position: relative }
+/* The count on the positions button.
+
+   It sat inside the button at 14px square, overlapping the glyph it
+   was meant to annotate, with 3px of padding to hold a number that
+   can reach two digits - so "12" touched its own edges on top of an
+   icon. It is a chip on the corner now: outside the button's box, with
+   a ring in the bar's own colour so it separates from whatever it
+   overlaps, and wide enough for two digits. Anything past nine reads
+   as 9+, because the exact number is in the dock and what the corner
+   has to say is "there is something open". */
 .tv-icon-n {
   position: absolute;
-  inset-block-start: 2px;
-  inset-inline-end: 2px;
-  min-width: 14px;
-  height: 14px;
-  padding: 0 3px;
+  inset-block-start: -5px;
+  inset-inline-end: -5px;
+  display: grid;
+  place-items: center;
+  min-width: 17px;
+  height: 17px;
+  padding: 0 4px;
   border-radius: 999px;
+  border: 2px solid var(--surface-2);
   font-size: 10px;
-  line-height: 14px;
+  font-weight: 650;
+  line-height: 1;
   font-variant-numeric: tabular-nums;
-  text-align: center;
   background: rgb(var(--accent));
   color: rgb(var(--on-accent, 255 255 255));
+  pointer-events: none;
+}
+/* Pressed, the button carries the accent itself; the chip has to stop
+   being the same colour as the thing behind it. */
+.tv-icon[aria-pressed="true"] .tv-icon-n {
+  background: var(--ink);
+  color: var(--surface-2);
 }
 
 /* --------------------------------------------------------------- rail -- */
@@ -430,26 +465,6 @@ html[dir="rtl"] .tv-flyout { transform: translateX(6px) }
 .tv-nav .tv-latest { border-color: rgb(var(--accent-rgb) / .45) }
 .tv-stage:has(.tv-latest:not([hidden])) .tv-nav { opacity: 1; transform: none }
 
-/* The gap between the newest candle and the price column, in bars.
-
-   Quiet until it is wanted: a slider parked over the chart at full
-   strength is chrome competing with the thing it sits on. */
-.tv-margin {
-  position: absolute; inset-block-end: 14px; inset-inline-start: 12px;
-  display: flex; align-items: center; gap: 8px;
-  padding: 4px 10px; border-radius: 999px;
-  border: 1px solid var(--line);
-  background: rgb(var(--s1) / .72);
-  backdrop-filter: blur(calc(var(--blur, 18px) * 8 / 18));
-  -webkit-backdrop-filter: blur(calc(var(--blur, 18px) * 8 / 18));
-  font-size: 11px; color: var(--muted);
-  opacity: 0;
-  transition: opacity var(--dur-2, .18s) var(--ease-1);
-}
-.tv-stage:hover .tv-margin, .tv-margin:focus-within { opacity: 1 }
-.tv-margin label { white-space: nowrap }
-.tv-margin input[type="range"] { inline-size: 92px; accent-color: var(--accent); block-size: 18px }
-.tv-margin output { min-inline-size: 2ch; text-align: end; color: var(--ink) }
 
 .tv-round {
   display: grid; place-items: center;
@@ -1084,6 +1099,27 @@ html:fullscreen body { background: var(--bg) }
   }
   .tv.tools-open .tv-rail { transform: none }
 
+  /* The tools sheet and the positions dock are not related, and must
+     not behave as though they were.
+
+     The sheet is anchored to the bottom of .tv-body. The dock is a row
+     of .tv underneath it, so opening the dock shortens .tv-body - and
+     the sheet, which the trader had already opened and was reading,
+     jumped 176px up the screen to sit on top of the dock. Nothing was
+     wrong with either control; they were simply sharing an edge.
+
+     Pushing the sheet's own bottom down by exactly the dock's height
+     leaves it where the trader put it. It then overlays the dock,
+     which is what a sheet with a scrim is supposed to do, and the
+     scrim is extended the same way so the whole of what is behind the
+     sheet is dismissable - including the dock, which would otherwise
+     have taken taps meant for the scrim. */
+  .tv.pos-open .tv-rail,
+  .tv.pos-open .tv-toolscrim { inset-block-end: calc(-1 * var(--tv-posdock, 176px)) }
+  /* Mid-resize the dock has no transition, so the sheet must not have
+     one either or it lags behind the edge it is tracking. */
+  .tv.pos-sizing .tv-rail, .tv.pos-sizing .tv-toolscrim { transition: none }
+
   /* The grab bar. It was a ::before, which looks identical and cannot
      be touched - the sheet said "drag me" and then did not move. It is
      a real element now, with a target tall enough to find without
@@ -1182,7 +1218,6 @@ html:fullscreen body { background: var(--bg) }
      (Folded into this block rather than opening a second one at the same
      width - there must be exactly one, or a slice of "the phone rules"
      reads only the first and misses the rest.) */
-  .tv-margin { display: none }
   .tv-nav { opacity: 1; transform: none }
   .tv-round { width: 34px; height: 34px }
 

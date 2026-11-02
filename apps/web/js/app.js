@@ -8440,7 +8440,7 @@ function attachSheetDrag(o) {
   const move = (e) => {
     if (!dragging) return;
     const raw = e.clientY - y0;
-    dy = raw >= 0 ? raw : -Math.sqrt(-raw) * 2.2;
+    dy = raw >= 0 ? raw : -Math.min(SHEET_PULL_UP_MAX, Math.sqrt(-raw) * 2.2);
     const now = e.timeStamp || Date.now();
     const dt = now - lastT;
     if (dt > 0) { vel = (e.clientY - lastY) / dt; lastY = e.clientY; lastT = now; }
@@ -8551,6 +8551,15 @@ function attachSheetDrag(o) {
 
 /* How far down the finger has to travel before a pull on the sheet's
    own surface counts as a dismissal rather than a stalled scroll. */
+/* How far a sheet may be pulled UP past its open position.
+
+   The rubber band was -sqrt(-raw) * 2.2 with nothing above it, so it
+   never stopped giving: drag 240px up and the sheet rose 34px, drag
+   further and it rose further. A rubber band that has no end does not
+   read as resistance, it reads as a sheet that can be dragged
+   anywhere and then snaps back for no reason. A dozen pixels is
+   enough to say "this edge is the top". */
+const SHEET_PULL_UP_MAX = 12;
 const SHEET_DRAG_ARM = 12;
 
 /* How close to the bottom edge a swipe has to start, and how far up it
@@ -11248,24 +11257,52 @@ function applyChartLevels(force) {
  * covers neither them nor the newest candles.
  */
 function paintChartPositions(pos, ord) {
-  const side = $("tvd-pos");
+  /* One list now, not two.
+
+     The side panel used to carry a copy of this; it has been removed,
+     because at phone width that panel is a 300px overlay on a 390px
+     screen and reading the book in it meant hiding the chart the book
+     belongs to. The dock across the bottom resizes the chart instead
+     of covering it, so it is the only place positions are drawn. */
   const bottom = $("tv-posdock-body");
-  if (!side && !bottom) return;
+  if (!bottom) return;
   pos = pos || [];
   ord = ord || [];
 
   const n = pos.length + ord.length;
 
-  /* Three counters, because the list can be out of sight in three
-     different ways: the side panel shut, the bottom dock shut, or the
-     bottom dock open on another tab. A trader with money in the market
-     should never have to go looking to find that out. */
-  [["tvd-pos-n", true], ["tv-pos-toggle-n", true], ["tv-posdock-n", false]].forEach(([id, hide]) => {
-    const e = $(id);
-    if (!e) return;
-    e.textContent = n ? String(n) : "";
-    if (hide) e.hidden = n === 0;
-  });
+  /* Two counters: the chip on the toolbar button, which is the only
+     sign there is anything open while the dock is shut, and the count
+     in the dock's own header.
+
+     The chip is capped. It is a 17px circle on the corner of a 30px
+     button and the exact number is in the dock a tap away; what the
+     corner has to answer is "is there anything open", and "12"
+     rendered in that space answered it less clearly than "9+". */
+  const chip = $("tv-pos-toggle-n");
+  if (chip) {
+    chip.textContent = n ? (n > 9 ? "9+" : String(n)) : "";
+    chip.hidden = n === 0;
+  }
+  const dockN = $("tv-posdock-n");
+  if (dockN) dockN.textContent = n ? String(n) : "";
+
+  /* And the button says the count out loud, because a screen reader
+     announcing "Open positions 9+" is no use to anyone.
+
+     The name is taken from the button's own title rather than looked
+     up again here. The markup builds that title with a fallback for a
+     key that may not be in the pack; I18N.t() has no fallback and
+     hands back the key itself, so rebuilding the label from scratch
+     made a screen reader read out "chart.positions_dock (3)". It is
+     cached on first use because the title is the base label and the
+     aria-label is the one that gets the count appended. */
+  const toggle = $("tv-pos-toggle");
+  if (toggle) {
+    if (!toggle.dataset.name) toggle.dataset.name = toggle.title || toggle.getAttribute("aria-label") || "";
+    const base = toggle.dataset.name;
+    toggle.setAttribute("aria-label", n ? `${base} (${n})` : base);
+  }
 
   /* The floating total. Resting orders have no profit yet and are left
      out of it rather than counted as zero. */
@@ -11283,12 +11320,8 @@ function paintChartPositions(pos, ord) {
   }
 
   if (!n) {
-    const empty = `<p class="tvd-empty">${esc(I18N.t("status.no_positions"))}</p>`;
-    [side, bottom].forEach((el) => {
-      if (!el) return;
-      el.innerHTML = empty;
-      el.dataset.sig = "";
-    });
+    bottom.innerHTML = `<p class="tvd-empty">${esc(I18N.t("status.no_positions"))}</p>`;
+    bottom.dataset.sig = "";
     return;
   }
 
@@ -11361,13 +11394,12 @@ function paintChartPositions(pos, ord) {
 
   const html = `<div class="tvp-list">${head}${ord.map(restRow).join("")}${pos.map(row).join("")}</div>`;
 
-  [side, bottom].forEach((el) => {
-    if (!el || el.dataset.sig === sig) return;
-    el.dataset.sig = sig;
-    el.innerHTML = html;
-    bindCloseButtons(el);
-    bindCancelButtons(el);
-  });
+  if (bottom.dataset.sig !== sig) {
+    bottom.dataset.sig = sig;
+    bottom.innerHTML = html;
+    bindCloseButtons(bottom);
+    bindCancelButtons(bottom);
+  }
 }
 
 /** Cancel a resting order the robot planted but that has not filled. */

@@ -202,21 +202,34 @@ check("pan scrolls back", chart.offset === off0 + 20);
 chart.pan(-9999);
 check("pan stops at the newest bar instead of running into empty space",
   chart.offset === 0);
-/* This used to read "every cell on screen holds a bar", which pinned a
-   decision that has now been reversed: the newest candle is deliberately
-   held clear of the price column again, so there ARE empty cells on the
-   right. What the check was really protecting is that no cell is empty
-   by accident - the count has to come out at exactly the margin that was
-   asked for, no more and no less. */
-check("...and the only empty cells are the right margin that was asked for",
+/* This has been through two reversals and is now back where it
+   started, for a better reason than it began with.
+
+   It first read "every cell on screen holds a bar". That was changed
+   when the newest candle was deliberately held clear of the price
+   column, to "the empty cells are exactly the margin asked for" - and
+   that version quietly approved of the bug this check should have
+   caught, because the margin was subtracted from every window,
+   including windows hundreds of bars back in history where real
+   candles were being replaced by blank.
+
+   The gap belongs to the newest bar now, so at the live edge there is
+   room and deeper into history there is none. Both halves are checked
+   rather than one. */
+check("...and the room at the live edge is exactly what was asked for",
   (() => {
+    chart.setHeadGap(true);
     const L = chart.layout();
-    return L.cells - L.rows.length === chart.rightMargin();
+    return L.cells - L.rows.length === chart.headGapCells() && chart.headGapCells() > 0;
   })());
 chart.pan(99999);
 check("pan stops at the oldest bar", chart.offset === chart.maxOffset());
-check("...and the window is still full of bars, not stretched remnants",
-  (() => { const L = chart.layout(); return L.rows.length === chart.span - chart.rightMargin(); })());
+check("...and the window is full of bars, with no live-edge gap in history",
+  (() => {
+    const L = chart.layout();
+    return L.rows.length === chart.span && L.cells - L.rows.length === 0;
+  })());
+chart.setHeadGap(false);
 chart.fit();
 
 chart.setAutoScale(true);
@@ -313,6 +326,11 @@ check("a locked object cannot be grabbed by its handle",
   // put. It did not, at first: hit() was reporting the last candle's time
   // out in the margin, so every time-snapping tool dragged the anchor back
   // onto that candle and the drawing appeared 39px from the pointer.
+  // The gap is a setting and it is off by default, so it is turned on
+  // here: these two checks are about what happens to a drawing anchor
+  // dropped INSIDE the gap, and with no gap there is nowhere to drop
+  // one and both would pass without testing anything.
+  chart.setHeadGap(true);
   chart.pan(-30);                                          // asks to go past the newest
   check("asking to scroll past the newest bar does nothing", chart.offset === 0);
   const L2 = chart.layout();

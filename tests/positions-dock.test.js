@@ -117,48 +117,67 @@ check("a shut dock is not reachable by tab or by a screen reader", () => {
 
 /* ------------------------------------------- the side panel is kept -- */
 
-check("the side panel still has its own positions tab", () => {
-  if (!/"tvd-pos"/.test(TOOLS)) throw new Error("the side panel's container is gone");
-  if (!/\["positions", tt\("chart\.positions"/.test(TOOLS)) {
-    throw new Error("the side panel lost its positions tab");
+check("the side panel's copy of the book is gone, and gone cleanly", () => {
+  /* The inverse of what this used to assert. The side panel's
+     positions tab was removed on request: at phone width that panel
+     is a 300px overlay on a 390px screen, so reading the book in it
+     hid the chart the book belongs to, while this dock resizes the
+     chart instead of covering it.
+
+     Half a removal is the thing to guard against - a tab left
+     pointing at a pane that no longer exists shows blank. */
+  if (/"tvd-pos"/.test(TOOLS)) throw new Error("the side panel's container is back");
+  if (/\["positions", tt\("chart\.positions"/.test(TOOLS)) {
+    throw new Error("the side panel's positions tab is back");
   }
+  if (/tvd-pos-n/.test(TOOLS)) throw new Error("the tab's badge outlived the tab");
+  /* And this dock is still the one place it lives. */
+  if (!/id="tv-posdock-body"/.test(TOOLS)) throw new Error("the dock's own container went too");
 });
 
-check("one renderer fills both, so the two cannot drift apart", () => {
+check("one renderer, one container", () => {
+  /* There were two containers and this check existed to stop them
+     drifting apart. There is one now, which is a stronger form of the
+     same guarantee - but the renderer must not keep writing into the
+     one that was removed, or it silently does half its work. */
   const fn = APP.slice(APP.indexOf("function paintChartPositions("),
                        APP.indexOf("/** Cancel a resting order"));
-  if (!/const side = \$\("tvd-pos"\)/.test(fn)) throw new Error("the side panel is not filled");
-  if (/const bottom = \$\("tv-posdock-body"\)/.test(fn) === false) {
+  if (/\$\("tvd-pos"\)/.test(fn)) throw new Error("the renderer still writes into the removed pane");
+  if (!/const bottom = \$\("tv-posdock-body"\)/.test(fn)) {
     throw new Error("the bottom dock is not filled");
   }
-  if (!/\[side, bottom\]\.forEach/.test(fn)) {
-    throw new Error("the two containers are filled by separate code paths");
-  }
+  if (/\[side, bottom\]\.forEach/.test(fn)) throw new Error("the two-container loop survived the second container");
   /* The old renderer had two row templates. One is the point. */
   if ((fn.match(/const row = /g) || []).length !== 1) throw new Error("more than one row template");
 });
 
-check("each container keeps its own signature, so one filling does not block the other", () => {
-  /* Shared state here was a real hazard: a single `dock.dataset.sig`
-     short-circuit meant that once the side panel had been painted, the
-     bottom dock - opened later, still empty - was skipped as
-     unchanged. */
+check("the repaint is still signature-gated, and the gate still opens", () => {
+  /* With two containers this guarded against one shared signature
+     letting a painted panel suppress an empty dock. With one
+     container the hazard that remains is the gate sticking: going
+     empty must clear the signature, or refilling is swallowed. */
   const fn = APP.slice(APP.indexOf("function paintChartPositions("),
                        APP.indexOf("/** Cancel a resting order"));
-  if (!/if \(!el \|\| el\.dataset\.sig === sig\) return;/.test(fn)) {
-    throw new Error("the containers do not each check their own signature");
+  if (!/bottom\.dataset\.sig !== sig/.test(fn)) throw new Error("the repaint is not gated at all");
+  if (!/bottom\.dataset\.sig = ""/.test(fn)) {
+    throw new Error("an empty book leaves a stale signature that swallows the refill");
   }
 });
 
 /* ----------------------------------------------- counters and total -- */
 
-check("three counters, because the list can be out of sight three ways", () => {
+check("two counters, because the list can be out of sight two ways", () => {
+  /* It was three while the side panel carried a copy. The tab badge
+     went with the tab, which makes the toolbar chip the only sign of
+     an open trade while the dock is shut - so it matters more than it
+     did, not less. */
   const fn = APP.slice(APP.indexOf("function paintChartPositions("),
                        APP.indexOf("/** Cancel a resting order"));
-  ["tvd-pos-n", "tv-pos-toggle-n", "tv-posdock-n"].forEach((id) => {
+  ["tv-pos-toggle-n", "tv-posdock-n"].forEach((id) => {
     if (!fn.includes(id)) throw new Error("no counter for " + id);
   });
-  if (!/e\.hidden = n === 0/.test(fn)) throw new Error("a counter sits at zero instead of going away");
+  if (fn.includes("tvd-pos-n")) throw new Error("the removed tab's counter is still being set");
+  if (!/chip\.hidden = n === 0/.test(fn)) throw new Error("the chip sits at zero instead of going away");
 });
 
 check("the running total leaves out orders that have not filled", () => {

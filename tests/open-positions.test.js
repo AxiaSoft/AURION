@@ -86,7 +86,11 @@ check("there is exactly one open-positions container", () => {
   if (/id="tv-pos"/.test(toolsJs)) throw new Error("the floating panel is back in the markup");
   /* The id, not the whole attribute: the dock's panes come from one
      helper now, so only the id itself is a literal in the source. */
-  if (!/"tvd-pos"/.test(toolsJs)) throw new Error("the dock container is missing");
+  /* The container is the bottom dock. There used to be a second copy
+     in the side panel; it has been removed on request, so "exactly
+     one" is now literally true rather than true of the overlay only. */
+  if (!/id="tv-posdock-body"/.test(toolsJs)) throw new Error("the dock container is missing");
+  if (/data-pane="positions"/.test(toolsJs)) throw new Error("the side panel's positions pane is back");
   if (/\.tv-pos\{/.test(chartCss)) throw new Error("the floating panel's rule is back");
   if (/tv-pos-sum/.test(appJs)) throw new Error("the floating summary pill is back");
   if (/\.tv\.tools-open\s+\.tv-pos\s*\{/.test(chartCss)) {
@@ -119,36 +123,43 @@ check("the shared row styling survived the removal", () => {
   return "rows styled, old rules removed";
 });
 
-/* ================================================ 2. the side-panel tab */
+/* ================================================ 2. the side panel */
 
-check("the tab is offered whether or not a ticket is open", () => {
-  /* The Trade tab is conditional on o.ticket. Positions must not be:
-     the whole point is seeing trades you did not open from this chart.
-     Positions therefore has to come from the base table, and Trade
-     from the conditional push. */
+check("the side panel is a drawing workspace and nothing else", () => {
+  /* This used to assert that Positions was an unconditional tab here.
+     It has been removed on request, and the reasoning that put it
+     here has been overtaken: the panel at phone width is a 300px
+     overlay on a 390px screen, so reading the book in it hid the
+     chart the book belongs to, while the bottom dock resizes the
+     chart instead of covering it.
+
+     Objects must still be unconditional, and Trade must still be the
+     conditional one - that part of the structure is unchanged. */
   const dock = toolsJs.slice(toolsJs.indexOf("function dockHtml"), toolsJs.indexOf("function html(o)"));
   const base = /const tabs = \[([\s\S]*?)\];/.exec(dock);
   if (!base) throw new Error("the tab table is gone");
-  if (!/"positions"/.test(base[1])) throw new Error("Positions is not an unconditional tab");
+  if (/"positions"/.test(base[1])) throw new Error("the Positions tab is back in the panel");
+  if (!/"objects"/.test(base[1])) throw new Error("Objects is not an unconditional tab");
   if (/ticket/.test(base[1])) throw new Error("the base tab table is behind a ticket check");
   if (!/if \(o\.ticket\) tabs\.push\(\["trade"/.test(dock)) {
     throw new Error("Trade is no longer the conditional one");
   }
-  return "unconditional";
+  return "objects + props, trade on a ticket";
 });
 
-check("the tab carries a count, so a shut panel still says something is open", () => {
-  if (!/id="tvd-pos-n"/.test(toolsJs)) throw new Error("no badge element");
-  if (!/tvd-badge/.test(chartCss)) throw new Error("the badge is unstyled");
+check("a shut dock still says something is open", () => {
+  /* Two counters, not three: the side panel's tab badge went with the
+     tab. The requirement is unchanged - a count that disappears
+     rather than sitting at zero - and the toolbar chip is now the
+     only thing standing between a trader and an unseen open trade,
+     which is why it is also capped and named out loud. */
+  if (!/id="tv-pos-toggle-n"/.test(toolsJs)) throw new Error("no chip on the toolbar button");
   const fn = appJs.slice(appJs.indexOf("function paintChartPositions"), appJs.indexOf("function bindCancelButtons"));
-  /* There are three counters now - the side tab, the toolbar button
-     and the dock's own header - so they are set in one loop rather
-     than by a line naming `badge`. The requirement is unchanged: a
-     count that disappears rather than sitting at zero. */
-  if (!/e\.hidden = n === 0/.test(fn)) throw new Error("the counters are not hidden when nothing is open");
-  if (!/"tv-pos-toggle-n"/.test(fn)) throw new Error("the toolbar button carries no count");
+  if (!/chip\.hidden = n === 0/.test(fn)) throw new Error("the chip is not hidden when nothing is open");
   if (!/"tv-posdock-n"/.test(fn)) throw new Error("the bottom dock's header carries no count");
-  return "counted and hidden at zero, in three places";
+  if (!/n > 9 \? "9\+"/.test(fn)) throw new Error("the chip is not capped");
+  if (!/setAttribute\("aria-label"/.test(fn)) throw new Error("the count is not announced");
+  return "counted, capped, hidden at zero";
 });
 
 /* ------------------------------------------------- rendered, in a real DOM */
@@ -195,15 +206,15 @@ function withChart(fn) {
 
 check("the one container lists every open trade and resting order", () => withChart((win, T) => {
   T.paintChartPositions(POS, ORD);
-  const dock = win.document.getElementById("tvd-pos");
+  const dock = win.document.getElementById("tv-posdock-body");
   const d = dock.querySelectorAll(".tvp-row:not(.tvp-head)").length;
   if (d !== 3) throw new Error("the container shows " + d + " rows, expected 3");
   return d + " rows";
 }));
 
-check("the side panel's close and cancel buttons are wired, not decorative", () => withChart((win, T) => {
+check("the dock's close and cancel buttons are wired, not decorative", () => withChart((win, T) => {
   T.paintChartPositions(POS, ORD);
-  const dock = win.document.getElementById("tvd-pos");
+  const dock = win.document.getElementById("tv-posdock-body");
   const closes = dock.querySelectorAll("[data-close]");
   const cancels = dock.querySelectorAll("[data-cancel]");
   if (closes.length !== 2) throw new Error("expected 2 close buttons, got " + closes.length);
@@ -219,9 +230,9 @@ check("the side panel's close and cancel buttons are wired, not decorative", () 
 check("an empty book empties it, and a refill fills it again", () => withChart((win, T) => {
   T.paintChartPositions(POS, ORD);
   T.paintChartPositions([], []);
-  const dock = win.document.getElementById("tvd-pos");
-  const badge = win.document.getElementById("tvd-pos-n");
-  if (!badge.hidden) throw new Error("the badge stayed on an empty book");
+  const dock = win.document.getElementById("tv-posdock-body");
+  const badge = win.document.getElementById("tv-pos-toggle-n");
+  if (!badge.hidden) throw new Error("the chip stayed on an empty book");
   if (!dock.textContent.trim()) throw new Error("the container went blank instead of saying so");
   if (dock.querySelector(".tvp-row:not(.tvp-head)")) throw new Error("the container kept its rows");
 
@@ -236,11 +247,14 @@ check("an empty book empties it, and a refill fills it again", () => withChart((
 
 check("the count is positions plus resting orders", () => withChart((win, T) => {
   T.paintChartPositions(POS, ORD);
-  const badge = win.document.getElementById("tvd-pos-n");
+  const badge = win.document.getElementById("tv-pos-toggle-n");
   if (badge.textContent !== "3") throw new Error("badge reads " + badge.textContent + ", expected 3");
   T.paintChartPositions(POS, []);
   if (badge.textContent !== "2") throw new Error("without orders the badge reads " + badge.textContent);
-  return "2 + 1 = 3";
+  /* And past nine it says so without overflowing a 17px circle. */
+  T.paintChartPositions(Array.from({ length: 12 }, (_, i) => ({ ...POS[0], ticket: 100 + i })), []);
+  if (badge.textContent !== "9+") throw new Error("twelve positions read as " + badge.textContent);
+  return "2 + 1 = 3, and 12 reads 9+";
 }));
 
 /* ==================================== 3. the Markets page's own position list */
@@ -314,12 +328,22 @@ check("both position lists are translated in all three languages", () => {
   return "3 keys x 3 languages";
 });
 
-check("exactly one tab is selected, and the phone leads with positions", () => {
+check("exactly one tab is selected, and it is the one that opens", () => {
   /* A tab strip whose first tab is not the active one reads as broken.
-     Whichever tab leads, precisely one must be marked. */
+     Whichever tab leads, precisely one must be marked.
+
+     The default used to be chosen by screen width - positions on a
+     phone, objects on a desktop - and it never worked, because bind()
+     ends with showDock(ui.dockTab || "objects") and overrode the
+     markup's choice a moment after the panel appeared. With the
+     Positions tab gone there is one default, and the two now agree.
+     That agreement is the thing to hold. */
   const dock = toolsJs.slice(toolsJs.indexOf("function dockHtml"), toolsJs.indexOf("function html(o)"));
-  if (!/const first = narrow\(\) \? "positions" : "objects"/.test(dock)) {
-    throw new Error("the default tab is not chosen by screen width");
+  if (!/const first = "objects"/.test(dock)) {
+    throw new Error("the default tab is not a single constant");
+  }
+  if (!/showDock\(ui\.dockTab \|\| "objects"\)/.test(toolsJs)) {
+    throw new Error("bind()'s fallback no longer matches the markup's default");
   }
   /* And the pane that is shown must be the tab that is marked, or the
      panel opens on a highlighted tab showing someone else's content.
@@ -332,28 +356,31 @@ check("exactly one tab is selected, and the phone leads with positions", () => {
   if (!/aria-selected="\$\{cur\}"/.test(dock) || !/const cur = id === first/.test(dock)) {
     throw new Error("the selected tab is not tied to the default tab");
   }
-  return "narrow -> positions, wide -> objects";
+  return "objects, in the markup and at bind";
 });
 
-check("the side panel has a Positions tab and a pane for it", () => withChart((win) => {
-  /* Asserted against the rendered panel rather than the source. The
-     tabs are built from a table now, so there is no literal
-     data-dock="positions" left to grep for - and grepping for one was
-     always the weaker test: it proved a string existed, not that a tab
-     and its pane were both produced and pointed at each other. */
-  const tab = win.document.querySelector('[data-dock="positions"]');
-  if (!tab) throw new Error("no Positions tab");
-  const pane = win.document.querySelector('[data-pane="positions"]');
-  if (!pane) throw new Error("no Positions pane");
-  if (pane.id !== "tvd-pos") throw new Error("the pane has no id for app.js to paint into");
-  /* And the two are tied together, which is what makes it a tab rather
-     than a button that happens to show something. */
-  if (tab.getAttribute("aria-controls") !== pane.id) throw new Error("the tab does not point at its pane");
-  if (pane.getAttribute("aria-labelledby") !== tab.id) throw new Error("the pane is not named by its tab");
-  return "tab + pane, cross-referenced";
+check("the Positions tab and its pane are both gone from the panel", () => withChart((win) => {
+  /* The inverse of what this used to assert, and asserted the same
+     way: against the rendered panel, so a leftover tab pointing at a
+     pane that no longer exists would be caught. Half a removal is
+     worse than none - a tab whose pane is missing shows blank. */
+  if (win.document.querySelector('[data-dock="positions"]')) throw new Error("the Positions tab is back");
+  if (win.document.querySelector('[data-pane="positions"]')) throw new Error("the Positions pane is back");
+  if (win.document.getElementById("tvd-pos")) throw new Error("the side pane element survived");
+  /* Every surviving tab still points at a pane that exists. */
+  for (const t of win.document.querySelectorAll('.tvd-tabs [role="tab"]')) {
+    if (!win.document.getElementById(t.getAttribute("aria-controls") || "")) {
+      throw new Error(t.dataset.dock + " points at a pane that is not there");
+    }
+  }
+  /* And the book is still reachable from the chart - one tap on the
+     toolbar, into the dock that resizes rather than covers. */
+  if (!win.document.getElementById("tv-pos-toggle")) throw new Error("nothing opens the positions dock");
+  if (!win.document.getElementById("tv-posdock-body")) throw new Error("the positions dock is gone too");
+  return "removed cleanly, book still one tap away";
 }));
 
-check("the tabs are a tab strip to a screen reader, not four buttons", () => withChart((win) => {
+check("the tabs are a tab strip to a screen reader, not three buttons", () => withChart((win) => {
   /* It carried role="tablist" and role="tab" and nothing else: no tab
      said whether it was the current one, none named the pane it
      governed, and the panes were plain divs. The roles were decoration. */
@@ -361,7 +388,7 @@ check("the tabs are a tab strip to a screen reader, not four buttons", () => wit
   if (!strip || strip.getAttribute("role") !== "tablist") throw new Error("no tablist");
   if (!strip.getAttribute("aria-label")) throw new Error("the tablist is unnamed");
   const tabs = [...strip.querySelectorAll('[role="tab"]')];
-  if (tabs.length < 3) throw new Error(tabs.length + " tabs");
+  if (tabs.length < 2) throw new Error(tabs.length + " tabs");
   const sel = tabs.filter((t) => t.getAttribute("aria-selected") === "true");
   if (sel.length !== 1) throw new Error(sel.length + " tabs claim to be selected");
   /* One stop for the whole strip, not one per tab. */
@@ -428,20 +455,28 @@ check("and the desk actually attaches that keyboard map", () => {
   return "attached, and first";
 });
 
-check("on a phone the side panel opens on the trades, with one pane showing", () => {
+check("on a phone the panel opens on one pane, and it is the marked one", () => {
+  /* This used to assert the phone opened on Positions. It never did -
+     bind()'s fallback switched it to Objects immediately - and the
+     tab is gone now in any case.
+
+     What was worth checking is still checked, and it is the part that
+     reads as broken when it goes wrong: exactly one tab marked,
+     exactly one pane visible, and the two the same one. */
   const win = boot();
-  /* narrow() asks matchMedia; the harness answers for a phone. */
   win.matchMedia = (q) => ({ matches: /max-width:\s*980px/.test(q), addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {} });
   const ws = win.document.createElement("div");
   win.document.body.appendChild(ws);
   ws.innerHTML = win.AurionChartUI.html({ symbol: "EURUSD", timeframe: "M15" });
   const marked = [...win.document.querySelectorAll("[data-dock].on")];
   if (marked.length !== 1) throw new Error(marked.length + " tabs are marked selected");
-  if (marked[0].dataset.dock !== "positions") throw new Error("the phone opens on " + marked[0].dataset.dock);
   const shown = [...win.document.querySelectorAll(".tvd-body")].filter((p) => !p.hidden);
   if (shown.length !== 1) throw new Error(shown.length + " panes are visible at once");
-  if (shown[0].dataset.pane !== "positions") throw new Error("the visible pane is " + shown[0].dataset.pane);
-  return "positions tab marked, positions pane shown";
+  if (shown[0].dataset.pane !== marked[0].dataset.dock) {
+    throw new Error("the " + marked[0].dataset.dock + " tab is marked but the " + shown[0].dataset.pane + " pane is showing");
+  }
+  if (marked[0].dataset.dock !== "objects") throw new Error("the phone opens on " + marked[0].dataset.dock);
+  return "objects marked, objects shown";
 });
 
 /* ------------------------------------------------------------------ result */

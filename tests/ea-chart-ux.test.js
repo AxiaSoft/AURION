@@ -175,74 +175,113 @@ check("a genuinely missing warm-up is still shown as missing", () => {
 
 /* ---- 3. the chart stops where its data stops ---------------------------- */
 
-/* These three used to read "there is never any empty space". That pinned
-   a decision which has since been reversed on request: the newest candle
-   is held clear of the price column again, because a chart with the live
-   candle pressed against the axis has nowhere for the next move to
-   appear. The empty space is now deliberate and measured.
+/* These used to read "empty space must be EXACTLY the margin asked
+   for", at every offset in a swept range. That is precisely the bug
+   that has now been fixed, and it was the guard that made it look
+   correct: the margin was subtracted from every window, so scrolling
+   two hundred bars into history still blanked out thirty cells where
+   real candles existed, and the sweep approved of it at every single
+   offset because the blank matched the setting everywhere.
 
-   What the checks were really defending is still defended, and is the
-   part that would be a bug: empty space must be EXACTLY the margin that
-   was asked for. One cell more is a gap nobody ordered; one cell fewer
-   means the setting is being ignored somewhere. */
+   The intent underneath was never "blank space everywhere". It was
+   "the newest candle is held clear of the price column, and the blank
+   is exactly what was asked for - one cell more is a gap nobody
+   ordered, one fewer means the setting is being ignored". That intent
+   is what these check now, with the part that was wrong corrected:
+   the gap belongs to the newest BAR, not to the right-hand edge of
+   the viewport, so it is only on screen while the newest bar is. */
+
+const gapOn = (chart) => { chart.setHeadGap(true); return chart; };
+
 check("the chart cannot be pushed past the newest bar", () => {
   const { chart } = freshChart();
+  gapOn(chart);
   chart.pan(-99999);
   if (chart.offset !== 0) throw new Error("offset ran to " + chart.offset);
   const L = chart.layout();
   const blank = L.cells - L.rows.length;
-  if (blank !== chart.rightMargin()) {
-    throw new Error(`${blank} empty cells on the right, margin asks for ${chart.rightMargin()}`);
+  if (blank !== chart.headGapCells()) {
+    throw new Error(`${blank} empty cells at the live edge, gap asks for ${chart.headGapCells()}`);
+  }
+  if (blank <= 0) throw new Error("the live edge has no room at all");
+});
+
+check("the head gap is a share of the window, so a zoom cannot change it", () => {
+  /* The reason the bars-wide slider is gone. At 60 bars across, eight
+     bars of margin is an eighth of the screen; at 400 it is a sliver.
+     A fraction means the same thing at every zoom. */
+  const { chart } = freshChart(2000);
+  gapOn(chart);
+  for (const span of [40, 120, 400]) {
+    chart.span = span;
+    chart.offset = 0;
+    const want = Math.round(span * 0.15);
+    if (Math.abs(chart.headGapCells() - want) > 1) {
+      throw new Error(`span ${span}: gap is ${chart.headGapCells()} cells, expected about ${want}`);
+    }
   }
 });
 
-check("the chart cannot be pushed past the oldest bar", () => {
-  const { chart } = freshChart();
-  chart.pan(99999);
-  const L = chart.layout();
-  if (L.rows.length !== chart.span - chart.rightMargin()) {
-    throw new Error(`${L.rows.length} bars for a span of ${chart.span} less a ${chart.rightMargin()}-bar margin`);
+check("scrolling into history gives back the gap one bar at a time", () => {
+  /* The fix, stated as a measurement. Pull back by one bar and exactly
+     one more real candle appears where blank used to be, so nothing
+     jumps, and once the newest bar is off-screen the window is candles
+     all the way across. */
+  const { chart } = freshChart(2000);
+  gapOn(chart);
+  chart.span = 160;
+  const full = chart.headGapCells();
+  if (full < 10) throw new Error("the fixture is too small to show the effect");
+
+  const bad = [];
+  for (const off of [0, 1, 5, full - 1, full, full + 1, 50, 200, 900]) {
+    chart.offset = off;
+    chart.clampOffset();
+    const L = chart.layout();
+    const blank = L.cells - L.rows.length;
+    const want = Math.max(0, full - chart.offset);
+    if (blank !== want) bad.push(`offset ${chart.offset}: ${blank} blank, expected ${want}`);
   }
+  if (bad.length) throw new Error(bad.join("\n"));
 });
 
-check("no reachable scroll position leaves more empty space than the margin", () => {
-  /* Swept rather than spot-checked, and at several zoom levels, because
-     the bound involves the span and a single sample would miss an
-     off-by-one at one particular width. */
-  const { chart } = freshChart(400);
+check("no window deep in history is part empty", () => {
+  /* The complaint in its original form: half the chart missing because
+     the live-edge gap followed the viewport back through the data.
+     Swept, and at several zoom levels, because the bound involves the
+     span and one sample would miss an off-by-one. */
+  const { chart } = freshChart(2000);
+  gapOn(chart);
   const bad = [];
   for (const span of [20, 60, 120, 240]) {
     chart.span = span;
-    for (let want = -40; want <= 440; want += 7) {
+    const gap = Math.max(1, Math.round(span * 0.15));
+    for (let want = gap + 1; want <= 900; want += 7) {
       chart.offset = want;
       chart.clampOffset();
+      if (chart.offset <= gap) continue;
       const L = chart.layout();
       if (!L) continue;
       const blank = L.cells - L.rows.length;
-      if (blank !== chart.rightMargin()) {
-        bad.push(`span ${span}, offset ${chart.offset}: ${blank} blank cells, margin ${chart.rightMargin()}`);
-      }
+      if (blank !== 0) bad.push(`span ${span}, offset ${chart.offset}: ${blank} blank cells in history`);
     }
   }
   if (bad.length) throw new Error(bad.slice(0, 5).join("\n"));
 });
 
-check("the right margin is the trader's number, not a constant", () => {
-  /* The three checks above all run at the default margin, so hard-coding
-     that default anywhere would satisfy every one of them - proved by
-     mutation. Change the setting and the geometry has to follow it. */
+check("the gap is off until it is asked for, and the setting survives", () => {
   const { chart } = freshChart(400);
-  for (const want of [0, 3, 25, 60]) {
-    chart.setRightMargin(want);
-    if (chart.rightMargin() !== want) throw new Error(`asked for ${want}, got ${chart.rightMargin()}`);
-    const L = chart.layout();
-    const blank = L.cells - L.rows.length;
-    if (blank !== want) throw new Error(`margin ${want} produced ${blank} empty cells`);
-  }
-  /* And it is bounded at both ends rather than trusted. */
-  if (chart.setRightMargin(-10) !== 0) throw new Error("a negative margin was accepted");
-  if (chart.setRightMargin(10000) > 60) throw new Error("the margin is not capped");
-  chart.setRightMargin(8);
+  chart.setHeadGap(false);
+  if (chart.headGapOn()) throw new Error("the gap stayed on");
+  chart.offset = 0;
+  let L = chart.layout();
+  if (L.cells - L.rows.length !== 0) throw new Error("the gap is off but the space is still there");
+
+  chart.setHeadGap(true);
+  if (!chart.headGapOn()) throw new Error("the gap would not turn on");
+  L = chart.layout();
+  if (L.cells - L.rows.length !== chart.headGapCells()) throw new Error("turning it on changed nothing");
+  chart.setHeadGap(false);
 });
 
 check("a chart with less history than fits on screen cannot scroll at all", () => {

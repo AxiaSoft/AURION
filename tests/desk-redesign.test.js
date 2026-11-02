@@ -324,12 +324,16 @@ if (!jsdom) {
       /* Matched as an id rather than as a whole id="..." attribute: the
          dock's panes are built by one helper now, so the attribute is
          assembled at runtime and only the id itself is a literal. */
-      if (!/"tvd-pos"/.test(chartJs)) throw new Error("the dock container went too");
+      /* The container is the bottom dock's body. The side panel used
+         to hold a second copy; it has been removed on request, so the
+         "one container" this check is named for is now literal. */
+      if (!/id="tv-posdock-body"/.test(chartJs)) throw new Error("the dock container went too");
+      if (/data-pane="positions"/.test(chartJs)) throw new Error("the side panel's copy is back");
     });
 
-    [...win.document.querySelectorAll("#tvd-pos")].forEach((n) => n.remove());
+    [...win.document.querySelectorAll("#tv-posdock-body")].forEach((n) => n.remove());
     const posHost = win.document.createElement("div");
-    posHost.id = "tvd-pos";
+    posHost.id = "tv-posdock-body";
     win.document.body.appendChild(posHost);
 
     check("the one container says so when nothing is open", () => {
@@ -379,11 +383,12 @@ if (!jsdom) {
       if (!resting.querySelector("[data-cancel]")) throw new Error("a resting order offers no cancel");
     });
 
-    check("the dock tab still carries the count while the pane is shut", () => {
-      /* With the overlay gone this badge is the only sign of an open
-         trade when the dock is closed, so it matters more than before. */
+    check("the toolbar chip still carries the count while the dock is shut", () => {
+      /* With both the overlay and the side panel's copy gone, this
+         chip is the only sign of an open trade when the dock is
+         closed, so it matters more than either of them did. */
       const badge = win.document.createElement("span");
-      badge.id = "tvd-pos-n";
+      badge.id = "tv-pos-toggle-n";
       win.document.body.appendChild(badge);
       T.paintChartPositions(basePos, [{ ticket: 9, type: "buy_limit", volume: 0.1, price: 1.07 }]);
       if (badge.textContent !== "3") throw new Error("the badge reads " + badge.textContent);

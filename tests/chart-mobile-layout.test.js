@@ -274,14 +274,14 @@ function bootUI() {
 check("showDock runs without throwing (the two IIFEs do not share a scope)", () => {
   const { UI } = bootUI();
   UI.showDock("objects");
-  UI.showDock("positions", true);
+  UI.showDock("props", true);
   return true;
 });
 
 check("showDock asks nothing to scroll except the tab strip", () => {
   const { UI, calls } = bootUI();
   UI.showDock("objects");
-  UI.showDock("positions", true);
+  UI.showDock("props", true);
   if (calls.into.length) return `scrollIntoView called on ${calls.into.join(", ")}`;
   const outside = calls.scrolled.filter(([who]) => who !== "strip");
   return outside.length === 0 || `scrolled ${outside.map(([w2, v]) => `${w2}=${v}`).join(", ")}`;
@@ -292,7 +292,12 @@ check("showDock still selects the tab and reveals its pane", () => {
   UI.showDock("objects");
   const tab = w.document.querySelector('[data-dock="objects"]');
   const pane = w.document.querySelector('[data-pane="objects"]');
-  const other = w.document.querySelector('[data-pane="positions"]');
+  /* The second pane was "positions" until the Positions tab was taken
+     out of the side panel; props is the one that is still there. A
+     check that names a tab which no longer exists passes vacuously -
+     `other` comes back null and `(other && other.hidden) || "..."`
+     falls through to the message. */
+  const other = w.document.querySelector('[data-pane="props"]');
   if (!tab || !pane) return "the objects tab or pane is missing";
   if (tab.getAttribute("aria-selected") !== "true") return "aria-selected was not set";
   if (tab.tabIndex !== 0) return "the roving tabindex did not move";
@@ -302,7 +307,7 @@ check("showDock still selects the tab and reveals its pane", () => {
 
 check("focusing a tab passes preventScroll", () => {
   const { UI, calls } = bootUI();
-  UI.showDock("positions", true);
+  UI.showDock("props", true);
   const withOpts = calls.focus.filter((o) => o && o.preventScroll === true);
   return withOpts.length > 0 || `focus() was called ${calls.focus.length} time(s), never with preventScroll`;
 });

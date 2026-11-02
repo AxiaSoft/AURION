@@ -127,6 +127,8 @@
     panel: "M4 5h16v14H4zM15 5v14",
     /* The positions dock: a pane across the bottom, not down one side. */
     posdock: "M4 5h16v14H4zM4 14h16",
+    /* Candles, then empty room, then the price column. */
+    headgap: "M3 10v5M6 7v11M9 11v4M12 8v9M20 4v16",
     tick: "M5 12.5l4.5 4.5L19 7",
   };
 
@@ -491,6 +493,17 @@
       <button type="button" class="tv-icon" id="tv-undo" title="${esc(tt("draw.undo", "Undo"))} (Ctrl+Z)" disabled>${svg(I.undo)}</button>
       <button type="button" class="tv-icon" id="tv-redo" title="${esc(tt("chart.redo", "Redo"))} (Ctrl+Shift+Z)" disabled>${svg(I.redo)}</button>
       <span class="tv-div"></span>
+      <!-- Room at the live edge, as one switch rather than a slider.
+
+           It was a labelled range from 0 to 60 bars sitting on the
+           chart itself, which asked the trader to pick a number in a
+           unit that changes meaning every time they zoom. There is one
+           sensible amount and this turns it on: 15% of the window,
+           held against the newest candle. -->
+      <button type="button" class="tv-icon" id="tv-headgap"
+              title="${esc(tt("chart.head_gap", "Room at the live edge"))}"
+              aria-label="${esc(tt("chart.head_gap", "Room at the live edge"))}"
+              aria-pressed="false">${svg(I.headgap)}</button>
       <button type="button" class="tv-icon" id="tv-pos-toggle" title="${esc(tt("chart.positions_dock", "Open positions"))}"
               aria-pressed="false" aria-controls="tv-posdock">${svg(I.posdock)}<span class="tv-icon-n" id="tv-pos-toggle-n" hidden></span></button>
       <button type="button" class="tv-icon" id="tv-dock-toggle" title="${esc(tt("chart.panel", "Side panel"))}" aria-pressed="true">${svg(I.panel)}</button>
@@ -509,14 +522,22 @@
        same bottom-start corner as the drawing-tools button, which is
        drawn over it. The tab carries a count so a trader can see there
        is something open without opening the panel to find out. */
-    /* Which tab opens first differs by screen, because the panel means
-       different things on each. On a desktop it is docked open beside
-       the chart and Objects is what a drawing workspace should greet
-       you with. On a phone it is shut by default and opening it is a
-       deliberate act -- and the reason it was given a Positions tab at
-       all is that the open book is hard to see there. So the phone
-       leads with the trades and keeps drawings one tap away. */
-    const first = narrow() ? "positions" : "objects";
+    /* The panel is a drawing workspace, and it opens on Objects.
+
+       It used to carry a Positions tab as well, added back when the
+       open book was hard to see on a phone. The book has its own dock
+       across the bottom of the chart now, which resizes the chart
+       instead of covering it, so the tab was a second copy of the same
+       list - and a worse one, because at phone width the panel is an
+       overlay 300px wide across a 390px screen, so reading positions
+       in it meant hiding the chart they belong to.
+
+       Keeping it also made the panel behave as though it were broken:
+       bind() ends with showDock(ui.dockTab || "objects"), so the tab
+       the markup had selected was switched to Objects a moment after
+       the panel appeared. Tapping Positions and being shown the
+       drawing tools is exactly what that looks like from outside. */
+    const first = "objects";
 
     /* Rebuilt.
 
@@ -541,7 +562,6 @@
        you use while holding a phone. Everything here is at least 44px
        where the pointer is coarse. */
     const tabs = [
-      ["positions", tt("chart.positions", "Positions"), "tvd-pos"],
       ["objects", tt("chart.objects", "Objects"), "tvd-objects"],
       ["props", tt("chart.properties", "Properties"), "tvd-props"],
     ];
@@ -551,8 +571,7 @@
       const cur = id === first;
       return `<button type="button" role="tab" id="tvd-tab-${id}" data-dock="${id}"
         aria-controls="${pane}" aria-selected="${cur}" tabindex="${cur ? 0 : -1}"
-        class="tvd-tab${cur ? " on" : ""}"><span class="tvd-tab-t">${esc(label)}</span>${
-        id === "positions" ? `<span class="tvd-badge" id="tvd-pos-n" hidden></span>` : ""}</button>`;
+        class="tvd-tab${cur ? " on" : ""}"><span class="tvd-tab-t">${esc(label)}</span></button>`;
     };
     /* A tabpanel that scrolls has to be focusable, or a keyboard user
        can reach the tabs and then not the content under them. */
@@ -572,7 +591,6 @@
       <div class="tvd-tabs" role="tablist" aria-label="${esc(tt("chart.panel_tabs", "Panel sections"))}">
         ${tabs.map(tab).join("")}
       </div>
-      ${pane("positions", "tvd-pos", "tvd-pos")}
       ${pane("objects", "tvd-objects")}
       ${pane("props", "tvd-props")}
       ${o.ticket ? pane("trade", "tvd-trade", "",
@@ -622,13 +640,6 @@
                    only exists while there is somewhere to go back to. -->
               <button type="button" class="tv-round tv-latest" id="tv-latest" hidden
                 title="${esc(tt("chart.to_latest", "Go to the latest candle"))}">${svg(I.toEnd)}</button>
-            </div>
-            <!-- How far the newest candle sits from the price column.
-                 In bars, so it survives a zoom. -->
-            <div class="tv-margin" id="tv-margin">
-              <label for="tv-margin-r">${esc(tt("chart.right_margin", "Right margin"))}</label>
-              <input type="range" id="tv-margin-r" min="0" max="60" step="1" />
-              <output class="mono" id="tv-margin-v"></output>
             </div>
           </div>
         </div>
@@ -1761,6 +1772,14 @@
       if (e.target.closest("#tv-redo")) { chart.redo(); return; }
       if (e.target.closest("#tv-dock-toggle")) { toggleDock(); return; }
       if (e.target.closest("#tv-pos-toggle")) { togglePosDock(); return; }
+      /* Bound here and not on the chart box: this button lives in the
+         header, and a delegated handler only ever sees clicks inside
+         the element it is attached to. */
+      if (e.target.closest("#tv-headgap")) {
+        chart.setHeadGap(!chart.headGapOn());
+        ui.syncNav && ui.syncNav();
+        return;
+      }
     };
 
     /* ---- overlays: the FAB and the two scrims --------------------------
@@ -1989,25 +2008,15 @@
     function syncNav() {
       const b = $("tv-latest");
       if (b) b.hidden = chart.atLatest();
-      const r = $("tv-margin-r"), out = $("tv-margin-v");
-      if (r && out) {
-        const m = chart.rightMargin();
-        if (String(r.value) !== String(m)) r.value = String(m);
-        out.textContent = String(m);
+      const hg = $("tv-headgap");
+      if (hg) {
+        const on = chart.headGapOn();
+        hg.classList.toggle("on", on);
+        hg.setAttribute("aria-pressed", on ? "true" : "false");
       }
     }
     ui.syncNav = syncNav;
 
-    const marg = $("tv-margin-r");
-    if (marg) {
-      marg.value = String(chart.rightMargin());
-      const outEl = $("tv-margin-v");
-      if (outEl) outEl.textContent = String(chart.rightMargin());
-      marg.oninput = () => {
-        chart.setRightMargin(marg.value);
-        if (outEl) outEl.textContent = String(chart.rightMargin());
-      };
-    }
     syncNav();
 
     /* ---- selection style bar ------------------------------------------- */

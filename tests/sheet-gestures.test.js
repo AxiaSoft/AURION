@@ -90,6 +90,7 @@ function sandbox(src, names) {
 }
 
 const DRAG_SRC =
+  "const SHEET_PULL_UP_MAX = " + constOf(APP, "SHEET_PULL_UP_MAX") + ";\n" +
   "const SHEET_DRAG_ARM = " + constOf(APP, "SHEET_DRAG_ARM") + ";\n" +
   "const SHEET_EDGE_BAND = " + constOf(APP, "SHEET_EDGE_BAND") + ";\n" +
   "const SHEET_EDGE_PULL = " + constOf(APP, "SHEET_EDGE_PULL") + ";\n" +
@@ -190,6 +191,33 @@ check("dragging upwards resists instead of doing nothing", () => {
   const v = parseFloat(/translateY\((-?[\d.]+)/.exec(t)[1]);
   if (v >= 0) throw new Error("did not move upwards at all");
   if (v < -40) throw new Error("moved " + v + "px - that is not resistance");
+});
+
+check("and the resistance has an end to it", () => {
+  /* "Resists" was checked at one distance, 100px, where the old
+     unbounded rubber band happened to give 22px and looked fine. It
+     was -sqrt(-raw) * 2.2 with no ceiling, so it never stopped
+     giving: a 240px pull lifted the sheet 34px, a 1000px pull more
+     again. Reported from a real phone as the sheet "coming further up
+     the harder you drag". The distances below are the ones that show
+     it. */
+  const cap = Number(constOf(APP, "SHEET_PULL_UP_MAX"));
+  if (!Number.isFinite(cap)) throw new Error("SHEET_PULL_UP_MAX is not a number");
+  for (const pull of [240, 1000, 100000]) {
+    const r = rig();
+    r.handle.fire("pointerdown", { clientY: pull, pointerId: 1, timeStamp: 0 });
+    r.handle.fire("pointermove", { clientY: 0, pointerId: 1, timeStamp: 20 });
+    const v = parseFloat(/translateY\((-?[\d.]+)/.exec(r.sheet.style.transform || "")[1]);
+    if (v < -cap - 0.5) throw new Error(`a ${pull}px pull lifted it ${-v}px, past the ${cap}px stop`);
+  }
+  /* Downwards is the direction that closes the sheet and must be
+     left alone entirely. */
+  const r = rig();
+  r.handle.fire("pointerdown", { clientY: 0, pointerId: 1, timeStamp: 0 });
+  r.handle.fire("pointermove", { clientY: 300, pointerId: 1, timeStamp: 20 });
+  if (!/translateY\(300/.test(r.sheet.style.transform || "")) {
+    throw new Error("the downward drag was clamped too: " + r.sheet.style.transform);
+  }
 });
 
 /* ------------------------------------------- scroll must finish first -- */

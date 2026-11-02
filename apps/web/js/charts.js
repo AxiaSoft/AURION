@@ -163,9 +163,24 @@ class CandleChart {
      mostly empty space and a re-fit is the right answer. */
   static FIT_FILL = 0.55;
 
-  /* Bars of empty space held between the last candle and the price axis. */
-  static RIGHT_MARGIN = 8;
-  static RIGHT_MARGIN_MAX = 60;
+  /* Empty space held between the NEWEST candle and the price column,
+     as a fraction of the visible window.
+
+     Two things about it, both of them the point:
+
+     It is a fraction, not a number of bars, so it means the same thing
+     at every zoom - a slider counted in bars had to be re-set every
+     time the trader zoomed, which is why it is gone.
+
+     And it belongs to the newest bar, not to the viewport. The old
+     margin was simply subtracted from every window: scroll two hundred
+     bars into history and thirty cells of blank still sat on the right
+     where real candles should have been, so part of the chart the
+     trader had deliberately scrolled to was replaced by the gap that
+     was meant to live at the live edge. The gap shrinks bar for bar as
+     the chart is pulled back and is gone once the newest candle is
+     off-screen. */
+  static HEAD_GAP = 0.15;
 
   /* How near the pointer has to be to grab a stop or a target. A finger
      covers far more than a mouse and cannot see what it is covering. */
@@ -204,10 +219,8 @@ class CandleChart {
     this.span = 120;               // bars across the plot
     this.rightPad = 0;             // empty bars kept to the right of the last
     /* Breathing room between the newest candle and the price column.
-       It used to be zero, so the live candle was pressed against the
-       axis and the thing you look at most - where price is going next -
-       had nowhere to go. Counted in bars so it survives a zoom. */
-    this.margin = CandleChart.RIGHT_MARGIN;
+       Off by default; the chart header turns it on. */
+    this.headGap = false;
     this.scale = { auto: true, log: false, percent: false, invert: false, lock: false, mn: null, mx: null };
 
     /* ---- transient ----------------------------------------------------- */
@@ -325,7 +338,7 @@ class CandleChart {
         grid: this.grid,
         crosshair: this.crosshair,
         magnet: this.magnet,
-        margin: this.margin,
+        headGap: this.headGap,
       }));
     } catch { /* not fatal */ }
   }
@@ -338,9 +351,7 @@ class CandleChart {
     if (typeof st.grid === "boolean") this.grid = st.grid;
     if (st.crosshair) this.crosshair = st.crosshair;
     if (st.magnet) this.magnet = st.magnet;
-    if (Number.isFinite(Number(st.margin))) {
-      this.margin = Math.max(0, Math.min(CandleChart.RIGHT_MARGIN_MAX, Math.round(Number(st.margin))));
-    }
+    if (typeof st.headGap === "boolean") this.headGap = st.headGap;
     if (st.scale) Object.assign(this.scale, st.scale, { mn: null, mx: null });
     if (Array.isArray(st.indicators)) {
       this.indicators = st.indicators
@@ -749,10 +760,26 @@ class CandleChart {
    */
   slice() {
     const all = this.rows();
-    this.rightPad = Math.max(this.margin || 0, -this.offset);
+    this.rightPad = Math.max(this.headGapCells(), -this.offset);
     const end = all.length - Math.max(0, this.offset);
     const start = Math.max(0, end - this.span + this.rightPad);
     return { rows: all.slice(start, end), start, end };
+  }
+
+  /**
+   * Empty cells the head gap is asking for RIGHT NOW.
+   *
+   * The gap is anchored to the newest bar rather than to the right-hand
+   * edge of the window, which is the whole difference between this and
+   * the fixed margin it replaces. Scrolling back by one bar reveals one
+   * more real candle into the gap, so by the time the newest candle has
+   * left the screen the gap has gone with it and the window is candles
+   * all the way across. Pull back one bar, get one bar: nothing jumps.
+   */
+  headGapCells() {
+    if (!this.headGap) return 0;
+    const want = Math.max(1, Math.round(this.span * CandleChart.HEAD_GAP));
+    return Math.max(0, want - Math.max(0, this.offset));
   }
 
   fmtPrice(p) {
@@ -3333,17 +3360,17 @@ class CandleChart {
    * is a preference rather than a constant: a scalper wants a sliver, a
    * swing trader wants half a screen.
    */
-  setRightMargin(bars) {
-    const n = Math.round(Number(bars));
-    this.margin = Math.max(0, Math.min(CandleChart.RIGHT_MARGIN_MAX, Number.isFinite(n) ? n : 0));
+  setHeadGap(on) {
+    this.headGap = !!on;
     this.forgetScaleFit();
     this.clampOffset();
     this.saveState();
     this.draw();
-    return this.margin;
+    this.changed();
+    return this.headGap;
   }
 
-  rightMargin() { return this.margin || 0; }
+  headGapOn() { return !!this.headGap; }
 
   /** Is the newest candle in view? */
   atLatest() { return this.offset <= 0; }
@@ -3365,7 +3392,7 @@ class CandleChart {
   fit() {
     this.forgetScaleFit();
     this.offset = 0;
-    this.rightPad = this.margin || 0;
+    this.rightPad = this.headGapCells();
     this.span = Math.min(160, Math.max(30, this.rows().length || 40));
     this.setAutoScale(true);
     this.draw();
