@@ -1951,6 +1951,8 @@ class Trader:
             slot["live_action"] = action
             slot["live_reason"] = why
             slot["live_ts"] = utc_iso()
+            self._note_symbol(slot, symbol, live_action=action, live_reason=why,
+                              live_ts=slot["live_ts"])
         if not changed:
             return
         self._sync_book_meta()
@@ -2524,6 +2526,36 @@ class Trader:
         except Exception:
             return {}
 
+    # How many symbols a strategy keeps a record for. A desk watching a
+    # basket is the case this exists for; a cap stops a mistyped feed
+    # from growing the snapshot without bound.
+    SYMBOL_MEMORY = 12
+
+    @staticmethod
+    def _note_symbol(slot: dict[str, Any], symbol: str, **fields: Any) -> None:
+        """Record what a strategy said about ONE symbol.
+
+        The book used to keep a single last_action per strategy. That is
+        true of a desk watching one chart and a lie on any other: a buy
+        on EURUSD was overwritten by a hold on GBPUSD seconds later, and
+        the card showed whichever symbol happened to close last without
+        saying which one it was talking about. The per-symbol record is
+        kept here and the single field is left alone, so everything that
+        reads it still works.
+        """
+        sym = str(symbol or "").strip()
+        if not sym:
+            return
+        book = slot.setdefault("by_symbol", {})
+        row = book.setdefault(sym, {"symbol": sym})
+        row.update({k: v for k, v in fields.items() if v is not None})
+        row["symbol"] = sym
+        if len(book) > Trader.SYMBOL_MEMORY:
+            # Oldest first, by whichever timestamp the row carries.
+            stale = sorted(book.items(), key=lambda kv: str(kv[1].get("ts") or kv[1].get("live_ts") or ""))
+            for key, _ in stale[: len(book) - Trader.SYMBOL_MEMORY]:
+                book.pop(key, None)
+
     def _sync_book_meta(self) -> None:
         enabled = [k for k, v in self.book.items() if v.get("enabled")]
         first = next((self.book[k]["inst"] for k in enabled), None)
@@ -2542,6 +2574,17 @@ class Trader:
             desc["live_action"] = slot.get("live_action") or ""
             desc["live_reason"] = slot.get("live_reason") or ""
             desc["live_ts"] = slot.get("live_ts") or ""
+            # What it is saying about EACH symbol it has been asked about.
+            # The three fields above are the most recent answer whatever
+            # symbol produced it, which on a desk watching a basket names
+            # no instrument at all - so the card could not say whether a
+            # "buy" meant EURUSD or gold.
+            by = slot.get("by_symbol") or {}
+            desc["symbols"] = sorted(
+                (dict(v) for v in by.values() if isinstance(v, dict)),
+                key=lambda r: str(r.get("live_ts") or r.get("ts") or ""),
+                reverse=True,
+            )
             # The running tally of refusals: one bar's reason is an anecdote,
             # the tally is the answer to "why has it not traded all week".
             try:
@@ -2777,6 +2820,8 @@ class Trader:
                 slot["last_action"] = "fault"
                 slot["last_reason"] = str(exc)
                 slot["last_ts"] = utc_iso()
+                self._note_symbol(slot, ctx.symbol, action="fault",
+                                  reason=slot["last_reason"], ts=slot["last_ts"])
                 self.safe_mode = True
                 await self.journal("error", "strategy_fault", f"{name} crashed: {exc}")
                 self._sync_book_meta()
@@ -2792,11 +2837,17 @@ class Trader:
                 slot["last_action"] = "hold"
                 slot["last_reason"] = reason or said or "no setup on this bar"
                 slot["last_ts"] = utc_iso()
+                self._note_symbol(slot, ctx.symbol, action="hold",
+                                  reason=slot["last_reason"], ts=slot["last_ts"],
+                                  timeframe=str(getattr(ctx, "timeframe", "") or ""))
                 await self.journal("info", "hold", f"{name}: hold — {slot['last_reason']}")
                 continue
             slot["last_action"] = action
             slot["last_reason"] = reason or action
             slot["last_ts"] = utc_iso()
+            self._note_symbol(slot, ctx.symbol, action=action,
+                              reason=slot["last_reason"], ts=slot["last_ts"],
+                              timeframe=str(getattr(ctx, "timeframe", "") or ""))
             await self.journal("info", "signal", f"{name}: {action} — {slot['last_reason']}")
             if action in {"close", "close_all", "flatten"}:
                 closes.append((name, signal))

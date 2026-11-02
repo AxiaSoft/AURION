@@ -4053,6 +4053,11 @@ function patchStrategyLive() {
       net.className = "mono " + clsPnl(it.net);
     }
     if (n) n.textContent = String(it.trades || 0);
+    /* The per-symbol strip has to be patched too. The second stats row
+       was once left out of this loop and sat at whatever it was when
+       the tab was built; this is the same trap. */
+    const syms = document.querySelector('[data-st-syms="' + it.name + '"]');
+    if (syms) syms.innerHTML = stSymbolRows(it);
     // The second stats row was never patched at all, so the record, the
     // profit factor and the average sat at whatever they were when the tab
     // was last built.
@@ -4580,6 +4585,32 @@ function stState(it) {
   return { act: it.last_action || "idle", why: it.last_reason || "", live: false };
 }
 
+/**
+ * One chip per symbol a strategy is watching.
+ *
+ * Built from the same stState rule as the headline rather than a second
+ * one: "a real decision outranks the watch pass for a minute" is a
+ * judgement about how a trader reads the card, and having it written
+ * twice is how the two end up disagreeing about the same strategy.
+ *
+ * Empty until the engine has seen more than one symbol - a single-chart
+ * desk does not need a label saying which chart it is.
+ */
+function stSymbolRows(it) {
+  const rows = Array.isArray(it.symbols) ? it.symbols : [];
+  if (rows.length < 2) return "";
+  return rows.map((r) => {
+    const st = stState({
+      last_action: r.action, last_reason: r.reason, last_ts: r.ts,
+      live_action: r.live_action, live_reason: r.live_reason, live_ts: r.live_ts,
+    });
+    const act = st.act || "idle";
+    return `<span class="st-sym ${stActClass(act)}${st.live ? " is-live" : ""}"
+      title="${esc(r.symbol + " — " + (st.why || act))}">
+      <b>${esc(r.symbol)}</b><i>${esc(act)}</i></span>`;
+  }).join("");
+}
+
 function stActClass(act) {
   return act === "buy" ? "up" : act === "sell" ? "down" : act === "blocked" ? "warn" : "";
 }
@@ -4629,6 +4660,15 @@ function strategyLiveCards() {
     const act = state.act || "idle";
     const cls = stActClass(act);
     const custom = (it.kind || "builtin") !== "builtin";
+    /* What this strategy is saying about each symbol it watches.
+
+       The headline above is the most recent answer whatever symbol
+       produced it. On a desk running one chart that is the whole
+       truth; on a basket it names no instrument at all, so a trader
+       reading "buy" could not tell whether it meant EURUSD or gold -
+       and the next symbol's bar erased it seconds later anyway. */
+    const perSym = stSymbolRows(it);
+
     return `<div class="card st-card${it.enabled ? "" : " is-off"}" data-st-card="${esc(it.name)}">
       <div class="st-top">
         <div>
@@ -4657,6 +4697,7 @@ function strategyLiveCards() {
         <div><span>${I18N.t("strategies.avg")}</span>
           <b class="mono ${clsPnl(it.avg)}" data-st-avg="${esc(it.name)}">${fmt(it.avg || 0)}</b></div>
       </div>
+      <div class="st-syms" data-st-syms="${esc(it.name)}">${perSym}</div>
       <p class="sub" data-st-eval="${esc(it.name)}" title="${esc(refusalTally(it))}">${esc(state.why) || I18N.t("strategies.waiting")}</p>
       ${custom ? `<div class="row st-mng">
         <button type="button" class="btn tiny ghost" data-st-edit="${esc(it.name)}">${I18N.t("strategies.edit")}</button>
