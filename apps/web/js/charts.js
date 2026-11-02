@@ -403,6 +403,15 @@ class CandleChart {
   canRedo() { return this.future.length > 0; }
 
   /** Tell the interface that the object list or selection moved. */
+  /** Reported on every scroll, separately from changed(), because the
+      answer to "is there more history behind this?" costs a request and
+      must not be asked on every style tweak. */
+  scrolled() {
+    if (typeof this.opts.onScroll === "function") {
+      try { this.opts.onScroll(this); } catch { /* the chart is still fine */ }
+    }
+  }
+
   changed() {
     if (typeof this.opts.onChange === "function") {
       try { this.opts.onChange(this); } catch { /* the chart is still fine */ }
@@ -3134,6 +3143,7 @@ class CandleChart {
     /* Scrolling changes whether the live edge is on screen, and the
        control that offers to take you back has to know. */
     this.changed();
+    this.scrolled();
   }
 
   clampOffset() {
@@ -3776,8 +3786,13 @@ class CandleChart {
         const L = this._L || this.layout();
         if (L) {
           const dx = e.clientX - this.drag.x;
+          const was = this.offset;
           this.offset = this.drag.off + Math.round(dx / L.bw);
           this.clampOffset();
+          /* Dragging is the usual way into deep history, and it does not
+             go through pan(). Report it, or the chart runs out of bars
+             for everyone except the few who scroll with the keyboard. */
+          if (this.offset !== was) this.scrolled();
         }
         /* A finger moves the chart wherever it goes, price included. See
            panDrag for why the left mouse button deliberately does not. */
@@ -3788,8 +3803,10 @@ class CandleChart {
         const dx = e.clientX - this.drag.x;
         const dy = e.clientY - this.drag.y;
         if (Math.abs(dx) > 2 || Math.abs(dy) > 2) this._rightDrag = true;
+        const wasFree = this.offset;
         this.offset = this.drag.off + Math.round(dx / (this.drag.bw || 1));
         this.clampOffset();
+        if (this.offset !== wasFree) this.scrolled();
         this.panPrice(this.drag, dy);
       } else if (this.drag.mode === "stretch") {
         const dy = e.clientY - this.drag.y;

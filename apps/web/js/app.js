@@ -11167,6 +11167,9 @@ function bindChartDesk() {
     onPrice: onChartPrice,
     onPending: onChartPending,
     onLevelMove: onChartLevelMove,
+    /* pan() reports every scroll, which is the moment to find out
+       whether the trader has reached the end of what we hold. */
+    onScroll: maybeLoadMoreHistory,
     // Text is asked for in place, over the chart, rather than with a
     // browser prompt that steals the window.
     onText: (seed, done) => {
@@ -11267,6 +11270,70 @@ async function switchChartTimeframe(tf) {
   await show("charts", { animate: false, closeMenu: false, nav: false });
 }
 
+/* Minutes in one bar of each timeframe. */
+const TF_MINUTES = { M1: 1, M5: 5, M15: 15, M30: 30, H1: 60, H4: 240, D1: 1440, W1: 10080, MN1: 43200 };
+
+/* How many bars the desk asks for.
+
+   It used to ask for 800 whatever the timeframe, which on M15 is about
+   eight days - the chart ran out of history a week back and there was
+   nothing behind it. The ask is now derived from the timeframe so the
+   first screen always reaches at least thirty days back, and the engine
+   keeps 3000 bars per symbol and timeframe, which is the ceiling.
+
+   Weekends are not subtracted. Over-asking costs one number in a query
+   string; under-asking is the bug being fixed. */
+const HISTORY_DAYS = 30;
+const HISTORY_MAX = 3000;
+function barsForDays(timeframe, days) {
+  const mins = TF_MINUTES[String(timeframe || "M15").toUpperCase()] || 15;
+  const want = Math.ceil(((days || HISTORY_DAYS) * 24 * 60) / mins);
+  return Math.max(400, Math.min(HISTORY_MAX, want));
+}
+
+/**
+ * More history, because the trader scrolled off the end of what we have.
+ *
+ * Asks for a wider window of the same series rather than a page before a
+ * cursor: the engine serves the most recent N bars, so N simply grows.
+ * One request at a time, and it stops asking once the answer stops
+ * getting bigger - otherwise reaching the start of the broker's history
+ * means asking forever.
+ */
+async function loadMoreHistory() {
+  if (S._histBusy) return;
+  const f = S.chartFocus;
+  if (!f || !S.chart) return;
+  const have = (S.candles || []).length;
+  if (have >= HISTORY_MAX || S._histDone === f.symbol + "." + f.timeframe) return;
+  S._histBusy = true;
+  try {
+    const want = Math.min(HISTORY_MAX, Math.max(have * 2, barsForDays(f.timeframe, HISTORY_DAYS)));
+    const c = await API.get(`/api/candles?symbol=${encodeURIComponent(f.symbol)}`
+      + `&timeframe=${encodeURIComponent(f.timeframe)}&count=${want}`);
+    const bars = (c && c.data) || [];
+    if (bars.length > have) {
+      S.candles = bars;
+      /* setBars keeps the span and the offset, so the view does not jump
+         when older bars appear behind it. */
+      S.chart.setBars(bars);
+    } else {
+      S._histDone = f.symbol + "." + f.timeframe;
+    }
+  } catch { /* leave what we have */ } finally {
+    S._histBusy = false;
+  }
+}
+
+/* Near the oldest bar we hold, go and get more. The threshold is in bars
+   rather than pixels so it does not change meaning with the zoom. */
+function maybeLoadMoreHistory() {
+  if (!S.chart || !S.chartFocus) return;
+  const left = S.chart.maxOffset() - S.chart.offset;
+  if (left <= CHART_HISTORY_LEAD) loadMoreHistory();
+}
+const CHART_HISTORY_LEAD = 30;
+
 async function paintMiniCharts() {
   const nodes = document.querySelectorAll("canvas[data-mini]");
   for (const cv of nodes) {
@@ -11347,8 +11414,12 @@ async function pickMarket(symbol, timeframe) {
   }
   const r = await API.post("/api/market", { symbol, timeframe });
   if (r && r.ok && typeof r.bars === "number") {
-    const c = await API.get(`/api/candles?symbol=${encodeURIComponent(symbol)}&timeframe=${encodeURIComponent(timeframe)}&count=800`);
+    const c = await API.get(`/api/candles?symbol=${encodeURIComponent(symbol)}`
+      + `&timeframe=${encodeURIComponent(timeframe)}&count=${barsForDays(timeframe, HISTORY_DAYS)}`);
     S.candles = c.data || [];
+    /* A different series: whatever we learned about the end of the last
+       one does not apply. */
+    S._histDone = "";
   } else if (Array.isArray(r?.data)) S.candles = r.data;
   if (S.view === "markets") {
     const lbl = $("tick-lbl");
