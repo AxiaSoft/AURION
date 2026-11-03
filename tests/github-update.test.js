@@ -293,6 +293,86 @@ console.log("\n=== what the update panel is told, and what it shows ===");
       "a real one is still drawn");
 }
 
+
+console.log("\n=== the rate limit ===");
+{
+  const rd = (p) => fs.readFileSync(path.join(ROOT, p), "utf8");
+  const ghSrc = rd("backend/src/github-update.js");
+  const upd = rd("backend/src/updater.js");
+  const app = rd("apps/web/js/app.js");
+  const idx = rd("backend/src/index.js");
+
+  /* Conditional requests are the whole fix: GitHub does not charge for
+     a 304. Measured live - remaining went 4994 -> 4994 across a 200
+     then a 304, and a warm check cost 0 of its 3 requests. */
+  /* The phrase appears in the comment above too, so this has to pin
+     the assignment - the first version of this check passed with the
+     header deleted. */
+  say(/headers\["If-None-Match"\]\s*=\s*hit\.etag/.test(ghSrc),
+    "requests carry If-None-Match when an ETag is known");
+  say(/res\.statusCode === 304/.test(ghSrc), "and 304 is handled rather than treated as an error");
+  say(/headers\.etag/.test(ghSrc), "the ETag from a 200 is kept for next time");
+  {
+    const at = ghSrc.indexOf("if (res.statusCode === 304");
+    const blk = ghSrc.slice(at, at + 400);
+    say(/JSON\.parse\(hit\.body\)/.test(blk), "a 304 is answered from the cached body");
+    /* The one rejection left is a cached body that will not parse,
+       which is a corrupt cache and must be loud. What must never
+       happen is a 304 being reported as a rate limit or an HTTP
+       error - those are the paths below it. */
+    say(!/rateLimitError|github_http_/.test(blk),
+      "a 304 is never reported as a rate limit or an HTTP failure");
+  }
+
+  /* A cache that only lives in memory pays full price after a restart. */
+  say(/CACHE_FILE/.test(ghSrc) && /github-cache\.json/.test(ghSrc), "the cache survives a restart");
+  say(/mode: 0o600/.test(ghSrc), "and is written 0600, like every other data file");
+  say(/CACHE_MAX_ENTRIES/.test(ghSrc) && /CACHE_MAX_BYTES/.test(ghSrc), "it is bounded, both ways");
+  say(/renameSync/.test(ghSrc), "written atomically, so a crash cannot leave half a cache");
+
+  /* Knowing the budget means not spending a round trip to be refused. */
+  say(/function rateExhausted/.test(ghSrc), "the module knows when there is no budget left");
+  say(/if \(rateExhausted\(\)\) \{ reject\(rateLimitError\(\)\); return; \}/.test(ghSrc),
+    "and refuses before opening a socket");
+  {
+    const at = ghSrc.indexOf("function rateExhausted");
+    const blk = ghSrc.slice(at, ghSrc.indexOf("\n}", at));
+    say(/reset > Math\.floor\(Date\.now\(\) \/ 1000\)/.test(blk),
+      "a stale zero from a previous hour does not keep blocking - the window must still be open");
+  }
+  say(/x-ratelimit-remaining/.test(ghSrc), "the remaining budget is read from the response");
+  say(/x-ratelimit-reset/.test(ghSrc), "and so is the moment it refills");
+  say(/res\.statusCode === 429/.test(ghSrc), "429 counts as rate limiting too, not just 403");
+  say(/Number\(res\.headers\["x-ratelimit-remaining"\]\) === 0/.test(ghSrc),
+    "and a 403 with budget left is not mistaken for one - that is a different fault");
+
+  /* The error has to carry the one fact that makes it actionable. */
+  say(/e\.resetAt/.test(ghSrc) && /retryAfterSeconds/.test(ghSrc), "the error says when it stops being true");
+  say(/err === "github_rate_limited"/.test(upd), "the updater recognises it");
+  say(/out\.last_known = prev/.test(upd), "and still reports the last answer that worked");
+  say(/function updateErrorText/.test(app), "the desk turns the code into a sentence");
+  say(/upd\.rate_limited/.test(app) && /upd\.rate_retry/.test(app), "naming the limit and when it clears");
+  say(/if \(!res\.rate_authenticated\) text \+=/.test(app),
+    "and only suggests a token to someone not already using one");
+
+  /* A token is the real cure for a shared address. */
+  say(/github_token/.test(upd), "a token can be stored");
+  say(/delete merged\.github_token/.test(upd), "but is never handed back out");
+  say(/github_token_set/.test(upd), "only whether one is set");
+  say(/\("github_token" in safePatch\)/.test(upd),
+    "an unrelated save keeps the stored token instead of wiping it");
+  say(/id="upd-token"/.test(app) && /type="password"/.test(app), "there is a field for it");
+  say(/body\.github_token !== undefined/.test(idx), "the route accepts it");
+  say(/\{20,255\}\$\/\.test\(tok\)/.test(idx) && /invalid_token/.test(idx),
+    "validating its shape, not merely naming the error");
+  say(/req\.user\.role !== "owner"/.test(idx.slice(idx.indexOf("/system/update/settings"), idx.indexOf("/system/update/settings") + 300)),
+    "and only an owner or admin may set one");
+
+  const ignore = rd(".gitignore");
+  say(/data\/github-cache\.json/.test(ignore), "the cache is not committed");
+  say(/data\/update-settings\.json/.test(ignore), "nor is the file that can hold a token");
+}
+
 const bad = results.filter((r) => !r).length;
 console.log("\ngithub-update: " + (bad ? bad + " FAILED of " + results.length : results.length + " checks passed"));
 process.exit(bad ? 1 : 0);

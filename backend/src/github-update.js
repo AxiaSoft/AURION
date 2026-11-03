@@ -39,9 +39,139 @@ const path = require("path");
 const https = require("https");
 const crypto = require("crypto");
 
-const { ROOT } = require("./paths");
+const { ROOT, DATA } = require("./paths");
 
 const API_HOST = "api.github.com";
+
+/* ---- the rate limit -------------------------------------------------
+ *
+ * Unauthenticated GitHub allows 60 requests an hour, counted per IP
+ * address rather than per installation - so a desk behind a shared or
+ * carrier-grade NAT is spending a budget it does not own. One check
+ * costs four calls (the release, the commit, the tree, and the factory
+ * config blob) and applying an update costs one more per changed file,
+ * which is how a machine that was working fine starts answering
+ * github_rate_limited.
+ *
+ * Three things fix it, in this order of effect:
+ *
+ *   1. Conditional requests. Every response carries an ETag; sending it
+ *      back as If-None-Match returns 304 with no body, and GitHub does
+ *      not charge for a 304. Measured against the live API: remaining
+ *      went 4994 -> 4994 across a 200 followed by a 304. A re-check
+ *      that finds nothing new therefore costs nothing at all, which is
+ *      the common case for a desk that polls every six hours.
+ *
+ *   2. Knowing the budget. Every response states what is left and when
+ *      it resets. Once that is zero there is no point sending another
+ *      request to be refused - the failure is reported from the cached
+ *      numbers instead, with the time the trader can try again.
+ *
+ *   3. A token. Optional, and the only real cure for a shared address:
+ *      it raises the ceiling from 60 an hour to 5000 and makes the
+ *      budget personal rather than communal.
+ */
+const CACHE_FILE = path.join(DATA, "github-cache.json");
+
+/* 304s are only free if the body is still here to reuse, so the cache
+   is on disk: a restarted backend would otherwise pay full price for
+   every path again. Kept small - these are a handful of JSON documents
+   and the trees are the only large ones. */
+const CACHE_MAX_ENTRIES = 64;
+const CACHE_MAX_BYTES = 8 * 1024 * 1024;
+
+let cacheMem = null;
+
+function cacheLoad() {
+  if (cacheMem) return cacheMem;
+  try {
+    const raw = fs.readFileSync(CACHE_FILE, "utf8");
+    const parsed = JSON.parse(raw);
+    cacheMem = (parsed && typeof parsed === "object" && parsed.paths) ? parsed : { paths: {}, rate: {} };
+  } catch {
+    cacheMem = { paths: {}, rate: {} };
+  }
+  if (!cacheMem.paths) cacheMem.paths = {};
+  if (!cacheMem.rate) cacheMem.rate = {};
+  return cacheMem;
+}
+
+function cacheSave() {
+  if (!cacheMem) return;
+  try {
+    const paths = cacheMem.paths || {};
+    /* Oldest out first, so a long-lived desk does not accumulate the
+       tree of every release it has ever been offered. */
+    const keys = Object.keys(paths).sort((a, b) => (paths[b].at || 0) - (paths[a].at || 0));
+    let bytes = 0;
+    const kept = {};
+    for (const k of keys) {
+      const size = String(paths[k].body || "").length;
+      if (Object.keys(kept).length >= CACHE_MAX_ENTRIES) break;
+      if (bytes + size > CACHE_MAX_BYTES) continue;
+      bytes += size;
+      kept[k] = paths[k];
+    }
+    cacheMem.paths = kept;
+    fs.mkdirSync(path.dirname(CACHE_FILE), { recursive: true });
+    const tmp = CACHE_FILE + ".tmp";
+    fs.writeFileSync(tmp, JSON.stringify(cacheMem), { mode: 0o600 });
+    fs.renameSync(tmp, CACHE_FILE);
+  } catch { /* a cache that cannot be written is slow, not broken */ }
+}
+
+/** What the last response said was left, and when the hour rolls over. */
+function rateState() {
+  const c = cacheLoad();
+  const r = c.rate || {};
+  return {
+    limit: Number(r.limit) || 0,
+    remaining: Number.isFinite(Number(r.remaining)) ? Number(r.remaining) : null,
+    reset: Number(r.reset) || 0,
+    authenticated: Boolean(r.authenticated),
+  };
+}
+
+function noteRate(headers, authenticated) {
+  const c = cacheLoad();
+  const lim = Number(headers["x-ratelimit-limit"]);
+  const rem = Number(headers["x-ratelimit-remaining"]);
+  const rst = Number(headers["x-ratelimit-reset"]);
+  if (Number.isFinite(rem)) {
+    c.rate = {
+      limit: Number.isFinite(lim) ? lim : 0,
+      remaining: rem,
+      reset: Number.isFinite(rst) ? rst : 0,
+      authenticated: Boolean(authenticated),
+    };
+  }
+}
+
+/** A rate-limit error that says when it stops being true. */
+function rateLimitError() {
+  const { reset } = rateState();
+  const e = new Error("github_rate_limited");
+  if (reset > 0) {
+    e.resetAt = new Date(reset * 1000).toISOString();
+    e.retryAfterSeconds = Math.max(0, reset - Math.floor(Date.now() / 1000));
+  }
+  return e;
+}
+
+/**
+ * Is there budget to spend?
+ *
+ * Sending a request that is certain to be refused wastes the round trip
+ * and tells the trader nothing they could not be told instantly. The
+ * exception is when the hour has already rolled over, in which case the
+ * stored zero is stale and the only way to learn the new figure is to
+ * ask.
+ */
+function rateExhausted() {
+  const { remaining, reset } = rateState();
+  if (remaining === null || remaining > 0) return false;
+  return reset > Math.floor(Date.now() / 1000);
+}
 
 /**
  * The one branch an installation may update from.
@@ -149,11 +279,19 @@ function describe(src) {
 
 function request(src, pathname, timeoutMs = 20000) {
   return new Promise((resolve, reject) => {
+    /* Refuse before spending the round trip, and say when it clears. */
+    if (rateExhausted()) { reject(rateLimitError()); return; }
+    const cache = cacheLoad();
+    /* Keyed with the token's identity folded in, so a desk that gains or
+       loses a token cannot be served a body fetched under the other. */
+    const key = (src.token ? "t:" : "a:") + src.owner + "/" + src.repo + pathname;
+    const hit = cache.paths[key];
     const headers = {
       "Accept": "application/vnd.github+json",
       "User-Agent": "AURION-Updater/2.0",
       "X-GitHub-Api-Version": "2022-11-28",
     };
+    if (hit && hit.etag) headers["If-None-Match"] = hit.etag;
     if (src.token) headers["Authorization"] = "Bearer " + src.token;
     const req = https.request({
       hostname: API_HOST,
@@ -173,12 +311,31 @@ function request(src, pathname, timeoutMs = 20000) {
         data += chunk;
       });
       res.on("end", () => {
+        noteRate(res.headers, Boolean(src.token));
+
+        /* Not modified: GitHub charges nothing for this, and the body
+           we already hold is by definition still current. This is the
+           whole reason a six-hourly check costs no budget at all. */
+        if (res.statusCode === 304 && hit) {
+          try { resolve(JSON.parse(hit.body)); }
+          catch { reject(new Error("invalid_json")); }
+          hit.at = Date.now();
+          cacheSave();
+          return;
+        }
+
         /* A rate limit is not a server error and must not be reported as
            one: it is the single most likely failure on an unauthenticated
            machine that checks often, and "try again later" is advice the
-           user can act on, where "github_403" is not. */
-        if (res.statusCode === 403 && /rate limit/i.test(data)) {
-          reject(new Error("github_rate_limited"));
+           user can act on, where "github_403" is not.
+
+           403 and 429 both carry it, and the distinguishing header is
+           x-ratelimit-remaining: 0 - a 403 for any other reason (a bad
+           token, say) leaves budget on the clock. */
+        const spent = Number(res.headers["x-ratelimit-remaining"]) === 0;
+        if ((res.statusCode === 403 || res.statusCode === 429) && (spent || /rate limit/i.test(data))) {
+          cacheSave();
+          reject(rateLimitError());
           return;
         }
         if (res.statusCode === 404) { reject(new Error("github_not_found")); return; }
@@ -186,8 +343,15 @@ function request(src, pathname, timeoutMs = 20000) {
           reject(new Error("github_http_" + res.statusCode));
           return;
         }
-        try { resolve(JSON.parse(data)); }
-        catch { reject(new Error("invalid_json")); }
+        let parsed;
+        try { parsed = JSON.parse(data); }
+        catch { reject(new Error("invalid_json")); return; }
+        const etag = res.headers.etag || "";
+        if (etag && data.length <= CACHE_MAX_BYTES) {
+          cache.paths[key] = { etag, body: data, at: Date.now() };
+        }
+        cacheSave();
+        resolve(parsed);
       });
     });
     /* Keep the cause. A bare "network_error" is the same word for a
@@ -432,4 +596,7 @@ module.exports = {
   resolveTarget,
   check,
   fetchFile,
+  rateState,
+  rateExhausted,
+  rateLimitError,
 };

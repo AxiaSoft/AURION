@@ -7507,6 +7507,11 @@ const views = {
           <label class="field"><span>${I18N.t("upd.interval")}</span>
             <input id="upd-interval" type="number" min="1" max="168" value="6" />
           </label>
+          <label class="field"><span>${I18N.t("upd.token")}</span>
+            <input id="upd-token" type="password" autocomplete="off" spellcheck="false"
+                   placeholder="${esc(I18N.t("upd.token_ph"))}" />
+          </label>
+          <p class="sub">${I18N.t("upd.token_why")}</p>
           <button class="btn block" id="upd-save" type="button">${I18N.t("upd.save")}</button>
           <p class="sub" id="upd-save-msg"></p>
         </div>
@@ -8551,7 +8556,12 @@ async function bindUpdatePanel(){
       auto_check_enabled: autoEl ? autoEl.classList.contains('on') : false,
       auto_check_interval_hours: Number(intervalEl.value)||6,
     };
+    const tokEl = document.getElementById('upd-token');
+    const typed = tokEl ? String(tokEl.value || '').trim() : '';
+    if (typed) body.github_token = typed;
     const r = await API.post('/api/system/update/settings', body);
+    /* Never leave a token sitting in the DOM after it has been sent. */
+    if (tokEl && typed) tokEl.value = '';
     const txt = r.ok ? I18N.t('upd.saved') : (r.error||I18N.t('upd.error'));
     /* The tick is an icon in the panel; the toast is plain text by nature,
        and its own wording already says the save succeeded. */
@@ -8560,6 +8570,11 @@ async function bindUpdatePanel(){
   };
   if(autoEl) autoEl.onclick = () => paintSwitch(autoEl, !autoEl.classList.contains('on'));
 
+  /* An untouched password box means "leave it as it is", not "clear it".
+     The field is never prefilled - the backend does not hand the token
+     back out - so there is nothing to echo and nothing to leak. */
+  const tokenEl = document.getElementById('upd-token');
+
   const checkBtn = document.getElementById('upd-check');
   if(checkBtn) checkBtn.onclick = async () => {
     if(resultEl) resultEl.innerHTML = '<p class="sub">' + I18N.t('upd.checking') + '</p>';
@@ -8567,7 +8582,7 @@ async function bindUpdatePanel(){
        place that can also install what it finds. */
     const res = await checkForUpdate();
     if(!res.ok){
-      if(resultEl) resultEl.innerHTML = '<p class="err">' + I18N.t('upd.error') + ': '+esc(res.error||'')+'</p>';
+      if(resultEl) resultEl.innerHTML = '<p class="err">' + esc(updateErrorText(res)) + '</p>';
       return;
     }
     if(!res.available){
@@ -13084,7 +13099,19 @@ function updateCheck(version) {
 async function checkForUpdate() {
   try {
     const r = await API.post("/api/system/update/check", {});
-    if (!r || !r.ok) return { ok: false, error: (r && r.error) || "" };
+    if (!r || !r.ok) {
+      return {
+        ok: false,
+        error: (r && r.error) || "",
+        reset_at: (r && r.reset_at) || "",
+        retry_after_seconds: r && r.retry_after_seconds,
+        rate_limit: r && r.rate_limit,
+        rate_authenticated: Boolean(r && r.rate_authenticated),
+        /* The last answer that did work, so a temporary failure does
+           not blank out what this desk is running. */
+        lastKnown: (r && r.last_known) || null,
+      };
+    }
     const latest = r.latest || null;
     return {
       ok: true,
@@ -13100,9 +13127,34 @@ async function checkForUpdate() {
 
 /* The one-line form of that answer, for the two places that report an
  * update without being able to install one. */
+/**
+ * What a failed check should actually say.
+ *
+ * "github_rate_limited" is a true statement and useless advice. The
+ * limit is 60 requests an hour counted per IP address, so the trader
+ * may not even have spent it themselves, and the only facts that help
+ * are that it is temporary, when it clears, and that a token removes
+ * the ceiling entirely.
+ */
+function updateErrorText(res) {
+  if (!res || res.ok) return "";
+  if (res.error !== "github_rate_limited") return res.error || I18N.t("upd.error");
+  let text = I18N.t("upd.rate_limited");
+  if (res.reset_at) {
+    const when = new Date(res.reset_at);
+    if (!Number.isNaN(when.getTime())) {
+      text += " " + I18N.t("upd.rate_retry").replace("{time}",
+        when.toLocaleTimeString(I18N.locale(), { hour: "2-digit", minute: "2-digit" }));
+    }
+  }
+  /* Only worth suggesting when they are not already using one. */
+  if (!res.rate_authenticated) text += " " + I18N.t("upd.rate_token_hint");
+  return text;
+}
+
 function updateSummaryHtml(res) {
   if (!res.ok) {
-    return `<span class="err">${esc(I18N.t("upd.error"))}${res.error ? " \u2014 " + esc(res.error) : ""}</span>`;
+    return `<span class="err">${esc(I18N.t("upd.error"))} \u2014 ${esc(updateErrorText(res))}</span>`;
   }
   if (!res.available) {
     return `<span class="ok">${icon("check")} ${esc(I18N.t("upd.uptodate"))}${

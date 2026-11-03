@@ -31,6 +31,12 @@ node_modules/
 # local dev virtualenv + engine day state
 .venv_dev/
 data/prop-day.json
+# Runtime update state. github-cache.json holds cached GitHub response
+# bodies with their ETags - the thing that makes a re-check cost no rate
+# limit - and update-settings.json can hold a GitHub token. Neither
+# belongs in the repository, and a committed token is a revoked token.
+data/github-cache.json
+data/update-settings.json
 
 # The build script keeps the artwork it repacked, next to the icon it made.
 installer/assets/generated/*.original.png

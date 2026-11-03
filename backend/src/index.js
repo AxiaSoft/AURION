@@ -914,6 +914,17 @@ guarded.post("/system/update/settings", (req, res) => {
     if (isNaN(h) || h < 1 || h > 168) return res.status(400).json({ ok:false, error:"invalid_interval" });
     patch.auto_check_interval_hours = h;
   }
+  /* Owner-only, like the rest of this route. Validated by shape rather
+     than by asking GitHub: a token is checked the next time one is
+     used, and a bad one fails loudly there with its own message. An
+     empty string is a deliberate "forget the one I stored". */
+  if (body.github_token !== undefined) {
+    const tok = String(body.github_token || "").trim();
+    if (tok && !/^[A-Za-z0-9_\-]{20,255}$/.test(tok)) {
+      return res.status(400).json({ ok: false, error: "invalid_token" });
+    }
+    patch.github_token = tok;
+  }
   const saved = updater.saveSettings(patch);
   if (patch.auto_check_enabled !== undefined || patch.auto_check_interval_hours !== undefined) {
     updater.stopAutoChecker();

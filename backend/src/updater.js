@@ -59,7 +59,28 @@ function getSourceKind() {
 }
 
 function liveConfig() {
-  try { return loadConfig() || {}; } catch { return {}; }
+  let cfg;
+  try { cfg = loadConfig() || {}; } catch { cfg = {}; }
+  /* A personal access token raises the GitHub ceiling from 60 requests
+     an hour to 5000, and makes the budget this machine's own rather
+     than one shared with everyone behind the same address. It is kept
+     here, in the 0600 data file, and never in config/aurion.json -
+     that file is in the repository, and a token committed by accident
+     is a token that has to be revoked. */
+  try {
+    const stored = readJsonSecure(UPDATE_SETTINGS_FILE, {});
+    const tok = String(stored.github_token || "").trim();
+    if (tok) {
+      cfg = {
+        ...cfg,
+        update_server: {
+          ...(cfg.update_server || {}),
+          github: { ...((cfg.update_server || {}).github || {}), token: tok },
+        },
+      };
+    }
+  } catch { /* no token stored */ }
+  return cfg;
 }
 
 function getSourceUrl() {
@@ -92,6 +113,11 @@ function getSettings() {
   };
   const stored = readJsonSecure(UPDATE_SETTINGS_FILE, {});
   const merged = { ...defaults, ...stored };
+  /* Whether a token is set is useful to the panel; the token itself is
+     not, and a secret that is sent back out on every settings read is a
+     secret in one more place than it needs to be. */
+  merged.github_token_set = Boolean(String(stored.github_token || "").trim());
+  delete merged.github_token;
 
   /* On GitHub there is no server URL to show, and showing an empty one
      read as "updates are not configured" when they are. The panel gets
@@ -136,6 +162,16 @@ function saveSettings(patch) {
   if ("source_url" in safePatch) delete safePatch.source_url;
   const current = getSettings();
   const next = { ...current, ...safePatch };
+  /* getSettings deliberately strips the token, so "whatever is already
+     stored" has to be read from the file rather than inherited from
+     current - otherwise saving the auto-check interval would quietly
+     delete the token and put the desk back on 60 requests an hour.
+     An empty string in the patch is a real instruction to clear it;
+     an absent key is not. */
+  const storedNow = readJsonSecure(UPDATE_SETTINGS_FILE, {});
+  next.github_token = ("github_token" in safePatch)
+    ? String(safePatch.github_token || "").trim()
+    : String(storedNow.github_token || "");
   // Ensure source URL remains authoritative
   const src = getSourceUrl();
   if (src) {
@@ -148,6 +184,7 @@ function saveSettings(patch) {
     auto_check_interval_hours: next.auto_check_interval_hours,
     last_check: next.last_check,
     last_check_result: next.last_check_result,
+    github_token: next.github_token || "",
     // do not persist url from dashboard, only from source; keep placeholder for compatibility
     _note: "update_server_url is source-defined in config/aurion.json",
   });
@@ -299,7 +336,23 @@ async function checkGithub() {
     saveSettings({ last_check: state.last_check, last_check_result: state });
     return { ok: true, ...state };
   } catch (e) {
-    return { ok: false, error: (e && e.message) || "network_error" };
+    const err = (e && e.message) || "network_error";
+    /* A rate limit is temporary, and the one fact that makes it
+       actionable is when it stops being true. Carried out to the panel
+       alongside the last answer that did work, so the section still
+       shows what this desk is running instead of going blank over a
+       failure that will clear by itself. */
+    const out = { ok: false, error: err };
+    if (err === "github_rate_limited") {
+      const rate = github.rateState();
+      if (e.resetAt) out.reset_at = e.resetAt;
+      if (Number.isFinite(e.retryAfterSeconds)) out.retry_after_seconds = e.retryAfterSeconds;
+      out.rate_limit = rate.limit || 0;
+      out.rate_authenticated = Boolean(rate.authenticated);
+      const prev = getUpdateState();
+      if (prev && prev.last_check) out.last_known = prev;
+    }
+    return out;
   }
 }
 
