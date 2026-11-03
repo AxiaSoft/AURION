@@ -27,6 +27,8 @@ from aurion.runtime.auto_entry import plan_entry  # noqa: E402
 from aurion.strategy.base import StrategyContext  # noqa: E402
 from aurion.strategy.loader import BUILTIN_NAMES, StrategyLoader  # noqa: E402
 
+from _market import textbook  # noqa: E402
+
 
 def _series(seed: int = 7, bars: int = 400) -> list[dict]:
     """A trending, breathing series - enough shape that each strategy fires."""
@@ -47,14 +49,25 @@ def _series(seed: int = 7, bars: int = 400) -> list[dict]:
 
 
 def _first_signal(name: str):
-    """Walk the series until the strategy says something, like the robot does."""
+    """Walk a series until the strategy says something, like the robot does.
+
+    Two series, tried in order. The breathing random walk above suits the
+    indicator strategies, which fire somewhere in any reasonable market.
+    It does not suit a strategy that waits for a specific sequence of
+    events: ``smart_money`` wants liquidity swept, then a displacement,
+    then a retrace into the imbalance, and a Gaussian walk essentially
+    never produces all three in order. Standing aside on that series is
+    correct behaviour, not a missing signal, so the hand-built setup in
+    ``_market.textbook`` is the fallback rather than a reason to exempt
+    the strategy from this file's guarantee.
+    """
     inst = StrategyLoader().load_builtin(name)
-    rows = _series()
-    for end in range(120, len(rows)):
-        ctx = StrategyContext("EURUSD", "M15", rows[:end], None, {}, [], [], {}, {}, "now")
-        sig = inst.on_candle(ctx)
-        if sig is not None:
-            return sig
+    for rows, start in ((_series(), 120), (textbook("buy"), 400)):
+        for end in range(start, len(rows) + 1):
+            ctx = StrategyContext("EURUSD", "M15", rows[:end], None, {}, [], [], {}, {}, "now")
+            sig = inst.on_candle(ctx)
+            if sig is not None and sig.action in ("buy", "sell"):
+                return sig
     return None
 
 

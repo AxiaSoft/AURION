@@ -30,6 +30,15 @@ function chartTheme() {
   // of a bar has to mean the same thing in every theme the user can choose.
   const up = pick("--candle-up", "#26d07c");
   const down = pick("--candle-down", "#f4475b");
+  /* A stop and a target are a loss and a profit, not a down bar and an
+     up bar. --candle-up / --candle-down are built from each theme's own
+     accent and are deliberately two shades of ONE hue, so a stop drawn
+     with them came out the same colour as its target - on the glass
+     theme both were teal. --ok and --bad are the semantic pair and stay
+     green and red in every theme, which is the whole reason they were
+     split from the candle colours in the first place. */
+  const ok = pick("--ok", "#26d07c");
+  const bad = pick("--bad", "#f4475b");
   const gold = pick("--gold", "#e8c07a");
   const violet = pick("--violet", "#7c6cff");
   const light = (typeof document !== "undefined" && document.documentElement && document.documentElement.dataset.theme) === "light";
@@ -40,87 +49,34 @@ function chartTheme() {
     text: pick("--chart-text", "#e8edf7"),
     muted: pick("--chart-muted", "#8b93a7"),
     panel: pick("--chart-panel", "rgba(10,12,18,.9)"),
-    up, down, gold, violet,
+    up, down, gold, violet, ok, bad,
     upT: tri(up, "38,208,124"),
     downT: tri(down, "244,71,91"),
+    okT: tri(ok, "38,208,124"),
+    badT: tri(bad, "244,71,91"),
     goldT: tri(gold, "232,192,122"),
     violetT: tri(violet, "124,108,255"),
     fib: light ? "#3c4a63" : "#c9d0de",
     tag: light ? "#f0e4bd" : "#1a1408",
+    /* How the body of a candle is made, not what colour it is.
+
+       Relief and Velvet are defined by the way a surface is formed -- one
+       presses shapes into the page with light, the other inflates them --
+       and every panel on the desk followed suit except the one thing a
+       trader actually looks at. The candles stayed flat rectangles, so on
+       those two themes the chart was the one rectangle on screen that had
+       not been themed at all.
+
+       Named by the theme layer rather than sniffed from data-skin here,
+       for the same reason the colours are: css/themes.css owns what a
+       material looks like, and this file owns drawing it. A theme that
+       says nothing gets "flat", which is the rectangle that was always
+       drawn. */
+    material: String(pick("--candle-style", "flat")).replace(/["']/g, "").trim(),
   };
   __aurionChartTheme = T;
   __aurionChartThemeRev = rev;
   return T;
-}
-
-
-/* ===========================================================================
-   Market sessions
-   ===========================================================================
-   The four centres that set the tone of a trading day. Hours are UTC and do
-   not move; the local clock does, which is exactly why they are stored this
-   way and converted at the edge rather than guessed from the browser.
-
-   Sydney is the one that wraps midnight, so every calculation below has to
-   handle a session whose end hour is smaller than its start - the usual source
-   of an overlay that quietly disappears for two hours a day.
-   =========================================================================== */
-const MARKET_SESSIONS = [
-  { id: "sydney", label: "Sydney", open: 21, close: 6, tint: [124, 108, 255] },
-  { id: "tokyo", label: "Tokyo", open: 0, close: 9, tint: [232, 192, 122] },
-  { id: "london", label: "London", open: 7, close: 16, tint: [62, 224, 196] },
-  { id: "newyork", label: "New York", open: 12, close: 21, tint: [255, 107, 138] },
-];
-
-/** Is this UTC hour inside the session? Handles the midnight wrap. */
-function sessionCovers(session, utcHour) {
-  const h = ((utcHour % 24) + 24) % 24;
-  return session.open <= session.close
-    ? h >= session.open && h < session.close
-    : h >= session.open || h < session.close;
-}
-
-/** Which sessions are open at a moment - London and New York overlap daily. */
-function sessionsAt(date) {
-  if (!(date instanceof Date) || isNaN(date.getTime())) return [];
-  const h = date.getUTCHours() + date.getUTCMinutes() / 60;
-  return MARKET_SESSIONS.filter((s) => sessionCovers(s, h));
-}
-
-
-/**
- * Which sessions open between one bar and the next.
- *
- * The open has to be marked on the candle where it actually happens, so this
- * compares two consecutive bar timestamps rather than asking "is it open now".
- * Two cases it has to survive: a gap in the data - a weekend, or a missing
- * hour - where a whole session may have opened between two bars, and the
- * midnight wrap, where the hour number goes down instead of up.
- */
-function sessionOpensBetween(prev, next) {
-  if (!(prev instanceof Date) || !(next instanceof Date)) return [];
-  if (isNaN(prev.getTime()) || isNaN(next.getTime())) return [];
-  const gapHours = (next.getTime() - prev.getTime()) / 3600000;
-  if (gapHours <= 0) return [];
-  // A gap of a day or more means every session opened in it; marking them all
-  // on one candle would be noise, so the gap itself is left unmarked.
-  if (gapHours >= 24) return [];
-
-  return MARKET_SESSIONS.filter((s) => {
-    const was = sessionCovers(s, prev.getUTCHours() + prev.getUTCMinutes() / 60);
-    const now = sessionCovers(s, next.getUTCHours() + next.getUTCMinutes() / 60);
-    if (!was && now) return true;
-    // On a coarse timeframe a session can open and the bar still land inside
-    // it later; walk the hours in between so a 4H candle still shows the open.
-    if (gapHours > 1) {
-      for (let h = 1; h < gapHours; h++) {
-        const at = new Date(prev.getTime() + h * 3600000);
-        const before = new Date(at.getTime() - 3600000);
-        if (!sessionCovers(s, before.getUTCHours()) && sessionCovers(s, at.getUTCHours())) return true;
-      }
-    }
-    return false;
-  });
 }
 
 
@@ -202,6 +158,45 @@ function shapeId() {
 }
 
 class CandleChart {
+  /* How much of the remembered price window the data must still fill
+     before the scale is allowed to stay put. Below this the chart is
+     mostly empty space and a re-fit is the right answer. */
+  static FIT_FILL = 0.55;
+
+  /* Empty space held between the NEWEST candle and the price column,
+     as a fraction of the visible window.
+
+     Two things about it, both of them the point:
+
+     It is a fraction, not a number of bars, so it means the same thing
+     at every zoom - a slider counted in bars had to be re-set every
+     time the trader zoomed, which is why it is gone.
+
+     And it belongs to the newest bar, not to the viewport. The old
+     margin was simply subtracted from every window: scroll two hundred
+     bars into history and thirty cells of blank still sat on the right
+     where real candles should have been, so part of the chart the
+     trader had deliberately scrolled to was replaced by the gap that
+     was meant to live at the live edge. The gap shrinks bar for bar as
+     the chart is pulled back and is gone once the newest candle is
+     off-screen. */
+  static HEAD_GAP = 0.15;
+
+  /* How near the pointer has to be to grab a stop or a target. A finger
+     covers far more than a mouse and cannot see what it is covering. */
+  static LEVEL_GRAB = 5;
+  static LEVEL_GRAB_TOUCH = 12;
+
+  /* 1, 2, 5 x a power of ten - the step sizes a reader expects to see on
+     an axis. The price window is snapped to the same ladder the axis
+     labels use, so the remembered frame always lands on round numbers. */
+  static niceStep(raw) {
+    if (!(raw > 0) || !Number.isFinite(raw)) return 1;
+    const e = Math.pow(10, Math.floor(Math.log10(raw)));
+    const m = raw / e;
+    return (m <= 1 ? 1 : m <= 2 ? 2 : m <= 5 ? 5 : 10) * e;
+  }
+
   constructor(canvas, opts) {
     this.canvas = canvas;
     this.ctx = canvas.getContext("2d");
@@ -210,7 +205,6 @@ class CandleChart {
 
     /* ---- what is shown ------------------------------------------------ */
     this.type = "candles";
-    this.sessions = false;
     this.grid = true;
     this.crosshair = "cross";      // cross | dot | none
     this.tool = "cursor";
@@ -224,6 +218,9 @@ class CandleChart {
     this.offset = 0;               // bars scrolled back from the newest
     this.span = 120;               // bars across the plot
     this.rightPad = 0;             // empty bars kept to the right of the last
+    /* Breathing room between the newest candle and the price column.
+       Off by default; the chart header turns it on. */
+    this.headGap = false;
     this.scale = { auto: true, log: false, percent: false, invert: false, lock: false, mn: null, mx: null };
 
     /* ---- transient ----------------------------------------------------- */
@@ -266,15 +263,38 @@ class CandleChart {
        catching and turning into a fatal-looking error box. */
     this.ro = new ResizeObserver(() => this.scheduleDraw());
     this.ro.observe(canvas.parentElement || canvas);
+    /* ---- input ---------------------------------------------------------
+       Pointer events only. This canvas used to listen for pointerdown AND
+       touchstart, and a touchscreen fires both for the same finger: a
+       two-finger pinch ran the zoom from the touch handler while a pan
+       drag, started by the first finger's pointerdown, was still live
+       underneath it. The chart zoomed and slid at once and neither
+       gesture felt like it was being obeyed.
+
+       One stream, one source of truth. Pointer events already report
+       touch, pen and mouse, and `touch-action:none` on the canvas means
+       the browser hands us every gesture instead of scrolling the page.
+       Multi-finger work is done by tracking the live pointers in a map,
+       which is also the only way to know a second finger has arrived. */
     canvas.addEventListener("wheel", (e) => this.onWheel(e), { passive: false });
     canvas.addEventListener("pointerdown", (e) => this.onDown(e));
     canvas.addEventListener("pointermove", (e) => this.onMove(e));
     canvas.addEventListener("pointerup", (e) => this.onUp(e));
-    canvas.addEventListener("pointerleave", () => { this.hover = null; this._sigHover = null; this.draw(); });
+    // A cancelled pointer is not an "up": the browser took the gesture
+    // away (a system edge-swipe, a call arriving, the finger sliding off
+    // a captured surface). Without this the drag it started would never
+    // end, and the chart would follow the pointer around for ever after.
+    canvas.addEventListener("pointercancel", (e) => this.onCancel(e));
+    canvas.addEventListener("lostpointercapture", (e) => this.onCancel(e));
+    canvas.addEventListener("pointerleave", (e) => {
+      if (this.pointers && this.pointers.size) return; // mid-gesture, not a real leave
+      /* A finger "leaves" the canvas every time it lifts, which would
+         wipe the card in the same frame the tap just opened it. Touch
+         dismisses by tapping somewhere else instead. */
+      if (this.isTouch(e) || this._sigTapped) { this.hover = null; this.draw(); return; }
+      this.hover = null; this._sigHover = null; this.draw();
+    });
     canvas.addEventListener("contextmenu", (e) => this.onContext(e));
-    canvas.addEventListener("touchstart", (e) => this.onTouch(e), { passive: false });
-    canvas.addEventListener("touchmove", (e) => this.onTouch(e), { passive: false });
-    canvas.addEventListener("touchend", () => { this.pinch = null; });
     canvas.addEventListener("dblclick", (e) => this.onDouble(e));
   }
 
@@ -318,7 +338,7 @@ class CandleChart {
         grid: this.grid,
         crosshair: this.crosshair,
         magnet: this.magnet,
-        sessions: this.sessions,
+        headGap: this.headGap,
       }));
     } catch { /* not fatal */ }
   }
@@ -329,9 +349,9 @@ class CandleChart {
     if (!st || typeof st !== "object") return;
     if (st.type) this.type = st.type;
     if (typeof st.grid === "boolean") this.grid = st.grid;
-    if (typeof st.sessions === "boolean") this.sessions = st.sessions;
     if (st.crosshair) this.crosshair = st.crosshair;
     if (st.magnet) this.magnet = st.magnet;
+    if (typeof st.headGap === "boolean") this.headGap = st.headGap;
     if (st.scale) Object.assign(this.scale, st.scale, { mn: null, mx: null });
     if (Array.isArray(st.indicators)) {
       this.indicators = st.indicators
@@ -394,6 +414,15 @@ class CandleChart {
   canRedo() { return this.future.length > 0; }
 
   /** Tell the interface that the object list or selection moved. */
+  /** Reported on every scroll, separately from changed(), because the
+      answer to "is there more history behind this?" costs a request and
+      must not be asked on every style tweak. */
+  scrolled() {
+    if (typeof this.opts.onScroll === "function") {
+      try { this.opts.onScroll(this); } catch { /* the chart is still fine */ }
+    }
+  }
+
   changed() {
     if (typeof this.opts.onChange === "function") {
       try { this.opts.onChange(this); } catch { /* the chart is still fine */ }
@@ -539,6 +568,62 @@ class CandleChart {
     this.draw();
   }
 
+  /**
+   * Is the pointer on a stop or a target?
+   *
+   * Only ever on the cursor tool: while a drawing tool is armed the
+   * trader is placing a shape, and grabbing a broker level instead
+   * would be a very expensive surprise.
+   */
+  levelAt(x, y) {
+    if (this.tool !== "cursor") return null;
+    const L = this._L;
+    if (!L || x < L.plotL || x > L.plotR) return null;
+    const reach = this._pointerType === "touch"
+      ? CandleChart.LEVEL_GRAB_TOUCH : CandleChart.LEVEL_GRAB;
+    let best = null;
+    for (const z of this._lvlZones || []) {
+      const d = Math.abs(y - z.y);
+      if (d <= reach && (!best || d < best.d)) best = { z, d };
+    }
+    return best ? best.z : null;
+  }
+
+  beginLevelDrag(zone, price) {
+    this._lvlDrag = { ticket: zone.ticket, kind: zone.kind, symbol: zone.symbol,
+      from: zone.price, price, type: zone.type, open: zone.open };
+    this.canvas.style.cursor = "ns-resize";
+    this.draw();
+  }
+
+  moveLevelDrag(price) {
+    if (!this._lvlDrag) return;
+    this._lvlDrag.price = price;
+    this.draw();
+  }
+
+  /**
+   * Let go.
+   *
+   * The chart does not send the order itself - it reports the intent and
+   * the desk decides, because changing a live stop is real money and the
+   * confirmation, the wording and the failure handling belong with every
+   * other order path rather than in the renderer. The line snaps back to
+   * where it was until the broker says otherwise; showing it at the new
+   * price before the fill would be inventing a state.
+   */
+  endLevelDrag(commit) {
+    const d = this._lvlDrag;
+    this._lvlDrag = null;
+    this.canvas.style.cursor = this.cursorFor();
+    this.draw();
+    if (!d || !commit) return;
+    if (!(d.price > 0) || d.price === d.from) return;
+    if (typeof this.opts.onLevelMove === "function") {
+      try { this.opts.onLevelMove({ ...d }); } catch { /* the chart is still fine */ }
+    }
+  }
+
   cursorFor() {
     if (this.tool === "cursor") return "default";
     if (this.tool === "pan") return "grab";
@@ -567,7 +652,6 @@ class CandleChart {
     return type;
   }
 
-  setSessions(on) { this.sessions = Boolean(on); this.saveState(); this.draw(); }
 
   setLevels(positions) {
     this.levels = Array.isArray(positions) ? positions.filter(Boolean) : [];
@@ -676,10 +760,26 @@ class CandleChart {
    */
   slice() {
     const all = this.rows();
-    this.rightPad = Math.max(0, -this.offset);
+    this.rightPad = Math.max(this.headGapCells(), -this.offset);
     const end = all.length - Math.max(0, this.offset);
     const start = Math.max(0, end - this.span + this.rightPad);
     return { rows: all.slice(start, end), start, end };
+  }
+
+  /**
+   * Empty cells the head gap is asking for RIGHT NOW.
+   *
+   * The gap is anchored to the newest bar rather than to the right-hand
+   * edge of the window, which is the whole difference between this and
+   * the fixed margin it replaces. Scrolling back by one bar reveals one
+   * more real candle into the gap, so by the time the newest candle has
+   * left the screen the gap has gone with it and the window is candles
+   * all the way across. Pull back one bar, get one bar: nothing jumps.
+   */
+  headGapCells() {
+    if (!this.headGap) return 0;
+    const want = Math.max(1, Math.round(this.span * CandleChart.HEAD_GAP));
+    return Math.max(0, want - Math.max(0, this.offset));
   }
 
   fmtPrice(p) {
@@ -754,7 +854,7 @@ class CandleChart {
     for (const ind of this.indicators) {
       const def = this.indicatorDef(ind.type);
       if (!def || def.pane !== "main" || ind.visible === false) continue;
-      const out = this.indicatorValues(ind, rows);
+      const out = this.indicatorValues(ind, rows, start);
       for (const plot of def.plots) {
         for (const v of (out[plot.key] || [])) {
           if (v === null || !Number.isFinite(v)) continue;
@@ -768,6 +868,45 @@ class CandleChart {
     else {
       const pad = (mx - mn) * 0.06 || 0.5;
       mn -= pad; mx += pad;
+
+      /* The price scale holds still unless it has to move.
+
+         It used to be re-fitted on every single draw, which is correct
+         arithmetic and the wrong behaviour: with a live feed the scale
+         changed whenever a tick set a new extreme or a new bar pushed
+         the old one out of the window, so every price mapped to a
+         slightly different row each time. Candles drifting is hard to
+         see. A horizontal reference line drifting is not - the stop and
+         the target never settled. Measured on a 120-bar window: 5.7px
+         when a tick made a new high, another 2.8px when the next candle
+         arrived, several times a minute.
+
+         So the fitted window is remembered and reused while the data
+         still sits inside it and still fills enough of it to be worth
+         looking at. When price genuinely leaves, or the range collapses
+         to less than this much of the window - a different instrument,
+         a zoom, a quiet session after a violent one - it re-fits once,
+         in one visible step, which is a scale change the viewer can
+         follow rather than a permanent tremor. */
+      const keep = this._fit;
+      const span = mx - mn;
+      if (keep && mn >= keep.mn && mx <= keep.mx
+          && span / ((keep.mx - keep.mn) || 1) >= CandleChart.FIT_FILL) {
+        mn = keep.mn; mx = keep.mx;
+      } else {
+        /* Snap outwards to a round step when re-fitting. A frame fitted
+           exactly to the data is discarded by the next tick that
+           overshoots it by a fraction of a pip, which is no better than
+           not remembering one at all - the first attempt at this did
+           exactly that and still drifted 2.8px on a new candle. Rounding
+           out to the ladder the axis already uses gives the window slack
+           to absorb ordinary movement, and makes the one re-fit that
+           does happen land on numbers worth reading. */
+        const step = CandleChart.niceStep(span / 6) || span / 6 || 1;
+        mn = Math.floor(mn / step) * step;
+        mx = Math.ceil(mx / step) * step;
+        this._fit = { mn, mx };
+      }
     }
 
     const log = this.scale.log && mn > 0;
@@ -820,96 +959,56 @@ class CandleChart {
     };
   }
 
-  /* ---- indicator values, memoised per frame ---------------------------- */
-  indicatorValues(ind, rows) {
+  /* ---- indicator values, memoised per frame ----------------------------
+   *
+   * Computed over the WHOLE series and then cut to the visible window -
+   * never computed over the window itself.
+   *
+   * This used to be handed `L.rows`, the slice on screen, which meant every
+   * indicator started its warm-up at the left edge of the viewport instead
+   * of at the start of history. An EMA(50) needs fifty closes before it has
+   * a value, so the leftmost fifty bars of a 120-bar window had nothing
+   * drawn: the line began 41% of the way across the chart and the trader saw
+   * a half-drawn indicator. Scrolling back did not help, because the window
+   * moved with the viewport and the warm-up moved with it - the line stayed
+   * stubbornly half-drawn wherever you looked, which is exactly how it was
+   * reported.
+   *
+   * The data to do this properly was always loaded; only the range passed to
+   * calc() was wrong. Measured on 600 bars with a 120-bar window, the blank
+   * counts were EMA(50) 49, MACD 25, BB/SMA/Donchian 19, RSI/ATR 13. All of
+   * them are now zero wherever history reaches back far enough, and where it
+   * genuinely does not - the first bars ever recorded - the gap is real and
+   * is still shown as a gap rather than invented.
+   */
+  indicatorValues(ind, rows, start) {
     const def = this.indicatorDef(ind.type);
     if (!def) return {};
-    const stamp = ind.id + "|" + rows.length + "|" + (rows[0] && rows[0].t) + "|" +
-      (rows[rows.length - 1] && rows[rows.length - 1].c) + "|" + JSON.stringify(ind.params);
+    const full = this.rows();
+    const stamp = ind.id + "|" + full.length + "|" + (full[0] && full[0].t) + "|" +
+      (full[full.length - 1] && full[full.length - 1].c) + "|" + JSON.stringify(ind.params);
     this._indCache = this._indCache || new Map();
     const hit = this._indCache.get(ind.id);
-    if (hit && hit.stamp === stamp) return hit.out;
-    let out = {};
-    try { out = def.calc(rows, ind.params) || {}; } catch { out = {}; }
-    this._indCache.set(ind.id, { stamp, out });
-    return out;
+    let out;
+    if (hit && hit.stamp === stamp) out = hit.out;
+    else {
+      out = {};
+      try { out = def.calc(full, ind.params) || {}; } catch { out = {}; }
+      this._indCache.set(ind.id, { stamp, out });
+    }
+
+    /* Cut to the window the caller is painting. Callers that do not say
+       which window they mean get the whole thing, which is what the
+       indicator list and the settings dialog want. */
+    if (start === undefined || start === null) return out;
+    const from = Math.max(0, Math.round(start));
+    const len = Array.isArray(rows) ? rows.length : full.length - from;
+    const cut = {};
+    for (const key of Object.keys(out)) {
+      cut[key] = Array.isArray(out[key]) ? out[key].slice(from, from + len) : out[key];
+    }
+    return cut;
   }
-  paintSessions(L) {
-    if (!this.sessions) return;
-    const ctx = this.ctx;
-    const rows = L.rows || [];
-    if (rows.length < 2) return;
-
-    ctx.save();
-    for (let i = 0; i < rows.length; i++) {
-      const stamp = rows[i].time || rows[i].ts;
-      const at = stamp ? new Date(stamp) : null;
-      if (!at || isNaN(at.getTime())) continue;
-      const open = sessionsAt(at);
-      if (!open.length) continue;
-
-      const x = L.xOf(i) - L.bw / 2;
-      for (const s of open) {
-        ctx.fillStyle = `rgba(${s.tint[0]},${s.tint[1]},${s.tint[2]},0.06)`;
-        ctx.fillRect(x, L.plotT, L.bw + 0.5, L.plotB - L.plotT);
-      }
-    }
-
-    // The open itself, on the candle where it happens. The band says a session
-    // is running; this says exactly when it started, which is the bar traders
-    // actually mark up.
-    ctx.font = "10px IBM Plex Mono, Vazirmatn, monospace";
-    for (let i = 1; i < rows.length; i++) {
-      const prevAt = new Date(rows[i - 1].time || rows[i - 1].ts || 0);
-      const at = new Date(rows[i].time || rows[i].ts || 0);
-      const opens = sessionOpensBetween(prevAt, at);
-      if (!opens.length) continue;
-
-      const x = Math.round(L.xOf(i) - L.bw / 2) + 0.5;
-      opens.forEach((s, n) => {
-        const tint = `rgb(${s.tint[0]},${s.tint[1]},${s.tint[2]})`;
-        ctx.strokeStyle = tint;
-        ctx.setLineDash([3, 3]);
-        ctx.lineWidth = 1.2;
-        ctx.beginPath();
-        ctx.moveTo(x, L.plotT);
-        ctx.lineTo(x, L.plotB);
-        ctx.stroke();
-        ctx.setLineDash([]);
-
-        // A flag at the bottom, stacked when two centres open on one candle.
-        const label = `${s.label} ${String(s.open).padStart(2, "0")}:00`;
-        const tw = ctx.measureText(label).width + 10;
-        const ly = L.plotB - 16 - n * 15;
-        const lx = Math.min(x + 3, L.plotR - tw - 2);
-        ctx.fillStyle = tint;
-        ctx.globalAlpha = 0.9;
-        ctx.fillRect(lx, ly, tw, 13);
-        ctx.globalAlpha = 1;
-        ctx.fillStyle = "#06070b";
-        ctx.fillText(label, lx + 5, ly + 10);
-      });
-    }
-    ctx.restore();
-
-    // A legend, because a coloured band nobody can name is just tinting.
-    ctx.save();
-    ctx.font = "10px IBM Plex Mono, Vazirmatn, monospace";
-    ctx.textBaseline = "top";
-    const nowOpen = sessionsAt(new Date()).map((s) => s.id);
-    let lx = L.plotL + 8;
-    for (const s of MARKET_SESSIONS) {
-      const live = nowOpen.includes(s.id);
-      ctx.fillStyle = `rgba(${s.tint[0]},${s.tint[1]},${s.tint[2]},${live ? 0.95 : 0.4})`;
-      ctx.fillRect(lx, L.plotT + 7, 7, 7);
-      ctx.fillStyle = live ? chartTheme().text : chartTheme().muted;
-      ctx.fillText(s.label, lx + 11, L.plotT + 6);
-      lx += ctx.measureText(s.label).width + 26;
-    }
-    ctx.restore();
-  }
-
-
   /* =============================================================== paint == */
 
   /** Coalesce every redraw request in a frame into one paint. */
@@ -947,7 +1046,6 @@ class CandleChart {
     ctx.beginPath();
     ctx.rect(L.plotL, L.plotT, L.plotR - L.plotL, L.plotB - L.plotT);
     ctx.clip();
-    this.paintSessions(L);
     this.paintSeries(L);
     this.paintMainIndicators(L);
     this.drawings.forEach((d) => { if (d.visible !== false) this.paintShape(L, d, false); });
@@ -973,9 +1071,11 @@ class CandleChart {
     const T = chartTheme();
     ctx.strokeStyle = T.grid;
     ctx.lineWidth = 1;
-    for (let i = 0; i <= 4; i++) {
-      const y = L.plotT + ((L.plotB - L.plotT) * i) / 4;
-      ctx.beginPath(); ctx.moveTo(L.plotL, y); ctx.lineTo(L.plotR, y); ctx.stroke();
+    /* The same ticks the axis prints, so every horizontal rule has a number
+       against it. They used to be independent - five evenly spaced lines
+       and five evenly spaced labels - which agreed only by coincidence. */
+    for (const t of this.priceTicks(L)) {
+      ctx.beginPath(); ctx.moveTo(L.plotL, t.y); ctx.lineTo(L.plotR, t.y); ctx.stroke();
     }
     // Vertical rules on a round number of bars rather than every bar: a grid
     // you cannot see through is not a grid.
@@ -1097,11 +1197,72 @@ class CandleChart {
         ctx.lineWidth = 1.2;
         ctx.strokeRect(x - bodyW / 2, top, bodyW, h);
       } else {
-        ctx.globalAlpha = 0.94;
-        ctx.fillRect(x - bodyW / 2, top, bodyW, h);
-        ctx.globalAlpha = 1;
+        this.candleBody(ctx, T, x - bodyW / 2, top, bodyW, h, col);
       }
     });
+  }
+
+  /**
+   * One candle body, in whatever material the theme is made of.
+   *
+   * Flat is the rectangle that has always been drawn and stays the default
+   * for ten of the twelve themes. The other two earn their names here:
+   *
+   *   velvet  soft and inflated - rounded corners and a light wash down
+   *           the top third, so the body reads as a cushion rather than a
+   *           block. The radius is capped against both the width and the
+   *           height, because a two-pixel candle rounded by three pixels
+   *           is a dot and the trader loses the open/close edges.
+   *
+   *   relief  pressed out of the page - the fill, then a lighter top edge
+   *           and a darker bottom edge. One pixel each, drawn inside the
+   *           body so the candle keeps its exact bounds: the top of a body
+   *           IS the open or the close, and an emboss that grew the shape
+   *           by a pixel would be lying about the price.
+   *
+   * Both degrade to the flat rectangle when the body is too small to carry
+   * the detail, which is most of the chart when it is zoomed out.
+   */
+  candleBody(ctx, T, bx, by, bw, bh, col) {
+    const material = T.material;
+
+    if (material === "velvet" && bw >= 3 && bh >= 3) {
+      const r = Math.min(bw * 0.34, bh * 0.34, 3.5);
+      ctx.globalAlpha = 0.96;
+      ctx.beginPath();
+      if (ctx.roundRect) ctx.roundRect(bx, by, bw, bh, r);
+      else ctx.rect(bx, by, bw, bh);
+      ctx.fill();
+      // The inflated highlight. Clipped to the body so it follows the
+      // rounded corners instead of squaring them off again.
+      ctx.save();
+      ctx.clip();
+      ctx.globalAlpha = 0.16;
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(bx, by, bw, Math.max(1, bh * 0.34));
+      ctx.restore();
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = col;
+      return;
+    }
+
+    if (material === "relief" && bw >= 3 && bh >= 3) {
+      ctx.globalAlpha = 0.94;
+      ctx.fillRect(bx, by, bw, bh);
+      ctx.globalAlpha = 0.5;
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(bx, by, bw, 1);
+      ctx.globalAlpha = 0.34;
+      ctx.fillStyle = "#000000";
+      ctx.fillRect(bx, by + bh - 1, bw, 1);
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = col;
+      return;
+    }
+
+    ctx.globalAlpha = 0.94;
+    ctx.fillRect(bx, by, bw, bh);
+    ctx.globalAlpha = 1;
   }
 
   /** Resolve an indicator plot colour name to a real one. */
@@ -1123,7 +1284,7 @@ class CandleChart {
     for (const ind of this.indicators) {
       const def = this.indicatorDef(ind.type);
       if (!def || def.pane !== "main" || ind.visible === false) continue;
-      const out = this.indicatorValues(ind, L.rows);
+      const out = this.indicatorValues(ind, L.rows, L.start);
       if (def.band && out[def.band[0]] && out[def.band[1]]) {
         this.paintBand(L, out[def.band[0]], out[def.band[1]], this.plotColor(def.plots[0].color, ind));
       }
@@ -1184,7 +1345,7 @@ class CandleChart {
     const T = chartTheme();
     for (const pane of L.panes) {
       const { ind, def, top, bot } = pane;
-      const out = this.indicatorValues(ind, L.rows);
+      const out = this.indicatorValues(ind, L.rows, L.start);
       let mn = Infinity, mx = -Infinity;
       if (def.range) { mn = def.range[0]; mx = def.range[1]; }
       else {
@@ -1279,6 +1440,69 @@ class CandleChart {
     ctx.setLineDash([]);
   }
 
+  /**
+   * The prices to print up the right-hand axis.
+   *
+   * The axis used to print exactly five numbers, at nought, a quarter, a
+   * half, three quarters and all of the plot height. That had two costs.
+   * The values were whatever happened to fall at those fractions, so the
+   * axis read 1.10374, 1.10521, 1.10668 - arithmetically spaced numbers
+   * nobody can scan - and on a tall chart five of them left most of the
+   * axis blank, so reading a level off the chart meant hovering for the
+   * crosshair instead of just looking.
+   *
+   * Now the step is chosen from the 1-2-5 series, so the labels land on
+   * round numbers, and as many are printed as will fit without touching.
+   * Ticks are generated in price space and then positioned through the
+   * axis's own mapping, which means a logarithmic or inverted axis gets
+   * correct, if unevenly spaced, lines for free; anything that still
+   * crowds after mapping is dropped rather than overprinted.
+   *
+   * In percent mode the same reasoning is applied to the percentages,
+   * because round prices are not round percentages.
+   */
+  priceTicks(L) {
+    const plotH = Math.max(1, L.plotB - L.plotT);
+    const minGap = 26;                       // px between label centres
+    const maxN = Math.max(2, Math.min(40, Math.floor(plotH / minGap)));
+    const nice = CandleChart.niceStep;
+
+    const first = L.rows[0];
+    const pct = this.scale.percent && first && first.c;
+    const base = pct ? first.c : 0;
+
+    /* Work in whatever units the axis is labelled in, so the round numbers
+       are the ones the trader actually reads. */
+    const toUnit = (p) => (pct ? ((p - base) / base) * 100 : p);
+    const toPrice = (u) => (pct ? base * (1 + u / 100) : u);
+
+    let lo = toUnit(L.mn), hi = toUnit(L.mx);
+    if (lo > hi) { const t = lo; lo = hi; hi = t; }
+    const range = hi - lo;
+    if (!(range > 0) || !Number.isFinite(range)) return [];
+
+    const step = nice(range / maxN);
+    const out = [];
+    const start = Math.ceil(lo / step) * step;
+    for (let v = start, guard = 0; v <= hi + step * 1e-6 && guard < 200; v += step, guard++) {
+      /* Floating point: 0.1 + 0.2 must not label itself 0.30000000000000004. */
+      const u = Math.abs(v) < step * 1e-9 ? 0 : Number(v.toFixed(10));
+      const price = toPrice(u);
+      const y = L.yOf(price);
+      if (!Number.isFinite(y) || y < L.plotT - 0.5 || y > L.plotB + 0.5) continue;
+      out.push({ y, text: pct ? u.toFixed(2) + "%" : this.fmtPrice(price) });
+    }
+
+    /* A log or inverted axis can bunch the mapped positions even though the
+       values were evenly spaced, so thin anything that ended up too close. */
+    out.sort((a, b) => a.y - b.y);
+    const kept = [];
+    for (const t of out) {
+      if (!kept.length || t.y - kept[kept.length - 1].y >= minGap - 6) kept.push(t);
+    }
+    return kept;
+  }
+
   /** Price axis on the right, time axis along the bottom. */
   paintAxes(L) {
     const ctx = this.ctx;
@@ -1292,14 +1516,8 @@ class CandleChart {
     ctx.fillStyle = T.muted;
     ctx.textAlign = "right";
     ctx.textBaseline = "middle";
-    const first = L.rows[0];
-    for (let i = 0; i <= 4; i++) {
-      const y = L.plotT + ((L.plotB - L.plotT) * i) / 4;
-      const p = L.pOf(y);
-      const text = this.scale.percent && first && first.c
-        ? (((p - first.c) / first.c) * 100).toFixed(2) + "%"
-        : this.fmtPrice(p);
-      ctx.fillText(text, L.w - 8, Math.min(L.plotB - 2, Math.max(L.plotT + 2, y)));
+    for (const t of this.priceTicks(L)) {
+      ctx.fillText(t.text, L.w - 8, Math.min(L.plotB - 2, Math.max(L.plotT + 2, t.y)));
     }
 
     if (this.tick && (this.tick.bid || this.tick.ask)) {
@@ -1429,39 +1647,62 @@ class CandleChart {
     }
     ctx.textBaseline = "alphabetic";
   }
+  /**
+   * An open position: three lines, and nothing else over the price.
+   *
+   * The stop and the target used to be 1.6px rules with a tinted band
+   * filling the whole width from each of them back to the entry. On a
+   * trade with any room in it that is most of the chart covered in red
+   * and green wash, with the candles - the thing being looked at -
+   * underneath it. The levels are three prices; three lines say so.
+   *
+   * The entry stays dashed and the stop and target stay solid, so the
+   * three are told apart by more than colour, and their prices are
+   * written on the price axis by paintLevelLabels rather than on top of
+   * the candles.
+   */
   paintLevels(L) {
     const ctx = this.ctx;
+    const T = chartTheme();
+    /* Where each stop and target ended up on screen, so a pointer can be
+       tested against them. Rebuilt every paint because the scale moves. */
+    this._lvlZones = [];
+    const drag = this._lvlDrag;
+    ctx.save();
     for (const pos of this.levels || []) {
-      const sl = Number(pos.sl || 0);
-      const tp = Number(pos.tp || 0);
       const open = Number(pos.price_open || 0);
       if (open) {
         const y = L.yOf(open);
-        ctx.strokeStyle = "rgba(" + chartTheme().goldT + ",.55)";
+        ctx.strokeStyle = "rgba(" + T.goldT + ",.55)";
+        ctx.lineWidth = 1;
         ctx.setLineDash([3, 4]);
         ctx.beginPath(); ctx.moveTo(L.plotL, y); ctx.lineTo(L.plotR, y); ctx.stroke();
         ctx.setLineDash([]);
       }
-      if (sl) {
-        const y = L.yOf(sl);
-        ctx.strokeStyle = "rgba(" + chartTheme().downT + ",.95)";
-        ctx.lineWidth = 1.6;
+      for (const [kind, price0, tint] of [["sl", Number(pos.sl || 0), T.badT],
+                                          ["tp", Number(pos.tp || 0), T.okT]]) {
+        const held = drag && drag.ticket === pos.ticket && drag.kind === kind;
+        const price = held ? drag.price : price0;
+        if (!price) continue;
+        const y = L.yOf(price);
+        ctx.strokeStyle = "rgba(" + tint + "," + (held ? 1 : 0.9) + ")";
+        ctx.lineWidth = held ? 2 : 1.2;
+        if (held) ctx.setLineDash([6, 4]);
         ctx.beginPath(); ctx.moveTo(L.plotL, y); ctx.lineTo(L.plotR, y); ctx.stroke();
-        ctx.fillStyle = "rgba(" + chartTheme().downT + ",.16)";
-        const yOpen = open ? L.yOf(open) : y;
-        ctx.fillRect(L.plotL, Math.min(y, yOpen), L.plotR - L.plotL, Math.abs(yOpen - y));
+        ctx.setLineDash([]);
+        /* While it is being moved the number has to travel with it, or
+           the trader is dragging a line to a price they cannot read. */
+        if (held) this.tag(L.plotR, y, this.fmtPrice(price), "rgb(" + tint + ")", "end");
+        this._lvlZones.push({
+          ticket: pos.ticket, symbol: pos.symbol, kind, y,
+          price: price0, type: String(pos.type || "").toLowerCase(),
+          sl: Number(pos.sl || 0), tp: Number(pos.tp || 0),
+          open: Number(pos.price_open || 0),
+        });
       }
-      if (tp) {
-        const y = L.yOf(tp);
-        ctx.strokeStyle = "rgba(" + chartTheme().upT + ",.95)";
-        ctx.lineWidth = 1.6;
-        ctx.beginPath(); ctx.moveTo(L.plotL, y); ctx.lineTo(L.plotR, y); ctx.stroke();
-        ctx.fillStyle = "rgba(" + chartTheme().upT + ",.12)";
-        const yOpen = open ? L.yOf(open) : y;
-        ctx.fillRect(L.plotL, Math.min(y, yOpen), L.plotR - L.plotL, Math.abs(yOpen - y));
-      }
-      ctx.lineWidth = 1.4;
     }
+    ctx.restore();
+    ctx.lineWidth = 1.4;
   }
   /**
    * The robot's planted entry points.
@@ -1801,32 +2042,90 @@ class CandleChart {
   /** Translate if the desk's dictionary is around; fall back to English. */
   i18n(key, fallback) {
     try {
-      const t = window.I18N && window.I18N.t ? window.I18N.t(key) : key;
+      /* The lexical binding, not window.I18N.
+
+         i18n.js declares `const I18N = {...}` at the top level of a
+         classic script. That is a global LEXICAL binding and never a
+         property of window, so `window.I18N` was undefined on every
+         desk and every label routed through here - the signal card's
+         rows, the pending-order tag, the level tags on the price axis -
+         silently rendered its English fallback whatever language the
+         trader had chosen. Measured in the browser: typeof window.I18N
+         "undefined", typeof I18N "object".
+
+         window is still tried second, so a host that does export it
+         there keeps working. */
+      const src = (typeof I18N !== "undefined" && I18N && I18N.t) ? I18N
+        : (typeof window !== "undefined" && window.I18N && window.I18N.t) ? window.I18N
+        : null;
+      const t = src ? src.t(key) : key;
       return !t || t === key ? fallback : t;
     } catch (e) { return fallback; }
   }
+  /**
+   * The price of each level, on the price axis where prices live.
+   *
+   * These were opaque chips sitting inside the plot against the left
+   * edge, which put three solid blocks over the oldest candles on
+   * screen for the whole life of a trade. The axis already exists to
+   * answer "what price is that line", and a tag there covers nothing.
+   *
+   * Drawn from paintAxes, outside the plot clip, so the gutter is
+   * reachable. The role is only named when its name fits beside the
+   * number; the tag sits on its line either way, and the line's own
+   * dash and colour already say which of the three it is.
+   */
   paintLevelLabels(L) {
     const ctx = this.ctx;
+    const T = chartTheme();
+    const gutter = L.padR - 6;
+    if (gutter < 24) return;
+    ctx.save();
     ctx.textAlign = "left";
     ctx.textBaseline = "middle";
-    ctx.font = "11px IBM Plex Mono, Vazirmatn, monospace";
+    ctx.font = "10px IBM Plex Mono, Vazirmatn, monospace";
     for (const pos of this.levels || []) {
       const items = [
-        [Number(pos.sl || 0), chartTheme().down, "SL"],
-        [Number(pos.tp || 0), chartTheme().up, "TP"],
-        [Number(pos.price_open || 0), chartTheme().gold, String(pos.type || "POS").toUpperCase()],
+        [Number(pos.sl || 0), T.bad, this.i18n("signal.sl", "SL")],
+        [Number(pos.tp || 0), T.ok, this.i18n("signal.tp", "TP")],
+        [Number(pos.price_open || 0), T.gold, String(pos.type || "POS").toUpperCase()],
       ];
       for (const [p, col, label] of items) {
         if (!p) continue;
         const y = Math.min(L.plotB - 2, Math.max(L.plotT + 2, L.yOf(p)));
-        const text = label + " " + this.fmtPrice(p);
-        const tw = Math.min(160, ctx.measureText(text).width + 14);
-        ctx.fillStyle = chartTheme().panel;
-        ctx.fillRect(L.plotL + 6, y - 9, tw, 18);
+        const price = this.fmtPrice(p);
+        const full = label + " " + price;
+        const text = ctx.measureText(full).width + 10 <= gutter ? full : price;
         ctx.fillStyle = col;
-        ctx.fillText(text, L.plotL + 12, y);
+        ctx.fillRect(L.w - L.padR + 3, y - 8, gutter, 16);
+        /* The tag is a solid block of the level's own colour, so the ink
+           on it is picked against that colour and not against the
+           panel - a theme whose target green is pale and whose text is
+           white would otherwise print white on near-white. */
+        ctx.fillStyle = this.inkOn(col);
+        ctx.fillText(text, L.w - L.padR + 7, y);
       }
     }
+    ctx.restore();
+    ctx.textAlign = "left";
+    ctx.textBaseline = "alphabetic";
+    ctx.font = "11px IBM Plex Mono, Vazirmatn, monospace";
+  }
+
+  /** Black or white, whichever can be read on top of `col`. */
+  inkOn(col) {
+    const m = String(col).trim();
+    let r = 0, g = 0, b = 0;
+    const hex = m.match(/^#([0-9a-f]{3}|[0-9a-f]{6})$/i);
+    if (hex) {
+      const h = hex[1].length === 3 ? hex[1].replace(/./g, (c) => c + c) : hex[1];
+      r = parseInt(h.slice(0, 2), 16); g = parseInt(h.slice(2, 4), 16); b = parseInt(h.slice(4, 6), 16);
+    } else {
+      const parts = m.match(/-?\d+(\.\d+)?/g);
+      if (!parts || parts.length < 3) return "#000";
+      [r, g, b] = parts.slice(0, 3).map(Number);
+    }
+    return (r * 299 + g * 587 + b * 114) / 1000 > 150 ? "rgba(0,0,0,.82)" : "rgba(255,255,255,.95)";
   }
 
   /* ============================================================= shapes == */
@@ -2363,7 +2662,10 @@ class CandleChart {
         ctx.fillStyle = d.locked ? T.muted : T.text;
         ctx.strokeStyle = T.panel;
         ctx.lineWidth = 1.5;
-        ctx.beginPath(); ctx.arc(pt.x, pt.y, 4.5, 0, Math.PI * 2);
+        // Draw the handle the size it can actually be grabbed at, so the
+        // target the trader aims for is the target shapeAt() tests.
+        const r = this.coarse ? 9 : 4.5;
+        ctx.beginPath(); ctx.arc(pt.x, pt.y, r, 0, Math.PI * 2);
         ctx.fill(); ctx.stroke();
       });
     }
@@ -2538,6 +2840,26 @@ class CandleChart {
     ctx.textBaseline = "middle";
     ctx.textAlign = d.align === "center" ? "center" : (d.align === "end" ? "right" : "left");
 
+    /* The marker tool used to stamp the pushpin emoji. An emoji is not ours
+       to draw: every platform paints it differently, it ignores the chart's
+       colour, and it does not scale with the rest of the annotations. When
+       no text is given, the marker is now a drawn pin in the object's own
+       colour, exactly like the flag above it. Anything the trader types in
+       themselves is still their own content and is drawn as typed. */
+    if (kind === "emoji" && !text) {
+      const h = size * 1.5;
+      ctx.strokeStyle = color; ctx.fillStyle = color;
+      ctx.lineWidth = 1.5; ctx.lineCap = "round";
+      ctx.beginPath();
+      ctx.moveTo(at.x, at.y); ctx.lineTo(at.x, at.y - h * 0.42);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(at.x, at.y - h * 0.68, h * 0.28, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+      return;
+    }
+
     if (kind === "flag") {
       ctx.strokeStyle = color; ctx.fillStyle = color;
       ctx.lineWidth = 1.5;
@@ -2583,8 +2905,15 @@ class CandleChart {
     if (!L) return null;
     const r = this.canvas.getBoundingClientRect();
     const x = e.clientX - r.left, y = e.clientY - r.top;
-    const i = Math.max(0, Math.min(L.rows.length - 1, L.iOf(x)));
-    const row = L.rows[i];
+    const raw = L.iOf(x);
+    const i = Math.max(0, Math.min(L.rows.length - 1, raw));
+    /* Out in the empty margin there is no bar, so there is no bar time
+       either. Reporting the last candle's time there would make every
+       time-snapping tool slide its anchor back onto that candle - the
+       drawing would be placed in the margin and painted somewhere else.
+       An empty time sends the point down the continuous-gx path, which
+       is what the margin exists for. */
+    const row = raw >= 0 && raw < L.rows.length ? L.rows[raw] : null;
     // gx is where the pointer really is, in bar units and unclamped: it can
     // sit between two bars, before the first or out in the empty margin past
     // the last. Everything that is drawn uses it; only the legend and the
@@ -2680,7 +3009,7 @@ class CandleChart {
   }
 
   shapeAt(L, x, y) {
-    const near = 8;
+    const near = this.grabRadius;
     for (let i = this.drawings.length - 1; i >= 0; i--) {
       const d = this.drawings[i];
       if (d.visible === false) continue;
@@ -2775,10 +3104,27 @@ class CandleChart {
 
   /* ========================================================== navigation == */
 
-  maxOffset() { return Math.max(0, this.rows().length - Math.round(this.span * 0.2)); }
+  /**
+   * The travel limits: the chart stops at its own two ends.
+   *
+   * Both bounds used to allow scrolling into nothing. maxOffset let the
+   * window run on until only a fifth of it still held bars, so dragging
+   * left eventually left a handful of stretched candles adrift; minOffset
+   * allowed the window to be pulled 45% of a screen past the newest bar,
+   * into an empty right-hand margin. The margin is a convention borrowed
+   * from desktop terminals, but it was reported as a bug here - you push
+   * the chart and end up staring at blank space - so the chart now simply
+   * stops when the data does, by hand and by wheel alike.
+   *
+   * Scrolled fully back, the oldest bar sits at the left edge; scrolled
+   * fully forward, the newest sits at the right. The window always stays
+   * full of bars. When there is less history than fits on screen there is
+   * nowhere to go at all, and both bounds collapse to zero.
+   */
+  maxOffset() { return Math.max(0, this.rows().length - this.span); }
 
-  /** How far past the newest bar the chart may be pulled. */
-  minOffset() { return -Math.floor(this.span * 0.45); }
+  /** The newest bar is the right-hand edge; there is nothing beyond it. */
+  minOffset() { return 0; }
 
   /**
    * Zoom.
@@ -2788,6 +3134,7 @@ class CandleChart {
    * chart feels amateur. `at` is a bar index in the visible slice.
    */
   zoom(dir, at) {
+    this.forgetScaleFit();
     const total = this.rows().length;
     if (!total) return;
     const before = this.span;
@@ -2816,13 +3163,54 @@ class CandleChart {
    * never mirrored, so direction does not depend on the language at all.
    */
   pan(bars) {
+    this.forgetScaleFit();
     this.offset += bars;
     this.clampOffset();
     this.draw();
+    /* Scrolling changes whether the live edge is on screen, and the
+       control that offers to take you back has to know. */
+    this.changed();
+    this.scrolled();
   }
 
   clampOffset() {
     this.offset = Math.max(this.minOffset(), Math.min(this.maxOffset(), this.offset));
+  }
+
+  /**
+   * Begin a pan, recording enough to move the chart on both axes.
+   *
+   * A finger had only ever been able to push the chart sideways. The price
+   * axis was reachable by dragging with the right button held, or by
+   * dragging the axis itself - neither of which a touchscreen can do - so
+   * on a phone the chart could not be moved up or down at all, and a
+   * candle that sat above or below the window was simply unreachable.
+   *
+   * The same drag now carries the price range it started from, so the
+   * gesture can move time and price together. Which of those actually
+   * happens is decided in onMove: a finger gets both axes, a left mouse
+   * drag keeps to time alone, because on a desktop the right button
+   * already does the two-axis drag and quietly changing what the left one
+   * does would move the chart under people who were not asking for it.
+   */
+  panDrag(e, raw) {
+    this.forgetScaleFit();
+    const L = (raw && raw.L) || this._L || this.layout();
+    const kind = (e && e.pointerType) || this._pointerType || "mouse";
+    return {
+      mode: "pan",
+      /* The pointer that started THIS drag, not what the device is capable
+         of. A touchscreen laptop reports a coarse pointer even while a
+         mouse is being used, and that must not change what the mouse does. */
+      twoAxis: kind === "touch" || kind === "pen",
+      x: e.clientX,
+      y: e.clientY,
+      off: this.offset,
+      mn: L ? L.mn : null,
+      mx: L ? L.mx : null,
+      plotH: L ? (L.plotB - L.plotT) : 1,
+      bw: L ? L.bw : 1,
+    };
   }
 
   /**
@@ -2922,6 +3310,7 @@ class CandleChart {
    * exactly on both, and inverted axes drag the right way round.
    */
   panPrice(start, dy) {
+    this.forgetScaleFit();
     const h = start.plotH || 1;
     const dir = this.scale.invert ? -1 : 1;
     this.scale.auto = false;
@@ -2947,19 +3336,63 @@ class CandleChart {
   }
 
   setAutoScale(on) {
+    this.forgetScaleFit();
     this.scale.auto = on !== false;
     if (this.scale.auto) { this.scale.mn = null; this.scale.mx = null; }
     this.saveState();
     this.draw();
   }
 
-  setLogScale(on) { this.scale.log = Boolean(on); this.saveState(); this.draw(); }
-  setPercentScale(on) { this.scale.percent = Boolean(on); this.saveState(); this.draw(); }
-  setInvertScale(on) { this.scale.invert = Boolean(on); this.saveState(); this.draw(); }
+  setLogScale(on) { this.scale.log = Boolean(on); this.forgetScaleFit(); this.saveState(); this.draw(); }
+  setPercentScale(on) { this.scale.percent = Boolean(on); this.forgetScaleFit(); this.saveState(); this.draw(); }
+  setInvertScale(on) { this.scale.invert = Boolean(on); this.forgetScaleFit(); this.saveState(); this.draw(); }
+
+  /* Deliberate gestures beat the sticky scale: a zoom, a pan or a scale
+     switch is the viewer asking for a different frame, so the
+     remembered one is dropped and the next draw re-fits. */
+  forgetScaleFit() { this._fit = null; }
+
+  /**
+   * How far the newest candle sits from the price column, in bars.
+   *
+   * A chart with the live candle jammed against the axis is hard to read
+   * precisely because the next move has no room to appear in. The amount
+   * is a preference rather than a constant: a scalper wants a sliver, a
+   * swing trader wants half a screen.
+   */
+  setHeadGap(on) {
+    this.headGap = !!on;
+    this.forgetScaleFit();
+    this.clampOffset();
+    this.saveState();
+    this.draw();
+    this.changed();
+    return this.headGap;
+  }
+
+  headGapOn() { return !!this.headGap; }
+
+  /** Is the newest candle in view? */
+  atLatest() { return this.offset <= 0; }
+
+  /**
+   * Back to the live edge.
+   *
+   * Scrolling into history is one gesture; getting back was several, and
+   * on a phone it was a long drag with no landmark to stop at.
+   */
+  scrollToLatest() {
+    this.offset = 0;
+    this.forgetScaleFit();
+    this.clampOffset();
+    this.draw();
+    this.changed();
+  }
 
   fit() {
+    this.forgetScaleFit();
     this.offset = 0;
-    this.rightPad = 0;
+    this.rightPad = this.headGapCells();
     this.span = Math.min(160, Math.max(30, this.rows().length || 40));
     this.setAutoScale(true);
     this.draw();
@@ -3042,7 +3475,9 @@ class CandleChart {
 
   askText(kind, pt, after) {
     const finish = (txt) => {
-      if (!txt && kind !== "note") return;
+      /* A marker with no words is a pin, not a mistake, so it is allowed
+         through the same way an empty note is. */
+      if (!txt && kind !== "note" && kind !== "emoji") return;
       const obj = this.addObject({
         kind, a: pt, text: txt,
         color: chartTheme().gold,
@@ -3050,16 +3485,50 @@ class CandleChart {
       if (typeof after === "function") after(obj);
     };
     if (typeof this.opts.onText === "function") {
-      this.opts.onText(kind === "emoji" ? "📌" : "", finish);
+      this.opts.onText("", finish);
       return;
     }
-    finish(window.prompt("", kind === "emoji" ? "📌" : "") || "");
+    finish(window.prompt("", "") || "");
   }
 
   onDown(e) {
+    this._pointerType = (e && e.pointerType) || "mouse";
+    if (!this.pointers) this.pointers = new Map();
+    if (e && e.pointerId != null) {
+      this.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY, id: e.pointerId });
+    }
+    // Second finger: stop whatever one finger was doing and frame the
+    // chart instead. Third and beyond are ignored rather than guessed at.
+    if (this.pointers.size === 2) { this.beginPinch(); return; }
+    if (this.pointers.size > 2) return;
+
     this._moved = false;
+    this._downAt = e ? { x: e.clientX, y: e.clientY } : null;
+    this.armLongPress(e);
     const raw = this.hit(e);
+    /* A finger that lands on a signal is asking to read it. Remember
+       which one, so the lift can answer in one tap: a touch pointer
+       never produces the pointermove that the hover card is built on,
+       so before this a tap did literally nothing, and the card only
+       ever appeared because a real finger wobbles. */
+    this._downSig = null;
+    if (raw && raw.valid && this.isTouch(e)) {
+      const h = this.signalAt(raw.x, raw.y);
+      if (h) this._downSig = h;
+    }
     if (!raw) return;
+    /* A stop or a target under the pointer wins the press, ahead of the
+       tools and ahead of selection. It is tested here rather than after
+       them because a level sits ON the chart, and whatever the cursor
+       tool would otherwise do - deselect, begin a marquee - would
+       swallow the grab and the line would simply never move. */
+    const grab = raw.valid ? this.levelAt(raw.x, raw.y) : null;
+    if (grab) {
+      this.clearLongPress();
+      this.beginLevelDrag(grab, raw.p);
+      if (e && e.preventDefault) e.preventDefault();
+      return;
+    }
     const hit = this.snapHit(raw);
 
     /* ---- the right button: take the chart anywhere --------------------
@@ -3104,7 +3573,7 @@ class CandleChart {
 
     /* ---- middle button or held space always pans ---------------------- */
     if (e.button === 1 || this._space || this.tool === "pan") {
-      this.drag = { mode: "pan", x: e.clientX, off: this.offset };
+      this.drag = this.panDrag(e, raw);
       this.canvas.setPointerCapture(e.pointerId);
       this.canvas.style.cursor = "grabbing";
       return;
@@ -3116,9 +3585,10 @@ class CandleChart {
       const need = this.needs(this.draft.kind);
       if (need === -1) return;
       const keys = this.anchorKeys(this.draft);
-      const at = this.placed(this.draft);
+      const at = this.draft.fixed != null ? this.draft.fixed : this.placed(this.draft);
       if (at < need) {
         this.draft[keys[at]] = this.point(hit);
+        this.draft.fixed = at + 1;
         if (at + 1 >= need) this.commitDraft();
         else this.draw();
         return;
@@ -3151,7 +3621,7 @@ class CandleChart {
       }
       if (this.selected) this.select(null);
       if (this.pickPrice) { this._priceClick = hit.p; return; }
-      this.drag = { mode: "pan", x: e.clientX, off: this.offset };
+      this.drag = this.panDrag(e, raw);
       this.canvas.setPointerCapture(e.pointerId);
       this.canvas.style.cursor = "grabbing";
       return;
@@ -3196,7 +3666,13 @@ class CandleChart {
       this.draft = { kind: this.tool, pts: [pt], a: pt, b: pt, color: this.colorFor(this.tool), width: this.tool === "highlighter" ? 2 : 1.4 };
       return;
     }
-    this.draft = { kind: this.tool, a: pt, b: pt, color: this.colorFor(this.tool) };
+    // `fixed` is how many anchors the trader has actually committed, which
+    // is not the same as how many are filled in. Both a and b are set from
+    // the first point so the shape has something to paint while it is
+    // being dragged out - but counting filled anchors made a brand-new
+    // draft look finished, and the click-click branch above could never
+    // run. See the note on commitDraft().
+    this.draft = { kind: this.tool, a: pt, b: pt, fixed: 1, color: this.colorFor(this.tool) };
   }
 
   colorFor(tool) {
@@ -3207,9 +3683,21 @@ class CandleChart {
     return T.gold;
   }
 
+  /**
+   * Turn the draft into a real object.
+   *
+   * Two ways in, and both have to work: drag one point to the other, or
+   * click once for each end. The second was dead code for a long time -
+   * a fresh two-point draft fills both `a` and `b` with the first point
+   * so there is something to paint, and the old count of "placed"
+   * anchors could not tell that apart from a finished shape. It mattered
+   * most on a phone, where dragging a precise line is hard and tapping
+   * twice is the natural way to do it.
+   */
   commitDraft() {
     if (!this.draft) return;
     const d = this.draft;
+    delete d.fixed;
     this.draft = null;
     if ((d.kind === "long" || d.kind === "short") && d.a && d.b && !d.c) {
       // The target starts at twice the risk, which is a starting point and
@@ -3227,7 +3715,70 @@ class CandleChart {
   }
 
   onMove(e) {
-    this._moved = true;
+    if (e && e.pointerId != null && this.pointers && this.pointers.has(e.pointerId)) {
+      this.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY, id: e.pointerId });
+    }
+    if (this.pinch) { if (e && e.preventDefault) e.preventDefault(); this.movePinch(); return; }
+    if (this.pointers && this.pointers.size > 1) return;
+
+    /* A level being dragged owns every move until the pointer lifts. */
+    if (this._lvlDrag) {
+      const lh = this.hit(e);
+      if (lh) this.moveLevelDrag(lh.p);
+      if (e && e.preventDefault) e.preventDefault();
+      return;
+    }
+
+    /* Hovering one says so. A line that can be dragged and gives no sign
+       of it is a feature nobody finds. Only the cursor is touched, and
+       only to set or clear this one shape, so it cannot fight whatever
+       else is steering the pointer. */
+    if (!this.drag && (!this.pointers || !this.pointers.size)) {
+      const hv = this.hit(e);
+      const over = hv && hv.valid ? this.levelAt(hv.x, hv.y) : null;
+      if (over) this.canvas.style.cursor = "ns-resize";
+      else if (this.canvas.style.cursor === "ns-resize") this.canvas.style.cursor = this.cursorFor();
+    }
+
+    // A finger never holds perfectly still, so treating any movement at
+    // all as a drag meant a tap on a touchscreen was never a tap: the
+    // click-to-select and click-to-set-price paths, both guarded by
+    // `!this._moved`, could not be reached with a finger. Allow a little
+    // wander before calling it a drag, and more of it for a finger.
+    if (!this._moved && this._downAt) {
+      const slop = this.tapSlop;
+      if (Math.hypot(e.clientX - this._downAt.x, e.clientY - this._downAt.y) > slop) {
+        this._moved = true;
+        this.clearLongPress();   // it became a drag, so it is not a press
+        /* Re-anchor the drag where it became one. Without this the chart
+           lurches by the whole slop distance on the first real move, and
+           with a bar only a few pixels wide even an unnoticed wobble
+           inside the slop used to round to a whole bar - which is the
+           jump you feel when tapping something on a phone.
+
+           A finger only. A mouse has no wobble to forgive, and moving
+           its anchor would make the pointer and the chart disagree by
+           the slop distance for the rest of the drag. */
+        if (this.isTouch(e) && this.drag && this.drag.mode === "pan") {
+          /* Anchor on the slop boundary, not under the finger. Moving
+             it all the way here would throw away everything this event
+             travelled, so a single large move - a flick, or one coarse
+             event from a slow device - would pan by nothing at all.
+             Taking the point where the gesture crossed the threshold
+             keeps it continuous: the pan starts at exactly zero and
+             grows from there, with the slop deducted once. */
+          const dxT = e.clientX - this._downAt.x;
+          const dyT = e.clientY - this._downAt.y;
+          const dist = Math.hypot(dxT, dyT) || 1;
+          this.drag.x = this._downAt.x + (dxT / dist) * slop;
+          this.drag.y = this._downAt.y + (dyT / dist) * slop;
+          this.drag.off = this.offset;
+          const L0 = this._L || this.layout();
+          if (L0) { this.drag.mn = L0.mn; this.drag.mx = L0.mx; }
+        }
+      }
+    } else if (!this._downAt) this._moved = true;
+
     const raw = this.hit(e);
     if (!raw) return;
     const hit = this.snapHit(raw);
@@ -3254,18 +3805,35 @@ class CandleChart {
 
     if (this.drag) {
       if (this.drag.mode === "pan") {
+        /* Still inside the tap slop: this may yet be a tap, and a tap
+           must not move the chart by even one bar. Touch only - a mouse
+           drag is deliberate from the first pixel and has always
+           tracked the pointer one to one. */
+        if (!this._moved && this.isTouch(e)) return;
         const L = this._L || this.layout();
         if (L) {
           const dx = e.clientX - this.drag.x;
+          const was = this.offset;
           this.offset = this.drag.off + Math.round(dx / L.bw);
           this.clampOffset();
+          /* Dragging is the usual way into deep history, and it does not
+             go through pan(). Report it, or the chart runs out of bars
+             for everyone except the few who scroll with the keyboard. */
+          if (this.offset !== was) this.scrolled();
+        }
+        /* A finger moves the chart wherever it goes, price included. See
+           panDrag for why the left mouse button deliberately does not. */
+        if (this.drag.twoAxis && this.drag.mn !== null && this.drag.mn !== undefined) {
+          this.panPrice(this.drag, e.clientY - this.drag.y);
         }
       } else if (this.drag.mode === "free") {
         const dx = e.clientX - this.drag.x;
         const dy = e.clientY - this.drag.y;
         if (Math.abs(dx) > 2 || Math.abs(dy) > 2) this._rightDrag = true;
+        const wasFree = this.offset;
         this.offset = this.drag.off + Math.round(dx / (this.drag.bw || 1));
         this.clampOffset();
+        if (this.offset !== wasFree) this.scrolled();
         this.panPrice(this.drag, dy);
       } else if (this.drag.mode === "stretch") {
         const dy = e.clientY - this.drag.y;
@@ -3304,7 +3872,9 @@ class CandleChart {
         this.draft.b = pt;
       } else {
         const keys = this.anchorKeys(this.draft);
-        const at = Math.max(1, this.placed(this.draft));
+        const at = this.draft.fixed != null
+          ? this.draft.fixed
+          : Math.max(1, this.placed(this.draft));
         this.draft[keys[Math.min(at, keys.length - 1)]] = pt;
       }
     }
@@ -3312,6 +3882,94 @@ class CandleChart {
   }
 
   onUp(e) {
+    if (e && e.pointerId != null && this.pointers) this.pointers.delete(e.pointerId);
+    this.clearLongPress();
+    if (this._lvlDrag) {
+      if (e && e.pointerId != null && this.pointers) this.pointers.delete(e.pointerId);
+      this.endLevelDrag(true);
+      return;
+    }
+    if (this._longFired) {
+      // The menu is already open from the press. Letting this up run on
+      // would immediately select or deselect underneath it.
+      this._longFired = false;
+      this.drag = null;
+      this.canvas.style.cursor = this.cursorFor();
+      return;
+    }
+    if (this.pinch) {
+      // One finger lifted out of a pinch. Do not fall through into the
+      // click handling below - the gesture was a zoom, not a tap, and
+      // finishing it as a tap would select or deselect under the hand.
+      if (!this.pointers || this.pointers.size < 2) this.pinch = null;
+      if (this.pointers && this.pointers.size) return;
+      this.drag = null;
+      this.canvas.style.cursor = this.cursorFor();
+      this.draw();
+      return;
+    }
+    if (this.pointers && this.pointers.size) return;
+
+    // Double tap. The browser's own dblclick is not dependable from a
+    // finger once the canvas has taken the gesture with touch-action:
+    // none, and everything it does here - open a drawing's settings,
+    // refit the chart, restore the price axis - is worth having on a
+    // phone. Recognise it ourselves: two taps, close together in time
+    // and in space.
+    /* One tap reads a signal.
+     *
+     * The card is a hover construct, and a finger never hovers: the only
+     * pointermove a tap produces is the wobble of the hand holding the
+     * phone, so the card appeared at random and the same wobble panned
+     * the chart under it. A tap that landed on a signal at pointerdown
+     * and has not turned into a drag shows that signal's card here, on
+     * the first tap, and nothing moves.
+     *
+     * Tapping it again, or anywhere else, puts it away - so there is a
+     * way out that does not require finding a close button on a canvas.
+     * It deliberately does not feed the double-tap tracker below: two
+     * taps on a signal are "open it, close it", not "refit the chart".
+     */
+    if (this.isTouch(e) && !this._moved && !this._longFired) {
+      const tapped = this._downSig;
+      const showing = this._sigHover;
+      this._downSig = null;
+      if (tapped) {
+        const same = showing && showing.sig === tapped.sig;
+        this._sigHover = same ? null : tapped;
+        this._pinned = same ? null : tapped.sig;
+        this._sigTapped = !same;
+        this._lastTap = null;
+        this.drag = null;
+        this.canvas.style.cursor = this.cursorFor();
+        this.draw();
+        return;
+      }
+      if (showing || this._pinned) {
+        this._sigHover = null;
+        this._pinned = null;
+        this._sigTapped = false;
+        this.drag = null;
+        this.canvas.style.cursor = this.cursorFor();
+        this.draw();
+        return;
+      }
+    }
+
+    if (e && (e.pointerType === "touch" || e.pointerType === "pen") && !this._moved) {
+      const now = Date.now();
+      const last = this._lastTap;
+      if (last && now - last.at < 320 &&
+          Math.hypot(e.clientX - last.x, e.clientY - last.y) < 28) {
+        this._lastTap = null;
+        this.drag = null;
+        this.canvas.style.cursor = this.cursorFor();
+        this.onDouble(e);
+        return;
+      }
+      this._lastTap = { at: now, x: e.clientX, y: e.clientY };
+    }
+
     if (this.drag && (this.drag.mode === "free" || this.drag.mode === "stretch")) {
       if (this.drag.mode === "stretch" && this._stretch) this._stretch.until = Date.now() + 700;
       this.drag = null;
@@ -3375,29 +4033,197 @@ class CandleChart {
     return false;
   }
 
-  onTouch(e) {
-    if (e.touches.length === 2) {
-      e.preventDefault();
-      const [t1, t2] = e.touches;
-      const d = Math.hypot(t1.clientX - t2.clientX, t1.clientY - t2.clientY);
-      const mid = (t1.clientX + t2.clientX) / 2;
-      if (!this.pinch) { this.pinch = { d, span: this.span, mid, off: this.offset }; return; }
-      const k = this.pinch.d / (d || 1);
-      this.span = Math.max(8, Math.min(Math.max(20, this.rows().length), Math.round(this.pinch.span * k)));
-      const L = this._L || this.layout();
-      if (L) {
-        const dx = mid - this.pinch.mid;
-        this.offset = this.pinch.off + Math.round(dx / L.bw);
-        this.clampOffset();
+  /* ===================================================== touch gestures == */
+
+  /**
+   * Is this a finger?
+   *
+   * The last pointer to touch the canvas is the honest answer once the
+   * trader has interacted. Before that there is nothing to go on, so the
+   * device's own capability stands in - otherwise the first tap on a
+   * phone is tested against mouse tolerances, and the handles are drawn
+   * at mouse size until something has already been grabbed.
+   *
+   * A hybrid laptop reports coarse too, and that is the right default:
+   * generous targets cost a mouse user nothing.
+   */
+  /**
+   * Is THIS event a finger?
+   *
+   * `coarse` answers for the device and deliberately keeps its last
+   * answer, which is right for sizing handles but wrong for deciding
+   * what a gesture meant: on a touchscreen laptop it stays true while a
+   * mouse is being used. Anything that changes behaviour rather than
+   * size asks this instead, and only falls back to the device when the
+   * event itself has nothing to say.
+   */
+  isTouch(e) {
+    if (e && e.pointerType) return e.pointerType === "touch" || e.pointerType === "pen";
+    return this.coarse;
+  }
+
+  get coarse() {
+    if (this._pointerType) return this._pointerType === "touch" || this._pointerType === "pen";
+    if (this._coarseDevice == null) {
+      try {
+        const mm = (this.win || (typeof window !== "undefined" ? window : null));
+        this._coarseDevice = !!(mm && mm.matchMedia && mm.matchMedia("(pointer: coarse)").matches);
+      } catch { this._coarseDevice = false; }
+    }
+    return this._coarseDevice;
+  }
+
+  /**
+   * How close counts as "on it", in CSS pixels.
+   *
+   * 8px is a mouse tolerance: a cursor is a single pixel and the user can
+   * see exactly where it is. A fingertip covers roughly 9mm of glass -
+   * about 40px - and the finger hides the very thing it is reaching for.
+   * Grabbing a trendline on a phone was close to impossible at 8px, which
+   * is why the drawing tools felt broken on mobile and fine on a desktop.
+   *
+   * The handles are drawn larger to match when a finger is in use, so the
+   * target the trader sees is the target the code actually tests.
+   */
+  get grabRadius() { return this.coarse ? 22 : 8; }
+
+  /** How far a pointer may wander before it stops counting as a tap. */
+  get tapSlop() { return this.coarse ? 10 : 3; }
+
+  /** The two live pointers, oldest first, or null. */
+  _pinchPair() {
+    if (!this.pointers || this.pointers.size < 2) return null;
+    const it = this.pointers.values();
+    return [it.next().value, it.next().value];
+  }
+
+  /**
+   * Begin a pinch, abandoning whatever one finger had started.
+   *
+   * The second finger landing is a change of intent: the trader is no
+   * longer drawing a trendline, they are framing the chart. Anything the
+   * first finger began has to be rolled back, or a pinch leaves a stray
+   * two-pixel line behind every time.
+   */
+  beginPinch() {
+    const pair = this._pinchPair();
+    if (!pair) return;
+    const [a, b] = pair;
+    if (this.drag && this.drag.mode === "shape") this.undo(true);
+    this.drag = null;
+    this.dragLevel = null;
+    if (this.draft && this.needs(this.draft.kind) !== -1) this.draft = null;
+    else if (this.draft) this.draft = null;
+    const L = this._L || this.layout();
+    this.pinch = {
+      d: Math.hypot(a.x - b.x, a.y - b.y),
+      mid: (a.x + b.x) / 2,
+      span: this.span,
+      off: this.offset,
+      // Zoom about the point between the fingers rather than the middle
+      // of the screen, so the bars under the hand stay under the hand.
+      anchor: L ? ((a.x + b.x) / 2 - L.padL) / (L.bw || 1) + L.start : null,
+    };
+    this.canvas.style.cursor = this.cursorFor();
+  }
+
+  /** Update zoom and position from the two live fingers. */
+  movePinch() {
+    const pair = this._pinchPair();
+    if (!pair || !this.pinch) return;
+    const [a, b] = pair;
+    const d = Math.hypot(a.x - b.x, a.y - b.y);
+    const mid = (a.x + b.x) / 2;
+    const k = this.pinch.d / (d || 1);
+    const most = Math.max(20, this.rows().length);
+    this.span = Math.max(8, Math.min(most, Math.round(this.pinch.span * k)));
+    const L = this.layout();
+    if (L) {
+      // Hold the anchor bar under the midpoint of the fingers, then apply
+      // however far that midpoint has travelled. Pinch and two-finger pan
+      // are one gesture, which is how every map and every chart the
+      // trader already uses behaves.
+      if (this.pinch.anchor != null) {
+        const want = (mid - L.padL) / (L.bw || 1) + L.start;
+        this.offset += Math.round(want - this.pinch.anchor);
+      } else {
+        this.offset = this.pinch.off + Math.round((mid - this.pinch.mid) / (L.bw || 1));
+      }
+      this.clampOffset();
+    }
+    // One paint per frame, not one per finger per event. A pinch reports
+    // a move for each finger and a phone can deliver them faster than it
+    // can paint, so painting synchronously here lets the work pile up
+    // behind the gesture and the chart lags the hand.
+    this.scheduleDraw();
+  }
+
+  /**
+   * Long press: the finger's right-click.
+   *
+   * The context menu - object settings, delete, the price actions - was
+   * reachable only by right-dragging, which a touchscreen cannot do. On
+   * a phone the menu simply did not exist, so a drawing could be made
+   * and then never configured or removed except through the object list.
+   *
+   * Press and hold opens the same menu, at the same place, with the same
+   * shape resolved underneath it.
+   */
+  armLongPress(e) {
+    this.clearLongPress();
+    if (!e || (e.pointerType !== "touch" && e.pointerType !== "pen")) return;
+    if (e.button && e.button !== 0) return;
+    const x = e.clientX, y = e.clientY;
+    const after = (typeof setTimeout === "function") ? setTimeout : null;
+    if (!after) return;   // no timer in this host; press-and-hold simply does nothing
+    this._longTimer = after(() => {
+      this._longTimer = null;
+      // Only if the finger is still down and alone: a second finger means
+      // a pinch, and a lifted finger means it was a tap after all.
+      if (!this.pointers || this.pointers.size !== 1) return;
+      if (this._moved) return;
+      this._longFired = true;
+      this.drag = null;
+      this.dragLevel = null;
+      if (this.draft && this.placed(this.draft) <= 1) this.draft = null;
+      const hit = this.hit({ clientX: x, clientY: y });
+      const found = hit ? this.shapeAt(hit.L, hit.x, hit.y) : null;
+      if (found && found.shape) this.select(found.shape);
+      if (typeof this.opts.onMenu === "function") {
+        this.opts.onMenu({
+          x, y,
+          shape: found ? found.shape : null,
+          price: hit ? hit.p : null,
+          touch: true,
+        });
       }
       this.draw();
-    } else this.pinch = null;
+    }, 480);
+  }
+
+  clearLongPress() {
+    if (this._longTimer && typeof clearTimeout === "function") clearTimeout(this._longTimer);
+    this._longTimer = null;
+  }
+
+  /** A pointer went away for any reason: drop it and tidy up. */
+  onCancel(e) {
+    this.clearLongPress();
+    this._longFired = false;
+    if (e && this.pointers) this.pointers.delete(e.pointerId);
+    if (this.pointers && this.pointers.size < 2) this.pinch = null;
+    if (this.pointers && this.pointers.size === 0) {
+      this.drag = null;
+      this.dragLevel = null;
+      this._priceClick = null;
+      this.canvas.style.cursor = this.cursorFor();
+      this.draw();
+    }
   }
 }
 
 if (typeof module !== "undefined" && module.exports) {
   module.exports = {
-    MARKET_SESSIONS, sessionCovers, sessionsAt, sessionOpensBetween,
     SHAPE_POINTS, SHAPE_LABELS, CandleChart,
   };
 }

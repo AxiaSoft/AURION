@@ -40,7 +40,7 @@
   var LS_CUSTOM = "aurion.theme.custom";
   /* Per-theme edits, keyed by theme id: {"neu":{"blur":12,"bg":"waves"}, ...}.
      The builder used to write to one slot that only the "custom" theme read,
-     so picking Neumorphism and moving a slider appeared to do nothing. Every
+     so picking Relief and moving a slider appeared to do nothing. Every
      theme is now editable and keeps its own edits, and the originals are
      never overwritten - they are the table above, so "reset" is exact. */
   var LS_EDITS = "aurion.theme.edits";
@@ -48,6 +48,14 @@
      machine; it is never sent anywhere. */
   var LS_BGIMG = "aurion.theme.bgimage";
   var LS_BGDIM = "aurion.theme.bgdim";
+  /* How the trader's own picture is framed. A background that can only be
+     "cover, centred" crops whatever matters in the photograph as often as
+     not - the subject is rarely in the middle, and a desk is a far wider
+     frame than a phone photo. */
+  var LS_BGFIT = "aurion.theme.bgfit";    /* cover | contain              */
+  var LS_BGZOOM = "aurion.theme.bgzoom";  /* 100..300 (%)                 */
+  var LS_BGX = "aurion.theme.bgx";        /* 0..100 (%) horizontal focus  */
+  var LS_BGY = "aurion.theme.bgy";        /* 0..100 (%) vertical focus    */
   var LS_PAID = "aurion.theme.paid";
   var DEFAULT_SKIN = "glass";
 
@@ -92,61 +100,79 @@
       id: "glass", accent: "aurora", bg: "soft", morph: "glass",
       knobs: { surface: 62, border: 10, blur: 18, radius: 22, shadow: 100, motion: 100 },
       swatch: ["#070910", "#151c2b", "#3ee0c4"],
+      /* The default theme keeps the universal pair. Every other theme
+         draws its candles from its own accent, which is what makes the
+         desk feel of a piece - but the default is the one a trader
+         meets first and never chose, and green-up/red-down is the one
+         convention every chart they have ever seen already taught them.
+         These are --ok and --bad exactly, not an approximation of them. */
+      candles: { dark: ["#26d07c", "#f4475b"], light: ["#0f9d58", "#d93025"] },
     },
     {
       id: "frost", accent: "ice", bg: "blobs", morph: "glass",
       knobs: { surface: 30, border: 22, blur: 34, radius: 24, shadow: 75, motion: 100 },
       swatch: ["#070c18", "#22304e", "#a5f3fc"],
+      candles: { dark: ["#66efff", "#298d99"], light: ["#00525c", "#23a0af"] },
     },
     {
       id: "neu", accent: "steel", bg: "flat", morph: "neu",
       knobs: { surface: 100, border: 0, blur: 0, radius: 26, shadow: 130, motion: 90 },
       swatch: ["#1b1f27", "#252b36", "#94a3b8"],
+      candles: { dark: ["#f4f7fb", "#8a95a5"], light: ["#1f2733", "#6b7889"] },
     },
     {
       id: "clay", accent: "orchid", bg: "flat", morph: "clay",
       knobs: { surface: 100, border: 0, blur: 0, radius: 32, shadow: 140, motion: 125 },
       swatch: ["#191325", "#3d2f5c", "#c084fc"],
+      candles: { dark: ["#c9ace7", "#8f47d7"], light: ["#3d007a", "#9148db"] },
     },
     {
       id: "aurora", accent: "violet", bg: "aurora", morph: "glass",
       knobs: { surface: 46, border: 15, blur: 28, radius: 26, shadow: 110, motion: 120 },
       swatch: ["#070919", "#2a2266", "#8b7bff"],
+      candles: { dark: ["#aca2f1", "#5e4cdc"], light: ["#0f007a", "#6150dc"] },
     },
     {
       id: "cyber", accent: "magenta", bg: "grid", morph: "cyber",
       knobs: { surface: 78, border: 38, blur: 8, radius: 8, shadow: 95, motion: 110 },
       swatch: ["#030410", "#10183a", "#e879f9"],
+      candles: { dark: ["#ee80ff", "#9c23af"], light: ["#6a007a", "#c748db"] },
     },
     {
       id: "minimal", accent: "sky", bg: "none", morph: "flat",
       knobs: { surface: 100, border: 14, blur: 0, radius: 10, shadow: 30, motion: 70 },
       swatch: ["#0c0e13", "#1e222a", "#38bdf8"],
+      candles: { dark: ["#6bd2ff", "#207aa2"], light: ["#004e70", "#289acc"] },
     },
     {
       id: "midnight", accent: "indigo", bg: "layered", morph: "solid",
       knobs: { surface: 94, border: 10, blur: 6, radius: 16, shadow: 115, motion: 90 },
       swatch: ["#04060f", "#182148", "#818cf8"],
+      candles: { dark: ["#97a0fc", "#4350d6"], light: ["#000b7a", "#4c59dc"] },
     },
     {
       id: "ocean", accent: "azure", bg: "waves", morph: "glass",
       knobs: { surface: 54, border: 14, blur: 24, radius: 22, shadow: 100, motion: 100 },
       swatch: ["#020e16", "#0c3c50", "#4cc9f0"],
+      candles: { dark: ["#66dbff", "#26809c"], light: ["#00526b", "#279fc4"] },
     },
     {
       id: "sunset", accent: "sunset", bg: "dusk", morph: "glass",
       knobs: { surface: 56, border: 14, blur: 22, radius: 26, shadow: 105, motion: 105 },
       swatch: ["#16080d", "#46212a", "#fb923c"],
+      candles: { dark: ["#ffae6b", "#a25a20"], light: ["#7a3700", "#d77c33"] },
     },
     {
       id: "mono", accent: "graphite", bg: "none", morph: "flat",
       knobs: { surface: 100, border: 18, blur: 0, radius: 4, shadow: 20, motion: 55 },
       swatch: ["#09090a", "#212123", "#d4d4d8"],
+      candles: { dark: ["#f2f2f4", "#8b8b91"], light: ["#1b1b1e", "#74747a"] },
     },
     {
       id: "custom", accent: "aurora", bg: "soft", morph: "glass",
       knobs: { surface: 62, border: 10, blur: 18, radius: 22, shadow: 100, motion: 100 },
       swatch: ["#06070b", "#161a26", "#3ee0c4"],
+      candles: { dark: ["#26d07c", "#f4475b"], light: ["#0f9d58", "#d93025"] },
     },
   ];
 
@@ -155,7 +181,30 @@
 
   /* The morphism families a theme can belong to. Kept as a list so the UI can
      describe a theme without knowing the CSS. */
-  var BACKDROPS = ["soft", "blobs", "aurora", "grid", "waves", "dusk", "layered", "flat", "none", "photo"];
+  /* What can sit behind the desk.
+   *
+   * There used to be ten entries here, eight of them backdrops the desk
+   * DREW: soft gradients, drifting blobs, an aurora, a grid, waves. They
+   * are gone. Two reasons, and the second is the one that mattered:
+   *
+   *   - they competed with the thing the desk exists to show. A price
+   *     column over a moving gradient is harder to read than the same
+   *     column over a flat panel.
+   *   - they were opaque and sat in the same layer as the photographs,
+   *     so choosing a wallpaper while a drawn backdrop was active did
+   *     nothing anyone could see.
+   *
+   * What is left is honest: a flat themed colour, or a picture - one of
+   * the twenty AURION ships, or the trader's own. */
+  var BACKDROPS = ["flat", "photo"];
+
+  /* Anything stored by an older build maps onto the flat backdrop. Without
+     this a desk left on "blobs" would read an unknown value and keep it. */
+  var RETIRED_BACKDROPS = ["soft", "blobs", "aurora", "grid", "waves", "dusk", "layered", "none"];
+
+  function liveBackdrop(v) {
+    return BACKDROPS.indexOf(v) === -1 ? "flat" : v;
+  }
 
   /* ---------------------------------------------------------- wallpapers --
    *
@@ -175,19 +224,61 @@
    * The names are the file stems in assets/bg. Adding one is a line here and
    * two files on disk. */
   var WALLPAPERS = [
+    "aurion",
     "aurora", "clay", "cyber", "frost", "midnight",
     "minimal", "mono", "neu", "ocean", "sunset"
   ];
 
+  /* Most wallpapers follow one naming rule - assets/bg/<name>-<cut>.jpg -
+     and need no entry here. AURION's own backdrop does not: it is the orb
+     the desk and the sign-in screen have always been painted with, and it
+     lives beside them as a PNG rather than in the gallery folder.
+
+     It was therefore the one picture a trader could see on screen and not
+     find in the list. Pointing at the real files is better than copying
+     three megabytes of PNG into assets/bg just to satisfy the pattern. */
+  var WALL_SRC = {
+    aurion: { dark: "assets/login-orb.png", light: "assets/login-orb-light.png" },
+  };
+
+  /* Which picture a theme ships with. Usually the one that shares its name;
+     the default theme is called AURION on screen but "glass" in storage, so
+     it is spelled out. */
+  var THEME_OWN_WALL = { glass: "aurion" };
+
   /* "" means the theme keeps whatever css/themes.css gives it; "none" means
      the trader asked for no photograph at all, which is not the same thing
      and has to survive a reload. */
+  /* A choice is either a scene ("ocean"), which follows the desk's own
+     light/dark mode, or a scene pinned to one cut ("ocean@day"). Both cuts
+     of all ten scenes are offered: "show me the night version of this
+     picture on a light desk" is a legitimate thing to want, and silently
+     swapping the cut underneath made it impossible to ask for. */
+  function splitWall(choice) {
+    var v = String(choice || "");
+    var at = v.indexOf("@");
+    if (at === -1) return { name: v, cut: "" };
+    return { name: v.slice(0, at), cut: v.slice(at + 1) };
+  }
+
+  /** Is this a wallpaper choice the library can actually serve? */
+  function validWall(choice) {
+    var p = splitWall(choice);
+    if (WALLPAPERS.indexOf(p.name) === -1) return false;
+    return p.cut === "" || p.cut === "day" || p.cut === "night";
+  }
+
   function wallUrl(name, light) {
-    if (!name || name === "none" || WALLPAPERS.indexOf(name) === -1) return "";
+    var p = splitWall(name);
+    if (!p.name || p.name === "none" || WALLPAPERS.indexOf(p.name) === -1) return "";
+    /* An explicit cut wins over the mode; without one the mode decides. */
+    var useLight = p.cut === "day" ? true : p.cut === "night" ? false : Boolean(light);
     /* Relative to the DOCUMENT, not to css/themes.css: this lands in a
        <style> element in index.html, so "../assets" would resolve one
        directory too high and silently load nothing. */
-    return "assets/bg/" + name + "-" + (light ? "light" : "dark") + ".jpg";
+    var special = WALL_SRC[p.name];
+    if (special) return useLight ? special.light : special.dark;
+    return "assets/bg/" + p.name + "-" + (useLight ? "light" : "dark") + ".jpg";
   }
 
   /* ------------------------------------------------------------------ util */
@@ -313,7 +404,7 @@
      Colour and font overrides.
 
      The builder used to move only the seven material numbers, so a trader
-     could make Neumorphism flatter but not change a single colour: the page,
+     could make Relief flatter but not change a single colour: the page,
      the panels, the text and the typeface all came from the theme and could
      not be touched. These five let the whole interface be recoloured without
      leaving the theme.
@@ -333,7 +424,13 @@
     system: "system-ui,-apple-system,Segoe UI,sans-serif",
   };
 
-  var COLOR_KEYS = ["page", "panel", "ink"];
+  /* candle_up / candle_down are the direction colours on every chart. They
+     used to be fixed per theme on the grounds that "up" must mean the same
+     thing everywhere, which is true of the meaning but not of the hue: a
+     trader who cannot separate the shipped green from the shipped red has
+     no way to read the chart at all. The pair is editable, the roles are
+     not - up is still up. */
+  var COLOR_KEYS = ["page", "panel", "ink", "candle_up", "candle_down"];
 
   /* Effects over the backdrop.
 
@@ -348,8 +445,25 @@
     dim:    "brightness(.55)",
     bright: "brightness(1.35)",
     grey:   "saturate(0)",
-    warm:   "sepia(.45) saturate(1.3) hue-rotate(-14deg)",
-    cool:   "saturate(1.15) hue-rotate(150deg)",
+    /* Warm and cool are a matched pair: the same sepia tone, with cool
+       turned through 180 degrees so the amber becomes blue.
+
+       They used to be swapped on screen. "Cool" was a bare
+       hue-rotate(150deg) with no sepia under it, which does not tint
+       anything - it spins every hue in the picture a long way round the
+       wheel, so a blue sea came out orange. Measured over a spread of
+       sample colours it warmed them by +20.7, while "warm" managed only
+       +10.1: the cool setting was the warmer of the two.
+
+       The sepia has to be strong. A partial one leaves the original hues
+       alive underneath, and the 180-degree turn then inverts THOSE as
+       well - navy went to orange again. Measurement puts the threshold
+       for a consistent tone at .75; .8 clears it with margin while
+       keeping as much of the picture's own colour as possible.
+       See tests/bg-effects.test.js, which computes this rather than
+       taking the names on trust. */
+    warm:   "sepia(.8) saturate(1.35)",
+    cool:   "sepia(.8) hue-rotate(180deg) saturate(1.35)",
   };
 
   function hexToRgb(hex) {
@@ -416,6 +530,15 @@
       out += "--chart-muted:" + rgbToHex(mix(ink, base, 0.42)) + ";";
     }
 
+    /* The direction pair. --ok and --bad already resolve to these two in
+       the base sheet, so recolouring the candles also recolours every
+       profit and loss figure on the desk - which is the point: a trader
+       who changed "up" to blue should not still be reading green P/L. */
+    var cu = hexToRgb(colours.candle_up);
+    var cd = hexToRgb(colours.candle_down);
+    if (cu) out += "--candle-up:" + rgbToHex(cu) + ";";
+    if (cd) out += "--candle-down:" + rgbToHex(cd) + ";";
+
     if (colours.font && FONTS[colours.font]) out += "--font:" + FONTS[colours.font] + ";";
     return out;
   }
@@ -430,6 +553,7 @@
      it. css/themes.css names each file after its skin, so the mapping is the
      id itself - except Glass and Custom, which ship with none. */
   function themeOwnWall(id) {
+    if (THEME_OWN_WALL[id]) return THEME_OWN_WALL[id];
     return WALLPAPERS.indexOf(id) === -1 ? "" : id;
   }
 
@@ -438,7 +562,53 @@
     var edit = (id === "custom" ? getCustom() : readEdits()[id]) || {};
     var w = edit.wall;
     if (w === "none") return "none";
-    return WALLPAPERS.indexOf(w) === -1 ? "" : w;
+    return validWall(w) ? w : "";
+  }
+
+  /**
+   * The candle pair a theme ships with, for the cut currently on screen.
+   *
+   * Each theme names its own, because a pair that reads well on the glass
+   * desk's near-black panel is not the same pair that reads well on
+   * sunset's warm maroon or on a white light-mode card. Both cuts are
+   * stated rather than derived: the dark pairs are bright on a dark
+   * surface and the light pairs are deep on a white one, which is the
+   * opposite adjustment, not a scaling of the same colour.
+   *
+   * The default theme's pairs are the two that were hard-coded in
+   * app.css before this existed, so the desk a trader already knows does
+   * not change colour underneath them.
+   */
+  function themeCandles(id, light) {
+    var t = BY_ID[id] || BY_ID[DEFAULT_SKIN];
+    var c = t && t.candles;
+    if (!c) return null;
+    var pair = light ? c.light : c.dark;
+    return pair && pair.length === 2 ? { candle_up: pair[0], candle_down: pair[1] } : null;
+  }
+
+  /** Is the desk showing its light cut right now? */
+  function isLightCut() {
+    var el = root();
+    return Boolean(el && el.dataset && el.dataset.theme === "light");
+  }
+
+  /**
+   * What colourCss should actually publish for a theme: the pair the theme
+   * ships, with anything the trader chose laid over the top.
+   *
+   * Kept separate from themeColours(), which stays edits-only. The
+   * settings rows use that one to decide whether to offer "Clear", and
+   * folding the shipped pair into it would have made every theme look
+   * permanently edited with a Clear button that cleared nothing.
+   */
+  function publishedColours(id) {
+    var out = themeCandles(id, isLightCut()) || {};
+    var chosen = themeColours(id);
+    for (var k in chosen) {
+      if (Object.prototype.hasOwnProperty.call(chosen, k)) out[k] = chosen[k];
+    }
+    return out;
   }
 
   /** The colour and font overrides in force for a theme, if any. */
@@ -448,11 +618,42 @@
     if (!edit) return out;
     for (var i = 0; i < COLOR_KEYS.length; i++) {
       var k = COLOR_KEYS[i];
+      if (!lightAllows(k)) continue;
       if (hexToRgb(edit[k])) out[k] = edit[k];
     }
     if (edit.font && FONTS[edit.font]) out.font = edit.font;
-    if (edit.fx && FX[edit.fx]) out.fx = edit.fx;
+    if (edit.fx && FX[edit.fx] && lightAllows("fx")) out.fx = edit.fx;
     return out;
+  }
+
+  /* --------------------------------------------------- the light-mode lock
+
+     A light desk is not a blank canvas.
+
+     Page, panel and ink colours, the candle pair, the visual effect and the
+     six surface knobs are all tuned per theme against a near-white
+     background, and that background leaves almost no room. Darkening a
+     panel a shade on a dark desk costs nothing; the same move on a light
+     one walks body text down towards the background with no second colour
+     left to compensate, and the trader who did it has no way of knowing
+     which of the twelve things they touched caused it. So the light cut
+     ships as it was drawn, and only the three choices that cannot break it
+     stay open: the typeface, the accent, and the pictures.
+
+     The gate sits on the READ path rather than only in the editor. That
+     matters: a theme personalised on a dark desk quietly reverts to its
+     shipped light values the moment the desk is switched to light, and
+     comes back exactly as it was on the way out. Nothing is deleted and
+     nothing has to be re-chosen. */
+
+  var LIGHT_EDITABLE = ["accent", "font", "bg", "wall"];
+
+  /** Is the desk in the cut where personalisation is held back? */
+  function lightLocked() { return isLightCut(); }
+
+  /** May this edit key take effect right now? */
+  function lightAllows(key) {
+    return !isLightCut() || LIGHT_EDITABLE.indexOf(key) !== -1;
   }
 
   /* ------------------------------------------------------- per-theme edits */
@@ -482,15 +683,17 @@
       for (var key in LIMITS) {
         if (!Object.prototype.hasOwnProperty.call(LIMITS, key)) continue;
         if (edit[key] === undefined || edit[key] === null) continue;
+        if (!lightAllows(key)) continue;
         out[key] = clamp(edit[key], LIMITS[key][0], LIMITS[key][1]);
       }
       if (typeof edit.accent === "string") out.accent = edit.accent;
       if (BACKDROPS.indexOf(edit.bg) !== -1) out.bg = edit.bg;
       for (var ci = 0; ci < COLOR_KEYS.length; ci++) {
+        if (!lightAllows(COLOR_KEYS[ci])) continue;
         if (hexToRgb(edit[COLOR_KEYS[ci]])) out[COLOR_KEYS[ci]] = edit[COLOR_KEYS[ci]];
       }
       if (edit.font && FONTS[edit.font]) out.font = edit.font;
-      if (edit.fx && FX[edit.fx]) out.fx = edit.fx;
+      if (edit.fx && FX[edit.fx] && lightAllows("fx")) out.fx = edit.fx;
       if (edit.wall === "none" || WALLPAPERS.indexOf(edit.wall) !== -1) out.wall = edit.wall;
     }
     return out;
@@ -518,6 +721,7 @@
       if (LIMITS[key]) next[key] = clamp(patch[key], LIMITS[key][0], LIMITS[key][1]);
       else if (key === "accent" && typeof patch[key] === "string") next.accent = patch[key];
       else if (key === "bg" && BACKDROPS.indexOf(patch[key]) !== -1) next.bg = patch[key];
+      else if (key === "bg" && RETIRED_BACKDROPS.indexOf(patch[key]) !== -1) next.bg = "flat";
       else if (COLOR_KEYS.indexOf(key) !== -1) {
         // An empty value means "back to the theme's own colour", which is
         // how the clear button works without a second code path.
@@ -533,7 +737,7 @@
         /* "" clears the choice and hands the theme back to its own
            photograph; "none" is the trader actively asking for none. */
         if (!patch[key]) delete next.wall;
-        else if (patch[key] === "none" || WALLPAPERS.indexOf(patch[key]) !== -1) next.wall = patch[key];
+        else if (patch[key] === "none" || validWall(patch[key])) next.wall = patch[key];
       }
     }
     all[id] = next;
@@ -568,6 +772,33 @@
 
   function getBgDim() { return clamp(read(LS_BGDIM, 45), 0, 90); }
 
+  /* The framing of the trader's own picture, as one object. */
+  function getBgCrop() {
+    var fit = read(LS_BGFIT, "cover");
+    return {
+      fit: fit === "contain" ? "contain" : "cover",
+      zoom: clamp(read(LS_BGZOOM, 100), 100, 300),
+      x: clamp(read(LS_BGX, 50), 0, 100),
+      y: clamp(read(LS_BGY, 50), 0, 100),
+    };
+  }
+
+  function setBgCrop(next, opts) {
+    next = next || {};
+    if (next.fit !== undefined) write(LS_BGFIT, next.fit === "contain" ? "contain" : "cover");
+    if (next.zoom !== undefined) write(LS_BGZOOM, String(clamp(next.zoom, 100, 300)));
+    if (next.x !== undefined) write(LS_BGX, String(clamp(next.x, 0, 100)));
+    if (next.y !== undefined) write(LS_BGY, String(clamp(next.y, 0, 100)));
+    if (!(opts && opts.silent)) apply();
+    return getBgCrop();
+  }
+
+  function resetBgCrop() {
+    write(LS_BGFIT, null); write(LS_BGZOOM, null); write(LS_BGX, null); write(LS_BGY, null);
+    apply();
+    return getBgCrop();
+  }
+
   function setBgDim(value) {
     write(LS_BGDIM, String(clamp(value, 0, 90)));
     apply();
@@ -581,9 +812,10 @@
       if (LIMITS[key]) next[key] = clamp(patch[key], LIMITS[key][0], LIMITS[key][1]);
       else if (key === "accent" && typeof patch[key] === "string") next.accent = patch[key];
       else if (key === "bg" && BACKDROPS.indexOf(patch[key]) !== -1) next.bg = patch[key];
+      else if (key === "bg" && RETIRED_BACKDROPS.indexOf(patch[key]) !== -1) next.bg = "flat";
       else if (key === "wall") {
         if (!patch[key]) delete next.wall;
-        else if (patch[key] === "none" || WALLPAPERS.indexOf(patch[key]) !== -1) next.wall = patch[key];
+        else if (patch[key] === "none" || validWall(patch[key])) next.wall = patch[key];
       }
     }
     write(LS_CUSTOM, JSON.stringify(next));
@@ -602,7 +834,20 @@
   /** The knobs actually in force right now: the theme, plus any edits. */
   function activeKnobs() {
     var id = effectiveTheme();
-    if (id === "custom") return getCustom();
+    if (id === "custom") {
+      var c = getCustom();
+      if (!isLightCut()) return c;
+      /* The custom theme is nothing but knobs, so the lock has to be
+         applied to its stored copy rather than skipped on overlay. Work on
+         a duplicate: getCustom() hands back the object that gets written
+         straight back to storage. */
+      var out = {}, d = defaultCustom(), ck;
+      for (ck in c) { if (Object.prototype.hasOwnProperty.call(c, ck)) out[ck] = c[ck]; }
+      for (ck in LIMITS) {
+        if (Object.prototype.hasOwnProperty.call(LIMITS, ck)) out[ck] = d[ck];
+      }
+      return out;
+    }
     return themeKnobs(id);
   }
 
@@ -646,16 +891,82 @@
     } catch (e) { /* the theme's palette still applies without its knobs */ }
   }
 
+  /* Where the shipped wallpapers really live.
+
+     The twenty pictures are addressed twice: themes.css names them as
+     "../assets/bg/x.jpg", which the browser resolves against the STYLESHEET,
+     and this file names them for a <style> it injects into the document,
+     which resolves against the DOCUMENT. Those two bases agree only while
+     the desk is served from the root of the web folder.
+
+     The backend serves index.html for every unmatched path, so the desk can
+     legitimately be sitting on a URL with a segment in it - and a
+     document-relative "assets/bg/x.jpg" would then resolve to a path the
+     catch-all answers with index.html. The browser gets HTML where it
+     expected a JPEG, decodes nothing, and paints nothing: a wallpaper that
+     silently fails to appear while every value involved looks correct.
+
+     So the published URL is made absolute against the stylesheet that owns
+     the pictures. Both routes then point at the same file no matter where
+     the document is. */
+  function assetUrl(rel) {
+    try {
+      var doc = global.document;
+      var links = doc ? doc.getElementsByTagName("link") : [];
+      for (var i = 0; i < links.length; i++) {
+        var href = links[i].getAttribute && links[i].getAttribute("href");
+        if (href && href.indexOf("css/themes.css") !== -1) {
+          /* links[i].href is already absolute; the pictures sit one level
+             up from css/, exactly as themes.css spells it. */
+          return new global.URL("../" + rel, links[i].href).href;
+        }
+      }
+      if (doc && doc.baseURI) return new global.URL(rel, doc.baseURI).href;
+    } catch (e) { /* fall through to the relative form */ }
+    return rel;
+  }
+
+  /* Resolve a url() token read back out of a computed custom property.
+   *
+   * --theme-bg reaches the page by two routes with two different bases:
+   * themes.css spells its twenty pictures "../assets/bg/x.jpg", resolved
+   * against the STYLESHEET, while the <style> this file injects carries
+   * an already-absolute URL from assetUrl(). getComputedStyle hands back
+   * a custom property as the raw token either way - it does not resolve
+   * it - so anything that wants to fetch the picture (the theme veil,
+   * which has to wait for it to decode before it lifts) has to apply the
+   * stylesheet's base itself or quietly 404.
+   */
+  function cssUrl(raw) {
+    var m = /url\(\s*(['"]?)([^'")]+)\1\s*\)/.exec(String(raw == null ? "" : raw));
+    if (!m) return "";
+    var src = m[2];
+    if (/^(?:data:|blob:|https?:|\/\/|\/)/i.test(src)) return src;
+    try {
+      var doc = global.document;
+      var links = doc ? doc.getElementsByTagName("link") : [];
+      for (var i = 0; i < links.length; i++) {
+        var href = links[i].getAttribute && links[i].getAttribute("href");
+        if (href && href.indexOf("css/themes.css") !== -1) {
+          return new global.URL(src, links[i].href).href;
+        }
+      }
+      if (doc && doc.baseURI) return new global.URL(src, doc.baseURI).href;
+    } catch (e) { /* fall through to the raw form */ }
+    return src;
+  }
+
   /** The CSS for a theme's chosen wallpaper, or "" to leave it alone. */
   function wallCss(id) {
     var choice = activeWall(id);
     if (!choice) return "";
-    if (choice === "none") return "html[data-skin][data-theme]{--theme-bg:none}";
+    if (choice === "none") return "html[data-skin][data-bg][data-motion]{--theme-bg:none}";
     var el = root();
     var light = Boolean(el && el.dataset && el.dataset.theme === "light");
     var url = wallUrl(choice, light);
     if (!url) return "";
-    return "html[data-skin][data-theme]{--theme-bg:url(\"" + url.replace(/"/g, "%22") + "\")}";
+    return "html[data-skin][data-bg][data-motion]{--theme-bg:url(\"" +
+      assetUrl(url).replace(/"/g, "%22") + "\")}";
   }
 
   /** Write the active theme onto <html>. */
@@ -668,9 +979,11 @@
     el.dataset.skin = id;
     /* "photo" is the trader's own picture. If they picked it and then removed
        the file we fall back rather than leave an empty page. */
-    var bg = k.bg || "soft";
+    /* liveBackdrop maps anything an older build stored onto a backdrop
+       that still exists, so a desk left on "blobs" comes back flat. */
+    var bg = liveBackdrop(k.bg);
     var picture = getBgImage();
-    if (bg === "photo" && !picture) bg = "soft";
+    if (bg === "photo" && !picture) bg = "flat";
     el.dataset.bg = bg;
     /* Premium gates the accent row too, so while it is locked the theme's own
        accent is pinned - the desk still looks designed, it just looks the one
@@ -685,7 +998,24 @@
     el.dataset.motion = motion === 0 ? "off" : motion < 70 ? "soft" : "full";
 
     publish(
-      "html[data-skin][data-theme]{" +
+      /* [data-bg] and [data-motion] are carried only to win a specificity fight, and it is
+         always present because apply() sets it a few lines above.
+
+         Without it this rule scored 2 attributes - exactly what
+         themes.css scores for html[data-skin="ocean"][data-theme="light"]
+         - and lost the tie on source order, because this <style> is
+         created while themes.js runs in <head>, BEFORE the stylesheet
+         links below it. The visible effect was that on a light desk a
+         chosen wallpaper and any custom colour were silently replaced by
+         the theme's own, on ten of the twelve themes. Dark mode worked,
+         which is what made it look intermittent.
+
+         Moving the element to the end of <head> would have fixed that
+         and broken something else: "liquid glass off", the cheap
+         rendering tier and prefers-reduced-motion also score 2 and have
+         to stay ABOVE the trader's choices. They are lifted to 4
+         attributes in themes.css for the same reason. */
+      "html[data-skin][data-bg][data-motion]{" +
       "--surface-alpha:" + (clamp(k.surface, 0, 100) / 100).toFixed(3) + ";" +
       "--border-alpha:" + (clamp(k.border, 0, 100) / 100).toFixed(3) + ";" +
       "--blur:" + clamp(k.blur, 0, 60) + "px;" +
@@ -697,7 +1027,7 @@
          themes.css, below "liquid glass off" and the cheap rendering
          tier. A colour the trader chose must still not be allowed to
          re-introduce translucency those two have ruled out. */
-      colourCss(themeColours(id)) + "}" +
+      colourCss(publishedColours(id)) + "}" +
       /* The picture rides on a custom property so css/themes.css owns the
          layout - position, size and the scrim over it - and this file only
          ever hands over the source. CSS url() has to be quoted: a data URL
@@ -714,8 +1044,23 @@
        * order - the same place the trader's colours already win from. */
       wallCss(id) +
       (bg === "photo"
-        ? "html[data-bg=\"photo\"]{--bg-photo:url(\"" + picture.replace(/"/g, "%22") + "\");" +
-          "--bg-photo-dim:" + (getBgDim() / 100).toFixed(3) + "}"
+        ? (function () {
+            var c = getBgCrop();
+            /* The framing is published as plain CSS values so themes.css
+               owns how they are used. Zoom is a scale on the layer rather
+               than a background-size, which keeps "cover" meaning cover at
+               every zoom level - a background-size in percent would letterbox
+               the picture the moment the aspect ratios disagreed. The focus
+               point is both the background-position and the transform
+               origin, so zooming in keeps looking at the chosen spot
+               instead of drifting back to the middle. */
+            return "html[data-bg=\"photo\"]{--bg-photo:url(\"" + picture.replace(/"/g, "%22") + "\");" +
+              "--bg-photo-dim:" + (getBgDim() / 100).toFixed(3) + ";" +
+              "--bg-photo-fit:" + c.fit + ";" +
+              "--bg-photo-zoom:" + (c.zoom / 100).toFixed(3) + ";" +
+              "--bg-photo-x:" + c.x + "%;" +
+              "--bg-photo-y:" + c.y + "%}";
+          }())
         : "")
     );
   }
@@ -766,7 +1111,12 @@
         var now = el.dataset ? el.dataset.theme : "";
         if (now === lastMode) return;
         lastMode = now;
-        if (activeWall(effectiveTheme())) apply();
+        /* Unconditional now. It used to re-apply only when the theme had
+           a wallpaper, since the wallpaper was the one thing that had a
+           per-cut variant. Every theme now also ships a per-cut candle
+           pair, so a desk going light with no wallpaper set would have
+           kept painting the dark pair on white cards. */
+        apply();
       }).observe(el, { attributes: true, attributeFilter: ["data-theme"] });
     } catch (e) { /* not fatal */ }
   }
@@ -790,6 +1140,9 @@
     resetCustom: resetCustom,
     defaultCustom: defaultCustom,
     BACKDROPS: BACKDROPS,
+    validWall: validWall,
+    assetUrl: assetUrl,
+    splitWall: splitWall,
     themeKnobs: themeKnobs,
     edit: editTheme,
     reset: resetTheme,
@@ -798,15 +1151,25 @@
     setBgImage: setBgImage,
     getBgDim: getBgDim,
     setBgDim: setBgDim,
+    getBgCrop: getBgCrop,
+    setBgCrop: setBgCrop,
+    resetBgCrop: resetBgCrop,
     FONTS: FONTS,
     COLOR_KEYS: COLOR_KEYS,
+    LIGHT_EDITABLE: LIGHT_EDITABLE,
+    lightLocked: lightLocked,
+    lightAllows: lightAllows,
     FX: FX,
     fx: activeFx,
     colours: themeColours,
+    candles: themeCandles,
+    published: publishedColours,
+    colourCss: colourCss,
     WALLPAPERS: WALLPAPERS,
     wall: activeWall,
     themeWall: themeOwnWall,
     wallUrl: wallUrl,
+    cssUrl: cssUrl,
   };
 
   apply();

@@ -54,6 +54,9 @@ function makeChartEnv() {
       removeItem: (k) => store.delete(k),
     },
     prompt: () => "x",
+    // Real timers: the chart uses one for press-and-hold, and a stub
+    // that never fires would hide whatever that code does.
+    setTimeout, clearTimeout,
     console,
   };
   win.window = win; win.globalThis = win;
@@ -197,12 +200,36 @@ const off0 = chart.offset;
 chart.pan(20);
 check("pan scrolls back", chart.offset === off0 + 20);
 chart.pan(-9999);
-check("pan stops in the empty margin past the newest bar",
-  chart.offset === chart.minOffset() && chart.offset < 0);
-check("...and that margin becomes real space on the right",
-  (() => { const L = chart.layout(); return L.cells > L.rows.length; })());
+check("pan stops at the newest bar instead of running into empty space",
+  chart.offset === 0);
+/* This has been through two reversals and is now back where it
+   started, for a better reason than it began with.
+
+   It first read "every cell on screen holds a bar". That was changed
+   when the newest candle was deliberately held clear of the price
+   column, to "the empty cells are exactly the margin asked for" - and
+   that version quietly approved of the bug this check should have
+   caught, because the margin was subtracted from every window,
+   including windows hundreds of bars back in history where real
+   candles were being replaced by blank.
+
+   The gap belongs to the newest bar now, so at the live edge there is
+   room and deeper into history there is none. Both halves are checked
+   rather than one. */
+check("...and the room at the live edge is exactly what was asked for",
+  (() => {
+    chart.setHeadGap(true);
+    const L = chart.layout();
+    return L.cells - L.rows.length === chart.headGapCells() && chart.headGapCells() > 0;
+  })());
 chart.pan(99999);
-check("pan cannot scroll past the oldest", chart.offset <= chart.maxOffset());
+check("pan stops at the oldest bar", chart.offset === chart.maxOffset());
+check("...and the window is full of bars, with no live-edge gap in history",
+  (() => {
+    const L = chart.layout();
+    return L.rows.length === chart.span && L.cells - L.rows.length === 0;
+  })());
+chart.setHeadGap(false);
 chart.fit();
 
 chart.setAutoScale(true);
@@ -290,14 +317,37 @@ check("a locked object cannot be grabbed by its handle",
   const back = chart.xyOf(L, pMid);
   check("...so it paints back onto the same pixel", Math.abs(back.x - xMid) < 1);
 
-  // ---- and so does one past the last candle ---------------------------
-  chart.pan(-30);                                          // into the empty margin
+  // ---- the right-hand edge is empty margin, and anchors survive it ----
+  // The blank space past the last candle is back by request: a chart with
+  // the live candle pressed against the price column has nowhere for the
+  // next move to appear. So a point dropped at the right edge now lands
+  // PAST the newest bar, which is the whole point of the margin - and the
+  // thing that must not break is that it paints back exactly where it was
+  // put. It did not, at first: hit() was reporting the last candle's time
+  // out in the margin, so every time-snapping tool dragged the anchor back
+  // onto that candle and the drawing appeared 39px from the pointer.
+  // The gap is a setting and it is off by default, so it is turned on
+  // here: these two checks are about what happens to a drawing anchor
+  // dropped INSIDE the gap, and with no gap there is nowhere to drop
+  // one and both would pass without testing anything.
+  chart.setHeadGap(true);
+  chart.pan(-30);                                          // asks to go past the newest
+  check("asking to scroll past the newest bar does nothing", chart.offset === 0);
   const L2 = chart.layout();
   const xFar = Math.round(L2.plotR - 20);
   const far = chart.point(chart.hit({ clientX: xFar, clientY: 220 }));
-  check("a point can be placed past the newest candle", far.gx > chart.rows().length - 1);
+  check("a point in the right margin is allowed to sit past the newest bar",
+    far.gx > chart.rows().length - 0.5);
   check("...and paints where it was placed",
     Math.abs(chart.xyOf(L2, far).x - xFar) < 1.5);
+  // With time snapping ON - the default for most tools - the margin is
+  // where this goes wrong, because there is no bar there to snap to.
+  chart.setSnapTime(true);
+  chart.setTool("trend");
+  const inMargin = chart.point(chart.hit({ clientX: xFar, clientY: 220 }));
+  check("a snapping tool does not drag a margin anchor back onto the last candle",
+    Math.abs(chart.xyOf(L2, inMargin).x - xFar) < 1.5);
+  chart.setTool("cursor");
   chart.fit();
 
   // ---- a snapping tool still snaps ------------------------------------
@@ -424,12 +474,20 @@ check("a locked object cannot be grabbed by its handle",
   const tx = Math.round(L2.plotL + 200);
   const heldT = L2.start + L2.iOf(tx);
   const stepT = Math.round(L2.bw * 5);
-  const touch = (a, b) => ({ touches: [{ clientX: a, clientY: 100 }, { clientX: b, clientY: 300 }], preventDefault() {} });
-  chart.onTouch(touch(tx - 40, tx + 40));
-  chart.onTouch(touch(tx - 40 + stepT, tx + 40 + stepT));
+  // Pointer events, not touch events: the chart listens on one stream now.
+  // Two fingers land, then both slide the same distance - separation is
+  // unchanged, so this is a pure two-finger pan with no zoom in it.
+  const finger = (id, x) => ({ pointerId: id, pointerType: "touch", clientX: x,
+    clientY: id === 1 ? 100 : 300, button: 0, buttons: 1, preventDefault() {} });
+  chart.onDown(finger(1, tx - 40));
+  chart.onDown(finger(2, tx + 40));
+  chart.onMove(finger(1, tx - 40 + stepT));
+  chart.onMove(finger(2, tx + 40 + stepT));
   check("two fingers carry the chart the way they move",
     (() => { const L3 = chart.layout(); return Math.abs(L3.start + L3.iOf(tx + stepT) - heldT) <= 1; })());
-  chart.pinch = null;
+  chart.onUp(finger(1, tx - 40 + stepT));
+  chart.onUp(finger(2, tx + 40 + stepT));
+  check("and the gesture leaves nothing behind", !chart.pinch && !chart.drag && chart.pointers.size === 0);
 
   // ---- shift + wheel ---------------------------------------------------
   chart.fit(); chart.pan(60);
@@ -459,6 +517,12 @@ check("a locked object cannot be grabbed by its handle",
   const move = (x, y) => chart.onMove({ clientX: x, clientY: y });
   const up = (btn, x, y) => chart.onUp({ button: btn, clientX: x, clientY: y, pointerId: 1 });
 
+  // Start a little way back in history: with the empty right margin gone,
+  // a chart sitting at the newest bar has nowhere left to scroll forward
+  // to, so a drag that asked to would correctly do nothing and the check
+  // would be testing the clamp rather than the gesture.
+  chart.pan(40);
+  before.offset = chart.offset;
   down(2, 400, 200);
   check("the right button starts a free drag", chart.drag && chart.drag.mode === "free");
   check("...and does not start a drawing", chart.draft === null);

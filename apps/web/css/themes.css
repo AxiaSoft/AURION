@@ -381,7 +381,6 @@ html[data-skin="custom"][data-theme="light"]{
 }
 
 
-
 /* ===========================================================================
    3. Morphism, applied with a hierarchy
    ===========================================================================
@@ -441,8 +440,14 @@ html[data-skin] .hdr-drawer{
   backdrop-filter:blur(var(--blur-md));
   -webkit-backdrop-filter:blur(var(--blur-md));
 }
+/* The settings rail, and the bottom bar that stands in for it on a
+   phone. They are listed together deliberately: the bar is the rail
+   collapsed, so it must be the same surface in every skin, and keeping
+   them in one selector is what stops the two drifting apart. */
 html[data-skin] .set-jump,
 html[data-skin] .set-jump:hover,
+html[data-skin] .sj-open,
+html[data-skin] .sj-open:hover,
 html[data-skin] .set-rail .set-jump,
 html[data-skin] .set-rail .set-jump:hover{
   background:linear-gradient(180deg,
@@ -452,7 +457,7 @@ html[data-skin] .set-rail .set-jump:hover{
   border-radius:var(--radius-lg);
 }
 html[data-skin] .nav button,
-html[data-skin] .set-jump button{ border-radius:var(--radius-md) }
+html[data-skin] .set-jump button[data-jump]{ border-radius:var(--radius-md) }
 html[data-skin] .nav button:hover{ background:var(--surface-hover) }
 
 /* ---- elevated: dialogs, menus, toasts, notifications ------------------ */
@@ -473,6 +478,7 @@ html[data-skin] .modal{
   -webkit-backdrop-filter:blur(calc(var(--blur-sm) + 2px));
 }
 html[data-skin] .dd-menu,
+html[data-skin] .sympick-pop,
 html[data-skin] .notify-card,
 html[data-skin] .toast{
   background:var(--surface-floating);
@@ -482,7 +488,8 @@ html[data-skin] .toast{
   backdrop-filter:blur(var(--blur-lg)) saturate(var(--sat));
   -webkit-backdrop-filter:blur(var(--blur-lg)) saturate(var(--sat));
 }
-html[data-skin] .dd-opt{ border-radius:var(--radius-sm) }
+html[data-skin] .dd-opt,
+html[data-skin] .sympick-row{ border-radius:var(--radius-sm) }
 /* A destructive dialog says so before anyone reads the words, and a themed
    border on .modal-card would otherwise have erased the stripe that says it. */
 html[data-skin] .modal-card.is-danger{ border-top:3px solid var(--rose) }
@@ -675,6 +682,7 @@ html[data-skin="neu"] .card,
 html[data-skin="neu"] .auth-card,
 html[data-skin="neu"] .modal-card,
 html[data-skin="neu"] .set-jump,
+html[data-skin="neu"] .sj-open,
 html[data-skin="neu"] .set-rail .set-jump{
   background:rgb(var(--s3));
   border:0;
@@ -686,6 +694,64 @@ html[data-skin="neu"] .card:hover{ box-shadow:var(--neu-out), 0 0 0 1px var(--bo
 html[data-skin="neu"] .nav,
 html[data-skin="neu"] .top{ background:rgb(var(--s2)); border-color:transparent }
 html[data-skin="neu"] .nav{ box-shadow:var(--neu-out-sm) }
+
+/* The side panel's own items.
+
+   The panel was embossed and everything inside it was flat, which is the
+   one combination that reads as unfinished rather than as a style: a
+   raised tray holding nothing. In this family a control at rest stands
+   off the page, and the thing you are ON is pressed into it -- that
+   push/pull IS the selection indicator once the borders are gone, and it
+   is the same vocabulary the inputs and buttons already use.
+
+   Hover lifts rather than tints, for the same reason. */
+html[data-skin="neu"] .nav button.nav-tab{
+  background:rgb(var(--s3));
+  border:0;
+  box-shadow:var(--neu-out-sm);
+}
+html[data-skin="neu"] .nav button.nav-tab:hover{
+  box-shadow:6px 6px 14px var(--neu-dark), -6px -6px 14px var(--neu-light);
+}
+html[data-skin="neu"] .nav button.nav-tab.on,
+html[data-skin="neu"] .nav button.nav-tab:active{
+  background:rgb(var(--s2));
+  box-shadow:var(--neu-in);
+}
+/* Colour is not the only indicator: the pressed item also carries the
+   accent on its label, so the state survives a greyscale screen. */
+html[data-skin="neu"] .nav button.nav-tab.on{ color:var(--ink); font-weight:650 }
+
+/* The settings page. .set-jump was already here; the blocks it jumps to
+   were not, so the rail was embossed and the panels beside it were still
+   wearing the default glass card. */
+html[data-skin="neu"] .set-main .set-block,
+html[data-skin="neu"] .set-desk .card,
+html[data-skin="neu"] .sym-panel{
+  background:rgb(var(--s3));
+  border:0;
+  backdrop-filter:none;
+  -webkit-backdrop-filter:none;
+  box-shadow:var(--neu-out);
+}
+html[data-skin="neu"] .sj-bar{ background:rgb(var(--s2)); border:0; box-shadow:var(--neu-out-sm) }
+html[data-skin="neu"] .set-jump button,
+html[data-skin="neu"] .sj-bar button{
+  background:rgb(var(--s3));
+  border:0;
+  box-shadow:var(--neu-out-sm);
+}
+html[data-skin="neu"] .set-jump button.on,
+html[data-skin="neu"] .sj-bar button.on{
+  background:rgb(var(--s2));
+  box-shadow:var(--neu-in);
+  color:var(--ink);
+  font-weight:650;
+}
+
+/* The candles, so the chart is made of the same material as the panel it
+   sits in. See CandleChart.candleBody(). */
+html[data-skin="neu"]{ --candle-style:relief }
 html[data-skin="neu"] .field input,
 html[data-skin="neu"] .field select,
 html[data-skin="neu"] .ctrl,
@@ -712,6 +778,7 @@ html[data-skin="neu"] .chip{
 html[data-skin="neu"] .btn.ghost:active,
 html[data-skin="neu"] .icon-btn:active{ box-shadow:var(--neu-in) }
 html[data-skin="neu"] .dd-menu,
+html[data-skin="neu"] .sympick-pop,
 html[data-skin="neu"] .toast,
 html[data-skin="neu"] .notify-card{
   background:rgb(var(--s4));
@@ -761,8 +828,69 @@ html[data-skin="clay"] .dd-btn{
 html[data-skin="clay"] .nav,
 html[data-skin="clay"] .top{ background:rgb(var(--s3) / .96); border-color:transparent }
 html[data-skin="clay"] .dd-menu,
+html[data-skin="clay"] .sympick-pop,
 html[data-skin="clay"] .toast,
 html[data-skin="clay"] .notify-card{ background:rgb(var(--s7)); border:0 }
+
+/* This family had the thinnest reach of the twelve: it dressed the cards
+   and the buttons and then stopped, so the side panel and the whole
+   settings page were still the default glass desk with a violet accent.
+   "Velvet" has to be the material of the furniture, not of three cards.
+
+   Everything below is the same inflated surface the cards already use --
+   an inner light along the top, an inner shadow along the bottom, a long
+   soft shadow underneath - applied to the pieces that were missed. */
+html[data-skin="clay"] .nav{ box-shadow:var(--clay-out) }
+html[data-skin="clay"] .nav button.nav-tab{
+  border:0;
+  background:rgb(var(--s5));
+  box-shadow:inset 0 -3px 6px rgb(var(--shadow-rgb) / .22),
+             inset 0 3px 6px rgb(var(--wash) / .14),
+             0 6px 14px rgb(var(--shadow-rgb) / calc(.2 * var(--shadow-strength)));
+}
+/* Pressed in, not merely tinted - the counterpart of the inflated rest
+   state, and the thing that makes the selection legible without a border. */
+html[data-skin="clay"] .nav button.nav-tab.on,
+html[data-skin="clay"] .nav button.nav-tab:active{
+  background:rgb(var(--s3));
+  box-shadow:inset 0 4px 10px rgb(var(--shadow-rgb) / .34);
+  color:var(--ink);
+  font-weight:650;
+}
+html[data-skin="clay"] .nav button.nav-tab:hover{ transform:translateY(calc(var(--lift) * 1.5)) }
+
+html[data-skin="clay"] .set-main .set-block,
+html[data-skin="clay"] .set-desk .card,
+html[data-skin="clay"] .sym-panel{
+  background:rgb(var(--s5));
+  border:0;
+  backdrop-filter:none;
+  -webkit-backdrop-filter:none;
+  box-shadow:var(--clay-in), var(--clay-out);
+}
+html[data-skin="clay"] .set-jump,
+html[data-skin="clay"] .sj-bar,
+html[data-skin="clay"] .set-rail .set-jump{
+  background:rgb(var(--s5));
+  border:0;
+  box-shadow:var(--clay-out);
+}
+html[data-skin="clay"] .set-jump button,
+html[data-skin="clay"] .sj-bar button{
+  border:0;
+  background:rgb(var(--s6));
+  box-shadow:inset 0 -3px 6px rgb(var(--shadow-rgb) / .22),
+             inset 0 3px 6px rgb(var(--wash) / .14);
+}
+html[data-skin="clay"] .set-jump button.on,
+html[data-skin="clay"] .sj-bar button.on{
+  background:rgb(var(--s3));
+  box-shadow:inset 0 4px 10px rgb(var(--shadow-rgb) / .34);
+  color:var(--ink);
+  font-weight:650;
+}
+
+html[data-skin="clay"]{ --candle-style:velvet }
 
 /* ---- cyber: neon on black --------------------------------------------
    The surface almost disappears and the *edge* carries everything: a lit
@@ -806,6 +934,7 @@ html[data-skin="cyber"] .pill,
 html[data-skin="cyber"] .chip,
 html[data-skin="cyber"] .st-chip{ border-color:rgb(var(--accent-rgb) / .28) }
 html[data-skin="cyber"] .dd-menu,
+html[data-skin="cyber"] .sympick-pop,
 html[data-skin="cyber"] .toast,
 html[data-skin="cyber"] .notify-card{
   background:rgb(var(--s2) / .94);
@@ -846,6 +975,8 @@ html[data-skin="mono"] .top{
 }
 html[data-skin="minimal"] .dd-menu,
 html[data-skin="mono"] .dd-menu,
+html[data-skin="minimal"] .sympick-pop,
+html[data-skin="mono"] .sympick-pop,
 html[data-skin="minimal"] .toast,
 html[data-skin="mono"] .toast,
 html[data-skin="minimal"] .modal-card,
@@ -1225,129 +1356,28 @@ html[data-skin="custom"]{ --sat:130%; --head-weight:500 }
   will-change:transform;
   transition:opacity var(--dur-4) var(--ease-1);
 }
-html[data-bg="flat"] .aurora,
-html[data-bg="none"] .aurora{
+html[data-bg="flat"] .aurora{
   background:var(--bg);
   animation:none;
 }
-html[data-bg="flat"] .aurora::before,
-html[data-bg="none"] .aurora::before{ background:var(--bg) }
-html[data-bg="none"] .aurora::after{ opacity:0 }
+html[data-bg="flat"] .aurora::before{ background:var(--bg) }
 html[data-bg="flat"] .aurora::after{ opacity:.12 }
 
-/* ---- blobs: glassmorphism ---------------------------------------------- */
-html[data-bg="blobs"] .aurora,
-html[data-bg="aurora"] .aurora,
-html[data-bg="waves"] .aurora,
-html[data-bg="dusk"] .aurora,
-html[data-bg="layered"] .aurora,
-html[data-bg="grid"] .aurora{
-  background:
-    linear-gradient(180deg, rgb(var(--s1) / .35), rgb(var(--s1) / .8) 82%),
-    var(--bg);
-  animation:none;
-}
-html[data-bg="blobs"] .aurora::before,
-html[data-bg="aurora"] .aurora::before,
-html[data-bg="waves"] .aurora::before,
-html[data-bg="dusk"] .aurora::before,
-html[data-bg="layered"] .aurora::before,
-html[data-bg="grid"] .aurora::before{
-  background:
-    linear-gradient(180deg, rgb(var(--s1) / .5), rgb(var(--s1) / .86) 82%),
-    var(--bg);
-}
-
-html[data-bg="blobs"] #bg-fx b:nth-child(1),
-html[data-bg="aurora"] #bg-fx b:nth-child(1){
-  inset-inline-start:-10%; top:-16%;
-  width:60vw; height:60vw; max-width:900px; max-height:900px;
-  background:rgb(var(--accent-rgb) / .5);
-  opacity:.16;
-}
-html[data-bg="blobs"] #bg-fx b:nth-child(2),
-html[data-bg="aurora"] #bg-fx b:nth-child(2){
-  inset-inline-end:-14%; top:6%;
-  width:52vw; height:52vw; max-width:800px; max-height:800px;
-  background:rgb(var(--accent-3-rgb) / .5);
-  opacity:.14;
-}
-html[data-bg="blobs"] #bg-fx b:nth-child(3),
-html[data-bg="aurora"] #bg-fx b:nth-child(3){
-  inset-inline-start:24%; bottom:-24%;
-  width:56vw; height:56vw; max-width:880px; max-height:880px;
-  background:rgb(var(--accent-rgb) / .35);
-  opacity:.12;
-}
-/* Only the aurora theme actually drifts. Three transforms on three composited
-   layers is the whole cost - no filters are animated, no layout is touched. */
-html[data-bg="aurora"][data-motion="full"][data-perf="rich"] #bg-fx b:nth-child(1){
-  animation:bgDriftA 34s var(--ease) infinite alternate;
-}
-html[data-bg="aurora"][data-motion="full"][data-perf="rich"] #bg-fx b:nth-child(2){
-  animation:bgDriftB 42s var(--ease) infinite alternate;
-}
-html[data-bg="aurora"][data-motion="full"][data-perf="rich"] #bg-fx b:nth-child(3){
-  animation:bgDriftC 38s var(--ease) infinite alternate;
-}
-@keyframes bgDriftA{ from{transform:translate3d(0,0,0) scale(1)}    to{transform:translate3d(8vw,6vh,0) scale(1.12)} }
-@keyframes bgDriftB{ from{transform:translate3d(0,0,0) scale(1.05)} to{transform:translate3d(-7vw,9vh,0) scale(.95)} }
-@keyframes bgDriftC{ from{transform:translate3d(0,0,0) scale(.95)}  to{transform:translate3d(6vw,-8vh,0) scale(1.1)} }
 
 /* ---- grid: cyber -------------------------------------------------------
    A perspective-free grid and one horizon glow. Background-position is not
    animated: the grid is static and only the glow breathes, on opacity. */
-html[data-bg="grid"] #bg-fx{
-  background-image:
-    linear-gradient(rgb(var(--accent-rgb) / .07) 1px, transparent 1px),
-    linear-gradient(90deg, rgb(var(--accent-rgb) / .07) 1px, transparent 1px);
-  background-size:52px 52px, 52px 52px;
-  mask-image:linear-gradient(180deg, transparent, #000 35%, #000 70%, transparent);
-  -webkit-mask-image:linear-gradient(180deg, transparent, #000 35%, #000 70%, transparent);
-}
-html[data-bg="grid"] #bg-fx b:nth-child(1){
-  inset-inline-start:50%; top:62%;
-  width:120vw; height:40vh;
-  transform:translateX(-50%);
-  border-radius:50%;
-  background:rgb(var(--accent-rgb) / .4);
-  opacity:.12;
-}
-html[data-bg="grid"][data-motion="full"][data-perf="rich"] #bg-fx b:nth-child(1){
-  animation:bgPulse 7s var(--ease) infinite alternate;
-}
+
 @keyframes bgPulse{ from{opacity:.08} to{opacity:.18} }
 
 /* ---- waves: ocean ------------------------------------------------------ */
-html[data-bg="waves"] #bg-fx{
-  background-image:
-    radial-gradient(120vw 40vh at 50% 100%, rgb(var(--accent-rgb) / .16), transparent 70%),
-    radial-gradient(90vw 32vh at 20% 106%, rgb(var(--accent-3-rgb) / .12), transparent 70%);
-}
-html[data-bg="waves"] #bg-fx b:nth-child(1){
-  inset-inline-start:-20%; bottom:-30%;
-  width:90vw; height:60vh;
-  background:rgb(var(--accent-rgb) / .3);
-  opacity:.1;
-}
-html[data-bg="waves"][data-motion="full"][data-perf="rich"] #bg-fx b:nth-child(1){
-  animation:bgDriftB 46s var(--ease) infinite alternate;
-}
+
 
 /* ---- dusk: sunset ------------------------------------------------------ */
-html[data-bg="dusk"] #bg-fx{
-  background-image:
-    radial-gradient(70vw 50vh at 78% 8%, rgb(var(--accent-rgb) / .2), transparent 62%),
-    linear-gradient(180deg, rgb(var(--accent-3-rgb) / .1), transparent 45%);
-}
+
 
 /* ---- layered: midnight -------------------------------------------------- */
-html[data-bg="layered"] #bg-fx{
-  background-image:
-    radial-gradient(100vw 60vh at 50% -18%, rgb(var(--accent-3-rgb) / .14), transparent 65%),
-    radial-gradient(70vw 40vh at 8% 110%, rgb(var(--accent-rgb) / .09), transparent 65%),
-    linear-gradient(180deg, transparent 40%, rgb(var(--s1) / .5));
-}
+
 
 /* Cheap tier and reduced motion: the layers stay, the movement does not. */
 html[data-perf="fast"] #bg-fx b,
@@ -1364,9 +1394,12 @@ html[data-motion="off"] #bg-fx b{ opacity:.55 }
    layout pass. */
 
 /* Page and panel entrances, retimed to the theme. */
-html[data-skin] .stage.is-entering{ animation:rise calc(var(--dur-3) * 1.1) var(--ease-2) }
-html[data-skin] .stage.is-leaving{ animation:leave var(--dur-1) var(--ease-1) both }
-html[data-skin] .stage .card{ animation:rise calc(var(--dur-3) * 1.3) var(--ease-2) both }
+/* riseIn/leaveOut, not rise/leave: a running opacity animation kills
+   backdrop-filter on the pane and on everything inside it for as long
+   as it runs. These are the themed timings of the same movement. */
+html[data-skin] .stage.is-entering{ animation:riseIn calc(var(--dur-3) * 1.1) var(--ease-2) }
+html[data-skin] .stage.is-leaving{ animation:leaveOut var(--dur-1) var(--ease-1) both }
+html[data-skin] .stage .card{ animation:riseIn calc(var(--dur-3) * 1.3) var(--ease-2) both }
 
 /* The rail's selected marker slides between destinations instead of blinking
    on under the new one. */
@@ -1396,8 +1429,18 @@ html[data-skin] .tabs button:active{ transform:scale(var(--press)) }
 /* Dialogs and menus arrive, they do not appear. */
 html[data-skin] .modal-card{ animation:modalPop calc(var(--dur-2) * 1.2) var(--ease-2) }
 @keyframes modalPop{ from{opacity:0; transform:translateY(12px) scale(.97)} to{opacity:1; transform:none} }
-html[data-skin] .dd-menu{ animation:ddIn var(--dur-2) var(--ease-2) }
-@keyframes ddIn{ from{opacity:0; transform:translateY(-6px)} to{opacity:1; transform:none} }
+/* Transform only, no opacity.
+
+   Every one of these surfaces carries a backdrop-filter, and a running
+   opacity animation on such an element - or on any ancestor of it -
+   promotes it to a backdrop root, which makes the blur sample nothing
+   and the glass go flat for the length of the animation. The same
+   defect was fixed in the view transitions; a menu that fades is a menu
+   that opens as a dull grey card and only becomes glass once it has
+   finished. The slide alone reads as an opening. */
+html[data-skin] .dd-menu,
+html[data-skin] .sympick-pop{ animation:ddIn var(--dur-2) var(--ease-2) }
+@keyframes ddIn{ from{ transform:translateY(-6px) } to{ transform:none } }
 html[data-skin] .toast{ animation:toastIn calc(var(--dur-2) * 1.4) var(--ease-2) }
 html[data-skin] .notify-card{ animation:ddIn calc(var(--dur-2) * 1.3) var(--ease-2) }
 
@@ -1442,6 +1485,18 @@ html[data-skin] :focus-visible{
 html[data-skin="mono"] :focus-visible,
 html[data-skin="minimal"] :focus-visible{ outline-color:var(--ink) }
 
+/* ...with one exception, and it is not a compromise on access.
+
+   A search box is a rounded shell with a borderless, square, edge-to-edge
+   input filling it. An outline drawn on the *input* is therefore a hard
+   rectangle sitting inside the shell's curve - and because text inputs
+   match :focus-visible on pointer focus as well as keyboard focus, it
+   appeared on every single click on every search box on the desk. The
+   shell carries the ring instead (.dsk-search:focus-within in app.css):
+   same accent, same always-on, but it follows the corner radius. */
+html[data-skin] .dsk-search-i:focus-visible,
+html[data-skin] .dsk-search > input:focus-visible{ outline:none }
+
 /* Motion off - by the theme's own knob or by the operating system - stops
    everything decorative and keeps everything that communicates state. */
 html[data-motion="off"] *,
@@ -1457,6 +1512,7 @@ html[data-motion="off"] *::after{
   html[data-skin] .stage.is-entering,
   html[data-skin] .modal-card,
   html[data-skin] .dd-menu,
+  html[data-skin] .sympick-pop,
   html[data-skin] .toast{ animation:none !important }
   .skeleton::after{ animation:none !important }
 }
@@ -1473,13 +1529,52 @@ html[data-motion="off"] *::after{
    They are heard because js/themes.js publishes the knobs as a rule of equal
    weight that this file is loaded after - not as inline properties, which
    nothing can override. */
-html[data-glass="off"][data-skin],
-html[data-perf="fast"][data-skin]{
+/* These three have to stay ABOVE anything the trader chose: "no
+   translucency" and "no movement" answer a capability or an accessibility
+   preference, not taste, so a colour or a knob must not be able to put
+   blur back. They carry four attributes because the trader's own rule now
+   carries three - see the note in themes.js publish().
+
+   Every attribute named here is one that the theme engine itself writes on
+   <html> in the same pass that publishes the trader's rule. That is the
+   whole point: an earlier version keyed on [data-theme], which looks just
+   as permanent but is written later, by app.js at boot. The rules then
+   matched nothing on the first paint and the desk came up black. Only
+   attributes set by apply() may appear here. */
+/* ---- the mobile sheet, in the two solid families ----------------------
+   Relief and Velvet are not glass themes, and the settings sheet was the
+   one surface still behaving like one: it is parented to the body, so it
+   escapes the panel rules above and was picking up the shared frosting.
+   On a material desk a translucent sheet reads as an unfinished panel,
+   not as depth. Both get a solid surface and their own edge instead, and
+   the backdrop-filter is removed outright rather than set to zero so
+   there is no compositor layer left behind it. */
+@media (max-width: 900px){
+  html[data-skin="neu"] .set-jump.is-sheet,
+  html[data-skin="neu"] .sj-bar{
+    background:rgb(var(--s3));
+    backdrop-filter:none;
+    -webkit-backdrop-filter:none;
+    border:0;
+    box-shadow:0 -10px 26px rgb(var(--shadow-rgb) / .3), var(--neu-out-sm);
+  }
+  html[data-skin="clay"] .set-jump.is-sheet,
+  html[data-skin="clay"] .sj-bar{
+    background:rgb(var(--s2));
+    backdrop-filter:none;
+    -webkit-backdrop-filter:none;
+    border:0;
+    box-shadow:0 -12px 30px rgb(var(--shadow-rgb) / .28), var(--clay-out);
+  }
+}
+
+html[data-glass="off"][data-skin][data-bg][data-motion][data-perf],
+html[data-perf="fast"][data-skin][data-bg][data-motion][data-perf]{
   --surface-alpha:1;
   --blur:0px;
 }
 @media (prefers-reduced-motion:reduce){
-  html[data-skin][data-theme]{ --motion-scale:0 }
+  html[data-skin][data-bg][data-motion][data-perf]{ --motion-scale:0 }
 }
 
 /* Cheap tier: the same removal of blur app.css already does, restated for the
@@ -1740,11 +1835,11 @@ html[data-theme="light"] .tc-art{ box-shadow:inset 0 0 0 1px rgb(var(--wash) / .
 /* ---- responsive --------------------------------------------------------
    Phones get two columns rather than one: a theme is chosen by comparison,
    and a single column turns that into scrolling and memory. */
-@media (max-width:860px){
+@media (max-width:900px){
   .theme-grid{ grid-template-columns:repeat(auto-fill, minmax(150px, 1fr)); gap:10px }
   .tc-art{ height:76px }
 }
-@media (max-width:520px){
+@media (max-width:560px){
   .theme-grid{ grid-template-columns:repeat(2, minmax(0, 1fr)) }
   .tc-art{ height:68px; padding:6px }
   .tc-desc{ display:none }
@@ -1785,7 +1880,7 @@ html[data-skin] .keybox{ border-radius:var(--radius-md) }
    blanket background here would have quietly removed that. */
 html[data-skin] .plan-card{ border-radius:var(--radius-lg) }
 html[data-skin] .notify-stack .notify-card{ border-radius:var(--radius-md) }
-html[data-skin] .prof-ava{ border-radius:var(--radius-lg) }
+html[data-skin] .pfx-ava{ border-radius:var(--radius-lg) }
 
 /* Native controls that are not switches still exist in forms, and an
    unstyled checkbox in a themed dialog is the one thing that gives a skin
@@ -1793,6 +1888,60 @@ html[data-skin] .prof-ava{ border-radius:var(--radius-lg) }
 html[data-skin] input[type=checkbox],
 html[data-skin] input[type=radio],
 html[data-skin] progress{ accent-color:var(--accent) }
+
+/* And a skin dresses text fields ONLY.
+
+   The skins above all style `.field input` wholesale. That is right for a
+   text box and wrong for everything else that can sit inside a .field -
+   and the allowed-symbols picker puts a whole list of checkboxes and a
+   search box inside one. On Neo the rule handed each 13px native checkbox
+   `box-shadow: inset 4px 4px 9px dark, inset -4px -4px 9px light`, which
+   renders as a pair of soft squares above and below the tick; Clay did the
+   same with its single inset. Hence "extra squares around the symbol
+   checkboxes". The native control, tinted by accent-color, is already
+   themed; it does not want a surface. The search input does not want one
+   either, because its shell is the surface.
+
+   Listed after every skin so it wins on order as well as on specificity -
+   each selector here carries one more attribute than the [data-skin="x"]
+   rules it has to beat. */
+html[data-skin] .field input[type="checkbox"],
+html[data-skin] .field input[type="radio"],
+html[data-skin] .field input[type="range"],
+html[data-skin] .field input[type="color"],
+html[data-skin] .field input[type="hidden"],
+html[data-skin] .field .dsk-search-i,
+html[data-skin] .field .dsk-search > input{
+  background:none;
+  border:0;
+  box-shadow:none;
+}
+
+/* ...and the same again for the focused state, which this block did not
+   cover and which is where it actually showed.
+
+   `html[data-skin] .field input:focus` up at the top of this file is
+   (0,3,2) and so outranked the (0,3,1) reset above the moment the box
+   was clicked. It paints three things on the inner input: a
+   `background:var(--field-hi)`, a `border-color`, and
+   `box-shadow:0 0 0 4px rgb(var(--accent-rgb) / .14)`. The input is
+   edge-to-edge inside the shell and `border-radius:0`, so what the eye
+   got was a hard-cornered filled rectangle laid over the shell with a
+   4px accent halo around it - a box drawn inside a box, visible on
+   every click, on whatever colour the skin's accent happens to be.
+
+   The resting reset without a focus twin is half a reset. The shell
+   owns this control's box in every state: .dsk-search:focus-within in
+   app.css draws the ring, on the shell, following its corner radius. */
+html[data-skin] .field .dsk-search-i:focus,
+html[data-skin] .field .dsk-search-i:focus-visible,
+html[data-skin] .field .dsk-search > input:focus,
+html[data-skin] .field .dsk-search > input:focus-visible{
+  background:none;
+  border:0;
+  box-shadow:none;
+  outline:none;
+}
 
 /* The empty state's orb is the only decorative animation on a data page. It
    keeps its float, at the theme's own amplitude, and stops with everything
@@ -1843,7 +1992,7 @@ html[data-skin] .plan-card.popular{
 
 /* "Enabled" on a strategy card, and the same filled pill wherever it means
    "this one is on". A themed .pill rule carries one more attribute than
-   .st-live .pill.on does, so under Neumorphism the fill was being replaced by
+   .st-live .pill.on does, so under Relief the fill was being replaced by
    the resting surface and under Cyber the transparent edge came back as neon:
    the state was correct in the DOM and invisible on the screen.
 
@@ -1886,7 +2035,6 @@ html[data-skin][data-theme="light"] .pay-veil{ background:rgb(var(--wash) / .34)
 /* A backdrop tuned for a dark page is too loud on a light one: the same
    blobs at the same opacity turn a white desk into a poster. */
 html[data-theme="light"] #bg-fx b{ opacity:.55 }
-html[data-theme="light"][data-bg="grid"] #bg-fx b{ opacity:.4 }
 
 /* Cyber and Monochrome want their own scrollbar: one because everything
    else on the page is lit, the other because nothing is. */
@@ -1946,14 +2094,9 @@ html[data-motion="off"] .theme-card.on::after{ animation:none; opacity:0 }
    illegibility and nothing is covered up.
    =========================================================================== */
 
-/* For text that only the screen reader needs - the padlock is decorative, so
-   the reason a card cannot be chosen has to be said in words somewhere. */
-.sr-only{
-  position:absolute; width:1px; height:1px;
-  margin:-1px; padding:0; border:0;
-  clip:rect(0 0 0 0); clip-path:inset(50%);
-  overflow:hidden; white-space:nowrap;
-}
+/* .sr-only moved to app.css. It is a base utility that the themes sheet
+   happened to be the first to need; leaving it here meant a rule every
+   view depends on was only loaded because the theme gallery exists. */
 
 /* ---- the note above the grid --------------------------------------------- */
 .theme-locked-note{
@@ -1993,7 +2136,7 @@ html[data-motion="off"] .theme-card.on::after{ animation:none; opacity:0 }
   background:rgb(var(--s1) / .62);
   border:1px solid var(--line);
   color:var(--muted);
-  backdrop-filter:blur(6px);
+  backdrop-filter:blur(calc(var(--blur, 18px) * 6 / 18));
   transition:color var(--dur-2) var(--ease-1), border-color var(--dur-2) var(--ease-1);
 }
 .tc-lock svg{ width:12px; height:12px }
@@ -2073,6 +2216,21 @@ html[data-perf="fast"] .tc-lock{ background:rgb(var(--s1) / .9) }
    are capped at roughly half what they could carry, because restraint is the
    whole of those two themes. */
 
+/* AURION's own backdrop.
+
+   The other ten themes name a file in assets/bg. AURION's is the orb the
+   desk and the sign-in screen have always been painted with, which lives
+   beside the other artwork rather than in the gallery folder - and because
+   this rule did not exist, resetting the theme left it with no --theme-bg
+   at all. The gallery offered the picture, the tile showed it, and choosing
+   "the theme's own" produced nothing. */
+html[data-skin="glass"]{
+  --theme-bg:url("../assets/login-orb.png");
+}
+html[data-skin="glass"][data-theme="light"]{
+  --theme-bg:url("../assets/login-orb-light.png");
+}
+
 html[data-skin="frost"]{
   --theme-bg:url("../assets/bg/frost-dark.jpg");
 }
@@ -2146,7 +2304,7 @@ html[data-skin="mono"][data-theme="light"]{
 /* ---- the two cases where it still steps aside ------------------------- */
 
 /* The custom theme's "no backdrop" choice means no backdrop. */
-html[data-bg="none"] #bg-fx::before{ display:none }
+
 
 /* ===========================================================================
    The trader's own background picture.
@@ -2165,10 +2323,28 @@ html[data-bg="none"] #bg-fx::before{ display:none }
    =========================================================================== */
 html[data-bg="photo"] .aurora{ opacity:1 }
 html[data-bg="photo"] .aurora::before{
-  background:var(--bg-photo, none) center center / cover no-repeat fixed, var(--bg);
+  /* The focus point and the fit are the trader's, not ours.
+     "cover, centred" is the right default and the wrong only option: the
+     subject of a photograph is rarely in the middle, and a desk is a much
+     wider frame than the phone that took it, so centring crops exactly
+     the part someone chose the picture for.
+     Zoom is a transform on the layer rather than a background-size,
+     because a size in percent stops meaning "cover" as soon as the two
+     aspect ratios disagree and letterboxes the picture instead. The focus
+     point doubles as the transform origin, so zooming in stays on the
+     chosen spot rather than drifting back to the centre. */
+  background:var(--bg-photo, none)
+             var(--bg-photo-x, 50%) var(--bg-photo-y, 50%)
+             / var(--bg-photo-fit, cover) no-repeat fixed,
+             var(--bg);
+  transform:scale(var(--bg-photo-zoom, 1));
+  transform-origin:var(--bg-photo-x, 50%) var(--bg-photo-y, 50%);
   filter:none;
   opacity:1;
 }
+/* "contain" leaves bare page behind the picture; paint it so the edges are
+   the page colour rather than whatever happens to be underneath. */
+html[data-bg="photo"] .aurora{ background:var(--bg) }
 html[data-bg="photo"] .aurora::after{
   content:"";
   position:fixed; inset:0;
@@ -2194,13 +2370,182 @@ html[data-bg="photo"] .aurora::after{
    effect. A trader who likes the aurora but finds it loud can calm it
    instead of abandoning it.
 
-   It goes on .aurora, not on .aurora::before, because the grid and wave
-   backdrops paint across both the ::before and the ::after and an effect
-   applied to only one of them would blur half a background. The element is
-   fixed and behind everything, so filtering it costs one composited layer
-   and never touches the panels or the text above it.
+   It goes on .aurora rather than on .aurora::before so that the flat colour
+   and the trader's own photograph are filtered as one picture rather than
+   half of one. The element is fixed and behind everything, so filtering it
+   costs one composited layer and never touches the panels or the text.
+
+   The shipped wallpapers are NOT on .aurora. They are painted by
+   #bg-fx::before, a different element entirely, which is why choosing an
+   effect appeared to do nothing on any of the twenty pictures: the filter
+   was being applied to a layer the wallpaper was covering. Both layers
+   carry it now.
    =========================================================================== */
 .aurora{ filter:var(--bg-fx, none) }
+#bg-fx::before{ filter:var(--bg-fx, none) }
 
 /* The photo backdrop already sets filter:none on its own layers so the
    picture is shown as it is; the effect still arrives from the parent. */
+
+
+
+/* ===========================================================================
+   The desk's own colour picker.
+
+   It is a popover rather than a modal on purpose: recolouring is judged
+   against real content, so the page behind has to stay visible and live.
+   Fixed positioning keeps it put while the settings panel scrolls.
+   =========================================================================== */
+.cp-pop{
+  position:fixed; z-index:6000; width:248px;
+  display:flex; flex-direction:column; gap:10px;
+  padding:12px;
+  background:rgb(var(--s6));
+  border:1px solid rgb(var(--wash) / .14);
+  border-radius:var(--r-3, 14px);
+  box-shadow:0 18px 48px rgb(0 0 0 / .42);
+  color:var(--ink);
+}
+.cp-head{ display:flex; align-items:center; gap:8px }
+.cp-head b{ flex:1; font-size:13px; font-weight:650 }
+.cp-x{
+  width:24px; height:24px; line-height:1; font-size:17px;
+  background:none; border:0; border-radius:8px; color:var(--muted); cursor:pointer;
+}
+.cp-x:hover{ background:rgb(var(--wash) / .10); color:var(--ink) }
+
+.cp-sv{
+  position:relative; height:132px; border-radius:10px; cursor:crosshair;
+  touch-action:none;                      /* or a finger scrolls the panel */
+}
+.cp-hue{
+  position:relative; height:14px; border-radius:7px; cursor:ew-resize;
+  touch-action:none;
+  background:linear-gradient(to right,#f00,#ff0,#0f0,#0ff,#00f,#f0f,#f00);
+}
+.cp-sv i, .cp-hue i{
+  position:absolute; width:14px; height:14px; border-radius:50%;
+  border:2px solid #fff; box-shadow:0 0 0 1px rgb(0 0 0 / .45);
+  transform:translate(-50%,-50%); pointer-events:none;
+}
+.cp-hue i{ top:50% }
+
+
+.cp-foot{ display:flex; align-items:center; gap:8px }
+.cp-prev{
+  width:32px; height:28px; border-radius:8px; flex:none;
+  border:1px solid rgb(var(--wash) / .16);
+}
+.cp-hex{
+  flex:1; min-width:0; padding:6px 8px;
+  font:500 12px/1 var(--mono, ui-monospace, monospace);
+  text-transform:lowercase;
+  background:var(--field); color:var(--ink);
+  border:1px solid rgb(var(--wash) / .14); border-radius:8px;
+}
+.cp-swatches{ display:grid; grid-template-columns:repeat(6,1fr); gap:6px }
+.cp-sw{
+  height:20px; cursor:pointer;
+  border:1px solid rgb(var(--wash) / .14); border-radius:6px;
+}
+.cp-sw:hover{ transform:scale(1.08) }
+
+/* The swatch that opens it, in the settings rows. */
+.col-swatch{
+  width:44px; height:28px; flex:none; cursor:pointer; padding:0;
+  border:1px solid rgb(var(--wash) / .18); border-radius:9px;
+}
+.col-swatch:hover{ border-color:var(--accent) }
+
+/* ---------------------------------------------------------------------------
+   Framing the trader's picture.
+   The stage carries the desk's proportions, so what is framed here is what
+   lands behind the panels.
+   --------------------------------------------------------------------------- */
+.bgpic-framehint{ margin:10px 0 6px }
+.bgpic-stage{
+  position:relative; aspect-ratio:16/9; overflow:hidden;
+  border:1px solid rgb(var(--wash) / .14); border-radius:12px;
+  background:var(--bg2); cursor:grab; touch-action:none;
+}
+.bgpic-stage.dragging{ cursor:grabbing }
+.bgpic-stage:focus-visible{ outline:2px solid var(--accent); outline-offset:2px }
+.bgpic-img{ position:absolute; inset:0; background-repeat:no-repeat }
+/* A rule-of-thirds guide, so the drag has something to aim at. */
+.bgpic-stage::after{
+  content:""; position:absolute; inset:0; pointer-events:none;
+  background:
+    linear-gradient(to right, transparent 33.3%, rgb(255 255 255 / .18) 33.3% 33.5%,
+      transparent 33.5% 66.6%, rgb(255 255 255 / .18) 66.6% 66.8%, transparent 66.8%),
+    linear-gradient(to bottom, transparent 33.3%, rgb(255 255 255 / .18) 33.3% 33.5%,
+      transparent 33.5% 66.6%, rgb(255 255 255 / .18) 66.6% 66.8%, transparent 66.8%);
+  opacity:0; transition:opacity var(--dur-2, .18s) ease;
+}
+.bgpic-stage:hover::after, .bgpic-stage.dragging::after, .bgpic-stage:focus-visible::after{ opacity:1 }
+.bgpic-fit{ display:flex; align-items:center; gap:6px; margin:10px 0 2px }
+.bgpic-fit .grow{ flex:1 }
+.bgpic-fit .btn.on{ border-color:var(--accent); color:var(--ink) }
+
+.wall-art{ position:relative }
+
+/* A tile name now carries its cut - "Aurora Dark" - so it is longer than a
+   bare scene name and must not be clipped mid-word. */
+.wall-tile .bgt-name{
+  display:block; text-align:center;
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+}
+
+/* When a wallpaper cannot be loaded, say so.
+   The failure used to be completely silent: the picture simply never
+   appeared, which is indistinguishable from the feature being broken. */
+.wall-warn{
+  display:flex; flex-direction:column; gap:2px;
+  margin:10px 0 0; padding:8px 10px;
+  border:1px solid rgb(var(--warn-rgb, 240 180 90) / .35);
+  border-radius:10px;
+  background:rgb(var(--warn-rgb, 240 180 90) / .10);
+  font-size:12px; color:var(--ink);
+}
+.wall-warn code{
+  font:500 11px/1.5 var(--mono, ui-monospace, monospace);
+  color:var(--muted); word-break:break-all;
+}
+
+/* ===========================================================================
+   A console stays a console, in daylight too
+   ===========================================================================
+   skins.css already decided this, and said why: "A terminal is a screen.
+   Bleaching the engine log, the robot log and the strategy source to match a
+   white page destroys the one place in the desk where monospaced
+   light-on-dark text is the convention a trader already reads - and where a
+   red error line has to be unmissable."
+
+   The decision never reached the screen. skins.css writes it as
+   html[data-theme="light"] :is(.term, ...), which is specificity (0,2,1).
+   The skin layer in THIS file writes html[data-skin] .term and
+   html[data-skin] .ctrl, also (0,2,1). A tie is broken by source order and
+   this sheet loads last, so every console came out pale: the engine log and
+   the AI feed at rgb(var(--s1) / .55), and the strategy source - a textarea,
+   so it is caught by the .ctrl and textarea rules too - at plain white.
+
+   Re-stating it here with the theme and the skin both in the selector makes
+   it (0,3,1). That beats the skin layer and every per-skin .term override
+   further up on specificity rather than on position, so it does not matter
+   where any of them sit or what is added later.                           */
+html[data-theme="light"][data-skin] :is(.term, .robot-term, .st-src, .tg-src, .secret-box, .keybox){
+  background:#0b0e15;
+  color:#dbe3f0;
+  border:1px solid rgba(20,28,45,.35);
+}
+html[data-theme="light"][data-skin] :is(.st-src, .tg-src)::placeholder{ color:#6b7b93 }
+html[data-theme="light"][data-skin] :is(.term, .robot-term) .l-info{ color:#9fb0c9 }
+html[data-theme="light"][data-skin] :is(.term, .robot-term) .l-warning,
+html[data-theme="light"][data-skin] :is(.term, .robot-term) .l-warn{ color:#f0b955 }
+html[data-theme="light"][data-skin] :is(.term, .robot-term) .l-error,
+html[data-theme="light"][data-skin] :is(.term, .robot-term) .l-err{ color:#ff7d94 }
+html[data-theme="light"][data-skin] :is(.term, .robot-term) .l-ok{ color:#4fd6a3 }
+html[data-theme="light"][data-skin] :is(.term, .robot-term) .ts{ color:#6b7b93 }
+/* The scrollbar inside a dark console should not be a light-theme scrollbar. */
+html[data-theme="light"][data-skin] :is(.term, .robot-term, .st-src)::-webkit-scrollbar-thumb{
+  background:rgba(255,255,255,.22);
+}

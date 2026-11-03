@@ -1,0 +1,415 @@
+/**
+ * Per-theme candle colours.
+ *
+ * Until now the two direction colours were one hard-coded pair in
+ * app.css - bright green and bright red - used by all twelve themes.
+ * They were chosen against the glass desk's near-black panel, and the
+ * other eleven panels are not that colour: sunset's is warm maroon,
+ * clay's is violet, mono's is neutral graphite. Each theme now names its
+ * own pair, in both cuts, and the default theme keeps exactly the pair
+ * that was hard-coded before so a desk already in use does not change
+ * colour underneath its owner.
+ *
+ * Two different things have to be true, and this file checks both.
+ *
+ *  - The right pair reaches the page. Resolved by booting themes.js in
+ *    jsdom, applying each theme in each cut, and reading what it
+ *    actually published - not by grepping the table it was read from.
+ *
+ *  - The pairs are legible. Every candle colour is measured against the
+ *    --chart-panel it is really drawn on, taken from css/themes.css, and
+ *    up and down are measured against each other. "It looked nice in the
+ *    editor" is not a result.
+ *
+ *     node tests/theme-candles.test.js
+ */
+const fs = require("node:fs");
+const path = require("node:path");
+const { JSDOM } = require("jsdom");
+
+const ROOT = path.join(__dirname, "..");
+const W = path.join(ROOT, "apps/web");
+const read = (p) => fs.readFileSync(path.join(W, p), "utf8");
+
+let failed = 0;
+const ok = (c, m) => { if (!c) { failed++; console.log("FAIL " + m); } else console.log("ok   " + m); };
+
+/* ----------------------------------------------------------- colour maths */
+
+const hex2rgb = (h) => {
+  const m = /^#?([0-9a-f]{6})$/i.exec(String(h).trim());
+  if (!m) return null;
+  const n = parseInt(m[1], 16);
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+};
+const chan = (v) => (v / 255 <= 0.03928 ? v / 255 / 12.92 : Math.pow((v / 255 + 0.055) / 1.055, 2.4));
+const lum = (c) => 0.2126 * chan(c[0]) + 0.7152 * chan(c[1]) + 0.0722 * chan(c[2]);
+const contrast = (a, b) => {
+  const la = lum(a), lb = lum(b);
+  return (Math.max(la, lb) + 0.05) / (Math.min(la, lb) + 0.05);
+};
+/** Flatten an rgba() over a backdrop, because --chart-panel is translucent. */
+function over(fg, alpha, bg) {
+  return fg.map((v, i) => Math.round(v * alpha + bg[i] * (1 - alpha)));
+}
+function hue(c) {
+  const r = c[0] / 255, g = c[1] / 255, b = c[2] / 255;
+  const mx = Math.max(r, g, b), mn = Math.min(r, g, b), d = mx - mn;
+  if (!d) return 0;
+  let h;
+  if (mx === r) h = ((g - b) / d) % 6;
+  else if (mx === g) h = (b - r) / d + 2;
+  else h = (r - g) / d + 4;
+  h *= 60;
+  return h < 0 ? h + 360 : h;
+}
+const hueGap = (a, b) => { const d = Math.abs(hue(a) - hue(b)); return Math.min(d, 360 - d); };
+
+/* ------------------------------------- the surface candles are drawn on */
+
+const themeCss = read("css/themes.css").replace(/\/\*[\s\S]*?\*\//g, "");
+const PANEL = {};
+for (const m of themeCss.matchAll(/html\[data-skin="(\w+)"\](\[data-theme="light"\])?\s*\{([^}]*)\}/g)) {
+  const cp = /--chart-panel:\s*([^;]+);/.exec(m[3]);
+  if (!cp) continue;
+  const rgba = /rgba?\(([^)]+)\)/.exec(cp[1]);
+  if (!rgba) continue;
+  const n = rgba[1].split(",").map((x) => Number(x.trim()));
+  // over the page behind it; dark panels sit on near-black, light on white
+  const behind = m[2] ? [255, 255, 255] : [0, 0, 0];
+  PANEL[m[1] + (m[2] ? ":light" : ":dark")] = over(n.slice(0, 3), n.length > 3 ? n[3] : 1, behind);
+}
+ok(Object.keys(PANEL).length >= 24,
+  `read --chart-panel for every theme and cut (${Object.keys(PANEL).length})`);
+
+/* ------------------------------------------- what the engine really emits */
+
+const dom = new JSDOM("<!doctype html><html><head></head><body></body></html>",
+  { url: "http://localhost/", runScripts: "outside-only" });
+const win = dom.window;
+win.matchMedia = () => ({ matches: false, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {} });
+win.eval(read("js/themes.js"));
+const T = win.AurionTheme;
+ok(T && Array.isArray(T.THEMES), "themes.js booted");
+T.setPaid(true);
+
+function published() {
+  const st = [...win.document.querySelectorAll("style")].map((s) => s.textContent).join("\n");
+  const up = /--candle-up:(#[0-9a-f]{6})/i.exec(st);
+  const dn = /--candle-down:(#[0-9a-f]{6})/i.exec(st);
+  return [up && up[1], dn && dn[1]];
+}
+function applyIn(id, cut) {
+  win.document.documentElement.dataset.theme = cut;
+  T.set(id);
+  T.apply();
+  return published();
+}
+
+/* Every theme ships one. A theme added later without a pair would fall
+   back to the global default and quietly look wrong on its own panel. */
+const missing = T.THEMES.filter((t) => !t.candles || !t.candles.dark || !t.candles.light);
+ok(missing.length === 0,
+  `every theme names a candle pair for both cuts (missing: ${missing.map((t) => t.id).join(", ") || "none"})`);
+
+/* ---------------------------------------------------- the default is kept */
+
+/* The pair that was hard-coded in app.css before any of this existed.
+   Read from the stylesheet rather than repeated here, so the two cannot
+   drift apart silently. */
+const appCss = read("css/app.css").replace(/\/\*[\s\S]*?\*\//g, "");
+const rootBlock = /:root\s*\{([\s\S]*?)\}/.exec(appCss)[1];
+const lightBlock = /html\[data-theme="light"\]\s*\{([\s\S]*?)\}/.exec(appCss)[1];
+const was = {
+  dark: [/--candle-up:\s*(#[0-9a-f]{6})/i.exec(rootBlock)[1], /--candle-down:\s*(#[0-9a-f]{6})/i.exec(rootBlock)[1]],
+  light: [/--candle-up:\s*(#[0-9a-f]{6})/i.exec(lightBlock)[1], /--candle-down:\s*(#[0-9a-f]{6})/i.exec(lightBlock)[1]],
+};
+ok(was.dark[0] && was.light[0], `the previous hard-coded pairs were found (${was.dark.join("/")} and ${was.light.join("/")})`);
+
+const def = T.DEFAULT;
+for (const cut of ["dark", "light"]) {
+  const got = applyIn(def, cut);
+  ok(got[0] === was[cut][0] && got[1] === was[cut][1],
+    `the default theme's ${cut} candles are unchanged (${got.join("/")})`);
+}
+/* The stylesheet values stay as the pre-boot fallback: themes.js runs in
+   <head>, but a stylesheet that disagreed would flash the wrong colour. */
+ok(was.dark[0] === T.BY_ID[def].candles.dark[0] && was.light[0] === T.BY_ID[def].candles.light[0],
+  "and the stylesheet fallback agrees with the table, so there is no boot flash");
+
+/* ------------------------------------------- each theme publishes its own */
+
+let wrong = 0;
+for (const t of T.THEMES) {
+  for (const cut of ["dark", "light"]) {
+    const got = applyIn(t.id, cut);
+    const want = t.candles[cut];
+    if (got[0] !== want[0] || got[1] !== want[1]) {
+      wrong++;
+      console.log(`     ${t.id}/${cut}: published ${got.join("/")}, table says ${want.join("/")}`);
+    }
+  }
+}
+ok(wrong === 0, `all ${T.THEMES.length * 2} theme/cut combinations publish their own pair`);
+
+/* Two themes must not be issued the same pair in the same cut, or the
+   table is decoration. */
+for (const cut of ["dark", "light"]) {
+  const seen = new Map();
+  const dupes = [];
+  for (const t of T.THEMES) {
+    const k = t.candles[cut].join("/");
+    // custom deliberately mirrors the default; it is the builder's start point
+    if (t.id === "custom") continue;
+    if (seen.has(k)) dupes.push(`${seen.get(k)}+${t.id}`);
+    seen.set(k, t.id);
+  }
+  ok(dupes.length === 0, `no two themes share a ${cut} pair (${dupes.join(", ") || "none"})`);
+}
+ok(T.BY_ID.custom.candles.dark.join() === T.BY_ID[def].candles.dark.join(),
+  "the custom builder starts from the default pair, which is its documented base");
+
+/* ------------------------------------------------------------- legibility */
+
+const MIN_ON_PANEL = 3.0;   /* WCAG 1.4.11, non-text contrast */
+const MIN_PAIR_K = 2.5;     /* up and down separate by light, in every theme */
+const NEAR_ACCENT = 42;     /* degrees a candle may stray from its theme */
+
+/* Every theme draws its candles out of its OWN colour, both directions.
+   Relief is the reference the rest were built to match: it rises in
+   near-white and falls in grey, one steel family split by intensity.
+   That model is now the rule everywhere - Velvet rises in pale lilac and
+   falls in purple, Midnight in periwinkle and indigo, Sunset in peach
+   and burnt orange.
+
+   Which means hue is no longer the thing that separates up from down -
+   by design they share one. Luminance is, so the luminance rule that
+   used to apply only to the two grey themes now applies to all of them,
+   and at a higher bar than before (2.5, where Relief itself measures
+   2.82 and 3.35). That is also the more robust signal: it survives every
+   form of colour blindness, which a green/red pair does not.
+
+   Chroma here is absolute (max-min over 255), not HSV saturation, which
+   divides by the maximum channel and so calls the dark slate #1f2733
+   "39% saturated" when it is visually neutral. */
+const chroma = (c) => (Math.max(...c) - Math.min(...c)) / 255;
+const ACHROMATIC = 0.12;
+
+/* There are two legitimate ways to build a candle pair, and they need
+   different rules.
+
+   A TONAL pair - every theme but the default - is two shades of the
+   theme's own accent hue. That is what makes the desk feel of a piece,
+   and because hue says nothing about direction there, lightness has to
+   carry it: the pair must separate by contrast, both ends must sit near
+   the accent, and the rise must be the one that stands further off the
+   panel.
+
+   A SEMANTIC pair is green up, red down. The default theme uses it
+   because it is the theme a trader meets without choosing it, and
+   green-up/red-down is the convention every chart they have ever seen
+   already taught them. There the hue IS the signal, so a lightness test
+   would be measuring the wrong thing - #26d07c against #f4475b is only
+   1.76:1 and nobody has ever confused them. What has to be checked
+   instead is that the two are genuinely far apart in hue and that they
+   are the desk's own --ok/--bad rather than some other green and red.
+
+   Both kinds must be visible on their own panel. */
+const SEMANTIC = new Set([T.DEFAULT, "custom"]);
+const MIN_PAIR_HUE = 60;
+
+let worstPanel = { v: Infinity }, worstSep = { v: Infinity };
+for (const t of T.THEMES) {
+  for (const cut of ["dark", "light"]) {
+    const panel = PANEL[t.id + ":" + cut];
+    if (!panel) { ok(false, `no panel colour known for ${t.id}/${cut}`); continue; }
+    const up = hex2rgb(t.candles[cut][0]), dn = hex2rgb(t.candles[cut][1]);
+    const cu = contrast(up, panel), cd = contrast(dn, panel);
+    if (cu < worstPanel.v) worstPanel = { v: cu, who: `${t.id}/${cut} up` };
+    if (cd < worstPanel.v) worstPanel = { v: cd, who: `${t.id}/${cut} down` };
+    if (cu < MIN_ON_PANEL || cd < MIN_ON_PANEL) {
+      ok(false, `${t.id}/${cut} is hard to see on its own panel (up ${cu.toFixed(2)}, down ${cd.toFixed(2)})`);
+    }
+
+    if (SEMANTIC.has(t.id)) {
+      const g = hueGap(up, dn);
+      if (g < MIN_PAIR_HUE) {
+        ok(false, `${t.id}/${cut} up and down are only ${g.toFixed(0)} deg apart - `
+          + `a semantic pair is told apart by hue, so that is the whole signal`);
+      }
+      continue;
+    }
+
+    const k = contrast(up, dn);
+    if (k < worstSep.v) worstSep = { v: k, who: `${t.id}/${cut}` };
+    if (k < MIN_PAIR_K) {
+      ok(false, `${t.id}/${cut} up and down do not separate by light (${k.toFixed(2)}:1) - `
+        + `they share a hue by design, so this is the only thing telling them apart`);
+    }
+  }
+}
+
+/* The default theme's pair is not merely "a green and a red": it is the
+   same pair the P&L figures use. If they drift apart, a rising candle
+   and a winning number stop being the same colour on the one desk most
+   traders will ever see. */
+{
+  const cssVar = (name, block) => {
+    const m = new RegExp(name + ":\\s*(#[0-9a-f]{3,6})", "i").exec(block);
+    return m ? m[1] : "";
+  };
+  const want = { dark: [cssVar("--ok", rootBlock), cssVar("--bad", rootBlock)],
+                 light: [cssVar("--ok", lightBlock), cssVar("--bad", lightBlock)] };
+  const defTheme = T.THEMES.find((t) => t.id === T.DEFAULT);
+  const drift = [];
+  for (const cut of ["dark", "light"]) {
+    for (const [slot, name] of [[0, "--ok"], [1, "--bad"]]) {
+      const got = String(defTheme.candles[cut][slot]).toLowerCase();
+      const exp = String(want[cut][slot] || "").toLowerCase();
+      if (!exp) { drift.push(`${name}/${cut} not found in the stylesheet`); continue; }
+      if (got !== exp) drift.push(`${cut} ${name}: candle ${got} vs text ${exp}`);
+    }
+  }
+  ok(drift.length === 0,
+    `the default theme's candles are exactly --ok/--bad (${drift.join(", ") || "both cuts match"})`);
+}
+ok(worstPanel.v >= MIN_ON_PANEL,
+  `every candle clears ${MIN_ON_PANEL}:1 on its own chart panel (worst ${worstPanel.v.toFixed(2)} at ${worstPanel.who})`);
+ok(worstSep.v >= MIN_PAIR_K,
+  `up and down stay unmistakable in every theme (worst ${worstSep.v.toFixed(2)}:1 at ${worstSep.who})`);
+
+/* The point of the exercise: a candle must look like the theme it is in.
+   swatch[2] is the theme's accent - the colour the desk is actually
+   painted in - so both candles are measured against that, not against
+   each other. This is the assertion that would have caught the table
+   this replaced, where Velvet was a purple theme with green candles
+   (116 deg away), Cyber a magenta one with lime (156 deg) and Aurora a
+   violet one with mint (88 deg). */
+let strays = [];
+for (const t of T.THEMES) {
+  /* The semantic pair is deliberately off-palette - that is the point
+     of it - so it is not measured against the accent. */
+  if (SEMANTIC.has(t.id)) continue;
+  const accent = hex2rgb(t.swatch[2]);
+  if (chroma(accent) < 0.2) continue;   /* Relief and Mono have no hue to match */
+  for (const cut of ["dark", "light"]) {
+    for (const [slot, dir] of [[0, "up"], [1, "down"]]) {
+      const c = hex2rgb(t.candles[cut][slot]);
+      if (chroma(c) < ACHROMATIC) { strays.push(`${t.id}/${cut} ${dir} is grey in a coloured theme`); continue; }
+      const g = hueGap(c, accent);
+      if (g > NEAR_ACCENT) strays.push(`${t.id}/${cut} ${dir} is ${g.toFixed(0)} deg off the theme accent`);
+    }
+  }
+}
+ok(strays.length === 0,
+  `every candle is drawn from its own theme's accent (${strays.join(", ") || "all 18 coloured pairs on-palette"})`);
+
+/* Direction has to keep meaning the same thing. With hue carrying the
+   theme rather than the direction, the invariant that survives is the
+   one Relief already used: the rise is the colour that stands further
+   off the panel. "Brighter" is the wrong test - on a light panel the
+   colour that asserts itself is the dark one, which is why Relief rises
+   near-white on the dark cut and near-black on the light one. */
+let swapped = [];
+for (const t of T.THEMES) {
+  /* Green up and red down needs no help from contrast to say which way
+     the bar went, and on a white panel a red is simply darker than a
+     green of the same conviction. Emphasis is the tonal pairs' rule. */
+  if (SEMANTIC.has(t.id)) continue;
+  for (const cut of ["dark", "light"]) {
+    const p2 = PANEL[t.id + ":" + cut];
+    if (!p2) continue;
+    const up = hex2rgb(t.candles[cut][0]), dn = hex2rgb(t.candles[cut][1]);
+    if (contrast(up, p2) <= contrast(dn, p2)) {
+      swapped.push(`${t.id}/${cut} (the fall stands out more than the rise)`);
+    }
+  }
+}
+ok(swapped.length === 0,
+  `the rise is always the emphatic one (${swapped.join(", ") || "all 24 correct"})`);
+
+/* A number has nothing but its colour. Candles may go monochrome
+   because a candle also has a position and a direction; profit and loss
+   text may not. --ok/--bad used to be aliases of the candle pair, which
+   is exactly how Relief ended up printing both in grey. */
+const okHex = /--ok:\s*(#[0-9a-f]{6})/i.exec(rootBlock);
+const badHex = /--bad:\s*(#[0-9a-f]{6})/i.exec(rootBlock);
+ok(okHex && badHex, "profit and loss have their own colours, not var(--candle-up/down)");
+if (okHex && badHex) {
+  const g = hueGap(hex2rgb(okHex[1]), hex2rgb(badHex[1]));
+  ok(g >= 60, `profit and loss are two plainly different hues (${g.toFixed(0)} deg apart)`);
+}
+
+/* The pairs have to be visibly different FROM EACH OTHER, not merely
+   unequal.
+
+   "No two themes share a pair" passed happily on a table where every up
+   colour sat between hue 146 and 168 -- twelve shades of the same green,
+   differing in the last digit of a hex code and in nothing a person
+   could see. That is the complaint this table was rebuilt to answer, so
+   the spread across the themes is the thing to measure: Sunset's peach,
+   Cyber's neon pink, Midnight's periwinkle and Ocean's azure are the
+   same direction in genuinely different colours.
+
+   Now that each theme follows its own accent, the spread is no longer
+   confined to a "green window" - the honest measure is simply how much
+   of the hue circle the table covers. */
+const MIN_SPREAD = 150;
+for (const cut of ["dark", "light"]) {
+  for (const [slot, which] of [[0, "rising"], [1, "falling"]]) {
+    /* Achromatic themes contribute a hue the eye cannot see; counting
+       the hue of #8a95a5 as 216 deg would inflate the spread and let a
+       monotonous chromatic table hide behind two greys. */
+    const hs = T.THEMES
+      .filter((t) => t.id !== "custom")
+      .filter((t) => chroma(hex2rgb(t.candles[cut][slot])) >= ACHROMATIC)
+      .map((t) => hue(hex2rgb(t.candles[cut][slot])));
+    /* Widest gap on the circle: the colours occupy everything else. */
+    const sorted = [...hs].sort((a, b) => a - b);
+    let widest = 360 - (sorted[sorted.length - 1] - sorted[0]);
+    for (let i = 1; i < sorted.length; i++) widest = Math.max(widest, sorted[i] - sorted[i - 1]);
+    const spread = 360 - widest;
+    ok(spread >= MIN_SPREAD,
+      `the ${cut} ${which} colours span ${spread.toFixed(0)} deg of hue across the themes ` +
+      `(>= ${MIN_SPREAD}, or the table is one colour eleven times)`);
+  }
+}
+
+/* --------------------------------------------------- the trader still wins */
+
+applyIn("ocean", "dark");
+T.edit({ candle_up: "#123456" }, { silent: true });
+T.apply();
+let e = published();
+ok(e[0] === "#123456", `a chosen colour beats the theme's own (${e[0]})`);
+ok(e[1] === T.BY_ID.ocean.candles.dark[1],
+  `and the half that was not chosen still comes from the theme (${e[1]})`);
+
+T.edit({ candle_up: "" }, { silent: true });
+T.apply();
+e = published();
+ok(e[0] === T.BY_ID.ocean.candles.dark[0],
+  `clearing the choice returns the theme's own pair (${e[0]})`);
+
+/* The settings rows must still be able to tell "the theme ships this"
+   from "the trader chose this", or Clear appears on an unedited row and
+   does nothing. */
+ok(Object.keys(T.colours("ocean")).length === 0,
+  "an unedited theme reports no chosen colours, so no Clear button is offered");
+T.edit({ candle_up: "#123456" }, { silent: true });
+ok(T.colours("ocean").candle_up === "#123456", "and an edited one reports the choice");
+T.edit({ candle_up: "" }, { silent: true });
+
+/* Switching cut has to re-publish: the pair is per-cut, so a desk going
+   light with no wallpaper used to keep painting the dark pair on white. */
+applyIn("sunset", "dark");
+win.document.documentElement.dataset.theme = "light";
+const settle = () => new Promise((r) => setTimeout(r, 30));
+settle().then(() => {
+  const now = published();
+  ok(now[0] === T.BY_ID.sunset.candles.light[0],
+    `changing cut re-publishes without a theme change (${now[0]})`);
+  console.log("");
+  console.log(failed ? `theme-candles: ${failed} FAILED` : "theme-candles: all checks passed");
+  process.exit(failed ? 1 : 0);
+});

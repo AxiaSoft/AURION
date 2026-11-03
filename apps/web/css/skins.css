@@ -78,7 +78,7 @@ a:hover{ color:var(--accent-readable, var(--accent)) }
 .btn,
 .btn *,
 .lang-pills button.on,
-.set-jump button.on,
+.set-jump button[data-jump].on,
 .tabs button.on{ color:var(--accent-ink) }
 .chip.on,
 .nav button.on,
@@ -119,9 +119,15 @@ a:hover{ color:var(--accent-readable, var(--accent)) }
 #btn-kill.kills{ box-shadow:0 0 0 1px var(--rose), 0 0 24px rgba(255,107,138,.3) }
 
 /* Direction never follows the accent - stated here as well as in app.css so
-   nothing can quietly override it. Green is up and red is down, always. */
-.up, .metric.up, .dot.i-low{ color:var(--candle-up) }
-.down, .metric.down{ color:var(--candle-down) }
+   nothing can quietly override it.
+
+   --ok/--bad, NOT the candle pair. This said "green is up and red is down,
+   always" while pointing at --candle-up, which stopped being green the day
+   Relief got its steel candles: profit and loss both printed grey, measured
+   rgb(244,247,251) against rgb(138,149,165). Candles wear the theme now, in
+   every skin. A number cannot - it has nothing but its colour. */
+.up, .metric.up, .dot.i-low{ color:var(--ok) }
+.down, .metric.down{ color:var(--bad) }
 
 /* ===========================================================================
    2. Glass, refined
@@ -144,7 +150,7 @@ a:hover{ color:var(--accent-readable, var(--accent)) }
   background:linear-gradient(180deg, rgb(var(--wash) / .045), transparent);
   pointer-events:none;
 }
-.switch{ backdrop-filter:blur(6px); -webkit-backdrop-filter:blur(6px) }
+.switch{ backdrop-filter:blur(calc(var(--blur, 18px) * 6 / 18)); -webkit-backdrop-filter:blur(calc(var(--blur, 18px) * 6 / 18)) }
 
 /* ===========================================================================
    3. Consistent rhythm and states
@@ -276,10 +282,8 @@ html .tabs button.on:focus{
   filter:none;
   box-shadow:none;
 }
-html .set-jump button.on:hover,
-html .set-jump button.on:focus,
-html .set-rail .set-jump button.on:hover,
-html .set-rail .set-jump button.on:focus{
+html .set-jump button[data-jump].on:hover,
+html .set-jump button[data-jump].on:focus{
   background:var(--accent);
   color:var(--accent-ink);
   transform:none;
@@ -324,6 +328,9 @@ html .cal-cell.pinned:hover{ border-color:var(--accent); transform:none }
 .set-jump,
 .set-jump:hover,
 .set-jump:focus-within,
+.sj-open,
+.sj-open:hover,
+.sj-open:focus-visible,
 .set-rail .set-jump,
 .set-rail .set-jump:hover,
 .set-rail .set-jump:focus-within{
@@ -331,7 +338,7 @@ html .cal-cell.pinned:hover{ border-color:var(--accent); transform:none }
   border-color:var(--line);
   transform:none;
 }
-.set-jump button:hover{ background:rgb(var(--wash) / .05); color:var(--ink) }
+.set-jump button[data-jump]:hover{ background:rgb(var(--wash) / .05); color:var(--ink) }
 
 /* Settings pairs. NOT a dense grid: the robot page is authored in deliberate
    pairs - auto trading with news, model with volume, AI gate with the danger
@@ -354,8 +361,8 @@ html .cal-cell.pinned:hover{ border-color:var(--accent); transform:none }
    =========================================================================== */
 .modal{
   background:rgba(4, 6, 11, .58);
-  backdrop-filter:blur(6px);
-  -webkit-backdrop-filter:blur(6px);
+  backdrop-filter:blur(calc(var(--blur, 18px) * 6 / 18));
+  -webkit-backdrop-filter:blur(calc(var(--blur, 18px) * 6 / 18));
 }
 html[data-theme="light"] .modal{ background:rgba(18, 24, 38, .38) }
 
@@ -459,13 +466,27 @@ table tbody tr,
 }
 .num-field .num-wrap input{
   width:100%;
-  /* Room for the suffix. Long units ("hour, UTC (0-23)") get their own line
-     under the input on narrow screens rather than colliding with the value. */
-  padding-inline-end:var(--unit-gap, 96px);
+  /* Room for the suffix, reserved on the PHYSICAL right.
+
+     This was padding-inline-end, which is the right instinct for almost
+     everything on the desk and exactly wrong here. The suffix is pinned
+     to the right-hand end of the box in every language, because the
+     value it belongs to is laid out left-to-right in every language
+     (see "Where the digits sit" in app.css). An inline-end gap flips to
+     the LEFT on a Persian or Arabic desk: the room was reserved on the
+     side with nothing in it, the digits were pushed off the left edge
+     towards the middle of the box, and they ran into the unit text
+     sitting at the other end. */
+  padding-right:var(--unit-gap, 96px);
 }
 .num-field .num-unit{
   position:absolute;
-  inset-inline-end:12px;
+  /* Physical, and for the same reason as the padding above: the suffix
+     belongs at the right-hand end of the value, not at the end of the
+     page's reading direction. Only the box is pinned - the text inside
+     it still renders in the page's own direction, so a multi-word
+     Persian unit reads correctly where it stands. */
+  right:12px;
   top:50%;
   transform:translateY(-50%);
   font-size:11px;
@@ -489,9 +510,19 @@ table tbody tr,
 .num-field input[type=number]::-webkit-inner-spin-button{ -webkit-appearance:none; margin:0 }
 .num-field input[type=number]{ -moz-appearance:textfield; appearance:textfield }
 
+/* On a narrow screen the suffix stays where it is and the gap shrinks.
+
+   It used to drop to the bottom-left corner of the box, with the input
+   given padding-bottom:22px to make room - which left every numeric
+   field on a phone 22px taller than every other control, with its value
+   sitting up against the top edge rather than on the centre line. It
+   also put the unit on the opposite side from the one it occupies on a
+   desktop, so the same field had two different shapes. One layout at
+   every width: the unit is already capped at 60% with an ellipsis, so a
+   long one shortens instead of wrapping. */
 @media (max-width:720px){
-  .num-field .num-wrap input{ padding-inline-end:12px; padding-bottom:22px }
-  .num-field .num-unit{ top:auto; bottom:6px; transform:none; inset-inline-start:12px; inset-inline-end:auto }
+  .num-field .num-wrap input{ --unit-gap:72px }
+  .num-field.wide-unit .num-wrap input{ --unit-gap:104px }
 }
 
 /* --- the symbol picker --------------------------------------------------
@@ -571,18 +602,7 @@ table tbody tr,
   border-radius:var(--r);
   box-shadow:0 24px 60px rgba(0,0,0,.45);
 }
-.sym-head{ margin-bottom:8px }
-.sym-q{
-  width:100%;
-  min-height:38px;
-  padding:8px 12px;
-  border-radius:var(--sk-r-sm);
-  background:var(--field2);
-  border:1px solid var(--line);
-  color:var(--ink);
-}
-.sym-q:focus{ outline:none; border-color:rgb(var(--accent-rgb) / .55) }
-.sym-acts{ display:flex; gap:8px; margin-bottom:8px }
+.sym-acts{ display:flex; gap:8px }
 .sym-acts .btn{ flex:1 }
 .sym-list{
   max-height:260px;
@@ -634,8 +654,8 @@ table tbody tr,
 .notify-card,
 .modal-card{
   background:rgb(var(--s6) / .94);
-  backdrop-filter:blur(22px) saturate(140%);
-  -webkit-backdrop-filter:blur(22px) saturate(140%);
+  backdrop-filter:blur(calc(var(--blur, 18px) * 22 / 18)) saturate(140%);
+  -webkit-backdrop-filter:blur(calc(var(--blur, 18px) * 22 / 18)) saturate(140%);
   border:1px solid rgb(var(--wash) / .12);
 }
 html[data-theme="light"] :is(.sym-panel, .dd-menu, .cal-tip, .st-drop, .notify-card, .modal-card){
@@ -678,7 +698,7 @@ html[data-theme="light"] .sym-panel{ box-shadow:0 24px 60px rgba(20,28,45,.28) }
    Two collisions in the settings pages, both from a fixed-width element
    sitting beside text that can grow: a long unit suffix over a long number,
    and the confidence percentage over its own label. */
-.num-field .num-wrap input{ padding-inline-end:var(--unit-gap, 92px) }
+.num-field .num-wrap input{ padding-right:var(--unit-gap, 92px) }
 /* Long units - "hour, UTC (0-23)", "HH:MM, broker time" - need more room than
    "lots" does, so the field says how much rather than every field paying for
    the longest one. */
@@ -800,17 +820,23 @@ html[data-skin][data-theme][data-perf="fast"] .set-main .set-block .card{
   background:linear-gradient(180deg, rgb(var(--s7)), rgb(var(--s4)));
 }
 
-html[data-skin][data-theme][data-glass="off"] .set-main .set-panel,
-html[data-skin][data-theme][data-perf="fast"] .set-main .set-panel,
-html[data-skin][data-theme][data-glass="off"] .set-panel,
-html[data-skin][data-theme][data-perf="fast"] .set-panel{
+/* The settings panel itself. This rule used to name `.set-panel`, which no
+   view has ever rendered - the live element is `.set-block` inside
+   `.set-main`. So with glass off the one surface that is nothing but glass
+   kept its .55 alpha and stayed see-through, while every card inside it
+   went solid. Grounding the panel is what makes glass-off mean anything
+   here; the frosted half lives in app.css. */
+html[data-skin][data-theme][data-glass="off"] .set-main .set-block,
+html[data-skin][data-theme][data-perf="fast"] .set-main .set-block{
   background:rgb(var(--s3));
 }
 
 /* The sticky section jumper fades to transparent at its bottom edge so the
    content appears to slide under it. With no blur that is just a hole. */
 html[data-skin][data-theme][data-glass="off"] .set-jump,
-html[data-skin][data-theme][data-perf="fast"] .set-jump{
+html[data-skin][data-theme][data-perf="fast"] .set-jump,
+html[data-skin][data-theme][data-glass="off"] .sj-open,
+html[data-skin][data-theme][data-perf="fast"] .sj-open{
   background:rgb(var(--s1));
 }
 
@@ -831,10 +857,15 @@ html[data-skin][data-theme="light"][data-glass="off"] .set-main .set-block .card
 html[data-skin][data-theme="light"][data-perf="fast"] .set-main .set-block .card{
   background:#ffffff;
 }
-html[data-skin][data-theme="light"][data-glass="off"] .set-main .set-panel,
-html[data-skin][data-theme="light"][data-perf="fast"] .set-main .set-panel,
+/* The second copy of the `.set-panel` mistake. The light theme was
+   therefore missing a grounding rule for the settings panel too, so
+   light + glass off showed the wallpaper straight through it. */
+html[data-skin][data-theme="light"][data-glass="off"] .set-main .set-block,
+html[data-skin][data-theme="light"][data-perf="fast"] .set-main .set-block,
 html[data-skin][data-theme="light"][data-glass="off"] .set-jump,
-html[data-skin][data-theme="light"][data-perf="fast"] .set-jump{
+html[data-skin][data-theme="light"][data-perf="fast"] .set-jump,
+html[data-skin][data-theme="light"][data-glass="off"] .sj-open,
+html[data-skin][data-theme="light"][data-perf="fast"] .sj-open{
   background:rgb(var(--s2));
 }
 

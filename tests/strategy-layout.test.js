@@ -83,10 +83,28 @@ function winner(prop, matches) {
 }
 
 /* ---- the second card in a grid row ---- */
+/* The neutraliser used to be three rules, one per container, each of them
+   literally `.grid > …`, `.cmd > …`, `.set-desk > …`. It is now one rule
+   whose parent half is an :is() list, because the list had grown: every
+   gap-owning container built after it (.ccx-pair, .ai-read, .exx-cols,
+   .pfx-cols, .snd-wrap) was missing and had quietly taken the margin
+   back - which is what made the account card shorter than the risk card
+   beside it and the market-regime card taller than its neighbours.
+
+   These matchers are retargeted, not relaxed: they still demand a rule
+   that names the container, names .card and uses a sibling combinator,
+   and they still demand it beat `.card + .card` on specificity. They
+   just no longer insist the container is spelled at the very start of
+   the selector. */
+const flatSel = (sel) => sel.replace(/\s+/g, " ").trim();
+const parentHalf = (sel) => flatSel(sel).split(">")[0];
+const cancelsFor = (box) => (sel) =>
+  flatSel(sel).includes(">") && /\+/.test(sel) && parentHalf(sel).includes("." + box);
+
 // An element that is: a .card, inside .grid, preceded by a .card sibling.
 const gridCardSecond = (sel) =>
-  /^\.card \+ \.card$/.test(sel) ||
-  (/^\.grid > /.test(sel) && /\.card/.test(sel) && /\+/.test(sel));
+  /^\.card \+ \.card$/.test(flatSel(sel)) ||
+  (cancelsFor("grid")(sel) && /\.card/.test(sel));
 
 const w = winner("margin-block-start", gridCardSecond);
 ok(w !== null, "something sets the top margin of a card following a card");
@@ -96,8 +114,8 @@ ok(w && w.value === "0",
 
 /* The neutraliser must win on specificity, not on being written last:
    source order is the thing a later edit silently reorders. */
-const neutral = declaring("margin-block-start").filter((r) => /^\.grid > /.test(r.sel) && /\+/.test(r.sel));
-const adder = declaring("margin-block-start").filter((r) => r.sel === ".card + .card");
+const neutral = declaring("margin-block-start").filter((r) => cancelsFor("grid")(r.sel));
+const adder = declaring("margin-block-start").filter((r) => flatSel(r.sel) === ".card + .card");
 ok(neutral.length && adder.length, "both rules are present to compare");
 ok(neutral.length && adder.length && neutral[0].spec > adder[0].spec,
   "it wins on specificity rather than on source order",
@@ -105,9 +123,19 @@ ok(neutral.length && adder.length && neutral[0].spec > adder[0].spec,
 
 /* ---- the same doubling in the vertical stacks ---- */
 for (const box of ["cmd", "set-desk"]) {
-  const r = declaring("margin-block-start").filter((x) => x.sel.startsWith("." + box + " > ") && /\+/.test(x.sel));
+  const r = declaring("margin-block-start").filter((x) => cancelsFor(box)(x.sel));
   ok(r.length && r[0].value === "0" && r[0].spec > 2,
     `.${box} spaces its own children, so the sibling margin is cancelled there too`,
+    r.length ? `${r[0].value}, specificity ${r[0].spec}` : "missing");
+}
+
+/* Every gap-owning container, not just the three that existed first.
+   tests/card-stacking.test.js proves this against the rendered views;
+   this is the cheap source-level twin that runs next to the rule. */
+for (const box of ["ccx-pair", "ai-read", "exx-cols", "pfx-cols", "snd-wrap"]) {
+  const r = declaring("margin-block-start").filter((x) => cancelsFor(box)(x.sel));
+  ok(r.length && r[0].value === "0" && r[0].spec > 2,
+    `.${box} is a gap-owning grid, so the sibling margin is cancelled there too`,
     r.length ? `${r[0].value}, specificity ${r[0].spec}` : "missing");
 }
 

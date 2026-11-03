@@ -69,9 +69,20 @@ function loadTheme() {
 
 /* ======================================================= 1. the sound tab */
 
+/* The settings sections are emitted by a block() helper, so the id is
+   an argument rather than a literal in the markup. Slicing on the
+   helper call is what makes "which section is this card in?" a
+   question the source can answer at all. */
+function setSection(id) {
+  const start = app.indexOf(`block("${id}"`);
+  if (start < 0) return "";
+  const next = app.indexOf('\n      ${block("', start + 1);
+  return app.slice(start, next < 0 ? app.indexOf("</div></div>`;", start) : next);
+}
+
 check(
   "Sound & Notifications is a tab of its own",
-  /tabBtn\("set-notify"/.test(app) && /id="set-notify"/.test(app),
+  /tabBtn\("set-notify"/.test(app) && setSection("set-notify").length > 0,
   "rail entry + section"
 );
 
@@ -83,13 +94,13 @@ check(
 
 /* The report was specifically that it is still inside Personalisation. */
 {
-  const start = app.indexOf('id="set-personal"');
-  const end = app.indexOf('id="set-notify"');
-  const personal = app.slice(start, end);
+  const personal = setSection("set-personal");
+  const notify = setSection("set-notify");
   check(
     "the sound panel is no longer rendered inside Personalisation",
-    start !== -1 && end !== -1 && !personal.includes("notifySoundCardHtml()"),
-    "personal section is theme + appearance only"
+    personal.length > 0 && notify.includes("notifySoundCardHtml()") &&
+      !personal.includes("notifySoundCardHtml()"),
+    "personal section is theme + appearance only, and the sounds live in their own tab"
   );
 }
 
@@ -198,10 +209,16 @@ check(
   const t = loadTheme();
   t.api.set("aurora");
 
+  /* This began as a check that the backdrop dropdown had become a gallery.
+     The drawn backdrops it offered have since been retired altogether, so
+     the enduring point - that a background is chosen by looking at it, not
+     by reading a list of adjectives - now rests on the wallpaper gallery,
+     which is where the twenty photographs are chosen. */
   check(
     "backgrounds are chosen from a gallery, not from a list of adjectives",
-    /data-bgpick=/.test(app) && /bgt-art/.test(app) && !/id="knob-bg"/.test(app),
-    "tiles replaced the dropdown"
+    /data-wallpick=/.test(app) && /bgt-art/.test(app) &&
+      !/id="knob-bg"/.test(app) && !/data-bgpick=/.test(app),
+    "a gallery of pictures, and no dropdown"
   );
   check(
     "every built-in backdrop has a tile to paint it",
@@ -261,18 +278,25 @@ check(
     "the reported 'stuck to the bottom'"
   );
 
+  /* This used to assert that ".btn + .btn" appeared in the stylesheet, and
+     it passed happily while that very rule was doubling the spacing in 38
+     containers and pushing the emergency button off the side of a phone.
+     Asserting a selector exists says nothing about what it does.
+
+     Rows of controls are spaced by their container now. The detailed
+     checks live in tests/header-spacing.test.js, which re-derives the
+     gapped containers from this file rather than naming them. */
   check(
-    "two controls side by side are never touching",
-    /\.btn \+ \.btn/.test(bare) && /\.icon-btn \+ \.icon-btn/.test(bare),
-    "the reported 'buttons touching'"
+    "controls are spaced by their container, not by a blanket sibling margin",
+    !/\.btn \+ \.btn\s*,?[\s\S]{0,200}?margin-inline-start:\s*var/.test(bare),
+    "no blanket rule to double a container's gap"
   );
 
-  /* The same margin applied twice - once by the container's gap and once by
-     the sibling rule - is its own bug, and a less visible one. */
   check(
-    "the gap is not doubled inside containers that already space their children",
-    /\.row > \.btn \+ \.btn\s*,[\s\S]{0,400}?margin-inline-start:0/.test(bare),
-    "neutralised inside .row and friends"
+    "the one row of controls that had no container gap has been given one",
+    /\.modal-actions\{[^}]*display:flex[^}]*\}/.test(bare.replace(/\s/g, "")) ||
+      /\.modal-actions\s*\{[^}]*gap:/.test(bare),
+    "the confirm dialog's buttons"
   );
 
   /* Logical properties, because the desk runs right-to-left in Persian and
