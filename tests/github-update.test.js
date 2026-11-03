@@ -222,6 +222,77 @@ console.log("\n=== a re-check applies what it just fetched ===");
       "which is possible because state is no longer a const");
 }
 
+console.log("\n=== what the update panel is told, and what it shows ===");
+{
+  const ghSrc = fs.readFileSync(path.join(ROOT, "backend", "src", "github-update.js"), "utf8");
+  const appJs = fs.readFileSync(path.join(ROOT, "apps", "web", "js", "app.js"), "utf8");
+
+  /* "main@a19a26b" named a commit. Nobody installing an update is asking
+     which commit it is, and it cannot be read back to support. */
+  say(!/version: UPDATE_BRANCH \+ "@"/.test(ghSrc),
+      "the branch build no longer calls itself main@<sha>");
+  say(/version: "",/.test(ghSrc) && /async function remoteVersion\(/.test(ghSrc),
+      "the number comes from the release's own factory config instead");
+  say(/const version = target\.version \|\| await remoteVersion\(cfg, factoryEntry\);/.test(ghSrc),
+      "a release names itself by its tag; only a branch build has to be asked");
+  say(/if \(rel === "config\/aurion\.factory\.json"\) factoryEntry = entry;/.test(ghSrc),
+      "the factory config is noted whether or not it differs, so the version is always readable");
+  say(/build_date: String\(when\)\.slice\(0, 10\)/.test(ghSrc),
+      "an ISO build date travels on the wire, unformatted");
+
+  /* The subject of whatever commit sits at the head of main is not
+     release notes. It is usually "Merge pull request #N from ...". */
+  const branchBlock = ghSrc.slice(ghSrc.indexOf('channel: "branch"'));
+  say(/changelog: "",/.test(branchBlock.slice(0, 900)),
+      "a branch build sends no changelog, so no commit subject reaches the panel");
+  const relBlock = ghSrc.slice(ghSrc.indexOf('channel: "release"'));
+  say(/changelog: String\(rel\.body \|\| rel\.name \|\| ""\)/.test(relBlock.slice(0, 700)),
+      "a real release still passes its notes through - they were written to be read");
+
+  /* The panel. */
+  say(!/upd-source/.test(appJs), "the update source line is gone from the panel");
+  say(!/upd\.files_changed/.test(appJs), "the changed-file count is gone");
+  say(!/file-item/.test(appJs), "and so is the file list it introduced");
+  say(/updateStamp\(/.test(appJs) && /changelogHtml\(/.test(appJs),
+      "both render sites go through the one stamp and the one notes helper");
+  for (const key of ["upd.source", "upd.branch_locked", "upd.files_changed"]) {
+    const used = new RegExp(key.replace(".", "\\.")).test(appJs);
+    const inLang = key.split(".")[1] in JSON.parse(fs.readFileSync(path.join(ROOT, "lang", "en.json"), "utf8")).upd;
+    say(!used && !inLang, `${key} is gone from the code and from lang/`);
+  }
+
+  /* updateStamp, run rather than read. */
+  const lift = (name) => {
+    const at = appJs.indexOf("function " + name + "(");
+    let i = appJs.indexOf("{", at), depth = 0, end = i;
+    for (; end < appJs.length; end++) {
+      if (appJs[end] === "{") depth++;
+      else if (appJs[end] === "}") { depth--; if (!depth) { end++; break; } }
+    }
+    return appJs.slice(at, end);
+  };
+  const vm = require("node:vm");
+  const box = { esc: (x) => String(x) };
+  vm.createContext(box);
+  vm.runInContext(lift("buildTag") + "\n" + lift("updateStamp") + "\n" + lift("changelogHtml"), box);
+
+  const got = box.updateStamp({ version: "1.0.5", build_date: "2026-11-06" });
+  say(got === "v1.0.5 DSK-061126", `v1.0.5 + 2026-11-06 renders as "${got}"`);
+  say(box.updateStamp({ version: "v2.0.0", build_date: "2026-01-02" }) === "v2.0.0 DSK-020126",
+      "a tag that already starts with v is not given a second one");
+  say(box.updateStamp({ version: "1.0.0", build_date: "" }) === "v1.0.0",
+      "no date, no empty stamp trailing the version");
+  say(box.updateStamp({ version: "", build_date: "2026-11-06" }) === "DSK-061126",
+      "no version, the build stamp still identifies the build exactly");
+  say(box.updateStamp({}) === "-", "nothing at all degrades to a dash, not to 'undefined'");
+  say(!/main@|@[0-9a-f]{7}/.test(box.updateStamp({ version: "1.0.0", build_date: "2026-11-06" })),
+      "and no commit sha can appear in the result");
+
+  say(box.changelogHtml({ changelog: "" }) === "", "an empty changelog draws no empty paragraph");
+  say(/Real notes/.test(box.changelogHtml({ changelog: "Real notes" })),
+      "a real one is still drawn");
+}
+
 const bad = results.filter((r) => !r).length;
 console.log("\ngithub-update: " + (bad ? bad + " FAILED of " + results.length : results.length + " checks passed"));
 process.exit(bad ? 1 : 0);

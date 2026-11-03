@@ -261,13 +261,17 @@ async function resolveTarget(src) {
   try {
     const rel = await request(src, `/repos/${src.owner}/${src.repo}/releases/latest`);
     if (rel && rel.tag_name && await containedInMain(src, String(rel.tag_name))) {
+      const when = rel.published_at || rel.created_at || "";
       return {
         channel: "release",
         ref: String(rel.tag_name),
         id: String(rel.tag_name),
         version: String(rel.tag_name).replace(/^v/i, ""),
+        /* A release's notes were written to be read by whoever installs
+           it, so they are passed through. */
         changelog: String(rel.body || rel.name || "").slice(0, 4000),
-        published_at: rel.published_at || rel.created_at || "",
+        published_at: when,
+        build_date: String(when).slice(0, 10),
         html_url: rel.html_url || "",
       };
     }
@@ -281,15 +285,50 @@ async function resolveTarget(src) {
   const sha = String((head && head.sha) || "");
   if (!sha) throw new Error("no_commit");
   const commit = (head && head.commit) || {};
+  const when = (commit.committer && commit.committer.date) || (commit.author && commit.author.date) || "";
   return {
     channel: "branch",
     ref: sha,
     id: sha.slice(0, 12),
-    version: UPDATE_BRANCH + "@" + sha.slice(0, 7),
-    changelog: String((commit.message || "").split("\n")[0] || "").slice(0, 4000),
-    published_at: (commit.committer && commit.committer.date) || (commit.author && commit.author.date) || "",
+    /* Filled in by check() from the release's own factory config - see
+       remoteVersion. "main@a19a26b" named the commit, which answers
+       "which commit is this" and not "which version am I being offered". */
+    version: "",
+    /* Deliberately empty. The subject of whatever commit happens to be
+       at the head of main is not release notes: most of the time it is
+       "Merge pull request #4 from ...", which tells the person deciding
+       whether to install precisely nothing. Notes come from a release,
+       and a branch build has none. */
+    changelog: "",
+    published_at: when,
+    build_date: String(when).slice(0, 10),
     html_url: head.html_url || "",
   };
+}
+
+/**
+ * The version number the release calls itself.
+ *
+ * Taken from the release's own config/aurion.factory.json rather than
+ * from this machine's config, because the question the panel is asking
+ * is "what am I being offered", and the local file answers "what do I
+ * already have" - the same number every time, including when an update
+ * is waiting.
+ *
+ * The blob SHA is already in hand from the tree listing, so this is one
+ * more blob fetch and no extra search. Returns "" rather than a guess if
+ * the file cannot be read: a wrong version number on an install prompt is
+ * worse than none, and the build stamp beside it still identifies the
+ * build exactly.
+ */
+async function remoteVersion(cfg, entry) {
+  if (!entry || !entry.sha) return "";
+  try {
+    const { buffer } = await fetchFile(cfg, { hash: entry.sha, filePath: "config/aurion.factory.json" });
+    const parsed = JSON.parse(buffer.toString("utf8"));
+    const v = String((parsed && parsed.version) || "").trim();
+    return /^[0-9][0-9A-Za-z.\-+]{0,30}$/.test(v) ? v : "";
+  } catch { return ""; }
 }
 
 /**
@@ -313,10 +352,14 @@ async function check(cfg) {
 
   const files = [];
   let truncatedScan = false;
+  let factoryEntry = null;
   for (const entry of tree.tree) {
     if (!entry || entry.type !== "blob") continue;
     const rel = String(entry.path || "").replace(/\\/g, "/");
     if (!isShippable(rel)) continue;
+    /* Noted whether or not it differs - the version is read from the
+       release's copy every time, not only when that file changed. */
+    if (rel === "config/aurion.factory.json") factoryEntry = entry;
     if (files.length >= MAX_FILES) { truncatedScan = true; break; }
     const mine = localBlobSha(rel);
     if (mine === entry.sha) continue;
@@ -329,6 +372,9 @@ async function check(cfg) {
     });
   }
 
+  /* A release names itself by its tag; a branch build has to be asked. */
+  const version = target.version || await remoteVersion(cfg, factoryEntry);
+
   return {
     ok: true,
     source: describe(src),
@@ -337,7 +383,8 @@ async function check(cfg) {
     update: {
       id: target.id,
       ref: target.ref,
-      version: target.version,
+      version,
+      build_date: target.build_date || "",
       changelog: target.changelog,
       published_at: target.published_at,
       html_url: target.html_url,
@@ -372,6 +419,7 @@ async function fetchFile(cfg, file) {
 
 module.exports = {
   UPDATE_BRANCH,
+  remoteVersion,
   containedInMain,
   INCLUDE_DIRS,
   INCLUDE_FILES,

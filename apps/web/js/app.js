@@ -2458,6 +2458,54 @@ function closeAllDropdowns() {
   document.querySelectorAll("body > .dd-menu").forEach((m) => { m.hidden = true; });
 }
 
+/**
+ * Shut one menu, leaving the others alone.
+ *
+ * closeAllDropdowns is right for "the user clicked elsewhere" and wrong
+ * for "this particular trigger has scrolled away", which is the only
+ * reason a menu is dismissed during a scroll.
+ */
+function closeDropdown(menu) {
+  if (!menu) return;
+  menu.hidden = true;
+  const btn = menu._btn;
+  if (!btn) return;
+  btn.setAttribute("aria-expanded", "false");
+  const wrap = btn.closest(".dd-wrap");
+  if (wrap) wrap.classList.remove("open");
+}
+
+/**
+ * Keep an open menu with its trigger while the page scrolls.
+ *
+ * A dropdown menu is positioned against the viewport, because it is
+ * portalled to <body> to escape every ancestor that would clip it. That
+ * makes it stay still while the pane behind it moves, so the page used
+ * to close every menu on any scroll instead.
+ *
+ * Which was the wrong half of the problem to solve. The settings page is
+ * roughly 3800px of content inside an 844px #stage, and a menu is up to
+ * 300px tall, so opening one in the lower half of the screen puts part
+ * of it below the fold. Scrolling to see the rest is the obvious thing
+ * to do and it dismissed the menu - so the list could only be read a
+ * little at a time, reopening it after every nudge.
+ *
+ * Moving it with its trigger is what the viewport-anchored geometry was
+ * always able to do; nothing was asking it to. The one case that still
+ * has to close is the trigger itself scrolling out of sight, because a
+ * menu whose control is gone belongs to nothing.
+ */
+function repositionOpenDropdowns() {
+  const vh = window.innerHeight;
+  document.querySelectorAll("body > .dd-menu:not([hidden])").forEach((menu) => {
+    const btn = menu._btn;
+    if (!btn || !btn.isConnected) { closeDropdown(menu); return; }
+    const r = btn.getBoundingClientRect();
+    if (r.bottom <= 0 || r.top >= vh) { closeDropdown(menu); return; }
+    placeDropdownMenu(btn, menu);
+  });
+}
+
 /* One placement routine for every popover menu.
 
    The symbol picker and the enhanced <select> menus used to carry two
@@ -2538,6 +2586,10 @@ function enhanceSelects(root) {
     menu.hidden = true;
     menu.setAttribute("role", "listbox");
     menu._sel = sel;
+    /* The menu is portalled to <body>, so it has no DOM relationship to
+       the control it belongs to. Keeping the trigger means it can be
+       re-placed when the page moves under it. */
+    menu._btn = btn;
     wrap.appendChild(btn);
     document.body.appendChild(menu);
 
@@ -2642,9 +2694,11 @@ function bindChrome() {
     closeAllDropdowns();
     if (!isCompactNav()) setMenu(false);
   });
+  /* Capture, because the scroller is #stage or a pane inside it, not the
+     document - a bubbling listener on window never sees it. */
   document.addEventListener("scroll", (e) => {
     if (e.target && e.target.closest && e.target.closest(".dd-menu")) return;
-    closeAllDropdowns();
+    repositionOpenDropdowns();
   }, true);
 }
 
@@ -2660,6 +2714,42 @@ function bindChrome() {
  * reads back to support, so it has to be the same six digits in every
  * language -- Persian digits in a support ticket help nobody.
  */
+/**
+ * How an offered build is named: "v1.0.5 DSK-061126".
+ *
+ * It used to read "main@a19a26b", which names a commit. That answers
+ * "which commit is this" - a question nobody installing an update is
+ * asking - and it cannot be read back over the phone to support, which
+ * is what a build identifier is for.
+ *
+ * The number comes from the release's own factory config, so it is the
+ * version being offered rather than the one already installed, and the
+ * stamp is buildTag's existing DSK-DDMMYY, unchanged and still not
+ * localised. Either half may be missing without the other becoming
+ * nonsense.
+ */
+function updateStamp(upd) {
+  const v = String((upd && upd.version) || "").trim();
+  const d = String((upd && upd.build_date) || (upd && upd.published_at) || "").trim();
+  const parts = [];
+  if (v) parts.push(/^v/i.test(v) ? v : "v" + v);
+  if (d) parts.push(buildTag(d));
+  return parts.join(" ") || "-";
+}
+
+/**
+ * Release notes, when there are any.
+ *
+ * A tagged release carries notes written for whoever installs it. A
+ * build taken from the head of main carries a commit subject, which is
+ * usually "Merge pull request #N from ..." - so the backend sends none
+ * for that channel, and an empty paragraph is not drawn in its place.
+ */
+function changelogHtml(upd) {
+  const text = String((upd && upd.changelog) || "").trim();
+  return text ? '<p class="sub">' + esc(text) + "</p>" : "";
+}
+
 function buildTag(iso) {
   const raw = String(iso || "").trim();
   const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(raw);
@@ -7204,11 +7294,6 @@ const views = {
         </div>
         <div class="card">
           <h3>${I18N.t("upd.status")}</h3>
-          <!-- Where the check goes. The panel used to carry an editable
-               update-server URL, then nothing at all, which left "check
-               for updates" as a button with no stated destination. It
-               reads the repository the backend will actually ask. -->
-          <p class="sub" id="upd-source">${I18N.t("upd.source")}: -</p>
           <p class="sub" id="upd-last-check">${I18N.t("upd.last_check")}: -</p>
           <div id="upd-status"></div>
           <div class="row stx-acts">
@@ -8214,7 +8299,6 @@ async function bindExpertsCard() {
 
 async function bindUpdatePanel(){
   const urlDisplay = document.getElementById('upd-url-display');
-  const sourceEl = document.getElementById('upd-source');
   const autoEl = document.getElementById('upd-auto');
   const intervalEl = document.getElementById('upd-interval');
   const saveMsg = document.getElementById('upd-save-msg');
@@ -8226,11 +8310,7 @@ async function bindUpdatePanel(){
     const r = await API.get('/api/system/update/settings');
     if(r.ok && r.data){
       if(urlDisplay) urlDisplay.textContent = r.data.update_server_url || r.data.source_url || '—';
-      if(sourceEl){
-        const ignored = r.data.github && r.data.github.ignored_branch;
-        sourceEl.textContent = I18N.t('upd.source') + ': ' + (r.data.source_url || r.data.update_server_url || '—')
-          + (ignored ? ' \u2014 ' + I18N.t('upd.branch_locked', { branch: ignored }) : '');
-      }
+
       if(autoEl) paintSwitch(autoEl, !!r.data.auto_check_enabled);
       if(intervalEl) intervalEl.value = r.data.auto_check_interval_hours || 6;
     }
@@ -8239,7 +8319,7 @@ async function bindUpdatePanel(){
       if(lastCheckEl) lastCheckEl.textContent = I18N.t('upd.last_check') + ': ' + (st.data.last_check||'-') + ' - ' + (st.data.update_available ? I18N.t('upd.available') : I18N.t('upd.uptodate'));
       if(statusEl){
         if(st.data.latest){
-          statusEl.innerHTML = '<div class="kv"><span>'+I18N.t('upd.new_version')+'</span><b>'+esc(st.data.latest.version||'')+'</b><span>'+I18N.t('upd.date')+'</span><b>'+esc(st.data.latest.published_at||'')+'</b></div><p class="sub">'+esc(st.data.latest.changelog||'')+'</p><p class="sub">'+I18N.t('upd.files_changed')+': '+(st.data.latest.files||[]).length+'</p>';
+          statusEl.innerHTML = '<div class="kv"><span>'+I18N.t('upd.new_version')+'</span><b class="mono">'+esc(updateStamp(st.data.latest))+'</b></div>'+changelogHtml(st.data.latest);
         } else {
           statusEl.innerHTML = '<p class="sub">' + I18N.t('upd.none') + '</p>';
         }
@@ -8279,7 +8359,7 @@ async function bindUpdatePanel(){
     }
     const upd = res.latest;
     if(resultEl){
-      resultEl.innerHTML = '<div class="card" style="background:rgb(var(--s9))"><h3>'+icon("spark")+' '+I18N.t('upd.available')+': '+esc(upd.version||'')+'</h3><p class="sub">'+esc(upd.changelog||'')+'</p><p class="sub">'+I18N.t('upd.files_changed')+': '+(upd.files||[]).length+'</p><div style="max-height:200px;overflow:auto;margin:8px 0">'+(upd.files||[]).map(f=>'<div class="file-item" style="display:flex;justify-content:space-between;background:rgb(var(--s3));padding:6px;border-radius:4px;margin:3px 0"><span>'+esc(f.path)+'</span><span style="font-size:11px">'+(f.size||'')+' bytes</span></div>').join('')+'</div><button class="btn" id="upd-apply-btn" type="button">'+icon("download")+' '+I18N.t('upd.download_apply')+'</button><p class="sub" style="margin-top:8px;color:var(--gold)">'+I18N.t('upd.replace_note')+'</p></div>';
+      resultEl.innerHTML = '<div class="card" style="background:rgb(var(--s9))"><h3>'+icon("spark")+' '+I18N.t('upd.available')+': <span class="mono">'+esc(updateStamp(upd))+'</span></h3>'+changelogHtml(upd)+'<button class="btn" id="upd-apply-btn" type="button">'+icon("download")+' '+I18N.t('upd.download_apply')+'</button><p class="sub" style="margin-top:8px;color:var(--gold)">'+I18N.t('upd.replace_note')+'</p></div>';
       const applyBtn = document.getElementById('upd-apply-btn');
       if(applyBtn) applyBtn.onclick = async () => {
         if(!confirm(I18N.t('upd.confirm').replace('%s', upd.version))) return;

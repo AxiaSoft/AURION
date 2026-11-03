@@ -1688,6 +1688,29 @@
     if (!ui.root) return;
 
     chart.opts.onChange = () => refresh();
+
+    /* Panning has to update the navigation chrome too.
+     *
+     * The chart reports a move two ways: changed(), which the panel
+     * listens to above, and scrolled(). Dragging only ever called
+     * scrolled() - deliberately, because changed() rebuilds the objects
+     * list, the properties pane and the style bar, which is far too much
+     * to run on every pointermove. So "go to the latest candle" stayed
+     * hidden through the entire drag that made it necessary, and only
+     * appeared on the next click, which is what finally ran syncNav.
+     *
+     * syncNav is two reads and a hidden flag, so it is safe on every
+     * move. scrolled() carries one listener and app.js already owns it
+     * for loading more history, so this wraps rather than replaces it -
+     * taking the slot outright would silently stop deep history loading.
+     */
+    const priorOnScroll = chart.opts.onScroll;
+    chart.opts.onScroll = (c) => {
+      if (typeof priorOnScroll === "function") {
+        try { priorOnScroll(c); } catch { /* nav must still update */ }
+      }
+      if (typeof ui.syncNav === "function") ui.syncNav();
+    };
     chart.opts.onToolDone = () => {
       // The tool stays armed unless the trader asked for the old one-shot
       // behaviour. Either way the shape just drawn is selected, so its

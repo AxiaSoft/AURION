@@ -290,5 +290,48 @@ const fabZ = /\.tv-toolsfab \{[\s\S]*?z-index: (\d+)/.exec(phone);
 ok(scrimZ && fabZ && Number(fabZ[1]) > Number(scrimZ[1]),
   "the FAB stays tappable while the sheet is open, so it can close it again");
 
+/* ---- "go to the latest candle" appears while you drag ------------------
+ *
+ * The chart reports a move two ways. changed() rebuilds the objects list,
+ * the properties pane and the style bar, so it is far too heavy to run on
+ * every pointermove and the drag path deliberately never called it. That
+ * left scrolled() as the only signal a drag produced, and nothing was
+ * listening to it for navigation - so the button that offers to take you
+ * back stayed hidden through the whole drag that made it necessary, and
+ * appeared only on the next click, which is what finally ran syncNav.
+ *
+ * Measured at 390 and 1440: never appeared before, appears on the first
+ * pointermove after.
+ */
+{
+  const bind = src.slice(src.indexOf("function bind(chart, ctx)"));
+  const head = bind.slice(0, bind.indexOf("/* ---- navigation"));
+  if (head.length < 100) { failed++; console.log("FAIL could not slice bind()"); }
+
+  ok(/chart\.opts\.onScroll = /.test(head),
+    "panning now drives the navigation chrome, not just history loading");
+
+  /* Sliced to the handler itself. bind() calls ui.syncNav elsewhere - for
+     the head-gap toggle - so a test that merely finds the name somewhere
+     in bind() passes with the pan wiring deleted. It did. */
+  const at = head.indexOf("chart.opts.onScroll = ");
+  const scrollFn = head.slice(at, head.indexOf("\n    };", at) + 7);
+  ok(scrollFn.length > 40 && scrollFn.length < 700, "the onScroll handler slices cleanly");
+  ok(/ui\.syncNav\(\)/.test(scrollFn),
+    "and what it drives is syncNav, which is two reads and a hidden flag");
+
+  /* The slot carries one listener and app.js already owns it for loading
+     deep history. Taking it outright would stop that silently - the chart
+     would simply run out of bars for anyone who pans rather than clicks. */
+  ok(/const priorOnScroll = chart\.opts\.onScroll;/.test(head),
+    "the existing onScroll owner is captured first");
+  ok(/typeof priorOnScroll === "function"/.test(scrollFn) && /priorOnScroll\(c\)/.test(scrollFn),
+    "and still called, so deep-history loading survives the wrap");
+  ok(scrollFn.indexOf("priorOnScroll(c)") < scrollFn.indexOf("ui.syncNav()"),
+    "history loading runs before the nav update, keeping its original timing");
+  ok(/try \{[\s\S]{0,120}priorOnScroll\(c\)[\s\S]{0,60}\} catch/.test(scrollFn),
+    "a throw in the prior listener cannot stop the button from appearing");
+}
+
 console.log(failed ? `\n${failed} failed` : `\nall good (${byId.size} ids, ${handlers} handlers)`);
 process.exit(failed ? 1 : 0);

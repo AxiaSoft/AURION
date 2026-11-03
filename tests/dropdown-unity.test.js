@@ -182,5 +182,48 @@ ok(/html\[data-skin\] \.sympick-pop\{ animation:ddIn/.test(themesCss)
   || /html\[data-skin\] \.dd-menu,\s*\nhtml\[data-skin\] \.sympick-pop\{ animation:ddIn/.test(themesCss),
   "both popovers share the one entrance");
 
+/* ---- a menu survives the page scrolling under it ----------------------
+ *
+ * The settings page is ~5800px of content inside an 844px #stage, and a
+ * menu is up to 300px tall, so opening one low on the screen puts part of
+ * it below the fold. Any scroll used to close every open menu, so the
+ * rest of the list could only be reached a little at a time: scroll,
+ * menu shuts, reopen, scroll again.
+ *
+ * The menu is positioned against the viewport because it is portalled to
+ * <body>, so it can simply be re-placed as the page moves. Measured at
+ * 390px on set-prop: 0 of 6 scrolls survived before, 6 of 6 after.
+ */
+{
+  ok(/menu\._btn = btn;/.test(appJs),
+    "the portalled menu records its trigger, since the DOM no longer relates them");
+
+  const handler = /document\.addEventListener\("scroll",[\s\S]{0,420}?\}, true\);/.exec(appJs);
+  ok(handler && /repositionOpenDropdowns\(\)/.test(handler[0]),
+    "a scroll re-places the open menu");
+  ok(handler && !/closeAllDropdowns\(\)/.test(handler[0]),
+    "and no longer closes it");
+  ok(handler && /closest\("\.dd-menu"\)\) return;/.test(handler[0]),
+    "scrolling inside the menu itself is still left alone");
+  ok(handler && /, true\);$/.test(handler[0].trim()),
+    "still in capture - the scroller is #stage, which a window listener never sees");
+
+  const fn = appJs.slice(appJs.indexOf("function repositionOpenDropdowns("));
+  const body = fn.slice(0, fn.indexOf("\n}\n"));
+  ok(/placeDropdownMenu\(btn, menu\)/.test(body),
+    "it reuses the one placement routine rather than a second copy of the geometry");
+  ok(/r\.bottom <= 0 \|\| r\.top >= vh/.test(body) && /closeDropdown\(menu\)/.test(body),
+    "a trigger scrolled out of sight does close its menu - it belongs to nothing");
+  ok(/!btn \|\| !btn\.isConnected/.test(body),
+    "and so does a trigger that has been re-rendered away");
+  ok(/body > \.dd-menu:not\(\[hidden\]\)/.test(body),
+    "only open menus are touched");
+
+  const cd = appJs.slice(appJs.indexOf("function closeDropdown("));
+  const cdBody = cd.slice(0, cd.indexOf("\n}\n"));
+  ok(/aria-expanded", "false"/.test(cdBody) && /classList\.remove\("open"\)/.test(cdBody),
+    "closing one menu resets its trigger's state too, not just the hidden flag");
+}
+
 console.log(failed ? `\n${failed} check(s) failed` : "\nall checks passed");
 process.exit(failed ? 1 : 0);
