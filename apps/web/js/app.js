@@ -383,6 +383,109 @@ function askConfirm(opts) {
   });
 }
 /**
+ * Ask for one exact price.
+ *
+ * The chart can only ever offer the price under the finger, and on a
+ * phone that is a dozen points wide. Dragging a stop is the quick
+ * gesture and stays exactly as it was; this is the one that lands on
+ * the number the trader actually meant. Same modal shell as
+ * askConfirm, so it dismisses, traps Escape and stacks identically.
+ *
+ * Resolves to a positive number, or null if it was dismissed - null
+ * meaning "leave the level alone", which is not the same as 0.
+ */
+function askPrice(opts) {
+  opts = opts || {};
+  return new Promise((resolve) => {
+    closeAllDropdowns();
+    let host = $("desk-modal");
+    if (!host) {
+      host = document.createElement("div");
+      host.id = "desk-modal";
+      host.className = "modal";
+      host.hidden = true;
+    }
+    const where = overlayHost();
+    if (host.parentElement !== where) where.appendChild(host);
+    const start = Number(opts.value || 0);
+    host.innerHTML = `<div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+      <h3 id="modal-title">${esc(opts.title || "")}</h3>
+      ${opts.body ? `<p class="modal-body">${esc(opts.body)}</p>` : ""}
+      <input id="modal-price" class="ctrl" type="number" inputmode="decimal"
+             step="${esc(String(opts.step || "0.00001"))}"
+             aria-label="${esc(opts.title || "")}"
+             value="${start > 0 ? esc(String(start)) : ""}" />
+      <p class="sub" id="modal-price-msg"></p>
+      <div class="modal-actions">
+        <button type="button" class="btn ghost" id="modal-no">${esc(I18N.t("common.cancel"))}</button>
+        <button type="button" class="btn" id="modal-yes">${esc(I18N.t("common.ok"))}</button>
+      </div>
+    </div>`;
+    host.hidden = false;
+    host.classList.add("open");
+    document.body.classList.add("modal-open");
+    const finish = (val) => {
+      if (host._done) return;
+      host._done = true;
+      host.hidden = true;
+      host.classList.remove("open");
+      document.body.classList.remove("modal-open");
+      host.innerHTML = "";
+      document.removeEventListener("keydown", onKey, true);
+      resolve(val);
+    };
+    const field = () => $("modal-price");
+    const accept = () => {
+      const raw = field() ? field().value : "";
+      const n = Number(raw);
+      /* An empty box clears the level - that is a real answer, and the
+         only way back out of a stop without dragging it off the chart. */
+      if (String(raw).trim() === "") return finish(0);
+      if (!Number.isFinite(n) || n <= 0) {
+        const m = $("modal-price-msg");
+        if (m) m.textContent = I18N.t("exec.bad_price");
+        return;
+      }
+      finish(n);
+    };
+    const onKey = (e) => {
+      if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); finish(null); }
+      else if (e.key === "Enter") { e.preventDefault(); e.stopPropagation(); accept(); }
+    };
+    document.addEventListener("keydown", onKey, true);
+    host.onclick = (e) => { if (e.target === host) finish(null); };
+    const no = $("modal-no"); if (no) no.onclick = () => finish(null);
+    const yes = $("modal-yes"); if (yes) yes.onclick = accept;
+    host._done = false;
+    setTimeout(() => { const el = field(); if (el) { el.focus(); el.select(); } }, 20);
+  });
+}
+
+/**
+ * The trader tapped a stop or a target on the chart.
+ *
+ * Writes straight into the ticket the chart is already bound to, so the
+ * typed price and the dragged one end up in exactly the same place and
+ * there is no second source of truth to keep in step.
+ */
+async function onChartLevelEdit(kind, current) {
+  const which = kind === "sl" ? "exec.sl" : "exec.tp";
+  const got = await askPrice({
+    title: I18N.t(which),
+    body: I18N.t("exec.exact_price"),
+    value: current,
+  });
+  if (got === null) return;
+  const el = $(kind === "sl" ? "ct-sl" : "ct-tp");
+  if (el) {
+    el.value = got > 0 ? String(got) : "";
+    el.dispatchEvent(new Event("input", { bubbles: true }));
+  }
+  rememberTicket();
+  syncChartPending();
+}
+
+/**
  * Which build of the desk is actually running.
  *
  * Every asset is cache-busted with a ?v= token, so when a change does not
@@ -2498,6 +2601,10 @@ function closeDropdown(menu) {
 function repositionOpenDropdowns() {
   const vh = window.innerHeight;
   document.querySelectorAll("body > .dd-menu:not([hidden])").forEach((menu) => {
+    /* A sheet is anchored to the viewport, not to the trigger, so a
+       scroll underneath it means nothing at all - not a move, and
+       certainly not a dismissal. Leaving it alone is the whole fix. */
+    if (menu.classList.contains("dd-sheet")) return;
     const btn = menu._btn;
     if (!btn || !btn.isConnected) { closeDropdown(menu); return; }
     const r = btn.getBoundingClientRect();
@@ -2559,7 +2666,44 @@ function placePopover(btn, pop, opts) {
   pop.style.insetInlineStart = Math.max(POP_EDGE, Math.min(startPx, maxStart)) + "px";
 }
 
+/* A phone is not a small desktop.
+
+   Following the trigger is right when the menu is a few rows beside a
+   control the thumb can still see. On a phone it is the wrong model
+   entirely: the trigger is halfway down 5800px of settings, the menu is
+   most of what is left of a 844px screen, and the gesture that reads
+   the rest of the list is the same gesture that moves the trigger. So
+   the menu slid up the screen with it and then dismissed itself the
+   moment the trigger cleared the top edge - which is the "it gets
+   dragged along and closes" the desk reported.
+
+   Below 760px the menu stops being a popover and becomes a sheet: it is
+   pinned to the bottom of the viewport, it does not track anything, and
+   it scrolls its own list. Nothing the page does underneath can move it
+   or close it. */
+const DD_SHEET_MQ = "(max-width: 760px)";
+
+function menuWantsSheet() {
+  return typeof window.matchMedia === "function"
+    && window.matchMedia(DD_SHEET_MQ).matches;
+}
+
+/* The sheet's geometry lives in the stylesheet, so the job here is to
+   hand it back: clear every inline value placePopover wrote from a
+   trigger rectangle, or they would out-specify the sheet rules. */
+function sheetDropdown(menu) {
+  menu.classList.add("dd-sheet");
+  menu.classList.remove("is-up");
+  menu.style.insetBlockStart = "";
+  menu.style.insetBlockEnd = "";
+  menu.style.insetInlineStart = "";
+  menu.style.inlineSize = "";
+  menu.style.maxBlockSize = "";
+}
+
 function placeDropdownMenu(btn, menu) {
+  if (menuWantsSheet()) { sheetDropdown(menu); return; }
+  menu.classList.remove("dd-sheet");
   placePopover(btn, menu);
 }
 
@@ -2715,7 +2859,8 @@ function bindChrome() {
  * language -- Persian digits in a support ticket help nobody.
  */
 /**
- * How an offered build is named: "v1.0.5 DSK-061126".
+ * How an offered build is named: "v1.0.0 DSK-031126" - the version
+ * the release carries, then the build stamp as DSK-ddmmyy.
  *
  * It used to read "main@a19a26b", which names a commit. That answers
  * "which commit is this" - a question nobody installing an update is
@@ -4404,6 +4549,26 @@ function chartTicketHtml() {
         </div>
       </div>
 
+      <div class="ct-row ct-type">
+        <span class="ct-lab">${I18N.t("exec.order_type")}</span>
+        <select id="ct-type" aria-label="${esc(I18N.t("exec.order_type"))}">
+          <option value="market"${t.type === "limit" || t.type === "stop" ? "" : " selected"}>${I18N.t("exec.market")}</option>
+          <option value="limit"${t.type === "limit" ? " selected" : ""}>${I18N.t("exec.limit")}</option>
+          <option value="stop"${t.type === "stop" ? " selected" : ""}>${I18N.t("exec.stop")}</option>
+        </select>
+      </div>
+
+      <div class="ct-row ct-lv ct-entry" id="ct-entry-row" hidden>
+        <span class="ct-lab">${I18N.t("exec.entry")}</span>
+        <input id="ct-price" type="number" step="0.00001" inputmode="decimal"
+               aria-label="${esc(I18N.t("exec.entry"))}"
+               value="${esc(t.price || "")}" placeholder="${esc(I18N.t("exec.chart_click"))}" />
+        <button type="button" class="ct-ic" id="ct-pick-price"
+                title="${esc(I18N.t("exec.set_entry"))}" aria-label="${esc(I18N.t("exec.set_entry"))}">${icon("target")}</button>
+        <button type="button" class="ct-ic" id="ct-clear-price"
+                title="${esc(I18N.t("exec.clear_entry"))}" aria-label="${esc(I18N.t("exec.clear_entry"))}">${icon("close")}</button>
+      </div>
+
       <div class="ct-levels">
         <div class="ct-row ct-lv">
           <span class="ct-lab sl">${I18N.t("exec.sl")}</span>
@@ -4543,6 +4708,8 @@ function rememberTicket() {
     vol: String($("ct-vol")?.value || deskLot()),
     sl: String($("ct-sl")?.value || ""),
     tp: String($("ct-tp")?.value || ""),
+    type: String($("ct-type")?.value || "market"),
+    price: String($("ct-price")?.value || ""),
   };
   S.manual = { ...(S.manual || {}), vol: S.ticket.vol, sl: S.ticket.sl, tp: S.ticket.tp };
 }
@@ -4558,8 +4725,9 @@ function onChartPrice(p) {
   const px = Number(p);
   if (S._pickLevel === "sl" && $("ct-sl")) $("ct-sl").value = String(px);
   else if (S._pickLevel === "tp" && $("ct-tp")) $("ct-tp").value = String(px);
+  else if (S._pickLevel === "price" && $("ct-price")) $("ct-price").value = String(px);
   S._pickLevel = null;
-  document.querySelectorAll("#ct-pick-sl,#ct-pick-tp").forEach((b) => b.classList.remove("on"));
+  document.querySelectorAll("#ct-pick-sl,#ct-pick-tp,#ct-pick-price").forEach((b) => b.classList.remove("on"));
   rememberTicket();
   syncChartPending();
 }
@@ -4597,7 +4765,21 @@ async function sendDeskOrder(opts) {
     toast(err);
     return { ok: false, error: err };
   }
-  const body = { action: opts.side, side: opts.side, source: "desk", symbol, volume, strategy };
+  /* A resting order is the same ticket with somewhere to rest. Without
+     a price there is nothing to rest at, and MT5 would reject it after
+     the round trip - so it is refused here, where the trader is still
+     looking at the field. */
+  const orderType = String(opts.orderType || "");
+  const price = Number(opts.price || 0);
+  if (orderType && !(price > 0)) {
+    const err = I18N.t("exec.need_price");
+    if (msg) msg.textContent = err;
+    toast(err);
+    return { ok: false, error: err };
+  }
+  const body = orderType
+    ? { action: "pending", order_type: orderType, side: opts.side, source: "desk", symbol, volume, strategy, price }
+    : { action: opts.side, side: opts.side, source: "desk", symbol, volume, strategy };
   if (strategy) body.comment = "AURION " + strategy;
   if (sl) body.sl = sl;
   if (tp) body.tp = tp;
@@ -4657,12 +4839,43 @@ function bindChartTicket() {
     if (S.chart) S.chart.pickPrice = true;
     const sl = $("ct-pick-sl");
     const tp = $("ct-pick-tp");
+    const pr = $("ct-pick-price");
     if (sl) sl.classList.toggle("on", kind === "sl");
     if (tp) tp.classList.toggle("on", kind === "tp");
-    toast(I18N.t(kind === "sl" ? "exec.pick_sl" : "exec.pick_tp"));
+    if (pr) pr.classList.toggle("on", kind === "price");
+    toast(I18N.t(kind === "sl" ? "exec.pick_sl" : kind === "tp" ? "exec.pick_tp" : "exec.pick_entry"));
   };
   const psl = $("ct-pick-sl"); if (psl) psl.onclick = () => arm("sl");
   const ptp = $("ct-pick-tp"); if (ptp) ptp.onclick = () => arm("tp");
+  const ppr = $("ct-pick-price"); if (ppr) ppr.onclick = () => arm("price");
+
+  /* A limit or a stop needs a price to rest at; a market order must not
+     offer one, or the trader is invited to fill in a field that will be
+     ignored. The row follows the selector, and the buy/sell buttons say
+     what the order is called once a side is chosen. */
+  const typeSel = $("ct-type");
+  const pendingType = () => {
+    const v = String(typeSel?.value || "market");
+    return v === "limit" || v === "stop" ? v : "";
+  };
+  const paintType = () => {
+    const kind = pendingType();
+    const row = $("ct-entry-row");
+    if (row) row.hidden = !kind;
+    const buy = $("ct-buy")?.querySelector("span");
+    const sell = $("ct-sell")?.querySelector("span");
+    if (buy) buy.textContent = kind ? I18N.t("exec.buy_" + kind) : I18N.t("exec.buy");
+    if (sell) sell.textContent = kind ? I18N.t("exec.sell_" + kind) : I18N.t("exec.sell");
+    rememberTicket();
+  };
+  if (typeSel) typeSel.addEventListener("change", paintType);
+  ["ct-price"].forEach((id) => {
+    const el = $(id);
+    if (el) el.addEventListener("input", rememberTicket);
+  });
+  const cpr = $("ct-clear-price");
+  if (cpr) cpr.onclick = () => { if ($("ct-price")) $("ct-price").value = ""; rememberTicket(); };
+  paintType();
   const wipe = (kind) => {
     if (kind === "sl" && $("ct-sl")) $("ct-sl").value = "";
     if (kind === "tp" && $("ct-tp")) $("ct-tp").value = "";
@@ -4673,12 +4886,17 @@ function bindChartTicket() {
   const ctp = $("ct-clear-tp"); if (ctp) ctp.onclick = () => wipe("tp");
   const fire = (side) => {
     rememberTicket();
+    const kind = pendingType();
     return sendDeskOrder({
       side,
       symbol: (S.chartFocus && S.chartFocus.symbol) || S.symbol,
       volume: Number($("ct-vol")?.value || 0),
       sl: Number($("ct-sl")?.value || 0),
       tp: Number($("ct-tp")?.value || 0),
+      /* buy+limit -> buy_limit, sell+stop -> sell_stop: the four names
+         the bridge already maps onto MT5's pending order types. */
+      orderType: kind ? side + "_" + kind : "",
+      price: kind ? Number($("ct-price")?.value || 0) : 0,
       msgEl: $("ct-msg"),
     });
   };
@@ -9032,7 +9250,7 @@ function bindView(view) {
     };
     const cv = $("cv");
     if (cv) {
-      S.chart = new CandleChart(cv, { onPrice: onChartPrice, onPending: onChartPending });
+      S.chart = new CandleChart(cv, { onPrice: onChartPrice, onPending: onChartPending, onLevelEdit: onChartLevelEdit });
       if (S.candles.length && eaLive()) S.chart.setBars(S.candles);
       const t = S.snap?.ticks?.[S.symbol]; if (t) S.chart.setTick(t);
       applyChartLevels(true);
@@ -11640,6 +11858,7 @@ function bindChartDesk() {
     key,
     onPrice: onChartPrice,
     onPending: onChartPending,
+    onLevelEdit: onChartLevelEdit,
     onLevelMove: onChartLevelMove,
     /* pan() reports every scroll, which is the moment to find out
        whether the trader has reached the end of what we hold. */

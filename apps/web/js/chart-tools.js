@@ -1709,7 +1709,12 @@
       if (typeof priorOnScroll === "function") {
         try { priorOnScroll(c); } catch { /* nav must still update */ }
       }
-      if (typeof ui.syncNav === "function") ui.syncNav();
+      /* syncNav, not ui.syncNav. The shared slot is overwritten by
+         whichever bind ran last, so going through it makes this handler
+         report on some other chart's offset the moment a second one is
+         bound. The declaration below is hoisted into this same call, so
+         it is always this chart's. */
+      syncNav();
     };
     chart.opts.onToolDone = () => {
       // The tool stays armed unless the trader asked for the old one-shot
@@ -2040,6 +2045,18 @@
       }
     }
     ui.syncNav = syncNav;
+
+    /* Belt and braces, because onScroll is a single slot owned by
+       app.js and a future assignment there would silently take this
+       handler away again - which is exactly how the button came to need
+       a click in the first place. Lifting the finger re-reads the
+       offset no matter what happened to the callback, so the worst case
+       degrades to "appears when the pan ends" instead of "never". Two
+       reads and a hidden flag; cheap enough to run on every release. */
+    if (chart && chart.canvas && chart.canvas.addEventListener) {
+      ["pointerup", "pointercancel", "lostpointercapture"].forEach((ev) =>
+        chart.canvas.addEventListener(ev, () => syncNav()));
+    }
 
     syncNav();
 

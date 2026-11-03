@@ -497,7 +497,22 @@
     "orders": "Pending orders",
     "danger": "Emergency",
     "manual_why": "A ticket you send yourself. The robot is not involved.",
-    "danger_why": "Closes every open position on this account at market, now. There is no undo."
+    "danger_why": "Closes every open position on this account at market, now. There is no undo.",
+    "order_type": "Order type",
+    "market": "Market",
+    "limit": "Limit",
+    "stop": "Stop",
+    "entry": "Entry",
+    "set_entry": "Pick the entry on the chart",
+    "clear_entry": "Clear the entry",
+    "pick_entry": "Tap the chart to set the entry price",
+    "buy_limit": "Buy limit",
+    "sell_limit": "Sell limit",
+    "buy_stop": "Buy stop",
+    "sell_stop": "Sell stop",
+    "need_price": "A limit or stop order needs an entry price.",
+    "exact_price": "Type the exact price. Leave it empty to remove the level.",
+    "bad_price": "That is not a price."
   },
   "charts": {
     "title": "EA chart agents",

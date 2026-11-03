@@ -317,7 +317,7 @@ ok(scrimZ && fabZ && Number(fabZ[1]) > Number(scrimZ[1]),
   const at = head.indexOf("chart.opts.onScroll = ");
   const scrollFn = head.slice(at, head.indexOf("\n    };", at) + 7);
   ok(scrollFn.length > 40 && scrollFn.length < 700, "the onScroll handler slices cleanly");
-  ok(/ui\.syncNav\(\)/.test(scrollFn),
+  ok(/\n\s*syncNav\(\);/.test(scrollFn),
     "and what it drives is syncNav, which is two reads and a hidden flag");
 
   /* The slot carries one listener and app.js already owns it for loading
@@ -327,10 +327,66 @@ ok(scrimZ && fabZ && Number(fabZ[1]) > Number(scrimZ[1]),
     "the existing onScroll owner is captured first");
   ok(/typeof priorOnScroll === "function"/.test(scrollFn) && /priorOnScroll\(c\)/.test(scrollFn),
     "and still called, so deep-history loading survives the wrap");
-  ok(scrollFn.indexOf("priorOnScroll(c)") < scrollFn.indexOf("ui.syncNav()"),
+  ok(scrollFn.indexOf("priorOnScroll(c)") < scrollFn.search(/\n\s*syncNav\(\);/),
     "history loading runs before the nav update, keeping its original timing");
   ok(/try \{[\s\S]{0,120}priorOnScroll\(c\)[\s\S]{0,60}\} catch/.test(scrollFn),
     "a throw in the prior listener cannot stop the button from appearing");
+}
+
+
+/* ---- the nav must not depend on one callback slot -------------------
+   onScroll belongs to app.js; bind() wraps it. A future assignment
+   there would take this handler away again silently, which is how the
+   button came to need a click. The canvas listeners are the floor. */
+{
+  const head = src.slice(src.indexOf("function bind(chart, ctx)"), src.indexOf("/* ---- selection style bar"));
+  const at = head.indexOf("chart.opts.onScroll = ");
+  const scrollFn = head.slice(at, head.indexOf("\n    };", at) + 7);
+  ok(/\n\s*syncNav\(\);/.test(scrollFn),
+    "the scroll handler calls the hoisted syncNav, not the shared ui slot");
+  ok(!/ui\.syncNav\(\)/.test(scrollFn),
+    "going through ui.syncNav would report on whichever chart bound last");
+  ok(/pointerup/.test(head) && /pointercancel/.test(head),
+    "lifting the finger re-reads the offset even if onScroll is ever reassigned");
+  const belt = head.slice(head.indexOf('["pointerup"'));
+  ok(/syncNav\(\)/.test(belt.slice(0, 220)), "and what those listeners run is syncNav");
+}
+
+/* ---- tapping a level asks for an exact price ------------------------ */
+{
+  const ch = fs.readFileSync(path.join(root, "apps/web/js/charts.js"), "utf8");
+  const at = ch.indexOf("if (this.dragLevel) {\n      const kind = this.dragLevel;");
+  ok(at > 0, "onUp distinguishes the level tap from the level drag");
+  const blk = ch.slice(at, at + 700);
+  ok(/!this\._moved/.test(blk), "only a tap - a drag still just moves the line");
+  ok(/opts\.onLevelEdit/.test(blk), "and it reports the level the trader meant");
+  ok(/this\.pending && this\.pending\[kind\]/.test(blk),
+    "handing over the price that line is currently at, to prefill the box");
+  const app = fs.readFileSync(path.join(root, "apps/web/js/app.js"), "utf8");
+  ok(/onLevelEdit: onChartLevelEdit/.test(app), "the desk chart is wired to it");
+  ok((app.match(/onLevelEdit: onChartLevelEdit/g) || []).length === 2,
+    "both chart instances are wired, not just the one that was easy to find");
+  ok(/function askPrice\(/.test(app), "there is a numeric dialog to type into");
+  ok(/if \(String\(raw\)\.trim\(\) === ""\) return finish\(0\);/.test(app),
+    "an empty box clears the level, which is a real answer and not a cancel");
+  ok(/resolve\(null\)/.test(app) || /finish\(null\)/.test(app),
+    "and a dismissal leaves the level alone, which is a different answer again");
+}
+
+/* ---- resting orders ------------------------------------------------- */
+{
+  const app = fs.readFileSync(path.join(root, "apps/web/js/app.js"), "utf8");
+  ok(/id="ct-type"/.test(app), "the ticket has an order type");
+  ["market", "limit", "stop"].forEach((v) =>
+    ok(new RegExp('value="' + v + '"').test(app), "it offers " + v));
+  ok(/orderType: kind \? side \+ "_" \+ kind : ""/.test(app),
+    "side plus type gives the four names the bridge maps: buy_limit, sell_limit, buy_stop, sell_stop");
+  ok(/action: "pending", order_type: orderType/.test(app),
+    "a resting order goes out as action:pending with its type");
+  ok(/if \(orderType && !\(price > 0\)\)/.test(app),
+    "and a limit or stop with no price is refused here, not after a round trip");
+  ok(/row\.hidden = !kind/.test(app),
+    "the entry field only exists when there is somewhere to rest");
 }
 
 console.log(failed ? `\n${failed} failed` : `\nall good (${byId.size} ids, ${handlers} handlers)`);
