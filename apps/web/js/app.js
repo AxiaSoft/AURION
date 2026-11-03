@@ -7372,6 +7372,12 @@ const views = {
       <nav class="set-jump" id="set-jump" aria-label="settings">
         <!-- Sheet furniture: inert on desktop, where the nav is a plain
              rail and none of it is shown. -->
+        <!-- Everything above the list is one piece: the grab bar, the
+             title and the search. It is grouped because it is the
+             sheet's handle - the only part of the sheet a downward
+             drag dismisses from. Below it, a drag belongs to the
+             list. -->
+        <div class="sj-top" id="set-sheet-top">
         <div class="sj-grab" id="set-sheet-grab" role="presentation"
              aria-label="${esc(I18N.t("settings.sheet_drag"))}"><span></span></div>
         <div class="sj-sheet-head">
@@ -7394,6 +7400,7 @@ const views = {
                     aria-label="${esc(I18N.t("common.close"))}">${icon("close")}</button>
           </span>
           <p class="sj-find-n sub" id="set-q-n" aria-live="polite" hidden></p>
+        </div>
         </div>
         <!-- The entries are a region of their own so that, as a sheet,
              the handle, the title and the search can hold still while
@@ -8885,6 +8892,12 @@ function attachSheetDrag(o) {
 
   const begin = (el) => (e) => {
     if (!isOpen()) return;
+    /* A handle can contain controls - the settings sheet's head holds
+       the search box and its clear button. Capturing the pointer there
+       swallows the tap that should place the caret, so the gesture
+       stands aside for anything interactive. */
+    if (e.target && e.target.closest
+        && e.target.closest("input,textarea,select,button,a,[contenteditable]")) return;
     dragging = true; y0 = e.clientY; t0 = Date.now(); dy = 0;
     lastY = e.clientY; lastT = e.timeStamp || Date.now(); vel = 0;
     sheet.style.transition = "";
@@ -9113,8 +9126,21 @@ function bindSetSheet() {
     closeSetSheet();
   });
 
-  /* One implementation, used by both sheets. See attachSheetDrag. */
-  attachSheetDrag({ handle: grab, sheet: nav, scrim, body: nav,
+  /* One implementation, used by both sheets. See attachSheetDrag.
+
+     The handle is the whole head - grab bar, title, search - and not
+     just the 22px bar, so there is a real target to pull rather than
+     something to aim at.
+
+     `body` is deliberately not passed. Dismissing from the sheet's own
+     surface is the usual phone idiom and it was wrong here: this
+     surface is a list of nine sections, a downward drag on it is
+     someone reading the rest of the list, and the sheet closing
+     instead is the fault this fixes. The arming rule (only when the
+     list is already at its top) was not enough, because the top is
+     exactly where the list starts. Below the head a drag now only ever
+     scrolls. */
+  attachSheetDrag({ handle: $("set-sheet-top") || grab, sheet: nav, scrim,
     isOpen: setSheetIsOpen, close: () => closeSetSheet() });
   attachSheetEdgeOpen({
     stage: document, key: "setSheetEdge",

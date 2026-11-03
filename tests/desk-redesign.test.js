@@ -1062,7 +1062,15 @@ if (!jsdom) {
       const bindFn = appJs.slice(appJs.indexOf("function bindSetSheet()"), appJs.indexOf("function showSetTab("));
       if (!bindFn) throw new Error("the sheet is never bound");
       if (!/attachSheetDrag\(\{/.test(bindFn)) throw new Error("the sheet never attaches a drag");
-      if (!/handle: grab/.test(bindFn) || !/sheet: nav/.test(bindFn)) {
+      /* The handle was the 22px grab bar alone. It is now the whole
+         head - grab bar, title and search - because the surface
+         gesture that used to make the rest of the sheet draggable has
+         been dropped: it was dismissing the sheet when the desk was
+         only scrolling the list of sections. Widening the handle is
+         what keeps the promise the grab bar makes. The fallback to
+         grab is still accepted, so this reads either spelling.
+         sheet-gestures.test.js pins which one is live. */
+      if (!/handle: (grab|\$\("set-sheet-top"\) \|\| grab)\b/.test(bindFn) || !/sheet: nav/.test(bindFn)) {
         throw new Error("the drag is attached to the wrong elements");
       }
       const helper = appJs.slice(appJs.indexOf("function attachSheetDrag("),
