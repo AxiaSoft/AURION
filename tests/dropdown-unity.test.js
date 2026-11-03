@@ -91,8 +91,18 @@ ok(skinSym >= skinFloating,
 console.log("\n-- one placement routine --------------------------------");
 
 ok(/function placePopover\(btn, pop, opts\)/.test(appJs), "placePopover exists");
-ok(/function placeDropdownMenu\(btn, menu\) \{\s*placePopover\(btn, menu\);\s*\}/.test(appJs),
-  "the <select> menu is placed by placePopover");
+/* placeDropdownMenu grew a phone branch, so it is no longer a bare
+   forward to placePopover. What still matters - and what this check was
+   always really for - is that the desktop path has not grown a second
+   copy of the geometry: one routine, reached from here. */
+{
+  const fn = appJs.slice(appJs.indexOf("function placeDropdownMenu(btn, menu)"));
+  const body = fn.slice(0, fn.indexOf("\n}"));
+  ok(/placePopover\(btn, menu\);/.test(body),
+    "the <select> menu is still placed by placePopover on a pointer device");
+  ok(!/getBoundingClientRect|innerHeight|insetInlineStart\s*=/.test(body),
+    "and placeDropdownMenu measures nothing itself - no second copy of the geometry");
+}
 ok(/placePopover\(btn, pop, \{ minW: \d+ \}\)/.test(appJs),
   "the symbol popover is placed by placePopover");
 
@@ -223,6 +233,56 @@ ok(/html\[data-skin\] \.sympick-pop\{ animation:ddIn/.test(themesCss)
   const cdBody = cd.slice(0, cd.indexOf("\n}\n"));
   ok(/aria-expanded", "false"/.test(cdBody) && /classList\.remove\("open"\)/.test(cdBody),
     "closing one menu resets its trigger's state too, not just the hidden flag");
+}
+
+
+/* ---- the phone sheet ------------------------------------------------
+   Following the trigger is right on a desktop and wrong on a phone: the
+   gesture that reads the rest of a tall menu is the same gesture that
+   moves its trigger, so the menu slid up the screen and then dismissed
+   itself. Below 760px it is pinned to the viewport instead. Measured at
+   390px: it drifted 366px and closed after 8 of 20 scrolls; now 20/20
+   survive with zero drift. */
+ok(/function menuWantsSheet\(/.test(appJs), "there is a single test for the sheet breakpoint");
+ok(/max-width:\s*760px/.test(appJs), "and it is the phone breakpoint the rest of the desk uses");
+ok(/function sheetDropdown\(/.test(appJs), "the sheet has its own placement routine");
+ok(/if \(menuWantsSheet\(\)\) \{ sheetDropdown\(menu\); return; \}/.test(appJs),
+  "placeDropdownMenu hands a phone straight to it, before any trigger geometry");
+ok(/menu\.classList\.remove\("dd-sheet"\)/.test(appJs),
+  "and takes the class back off when the viewport grows, so a rotate restores the popover");
+
+{
+  /* The inline values placePopover writes would out-specify the sheet's
+     stylesheet rules, so they have to be cleared, not just overridden. */
+  const fn = appJs.slice(appJs.indexOf("function sheetDropdown("));
+  const body = fn.slice(0, fn.indexOf("\n}"));
+  ["insetBlockStart", "insetBlockEnd", "insetInlineStart", "inlineSize", "maxBlockSize"].forEach((k) =>
+    ok(new RegExp("style\\." + k + '\\s*=\\s*""').test(body),
+      "sheetDropdown clears the inline " + k + " placePopover left behind"));
+  ok(/classList\.add\("dd-sheet"\)/.test(body), "and marks the menu as a sheet");
+}
+
+{
+  const fn = appJs.slice(appJs.indexOf("function repositionOpenDropdowns("));
+  const body = fn.slice(0, fn.indexOf("\n}"));
+  ok(/classList\.contains\("dd-sheet"\)/.test(body) && /return;/.test(body),
+    "a scroll leaves a sheet entirely alone - not repositioned, not closed");
+  ok(body.indexOf('classList.contains("dd-sheet")') < body.indexOf("closeDropdown"),
+    "and it bails out before the close-when-off-screen rule can reach it");
+}
+
+{
+  const css = read("apps/web/css/app.css");
+  ok(/\.dd-menu\.dd-sheet\{/.test(css.replace(/\s+/g, "")) || /\.dd-menu\.dd-sheet\s*\{/.test(css),
+    "the sheet geometry is in the stylesheet");
+  const at = css.indexOf(".dd-menu.dd-sheet");
+  const blk = css.slice(at, css.indexOf("}", at));
+  ok(/inset-block-end:\s*0/.test(blk), "pinned to the bottom edge");
+  ok(/inset-block-start:\s*auto/.test(blk), "and released from the top one");
+  ok(/overscroll-behavior:\s*contain/.test(blk),
+    "its overscroll does not chain to the page - that chaining is what dragged the pane");
+  ok(css.slice(0, at).lastIndexOf("@media") > css.slice(0, at).lastIndexOf("}\n.dd-menu{") - 1,
+    "and the whole thing sits inside a media query, so desktops are untouched");
 }
 
 console.log(failed ? `\n${failed} check(s) failed` : "\nall checks passed");

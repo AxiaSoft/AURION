@@ -3971,6 +3971,17 @@ html[dir="rtl"] .ct-lab{letter-spacing:0;text-transform:none;font-size:12px}
 .ct-lab.tp{color:var(--cyan)}
 
 .ct-vol{margin-block:10px}
+/* Order type sits above the levels, because it decides whether there is
+   an entry price to fill in at all. */
+.ct-type{margin-block:10px}
+.ct-type select{
+  flex:1 1 auto;min-width:0;min-block-size:38px;
+  border:1px solid var(--line);border-radius:12px;
+  background:rgb(var(--s1) / .5);color:var(--ink);
+  font:inherit;padding-inline:10px;
+}
+.ct-entry[hidden]{display:none}
+.ct-entry .ct-lab{color:var(--muted)}
 .ct-step{
   display:flex;align-items:center;gap:0;flex:1 1 auto;min-width:0;
   border:1px solid var(--line);border-radius:12px;overflow:hidden;
@@ -4157,6 +4168,38 @@ html[dir="rtl"] .ct-side span{letter-spacing:0;text-transform:none;font-size:12p
    also the scroller: same padding and same contained overscroll as
    .sympick-list. */
 .dd-menu{padding:6px;overflow:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch}
+/* The phone sheet. Pinned to the bottom edge, full width inside the
+   safe area, and tall enough to be worth scrolling. It deliberately
+   ignores the trigger: see menuWantsSheet in app.js for why following
+   one is the wrong model on a screen this size.
+
+   The inline values placePopover would have written are cleared by
+   sheetDropdown before this class goes on, so these rules are not
+   fighting an inline style - they are the only geometry in play. */
+@media (max-width: 760px) {
+  .dd-menu.dd-sheet{
+    inset-block-start:auto;
+    inset-block-end:0;
+    inset-inline:0;
+    inline-size:auto;
+    max-block-size:min(60vh, 420px);
+    /* Square off the edges that now meet the screen, so it reads as a
+       sheet rising from the bottom rather than a card that drifted. */
+    border-radius:18px 18px 0 0;
+    border-inline-width:0;
+    border-block-end-width:0;
+    padding-block-end:max(6px, env(safe-area-inset-bottom));
+    box-shadow:0 -18px 50px rgba(0,0,0,.5);
+    /* Vertical panning belongs to the list, and overscroll must not
+       chain to the page behind - that chaining is what dragged the
+       settings pane while the trader was reading the menu. */
+    touch-action:pan-y;
+    overscroll-behavior:contain;
+  }
+  /* Rows get a touch target on a phone, where this menu is read with a
+     thumb rather than a pointer. */
+  .dd-menu.dd-sheet .dd-opt{min-block-size:48px}
+}
 .dd-opt{
   inline-size:100%;border:0;background:transparent;color:var(--ink);
   text-align:start;font:inherit;min-block-size:40px;

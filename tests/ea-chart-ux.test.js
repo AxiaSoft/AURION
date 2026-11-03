@@ -548,8 +548,12 @@ if (!jsdom) {
       if (!/class="ct-side sell"/.test(ticket) || !/class="ct-side buy"/.test(ticket)) {
         throw new Error("buy/sell are not their own control");
       }
+      /* Six, not four: the entry price is a level like the stop and the
+         target, and it got the same pick-on-chart and clear pair. The
+         point of the count is that these stayed small icon buttons
+         instead of growing into more pills beside buy and sell. */
       const ics = (ticket.match(/class="ct-ic"/g) || []).length;
-      if (ics !== 4) throw new Error(ics + " icon buttons for the 4 level verbs");
+      if (ics !== 6) throw new Error(ics + " icon buttons for the 6 level verbs");
       if (/class="btn tiny ghost"/.test(ticket)) throw new Error("ghost pills are still there");
     });
 

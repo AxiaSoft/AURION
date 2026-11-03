@@ -3988,8 +3988,17 @@ class CandleChart {
       return;
     }
     if (this.dragLevel) {
+      const kind = this.dragLevel;
       this.dragLevel = null;
       this.canvas.style.cursor = this.cursorFor();
+      /* A tap on the line, not a drag along it. Dragging is the fast
+         way to put a stop roughly where the eye wants it; it cannot
+         place it on an exact price, because one pixel is a whole
+         handful of points and a finger covers twelve. Touching the line
+         says which level is meant and hands it to a keyboard. */
+      if (!this._moved && typeof this.opts.onLevelEdit === "function") {
+        this.opts.onLevelEdit(kind, Number((this.pending && this.pending[kind]) || 0));
+      }
       this.draw();
       return;
     }
