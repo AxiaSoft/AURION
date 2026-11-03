@@ -4592,6 +4592,12 @@ function chartTicketHtml() {
         </div>
       </div>
 
+      <!-- What those two levels are actually worth. A stop written in
+           price says nothing about the size of the loss; this says it
+           in points and in money, at the lot in the field above, and
+           updates as any of the three change. -->
+      <p class="ct-risk" id="ct-risk" aria-live="polite" hidden></p>
+
       <div class="ct-sides">
         <button class="ct-side sell" type="button" id="ct-sell">
           <span>${I18N.t("exec.sell")}</span>
@@ -4620,6 +4626,10 @@ function paintTicketPrices() {
   const bid = $("ct-bid"), ask = $("ct-ask");
   if (bid) bid.textContent = tick ? fmt(tick.bid, 5) : "—";
   if (ask) ask.textContent = tick ? fmt(tick.ask, 5) : "—";
+  /* A market order's risk is measured from the live quote, so it moves
+     with the quote. Here rather than on a timer of its own: this is
+     already the function the tick wakes up. */
+  paintTicketRisk();
 }
 
 /**
@@ -4713,11 +4723,156 @@ function rememberTicket() {
   };
   S.manual = { ...(S.manual || {}), vol: S.ticket.vol, sl: S.ticket.sl, tp: S.ticket.tp };
 }
+/**
+ * The broker's contract numbers for a symbol, or null.
+ *
+ * Null is a real answer and every caller has to respect it. The engine
+ * states the rule in runtime/risk.py and it holds just as hard here: a
+ * guessed tick value is a wrong number stated with confidence, and a
+ * trader who is shown "this stop costs $4" when it costs $400 is worse
+ * off than one who is shown nothing. So the desk prices a ticket only
+ * from what MetaTrader actually said, and says so plainly when it
+ * cannot.
+ */
+function specFor(symbol) {
+  const specs = ((S.snap && S.snap.strategy && S.snap.strategy.money) || {}).specs || {};
+  const want = String(symbol || "").trim();
+  if (!want) return null;
+  if (specs[want]) return specs[want];
+  /* "EURUSD" against a book that calls it "EURUSD.m". The engine's
+     bridge does the same match on the way in. */
+  const root = (v) => String(v || "").toUpperCase().replace(/[^A-Z0-9].*$/, "");
+  const base = root(want);
+  if (!base) return null;
+  for (const key of Object.keys(specs)) {
+    if (root(key) === base) return specs[key];
+  }
+  return null;
+}
+
+/**
+ * What a price distance is worth: how many points, and how much money
+ * at this lot.
+ *
+ *   money = distance / tick_size * tick_value * volume
+ *
+ * One identity, the same one the engine uses, so the number the desk
+ * shows before the order and the number the engine enforces after it
+ * cannot drift apart.
+ */
+function priceMoney(symbol, distance, volume) {
+  const spec = specFor(symbol);
+  const d = Math.abs(Number(distance) || 0);
+  const v = Math.max(0, Number(volume) || 0);
+  if (!spec) return null;
+  const tick = Number(spec.tick_size || 0);
+  const value = Number(spec.tick_value || 0);
+  if (!(tick > 0) || !(value > 0) || !(d > 0) || !(v > 0)) return null;
+  const points = d / tick;
+  return {
+    points,
+    money: points * value * v,
+    currency: String(spec.currency || ""),
+    digits: Number(spec.digits || 5),
+  };
+}
+
+/** "250 points · $25.00", in the desk's own language and digits. */
+function riskPhrase(r, sign) {
+  if (!r) return "";
+  /* Round before deciding how many decimals to show, not after. A
+     100-point stop divides out as 99.99999999999999, which read as
+     "under a hundred" and printed "100.0" next to a plain "700". */
+  const pts = Number(r.points.toFixed(1));
+  const dp = Math.abs(pts) >= 100 ? 0 : 1;
+  const money = fmtMoney(r.money, r.currency);
+  return I18N.t("exec.risk_line", { points: fmtNum(pts, dp), money: (sign || "") + money });
+}
+
+function fmtNum(n, dp) {
+  const v = Number(n) || 0;
+  return v.toLocaleString(I18N.locale ? I18N.locale() : undefined, {
+    minimumFractionDigits: dp, maximumFractionDigits: dp,
+  });
+}
+
+function fmtMoney(n, currency) {
+  const v = Number(n) || 0;
+  const unit = String(currency || "").trim() || I18N.t("money.unit");
+  return fmtNum(v, 2) + " " + unit;
+}
+
+/**
+ * What the stop and the target on this ticket are worth.
+ *
+ * The distance is measured from where the trade would actually open -
+ * the resting price for a limit or a stop, the live quote for a market
+ * order - because that is what the loss is measured from. Measuring a
+ * stop from the current price on a limit order that rests 80 points
+ * away would overstate the risk by exactly that much.
+ */
+function paintTicketRisk() {
+  const host = $("ct-risk");
+  if (!host) return;
+  const symbol = (S.chartFocus && S.chartFocus.symbol) || S.symbol || "";
+  const volume = Number($("ct-vol")?.value || 0);
+  const type = String($("ct-type")?.value || "market");
+  const kind = type === "limit" || type === "stop" ? type : "";
+  const tick = (S.snap && S.snap.ticks && S.snap.ticks[symbol]) || {};
+  const mid = Number(tick.bid || 0) && Number(tick.ask || 0)
+    ? (Number(tick.bid) + Number(tick.ask)) / 2
+    : Number(tick.bid || tick.ask || 0);
+  const from = kind ? Number($("ct-price")?.value || 0) : mid;
+  const sl = Number($("ct-sl")?.value || 0);
+  const tp = Number($("ct-tp")?.value || 0);
+
+  if (!sl && !tp) { host.hidden = true; host.textContent = ""; return; }
+  host.hidden = false;
+
+  if (!specFor(symbol)) {
+    /* Named, not blank: "we cannot price this" is information, and a
+       row that silently disappears looks like a bug in the desk. */
+    host.innerHTML = `<span class="ct-risk-none">${esc(I18N.t("exec.risk_unpriced"))}</span>`;
+    return;
+  }
+  if (!(from > 0) || !(volume > 0)) {
+    host.innerHTML = `<span class="ct-risk-none">${esc(I18N.t("exec.risk_need_price"))}</span>`;
+    return;
+  }
+
+  const parts = [];
+  const slR = priceMoney(symbol, from - sl, volume);
+  const tpR = priceMoney(symbol, tp - from, volume);
+  if (sl && slR) {
+    parts.push(`<span class="ct-risk-sl"><b>${esc(I18N.t("exec.sl"))}</b> ${esc(riskPhrase(slR, "−"))}</span>`);
+  }
+  if (tp && tpR) {
+    parts.push(`<span class="ct-risk-tp"><b>${esc(I18N.t("exec.tp"))}</b> ${esc(riskPhrase(tpR, "+"))}</span>`);
+  }
+  /* Reward against risk, only when both sides are set - it is the one
+     number that says whether the ticket is worth taking, and it costs
+     nothing to show once the other two are known. */
+  if (slR && tpR && slR.money > 0) {
+    parts.push(`<span class="ct-risk-rr"><b>${esc(I18N.t("signal.rr"))}</b> ${esc(fmtNum(tpR.money / slR.money, 2))}</span>`);
+  }
+  host.innerHTML = parts.join("");
+}
+
 function syncChartPending() {
   if (!S.chart || typeof S.chart.setPending !== "function") return;
   const sl = Number($("ct-sl")?.value || S.ticket?.sl || 0);
   const tp = Number($("ct-tp")?.value || S.ticket?.tp || 0);
-  S.chart.setPending({ sl, tp });
+  /* The resting price goes with them. A limit or a stop only means
+     anything at a price, and the trader is choosing that price by
+     looking at the chart - so the chart has to show it while it is
+     being chosen, not once the broker has confirmed it. Only for a
+     pending type: a market order has no resting price, and drawing
+     the leftover contents of a hidden field would be a line at a
+     price nothing is waiting at. */
+  const type = String($("ct-type")?.value || S.ticket?.type || "market");
+  const kind = type === "limit" || type === "stop" ? type : "";
+  const entry = kind ? Number($("ct-price")?.value || S.ticket?.price || 0) : 0;
+  S.chart.setPending({ sl, tp, entry, kind });
 }
 function onChartPrice(p) {
   if (!Number.isFinite(Number(p))) return;
@@ -4730,12 +4885,14 @@ function onChartPrice(p) {
   document.querySelectorAll("#ct-pick-sl,#ct-pick-tp,#ct-pick-price").forEach((b) => b.classList.remove("on"));
   rememberTicket();
   syncChartPending();
+  paintTicketRisk();
 }
 function onChartPending(p) {
   if (!p) return;
   if (p.kind === "sl" && $("ct-sl")) $("ct-sl").value = String(p.sl || "");
   if (p.kind === "tp" && $("ct-tp")) $("ct-tp").value = String(p.tp || "");
   rememberTicket();
+  paintTicketRisk();
 }
 async function sendDeskOrder(opts) {
   opts = opts || {};
@@ -4794,6 +4951,16 @@ async function sendDeskOrder(opts) {
     if (msg) msg.textContent = text;
     toast(text);
     pushRobotLocal(r.ok ? "info" : "error", text);
+    /* Draw the resting order now, not after the round trip.
+       
+       refresh() below re-reads the book and repaints, which is the
+       authoritative answer - but it is a request away, and until it
+       lands the chart shows nothing where the order was just placed.
+       The trader pressed "sell limit" and the chart did not change,
+       so the order looks lost. This paints it from what was just
+       accepted; the refresh then replaces it with the broker's own
+       copy, or removes it if the broker did not keep it. */
+    if (r.ok && orderType && price > 0) showRestingOrder({ symbol, orderType, price, sl, tp });
     await refresh(false);
     return r;
   } catch (err) {
@@ -4805,6 +4972,36 @@ async function sendDeskOrder(opts) {
     S._orderBusy = false;
   }
 }
+/**
+ * Put a just-placed resting order on the chart straight away.
+ *
+ * Optimistic, and deliberately so: it is only called after the broker
+ * has accepted the order, and the refresh that follows a moment later
+ * is what decides whether it stays. The alternative - waiting - means
+ * the chart contradicts the confirmation the trader is reading.
+ *
+ * The preview line is cleared at the same time, because the order it
+ * was previewing now exists and paintOrders draws it properly, with
+ * its side and its WAITING tag. Two lines at one price would read as
+ * two orders.
+ */
+function showRestingOrder(o) {
+  const focus = (S.chartFocus && S.chartFocus.symbol) || S.symbol || "";
+  if (focus && o.symbol && focus !== o.symbol) return;
+  if (!S.chart || typeof S.chart.setOrders !== "function") return;
+  const now = [...(S.chart.orders || [])];
+  now.push({
+    symbol: o.symbol,
+    type: o.orderType,
+    price: Number(o.price || 0),
+    sl: Number(o.sl || 0),
+    tp: Number(o.tp || 0),
+    pending: true,
+  });
+  S.chart.setOrders(now);
+  if (typeof S.chart.setPending === "function") S.chart.setPending({ sl: 0, tp: 0, entry: 0 });
+}
+
 function bindChartTicket() {
   const host = $("chart-ticket");
   if (!host) return;
@@ -4828,6 +5025,7 @@ function bindChartTicket() {
     const touched = () => {
       rememberTicket();
       syncChartPending();
+      paintTicketRisk();
       // A lot typed here is the lot everywhere, not just on this ticket.
       if (id === "ct-vol") persistLot(el.value);
     };
@@ -4867,20 +5065,35 @@ function bindChartTicket() {
     if (buy) buy.textContent = kind ? I18N.t("exec.buy_" + kind) : I18N.t("exec.buy");
     if (sell) sell.textContent = kind ? I18N.t("exec.sell_" + kind) : I18N.t("exec.sell");
     rememberTicket();
+    /* Going back to a market order has to take the resting line off
+       the chart, or it stays there describing an order nobody is
+       about to place. */
+    syncChartPending();
+    /* ...and the risk is measured from a different price once it is
+       a market order, so it is recomputed rather than left stale. */
+    paintTicketRisk();
   };
   if (typeSel) typeSel.addEventListener("change", paintType);
+  /* Typing a resting price redraws it. This listened to "input" and
+     called rememberTicket alone, so the number was stored and never
+     shown. */
   ["ct-price"].forEach((id) => {
     const el = $(id);
-    if (el) el.addEventListener("input", rememberTicket);
+    if (!el) return;
+    const touched = () => { rememberTicket(); syncChartPending(); paintTicketRisk(); };
+    el.addEventListener("input", touched);
+    el.addEventListener("change", touched);
   });
   const cpr = $("ct-clear-price");
   if (cpr) cpr.onclick = () => { if ($("ct-price")) $("ct-price").value = ""; rememberTicket(); };
   paintType();
+  paintTicketRisk();
   const wipe = (kind) => {
     if (kind === "sl" && $("ct-sl")) $("ct-sl").value = "";
     if (kind === "tp" && $("ct-tp")) $("ct-tp").value = "";
     rememberTicket();
     syncChartPending();
+    paintTicketRisk();
   };
   const csl = $("ct-clear-sl"); if (csl) csl.onclick = () => wipe("sl");
   const ctp = $("ct-clear-tp"); if (ctp) ctp.onclick = () => wipe("tp");
@@ -5649,10 +5862,16 @@ function robotPanelHtml() {
           <span>${I18N.t("money.cap")}</span>
           <span class="num-wrap">
             <input id="st-money-cap" type="number" step="0.5" min="0" value="${Number(money.max_loss_per_lot ?? 10)}" />
-            <b class="num-unit">${esc(money.currency || I18N.t("money.unit"))} / ${I18N.t("money.per_lot")}</b>
+            <b class="num-unit">${esc(money.currency || I18N.t("money.unit"))} ${esc(I18N.t("money.per_lot", { lot: fmtLot(moneyRefLot(money)) }))}</b>
           </span>
         </label>
+        <!-- Which lot the number is quoted against. It was "per lot",
+             while the engine has always measured it against a 0.01
+             lot: someone typing 10 and reading "per lot" is out by a
+             factor of a hundred on their own risk budget. -->
+        <p class="sub" id="st-money-ref">${esc(I18N.t("money.ref_note", { lot: fmtLot(moneyRefLot(money)) }))}</p>
         <p class="sub" id="st-money-reach">${esc(moneyReach(money))}</p>
+        <p class="sub" id="st-money-at-lot">${esc(moneyAtLot(money))}</p>
         <button class="btn tiny" id="st-money-save" type="button">${I18N.t("money.save")}</button>
         <p class="sub">${I18N.t("money.zero_off")}</p>
       </div>
@@ -5708,6 +5927,64 @@ function aiCeilingWarning(st) {
  * reported a tick value the line says that instead of a number: a
  * made-up distance would be worse than an empty one.
  */
+/** The lot the cap is quoted against. The engine owns the number. */
+function moneyRefLot(money) {
+  const v = Number((money || {}).reference_lot || 0);
+  return v > 0 ? v : 0.01;
+}
+
+/** A lot size written the way a trader writes it: 0.01, 0.10, 1.00. */
+function fmtLot(v) {
+  return fmtNum(Number(v) || 0, 2);
+}
+
+/**
+ * The cap, restated at the lot actually in use.
+ *
+ * This is the half of the rule that is easy to get wrong from the
+ * input alone. The cap buys a stop *distance*, and that distance does
+ * not change with the lot - what changes is what it costs. So a desk
+ * on 0.10 lots with a 10 cap is risking 100, at the same number of
+ * points, and nothing on the card said so.
+ */
+/**
+ * The money state as it stands right now: what the engine last said,
+ * with whatever is currently typed in the cap field on top.
+ *
+ * One function because there are three callers - the first render, the
+ * cap field and the lot field - and when they each built this object
+ * themselves they disagreed. The lot field's copy was missing
+ * `currency` and `priced`, so typing a lot silently downgraded the
+ * line to the short unpriced wording and swapped the broker's "USD"
+ * for the generic fallback.
+ */
+function liveMoney(saved) {
+  return {
+    ...((S.snap && S.snap.strategy && S.snap.strategy.money) || {}),
+    ...(saved || {}),
+    max_loss_per_lot: Number($("st-money-cap")?.value || 0),
+  };
+}
+
+function moneyAtLot(money) {
+  money = money || {};
+  const cap = Number(money.max_loss_per_lot || 0);
+  if (!(cap > 0)) return "";
+  const ref = moneyRefLot(money);
+  const lot = Number($("st-vol")?.value || deskLot() || 0);
+  if (!(lot > 0)) return "";
+  const at = cap * (lot / ref);
+  const common = { lot: fmtLot(lot), money: fmtMoney(at, money.currency) };
+  if (!money.priced || money.max_stop_points == null) {
+    return I18N.t("money.at_lot_unpriced", common);
+  }
+  return I18N.t("money.at_lot", {
+    ...common,
+    points: money.max_stop_points,
+    s: money.symbol || "",
+  });
+}
+
 function moneyReach(money) {
   money = money || {};
   if (!Number(money.max_loss_per_lot)) return I18N.t("money.off");
@@ -10203,6 +10480,13 @@ function bindRobotPanel() {
       // Same number on the ticket and the EA chart, immediately.
       paintLotEverywhere(Number(stVol.value) || deskLot());
     };
+    /* The money line is about this lot, so it follows every keystroke
+       here, not just a committed save. Same state object as the cap
+       field uses - see liveMoney. */
+    stVol.addEventListener("input", () => {
+      const at = $("st-money-at-lot");
+      if (at) at.textContent = moneyAtLot(liveMoney());
+    });
     stVol.addEventListener("change", commit);
     stVol.addEventListener("keydown", (e) => { if (e.key === "Enter") commit(); });
   }
@@ -10258,6 +10542,20 @@ function bindRobotPanel() {
     field.addEventListener("input", () => { echo.textContent = brokerEcho(field.value); });
   }
 
+  /* The "at this lot it is X" line answers a question the trader is
+     asking while typing, so it is recomputed from the fields rather
+     than from the last saved state - waiting for a round trip to say
+     what 0.10 lots would cost makes the number useless for deciding
+     what to type. */
+  const repaintMoney = (saved) => {
+    const at = $("st-money-at-lot");
+    if (at) at.textContent = moneyAtLot(liveMoney(saved));
+  };
+  const moneyCap = $("st-money-cap");
+  if (moneyCap) {
+    moneyCap.addEventListener("input", () => repaintMoney());
+    moneyCap.addEventListener("change", () => repaintMoney());
+  }
   const moneySave = $("st-money-save");
   if (moneySave) moneySave.onclick = async () => {
     const field = $("st-money-cap");
@@ -10265,6 +10563,7 @@ function bindRobotPanel() {
     if (!r.ok) { toast(r.error || I18N.t("errors.generic")); return; }
     const reach = $("st-money-reach");
     if (reach) reach.textContent = moneyReach(r.money || {});
+    repaintMoney(r.money || {});
     toast(I18N.t(Number(r.money?.max_loss_per_lot) ? "money.saved" : "money.saved_off"));
     await reloadSettings();
   };

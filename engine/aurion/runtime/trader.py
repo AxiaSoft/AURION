@@ -12,7 +12,7 @@ from .deals import aggregate_close_deals, history_row_matches
 from ..prop.hours import (broker_offset_minutes, resolve_zone, zone_choices,
                           zone_label, zone_offset_minutes)
 from .gates import fire_blockers as gate_blockers
-from .risk import SymbolSpec, cap_stop, money_at_risk, volume_for_risk
+from .risk import REFERENCE_LOT, SymbolSpec, cap_stop, money_at_risk, volume_for_risk
 from .stops import ladder_target, resolve_stop, resolve_stop_r
 from ..ai.engine import AIEngine
 from ..backtest.engine import Backtester
@@ -1682,7 +1682,63 @@ class Trader:
             distance = spec.floor_to_tick(spec.distance_for(cap))
             state["max_stop_distance"] = spec.round_price(distance)
             state["max_stop_points"] = round(distance / spec.tick_size, 1) if spec.tick_size else 0
+        state["reference_lot"] = REFERENCE_LOT
+        state["specs"] = self._spec_table()
         return state
+
+    def _spec_table(self) -> dict[str, dict[str, Any]]:
+        """The contract numbers the desk needs to price a ticket itself.
+
+        A stop written in price says nothing about what it costs, and
+        the desk is where that question is asked - the trader is typing
+        a stop and wants to know, before pressing anything, how many
+        points away it is and how much money that is at the lot they
+        have chosen. Sending the two numbers the arithmetic needs is
+        cheaper and far more responsive than asking the engine to price
+        every keystroke.
+
+        Only symbols whose spec is ``usable`` are included. A symbol
+        that is absent is the honest answer "money cannot be computed
+        here" - the same rule risk.py states, and for the same reason:
+        a guessed tick value is a confident wrong number on somebody's
+        risk. The desk must show nothing rather than guess.
+        """
+        names: list[str] = []
+
+        def add(symbol: Any) -> None:
+            name = str(symbol or "").strip()
+            if name and name not in names:
+                names.append(name)
+
+        add(getattr(self, "active_symbol", ""))
+        try:
+            for pos in self.bridge.positions or []:
+                add(getattr(pos, "symbol", ""))
+        except Exception:  # pragma: no cover - a bridge mid-reconnect
+            log.exception("position symbols unavailable for the spec table")
+        try:
+            for name in self.bridge.known_symbols():
+                add(name)
+        except Exception:  # pragma: no cover - older bridge
+            log.exception("known_symbols unavailable")
+
+        out: dict[str, dict[str, Any]] = {}
+        # Bounded: a desk watches a basket, not a broker's whole book,
+        # and this rides on every snapshot.
+        for name in names[:40]:
+            spec = self.symbol_spec(name)
+            if not spec.usable:
+                continue
+            out[name] = {
+                "tick_size": spec.tick_size,
+                "tick_value": spec.tick_value,
+                "digits": int(spec.digits),
+                "currency": spec.currency,
+                "volume_min": spec.volume_min,
+                "volume_step": spec.volume_step,
+                "contract_size": spec.contract_size,
+            }
+        return out
 
     async def set_money(self, body: dict[str, Any]) -> dict[str, Any]:
         """Set the per-lot loss cap. 0 turns the rule off, loudly."""

@@ -4044,6 +4044,35 @@ html[dir="rtl"] .ct-lab{letter-spacing:0;text-transform:none;font-size:12px}
 /* Armed: the chart is waiting for the trader to click a price. */
 .ct-ic.on{color:var(--gold);border-color:var(--gold);background:rgb(var(--wash) / .06)}
 
+/* What the stop and the target are worth, under the two fields that
+   set them. A quiet row: it is a reading of what has already been
+   typed, not another control, so it carries no border and no weight
+   of its own - but the numbers themselves are tabular, because they
+   change under the eye as the lot and the levels move. */
+.ct-risk{
+  display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 14px;
+  margin:2px 0 0;padding:0 2px;
+  font-size:12px;line-height:1.5;color:var(--muted);
+}
+.ct-risk[hidden]{display:none}
+.ct-risk span{display:inline-flex;align-items:baseline;gap:5px;white-space:nowrap}
+.ct-risk b{
+  font-weight:500;font-size:10.5px;letter-spacing:.04em;text-transform:uppercase;
+  color:var(--faint);
+}
+/* Figures in the same column width, so a changing number does not
+   shuffle the words after it. */
+.ct-risk .ct-risk-sl,.ct-risk .ct-risk-tp,.ct-risk .ct-risk-rr{
+  font-variant-numeric:tabular-nums;font-feature-settings:"tnum" 1;
+}
+.ct-risk .ct-risk-sl{color:var(--rose)}
+.ct-risk .ct-risk-tp{color:var(--cyan)}
+.ct-risk .ct-risk-sl b{color:var(--rose);opacity:.75}
+.ct-risk .ct-risk-tp b{color:var(--cyan);opacity:.75}
+.ct-risk .ct-risk-none{white-space:normal;color:var(--faint)}
+/* The figures read left-to-right in every language: "250 points" is a
+   quantity, and mirroring it puts the unit before the number. */
+html[dir="rtl"] .ct-risk span{direction:rtl}
 .ct-sides{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-block-start:4px}
 .ct-side{
   display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;

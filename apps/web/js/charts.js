@@ -182,6 +182,10 @@ class CandleChart {
      off-screen. */
   static HEAD_GAP = 0.15;
 
+  /* How many decimals a price is printed with, everywhere on this
+     chart. See fmtPrice. */
+  static PRICE_DP = 2;
+
   /* How near the pointer has to be to grab a stop or a target. A finger
      covers far more than a mouse and cannot see what it is covering. */
   static LEVEL_GRAB = 5;
@@ -664,9 +668,24 @@ class CandleChart {
     this.draw();
   }
 
+  /**
+   * The ticket being written, before it is sent.
+   *
+   * `entry` is the resting price of a limit or a stop. It is drawn as
+   * soon as there is a number in the field, not after the order comes
+   * back from the broker: the whole point of a resting order is where
+   * it rests, and typing a price with nothing appearing on the chart
+   * gives the trader no way to see that it is where they meant.
+   */
   setPending(p) {
     p = p || {};
-    this.pending = { sl: Number(p.sl || 0) || 0, tp: Number(p.tp || 0) || 0 };
+    this.pending = {
+      sl: Number(p.sl || 0) || 0,
+      tp: Number(p.tp || 0) || 0,
+      entry: Number(p.entry || 0) || 0,
+      kind: String(p.kind || ""),
+      side: String(p.side || ""),
+    };
     this.draw();
   }
 
@@ -782,14 +801,22 @@ class CandleChart {
     return Math.max(0, want - Math.max(0, this.offset));
   }
 
+  /* Two decimals, on every instrument.
+     
+     This used to widen with the price - five decimals under 1, four
+     under 100, three under 1000 - which is what a terminal does
+     because it is showing the broker's own digits. The desk asked for
+     hundredths everywhere and was shown what that costs on a
+     sub-1.00 pair, where the whole day's range can be narrower than
+     one hundredth and every axis label then reads the same number,
+     and confirmed it for all symbols. So it is one rule, not a table:
+     anything that prints a price on this chart prints two decimals.
+     
+     CandleChart.PRICE_DP is the single place to change it. */
   fmtPrice(p) {
     const n = Number(p);
     if (!Number.isFinite(n)) return "—";
-    const a = Math.abs(n);
-    if (a >= 1000) return n.toFixed(2);
-    if (a >= 100) return n.toFixed(3);
-    if (a >= 1) return n.toFixed(4);
-    return n.toFixed(5);
+    return n.toFixed(CandleChart.PRICE_DP);
   }
 
   /* ============================================================== layout == */
@@ -1490,7 +1517,14 @@ class CandleChart {
       const price = toPrice(u);
       const y = L.yOf(price);
       if (!Number.isFinite(y) || y < L.plotT - 0.5 || y > L.plotB + 0.5) continue;
-      out.push({ y, text: pct ? u.toFixed(2) + "%" : this.fmtPrice(price) });
+      /* `value` is the number the axis landed on, before it is
+         rounded for display. The two are no longer the same thing:
+         prices print to two decimals, so several neighbouring labels
+         on a sub-1.00 pair read alike even though the ladder
+         underneath them is still evenly spaced on the 1-2-5 series.
+         Anything checking that the axis is well formed has to read
+         this rather than the text. */
+      out.push({ y, value: pct ? u : price, text: pct ? u.toFixed(2) + "%" : this.fmtPrice(price) });
     }
 
     /* A log or inverted axis can bunch the mapped positions even though the
@@ -1793,6 +1827,45 @@ class CandleChart {
     };
     draw(sl, chartTheme().down, "SL");
     draw(tp, chartTheme().up, "TP");
+
+    /* The resting price, drawn the moment it is typed.
+       
+       Deliberately not in the buy or sell colour: no side has been
+       chosen yet - the same price becomes a buy limit or a sell limit
+       depending on which button is pressed - and colouring it green
+       would be the chart asserting a direction the trader has not.
+       Once the order is actually placed, paintOrders takes over and
+       it gains its side, its arrow and the word WAITING. */
+    const entry = Number(this.pending && this.pending.entry || 0);
+    if (entry) {
+      const T = chartTheme();
+      const y = L.yOf(entry);
+      const side = String(this.pending.side || "").toLowerCase();
+      const col = side === "buy" ? T.up : side === "sell" ? T.down : (T.muted || T.ink);
+      ctx.save();
+      ctx.strokeStyle = col;
+      ctx.globalAlpha = 0.95;
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([9, 4]);
+      ctx.beginPath(); ctx.moveTo(L.plotL, y); ctx.lineTo(L.plotR, y); ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.globalAlpha = 1;
+      const kind = String(this.pending.kind || "").toUpperCase();
+      const name = (side ? side.toUpperCase() + " " : "") + (kind || "ENTRY");
+      const text = name + " " + this.fmtPrice(entry);
+      ctx.font = "11px IBM Plex Mono, Vazirmatn, monospace";
+      const w = Math.min(190, ctx.measureText(text).width + 14);
+      ctx.fillStyle = T.panel;
+      ctx.fillRect(L.plotL + 6, y - 9, w, 18);
+      ctx.strokeStyle = col;
+      ctx.lineWidth = 1;
+      ctx.strokeRect(L.plotL + 6.5, y - 8.5, w - 1, 17);
+      ctx.fillStyle = col;
+      ctx.textAlign = "left";
+      ctx.textBaseline = "middle";
+      ctx.fillText(text, L.plotL + 12, y);
+      ctx.restore();
+    }
     ctx.lineWidth = 1.4;
   }
   paintSignals(L) {
