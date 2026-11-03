@@ -1565,18 +1565,12 @@ fieldset.prop-fields.is-locked{
 
 
 .chart-box{position:relative}
-.chart-levels{
-  position:absolute;inset-inline-end:8px;bottom:8px;z-index:6;
-  display:grid;gap:6px;max-width:min(280px,70%);pointer-events:none;
-}
-.lvl-chip{
-  pointer-events:auto;
-  display:flex;flex-wrap:wrap;align-items:center;gap:6px;
-  background:rgb(var(--s3) / .88);border:1px solid var(--line);
-  border-radius:12px;padding:6px 8px;font-size:11px;
-}
-.lvl-chip .sl{color:var(--rose)}
-.lvl-chip .tp{color:var(--cyan)}
+/* .chart-levels and .lvl-chip are gone: a position:absolute box of
+   position chips parked over the bottom-right corner of the chart,
+   reached through a "Trade" tab in the side panel. The on-chart
+   positions panel answers the same question in the same place and
+   does not sit on top of price. .chart-box keeps position:relative -
+   .chart-text-pop is still absolutely positioned inside it. */
 .chart-text-pop{
   position:absolute;z-index:12;display:flex;gap:6px;align-items:center;
   background:rgb(var(--s4) / .96);border:1px solid var(--line);border-radius:12px;padding:8px;
@@ -3292,15 +3286,6 @@ html[dir="rtl"] .q-how[open] summary::before{ transform:rotate(0deg) }
 .notify-card.trade-card .sub { margin: 0; }
 #notify-card .field { align-items: center; }
 
-/* A planted entry is not an open trade. The chip says so before the
-   numbers do: dashed edge for "decided, waiting for price", solid for
-   "in". Same reasoning as the dashed line on the chart itself. */
-.lvl-chip.is-resting { border-style: dashed; opacity: .92; }
-.lvl-chip.is-resting .wait {
-  font-size: 10px; letter-spacing: .08em; text-transform: uppercase;
-  padding: 1px 6px; border-radius: 999px;
-  background: var(--line, #2a2f3e); color: var(--muted, #9aa3b8);
-}
 
 /* The risk-free ladder, named rather than numbered.
    A rung is "TP2 -> TP1": the target that has to be reached and the

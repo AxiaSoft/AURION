@@ -19,11 +19,22 @@ const read = (f) => fs.readFileSync(path.join(ROOT, f), "utf8");
 const TOOLS = read("apps/web/js/chart-tools.js");
 const APP = read("apps/web/js/app.js");
 const CSS = read("apps/web/css/chart.css");
-/* The one row builder, shared by the dock and by each chart card's
-   position strip. It used to live inside paintChartPositions; the
-   checks that read the markup read it here now. */
-const BUILD = APP.slice(APP.indexOf("function positionsListHtml("),
-                        APP.indexOf("function positionsStripBody("));
+/* The one row builder. Every surface that draws an open position goes
+   through it: the chart desk's dock, and the three positions cards.
+   The checks that read the markup read it here.
+
+   The end marker is asserted, not trusted. It used to be
+   positionsStripBody, which was deleted with the chart cards' strip -
+   indexOf then returned -1, slice(start, -1) ran to the end of the
+   file, and BUILD quietly became 68094 characters instead of 4678.
+   Every check below would have gone on passing against text from
+   anywhere in app.js. */
+const buildAt = APP.indexOf("function positionsListHtml(");
+const buildEnd = APP.indexOf("\nfunction applyChartLevels(", buildAt);
+if (buildAt < 0 || buildEnd < 0) {
+  throw new Error("cannot slice the row builder: the anchors moved");
+}
+const BUILD = APP.slice(buildAt, buildEnd);
 /* Comments name the classes they removed and the mistakes they record,
    so anything looking for a rule has to read the sheet without them. */
 const BARE = CSS.replace(/\/\*[\s\S]*?\*\//g, "");
@@ -489,6 +500,79 @@ check("the dock starts shut on a phone, and at the width where it folds", () => 
   const fn = TOOLS.slice(TOOLS.indexOf("function posNarrow("));
   if (!/max-width: 760px/.test(fn.slice(0, 220))) {
     throw new Error("the default disagrees with the width the list folds at");
+  }
+});
+
+/* ------------------------------- no floating copy over the chart -- */
+
+const noComment = (src) => src
+  .replace(/\/\*[\s\S]*?\*\//g, "")
+  .replace(/<!--[\s\S]*?-->/g, "");
+
+check("nothing floats a second copy of the book over the candles", () => {
+  /* There was a "Trade" tab in the side panel whose pane began with
+     <div class="chart-levels">: a position:absolute box, 280px wide,
+     parked over the bottom-right corner of the chart and filled with
+     .lvl-chip cards, one per open trade and resting order. It was the
+     last survivor of the chips the on-chart positions panel replaced,
+     and it sat on the candles.
+
+     Guarded on the markup and on the sheet, because either alone is
+     half a removal: a rule with no markup is dead weight that teaches
+     the wrong shape, and markup with no rule is an unstyled box. */
+  /* Comments are stripped first, and HTML comments as well as JS
+     ones: chart-tools.js documents what it removed in a <!-- -->
+     inside the very template literal that used to build the box, and
+     a guard that cannot tell a removal note from the thing it
+     describes fails on the explanation of its own fix. */
+  if (/chart-levels|lvl-chip/.test(noComment(TOOLS))) {
+    throw new Error("the side panel still builds the floating chip box");
+  }
+  const appBare = noComment(APP);
+  if (/chart-levels|lvl-chip/.test(appBare)) {
+    throw new Error("app.js still fills the floating chip box");
+  }
+  const cssBare = noComment(read("apps/web/css/app.css"));
+  if (/\.chart-levels|\.lvl-chip/.test(cssBare)) {
+    throw new Error("the floating chips still have rules");
+  }
+});
+
+check("the Trade tab is the order ticket, and it survived", () => {
+  /* The chips shared a pane with the manual order ticket - volume,
+     stop, target, buy and sell. Deleting the pane to be rid of the
+     chips would have taken manual trading off the chart desk with
+     it. The ticket is the pane's only content now. */
+  if (!/tabs\.push\(\["trade"/.test(TOOLS)) {
+    throw new Error("the Trade tab is gone, and with it the order ticket");
+  }
+  const pane = noComment(TOOLS).slice(noComment(TOOLS).indexOf('pane("trade"'));
+  const line = pane.slice(0, 120);
+  if (!/o\.ticket/.test(line)) throw new Error("the Trade pane no longer carries the ticket");
+  if (/chart-levels/.test(line)) throw new Error("the chips are back in front of it");
+});
+
+check("the on-chart panel is repainted whatever the side panel holds", () => {
+  /* paintChartPositions() had exactly one caller, and it was the last
+     line of the chip-rendering run: reached only if #chart-levels
+     existed, only if its signature had changed, and only if something
+     was open. #chart-levels only existed when the desk had been
+     opened on a ticket - so on every other route in, the panel that
+     actually draws open trades on the chart was never repainted from
+     here, and closing the last trade returned at the "nothing open"
+     line before the panel was told the book had emptied.
+
+     Measured after the fix: 3 rows with a book, 0 after emptying it,
+     3 again on refill. */
+  const fn = APP.slice(APP.indexOf("function applyChartLevels("));
+  const body = fn.slice(0, fn.indexOf("\n}"));
+  if (!/paintChartPositions\(pos, ord\)/.test(body)) {
+    throw new Error("the on-chart panel is no longer repainted when the levels move");
+  }
+  const callAt = body.indexOf("paintChartPositions(pos, ord)");
+  const guard = body.slice(0, callAt);
+  if (/\breturn;/.test(guard.slice(guard.indexOf("syncChartPending()")))) {
+    throw new Error("a return still stands between the levels and the panel");
   }
 });
 

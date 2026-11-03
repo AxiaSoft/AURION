@@ -573,6 +573,8 @@
       ["objects", tt("chart.objects", "Objects"), "tvd-objects"],
       ["props", tt("chart.properties", "Properties"), "tvd-props"],
     ];
+    /* The Trade tab is the manual order ticket - volume, stop, target,
+       buy and sell - so it is here whenever the desk was given one. */
     if (o.ticket) tabs.push(["trade", tt("chart.trade", "Trade"), "tvd-trade"]);
 
     const tab = ([id, label, pane]) => {
@@ -601,8 +603,16 @@
       </div>
       ${pane("objects", "tvd-objects")}
       ${pane("props", "tvd-props")}
-      ${o.ticket ? pane("trade", "tvd-trade", "",
-        `<div class="chart-levels" id="chart-levels"></div>${o.ticket}`) : ""}
+      <!-- The order ticket, and nothing else. It used to be preceded
+           by <div class="chart-levels">, a position:absolute box of
+           position chips 280px wide parked over the bottom-right
+           corner of the chart - the last survivor of the chips the
+           on-chart positions panel replaced. The panel answers the
+           same question in the same place without covering price, so
+           the chips were a second, worse answer that floated over the
+           candles and only existed when the desk had been opened on a
+           ticket. -->
+      ${o.ticket ? pane("trade", "tvd-trade", "", `${o.ticket}`) : ""}
     </aside>`;
   }
 

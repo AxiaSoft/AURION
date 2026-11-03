@@ -11332,31 +11332,21 @@ function applyChartLevels(force) {
   if (S.chart && typeof S.chart.setLevels === "function") S.chart.setLevels(pos);
   if (S.chart && typeof S.chart.setOrders === "function") S.chart.setOrders(ord);
   syncChartPending();
-  const box = $("chart-levels");
-  if (!box) return;
-  const sig = pos.map((r) => `${r.ticket}:${r.sl}:${r.tp}:${r.profit}`).join("|")
-    + "#" + ord.map((r) => `${r.ticket}:${r.price}:${r.sl}:${r.tp}`).join("|");
-  if (box.dataset.sig === sig) return;
-  box.dataset.sig = sig;
-  if (!pos.length && !ord.length) { box.innerHTML = ""; return; }
-  const posHtml = pos.map((r) => `<div class="lvl-chip">
-      <b>${esc(r.symbol || "")} ${esc(r.type || "")} ${fmt(r.volume, 2)}</b>
-      <span class="sl">SL ${r.sl ? fmt(r.sl, 5) : "—"}</span>
-      <span class="tp">TP ${r.tp ? fmt(r.tp, 5) : "—"}</span>
-      <span class="sub">${esc(strategyLabel(r.strategy))}</span>
-      <button class="btn tiny ghost" type="button" data-close="${r.ticket}">${I18N.t("exec.close")}</button>
-    </div>`).join("");
-  const ordHtml = ord.map((r) => `<div class="lvl-chip is-resting">
-      <b>${esc(String(r.type || "").replace(/_/g, " ").toUpperCase())} ${fmt(r.volume, 2)} @ ${fmt(r.price, 5)}</b>
-      <span class="wait">${I18N.t("chart.order_waiting")}</span>
-      <span class="sl">SL ${r.sl ? fmt(r.sl, 5) : "—"}</span>
-      <span class="tp">TP ${r.tp ? fmt(r.tp, 5) : "—"}</span>
-      <span class="sub">${esc(strategyLabel(r.strategy))}</span>
-      <button class="btn tiny ghost" type="button" data-cancel="${r.ticket}">${I18N.t("chart.order_cancel")}</button>
-    </div>`).join("");
-  box.innerHTML = ordHtml + posHtml;
-  bindCloseButtons(box);
-  bindCancelButtons(box);
+  /* The on-chart positions panel, unconditionally.
+
+     This call used to be the last line of a run of floating position
+     chips: it was reached only if #chart-levels existed, only if its
+     signature had changed, and only if something was open. The chips
+     lived in a "Trade" tab in the side panel that the desk only built
+     when it had been opened on a ticket, which left two holes: on
+     every other route into the desk the panel that is actually on the
+     chart was never repainted from here at all, and closing the last
+     trade returned at the "nothing open" line before the panel was
+     ever told the book had emptied.
+
+     The chips are gone. The panel is the thing that draws open trades
+     on this desk, so it is called whenever the levels move, which is
+     what the rest of this function exists to notice. */
   paintChartPositions(pos, ord);
 }
 
