@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Shared preprocessor constants.
+
+  Everything that a future release might need to change lives either here or
+  in ..\Version.props. No .wxs file below should hard-code a path, a version
+  or a brand string.
+-->
+<Include xmlns="http://wixtoolset.org/schemas/v4/wxs">
+
+  <!-- Supplied by AURION.wixproj -> DefineConstants -->
+  <?ifndef Version ?><?define Version = "0.0.0" ?><?endif?>
+  <?ifndef ProductName ?><?define ProductName = "AURION" ?><?endif?>
+  <?ifndef Manufacturer ?><?define Manufacturer = "AxiaSoft" ?><?endif?>
+  <?ifndef StageDir ?><?define StageDir = "..\stage" ?><?endif?>
+  <?ifndef AssetsDir ?><?define AssetsDir = "..\assets\generated" ?><?endif?>
+
+  <!-- Branding assets: referenced by name only, so re-branding a future
+       release means dropping new files into assets\generated. -->
+  <?define IconFile     = "$(var.AssetsDir)\aurion.ico" ?>
+  <?define BannerBmp    = "$(var.AssetsDir)\banner.bmp" ?>
+  <?define DialogBmp    = "$(var.AssetsDir)\dialog.bmp" ?>
+  <?define InfoIco      = "$(var.AssetsDir)\info.ico" ?>
+  <?define ExclamIco    = "$(var.AssetsDir)\exclamation.ico" ?>
+  <?define NewIco       = "$(var.AssetsDir)\new.ico" ?>
+  <?define UpIco        = "$(var.AssetsDir)\up.ico" ?>
+
+  <!-- Where the product records its own state. Per-user product => HKCU. -->
+  <?define RegRoot = "HKCU" ?>
+  <?define RegKey  = "Software\$(var.Manufacturer)\$(var.ProductName)" ?>
+
+</Include>

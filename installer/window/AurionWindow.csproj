@@ -1,0 +1,133 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- ==========================================================================
+       AURION desktop window  (installer-owned, NOT part of the application)
+
+       A minimal WinForms host that shows the AURION desk inside a real Windows
+       window: own title bar, own taskbar button, own icon, no address bar and
+       no dependency on which browser the trader happens to have.
+
+       It contains no application logic. It starts the desk with the
+       application's own start-aurion.cmd and then displays it.
+
+       Published self-contained, so the target machine needs no .NET runtime.
+       ========================================================================== -->
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+
+    <AssemblyName>AURION</AssemblyName>
+    <RootNamespace>Aurion.Window</RootNamespace>
+    <ApplicationIcon>..\assets\generated\aurion.ico</ApplicationIcon>
+
+    <!-- A Windows desktop app can be COMPILED on Linux or macOS as long as
+         the targeting packs are allowed to come from NuGet. That is what
+         lets the whole installer be produced from a phone, a container or
+         a CI runner that is not Windows; the output is still win-x64. -->
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+
+    <!-- Shown in the file properties dialog and in Task Manager. -->
+    <Product>AURION</Product>
+    <Company>AxiaSoft</Company>
+    <AssemblyTitle>AURION</AssemblyTitle>
+    <Description>AURION desk</Description>
+    <Version>$(AurionVersion)</Version>
+    <FileVersion>$(AurionVersion)</FileVersion>
+    <InformationalVersion>$(AurionVersion)</InformationalVersion>
+
+    <!-- ApplicationConfiguration.Initialize() is source-generated from
+         these. Its default high DPI mode is SystemAware, which contradicts
+         the PerMonitorV2 in app.manifest; the manifest wins at process
+         start and WinForms is then left scaling for a mode it is not in. -->
+    <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
+    <ApplicationVisualStyles>true</ApplicationVisualStyles>
+    <ApplicationUseCompatibleTextRendering>false</ApplicationUseCompatibleTextRendering>
+
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <DebugType>none</DebugType>
+    <!-- Deliberately NOT invariant.
+
+         Invariant globalization trims the ICU data and looks like free weight
+         on a host that only shows a splash and a WebView. It is not: WinForms
+         handles WM_INPUTLANGCHANGE by building a CultureInfo from the keyboard
+         layout's LCID, and in invariant mode that throws. Switching to the
+         Persian layout (0x0429) - which every user of this product does, many
+         times a day - raised an unhandled CultureNotFoundException.
+
+         The cost is ICU in the self-contained publish; the alternative is a
+         crash dialog every time someone changes keyboard. -->
+    <InvariantGlobalization>false</InvariantGlobalization>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(AurionVersion)' == ''">
+    <Version>1.0.0</Version>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.2903.40" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The backdrop the loading screen shares with the setup wizard and
+         the uninstaller. Three separate programs a customer meets weeks
+         apart; the only thing that makes them read as one product is
+         that they are drawn by the same code. -->
+    <Compile Include="..\shell\shared\Aurora.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- ApplicationIcon only sets the icon Explorer shows on the .exe. The
+         window and its taskbar button use Form.Icon, which defaults to the
+         stock WinForms icon unless we set it - so the same .ico is embedded
+         here and loaded at startup. -->
+    <EmbeddedResource Include="..\assets\generated\aurion.ico" LogicalName="AURION.ico" />
+  </ItemGroup>
+
+  <!--
+    Rebuild the icon from the logo. OFF unless asked for.
+
+    This used to run before every build, and it is what broke every build on
+    the one machine that mattered:
+
+        CSC : error CS7065: Error building Win32 resources,
+              "Unable to read beyond the end of the stream."
+
+    make-icon.ps1 wrote the icon's 16-bit fields through BinaryWriter.Write,
+    which Windows PowerShell 5.1 resolves to the Char overload: one UTF-8
+    byte instead of two. Directory entries came out 14 bytes wide instead of
+    16, every image offset drifted, and the last one pointed past the end of
+    the file. PowerShell 7 picks the numeric overload, so the icon committed
+    to the repository is valid and the regenerated one was not. The build
+    log even said "product icon: 7 images" moments earlier - it was reading
+    the good file, which this target then replaced.
+
+    The generator is fixed and validates its own output now. The target is
+    still off by default, because regenerating a known-good, tested artefact
+    on every single build buys nothing and can only go wrong. The icon is
+    checked by tests/icons-are-icons.test.js, and build-msi.ps1 already
+    rebuilds it when apps/web/icons/mark.png is newer - which is the only
+    moment it actually needs rebuilding.
+
+        dotnet build -p:AurionRebuildIcon=true
+  -->
+  <Target Name="BuildProductIcon" BeforeTargets="BeforeBuild"
+          Condition="'$(OS)' == 'Windows_NT' And '$(AurionRebuildIcon)' == 'true'">
+    <PropertyGroup>
+      <AurionLogo>$(MSBuildThisFileDirectory)..\..\apps\web\icons\mark.png</AurionLogo>
+      <AurionIcon>$(MSBuildThisFileDirectory)..\assets\generated\aurion.ico</AurionIcon>
+      <AurionMakeIcon>$(MSBuildThisFileDirectory)..\tools\make-icon.ps1</AurionMakeIcon>
+    </PropertyGroup>
+    <Exec Condition="Exists('$(AurionLogo)') And Exists('$(AurionMakeIcon)')"
+          Command="powershell -NoProfile -ExecutionPolicy Bypass -File &quot;$(AurionMakeIcon)&quot; -Source &quot;$(AurionLogo)&quot; -Destination &quot;$(AurionIcon)&quot;"
+          ContinueOnError="true"
+          StandardOutputImportance="normal" />
+  </Target>
+
+</Project>

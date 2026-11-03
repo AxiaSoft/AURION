@@ -1,0 +1,120 @@
+"""The two "how many trades" numbers are two different rules.
+
+`min_open_trades` is how many tickets ONE signal may open. `max_open_trades`
+is the ceiling on everything the robot holds at once. The desk used to label
+them "open at least" and "open at most", which reads as a single range and
+is not what either of them does - so this pins the behaviour down.
+
+    python3 engine/tests/test_trade_caps.py
+"""
+from __future__ import annotations
+
+import re
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[2]
+TRADER = ROOT / "engine" / "aurion" / "runtime" / "trader.py"
+DESK = ROOT / "apps" / "web" / "js" / "app.js"
+LANG = ROOT / "lang"
+
+
+def _src() -> str:
+    return TRADER.read_text(encoding="utf-8")
+
+
+def test_min_is_per_signal_not_a_floor_on_open_trades() -> None:
+    src = _src()
+    block = src[src.index("def _entries_for_signal("):src.index("def _higher_timeframe(")]
+    assert 'getattr(self, "min_open_trades", 1)' in block, \
+        "the minimum belongs to one signal's burst, not to the open book"
+    assert "self.free_slots(symbol)" in block, \
+        "a burst can never exceed the room left under the ceiling"
+
+
+def test_max_is_the_ceiling_and_prop_can_lower_it() -> None:
+    src = _src()
+    block = src[src.index("def _total_cap("):src.index("def free_slots(")]
+    assert 'getattr(self, "max_open_trades", 2)' in block
+    assert "cap = min(cap," in block and "self.prop" in block, \
+        "an armed prop profile has to be able to hold the ceiling lower"
+
+
+def test_the_effective_caps_reach_the_desk() -> None:
+    """Both ceilings are published, however the snapshot builds them.
+
+    Matched on the field name and the method that fills it rather than on
+    one exact line: the snapshot now builds each panel through a guard so
+    that one unavailable card cannot blank the whole strategies view, and
+    a test that pins the spelling of the call turns a safety improvement
+    into a failure.
+    """
+    src = _src()
+    for field, source in (("cap_effective", "_total_cap"),
+                          ("cap_symbol", "_per_symbol_cap")):
+        line = next((ln for ln in src.splitlines() if f'"{field}":' in ln), "")
+        assert line, f"{field} must be published or the desk shows a wish, not the rule"
+        assert source in line, f"{field} must be filled from {source}(), not from the trader's own wish"
+    assert '"cap_by_prop"' in src
+
+
+def test_the_desk_labels_say_which_is_which() -> None:
+    desk = DESK.read_text(encoding="utf-8")
+    block = desk[desk.index("function slotsHtml("):desk.index("function qualityHtml(")]
+    for key in ("slots.min_label", "slots.min_hint", "slots.max_label",
+                "slots.max_hint", "slots.state"):
+        assert key in block, f"{key} is missing from the card"
+    assert "cap_effective" in block, "the card has to show the effective ceiling"
+    assert "slots.cap_prop" in block, "and say when the prop profile is the one setting it"
+
+
+def test_the_worked_example_uses_the_engine_formula() -> None:
+    """The card computes the outcome itself, so it has to compute it the same way."""
+    desk = DESK.read_text(encoding="utf-8")
+    block = desk[desk.index("function slotsTickets("):desk.index("function slotsDemoHtml(")]
+    assert "(quality - 0.5) / 0.4" in block, "the desk must use the engine's mapping"
+    assert "low + Math.round((high - low) * strength)" in block
+
+    src = _src()
+    engine = src[src.index("def _entries_for_signal("):src.index("def _higher_timeframe(")]
+    assert "(float(quality) - 0.5) / 0.4" in engine
+    assert "low + int(round((high - low) * strength))" in engine
+
+
+def test_every_language_explains_both() -> None:
+    import json
+    need = ["min_label", "min_hint", "max_label", "max_hint", "state",
+            "cap_prop", "cap_symbol", "help", "title",
+            "demo_title", "demo_weak", "demo_fair", "demo_best", "demo_n", "demo_note"]
+    for lang in ("en", "fa", "ar"):
+        pack = json.loads((LANG / f"{lang}.json").read_text(encoding="utf-8"))
+        slots = pack.get("slots") or {}
+        missing = [k for k in need if not slots.get(k)]
+        assert not missing, f"{lang} is missing {missing}"
+        # The hints have to actually distinguish the two, not repeat the label.
+        assert slots["min_hint"] != slots["max_hint"], f"{lang}: the two hints are the same"
+
+
+TESTS = [
+    test_the_worked_example_uses_the_engine_formula,
+    test_min_is_per_signal_not_a_floor_on_open_trades,
+    test_max_is_the_ceiling_and_prop_can_lower_it,
+    test_the_effective_caps_reach_the_desk,
+    test_the_desk_labels_say_which_is_which,
+    test_every_language_explains_both,
+]
+
+if __name__ == "__main__":
+    bad = 0
+    for fn in TESTS:
+        try:
+            fn()
+            print("  ok  " + fn.__name__)
+        except AssertionError as exc:
+            print("FAIL  " + fn.__name__ + " → " + str(exc))
+            bad += 1
+        except Exception as exc:  # a corrupt file must report, not traceback
+            print("FAIL  " + fn.__name__ + " → " + type(exc).__name__ + ": " + str(exc))
+            bad += 1
+    print("\n%d failing." % bad if bad else "\nTwo rules, told apart.")
+    raise SystemExit(1 if bad else 0)

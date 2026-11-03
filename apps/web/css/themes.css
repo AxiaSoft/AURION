@@ -1,0 +1,2551 @@
+/* ===========================================================================
+   AURION — themes and morphism.
+   ===========================================================================
+
+   The desk used to have one material: frosted glass over a dark page. This
+   file turns that single material into a system. A theme is described by
+   eight numbers and a palette, and every surface in the product - panels,
+   rails, fields, dialogs, menus, toasts, tables, switches - is drawn from
+   those numbers rather than from colours written into the component.
+
+       --surface-alpha    how much of the page shows through a panel
+       --border-alpha     how present a hairline is
+       --blur             how far a translucent surface blurs
+       --radius-lg        the large corner radius; the rest are derived
+       --shadow-strength  shadow depth, as a multiplier
+       --motion-scale     animation amplitude and speed, as a multiplier
+       --accent*          owned by js/skins.js, nominated by the theme
+       --s1..--s9         the surface ramp, page to highest panel
+
+   js/themes.js publishes the first six as a rule on [data-skin][data-theme]
+   before the first paint; the palettes below arrive with [data-skin]. That
+   split is the point: a new theme is a palette plus six numbers, and it
+   inherits every component rule in this file for free.
+
+   Load order matters. app.css states the layout and the default material,
+   skins.css states states and rhythm, and this file states the material each
+   theme replaces them with - so it is loaded last and does not need
+   !important to be heard.
+
+   Three things are deliberately NOT themeable, because they are read under
+   stress and must never move: --candle-up and --candle-down (green is up, red
+   is down, in every theme), the kill button's red, and the focus ring.
+   =========================================================================== */
+
+/* ===========================================================================
+   1. The token layer
+   ===========================================================================
+   Defaults only. js/themes.js restates the six knobs at a higher weight, so
+   these values are what the desk looks like if JavaScript never runs - which
+   is the current Liquid Glass, unchanged. */
+:root{
+  --surface-alpha:.62;
+  --border-alpha:.10;
+  --blur:18px;
+  --radius-lg:22px;
+  --shadow-strength:1;
+  --motion-scale:1;
+
+  /* --- shape ------------------------------------------------------------
+     One radius is authored; the rest follow it, so a theme that asks for
+     square corners gets square inputs, chips and menus without listing them. */
+  --radius-xs:calc(var(--radius-lg) * .26);
+  --radius-sm:calc(var(--radius-lg) * .45);
+  --radius-md:calc(var(--radius-lg) * .66);
+  --radius-xl:calc(var(--radius-lg) * 1.2);
+  --radius-pill:999px;
+  --r:var(--radius-lg);            /* the name the rest of the desk already uses */
+  --sk-r-sm:var(--radius-sm);
+  --sk-btn-radius:var(--radius-md);
+
+  /* --- spacing ---------------------------------------------------------- */
+  --sp-1:4px; --sp-2:8px; --sp-3:12px; --sp-4:16px; --sp-5:22px; --sp-6:30px;
+
+  /* --- motion -----------------------------------------------------------
+     Durations are a multiple of the theme's motion knob, so "calmer" and
+     "livelier" are one number and not a rewrite. */
+  --dur-1:calc(120ms * var(--motion-scale));
+  --dur-2:calc(220ms * var(--motion-scale));
+  --dur-3:calc(420ms * var(--motion-scale));
+  --dur-4:calc(700ms * var(--motion-scale));
+  --ease-1:cubic-bezier(.22,.8,.24,1);
+  --ease-2:cubic-bezier(.16,1,.3,1);
+  --ease-spring:cubic-bezier(.34,1.4,.64,1);
+  --lift:calc(-2px * var(--motion-scale));
+  --press:calc(1 - .02 * var(--motion-scale));
+
+  /* --- shadow base ------------------------------------------------------- */
+  --shadow-rgb:0 0 0;
+  --shadow-op:1;
+  --border-boost:1;
+}
+
+/* Everything derived. Written against [data-skin][data-theme] so it outranks
+   the light-theme block in app.css without a single !important. */
+html[data-skin][data-theme]{
+  --border-alpha-eff:calc(var(--border-alpha) * var(--border-boost));
+  --line:rgb(var(--wash) / var(--border-alpha-eff));
+  --border-1:var(--line);
+  --border-2:rgb(var(--wash) / calc(var(--border-alpha-eff) * 1.9));
+  --border-accent:rgb(var(--accent-rgb) / .34);
+
+  /* Surfaces, in the order the hierarchy uses them: the page, the panel a
+     card is made of, the panel a card sits on, and the two that float. */
+  --surface-0:var(--bg);
+  --surface-1:rgb(var(--s4) / var(--surface-alpha));
+  --surface-2:rgb(var(--s6) / var(--surface-alpha));
+  --surface-3:rgb(var(--s8) / var(--surface-alpha));
+  --surface-elevated:rgb(var(--s8) / calc(var(--surface-alpha) * 1.25));
+  --surface-floating:rgb(var(--s9) / calc(var(--surface-alpha) * 1.45 + .18));
+  --surface-sunken:rgb(var(--s2) / calc(var(--surface-alpha) * 1.1));
+  --surface-interactive:rgb(var(--wash) / .045);
+  --surface-hover:rgb(var(--wash) / .07);
+
+  --card-bg:linear-gradient(180deg,
+            rgb(var(--s7) / var(--surface-alpha)),
+            rgb(var(--s4) / calc(var(--surface-alpha) * .86)));
+
+  --text-1:var(--ink);
+  --text-2:var(--muted);
+  --text-3:var(--faint);
+
+  --glass:rgb(var(--s5) / calc(var(--surface-alpha) * .95 + .04));
+  --glass2:rgb(var(--s8) / calc(var(--surface-alpha) * 1.1 + .06));
+
+  --blur-sm:calc(var(--blur) * .45);
+  --blur-md:var(--blur);
+  --blur-lg:calc(var(--blur) * 1.35);
+  --sat:130%;
+
+  --shadow-xs:0 1px 2px rgb(var(--shadow-rgb) / calc(.14 * var(--shadow-strength) * var(--shadow-op)));
+  --shadow-sm:0 4px 14px rgb(var(--shadow-rgb) / calc(.18 * var(--shadow-strength) * var(--shadow-op)));
+  --shadow-md:0 10px 34px rgb(var(--shadow-rgb) / calc(.24 * var(--shadow-strength) * var(--shadow-op)));
+  --shadow-lg:0 20px 58px rgb(var(--shadow-rgb) / calc(.38 * var(--shadow-strength) * var(--shadow-op)));
+  --shadow-xl:0 34px 90px rgb(var(--shadow-rgb) / calc(.5 * var(--shadow-strength) * var(--shadow-op)));
+  --shadow:var(--shadow-lg);
+  --glow:0 0 0 rgb(var(--accent-rgb) / 0);
+  --glow-soft:0 8px 26px rgb(var(--accent-rgb) / calc(.16 * var(--shadow-strength)));
+
+  --success:var(--candle-up);
+  --warning:var(--gold);
+  --error:var(--rose);
+
+  --scroll-thumb:rgb(var(--wash) / .18);
+  --chart-grid:rgb(var(--wash) / .05);
+  --chart-line:rgb(var(--wash) / .14);
+  --chart-panel-line:rgb(var(--wash) / .07);
+  --chart-text:var(--ink);
+  --chart-muted:var(--muted);
+}
+
+/* A light page carries a hairline and a shadow differently: the same alpha
+   that reads as a hairline on black disappears on white, and a black shadow
+   turns into dirt. Both are corrected once, for every theme. */
+html[data-skin][data-theme="light"]{
+  --border-boost:1.8;
+  --shadow-rgb:24 34 60;
+  --shadow-op:.42;
+  --surface-interactive:rgb(var(--wash) / .04);
+  --surface-hover:rgb(var(--wash) / .06);
+  --scroll-thumb:rgb(var(--wash) / .26);
+  --sat:120%;
+}
+
+/* ===========================================================================
+   2. The palettes
+   ===========================================================================
+   Twelve surface ramps. --s1 is the page, --s2..--s9 climb from the lowest
+   panel to the highest, and every translucent surface in the desk is one of
+   them at --surface-alpha. Generated as an even ramp between two authored
+   ends so the steps stay perceptually regular rather than hand-tuned and
+   slightly wrong.
+
+   Each theme states both modes. A theme that only worked in the dark would
+   quietly override the light switch, and the light switch is not decoration -
+   it is what makes the desk readable in a bright room. */
+html[data-skin="glass"]{
+  --bg:#06070b;
+  --bg2:#07090e;
+  --ink:#e8edf7; --muted:#8b93a7; --faint:#62687a;
+  --wash:255 255 255;
+  --s1:6 7 11; --s2:8 10 16; --s3:10 12 19; --s4:12 15 22; --s5:14 17 25; --s6:16 19 29; --s7:18 21 32; --s8:20 24 35; --s9:22 26 38;
+  --field:#07090e; --field2:#050609; --field-hi:#131722; --deep:#040508;
+  --chart-panel:rgba(8,10,16,.93);
+}
+html[data-skin="glass"][data-theme="light"]{
+  --bg:#e9edf4;
+  --bg2:#f0f4f9;
+  --ink:#151b28; --muted:#5a6478; --faint:#7c8494;
+  --wash:21 27 40;
+  --s1:233 237 244; --s2:244 247 252; --s3:246 248 252; --s4:247 249 253; --s5:249 250 253; --s6:250 252 254; --s7:252 253 254; --s8:253 254 255; --s9:255 255 255;
+  --field:#ffffff; --field2:#f3f5f9; --field-hi:#ffffff; --deep:#ffffff;
+  --chart-panel:rgba(255,255,255,.94);
+}
+html[data-skin="frost"]{
+  --bg:#070c18;
+  --bg2:#0e1629;
+  --ink:#eef4ff; --muted:#9db0cc; --faint:#6d80a0;
+  --wash:255 255 255;
+  --s1:7 12 24; --s2:17 28 50; --s3:19 31 54; --s4:22 34 58; --s5:24 37 62; --s6:27 39 66; --s7:29 42 70; --s8:32 45 74; --s9:34 48 78;
+  --field:#0e1629; --field2:#060a14; --field-hi:#1f2c48; --deep:#050811;
+  --chart-panel:rgba(17,28,50,.93);
+}
+html[data-skin="frost"][data-theme="light"]{
+  --bg:#dde8fa;
+  --bg2:#ebf2fd;
+  --ink:#0e1a2e; --muted:#4f6484; --faint:#6f8096;
+  --wash:14 26 46;
+  --s1:221 232 250; --s2:242 247 255; --s3:244 248 255; --s4:246 249 255; --s5:248 250 255; --s6:249 252 255; --s7:251 253 255; --s8:253 254 255; --s9:255 255 255;
+  --field:#ffffff; --field2:#ecf2fc; --field-hi:#ffffff; --deep:#ffffff;
+  --chart-panel:rgba(255,255,255,.94);
+}
+html[data-skin="neu"]{
+  --bg:#1b1f27;
+  --bg2:#1b1f27;
+  --ink:#e6eaf2; --muted:#98a1b2; --faint:#6e7786;
+  --wash:255 255 255;
+  --s1:27 31 39; --s2:27 31 39; --s3:28 33 41; --s4:30 34 43; --s5:31 36 45; --s6:33 38 48; --s7:34 40 50; --s8:36 41 52; --s9:37 43 54;
+  --field:#1b1f27; --field2:#171a21; --field-hi:#232933; --deep:#13161b;
+  --chart-panel:rgba(27,31,39,.93);
+}
+html[data-skin="neu"][data-theme="light"]{
+  --bg:#e3e7ee;
+  --bg2:#e6eaf1;
+  --ink:#242935; --muted:#59606f; --faint:#798090;
+  --wash:36 41 53;
+  --s1:227 231 238; --s2:232 236 243; --s3:233 237 244; --s4:235 239 245; --s5:236 240 246; --s6:238 241 247; --s7:239 242 248; --s8:241 244 249; --s9:242 245 250;
+  --field:#ffffff; --field2:#f0f2f6; --field-hi:#ffffff; --deep:#ffffff;
+  --chart-panel:rgba(255,255,255,.94);
+}
+html[data-skin="clay"]{
+  --bg:#191325;
+  --bg2:#241b37;
+  --ink:#f4edff; --muted:#b6a8d2; --faint:#8b7eab;
+  --wash:255 255 255;
+  --s1:25 19 37; --s2:42 32 64; --s3:45 34 68; --s4:47 36 72; --s5:50 38 76; --s6:53 41 80; --s7:56 43 84; --s8:58 45 88; --s9:61 47 92;
+  --field:#241b37; --field2:#15101f; --field-hi:#392c56; --deep:#120d1a;
+  --chart-panel:rgba(42,32,64,.93);
+}
+html[data-skin="clay"][data-theme="light"]{
+  --bg:#ece4fb;
+  --bg2:#f3edfe;
+  --ink:#271b3d; --muted:#6c5c8c; --faint:#8f83aa;
+  --wash:39 27 61;
+  --s1:236 228 251; --s2:247 242 255; --s3:248 244 255; --s4:249 246 255; --s5:250 248 255; --s6:252 249 255; --s7:253 251 255; --s8:254 253 255; --s9:255 255 255;
+  --field:#ffffff; --field2:#f5f0fd; --field-hi:#ffffff; --deep:#ffffff;
+  --chart-panel:rgba(255,255,255,.94);
+}
+html[data-skin="aurora"]{
+  --bg:#070919;
+  --bg2:#0f0e32;
+  --ink:#efecff; --muted:#a49fd4; --faint:#7570aa;
+  --wash:255 255 255;
+  --s1:7 9 25; --s2:20 17 64; --s3:23 19 69; --s4:26 22 75; --s5:29 24 80; --s6:33 27 86; --s7:36 29 91; --s8:39 32 97; --s9:42 34 102;
+  --field:#0f0e32; --field2:#060815; --field-hi:#261f5e; --deep:#050612;
+  --chart-panel:rgba(20,17,64,.93);
+}
+html[data-skin="aurora"][data-theme="light"]{
+  --bg:#e9e6fb;
+  --bg2:#f1effe;
+  --ink:#1a1442; --muted:#5d5793; --faint:#847fa8;
+  --wash:26 20 66;
+  --s1:233 230 251; --s2:246 244 255; --s3:247 246 255; --s4:249 247 255; --s5:250 249 255; --s6:251 250 255; --s7:252 252 255; --s8:254 253 255; --s9:255 255 255;
+  --field:#ffffff; --field2:#f3f1fd; --field-hi:#ffffff; --deep:#ffffff;
+  --chart-panel:rgba(255,255,255,.94);
+}
+html[data-skin="cyber"]{
+  --bg:#030410;
+  --bg2:#06091a;
+  --ink:#d9f8ff; --muted:#7fa6c4; --faint:#557a99;
+  --wash:255 255 255;
+  --s1:3 4 16; --s2:7 12 32; --s3:8 14 36; --s4:10 15 39; --s5:11 17 43; --s6:12 19 47; --s7:13 21 51; --s8:15 22 54; --s9:16 24 58;
+  --field:#06091a; --field2:#03030e; --field-hi:#0e1635; --deep:#02030b;
+  --chart-panel:rgba(7,12,32,.93);
+}
+html[data-skin="cyber"][data-theme="light"]{
+  --bg:#dfe6f2;
+  --bg2:#e9eef8;
+  --ink:#050b18; --muted:#4a5d75; --faint:#758599;
+  --wash:5 11 24;
+  --s1:223 230 242; --s2:238 243 251; --s3:240 245 252; --s4:243 246 252; --s5:245 248 253; --s6:248 250 253; --s7:250 252 254; --s8:253 253 254; --s9:255 255 255;
+  --field:#ffffff; --field2:#edf1f8; --field-hi:#ffffff; --deep:#ffffff;
+  --chart-panel:rgba(255,255,255,.94);
+}
+html[data-skin="minimal"]{
+  --bg:#0c0e13;
+  --bg2:#111319;
+  --ink:#eceef2; --muted:#8f939d; --faint:#6c707a;
+  --wash:255 255 255;
+  --s1:12 14 19; --s2:19 22 28; --s3:21 24 30; --s4:22 25 32; --s5:24 27 34; --s6:25 29 36; --s7:27 31 38; --s8:28 32 40; --s9:30 34 42;
+  --field:#111319; --field2:#0a0c10; --field-hi:#1c2027; --deep:#080a0d;
+  --chart-panel:rgba(19,22,28,.93);
+}
+html[data-skin="minimal"][data-theme="light"]{
+  --bg:#f4f5f7;
+  --bg2:#fbfcfc;
+  --ink:#111318; --muted:#5b5f68; --faint:#898d95;
+  --wash:17 19 24;
+  --s1:244 245 247; --s2:255 255 255; --s3:255 255 255; --s4:255 255 255; --s5:255 255 255; --s6:255 255 255; --s7:255 255 255; --s8:255 255 255; --s9:255 255 255;
+  --field:#ffffff; --field2:#f9fafb; --field-hi:#ffffff; --deep:#ffffff;
+  --chart-panel:rgba(255,255,255,.94);
+}
+html[data-skin="midnight"]{
+  --bg:#04060f;
+  --bg2:#080c1f;
+  --ink:#e8edff; --muted:#909cc4; --faint:#636e96;
+  --wash:255 255 255;
+  --s1:4 6 15; --s2:10 15 40; --s3:12 18 45; --s4:14 20 49; --s5:16 23 54; --s6:18 25 58; --s7:20 28 63; --s8:22 30 67; --s9:24 33 72;
+  --field:#080c1f; --field2:#03050d; --field-hi:#151d42; --deep:#03040b;
+  --chart-panel:rgba(10,15,40,.93);
+}
+html[data-skin="midnight"][data-theme="light"]{
+  --bg:#e3e8f6;
+  --bg2:#edf1fc;
+  --ink:#101838; --muted:#525c80; --faint:#7f86a3;
+  --wash:16 24 56;
+  --s1:227 232 246; --s2:243 246 255; --s3:245 247 255; --s4:246 249 255; --s5:248 250 255; --s6:250 251 255; --s7:252 252 255; --s8:253 254 255; --s9:255 255 255;
+  --field:#ffffff; --field2:#f0f2fa; --field-hi:#ffffff; --deep:#ffffff;
+  --chart-panel:rgba(255,255,255,.94);
+}
+html[data-skin="ocean"]{
+  --bg:#020e16;
+  --bg2:#041c27;
+  --ink:#e2f7ff; --muted:#8cb9cb; --faint:#5d8a9e;
+  --wash:255 255 255;
+  --s1:2 14 22; --s2:5 35 48; --s3:6 39 53; --s4:7 42 57; --s5:8 46 62; --s6:9 49 66; --s7:10 53 71; --s8:11 56 75; --s9:12 60 80;
+  --field:#041c27; --field2:#020c13; --field-hi:#0b374a; --deep:#010a0f;
+  --chart-panel:rgba(5,35,48,.93);
+}
+html[data-skin="ocean"][data-theme="light"]{
+  --bg:#dff0f7;
+  --bg2:#ebf7fc;
+  --ink:#04212e; --muted:#446c7d; --faint:#6e8c99;
+  --wash:4 33 46;
+  --s1:223 240 247; --s2:241 251 255; --s3:243 252 255; --s4:245 252 255; --s5:247 253 255; --s6:249 253 255; --s7:251 254 255; --s8:253 254 255; --s9:255 255 255;
+  --field:#ffffff; --field2:#edf7fb; --field-hi:#ffffff; --deep:#ffffff;
+  --chart-panel:rgba(255,255,255,.94);
+}
+html[data-skin="sunset"]{
+  --bg:#16080d;
+  --bg2:#230d14;
+  --ink:#ffeee5; --muted:#c99e94; --faint:#9c746c;
+  --wash:255 255 255;
+  --s1:22 8 13; --s2:42 16 24; --s3:46 18 27; --s4:50 21 29; --s5:54 23 32; --s6:58 26 34; --s7:62 28 37; --s8:66 31 39; --s9:70 33 42;
+  --field:#230d14; --field2:#13070b; --field-hi:#401e26; --deep:#0f0609;
+  --chart-panel:rgba(42,16,24,.93);
+}
+html[data-skin="sunset"][data-theme="light"]{
+  --bg:#fce8dc;
+  --bg2:#fef1e9;
+  --ink:#2d130c; --muted:#7f5548; --faint:#a07e71;
+  --wash:45 19 12;
+  --s1:252 232 220; --s2:255 246 240; --s3:255 247 242; --s4:255 249 244; --s5:255 250 246; --s6:255 251 249; --s7:255 252 251; --s8:255 254 253; --s9:255 255 255;
+  --field:#ffffff; --field2:#fdf2ec; --field-hi:#ffffff; --deep:#ffffff;
+  --chart-panel:rgba(255,255,255,.94);
+}
+html[data-skin="mono"]{
+  --bg:#09090a;
+  --bg2:#101011;
+  --ink:#eeeef0; --muted:#90909a; --faint:#6c6c74;
+  --wash:255 255 255;
+  --s1:9 9 10; --s2:19 19 20; --s3:21 21 22; --s4:23 23 24; --s5:25 25 26; --s6:27 27 29; --s7:29 29 31; --s8:31 31 33; --s9:33 33 35;
+  --field:#101011; --field2:#080809; --field-hi:#1e1e20; --deep:#060607;
+  --chart-panel:rgba(19,19,20,.93);
+}
+html[data-skin="mono"][data-theme="light"]{
+  --bg:#f2f2f3;
+  --bg2:#f8f8f9;
+  --ink:#0e0e10; --muted:#5c5c63; --faint:#8a8a91;
+  --wash:14 14 16;
+  --s1:242 242 243; --s2:251 251 252; --s3:252 252 252; --s4:252 252 253; --s5:253 253 253; --s6:253 253 254; --s7:254 254 254; --s8:254 254 255; --s9:255 255 255;
+  --field:#ffffff; --field2:#f8f8f8; --field-hi:#ffffff; --deep:#ffffff;
+  --chart-panel:rgba(255,255,255,.94);
+}
+html[data-skin="custom"]{
+  --bg:#06070b;
+  --bg2:#07090e;
+  --ink:#e8edf7; --muted:#8b93a7; --faint:#62687a;
+  --wash:255 255 255;
+  --s1:6 7 11; --s2:8 10 16; --s3:10 12 19; --s4:12 15 22; --s5:14 17 25; --s6:16 19 29; --s7:18 21 32; --s8:20 24 35; --s9:22 26 38;
+  --field:#07090e; --field2:#050609; --field-hi:#131722; --deep:#040508;
+  --chart-panel:rgba(8,10,16,.93);
+}
+html[data-skin="custom"][data-theme="light"]{
+  --bg:#e9edf4;
+  --bg2:#f0f4f9;
+  --ink:#151b28; --muted:#5a6478; --faint:#7c8494;
+  --wash:21 27 40;
+  --s1:233 237 244; --s2:244 247 252; --s3:246 248 252; --s4:247 249 253; --s5:249 250 253; --s6:250 252 254; --s7:252 253 254; --s8:253 254 255; --s9:255 255 255;
+  --field:#ffffff; --field2:#f3f5f9; --field-hi:#ffffff; --deep:#ffffff;
+  --chart-panel:rgba(255,255,255,.94);
+}
+
+
+/* ===========================================================================
+   3. Morphism, applied with a hierarchy
+   ===========================================================================
+   Material is not spread evenly. Six levels, and each one is allowed exactly
+   as much of it as its job needs:
+
+       background    the page and its backdrop — no material at all
+       primary       cards and panels — the theme's signature surface
+       secondary     rails, headers, tables — quieter, less blur
+       elevated      dialogs, menus, toasts — denser, more shadow
+       floating      tooltips and popovers — densest, smallest
+       interactive   buttons, fields, switches — shape and state only
+
+   A theme that blurred all six would read as fog. */
+
+/* ---- primary: cards, panels, the auth card ---------------------------- */
+html[data-skin] .card,
+html[data-skin] .auth-card{
+  background:var(--card-bg);
+  border:1px solid var(--line);
+  border-radius:var(--radius-lg);
+  box-shadow:var(--shadow-md);
+  backdrop-filter:blur(var(--blur-md)) saturate(var(--sat));
+  -webkit-backdrop-filter:blur(var(--blur-md)) saturate(var(--sat));
+  transition:transform var(--dur-2) var(--ease-1),
+             border-color var(--dur-2) var(--ease-1),
+             box-shadow var(--dur-2) var(--ease-1);
+}
+html[data-skin] .card:hover{
+  border-color:var(--border-accent);
+  box-shadow:var(--shadow-lg);
+}
+/* The hairline along a card's top edge is where the accent enters the
+   interface; every theme keeps it, at its own strength. */
+html[data-skin] .card::before{
+  background:linear-gradient(90deg, transparent,
+             rgb(var(--accent-rgb) / calc(.45 * var(--accent-edge, 1))),
+             rgb(var(--accent-3-rgb) / calc(.35 * var(--accent-edge, 1))), transparent);
+}
+
+/* ---- secondary: the rail, the header, the drawer ---------------------- */
+html[data-skin] .nav{
+  background:rgb(var(--s2) / calc(var(--surface-alpha) * .95));
+  border-inline-end:1px solid var(--line);
+  backdrop-filter:blur(var(--blur-lg));
+  -webkit-backdrop-filter:blur(var(--blur-lg));
+}
+html[data-skin] .top{
+  background:rgb(var(--s2) / calc(var(--surface-alpha) * .62));
+  border-bottom:1px solid var(--line);
+  backdrop-filter:blur(var(--blur-md));
+  -webkit-backdrop-filter:blur(var(--blur-md));
+}
+html[data-skin] .hdr-drawer{
+  background:var(--surface-elevated);
+  border-color:var(--line);
+  backdrop-filter:blur(var(--blur-md));
+  -webkit-backdrop-filter:blur(var(--blur-md));
+}
+/* The settings rail, and the bottom bar that stands in for it on a
+   phone. They are listed together deliberately: the bar is the rail
+   collapsed, so it must be the same surface in every skin, and keeping
+   them in one selector is what stops the two drifting apart. */
+html[data-skin] .set-jump,
+html[data-skin] .set-jump:hover,
+html[data-skin] .sj-open,
+html[data-skin] .sj-open:hover,
+html[data-skin] .set-rail .set-jump,
+html[data-skin] .set-rail .set-jump:hover{
+  background:linear-gradient(180deg,
+            rgb(var(--s4) / calc(var(--surface-alpha) * 1.3 + .1)),
+            rgb(var(--s2) / calc(var(--surface-alpha) * 1.25 + .1)));
+  border-color:var(--line);
+  border-radius:var(--radius-lg);
+}
+html[data-skin] .nav button,
+html[data-skin] .set-jump button[data-jump]{ border-radius:var(--radius-md) }
+html[data-skin] .nav button:hover{ background:var(--surface-hover) }
+
+/* ---- elevated: dialogs, menus, toasts, notifications ------------------ */
+html[data-skin] .modal-card,
+html[data-skin] .modal .card{
+  background:linear-gradient(180deg,
+            rgb(var(--s8) / calc(var(--surface-alpha) * 1.35 + .1)),
+            rgb(var(--s5) / calc(var(--surface-alpha) * 1.3 + .1)));
+  border:1px solid var(--border-2);
+  border-radius:var(--radius-lg);
+  box-shadow:var(--shadow-xl);
+  backdrop-filter:blur(var(--blur-lg)) saturate(var(--sat));
+  -webkit-backdrop-filter:blur(var(--blur-lg)) saturate(var(--sat));
+}
+html[data-skin] .modal{
+  background:rgb(var(--s1) / .62);
+  backdrop-filter:blur(calc(var(--blur-sm) + 2px));
+  -webkit-backdrop-filter:blur(calc(var(--blur-sm) + 2px));
+}
+html[data-skin] .dd-menu,
+html[data-skin] .sympick-pop,
+html[data-skin] .notify-card,
+html[data-skin] .toast{
+  background:var(--surface-floating);
+  border:1px solid var(--border-2);
+  border-radius:var(--radius-md);
+  box-shadow:var(--shadow-lg);
+  backdrop-filter:blur(var(--blur-lg)) saturate(var(--sat));
+  -webkit-backdrop-filter:blur(var(--blur-lg)) saturate(var(--sat));
+}
+html[data-skin] .dd-opt,
+html[data-skin] .sympick-row{ border-radius:var(--radius-sm) }
+/* A destructive dialog says so before anyone reads the words, and a themed
+   border on .modal-card would otherwise have erased the stripe that says it. */
+html[data-skin] .modal-card.is-danger{ border-top:3px solid var(--rose) }
+
+/* ---- interactive: buttons, fields, pills, switches -------------------- */
+html[data-skin] .btn{
+  border-radius:var(--sk-btn-radius);
+  transition:transform var(--dur-1) var(--ease-1),
+             filter var(--dur-1) var(--ease-1),
+             box-shadow var(--dur-2) var(--ease-1),
+             background var(--dur-2) var(--ease-1);
+}
+html[data-skin] .btn:hover{ transform:translateY(var(--lift)); box-shadow:var(--glow-soft) }
+html[data-skin] .btn:active{ transform:translateY(0) scale(var(--press)) }
+html[data-skin] .btn.ghost{
+  background:var(--surface-interactive);
+  border:1px solid var(--line);
+}
+html[data-skin] .btn.ghost:hover{ background:var(--surface-hover); border-color:var(--border-accent) }
+html[data-skin] .btn.tiny{ border-radius:var(--radius-sm) }
+
+html[data-skin] .icon-btn{
+  background:var(--surface-interactive);
+  border:1px solid var(--line);
+  border-radius:var(--radius-sm);
+  transition:transform var(--dur-1) var(--ease-1),
+             background var(--dur-1) var(--ease-1),
+             border-color var(--dur-1) var(--ease-1);
+}
+html[data-skin] .icon-btn:hover{ background:var(--surface-hover); border-color:var(--border-accent) }
+html[data-skin] .icon-btn:active{ transform:scale(var(--press)) }
+
+html[data-skin] .field input,
+html[data-skin] .field select,
+html[data-skin] .ctrl,
+html[data-skin] .dd-btn,
+html[data-skin] textarea{
+  background:var(--field);
+  border:1px solid var(--line);
+  border-radius:var(--radius-md);
+  transition:border-color var(--dur-2) var(--ease-1),
+             box-shadow var(--dur-2) var(--ease-1),
+             background var(--dur-2) var(--ease-1);
+}
+html[data-skin] .field input:focus,
+html[data-skin] .field select:focus,
+html[data-skin] .ctrl:focus,
+html[data-skin] .dd-btn:focus{
+  border-color:rgb(var(--accent-rgb) / .55);
+  box-shadow:0 0 0 4px rgb(var(--accent-rgb) / .14);
+  background:var(--field-hi);
+}
+
+/* Shape is the theme's business. Colour is the *state's* business, and this
+   rule used to take both: written as one blanket declaration it outweighed
+   .st-chip[data-state="live"] and .pill.is-backtest, so the header's "Engine
+   online" badge lost its fill and turned into another grey pill. A themed
+   base plus every state restated below is the correct split. */
+html[data-skin] .pill,
+html[data-skin] .chip,
+html[data-skin] .st-chip{ border-radius:var(--radius-pill) }
+/* .pill and .chip need nothing else: their resting colours are already
+   --line and a wash of --wash, both of which the theme has already moved.
+   A :not() chain to protect their states was written here first and thrown
+   away - it was more specific than the states it was protecting. */
+
+/* ---- the header's status badges ----------------------------------------
+   These three say whether the engine is up, whether MT5 is connected and
+   what the tape is doing, and they are read at a glance from the corner of
+   an eye - so each one carries a state dot as well as a fill, and the text
+   on a filled badge uses the accent's *measured* readable ink rather than a
+   fixed near-black that happens to work on teal. */
+html[data-skin] .st-chip{
+  gap:6px;
+  border-color:var(--line);
+  background:var(--surface-interactive);
+  color:var(--muted);
+  transition:background var(--dur-2) var(--ease-1),
+             color var(--dur-2) var(--ease-1),
+             border-color var(--dur-2) var(--ease-1),
+             box-shadow var(--dur-2) var(--ease-1);
+}
+html[data-skin] .st-chip::before{
+  content:"";
+  width:6px; height:6px; border-radius:50%;
+  background:currentColor;
+  opacity:.9;
+  flex:none;
+}
+html[data-skin] .st-chip[data-state="live"]{
+  background:var(--accent);
+  color:var(--accent-ink);
+  border-color:transparent;
+  box-shadow:var(--glow-soft);
+}
+html[data-skin] .st-chip.mt5[data-state="live"]{
+  background:var(--gold);
+  color:#1a1206;
+  border-color:transparent;
+  box-shadow:0 8px 22px rgba(232,192,122,.18);
+}
+html[data-skin] .st-chip.tape[data-state="live"]{
+  background:var(--accent);
+  color:var(--accent-ink);
+  border-color:transparent;
+}
+html[data-skin] .st-chip.tape[data-state="tester"],
+html[data-skin] .st-chip.tape[data-state="backtest"]{
+  background:var(--accent-3);
+  color:#fff;
+  border-color:transparent;
+  box-shadow:none;
+}
+html[data-skin] .st-chip.tape[data-state="idle"]{
+  background:var(--surface-interactive);
+  color:var(--muted);
+  border-color:var(--line);
+  box-shadow:none;
+}
+/* Down is the one state that never follows the accent, for the same reason
+   the kill button does not: it has to be found by colour alone. */
+html[data-skin] .st-chip[data-state="down"]{
+  color:var(--rose);
+  background:rgb(244 71 91 / .12);
+  border-color:rgb(244 71 91 / .42);
+  box-shadow:none;
+}
+html[data-skin] .st-chip.ai[data-state="bull"]{
+  background:rgb(var(--accent-rgb) / .2);
+  color:var(--accent-readable, var(--accent));
+  border-color:rgb(var(--accent-rgb) / .35);
+}
+html[data-skin] .st-chip.ai[data-state="bear"]{
+  background:rgb(244 71 91 / .18);
+  color:var(--rose);
+  border-color:rgb(244 71 91 / .35);
+}
+/* A live badge breathes, very slightly, so "up" is visible without reading.
+   One 6px dot, opacity only, and it stops with everything else. */
+html[data-motion="full"][data-perf="rich"] .st-chip[data-state="live"]::before{
+  animation:pulse 2.4s var(--ease) infinite;
+}
+html[data-skin] .tabs button,
+html[data-skin] .lang-pills button,
+html[data-skin] .seg button{ border-radius:var(--radius-sm) }
+html[data-skin] .switch{
+  border-radius:var(--radius-pill);
+  background:var(--surface-interactive);
+  border:1px solid var(--line);
+}
+/* The same trap as the status badges: a themed resting state has to restate
+   the on state, or every toggle in the product reads as off. */
+html[data-skin] .switch.on{
+  background:rgb(var(--accent-rgb) / .25);
+  border-color:rgb(var(--accent-rgb) / .45);
+}
+html[data-skin] .switch.on i{ background:var(--accent) }
+html[data-skin] .switch i{
+  transition:transform var(--dur-2) var(--ease-spring),
+             background var(--dur-2) var(--ease-1);
+}
+html[data-skin] table th{ background:rgb(var(--s3) / calc(var(--surface-alpha) * .9)) }
+html[data-skin] table tbody tr:hover{ background:var(--surface-interactive) }
+
+/* ===========================================================================
+   4. The families
+   ===========================================================================
+   Everything above is the shared grammar. Below, five families say the few
+   things that actually make them recognisable - and nothing more, because a
+   theme that rewrote every rule would stop tracking changes to the rest. */
+
+/* ---- neu: neumorphism -------------------------------------------------
+   No borders and no translucency: the surface is the page, and every edge is
+   made of light. Two shadows per element, one warm-light and one dark, and
+   anything that receives input is pressed *into* the page instead of
+   standing on it - which is the only reliable way to tell an input from a
+   button once the borders are gone. */
+html[data-skin="neu"]{
+  --neu-light:rgb(var(--wash) / .055);
+  --neu-dark:rgb(var(--shadow-rgb) / calc(.5 * var(--shadow-strength)));
+  --neu-out:6px 6px 14px var(--neu-dark), -6px -6px 14px var(--neu-light);
+  --neu-out-sm:3px 3px 8px var(--neu-dark), -3px -3px 8px var(--neu-light);
+  --neu-in:inset 4px 4px 9px var(--neu-dark), inset -4px -4px 9px var(--neu-light);
+}
+html[data-skin="neu"][data-theme="light"]{
+  --neu-light:rgb(255 255 255 / .95);
+  --neu-dark:rgb(var(--shadow-rgb) / calc(.22 * var(--shadow-strength)));
+}
+html[data-skin="neu"] .card,
+html[data-skin="neu"] .auth-card,
+html[data-skin="neu"] .modal-card,
+html[data-skin="neu"] .set-jump,
+html[data-skin="neu"] .sj-open,
+html[data-skin="neu"] .set-rail .set-jump{
+  background:rgb(var(--s3));
+  border:0;
+  box-shadow:var(--neu-out);
+}
+html[data-skin="neu"] .card::before,
+html[data-skin="neu"] .card::after{ display:none }
+html[data-skin="neu"] .card:hover{ box-shadow:var(--neu-out), 0 0 0 1px var(--border-accent) }
+html[data-skin="neu"] .nav,
+html[data-skin="neu"] .top{ background:rgb(var(--s2)); border-color:transparent }
+html[data-skin="neu"] .nav{ box-shadow:var(--neu-out-sm) }
+
+/* The side panel's own items.
+
+   The panel was embossed and everything inside it was flat, which is the
+   one combination that reads as unfinished rather than as a style: a
+   raised tray holding nothing. In this family a control at rest stands
+   off the page, and the thing you are ON is pressed into it -- that
+   push/pull IS the selection indicator once the borders are gone, and it
+   is the same vocabulary the inputs and buttons already use.
+
+   Hover lifts rather than tints, for the same reason. */
+html[data-skin="neu"] .nav button.nav-tab{
+  background:rgb(var(--s3));
+  border:0;
+  box-shadow:var(--neu-out-sm);
+}
+html[data-skin="neu"] .nav button.nav-tab:hover{
+  box-shadow:6px 6px 14px var(--neu-dark), -6px -6px 14px var(--neu-light);
+}
+html[data-skin="neu"] .nav button.nav-tab.on,
+html[data-skin="neu"] .nav button.nav-tab:active{
+  background:rgb(var(--s2));
+  box-shadow:var(--neu-in);
+}
+/* Colour is not the only indicator: the pressed item also carries the
+   accent on its label, so the state survives a greyscale screen. */
+html[data-skin="neu"] .nav button.nav-tab.on{ color:var(--ink); font-weight:650 }
+
+/* The settings page. .set-jump was already here; the blocks it jumps to
+   were not, so the rail was embossed and the panels beside it were still
+   wearing the default glass card. */
+html[data-skin="neu"] .set-main .set-block,
+html[data-skin="neu"] .set-desk .card,
+html[data-skin="neu"] .sym-panel{
+  background:rgb(var(--s3));
+  border:0;
+  backdrop-filter:none;
+  -webkit-backdrop-filter:none;
+  box-shadow:var(--neu-out);
+}
+html[data-skin="neu"] .sj-bar{ background:rgb(var(--s2)); border:0; box-shadow:var(--neu-out-sm) }
+html[data-skin="neu"] .set-jump button,
+html[data-skin="neu"] .sj-bar button{
+  background:rgb(var(--s3));
+  border:0;
+  box-shadow:var(--neu-out-sm);
+}
+html[data-skin="neu"] .set-jump button.on,
+html[data-skin="neu"] .sj-bar button.on{
+  background:rgb(var(--s2));
+  box-shadow:var(--neu-in);
+  color:var(--ink);
+  font-weight:650;
+}
+
+/* The candles, so the chart is made of the same material as the panel it
+   sits in. See CandleChart.candleBody(). */
+html[data-skin="neu"]{ --candle-style:relief }
+html[data-skin="neu"] .field input,
+html[data-skin="neu"] .field select,
+html[data-skin="neu"] .ctrl,
+html[data-skin="neu"] .dd-btn,
+html[data-skin="neu"] .switch,
+html[data-skin="neu"] textarea{
+  background:rgb(var(--s2));
+  border:0;
+  box-shadow:var(--neu-in);
+}
+html[data-skin="neu"] .field input:focus,
+html[data-skin="neu"] .ctrl:focus,
+html[data-skin="neu"] .dd-btn:focus{
+  box-shadow:var(--neu-in), 0 0 0 3px rgb(var(--accent-rgb) / .22);
+}
+html[data-skin="neu"] .btn.ghost,
+html[data-skin="neu"] .icon-btn,
+html[data-skin="neu"] .pill,
+html[data-skin="neu"] .chip{
+  background:rgb(var(--s3));
+  border:0;
+  box-shadow:var(--neu-out-sm);
+}
+html[data-skin="neu"] .btn.ghost:active,
+html[data-skin="neu"] .icon-btn:active{ box-shadow:var(--neu-in) }
+html[data-skin="neu"] .dd-menu,
+html[data-skin="neu"] .sympick-pop,
+html[data-skin="neu"] .toast,
+html[data-skin="neu"] .notify-card{
+  background:rgb(var(--s4));
+  border:0;
+  box-shadow:var(--neu-out), var(--shadow-lg);
+}
+
+/* ---- clay: claymorphism ----------------------------------------------
+   Soft, thick, slightly inflated. An inner light along the top edge and an
+   inner shadow along the bottom is what gives the surface its depth; the
+   outer shadow is long and very soft so the shape reads as light, not heavy. */
+html[data-skin="clay"]{
+  --clay-in:inset 0 -6px 12px rgb(var(--shadow-rgb) / .3),
+            inset 0 8px 14px rgb(var(--wash) / .1);
+  --clay-out:0 16px 32px rgb(var(--shadow-rgb) / calc(.3 * var(--shadow-strength)));
+}
+html[data-skin="clay"] .card,
+html[data-skin="clay"] .auth-card,
+html[data-skin="clay"] .modal-card{
+  background:rgb(var(--s5));
+  border:0;
+  box-shadow:var(--clay-in), var(--clay-out);
+}
+html[data-skin="clay"] .card::before{ display:none }
+html[data-skin="clay"] .card:hover{ transform:translateY(calc(var(--lift) * 1.5)) }
+html[data-skin="clay"] .btn,
+html[data-skin="clay"] .btn.ghost,
+html[data-skin="clay"] .icon-btn,
+html[data-skin="clay"] .tabs button,
+html[data-skin="clay"] .lang-pills button{
+  border:0;
+  box-shadow:inset 0 -3px 6px rgb(var(--shadow-rgb) / .22),
+             inset 0 3px 6px rgb(var(--wash) / .14),
+             0 8px 16px rgb(var(--shadow-rgb) / calc(.24 * var(--shadow-strength)));
+}
+html[data-skin="clay"] .btn.ghost,
+html[data-skin="clay"] .icon-btn{ background:rgb(var(--s6)) }
+html[data-skin="clay"] .btn:active{ box-shadow:inset 0 3px 8px rgb(var(--shadow-rgb) / .3) }
+html[data-skin="clay"] .field input,
+html[data-skin="clay"] .field select,
+html[data-skin="clay"] .ctrl,
+html[data-skin="clay"] .dd-btn{
+  background:rgb(var(--s3));
+  border:0;
+  box-shadow:inset 0 3px 8px rgb(var(--shadow-rgb) / .28);
+}
+html[data-skin="clay"] .nav,
+html[data-skin="clay"] .top{ background:rgb(var(--s3) / .96); border-color:transparent }
+html[data-skin="clay"] .dd-menu,
+html[data-skin="clay"] .sympick-pop,
+html[data-skin="clay"] .toast,
+html[data-skin="clay"] .notify-card{ background:rgb(var(--s7)); border:0 }
+
+/* This family had the thinnest reach of the twelve: it dressed the cards
+   and the buttons and then stopped, so the side panel and the whole
+   settings page were still the default glass desk with a violet accent.
+   "Velvet" has to be the material of the furniture, not of three cards.
+
+   Everything below is the same inflated surface the cards already use --
+   an inner light along the top, an inner shadow along the bottom, a long
+   soft shadow underneath - applied to the pieces that were missed. */
+html[data-skin="clay"] .nav{ box-shadow:var(--clay-out) }
+html[data-skin="clay"] .nav button.nav-tab{
+  border:0;
+  background:rgb(var(--s5));
+  box-shadow:inset 0 -3px 6px rgb(var(--shadow-rgb) / .22),
+             inset 0 3px 6px rgb(var(--wash) / .14),
+             0 6px 14px rgb(var(--shadow-rgb) / calc(.2 * var(--shadow-strength)));
+}
+/* Pressed in, not merely tinted - the counterpart of the inflated rest
+   state, and the thing that makes the selection legible without a border. */
+html[data-skin="clay"] .nav button.nav-tab.on,
+html[data-skin="clay"] .nav button.nav-tab:active{
+  background:rgb(var(--s3));
+  box-shadow:inset 0 4px 10px rgb(var(--shadow-rgb) / .34);
+  color:var(--ink);
+  font-weight:650;
+}
+html[data-skin="clay"] .nav button.nav-tab:hover{ transform:translateY(calc(var(--lift) * 1.5)) }
+
+html[data-skin="clay"] .set-main .set-block,
+html[data-skin="clay"] .set-desk .card,
+html[data-skin="clay"] .sym-panel{
+  background:rgb(var(--s5));
+  border:0;
+  backdrop-filter:none;
+  -webkit-backdrop-filter:none;
+  box-shadow:var(--clay-in), var(--clay-out);
+}
+html[data-skin="clay"] .set-jump,
+html[data-skin="clay"] .sj-bar,
+html[data-skin="clay"] .set-rail .set-jump{
+  background:rgb(var(--s5));
+  border:0;
+  box-shadow:var(--clay-out);
+}
+html[data-skin="clay"] .set-jump button,
+html[data-skin="clay"] .sj-bar button{
+  border:0;
+  background:rgb(var(--s6));
+  box-shadow:inset 0 -3px 6px rgb(var(--shadow-rgb) / .22),
+             inset 0 3px 6px rgb(var(--wash) / .14);
+}
+html[data-skin="clay"] .set-jump button.on,
+html[data-skin="clay"] .sj-bar button.on{
+  background:rgb(var(--s3));
+  box-shadow:inset 0 4px 10px rgb(var(--shadow-rgb) / .34);
+  color:var(--ink);
+  font-weight:650;
+}
+
+html[data-skin="clay"]{ --candle-style:velvet }
+
+/* ---- cyber: neon on black --------------------------------------------
+   The surface almost disappears and the *edge* carries everything: a lit
+   hairline, a faint outer bloom, and a corner radius small enough to read as
+   engineered. Glow is kept to borders and never put behind text. */
+html[data-skin="cyber"]{
+  --accent-edge:1.8;
+  --neon:0 0 0 1px rgb(var(--accent-rgb) / .35),
+         0 0 18px rgb(var(--accent-rgb) / calc(.18 * var(--shadow-strength)));
+}
+html[data-skin="cyber"] .card,
+html[data-skin="cyber"] .modal-card,
+html[data-skin="cyber"] .auth-card{
+  background:linear-gradient(180deg, rgb(var(--s3) / var(--surface-alpha)),
+             rgb(var(--s1) / calc(var(--surface-alpha) * .95)));
+  border:1px solid rgb(var(--accent-rgb) / .22);
+  box-shadow:var(--neon);
+}
+html[data-skin="cyber"] .card:hover{
+  border-color:rgb(var(--accent-rgb) / .5);
+  box-shadow:0 0 0 1px rgb(var(--accent-rgb) / .5),
+             0 0 26px rgb(var(--accent-rgb) / .24);
+}
+html[data-skin="cyber"] .nav,
+html[data-skin="cyber"] .top{
+  background:rgb(var(--s1) / .82);
+  border-color:rgb(var(--accent-rgb) / .2);
+}
+html[data-skin="cyber"] .btn{ box-shadow:0 0 16px rgb(var(--accent-rgb) / .28) }
+html[data-skin="cyber"] .btn.ghost{
+  border-color:rgb(var(--accent-rgb) / .34);
+  box-shadow:inset 0 0 12px rgb(var(--accent-rgb) / .08);
+}
+html[data-skin="cyber"] .field input,
+html[data-skin="cyber"] .ctrl,
+html[data-skin="cyber"] .dd-btn{
+  background:rgb(var(--s2) / .8);
+  border-color:rgb(var(--accent-rgb) / .22);
+}
+html[data-skin="cyber"] .pill,
+html[data-skin="cyber"] .chip,
+html[data-skin="cyber"] .st-chip{ border-color:rgb(var(--accent-rgb) / .28) }
+html[data-skin="cyber"] .dd-menu,
+html[data-skin="cyber"] .sympick-pop,
+html[data-skin="cyber"] .toast,
+html[data-skin="cyber"] .notify-card{
+  background:rgb(var(--s2) / .94);
+  border-color:rgb(var(--accent-rgb) / .3);
+  box-shadow:var(--neon), var(--shadow-lg);
+}
+
+/* ---- flat: minimal and monochrome -------------------------------------
+   No blur, almost no shadow, and a hairline doing all the work. The only
+   way this stays legible is discipline about contrast, so the surfaces are
+   opaque and the type keeps its full strength. */
+html[data-skin="minimal"] .card,
+html[data-skin="mono"] .card,
+html[data-skin="minimal"] .auth-card,
+html[data-skin="mono"] .auth-card{
+  background:rgb(var(--s4));
+  box-shadow:var(--shadow-xs);
+  backdrop-filter:none;
+  -webkit-backdrop-filter:none;
+}
+html[data-skin="minimal"] .card::before,
+html[data-skin="mono"] .card::before,
+html[data-skin="minimal"] .card::after,
+html[data-skin="mono"] .card::after{ display:none }
+html[data-skin="minimal"] .card:hover,
+html[data-skin="mono"] .card:hover{
+  border-color:var(--border-2);
+  box-shadow:var(--shadow-sm);
+  transform:none;
+}
+html[data-skin="minimal"] .nav,
+html[data-skin="mono"] .nav,
+html[data-skin="minimal"] .top,
+html[data-skin="mono"] .top{
+  background:rgb(var(--s2));
+  backdrop-filter:none;
+  -webkit-backdrop-filter:none;
+}
+html[data-skin="minimal"] .dd-menu,
+html[data-skin="mono"] .dd-menu,
+html[data-skin="minimal"] .sympick-pop,
+html[data-skin="mono"] .sympick-pop,
+html[data-skin="minimal"] .toast,
+html[data-skin="mono"] .toast,
+html[data-skin="minimal"] .modal-card,
+html[data-skin="mono"] .modal-card,
+html[data-skin="minimal"] .notify-card,
+html[data-skin="mono"] .notify-card{
+  background:rgb(var(--s6));
+  backdrop-filter:none;
+  -webkit-backdrop-filter:none;
+  box-shadow:var(--shadow-md);
+}
+html[data-skin="minimal"] .btn:hover,
+html[data-skin="mono"] .btn:hover{ box-shadow:none }
+/* Monochrome means monochrome: the accent is a grey, so emphasis has to come
+   from weight and spacing instead of hue. */
+html[data-skin="mono"] .card h3,
+html[data-skin="mono"] .set-title{ font-weight:600; letter-spacing:.005em }
+html[data-skin="mono"] .kicker,
+html[data-skin="mono"] .set-h{ letter-spacing:.16em }
+
+/* ---- solid: midnight ---------------------------------------------------
+   Deep, layered, almost opaque. Blur is barely there; the depth comes from
+   nine very close surfaces stacked in the right order. */
+html[data-skin="midnight"] .card{
+  background:linear-gradient(180deg, rgb(var(--s6) / var(--surface-alpha)),
+             rgb(var(--s3) / var(--surface-alpha)));
+  box-shadow:var(--shadow-lg), inset 0 1px 0 rgb(var(--wash) / .06);
+}
+html[data-skin="midnight"] .nav,
+html[data-skin="midnight"] .top{ background:rgb(var(--s2) / .94) }
+
+/* ===========================================================================
+   4b. Identity
+   ===========================================================================
+   A palette and six numbers get a theme most of the way, but not all of it.
+   What is left is the handful of details that make a material feel authored
+   rather than generated: how saturated it renders, how present the accent's
+   edge is, how the type is set, what a text selection looks like, and what
+   the scrollbar does. They are small and there are not many of them - which
+   is the point. One block per theme, and the block is short. */
+
+/* Type is part of the material. A flat theme needs its headings to carry the
+   hierarchy that shadows used to carry; a soft theme can let them relax. */
+html[data-skin] .card h3,
+html[data-skin] .set-title,
+html[data-skin] .modal-card h3{
+  font-weight:var(--head-weight, 500);
+  letter-spacing:var(--head-track, .005em);
+}
+html[data-skin] .kicker,
+html[data-skin] .set-h{ letter-spacing:var(--eyebrow-track, .14em) }
+html[data-skin] .sub,
+html[data-skin] .lede{ color:var(--muted) }
+
+/* Selection and caret follow the accent everywhere. They were the last two
+   places still showing the browser's default blue. */
+html[data-skin] ::selection{
+  background:rgb(var(--accent-rgb) / .3);
+  color:var(--ink);
+}
+html[data-skin] input,
+html[data-skin] textarea{ caret-color:var(--accent) }
+
+/* ---- Liquid Glass: the default, and the reference for the rest ---------- */
+html[data-skin="glass"]{ --sat:130%; --accent-edge:1; --head-weight:500 }
+
+/* ---- Glassmorphism: thin, bright, lit from the top-left ----------------- */
+html[data-skin="frost"]{
+  --sat:160%;
+  --accent-edge:.8;
+  --head-weight:500;
+  --head-track:.012em;
+  --surface-hover:rgb(var(--wash) / .1);
+}
+html[data-skin="frost"] .card,
+html[data-skin="frost"] .auth-card{
+  background:linear-gradient(140deg,
+            rgb(var(--s9) / calc(var(--surface-alpha) * 1.5)),
+            rgb(var(--s4) / calc(var(--surface-alpha) * .65)));
+  border-color:rgb(var(--wash) / calc(var(--border-alpha-eff) * 1.2));
+  box-shadow:var(--shadow-md), inset 0 1px 0 rgb(var(--wash) / .16);
+}
+/* The lit edge is the whole idea of the style: one hairline along the top
+   and the leading side, bright, and nothing else. */
+html[data-skin="frost"] .card::after{
+  background:linear-gradient(180deg, rgb(var(--wash) / .1), transparent 55%);
+}
+html[data-skin="frost"] .nav,
+html[data-skin="frost"] .top{
+  background:rgb(var(--s3) / calc(var(--surface-alpha) * 1.3));
+  border-color:rgb(var(--wash) / calc(var(--border-alpha-eff) * 1.1));
+}
+html[data-skin="frost"] .field input,
+html[data-skin="frost"] .ctrl,
+html[data-skin="frost"] .dd-btn{
+  background:rgb(var(--s2) / .55);
+  border-color:rgb(var(--wash) / calc(var(--border-alpha-eff) * 1.1));
+}
+
+/* ---- Neumorphism -------------------------------------------------------
+   The rule of the style is that the surface and the page are the same
+   colour, and every edge is made of light. Which means the light has to have
+   a direction, and it has to be the same direction everywhere: top-left. */
+html[data-skin="neu"]{
+  --sat:100%;
+  --head-weight:600;
+  --head-track:.01em;
+  --surface-interactive:rgb(var(--wash) / .03);
+  --surface-hover:rgb(var(--wash) / .05);
+}
+html[data-skin="neu"] .set-h,
+html[data-skin="neu"] .kicker{ color:var(--faint) }
+html[data-skin="neu"] table th{ background:transparent; box-shadow:inset 0 -1px 0 rgb(var(--wash) / .06) }
+html[data-skin="neu"] .term,
+html[data-skin="neu"] .chart-box{ background:rgb(var(--s2)); box-shadow:var(--neu-in); border:0 }
+html[data-skin="neu"] .bar{ background:rgb(var(--s2)); box-shadow:var(--neu-in) }
+html[data-skin="neu"] .tabs button.on,
+html[data-skin="neu"] .lang-pills button.on{ box-shadow:var(--neu-in) }
+html[data-skin="neu"] .st-chip{ box-shadow:var(--neu-out-sm); border:0; background:rgb(var(--s3)) }
+html[data-skin="neu"] .st-chip[data-state="live"]{ background:var(--accent); box-shadow:var(--neu-out-sm) }
+html[data-skin="neu"] .st-chip[data-state="down"]{ background:rgb(var(--s3)); box-shadow:var(--neu-out-sm) }
+html[data-skin="neu"] input[type=range]::-webkit-slider-runnable-track{
+  background:rgb(var(--s2)); border:0; box-shadow:var(--neu-in);
+}
+/* On a light neumorphic page the dark shadow has to be a warm grey, not
+   black: black on #e3e7ee reads as soot rather than depth. */
+html[data-skin="neu"][data-theme="light"]{
+  --neu-light:rgb(255 255 255 / .9);
+  --neu-dark:rgb(163 172 190 / calc(.55 * var(--shadow-strength)));
+}
+
+/* ---- Claymorphism ------------------------------------------------------
+   Thick and inflated: a long soft drop, a bright inner top, a dark inner
+   bottom, and a radius large enough that nothing looks like a rectangle. */
+html[data-skin="clay"]{
+  --sat:120%;
+  --head-weight:600;
+  --head-track:.005em;
+  --surface-interactive:rgb(var(--wash) / .07);
+  --surface-hover:rgb(var(--wash) / .11);
+}
+html[data-skin="clay"] .card h3{ font-size:calc(var(--sk-head, 15px) * 1.05) }
+html[data-skin="clay"] .st-chip{ border:0; box-shadow:inset 0 -2px 4px rgb(var(--shadow-rgb) / .22) }
+html[data-skin="clay"] .switch{
+  border:0;
+  box-shadow:inset 0 3px 7px rgb(var(--shadow-rgb) / .35);
+  background:rgb(var(--s3));
+}
+html[data-skin="clay"] .switch.on{ background:rgb(var(--accent-rgb) / .4) }
+html[data-skin="clay"] .switch i{ box-shadow:0 2px 5px rgb(var(--shadow-rgb) / .4) }
+html[data-skin="clay"] .term,
+html[data-skin="clay"] .chart-box,
+html[data-skin="clay"] .bar{
+  background:rgb(var(--s3));
+  box-shadow:inset 0 3px 8px rgb(var(--shadow-rgb) / .3);
+  border:0;
+}
+html[data-skin="clay"] .tabs button.on{ box-shadow:inset 0 3px 6px rgb(var(--shadow-rgb) / .3) }
+html[data-skin="clay"][data-theme="light"]{
+  --clay-in:inset 0 -6px 12px rgb(148 130 180 / .28),
+            inset 0 8px 14px rgb(255 255 255 / .9);
+  --clay-out:0 16px 30px rgb(110 90 150 / calc(.22 * var(--shadow-strength)));
+}
+
+/* ---- Aurora ------------------------------------------------------------
+   Deep translucent panels over moving colour. The accent is allowed to be
+   present in the surface itself, which no other theme does. */
+html[data-skin="aurora"]{
+  --sat:150%;
+  --accent-edge:1.5;
+  --head-weight:500;
+  --head-track:.015em;
+}
+html[data-skin="aurora"] .card{
+  background:linear-gradient(160deg,
+            rgb(var(--s8) / var(--surface-alpha)),
+            rgb(var(--s3) / calc(var(--surface-alpha) * .9)));
+  box-shadow:var(--shadow-lg), inset 0 1px 0 rgb(var(--wash) / .1);
+}
+html[data-skin="aurora"] .card::after{
+  background:radial-gradient(120% 70% at 12% 0%, rgb(var(--accent-3-rgb) / .12), transparent 60%);
+  height:100%;
+}
+html[data-skin="aurora"] .nav{ background:rgb(var(--s2) / calc(var(--surface-alpha) * 1.25)) }
+
+/* ---- Cyber Neon --------------------------------------------------------
+   Everything is carried by the edge. The discipline that keeps it usable:
+   glow goes on borders and never behind text, and the body copy stays a cool
+   near-white rather than becoming another neon. */
+html[data-skin="cyber"]{
+  --sat:140%;
+  --accent-edge:2;
+  --head-weight:600;
+  --head-track:.05em;
+  --eyebrow-track:.2em;
+  --surface-interactive:rgb(var(--accent-rgb) / .06);
+  --surface-hover:rgb(var(--accent-rgb) / .12);
+}
+html[data-skin="cyber"] .card h3,
+html[data-skin="cyber"] .set-title{ text-transform:uppercase; font-size:13px }
+html[data-skin="cyber"] .mono{ letter-spacing:.02em }
+html[data-skin="cyber"] .top{
+  border-bottom:1px solid rgb(var(--accent-rgb) / .3);
+  box-shadow:0 1px 0 rgb(var(--accent-rgb) / .12);
+}
+html[data-skin="cyber"] .term{
+  background:rgb(var(--s1) / .85);
+  border-color:rgb(var(--accent-rgb) / .22);
+  box-shadow:inset 0 0 30px rgb(var(--accent-rgb) / .06);
+}
+html[data-skin="cyber"] .switch{ border-color:rgb(var(--accent-rgb) / .3) }
+html[data-skin="cyber"] .switch.on{ box-shadow:0 0 12px rgb(var(--accent-rgb) / .4) }
+html[data-skin="cyber"] .tabs button.on{ box-shadow:0 0 14px rgb(var(--accent-rgb) / .45) }
+html[data-skin="cyber"] table th{
+  background:rgb(var(--accent-rgb) / .08);
+  border-bottom:1px solid rgb(var(--accent-rgb) / .25);
+  text-transform:uppercase;
+  letter-spacing:.08em;
+  font-size:10.5px;
+}
+/* On a light page neon has nothing to glow against, so the style becomes
+   what it would be on paper: hard edges, saturated ink, no bloom. */
+html[data-skin="cyber"][data-theme="light"]{
+  --neon:0 0 0 1px rgb(var(--accent-rgb) / .45);
+}
+html[data-skin="cyber"][data-theme="light"] .btn{ box-shadow:none }
+html[data-skin="cyber"][data-theme="light"] .card:hover{
+  box-shadow:0 0 0 1px rgb(var(--accent-rgb) / .6), var(--shadow-sm);
+}
+
+/* ---- Minimal -----------------------------------------------------------
+   The hardest one to get right, because there is nothing to hide behind.
+   Everything is spacing, hairlines and one accent used sparingly. */
+html[data-skin="minimal"]{
+  --sat:100%;
+  --head-weight:600;
+  --head-track:0;
+  --eyebrow-track:.1em;
+  --surface-interactive:transparent;
+  --surface-hover:rgb(var(--wash) / .05);
+  --accent-edge:0;
+}
+html[data-skin="minimal"] .card::before{ display:none }
+html[data-skin="minimal"] .btn{ box-shadow:none }
+html[data-skin="minimal"] .btn.ghost{ background:transparent }
+html[data-skin="minimal"] .btn.ghost:hover{ background:var(--surface-hover) }
+html[data-skin="minimal"] .icon-btn{ background:transparent }
+html[data-skin="minimal"] table th{
+  background:transparent;
+  border-bottom:1px solid var(--border-2);
+  color:var(--muted);
+  text-transform:uppercase;
+  letter-spacing:.07em;
+  font-size:10.5px;
+}
+html[data-skin="minimal"] .nav button::after{ width:2px }
+html[data-skin="minimal"] .term{ background:rgb(var(--s2)) }
+
+/* ---- Midnight ----------------------------------------------------------
+   Nearly opaque, and the depth comes from stacking rather than from blur.
+   Built for a dark room and a long session, so the contrast is deliberately
+   a little softer than Liquid Glass. */
+html[data-skin="midnight"]{
+  --sat:115%;
+  --accent-edge:1.2;
+  --head-weight:500;
+  --head-track:.01em;
+}
+html[data-skin="midnight"] .card::after{
+  background:linear-gradient(180deg, rgb(var(--wash) / .05), transparent 70%);
+}
+html[data-skin="midnight"] .nav{ border-inline-end-color:rgb(var(--accent-rgb) / .14) }
+html[data-skin="midnight"] .term{ background:rgb(var(--s1) / .9) }
+
+/* ---- Ocean -------------------------------------------------------------
+   Light comes from below, the way it does underwater, so the gradient on a
+   panel runs the opposite way to every other theme. */
+html[data-skin="ocean"]{
+  --sat:140%;
+  --accent-edge:1.2;
+  --head-weight:500;
+  --head-track:.02em;
+}
+html[data-skin="ocean"] .card{
+  background:linear-gradient(0deg,
+            rgb(var(--s8) / var(--surface-alpha)),
+            rgb(var(--s4) / calc(var(--surface-alpha) * .82)));
+}
+html[data-skin="ocean"] .card::before{
+  background:linear-gradient(90deg, transparent,
+             rgb(var(--accent-rgb) / .5), rgb(var(--accent-3-rgb) / .3), transparent);
+}
+html[data-skin="ocean"] .nav{ background:rgb(var(--s3) / calc(var(--surface-alpha) * 1.15)) }
+
+/* ---- Sunset ------------------------------------------------------------
+   Warm, and warm all the way down: the muted text is a warm grey and the
+   hairline carries a little amber, or the panels read as dusty pink. */
+html[data-skin="sunset"]{
+  --sat:145%;
+  --accent-edge:1.3;
+  --head-weight:500;
+  --head-track:.015em;
+  --border-accent:rgb(var(--accent-rgb) / .38);
+}
+html[data-skin="sunset"] .card{
+  background:linear-gradient(200deg,
+            rgb(var(--s8) / var(--surface-alpha)),
+            rgb(var(--s3) / calc(var(--surface-alpha) * .88)));
+}
+html[data-skin="sunset"] .card::after{
+  background:radial-gradient(100% 60% at 100% 0%, rgb(var(--accent-rgb) / .1), transparent 60%);
+  height:100%;
+}
+
+/* ---- Monochrome --------------------------------------------------------
+   Grey only. With hue gone, every distinction has to be made by weight,
+   size, spacing and rule - which is why this is the only theme that changes
+   the type as much as it changes the surfaces. */
+html[data-skin="mono"]{
+  --sat:0%;
+  --accent-edge:0;
+  --head-weight:600;
+  --head-track:.01em;
+  --eyebrow-track:.18em;
+  --surface-interactive:rgb(var(--wash) / .04);
+  --surface-hover:rgb(var(--wash) / .08);
+  --glow-soft:none;
+}
+html[data-skin="mono"] .card::before{ display:none }
+html[data-skin="mono"] .btn{ box-shadow:none }
+html[data-skin="mono"] .btn:hover{ box-shadow:none; filter:brightness(1.08) }
+html[data-skin="mono"] table th{
+  background:transparent;
+  border-bottom:1px solid var(--border-2);
+  text-transform:uppercase;
+  letter-spacing:.1em;
+  font-size:10.5px;
+  color:var(--muted);
+}
+html[data-skin="mono"] .set-h{ color:var(--faint) }
+html[data-skin="mono"] .term{ background:rgb(var(--s2)) }
+/* Direction is the one thing that keeps its colour even here - a monochrome
+   desk still has to say green-up and red-down - so it is given a little more
+   weight instead, to hold its own against an otherwise grey page. */
+html[data-skin="mono"] .up,
+html[data-skin="mono"] .down,
+html[data-skin="mono"] .metric.up,
+html[data-skin="mono"] .metric.down{ font-weight:600 }
+
+/* ---- Custom ------------------------------------------------------------
+   No identity of its own on purpose: it is whatever the seven controls say,
+   starting from the Liquid Glass reference. */
+html[data-skin="custom"]{ --sat:130%; --head-weight:500 }
+
+
+/* ===========================================================================
+   5. Backdrops
+   ===========================================================================
+   The page behind the desk belongs to the theme. Two elements carry it: the
+   existing .aurora layer, which already crossfades between the light and dark
+   wallpapers, and #bg-fx, added for the themes that want something moving.
+
+   Everything here obeys three rules. It is drawn once and then only
+   transformed, so nothing repaints while it moves. It stops completely on the
+   cheap rendering tier, under prefers-reduced-motion, and when the motion knob
+   is off. And it never goes above about 20% opacity, because a backdrop that
+   competes with a price is a backdrop that has to go. */
+#bg-fx{
+  position:fixed; inset:0; z-index:0; pointer-events:none;
+  overflow:hidden;
+  contain:layout paint style;
+}
+#bg-fx b{
+  position:absolute; display:block; border-radius:50%;
+  filter:blur(60px);
+  opacity:0;
+  will-change:transform;
+  transition:opacity var(--dur-4) var(--ease-1);
+}
+html[data-bg="flat"] .aurora{
+  background:var(--bg);
+  animation:none;
+}
+html[data-bg="flat"] .aurora::before{ background:var(--bg) }
+html[data-bg="flat"] .aurora::after{ opacity:.12 }
+
+
+/* ---- grid: cyber -------------------------------------------------------
+   A perspective-free grid and one horizon glow. Background-position is not
+   animated: the grid is static and only the glow breathes, on opacity. */
+
+@keyframes bgPulse{ from{opacity:.08} to{opacity:.18} }
+
+/* ---- waves: ocean ------------------------------------------------------ */
+
+
+/* ---- dusk: sunset ------------------------------------------------------ */
+
+
+/* ---- layered: midnight -------------------------------------------------- */
+
+
+/* Cheap tier and reduced motion: the layers stay, the movement does not. */
+html[data-perf="fast"] #bg-fx b,
+html[data-motion="off"] #bg-fx b,
+html[data-motion="soft"] #bg-fx b{ animation:none !important }
+html[data-motion="off"] #bg-fx b{ opacity:.55 }
+
+/* ===========================================================================
+   6. Motion and micro-interaction
+   ===========================================================================
+   Every duration below is a multiple of the theme's motion knob, so the
+   Minimal theme is calmer than Clay for one reason and not twelve. Only
+   transform, opacity and filter are animated - nothing here can cause a
+   layout pass. */
+
+/* Page and panel entrances, retimed to the theme. */
+/* riseIn/leaveOut, not rise/leave: a running opacity animation kills
+   backdrop-filter on the pane and on everything inside it for as long
+   as it runs. These are the themed timings of the same movement. */
+html[data-skin] .stage.is-entering{ animation:riseIn calc(var(--dur-3) * 1.1) var(--ease-2) }
+html[data-skin] .stage.is-leaving{ animation:leaveOut var(--dur-1) var(--ease-1) both }
+html[data-skin] .stage .card{ animation:riseIn calc(var(--dur-3) * 1.3) var(--ease-2) both }
+
+/* The rail's selected marker slides between destinations instead of blinking
+   on under the new one. */
+html[data-skin] .nav button{
+  position:relative;
+  transition:background var(--dur-1) var(--ease-1), color var(--dur-1) var(--ease-1);
+}
+html[data-skin] .nav button::after{
+  content:""; position:absolute; inset-block:18%; inset-inline-start:0;
+  width:3px; border-radius:0 3px 3px 0;
+  background:var(--accent);
+  transform:scaleY(0);
+  transform-origin:center;
+  transition:transform var(--dur-2) var(--ease-spring);
+}
+html[data-skin] .nav button.on::after{ transform:scaleY(1) }
+html[dir="rtl"][data-skin] .nav button::after{ border-radius:3px 0 0 3px }
+
+/* The tab underline travels the same way. */
+html[data-skin] .tabs button{
+  transition:background var(--dur-1) var(--ease-1),
+             color var(--dur-1) var(--ease-1),
+             transform var(--dur-1) var(--ease-1);
+}
+html[data-skin] .tabs button:active{ transform:scale(var(--press)) }
+
+/* Dialogs and menus arrive, they do not appear. */
+html[data-skin] .modal-card{ animation:modalPop calc(var(--dur-2) * 1.2) var(--ease-2) }
+@keyframes modalPop{ from{opacity:0; transform:translateY(12px) scale(.97)} to{opacity:1; transform:none} }
+/* Transform only, no opacity.
+
+   Every one of these surfaces carries a backdrop-filter, and a running
+   opacity animation on such an element - or on any ancestor of it -
+   promotes it to a backdrop root, which makes the blur sample nothing
+   and the glass go flat for the length of the animation. The same
+   defect was fixed in the view transitions; a menu that fades is a menu
+   that opens as a dull grey card and only becomes glass once it has
+   finished. The slide alone reads as an opening. */
+html[data-skin] .dd-menu,
+html[data-skin] .sympick-pop{ animation:ddIn var(--dur-2) var(--ease-2) }
+@keyframes ddIn{ from{ transform:translateY(-6px) } to{ transform:none } }
+html[data-skin] .toast{ animation:toastIn calc(var(--dur-2) * 1.4) var(--ease-2) }
+html[data-skin] .notify-card{ animation:ddIn calc(var(--dur-2) * 1.3) var(--ease-2) }
+
+/* Copy and save confirmations. Added as a class by the desk; harmless if it
+   is never used, and the one honest way to say "that worked" without a toast
+   for every keystroke. */
+.fx-ok{ animation:fxOk calc(var(--dur-3) * 1.1) var(--ease-1) }
+@keyframes fxOk{
+  0%{ box-shadow:0 0 0 0 rgb(var(--accent-rgb) / .45) }
+  60%{ box-shadow:0 0 0 7px rgb(var(--accent-rgb) / 0) }
+  100%{ box-shadow:0 0 0 0 rgb(var(--accent-rgb) / 0) }
+}
+.fx-pulse{ animation:fxPulse var(--dur-3) var(--ease-spring) }
+@keyframes fxPulse{ 0%{transform:scale(1)} 45%{transform:scale(1.06)} 100%{transform:scale(1)} }
+
+/* Skeletons. The shimmer is a single translated gradient on one element, not
+   a repainting background-position. */
+.skeleton{
+  position:relative; overflow:hidden;
+  background:rgb(var(--wash) / .05);
+  border-radius:var(--radius-sm);
+  min-height:12px;
+}
+.skeleton::after{
+  content:""; position:absolute; inset:0;
+  background:linear-gradient(90deg, transparent, rgb(var(--wash) / .09), transparent);
+  transform:translateX(-100%);
+  animation:shimmer 1.4s linear infinite;
+}
+@keyframes shimmer{ to{ transform:translateX(100%) } }
+
+/* ===========================================================================
+   7. Access
+   ===========================================================================
+   The focus ring is not themed. It is the same two pixels of accent on every
+   theme, because the one thing a keyboard user cannot afford is a theme where
+   it is subtle. */
+html[data-skin] :focus-visible{
+  outline:2px solid var(--accent);
+  outline-offset:2px;
+}
+html[data-skin="mono"] :focus-visible,
+html[data-skin="minimal"] :focus-visible{ outline-color:var(--ink) }
+
+/* ...with one exception, and it is not a compromise on access.
+
+   A search box is a rounded shell with a borderless, square, edge-to-edge
+   input filling it. An outline drawn on the *input* is therefore a hard
+   rectangle sitting inside the shell's curve - and because text inputs
+   match :focus-visible on pointer focus as well as keyboard focus, it
+   appeared on every single click on every search box on the desk. The
+   shell carries the ring instead (.dsk-search:focus-within in app.css):
+   same accent, same always-on, but it follows the corner radius. */
+html[data-skin] .dsk-search-i:focus-visible,
+html[data-skin] .dsk-search > input:focus-visible{ outline:none }
+
+/* Motion off - by the theme's own knob or by the operating system - stops
+   everything decorative and keeps everything that communicates state. */
+html[data-motion="off"] *,
+html[data-motion="off"] *::before,
+html[data-motion="off"] *::after{
+  animation-duration:.001ms !important;
+  animation-iteration-count:1 !important;
+  transition-duration:.001ms !important;
+}
+@media (prefers-reduced-motion:reduce){
+  #bg-fx b{ animation:none !important }
+  html[data-skin] .stage .card,
+  html[data-skin] .stage.is-entering,
+  html[data-skin] .modal-card,
+  html[data-skin] .dd-menu,
+  html[data-skin] .sympick-pop,
+  html[data-skin] .toast{ animation:none !important }
+  .skeleton::after{ animation:none !important }
+}
+
+/* ---------------------------------------------------------------------------
+   Three things outrank the theme's own knobs, and all three are the user
+   telling us something about their machine or their body:
+
+     liquid glass off   no translucency, no blur, whatever the theme wanted
+     the cheap tier     the same, because blur is what costs
+     reduced motion     no movement, and the amplitude taken to zero at the
+                        source rather than animation by animation
+
+   They are heard because js/themes.js publishes the knobs as a rule of equal
+   weight that this file is loaded after - not as inline properties, which
+   nothing can override. */
+/* These three have to stay ABOVE anything the trader chose: "no
+   translucency" and "no movement" answer a capability or an accessibility
+   preference, not taste, so a colour or a knob must not be able to put
+   blur back. They carry four attributes because the trader's own rule now
+   carries three - see the note in themes.js publish().
+
+   Every attribute named here is one that the theme engine itself writes on
+   <html> in the same pass that publishes the trader's rule. That is the
+   whole point: an earlier version keyed on [data-theme], which looks just
+   as permanent but is written later, by app.js at boot. The rules then
+   matched nothing on the first paint and the desk came up black. Only
+   attributes set by apply() may appear here. */
+/* ---- the mobile sheet, in the two solid families ----------------------
+   Relief and Velvet are not glass themes, and the settings sheet was the
+   one surface still behaving like one: it is parented to the body, so it
+   escapes the panel rules above and was picking up the shared frosting.
+   On a material desk a translucent sheet reads as an unfinished panel,
+   not as depth. Both get a solid surface and their own edge instead, and
+   the backdrop-filter is removed outright rather than set to zero so
+   there is no compositor layer left behind it. */
+@media (max-width: 900px){
+  html[data-skin="neu"] .set-jump.is-sheet,
+  html[data-skin="neu"] .sj-bar{
+    background:rgb(var(--s3));
+    backdrop-filter:none;
+    -webkit-backdrop-filter:none;
+    border:0;
+    box-shadow:0 -10px 26px rgb(var(--shadow-rgb) / .3), var(--neu-out-sm);
+  }
+  html[data-skin="clay"] .set-jump.is-sheet,
+  html[data-skin="clay"] .sj-bar{
+    background:rgb(var(--s2));
+    backdrop-filter:none;
+    -webkit-backdrop-filter:none;
+    border:0;
+    box-shadow:0 -12px 30px rgb(var(--shadow-rgb) / .28), var(--clay-out);
+  }
+}
+
+html[data-glass="off"][data-skin][data-bg][data-motion][data-perf],
+html[data-perf="fast"][data-skin][data-bg][data-motion][data-perf]{
+  --surface-alpha:1;
+  --blur:0px;
+}
+@media (prefers-reduced-motion:reduce){
+  html[data-skin][data-bg][data-motion][data-perf]{ --motion-scale:0 }
+}
+
+/* Cheap tier: the same removal of blur app.css already does, restated for the
+   surfaces this file introduces. */
+html[data-perf="fast"] #bg-fx{ filter:none }
+html[data-perf="fast"] #bg-fx b{ filter:blur(40px) }
+
+/* ===========================================================================
+   8. The themes gallery
+   ===========================================================================
+   A colour name in a dropdown tells nobody what a theme does to their desk.
+   Each card is a miniature of the thing itself: a rail, a panel, a button and
+   a chip, drawn in that theme's own palette and its own material, whichever
+   theme happens to be active while you look at it. That independence is why
+   the previews are pure CSS keyed on [data-art] and share nothing with the
+   live token layer. */
+.theme-grid{
+  display:grid;
+  grid-template-columns:repeat(auto-fill, minmax(196px, 1fr));
+  gap:14px;
+  margin:2px 0 0;
+}
+.theme-card{
+  position:relative;
+  display:flex; flex-direction:column; gap:10px;
+  padding:10px 10px 12px;
+  text-align:start;
+  background:var(--surface-interactive);
+  border:1px solid var(--line);
+  border-radius:var(--radius-lg);
+  color:var(--ink);
+  overflow:hidden;
+  transition:transform var(--dur-2) var(--ease-1),
+             border-color var(--dur-2) var(--ease-1),
+             box-shadow var(--dur-2) var(--ease-1),
+             background var(--dur-2) var(--ease-1);
+}
+.theme-card:hover{
+  transform:translateY(calc(var(--lift) * 1.5));
+  border-color:var(--border-accent);
+  box-shadow:var(--shadow-md);
+}
+.theme-card:active{ transform:translateY(0) scale(var(--press)) }
+.theme-card.on{
+  border-color:rgb(var(--accent-rgb) / .65);
+  background:rgb(var(--accent-rgb) / .07);
+  box-shadow:0 0 0 1px rgb(var(--accent-rgb) / .35), var(--shadow-sm);
+}
+/* The selection indicator grows out of the corner rather than blinking on. */
+.tc-check{
+  position:absolute; top:10px; inset-inline-end:10px;
+  width:22px; height:22px; border-radius:50%;
+  display:grid; place-items:center;
+  background:var(--accent); color:var(--accent-ink);
+  transform:scale(0) rotate(-40deg); opacity:0;
+  transition:transform var(--dur-2) var(--ease-spring), opacity var(--dur-1) var(--ease-1);
+  pointer-events:none;
+  z-index:2;
+}
+.theme-card.on .tc-check{ transform:scale(1) rotate(0); opacity:1 }
+.tc-check svg{ width:13px; height:13px; stroke:currentColor; fill:none; stroke-width:2.6 }
+
+.tc-meta{ display:flex; flex-direction:column; gap:2px; padding:0 4px }
+.tc-name{ font-size:13px; font-weight:600; line-height:1.3 }
+.tc-desc{ font-size:11px; color:var(--muted); line-height:1.45 }
+
+/* ---- the miniature ---------------------------------------------------- */
+.tc-art{
+  --p-radius:8px;
+  position:relative;
+  display:flex; gap:6px;
+  height:92px; padding:8px;
+  border-radius:calc(var(--radius-lg) - 6px);
+  background:var(--p-bg);
+  overflow:hidden;
+  isolation:isolate;
+}
+.tc-art::before{
+  content:""; position:absolute; inset:0; z-index:0;
+  background:var(--p-glow, transparent);
+}
+.tc-rail{
+  position:relative; z-index:1;
+  width:22px; flex:none;
+  display:flex; flex-direction:column; gap:5px;
+  padding:5px 4px;
+  border-radius:calc(var(--p-radius) * .8);
+  background:var(--p-rail, var(--p-s));
+  box-shadow:var(--p-rail-shadow, none);
+}
+.tc-rail i{ display:block; height:4px; border-radius:2px; background:var(--p-mute) }
+.tc-rail i:first-child{ background:var(--p-accent) }
+.tc-body{ position:relative; z-index:1; flex:1; display:flex; flex-direction:column; gap:6px; min-width:0 }
+.tc-panel{
+  flex:1;
+  border-radius:var(--p-radius);
+  background:var(--p-s);
+  border:var(--p-border, 0);
+  box-shadow:var(--p-shadow, none);
+  padding:7px;
+  display:flex; flex-direction:column; gap:5px;
+}
+.tc-panel i{ display:block; height:4px; border-radius:2px; background:var(--p-mute) }
+.tc-panel i:first-child{ width:62%; background:var(--p-ink) }
+.tc-panel i:last-child{ width:40% }
+.tc-row{ display:flex; align-items:center; gap:5px }
+.tc-btn{
+  height:13px; width:34px; border-radius:calc(var(--p-radius) * .7);
+  background:var(--p-accent);
+  box-shadow:var(--p-btn-shadow, none);
+}
+.tc-pill{
+  height:13px; width:22px; border-radius:999px;
+  background:var(--p-s2);
+  border:var(--p-border, 0);
+  box-shadow:var(--p-shadow-sm, none);
+}
+.tc-dot{ width:9px; height:9px; border-radius:50%; background:var(--p-accent2, var(--p-accent)); opacity:.85 }
+
+/* The twelve miniatures.
+
+   Each one is built from the same palette the theme itself uses - page,
+   lowest panel, highest panel, ink, muted, accent - so a card cannot drift
+   from the thing it is advertising. After the palette comes the one trick
+   that makes the family readable at ninety pixels: dual shadows for
+   neumorphism, an inflated inner edge for clay, a lit hairline and a grid
+   for cyber, a hairline and nothing else for the flat pair. */
+.tc-art[data-art="glass"]{
+  --p-bg:#06070b; --p-s:rgba(22,26,38,.92); --p-s2:rgba(34,40,56,.85);
+  --p-ink:#e8edf7; --p-mute:#5b6274; --p-accent:#3ee0c4; --p-accent2:#7c6cff;
+  --p-border:1px solid rgba(255,255,255,.1);
+  --p-radius:8px;
+  --p-glow:radial-gradient(62% 72% at 8% -8%, rgba(124,108,255,.34), transparent 60%),
+           radial-gradient(58% 68% at 104% 16%, rgba(62,224,196,.2), transparent 60%);
+  --p-shadow:0 6px 16px rgba(0,0,0,.5);
+}
+.tc-art[data-art="frost"]{
+  --p-bg:#070c18; --p-s:rgba(255,255,255,.15); --p-s2:rgba(255,255,255,.1);
+  --p-ink:#eef4ff; --p-mute:#6d80a0; --p-accent:#a5f3fc; --p-accent2:#38bdf8;
+  --p-border:1px solid rgba(255,255,255,.3);
+  --p-radius:9px;
+  --p-glow:radial-gradient(52% 62% at 18% 6%, rgba(165,243,252,.34), transparent 62%),
+           radial-gradient(52% 62% at 92% 94%, rgba(56,189,248,.3), transparent 62%);
+  --p-shadow:0 6px 18px rgba(0,0,0,.35);
+  --p-rail:rgba(255,255,255,.08);
+}
+.tc-art[data-art="neu"]{
+  --p-bg:#1b1f27; --p-s:#1b1f27; --p-s2:#1b1f27;
+  --p-ink:#cfd6e2; --p-mute:#5b6270; --p-accent:#94a3b8;
+  --p-radius:10px;
+  --p-shadow:4px 4px 9px #12151b, -4px -4px 9px #242933;
+  --p-shadow-sm:2px 2px 5px #12151b, -2px -2px 5px #242933;
+  --p-rail:#1b1f27; --p-rail-shadow:3px 3px 8px #12151b, -3px -3px 8px #242933;
+  --p-btn-shadow:3px 3px 7px #12151b, -3px -3px 7px #242933;
+}
+.tc-art[data-art="clay"]{
+  --p-bg:#191325; --p-s:#3d2f5c; --p-s2:#4a3a6e;
+  --p-ink:#f4edff; --p-mute:#8b7eab; --p-accent:#c084fc;
+  --p-radius:14px;
+  --p-shadow:inset 0 -5px 8px rgba(0,0,0,.38), inset 0 5px 8px rgba(255,255,255,.12), 0 9px 18px rgba(0,0,0,.42);
+  --p-btn-shadow:inset 0 -3px 5px rgba(0,0,0,.3), inset 0 3px 5px rgba(255,255,255,.22);
+  --p-rail:#2a2040;
+}
+.tc-art[data-art="aurora"]{
+  --p-bg:#070919; --p-s:rgba(42,34,102,.8); --p-s2:rgba(60,48,134,.72);
+  --p-ink:#efecff; --p-mute:#7570aa; --p-accent:#8b7bff; --p-accent2:#3ee0c4;
+  --p-border:1px solid rgba(255,255,255,.15);
+  --p-radius:11px;
+  --p-glow:radial-gradient(58% 66% at -6% -6%, rgba(139,123,255,.6), transparent 62%),
+           radial-gradient(56% 64% at 106% 106%, rgba(62,224,196,.32), transparent 62%),
+           radial-gradient(46% 56% at 72% -8%, rgba(232,121,249,.3), transparent 62%);
+}
+.tc-art[data-art="cyber"]{
+  --p-bg:#030410; --p-s:rgba(16,24,58,.88); --p-s2:rgba(22,32,72,.88);
+  --p-ink:#d9f8ff; --p-mute:#4f708c; --p-accent:#e879f9; --p-accent2:#4cc9f0;
+  --p-border:1px solid rgba(232,121,249,.55);
+  --p-radius:3px;
+  --p-shadow:0 0 0 1px rgba(232,121,249,.3), 0 0 14px rgba(232,121,249,.32);
+  --p-btn-shadow:0 0 12px rgba(232,121,249,.65);
+  --p-rail:rgba(7,12,32,.9);
+}
+.tc-art[data-art="cyber"]::before{
+  background:
+    linear-gradient(rgba(232,121,249,.13) 1px, transparent 1px) 0 0/13px 13px,
+    linear-gradient(90deg, rgba(232,121,249,.13) 1px, transparent 1px) 0 0/13px 13px,
+    radial-gradient(72% 58% at 50% 112%, rgba(76,201,240,.34), transparent 65%);
+}
+.tc-art[data-art="minimal"]{
+  --p-bg:#0c0e13; --p-s:#171a21; --p-s2:#1e222a;
+  --p-ink:#eceef2; --p-mute:#5a5e68; --p-accent:#38bdf8;
+  --p-border:1px solid rgba(255,255,255,.14);
+  --p-radius:4px;
+  --p-rail:#13161c;
+}
+.tc-art[data-art="midnight"]{
+  --p-bg:#04060f; --p-s:#182148; --p-s2:#202a58;
+  --p-ink:#e8edff; --p-mute:#5d688f; --p-accent:#818cf8;
+  --p-radius:6px;
+  --p-glow:radial-gradient(74% 72% at 50% -14%, rgba(129,140,248,.32), transparent 66%);
+  --p-shadow:0 8px 18px rgba(0,0,0,.65);
+  --p-rail:#0a0f28;
+}
+.tc-art[data-art="ocean"]{
+  --p-bg:#020e16; --p-s:rgba(12,60,80,.9); --p-s2:rgba(18,78,102,.88);
+  --p-ink:#e2f7ff; --p-mute:#54808f; --p-accent:#4cc9f0; --p-accent2:#38bdf8;
+  --p-border:1px solid rgba(255,255,255,.13);
+  --p-radius:9px;
+  --p-glow:radial-gradient(86% 72% at 50% 122%, rgba(76,201,240,.44), transparent 66%);
+  --p-rail:rgba(5,35,48,.92);
+}
+.tc-art[data-art="sunset"]{
+  --p-bg:#16080d; --p-s:rgba(70,33,42,.92); --p-s2:rgba(92,45,54,.9);
+  --p-ink:#ffeee5; --p-mute:#8b6860; --p-accent:#fb923c; --p-accent2:#f43f5e;
+  --p-border:1px solid rgba(255,255,255,.13);
+  --p-radius:11px;
+  --p-glow:radial-gradient(62% 70% at 88% -6%, rgba(251,146,60,.48), transparent 62%),
+           radial-gradient(58% 66% at 6% 106%, rgba(244,63,94,.3), transparent 62%);
+  --p-rail:rgba(42,16,24,.92);
+}
+.tc-art[data-art="mono"]{
+  --p-bg:#09090a; --p-s:#212123; --p-s2:#2b2b2e;
+  --p-ink:#eeeef0; --p-mute:#5a5a62; --p-accent:#d4d4d8;
+  --p-border:1px solid rgba(255,255,255,.16);
+  --p-radius:2px;
+  --p-rail:#131314;
+}
+/* The custom miniature is the only one that is not fixed: the desk writes
+   the user's own accent, radius and surface strength onto it, so the card
+   shows the theme they built rather than the one it shipped with. */
+.tc-art[data-art="custom"]{
+  --p-bg:#06070b; --p-s:rgba(26,31,45,.9); --p-s2:rgba(40,47,66,.85);
+  --p-ink:#e8edf7; --p-mute:#5b6274; --p-accent:#3ee0c4;
+  --p-border:1px solid rgba(255,255,255,.12);
+  --p-radius:8px;
+  --p-shadow:0 6px 16px rgba(0,0,0,.5);
+}
+
+/* A light desk needs the previews lifted off the page, or twelve dark
+   rectangles sit on white like holes. */
+html[data-theme="light"] .tc-art{ box-shadow:inset 0 0 0 1px rgb(var(--wash) / .08) }
+
+/* ---- the custom theme's controls -------------------------------------- */
+.tc-custom{ margin-top:14px }
+.tc-custom[hidden]{ display:none }
+.knob-grid{
+  display:grid;
+  grid-template-columns:repeat(auto-fit, minmax(210px, 1fr));
+  gap:12px 18px;
+  margin-top:10px;
+}
+.knob{ display:flex; flex-direction:column; gap:4px }
+.knob-head{ display:flex; align-items:baseline; justify-content:space-between; gap:10px }
+.knob-head span{ font-size:12px; color:var(--muted) }
+.knob-head b{ font-size:12px; font-weight:600; font-variant-numeric:tabular-nums; color:var(--ink) }
+.knob input[type=range]{ width:100% }
+.knob-note{ font-size:11px; color:var(--faint); margin:0 }
+
+/* ---- responsive --------------------------------------------------------
+   Phones get two columns rather than one: a theme is chosen by comparison,
+   and a single column turns that into scrolling and memory. */
+@media (max-width:900px){
+  .theme-grid{ grid-template-columns:repeat(auto-fill, minmax(150px, 1fr)); gap:10px }
+  .tc-art{ height:76px }
+}
+@media (max-width:560px){
+  .theme-grid{ grid-template-columns:repeat(2, minmax(0, 1fr)) }
+  .tc-art{ height:68px; padding:6px }
+  .tc-desc{ display:none }
+  .knob-grid{ grid-template-columns:1fr }
+}
+
+/* ===========================================================================
+   9. The surfaces that were painted in black
+   ===========================================================================
+   A handful of panels were drawn with a literal rgba(0,0,0,…) wash. On the
+   dark desk that reads as depth; on Minimal, Monochrome or any light page it
+   reads as a hole. They are restated here in terms of the theme's own page
+   colour, which is the whole point of the token layer. */
+html[data-skin] .chart-box{
+  background:rgb(var(--s1) / .45);
+  border-radius:var(--radius-md);
+}
+html[data-skin] .term{
+  background:rgb(var(--s1) / .55);
+  border:1px solid var(--line);
+  border-radius:var(--radius-md);
+}
+html[data-skin] .chart-box .empty{ background:rgb(var(--s1) / .5) }
+html[data-skin] .bar{ background:rgb(var(--wash) / .07); border-radius:var(--radius-pill) }
+html[data-skin] .bar > i{ background:linear-gradient(90deg, var(--accent), var(--accent-3)) }
+html[data-skin] .wizard .step{
+  border:1px solid var(--line);
+  border-radius:var(--radius-md);
+  background:var(--surface-interactive);
+  transition:border-color var(--dur-2) var(--ease-1), background var(--dur-2) var(--ease-1);
+}
+html[data-skin] .wizard .step:hover{ background:var(--surface-hover); border-color:var(--border-accent) }
+html[data-skin] .cal-tip{ border-radius:var(--radius-md) }
+html[data-skin] .cal-cell{ border-radius:var(--radius-sm) }
+html[data-skin] .secret-box,
+html[data-skin] .keybox{ border-radius:var(--radius-md) }
+/* Radius only: .plan-card.popular tints itself with the accent, and a
+   blanket background here would have quietly removed that. */
+html[data-skin] .plan-card{ border-radius:var(--radius-lg) }
+html[data-skin] .notify-stack .notify-card{ border-radius:var(--radius-md) }
+html[data-skin] .pfx-ava{ border-radius:var(--radius-lg) }
+
+/* Native controls that are not switches still exist in forms, and an
+   unstyled checkbox in a themed dialog is the one thing that gives a skin
+   away as paint. */
+html[data-skin] input[type=checkbox],
+html[data-skin] input[type=radio],
+html[data-skin] progress{ accent-color:var(--accent) }
+
+/* And a skin dresses text fields ONLY.
+
+   The skins above all style `.field input` wholesale. That is right for a
+   text box and wrong for everything else that can sit inside a .field -
+   and the allowed-symbols picker puts a whole list of checkboxes and a
+   search box inside one. On Neo the rule handed each 13px native checkbox
+   `box-shadow: inset 4px 4px 9px dark, inset -4px -4px 9px light`, which
+   renders as a pair of soft squares above and below the tick; Clay did the
+   same with its single inset. Hence "extra squares around the symbol
+   checkboxes". The native control, tinted by accent-color, is already
+   themed; it does not want a surface. The search input does not want one
+   either, because its shell is the surface.
+
+   Listed after every skin so it wins on order as well as on specificity -
+   each selector here carries one more attribute than the [data-skin="x"]
+   rules it has to beat. */
+html[data-skin] .field input[type="checkbox"],
+html[data-skin] .field input[type="radio"],
+html[data-skin] .field input[type="range"],
+html[data-skin] .field input[type="color"],
+html[data-skin] .field input[type="hidden"],
+html[data-skin] .field .dsk-search-i,
+html[data-skin] .field .dsk-search > input{
+  background:none;
+  border:0;
+  box-shadow:none;
+}
+
+/* ...and the same again for the focused state, which this block did not
+   cover and which is where it actually showed.
+
+   `html[data-skin] .field input:focus` up at the top of this file is
+   (0,3,2) and so outranked the (0,3,1) reset above the moment the box
+   was clicked. It paints three things on the inner input: a
+   `background:var(--field-hi)`, a `border-color`, and
+   `box-shadow:0 0 0 4px rgb(var(--accent-rgb) / .14)`. The input is
+   edge-to-edge inside the shell and `border-radius:0`, so what the eye
+   got was a hard-cornered filled rectangle laid over the shell with a
+   4px accent halo around it - a box drawn inside a box, visible on
+   every click, on whatever colour the skin's accent happens to be.
+
+   The resting reset without a focus twin is half a reset. The shell
+   owns this control's box in every state: .dsk-search:focus-within in
+   app.css draws the ring, on the shell, following its corner radius. */
+html[data-skin] .field .dsk-search-i:focus,
+html[data-skin] .field .dsk-search-i:focus-visible,
+html[data-skin] .field .dsk-search > input:focus,
+html[data-skin] .field .dsk-search > input:focus-visible{
+  background:none;
+  border:0;
+  box-shadow:none;
+  outline:none;
+}
+
+/* The empty state's orb is the only decorative animation on a data page. It
+   keeps its float, at the theme's own amplitude, and stops with everything
+   else when motion is off. */
+html[data-skin] .empty .orb{ animation-duration:calc(5s / max(var(--motion-scale), .2)) }
+html[data-motion="off"] .empty .orb{ animation:none }
+
+/* ===========================================================================
+   10. The states that have to outlive the theme
+   ===========================================================================
+   A themed *resting* appearance is written with one more attribute in the
+   selector than the state rules it sits next to, which means it silently
+   outranks them. That is how "Engine online" lost its fill: not a colour
+   mistake, a specificity one.
+
+   Everything a user reads as "this one is selected / this one is live /
+   this one is dangerous" is therefore restated here, at the same weight as
+   the themed surface it has to beat. If a new themed component is added
+   above, its states belong here. */
+
+/* The rail's selected destination keeps its accent wash, and keeps it while
+   the pointer is over it - a selected item that reverts on hover reads as
+   though the selection is about to move. */
+html[data-skin] .nav button.on,
+html[data-skin] .nav button.on:hover{
+  background:linear-gradient(180deg, rgb(var(--accent-rgb) / .16), rgb(var(--accent-rgb) / .06));
+  border-color:rgb(var(--accent-rgb) / .28);
+  color:var(--accent-readable, var(--ink));
+  transform:none;
+}
+
+/* Chart tool buttons mark their active tool with the gold edge, ghost or not. */
+html[data-skin] .ct-actions .btn.on,
+html[data-skin] .draw-tools .btn.on,
+html[data-skin] .draw-tools .icon-btn.on{
+  border-color:var(--gold);
+  color:var(--gold);
+}
+
+/* Plan cards: selected, and the one being pushed. */
+html[data-skin] .plan-card.on{
+  border-color:rgb(var(--accent-rgb) / .55);
+  box-shadow:0 0 0 1px rgb(var(--accent-rgb) / .28), var(--shadow-md);
+}
+html[data-skin] .plan-card.popular{
+  background:linear-gradient(180deg, rgb(var(--accent-rgb) / .12), rgb(var(--s4) / .82));
+}
+
+/* "Enabled" on a strategy card, and the same filled pill wherever it means
+   "this one is on". A themed .pill rule carries one more attribute than
+   .st-live .pill.on does, so under Relief the fill was being replaced by
+   the resting surface and under Cyber the transparent edge came back as neon:
+   the state was correct in the DOM and invisible on the screen.
+
+   The ink is the measured one rather than the fixed near-black app.css used,
+   because an accent can be dark - indigo and violet were putting dark text on
+   a dark fill. */
+html[data-skin] .st-live .pill.on,
+html[data-skin] .gate-card .pill.on{
+  background:var(--accent);
+  color:var(--accent-ink, var(--on-accent));
+  border-color:transparent;
+  box-shadow:none;
+}
+html[data-skin] .gate-card .pill.ok{
+  background:transparent;
+  border:1px solid rgb(var(--accent-rgb) / .35);
+  color:var(--accent-readable, var(--accent));
+  box-shadow:none;
+}
+html[data-skin] .gate-card .pill.no{
+  background:transparent;
+  border:1px solid rgb(255 107 138 / .35);
+  color:var(--rose);
+  box-shadow:none;
+}
+
+/* ===========================================================================
+   11. The last details
+   ===========================================================================
+   The things that are only noticed when they are wrong. */
+
+/* The scrim behind the mobile rail was a fixed black. On a light theme that
+   is a black sheet over a white page; it should be the theme's own page
+   colour, dimmed. */
+html[data-skin] .nav-scrim,
+html[data-skin] .pay-veil{ background:rgb(var(--s1) / .58) }
+html[data-skin][data-theme="light"] .nav-scrim,
+html[data-skin][data-theme="light"] .pay-veil{ background:rgb(var(--wash) / .34) }
+
+/* A backdrop tuned for a dark page is too loud on a light one: the same
+   blobs at the same opacity turn a white desk into a poster. */
+html[data-theme="light"] #bg-fx b{ opacity:.55 }
+
+/* Cyber and Monochrome want their own scrollbar: one because everything
+   else on the page is lit, the other because nothing is. */
+html[data-skin="cyber"]{ --scroll-thumb:rgb(var(--accent-rgb) / .35) }
+html[data-skin="mono"]{ --scroll-thumb:rgb(var(--wash) / .22) }
+
+/* ---- the gallery, finished -------------------------------------------- */
+/* A card the keyboard has landed on has to be as obvious as one the pointer
+   is over, and the ring alone is not enough at this size. */
+.theme-card:focus-visible{
+  border-color:rgb(var(--accent-rgb) / .6);
+  box-shadow:var(--shadow-md);
+}
+/* The miniature lifts very slightly out of its card on hover - the same
+   gesture the real cards make, at a third of the distance. */
+.theme-card .tc-art{
+  transform:scale(1);
+  transition:transform var(--dur-3) var(--ease-2), box-shadow var(--dur-2) var(--ease-1);
+}
+.theme-card:hover .tc-art{ transform:scale(1.02) }
+.theme-card.on .tc-art{ box-shadow:0 0 0 1px rgb(var(--accent-rgb) / .45) }
+/* One slow sweep of light across the selected card, once, when it is chosen.
+   It marks the choice and then gets out of the way. */
+.theme-card.on::after{
+  content:"";
+  position:absolute; inset:0;
+  background:linear-gradient(115deg, transparent 30%, rgb(var(--accent-rgb) / .16) 50%, transparent 70%);
+  transform:translateX(-120%);
+  animation:tcSweep .75s var(--ease-2) 1;
+  pointer-events:none;
+}
+@keyframes tcSweep{ to{ transform:translateX(120%) } }
+html[data-motion="off"] .theme-card.on::after{ animation:none; opacity:0 }
+@media (prefers-reduced-motion:reduce){
+  .theme-card.on::after{ animation:none; opacity:0 }
+  .theme-card:hover .tc-art{ transform:none }
+}
+
+/* The custom panel arrives when Custom is chosen rather than appearing. */
+.tc-custom{ animation:ddIn var(--dur-3) var(--ease-2) }
+
+/* Knob sliders are the only place in the desk where a number is dragged, so
+   the readout is given the accent while it is being changed. */
+.knob:focus-within .knob-head b,
+.knob:hover .knob-head b{ color:var(--accent-readable, var(--accent)) }
+
+/* ===========================================================================
+   12. What premium looks like
+   ===========================================================================
+   Eleven of the twelve materials, the custom builder and the accent row are
+   part of a key. The rule followed here is that a locked thing is shown, not
+   hidden: the preview is the whole argument for buying it, so the miniature
+   keeps its colours and its animation, and only the card around it says no.
+
+   What marks the lock is deliberately quiet - a desaturated frame, a small
+   padlock, a cursor that will not promise a selection. Nothing is greyed into
+   illegibility and nothing is covered up.
+   =========================================================================== */
+
+/* .sr-only moved to app.css. It is a base utility that the themes sheet
+   happened to be the first to need; leaving it here meant a rule every
+   view depends on was only loaded because the theme gallery exists. */
+
+/* ---- the note above the grid --------------------------------------------- */
+.theme-locked-note{
+  display:flex; align-items:center; gap:12px;
+  margin:0 0 12px; padding:10px 12px;
+  background:var(--surface-2);
+  border:1px solid var(--line);
+  border-inline-start:2px solid var(--accent);
+  border-radius:calc(var(--radius-lg) * .6);
+}
+.theme-locked-note .tl-ico{
+  flex:0 0 auto; display:grid; place-items:center;
+  width:30px; height:30px; border-radius:50%;
+  background:color-mix(in srgb, var(--accent) 16%, transparent);
+  color:var(--accent-readable, var(--accent));
+}
+.theme-locked-note .tl-ico svg{ width:16px; height:16px }
+.theme-locked-note .tl-text{ display:flex; flex-direction:column; gap:2px; min-width:0; flex:1 1 auto }
+.theme-locked-note .tl-text b{ font-size:13px; letter-spacing:var(--head-track, 0) }
+.theme-locked-note .tl-text .sub{ margin:0; font-size:12px }
+.theme-locked-note .btn{ flex:0 0 auto }
+
+/* ---- a locked card -------------------------------------------------------- */
+.theme-card.is-locked{ cursor:not-allowed }
+/* The frame reads as unavailable; the miniature inside it does not, because
+   the miniature is the product. */
+.theme-card.is-locked .tc-meta{ opacity:.72 }
+.theme-card.is-locked .tc-art{ filter:saturate(.88) }
+.theme-card.is-locked:hover .tc-art{ filter:none }
+.theme-card.is-locked:hover{ transform:none }
+.theme-card.is-locked:hover .tc-art{ transform:none }
+
+.tc-lock{
+  position:absolute; inset-block-start:8px; inset-inline-end:8px;
+  display:grid; place-items:center;
+  width:22px; height:22px; border-radius:50%;
+  background:rgb(var(--s1) / .62);
+  border:1px solid var(--line);
+  color:var(--muted);
+  backdrop-filter:blur(calc(var(--blur, 18px) * 6 / 18));
+  transition:color var(--dur-2) var(--ease-1), border-color var(--dur-2) var(--ease-1);
+}
+.tc-lock svg{ width:12px; height:12px }
+.theme-card.is-locked:hover .tc-lock,
+.theme-card.is-locked:focus-visible .tc-lock{
+  color:var(--accent-readable, var(--accent));
+  border-color:color-mix(in srgb, var(--accent) 45%, var(--line));
+}
+/* The tick and the padlock can never both be true, but the selected card is
+   painted by class and the lock by licence, so this says it outright. */
+.theme-card.is-locked .tc-check{ display:none }
+html[data-perf="fast"] .tc-lock{ background:rgb(var(--s1) / .9) }
+
+/* ---- a locked accent row -------------------------------------------------- */
+.accent-row.is-locked .accent-dot{ cursor:not-allowed; opacity:.5 }
+.accent-row.is-locked .accent-dot:hover{ transform:scale(1.04); opacity:.72 }
+.accent-row.is-locked .accent-dot.on{ opacity:1; transform:scale(1.1) }
+
+/* ===========================================================================
+   13. A photograph for every theme
+   ===========================================================================
+   Each material now has a backdrop made for it, in both modes: twenty images,
+   one per theme per mode, sitting behind the desk.
+
+   Liquid Glass is the exception and keeps the orb wallpaper it shipped with -
+   that image *is* the product's identity, and replacing it would be changing
+   the default look rather than extending it.
+
+   Two things, now that the damping is gone:
+
+     1. The image is shown as it is. No opacity, no scrim, no filter - what
+        is in the file is what is on the screen. Everything the desk draws
+        on top carries its own surface, so the contrast that matters is
+        between text and its panel, not between text and the wallpaper.
+     2. It is static, and it is layered over the animated blobs so a theme
+        with both reads as one backdrop rather than two competing ones.
+        No parallax, no ken-burns, nothing that repaints.
+
+   Adding the rest is one line each: drop the file in assets/bg and name it.
+   =========================================================================== */
+
+#bg-fx::before{
+  content:"";
+  position:absolute;
+  inset:0;
+  pointer-events:none;
+  z-index:1;
+  background-image:var(--theme-bg, none);
+  background-size:cover;
+  background-position:center;
+  background-repeat:no-repeat;
+  /* Full strength, with nothing drawn over it.
+     There used to be a scrim here and a per-theme opacity under it, both
+     sized by measuring text contrast against the brightest part of every
+     photograph. Both are gone on purpose: a backdrop shown at half
+     strength under a wash of the page colour is not the backdrop anybody
+     chose. Legibility now rests where it belongs - on the panels, which
+     carry their own surface fill - instead of on spoiling the picture
+     behind them. */
+  opacity:1;
+}
+
+/* ---- the images -------------------------------------------------------- */
+
+/* The opacity is not a taste decision. For every image the second-brightest
+   region of the photograph is blended at the value below, the scrim is
+   applied over it, and the theme's own ink and secondary text are measured
+   against the result - the worst case there is, text sitting straight on the
+   wallpaper with no panel under it.
+
+   Every number is the largest that still clears 7:1 for body text and 4.5:1
+   for secondary. The light modes are far higher than they were: a pale
+   photograph damages contrast very little, so holding them all at a flat 34%
+   was throwing away the picture for nothing.
+
+   Two exceptions are deliberate rather than measured. Minimal and Monochrome
+   are capped at roughly half what they could carry, because restraint is the
+   whole of those two themes. */
+
+/* AURION's own backdrop.
+
+   The other ten themes name a file in assets/bg. AURION's is the orb the
+   desk and the sign-in screen have always been painted with, which lives
+   beside the other artwork rather than in the gallery folder - and because
+   this rule did not exist, resetting the theme left it with no --theme-bg
+   at all. The gallery offered the picture, the tile showed it, and choosing
+   "the theme's own" produced nothing. */
+html[data-skin="glass"]{
+  --theme-bg:url("../assets/login-orb.png");
+}
+html[data-skin="glass"][data-theme="light"]{
+  --theme-bg:url("../assets/login-orb-light.png");
+}
+
+html[data-skin="frost"]{
+  --theme-bg:url("../assets/bg/frost-dark.jpg");
+}
+html[data-skin="frost"][data-theme="light"]{
+  --theme-bg:url("../assets/bg/frost-light.jpg");
+}
+
+html[data-skin="neu"]{
+  --theme-bg:url("../assets/bg/neu-dark.jpg");
+}
+html[data-skin="neu"][data-theme="light"]{
+  --theme-bg:url("../assets/bg/neu-light.jpg");
+}
+
+html[data-skin="clay"]{
+  --theme-bg:url("../assets/bg/clay-dark.jpg");
+}
+html[data-skin="clay"][data-theme="light"]{
+  --theme-bg:url("../assets/bg/clay-light.jpg");
+}
+
+html[data-skin="aurora"]{
+  --theme-bg:url("../assets/bg/aurora-dark.jpg");
+}
+html[data-skin="aurora"][data-theme="light"]{
+  --theme-bg:url("../assets/bg/aurora-light.jpg");
+}
+
+html[data-skin="cyber"]{
+  --theme-bg:url("../assets/bg/cyber-dark.jpg");
+}
+html[data-skin="cyber"][data-theme="light"]{
+  --theme-bg:url("../assets/bg/cyber-light.jpg");
+}
+
+html[data-skin="midnight"]{
+  --theme-bg:url("../assets/bg/midnight-dark.jpg");
+}
+html[data-skin="midnight"][data-theme="light"]{
+  --theme-bg:url("../assets/bg/midnight-light.jpg");
+}
+
+html[data-skin="ocean"]{
+  --theme-bg:url("../assets/bg/ocean-dark.jpg");
+}
+html[data-skin="ocean"][data-theme="light"]{
+  --theme-bg:url("../assets/bg/ocean-light.jpg");
+}
+
+html[data-skin="sunset"]{
+  --theme-bg:url("../assets/bg/sunset-dark.jpg");
+}
+html[data-skin="sunset"][data-theme="light"]{
+  --theme-bg:url("../assets/bg/sunset-light.jpg");
+}
+
+html[data-skin="minimal"]{
+  --theme-bg:url("../assets/bg/minimal-dark.jpg");
+}
+html[data-skin="minimal"][data-theme="light"]{
+  --theme-bg:url("../assets/bg/minimal-light.jpg");
+}
+
+html[data-skin="mono"]{
+  --theme-bg:url("../assets/bg/mono-dark.jpg");
+}
+html[data-skin="mono"][data-theme="light"]{
+  --theme-bg:url("../assets/bg/mono-light.jpg");
+}
+
+/* ---- the two cases where it still steps aside ------------------------- */
+
+/* The custom theme's "no backdrop" choice means no backdrop. */
+
+
+/* ===========================================================================
+   The trader's own background picture.
+
+   Chosen in Settings -> Theme and stored on this machine as a data URL;
+   themes.js hands it over as --bg-photo and nothing else. It is painted on
+   the same .aurora element every other backdrop uses, so it inherits the
+   fixed, behind-everything placement already proven there, and it works with
+   any theme - glass, neumorphism, cyber - because it only replaces what is
+   *behind* the panels.
+
+   The scrim matters: a bright holiday photo behind translucent panels makes
+   white text unreadable. --bg-photo-dim is a user-controlled black veil over
+   the picture, which keeps contrast in the trader's hands instead of
+   forbidding light pictures.
+   =========================================================================== */
+html[data-bg="photo"] .aurora{ opacity:1 }
+html[data-bg="photo"] .aurora::before{
+  /* The focus point and the fit are the trader's, not ours.
+     "cover, centred" is the right default and the wrong only option: the
+     subject of a photograph is rarely in the middle, and a desk is a much
+     wider frame than the phone that took it, so centring crops exactly
+     the part someone chose the picture for.
+     Zoom is a transform on the layer rather than a background-size,
+     because a size in percent stops meaning "cover" as soon as the two
+     aspect ratios disagree and letterboxes the picture instead. The focus
+     point doubles as the transform origin, so zooming in stays on the
+     chosen spot rather than drifting back to the centre. */
+  background:var(--bg-photo, none)
+             var(--bg-photo-x, 50%) var(--bg-photo-y, 50%)
+             / var(--bg-photo-fit, cover) no-repeat fixed,
+             var(--bg);
+  transform:scale(var(--bg-photo-zoom, 1));
+  transform-origin:var(--bg-photo-x, 50%) var(--bg-photo-y, 50%);
+  filter:none;
+  opacity:1;
+}
+/* "contain" leaves bare page behind the picture; paint it so the edges are
+   the page colour rather than whatever happens to be underneath. */
+html[data-bg="photo"] .aurora{ background:var(--bg) }
+html[data-bg="photo"] .aurora::after{
+  content:"";
+  position:fixed; inset:0;
+  background:#000;
+  opacity:var(--bg-photo-dim, .45);
+  filter:none;
+  animation:none;
+}
+/* Fixed attachment is a known scrolling cost on phones; there the picture
+   simply scrolls with the page. */
+@media (max-width:760px){
+  html[data-bg="photo"] .aurora::before{
+    background-attachment:scroll;
+  }
+}
+
+/* ===========================================================================
+   Backdrop effects.
+
+   Applied to the backdrop layer itself rather than to each of the ten
+   backdrops, so one declaration covers the lot: the desk-drawn gradients,
+   the aurora, the grid and the trader's own picture all take the same
+   effect. A trader who likes the aurora but finds it loud can calm it
+   instead of abandoning it.
+
+   It goes on .aurora rather than on .aurora::before so that the flat colour
+   and the trader's own photograph are filtered as one picture rather than
+   half of one. The element is fixed and behind everything, so filtering it
+   costs one composited layer and never touches the panels or the text.
+
+   The shipped wallpapers are NOT on .aurora. They are painted by
+   #bg-fx::before, a different element entirely, which is why choosing an
+   effect appeared to do nothing on any of the twenty pictures: the filter
+   was being applied to a layer the wallpaper was covering. Both layers
+   carry it now.
+   =========================================================================== */
+.aurora{ filter:var(--bg-fx, none) }
+#bg-fx::before{ filter:var(--bg-fx, none) }
+
+/* The photo backdrop already sets filter:none on its own layers so the
+   picture is shown as it is; the effect still arrives from the parent. */
+
+
+
+/* ===========================================================================
+   The desk's own colour picker.
+
+   It is a popover rather than a modal on purpose: recolouring is judged
+   against real content, so the page behind has to stay visible and live.
+   Fixed positioning keeps it put while the settings panel scrolls.
+   =========================================================================== */
+.cp-pop{
+  position:fixed; z-index:6000; width:248px;
+  display:flex; flex-direction:column; gap:10px;
+  padding:12px;
+  background:rgb(var(--s6));
+  border:1px solid rgb(var(--wash) / .14);
+  border-radius:var(--r-3, 14px);
+  box-shadow:0 18px 48px rgb(0 0 0 / .42);
+  color:var(--ink);
+}
+.cp-head{ display:flex; align-items:center; gap:8px }
+.cp-head b{ flex:1; font-size:13px; font-weight:650 }
+.cp-x{
+  width:24px; height:24px; line-height:1; font-size:17px;
+  background:none; border:0; border-radius:8px; color:var(--muted); cursor:pointer;
+}
+.cp-x:hover{ background:rgb(var(--wash) / .10); color:var(--ink) }
+
+.cp-sv{
+  position:relative; height:132px; border-radius:10px; cursor:crosshair;
+  touch-action:none;                      /* or a finger scrolls the panel */
+}
+.cp-hue{
+  position:relative; height:14px; border-radius:7px; cursor:ew-resize;
+  touch-action:none;
+  background:linear-gradient(to right,#f00,#ff0,#0f0,#0ff,#00f,#f0f,#f00);
+}
+.cp-sv i, .cp-hue i{
+  position:absolute; width:14px; height:14px; border-radius:50%;
+  border:2px solid #fff; box-shadow:0 0 0 1px rgb(0 0 0 / .45);
+  transform:translate(-50%,-50%); pointer-events:none;
+}
+.cp-hue i{ top:50% }
+
+
+.cp-foot{ display:flex; align-items:center; gap:8px }
+.cp-prev{
+  width:32px; height:28px; border-radius:8px; flex:none;
+  border:1px solid rgb(var(--wash) / .16);
+}
+.cp-hex{
+  flex:1; min-width:0; padding:6px 8px;
+  font:500 12px/1 var(--mono, ui-monospace, monospace);
+  text-transform:lowercase;
+  background:var(--field); color:var(--ink);
+  border:1px solid rgb(var(--wash) / .14); border-radius:8px;
+}
+.cp-swatches{ display:grid; grid-template-columns:repeat(6,1fr); gap:6px }
+.cp-sw{
+  height:20px; cursor:pointer;
+  border:1px solid rgb(var(--wash) / .14); border-radius:6px;
+}
+.cp-sw:hover{ transform:scale(1.08) }
+
+/* The swatch that opens it, in the settings rows. */
+.col-swatch{
+  width:44px; height:28px; flex:none; cursor:pointer; padding:0;
+  border:1px solid rgb(var(--wash) / .18); border-radius:9px;
+}
+.col-swatch:hover{ border-color:var(--accent) }
+
+/* ---------------------------------------------------------------------------
+   Framing the trader's picture.
+   The stage carries the desk's proportions, so what is framed here is what
+   lands behind the panels.
+   --------------------------------------------------------------------------- */
+.bgpic-framehint{ margin:10px 0 6px }
+.bgpic-stage{
+  position:relative; aspect-ratio:16/9; overflow:hidden;
+  border:1px solid rgb(var(--wash) / .14); border-radius:12px;
+  background:var(--bg2); cursor:grab; touch-action:none;
+}
+.bgpic-stage.dragging{ cursor:grabbing }
+.bgpic-stage:focus-visible{ outline:2px solid var(--accent); outline-offset:2px }
+.bgpic-img{ position:absolute; inset:0; background-repeat:no-repeat }
+/* A rule-of-thirds guide, so the drag has something to aim at. */
+.bgpic-stage::after{
+  content:""; position:absolute; inset:0; pointer-events:none;
+  background:
+    linear-gradient(to right, transparent 33.3%, rgb(255 255 255 / .18) 33.3% 33.5%,
+      transparent 33.5% 66.6%, rgb(255 255 255 / .18) 66.6% 66.8%, transparent 66.8%),
+    linear-gradient(to bottom, transparent 33.3%, rgb(255 255 255 / .18) 33.3% 33.5%,
+      transparent 33.5% 66.6%, rgb(255 255 255 / .18) 66.6% 66.8%, transparent 66.8%);
+  opacity:0; transition:opacity var(--dur-2, .18s) ease;
+}
+.bgpic-stage:hover::after, .bgpic-stage.dragging::after, .bgpic-stage:focus-visible::after{ opacity:1 }
+.bgpic-fit{ display:flex; align-items:center; gap:6px; margin:10px 0 2px }
+.bgpic-fit .grow{ flex:1 }
+.bgpic-fit .btn.on{ border-color:var(--accent); color:var(--ink) }
+
+.wall-art{ position:relative }
+
+/* A tile name now carries its cut - "Aurora Dark" - so it is longer than a
+   bare scene name and must not be clipped mid-word. */
+.wall-tile .bgt-name{
+  display:block; text-align:center;
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+}
+
+/* When a wallpaper cannot be loaded, say so.
+   The failure used to be completely silent: the picture simply never
+   appeared, which is indistinguishable from the feature being broken. */
+.wall-warn{
+  display:flex; flex-direction:column; gap:2px;
+  margin:10px 0 0; padding:8px 10px;
+  border:1px solid rgb(var(--warn-rgb, 240 180 90) / .35);
+  border-radius:10px;
+  background:rgb(var(--warn-rgb, 240 180 90) / .10);
+  font-size:12px; color:var(--ink);
+}
+.wall-warn code{
+  font:500 11px/1.5 var(--mono, ui-monospace, monospace);
+  color:var(--muted); word-break:break-all;
+}
+
+/* ===========================================================================
+   A console stays a console, in daylight too
+   ===========================================================================
+   skins.css already decided this, and said why: "A terminal is a screen.
+   Bleaching the engine log, the robot log and the strategy source to match a
+   white page destroys the one place in the desk where monospaced
+   light-on-dark text is the convention a trader already reads - and where a
+   red error line has to be unmissable."
+
+   The decision never reached the screen. skins.css writes it as
+   html[data-theme="light"] :is(.term, ...), which is specificity (0,2,1).
+   The skin layer in THIS file writes html[data-skin] .term and
+   html[data-skin] .ctrl, also (0,2,1). A tie is broken by source order and
+   this sheet loads last, so every console came out pale: the engine log and
+   the AI feed at rgb(var(--s1) / .55), and the strategy source - a textarea,
+   so it is caught by the .ctrl and textarea rules too - at plain white.
+
+   Re-stating it here with the theme and the skin both in the selector makes
+   it (0,3,1). That beats the skin layer and every per-skin .term override
+   further up on specificity rather than on position, so it does not matter
+   where any of them sit or what is added later.                           */
+html[data-theme="light"][data-skin] :is(.term, .robot-term, .st-src, .tg-src, .secret-box, .keybox){
+  background:#0b0e15;
+  color:#dbe3f0;
+  border:1px solid rgba(20,28,45,.35);
+}
+html[data-theme="light"][data-skin] :is(.st-src, .tg-src)::placeholder{ color:#6b7b93 }
+html[data-theme="light"][data-skin] :is(.term, .robot-term) .l-info{ color:#9fb0c9 }
+html[data-theme="light"][data-skin] :is(.term, .robot-term) .l-warning,
+html[data-theme="light"][data-skin] :is(.term, .robot-term) .l-warn{ color:#f0b955 }
+html[data-theme="light"][data-skin] :is(.term, .robot-term) .l-error,
+html[data-theme="light"][data-skin] :is(.term, .robot-term) .l-err{ color:#ff7d94 }
+html[data-theme="light"][data-skin] :is(.term, .robot-term) .l-ok{ color:#4fd6a3 }
+html[data-theme="light"][data-skin] :is(.term, .robot-term) .ts{ color:#6b7b93 }
+/* The scrollbar inside a dark console should not be a light-theme scrollbar. */
+html[data-theme="light"][data-skin] :is(.term, .robot-term, .st-src)::-webkit-scrollbar-thumb{
+  background:rgba(255,255,255,.22);
+}

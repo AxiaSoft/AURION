@@ -98,7 +98,7 @@ Public API: /api/updates/latest , /api/updates/check
 - `GET /api/system/update/manifest` - لیست فایل‌های محلی با hash
 
 ### منطق چک:
-1. جمع‌آوری فایل‌های مهم از `backend/src`, `engine/aurion`, `apps/web/js`, `windows-app/desktop` (max 500 فایل)
+1. جمع‌آوری فایل‌های مهم از `backend/src`, `engine/aurion`, `apps/web/js` (max 500 فایل)
 2. محاسبه SHA256 هر فایل
 3. ارسال به `POST /api/updates/check` با `current_version` و `files`
 4. سرور diff را حساب می‌کند: فایل‌هایی که hash متفاوت دارند

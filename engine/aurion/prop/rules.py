@@ -1,16 +1,42 @@
 from __future__ import annotations
 
 import csv
+import json
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from ..config import abspath, load
+from ..config import DATA_DIR, ROOT, abspath, load
 from ..util.clock import utc_iso
 from ..util.log import get
+from .hours import window_open
 from .profiles import LOCKED_IDS, get_profile
 
 log = get("prop")
+
+# Where the day baseline lives between restarts. Without it the engine would
+# re-baseline on every boot (a restart in the middle of a losing day would wipe
+# the daily-loss guard); with it the baseline is bound to one account + one UTC
+# day and is never reused for a different login.
+STATE_FILE = DATA_DIR / "prop-day.json"
+
+
+def account_key(account: dict[str, Any] | None) -> str:
+    """Stable identity of the connected trading account.
+
+    A new account (or a new broker server for the same number) must never
+    inherit the previous account's day baseline — that is what produced a
+    "Daily P/L 8.7%" on a brand new account that has never traded.
+    """
+    data = account or {}
+    try:
+        login = int(float(data.get("login") or 0))
+    except (TypeError, ValueError):
+        login = 0
+    server = str(data.get("server") or "").strip()
+    if not login and not server:
+        return ""
+    return f"{login}@{server}"
 
 
 class PropEngine:
@@ -28,14 +54,165 @@ class PropEngine:
         self.day_stamp: str = ""
         self.high_water: float | None = None
         self.locked = False
+        # Set by the trader: the desk-wide timezone and, when the setting
+        # is "broker", the offset worked out from MetaTrader's own clock.
+        self.desk_timezone = "UTC"
+        self.broker_minutes: int | None = None
         self.lock_reason = ""
         self.violations: list[dict[str, Any]] = []
         self.news_events: list[dict[str, Any]] = []
         self.consecutive_losses = 0
         self.last_entry_ts: float = 0.0
         self.entries_today = 0
+        self.closed_today = 0
+        self.account_key = ""
+        self.last_balance: float | None = None
+        self._closed_since_balance = 0
         self.enabled = bool(saved.get("enabled", True))
+        self._restore_day_state()
         self.reload_news()
+
+    # ------------------------------------------------------------------ state
+    @staticmethod
+    def _today() -> str:
+        return datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+    def _restore_day_state(self) -> None:
+        """Reload today's baseline for the account we were last bound to."""
+        try:
+            blob = json.loads(STATE_FILE.read_text(encoding="utf-8"))
+        except Exception:
+            return
+        if not isinstance(blob, dict):
+            return
+        if str(blob.get("day") or "") != self._today():
+            return  # a different UTC day: start clean
+        key = str(blob.get("account") or "")
+        if not key:
+            return
+        self.account_key = key
+        try:
+            start = float(blob.get("day_start_equity") or 0) or None
+            water = float(blob.get("high_water") or 0) or None
+        except (TypeError, ValueError):
+            return
+        self.day_stamp = self._today()
+        self.day_start_equity = start
+        self.high_water = water
+        try:
+            self.entries_today = int(blob.get("entries_today") or 0)
+            self.closed_today = int(blob.get("closed_today") or 0)
+        except (TypeError, ValueError):
+            pass
+        try:
+            self.last_balance = float(blob.get("balance")) if blob.get("balance") is not None else None
+        except (TypeError, ValueError):
+            self.last_balance = None
+
+    def _save_day_state(self) -> None:
+        if not self.account_key:
+            return
+        payload = {
+            "account": self.account_key,
+            "day": self.day_stamp or self._today(),
+            "day_start_equity": self.day_start_equity,
+            "high_water": self.high_water,
+            "entries_today": int(self.entries_today),
+            "closed_today": int(self.closed_today),
+            "balance": self.last_balance,
+            "saved": utc_iso(),
+        }
+        try:
+            STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
+            tmp = STATE_FILE.with_suffix(".tmp")
+            tmp.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+            tmp.replace(STATE_FILE)
+        except Exception:
+            log.debug("prop day state not saved", exc_info=True)
+
+    def rebase(self, account: dict[str, Any] | None, reason: str = "") -> None:
+        """Start a brand new trading day from the account we see right now."""
+        data = account or {}
+        try:
+            equity = float(data.get("equity") or 0)
+            balance = float(data.get("balance") or 0)
+        except (TypeError, ValueError):
+            equity = balance = 0.0
+        base = equity or balance
+        self.day_stamp = self._today()
+        self.day_start_equity = base or None
+        self.high_water = max(base, balance) or None
+        self.entries_today = 0
+        self.closed_today = 0
+        self.consecutive_losses = 0
+        self._closed_since_balance = 0
+        self.last_balance = balance or None
+        if reason:
+            log.info("prop baseline rebased (%s) at equity=%s", reason, base)
+        self._save_day_state()
+
+    def _sync_account(self, account: dict[str, Any]) -> None:
+        """Bind the baseline to the live account and follow cash movements."""
+        key = account_key(account)
+        if not key:
+            return  # identity unknown yet — never baseline off a blank account
+        if key != self.account_key:
+            self.account_key = key
+            # A different login/server: nothing from the old account may leak
+            # into this one (baseline, high-water, counters or a stale lock).
+            self.locked = False
+            self.lock_reason = ""
+            self.violations = []
+            self.rebase(account, reason=f"account {key}")
+            return
+        try:
+            balance = float(account.get("balance") or 0)
+        except (TypeError, ValueError):
+            return
+        if balance <= 0:
+            return
+        if self.last_balance is None:
+            self.last_balance = balance
+            return
+        delta = balance - self.last_balance
+        if abs(delta) > 1e-9:
+            if self._closed_since_balance == 0 and self.day_start_equity:
+                # Balance moved with no closed trade behind it: a deposit or a
+                # withdrawal. Shift the baselines so it is not read as P/L.
+                self.day_start_equity += delta
+                if self.high_water is not None:
+                    self.high_water += delta
+                log.info("prop baseline shifted by cash movement %s", delta)
+            self._closed_since_balance = 0
+            self.last_balance = balance
+            self._save_day_state()
+
+    def _has_activity(
+        self,
+        positions: list[dict[str, Any]] | None = None,
+        account: dict[str, Any] | None = None,
+    ) -> bool:
+        """True when something actually traded on this account today.
+
+        Prop rules may only trip on trading. With no entries, no closes, no
+        open position and no floating P/L, any equity wobble comes from the
+        feed or from a cash movement — and locking on it is exactly what
+        re-locked the desk one second after every manual unlock.
+        """
+        if self.entries_today or self.closed_today:
+            return True
+        if positions:
+            return True
+        if account:
+            try:
+                equity = float(account.get("equity") or 0)
+                balance = float(account.get("balance") or 0)
+            except (TypeError, ValueError):
+                return False
+            if equity > 0 and balance > 0:
+                # Floating P/L means there is exposure, whatever opened it.
+                return abs(equity - balance) > max(0.01, abs(balance) * 1e-6)
+        return False
 
     def set_enabled(self, enabled: bool) -> dict[str, Any]:
         self.enabled = bool(enabled)
@@ -59,19 +236,22 @@ class PropEngine:
         return self.profile
 
     def reload_news(self) -> int:
+        """Read the economic calendar off disk. Never touches the network.
+
+        It used to call news_feed.refresh() here, and this runs inside
+        __init__, which runs inside Trader(), which is engine start-up:
+        on a machine with no outbound access that is two downloads at a
+        25 second timeout each before the engine answers its first
+        request, and the desk spends that time telling the trader the
+        engine is not running. The download belongs to the refresh loop
+        that already exists (Trader._news_refresh_loop, on an executor
+        thread, every five minutes and once at start-up) and to the
+        Calendar tab's explicit refresh button - both of which call
+        reload_news() afterwards.
+        """
         cfg = load()
         path = str(cfg["prop"].get("news_calendar_path") or "")
         self.news_events = []
-        if not path:
-            # Nothing configured: fall back to the Forex Factory cache so the
-            # calendar and the blackout filter are never silently empty.
-            try:
-                from .. import news_feed
-
-                news_feed.refresh()
-                path = str(load()["prop"].get("news_calendar_path") or "")
-            except Exception:
-                return 0
         if not path:
             # Last resort: read the feed cache directly rather than trusting a
             # config value this process may have loaded before it was written.
@@ -94,18 +274,40 @@ class PropEngine:
         return len(self.news_events)
 
     def _roll_day(self, equity: float) -> None:
-        stamp = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        stamp = self._today()
+        changed = False
         if stamp != self.day_stamp:
             self.day_stamp = stamp
             self.day_start_equity = equity
             self.entries_today = 0
+            self.closed_today = 0
+            changed = True
+        if not self.day_start_equity and equity > 0:
+            # First real reading of the session — this, not a leftover number
+            # from another account, is where the day starts.
+            self.day_start_equity = equity
+            changed = True
         if self.high_water is None or equity > self.high_water:
             self.high_water = equity
+            changed = True
+        if changed:
+            self._save_day_state()
 
     def metrics(self, account: dict[str, Any]) -> dict[str, Any]:
         equity = float(account.get("equity") or 0)
         balance = float(account.get("balance") or 0)
-        if equity <= 0 and balance <= 0:
+        # Prop off means prop is off. The daily P/L and the drawdown are
+        # measured against a prop profile's limits; with the guard
+        # disabled there is no limit to measure against, and computing
+        # them anyway meant the desk had two live percentages on the
+        # Command centre that nothing could act on and nothing would
+        # enforce. It also kept rolling a day baseline and a high-water
+        # mark in the background for a feature that was switched off.
+        #
+        # allow_order() already bypasses when disabled (see below), so
+        # these figures had no second reader. They are zero now, and the
+        # desk hides the panel rather than drawing two empty bars.
+        if not self.enabled or (equity <= 0 and balance <= 0):
             return {
                 "ready": False,
                 "locked": self.locked,
@@ -119,14 +321,27 @@ class PropEngine:
                 "violations": self.violations[-20:],
                 "consecutive_losses": self.consecutive_losses,
                 "enabled": self.enabled,
+                "account": self.account_key,
+                "traded_today": False,
             }
-        self._roll_day(equity)
+        self._sync_account(account)
+        self._roll_day(equity or balance)
         daily = 0.0
         if self.day_start_equity:
             daily = (equity - self.day_start_equity) / self.day_start_equity * 100.0
         dd = 0.0
         if self.high_water:
             dd = (self.high_water - equity) / self.high_water * 100.0
+        flat = abs(equity - balance) <= max(0.01, abs(balance) * 1e-6)
+        if flat and not self._has_activity():
+            # No trade today and no floating position: the day is flat by
+            # definition. Re-anchor instead of echoing a stale baseline.
+            if self.day_start_equity != equity or self.high_water != equity:
+                self.day_start_equity = equity
+                self.high_water = equity
+                self._save_day_state()
+            daily = 0.0
+            dd = 0.0
         return {
             "ready": True,
             "locked": self.locked,
@@ -140,20 +355,26 @@ class PropEngine:
             "violations": self.violations[-20:],
             "consecutive_losses": self.consecutive_losses,
             "enabled": self.enabled,
+            "account": self.account_key,
+            "traded_today": self._has_activity(),
+            "entries_today": int(self.entries_today),
+            "closed_today": int(self.closed_today),
         }
 
     def _in_hours(self) -> tuple[bool, str]:
-        hours = self.profile.get("trading_hours") or {}
-        now = datetime.now(timezone.utc)
-        if now.weekday() not in set(hours.get("weekdays") or [0, 1, 2, 3, 4]):
-            if not self.profile.get("allow_weekend"):
-                return False, "outside allowed weekdays"
-        start = str(hours.get("start") or "00:00")
-        end = str(hours.get("end") or "23:59")
-        hm = now.strftime("%H:%M")
-        if not (start <= hm <= end):
-            return False, f"outside trading hours {start}-{end} UTC"
-        return True, ""
+        """Delegated to prop/hours.py, which is pure and therefore testable
+        at an hour other than the one it happens to be.
+
+        The zone is not a prop setting. It is chosen once in System
+        settings and every profile is read in it; a profile may still
+        name its own, but none of the shipped ones do.
+        """
+        return window_open(
+            self.profile.get("trading_hours"),
+            allow_weekend=bool(self.profile.get("allow_weekend")),
+            default_zone=self.desk_timezone,
+            broker_minutes=self.broker_minutes,
+        )
 
     def _news_blackout(self, symbol: str, force: bool = False) -> tuple[bool, str]:
         if not force and not self.profile.get("news_filter"):
@@ -196,15 +417,38 @@ class PropEngine:
         self.lock_reason = reason
         self._record("lock", reason)
 
-    def unlock(self) -> None:
+    def unlock(self, account: dict[str, Any] | None = None) -> None:
+        """Release the lock and give the desk a clean slate to trade from.
+
+        Unlocking used to leave the baseline that tripped the rule in place, so
+        the very next account tick re-locked the desk. Re-anchoring the day and
+        the high-water mark on the equity we unlock at is what makes the unlock
+        actually stick until a *new* violation happens.
+        """
+        was = self.lock_reason
         self.locked = False
         self.lock_reason = ""
+        self.consecutive_losses = 0
+        if account:
+            try:
+                equity = float(account.get("equity") or 0)
+            except (TypeError, ValueError):
+                equity = 0.0
+            if equity > 0:
+                self.day_start_equity = equity
+                self.high_water = equity
+                self._save_day_state()
+        if was:
+            log.info("prop unlocked (was %s)", was)
 
     def evaluate_account(self, account: dict[str, Any], positions: list[dict[str, Any]]) -> dict[str, Any]:
         metrics = self.metrics(account)
         if self.locked:
             return {"ok": False, "action": "none", "code": self.lock_reason, "metrics": metrics}
         if not metrics["ready"]:
+            return {"ok": True, "action": "none", "metrics": metrics}
+        if not self._has_activity(positions, account):
+            # Never trip a rule on an account that has not traded today.
             return {"ok": True, "action": "none", "metrics": metrics}
         if metrics["daily_pl_pct"] <= -abs(float(self.profile["max_daily_loss_pct"])):
             self._record("daily_loss", f"daily P/L {metrics['daily_pl_pct']:.2f}%")
@@ -272,9 +516,10 @@ class PropEngine:
         if self.locked:
             return {"ok": False, "error": f"prop lock: {self.lock_reason}"}
         metrics = self.metrics(account)
-        if metrics["ready"] and metrics["daily_pl_pct"] <= -abs(float(self.profile["max_daily_loss_pct"])):
+        traded = self._has_activity(positions, account)
+        if traded and metrics["ready"] and metrics["daily_pl_pct"] <= -abs(float(self.profile["max_daily_loss_pct"])):
             return {"ok": False, "error": "max daily loss reached"}
-        if metrics["ready"] and metrics["drawdown_pct"] >= abs(float(self.profile["max_drawdown_pct"])):
+        if traded and metrics["ready"] and metrics["drawdown_pct"] >= abs(float(self.profile["max_drawdown_pct"])):
             return {"ok": False, "error": "max drawdown reached"}
         ok_h, why = self._in_hours()
         if not ok_h:
@@ -285,7 +530,17 @@ class PropEngine:
             return {"ok": False, "error": news}
         volume = float(request.get("volume") or 0)
         if volume > float(self.profile["max_lot"]):
-            return {"ok": False, "error": f"lot {volume} exceeds max {self.profile['max_lot']}"}
+            # Name the rule and where it lives. "exceeds max 0.01" on its
+            # own reads like the lot box is broken, when in fact a prop
+            # ceiling the trader set somewhere else is doing its job.
+            return {
+                "ok": False,
+                "error": (
+                    f"lot {volume} exceeds the {self.profile.get('id') or 'prop'} prop ceiling of "
+                    f"{self.profile['max_lot']} — raise 'max lot' in Prop risk, "
+                    f"or switch the prop profile off"
+                ),
+            }
         desk = str(request.get("source") or "") == "desk"
         if (not desk) and len(positions) >= int(self.profile["max_open_trades"]) and action in {"market", "buy", "sell", "pending"}:
             return {"ok": False, "error": "max open trades reached"}
@@ -306,7 +561,7 @@ class PropEngine:
             if (_t.time() - self.last_entry_ts) / 60.0 < gap:
                 return {"ok": False, "error": f"wait {gap:.0f} minutes between entries"}
         target = float(self.profile.get("max_daily_profit_pct") or 0)
-        if target > 0 and metrics.get("ready") and metrics["daily_pl_pct"] >= target:
+        if target > 0 and traded and metrics.get("ready") and metrics["daily_pl_pct"] >= target:
             return {"ok": False, "error": "daily profit target reached — new entries locked"}
         day_cap = int(self.profile.get("max_trades_per_day") or 0)
         if day_cap > 0 and self.entries_today >= day_cap:
@@ -329,9 +584,13 @@ class PropEngine:
         import time as _t
         self.last_entry_ts = _t.time()
         self.entries_today += 1
+        self._save_day_state()
 
     def note_closed_trade(self, profit: float) -> None:
         if profit < 0:
             self.consecutive_losses += 1
         elif profit > 0:
             self.consecutive_losses = 0
+        self.closed_today += 1
+        self._closed_since_balance += 1
+        self._save_day_state()

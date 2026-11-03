@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="en" dir="ltr">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>AURION admin</title>
+<style>
+  :root{
+    --bg:#06070b; --lift:#0d101a; --ink:#e8edf7; --muted:#8b93a7;
+    --line:rgb(255 255 255 / .08); --cyan:#3ee0c4; --violet:#7c6cff;
+    --rose:#ff6b6b; --ctl-h:40px; --r:12px;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; background:
+      radial-gradient(900px 500px at 12% -5%, rgb(124 108 255 / .18), transparent 60%),
+      radial-gradient(700px 420px at 95% 20%, rgb(62 224 196 / .13), transparent 60%),
+      linear-gradient(180deg, var(--lift), var(--bg));
+    min-height:100vh; color:var(--ink);
+    font:14px/1.6 "Segoe UI", system-ui, sans-serif;
+  }
+  .wrap{max-width:1000px; margin:0 auto; padding:28px 20px 60px}
+  header{display:flex; align-items:baseline; gap:12px; margin-bottom:4px}
+  h1{font-size:20px; font-weight:500; margin:0; letter-spacing:.14em}
+  .sub{color:var(--muted); font-size:12px; margin:0}
+  .card{
+    background:rgb(255 255 255 / .03); border:1px solid var(--line);
+    border-radius:16px; padding:18px; margin-top:16px;
+  }
+  h2{font-size:14px; font-weight:600; margin:0 0 4px}
+  label{display:block; margin:12px 0 0}
+  label span{display:block; font-size:12px; color:var(--muted); margin-bottom:6px}
+  input,select,textarea{
+    width:100%; min-height:var(--ctl-h); padding:0 12px; font:inherit;
+    color:var(--ink); background:rgb(255 255 255 / .04);
+    border:1px solid var(--line); border-radius:var(--r); outline:none;
+  }
+  textarea{padding:10px 12px; min-height:84px; resize:vertical}
+  input:focus,select:focus,textarea:focus{border-color:rgb(62 224 196 / .5)}
+  button{
+    min-height:var(--ctl-h); padding:0 18px; font:inherit; font-weight:500;
+    border:0; border-radius:var(--r); cursor:pointer; color:#061014;
+    background:linear-gradient(135deg,var(--cyan),var(--violet));
+  }
+  button.ghost{background:transparent; color:var(--ink); border:1px solid var(--line)}
+  button:disabled{opacity:.45; cursor:default}
+  .row{display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin-top:14px}
+  nav{display:flex; gap:8px; margin:18px 0 0; flex-wrap:wrap}
+  nav button{background:transparent; color:var(--muted); border:1px solid var(--line)}
+  nav button.on{background:rgb(255 255 255 / .07); color:var(--ink); border-color:rgb(62 224 196 / .4)}
+  .panel{display:none}
+  .panel.on{display:block}
+  .dot{width:8px; height:8px; border-radius:99px; display:inline-block; margin-inline-end:6px}
+  .up{background:var(--cyan)} .down{background:var(--rose)}
+  .states{display:flex; gap:18px; flex-wrap:wrap; font-size:12px; color:var(--muted); margin-top:10px}
+  pre{
+    background:rgb(0 0 0 / .35); border:1px solid var(--line); border-radius:var(--r);
+    padding:12px; overflow:auto; font-size:12px; white-space:pre-wrap; word-break:break-all;
+  }
+  .key{font-size:15px; letter-spacing:.04em; color:var(--cyan)}
+  .warn{border-color:rgb(255 107 107 / .35); background:rgb(255 107 107 / .07)}
+  .gate{max-width:420px; margin:12vh auto}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div id="gate" class="gate card">
+    <h2>AURION admin</h2>
+    <p class="sub">The token is printed by the launcher when the panel starts.</p>
+    <label><span>Panel token</span><input id="tok" type="password" autocomplete="off" /></label>
+    <div class="row"><button id="enter">Open</button></div>
+    <p class="sub" id="gate-err" style="color:var(--rose)"></p>
+  </div>
+
+  <div id="app" hidden>
+    <header>
+      <h1>AURION</h1>
+      <p class="sub">admin</p>
+    </header>
+    <div class="states" id="states"></div>
+
+    <nav>
+      <button data-tab="updates" class="on">Updates</button>
+      <button data-tab="telegram">Telegram</button>
+      <button data-tab="licences">Licences</button>
+    </nav>
+
+    <!-- ---------------------------------------------------- updates -->
+    <section class="panel on" id="tab-updates">
+      <div class="card">
+        <h2>Releases</h2>
+        <p class="sub">Served to every installed AURION that checks for an update.</p>
+        <div class="row">
+          <button id="rel-load" class="ghost">Reload</button>
+        </div>
+        <pre id="rel-out">Press Reload.</pre>
+      </div>
+
+      <div class="card">
+        <h2>New release</h2>
+        <label><span>Version</span><input id="rel-ver" placeholder="1.0.1" /></label>
+        <label><span>Notes</span><textarea id="rel-notes" placeholder="What changed"></textarea></label>
+        <div class="row"><button id="rel-add">Create</button></div>
+        <pre id="rel-add-out" hidden></pre>
+      </div>
+    </section>
+
+    <!-- --------------------------------------------------- telegram -->
+    <section class="panel" id="tab-telegram">
+      <div class="card">
+        <h2>Bot</h2>
+        <p class="sub">
+          Read from the engine. The bot token never reaches this panel or your
+          browser — only where it came from and a masked hint.
+        </p>
+        <div class="row"><button id="tg-load" class="ghost">Reload</button></div>
+        <pre id="tg-out">Press Reload.</pre>
+      </div>
+    </section>
+
+    <!-- --------------------------------------------------- licences -->
+    <section class="panel" id="tab-licences">
+      <div class="card">
+        <h2>Issue a licence</h2>
+        <p class="sub">
+          Minted by the engine with the signing seed in this process's
+          environment. The seed is never written down by the panel and never
+          sent to the browser.
+        </p>
+        <label><span>Plan</span>
+          <select id="lic-plan">
+            <option value="m1">1 month</option>
+            <option value="m3">3 months</option>
+            <option value="m6">6 months</option>
+            <option value="y1" selected>12 months</option>
+            <option value="developer">Developer (owner key)</option>
+          </select>
+        </label>
+        <label><span>Note — who it is for, kept in your own records only</span>
+          <input id="lic-note" placeholder="customer name or order number" /></label>
+        <label><span>
+          <input id="lic-offline" type="checkbox" style="width:auto;min-height:0;margin-inline-end:8px" />
+          Offline key (AXIO)
+        </span></label>
+        <p class="sub">
+          An offline key activates with no internet and <b>cannot be revoked or
+          machine-capped</b>, because nothing it needs lives on a server. Issue
+          it to a desk that will never be online; otherwise leave it unticked.
+        </p>
+        <div class="row"><button id="lic-mint">Mint</button></div>
+        <pre id="lic-out" hidden></pre>
+      </div>
+    </section>
+  </div>
+</div>
+
+<script>
+"use strict";
+const $ = (id) => document.getElementById(id);
+let TOKEN = "";
+
+async function api(route, opts = {}) {
+  const res = await fetch(route, {
+    method: opts.method || "GET",
+    headers: { "Content-Type": "application/json", "X-Panel-Token": TOKEN },
+    body: opts.body ? JSON.stringify(opts.body) : undefined,
+  });
+  let data;
+  try { data = await res.json(); } catch { data = { ok: false, error: "bad response" }; }
+  return { status: res.status, ...data };
+}
+
+function show(el, value) {
+  el.hidden = false;
+  el.textContent = typeof value === "string" ? value : JSON.stringify(value, null, 2);
+}
+
+/* A backend that is not running is the commonest state of all, and the
+   old panels showed it as an empty box. */
+function explain(r) {
+  if (r.error === "not_running") {
+    return `Nothing is answering at ${r.at}.\n\nStart it and press Reload.`;
+  }
+  if (r.error === "no_update_token") return r.detail;
+  return r;
+}
+
+/* ------------------------------------------------------------- gate */
+$("enter").onclick = async () => {
+  TOKEN = $("tok").value.trim();
+  const r = await api("/api/status");
+  if (r.status === 401) { $("gate-err").textContent = "That token is not right."; return; }
+  $("gate").hidden = true;
+  $("app").hidden = false;
+  paintStatus(r);
+};
+$("tok").addEventListener("keydown", (e) => { if (e.key === "Enter") $("enter").click(); });
+
+function paintStatus(r) {
+  const bits = [
+    ["engine", r.engine?.up, r.engine?.url],
+    ["update server", r.updates?.up, r.updates?.url],
+    ["signing seed", r.licences?.seed, r.licences?.seed ? "present" : "not set"],
+  ];
+  $("states").innerHTML = bits.map(([name, up, detail]) =>
+    `<span><i class="dot ${up ? "up" : "down"}"></i>${name} — ${detail}</span>`).join("");
+}
+
+/* ------------------------------------------------------------- tabs */
+document.querySelector("nav").onclick = (e) => {
+  const b = e.target.closest("[data-tab]");
+  if (!b) return;
+  document.querySelectorAll("nav button").forEach((x) => x.classList.toggle("on", x === b));
+  document.querySelectorAll(".panel").forEach((p) =>
+    p.classList.toggle("on", p.id === "tab-" + b.dataset.tab));
+};
+
+/* ---------------------------------------------------------- updates */
+$("rel-load").onclick = async () => {
+  show($("rel-out"), explain(await api("/api/updates")));
+};
+$("rel-add").onclick = async () => {
+  const version = $("rel-ver").value.trim();
+  if (!version) { show($("rel-add-out"), "Give it a version first."); return; }
+  show($("rel-add-out"), explain(await api("/api/updates", {
+    method: "POST", body: { version, notes: $("rel-notes").value },
+  })));
+};
+
+/* --------------------------------------------------------- telegram */
+$("tg-load").onclick = async () => {
+  show($("tg-out"), explain(await api("/api/telegram")));
+};
+
+/* --------------------------------------------------------- licences */
+$("lic-mint").onclick = async () => {
+  const btn = $("lic-mint");
+  btn.disabled = true;
+  try {
+    const r = await api("/api/licence", {
+      method: "POST",
+      body: {
+        plan: $("lic-plan").value,
+        note: $("lic-note").value,
+        offline: $("lic-offline").checked,
+      },
+    });
+    const out = $("lic-out");
+    if (r.ok && r.key) {
+      out.hidden = false;
+      out.innerHTML = `<span class="key">${r.key}</span>`;
+      if (r.note) out.innerHTML += `\n\n${r.note}`;
+    } else {
+      show(out, (r.error || "could not mint") + (r.hint ? "\n\n" + r.hint : ""));
+    }
+  } finally {
+    btn.disabled = false;
+  }
+};
+</script>
+</body>
+</html>

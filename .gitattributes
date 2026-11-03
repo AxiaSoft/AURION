@@ -1,0 +1,21 @@
+# Binary assets must never be touched by line-ending conversion.
+#
+# Git guesses text vs binary by looking for a NUL byte near the start of a
+# file, and it is usually right - but "usually" is not a property you want
+# protecting an installer's artwork on a Windows checkout with
+# core.autocrlf=true. Saying it outright costs nothing.
+*.ico  binary
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.bmp  binary
+*.gif  binary
+*.webp binary
+*.woff  binary
+*.woff2 binary
+*.ttf  binary
+*.db   binary
+*.msi  binary
+*.exe  binary
+*.dll  binary
+*.zip  binary

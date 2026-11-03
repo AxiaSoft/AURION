@@ -52,6 +52,15 @@ async function proxy(method, path, body) {
     const result = await request(method, path, body);
     return result.data;
   } catch (err) {
+    // "Offline" is a diagnosis, not a symptom, and it was being handed out
+    // for a request that simply took longer than we were willing to wait.
+    // A backtest did that every time: it finished perfectly in an engine
+    // that was answering health checks throughout, and the desk told the
+    // trader their engine had died. Ask before saying it.
+    if (String(err && err.message) === "engine timeout") {
+      const alive = await healthy();
+      if (alive) return { ok: false, error: "engine_busy", detail: `${method} ${path} took too long` };
+    }
     return { ok: false, error: "engine_offline", detail: err.message };
   }
 }

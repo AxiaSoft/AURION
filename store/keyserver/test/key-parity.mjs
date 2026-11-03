@@ -7,6 +7,11 @@
 
 import { execFileSync } from "node:child_process";
 import { createRequire } from "node:module";
+import { fileURLToPath } from "node:url";
+import path from "node:path";
+
+// <repo>/engine, resolved from this file so the test runs from any cwd.
+const ENGINE_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "engine");
 
 // -- test-only keypair (never the production seed) -------------------------
 const PRIV = "9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60"; // RFC seed
@@ -34,10 +39,11 @@ function pyDecode(key, expectTag) {
     "python3",
     [
       "-c",
-      "import sys;sys.path.insert(0,'../engine');from aurion.license.guard import decode_key;" +
+      "import sys;sys.path.insert(0,sys.argv[-1]);from aurion.license.guard import decode_key;" +
         "d=decode_key(sys.argv[1]);print('ok' if d and d['plan']==sys.argv[2] else 'bad')",
       key,
       expectTag,
+      ENGINE_DIR,
     ],
     { env: { ...process.env, AXIASOFT_KEY_PUBLIC: PUB, PATH: process.env.PATH }, encoding: "utf8" }
   ).trim();
@@ -49,8 +55,9 @@ function pyMint(plan) {
     "python3",
     [
       "-c",
-      "import sys;sys.path.insert(0,'../engine');from aurion.license.guard import mint;print(mint(sys.argv[1],'parity'))",
+      "import sys;sys.path.insert(0,sys.argv[-1]);from aurion.license.guard import mint;print(mint(sys.argv[1],'parity'))",
       plan,
+      ENGINE_DIR,
     ],
     { env: { ...process.env, AXIASOFT_KEY_PRIVATE: PRIV, PATH: process.env.PATH }, encoding: "utf8" }
   ).trim();

@@ -1,0 +1,76 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  AURION MSI package.
+
+  Build:  installer\tools\build-msi.ps1          (recommended - stages payload first)
+  or:     dotnet build installer\AURION.wixproj -c Release
+
+  The project intentionally has no hard-coded paths: everything comes from
+  Version.props and the StageDir / AssetsDir properties below.
+-->
+<Project Sdk="WixToolset.Sdk/5.0.2">
+
+  <Import Project="Version.props" />
+
+  <PropertyGroup>
+    <OutputType>Package</OutputType>
+    <OutputName>AURION-$(AurionVersion)-x64</OutputName>
+    <InstallerPlatform>x64</InstallerPlatform>
+    <Cultures>en-US</Cultures>
+
+    <!-- Payload produced by tools\stage.ps1. Override on the command line to
+         package a payload built elsewhere (CI artefact, signed drop, ...). -->
+    <StageDir Condition="'$(StageDir)' == ''">$(MSBuildThisFileDirectory)stage</StageDir>
+    <AssetsDir Condition="'$(AssetsDir)' == ''">$(MSBuildThisFileDirectory)assets\generated</AssetsDir>
+
+    <DefineConstants>
+      Version=$(AurionVersion);
+      UpgradeCode=$(AurionUpgradeCode);
+      ProductName=$(AurionProductName);
+      Manufacturer=$(AurionManufacturer);
+      HelpLink=$(AurionHelpLink);
+      AboutLink=$(AurionAboutLink);
+      StageDir=$(StageDir);
+      AssetsDir=$(AssetsDir)
+    </DefineConstants>
+
+    <!-- Full validation is on. These ICEs are suppressed, each with cause.
+         All five are consequences of one deliberate design decision: this is a
+         per-user package (Scope="perUser") that installs into the current
+         user's profile, which is exactly the shape several ICEs were written
+         to flag in *per-machine* packages.
+
+         ICE61  - AllowSameVersionUpgrades is deliberate (re-install same build).
+         ICE69  - cross-component formatted paths inside our own install folder.
+         ICE91  - per-user package installing into LocalAppData is the design.
+         ICE38  - "components installing to the user profile need an HKCU
+                  keypath". That rule exists so a per-machine package can tell
+                  which user a profile file belongs to. In a per-user package
+                  every component already belongs to the installing user, and
+                  file keypaths are correct and give real per-file self-repair.
+                  Forcing ~900 synthetic registry keypaths would add no safety.
+         ICE64  - "user-profile directories must be in the RemoveFile table".
+                  Same origin: it protects *other* users' profiles in a
+                  per-machine install. Windows Installer removes the
+                  directories it created for this user on uninstall, and
+                  AurionCleanGenerated sweeps runtime leftovers. Uninstall
+                  cleanliness is verified by test, not by this ICE. -->
+    <SuppressIces>ICE61;ICE69;ICE91;ICE38;ICE64</SuppressIces>
+
+    <PedanticBuild>true</PedanticBuild>
+  </PropertyGroup>
+
+  <!-- No WiX extensions are referenced on purpose: the wizard is authored
+       from standard MSI UI tables in src\ui, and every custom action is a
+       plain type-34 (directory + command) action. Fewer moving parts, and
+       the package builds with nothing but the WiX SDK itself. -->
+
+  <!-- Fail early and loudly instead of shipping an empty MSI. -->
+  <Target Name="VerifyStage" BeforeTargets="BeforeBuild">
+    <Error Condition="!Exists('$(StageDir)\app\backend\src\index.js')"
+           Text="Payload missing at $(StageDir). Run installer\tools\stage.ps1 first (build-msi.ps1 does it for you)." />
+    <Error Condition="!Exists('$(AssetsDir)\aurion.ico')"
+           Text="Branding assets missing at $(AssetsDir). Run installer\assets\build-assets.py." />
+  </Target>
+
+</Project>

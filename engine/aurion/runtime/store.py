@@ -1,13 +1,15 @@
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
 import threading
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
-from ..config import ROOT, load
+from ..config import DATA_DIR, ROOT, load
+from ..strategy.loader import BUILTIN_NAMES, LEGACY_BUILTINS
 from ..util.clock import utc_iso
 
 SCHEMA = """
@@ -31,6 +33,19 @@ CREATE TABLE IF NOT EXISTS events (
     lang_key TEXT,
     message TEXT,
     payload TEXT
+);
+CREATE TABLE IF NOT EXISTS strategy_ledger (
+    strategy TEXT PRIMARY KEY,
+    trades INTEGER NOT NULL DEFAULT 0,
+    wins INTEGER NOT NULL DEFAULT 0,
+    losses INTEGER NOT NULL DEFAULT 0,
+    net REAL NOT NULL DEFAULT 0,
+    gross_profit REAL NOT NULL DEFAULT 0,
+    gross_loss REAL NOT NULL DEFAULT 0,
+    best REAL NOT NULL DEFAULT 0,
+    worst REAL NOT NULL DEFAULT 0,
+    first_ts TEXT,
+    last_ts TEXT
 );
 CREATE TABLE IF NOT EXISTS trades (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -83,7 +98,11 @@ CREATE INDEX IF NOT EXISTS idx_trades_ticket ON trades(ticket);
 CREATE INDEX IF NOT EXISTS idx_events_ts ON events(ts);
 """
 
-STRATEGY_TAGS = ("ema_rsi", "price_action", "atr_breakout", "scalp_impulse")
+# Parsed out of MT5 comments, so this is a *historical* list, not the list of
+# strategies that currently ship: trades opened by scalp_impulse before it was
+# retired still carry its tag, and a history that silently stopped attributing
+# them would quietly rewrite the record.
+STRATEGY_TAGS = tuple(BUILTIN_NAMES) + tuple(LEGACY_BUILTINS)
 _SKIP_TAGS = {"", "desk", "manual", "robot", "close", "flatten", "order", "aurion"}
 
 
@@ -105,6 +124,25 @@ def parse_strategy_tag(comment: str) -> str:
     return ""
 
 
+def normalise_strategy_tag(tag: str) -> str:
+    """One spelling per strategy.
+
+    Tags arrive from MT5 comments, from uploaded file names and from the desk,
+    in every combination of case, dashes and a trailing .py. Without a single
+    normaliser the same strategy accumulates two or three separate records and
+    each card shows a fraction of its own history.
+    """
+    name = str(tag or "").strip()
+    if not name:
+        return "other"
+    if name.startswith("@"):          # reserved desk tags keep their marker
+        return name
+    name = name.lower().replace("-", "_").replace(" ", "_")
+    if name.endswith(".py"):
+        name = name[:-3]
+    return name or "other"
+
+
 def _is_close_row(kind: str, entry: str, profit: Any) -> bool:
     kind_l = str(kind or "").lower()
     entry_l = str(entry or "").lower()
@@ -122,7 +160,7 @@ def _is_close_row(kind: str, entry: str, profit: Any) -> bool:
 class Store:
     def __init__(self, path: Path | None = None) -> None:
         cfg = load()
-        data_dir = ROOT / cfg["paths"]["data"]
+        data_dir = DATA_DIR if os.environ.get("AURION_DATA_DIR") else ROOT / cfg["paths"]["data"]
         data_dir.mkdir(parents=True, exist_ok=True)
         self.path = path or (data_dir / "aurion.engine.db")
         self._lock = threading.RLock()
@@ -262,6 +300,13 @@ class Store:
             )
             if existing:
                 return False
+        if _is_close_row(kind, entry, trade.get("profit")):
+            # The per-strategy record is kept in its own ledger, updated here
+            # because every close - EA, native sync or desk - passes through
+            # this one function. Deriving it from the trades table instead is
+            # what made clearing the history erase a strategy's whole record.
+            self._bump_strategy_ledger(strategy, trade)
+
         self.execute(
             """INSERT INTO trades(ts, ticket, symbol, side, volume, price, sl, tp, profit, swap, commission, comment, raw, strategy, kind, entry)
                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
@@ -319,10 +364,257 @@ class Store:
                 row["strategy"] = parse_strategy_tag(str(row.get("comment") or ""))
             if closed_only and not _is_close_row(row.get("kind"), row.get("entry"), row.get("profit")):
                 continue
-            out.append(row)
+            out.append(self._expand_raw(row))
             if len(out) >= int(limit or 500):
                 break
         return out
+
+    @staticmethod
+    def _expand_raw(row: dict[str, Any]) -> dict[str, Any]:
+        """Lift the fields that only live in the stored JSON blob.
+
+        The trades table has a column per figure MT5 reports plus a ``raw``
+        blob for everything else - net, the open side of the position, which
+        deals closed it, and whether the numbers came from MetaTrader or from
+        the last floating price. The desk was reading ``row.net`` and
+        ``row.source`` off a row that only ever carried ``raw`` as a string,
+        so net was silently recomputed on the client and the "this is an
+        estimate" marker could never appear. Columns still win: they are what
+        the reconciliation writes.
+        """
+        try:
+            raw = json.loads(row.get("raw") or "{}")
+        except Exception:
+            raw = {}
+        if not isinstance(raw, dict):
+            return row
+        merged = dict(row)
+        for key in ("net", "source", "parts", "price_open", "time_open",
+                    "entry_commission", "order", "deals"):
+            value = raw.get(key)
+            if value not in (None, "") and merged.get(key) in (None, ""):
+                merged[key] = value
+        return merged
+
+    def pending_reconcile(self, limit: int = 40) -> list[dict[str, Any]]:
+        """Closed rows whose figures came from the last floating price.
+
+        A position can vanish from the book a second or two before its deal
+        reaches MT5's history. Rather than block the close, the desk records
+        what it knows and marks the row; these are the rows to go back for.
+        """
+        rows = self.query(
+            """SELECT id, ticket, raw FROM trades
+               WHERE lower(coalesce(kind,'')) IN ('close','out','inout')
+               ORDER BY id DESC LIMIT ?""",
+            (int(limit or 40),),
+        )
+        out: list[dict[str, Any]] = []
+        for row in rows:
+            try:
+                raw = json.loads(row.get("raw") or "{}")
+            except Exception:
+                raw = {}
+            if str(raw.get("source") or "") == "estimate":
+                out.append({"id": row.get("id"), "ticket": row.get("ticket")})
+        return out
+
+    def closed_rows_for_audit(self, limit: int = 60) -> list[dict[str, Any]]:
+        """Recent closed rows, in the shape ``history_row_matches`` compares.
+
+        Separate from ``pending_reconcile`` because it returns rows that are
+        already believed to be correct. A figure that was right when it was
+        written can still be wrong later: MT5 posts swap overnight and some
+        brokers book commission as a separate deal minutes after the close,
+        and nothing re-reads a row that was never marked as an estimate.
+        """
+        rows = self.query(
+            """SELECT id, ticket, ts, volume, price, profit, swap, commission, raw
+               FROM trades
+               WHERE lower(coalesce(kind,'')) IN ('close','out','inout')
+               ORDER BY id DESC LIMIT ?""",
+            (int(limit or 60),),
+        )
+        out: list[dict[str, Any]] = []
+        for row in rows:
+            try:
+                raw = json.loads(row.get("raw") or "{}")
+            except Exception:
+                raw = {}
+            out.append({
+                "id": row.get("id"),
+                "ticket": row.get("ticket"),
+                "time": row.get("ts"),
+                "volume": row.get("volume"),
+                "price": row.get("price"),
+                "profit": row.get("profit"),
+                "swap": row.get("swap"),
+                "commission": row.get("commission"),
+                "net": raw.get("net"),
+                "source": raw.get("source") or "",
+            })
+        return out
+
+    def apply_reconciliation(self, row_id: int, totals: dict[str, Any]) -> bool:
+        """Replace an estimated close with MetaTrader's own figures."""
+        rows = self.query("SELECT raw, ts FROM trades WHERE id=? LIMIT 1", (int(row_id),))
+        if not rows:
+            return False
+        try:
+            raw = json.loads(rows[0].get("raw") or "{}")
+        except Exception:
+            raw = {}
+        # Everything MT5 knows about the position, not just the money. The
+        # estimated row was stamped with the moment the desk noticed the
+        # close and carried the position's full volume; both are wrong for a
+        # partial close, and a history sorted on the wrong timestamp does not
+        # line up with the terminal's however right the profit is.
+        raw.update({
+            "profit": totals.get("profit"),
+            "swap": totals.get("swap"),
+            "commission": totals.get("commission"),
+            "entry_commission": totals.get("entry_commission"),
+            "net": totals.get("net"),
+            "parts": totals.get("parts"),
+            "deals": totals.get("deals") or [],
+            "order": totals.get("order"),
+            "price": totals.get("price") or raw.get("price"),
+            "price_open": totals.get("open_price") or raw.get("price_open"),
+            "time_open": totals.get("open_time") or raw.get("time_open"),
+            "volume": totals.get("volume") or raw.get("volume"),
+            "time": totals.get("close_time") or raw.get("time"),
+            "source": "mt5",
+        })
+        self.execute(
+            """UPDATE trades SET ts=?, profit=?, swap=?, commission=?, price=?, volume=?, raw=?
+               WHERE id=?""",
+            (
+                totals.get("close_time") or rows[0].get("ts"),
+                totals.get("profit"),
+                totals.get("swap"),
+                totals.get("commission"),
+                totals.get("price") or None,
+                totals.get("volume") or None,
+                json.dumps(raw, ensure_ascii=False),
+                int(row_id),
+            ),
+        )
+        return True
+
+    def _bump_strategy_ledger(self, strategy: str, trade: dict[str, Any]) -> None:
+        """Fold one closed trade into a strategy's running record.
+
+        Uses net - profit plus swap and commission - because that is what the
+        account balance did. A strategy whose gross wins are eaten by swap is
+        not a winning strategy, and the card should not claim otherwise.
+        """
+        tag = normalise_strategy_tag(strategy or parse_strategy_tag(str(trade.get("comment") or "")))
+        try:
+            profit = float(trade.get("profit") or 0)
+            swap = float(trade.get("swap") or 0)
+            commission = float(trade.get("commission") or 0)
+        except (TypeError, ValueError):
+            return
+        net_raw = trade.get("net")
+        try:
+            net = float(net_raw) if net_raw not in (None, "") else profit + swap + commission
+        except (TypeError, ValueError):
+            net = profit + swap + commission
+        net = round(net, 2)
+        stamp = str(trade.get("time") or trade.get("ts") or utc_iso())
+
+        self.execute(
+            """INSERT INTO strategy_ledger(strategy, trades, wins, losses, net,
+                   gross_profit, gross_loss, best, worst, first_ts, last_ts)
+               VALUES (?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+               ON CONFLICT(strategy) DO UPDATE SET
+                   trades = trades + 1,
+                   wins = wins + excluded.wins,
+                   losses = losses + excluded.losses,
+                   net = round(net + excluded.net, 2),
+                   gross_profit = round(gross_profit + excluded.gross_profit, 2),
+                   gross_loss = round(gross_loss + excluded.gross_loss, 2),
+                   best = max(best, excluded.best),
+                   worst = min(worst, excluded.worst),
+                   last_ts = excluded.last_ts""",
+            (
+                tag,
+                1 if net > 0 else 0,
+                1 if net < 0 else 0,
+                net,
+                net if net > 0 else 0.0,
+                net if net < 0 else 0.0,
+                net,
+                net,
+                stamp,
+                stamp,
+            ),
+        )
+
+    def strategy_ledger(self, names: list[str] | None = None) -> dict[str, dict[str, Any]]:
+        """Every strategy's record, including ones with no trades yet.
+
+        A card reading 0 trades is information; a card with no numbers at all
+        looks broken, which is why requested names are always present.
+        """
+        out: dict[str, dict[str, Any]] = {}
+        for name in names or []:
+            out[normalise_strategy_tag(name)] = {
+                "trades": 0, "wins": 0, "losses": 0, "net": 0.0,
+                "gross_profit": 0.0, "gross_loss": 0.0, "best": 0.0, "worst": 0.0,
+                "win_rate": 0.0, "profit_factor": 0.0, "avg": 0.0, "last_ts": None,
+            }
+        for row in self.query("SELECT * FROM strategy_ledger"):
+            tag = normalise_strategy_tag(str(row.get("strategy") or ""))
+            trades = int(row.get("trades") or 0)
+            wins = int(row.get("wins") or 0)
+            gross_profit = float(row.get("gross_profit") or 0)
+            gross_loss = abs(float(row.get("gross_loss") or 0))
+            net = float(row.get("net") or 0)
+            out[tag] = {
+                "trades": trades,
+                "wins": wins,
+                "losses": int(row.get("losses") or 0),
+                "net": round(net, 2),
+                "gross_profit": round(gross_profit, 2),
+                "gross_loss": round(gross_loss, 2),
+                "best": round(float(row.get("best") or 0), 2),
+                "worst": round(float(row.get("worst") or 0), 2),
+                "win_rate": round(wins / trades * 100, 1) if trades else 0.0,
+                # Undefined rather than infinite when nothing has lost yet.
+                "profit_factor": round(gross_profit / gross_loss, 2) if gross_loss else None,
+                "avg": round(net / trades, 2) if trades else 0.0,
+                "last_ts": row.get("last_ts"),
+            }
+        return out
+
+    def backfill_strategy_ledger(self) -> int:
+        """Seed the ledger from existing history, once.
+
+        An install that already has months of trades should not start from zero
+        the day this ships. Runs only while the ledger is empty, so a later
+        history reset cannot trigger a re-import of rows that are gone.
+        """
+        existing = self.query("SELECT COUNT(*) AS n FROM strategy_ledger")
+        if existing and int(existing[0].get("n") or 0):
+            return 0
+        rows = self.query("SELECT * FROM trades ORDER BY id ASC")
+        seeded = 0
+        for row in rows:
+            if not _is_close_row(row.get("kind"), row.get("entry"), row.get("profit")):
+                continue
+            self._bump_strategy_ledger(
+                str(row.get("strategy") or ""),
+                {
+                    "profit": row.get("profit"),
+                    "swap": row.get("swap"),
+                    "commission": row.get("commission"),
+                    "comment": row.get("comment"),
+                    "time": row.get("ts"),
+                },
+            )
+            seeded += 1
+        return seeded
 
     def strategy_stats(self, names: list[str] | None = None) -> dict[str, dict[str, Any]]:
         out: dict[str, dict[str, Any]] = {}
@@ -390,7 +682,11 @@ class Store:
                 backup = sqlite3.connect(dest)
                 self._conn.backup(backup)
                 backup.close()
-                # Wipe the dashboard book. Do not touch candles (AI tape).
+                # Wipe the dashboard book. Do not touch candles (AI tape),
+                # and deliberately not strategy_ledger either: a strategy's
+                # record is its track record. Clearing the trade list is a
+                # housekeeping action, not a reason to forget that a strategy
+                # has taken 300 trades at a 54% win rate.
                 self._conn.execute("DELETE FROM trades")
                 self._conn.execute("DELETE FROM signals")
                 self._conn.execute("DELETE FROM events")

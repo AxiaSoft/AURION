@@ -1,0 +1,1567 @@
+/* ===========================================================================
+   AURION — the chart workspace
+   ===========================================================================
+   The terminal layout: a top bar, a drawing rail down the side, the chart in
+   the middle and a dock on the end. Everything here is built from the desk's
+   design tokens - there is not one literal colour in this file - so the
+   workspace wears whichever of the twelve themes is active without knowing
+   anything about them.
+
+   Layout at a glance:
+
+       ┌───────────────────────────── top bar ─────────────────────────────┐
+       │ rail │                    chart                        │   dock   │
+       └──────────────────────────── status ───────────────────────────────┘
+
+   The chart is the only part that grows. The rail is a fixed 44px, the dock
+   is a fixed column that can be collapsed to nothing, and both get out of
+   the way entirely on a phone.
+   =========================================================================== */
+
+.tv {
+  --tv-rail: 46px;
+  --tv-dock: 290px;
+  --tv-bar: 46px;
+  /* The open height of the positions dock. The row is zero until the
+     dock is opened, so the chart has the whole of the middle. */
+  --tv-posdock: 176px;
+  display: grid;
+  /* Three rows: header, body, status. The positions dock used to be a
+     fourth one here, between the body and the status bar, which is
+     why it spanned the whole desk and cut the side panel short. It is
+     a row of .tv-body now. */
+  grid-template-rows: var(--tv-bar) 1fr var(--tv-status);
+  --tv-status: 26px;
+  height: calc(100vh - 128px);
+  height: calc(100dvh - 128px);
+  /* A floor, but never taller than the screen: on a phone in landscape a
+     flat 460px is more than the viewport and the footer falls off. */
+  min-height: min(460px, calc(100dvh - 128px));
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: var(--surface-1);
+  /* clip, not hidden - and this is the whole of a bug that was reported
+     three times.
+
+     overflow:hidden still makes a box a SCROLL CONTAINER. It only hides
+     the scrollbars. At this width the side panel and the tool sheet are
+     parked off-canvas with translateX(-100%) / translateY(101%), which
+     is 300px of scrollable overflow sideways and ~360px downwards sitting
+     inside .tv with nothing to show for it - until something asks the
+     browser to reveal an element that lives in there. showDock() did
+     exactly that on mount, and scrollIntoView() scrolls EVERY scrollable
+     ancestor, not just the strip it was aimed at. So .tv scrolled itself
+     151px sideways to reveal a tab belonging to a panel that was not even
+     open: half the screen empty, the top bar and its controls pushed past
+     the edge, and - because overflow:hidden paints no scrollbar - no way
+     to drag it back. Opening the panel un-parked it, the overflow went
+     away, the browser snapped scrollLeft to 0, and the chart "fixed
+     itself". That is the whole report.
+
+     overflow:clip clips identically and is NOT a scroll container, so
+     there is no scroll offset for anything to set - not scrollIntoView,
+     not focus(), not an on-screen keyboard. hidden stays first as the
+     fallback for an engine that does not know clip. */
+  overflow: hidden;
+  overflow: clip;
+  position: relative;
+}
+.tv * { min-width: 0 }
+
+/* ---------------------------------------------------------------- top -- */
+
+.tv-top {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 6px;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface-2);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.tv-top::-webkit-scrollbar { display: none }
+
+/* The instrument is a control now, not a caption: it opens a searchable
+   list of the attached charts. It keeps its old look until hovered, so
+   the top bar does not turn into a row of competing buttons. */
+.tv-sym {
+  /* Centred, both ways.
+
+     It was align-items:baseline with no justification, so the three
+     pieces - instrument, timeframe, caret - sat on the text baseline
+     of the largest one and hung towards the leading edge of the
+     button. The caret is an SVG with no baseline of its own, so it
+     was placed by its bottom edge and rode low; the group as a whole
+     was off-centre in a button wide enough to show it.
+
+     Centring the row is the fix, and the two text pieces keep a shared
+     baseline between themselves so the 14px symbol and the 11px
+     timeframe still sit on one line. */
+  display: flex; align-items: center; justify-content: center; gap: 6px;
+  padding: 0 10px;
+  white-space: nowrap;
+  background: transparent; border: 1px solid transparent; border-radius: 10px;
+  color: inherit; font: inherit; cursor: pointer;
+  min-height: 32px;
+  transition: background .18s ease, border-color .18s ease;
+}
+.tv-sym:hover, .tv-sym[aria-expanded="true"] {
+  background: rgba(255,255,255,.06);
+  border-color: rgba(255,255,255,.10);
+}
+.tv-sym:focus-visible { outline: 2px solid var(--accent, #3ee0c4); outline-offset: 1px }
+/* No align-self here, and that is the fix.
+
+   The previous attempt at centring this button set align-self:baseline
+   on the text so a 14px instrument and an 11px timeframe would sit on
+   one line. In flexbox, baseline-aligned items are aligned to each
+   other and the resulting group is placed at the START of the cross
+   axis - so the text was pinned 1px from the top of a 32px button
+   while the caret, aligned centre, sat correctly in the middle. It
+   looked exactly as crooked as it was, and it was measured at 8px
+   above centre before this was written.
+
+   With the timeframe gone there is one piece of text, nothing to
+   share a baseline with, and align-items:center on the row is both
+   necessary and sufficient. */
+.tv-sym b { font-size: 14px; letter-spacing: .01em; line-height: 1 }
+.tv-sym-caret {
+  width: 14px; height: 14px; align-self: center; opacity: .55;
+  flex: none;
+  transform: rotate(90deg);
+}
+.tv-sym[aria-expanded="true"] .tv-sym-caret { transform: rotate(-90deg) }
+
+.tv-btn, .tv-icon {
+  display: inline-flex; align-items: center; gap: 6px;
+  height: 30px; padding: 0 9px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm, 8px);
+  background: transparent;
+  color: var(--ink);
+  font: inherit; font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background var(--dur-1, .12s) var(--ease-1), color var(--dur-1, .12s) var(--ease-1),
+              border-color var(--dur-1, .12s) var(--ease-1);
+}
+.tv-icon { padding: 0; width: 30px; justify-content: center; position: relative; overflow: visible }
+.tv-icon.tiny { width: 24px; height: 24px }
+.tv-btn svg, .tv-icon svg { width: 16px; height: 16px; flex: none }
+.tv-icon.tiny svg { width: 13px; height: 13px }
+.tv-btn:hover, .tv-icon:hover:not(:disabled) { background: var(--surface-hover) }
+.tv-btn[aria-expanded="true"] { background: var(--surface-hover); border-color: var(--line) }
+.tv-icon:disabled { opacity: .35; cursor: default }
+.tv-icon.danger:hover { color: var(--rose) }
+.tv-icon svg.flip { transform: scaleX(-1) }
+.tv-btn:focus-visible, .tv-icon:focus-visible, .tvr-btn:focus-visible,
+.tvf-row:focus-visible, .tvm-row:focus-visible, .tv-round:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.tv-seg {
+  display: flex; align-items: center;
+  padding: 2px;
+  border-radius: var(--radius-sm, 8px);
+  background: var(--surface-sunken);
+}
+.tvt-seg {
+  height: 24px; padding: 0 9px;
+  border: 0; border-radius: calc(var(--radius-sm, 8px) - 2px);
+  background: transparent;
+  color: var(--muted);
+  font: inherit; font-size: 11px; font-family: "IBM Plex Mono", monospace;
+  cursor: pointer;
+  transition: background var(--dur-1, .12s), color var(--dur-1, .12s);
+}
+.tvt-seg:hover { color: var(--ink) }
+.tvt-seg.on { background: var(--accent); color: var(--accent-ink, var(--on-accent)) }
+
+.tv-div { width: 1px; height: 18px; background: var(--line); margin: 0 3px; flex: none }
+.tv-spacer { flex: 1 1 auto }
+
+/* --------------------------------------------------------------- body -- */
+
+.tv-body {
+  display: grid;
+  grid-template-columns: var(--tv-rail) 1fr var(--tv-dock);
+  /* The second row is the positions dock, and it belongs to the
+     chart's column alone - see .tv-posdock below. */
+  grid-template-rows: 1fr 0;
+  min-height: 0;
+  position: relative;
+  transition: grid-template-columns var(--dur-3, .24s) var(--ease-1),
+              grid-template-rows var(--dur-3, .24s) var(--ease-1);
+}
+/* Placed explicitly, because adding a second row makes auto-placement
+   ambiguous: the rail and the side panel are full-height columns and
+   the dock is a row under the chart only. */
+.tv-rail  { grid-column: 1; grid-row: 1 / -1 }
+.tv-stage { grid-column: 2; grid-row: 1 }
+.tv-posdock { grid-column: 2; grid-row: 2 }
+.tv-dock  { grid-column: 3; grid-row: 1 / -1 }
+/* Closing the dock collapses its column.
+
+   Note the selector weight: this is (0,3,0), and the mobile override
+   below is a bare .tv-body at (0,1,0). A media query adds nothing to
+   specificity, so this rule wins at every width unless something of
+   equal weight says otherwise - which is why the mobile block repeats
+   it. Without that, closing the dock on a phone put .tv-stage into the
+   first column of "var(--tv-rail) 1fr 0", and --tv-rail is 0px there:
+   the chart was given zero width and vanished. Opening the dock brought
+   it straight back, because then this rule did not apply. */
+.tv.no-dock .tv-body { grid-template-columns: var(--tv-rail) 1fr 0 }
+.tv.no-dock .tv-dock { opacity: 0; pointer-events: none }
+
+/* ------------------------------------------------------- positions -- */
+
+/* The dock is a GRID ROW, not an overlay.
+
+   Opening it takes height away from the chart's 1fr row, the canvas is
+   given a new size and the candles are redrawn to fit. That is the
+   whole requirement: a trader looking at a level does not lose sight
+   of it behind their own position list. An absolutely positioned panel
+   would have been less code and would have covered exactly the part of
+   the chart - the most recent candles, bottom right - that the list is
+   about. */
+.tv.pos-open .tv-body { grid-template-rows: 1fr var(--tv-posdock) }
+
+.tv-posdock {
+  display: grid;
+  /* Two rows, not three: the resize grip that used to sit above the
+     header is gone with the drag. */
+  grid-template-rows: auto 1fr;
+  min-height: 0;
+  overflow: hidden;
+  border-top: 1px solid var(--line);
+  background: var(--surface-2);
+}
+/* Closed: the row is 0px, so the contents must not be reachable by tab
+   or by a screen reader either. */
+.tv:not(.pos-open) .tv-posdock { visibility: hidden }
+
+.tv-posdock-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 10px 6px;
+}
+.tv-posdock-head h3 {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 650;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  color: var(--text-2);
+}
+.tv-posdock-n {
+  min-width: 18px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  background: var(--surface-3, rgb(var(--s4)));
+  color: var(--text-2);
+}
+.tv-posdock-n:empty { display: none }
+.tv-posdock-sum { font-size: 13px; font-weight: 650 }
+/* Flatten, in the panel that shows what would be flattened.
+
+   Outlined rather than filled: it is the most destructive control on
+   the chart and it sits a few pixels from the button that merely
+   shuts the panel, so it has to be told apart at a glance without
+   shouting the whole time the dock is open. It takes the full danger
+   colour on hover, once a pointer has already settled on it. */
+.tv-flatten {
+  height: 26px;
+  padding: 0 10px;
+  font-size: 12px;
+  font-weight: 650;
+  /* color-mix, not rgb(var(--rose) / .55): --rose and --bad are hex
+     literals, not bare "r g b" triplets, so the rgb(var() / a) form
+     that works for --accent produces an invalid declaration here and
+     the border silently vanishes. There is already one of those in
+     the tree at app.css:1083; this is not a second one. */
+  border: 1px solid color-mix(in srgb, var(--rose) 55%, transparent);
+  color: var(--rose);
+  border-radius: var(--radius-sm, 8px);
+  background: transparent;
+}
+.tv-flatten:hover:not(:disabled) {
+  background: var(--rose);
+  color: #fff;
+  border-color: var(--rose);
+}
+/* Nothing open: it stays, so the panel does not reshuffle the moment
+   the last trade closes, but it plainly cannot be pressed. */
+.tv-flatten:disabled { opacity: .4; cursor: default }
+
+.tv-posdock-body {
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding: 0 10px 8px;
+  /* The list inside asks this box how much room it has - see the
+     @container block further down. Named, so a list cannot end up
+     measuring itself against some other ancestor that happens to be
+     a container. Declared here rather than in a second
+     .tv-posdock-body block: two rules with one selector are two
+     blocks, and the next person to add a property has to know which
+     of them they are reading. */
+  container: tvp / inline-size;
+}
+
+/* A count on the toolbar button, so the dock can stay shut without the
+   trader losing track of whether anything is open. */
+/* The count on the positions button.
+
+   It sat inside the button at 14px square, overlapping the glyph it
+   was meant to annotate, with 3px of padding to hold a number that
+   can reach two digits - so "12" touched its own edges on top of an
+   icon. It is a chip on the corner now: outside the button's box, with
+   a ring in the bar's own colour so it separates from whatever it
+   overlaps, and wide enough for two digits. Anything past nine reads
+   as 9+, because the exact number is in the dock and what the corner
+   has to say is "there is something open". */
+.tv-icon-n {
+  position: absolute;
+  inset-block-start: -5px;
+  inset-inline-end: -5px;
+  display: grid;
+  place-items: center;
+  min-width: 17px;
+  height: 17px;
+  padding: 0 4px;
+  border-radius: 999px;
+  border: 2px solid var(--surface-2);
+  font-size: 10px;
+  font-weight: 650;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  background: rgb(var(--accent));
+  color: rgb(var(--on-accent, 255 255 255));
+  pointer-events: none;
+}
+/* Pressed, the button carries the accent itself; the chip has to stop
+   being the same colour as the thing behind it. */
+.tv-icon[aria-pressed="true"] .tv-icon-n {
+  background: var(--ink);
+  color: var(--surface-2);
+}
+
+/* --------------------------------------------------------------- rail -- */
+
+.tv-rail {
+  display: flex; flex-direction: column; align-items: center;
+  gap: 2px;
+  padding: 5px 0;
+  border-inline-end: 1px solid var(--line);
+  background: var(--surface-2);
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+.tv-rail::-webkit-scrollbar { width: 4px }
+/* There is no sheet to dismiss where the rail is a column. */
+.tvr-grab { display: none }
+
+.tvr-group { position: relative; width: 36px }
+.tvr-btn {
+  display: grid; place-items: center;
+  width: 36px; height: 34px;
+  border: 0; border-radius: var(--radius-sm, 8px);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  transition: background var(--dur-1, .12s), color var(--dur-1, .12s);
+}
+.tvr-btn svg { width: 18px; height: 18px }
+/* The group name rides along in the markup for the mobile tool sheet and
+   is never shown beside the icons on a desktop rail. */
+.tvr-name { display: none }
+.tv-toolsfab, .tv-toolscrim { display: none }
+.tvr-btn:hover { background: var(--surface-hover); color: var(--ink) }
+.tvr-btn.on { background: rgb(var(--accent-rgb) / .16); color: var(--accent-readable, var(--accent)) }
+.tvr-btn.danger:hover { color: var(--rose) }
+.tvr-btn:disabled { opacity: .3; cursor: default }
+.tvr-btn:disabled:hover { background: transparent; color: var(--muted) }
+
+/* The magnet has three strengths, so one lit state cannot describe it. A
+   weak pull is tinted; a strong one is filled, and both carry a bar at the
+   foot of the button that grows with the strength. */
+#tv-magnet { position: relative }
+#tv-magnet[data-level="strong"] {
+  background: var(--accent);
+  color: var(--accent-ink, var(--on-accent));
+}
+#tv-magnet[data-level="weak"]::after,
+#tv-magnet[data-level="strong"]::after {
+  content: "";
+  position: absolute;
+  inset-block-end: 3px;
+  inset-inline-start: 50%;
+  transform: translateX(-50%);
+  height: 2px;
+  border-radius: 2px;
+  background: currentColor;
+  opacity: .9;
+}
+#tv-magnet[data-level="weak"]::after { width: 7px }
+#tv-magnet[data-level="strong"]::after { width: 15px }
+
+/* The little corner mark that says "this button has more behind it". */
+.tvr-more {
+  position: absolute; inset-inline-end: 1px; inset-block-end: 1px;
+  width: 12px; height: 12px;
+  padding: 0; border: 0; background: transparent; cursor: pointer;
+}
+.tvr-more::after {
+  content: ""; position: absolute; inset-inline-end: 2px; inset-block-end: 2px;
+  border: 3px solid transparent;
+  border-inline-end-color: var(--muted);
+  border-block-end-color: var(--muted);
+  opacity: .8;
+}
+.tvr-group:hover .tvr-more::after { border-inline-end-color: var(--ink); border-block-end-color: var(--ink) }
+.tvr-sep { width: 22px; height: 1px; background: var(--line); margin: 5px 0 }
+
+.tv-flyout {
+  position: absolute;
+  inset-inline-start: calc(var(--tv-rail) + 4px);
+  z-index: 40;
+  min-width: 212px;
+  padding: 5px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md, 12px);
+  background: var(--surface-floating);
+  box-shadow: var(--shadow-lg, 0 18px 50px rgb(0 0 0 / .4));
+  backdrop-filter: blur(var(--blur, 14px));
+  opacity: 0;
+  transform: translateX(-6px);
+  transition: opacity var(--dur-2, .18s) var(--ease-1), transform var(--dur-2, .18s) var(--ease-1);
+}
+html[dir="rtl"] .tv-flyout { transform: translateX(6px) }
+.tv-flyout.in { opacity: 1; transform: none }
+.tvf-head {
+  padding: 5px 8px 7px;
+  font-size: 10px; letter-spacing: .1em; text-transform: uppercase;
+  color: var(--faint);
+}
+.tvf-row {
+  display: flex; align-items: center; gap: 9px;
+  width: 100%; padding: 7px 8px;
+  border: 0; border-radius: var(--radius-sm, 8px);
+  background: transparent;
+  color: var(--ink);
+  font: inherit; font-size: 12px; text-align: start;
+  cursor: pointer;
+}
+.tvf-row svg { width: 16px; height: 16px; color: var(--muted); flex: none }
+.tvf-row:hover { background: var(--surface-hover) }
+.tvf-row.on { background: rgb(var(--accent-rgb) / .14) }
+.tvf-row.on svg { color: var(--accent-readable, var(--accent)) }
+.tvf-row kbd {
+  margin-inline-start: auto;
+  padding: 1px 5px;
+  border: 1px solid var(--line); border-radius: 4px;
+  font-family: "IBM Plex Mono", monospace; font-size: 10px;
+  color: var(--faint);
+}
+
+/* -------------------------------------------------------------- stage -- */
+
+.tv-stage { position: relative; min-width: 0; display: flex }
+.tv-stage .chart-box {
+  flex: 1;
+  height: auto;
+  border-radius: 0;
+  background: transparent;
+}
+/* The canvas is taken out of the layout entirely.
+   A canvas has an intrinsic size, and the engine rewrites that size whenever
+   the box changes - inside a flex column that is a feedback loop: paint
+   resizes the canvas, the canvas nudges the box, the box notifies the
+   observer, and the browser reports an undelivered ResizeObserver
+   notification. Absolute means the canvas can never push back on its parent. */
+.tv-stage .chart-box canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+.tv-nav {
+  position: absolute; inset-block-end: 12px; inset-inline-end: 96px;
+  display: flex; gap: 5px;
+  opacity: 0;
+  transform: translateY(4px);
+  transition: opacity var(--dur-2, .18s) var(--ease-1), transform var(--dur-2, .18s) var(--ease-1);
+}
+.tv-stage:hover .tv-nav, .tv-nav:focus-within { opacity: 1; transform: none }
+
+/* Back to the live edge.
+
+   Shown only while the live edge is off screen - a button that does
+   nothing is worse than no button - so unlike its neighbours it does not
+   wait for a hover to appear. Someone scrolled into history needs to see
+   the way back without first discovering that the corner reacts. */
+.tv-nav .tv-latest { border-color: rgb(var(--accent-rgb) / .45) }
+.tv-stage:has(.tv-latest:not([hidden])) .tv-nav { opacity: 1; transform: none }
+
+
+.tv-round {
+  display: grid; place-items: center;
+  width: 28px; height: 28px;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  background: var(--surface-floating);
+  color: var(--muted);
+  cursor: pointer;
+  backdrop-filter: blur(var(--blur, 10px));
+  transition: color var(--dur-1, .12s), transform var(--dur-1, .12s);
+}
+.tv-round svg { width: 14px; height: 14px }
+.tv-round { position: relative }
+
+.tv-round:hover { color: var(--ink); transform: translateY(-1px) }
+
+.tv-hint {
+  position: absolute; inset-block-start: 10px; inset-inline-start: 50%;
+  transform: translateX(-50%);
+  padding: 5px 11px;
+  border: 1px solid var(--line); border-radius: var(--radius-pill, 999px);
+  background: var(--surface-floating);
+  font-size: 11px; color: var(--muted);
+  pointer-events: none;
+}
+
+/* ------------------------------------------------- selection style bar -- */
+/* Colour and thickness used to live behind a double-click, in a dock most
+   people never opened. Selecting a shape now brings its controls to it. */
+
+.tv-style {
+  position: absolute; inset-block-start: 10px; inset-inline-start: 10px;
+  z-index: 6;
+  display: flex; align-items: center; gap: 4px; flex-wrap: wrap;
+  max-inline-size: calc(100% - 20px);
+  padding: 5px 7px;
+  border: 1px solid var(--line); border-radius: var(--radius-pill, 999px);
+  background: var(--surface-floating);
+  box-shadow: 0 8px 26px rgba(0, 0, 0, .28);
+}
+.tv-style[hidden] { display: none; }
+.tv-style .tvs-kind {
+  padding-inline: 4px 2px;
+  font-size: 11px; color: var(--muted); white-space: nowrap;
+}
+.tv-style .tvs-div {
+  inline-size: 1px; block-size: 16px; margin-inline: 3px;
+  background: var(--line);
+}
+.tv-style .tvs-dot {
+  inline-size: 18px; block-size: 18px; padding: 0;
+  border: 1px solid rgba(255, 255, 255, .22); border-radius: 50%;
+  background: var(--c, #e8c07a);
+  cursor: pointer;
+}
+.tv-style .tvs-dot.on,
+.tv-style .tvs-dot:hover { outline: 2px solid var(--accent, #e8c07a); outline-offset: 2px; }
+.tv-style .tvs-custom {
+  position: relative; overflow: hidden;
+  background: conic-gradient(#ef5350, #ff9f43, #2fbf71, #36a3ff, #7c6cff, #ef5350);
+}
+.tv-style .tvs-custom input {
+  position: absolute; inset: -6px; inline-size: 30px; block-size: 30px;
+  padding: 0; border: 0; background: transparent; opacity: 0; cursor: pointer;
+}
+.tv-style .tvs-w {
+  display: grid; place-items: center;
+  inline-size: 22px; block-size: 22px; padding: 0;
+  border: 1px solid transparent; border-radius: 6px;
+  background: transparent; cursor: pointer;
+}
+.tv-style .tvs-w i {
+  display: block; inline-size: 14px; block-size: var(--h, 1px);
+  border-radius: 2px; background: var(--text, #e6edf3);
+}
+.tv-style .tvs-w.on,
+.tv-style .tvs-w:hover { border-color: var(--line); background: var(--surface-raised, rgba(255, 255, 255, .06)); }
+.tv-style .tvs-btn {
+  display: inline-grid; place-items: center;
+  block-size: 22px; min-inline-size: 22px; padding-inline: 6px;
+  border: 1px solid transparent; border-radius: 6px;
+  background: transparent; color: var(--muted);
+  font-size: 10px; font-family: var(--mono, monospace);
+  cursor: pointer;
+}
+.tv-style .tvs-btn svg { inline-size: 14px; block-size: 14px; }
+.tv-style .tvs-btn:hover { border-color: var(--line); color: var(--text); }
+.tv-style .tvs-btn.on { color: var(--accent, #e8c07a); border-color: var(--line); }
+.tv-style .tvs-btn.danger:hover { color: var(--down, #ef5350); }
+
+/* --------------------------------------------------------------- dock -- */
+
+/* Only ever visible where the dock floats over the chart; see the 980px
+   block below, which is where the dock stops being a column. */
+.tv-scrim { display: none }
+
+.tv-dock {
+  display: flex; flex-direction: column;
+  min-width: 0;
+  border-inline-start: 1px solid var(--line);
+  background: var(--surface-2);
+  transition: opacity var(--dur-2, .18s) var(--ease-1);
+}
+/* The panel says what it is and carries its own close, instead of
+   hanging the close off the end of the tab row where four labels were
+   already competing for 250px. */
+.tvd-head {
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 6px 6px 11px;
+  border-bottom: 1px solid var(--line);
+}
+.tvd-title {
+  margin: 0; flex: 1 1 auto; min-width: 0;
+  font-size: 11px; font-weight: 600; letter-spacing: .06em;
+  text-transform: uppercase; color: var(--faint);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+html[dir="rtl"] .tvd-title { letter-spacing: 0; text-transform: none; font-size: 12px }
+.tvd-close {
+  flex: none; inline-size: 30px; block-size: 30px;
+  display: grid; place-items: center;
+  border: 0; border-radius: var(--radius-sm, 8px);
+  background: transparent; color: var(--faint); cursor: pointer;
+}
+.tvd-close:hover { background: var(--surface-hover); color: var(--ink) }
+.tvd-close svg { width: 14px; height: 14px }
+
+/* A scroller, not a squeeze. Four labels plus a count do not fit in a
+   250px column, and the old row had neither wrap nor scroll, so the
+   overflow simply went off the edge - taking the close button with it.
+   The tabs keep their full labels and the row scrolls sideways when it
+   has to. */
+.tvd-tabs {
+  display: flex; align-items: stretch; gap: 2px;
+  padding: 0 5px;
+  border-bottom: 1px solid var(--line);
+  overflow-x: auto; overflow-y: hidden;
+  scrollbar-width: none; -ms-overflow-style: none;
+  scroll-snap-type: x proximity;
+}
+.tvd-tabs::-webkit-scrollbar { display: none }
+.tvd-tab {
+  position: relative;
+  flex: 0 0 auto; scroll-snap-align: start;
+  display: inline-flex; align-items: center; gap: 2px;
+  min-block-size: 36px; padding: 0 10px;
+  border: 0;
+  /* Always present, transparent until selected. Adding the marker as a
+     border only on the current tab would make it 2px taller than its
+     neighbours, so the strip would twitch every time a tab changed. */
+  border-block-end: 2px solid transparent;
+  background: transparent;
+  color: var(--muted);
+  font: inherit; font-size: 12px; white-space: nowrap;
+  cursor: pointer;
+}
+.tvd-tab:hover { color: var(--ink) }
+/* The marker is drawn as its own element, inset by the padding, so it
+   underlines the label rather than the whole hit area. It stops at the
+   bottom edge instead of bleeding 1px past it: this strip is a
+   horizontal scroller, so anything outside the padding box is clipped,
+   and a marker hanging below would simply be cut off. */
+.tvd-tab::after {
+  content: ""; position: absolute;
+  inset-inline: 8px; inset-block-end: 0;
+  block-size: 2px; border-radius: 2px 2px 0 0;
+  background: transparent;
+}
+.tvd-tab.on { color: var(--ink); font-weight: 600 }
+.tvd-tab.on::after { background: var(--accent) }
+/* Weight is the second signal, so the current tab is never accent
+   colour alone. In forced colours a background is repainted by the
+   system and the marker would vanish, so the reserved border above
+   takes over - no layout change, because the space is already there. */
+@media (forced-colors: active) {
+  .tvd-tab.on { border-block-end-color: CanvasText }
+}
+.tvd-tab-t { overflow: hidden; text-overflow: ellipsis }
+
+/* This panel is used one-handed on a phone. A 28px tab and a 26px close
+   are both below the 44px floor; where the pointer is coarse they get
+   it, and the strip gets the room to show it. */
+@media (pointer: coarse) {
+  .tvd-tab { min-block-size: 44px; padding: 0 14px }
+  .tvd-close { inline-size: 44px; block-size: 44px }
+  .tvd-head { padding: 4px 4px 4px 11px }
+}
+
+.tvd-body { flex: 1; overflow-y: auto; padding: 9px; scrollbar-width: thin }
+/* The pane is focusable so a keyboard can scroll it, which means it can
+   also be focused by a mouse click - without this it would take a focus
+   ring for a click in the middle of a list. */
+.tvd-body:focus { outline: none }
+.tvd-body:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px }
+
+/* The open trades, in the side panel. The rows are the chart panel's own,
+   so the two never drift apart; only the chrome around them differs. */
+.tvd-badge{
+  display:inline-flex;align-items:center;justify-content:center;
+  min-width:16px;height:16px;padding:0 4px;margin-inline-start:5px;
+  border-radius:999px;background:rgb(var(--accent-rgb) / .22);
+  color:var(--accent-readable, var(--accent));
+  font-size:10px;font-weight:700;line-height:1;vertical-align:1px;
+}
+.tvd-badge[hidden]{display:none}
+/* .tvd-pos used to have to undo the floating panel's card chrome
+   here. The list no longer brings any, so there is nothing to undo. */
+.tvd-empty{color:var(--muted);font-size:12.5px;margin:4px 2px;text-align:center}
+.tvd-body .card { margin: 0 }
+.tvd-empty { margin: 18px 6px; font-size: 12px; color: var(--faint); line-height: 1.6 }
+
+
+.tvd-bulk { display: flex; gap: 5px; flex-wrap: wrap; margin-bottom: 9px }
+.tv-chip {
+  display: inline-flex; align-items: center; gap: 5px;
+  height: 26px; padding: 0 8px;
+  border: 1px solid var(--line); border-radius: var(--radius-pill, 999px);
+  background: var(--surface-interactive);
+  color: var(--muted);
+  font: inherit; font-size: 11px;
+  cursor: pointer;
+}
+.tv-chip svg { width: 13px; height: 13px }
+.tv-chip:hover { color: var(--ink); border-color: rgb(var(--accent-rgb) / .35) }
+.tv-chip.danger:hover { color: var(--rose); border-color: rgb(255 107 138 / .4) }
+
+.tvd-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px }
+.tvd-item {
+  display: flex; align-items: center; gap: 2px;
+  border-radius: var(--radius-sm, 8px);
+  transition: background var(--dur-1, .12s);
+}
+.tvd-item:hover { background: var(--surface-hover) }
+.tvd-item.on { background: rgb(var(--accent-rgb) / .14) }
+.tvd-item.off .tvd-name { opacity: .45; text-decoration: line-through }
+.tvd-pick {
+  display: flex; align-items: center; gap: 8px;
+  flex: 1; min-width: 0;
+  padding: 7px 6px;
+  border: 0; background: transparent;
+  color: var(--ink); font: inherit; font-size: 12px; text-align: start;
+  cursor: pointer;
+}
+.tvd-swatch { width: 9px; height: 9px; border-radius: 3px; flex: none }
+.tvd-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+
+/* --------------------------------------------------------- properties -- */
+
+.tvp-head { display: flex; align-items: center; gap: 4px; margin-bottom: 2px }
+.tvp-name { height: 28px; font-size: 12px; flex: 1 }
+.tvp-kind { margin: 0 0 10px; font-size: 11px; color: var(--faint) }
+.tvp-sec {
+  margin: 12px 0 6px;
+  font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: var(--faint);
+}
+.tvp-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  min-height: 30px;
+  font-size: 12px; color: var(--muted);
+}
+.tvp-row > input[type="range"] { flex: 0 0 120px }
+.tvp-row > input[type="color"] { width: 34px; height: 22px; padding: 0; border: 1px solid var(--line); border-radius: 5px; background: none }
+.tvp-row > .ctrl { flex: 0 0 150px; height: 26px; font-size: 12px }
+.tvp-row > input[type="number"] { flex: 0 0 76px }
+.tvp-choice, .tvm-choice { display: inline-flex; gap: 2px; padding: 2px; border-radius: 8px; background: var(--surface-sunken) }
+.tvp-choice button, .tvm-choice button {
+  height: 22px; padding: 0 8px;
+  border: 0; border-radius: 6px;
+  background: transparent; color: var(--muted);
+  font: inherit; font-size: 11px; cursor: pointer;
+}
+.tvp-choice button.on, .tvm-choice button.on { background: var(--accent); color: var(--accent-ink, var(--on-accent)) }
+.tvm-choice { display: flex; margin: 0 4px 6px }
+.tvm-choice button { flex: 1 }
+
+.tvp-levels { display: grid; grid-template-columns: 1fr 1fr; gap: 3px 10px }
+.tvp-level { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--muted) }
+.tvp-level input[type="color"] { width: 22px; height: 18px; padding: 0; border: 0; background: none; margin-inline-start: auto }
+.tvp-add { display: flex; gap: 4px }
+.tvp-add input { width: 74px }
+.tvp-coords { display: grid; grid-template-columns: 1fr 1fr; gap: 5px }
+.tvp-coord { display: flex; align-items: center; gap: 5px; font-size: 11px; color: var(--muted) }
+.tvp-coord input { width: 100%; }
+.tvp-coord input, .tvp-row input[type="number"], .tvp-add input {
+  height: 26px; padding: 0 7px;
+  border: 1px solid var(--line); border-radius: 6px;
+  background: var(--surface-sunken); color: var(--ink);
+  font: inherit; font-size: 11px; font-family: "IBM Plex Mono", monospace;
+}
+
+/* ------------------------------------------------------------- status -- */
+
+.tv-status {
+  display: flex; align-items: center; gap: 8px;
+  padding: 0 10px;
+  border-top: 1px solid var(--line);
+  background: var(--surface-2);
+  font-size: 11px; color: var(--muted);
+  overflow: hidden; white-space: nowrap;
+}
+.tv-status .sub { margin: 0; font-size: 11px; color: var(--faint); overflow: hidden; text-overflow: ellipsis }
+.tv-status #tv-status-tool { color: var(--ink) }
+
+/* -------------------------------------------------------------- menus -- */
+
+.tv-menu {
+  position: fixed;
+  z-index: 200;
+  min-width: 232px; max-width: 320px;
+  max-height: min(70vh, 560px);
+  overflow-y: auto;
+  padding: 5px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md, 12px);
+  background: var(--surface-floating);
+  box-shadow: var(--shadow-lg, 0 22px 60px rgb(0 0 0 / .45));
+  backdrop-filter: blur(var(--blur, 16px));
+  opacity: 0; transform: translateY(-6px) scale(.98);
+  transition: opacity var(--dur-2, .18s) var(--ease-1), transform var(--dur-2, .18s) var(--ease-1);
+  scrollbar-width: thin;
+}
+.tv-menu.in { opacity: 1; transform: none }
+.tv-menu.wide { min-width: 320px; max-width: 360px }
+.tvm-sec {
+  padding: 9px 8px 5px;
+  font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: var(--faint);
+}
+.tvm-row {
+  display: flex; align-items: center; gap: 9px;
+  width: 100%; padding: 7px 8px;
+  border: 0; border-radius: var(--radius-sm, 8px);
+  background: transparent; color: var(--ink);
+  font: inherit; font-size: 12px; text-align: start;
+  cursor: pointer;
+}
+.tvm-row:hover { background: var(--surface-hover) }
+.tvm-row.on { background: rgb(var(--accent-rgb) / .12) }
+.tvm-row svg.tvm-ico { width: 16px; height: 16px; color: var(--muted); flex: none }
+.tvm-row svg.tvm-tick { width: 14px; height: 14px; margin-inline-start: auto; color: var(--accent-readable, var(--accent)); flex: none }
+.tvm-key {
+  display: inline-grid; place-items: center;
+  min-width: 30px; height: 20px; padding: 0 5px;
+  border-radius: 5px;
+  background: var(--surface-sunken);
+  font-family: "IBM Plex Mono", monospace; font-size: 10px; color: var(--muted);
+}
+.tvm-ico.mono {
+  display: inline-grid; place-items: center;
+  min-width: 34px; height: 20px;
+  border-radius: 5px; background: var(--surface-sunken);
+  font-family: "IBM Plex Mono", monospace; font-size: 10px; color: var(--muted);
+}
+.tvm-text { display: flex; flex-direction: column; gap: 1px; min-width: 0; flex: 1 }
+.tvm-text small { font-size: 10.5px; color: var(--faint); white-space: normal; line-height: 1.4 }
+.tvm-note { margin: 8px; font-size: 10.5px; color: var(--faint); line-height: 1.5 }
+.tvm-search { display: flex; align-items: center; gap: 6px; padding: 4px 6px 8px }
+.tvm-search svg { width: 15px; height: 15px; color: var(--faint) }
+.tvm-search .ctrl { height: 28px; font-size: 12px }
+
+/* The chart's own switch, sized from two numbers like the desk's one.
+   It used to be four that disagreed: a 30x17 track, an 11px knob pinned
+   2px from the top - which is one pixel above the middle of a 17px box -
+   and a 13px slide that left it 2px short of the far end. Small enough
+   to pass review and big enough to see. Track height and width are the
+   only numbers now; the knob and its travel are worked out from them, so
+   the knob is centred and lands exactly where the padding says. */
+.tv-switch {
+  --tvs-h: 18px;
+  --tvs-w: 32px;
+  --tvs-pad: 3px;
+  --tvs-knob: calc(var(--tvs-h) - var(--tvs-pad) * 2);
+  --tvs-travel: calc(var(--tvs-w) - var(--tvs-h));
+  width: var(--tvs-w); height: var(--tvs-h);
+  min-height: var(--tvs-h); max-height: var(--tvs-h);
+  flex: none; box-sizing: border-box;
+  border-radius: 999px;
+  background: var(--surface-sunken);
+  border: 1px solid var(--line);
+  position: relative;
+  transition: background var(--dur-1, .12s);
+}
+.tv-switch i {
+  position: absolute;
+  inset-block-start: 50%; inset-inline-start: var(--tvs-pad);
+  width: var(--tvs-knob); height: var(--tvs-knob); border-radius: 50%;
+  background: var(--muted);
+  transform: translateY(-50%);
+  transition: transform var(--dur-2, .18s) var(--ease-1), background var(--dur-1, .12s);
+}
+.tv-switch.on { background: rgb(var(--accent-rgb) / .3); border-color: rgb(var(--accent-rgb) / .5) }
+.tv-switch.on i { transform: translate(var(--tvs-travel), -50%); background: var(--accent) }
+html[dir="rtl"] .tv-switch.on i { transform: translate(calc(var(--tvs-travel) * -1), -50%) }
+
+.tvi-active {
+  margin: 2px 0 6px; padding: 7px 8px;
+  border: 1px solid var(--line); border-radius: var(--radius-sm, 8px);
+  background: var(--surface-interactive);
+}
+.tvi-head { display: flex; align-items: center; gap: 4px; font-size: 12px }
+.tvi-head b { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+.tvi-params { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; margin-top: 6px }
+.tvi-param { display: flex; align-items: center; gap: 5px; font-size: 10.5px; color: var(--faint) }
+.tvi-param input {
+  width: 100%; height: 24px; padding: 0 6px;
+  border: 1px solid var(--line); border-radius: 6px;
+  background: var(--surface-sunken); color: var(--ink);
+  font: inherit; font-size: 11px; font-family: "IBM Plex Mono", monospace;
+}
+
+/* --------------------------------------------------------- fullscreen -- */
+/*
+   Two levels. The button asks the browser for real fullscreen; if that is
+   refused - or the desk is inside the installer's window - the app-level
+   class still takes over the viewport, hides the rail and the header, and
+   leaves the chart with everything it needs.
+*/
+body.chart-full #nav,
+body.chart-full .top,
+body.chart-full .topbar,
+body.chart-full .nav-scrim { display: none !important }
+
+/* Hiding the sidebar is not the same as reclaiming its space.
+   #desk is a two-column grid - "nav stage" - with a fixed first track, so
+   display:none on the rail left a --nav-wide empty strip down the side and
+   the chart rendered into what was left. The header was never hidden at
+   all: the rule named .topbar and the element is .top, so a "fullscreen"
+   chart kept a header above it, was told to be 100vh tall inside the
+   shorter row that header left behind, and overflowed - which is the
+   defect, on desktop and mobile alike. Collapse the grid to a single cell
+   that is the whole viewport, and the chart genuinely has the screen. */
+body.chart-full #desk {
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+  grid-template-areas: "stage";
+  height: 100dvh;
+}
+body.chart-full .stage,
+body.chart-full #stage {
+  padding: 0 !important;
+  max-width: none !important;
+  overflow: hidden !important;
+}
+/* No page scroll behind a chart that owns the viewport - on a phone that
+   is what turns a pan gesture into a rubber-band. */
+body.chart-full { overflow: hidden }
+body.chart-full .tv {
+  /* dvh, not vh. Where the browser refuses requestFullscreen - iOS Safari
+     on iPhone refuses it outright - the app-level class is the whole
+     mechanism, and there 100vh is the viewport with the URL bar retracted:
+     the status footer ends up underneath browser chrome. */
+  height: 100vh;
+  height: 100dvh;
+  /* The desktop min-height would otherwise make the chart taller than a
+     phone held sideways, pushing the footer off a screen that cannot
+     scroll. */
+  min-height: 0;
+  border: 0; border-radius: 0;
+}
+/* Notches and home indicators belong to the chrome, not the chart. */
+body.chart-full .tv-status { padding-bottom: var(--safe-b, 0px) }
+body.chart-full .view-head, body.chart-full .tapebar { display: none !important }
+html:fullscreen .tv,
+.tv:fullscreen {
+  height: 100vh;
+  height: 100dvh;
+  min-height: 0;
+  border: 0; border-radius: 0; background: var(--bg);
+}
+/* The page itself is what goes fullscreen, so it has to carry the page
+   colour - a transparent <html> over the browser's black is not the theme. */
+html:fullscreen { background: var(--bg) }
+html:fullscreen body { background: var(--bg) }
+
+/* --------------------------------------------------------- responsive -- */
+
+@media (max-width: 1200px) {
+  .tv { --tv-dock: 250px }
+}
+
+/* Laptop and below: the dock becomes an overlay so the chart keeps its
+   width, and the top bar drops the button labels. */
+@media (max-width: 1000px) {
+  .tv {
+    --tv-dock: 0px;
+    height: calc(100vh - 116px);
+    height: calc(100dvh - 116px);
+    min-height: min(460px, calc(100dvh - 116px));
+  }
+  .tv-body { grid-template-columns: var(--tv-rail) 1fr }
+  .tv-scrim { display: block }
+  .tv-dock {
+    position: absolute; inset-block: 0; inset-inline-end: 0;
+    width: min(300px, 82vw);
+    z-index: 30;
+    box-shadow: var(--shadow-lg, -12px 0 40px rgb(0 0 0 / .35));
+    transform: translateX(0);
+    transition: transform var(--dur-3, .24s) var(--ease-1), opacity var(--dur-2, .18s);
+    /* Opaque, because here it floats ON the chart.
+       --surface-2 is rgb(... / var(--surface-alpha)) and that alpha is
+       .62, which reads as a tasteful tint when the dock is a column with
+       the page behind it - and as a bug when it is a panel sitting over
+       a moving candle chart.
+
+       --surface-floating is not enough either: the theme builder lets
+       the trader set --surface-alpha anywhere between 0 and 1, and at a
+       low setting even that token stays see-through. --s6 is the same
+       colour --surface-2 is built from, written with no alpha at all,
+       so this is opaque in every theme including hand-built ones. */
+    background: rgb(var(--s6));
+  }
+  html[dir="rtl"] .tv-dock { box-shadow: var(--shadow-lg, 12px 0 40px rgb(0 0 0 / .35)) }
+  .tv.no-dock .tv-dock { transform: translateX(100%) }
+  html[dir="rtl"] .tv.no-dock .tv-dock { transform: translateX(-100%) }
+
+  /* A scrim under the overlay dock.
+     At this width the dock is 82vw, so opening it hides nearly the whole
+     chart - and with nothing to tap, the only way back was to find the
+     one small button that had opened it. Tapping the chart closes it,
+     which is what anybody tries first. */
+  .tv-scrim {
+    position: absolute; inset: 0; z-index: 25;
+    background: rgb(0 0 0 / .45);
+    opacity: 1;
+    transition: opacity var(--dur-2, .18s) var(--ease-1);
+  }
+  .tv.no-dock .tv-scrim { opacity: 0; pointer-events: none }
+  .tvb-label { display: none }
+  .tv-btn { padding: 0 7px }
+}
+
+/* Tablet: the rail turns into a horizontal strip under the top bar - a
+   vertical rail on a short screen wastes the only dimension that matters.
+
+   This was written as though the rail were a child of .tv. It is not: the
+   markup is .tv > (.tv-top, .tv-body, .tv-status) and the rail lives
+   inside .tv-body, beside the stage and the dock. Everything below
+   followed from that mistake.
+
+   .tv was given a fourth row for the rail and .tv-body was pinned to row
+   3. With only three children, auto-placement then put the status bar in
+   row 2 - between the top bar and the chart - and left row 4 empty. The
+   rail, meanwhile, got grid-row: 2 inside .tv-body, where row 2 does not
+   exist, so its containing block collapsed and the absolute offset of
+   var(--tv-bar) pushed it out of the clipped area entirely. On a phone
+   there were no drawing tools at all, and the chart had a stray bar
+   above it.
+
+   Three rows, like every other width. The rail is positioned against
+   .tv-body, which is what actually contains it. */
+@media (max-width: 760px) {
+  .tv {
+    --tv-rail: 0px;
+    height: calc(100vh - 104px);
+    height: calc(100dvh - 104px);
+    min-height: min(420px, calc(100dvh - 104px));
+  }
+  body.chart-full .tv { height: 100dvh }
+  /* Both selectors, at matching weight. The rail, the scrim and the dock
+     are all out of flow at this width, so .tv-stage is the only grid
+     item and it needs the one column whether the dock is open or not. */
+  .tv-body,
+  .tv.no-dock .tv-body { grid-template-columns: 1fr }
+  .tv-rail {
+    flex-direction: row;
+    align-items: center;
+    width: 100%;
+    height: 44px;
+    padding: 4px 6px;
+    border-inline-end: 0;
+    border-bottom: 1px solid var(--line);
+    overflow-x: auto;
+    overflow-y: hidden;
+    position: absolute; inset-block-start: 0; inset-inline: 0;
+    /* Opaque for the same reason as the dock: at this width the rail is
+       lifted out of the layout and sits on top of the chart, so a
+       part-transparent background shows candles running underneath the
+       tool buttons. */
+    background: rgb(var(--s6));
+    z-index: 20;
+  }
+  /* Span whatever columns exist, however many that turns out to be.
+
+     The rule above fixes the cause - a heavier .tv.no-dock selector
+     redefining the columns - but it only works by out-weighing it, and
+     that is a contest this file has now lost twice. grid-column has no
+     competing declaration anywhere, so the stage occupies the full
+     track list even if something later defines three columns again, or
+     five. At this width the rail, the scrim and the dock are all out of
+     flow and the stage is the only grid item, so spanning everything is
+     also simply what it should do. */
+  /* No rail above the stage any more - the tools are a sheet that comes
+     up from the bottom, so the chart gets the whole height. */
+  .tv-stage { padding-top: 0; grid-column: 1 / -1; grid-row: 1 }
+  /* And the dock spans everything too. The side panel is an overlay at
+     this width rather than a column, so there is nothing beside the
+     chart for the dock to keep clear of. */
+  .tv-posdock { grid-column: 1 / -1 }
+  .tvr-sep { width: 1px; height: 22px; margin: 0 4px }
+  /* Just under the rail, which is 44px tall and starts at the top of
+     .tv-body. The old value was calc(var(--tv-bar) + 46px) - 92px - and
+     came from the same mistake as everything else here: it measured from
+     the top of .tv, as though .tv-body were not already below the top
+     bar. The tool menu opened 44px adrift of the button that opened it. */
+  /* ---- the drawing tools, as a sheet -------------------------------
+     Ten groups and five switches do not fit across a phone, and the old
+     44px strip solved that by hiding most of them behind a sideways
+     scroll with nothing to say they were there. A sheet shows all of
+     them at once, named, at a size a thumb can hit. */
+  .tv-rail {
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-content: flex-start;
+    justify-content: flex-start;
+    gap: 6px;
+    width: 100%;
+    height: auto;
+    max-height: 62dvh;
+    padding: 10px 10px calc(10px + env(safe-area-inset-bottom, 0px));
+    border: 0;
+    border-top: 1px solid var(--line);
+    border-radius: 18px 18px 0 0;
+    overflow-y: auto;
+    overflow-x: hidden;
+    /* A pull that runs past the top of the list is this sheet's
+       dismissal gesture, not the page's rubber band. */
+    overscroll-behavior: contain;
+    position: absolute;
+    inset-block-start: auto;
+    inset-block-end: 0;
+    inset-inline: 0;
+    background: rgb(var(--s6));
+    box-shadow: var(--shadow-lg, 0 -14px 44px rgb(0 0 0 / .45));
+    z-index: 40;
+    /* Parked clear of the desk, not just clear of its own box.
+
+       101% put the sheet's top one percent of its height below
+       .tv-body's foot - but .tv runs on past that for the status bar,
+       and .tv is what clips. So 23px of a CLOSED tools sheet sat on
+       top of the status bar the whole time, measured at 390px. It
+       showed as a strip that seemed to surface from behind the
+       positions dock whenever the dock slid away and stopped hiding
+       it against its own edge. The status row's height is the exact
+       amount missing, plus a pixel for the border. */
+    transform: translateY(calc(101% + var(--tv-status, 26px) + 1px));
+    transition: transform var(--dur-3, .24s) var(--ease-1);
+  }
+  .tv.tools-open .tv-rail { transform: none }
+
+  /* The tools sheet and the positions dock are not related, and
+     nothing here makes them so.
+
+     This used to carry a compensation: the sheet hangs off the bottom
+     of .tv-body, the dock was a row of .tv underneath it, so opening
+     the dock shortened .tv-body and shoved the sheet 176px up the
+     screen. The answer then was to push the sheet's own bottom down
+     by the dock's height and keep the two transitions on the same
+     clock so they cancelled frame by frame.
+
+     The dock is a row of .tv-body now, under the chart's column only.
+     .tv-body keeps its height, so there is nothing to cancel and no
+     pair of timings to keep in step. The independence the trader
+     asked for is structural rather than arithmetic, which is the
+     version that cannot drift. */
+
+  /* The grab bar. It was a ::before, which looks identical and cannot
+     be touched - the sheet said "drag me" and then did not move. It is
+     a real element now, with a target tall enough to find without
+     looking and touch-action:none so the browser does not claim the
+     gesture as a scroll before the handler sees it. */
+  .tvr-grab {
+    flex: 0 0 100%;
+    height: 22px;
+    margin: -4px 0 2px;
+    display: grid; place-items: center;
+    cursor: grab;
+    touch-action: none;
+  }
+  .tvr-grab::after {
+    content: "";
+    height: 4px; width: 38px;
+    border-radius: 999px;
+    background: var(--line);
+  }
+  .tv-rail.is-dragging { transition: none }
+  .tv-rail.is-dragging .tvr-grab { cursor: grabbing }
+
+  .tvr-group { width: auto; flex: 1 1 calc(33.333% - 6px); min-width: 96px }
+  .tvr-btn {
+    width: 100%;
+    height: auto;
+    min-height: 62px;
+    padding: 9px 6px;
+    gap: 5px;
+    grid-auto-flow: row;
+    place-items: center;
+    background: var(--surface-sunken, rgb(var(--s4)));
+    color: var(--ink);
+  }
+  .tvr-group .tvr-btn { padding-inline-end: 18px }
+  .tvr-btn svg { width: 21px; height: 21px }
+  .tvr-name {
+    display: block;
+    font-size: 11px; line-height: 1.25;
+    max-width: 100%;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  /* The five switches at the end are not tool groups; let them sit on one
+     row as square-ish cells rather than stretching like the groups do. */
+  .tv-rail > .tvr-btn { flex: 1 1 calc(20% - 6px); min-width: 62px }
+  .tvr-sep { flex: 0 0 100%; width: 100%; height: 1px; margin: 4px 0; background: var(--line) }
+  .tvr-more {
+    inset-block-start: 6px;
+    inset-inline-end: 4px;
+    width: 18px; height: 18px;
+  }
+
+  .tv-toolscrim {
+    display: block;
+    position: absolute;
+    /* Up over the top bar as well, not just the chart.
+
+       The scrim's offset parent is .tv-body, which starts below the
+       header, so inset:0 left the whole header live behind an open
+       tools sheet: back, the symbol menu, the dock and positions
+       toggles all took taps while a modal sheet was up. Back was the
+       worst of them - it left the desk with the sheet still open.
+       .tv clips, so pulling the top edge up by the bar's height
+       covers the header exactly and stops at the desk's own edge. */
+    inset: calc(-1 * var(--tv-bar)) 0 0 0;
+    z-index: 35;
+    background: rgb(0 0 0 / .45);
+    opacity: 0; pointer-events: none;
+    transition: opacity var(--dur-2, .18s) var(--ease-1);
+  }
+  .tv.tools-open .tv-toolscrim { opacity: 1; pointer-events: auto }
+  /* Belt and braces, and it covers the case the scrim cannot: a tap
+     that lands on the header is taken by the scrim and dismisses the
+     sheet, but without this a control that is still pointer-reactive
+     underneath can still show a hover or an active state through a
+     scrim that is only 45% opaque. */
+  .tv.tools-open .tv-top { pointer-events: none }
+
+  .tv-toolsfab {
+    display: grid; place-items: center;
+    position: absolute;
+    inset-block-end: calc(14px + env(safe-area-inset-bottom, 0px));
+    inset-inline-start: 14px;
+    width: 46px; height: 46px;
+    z-index: 36;
+    border: 1px solid var(--line);
+    border-radius: 50%;
+    background: rgb(var(--s6));
+    color: var(--ink);
+    box-shadow: var(--shadow-lg, 0 6px 22px rgb(0 0 0 / .4));
+    cursor: pointer;
+  }
+  .tv-toolsfab svg { width: 20px; height: 20px }
+  .tv.tools-open .tv-toolsfab {
+    background: rgb(var(--accent-rgb) / .22);
+    color: var(--accent-readable, var(--accent));
+  }
+
+  /* This used to read `inset-inline-start: 8px; inset-block-end: 8px;
+     inset-block-start: auto !important`, which parked every tool's menu
+     in the bottom-left corner of the chart whatever tool it belonged
+     to - and the !important meant the script could not place it either.
+     openFlyout now anchors it above its own button; all that is needed
+     here is to sit above the sheet. */
+  .tv-flyout { z-index: 42 }
+  .tv-nav { inset-inline-end: 72px }
+  .tv-sym b { font-size: 13px }
+  .tv-seg { display: none }
+  /* A phone has no hover, so the nav would never appear, and a slider
+     parked over the chart sits under a thumb that is trying to pan. The
+     jump button earns its place; the margin is a desk setting.
+     (Folded into this block rather than opening a second one at the same
+     width - there must be exactly one, or a slice of "the phone rules"
+     reads only the first and misses the rest.) */
+  .tv-nav { opacity: 1; transform: none }
+  .tv-round { width: 34px; height: 34px }
+
+}
+
+@media (max-width: 560px) {
+  .tv {
+    height: calc(100vh - 92px);
+    height: calc(100dvh - 92px);
+    min-height: min(380px, calc(100dvh - 92px));
+  }
+  body.chart-full .tv { height: 100dvh }
+  .tv-status #tv-status-hint { display: none }
+  .tv-round { width: 32px; height: 32px }
+  /* The rail is a sheet at this width and sizes its own cells; the old
+     40x38 icon button here was from when it was still a strip. */
+  .tvr-group { min-width: 88px }
+}
+
+/* Touch: make every target reachable with a thumb without changing the
+   desktop density. */
+@media (pointer: coarse) {
+  .tv-switch { --tvs-h: 22px; --tvs-w: 40px; --tvs-pad: 4px }
+  /* Flatten needs 44px for a thumb and is 26px tall to fit a 38px
+     header.
+
+     An expander alone cannot do it here. .tv-posdock is
+     overflow:hidden and the header is its first row, so a halo tall
+     enough to reach 44px extends past the dock's own top edge and is
+     clipped there - measured, by hit test: a point 8px above the
+     button did not reach it, while getComputedStyle reported the
+     halo present and 44px tall. A matched rule is not a working one.
+
+     So the header is given the room instead, and the dock is given
+     it back, which keeps the list exactly as long as it was on a
+     desktop. The small halo that remains is inside the header and
+     is not clipped. */
+  .tv { --tv-posdock: 194px }
+  .tv-posdock-head { min-height: 46px }
+  .tv-flatten { position: relative; height: 36px; padding: 0 14px }
+  /* -5px, not -4px: inset on an absolutely positioned child resolves
+     against the PADDING box, and this button has a 1px border, so
+     -4px reaches only 34 + 8 = 42px. Measured by hit test, which is
+     also how the asymmetry showed up - the top edge answered and the
+     bottom did not.
+
+     -4px at the sides rather than -6px: the gap to the close button
+     beside it measures 8px, so 4px is the most this can take without
+     reaching into its neighbour's half and answering taps meant for
+     it. The width is 87px and needs no help. */
+  .tv-flatten::after { content: ""; position: absolute; inset: -5px -4px }
+  .tvf-row, .tvm-row { padding: 10px 9px }
+  .tv-nav { opacity: 1; transform: none }
+  /* A thumb needs 44px; these were 32. Grow the target AROUND the control
+     rather than inflating the control, and only where the pointer is
+     coarse, so a mouse never has a click stolen by a neighbour's
+     invisible halo. The gap grows with it: at 5px apart two 44px targets
+     overlap and the wrong button answers.
+     This has to live here, after the width blocks - stated earlier in the
+     sheet it tied with .tv-round at 560px and lost on source order, which
+     is how it shipped at 32px the first time. */
+  .tv-nav { gap: 8px }
+  .tv-round { width: 40px; height: 40px }
+  .tv-round::after { content: ""; position: absolute; inset: -2px; border-radius: 50% }
+
+  /* Closing a position is irreversible and its button was 22px square.
+     Same treatment: the halo grows the target to 44 without inflating
+     the control, and the rows gain enough vertical rhythm that two
+     neighbouring halos cannot overlap and close the wrong trade.
+
+     Every selector carries a .tv ancestor. The base .tv-pos-x rule is
+     140 lines BELOW this block, so at (0,1,0) it simply won and the
+     button shipped at 22px - which is the same mistake the comment
+     above records for .tv-round, made again in the same block. */
+  .tv-pos-x.tv-pos-x { position: relative; width: 30px; height: 30px }
+  .tv-pos-x.tv-pos-x::after { content: ""; position: absolute; inset: -7px; border-radius: 10px }
+  .tvp-list.tvp-list { gap: 8px 10px }
+  .tvp-row.tvp-row:not(.tvp-head) { padding-block: 9px }
+
+}
+
+/* Fat targets on the rail, but only where the rail is still a strip of
+   icon buttons. Below 720px it is the tool sheet, which lays out its own
+   cells - an unqualified width here fought that and collapsed them. */
+@media (pointer: coarse) and (min-width: 761px) {
+  .tvr-btn { width: 42px; height: 40px }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tv-menu, .tv-flyout, .tv-body, .tv-nav, .tv-switch i { transition: none !important }
+  .tv, .tv-rail, .tv-toolscrim { transition: none !important }
+}
+
+/* A drawing that contradicts itself - a long whose stop is above its entry -
+   says so in the panel rather than printing a confident ratio for it. */
+.tvp-warn {
+  margin: 8px 0 0;
+  padding: 7px 9px;
+  border: 1px solid rgb(255 107 138 / .35);
+  border-radius: var(--radius-sm, 8px);
+  background: rgb(255 107 138 / .08);
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--rose);
+}
+.tvp-note { margin: 8px 0 0; font-size: 10.5px; color: var(--faint); line-height: 1.5 }
+
+
+/* The overlay-era row styling lived here: .tv-pos-body as a floating
+   blurred card, and .tv-pos-row sizing its own columns to its own
+   content. Both are gone with the markup that used them - see
+   .tvp-list below. Leaving them would have been fifteen selectors
+   nothing in the app can match.  */
+
+/* ---- the positions list, redesigned ---------------------------------
+
+   The old row was `grid-template-columns: auto auto auto 1fr auto auto
+   auto` declared on the ROW, so every line sized its own cells to its
+   own content: five positions produced five different layouts and no
+   two numbers under one another were comparable. The columns are
+   declared once on the LIST now, and the rows are subgrid-like
+   children of it, so a column is a column.
+
+   The per-cell "SL"/"TP" prefixes are gone too - they were repeated on
+   every line to make up for there being no header. There is a header.
+   They come back, from data-l, only where the list folds into stacked
+   cards and a column header would have nothing to head. */
+.tvp-list{
+  display:grid;
+  grid-template-columns:
+    minmax(64px, 1fr)   /* symbol    */
+    auto                /* direction */
+    auto                /* volume    */
+    auto                /* open      */
+    auto                /* sl        */
+    auto                /* tp        */
+    minmax(68px, auto)  /* p/l       */
+    auto;               /* close     */
+  align-content:start;
+  gap:2px 10px;
+  font-size:12px;
+}
+.tvp-row{
+  display:grid;
+  grid-column:1 / -1;
+  grid-template-columns:subgrid;
+  align-items:center;
+  padding:5px 8px;
+  border-radius:9px;
+  border-inline-start:3px solid transparent;
+  white-space:nowrap;
+}
+.tvp-row:not(.tvp-head){background:rgb(var(--wash) / .04)}
+.tvp-row:not(.tvp-head):hover{background:rgb(var(--wash) / .08)}
+.tvp-row.is-buy{border-inline-start-color:var(--candle-up)}
+.tvp-row.is-sell{border-inline-start-color:var(--candle-down)}
+.tvp-row.is-resting{border-inline-start-color:var(--muted);border-inline-start-style:dashed}
+
+.tvp-head{
+  padding-block:2px 4px;
+  font-size:10px;
+  letter-spacing:.05em;
+  text-transform:uppercase;
+  color:var(--faint, var(--muted));
+  background:none;
+  position:sticky;
+  inset-block-start:0;
+  z-index:1;
+  /* The list scrolls under it, so it needs something to sit on. */
+  background:var(--surface-2);
+}
+.tvp-c{min-width:0;overflow:hidden;text-overflow:ellipsis}
+.tvp-sym{font-weight:600}
+.tvp-dir b{font-weight:700;font-size:10.5px;letter-spacing:.04em}
+.is-buy .tvp-dir b{color:var(--candle-up)}
+.is-sell .tvp-dir b{color:var(--candle-down)}
+.is-resting .tvp-dir b{color:var(--muted)}
+.tvp-at,.tvp-sl,.tvp-tp{color:var(--muted);font-size:11px}
+.tvp-sl{color:var(--rose, var(--muted))}
+.tvp-tp{color:var(--cyan, var(--muted))}
+.tvp-vol,.tvp-at,.tvp-sl,.tvp-tp,.tvp-pl{text-align:end;font-variant-numeric:tabular-nums}
+.tvp-pl{font-weight:700}
+.tvp-wait{font-size:10px;letter-spacing:.05em;color:var(--muted);font-weight:600;text-align:end}
+.tvp-act{display:flex;justify-content:flex-end}
+
+/* Narrow: the grid cannot hold eight columns, so each position becomes
+   a small card. This is the one place the per-cell labels are needed,
+   because there is no longer a column for a header to name. */
+
+/* ---- the positions list folds into cards --------------------------
+   Keyed on the width the list actually has, not on the width of the
+   window. Those are not the same question and the window was the
+   wrong one: the same list is 830px wide in the chart's dock at
+   1440, 428px in a chart card at 1440, and 725px in a chart card at
+   900, because the cards reflow into a different number of columns.
+   A viewport breakpoint got the dock right and the card wrong in
+   both directions.
+
+   It also fixes a case the dock had on its own: opening the side
+   panel takes 290px off the dock's width without the window
+   changing at all, and eight columns went on being asked for in a
+   space that could no longer hold them.
+
+   These sit after the base .tvp-* rules rather than carrying a .tv
+   ancestor for weight, the way they did when they lived in the phone
+   block. A container query adds no specificity, exactly as a media
+   query does not - but at equal weight the later rule wins, and
+   being last is a reason a reader can see. */
+@container tvp (max-width: 460px) {
+  .tvp-list{display:flex;flex-direction:column;gap:6px}
+  /* .tvp-row.tvp-head, not .tvp-head.
+
+     The header IS a row - it carries both classes so the columns line
+     up with the rows beneath it. At (0,2,0) it tied with the
+     `.tvp-row{display:flex}` below and lost on source order, so
+     the header stayed visible on a phone with no columns to head.
+     Measured in a browser; the stylesheet read correctly. */
+  .tvp-row.tvp-head{display:none}
+  /* Wrapping flex, not a grid of areas: the five figures have to flow
+     along one strip and wrap as they run out of room, and five items
+     sharing a single grid-area would simply stack on top of each
+     other. The ::before is a zero-height item with flex-basis:100%,
+     which is how a flex row is forced to break - everything ordered
+     after it starts on the second line. */
+  .tvp-row{
+    display:flex;
+    flex-wrap:wrap;
+    align-items:baseline;
+    gap:4px 10px;
+    padding:8px 10px;
+    white-space:normal;
+  }
+  .tvp-row::before{content:"";flex:0 0 100%;height:0;order:3}
+  .tvp-sym{order:0;font-size:13px}
+  .tvp-dir{order:1}
+  .tvp-act{order:2;margin-inline-start:auto;align-self:center}
+  .tvp-vol{order:4}
+  .tvp-at{order:5}
+  .tvp-sl{order:6}
+  .tvp-tp{order:7}
+  .tvp-pl,.tvp-wait{order:8;margin-inline-start:auto}
+  .tvp-vol,.tvp-at,.tvp-sl,
+  .tvp-tp,.tvp-pl,.tvp-wait{
+    display:inline-flex;
+    align-items:baseline;
+    gap:4px;
+    text-align:start;
+  }
+  /* The labels the header carried on a wide screen. There is no header
+     here, so each figure says what it is. */
+  .tvp-vol::before,.tvp-at::before,.tvp-sl::before,
+  .tvp-tp::before,.tvp-pl::before{
+    content:attr(data-l);
+    font-size:9.5px;
+    letter-spacing:.04em;
+    text-transform:uppercase;
+    color:var(--faint, var(--muted));
+  }
+}
+
+
+.tv-pos-x{
+  width:22px;height:22px;flex:none;display:inline-flex;
+  align-items:center;justify-content:center;
+  border-radius:7px;border:1px solid var(--line);cursor:pointer;
+  background:transparent;color:var(--muted);padding:0;
+}
+.tv-pos-x svg{width:12px;height:12px}
+.tv-pos-x:hover{background:rgba(255,107,138,.16);color:var(--bad);border-color:rgba(255,107,138,.42)}
+.tv-pos-x:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.tv-pos-x[disabled]{opacity:.5;cursor:default}
+
+/* On a phone the levels are the first thing to go: the direction, the
+   size and what it is making are what a trader needs at a glance, and
+   SL/TP are a tap away in the ticket. */
+/* The 560px block that hid .tv-pos-lv and .tv-pos-at is gone: the list
+   folds into labelled cards at 760px now, so there is nothing left to
+   hide and the classes it named no longer exist. */

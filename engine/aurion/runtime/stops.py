@@ -1,0 +1,344 @@
+"""Where a stop loss is allowed to move to, and never where it is not.
+
+Pure arithmetic, no MetaTrader, no imports worth the name. That is on
+purpose: this is the one piece of the runtime where a wrong sign does not
+cause an error message, it widens somebody's risk on a live position and
+says nothing. It needs to be testable without a terminal, a broker or
+numpy, so it is.
+
+Two rules live here.
+
+Break-even ("risk free") moves the stop just past the entry once the trade
+has earned enough to pay for it, so the position can no longer lose. Past
+the entry, not to it: a stop exactly on the open price still closes at a
+loss, because the spread has to be crossed to get out and the commission
+was charged to get in.
+
+Trailing drags the stop along behind price at a fixed distance.
+
+Both are expressed the same way and resolved together, because a position
+has one stop and two opinions about it. The rule is simply: whichever is
+further forward wins, and nothing ever moves a stop backwards.
+"""
+
+from __future__ import annotations
+
+from typing import Any
+
+__all__ = [
+    "breakeven_target",
+    "trailing_target",
+    "resolve_stop",
+    "resolve_stop_r",
+    "risk_distance",
+    "StopPlan",
+]
+
+
+class StopPlan:
+    """What to do with one position's stop on this tick."""
+
+    __slots__ = ("sl", "reason")
+
+    def __init__(self, sl: float, reason: str) -> None:
+        self.sl = sl
+        self.reason = reason
+
+    def __repr__(self) -> str:  # pragma: no cover - debugging only
+        return f"StopPlan(sl={self.sl!r}, reason={self.reason!r})"
+
+
+def _f(value: Any) -> float:
+    try:
+        return float(value or 0.0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def breakeven_target(
+    side: str,
+    entry: float,
+    price: float,
+    trigger_points: float,
+    lock_points: float = 0.0,
+    spread: float = 0.0,
+) -> float | None:
+    """
+    The stop that makes a position unable to lose, or None.
+
+    `price` is the price the position would be closed at right now - the
+    bid for a long, the ask for a short. Using the other side of the book
+    is how a position looks profitable when closing it would not be.
+
+    `lock_points` is how far beyond the entry to sit. Left at zero it is
+    derived: the live spread plus a tenth of the trigger. The spread is
+    there because it is the cost that has to be crossed on the way out and
+    is the difference between "cannot lose" and "loses a little"; the
+    tenth is so the rule still locks something in on an instrument quoted
+    with no spread at all.
+    """
+    trigger = _f(trigger_points)
+    if trigger <= 0:
+        return None
+
+    entry = _f(entry)
+    price = _f(price)
+    if entry <= 0 or price <= 0:
+        return None
+
+    lock = _f(lock_points)
+    if lock <= 0:
+        lock = _f(spread) + trigger * 0.1
+
+    side = str(side or "").strip().lower()
+
+    if side == "buy":
+        # Earned enough yet?
+        if price - entry < trigger:
+            return None
+        target = entry + lock
+        # A stop has to be below the market for a long. If locking in
+        # would put it at or above where we are, there is nothing safe to
+        # ask for - wait for another tick rather than send a rejection.
+        return target if target < price else None
+
+    if side == "sell":
+        if entry - price < trigger:
+            return None
+        target = entry - lock
+        return target if target > price else None
+
+    return None
+
+
+def ladder_milestones(entry: float, take_profit: float, steps: int = 3) -> list[float]:
+    """The prices on the way to the target, nearest first.
+
+    With a target and three steps these are a third, two thirds and the
+    target itself. They are the rungs the stop climbs: reaching one locks
+    in the one below it.
+    """
+    entry, take_profit = _f(entry), _f(take_profit)
+    steps = int(steps or 0)
+    if entry <= 0 or take_profit <= 0 or steps < 1:
+        return []
+    span = take_profit - entry
+    if span == 0:
+        return []
+    return [entry + span * (i / steps) for i in range(1, steps + 1)]
+
+
+def ladder_target(
+    side: str,
+    entry: float,
+    take_profit: float,
+    price: float,
+    *,
+    steps: int = 3,
+    lock_points: float = 0.0,
+    spread: float = 0.0,
+) -> tuple[float, int] | None:
+    """Stop that ratchets up a rung each time profit reaches the next one.
+
+    A single break-even rule protects the trade but not the profit: once
+    the stop is at entry it stays there while an open winner gives back
+    everything it made. This walks the stop up behind price instead.
+
+        reaching rung 1  ->  stop to break-even (plus the spread)
+        reaching rung 2  ->  stop to rung 1
+        reaching rung 3  ->  stop to rung 2
+
+    Returns (stop, rung reached) or None when no rung has been reached
+    yet. The stop is never returned on the wrong side of the market: a
+    rung that has only just been touched can sit at the current price,
+    and asking the broker for that is a rejection, not a protection.
+    """
+    side = str(side or "").strip().lower()
+    if side not in {"buy", "sell"}:
+        return None
+    entry, price = _f(entry), _f(price)
+    if entry <= 0 or price <= 0:
+        return None
+
+    rungs = ladder_milestones(entry, take_profit, steps)
+    if not rungs:
+        return None
+
+    # The target has to be in the direction of the trade, or the "profit"
+    # being measured is a loss.
+    if side == "buy" and rungs[-1] <= entry:
+        return None
+    if side == "sell" and rungs[-1] >= entry:
+        return None
+
+    lock = _f(lock_points)
+    if lock <= 0:
+        lock = _f(spread)
+
+    reached = 0
+    for i, rung in enumerate(rungs, start=1):
+        if side == "buy" and price >= rung:
+            reached = i
+        elif side == "sell" and price <= rung:
+            reached = i
+    if reached < 1:
+        return None
+
+    # One rung below the one just reached; the first rung locks the entry.
+    target = entry + (lock if side == "buy" else -lock) if reached == 1 else rungs[reached - 2]
+
+    if side == "buy" and target >= price:
+        return None
+    if side == "sell" and target <= price:
+        return None
+    return target, reached
+
+
+def trailing_target(side: str, price: float, distance_points: float) -> float | None:
+    """The stop that follows price at a fixed distance, or None."""
+    distance = _f(distance_points)
+    price = _f(price)
+    if distance <= 0 or price <= 0:
+        return None
+
+    side = str(side or "").strip().lower()
+    if side == "buy":
+        return price - distance
+    if side == "sell":
+        return price + distance
+    return None
+
+
+def resolve_stop(
+    side: str,
+    entry: float,
+    price: float,
+    current_sl: float,
+    *,
+    breakeven_points: float = 0.0,
+    breakeven_lock_points: float = 0.0,
+    trailing_points: float = 0.0,
+    spread: float = 0.0,
+    min_step: float = 0.0,
+) -> StopPlan | None:
+    """
+    The one move to make, or None for "leave it alone".
+
+    Everything protective about this function is in the last few lines:
+    a candidate is only returned if it is strictly *better* than the stop
+    already on the position. Better means higher for a long and lower for
+    a short - the direction that can only ever reduce risk.
+
+    That check is what makes the two rules safe to combine and safe to run
+    on every tick. Break-even may fire first and trailing may overtake it
+    later; whichever is further forward wins, and neither can give ground
+    back when price retraces.
+
+    `min_step` suppresses moves too small to be worth a round trip to the
+    broker. Without it a trailing stop sends a modify on every tick of a
+    fast instrument and spends its time queueing behind itself.
+    """
+    side = str(side or "").strip().lower()
+    if side not in {"buy", "sell"}:
+        return None
+
+    be = breakeven_target(side, entry, price, breakeven_points, breakeven_lock_points, spread)
+    tr = trailing_target(side, price, trailing_points)
+
+    candidates: list[tuple[float, str]] = []
+    if be is not None:
+        candidates.append((be, "breakeven"))
+    if tr is not None:
+        candidates.append((tr, "trailing"))
+    if not candidates:
+        return None
+
+    # Furthest forward wins.
+    if side == "buy":
+        target, reason = max(candidates, key=lambda c: c[0])
+    else:
+        target, reason = min(candidates, key=lambda c: c[0])
+
+    current = _f(current_sl)
+    step = max(0.0, _f(min_step))
+
+    if side == "buy":
+        # A long with no stop at all is the one case where "better" cannot
+        # be a comparison - anything is better than nothing.
+        if current > 0 and target <= current + step:
+            return None
+        if target >= _f(price):
+            return None
+    else:
+        if current > 0 and target >= current - step:
+            return None
+        if target <= _f(price):
+            return None
+
+    return StopPlan(target, reason)
+
+
+def risk_distance(entry: float, initial_sl: float) -> float:
+    """How much one R is worth, in price, for this position.
+
+    Every management rule below is quoted in R rather than in points.
+    Points are not portable: 150 points is a sensible break-even trigger
+    on EURUSD, a rounding error on gold and a fortune on an index. The
+    distance from the entry to the stop the strategy itself chose is the
+    only unit that means the same thing on every instrument, and the
+    strategy already sized it to the instrument's volatility.
+    """
+    entry, initial_sl = _f(entry), _f(initial_sl)
+    if entry <= 0 or initial_sl <= 0:
+        return 0.0
+    return abs(entry - initial_sl)
+
+
+def resolve_stop_r(
+    side: str,
+    entry: float,
+    initial_sl: float,
+    price: float,
+    current_sl: float,
+    *,
+    be_at_r: float = 0.0,
+    be_lock_r: float = 0.0,
+    trail_at_r: float = 0.0,
+    trail_r: float = 0.0,
+    spread: float = 0.0,
+    min_step: float = 0.0,
+) -> StopPlan | None:
+    """The same two rules, expressed in R instead of points.
+
+    `be_at_r=1.0` means "once the trade is one risk-unit in profit, make
+    it unable to lose". `trail_at_r=1.0, trail_r=1.5` means "after one R,
+    follow price one and a half R behind".
+
+    Trailing is armed rather than always-on. An unarmed trailing stop at
+    a distance narrower than the original stop would tighten a brand new
+    position before it has done anything to earn it, which turns normal
+    noise around the entry into a loss.
+    """
+    r = risk_distance(entry, initial_sl)
+    if r <= 0:
+        return None
+
+    trailing_points = 0.0
+    if _f(trail_r) > 0:
+        arm = _f(trail_at_r) * r
+        price, entry_f = _f(price), _f(entry)
+        gain = (price - entry_f) if str(side).strip().lower() == "buy" else (entry_f - price)
+        if gain >= arm:
+            trailing_points = _f(trail_r) * r
+
+    return resolve_stop(
+        side,
+        entry,
+        price,
+        current_sl,
+        breakeven_points=_f(be_at_r) * r,
+        breakeven_lock_points=_f(be_lock_r) * r,
+        trailing_points=trailing_points,
+        spread=spread,
+        min_step=min_step,
+    )

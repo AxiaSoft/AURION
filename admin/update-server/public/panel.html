@@ -1,0 +1,370 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>AURION — پنل آپدیت</title>
+<style>
+  :root{
+    --bg:#06070b; --lift:#0d101a; --ink:#e8edf7; --muted:#8b93a7;
+    --line:rgb(255 255 255 / .08); --cyan:#3ee0c4; --violet:#7c6cff;
+    --rose:#ff6b6b; --gold:#e8c07a; --ctl-h:40px; --r:12px;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; background:
+      radial-gradient(900px 500px at 88% -5%, rgb(124 108 255 / .18), transparent 60%),
+      radial-gradient(700px 420px at 5% 20%, rgb(62 224 196 / .13), transparent 60%),
+      linear-gradient(180deg, var(--lift), var(--bg));
+    min-height:100vh; color:var(--ink);
+    font:14px/1.7 Vazirmatn, Tahoma, "Segoe UI", system-ui, sans-serif;
+  }
+  .wrap{max-width:1000px; margin:0 auto; padding:28px 20px 60px}
+  header{display:flex; align-items:baseline; gap:12px; flex-wrap:wrap}
+  h1{font-size:20px; font-weight:500; margin:0; letter-spacing:.06em}
+  .sub{color:var(--muted); font-size:12px; margin:0}
+  .card{
+    background:rgb(255 255 255 / .03); border:1px solid var(--line);
+    border-radius:16px; padding:18px; margin-top:16px;
+  }
+  h2{font-size:14px; font-weight:600; margin:0 0 4px}
+  .hint{color:var(--muted); font-size:12px; margin:0 0 10px}
+  label{display:block; margin:12px 0 0}
+  label span.cap{display:block; font-size:12px; color:var(--muted); margin-bottom:6px}
+  input,textarea{
+    width:100%; min-height:var(--ctl-h); padding:0 12px; font:inherit;
+    color:var(--ink); background:rgb(255 255 255 / .04);
+    border:1px solid var(--line); border-radius:var(--r); outline:none;
+  }
+  input[type=file]{padding:8px 12px; height:auto}
+  input[type=checkbox]{width:auto; min-height:0; margin-inline-end:8px}
+  textarea{padding:10px 12px; min-height:84px; resize:vertical}
+  input:focus,textarea:focus{border-color:rgb(62 224 196 / .5)}
+  button{
+    min-height:var(--ctl-h); padding:0 18px; font:inherit; font-weight:500;
+    border:0; border-radius:var(--r); cursor:pointer; color:#061014;
+    background:linear-gradient(135deg,var(--cyan),var(--violet));
+  }
+  button.ghost{background:transparent; color:var(--ink); border:1px solid var(--line)}
+  button.bad{background:transparent; color:var(--rose); border:1px solid rgb(255 107 107 / .35)}
+  button.small{min-height:30px; padding:0 12px; font-size:12px}
+  button:disabled{opacity:.45; cursor:default}
+  .row{display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin-top:14px}
+  .states{display:flex; gap:18px; flex-wrap:wrap; font-size:12px; color:var(--muted); margin-top:10px}
+  .dot{width:8px; height:8px; border-radius:99px; display:inline-block; margin-inline-end:6px}
+  .up{background:var(--cyan)} .down{background:var(--rose)} .warn{background:var(--gold)}
+  .rel{border:1px solid var(--line); border-radius:14px; padding:14px; margin-top:12px; background:rgb(255 255 255 / .02)}
+  .rel-head{display:flex; align-items:center; gap:10px; flex-wrap:wrap}
+  .ver{font-size:16px; font-weight:600; letter-spacing:.04em}
+  .tag{font-size:11px; padding:2px 10px; border-radius:99px; border:1px solid var(--line); color:var(--muted)}
+  .tag.live{color:#061014; background:var(--cyan); border-color:transparent}
+  .tag.draft{color:var(--gold); border-color:rgb(232 192 122 / .4)}
+  .tag.must{color:var(--rose); border-color:rgb(255 107 107 / .4)}
+  .meta{color:var(--muted); font-size:12px; margin-top:6px}
+  .files{margin-top:10px; display:grid; gap:6px}
+  .file{
+    display:flex; justify-content:space-between; align-items:center; gap:10px;
+    background:rgb(0 0 0 / .3); border:1px solid var(--line); border-radius:10px;
+    padding:8px 12px; font-size:12px; direction:ltr; text-align:left;
+  }
+  .file code{color:var(--cyan); word-break:break-all}
+  .say{margin-top:12px; font-size:13px; min-height:20px}
+  .say.ok{color:var(--cyan)} .say.err{color:var(--rose)}
+  .note{
+    margin-top:16px; border:1px solid rgb(232 192 122 / .3);
+    background:rgb(232 192 122 / .06); border-radius:14px; padding:14px; font-size:13px;
+  }
+  .empty{color:var(--muted); font-size:13px; margin-top:12px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <h1>AURION — پنل آپدیت</h1>
+    <p class="sub" id="where"></p>
+  </header>
+  <div class="states">
+    <span><i class="dot" id="d-srv"></i><span id="s-srv">در حال بررسی سرور…</span></span>
+    <span><i class="dot" id="d-tok"></i><span id="s-tok">توکن</span></span>
+  </div>
+
+  <div class="note">
+    همین کارها — به‌علاوهٔ تلگرام و ساخت لایسنس — در پنل یکپارچهٔ AURION هم هست:
+    <b>admin\start-panel.cmd</b> → <span dir="ltr">http://127.0.0.1:8900</span>.
+    آن پنل توکن را خودش از <span dir="ltr">update-server/.env</span> می‌خواند و لازم نیست چیزی وارد کنید.
+  </div>
+
+  <div class="card">
+    <h2>توکن ادمین</h2>
+    <p class="hint">
+      همان <span dir="ltr">ADMIN_TOKEN</span> داخل <span dir="ltr">admin/update-server/.env</span> است و
+      هنگام اجرای <span dir="ltr">start-update-server.cmd</span> روی صفحه چاپ می‌شود.
+      در این مرورگر ذخیره می‌شود و به جای دیگری نمی‌رود.
+    </p>
+    <label><span class="cap">ADMIN_TOKEN</span>
+      <input id="tok" type="password" autocomplete="off" placeholder="…" dir="ltr" /></label>
+    <div class="row">
+      <button id="tok-save">ذخیره و بررسی</button>
+      <button class="ghost" id="tok-clear">پاک کردن</button>
+    </div>
+    <div class="say" id="tok-say"></div>
+  </div>
+
+  <div class="card">
+    <h2>انتشار جدید</h2>
+    <p class="hint">اول پیش‌نویس ساخته می‌شود، بعد فایل‌ها بالا می‌روند، و تنها وقتی «انتشار» را بزنید دسک‌ها آن را می‌بینند.</p>
+    <label><span class="cap">شمارهٔ نسخه</span>
+      <input id="ver" placeholder="1.0.1" dir="ltr" /></label>
+    <label><span class="cap">تغییرات</span>
+      <textarea id="log" placeholder="چه چیزی عوض شده…"></textarea></label>
+    <label class="row" style="margin-top:12px">
+      <input type="checkbox" id="must" /><span>آپدیت اجباری — دسک تا نصب‌نکردن آن ادامه نمی‌دهد</span>
+    </label>
+    <div class="row"><button id="mk">ساخت پیش‌نویس</button></div>
+    <div class="say" id="mk-say"></div>
+  </div>
+
+  <div class="card">
+    <h2>انتشارها</h2>
+    <div class="row"><button class="ghost" id="reload">بارگذاری دوباره</button></div>
+    <div id="list"></div>
+  </div>
+
+</div>
+
+<script>
+"use strict";
+const $ = (id) => document.getElementById(id);
+const KEY = "aurion_update_admin_token";
+let token = localStorage.getItem(KEY) || "";
+
+$("where").textContent = location.origin;
+$("tok").value = token;
+
+function say(el, text, bad) {
+  const node = $(el);
+  node.textContent = text || "";
+  node.className = "say" + (text ? (bad ? " err" : " ok") : "");
+}
+
+function headers(json) {
+  const h = { "X-Admin-Token": token };
+  if (json) h["Content-Type"] = "application/json";
+  return h;
+}
+
+/* A 401 means one thing only, and it is worth saying rather than
+ * printing the word "unauthorized" and leaving the reader to guess. */
+function explain(status, data) {
+  if (status === 401) {
+    return "توکن پذیرفته نشد. همان ADMIN_TOKEN فایل update-server/.env است؛"
+         + " اگر آن فایل خالی بوده، start-update-server.cmd را یک‌بار اجرا کنید.";
+  }
+  return (data && data.error) ? String(data.error) : "خطای ناشناخته (" + status + ")";
+}
+
+async function call(path, opts = {}) {
+  try {
+    const res = await fetch(path, opts);
+    let data = {};
+    try { data = await res.json(); } catch { /* not json */ }
+    return { ok: res.ok && data.ok !== false, status: res.status, data };
+  } catch (err) {
+    return { ok: false, status: 0, data: { error: "سرور آپدیت پاسخ نداد: " + err.message } };
+  }
+}
+
+/* ------------------------------------------------------------- health */
+
+async function health() {
+  const r = await call("/api/health");
+  $("d-srv").className = "dot " + (r.ok ? "up" : "down");
+  $("s-srv").textContent = r.ok ? "سرور آپدیت در دسترس است" : "سرور آپدیت پاسخ نمی‌دهد";
+}
+
+function tokenState(ok) {
+  $("d-tok").className = "dot " + (ok === true ? "up" : ok === false ? "down" : "warn");
+  $("s-tok").textContent = ok === true ? "توکن معتبر"
+    : ok === false ? "توکن رد شد" : "توکن وارد نشده";
+}
+
+/* ------------------------------------------------------------ actions */
+
+$("tok-save").onclick = async () => {
+  token = $("tok").value.trim();
+  localStorage.setItem(KEY, token);
+  if (!token) { tokenState(null); say("tok-say", "توکن خالی است.", true); return; }
+  const r = await call("/api/admin/updates", { headers: headers() });
+  tokenState(r.ok);
+  say("tok-say", r.ok ? "توکن پذیرفته شد." : explain(r.status, r.data), !r.ok);
+  if (r.ok) render(r.data.updates || []);
+};
+
+$("tok-clear").onclick = () => {
+  token = ""; localStorage.removeItem(KEY); $("tok").value = "";
+  tokenState(null); say("tok-say", "پاک شد.");
+};
+
+$("mk").onclick = async () => {
+  const version = $("ver").value.trim();
+  if (!version) { say("mk-say", "شمارهٔ نسخه لازم است.", true); return; }
+  $("mk").disabled = true;
+  const r = await call("/api/admin/updates", {
+    method: "POST",
+    headers: headers(true),
+    body: JSON.stringify({
+      version,
+      changelog: $("log").value.trim(),
+      mandatory: $("must").checked,
+    }),
+  });
+  $("mk").disabled = false;
+  if (!r.ok) { say("mk-say", explain(r.status, r.data), true); return; }
+  say("mk-say", "پیش‌نویس " + version + " ساخته شد. حالا فایل‌هایش را اضافه کنید.");
+  $("ver").value = ""; $("log").value = ""; $("must").checked = false;
+  load();
+};
+
+$("reload").onclick = () => load();
+
+/* -------------------------------------------------------------- list */
+
+function esc(s) {
+  return String(s == null ? "" : s).replace(/[&<>"']/g, (c) => (
+    { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]
+  ));
+}
+
+function kb(n) {
+  const v = Number(n) || 0;
+  return v < 1024 ? v + " B"
+    : v < 1024 * 1024 ? (v / 1024).toFixed(1) + " KB"
+    : (v / 1048576).toFixed(1) + " MB";
+}
+
+function render(list) {
+  const box = $("list");
+  if (!list.length) { box.innerHTML = '<p class="empty">هنوز هیچ انتشاری ساخته نشده.</p>'; return; }
+  box.innerHTML = list.map((u) => {
+    const files = (u.files || []).map((f) => `
+      <div class="file">
+        <span><code>${esc(f.path)}</code> · ${kb(f.size)} · ${esc(String(f.hash || "").slice(0, 12))}…</span>
+        <button class="bad small" data-del-file="${esc(u.id)}|${esc(f.id)}">حذف</button>
+      </div>`).join("");
+    return `
+      <div class="rel">
+        <div class="rel-head">
+          <span class="ver" dir="ltr">${esc(u.version)}</span>
+          <span class="tag ${u.published ? "live" : "draft"}">${u.published ? "منتشر شده" : "پیش‌نویس"}</span>
+          ${u.mandatory ? '<span class="tag must">اجباری</span>' : ""}
+          <span class="tag" dir="ltr">${esc(u.id)}</span>
+        </div>
+        ${u.changelog ? `<div class="meta">${esc(u.changelog)}</div>` : ""}
+        <div class="meta">
+          ساخت ${esc(u.created_at || "-")} · انتشار ${esc(u.published_at || "—")} ·
+          ${(u.files || []).length} فایل
+        </div>
+        <div class="files">${files || '<p class="empty">بدون فایل — منتشرش نکنید.</p>'}</div>
+        <label><span class="cap">فایل‌ها</span>
+          <input type="file" multiple data-files="${esc(u.id)}" /></label>
+        <label><span class="cap">مسیر مقصد (اختیاری، فقط وقتی یک فایل انتخاب شده)</span>
+          <input type="text" dir="ltr" placeholder="engine/aurion/config.py" data-path="${esc(u.id)}" /></label>
+        <div class="row">
+          <button class="ghost small" data-up="${esc(u.id)}">آپلود</button>
+          ${u.published
+            ? `<button class="bad small" data-unpub="${esc(u.id)}">لغو انتشار</button>`
+            : `<button class="small" data-pub="${esc(u.id)}">انتشار</button>
+               <button class="bad small" data-del="${esc(u.id)}">حذف پیش‌نویس</button>`}
+        </div>
+        <div class="say" data-say="${esc(u.id)}"></div>
+      </div>`;
+  }).join("");
+  wire();
+}
+
+function tell(id, text, bad) {
+  const node = document.querySelector(`[data-say="${id}"]`);
+  if (!node) return;
+  node.textContent = text;
+  node.className = "say" + (bad ? " err" : " ok");
+}
+
+function wire() {
+  document.querySelectorAll("[data-up]").forEach((b) => { b.onclick = () => upload(b.dataset.up); });
+  document.querySelectorAll("[data-pub]").forEach((b) => { b.onclick = () => publish(b.dataset.pub, true); });
+  document.querySelectorAll("[data-unpub]").forEach((b) => { b.onclick = () => publish(b.dataset.unpub, false); });
+  document.querySelectorAll("[data-del]").forEach((b) => { b.onclick = () => drop(b.dataset.del); });
+  document.querySelectorAll("[data-del-file]").forEach((b) => {
+    b.onclick = () => dropFile(...b.dataset.delFile.split("|"));
+  });
+}
+
+async function upload(id) {
+  const input = document.querySelector(`[data-files="${id}"]`);
+  const target = document.querySelector(`[data-path="${id}"]`);
+  if (!input.files.length) { tell(id, "فایلی انتخاب نشده.", true); return; }
+  const form = new FormData();
+  const paths = [];
+  for (const f of input.files) {
+    form.append("files", f);
+    paths.push(input.files.length === 1 && target.value.trim() ? target.value.trim() : f.name);
+  }
+  form.append("targetPaths", JSON.stringify(paths));
+  tell(id, "در حال آپلود…");
+  const r = await call(`/api/admin/updates/${id}/files`, {
+    method: "POST", headers: { "X-Admin-Token": token }, body: form,
+  });
+  if (!r.ok) { tell(id, explain(r.status, r.data), true); return; }
+  tell(id, paths.length + " فایل اضافه شد.");
+  load();
+}
+
+async function publish(id, on) {
+  const word = on
+    ? "منتشر شود؟ از این لحظه هر دسکی که چک کند این نسخه را می‌بیند."
+    : "لغو انتشار شود؟ دسک‌هایی که قبلاً آن را گرفته‌اند عقب نمی‌روند.";
+  if (!confirm(word)) return;
+  const r = await call(`/api/admin/updates/${id}/${on ? "publish" : "unpublish"}`, {
+    method: "POST", headers: headers(),
+  });
+  if (!r.ok) { tell(id, explain(r.status, r.data), true); return; }
+  load();
+}
+
+async function drop(id) {
+  if (!confirm("این پیش‌نویس و فایل‌هایش حذف شوند؟")) return;
+  const r = await call(`/api/admin/updates/${id}`, { method: "DELETE", headers: headers() });
+  if (!r.ok) { tell(id, explain(r.status, r.data), true); return; }
+  load();
+}
+
+async function dropFile(id, fileId) {
+  if (!confirm("این فایل از انتشار حذف شود؟")) return;
+  const r = await call(`/api/admin/updates/${id}/files/${fileId}`, {
+    method: "DELETE", headers: headers(),
+  });
+  if (!r.ok) { tell(id, explain(r.status, r.data), true); return; }
+  load();
+}
+
+async function load() {
+  if (!token) {
+    tokenState(null);
+    $("list").innerHTML = '<p class="empty">برای دیدن انتشارها اول توکن را وارد کنید.</p>';
+    return;
+  }
+  const r = await call("/api/admin/updates", { headers: headers() });
+  tokenState(r.ok);
+  if (!r.ok) {
+    $("list").innerHTML = `<p class="say err">${esc(explain(r.status, r.data))}</p>`;
+    return;
+  }
+  render(r.data.updates || []);
+}
+
+health();
+load();
+</script>
+</body>
+</html>

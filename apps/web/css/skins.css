@@ -1,0 +1,936 @@
+/* ===========================================================================
+   AURION — states, dialogs and the rendering tier.
+
+   This file only ever overrides; app.css owns layout, behaviour and the
+   palette. What is left after the interface styles and the accent picker were
+   removed is everything that was never really about either:
+
+     * the brand accent reaching every hover, focus ring, chip and chart;
+     * states - selected, disabled, focused - behaving consistently;
+     * the desk's own dialogs;
+     * the rendering tier, which decides how much blur the machine pays for.
+
+   One attribute still drives the page:
+
+       data-perf   rich | fast        fast removes every backdrop-filter
+
+   Glassmorphism is now the only interface style, so its refinements live here
+   rather than behind a data-skin selector.
+   =========================================================================== */
+
+:root{
+  /* One rhythm for the whole desk. */
+  --sk-pad:16px;
+  --sk-gap:14px;
+  --sk-head:15px;
+
+  --accent-soft:rgb(var(--accent-rgb) / .16);
+  --sk-tint:rgb(var(--accent-rgb) / .10);
+  --sk-tint-strong:rgb(var(--accent-rgb) / .20);
+
+  --sk-r-sm:14px;
+  --sk-btn-radius:14px;
+}
+
+/* ===========================================================================
+   1. One accent, everywhere - including every hover
+   ===========================================================================
+   Picking a colour has to move the whole desk, not just the primary button.
+   app.css expresses its accent through --accent / --accent-rgb, so what is
+   left here are the neutral-grey hovers that should also take a tint of the
+   chosen colour. */
+
+.btn{
+  background:linear-gradient(135deg, var(--accent), var(--accent-2) 55%, var(--accent-3));
+  color:var(--accent-ink);
+  border-radius:var(--sk-btn-radius);
+}
+.btn:hover{ transform:translateY(-1px); box-shadow:0 10px 24px rgb(var(--accent-rgb) / .18) }
+.btn:active{ transform:translateY(0) scale(.98) }
+
+.btn.ghost{
+  background:transparent;
+  color:var(--ink);
+  border:1px solid var(--line);
+  box-shadow:none;
+}
+.btn.ghost:hover{
+  background:var(--sk-tint);
+  border-color:rgb(var(--accent-rgb) / .38);
+  color:var(--ink);
+  box-shadow:none;
+}
+.btn.ghost:active{ background:var(--sk-tint-strong) }
+
+.nav button:hover{ background:var(--sk-tint); color:var(--ink) }
+.nav button.on{ background:rgb(var(--accent-rgb) / .12) }
+.pill:hover,
+.chip:hover,
+.menu-btn:hover,
+.dd-btn:hover,
+.st-chip:hover{ border-color:rgb(var(--accent-rgb) / .35); background:var(--sk-tint) }
+tbody tr:hover{ background:rgb(var(--accent-rgb) / .05) }
+a:hover{ color:var(--accent-readable, var(--accent)) }
+::selection{ background:rgb(var(--accent-rgb) / .3) }
+
+/* Anything FILLED with the accent takes --accent-ink, the foreground measured
+   against it in app.css rather than picked by eye. */
+.btn,
+.btn *,
+.lang-pills button.on,
+.set-jump button[data-jump].on,
+.tabs button.on{ color:var(--accent-ink) }
+.chip.on,
+.nav button.on,
+.nav-ver{ color:var(--accent-readable, var(--accent)) }
+.switch.on i{ background:var(--accent) }
+.tabs button.on{ background:var(--accent) }
+
+/* Selected is a solid fill; hover is a faint neutral tint. They were two
+   shades of the same wash once, and whichever pill the pointer was over
+   looked like the active one. */
+.lang-pills button:hover{
+  background:rgb(var(--wash) / .05);
+  border-color:rgb(var(--accent-rgb) / .28);
+  color:var(--ink);
+}
+.lang-pills button.on{
+  background:var(--accent);
+  border-color:var(--accent);
+  font-weight:600;
+}
+
+/* ---------------------------------------------------------------------------
+   The emergency stop is the one control that must never follow fashion. Its
+   colour is fixed - a trader has to find it by colour alone, under stress -
+   while its shape follows the same rules as every other button.
+   --------------------------------------------------------------------------- */
+#btn-kill,
+.btn.danger{
+  background:linear-gradient(135deg, #ff6b8a, #c43b5c) !important;
+  color:#fff !important;
+  border-radius:var(--sk-btn-radius);
+  box-shadow:0 10px 24px rgba(255,107,138,.22);
+}
+#btn-kill:hover,
+.btn.danger:hover{ transform:translateY(-1px); box-shadow:0 12px 30px rgba(255,107,138,.34) }
+#btn-kill:active,
+.btn.danger:active{ transform:translateY(0) scale(.98) }
+#btn-kill.kills{ box-shadow:0 0 0 1px var(--rose), 0 0 24px rgba(255,107,138,.3) }
+
+/* Direction never follows the accent - stated here as well as in app.css so
+   nothing can quietly override it.
+
+   --ok/--bad, NOT the candle pair. This said "green is up and red is down,
+   always" while pointing at --candle-up, which stopped being green the day
+   Relief got its steel candles: profit and loss both printed grey, measured
+   rgb(244,247,251) against rgb(138,149,165). Candles wear the theme now, in
+   every skin. A number cannot - it has nothing but its colour. */
+.up, .metric.up, .dot.i-low{ color:var(--ok) }
+.down, .metric.down{ color:var(--bad) }
+
+/* ===========================================================================
+   2. Glass, refined
+   ===========================================================================
+   The default deserves the same care the alternatives got: a brighter top
+   edge, a hairline that follows the accent, an accent-tinted hover border and
+   a single specular highlight. */
+.card{
+  border-color:rgb(var(--wash) / .10);
+  box-shadow:0 10px 40px rgba(0,0,0,.22), inset 0 1px 0 rgb(var(--wash) / .07);
+}
+.card::before{
+  background:linear-gradient(90deg, transparent, rgb(var(--accent-rgb) / .45),
+             rgb(var(--accent-3-rgb) / .35), transparent);
+}
+.card:hover{ border-color:rgb(var(--accent-rgb) / .22) }
+.card::after{
+  content:"";
+  position:absolute; inset:0 0 auto 0; height:40%;
+  background:linear-gradient(180deg, rgb(var(--wash) / .045), transparent);
+  pointer-events:none;
+}
+.switch{ backdrop-filter:blur(calc(var(--blur, 18px) * 6 / 18)); -webkit-backdrop-filter:blur(calc(var(--blur, 18px) * 6 / 18)) }
+
+/* ===========================================================================
+   3. Consistent rhythm and states
+   =========================================================================== */
+.card h3,
+.set-title{
+  font-size:var(--sk-head);
+  letter-spacing:.005em;
+  line-height:1.3;
+}
+.card > .sub:first-of-type{ margin-top:2px }
+
+/* Mixed control heights are the usual reason a settings page looks untidy. */
+.field input,
+.field select,
+.ctrl,
+.dd-btn{ min-height:42px }
+.btn{ min-height:42px; display:inline-flex; align-items:center; justify-content:center; gap:8px }
+.btn.tiny{ min-height:32px }
+
+.card,
+.btn,
+.switch,
+.chip,
+.pill,
+.accent-dot,
+.lang-pills button{ transition-timing-function:var(--ease); transition-duration:.18s }
+
+.btn:disabled,
+.lang-pills button:disabled,
+.tabs button:disabled{
+  opacity:.45;
+  cursor:not-allowed;
+  filter:grayscale(.35);
+  box-shadow:none;
+  transform:none;
+}
+
+*::-webkit-scrollbar-thumb{ background:var(--scroll-thumb); border-radius:999px }
+*::-webkit-scrollbar-thumb:hover{ background:var(--scroll-thumb-hover) }
+
+.card hr,
+.cal-tip-sep{ border:0; height:1px; background:rgb(var(--wash) / .10); margin:14px 0 }
+
+/* ===========================================================================
+   4. Range sliders
+   ===========================================================================
+   Written twice, for -webkit- and -moz-: pseudo-elements from different
+   engines cannot share a rule, a comma-joined selector is dropped whole by
+   both. WebView2 only needs the first; the second is for anyone opening the
+   desk in Firefox. */
+input[type=range]{
+  accent-color:var(--accent);
+  -webkit-appearance:none;
+  appearance:none;
+  background:transparent;
+  height:28px;
+  cursor:pointer;
+}
+input[type=range]::-webkit-slider-runnable-track{
+  height:6px;
+  border-radius:999px;
+  background:rgb(var(--wash) / .10);
+  border:1px solid rgb(var(--wash) / .08);
+}
+input[type=range]::-moz-range-track{
+  height:6px;
+  border-radius:999px;
+  background:rgb(var(--wash) / .10);
+  border:1px solid rgb(var(--wash) / .08);
+}
+input[type=range]::-webkit-slider-thumb{
+  -webkit-appearance:none;
+  appearance:none;
+  width:18px; height:18px;
+  border-radius:50%;
+  background:var(--accent);
+  border:0;
+  box-shadow:0 2px 10px -2px rgb(var(--accent-rgb) / .8), inset 0 1px 0 rgb(255 255 255 / .45);
+  margin-top:-6px;
+  transition:transform .15s var(--ease);
+}
+input[type=range]::-moz-range-thumb{
+  width:18px; height:18px;
+  border-radius:50%;
+  background:var(--accent);
+  border:0;
+  box-shadow:0 2px 10px -2px rgb(var(--accent-rgb) / .8);
+}
+input[type=range]:hover::-webkit-slider-thumb{ transform:scale(1.08) }
+input[type=range]:active::-webkit-slider-thumb{ transform:scale(.96) }
+
+/* ===========================================================================
+   5. Focus, and the black hairline that appeared on click
+   ===========================================================================
+   Chromium draws a focus ring on anything that takes focus, and on a dark
+   surface that ring reads as a thin black bar cutting across a panel. It must
+   never appear for a pointer - only for keyboard navigation, where it is the
+   only way to see where you are. */
+:focus:not(:focus-visible){ outline:none }
+button:focus:not(:focus-visible),
+a:focus:not(:focus-visible),
+[tabindex]:focus:not(:focus-visible),
+summary:focus:not(:focus-visible){ outline:none; box-shadow:none }
+:focus-visible{
+  outline:2px solid var(--accent);
+  outline-offset:2px;
+}
+
+/* ===========================================================================
+   6. Selected controls do not respond to the pointer
+   ===========================================================================
+   Once something is chosen, hovering it must change nothing. A selected item
+   that lifts or shifts colour under the cursor reads as though the selection
+   is about to move, and next to an unselected item that highlights on hover it
+   becomes hard to tell which one is actually active.
+
+   Each family restates its resting appearance. Restating is deliberate:
+   `inherit` or `revert` pull in whatever a parent happens to define, which is
+   how an earlier attempt at this silently did nothing. */
+html .lang-pills button.on:hover,
+html .lang-pills button.on:focus,
+html .tabs button.on:hover,
+html .tabs button.on:focus{
+  background:var(--accent);
+  border-color:var(--accent);
+  color:var(--accent-ink);
+  transform:none;
+  filter:none;
+  box-shadow:none;
+}
+html .set-jump button[data-jump].on:hover,
+html .set-jump button[data-jump].on:focus{
+  background:var(--accent);
+  color:var(--accent-ink);
+  transform:none;
+  filter:none;
+}
+html .nav button.on:hover,
+html[dir="rtl"] .nav button.on:hover{
+  background:rgb(var(--accent-rgb) / .12);
+  color:var(--accent-readable, var(--accent));
+  transform:none;
+  filter:none;
+}
+html .chip.on:hover,
+html .pill.on:hover,
+html .st-chip.on:hover{
+  background:transparent;
+  border-color:rgb(var(--accent-rgb) / .35);
+  color:var(--accent-readable, var(--accent));
+  transform:none;
+}
+html .dd-opt.on:hover,
+html .dd-opt.on:focus{
+  background:rgb(var(--accent-rgb) / .2);
+  color:var(--accent-readable, var(--accent));
+}
+html .accent-dot.on:hover{ transform:scale(1.1) }
+html [aria-pressed="true"]:hover,
+html [aria-selected="true"]:hover{ filter:none; transform:none }
+html .switch.on:hover{ background:color-mix(in srgb, var(--accent) 25%, transparent) }
+html .cal-cell.sel:hover,
+html .cal-cell.pinned:hover{ border-color:var(--accent); transform:none }
+.cal-cell.sel{ border-color:var(--accent); box-shadow:0 0 0 1px var(--accent) }
+
+/* ===========================================================================
+   7. The settings rail
+   ===========================================================================
+   A list of destinations, not a control. The container must not react to the
+   pointer at all - it used to pick up glass and blur only while hovered, so
+   the whole panel appeared to switch on and off as the mouse crossed it. Its
+   resting appearance is restated for every pointer state so nothing
+   underneath can reintroduce a hover. */
+.set-jump,
+.set-jump:hover,
+.set-jump:focus-within,
+.sj-open,
+.sj-open:hover,
+.sj-open:focus-visible,
+.set-rail .set-jump,
+.set-rail .set-jump:hover,
+.set-rail .set-jump:focus-within{
+  background:linear-gradient(180deg, rgb(var(--s4) / .92), rgb(var(--s2) / .88));
+  border-color:var(--line);
+  transform:none;
+}
+.set-jump button[data-jump]:hover{ background:rgb(var(--wash) / .05); color:var(--ink) }
+
+/* Settings pairs. NOT a dense grid: the robot page is authored in deliberate
+   pairs - auto trading with news, model with volume, AI gate with the danger
+   guard - and a dense flow would pull a short card up and break them. */
+.set-block > .grid.g-2{
+  align-items:start;
+  gap:14px;
+}
+.set-block > .grid.g-2 > .card{
+  height:auto;
+  align-self:start;
+  display:flex;
+  flex-direction:column;
+}
+.set-block .card > p.sub:last-child{ margin-bottom:0 }
+.set-block .card > .btn.block:last-child{ margin-top:auto }
+
+/* ===========================================================================
+   8. Dialogs
+   =========================================================================== */
+.modal{
+  background:rgba(4, 6, 11, .58);
+  backdrop-filter:blur(calc(var(--blur, 18px) * 6 / 18));
+  -webkit-backdrop-filter:blur(calc(var(--blur, 18px) * 6 / 18));
+}
+html[data-theme="light"] .modal{ background:rgba(18, 24, 38, .38) }
+
+.modal-card{
+  border-radius:var(--r);
+  box-shadow:0 10px 40px rgba(0,0,0,.35), 0 40px 90px rgba(0,0,0,.55);
+  padding:22px 22px 18px;
+  max-width:min(440px, calc(100vw - 32px));
+  animation:modalIn .22s var(--ease-out);
+}
+html[data-theme="light"] .modal-card{ box-shadow:0 30px 70px rgba(20,28,45,.22) }
+@keyframes modalIn{
+  from{ opacity:0; transform:translateY(10px) scale(.98) }
+  to{ opacity:1; transform:none }
+}
+.modal-card h3{ margin:0 0 8px; font-size:16px; letter-spacing:.01em }
+.modal-card .modal-body{ margin:0 0 18px; color:var(--muted); line-height:1.6; font-size:13.5px }
+.modal-card .modal-actions{ display:flex; gap:10px; justify-content:flex-end; flex-wrap:wrap }
+.modal-card .modal-actions .btn{ min-width:104px }
+/* A destructive dialog says so before anyone reads the words. */
+.modal-card.is-danger{ border-top:3px solid var(--rose) }
+.modal-card.is-danger h3{ color:var(--rose) }
+
+/* ===========================================================================
+   9. Rendering tier
+   ===========================================================================
+   backdrop-filter is the most expensive thing on the page: each blurred layer
+   makes the compositor re-sample everything behind it, and the desk stacks
+   more than thirty of them over an animated wallpaper. "fast" removes the blur
+   and the animation and changes nothing about the layout. */
+html[data-skin][data-theme][data-perf="fast"] *{
+  backdrop-filter:none !important;
+  -webkit-backdrop-filter:none !important;
+}
+html[data-skin][data-theme][data-perf="fast"] .card{ background:linear-gradient(180deg, rgb(var(--s7)), rgb(var(--s4))) }
+html[data-skin][data-theme][data-perf="fast"] .auth-card{ background:linear-gradient(180deg, rgb(var(--s6)), rgb(var(--s3))) }
+html[data-skin][data-theme][data-perf="fast"] .nav,
+html[data-skin][data-theme][data-perf="fast"] .top,
+html[data-skin][data-theme][data-perf="fast"] .hdr-drawer{ background:rgb(var(--s2)) }
+html[data-skin][data-theme][data-perf="fast"] .aurora{ animation:none }
+html[data-skin][data-theme][data-perf="fast"] .aurora::after{ opacity:.14 }
+
+/* The wallpaper animated hue-rotate across the whole viewport, forever, behind
+   every blurred panel. Keep it on the sign-in screen; never on the desk. */
+html.mode-desk .aurora{ animation:none }
+
+/* A panel's repaint should not invalidate the document.
+
+   Deliberately layout+style and NOT paint: `contain:paint` clips everything to
+   the padding box, and shadows that extend past it would be cut off. */
+.card,
+.chart-box,
+.set-block{ contain:layout style }
+
+/* Off-screen rows cost nothing; contain-intrinsic-size keeps scrolling honest. */
+table tbody tr,
+.term > *,
+.cal-cell{
+  content-visibility:auto;
+  contain-intrinsic-size:auto 40px;
+}
+
+@media (prefers-reduced-motion: reduce){
+  .aurora{ animation:none !important }
+  *,
+  *::before,
+  *::after{
+    animation-duration:.001ms !important;
+    animation-iteration-count:1 !important;
+    transition-duration:.001ms !important;
+  }
+}
+
+/* ===========================================================================
+   10. The appearance controls
+   =========================================================================== */
+.accent-row{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; max-width:520px }
+.accent-dot{
+  width:32px; height:32px; border-radius:50%;
+  border:2px solid transparent; padding:0; cursor:pointer;
+  box-shadow:0 4px 12px rgba(0,0,0,.35);
+  transition:transform .2s var(--ease), border-color .2s, box-shadow .2s;
+}
+.accent-dot:hover{ transform:scale(1.1) }
+.accent-dot.on{
+  border-color:var(--ink);
+  transform:scale(1.1);
+  box-shadow:0 0 0 3px rgb(var(--wash) / .10), 0 6px 16px rgba(0,0,0,.4);
+}
+
+/* ===========================================================================
+   11. Prop rules: units and the symbol picker
+   ===========================================================================
+   Every number in the prop form needed its unit spelled out. "2" in a box
+   labelled "daily loss" could be two percent, two hundred dollars or two pips,
+   and on a funded account that difference is the account. The unit sits inside
+   the field as a suffix, so it stays with the value when the label wraps. */
+.num-field .num-wrap{
+  position:relative;
+  display:block;
+}
+.num-field .num-wrap input{
+  width:100%;
+  /* Room for the suffix, reserved on the PHYSICAL right.
+
+     This was padding-inline-end, which is the right instinct for almost
+     everything on the desk and exactly wrong here. The suffix is pinned
+     to the right-hand end of the box in every language, because the
+     value it belongs to is laid out left-to-right in every language
+     (see "Where the digits sit" in app.css). An inline-end gap flips to
+     the LEFT on a Persian or Arabic desk: the room was reserved on the
+     side with nothing in it, the digits were pushed off the left edge
+     towards the middle of the box, and they ran into the unit text
+     sitting at the other end. */
+  padding-right:var(--unit-gap, 96px);
+}
+.num-field .num-unit{
+  position:absolute;
+  /* Physical, and for the same reason as the padding above: the suffix
+     belongs at the right-hand end of the value, not at the end of the
+     page's reading direction. Only the box is pinned - the text inside
+     it still renders in the page's own direction, so a multi-word
+     Persian unit reads correctly where it stands. */
+  right:12px;
+  top:50%;
+  transform:translateY(-50%);
+  font-size:11px;
+  font-weight:500;
+  color:var(--faint);
+  pointer-events:none;
+  white-space:nowrap;
+  letter-spacing:.01em;
+}
+.num-field > span{ display:flex; align-items:baseline; gap:8px; flex-wrap:wrap }
+.num-field .unit-note{
+  font-style:normal;
+  font-size:10.5px;
+  color:var(--faint);
+  padding:2px 7px;
+  border-radius:999px;
+  background:rgb(var(--wash) / .06);
+}
+/* Hide the spinner: it is useless at 0.1 steps and crowds the unit. */
+.num-field input[type=number]::-webkit-outer-spin-button,
+.num-field input[type=number]::-webkit-inner-spin-button{ -webkit-appearance:none; margin:0 }
+.num-field input[type=number]{ -moz-appearance:textfield; appearance:textfield }
+
+/* On a narrow screen the suffix stays where it is and the gap shrinks.
+
+   It used to drop to the bottom-left corner of the box, with the input
+   given padding-bottom:22px to make room - which left every numeric
+   field on a phone 22px taller than every other control, with its value
+   sitting up against the top edge rather than on the centre line. It
+   also put the unit on the opposite side from the one it occupies on a
+   desktop, so the same field had two different shapes. One layout at
+   every width: the unit is already capped at 60% with an ellipsis, so a
+   long one shortens instead of wrapping. */
+@media (max-width:720px){
+  .num-field .num-wrap input{ --unit-gap:72px }
+  .num-field.wide-unit .num-wrap input{ --unit-gap:104px }
+}
+
+/* --- the symbol picker --------------------------------------------------
+   It was a grey button reading "6 selected" over a plain list. The count is
+   the one thing a trader does not need - they know how many they picked; they
+   want to see WHICH. The control shows the symbols themselves as chips, each
+   removable in place, and only collapses to "+3" when there are too many. */
+.sym-field{ position:relative }
+.sym-pick{ position:relative }
+.sym-btn{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:10px;
+  width:100%;
+  min-height:44px;
+  padding:7px 10px;
+  text-align:start;
+  background:var(--field);
+  border:1px solid var(--line);
+  border-radius:var(--sk-r-sm);
+  color:var(--ink);
+  cursor:pointer;
+  transition:border-color .18s var(--ease), background .18s var(--ease);
+}
+.sym-btn:hover{ border-color:rgb(var(--accent-rgb) / .38); background:var(--field-hi) }
+.sym-btn[aria-expanded="true"]{
+  border-color:rgb(var(--accent-rgb) / .55);
+  box-shadow:0 0 0 4px rgb(var(--accent-rgb) / .12);
+}
+.sym-chips{
+  display:flex;
+  align-items:center;
+  gap:6px;
+  flex-wrap:wrap;
+  min-width:0;
+}
+.sym-none{ font-style:normal; color:var(--muted); font-size:12.5px }
+.sym-chip{
+  display:inline-flex;
+  align-items:center;
+  gap:5px;
+  padding:3px 6px 3px 9px;
+  border-radius:999px;
+  background:rgb(var(--accent-rgb) / .14);
+  border:1px solid rgb(var(--accent-rgb) / .30);
+  color:var(--accent-readable, var(--accent));
+  font-size:11.5px;
+  font-weight:500;
+  font-family:"IBM Plex Mono", monospace;
+  letter-spacing:.02em;
+}
+.sym-chip i{
+  font-style:normal;
+  cursor:pointer;
+  width:15px; height:15px;
+  display:grid; place-items:center;
+  border-radius:50%;
+  font-size:12px;
+  line-height:1;
+  color:var(--muted);
+  transition:background .15s, color .15s;
+}
+.sym-chip i:hover{ background:var(--rose); color:#fff }
+.sym-chip.more{
+  background:rgb(var(--wash) / .07);
+  border-color:rgb(var(--wash) / .12);
+  color:var(--muted);
+  padding-inline:9px;
+}
+.sym-caret{ display:grid; place-items:center; color:var(--faint); flex:none }
+.sym-caret svg{ width:16px; height:16px; transition:transform .2s var(--ease) }
+.sym-btn[aria-expanded="true"] .sym-caret svg{ transform:rotate(180deg) }
+
+.sym-panel{
+  padding:10px;
+  border-radius:var(--r);
+  box-shadow:0 24px 60px rgba(0,0,0,.45);
+}
+.sym-acts{ display:flex; gap:8px }
+.sym-acts .btn{ flex:1 }
+.sym-list{
+  max-height:260px;
+  /* Two columns: a broker list runs to dozens of symbols and a single column
+     turned the panel into a long scroll for no reason. */
+  grid-template-columns:repeat(auto-fill, minmax(130px, 1fr));
+  gap:3px;
+  padding-inline-end:2px;
+}
+.sym-row{
+  padding:7px 9px;
+  border-radius:var(--sk-r-sm);
+  font-family:"IBM Plex Mono", monospace;
+  font-size:11.5px;
+  letter-spacing:.02em;
+  user-select:none;
+}
+.sym-row input{ accent-color:var(--accent); width:14px; height:14px; flex:none }
+.sym-row.on{
+  background:rgb(var(--accent-rgb) / .12);
+  color:var(--accent-readable, var(--accent));
+}
+.sym-foot{
+  margin-top:8px;
+  padding-top:8px;
+  font-size:11px;
+  color:var(--muted);
+  border-top:1px solid var(--line);
+}
+
+/* ===========================================================================
+   12. Floating surfaces must be readable, blur or no blur
+   ===========================================================================
+   Panels that open over content - the symbol picker, dropdown menus, the
+   calendar card, dialogs, the mobile drawer - were 72% opaque and leaned on
+   backdrop-filter for legibility. That is fine until the blur is switched off,
+   which happens in two supported situations: the liquid-glass toggle, and the
+   fast rendering tier on a slow machine. Then the alpha is all that is left
+   and the page shows straight through them.
+
+   Two rules, applied in order: raise the resting opacity so they are readable
+   even WITH blur over a busy chart, and make them fully opaque whenever the
+   blur is gone. A floating panel is not decoration - you have to be able to
+   read what is in it. */
+.sym-panel,
+.dd-menu,
+.cal-tip,
+.st-drop,
+.notify-card,
+.modal-card{
+  background:rgb(var(--s6) / .94);
+  backdrop-filter:blur(calc(var(--blur, 18px) * 22 / 18)) saturate(140%);
+  -webkit-backdrop-filter:blur(calc(var(--blur, 18px) * 22 / 18)) saturate(140%);
+  border:1px solid rgb(var(--wash) / .12);
+}
+html[data-theme="light"] :is(.sym-panel, .dd-menu, .cal-tip, .st-drop, .notify-card, .modal-card){
+  background:rgb(var(--s8) / .96);
+  border-color:rgba(20,28,45,.10);
+}
+
+/* No blur available: go solid. */
+html[data-skin][data-theme][data-glass="off"] :is(.sym-panel, .dd-menu, .cal-tip, .st-drop, .notify-card,
+                           .modal-card, .hdr-drawer, .sym-list, .nav, .top),
+html[data-skin][data-theme][data-perf="fast"] :is(.sym-panel, .dd-menu, .cal-tip, .st-drop, .notify-card,
+                           .modal-card, .hdr-drawer, .sym-list, .nav, .top){
+  background:rgb(var(--s6));
+}
+html[data-skin][data-theme][data-glass="off"] :is(.nav, .top, .hdr-drawer),
+html[data-skin][data-theme][data-perf="fast"] :is(.nav, .top, .hdr-drawer){ background:rgb(var(--s2)) }
+html[data-skin][data-theme="light"][data-glass="off"] :is(.sym-panel, .dd-menu, .cal-tip, .st-drop,
+                                               .notify-card, .modal-card),
+html[data-skin][data-theme="light"][data-perf="fast"] :is(.sym-panel, .dd-menu, .cal-tip, .st-drop,
+                                               .notify-card, .modal-card){
+  background:#ffffff;
+}
+
+/* The dialog scrim has the same problem: 55% black plus a blur reads as solid,
+   55% black alone does not. Without blur it darkens further so the dialog is
+   the only thing the eye can land on. */
+html[data-skin][data-theme][data-glass="off"] .modal,
+html[data-skin][data-theme][data-perf="fast"] .modal{ background:rgba(4,5,8,.82) }
+html[data-skin][data-theme="light"][data-glass="off"] .modal,
+html[data-skin][data-theme="light"][data-perf="fast"] .modal{ background:rgba(18,24,38,.62) }
+
+/* The symbol panel sits over the chart and the table behind it; give it a
+   shadow deep enough to separate it from both. */
+.sym-panel{ box-shadow:0 28px 70px rgba(0,0,0,.6), 0 2px 0 rgb(var(--wash) / .05) inset }
+html[data-theme="light"] .sym-panel{ box-shadow:0 24px 60px rgba(20,28,45,.28) }
+
+/* ===========================================================================
+   13. Text that ran into itself
+   ===========================================================================
+   Two collisions in the settings pages, both from a fixed-width element
+   sitting beside text that can grow: a long unit suffix over a long number,
+   and the confidence percentage over its own label. */
+.num-field .num-wrap input{ padding-right:var(--unit-gap, 92px) }
+/* Long units - "hour, UTC (0-23)", "HH:MM, broker time" - need more room than
+   "lots" does, so the field says how much rather than every field paying for
+   the longest one. */
+.num-field.wide-unit .num-wrap input{ --unit-gap:150px }
+.num-field .num-unit{ max-width:60%; overflow:hidden; text-overflow:ellipsis }
+
+.conf-head{ flex-wrap:wrap; row-gap:4px }
+.conf-head .conf-pct{ flex:none }
+
+/* A settings label and its control must never share a line they cannot fit. */
+.field > span{ min-width:0; overflow-wrap:anywhere }
+.set-block .kv{ gap:10px }
+.set-block .kv > span{ min-width:0; overflow-wrap:anywhere }
+.set-block .kv > b{ text-align:end; min-width:0; overflow-wrap:anywhere }
+
+/* Four more surfaces found by auditing every rule that pairs a backdrop-filter
+   with an alpha below 0.9: the nav scrim, the payment veil, the reload prompt
+   and the welcome sound button. Each one is legible only while the blur is
+   there, so each one gets a solid form when it is not. */
+html[data-skin][data-theme][data-glass="off"] .nav-scrim,
+html[data-skin][data-theme][data-perf="fast"] .nav-scrim{ background:rgba(4,5,8,.72) }
+html[data-skin][data-theme][data-glass="off"] :is(.pay-veil, .desk-reload),
+html[data-skin][data-theme][data-perf="fast"] :is(.pay-veil, .desk-reload){ background:rgb(var(--s1)) }
+html[data-skin][data-theme][data-glass="off"] .welcome-sound,
+html[data-skin][data-theme][data-perf="fast"] .welcome-sound{ background:rgb(var(--s4)) }
+html[data-skin][data-theme="light"][data-glass="off"] :is(.pay-veil, .desk-reload),
+html[data-skin][data-theme="light"][data-perf="fast"] :is(.pay-veil, .desk-reload){ background:#ffffff }
+
+/* A strategy's record is two rows of three: the headline figures the trader
+   scans, then the detail they check. Both keep the same grid so the numbers
+   line up down the card rather than drifting. */
+.st-stats-2{ margin-top:6px; padding-top:6px }
+.st-stats-2 span{ font-size:10.5px }
+.st-stats .sep{ font-style:normal; color:var(--faint); padding:0 2px }
+
+/* ===========================================================================
+   14. Signal cards
+   ===========================================================================
+   A signal is the one event that must not be missed, so its card is marked by
+   direction on the leading edge - readable at a glance and from the corner of
+   the eye - and carries the levels the trader needs before acting. */
+.signal-card{
+  border-inline-start:3px solid var(--candle-up);
+  padding-inline-start:13px;
+}
+.signal-card.is-sell{ border-inline-start-color:var(--candle-down) }
+.signal-card h4{
+  margin:0 0 4px;
+  font-size:13.5px;
+  letter-spacing:.01em;
+  color:var(--candle-up);
+}
+.signal-card.is-sell h4{ color:var(--candle-down) }
+.signal-card .sub{
+  margin:0 0 10px;
+  font-family:"IBM Plex Mono", monospace;
+  font-size:11.5px;
+  line-height:1.6;
+}
+.signal-card .btn.tiny{ width:100% }
+
+/* ===========================================================================
+   15. Console surfaces stay dark in the light theme
+   ===========================================================================
+   A terminal is a screen. Bleaching the engine log, the robot log and the
+   strategy source to match a white page destroys the one place in the desk
+   where monospaced light-on-dark text is the convention a trader already
+   reads - and where a red error line has to be unmissable. These keep their
+   own colours in both themes. */
+html[data-theme="light"] :is(.term, .robot-term, .st-src, .tg-src, .secret-box, .keybox){
+  background:#0b0e15;
+  color:#dbe3f0;
+  border-color:rgba(20,28,45,.35);
+}
+html[data-theme="light"] :is(.term, .robot-term) .l-info{ color:#9fb0c9 }
+html[data-theme="light"] :is(.term, .robot-term) .l-warn{ color:#f0b955 }
+html[data-theme="light"] :is(.term, .robot-term) .l-err{ color:#ff7d94 }
+html[data-theme="light"] :is(.term, .robot-term) .l-ok{ color:#4fd6a3 }
+html[data-theme="light"] :is(.st-src, .tg-src)::placeholder{ color:#6b7b93 }
+/* The scrollbar inside a dark console should not be a light-theme scrollbar. */
+html[data-theme="light"] :is(.term, .robot-term, .st-src)::-webkit-scrollbar-thumb{
+  background:rgba(255,255,255,.22);
+}
+
+/* ===========================================================================
+   16. Opaque mode: one flat surface, no translucency anywhere
+   ===========================================================================
+   There are two ways the frosted look goes away, and until now they did not
+   agree with each other:
+
+     data-glass="off"    the trader switched liquid glass off
+     data-perf="fast"    the machine cannot afford it, chosen or detected
+
+   Both removed `backdrop-filter`, but only the first replaced the translucent
+   surface colours. Everything resolving through --glass/--glass2, every panel
+   with an alpha background, and the whole Settings page - which sets its own
+   55%-opaque card on top of the shared one - kept their transparency and were
+   left showing the wallpaper straight through with no blur to soften it. The
+   header was the most obvious, because it sits over moving content.
+
+   So: one selector list, applied to both states, that makes every surface
+   solid. Anything added later that uses --glass, --glass2 or --surface is
+   covered automatically; alpha backgrounds written inline still have to be
+   listed, which is why the explicit block below exists. */
+
+html[data-skin][data-theme][data-glass="off"],
+html[data-skin][data-theme][data-perf="fast"]{
+  --glass:rgb(var(--s5));
+  --glass2:rgb(var(--s8));
+}
+
+/* Cards, including the Settings page's own heavier override. Settings used
+   `.set-main .set-block .card`, two classes deeper than the rule that turned
+   glass off, so it won on specificity and stayed see-through in every mode. */
+html[data-skin][data-theme][data-glass="off"] .card,
+html[data-skin][data-theme][data-perf="fast"] .card,
+html[data-skin][data-theme][data-glass="off"] .set-main .set-block .card,
+html[data-skin][data-theme][data-perf="fast"] .set-main .set-block .card{
+  background:linear-gradient(180deg, rgb(var(--s7)), rgb(var(--s4)));
+}
+
+/* The settings panel itself. This rule used to name `.set-panel`, which no
+   view has ever rendered - the live element is `.set-block` inside
+   `.set-main`. So with glass off the one surface that is nothing but glass
+   kept its .55 alpha and stayed see-through, while every card inside it
+   went solid. Grounding the panel is what makes glass-off mean anything
+   here; the frosted half lives in app.css. */
+html[data-skin][data-theme][data-glass="off"] .set-main .set-block,
+html[data-skin][data-theme][data-perf="fast"] .set-main .set-block{
+  background:rgb(var(--s3));
+}
+
+/* The sticky section jumper fades to transparent at its bottom edge so the
+   content appears to slide under it. With no blur that is just a hole. */
+html[data-skin][data-theme][data-glass="off"] .set-jump,
+html[data-skin][data-theme][data-perf="fast"] .set-jump,
+html[data-skin][data-theme][data-glass="off"] .sj-open,
+html[data-skin][data-theme][data-perf="fast"] .sj-open{
+  background:rgb(var(--s1));
+}
+
+html[data-skin][data-theme][data-glass="off"] .chart-box .empty,
+html[data-skin][data-theme][data-perf="fast"] .chart-box .empty{
+  background:rgb(var(--s1));
+}
+
+html[data-skin][data-theme][data-glass="off"] .plan-card.popular,
+html[data-skin][data-theme][data-perf="fast"] .plan-card.popular{
+  background:linear-gradient(180deg, rgb(var(--s5)), rgb(var(--s4)));
+}
+
+/* Light theme keeps its own paler stack. */
+html[data-skin][data-theme="light"][data-glass="off"] .card,
+html[data-skin][data-theme="light"][data-perf="fast"] .card,
+html[data-skin][data-theme="light"][data-glass="off"] .set-main .set-block .card,
+html[data-skin][data-theme="light"][data-perf="fast"] .set-main .set-block .card{
+  background:#ffffff;
+}
+/* The second copy of the `.set-panel` mistake. The light theme was
+   therefore missing a grounding rule for the settings panel too, so
+   light + glass off showed the wallpaper straight through it. */
+html[data-skin][data-theme="light"][data-glass="off"] .set-main .set-block,
+html[data-skin][data-theme="light"][data-perf="fast"] .set-main .set-block,
+html[data-skin][data-theme="light"][data-glass="off"] .set-jump,
+html[data-skin][data-theme="light"][data-perf="fast"] .set-jump,
+html[data-skin][data-theme="light"][data-glass="off"] .sj-open,
+html[data-skin][data-theme="light"][data-perf="fast"] .sj-open{
+  background:rgb(var(--s2));
+}
+
+/* ---------------------------------------------------------------------------
+   The toggle itself, when the machine has already made the decision.
+   Offering a switch that cannot do anything is worse than not offering it:
+   the trader flips it, nothing changes, and the desk looks broken. On the
+   fast tier it is disabled and says why. */
+html[data-skin][data-theme][data-perf="fast"] #sw-glass{
+  opacity:.45;
+  pointer-events:none;
+  filter:grayscale(1);
+}
+.glass-forced-note{ display:none }
+html[data-skin][data-theme][data-perf="fast"] .glass-forced-note{ display:block }
+
+/* ===========================================================================
+   17. Header controls are all the same height
+   ===========================================================================
+   The bar mixed three different control heights side by side: .icon-btn and
+   .menu-btn are 42px squares, .btn.tiny carries --ctl-h:32px, and the status
+   chips sit at 28px. Next to each other on one row the 10px difference reads
+   as misalignment rather than hierarchy - the text buttons looked like they
+   had slipped down.
+
+   One number for every *button* in the bar. The status chips stay smaller on
+   purpose: they are readouts, not controls, and shrinking the gap between a
+   thing you press and a thing you read would be the wrong fix. They are
+   centred on the same axis, which is what makes the row look level. */
+.top{ --hdr-ctl-h:38px }
+
+.top .icon-btn,
+.top .menu-btn,
+.top .btn,
+.top .btn.tiny{
+  height:var(--hdr-ctl-h);
+  min-height:var(--hdr-ctl-h);
+  --ctl-h:var(--hdr-ctl-h);
+  box-sizing:border-box;
+  align-self:center;
+  flex:none;
+}
+
+/* Square ones stay square at whatever the row height is. */
+.top .icon-btn,
+.top .menu-btn{
+  width:var(--hdr-ctl-h);
+  min-width:var(--hdr-ctl-h);
+  padding:0;
+}
+
+/* Text buttons keep their own horizontal padding but share the height, and
+   centre their label inside it now that the height is set from outside. */
+.top .btn,
+.top .btn.tiny{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  line-height:1;
+}
+
+.top .st-chip{ align-self:center }
+
+/* Narrow screens shrink the whole row together rather than one control at a
+   time, so the heights never drift apart again. */
+@media (max-width:760px){
+  .top{ --hdr-ctl-h:34px }
+}

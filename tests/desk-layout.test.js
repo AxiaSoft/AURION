@@ -1,0 +1,606 @@
+/**
+ * Layout defects that only show up on a real screen.
+ *
+ * Everything asserted here was reported by a trader using the desk, and none
+ * of it throws, logs or fails a render test - a grid column that is hidden
+ * but still reserves its width, a selector that names an element the page
+ * does not have, a table that re-measures itself under the pointer. They are
+ * caught by reading the rules, because the alternative is catching them in
+ * production again.
+ *
+ *     node tests/desk-layout.test.js
+ */
+const fs = require("node:fs");
+const path = require("node:path");
+
+const root = path.join(__dirname, "..");
+const read = (p) => fs.readFileSync(path.join(root, p), "utf8");
+
+const appCss = read("apps/web/css/app.css");
+const chartCss = read("apps/web/css/chart.css");
+const appJs = read("apps/web/js/app.js");
+const indexHtml = read("apps/web/index.html");
+
+let failed = 0;
+function check(name, cond) {
+  if (cond === true) console.log("PASS  " + name);
+  else { console.log("FAIL  " + name + (typeof cond === "string" ? "  — " + cond : "")); failed++; }
+}
+
+/* ================================================= the AI summary is gone == */
+
+check("the command centre no longer prints a bias with no symbol", (() => {
+  const view = appJs.slice(appJs.indexOf("  command() {"), appJs.indexOf("  markets() {"));
+  return (view.indexOf("live-ai") < 0 && view.indexOf("ai.title") < 0) ||
+    "the AI card is still rendered in the command view";
+})());
+
+check("the dead renderer went with it", appJs.indexOf("function aiBlock(") < 0);
+
+check("nothing still tries to fill the card that was removed",
+  appJs.indexOf('$("live-ai")') < 0);
+
+check("the per-chart version survives, because that one says which symbol", (() => {
+  /* The guarantee is that every AI reading on this page is tied to a
+     named chart -- that is the whole reason the symbol-less card was
+     cut from the command centre. It used to be checked by looking for
+     the literal "ai.direction" in the view, which stopped being true
+     when the direction moved into the per-chart slider it is rendered
+     by; the reading was still per-chart, the token had just moved. */
+  const view = appJs.slice(appJs.indexOf("  intelligence() {"), appJs.indexOf("  calendar() {"));
+  if (view.indexOf("ai-feat-sym") < 0) return "the feature block no longer names its symbol";
+  if (!/chartSliderHtml\("ai", aiSlideInnerHtml\)/.test(view)) {
+    return "the intelligence view no longer mounts the per-chart AI slider";
+  }
+  /* ...and the slider it mounts is the thing that prints the direction,
+     with the chart it belongs to beside it. */
+  const slide = appJs.slice(appJs.indexOf("function aiSlideInnerHtml("), appJs.indexOf("function aiSlideInnerHtml(") + 2400);
+  if (slide.indexOf("ai.direction") < 0) return "the slider no longer shows a direction";
+  if (slide.indexOf("slide-sym") < 0) return "the direction is no longer labelled with its chart";
+  return true;
+})());
+
+/* ====================================================== positions, wider == */
+
+check("positions get a full-width card of their own", (() => {
+  const view = appJs.slice(appJs.indexOf("  command() {"), appJs.indexOf("  markets() {"));
+  const card = view.indexOf('class="card pos-card"');
+  if (card < 0) return "no pos-card in the command view";
+  // It must not be back inside a two-column grid with the side panel.
+  const before = view.slice(0, card);
+  const opens = (before.match(/<div class="grid g-2">/g) || []).length;
+  const closes = (before.match(/<\/div>/g) || []).length;
+  return opens <= closes || "the positions card is nested in a g-2 grid again";
+})());
+
+check("the close button cannot scroll out of reach", (() => {
+  /* It used to need a reserved column width, because the close button
+     was the last cell of a 900px table that scrolled sideways inside
+     a narrower card. There is no table and no sideways scroll: the
+     list is as wide as the pane, and the pane scrolls down. What has
+     to hold now is that the pane does not reintroduce the problem. */
+  const flat = appCss.replace(/\s+/g, "");
+  if (/overflow-x:auto/.test(/\.pos-pane\{([^}]*)\}/.exec(flat)?.[1] || "")) {
+    return "the positions pane scrolls sideways again";
+  }
+  if (!/\.pos-pane\{[^}]*overflow-x:hidden/.test(flat)) {
+    return "the pane does not pin its horizontal overflow";
+  }
+  return true;
+})());
+
+/* =============================================== positions, without jumping ==
+
+   The reported symptom was rows moving sideways while prices updated. The
+   cause is auto table layout: a profit going from "8.40" to "-124.65"
+   widens its column and shifts every column after it. Three things have to
+   hold together, so all three are checked.                                   */
+
+/* The answer used to be table-layout:fixed plus a declared width for
+   each of eleven columns. The cards draw the chart desk's .tvp-list
+   instead, which solves the same problem a different way: the columns
+   are declared once on the LIST and the rows are subgrid children of
+   it, so a profit going from "8.40" to "-124.65" cannot widen a
+   column under the trader's cursor - there is no per-row sizing left
+   to do. Checked in chart.css, where that list lives. */
+check("the positions grid is decided once, not per repaint", (() => {
+  const flat = chartCss.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\s*\n\s*/g, "");
+  const list = /[{;}]\.tvp-list\{([^}]*)\}/.exec(flat);
+  if (!list) return "there is no positions list to size";
+  if (!/grid-template-columns:/.test(list[1])) {
+    return "the list does not declare its columns, so every row sizes its own";
+  }
+  const row = /[{;}]\.tvp-row\{([^}]*)\}/.exec(flat);
+  if (!row || !/grid-template-columns:subgrid/.test(row[1])) {
+    return "the rows do not inherit the list's columns";
+  }
+  return true;
+})());
+
+check("and the old fixed-width table did not survive alongside it", (() => {
+  const flat = appCss.replace(/\s*\n\s*/g, "");
+  if (/\.pos-card table\{/.test(flat)) return "the positions card still styles a table";
+  if (/\.pos-card col\.c-/.test(flat)) return "the column widths outlived the columns";
+  return true;
+})());
+
+check("digits are the same width as each other", (() => {
+  const flat = chartCss.replace(/\s*\n\s*/g, "");
+  return /font-variant-numeric:tabular-nums/.test(flat) ||
+    "proportional digits make the column ragged";
+})());
+
+check("rows are patched in place rather than rebuilt", (() => {
+  const fn = appJs.slice(appJs.indexOf("function paintPositions"), appJs.indexOf("function tickLabel"));
+  /* A full innerHTML rewrite on every tick would destroy the row the
+     user is about to click, whatever the CSS says - and now also the
+     close buttons' handlers and wherever the trader had scrolled the
+     pane to. The cards draw the chart's .tvp-row list rather than a
+     table, so the patch finds its row by ticket and rewrites the
+     figures that move; the cells are spans, not <td>s. Verified in a
+     browser: same row node, same handler, scrollTop held at 40, and
+     the profit went -4 -> +3.5. */
+  if (fn.indexOf("if (el.textContent !== text) el.textContent = text;") < 0) {
+    return "the figures are not patched in place";
+  }
+  if (!/\.tvp-row\[data-ticket=/.test(fn)) return "a repaint cannot find the row it should patch";
+  /* The steady-state branch has to bail out before the full render
+     below it, or "patched in place" is only true until it falls
+     through. Compared by position rather than by presence, because
+     the full render legitimately exists further down. */
+  const tail = fn.slice(fn.indexOf("dataset.sig === sig"));
+  if (tail.indexOf("\n    return;") < 0 || tail.indexOf("\n    return;") > tail.indexOf("box.innerHTML = `")) {
+    return "the steady-state path falls through into a full rewrite";
+  }
+  return true;
+})());
+
+/* ==================================================== the slider slides ==== */
+
+check("the slide no longer fades", (() => {
+  const block = chartSliceOf(appCss, "@keyframes slideFromRight");
+  return block.indexOf("opacity") < 0 || "slideFromRight still animates opacity";
+})());
+
+check("it travels far enough to read as movement", (() => {
+  const block = chartSliceOf(appCss, "@keyframes slideFromRight");
+  return block.indexOf("translate3d(100%") > 0 || "the slide is still a nudge";
+})());
+
+check("the right-to-left selectors are valid CSS", (() => {
+  // They carried escaped quotes - html[dir=\"rtl\"] - which matches nothing,
+  // so every Persian and Arabic user saw the deck slide the wrong way.
+  return appCss.indexOf('html[dir=\\"rtl\\"]') < 0 ||
+    "an escaped-quote attribute selector is back";
+})());
+
+check("RTL still reverses the direction", (() => {
+  return appCss.indexOf('html[dir="rtl"] .chart-stage.sw-next{animation-name:slideFromLeft}') > 0;
+})());
+
+check("a system that asks for no motion gets none",
+  /@media \(prefers-reduced-motion:reduce\)\{\s*\.chart-stage/.test(appCss.replace(/\s*\n\s*/g, "")));
+
+/* ================================================ fullscreen, both sizes === */
+
+check("fullscreen hides the header the page actually has", (() => {
+  // index.html has <header class="top">. The old rule named .topbar, which
+  // does not exist, so the header stayed and the chart was asked to be a
+  // full viewport tall inside what was left of one.
+  if (indexHtml.indexOf('<header class="top">') < 0) return "the header class changed; update this rule";
+  return chartCss.indexOf("body.chart-full .top,") > 0 || "body.chart-full does not hide .top";
+})());
+
+check("fullscreen reclaims the sidebar's grid column", (() => {
+  // #desk is "nav stage" with a fixed first track; display:none on the rail
+  // leaves the track behind and the chart renders into the remainder.
+  const block = chartSliceOf(chartCss, "body.chart-full #desk");
+  return (block.indexOf("grid-template-areas") > 0 && block.indexOf('"stage"') > 0) ||
+    "the nav column is still reserved in fullscreen";
+})());
+
+check("the chart is measured against the visible viewport, not the tall one", (() => {
+  const block = chartSliceOf(chartCss, "body.chart-full .tv");
+  return block.indexOf("100dvh") > 0 || "fullscreen height is still vh only";
+})());
+
+check("vh is kept underneath dvh as a fallback", (() => {
+  const block = chartSliceOf(chartCss, "body.chart-full .tv");
+  return block.indexOf("height: 100vh") > 0 && block.indexOf("height: 100dvh") >
+    block.indexOf("height: 100vh");
+})());
+
+check("the desktop floor cannot exceed a phone's screen", (() => {
+  const block = chartSliceOf(chartCss, "body.chart-full .tv");
+  return block.indexOf("min-height: 0") > 0 ||
+    "min-height: 460px still applies in fullscreen";
+})());
+
+check("the windowed chart uses dvh too", (() => {
+  const block = chartSliceOf(chartCss, ".tv {");
+  return block.indexOf("100dvh") > 0;
+})());
+
+check("every breakpoint's floor is capped by the viewport", (() => {
+  const floors = chartCss.match(/min-height: min\([^)]*\)[^;]*;/g) || [];
+  return floors.length >= 3 || `only ${floors.length} capped floors found`;
+})());
+
+check("the page itself cannot scroll behind a fullscreen chart",
+  /body\.chart-full\{overflow:hidden\}/.test(chartCss.replace(/\s+/g, "")));
+
+check("the stage stops clipping the chart it is holding", (() => {
+  const block = chartSliceOf(chartCss, "body.chart-full .stage,");
+  return block.indexOf("padding: 0") > 0 && block.indexOf("overflow: hidden") > 0;
+})());
+
+check("a notch does not eat the status bar",
+  chartCss.indexOf("body.chart-full .tv-status { padding-bottom: var(--safe-b") > 0);
+
+check("a viewport change is repainted more than once", (() => {
+  const js = read("apps/web/js/chart-tools.js");
+  return js.indexOf("function redrawSoon()") > 0 &&
+    js.indexOf('window.addEventListener("orientationchange", redrawSoon)') > 0;
+})());
+
+/* ---------------------------------------------- specificity vs breakpoint --
+
+   A media query adds nothing to specificity.
+
+   .tv.no-dock .tv-body is (0,3,0) and sits outside any breakpoint. The
+   mobile override is a bare .tv-body at (0,1,0), so the base rule won at
+   every width - and on a phone, where the rail, the scrim and the dock
+   are all out of flow, it put .tv-stage into the first column of
+   "var(--tv-rail) 1fr 0" with --tv-rail at 0px. The chart was given zero
+   width and vanished the moment the dock was closed; opening it brought
+   the chart straight back, because then the rule did not apply.
+
+   Every heavier selector that lays out .tv-body has to be repeated
+   wherever a lighter one tries to override it.                          */
+
+(() => {
+  // Comments first: a block comment immediately above a rule is part of
+  // the text between the previous } and the next {, and reading it as
+  // the selector made this check fail on rules it had no quarrel with.
+  const plain = chartCss.replace(/\/\*[\s\S]*?\*\//g, "");
+  const mobile = chartSliceOf(plain, "@media (max-width: 760px)");
+
+  // Rules outside any media query that set columns on .tv-body.
+  const base = [...plain.replace(/@media[^{]*\{[\s\S]*?\n\}/g, "")
+    .matchAll(/([^{}]*\.tv-body[^{}]*)\{([^{}]*)\}/g)]
+    .filter((m) => /grid-template-columns/.test(m[2]))
+    .map((m) => m[1].trim())
+    .filter((sel) => (sel.match(/\./g) || []).length > 1);
+
+  const unanswered = base.filter((sel) => !mobile.includes(sel));
+
+  // Belt and braces for the same bug. grid-column has no competing
+  // declaration anywhere, so the stage spans the whole track list even
+  // if something later defines three columns again.
+  //
+  // Only grid-column is the subject here. This used to also pin
+  // padding-top to 44px, which was the height of the tool strip that
+  // once sat above the stage - incidental to the bug being guarded, and
+  // it failed the moment the tools became a sheet that comes up from
+  // the bottom instead. Assert the thing the check is named after.
+  check("and the stage spans every column there turns out to be",
+    /\.tv-stage \{[^}]*grid-column:\s*1\s*\/\s*-1/.test(
+      mobile.replace(/\s+/g, " ")) ||
+    /\.tv-stage \{[^}]*grid-column:\s*1\s*\/\s*-1/.test(plain));
+
+  check("every heavy .tv-body layout rule is answered at the mobile breakpoint",
+    unanswered.length === 0,
+    unanswered.length ? unanswered.join(" | ") : `${base.length} checked`);
+})();
+
+/* ------------------------------------------------------- the breakpoints --
+
+   The sheets carried twenty-three distinct widths, including 1013px,
+   1120px and 860px - twenty-three separate occasions of dragging a
+   browser edge until one card stopped looking wrong. The cost was not
+   untidiness: different parts of the SAME page reflowed at different
+   widths, so between 820 and 900 the header had collapsed and the
+   content grid had not.                                              */
+
+(() => {
+  const SCALE = [1200, 1100, 1000, 900, 760, 560, 380];
+  const sheets = ["app", "themes", "chart"];
+  const stray = [];
+  const minmax = [];
+
+  for (const name of sheets) {
+    const css = read(`apps/web/css/${name}.css`).replace(/\/\*[\s\S]*?\*\//g, "");
+    for (const m of css.matchAll(/@media[^{]+/g)) {
+      for (const q of m[0].matchAll(/(max-width|min-width):\s*(\d+)px/g)) {
+        const n = Number(q[2]);
+        /* A min-width pairs with its max-width MINUS ONE. Both match at
+           exactly the shared number, and which rule wins is then decided
+           by source order rather than by the author. */
+        const want = q[1] === "min-width" ? SCALE.map((s) => s + 1) : SCALE;
+        if (!want.includes(n)) stray.push(`${name}.css: ${q[1]}:${n}px`);
+        if (q[1] === "min-width" && SCALE.includes(n)) minmax.push(`${name}.css: min-width:${n}px overlaps max-width:${n}px`);
+      }
+    }
+  }
+
+  check("every breakpoint comes from the documented scale",
+    stray.length === 0, stray.length ? stray.join(" | ") : `${sheets.length} sheets, 7 steps`);
+
+  check("no min-width sits on the same pixel as a max-width",
+    minmax.length === 0, minmax.join(" | ") || "ranges are exclusive");
+
+  check("the scale is written down where the breakpoints are",
+    /Breakpoints - the whole scale/.test(read("apps/web/css/app.css")),
+    "a scale nobody can find is a scale nobody follows");
+
+  /* An empty media block is a rule that was deleted without its
+     wrapper, and it reads as deliberate to the next person. */
+  const empties = [];
+  for (const name of sheets) {
+    const css = read(`apps/web/css/${name}.css`);
+    for (const m of css.matchAll(/@media[^{]+\{\s*\}/g)) empties.push(`${name}.css: ${m[0].slice(0, 36)}`);
+  }
+  check("no media query is left empty", empties.length === 0, empties.join(" | ") || "none");
+})();
+
+/* ------------------------------------------------------- control metrics --
+
+   Buttons, inputs, selects and the custom dropdown each had their own
+   hand-written padding, so a button beside an input in the same row came
+   out a different height. No amount of adjusting one of them fixes that;
+   they have to come from the same number.                               */
+
+(() => {
+  const appCss = read("apps/web/css/app.css");
+
+  check("there is one scale every control is derived from",
+    /--ctl-h:/.test(appCss) && /--ctl-r:/.test(appCss) &&
+    /--ctl-px:/.test(appCss) && /--ctl-gap:/.test(appCss));
+
+  check("buttons and fields are the same height by construction",
+    /\.btn\{[^}]*min-height:var\(--ctl-h\)/.test(appCss) &&
+    /\.field input,\.field select,\.ctrl\{[^}]*min-height:var\(--ctl-h\)/.test(appCss));
+
+  // A caption longer than its button used to wrap and drag the whole row
+  // taller; now it is clipped.
+  check("a long caption cannot stretch a row",
+    /\.btn\{[^}]*text-overflow:ellipsis/.test(appCss) &&
+    /\.btn\{[^}]*white-space:nowrap/.test(appCss));
+
+  // There was no pointer:coarse block in this file at all - the desk was
+  // sized for a mouse on every device it had ever run on.
+  check("touch targets exist, and move the scale rather than restating it",
+    /@media \(pointer: coarse\)\{\s*:root\{--ctl-h:48px/.test(appCss.replace(/\n\s*/g, "")));
+
+  // iOS scales the whole page in when a field under 16px takes focus.
+  // Nothing in CSS prevents it except the field being 16px.
+  check("tapping a field does not zoom the desk on iOS",
+    /input,select,textarea,\.field input,\.field select,\.ctrl\{font-size:16px\}/
+      .test(appCss.replace(/\n\s*/g, "")));
+
+  check("a row of buttons fills the line on a phone instead of leaving an orphan",
+    /\.row>\.btn\{flex:1 1 calc\(50% - var\(--ctl-gap\)\)/.test(appCss.replace(/\n\s*/g, "")));
+})();
+
+/* ------------------------------------------------------- risk free in UI --
+
+   The rule shipped working and unreachable twice: first it only read
+   strategy params, then it was only settable over the API. A protective
+   feature nobody can find is a protective feature nobody has.          */
+
+(() => {
+  const app = read("apps/web/js/app.js");
+  const en = JSON.parse(read("lang/en.json"));
+
+  check("the robot settings have a risk-free switch",
+    /id: "st-rf"/.test(app) &&
+    /API\.post\("\/api\/risk_free", \{ enabled: on, ladder: on \}\)/.test(app));
+
+  /* The switch used to sit next to a raw percentage slider: the trader set
+     "0.20" with no way to know that meant a fifth of the way to target. It
+     now sets how many targets the stop climbs, and the rungs are listed by
+     the names the trader already uses - TP1, TP2 - so the setting reads as
+     the behaviour it buys. */
+  check("and a step count with the rungs named TP1, TP2 …",
+    /id="st-rf-steps"/.test(app) &&
+    /API\.post\("\/api\/risk_free", \{ steps: \+rfSteps\.value \}\)/.test(app) &&
+    /rfLadderHtml/.test(app) &&
+    !/st-rf-trigger/.test(app));
+
+  // The engine has to publish it or the switch paints from nothing and
+  // springs back to off on the next snapshot.
+  // Matched on the field and the method that fills it, not on one exact
+  // spelling of the call: the snapshot now builds each panel behind a
+  // guard so one unavailable card cannot blank the whole strategies view.
+  check("the engine publishes the state the switch reads",
+    /"risk_free":[^\n]*_risk_free_state/.test(read("engine/aurion/runtime/trader.py")) &&
+    /S\.snap\?\.strategy\?\.risk_free/.test(app));
+
+  // Saving is not the same as being seen to save.
+  //
+  // set_risk_free persisted correctly and did not rebuild strategy_meta
+  // or publish it, so the desk reloaded its settings, read the old
+  // enabled=false and painted the switch back off. From the outside
+  // that is indistinguishable from a setting that refuses to save, and
+  // it is invisible in review because the handler looks complete.
+  const trader = read("engine/aurion/runtime/trader.py");
+  const setters = [...trader.matchAll(
+    /async def (set_\w+)\(self, body[\s\S]*?(?=\n    (?:@|async def |def ))/g)];
+
+  const silent = [];
+  for (const [body, name] of setters) {
+    if (!/_persist_runtime\(\)/.test(body)) continue;      // not a settings setter
+    if (!/_sync_book_meta\(\)/.test(body) || !/bus\.publish\("strategy"/.test(body)) {
+      silent.push(name);
+    }
+  }
+  check("a saved setting is also published, or the desk paints the old one",
+    silent.length === 0, silent.length ? silent.join(", ") : `${setters.length} setters`);
+
+  // Naming two symbols invites the reading that the setting is for
+  // those two, and anybody trading neither has to translate the
+  // sentence before they can use it.
+  const helpText = JSON.parse(read("lang/fa.json")).strategies.rf_trigger_help
+    + JSON.parse(read("lang/en.json")).strategies.rf_trigger_help;
+  check("the help text does not tie itself to particular instruments",
+    !/EURUSD|XAUUSD|gold|طلا|GBPUSD/i.test(helpText), helpText.slice(0, 48) + "…");
+
+  // The clock lives in System, not in prop risk: which hours a firm
+  // allows is their rule, what time it is where you sit is not.
+  /* Which settings section owns the clock. Written against the
+     section boundaries rather than a fixed-width window after the id,
+     because the window broke the moment another card was added above
+     it - which says nothing about where the timezone lives. */
+  const setSection = (id) => {
+    const start = app.indexOf(`block("${id}"`);
+    if (start < 0) return "";
+    const next = app.indexOf('\n      ${block("', start + 1);
+    return app.slice(start, next < 0 ? app.indexOf("</div></div>`;", start) : next);
+  };
+  check("the timezone is a System setting, not a prop one",
+    /function timezoneCardHtml\(\)/.test(app) &&
+    /timezoneCardHtml\(\)/.test(setSection("set-system")) &&
+    !/timezoneCardHtml\(\)/.test(setSection("set-prop")) &&
+    /API\.post\("\/api\/timezone"/.test(app));
+
+  // Prop windows then read in it, which is the point of moving it.
+  const rules = read("engine/aurion/prop/rules.py");
+  check("prop hours follow the desk clock rather than restating it",
+    /default_zone=self\.desk_timezone/.test(rules) &&
+    /broker_minutes=self\.broker_minutes/.test(rules) &&
+    !/"timezone": "UTC"/.test(read("engine/aurion/prop/profiles.py")));
+
+  // Prop hours are written in the trader's clock and echoed in the
+  // broker's, because the firm's rulebook is written in broker time.
+  // They used to be plain boxes meaning UTC with nothing saying so,
+  // which is how 07:00 became 10:30 in Tehran and prop mode looked as
+  // though it simply refused to trade.
+  check("prop hours are entered in the desk clock, not bare UTC",
+    /function propTime\(/.test(app) &&
+    /propTime\("pr-hs"/.test(app) && /propTime\("pr-he"/.test(app) &&
+    !/propText\("pr-hs"/.test(app));
+
+  // A free-text box accepted "7pm" and "07.00" and produced a window
+  // that never opened, with nothing saying why. type="time" gives two
+  // spinnable fields in the user's own locale and refuses 25:70.
+  check("the hours are real time inputs, not free text",
+    /type="time" step="60"/.test(app) &&
+    /function normalTime\(/.test(app));
+
+  // And each field says which clock it is in, beside its own label.
+  check("each hour field names its own clock",
+    /class="tz-tag"/.test(app) && /\.tz-tag\{/.test(read("apps/web/css/app.css")));
+
+  // Cities, grouped by region, with today's offset - not database keys.
+  check("the picker offers the world by city",
+    /<optgroup label=/.test(app) &&
+    /z\.city/.test(app) &&
+    /zone_choices\(minutes\)/.test(read("engine/aurion/runtime/trader.py")) &&
+    /def zone_choices/.test(read("engine/aurion/prop/hours.py")));
+
+  // Windows ships no IANA database, so without this every city a trader
+  // picks silently becomes UTC.
+  check("the engine installs a timezone database for Windows",
+    /^tzdata==/m.test(read("engine/requirements.txt")) &&
+    /_FALLBACK\.get\(text\)/.test(read("engine/aurion/prop/hours.py")));
+
+  check("and each one says what it is for the broker",
+    /function brokerEcho\(/.test(app) &&
+    /risk\.hours_broker/.test(app) &&
+    /addEventListener\("input", \(\) => \{ echo\.textContent = brokerEcho/.test(app));
+
+  // The browser converts with arithmetic on an offset the engine
+  // publishes. A second timezone implementation in the browser is how
+  // the two end up disagreeing about the week the clocks change.
+  check("the engine publishes the offset the browser does the sum with",
+    /"offset_minutes": zone_offset_minutes/.test(read("engine/aurion/runtime/trader.py")) &&
+    /def zone_offset_minutes/.test(read("engine/aurion/prop/hours.py")) &&
+    /sys\.offset_minutes/.test(app) && /sys\.broker_offset_minutes/.test(app));
+
+  // A conversion that silently lies is worse than none.
+  check("an unknown broker clock says so rather than guessing",
+    /risk\.hours_broker_unknown/.test(app) &&
+    /broker === null \|\| broker === undefined/.test(app));
+
+  const riskKeys = ["hours_broker", "hours_broker_unknown"];
+  const missingRisk = riskKeys.filter((k) => !(k in (en.risk || {})));
+  check("the broker echo is translated",
+    missingRisk.length === 0, missingRisk.length ? missingRisk.join(", ") : "2 keys");
+
+  const sysKeys = ["tz_title", "tz_help", "tz_broker", "tz_local",
+                   "tz_now", "tz_broker_waiting", "tz_set"];
+  const missingSys = sysKeys.filter((k) => !(k in (en.sys || {})));
+  check("the clock's labels are translated",
+    missingSys.length === 0, missingSys.length ? missingSys.join(", ") : `${sysKeys.length} keys`);
+
+  const keys = ["rf_title", "rf_help", "rf_on", "rf_off", "rf_trigger", "rf_trigger_help"];
+  const missing = keys.filter((k) => !(k in (en.strategies || {})));
+  check("every label it needs is translated",
+    missing.length === 0, missing.length ? missing.join(", ") : `${keys.length} keys`);
+})();
+
+/* =================================================== the toggle geometry == */
+
+/* Reported from a phone: "the circle inside the switch is not centred and
+   the whole box has gone round". One cause, two symptoms. The track was a
+   hard-coded 46x26 with the knob pinned at top:3px, and the touch block
+   raised every control to min-height:38px - so on a coarse pointer the
+   track became 46x38 (a 99px radius on that is a circle) with the knob
+   still sitting 3px from the top.
+   The rules below are read rather than rendered, because jsdom does no
+   layout and this is exactly the kind of defect that only a real screen
+   shows. */
+(() => {
+  const block = chartSliceOf(appCss, ".switch{");
+  check("the switch declares its own height", /--sw-h:\s*\d+px/.test(block));
+  check("the knob is centred by layout, not by a magic offset",
+    /top:\s*50%/.test(appCss.slice(appCss.indexOf(".switch i{"), appCss.indexOf(".switch.on{"))) &&
+    /translateY\(-50%\)/.test(appCss));
+  check("the knob's size comes from the track",
+    /--sw-knob:\s*calc\(var\(--sw-h\)/.test(block));
+  check("the travel comes from the track too",
+    /--sw-travel:\s*calc\(var\(--sw-w\)/.test(block));
+  check("the track cannot be stretched by a global minimum",
+    /max-height:\s*var\(--sw-h\)/.test(block));
+
+  // The chart panel has a switch of its own, and it had the same disease
+  // in a smaller size: a 30x17 track with an 11px knob 2px from the top
+  // and a 13px slide - off centre by a pixel, short of the end by two.
+  const tv = chartSliceOf(chartCss, ".tv-switch {");
+  check("the chart's switch is sized from its track too",
+    /--tvs-h:/.test(tv) && /--tvs-knob:\s*calc\(var\(--tvs-h\)/.test(tv) &&
+    /--tvs-travel:\s*calc\(var\(--tvs-w\)/.test(tv));
+  check("and its knob is centred by layout, not by a magic offset",
+    /inset-block-start:\s*50%/.test(chartCss.slice(chartCss.indexOf(".tv-switch i {"))) &&
+    /translateY\(-50%\)/.test(chartCss) &&
+    !/translateX\(13px\)/.test(chartCss));
+
+  const coarse = chartSliceOf(appCss, "@media (pointer: coarse)");
+  check("touch no longer forces a min-height onto the switch",
+    coarse.indexOf(".switch") >= 0 && !/\.switch\{[^}]*min-height/.test(coarse),
+    coarse.indexOf(".switch") < 0 ? "the coarse block says nothing about the switch" : "min-height is back");
+  check("touch grows both of the switch's numbers together",
+    /--sw-h:\s*\d+px;\s*--sw-w:\s*\d+px/.test(coarse));
+  check("the thumb target is grown around the control, not through it",
+    /\.switch::after\{[^}]*inset:/.test(coarse),
+    "the bigger hit area belongs in the touch block, where it cannot steal a mouse click from a neighbour");
+})();
+
+/* ------------------------------------------------------------------------- */
+
+/** The declaration block that follows a selector or at-rule, braces balanced. */
+function chartSliceOf(css, needle) {
+  const at = css.indexOf(needle);
+  if (at < 0) return "";
+  const open = css.indexOf("{", at);
+  if (open < 0) return "";
+  let depth = 0;
+  for (let i = open; i < css.length; i++) {
+    if (css[i] === "{") depth++;
+    else if (css[i] === "}") { depth--; if (!depth) return css.slice(at, i + 1); }
+  }
+  return css.slice(at);
+}
+
+console.log(failed === 0 ? "\ndesk layout: all checks passed" : `\n${failed} check(s) failed`);
+process.exit(failed === 0 ? 0 : 1);

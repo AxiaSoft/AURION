@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Single source of truth for the AURION product version and identity.
+
+  Bump AurionVersion here (and nowhere else) for every release.
+  Windows Installer compares only the first three fields, so the fourth
+  field must never be used to distinguish releases.
+
+  UpgradeCode is FROZEN. It identifies "AURION" as a product family for the
+  rest of its life and is what makes upgrades, repairs and the Apps & Features
+  entry line up across versions. Never regenerate it.
+-->
+<Project>
+  <PropertyGroup>
+    <AurionVersion>1.0.0</AurionVersion>
+    <AurionUpgradeCode>{1F6A9A2C-4C1E-4E4B-9C35-6B5F0E5A3D71}</AurionUpgradeCode>
+
+    <AurionProductName>AURION</AurionProductName>
+    <AurionManufacturer>AxiaSoft</AurionManufacturer>
+    <AurionHelpLink>https://github.com/AxiaSoft/AURION</AurionHelpLink>
+    <AurionAboutLink>https://github.com/AxiaSoft/AURION</AurionAboutLink>
+  </PropertyGroup>
+</Project>

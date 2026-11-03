@@ -278,6 +278,12 @@ class OrderRequest:
     sl_points: float = 0.0
     tp_points: float = 0.0
     trailing_points: float = 0.0
+    # Risk free. breakeven_points is the profit that arms the move;
+    # breakeven_lock_points is how far past the entry the stop then sits,
+    # and left at zero it is derived from the live spread so the position
+    # cannot be closed at a loss by the cost of getting out.
+    breakeven_points: float = 0.0
+    breakeven_lock_points: float = 0.0
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)

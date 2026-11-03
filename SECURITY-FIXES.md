@@ -92,33 +92,6 @@
 **بعد:** توکن در `sessionStorage` + memory, فقط در header, در WS فقط در پیام اول auth. event `auth-required` برای 401.
 **فایل:** `apps/web/js/api.js`
 
-## اپلیکیشن ویندوزی - نصب گرافیکی
-
-### نیازمندی:
-- روی سیستم خام، پیش‌نیازها (Python 3.12, Node.js LTS) به صورت گرافیکی دانلود شود
-
-### پیاده‌سازی:
-1. **Electron main.js** - `BrowserWindow` با `sandbox:true`, `webSecurity:true`, `contextIsolation:true`
-   - بررسی پیش‌نیازها با `checkPrereqs()`
-   - اگر نیاز به نصب باشد `createInstallerWindow()` نمایش داده می‌شود
-   - installer.html با progress bar, badge های وضعیت, log زنده
-
-2. **preload.js** - فقط `ipcRenderer.invoke` امن، بدون `spawn` مستقیم در renderer
-
-3. **prereq.js** - دانلود امن با `https` + `rejectUnauthorized:true` + `TLSv1.2` + progress callback
-   - Python از `python.org` با بررسی
-   - Node.js MSI با بررسی header `D0 CF 11 E0` (MSI magic)
-   - نصب silent با `windowsHide:true`
-
-4. **windows-app/installer/install-windows-gui.ps1** - Windows Forms GUI
-   - Form با progress bar, listBox log, دکمه نصب
-   - دانلود با TLS verification
-   - fallback به `windows-app/installer/install-windows.ps1` کنسولی
-
-5. **install-aurion-secure.cmd** - لانچر امن که GUI را اول امتحان می‌کند
-
-6. **electron-builder** - NSIS installer با `oneClick:false`, `allowToChangeInstallationDirectory:true`
-
 ## تست‌های انجام شده
 - `node -c` برای تمام فایل‌های backend
 - `python -m py_compile` برای guard.py, config.py, access_db.py

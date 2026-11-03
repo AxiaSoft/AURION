@@ -1,0 +1,705 @@
+<#
+.SYNOPSIS
+    Builds AURION-<version>-x64.msi end to end.
+
+.DESCRIPTION
+    One command, four steps:
+
+      1. tool check      .NET SDK 6+ and the WiX 5 MSBuild SDK (restored by NuGet)
+      2. branding        regenerate installer assets if they are missing
+      3. payload         installer\tools\stage.ps1
+      4. compile         dotnet build installer\AURION.wixproj  (full ICE validation)
+
+    The result lands in installer\output\ together with a SHA-256 file.
+
+.PARAMETER Version
+    Overrides AurionVersion from Version.props for this build only. Useful for
+    CI ("1.2.3") - for a real release, edit Version.props and commit it.
+
+.PARAMETER CertThumbprint
+    Authenticode-sign the finished MSI with this certificate from the current
+    user's store. Unsigned MSIs make SmartScreen shout at your customers, so
+    sign every public release.
+
+.PARAMETER NoBundle
+    Do not bundle Python, Node, WebView2 and the engine's wheels into the
+    MSI. The installed app falls back to downloading them on first run, the
+    way it did before. Makes the MSI about 150 MB smaller and the first run
+    on a customer's machine dependent on their network.
+
+.PARAMETER SkipWheels
+    Bundle everything except the Python wheels. Use when the build machine
+    has no Python to collect them with.
+
+.PARAMETER SkipNpm
+    Passed through to stage.ps1. Local iteration only.
+
+.PARAMETER InstallDotnet
+    If the .NET SDK is missing, fetch Microsoft's official dotnet-install.ps1
+    and install the SDK per-user into %LocalAppData%\Microsoft\dotnet. No
+    administrator rights, nothing machine-wide, nothing else touched.
+
+.EXAMPLE
+    powershell -ExecutionPolicy Bypass -File installer\tools\build-msi.ps1
+
+.EXAMPLE
+    # first time on a machine without the .NET SDK
+    .\build-msi.ps1 -InstallDotnet
+
+.EXAMPLE
+    .\build-msi.ps1 -Version 1.1.0 -CertThumbprint 9A8B7C...
+#>
+[CmdletBinding()]
+param(
+    [string] $Version,
+    [string] $CertThumbprint,
+    [switch] $SkipNpm,
+    [switch] $NoBundle,
+    [switch] $SkipWheels,
+    [switch] $InstallDotnet,
+    [ValidateSet("Release", "Debug")] [string] $Configuration = "Release"
+)
+
+$ErrorActionPreference = "Stop"
+Set-StrictMode -Version Latest
+
+$installerDir = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
+$repoRoot     = (Resolve-Path (Join-Path $installerDir "..")).Path
+$project      = Join-Path $installerDir "AURION.wixproj"
+$assetsDir    = Join-Path $installerDir "assets\generated"
+$outputDir    = Join-Path $installerDir "output"
+
+function Step([string] $text) {
+    Write-Host ""
+    Write-Host "== $text" -ForegroundColor Cyan
+}
+
+# Bumped whenever this script changes, so a stale copy is obvious at a glance
+# instead of failing with a confusing parameter error.
+$ScriptRevision = "33"
+
+Write-Host ""
+Write-Host "  AURION installer build" -ForegroundColor White
+Write-Host "  ----------------------" -ForegroundColor DarkGray
+Write-Host "  build script revision $ScriptRevision" -ForegroundColor DarkGray
+
+# Which tree is this, really. Two checkouts on one machine - pulling into one
+# and building in the other - looks exactly like a fix that did not work, and
+# the only way to tell from a build log is to print it.
+Write-Host ("  building from       {0}" -f $repoRoot) -ForegroundColor DarkGray
+try {
+    $gitDir = Join-Path $repoRoot ".git"
+    if (Test-Path $gitDir) {
+        $head = (& git -C $repoRoot log -1 --format="%h %s" 2>$null)
+        $branch = (& git -C $repoRoot rev-parse --abbrev-ref HEAD 2>$null)
+        if ($head) {
+            Write-Host ("  commit              {0}" -f $head) -ForegroundColor DarkGray
+            Write-Host ("  branch              {0}" -f $branch) -ForegroundColor DarkGray
+        }
+    } else {
+        Write-Host "  commit              (not a git checkout)" -ForegroundColor DarkGray
+    }
+} catch {
+    # git missing is not a build problem; the revision number above is enough.
+}
+
+# ---------------------------------------------------------------------------
+# 1. Tools
+# ---------------------------------------------------------------------------
+Step "Checking tools"
+
+# WiX 5 ships as a NuGet-based MSBuild SDK, so the one hard requirement is the
+# .NET *SDK* (the runtime alone is not enough - it has no MSBuild). Find it
+# properly: "dotnet" on PATH may be a runtime-only install, and a perfectly good
+# SDK is often installed but not on PATH at all.
+function Find-DotnetSdk {
+    $candidates = @()
+    $onPath = Get-Command dotnet -ErrorAction SilentlyContinue
+    if ($onPath) { $candidates += $onPath.Source }
+    $candidates += @(
+        (Join-Path $env:ProgramFiles "dotnet\dotnet.exe"),
+        (Join-Path $env:LOCALAPPDATA "Microsoft\dotnet\dotnet.exe"),
+        "C:\Program Files\dotnet\dotnet.exe"
+    )
+    $usable = @($candidates | Where-Object { $_ -and (Test-Path $_) } | Select-Object -Unique)
+    foreach ($exe in $usable) {
+        $sdks = @(& $exe --list-sdks 2>$null)
+        if ($LASTEXITCODE -eq 0 -and $sdks.Count -gt 0) {
+            $newest = @($sdks | ForEach-Object { ($_ -split ' ')[0] } |
+                        Where-Object { $_ -match '^\d+' } |
+                        Sort-Object { [version]($_ -split '-')[0] } -Descending |
+                        Select-Object -First 1)[0]
+            if ([version](($newest -split '-')[0]) -ge [version]"6.0.0") {
+                return [pscustomobject]@{ Exe = $exe; Sdk = $newest }
+            }
+        }
+    }
+    return $null
+}
+
+function Install-DotnetSdk {
+    # Microsoft's official per-user bootstrapper. No administrator rights, no
+    # machine-wide change: everything lands in %LocalAppData%\Microsoft\dotnet.
+    $target = Join-Path $env:LOCALAPPDATA "Microsoft\dotnet"
+    $script = Join-Path $env:TEMP "dotnet-install.ps1"
+
+    Write-Host "  downloading the official .NET install script from https://dot.net ..." -ForegroundColor Gray
+    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+    Invoke-WebRequest -UseBasicParsing -Uri "https://dot.net/v1/dotnet-install.ps1" -OutFile $script
+
+    Write-Host "  installing .NET SDK 8.0 into $target (no admin rights needed) ..." -ForegroundColor Gray
+    & $script -Channel 8.0 -InstallDir $target -NoPath
+    if ($LASTEXITCODE -ne 0) { throw "dotnet-install.ps1 failed with exit code $LASTEXITCODE" }
+
+    # Make it usable for the rest of this session.
+    $env:PATH = "$target;$env:PATH"
+    $env:DOTNET_ROOT = $target
+    Remove-Item $script -ErrorAction SilentlyContinue
+}
+
+$found = Find-DotnetSdk
+
+# Offer the per-user bootstrap instead of just refusing to work. -InstallDotnet
+# is only needed to skip this question (unattended / CI runs).
+if (-not $found -and -not $InstallDotnet -and [Environment]::UserInteractive) {
+    Write-Host ""
+    Write-Host "  The .NET SDK is required to build an MSI and was not found." -ForegroundColor Yellow
+    Write-Host "  It can be installed for your user only, in %LocalAppData%\Microsoft\dotnet," -ForegroundColor Yellow
+    Write-Host "  without administrator rights and without changing anything machine-wide." -ForegroundColor Yellow
+    $answer = Read-Host "  Install the .NET SDK now? [Y/n]"
+    if ([string]::IsNullOrWhiteSpace($answer) -or $answer -match '^(y|yes)$') { $InstallDotnet = $true }
+}
+
+if (-not $found -and $InstallDotnet) {
+    Install-DotnetSdk
+    $found = Find-DotnetSdk
+    if (-not $found) { throw ".NET SDK still not detected after bootstrap. Open a new shell and re-run this script." }
+}
+
+if (-not $found) {
+    $winget = Get-Command winget -ErrorAction SilentlyContinue
+    $wingetHint = if ($winget) { "    winget install Microsoft.DotNet.SDK.8`n" } else { "" }
+    throw @"
+.NET SDK 6.0 or newer was not found on this machine.
+
+WiX 5 is an MSBuild SDK delivered through NuGet, so building the MSI needs the
+.NET *SDK*. The .NET Runtime alone is not enough - it has no MSBuild.
+
+Pick whichever you prefer:
+
+  1. Let this script install it for you, per-user, no administrator rights:
+
+         .\build-msi.ps1 -InstallDotnet
+
+  2. Install it yourself:
+$wingetHint    https://dotnet.microsoft.com/download/dotnet/8.0   (choose "SDK", x64)
+
+If the SDK IS installed but not on PATH, this script also looks in
+  %ProgramFiles%\dotnet  and  %LocalAppData%\Microsoft\dotnet
+so a fresh shell after installing is usually all it takes.
+"@
+}
+
+$dotnetExe = $found.Exe
+Write-Host ("  .NET SDK {0}" -f $found.Sdk) -ForegroundColor Gray
+Write-Host ("  {0}" -f $dotnetExe) -ForegroundColor DarkGray
+
+# npm is needed by stage.ps1 to restore the desk's production dependencies.
+if (-not $SkipNpm -and -not (Get-Command npm -ErrorAction SilentlyContinue)) {
+    throw @"
+npm was not found, and the payload needs backend\node_modules to be restored.
+
+Install Node.js 18 or newer from https://nodejs.org and re-run this script.
+(Node is also what AURION itself runs on, so the build machine needs it anyway.)
+"@
+}
+
+if (-not $PSBoundParameters.ContainsKey('Version') -or [string]::IsNullOrWhiteSpace($Version)) {
+    $propsXml = [xml](Get-Content (Join-Path $installerDir "Version.props"))
+    $Version = $propsXml.Project.PropertyGroup.AurionVersion
+}
+if ($Version -notmatch '^\d+\.\d+\.\d+$') {
+    throw "Version '$Version' is not valid. Windows Installer compares major.minor.build only - use three numeric fields."
+}
+Write-Host "  building version $Version" -ForegroundColor Gray
+
+# ---------------------------------------------------------------------------
+# 2. Branding assets
+# ---------------------------------------------------------------------------
+Step "Branding assets"
+
+# @() matters: Where-Object returns $null when every asset is present, and
+# $null has no .Count under Set-StrictMode.
+$needAssets = @(@("aurion.ico", "banner.bmp", "dialog.bmp", "info.ico",
+                  "exclamation.ico", "new.ico", "up.ico") |
+                Where-Object { -not (Test-Path (Join-Path $assetsDir $_)) })
+
+if ($needAssets.Count -eq 0) {
+    Write-Host "  assets present" -ForegroundColor Gray
+} else {
+    $py = Get-Command py -ErrorAction SilentlyContinue
+    if (-not $py) { $py = Get-Command python -ErrorAction SilentlyContinue }
+    if (-not $py) {
+        throw ("Missing assets: {0}.`n" -f ($needAssets -join ', ')) +
+              "  These are committed to the repository, so the quickest fix is:`n" +
+              "      git checkout -- installer/assets/generated`n" +
+              "  To regenerate them instead you need Python with Pillow."
+    }
+    Write-Host "  generating from the application artwork" -ForegroundColor Gray
+    & $py.Source (Join-Path $installerDir "assets\build-assets.py")
+    if ($LASTEXITCODE -ne 0) {
+        throw "Asset generation failed.`n" +
+              "  The generated assets are committed, so you normally do not need to build them:`n" +
+              "      git checkout -- installer/assets/generated`n" +
+              "  Only rebuild them after changing the branding, which needs:`n" +
+              "      pip install Pillow fonttools brotli"
+    }
+}
+
+# Present is not the same as usable, and a picture in the wrong container is
+# worth repairing rather than refusing: someone swapping in their own logo
+# will almost always do it by copying a PNG over the .ico. Anything that is a
+# real image gets repacked into a real icon here; anything else is reported
+# with the file named, before a compiler gets the chance to say
+# "CS7065: Icon stream is not in the expected format" and mention neither.
+$badAssets = @()
+foreach ($item in @(
+        @{ name = "aurion.ico";      magic = @(0, 0, 1, 0);  kind = "an icon (.ico)" },
+        @{ name = "exclamation.ico"; magic = @(0, 0, 1, 0);  kind = "an icon (.ico)" },
+        @{ name = "info.ico";        magic = @(0, 0, 1, 0);  kind = "an icon (.ico)" },
+        @{ name = "new.ico";         magic = @(0, 0, 1, 0);  kind = "an icon (.ico)" },
+        @{ name = "up.ico";          magic = @(0, 0, 1, 0);  kind = "an icon (.ico)" },
+        @{ name = "banner.bmp";      magic = @(66, 77);      kind = "a bitmap (.bmp)" },
+        @{ name = "dialog.bmp";      magic = @(66, 77);      kind = "a bitmap (.bmp)" })) {
+
+    $path = Join-Path $assetsDir $item.name
+    if (-not (Test-Path $path)) { continue }
+
+    $blob = [System.IO.File]::ReadAllBytes($path)
+    $head = $blob | Select-Object -First 8
+    $want = $item.magic
+    $ok = $true
+    for ($i = 0; $i -lt $want.Count; $i++) { if ($head[$i] -ne $want[$i]) { $ok = $false } }
+
+    # A correct magic number is not the whole story for an icon. A container
+    # holding nothing but one 256px PNG entry is a legal .ico that some
+    # toolchains still refuse, and it is what most "convert to ico" websites
+    # produce - so an icon without the small classic bitmaps Windows asks
+    # for is rebuilt as well, not just an outright wrong one.
+    $thin = $false
+    if ($ok -and $item.name -like "*.ico" -and $blob.Length -ge 22) {
+        $n = [BitConverter]::ToUInt16($blob, 4)
+        $small = 0
+        for ($i = 0; $i -lt $n; $i++) {
+            $w = $blob[6 + $i * 16]
+            if ($w -ne 0 -and $w -le 64) { $small++ }
+        }
+        if ($n -lt 2 -or $small -lt 1) {
+            $thin = $true
+            Write-Host ("  {0} has {1} image(s) and none at 64px or below - rebuilding it" -f $item.name, $n) -ForegroundColor Yellow
+        }
+    }
+    if ($ok -and -not $thin) { continue }
+
+    $what = "an unrecognised format"
+    $isImage = $false
+    if ($thin) { $what = "an icon without the usual small sizes"; $isImage = $true }
+    elseif ($head[0] -eq 0x89 -and $head[1] -eq 0x50) { $what = "a PNG"; $isImage = $true }
+    elseif ($head[0] -eq 0xFF -and $head[1] -eq 0xD8) { $what = "a JPEG"; $isImage = $true }
+    elseif ($head[0] -eq 0x42 -and $head[1] -eq 0x4D) { $what = "a BMP"; $isImage = $true }
+    elseif ($head[0] -eq 0x47 -and $head[1] -eq 0x49) { $what = "a GIF"; $isImage = $true }
+
+    # Only icons can be repaired - a BMP that is really a PNG would still
+    # need to be the exact size the installer draws, so that one is reported.
+    if ($isImage -and $item.name -like "*.ico") {
+        if (-not $thin) {
+            Write-Host ("  {0} is {1}, not an icon - repacking it" -f $item.name, $what) -ForegroundColor Yellow
+        }
+        try {
+            # Keep the original next to it; it is the artwork, and only the
+            # container was wrong.
+            $stash = Join-Path $assetsDir ([System.IO.Path]::GetFileNameWithoutExtension($item.name) + ".original.png")
+            if ($thin) { $stash = Join-Path $assetsDir ([System.IO.Path]::GetFileNameWithoutExtension($item.name) + ".original.ico") }
+            Copy-Item -LiteralPath $path -Destination $stash -Force
+            & powershell -NoProfile -ExecutionPolicy Bypass `
+                -File (Join-Path $PSScriptRoot "make-icon.ps1") `
+                -Source $stash -Destination $path
+            $fixedHead = [System.IO.File]::ReadAllBytes($path) | Select-Object -First 4
+            if ($fixedHead[0] -eq 0 -and $fixedHead[1] -eq 0 -and $fixedHead[2] -eq 1 -and $fixedHead[3] -eq 0) {
+                Write-Host ("  {0} repaired - the artwork is unchanged, the container is now an icon" -f $item.name) -ForegroundColor Green
+                continue
+            }
+        } catch {
+            Write-Host ("  could not repack {0}: {1}" -f $item.name, $_.Exception.Message) -ForegroundColor DarkYellow
+        }
+    }
+
+    $badAssets += "    {0} is {1}, but it has to be {2}" -f $item.name, $what, $item.kind
+}
+
+if ($badAssets.Count -gt 0) {
+    throw ("These branding assets are the wrong format:`n{0}`n`n" -f ($badAssets -join "`n")) +
+          "  Renaming a .png to .ico does not make an icon - Windows and the C#`n" +
+          "  compiler both refuse it. Fix it with one of:`n" +
+          "      git checkout -- installer/assets/generated`n" +
+          "      python installer\assets\build-assets.py`n" +
+          "      powershell -File installer\tools\make-icon.ps1 -Source logo.png -Destination installer\assets\generated\aurion.ico"
+}
+# The logo is one file, and the icon follows it.
+#
+# apps/web/icons/mark.png is what the desk shows as its favicon, its
+# apple-touch icon and its PWA icon. Making the Windows icon regenerate from
+# the same file whenever it changes means replacing the brand is replacing
+# one picture - not one picture plus an icon conversion that somebody has to
+# remember, and that silently rots when they do not.
+$markPath = Join-Path $repoRoot "apps\web\icons\mark.png"
+$icoTarget = Join-Path $assetsDir "aurion.ico"
+if ((Test-Path $markPath) -and (Test-Path $icoTarget)) {
+    $markTime = (Get-Item $markPath).LastWriteTimeUtc
+    $icoTime  = (Get-Item $icoTarget).LastWriteTimeUtc
+    if ($markTime -gt $icoTime) {
+        Write-Host "  the logo is newer than the icon - rebuilding it" -ForegroundColor Yellow
+        try {
+            & powershell -NoProfile -ExecutionPolicy Bypass `
+                -File (Join-Path $PSScriptRoot "make-icon.ps1") `
+                -Source $markPath -Destination $icoTarget
+        } catch {
+            Write-Host ("  could not rebuild the icon: {0}" -f $_.Exception.Message) -ForegroundColor DarkYellow
+            Write-Host "  the committed one will be used instead" -ForegroundColor DarkYellow
+        }
+    }
+}
+
+Write-Host "  asset formats verified" -ForegroundColor Gray
+
+# Say what the product icon actually is. One line, and the CS7065 class of
+# failure can be diagnosed from the log alone rather than from a guess.
+$icoPath = Join-Path $assetsDir "aurion.ico"
+if (Test-Path $icoPath) {
+    $ico = [System.IO.File]::ReadAllBytes($icoPath)
+    if ($ico.Length -ge 6 -and $ico[0] -eq 0 -and $ico[1] -eq 0 -and $ico[2] -eq 1) {
+        $imageCount = [BitConverter]::ToUInt16($ico, 4)
+        $dims = @()
+        for ($i = 0; $i -lt $imageCount; $i++) {
+            $w = $ico[6 + $i * 16]
+            $dims += $(if ($w -eq 0) { 256 } else { [int]$w })
+        }
+        Write-Host ("  product icon: {0} images ({1})" -f $imageCount, ($dims -join ", ")) -ForegroundColor Gray
+    }
+}
+
+# ---------------------------------------------------------------------------
+# 3. Payload
+# ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# 2b. The runtimes the MSI carries
+# ---------------------------------------------------------------------------
+# Downloading Python and Node on the *customer's* machine is how a bare
+# install turns into a support call: that machine is behind a proxy nobody
+# told us about, and the only symptom is a desk that never starts. Fetch them
+# here instead, on a machine with a developer and a console, and ship them.
+#
+# -NoBundle restores the old behaviour for a quick local build.
+if ($NoBundle) {
+    Step "Skipping the bundled runtimes (-NoBundle)"
+    Write-Host "  the installed app will download Python and Node on first run" -ForegroundColor Yellow
+} else {
+    Step "Fetching the runtimes to bundle"
+    # A failure here is only fatal if the bundle is not already complete.
+    #
+    # The runtimes are cached between builds, so the common case after one
+    # successful fetch is that nothing needs the network at all. Losing a
+    # build to a momentary refusal from nodejs.org, with 139 MB of verified
+    # payload already sitting on disk, is not an acceptable trade.
+    try {
+        & (Join-Path $PSScriptRoot "fetch-vendor.ps1") -SkipWheels:$SkipWheels
+    } catch {
+        $vendorDir = Join-Path $installerDir "vendor"
+        $needed = @("python-3.12.7-amd64.exe", "node-v20.17.0-win-x64.zip",
+                    "SHASUMS256.txt", "MicrosoftEdgeWebview2Setup.exe")
+        $have = $needed | Where-Object { Test-Path -LiteralPath (Join-Path $vendorDir $_) }
+
+        if ($have.Count -eq $needed.Count) {
+            Write-Host ""
+            Write-Host "  The runtimes could not be refreshed:" -ForegroundColor Yellow
+            Write-Host "    $($_.Exception.Message.Split([Environment]::NewLine)[0])" -ForegroundColor Yellow
+            Write-Host "  Every bundled runtime is already present, so the build continues with those." -ForegroundColor Yellow
+            Write-Host ""
+        } else {
+            $missing = $needed | Where-Object { $have -notcontains $_ }
+            throw ("The runtimes could not be collected and the bundle is incomplete.`n" +
+                   "  missing: $($missing -join ', ')`n" +
+                   "  $($_.Exception.Message)`n" +
+                   "  Build with -NoBundle to produce an MSI that downloads them on the target machine instead.")
+        }
+    }
+}
+
+Step "Staging payload"
+# stage.ps1 throws on failure; $ErrorActionPreference = "Stop" turns that into
+# a terminating error here, so there is nothing extra to check. ($LASTEXITCODE
+# is deliberately not read: it may not exist yet, which StrictMode rejects.)
+& (Join-Path $PSScriptRoot "stage.ps1") -Root $repoRoot -SkipNpm:$SkipNpm
+
+# ---------------------------------------------------------------------------
+# 3b. The desk window
+#
+# AURION.exe is the installer-owned WebView2 host that shows the desk in a real
+# window. It is published self-contained, so the trader's machine needs no .NET
+# runtime, and it lands directly in the staged payload next to start-aurion.cmd,
+# where Files.wxs harvests it with everything else.
+# ---------------------------------------------------------------------------
+Step "Building the desk window"
+
+# ---------------------------------------------------------------------------
+# The icon, checked the way the compiler reads it
+# ---------------------------------------------------------------------------
+# A malformed .ico does not produce a message about icons. It produces:
+#
+#     CSC : error CS7065: Error building Win32 resources,
+#           "Unable to read beyond the end of the stream."
+#
+# which names neither the file nor the problem, and cost two full build
+# cycles on a machine nobody here can see. The arithmetic that actually goes
+# wrong is checked here instead, immediately before the compile and after
+# anything that might have rewritten the file, so the build says what is
+# wrong with which file.
+function Test-ProductIcon {
+    param([string] $Path)
+
+    if (-not (Test-Path -LiteralPath $Path)) { throw "The product icon is missing: $Path" }
+    $b = [System.IO.File]::ReadAllBytes($Path)
+
+    if ($b.Length -lt 6) { throw "The product icon is only $($b.Length) bytes long: $Path" }
+    if ([BitConverter]::ToUInt16($b, 0) -ne 0 -or [BitConverter]::ToUInt16($b, 2) -ne 1) {
+        throw "The product icon is not an icon - it may be a renamed PNG: $Path"
+    }
+
+    $count = [BitConverter]::ToUInt16($b, 4)
+    if ($count -lt 1) { throw "The product icon contains no images: $Path" }
+
+    $directoryEnd = 6 + 16 * $count
+    if ($b.Length -lt $directoryEnd) {
+        throw "The product icon claims $count images but is too short to list them: $Path"
+    }
+
+    for ($i = 0; $i -lt $count; $i++) {
+        $at     = 6 + 16 * $i
+        $size   = [BitConverter]::ToUInt32($b, $at + 8)
+        $offset = [BitConverter]::ToUInt32($b, $at + 12)
+        if ($offset -lt $directoryEnd -or ($offset + $size) -gt $b.Length) {
+            throw ("The product icon is malformed: image $i covers $offset..$($offset + $size) " +
+                   "but the file is $($b.Length) bytes and its directory ends at $directoryEnd.`n" +
+                   "  $Path`n" +
+                   "  Rebuild it with:`n" +
+                   "    powershell -ExecutionPolicy Bypass -File installer\tools\make-icon.ps1 ``n" +
+                   "      -Source apps\web\icons\mark.png -Destination $Path`n" +
+                   "  or restore the committed one with: git checkout -- $Path")
+        }
+    }
+    Write-Host "  product icon verified: $count images, $($b.Length) bytes" -ForegroundColor Gray
+}
+
+Test-ProductIcon -Path (Join-Path $assetsDir "aurion.ico")
+
+$windowProject = Join-Path $installerDir "window\AurionWindow.csproj"
+$stageApp = Join-Path $installerDir "stage\app"
+
+& $dotnetExe publish $windowProject `
+    -c $Configuration `
+    -r win-x64 `
+    --self-contained true `
+    -p:PublishSingleFile=true `
+    -p:IncludeNativeLibrariesForSelfExtract=true `
+    -p:EnableCompressionInSingleFile=true `
+    -p:AurionVersion=$Version `
+    -o $stageApp `
+    --nologo -v quiet
+
+if ($LASTEXITCODE -ne 0) { throw "Building the desk window (AURION.exe) failed." }
+
+$windowExe = Join-Path $stageApp "AURION.exe"
+if (-not (Test-Path $windowExe)) { throw "AURION.exe was not produced in $stageApp." }
+Write-Host ("  AURION.exe  {0:N1} MB" -f ((Get-Item $windowExe).Length / 1MB)) -ForegroundColor Gray
+
+# ---------------------------------------------------------------------------
+# 3c. The uninstaller
+# ---------------------------------------------------------------------------
+# AURION-Uninstall.exe is what Control Panel runs, because Windows
+# Installer's own uninstall is an unnamed progress bar and cannot ask the
+# only question that matters - whether the trade history goes with the
+# application.
+#
+# It lands in the staged payload beside AURION.exe, so Files.wxs harvests
+# it with everything else, and Actions.wxs repoints UninstallString at it
+# after RegisterProduct has had its say.
+Step "Building the uninstaller"
+
+$uninstallProject = Join-Path $installerDir "shell\uninstall\AurionUninstall.csproj"
+
+& $dotnetExe publish $uninstallProject `
+    -c $Configuration `
+    -r win-x64 `
+    --self-contained true `
+    -p:PublishSingleFile=true `
+    -p:IncludeNativeLibrariesForSelfExtract=true `
+    -p:EnableCompressionInSingleFile=true `
+    -p:AurionVersion=$Version `
+    -o $stageApp `
+    --nologo -v quiet
+
+if ($LASTEXITCODE -ne 0) { throw "Building the uninstaller (AURION-Uninstall.exe) failed." }
+
+$uninstallExe = Join-Path $stageApp "AURION-Uninstall.exe"
+if (-not (Test-Path $uninstallExe)) {
+    throw "AURION-Uninstall.exe was not produced in $stageApp."
+}
+Write-Host ("  AURION-Uninstall.exe  {0:N1} MB" -f ((Get-Item $uninstallExe).Length / 1MB)) -ForegroundColor Gray
+
+# A self-contained single-file publish also drops its own .pdb and the
+# deps/runtimeconfig files next to the exe; none of them belong in a shipped
+# payload, and leaving them would put ~100 unnecessary files in the MSI.
+Get-ChildItem $stageApp -File |
+    Where-Object { $_.Extension -in @(".pdb", ".xml") -or $_.Name -like "*.deps.json" } |
+    Remove-Item -Force -ErrorAction SilentlyContinue
+
+
+# ---------------------------------------------------------------------------
+# 4. Compile
+# ---------------------------------------------------------------------------
+# 3d. The setup wizard
+# ---------------------------------------------------------------------------
+# AURION-Setup.exe is the file a customer is actually given. It runs the
+# MSI beside it with /qn and draws the whole experience itself, because
+# Windows Installer's dialogs can be given a banner bitmap and a licence
+# page and nothing else - the typeface, the spacing and the word "Setup"
+# in the title bar stay Microsoft's.
+#
+# Built here, with the other two executables, and not after the MSI.
+#
+# It has no dependency on the MSI: it finds the .msi beside itself when it
+# runs. Building it last meant two things, both bad. A C# mistake in it
+# was only discovered after a four and a half minute MSI compile - and
+# when that compile failed, as it did twice on ICE77, the wizard was never
+# produced at all. The report that followed was "I click
+# AURION-Setup.exe and nothing happens", which was true: there was no
+# such file.
+Step "Building the setup wizard"
+
+$setupProject = Join-Path $installerDir "shell\setup\AurionSetup.csproj"
+$setupStage   = Join-Path $installerDir "bin\setup-publish"
+
+& $dotnetExe publish $setupProject `
+    -c $Configuration `
+    -r win-x64 `
+    --self-contained true `
+    -p:PublishSingleFile=true `
+    -p:IncludeNativeLibrariesForSelfExtract=true `
+    -p:EnableCompressionInSingleFile=true `
+    -p:AurionVersion=$Version `
+    -o $setupStage `
+    --nologo -v quiet
+
+if ($LASTEXITCODE -ne 0) { throw "Building the setup wizard (AURION-Setup.exe) failed." }
+
+$setupBuilt = Join-Path $setupStage "AURION-Setup.exe"
+if (-not (Test-Path $setupBuilt)) { throw "AURION-Setup.exe was not produced in $setupStage." }
+Write-Host ("  AURION-Setup.exe  {0:N1} MB" -f ((Get-Item $setupBuilt).Length / 1MB)) -ForegroundColor Gray
+
+# ---------------------------------------------------------------------------
+Step "Compiling MSI"
+
+New-Item -ItemType Directory -Force -Path $outputDir | Out-Null
+$binlog = Join-Path $outputDir "build.binlog"
+
+# MSBuild keeps its own bin\ layout and the MSI is copied out afterwards.
+# OutputPath is deliberately NOT overridden: a quoted property ending in "\"
+# escapes the closing quote, which breaks on any path containing a space
+# (for example "D:\AURION BETA").
+& $dotnetExe build $project `
+    -c $Configuration `
+    -p:AurionVersion=$Version `
+    -bl:"$binlog"
+
+if ($LASTEXITCODE -ne 0) {
+    Write-Host ""
+    Write-Host "  Build failed. A full MSBuild binary log is at:" -ForegroundColor Red
+    Write-Host "    $binlog" -ForegroundColor Red
+    Write-Host "  Open it with https://msbuildlog.com for the exact failing task." -ForegroundColor Red
+    exit 1
+}
+
+$built = @(Get-ChildItem (Join-Path $installerDir "bin") -Recurse -Filter "AURION-$Version-x64.msi" -ErrorAction SilentlyContinue |
+           Sort-Object LastWriteTime -Descending) | Select-Object -First 1
+if (-not $built) { throw "Build reported success but no MSI was produced under installer\bin." }
+
+Copy-Item $built.FullName $outputDir -Force
+$wixpdb = [IO.Path]::ChangeExtension($built.FullName, ".wixpdb")
+if (Test-Path $wixpdb) { Copy-Item $wixpdb $outputDir -Force }
+$msi = Get-Item (Join-Path $outputDir $built.Name)
+
+
+# The wizard ships beside the package it installs.
+Copy-Item $setupBuilt $outputDir -Force
+$setupExe = Get-Item (Join-Path $outputDir "AURION-Setup.exe")
+
+# ---------------------------------------------------------------------------
+# 5. Sign (optional but expected for public releases)
+# ---------------------------------------------------------------------------
+if ($CertThumbprint) {
+    Step "Signing"
+    $signtool = @(Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin" -Recurse -Filter signtool.exe -ErrorAction SilentlyContinue |
+                  Where-Object { $_.FullName -match "x64" } |
+                  Sort-Object FullName -Descending) | Select-Object -First 1
+    if (-not $signtool) { throw "signtool.exe not found. Install the Windows SDK, or sign the MSI on your signing machine." }
+
+    & $signtool.FullName sign /sha1 $CertThumbprint /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 /d "AURION" $msi.FullName
+    if ($LASTEXITCODE -ne 0) { throw "Signing failed." }
+
+    # The wizard is the file the customer double-clicks, so it is the one
+    # SmartScreen judges. Signing the MSI and not this would be backwards.
+    & $signtool.FullName sign /sha1 $CertThumbprint /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 /d "AURION setup" $setupExe.FullName
+    if ($LASTEXITCODE -ne 0) { throw "Signing the setup wizard failed." }
+    Write-Host "  signed" -ForegroundColor Green
+} else {
+    Write-Host ""
+    Write-Host "  NOTE: the MSI is unsigned. Sign public releases with -CertThumbprint." -ForegroundColor Yellow
+}
+
+# ---------------------------------------------------------------------------
+# 6. Report
+# ---------------------------------------------------------------------------
+$hash = (Get-FileHash $msi.FullName -Algorithm SHA256).Hash
+Set-Content -Path "$($msi.FullName).sha256" -Value "$hash  $($msi.Name)" -Encoding ASCII
+
+Write-Host ""
+Write-Host "  BUILD OK" -ForegroundColor Green
+Write-Host ("  SHA-256 {0}" -f $hash) -ForegroundColor DarkGray
+Write-Host ""
+
+# Everything that now exists, by name and size.
+#
+# "I click AURION-Setup.exe and nothing happens" turned out to mean the
+# file had never been produced: the wizard was built after the MSI, and
+# the MSI compile had failed. Listing what is actually on disk at the end
+# of a build removes that entire class of confusion - if a name is not in
+# this list, it does not exist.
+Write-Host "  In $outputDir" -ForegroundColor White
+foreach ($item in Get-ChildItem $outputDir -File | Sort-Object Name) {
+    $size = if ($item.Length -ge 1MB) {
+        "{0,8:N1} MB" -f ($item.Length / 1MB)
+    } else {
+        "{0,8:N0} KB" -f ($item.Length / 1KB)
+    }
+    Write-Host ("    {0}  {1}" -f $size, $item.Name)
+}
+
+Write-Host ""
+Write-Host "  Give the customer AURION-Setup.exe and the .msi beside it." -ForegroundColor White
+Write-Host "  Running the .msi directly still works; it just shows Windows' own dialogs."
+Write-Host ""
+Write-Host "  Other ways in:" -ForegroundColor White
+Write-Host "    msiexec /i `"$($msi.Name)`" /qn                  silent install"
+Write-Host "    msiexec /i `"$($msi.Name)`" /l*v install.log     with a verbose log"
+Write-Host "    msiexec /x `"$($msi.Name)`"                      uninstall"
+Write-Host ""

@@ -9,10 +9,20 @@ from pathlib import Path
 from typing import Any
 
 ROOT = Path(__file__).resolve().parents[2]
-CONFIG_PATH = ROOT / "config" / "aurion.json"
-FACTORY_PATH = ROOT / "config" / "aurion.factory.json"
-STATE_PATH = ROOT / "data" / "runtime-state.json"
-BACKUP_PATH = ROOT / "data" / "settings-backup.json"
+
+# Everything the engine writes at runtime lives under one directory, so a
+# deployment can point it at a volume or a throwaway sandbox instead of the
+# source tree. Unset keeps the historical <repo>/data layout. The Node desk
+# honours the same variable.
+DATA_DIR = Path(os.environ["AURION_DATA_DIR"]).resolve() if os.environ.get("AURION_DATA_DIR") else ROOT / "data"
+
+CONFIG_DIR = Path(os.environ["AURION_CONFIG_DIR"]).resolve() if os.environ.get("AURION_CONFIG_DIR") else ROOT / "config"
+CONFIG_PATH = CONFIG_DIR / "aurion.json"
+FACTORY_PATH = CONFIG_DIR / "aurion.factory.json"
+if not FACTORY_PATH.exists():
+    FACTORY_PATH = ROOT / "config" / "aurion.factory.json"
+STATE_PATH = DATA_DIR / "runtime-state.json"
+BACKUP_PATH = DATA_DIR / "settings-backup.json"
 
 _lock = threading.RLock()
 _cache: dict[str, Any] | None = None
@@ -116,7 +126,7 @@ def load(force: bool = False) -> dict[str, Any]:
 def clear_readonly(path: Path) -> None:
     """Clear the read-only bit on an existing file so it can be overwritten.
 
-    Windows MSIs (electron-builder) ship installed files with the read-only
+    Some installers ship installed files with the read-only
     attribute, which makes ``os.replace()`` die with WinError 5 and
     ``open(path, "w")`` with PermissionError on every save. Clearing the bit
     before writing is the fix; no-op on POSIX and when the file is missing.

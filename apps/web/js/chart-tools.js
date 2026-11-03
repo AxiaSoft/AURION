@@ -1,0 +1,2176 @@
+/* ===========================================================================
+   AURION — the chart workspace
+   ===========================================================================
+   The interface around the canvas: the top bar, the drawing rail, the right
+   dock and everything that opens out of them.
+
+   Why it is its own file. The old chart toolbar was twenty-eight equal
+   buttons in a row across the top of the desk, growing by one every time a
+   tool was added, with the zoom, the magnet and the bin mixed in among the
+   drawing tools. It could not be organised further in place - the shape of
+   it was the problem. This file replaces that shape.
+
+   The rules it is built on:
+
+     1. Every tool comes from ONE table. The rail, the flyouts, the
+        shortcuts, the tooltips and the object names are all generated from
+        it, so a new tool is one row here and nothing else.
+     2. Nothing appears that does not work. A tool is only in the table if
+        the engine can draw it; there are no placeholder buttons anywhere in
+        this interface.
+     3. The chart is the page. Panels are overlays or collapsible columns,
+        never a frame the chart has to fit inside.
+   =========================================================================== */
+(function (global) {
+  "use strict";
+
+  /* ============================================================== icons == */
+  /* One visual language: 24×24, 1.6 stroke, no fills, no emoji anywhere. */
+
+  const I = {
+    cursor: "M5 3l14 8-6 1.6L10.5 20z",
+    cross: "M12 3v18M3 12h18",
+    dot: "M12 10.6a1.4 1.4 0 100 2.8 1.4 1.4 0 000-2.8M12 3v4M12 17v4M3 12h4M17 12h4",
+    eraser: "M4 16l7-7 5 5-4 4H6zM13 6l3-3 5 5-3 3",
+    magnet: "M7 4v8a5 5 0 0010 0V4M7 4H4v8a8 8 0 0016 0V4h-3",
+    pin: "M9 3h6l-1 6 4 4v2H6v-2l4-4-1-6M12 15v6",
+    trend: "M4 18L20 6",
+    ray: "M4 18L20 6M15 6h5v5",
+    extended: "M2 20L22 4",
+    hline: "M3 12h18",
+    hray: "M8 12h13M8 9v6",
+    vline: "M12 3v18",
+    crossline: "M3 14h18M10 3v18",
+    priceline: "M3 12h12M16 8h5v8h-5z",
+    dateline: "M12 3v18M8 3h8",
+    arrow: "M5 19L19 5M13 5h6v6",
+    infoline: "M4 18L20 6M11 3h4v4h-4z",
+    parallel: "M4 16L14 6M9 20L19 10",
+    channel: "M4 16L14 6M9 20L19 10M6.5 18L16.5 8",
+    flatchannel: "M4 8h16M4 16h16M4 8v8",
+    disjoint: "M3 14L10 7M13 17L21 9",
+    regression: "M4 19L20 7M5 15l4-2 4 1 5-4M4 20h16",
+    pitchfork: "M4 20L12 4L20 20M12 4v16",
+    schiff: "M6 20L12 8L18 20M12 8V4",
+    modschiff: "M6 20L12 10L18 20M12 10L9 4",
+    fib: "M4 6h16M4 10h16M4 14h11M4 18h16",
+    fibext: "M4 5h16M4 10h16M4 15h9M4 20h16M20 15h-4",
+    fibchannel: "M3 10L21 4M3 15L21 9M3 20L21 14",
+    fibtime: "M6 4v16M10 4v16M16 4v16",
+    fibcircle: "M12 12a9 9 0 100 .01M12 12a5 5 0 100 .01M12 12a2 2 0 100 .01",
+    fibarc: "M3 20a9 9 0 0118 0M7 20a5 5 0 0110 0",
+    fibspiral: "M13 12a2 2 0 10-2 2 4 4 0 004-4 7 7 0 10-7 7",
+    fibwedge: "M4 20L20 4M4 20L20 12M4 20h16",
+    gannfan: "M4 20L20 4M4 20L20 10M4 20L20 16M4 20L14 4",
+    gannbox: "M4 5h16v14H4zM4 12h16M12 5v14",
+    gannsquare: "M4 5h16v14H4zM4 5l16 14M20 5L4 19",
+    rect: "M4 6h16v12H4z",
+    rotrect: "M3 14l8-8 10 4-8 8z",
+    circle: "M12 3a9 9 0 100 18 9 9 0 000-18",
+    ellipse: "M12 6c5 0 9 2.7 9 6s-4 6-9 6-9-2.7-9-6 4-6 9-6",
+    triangle: "M12 4L21 19H3z",
+    polyline: "M3 17l5-6 4 3 4-7 5 4",
+    polygon: "M12 3l8 6-3 10H7L4 9z",
+    arc: "M4 18a8 8 0 0116 0",
+    curve: "M3 18c5 0 5-12 10-12s5 12 8 12",
+    doublecurve: "M3 15c3 0 3-7 6-7s3 7 6 7 3-7 6-7",
+    path: "M3 18c6 0 6-10 12-10h5M17 5l3 3-3 3",
+    xabcd: "M3 18l4-9 4 6 4-9 6 12",
+    abcd: "M3 17l5-8 5 6 8-10",
+    headshoulders: "M3 18l3-4 3 2 3-8 3 8 3-2 3 4",
+    elliott5: "M3 19l3-5 2 3 4-8 2 4 6-9",
+    elliott3: "M4 18l5-8 4 5 7-9",
+    threedrives: "M3 18l3-4 2 3 3-6 2 4 3-6 4 4",
+    measure: "M5 19L19 5M8 19H5v-3M19 8V5h-3",
+    pricerange: "M4 8h16M4 16h16M12 8v8M9 11l3-3 3 3M9 13l3 3 3-3",
+    daterange: "M8 4v16M16 4v16M8 12h8M10 9l-2 3 2 3M14 9l2 3-2 3",
+    long: "M4 16h16M4 16V9M7 12l-3-3-3 3M4 20h16",
+    short: "M4 8h16M4 8v7M7 12l-3 3-3-3M4 4h16",
+    text: "M5 6h14M12 6v13",
+    note: "M4 5h16v10H9l-5 4z",
+    callout: "M8 4h12v9H14l-3 4v-4H8z M8 13L3 20",
+    label: "M3 8h12l5 4-5 4H3z",
+    pricelabel: "M3 8h11l6 4-6 4H3zM6 12h5",
+    flag: "M6 21V4M6 4h11l-2.5 4L17 12H6",
+    emoji: "M12 3a9 9 0 100 18 9 9 0 000-18M9 10v.01M15 10v.01M8.5 14c1.8 2 5.2 2 7 0",
+    brush: "M4 17c4-6 8 2 12-4 2-3 4-4 4-4",
+    // A pencil: the barrel, the collar where the wood starts, and the
+    // mark it has just left. Used for the button that opens the drawing
+    // tools, where "brush" read as a stray squiggle at 20px.
+    pencil: "M4 20h4L19.5 8.5a2.1 2.1 0 0 0 -3 -3L5 17v3|M14.5 7l3 3",
+    highlighter: "M5 18h5l9-9-4-4-9 9zM4 21h16",
+    freearrow: "M3 17c5-8 9 2 14-8M14 5h4v4",
+    zoomIn: "M11 5a6 6 0 100 12 6 6 0 000-12M20 20l-4.5-4.5M8 11h6M11 8v6",
+    zoomOut: "M11 5a6 6 0 100 12 6 6 0 000-12M20 20l-4.5-4.5M8 11h6",
+    fit: "M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5",
+    auto: "M4 18V6M4 18h16M8 15l3-5 3 3 4-7",
+    undo: "M9 14L4 9l5-5M4 9h10a6 6 0 110 12h-2",
+    redo: "M15 14l5-5-5-5M20 9H10a6 6 0 100 12h2",
+    layers: "M12 3l9 5-9 5-9-5zM3 13l9 5 9-5",
+    settings: "M12 9a3 3 0 100 6 3 3 0 000-6M4.5 12l-1.3-.8.9-3.3 1.5.2.9-1.6-.7-1.4 2.4-2.4 1.4.7 1.6-.9-.2-1.5h3.4l.2 1.5 1.6.9 1.4-.7 2.4 2.4-.7 1.4.9 1.6 1.5.2v3.4l-1.5.2-.9 1.6.7 1.4-2.4 2.4-1.4-.7-1.6.9-.2 1.5h-3.4l-.2-1.5-1.6-.9-1.4.7-2.4-2.4.7-1.4-.9-1.6-1.5-.2z",
+    indicators: "M3 17l4-6 4 4 3-8 3 6 4-3",
+    full: "M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5",
+    exit: "M9 4H4v5M15 4h5v5M9 20H4v-5M15 20h5v-5",
+    close: "M6 6l12 12M18 6L6 18",
+    eye: "M2 12s3.6-6 10-6 10 6 10 6-3.6 6-10 6-10-6-10-6M12 9.5a2.5 2.5 0 100 5 2.5 2.5 0 000-5",
+    eyeOff: "M4 4l16 16M10 6.3A8 8 0 0112 6c6.4 0 10 6 10 6a17 17 0 01-3.2 3.7M6.4 8.6A17 17 0 002 12s3.6 6 10 6a9 9 0 003.3-.6",
+    lock: "M5 11h14v9H5zM8 11V7a4 4 0 118 0v4",
+    unlock: "M5 11h14v9H5zM8 11V7a4 4 0 017.7-1.5",
+    trash: "M5 7h14M9 7V5h6v2M8 7l1 13h6l1-13",
+    chart: "M4 19V5M4 19h16M8 16V9M12 16v-4M16 16V6",
+    clock: "M12 3a9 9 0 100 18 9 9 0 000-18M12 7v5l3 2",
+    grid: "M4 4h16v16H4zM4 10h16M4 15h16M10 4v16M15 4v16",
+    plus: "M12 5v14M5 12h14",
+    search: "M11 4a7 7 0 100 14 7 7 0 000-14M20 20l-4-4",
+    chevron: "M9 6l6 6-6 6",
+    toEnd: "M5 12h11M11 7l5 5-5 5M20 5v14",
+    panel: "M4 5h16v14H4zM15 5v14",
+    /* The positions dock: a pane across the bottom, not down one side. */
+    posdock: "M4 5h16v14H4zM4 14h16",
+    /* Candles, then empty room, then the price column. */
+    headgap: "M3 10v5M6 7v11M9 11v4M12 8v9M20 4v16",
+    tick: "M5 12.5l4.5 4.5L19 7",
+  };
+
+  function svg(path, cls) {
+    const body = String(path || "").split("|").map((d) => '<path d="' + d + '"/>').join("");
+    return '<svg aria-hidden="true" focusable="false" class="' + (cls || "") + '" viewBox="0 0 24 24" fill="none" stroke="currentColor" ' +
+      'stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + body + "</svg>";
+  }
+
+  /* =========================================================== the table == */
+  /*
+     Every drawing tool the engine can render, in the group it belongs to.
+     `key` is the single-press shortcut. Groups collapse into one rail button
+     that remembers the last tool used from it - which is what stops a
+     toolkit this size from becoming a wall.
+  */
+
+  const GROUPS = [
+    {
+      id: "cursor", label: "Cursors", icon: "cursor",
+      tools: [
+        { id: "cursor", label: "Cross cursor", icon: "cursor", key: "1", desc: "Select, move and pan" },
+        { id: "crosshair", label: "Crosshair", icon: "cross", key: "2", mode: "crosshair:cross" },
+        { id: "dotcursor", label: "Dot cursor", icon: "dot", mode: "crosshair:dot" },
+        { id: "eraser", label: "Eraser", icon: "eraser", key: "3", desc: "Click an object to remove it" },
+      ],
+    },
+    {
+      id: "lines", label: "Lines", icon: "trend",
+      tools: [
+        { id: "trend", label: "Trend line", icon: "trend", key: "t" },
+        { id: "ray", label: "Ray", icon: "ray" },
+        { id: "extended", label: "Extended line", icon: "extended" },
+        { id: "hline", label: "Horizontal line", icon: "hline", key: "h" },
+        { id: "hray", label: "Horizontal ray", icon: "hray" },
+        { id: "vline", label: "Vertical line", icon: "vline", key: "v" },
+        { id: "crossline", label: "Cross line", icon: "crossline" },
+        { id: "priceline", label: "Price line", icon: "priceline" },
+        { id: "dateline", label: "Date line", icon: "dateline" },
+        { id: "arrow", label: "Arrow", icon: "arrow", key: "a" },
+        { id: "infoline", label: "Info line", icon: "infoline" },
+      ],
+    },
+    {
+      id: "channels", label: "Channels", icon: "channel",
+      tools: [
+        { id: "parallel", label: "Parallel channel", icon: "parallel" },
+        { id: "channel", label: "Filled channel", icon: "channel" },
+        { id: "flatchannel", label: "Flat top / bottom", icon: "flatchannel" },
+        { id: "disjoint", label: "Disjoint channel", icon: "disjoint" },
+        { id: "regression", label: "Regression channel", icon: "regression" },
+        { id: "pitchfork", label: "Andrew's pitchfork", icon: "pitchfork", key: "p" },
+        { id: "schiff", label: "Schiff pitchfork", icon: "schiff" },
+        { id: "modschiff", label: "Modified Schiff", icon: "modschiff" },
+      ],
+    },
+    {
+      id: "fib", label: "Fibonacci", icon: "fib",
+      tools: [
+        { id: "fib", label: "Fib retracement", icon: "fib", key: "f" },
+        { id: "fibext", label: "Fib extension", icon: "fibext" },
+        { id: "fibchannel", label: "Fib channel", icon: "fibchannel" },
+        { id: "fibtime", label: "Fib time zones", icon: "fibtime" },
+        { id: "fibcircle", label: "Fib circles", icon: "fibcircle" },
+        { id: "fibarc", label: "Fib speed arcs", icon: "fibarc" },
+        { id: "fibspiral", label: "Fib spiral", icon: "fibspiral" },
+        { id: "fibwedge", label: "Fib wedge", icon: "fibwedge" },
+      ],
+    },
+    {
+      id: "gann", label: "Gann", icon: "gannfan",
+      tools: [
+        { id: "gannfan", label: "Gann fan", icon: "gannfan" },
+        { id: "gannbox", label: "Gann box", icon: "gannbox" },
+        { id: "gannsquare", label: "Gann square", icon: "gannsquare" },
+      ],
+    },
+    {
+      id: "shapes", label: "Shapes", icon: "rect",
+      tools: [
+        { id: "rect", label: "Rectangle", icon: "rect", key: "r" },
+        { id: "rotrect", label: "Rotated rectangle", icon: "rotrect" },
+        { id: "circle", label: "Circle", icon: "circle" },
+        { id: "ellipse", label: "Ellipse", icon: "ellipse" },
+        { id: "triangle", label: "Triangle", icon: "triangle" },
+        { id: "polyline", label: "Polyline", icon: "polyline" },
+        { id: "polygon", label: "Polygon", icon: "polygon" },
+        { id: "arc", label: "Arc", icon: "arc" },
+        { id: "curve", label: "Curve", icon: "curve" },
+        { id: "doublecurve", label: "Double curve", icon: "doublecurve" },
+        { id: "path", label: "Path", icon: "path" },
+      ],
+    },
+    {
+      id: "patterns", label: "Patterns", icon: "xabcd",
+      tools: [
+        { id: "xabcd", label: "XABCD pattern", icon: "xabcd" },
+        { id: "abcd", label: "ABCD pattern", icon: "abcd" },
+        { id: "headshoulders", label: "Head & shoulders", icon: "headshoulders" },
+        { id: "elliott5", label: "Elliott impulse (1-5)", icon: "elliott5" },
+        { id: "elliott3", label: "Elliott correction (A-C)", icon: "elliott3" },
+        { id: "threedrives", label: "Three drives", icon: "threedrives" },
+        { id: "gartley", label: "Gartley", icon: "xabcd", ratios: true },
+        { id: "butterfly", label: "Butterfly", icon: "xabcd", ratios: true },
+        { id: "bat", label: "Bat", icon: "xabcd", ratios: true },
+        { id: "crab", label: "Crab", icon: "xabcd", ratios: true },
+        { id: "cypher", label: "Cypher", icon: "xabcd", ratios: true },
+      ],
+    },
+    {
+      id: "measure", label: "Measure & position", icon: "measure",
+      tools: [
+        { id: "measure", label: "Date & price range", icon: "measure", key: "m" },
+        { id: "pricerange", label: "Price range", icon: "pricerange" },
+        { id: "daterange", label: "Date range", icon: "daterange" },
+        { id: "long", label: "Long position", icon: "long", key: "l" },
+        { id: "short", label: "Short position", icon: "short", key: "s" },
+      ],
+    },
+    {
+      id: "annotate", label: "Annotations", icon: "text",
+      tools: [
+        { id: "text", label: "Text", icon: "text" },
+        { id: "note", label: "Note", icon: "note" },
+        { id: "callout", label: "Callout", icon: "callout" },
+        { id: "label", label: "Label", icon: "label" },
+        { id: "pricelabel", label: "Price label", icon: "pricelabel" },
+        { id: "flag", label: "Flag", icon: "flag" },
+        { id: "emoji", label: "Marker", icon: "emoji" },
+      ],
+    },
+    {
+      id: "brush", label: "Freehand", icon: "brush",
+      tools: [
+        { id: "brush", label: "Brush", icon: "brush", key: "b" },
+        { id: "highlighter", label: "Highlighter", icon: "highlighter" },
+        { id: "freearrow", label: "Freehand arrow", icon: "freearrow" },
+      ],
+    },
+  ];
+
+  const TOOL_BY_ID = {};
+  GROUPS.forEach((g) => g.tools.forEach((t) => { TOOL_BY_ID[t.id] = Object.assign({ group: g.id }, t); }));
+
+  /** Chart types the engine implements, in the order the menu shows them. */
+  const CHART_TYPES = [
+    { id: "candles", label: "Candles", icon: "chart" },
+    { id: "hollow", label: "Hollow candles", icon: "chart" },
+    { id: "bar", label: "Bars (OHLC)", icon: "chart" },
+    { id: "line", label: "Line", icon: "trend" },
+    { id: "area", label: "Area", icon: "trend" },
+    { id: "baseline", label: "Baseline", icon: "trend" },
+    { id: "heikin", label: "Heikin Ashi", icon: "chart" },
+    { id: "renko", label: "Renko", icon: "grid" },
+    { id: "linebreak", label: "Line break", icon: "grid" },
+  ];
+
+  /**
+   * The timeframes the data source actually has.
+   *
+   * MetaTrader serves these nine and no others - there is no second, no
+   * three-minute and no two-hour bar to ask for. Offering them would be a
+   * control that cannot work, so they are not here.
+   */
+  const TIMEFRAMES = [
+    { id: "M1", label: "1 minute", short: "1m", group: "minutes" },
+    { id: "M5", label: "5 minutes", short: "5m", group: "minutes" },
+    { id: "M15", label: "15 minutes", short: "15m", group: "minutes" },
+    { id: "M30", label: "30 minutes", short: "30m", group: "minutes" },
+    { id: "H1", label: "1 hour", short: "1h", group: "hours" },
+    { id: "H4", label: "4 hours", short: "4h", group: "hours" },
+    { id: "D1", label: "1 day", short: "1D", group: "days" },
+    { id: "W1", label: "1 week", short: "1W", group: "days" },
+    { id: "MN1", label: "1 month", short: "1M", group: "days" },
+  ];
+
+  const QUICK_TF = ["M5", "M15", "H1", "H4", "D1"];
+
+  const INDICATOR_GROUPS = [
+    { id: "ma", label: "Moving averages" },
+    { id: "momentum", label: "Momentum & oscillators" },
+    { id: "volatility", label: "Volatility" },
+    { id: "volume", label: "Volume" },
+  ];
+
+  /** Human names for indicators, kept here so the maths file stays pure. */
+  const INDICATOR_TEXT = {
+    sma: ["Simple moving average", "The mean close over N bars."],
+    ema: ["Exponential moving average", "Weighted towards the most recent bars."],
+    wma: ["Weighted moving average", "Linear weights, newest bar heaviest."],
+    bb: ["Bollinger Bands", "A moving average with standard-deviation bands."],
+    donchian: ["Donchian channel", "The highest high and lowest low of N bars."],
+    vwap: ["Anchored VWAP", "Volume-weighted average price from the first visible bar."],
+    volume: ["Volume", "Traded volume per bar, with its own average."],
+    rsi: ["Relative strength index", "Wilder's RSI. Above 70 stretched, below 30 stretched the other way."],
+    macd: ["MACD", "Two moving averages, their difference and its signal line."],
+    stoch: ["Stochastic", "Where the close sits inside the recent range."],
+    atr: ["Average true range", "How far price travels in a bar, on average."],
+  };
+
+  /* =============================================================== state == */
+
+  const LS_DOCK = "aurion.chart.dock";
+  const LS_GROUP = "aurion.chart.lasttool";
+
+  const ui = {
+    chart: null,
+    root: null,
+    ctx: null,
+    lastOfGroup: {},
+    dockTab: "objects",
+    dockOpen: true,
+    menu: null,
+    fullscreen: false,
+  };
+
+  function esc(s) {
+    return String(s === undefined || s === null ? "" : s)
+      .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  }
+
+  /**
+   * i18n with a fallback.
+   *
+   * Note what this does NOT read: global.I18N.
+   *
+   * i18n.js declares the desk's translator as `const I18N = {...}` at the
+   * top level of a classic script. A top-level const is a global LEXICAL
+   * binding - every other script can see the bare name `I18N`, but it is
+   * never installed as a property of window. `global.I18N` was therefore
+   * undefined on every desk in every browser, this helper returned its
+   * English fallback every single time, and the whole chart workspace -
+   * the rail, the four menus, the dock, the properties panel - stayed in
+   * English no matter what language the trader had chosen. The ninety-odd
+   * chart.* keys already sitting in the language packs had never once been
+   * reached.
+   *
+   * The bare name is read first, with the window property kept as a second
+   * chance for any host that does attach it.
+   */
+  function tt(key, fallback) {
+    try {
+      const i = (typeof I18N !== "undefined" && I18N && I18N.t) ? I18N : (global.I18N || null);
+      const v = (i && i.t) ? i.t(key) : key;
+      return (!v || v === key) ? fallback : v;
+    } catch (e) { return fallback; }
+  }
+
+  /**
+   * A table row's name in the trader's language.
+   *
+   * The tables in this file stay in English on purpose: they are the
+   * fallback as well as the source of truth, so a desk running a language
+   * pack that has not caught up with a newly added tool shows that tool's
+   * English name rather than a raw dotted key.
+   *
+   * The key is derived from the row's own id and nothing else, which keeps
+   * the rule the whole file is built on - a new tool is one row in one
+   * table - true, at the cost of one line per language file.
+   *
+   * This used to read "tool names are terms", and left the entire rail,
+   * every flyout, every menu and every object name in English on a desk
+   * the trader had set to Persian. Some of them genuinely are terms of
+   * art; which ones is a decision for the translator, who can leave a row
+   * in English by translating it to itself. It is not a decision this file
+   * gets to make on their behalf.
+   */
+  function nameOf(kind, row) {
+    if (!row) return "";
+    return tt("chart." + kind + "." + row.id, row.label || row.id);
+  }
+
+  /**
+   * An indicator's name and one-line description, translated.
+   *
+   * Returns the same [name, description] pair INDICATOR_TEXT holds, so
+   * every caller keeps working unchanged.
+   */
+  function indicatorText(id) {
+    const fb = INDICATOR_TEXT[id] || [id, ""];
+    return [tt("chart.ind." + id, fb[0]), tt("chart.ind_d." + id, fb[1])];
+  }
+
+  /** Is the dock an overlay over the chart rather than a column beside it?
+      Matches the 980px breakpoint in chart.css where the dock starts to
+      float; keep the two in step. */
+  function narrow() {
+    try { return window.matchMedia("(max-width: 980px)").matches; }
+    catch (e) { return false; }
+  }
+
+  function read(k, fb) {
+    try { const v = localStorage.getItem(k); return v === null ? fb : v; } catch (e) { return fb; }
+  }
+  function write(k, v) {
+    try { localStorage.setItem(k, v); } catch (e) { /* private mode */ }
+  }
+
+  function loadLastTools() {
+    try { ui.lastOfGroup = JSON.parse(read(LS_GROUP, "{}")) || {}; } catch (e) { ui.lastOfGroup = {}; }
+    GROUPS.forEach((g) => { if (!ui.lastOfGroup[g.id]) ui.lastOfGroup[g.id] = g.tools[0].id; });
+  }
+
+  /* ================================================================ html == */
+
+  function railHtml() {
+    const groups = GROUPS.map((g) => {
+      const toolId = ui.lastOfGroup[g.id] || g.tools[0].id;
+      const tool = TOOL_BY_ID[toolId] || g.tools[0];
+      const many = g.tools.length > 1;
+      return `<div class="tvr-group" data-group="${g.id}">
+        <button type="button" class="tvr-btn" data-tool="${tool.id}"
+                title="${esc(nameOf("tool", tool))}${tool.key ? " (" + tool.key.toUpperCase() + ")" : ""}"
+                aria-label="${esc(nameOf("tool", tool))}">${svg(I[tool.icon])}<span class="tvr-name">${esc(nameOf("grp", g))}</span></button>
+        ${many ? `<button type="button" class="tvr-more" data-flyout="${g.id}"
+                aria-label="${esc(nameOf("grp", g))}" aria-haspopup="true" aria-expanded="false"></button>` : ""}
+      </div>`;
+    }).join("");
+
+    return `<nav class="tv-rail" id="tv-rail" aria-label="${esc(tt("chart.tools", "Drawing tools"))}">
+      <!-- A real element, not a ::before. The sheet is dismissed by
+           dragging it, and a pseudo-element cannot take a pointer. -->
+      <div class="tvr-grab" id="tv-rail-grab" role="presentation"></div>
+      ${groups}
+      <div class="tvr-sep"></div>
+      <button type="button" class="tvr-btn" id="tv-magnet" title="${esc(tt("chart.magnet", "Magnet"))}"
+              aria-pressed="false">${svg(I.magnet)}<span class="tvr-name">${esc(tt("chart.magnet", "Magnet"))}</span></button>
+      <button type="button" class="tvr-btn" id="tv-toollock" title="${esc(tt("chart.tool_lock", "Keep the tool armed"))}"
+              aria-pressed="true">${svg(I.pin)}<span class="tvr-name">${esc(tt("chart.tool_lock", "Keep the tool armed"))}</span></button>
+      <button type="button" class="tvr-btn" id="tv-lockall" title="${esc(tt("chart.lock_all", "Lock all drawings"))}"
+              aria-pressed="false">${svg(I.lock)}<span class="tvr-name">${esc(tt("chart.lock_all", "Lock all drawings"))}</span></button>
+      <button type="button" class="tvr-btn" id="tv-hideall" title="${esc(tt("chart.hide_all", "Hide all drawings"))}"
+              aria-pressed="false">${svg(I.eye)}<span class="tvr-name">${esc(tt("chart.hide_all", "Hide all drawings"))}</span></button>
+      <button type="button" class="tvr-btn danger" id="tv-clear" title="${esc(tt("chart.delete_all", "Remove all drawings"))}">${svg(I.trash)}<span class="tvr-name">${esc(tt("chart.delete_all", "Remove all drawings"))}</span></button>
+    </nav>
+    <div class="tv-flyout" id="tv-flyout" hidden></div>
+    <div class="tv-toolscrim" id="tv-toolscrim" aria-hidden="true"></div>
+    <button type="button" class="tv-toolsfab" id="tv-toolsfab"
+            aria-label="${esc(tt("chart.tools", "Drawing tools"))}" aria-expanded="false">
+      ${svg(I.pencil)}
+    </button>`;
+  }
+
+  function topHtml(o) {
+    const tfs = QUICK_TF.map((id) => `<button type="button" class="tvt-seg${id === o.timeframe ? " on" : ""}"
+        data-tf="${id}">${esc((TIMEFRAMES.find((t) => t.id === id) || {}).short || id)}</button>`).join("");
+    return `<header class="tv-top">
+      <button type="button" class="tv-icon" id="tv-back" title="${esc(tt("common.back", "Back"))}"
+              aria-label="${esc(tt("common.back", "Back"))}">${svg(I.chevron, "flip")}</button>
+      <button type="button" class="tv-sym" data-menu="symbol" aria-haspopup="true"
+              title="${esc(tt("chart.switch_symbol", "Switch instrument"))}">
+        <!-- The instrument, and nothing else.
+
+             It used to carry the timeframe too, which put a second
+             copy of it in the header: the segmented strip and the
+             "More" menu immediately to the right are both the
+             timeframe, and they are the ones you can actually press.
+             A third, unpressable copy inside the instrument button
+             only made the label long enough to look crowded. -->
+        <b>${esc(o.symbol)}</b>
+        ${svg(I.chevron, "tv-sym-caret")}
+      </button>
+      <div class="tv-seg" role="group" aria-label="${esc(tt("markets.timeframe", "Timeframe"))}">${tfs}</div>
+      <button type="button" class="tv-btn" data-menu="tf" aria-haspopup="true">${svg(I.clock)}<span class="tvb-label" id="tv-tf-more">${esc(tt("chart.more_tf", "More"))}</span></button>
+      <span class="tv-div"></span>
+      <button type="button" class="tv-btn" data-menu="type" aria-haspopup="true">${svg(I.chart)}<span class="tvb-label" id="tv-type-label">Candles</span></button>
+      <button type="button" class="tv-btn" data-menu="indicators" aria-haspopup="true">${svg(I.indicators)}<span class="tvb-label">${esc(tt("chart.indicators", "Indicators"))}</span></button>
+      <button type="button" class="tv-btn" data-menu="settings" aria-haspopup="true">${svg(I.settings)}<span class="tvb-label">${esc(tt("chart.settings", "Settings"))}</span></button>
+      <span class="tv-spacer"></span>
+      <button type="button" class="tv-icon" id="tv-undo" title="${esc(tt("draw.undo", "Undo"))} (Ctrl+Z)" disabled>${svg(I.undo)}</button>
+      <button type="button" class="tv-icon" id="tv-redo" title="${esc(tt("chart.redo", "Redo"))} (Ctrl+Shift+Z)" disabled>${svg(I.redo)}</button>
+      <span class="tv-div"></span>
+      <!-- Room at the live edge, as one switch rather than a slider.
+
+           It was a labelled range from 0 to 60 bars sitting on the
+           chart itself, which asked the trader to pick a number in a
+           unit that changes meaning every time they zoom. There is one
+           sensible amount and this turns it on: 15% of the window,
+           held against the newest candle. -->
+      <button type="button" class="tv-icon" id="tv-headgap"
+              title="${esc(tt("chart.head_gap", "Room at the live edge"))}"
+              aria-label="${esc(tt("chart.head_gap", "Room at the live edge"))}"
+              aria-pressed="false">${svg(I.headgap)}</button>
+      <button type="button" class="tv-icon" id="tv-pos-toggle" title="${esc(tt("chart.positions_dock", "Open positions"))}"
+              aria-pressed="false" aria-controls="tv-posdock">${svg(I.posdock)}<span class="tv-icon-n" id="tv-pos-toggle-n" hidden></span></button>
+      <button type="button" class="tv-icon" id="tv-dock-toggle" title="${esc(tt("chart.panel", "Side panel"))}" aria-pressed="true">${svg(I.panel)}</button>
+    </header>`;
+    /* No fullscreen toggle here any more.
+       The chart is opened fullscreen from the grid and the back button
+       beside the instrument is the way out, so a second control that
+       only ever un-did the state the page had just been opened in was
+       one button too many -- and the easiest one to hit by accident on
+       a phone, where it sat directly under the thumb. */
+  }
+
+  function dockHtml(o) {
+    /* Positions get a tab of their own because the floating panel on the
+       chart cannot be relied on at phone widths: it is anchored to the
+       same bottom-start corner as the drawing-tools button, which is
+       drawn over it. The tab carries a count so a trader can see there
+       is something open without opening the panel to find out. */
+    /* The panel is a drawing workspace, and it opens on Objects.
+
+       It used to carry a Positions tab as well, added back when the
+       open book was hard to see on a phone. The book has its own dock
+       across the bottom of the chart now, which resizes the chart
+       instead of covering it, so the tab was a second copy of the same
+       list - and a worse one, because at phone width the panel is an
+       overlay 300px wide across a 390px screen, so reading positions
+       in it meant hiding the chart they belong to.
+
+       Keeping it also made the panel behave as though it were broken:
+       bind() ends with showDock(ui.dockTab || "objects"), so the tab
+       the markup had selected was switched to Objects a moment after
+       the panel appeared. Tapping Positions and being shown the
+       drawing tools is exactly what that looks like from outside. */
+    const first = "objects";
+
+    /* Rebuilt.
+
+       It was four tab labels and a close button on one 28px-high line
+       inside a 290px column - 250px below 1200px. "Positions" with its
+       count, "Objects", "Properties" and "Trade" do not fit in that,
+       so the row overflowed: the labels were shaved and the close
+       button was pushed past the edge, which is how a panel ends up
+       with no visible way to shut it. The tabs are a scroller now and
+       the close has its own place in a titled header, so neither can
+       crowd the other out at any width.
+
+       It also only looked like a tab strip. role="tablist" and
+       role="tab" were there, but nothing said which tab was current
+       and nothing tied a tab to the panel it governed, so the whole
+       control announced as four unlabelled buttons; the panes were
+       plain divs. The selected state was a 2px bottom border sitting
+       directly on the strip's own 1px divider, so on a dim screen the
+       current tab was a slightly thicker line.
+
+       And they were 28px tall with a 26px close - this is the panel
+       you use while holding a phone. Everything here is at least 44px
+       where the pointer is coarse. */
+    const tabs = [
+      ["objects", tt("chart.objects", "Objects"), "tvd-objects"],
+      ["props", tt("chart.properties", "Properties"), "tvd-props"],
+    ];
+    /* The Trade tab is the manual order ticket - volume, stop, target,
+       buy and sell - so it is here whenever the desk was given one. */
+    if (o.ticket) tabs.push(["trade", tt("chart.trade", "Trade"), "tvd-trade"]);
+
+    const tab = ([id, label, pane]) => {
+      const cur = id === first;
+      return `<button type="button" role="tab" id="tvd-tab-${id}" data-dock="${id}"
+        aria-controls="${pane}" aria-selected="${cur}" tabindex="${cur ? 0 : -1}"
+        class="tvd-tab${cur ? " on" : ""}"><span class="tvd-tab-t">${esc(label)}</span></button>`;
+    };
+    /* A tabpanel that scrolls has to be focusable, or a keyboard user
+       can reach the tabs and then not the content under them. */
+    const pane = (name, id, cls, body) => `<div class="tvd-body${cls ? " " + cls : ""}" id="${id}"
+      role="tabpanel" aria-labelledby="tvd-tab-${name}" tabindex="0"
+      data-pane="${name}"${first === name ? "" : " hidden"}>${body || ""}</div>`;
+
+    /* The region is named by its own visible heading rather than by a
+       duplicate aria-label, and the tab strip gets a name of its own -
+       otherwise a screen reader reads "Side panel" three times over on
+       the way in, for the region, its heading and its tablist. */
+    return `<aside class="tv-dock" id="tv-dock" aria-labelledby="tvd-title">
+      <div class="tvd-head">
+        <h2 class="tvd-title" id="tvd-title">${esc(tt("chart.panel", "Side panel"))}</h2>
+        <button type="button" class="tvd-close" id="tv-dock-close" aria-label="${esc(tt("common.close", "Close"))}">${svg(I.close)}</button>
+      </div>
+      <div class="tvd-tabs" role="tablist" aria-label="${esc(tt("chart.panel_tabs", "Panel sections"))}">
+        ${tabs.map(tab).join("")}
+      </div>
+      ${pane("objects", "tvd-objects")}
+      ${pane("props", "tvd-props")}
+      <!-- The order ticket, and nothing else. It used to be preceded
+           by <div class="chart-levels">, a position:absolute box of
+           position chips 280px wide parked over the bottom-right
+           corner of the chart - the last survivor of the chips the
+           on-chart positions panel replaced. The panel answers the
+           same question in the same place without covering price, so
+           the chips were a second, worse answer that floated over the
+           candles and only existed when the desk had been opened on a
+           ticket. -->
+      ${o.ticket ? pane("trade", "tvd-trade", "", `${o.ticket}`) : ""}
+    </aside>`;
+  }
+
+  function html(o) {
+    o = o || {};
+    loadLastTools();
+    // The dock is a column beside the chart on a desktop and an overlay
+    // on top of it on a phone, so "open" does not mean the same thing in
+    // both places. Defaulting it open put an 82vw panel over the chart
+    // the moment the page was opened on mobile - the chart was behind
+    // its own sidebar before the trader had done anything. Remember the
+    // trader's own choice either way; only the default differs.
+    /* Where the dock is a column it may remember being open. Where it is an
+       overlay it may not.
+
+       The stored preference is one value shared by every width, so a trader
+       who opened the dock at a desk arrived on a phone to find a 300px
+       panel - most of a phone screen - sitting on top of the chart from the
+       first frame. That reads as "half the chart is missing", and the cure
+       was to tap the dock button, which is a poor thing to have to discover.
+       On a narrow screen the chart opens as a chart; the dock is one tap
+       away and its stored state is honoured again the moment there is room
+       for it to be a column. */
+    ui.dockOpen = narrow() ? false : read(LS_DOCK, "1") === "1";
+    return `<div class="tv${ui.dockOpen ? "" : " no-dock"}" id="tv">
+      ${topHtml(o)}
+      <div class="tv-body">
+        ${railHtml()}
+        <div class="tv-scrim" id="tv-scrim" aria-hidden="true"></div>
+        <div class="tv-stage">
+          <div class="chart-box" id="tv-chartbox">
+            <canvas id="cv-desk"></canvas>
+            <div class="tv-hint" id="tv-hint" hidden></div>
+            <div class="tv-style" id="tv-style" hidden></div>
+            <div class="tv-nav">
+              <button type="button" class="tv-round" id="tv-zin" title="${esc(tt("draw.zoom_in", "Zoom in"))} (+)">${svg(I.zoomIn)}</button>
+              <button type="button" class="tv-round" id="tv-zout" title="${esc(tt("draw.zoom_out", "Zoom out"))} (−)">${svg(I.zoomOut)}</button>
+              <button type="button" class="tv-round" id="tv-auto" title="${esc(tt("chart.auto_scale", "Auto scale"))}">${svg(I.auto)}</button>
+              <button type="button" class="tv-round" id="tv-fit" title="${esc(tt("draw.fit", "Reset view"))} (Home)">${svg(I.fit)}</button>
+              <!-- Back to the live edge. Scrolling into history is one
+                   gesture; getting back was a long drag with no landmark
+                   to stop at, which on a phone is most of a screen. It
+                   only exists while there is somewhere to go back to. -->
+              <button type="button" class="tv-round tv-latest" id="tv-latest" hidden
+                title="${esc(tt("chart.to_latest", "Go to the latest candle"))}">${svg(I.toEnd)}</button>
+            </div>
+          </div>
+        </div>
+        <!-- Open positions, under the chart and only under the chart.
+
+             A grid row rather than something floating over the chart:
+             opening it takes height from the chart, the canvas is
+             resized and the candles are redrawn, so nothing a trader
+             is watching ends up behind their own position list.
+
+             It is a row of .tv-body, not of .tv, and that is what
+             keeps it out of the side panel's way. As a row of .tv it
+             spanned the whole desk, so the panel beside the chart was
+             cut short by the dock's height and the bottom quarter of
+             it sat behind a list it has nothing to do with. Here it
+             occupies the chart's column only, the panel spans both
+             rows, and the two no longer share any space.
+
+             It also means .tv-body keeps its height when the dock
+             opens, which is what makes the mobile tools sheet - which
+             hangs off the bottom of .tv-body - independent of this by
+             construction rather than by cancelling a movement out. -->
+      <section class="tv-posdock" id="tv-posdock" aria-label="${esc(tt("chart.positions", "Positions"))}">
+        <header class="tv-posdock-head">
+          <h3>${esc(tt("chart.positions", "Positions"))}</h3>
+          <span class="tv-posdock-n" id="tv-posdock-n"></span>
+          <span class="tv-spacer"></span>
+          <span class="tv-posdock-sum mono" id="tv-posdock-sum"></span>
+          <!-- Flatten the book from the panel that shows it.
+
+               Disabled until there is something to close, so the
+               control states the position of the account rather than
+               offering an action that would do nothing. It is wired
+               in app.js, with the same confirmation and the same
+               endpoint as the header's emergency button. -->
+          <button type="button" class="tv-btn tv-flatten" id="tv-posdock-flat" disabled
+                  title="${esc(tt("exec.close_all", "Close all"))}">${esc(tt("exec.close_all", "Close all"))}</button>
+          <button type="button" class="tv-icon" id="tv-posdock-close"
+                  title="${esc(tt("chart.close", "Close"))}"
+                  aria-label="${esc(tt("chart.close", "Close"))}">${svg(I.close)}</button>
+        </header>
+        <div class="tv-posdock-body" id="tv-posdock-body"></div>
+      </section>
+        ${dockHtml(o)}
+      </div>
+      <footer class="tv-status">
+        <span id="tv-status-tool">${esc(tt("chart.mode_navigate", "Navigate"))}</span>
+        <span class="tv-div"></span>
+        <span id="tv-status-hint" class="sub">${esc(tt("chart.hint_nav", "Scroll to zoom · drag to pan · ctrl + right-drag stretches the candles"))}</span>
+        <span class="tv-spacer"></span>
+        <span class="mono" id="tick-lbl"></span>
+      </footer>
+    </div>`;
+  }
+
+  global.AurionChartUI = {
+    GROUPS, TOOL_BY_ID, CHART_TYPES, TIMEFRAMES, INDICATOR_GROUPS, INDICATOR_TEXT, ICONS: I,
+    html, svg, esc, tt, nameOf, indicatorText, state: ui,
+  };
+})(typeof window !== "undefined" ? window : this);
+
+
+/* ===========================================================================
+   The controller
+   ===========================================================================
+   Everything above is description; this is behaviour. It binds one mounted
+   workspace to one chart engine and owns: the rail and its flyouts, the four
+   top menus, the dock with the object manager and the properties panel, the
+   navigation buttons, the keyboard map and fullscreen.
+
+   It holds no copy of the chart's state. Every panel is rendered from the
+   engine on demand and re-rendered when the engine says something changed,
+   so the two can never drift apart - which is the failure mode of every
+   hand-synchronised toolbar.
+   =========================================================================== */
+(function (global) {
+  "use strict";
+
+  const UI = global.AurionChartUI;
+  if (!UI) return;
+
+  const { GROUPS, TOOL_BY_ID, CHART_TYPES, TIMEFRAMES, INDICATOR_GROUPS, INDICATOR_TEXT, ICONS: I } = UI;
+  const svg = UI.svg, esc = UI.esc, tt = UI.tt, ui = UI.state;
+  const nameOf = UI.nameOf, indicatorText = UI.indicatorText;
+
+  const LS_POS = "aurion.chart.posdock";
+  /* The dock's height is not declared here at all.
+
+     It used to be dragged taller or shorter by a grip along its top
+     edge, clamped between 96 and 420 and remembered in local storage.
+     It is a section of the desk now rather than a drawer: it opens at
+     one size, the chart's row gives up exactly that much, and there
+     is nothing to adjust, misplace or restore. That one size is
+     --tv-posdock in chart.css, which is also what the grid row and
+     the tools sheet's offset are written in terms of - so there is a
+     single number rather than a constant here that has to be kept in
+     step with a stylesheet. */
+
+  /** Is this a phone-sized screen?
+
+      The describer above has its own narrow(), at the 980px the side
+      panel floats at; this file is two IIFEs and that one is not in
+      scope here. The positions dock folds into cards at 760, so that
+      is the width that decides whether it opens by default. */
+  function posNarrow() {
+    try { return window.matchMedia("(max-width: 760px)").matches; }
+    catch (e) { return false; }
+  }
+  const LS_DOCK = "aurion.chart.dock";
+  const LS_GROUP = "aurion.chart.lasttool";
+  const LS_TOOLLOCK = "aurion.chart.toollock";
+
+  function $(id) { return document.getElementById(id); }
+  function write(k, v) { try { localStorage.setItem(k, v); } catch (e) { /* */ } }
+  function read(k, fb) { try { const v = localStorage.getItem(k); return v === null ? fb : v; } catch (e) { return fb; } }
+
+  /**
+   * Does a drawing tool stay armed after a shape is finished?
+   *
+   * It used to snap back to the cursor every time, which is what most
+   * charting packages do and what the code called correct. It is correct
+   * for someone drawing one line. It is miserable for someone drawing
+   * twenty: a trader marking up a session re-clicks the tool between every
+   * single line. Staying armed is now the default, the switch is on the
+   * rail beside the magnet, and Escape disarms it - so the one-line case
+   * costs a keystroke instead of the twenty-line case costing twenty
+   * clicks.
+   */
+  function toolLocked() { return read(LS_TOOLLOCK, "1") === "1"; }
+
+  function setToolLock(on) {
+    write(LS_TOOLLOCK, on ? "1" : "0");
+    markRailState();
+  }
+
+  /* ============================================================== menus == */
+
+  function closeMenu() {
+    const m = $("tv-menu");
+    if (m) m.remove();
+    document.querySelectorAll('.tv-btn[aria-haspopup]').forEach((b) => b.setAttribute("aria-expanded", "false"));
+    ui.menu = null;
+  }
+
+  function openMenu(anchor, name, body, cls) {
+    closeMenu();
+    const el = document.createElement("div");
+    el.className = "tv-menu " + (cls || "");
+    el.id = "tv-menu";
+    el.setAttribute("role", "dialog");
+    el.innerHTML = body;
+    // Inside an element-level fullscreen only that element's subtree is
+    // painted, so a menu parented to <body> would not be on screen at all.
+    const fs = document.fullscreenElement;
+    ((fs && fs !== document.documentElement && fs !== document.body) ? fs : document.body).appendChild(el);
+    const r = anchor.getBoundingClientRect();
+    const w = el.offsetWidth;
+    let left = r.left;
+    if (left + w > window.innerWidth - 8) left = Math.max(8, window.innerWidth - w - 8);
+    el.style.left = left + "px";
+    el.style.top = (r.bottom + 6) + "px";
+    // A menu taller than the room under its button is pinned to the viewport
+    // instead of running off the bottom of a laptop screen.
+    const h = el.offsetHeight;
+    if (r.bottom + 6 + h > window.innerHeight - 8) {
+      el.style.top = Math.max(8, window.innerHeight - h - 8) + "px";
+    }
+    anchor.setAttribute("aria-expanded", "true");
+    ui.menu = name;
+    requestAnimationFrame(() => el.classList.add("in"));
+    return el;
+  }
+
+  function menuTimeframes() {
+    const by = { minutes: [], hours: [], days: [] };
+    TIMEFRAMES.forEach((t) => by[t.group].push(t));
+    const section = (key, label) => `<div class="tvm-sec">${esc(label)}</div>` +
+      by[key].map((t) => `<button type="button" class="tvm-row${t.id === ui.ctx.timeframe ? " on" : ""}" data-pick-tf="${t.id}">
+        <span class="tvm-key">${esc(t.short)}</span><span>${esc(nameOf("tf", t))}</span>
+        ${t.id === ui.ctx.timeframe ? svg(I.tick, "tvm-tick") : ""}</button>`).join("");
+    return section("minutes", tt("chart.tf_minutes", "Minutes")) +
+      section("hours", tt("chart.tf_hours", "Hours")) +
+      section("days", tt("chart.tf_days", "Days and longer")) +
+      `<p class="tvm-note">${esc(tt("chart.tf_note", "These are the intervals MetaTrader serves for this symbol."))}</p>`;
+  }
+
+  /**
+   * Pick the charted instrument, with a search box.
+   *
+   * The symbol used to be a label: the only way to chart something else
+   * was to go back to the list and click a different card. With several
+   * EAs attached that is a lot of clicking, and with many it is a lot of
+   * scrolling, which is why this filters.
+   *
+   * The list is the attached charts, because those are the only symbols
+   * the terminal is actually sending bars for -- offering anything else
+   * would be offering a chart that cannot be drawn.
+   */
+  function menuSymbols(query) {
+    const all = (ui.ctx && ui.ctx.symbols) || [];
+    const q = String(query || "").trim().toUpperCase();
+    const hits = q
+      ? all.filter((s) => String(s.symbol || "").toUpperCase().includes(q) ||
+                          String(s.label || "").toUpperCase().includes(q))
+      : all;
+    const cur = ui.ctx && ui.ctx.symbol;
+    const rows = hits.map((s) => `<button type="button" class="tvm-row${s.symbol === cur ? " on" : ""}"
+        data-pick-sym="${esc(s.symbol)}">
+        <span class="tvm-key">${esc(s.symbol)}</span>
+        <span>${esc(s.timeframe || "")}</span>
+        ${s.symbol === cur ? svg(I.tick, "tvm-tick") : ""}</button>`).join("");
+    return `<div class="tvm-search dsk-search sm">${svg(I.search)}
+        <input class="dsk-search-i" type="search" id="tv-sym-q" value="${esc(query || "")}" autocomplete="off"
+               placeholder="${esc(tt("chart.search_sym", "Search instrument"))}" />
+      </div>
+      ${rows || `<p class="tvm-note">${esc(tt("chart.no_sym", "No attached chart matches that."))}</p>`}`;
+  }
+
+  function menuTypes() {
+    return CHART_TYPES.map((t) => `<button type="button" class="tvm-row${t.id === ui.chart.type ? " on" : ""}" data-pick-type="${t.id}">
+      ${svg(I[t.icon], "tvm-ico")}<span>${esc(nameOf("type", t))}</span>
+      ${t.id === ui.chart.type ? svg(I.tick, "tvm-tick") : ""}</button>`).join("");
+  }
+
+  function menuIndicators(query) {
+    const lib = global.AurionSeries;
+    if (!lib) return "";
+    const q = String(query || "").trim().toLowerCase();
+    const active = ui.chart.indicators.map((ind) => {
+      const def = lib.INDICATOR_BY_ID[ind.type] || {};
+      const text = indicatorText(ind.type);
+      const params = Object.keys(ind.params || {}).map((k) =>
+        `<label class="tvi-param"><span>${esc(k)}</span>
+          <input type="number" data-ind-param="${ind.id}" data-key="${esc(k)}" value="${esc(ind.params[k])}" min="1" step="1" /></label>`).join("");
+      return `<div class="tvi-active" data-ind="${ind.id}">
+        <div class="tvi-head">
+          <b>${esc(text[0])}</b>
+          <button type="button" class="tv-icon tiny" data-ind-vis="${ind.id}" aria-pressed="${ind.visible !== false}"
+            title="${esc(tt("chart.visibility", "Show / hide"))}">${svg(ind.visible === false ? I.eyeOff : I.eye)}</button>
+          <button type="button" class="tv-icon tiny danger" data-ind-del="${ind.id}"
+            title="${esc(tt("common.delete", "Remove"))}">${svg(I.trash)}</button>
+        </div>
+        ${params ? `<div class="tvi-params">${params}</div>` : ""}
+      </div>`;
+    }).join("");
+
+    const groups = INDICATOR_GROUPS.map((g) => {
+      const rows = lib.INDICATORS.filter((d) => d.group === g.id).filter((d) => {
+        if (!q) return true;
+        /* Search the English AND the translated name. A trader who knows
+           the indicator as "RSI" must still find it on a Persian desk, and
+           one reading the Persian list must be able to type what they see. */
+        const en = INDICATOR_TEXT[d.id] || [d.id, ""];
+        const text = indicatorText(d.id);
+        return (d.id + " " + en[0] + " " + en[1] + " " + text[0] + " " + text[1])
+          .toLowerCase().indexOf(q) >= 0;
+      }).map((d) => {
+        const text = indicatorText(d.id);
+        return `<button type="button" class="tvm-row wide" data-add-ind="${d.id}">
+          <span class="tvm-ico mono">${esc(d.short)}</span>
+          <span class="tvm-text"><b>${esc(text[0])}</b><small>${esc(text[1])}</small></span>
+          ${svg(I.plus, "tvm-tick")}</button>`;
+      }).join("");
+      return rows ? `<div class="tvm-sec">${esc(nameOf("indgrp", g))}</div>${rows}` : "";
+    }).join("");
+
+    return `<div class="tvm-search dsk-search sm">${svg(I.search)}
+        <input class="dsk-search-i" type="search" id="tv-ind-q" value="${esc(query || "")}" placeholder="${esc(tt("chart.search_ind", "Search indicators"))}" />
+      </div>
+      ${active ? `<div class="tvm-sec">${esc(tt("chart.on_chart", "On this chart"))}</div>${active}` : ""}
+      ${groups || `<p class="tvm-note">${esc(tt("chart.no_ind", "Nothing matches that."))}</p>`}`;
+  }
+
+  function toggleRow(id, label, on, hint) {
+    return `<button type="button" class="tvm-row" data-toggle="${id}" aria-pressed="${on}">
+      <span class="tvm-text"><b>${esc(label)}</b>${hint ? `<small>${esc(hint)}</small>` : ""}</span>
+      <span class="tv-switch${on ? " on" : ""}"><i></i></span></button>`;
+  }
+
+  function menuSettings() {
+    const c = ui.chart;
+    return `<div class="tvm-sec">${esc(tt("chart.appearance", "Appearance"))}</div>
+      ${toggleRow("grid", tt("chart.grid", "Grid"), c.grid)}
+      <div class="tvm-sec">${esc(tt("chart.crosshair", "Crosshair"))}</div>
+      <div class="tvm-choice">
+        ${["cross", "dot", "none"].map((m) => `<button type="button" data-cross="${m}" class="${c.crosshair === m ? "on" : ""}">${esc(tt("chart.cross_" + m, m))}</button>`).join("")}
+      </div>
+      <div class="tvm-sec">${esc(tt("chart.scales", "Price scale"))}</div>
+      ${toggleRow("auto", tt("chart.auto_scale", "Auto scale"), c.scale.auto)}
+      ${toggleRow("log", tt("chart.log_scale", "Logarithmic"), c.scale.log)}
+      ${toggleRow("percent", tt("chart.percent_scale", "Percent"), c.scale.percent, tt("chart.percent_hint", "Axis labels relative to the first visible bar"))}
+      ${toggleRow("invert", tt("chart.invert_scale", "Invert"), c.scale.invert)}
+      <div class="tvm-sec">${esc(tt("chart.drawing", "Drawing"))}</div>
+      <div class="tvm-choice">
+        ${["off", "weak", "strong"].map((m) => `<button type="button" data-magnet="${m}" class="${c.magnet === m ? "on" : ""}">${esc(tt("chart.magnet_" + m, m))}</button>`).join("")}
+      </div>
+      ${toggleRow("snaptime", tt("chart.snap_time", "Snap to bar"), c.snapTime, tt("chart.snap_hint", "Anchors land on a bar, never between two"))}
+      <div class="tvm-sec">${esc(tt("chart.trading", "Trading"))}</div>
+      ${toggleRow("signals", tt("chart.signals", "Strategy signals"), c.showSignals)}`;
+  }
+
+  /* =============================================================== rail == */
+
+  function markTool() {
+    const c = ui.chart;
+    const active = c.tool === "cursor" && c.crosshair === "dot" ? "dotcursor" : c.tool;
+    document.querySelectorAll("#tv-rail [data-tool]").forEach((b) => {
+      b.classList.toggle("on", b.dataset.tool === active);
+    });
+    markRailState();
+    const tool = TOOL_BY_ID[active];
+    const st = $("tv-status-tool");
+    if (st) st.textContent = tool ? nameOf("tool", tool) : tt("chart.mode_navigate", "Navigate");
+    const hint = $("tv-status-hint");
+    if (hint) {
+      const need = global.SHAPE_POINTS ? global.SHAPE_POINTS[c.tool] : null;
+      hint.textContent = c.tool === "cursor"
+        ? tt("chart.hint_nav", "Scroll to zoom · drag to pan · ctrl + right-drag stretches the candles")
+        : need === -1
+          ? tt("chart.hint_free", "Press and drag to draw · Esc to cancel")
+          : tt("chart.hint_points", "Click {n} points · Esc to cancel").replace("{n}", need || 2);
+      if (c.tool !== "cursor" && toolLocked()) {
+        hint.textContent += "  ·  " + tt("chart.hint_armed",
+          "The tool stays armed · Esc to stop · click a drawing to move it, alt-drag to draw over it");
+      }
+    }
+  }
+
+  /**
+   * The three rail switches that had no state on screen.
+   *
+   * Magnet, lock-all and hide-all all did their job and none of them looked
+   * any different afterwards - the two bulk buttons were never marked at
+   * all, and the magnet could not show which of its three strengths was on.
+   * They are now painted from the engine every time anything changes, which
+   * also means they are correct the moment the workspace mounts rather than
+   * only after the first click.
+   */
+  function markRailState() {
+    const c = ui.chart;
+    if (!c) return;
+    const any = c.drawings.length > 0;
+    const allLocked = any && c.drawings.every((d) => d.locked);
+    const anyHidden = any && c.drawings.some((d) => d.visible === false);
+
+    const mag = $("tv-magnet");
+    if (mag) {
+      const on = c.magnet !== "off";
+      mag.classList.toggle("on", on);
+      mag.dataset.level = c.magnet;
+      mag.setAttribute("aria-pressed", on ? "true" : "false");
+      mag.title = tt("chart.magnet_" + c.magnet, "Magnet: " + c.magnet);
+    }
+
+    const tlock = $("tv-toollock");
+    if (tlock) {
+      const on = toolLocked();
+      tlock.classList.toggle("on", on);
+      tlock.setAttribute("aria-pressed", on ? "true" : "false");
+      tlock.title = on
+        ? tt("chart.tool_lock_on", "Tools stay armed until you switch them off")
+        : tt("chart.tool_lock_off", "Tools return to the cursor after one shape");
+    }
+
+    const lock = $("tv-lockall");
+    if (lock) {
+      lock.classList.toggle("on", allLocked);
+      lock.setAttribute("aria-pressed", allLocked ? "true" : "false");
+      lock.disabled = !any;
+      lock.innerHTML = svg(allLocked ? I.lock : I.unlock);
+      lock.title = allLocked
+        ? tt("chart.unlock_all", "Unlock all") : tt("chart.lock_all", "Lock all drawings");
+    }
+
+    const hide = $("tv-hideall");
+    if (hide) {
+      hide.classList.toggle("on", anyHidden);
+      hide.setAttribute("aria-pressed", anyHidden ? "true" : "false");
+      hide.disabled = !any;
+      hide.innerHTML = svg(anyHidden ? I.eyeOff : I.eye);
+      hide.title = anyHidden
+        ? tt("chart.show_all", "Show all") : tt("chart.hide_all", "Hide all drawings");
+    }
+
+    const clear = $("tv-clear");
+    if (clear) clear.disabled = !any;
+  }
+
+  function pickTool(id) {
+    const c = ui.chart;
+    const tool = TOOL_BY_ID[id];
+    if (!tool) return;
+    if (tool.mode) {
+      const [what, value] = tool.mode.split(":");
+      if (what === "crosshair") c.setCrosshair(value);
+      c.setTool("cursor");
+    } else {
+      if (id !== "cursor" && id !== "eraser" && c.crosshair === "dot") c.setCrosshair("cross");
+      c.setTool(id);
+    }
+    ui.lastOfGroup[tool.group] = id;
+    write(LS_GROUP, JSON.stringify(ui.lastOfGroup));
+    const groupBtn = document.querySelector('.tvr-group[data-group="' + tool.group + '"] .tvr-btn');
+    if (groupBtn) {
+      groupBtn.dataset.tool = id;
+      // Keep the group's name on the button. It is invisible on a desktop
+      // and it is what makes the mobile tool sheet readable, so rewriting
+      // innerHTML with the icon alone silently emptied the sheet's labels
+      // as soon as the trader picked anything.
+      const group = GROUPS.find((g) => g.id === tool.group);
+      groupBtn.innerHTML = svg(I[tool.icon]) +
+        '<span class="tvr-name">' + esc(group ? nameOf("grp", group) : nameOf("tool", tool)) + "</span>";
+      groupBtn.title = nameOf("tool", tool) + (tool.key ? " (" + tool.key.toUpperCase() + ")" : "");
+      groupBtn.setAttribute("aria-label", nameOf("tool", tool));
+    }
+    closeFlyout();
+    // Choosing a tool is the end of the errand the sheet was opened for.
+    toggleTools(false);
+    markTool();
+  }
+
+  function closeFlyout() {
+    const fly = $("tv-flyout");
+    if (!fly) return;
+    fly.hidden = true;
+    fly.classList.remove("in");
+    document.querySelectorAll(".tvr-more").forEach((b) => b.setAttribute("aria-expanded", "false"));
+  }
+
+  function openFlyout(groupId, anchor) {
+    const fly = $("tv-flyout");
+    const group = GROUPS.find((g) => g.id === groupId);
+    if (!fly || !group) return;
+    fly.innerHTML = `<div class="tvf-head">${esc(nameOf("grp", group))}</div>` +
+      group.tools.map((t) => `<button type="button" class="tvf-row${ui.chart.tool === t.id ? " on" : ""}" data-tool="${t.id}">
+        ${svg(I[t.icon])}<span>${esc(nameOf("tool", t))}</span>${t.key ? `<kbd>${esc(t.key.toUpperCase())}</kbd>` : ""}</button>`).join("");
+    fly.hidden = false;
+    const r = anchor.getBoundingClientRect();
+    const box = document.querySelector(".tv-body").getBoundingClientRect();
+
+    /* Place it against the button that opened it, on both axes.
+
+       Only `top` used to be set; the inline edge came from the
+       stylesheet as "just past the rail". On a desktop that is right -
+       the rail is a column down one side, so every flyout belongs in
+       the same place. On a phone the rail is a sheet across the bottom
+       and the rail width is 0, so every tool's menu opened hard against
+       the left edge of the screen, nowhere near the tool. */
+    const narrow = window.matchMedia("(max-width: 760px)").matches;
+    if (narrow) {
+      /* Above the button, because below it is the sheet the button
+         lives in and, under that, the thumb. Clamped so a group at
+         either end of the row does not push the menu off the screen. */
+      const w = fly.offsetWidth || 180;
+      /* Measured from the inline start edge, not from the left, so this
+         is the same code in Persian and Arabic. The stylesheet already
+         positions the flyout with inset-inline-start; writing `left`
+         here would fight it in RTL and the menu would land on the
+         opposite side of the screen from its button. */
+      const rtl = document.documentElement.dir === "rtl";
+      const mid = rtl ? (box.right - r.right + r.width / 2) : (r.left - box.left + r.width / 2);
+      const start = Math.max(6, Math.min(mid - w / 2, box.width - w - 6));
+      const above = r.top - box.top - fly.offsetHeight - 8;
+      fly.style.insetInlineStart = start + "px";
+      fly.style.top = Math.max(6, above) + "px";
+    } else {
+      fly.style.insetInlineStart = "";
+      fly.style.top = Math.max(4, Math.min(r.top - box.top, box.height - fly.offsetHeight - 8)) + "px";
+    }
+    anchor.setAttribute("aria-expanded", "true");
+    requestAnimationFrame(() => fly.classList.add("in"));
+  }
+
+  /* =============================================================== dock == */
+
+  function objectName(d) {
+    if (d.name) return d.name;
+    const tool = TOOL_BY_ID[d.kind];
+    return tool ? nameOf("tool", tool) : d.kind;
+  }
+
+  function renderObjects() {
+    const host = $("tvd-objects");
+    if (!host) return;
+    const c = ui.chart;
+    const items = c.drawings.slice().reverse();
+    const anyHidden = c.drawings.some((d) => d.visible === false);
+    const anyLocked = c.drawings.some((d) => d.locked);
+    host.innerHTML = `
+      <div class="tvd-bulk">
+        <button type="button" class="tv-chip" data-bulk="${anyHidden ? "show" : "hide"}">
+          ${svg(anyHidden ? I.eye : I.eyeOff)}<span>${esc(anyHidden ? tt("chart.show_all", "Show all") : tt("chart.hide_all", "Hide all"))}</span></button>
+        <button type="button" class="tv-chip" data-bulk="${anyLocked ? "unlock" : "lock"}">
+          ${svg(anyLocked ? I.unlock : I.lock)}<span>${esc(anyLocked ? tt("chart.unlock_all", "Unlock all") : tt("chart.lock_all", "Lock all"))}</span></button>
+        <button type="button" class="tv-chip danger" data-bulk="delete">${svg(I.trash)}<span>${esc(tt("chart.delete_all", "Delete all"))}</span></button>
+      </div>
+      ${items.length ? `<ul class="tvd-list">${items.map((d) => `
+        <li class="tvd-item${c.selected === d ? " on" : ""}${d.visible === false ? " off" : ""}" data-obj="${d.id}">
+          <button type="button" class="tvd-pick" data-obj-pick="${d.id}">
+            <span class="tvd-swatch" style="background:${esc(d.color || "#e8c07a")}"></span>
+            <span class="tvd-name">${esc(objectName(d))}</span>
+          </button>
+          <button type="button" class="tv-icon tiny" data-obj-vis="${d.id}" aria-pressed="${d.visible !== false}"
+            title="${esc(tt("chart.visibility", "Show / hide"))}">${svg(d.visible === false ? I.eyeOff : I.eye)}</button>
+          <button type="button" class="tv-icon tiny" data-obj-lock="${d.id}" aria-pressed="${Boolean(d.locked)}"
+            title="${esc(tt("chart.lock", "Lock"))}">${svg(d.locked ? I.lock : I.unlock)}</button>
+          <button type="button" class="tv-icon tiny danger" data-obj-del="${d.id}"
+            title="${esc(tt("common.delete", "Delete"))}">${svg(I.trash)}</button>
+        </li>`).join("")}</ul>`
+      : `<p class="tvd-empty">${esc(tt("chart.no_objects", "Nothing drawn yet. Pick a tool from the left."))}</p>`}`;
+  }
+
+  const FIELD = {
+    color: (d) => `<label class="tvp-row"><span>${esc(tt("chart.color", "Colour"))}</span>
+      <input type="color" data-prop="color" value="${esc(/^#[0-9a-f]{6}$/i.test(d.color || "") ? d.color : "#e8c07a")}" /></label>`,
+    width: (d) => `<label class="tvp-row"><span>${esc(tt("chart.thickness", "Thickness"))}</span>
+      <input type="range" min="1" max="6" step="0.5" data-prop="width" value="${esc(d.width || 1.4)}" /></label>`,
+    style: (d) => `<div class="tvp-row"><span>${esc(tt("chart.line_style", "Line style"))}</span>
+      <span class="tvp-choice">${["solid", "dashed", "dotted"].map((s) =>
+        `<button type="button" data-prop-style="${s}" class="${(d.style || "solid") === s ? "on" : ""}">${esc(tt("chart.style_" + s, s))}</button>`).join("")}</span></div>`,
+    opacity: (d) => `<label class="tvp-row"><span>${esc(tt("chart.opacity", "Opacity"))}</span>
+      <input type="range" min="0.1" max="1" step="0.05" data-prop="opacity" value="${esc(d.opacity === undefined ? 1 : d.opacity)}" /></label>`,
+    fill: (d) => `<label class="tvp-row"><span>${esc(tt("chart.fill", "Background fill"))}</span>
+      <input type="checkbox" data-prop-bool="fill" ${d.fill !== false ? "checked" : ""} /></label>`,
+    showPrice: (d) => `<label class="tvp-row"><span>${esc(tt("chart.show_price", "Show the price"))}</span>
+      <input type="checkbox" data-prop-bool="showPrice" ${d.showPrice === false ? "" : "checked"} /></label>`,
+    extend: (d) => `<div class="tvp-row"><span>${esc(tt("chart.extend", "Extend"))}</span>
+      <span class="tvp-choice">
+        <button type="button" data-prop-toggle="extendL" class="${d.extendL ? "on" : ""}">${esc(tt("chart.left", "Left"))}</button>
+        <button type="button" data-prop-toggle="extendR" class="${d.extendR ? "on" : ""}">${esc(tt("chart.right", "Right"))}</button>
+      </span></div>`,
+    text: (d) => `<label class="tvp-row"><span>${esc(tt("chart.text", "Text"))}</span>
+      <input class="ctrl" data-prop="text" value="${esc(d.text || "")}" /></label>`,
+    font: (d) => `<label class="tvp-row"><span>${esc(tt("chart.font_size", "Font size"))}</span>
+      <input type="range" min="9" max="28" step="1" data-prop-num="fontSize" value="${esc(d.fontSize || 13)}" /></label>
+      <label class="tvp-row"><span>${esc(tt("chart.bold", "Bold"))}</span>
+      <input type="checkbox" data-prop-bool="bold" ${d.bold ? "checked" : ""} /></label>`,
+    rr: (d) => `<label class="tvp-row"><span>${esc(tt("chart.reward", "Reward multiple"))}</span>
+      <input type="number" step="0.1" min="0.1" data-prop-num="rr" value="${esc(d.rr || 2)}" /></label>`,
+
+    /* A position is three prices and the numbers that fall out of them.
+       They are typed here to the tick, because a stop placed by dragging is
+       a stop placed to the nearest pixel. */
+    position: (d) => {
+      const c = ui.chart;
+      const long = d.kind === "long";
+      const entry = Number(d.a && d.a.p) || 0;
+      const stop = Number(d.b && d.b.p) || 0;
+      const target = d.c && Number.isFinite(d.c.p)
+        ? Number(d.c.p)
+        : (long ? entry + Math.abs(entry - stop) * (d.rr || 2) : entry - Math.abs(entry - stop) * (d.rr || 2));
+      const risk = Math.abs(entry - stop);
+      const reward = Math.abs(target - entry);
+      const step = entry >= 100 ? 0.01 : 0.00001;
+      const row = (key, label, value) => `<label class="tvp-row"><span>${esc(label)}</span>
+        <input type="number" step="${step}" data-price="${key}" value="${esc(Number(value).toFixed(5))}" /></label>`;
+      return `<div class="tvp-sec">${esc(tt("chart.position", "Position"))}</div>
+        ${row("a", tt("chart.entry", "Entry"), entry)}
+        ${row("b", tt("chart.stop", "Stop loss"), stop)}
+        ${row("c", tt("chart.target", "Take profit"), target)}
+        <div id="tvp-derived">${positionSums(d)}</div>
+        <p class="tvp-note">${esc(tt("chart.position_note", "These are the numbers of the drawing, not a forecast."))}</p>`;
+    },
+    levels: (d) => {
+      const chart = ui.chart;
+      const levels = chart.fibLevels(d);
+      return `<div class="tvp-sec">${esc(tt("chart.levels", "Levels"))}</div>
+        <div class="tvp-levels">${levels.map((l, i) => `<label class="tvp-level">
+          <input type="checkbox" data-level-vis="${i}" checked />
+          <span class="mono">${esc(l.label)}</span>
+          <input type="color" data-level-color="${i}" value="${esc(/^#[0-9a-f]{6}$/i.test(l.color) ? l.color : "#7c6cff")}" />
+        </label>`).join("")}</div>
+        <div class="tvp-row"><span>${esc(tt("chart.custom_level", "Add a level"))}</span>
+          <span class="tvp-add"><input type="number" step="0.001" id="tvp-newlevel" placeholder="1.414" />
+          <button type="button" class="tv-chip" id="tvp-addlevel">${svg(I.plus)}</button></span></div>`;
+    },
+    coords: (d) => {
+      const rows = ["a", "b", "c", "d", "e"].filter((k) => d[k]).map((k) => `
+        <label class="tvp-coord"><span class="mono">${k.toUpperCase()}</span>
+          <input type="number" step="any" data-coord="${k}" value="${esc(Number(d[k].p).toFixed(5))}" /></label>`).join("");
+      return rows ? `<div class="tvp-sec">${esc(tt("chart.coordinates", "Coordinates"))}</div><div class="tvp-coords">${rows}</div>` : "";
+    },
+  };
+
+  /** The figures that fall out of a position's three prices. */
+  function positionSums(d) {
+    const c = ui.chart;
+    const long = d.kind === "long";
+    const entry = Number(d.a && d.a.p) || 0;
+    const stop = Number(d.b && d.b.p) || 0;
+    const target = d.c && Number.isFinite(d.c.p)
+      ? Number(d.c.p)
+      : (long ? entry + Math.abs(entry - stop) * (d.rr || 2) : entry - Math.abs(entry - stop) * (d.rr || 2));
+    const risk = Math.abs(entry - stop);
+    const reward = Math.abs(target - entry);
+    // A stop on the wrong side of the entry is a drawing mistake, and it is
+    // better to say so than to print a confident ratio for it.
+    const wrong = long ? (stop > entry || target < entry) : (stop < entry || target > entry);
+    return `<div class="tvp-row"><span>${esc(tt("chart.ratio", "Risk / reward"))}</span>
+        <b class="mono">${risk ? (reward / risk).toFixed(2) : "—"} R</b></div>
+      <div class="tvp-row"><span>${esc(tt("chart.risk", "Risk"))}</span>
+        <b class="mono down">${c.fmtPrice(risk)}${entry ? "  " + ((risk / entry) * 100).toFixed(2) + "%" : ""}</b></div>
+      <div class="tvp-row"><span>${esc(tt("chart.rewardv", "Reward"))}</span>
+        <b class="mono up">${c.fmtPrice(reward)}${entry ? "  " + ((reward / entry) * 100).toFixed(2) + "%" : ""}</b></div>
+      ${wrong ? `<p class="tvp-warn">${esc(tt("chart.position_side",
+        "The stop or the target is on the wrong side of the entry for this direction."))}</p>` : ""}`;
+  }
+
+  /* ====================================================== style bar ====== *
+   * Colour was always editable - buried in a dock that only ever opened on
+   * a double-click, which is a gesture nobody guesses. A selected shape now
+   * puts its own controls on the chart: the colours people actually reach
+   * for, a thickness, the price tag, and the way into everything else.
+   */
+
+  // Eight colours that read on both themes, rather than a wheel. Picking a
+  // colour is a decision between "the red one" and "the blue one"; a wheel
+  // makes it a decision about saturation.
+  const SWATCHES = [
+    "#e8c07a", "#7c6cff", "#36a3ff", "#2fbf71",
+    "#ef5350", "#ff9f43", "#e6edf3", "#8a8f98",
+  ];
+
+  /** Kinds that sit at a price and can therefore print one. */
+  function pricey(kind) {
+    return /^(hline|hray|priceline|crossline|trend|ray|extended|arrow)$/.test(String(kind || ""));
+  }
+
+  function styleBarHtml(d) {
+    const cur = /^#[0-9a-f]{6}$/i.test(d.color || "") ? String(d.color).toLowerCase() : "";
+    const width = Number(d.width || 1.4);
+    const dots = SWATCHES.map((c) => `<button type="button" class="tvs-dot${cur === c ? " on" : ""}"
+      data-swatch="${c}" style="--c:${c}" title="${esc(c)}" aria-label="${esc(c)}"></button>`).join("");
+    const widths = [1, 1.5, 2.5, 4].map((w) => `<button type="button" class="tvs-w${Math.abs(width - w) < 0.26 ? " on" : ""}"
+      data-swidth="${w}" title="${esc(tt("chart.thickness", "Thickness"))} ${w}"><i style="--h:${w}px"></i></button>`).join("");
+    return `<span class="tvs-kind">${esc(nameOf("tool", TOOL_BY_ID[d.kind]) || d.kind)}</span>
+      <span class="tvs-div"></span>
+      ${dots}
+      <label class="tvs-dot tvs-custom" title="${esc(tt("chart.color_custom", "Custom colour"))}">
+        <input type="color" data-style-color value="${esc(cur || "#e8c07a")}" />
+      </label>
+      <span class="tvs-div"></span>
+      ${widths}
+      ${pricey(d.kind) ? `<span class="tvs-div"></span>
+        <button type="button" class="tvs-btn${d.showPrice === false ? "" : " on"}" data-style-price
+          title="${esc(tt("chart.show_price", "Show the price"))}">1.2345</button>` : ""}
+      <span class="tvs-div"></span>
+      <button type="button" class="tvs-btn" data-style-more title="${esc(tt("chart.properties", "Properties"))}">${svg(I.settings || I.more)}</button>
+      <button type="button" class="tvs-btn danger" data-style-del title="${esc(tt("common.delete", "Delete"))}">${svg(I.trash)}</button>`;
+  }
+
+  /** Show the bar for the current selection, hide it when there is none. */
+  function paintStyleBar() {
+    const bar = $("tv-style");
+    if (!bar) return;
+    const d = ui.chart && ui.chart.selected;
+    if (!d) {
+      bar.hidden = true;
+      bar.innerHTML = "";
+      return;
+    }
+    // Keep the open colour picker alive: re-rendering the bar while the
+    // native dialog is up closes it, and the user is mid-choice.
+    const active = document.activeElement;
+    if (active && active.matches && active.matches("[data-style-color]") && bar.contains(active)) return;
+    bar.hidden = false;
+    bar.innerHTML = styleBarHtml(d);
+  }
+
+  /** Which properties a kind actually has. Nothing irrelevant is shown. */
+  function fieldsFor(kind) {
+    const base = ["color", "width", "style", "opacity"];
+    if (/^(text|note|label|pricelabel|flag|emoji|callout)$/.test(kind)) {
+      return ["color", "text", "font", "opacity"];
+    }
+    if (/^fib/.test(kind)) return base.concat(["fill", "levels"]);
+    if (/^(long|short)$/.test(kind)) return ["position", "color", "width", "opacity"];
+    if (/^(rect|circle|ellipse|triangle|polygon|rotrect|channel|flatchannel|disjoint|parallel|gannbox|gannsquare|daterange|pricerange|pitchfork|schiff|modschiff)$/.test(kind)) {
+      return base.concat(["fill"]);
+    }
+    if (/^(trend|ray|extended|infoline)$/.test(kind)) {
+      return base.concat(pricey(kind) ? ["extend", "showPrice"] : ["extend"]);
+    }
+    return pricey(kind) ? base.concat(["showPrice"]) : base;
+  }
+
+  function renderProps() {
+    const host = $("tvd-props");
+    if (!host) return;
+    const d = ui.chart.selected;
+    if (!d) {
+      host.innerHTML = `<p class="tvd-empty">${esc(tt("chart.no_selection", "Select an object on the chart, or in the Objects list, to edit it."))}</p>`;
+      return;
+    }
+    const fields = fieldsFor(d.kind).map((f) => (FIELD[f] ? FIELD[f](d) : "")).join("");
+    host.innerHTML = `
+      <div class="tvp-head">
+        <input class="ctrl tvp-name" data-prop="name" value="${esc(objectName(d))}" aria-label="${esc(tt("chart.rename", "Name"))}" />
+        <button type="button" class="tv-icon tiny" data-obj-lock="${d.id}" aria-pressed="${Boolean(d.locked)}"
+          title="${esc(tt("chart.lock", "Lock"))}">${svg(d.locked ? I.lock : I.unlock)}</button>
+        <button type="button" class="tv-icon tiny danger" data-obj-del="${d.id}"
+          title="${esc(tt("common.delete", "Delete"))}">${svg(I.trash)}</button>
+      </div>
+      <p class="tvp-kind">${esc(nameOf("tool", TOOL_BY_ID[d.kind]) || d.kind)}</p>
+      ${fields}
+      ${FIELD.coords(d)}`;
+  }
+
+  function refresh() {
+    if (typeof ui.syncNav === "function") ui.syncNav();
+    renderObjects();
+    renderProps();
+    paintStyleBar();
+    markRailState();
+    const u = $("tv-undo"), r = $("tv-redo");
+    if (u) u.disabled = !ui.chart.canUndo();
+    if (r) r.disabled = !ui.chart.canRedo();
+    if (ui.menu === "indicators") {
+      const m = $("tv-menu");
+      if (m) m.innerHTML = menuIndicators(($("tv-ind-q") || {}).value || "");
+    }
+  }
+
+  /* Keep the chosen tab in view WITHIN its strip, and nowhere else.
+
+     This was b.scrollIntoView({block:"nearest", inline:"nearest"}), which
+     reads like it is scoped and is not: "nearest" only means "do not
+     scroll a container the element is already visible in". It still walks
+     up and scrolls every scrollable ancestor that cannot see it - and
+     .tv was one, because overflow:hidden is a scroll container and the
+     closed dock is parked 300px outside it. One call to line up a tab
+     shunted the entire workspace sideways. (chart.css now makes .tv
+     overflow:clip so it cannot happen again from any direction; this is
+     the other half - not asking for it in the first place.)
+
+     So the strip is scrolled by hand. No ancestor is touched, there is
+     nothing to get wrong on a right-to-left desk, and a tab inside a
+     panel that is not open is simply left alone. */
+  function revealInStrip(btn) {
+    const strip = btn && typeof btn.closest === "function" ? btn.closest(".tvd-tabs") : null;
+    if (!strip) return;
+    /* No ancestor is involved, so there is nothing to guard against: if
+       the panel happens to be closed the strip is simply lined up ready
+       for when it opens. (An earlier draft of this skipped the call for a
+       closed dock by asking narrow() - which lives in the other IIFE in
+       this file and is not in scope here. It threw on the first render,
+       which is the sort of thing a jsdom suite cannot see and a browser
+       reports in one line.) */
+    if (strip.scrollWidth <= strip.clientWidth + 1) return;
+    const start = btn.offsetLeft - strip.offsetLeft;
+    const end = start + btn.offsetWidth;
+    const view = strip.scrollLeft;
+    if (start < view) strip.scrollLeft = start;
+    else if (end > view + strip.clientWidth) strip.scrollLeft = end - strip.clientWidth;
+  }
+
+  function showDock(tab, focus) {
+    ui.dockTab = tab;
+    document.querySelectorAll("[data-dock]").forEach((b) => {
+      const cur = b.dataset.dock === tab;
+      b.classList.toggle("on", cur);
+      /* The class paints it; these are what say so out loud. A roving
+         tabindex is also what makes Tab leave the strip after one stop
+         instead of walking through every tab in it. */
+      b.setAttribute("aria-selected", String(cur));
+      b.tabIndex = cur ? 0 : -1;
+      /* preventScroll, because focusing an element also asks every
+         scrollable ancestor to reveal it, and at this width the panel
+         this tab belongs to may be parked off-canvas. Revealing it is
+         revealInStrip's job and the strip's alone. */
+      if (cur && focus) { try { b.focus({ preventScroll: true }); } catch (e) { b.focus(); } }
+      if (cur) revealInStrip(b);
+    });
+    document.querySelectorAll(".tvd-body").forEach((p) => { p.hidden = p.dataset.pane !== tab; });
+    const tv = $("tv");
+    if (tv && tv.classList.contains("no-dock")) toggleDock(true);
+  }
+
+  /* Arrow keys move between tabs, Home and End jump to the ends. This
+     is the half of the tab pattern that cannot be done with markup,
+     and without it the roving tabindex above would be a trap: one tab
+     reachable, the other three unreachable by keyboard entirely. */
+  function dockKey(e) {
+    const el = e.target;
+    const strip = el && typeof el.closest === "function" && el.closest(".tvd-tabs");
+    if (!strip) return;
+    const keys = { ArrowRight: 1, ArrowLeft: -1, ArrowDown: 1, ArrowUp: -1 };
+    const items = [...strip.querySelectorAll("[data-dock]")];
+    if (!items.length) return;
+    const rtl = (document.documentElement.getAttribute("dir") || "").toLowerCase() === "rtl";
+    let next = -1;
+    if (e.key === "Home") next = 0;
+    else if (e.key === "End") next = items.length - 1;
+    else if (keys[e.key]) {
+      let step = keys[e.key];
+      /* Left and right follow the writing direction; up and down never do. */
+      if (rtl && (e.key === "ArrowRight" || e.key === "ArrowLeft")) step = -step;
+      const at = items.indexOf(el.closest("[data-dock]"));
+      if (at < 0) return;
+      next = (at + step + items.length) % items.length;
+    } else return;
+    e.preventDefault();
+    showDock(items[next].dataset.dock, true);
+  }
+
+  /**
+   * The drawing tools, as a sheet rather than a strip.
+   *
+   * On a narrow screen the rail used to flatten into a 44px horizontal
+   * scroller holding ten tool groups and five switches - twenty-five
+   * targets in a band the height of one thumb, most of them off-screen
+   * behind a sideways scroll with no indication they were there. Here
+   * it opens as a labelled grid instead: everything visible at once,
+   * named, and big enough to hit.
+   */
+  function toggleTools(open) {
+    const tv = $("tv");
+    if (!tv) return;
+    const next = open === undefined ? !tv.classList.contains("tools-open") : !!open;
+    /* A tool's menu belongs to the sheet it was opened from. Leaving it
+       behind when the sheet goes left it stranded over the chart with
+       nothing underneath it and no obvious way to dismiss it. */
+    if (!next) closeFlyout();
+    tv.classList.toggle("tools-open", next);
+    /* The sheet is modal, so the header behind it is out of play. The
+       scrim covers it and the CSS stops it reacting to a pointer;
+       this is the half neither of those can do, which is keeping the
+       header's controls out of the tab order while a sheet is up.
+
+       Cleared again below whenever the sheet is not open, and the
+       sheet is forced shut when the phone layout goes away, so there
+       is no path that leaves a desktop header inert. */
+    const top = tv.querySelector(".tv-top");
+    if (top) top.toggleAttribute("inert", next);
+    const fab = $("tv-toolsfab");
+    if (fab) fab.setAttribute("aria-expanded", next ? "true" : "false");
+    // The sheet and the dock both cover the chart; two of them at once
+    // leaves nothing to look at.
+    if (next) toggleDock(false);
+  }
+
+  /**
+   * Show or hide the positions dock.
+   *
+   * It is a row of the grid, so this genuinely resizes the chart rather
+   * than parking a panel on top of it - which is the point. The canvas
+   * only re-measures when it paints, and the row animates, so the same
+   * redrawSoon the side panel uses is needed here too.
+   */
+  function togglePosDock(open) {
+    const tv = $("tv");
+    if (!tv) return;
+    const next = open === undefined ? !tv.classList.contains("pos-open") : !!open;
+    tv.classList.toggle("pos-open", next);
+    write(LS_POS, next ? "1" : "0");
+    const b = $("tv-pos-toggle");
+    if (b) b.setAttribute("aria-pressed", next ? "true" : "false");
+    redrawSoon();
+  }
+
+  function toggleDock(open) {
+    const tv = $("tv");
+    if (!tv) return;
+    const next = open === undefined ? tv.classList.contains("no-dock") : open;
+    tv.classList.toggle("no-dock", !next);
+    write(LS_DOCK, next ? "1" : "0");
+    const b = $("tv-dock-toggle");
+    if (b) b.setAttribute("aria-pressed", next ? "true" : "false");
+
+    // One redraw timed to the end of a CSS transition is a guess, and it
+    // was the wrong guess often enough to be reported as the chart
+    // disappearing. redrawSoon paints at 0, 120 and 360ms, and the
+    // ResizeObserver below catches whatever none of those caught.
+    redrawSoon();
+  }
+
+  /**
+   * Repaint whenever the canvas changes size, whatever caused it.
+   *
+   * Every redraw in this file is otherwise tied to a specific event -
+   * a dock toggle, a fullscreen change, a window resize - and the chart
+   * is blank for as long as one of them is missed. A phone keyboard
+   * opening, an address bar collapsing, a rotation, a transition that
+   * ran longer than expected: none of those are events this code was
+   * watching, and all of them change the size of the canvas.
+   */
+  function watchSize() {
+    const box = $("tv-chartbox");
+    if (!box || typeof ResizeObserver === "undefined") return;
+    if (ui.sizeWatch) { try { ui.sizeWatch.disconnect(); } catch (e) { /* gone */ } }
+
+    /* Coalesced, because a CSS transition fires this on every frame - but
+       coalesced with a TRAILING edge, which is the whole point.
+
+       This was a leading-edge throttle: paint on the first notification,
+       then silently drop everything for 60ms. A burst of resizes that ENDS
+       inside a dropped window therefore left the canvas holding the first,
+       mid-flight geometry with no repaint ever scheduled to correct it, and
+       a canvas only re-measures when it paints. On a phone the mount is
+       exactly such a burst - the dynamic viewport settling as the address
+       bar resolves, the rail reflowing at the tablet breakpoint, the
+       grid-template-columns transition on .tv-body - so the chart came up
+       at the size it had part-way through and stayed there. The only thing
+       that fixed it was some later event that forced a paint, which is why
+       tapping the dock appeared to be the cure: toggleDock calls
+       redrawSoon.
+
+       Now the last notification in a burst always gets its paint. */
+    let last = 0;
+    let trailing = 0;
+    const paint = () => {
+      try { if (ui.chart) ui.chart.draw(); } catch (e) { /* unmounted */ }
+    };
+    ui.sizeWatch = new ResizeObserver(() => {
+      const now = Date.now();
+      if (now - last < 60) {
+        // Inside the quiet window: do not paint now, but guarantee one
+        // paint after the burst has finished.
+        clearTimeout(trailing);
+        trailing = setTimeout(() => { last = Date.now(); paint(); }, 80);
+        return;
+      }
+      last = now;
+      clearTimeout(trailing);
+      requestAnimationFrame(paint);
+    });
+    ui.sizeWatch.observe(box);
+  }
+
+  /* ========================================================= fullscreen == */
+
+  /** Repaint across a viewport change, which is never a single event. */
+  function redrawSoon() {
+    [0, 120, 360].forEach((ms) => setTimeout(() => {
+      try { if (ui.chart) ui.chart.draw(); } catch (e) { /* unmounted */ }
+    }, ms));
+  }
+
+  function setFullscreen(on) {
+    const tv = $("tv");
+    if (!tv) return;
+    ui.fullscreen = on;
+    document.body.classList.toggle("chart-full", on);
+    /* The whole document goes fullscreen, not the workspace element.
+       Asking only for #tv looked tidier and was wrong: everything that
+       floats - the confirm dialog, the toasts, these menus - lives outside
+       #tv, and the browser paints nothing outside the fullscreen element.
+       Fullscreening the document keeps the entire desk inside it, and the
+       chart still fills the screen because body.chart-full says so. */
+    try {
+      const root = document.documentElement;
+      if (on && !document.fullscreenElement && root.requestFullscreen) root.requestFullscreen().catch(() => {});
+      if (!on && document.fullscreenElement && document.exitFullscreen) document.exitFullscreen().catch(() => {});
+    } catch (e) { /* the app-level fullscreen still applies */ }
+    redrawSoon();
+  }
+
+  /* ========================================================== shortcuts == */
+
+  const SHORTCUT = {};
+  GROUPS.forEach((g) => g.tools.forEach((t) => { if (t.key) SHORTCUT[t.key] = t.id; }));
+
+  function onKey(e) {
+    if (!ui.chart || !$("tv")) return;
+    /* Someone earlier in the chain has already acted on this - the tab
+       strip's arrow keys, for one. Panning the chart as well would move
+       the price out from under the trader as a side effect of changing
+       a tab. */
+    if (e.defaultPrevented) return;
+    const el = e.target;
+    if (el && /^(input|textarea|select)$/i.test(el.tagName)) return;
+    if (el && el.isContentEditable) return;
+    const c = ui.chart;
+    const meta = e.ctrlKey || e.metaKey;
+
+    if (meta && e.key.toLowerCase() === "z") {
+      e.preventDefault();
+      if (e.shiftKey) c.redo(); else c.undo();
+      return;
+    }
+    if (meta && e.key.toLowerCase() === "y") { e.preventDefault(); c.redo(); return; }
+    if (meta) return;
+
+    switch (e.key) {
+      case "Escape":
+        if (ui.menu) { closeMenu(); return; }
+        closeFlyout();
+        if (c.cancel()) { markTool(); return; }
+        // An armed tool has to be escapable, or "it stays on" becomes "it
+        // will not turn off". One press puts the cursor back.
+        if (c.tool !== "cursor") { pickTool("cursor"); return; }
+        if (c.selected) { c.select(null); return; }
+        /* Escape no longer drops fullscreen either. It used to leave the
+           chart in the same half-state the device back button did. */
+        return;
+      case "Delete": case "Backspace":
+        if (c.deleteSelected()) e.preventDefault();
+        return;
+      case "+": case "=": e.preventDefault(); c.zoom(1); return;
+      case "-": case "_": e.preventDefault(); c.zoom(-1); return;
+      case "ArrowLeft": e.preventDefault(); c.pan(e.shiftKey ? 20 : 3); return;
+      case "ArrowRight": e.preventDefault(); c.pan(e.shiftKey ? -20 : -3); return;
+      case "Home": e.preventDefault(); c.fit(); return;
+      case " ":
+        // Held space is temporary navigation, the way every editor does it.
+        if (!c._space) { c._space = true; c.canvas.style.cursor = "grab"; }
+        e.preventDefault();
+        return;
+      default: break;
+    }
+    const k = e.key.toLowerCase();
+    if (SHORTCUT[k]) { e.preventDefault(); pickTool(SHORTCUT[k]); }
+  }
+
+  function onKeyUp(e) {
+    if (e.key === " " && ui.chart) {
+      ui.chart._space = false;
+      ui.chart.canvas.style.cursor = ui.chart.cursorFor();
+    }
+  }
+
+  /* ============================================================== bind == */
+
+  function bind(chart, ctx) {
+    ui.chart = chart;
+    ui.ctx = ctx || {};
+    ui.root = $("tv");
+    if (!ui.root) return;
+
+    chart.opts.onChange = () => refresh();
+    chart.opts.onToolDone = () => {
+      // The tool stays armed unless the trader asked for the old one-shot
+      // behaviour. Either way the shape just drawn is selected, so its
+      // colour and thickness are one click away on the style bar.
+      if (!toolLocked() && chart.tool !== "cursor") pickTool("cursor");
+    };
+    chart.opts.onEdit = () => showDock("props");
+
+    const typeLabel = $("tv-type-label");
+    if (typeLabel) {
+      const t = CHART_TYPES.find((x) => x.id === chart.type);
+      typeLabel.textContent = t ? nameOf("type", t) : chart.type;
+    }
+
+    /* ---- rail ---------------------------------------------------------- */
+    const rail = $("tv-rail");
+    if (rail) rail.onclick = (e) => {
+      const more = e.target.closest("[data-flyout]");
+      if (more) {
+        const open = more.getAttribute("aria-expanded") === "true";
+        closeFlyout();
+        if (!open) openFlyout(more.dataset.flyout, more);
+        return;
+      }
+      const b = e.target.closest("[data-tool]");
+      if (b) { pickTool(b.dataset.tool); return; }
+      if (e.target.closest("#tv-magnet")) {
+        const next = chart.magnet === "off" ? "weak" : chart.magnet === "weak" ? "strong" : "off";
+        chart.setMagnet(next);
+        markTool();
+        if (ctx.toast) ctx.toast(tt("chart.magnet_" + next, "Magnet: " + next));
+        return;
+      }
+      if (e.target.closest("#tv-toollock")) {
+        const next = !toolLocked();
+        setToolLock(next);
+        markTool();
+        if (ctx.toast) {
+          ctx.toast(next
+            ? tt("chart.tool_lock_on", "Tools stay armed until you switch them off")
+            : tt("chart.tool_lock_off", "Tools return to the cursor after one shape"));
+        }
+        return;
+      }
+      if (e.target.closest("#tv-lockall")) {
+        if (!chart.drawings.length) return;
+        const lock = !chart.drawings.every((d) => d.locked);
+        chart.eachObject((d) => { d.locked = lock; });
+        if (ctx.toast) {
+          ctx.toast(lock ? tt("chart.lock_all", "Lock all drawings") : tt("chart.unlock_all", "Unlock all"));
+        }
+        return;
+      }
+      if (e.target.closest("#tv-hideall")) {
+        if (!chart.drawings.length) return;
+        const hide = chart.drawings.some((d) => d.visible !== false);
+        chart.eachObject((d) => { d.visible = !hide; });
+        if (ctx.toast) {
+          ctx.toast(hide ? tt("chart.hide_all", "Hide all drawings") : tt("chart.show_all", "Show all"));
+        }
+        return;
+      }
+      if (e.target.closest("#tv-clear")) {
+        if (!chart.drawings.length) return;
+        const ask = ctx.confirm || ((q, go) => { if (window.confirm(q)) go(); });
+        ask(tt("chart.confirm_clear", "Remove every drawing on this chart?"), () => chart.clearDrawings());
+      }
+    };
+
+    const fly = $("tv-flyout");
+    if (fly) fly.onclick = (e) => {
+      const b = e.target.closest("[data-tool]");
+      if (b) pickTool(b.dataset.tool);
+    };
+
+    /* ---- top bar ------------------------------------------------------- */
+    const top = document.querySelector(".tv-top");
+    if (top) top.onclick = (e) => {
+      const tf = e.target.closest("[data-tf]");
+      if (tf) { if (ctx.onTimeframe) ctx.onTimeframe(tf.dataset.tf); return; }
+      const menu = e.target.closest("[data-menu]");
+      if (menu) {
+        const name = menu.dataset.menu;
+        if (ui.menu === name) { closeMenu(); return; }
+        if (name === "tf") openMenu(menu, name, menuTimeframes());
+        if (name === "type") openMenu(menu, name, menuTypes());
+        if (name === "indicators") {
+          const el = openMenu(menu, name, menuIndicators(""), "wide");
+          const q = el.querySelector("#tv-ind-q");
+          if (q) { q.focus(); q.oninput = () => { el.innerHTML = menuIndicators(q.value); el.querySelector("#tv-ind-q").focus(); }; }
+        }
+        if (name === "symbol") {
+          const el = openMenu(menu, name, menuSymbols(""));
+          const q = el.querySelector("#tv-sym-q");
+          if (q) {
+            q.focus();
+            q.oninput = () => {
+              el.innerHTML = menuSymbols(q.value);
+              const again = el.querySelector("#tv-sym-q");
+              if (again) { again.focus(); again.setSelectionRange(again.value.length, again.value.length); }
+            };
+          }
+        }
+        if (name === "settings") openMenu(menu, name, menuSettings());
+        return;
+      }
+      if (e.target.closest("#tv-back")) {
+        // Leave fullscreen on the way out.
+        //
+        // Going back from a fullscreen chart used to land on a desk with
+        // no title bar, no navigation and no way to get any of it back
+        // except pressing F or Escape - neither of which is discoverable,
+        // and neither of which exists on a phone.
+        if (ui.fullscreen) setFullscreen(false);
+        if (ctx.onBack) ctx.onBack();
+        return;
+      }
+      if (e.target.closest("#tv-undo")) { chart.undo(); return; }
+      if (e.target.closest("#tv-redo")) { chart.redo(); return; }
+      if (e.target.closest("#tv-dock-toggle")) { toggleDock(); return; }
+      if (e.target.closest("#tv-pos-toggle")) { togglePosDock(); return; }
+      /* Bound here and not on the chart box: this button lives in the
+         header, and a delegated handler only ever sees clicks inside
+         the element it is attached to. */
+      if (e.target.closest("#tv-headgap")) {
+        chart.setHeadGap(!chart.headGapOn());
+        ui.syncNav && ui.syncNav();
+        return;
+      }
+    };
+
+    /* ---- overlays: the FAB and the two scrims --------------------------
+     *
+     * These three are built by railHtml/html into .tv-body, NOT into the
+     * header - so wiring them onto .tv-top meant their clicks never
+     * reached a handler at all. The tools FAB did nothing on a phone,
+     * and neither scrim could be tapped to dismiss what it covered.
+     * They are bound on #tv, which is the one element that contains all
+     * three of them.
+     */
+    const root = $("tv");
+    if (root) root.onclick = (e) => {
+      if (e.target.closest("#tv-toolsfab")) { toggleTools(); return; }
+      /* The dock's own close button is in the dock, which is a sibling
+         of the top bar - the same mistake the comment above records,
+         and caught by the same guard. */
+      if (e.target.closest("#tv-posdock-close")) { togglePosDock(false); return; }
+      if (e.target.closest("#tv-toolscrim")) { toggleTools(false); return; }
+      if (e.target.closest("#tv-scrim")) { toggleDock(false); }
+    };
+
+    /* ---- menus (delegated on the body, they live outside #tv) ---------- */
+    if (!global.__tvMenuBound) {
+      global.__tvMenuBound = true;
+      document.addEventListener("click", (e) => {
+        const menu = $("tv-menu");
+        if (!menu) return;
+        if (!menu.contains(e.target) && !e.target.closest("[data-menu]")) { closeMenu(); return; }
+        const c = ui.chart;
+        if (!c) return;
+
+        const tf = e.target.closest("[data-pick-tf]");
+        if (tf) { closeMenu(); if (ui.ctx.onTimeframe) ui.ctx.onTimeframe(tf.dataset.pickTf); return; }
+
+        const sym = e.target.closest("[data-pick-sym]");
+        if (sym) {
+          closeMenu();
+          const picked = sym.dataset.pickSym;
+          // Re-charting the symbol already shown would tear the workspace
+          // down and rebuild it for no change the user can see.
+          if (picked && picked !== ui.ctx.symbol && ui.ctx.onSymbol) ui.ctx.onSymbol(picked);
+          return;
+        }
+
+        const ty = e.target.closest("[data-pick-type]");
+        if (ty) {
+          c.setType(ty.dataset.pickType);
+          const lbl = $("tv-type-label");
+          const def = CHART_TYPES.find((x) => x.id === c.type);
+          if (lbl && def) lbl.textContent = nameOf("type", def);
+          menu.innerHTML = menuTypes();
+          return;
+        }
+
+        const add = e.target.closest("[data-add-ind]");
+        if (add) { c.addIndicator(add.dataset.addInd); menu.innerHTML = menuIndicators(""); return; }
+        const del = e.target.closest("[data-ind-del]");
+        if (del) { c.removeIndicator(del.dataset.indDel); menu.innerHTML = menuIndicators(""); return; }
+        const vis = e.target.closest("[data-ind-vis]");
+        if (vis) {
+          const ind = c.indicators.find((i) => i.id === vis.dataset.indVis);
+          if (ind) c.updateIndicator(ind.id, { visible: ind.visible === false });
+          menu.innerHTML = menuIndicators("");
+          return;
+        }
+
+        const tg = e.target.closest("[data-toggle]");
+        if (tg) {
+          const on = tg.getAttribute("aria-pressed") === "true";
+          const what = tg.dataset.toggle;
+          if (what === "grid") c.setGrid(!on);
+          if (what === "auto") c.setAutoScale(!on);
+          if (what === "log") c.setLogScale(!on);
+          if (what === "percent") c.setPercentScale(!on);
+          if (what === "invert") c.setInvertScale(!on);
+          if (what === "snaptime") c.setSnapTime(!on);
+          if (what === "signals") {
+            // The desk owns this one: it is licence-gated and it fetches.
+            if (ui.ctx.onSignals) ui.ctx.onSignals(!on);
+            else c.setSignals(c.signals, !on);
+          }
+          menu.innerHTML = menuSettings();
+          return;
+        }
+        const cross = e.target.closest("[data-cross]");
+        if (cross) { c.setCrosshair(cross.dataset.cross); menu.innerHTML = menuSettings(); return; }
+        const mag = e.target.closest("[data-magnet]");
+        if (mag) { c.setMagnet(mag.dataset.magnet); markTool(); menu.innerHTML = menuSettings(); }
+      });
+
+      document.addEventListener("input", (e) => {
+        const c = ui.chart;
+        if (!c) return;
+        const p = e.target.closest("[data-ind-param]");
+        if (p) {
+          const ind = c.indicators.find((i) => i.id === p.dataset.indParam);
+          if (ind) c.updateIndicator(ind.id, { params: { [p.dataset.key]: Number(p.value) || 1 } });
+        }
+      });
+      /* Before onKey: the tab strip owns the arrow keys while focus is
+         inside it, and the chart's own arrow-key panning must not also
+         fire and scroll the price out from under the trader. */
+      document.addEventListener("keydown", dockKey);
+      document.addEventListener("keydown", onKey);
+      document.addEventListener("keyup", onKeyUp);
+      document.addEventListener("fullscreenchange", () => {
+        /* Deliberately not calling setFullscreen(false) here.
+           On Android the device's own back button exits the browser's
+           fullscreen, and this listener used to take the desk's
+           fullscreen down with it -- so back collapsed the chart to a
+           window while leaving the trader on the chart page, which is
+           neither where they were nor where they asked to go. The
+           browser's fullscreen and the desk's are now separate: losing
+           the first leaves the chart filling the desk, and the only way
+           out of the chart is its own back button, which lands on the
+           charts list. */
+        // The browser resizes the viewport over a transition, so the frame
+        // painted on the way in is the old geometry. The engine's resize
+        // observer catches most of it; this covers the case where the box
+        // keeps its size and only the viewport units behind it change.
+        redrawSoon();
+      });
+      // Turning a phone while the chart is fullscreen swaps width for
+      // height with no element resize at all on some browsers.
+      window.addEventListener("orientationchange", redrawSoon);
+    }
+
+    // And the catch-all, for every size change nothing above predicted.
+    watchSize();
+
+    /* Mount gets the same treatment every other viewport change already
+       got. Opening the chart is a layout change like any other - arguably
+       the largest one - yet it was the only one with no repaint ladder
+       behind it, so a first paint taken before the layout settled was
+       never corrected and the trader had to poke something to fix it.
+       0/120/360ms, the same three beats as a dock toggle. */
+    redrawSoon();
+
+    /* ---- the positions dock ------------------------------------------- */
+    /* Shut by default on a phone for the same reason the side panel
+       is: the chart is what was opened, and a quarter of a small
+       screen is too much to spend before being asked. */
+    togglePosDock(posNarrow() ? false : read(LS_POS, "0") === "1");
+
+    /* ---- the tool sheet is dragged shut, like the settings one --------- */
+    if (typeof attachSheetDrag === "function") {
+      attachSheetDrag({
+        handle: $("tv-rail-grab"),
+        sheet: $("tv-rail"),
+        scrim: $("tv-toolscrim"),
+        body: $("tv-rail"),
+        isOpen: () => { const tv = $("tv"); return !!tv && tv.classList.contains("tools-open"); },
+        close: () => toggleTools(false),
+      });
+    }
+    /* A bottom sheet is a phone thing. Carried into the desktop
+       layout it becomes a class with no rules behind it - harmless to
+       look at, except that the header would stay inert and the trader
+       would have a dead top bar and nothing on screen explaining it.
+       Rotating a phone into landscape crosses this line too. */
+    if (typeof window.matchMedia === "function") {
+      const phone = window.matchMedia("(max-width: 760px)");
+      const onLeave = (e) => { if (!e.matches) toggleTools(false); };
+      if (typeof phone.addEventListener === "function") phone.addEventListener("change", onLeave);
+      else if (typeof phone.addListener === "function") phone.addListener(onLeave);
+    }
+    if (typeof attachSheetEdgeOpen === "function") {
+      attachSheetEdgeOpen({
+        stage: $("tv-chartbox"),
+        isOpen: () => { const tv = $("tv"); return !!tv && tv.classList.contains("tools-open"); },
+        open: () => toggleTools(true),
+        when: () => window.matchMedia("(max-width: 760px)").matches,
+      });
+    }
+
+    /* ---- navigation ----------------------------------------------------- */
+    const box = $("tv-chartbox");
+    if (box) box.onclick = (e) => {
+      if (e.target.closest("#tv-zin")) chart.zoom(1);
+      else if (e.target.closest("#tv-zout")) chart.zoom(-1);
+      else if (e.target.closest("#tv-auto")) chart.setAutoScale(true);
+      else if (e.target.closest("#tv-fit")) chart.fit();
+      else if (e.target.closest("#tv-latest")) chart.scrollToLatest();
+      syncNav();
+    };
+
+    /* The jump button is only useful when the live edge is off-screen, and
+       a control that does nothing is worse than no control. */
+    function syncNav() {
+      const b = $("tv-latest");
+      if (b) b.hidden = chart.atLatest();
+      const hg = $("tv-headgap");
+      if (hg) {
+        const on = chart.headGapOn();
+        hg.classList.toggle("on", on);
+        hg.setAttribute("aria-pressed", on ? "true" : "false");
+      }
+    }
+    ui.syncNav = syncNav;
+
+    syncNav();
+
+    /* ---- selection style bar ------------------------------------------- */
+    const styleBar = $("tv-style");
+    if (styleBar) {
+      // Stop the chart from treating a click on the bar as a click on the
+      // canvas behind it, which would deselect the very shape being styled.
+      ["mousedown", "pointerdown", "touchstart"].forEach((ev) =>
+        styleBar.addEventListener(ev, (e) => e.stopPropagation()));
+      styleBar.onclick = (e) => {
+        const d = chart.selected;
+        if (!d) return;
+        const dot = e.target.closest("[data-swatch]");
+        if (dot) { chart.updateObject(d.id, { color: dot.dataset.swatch }); return; }
+        const w = e.target.closest("[data-swidth]");
+        if (w) { chart.updateObject(d.id, { width: Number(w.dataset.swidth) }); return; }
+        if (e.target.closest("[data-style-price]")) {
+          chart.updateObject(d.id, { showPrice: d.showPrice === false });
+          return;
+        }
+        if (e.target.closest("[data-style-more]")) { showDock("props"); return; }
+        if (e.target.closest("[data-style-del]")) { chart.removeObject(d.id); return; }
+      };
+      styleBar.oninput = (e) => {
+        const d = chart.selected;
+        if (d && e.target.dataset.styleColor !== undefined) {
+          chart.updateObject(d.id, { color: e.target.value }, { quiet: true });
+        }
+      };
+    }
+
+    /* ---- dock ----------------------------------------------------------- */
+    const dock = $("tv-dock");
+    if (dock) {
+      dock.onclick = (e) => {
+        if (e.target.closest("#tv-dock-close")) { toggleDock(false); return; }
+        const tab = e.target.closest("[data-dock]");
+        if (tab) { showDock(tab.dataset.dock); return; }
+
+        const pick = e.target.closest("[data-obj-pick]");
+        if (pick) { chart.selectById(pick.dataset.objPick); showDock("props"); return; }
+        const vis = e.target.closest("[data-obj-vis]");
+        if (vis) {
+          const d = chart.getObject(vis.dataset.objVis);
+          if (d) chart.updateObject(d.id, { visible: d.visible === false });
+          return;
+        }
+        const lock = e.target.closest("[data-obj-lock]");
+        if (lock) {
+          const d = chart.getObject(lock.dataset.objLock);
+          if (d) chart.updateObject(d.id, { locked: !d.locked });
+          return;
+        }
+        const del = e.target.closest("[data-obj-del]");
+        if (del) { chart.removeObject(del.dataset.objDel); return; }
+
+        const bulk = e.target.closest("[data-bulk]");
+        if (bulk) {
+          const what = bulk.dataset.bulk;
+          if (what === "hide") chart.eachObject((d) => { d.visible = false; });
+          if (what === "show") chart.eachObject((d) => { d.visible = true; });
+          if (what === "lock") chart.eachObject((d) => { d.locked = true; });
+          if (what === "unlock") chart.eachObject((d) => { d.locked = false; });
+          if (what === "delete") {
+            if (!chart.drawings.length) return;
+            const ask = ctx.confirm || ((q, go) => { if (window.confirm(q)) go(); });
+            ask(tt("chart.confirm_clear", "Remove every drawing on this chart?"), () => chart.clearDrawings());
+          }
+          return;
+        }
+
+        const style = e.target.closest("[data-prop-style]");
+        if (style && chart.selected) { chart.updateObject(chart.selected.id, { style: style.dataset.propStyle }); return; }
+        const tog = e.target.closest("[data-prop-toggle]");
+        if (tog && chart.selected) {
+          const k = tog.dataset.propToggle;
+          chart.updateObject(chart.selected.id, { [k]: !chart.selected[k] });
+          return;
+        }
+        if (e.target.closest("#tvp-addlevel") && chart.selected) {
+          const v = Number(($("tvp-newlevel") || {}).value);
+          if (!Number.isFinite(v)) return;
+          const levels = chart.fibLevels(chart.selected).concat([{ value: v, label: (v * 100).toFixed(1) + "%", visible: true }]);
+          levels.sort((a, b) => a.value - b.value);
+          chart.updateObject(chart.selected.id, { levels });
+        }
+      };
+
+      dock.oninput = (e) => {
+        const d = chart.selected;
+        const t = e.target;
+        if (t.dataset.prop && d) {
+          chart.updateObject(d.id, { [t.dataset.prop]: t.type === "range" ? Number(t.value) : t.value }, { quiet: true });
+          if (t.dataset.prop === "name") renderObjects();
+          return;
+        }
+        if (t.dataset.propNum && d) { chart.updateObject(d.id, { [t.dataset.propNum]: Number(t.value) }, { quiet: true }); return; }
+        if (t.dataset.propBool && d) { chart.updateObject(d.id, { [t.dataset.propBool]: t.checked }, { quiet: true }); return; }
+        if (t.dataset.coord && d) {
+          const pt = d[t.dataset.coord];
+          if (pt) { pt.p = Number(t.value); chart.persist(); chart.draw(); }
+          return;
+        }
+        if (t.dataset.price && d) {
+          const key = t.dataset.price;
+          const v = Number(t.value);
+          if (!Number.isFinite(v)) return;
+          if (!d[key] && d.b) d[key] = { t: "", p: v, gi: d.b.gi, gx: d.b.gx };
+          else d[key].p = v;
+          chart.persist();
+          chart.draw();
+          // Only the derived block is rebuilt. Re-rendering the whole panel
+          // would replace the field being typed into and send the caret to
+          // the end on every keystroke.
+          const sums = $("tvp-derived");
+          if (sums) sums.innerHTML = positionSums(d);
+          renderObjects();
+          return;
+        }
+        if (t.dataset.levelVis !== undefined && d) {
+          const levels = chart.fibLevels(d);
+          levels[Number(t.dataset.levelVis)].visible = t.checked;
+          chart.updateObject(d.id, { levels }, { quiet: true });
+          return;
+        }
+        if (t.dataset.levelColor !== undefined && d) {
+          const levels = chart.fibLevels(d);
+          levels[Number(t.dataset.levelColor)].color = t.value;
+          chart.updateObject(d.id, { levels }, { quiet: true });
+        }
+      };
+    }
+
+    loadDockState();
+    markTool();
+    refresh();
+  }
+
+  function loadDockState() {
+    const tv = $("tv");
+    if (!tv) return;
+    const open = !tv.classList.contains("no-dock");
+    const b = $("tv-dock-toggle");
+    if (b) b.setAttribute("aria-pressed", open ? "true" : "false");
+    showDock(ui.dockTab || "objects");
+    if (!open) tv.classList.add("no-dock");
+  }
+
+  Object.assign(UI, {
+    bind, refresh, pickTool, setFullscreen, showDock, closeMenu, markTool, markRailState,
+    /* Exported so the tab strip's keyboard map can be exercised against
+       a rendered panel without standing up a whole chart engine. */
+    dockKey,
+    isFullscreen: () => ui.fullscreen,
+  });
+})(typeof window !== "undefined" ? window : this);

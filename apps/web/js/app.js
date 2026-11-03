@@ -54,9 +54,68 @@ function icon(name) {
     info: '<circle cx="12" cy="12" r="9"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>',
     flask: '<path d="M9 3h6"/><path d="M10 3v5a6 6 0 00-3 5.2V19a1 1 0 001 1h8a1 1 0 001-1v-5.8A6 6 0 0014 8V3"/>',
     user: '<circle cx="12" cy="8" r="3.2"/><path d="M5 19c1.4-3.2 3.8-5 7-5s5.6 1.8 7 5"/>',
+    bell: '<path d="M18 16V11a6 6 0 10-12 0v5l-1.6 2.2a.6.6 0 00.5.95h14.2a.6.6 0 00.5-.95z"/><path d="M10 21.5a2.2 2.2 0 004 0"/>',
     cal: '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18"/><path d="M8 3v4M16 3v4"/><circle cx="8.5" cy="14.5" r="1.2"/><circle cx="15.5" cy="14.5" r="1.2"/><circle cx="12" cy="17.5" r="1.2"/>',
+    /* Added when the emoji were taken out of the interface. Same grammar as
+       the rest: 24x24, stroked in currentColor, no fills, so they inherit
+       whatever colour and size the control around them already uses. */
+    bellOff: '<path d="M18 16V11a6 6 0 00-8.3-5.5"/><path d="M6.3 7.7A6 6 0 006 11v5l-1.6 2.2a.6.6 0 00.5.95h12.3"/><path d="M10 21.5a2.2 2.2 0 004 0"/><line x1="3" y1="3" x2="21" y2="21"/>',
+    eye: '<path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z"/><circle cx="12" cy="12" r="3"/>',
+    eyeOff: '<path d="M10.6 6a9.8 9.8 0 011.4-.1c6 0 9.5 6.1 9.5 6.1a17 17 0 01-2.8 3.5"/><path d="M6.3 7.8A16.7 16.7 0 002.5 12S6 18.1 12 18.1a9.4 9.4 0 004-.85"/><path d="M9.9 9.9a3 3 0 004.2 4.2"/><line x1="3" y1="3" x2="21" y2="21"/>',
+    refresh: '<path d="M20.5 12a8.5 8.5 0 11-2.6-6.1"/><polyline points="20.5,3.5 20.5,8 16,8"/>',
+    chart: '<line x1="4" y1="20" x2="20" y2="20"/><rect x="6" y="12" width="3.2" height="6" rx="1"/><rect x="11.4" y="8" width="3.2" height="10" rx="1"/><rect x="16.8" y="4.5" width="3.2" height="13.5" rx="1"/>',
+    search: '<circle cx="11" cy="11" r="6.5"/><line x1="15.8" y1="15.8" x2="20.5" y2="20.5"/>',
+    clipboard: '<rect x="5" y="4.5" width="14" height="17" rx="2"/><path d="M9 4.5a1.5 1.5 0 011.5-1.5h3A1.5 1.5 0 0115 4.5v1H9z"/><line x1="9" y1="11" x2="15" y2="11"/><line x1="9" y1="15" x2="13.5" y2="15"/>',
+    wrench: '<path d="M14.8 6.2a4.6 4.6 0 00-6 6L4 17l3 3 4.8-4.8a4.6 4.6 0 006-6l-2.6 2.6-2.4-.6-.6-2.4z"/>',
+    building: '<path d="M4 21V6a2 2 0 012-2h7a2 2 0 012 2v15"/><path d="M15 10h3a2 2 0 012 2v9"/><line x1="2.5" y1="21" x2="21.5" y2="21"/><path d="M8 8h3M8 12h3M8 16h3"/>',
+    check: '<polyline points="4.5,12.5 9.5,17.5 19.5,6.5"/>',
+    hourglass: '<path d="M7 3h10"/><path d="M7 21h10"/><path d="M7 3v3.2c0 1 .4 1.9 1.1 2.6L12 12l-3.9 3.2A3.6 3.6 0 007 17.8V21"/><path d="M17 3v3.2c0 1-.4 1.9-1.1 2.6L12 12l3.9 3.2c.7.7 1.1 1.6 1.1 2.6V21"/>',
+    close: '<line x1="6" y1="6" x2="18" y2="18"/><line x1="18" y1="6" x2="6" y2="18"/>',
+    chevron: '<polyline points="6,9.5 12,15.5 18,9.5"/>',
+    heart: '<path d="M12 20s-7.5-4.4-7.5-9.4A4.1 4.1 0 0112 8.2a4.1 4.1 0 017.5 2.4c0 5-7.5 9.4-7.5 9.4z"/>',
+    lock: '<rect x="4.5" y="10.5" width="15" height="10" rx="2"/><path d="M8 10.5V7.8a4 4 0 018 0v2.7"/>',
+    headset: '<path d="M4.5 14v-2a7.5 7.5 0 0115 0v2"/><rect x="2.8" y="13.5" width="4" height="6" rx="1.6"/><rect x="17.2" y="13.5" width="4" height="6" rx="1.6"/><path d="M19.2 19.5a3.4 3.4 0 01-3.4 2.3H13"/>',
+    megaphone: '<path d="M4 10v4a1.6 1.6 0 001.6 1.6H7l3.6 3.2a.8.8 0 001.4-.6V5.8a.8.8 0 00-1.4-.6L7 8.4H5.6A1.6 1.6 0 004 10z"/><path d="M16.5 9a4 4 0 010 6"/><path d="M19 6.5a7.5 7.5 0 010 11"/>',
+    phone: '<path d="M7.6 3.5h-3A1.6 1.6 0 003 5.2 16.4 16.4 0 0018.8 21a1.6 1.6 0 001.7-1.6v-3a1.1 1.1 0 00-.95-1.1l-3-.45a1.1 1.1 0 00-1 .4l-1.2 1.4a12.6 12.6 0 01-5.1-5.1l1.4-1.2a1.1 1.1 0 00.4-1l-.45-3a1.1 1.1 0 00-1.1-.95z"/>',
+    mail: '<rect x="3" y="5.5" width="18" height="13" rx="2"/><polyline points="3.6,6.8 12,13 20.4,6.8"/>',
+    send: '<path d="M21 3.5L10.8 13.7"/><path d="M21 3.5l-6.6 17.3-3.6-7.1-7.1-3.6z"/>',
+    star: '<polygon points="12,3.6 14.4,9 20.2,9.6 15.8,13.5 17.1,19.2 12,16.2 6.9,19.2 8.2,13.5 3.8,9.6 9.6,9"/>',
+    minus: '<line x1="5.5" y1="12" x2="18.5" y2="12"/>',
+    sun: '<circle cx="12" cy="12" r="4.2"/><line x1="12" y1="2.4" x2="12" y2="5"/><line x1="12" y1="19" x2="12" y2="21.6"/><line x1="2.4" y1="12" x2="5" y2="12"/><line x1="19" y1="12" x2="21.6" y2="12"/><line x1="5.2" y1="5.2" x2="7" y2="7"/><line x1="17" y1="17" x2="18.8" y2="18.8"/><line x1="18.8" y1="5.2" x2="17" y2="7"/><line x1="7" y1="17" x2="5.2" y2="18.8"/>',
+    moon: '<path d="M20.2 14.3A8.4 8.4 0 0 1 9.7 3.8a8.4 8.4 0 1 0 10.5 10.5z"/>',
+    themeAuto: '<circle cx="12" cy="12" r="8.4"/><path d="M12 3.6a8.4 8.4 0 0 1 0 16.8z" fill="currentColor" stroke="none"/>',
+    volume: '<path d="M4 9.5h3.2L12 5.6v12.8L7.2 14.5H4z"/><path d="M16 9.2a4 4 0 0 1 0 5.6"/><path d="M18.4 6.6a7.5 7.5 0 0 1 0 10.8"/>',
+    volumeOff: '<path d="M4 9.5h3.2L12 5.6v12.8L7.2 14.5H4z"/><line x1="16.5" y1="9.5" x2="21" y2="14.5"/><line x1="21" y1="9.5" x2="16.5" y2="14.5"/>',
+    play: '<path d="M8 5.6 18 12 8 18.4z"/>',
+    plus: '<line x1="12" y1="5.5" x2="12" y2="18.5"/><line x1="5.5" y1="12" x2="18.5" y2="12"/>',
+    target: '<circle cx="12" cy="12" r="7.2"/><line x1="12" y1="1.8" x2="12" y2="5.2"/><line x1="12" y1="18.8" x2="12" y2="22.2"/><line x1="1.8" y1="12" x2="5.2" y2="12"/><line x1="18.8" y1="12" x2="22.2" y2="12"/><circle cx="12" cy="12" r="1.6"/>',
+    download: '<path d="M12 3.5v11"/><polyline points="7.5,10 12,14.5 16.5,10"/><path d="M4.5 17.5v1.5a2 2 0 002 2h11a2 2 0 002-2v-1.5"/>',
+    box: '<polygon points="12,3 20.5,7.5 12,12 3.5,7.5"/><polyline points="3.5,7.5 3.5,16.5 12,21 20.5,16.5 20.5,7.5"/><line x1="12" y1="12" x2="12" y2="21"/>',
   };
-  return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">${p[name] || ""}</svg>`;
+  /* width/height are geometry attributes, not CSS, so every rule in the
+     stylesheet still beats them no matter how it is written or where it
+     sits in the cascade -- .btn > svg keeps its 16px, .nav button svg
+     its 20px. What they give is a floor.
+
+     Without one an icon dropped somewhere the stylesheet does not name
+     has no intrinsic size, and the browser falls back to the default
+     300x150 replaced-element box. That is not a subtle mis-layout: it
+     is a tick the size of a card, which is what "Update: [check] up to
+     date" on the About page had become. Sizing to 1em means a stray
+     icon matches the text it sits in instead. */
+  /* aria-hidden on every one of them, always.
+
+     An icon in this interface is either sitting beside its own label,
+     in which case a screen reader announcing it says the name twice,
+     or it is alone inside a control, in which case the NAME BELONGS
+     TO THE CONTROL and not to the glyph - a button whose only content
+     is an <svg> needs an aria-label on the button, and the moment it
+     has one the svg underneath is decoration. There is no third case
+     here, so there is no reason for any caller to decide. focusable
+     is pinned to false because IE-era SVG is still focusable in some
+     engines and a tab stop on a decorative glyph is a tab stop that
+     announces nothing. */
+  return `<svg width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">${p[name] || ""}</svg>`;
 }
 
 function $(id) { return document.getElementById(id); }
@@ -77,7 +136,7 @@ function leaveDesk(msg) {
     S._refreshAgain = false;
     S._refreshWait = null;
     S._hardRefreshing = false;
-    S.mountedView = null;
+    S.mountedView = null; S.mountedKey = null;
     API.setToken("");
     S.user = null;
     S.snap = null;
@@ -119,15 +178,154 @@ window.AURION_onAuthLost = () => {
     leaveDesk(I18N.t("auth.session_boot"));
   }
 };
-function toast(msg) {
+/**
+ * Where a floating layer has to live right now.
+ *
+ * While an element is fullscreen the browser paints that element's subtree
+ * and nothing else, so a modal parented to <body> is simply not on screen -
+ * which is how deleting a drawing from a fullscreen chart turned into
+ * "nothing happens until you leave fullscreen". Anything that floats asks
+ * for its host instead of assuming <body>.
+ */
+function overlayHost() {
+  const fs = document.fullscreenElement;
+  if (fs && fs !== document.documentElement && fs !== document.body) return fs;
+  return document.body;
+}
+
+/**
+ * Dismiss one notification, on a mouse or a finger, by swipe or by button.
+ *
+ * Pointer events rather than touch events, so this is one implementation
+ * for both: a mouse drag across a toast dismisses it exactly as a thumb
+ * does, which is what "whether mobile or computer" asks for.
+ *
+ * Four things here are not obvious and each one was a way to get stuck:
+ *
+ *   - the threshold is a fraction of the card's own width, not a fixed
+ *     88px. A notification is 380px on a desk and can be a third of that
+ *     on a narrow phone, where 88px is most of the card.
+ *   - a fast flick counts even if it is short. Requiring the full distance
+ *     makes a deliberate, slow drag the only way to dismiss, which is the
+ *     opposite of what a flick is for.
+ *   - pointercancel is handled. The browser takes the pointer away when it
+ *     decides the gesture is a scroll, and without this the card stays
+ *     where the finger left it: half off-screen, half transparent, for
+ *     ever.
+ *   - a drag that starts on a button is not a swipe. The close button and
+ *     the "open chart" button live inside the card, and capturing their
+ *     pointer would mean they could never be clicked.
+ */
+function bindDismiss(el, onGone) {
+  if (!el || el._dismissBound) return;
+  el._dismissBound = true;
+
+  const finish = () => {
+    if (el._gone) return;
+    el._gone = true;
+    if (typeof onGone === "function") onGone(el);
+    else el.remove();
+  };
+
+  /* Slide the card out the way it was thrown before removing it, so the
+     list closing up reads as a consequence of the gesture. */
+  const fling = (dir) => {
+    el.classList.add("n-out");
+    el.style.transform = `translateX(${dir * Math.max(240, el.offsetWidth)}px)`;
+    el.style.opacity = "0";
+    const done = () => finish();
+    el.addEventListener("transitionend", done, { once: true });
+    // A card in a hidden tab gets no transitionend, so it would never leave.
+    setTimeout(done, 320);
+  };
+
+  const reset = () => {
+    el.classList.remove("swiping");
+    el.style.transform = "";
+    el.style.opacity = "";
+  };
+
+  let id = null, x0 = 0, t0 = 0, dx = 0;
+
+  el.addEventListener("pointerdown", (e) => {
+    if (el._gone) return;
+    if (e.button !== undefined && e.button !== 0) return;
+    // Let the controls inside the card have their own clicks.
+    if (e.target.closest("button, a, input, select, textarea")) return;
+    id = e.pointerId; x0 = e.clientX; t0 = Date.now(); dx = 0;
+    el.classList.add("swiping");
+    try { el.setPointerCapture(id); } catch { /* synthetic pointer */ }
+  });
+
+  el.addEventListener("pointermove", (e) => {
+    if (id === null || e.pointerId !== id) return;
+    dx = e.clientX - x0;
+    el.style.transform = `translateX(${dx}px)`;
+    el.style.opacity = String(Math.max(0.15, 1 - Math.abs(dx) / (el.offsetWidth || 320)));
+  });
+
+  const release = (e) => {
+    if (id === null || (e && e.pointerId !== id)) return;
+    try { el.releasePointerCapture(id); } catch { /* already gone */ }
+    id = null;
+    const width = el.offsetWidth || 320;
+    const far = Math.abs(dx) > Math.max(56, width * 0.3);
+    const fast = Math.abs(dx) > 28 && Math.abs(dx) / Math.max(1, Date.now() - t0) > 0.45;
+    if (far || fast) fling(dx < 0 ? -1 : 1);
+    else reset();
+    dx = 0;
+  };
+  el.addEventListener("pointerup", release);
+  el.addEventListener("pointercancel", () => { id = null; dx = 0; reset(); });
+
+  const x = el.querySelector("[data-nx]");
+  if (x) x.onclick = (e) => { e.stopPropagation(); finish(); };
+  el._dismiss = finish;
+}
+
+/* Ordinary notifications arrive in bursts - saving a form can raise three
+   in a row - and three chimes on top of each other is a noise, not a
+   notification. One sound per window, the rest are seen and not heard. */
+let _lastNoticeSound = 0;
+function noticeSound() {
+  const now = Date.now();
+  if (now - _lastNoticeSound < 900) return;
+  _lastNoticeSound = now;
+  const p = notifyPrefs();
+  playSound(p.notice, p.volume, "notice");
+}
+
+/**
+ * The ordinary notification: a short message in the corner.
+ *
+ * It now has a close button and can be swiped away, because it used to do
+ * neither - it sat there for 3.2 seconds whatever you did, and on a phone
+ * it covered the controls underneath for all of them. It also makes a
+ * sound, which it did not before.
+ *
+ * `opts.silent` exists for the places where a sound would be absurd: the
+ * sound settings panel itself, which raises a toast to confirm the sound
+ * you just picked.
+ */
+function toast(msg, opts) {
   const wrap = $("toasts");
   if (!wrap) return;
+  opts = opts || {};
+  const host = overlayHost();
+  if (wrap.parentElement !== host) host.appendChild(wrap);
   while (wrap.children.length >= 2) wrap.firstElementChild.remove();
   const el = document.createElement("div");
   el.className = "toast";
-  el.textContent = msg;
+  el.innerHTML = `<span class="toast-msg"></span>` +
+    `<button type="button" class="n-x" data-nx="toast"
+             aria-label="${esc(I18N.t("notify.dismiss"))}">${icon("close")}</button>`;
+  // textContent, not innerHTML: a toast often carries a server message.
+  el.querySelector(".toast-msg").textContent = msg;
   wrap.appendChild(el);
-  setTimeout(() => el.remove(), 3200);
+  const timer = setTimeout(() => { if (el._dismiss) el._dismiss(); else el.remove(); }, 3200);
+  bindDismiss(el, () => { clearTimeout(timer); el.remove(); });
+  if (!opts.silent) noticeSound();
+  return el;
 }
 function modalOpen() {
   const host = $("desk-modal");
@@ -143,8 +341,9 @@ function askConfirm(opts) {
       host.id = "desk-modal";
       host.className = "modal";
       host.hidden = true;
-      document.body.appendChild(host);
     }
+    const where = overlayHost();
+    if (host.parentElement !== where) where.appendChild(host);
     const danger = Boolean(opts.danger);
     host.innerHTML = `<div class="modal-card${danger ? " is-danger" : ""}" role="dialog" aria-modal="true" aria-labelledby="modal-title">
       <h3 id="modal-title">${esc(opts.title || I18N.t("common.ok"))}</h3>
@@ -183,6 +382,16 @@ function askConfirm(opts) {
     setTimeout(() => yes && yes.focus(), 20);
   });
 }
+/**
+ * Which build of the desk is actually running.
+ *
+ * Every asset is cache-busted with a ?v= token, so when a change does not
+ * appear there are three candidates - the browser kept the old file, a
+ * service worker served it, or the desk being looked at is an installed
+ * copy that git never touched - and no way to tell them apart by looking.
+ * Printing the token the running app.js was loaded with settles it in one
+ * glance: if this does not match the token in index.html, the page is old.
+ */
 function fmt(n, d = 2) {
   if (n === null || n === undefined || n === "" || Number.isNaN(Number(n))) return "—";
   try {
@@ -196,53 +405,233 @@ function markLangPills() {
     b.classList.toggle("on", b.getAttribute("data-lang") === I18N.lang);
   });
 }
-const THEME_ICON_SUN = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>';
-const THEME_ICON_MOON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3 7 7 0 0 0 21 12.8z"/></svg>';
+const THEME_ICON_SUN = '<svg aria-hidden="true" focusable="false" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>';
+const THEME_ICON_MOON = '<svg aria-hidden="true" focusable="false" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3 7 7 0 0 0 21 12.8z"/></svg>';
 let __themeMorphT = null;
-function morphTheme(apply) {
+
+/* Everything a theme, appearance or language change still has in flight
+ * after `apply()` has returned.
+ *
+ * Returning from apply() only means the new values are in the DOM. The
+ * browser has not necessarily recalculated style, and two of the things
+ * a theme carries are not style at all but files it has to go and fetch:
+ * the typeface and the wallpaper. Both arrive late, and both arrived
+ * after the cover had lifted.
+ */
+const MORPH_SAMPLE = "AURION 0123 آوریون نمودار";
+const MORPH_WEIGHTS = ["400", "500", "600"];
+const MORPH_ASSET_TIMEOUT = 6000;
+
+/* The faces the desk is about to render in.
+ *
+ * Every @font-face here is font-display:swap, which behind a veil is
+ * exactly the wrong behaviour: the browser paints fallback text at once
+ * and swaps the real face in whenever it turns up - reliably after the
+ * cover has gone. And document.fonts.ready alone does not help, because
+ * a face is only requested once something needs it; asked immediately
+ * after the swap, the set is still "loaded" and the promise is already
+ * resolved. So the faces are asked for by name, in the weights the desk
+ * uses, with sample text spanning both the Latin and the Arabic
+ * unicode-range subsets - otherwise only the subset covering the
+ * default probe string is fetched. */
+function morphFontsReady() {
+  let fonts = null;
+  try { fonts = document.fonts; } catch {}
+  if (!fonts || typeof fonts.load !== "function") return Promise.resolve();
+  let fam = "";
+  try {
+    fam = getComputedStyle(document.body || document.documentElement).fontFamily || "";
+  } catch {}
+  const jobs = [];
+  if (fam) {
+    for (const w of MORPH_WEIGHTS) {
+      try { jobs.push(fonts.load(w + " 1em " + fam, MORPH_SAMPLE)); } catch {}
+    }
+  }
+  return Promise.all(jobs)
+    .catch(() => {})
+    .then(() => { try { return fonts.ready; } catch { return null; } })
+    .catch(() => {});
+}
+
+/* The wallpaper the new theme paints behind the desk.
+ *
+ * A theme can carry one of twenty photographs, each with a dark and a
+ * light cut, so a theme swap AND a light/dark flip can both change it.
+ * Nothing waited for it: the veil came off over the old picture and the
+ * new one faded in underneath the desk a moment later. */
+function morphWallReady() {
+  let raw = "";
+  try {
+    raw = getComputedStyle(document.documentElement).getPropertyValue("--theme-bg") || "";
+  } catch {}
+  let src = "";
+  try {
+    src = (typeof AurionTheme !== "undefined" && AurionTheme.cssUrl)
+      ? AurionTheme.cssUrl(raw) : "";
+  } catch {}
+  if (!src) return Promise.resolve();
+  return new Promise((done) => {
+    let img = null;
+    try { img = new Image(); } catch { done(); return; }
+    /* A picture that will not load must not hold the desk hostage
+       behind a cover it can never lift. */
+    const t = setTimeout(done, MORPH_ASSET_TIMEOUT);
+    const end = () => { clearTimeout(t); done(); };
+    img.onload = () => {
+      /* decode() is the difference between "the bytes are here" and
+         "painting it will not stall" - which is the question being
+         asked. */
+      if (typeof img.decode === "function") img.decode().then(end, end);
+      else end();
+    };
+    img.onerror = end;
+    img.src = src;
+  });
+}
+
+/* Two frames. A requestAnimationFrame callback runs BEFORE the paint it
+   belongs to, so one frame proves nothing; the second only runs once the
+   first has been painted. */
+function morphFrames() {
+  return new Promise((done) => {
+    if (typeof requestAnimationFrame !== "function") { setTimeout(done, 32); return; }
+    requestAnimationFrame(() => requestAnimationFrame(() => done()));
+  });
+}
+
+function morphSettled() {
+  /* Flush style and layout first. Until the browser has recalculated it
+     does not know which font it needs or which picture it is about to
+     paint, so asking either of them before this line is asking a
+     question about the theme that has just been replaced. */
+  try { void document.documentElement.offsetWidth; } catch {}
+  return Promise.all([morphFontsReady(), morphWallReady()])
+    .catch(() => {})
+    .then(morphFrames)
+    /* One more flush-and-frame after the assets land: fonts reflow text
+       and the wallpaper repaints the backdrop, and both of those are
+       work the browser has only just been told about. */
+    .then(morphFrames)
+    .catch(() => {});
+}
+/* Cover the desk while a theme, appearance or language change is applied.
+ *
+ * `apply` may be synchronous (a theme swap) or return a promise (a language
+ * change has to fetch and re-render). The veil stays up until that work is
+ * finished, so the trader never sees a half-translated desk, and the card
+ * on top of it says which of the three is happening.
+ *
+ * Returns a promise that settles when the veil has lifted. */
+function morphTheme(apply, opts) {
+  const o = opts || {};
   const root = document.documentElement;
   let veil = null;
   try { veil = document.getElementById("theme-veil"); } catch {}
   let reduce = false;
   try { reduce = Boolean(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches); } catch {}
-  if (reduce || !veil || !root) { apply(); return; }
+
+  const label = () => {
+    const title = document.getElementById("theme-veil-title");
+    const sub = document.getElementById("theme-veil-sub");
+    if (title) title.textContent = o.title || I18N.t("ui.switch_theme");
+    if (sub) sub.textContent = o.sub || I18N.t("ui.switch_wait");
+  };
+
+  if (!veil || !root) return Promise.resolve(apply());
+
   if (__themeMorphT) { clearTimeout(__themeMorphT); __themeMorphT = null; }
+  label();
+
+  const painted = () => morphSettled();
+
+  /* While the work runs the desk is not usable, so it must not be
+     clickable either - the veil was pointer-events:none, which made it a
+     picture of a loading screen rather than one. aria-busy and the live
+     region are the same statement for anyone not looking at it. */
+  const busy = (on) => {
+    veil.classList.toggle("is-busy", on);
+    try {
+      root.setAttribute("aria-busy", on ? "true" : "false");
+      if (on) veil.removeAttribute("aria-hidden");
+      else veil.setAttribute("aria-hidden", "true");
+    } catch {}
+  };
+
+  /* Reduced motion keeps the cover and the message - they are information,
+     not decoration - and simply drops the fades. */
+  if (reduce) {
+    veil.style.transition = "none";
+    veil.style.opacity = "1";
+    busy(true);
+    return Promise.resolve()
+      .then(apply)
+      .catch((e) => { try { console.error(e); } catch {} })
+      .then(painted)
+      .then(() => {
+        label();
+        veil.style.opacity = "0";
+        busy(false);
+      });
+  }
+
   let before = "#06070b";
   try { before = getComputedStyle(root).getPropertyValue("--bg").trim() || before; } catch {}
-  // Phase 1 — a soft cover in the current background colour.
-  veil.style.transition = "none";
-  veil.style.backgroundColor = before;
-  veil.style.opacity = "0";
-  void veil.offsetWidth;
-  veil.style.transition = "opacity .18s ease-out";
-  veil.style.opacity = "1";
-  // Phase 2 — flip the theme/glass state while covered, then lift the veil on
-  // the same curve the page is still gliding. The .theming class is added
-  // HERE (not during the cover) so element transitions run under the fade
-  // instead of being hidden behind it — that's what makes it read as a morph.
-  __themeMorphT = setTimeout(() => {
-    root.classList.add("theming");
-    apply();
-    let after = before;
-    try { after = getComputedStyle(root).getPropertyValue("--bg").trim() || before; } catch {}
-    veil.style.transition = "opacity .55s cubic-bezier(.33,0,.2,1), background-color .55s cubic-bezier(.33,0,.2,1)";
-    veil.style.backgroundColor = after;
+
+  return new Promise((resolve) => {
+    // Phase 1 — a soft cover over the desk as it stands.
+    veil.style.transition = "none";
     veil.style.opacity = "0";
+    void veil.offsetWidth;
+    veil.style.transition = "opacity .18s ease-out";
+    veil.style.opacity = "1";
+    busy(true);
+
+    /* Phase 2 — do the work, all of it, while the desk is covered.
+     *
+     * This used to add a `.theming` class that put a 500ms transition on
+     * every themed property, deliberately timed to run UNDER the fade so
+     * the swap "read as a morph rather than a cut". That is precisely
+     * backwards. What it produced was a cover that lifted off a desk
+     * which then changed colour in front of you - the loading state
+     * ended and the work started, so the veil was decorating the change
+     * rather than hiding it. The dissolve is gone: behind an opaque
+     * cover there is nothing for a cross-fade to be seen by, and the
+     * only thing it can still be seen by is the one moment it must not
+     * be. The desk changes instantly, settles completely, and is then
+     * revealed finished. */
     __themeMorphT = setTimeout(() => {
-      root.classList.remove("theming");
-      veil.style.transition = "";
-      veil.style.backgroundColor = "";
-      veil.style.opacity = "";
-      __themeMorphT = null;
-    }, 580);
-  }, 210);
+      Promise.resolve()
+        .then(apply)
+        .catch((e) => { try { console.error(e); } catch {} })
+        .then(painted)
+        .then(() => {
+          // The labels may have just changed language; restate them before
+          // the card is seen on the way out.
+          label();
+          veil.style.transition = "opacity .55s cubic-bezier(.33,0,.2,1)";
+          veil.style.opacity = "0";
+          busy(false);
+          __themeMorphT = setTimeout(() => {
+            veil.style.transition = "";
+            veil.style.backgroundColor = "";
+            veil.style.opacity = "";
+            __themeMorphT = null;
+            resolve();
+          }, 580);
+        });
+    }, 210);
+  });
 }
+
 function setTheme(mode) {
   const m = mode === "light" ? "light" : mode === "dark" ? "dark" : "auto";
   if (m === themeMode() && resolveTheme(m) === currentTheme()) { paintThemeBtn(); markThemePills(); return; }
-  morphTheme(() => setThemeNow(m));
+  morphTheme(() => setThemeNow(m), { title: I18N.t("ui.switch_mode") });
 }
-function setGlass(on) { morphTheme(() => setGlassNow(on)); }
+function setGlass(on) {
+  return morphTheme(() => setGlassNow(on), { title: I18N.t("ui.switch_mode") });
+}
 function currentTheme() {
   return (document.documentElement && document.documentElement.dataset.theme) === "light" ? "light" : "dark";
 }
@@ -288,21 +677,1705 @@ function markThemePills() {
     b.classList.toggle("on", b.getAttribute("data-themebtn") === cur);
   });
 }
+/**
+ * Canvas art does not inherit CSS.
+ *
+ * charts.js reads the desk's colour variables once and caches the result
+ * against window.__aurionThemeRev, because re-reading getComputedStyle
+ * on every frame is expensive. Anything that changes those variables
+ * therefore has to say so, or the canvas keeps painting yesterday's
+ * palette while the HTML around it has already changed.
+ *
+ * This was bumped only by the light/dark toggle, so picking new candle
+ * colours in the theme editor recoloured every P/L figure on the desk
+ * and left the actual candles untouched.
+ */
+function refreshChartPalette() {
+  try { window.__aurionThemeRev = (window.__aurionThemeRev | 0) + 1; } catch {}
+  if (S.chart && S.candles && S.candles.length && typeof S.chart.setBars === "function") {
+    try { S.chart.setBars(S.candles); } catch {}
+  }
+  // The watchlist sparklines are canvas too, and they read the same pair.
+  try { paintMiniCharts(); } catch {}
+}
+
 function setThemeNow(mode) {
   const m = mode === "light" ? "light" : mode === "dark" ? "dark" : "auto";
   const next = resolveTheme(m);
   if (document.documentElement) document.documentElement.dataset.theme = next;
   try { localStorage.setItem("aurion.theme", m); } catch {}
-  try { window.__aurionThemeRev = (window.__aurionThemeRev | 0) + 1; } catch {}
   const meta = document.querySelector('meta[name="theme-color"]');
   if (meta) meta.setAttribute("content", next === "light" ? "#e9edf4" : "#06070b");
   paintThemeBtn();
   markThemePills();
-  if (S.chart && S.candles && S.candles.length && typeof S.chart.setBars === "function") {
-    try { S.chart.setBars(S.candles); } catch {}
+  refreshChartPalette();
+  /* The theme builder offers a different set of controls in each cut - the
+     light desk is locked to the typeface, the accent and the pictures - so
+     the card has to be redrawn when the cut changes underneath it.
+     Otherwise switching to light leaves a page full of colour swatches
+     that no longer do anything. */
+  try {
+    if (S.view === "settings") show("settings", { animate: false, closeMenu: false, nav: false });
+  } catch {}
+}
+/* ===========================================================================
+   Appearance — skin, accent, wallpaper, rendering tier.
+
+   Every one of these is presentation only: AurionSkin owns the storage and the
+   attributes on <html>, and nothing here touches desk state. Rendered as part
+   of the Personal settings tab.
+   =========================================================================== */
+/* ---------------------------------------------------------------------------
+   The themes gallery.
+
+   A theme is a material, not a colour, and a material cannot be described in
+   a dropdown. Every theme is therefore shown as a miniature of itself - rail,
+   panel, button, chip - drawn in its own palette and its own morphism,
+   whatever theme happens to be active while you are looking at the page. The
+   miniatures are pure CSS (css/themes.css, [data-art]) so they cost nothing
+   and cannot drift from the real thing by way of a second colour table here.
+
+   AurionTheme owns the state, the storage and the attributes on <html>. This
+   function only draws, and the morph the light/dark switch already uses is
+   reused for the swap so a theme change reads the same way. */
+const THEME_TICK =
+  '<svg aria-hidden="true" focusable="false" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12.5 4.5 4.5L19 7"/></svg>';
+
+const THEME_LOCK =
+  '<svg aria-hidden="true" focusable="false" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4.5" y="10.5" width="15" height="9.5" rx="2.2"/><path d="M8 10.5V7a4 4 0 118 0v3.5"/></svg>';
+
+/* One question, asked in three places: the gallery, the accent row and the
+   upgrade screen all have to agree about what this desk is allowed to wear. */
+function themesUnlocked() {
+  return licFeat("themes");
+}
+
+function themeLocked(id) {
+  return typeof AurionTheme !== "undefined" && AurionTheme.locked(id);
+}
+
+function themeCardHtml(theme, current, custom) {
+  const on = theme.id === current;
+  const locked = themeLocked(theme.id);
+  const name = I18N.t("themes." + theme.id + "_name");
+  const desc = I18N.t("themes." + theme.id + "_desc");
+  // The custom card is the only one that shows what the user built rather
+  // than what shipped: its accent and corner radius come from their knobs.
+  let style = "";
+  if (theme.id === "custom" && typeof AurionSkin !== "undefined") {
+    const acc = AurionSkin.ACCENTS[custom.accent] || AurionSkin.ACCENTS.aurora;
+    const rad = Math.max(2, Math.round(custom.radius * 0.45));
+    style = ` style="--p-accent:${acc[0]};--p-accent2:${acc[2]};--p-radius:${rad}px"`;
+  }
+  // A locked card is shown, not hidden: the point of a premium theme is that
+  // it can be seen. It stays in the radiogroup and stays reachable from the
+  // keyboard - it just answers with the upgrade screen instead of a swap.
+  return `<button type="button" class="theme-card${on ? " on" : ""}${locked ? " is-locked" : ""}" data-theme-pick="${theme.id}"
+      role="radio" aria-checked="${on ? "true" : "false"}" tabindex="${on ? "0" : "-1"}"
+      ${locked ? `data-locked="1" aria-describedby="set-theme-lock" title="${esc(I18N.t("themes.locked_hint"))}"` : ""}>
+      <span class="tc-art" data-art="${theme.id}"${style} aria-hidden="true">
+        <span class="tc-rail"><i></i><i></i><i></i></span>
+        <span class="tc-body">
+          <span class="tc-panel"><i></i><i></i></span>
+          <span class="tc-row"><span class="tc-btn"></span><span class="tc-pill"></span><span class="tc-dot"></span></span>
+        </span>
+      </span>
+      <span class="tc-meta">
+        <span class="tc-name">${esc(name)}</span>
+        <span class="tc-desc">${esc(desc)}</span>
+      </span>
+      <span class="tc-check">${THEME_TICK}</span>
+      ${locked ? `<span class="tc-lock" aria-hidden="true">${THEME_LOCK}</span>
+      <span class="sr-only">${esc(I18N.t("themes.locked_hint"))}</span>` : ""}
+    </button>`;
+}
+
+/* One slider, with its value shown as it moves. Every knob is the same shape,
+   so the panel is a table and not seven hand-written blocks. */
+function themeKnobHtml(key, label, value, suffix) {
+  const lim = AurionTheme.LIMITS[key];
+  const shown = key === "motion" && Number(value) === 0
+    ? I18N.t("themes.motion_off") : value + (suffix || "");
+  return `<label class="knob">
+      <span class="knob-head"><span>${esc(label)}</span><b id="knob-v-${key}">${esc(shown)}</b></span>
+      <input type="range" data-knob="${key}" min="${lim[0]}" max="${lim[1]}" step="${lim[2]}"
+             value="${value}" aria-label="${esc(label)}" />
+    </label>`;
+}
+
+function themesGalleryHtml() {
+  if (typeof AurionTheme === "undefined") return "";
+  const current = AurionTheme.effective();
+  const custom = AurionTheme.getCustom();
+  const cards = AurionTheme.THEMES.map((t) => themeCardHtml(t, current, custom)).join("");
+  const unlocked = themesUnlocked();
+
+  return `
+      <div class="card" style="margin-top:14px">
+        <p class="sub" style="margin:0 0 10px">${I18N.t("themes.hint")}</p>
+        ${unlocked ? "" : `<div class="theme-locked-note" id="set-theme-lock">
+          <span class="tl-ico" aria-hidden="true">${THEME_LOCK}</span>
+          <span class="tl-text"><b>${I18N.t("themes.locked_title")}</b>
+            <span class="sub">${I18N.t("themes.locked_note")}</span></span>
+          <button type="button" class="btn tiny" data-go-upgrade>${I18N.t("lic.upgrade_cta")}</button>
+        </div>`}
+        <div class="theme-grid" id="set-theme-grid" role="radiogroup" aria-label="${esc(I18N.t("themes.title"))}">${cards}</div>
+        <p class="sub" style="margin:12px 0 0">${I18N.t("themes.recommended")}</p>
+      </div>
+
+      ${themeBuilderHtml()}`;
+}
+
+/* The builder used to be the "custom" theme's private panel: it was hidden
+   unless that one card was selected, and its sliders wrote to a slot only
+   that theme read. So a trader who liked Relief but wanted less shadow
+   had nowhere to go, and picking a background meant abandoning the theme
+   they had chosen. The panel is now simply "the theme you are using": it is
+   always shown, it edits whichever theme is active, and the edits are kept
+   per theme so nothing is lost by switching away and back. */
+function themeBuilderHtml() {
+  const current = AurionTheme.effective();
+  const k = AurionTheme.knobs();
+  const unlocked = themesUnlocked();
+  const picture = AurionTheme.getBgImage();
+  const colours = AurionTheme.colours(current);
+  const fx = AurionTheme.fx(current);
+
+  /* The backdrop gallery is gone along with the backdrops it offered.
+     What is behind the desk is now one of three honest things: the flat
+     themed colour, one of the twenty photographs, or the trader's own
+     picture - and the last two each have their own section below. */
+
+  /* The twenty photographs AURION ships, offered to every theme.
+     Each tile is the picture itself at thumbnail size, in the cut that
+     matches the mode in force - so what you see on the tile is what lands
+     on the desk. */
+  const wallNow = AurionTheme.wall(current);
+  const lightNow = document.documentElement.dataset.theme === "light";
+  /* The cut is part of the picture's NAME - "Aurora Dark" - rather than a
+     badge stamped across the artwork. A label printed over the thumbnail
+     covers the very thing the tile exists to show, and the gallery is a
+     list of pictures to pick from, so each one should simply say what it
+     is. */
+  const wallTile = (value, label, style, extra) =>
+    `<button type="button" class="bg-tile wall-tile${value === wallNow ? " on" : ""}"
+             data-wallpick="${esc(value)}" role="radio" aria-checked="${value === wallNow}"
+             tabindex="${value === wallNow ? 0 : -1}" title="${esc(label)}">
+       <span class="bgt-art wall-art${extra || ""}"${style}></span>
+       <span class="bgt-name">${esc(label)}</span>
+     </button>`;
+
+  /* The "theme's own" tile must show the picture the THEME ships with, not
+     whatever is on the page: once a choice has been made it overrides
+     --theme-bg globally, so a tile painted from that variable would show the
+     chosen picture and offer to switch you to it. */
+  const ownWall = AurionTheme.themeWall(current);
+  const ownStyle = ownWall
+    ? ` style="background-image:url(&quot;${esc(AurionTheme.wallUrl(ownWall, lightNow))}&quot;)"`
+    : "";
+
+  /* Every scene, in both cuts.
+     It used to show ten tiles and silently pick the cut that matched the
+     desk's mode, which meant the night version of a picture simply could
+     not be asked for on a light desk. Both are offered now, each labelled,
+     and the first tile of each pair still follows the mode for anyone who
+     wants that. */
+  const darkLabel = I18N.t("themes.wall_cut_dark");
+  const lightLabel = I18N.t("themes.wall_cut_light");
+  /* The first tile hands the theme back its own picture. Themes like AURION
+     and Custom ship none, and the tile was then simply empty - which reads
+     as a picture that failed to load rather than as a theme that has none.
+     It says which it is. */
+  const wallTiles = [
+    wallTile("",
+      ownWall ? I18N.t("themes.wall_theme") : I18N.t("themes.wall_theme_none"),
+      ownStyle, ownWall ? "" : " is-none"),
+    wallTile("none", I18N.t("themes.wall_none"), "", " is-none"),
+  ].concat(AurionTheme.WALLPAPERS.flatMap((w) => {
+    const name = I18N.t("themes.wall_" + w);
+    return [
+      wallTile(`${w}@night`, `${name} ${darkLabel}`,
+        ` style="background-image:url(&quot;${esc(AurionTheme.wallUrl(w + "@night", false))}&quot;)"`),
+      wallTile(`${w}@day`, `${name} ${lightLabel}`,
+        ` style="background-image:url(&quot;${esc(AurionTheme.wallUrl(w + "@day", true))}&quot;)"`),
+    ];
+  })).join("");
+
+  const fxOptions = Object.keys(AurionTheme.FX)
+    .map((f) => `<option value="${f}"${f === fx ? " selected" : ""}>${esc(I18N.t("themes.fx_" + f))}</option>`)
+    .join("");
+
+  const fontOptions = Object.keys(AurionTheme.FONTS)
+    .map((f) => `<option value="${f}"${f === (colours.font || "theme") ? " selected" : ""}>${
+      esc(I18N.t("themes.f_" + f))}</option>`)
+    .join("");
+
+  /* A colour row shows the colour in force, which is not the same as the
+     colour chosen: with nothing chosen the swatch has to show what the theme
+     is already using, or the trader is editing blind. */
+  const colourRow = (key, label, hint) => {
+    const chosen = colours[key] || "";
+    const shown = chosen || themeColourNow(key);
+    /* A button, not <input type="color">. The native control opens an
+       operating-system window over the desk, which hides the surface being
+       recoloured - and its input event fires faster than the page can
+       repaint. Both are fixed by owning the picker. */
+    return `<div class="col-row" data-colrow="${key}">
+        <span class="col-text"><b>${esc(label)}</b><small>${esc(hint)}</small></span>
+        <button type="button" class="col-swatch" data-colour="${key}"
+                style="background:${esc(shown)}"
+                aria-label="${esc(label)}" aria-haspopup="dialog"></button>
+        <button type="button" class="btn tiny ghost col-clear" data-colclear="${key}"${
+          chosen ? "" : " hidden"}>${esc(I18N.t("themes.c_clear"))}</button>
+      </div>`;
+  };
+
+  return `
+      <div class="card tc-custom" id="set-theme-custom" style="margin-top:14px"${unlocked ? "" : " hidden"}>
+        <h3 style="margin:0 0 4px">${I18N.t("themes.builder_title")}</h3>
+        <p class="sub" style="margin:0 0 2px">${I18N.t("themes.builder_hint")}</p>
+        <p class="sub" id="knob-editing" style="margin:0">${
+          esc(I18N.t("themes.editing", { name: themeName(current) }))}${
+          AurionTheme.edited(current) ? ` \u00B7 <b>${esc(I18N.t("themes.edited_tag"))}</b>` : ""}</p>
+
+        ${lightNow ? `<p class="sub lite-lock" id="theme-lite-lock">${
+          esc(I18N.t("themes.light_locked"))}</p>` : ""}
+
+        <div class="knob-grid"${lightNow ? " hidden" : ""}>
+          ${themeKnobHtml("surface", I18N.t("themes.surface"), k.surface, "%")}
+          ${themeKnobHtml("border", I18N.t("themes.border"), k.border, "%")}
+          ${themeKnobHtml("blur", I18N.t("themes.blur"), k.blur, "px")}
+          ${themeKnobHtml("radius", I18N.t("themes.radius"), k.radius, "px")}
+          ${themeKnobHtml("shadow", I18N.t("themes.shadow"), k.shadow, "%")}
+          ${themeKnobHtml("motion", I18N.t("themes.motion"), k.motion, "%")}
+        </div>
+
+        <div class="tb-sec">
+          <!-- On a light desk this section is the typeface and nothing
+               else. The colours and the candle pair are not disabled
+               controls that can be hovered and wondered about, they are
+               simply not offered; the one line above says why once, for
+               the whole card. -->
+          <div${lightNow ? " hidden" : ""}>
+          <h4>${esc(I18N.t("themes.colours_title"))}</h4>
+          <p class="sub">${esc(I18N.t("themes.colours_hint"))}</p>
+          <div class="col-rows">
+            ${colourRow("page", I18N.t("themes.c_page"), I18N.t("themes.c_page_hint"))}
+            ${colourRow("panel", I18N.t("themes.c_panel"), I18N.t("themes.c_panel_hint"))}
+            ${colourRow("ink", I18N.t("themes.c_ink"), I18N.t("themes.c_ink_hint"))}
+          </div>
+
+          <h4 class="cndl-h">${esc(I18N.t("themes.candles_title"))}</h4>
+          <p class="sub">${esc(I18N.t("themes.candles_hint"))}</p>
+          <!-- The preview is drawn in CSS from the same two variables the
+               chart canvas reads, which is what makes it live: the picker's
+               drag writes the variable straight onto <html> and these bars
+               restyle on the same frame. A canvas would have had to be told
+               to repaint, and there is no chart on the settings page to
+               repaint anyway. -->
+          <div class="cndl-prev" id="cndl-prev" aria-hidden="true">
+            ${[
+              ["up", 34, 62, 10], ["up", 22, 48, 14], ["down", 30, 44, 12],
+              ["up", 18, 70, 8], ["down", 40, 36, 16], ["down", 26, 52, 11],
+              ["up", 20, 58, 13], ["up", 30, 46, 9],
+            ].map(([dir, top, body, wick]) =>
+              `<i class="cndl is-${dir}" style="--t:${top}%;--h:${body}%;--w:${wick}%"></i>`).join("")}
+          </div>
+          <div class="col-rows">
+            ${colourRow("candle_up", I18N.t("themes.c_candle_up"), I18N.t("themes.c_candle_up_hint"))}
+            ${colourRow("candle_down", I18N.t("themes.c_candle_down"), I18N.t("themes.c_candle_down_hint"))}
+          </div>
+          <p class="sub warn" id="col-warn" hidden>${esc(I18N.t("themes.contrast_warn"))}</p>
+          </div>
+          ${lightNow ? `<h4>${esc(I18N.t("themes.font_title"))}</h4>` : ""}
+          <label class="field" style="margin-top:14px">
+            <span>${esc(I18N.t("themes.font_title"))}</span>
+            <select class="ctrl" id="knob-font">${fontOptions}</select>
+          </label>
+        </div>
+
+        <div class="tb-sec"${lightNow ? " hidden" : ""}>
+          <h4>${esc(I18N.t("themes.gallery_title"))}</h4>
+          <p class="sub">${esc(I18N.t("themes.gallery_hint"))}</p>
+          <label class="field" style="margin-top:12px">
+            <span>${esc(I18N.t("themes.fx_title"))}</span>
+            <select class="ctrl" id="knob-fx">${fxOptions}</select>
+          </label>
+        </div>
+
+        <div class="tb-sec">
+          <h4>${esc(I18N.t("themes.wall_title"))}</h4>
+          <p class="sub">${esc(I18N.t("themes.wall_hint"))}</p>
+          <div class="bg-tiles wall-tiles" id="knob-walls" role="radiogroup"
+               aria-label="${esc(I18N.t("themes.wall_pick"))}">${wallTiles}</div>
+          <div class="wall-warn" id="wall-warn" role="status" hidden></div>
+        </div>
+
+        <div class="tb-sec bgpic" id="set-bgpic">
+          <h4>${esc(I18N.t("themes.bg_image"))}</h4>
+          <p class="sub">${esc(I18N.t("themes.bg_hint"))}</p>
+          <div class="bgpic-row">
+            <div class="bgpic-thumb"${picture ? ` style="background-image:url(&quot;${esc(picture)}&quot;)"` : ""}
+                 id="bgpic-thumb" aria-hidden="true"></div>
+            <div class="bgpic-acts">
+              <input type="file" id="bgpic-file" accept="image/*" hidden
+                     aria-label="${esc(I18N.t("themes.bg_picture"))}" />
+              <button type="button" class="btn tiny" id="bgpic-pick">${esc(I18N.t("themes.bg_image_pick"))}</button>
+              <button type="button" class="btn ghost tiny" id="bgpic-clear"${picture ? "" : " hidden"}>${
+                esc(I18N.t("themes.bg_image_clear"))}</button>
+            </div>
+          </div>
+          <div id="bgpic-frame"${picture && k.bg === "photo" ? "" : " hidden"}>
+            <p class="sub bgpic-framehint">${esc(I18N.t("themes.bg_crop_hint"))}</p>
+            <!-- Drag the picture inside this box to choose what the desk
+                 shows. The box has the shape of the desk, so what is framed
+                 here is what lands behind the panels. -->
+            <div class="bgpic-stage" id="bgpic-stage" tabindex="0"
+                 role="application" aria-label="${esc(I18N.t("themes.bg_crop"))}">
+              <div class="bgpic-img" id="bgpic-img"></div>
+            </div>
+            <div class="bgpic-fit" role="radiogroup" aria-label="${esc(I18N.t("themes.bg_fit"))}">
+              <button type="button" class="btn tiny" data-bgfit="cover">${esc(I18N.t("themes.bg_fit_cover"))}</button>
+              <button type="button" class="btn tiny" data-bgfit="contain">${esc(I18N.t("themes.bg_fit_contain"))}</button>
+              <span class="grow"></span>
+              <button type="button" class="btn tiny ghost" id="bgpic-recentre">${esc(I18N.t("themes.bg_recentre"))}</button>
+            </div>
+            <label class="knob">
+              <span class="knob-head"><span>${esc(I18N.t("themes.bg_zoom"))}</span><b id="bgpic-zoom-v">${
+                AurionTheme.getBgCrop().zoom}%</b></span>
+              <input type="range" id="bgpic-zoom" min="100" max="300" step="5"
+                     value="${AurionTheme.getBgCrop().zoom}" aria-label="${esc(I18N.t("themes.bg_zoom"))}" />
+            </label>
+            <label class="knob" id="bgpic-dim-wrap">
+              <span class="knob-head"><span>${esc(I18N.t("themes.bg_dim"))}</span><b id="bgpic-dim-v">${
+                AurionTheme.getBgDim()}%</b></span>
+              <input type="range" id="bgpic-dim" min="0" max="90" step="5" value="${AurionTheme.getBgDim()}"
+                     aria-label="${esc(I18N.t("themes.bg_dim"))}" />
+            </label>
+          </div>
+          <p class="sub" style="margin:8px 0 0">${esc(I18N.t("themes.bg_image_hint"))}</p>
+        </div>
+
+        <button type="button" class="btn ghost tiny" id="knob-reset" style="margin-top:16px">${
+          esc(I18N.t("themes.reset_this", { name: themeName(current) }))}</button>
+      </div>`;
+}
+
+/* What the page is actually painting for one of the three editable colours,
+   so an untouched swatch opens on the real colour rather than on black. */
+/* The CSS variable each colour row is editing. The candle pair are read
+   back the same way as the rest, so a row with nothing chosen still shows
+   the colour the active theme is really drawing with. */
+const COLOUR_VARS = {
+  page: "--bg",
+  ink: "--ink",
+  panel: "--s5",
+  candle_up: "--candle-up",
+  candle_down: "--candle-down",
+};
+
+function themeColourNow(key) {
+  const prop = COLOUR_VARS[key] || "--s5";
+  try {
+    const raw = getComputedStyle(document.documentElement).getPropertyValue(prop).trim();
+    if (!raw) return key === "ink" ? "#e8edf7" : "#0b0d14";
+    // --s5 is a bare "r g b" triplet, the others are already hex.
+    if (/^\d/.test(raw)) {
+      const n = raw.split(/[\s,]+/).map(Number);
+      return "#" + n.slice(0, 3).map((v) => Math.max(0, Math.min(255, v | 0)).toString(16).padStart(2, "0")).join("");
+    }
+    return raw.startsWith("#") ? raw : (key === "ink" ? "#e8edf7" : "#0b0d14");
+  } catch {
+    return key === "ink" ? "#e8edf7" : "#0b0d14";
   }
 }
+
+/* A theme's display name, with the id as the last resort so a theme added to
+   the table before its strings are translated still reads as something. */
+function themeName(id) {
+  const key = "themes." + id + "_name";
+  const out = I18N.t(key);
+  return out === key ? id : out;
+}
+
+/* Marking in place rather than re-rendering: rebuilding the settings tab on
+   every click loses the pressed state and the scroll position, which is the
+   exact bug the accent row was fixed for. */
+function markThemeCards() {
+  if (typeof AurionTheme === "undefined") return;
+  const current = AurionTheme.effective();
+  document.querySelectorAll("[data-theme-pick]").forEach((b) => {
+    const on = b.dataset.themePick === current;
+    const locked = themeLocked(b.dataset.themePick);
+    b.classList.toggle("on", on);
+    b.classList.toggle("is-locked", locked);
+    b.setAttribute("aria-checked", on ? "true" : "false");
+    b.tabIndex = on ? 0 : -1;
+  });
+  const panel = $("set-theme-custom");
+  if (panel) {
+    panel.hidden = !themesUnlocked();
+    /* The builder follows the selection, because it edits whatever is
+       active: switching theme has to reload the sliders or they would be
+       showing - and writing - the previous theme's numbers. */
+    renderSettingsKnobs();
+  }
+  paintCustomPreview();
+}
+
+/* The custom miniature follows its own knobs live, so the card in the grid is
+   always a picture of the theme the user currently has. */
+function paintCustomPreview() {
+  if (typeof AurionTheme === "undefined" || typeof AurionSkin === "undefined") return;
+  const art = document.querySelector('.tc-art[data-art="custom"]');
+  if (!art) return;
+  const custom = AurionTheme.getCustom();
+  /* "custom" is not a key in ACCENTS - it is a stored hex - so reading the
+     table alone made the preview fall back to aurora and show the wrong
+     colour for the one accent the trader chose by hand. */
+  const acc = AurionSkin.getAccent() === "custom"
+    ? AurionSkin.accentTriplet("custom")
+    : (AurionSkin.ACCENTS[custom.accent] || AurionSkin.ACCENTS.aurora);
+  art.style.setProperty("--p-accent", acc[0]);
+  art.style.setProperty("--p-accent2", acc[2]);
+  art.style.setProperty("--p-radius", Math.max(2, Math.round(custom.radius * 0.45)) + "px");
+}
+
+function pickTheme(id, opts) {
+  if (typeof AurionTheme === "undefined") return;
+  if (themeLocked(id)) {
+    // Silent when the keyboard merely passed over the card; an upsell that
+    // fires on an arrow key is an ambush, not an offer.
+    if (opts && opts.quiet) return;
+    toast(I18N.t("themes.locked_toast"));
+    show("upgrade");
+    return;
+  }
+  if (AurionTheme.effective() === id) return;
+  // The same veil the light/dark switch uses. A theme swap changes far more
+  // than a theme switch does, so it needs the cover more, not less.
+  morphTheme(() => {
+    AurionTheme.set(id);
+    markThemeCards();
+    markAppearancePills();
+    repaintChartsForTheme();
+  });
+}
+
+function bindThemesGallery() {
+  if (typeof AurionTheme === "undefined") return;
+
+  const grid = $("set-theme-grid");
+  if (grid) {
+    grid.onclick = (e) => {
+      const b = e.target.closest("[data-theme-pick]");
+      if (!b) return;
+      pickTheme(b.dataset.themePick);
+    };
+    // A radiogroup that cannot be driven from the keyboard is a list of
+    // buttons wearing a costume. Arrows move and choose; Home and End jump.
+    grid.onkeydown = (e) => {
+      const keys = ["ArrowRight", "ArrowLeft", "ArrowDown", "ArrowUp", "Home", "End"];
+      if (keys.indexOf(e.key) === -1) return;
+      const cards = Array.prototype.slice.call(grid.querySelectorAll("[data-theme-pick]"));
+      if (!cards.length) return;
+      const rtl = document.documentElement.dir === "rtl";
+      const at = Math.max(0, cards.indexOf(document.activeElement.closest("[data-theme-pick]")));
+      let next = at;
+      if (e.key === "Home") next = 0;
+      else if (e.key === "End") next = cards.length - 1;
+      else {
+        const fwd = e.key === "ArrowDown" || (rtl ? e.key === "ArrowLeft" : e.key === "ArrowRight");
+        next = (at + (fwd ? 1 : -1) + cards.length) % cards.length;
+      }
+      e.preventDefault();
+      cards[next].focus();
+      pickTheme(cards[next].dataset.themePick, { quiet: true });
+    };
+  }
+
+  const panel = $("set-theme-custom");
+  if (panel) {
+    // Sliders write straight through: there is no save button anywhere in
+    // settings, and a theme you have to confirm is a theme you cannot feel.
+    panel.oninput = (e) => {
+      const slider = e.target.closest("[data-knob]");
+      if (!slider) return;
+      const key = slider.dataset.knob;
+      const value = Number(slider.value);
+      AurionTheme.edit({ [key]: value });
+      const out = $("knob-v-" + key);
+      if (out) {
+        const suffix = key === "blur" || key === "radius" ? "px" : "%";
+        out.textContent = key === "motion" && value === 0
+          ? I18N.t("themes.motion_off") : value + suffix;
+      }
+      if (key === "radius") paintCustomPreview();
+      markThemeEdited();
+    };
+    const walls = $("knob-walls");
+    if (walls) walls.onclick = (e) => {
+      const b = e.target.closest("[data-wallpick]");
+      if (!b) return;
+      AurionTheme.edit({ wall: b.dataset.wallpick });
+      markWallTiles();
+      verifyWallpaper();
+      markThemeEdited();
+    };
+
+    const fx = $("knob-fx");
+    if (fx) fx.onchange = () => { AurionTheme.edit({ fx: fx.value }); markThemeEdited(); };
+
+    const font = $("knob-font");
+    if (font) font.onchange = () => { AurionTheme.edit({ font: font.value }); markThemeEdited(); };
+
+    /* Colours repaint live while the picker is open, which is the only way
+       to judge a colour: a swatch in a dialog tells you nothing about how
+       the same colour reads behind a table of numbers.
+
+       What changed is the COST of that live repaint. The old handler ran
+       the full path on every pointer move - republish the whole theme
+       stylesheet, re-derive every token, then redraw every chart on the
+       page. A drag fires that far faster than the screen refreshes, so the
+       work queued up behind the finger and the picker felt stuck.
+
+       Now a drag does the cheap half only: the changed variable is written
+       straight onto <html>, which the browser resolves without any
+       stylesheet being rebuilt. The expensive half - persisting the choice
+       and redrawing the charts - waits for the drag to settle. */
+    panel.addEventListener("click", (e) => {
+      const sw = e.target.closest("[data-colour]");
+      if (!sw) return;
+      const key = sw.dataset.colour;
+      const colours = AurionTheme.colours(AurionTheme.effective());
+      const before = colours[key] || themeColourNow(key);
+
+      AurionPicker.open({
+        value: before,
+        anchor: sw,
+        title: I18N.t("themes.c_" + key),
+        swatches: Object.keys(AurionSkin.ACCENTS).map((id) => AurionSkin.ACCENTS[id].hex)
+          .filter(Boolean).slice(0, 12),
+        onInput(hex) {
+          /* Preview only - nothing is stored and no sheet is rebuilt. */
+          previewColour(key, hex);
+          sw.style.background = hex;
+        },
+        onCommit(hex) {
+          AurionTheme.edit({ [key]: hex });
+          sw.style.background = hex;
+          const row = sw.closest("[data-colrow]");
+          const clear = row && row.querySelector("[data-colclear]");
+          if (clear) clear.hidden = false;
+          warnOnContrast();
+          markThemeEdited();
+          repaintChartsForTheme();
+        },
+        onClose() {
+          /* Whatever is stored is the truth; drop any preview on top. */
+          clearColourPreview();
+          AurionTheme.apply();
+          repaintChartsForTheme();
+        },
+      });
+    });
+
+    panel.addEventListener("click", (e) => {
+      const b = e.target.closest("[data-colclear]");
+      if (!b) return;
+      AurionTheme.edit({ [b.dataset.colclear]: "" });
+      renderSettingsKnobs();
+      repaintChartsForTheme();
+    });
+    const reset = $("knob-reset");
+    if (reset) reset.onclick = () => {
+      const name = themeName(AurionTheme.effective());
+      AurionTheme.reset();
+      renderSettingsKnobs();
+      toast(I18N.t("themes.reset_this_done", { name }));
+    };
+  }
+
+  bindBackgroundPicture();
+  bindCropStage();
+}
+
+
+/* ---------------------------------------------------------------------------
+   Live colour preview.
+
+   The point of previewing inside the app is to judge a colour against real
+   content, so it has to be instant. Writing the derived variables as an
+   INLINE style on <html> is what makes it instant: inline declarations beat
+   every stylesheet without anything being rebuilt or re-parsed, so a drag
+   costs one style recalculation instead of a full theme republish.
+
+   Nothing here is stored. Whatever the trader settles on is written properly
+   on commit, and clearColourPreview() takes the scaffolding back down.
+   --------------------------------------------------------------------------- */
+let previewVars = [];
+
+function previewColour(key, hex) {
+  /* Built on what is actually published, not on the edits alone. Every
+     theme now ships a candle pair, so a preview that started from the
+     edit list would have dropped the other half of the pair out of the
+     declaration block for the duration of the drag. */
+  const base = typeof AurionTheme.published === "function"
+    ? AurionTheme.published(AurionTheme.effective())
+    : AurionTheme.colours(AurionTheme.effective());
+  const live = Object.assign({}, base, { [key]: hex });
+  const css = AurionTheme.colourCss(live);
+  clearColourPreview();
+  const root = document.documentElement;
+  css.split(";").forEach((decl) => {
+    const i = decl.indexOf(":");
+    if (i < 1) return;
+    const name = decl.slice(0, i).trim();
+    if (!name.startsWith("--")) return;
+    root.style.setProperty(name, decl.slice(i + 1).trim());
+    previewVars.push(name);
+  });
+}
+
+function clearColourPreview() {
+  const root = document.documentElement;
+  previewVars.forEach((n) => root.style.removeProperty(n));
+  previewVars = [];
+}
+
+/* ---------------------------------------------------------------------------
+   Framing the trader's own picture.
+
+   Dragging the picture is the whole interaction: the stage has the desk's
+   own proportions, so what sits inside the frame is what ends up behind the
+   panels. Zoom is a slider because a pinch gesture cannot be assumed on a
+   desk machine, and the keyboard arrows do the same job for anyone not
+   using a pointer.
+   --------------------------------------------------------------------------- */
+function syncCropStage() {
+  const img = document.getElementById("bgpic-img");
+  if (!img) return;
+  const pic = AurionTheme.getBgImage();
+  const c = AurionTheme.getBgCrop();
+  img.style.backgroundImage = pic ? `url("${pic}")` : "none";
+  img.style.backgroundSize = c.fit;
+  img.style.backgroundPosition = `${c.x}% ${c.y}%`;
+  img.style.transform = `scale(${c.zoom / 100})`;
+  img.style.transformOrigin = `${c.x}% ${c.y}%`;
+  const zoom = document.getElementById("bgpic-zoom");
+  const zoomV = document.getElementById("bgpic-zoom-v");
+  if (zoom) zoom.value = String(c.zoom);
+  if (zoomV) zoomV.textContent = c.zoom + "%";
+  document.querySelectorAll("[data-bgfit]").forEach((b) => {
+    b.classList.toggle("on", b.dataset.bgfit === c.fit);
+  });
+}
+
+function bindCropStage() {
+  const stage = document.getElementById("bgpic-stage");
+  if (!stage || stage.dataset.bound) return;
+  stage.dataset.bound = "1";
+
+  /* Dragging moves the focus point the OPPOSITE way to the pointer, because
+     the trader is dragging the picture, not the window onto it - pulling the
+     photo left has to reveal what is on its right. */
+  let from = null;
+  stage.addEventListener("pointerdown", (e) => {
+    const c = AurionTheme.getBgCrop();
+    from = { x: e.clientX, y: e.clientY, cx: c.x, cy: c.y };
+    try { stage.setPointerCapture(e.pointerId); } catch (err) { /* older engines */ }
+    stage.classList.add("dragging");
+  });
+  stage.addEventListener("pointermove", (e) => {
+    if (!from) return;
+    const r = stage.getBoundingClientRect();
+    const nx = from.cx - ((e.clientX - from.x) / Math.max(1, r.width)) * 100;
+    const ny = from.cy - ((e.clientY - from.y) / Math.max(1, r.height)) * 100;
+    AurionTheme.setBgCrop({ x: nx, y: ny }, { silent: true });
+    syncCropStage();
+  });
+  const end = () => {
+    if (!from) return;
+    from = null;
+    stage.classList.remove("dragging");
+    AurionTheme.setBgCrop({});     /* one real apply when the drag settles */
+    markThemeEdited();
+  };
+  stage.addEventListener("pointerup", end);
+  stage.addEventListener("pointercancel", end);
+
+  stage.addEventListener("keydown", (e) => {
+    const step = e.shiftKey ? 10 : 2;
+    const c = AurionTheme.getBgCrop();
+    const map = {
+      ArrowLeft: { x: c.x - step }, ArrowRight: { x: c.x + step },
+      ArrowUp: { y: c.y - step }, ArrowDown: { y: c.y + step },
+    };
+    if (!map[e.key]) return;
+    e.preventDefault();
+    AurionTheme.setBgCrop(map[e.key]);
+    syncCropStage();
+    markThemeEdited();
+  });
+
+  const zoom = document.getElementById("bgpic-zoom");
+  if (zoom) {
+    zoom.addEventListener("input", () => {
+      AurionTheme.setBgCrop({ zoom: Number(zoom.value) }, { silent: true });
+      syncCropStage();
+    });
+    zoom.addEventListener("change", () => { AurionTheme.setBgCrop({}); markThemeEdited(); });
+  }
+  document.querySelectorAll("[data-bgfit]").forEach((b) => {
+    b.addEventListener("click", () => {
+      AurionTheme.setBgCrop({ fit: b.dataset.bgfit });
+      syncCropStage();
+      markThemeEdited();
+    });
+  });
+  const re = document.getElementById("bgpic-recentre");
+  if (re) re.addEventListener("click", () => {
+    AurionTheme.resetBgCrop();
+    syncCropStage();
+    markThemeEdited();
+  });
+}
+
+/* The trader's own background picture.
+
+   It never leaves the machine: the file is read in the page, scaled down and
+   kept in this browser's storage. Scaling is not cosmetic - a modern phone
+   photo is several megabytes, and storage rejects that outright, so an
+   unscaled picture would simply fail to stick. 1920px on the long edge is
+   more than a desk background ever shows. */
+const BG_MAX_EDGE = 1920;
+
+function bindBackgroundPicture() {
+  const file = $("bgpic-file");
+  const pick = $("bgpic-pick");
+  const clear = $("bgpic-clear");
+  const dim = $("bgpic-dim");
+  if (pick && file) pick.onclick = () => file.click();
+
+  if (file) file.onchange = () => {
+    const f = file.files && file.files[0];
+    file.value = "";
+    if (!f) return;
+    shrinkImage(f, BG_MAX_EDGE).then((dataUrl) => {
+      AurionTheme.setBgImage(dataUrl);
+      // Choosing a picture means wanting to see it; selecting the backdrop
+      // by hand afterwards would be a step with only one sensible answer.
+      AurionTheme.edit({ bg: "photo" });
+      renderSettingsKnobs();
+      toast(I18N.t("themes.bg_image_set"));
+    }).catch(() => toast(I18N.t("themes.bg_image_bad")));
+  };
+
+  if (clear) clear.onclick = () => {
+    AurionTheme.setBgImage("");
+    if (AurionTheme.knobs().bg === "photo") AurionTheme.edit({ bg: "flat" });
+    renderSettingsKnobs();
+  };
+
+  if (dim) dim.oninput = () => {
+    AurionTheme.setBgDim(Number(dim.value));
+    const out = $("bgpic-dim-v");
+    if (out) out.textContent = dim.value + "%";
+  };
+}
+
+/** Read a picture file, scale its long edge down to max, return a data URL. */
+function shrinkImage(fileObj, max) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error("unreadable"));
+    reader.onload = () => {
+      const img = new Image();
+      img.onerror = () => reject(new Error("not an image"));
+      img.onload = () => {
+        try {
+          const scale = Math.min(1, max / Math.max(img.width, img.height));
+          const w = Math.max(1, Math.round(img.width * scale));
+          const h = Math.max(1, Math.round(img.height * scale));
+          const cv = document.createElement("canvas");
+          cv.width = w; cv.height = h;
+          cv.getContext("2d").drawImage(img, 0, 0, w, h);
+          // JPEG, not PNG: a photograph as PNG is several times larger and
+          // storage is the binding limit here, not fidelity.
+          resolve(cv.toDataURL("image/jpeg", 0.82));
+        } catch (err) { reject(err); }
+      };
+      img.src = String(reader.result || "");
+    };
+    reader.readAsDataURL(fileObj);
+  });
+}
+
+/* Warn, do not forbid.
+
+   A trader is allowed to make a choice we would not, but silently shipping
+   an unreadable desk is a different thing: this says so and leaves the
+   colour alone. The threshold is on perceived brightness rather than on a
+   full contrast ratio, because the warning is about "can you read this at a
+   glance", and the two colours being compared are a large text colour and
+   the surface right behind it. */
+function warnOnContrast() {
+  const warn = $("col-warn");
+  if (!warn || typeof AurionTheme === "undefined") return;
+  const c = AurionTheme.colours(AurionTheme.effective());
+  const hex = (v) => {
+    const m = /^#?([0-9a-f]{6})$/i.exec(String(v || ""));
+    if (!m) return null;
+    const n = parseInt(m[1], 16);
+    return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+  };
+  const luma = (x) => (0.2126 * x[0] + 0.7152 * x[1] + 0.0722 * x[2]) / 255;
+  const ink = hex(c.ink) || hex(themeColourNow("ink"));
+  const panel = hex(c.panel) || hex(themeColourNow("panel"));
+  warn.hidden = !(ink && panel && Math.abs(luma(ink) - luma(panel)) < 0.28);
+}
+
+/** Keep the "edited" tag beside the builder heading honest. */
+function markThemeEdited() {
+  const line = $("knob-editing");
+  if (!line || typeof AurionTheme === "undefined") return;
+  const current = AurionTheme.effective();
+  line.innerHTML = esc(I18N.t("themes.editing", { name: themeName(current) }))
+    + (AurionTheme.edited(current) ? ` \u00B7 <b>${esc(I18N.t("themes.edited_tag"))}</b>` : "");
+}
+
+/* After a reset the sliders are stale. Only their values are rewritten - the
+   panel itself stays, so focus and scroll stay with it. */
+/* Mark the selected wallpaper, and keep every tile showing the cut that
+   matches the mode in force - a light desk must not advertise the night
+   version of a picture it is about to load in daylight. */
+/* Does the wallpaper the desk is currently asking for actually load?
+
+   Every value in this chain can be correct while nothing appears on screen -
+   the URL resolves, the variable is published, the rule wins the cascade,
+   and the browser still gets a 404 or an HTML error page where it expected
+   a JPEG. That failure is invisible by design: an unloadable
+   background-image just paints nothing.
+
+   So it is checked, and said out loud with the path that was tried. A
+   trader who sees "this picture could not be loaded" can report something
+   useful; a trader looking at an unchanged desk cannot. */
+function verifyWallpaper() {
+  const box = document.getElementById("wall-warn");
+  if (!box || !window.AurionTheme) return;
+  const current = AurionTheme.effective();
+  const choice = AurionTheme.wall(current);
+  const hide = () => { box.hidden = true; box.innerHTML = ""; };
+
+  /* "" hands the theme its own picture and "none" asks for bare colour;
+     neither is a URL this check can meaningfully test. */
+  if (!choice || choice === "none") return hide();
+
+  const light = document.documentElement.dataset.theme === "light";
+  const rel = AurionTheme.wallUrl(choice, light);
+  if (!rel) return hide();
+  const url = AurionTheme.assetUrl ? AurionTheme.assetUrl(rel) : rel;
+
+  const probe = new Image();
+  probe.onload = hide;
+  probe.onerror = () => {
+    box.hidden = false;
+    box.innerHTML =
+      `<span>${esc(I18N.t("themes.wall_missing"))}</span>` +
+      `<code>${esc(url)}</code>`;
+  };
+  probe.src = url;
+}
+
+function markWallTiles() {
+  const walls = $("knob-walls");
+  if (!walls || !window.AurionTheme) return;
+  const current = AurionTheme.effective();
+  const chosen = AurionTheme.wall(current);
+  const light = document.documentElement.dataset.theme === "light";
+  walls.querySelectorAll("[data-wallpick]").forEach((b) => {
+    const value = b.dataset.wallpick;
+    const on = value === chosen;
+    b.classList.toggle("on", on);
+    b.setAttribute("aria-checked", String(on));
+    b.tabIndex = on ? 0 : -1;
+    // "" is the theme's own picture, which is named after the theme itself.
+    const name = value === "" ? AurionTheme.themeWall(current) : value;
+    const url = AurionTheme.wallUrl(name, light);
+    const art = b.querySelector(".wall-art");
+    if (art && url) art.style.backgroundImage = `url("${url}")`;
+    else if (art && value === "") art.style.backgroundImage = "";
+  });
+}
+
+function renderSettingsKnobs() {
+  if (typeof AurionTheme === "undefined") return;
+  const k = AurionTheme.knobs();
+  document.querySelectorAll("[data-knob]").forEach((slider) => {
+    const key = slider.dataset.knob;
+    if (k[key] === undefined) return;
+    slider.value = k[key];
+    const out = $("knob-v-" + key);
+    if (out) {
+      const suffix = key === "blur" || key === "radius" ? "px" : "%";
+      out.textContent = key === "motion" && Number(k[key]) === 0
+        ? I18N.t("themes.motion_off") : k[key] + suffix;
+    }
+  });
+
+  markWallTiles();
+  verifyWallpaper();
+
+  const picture = AurionTheme.getBgImage();
+
+  /* The trader's picture now has its own framing panel instead of a tile. */
+  const frame = $("bgpic-frame");
+  if (frame) {
+    const onPhoto = Boolean(picture) && k.bg === "photo";
+    frame.hidden = !onPhoto;
+    if (onPhoto) syncCropStage();
+  }
+  const clearBtn = $("bgpic-clear");
+  if (clearBtn) clearBtn.hidden = !picture;
+
+  const colours = AurionTheme.colours(AurionTheme.effective());
+  document.querySelectorAll("[data-colour]").forEach((sw) => {
+    const key = sw.dataset.colour;
+    sw.style.background = colours[key] || themeColourNow(key);
+    const row = sw.closest("[data-colrow]");
+    const clear = row && row.querySelector("[data-colclear]");
+    if (clear) clear.hidden = !colours[key];
+  });
+  const font = $("knob-font");
+  if (font) font.value = colours.font || "theme";
+  const fx = $("knob-fx");
+  if (fx) fx.value = AurionTheme.fx(AurionTheme.effective());
+  warnOnContrast();
+
+  const thumb = $("bgpic-thumb");
+  if (thumb) thumb.style.backgroundImage = picture ? `url("${picture}")` : "";
+  const clear = $("bgpic-clear");
+  if (clear) clear.hidden = !picture;
+  const dim = $("bgpic-dim");
+  if (dim) dim.value = AurionTheme.getBgDim();
+  const dimOut = $("bgpic-dim-v");
+  if (dimOut) dimOut.textContent = AurionTheme.getBgDim() + "%";
+
+  const reset = $("knob-reset");
+  if (reset) reset.textContent = I18N.t("themes.reset_this", { name: themeName(AurionTheme.effective()) });
+  markThemeEdited();
+  paintCustomPreview();
+}
+
+function appearanceCardsHtml() {
+  if (typeof AurionSkin === "undefined") return "";
+  const perf = AurionSkin.getPerfMode();
+  const accent = AurionSkin.getAccent();
+  // Freemium wears the accent its theme was designed with. The row still shows
+  // every colour - a locked door you cannot see is just a wall.
+  const accentOpen = themesUnlocked();
+  /* The trader's own accent sits at the end of the shipped ones. It is a
+     flat colour: the gradient that briefly lived here has been removed by
+     request. */
+  const customAcc = AurionSkin.customAccent();
+  const customSwatch = `
+    <button type="button" class="accent-dot accent-custom${accent === "custom" ? " on" : ""}"
+            data-accent-custom="1" aria-haspopup="dialog"
+            aria-label="${esc(I18N.t("themes.accent_custom"))}"
+            title="${esc(I18N.t("themes.accent_custom"))}"
+            style="background:${esc(customAcc || "#3ee0c4")}"></button>`;
+
+  const swatches = Object.keys(AurionSkin.ACCENTS).map((id) => {
+    const c = AurionSkin.ACCENTS[id];
+    return `<button type="button" class="accent-dot ${id === accent ? "on" : ""}" data-accent="${id}"
+              title="${id}" aria-label="${id}" aria-pressed="${id === accent}"
+              ${accentOpen ? "" : 'data-locked="1"'}
+              style="background:linear-gradient(135deg, ${c[0]}, ${c[2]})"></button>`;
+  }).join("") + (accentOpen ? customSwatch : "");
+
+  return `
+      <h3 class="set-h">${I18N.t("themes.title")}</h3>
+      ${themesGalleryHtml()}
+
+      <div class="card" style="margin-top:14px">
+        <p class="sub" style="margin:0 0 6px">${I18N.t("settings.accent")}
+          ${accentOpen ? "" : `<span class="pill no">${I18N.t("themes.premium_tag")}</span>`}</p>
+        <div class="accent-row${accentOpen ? "" : " is-locked"}" id="set-accents">${swatches}</div>
+        <p class="sub" style="margin:8px 0 0">${accentOpen ? I18N.t("settings.accent_hint")
+          : `${I18N.t("settings.accent_locked")} <a href="#" data-go-upgrade>${I18N.t("lic.upgrade_cta")}</a>`}</p>
+      </div>
+
+      <div class="card" style="margin-top:14px">
+        <p class="sub" style="margin:0 0 6px">${I18N.t("settings.perf")}</p>
+        <div class="lang-pills" id="set-perf">
+          <button type="button" data-perfbtn="auto" class="${perf === "auto" ? "on" : ""}">${I18N.t("settings.perf_auto")}</button>
+          <button type="button" data-perfbtn="rich" class="${perf === "rich" ? "on" : ""}">${I18N.t("settings.perf_rich")}</button>
+          <button type="button" data-perfbtn="fast" class="${perf === "fast" ? "on" : ""}">${I18N.t("settings.perf_fast")}</button>
+        </div>
+        <p class="sub" style="margin:8px 0 0">${I18N.t("settings.perf_hint")}
+          <b id="set-perf-now">${perfNowLabel()}</b></p>
+      </div>`;
+}
+
+function perfNowLabel() {
+  if (typeof AurionSkin === "undefined") return "";
+  return AurionSkin.effectivePerf() === "fast"
+    ? I18N.t("settings.perf_now_fast") : I18N.t("settings.perf_now_rich");
+}
+
+function markAppearancePills() {
+  if (typeof AurionSkin === "undefined") return;
+  const perf = AurionSkin.getPerfMode(), accent = AurionSkin.getAccent();
+  document.querySelectorAll("[data-accent]").forEach((b) => {
+    const on = b.dataset.accent === accent;
+    b.classList.toggle("on", on);
+    b.setAttribute("aria-pressed", on ? "true" : "false");
+  });
+  /* The trader's own swatch is marked by data-accent-custom, not
+     data-accent, so the loop above never touched it: picking a shipped
+     accent left the custom dot still showing as selected until the whole
+     settings page happened to be re-rendered, and two accents appeared
+     to be in force at once. */
+  document.querySelectorAll("[data-accent-custom]").forEach((b) => {
+    const on = accent === "custom";
+    b.classList.toggle("on", on);
+    b.setAttribute("aria-pressed", on ? "true" : "false");
+    const hex = AurionSkin.customAccent();
+    if (hex) b.style.background = hex;
+  });
+  document.querySelectorAll("[data-perfbtn]").forEach((b) => b.classList.toggle("on", b.dataset.perfbtn === perf));
+  const now = $("set-perf-now");
+  if (now) now.textContent = perfNowLabel();
+}
+
+/* Put the trader's own colour in force and make every control that shows
+   the accent agree with it. One place, because this now runs from three
+   callers - the click that selects custom, every frame of the drag, and
+   the commit - and they were drifting apart. */
+function applyCustomAccent(hex, dot) {
+  if (typeof AurionSkin === "undefined") return;
+  const applied = AurionSkin.setCustomAccent(hex);
+  if (!applied) return;
+  if (dot) dot.style.background = applied;
+  /* The accent belongs to the theme being edited, exactly as a shipped
+     one does, or it is lost the next time that theme is applied. */
+  if (typeof AurionTheme !== "undefined") {
+    AurionTheme.edit({ accent: "custom" }, { silent: true });
+  }
+  markAppearancePills();
+  paintCustomPreview();
+}
+
+function bindAppearance() {
+  if (typeof AurionSkin === "undefined") return;
+
+  const accents = $("set-accents");
+  if (accents) accents.onclick = (e) => {
+    const custom = e.target.closest("[data-accent-custom]");
+    if (custom) {
+      /* Pressing this dot selects the trader's own accent. It used to do
+         nothing but open the picker, so coming back from a shipped accent
+         took a click to open it, a drag to move off the colour that was
+         already stored, and a drag back - three gestures to re-apply a
+         colour the desk had remembered all along. Selecting it is now the
+         click; the picker that follows is for changing it. */
+      const startHex = AurionSkin.customAccent() || "#3ee0c4";
+      applyCustomAccent(startHex, custom);
+      AurionPicker.open({
+        value: startHex,
+        anchor: custom,
+        title: I18N.t("themes.accent_custom"),
+        swatches: Object.keys(AurionSkin.ACCENTS).map((id) => AurionSkin.ACCENTS[id][0]).slice(0, 12),
+        onInput(hex) {
+          /* The accent is a handful of variables, so the honest apply is
+             cheap enough to run on every frame - and the dot has to move
+             with the drag, not wait for it to end. */
+          applyCustomAccent(hex, custom);
+        },
+        onCommit(hex) {
+          applyCustomAccent(hex, custom);
+          renderSettingsKnobs();
+          repaintChartsForTheme();
+        },
+      });
+      return;
+    }
+
+    const b = e.target.closest("[data-accent]");
+    if (!b) return;
+    if (b.dataset.locked) { toast(I18N.t("themes.locked_toast")); show("upgrade"); return; }
+    /* Under the veil, like every other appearance change. Picking an
+       accent recolours every control, every chart and every chip on the
+       desk; doing it in the open meant watching the page change in
+       pieces, with the charts arriving last because they only recolour
+       when asked. The drag inside the colour picker deliberately does
+       NOT go through here - it has to track the pointer frame by frame,
+       and a cover over a live preview is a contradiction. */
+    morphTheme(() => {
+      /* A shipped accent and a custom one cannot both be in force. */
+      AurionSkin.setCustomAccent("");
+      AurionSkin.setAccent(b.dataset.accent);
+      // Picking an accent is part of building the theme, whichever theme
+      // it is, so it is remembered with the rest of that theme's knobs
+      // rather than being reset the next time the theme is applied.
+      if (typeof AurionTheme !== "undefined") {
+        AurionTheme.edit({ accent: b.dataset.accent }, { silent: true });
+      }
+      markAppearancePills();
+      paintCustomPreview();
+      // The chart reads its colours once when it paints, so it has to be asked.
+      repaintChartsForTheme();
+    }, { title: I18N.t("ui.switch_theme") });
+  };
+
+  bindThemesGallery();
+
+  const perf = $("set-perf");
+  if (perf) perf.onclick = (e) => {
+    const b = e.target.closest("[data-perfbtn]"); if (!b) return;
+    /* Performance mode turns the desk's blur and shadows on or off, which
+       is as big a visual change as a theme swap, so it gets the same
+       cover. */
+    morphTheme(() => {
+      AurionSkin.setPerfMode(b.dataset.perfbtn);
+      // Re-marking in place, not re-rendering: a full settings re-render
+      // was rebuilding the tab and losing the pressed state until you
+      // navigated away.
+      markAppearancePills();
+    }, { title: I18N.t("ui.switch_mode") });
+  };
+}
+
+/* The chart canvases read their colours once, so an accent or skin change has
+   to ask them to redraw - the same thing a theme switch already does. */
+/* Kept as the name the theme editor calls, but it now goes through
+   refreshChartPalette.
+
+   This used to redraw the chart without telling charts.js its colours
+   had moved, so every repaint re-read the SAME cached palette: the bars
+   were rebuilt faithfully in the old colours and picking a new candle
+   colour appeared to do nothing at all. */
+function repaintChartsForTheme() {
+  refreshChartPalette();
+}
+
+/* Closes the pinned calendar day card, wherever we are. Safe to call when the
+   calendar has never been opened. */
+/* ===========================================================================
+   Signal notifications
+   ===========================================================================
+   A signal is the one event a trader must not miss, and until now it only
+   changed a number on a panel they might not be looking at. It now announces
+   itself three ways, in order of how much attention it can command:
+
+     1. in the desk, as a card that says what to do and can open the chart;
+     2. on the Windows desktop, but only when the window cannot be seen -
+        a toast for something already on screen is just noise;
+     3. by raising the window when that toast is clicked.
+
+   The host (installer/window) provides the second and third; if the desk is
+   open in a plain browser instead, the first still works.
+   =========================================================================== */
+
+function signalLots(sig) {
+  const v = Number(sig.volume || sig.lots || sig.lot || 0);
+  return v > 0 ? v : null;
+}
+
+function signalPrice(sig, key) {
+  const v = Number(sig[key] || 0);
+  return v > 0 ? v : null;
+}
+
+/** The one-line summary used by the card, the toast and the log. */
+function signalHeadline(sig) {
+  const side = String(sig.action || sig.side || "").toLowerCase();
+  const verb = side === "sell" ? I18N.t("signal.sell") : I18N.t("signal.buy");
+  return `${verb} ${sig.symbol || ""}`.trim();
+}
+
+function signalDetail(sig) {
+  const bits = [];
+  const lots = signalLots(sig);
+  // The entry comes first. It is the only number that is useless a minute
+  // later, so burying it behind the lot size was the wrong order.
+  const entry = signalPrice(sig, "entry") || signalPrice(sig, "price");
+  const sl = signalPrice(sig, "sl");
+  const tp = signalPrice(sig, "tp");
+  if (entry) bits.push(`${I18N.t("signal.entry")} ${fmt(entry, 5)}`);
+  if (sl) bits.push(`${I18N.t("signal.sl")} ${fmt(sl, 5)}`);
+  if (tp) bits.push(`${I18N.t("signal.tp")} ${fmt(tp, 5)}`);
+  if (lots) bits.push(`${I18N.t("signal.lots")} ${fmt(lots, 2)}`);
+  if (sig.confidence) bits.push(`${I18N.t("signal.confidence")} ${Math.round(Number(sig.confidence) * 100)}%`);
+  return bits.join(" · ");
+}
+
+/** "from king" — which strategy is responsible for this mark. */
+function signalSource(sig) {
+  const name = String(sig.strategy || (sig.extra && sig.extra.strategy) || "");
+  return name ? `${I18N.t("signal.from_strategy")} ${strategyLabel(name)}` : "";
+}
+
+function announceSignal(sig) {
+  if (!sig || typeof sig !== "object") return;
+  const action = String(sig.action || sig.side || "").toLowerCase();
+  if (!["buy", "sell", "market"].includes(action)) return;
+
+  // The same signal can arrive twice - the bus republishes on reconnect - and
+  // a duplicate toast for a trade you already saw is worse than none.
+  const key = [sig.ts, sig.symbol, action, sig.volume, sig.sl, sig.tp].join("|");
+  if (S._lastSignalKey === key) return;
+  S._lastSignalKey = key;
+
+  pushSignalCard(sig);
+  if (documentHidden()) notifyHost(sig);
+}
+
+function documentHidden() {
+  try {
+    // The host tells us when its window is minimised; the Page Visibility API
+    // does not fire for a minimised WebView2, only for a hidden tab.
+    if (window.__aurionWindowHidden) return true;
+    return document.visibilityState === "hidden";
+  } catch (e) {
+    return false;
+  }
+}
+
+/** Hand the signal to the desktop host, which owns the Windows toast. */
+function notifyHost(sig) {
+  try {
+    const bridge = window.chrome && window.chrome.webview;
+    if (!bridge || typeof bridge.postMessage !== "function") return;
+    bridge.postMessage(JSON.stringify({
+      type: "signal",
+      title: signalHeadline(sig),
+      body: signalDetail(sig),
+      symbol: sig.symbol || "",
+      timeframe: sig.timeframe || S.timeframe || "",
+      // Echoed back on click so the desk can pin the exact mark, not just
+      // the symbol - the Windows toast is a round trip through the host.
+      time: sig.time || sig.ts || "",
+      side: String(sig.action || sig.side || "").toLowerCase(),
+    }));
+  } catch (e) {
+    /* no host: the in-desk card is the whole notification */
+  }
+}
+
+/* ---------------------------------------------------------------- sounds
+ *
+ * Entries and exits are the two moments a trader wants to hear about
+ * while they are looking at something else. Everything else - a status
+ * change, a reconnect, a saved setting - is silent and stays inside the
+ * desk, because a robot that chimes at every heartbeat gets muted, and a
+ * muted robot is one that cannot tell you it has just opened a trade.
+ *
+ * The tones are synthesized rather than shipped as audio files: no megabytes
+ * in the installer, nothing to go missing, and a sound that works the same
+ * whether the desk is served from the engine, from a folder or offline.
+ */
+const SOUNDS = {
+  none:   null,
+  chime:  { steps: [[880, 0.00, 0.12], [1320, 0.10, 0.18]], wave: "sine" },
+  ding:   { steps: [[1568, 0.00, 0.22]], wave: "sine" },
+  rise:   { steps: [[523, 0.00, 0.10], [659, 0.08, 0.10], [784, 0.16, 0.20]], wave: "triangle" },
+  fall:   { steps: [[659, 0.00, 0.12], [523, 0.10, 0.12], [392, 0.20, 0.26]], wave: "triangle" },
+  alert:  { steps: [[440, 0.00, 0.10], [440, 0.16, 0.10]], wave: "square" },
+  soft:   { steps: [[330, 0.00, 0.26]], wave: "sine" },
+};
+const SOUND_NAMES = Object.keys(SOUNDS);
+
+/* `notice` is the ordinary-notification slot: the toasts the desk raises for
+   a saved setting, a reconnect, a refused action. It used to be silent by
+   design, on the reasoning that a robot which chimes at every heartbeat
+   gets muted. The user asked for it to be audible, so it is - but quietly
+   (a single soft tone), rate-limited below so a burst of toasts cannot
+   machine-gun, and settable to Silent like every other slot. */
+const NOTIFY_DEFAULTS = { entry: "chime", profit: "rise", loss: "fall", notice: "soft", volume: 0.6, windows: true };
+
+/* Every slot the trader can assign a sound to, and the built-in tone each
+   one falls back to if a custom file is chosen and later goes missing. */
+const SOUND_SLOTS = ["entry", "profit", "loss", "notice"];
+
+
+function notifyPrefs() {
+  try {
+    const raw = JSON.parse(localStorage.getItem("aurion.notify") || "{}");
+    const saved = raw && typeof raw === "object" ? raw : {};
+    const out = { ...NOTIFY_DEFAULTS, ...saved };
+    for (const key of SOUND_SLOTS) {
+      /* "file" was a per-slot choice back when a build could ship one
+         opaque recording per event. The sounds are now named -- bell,
+         ding, rise, fall, alert, soft -- and each name is itself a file
+         in the source tree, so there is nothing left for a separate
+         "file" option to mean. Anything saved under the old scheme
+         falls back to the slot's default rather than going dead. */
+      if (!SOUND_NAMES.includes(out[key])) out[key] = NOTIFY_DEFAULTS[key];
+    }
+    out.volume = Math.min(1, Math.max(0, Number(out.volume) || 0));
+    out.windows = out.windows !== false;
+    return out;
+  } catch (e) {
+    return { ...NOTIFY_DEFAULTS };
+  }
+}
+
+function saveNotifyPrefs(patch) {
+  const next = { ...notifyPrefs(), ...(patch || {}) };
+  localStorage.setItem("aurion.notify", JSON.stringify(next));
+  return next;
+}
+
+/* ------------------------------------------------- sound files in the build
+ *
+ * The built-in tones are synthesized, which is why they cost nothing and
+ * cannot go missing. A product sound is a file, and it is shipped with the
+ * build rather than uploaded from the desk: the person choosing the sounds
+ * is the one assembling the installer, the choice should be the same on
+ * every machine the product is installed on, and a per-machine upload
+ * would mean every customer hears something different.
+ *
+ * The files are named after the SOUND, not after the event. That is the
+ * whole point: there are six sounds the desk knows about, every slot
+ * picks one of them by name, and each name is one file in the source
+ * tree. Drop Ogg Vorbis files into apps/web/assets/sounds/:
+ *
+ *     chime.ogg     bell            (fa: زنگ)
+ *     ding.ogg      ding            (fa: دینگ)
+ *     rise.ogg      bullish / up    (fa: صعودی)
+ *     fall.ogg      bearish / down  (fa: نزولی)
+ *     alert.ogg     warning         (fa: هشدار)
+ *     soft.ogg      gentle          (fa: ملایم)
+ *
+ * Nothing else is needed - no manifest to edit and no rebuild. A sound
+ * whose file is present plays that file wherever it is selected; a sound
+ * whose file is absent falls back to its synthesized tone, so the desk
+ * is never silent just because a file has not been added yet. Files are
+ * fetched once at boot and decoded on first use, so a burst of
+ * notifications does not re-read them.
+ */
+const SOUND_DIR = "assets/sounds/";
+/** sound name -> { url, bytes, buffer } for whatever is in the source. */
+const SOUND_FILES = new Map();
+
+/** The shared AudioContext, created on demand. */
+function audioCtx() {
+  const Ctx = window.AudioContext || window.webkitAudioContext;
+  if (!Ctx) return null;
+  // One context for the life of the page. Browsers cap how many a page may
+  // create, and a desk that runs for a week would hit it.
+  if (!S._audio) S._audio = new Ctx();
+  // Autoplay policy parks the context until the user has interacted;
+  // resuming is a no-op once it is already running.
+  if (S._audio.state === "suspended") S._audio.resume().catch(() => {});
+  return S._audio;
+}
+
+function soundFileUrl(name) {
+  const rel = SOUND_DIR + name + ".ogg";
+  try {
+    if (typeof AurionTheme !== "undefined" && AurionTheme.assetUrl) return AurionTheme.assetUrl(rel);
+  } catch { /* fall through to the relative form */ }
+  return rel;
+}
+
+/** The six sounds that can be backed by a file. "none" is silence. */
+const SOUND_FILE_NAMES = SOUND_NAMES.filter((n) => n !== "none");
+
+/**
+ * Find out which sounds this source tree actually carries.
+ *
+ * A missing file is the normal case, not an error: that sound simply
+ * keeps its synthesized tone. Only the bytes are fetched here - the
+ * decode happens on first play - so six absent files cost six 404s at
+ * boot and nothing else.
+ */
+async function loadSoundFiles() {
+  await Promise.all(SOUND_FILE_NAMES.map(async (name) => {
+    const url = soundFileUrl(name);
+    try {
+      const res = await fetch(url, { cache: "force-cache" });
+      if (!res || !res.ok) return;
+      const bytes = await res.arrayBuffer();
+      // A dev server that answers 404s with index.html would otherwise
+      // register an HTML page as a sound.
+      if (!bytes || bytes.byteLength < 64) return;
+      SOUND_FILES.set(name, { url, bytes, buffer: null });
+    } catch { /* no file for this sound in this tree */ }
+  }));
+}
+
+async function soundFileBuffer(name) {
+  const rec = SOUND_FILES.get(name);
+  if (!rec) return null;
+  if (rec.buffer) return rec.buffer;
+  const ctx = audioCtx();
+  if (!ctx) return null;
+  try {
+    // decodeAudioData detaches what it is given, so it gets a copy and the
+    // original bytes stay available for the next decode.
+    rec.buffer = await ctx.decodeAudioData(rec.bytes.slice(0));
+    return rec.buffer;
+  } catch {
+    /* Present but not playable - a file that is not really Ogg Vorbis,
+       or a truncated copy. Drop it rather than retry on every
+       notification, and let the sound fall back to its tone. */
+    SOUND_FILES.delete(name);
+    return null;
+  }
+}
+
+function playSoundFile(name, level) {
+  soundFileBuffer(name).then((buf) => {
+    const ctx = audioCtx();
+    if (!buf || !ctx) return;
+    const src = ctx.createBufferSource();
+    const gain = ctx.createGain();
+    src.buffer = buf;
+    gain.gain.value = Math.max(0.0001, level);
+    src.connect(gain).connect(ctx.destination);
+    src.start();
+  }).catch(() => { /* a sound is not worth an exception */ });
+}
+
+/** Play one named tone. Never throws: a sound is not worth an exception. */
+function playSound(name, volume, slot) {
+  const level = volume === undefined ? notifyPrefs().volume : Number(volume) || 0;
+  if (level <= 0) return;
+  // A sound backed by a real file in the source plays that file. The
+  // synthesized tone of the same name is the fallback for a tree where
+  // the file has not been added.
+  if (name !== "none" && SOUND_FILES.has(name)) { playSoundFile(name, level); return; }
+  const spec = SOUNDS[name];
+  if (!spec) return;
+  try {
+    const ctx = audioCtx();
+    if (!ctx) return;
+    const now = ctx.currentTime;
+    for (const [freq, at, len] of spec.steps) {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = spec.wave || "sine";
+      osc.frequency.value = freq;
+      // Shaped rather than switched: an instant start and stop on a pure
+      // tone is a click, and a click is what makes a notification sound
+      // cheap.
+      gain.gain.setValueAtTime(0.0001, now + at);
+      gain.gain.exponentialRampToValueAtTime(Math.max(0.0002, level * 0.28), now + at + 0.012);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + at + len);
+      osc.connect(gain).connect(ctx.destination);
+      osc.start(now + at);
+      osc.stop(now + at + len + 0.02);
+    }
+  } catch (e) {
+    /* no audio device, or a context the browser will not give us */
+  }
+}
+
+/* ------------------------------------------------------------- trade news */
+
+function tradeHeadline(t) {
+  const side = String(t.side || "").toUpperCase();
+  const sym = t.symbol || "";
+  if (t.kind === "entry") return `${I18N.t("notify.entry")} · ${side} ${sym}`;
+  const key = t.result === "profit" ? "notify.exit_profit" : t.result === "loss" ? "notify.exit_loss" : "notify.exit_flat";
+  return `${I18N.t(key)} · ${sym}`;
+}
+
+function tradeDetail(t) {
+  const bits = [];
+  if (t.volume) bits.push(`${fmt(t.volume, 2)} ${I18N.t("notify.lots")}`);
+  if (t.kind === "entry" && t.price) bits.push(`@ ${fmt(t.price, 5)}`);
+  if (t.kind === "exit") bits.push(`${t.profit > 0 ? "+" : ""}${fmt(t.profit, 2)} ${esc(t.currency || "")}`.trim());
+  if (t.strategy) bits.push(String(t.strategy));
+  return bits.join(" · ");
+}
+
+/**
+ * A trade opened or closed: say so out loud, on screen, and in Windows.
+ *
+ * Status changes deliberately do not come through here. They use toast(),
+ * which is silent and never leaves the window - the user asked for the
+ * difference and it is the right one: a notification that interrupts
+ * should mean money has moved.
+ */
+function announceTrade(t) {
+  if (!t || !t.kind) return;
+  const prefs = notifyPrefs();
+  const which = t.kind === "entry" ? "entry" : t.result === "loss" ? "loss" : "profit";
+  if (t.kind === "exit" && t.result === "flat") {
+    // A scratch is still an exit worth seeing, but it is not news.
+    playSound(prefs.entry === "none" ? "none" : "soft", prefs.volume);
+  } else {
+    playSound(prefs[which], prefs.volume, which);
+  }
+  pushTradeCard(t);
+  if (prefs.windows) notifyHostTrade(t);
+}
+
+function pushTradeCard(t) {
+  const stack = $("notify-stack");
+  if (!stack) return;
+  stack.hidden = false;
+  const id = "trade-" + (t.ticket || Date.now());
+  const tone = t.kind === "entry" ? "is-entry" : t.result === "loss" ? "is-loss" : "is-profit";
+  const card = document.createElement("article");
+  card.className = "notify-card trade-card " + tone;
+  card.setAttribute("data-nid", id);
+  card.innerHTML =
+    `<button type="button" class="n-x" data-nx="${esc(id)}" aria-label="${esc(I18N.t("notify.dismiss"))}">${icon("close")}</button>` +
+    `<h4>${esc(tradeHeadline(t))}</h4>` +
+    `<p class="sub">${esc(tradeDetail(t))}</p>`;
+  stack.prepend(card);
+  /* Local card: dismissing it is a removal, not a request. Routing it
+     through the server dismissal is what used to clear the whole stack. */
+  bindDismiss(card);
+  while (stack.children.length > 4) stack.lastElementChild.remove();
+  setTimeout(() => card.remove(), 12000);
+}
+
+/** The Windows toast, via the desktop host. Entries and exits only. */
+function notifyHostTrade(t) {
+  try {
+    const bridge = window.chrome && window.chrome.webview;
+    if (!bridge || typeof bridge.postMessage !== "function") return;
+    bridge.postMessage(JSON.stringify({
+      type: "trade",
+      title: tradeHeadline(t),
+      body: tradeDetail(t),
+      symbol: t.symbol || "",
+      timeframe: S.timeframe || "",
+      level: t.kind === "exit" && t.result === "loss" ? "warning" : "info",
+    }));
+  } catch (e) {
+    /* running in a plain browser: the on-screen card is the notification */
+  }
+}
+
+function pushSignalCard(sig) {
+  const stack = $("notify-stack");
+  if (!stack) return;
+  const side = String(sig.action || sig.side || "").toLowerCase();
+  const id = "sig-" + (sig.ts || Date.now());
+  const card = document.createElement("article");
+  card.className = "notify-card signal-card " + (side === "sell" ? "is-sell" : "is-buy");
+  card.setAttribute("data-nid", id);
+  card.innerHTML =
+    `<button type="button" class="n-x" data-nx="${esc(id)}" aria-label="${esc(I18N.t("notify.dismiss"))}">${icon("close")}</button>` +
+    `<h4>${esc(signalHeadline(sig))}</h4>` +
+    `<p class="sub">${esc(signalDetail(sig) || I18N.t("signal.no_levels"))}</p>` +
+    (signalSource(sig) ? `<p class="sub dim">${esc(signalSource(sig))}</p>` : "") +
+    `<button type="button" class="btn tiny" data-sig-open="${esc(sig.symbol || "")}"
+             data-sig-tf="${esc(sig.timeframe || "")}">${esc(I18N.t("signal.open_ea_chart"))}</button>`;
+  stack.prepend(card);
+  bindDismiss(card);
+
+  // Signals stack up during a busy session; keep the newest few.
+  while (stack.children.length > 4) stack.lastElementChild.remove();
+
+  card.querySelector("[data-sig-open]").onclick = () => {
+    openSignalChart(sig.symbol, sig.timeframe, sig);
+    card.remove();
+  };
+}
+
+/**
+ * Take the trader to the EA chart the signal is about.
+ *
+ * It used to open the Markets view, which is the symbol browser: the right
+ * instrument, but a different chart from the one the EA is attached to, and
+ * without the tools or the signal overlay. Clicking a notification should
+ * land on the chart where the trade would be managed, with the signal that
+ * sent you there already highlighted.
+ */
+function openSignalChart(symbol, timeframe, sig) {
+  if (!symbol) { show("charts", { animate: true, closeMenu: true }); return; }
+  // Remembered so bindChartDesk can pin the card once the signals for this
+  // symbol have actually loaded - they are fetched asynchronously and are
+  // not here yet at this point.
+  S.pendingSignal = sig && typeof sig === "object" ? { ...sig, symbol } : null;
+  // Landing on a chart with the overlay switched off would answer nothing,
+  // so following a signal turns the signals back on.
+  if (S.pendingSignal) {
+    S.signalsEnabled = true;
+    S.showSignals = true;
+    localStorage.setItem("aurion.signalsEnabled", "1");
+  }
+  openChartDesk(symbol, timeframe || S.timeframe);
+  if (S.pendingSignal) fetchChartSignals(symbol, timeframe || S.timeframe);
+}
+
+/**
+ * Put the card for a just-arrived signal on screen without the trader
+ * having to find the arrow and hover it.
+ *
+ * Matched on time first and index second, because the replayed history and
+ * the live bus number their bars differently; the time is the only identity
+ * both agree on.
+ */
+function pinPendingSignal() {
+  const want = S.pendingSignal;
+  if (!want || !S.chart || typeof S.chart.pinSignal !== "function") return;
+  const list = S.chartSignals || [];
+  if (!list.length) return;
+  const side = String(want.action || want.side || "").toLowerCase();
+  const match =
+    list.find((s) => want.time && s.time === want.time && s.type === side) ||
+    list.filter((s) => s.type === side).slice(-1)[0] ||
+    list[list.length - 1];
+  if (match) S.chart.pinSignal(match);
+  S.pendingSignal = null;
+}
+
+/* The host posts back when its toast is clicked, and tells us whether the
+   window can currently be seen. */
+function bindHostBridge() {
+  try {
+    const bridge = window.chrome && window.chrome.webview;
+    if (!bridge || typeof bridge.addEventListener !== "function") return;
+    bridge.addEventListener("message", (e) => {
+      let msg = e.data;
+      if (typeof msg === "string") {
+        try { msg = JSON.parse(msg); } catch (err) { return; }
+      }
+      if (!msg || typeof msg !== "object") return;
+      if (msg.type === "visibility") window.__aurionWindowHidden = Boolean(msg.hidden);
+      if (msg.type === "open-signal") openSignalChart(msg.symbol, msg.timeframe, msg.time || msg.side ? msg : null);
+    });
+  } catch (e) {
+    /* running in a browser, not the desk window */
+  }
+}
+
+
+/* The calendar's hover peek is parented to <body>, so it survives the view
+   it describes; the desk hides it on every view change. It can no longer be
+   pinned, so there is no pinned state left to unwind. */
+function dismissCalendarCard() {
+  const tip = document.getElementById("cal-tip");
+  if (tip) tip.hidden = true;
+  try { if (window.Calendar && typeof Calendar.unpin === "function") Calendar.unpin(); } catch {}
+}
+
+/**
+ * True when the renderer has already decided there will be no blur.
+ *
+ * The fast tier - picked by the trader or detected on a machine that
+ * cannot afford thirty blurred layers - strips every backdrop-filter.
+ * The liquid-glass switch cannot put them back, so offering it as a live
+ * control means flipping it does nothing and the desk looks broken.
+ */
+function glassForced() {
+  try {
+    return window.AurionSkin && AurionSkin.effectivePerf() === "fast";
+  } catch { return false; }
+}
+
 function glassOn() {
+  // A forced-off renderer is reported as off, so the switch and the
+  // surfaces agree with what is actually on screen.
+  if (glassForced()) return false;
   if (document.documentElement && document.documentElement.dataset.glass) {
     return document.documentElement.dataset.glass !== "off";
   }
@@ -312,8 +2385,11 @@ function paintGlassSwitch() {
   const sw = $("sw-glass");
   if (!sw) return;
   const on = glassOn();
+  const forced = glassForced();
   sw.classList.toggle("on", on);
   sw.setAttribute("aria-pressed", on ? "true" : "false");
+  sw.disabled = forced;
+  sw.setAttribute("aria-disabled", forced ? "true" : "false");
 }
 function setGlassNow(on) {
   const next = on ? "on" : "off";
@@ -322,6 +2398,11 @@ function setGlassNow(on) {
   paintGlassSwitch();
 }
 function clsPnl(n) { return Number(n) > 0 ? "up" : Number(n) < 0 ? "down" : ""; }
+/* A P/L figure reads its own direction.
+   fmt() already prints the minus on a loss, but a gain came out bare and
+   only green said which way it had gone - and colour is never allowed to
+   be the only indicator. The plus is the missing half of that pair. */
+function fmtSigned(n) { return (Number(n) > 0 ? "+" : "") + fmt(n); }
 function mt5Live() {
   const mt = S.snap && S.snap.mt5;
   if (mt && mt.connected) return true;
@@ -362,7 +2443,13 @@ function setMenu(open) {
     btn.setAttribute("aria-label", I18N.t("common.menu"));
   }
   if (scrim) scrim.hidden = !on;
-  if (nav) nav.setAttribute("aria-hidden", isCompactNav() && !on ? "true" : "false");
+  if (nav) {
+    nav.setAttribute("aria-hidden", isCompactNav() && !on ? "true" : "false");
+    // Open at the top. On a phone the rail keeps its scroll position while it
+    // is off-screen, so the next tap on the menu would reveal it half-way down
+    // a list the user never scrolled.
+    if (on) nav.scrollTop = 0;
+  }
 }
 
 function closeAllDropdowns() {
@@ -371,34 +2458,61 @@ function closeAllDropdowns() {
   document.querySelectorAll("body > .dd-menu").forEach((m) => { m.hidden = true; });
 }
 
-function placeDropdownMenu(btn, menu) {
+/* One placement routine for every popover menu.
+
+   The symbol picker and the enhanced <select> menus used to carry two
+   copies of this geometry, which is how they drifted apart: one clamped
+   its width to a 240px floor, the other to 168px, so a narrow trigger
+   grew a menu wider than itself. A menu is a continuation of the control
+   that opened it, so its width is the trigger's width - nothing else -
+   and it stays short, scrolling whatever does not fit.
+
+   Only logical properties are written. The stylesheet pins
+   inset-inline-start, and adding a physical `left` over-constrains the
+   box: in RTL the physical value loses and the menu welds itself to the
+   window edge. */
+const POP_GAP = 6;     // breathing room between trigger and menu
+const POP_EDGE = 8;    // keep-out margin at the viewport edge
+const POP_MIN_H = 140; // below this there is no point opening downwards
+const POP_MAX_H = 300; // a menu is a short list with a scrollbar, not a page
+
+function placePopover(btn, pop, opts) {
+  const o = opts || {};
+  const minW = o.minW || 96;
+  const maxH = o.maxH || POP_MAX_H;
   const r = btn.getBoundingClientRect();
   const vw = window.innerWidth;
   const vh = window.innerHeight;
+
+  // The trigger's own width, only ever reined in by the viewport or by
+  // the floor that keeps a tiny control's menu readable.
+  const w = Math.max(minW, Math.min(r.width, vw - POP_EDGE * 2));
+  pop.style.inlineSize = w + "px";
+
+  const below = vh - r.bottom - POP_GAP - POP_EDGE;
+  const above = r.top - POP_GAP - POP_EDGE;
+  const up = below < POP_MIN_H && above > below;
+  if (up) {
+    pop.style.insetBlockStart = "auto";
+    pop.style.insetBlockEnd = (vh - r.top + POP_GAP) + "px";
+    pop.style.maxBlockSize = Math.max(POP_MIN_H, Math.min(maxH, above)) + "px";
+  } else {
+    pop.style.insetBlockEnd = "auto";
+    pop.style.insetBlockStart = (r.bottom + POP_GAP) + "px";
+    pop.style.maxBlockSize = Math.max(POP_MIN_H, Math.min(maxH, below)) + "px";
+  }
+  pop.classList.toggle("is-up", up);
+
+  // Align the menu's leading edge with the trigger's, in writing-mode
+  // terms, then pull it back inside the viewport.
   const rtl = document.documentElement.dir === "rtl";
-  const width = Math.max(r.width, 168);
-  menu.style.minWidth = width + "px";
-  menu.style.maxWidth = Math.min(380, vw - 16) + "px";
-  const spaceBelow = vh - r.bottom - 10;
-  const spaceAbove = r.top - 10;
-  if (spaceBelow < 148 && spaceAbove > spaceBelow) {
-    menu.style.top = "auto";
-    menu.style.bottom = (vh - r.top + 6) + "px";
-    menu.style.maxHeight = Math.max(120, Math.min(280, spaceAbove)) + "px";
-  } else {
-    menu.style.bottom = "auto";
-    menu.style.top = (r.bottom + 6) + "px";
-    menu.style.maxHeight = Math.max(120, Math.min(280, spaceBelow)) + "px";
-  }
-  if (rtl) {
-    const right = Math.max(8, vw - r.right);
-    menu.style.left = "auto";
-    menu.style.right = right + "px";
-  } else {
-    const left = Math.min(r.left, vw - width - 8);
-    menu.style.right = "auto";
-    menu.style.left = Math.max(8, left) + "px";
-  }
+  const startPx = rtl ? vw - r.right : r.left;
+  const maxStart = vw - w - POP_EDGE;
+  pop.style.insetInlineStart = Math.max(POP_EDGE, Math.min(startPx, maxStart)) + "px";
+}
+
+function placeDropdownMenu(btn, menu) {
+  placePopover(btn, menu);
 }
 
 function enhanceSelects(root) {
@@ -415,7 +2529,8 @@ function enhanceSelects(root) {
     sel.tabIndex = -1;
     const btn = document.createElement("button");
     btn.type = "button";
-    btn.className = "dd-btn";
+    // .ctrl is what makes this the same shell as the symbol picker
+    btn.className = "ctrl dd-btn";
     btn.setAttribute("aria-haspopup", "listbox");
     btn.setAttribute("aria-expanded", "false");
     const menu = document.createElement("div");
@@ -430,9 +2545,11 @@ function enhanceSelects(root) {
       const opts = [...sel.options];
       const cur = opts[sel.selectedIndex];
       const label = cur ? cur.text : "—";
-      btn.innerHTML = `<span class="dd-label">${esc(label)}</span><span class="dd-caret" aria-hidden="true"></span>`;
+      btn.innerHTML = `<span class="dd-label">${esc(label)}</span>${icon("chevron")}`;
       menu.innerHTML = opts.map((o, i) =>
-        `<button type="button" class="dd-opt${o.selected ? " on" : ""}" role="option" data-i="${i}" ${o.disabled ? "disabled" : ""}>${esc(o.text)}</button>`
+        `<button type="button" class="dd-opt${o.selected ? " on" : ""}" role="option"` +
+        ` aria-selected="${o.selected ? "true" : "false"}" data-i="${i}"` +
+        `${o.disabled ? " disabled" : ""}>${esc(o.text)}</button>`
       ).join("") || `<button type="button" class="dd-opt" disabled>—</button>`;
     };
     const close = () => {
@@ -531,10 +2648,49 @@ function bindChrome() {
   }, true);
 }
 
+/**
+ * The build stamp, written DSK-DDMMYY.
+ *
+ * The wire format stays ISO (YYYY-MM-DD): it is unambiguous, it sorts,
+ * and the backend derives it from a file mtime. Only the display is
+ * reshaped, here, so nothing that parses build_date has to change and
+ * there is one place to look when the format is questioned.
+ *
+ * Deliberately not localised. A build stamp is an identifier a user
+ * reads back to support, so it has to be the same six digits in every
+ * language -- Persian digits in a support ticket help nobody.
+ */
+function buildTag(iso) {
+  const raw = String(iso || "").trim();
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(raw);
+  if (!m) {
+    /* Never invent a date. If the engine sent something unexpected,
+       show it as it came rather than stamping today over it. */
+    return raw ? "DSK-" + raw : "DSK-\u2014";
+  }
+  const [, y, mo, d] = m;
+  return `DSK-${d}${mo}${y.slice(2)}`;
+}
+
+function copyrightLocale() {
+  return I18N.lang === "fa" ? "fa-IR-u-ca-persian"
+    : I18N.lang === "ar" ? "ar-SA-u-ca-islamic-umalqura"
+    : "en-GB-u-ca-gregory";
+}
+
+/* The current year, in the calendar the interface is using.
+ *
+ * Only the current year: no "from - to" span. It was a range, which
+ * meant carrying a first-release instant around and formatting two
+ * years with Intl.formatRange to get the separator and the Hijri era
+ * right. A single year needs none of that, and it still cannot be a
+ * literal - "2026" is a year in the Gregorian calendar only, and the
+ * same moment is 1405 on the Persian desk and 1448 on the Arabic one.
+ * Formatting the instant is what makes it roll over on its own, in
+ * every calendar, with no date left in the source to go stale. */
 function copyrightYear() {
-  const tag = I18N.lang === "fa" ? "fa-IR-u-ca-persian" : I18N.lang === "ar" ? "ar-SA-u-ca-islamic-umalqura" : "en-GB-u-ca-gregory";
   try {
-    return new Intl.DateTimeFormat(tag, { year: "numeric" }).format(new Date());
+    return new Intl.DateTimeFormat(copyrightLocale(), { year: "numeric" }).format(new Date());
   } catch {
     return String(new Date().getFullYear());
   }
@@ -547,7 +2703,26 @@ function navAccountHtml() {
   return `<span class="nav-acc ${premium ? "prem" : "free"}" id="nav-acc" title="${esc(I18N.t("nav.upgrade"))}">${esc(label)}</span>`;
 }
 
+/* The themes are premium, and the theme layer boots in <head> from a cached
+   verdict because the licence only arrives with the first snapshot. This is
+   where the engine's answer reaches it - on every sync and on every licence
+   push, so activating a key restores the user's theme without a reload and a
+   lapsed one drops the desk back to glass the same way. */
+function syncThemeLicense() {
+  if (typeof AurionTheme === "undefined") return;
+  const L = ((S.snap && S.snap.license) || S._gateLic || {});
+  // Unknown licence (no snapshot yet) is not an answer - leave the cache be.
+  if (L.premium === undefined || L.premium === null) return;
+  const changed = AurionTheme.setPaid(Boolean(L.premium));
+  if (!changed) return;
+  markThemeCards();
+  markAppearancePills();
+  repaintChartsForTheme();
+  if (S.view === "settings") show("settings", { animate: false, closeMenu: false, nav: false });
+}
+
 function paintNavAcc() {
+  syncThemeLicense();
   const chip = $("nav-acc");
   if (!chip) return;
   const L = ((S.snap && S.snap.license) || S._gateLic || {});
@@ -562,7 +2737,7 @@ function renderNav() {
   const nav = $("nav");
   const tag = String(I18N.t("brand.tagline")).replace(/"/g, "&quot;");
   const ver = S.version || S.snap?.version || S._gateLic?.version || "1.0.0";
-  nav.innerHTML = `<div class="nav-head"><div class="nav-logo"><img class="mark" src="/icons/mark.png?v=desk49" alt="AURION" /></div><div class="nav-brand"><b>AURION</b><span class="nav-tag">${tag}</span></div></div>` +
+  nav.innerHTML = `<div class="nav-head"><div class="nav-logo"><img class="mark" src="icons/mark.png?v=desk49" alt="AURION" /></div><div class="nav-brand"><b>AURION</b><span class="nav-tag">${tag}</span></div></div>` +
     NAV.map(([id, key, svg]) => {
       const label = I18N.t(key);
       return `<button type="button" data-view="${id}" class="nav-tab ${S.view === id ? "on" : ""}" title="${label.replace(/"/g, "&quot;")}">${svg}<span>${label}</span></button>`;
@@ -780,35 +2955,394 @@ function pruneDeadSymbols() {
   }
   return changed;
 }
-function symbolSelectHtml(id, selected) {
+/* ------------------------------------------------------------------
+   Searchable instrument picker.
+
+   The markets toolbar used a <select>, which on a desk with a dozen
+   EAs attached means scrolling a native dropdown to find the one pair
+   you want. This is a combobox: type to filter, arrows to move, Enter
+   to choose, Escape to dismiss.
+
+   The list is still the attached charts -- those are the only symbols
+   the terminal sends bars for -- so this changes how you find a symbol,
+   not which symbols exist.
+   ------------------------------------------------------------------ */
+
+/** Filter the attached charts by symbol or label. */
+/** Normalise a query the way both searches compare against: EURUSD = eur/usd. */
+function symbolQuery(query) {
+  return String(query || "").trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
+}
+
+/**
+ * How well an instrument answers a query. Lower is better, -1 is no match.
+ *
+ * Shared by the picker and the EA chart grid so the two never disagree
+ * about what "EUR" ought to find, or in what order.
+ */
+function symbolScore(symbol, label, q) {
+  if (!q) return 0;
+  const name = String(symbol || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+  if (name === q) return 0;
+  if (name.startsWith(q)) return 1;
+  if (name.includes(q)) return 2;
+  if (String(label || "").toUpperCase().includes(q)) return 3;
+  return -1;
+}
+
+function searchSymbols(query) {
+  const all = liveSymbols();
+  const q = symbolQuery(query);
+  if (!q) return all;
+  const score = (it) => symbolScore(it.symbol, it.label, q);
+  return all
+    .map((it) => ({ it, s: score(it) }))
+    .filter((x) => x.s >= 0)
+    .sort((a, b) => a.s - b.s || a.it.symbol.localeCompare(b.it.symbol))
+    .map((x) => x.it);
+}
+
+function symbolPickerHtml(id, selected) {
   const items = liveSymbols();
   const cur = selected || S.symbol || "";
   if (!items.length) {
-    return `<select class="ctrl" id="${id}" disabled><option value="">${esc(I18N.t("exec.no_ea_symbol"))}</option></select>`;
+    /* A short label, because this one sits in a flex row next to the
+       timeframe picker. The full sentence is 55 characters; rendered
+       inside the button it set the flex basis of the whole control and
+       squeezed its neighbour down to a clipped 30px stub. The
+       explanation is still here, as the tooltip and in the empty card
+       below the chart - it is just no longer load-bearing for the
+       layout. */
+    return `<div class="sympick is-empty" id="${id}">
+      <button type="button" class="ctrl sympick-btn" id="${id}-btn" disabled
+              title="${esc(I18N.t("exec.no_ea_symbol"))}">
+        <span class="sympick-cur">${esc(I18N.t("exec.no_ea_symbol_short"))}</span>
+      </button></div>`;
   }
-  return `<select class="ctrl" id="${id}">${items.map((it) => `<option value="${esc(it.symbol)}" ${it.symbol === cur ? "selected" : ""}>${esc(it.label)}</option>`).join("")}</select>`;
+  return `<div class="sympick" id="${id}">
+    <button type="button" class="ctrl sympick-btn" id="${id}-btn"
+            aria-haspopup="listbox" aria-expanded="false">
+      <span class="sympick-cur">${esc(cur || I18N.t("markets.symbol"))}</span>
+      ${icon("chevron")}
+    </button>
+    <div class="sympick-pop" id="${id}-pop" hidden>
+      <div class="sympick-search">
+        <span class="dsk-search sm">${icon("search")}
+        <input type="search" id="${id}-q" class="dsk-search-i" autocomplete="off" spellcheck="false"
+               placeholder="${esc(I18N.t("markets.search_sym"))}"
+               aria-label="${esc(I18N.t("markets.search_sym"))}">
+        </span>
+      </div>
+      <ul class="sympick-list" id="${id}-list" role="listbox"></ul>
+    </div>
+  </div>`;
 }
-function fillSymbolSelect(id, selected) {
-  const sel = $(id);
-  if (!sel || sel.tagName !== "SELECT") return;
+
+function symbolRowsHtml(rows, cur) {
+  if (!rows.length) return `<li class="sympick-none">${esc(I18N.t("markets.no_sym_match"))}</li>`;
+  return rows.map((r) => `<li role="option" class="sympick-row${r.symbol === cur ? " on" : ""}"
+      data-sym="${esc(r.symbol)}" aria-selected="${r.symbol === cur}">
+    <span class="sympick-n">${esc(r.symbol)}</span>
+    <span class="sympick-d">${esc(r.timeframe || "")}</span>
+  </li>`).join("");
+}
+
+/**
+ * Wire a picker. `onPick(symbol)` fires on selection.
+ *
+ * Named "instrument" deliberately: bindSymbolPicker is already taken by
+ * the prop-risk panel further down this file, and because both are plain
+ * function declarations the later one silently wins. Do not reuse it.
+ */
+function bindInstrumentPicker(id, opts) {
+  /* `opts` may be the pick handler on its own -- the markets toolbar has
+     always called it that way -- or {current, onPick} when the picker is
+     a form field that owns its value instead of steering S.symbol. */
+  const onPick = typeof opts === "function" ? opts : (opts && opts.onPick);
+  const current = (opts && opts.current) || (() => S.symbol);
+
+  /* First, before anything is looked up by id. While the list is open
+     its popover lives on <body> (see `open` below), so a re-render
+     that replaces this picker leaves the old popover orphaned there -
+     carrying the same ids as the new one. Sweeping it up afterwards is
+     too late: getElementById would already have handed us the corpse. */
+  for (const stale of document.querySelectorAll(`body > [data-portal="${id}"]`)) stale.remove();
+
+  const root = $(id);
+  if (!root || root.classList.contains("is-empty")) return;
+  const btn = $(`${id}-btn`);
+  const pop = $(`${id}-pop`);
+  const input = $(`${id}-q`);
+  const list = $(`${id}-list`);
+  if (!btn || !pop || !input || !list) return;
+
+  let rows = [];
+  let active = -1;
+
+  const mark = () => {
+    [...list.children].forEach((el, i) => el.classList.toggle("active", i === active));
+    const el = list.children[active];
+    if (el && typeof el.scrollIntoView === "function") {
+      try { el.scrollIntoView({ block: "nearest" }); } catch (e) { /* older engines */ }
+    }
+  };
+  const renderRows = () => {
+    const cur = String(current() || "").toUpperCase();
+    rows = searchSymbols(input.value);
+    list.innerHTML = symbolRowsHtml(rows, cur);
+    active = rows.findIndex((r) => r.symbol === cur);
+    mark();
+  };
+  /* ---- where the popover is allowed to live ------------------------
+     The list used to be position:absolute inside .sympick, which works
+     until the picker is put in a card - and on the backtest page it is.
+     .card sets overflow:hidden, so the dropdown was sliced off at the
+     card's bottom edge: a couple of rows visible, nothing scrollable,
+     and no way to reach the rest. .card also sets backdrop-filter,
+     which makes it a containing block for fixed-position descendants
+     too, so switching to position:fixed in place would have been cut
+     off by exactly the same box.
+
+     The only thing that escapes a clipping ancestor is not being
+     inside it. On open the popover is moved to <body> and positioned
+     from the button's rectangle; on close it goes home. That also
+     makes the placement answerable rather than hopeful: it is clamped
+     into the viewport, it flips above the control when there is more
+     room up there, and its height is whatever space actually exists -
+     so the list always has somewhere to scroll instead of running off
+     the bottom of the screen. */
+  /* The geometry itself is placePopover's, shared with every other
+     dropdown on the desk, so the symbol list and a timeframe list open
+     the same way: at the width of the control that was clicked, short,
+     and scrolling the rest. The only local concession is a floor wide
+     enough for the search field this popover carries and the others
+     do not. */
+  const place = () => {
+    if (!document.body.contains(btn)) { close(); return; }
+    const vw = window.innerWidth || document.documentElement.clientWidth || 0;
+    const vh = window.innerHeight || document.documentElement.clientHeight || 0;
+    if (!vw || !vh) return;
+    placePopover(btn, pop, { minW: 180 });
+  };
+
+  const onMove = () => { if (!pop.hidden) place(); };
+
+  const open = () => {
+    pop.setAttribute("data-portal", id);
+    document.body.appendChild(pop);
+    pop.hidden = false;
+    btn.setAttribute("aria-expanded", "true");
+    input.value = "";
+    renderRows();
+    place();
+    /* Capture: a scroll inside any pane has to move the popover with
+       its button, and those events do not bubble to window. */
+    window.addEventListener("scroll", onMove, true);
+    window.addEventListener("resize", onMove);
+    input.focus();
+  };
+  const close = () => {
+    window.removeEventListener("scroll", onMove, true);
+    window.removeEventListener("resize", onMove);
+    pop.hidden = true;
+    pop.classList.remove("is-up");
+    pop.removeAttribute("style");
+    pop.removeAttribute("data-portal");
+    if (root.isConnected) root.appendChild(pop);
+    else pop.remove();
+    btn.setAttribute("aria-expanded", "false");
+  };
+  const choose = (name) => {
+    if (!name) return;
+    close();
+    const label = btn.querySelector(".sympick-cur");
+    if (label) label.textContent = name;
+    if (typeof onPick === "function") onPick(name);
+  };
+
+  btn.onclick = (e) => { e.stopPropagation(); if (pop.hidden) open(); else close(); };
+  input.oninput = renderRows;
+  input.onkeydown = (e) => {
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault();
+      if (!rows.length) return;
+      active = (active + (e.key === "ArrowDown" ? 1 : -1) + rows.length) % rows.length;
+      mark();
+    } else if (e.key === "Enter") {
+      e.preventDefault();
+      if (rows[active]) choose(rows[active].symbol);
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      close();
+      btn.focus();
+    }
+  };
+  list.onclick = (e) => {
+    const row = e.target.closest("[data-sym]");
+    if (row) choose(row.getAttribute("data-sym"));
+  };
+  /* The popover is not a descendant of root while it is open, so a
+     click on one of its own rows has to be excluded explicitly or the
+     list closes before it can be chosen. */
+  root._away = (e) => { if (!root.contains(e.target) && !pop.contains(e.target)) close(); };
+  document.addEventListener("click", root._away);
+}
+
+/* ------------------------------------------------------------------
+   The same searchable picker, as a form field.
+
+   The order ticket and the backtest still chose their instrument from a
+   native <select>: fine with three charts attached, unusable with
+   thirty, and inconsistent with the markets toolbar which has had a
+   search box for a while.
+
+   Both places read the value as `$("ex-sym").value` and listen for
+   `change` on it, in half a dozen spots. Rather than rewrite every
+   reader -- and risk missing one, which would fail silently as an order
+   placed on the wrong instrument -- the field keeps a hidden <input>
+   under the same id. `.value` and `change` go on working exactly as
+   they did; only the thing the trader touches has changed.
+   ------------------------------------------------------------------ */
+/**
+ * Filter and reorder the EA chart grid in place.
+ *
+ * In place, because every card owns a live canvas: re-rendering the view
+ * on each keystroke would destroy and repaint them all. Instead the cards
+ * stay where they are in the DOM and CSS `order` moves them, so the best
+ * match sits at the top of the grid under the search box and the trader
+ * taps it to open the full chart.
+ */
+function applyChartSearch(query) {
+  const q = symbolQuery(query);
+  const cards = [...document.querySelectorAll(".ch-grid .chart-card")];
+  if (!cards.length) return 0;
+  let shown = 0;
+  for (const card of cards) {
+    const sym = card.getAttribute("data-sym") || "";
+    const score = symbolScore(sym, card.getAttribute("data-tf") || "", q);
+    const hit = score >= 0;
+    card.hidden = !hit;
+    /* Ranked, then alphabetical, so the order is stable while typing
+       rather than reshuffling on every character. */
+    card.style.order = hit ? String(score) : "";
+    card.classList.toggle("is-hit", Boolean(q) && hit && score <= 1);
+    if (hit) shown += 1;
+  }
+  const none = $("ch-none");
+  if (none) none.hidden = shown > 0;
+  const count = $("ch-q-n");
+  if (count) count.textContent = q ? `${shown}/${cards.length}` : "";
+  const clear = $("ch-q-clear");
+  if (clear) clear.hidden = !q;
+  return shown;
+}
+
+function bindChartSearch() {
+  const input = $("ch-q");
+  if (!input) return;
+  /* Survives the re-render a snapshot causes, so a search is not wiped
+     out from under the trader every time the engine reports in. */
+  const run = () => { S.chartQuery = input.value; applyChartSearch(input.value); };
+  input.oninput = run;
+  input.onkeydown = (e) => {
+    if (e.key === "Escape") {
+      e.preventDefault();
+      input.value = "";
+      run();
+    } else if (e.key === "Enter") {
+      /* Enter opens the top match: searching for a chart and then
+         having to aim at it with a finger is the long way round. */
+      e.preventDefault();
+      const first = [...document.querySelectorAll(".ch-grid .chart-card[data-open-chart]")]
+        .filter((c) => !c.hidden)
+        .sort((a, b) => Number(a.style.order || 0) - Number(b.style.order || 0))[0];
+      if (first) first.click();
+    }
+  };
+  const clear = $("ch-q-clear");
+  if (clear) clear.onclick = () => { input.value = ""; run(); input.focus(); };
+  run();
+}
+
+function symbolFieldHtml(id, selected) {
   const items = liveSymbols();
-  const want = selected || sel.value || S.symbol || "";
-  const prev = [...sel.options].map((o) => o.value + "\t" + o.text).join("|");
-  const next = items.length ? items.map((it) => it.symbol + "\t" + it.label).join("|") : "\t";
-  if (prev === next) {
-    sel.disabled = !items.length;
-    return;
-  }
+  const cur = items.some((it) => it.symbol === selected) ? selected : (items[0] || {}).symbol || "";
+  const pick = `${id}-pick`;
   if (!items.length) {
-    sel.innerHTML = `<option value="">${esc(I18N.t("exec.no_ea_symbol"))}</option>`;
-    sel.disabled = true;
-    sel.value = "";
+    return `<div class="sympick is-empty" id="${pick}">
+      <input type="hidden" id="${id}" value="">
+      <button type="button" class="ctrl sympick-btn" id="${pick}-btn" disabled
+              title="${esc(I18N.t("exec.no_ea_symbol"))}">
+        <span class="sympick-cur">${esc(I18N.t("exec.no_ea_symbol_short"))}</span>
+      </button></div>`;
+  }
+  return `<div class="sympick" id="${pick}">
+    <input type="hidden" id="${id}" value="${esc(cur)}">
+    <button type="button" class="ctrl sympick-btn" id="${pick}-btn"
+            aria-haspopup="listbox" aria-expanded="false">
+      <span class="sympick-cur">${esc(cur || I18N.t("markets.symbol"))}</span>
+      ${icon("chevron")}
+    </button>
+    <div class="sympick-pop" id="${pick}-pop" hidden>
+      <div class="sympick-search">
+        <span class="dsk-search sm">${icon("search")}
+        <input type="search" id="${pick}-q" class="dsk-search-i" autocomplete="off" spellcheck="false"
+               placeholder="${esc(I18N.t("markets.search_sym"))}"
+               aria-label="${esc(I18N.t("markets.search_sym"))}">
+        </span>
+      </div>
+      <ul class="sympick-list" id="${pick}-list" role="listbox"></ul>
+    </div>
+  </div>`;
+}
+
+/** Wire a symbol field. `onPick(symbol)` runs after the value is set. */
+function bindSymbolField(id, onPick) {
+  const hidden = $(id);
+  if (!hidden) return;
+  bindInstrumentPicker(`${id}-pick`, {
+    current: () => hidden.value,
+    onPick: (name) => {
+      hidden.value = name;
+      /* A real event, so the handlers already listening for `change` on
+         the old <select> keep firing. Without this the ticket would
+         forget the instrument between renders. */
+      try { hidden.dispatchEvent(new Event("change", { bubbles: true })); }
+      catch (_) { /* very old engines */ }
+      if (typeof onPick === "function") onPick(name);
+    },
+  });
+}
+
+/**
+ * Keep a field in step with the attached charts without rebuilding it.
+ *
+ * If the instrument it is showing has gone
+ * away the field falls back to one that exists, so an order can never be
+ * sent on a symbol the terminal stopped reporting.
+ */
+function fillSymbolField(id, selected) {
+  const hidden = $(id);
+  const root = $(`${id}-pick`);
+  if (!hidden || !root) return;
+  const items = liveSymbols();
+  const btn = root.querySelector(".sympick-cur");
+  if (!items.length) {
+    hidden.value = "";
+    root.classList.add("is-empty");
+    if (btn) btn.textContent = I18N.t("exec.no_ea_symbol_short");
+    const b = $(`${id}-pick-btn`);
+    if (b) { b.disabled = true; b.title = I18N.t("exec.no_ea_symbol"); }
     return;
   }
-  sel.disabled = false;
-  sel.innerHTML = items.map((it) => `<option value="${esc(it.symbol)}" ${it.symbol === want ? "selected" : ""}>${esc(it.label)}</option>`).join("");
-  sel.value = items.some((it) => it.symbol === want) ? want : items[0].symbol;
+  root.classList.remove("is-empty");
+  const b = $(`${id}-pick-btn`); if (b) b.disabled = false;
+  const want = items.some((it) => it.symbol === hidden.value) ? hidden.value
+    : (items.some((it) => it.symbol === selected) ? selected : items[0].symbol);
+  if (hidden.value !== want) hidden.value = want;
+  if (btn && btn.textContent !== want) btn.textContent = want;
 }
+
 function setManualTradeEnabled(on) {
   const buy = $("ex-buy");
   const sell = $("ex-sell");
@@ -990,18 +3524,34 @@ function bindGateSlider() {
   }
 }
 
-function kpi(key, value, suffix, signed) {
-  return `<div class="kpi"><span>${I18N.t(key)}</span><b class="mono ${signed?clsPnl(value):""}" data-metric="${key}">${fmt(value)}${suffix ? " " + suffix : ""}</b></div>`;
-}
-function openChartDesk(symbol, timeframe) {
+function openChartDesk(symbol, timeframe, opts) {
   if (!symbol) return;
   S.chartFocus = { symbol, timeframe: timeframe || S.timeframe || "M15" };
   S.symbol = symbol;
   S.timeframe = S.chartFocus.timeframe;
+  /* Read once when the workspace mounts, then cleared. Opening a chart
+     from the grid should fill the screen; switching symbol from inside
+     the workspace, or landing here any other way, must not change what
+     the user already set. */
+  S.chartFocusFull = Boolean(opts && opts.fullscreen);
   show("charts", { animate: true, closeMenu: true });
 }
 function closeChartDesk() {
   S.chartFocus = null;
+  S.chartFocusFull = false;
+  /* Back must always land on the ordinary chart list, never on a
+     fullscreen desk with no navigation. The workspace's own back button
+     drops fullscreen before calling this, but it is not the only route
+     in -- closing from anywhere else has to be just as safe. */
+  try {
+    if (typeof AurionChartUI !== "undefined" && AurionChartUI.isFullscreen()) {
+      AurionChartUI.setFullscreen(false);
+    }
+  } catch (e) { /* non-fatal */ }
+  try {
+    if (document.fullscreenElement && document.exitFullscreen) document.exitFullscreen().catch(() => {});
+  } catch (e) { /* non-fatal */ }
+  document.body.classList.remove("chart-full");
   show("charts", { animate: true, closeMenu: false });
 }
 
@@ -1013,9 +3563,39 @@ function show(view, opts) {
   const changing = prev !== view;
   if (view === "profile" || view === "execution") view = "command";
   if (view === "settings" && changing && prev && prev !== "settings") S.setTab = "set-robot";
+  // The calendar's day card is parented to <body> so no transformed ancestor
+  // can break its fixed positioning - which also means leaving the calendar
+  // does not take it with you. Dismiss it on every view change.
+  if (changing) dismissCalendarCard();
   S.view = view;
   localStorage.setItem("aurion.view", view);
-  if (changing) {
+  /* Top of the page for a new page - and the chart workspace is a new
+     page even though it is the same view.
+
+     This used to be guarded on the view NAME alone, and opening an EA
+     chart does not change it: openChartDesk() sets S.chartFocus and calls
+     show("charts") from the charts view, so `changing` was false and the
+     stage kept whatever scroll offset the card list had. On a desktop the
+     cards fit above the fold and nothing showed. On a phone they are one
+     per row, so reaching any chart but the first means scrolling - and the
+     workspace then mounted into a stage still scrolled several hundred
+     pixels down. The .tv is about one viewport tall, so what you saw was
+     its lower half: chart on half the screen, nothing on the other half,
+     and the entire top bar - back, symbol, timeframe, indicators,
+     settings - above the top edge with no sign it was there. Opening the
+     side panel moved focus into it, the browser scrolled that into view,
+     the offset snapped back to zero and the page "fixed itself".
+     That is the whole bug. It was never the canvas.
+   
+     So the test is what is MOUNTED, not what the view is called: the view
+     plus whatever else decides which page it renders. Re-renders - a tick
+     arriving, a setting saved, reloadSettings restoring its own offset -
+     produce the same key and are left alone. */
+  const mountKey = view + (view === "charts" && S.chartFocus
+    ? "\u0000" + S.chartFocus.symbol + "\u0000" + S.chartFocus.timeframe
+    : "");
+  const remounting = S.mountedKey !== mountKey;
+  if (changing || remounting) {
     try { stage.scrollTop = 0; } catch { /* */ }
   }
   if (API.token) {
@@ -1038,11 +3618,21 @@ function show(view, opts) {
     }
     S.chart = null;
     document.querySelectorAll("body > .dd-menu").forEach((m) => m.remove());
+    /* Same reason as the calendar card above: the settings sheet, its
+       scrim and its floating bar are parented to <body> so the stage's
+       entrance transform cannot become their containing block. Which
+       means the stage being rebuilt on the next line does not remove
+       them - and it is unconditional rather than guarded on a view
+       change, because Settings re-renders itself in place when the
+       light cut or the breakpoint changes, and a leftover copy would
+       give the document two #set-jump. */
+    sweepSetSheet();
     stage.innerHTML = views[view] ? views[view]() : "";
     I18N.apply(stage);
     bindView(view);
     enhanceSelects(stage);
     S.mountedView = view;
+    S.mountedKey = mountKey;
     S.viewMode = viewMode();
     if (view === "command" || view === "execution") S._gatePainted = gateKey();
     stage.classList.remove("is-leaving");
@@ -1067,22 +3657,133 @@ function show(view, opts) {
   S._paintTimer = window.setTimeout(paint, 120);
 }
 
+/**
+ * Move the bar under a command-centre risk figure.
+ *
+ * Kept beside patchMetric rather than inside it because only two
+ * figures on the page have a limit to be a fraction of, and giving
+ * every metric an optional bar argument would mean eight call sites
+ * passing undefined.
+ */
+function patchRiskBar(key, value, limit) {
+  const b = document.querySelector(`[data-metric="${key}"]`);
+  const row = b && b.closest(".ccx-risk-row");
+  if (!row) return;
+  const fill = row.querySelector(".ccx-risk-bar > i");
+  const lim = Math.abs(Number(limit) || 0);
+  const amt = Math.abs(Number(value) || 0);
+  const pct = lim > 0 ? Math.min(100, (amt / lim) * 100) : 0;
+  if (fill) fill.style.setProperty("--w", pct + "%");
+  row.classList.toggle("is-near", lim > 0 && pct >= 75 && pct < 100);
+  row.classList.toggle("is-over", lim > 0 && pct >= 100);
+}
+
 function patchMetric(key, value, suffix, signed) {
   const el = document.querySelector(`[data-metric="${key}"]`);
   if (!el) return;
-  const next = `${fmt(value)}${suffix ? " " + suffix : ""}`;
+  /* A currency is a separate word; a percent sign is not. Joining both
+     with a space meant every figure carrying "%" was rendered as
+     "0.56%" at first paint and rewritten as "0.56 %" by the first live
+     tick - a silent shift on the daily P/L and the drawdown long
+     before the masthead gained one. */
+  const sep = suffix === "%" ? "" : " ";
+  /* A value that is already text stays text. The leverage is handed in
+     as "1:100", and fmt() put that through Number(), got NaN and wrote
+     an em dash - so the figure rendered correctly and was then erased
+     by the first live tick. Anything numeric still goes through fmt. */
+  const shown = typeof value === "string" && value !== "" && Number.isNaN(Number(value))
+    ? value
+    : (signed ? fmtSigned(value) : fmt(value));
+  const next = `${shown}${suffix ? sep + suffix : ""}`;
   if (el.textContent !== next) el.textContent = next;
   el.classList.toggle("up", Boolean(signed && Number(value) > 0));
   el.classList.toggle("down", Boolean(signed && Number(value) < 0));
 }
 
+/**
+ * Wire the close buttons under `root`.
+ *
+ * Closing is real money and cannot be undone, so it asks first -- the
+ * control now sits on a chip beside a chart, where a mis-tap on a phone
+ * is easy. The button also disables itself while the request is in
+ * flight: the old handler would happily fire a second close for the
+ * same ticket if the first was slow, and the second arrives after the
+ * position is gone.
+ */
+/**
+ * Close every open position, after asking.
+ *
+ * There were two copies of this, on the header's emergency button and
+ * on the Execution page's, and the chart's positions dock would have
+ * made a third. They had already drifted - one reported failure with
+ * a fallback message and the other showed `undefined` when the engine
+ * sent no error string. One confirmation, one endpoint, one way of
+ * reporting what happened.
+ *
+ * `reason` is passed through to the engine so the audit trail says
+ * which control was pressed.
+ */
+async function flattenAll(reason) {
+  const ok = await askConfirm({
+    title: I18N.t("exec.close_all"),
+    body: I18N.t("exec.confirm_flat"),
+    ok: I18N.t("exec.close_all"),
+    cancel: I18N.t("common.cancel"),
+    danger: true,
+  });
+  if (!ok) return false;
+  try {
+    const r = await API.post("/api/flatten", { reason });
+    toast(r && r.ok ? I18N.t("exec.close_all") : ((r && (r.message || r.error)) || I18N.t("errors.generic")));
+    await refresh(false);
+    return !!(r && r.ok);
+  } catch (err) {
+    toast((err && err.message) || I18N.t("errors.generic"));
+    return false;
+  }
+}
+
 function bindCloseButtons(root) {
   (root || document).querySelectorAll("[data-close]").forEach((b) => {
+    if (b.dataset.bound === "1") return;
+    b.dataset.bound = "1";
     b.onclick = async () => {
-      await API.post("/api/order", { action: "close", ticket: +b.dataset.close });
-      await refresh(false);
+      if (b.disabled) return;
+      const what = b.dataset.closeWhat || "";
+      const ok = await askConfirm({
+        title: I18N.t("exec.close_title"),
+        body: what ? I18N.t("exec.close_confirm_one", { what }) : I18N.t("exec.close_confirm"),
+        ok: I18N.t("exec.close"),
+        cancel: I18N.t("common.cancel"),
+        danger: true,
+      });
+      if (!ok) return;
+      b.disabled = true;
+      try {
+        const r = await API.post("/api/order", { action: "close", ticket: +b.dataset.close });
+        if (r && r.ok === false) toast(r.message || r.error || I18N.t("errors.generic"));
+        await refresh(false);
+      } catch (err) {
+        toast((err && err.message) || I18N.t("errors.generic"));
+      } finally {
+        /* The button is usually gone by now, repainted away with the
+           position. Re-enabling matters for the case where it is not:
+           a refused close must leave a control the trader can press
+           again. */
+        b.disabled = false;
+      }
     };
   });
+}
+
+function eaStale() {
+  const ea = (S.snap && S.snap.experts) || {};
+  return Array.isArray(ea.stale) ? ea.stale : [];
+}
+
+function eaStaleLabel() {
+  const ea = (S.snap && S.snap.experts) || {};
+  return I18N.t("ea.stale_pill", { n: eaStale().length, v: String(ea.version || "") });
 }
 
 function patchLive() {
@@ -1107,6 +3808,14 @@ function patchLive() {
     if (cmdMt) cmdMt.innerHTML = `<i class="dot dot-mt5 ${mt5Live() ? "live" : "down"}"></i><span>${I18N.t(mt5Live() ? "status.mt5_live" : "status.mt5_down")}</span>`;
     const cmdEa = $("cmd-ea");
     if (cmdEa) cmdEa.textContent = I18N.t("status.ea_attached", { n: liveAgents().length });
+    // An expert older than the one this build ships is worth saying on the
+    // front page, not only on a settings tab nobody opens twice a year.
+    const eaVer = $("wiz-eaver");
+    if (eaVer) {
+      const stale = eaStale();
+      eaVer.hidden = stale.length === 0;
+      if (stale.length) eaVer.textContent = eaStaleLabel();
+    }
     const strip = $("conn-strip");
     if (strip) {
       const eng = strip.querySelector(".pill-engine");
@@ -1117,36 +3826,53 @@ function patchLive() {
     const acc = S.snap?.mt5?.account || {};
     const prop = S.snap?.prop || {};
     patchMetric("command.balance", acc.balance, acc.currency);
-    patchMetric("command.equity", acc.equity, acc.currency);
-    patchMetric("command.profit", acc.profit, acc.currency, true);
+    /* The currency is a sibling of the figure now, not part of its text,
+       so it is no longer passed as a suffix - doing so would print it
+       twice. */
+    patchMetric("command.equity", acc.equity);
+    patchMetric("command.profit", acc.profit, "", true);
+    const balLive = Number(acc.balance) || 0;
+    if (balLive > 0) {
+      patchMetric("command.profit_pct", ((Number(acc.profit) || 0) / balLive) * 100, "%", true);
+    }
     patchMetric("command.daily_pl", prop.daily_pl_pct, "%", true);
     patchMetric("command.drawdown", prop.drawdown_pct, "%");
+    /* The two risk figures carry a bar against their prop limit, and a
+       bar that only moves on a full re-render is worse than no bar: it
+       reads as live and is not. patchMetric writes text only, so the
+       fill and the warning state are moved here. */
+    const prof = prop.profile || {};
+    patchRiskBar("command.daily_pl", prop.daily_pl_pct, prof.max_daily_loss_pct);
+    patchRiskBar("command.drawdown", prop.drawdown_pct, prof.max_drawdown_pct);
     patchMetric("command.margin", acc.margin, acc.currency);
     patchMetric("command.free_margin", acc.margin_free, acc.currency);
     patchMetric("command.leverage", acc.leverage ? "1:" + acc.leverage : "—", "");
     const pos = S.snap?.positions || [];
-    paintPositions("live-pos", pos, ["symbol","type","volume","strategy","price_open","price_current","sl","tp","profit","profit_pct"], true);
+    paintPositions("live-pos", pos, true);
     applyChartLevels();
-    paintChartSlider("ol", outlookSlideInnerHtml);
-    const ai = $("live-ai");
-    if (ai) ai.innerHTML = aiBlock(S.snap?.ai);
   }
   if (v === "markets") {
-    fillSymbolSelect("sym", S.symbol);
+    /* A combobox, not a <select>: the list is rebuilt when it opens, so
+       the refresh only keeps the closed label in step. */
+    const curLbl = document.querySelector("#sym .sympick-cur");
+    if (curLbl && S.symbol && curLbl.textContent !== S.symbol) curLbl.textContent = S.symbol;
     const lbl = $("tick-lbl");
     if (lbl) lbl.textContent = tickLabel();
     const ticks = S.snap?.ticks || {};
     const symbols = liveSymbols().map((x) => x.symbol).filter((s) => ticks[s]);
     const box = $("live-ticks");
-    if (box) {
-      box.innerHTML = symbols.length
-        ? `<div class="table-wrap"><table><thead><tr><th>${I18N.t("markets.symbol")}</th><th>${I18N.t("markets.bid")}</th><th>${I18N.t("markets.ask")}</th></tr></thead><tbody>${symbols.map((s)=>`<tr><td>${s}</td><td class="mono">${fmt(ticks[s].bid,5)}</td><td class="mono">${fmt(ticks[s].ask,5)}</td></tr>`).join("")}</tbody></table></div>`
-        : emptyMini(I18N.t("status.waiting_ticks"));
-    }
+    /* One template for the first paint and the refresh. They used to be
+       two copies of the same markup and had already begun to disagree. */
+    if (box) box.innerHTML = symbols.length ? watchlistHtml() : emptyMini(I18N.t("status.waiting_ticks"));
     const empty = document.querySelector(".chart-box .empty");
     if (empty && eaLive() && S.candles.length) empty.remove();
+    /* Same patcher the Command Centre uses, so the table updates in place
+       instead of being rebuilt under the trader's cursor. */
+    paintPositions("mk-pos", allPositions(), true);
   }
   if (v === "intelligence") {
+    // The card that is literally named "live analysis" has to move too.
+    patchAnalysisCard();
     // v54: per-chart intelligence — slider controls which chart's regime+features we show
     const ai = currentAiSlideState() || S.snap?.ai || {};
     paintChartSlider("ai", aiSlideInnerHtml);
@@ -1188,12 +3914,12 @@ function patchLive() {
     }
   }
   if (v === "execution") {
-    fillSymbolSelect("ex-sym", defaultSymbol());
+    fillSymbolField("ex-sym", defaultSymbol());
     setManualTradeEnabled(liveSymbols().length > 0);
     paintSwitch($("ex-auto"), Boolean(S.snap?.strategy?.auto_trade));
     const pos = S.snap?.positions || [];
     const orders = S.snap?.orders || [];
-    paintPositions("live-exec-pos", pos, ["ticket","symbol","type","volume","strategy","price_open","sl","tp","profit","profit_pct"], true);
+    paintPositions("live-exec-pos", pos, true);
     const ob = $("live-exec-ord");
     if (ob) ob.innerHTML = orders.length ? table(orders, ["ticket","symbol","type","volume","price"]) : emptyMini(I18N.t("status.no_orders"));
   }
@@ -1210,26 +3936,60 @@ function patchLive() {
       msg.textContent = mt.last_error || (mt.connected ? I18N.t("status.mt5_live") : I18N.t("status.mt5_down"));
     }
     const pstat = S.snap?.prop || {};
+    const pprof = pstat.profile || {};
     const st = $("risk-state");
     if (st) {
-      st.textContent = pstat.enabled === false ? I18N.t("risk.prop_off") : (pstat.locked ? I18N.t("status.safe_mode") : I18N.t("status.prop_ok"));
-      st.className = "metric " + (pstat.locked ? "down" : "up");
+      const off = pstat.enabled === false;
+      st.textContent = off ? I18N.t("risk.prop_off") : (pstat.locked ? I18N.t("status.safe_mode") : I18N.t("status.prop_ok"));
+      st.className = "pr-state " + (off ? "is-off" : pstat.locked ? "is-locked" : "is-ok");
     }
-    const dpl = $("risk-dpl");
-    if (dpl) {
-      dpl.textContent = fmt(pstat.daily_pl_pct) + "%";
-      dpl.className = "mono " + clsPnl(pstat.daily_pl_pct);
-    }
-    const dd = $("risk-dd");
-    if (dd) dd.textContent = fmt(pstat.drawdown_pct) + "%";
+    const lockWhy = $("risk-lock");
+    if (lockWhy) lockWhy.textContent = pstat.lock_reason || "";
+    /* The meters move by themselves, so the bar has to be patched with
+       the figure above it. Patching only the number -- which is what
+       happened before these became meters -- leaves a bar frozen at
+       whatever it was when the page was rendered, which is worse than
+       no bar: it reads as a live measurement and is not one. */
+    paintPropMeter("risk-dpl", pstat.daily_pl_pct, pprof.max_daily_loss_pct);
+    paintPropMeter("risk-dd", pstat.drawdown_pct, pprof.max_drawdown_pct);
     const autoOn = Boolean(S.snap?.strategy?.auto_trade);
     paintSwitch($("st-auto"), autoOn);
-    const autoSub = $("st-auto")?.closest(".auto-banner")?.querySelector(".sub");
+    const autoSub = $("st-auto-sub");
     if (autoSub) autoSub.textContent = I18N.t(autoOn ? "exec.auto_on" : "exec.auto_off");
+    // How many robot trades are actually open is the one number on that card
+    // that moves by itself, so it is patched rather than left at render time.
+    const slotsNow = $("st-slots-now");
+    if (slotsNow) {
+      const stx = S.snap?.strategy || {};
+      const cap = stx.cap_effective ?? stx.max_open_trades ?? 2;
+      const openNow = stx.open_trades ?? 0;
+      slotsNow.textContent = I18N.t("slots.state", { n: openNow, cap, free: Math.max(0, cap - openNow) });
+      const dots = slotsNow.parentElement?.querySelector(".slot-dots");
+      if (dots) {
+        const want = Math.min(12, Math.max(cap, openNow));
+        if (dots.children.length !== want) {
+          dots.innerHTML = Array.from({ length: want }, () => "<i></i>").join("");
+        }
+        Array.prototype.forEach.call(dots.children, (el, i) => el.classList.toggle("on", i < openNow));
+      }
+    }
+    const hero = $("st-auto")?.closest(".robot-hero");
+    if (hero) hero.classList.toggle("is-on", autoOn);
     const propOn = pstat.enabled !== false;
     paintSwitch($("prop-enable"), propOn);
     const psub = $("prop-enable-sub");
     if (psub) psub.textContent = I18N.t(propOn ? "risk.prop_on" : "risk.prop_off");
+    const rfLive = S.snap?.strategy?.risk_free || {};
+    paintSwitch($("st-rf"), rfLive.enabled);
+    const rfSteps = $("st-rf-steps");
+    if (rfSteps && document.activeElement !== rfSteps) {
+      rfSteps.value = rfLive.steps ?? 3;
+      const n = $("st-rf-steps-n");
+      if (n) n.textContent = String(rfSteps.value);
+      const ladder = $("st-rf-ladder");
+      if (ladder) ladder.innerHTML = rfLadderHtml(rfLive);
+    }
+
     const dgLive = S.snap?.strategy?.danger_guard || {};
     paintSwitch($("st-danger"), dgLive.enabled);
     const dgSwLive = $("st-danger");
@@ -1243,7 +4003,7 @@ function patchLive() {
     if (lk) lk.disabled = !propOn;
     if (uk) uk.disabled = !propOn;
   }
-  if (v === "charts" || v === "markets") applyChartLevels();
+  if (v === "charts" || v === "markets") { applyChartLevels(); paintTicketPrices(); }
   if ((v === "execution" || (v === "terminal" && S.termTab === "robot")) && $("robot-term")) {
     const box = $("robot-term");
     if (box && document.activeElement !== $("log-q")) box.innerHTML = renderRobotLogs($("log-q")?.value || "");
@@ -1255,6 +4015,29 @@ function patchLive() {
   if (v === "strategies" || v === "settings" || v === "command" || v === "execution") {
     patchStrategyLive();
   }
+}
+
+/* A strategy card says "enabled" twice: with the switch at the top and with
+   the state pill under it. They had drifted apart - the live patcher rewrote
+   the pill's words and left its colour alone, so a strategy that had just
+   been turned off still read "Disabled" in the green of an enabled one until
+   something rebuilt the tab. Both markers are painted here, from one value,
+   so they cannot disagree again. */
+function paintStrategyEnabled(name, enabled) {
+  const on = Boolean(enabled);
+  const pill = document.querySelector('[data-st-on="' + name + '"]');
+  if (pill) {
+    pill.textContent = I18N.t(on ? "strategies.enable" : "strategies.disable");
+    pill.classList.toggle("on", on);
+  }
+  const sw = document.querySelector('button.switch[data-st="' + name + '"]');
+  if (sw) {
+    sw.classList.toggle("on", on);
+    // The pressed state is how a screen reader hears this switch at all.
+    sw.setAttribute("aria-pressed", on ? "true" : "false");
+  }
+  const card = document.querySelector('[data-st-card="' + name + '"]');
+  if (card) card.classList.toggle("is-off", !on);
 }
 
 function patchStrategyLive() {
@@ -1278,19 +4061,46 @@ function patchStrategyLive() {
     const wr = document.querySelector('[data-st-wr="' + it.name + '"]');
     const net = document.querySelector('[data-st-net="' + it.name + '"]');
     const n = document.querySelector('[data-st-n="' + it.name + '"]');
+    const wl = document.querySelector('[data-st-wl="' + it.name + '"]');
+    const pf = document.querySelector('[data-st-pf="' + it.name + '"]');
+    const avg = document.querySelector('[data-st-avg="' + it.name + '"]');
+    const state = stState(it);
+    const dot = document.querySelector('[data-st-dot="' + it.name + '"]');
     if (act) {
-      act.textContent = it.last_action || "idle";
-      act.className = "mono " + (it.last_action === "buy" ? "up" : it.last_action === "sell" ? "down" : "");
+      act.textContent = state.act || "idle";
+      act.className = "mono " + stActClass(state.act);
     }
-    if (ev && it.last_reason) ev.textContent = it.last_reason;
-    if (on) on.textContent = it.enabled ? I18N.t("strategies.enable") : I18N.t("strategies.disable");
-    if (sw) sw.classList.toggle("on", Boolean(it.enabled));
+    if (dot) dot.classList.toggle("is-live", !!state.live);
+    if (ev && state.why) {
+      ev.textContent = state.why;
+      // Hovering the line gives the running tally, so a desk that has been
+      // quiet all session can be read at a glance: one rule doing all the
+      // refusing is a setting to change, a spread of rules is just a slow market.
+      const tally = refusalTally(it);
+      if (tally) ev.setAttribute("title", tally); else ev.removeAttribute("title");
+    }
+    if (on || sw) paintStrategyEnabled(it.name, it.enabled);
     if (wr) wr.textContent = fmt(it.win_rate || 0, 1) + "%";
     if (net) {
       net.textContent = fmt(it.net || 0);
       net.className = "mono " + clsPnl(it.net);
     }
     if (n) n.textContent = String(it.trades || 0);
+    /* The per-symbol strip has to be patched too. The second stats row
+       was once left out of this loop and sat at whatever it was when
+       the tab was built; this is the same trap. */
+    const syms = document.querySelector('[data-st-syms="' + it.name + '"]');
+    if (syms) syms.innerHTML = stSymbolRows(it);
+    // The second stats row was never patched at all, so the record, the
+    // profit factor and the average sat at whatever they were when the tab
+    // was last built.
+    if (wl) wl.innerHTML = String(it.wins || 0) + '<i class="sep">/</i>' + String(it.losses || 0);
+    if (pf) pf.textContent = it.profit_factor === null || it.profit_factor === undefined
+      ? "—" : fmt(it.profit_factor, 2);
+    if (avg) {
+      avg.textContent = fmt(it.avg || 0);
+      avg.className = "mono " + clsPnl(it.avg);
+    }
   });
   const sig = S.snap?.last_signal;
   const pill = $("st-live-sig");
@@ -1411,7 +4221,12 @@ function toggleHdrDrawer(force) {
   dr.hidden = !open;
   btn.classList.toggle("open", open);
   btn.setAttribute("aria-expanded", open ? "true" : "false");
-  if (open) dr.innerHTML = hdrDrawerHtml();
+  if (open) {
+    dr.innerHTML = hdrDrawerHtml();
+    // A drawer that reopens where it was last scrolled looks broken on a phone:
+    // you tap the menu and land in the middle of a list you have never seen.
+    dr.scrollTop = 0;
+  }
 }
 
 function accTypeLabel(kind) {
@@ -1425,7 +4240,7 @@ function stAbout(name) {
     ema_rsi: "strategies.ema_rsi_about",
     price_action: "strategies.price_action_about",
     atr_breakout: "strategies.atr_breakout_about",
-    scalp_impulse: "strategies.scalp_about",
+    smart_money: "strategies.smart_money_about",
   };
   return I18N.t(about[name] || "strategies.active");
 }
@@ -1456,41 +4271,186 @@ function preferredStrategy() {
   if (on.length) return on[0].name;
   return "";
 }
+/**
+ * The manual ticket, on the chart and in the EA chart's Trade panel.
+ *
+ * The old layout was a row of three identical number fields followed by
+ * six ghost buttons of equal weight - set SL, set TP, clear SL, clear TP,
+ * buy, sell - all the same size and colour. The two that send money
+ * looked exactly like the four that do not, the pair of clear buttons
+ * took as much room as the order itself, and on a phone the whole lot
+ * wrapped into a block of near-identical pills.
+ *
+ * It is laid out by job now. Volume has steppers, because the lot is
+ * nudged far more often than it is typed. Stop and target own a row each
+ * with their two verbs - take it from the chart, clear it - as small
+ * icon buttons rather than full-width text. Buy and sell are one pair at
+ * the bottom, sized for a thumb, each showing the side of the spread it
+ * would actually cross, so the price you are hitting is on the button you
+ * press rather than somewhere else on the screen.
+ *
+ * Every id the existing wiring binds to is kept, so this is a change of
+ * layout and not of behaviour.
+ */
 function chartTicketHtml() {
   const t = S.ticket || S.manual || {};
   const who = operatorName();
+  const sym = (S.chartFocus && S.chartFocus.symbol) || S.symbol;
+  const tick = (S.snap && S.snap.ticks && S.snap.ticks[sym]) || {};
   return `<div class="chart-ticket" id="chart-ticket">
       <div class="ct-head">
         <h3>${I18N.t("exec.manual")}</h3>
         <p class="sub">${I18N.t("exec.chart_hint")} · ${esc(who)}</p>
       </div>
-      <div class="ct-grid ct-grid-3">
-        <label class="field"><span>${I18N.t("exec.volume")}</span>
-          <input id="ct-vol" type="number" step="0.01" min="0.01" value="${esc(t.vol || "0.10")}" />
-        </label>
-        <label class="field"><span>${I18N.t("exec.sl")}</span>
-          <input id="ct-sl" type="number" step="0.0001" value="${esc(t.sl || "")}" placeholder="${esc(I18N.t("exec.chart_click"))}" />
-        </label>
-        <label class="field"><span>${I18N.t("exec.tp")}</span>
-          <input id="ct-tp" type="number" step="0.0001" value="${esc(t.tp || "")}" placeholder="${esc(I18N.t("exec.chart_click"))}" />
-        </label>
+
+      <div class="ct-row ct-vol">
+        <span class="ct-lab">${I18N.t("exec.volume")}</span>
+        <div class="ct-step">
+          <button type="button" class="ct-pm" data-vol="-1" aria-label="-">${icon("minus")}</button>
+          <input id="ct-vol" type="number" step="0.01" min="0.01" inputmode="decimal"
+                 aria-label="${esc(I18N.t("exec.volume"))}"
+                 value="${esc(String(t.vol || ticketLot()))}" />
+          <button type="button" class="ct-pm" data-vol="1" aria-label="+">${icon("plus")}</button>
+        </div>
       </div>
-      <div class="row ct-actions">
-        <button class="btn tiny ghost" type="button" id="ct-pick-sl">${I18N.t("exec.set_sl")}</button>
-        <button class="btn tiny ghost" type="button" id="ct-pick-tp">${I18N.t("exec.set_tp")}</button>
-        <button class="btn tiny ghost" type="button" id="ct-clear-sl">${I18N.t("exec.clear_sl")}</button>
-        <button class="btn tiny ghost" type="button" id="ct-clear-tp">${I18N.t("exec.clear_tp")}</button>
-        <span class="grow"></span>
-        <button class="btn" type="button" id="ct-buy">${I18N.t("exec.buy")}</button>
-        <button class="btn danger" type="button" id="ct-sell">${I18N.t("exec.sell")}</button>
+
+      <div class="ct-levels">
+        <div class="ct-row ct-lv">
+          <span class="ct-lab sl">${I18N.t("exec.sl")}</span>
+          <input id="ct-sl" type="number" step="0.0001" inputmode="decimal"
+                 aria-label="${esc(I18N.t("exec.sl"))}"
+                 value="${esc(t.sl || "")}" placeholder="${esc(I18N.t("exec.chart_click"))}" />
+          <button type="button" class="ct-ic" id="ct-pick-sl"
+                  title="${esc(I18N.t("exec.set_sl"))}" aria-label="${esc(I18N.t("exec.set_sl"))}">${icon("target")}</button>
+          <button type="button" class="ct-ic" id="ct-clear-sl"
+                  title="${esc(I18N.t("exec.clear_sl"))}" aria-label="${esc(I18N.t("exec.clear_sl"))}">${icon("close")}</button>
+        </div>
+        <div class="ct-row ct-lv">
+          <span class="ct-lab tp">${I18N.t("exec.tp")}</span>
+          <input id="ct-tp" type="number" step="0.0001" inputmode="decimal"
+                 aria-label="${esc(I18N.t("exec.tp"))}"
+                 value="${esc(t.tp || "")}" placeholder="${esc(I18N.t("exec.chart_click"))}" />
+          <button type="button" class="ct-ic" id="ct-pick-tp"
+                  title="${esc(I18N.t("exec.set_tp"))}" aria-label="${esc(I18N.t("exec.set_tp"))}">${icon("target")}</button>
+          <button type="button" class="ct-ic" id="ct-clear-tp"
+                  title="${esc(I18N.t("exec.clear_tp"))}" aria-label="${esc(I18N.t("exec.clear_tp"))}">${icon("close")}</button>
+        </div>
+      </div>
+
+      <div class="ct-sides">
+        <button class="ct-side sell" type="button" id="ct-sell">
+          <span>${I18N.t("exec.sell")}</span>
+          <b class="mono" id="ct-bid">${fmt(tick.bid, 5)}</b>
+        </button>
+        <button class="ct-side buy" type="button" id="ct-buy">
+          <span>${I18N.t("exec.buy")}</span>
+          <b class="mono" id="ct-ask">${fmt(tick.ask, 5)}</b>
+        </button>
       </div>
       <p class="sub" id="ct-msg"></p>
     </div>`;
 }
+
+/**
+ * Keep the two prices on the buy and sell buttons live.
+ *
+ * They are on the buttons so the trader can see what they are about to
+ * cross without looking away, which only holds if they keep up with the
+ * feed rather than freezing at whatever the price was when the panel was
+ * built.
+ */
+function paintTicketPrices() {
+  const sym = (S.chartFocus && S.chartFocus.symbol) || S.symbol;
+  const tick = (S.snap && S.snap.ticks && S.snap.ticks[sym]) || null;
+  const bid = $("ct-bid"), ask = $("ct-ask");
+  if (bid) bid.textContent = tick ? fmt(tick.bid, 5) : "—";
+  if (ask) ask.textContent = tick ? fmt(tick.ask, 5) : "—";
+}
+
+/**
+ * The lot size, from the one place that owns it.
+ *
+ * There used to be two: Settings persisted `manual_volume` on the
+ * engine, while the manual ticket and the EA chart each started from a
+ * hard-coded 0.10 and remembered their own value in the page. Changing
+ * the lot in Settings left the ticket on its old number, so "my lot is
+ * 0.01" and "the ticket says 0.10" were both true at once.
+ */
+function deskLot() {
+  const st = (S.snap && S.snap.strategy) || {};
+  const v = Number(st.manual_volume);
+  return v > 0 ? v : 0.10;
+}
+
+/** Lot the ticket should show: what the user last typed, else the setting. */
+function ticketLot() {
+  const typed = Number((S.ticket || {}).vol);
+  return typed > 0 ? typed : deskLot();
+}
+
+/**
+ * Push a lot change back to the engine so every panel agrees.
+ *
+ * Called from the ticket and the EA chart, which previously could only
+ * change their own copy. Quiet and debounced: this fires on every edit
+ * of a number field.
+ */
+let _lotSaveTimer = null;
+function persistLot(value) {
+  const v = Number(value);
+  if (!(v > 0)) return;
+  if (Math.abs(v - deskLot()) < 1e-9) return;
+  clearTimeout(_lotSaveTimer);
+  _lotSaveTimer = setTimeout(async () => {
+    const r = await API.post("/api/auto", { manual_volume: v });
+    if (r && r.ok) {
+      // Keep the local snapshot honest straight away, so a re-render
+      // before the next poll does not flash the old number back.
+      if (S.snap && S.snap.strategy) S.snap.strategy.manual_volume = v;
+      paintLotEverywhere(v);
+    }
+  }, 350);
+}
+
+/** Mirror one lot value into every lot input on the page. */
+function paintLotEverywhere(v) {
+  ["ct-vol", "st-vol"].forEach((id) => {
+    const el = $(id);
+    if (el && document.activeElement !== el && Number(el.value) !== Number(v)) {
+      el.value = String(v);
+    }
+  });
+}
+
+/**
+ * The protection ladder, written as targets rather than as a number.
+ *
+ * This panel used to show "0.20" - a percentage of the entry price -
+ * which says nothing about when the stop actually moves. The rungs are
+ * evenly spaced on the way to the trade's own target, so they can be
+ * named: reaching TP1 locks the entry, TP2 locks TP1, and so on. Same
+ * arithmetic as runtime/stops.py, just said out loud.
+ */
+function rfLadderHtml(rf) {
+  const rungs = (rf && rf.rungs) || [];
+  if (!rungs.length) return "";
+  return rungs.map((r) => {
+    const to = r.moves_to === "entry"
+      ? I18N.t("strategies.rf_to_entry")
+      : String(r.moves_to || "").toUpperCase();
+    return `<div class="rf-rung">
+      <b class="rf-rung-tag">${esc(String(r.label || "").toUpperCase())}</b>
+      <span class="rf-rung-arrow" aria-hidden="true">&rarr;</span>
+      <span class="rf-rung-to">${esc(to)}</span>
+      <span class="sub rf-rung-at">${I18N.t("strategies.rf_rung_at", { pct: Math.round((r.fraction || 0) * 100) })}</span>
+    </div>`;
+  }).join("");
+}
+
 function rememberTicket() {
   S.ticket = {
     strategy: "@" + operatorName(),
-    vol: String($("ct-vol")?.value || "0.10"),
+    vol: String($("ct-vol")?.value || deskLot()),
     sl: String($("ct-sl")?.value || ""),
     tp: String($("ct-tp")?.value || ""),
   };
@@ -1576,11 +4536,31 @@ async function sendDeskOrder(opts) {
 function bindChartTicket() {
   const host = $("chart-ticket");
   if (!host) return;
+  paintTicketPrices();
+  /* Steppers move the lot by one step of the input, so the control and the
+     keyboard agree on what "one more" means. */
+  host.querySelectorAll("[data-vol]").forEach((b) => {
+    b.onclick = () => {
+      const el = $("ct-vol");
+      if (!el) return;
+      const step = Number(el.step) || 0.01;
+      const dir = Number(b.getAttribute("data-vol")) || 0;
+      const next = Math.max(step, Math.round(((Number(el.value) || 0) + dir * step) / step) * step);
+      el.value = String(Number(next.toFixed(6)));
+      el.dispatchEvent(new Event("input", { bubbles: true }));
+    };
+  });
   ["ct-vol", "ct-sl", "ct-tp"].forEach((id) => {
     const el = $(id);
     if (!el) return;
-    el.addEventListener("change", () => { rememberTicket(); syncChartPending(); });
-    el.addEventListener("input", () => { rememberTicket(); syncChartPending(); });
+    const touched = () => {
+      rememberTicket();
+      syncChartPending();
+      // A lot typed here is the lot everywhere, not just on this ticket.
+      if (id === "ct-vol") persistLot(el.value);
+    };
+    el.addEventListener("change", touched);
+    el.addEventListener("input", touched);
   });
   const arm = (kind) => {
     S._pickLevel = kind;
@@ -1616,13 +4596,64 @@ function bindChartTicket() {
   const sell = $("ct-sell"); if (sell) sell.onclick = () => fire("sell");
   syncChartPending();
 }
+function stState(it) {
+  // What the card should say *now*.
+  //
+  // The card used to show last_action, which only moves when a candle
+  // closes and an order is attempted — so a working robot looked asleep
+  // for fourteen minutes out of every fifteen, and "hold" was shown both
+  // for "the strategy sees nothing" and for "the desk refused it".
+  // The engine's watch pass fills live_action every couple of seconds;
+  // a real decision (an order, or a refusal) outranks it for a minute,
+  // because that is the thing the trader needs to read.
+  const liveAt = Date.parse(it.live_ts || "") || 0;
+  const lastAt = Date.parse(it.last_ts || "") || 0;
+  const fresh = lastAt && Date.now() - lastAt < 60000 && lastAt + 1000 >= liveAt;
+  if (fresh && it.last_action) {
+    return { act: it.last_action, why: it.last_reason || "", live: false };
+  }
+  if (it.live_action) {
+    return { act: it.live_action, why: it.live_reason || "", live: true };
+  }
+  return { act: it.last_action || "idle", why: it.last_reason || "", live: false };
+}
+
+/**
+ * One chip per symbol a strategy is watching.
+ *
+ * Built from the same stState rule as the headline rather than a second
+ * one: "a real decision outranks the watch pass for a minute" is a
+ * judgement about how a trader reads the card, and having it written
+ * twice is how the two end up disagreeing about the same strategy.
+ *
+ * Empty until the engine has seen more than one symbol - a single-chart
+ * desk does not need a label saying which chart it is.
+ */
+function stSymbolRows(it) {
+  const rows = Array.isArray(it.symbols) ? it.symbols : [];
+  if (rows.length < 2) return "";
+  return rows.map((r) => {
+    const st = stState({
+      last_action: r.action, last_reason: r.reason, last_ts: r.ts,
+      live_action: r.live_action, live_reason: r.live_reason, live_ts: r.live_ts,
+    });
+    const act = st.act || "idle";
+    return `<span class="st-sym ${stActClass(act)}${st.live ? " is-live" : ""}"
+      title="${esc(r.symbol + " — " + (st.why || act))}">
+      <b>${esc(r.symbol)}</b><i>${esc(act)}</i></span>`;
+  }).join("");
+}
+
+function stActClass(act) {
+  return act === "buy" ? "up" : act === "sell" ? "down" : act === "blocked" ? "warn" : "";
+}
+
 function strategyItems() {
   const st = S.snap?.strategy || {};
   const items = st.items && st.items.length ? st.items : [
     {name:"ema_rsi", enabled:false, last_action:"idle"},
     {name:"price_action", enabled:false, last_action:"idle"},
     {name:"atr_breakout", enabled:false, last_action:"idle"},
-    {name:"scalp_impulse", enabled:false, last_action:"idle"},
   ];
   return items;
 }
@@ -1645,8 +4676,10 @@ function strategyUploadCard() {
         <small>${I18N.t("strategies.browse")}</small>
         <small class="st-drop-name mono" id="st-drop-name"></small>
       </label>
-      <input class="ctrl" id="st-file" placeholder="my_strategy.py" />
-      <textarea id="st-src" class="ctrl st-src" placeholder="# Python strategy"></textarea>
+      <input class="ctrl" id="st-file" placeholder="my_strategy.py"
+             aria-label="${esc(I18N.t("strategies.file_name"))}" />
+      <textarea id="st-src" class="ctrl st-src" placeholder="# Python strategy"
+                aria-label="${esc(I18N.t("strategies.source"))}"></textarea>
       <div class="row" style="margin-top:10px;align-items:center;gap:8px">
         <button class="btn" id="st-up" type="button">${I18N.t("strategies.upload")}</button>
         <a class="btn tiny ghost" id="st-cancel" href="#" hidden>${I18N.t("strategies.cancel")}</a>
@@ -1656,20 +4689,32 @@ function strategyUploadCard() {
 }
 function strategyLiveCards() {
   return strategyItems().map((it) => {
-    const act = it.last_action || "idle";
-    const cls = act === "buy" ? "up" : act === "sell" ? "down" : "";
+    const state = stState(it);
+    const act = state.act || "idle";
+    const cls = stActClass(act);
     const custom = (it.kind || "builtin") !== "builtin";
-    return `<div class="card st-card" data-st-card="${esc(it.name)}">
+    /* What this strategy is saying about each symbol it watches.
+
+       The headline above is the most recent answer whatever symbol
+       produced it. On a desk running one chart that is the whole
+       truth; on a basket it names no instrument at all, so a trader
+       reading "buy" could not tell whether it meant EURUSD or gold -
+       and the next symbol's bar erased it seconds later anyway. */
+    const perSym = stSymbolRows(it);
+
+    return `<div class="card st-card${it.enabled ? "" : " is-off"}" data-st-card="${esc(it.name)}">
       <div class="st-top">
         <div>
           <h3 style="margin:0">${esc(it.name)}</h3>
           <p class="sub">${custom ? I18N.t("strategies.custom_about") : stAbout(it.name)}</p>
         </div>
-        <button type="button" class="switch ${it.enabled?"on":""}" data-st="${esc(it.name)}" aria-pressed="${it.enabled}"><i></i></button>
+        ${switchHtml({ on: it.enabled, label: it.name, attrs: `data-st="${esc(it.name)}"` })}
       </div>
       <div class="st-live">
         <span class="pill ${it.enabled?"on":""}" data-st-on="${esc(it.name)}">${it.enabled ? I18N.t("strategies.enable") : I18N.t("strategies.disable")}</span>
-        <b class="mono ${cls}" data-st-act="${esc(it.name)}">${act}</b>
+        <b class="mono ${cls}" data-st-act="${esc(it.name)}">${esc(act)}</b>
+        <i class="st-dot${state.live ? " is-live" : ""}" data-st-dot="${esc(it.name)}"
+           title="${I18N.t("strategies.live_hint")}"></i>
         <span class="pill ghost">${I18N.t(custom ? "strategies.custom" : "strategies.builtin_tag")}</span>
       </div>
       <div class="st-stats">
@@ -1677,13 +4722,28 @@ function strategyLiveCards() {
         <div><span>${I18N.t("strategies.net")}</span><b class="mono ${clsPnl(it.net)}" data-st-net="${esc(it.name)}">${fmt(it.net || 0)}</b></div>
         <div><span>${I18N.t("strategies.trades")}</span><b class="mono" data-st-n="${esc(it.name)}">${it.trades || 0}</b></div>
       </div>
-      <p class="sub" data-st-eval="${esc(it.name)}">${it.last_reason || I18N.t("strategies.waiting")}</p>
+      <div class="st-stats st-stats-2">
+        <div><span>${I18N.t("strategies.record")}</span>
+          <b class="mono" data-st-wl="${esc(it.name)}">${it.wins || 0}<i class="sep">/</i>${it.losses || 0}</b></div>
+        <div><span>${I18N.t("strategies.pf")}</span>
+          <b class="mono" data-st-pf="${esc(it.name)}">${it.profit_factor === null || it.profit_factor === undefined ? "—" : fmt(it.profit_factor, 2)}</b></div>
+        <div><span>${I18N.t("strategies.avg")}</span>
+          <b class="mono ${clsPnl(it.avg)}" data-st-avg="${esc(it.name)}">${fmt(it.avg || 0)}</b></div>
+      </div>
+      <div class="st-syms" data-st-syms="${esc(it.name)}">${perSym}</div>
+      <p class="sub" data-st-eval="${esc(it.name)}" title="${esc(refusalTally(it))}">${esc(state.why) || I18N.t("strategies.waiting")}</p>
       ${custom ? `<div class="row st-mng">
         <button type="button" class="btn tiny ghost" data-st-edit="${esc(it.name)}">${I18N.t("strategies.edit")}</button>
         <button type="button" class="btn tiny ghost st-del" data-st-del="${esc(it.name)}">${I18N.t("strategies.delete")}</button>
       </div>` : ""}
     </div>`;
   }).join("");
+}
+
+function refusalTally(it) {
+  const rows = Array.isArray(it && it.refusals) ? it.refusals : [];
+  if (!rows.length) return "";
+  return rows.map(r => `${r.reason} × ${r.count}`).join("\n");
 }
 
 function strategyEditorEls() {
@@ -1798,30 +4858,344 @@ function usersCardHtml() {
       ${logHtml}
     </div>`;
 }
+/**
+ * Licence, as a state and then an action.
+ *
+ * This card existed but was never placed on any page -- it was written,
+ * its buttons were bound, and nothing ever rendered it, so the only way
+ * to enter a key was the upgrade page. It now lives in Settings ->
+ * System, where someone looking for "where do I activate this" will
+ * actually look.
+ *
+ * Rebuilt around the question being asked. The old version opened with
+ * a reseller logo and a three-row key/value table, and the state -- am
+ * I licensed, for how much longer -- had to be read out of it. The
+ * state is the headline now, with the remaining days drawn as a bar
+ * when there is a term to run down, and the key field below it is only
+ * what you came to do. On a trial or an expired licence the card says
+ * so in its own right rather than leaving it to be inferred from a
+ * date.
+ */
 function licenseCardHtml() {
   const L = (S.snap && S.snap.license) || {};
-  const trial = L.trial !== false && !L.paid && !L.developer;
+  const paid = Boolean(L.paid || L.developer);
+  const trial = L.trial !== false && !paid;
+  const days = L.days_left;
+  const total = Number((L.plans && L.plans[L.plan] && L.plans[L.plan].days) || 0);
+  // Only a licence with a known term can show progress; a perpetual or
+  // developer one has nothing to run down and gets no bar.
+  const pct = paid && total && days != null
+    ? Math.max(0, Math.min(100, Math.round((days / total) * 100)))
+    : null;
+  const expiring = days != null && days <= 7;
+  const state = paid ? (expiring ? "is-warn" : "is-ok") : (trial ? "is-trial" : "is-bad");
+  const stateLabel = paid
+    ? (expiring ? I18N.t("license.st_expiring") : I18N.t("license.st_active"))
+    : (trial ? I18N.t("license.st_trial") : I18N.t("license.st_none"));
   const remain = L.bot_remaining;
-  return `<div class="card${trial ? " lic-banner" : ""}">
-      <div class="axiasoft-slot" style="margin:0 0 12px;max-width:none">
-        <img src="/assets/axiasoft-logo.png?v=desk45" alt="Axiasoft" class="axiasoft-logo" />
-        <span>${I18N.t("auth.licensed_by")}</span>
+
+  return `<div class="card lic-card ${state}" id="lic-card">
+      <div class="lic-head">
+        <div class="lic-lead">
+          <p class="kicker">${I18N.t("license.title")}</p>
+          <p class="lic-state"><i class="lic-dot"></i>${esc(stateLabel)}</p>
+          <p class="sub">${esc(L.plan_label || L.plan || I18N.t("license.trial"))}</p>
+        </div>
+        <div class="lic-facts">
+          <div><span>${I18N.t("license.expires")}</span><b class="mono">${esc(L.expires || "—")}</b></div>
+          <div><span>${I18N.t("license.remaining")}</span><b class="mono">${remain == null ? "—" : esc(String(remain))}</b></div>
+        </div>
       </div>
-      <div class="kv">
-        <span>${I18N.t("license.plan")}</span><b>${esc(L.plan_label || L.plan || I18N.t("license.trial"))}</b>
-        <span>${I18N.t("license.expires")}</span><b class="mono">${esc(L.expires || "—")}</b>
-        <span>${I18N.t("license.remaining")}</span><b class="mono">${remain == null ? "—" : remain}</b>
+
+      ${pct != null ? `<div class="lic-bar" role="img"
+           aria-label="${esc(I18N.t("upgrade.days"))} ${esc(String(days))}">
+        <i style="--w:${pct}%"></i>
       </div>
-      <p class="sub" id="lic-msg">${L.paid || L.developer ? I18N.t("license.ok") : I18N.t("license.need")}</p>
-      <label class="field"><span>${I18N.t("license.key")}</span>
-        <input id="lic-key" autocomplete="off" placeholder="AXIA-M1-...." />
-      </label>
-      <button class="btn block" id="lic-go" type="button">${I18N.t("license.activate")}</button>
-      <button class="btn ghost block" id="lic-upd" type="button">${I18N.t("license.check_updates")}</button>
+      <p class="sub lic-bar-foot">${I18N.t("upgrade.days")}: <b class="mono">${fmt(days, 0)}</b></p>` : ""}
+
+      <div class="lic-act">
+        <label class="field">
+          <span>${I18N.t("license.key")}</span>
+          <input id="lic-key" dir="ltr" spellcheck="false" autocomplete="off"
+                 placeholder="AXIA-M1-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX" />
+        </label>
+        <button class="btn" id="lic-go" type="button">${I18N.t("license.activate")}</button>
+      </div>
+      <p class="sub" id="lic-msg">${paid ? I18N.t("license.ok") : I18N.t("license.need")}</p>
+
+      <div class="lic-foot">
+        <button class="btn tiny ghost" id="lic-upd" type="button">${I18N.t("license.check_updates")}</button>
+        <span class="sub mono" id="build-tag">${esc(buildTag(S.buildDate))}</span>
+      </div>
       <p class="sub" id="lic-upd-msg"></p>
     </div>`;
 }
 
+/**
+ * The interface language, as three readable choices rather than pills.
+ *
+ * It used to be a row of three small pills on a page of its own in the
+ * settings rail, which is a whole section for one decision taken once.
+ * It moves into System beside the other machine-level settings, and
+ * each language is now a card carrying its own name in its own script
+ * plus the English name, so it can be found by someone who cannot yet
+ * read the language the desk is currently in. Sized for both: three
+ * across on a desktop, stacking to full width on a phone.
+ */
+function languageCardHtml() {
+  const LANGS = [
+    { id: "en", native: "English", name: "English", dir: "ltr" },
+    { id: "fa", native: "\u0641\u0627\u0631\u0633\u06cc", name: "Persian", dir: "rtl" },
+    { id: "ar", native: "\u0627\u0644\u0639\u0631\u0628\u064a\u0629", name: "Arabic", dir: "rtl" },
+  ];
+  const cur = I18N.lang;
+  return `<div class="card">
+      <h3>${I18N.t("settings.language")}</h3>
+      <p class="sub">${I18N.t("settings.language_hint")}</p>
+      <div class="lang-grid" id="set-langs" role="radiogroup"
+           aria-label="${esc(I18N.t("settings.language"))}">
+        ${LANGS.map((l) => `<button type="button" role="radio" data-lang="${l.id}"
+            aria-checked="${l.id === cur ? "true" : "false"}"
+            class="lang-opt${l.id === cur ? " on" : ""}">
+          <span class="lang-native" dir="${l.dir}">${esc(l.native)}</span>
+          <span class="lang-name">${esc(l.name)}</span>
+          <i class="lang-tick">${icon("check")}</i>
+        </button>`).join("")}
+      </div>
+    </div>`;
+}
+
+/**
+ * How many trades at once, explained as the two different things it is.
+ *
+ * The two fields were labelled "open at least" and "open at most", which
+ * reads as one range and is not what either of them does. The first is how
+ * many tickets ONE signal opens at minimum - a burst, on a single setup.
+ * The second is a ceiling on everything the robot holds at once, across
+ * every symbol. A trader could be forgiven for setting 1 and 2 and
+ * expecting "between one and two trades a day".
+ *
+ * The prop profile also lowers the ceiling when it is armed, and the desk
+ * was showing the trader's own number rather than the rule actually being
+ * enforced.
+ */
+/**
+ * How many trades the robot opens.
+ *
+ * Two fields side by side read as one range - "between 1 and 4 trades" -
+ * and neither of them means that. Naming them better was not enough, so
+ * they are now two numbered steps that cannot be read as a pair, and the
+ * second half of the card is a worked example computed with the engine's
+ * own arithmetic: for the numbers currently in the boxes, how many trades
+ * a weak, a decent and an excellent signal would actually open.
+ */
+function slotsHtml(st) {
+  const min = st.min_open_trades ?? 1;
+  const max = st.max_open_trades ?? 2;
+  const cap = st.cap_effective ?? max;
+  const open = st.open_trades ?? 0;
+  const free = Math.max(0, cap - open);
+  const perSymbol = st.cap_symbol ?? cap;
+  const byProp = Boolean(st.cap_by_prop);
+
+  return `<div class="slot-step">
+      <span class="slot-num">1</span>
+      <div class="slot-body">
+        <label class="field">
+          <span>${I18N.t("slots.min_label")}</span>
+          <input id="st-min-trades" type="number" step="1" min="1" max="20" value="${min}" />
+        </label>
+        <p class="sub">${I18N.t("slots.min_hint")}</p>
+      </div>
+    </div>
+
+    <div class="slot-step">
+      <span class="slot-num">2</span>
+      <div class="slot-body">
+        <label class="field">
+          <span>${I18N.t("slots.max_label")}</span>
+          <input id="st-max-trades" type="number" step="1" min="1" max="20" value="${max}" />
+        </label>
+        <p class="sub">${I18N.t("slots.max_hint")}</p>
+        <div class="slot-state">
+          <div class="slot-dots" aria-hidden="true">
+            ${Array.from({ length: Math.min(12, Math.max(cap, open)) }, (_, i) =>
+              `<i class="${i < open ? "on" : ""}"></i>`).join("")}
+          </div>
+          <span id="st-slots-now">${I18N.t("slots.state", { n: open, cap, free })}</span>
+        </div>
+        ${byProp ? `<p class="sub lock-note">${I18N.t("slots.cap_prop", { cap })}</p>` : ""}
+        ${perSymbol < cap ? `<p class="sub">${I18N.t("slots.cap_symbol", { n: perSymbol })}</p>` : ""}
+      </div>
+    </div>
+
+    <div class="slot-demo" id="st-slots-demo">${slotsDemoHtml(min, cap)}</div>`;
+}
+
+/**
+ * What those two numbers mean, in trades.
+ *
+ * The same arithmetic the engine uses in _entries_for_signal(), run on the
+ * numbers in the boxes right now: a signal's quality score is mapped from
+ * the minimum up to the ceiling, so the trader can see the whole behaviour
+ * of the setting at a glance instead of inferring it from a sentence.
+ */
+function slotsTickets(min, cap, quality) {
+  const low = Math.max(1, min);
+  const high = Math.max(low, cap);
+  if (high <= low) return low;
+  const strength = Math.max(0, Math.min(1, (quality - 0.5) / 0.4));
+  return low + Math.round((high - low) * strength);
+}
+
+function slotsDemoHtml(min, cap) {
+  const rows = [
+    [0.55, "slots.demo_weak"],
+    [0.70, "slots.demo_fair"],
+    [0.90, "slots.demo_best"],
+  ];
+  return `<b>${I18N.t("slots.demo_title")}</b>
+    <div class="slot-demo-rows">
+      ${rows.map(([q, key]) => {
+        const n = slotsTickets(min, cap, q);
+        return `<span>${I18N.t(key, { pct: Math.round(q * 100) })}</span>
+          <b class="mono">${I18N.t("slots.demo_n", { n })}</b>`;
+      }).join("")}
+    </div>
+    <p class="sub">${I18N.t("slots.demo_note", { cap })}</p>`;
+}
+
+/**
+ * The setup-quality control, explained where it is used.
+ *
+ * It used to be a slider, a percentage and one sentence naming six things
+ * the user had no way to weigh - which told them nothing about what moving
+ * it would do. Three things are said instead: what the number decides, what
+ * the number is made of, and what the last signal actually scored.
+ */
+/**
+ * The last time a signal was produced and did NOT become an order.
+ *
+ * This is the answer to "why is the robot not trading". It used to exist
+ * only as one line in the journal, under six different kinds, so the
+ * honest answer took scrolling and a guess. The engine now keeps the last
+ * refusal; this shows it where the setting that caused it lives.
+ */
+function blockHtml(st) {
+  const b = st.last_block || {};
+  if (!b.why) return "";
+  const what = [b.side, b.symbol].filter(Boolean).join(" ").toUpperCase();
+  return `<div class="q-block">
+      <div class="q-last-head">
+        <span>${I18N.t("slots.block_title")}</span>
+        <b class="mono">${esc(b.code || "")}</b>
+      </div>
+      <p class="sub">${esc([b.strategy, what].filter(Boolean).join(" · "))}</p>
+      <p>${esc(b.why)}</p>
+    </div>`;
+}
+
+function qualityHtml(st) {
+  const v = st.min_signal_quality ?? 0.55;
+  const pct = Math.round(v * 100);
+  const last = st.last_quality || {};
+  const hasLast = Number.isFinite(Number(last.score));
+
+  /* The weights are the engine's, not a description of them: see
+     signal_quality() in engine/aurion/runtime/trader.py. */
+  const parts = [
+    ["slots.q_ai", "×1.2"],
+    ["slots.q_htf", "×1.0"],
+    ["slots.q_strategy", "×1.0"],
+    ["slots.q_regime", "×0.5"],
+    ["slots.q_chop", "×0.5"],
+  ];
+
+  return `<div class="field">
+      <span class="conf-head">${I18N.t("slots.quality")}
+        <b class="mono conf-pct" id="st-quality-pct">${pct}%</b></span>
+      <input id="st-quality" type="range" step="0.01" min="0.20" max="0.90" value="${v}"
+             aria-label="${esc(I18N.t("slots.quality"))}" aria-describedby="st-quality-note" />
+      <div class="scale-legend"><span>${I18N.t("slots.q_loose")}</span><span>${I18N.t("slots.q_tight")}</span></div>
+    </div>
+    <p class="sub" id="st-quality-note">${I18N.t("slots.q_now_" + (pct >= 70 ? "tight" : pct >= 45 ? "mid" : "loose"))}</p>
+
+    <div class="q-does">
+      <b>${I18N.t("slots.q_does")}</b>
+      <ol>
+        <li>${I18N.t("slots.q_does_1", { pct })}</li>
+        <li>${I18N.t("slots.q_does_2")}</li>
+        <li>${I18N.t("slots.q_does_3")}</li>
+      </ol>
+    </div>
+
+    ${blockHtml(st)}
+    ${hasLast ? `<div class="q-last ${last.passed ? "ok" : "no"}">
+      <div class="q-last-head">
+        <span>${I18N.t("slots.q_last")}</span>
+        <b class="mono">${Math.round(Number(last.score) * 100)}%</b>
+        <span class="pill ${last.passed ? "ok" : "no"}">${I18N.t(last.passed ? "slots.q_taken" : "slots.q_skipped")}</span>
+      </div>
+      <p class="sub">${esc([last.side, last.symbol].filter(Boolean).join(" ").toUpperCase())}
+        ${(last.reasons || []).length ? "· " + esc(last.reasons.join(" · ")) : ""}</p>
+    </div>` : `<p class="sub q-last-none">${I18N.t("slots.q_none")}</p>`}
+
+    <details class="q-how">
+      <summary>${I18N.t("slots.q_how")}</summary>
+      <p class="sub">${I18N.t("slots.q_how_hint")}</p>
+      <div class="q-table">
+        ${parts.map(([key, w]) => `<span>${I18N.t(key)}</span><b class="mono">${w}</b>`).join("")}
+      </div>
+    </details>`;
+}
+
+/* One switch on its own row: a heading, a line of explanation and the
+   control, always in that order and always the same height. The robot page
+   used to build this shape four different ways with inline styles. */
+/**
+ * A toggle switch.
+ *
+ * Every switch on the desk goes through here because the audit found
+ * sixteen of them that were a <button> containing a single empty <i>:
+ * no text, no label, nothing. To a screen reader - and to voice
+ * control, which needs a name to be ABLE to say "click auto trade" -
+ * those controls did not exist. They all sat beside a visible
+ * heading, which a sighted user reads as the label and an assistive
+ * one never gets, because nothing connected the two.
+ *
+ * aria-pressed rather than role="switch": the desk already updates
+ * aria-pressed from a dozen places and a button with aria-pressed is
+ * announced as a toggle. Splitting the vocabulary would have meant
+ * two state attributes to keep in step, which is how one of them
+ * ends up stale.
+ */
+function switchHtml(o) {
+  const on = Boolean(o.on);
+  return `<button type="button" class="switch${on ? " on" : ""}${o.cls ? " " + o.cls : ""}"${
+    o.id ? ` id="${o.id}"` : ""}${o.attrs ? " " + o.attrs : ""}${
+    o.disabled ? ' disabled aria-disabled="true"' : ""} aria-pressed="${on}" aria-label="${
+    esc(o.label || "")}"><i></i></button>`;
+}
+
+function switchRow(o) {
+  return `<div class="set-switch">
+      <div class="set-switch-txt">
+        <h3>${o.title}</h3>
+        ${o.sub ? `<p class="sub"${o.subId ? ` id="${o.subId}"` : ""}>${o.sub}</p>` : ""}
+      </div>
+      ${switchHtml({ id: o.id, on: o.on, disabled: o.disabled, label: o.title })}
+    </div>`;
+}
+
+/**
+ * The robot page.
+ *
+ * It was eight cards of wildly different heights in a two-column grid, and
+ * a CSS grid makes every row as tall as its tallest card - which is where
+ * the empty space came from. The master switch now spans the page on its
+ * own, and the rest flow in columns that break wherever they like, so a
+ * short card no longer reserves the height of a tall one beside it.
+ */
 function robotPanelHtml() {
   const st = S.snap?.strategy || {};
   const style = st.trade_style || S.snap?.trade_style || "normal";
@@ -1844,73 +5218,345 @@ function robotPanelHtml() {
   const newsPrem = licFeat("news");
   const propOn = (S.snap?.prop || {}).enabled !== false;
   const dg = st.danger_guard || {};
-  return `<div class="card">
-      <div class="auto-banner" style="margin:0">
-        <div>
-          <h3 style="margin:0 0 6px">${I18N.t("strategies.auto")}</h3>
-          <p class="sub">${st.auto_trade ? I18N.t("exec.auto_on") : I18N.t("exec.auto_off")}</p>
-        </div>
-        <button type="button" class="switch ${st.auto_trade?"on":""}" id="st-auto" aria-pressed="${Boolean(st.auto_trade)}"><i></i></button>
-      </div>
+  const rf = st.risk_free || {};
+  const money = st.money || {};
+  const auto = Boolean(st.auto_trade);
+
+  return `<div class="card robot-hero${auto ? " is-on" : ""}">
+      ${switchRow({
+        id: "st-auto",
+        title: I18N.t("strategies.auto"),
+        sub: st.auto_trade ? I18N.t("exec.auto_on") : I18N.t("exec.auto_off"),
+        subId: "st-auto-sub",
+        on: auto,
+      })}
       ${freeAuto}
     </div>
-    <div class="card" id="set-style">
-      <h3>${I18N.t("style.title")}</h3>
-      <div class="tabs" id="style-tabs">
-        <button type="button" data-style="normal" class="${style!=="scalping"?"on":""}">${I18N.t("style.normal")}</button>
-        <button type="button" data-style="scalping" class="${style==="scalping"?"on":""}"${licFeat("scalping") ? "" : " disabled"}>${I18N.t("style.scalping")}</button>
-      </div>
-      <p class="sub">${style==="scalping" ? I18N.t("style.scalping_hint") : I18N.t("style.normal_hint")}</p>
-      ${licFeat("scalping") ? "" : `<p class="sub lock-note">${I18N.t("lock.scalping")} <a href="#" data-go-upgrade>${I18N.t("lic.upgrade_cta")}</a></p>`}
-    </div>
-    <div class="card">
-      <h3>${I18N.t("strategies.ai_gate")}</h3>
-      <p class="sub">${I18N.t("strategies.ai_gate_help")}</p>
-      <label class="field" style="flex-direction:row;align-items:center;justify-content:space-between">
-        <span>${I18N.t("strategies.ai_gate_switch")}</span>
-        <button type="button" class="switch ${st.require_ai_agree!==false?"on":""}" id="st-ai"><i></i></button>
-      </label>
-      <div class="field"><span class="conf-head">${I18N.t("strategies.min_conf")}<b class="mono conf-pct" id="st-conf-pct">${Math.round((st.min_ai_confidence ?? 0.55) * 100)}%</b></span>
-        <input id="st-conf" type="range" step="0.01" min="0.05" max="0.95" value="${st.min_ai_confidence ?? 0.55}" />
-      </div>
-      <p class="sub" id="ai-conf-why">${I18N.t("strategies.min_conf_help")}</p>
-      <button class="btn block" id="st-ai-save" type="button">${I18N.t("common.save")}</button>
-    </div>
-    <div class="card">
-      <h3>${I18N.t("strategies.lot_title")} ${!licFeat("volume_mode")?'<span class="pill no">PREMIUM</span>':''}</h3>
-      <p class="sub">${I18N.t("strategies.lot_help")}</p>
-      ${!licFeat("volume_mode")?`<p class="sub lock-note">${I18N.t("lock.volume_mode")||"Volume mode is premium"} <a href="#" data-go-upgrade>${I18N.t("lic.upgrade_cta")}</a></p>`:""}
-      <div class="tabs" id="vol-tabs">
-        <button type="button" data-vm="auto" class="${st.volume_mode !== "manual" ? "on" : ""}">${I18N.t("strategies.lot_auto")}</button>
-        <button type="button" data-vm="manual" class="${st.volume_mode === "manual" ? "on" : ""}"${!licFeat("volume_mode")?" disabled":""}>${I18N.t("strategies.lot_manual")}</button>
-      </div>
-      <label class="field" id="vol-field" style="${st.volume_mode === "manual" ? "margin-top:10px" : "display:none"}"><span>${I18N.t("strategies.lot_value")}</span>
-        <input id="st-vol" type="number" step="0.01" min="0.01" max="1000" value="${st.manual_volume ?? 0.10}" ${!licFeat("volume_mode") && st.volume_mode==="manual"?"":""} />
-      </label>
-      <p class="sub" id="vol-sub">${I18N.t(st.volume_mode === "manual" ? "strategies.lot_manual_sub" : "strategies.lot_auto_sub")}</p>
-    </div>
-    <div class="card">
-      <div class="auto-banner" style="margin:0">
-        <div>
-          <h3 style="margin:0 0 6px">${I18N.t("strategies.news_trade")}</h3>
-          <p class="sub" id="st-news-sub">${st.news_trade_locked ? I18N.t("strategies.news_locked") : I18N.t("strategies.news_help")}</p>
+
+    <div class="robot-cols">
+      <div class="card">
+        <h3 class="card-h">${I18N.t("style.title")}</h3>
+        <div class="tabs" id="style-tabs">
+          <button type="button" data-style="normal" class="${style !== "scalping" ? "on" : ""}">${I18N.t("style.normal")}</button>
+          <button type="button" data-style="scalping" class="${style === "scalping" ? "on" : ""}"${licFeat("scalping") ? "" : " disabled"}>${I18N.t("style.scalping")}</button>
         </div>
-        <button type="button" class="switch ${st.news_trade && newsPrem?"on":""}" id="st-news" ${st.news_trade_locked || !newsPrem?"disabled":""} aria-pressed="${Boolean(st.news_trade && newsPrem)}"><i></i></button>
+        <p class="sub">${style === "scalping" ? I18N.t("style.scalping_hint") : I18N.t("style.normal_hint")}</p>
+        ${licFeat("scalping") ? "" : `<p class="sub lock-note">${I18N.t("lock.scalping")} <a href="#" data-go-upgrade>${I18N.t("lic.upgrade_cta")}</a></p>`}
       </div>
-      ${newsPrem ? "" : `<p class="sub lock-note">${I18N.t("lock.news")} <a href="#" data-go-upgrade>${I18N.t("lic.upgrade_cta")}</a></p>`}
-    </div>
-    <div class="card">
-      <div class="auto-banner" style="margin:0">
-        <div>
-          <h3 style="margin:0 0 6px">🛡️ ${I18N.t("strategies.danger_title")}</h3>
-          <p class="sub" id="st-danger-sub">${propOn ? I18N.t("strategies.danger_prop_note") : I18N.t("strategies.danger_help")}</p>
+
+      <div class="card" id="set-slots">
+        <h3 class="card-h">${I18N.t("slots.title")}</h3>
+        <p class="sub">${I18N.t("slots.help")}</p>
+        ${slotsHtml(st)}
+        <hr class="set-rule" />
+        ${switchRow({ id: "st-smart", title: I18N.t("slots.smart"), sub: I18N.t("slots.smart_help"), on: st.smart_filters !== false })}
+        <ul class="set-list">
+          <li>${I18N.t("slots.filter_htf")}</li>
+          <li>${I18N.t("slots.filter_spread")}</li>
+          <li>${I18N.t("slots.filter_chop")}</li>
+        </ul>
+        <hr class="set-rule" />
+        ${qualityHtml(st)}
+      </div>
+
+      <div class="card">
+        ${switchRow({
+          id: "st-news",
+          title: I18N.t("strategies.news_trade"),
+          sub: st.news_trade_locked ? I18N.t("strategies.news_locked") : I18N.t("strategies.news_help"),
+          subId: "st-news-sub",
+          on: st.news_trade && newsPrem,
+          disabled: st.news_trade_locked || !newsPrem,
+        })}
+        ${newsPrem ? "" : `<p class="sub lock-note">${I18N.t("lock.news")} <a href="#" data-go-upgrade>${I18N.t("lic.upgrade_cta")}</a></p>`}
+      </div>
+
+      <div class="card" id="set-autoentry">
+        ${switchRow({
+          id: "st-autoentry",
+          title: I18N.t("autoentry.title"),
+          sub: I18N.t("autoentry.help"),
+          subId: "st-autoentry-sub",
+          on: Boolean(st.auto_entry),
+        })}
+        <ul class="set-list">
+          <li>${I18N.t("autoentry.point_pending")}</li>
+          <li>${I18N.t("autoentry.point_levels")}</li>
+          <li>${I18N.t("autoentry.point_expiry", { m: st.auto_entry_expiry ?? 120 })}</li>
+        </ul>
+        <p class="sub">${I18N.t("autoentry.tradeoff")}</p>
+        ${st.auto_entry && st.pending_orders ? `<p class="sub">${I18N.t("autoentry.waiting", { n: st.pending_orders })}</p>` : ""}
+      </div>
+
+      <div class="card">
+        <h3 class="card-h">${I18N.t("strategies.lot_title")}
+          ${!licFeat("volume_mode") ? `<span class="pill no">${I18N.t("themes.premium_tag")}</span>` : ""}</h3>
+        <p class="sub">${I18N.t("strategies.lot_help")}</p>
+        ${!licFeat("volume_mode") ? `<p class="sub lock-note">${I18N.t("lock.volume_mode")} <a href="#" data-go-upgrade>${I18N.t("lic.upgrade_cta")}</a></p>` : ""}
+        <div class="tabs" id="vol-tabs">
+          <button type="button" data-vm="auto" class="${st.volume_mode !== "manual" ? "on" : ""}">${I18N.t("strategies.lot_auto")}</button>
+          <button type="button" data-vm="manual" class="${st.volume_mode === "manual" ? "on" : ""}"${!licFeat("volume_mode") ? " disabled" : ""}>${I18N.t("strategies.lot_manual")}</button>
         </div>
-        <button type="button" class="switch ${dg.enabled?"on":""}" id="st-danger" ${propOn?"disabled":""} aria-pressed="${Boolean(dg.enabled)}"><i></i></button>
+        <label class="field" id="vol-field"${st.volume_mode === "manual" ? "" : " hidden"}><span>${I18N.t("strategies.lot_value")}</span>
+          <input id="st-vol" type="number" step="0.01" min="0.01" max="1000" value="${st.manual_volume ?? 0.10}" />
+        </label>
+        <p class="sub" id="vol-sub">${I18N.t(st.volume_mode === "manual" ? "strategies.lot_manual_sub" : "strategies.lot_auto_sub")}</p>
       </div>
-      <div class="field"><span class="conf-head">${I18N.t("strategies.danger_sens")}<b class="mono conf-pct" id="st-danger-pct">${dg.sensitivity ?? 50}%</b></span>
-        <input id="st-danger-sens" type="range" step="1" min="1" max="100" value="${dg.sensitivity ?? 50}" ${propOn?"disabled":""} />
+
+      <div class="card">
+        <h3 class="card-h">${I18N.t("strategies.ai_gate")}</h3>
+        <p class="sub">${I18N.t("strategies.ai_gate_help")}</p>
+        <hr class="set-rule" />
+        ${switchRow({ id: "st-ai", title: I18N.t("strategies.ai_gate_switch"), on: st.require_ai_agree !== false })}
+        <div class="field conf-field"><span class="conf-head">${I18N.t("strategies.min_conf")}<b class="mono conf-pct" id="st-conf-pct">${Math.round((st.min_ai_confidence ?? 0.35) * 100)}%</b></span>
+          <input id="st-conf" type="range" step="0.01" min="0.05" max="0.95" value="${st.min_ai_confidence ?? 0.35}"
+                 aria-label="${esc(I18N.t("strategies.min_conf"))}" />
+        </div>
+        <p class="sub" id="ai-conf-why">${I18N.t("strategies.min_conf_help")}</p>
+        ${aiCeilingWarning(st)}
       </div>
-      <p class="sub">${I18N.t("strategies.danger_sens_help")}</p>
+
+      <div class="card">
+        ${switchRow({
+          id: "st-rf",
+          title: I18N.t("strategies.rf_title"),
+          sub: I18N.t("strategies.rf_help"),
+          subId: "st-rf-sub",
+          on: rf.enabled,
+        })}
+        <div class="field conf-field">
+          <span class="conf-head">${I18N.t("strategies.rf_steps")}<b class="mono conf-pct" id="st-rf-steps-n">${rf.steps ?? 3}</b></span>
+          <input id="st-rf-steps" type="range" step="1" min="1" max="5" value="${rf.steps ?? 3}"
+                 aria-label="${esc(I18N.t("strategies.rf_steps"))}" />
+        </div>
+        <div id="st-rf-ladder" class="rf-ladder">${rfLadderHtml(rf)}</div>
+        <p class="sub">${I18N.t("strategies.rf_ladder_help")}</p>
+      </div>
+
+      <div class="card" id="set-money">
+        <h3 class="card-h">${I18N.t("money.title")}</h3>
+        <p class="sub">${I18N.t("money.help")}</p>
+        <hr class="set-rule" />
+        <label class="field num-field">
+          <span>${I18N.t("money.cap")}</span>
+          <span class="num-wrap">
+            <input id="st-money-cap" type="number" step="0.5" min="0" value="${Number(money.max_loss_per_lot ?? 10)}" />
+            <b class="num-unit">${esc(money.currency || I18N.t("money.unit"))} / ${I18N.t("money.per_lot")}</b>
+          </span>
+        </label>
+        <p class="sub" id="st-money-reach">${esc(moneyReach(money))}</p>
+        <button class="btn tiny" id="st-money-save" type="button">${I18N.t("money.save")}</button>
+        <p class="sub">${I18N.t("money.zero_off")}</p>
+      </div>
+
+      <div class="card">
+        ${switchRow({
+          id: "st-danger",
+          title: I18N.t("strategies.danger_title"),
+          sub: propOn ? I18N.t("strategies.danger_prop_note") : I18N.t("strategies.danger_help"),
+          subId: "st-danger-sub",
+          on: dg.enabled,
+          disabled: propOn,
+        })}
+        <div class="field conf-field"><span class="conf-head">${I18N.t("strategies.danger_sens")}<b class="mono conf-pct" id="st-danger-pct">${dg.sensitivity ?? 50}%</b></span>
+          <input id="st-danger-sens" type="range" step="1" min="1" max="100" value="${dg.sensitivity ?? 50}" ${propOn ? "disabled" : ""}
+                 aria-label="${esc(I18N.t("strategies.danger_sens"))}" />
+        </div>
+        <p class="sub">${I18N.t("strategies.danger_sens_help")}</p>
+      </div>
+    </div>
+`;
+}
+
+/**
+ * The AI cannot always reach the number the slider is set to.
+ *
+ * Its confidence is pulled back towards "no information" in proportion
+ * to the edge the model has measured out of sample, so it has a
+ * ceiling - about 53% before any edge has been measured. A minimum set
+ * above that is not a strict filter; it is an off switch, and the log
+ * line it produces ("AI confidence 0.31 is under the 0.55 you asked
+ * for") reads like the market's fault rather than the slider's. So the
+ * desk says it where the slider is, before the trader waits a week for
+ * an entry that arithmetic has already refused.
+ */
+function aiCeilingWarning(st) {
+  st = st || {};
+  if (st.require_ai_agree === false) return "";
+  const ceiling = Number((S.snap?.ai || {}).ceiling || 0);
+  const want = Number(st.min_ai_confidence ?? 0.35);
+  if (!(ceiling > 0) || ceiling >= want) return "";
+  return `<p class="sub warn" id="ai-conf-ceiling">${I18N.t("strategies.min_conf_unreachable", {
+    want: Math.round(want * 100),
+    can: Math.round(ceiling * 100),
+  })}</p>`;
+}
+
+/**
+ * "At this cap, the widest stop on the live symbol is N points."
+ *
+ * A cap in money is the right unit to think in and the wrong one to
+ * read a chart in, so the desk says both. Where the broker has not
+ * reported a tick value the line says that instead of a number: a
+ * made-up distance would be worse than an empty one.
+ */
+function moneyReach(money) {
+  money = money || {};
+  if (!Number(money.max_loss_per_lot)) return I18N.t("money.off");
+  if (!money.priced) return I18N.t("money.unpriced");
+  return I18N.t("money.reach", {
+    s: money.symbol || "",
+    p: money.max_stop_points == null ? "—" : money.max_stop_points,
+    d: money.max_stop_distance == null ? "—" : money.max_stop_distance,
+  });
+}
+
+/**
+ * The desk clock.
+ *
+ * In System rather than in prop risk, because which hours a prop firm
+ * allows is their rule and what time it is where you sit is not. Asking
+ * the same question once per profile is how the answers start
+ * disagreeing with each other.
+ *
+ * "Broker time" is the default and is not a question at all: MetaTrader
+ * stamps every tick with its server's clock, so the offset is worked
+ * out rather than asked for. It is the right default because prop
+ * trading hours are quoted in broker time by the firms themselves.
+ */
+/**
+ * The MetaTrader side of the install: which experts AURION ships, which
+ * version each attached chart is actually running, and how to install them.
+ *
+ * AURION can update itself. The two .mq5 files inside MetaTrader cannot:
+ * only the person at the terminal can recompile and re-attach them. So an
+ * update used to leave the desk talking a newer protocol to an older
+ * expert, silently, with everything still showing "connected". The card
+ * puts both numbers side by side and says plainly when they differ.
+ */
+function expertsCardHtml() {
+  const ea = (S.snap && S.snap.experts) || {};
+  const ships = Array.isArray(ea.shipped) ? ea.shipped : [];
+  const charts = Array.isArray(ea.charts) ? ea.charts : [];
+  const stale = Array.isArray(ea.stale) ? ea.stale : [];
+  const shipped = String(ea.version || "—");
+
+  const warn = stale.length ? `<div class="ea-warn" id="ea-warn">
+      <b>${I18N.t("ea.outdated_title")}</b>
+      <p>${I18N.t("ea.outdated_body", { shipped: esc(shipped) })}</p>
+      <ul>${stale.map((c) => `<li><span class="mono">${esc(c.symbol || "—")} ${esc(c.timeframe || "")}</span>
+        — ${I18N.t("ea.running", { v: esc(c.version || "?") })}</li>`).join("")}</ul>
+    </div>` : "";
+
+  const rows = ships.map((x) => {
+    const file = String(x.file || "");
+    const bad = !x.available;
+    return `<div class="ea-row${bad ? " is-missing" : ""}">
+      <div class="ea-row-main">
+        <b class="mono ea-row-file">${esc(file)}</b>
+        <span class="pill ${x.required ? "" : "ghost"}">${I18N.t(x.required ? "ea.required" : "ea.optional")}</span>
+        <p class="sub">${I18N.t("ea." + String(x.id || "bridge") + "_about")}</p>
+      </div>
+      <div class="ea-row-end">
+        <b class="mono">v${esc(x.version || "—")}</b>
+        <button type="button" class="btn tiny ghost" data-ea-save="${esc(String(x.id || ""))}"
+          ${bad ? "disabled" : ""}>${I18N.t("ea.save_file")}</button>
+      </div>
+    </div>`;
+  }).join("");
+
+  const chartRows = charts.length
+    ? charts.map((c) => {
+        const cls = c.state === "ok" ? "ok" : c.state === "newer" ? "" : "no";
+        const word = I18N.t("ea.state_" + (c.state === "ok" ? "ok" : c.state === "newer" ? "newer" : c.state === "unknown" ? "unknown" : "old"));
+        return `<div class="ea-chart">
+          <span class="mono">${esc(c.symbol || "—")} ${esc(c.timeframe || "")}</span>
+          <span class="sub">${esc(c.ea_name || "AurionBridge")}${c.tester ? " · " + I18N.t("ea.tester") : ""}</span>
+          <b class="mono">v${esc(c.version || "?")}</b>
+          <span class="pill ${cls}">${word}</span>
+        </div>`;
+      }).join("")
+    : `<p class="sub">${I18N.t("ea.no_charts")}</p>`;
+
+  // If the installer already copied the files next to MetaTrader, say so:
+  // it turns "go and find the folder" into "press F7".
+  const inst = (ea.installed && ea.installed.folders && ea.installed.folders.length) ? ea.installed : null;
+  const copied = inst ? `<p class="sub ea-copied">${I18N.t("ea.copied", {
+    n: inst.folders.length,
+    v: esc(String(inst.version || "")),
+    at: esc(String(inst.at || "").replace("T", " ").slice(0, 16)),
+  })}</p>` : "";
+
+  const steps = [1, 2, 3, 4, 5, 6].map((n) => `<li>${I18N.t("ea.step" + n, {
+    folder: esc(String(ea.folder || "MQL5/Experts/Aurion")),
+    port: esc(String(ea.http_port_hint || 18765)),
+    v: esc(shipped),
+  })}</li>`).join("");
+
+  return `<div class="card" id="ea-card">
+      <h3>${I18N.t("ea.title")}</h3>
+      <p class="sub">${I18N.t("ea.help", { v: esc(shipped) })}</p>
+      ${warn}
+      <div class="ea-list">${rows || `<p class="sub">${I18N.t("ea.none_shipped")}</p>`}</div>
+      ${copied}
+      <h4 class="ea-sub">${I18N.t("ea.attached")}</h4>
+      <div class="ea-charts">${chartRows}</div>
+      <details class="ea-guide">
+        <summary>${I18N.t("ea.guide_title")}</summary>
+        <ol>${steps}</ol>
+        <p class="sub">${I18N.t("ea.guide_note")}</p>
+      </details>
+      <p class="sub ea-upd-note" id="ea-upd-note" hidden></p>
+    </div>`;
+}
+
+function timezoneCardHtml() {
+  const sys = S.snap?.strategy?.system || {};
+  const current = String(sys.timezone || "UTC");
+  const choices = Array.isArray(sys.choices) && sys.choices.length
+    ? sys.choices
+    : [{ group: "", id: "UTC", city: "UTC", offset: "+00:00" }];
+
+  // The engine sends objects now: a city, the offset in force today and
+  // the region to group under. A raw "Asia/Tehran" is a database key;
+  // "Tehran (+03:30)" is where somebody lives.
+  const label = (z) => {
+    if (z.id === "broker") {
+      return z.offset ? `${I18N.t("sys.tz_broker")} ${z.offset}` : I18N.t("sys.tz_broker");
+    }
+    if (z.id === "local") return I18N.t("sys.tz_local");
+    return z.offset ? `${z.city} (${z.offset})` : z.city;
+  };
+
+  const groups = [];
+  for (const z of choices) {
+    const key = z.group || "";
+    let bucket = groups.find((g) => g.key === key);
+    if (!bucket) { bucket = { key, items: [] }; groups.push(bucket); }
+    bucket.items.push(z);
+  }
+
+  const options = groups.map((g) => {
+    const opts = g.items.map((z) =>
+      `<option value="${esc(z.id)}"${z.id === current ? " selected" : ""}>${esc(label(z))}</option>`
+    ).join("");
+    return g.key ? `<optgroup label="${esc(g.key)}">${opts}</optgroup>` : opts;
+  }).join("");
+
+  const known = sys.broker_offset_minutes;
+  const detail = current === "broker" && known === null
+    ? I18N.t("sys.tz_broker_waiting")
+    : I18N.t("sys.tz_now", { z: esc(sys.label || current) });
+
+  return `<div class="card">
+      <h3>${I18N.t("sys.tz_title")}</h3>
+      <p class="sub">${I18N.t("sys.tz_help")}</p>
+      <div class="field" style="margin-top:10px">
+        <span>${I18N.t("sys.tz_title")}</span>
+        <select id="sys-tz" class="ctrl" aria-label="${esc(I18N.t("host.timezone"))}"
+                aria-describedby="sys-tz-now">${options}</select>
+      </div>
+      <p class="sub" id="sys-tz-now">${detail}</p>
     </div>`;
 }
 
@@ -1927,115 +5573,787 @@ function propLocked(pr) {
   return Boolean(pr && (pr.locked === true || (pr.id && pr.id !== "custom")));
 }
 
+/**
+ * How much of the prop account's rope is left.
+ *
+ * Rebuilt. This was a switch, a one-word verdict, two bare percentages
+ * and a single unlabelled bar. The bar tracked drawdown against its
+ * limit, but nothing said so -- and the daily loss, which is the rule
+ * that actually stops most accounts, had no bar at all. A figure like
+ * "-1.4%" means nothing without the limit it is counting towards.
+ *
+ * Both rules get a meter against their own limit, so the question a
+ * prop trader opens this page to answer -- how close am I -- is the
+ * thing the page answers.
+ */
+function propMeter(labelKey, used, limit, idUsed) {
+  const lim = Math.abs(Number(limit) || 0);
+  const amt = Math.abs(Number(used) || 0);
+  /* With no limit configured there is nothing to be a fraction of, so
+     the figure is shown on its own rather than against an invented
+     denominator. */
+  const pct = lim > 0 ? Math.min(100, (amt / lim) * 100) : 0;
+  const near = lim > 0 && pct >= 75;
+  const over = lim > 0 && pct >= 100;
+  return `<div class="pr-meter${over ? " is-over" : near ? " is-near" : ""}">
+      <div class="pr-meter-head">
+        <span>${I18N.t(labelKey)}</span>
+        <b class="mono" id="${idUsed}">${fmt(used)}%</b>
+      </div>
+      <div class="pr-meter-bar" role="img"
+           aria-label="${esc(I18N.t(labelKey))} ${fmt(amt)}% / ${fmt(lim)}%">
+        <i style="--w:${pct}%"></i>
+      </div>
+      <p class="pr-meter-foot sub">${lim > 0
+        ? I18N.t("risk.of_limit", { n: fmt(lim) + "%" })
+        : I18N.t("risk.no_limit")}</p>
+    </div>`;
+}
+
+/** Move one meter: the figure, its colour, and the bar under it. */
+function paintPropMeter(id, used, limit) {
+  const el = $(id);
+  if (!el) return;
+  el.textContent = fmt(used) + "%";
+  el.className = "mono " + clsPnl(used);
+  const box = el.closest(".pr-meter");
+  if (!box) return;
+  const lim = Math.abs(Number(limit) || 0);
+  const amt = Math.abs(Number(used) || 0);
+  const pct = lim > 0 ? Math.min(100, (amt / lim) * 100) : 0;
+  const fill = box.querySelector(".pr-meter-bar > i");
+  if (fill) fill.style.setProperty("--w", pct + "%");
+  box.classList.toggle("is-near", lim > 0 && pct >= 75 && pct < 100);
+  box.classList.toggle("is-over", lim > 0 && pct >= 100);
+}
+
 function propStatusHtml() {
   const p = S.snap?.prop || {};
   const pr = p.profile || {};
-  const w = Math.min(100, Math.abs(p.drawdown_pct || 0) / (pr.max_drawdown_pct || 10) * 100);
   const on = p.enabled !== false;
-  return `<div class="card" style="margin-bottom:14px">
-      <div class="auto-banner" style="margin:0 0 12px">
+  return `<section class="card pr-status">
+      <div class="auto-banner pr-switch">
         <div>
-          <h3 style="margin:0 0 6px">${I18N.t("risk.prop_switch")}</h3>
+          <h3>${I18N.t("risk.prop_switch")}</h3>
           <p class="sub" id="prop-enable-sub">${on ? I18N.t("risk.prop_on") : I18N.t("risk.prop_off")}</p>
         </div>
-        <button type="button" class="switch ${on?"on":""}" id="prop-enable" data-prop-enable aria-pressed="${on}"><i></i></button>
+        ${switchHtml({ id: "prop-enable", on, label: I18N.t("risk.prop_switch"), attrs: "data-prop-enable" })}
       </div>
-      <p class="metric ${p.locked?"down":"up"}" id="risk-state">${!on ? I18N.t("risk.prop_off") : (p.locked ? I18N.t("status.safe_mode") : I18N.t("status.prop_ok"))}</p>
+
+      <p class="pr-state ${!on ? "is-off" : p.locked ? "is-locked" : "is-ok"}" id="risk-state">${
+        !on ? I18N.t("risk.prop_off") : (p.locked ? I18N.t("status.safe_mode") : I18N.t("status.prop_ok"))
+      }</p>
       <p class="sub" id="risk-lock">${p.lock_reason || ""}</p>
-      <div class="kv" style="margin-top:12px">
-        <span>${I18N.t("command.daily_pl")}</span><b class="mono ${clsPnl(p.daily_pl_pct)}" id="risk-dpl">${fmt(p.daily_pl_pct)}%</b>
-        <span>${I18N.t("command.drawdown")}</span><b class="mono" id="risk-dd">${fmt(p.drawdown_pct)}%</b>
+
+      <div class="pr-meters">
+        ${propMeter("command.daily_pl", p.daily_pl_pct, pr.max_daily_loss_pct, "risk-dpl")}
+        ${propMeter("command.drawdown", p.drawdown_pct, pr.max_drawdown_pct, "risk-dd")}
       </div>
-      <div class="bar" style="margin-top:10px"><i style="--w:${w}%"></i></div>
-      <div class="row" style="margin-top:12px">
+
+      <div class="pr-acts">
         <button class="btn tiny danger" id="pr-lock" type="button"${on ? "" : " disabled"}>${I18N.t("risk.lock")}</button>
         <button class="btn tiny" id="pr-unlock" type="button"${on ? "" : " disabled"}>${I18N.t("risk.unlock")}</button>
       </div>
-    </div>`;
+    </section>`;
 }
+
+
+/**
+ * One numeric prop-rule field.
+ *
+ * Every number on this page needed a unit spelled out: "2" in a box labelled
+ * "daily loss" could be two percent, two hundred dollars or two pips, and the
+ * difference between those is an account. The unit is rendered inside the
+ * field as a suffix rather than in the label, so it stays attached to the
+ * value even when the label wraps.
+ */
+function propNum(id, labelKey, unitKey, value, opts) {
+  opts = opts || {};
+  const step = opts.step ? ` step="${opts.step}"` : "";
+  const min = opts.min !== undefined ? ` min="${opts.min}"` : "";
+  const max = opts.max !== undefined ? ` max="${opts.max}"` : "";
+  const note = opts.zeroOff ? `<em class="unit-note">${I18N.t("risk.u_zero_off")}</em>` : "";
+  // A long unit needs more room than a short one; the field declares which it
+  // is instead of every field reserving space for the longest possible suffix.
+  const wide = I18N.t(unitKey).length > 12 ? " wide-unit" : "";
+  return `<label class="field num-field${wide}">
+      <span>${I18N.t(labelKey)}${note}</span>
+      <span class="num-wrap">
+        <input id="${id}" type="number"${step}${min}${max} value="${value}" />
+        <b class="num-unit">${I18N.t(unitKey)}</b>
+      </span>
+    </label>`;
+}
+
+/**
+ * A prop trading hour, written in your clock and shown in the broker's.
+ *
+ * These used to be plain text boxes labelled "time", and the time they
+ * meant was UTC with nothing saying so. A trader in Tehran typing 07:00
+ * was setting 10:30 their own morning, which is how the conservative
+ * profile came to look as though prop mode simply refused to trade.
+ *
+ * So the field is in the desk's chosen zone - the one in System
+ * settings - and the line underneath says what that is for the broker,
+ * because that is the clock the firm's rulebook is written in. The
+ * conversion is arithmetic on an offset the engine publishes; doing it
+ * with a second timezone implementation in the browser is how the two
+ * end up disagreeing about the week the clocks change.
+ */
+function propTime(id, labelKey, value, placeholder) {
+  const sys = S.snap?.strategy?.system || {};
+  const zone = String(sys.label || sys.timezone || "UTC");
+
+  // type="time" rather than a text box.
+  //
+  // The browser then draws hours and minutes as two spinnable fields in
+  // the user's own locale, validates them, and refuses 25:70 - none of
+  // which a free-text box did. It was previously possible to save "7pm"
+  // or "07.00" and get a window that never opened, with nothing saying
+  // why.
+  return `<label class="field num-field">
+      <span>${I18N.t(labelKey)} <b class="tz-tag">${esc(zone)}</b></span>
+      <span class="num-wrap">
+        <input id="${id}" type="time" step="60" value="${esc(normalTime(value, placeholder))}" />
+      </span>
+      <small class="sub prop-at-broker" data-for="${id}">${esc(brokerEcho(value))}</small>
+    </label>`;
+}
+
+/** "7:5" and "07.00" both mean 07:00; type="time" wants it spelled out. */
+function normalTime(value, fallback) {
+  const m = /^\s*(\d{1,2})\s*[:.]\s*(\d{1,2})\s*$/.exec(String(value ?? ""));
+  if (!m) return fallback || "00:00";
+  const hh = Math.min(23, +m[1]);
+  const mm = Math.min(59, +m[2]);
+  return String(hh).padStart(2, "0") + ":" + String(mm).padStart(2, "0");
+}
+
+/** "07:00 here = 06:30 broker", or an empty string when it cannot be said. */
+function brokerEcho(text) {
+  const sys = S.snap?.strategy?.system || {};
+  const mine = sys.offset_minutes;
+  const broker = sys.broker_offset_minutes;
+
+  if (mine === null || mine === undefined) return "";
+  if (broker === null || broker === undefined) {
+    // Honest rather than converted against a zero it has not earned.
+    return I18N.t("risk.hours_broker_unknown");
+  }
+
+  const m = /^\s*(\d{1,2})\s*:\s*(\d{2})\s*$/.exec(String(text || ""));
+  if (!m) return "";
+  const hh = +m[1], mm = +m[2];
+  if (hh > 23 || mm > 59) return "";
+
+  // Same instant, read on the broker's clock.
+  let at = hh * 60 + mm - mine + broker;
+  at = ((at % 1440) + 1440) % 1440;
+  const out = String(Math.floor(at / 60)).padStart(2, "0") + ":" + String(at % 60).padStart(2, "0");
+  return I18N.t("risk.hours_broker", { t: out });
+}
+
+function propText(id, labelKey, unitKey, value, placeholder) {
+  const wide = I18N.t(unitKey).length > 12 ? " wide-unit" : "";
+  return `<label class="field num-field${wide}">
+      <span>${I18N.t(labelKey)}</span>
+      <span class="num-wrap">
+        <input id="${id}" value="${esc(value)}"${placeholder ? ` placeholder="${placeholder}"` : ""} />
+        <b class="num-unit">${I18N.t(unitKey)}</b>
+      </span>
+    </label>`;
+}
+
+/**
+ * The prop rule-book.
+ *
+ * Rebuilt for both sizes. The rules were a flat wall of number boxes
+ * in a fixed two-column grid: ten of them under "limits", nine under
+ * "time", then the filters. Two columns is too few for a desktop --
+ * short numeric fields left half the row empty -- and too many for a
+ * phone, where the pair squeezed to about eight characters each.
+ *
+ * The grid auto-fits now, so the same markup is four across on a wide
+ * screen and one on a phone, and each section is a card of its own so
+ * the eye has somewhere to stop between twenty-odd settings.
+ */
 function propFormHtml() {
   const p = S.snap?.prop || {};
   const pr = p.profile || {};
   const locked = propLocked(pr);
   const dis = locked ? " disabled" : "";
   const ids = ["conservative", "ftmo_challenge", "fundingpips", "the5ers", "custom"];
-  return `<label class="field"><span>${I18N.t("risk.preset")}</span>
-          <select class="ctrl" id="pr-preset">
-            ${ids.map((id)=>`<option value="${id}" ${pr.id===id?"selected":""}>${esc(profileLabel(id))}</option>`).join("")}
-          </select>
-        </label>
-        <input type="hidden" id="pr-id" value="${esc(pr.id||"custom")}" />
-        <p class="sub" id="pr-about">${esc(profileAbout(pr))}</p>
-        ${locked ? `<p class="sub prop-lock-note">${I18N.t("risk.preset_locked")}</p>` : ""}
-        <fieldset class="prop-fields${locked?" is-locked":""}"${locked?" disabled":""}>
+  return `<section class="card pr-preset-card">
+      <label class="field"><span>${I18N.t("risk.preset")}</span>
+        <select class="ctrl" id="pr-preset">
+          ${ids.map((id) => `<option value="${id}" ${pr.id === id ? "selected" : ""}>${esc(profileLabel(id))}</option>`).join("")}
+        </select>
+      </label>
+      <input type="hidden" id="pr-id" value="${esc(pr.id || "custom")}" />
+      <p class="sub" id="pr-about">${esc(profileAbout(pr))}</p>
+      ${locked ? `<p class="sub prop-lock-note">${I18N.t("risk.preset_locked")}</p>` : ""}
+    </section>
+
+    <fieldset class="prop-fields${locked ? " is-locked" : ""}"${locked ? " disabled" : ""}>
+      <section class="card pr-sec">
         <h4 class="set-h">${I18N.t("risk.sec_limits")}</h4>
-        <div class="grid g-2">
-          <label class="field"><span>${I18N.t("risk.daily_loss")}</span><input id="pr-dday" type="number" step="0.1" value="${pr.max_daily_loss_pct||2}" /></label>
-          <label class="field"><span>${I18N.t("risk.max_dd")}</span><input id="pr-mdd" type="number" step="0.1" value="${pr.max_drawdown_pct||5}" /></label>
-          <label class="field"><span>${I18N.t("risk.daily_profit")}</span><input id="pr-dtp" type="number" step="0.1" value="${pr.max_daily_profit_pct||0}" /></label>
-          <label class="field"><span>${I18N.t("risk.profit_target")}</span><input id="pr-pt" type="number" step="0.1" value="${pr.profit_target_pct||0}" /></label>
-          <label class="field"><span>${I18N.t("risk.max_lot")}</span><input id="pr-lot" type="number" step="0.01" value="${pr.max_lot||0.5}" /></label>
-          <label class="field"><span>${I18N.t("risk.max_lot_symbol")}</span><input id="pr-lotsym" type="number" step="0.01" value="${pr.max_lot_per_symbol||0}" /></label>
-          <label class="field"><span>${I18N.t("risk.max_trades")}</span><input id="pr-n" type="number" value="${pr.max_open_trades||2}" /></label>
-          <label class="field"><span>${I18N.t("risk.per_symbol")}</span><input id="pr-ps" type="number" value="${pr.max_positions_per_symbol||1}" /></label>
-          <label class="field"><span>${I18N.t("risk.max_day_trades")}</span><input id="pr-dayn" type="number" value="${pr.max_trades_per_day||0}" /></label>
-          <label class="field"><span>${I18N.t("risk.risk_pct")}</span><input id="pr-risk" type="number" step="0.1" value="${pr.max_risk_per_trade_pct||0.5}" /></label>
+        <div class="pr-grid">
+          ${propNum("pr-dday", "risk.daily_loss", "risk.u_pct_balance", pr.max_daily_loss_pct || 2, { step: "0.1", min: 0 })}
+          ${propNum("pr-mdd", "risk.max_dd", "risk.u_pct_balance", pr.max_drawdown_pct || 5, { step: "0.1", min: 0 })}
+          ${propNum("pr-dtp", "risk.daily_profit", "risk.u_pct_balance", pr.max_daily_profit_pct || 0, { step: "0.1", min: 0, zeroOff: true })}
+          ${propNum("pr-pt", "risk.profit_target", "risk.u_pct_balance", pr.profit_target_pct || 0, { step: "0.1", min: 0, zeroOff: true })}
+          ${propNum("pr-lot", "risk.max_lot", "risk.u_lots", pr.max_lot || 0.5, { step: "0.01", min: 0 })}
+          ${propNum("pr-lotsym", "risk.max_lot_symbol", "risk.u_lots", pr.max_lot_per_symbol || 0, { step: "0.01", min: 0, zeroOff: true })}
+          ${propNum("pr-n", "risk.max_trades", "risk.u_trades", pr.max_open_trades || 2, { min: 0 })}
+          ${propNum("pr-ps", "risk.per_symbol", "risk.u_positions", pr.max_positions_per_symbol || 1, { min: 0 })}
+          ${propNum("pr-dayn", "risk.max_day_trades", "risk.u_per_day", pr.max_trades_per_day || 0, { min: 0, zeroOff: true })}
+          ${propNum("pr-risk", "risk.risk_pct", "risk.u_pct_equity", pr.max_risk_per_trade_pct || 0.5, { step: "0.1", min: 0 })}
         </div>
+      </section>
+
+      <section class="card pr-sec">
         <h4 class="set-h">${I18N.t("risk.sec_time")}</h4>
-        <div class="grid g-2">
-          <label class="field"><span>${I18N.t("risk.min_hold")}</span><input id="pr-holdmin" type="number" step="0.1" value="${pr.min_hold_minutes||0}" /></label>
-          <label class="field"><span>${I18N.t("risk.max_hold")}</span><input id="pr-maxhold" type="number" step="0.1" value="${pr.max_hold_hours||0}" /></label>
-          <label class="field"><span>${I18N.t("risk.gap")}</span><input id="pr-gap" type="number" value="${pr.min_minutes_between_trades||0}" /></label>
-          <label class="field"><span>${I18N.t("risk.consec")}</span><input id="pr-cl" type="number" value="${pr.max_consecutive_losses||0}" /></label>
-          <label class="field"><span>${I18N.t("risk.hours_start")}</span><input id="pr-hs" value="${(pr.trading_hours&&pr.trading_hours.start)||"00:15"}" /></label>
-          <label class="field"><span>${I18N.t("risk.hours_end")}</span><input id="pr-he" value="${(pr.trading_hours&&pr.trading_hours.end)||"23:45"}" /></label>
-          <label class="field"><span>${I18N.t("risk.friday")}</span><input id="pr-fri" type="number" value="${pr.friday_close_utc_hour||21}" /></label>
-          <label class="field"><span>${I18N.t("risk.news_before")}</span><input id="pr-nb" type="number" value="${pr.news_blackout_before||15}" /></label>
-          <label class="field"><span>${I18N.t("risk.news_after")}</span><input id="pr-na" type="number" value="${pr.news_blackout_after||15}" /></label>
+        <div class="pr-grid">
+          ${propNum("pr-holdmin", "risk.min_hold", "risk.u_minutes", pr.min_hold_minutes || 0, { step: "0.1", min: 0, zeroOff: true })}
+          ${propNum("pr-maxhold", "risk.max_hold", "risk.u_hours", pr.max_hold_hours || 0, { step: "0.1", min: 0, zeroOff: true })}
+          ${propNum("pr-gap", "risk.gap", "risk.u_minutes", pr.min_minutes_between_trades || 0, { min: 0, zeroOff: true })}
+          ${propNum("pr-cl", "risk.consec", "risk.u_trades", pr.max_consecutive_losses || 0, { min: 0, zeroOff: true })}
+          ${propTime("pr-hs", "risk.hours_start", (pr.trading_hours && pr.trading_hours.start) || "00:15", "00:15")}
+          ${propTime("pr-he", "risk.hours_end", (pr.trading_hours && pr.trading_hours.end) || "23:45", "23:45")}
+          ${propNum("pr-fri", "risk.friday", "risk.u_utc_hour", pr.friday_close_utc_hour || 21, { min: 0, max: 23 })}
+          ${propNum("pr-nb", "risk.news_before", "risk.u_minutes", pr.news_blackout_before || 15, { min: 0 })}
+          ${propNum("pr-na", "risk.news_after", "risk.u_minutes", pr.news_blackout_after || 15, { min: 0 })}
         </div>
+      </section>
+
+      <section class="card pr-sec">
         <h4 class="set-h">${I18N.t("risk.sec_filters")}</h4>
         <div class="field sym-field">
           <span>${I18N.t("risk.symbols")}</span>
           <div class="sym-pick" id="pr-syms-pick">
-            <button type="button" class="btn sm sym-btn" id="pr-syms-btn" aria-haspopup="true" aria-expanded="false">
-              <span id="pr-syms-label">${esc(I18N.t("risk.symbols_pick"))}</span>
-              <span class="sym-caret">▾</span>
+            <button type="button" class="sym-btn" id="pr-syms-btn" aria-haspopup="true" aria-expanded="false">
+              <span class="sym-chips" id="pr-syms-label">${esc(I18N.t("risk.symbols_pick"))}</span>
+              <span class="sym-caret" aria-hidden="true">
+                <svg aria-hidden="true" focusable="false" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                     stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>
+              </span>
             </button>
-            <input type="hidden" id="pr-syms" value="${esc(pr.allowed_symbols||"")}" />
+            <input type="hidden" id="pr-syms" value="${esc(pr.allowed_symbols || "")}" />
             <div class="sym-panel" id="pr-syms-panel" hidden>
-              <input class="fld sym-q" id="pr-syms-q" type="search" placeholder="${esc(I18N.t("risk.symbols_search"))}" />
+              <!-- The search shell sits directly in the panel. It used to be
+                   wrapped in a .sym-head div whose only rule lived in
+                   skins.css, so the gap under the search box existed when a
+                   skin was on and vanished when it was off. The panel spaces
+                   its own children now, the way every other card does. -->
+              <span class="dsk-search sm">${icon("search")}
+                <input id="pr-syms-q" type="search" class="dsk-search-i"
+                       aria-label="${esc(I18N.t("risk.symbols_search"))}"
+                       placeholder="${esc(I18N.t("risk.symbols_search"))}" />
+              </span>
               <div class="sym-acts">
-                <button type="button" class="btn sm" id="pr-syms-all">${esc(I18N.t("risk.symbols_all"))}</button>
-                <button type="button" class="btn sm" id="pr-syms-none">${esc(I18N.t("risk.symbols_none"))}</button>
+                <button type="button" class="btn tiny ghost" id="pr-syms-all">${esc(I18N.t("risk.symbols_all"))}</button>
+                <button type="button" class="btn tiny ghost" id="pr-syms-none">${esc(I18N.t("risk.symbols_none"))}</button>
               </div>
               <div class="sym-list" id="pr-syms-list" role="listbox" aria-multiselectable="true"></div>
               <div class="sym-foot" id="pr-syms-foot"></div>
             </div>
           </div>
+          <p class="sub">${I18N.t("risk.symbols_none_sel")}</p>
         </div>
+
         <label class="field"><span>${I18N.t("risk.violation")}</span>
           <select class="ctrl" id="pr-vio">
-            <option value="lock" ${pr.on_violation==="lock"?"selected":""}>lock</option>
-            <option value="flatten_and_lock" ${pr.on_violation!=="lock"?"selected":""}>flatten_and_lock</option>
+            <option value="lock" ${pr.on_violation === "lock" ? "selected" : ""}>lock</option>
+            <option value="flatten_and_lock" ${pr.on_violation !== "lock" ? "selected" : ""}>flatten_and_lock</option>
           </select>
         </label>
-        <div class="row" style="margin:8px 0 12px;flex-wrap:wrap">
-          <label class="row" style="gap:8px"><input type="checkbox" id="pr-news" ${pr.news_filter?"checked":""}/> ${I18N.t("risk.news")}</label>
-          <label class="row" style="gap:8px"><input type="checkbox" id="pr-we" ${pr.allow_weekend?"checked":""}/> ${I18N.t("risk.weekend")}</label>
-          <label class="row" style="gap:8px"><input type="checkbox" id="pr-hold" ${pr.allow_hold_over_weekend?"checked":""}/> ${I18N.t("risk.hold_weekend")}</label>
-          <label class="row" style="gap:8px"><input type="checkbox" id="pr-hedge" ${pr.hedging_allowed!==false?"checked":""}${dis}/> ${I18N.t("risk.hedge")}</label>
+
+        <!-- Switches, not a row of loose checkboxes. Each one is a rule
+             with a consequence, and a bare checkbox beside a label gave
+             no clue which of them were on at a glance. -->
+        <div class="pr-checks">
+          <label class="pr-check"><input type="checkbox" id="pr-news" ${pr.news_filter ? "checked" : ""}/><span>${I18N.t("risk.news")}</span></label>
+          <label class="pr-check"><input type="checkbox" id="pr-we" ${pr.allow_weekend ? "checked" : ""}/><span>${I18N.t("risk.weekend")}</span></label>
+          <label class="pr-check"><input type="checkbox" id="pr-hold" ${pr.allow_hold_over_weekend ? "checked" : ""}/><span>${I18N.t("risk.hold_weekend")}</span></label>
+          <label class="pr-check"><input type="checkbox" id="pr-hedge" ${pr.hedging_allowed !== false ? "checked" : ""}${dis}/><span>${I18N.t("risk.hedge")}</span></label>
         </div>
-        </fieldset>
-        ${locked ? "" : `<button class="btn block" id="pr-save" type="button">${I18N.t("risk.save")}</button>`}`;
+      </section>
+    </fieldset>
+    ${locked ? "" : `<div class="pr-save"><button class="btn block" id="pr-save" type="button">${I18N.t("risk.save")}</button></div>`}`;
 }
+
+
+/**
+ * The prop guide, rendered under the prop form.
+ *
+ * Help that lives in another document is help nobody reads at the moment
+ * they need it, which is while looking at the box. Each entry is tied to
+ * a control by id, and tests/prop-guide.test.js refuses a control without
+ * one — so a new setting cannot ship undocumented.
+ */
+function propGuideHtml() {
+  const G = (typeof PROP_GUIDE !== "undefined") ? PROP_GUIDE : null;
+  if (!G) return "";
+  const lang = I18N.lang || "en";
+  const sections = G.SECTIONS.map((sec, i) => `
+      <details class="pg-sec" data-pg-sec="${esc(sec.id)}"${i === 0 ? " open" : ""}>
+        <summary>${esc(G.pick(sec.title, lang))}</summary>
+        <p class="sub pg-lede">${G.pick(sec.lede, lang)}</p>
+        ${sec.rows.map((row) => `
+          <div class="pg-row" data-pg-row="${esc(row.id)}"
+               data-pg-find="${esc((G.pick(row.label, lang) + " " + G.pick(row, lang)).toLowerCase())}">
+            <b class="pg-k">${esc(G.pick(row.label, lang))}</b>
+            <p class="pg-v">${G.pick(row, lang)}</p>
+          </div>`).join("")}
+      </details>`).join("");
+  return `<div class="card prop-guide" id="prop-guide">
+      <h3>${I18N.t("risk.guide_title")}</h3>
+      <p class="sub">${I18N.t("risk.guide_lede")}</p>
+      <div class="field"><label for="prop-guide-q">${I18N.t("risk.guide_search")}</label>
+        <span class="dsk-search">${icon("search")}
+          <input id="prop-guide-q" type="search" class="dsk-search-i" placeholder="${esc(I18N.t("risk.guide_search_ph"))}" />
+        </span>
+      </div>
+      <p class="sub" id="prop-guide-empty" hidden>${I18N.t("risk.guide_empty")}</p>
+      ${sections}
+    </div>`;
+}
+
+/** Filter the guide as the box is typed in; empty query restores it. */
+function bindPropGuide() {
+  const q = document.getElementById("prop-guide-q");
+  if (!q || q.dataset.bound) return;
+  q.dataset.bound = "1";
+  const empty = document.getElementById("prop-guide-empty");
+  q.addEventListener("input", () => {
+    const want = q.value.trim().toLowerCase();
+    let hits = 0;
+    document.querySelectorAll("#prop-guide .pg-sec").forEach((sec) => {
+      let shown = 0;
+      sec.querySelectorAll(".pg-row").forEach((row) => {
+        const ok = !want || (row.dataset.pgFind || "").includes(want);
+        row.hidden = !ok;
+        if (ok) shown++;
+      });
+      sec.hidden = shown === 0;
+      if (want && shown) sec.open = true;
+      hits += shown;
+    });
+    if (empty) empty.hidden = hits !== 0;
+  });
+}
+
+/* The robot's own account of itself: this symbol, this strategy, why it is
+   not trading, when it will, and the lines it prints when it does. All of
+   it existed already - in the gate's reason codes, the strategy's refusal,
+   the AI read and the journal - but scattered across four screens, which
+   left the trader to join them up. A robot doing nothing and a robot that
+   is broken look identical until something says which one this is. */
+/* Which sound marks which event. Three separate choices rather than one
+   on/off switch, because "the robot just opened a trade" and "that trade
+   closed down" are not the same news and a trader learns the difference
+   by ear long before they look at the screen. Status changes are not
+   listed here: they are silent by design. */
+function notifySoundCardHtml() {
+  const p = notifyPrefs();
+  const muted = !(p.volume > 0);
+
+  /* One row per event, not a column of identical dropdowns.
+     The old panel was three <label><select> pairs stacked in a card, and the
+     only way to tell which row was which was to read the text beside it. A
+     row now carries the mark it is about - the same arrow the trade cards
+     use for a buy, the same green and red as a closed trade - so the setting
+     looks like the thing it controls. */
+  const row = (key, tone, mark, label, hint) => {
+    const value = p[key] || "none";
+    const off = value === "none";
+    return `<div class="snd-row${off ? " is-off" : ""}" data-sndrow="${key}">
+      <span class="snd-mark t-${tone}" aria-hidden="true">${mark}</span>
+      <span class="snd-text">
+        <b>${esc(label)}</b>
+        ${hint ? `<small>${esc(hint)}</small>` : ""}
+      </span>
+      <select class="ctrl snd-pick" data-snd="${key}" aria-label="${esc(label)}">${
+        SOUND_NAMES.map((n) =>
+          `<option value="${n}"${value === n ? " selected" : ""}>${esc(I18N.t("notify.snd_" + n))}</option>`
+        ).join("")}</select>
+      <button type="button" class="icon-btn snd-play" data-sndtest="${key}"
+              title="${esc(I18N.t("notify.preview"))}"
+              aria-label="${esc(I18N.t("notify.preview"))}"${off || muted ? " disabled" : ""}>${icon("play")}</button>
+    </div>`;
+  };
+
+  return `<div class="snd-wrap" id="notify-card">
+    <p class="sub snd-lead">${esc(I18N.t("notify.lead"))}</p>
+
+    <div class="card snd-card">
+      <div class="snd-head">
+        <h3>${esc(I18N.t("notify.master_title"))}</h3>
+        <span class="snd-vol-read" id="snd-vol-read">${muted ? esc(I18N.t("notify.muted")) : Math.round(p.volume * 100) + "%"}</span>
+      </div>
+      <p class="sub">${esc(I18N.t("notify.master_hint"))}</p>
+      <div class="snd-vol">
+        <button type="button" class="icon-btn snd-mute" id="snd-mute"
+                aria-label="${esc(I18N.t("notify.muted"))}" aria-pressed="${muted}">${muted ? icon("volumeOff") : icon("volume")}</button>
+        <input id="snd-vol" type="range" min="0" max="100" step="5" value="${Math.round(p.volume * 100)}"
+               aria-label="${esc(I18N.t("notify.master_title"))}" />
+      </div>
+    </div>
+
+    <div class="card snd-card">
+      <div class="snd-head"><h3>${esc(I18N.t("notify.events_title"))}</h3></div>
+      <p class="sub">${esc(I18N.t("notify.events_hint"))}</p>
+      <div class="snd-rows">
+        ${row("entry", "entry", icon("chart"), I18N.t("notify.entry"), I18N.t("notify.entry_hint"))}
+        ${row("profit", "up", icon("check"), I18N.t("notify.exit_profit"), "")}
+        ${row("loss", "down", icon("close"), I18N.t("notify.exit_loss"), "")}
+        ${row("notice", "notice", icon("info"), I18N.t("notify.notice"), I18N.t("notify.notice_hint"))}
+      </div>
+      <p class="sub snd-note">${esc(I18N.t("notify.custom_note"))}</p>
+    </div>
+
+    <div class="card snd-card">
+      <div class="snd-head"><h3>${esc(I18N.t("notify.delivery_title"))}</h3></div>
+      <div class="snd-deliver">
+        <div class="snd-text">
+          <b>${esc(I18N.t("notify.windows"))}</b>
+          <small>${esc(I18N.t("notify.windows_hint"))}</small>
+        </div>
+        ${switchHtml({ id: "sw-wintoast", on: p.windows, label: I18N.t("notify.windows") })}
+      </div>
+    </div>
+  </div>`;
+}
+
+function bindNotifySounds(root) {
+  const scope = root || document;
+
+  /* The panel has three states that have to agree with each other: the
+     master volume, whether a row is set to Silent, and whether its preview
+     button can do anything. Keeping that in one place means a row cannot
+     end up offering a preview that plays nothing. */
+  const refresh = () => {
+    const p = notifyPrefs();
+    const muted = !(p.volume > 0);
+
+    const read = scope.querySelector("#snd-vol-read");
+    if (read) read.textContent = muted ? I18N.t("notify.muted") : Math.round(p.volume * 100) + "%";
+
+    const mute = scope.querySelector("#snd-mute");
+    if (mute) {
+      mute.setAttribute("aria-pressed", String(muted));
+      mute.innerHTML = muted ? icon("volumeOff") : icon("volume");
+    }
+
+    scope.querySelectorAll("[data-sndrow]").forEach((rowEl) => {
+      const key = rowEl.dataset.sndrow;
+      const off = (p[key] || "none") === "none";
+      rowEl.classList.toggle("is-off", off);
+      const play = rowEl.querySelector("[data-sndtest]");
+      if (play) play.disabled = off || muted;
+    });
+  };
+
+  scope.querySelectorAll("[data-snd]").forEach((sel) => {
+    sel.onchange = () => {
+      const slot = sel.dataset.snd;
+      saveNotifyPrefs({ [slot]: sel.value });
+      refresh();
+      // Heard immediately: picking a sound from a list of names means
+      // nothing until it makes a noise.
+      playSound(sel.value, undefined, slot);
+    };
+  });
+
+  scope.querySelectorAll("[data-sndtest]").forEach((btn) => {
+    const slot = btn.dataset.sndtest;
+    btn.onclick = () => playSound(notifyPrefs()[slot], undefined, slot);
+  });
+
+  const vol = scope.querySelector("#snd-vol");
+  if (vol) {
+    vol.oninput = () => { saveNotifyPrefs({ volume: Number(vol.value) / 100 }); refresh(); };
+    vol.onchange = () => playSound(notifyPrefs().entry);
+  }
+
+  /* Mute remembers the level it muted from, so unmuting returns to where the
+     trader had it rather than to an arbitrary default. */
+  const mute = scope.querySelector("#snd-mute");
+  if (mute) {
+    mute.onclick = () => {
+      const p = notifyPrefs();
+      const now = p.volume > 0;
+      const next = now ? 0 : (Number(mute.dataset.last) || 0.6);
+      if (now) mute.dataset.last = String(p.volume);
+      saveNotifyPrefs({ volume: next });
+      if (vol) vol.value = String(Math.round(next * 100));
+      refresh();
+    };
+  }
+
+  const win = scope.querySelector("#sw-wintoast");
+  if (win) {
+    win.onclick = () => {
+      const next = !notifyPrefs().windows;
+      saveNotifyPrefs({ windows: next });
+      win.classList.toggle("on", next);
+      win.setAttribute("aria-pressed", String(next));
+    };
+  }
+
+  refresh();
+}
+
+/**
+ * Why the robot is or is not about to trade.
+ *
+ * Rebuilt. This was a single card carrying a verdict, two columns of
+ * prose, a confidence figure written "45% / 60%" and a forty-line
+ * console, all inline-styled. The verdict is the headline and it was
+ * the same size as everything around it; the confidence -- the number
+ * that decides whether anything happens -- was two figures in a pill
+ * with no sense of how far apart they were.
+ *
+ * Now the verdict leads, the confidence is a bar against its threshold
+ * so the gap is visible rather than arithmetic, and the reasons sit
+ * directly under the verdict they explain.
+ */
+/**
+ * The analysis for the chart the direction slider is currently on.
+ *
+ * The engine sends one analysis per watched symbol under by_symbol,
+ * alongside the active symbol's own. The Intelligence page puts the
+ * slider above this card, so pressing the arrow has to move both --
+ * otherwise the page shows one symbol's direction over another
+ * symbol's reasoning, which is worse than showing nothing.
+ *
+ * Falls back to the active-symbol analysis whenever the map is absent
+ * (an older engine) or does not carry the slide's symbol.
+ */
+function currentAnalysis() {
+  const a = S.snap?.analysis;
+  if (!a) return null;
+  const by = a.by_symbol;
+  if (!by || typeof by !== "object") return a;
+  const slides = aiSlides();
+  const idx = (S.aiSlide | 0) >= slides.length ? 0 : (S.aiSlide | 0);
+  const sym = String((slides[idx] && slides[idx].symbol) || "");
+  return (sym && by[sym]) || a;
+}
+
+function analysisCardHtml() {
+  const a = currentAnalysis();
+  if (!a) {
+    return `<section class="card ai-verdict is-wait" id="an-card">
+      <h3>${I18N.t("ai.an.title")}</h3>
+      <p class="sub">${I18N.t("ai.an.waiting")}</p>
+    </section>`;
+  }
+  const blockers = a.blockers || [];
+  const ready = Boolean(a.ready && a.setup);
+  const conf = Math.round((a.ai?.confidence || 0) * 100);
+  const need = Math.round((a.ai?.min_confidence || 0) * 100);
+  const gate = Boolean(a.ai?.gate);
+  const line = (b) => `<li><b>${esc(b.text || b.code || "")}</b>${b.fix ? `<span class="sub"> — ${esc(b.fix)}</span>` : ""}</li>`;
+  const lines = (a.console || []).slice(-40).reverse();
+
+  /* The threshold is drawn on the bar rather than printed beside it:
+     "62% / 60%" and "58% / 60%" read almost the same and mean opposite
+     things. Only shown when the gate is actually in use. */
+  const meter = gate ? `<div class="ai-conf">
+      <div class="ai-conf-head">
+        <span>${I18N.t("ai.an.ai_conf")}</span>
+        <b class="mono ${conf >= need ? "up" : "down"}">${conf}%</b>
+      </div>
+      <div class="ai-conf-bar" role="img"
+           aria-label="${esc(I18N.t("ai.an.ai_conf"))} ${conf}% / ${need}%">
+        <i class="ai-conf-fill ${conf >= need ? "is-ok" : ""}" style="--w:${Math.max(0, Math.min(100, conf))}%"></i>
+        <i class="ai-conf-need" style="--at:${Math.max(0, Math.min(100, need))}%"></i>
+      </div>
+      <p class="ai-conf-foot sub">${I18N.t("ai.an.needs")} <b class="mono">${need}%</b></p>
+    </div>` : `<p class="sub ai-conf-off">${I18N.t("ai.an.ai_gate_off")}</p>`;
+
+  return `<section class="card ai-verdict ${ready ? "is-ready" : "is-blocked"}" id="an-card">
+    <div class="ai-v-head">
+      <div class="ai-v-lead">
+        <p class="kicker">${I18N.t("ai.an.title")}</p>
+        <p class="ai-v-state">${ready ? I18N.t("ai.an.verdict_ready") : I18N.t("ai.an.verdict_blocked")}</p>
+        <p class="sub">${I18N.t("ai.an.sub")}</p>
+      </div>
+      ${meter}
+    </div>
+
+    <div class="ai-v-tags">
+      <span class="pill ghost">${I18N.t("ai.an.watching")}: <b class="mono">${esc(a.symbol || "—")} ${esc(a.timeframe || "")}</b></span>
+      <span class="pill ${a.strategy_enabled ? "ok" : "ghost"}">${I18N.t("ai.an.with_strategy")}: <b>${esc(a.strategy || "—")}</b></span>
+    </div>
+
+    <div class="ai-v-cols">
+      <div>
+        <h4 class="ai-h">${I18N.t("ai.an.why")}</h4>
+        ${blockers.length
+          ? `<ul class="an-why">${blockers.map(line).join("")}</ul>`
+          : `<p class="sub">${I18N.t("ai.an.no_blockers")}</p>`}
+        ${(a.refusals || []).length
+          ? `<p class="sub ai-refuse">${I18N.t("ai.an.refusals")}: ${a.refusals.map((r) => `${esc(r.reason)} ×${r.count}`).join(" · ")}</p>`
+          : ""}
+      </div>
+      <div>
+        <h4 class="ai-h">${I18N.t("ai.an.when")}</h4>
+        <p class="sub">${esc(a.when || "")}</p>
+        ${(a.resting || []).length
+          ? `<ul class="an-why">${a.resting.map((r) => `<li><b>${esc(String(r.type || "").replace(/_/g, " ").toUpperCase())} ${fmt(r.volume, 2)} @ ${fmt(r.price, 5)}</b>
+               <span class="sub"> — SL ${r.sl ? fmt(r.sl, 5) : "—"} / TP ${r.tp ? fmt(r.tp, 5) : "—"}</span></li>`).join("")}</ul>`
+          : ""}
+        ${a.next_eval?.text ? `<p class="sub"><b>${I18N.t("ai.an.next_eval")}:</b> <span class="mono" id="an-next">${esc(a.next_eval.text)}</span></p>` : ""}
+      </div>
+    </div>
+
+    <details class="ai-console" open>
+      <summary><h4 class="ai-h">${I18N.t("ai.an.console")}</h4></summary>
+      <div class="ai-feed term" id="an-console">${lines.length
+        ? lines.map((r) => `<div class="row-line ${esc(r.level || "info")}"><span class="ts">${esc(String(r.ts || "").slice(11, 19))}</span><span class="mono an-code">${esc(r.code || "")}</span><span>${esc(r.message || "")}</span></div>`).join("")
+        : emptyMini(I18N.t("ai.an.console_empty"))}</div>
+    </details>
+  </section>`;
+}
+
+/**
+ * Keep the live analysis card actually live.
+ *
+ * The card was built once, when the page was mounted, and never touched
+ * again. patchLive refreshed the regime, the features and the activity
+ * feed beside it, but never the verdict, the confidence meter, the
+ * blockers, the resting orders or the console -- so the one card on the
+ * page called "live analysis" was the only thing on it that was frozen,
+ * and the only way to move it was to reload the page by hand.
+ *
+ * It is rebuilt rather than patched field by field, because the card
+ * changes shape and not only values: blockers come and go, resting
+ * orders appear, and the meter is absent entirely when the gate is off.
+ * Three things make rebuilding safe at this rate. It is skipped when
+ * the markup has not changed, which is the common case between ticks,
+ * so there is no flicker and no selection lost while nothing is
+ * happening. The console's scroll position is carried across, so a
+ * trader reading back through it is not yanked to the top. And the
+ * console's open or closed state is kept, because that is the reader's
+ * choice and not the server's.
+ */
+/**
+ * Update the live analysis in place.
+ *
+ * This used to build the whole card and swap it in with replaceWith.
+ * Every time any one number moved, the entire card was thrown away and
+ * a new one put in its place -- the verdict, the meter, the blockers,
+ * the console, all of it. That is why the page looked like it was
+ * reloading itself: nothing was actually reloading, but every node on
+ * the card was a different node from one second to the next, so the
+ * browser repainted the lot, selections died and anything mid-scroll
+ * jumped.
+ *
+ * Now the new markup is built off-screen and reconciled against what
+ * is already there, so only the handful of nodes whose content really
+ * changed are touched. A confidence figure ticking from 61% to 62%
+ * rewrites one number and leaves the rest of the card alone.
+ */
+function patchAnalysisCard() {
+  const card = $("an-card");
+  if (!card) return;
+
+  const next = analysisCardHtml();
+  if (S._anHtml !== next) {
+    S._anHtml = next;
+    const host = document.createElement("div");
+    host.innerHTML = next;
+    const fresh = host.firstElementChild;
+    if (!fresh) return;
+    morphElement(card, fresh);
+    bindCloseButtons($("an-card") || card);
+  }
+}
+
+/* Attributes that belong to the person reading the page, not to the
+   render: re-applying them would fight whatever they just did. */
+const MORPH_KEEP = new Set(["open", "value", "checked", "selected"]);
+
+/**
+ * Make `from` look like `to`, reusing every node that can be reused.
+ *
+ * Small on purpose. It walks the two trees in step and only writes
+ * where they differ, which is what keeps the DOM -- and therefore
+ * scroll position, focus, text selection and any open <details> --
+ * alive across an update.
+ */
+function morphElement(from, to) {
+  if (!from || !to) return;
+  if (from.nodeName !== to.nodeName) {
+    from.replaceWith(to);
+    return;
+  }
+
+  // Attributes, in both directions.
+  const seen = new Set();
+  for (const at of Array.from(to.attributes || [])) {
+    seen.add(at.name);
+    // Never re-apply these. A <details> the reader has closed reports no
+    // "open" attribute, while the freshly built markup always carries
+    // one, so copying it across reopened the console on every update --
+    // the update fighting the reader, which is the whole complaint.
+    // Their initial value comes from the first render and is then left
+    // to whatever the reader does with it.
+    if (MORPH_KEEP.has(at.name)) continue;
+    if (from.getAttribute(at.name) !== at.value) from.setAttribute(at.name, at.value);
+  }
+  for (const at of Array.from(from.attributes || [])) {
+    if (!seen.has(at.name) && !MORPH_KEEP.has(at.name)) from.removeAttribute(at.name);
+  }
+
+  const fromKids = Array.from(from.childNodes);
+  const toKids = Array.from(to.childNodes);
+  const n = Math.max(fromKids.length, toKids.length);
+  for (let i = 0; i < n; i++) {
+    const a = fromKids[i];
+    const b = toKids[i];
+    if (!b) { if (a) a.remove(); continue; }
+    if (!a) { from.appendChild(b.cloneNode(true)); continue; }
+    if (a.nodeType === 3 && b.nodeType === 3) {
+      if (a.nodeValue !== b.nodeValue) a.nodeValue = b.nodeValue;
+    } else if (a.nodeType === 1 && b.nodeType === 1) {
+      morphElement(a, b);
+    } else if (a.nodeType !== b.nodeType || a.nodeValue !== b.nodeValue) {
+      a.replaceWith(b.cloneNode(true));
+    }
+  }
+}
+
 
 const views = {
   command() {
+    /* Rebuilt for both sizes.
+
+       Six figures sat in one rigid six-column strip, every one the same
+       size: equity next to margin, profit next to balance. They are not
+       the same kind of fact -- equity and the day's profit are what a
+       trader opens the desk to see, and the leverage is reference you
+       look up once a month -- but the layout insisted they were, and on
+       a phone it became three rows of identical boxes to scroll past.
+
+       They are one account card now, with the money that moves given
+       the room, the reference figures beneath it, and the account's
+       identity folded in rather than repeated in a card of its own
+       further down the page. */
     const acc = S.snap?.mt5?.account || {};
     const prop = S.snap?.prop || {};
     const pos = S.snap?.positions || [];
     const agents = liveAgents();
-    const wizard = `<div class="hero" id="cmd-wizard" style="margin-bottom:14px"${agents.length ? " hidden" : ""}>
+    const cur = acc.currency || "";
+    /* Floating P/L as a share of the balance it is working. "+139.61" on
+       its own does not say whether that is a good day or a rounding
+       error; against the balance it does. With no balance there is no
+       denominator, so it shows a dash rather than inventing one. */
+    const balNow = Number(acc.balance) || 0;
+    const plPct = balNow > 0 ? ((Number(acc.profit) || 0) / balNow) * 100 : null;
+    const wizard = `<div class="hero" id="cmd-wizard"${agents.length ? " hidden" : ""}>
         <div class="hero-copy">
           <p class="kicker">${I18N.t("command.ready")}</p>
           <h3>${I18N.t("command.hero")}</h3>
@@ -2046,6 +6364,7 @@ const views = {
             <span class="pill"><i class="dot ${S.snap ? "live" : "down"}"></i>${I18N.t(S.snap ? "status.engine_live" : "status.engine_down")}</span>
             <span class="pill" id="wiz-mt5"><i class="dot ${mt5Live() ? "live" : "down"}"></i>${I18N.t(mt5Live() ? "status.mt5_live" : "status.mt5_down")}</span>
             <span class="pill" id="wiz-ea">${I18N.t("status.ea_attached", { n: agents.length })}</span>
+            <span class="pill warn" id="wiz-eaver"${eaStale().length ? "" : " hidden"}>${eaStaleLabel()}</span>
           </div>
         </div>
         <div class="card glass-rise">
@@ -2057,108 +6376,282 @@ const views = {
             <div class="step"><b>4</b><div>${I18N.t("wizard.step4")}</div></div>
           </div>
           <button class="btn block" id="go-settings" type="button">${I18N.t("wizard.verify")}</button>
-          <a class="btn block ghost" href="/guide-install.html?v=desk45" target="_blank" rel="noopener">${I18N.t("guide.install")}</a>
         </div>
       </div>`;
-    return `<div class="cmd">
+
+    /* A reference figure. Quieter than equity on purpose: balance and
+       leverage are looked up, not watched, and giving them the same
+       weight as the money that is moving is why the old six-up strip
+       read as a wall. */
+    const ref = (key, value, suffix) => `<div class="ccx-ref-row">
+        <span>${I18N.t(key)}</span>
+        <b class="mono" data-metric="${key}">${fmt(value)}${suffix ? " " + suffix : ""}</b>
+      </div>`;
+
+    /* A risk figure, against the limit it is a fraction of.
+
+       On the old page the day's P/L and the drawdown were two more
+       tiles in a row of six, indistinguishable from the margin. They
+       are the two numbers on this screen that can end an account, and
+       a percentage with nothing beside it does not say how much room
+       is left. Each one is shown against its prop limit, with a bar,
+       and turns as it approaches. With no limit set there is no
+       fraction to draw, so it shows the figure alone rather than
+       inventing a denominator. */
+    const risk = (key, value, limit, signed) => {
+      const lim = Math.abs(Number(limit) || 0);
+      const amt = Math.abs(Number(value) || 0);
+      const pct = lim > 0 ? Math.min(100, (amt / lim) * 100) : 0;
+      const state = lim > 0 && pct >= 100 ? " is-over" : lim > 0 && pct >= 75 ? " is-near" : "";
+      return `<div class="ccx-risk-row${state}">
+          <div class="ccx-risk-head">
+            <span>${I18N.t(key)}</span>
+            <b class="mono ${signed ? clsPnl(value) : ""}" data-metric="${key}">${signed ? fmtSigned(value) : fmt(value)}%</b>
+          </div>
+          <div class="ccx-risk-bar" role="img"
+               aria-label="${esc(I18N.t(key))} ${fmt(amt)}% / ${fmt(lim)}%">
+            <i style="--w:${pct}%"></i>
+          </div>
+          <p class="ccx-risk-foot sub">${lim > 0
+            ? I18N.t("risk.of_limit", { n: fmt(lim) + "%" })
+            : I18N.t("risk.no_limit")}</p>
+        </div>`;
+    };
+
+    const prof = prop.profile || {};
+    /* Prop off, no risk panel. The two figures are measured against a
+       prop profile's limits; with the guard disabled the engine stops
+       computing them, so drawing two bars at 0% would be reporting a
+       measurement nobody took. */
+    const propOn = prop.enabled !== false;
+
+    return `<div class="cmd ccx">
       ${tapeBanner()}
       ${marketBanner()}
-      ${chartSliderHtml("ol", outlookSlideInnerHtml)}
       ${gateHtml()}
       ${wizard}
-      ${agents.length || testerAgents().length ? `<div class="card" id="ea-strip" style="margin:0"><h3 style="margin:0 0 8px">${I18N.t("nav.charts")}</h3><div class="hero-chips">${agents.map((a) => `<span class="pill is-live"><i class="dot live"></i>${esc(a.symbol)} · ${esc(a.timeframe || "")} · ${I18N.t(isTesterAgent(a) ? "tape.backtest" : "tape.live")}</span>`).join("")}${testerAgents().map((a) => `<span class="pill is-backtest">${esc(a.symbol)} · ${esc(a.timeframe || "")} · ${I18N.t("tape.backtest")}</span>`).join("")}</div></div>` : ""}
-      <div class="cmd-strip">
-        ${kpi("command.equity", acc.equity, acc.currency)}
-        ${kpi("command.profit", acc.profit, acc.currency, true)}
-        ${kpi("command.daily_pl", prop.daily_pl_pct, "%", true)}
-        ${kpi("command.drawdown", prop.drawdown_pct, "%")}
-        ${kpi("command.balance", acc.balance, acc.currency)}
-        ${kpi("command.margin", acc.margin, acc.currency)}
-      </div>
-      <div class="grid g-2">
-        <div class="card">
-          <h3>${I18N.t("command.positions")}</h3>
-          <div id="live-pos">${pos.length ? table(pos, ["symbol","type","volume","strategy","price_open","price_current","sl","tp","profit","profit_pct"], true) : emptyMini(I18N.t("status.no_positions"))}</div>
+
+      <!-- 1. The masthead.
+
+           Who you are trading as, how much you have, and whether the
+           thing is actually connected - in one band, because those
+           three are read together and were previously spread over an
+           account card and a separate card that contained nothing but
+           a row of badges. Folding the chart strip in here also means
+           the page no longer opens with a card's worth of chrome
+           wrapped around six pills. -->
+      <header class="card ccx-head">
+        <div class="ccx-id">
+          <p class="ccx-id-type" id="cmd-acc-type">${accTypeLabel(acc.account_label || acc.account_type || "unknown")}</p>
+          <p class="ccx-id-sub sub">${esc([acc.company, acc.server, acc.margin_mode,
+            acc.leverage ? "1:" + acc.leverage : ""].filter(Boolean).join(" \u00B7 "))}</p>
         </div>
-        <div class="cmd-side">
-          <div class="card">
-            <h3>${I18N.t("account.type")}</h3>
-            <p class="metric" id="cmd-acc-type">${accTypeLabel(acc.account_label || acc.account_type || "unknown")}</p>
-            <p class="sub">${[acc.company, acc.server, acc.margin_mode, acc.leverage ? "1:"+acc.leverage : ""].filter(Boolean).join(" · ")}</p>
-            <div class="kv" style="margin-top:12px">
-              <span>${I18N.t("command.free_margin")}</span><b class="mono" data-metric="command.free_margin">${fmt(acc.margin_free)} ${acc.currency||""}</b>
-              <span>${I18N.t("command.leverage")}</span><b class="mono" data-metric="command.leverage">${acc.leverage ? "1:"+acc.leverage : "—"}</b>
+        <div class="ccx-equity">
+          <span class="ccx-fig-k">${I18N.t("command.equity")}</span>
+          <b class="ccx-fig-v">
+            <span class="mono ccx-fig-n" data-metric="command.equity">${fmt(acc.equity)}</span>
+            ${cur ? `<span class="ccx-fig-c">${esc(cur)}</span>` : ""}
+          </b>
+        </div>
+        <div class="ccx-pl">
+          <span class="ccx-fig-k">${I18N.t("command.profit")}</span>
+          <b class="ccx-fig-v">
+            <span class="mono ccx-fig-n ${clsPnl(acc.profit)}" data-metric="command.profit">${fmtSigned(acc.profit)}</span>
+            ${cur ? `<span class="ccx-fig-c">${esc(cur)}</span>` : ""}
+          </b>
+          <span class="ccx-fig-pct mono ${clsPnl(acc.profit)}" data-metric="command.profit_pct">${plPct === null ? "\u2014" : fmtSigned(plPct) + "%"}</span>
+        </div>
+      </header>
+
+      <!-- 2. Risk beside reference.
+
+           Two different jobs, so two panels rather than one strip of
+           six identical boxes. The left-hand pair can end an account
+           and is watched; the right-hand four are looked up. On a
+           desktop they sit side by side, which is the width the old
+           single-column stack was throwing away. -->
+      <div class="ccx-pair${propOn ? "" : " is-solo"}">
+        ${propOn ? `<section class="card ccx-risk">
+          <h3>${I18N.t("risk.sec_limits")}</h3>
+          <div class="ccx-panel">
+            ${risk("command.daily_pl", prop.daily_pl_pct, prof.max_daily_loss_pct, true)}
+            ${risk("command.drawdown", prop.drawdown_pct, prof.max_drawdown_pct)}
+          </div>
+        </section>` : ""}
+        <section class="card ccx-ref">
+          <h3>${I18N.t("command.title_account")}</h3>
+          <div class="ccx-panel"><div class="ccx-ref-rows">
+            ${ref("command.balance", acc.balance, cur)}
+            ${ref("command.margin", acc.margin, cur)}
+            ${ref("command.free_margin", acc.margin_free, cur)}
+            <div class="ccx-ref-row">
+              <span>${I18N.t("command.leverage")}</span>
+              <b class="mono" data-metric="command.leverage">${acc.leverage ? "1:" + acc.leverage : "\u2014"}</b>
             </div>
-          </div>
-          <div class="card">
-            <h3>${I18N.t("ai.title")}</h3>
-            <div id="live-ai">${aiBlock(S.snap?.ai)}</div>
-          </div>
-        </div>
+          </div></div>
+        </section>
       </div>
+
+      <!-- Positions get the full width of the command centre.
+           They used to share a two-column row with the account card and an
+           AI summary, which left the close button squeezed against the edge
+           of a horizontally scrolling table - the one control on this screen
+           that is pressed in a hurry.
+
+           The AI summary is gone rather than moved: it printed a single
+           bias with no symbol next to it, so on a desk with four charts
+           open it was not merely unhelpful, it was ambiguous in a direction
+           a trader could act on. The per-chart version in the Intelligence
+           view says which symbol it means, and that is where it belongs. -->
+      <div class="card pos-card">
+        ${posCardHead(I18N.t("command.positions"))}
+        <div id="live-pos">${pos.length ? `<div class="pos-pane">${positionsListHtml(pos, [])}</div>` : emptyMini(I18N.t("status.no_positions"))}</div>
+      </div>
+
       <div class="card" id="live-st-wrap">
         <h3>${I18N.t("strategies.live")}</h3>
         <div class="grid g-2" id="live-st">${strategyLiveCards()}</div>
       </div>
     </div>`;
   },
+
   markets() {
     const ticks = S.snap?.ticks || {};
     const items = liveSymbols();
     const symbols = items.map((x) => x.symbol);
     const live = mt5Live();
-    return `<div class="grid g-chart">
-      <div class="card">
-        <div class="row" style="margin-bottom:10px;gap:8px;flex-wrap:wrap">
-          ${symbolSelectHtml("sym", S.symbol)}
-          <select class="ctrl" id="tf">${["M1","M5","M15","M30","H1","H4","D1"].map((t)=>`<option ${t===S.timeframe?"selected":""}>${t}</option>`).join("")}</select>
-          <span class="legend mono" id="tick-lbl">${tickLabel()}</span>
+    return `<div class="grid g-chart mk">
+      <div class="card mk-chart">
+        <!-- One toolbar instead of two stacked rows. The instrument controls
+             and the signal switches used to sit on separate lines, which on
+             a phone meant four rows of chrome above a chart that had barely
+             any height left. -->
+        <div class="mk-bar">
+          <div class="mk-pick">
+            ${symbolPickerHtml("sym", S.symbol)}
+            <select class="ctrl" id="tf" aria-label="${esc(I18N.t("chart.timeframe"))}">${["M1","M5","M15","M30","H1","H4","D1"].map((t)=>`<option ${t===S.timeframe?"selected":""}>${t}</option>`).join("")}</select>
+          </div>
+          <span class="legend mono mk-tick" id="tick-lbl">${tickLabel()}</span>
+          <div class="mk-sig">
+            <button type="button" class="btn tiny ${S.signalsEnabled?"on":"ghost"}" id="sig-toggle-m">${S.signalsEnabled?icon("bell")+" Signals ON":icon("bellOff")+" Signals OFF"}</button>
+            <button type="button" class="btn tiny ghost" id="sig-show-m" aria-pressed="${Boolean(S.showSignals)}"
+                    aria-label="${esc(I18N.t(S.showSignals ? "chart.signals_hide" : "chart.signals_show"))}"
+                    title="${esc(I18N.t(S.showSignals ? "chart.signals_hide" : "chart.signals_show"))}"${
+              S.signalsEnabled ? "" : " hidden"}>${S.showSignals?icon("eye"):icon("eyeOff")}</button>
+            ${!licFeat("chart_signals")?`<span class="pill no" style="font-size:10px">PREMIUM</span>`:""}
+          </div>
         </div>
-        <div class="row" style="margin-bottom:8px;gap:6px">
-          <button type="button" class="btn tiny ${S.signalsEnabled?"on":"ghost"}" id="sig-toggle-m">${S.signalsEnabled?"🔔 Signals ON":"🔕 Signals OFF"}</button>
-          <button type="button" class="btn tiny ghost" id="sig-show-m" style="${S.signalsEnabled?"":"display:none"}">${S.showSignals?"👁️":"🚫"}</button>
-          ${!licFeat("chart_signals")?`<span class="pill no" style="font-size:10px">PREMIUM</span>`:""}
-        </div>
+        <!-- No positions strip here. This page already carries the whole
+             book in .mk-pos below, and a strip above the chart filtered
+             to the symbol on screen meant the same trade was printed
+             twice on one page, in two different shapes, with the upper
+             copy disagreeing with the lower one the moment you switched
+             instrument. One book, one place. -->
         <div class="chart-box"><canvas id="cv"></canvas>${!eaLive() || !S.candles.length ? emptyCard(I18N.t("markets.empty"), symbols.length ? I18N.t("markets.loading_tf") : I18N.t("exec.no_ea_symbol")) : ""}</div>
         ${eaLive() ? chartTicketHtml() : ""}
         <!-- Chart signals list removed per user request — signals only on chart canvas itself -->
       </div>
-      <div class="card">
+      <div class="card mk-watch">
         <h3>${I18N.t("markets.title")}</h3>
-        <div id="live-ticks">${symbols.length ? `<div class="table-wrap"><table><thead><tr><th>${I18N.t("markets.symbol")}</th><th>${I18N.t("markets.bid")}</th><th>${I18N.t("markets.ask")}</th></tr></thead><tbody>${symbols.map((s)=>`<tr><td>${s}</td><td class="mono">${fmt(ticks[s]?.bid,5)}</td><td class="mono">${fmt(ticks[s]?.ask,5)}</td></tr>`).join("")}</tbody></table></div>` : emptyMini(I18N.t("exec.no_ea_symbol"))}</div>
+        <div id="live-ticks">${symbols.length ? watchlistHtml() : emptyMini(I18N.t("exec.no_ea_symbol"))}</div>
+      </div>
+
+      <!-- The whole book, not just this instrument.
+
+           The strip above the chart is filtered to the symbol on screen,
+           which is the right thing there and the wrong thing on its own:
+           switching to EURUSD made three open gold trades disappear from
+           the page. This is the Command Centre's table, in the view a
+           trader actually watches the market from, so the exposure is
+           visible without leaving for another page. -->
+      <div class="card pos-card mk-pos">
+        ${posCardHead(I18N.t("command.positions"))}
+        <div id="mk-pos">${allPositions().length
+          ? `<div class="pos-pane">${positionsListHtml(allPositions(), [])}</div>`
+          : emptyMini(I18N.t("status.no_positions"))}</div>
       </div>
     </div>`;
   },
   intelligence() {
-    // v54: merged slider — direction+regime per chart, features per selected chart
+    /* Rebuilt for both sizes.
+
+       The page was the analysis card followed by a flat 2x2 of equal
+       cards: the chart slider, regime+pattern, the activity feed and
+       the feature dump. Everything had the same weight, so the reading
+       order was whatever the grid happened to do -- and on a phone that
+       meant scrolling past eighteen raw feature numbers to reach what
+       the robot actually thinks.
+
+       Now the verdict leads, what it concluded comes next as tiles,
+       and the raw material -- features, activity -- sits underneath
+       where it belongs: useful when you go looking, not in the way. */
     const cur = currentAiSlideState() || S.snap?.ai || {};
     const feed = (cur.activity || S.snap?.ai?.activity || []).slice(-16).reverse();
     const rg = cur.regime_obj || cur.regime;
     const pat = cur.pattern_obj || cur.pattern;
     const feats = cur.features || {};
-    return `<div class="grid g-2">
-      <div class="card">${chartSliderHtml("ai", aiSlideInnerHtml)}</div>
-      <div class="card">
-        <h3>${I18N.t("ai.regime")} · ${I18N.t("ai.direction")} (per chart)</h3>
-        <p class="metric" id="ai-regime">${regLabel(typeof rg === "string" ? {name: rg} : rg)}</p>
-        <p class="sub">${esc((rg && typeof rg === "object" ? rg.reason : "") || "")}</p>
-        <h3 style="margin-top:16px">${I18N.t("ai.pattern")}</h3>
-        <p class="metric" id="ai-pattern" style="font-size:20px">${esc(typeof pat === "string" ? pat : (pat?.name || "—"))}</p>
-        <p class="sub">${esc((pat && typeof pat === "object" ? pat.reason : "") || I18N.t("status.ai_idle"))}</p>
-        <p class="sub" style="margin-top:8px">اسلایدر بالا جهت + رژیم را برای هر چارت جداگانه نشان می‌دهد — با دکمه‌های ‹ › بین چارت‌ها جابجا شوید.</p>
+    const rgObj = typeof rg === "string" ? { name: rg } : (rg || {});
+    const patName = typeof pat === "string" ? pat : (pat?.name || "—");
+    const patWhy = (pat && typeof pat === "object" ? pat.reason : "") || "";
+    const samples = Number(cur.samples || 0);
+    const need = Number(cur.need || 0);
+
+    /* The direction slider leads and the live analysis sits directly
+       under it: the slider is what picks the symbol, so the thing it
+       controls has to come after it rather than above it. */
+    return `<div class="cmd ai-page">
+      <section class="card">
+        ${chartSliderHtml("ai", aiSlideInnerHtml)}
+      </section>
+
+      ${analysisCardHtml()}
+
+      <div class="ai-read">
+        <section class="card ai-read-card">
+          <h4 class="ai-h">${I18N.t("ai.regime")}</h4>
+          <p class="ai-read-v" id="ai-regime">${regLabel(rgObj)}</p>
+          <p class="sub">${esc(rgObj.reason || "")}</p>
+        </section>
+        <section class="card ai-read-card">
+          <h4 class="ai-h">${I18N.t("ai.pattern")}</h4>
+          <p class="ai-read-v" id="ai-pattern">${esc(patName)}</p>
+          <p class="sub">${esc(patWhy || I18N.t("status.ai_idle"))}</p>
+        </section>
+        <section class="card ai-read-card">
+          <h4 class="ai-h">${I18N.t("ai.samples")}</h4>
+          <p class="ai-read-v mono"><b id="ai-samples">${samples}</b>${need ? `<em class="ai-need"> / ${need}</em>` : ""}</p>
+          <p class="sub">${I18N.t("ai.auto_learn")}</p>
+          <button class="btn tiny ghost" id="btn-train" type="button">${icon("refresh")} ${I18N.t("ai.retrain")}</button>
+        </section>
       </div>
-      <div class="card">
-        <h3>${I18N.t("ai.activity")}</h3>
-        <div class="ai-feed term" id="ai-feed">${feed.length ? feed.map((row) => `<div class="row-line"><span class="ts">${esc(row.ts || "")}</span><span>${esc(row.text || "")}</span></div>`).join("") : emptyMini(I18N.t("status.ai_idle"))}</div>
-      </div>
-      <div class="card">
-        <h3>${I18N.t("ai.features")} <span class="slide-sym mono" id="ai-feat-sym">${esc(cur.symbol || "")}</span></h3>
-        <div class="kv" id="ai-feat">${Object.keys(feats).length ? Object.entries(feats).slice(0,18).map(([k,v])=>`<span>${esc(k)}</span><b class="mono">${fmt(v,5)}</b>`).join("") : emptyMini(I18N.t("status.ai_idle"))}</div>
-        <p class="sub" id="ai-why">${esc((cur.confidence_why && cur.confidence_why.text) || cur.reason || I18N.t("ai.conf_help"))}</p>
-        <div class="row" style="margin-top:14px">
-          <button class="btn tiny ghost" id="btn-train" type="button">${I18N.t("ai.retrain")}</button>
-          <span class="sub">${I18N.t("ai.auto_learn")} · ${I18N.t("ai.samples")}: <b class="mono" id="ai-samples">${cur.samples || 0}</b>${cur.need ? " / " + cur.need : ""}</span>
-        </div>
+
+      <p class="sub ai-hint">${I18N.t("chart.regime_hint")}</p>
+
+      <div class="grid g-2">
+        <section class="card">
+          <h3>${icon("pulse")} ${I18N.t("ai.activity")}</h3>
+          <div class="ai-feed term" id="ai-feed">${feed.length
+            ? feed.map((row) => `<div class="row-line"><span class="ts">${esc(row.ts || "")}</span><span>${esc(row.text || "")}</span></div>`).join("")
+            : emptyMini(I18N.t("status.ai_idle"))}</div>
+        </section>
+
+        <!-- The feature dump. Folded away by default: it is eighteen
+             raw numbers that matter when a result is being questioned
+             and are noise the rest of the time, and on a phone they
+             pushed everything else off the screen. -->
+        <section class="card">
+          <details class="ai-feats">
+            <summary>
+              <h3>${icon("wrench")} ${I18N.t("ai.features")}
+                <span class="slide-sym mono" id="ai-feat-sym">${esc(cur.symbol || "")}</span>
+              </h3>
+            </summary>
+            <div class="kv ai-feat-kv" id="ai-feat">${Object.keys(feats).length
+              ? Object.entries(feats).slice(0, 18).map(([k, v]) => `<span>${esc(k)}</span><b class="mono">${fmt(v, 5)}</b>`).join("")
+              : emptyMini(I18N.t("status.ai_idle"))}</div>
+          </details>
+          <p class="sub ai-why" id="ai-why">${esc((cur.confidence_why && cur.confidence_why.text) || cur.reason || I18N.t("ai.conf_help"))}</p>
+        </section>
       </div>
     </div>`;
   },
@@ -2170,7 +6663,12 @@ const views = {
   strategies() {
     const st = S.snap?.strategy || {};
     const sig = S.snap?.last_signal;
-    return `<div class="card auto-banner">
+    /* Wrapped in .cmd like every other view. Without it the three blocks
+       were loose in the page and leaned on sibling margins to space
+       themselves, which is what left the banner sitting at a different
+       distance from the cards than the cards sit from each other. */
+    return `<div class="cmd">
+      <div class="card auto-banner">
         <div>
           <h3 style="margin:0 0 6px">${I18N.t("strategies.live")}</h3>
           <p class="sub">${st.auto_trade ? I18N.t("exec.auto_on") : I18N.t("exec.auto_off")} · ${I18N.t("style.title")}: ${I18N.t("style." + (st.trade_style||"normal"))}</p>
@@ -2179,135 +6677,167 @@ const views = {
         <span class="pill" id="st-live-sig">${sig ? `${sig.action||"—"} ${sig.symbol||""}` : I18N.t("strategies.waiting")}</span>
       </div>
       <div class="grid g-2" id="st-live-grid">${strategyLiveCards()}</div>
-      ${strategyUploadCard()}`;
+      ${strategyUploadCard()}
+    </div>`;
   },
   execution() {
+    /* Rebuilt. Two real bugs came out of this page, not just layout.
+
+       ONE: the heading over the pending-orders table was
+       I18N.t("status.no_orders") - the string "No pending orders".
+       So the moment you actually had orders, the page printed "No
+       pending orders" and then listed them underneath. It now has a
+       heading of its own.
+
+       TWO: "Flatten all" - close every live position at market, no
+       undo - sat in the MIDDLE of the left card, directly above the
+       manual buy/sell form. A destructive irreversible control was
+       one slip away from the controls you use all day. It is now
+       last on the page, alone, in its own marked-off zone.
+
+       The left card was also doing four unrelated jobs at once (the
+       robot's arming switch, a signal readout, the emergency button
+       and a whole order ticket) and the "MetaTrader is not
+       connected" line - which means nothing here can trade at all -
+       was a grey footnote at the bottom. It leads now. */
     const pos = S.snap?.positions || [];
     const orders = S.snap?.orders || [];
     const st = S.snap?.strategy || {};
     const armed = Boolean(st.auto_trade);
     const sig = S.snap?.last_signal;
-    return `<div class="cmd">${gateHtml()}<div class="grid g-2">
-      <div class="card">
-        <div class="auto-banner">
-          <div>
-            <h3 style="margin:0 0 6px">${I18N.t("exec.auto")}</h3>
-            <p class="sub">${armed ? I18N.t("exec.auto_on") : I18N.t("exec.auto_off")}</p>
-            <p class="sub">${I18N.t("exec.auto_hint")}</p>
+    const syms = liveSymbols().length;
+    const head = (title, why) => `<header class="pfx-head"><h3>${esc(title)}</h3>${
+      why ? `<p class="sub">${esc(why)}</p>` : ""}</header>`;
+    return `<div class="cmd exx">${gateHtml()}
+      ${mt5Live() ? "" : `<p class="exx-off">${I18N.t("errors.no_mt5")}</p>`}
+      <div class="exx-cols">
+        <section class="card">
+          <div class="auto-banner">
+            <div>
+              ${head(I18N.t("exec.auto"), armed ? I18N.t("exec.auto_on") : I18N.t("exec.auto_off"))}
+              <p class="sub">${I18N.t("exec.auto_hint")}</p>
+            </div>
+            ${switchHtml({ id: "ex-auto", on: armed, label: I18N.t("exec.auto") })}
           </div>
-          <button type="button" class="switch ${armed?"on":""}" id="ex-auto"><i></i></button>
-        </div>
-        <div class="kv" id="live-signal">
-          <span>${I18N.t("exec.last_signal")}</span><b>${sig ? `${sig.action||"—"} ${sig.symbol||""}` : "—"}</b>
-          <span>${I18N.t("strategies.active")}</span><b>${st.name || I18N.t("strategies.none")}</b>
-        </div>
-        <button class="btn danger block" id="ex-flat" type="button" style="margin-top:14px">${I18N.t("exec.emergency")}</button>
-        <div class="manual-box">
-          <h3 style="margin:0 0 8px">${I18N.t("exec.manual")}</h3>
+          <div class="kv" id="live-signal">
+            <span>${I18N.t("exec.last_signal")}</span><b>${sig ? `${sig.action || "\u2014"} ${sig.symbol || ""}` : "\u2014"}</b>
+            <span>${I18N.t("strategies.active")}</span><b>${st.name || I18N.t("strategies.none")}</b>
+          </div>
+        </section>
+
+        <section class="card">
+          ${head(I18N.t("exec.manual"), I18N.t("exec.manual_why"))}
           <p class="sub">${I18N.t("exec.manual_hint")}</p>
           <div class="grid g-2">
-            <label class="field"><span>${I18N.t("markets.symbol")}</span>${symbolSelectHtml("ex-sym", defaultSymbol())}</label>
+            <div class="field"><span>${I18N.t("markets.symbol")}</span>${symbolFieldHtml("ex-sym", defaultSymbol())}</div>
             <label class="field"><span>${I18N.t("exec.volume")}</span><input id="ex-vol" type="number" step="0.01" min="0.01" value="0.10" /></label>
             <label class="field"><span>${I18N.t("exec.sl")}</span><input id="ex-sl" type="number" step="0.0001" value="" placeholder="0" /></label>
             <label class="field"><span>${I18N.t("exec.tp")}</span><input id="ex-tp" type="number" step="0.0001" value="" placeholder="0" /></label>
           </div>
-          <p class="sub" id="ex-ea-hint">${liveSymbols().length ? I18N.t("exec.pick_symbol") : I18N.t("exec.no_ea_symbol")}</p>
-          <div class="row" style="margin-top:8px">
-            <button class="btn" id="ex-buy" type="button"${liveSymbols().length ? "" : " disabled"}>${I18N.t("exec.buy")}</button>
-            <button class="btn danger" id="ex-sell" type="button"${liveSymbols().length ? "" : " disabled"}>${I18N.t("exec.sell")}</button>
+          <p class="sub" id="ex-ea-hint">${syms ? I18N.t("exec.pick_symbol") : I18N.t("exec.no_ea_symbol")}</p>
+          <div class="row exx-send">
+            <button class="btn" id="ex-buy" type="button"${syms ? "" : " disabled"}>${I18N.t("exec.buy")}</button>
+            <button class="btn danger" id="ex-sell" type="button"${syms ? "" : " disabled"}>${I18N.t("exec.sell")}</button>
           </div>
           <p class="sub" id="ex-msg"></p>
-        </div>
-        ${mt5Live()?"":`<p class="sub" style="margin-top:10px">${I18N.t("errors.no_mt5")}</p>`}
+        </section>
+
+        <section class="card">
+          ${posCardHead(I18N.t("command.positions"))}
+          <div id="live-exec-pos">${pos.length ? `<div class="pos-pane">${positionsListHtml(pos, [])}</div>` : emptyMini(I18N.t("status.no_positions"))}</div>
+        </section>
+
+        <section class="card">
+          <!-- This heading used to be the words "No pending orders",
+               printed directly above a table of pending orders. -->
+          ${head(I18N.t("exec.orders"))}
+          <div id="live-exec-ord">${orders.length ? table(orders, ["ticket","symbol","type","volume","price"]) : emptyMini(I18N.t("status.no_orders"))}</div>
+        </section>
       </div>
-      <div class="card">
-        <h3>${I18N.t("command.positions")}</h3>
-        <div id="live-exec-pos">${pos.length ? table(pos, ["ticket","symbol","type","volume","strategy","price_open","sl","tp","profit","profit_pct"], true) : emptyMini(I18N.t("status.no_positions"))}</div>
-        <h3 style="margin-top:16px">${I18N.t("status.no_orders")}</h3>
-        <div id="live-exec-ord">${orders.length ? table(orders, ["ticket","symbol","type","volume","price"]) : emptyMini(I18N.t("status.no_orders"))}</div>
-      </div>
-    </div>
-    ${robotPanelBox()}</div>`;
+      ${robotPanelBox()}
+      <!-- Last on the page, alone, and fenced. Nothing you reach for
+           by habit is anywhere near it. -->
+      <section class="card exx-danger">
+        ${head(I18N.t("exec.danger"), I18N.t("exec.danger_why"))}
+        <button class="btn danger" id="ex-flat" type="button">${I18N.t("exec.emergency")}</button>
+      </section>
+    </div>`;
   },
   charts() {
     if (S.chartFocus) {
       const f = S.chartFocus;
-      const tools = [
-        ["cursor", "draw.cursor", "M5 12h14"],
-        ["trend", "draw.trend", "M4 18L10 10L14 14L20 6"],
-        ["ray", "draw.ray", "M4 18L20 6M16 6h4v4"],
-        ["extended", "draw.extended", "M2 20L22 4"],
-        ["parallel", "draw.parallel", "M5 16L15 6M9 20L19 10"],
-        ["channel", "draw.channel", "M4 16L14 6M8 20L18 10M6 18L16 8"],
-        ["pitchfork", "draw.pitchfork", "M4 20L12 4L20 20M12 4v16"],
-        ["triangle", "draw.triangle", "M12 4L20 18H4z"],
-        ["circle", "draw.circle", "M12 4a8 8 0 100 16 8 8 0 000-16z"],
-        ["ellipse", "draw.ellipse", "M12 6c5 0 8 3 8 6s-3 6-8 6-8-3-8-6 3-6 8-6z"],
-        ["hline", "draw.hline", "M4 12h16"],
-        ["hray", "draw.hray", "M8 12h12M8 9v6"],
-        ["vline", "draw.vline", "M12 4v16"],
-        ["rect", "draw.rect", "M6 7h12v10H6z"],
-        ["long", "draw.long", "M7 17V7h10"],
-        ["short", "draw.short", "M7 7v10h10"],
-        ["fib", "draw.fib", "M4 7h16M4 12h16M4 17h16"],
-        ["fibext", "draw.fibext", "M4 6h16M4 11h16M4 16h10"],
-        ["fibtime", "draw.fibtime", "M7 4v16M12 4v16M17 4v16"],
-        ["gann", "draw.gann", "M4 20L20 4M4 20L20 12M4 20L12 4"],
-        ["measure", "draw.measure", "M5 19L19 5M8 19h-3v-3M19 8V5h-3"],
-        ["pricerange", "draw.pricerange", "M4 8h16M4 16h16"],
-        ["daterange", "draw.daterange", "M8 4v16M16 4v16"],
-        ["arrow", "draw.arrow", "M5 19L19 5M14 5h5v5"],
-        ["brush", "draw.brush", "M4 16c4-6 8 2 12-4 2-3 4-4 4-4"],
-        ["infoline", "draw.infoline", "M4 18L20 6M12 4v4"],
-        ["text", "draw.text", "M6 8h12M12 8v10"],
-        ["emoji", "draw.emoji", "M12 8v.01M8 13c1.5 2 6.5 2 8 0"],
-      ];
-      const svgBtn = (id, key, d, extra = "") =>
-        `<button type="button" data-tool="${id}" class="${id==="cursor"?"on":""}" title="${I18N.t(key)}" aria-label="${I18N.t(key)}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7">${d.startsWith("<") ? d : `<path d="${d}"/>`}</svg></button>`;
-      return `<div class="chart-work">
-        <div class="chart-work-bar">
-          <button type="button" class="btn tiny ghost" id="chart-back">${I18N.t("common.back")}</button>
-          <h3>${f.symbol} · ${f.timeframe}</h3>
-          <span class="legend mono" id="tick-lbl">${tickLabel()}</span>
-          <div class="chart-signals-bar" style="display:flex;gap:6px;align-items:center;margin-inline:8px">
-            <button type="button" class="btn tiny ${S.signalsEnabled?"on":"ghost"}" id="sig-toggle" title="Buy/Sell signals">${S.signalsEnabled?"🔔 Signals ON":"🔕 Signals OFF"}</button>
-            <button type="button" class="btn tiny ghost" id="sig-show" style="${S.signalsEnabled?"":"display:none"}">${S.showSignals?"👁️":"🚫"}</button>
-            ${!licFeat("chart_signals")?`<span class="pill no" style="font-size:10px">PREMIUM</span>`:""}
-          </div>
-          <div class="draw-frame" id="draw-frame">
-            <button type="button" class="icon-btn draw-more" id="draw-more" title="${I18N.t("draw.tools")}" aria-label="${I18N.t("draw.tools")}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>
-            <div class="draw-tools" id="draw-tools">
-              ${tools.map(([id,k,d]) => svgBtn(id, k, d)).join("")}
-              <button type="button" id="draw-magnet" title="${I18N.t("draw.magnet")}" aria-label="${I18N.t("draw.magnet")}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M7 4v8a5 5 0 0010 0V4M7 4H4v8a8 8 0 0016 0V4h-3"/></svg></button>
-              <button type="button" id="draw-zin" title="${I18N.t("draw.zoom_in")}" aria-label="${I18N.t("draw.zoom_in")}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="11" cy="11" r="6"/><path d="M21 21l-4-4M8 11h6M11 8v6"/></svg></button>
-              <button type="button" id="draw-zout" title="${I18N.t("draw.zoom_out")}" aria-label="${I18N.t("draw.zoom_out")}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="11" cy="11" r="6"/><path d="M21 21l-4-4M8 11h6"/></svg></button>
-              <button type="button" id="draw-fit" title="${I18N.t("draw.fit")}" aria-label="${I18N.t("draw.fit")}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg></button>
-              <button type="button" id="draw-undo" title="${I18N.t("draw.undo")}" aria-label="${I18N.t("draw.undo")}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M9 14L4 9l5-5"/><path d="M4 9h10a6 6 0 110 12h-2"/></svg></button>
-              <button type="button" id="draw-clear" title="${I18N.t("draw.clear")}" aria-label="${I18N.t("draw.clear")}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M5 7h14M9 7V5h6v2M8 7l1 12h6l1-12"/></svg></button>
-            </div>
-          </div>
-        </div>
-        <div class="chart-box"><canvas id="cv-desk"></canvas><div class="chart-levels" id="chart-levels"></div></div>
-        ${chartTicketHtml()}
-        <!-- chart signals list removed — only canvas overlay per user request -->
-      </div>`;
+      // The workspace - top bar, drawing rail, chart, dock - is built by
+      // js/chart-tools.js from its own tool table. The desk only tells it
+      // what is being charted and hands it the order ticket to carry.
+      if (typeof AurionChartUI === "undefined") {
+        return `<div class="card">${emptyCard(I18N.t("errors.generic"), "chart-tools.js")}</div>`;
+      }
+      return AurionChartUI.html({
+        symbol: f.symbol,
+        timeframe: f.timeframe,
+        ticket: chartTicketHtml(),
+      });
     }
     const agents = liveAgents();
     const testers = testerAgents();
-    const chartCard = (a, tester, clickable) => `<div class="card chart-card"${clickable ? " data-open-chart" : ""} data-sym="${a.symbol||""}" data-tf="${a.timeframe||""}">
-      <h3>${a.symbol || "—"} · ${a.timeframe || ""} <span class="pill ${tester ? "is-backtest" : ""}" style="font-size:11px">${I18N.t(tester ? "tape.backtest" : "tape.live")}</span></h3>
-      <p class="metric" style="font-size:18px">${a.ea_name || "AurionBridge"}</p>
+    /* The card used to be a bare <div> whose only way in was
+       el.onclick. Opening a chart - the entire point of this page -
+       could not be done from a keyboard at all, and a screen reader
+       was told nothing was there. The hint underneath literally read
+       "Click the card to open the full chart", which is what a
+       missing button sounds like when you write it as prose.
+
+       The fix was a second control: a real <button> carrying the same
+       data-open-chart, next to a card that kept its own click. That
+       was wrong twice over. It never worked - the shared handler bails
+       whenever the click starts inside a button, a guard written for
+       the card and then applied to the button as well, so pressing the
+       button did precisely nothing. And even working it would have
+       been two targets for one action, the second one a full-width bar
+       under every card repeating the card's own job.
+
+       One target. The card itself is the control: a real role, a real
+       tab stop, a real name, and Enter and Space handled alongside the
+       click. Nothing inside it is a second way in. */
+    const chartCard = (a, tester, clickable) => `<div class="card chart-card"${clickable ? ` data-open-chart role="button" tabindex="0"
+      aria-label="${esc(I18N.t("charts.open_sr", { sym: a.symbol || "", tf: a.timeframe || "" }))}"` : ""} data-sym="${a.symbol||""}" data-tf="${a.timeframe||""}">
+      <h3>${a.symbol || "\u2014"} \u00b7 ${a.timeframe || ""} <span class="pill is-sm ${tester ? "is-backtest" : ""}">${I18N.t(tester ? "tape.backtest" : "tape.live")}</span></h3>
+      <p class="metric is-sm">${a.ea_name || "AurionBridge"}</p>
       <div class="kv">
         <span>${I18N.t("charts.chart")}</span><b class="mono">${a.chart_id || "—"}</b>
         <span>${I18N.t("charts.signal")}</span><b>${a.last_signal?.direction || a.last_signal?.action || "—"}</b>
         <span>${I18N.t("charts.state")}</span><b>${a.status || "online"}</b>
       </div>
-      ${tester && !clickable ? `<p class="sub">${I18N.t("tape.showing_backtest")}</p>` : `<div class="chart-box" style="height:200px;margin-top:10px"><canvas data-mini="${a.symbol||""}" data-tf="${a.timeframe||""}"></canvas></div>
-      <p class="sub">${I18N.t("charts.open_hint")}</p>`}
+      ${tester && !clickable ? `<p class="sub">${I18N.t("tape.showing_backtest")}</p>` : `
+      <div class="chart-box chart-mini"><canvas data-mini="${a.symbol||""}" data-tf="${a.timeframe||""}"></canvas></div>
+`}
     </div>`;
     if (agents.length || testers.length) {
-      return `${testers.length ? `<h3 style="margin:4px 0 8px">${I18N.t("tape.backtest")}</h3><div class="grid g-2">${testers.map((a) => chartCard(a, true, false)).join("")}</div>` : ""}
-      ${agents.length ? `<div class="grid g-2">${agents.map((a) => chartCard(a, isTesterAgent(a), true)).join("")}</div>` : ""}`;
+      /* A search over the attached charts. With thirty EAs on the
+         terminal, finding the one pair you want meant scrolling a wall
+         of identical cards. Typing here brings the matches to the top
+         of the grid -- they are reordered rather than merely filtered,
+         so the best match is the first thing under the box and one tap
+         opens it. The cards themselves are never re-rendered: each
+         holds a live canvas, and rebuilding the grid on a keystroke
+         would tear those down and repaint them from nothing. */
+      const total = agents.length + testers.length;
+      const search = total > 1 ? `<div class="ch-find">
+        <div class="ch-find-box dsk-search">
+          ${icon("search")}
+          <input type="search" id="ch-q" class="dsk-search-i" autocomplete="off" spellcheck="false"
+                 placeholder="${esc(I18N.t("charts.search"))}"
+                 aria-label="${esc(I18N.t("charts.search"))}"
+                 aria-controls="ch-grid" value="${esc(S.chartQuery || "")}">
+          <button type="button" class="dsk-search-x" id="ch-q-clear" hidden
+                  aria-label="${esc(I18N.t("common.close"))}">${icon("close")}</button>
+        </div>
+        <span class="ch-find-n sub" id="ch-q-n" aria-live="polite"></span>
+      </div>` : "";
+      return `${search}
+      ${testers.length ? `<h3 class="chx-h">${I18N.t("tape.backtest")}</h3><div class="grid g-2 ch-grid">${testers.map((a) => chartCard(a, true, false)).join("")}</div>` : ""}
+      ${agents.length ? `${testers.length ? `<h3 class="chx-h">${I18N.t("charts.live_now")}</h3>` : ""}<div class="grid g-2 ch-grid" id="ch-grid">${agents.map((a) => chartCard(a, isTesterAgent(a), true)).join("")}</div>` : ""}
+      <p class="ch-none sub" id="ch-none" hidden>${esc(I18N.t("markets.no_sym_match"))}</p>`;
     }
     return `<div class="card">${emptyCard(I18N.t("status.no_eas"), I18N.t("wizard.step3") + " — " + I18N.t("charts.empty_hint"))}</div>`;
   },
@@ -2321,9 +6851,13 @@ const views = {
       </div>
       <p class="sub" id="term-hint">${I18N.t("terminal.hint")}</p>
       <div class="row" style="margin:10px 0;flex-wrap:wrap;gap:8px" id="term-live-tools">
-        <input class="ctrl grow" id="log-q" data-i18n-ph="terminal.placeholder" placeholder="" style="flex:1;min-width:180px" />
+        <span class="dsk-search" style="flex:1;min-width:180px">${icon("search")}
+          <input id="log-q" class="dsk-search-i" type="search" data-i18n-ph="terminal.placeholder"
+                 aria-label="${esc(I18N.t("terminal.placeholder"))}"
+                 placeholder="${esc(I18N.t("terminal.placeholder"))}" />
+        </span>
         <button class="btn tiny ghost" id="log-clr" type="button">${I18N.t("terminal.clear")}</button>
-        <button class="btn tiny" id="term-restart" type="button" title="Immediate restart of system terminals">🔄 ${I18N.t("terminal.restart")||"Restart Terminals"}</button>
+        <button class="btn tiny" id="term-restart" type="button" title="Immediate restart of system terminals">${icon("refresh")} ${I18N.t("terminal.restart")||"Restart Terminals"}</button>
       </div>
       <div class="term" id="term">${renderLogs()}</div>
     </div>`;
@@ -2336,10 +6870,10 @@ const views = {
     return `<div class="cmd">
       ${tapeBanner()}
       <div class="card" id="bt-card">
-        <h3>🧪 ${I18N.t("history.backtest")}</h3>
+        <h3>${icon("flask")} ${I18N.t("history.backtest")}</h3>
         <p class="sub">${I18N.t("history.backtest_hint")}</p>
         <div class="ct-grid ct-grid-3">
-          <label class="field"><span>${I18N.t("markets.symbol")}</span>${symbolSelectHtml("bt-sym", S.symbol)}</label>
+          <div class="field"><span>${I18N.t("markets.symbol")}</span>${symbolFieldHtml("bt-sym", S.symbol)}</div>
           <label class="field"><span>${I18N.t("markets.timeframe")}</span>
             <select class="ctrl" id="bt-tf">${["M1","M5","M15","M30","H1","H4","D1"].map((t)=>`<option ${t===(S.timeframe||"M15")?"selected":""}>${t}</option>`).join("")}</select>
           </label>
@@ -2351,18 +6885,34 @@ const views = {
           <button class="btn" id="h-bt" type="button"${running || !items.length ? " disabled" : ""}>${running ? I18N.t("history.backtest_running") : I18N.t("history.backtest_run")}</button>
         </div>
         <div id="bt-load" class="bt-load${running ? "" : " hidden"}"><i></i><span>${I18N.t("history.backtest_wait")}</span></div>
-        <div id="bt-result">${renderBacktestCard(bt)}</div>
       </div>
-      <div class="card">
-        <h3>📊 نتایج بک‌تست</h3>
-        <p class="sub">نتایج آخرین بک‌تست در اینجا نمایش داده می‌شود</p>
-        <div id="bt-extra"></div>
+      <!-- One container for everything a run produces. The summary used to
+           sit in the form card above and the curve down here, so a finished
+           result was split across two cards with the form wedged between
+           them. Running state, summary and detail now share this card. -->
+      <div class="card" id="bt-extra-card">
+        <h3>${icon("chart")} ${I18N.t("bt.results")}</h3>
+        <p class="sub">${I18N.t("bt.results_hint")}</p>
+        <div id="bt-live">${renderBacktestLive(bt)}</div>
+        <div id="bt-result">${renderBacktestCard(bt)}</div>
+        <div id="bt-extra">${renderBacktestExtra(bt)}</div>
       </div>
     </div>`;
   },
   history() {
+    const mode = pnlMode();
     return `<div class="cmd">
       ${tapeBanner()}
+      <section class="card pnl-card">
+        <h3>${icon("pulse")} ${I18N.t("pnl.title")}</h3>
+        <p class="sub">${I18N.t("pnl.hint")}</p>
+        <div id="h-pnl-stats"></div>
+        <div class="pc-seg" id="h-pnl-mode" role="tablist" aria-label="${esc(I18N.t("pnl.modes"))}">
+          ${pnlModes().map((m) => `<button type="button" role="tab" data-mode="${m.id}"
+            aria-selected="${m.id === mode}" class="${m.id === mode ? "on" : ""}">${esc(I18N.t(m.key))}</button>`).join("")}
+        </div>
+        <div class="pc-host" id="h-pnl"></div>
+      </section>
       <div class="card">
         <div class="row" style="margin-bottom:12px;flex-wrap:wrap">
           <button class="btn tiny" id="h-exp" type="button">${I18N.t("history.export")}</button>
@@ -2387,6 +6937,7 @@ const views = {
       ["news", "upgrade.f_news"],
       ["chart_signals", "upgrade.f_chart_signals"],
       ["volume_mode", "upgrade.f_volume"],
+      ["themes", "upgrade.f_themes"],
     ];
     return `<div class="cmd">
       <div class="card up-hero ${premium ? "is-premium" : "is-free"}">
@@ -2434,129 +6985,250 @@ const views = {
     </div>`;
   },
   settings() {
+    /* Rewritten.
+
+       Ten sections behind a rail of ten identical names. The rail told
+       you what each section was CALLED and nothing about whether it
+       needed you, so the question people actually bring to a settings
+       page - which of these is not set up? - could only be answered by
+       opening all ten. Each rail item now carries its own state, read
+       from the same snapshot the rest of the desk reads: the broker
+       either is connected or is not, the robot either is armed or is
+       not, and you can see that without clicking.
+
+       Each section also says what it is for. A heading that repeats
+       the rail label is a heading that tells you nothing twice.
+
+       The shell is the same two-pane rail - it works, and showSetTab
+       and five test suites are wired to it - but its stylesheet is
+       not: .set-jump had been declared from scratch in three separate
+       places, each one a complete component, with the rail block at
+       the end overriding all of them. That is now one block. */
     const mt = S.snap?.mt5 || {};
     const tab = S.setTab || "set-robot";
-    const fa = (S.lang || I18N.lang || "fa") === "fa";
-    const tabBtn = (id, label, ic, desc) => `<button type="button" data-jump="${id}" class="${tab===id?"on":""}">
-        <span class="sj-ic">${icon(ic)}</span><span class="sj-txt"><b>${label}</b>${desc ? `<small>${desc}</small>` : ""}</span></button>`;
+
+    /* The rail is names and nothing else.
+
+       It used to carry a state word beside four of the ten entries -
+       "on", "off", "linked", "not linked". The idea was that a
+       settings page should answer "which of these needs attention",
+       but four tags among ten names is not an answer, it is a second
+       column of text to read before you can find the one you came
+       for. Each section states its own condition at the top, in the
+       place where you can act on it; the rail just gets you there. */
+    const tabBtn = (id, label, ic, desc) => `<button type="button" data-jump="${id}" class="${tab === id ? "on" : ""}">
+        <span class="sj-ic">${icon(ic)}</span>
+        <span class="sj-txt"><b>${label}</b>${desc ? `<small>${desc}</small>` : ""}</span>
+      </button>`;
     const grp = (label) => `<div class="sj-grp">${label}</div>`;
-    return `<div class="set-desk set-rail"><nav class="set-jump" id="set-jump" aria-label="settings">
-        ${grp(fa ? "معامله" : "Trading")}
-        ${tabBtn("set-robot", I18N.t("settings.sec_robot"), "bolt", fa ? "حالت، ریسک، نمادها" : "mode, risk, symbols")}
-        ${tabBtn("set-strats", I18N.t("nav.strategies"), "layers", fa ? "استراتژی فعال" : "active strategy")}
-        ${tabBtn("set-prop", I18N.t("risk.title"), "shield", fa ? "قوانین پراپ و حد ضرر" : "prop rules, drawdown")}
-        ${tabBtn("set-mt5", "MetaTrader 5", "term", fa ? "اتصال به بروکر" : "broker connection")}
-        ${grp(fa ? "شخصی‌سازی" : "Personal")}
-        ${tabBtn("set-lang", I18N.t("settings.language"), "book", fa ? "زبان رابط" : "interface language")}
-        ${tabBtn("set-personal", I18N.t("settings.personal"), "user", fa ? "پوسته و ظاهر" : "theme & look")}
-        ${tabBtn("set-telegram", I18N.t("telegram.title"), "spark", fa ? "اعلان‌ها" : "notifications")}
-        ${grp(fa ? "سیستم" : "System")}
-        ${tabBtn("set-update", fa ? "آپدیت سیستم" : "Updates", "pulse", fa ? "نسخه و به‌روزرسانی" : "version & updates")}
-        ${tabBtn("set-system", I18N.t("host.system"), "gear", fa ? "لایسنس و سرویس" : "license & service")}
-      </nav><div class="set-main">
-      <section class="set-block" id="set-robot"${tab==="set-robot"?"":" hidden"}>
-        <h2 class="set-title">${I18N.t("settings.sec_robot")}</h2>
-        <div class="grid g-2">${robotPanelHtml()}</div>
-      </section>
-      <section class="set-block" id="set-strats"${tab==="set-strats"?"":" hidden"}>
-        <h2 class="set-title">${I18N.t("strategies.live")}</h2>
-        <p class="sub" style="margin:0 0 10px">${I18N.t("strategies.single_rule")}</p>
-        <div class="grid g-2" id="st-live-grid">${strategyLiveCards()}</div>
-        ${licFeat("strategy_upload") ? `<div class="card" style="margin-top:14px">
-          <h3>${I18N.t("strategies.upload")}</h3>
-          <textarea id="st-src" class="ctrl" style="min-height:120px;width:100%;resize:vertical" placeholder="# Python strategy"></textarea>
-          <div class="row" style="margin-top:10px;align-items:center;gap:8px">
-            <input class="ctrl" id="st-file" placeholder="my_strategy.py" />
-            <button class="btn tiny" id="st-up" type="button">${I18N.t("strategies.upload")}</button>
-            <a class="btn tiny ghost" id="st-tpl" href="#">${I18N.t("strategies.template")}</a>
-            <a class="btn tiny ghost" id="st-cancel" href="#" hidden>${I18N.t("strategies.cancel")}</a>
-          </div>
-          <p class="sub" id="st-up-msg"></p>
-        </div>` : `<div style="margin-top:14px">${lockedUpgradeCard("strategy_upload")}</div>`}
-      </section>
-      <section class="set-block" id="set-prop"${tab==="set-prop"?"":" hidden"}>
-        <h2 class="set-title">${I18N.t("risk.title")}</h2>
-        ${licFeat("prop") ? `${propStatusHtml()}<div class="card">${propFormHtml()}</div>` : lockedUpgradeCard("prop")}
-      </section>
-      <section class="set-block" id="set-mt5"${tab==="set-mt5"?"":" hidden"}>
-        <h2 class="set-title">MetaTrader 5</h2>
+
+    /* The closed sheet names the section you are in, so the icon and the
+       title have to be reachable outside tabBtn's template. One table,
+       read by both. */
+    const SECTIONS = {
+      "set-robot": ["bolt", I18N.t("settings.sec_robot")],
+      "set-prop": ["shield", I18N.t("risk.title")],
+      "set-mt5": ["term", "MetaTrader 5"],
+      "set-personal": ["user", I18N.t("settings.personal")],
+      "set-notify": ["bell", I18N.t("notify.title")],
+      "set-telegram": ["spark", I18N.t("telegram.title")],
+      "set-update": ["pulse", I18N.t("upd.title")],
+      "set-system": ["gear", I18N.t("host.system")],
+    };
+    const tabIcon = (id) => (SECTIONS[id] || SECTIONS["set-robot"])[0];
+    const tabTitle = (id) => (SECTIONS[id] || SECTIONS["set-robot"])[1];
+
+    /* Title plus the one line that says what the section decides.
+       Settings sections are not self-explanatory from their names and
+       this is the only place that can say so. */
+    const head = (title, why) => `<header class="stx-head">
+        <h2 class="set-title">${title}</h2>
+        ${why ? `<p class="stx-why sub">${why}</p>` : ""}
+      </header>`;
+
+    const block = (id, title, why, body) => `<section class="set-block" id="${id}"${
+      tab === id ? "" : " hidden"}>${head(title, why)}${body}</section>`;
+
+    /* On a phone the rail used to become a horizontal strip of eight
+       chips that scrolled sideways, with the group headings and the
+       one-line descriptions both switched off. Three of the eight were
+       visible, there was nothing to say the other five existed, and the
+       text that explains what each section decides - the whole reason
+       the rail is worth its width - was the first thing dropped.
+
+       It is a bottom sheet instead: closed, it costs one button that
+       names the section you are in; opened, it is the full rail,
+       headings and descriptions included, within thumb reach. */
+    return `<div class="set-desk set-rail stx">
+      <div class="sj-scrim" id="set-sheet-scrim" hidden></div>
+      <nav class="set-jump" id="set-jump" aria-label="settings">
+        <!-- Sheet furniture: inert on desktop, where the nav is a plain
+             rail and none of it is shown. -->
+        <div class="sj-grab" id="set-sheet-grab" role="presentation"
+             aria-label="${esc(I18N.t("settings.sheet_drag"))}"><span></span></div>
+        <div class="sj-sheet-head">
+          <b>${esc(I18N.t("settings.sheet_title"))}</b>
+          <button type="button" class="sj-close" id="set-sheet-close"
+                  aria-label="${esc(I18N.t("settings.sheet_close"))}">${icon("close")}</button>
+        </div>
+        <!-- Nine sections across three groups is past the point where
+             reading the rail is faster than typing. The box filters the
+             rail itself rather than opening a results page: the thing
+             you are looking for is one of these entries, so the answer
+             is "which of these", not "here is a list of matches". -->
+        <div class="sj-find">
+          <span class="dsk-search sm">${icon("search")}
+            <input type="search" id="set-q" class="dsk-search-i" autocomplete="off" spellcheck="false"
+                   placeholder="${esc(I18N.t("settings.search"))}"
+                   aria-label="${esc(I18N.t("settings.search"))}"
+                   aria-controls="set-jump" />
+            <button type="button" class="dsk-search-x" id="set-q-clear" hidden
+                    aria-label="${esc(I18N.t("common.close"))}">${icon("close")}</button>
+          </span>
+          <p class="sj-find-n sub" id="set-q-n" aria-live="polite" hidden></p>
+        </div>
+        <!-- The entries are a region of their own so that, as a sheet,
+             the handle, the title and the search can hold still while
+             only the list scrolls. It was two stacked position:sticky
+             boxes with hand-counted top offsets, which drifted the
+             moment either one changed height. On the desktop rail the
+             wrapper is display:contents and changes nothing. -->
+        <div class="sj-list">
+        ${grp(I18N.t("rail.trading"))}
+        ${tabBtn("set-robot", tabTitle("set-robot"), tabIcon("set-robot"), I18N.t("rail.robot_hint"))}
+        ${tabBtn("set-prop", tabTitle("set-prop"), tabIcon("set-prop"), I18N.t("rail.prop_hint"))}
+        ${tabBtn("set-mt5", tabTitle("set-mt5"), tabIcon("set-mt5"), I18N.t("rail.mt5_hint"))}
+        ${grp(I18N.t("rail.personalize"))}
+        ${tabBtn("set-personal", tabTitle("set-personal"), tabIcon("set-personal"), I18N.t("rail.personal_hint"))}
+        ${tabBtn("set-notify", tabTitle("set-notify"), tabIcon("set-notify"), I18N.t("rail.notify_hint"))}
+        ${tabBtn("set-telegram", tabTitle("set-telegram"), tabIcon("set-telegram"), I18N.t("rail.telegram_hint"))}
+        ${grp(I18N.t("rail.system"))}
+        ${tabBtn("set-update", tabTitle("set-update"), tabIcon("set-update"), I18N.t("rail.update_hint"))}
+        ${tabBtn("set-system", tabTitle("set-system"), tabIcon("set-system"), I18N.t("rail.system_hint"))}
+        </div>
+      </nav>
+      <!-- The opener is last in the DOM because it is last on the
+           screen: a floating bar on the bottom edge, not a row at the
+           top of the page. It sat above the sections, which put the
+           control furthest from the thumb and spent a line of the
+           page's height on it; and because the bar is fixed, the
+           sections now reserve room for it rather than sliding under
+           it. -->
+      <div class="sj-bar" id="set-sheet-bar">
+        <button type="button" class="sj-open" id="set-sheet-open"
+                aria-controls="set-jump" aria-expanded="false"
+                aria-label="${esc(I18N.t("settings.sheet_open"))}">
+          <span class="sj-ic">${icon(tabIcon(tab))}</span>
+          <b class="sj-now" id="set-sheet-now">${esc(tabTitle(tab))}</b>
+          <span class="sj-open-ch" aria-hidden="true">${icon("chevron")}</span>
+        </button>
+      </div>
+      <div class="set-main">
+
+      ${block("set-robot", I18N.t("settings.sec_robot"), I18N.t("settings.why_robot"),
+        robotPanelHtml())}
+
+      <!-- The Strategies section used to live here, and it was a
+           second copy of the Strategies page in the nav: the same live
+           cards from strategyLiveCards(), the same uploader, the same
+           element ids. Two places to change a strategy is one place
+           too many, and duplicate ids across two views is a bug
+           waiting for both to render at once. The nav page is the one
+           that stayed. -->
+
+      ${block("set-prop", I18N.t("risk.title"), I18N.t("settings.why_prop"),
+        licFeat("prop") ? `${propStatusHtml()}${propFormHtml()}${propGuideHtml()}` : lockedUpgradeCard("prop"))}
+
+      ${block("set-mt5", "MetaTrader 5", I18N.t("settings.why_mt5"), `
         <div class="card">
-          <label class="field"><span data-i18n="settings.mt5_path"></span><input id="s-path" /></label>
-          <label class="field"><span data-i18n="settings.mt5_login"></span><input id="s-login" type="number" /></label>
-          <label class="field"><span data-i18n="settings.mt5_server"></span><input id="s-server" /></label>
-          <label class="field"><span data-i18n="settings.mt5_password"></span><input id="s-pass" type="password" /></label>
-          <p class="sub" data-i18n="settings.password_note"></p>
-          <div class="row" style="margin-top:10px">
+          <!-- Rendered with their text, not with an empty <span data-i18n>
+               filled in afterwards by I18N.apply(). These four were the
+               only fields on the desk built that way, and between render
+               and apply they were four unlabelled boxes - which is also
+               what they stayed as if apply() never reached them. -->
+          <label class="field"><span>${esc(I18N.t("settings.mt5_path"))}</span>
+            <input id="s-path" autocomplete="off" spellcheck="false" /></label>
+          <label class="field"><span>${esc(I18N.t("settings.mt5_login"))}</span>
+            <input id="s-login" type="number" inputmode="numeric" autocomplete="off" /></label>
+          <label class="field"><span>${esc(I18N.t("settings.mt5_server"))}</span>
+            <input id="s-server" autocomplete="off" spellcheck="false" /></label>
+          <label class="field"><span>${esc(I18N.t("settings.mt5_password"))}</span>
+            <input id="s-pass" type="password" autocomplete="current-password" /></label>
+          <p class="sub">${esc(I18N.t("settings.password_note"))}</p>
+          <div class="row stx-acts">
             <button class="btn" id="s-save" type="button">${I18N.t("settings.save")}</button>
             <button class="btn" id="s-con" type="button">${I18N.t("settings.connect")}</button>
             <button class="btn ghost" id="s-dis" type="button">${I18N.t("settings.disconnect")}</button>
           </div>
           <p class="sub" id="s-msg">${mt.last_error || (mt.connected ? I18N.t("status.mt5_live") : I18N.t("status.mt5_down"))}</p>
-        </div>
-      </section>
-      <section class="set-block" id="set-lang"${tab==="set-lang"?"":" hidden"}>
-        <h2 class="set-title">${I18N.t("settings.language")}</h2>
+        </div>`)}
+
+      ${block("set-personal", I18N.t("settings.personal"), I18N.t("settings.why_personal"), `
         <div class="card">
-          <div class="lang-pills" id="set-langs">
-            <button type="button" data-lang="en">English</button>
-            <button type="button" data-lang="fa">فارسی</button>
-            <button type="button" data-lang="ar">العربية</button>
-          </div>
-          <p class="sub">AURION 1.0.0</p>
-          <a class="btn block ghost" href="/guide-install.html?v=desk45" target="_blank" rel="noopener">${I18N.t("guide.install")}</a>
-          <a class="btn block ghost" href="/guide.html?v=desk45" target="_blank" rel="noopener">${I18N.t("guide.open")}</a>
-          <a class="btn block ghost" href="/guide-backtest.html?v=desk45" target="_blank" rel="noopener">${I18N.t("guide.backtest")}</a>
-        </div>
-      </section>
-      <section class="set-block" id="set-personal"${tab==="set-personal"?"":" hidden"}>
-        <h2 class="set-title">${I18N.t("settings.personal")}</h2>
-        <div class="card">
-          <p class="sub" style="margin:0 0 6px">${I18N.t("settings.theme")}</p>
+          <p class="sub stx-note">${I18N.t("settings.theme")}</p>
           <div class="lang-pills" id="set-themes">
-            <button type="button" data-themebtn="auto">\uD83C\uDF13 ${I18N.t("settings.theme_auto")}</button>
-            <button type="button" data-themebtn="dark">\uD83C\uDF19 ${I18N.t("settings.theme_dark")}</button>
-            <button type="button" data-themebtn="light">\u2600\uFE0F ${I18N.t("settings.theme_light")}</button>
+            <button type="button" data-themebtn="auto">${icon("themeAuto")} ${I18N.t("settings.theme_auto")}</button>
+            <button type="button" data-themebtn="dark">${icon("moon")} ${I18N.t("settings.theme_dark")}</button>
+            <button type="button" data-themebtn="light">${icon("sun")} ${I18N.t("settings.theme_light")}</button>
           </div>
-          <div class="row" style="justify-content:space-between;margin-top:16px;align-items:flex-start">
-            <div>
-              <div style="font-weight:600">${I18N.t("settings.liquid_glass")}</div>
-              <p class="sub" style="margin:2px 0 0">${I18N.t("settings.liquid_glass_hint")}</p>
+          <div class="stx-toggle">
+            <div class="stx-toggle-txt">
+              <b>${I18N.t("settings.liquid_glass")}</b>
+              <p class="sub">${I18N.t("settings.liquid_glass_hint")}</p>
+              <p class="sub glass-forced-note">${I18N.t("settings.liquid_glass_forced")}</p>
             </div>
-            <button type="button" class="switch ${glassOn()?"on":""}" id="sw-glass" aria-pressed="${glassOn()}"><i></i></button>
+            ${switchHtml({ id: "sw-glass", on: glassOn(), disabled: glassForced(),
+              label: I18N.t("settings.liquid_glass") })}
           </div>
         </div>
-      </section>
-      <section class="set-block" id="set-telegram"${tab==="set-telegram"?"":" hidden"}>
-        <h2 class="set-title">${I18N.t("telegram.title")}</h2>
-        ${licFeat("telegram") ? telegramPanelHtml() : lockedUpgradeCard("telegram")}
-      </section>
-      <section class="set-block" id="set-update" hidden>
-        <h2 class="set-title">آپدیت سیستم</h2>
+        ${appearanceCardsHtml()}`)}
+
+      ${block("set-notify", I18N.t("notify.title"), I18N.t("settings.why_notify"),
+        notifySoundCardHtml())}
+
+      ${block("set-telegram", I18N.t("telegram.title"), I18N.t("settings.why_telegram"),
+        licFeat("telegram") ? telegramPanelHtml() : lockedUpgradeCard("telegram"))}
+
+      ${block("set-update", I18N.t("upd.title"), I18N.t("settings.why_update"), `
         <div class="card">
-          <h3>تنظیمات آپدیت</h3>
-          <label class="field" style="flex-direction:row;align-items:center;justify-content:space-between;margin-top:12px">
-            <span>چک خودکار آپدیت</span>
-            <button type="button" class="switch" id="upd-auto"><i></i></button>
-          </label>
-          <label class="field"><span>فاصله چک خودکار (ساعت)</span>
+          <h3>${I18N.t("upd.settings")}</h3>
+          <div class="stx-toggle">
+            <div class="stx-toggle-txt"><b>${I18N.t("upd.auto")}</b></div>
+            ${switchHtml({ id: "upd-auto", label: I18N.t("upd.auto") })}
+          </div>
+          <label class="field"><span>${I18N.t("upd.interval")}</span>
             <input id="upd-interval" type="number" min="1" max="168" value="6" />
           </label>
-          <button class="btn block" id="upd-save" type="button">ذخیره تنظیمات</button>
+          <button class="btn block" id="upd-save" type="button">${I18N.t("upd.save")}</button>
           <p class="sub" id="upd-save-msg"></p>
         </div>
-        <div class="card" style="margin-top:14px">
-          <h3>وضعیت آپدیت</h3>
-          <p class="sub" id="upd-last-check">آخرین چک: -</p>
+        <div class="card">
+          <h3>${I18N.t("upd.status")}</h3>
+          <!-- Where the check goes. The panel used to carry an editable
+               update-server URL, then nothing at all, which left "check
+               for updates" as a button with no stated destination. It
+               reads the repository the backend will actually ask. -->
+          <p class="sub" id="upd-source">${I18N.t("upd.source")}: -</p>
+          <p class="sub" id="upd-last-check">${I18N.t("upd.last_check")}: -</p>
           <div id="upd-status"></div>
-          <div class="row" style="margin-top:10px;gap:8px">
-            <button class="btn" id="upd-check" type="button">🔍 چک کردن آپدیت</button>
-            <button class="btn ghost" id="upd-manifest" type="button">📋 نمایش فایل‌های محلی</button>
+          <div class="row stx-acts">
+            <button class="btn" id="upd-check" type="button">${icon("search")} ${I18N.t("upd.check")}</button>
           </div>
-          <div id="upd-result" style="margin-top:12px"></div>
+          <div id="upd-result" class="stx-result"></div>
+        </div>`)}
+
+      ${block("set-system", I18N.t("host.system"), I18N.t("settings.why_system"), `
+        ${licenseCardHtml()}
+        ${languageCardHtml()}
+        ${expertsCardHtml()}
+        ${timezoneCardHtml()}
+        <div class="card">
+          <h3>${I18N.t("guide.open")}</h3>
+          <div class="sys-guides">
+            <a class="btn ghost" href="guide.html?v=desk45" target="_blank" rel="noopener">${icon("book")} ${I18N.t("guide.open")}</a>
+            <a class="btn ghost" href="guide-backtest.html?v=desk45" target="_blank" rel="noopener">${icon("flask")} ${I18N.t("guide.backtest")}</a>
+          </div>
         </div>
-      </section>
-      <section class="set-block" id="set-system"${tab==="set-system"?"":" hidden"}>
-        <h2 class="set-title">${I18N.t("host.system")}</h2>
         <div class="card">
           <h3>${I18N.t("host.restart")}</h3>
           <p class="sub">${I18N.t("host.restart_hint")}</p>
@@ -2569,91 +7241,119 @@ const views = {
             <input id="factory-confirm" autocomplete="off" placeholder="FACTORY" />
           </label>
           <button class="btn danger block" id="sys-factory" type="button">${I18N.t("host.factory_go")}</button>
-        </div>
-      </section></div></div>`;
+        </div>`)}
+      </div></div>`;
   },
   about() {
+    /* One container.
+
+       It was a centred banner followed by a grid of three cards:
+       specs, maker, changelog. Three bordered boxes to hold eleven
+       short facts and a paragraph, which is a lot of furniture for
+       very little content - and on a phone they stacked into three
+       separate scroll-lengths of mostly empty card. The page is one
+       panel now, read top to bottom.
+
+       Two things are gone outright. The changelog was a card that
+       spent most of its life saying "loading", filled by the update
+       check with whatever the server happened to return; what the
+       page is actually for is telling you which build you have, and
+       the update line above already says whether that build is
+       current. And "copy version" copied a string the page prints in
+       full two lines further down, in a selectable form, so it was a
+       button to do by hand what the hand could already do.
+
+       The desk's live state went in an earlier pass, for the same
+       reason: it was the Command centre's job answered on a page
+       nobody watches. */
     const ver = S.version || S.snap?.version || S._gateLic?.version || "1.0.0";
     const L = (S.snap && S.snap.license) || {};
-    const buildDate = S.buildDate || new Date().toISOString().slice(0,10);
-    return `<div class="cmd">
-      <div class="card" style="text-align:center;padding:32px 24px">
-        <div style="width:96px;height:96px;margin:0 auto 16px;border-radius:24px;overflow:hidden;background:var(--deep);box-shadow:0 12px 32px rgba(0,0,0,.4)">
-          <img src="/icons/mark.png?v=desk49" alt="AURION" style="width:100%;height:100%;object-fit:cover;transform:scale(1.08)" />
-        </div>
-        <h2 style="margin:0 0 6px;font-size:28px;letter-spacing:.12em">AURION</h2>
-        <p class="sub" style="font-size:14px">نسخه <b class="mono" style="color:var(--cyan)">v${esc(ver)}</b> • بیلد ${esc(buildDate)}</p>
-        <p class="sub" style="margin-top:12px;max-width:520px;margin-left:auto;margin-right:auto;line-height:1.8">AURION یک دسک ترید زنده MetaTrader 5 با هوش مصنوعی، مدیریت ریسک پراپ و استراتژی‌های قابل آپلود است. طراحی شده برای تریدرهای حرفه‌ای.</p>
-        <div style="margin:20px auto 0;display:flex;gap:8px;justify-content:center;flex-wrap:wrap">
-          <span class="pill ok">MT5 Live</span>
-          <span class="pill ok">AI ${L.premium? 'PRO' : 'Free'}</span>
-          <span class="pill">Prop Guard</span>
-          <span class="pill">v${esc(ver)}</span>
-        </div>
-      </div>
-      <div class="grid g-2">
-        <div class="card">
-          <h3>🛠️ مشخصات سیستم</h3>
-          <div class="kv">
-            <span>نام سیستم</span><b>AURION</b>
-            <span>نسخه</span><b class="mono">v${esc(ver)}</b>
-            <span>حالت</span><b>${S.snap?.engine === 'online' ? 'آنلاین 🟢' : 'آفلاین 🔴'}</b>
-            <span>MT5</span><b>${mt5Live() ? 'متصل 🟢' : 'قطع 🔴'}</b>
-            <span>EA Charts</span><b class="mono">${liveAgents().length}</b>
-            <span>استراتژی فعال</span><b>${esc(S.snap?.strategy?.name||'—')}</b>
-            <span>اتو ترید</span><b>${S.snap?.strategy?.auto_trade ? 'روشن 🟢' : 'خاموش 🔴'}</b>
-            <span>کیل سوئیچ</span><b>${S.snap?.kill_switch ? 'مسلح 🔴' : 'خاموش 🟢'}</b>
-            <span>Prop</span><b>${S.snap?.prop?.enabled !== false ? 'فعال 🟢' : 'غیرفعال 🔴'}</b>
-            <span>زبان</span><b>${I18N.lang.toUpperCase()}</b>
+    const buildDate = S.buildDate || new Date().toISOString().slice(0, 10);
+
+    /* A fact, stated as a label above its value rather than as a row
+       with the two pushed to opposite edges. A justified row cannot
+       be centred, and on a phone it strands a short label against a
+       long value with a gap of nothing in between. */
+    const fact = (k, v, mono) => `<div class="abx-fact">
+        <span>${esc(k)}</span>
+        <b${mono ? ' class="mono"' : ""}>${esc(v)}</b>
+      </div>`;
+
+    return `<div class="cmd about abx">
+      <section class="card abx-panel">
+        <span class="abx-hero-wash" aria-hidden="true"></span>
+
+        <!-- 1. What this is, and exactly which build of it. -->
+        <header class="abx-hero">
+          <img class="abx-mark" src="icons/mark.png?v=desk49" alt="AURION" />
+          <h2 class="abx-name">AURION <small>${esc(I18N.t("about.product_sub"))}</small></h2>
+          <p class="abx-blurb">${I18N.t("about.blurb")}</p>
+          <div class="abx-tags">
+            <span class="abx-tag mono">v${esc(ver)}</span>
+            <span class="abx-tag mono">${esc(buildTag(buildDate))}</span>
+            <span class="abx-tag${L.premium ? " is-pro" : ""}">${esc(L.premium ? planLabel(L) : "Freemium")}</span>
           </div>
-        </div>
-        <div class="card">
-          <h3>🏢 سازنده</h3>
-          <div style="display:flex;align-items:center;gap:14px;margin:12px 0">
-            <img src="/assets/axiasoft-logo.png?v=desk49" alt="Axiasoft" style="width:56px;height:56px;object-fit:contain;background:transparent;border:none;border-radius:0" />
-            <div>
-              <b style="font-size:18px">Axiasoft</b><br>
-              <span class="sub">توسعه‌دهنده AURION • 2024-${copyrightYear()}</span>
-            </div>
+          <div class="abx-acts">
+            <button class="btn" id="about-check-update" type="button">${
+              icon("refresh")} ${I18N.t("about.check")}</button>
           </div>
-          <div class="kv" style="margin-top:12px">
-            <span>محصول</span><b>AURION Live Desk</b>
-            <span>لایسنس</span><b>${L.premium ? planLabel(L) : 'Freemium'}</b>
-            <span>پشتیبانی</span><b>support@axiasoft</b>
-            <span>آپدیت</span><b id="about-update-status">در حال بررسی...</b>
-          </div>
-          <div class="row" style="margin-top:14px">
-            <button class="btn tiny" id="about-check-update" type="button">🔄 چک آپدیت</button>
-            <button class="btn tiny ghost" id="about-copy-ver" type="button">📋 کپی نسخه</button>
-          </div>
+          <p class="abx-upd sub">${I18N.t("about.update")}: <b id="about-update-status">${
+            I18N.t("about.checking")}</b></p>
+        </header>
+
+        <!-- 2. The reference detail, in the same panel. -->
+        <div class="abx-facts">
+          ${fact(I18N.t("about.product"), "AURION Live Desk")}
+          ${fact(I18N.t("about.version"), "v" + ver, true)}
+          ${fact(I18N.t("about.build"), buildTag(buildDate), true)}
+          ${fact(I18N.t("about.license"), L.premium ? planLabel(L) : "Freemium")}
+          ${fact(I18N.t("about.language"), I18N.lang.toUpperCase(), true)}
+          ${fact(I18N.t("about.support"), "support@axiasoft")}
         </div>
-      </div>
-      <div class="card">
-        <h3>📋 لاگ تغییرات</h3>
-        <div id="about-changelog" class="sub" style="max-height:240px;overflow:auto;line-height:1.8">
-          <p>در حال بارگذاری...</p>
-        </div>
-      </div>
+
+        <!-- 3. Who made it. -->
+        <footer class="abx-maker">
+          <img src="assets/axiasoft-logo.png?v=desk49" alt="Axiasoft" />
+          <b>Axiasoft</b>
+          <span class="sub">${I18N.t("about.developer_of")} &middot; ${copyrightYear()}</span>
+        </footer>
+      </section>
     </div>`;
   },
   profile() {
+    /* Rebuilt.
+
+       Four cards, and the last one was doing four unrelated jobs under
+       four <h3>s: what plan is active, which plans exist, the pay
+       button, and the payment history. Four sections inside one card
+       is four sections pretending to be one, and it put "Pay and
+       activate" in the middle of a stack rather than at the end of the
+       thing it pays for.
+
+       The first card had the same fault in miniature - it was an
+       identity banner AND an edit form AND a language switcher AND a
+       save button. Who you are and what you would like changed are
+       not the same question; the banner states, the form edits.
+
+       Ten inline margins set the vertical rhythm by hand, every one a
+       different number. They are gone: spacing is the card's job. */
     const u = S.user || {};
     const L = (S.snap && S.snap.license) || {};
     const paid = Boolean(L.paid || L.developer);
     const initials = String(u.display_name || u.username || "A").replace(/[^A-Za-z0-9\u0600-\u06FF]/g, "").slice(0, 2).toUpperCase() || "A";
-    const since = u.created ? String(u.created).slice(0, 10) : "—";
-    const last = u.last_login ? String(u.last_login).replace("T", " ").slice(0, 16) : "—";
+    const since = u.created ? String(u.created).slice(0, 10) : "\u2014";
+    const last = u.last_login ? String(u.last_login).replace("T", " ").slice(0, 16) : "\u2014";
     const popular = "m6";
-    const toman = (rial) => rial ? fmt(rial / 10, 0) : "—";
+    const toman = (rial) => rial ? fmt(rial / 10, 0) : "\u2014";
     const plans = (S.plans || []).map((p) => {
       const on = S._plan === p.id ? " on" : "";
       const pop = p.id === popular ? " popular" : "";
-      const per = p.amount && p.days ? fmt((p.amount / 10) / (p.days / 30), 0) : "—";
-      return `<button type="button" class="plan-card${on}${pop}" data-plan="${p.id}">
+      const per = p.amount && p.days ? fmt((p.amount / 10) / (p.days / 30), 0) : "\u2014";
+      return `<button type="button" class="plan-card${on}${pop}" data-plan="${p.id}" aria-pressed="${Boolean(on)}">
         ${p.id === popular ? `<span class="plan-tag">${I18N.t("profile.popular")}</span>` : ""}
         <h4>${esc(p.label)}</h4>
         <div class="plan-price"><b>${toman(p.amount)}</b><small>${I18N.lang === "en" ? "Toman" : I18N.t("profile.per_month")}</small></div>
-        <p class="plan-per">${per} · ${I18N.t("profile.per_month")}</p>
+        <p class="plan-per">${per} \u00b7 ${I18N.t("profile.per_month")}</p>
         <ul>
           <li>${I18N.t("profile.feature_live")}</li>
           <li>${I18N.t("profile.feature_days", { n: p.days })}</li>
@@ -2661,70 +7361,121 @@ const views = {
         </ul>
       </button>`;
     }).join("");
-    const pays = (S.pays || []).map((p) => `<div class="pay-row"><span>${esc(p.plan)} · ${esc(p.status)}</span><b class="mono">${p.amount ? fmt(p.amount / 10, 0) : "—"}</b></div>`).join("");
+    const pays = (S.pays || []).map((p) => `<div class="pay-row"><span>${esc(p.plan)} \u00b7 ${esc(p.status)}</span><b class="mono">${p.amount ? fmt(p.amount / 10, 0) : "\u2014"}</b></div>`).join("");
     const tz = u.timezone || "Asia/Tehran";
     const zones = ["Asia/Tehran", "UTC", "Europe/Berlin", "Europe/London", "Asia/Dubai", "America/New_York"];
-    return `<div class="cmd">
-      <div class="card">
-        <div class="prof-hero">
-          <div class="prof-ava">${esc(initials)}</div>
-          <div>
-            <h2 class="set-title" style="margin:0">${esc(u.display_name || u.username || I18N.t("profile.title"))}</h2>
-            <p class="sub">@${esc(u.username || "")}</p>
-            <div class="prof-meta">
-              <span class="chip on">${esc(u.role || "trader")}</span>
-              <span class="chip">${I18N.t("profile.member")} ${esc(since)}</span>
-              <span class="chip">${I18N.t("profile.last_seen")} ${esc(last)}</span>
-              <button type="button" class="chip" id="pf-copy">@${esc(u.username || "")} · ${I18N.t("profile.copy")}</button>
-            </div>
+
+    /* A contact line states whether it is there and whether it is
+       proven, in words. "Verified" in a different colour is not an
+       answer to "is this verified?" for anyone who cannot see the
+       colour. */
+    const contact = (label, value, none) => `<div class="pfx-row">
+        <span>${esc(label)}</span>
+        <b>${value ? esc(value) : `<em class="pfx-none">${esc(none)}</em>`}</b>
+        ${value ? `<span class="badge-ok">${esc(I18N.t("profile.verified"))}</span>` : ""}
+      </div>`;
+
+    const head = (title, why) => `<header class="pfx-head">
+        <h3>${esc(title)}</h3>
+        ${why ? `<p class="sub">${esc(why)}</p>` : ""}
+      </header>`;
+
+    return `<div class="cmd pfx">
+      <!-- 1. Who this is. It states; it does not edit. -->
+      <header class="card pfx-id">
+        <div class="pfx-ava" aria-hidden="true">${esc(initials)}</div>
+        <div class="pfx-who">
+          <h2 class="pfx-name">${esc(u.display_name || u.username || I18N.t("profile.title"))}</h2>
+          <p class="sub">@${esc(u.username || "")}</p>
+          <div class="pfx-chips">
+            <span class="chip on">${esc(u.role || "trader")}</span>
+            <span class="chip">${I18N.t("profile.member")} ${esc(since)}</span>
+            <span class="chip">${I18N.t("profile.last_seen")} ${esc(last)}</span>
+            <button type="button" class="chip" id="pf-copy">${icon("clipboard")} @${esc(u.username || "")} \u00b7 ${I18N.t("profile.copy")}</button>
           </div>
         </div>
-        <div class="grid g-2" style="margin-top:16px">
-          <label class="field"><span>${I18N.t("profile.name")}</span><input id="pf-name" value="${esc(u.display_name || "")}" placeholder="${esc(I18N.t("profile.name_ph"))}" /></label>
+      </header>
+
+      <!-- 2. The two things you come here to change, side by side on a
+              desktop. Preferences are harmless and security is not, so
+              they do not share a Save button. -->
+      <div class="pfx-cols">
+        <section class="card">
+          ${head(I18N.t("profile.prefs"), I18N.t("profile.why_prefs"))}
+          <label class="field"><span>${I18N.t("profile.name")}</span>
+            <input id="pf-name" value="${esc(u.display_name || "")}" placeholder="${esc(I18N.t("profile.name_ph"))}" /></label>
           <label class="field"><span>${I18N.t("profile.tz")}</span>
             <select class="ctrl" id="pf-tz">${zones.map((z) => `<option value="${z}" ${z === tz ? "selected" : ""}>${z}</option>`).join("")}</select>
           </label>
-        </div>
-        <div class="lang-pills" id="pf-langs" style="margin:8px 0 12px">
-          <button type="button" data-lang="en">EN</button>
-          <button type="button" data-lang="fa">فارسی</button>
-          <button type="button" data-lang="ar">العربية</button>
-        </div>
-        <button class="btn" id="pf-save" type="button">${I18N.t("profile.save_profile")}</button>
-      </div>
-      <div class="grid g-2">
-        <div class="card prof-sec">
-          <h3>${I18N.t("profile.identity")}</h3>
-          <p>${u.gmail ? esc(u.gmail) : I18N.t("profile.no_mail")} ${u.gmail ? `<span class="badge-ok">${I18N.t("profile.verified")}</span>` : ""}</p>
-          <p style="margin-top:10px">${u.phone ? esc(u.phone) : I18N.t("profile.no_phone")} ${u.phone ? `<span class="badge-ok">${I18N.t("profile.verified")}</span>` : ""}</p>
-        </div>
-        <div class="card prof-sec">
-          <h3>${I18N.t("profile.security")}</h3>
-          <label class="field"><span>${I18N.t("profile.current")}</span><input id="pf-cur" type="password" autocomplete="current-password" /></label>
-          <label class="field"><span>${I18N.t("profile.next")}</span><input id="pf-next" type="password" autocomplete="new-password" /></label>
-          <label class="field"><span>${I18N.t("auth.pass2")}</span><input id="pf-next2" type="password" autocomplete="new-password" /></label>
-          <button class="btn tiny" id="pf-pass" type="button">${I18N.t("profile.password")}</button>
-          <h3 style="margin-top:16px">${I18N.t("profile.totp")}</h3>
-          <p class="sub">${I18N.t(u.totp_enabled ? "profile.totp_on" : "profile.totp_off")}</p>
+          <div class="field">
+            <span id="pf-lang-lab">${I18N.t("profile.lang")}</span>
+            <div class="lang-pills" id="pf-langs" role="group" aria-labelledby="pf-lang-lab">
+              <button type="button" data-lang="en">EN</button>
+              <button type="button" data-lang="fa">\u0641\u0627\u0631\u0633\u06cc</button>
+              <button type="button" data-lang="ar">\u0627\u0644\u0639\u0631\u0628\u064a\u0629</button>
+            </div>
+          </div>
+          <button class="btn block" id="pf-save" type="button">${I18N.t("profile.save_profile")}</button>
+
+          <hr class="pfx-rule" />
+          ${head(I18N.t("profile.identity"))}
+          ${contact(I18N.t("profile.gmail"), u.gmail, I18N.t("profile.no_mail"))}
+          ${contact(I18N.t("profile.phone"), u.phone, I18N.t("profile.no_phone"))}
+        </section>
+
+        <section class="card">
+          ${head(I18N.t("profile.security"), I18N.t("profile.why_security"))}
+          <label class="field"><span>${I18N.t("profile.current")}</span>
+            <input id="pf-cur" type="password" autocomplete="current-password" /></label>
+          <label class="field"><span>${I18N.t("profile.next")}</span>
+            <input id="pf-next" type="password" autocomplete="new-password" /></label>
+          <label class="field"><span>${I18N.t("auth.pass2")}</span>
+            <input id="pf-next2" type="password" autocomplete="new-password" /></label>
+          <button class="btn block" id="pf-pass" type="button">${I18N.t("profile.password")}</button>
+
+          <hr class="pfx-rule" />
+          ${head(I18N.t("profile.totp"))}
+          <p class="sub pfx-state ${u.totp_enabled ? "is-on" : "is-off"}">${
+            I18N.t(u.totp_enabled ? "profile.totp_on" : "profile.totp_off")}</p>
           ${u.totp_enabled
-            ? `<div class="row"><input class="ctrl" id="pf-td" placeholder="000000" style="max-width:120px"/><button class="btn tiny danger" id="pf-toff" type="button">${I18N.t("profile.totp_disable")}</button></div>`
+            ? `<div class="row pfx-acts">
+                 <input class="ctrl pf-code" id="pf-td" placeholder="000000" inputmode="numeric"
+                        autocomplete="one-time-code" aria-label="${esc(I18N.t("profile.totp_disable"))}" />
+                 <button class="btn tiny danger" id="pf-toff" type="button">${I18N.t("profile.totp_disable")}</button>
+               </div>`
             : `<button class="btn tiny" id="pf-ton" type="button">${I18N.t("profile.totp_start")}</button>
                <p class="secret-box hidden" id="pf-tsec"></p>
-               <div class="row hidden" id="pf-trow"><input class="ctrl" id="pf-tc" placeholder="000000" style="max-width:120px"/><button class="btn tiny" id="pf-tok" type="button">${I18N.t("profile.totp_confirm")}</button></div>`}
-        </div>
+               <div class="row pfx-acts hidden" id="pf-trow">
+                 <input class="ctrl pf-code" id="pf-tc" placeholder="000000" inputmode="numeric"
+                        autocomplete="one-time-code" aria-label="${esc(I18N.t("profile.totp_confirm"))}" />
+                 <button class="btn tiny" id="pf-tok" type="button">${I18N.t("profile.totp_confirm")}</button>
+               </div>`}
+        </section>
       </div>
-      <div class="card${paid ? "" : " lic-banner"}">
-        <h3>${I18N.t("profile.plan")}</h3>
+
+      <!-- 3. The plan, as three things rather than one card with four
+              headings in it: what is running, what you could move to,
+              and what you have already paid. -->
+      <section class="card pfx-plan${paid ? "" : " lic-banner"}">
+        ${head(I18N.t("profile.current_plan"), I18N.t("profile.why_plan"))}
         <p class="metric">${esc(L.plan_label || L.plan || I18N.t("profile.trial"))}</p>
         <p class="sub">${paid && L.days_left != null ? I18N.t("profile.remaining", { n: L.days_left }) : I18N.t("profile.trial")}</p>
-        <p class="sub">${L.expires || ""}</p>
-        <h3 style="margin-top:14px">${I18N.t(paid ? "profile.renew" : "profile.choose")}</h3>
+        ${L.expires ? `<p class="sub">${esc(L.expires)}</p>` : ""}
+      </section>
+
+      <section class="card">
+        ${head(I18N.t(paid ? "profile.renew" : "profile.choose"))}
         <div class="plan-grid" id="plan-grid">${plans || `<p class="sub">${I18N.t("profile.gateway_off")}</p>`}</div>
+        <!-- The pay button sits at the end of the thing it pays for,
+             not in the middle of a stack with the receipts below it. -->
         <button class="btn block" id="pf-pay" type="button">${I18N.t("profile.pay")}</button>
         <p class="sub" id="pf-pay-msg"></p>
-        <h3 style="margin-top:16px">${I18N.t("profile.history")}</h3>
+      </section>
+
+      <section class="card">
+        ${head(I18N.t("profile.history"))}
         <div id="pf-pays">${pays || `<p class="sub">${I18N.t("profile.pay_none")}</p>`}</div>
-      </div>
+      </section>
     </div>`;
   },
 };
@@ -2733,6 +7484,68 @@ function metric(key, value, suffix, signed) {
   return `<div class="card"><h3>${I18N.t(key)}</h3><p class="metric mono ${signed?clsPnl(value):""}" data-metric="${key}">${fmt(value)}${suffix ? " " + suffix : ""}</p></div>`;
 }
 function emptyMini(text) { return `<div class="empty" style="min-height:120px"><p>${text}</p></div>`; }
+
+/**
+ * The watchlist beside the chart.
+ *
+ * It used to be a three-column table of symbol, bid and ask, rendered from
+ * two copies of the same template - one for the first paint and one for
+ * the tick refresh - which had already drifted apart. It gave no sense of
+ * which symbol the chart was showing, cost a round trip to the dropdown to
+ * change it, and said nothing a trader actually watches for.
+ *
+ * Each symbol is now a row you can press to put it on the chart, the
+ * current one is marked, and the spread is shown because that is the
+ * number that decides whether a setup is worth taking. The arrow is the
+ * direction of the last change in the bid, held in `tickMemo` between
+ * refreshes - it is measured, not decorative, and a symbol that has not
+ * moved since the previous tick gets no arrow at all.
+ */
+const tickMemo = new Map();
+
+function watchRowsHtml() {
+  const ticks = (S.snap && S.snap.ticks) || {};
+  const items = liveSymbols().filter((x) => ticks[x.symbol]);
+  if (!items.length) return "";
+  return items.map((it) => {
+    const t = ticks[it.symbol] || {};
+    const bid = Number(t.bid), ask = Number(t.ask);
+    const prev = tickMemo.get(it.symbol);
+    let dir = "";
+    if (Number.isFinite(bid) && Number.isFinite(prev)) {
+      if (bid > prev) dir = "up";
+      else if (bid < prev) dir = "down";
+    }
+    if (Number.isFinite(bid)) tickMemo.set(it.symbol, bid);
+    const spread = (Number.isFinite(bid) && Number.isFinite(ask)) ? ask - bid : null;
+    const on = it.symbol === S.symbol;
+    return `<button type="button" class="wl-row${on ? " is-on" : ""}" data-wl="${esc(it.symbol)}"
+        aria-current="${on ? "true" : "false"}">
+      <span class="wl-id">
+        <b>${esc(it.symbol)}</b>
+        ${it.timeframe ? `<i class="wl-tf">${esc(it.timeframe)}</i>` : ""}
+      </span>
+      <span class="wl-quote">
+        <b class="mono wl-bid ${dir}">${fmt(bid, 5)}</b>
+        <b class="mono wl-ask">${fmt(ask, 5)}</b>
+      </span>
+      <span class="mono wl-sp">${spread === null ? "—" : fmt(spread, 5)}</span>
+    </button>`;
+  }).join("");
+}
+
+function watchlistHtml() {
+  const rows = watchRowsHtml();
+  if (!rows) return emptyMini(I18N.t("status.waiting_ticks"));
+  return `<div class="wl">
+    <div class="wl-head">
+      <span>${I18N.t("markets.symbol")}</span>
+      <span class="wl-quote"><i>${I18N.t("markets.bid")}</i><i>${I18N.t("markets.ask")}</i></span>
+      <span>${I18N.t("markets.spread")}</span>
+    </div>
+    <div class="wl-list">${rows}</div>
+  </div>`;
+}
 function shownDir(ai) {
   ai = ai || {};
   if (ai.ready) return ai.direction || "neutral";
@@ -2778,31 +7591,11 @@ function currentAiSlideState() {
   const idx = (S.aiSlide | 0) >= slides.length ? 0 : (S.aiSlide | 0);
   return (slides[idx] && slides[idx].state) || (S.snap && S.snap.ai) || {};
 }
-function currentOlSlideState() {
-  const slides = aiSlides();
-  const idx = (S.olSlide | 0) >= slides.length ? 0 : (S.olSlide | 0);
-  return (slides[idx] && slides[idx].state) || (S.snap && S.snap.ai) || {};
-}
-function outlookSlideInnerHtml(slide) {
-  const st = slide.state || null;
-  const has = Boolean(st && (st.symbol || st.reason || st.ready));
-  const d = has ? shownDir(st) : "neutral";
-  const p = Math.round((has ? (st.outlook_strength != null ? st.outlook_strength : (st.confidence || 0)) : 0) * 100);
-  const title = slide.symbol ? (slide.timeframe ? slide.symbol + " · " + slide.timeframe : slide.symbol) : "";
-  const text = !has ? I18N.t("ai.no_chart_data") : (st.outlook_text || st.reason || I18N.t("status.ai_idle"));
-  // v54: also show regime per-chart in outlook banner (merged)
-  const regime = st && (st.regime_obj || st.regime);
-  const regimeName = regime ? (typeof regime === "string" ? regime : (regime.name || "")) : "";
-  const regimeLbl = regimeName ? `<span class="pill ghost" style="margin-inline-start:8px;font-size:10px">${esc(regLabel(regimeName && typeof regimeName === "string" ? {name:regimeName} : regime))}</span>` : "";
-  return `<div class="outlook-banner dir-${d}">
-    <div>
-      <p class="kicker">${I18N.t("ai.outlook")}${title ? `<span class="slide-sym mono">${esc(title)}</span>` : ""}${regimeLbl}</p>
-      <p class="metric ${d === "bull" ? "up" : d === "bear" ? "down" : ""}">${dirLabel(d)}</p>
-      <p class="sub">${esc(text)}</p>
-    </div>
-    <b class="mono">${p}%</b>
-  </div>`;
-}
+/* The "live outlook" slider that used to sit at the top of the Command
+   centre is gone, and so are currentOlSlideState() and
+   outlookSlideInnerHtml() with it. The slider's own machinery
+   (chartSliderHtml / bindChartSlider / paintChartSlider) stays - the
+   Intelligence view still uses it for the "ai" kind. */
 function sliderIndexKey(kind) { return kind === "ol" ? "olSlide" : "aiSlide"; }
 // Generic per-chart slider (ai = direction hero, ol = command outlook).
 // Manual only: prev/next buttons and dot jumps — deliberately NO timer.
@@ -2872,6 +7665,11 @@ function stepChartSlider(kind, delta, jumpTo, renderInner) {
       const samp = $("ai-samples");
       if (samp) samp.textContent = String(ai.samples || 0);
     } catch {}
+    /* The live analysis sits directly under this slider and describes
+       whichever chart it is on, so it moves with the arrows. Kept out
+       of the try above: a failure painting one of those small fields
+       must not be what stops the main card following the arrow. */
+    try { patchAnalysisCard(); } catch {}
   }
 }
 function bindChartSlider(kind, renderInner) {
@@ -2984,19 +7782,10 @@ function tapeBanner() {
   if (mode === "live") return ""; // chart names live inside the outlook slider now — no banner needed
   return `<div class="tape-banner is-idle" id="tape-banner">${I18N.t("tape.waiting")}</div>`;
 }
-function aiBlock(ai) {
-  if (!ai) return emptyMini(I18N.t("status.ai_idle"));
-  const d = shownDir(ai);
-  const hint = !ai.ready ? `<span class="badge-hint">${I18N.t("ai.untrained")}</span>` : "";
-  const outlook = ai.outlook || {};
-  return `<div class="kv">
-    <span>${I18N.t("ai.direction")}</span><b>${dirLabel(d)}${hint}</b>
-    <span>${I18N.t("ai.confidence")}</span><b class="mono">${fmt((ai.confidence||0)*100,1)}%</b>
-    <span>${I18N.t("ai.regime")}</span><b>${regLabel(ai.regime)}</b>
-    <span>${I18N.t("ai.pattern")}</span><b>${ai.pattern?.name || "—"}</b>
-    <span>${I18N.t("ai.samples")}</span><b class="mono">${ai.samples || 0}${ai.need ? " / " + ai.need : ""}</b>
-  </div><p class="sub">${esc(outlook.text || ai.reason || I18N.t("status.ai_idle"))}</p>`;
-}
+/* aiBlock() lived here. It rendered a single AI bias with no symbol
+   attached, which on a multi-chart desk is a direction without a subject.
+   The Intelligence view renders the same data per chart, labelled, so this
+   one was deleted rather than relocated. */
 function posProfitPct(r) {
   if (r && r.profit_pct !== undefined && r.profit_pct !== null && r.profit_pct !== "") return Number(r.profit_pct);
   const o = Number(r && r.price_open), c = Number(r && r.price_current);
@@ -3004,54 +7793,153 @@ function posProfitPct(r) {
   const raw = (c - o) / o * 100;
   return String(r.type || "").toLowerCase() === "sell" ? -raw : raw;
 }
+/**
+ * One cell's text, for both the initial render and the live patch.
+ *
+ * It lived twice - once in table() and once in paintPositions() - and the
+ * two copies formatted a different set of columns, so a price rendered with
+ * five decimals on load and with however many the engine sent on the first
+ * tick after it. Shared now, because a number that changes shape when it
+ * updates is read as a number that changed.
+ */
+const CELL_PRICE = ["price", "price_open", "price_current", "price_close", "sl", "tp"];
+const CELL_MONEY = ["profit", "net", "swap", "commission", "fees"];
+/* Columns holding an instant rather than a quantity.
+
+   These fell through to String(v), so the history ledger printed
+   "2026-10-31T15:45:00Z" in two of its first three columns - the raw
+   transport format, complete with the T and the Z, in the table a trader
+   is meant to read against their MT5 statement. btWhen() already renders
+   these properly for the backtest's own trade table; the history table
+   simply never called it. */
+const CELL_TIME = ["ts", "ts_open", "time", "time_open", "time_close"];
+
+function cellText(k, v) {
+  if (k === "profit_pct") {
+    return (v === null || v === undefined || Number.isNaN(Number(v))) ? "—" : fmt(v, 2) + "%";
+  }
+  if (k === "strategy") return strategyLabel(v);
+  if (v === "" || v === null || v === undefined) return "—";
+  if (CELL_TIME.includes(k)) return btWhen(v);
+  if (k === "volume") return fmt(v, 2);
+  if (CELL_PRICE.includes(k)) return fmt(v, 5);
+  if (CELL_MONEY.includes(k)) return fmt(v, 2);
+  return String(v);
+}
+/** Columns where a minus sign means something and should be coloured. */
+function cellSigned(k) {
+  return k === "profit" || k === "profit_pct" || k === "net" ||
+         k === "swap" || k === "commission";
+}
 function table(rows, keys, closable) {
-  const head = keys.map((k) => `<th>${I18N.t("table." + k) !== "table." + k ? I18N.t("table." + k) : k}</th>`).join("");
+  /* scope="col" on every header. Without it a screen reader reading a
+     positions row cell by cell announces the value and not which
+     column it came from, which on a table of eight numeric columns
+     is the whole of the information. */
+  const label = (k) => (I18N.t("table." + k) !== "table." + k ? I18N.t("table." + k) : k);
+  const head = keys.map((k) => `<th scope="col">${label(k)}</th>`).join("");
   const body = rows.map((r) => `<tr data-ticket="${r.ticket || ""}">${keys.map((k) => {
     const v = k === "profit_pct" ? posProfitPct(r) : r[k];
-    const signed = k === "profit" || k === "profit_pct";
-    const c = signed ? clsPnl(v) : "";
-    let text;
-    if (k === "profit_pct") text = (v === null || v === undefined || Number.isNaN(Number(v))) ? "—" : fmt(v, 2) + "%";
-    else if (k === "strategy") text = strategyLabel(v);
-    else if (k === "profit" || k === "volume" || k === "price_open" || k === "price_current") text = fmt(v, k === "volume" ? 2 : 5);
-    else text = (v ?? "—");
-    return `<td class="mono ${c}" data-k="${k}">${text}</td>`;
-  }).join("")}${closable ? `<td><button class="btn tiny ghost" type="button" data-close="${r.ticket}">${I18N.t("exec.close")}</button></td>` : ""}</tr>`).join("");
-  return `<div class="table-wrap"><table><thead><tr>${head}${closable?"<th></th>":""}</tr></thead><tbody>${body}</tbody></table></div>`;
+    // Every money column is signed, not just profit. A swap of -4.10 shown
+    // in the same colour as a profit of 4.10 is a column the eye skips.
+    const c = cellSigned(k) ? clsPnl(v) : "";
+    const text = cellText(k, v);
+    /* The column name travels with the cell.
+       Below 760 the table stacks and the header row goes away, and a
+       bare column of numbers with no names is not a smaller table, it
+       is an unreadable one. The label is drawn from this attribute by
+       CSS rather than injected as an element, because paintPositions
+       updates cells with textContent on every tick - which would wipe
+       a real label out of the DOM and leave the first paint looking
+       correct and every one after it wrong. */
+    return `<td class="mono ${c}" data-k="${k}" data-label="${esc(label(k))}">${text}</td>`;
+  }).join("")}${closable ? `<td class="c-act"><button class="btn tiny ghost" type="button" data-close="${r.ticket}">${I18N.t("exec.close")}</button></td>` : ""}</tr>`).join("");
+  // A colgroup, so the CSS can fix the column widths. Without declared
+  // widths a fixed-layout table divides itself evenly, and with no fixed
+  // layout at all the columns re-measure on every price tick and the row
+  // shifts under the pointer.
+  const cols = keys.map((k) => `<col class="c-${esc(k)}">`).join("") + (closable ? `<col class="c-close">` : "");
+  return `<div class="table-wrap"><table><colgroup>${cols}</colgroup><thead><tr>${head}${closable ? `<th scope="col"><span class="sr-only">${esc(I18N.t("exec.close"))}</span></th>` : ""}</tr></thead><tbody>${body}</tbody></table></div>`;
 }
-function paintPositions(boxId, rows, keys, closable) {
+/* Arm the card's "Flatten all" once there is a book to flatten, and
+   wire it the first time.
+
+   Found from the list rather than by id because all three cards would
+   otherwise need three ids for one control, and the next card copied
+   from them would quietly get a dead button. It is bound once - the
+   list repaints on every tick, and rebinding on each would stack
+   handlers until one press asked the question ten times.
+
+   Disabled rather than hidden: the card does not reshuffle the moment
+   the last trade closes, and the control still says where the account
+   stands. It is also re-disabled while the request is in flight, so a
+   second press cannot send a second flatten against a book the first
+   one is already closing. */
+function armCardFlatten(box, n) {
+  const btn = box.closest(".card")?.querySelector("[data-flatten]");
+  if (!btn) return;
+  btn.disabled = n === 0;
+  if (btn.dataset.bound === "1") return;
+  btn.dataset.bound = "1";
+  btn.onclick = async () => {
+    if (btn.disabled) return;
+    btn.disabled = true;
+    try { await flattenAll("positions-card"); } finally { btn.disabled = !box.querySelector(".tvp-row:not(.tvp-head)"); }
+  };
+}
+
+function paintPositions(boxId, rows, closable) {
+  /* The three "open positions" cards - the Command Centre's, the
+     Markets page's and the Execution one's - draw the EA chart's own
+     position rows now, from the same positionsListHtml() the chart
+     desk and the chart cards use.
+
+     They were wide tables: ten columns on the Command Centre's,
+     nine on the Markets one, each with its own column list, and the
+     same trade read differently in all three. On a phone the table
+     became a stack of labelled lines, which worked, but it was a
+     second answer to a question the chart desk had already answered
+     once. One row shape, learned once, wherever a position is shown.
+
+     Nothing here opens or closes. The chart desk's dock is a drawer
+     because it is taking room from a chart; a card has nothing to
+     give back, so the list is simply always there. */
   const box = $(boxId);
   if (!box) return;
+  armCardFlatten(box, rows.length);
   if (!rows.length) {
     box.dataset.sig = "";
     box.innerHTML = emptyMini(I18N.t("status.no_positions"));
     return;
   }
   const sig = rows.map((r) => String(r.ticket || "") + ":" + String(r.strategy || "")).join(",");
-  if (box.dataset.sig === sig && box.querySelector("table")) {
+  if (box.dataset.sig === sig && box.querySelector(".tvp-list")) {
+    /* Same trades, moved prices. Rewriting the figures in place keeps
+       the close buttons, their handlers and the pane's scroll offset,
+       which a full re-render on every tick would all discard. */
     rows.forEach((r) => {
-      const tr = box.querySelector(`tr[data-ticket="${r.ticket}"]`);
-      if (!tr) return;
-      keys.forEach((k) => {
-        const td = tr.querySelector(`[data-k="${k}"]`);
-        if (!td) return;
-        const v = k === "profit_pct" ? posProfitPct(r) : r[k];
-        let text;
-        if (k === "profit_pct") text = (v === null || v === undefined || Number.isNaN(Number(v))) ? "—" : fmt(v, 2) + "%";
-        else if (k === "strategy") text = strategyLabel(v);
-        else if (k === "profit" || k === "volume" || k === "price_open" || k === "price_current") text = fmt(v, k === "volume" ? 2 : 5);
-        else text = (v ?? "—");
-        if (td.textContent !== text) td.textContent = text;
-        if (k === "profit" || k === "profit_pct") {
-          td.classList.toggle("up", Number(v) > 0);
-          td.classList.toggle("down", Number(v) < 0);
+      const row = box.querySelector(`.tvp-row[data-ticket="${r.ticket}"]`);
+      if (!row) return;
+      const put = (sel, text, signed) => {
+        const el = row.querySelector(sel);
+        if (!el) return;
+        if (el.textContent !== text) el.textContent = text;
+        if (signed) {
+          const v = Number(r.profit);
+          el.classList.toggle("up", v > 0);
+          el.classList.toggle("down", v < 0);
         }
-      });
+      };
+      const pl = Number(r.profit);
+      put(".tvp-pl", Number.isFinite(pl) ? (pl > 0 ? "+" : "") + fmt(pl, 2) : "—", true);
+      put(".tvp-sl", r.sl ? fmt(r.sl, 5) : "—");
+      put(".tvp-tp", r.tp ? fmt(r.tp, 5) : "—");
+      put(".tvp-vol", fmt(r.volume, 2));
     });
     return;
   }
   box.dataset.sig = sig;
-  box.innerHTML = table(rows, keys, closable);
+  box.innerHTML = `<div class="pos-pane">${positionsListHtml(rows, [])}</div>`;
   if (closable) bindCloseButtons(box);
 }
 function tickLabel() {
@@ -3153,78 +8041,79 @@ async function factoryReset() {
   setTimeout(() => { location.href = "/?factory=1&v=" + Date.now(); }, 4000);
 }
 
+/**
+ * The Telegram page, as a customer sees it.
+ *
+ * Everything that belongs to whoever *operates* the bot has been taken out:
+ * the on/off switch, the running state, the note about where the token comes
+ * from, and the bot's message language. None of that is this user's to
+ * decide - one desk cannot turn the service on for everybody, and a customer
+ * should not be told how the credential is provisioned. It lives in the
+ * separate admin panel, which already has its own tooling under admin/.
+ *
+ * What is left is the whole of the customer's side of it: the code they send
+ * to the bot to attach their own Telegram account, the accounts currently
+ * attached, and what those accounts are sent.
+ */
 function telegramPanelHtml() {
   const tg = (S.snap && S.snap.telegram) || {};
   const chats = Array.isArray(tg.chats) ? tg.chats : [];
-  const on = Boolean(tg.enabled);
   const openOn = tg.notify_open !== false;
   const closeOn = tg.notify_close !== false;
-  const lang = tg.language || I18N.lang || "fa";
+  const code = S._tgCode || "";
+  const botName = tg.username ? "@" + tg.username : "";
+
   const chatHtml = chats.length
-    ? `<div class="kv">${chats.map((c) => {
-        const label = [c.name, c.username ? "@" + c.username : "", c.id].filter(Boolean).join(" · ");
-        return `<span>${esc(label)}</span><button type="button" class="btn tiny ghost" data-tg-unlink="${esc(c.id)}">${I18N.t("telegram.unlink")}</button>`;
-      }).join("")}</div>`
+    ? `<ul class="tg-chats">${chats.map((c) => {
+        const label = [c.name, c.username ? "@" + c.username : ""].filter(Boolean).join(" · ") || ("#" + c.id);
+        return `<li><span class="tg-who"><b>${esc(label)}</b><small class="mono">${esc(c.id)}</small></span>
+          <button type="button" class="btn tiny ghost" data-tg-unlink="${esc(c.id)}">${I18N.t("telegram.unlink")}</button></li>`;
+      }).join("")}</ul>`
     : `<p class="sub">${I18N.t("telegram.no_chat")}</p>`;
-  const status = tg.running ? I18N.t("telegram.running") : I18N.t("telegram.stopped");
-  const err = tg.last_error ? `<p class="err">${esc(tg.last_error)}</p>` : "";
-  const botName = tg.username ? `@${esc(tg.username)}` : "";
-  return `<div class="card">
-      <p class="sub">${I18N.t("telegram.hint")}</p>
-      <div class="auto-banner" style="margin:12px 0">
-        <div>
-          <h3 style="margin:0 0 6px">${I18N.t("telegram.enable")}</h3>
-          <p class="sub" id="tg-sub">${status}${botName ? " · " + botName : ""}</p>
-        </div>
-        <button type="button" class="switch ${on?"on":""}" id="tg-on" aria-pressed="${on}"><i></i></button>
+
+  return `<div class="card tg-pair-card">
+      <h3 class="card-h">${I18N.t("telegram.pair")}</h3>
+      <p class="sub">${I18N.t("telegram.pair_hint")}${botName ? ` <b class="mono">${esc(botName)}</b>` : ""}</p>
+      <div class="tg-code" data-empty="${code ? "0" : "1"}">
+        <b class="mono" id="tg-code">${esc(code || "······")}</b>
+        <button type="button" class="btn tiny ghost" id="tg-copy"${code ? "" : " disabled"}>${I18N.t("common.copy")}</button>
       </div>
-      <p class="sub">${esc(I18N.t("telegram.token_source_hint"))}</p>
-      <label class="field"><span>${I18N.t("telegram.language")}</span>
-        <select class="ctrl" id="tg-lang">
-          <option value="fa" ${lang==="fa"?"selected":""}>فارسی</option>
-          <option value="en" ${lang==="en"?"selected":""}>English</option>
-          <option value="ar" ${lang==="ar"?"selected":""}>العربية</option>
-        </select>
-      </label>
-      <div class="auto-banner" style="margin:8px 0">
-        <div><h3 style="margin:0">${I18N.t("telegram.notify_open")}</h3></div>
-        <button type="button" class="switch ${openOn?"on":""}" id="tg-open" aria-pressed="${openOn}"><i></i></button>
-      </div>
-      <div class="auto-banner" style="margin:8px 0">
-        <div><h3 style="margin:0">${I18N.t("telegram.notify_close")}</h3></div>
-        <button type="button" class="switch ${closeOn?"on":""}" id="tg-close" aria-pressed="${closeOn}"><i></i></button>
-      </div>
-      <button class="btn block" id="tg-save" type="button">${I18N.t("telegram.save")}</button>
-      ${err}
-      <p class="sub" id="tg-msg"></p>
-    </div>
-    <div class="card" style="margin-top:14px">
-      <h3>${I18N.t("telegram.pair")}</h3>
-      <p class="sub">${I18N.t("telegram.pair_hint")}</p>
-      <p class="metric mono" id="tg-code">${esc(S._tgCode || "—")}</p>
-      <div class="row" style="margin-top:10px">
+      <div class="row" style="margin-top:12px">
         <button class="btn" id="tg-pair" type="button">${I18N.t("telegram.pair_go")}</button>
-        <button class="btn ghost" id="tg-test" type="button">${I18N.t("telegram.test")}</button>
+        <button class="btn ghost" id="tg-test" type="button"${chats.length ? "" : " disabled"}>${I18N.t("telegram.test")}</button>
       </div>
+      <p class="sub" id="tg-msg"></p>
+      ${tg.running === false ? `<p class="sub lock-note">${I18N.t("telegram.offline_note")}</p>` : ""}
     </div>
+
     <div class="card" style="margin-top:14px">
-      <h3>${I18N.t("telegram.chats")}</h3>
+      <h3 class="card-h">${I18N.t("telegram.chats")}</h3>
+      <p class="sub">${I18N.t("telegram.chats_hint")}</p>
       ${chatHtml}
+    </div>
+
+    <div class="card" style="margin-top:14px">
+      <h3 class="card-h">${I18N.t("telegram.notify_title")}</h3>
+      ${switchRow({ id: "tg-open", title: I18N.t("telegram.notify_open"), on: openOn })}
+      <hr class="set-rule" />
+      ${switchRow({ id: "tg-close", title: I18N.t("telegram.notify_close"), on: closeOn })}
+      <button class="btn block" id="tg-save" type="button" style="margin-top:12px">${I18N.t("telegram.save")}</button>
     </div>`;
 }
+
 function bindTelegramPanel() {
-  const on = $("tg-on");
-  if (on) on.onclick = () => paintSwitch(on, !on.classList.contains("on"));
   const op = $("tg-open");
   if (op) op.onclick = () => paintSwitch(op, !op.classList.contains("on"));
   const cl = $("tg-close");
   if (cl) cl.onclick = () => paintSwitch(cl, !cl.classList.contains("on"));
   const save = $("tg-save");
   if (save) save.onclick = async () => {
-    // No bot_token here on purpose: the token is provisioned in the source.
+    /* Only this user's own preferences are sent. No token, because it is
+       provisioned in the source; no enabled flag, because the service is
+       not one desk's to switch off for everyone; and the language follows
+       the desk rather than being a second place to choose it. */
     const r = await API.post("/api/telegram", {
-      enabled: Boolean($("tg-on")?.classList.contains("on")),
-      language: $("tg-lang")?.value || "fa",
+      language: I18N.lang || "fa",
       notify_open: Boolean($("tg-open")?.classList.contains("on")),
       notify_close: Boolean($("tg-close")?.classList.contains("on")),
     });
@@ -3244,8 +8133,19 @@ function bindTelegramPanel() {
     if (!r.ok) return toast(r.error || I18N.t("errors.generic"));
     S._tgCode = r.code || (r.data && r.data.code) || "";
     const box = $("tg-code");
-    if (box) box.textContent = S._tgCode || "—";
+    if (box) box.textContent = S._tgCode || "······";
+    const wrap = box && box.closest(".tg-code");
+    if (wrap) wrap.dataset.empty = S._tgCode ? "0" : "1";
+    const copy = $("tg-copy");
+    if (copy) copy.disabled = !S._tgCode;
     toast(I18N.t("telegram.code") + " " + S._tgCode);
+  };
+  const copyBtn = $("tg-copy");
+  if (copyBtn) copyBtn.onclick = async () => {
+    if (!S._tgCode) return;
+    try { await navigator.clipboard.writeText(S._tgCode); } catch { /* no clipboard */ }
+    copyBtn.textContent = I18N.t("common.copied");
+    setTimeout(() => { copyBtn.textContent = I18N.t("common.copy"); }, 1600);
   };
   const test = $("tg-test");
   if (test) test.onclick = async () => {
@@ -3266,8 +8166,55 @@ function bindTelegramPanel() {
   });
 }
 
+/**
+ * The expert card's two jobs: hand over the file, and carry the warning
+ * from the last update forward.
+ *
+ * Saving the .mq5 from here matters more than it looks. The alternative
+ * instruction is "find the AURION folder on disk, then find engine/ea" -
+ * which is where people give up, keep the old expert attached, and then
+ * report that the desk is behaving strangely.
+ */
+async function bindExpertsCard() {
+  document.querySelectorAll("[data-ea-save]").forEach((btn) => {
+    btn.onclick = async () => {
+      const id = btn.getAttribute("data-ea-save") || "bridge";
+      const r = await API.get("/api/experts/source?id=" + encodeURIComponent(id));
+      if (!r.ok || !r.data || !r.data.source) return toast(I18N.t("ea.save_failed"));
+      const blob = new Blob([r.data.source], { type: "text/plain;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = r.data.file || "AurionBridge.mq5";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 4000);
+      toast(I18N.t("ea.saved", { file: r.data.file || "" }));
+    };
+  });
+
+  // Did the last update change the experts? If it did, say so here as
+  // well as in the update panel - this is the card the user will be on
+  // when they go to do something about it.
+  const note = document.getElementById("ea-upd-note");
+  if (!note) return;
+  try {
+    const st = await API.get("/api/system/update/state");
+    const last = st && st.data && st.data.last_applied;
+    if (last && last.ea_changed) {
+      note.hidden = false;
+      note.textContent = I18N.t("ea.changed_by_update", {
+        v: String(last.version || ""),
+        n: String((last.ea_files || []).length || 2),
+      });
+    }
+  } catch {}
+}
+
 async function bindUpdatePanel(){
   const urlDisplay = document.getElementById('upd-url-display');
+  const sourceEl = document.getElementById('upd-source');
   const autoEl = document.getElementById('upd-auto');
   const intervalEl = document.getElementById('upd-interval');
   const saveMsg = document.getElementById('upd-save-msg');
@@ -3279,17 +8226,22 @@ async function bindUpdatePanel(){
     const r = await API.get('/api/system/update/settings');
     if(r.ok && r.data){
       if(urlDisplay) urlDisplay.textContent = r.data.update_server_url || r.data.source_url || '—';
+      if(sourceEl){
+        const ignored = r.data.github && r.data.github.ignored_branch;
+        sourceEl.textContent = I18N.t('upd.source') + ': ' + (r.data.source_url || r.data.update_server_url || '—')
+          + (ignored ? ' \u2014 ' + I18N.t('upd.branch_locked', { branch: ignored }) : '');
+      }
       if(autoEl) paintSwitch(autoEl, !!r.data.auto_check_enabled);
       if(intervalEl) intervalEl.value = r.data.auto_check_interval_hours || 6;
     }
     const st = await API.get('/api/system/update/state');
     if(st.ok && st.data){
-      if(lastCheckEl) lastCheckEl.textContent = 'آخرین چک: '+(st.data.last_check||'-') + (st.data.update_available?' - آپدیت موجود!':' - به‌روز');
+      if(lastCheckEl) lastCheckEl.textContent = I18N.t('upd.last_check') + ': ' + (st.data.last_check||'-') + ' - ' + (st.data.update_available ? I18N.t('upd.available') : I18N.t('upd.uptodate'));
       if(statusEl){
         if(st.data.latest){
-          statusEl.innerHTML = '<div class="kv"><span>نسخه جدید</span><b>'+esc(st.data.latest.version||'')+'</b><span>تاریخ</span><b>'+esc(st.data.latest.published_at||'')+'</b></div><p class="sub">'+esc(st.data.latest.changelog||'')+'</p><p class="sub">فایل‌های تغییر: '+(st.data.latest.files||[]).length+'</p>';
+          statusEl.innerHTML = '<div class="kv"><span>'+I18N.t('upd.new_version')+'</span><b>'+esc(st.data.latest.version||'')+'</b><span>'+I18N.t('upd.date')+'</span><b>'+esc(st.data.latest.published_at||'')+'</b></div><p class="sub">'+esc(st.data.latest.changelog||'')+'</p><p class="sub">'+I18N.t('upd.files_changed')+': '+(st.data.latest.files||[]).length+'</p>';
         } else {
-          statusEl.innerHTML = '<p class="sub">آپدیتی یافت نشد</p>';
+          statusEl.innerHTML = '<p class="sub">' + I18N.t('upd.none') + '</p>';
         }
       }
     }
@@ -3302,62 +8254,594 @@ async function bindUpdatePanel(){
       auto_check_interval_hours: Number(intervalEl.value)||6,
     };
     const r = await API.post('/api/system/update/settings', body);
-    const txt = r.ok ? 'ذخیره شد ✅' : (r.error||'خطا');
-    if(saveMsg) saveMsg.textContent = txt;
+    const txt = r.ok ? I18N.t('upd.saved') : (r.error||I18N.t('upd.error'));
+    /* The tick is an icon in the panel; the toast is plain text by nature,
+       and its own wording already says the save succeeded. */
+    if(saveMsg) saveMsg.innerHTML = (r.ok ? icon("check") + ' ' : '') + esc(txt);
     toast(txt);
   };
   if(autoEl) autoEl.onclick = () => paintSwitch(autoEl, !autoEl.classList.contains('on'));
 
   const checkBtn = document.getElementById('upd-check');
   if(checkBtn) checkBtn.onclick = async () => {
-    if(resultEl) resultEl.innerHTML = '<p class="sub">در حال چک...</p>';
-    const r = await API.post('/api/system/update/check', {});
-    if(!r.ok){
-      if(resultEl) resultEl.innerHTML = '<p class="err">خطا: '+esc(r.error||'')+'</p>';
+    if(resultEl) resultEl.innerHTML = '<p class="sub">' + I18N.t('upd.checking') + '</p>';
+    /* The same check as the licence box and About - this is the one
+       place that can also install what it finds. */
+    const res = await checkForUpdate();
+    if(!res.ok){
+      if(resultEl) resultEl.innerHTML = '<p class="err">' + I18N.t('upd.error') + ': '+esc(res.error||'')+'</p>';
       return;
     }
-    if(!r.update_available){
-      if(resultEl) resultEl.innerHTML = '<p class="ok">✅ سیستم به‌روز است - نسخه '+esc((r.latest&&r.latest.version)||'')+'</p>';
-      if(lastCheckEl) lastCheckEl.textContent = 'آخرین چک: '+(r.last_check||new Date().toISOString())+' - به‌روز';
+    if(!res.available){
+      if(resultEl) resultEl.innerHTML = '<p class="ok">'+icon("check")+' '+I18N.t('upd.uptodate')+' - '+I18N.t('about.version')+' '+esc(res.version)+'</p>';
+      if(lastCheckEl) lastCheckEl.textContent = I18N.t('upd.last_check')+': '+(res.lastCheck||new Date().toISOString())+' - '+I18N.t('upd.uptodate');
       return;
     }
-    const upd = r.latest;
+    const upd = res.latest;
     if(resultEl){
-      resultEl.innerHTML = '<div class="card" style="background:rgb(var(--s9))"><h3>🆕 آپدیت موجود: '+esc(upd.version||'')+'</h3><p class="sub">'+esc(upd.changelog||'')+'</p><p class="sub">فایل‌ها: '+(upd.files||[]).length+' تغییر</p><div style="max-height:200px;overflow:auto;margin:8px 0">'+(upd.files||[]).map(f=>'<div class="file-item" style="display:flex;justify-content:space-between;background:rgb(var(--s3));padding:6px;border-radius:4px;margin:3px 0"><span>'+esc(f.path)+'</span><span style="font-size:11px">'+(f.size||'')+' bytes</span></div>').join('')+'</div><button class="btn" id="upd-apply-btn" type="button">⬇️ دریافت و نصب آپدیت</button><p class="sub" style="margin-top:8px;color:var(--gold)">توجه: فایل‌ها جایگزین می‌شوند و بک‌آپ گرفته می‌شود</p></div>';
+      resultEl.innerHTML = '<div class="card" style="background:rgb(var(--s9))"><h3>'+icon("spark")+' '+I18N.t('upd.available')+': '+esc(upd.version||'')+'</h3><p class="sub">'+esc(upd.changelog||'')+'</p><p class="sub">'+I18N.t('upd.files_changed')+': '+(upd.files||[]).length+'</p><div style="max-height:200px;overflow:auto;margin:8px 0">'+(upd.files||[]).map(f=>'<div class="file-item" style="display:flex;justify-content:space-between;background:rgb(var(--s3));padding:6px;border-radius:4px;margin:3px 0"><span>'+esc(f.path)+'</span><span style="font-size:11px">'+(f.size||'')+' bytes</span></div>').join('')+'</div><button class="btn" id="upd-apply-btn" type="button">'+icon("download")+' '+I18N.t('upd.download_apply')+'</button><p class="sub" style="margin-top:8px;color:var(--gold)">'+I18N.t('upd.replace_note')+'</p></div>';
       const applyBtn = document.getElementById('upd-apply-btn');
       if(applyBtn) applyBtn.onclick = async () => {
-        if(!confirm('آپدیت '+upd.version+' نصب شود؟ فایل‌های فعلی بک‌آپ گرفته می‌شود')) return;
+        if(!confirm(I18N.t('upd.confirm').replace('%s', upd.version))) return;
         applyBtn.disabled = true;
-        applyBtn.textContent = 'در حال نصب...';
+        applyBtn.textContent = I18N.t('upd.installing');
         const ar = await API.post('/api/system/update/apply', { update_id: upd.id });
         if(ar.ok){
-          resultEl.innerHTML = '<p class="ok">✅ آپدیت '+esc(ar.version||upd.version)+' نصب شد<br>فایل‌ها: '+(ar.applied||[]).length+'<br>بک‌آپ: '+esc(ar.backup_dir||'')+'</p><p class="sub">برای اعمال کامل، سیستم را ری‌استارت کنید</p><button class="btn" id="upd-restart" type="button">🔄 ری‌استارت سیستم</button>';
+          // An update that replaced the MetaTrader experts is only half
+          // applied: nothing out here can press F7 inside MetaEditor.
+          const eaLine = ar.ea_changed
+            ? '<p class="sub" style="color:var(--amber,#d8a657)">'
+              + I18N.t('ea.changed_by_update', { v: String(ar.version||upd.version||''), n: String((ar.ea_files||[]).length||2) })
+              + '</p>'
+            : '';
+          resultEl.innerHTML = '<p class="ok">'+icon("check")+' '+I18N.t('upd.installed').replace('%s', esc(ar.version||upd.version))+'<br>'+I18N.t('upd.files')+': '+(ar.applied||[]).length+'<br>'+I18N.t('upd.backup')+': '+esc(ar.backup_dir||'')+'</p>'+eaLine+'<p class="sub">'+I18N.t('upd.restart_hint')+'</p><button class="btn" id="upd-restart" type="button">'+icon("refresh")+' '+I18N.t('upd.restart')+'</button>';
           const rb = document.getElementById('upd-restart');
           if(rb) rb.onclick = () => restartSystem();
         } else {
-          resultEl.innerHTML = '<p class="err">خطا در نصب: '+esc(ar.error||'')+'</p>';
+          resultEl.innerHTML = '<p class="err">' + I18N.t('upd.install_failed') + ': '+esc(ar.error||'')+'</p>';
           applyBtn.disabled = false;
         }
       };
     }
   };
 
-  const manifestBtn = document.getElementById('upd-manifest');
-  if(manifestBtn) manifestBtn.onclick = async () => {
-    const r = await API.get('/api/system/update/manifest');
-    if(resultEl){
-      if(r.ok){
-        resultEl.innerHTML = '<h4>فایل‌های محلی ('+(r.data.files||[]).length+')</h4><div style="max-height:300px;overflow:auto">'+(r.data.files||[]).slice(0,100).map(f=>'<div style="font-family:monospace;font-size:12px;padding:2px">'+esc(f.path)+' - '+esc(f.hash.slice(0,12))+'</div>').join('')+'</div><p class="sub">نسخه: '+esc(r.data.version||'')+'</p>';
-      } else {
-        resultEl.innerHTML = '<p class="err">خطا</p>';
-      }
+  /* The "local files" view is gone. It listed up to a hundred paths
+     from the install directory with a truncated hash beside each, which
+     is a developer's integrity check wearing a settings page's clothes:
+     nothing a trader can read tells them whether those hashes are
+     right, and nothing on the screen acted on them. The update check
+     above already answers the question this was next to - is there a
+     newer build - and the API endpoint is untouched for anyone who
+     wants it from a terminal. */
+}
+
+/**
+ * Filter the settings rail as you type.
+ *
+ * It matches on the entry's name AND on its one-line description,
+ * because people search for what a section DOES ("spread", "daily
+ * loss") rather than for what it is called. A group heading is hidden
+ * when nothing under it survives, otherwise the rail ends up with
+ * three headings and one button.
+ *
+ * It deliberately does not change the open section. Typing is a way of
+ * looking, and a page that navigates away on every keystroke cannot be
+ * looked at.
+ */
+function bindSettingsSearch() {
+  const q = $("set-q");
+  const rail = $("set-jump");
+  if (!q || !rail || q.dataset.bound === "1") return;
+  q.dataset.bound = "1";
+  const clear = $("set-q-clear");
+  const count = $("set-q-n");
+  const buttons = [...rail.querySelectorAll("button[data-jump]")];
+  const groups = [...rail.querySelectorAll(".sj-grp")];
+
+  const apply = () => {
+    const term = q.value.trim().toLowerCase();
+    if (clear) clear.hidden = !term;
+    let shown = 0;
+    for (const b of buttons) {
+      const hit = !term || b.textContent.toLowerCase().includes(term);
+      b.hidden = !hit;
+      if (hit) shown += 1;
     }
+    /* A heading belongs to the buttons that follow it up to the next
+       heading, so walk forward rather than guessing from the DOM. */
+    for (const g of groups) {
+      let any = false;
+      for (let n = g.nextElementSibling; n && !n.classList.contains("sj-grp"); n = n.nextElementSibling) {
+        if (n.matches("button[data-jump]") && !n.hidden) { any = true; break; }
+      }
+      g.hidden = !any;
+    }
+    if (count) {
+      count.hidden = !term;
+      count.textContent = shown
+        ? I18N.t("settings.search_n", { n: shown, t: buttons.length })
+        : I18N.t("settings.search_none");
+    }
+    rail.classList.toggle("is-filtered", Boolean(term));
   };
+
+  q.addEventListener("input", apply);
+  q.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && q.value) {
+      q.value = "";
+      apply();
+      /* The sheet also listens for Escape, on the nav this box sits
+         inside. Without this the box cleared itself and the event then
+         bubbled up and shut the sheet, so one keypress undid the
+         filter AND threw away the list - a typo cost you the page.
+         Stopped only when there was something to clear, so an Escape
+         on an empty box still closes the sheet, which is what it
+         should do. */
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    /* Enter opens the only thing left, which is what you meant if you
+       typed enough to leave one. */
+    if (e.key === "Enter") {
+      const first = buttons.find((b) => !b.hidden);
+      if (first) { showSetTab(first.dataset.jump); first.focus(); closeSetSheet(false); }
+    }
+  });
+  if (clear) clear.onclick = () => { q.value = ""; apply(); q.focus(); };
+  apply();
+}
+
+/* The settings rail as a bottom sheet, below the rail's breakpoint.
+ *
+ * It has to be genuinely controllable - opened and closed by dragging as
+ * well as by tapping - because a sheet that only a button can close is a
+ * panel wearing a sheet's clothes, and the grab handle at the top of one
+ * is a promise that it can be thrown away with a flick.
+ *
+ * The same <nav> is the desktop rail, so none of this may leave anything
+ * behind when the window widens: every piece of state is a class or an
+ * attribute that `closeSetSheet` removes.
+ */
+const SET_SHEET_MQ = "(max-width: 1000px)";
+
+/* The sheet, the scrim and the floating bar are all position:fixed, and
+ * all three were rendered inside the stage - which is wrong here for the
+ * same reason the calendar's day card is parented to <body>.
+ *
+ * `.stage.is-entering` animates `rise`, a transform, for 480ms on every
+ * view change. A transformed ancestor becomes the containing block for
+ * its fixed descendants, so for the first half-second after opening
+ * Settings the sheet and the bar were positioned against the stage
+ * rather than the viewport - and the stage is overflow:auto, so they
+ * were clipped by it too. They jumped into place once the animation
+ * ended. On top of that they were z-index 60/61, under the mobile
+ * header at 90: the sheet slid behind it and the scrim left it lit and
+ * clickable.
+ *
+ * So they are moved to <body> on mount. Nothing has to move them back:
+ * the stage is rebuilt wholesale on every view change, so the sweep
+ * below runs there and the template supplies fresh copies next time. */
+/* Where the sheet is re-parented to.
+ *
+ * #desk, not <body>. Escaping the stage's transform is only half the
+ * requirement: #app is `position:relative; z-index:1`, which makes it a
+ * stacking context, so a sheet parented to <body> is compared against
+ * #app's z-index of 1 rather than against the drawer's 210. Any
+ * positive z-index then paints the sheet over the entire application,
+ * and the bottom bar sat on top of the side menu. #desk is inside that
+ * stacking context, is the drawer's own parent, and carries no
+ * transform or filter of its own - so fixed positioning still resolves
+ * against the viewport while z-index finally means what it says. */
+function sheetHost() {
+  return document.getElementById("desk") || document.body;
+}
+function sweepSetSheet() {
+  document.querySelectorAll("[data-sheet-portal]").forEach((n) => {
+    if (n.parentElement === document.body || n.parentElement === document.getElementById("desk")) n.remove();
+  });
+
+}
+function portalSetSheet() {
+  if (!setSheetOn()) return;
+  const host = sheetHost();
+  for (const id of ["set-sheet-scrim", "set-jump", "set-sheet-bar"]) {
+    const el = document.getElementById(id);
+    if (!el || el.parentElement === host) continue;
+    el.dataset.sheetPortal = "1";
+    host.appendChild(el);
+  }
+  /* The sheet rules are written against .set-jump.is-sheet rather than
+     .set-rail .set-jump, because once it is parented to <body> there is
+     no .set-rail above it for a descendant selector to find. Same
+     specificity, declared later, and it says what it means: these are
+     the sheet's rules, not the rail's. */
+  const nav = document.getElementById("set-jump");
+  if (nav) nav.classList.add("is-sheet");
+  /* Toasts stack on the bottom edge too, which is now the bar's. */
+
+}
+function setSheetOn() {
+  try { return Boolean(window.matchMedia && window.matchMedia(SET_SHEET_MQ).matches); } catch { return false; }
+}
+let __setSheetReturn = null;
+/* The scrim is display:none while it is irrelevant, and that is the one
+   thing it must not be while it is fading out. Hiding it in the same
+   frame as the class comes off deletes the fade entirely - measured: the
+   scrim went from opaque to gone in 4ms. So the teardown waits for the
+   transition, and the wait is cancellable because reopening during it is
+   an ordinary thing to do. */
+const SET_SHEET_OUT_MS = 250;
+let __setSheetHide = 0;
+
+function closeSetSheet(focusBack) {
+  const nav = $("set-jump");
+  const btn = $("set-sheet-open");
+  const scrim = $("set-sheet-scrim");
+  /* The open state is a class on <html>, not on the settings desk: the
+     sheet is portaled out of the desk, so a class there can no longer
+     reach it. */
+  document.documentElement.classList.remove("set-sheet-open");
+  if (nav) {
+    nav.classList.remove("is-dragging");
+    nav.style.transform = "";
+    nav.style.transition = "";
+  }
+  if (scrim) {
+    scrim.style.opacity = "";
+    clearTimeout(__setSheetHide);
+    /* Reduced motion has no transition to wait for. */
+    let still = 0;
+    try { still = window.matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : SET_SHEET_OUT_MS; } catch { still = SET_SHEET_OUT_MS; }
+    if (!still) scrim.hidden = true;
+    else __setSheetHide = setTimeout(() => {
+      if (!setSheetIsOpen()) scrim.hidden = true;
+    }, still + 30);
+  }
+  if (btn) btn.setAttribute("aria-expanded", "false");
+  const back = focusBack === false ? null : (__setSheetReturn || btn);
+  __setSheetReturn = null;
+  try { if (back && back.isConnected) back.focus(); } catch {}
+}
+/**
+ * Make a bottom sheet draggable.
+ *
+ * Written for the settings sheet and then asked for on the chart's tool
+ * sheet as well, so it is one function rather than two that drift. A
+ * sheet that only closes by its own button is a sheet a thumb argues
+ * with.
+ *
+ * Dragging down past a quarter of the sheet's height, or flicking
+ * downwards at any distance, closes it; anything less springs back.
+ * Upwards is not an error, so it is answered with resistance rather
+ * than ignored outright - a sheet that does not move at all under the
+ * finger reads as broken.
+ *
+ * Pointer events, so one path covers touch, pen and mouse.
+ */
+function attachSheetDrag(o) {
+  const handle = o && o.handle;
+  const sheet = o && o.sheet;
+  if (!handle || !sheet || typeof handle.setPointerCapture !== "function") return;
+  if (handle.dataset.sheetDrag === "1") return;
+  handle.dataset.sheetDrag = "1";
+  const scrim = o.scrim || null;
+  const isOpen = typeof o.isOpen === "function" ? o.isOpen : () => true;
+  const close = typeof o.close === "function" ? o.close : () => {};
+
+  let y0 = 0, t0 = 0, dy = 0, dragging = false;
+  let lastY = 0, lastT = 0, vel = 0;   /* px/ms, signed: + is downwards */
+
+  const move = (e) => {
+    if (!dragging) return;
+    const raw = e.clientY - y0;
+    dy = raw >= 0 ? raw : -Math.min(SHEET_PULL_UP_MAX, Math.sqrt(-raw) * 2.2);
+    const now = e.timeStamp || Date.now();
+    const dt = now - lastT;
+    if (dt > 0) { vel = (e.clientY - lastY) / dt; lastY = e.clientY; lastT = now; }
+    sheet.style.transform = "translateY(" + dy.toFixed(1) + "px)";
+    if (scrim) scrim.style.opacity = String(Math.max(0, 1 - Math.max(0, dy) / 260));
+  };
+
+  const end = (e) => {
+    if (!dragging) return;
+    dragging = false;
+    try { handle.releasePointerCapture(e.pointerId); } catch {}
+    sheet.classList.remove("is-dragging");
+
+    const h = sheet.offsetHeight || 1;
+    const ms = Date.now() - t0;
+    const flick = (ms < 260 && dy > 40) || vel > 0.5;
+    const closing = flick || dy > h * 0.25;
+
+    /* Hand the rest of the travel back to CSS at a speed that continues
+       the gesture instead of restarting it. A fast flick finishes in
+       little over a frame or two; letting go halfway settles over the
+       remaining distance. Without this the sheet always took the full
+       250ms however hard it was thrown, which is the moment a gesture
+       stops feeling attached to the finger. */
+    const left = closing ? Math.max(0, h - dy) : Math.max(0, dy);
+    const speed = Math.max(Math.abs(vel), 0.8);        /* px/ms floor */
+    const dur = Math.round(Math.min(360, Math.max(120, left / speed)));
+    sheet.style.transition = "transform " + dur + "ms cubic-bezier(.22,.61,.36,1)";
+    sheet.style.transform = "";
+    if (scrim) scrim.style.opacity = "";
+    setTimeout(() => { if (!dragging) sheet.style.transition = ""; }, dur + 40);
+
+    if (closing) close();
+  };
+
+  const begin = (el) => (e) => {
+    if (!isOpen()) return;
+    dragging = true; y0 = e.clientY; t0 = Date.now(); dy = 0;
+    lastY = e.clientY; lastT = e.timeStamp || Date.now(); vel = 0;
+    sheet.style.transition = "";
+    sheet.classList.add("is-dragging");
+    try { el.setPointerCapture(e.pointerId); } catch {}
+  };
+
+  handle.addEventListener("pointerdown", begin(handle));
+  handle.addEventListener("pointermove", move);
+  handle.addEventListener("pointerup", end);
+  handle.addEventListener("pointercancel", end);
+
+  /* The sheet itself can be pulled down too, but only once its own
+     scrolling has run out.
+     
+     A sheet that is only dismissible by its 22px handle asks the thumb
+     to aim. Letting the whole surface do it is what a phone user
+     expects - but not while there is still content to scroll, or the
+     gesture steals the scroll and the list becomes unreadable. So: the
+     drag only starts when the body is already at its top, and the
+     first movement decides. Upward from there is a scroll and is handed
+     straight back. */
+  const body = o.body || null;
+  if (body && typeof body.addEventListener === "function") {
+    /* Touch events, not pointer events, and the move listener is not
+       passive.
+
+       The pointer version of this worked in a test harness and did
+       nothing on a real phone: the body scrolls, so the browser claims
+       the gesture for scrolling and fires pointercancel instead of
+       delivering the moves. The only way to keep a downward drag is to
+       call preventDefault on the touchmove that decides it - which a
+       passive listener is not allowed to do. */
+    let armed = false, armY = 0, armId = null;
+
+    body.addEventListener("touchstart", (e) => {
+      if (!isOpen() || e.touches.length !== 1) { armed = false; return; }
+      armed = body.scrollTop <= 0;
+      armY = e.touches[0].clientY;
+      armId = e.touches[0].identifier;
+    }, { passive: true });
+
+    body.addEventListener("touchmove", (e) => {
+      const t = e.touches[0];
+      if (!t) return;
+      const ev = { clientY: t.clientY, pointerId: armId, timeStamp: e.timeStamp };
+      if (dragging) { e.preventDefault(); move(ev); return; }
+      if (!armed) return;
+      const d = t.clientY - armY;
+      /* Upwards is a scroll, and reversing afterwards does not take
+         that back. */
+      if (d < SHEET_DRAG_ARM) { if (d < -2) armed = false; return; }
+      /* The list moved under the finger, so this finger is scrolling. */
+      if (body.scrollTop > 0) { armed = false; return; }
+      armed = false;
+      e.preventDefault();
+      begin(body)({ clientY: armY, pointerId: armId, timeStamp: e.timeStamp });
+      move(ev);
+    }, { passive: false });
+
+    const release = (e) => {
+      armed = false;
+      if (!dragging) return;
+      const t = (e.changedTouches && e.changedTouches[0]) || null;
+      end({ clientY: t ? t.clientY : 0, pointerId: armId, timeStamp: e.timeStamp });
+    };
+    body.addEventListener("touchend", release);
+    body.addEventListener("touchcancel", release);
+  }
+}
+
+/* How far down the finger has to travel before a pull on the sheet's
+   own surface counts as a dismissal rather than a stalled scroll. */
+/* How far a sheet may be pulled UP past its open position.
+
+   The rubber band was -sqrt(-raw) * 2.2 with nothing above it, so it
+   never stopped giving: drag 240px up and the sheet rose 34px, drag
+   further and it rose further. A rubber band that has no end does not
+   read as resistance, it reads as a sheet that can be dragged
+   anywhere and then snaps back for no reason. A dozen pixels is
+   enough to say "this edge is the top". */
+const SHEET_PULL_UP_MAX = 12;
+const SHEET_DRAG_ARM = 12;
+
+/* How close to the bottom edge a swipe has to start, and how far up it
+   has to go, to count as "open the sheet". 28px is about a thumb's
+   width of screen; less and it is unhittable, more and it starts
+   stealing taps from whatever sits along the bottom of the page. */
+const SHEET_EDGE_BAND = 28;
+const SHEET_EDGE_PULL = 40;
+
+/**
+ * Open a bottom sheet by swiping up from the bottom edge of its stage.
+ *
+ * The counterpart to dragging it shut: if the sheet can be thrown away
+ * with the thumb it should be summonable the same way, without
+ * travelling to a button in a corner.
+ *
+ * Pointer events are listened for on the stage rather than the page so
+ * two sheets on two different screens cannot both answer one swipe.
+ */
+function attachSheetEdgeOpen(o) {
+  const stage = o && o.stage;
+  if (!stage) return;
+  /* The stage may be the document. The settings sheet needs that: the
+     bottom strip of a phone screen is covered by chrome that is not a
+     descendant of the settings desk, so a listener on the desk was
+     never reached by the swipe at all - the desk was correctly bound
+     and still did nothing. Views are told apart by `when` instead. */
+  const ds = stage.dataset || (stage.documentElement && stage.documentElement.dataset);
+  const key = o.key || "sheetEdge";
+  if (ds) { if (ds[key] === "1") return; ds[key] = "1"; }
+  const isOpen = typeof o.isOpen === "function" ? o.isOpen : () => false;
+  const open = typeof o.open === "function" ? o.open : () => {};
+  /* Only where the sheet exists. Above the breakpoint the same strip of
+     screen belongs to something else - on the chart it is the bottom of
+     the plot, where a vertical drag pans the price scale - and a
+     gesture that quietly changes meaning with the window width is worse
+     than one that is simply absent. */
+  const when = typeof o.when === "function" ? o.when : () => true;
+
+  /* Touch events, not pointer events, and all of them passive.
+
+     The pointer version armed correctly and then never heard another
+     word: the settings page scrolls, so the browser took the gesture
+     and answered with pointercancel. Touch events keep being delivered
+     while a page scrolls, which is exactly what is needed here - the
+     swipe is allowed to scroll the page a little on its way up, and
+     the sheet opens anyway. Nothing is ever prevented, so no scroll is
+     made worse by listening. */
+  let armed = false, y0 = 0, x0 = 0;
+
+  stage.addEventListener("touchstart", (e) => {
+    if (isOpen() || !when() || e.touches.length !== 1) { armed = false; return; }
+    const t = e.touches[0];
+    const r = typeof stage.getBoundingClientRect === "function"
+      ? stage.getBoundingClientRect()
+      : { bottom: window.innerHeight };
+    /* The *visible* bottom, not the element's. The chart is the size of
+       the viewport so the two agree, but the settings desk is a long
+       scrolling page whose bottom edge is thousands of pixels below the
+       screen - measured against that, the band was somewhere nobody
+       could ever touch. */
+    const vh = (window.visualViewport && window.visualViewport.height) || window.innerHeight;
+    const bottom = Math.min(r.bottom == null ? vh : r.bottom, vh);
+    armed = t.clientY <= bottom && (bottom - t.clientY) <= SHEET_EDGE_BAND;
+    y0 = t.clientY; x0 = t.clientX;
+  }, { passive: true });
+
+  stage.addEventListener("touchmove", (e) => {
+    if (!armed) return;
+    const t = e.touches[0];
+    if (!t) return;
+    const up = y0 - t.clientY;
+    /* A mostly-sideways drag is somebody else's gesture - panning the
+       chart, most likely - and must not be read as a summons. */
+    if (Math.abs(t.clientX - x0) > up) { armed = false; return; }
+    if (up < SHEET_EDGE_PULL) return;
+    armed = false;
+    open();
+  }, { passive: true });
+
+  const off = () => { armed = false; };
+  stage.addEventListener("touchend", off, { passive: true });
+  stage.addEventListener("touchcancel", off, { passive: true });
+}
+
+function openSetSheet() {
+  const nav = $("set-jump");
+  const btn = $("set-sheet-open");
+  const scrim = $("set-sheet-scrim");
+  if (!nav) return;
+  __setSheetReturn = btn || null;
+  clearTimeout(__setSheetHide);
+  if (scrim) {
+    scrim.hidden = false;
+    /* A transition needs a frame at the starting value to run from.
+       Unhiding and adding the class in one frame gave the scrim no
+       opacity:0 to leave, so it snapped to full black - measured at
+       opacity 1 nine milliseconds in. Reading offsetWidth forces the
+       style to be committed first. */
+    void scrim.offsetWidth;
+  }
+  document.documentElement.classList.add("set-sheet-open");
+  if (btn) btn.setAttribute("aria-expanded", "true");
+  /* Focus goes to the section you are on, not to the top of the list:
+     the sheet opens to let you move away from here, so "here" is the
+     right place to start arrowing from. */
+  try {
+    const cur = nav.querySelector("button[data-jump].on") || nav.querySelector("button[data-jump]");
+    if (cur) cur.focus({ preventScroll: true });
+  } catch {}
+}
+function setSheetIsOpen() {
+  return document.documentElement.classList.contains("set-sheet-open");
+}
+function toggleSetSheet() {
+  if (setSheetIsOpen()) closeSetSheet();
+  else openSetSheet();
+}
+
+function bindSetSheet() {
+  const desk = document.querySelector(".set-desk.set-rail");
+  const nav = $("set-jump");
+  if (!desk || !nav || nav.dataset.sheetBound === "1") return;
+  nav.dataset.sheetBound = "1";
+  portalSetSheet();
+
+  const btn = $("set-sheet-open");
+  const scrim = $("set-sheet-scrim");
+  const grab = $("set-sheet-grab");
+  if (btn) btn.onclick = toggleSetSheet;
+  if (scrim) scrim.onclick = () => closeSetSheet();
+  const x = $("set-sheet-close");
+  if (x) x.onclick = () => closeSetSheet();
+
+  /* Esc closes, from anywhere inside the sheet. Registered on the nav
+     rather than globally so the search box's own Escape - which clears
+     the filter - still wins while it has focus and still has something
+     to clear. */
+  nav.addEventListener("keydown", (e) => {
+    if (e.key !== "Escape" || !setSheetIsOpen()) return;
+    /* The search box stops the event when it had a filter to clear. */
+    if (e.defaultPrevented) return;
+    e.preventDefault();
+    closeSetSheet();
+  });
+
+  /* One implementation, used by both sheets. See attachSheetDrag. */
+  attachSheetDrag({ handle: grab, sheet: nav, scrim, body: nav,
+    isOpen: setSheetIsOpen, close: () => closeSetSheet() });
+  attachSheetEdgeOpen({
+    stage: document, key: "setSheetEdge",
+    isOpen: setSheetIsOpen, open: openSetSheet,
+    when: () => {
+      /* Only on the settings page, and only where the nav is a sheet.
+         Listening on the document is what makes the gesture reachable;
+         this is what stops it answering on every other view. */
+      try { return S.view === "settings" && window.matchMedia(SET_SHEET_MQ).matches; }
+      catch { return false; }
+    },
+  });
+
+  /* Widening the window past the breakpoint must not leave the desk
+     holding a scrim and an aria-expanded that no longer mean anything. */
+  try {
+    const mq = window.matchMedia(SET_SHEET_MQ);
+    /* Crossing the breakpoint changes where the nav has to live, which
+       is a re-render rather than something to unpick by hand - and it
+       is the same call setThemeNow already makes when the light cut
+       changes which controls the page offers. */
+    const sync = () => {
+      closeSetSheet(false);
+      try { if (S.view === "settings") show("settings", { animate: false, closeMenu: false, nav: false }); } catch {}
+    };
+    if (mq.addEventListener) mq.addEventListener("change", sync);
+    else if (mq.addListener) mq.addListener(sync);
+  } catch {}
 }
 
 function showSetTab(id) {
-  const allow = ["set-robot", "set-strats", "set-prop", "set-mt5", "set-lang", "set-personal", "set-telegram", "set-update", "set-system"];
+  const allow = ["set-robot", "set-prop", "set-mt5", "set-personal",
+                 "set-notify", "set-telegram", "set-update", "set-system"];
+  // Language used to be a section of its own and is now part of System.
+  // A desk that was last left on it -- the choice is remembered across
+  // restarts -- would otherwise open on a tab that no longer exists.
+  if (id === "set-lang" || (!id && S.setTab === "set-lang")) id = "set-system";
+  if (S.setTab === "set-lang") S.setTab = "set-system";
   const next = allow.includes(id) ? id : (allow.includes(S.setTab) ? S.setTab : "set-robot");
+  const moved = next !== S.setTab;
   S.setTab = next;
   try { localStorage.setItem("aurion.setTab", next); } catch { /* */ }
   document.querySelectorAll("#set-jump [data-jump]").forEach((b) => {
@@ -3366,11 +8850,39 @@ function showSetTab(id) {
   document.querySelectorAll(".set-block").forEach((el) => {
     el.hidden = el.id !== S.setTab;
   });
+  /* The closed sheet's job is to say where you are, so it is restated
+     here rather than at the call sites - every one of them changes the
+     answer. */
+  const now = $("set-sheet-now");
+  const on = document.querySelector("#set-jump [data-jump].on .sj-txt b");
+  if (now && on) now.textContent = on.textContent;
+  const ic = document.querySelector("#set-sheet-open .sj-ic");
+  const onIc = document.querySelector("#set-jump [data-jump].on .sj-ic");
+  if (ic && onIc) ic.innerHTML = onIc.innerHTML;
+
+  /* Arriving at a section means arriving at the top of it.
+   *
+   * The sections are swapped by toggling `hidden`, which does nothing
+   * to where the page is scrolled to. Read halfway down a long section
+   * - the robot page, or system - then pick another one, and the new
+   * section opens already scrolled into its own middle, with its
+   * heading above the fold. There is nothing to tell you that you are
+   * not at the beginning of it.
+   *
+   * Only when the section actually changes. showSetTab is also called
+   * on every re-render of the view - saving a setting, a licence
+   * arriving, the light cut flipping - and reloadSettings deliberately
+   * restores the scroll offset across those so that saving something
+   * does not throw you back to the top of the page you are working
+   * on. Guarding on a real change leaves that alone. */
+  if (moved) {
+    const stage = $("stage");
+    if (stage) { try { stage.scrollTop = 0; } catch { /* */ } }
+  }
 }
 function bindView(view) {
   if (view === "command") {
     const b = $("go-settings"); if (b) b.onclick = () => show("settings");
-    bindChartSlider("ol", outlookSlideInnerHtml);
     bindGateSlider();
     bindStrategyToggles();
     bindCloseButtons($("stage"));
@@ -3381,12 +8893,63 @@ function bindView(view) {
       bindChartDesk();
     } else {
       paintMiniCharts();
+      bindChartSearch();
+      /* Each card carries a strip of its open trades, and those can be
+         closed from here. Bound before the card handler below so the
+         buttons exist by the time anything can be pressed. */
+      bindCloseButtons($("stage"));
       $("stage")?.querySelectorAll("[data-open-chart]").forEach((el) => {
-        el.onclick = () => openChartDesk(el.dataset.sym, el.dataset.tf);
+        const open = (ev) => {
+          /* The whole card opens the chart, but it contains real
+             controls -- closing a position must not also throw the
+             trader into a fullscreen chart on the way. */
+          if (ev && ev.target && ev.target.closest("button, a, input, select, textarea")) return;
+          /* Ask the browser for fullscreen here, inside the click.
+             requestFullscreen is only granted during a user gesture, and
+             by the time the workspace has mounted that gesture is over --
+             the request would be refused and the chart would open in a
+             window instead. The desk's own fullscreen (body.chart-full)
+             is applied on mount regardless, so a refusal still fills the
+             desk; this is what also takes the browser chrome away. */
+          try {
+            const root = document.documentElement;
+            if (!document.fullscreenElement && root.requestFullscreen) {
+              root.requestFullscreen().catch(() => {});
+            }
+          } catch (e) { /* the app-level fullscreen still applies */ }
+          openChartDesk(el.dataset.sym, el.dataset.tf, { fullscreen: true });
+        };
+        el.onclick = open;
+        /* The card is role="button", so it has to answer to a button's
+           keys. Space scrolls the page by default and Enter does
+           nothing at all on a div, which is the whole reason a plain
+           click handler on a container is not a control. */
+        el.onkeydown = (ev) => {
+          if (ev.key !== "Enter" && ev.key !== " " && ev.key !== "Spacebar") return;
+          if (ev.target && ev.target !== el && ev.target.closest("button, a, input, select, textarea")) return;
+          ev.preventDefault();
+          open(ev);
+        };
       });
     }
   }
   if (view === "markets") {
+    /* Open trades on this chart can be closed from the strip above it,
+       which is the whole point of showing them there. */
+    bindCloseButtons($("stage"));
+    /* Delegated, because the watchlist is replaced wholesale on every tick
+       refresh; a handler bound to the rows themselves would be thrown away
+       with them a second later. */
+    const wl = $("live-ticks");
+    if (wl) wl.onclick = (ev) => {
+      const row = ev.target.closest("[data-wl]");
+      if (!row) return;
+      const sym = row.getAttribute("data-wl");
+      if (!sym || sym === S.symbol) return;
+      const cur = document.querySelector("#sym .sympick-cur");
+      if (cur) cur.textContent = sym;
+      pickMarket(sym, S.timeframe);
+    };
     const cv = $("cv");
     if (cv) {
       S.chart = new CandleChart(cv, { onPrice: onChartPrice, onPending: onChartPending });
@@ -3400,11 +8963,21 @@ function bindView(view) {
         if (!licFeat("chart_signals")) { toast(I18N.t("lic.err_locked")); show("upgrade"); return; }
         S.signalsEnabled = !S.signalsEnabled;
         localStorage.setItem("aurion.signalsEnabled", S.signalsEnabled ? "1" : "0");
-        sigToggleM.textContent = S.signalsEnabled ? "🔔 Signals ON" : "🔕 Signals OFF";
+        sigToggleM.innerHTML = S.signalsEnabled
+          ? icon("bell") + " Signals ON"
+          : icon("bellOff") + " Signals OFF";
         sigToggleM.classList.toggle("on", S.signalsEnabled);
         sigToggleM.classList.toggle("ghost", !S.signalsEnabled);
+        /* The template hides this button with the `hidden` attribute,
+           so it has to be un-hidden the same way. It used to clear
+           style.display instead, which does nothing at all while
+           [hidden]{display:none} is still matching - the eye only
+           turned up later, when some unrelated snapshot re-rendered
+           the toolbar and the template re-evaluated the attribute.
+           That is the "appears late" bug: the state had changed
+           immediately, the button just had no way to show it. */
         const showBtn = $("sig-show-m");
-        if (showBtn) showBtn.style.display = S.signalsEnabled ? "" : "none";
+        if (showBtn) showBtn.hidden = !S.signalsEnabled;
         if (S.signalsEnabled) await fetchChartSignals(S.symbol, S.timeframe);
         else { S.chartSignals = []; if (S.chart) S.chart.setSignals([], S.showSignals); }
       };
@@ -3412,19 +8985,29 @@ function bindView(view) {
       if (sigShowM) sigShowM.onclick = () => {
         S.showSignals = !S.showSignals;
         localStorage.setItem("aurion.showSignals", S.showSignals ? "1" : "0");
-        sigShowM.textContent = S.showSignals ? "👁️" : "🚫";
+        sigShowM.innerHTML = S.showSignals ? icon("eye") : icon("eyeOff");
+        /* The icon is the only thing that changed, and an icon is not a
+           name. Without these the button announces "show signals" for
+           as long as the page is open, whichever state it is in. */
+        const lbl = I18N.t(S.showSignals ? "chart.signals_hide" : "chart.signals_show");
+        sigShowM.setAttribute("aria-pressed", String(S.showSignals));
+        sigShowM.setAttribute("aria-label", lbl);
+        sigShowM.setAttribute("title", lbl);
         if (S.chart) S.chart.setSignals(S.chartSignals, S.showSignals);
       };
     }
     if (eaLive() && defaultSymbol() && !S.candles.length) primeEaChart();
-    const sym = $("sym"), tf = $("tf");
-    if (sym) sym.onchange = () => pickMarket(sym.value, S.timeframe);
-    if (tf) tf.onchange = () => pickMarket(S.symbol || sym.value, tf.value);
+    bindInstrumentPicker("sym", (name) => pickMarket(name, S.timeframe));
+    const tf = $("tf");
+    if (tf) tf.onchange = () => pickMarket(S.symbol || defaultSymbol(), tf.value);
   }
   if (view === "calendar") {
     Calendar.mount($("cal-root"));
   }
   if (view === "intelligence") {
+    // The card was just drawn from the current snapshot, so the cache
+    // starts in step with what is on screen.
+    S._anHtml = null;
     // Per-chart AI slider — manual only, no timer anywhere.
     bindChartSlider("ai", aiSlideInnerHtml);
     const b = $("btn-train");
@@ -3524,8 +9107,13 @@ function bindView(view) {
         if ($("ex-tp")) $("ex-tp").value = S.manual.tp;
       }
     };
+    bindSymbolField("ex-sym");
     const exSym = $("ex-sym");
-    if (exSym) exSym.onchange = () => { if (exSym.value) S.symbol = exSym.value; };
+    /* addEventListener, not onchange: bindSymbolField already dispatches
+       change and rememberManual is listening for it too. Assigning
+       onchange here would have been fine with a <select>, but the two
+       listeners now matter and one must not overwrite the other. */
+    if (exSym) exSym.addEventListener("change", () => { if (exSym.value) S.symbol = exSym.value; });
     const buy = $("ex-buy"); if (buy) buy.onclick = () => send("buy");
     const sell = $("ex-sell"); if (sell) sell.onclick = () => send("sell");
     const ro = $("robot-open");
@@ -3554,19 +9142,7 @@ function bindView(view) {
       }
     };
     const flat = $("ex-flat");
-    if (flat) flat.onclick = async () => {
-      const ok = await askConfirm({
-        title: I18N.t("exec.emergency"),
-        body: I18N.t("exec.confirm_flat"),
-        ok: I18N.t("exec.close_all"),
-        cancel: I18N.t("common.cancel"),
-        danger: true,
-      });
-      if (!ok) return;
-      const r = await API.post("/api/flatten", { reason: "emergency" });
-      toast(r.ok ? I18N.t("exec.close_all") : r.error);
-      await refresh();
-    };
+    if (flat) flat.onclick = () => flattenAll("emergency");
     bindCloseButtons($("stage"));
   }
   if (view === "terminal") {
@@ -3589,7 +9165,7 @@ function bindView(view) {
       });
       if (!ok) return;
       tr.disabled = true;
-      tr.textContent = "⏳ Restarting...";
+      tr.innerHTML = icon("hourglass") + " Restarting...";
       try {
         const r = await API.post("/api/terminals/restart", {});
         toast(r.ok ? (I18N.t("terminal.restart_ok")||"Terminals restarted") : (r.error||I18N.t("errors.generic")));
@@ -3597,7 +9173,7 @@ function bindView(view) {
         toast(I18N.t("errors.generic"));
       } finally {
         tr.disabled = false;
-        tr.textContent = "🔄 "+(I18N.t("terminal.restart")||"Restart Terminals");
+        tr.innerHTML = icon("refresh") + " " + esc(I18N.t("terminal.restart")||"Restart Terminals");
       }
     };
     const tabs = $("term-tabs");
@@ -3620,6 +9196,12 @@ function bindView(view) {
     S._termPoll = setInterval(() => { if (S.view === "terminal") fillHostTerm(); }, 2500);
   }
   if (view === "backtest") {
+    bindSymbolField("bt-sym");
+    // The card is rendered as HTML; the curve needs a canvas that exists.
+    const btNow = S.backtest || S.snap?.backtest || {};
+    if (btNow.ok && Array.isArray(btNow.equity_curve) && btNow.equity_curve.length > 1) {
+      requestAnimationFrame(() => drawEquityCurve(btNow.equity_curve.map(Number).filter((x) => Number.isFinite(x))));
+    }
     const goBt = $("h-bt");
     if (goBt) goBt.onclick = async () => {
       if (S._btBusy) return;
@@ -3631,25 +9213,40 @@ function bindView(view) {
         return;
       }
       S._btBusy = true;
-      setBacktestBusy(true);
-      S.backtest = { running: true, mode: "backtest", symbol, timeframe, strategy: name };
+      setBacktestBusy(true, 0);
+      S.backtest = { running: true, mode: "backtest", symbol, timeframe, strategy: name, progress: 0 };
+      // Put the live panel up and scroll to it immediately. The run is
+      // watched in the same place the result will appear, so the trader
+      // never has to hunt for either.
+      paintBacktestResults(S.backtest, { reveal: true });
       headerState();
       try {
+        // The engine accepts the run and answers at once; the result
+        // arrives over the socket. Waiting on this request was the whole
+        // bug: a replay longer than the proxy's 25 second patience came
+        // back as "engine offline" after finishing perfectly.
         const r = await API.post("/api/backtest", {
           symbol,
           timeframe,
           strategy: { kind: "builtin", name },
         });
-        S.backtest = r && typeof r === "object" ? { ...r, running: false, mode: "backtest" } : { ok: false, error: "generic" };
+        if (!r || r.ok === false) {
+          S.backtest = { ok: false, running: false, mode: "backtest", error: (r && r.error) || "generic" };
+          if (S.snap) S.snap.backtest = S.backtest;
+          paintBacktestResults(S.backtest);
+          toast((r && r.error) || I18N.t("errors.generic"));
+          S._btBusy = false;
+          setBacktestBusy(false);
+          headerState();
+          return;
+        }
+        S.backtest = { ...r, running: true, mode: "backtest" };
         if (S.snap) S.snap.backtest = S.backtest;
-        const box = $("bt-result");
-        if (box) box.innerHTML = renderBacktestCard(S.backtest);
-        if (!r.ok) toast(r.error || I18N.t("errors.generic"));
-        else toast(I18N.t("history.backtest_done"));
+        headerState();
+        watchBacktest();
       } catch (err) {
         S.backtest = { ok: false, running: false, mode: "backtest", error: err && err.message };
         toast(I18N.t("errors.generic"));
-      } finally {
         S._btBusy = false;
         setBacktestBusy(false);
         headerState();
@@ -3702,10 +9299,20 @@ function bindView(view) {
     };
   }
   if (view === "settings") {
+    /* Orphan sweep first, before anything calls getElementById: the
+       sheet furniture is parented to <body>, and a stale copy left
+       there would be found ahead of the one just rendered - jsdom and
+       browsers both resolve a duplicate id by tree order, and the
+       portaled corpse comes first. show() sweeps before it rebuilds
+       the stage, so this is belt and braces for anyone who re-renders
+       the view directly. */
+    sweepSetSheet();
     bindRobotPanel();
+    bindNotifySounds($("stage"));
     bindTelegramPanel();
     bindSymbolPicker();
     bindUpdatePanel();
+    bindExpertsCard();
     bindStrategyToggles();
     bindPropForm();
     bindPropEnable();
@@ -3744,27 +9351,31 @@ function bindView(view) {
     const licUpd = $("lic-upd");
     if (licUpd) licUpd.onclick = async () => {
       const box = $("lic-upd-msg");
-      const r = await API.get("/api/updates");
-      if (!r.ok && r.error) {
-        if (box) box.textContent = r.error;
-        return;
-      }
-      const d = r.data || r;
-      if (!d.configured) {
-        if (box) box.textContent = I18N.t("license.up_to_date") + " (GitHub repo not set)";
-        return;
-      }
-      if (d.newer) {
-        if (box) box.textContent = I18N.t("license.newer") + (d.latest ? " — " + d.latest : "");
-        if (d.url) window.open(d.url, "_blank", "noopener");
-      } else if (box) box.textContent = I18N.t("license.up_to_date");
+      if (box) box.textContent = I18N.t("upd.checking");
+      const res = await checkForUpdate();
+      if (!box) return;
+      /* The licence box can report an update but not install one, so
+         when there is one it hands over to the section that can,
+         rather than growing a second copy of that flow. */
+      box.innerHTML = updateSummaryHtml(res) + (res.available
+        ? ` <button class="btn tiny ghost" id="lic-upd-go" type="button">${
+            esc(I18N.t("upd.open_panel"))}</button>`
+        : "");
+      const go = $("lic-upd-go");
+      if (go) go.onclick = () => showSetTab("set-update");
     };
     const jump = $("set-jump");
     if (jump) jump.onclick = (e) => {
       const b = e.target.closest("[data-jump]"); if (!b) return;
       showSetTab(b.dataset.jump);
+      /* Picking a section is the sheet's whole purpose, so it is also
+         the commonest way to dismiss it. Leaving it up over the section
+         it just opened would hide the answer behind the question. */
+      closeSetSheet();
     };
     showSetTab(S.setTab || "set-robot");
+    bindSettingsSearch();
+    bindSetSheet();
     const sav = $("s-save");
     if (sav) sav.onclick = () => saveAccountSettings(false);
     const con = $("s-con");
@@ -3823,7 +9434,10 @@ function bindView(view) {
     };
     paintGlassSwitch();
     const glass = $("sw-glass");
-    if (glass) glass.onclick = () => setGlass(!glassOn());
+    if (glass) glass.onclick = () => { if (!glassForced()) setGlass(!glassOn()); };
+    bindAppearance();
+    markAppearancePills();
+    markThemeCards();
     bindStrategyUpload();
     const tpl = $("st-tpl");
     if (tpl) tpl.onclick = async (e) => {
@@ -3841,18 +9455,11 @@ function bindView(view) {
   }
   if (view === "about") {
     const chk = $("about-check-update");
-    if(chk) chk.onclick = async () => {
-      const r = await API.post('/api/system/update/check', {});
+    if (chk) chk.onclick = async () => {
       const el = $("about-update-status");
-      if(el) el.textContent = r.ok ? (r.update_available ? 'آپدیت موجود: '+(r.latest?.version||'') : 'به‌روز ✅') : 'خطا: '+(r.error||'');
-      const logEl = $("about-changelog");
-      if(logEl && r.ok && r.latest){
-        logEl.innerHTML = '<b>نسخه '+esc(r.latest.version||'')+'</b><br>'+esc(r.latest.changelog||'')+'<br><br>'+ (r.latest.files||[]).map(f=>'<div style="font-family:monospace;font-size:12px">'+esc(f.path)+'</div>').join('');
-      }
-    };
-    const copy = $("about-copy-ver");
-    if(copy) copy.onclick = async () => {
-      try { await navigator.clipboard.writeText(S.version||'1.0.0'); toast('کپی شد: v'+(S.version||'')); } catch {}
+      if (el) el.textContent = I18N.t("upd.checking");
+      const res = await checkForUpdate();
+      if (el) el.innerHTML = updateSummaryHtml(res);
     };
     // auto check - async IIFE
     (async () => {
@@ -3860,15 +9467,9 @@ function bindView(view) {
         const r = await API.get('/api/system/update/state');
         const el = $("about-update-status");
         if(el && r.ok && r.data){
-          el.textContent = r.data.update_available ? 'آپدیت موجود: '+(r.data.latest?.version||'') : 'به‌روز ✅ - v'+(S.version||'1.0.0');
-        }
-        const logEl = $("about-changelog");
-        if(logEl){
-          if(r.ok && r.data && r.data.latest){
-            logEl.innerHTML = '<b>نسخه '+esc(r.data.latest.version||'')+'</b><br>'+esc(r.data.latest.changelog||'')+'';
-          } else {
-            logEl.innerHTML = '<p>سیستم به‌روز است - v'+esc(S.version||'1.0.0')+'</p><p class="sub">AURION Live Desk - Axiasoft</p>';
-          }
+          el.innerHTML = r.data.update_available
+            ? esc(I18N.t('upd.available')+': '+(r.data.latest?.version||''))
+            : icon("check") + ' ' + esc(I18N.t('upd.uptodate')+' - v'+(S.version||'1.0.0'));
         }
       } catch {}
     })();
@@ -3925,7 +9526,12 @@ function bindStrategyToggles() {
     b.onclick = async () => {
       const name = b.dataset.st;
       const on = !b.classList.contains("on");
+      // Painted before the request goes out: the engine round trip is the
+      // one moment a switch must not feel slow. If it is refused, the two
+      // markers go back together.
+      paintStrategyEnabled(name, on);
       const r = await API.post("/api/strategies/toggle", { name, enabled: on });
+      if (!r.ok) paintStrategyEnabled(name, !on);
       toast(r.ok ? I18N.t(on ? "strategies.enable" : "strategies.disable") : (r.error || I18N.t("errors.generic")));
       if (r.ok && r.strategy) {
         S.snap = S.snap || {};
@@ -4160,14 +9766,75 @@ function bindRobotPanel() {
   const saveAi = async (quiet) => {
     const r = await API.post("/api/auto", {
       require_ai_agree: $("st-ai")?.classList.contains("on"),
-      min_ai_confidence: +($("st-conf")?.value || 0.55),
+      min_ai_confidence: +($("st-conf")?.value || 0.35),
     });
     if (!quiet) toast(r.ok ? I18N.t("common.save") : r.error);
     await refresh(false);
     return r;
   };
-  const save = $("st-ai-save");
-  if (save) save.onclick = () => saveAi(false);
+  // No save button: flipping the switch is the decision, so it persists
+  // immediately - the same contract as every other switch on this page.
+  const aiSwitch = $("st-ai");
+  if (aiSwitch) aiSwitch.onclick = () => {
+    aiSwitch.classList.toggle("on");
+    aiSwitch.setAttribute("aria-pressed", aiSwitch.classList.contains("on") ? "true" : "false");
+    saveAi(true);
+  };
+  // "Open between 1 and N trades": the ceiling the robot never crosses and
+  // how many tickets a strong setup is allowed to take at once.
+  const saveSlots = async (quiet) => {
+    const lo = Math.max(1, Math.min(20, +($("st-min-trades")?.value || 1)));
+    let hi = Math.max(1, Math.min(20, +($("st-max-trades")?.value || 2)));
+    if (hi < lo) hi = lo;
+    if ($("st-max-trades")) $("st-max-trades").value = hi;
+    const r = await API.post("/api/auto", {
+      min_open_trades: lo,
+      max_open_trades: hi,
+      smart_filters: $("st-smart")?.classList.contains("on"),
+      min_signal_quality: +($("st-quality")?.value || 0.55),
+    });
+    if (!quiet) toast(r.ok ? I18N.t("common.save") : (r.error || I18N.t("errors.generic")));
+    await refresh(false);
+    return r;
+  };
+  // The worked example follows the fields as they are typed in, so the two
+  // numbers stop being abstract before anything is saved.
+  const slotExample = () => {
+    const el = $("st-slots-demo");
+    if (!el) return;
+    const lo = Math.max(1, Math.min(20, +($("st-min-trades")?.value || 1)));
+    const hi = Math.max(lo, Math.min(20, +($("st-max-trades")?.value || 2)));
+    el.innerHTML = slotsDemoHtml(lo, hi);
+  };
+  ["st-min-trades", "st-max-trades"].forEach((id) => {
+    const el = $(id);
+    if (!el) return;
+    el.addEventListener("input", slotExample);
+    el.addEventListener("change", () => saveSlots(true));
+    el.addEventListener("keydown", (e) => { if (e.key === "Enter") saveSlots(true); });
+  });
+  const smart = $("st-smart");
+  if (smart) smart.onclick = () => {
+    smart.classList.toggle("on");
+    smart.setAttribute("aria-pressed", smart.classList.contains("on") ? "true" : "false");
+    saveSlots(true);
+  };
+  const quality = $("st-quality");
+  if (quality) {
+    const qpct = $("st-quality-pct");
+    const qnote = $("st-quality-note");
+    const paint = () => {
+      const pct = Math.round(+quality.value * 100);
+      if (qpct) qpct.textContent = pct + "%";
+      // The sentence under the slider changes with it, so the number means
+      // something while it is being dragged rather than after it is saved.
+      if (qnote) qnote.textContent = I18N.t("slots.q_now_" + (pct >= 70 ? "tight" : pct >= 45 ? "mid" : "loose"));
+      const first = document.querySelector(".q-does ol li");
+      if (first) first.textContent = I18N.t("slots.q_does_1", { pct });
+    };
+    quality.addEventListener("input", paint);
+    quality.addEventListener("change", () => saveSlots(true));
+  }
   const conf = $("st-conf");
   if (conf) {
     const pct = $("st-conf-pct");
@@ -4192,7 +9859,11 @@ function bindRobotPanel() {
   };
   const stVol = $("st-vol");
   if (stVol) {
-    const commit = () => saveVol("manual", true);
+    const commit = async () => {
+      await saveVol("manual", true);
+      // Same number on the ticket and the EA chart, immediately.
+      paintLotEverywhere(Number(stVol.value) || deskLot());
+    };
     stVol.addEventListener("change", commit);
     stVol.addEventListener("keydown", (e) => { if (e.key === "Enter") commit(); });
   }
@@ -4216,6 +9887,107 @@ function bindRobotPanel() {
       delete news.dataset.busy;
     }
   };
+  // Auto entry point: rest the robot's order at a price with the stop and
+  // target attached, instead of taking the market the second a candle shuts.
+  const autoEntry = $("st-autoentry");
+  if (autoEntry) autoEntry.onclick = async () => {
+    if (autoEntry.disabled || autoEntry.dataset.busy) return;
+    autoEntry.dataset.busy = "1";
+    const on = !autoEntry.classList.contains("on");
+    paintSwitch(autoEntry, on);
+    try {
+      const r = await API.post("/api/auto", { auto_entry: { enabled: on } });
+      if (!r.ok) {
+        paintSwitch(autoEntry, !on);
+        if (licGateToast(r)) return;
+        toast(r.error || I18N.t("errors.generic"));
+        return;
+      }
+      toast(I18N.t(on ? "autoentry.on" : "autoentry.off"));
+      await reloadSettings();
+    } finally {
+      delete autoEntry.dataset.busy;
+    }
+  };
+  // The broker line follows the field as it is typed, or it is a
+  // conversion of whatever was there when the page was drawn.
+  for (const id of ["pr-hs", "pr-he"]) {
+    const field = $(id);
+    if (!field) continue;
+    const echo = document.querySelector(`.prop-at-broker[data-for="${id}"]`);
+    if (!echo) continue;
+    field.addEventListener("input", () => { echo.textContent = brokerEcho(field.value); });
+  }
+
+  const moneySave = $("st-money-save");
+  if (moneySave) moneySave.onclick = async () => {
+    const field = $("st-money-cap");
+    const r = await API.post("/api/money", { max_loss_per_lot: +(field?.value || 0) });
+    if (!r.ok) { toast(r.error || I18N.t("errors.generic")); return; }
+    const reach = $("st-money-reach");
+    if (reach) reach.textContent = moneyReach(r.money || {});
+    toast(I18N.t(Number(r.money?.max_loss_per_lot) ? "money.saved" : "money.saved_off"));
+    await reloadSettings();
+  };
+
+  bindPropGuide();
+
+  const tzSel = $("sys-tz");
+  if (tzSel) tzSel.onchange = async () => {
+    const r = await API.post("/api/timezone", { timezone: tzSel.value });
+    if (!r.ok) { toast(r.error || I18N.t("errors.generic")); return; }
+    const label = r.system?.label || tzSel.value;
+    toast(I18N.t("sys.tz_set", { z: label }));
+    await reloadSettings();
+  };
+
+  const rfSw = $("st-rf");
+  if (rfSw) rfSw.onclick = async () => {
+    if (rfSw.disabled || rfSw.dataset.busy) return;
+    rfSw.dataset.busy = "1";
+    const on = !rfSw.classList.contains("on");
+    paintSwitch(rfSw, on);
+    try {
+      const r = await API.post("/api/risk_free", { enabled: on, ladder: on });
+      if (!r.ok) {
+        paintSwitch(rfSw, !on);
+        toast(r.error || I18N.t("errors.generic"));
+        return;
+      }
+      toast(I18N.t(on ? "strategies.rf_on" : "strategies.rf_off"));
+      await reloadSettings();
+    } finally {
+      delete rfSw.dataset.busy;
+    }
+  };
+  const rfSteps = $("st-rf-steps");
+  if (rfSteps) {
+    const n = $("st-rf-steps-n");
+    rfSteps.addEventListener("input", () => {
+      if (n) n.textContent = String(rfSteps.value);
+      // Redraw the named rungs as the slider moves, so the trader is
+      // choosing between "TP1, TP2, TP3" and not between 3 and 4.
+      const ladder = $("st-rf-ladder");
+      const steps = Math.max(1, Math.min(5, +rfSteps.value || 3));
+      if (ladder) {
+        ladder.innerHTML = rfLadderHtml({
+          steps,
+          rungs: Array.from({ length: steps }, (_, i) => ({
+            step: i + 1,
+            label: `TP${i + 1}`,
+            moves_to: i === 0 ? "entry" : `TP${i}`,
+            fraction: (i + 1) / steps,
+          })),
+        });
+      }
+    });
+    rfSteps.addEventListener("change", async () => {
+      const r = await API.post("/api/risk_free", { steps: +rfSteps.value });
+      if (!r.ok) toast(r.error || I18N.t("errors.generic"));
+      await refresh(false);
+    });
+  }
+
   const dgSw = $("st-danger");
   if (dgSw) dgSw.onclick = async () => {
     if (dgSw.disabled || dgSw.dataset.busy) return;
@@ -4419,9 +10191,19 @@ function symPaintFoot() {
   const n = SYM_PICK.selected.size;
   if (foot) foot.textContent = I18N.t("risk.symbols_count", { n });
   if (label) {
-    label.textContent = n
-      ? I18N.t("risk.symbols_count", { n })
-      : I18N.t("risk.symbols_all_allowed");
+    // The chosen symbols are shown as chips on the control itself. A count
+    // alone ("6 selected") forces the trader to open the panel to find out
+    // which six, which is the question they actually have.
+    if (!n) {
+      label.innerHTML = `<em class="sym-none">${esc(I18N.t("risk.symbols_all_allowed"))}</em>`;
+    } else {
+      const picks = Array.from(SYM_PICK.selected).sort();
+      const shown = picks.slice(0, 6);
+      label.innerHTML = shown.map((sym) =>
+        `<span class="sym-chip">${esc(sym)}<i data-unpick="${esc(sym)}" title="${esc(I18N.t("risk.symbols_clear"))}">&times;</i></span>`
+      ).join("") + (picks.length > shown.length
+        ? `<span class="sym-chip more">+${picks.length - shown.length}</span>` : "");
+    }
   }
   const hidden = $("pr-syms");
   if (hidden) hidden.value = Array.from(SYM_PICK.selected).sort().join(",");
@@ -4431,6 +10213,17 @@ async function bindSymbolPicker() {
   const wrap = $("pr-syms-pick");
   if (!wrap || wrap._bound) return;
   wrap._bound = true;
+  const label = $("pr-syms-label");
+  if (label) label.onclick = (e) => {
+    const x = e.target.closest("[data-unpick]");
+    if (!x) return;
+    // Do not let the click reach the button, or the panel opens as it closes.
+    e.preventDefault();
+    e.stopPropagation();
+    SYM_PICK.selected.delete(x.getAttribute("data-unpick"));
+    symPaintList($("pr-syms-q") ? $("pr-syms-q").value : "");
+  };
+
   const btn = $("pr-syms-btn");
   const panel = $("pr-syms-panel");
   const list = $("pr-syms-list");
@@ -4510,10 +10303,383 @@ function bindPropForm() {
   };
 }
 
+/* ------------------------------------------------- backtest, while running
+ *
+ * A replay can run for minutes. Until now the only sign of life was a
+ * spinner and a percentage, which tells the trader the engine has not
+ * hung but nothing about what it is finding. The engine publishes a live
+ * snapshot on every progress tick (backtest/engine.py passes equity, the
+ * thinned curve, the trade count and the bar it has reached), so the run
+ * is drawn as it happens: the symbol's own chart, the equity curve
+ * forming, and the counters moving.
+ */
+function renderBacktestLive(bt) {
+  bt = bt || S.backtest || {};
+  if (!bt.running) return "";
+  const live = (bt.live && typeof bt.live === "object") ? bt.live : {};
+  const pct = Math.max(0, Math.min(99, Math.round(Number(bt.progress) || 0)));
+  const symbol = String(bt.symbol || "");
+  const tf = String(bt.timeframe || S.timeframe || "M15");
+  const curve = Array.isArray(live.equity_curve)
+    ? live.equity_curve.map(Number).filter((x) => Number.isFinite(x))
+    : [];
+
+  // Only state the engine actually reported. A run that has not yet sent
+  // its first snapshot shows a dash, never a stand-in number.
+  const eq = Number.isFinite(Number(live.equity)) ? fmt(Number(live.equity)) : "—";
+  const done = Number.isFinite(Number(live.trades_so_far)) ? fmt(Number(live.trades_so_far), 0) : "—";
+  const at = live.at ? esc(String(live.at)) : "—";
+  const side = live.open_side ? esc(String(live.open_side)).toUpperCase() : "—";
+
+  return `<div class="bt-live">
+    <div class="tape-banner is-backtest" style="margin:0 0 10px">
+      ${I18N.t("bt.live_running")} · ${esc(symbol)} ${esc(tf)} · ${esc(String(bt.strategy || ""))}
+    </div>
+    <div class="bt-prog" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${pct}">
+      <i style="width:${pct}%"></i><b class="mono">${pct}%</b>
+    </div>
+    <div class="kv bt-kv">
+      <span>${I18N.t("bt.live_equity")}</span><b class="mono">${eq}</b>
+      <span>${I18N.t("bt.live_trades")}</span><b class="mono">${done}</b>
+      <span>${I18N.t("bt.live_bar")}</span><b class="mono">${at}</b>
+      <span>${I18N.t("bt.live_position")}</span><b class="mono">${side}</b>
+    </div>
+    <div class="bt-live-chart">
+      <canvas id="bt-replay"></canvas>
+      <span class="bt-replay-at mono" id="bt-replay-at">${at}</span>
+      <p class="bt-replay-note" id="bt-replay-note" hidden></p>
+    </div>
+    <p class="sub">${I18N.t("bt.live_chart_hint")}</p>
+    ${curve.length > 1 ? `<div class="bt-curve"><canvas id="bt-curve"></canvas></div>
+    <p class="sub">${I18N.t("bt.live_curve_hint")}</p>` : ""}
+  </div>`;
+}
+
+/* Keep the live panel current without rebuilding it.
+ *
+ * Snapshots arrive about twice a second. Re-writing innerHTML on each one
+ * would throw away the chart canvas and re-request the symbol's candles
+ * at that same rate, so the markup is built once per run and only the
+ * values that moved are written afterwards. The candle chart refreshes on
+ * its own slower schedule - it is showing the live market, which does not
+ * change meaningfully between ticks of a replay.
+ */
+function paintBacktestLive(box, bt, running) {
+  if (!running) {
+    if (box.innerHTML !== "") box.innerHTML = "";
+    box.removeAttribute("data-run");
+    S._btReplay = null;
+    return;
+  }
+  const key = `${bt.symbol || ""}|${bt.timeframe || ""}|${bt.strategy || ""}`;
+  const snap = (bt.live && typeof bt.live === "object") ? bt.live : {};
+  const lc = Array.isArray(snap.equity_curve)
+    ? snap.equity_curve.map(Number).filter((x) => Number.isFinite(x))
+    : [];
+
+  // Rebuild only when the run changes, or when the curve's canvas first
+  // becomes needed (the first snapshot arrives after the panel is up).
+  const fresh = box.getAttribute("data-run") !== key;
+  const needsCurve = lc.length > 1 && !box.querySelector("#bt-curve");
+  if (fresh || needsCurve) {
+    box.innerHTML = renderBacktestLive(bt);
+    box.setAttribute("data-run", key);
+  } else {
+    const pct = Math.max(0, Math.min(99, Math.round(Number(bt.progress) || 0)));
+    const bar = box.querySelector(".bt-prog i");
+    const num = box.querySelector(".bt-prog b");
+    const prog = box.querySelector(".bt-prog");
+    if (bar) bar.style.width = pct + "%";
+    if (num) num.textContent = pct + "%";
+    if (prog) prog.setAttribute("aria-valuenow", String(pct));
+    const cells = box.querySelectorAll(".bt-kv b");
+    if (cells.length >= 4) {
+      cells[0].textContent = Number.isFinite(Number(snap.equity)) ? fmt(Number(snap.equity)) : "—";
+      cells[1].textContent = Number.isFinite(Number(snap.trades_so_far)) ? fmt(Number(snap.trades_so_far), 0) : "—";
+      cells[2].textContent = snap.at ? String(snap.at) : "—";
+      cells[3].textContent = snap.open_side ? String(snap.open_side).toUpperCase() : "—";
+    }
+  }
+
+  if (lc.length > 1) requestAnimationFrame(() => drawEquityCurve(lc));
+
+  /* The bars the replay is walking, not the ones the market is making.
+     This panel used to draw the symbol's live candles beside a replay
+     of a window that had already finished: two unrelated things in one
+     card, the bigger of them labelled as the test. */
+  const stamp = box.querySelector("#bt-replay-at");
+  if (stamp) stamp.textContent = snap.at ? String(snap.at) : "";
+  paintReplay(box, bt, snap);
+}
+
+/* ------------------------------------------------------------------ *
+ * The replay chart's data.
+ *
+ * The engine sends the bars it is replaying, and when they arrive they
+ * are what gets drawn - they are the tested window by definition. But
+ * the desk must not be left with an empty frame when they do not
+ * arrive: an engine from an older build sends no replay bars at all,
+ * and the first snapshot of a run can land before any have been cut.
+ * Showing nothing in that case is exactly the blank panel this is
+ * meant to fix.
+ *
+ * So the desk keeps its own copy of the symbol's candles - the same
+ * ones the engine is replaying, since a run tests the EA's most recent
+ * history - and winds them forward to whichever bar the run says it
+ * has reached. Same picture, drawn from whichever source answered.
+ * ------------------------------------------------------------------ */
+
+const BT_REPLAY_SPAN = 160;
+
+/** Engine bars are {t,o,h,l,c}; the candles API speaks {time,open,...}. */
+function btNormBar(b) {
+  if (!b || typeof b !== "object") return null;
+  const t = b.t != null ? b.t : b.time;
+  const o = Number(b.o != null ? b.o : b.open);
+  const h = Number(b.h != null ? b.h : b.high);
+  const l = Number(b.l != null ? b.l : b.low);
+  const c = Number(b.c != null ? b.c : b.close);
+  if (![o, h, l, c].every(Number.isFinite) || !(o > 0) || !(c > 0)) return null;
+  return { t: t == null ? "" : String(t), o, h, l, c };
+}
+
+/** Fetch the run's candles once, then repaint with what came back. */
+function ensureBacktestBars(bt) {
+  const key = `${bt.symbol || ""}|${bt.timeframe || ""}`;
+  if (!bt.symbol) return;
+  const have = S._btBars;
+  if (have && have.key === key && (have.bars || have.pending)) return;
+  S._btBars = { key, pending: true, bars: null };
+  API.get(`/api/candles?symbol=${encodeURIComponent(bt.symbol)}`
+        + `&timeframe=${encodeURIComponent(bt.timeframe || S.timeframe || "M15")}&count=1500`)
+    .then((r) => {
+      const bars = (r && r.data ? r.data : []).map(btNormBar).filter(Boolean);
+      S._btBars = { key, pending: false, bars };
+      // Draw the snapshot that could not be drawn when it arrived. The
+      // run is taken from the closure rather than read back out of S,
+      // so this still repaints when the caller drives the panel
+      // directly instead of through the usual snapshot plumbing.
+      const box = $("bt-live");
+      if (!box) return;
+      const now = (S.backtest && S.backtest.running) ? S.backtest : bt;
+      if (!now || !now.running) return;
+      paintReplay(box, now, (now.live && typeof now.live === "object") ? now.live : {});
+    })
+    .catch(() => { S._btBars = { key, pending: false, bars: null }; });
+}
+
+/** The window of bars to draw, and where it came from. */
+function btReplayWindow(bt, snap) {
+  const sent = Array.isArray(snap.replay_bars)
+    ? snap.replay_bars.map(btNormBar).filter(Boolean) : [];
+  if (sent.length > 1) return { bars: sent, source: "engine" };
+
+  const cache = S._btBars;
+  const key = `${bt.symbol || ""}|${bt.timeframe || ""}`;
+  if (!cache || cache.key !== key || !Array.isArray(cache.bars) || cache.bars.length < 2) {
+    return { bars: [], source: cache && cache.pending ? "loading" : "none" };
+  }
+  const bars = cache.bars;
+  const at = snap.at ? String(snap.at) : "";
+  let end = -1;
+  if (at) {
+    for (let i = bars.length - 1; i >= 0; i--) {
+      if (bars[i].t === at) { end = i; break; }
+    }
+  }
+  // Without a bar to stand on this would just be the live market again,
+  // which is the thing the panel is not allowed to show.
+  if (end < 1) return { bars: [], source: "unmatched" };
+  return { bars: bars.slice(Math.max(0, end - BT_REPLAY_SPAN + 1), end + 1), source: "desk" };
+}
+
+function paintReplay(box, bt, snap) {
+  const note = box.querySelector("#bt-replay-note");
+  btWatchReplaySize(box);
+  const { bars, source } = btReplayWindow(bt, snap);
+  if (source !== "engine") ensureBacktestBars(bt);
+
+  if (bars.length > 1) {
+    if (note) { note.hidden = true; note.textContent = ""; }
+    // Kept so the chart can be redrawn when the panel is resized or
+    // revealed, without waiting for the next snapshot.
+    // Both held in the closure, NOT read back out of S when the frame
+    // runs. A requestAnimationFrame callback fires on the next paint,
+    // and a run that finishes in between sets S._btReplay to null --
+    // so reading S._btReplay.marks there threw
+    // "Cannot read properties of null" at the end of every backtest.
+    const marks = Array.isArray(snap.marks) ? snap.marks : [];
+    S._btReplay = { bars, marks };
+    requestAnimationFrame(() => drawReplayChart(bars, marks));
+    return;
+  }
+  S._btReplay = null;
+  const cv = $("bt-replay");
+  if (cv && cv.getContext) {
+    const g = cv.getContext("2d");
+    if (g) g.clearRect(0, 0, cv.width, cv.height);
+  }
+  if (note) {
+    note.hidden = false;
+    note.textContent = I18N.t(source === "unmatched" ? "bt.replay_outside" : "bt.replay_wait");
+  }
+}
+
+/**
+ * Repaint when the panel changes size.
+ *
+ * The other way this chart ends up blank: a canvas measured while its
+ * card was still hidden has no width to be drawn into, and nothing
+ * redraws it once the card is revealed. Watching the box covers both
+ * being shown and the window being resized.
+ */
+function btWatchReplaySize(box) {
+  const frame = box.querySelector(".bt-live-chart");
+  if (!frame || !frame.dataset || frame.dataset.sized === "1") return;
+  frame.dataset.sized = "1";
+  if (typeof ResizeObserver !== "function") return;
+  const ro = new ResizeObserver(() => {
+    if (!S._btReplay || !document.getElementById("bt-replay")) return;
+    requestAnimationFrame(() => {
+      if (S._btReplay) drawReplayChart(S._btReplay.bars, S._btReplay.marks);
+    });
+  });
+  ro.observe(frame);
+}
+
+/**
+ * The bars a backtest is replaying, with its trades marked on them.
+ *
+ * Drawn here rather than through the chart workspace because this is a
+ * different job: a few hundred bars that are replaced wholesale twice a
+ * second, with no interaction, no indicators and no drawing tools. The
+ * workspace would rebuild its whole state on every update.
+ */
+function drawReplayChart(bars, marks) {
+  const cv = $("bt-replay");
+  if (!cv || !Array.isArray(bars) || bars.length < 2) return;
+  const box = cv.parentElement;
+  const dpr = Math.min(2, window.devicePixelRatio || 1);
+  const w = Math.max(240, (box ? box.clientWidth : 0) || 240);
+  const h = Math.max(160, (box ? box.clientHeight : 0) || 200);
+  cv.width = Math.round(w * dpr);
+  cv.height = Math.round(h * dpr);
+  cv.style.width = w + "px";
+  cv.style.height = h + "px";
+  const g = cv.getContext("2d");
+  if (!g) return;
+  g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  g.clearRect(0, 0, w, h);
+
+  // Same colour resolution as the equity curve: a custom property can
+  // come back as the literal text "var(--something)".
+  const css = getComputedStyle(document.documentElement);
+  const pick = (name, fallback) => {
+    let v = (css.getPropertyValue(name) || "").trim();
+    for (let i = 0; i < 4 && /^var\(\s*--/.test(v); i++) {
+      const ref = v.slice(v.indexOf("--")).split(/[,)]/)[0].trim();
+      v = (css.getPropertyValue(ref) || "").trim();
+    }
+    return v && !/^var\(/.test(v) ? v : fallback;
+  };
+  // The trader's own candle colours, so the replay is not a different
+  // green from every other chart on the desk.
+  const up = pick("--candle-up", pick("--ok", "#26d07c"));
+  const down = pick("--candle-down", pick("--bad", "#f4475b"));
+  const line = pick("--line", "rgba(255,255,255,.08)");
+  const ink = pick("--muted", "rgba(255,255,255,.55)");
+
+  const num = (v) => (Number.isFinite(Number(v)) ? Number(v) : 0);
+  let lo = Infinity, hi = -Infinity;
+  for (const b of bars) {
+    const l = num(b.l), hgh = num(b.h);
+    if (l > 0) lo = Math.min(lo, l);
+    if (hgh > 0) hi = Math.max(hi, hgh);
+  }
+  if (!Number.isFinite(lo) || !Number.isFinite(hi) || hi - lo < 1e-9) return;
+  const pad = (hi - lo) * 0.08;
+  lo -= pad; hi += pad;
+
+  const padL = 6, padR = 48, padT = 8, padB = 8;
+  const iw = Math.max(1, w - padL - padR);
+  const x = (i) => padL + ((i + 0.5) / bars.length) * iw;
+  const y = (v) => padT + (1 - (v - lo) / (hi - lo)) * (h - padT - padB);
+  const bw = Math.max(1, Math.min(9, (iw / bars.length) * 0.68));
+
+  // The last price, labelled on the right, because that is the number
+  // the replay is standing on.
+  const lastC = num(bars[bars.length - 1].c);
+  g.strokeStyle = line;
+  g.lineWidth = 1;
+  g.beginPath();
+  g.moveTo(padL, Math.round(y(lastC)) + 0.5);
+  g.lineTo(w - padR, Math.round(y(lastC)) + 0.5);
+  g.stroke();
+
+  for (let i = 0; i < bars.length; i++) {
+    const b = bars[i];
+    const o = num(b.o), c = num(b.c), hg = num(b.h), l = num(b.l);
+    if (!o || !c) continue;
+    const rising = c >= o;
+    g.strokeStyle = g.fillStyle = rising ? up : down;
+    const cx = Math.round(x(i)) + 0.5;
+    g.lineWidth = 1;
+    g.beginPath();
+    g.moveTo(cx, y(hg));
+    g.lineTo(cx, y(l));
+    g.stroke();
+    const top = y(Math.max(o, c));
+    const bot = y(Math.min(o, c));
+    g.fillRect(cx - bw / 2, top, bw, Math.max(1, bot - top));
+  }
+
+  // Where the run entered and left.
+  const at = new Map();
+  bars.forEach((b, i) => { if (b && b.t) at.set(String(b.t), i); });
+  for (const m of (marks || [])) {
+    const i = at.get(String(m && m.t));
+    if (i === undefined) continue;
+    const price = num(m.price);
+    if (!price) continue;
+    const cx = x(i), cy = y(price);
+    const isIn = m.kind === "in";
+    const buy = String(m.side || "").toLowerCase() === "buy";
+    g.fillStyle = isIn ? (buy ? up : down) : ink;
+    g.beginPath();
+    if (isIn) {
+      // A triangle pointing the way the trade was taken.
+      const d = buy ? -1 : 1;
+      g.moveTo(cx, cy + d * 7);
+      g.lineTo(cx - 5, cy + d * 13);
+      g.lineTo(cx + 5, cy + d * 13);
+      g.closePath();
+      g.fill();
+      if (m.open) { g.strokeStyle = g.fillStyle; g.lineWidth = 1.5; g.stroke(); }
+    } else {
+      g.fillStyle = num(m.profit) >= 0 ? up : down;
+      g.beginPath();
+      g.arc(cx, cy, 3.2, 0, Math.PI * 2);
+      g.fill();
+    }
+  }
+
+  // The price axis: three labels, enough to read the scale.
+  g.fillStyle = ink;
+  g.font = "10px ui-monospace, monospace";
+  g.textAlign = "start";
+  g.textBaseline = "middle";
+  for (const v of [hi - pad, (hi + lo) / 2, lo + pad]) {
+    g.fillText(fmt(v, 2), w - padR + 6, y(v));
+  }
+}
+
 function renderBacktestCard(bt) {
   bt = bt || S.backtest || {};
   if (bt.running) return "";
-  if (!bt || (!bt.ok && !bt.error && bt.mode !== "backtest")) return `<p class="sub">${I18N.t("history.backtest_empty")}</p>`;
+  // The empty state belongs to one element now that both halves of the
+  // result share a card: renderBacktestExtra owns it. Saying it twice in
+  // the same box read like a fault.
+  if (!bt || (!bt.ok && !bt.error && bt.mode !== "backtest")) return "";
   if (!bt.ok) return `<p class="err">${esc(bt.error || I18N.t("errors.generic"))}</p>`;
   const m = bt.metrics || {};
   return `<div class="tape-banner is-backtest" style="margin:12px 0 10px">${I18N.t("tape.showing_backtest")} · ${esc(bt.symbol || "")} ${esc(bt.timeframe || "")} · ${esc(bt.strategy || "")}</div>
@@ -4524,9 +10690,276 @@ function renderBacktestCard(bt) {
       <span>${I18N.t("history.rr")}</span><b>${fmt(m.avg_rr,2)}</b>
       <span>${I18N.t("history.net")}</span><b class="${clsPnl(m.net)}">${fmt(m.net)}</b>
       <span>${I18N.t("history.trades")}</span><b>${fmt(m.trades || (bt.trades || []).length, 0)}</b>
-    </div>`;
+    </div>
+    ${btProvenance(bt)}`;
 }
-function setBacktestBusy(on) {
+
+/**
+ * Where the numbers above came from.
+ *
+ * The engine refuses to replay anything but real MT5 bars, but a refusal
+ * in the source code is not something a trader can see. Printing the
+ * first and last bar of the window that was actually replayed turns
+ * "these are real" from a claim into something checkable against their
+ * own terminal.
+ */
+function btProvenance(bt) {
+  const d = (bt && bt.data) || {};
+  if (!d.first_bar && !d.last_bar && !bt.bars) return "";
+  const span = d.first_bar && d.last_bar
+    ? `${esc(String(d.first_bar))} → ${esc(String(d.last_bar))}`
+    : "—";
+  return `<p class="sub bt-prov" style="margin-top:10px">
+    ${I18N.t("bt.prov_source")} · <b class="mono">${esc(String(d.source || "mt5").toUpperCase())}</b>
+    · ${I18N.t("bt.prov_window")} <b class="mono">${span}</b>
+    · ${I18N.t("bt.prov_bars")} <b class="mono">${fmt(d.tested_bars || bt.bars || 0, 0)}</b>${d.warmup_bars ? ` (+${fmt(d.warmup_bars, 0)} ${I18N.t("bt.prov_warmup")})` : ""}
+    ${btLotProvenance(bt)}
+  </p>`;
+}
+
+/**
+ * The robot settings the replay was run under.
+ *
+ * A result is only readable against the settings that produced it. The
+ * replay follows the desk's own lot mode and open-trade cap -- manual
+ * pins every entry to the fixed lot, auto leaves the strategy its own
+ * size -- and without saying so, a trader set to 1.0 lots had no way to
+ * tell whether the figures in front of them were theirs or a default's.
+ */
+function btLotProvenance(bt) {
+  const mode = String((bt && bt.volume_mode) || "").toLowerCase();
+  if (mode !== "auto" && mode !== "manual") return "";
+  const manual = Number(bt.manual_volume);
+  const lot = mode === "manual" && Number.isFinite(manual) && manual > 0
+    ? `${I18N.t("bt.prov_lot_manual")} <b class="mono">${fmt(manual, 2)}</b>`
+    : `${I18N.t("bt.prov_lot_auto")}`;
+  const cap = Number(bt.max_open);
+  const capTxt = Number.isFinite(cap) && cap > 0
+    ? ` · ${I18N.t("bt.prov_max_open")} <b class="mono">${fmt(cap, 0)}</b>`
+    : "";
+  return `· ${lot}${capTxt}`;
+}
+/* ---------------------------------------------------------- backtest results
+ *
+ * The "Backtest results" card was an empty div. The engine has been
+ * returning an equity curve and the trade list all along (backtest/engine.py
+ * sends `equity_curve` and `trades`) and the desk threw both away, so a
+ * finished run was six numbers in a box with no way to see HOW it got
+ * there - a run that made its money in one lucky bar looked identical to a
+ * steady one.
+ *
+ * Everything drawn here is measured output from the replay. Nothing is
+ * modelled, smoothed or filled in. */
+function renderBacktestExtra(bt) {
+  bt = bt || S.backtest || {};
+  if (bt.running) return "";
+  if (!bt.ok) return `<p class="sub">${I18N.t("bt.empty")}</p>`;
+
+  const curve = Array.isArray(bt.equity_curve) ? bt.equity_curve.map(Number).filter((x) => Number.isFinite(x)) : [];
+  const trades = Array.isArray(bt.trades) ? bt.trades : [];
+  const m = bt.metrics || {};
+
+  let head = "";
+  if (curve.length > 1) {
+    const start = curve[0];
+    const final = curve[curve.length - 1];
+    let peak = curve[0];
+    let dd = 0;
+    for (const v of curve) { if (v > peak) peak = v; const d = peak - v; if (d > dd) dd = d; }
+    head = `<div class="kv bt-kv">
+      <span>${I18N.t("bt.start")}</span><b class="mono">${fmt(start)}</b>
+      <span>${I18N.t("bt.final")}</span><b class="mono ${clsPnl(final - start)}">${fmt(final)}</b>
+      <span>${I18N.t("bt.peak")}</span><b class="mono">${fmt(peak)}</b>
+      <span>${I18N.t("bt.dd")}</span><b class="mono ${dd > 0 ? "down" : ""}">${fmt(dd)}</b>
+    </div>
+    <div class="bt-curve"><canvas id="bt-curve"></canvas></div>
+    <p class="sub">${I18N.t("bt.curve_hint")}</p>`;
+  }
+
+  let table = `<p class="sub">${I18N.t("bt.no_trades")}</p>`;
+  if (trades.length) {
+    const total = Number(m.trades || trades.length);
+    const rows = trades.slice().reverse().map((t) => {
+      const side = String(t.type || "").toLowerCase();
+      return `<tr>
+        <td class="mono">${esc(btWhen(t.time))}</td>
+        <td><span class="pill tiny ${side === "buy" ? "up" : "down"}">${esc(side.toUpperCase() || "—")}</span></td>
+        <td class="mono">${fmt(t.entry, 5)}</td>
+        <td class="mono">${fmt(t.exit, 5)}</td>
+        <td class="mono ${clsPnl(t.profit)}">${fmt(t.profit)}</td>
+        <td class="sub">${esc(String(t.exit_reason || "—"))}</td>
+      </tr>`;
+    }).join("");
+    table = `<h4 class="bt-sub">${I18N.t("bt.trades_title")}</h4>
+      <p class="sub">${esc(I18N.t("bt.showing", { n: trades.length, total }))}</p>
+      <div class="table-wrap bt-trades">
+        <table>
+          <thead><tr>
+            <th>${I18N.t("bt.t_when")}</th><th>${I18N.t("bt.t_side")}</th>
+            <th>${I18N.t("bt.t_entry")}</th><th>${I18N.t("bt.t_exit")}</th>
+            <th>${I18N.t("bt.t_pnl")}</th><th>${I18N.t("bt.t_why")}</th>
+          </tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>`;
+  }
+  return head + table;
+}
+
+/** Bar times arrive as ISO strings or epoch seconds depending on the feed. */
+function btWhen(v) {
+  if (v == null || v === "") return "—";
+  let d = null;
+  if (typeof v === "number") d = new Date(v > 1e11 ? v : v * 1000);
+  else d = new Date(String(v));
+  if (!d || isNaN(d.getTime())) return String(v);
+  try {
+    return d.toLocaleString(I18N.locale(), { month: "short", day: "2-digit", hour: "2-digit", minute: "2-digit" });
+  } catch (e) {
+    return d.toISOString().slice(0, 16).replace("T", " ");
+  }
+}
+
+/* Draw the equity curve on its canvas.
+ *
+ * Deliberately plain: one line, a zero-profit baseline, filled above and
+ * below in profit/loss colour. Reading "did it climb or grind down" must
+ * not require interpreting a legend. */
+function drawEquityCurve(curve) {
+  const cv = $("bt-curve");
+  if (!cv || !Array.isArray(curve) || curve.length < 2) return;
+  const box = cv.parentElement;
+  const dpr = Math.min(2, window.devicePixelRatio || 1);
+  const w = Math.max(240, (box ? box.clientWidth : 0) || 240);
+  const h = Math.max(140, (box ? box.clientHeight : 0) || 180);
+  cv.width = Math.round(w * dpr);
+  cv.height = Math.round(h * dpr);
+  cv.style.width = w + "px";
+  cv.style.height = h + "px";
+  const g = cv.getContext("2d");
+  if (!g) return;
+  g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  g.clearRect(0, 0, w, h);
+
+  /* Custom properties are not guaranteed to come back resolved: an
+     unregistered property whose value is `var(--candle-up)` can be handed
+     back as that literal text. --ok and --bad are both aliases, so follow
+     the chain a few links before giving up. */
+  const css = getComputedStyle(document.documentElement);
+  const pick = (name, fallback) => {
+    let v = (css.getPropertyValue(name) || "").trim();
+    for (let i = 0; i < 4 && /^var\(\s*--/.test(v); i++) {
+      const ref = v.slice(v.indexOf("--")).split(/[,)]/)[0].trim();
+      v = (css.getPropertyValue(ref) || "").trim();
+    }
+    return v && !/^var\(/.test(v) ? v : fallback;
+  };
+  // --ok / --bad are the desk's profit and loss colours; they follow the
+  // active theme, so the curve is never the wrong green in a light skin.
+  const up = pick("--ok", "#2fd48a");
+  const down = pick("--bad", "#ff5f6d");
+  const grid = pick("--line", "rgba(255,255,255,.08)");
+
+  const base = curve[0];
+  let lo = Math.min(...curve, base);
+  let hi = Math.max(...curve, base);
+  if (hi - lo < 1e-9) { hi = base + 1; lo = base - 1; }
+  const pad = (hi - lo) * 0.08;
+  lo -= pad; hi += pad;
+  const padL = 8, padR = 8, padT = 10, padB = 10;
+  const x = (i) => padL + (i / (curve.length - 1)) * (w - padL - padR);
+  const y = (v) => padT + (1 - (v - lo) / (hi - lo)) * (h - padT - padB);
+
+  // The starting-equity line: above it the run is in profit, below it is not.
+  g.strokeStyle = grid;
+  g.lineWidth = 1;
+  g.setLineDash([4, 4]);
+  g.beginPath();
+  g.moveTo(padL, y(base));
+  g.lineTo(w - padR, y(base));
+  g.stroke();
+  g.setLineDash([]);
+
+  const ended = curve[curve.length - 1] >= base;
+  const colour = ended ? up : down;
+
+  const fill = g.createLinearGradient(0, padT, 0, h - padB);
+  // A var() can resolve to anything; only a plain hex can take an alpha
+  // suffix. Anything else falls back to a flat global alpha below.
+  const soft = /^#[0-9a-f]{6}$/i.test(colour) ? colour + "3a" : "";
+  fill.addColorStop(0, soft || colour);
+  fill.addColorStop(1, "transparent");
+  g.beginPath();
+  g.moveTo(x(0), y(curve[0]));
+  for (let i = 1; i < curve.length; i++) g.lineTo(x(i), y(curve[i]));
+  g.lineTo(x(curve.length - 1), y(base));
+  g.lineTo(x(0), y(base));
+  g.closePath();
+  g.save();
+  if (!soft) g.globalAlpha = 0.22;
+  g.fillStyle = fill;
+  g.fill();
+  g.restore();
+
+  g.beginPath();
+  g.moveTo(x(0), y(curve[0]));
+  for (let i = 1; i < curve.length; i++) g.lineTo(x(i), y(curve[i]));
+  g.strokeStyle = colour;
+  g.lineWidth = 2;
+  g.lineJoin = "round";
+  g.stroke();
+
+  // Where it finished.
+  g.beginPath();
+  g.arc(x(curve.length - 1), y(curve[curve.length - 1]), 3.5, 0, Math.PI * 2);
+  g.fillStyle = colour;
+  g.fill();
+}
+
+/**
+ * Put a finished run on screen: the summary in its own card, the curve and
+ * the trade list in the results card, and - when the run has just finished -
+ * bring the results into view. A replay can take minutes; the trader will
+ * have scrolled away or be reading something else, and a result that lands
+ * silently off-screen is a result they do not know they have.
+ */
+function paintBacktestResults(bt, opts) {
+  bt = bt || S.backtest || {};
+  const running = Boolean(bt.running);
+
+  // The live panel and the finished result occupy the same card and are
+  // never both meaningful, so each render clears the other. Without this
+  // the running view stayed on screen underneath the result.
+  const liveBox = $("bt-live");
+  if (liveBox) paintBacktestLive(liveBox, bt, running);
+
+  const box = $("bt-result");
+  if (box) box.innerHTML = renderBacktestCard(bt);
+  const extra = $("bt-extra");
+  if (extra) {
+    extra.innerHTML = renderBacktestExtra(bt);
+    if (!running && bt.ok && Array.isArray(bt.equity_curve) && bt.equity_curve.length > 1) {
+      requestAnimationFrame(() => drawEquityCurve(bt.equity_curve.map(Number).filter((x) => Number.isFinite(x))));
+    }
+  }
+  if (opts && opts.reveal) {
+    const target = $("bt-extra-card") || extra;
+    if (target && target.scrollIntoView) {
+      let smooth = true;
+      try { smooth = !window.matchMedia("(prefers-reduced-motion: reduce)").matches; } catch (e) { /* */ }
+      try { target.scrollIntoView({ behavior: smooth ? "smooth" : "auto", block: "start" }); } catch (e) { target.scrollIntoView(); }
+    }
+    // A flash on the card so the eye lands on what just changed.
+    const card = $("bt-extra-card");
+    if (card) {
+      card.classList.remove("is-fresh");
+      void card.offsetWidth;
+      card.classList.add("is-fresh");
+    }
+  }
+}
+
+function setBacktestBusy(on, progress) {
   const btn = $("h-bt");
   const load = $("bt-load");
   if (btn) {
@@ -4534,19 +10967,193 @@ function setBacktestBusy(on) {
     btn.textContent = I18N.t(on ? "history.backtest_running" : "history.backtest_run");
   }
   if (load) load.classList.toggle("hidden", !on);
+  const say = load ? load.querySelector("span") : null;
+  if (say) {
+    const pct = Number(progress);
+    // A number that moves is the difference between "working" and "hung".
+    say.textContent = on && pct > 0
+      ? `${I18N.t("history.backtest_wait")} · ${Math.min(99, Math.round(pct))}%`
+      : I18N.t("history.backtest_wait");
+  }
+}
+
+/**
+ * Follow a running backtest even if the socket drops.
+ *
+ * The result arrives over the socket, which is the fast path and the one
+ * that carries progress. This is the slow one: it asks the engine for the
+ * run's state every few seconds, so a reconnect in the middle of a replay
+ * cannot leave the page spinning forever.
+ */
+function watchBacktest() {
+  if (S._btPoll) clearInterval(S._btPoll);
+  let misses = 0;
+  S._btPoll = setInterval(async () => {
+    if (!S._btBusy) { clearInterval(S._btPoll); S._btPoll = null; return; }
+    let r = null;
+    try {
+      r = await API.get("/api/backtest");
+    } catch {
+      r = null;
+    }
+    const d = r && r.data ? r.data : null;
+    if (!d) {
+      misses += 1;
+      if (misses >= 10) {        // ~50s with no answer at all
+        clearInterval(S._btPoll); S._btPoll = null;
+        S._btBusy = false;
+        setBacktestBusy(false);
+      }
+      return;
+    }
+    misses = 0;
+    S.backtest = d;
+    if (S.snap) S.snap.backtest = d;
+    if (d.running) {
+      setBacktestBusy(true, d.progress);
+      // Keep the live panel moving on the fallback path too, so a dropped
+      // socket costs refresh rate and not the live view itself.
+      if (S.view === "backtest") paintBacktestResults(d);
+      return;
+    }
+    clearInterval(S._btPoll); S._btPoll = null;
+    S._btBusy = false;
+    setBacktestBusy(false);
+    paintBacktestResults(d, { reveal: true });
+    if (d.ok) toast(I18N.t("history.backtest_done"));
+    headerState();
+  }, 5000);
 }
 function historyRows(rows) {
-  // Show all trades (entry + close) so executed trades appear immediately in history
-  // P/L and SL/TP are now matched to MT5 via trader fix
+  // Entries and closes both appear, so a trade shows up the moment it opens.
   return Array.isArray(rows) ? rows : [];
 }
+
+/**
+ * Present a history row the way MetaTrader's own statement does.
+ *
+ * The columns are deliberately the terminal's columns, in the terminal's
+ * order: open time, position, symbol, type, volume, open price, S/L, T/P,
+ * close time, close price, commission, swap, profit. A trader checking the
+ * desk against MT5 should be reading two copies of the same table, not
+ * translating between two layouts and two conventions.
+ *
+ * Swap and commission are their own columns rather than one "fees", because
+ * that is how the terminal reports them and because a single lumped figure
+ * cannot be checked against anything. Net is the one column MT5 does not
+ * have, and it is the one that explains the balance: MT5's Profit is gross,
+ * and the account moves by profit + swap + commission.
+ */
+function historyRowView(row) {
+  const num = (v) => (v === null || v === undefined || v === "" ? 0 : Number(v) || 0);
+  const profit = num(row.profit);
+  const swap = num(row.swap);
+  const comm = num(row.commission);
+  const net = row.net !== undefined && row.net !== null ? num(row.net) : profit + swap + comm;
+  const isClose = String(row.kind || row.entry || "").toLowerCase().match(/close|out/);
+  return {
+    ...row,
+    // Both ends of the position, as the terminal lists them.
+    ts_open: row.time_open || row.ts_open || "",
+    price_close: isClose ? row.price : "",
+    price_open: row.price_open || "",
+    profit: isClose ? profit : "",
+    swap: isClose && swap ? Number(swap.toFixed(2)) : "",
+    commission: isClose && comm ? Number(comm.toFixed(2)) : "",
+    net: isClose ? Number(net.toFixed(2)) : "",
+    // A close recorded from the last floating price rather than from an MT5
+    // deal is marked, instead of being presented as fact.
+    source: row.source === "estimate" ? "≈" : "",
+  };
+}
+
+/* Which of the eight charts the history page is showing. Kept across
+   reloads because a trader who works from the drawdown view wants the
+   drawdown view, not the equity curve, every time they open the page. */
+function pnlModes() {
+  /* Read through the global rather than caching it at load time: app.js is
+     evaluated by several harnesses that do not load every script the page
+     does, and a missing analytics module should cost the history page its
+     chart, not take the whole desk down with a ReferenceError. */
+  const mod = typeof PNL !== "undefined" ? PNL : null;
+  return mod ? mod.modes() : [];
+}
+function pnlMode() {
+  const ids = new Set(pnlModes().map((m) => m.id));
+  try {
+    const saved = localStorage.getItem("aurion.history.pnl.mode");
+    if (saved && ids.has(saved)) return saved;
+  } catch (_) { /* private mode */ }
+  return "equity";
+}
+
+/**
+ * Draw the chart at the size the card actually gives it.
+ *
+ * Measured rather than scaled: an SVG stretched by a viewBox stretches its
+ * labels with it, so the same markup reads as 6px type on a phone and 20px
+ * on a desktop. Reading clientWidth and drawing at that size keeps the axis
+ * legible on both. The fallback matters for jsdom, where every element
+ * measures zero.
+ */
+function paintPnl() {
+  const host = $("h-pnl");
+  if (!host || !S._pnl || typeof PNL === "undefined") return;
+  const w = Math.max(260, host.clientWidth || 640);
+  const h = w < 420 ? 200 : w < 700 ? 230 : 260;
+  host.innerHTML = PNL.render(pnlMode(), S._pnl, w, h);
+  const stats = $("h-pnl-stats");
+  if (stats) stats.innerHTML = PNL.summary(S._pnl.stats);
+}
+
+function bindPnl() {
+  const seg = $("h-pnl-mode");
+  if (!seg || seg.dataset.bound === "1") return;
+  seg.dataset.bound = "1";
+  seg.addEventListener("click", (ev) => {
+    const btn = ev.target.closest("button[data-mode]");
+    if (!btn) return;
+    try { localStorage.setItem("aurion.history.pnl.mode", btn.dataset.mode); } catch (_) { /* private mode */ }
+    for (const b of seg.querySelectorAll("button[data-mode]")) {
+      const on = b === btn;
+      b.classList.toggle("on", on);
+      b.setAttribute("aria-selected", String(on));
+    }
+    paintPnl();
+  });
+
+  /* The card is wider on a rotated phone and narrower when the sidebar
+     opens, and a chart drawn at pixel sizes has to be told. */
+  if (!S._pnlResize && typeof ResizeObserver === "function") {
+    const host = $("h-pnl");
+    if (host) {
+      S._pnlResize = new ResizeObserver(() => {
+        clearTimeout(S._pnlResizeT);
+        S._pnlResizeT = setTimeout(() => { if (S.view === "history") paintPnl(); }, 120);
+      });
+      S._pnlResize.observe(host);
+    }
+  }
+}
+
 async function loadHistory() {
   const box = $("h-body");
   if (!box) return;
   const r = await API.get("/api/history?limit=400");
-  const rows = historyRows(r.data || []);
+  const raw = historyRows(r.data || []);
+  /* The charts read the ledger the engine sent, not the view model: the
+     table formatting blanks profit on entry rows and rounds the rest for
+     display, neither of which should reach a sum. */
+  if (typeof PNL !== "undefined") {
+    S._pnl = PNL.series(raw);
+    paintPnl();
+    bindPnl();
+  }
+  const rows = raw.map(historyRowView);
   if (!rows.length) { box.innerHTML = emptyMini(I18N.t("status.no_history")); return; }
-  box.innerHTML = table(rows, ["ts","ticket","symbol","side","volume","price","sl","tp","profit","strategy","comment"]);
+  box.innerHTML = table(rows, ["ts_open","ts","ticket","symbol","side","volume",
+                               "price_open","price_close","sl","tp",
+                               "commission","swap","profit","net","source","strategy","comment"]);
 }
 
 async function hardRefresh() {
@@ -4564,7 +11171,7 @@ async function hardRefresh() {
   veil.innerHTML = "<span>" + I18N.t("common.refresh") + "…</span>";
   veil.classList.remove("hidden");
   try {
-    S.mountedView = null;
+    S.mountedView = null; S.mountedKey = null;
     await refresh(false);
     if (S.view === "markets" && S.symbol) await pickMarket(S.symbol, S.timeframe);
     if (S.view === "charts") {
@@ -4582,6 +11189,144 @@ async function hardRefresh() {
     veil.classList.add("hidden");
   }
 }
+/* ===========================================================================
+   Open positions
+   ===========================================================================
+   There used to be a per-symbol strip between each chart card's toolbar
+   and its canvas, listing what was open on that instrument.
+
+   It is gone. A card on the Charts page is a thumbnail of a chart - it
+   answers "what is attached and is it alive", and the eye goes down the
+   grid comparing them. A list of trades inside each one made every card
+   a different height, so the grid stopped being a grid; and because the
+   list could not be allowed to grow, it became a 168px box that scrolled
+   inside a card that was itself in a scrolling page. Two scrollers one
+   inside the other, on a touch screen, over the thing you were trying to
+   read.
+
+   Nothing was lost. The whole book is on the Command Centre, on the
+   Markets page and on the Execution page, in one shape, with Flatten all
+   on each; the per-symbol view of it is the chart desk's own dock, which
+   is beside the chart that trade is actually on.
+*/
+/** Every open position, whatever instrument it is on. */
+function allPositions() {
+  return (S.snap?.positions || []).filter(Boolean);
+}
+
+/* One header for the three "open positions" cards, so the flatten
+   control cannot end up on two of them and not the third.
+
+   Closing a book one row at a time is the thing a trader is least
+   able to do calmly: the rows are the ones moving, and the one you
+   want is the one that just scrolled. This is the same action, the
+   same confirmation and the same /api/flatten endpoint as the
+   header's emergency button and the chart dock's - one way to go
+   flat, so there is no question of which control does what.
+
+   It renders disabled and is armed by paintPositions(), which is the
+   one place that already knows whether anything is open. A
+   destructive button that is live over an empty book can only do
+   nothing or do something surprising. */
+function posCardHead(title) {
+  return `<header class="pos-head">
+    <h3>${esc(title)}</h3>
+    <button type="button" class="pos-flat" data-flatten disabled
+            title="${esc(I18N.t("exec.close_all"))}">${esc(I18N.t("exec.close_all"))}</button>
+  </header>`;
+}
+
+/* One list builder, used by the positions dock on the EA chart and by
+   the strip on each chart card.
+
+   There used to be two renderers: the dock's aligned rows, and a
+   horizontal ribbon of chips on the cards. The same trade was drawn
+   two different ways, the chips had no columns so nothing lined up
+   with anything, and the ribbon scrolled sideways - which hides
+   positions behind a gesture nobody thinks to try. One builder means
+   the trader learns the shape once, and the two can never drift the
+   way the old pair did. */
+function positionsListHtml(pos, ord) {
+  pos = pos || [];
+  ord = ord || [];
+
+  /* One cell builder for both lists, so the two can never drift apart
+     the way the old pair of templates did. The row is a grid whose
+     columns are declared once on the list, which is what lets the
+     figures line up down the column - the old row sized every cell to
+     its own content, so nothing was comparable to the row above it. */
+  const cell = (cls, inner, label) =>
+    `<span class="tvp-c ${cls}"${label ? ` data-l="${esc(label)}"` : ""}>${inner}</span>`;
+
+  const money = (v) => {
+    const x = Number(v);
+    if (!Number.isFinite(x)) return "—";
+    return (x > 0 ? "+" : "") + fmt(x, 2);
+  };
+
+  const row = (r) => {
+    const dir = String(r.type || "").toLowerCase().includes("sell") ? "sell" : "buy";
+    const pl = Number(r.profit);
+    const what = `${r.symbol || ""} ${String(r.type || dir).toUpperCase()} ${fmt(r.volume, 2)}`.trim();
+    /* data-ticket so a repaint can find this row and rewrite the two
+       figures that move, instead of throwing the list away on every
+       tick - which would take the close buttons' handlers, any open
+       confirmation and the scroll position with it.
+
+       The strategy is the one column the wider tables carried that
+       these cells have no room for. It is on the row as a title
+       rather than dropped: knowing which robot opened a trade is the
+       difference between reading your book and watching numbers. */
+    const by = typeof strategyLabel === "function" ? strategyLabel(r.strategy) : (r.strategy || "");
+    return `<div class="tvp-row is-${dir}" data-ticket="${esc(String(r.ticket || ""))}"${by ? ` title="${esc(by)}"` : ""}>
+      ${cell("tvp-sym", esc(String(r.symbol || "")), I18N.t("table.symbol"))}
+      ${cell("tvp-dir", `<b>${esc(String(r.type || dir).toUpperCase())}</b>`, I18N.t("table.type"))}
+      ${cell("tvp-vol mono", fmt(r.volume, 2), I18N.t("table.volume"))}
+      ${cell("tvp-at mono", fmt(r.price_open, 5), I18N.t("table.price_open"))}
+      ${cell("tvp-sl mono", r.sl ? fmt(r.sl, 5) : "—", I18N.t("table.sl"))}
+      ${cell("tvp-tp mono", r.tp ? fmt(r.tp, 5) : "—", I18N.t("table.tp"))}
+      ${cell("tvp-pl mono " + clsPnl(pl), money(pl), I18N.t("table.profit"))}
+      <span class="tvp-c tvp-act"><button type="button" class="tv-pos-x" data-close="${esc(String(r.ticket))}"
+              data-close-what="${esc(what)}"
+              title="${esc(I18N.t("exec.close"))} ${esc(what)}"
+              aria-label="${esc(I18N.t("exec.close"))} ${esc(what)}">${icon("close")}</button></span>
+    </div>`;
+  };
+
+  /* A planted entry that has not filled yet is not a position, and
+     showing it as one would overstate the exposure. It is marked as
+     waiting and carries a cancel, not a close. */
+  const restRow = (r) => `<div class="tvp-row is-resting">
+      ${cell("tvp-sym", esc(String(r.symbol || "")), I18N.t("table.symbol"))}
+      ${cell("tvp-dir", `<b>${esc(String(r.type || "").replace(/_/g, " ").toUpperCase())}</b>`, I18N.t("table.type"))}
+      ${cell("tvp-vol mono", fmt(r.volume, 2), I18N.t("table.volume"))}
+      ${cell("tvp-at mono", fmt(r.price, 5), I18N.t("table.price_open"))}
+      ${cell("tvp-sl mono", r.sl ? fmt(r.sl, 5) : "—", I18N.t("table.sl"))}
+      ${cell("tvp-tp mono", r.tp ? fmt(r.tp, 5) : "—", I18N.t("table.tp"))}
+      ${cell("tvp-pl tvp-wait", esc(I18N.t("chart.order_waiting")), I18N.t("table.profit"))}
+      <span class="tvp-c tvp-act"><button type="button" class="tv-pos-x" data-cancel="${esc(String(r.ticket))}"
+              title="${esc(I18N.t("chart.order_cancel"))}"
+              aria-label="${esc(I18N.t("chart.order_cancel"))}">${icon("close")}</button></span>
+    </div>`;
+
+  /* Column names, once at the top, instead of the per-cell prefixes the
+     old row carried on every line. The header is hidden where the list
+     folds into stacked cards, which is where the per-cell labels come
+     back via data-l. */
+  const head = `<div class="tvp-row tvp-head" aria-hidden="true">
+      <span class="tvp-c tvp-sym">${esc(I18N.t("table.symbol"))}</span>
+      <span class="tvp-c tvp-dir">${esc(I18N.t("table.type"))}</span>
+      <span class="tvp-c tvp-vol">${esc(I18N.t("table.volume"))}</span>
+      <span class="tvp-c tvp-at">${esc(I18N.t("table.price_open"))}</span>
+      <span class="tvp-c tvp-sl">${esc(I18N.t("table.sl"))}</span>
+      <span class="tvp-c tvp-tp">${esc(I18N.t("table.tp"))}</span>
+      <span class="tvp-c tvp-pl">${esc(I18N.t("table.profit"))}</span>
+      <span class="tvp-c tvp-act"></span>
+    </div>`;
+
+  return `<div class="tvp-list">${head}${ord.map(restRow).join("")}${pos.map(row).join("")}</div>`;
+}
+
 function applyChartLevels(force) {
   if (!force) {
     if (S._lvlTimer) return;
@@ -4590,54 +11335,237 @@ function applyChartLevels(force) {
   }
   const symbol = (S.chartFocus && S.chartFocus.symbol) || S.symbol || "";
   const pos = (S.snap?.positions || []).filter((r) => r && (!symbol || r.symbol === symbol));
+  // Resting orders: the entry points the robot has planted and that have
+  // not filled yet. The chart only ever drew open positions, so a robot
+  // that had made its decision and was waiting at a price looked exactly
+  // like a robot doing nothing.
+  const ord = (S.snap?.orders || []).filter((r) => r && (!symbol || r.symbol === symbol));
   if (S.chart && typeof S.chart.setLevels === "function") S.chart.setLevels(pos);
+  if (S.chart && typeof S.chart.setOrders === "function") S.chart.setOrders(ord);
   syncChartPending();
-  const box = $("chart-levels");
-  if (!box) return;
-  const sig = pos.map((r) => `${r.ticket}:${r.sl}:${r.tp}:${r.profit}`).join("|");
-  if (box.dataset.sig === sig) return;
-  box.dataset.sig = sig;
-  if (!pos.length) { box.innerHTML = ""; return; }
-  box.innerHTML = pos.map((r) => `<div class="lvl-chip">
-      <b>${esc(r.symbol || "")} ${esc(r.type || "")} ${fmt(r.volume, 2)}</b>
-      <span class="sl">SL ${r.sl ? fmt(r.sl, 5) : "—"}</span>
-      <span class="tp">TP ${r.tp ? fmt(r.tp, 5) : "—"}</span>
-      <span class="sub">${esc(strategyLabel(r.strategy))}</span>
-      <button class="btn tiny ghost" type="button" data-close="${r.ticket}">${I18N.t("exec.close")}</button>
-    </div>`).join("");
-  bindCloseButtons(box);
+  /* The on-chart positions panel, unconditionally.
+
+     This call used to be the last line of a run of floating position
+     chips: it was reached only if #chart-levels existed, only if its
+     signature had changed, and only if something was open. The chips
+     lived in a "Trade" tab in the side panel that the desk only built
+     when it had been opened on a ticket, which left two holes: on
+     every other route into the desk the panel that is actually on the
+     chart was never repainted from here at all, and closing the last
+     trade returned at the "nothing open" line before the panel was
+     ever told the book had emptied.
+
+     The chips are gone. The panel is the thing that draws open trades
+     on this desk, so it is called whenever the levels move, which is
+     what the rest of this function exists to notice. */
+  paintChartPositions(pos, ord);
 }
+
+/* Collapsed state of the on-chart panel, remembered across views. */
+
+/**
+ * The open trades, drawn on the EA chart itself.
+ *
+ * What was there before was a row of chips inside the dock's Trade
+ * pane. The dock is shut by default on a phone, so a trader with money
+ * in the market could look straight at the chart and see nothing but
+ * the lines -- and the chips never showed the one number that is
+ * actually moving, the running profit.
+ *
+ * This panel sits in the corner of the chart, always visible, and
+ * collapses to a single summary pill so it can be got out of the way
+ * without being lost. It is anchored opposite the zoom controls so it
+ * covers neither them nor the newest candles.
+ */
+function paintChartPositions(pos, ord) {
+  /* One list now, not two.
+
+     The side panel used to carry a copy of this; it has been removed,
+     because at phone width that panel is a 300px overlay on a 390px
+     screen and reading the book in it meant hiding the chart the book
+     belongs to. The dock across the bottom resizes the chart instead
+     of covering it, so it is the only place positions are drawn. */
+  const bottom = $("tv-posdock-body");
+  if (!bottom) return;
+  pos = pos || [];
+  ord = ord || [];
+
+  const n = pos.length + ord.length;
+
+  /* Two counters: the chip on the toolbar button, which is the only
+     sign there is anything open while the dock is shut, and the count
+     in the dock's own header.
+
+     The chip is capped. It is a 17px circle on the corner of a 30px
+     button and the exact number is in the dock a tap away; what the
+     corner has to answer is "is there anything open", and "12"
+     rendered in that space answered it less clearly than "9+". */
+  const chip = $("tv-pos-toggle-n");
+  if (chip) {
+    chip.textContent = n ? (n > 9 ? "9+" : String(n)) : "";
+    chip.hidden = n === 0;
+  }
+  const dockN = $("tv-posdock-n");
+  if (dockN) dockN.textContent = n ? String(n) : "";
+
+  /* Flatten, from the panel that shows what would be flattened.
+
+     Bound here rather than in the desk's own bind() because this is
+     the one place that already knows whether anything is open, and a
+     destructive button that is live while the book is empty is a
+     button that can only do nothing or something surprising. Only
+     positions arm it: a resting order has not filled, so flattening
+     is not what cancels it. */
+  const flat = $("tv-posdock-flat");
+  if (flat) {
+    flat.disabled = pos.length === 0;
+    if (flat.dataset.bound !== "1") {
+      flat.dataset.bound = "1";
+      flat.onclick = async () => {
+        if (flat.disabled) return;
+        flat.disabled = true;
+        try { await flattenAll("chart"); } finally { flat.disabled = pos.length === 0; }
+      };
+    }
+  }
+
+  /* And the button says the count out loud, because a screen reader
+     announcing "Open positions 9+" is no use to anyone.
+
+     The name is taken from the button's own title rather than looked
+     up again here. The markup builds that title with a fallback for a
+     key that may not be in the pack; I18N.t() has no fallback and
+     hands back the key itself, so rebuilding the label from scratch
+     made a screen reader read out "chart.positions_dock (3)". It is
+     cached on first use because the title is the base label and the
+     aria-label is the one that gets the count appended. */
+  const toggle = $("tv-pos-toggle");
+  if (toggle) {
+    if (!toggle.dataset.name) toggle.dataset.name = toggle.title || toggle.getAttribute("aria-label") || "";
+    const base = toggle.dataset.name;
+    toggle.setAttribute("aria-label", n ? `${base} (${n})` : base);
+  }
+
+  /* The floating total. Resting orders have no profit yet and are left
+     out of it rather than counted as zero. */
+  const sumEl = $("tv-posdock-sum");
+  if (sumEl) {
+    const live = pos.map((r) => Number(r.profit)).filter(Number.isFinite);
+    if (live.length) {
+      const t = live.reduce((x, y) => x + y, 0);
+      sumEl.textContent = (t > 0 ? "+" : "") + fmt(t, 2);
+      sumEl.className = "tv-posdock-sum mono " + clsPnl(t);
+    } else {
+      sumEl.textContent = "";
+      sumEl.className = "tv-posdock-sum mono";
+    }
+  }
+
+  if (!n) {
+    bottom.innerHTML = `<p class="tvd-empty">${esc(I18N.t("status.no_positions"))}</p>`;
+    bottom.dataset.sig = "";
+    return;
+  }
+
+  const sig = pos.map((r) => `${r.ticket}:${r.sl}:${r.tp}:${r.profit}:${r.volume}`).join("|")
+    + "#" + ord.map((r) => `${r.ticket}:${r.price}:${r.sl}:${r.tp}`).join("|");
+
+  const html = positionsListHtml(pos, ord);
+
+  if (bottom.dataset.sig !== sig) {
+    bottom.dataset.sig = sig;
+    bottom.innerHTML = html;
+    bindCloseButtons(bottom);
+    bindCancelButtons(bottom);
+  }
+}
+
+/** Cancel a resting order the robot planted but that has not filled. */
+function bindCancelButtons(root) {
+  (root || document).querySelectorAll("[data-cancel]").forEach((btn) => {
+    btn.onclick = async () => {
+      btn.disabled = true;
+      const r = await API.post("/api/order", { action: "cancel", ticket: +btn.dataset.cancel });
+      if (!r || !r.ok) { btn.disabled = false; toast((r && r.error) || I18N.t("errors.generic")); return; }
+      toast(I18N.t("chart.order_cancelled"));
+      await refresh(false);
+    };
+  });
+}
+/**
+ * A stop or a target was dragged to a new price on the chart.
+ *
+ * The chart reports the intent and stops there; sending the order is the
+ * desk's job, so this takes the same route as every other change to a
+ * live position - it asks first, it names the old price and the new one,
+ * and it refuses outright the two moves that would be an immediate loss
+ * rather than a plan.
+ *
+ * The chart has already snapped the line back. It stays back until the
+ * broker confirms, because drawing it at the new price before the fill
+ * would be showing a state that does not exist yet.
+ */
+async function onChartLevelMove(d) {
+  if (!d || !d.ticket) return;
+  const isSl = d.kind === "sl";
+  const price = Number(d.price);
+  const pos = (S.snap?.positions || []).find((p) => Number(p.ticket) === Number(d.ticket));
+  if (!pos) { toast(I18N.t("chart.lvl_gone")); return; }
+
+  /* A buy's stop below the price and its target above; a sell's the
+     other way. Dragged to the wrong side the broker rejects it anyway,
+     and a rejection three seconds later is a worse answer than one now. */
+  const buy = String(pos.type || "").toLowerCase().includes("buy");
+  const ref = Number(pos.price_current || pos.price_open || 0);
+  if (ref > 0) {
+    const wrong = isSl ? (buy ? price >= ref : price <= ref)
+                       : (buy ? price <= ref : price >= ref);
+    if (wrong) { toast(I18N.t(isSl ? "chart.lvl_sl_side" : "chart.lvl_tp_side")); return; }
+  }
+
+  const digits = Number(pos.digits) || 5;
+  const shown = price.toFixed(digits);
+  const ok = await askConfirm({
+    title: I18N.t(isSl ? "chart.lvl_move_sl" : "chart.lvl_move_tp"),
+    body: I18N.t("chart.lvl_confirm", {
+      symbol: pos.symbol || d.symbol || "",
+      from: d.from ? Number(d.from).toFixed(digits) : "—",
+      to: shown,
+    }),
+    ok: I18N.t("common.apply"),
+    cancel: I18N.t("common.cancel"),
+  });
+  if (!ok) return;
+
+  const body = {
+    action: "modify",
+    ticket: Number(d.ticket),
+    symbol: pos.symbol || d.symbol || "",
+    sl: isSl ? Number(shown) : Number(pos.sl || 0),
+    tp: isSl ? Number(pos.tp || 0) : Number(shown),
+  };
+  const r = await API.post("/api/order", body);
+  if (!r || !r.ok) { toast((r && r.error) || I18N.t("errors.generic")); return; }
+  toast(I18N.t("chart.lvl_moved"));
+  await refresh(false);
+}
+
 function bindChartDesk() {
-  const back = $("chart-back");
-  if (back) back.onclick = () => closeChartDesk();
-  const sigToggle = $("sig-toggle");
-  if (sigToggle) sigToggle.onclick = async () => {
-    if (!licFeat("chart_signals")) { toast(I18N.t("lic.err_locked")); show("upgrade"); return; }
-    S.signalsEnabled = !S.signalsEnabled;
-    localStorage.setItem("aurion.signalsEnabled", S.signalsEnabled ? "1" : "0");
-    sigToggle.textContent = S.signalsEnabled ? "🔔 Signals ON" : "🔕 Signals OFF";
-    sigToggle.classList.toggle("on", S.signalsEnabled);
-    sigToggle.classList.toggle("ghost", !S.signalsEnabled);
-    const showBtn = $("sig-show");
-    if (showBtn) showBtn.style.display = S.signalsEnabled ? "" : "none";
-    if (S.signalsEnabled) await fetchChartSignals(S.chartFocus?.symbol, S.chartFocus?.timeframe);
-    else { S.chartSignals = []; if (S.chart) S.chart.setSignals([], S.showSignals); }
-  };
-  const sigShow = $("sig-show");
-  if (sigShow) sigShow.onclick = () => {
-    S.showSignals = !S.showSignals;
-    localStorage.setItem("aurion.showSignals", S.showSignals ? "1" : "0");
-    sigShow.textContent = S.showSignals ? "👁️" : "🚫";
-    if (S.chart) S.chart.setSignals(S.chartSignals, S.showSignals);
-  };
   const cv = $("cv-desk");
   if (!cv || !S.chartFocus) return;
   const key = S.chartFocus.symbol + "." + S.chartFocus.timeframe;
+
   S.chart = new CandleChart(cv, {
     analyze: true,
     key,
     onPrice: onChartPrice,
     onPending: onChartPending,
+    onLevelMove: onChartLevelMove,
+    /* pan() reports every scroll, which is the moment to find out
+       whether the trader has reached the end of what we hold. */
+    onScroll: maybeLoadMoreHistory,
+    // Text is asked for in place, over the chart, rather than with a
+    // browser prompt that steals the window.
     onText: (seed, done) => {
       let pop = $("chart-text-pop");
       if (!pop) {
@@ -4655,31 +11583,64 @@ function bindChartDesk() {
     },
   });
   S.chart.setTool("cursor");
+  S.chart.setSignals(S.chartSignals || [], S.showSignals);
+  // Arriving here from a notification: if the marks for this symbol are
+  // already loaded, pin straight away rather than waiting for the next poll.
+  if (S.pendingSignal && S.pendingSignal.symbol === S.chartFocus.symbol) pinPendingSignal();
   applyChartLevels(true);
   bindChartTicket();
-  const tools = $("draw-tools");
-  if (tools) tools.onclick = (e) => {
-    const b = e.target.closest("[data-tool]");
-    if (!b || !S.chart) return;
-    tools.querySelectorAll("[data-tool]").forEach((x) => x.classList.toggle("on", x === b));
-    S.chart.setTool(b.dataset.tool);
-  };
-  const undo = $("draw-undo");
-  if (undo) undo.onclick = () => S.chart && S.chart.undo();
-  const clr = $("draw-clear");
-  if (clr) clr.onclick = () => S.chart && S.chart.clearDrawings();
-  const mag = $("draw-magnet");
-  if (mag) mag.onclick = () => {
-    if (!S.chart) return;
-    S.chart.setMagnet(!S.chart.magnet);
-    mag.classList.toggle("on", S.chart.magnet);
-  };
-  const zin = $("draw-zin"); if (zin) zin.onclick = () => S.chart && S.chart.zoom(1);
-  const zout = $("draw-zout"); if (zout) zout.onclick = () => S.chart && S.chart.zoom(-1);
-  const fit = $("draw-fit"); if (fit) fit.onclick = () => S.chart && S.chart.fit();
-  const more = $("draw-more");
-  const frame = $("draw-frame");
-  if (more && frame) more.onclick = () => frame.classList.toggle("open");
+
+  if (typeof AurionChartUI !== "undefined") {
+    AurionChartUI.bind(S.chart, {
+      symbol: S.chartFocus.symbol,
+      timeframe: S.chartFocus.timeframe,
+      // The attached charts, so the workspace can offer a searchable list
+      // instead of making the user go back to the grid to switch.
+      symbols: liveSymbols(),
+      onSymbol: (sym) => openChartDesk(sym, S.chartFocus ? S.chartFocus.timeframe : S.timeframe),
+      toast,
+      // Destructive actions go through the desk's own dialog rather than
+      // the browser's, which the installer window styles differently.
+      confirm: (question, go) => {
+        askConfirm({ title: I18N.t("chart.delete_all"), body: question, danger: true })
+          .then((yes) => { if (yes) go(); });
+      },
+      onBack: () => closeChartDesk(),
+      // Strategy signals are premium and they come from the engine, so the
+      // switch in the chart's settings menu is answered here rather than in
+      // the interface layer.
+      onSignals: async (on) => {
+        if (on && !licFeat("chart_signals")) {
+          toast(I18N.t("lic.err_locked"));
+          show("upgrade");
+          return;
+        }
+        S.signalsEnabled = on;
+        S.showSignals = on;
+        try {
+          localStorage.setItem("aurion.signalsEnabled", on ? "1" : "0");
+          localStorage.setItem("aurion.showSignals", on ? "1" : "0");
+        } catch { /* ignore */ }
+        if (!on) {
+          S.chartSignals = [];
+          if (S.chart) S.chart.setSignals([], false);
+          return;
+        }
+        await fetchChartSignals(S.chartFocus?.symbol, S.chartFocus?.timeframe);
+      },
+      onTimeframe: (tf) => switchChartTimeframe(tf),
+    });
+
+    /* Opened from the grid: fill the screen immediately. Consumed here so
+       that a later re-mount -- switching timeframe rebuilds this whole
+       workspace -- does not drag the user back into fullscreen after they
+       have left it. */
+    if (S.chartFocusFull) {
+      S.chartFocusFull = false;
+      try { AurionChartUI.setFullscreen(true); } catch (e) { /* non-fatal */ }
+    }
+  }
+
   (async () => {
     try {
       await pickMarket(S.chartFocus.symbol, S.chartFocus.timeframe);
@@ -4687,10 +11648,85 @@ function bindChartDesk() {
       const t = S.snap?.ticks?.[S.chartFocus.symbol];
       if (S.chart && t) S.chart.setTick(t);
       applyChartLevels();
-      if (S.signalsEnabled) await fetchChartSignals(S.chartFocus.symbol, S.chartFocus.timeframe);
+      if (S.signalsEnabled && licFeat("chart_signals")) {
+        await fetchChartSignals(S.chartFocus.symbol, S.chartFocus.timeframe);
+      }
     } catch { /* empty workspace */ }
   })();
 }
+
+/* Changing the interval keeps the workspace: same drawings, same indicators,
+   same tool - only the bars underneath are replaced. */
+async function switchChartTimeframe(tf) {
+  if (!S.chartFocus || S.chartFocus.timeframe === tf) return;
+  S.chartFocus = { ...S.chartFocus, timeframe: tf };
+  S.timeframe = tf;
+  await show("charts", { animate: false, closeMenu: false, nav: false });
+}
+
+/* Minutes in one bar of each timeframe. */
+const TF_MINUTES = { M1: 1, M5: 5, M15: 15, M30: 30, H1: 60, H4: 240, D1: 1440, W1: 10080, MN1: 43200 };
+
+/* How many bars the desk asks for.
+
+   It used to ask for 800 whatever the timeframe, which on M15 is about
+   eight days - the chart ran out of history a week back and there was
+   nothing behind it. The ask is now derived from the timeframe so the
+   first screen always reaches at least thirty days back, and the engine
+   keeps 3000 bars per symbol and timeframe, which is the ceiling.
+
+   Weekends are not subtracted. Over-asking costs one number in a query
+   string; under-asking is the bug being fixed. */
+const HISTORY_DAYS = 30;
+const HISTORY_MAX = 3000;
+function barsForDays(timeframe, days) {
+  const mins = TF_MINUTES[String(timeframe || "M15").toUpperCase()] || 15;
+  const want = Math.ceil(((days || HISTORY_DAYS) * 24 * 60) / mins);
+  return Math.max(400, Math.min(HISTORY_MAX, want));
+}
+
+/**
+ * More history, because the trader scrolled off the end of what we have.
+ *
+ * Asks for a wider window of the same series rather than a page before a
+ * cursor: the engine serves the most recent N bars, so N simply grows.
+ * One request at a time, and it stops asking once the answer stops
+ * getting bigger - otherwise reaching the start of the broker's history
+ * means asking forever.
+ */
+async function loadMoreHistory() {
+  if (S._histBusy) return;
+  const f = S.chartFocus;
+  if (!f || !S.chart) return;
+  const have = (S.candles || []).length;
+  if (have >= HISTORY_MAX || S._histDone === f.symbol + "." + f.timeframe) return;
+  S._histBusy = true;
+  try {
+    const want = Math.min(HISTORY_MAX, Math.max(have * 2, barsForDays(f.timeframe, HISTORY_DAYS)));
+    const c = await API.get(`/api/candles?symbol=${encodeURIComponent(f.symbol)}`
+      + `&timeframe=${encodeURIComponent(f.timeframe)}&count=${want}`);
+    const bars = (c && c.data) || [];
+    if (bars.length > have) {
+      S.candles = bars;
+      /* setBars keeps the span and the offset, so the view does not jump
+         when older bars appear behind it. */
+      S.chart.setBars(bars);
+    } else {
+      S._histDone = f.symbol + "." + f.timeframe;
+    }
+  } catch { /* leave what we have */ } finally {
+    S._histBusy = false;
+  }
+}
+
+/* Near the oldest bar we hold, go and get more. The threshold is in bars
+   rather than pixels so it does not change meaning with the zoom. */
+function maybeLoadMoreHistory() {
+  if (!S.chart || !S.chartFocus) return;
+  const left = S.chart.maxOffset() - S.chart.offset;
+  if (left <= CHART_HISTORY_LEAD) loadMoreHistory();
+}
+const CHART_HISTORY_LEAD = 30;
 
 async function paintMiniCharts() {
   const nodes = document.querySelectorAll("canvas[data-mini]");
@@ -4742,6 +11778,9 @@ async function fetchChartSignals(symbol, timeframe) {
       S.chartSignals = [];
     }
     if (S.chart && typeof S.chart.setSignals === "function") S.chart.setSignals(S.chartSignals, S.showSignals);
+    // A notification that was clicked before the marks existed is honoured
+    // here, now that they do.
+    if (S.pendingSignal && S.pendingSignal.symbol === symbol) pinPendingSignal();
     // per user request: no bottom list — signals only on canvas (CandleChart overlay)
 
   } catch (e) {
@@ -4769,8 +11808,12 @@ async function pickMarket(symbol, timeframe) {
   }
   const r = await API.post("/api/market", { symbol, timeframe });
   if (r && r.ok && typeof r.bars === "number") {
-    const c = await API.get(`/api/candles?symbol=${encodeURIComponent(symbol)}&timeframe=${encodeURIComponent(timeframe)}&count=800`);
+    const c = await API.get(`/api/candles?symbol=${encodeURIComponent(symbol)}`
+      + `&timeframe=${encodeURIComponent(timeframe)}&count=${barsForDays(timeframe, HISTORY_DAYS)}`);
     S.candles = c.data || [];
+    /* A different series: whatever we learned about the end of the last
+       one does not apply. */
+    S._histDone = "";
   } else if (Array.isArray(r?.data)) S.candles = r.data;
   if (S.view === "markets") {
     const lbl = $("tick-lbl");
@@ -4810,6 +11853,10 @@ async function refresh(rebuild = false) {
       rebuild = false;
       const r = await API.get("/api/snapshot");
       if (r && r.ok) {
+        // Track the engine's reading so this poll and the socket push
+        // below do not rebuild the same card twice for the same content.
+        const anSig = JSON.stringify(r.data?.analysis || null);
+        if (anSig !== S._anSig) S._anSig = anSig;
         S.snap = r.data;
         if (Array.isArray(S.snap.robot) && S.snap.robot.length) {
           S.robotLogs = S.snap.robot.slice();
@@ -4900,8 +11947,45 @@ function onLive(msg) {
     scheduleSync();
   }
   if (msg.type === "ai" && S.snap) {
-    S.snap.ai = msg.data && msg.data.direction !== undefined ? msg.data : (msg.data || msg);
+    const state = msg.data && msg.data.direction !== undefined ? msg.data : (msg.data || msg);
+    S.snap.ai = state;
+
+    /* Keep the per-chart list in step with the live read.
+     *
+     * The Intelligence panel does not read S.snap.ai when a chart is
+     * attached - it reads S.snap.ai_by_symbol, which only a full snapshot
+     * fetch ever filled in. So every live inference landed in a field the
+     * panel was not looking at, and the analysis sat there unchanged until
+     * something forced a reload. That is the "I have to refresh the app to
+     * see it" fault: the data was arriving the whole time. */
+    const sym = state && state.symbol ? String(state.symbol) : "";
+    if (sym) {
+      const list = Array.isArray(S.snap.ai_by_symbol) ? S.snap.ai_by_symbol.slice() : [];
+      const at = list.findIndex((x) => x && String(x.symbol) === sym);
+      if (at >= 0) list[at] = state; else list.push(state);
+      S.snap.ai_by_symbol = list.slice(-12);
+    }
     scheduleSync();
+  }
+  /* The live analysis, pushed the moment the engine's reading changes.
+   *
+   * It used to arrive only inside the ten-second snapshot poll, so the
+   * panel called "live analysis" was up to ten seconds behind and moved
+   * in visible steps. This applies it straight away and repaints the one
+   * card, in place, rather than going through scheduleSync and redrawing
+   * the view around it. */
+  if (msg.type === "analysis") {
+    const data = msg.data || null;
+    if (data && typeof data === "object") {
+      S.snap = S.snap || {};
+      S.snap.analysis = data;
+      /* Keep _anSig in step, or the next snapshot poll would see
+       * "different from last time" and rebuild the card a second time
+       * for content that is already on screen. */
+      try { S._anSig = JSON.stringify(data); } catch { S._anSig = String(Date.now()); }
+      if (S.view === "intelligence") patchAnalysisCard();
+    }
+    return;
   }
   if (msg.type === "agents") {
     S.snap = S.snap || {};
@@ -4963,8 +12047,13 @@ function onLive(msg) {
   }
   if (msg.type === "signal") {
     S.snap = S.snap || {};
-    S.snap.last_signal = msg.data || msg;
+    const sig = msg.data || msg;
+    S.snap.last_signal = sig;
+    announceSignal(sig);
     scheduleSync();
+  }
+  if (msg.type === "trade") {
+    announceTrade(msg.data || msg);
   }
   if (msg.type === "history") {
     if (S.view === "history") loadHistory();
@@ -4974,10 +12063,21 @@ function onLive(msg) {
     S.backtest = d;
     S.snap = S.snap || {};
     S.snap.backtest = d;
-    if (S.view === "history") {
-      setBacktestBusy(Boolean(d.running));
-      const box = $("bt-result");
-      if (box && !d.running) box.innerHTML = renderBacktestCard(d);
+    // The backtest has its own tab. This said "history", which is where it
+    // used to live, so the finished result never reached the screen it was
+    // run from - the page just sat on its spinner.
+    if (S.view === "backtest" || S.view === "history") {
+      setBacktestBusy(Boolean(d.running), d.progress);
+      // This is the fast path, and it used to refresh only #bt-result:
+      // the curve and trade table below it kept the previous run's
+      // numbers, and nothing scrolled, so a result the trader had
+      // scrolled away from landed off-screen. Paint the whole card and
+      // reveal it on completion, exactly as the polling fallback does.
+      paintBacktestResults(d, { reveal: !d.running });
+      if (!d.running) {
+        S._btBusy = false;
+        toast(I18N.t(d.ok ? "history.backtest_done" : "errors.generic"));
+      }
     }
     headerState();
   }
@@ -5004,19 +12104,34 @@ function onLive(msg) {
 }
 
 async function setLang(lang) {
-  await I18N.load(lang);
-  if (API.token) {
-    const r = await API.post("/api/auth/language", { language: lang });
-    if (r.ok && r.data && r.data.token) API.setToken(r.data.token);
-  }
+  if (lang === I18N.lang) return;
+  return morphTheme(async () => {
+    await I18N.load(lang);
+    repaintForLanguage();
+
+    /* Telling the engine is housekeeping, not something the trader waits
+       for. It used to be awaited before a single label was redrawn, which
+       put a network round trip in front of every language change and is
+       most of why switching felt slow. */
+    if (API.token) {
+      API.post("/api/auth/language", { language: lang })
+        .then((r) => { if (r && r.ok && r.data && r.data.token) API.setToken(r.data.token); })
+        .catch(() => { /* the desk is already in the new language */ });
+    }
+  }, { title: I18N.t("ui.switch_lang") });
+}
+
+/** Redraw everything that holds text, in whatever language is now in force. */
+function repaintForLanguage() {
   I18N.apply();
   markLangPills();
   paintThemeBtn();
   const langBtn = $("btn-lang");
   if (langBtn) langBtn.textContent = I18N.lang.toUpperCase();
-  if (!$("desk").classList.contains("hidden")) {
+  const desk = $("desk");
+  if (desk && !desk.classList.contains("hidden")) {
     headerState();
-    S.mountedView = null;
+    S.mountedView = null; S.mountedKey = null;
     show(S.view, { animate: false });
   } else {
     paintGate();
@@ -5038,45 +12153,61 @@ async function loadNotifies() {
   } catch { S.notes = []; }
   paintNotifies();
 }
+/**
+ * Paint the notifications that came from the engine.
+ *
+ * It repaints only its own cards. It used to rebuild the whole stack from
+ * S.notes, which quietly destroyed every trade and signal card sitting
+ * there - those are raised locally and are not in S.notes, so a routine
+ * poll with nothing new in it would clear the screen of the trade alert
+ * that had just arrived. Server cards are marked, and nothing else in the
+ * stack is touched.
+ */
 function paintNotifies() {
   const stack = $("notify-stack");
   const dot = $("bell-dot");
   const notes = (S.notes || []).filter((n) => !n.dismissed);
   if (dot) dot.hidden = !notes.length;
   if (!stack) return;
-  if (!notes.length) { stack.hidden = true; stack.innerHTML = ""; return; }
-  stack.hidden = false;
-  stack.innerHTML = notes.slice(0, 4).map((n) => `<article class="notify-card" data-nid="${esc(n.id)}">
-    <button type="button" class="n-x" data-nx="${esc(n.id)}" aria-label="${I18N.t("notify.dismiss")}">×</button>
-    <h4>${esc(n.title || "")}</h4><p>${esc(n.body || "")}</p>
-  </article>`).join("");
-  stack.querySelectorAll(".notify-card").forEach(bindSwipe);
-  stack.querySelectorAll("[data-nx]").forEach((b) => {
-    b.onclick = () => dismissNote(b.getAttribute("data-nx"));
-  });
-}
-function bindSwipe(card) {
-  let x0 = 0, dx = 0, on = false;
-  card.onpointerdown = (e) => { on = true; x0 = e.clientX; card.setPointerCapture(e.pointerId); card.classList.add("swiping"); };
-  card.onpointermove = (e) => {
-    if (!on) return;
-    dx = e.clientX - x0;
-    card.style.transform = `translateX(${dx}px)`;
-    card.style.opacity = String(Math.max(0.2, 1 - Math.abs(dx) / 220));
-  };
-  card.onpointerup = () => {
-    on = false;
-    card.classList.remove("swiping");
-    if (Math.abs(dx) > 88) dismissNote(card.getAttribute("data-nid"));
-    else { card.style.transform = ""; card.style.opacity = ""; }
-    dx = 0;
-  };
+
+  stack.querySelectorAll('[data-note="server"]').forEach((el) => el.remove());
+  for (const n of notes.slice(0, 4)) {
+    const card = document.createElement("article");
+    card.className = "notify-card";
+    card.setAttribute("data-note", "server");
+    card.setAttribute("data-nid", String(n.id));
+    card.innerHTML =
+      `<button type="button" class="n-x" data-nx="${esc(n.id)}"
+               aria-label="${esc(I18N.t("notify.dismiss"))}">${icon("close")}</button>` +
+      `<h4>${esc(n.title || "")}</h4><p>${esc(n.body || "")}</p>`;
+    stack.appendChild(card);
+    bindDismiss(card, () => dismissNote(n.id));
+  }
+  // Hidden only when there is genuinely nothing left, server or local.
+  stack.hidden = stack.children.length === 0;
 }
 async function dismissNote(id) {
   if (!id) return;
-  await API.post("/api/notify/" + encodeURIComponent(id) + "/dismiss", {});
+  /* Drop it locally first and never let the request decide. The card has
+     already slid off the screen by the time this runs; if the engine is
+     unreachable, putting it back would be the wrong answer to "I dismissed
+     that". It will not return unless the engine still has it on the next
+     poll, which is the correct behaviour for a note that was never
+     actually dismissed. */
   S.notes = (S.notes || []).filter((n) => n.id !== id);
-  paintNotifies();
+  /* Matched by reading the attribute rather than by building a selector
+     from it: note ids come from the engine, and CSS.escape is not
+     available in every runtime the desk has to survive (older WebViews
+     among them). A scan over at most four cards costs nothing. */
+  const wanted = String(id);
+  document.querySelectorAll('[data-note="server"]').forEach((el) => {
+    if (el.getAttribute("data-nid") === wanted) el.remove();
+  });
+  const stack = $("notify-stack");
+  if (stack) stack.hidden = stack.children.length === 0;
+  const dot = $("bell-dot");
+  if (dot) dot.hidden = !(S.notes || []).filter((n) => !n.dismissed).length;
+  try { await API.post("/api/notify/" + encodeURIComponent(id) + "/dismiss", {}); } catch { /* offline */ }
 }
 function showPayResult(ok, extra) {
   const veil = $("pay-veil");
@@ -5224,11 +12355,22 @@ function licErrText(code, r) {
   return text;
 }
 
+/**
+ * Ask the engine (through the desk) what licence this machine holds.
+ *
+ * Returns the licence on success. On failure it records *why* on S._gateErr
+ * so the gate can say something more useful than "waiting" forever — the
+ * engine takes a few seconds to import numpy and sklearn, but it can also be
+ * simply not running, and those two look identical from here.
+ */
 async function fetchLicense() {
   try {
     const r = await API.get("/api/license");
-    if (r && r.ok && r.data) return r.data;
-  } catch { /* engine still booting */ }
+    if (r && r.ok && r.data) { S._gateErr = ""; return r.data; }
+    S._gateErr = (r && (r.detail || r.error)) || "engine_offline";
+  } catch (e) {
+    S._gateErr = (e && e.message) || "network";
+  }
   return null;
 }
 
@@ -5237,13 +12379,40 @@ function paintGate() {
   if (!card) return;
   I18N.apply(card);
   markLangPills();
+
+  /* A machine without a key still needs to be told the update worked -
+     otherwise the key screen after an update looks like the update broke
+     something. */
+  const upd = S._updated;
+  let note = card.querySelector(".gate-updated");
+  if (upd && upd.updated) {
+    if (!note) {
+      note = document.createElement("p");
+      note.className = "ok gate-updated";
+      card.insertBefore(note, card.firstChild.nextSibling);
+    }
+    note.textContent = I18N.t("upd.updated_gate", { v: S.version || "" });
+  } else if (note) {
+    note.remove();
+  }
   const Lic = S._gateLic;
   const line = $("gate-state");
+  // The engine needs a few seconds to boot. Past that, waiting silently is a
+  // dead end: say it is offline, show what the desk actually got back, and
+  // offer a retry instead of an ellipsis that never resolves.
+  const stalled = !Lic && (S._gateTries || 0) >= 4;
   if (line) {
     if (Lic && Lic.premium) line.textContent = I18N.t("keygate.state_prem");
     else if (Lic) line.textContent = I18N.t("keygate.state_free");
-    else line.textContent = I18N.t("keygate.engine_wait");
+    else line.textContent = I18N.t(stalled ? "keygate.engine_down" : "keygate.engine_wait");
   }
+  const detail = $("gate-detail");
+  if (detail) {
+    detail.hidden = !stalled;
+    detail.textContent = stalled ? `${I18N.t("keygate.engine_hint")} · ${S._gateErr || "engine_offline"}` : "";
+  }
+  const retry = $("gate-retry");
+  if (retry) retry.hidden = !stalled;
   const buy = $("gate-buy");
   const store = (Lic && Lic.store_url) || "";
   if (buy) {
@@ -5260,13 +12429,31 @@ function showGate(lic) {
   setShell("auth");
   paintGate();
   bindGate();
-  // While the gate is up, keep re-checking (engine boot, key activated elsewhere).
+  // While the gate is up, keep re-checking (engine boot, key activated
+  // elsewhere). Poll every second to begin with -- the common case is an
+  // engine that is simply still importing numpy, and five seconds of dead
+  // screen for that is needless -- then back off once it is clearly not
+  // coming, so a dead engine is not hammered forever.
   if (S._gateTimer) clearInterval(S._gateTimer);
-  S._gateTimer = setInterval(async () => {
-    if (!$("auth") || $("auth").classList.contains("hidden")) { clearInterval(S._gateTimer); S._gateTimer = null; return; }
+  S._gateTries = S._gateLic ? 0 : (S._gateTries || 0);
+  const poll = async () => {
+    const auth = $("auth");
+    if (!auth || auth.classList.contains("hidden")) { clearInterval(S._gateTimer); S._gateTimer = null; return; }
     const next = await fetchLicense();
-    if (next) { S._gateLic = next; paintGate(); }
-  }, 5000);
+    if (next) {
+      S._gateLic = next;
+      S._gateTries = 0;
+    } else {
+      S._gateTries = (S._gateTries || 0) + 1;
+      // 1s while it might still be booting, 5s once it plainly is not.
+      if (S._gateTries === 4) {
+        clearInterval(S._gateTimer);
+        S._gateTimer = setInterval(poll, 5000);
+      }
+    }
+    paintGate();
+  };
+  S._gateTimer = setInterval(poll, 1000);
 }
 
 function bindGate() {
@@ -5283,6 +12470,16 @@ function bindGate() {
   if (key) key.addEventListener("keydown", (e) => { if (e.key === "Enter") gateActivate(); });
   const free = $("gate-free");
   if (free) free.onclick = () => licenseSessionEnter("freemium");
+  const retry = $("gate-retry");
+  if (retry) retry.onclick = async () => {
+    retry.disabled = true;
+    S._gateTries = 0;
+    paintGate();
+    const lic = await fetchLicense();
+    if (lic) S._gateLic = lic; else S._gateTries = 4;
+    retry.disabled = false;
+    paintGate();
+  };
 }
 
 async function gateActivate() {
@@ -5370,6 +12567,7 @@ async function enterDesk() {
   setShell("desk");
   await loadAccountSettings();
   bindChrome();
+  bindHostBridge();
   setMenu(false);
   $("btn-lang").onclick = async () => {
     const order = ["en", "fa", "ar"];
@@ -5381,19 +12579,7 @@ async function enterDesk() {
     await refresh(false);
   };
   const flatHdr = $("btn-flat");
-  if (flatHdr) flatHdr.onclick = async () => {
-    const ok = await askConfirm({
-      title: I18N.t("exec.close_all"),
-      body: I18N.t("exec.confirm_flat"),
-      ok: I18N.t("exec.close_all"),
-      cancel: I18N.t("common.cancel"),
-      danger: true,
-    });
-    if (!ok) return;
-    const r = await API.post("/api/flatten", { reason: "header" });
-    toast(r.ok ? I18N.t("exec.close_all") : (r.error || I18N.t("errors.generic")));
-    await refresh(false);
-  };
+  if (flatHdr) flatHdr.onclick = () => flattenAll("header");
   const rf = $("btn-refresh");
   if (rf) rf.onclick = () => hardRefresh();
   const rs = $("btn-restart");
@@ -5420,9 +12606,9 @@ function welcomeIsMobile() {
 function welcomeSrcList() {
   const mobile = welcomeIsMobile();
   const primary = mobile
-    ? ["/assets/welcome/mobile.mp4", "/assets/welcome/mobile.webm", "/assets/welcome/intro-mobile.mp4"]
-    : ["/assets/welcome/desktop.mp4", "/assets/welcome/desktop.webm", "/assets/welcome/intro-desktop.mp4"];
-  return primary.concat(["/assets/welcome/intro.mp4", "/assets/welcome/intro.webm", "/assets/welcome/welcome.mp4"]);
+    ? ["assets/welcome/mobile.mp4", "assets/welcome/mobile.webm", "assets/welcome/intro-mobile.mp4"]
+    : ["assets/welcome/desktop.mp4", "assets/welcome/desktop.webm", "assets/welcome/intro-desktop.mp4"];
+  return primary.concat(["assets/welcome/intro.mp4", "assets/welcome/intro.webm", "assets/welcome/welcome.mp4"]);
 }
 async function playWelcome() {
   const wrap = $("welcome");
@@ -5437,6 +12623,7 @@ async function playWelcome() {
       if (settled) return;
       settled = true;
       clearTimeout(safety);
+      try { clearInterval(stall); } catch (e) { /* not armed yet */ }
       try {
         if (vid) { vid.pause(); vid.removeAttribute("src"); vid.load(); }
       } catch { /* */ }
@@ -5471,10 +12658,41 @@ async function playWelcome() {
     if (!vid) { wrap.hidden = true; resolve(); return; }
     const sources = welcomeSrcList();
     let i = 0;
+    /* A ceiling, and a stall watchdog underneath it.
+
+       The ceiling used to be two minutes. That is not a safety net, it is
+       a hostage situation: boot() awaits this promise before it reads the
+       licence, so anything that stops the clip from ENDING - a codec the
+       machine does not have, a half-written file, a frame pipeline that
+       never starts in a kiosk shell - left the desk behind a black
+       rectangle for 120 seconds with a Skip button as the only way out.
+       Measured on the static build, which is where it bites hardest: the
+       desk simply never arrived.
+
+       So: 15s absolute, and separately a watchdog that gives up if
+       currentTime has not advanced for 4s while the clip is supposedly
+       playing. The watchdog is the one that matters - a stall is not a
+       slow clip, and waiting out the whole duration for it is just the
+       old bug with a smaller number. */
+    const WELCOME_CEILING_MS = 15000;
+    const WELCOME_STALL_MS = 4000;
+    let lastTime = -1;
+    let stall = 0;
+    const watchStall = () => {
+      clearInterval(stall);
+      stall = setInterval(() => {
+        if (settled) { clearInterval(stall); return; }
+        const t = vid && isFinite(vid.currentTime) ? vid.currentTime : 0;
+        if (t > lastTime + 0.05) { lastTime = t; return; }
+        clearInterval(stall);
+        done();
+      }, WELCOME_STALL_MS);
+    };
     const armSafety = () => {
-      const ms = Math.min(((vid.duration && isFinite(vid.duration) ? vid.duration : 12) * 1000) + 900, 120000);
+      const natural = (vid.duration && isFinite(vid.duration) ? vid.duration : 12) * 1000 + 900;
       clearTimeout(safety);
-      safety = setTimeout(done, ms);
+      safety = setTimeout(done, Math.min(natural, WELCOME_CEILING_MS));
+      watchStall();
     };
     const tryPlay = () => {
       if (settled) return;
@@ -5512,12 +12730,166 @@ async function playWelcome() {
       }
     };
     tryPlay();
-    safety = setTimeout(done, 120000);
+    safety = setTimeout(done, WELCOME_CEILING_MS);
+  });
+}
+
+/* ---------------------------------------------------------------- update --
+   Did AURION just update, and what should the trader see because of it?
+
+   Three separate things were wrong here.
+
+   The key screen appeared after every update even for a premium machine.
+   That was not a licence fault: fetchLicense() gives up after a single
+   failed call, and immediately after an update the engine is still
+   restarting, so the one call fails, boot reads "no licence" and falls
+   through to the gate. The gate's own poll then succeeds a second later and
+   prints "premium active" underneath the key box - which is exactly the
+   contradiction that was reported, and why "continue free" let the trader
+   straight in with premium working.
+
+   Second, nothing ever said the update had worked.
+
+   Third, a first install must not claim to be an update. We only know an
+   update happened if we have seen a DIFFERENT version on this machine
+   before; with nothing recorded, this is a fresh install and stays silent. */
+const LS_SEEN_VERSION = "aurion.seenVersion";
+
+function updateCheck(version) {
+  if (!version) return { updated: false, from: "" };
+  let seen = "";
+  try { seen = localStorage.getItem(LS_SEEN_VERSION) || ""; } catch (e) { /* */ }
+  try { localStorage.setItem(LS_SEEN_VERSION, version); } catch (e) { /* */ }
+  // No record at all = first run on this machine, not an update.
+  return { updated: Boolean(seen) && seen !== version, from: seen };
+}
+
+/* The desk's only update check.
+ *
+ * There were two, against two different servers. The licence box's
+ * "check for updates" asked the engine for a GitHub releases lookup,
+ * which reads `license.github_repo` from the config. On a customer's
+ * machine that key is not set, so the engine answered
+ * {configured:false} and the desk printed "You are on the latest
+ * published build" beside it: a reassurance about a check that never
+ * happened. Even configured, it compares a public release tag, which
+ * is not the channel the product actually updates from - that is
+ * `update_server_url`, reached through /api/system/update/check, and
+ * the only one that can produce a changelog, a file manifest, a
+ * backup and an install.
+ *
+ * So there is one check now, it is the real one, and all three callers
+ * - the licence box, the Update section and the About page - come
+ * through here. They differ only in how much of the answer they show.
+ */
+async function checkForUpdate() {
+  try {
+    const r = await API.post("/api/system/update/check", {});
+    if (!r || !r.ok) return { ok: false, error: (r && r.error) || "" };
+    const latest = r.latest || null;
+    return {
+      ok: true,
+      available: Boolean(r.update_available),
+      version: (latest && latest.version) || "",
+      lastCheck: r.last_check || "",
+      latest,
+    };
+  } catch (e) {
+    return { ok: false, error: String((e && e.message) || e || "") };
+  }
+}
+
+/* The one-line form of that answer, for the two places that report an
+ * update without being able to install one. */
+function updateSummaryHtml(res) {
+  if (!res.ok) {
+    return `<span class="err">${esc(I18N.t("upd.error"))}${res.error ? " \u2014 " + esc(res.error) : ""}</span>`;
+  }
+  if (!res.available) {
+    return `<span class="ok">${icon("check")} ${esc(I18N.t("upd.uptodate"))}${
+      res.version ? " \u2014 " + esc(res.version) : ""}</span>`;
+  }
+  return `<span>${icon("spark")} ${esc(I18N.t("upd.available"))}${
+    res.version ? ": " + esc(res.version) : ""}</span>`;
+}
+
+/** Ask for the licence more than once; the engine may still be starting. */
+async function fetchLicenseSettled(tries, waitMs) {
+  const n = tries || 6;
+  const wait = waitMs || 700;
+  for (let i = 0; i < n; i++) {
+    const lic = await fetchLicense();
+    if (lic) return lic;
+    S._gateTries = (S._gateTries || 0) + 1;
+    if (i < n - 1) await new Promise((r) => setTimeout(r, wait));
+  }
+  return null;
+}
+
+/** "The update worked" - shown to a premium machine, which has no gate. */
+function showUpdateWelcome(version, from) {
+  return new Promise((resolve) => {
+    const host = document.createElement("div");
+    host.className = "upd-welcome";
+    host.innerHTML = `
+      <div class="auth-card upd-card" role="dialog" aria-modal="true" aria-labelledby="upd-w-title">
+        <div class="upd-mark" aria-hidden="true">${icon("spark")}</div>
+        <h2 id="upd-w-title">${esc(I18N.t("upd.updated_title"))}</h2>
+        <p class="lede">${esc(I18N.t("upd.updated_body", { v: version }))}</p>
+        ${from ? `<p class="sub mono">${esc(I18N.t("upd.updated_from", { old: from }))}</p>` : ""}
+        <button class="btn block" type="button" id="upd-w-go">${esc(I18N.t("upd.updated_cta"))}</button>
+      </div>`;
+    document.body.appendChild(host);
+    requestAnimationFrame(() => host.classList.add("is-in"));
+    const go = () => {
+      host.classList.remove("is-in");
+      setTimeout(() => { host.remove(); resolve(); }, 220);
+    };
+    host.querySelector("#upd-w-go").onclick = go;
+    host.querySelector("#upd-w-go").focus();
+    // Enter works too; this screen has exactly one thing to do.
+    host.onkeydown = (e) => { if (e.key === "Enter" || e.key === "Escape") go(); };
   });
 }
 
 async function boot() {
   bindChrome();
+
+  /* Find out which notification sounds this build ships. Deliberately not
+     awaited: a slow fetch must not hold up the desk, and until it resolves
+     the slots fall back to their built-in tones. */
+  loadSoundFiles().catch(() => { /* built-in tones are the fallback */ });
+
+  // A canvas does not reflow. Redraw the equity curve when the box it lives
+  // in changes size, or a phone rotation leaves it stretched.
+  let btResizeT = null;
+  window.addEventListener("resize", () => {
+    if (!$("bt-curve")) return;
+    if (btResizeT) clearTimeout(btResizeT);
+    btResizeT = setTimeout(() => {
+      const bt = S.backtest || S.snap?.backtest || {};
+      if (bt.ok && Array.isArray(bt.equity_curve)) {
+        drawEquityCurve(bt.equity_curve.map(Number).filter((x) => Number.isFinite(x)));
+      }
+    }, 150);
+  });
+
+
+  /* A cached language pack paints instantly and the fresh one lands a moment
+     later. On the rare occasion the words actually changed - a new build
+     with new strings - redraw rather than leave the trader on yesterday's
+     labels until they navigate. */
+  /* AurionTheme fires this whenever it rewrites the colour variables -
+     a different theme, an edited colour, a reset. Nothing was listening,
+     so the canvases never learned their palette had moved. */
+  window.addEventListener("aurion:theme", () => {
+    try { refreshChartPalette(); } catch (e) { /* never break the desk over paint */ }
+  });
+
+  window.addEventListener("aurion:i18n", () => {
+    try { repaintForLanguage(); } catch (e) { /* not worth breaking the desk */ }
+  });
+
   bindStrategyDropTarget();
   await I18N.load(I18N.lang);
   I18N.apply();
@@ -5530,19 +12902,29 @@ async function boot() {
       S.buildDate = meta.data.build_date || new Date().toISOString().slice(0,10);
     }
   } catch {}
+  const upd = updateCheck(S.version);
+  S._updated = upd;
+
   // Product-key gate: premium machines skip the key screen entirely and land
   // on the desk; freemium/expired machines always meet the gate first.
-  const lic = await fetchLicense();
+  //
+  // The licence lookup runs alongside the welcome clip rather than before
+  // it, so the retries that stop a still-starting engine from being read as
+  // "no licence" cost no extra waiting.
+  const welcome = playWelcome();
+  const lic = await fetchLicenseSettled();
   S._gateLic = lic;
+  await welcome;
+
   if (lic && lic.premium) {
-    const welcome = playWelcome();
-    const desk = licenseSessionEnter("auto", lic);
-    await welcome;
-    return desk;
+    if (upd.updated) await showUpdateWelcome(S.version, upd.from);
+    return licenseSessionEnter("auto", lic);
   }
-  await playWelcome();
   showGate(lic);
 }
 
 boot();
-if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => {});
+// Say which build this is before anything else can go wrong, so "the
+// change is not there" can be answered without guessing.
+try { console.info("AURION desk build", buildTag(S.buildDate)); } catch (e) { /* no DOM yet */ }
+if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});

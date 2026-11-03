@@ -10,7 +10,7 @@ from collections import defaultdict, deque
 from pathlib import Path
 from typing import Any, Awaitable, Callable
 
-from ..config import ROOT, load
+from ..config import DATA_DIR, ROOT, load
 from ..util.clock import utc_iso
 from ..util.log import get
 from .native import AVAILABLE as NATIVE_AVAILABLE
@@ -85,7 +85,58 @@ class MT5Bridge:
         self._ingest_seen: dict[str, float] = {}
         self._last_pos_mark = 0.0
         self._agent_beat: dict[int, float] = {}
+        # Which chart has already been told its expert is out of date, and
+        # for which version - so the warning is said once, not every hello.
+        self._ea_version_warned: dict[int, str] = {}
         self.AGENT_LIVE_SEC = 18.0
+        # The broker's contract specification, per symbol: what one tick is
+        # worth, the lot step, the digits. Money rules cannot be applied
+        # without it, and it changes about as often as the broker changes
+        # its mind, so it is cached and refreshed rather than asked for on
+        # every order. Either source may fill it — the native terminal
+        # directly, or an attached EA that reports its chart's symbol.
+        self._specs: dict[str, dict[str, Any]] = {}
+
+    # ---- contract specification ------------------------------------------
+
+    def remember_spec(self, symbol: str, spec: dict[str, Any] | None) -> None:
+        """Keep what a source said about a symbol, if it said anything."""
+        name = self._norm_sym(symbol)
+        if not name or not isinstance(spec, dict):
+            return
+        clean = {k: v for k, v in spec.items() if v not in (None, "")}
+        if not clean:
+            return
+        clean["symbol"] = str(symbol)
+        self._specs[name] = {**self._specs.get(name, {}), **clean}
+
+    def symbol_spec(self, symbol: str) -> dict[str, Any]:
+        """The contract spec for a symbol, or {} when nobody can say.
+
+        An empty dict is a real answer and callers depend on it: without
+        a tick value, money cannot be computed, and inventing one would
+        put a confident wrong number on somebody's risk.
+        """
+        name = self._norm_sym(symbol)
+        if not name:
+            return {}
+        if self.native.connected:
+            try:
+                info = self.native.symbol_info(str(symbol))
+            except Exception:  # pragma: no cover - terminal misbehaving
+                log.exception("symbol_info failed for %s", symbol)
+                info = {}
+            if info:
+                self.remember_spec(symbol, info)
+        cached = self._specs.get(name)
+        if cached:
+            return dict(cached)
+        # The EA reports its own chart's symbol; a suffix mismatch between
+        # "EURUSD" and "EURUSD.m" must not lose the spec.
+        for key, value in self._specs.items():
+            if self._sym_match(key, name):
+                return dict(value)
+        return {}
 
     def on_event(self, handler: EventHandler) -> None:
         self._handlers.append(handler)
@@ -278,6 +329,41 @@ class MT5Bridge:
 
     def candles_of(self, symbol: str, timeframe: str) -> list[Candle]:
         return list(self.candles.get((symbol, timeframe), ()))
+
+    async def _warn_if_expert_is_old(self, agent: ChartAgent) -> None:
+        """Say it the moment an old expert attaches, not only on a settings page.
+
+        AURION updates itself; the expert inside MetaTrader cannot update
+        itself, because recompiling an .mq5 is something only the person at
+        the terminal can do. So the one moment where the warning certainly
+        reaches them is the moment the chart connects - and it is said once
+        per chart per version, because a heartbeat repeating it every second
+        would be noise rather than a warning.
+        """
+        from . import experts
+
+        want = experts.shipped_version()
+        verdict = experts.compare(str(agent.version or ""), want)
+        if verdict not in {"old", "unknown"}:
+            self._ea_version_warned.pop(int(agent.chart_id), None)
+            return
+        seen = self._ea_version_warned.get(int(agent.chart_id))
+        if seen == str(agent.version or ""):
+            return
+        self._ea_version_warned[int(agent.chart_id)] = str(agent.version or "")
+        running = str(agent.version or "") or "?"
+        await self.emit(
+            "log",
+            {
+                "level": "warning",
+                "lang_key": "logs.ea_outdated",
+                "message": (
+                    f"{agent.ea_name} on {agent.symbol or 'chart'} {agent.timeframe} is version {running}; "
+                    f"AURION ships {want}. Recompile and re-attach it in MetaTrader 5 "
+                    f"(Settings -> System -> Expert Advisors)."
+                ),
+            },
+        )
 
     def _is_tester_agent(self, agent: ChartAgent | None) -> bool:
         if not agent:
@@ -563,7 +649,13 @@ class MT5Bridge:
             return
         self._started = True
         cfg = load()
-        host = cfg["mt5"]["ea_listen_host"]
+        # Loopback by default. This socket is an unauthenticated ingest into a
+        # live trading engine -- whatever reaches it becomes ticks, candles and
+        # account state -- so it is not something to expose by accident. The
+        # usual setup has MT5 on the same machine. Set mt5.ea_listen_host to
+        # 0.0.0.0 deliberately when the terminal runs on another box, and
+        # firewall the port to it.
+        host = cfg["mt5"].get("ea_listen_host") or "127.0.0.1"
         port = int(cfg["mt5"]["ea_listen_port"])
         self._server = await asyncio.start_server(self._handle_ea, host, port)
         if self._http_task is None or self._http_task.done():
@@ -832,6 +924,8 @@ class MT5Bridge:
             if not agent:
                 return
             chart_id = self._cid(agent.chart_id)
+            if isinstance(message.get("spec"), dict):
+                self.remember_spec(symbol, message.get("spec"))
             agent.ea_name = str(message.get("ea_name") or "AurionBridge")
             agent.version = str(message.get("version") or "1.0.0")
             agent.params = {**agent.params, **params}
@@ -867,9 +961,16 @@ class MT5Bridge:
                     "message": f"EA {agent.symbol} {agent.timeframe} chart {chart_id} via {via} ({tape_label} tape)",
                 },
             )
+            await self._warn_if_expert_is_old(agent)
             await self._refresh_tape_view(prev_tape)
             if agent.symbol:
                 asyncio.create_task(self._prime_agent(agent), name=f"aurion-prime-{chart_id}")
+            return
+        if kind == "spec":
+            # The EA's answer to "what is this contract worth". Sent on
+            # attach and refreshed on a slow timer, because a stop in
+            # money cannot be computed from price alone.
+            self.remember_spec(str(message.get("symbol") or ""), message.get("spec") or message)
             return
         if kind == "bye":
             chart_id = self._cid(message.get("chart_id"))
@@ -1288,7 +1389,7 @@ class MT5Bridge:
             seen.add(key)
             dirs.append(path)
 
-        add(ROOT / "data" / "ea-inbox")
+        add(DATA_DIR / "ea-inbox")
         appdata = os.environ.get("APPDATA") or ""
         home = os.environ.get("HOME") or ""
         roots: list[Path] = []
@@ -1505,12 +1606,13 @@ class MT5Bridge:
             "close": "close",
             "modify": "modify",
             "flatten": "flatten",
+            "cancel": "cancel",
             "market": "order",
             "buy": "order",
             "sell": "order",
-            "pending": "order",
-            "limit": "order",
-            "stop": "order",
+            "pending": "pending",
+            "limit": "pending",
+            "stop": "pending",
             "order": "order",
         }
         return mapping.get(action, "order")
@@ -1538,7 +1640,7 @@ class MT5Bridge:
             if request.get("side"):
                 request["side"] = str(request["side"]).lower()
             symbol = str(request.get("symbol") or "")
-            any_ok = (not symbol) or action in {"close", "flatten", "modify"}
+            any_ok = (not symbol) or action in {"close", "flatten", "modify", "cancel"}
             attached = sorted({a.symbol for a in self.active_agents() if a.symbol})
             n_targets = len(self._writers_for_symbol(symbol or None, any_ok=any_ok))
             if n_targets <= 0 and self._http_live():
@@ -1576,6 +1678,13 @@ class MT5Bridge:
         side = str(request.get("side") or "buy").lower()
         symbol = str(request.get("symbol") or "")
         volume = float(request.get("volume") or 0)
+        if action == "cancel":
+            # Deleting a resting order needs nothing but its ticket, and the
+            # symbol/volume checks below would reject it for not having them.
+            return {
+                "action": mt5.TRADE_ACTION_REMOVE,
+                "order": int(request.get("ticket") or request.get("order") or 0),
+            }
         if action in {"close", "flatten", "modify"}:
             ticket = int(request.get("ticket") or 0)
             pos = next((p for p in self.positions if p.ticket == ticket), None) if ticket else None

@@ -7,9 +7,9 @@
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="mobile-web-app-capable" content="yes" />
   <title>AURION</title>
-  <link rel="manifest" href="/manifest.json" />
-  <link rel="icon" href="/icons/mark.png?v=desk46" />
-  <link rel="apple-touch-icon" href="/icons/mark.png?v=desk46" />
+  <link rel="manifest" href="manifest.json" />
+  <link rel="icon" href="icons/mark.png?v=desk46" />
+  <link rel="apple-touch-icon" href="icons/mark.png?v=desk46" />
   <script>
     try {
       var __t = localStorage.getItem("aurion.theme");
@@ -25,13 +25,98 @@
       document.documentElement.dataset.glass = (__g === "off") ? "off" : "on";
       var __m = document.querySelector('meta[name="theme-color"]');
       if (__m) __m.setAttribute("content", __r === "light" ? "#e9edf4" : "#06070b");
+      /* Rendering tier, applied before the first paint so the desk never
+         flashes a blurred layout it is about to drop. js/skins.js re-applies
+         the same value and owns the logic; this is the pre-paint shortcut. */
+      var __perf = localStorage.getItem("aurion.perf") || "auto";
+      if (__perf === "auto") {
+        var __c = navigator.hardwareConcurrency || 0, __mem = navigator.deviceMemory || 0;
+        __perf = ((__c > 0 && __c <= 4) || (__mem > 0 && __mem <= 4)) ? "fast" : "rich";
+      }
+      document.documentElement.dataset.perf = __perf;
+      /* Theme material, applied before the first paint for the same reason:
+         js/themes.js owns this and re-applies it a few lines below, but the
+         desk must never show a frame of Liquid Glass to somebody who chose
+         Cyber. Only the attributes are set here - the numbers behind them
+         live in one place, and that place is themes.js. */
+      var __sk = localStorage.getItem("aurion.theme.skin") || "glass";
+      document.documentElement.dataset.skin = __sk;
     } catch (e) { document.documentElement.dataset.theme = "dark"; }
   </script>
-  <link rel="stylesheet" href="/css/app.css?v=desk65" />
+  <script>
+    /* Last-resort error trap.
+
+       One uncaught error while the desk is being built leaves the shell on
+       screen and the stage empty - which looks like "nothing loaded" and tells
+       nobody anything. This puts the actual failure on screen so it can be
+       reported without a debugger, and is registered before any application
+       script so it also catches failures during their evaluation. */
+    (function () {
+      var shown = false;
+      function report(title, detail) {
+        if (shown) return;
+        shown = true;
+        try {
+          var box = document.createElement("div");
+          box.id = "boot-error";
+          box.setAttribute("dir", "ltr");
+          box.style.cssText = "position:fixed;inset:auto 16px 16px 16px;z-index:99999;" +
+            "background:#1a0d12;border:1px solid #f4475b;border-radius:14px;padding:14px 16px;" +
+            "color:#ffd9e0;font:12px/1.55 ui-monospace,Menlo,Consolas,monospace;" +
+            "max-height:45vh;overflow:auto;box-shadow:0 20px 60px rgba(0,0,0,.6)";
+          box.innerHTML = "<b style='color:#ff8fa3'>AURION could not finish loading</b>" +
+            "<div style='margin-top:6px;white-space:pre-wrap'></div>" +
+            "<div style='margin-top:8px;opacity:.7'>Press F12 for the full console.</div>";
+          box.querySelector("div").textContent = title + "\n" + (detail || "");
+          (document.body || document.documentElement).appendChild(box);
+        } catch (e) { /* if even this fails, the console still has it */ }
+      }
+      /* Two messages the spec requires the browser to fire as error events
+         even though nothing has failed: a ResizeObserver that could not
+         deliver every notification inside one frame simply retries on the
+         next one. They were putting a red "could not finish loading" panel
+         over a desk that had loaded perfectly. Noted in the console, never
+         on screen. */
+      var BENIGN = /^(ResizeObserver loop limit exceeded|ResizeObserver loop completed with undelivered notifications)/;
+
+      window.addEventListener("error", function (e) {
+        if (e && typeof e.message === "string" && BENIGN.test(e.message)) {
+          if (window.console && console.debug) console.debug("[benign]", e.message);
+          return;
+        }
+        report(e.message || "script error",
+               (e.error && e.error.stack) || (e.filename ? e.filename + ":" + e.lineno : ""));
+      });
+      window.addEventListener("unhandledrejection", function (e) {
+        var r = e.reason;
+        report("unhandled promise rejection", (r && (r.stack || r.message)) || String(r));
+      });
+    })();
+  </script>
+  <script src="js/skins.js?v=desk99"></script>
+  <script src="js/themes.js?v=desk188"></script>
+  <script src="js/colorpicker.js?v=desk2"></script>
+  <link rel="stylesheet" href="css/app.css?v=desk211" />
+  <link rel="stylesheet" href="css/skins.css?v=desk185" />
+  <link rel="stylesheet" href="css/chart.css?v=desk206" />
+  <link rel="stylesheet" href="css/themes.css?v=desk196" />
 </head>
 <body class="mode-desk">
   <div class="aurora"></div>
-  <div id="theme-veil" aria-hidden="true"></div>
+  <!-- The theme's backdrop. Three composited layers, transformed and never
+       repainted; which of them is visible is entirely up to [data-bg]. -->
+  <div id="bg-fx" aria-hidden="true"><b></b><b></b><b></b></div>
+  <!-- role=status, so the message is announced rather than only shown.
+       aria-hidden is toggled off while the change runs (see morphTheme). -->
+  <div id="theme-veil" role="status" aria-live="polite" aria-hidden="true">
+    <div class="tv-card" id="theme-veil-card">
+      <div class="tv-spin" aria-hidden="true"></div>
+      <div class="tv-text">
+        <b id="theme-veil-title">One moment</b>
+        <small id="theme-veil-sub"></small>
+      </div>
+    </div>
+  </div>
   <div id="welcome" class="welcome">
     <video id="welcome-vid" playsinline webkit-playsinline preload="auto"></video>
     <button type="button" class="welcome-sound" id="welcome-sound" hidden aria-label="Sound">
@@ -48,13 +133,13 @@
       <div class="auth-shell">
         <div class="auth-brand">
           <div class="auth-logo-slot">
-            <img src="/icons/mark.png?v=desk45" alt="AURION" class="auth-logo" />
+            <img src="icons/mark.png?v=desk45" alt="AURION" class="auth-logo" />
           </div>
           <p class="kicker" data-i18n="auth.kicker">Institutional tape. Nothing invented.</p>
           <h1>AURION</h1>
           <p class="lede" data-i18n="brand.tagline">Intelligent execution for MetaTrader 5</p>
           <div class="axiasoft-slot">
-            <img src="/assets/axiasoft-logo.png?v=desk45" alt="Axiasoft" class="axiasoft-logo" />
+            <img src="assets/axiasoft-logo.png?v=desk45" alt="Axiasoft" class="axiasoft-logo" />
             <span data-i18n="auth.licensed_by">Licensed by Axiasoft</span>
           </div>
           <ul class="auth-points">
@@ -86,6 +171,8 @@
           <button class="btn ghost block" id="gate-free" type="button" data-i18n="keygate.free">I don't have a key — continue free</button>
           <p class="sub gate-limits" id="gate-limits" data-i18n="keygate.limits">Free mode: prop profiles, scalping style and strategy upload are locked.</p>
           <p class="sub mono gate-state" id="gate-state"></p>
+          <p class="sub mono gate-detail" id="gate-detail" hidden></p>
+          <button class="btn ghost block" id="gate-retry" type="button" hidden data-i18n="keygate.retry">Retry</button>
         </div>
       </div>
     </section>
@@ -105,13 +192,13 @@
         </div>
         <div class="top-actions">
           <button class="icon-btn hdr-drawer-btn" id="btn-hdr-drawer" type="button" aria-label="Status and equity" aria-expanded="false" aria-controls="hdr-drawer">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><polyline points="6,9.5 12,15.5 18,9.5"/></svg>
           </button>
           <button class="icon-btn" id="btn-refresh" type="button" aria-label="Refresh" title="Refresh">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M21 12a9 9 0 11-3-6.7"/><path d="M21 4v6h-6"/></svg>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M20.5 12a8.5 8.5 0 11-2.6-6.1"/><polyline points="20.5,3.5 20.5,8 16,8"/></svg>
           </button>
           <button class="icon-btn" id="btn-theme" type="button" aria-label="Theme" title="Theme">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4.2"/><line x1="12" y1="2.4" x2="12" y2="5"/><line x1="12" y1="19" x2="12" y2="21.6"/><line x1="2.4" y1="12" x2="5" y2="12"/><line x1="19" y1="12" x2="21.6" y2="12"/><line x1="5.2" y1="5.2" x2="7" y2="7"/><line x1="17" y1="17" x2="18.8" y2="18.8"/><line x1="18.8" y1="5.2" x2="17" y2="7"/><line x1="7" y1="17" x2="5.2" y2="18.8"/></svg>
           </button>
           <button class="btn tiny ghost" id="btn-lang" type="button">EN</button>
           <button class="btn tiny ghost hidden" id="btn-logout" type="button" hidden>Logout</button>
@@ -119,8 +206,16 @@
           <button class="btn tiny danger" id="btn-kill" type="button" data-i18n="exec.kill">Kill</button>
           <button class="btn tiny ghost hidden" id="btn-restart" type="button" hidden data-i18n="host.restart">Restart</button>
         </div>
-        <div class="hdr-drawer" id="hdr-drawer" hidden></div>
       </header>
+      <!-- The status drawer sits OUTSIDE the header on purpose. `.top` is
+           frosted, and an element with a backdrop-filter becomes the
+           backdrop root for everything inside it: a child's own blur then
+           has only the parent's already-composited pixels to work with,
+           which below the header's edge is nothing at all. Inside the
+           header the drawer's blur was therefore inert and the panel read
+           as plain see-through glass. As a child of #desk it blurs the
+           stage behind it, which is what was wanted. -->
+      <div class="hdr-drawer" id="hdr-drawer" hidden></div>
       <main class="stage" id="stage"></main>
       <div class="nav-scrim" id="nav-scrim" hidden></div>
     </section>
@@ -128,10 +223,20 @@
   <div class="toast-wrap" id="toasts"></div>
   <div class="notify-stack" id="notify-stack" hidden></div>
   <div class="pay-veil hidden" id="pay-veil"></div>
-  <script src="/js/i18n.js?v=desk60"></script>
-  <script src="/js/api.js?v=desk60"></script>
-  <script src="/js/calendar.js?v=desk60"></script>
-  <script src="/js/charts.js?v=desk61"></script>
-  <script src="/js/app.js?v=desk65"></script>
+  <!--
+    Loaded before everything that talks to the network.  It is inert unless
+    the page is opened as a demo (?demo=1, a github.io host, or file://), so
+    the real desk pays one parse and nothing else.
+  -->
+  <script src="js/demo.js?v=desk189"></script>
+  <script src="js/i18n.js?v=lang89ae6d2443"></script>
+  <script src="js/api.js?v=desk85"></script>
+  <script src="js/calendar.js?v=desk139"></script>
+  <script src="js/chart-series.js?v=desk97"></script>
+  <script src="js/charts.js?v=desk202"></script>
+  <script src="js/chart-tools.js?v=desk211"></script>
+  <script src="js/prop-guide.js?v=desk118"></script>
+  <script src="js/pnl-charts.js?v=desk210"></script>
+  <script src="js/app.js?v=desk213"></script>
 </body>
 </html>

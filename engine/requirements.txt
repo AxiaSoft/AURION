@@ -13,5 +13,9 @@ scikit-learn==1.5.2
 joblib==1.4.2
 openpyxl==3.1.5
 python-multipart==0.0.20
+# Windows ships no IANA time zone database, so zoneinfo cannot resolve
+# "Asia/Tehran" there at all - it raises, and every city the trader picks
+# would quietly fall back to UTC. This is the database, as a wheel.
+tzdata==2024.2
 # MetaTrader5 is Windows-only. Installed by scripts/fix-numpy.ps1 and start.ps1.
 # MetaTrader5>=5.0.4874

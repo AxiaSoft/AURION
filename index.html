@@ -1,0 +1,39 @@
+<!doctype html>
+<!--
+  GitHub Pages serves this repository from its root, and the desk lives in
+  apps/web. This sends the visitor straight there so the published site is
+  the application itself rather than a page about it.
+
+  ?demo=1 switches the desk onto apps/web/js/demo.js, which answers the API
+  and the websocket from canned data. Pages has no Node desk and no Python
+  engine behind it, so without that the site is a shell where every request
+  fails. The demo refuses every write, and says so in a banner.
+
+  A meta refresh as well as the script, because the redirect has to work
+  before and without JavaScript, and a visible link underneath for the case
+  where both are refused.
+-->
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8" />
+<meta http-equiv="refresh" content="0; url=apps/web/index.html?demo=1" />
+<link rel="canonical" href="apps/web/index.html?demo=1" />
+<title>AURION</title>
+<link rel="icon" href="apps/web/icons/mark.png" />
+<style>
+  html, body { height: 100%; margin: 0; background: #06070b; color: #8b93a7;
+               font: 14px/1.6 "Segoe UI", system-ui, sans-serif }
+  main { height: 100%; display: grid; place-content: center; justify-items: center; gap: 14px; text-align: center }
+  img { width: 72px; height: 72px; border-radius: 18px }
+  a { color: #3ee0c4 }
+</style>
+</head>
+<body>
+<main>
+  <img src="apps/web/icons/mark.png" alt="AURION" />
+  <p>Opening the desk…</p>
+  <p><a href="apps/web/index.html?demo=1">Continue</a></p>
+</main>
+<script>location.replace("apps/web/index.html?demo=1");</script>
+</body>
+</html>

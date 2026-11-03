@@ -135,13 +135,21 @@ function findProduct(id) { return getProducts().find(p => p.id === String(id).to
 
 const app = express();
 app.disable("x-powered-by");
+
+// A shop that can be framed can be clicked through by a page pretending
+// to be it, so framing is refused. The single exception is an explicit
+// ALLOW_FRAMING=1, for showing the storefront inside a preview pane
+// while developing. It is off unless someone asks for it in writing.
+const ALLOW_FRAMING = String(ENV.ALLOW_FRAMING || "") === "1";
+if (ALLOW_FRAMING) console.log("  [dev] ALLOW_FRAMING=1 — this store may be embedded in a frame");
+
 app.use((req, res, next) => {
   res.setHeader("X-Content-Type-Options", "nosniff");
-  res.setHeader("X-Frame-Options", "DENY");
+  if (!ALLOW_FRAMING) res.setHeader("X-Frame-Options", "DENY");
   res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
   res.setHeader("Permissions-Policy", "clipboard-write=(self), camera=(), microphone=(), geolocation=()");
   res.setHeader("X-XSS-Protection", "0");
-  res.setHeader("Content-Security-Policy", "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self'; frame-ancestors 'none';");
+  res.setHeader("Content-Security-Policy", `default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self'; frame-ancestors ${ALLOW_FRAMING ? "*" : "'none'"};`);
   if (String(ENV.NODE_ENV).toLowerCase() === "production") {
     res.setHeader("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
   }
@@ -1118,13 +1126,78 @@ function getAppJs() {
 app.get("/app.js", (req, res) => {
   res.set("Cache-Control", "no-store").type("application/javascript").send(getAppJs());
 });
-app.use(express.static(publicDir, { setHeaders: (res, p) => { if (p.endsWith(".html")) res.setHeader("Cache-Control", "no-store"); } }));
+// The stylesheet is versioned in the markup, but a browser that cached
+// the broken one under the old query string keeps it until the page
+// asks for the new name. Serving CSS no-store costs a few kB and means
+// a fix is one reload away rather than one cache-clear away.
+app.use(express.static(publicDir, {
+  setHeaders: (res, p) => {
+    if (p.endsWith(".html") || p.endsWith(".css")) res.setHeader("Cache-Control", "no-store");
+  },
+}));
 app.get("*", (req, res, next) => {
   if (req.path.startsWith("/api/")) return next();
   res.sendFile(path.join(publicDir, "index.html"));
 });
 
 if (require.main === module) {
-  app.listen(PORT, () => console.log(`AURION key server FULL on :${PORT} (${PUBLIC_BASE}) gateway=${zarinpal.mode}${zarinpal.configured ? "" : " unconfigured"} adminHash=${ADMIN_HASH}`));
+  // A health route, so anything watching this can tell "not started"
+  // from "started and refusing". There was none, so /api/health answered
+  // 404 and looked exactly like a server that was not running.
+  app.get("/api/health", (_req, res) => res.json({
+    ok: true,
+    service: "aurion-keyserver",
+    gateway: zarinpal.mode,
+    gateway_configured: Boolean(zarinpal.configured),
+    can_mint: Boolean(String(process.env.AURION_KEY_PRIVATE_HEX || "").trim()),
+    time: new Date().toISOString(),
+  }));
+
+  app.listen(PORT, () => {
+    console.log("");
+    console.log("  AURION key server");
+    console.log("  -----------------");
+    console.log(`  store   ${PUBLIC_BASE}`);
+    console.log(`  admin   ${PUBLIC_BASE}/#/${ADMIN_HASH}`);
+    console.log("");
+
+    // Name what is not set up, and what it costs.
+    //
+    // The old line was one string ending in "gateway=live unconfigured",
+    // which is true and reads like a status rather than a warning. A
+    // store in live mode with no merchant id serves its whole catalogue
+    // perfectly and then fails at the moment a customer pays - which is
+    // the worst possible place to find out.
+    const problems = [];
+    if (!String(process.env.AURION_KEY_PRIVATE_HEX || "").trim()) {
+      problems.push([
+        "AURION_KEY_PRIVATE_HEX is not set",
+        "no key can be minted, so a paid order cannot be fulfilled.",
+        "Generate one once:  python admin/new-seed.py",
+      ]);
+    }
+    if (!zarinpal.configured) {
+      problems.push([
+        `the payment gateway is in ${zarinpal.mode} mode and unconfigured`,
+        "the catalogue works and checkout fails. Customers find out at the till.",
+        "Set the ZarinPal merchant id, or switch it to sandbox while testing.",
+      ]);
+    }
+    if (!String(process.env.ADMIN_TOKEN || "").trim()) {
+      problems.push([
+        "ADMIN_TOKEN is not set",
+        "the admin panel cannot be opened.",
+        "start-keyserver.cmd writes one for you.",
+      ]);
+    }
+
+    for (const [what, cost, fix] of problems) {
+      console.log(`  WARNING: ${what}`);
+      console.log(`           ${cost}`);
+      console.log(`           ${fix}`);
+      console.log("");
+    }
+    if (!problems.length) console.log("  Ready: gateway configured, signing key present.\n");
+  });
 }
 module.exports = { app, store };

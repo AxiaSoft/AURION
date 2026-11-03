@@ -1,0 +1,710 @@
+/**
+ * The chart engine, driven head-less against a recording canvas.
+ *
+ * There is no browser in the build environment, so "does it paint" has to be
+ * asked another way: a stub 2D context that counts the calls made to it. That
+ * is enough to catch the failure that matters most here - a drawing kind, a
+ * chart type or an indicator that throws when it is painted, which in a real
+ * browser takes the whole frame down and leaves a blank chart.
+ *
+ *     node apps/web/js/chart-engine.test.cjs
+ */
+const fs = require("node:fs");
+const path = require("node:path");
+const vm = require("node:vm");
+
+const here = __dirname;
+const noop = () => {};
+
+function makeCtx(log) {
+  const ctx = {
+    canvas: null,
+    setTransform: noop, save: noop, restore: noop, beginPath: noop, closePath: noop,
+    moveTo: noop, lineTo: noop, arc: noop, arcTo: noop, ellipse: noop, rect: noop,
+    quadraticCurveTo: noop, bezierCurveTo: noop, clip: noop,
+    fill: () => log.fills++, stroke: () => log.strokes++,
+    fillRect: () => log.fills++, strokeRect: () => log.strokes++, clearRect: noop,
+    fillText: (t) => log.text.push(String(t)), measureText: (t) => ({ width: String(t).length * 6 }),
+    setLineDash: noop, createLinearGradient: () => ({ addColorStop: noop }),
+  };
+  return ctx;
+}
+
+function makeChartEnv() {
+  const log = { fills: 0, strokes: 0, text: [] };
+  const store = new Map();
+  const ctx = makeCtx(log);
+  const canvas = {
+    getContext: () => ctx,
+    width: 900, height: 500,
+    style: {},
+    parentElement: null,
+    getBoundingClientRect: () => ({ left: 0, top: 0, width: 900, height: 500 }),
+    addEventListener: noop, removeEventListener: noop,
+    setPointerCapture: noop, releasePointerCapture: noop,
+  };
+  const win = {
+    devicePixelRatio: 1,
+    ResizeObserver: function () { this.observe = noop; this.disconnect = noop; },
+    getComputedStyle: () => ({ getPropertyValue: () => "" }),
+    document: { documentElement: { dataset: {}, dir: "ltr" } },
+    localStorage: {
+      getItem: (k) => (store.has(k) ? store.get(k) : null),
+      setItem: (k, v) => store.set(k, String(v)),
+      removeItem: (k) => store.delete(k),
+    },
+    prompt: () => "x",
+    // Real timers: the chart uses one for press-and-hold, and a stub
+    // that never fires would hide whatever that code does.
+    setTimeout, clearTimeout,
+    console,
+  };
+  win.window = win; win.globalThis = win;
+  vm.createContext(win);
+  vm.runInContext(fs.readFileSync(path.join(here, "chart-series.js"), "utf8"), win, { filename: "chart-series.js" });
+  // A top-level class in a classic script is a global *lexical* binding, which
+  // the browser shares between scripts and vm does not. Publishing the two
+  // names the test needs is cheaper than pretending otherwise.
+  vm.runInContext(
+    fs.readFileSync(path.join(here, "charts.js"), "utf8") +
+    "\n;globalThis.CandleChart = CandleChart;" +
+    "\n;globalThis.SHAPE_POINTS = SHAPE_POINTS;",
+    win, { filename: "charts.js" });
+  return { win, canvas, log };
+}
+
+/* A synthetic but realistic series: a trend with noise and volume. */
+function series(n) {
+  const out = [];
+  let p = 1.1000;
+  for (let i = 0; i < n; i++) {
+    p += Math.sin(i / 7) * 0.0012 + (i % 11 === 0 ? 0.0009 : -0.0002);
+    const o = p, c = p + Math.sin(i / 3) * 0.0008;
+    // Unique, ordered stamps: the engine de-duplicates by time, and a
+    // generator that repeats one would quietly halve the test's data.
+    const at = new Date(Date.UTC(2026, 0, 1, 0, 0, 0) + i * 15 * 60000);
+    out.push({
+      time: at.toISOString().slice(0, 19),
+      open: o, high: Math.max(o, c) + 0.0006, low: Math.min(o, c) - 0.0006, close: c, volume: 100 + (i % 37),
+    });
+  }
+  return out;
+}
+
+const { win, canvas, log } = makeChartEnv();
+const chart = new win.CandleChart(canvas, { key: "test" });
+chart.setBars(series(400));
+
+let failed = 0;
+function check(name, cond) {
+  if (cond) console.log("  ok  " + name);
+  else { console.log("FAIL  " + name); failed++; }
+}
+
+check("bars are loaded and sorted", chart.rows().length === 400);
+check("the first frame paints", (chart.draw(), log.strokes > 100));
+check("the legend prints the OHLC", log.text.join(" ").indexOf("O") >= 0);
+
+/* -------------------------------------------------------- chart types -- */
+const types = win.AurionSeries.SERIES_TYPES.map((t) => t.id);
+let typeFails = [];
+for (const t of types) {
+  try {
+    chart.setType(t);
+    chart.draw();
+    if (!chart.rows().length) typeFails.push(t + " (empty)");
+  } catch (e) { typeFails.push(t + " (" + e.message + ")"); }
+}
+check("every chart type paints: " + types.join(", "), typeFails.length === 0 || typeFails.join(", "));
+chart.setType("candles");
+
+/* --------------------------------------------------------- indicators -- */
+let indFails = [];
+for (const def of win.AurionSeries.INDICATORS) {
+  try {
+    const ind = chart.addIndicator(def.id);
+    chart.draw();
+    chart.removeIndicator(ind.id);
+  } catch (e) { indFails.push(def.id + " (" + e.message + ")"); }
+}
+check("every indicator paints", indFails.length === 0 || indFails.join(", "));
+
+chart.addIndicator("rsi");
+chart.addIndicator("macd");
+chart.addIndicator("ema");
+check("sub-panes take space off the main plot", (() => {
+  const L = chart.layout();
+  return L.panes.length === 2 && L.plotB < L.axisB - 20;
+})());
+chart.indicators.slice().forEach((i) => chart.removeIndicator(i.id));
+
+/* ------------------------------------------------------------- shapes -- */
+const POINTS = win.SHAPE_POINTS;
+const kinds = Object.keys(POINTS);
+const shapeFails = [];
+const rows = chart.rows();
+function pt(i, p) { return { t: rows[i].t, p, gi: i }; }
+for (const kind of kinds) {
+  try {
+    const need = POINTS[kind];
+    const obj = { kind, color: "#e8c07a", text: "note", width: 1.4, style: "solid", opacity: 1 };
+    if (need === -1) {
+      obj.pts = [pt(320, 1.10), pt(330, 1.11), pt(340, 1.105)];
+      obj.a = obj.pts[0]; obj.b = obj.pts[2];
+    } else {
+      ["a", "b", "c", "d", "e", "f", "g"].slice(0, need).forEach((k, n) => {
+        obj[k] = pt(320 + n * 8, 1.10 + n * 0.004);
+      });
+    }
+    chart.drawings = [chart.hydrate(obj)];
+    chart.selected = chart.drawings[0];
+    chart.draw();
+  } catch (e) { shapeFails.push(kind + ": " + e.message); }
+}
+check("every drawing kind paints (" + kinds.length + " kinds)", shapeFails.length === 0 || shapeFails.join(" | "));
+check("every drawing kind knows how many points it needs",
+  kinds.every((k) => Number.isFinite(POINTS[k])));
+chart.drawings = [];
+chart.selected = null;
+
+/* ------------------------------------------------------------ history -- */
+chart.addObject({ kind: "trend", a: pt(10, 1.1), b: pt(20, 1.2) });
+chart.addObject({ kind: "rect", a: pt(30, 1.1), b: pt(40, 1.2) });
+check("two objects are on the chart", chart.drawings.length === 2);
+chart.undo();
+check("undo removes the last one", chart.drawings.length === 1);
+chart.redo();
+check("redo puts it back", chart.drawings.length === 2);
+chart.removeObject(chart.drawings[0].id);
+check("delete removes by id", chart.drawings.length === 1);
+chart.undo();
+check("undo restores a deletion", chart.drawings.length === 2);
+const target = chart.drawings[0];
+chart.updateObject(target.id, { color: "#ff0000", width: 3 });
+check("properties are editable", chart.getObject(target.id).color === "#ff0000");
+chart.undo();
+check("undo restores a property change", chart.getObject(target.id).color !== "#ff0000");
+chart.clearDrawings();
+check("clear empties the chart", chart.drawings.length === 0);
+chart.undo();
+check("...and even that is undoable", chart.drawings.length === 2);
+
+/* ---------------------------------------------------------- navigation -- */
+chart.fit();
+const span0 = chart.span;
+chart.zoom(1, 10);
+check("zoom in narrows the window", chart.span < span0);
+chart.zoom(-1, 10);
+check("zoom out widens it again", chart.span >= span0 - 1);
+const off0 = chart.offset;
+chart.pan(20);
+check("pan scrolls back", chart.offset === off0 + 20);
+chart.pan(-9999);
+check("pan stops at the newest bar instead of running into empty space",
+  chart.offset === 0);
+/* This has been through two reversals and is now back where it
+   started, for a better reason than it began with.
+
+   It first read "every cell on screen holds a bar". That was changed
+   when the newest candle was deliberately held clear of the price
+   column, to "the empty cells are exactly the margin asked for" - and
+   that version quietly approved of the bug this check should have
+   caught, because the margin was subtracted from every window,
+   including windows hundreds of bars back in history where real
+   candles were being replaced by blank.
+
+   The gap belongs to the newest bar now, so at the live edge there is
+   room and deeper into history there is none. Both halves are checked
+   rather than one. */
+check("...and the room at the live edge is exactly what was asked for",
+  (() => {
+    chart.setHeadGap(true);
+    const L = chart.layout();
+    return L.cells - L.rows.length === chart.headGapCells() && chart.headGapCells() > 0;
+  })());
+chart.pan(99999);
+check("pan stops at the oldest bar", chart.offset === chart.maxOffset());
+check("...and the window is full of bars, with no live-edge gap in history",
+  (() => {
+    const L = chart.layout();
+    return L.rows.length === chart.span && L.cells - L.rows.length === 0;
+  })());
+chart.setHeadGap(false);
+chart.fit();
+
+chart.setAutoScale(true);
+const autoL = chart.layout();
+chart.scaleBy(2);
+const wideL = chart.layout();
+check("dragging the price axis stops auto scale", chart.scale.auto === false);
+check("...and widens the range", (wideL.mx - wideL.mn) > (autoL.mx - autoL.mn));
+chart.setAutoScale(true);
+check("auto can be asked back", chart.scale.auto === true && chart.layout().mn !== null);
+
+chart.setLogScale(true);
+const logged = chart.layout();
+check("a log axis is not a linear one", (() => {
+  const mid = (logged.mn + logged.mx) / 2;
+  const yLinear = logged.plotT + 0.5 * (logged.plotB - logged.plotT);
+  return Math.abs(logged.yOf(mid) - yLinear) > 0.5;
+})());
+chart.setLogScale(false);
+
+chart.setInvertScale(true);
+check("inverting flips the axis", chart.layout().yOf(chart.layout().mx) > chart.layout().yOf(chart.layout().mn));
+chart.setInvertScale(false);
+
+/* -------------------------------------------------------------- magnet -- */
+chart.setMagnet("strong");
+const L = chart.layout();
+const idx = Math.floor(L.rows.length / 2);
+const row = L.rows[idx];
+const snapped = chart.snapHit({ L, i: idx, y: L.yOf(row.h + 0.0003), p: row.h + 0.0003 });
+check("a strong magnet lands on a real price",
+  [row.o, row.h, row.l, row.c].some((p) => Math.abs(p - snapped.p) < 1e-12));
+chart.setMagnet("off");
+const free = chart.snapHit({ L, i: idx, y: L.yOf(row.h + 0.0003), p: row.h + 0.0003 });
+check("magnet off leaves the price alone", Math.abs(free.p - (row.h + 0.0003)) < 1e-12);
+
+/* ---------------------------------------------------------- persistence -- */
+chart.setType("heikin");
+chart.addIndicator("rsi", { period: 21 });
+const second = new win.CandleChart(canvas, { key: "test" });
+check("the chart type survives a reload", second.type === "heikin");
+check("indicators survive a reload",
+  second.indicators.length === 1 && second.indicators[0].params.period === 21);
+second.setType("candles");
+
+/* ------------------------------------------------------------- hit test -- */
+chart.setType("candles");
+chart.drawings = [];
+const line = chart.addObject({ kind: "trend", a: pt(360, 1.10), b: pt(380, 1.12) });
+const L2 = chart.layout();
+const ax = chart.xyOf(L2, line.a);
+check("an anchor is grabbable", (() => {
+  const f = chart.shapeAt(L2, ax.x, ax.y);
+  return f && f.shape === line && f.handle === "a";
+})());
+check("the body of the line is selectable", (() => {
+  const bx = chart.xyOf(L2, line.b);
+  const f = chart.shapeAt(L2, (ax.x + bx.x) / 2, (ax.y + bx.y) / 2);
+  return f && f.shape === line;
+})());
+check("empty space selects nothing", chart.shapeAt(L2, L2.plotL + 2, L2.plotT + 2) === null);
+chart.updateObject(line.id, { locked: true });
+check("a locked object cannot be grabbed by its handle",
+  (chart.shapeAt(L2, ax.x, ax.y) || {}).handle === null);
+
+/* ------------------------------------------------ drawing without a leash -- */
+/*
+   Two limits the tools used to have, both of them the same mistake: an
+   anchor was being rewritten to the nearest bar. A brush stroke between two
+   candles, or out in the empty margin past the newest one, collapsed onto
+   them; and a position could only ever be as precise as a bar was wide.
+*/
+(function freeHand() {
+  chart.fit();
+  chart.drawings = [];
+  const L = chart.layout();
+
+  // ---- a point between two bars stays between them --------------------
+  chart.setTool("brush");
+  const xMid = Math.round(L.xOf(10) + L.bw / 2);          // exactly between bars
+  const hitMid = chart.hit({ clientX: xMid, clientY: 200 });
+  const pMid = chart.point(hitMid);
+  check("a freehand point is never pinned to a bar", pMid.t === "");
+  check("...and keeps where it really was", Math.abs(pMid.gx - (L.start + 10.5)) < 0.05);
+  const back = chart.xyOf(L, pMid);
+  check("...so it paints back onto the same pixel", Math.abs(back.x - xMid) < 1);
+
+  // ---- the right-hand edge is empty margin, and anchors survive it ----
+  // The blank space past the last candle is back by request: a chart with
+  // the live candle pressed against the price column has nowhere for the
+  // next move to appear. So a point dropped at the right edge now lands
+  // PAST the newest bar, which is the whole point of the margin - and the
+  // thing that must not break is that it paints back exactly where it was
+  // put. It did not, at first: hit() was reporting the last candle's time
+  // out in the margin, so every time-snapping tool dragged the anchor back
+  // onto that candle and the drawing appeared 39px from the pointer.
+  // The gap is a setting and it is off by default, so it is turned on
+  // here: these two checks are about what happens to a drawing anchor
+  // dropped INSIDE the gap, and with no gap there is nowhere to drop
+  // one and both would pass without testing anything.
+  chart.setHeadGap(true);
+  chart.pan(-30);                                          // asks to go past the newest
+  check("asking to scroll past the newest bar does nothing", chart.offset === 0);
+  const L2 = chart.layout();
+  const xFar = Math.round(L2.plotR - 20);
+  const far = chart.point(chart.hit({ clientX: xFar, clientY: 220 }));
+  check("a point in the right margin is allowed to sit past the newest bar",
+    far.gx > chart.rows().length - 0.5);
+  check("...and paints where it was placed",
+    Math.abs(chart.xyOf(L2, far).x - xFar) < 1.5);
+  // With time snapping ON - the default for most tools - the margin is
+  // where this goes wrong, because there is no bar there to snap to.
+  chart.setSnapTime(true);
+  chart.setTool("trend");
+  const inMargin = chart.point(chart.hit({ clientX: xFar, clientY: 220 }));
+  check("a snapping tool does not drag a margin anchor back onto the last candle",
+    Math.abs(chart.xyOf(L2, inMargin).x - xFar) < 1.5);
+  chart.setTool("cursor");
+  chart.fit();
+
+  // ---- a snapping tool still snaps ------------------------------------
+  chart.setTool("trend");
+  chart.setSnapTime(true);
+  const snapped = chart.point(chart.hit({ clientX: xMid, clientY: 200 }));
+  check("a trend line still lands on a bar when snapping is on", snapped.t !== "");
+  chart.setSnapTime(false);
+  const loose = chart.point(chart.hit({ clientX: xMid, clientY: 200 }));
+  check("...and is free the moment snapping is turned off", loose.t === "");
+  chart.setSnapTime(true);
+})();
+
+/* -------------------------------------------------------- the position -- */
+(function positions() {
+  chart.fit();
+  chart.drawings = [];
+  chart.setTool("long");
+  const rows = chart.rows();
+  const P = (i, p) => ({ t: "", p, gi: i, gx: i });
+
+  const pos = chart.addObject({ kind: "long", a: P(300, 1.1000), b: P(320, 1.0950), rr: 2 });
+  check("a position placed with two clicks has no target yet", !pos.c);
+  chart.draft = { kind: "long", a: P(300, 1.1000), b: P(320, 1.0950), rr: 2 };
+  chart.commitDraft();
+  const live = chart.drawings[chart.drawings.length - 1];
+  check("committing one gives it a target anchor", Boolean(live.c));
+  check("...at twice the risk to start with",
+    Math.abs(live.c.p - (1.1000 + 0.0050 * 2)) < 1e-9);
+  check("...which makes it a third handle", chart.anchorKeys(live).length === 3);
+
+  const L = chart.layout();
+  const cxy = chart.xyOf(L, live.c);
+  chart.select(live);
+  check("the target can be grabbed on the chart",
+    (chart.shapeAt(L, cxy.x, cxy.y) || {}).handle === "c");
+
+  // Dragging the target alone changes the reward, not the risk.
+  chart.moveSelected({ p: live.c.p, gi: live.c.gi, gx: live.c.gx },
+                     { p: live.c.p + 0.0050, gi: live.c.gi, gx: live.c.gx }, "c");
+  check("dragging the target moves only the target",
+    Math.abs(live.a.p - 1.1000) < 1e-9 && Math.abs(live.b.p - 1.0950) < 1e-9 &&
+    Math.abs(live.c.p - 1.1150) < 1e-9);
+
+  // Dragging the entry carries the whole trade.
+  chart.moveSelected({ p: live.a.p, gi: 300, gx: 300 }, { p: live.a.p + 0.0010, gi: 300, gx: 300 }, "a");
+  check("dragging the entry carries the stop and the target with it",
+    Math.abs(live.a.p - 1.1010) < 1e-9 && Math.abs(live.b.p - 1.0960) < 1e-9 &&
+    Math.abs(live.c.p - 1.1160) < 1e-9);
+
+  // And it can be typed to the tick.
+  live.c.p = 1.12345;
+  check("the target takes an exact price", Math.abs(live.c.p - 1.12345) < 1e-9);
+  chart.drawings = [];
+  chart.selected = null;
+  chart.setTool("cursor");
+})();
+
+/* -------------------------------------------------------------- the grab -- */
+/*
+   The one invariant that decides whether a chart feels right: what is under
+   the pointer when the drag starts is under the pointer when it ends. If
+   that holds, the chart is a sheet of paper under the hand; if it does not,
+   the chart argues with you. It used to argue - the horizontal sign was
+   inverted, and then inverted a second time for right-to-left layouts, so
+   the gesture was backwards in English and backwards-backwards in Persian.
+*/
+(function theGrab() {
+  const down = (btn, x, y) => chart.onDown({ button: btn, clientX: x, clientY: y, pointerId: 1 });
+  const move = (x, y) => chart.onMove({ clientX: x, clientY: y });
+  const up = (btn, x, y) => chart.onUp({ button: btn, clientX: x, clientY: y, pointerId: 1 });
+
+  function barUnder(x) {
+    const L = chart.layout();
+    return L.start + L.iOf(x);
+  }
+  // The window moves in whole bars, so a drag of n pixels lands on the
+  // nearest one; anything beyond a single bar of slip is a real error, and
+  // an inverted sign is out by twice the distance dragged.
+  function carried(x, was) { return Math.abs(barUnder(x) - was) <= 1; }
+
+  for (const dir of ["rtl", "ltr"]) {
+    win.document.documentElement.dir = dir;
+    chart.setTool("cursor");
+    chart.fit();
+    chart.pan(40);                                   // room to move both ways
+
+    // ---- left button, dragged right -----------------------------------
+    let L = chart.layout();
+    let x0 = Math.round(L.plotL + (L.plotR - L.plotL) / 2);
+    let step = Math.round(L.bw * 6);
+    let held = barUnder(x0);
+    down(0, x0, 200); move(x0 + step, 200); up(0, x0 + step, 200);
+    check("[" + dir + "] drag right and the bar under the pointer comes with it",
+      carried(x0 + step, held));
+    check("[" + dir + "] ...which means older bars are revealed", chart.layout().start < L.start);
+
+    // ---- left button, dragged left ------------------------------------
+    L = chart.layout();
+    held = barUnder(x0);
+    down(0, x0, 200); move(x0 - step, 200); up(0, x0 - step, 200);
+    check("[" + dir + "] drag left and it still comes with it",
+      carried(x0 - step, held));
+
+    // ---- right button: both axes at once -------------------------------
+    chart.setAutoScale(true);
+    L = chart.layout();
+    const y0 = Math.round(L.plotT + (L.plotB - L.plotT) / 2);
+    const dy = 70;
+    held = barUnder(x0);
+    const priceHeld = L.pOf(y0);
+    down(2, x0, y0); move(x0 + step, y0 + dy); up(2, x0 + step, y0 + dy);
+    const after = chart.layout();
+    check("[" + dir + "] right-drag carries the bar with the pointer",
+      carried(x0 + step, held));
+    check("[" + dir + "] right-drag carries the price with it too",
+      Math.abs(after.pOf(y0 + dy) - priceHeld) < (after.mx - after.mn) * 0.01);
+  }
+  win.document.documentElement.dir = "ltr";
+
+  // ---- two fingers ----------------------------------------------------
+  chart.fit(); chart.pan(40);
+  const L2 = chart.layout();
+  const tx = Math.round(L2.plotL + 200);
+  const heldT = L2.start + L2.iOf(tx);
+  const stepT = Math.round(L2.bw * 5);
+  // Pointer events, not touch events: the chart listens on one stream now.
+  // Two fingers land, then both slide the same distance - separation is
+  // unchanged, so this is a pure two-finger pan with no zoom in it.
+  const finger = (id, x) => ({ pointerId: id, pointerType: "touch", clientX: x,
+    clientY: id === 1 ? 100 : 300, button: 0, buttons: 1, preventDefault() {} });
+  chart.onDown(finger(1, tx - 40));
+  chart.onDown(finger(2, tx + 40));
+  chart.onMove(finger(1, tx - 40 + stepT));
+  chart.onMove(finger(2, tx + 40 + stepT));
+  check("two fingers carry the chart the way they move",
+    (() => { const L3 = chart.layout(); return Math.abs(L3.start + L3.iOf(tx + stepT) - heldT) <= 1; })());
+  chart.onUp(finger(1, tx - 40 + stepT));
+  chart.onUp(finger(2, tx + 40 + stepT));
+  check("and the gesture leaves nothing behind", !chart.pinch && !chart.drag && chart.pointers.size === 0);
+
+  // ---- shift + wheel ---------------------------------------------------
+  chart.fit(); chart.pan(60);
+  const back = chart.offset;
+  chart.onWheel({ deltaY: 120, shiftKey: true, clientX: 400, clientY: 200, preventDefault() {} });
+  check("shift and wheel down goes forward in time", chart.offset < back);
+  chart.onWheel({ deltaY: -120, shiftKey: true, clientX: 400, clientY: 200, preventDefault() {} });
+  check("...and wheel up goes back", chart.offset >= back - 1);
+  chart.fit();
+})();
+
+/* ------------------------------------------------- the right-button drag -- */
+/*
+   Press the right button anywhere on the chart and drag: time and price move
+   together, from inside whatever tool is armed, and the browser's own menu
+   never appears. A right click that does not move is not navigation and is
+   offered to the interface as a context menu instead.
+*/
+(function rightDrag() {
+  chart.fit();
+  chart.setTool("trend");                       // armed tool must not interfere
+  const before = { offset: chart.offset, mn: chart.layout().mn };
+  let menus = 0;
+  chart.opts.onMenu = () => { menus++; };
+
+  const down = (btn, x, y) => chart.onDown({ button: btn, clientX: x, clientY: y, pointerId: 1 });
+  const move = (x, y) => chart.onMove({ clientX: x, clientY: y });
+  const up = (btn, x, y) => chart.onUp({ button: btn, clientX: x, clientY: y, pointerId: 1 });
+
+  // Start a little way back in history: with the empty right margin gone,
+  // a chart sitting at the newest bar has nowhere left to scroll forward
+  // to, so a drag that asked to would correctly do nothing and the check
+  // would be testing the clamp rather than the gesture.
+  chart.pan(40);
+  before.offset = chart.offset;
+  down(2, 400, 200);
+  check("the right button starts a free drag", chart.drag && chart.drag.mode === "free");
+  check("...and does not start a drawing", chart.draft === null);
+
+  move(300, 260);
+  check("dragging left scrolls forward in time", chart.offset !== before.offset);
+  check("dragging down moves the price window", chart.layout().mn !== before.mn);
+  check("...which means auto scale has been released", chart.scale.auto === false);
+
+  up(2, 300, 260);
+  check("the drag ends cleanly", chart.drag === null);
+  check("a drag is not a context menu", menus === 0);
+  check("the tool survived the navigation", chart.tool === "trend");
+
+  // Back the other way: the gesture has to be symmetrical.
+  // Dragging down pushed the candles down, which raises the visible window;
+  // dragging back up has to lower it again by the same logic.
+  const mid = chart.layout().mn;
+  down(2, 300, 260); move(420, 190); up(2, 420, 190);
+  check("dragging back the other way reverses it", chart.layout().mn < mid);
+
+  // A click that never moved.
+  down(2, 400, 200); up(2, 400, 200);
+  check("a right click with no movement offers a menu", menus === 1);
+
+  let prevented = 0;
+  chart.onContext({ preventDefault: () => { prevented++; } });
+  check("the browser menu is always refused on the canvas", prevented === 1);
+
+  chart.opts.onMenu = null;
+  chart.setTool("cursor");
+  chart.fit();
+})();
+
+/* ------------------------------------------------------- the stretch -- */
+/*
+   Zoom out far enough and the candles are squeezed into a band. Holding
+   ctrl with the right button stretches the price axis from wherever the
+   pointer is, instead of making the trader travel to the axis to grab it.
+   The invariant is the same one the grab has: the price under the cursor
+   does not move while everything else grows away from it.
+*/
+(function theStretch() {
+  chart.fit();
+  chart.setTool("cursor");
+  chart.setAutoScale(true);
+
+  const L0 = chart.layout();
+  const y0 = Math.round(L0.plotT + (L0.plotB - L0.plotT) * 0.3);
+  const held = L0.pOf(y0);
+  const range0 = L0.mx - L0.mn;
+
+  const down = (opts) => chart.onDown(Object.assign({ button: 2, pointerId: 1 }, opts));
+  const move = (x, y) => chart.onMove({ clientX: x, clientY: y });
+  const up = (x, y) => chart.onUp({ button: 2, clientX: x, clientY: y, pointerId: 1 });
+
+  down({ clientX: 400, clientY: y0, ctrlKey: true });
+  check("ctrl with the right button starts a stretch, not a pan",
+    chart.drag && chart.drag.mode === "stretch");
+
+  move(400, y0 + 100);
+  const wide = chart.layout();
+  check("dragging down compresses the candles", (wide.mx - wide.mn) > range0);
+  check("...and releases auto scale", chart.scale.auto === false);
+  check("the price under the cursor stays under the cursor",
+    Math.abs(wide.pOf(y0) - held) < range0 * 0.01);
+
+  move(400, y0 - 100);
+  const tall = chart.layout();
+  check("dragging up stretches them again", (tall.mx - tall.mn) < range0);
+  check("...still anchored on the same price",
+    Math.abs(tall.pOf(y0) - held) < (tall.mx - tall.mn) * 0.02);
+
+  const offsetBefore = chart.offset;
+  move(700, y0 - 100);
+  check("sideways movement does not scroll while stretching", chart.offset === offsetBefore);
+
+  let menus = 0;
+  chart.opts.onMenu = () => { menus++; };
+  check("the gesture shows itself while it is happening",
+    Boolean(chart._stretch) && Math.abs(chart._stretch.x - 700) < 1);
+
+  up(700, y0 - 100);
+  check("the stretch ends cleanly", chart.drag === null);
+  check("and it is not a context menu", menus === 0);
+
+  // Without ctrl the same button still pans, both axes.
+  down({ clientX: 400, clientY: y0 });
+  check("without ctrl it is still a free pan", chart.drag.mode === "free");
+  up(400, y0);
+
+  // On a log axis the anchor has to hold too.
+  chart.setAutoScale(true);
+  chart.setLogScale(true);
+  const Llog = chart.layout();
+  const ylog = Math.round(Llog.plotT + (Llog.plotB - Llog.plotT) * 0.6);
+  const heldLog = Llog.pOf(ylog);
+  down({ clientX: 400, clientY: ylog, ctrlKey: true });
+  move(400, ylog + 80);
+  const after = chart.layout();
+  check("a logarithmic axis stretches around the same price",
+    Math.abs(after.pOf(ylog) - heldLog) < (after.mx - after.mn) * 0.02);
+  up(400, ylog + 80);
+  chart.setLogScale(false);
+
+  // ---- and the wheel form of the same gesture ------------------------
+  chart.setAutoScale(true);
+  const Lw = chart.layout();
+  const yw = Math.round(Lw.plotT + (Lw.plotB - Lw.plotT) * 0.45);
+  const heldW = Lw.pOf(yw);
+  const rangeW = Lw.mx - Lw.mn;
+  chart.onWheel({ deltaY: 120, ctrlKey: true, clientX: 420, clientY: yw, preventDefault() {} });
+  const afterW = chart.layout();
+  check("ctrl with the wheel stretches instead of zooming",
+    Math.abs((afterW.mx - afterW.mn) - rangeW) > rangeW * 0.02);
+  check("...anchored on the price under the pointer",
+    Math.abs(afterW.pOf(yw) - heldW) < (afterW.mx - afterW.mn) * 0.02);
+  check("...and it does not scroll the chart sideways", chart.offset === 0);
+
+  const plainSpan = chart.span;
+  chart.onWheel({ deltaY: 120, clientX: 420, clientY: yw, preventDefault() {} });
+  check("the wheel on its own still zooms time", chart.span !== plainSpan);
+
+  chart.opts.onMenu = null;
+  chart.setAutoScale(true);
+  chart.fit();
+})();
+
+/* ---------------------------------------------------------- the resize -- */
+/*
+   "ResizeObserver loop completed with undelivered notifications" is what the
+   browser reports when an observed element changes size again while the
+   observer is still delivering. The chart caused it by resizing its own
+   canvas inside the callback, and the desk's boot trap turned that benign
+   warning into a red "could not finish loading" panel over a working desk.
+   These assertions are the guard against it coming back.
+*/
+(function resizePath() {
+  const raf = [];
+  let observed = null;
+  const stub = makeCtx({ fills: 0, strokes: 0, text: [] });
+  const cv = {
+    getContext: () => stub, width: 0, height: 0, style: {}, parentElement: null,
+    getBoundingClientRect: () => ({ left: 0, top: 0, width: 800, height: 400 }),
+    addEventListener: noop, setPointerCapture: noop,
+  };
+  const env = {
+    devicePixelRatio: 1,
+    ResizeObserver: function (cb) { observed = cb; this.observe = noop; this.disconnect = noop; },
+    requestAnimationFrame: (fn) => raf.push(fn),
+    getComputedStyle: () => ({ getPropertyValue: () => "" }),
+    document: { documentElement: { dataset: {}, dir: "ltr" } },
+    localStorage: { getItem: () => null, setItem: noop, removeItem: noop },
+    console,
+  };
+  env.window = env; env.globalThis = env;
+  vm.createContext(env);
+  vm.runInContext(fs.readFileSync(path.join(here, "chart-series.js"), "utf8"), env);
+  vm.runInContext(fs.readFileSync(path.join(here, "charts.js"), "utf8") +
+    "\n;globalThis.CandleChart = CandleChart;", env);
+
+  const c = new env.CandleChart(cv, {});
+  c.setBars(series(60));
+  check("the chart observes its own box", typeof observed === "function");
+
+  let painted = 0;
+  const real = c.paint.bind(c);
+  c.paint = () => { painted++; real(); };
+
+  raf.length = 0;
+  observed();
+  check("a resize never paints inside the callback", painted === 0);
+  observed(); observed();
+  check("many resizes in one frame schedule one paint", raf.length === 1);
+  raf.splice(0).forEach((fn) => fn());
+  check("...and that frame paints exactly once", painted === 1);
+
+  let depth = 0, deepest = 0;
+  c.paint = () => { depth++; deepest = Math.max(deepest, depth); if (depth < 3) c.draw(); real(); depth--; };
+  c.draw();
+  check("a paint cannot re-enter itself", deepest === 1);
+})();
+
+console.log(failed ? `\n${failed} failing.` : "\nThe engine holds.");
+process.exit(failed ? 1 : 0);

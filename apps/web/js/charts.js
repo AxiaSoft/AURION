@@ -26,8 +26,19 @@ function chartTheme() {
     const n = parseInt(h, 16);
     return [(n >> 16) & 255, (n >> 8) & 255, n & 255].join(",");
   };
-  const up = pick("--cyan", "#3ee0c4");
-  const down = pick("--rose", "#ff6b8a");
+  // Candles read --candle-up / --candle-down, never the accent: the direction
+  // of a bar has to mean the same thing in every theme the user can choose.
+  const up = pick("--candle-up", "#26d07c");
+  const down = pick("--candle-down", "#f4475b");
+  /* A stop and a target are a loss and a profit, not a down bar and an
+     up bar. --candle-up / --candle-down are built from each theme's own
+     accent and are deliberately two shades of ONE hue, so a stop drawn
+     with them came out the same colour as its target - on the glass
+     theme both were teal. --ok and --bad are the semantic pair and stay
+     green and red in every theme, which is the whole reason they were
+     split from the candle colours in the first place. */
+  const ok = pick("--ok", "#26d07c");
+  const bad = pick("--bad", "#f4475b");
   const gold = pick("--gold", "#e8c07a");
   const violet = pick("--violet", "#7c6cff");
   const light = (typeof document !== "undefined" && document.documentElement && document.documentElement.dataset.theme) === "light";
@@ -38,86 +49,634 @@ function chartTheme() {
     text: pick("--chart-text", "#e8edf7"),
     muted: pick("--chart-muted", "#8b93a7"),
     panel: pick("--chart-panel", "rgba(10,12,18,.9)"),
-    up, down, gold, violet,
-    upT: tri(up, "62,224,196"),
-    downT: tri(down, "255,107,138"),
+    up, down, gold, violet, ok, bad,
+    upT: tri(up, "38,208,124"),
+    downT: tri(down, "244,71,91"),
+    okT: tri(ok, "38,208,124"),
+    badT: tri(bad, "244,71,91"),
     goldT: tri(gold, "232,192,122"),
     violetT: tri(violet, "124,108,255"),
     fib: light ? "#3c4a63" : "#c9d0de",
     tag: light ? "#f0e4bd" : "#1a1408",
+    /* How the body of a candle is made, not what colour it is.
+
+       Relief and Velvet are defined by the way a surface is formed -- one
+       presses shapes into the page with light, the other inflates them --
+       and every panel on the desk followed suit except the one thing a
+       trader actually looks at. The candles stayed flat rectangles, so on
+       those two themes the chart was the one rectangle on screen that had
+       not been themed at all.
+
+       Named by the theme layer rather than sniffed from data-skin here,
+       for the same reason the colours are: css/themes.css owns what a
+       material looks like, and this file owns drawing it. A theme that
+       says nothing gets "flat", which is the rectangle that was always
+       drawn. */
+    material: String(pick("--candle-style", "flat")).replace(/["']/g, "").trim(),
   };
   __aurionChartTheme = T;
   __aurionChartThemeRev = rev;
   return T;
 }
 
+
+/* ===========================================================================
+   The chart engine
+   ===========================================================================
+   A 2D-canvas terminal chart. There is no charting library underneath it -
+   every candle, axis, indicator and drawing on the screen is painted here -
+   which is why this file owns so much: the alternative is a dependency that
+   cannot be themed with the desk's tokens or bundled into the installer.
+
+   The parts, in the order they are declared:
+
+     state        what is being shown, how, and what the user has drawn
+     scales       price and time, including log, percent and manual scaling
+     layout       one object per frame with every coordinate helper on it
+     paint        series, indicators, drawings, axes, crosshair, legend
+     hit-testing  what is under the pointer, and what can be grabbed
+     interaction  pointer, wheel, touch; drawing versus navigating
+
+   Two invariants worth keeping:
+
+     1. `layout()` is the only place that knows how a price becomes a y, and
+        a bar index becomes an x. Everything else asks it.
+     2. A drawing is stored in *data* space - bar index and price - never in
+        pixels, so it stays where the trader put it through every zoom, pan,
+        timeframe change and window resize.
+   =========================================================================== */
+
+/** Points required before a drawing is finished. -1 means freehand. */
+const SHAPE_POINTS = {
+  hline: 1, hray: 1, vline: 1, crossline: 1, priceline: 1, dateline: 1,
+  text: 1, note: 1, label: 1, pricelabel: 1, flag: 1, emoji: 1,
+  trend: 2, ray: 2, extended: 2, arrow: 2, infoline: 2, callout: 2,
+  rect: 2, circle: 2, ellipse: 2, measure: 2, pricerange: 2, daterange: 2,
+  long: 2, short: 2, fib: 2, fibtime: 2, fibcircle: 2, fibarc: 2, fibspiral: 2,
+  gannfan: 2, gannbox: 2, gannsquare: 2, regression: 2,
+  parallel: 3, channel: 3, flatchannel: 3, pitchfork: 3, schiff: 3, modschiff: 3,
+  triangle: 3, rotrect: 3, arc: 3, curve: 3, fibext: 3, fibchannel: 3, fibwedge: 3,
+  disjoint: 4, doublecurve: 4, abcd: 4, elliott3: 4,
+  xabcd: 5, gartley: 5, butterfly: 5, bat: 5, crab: 5, cypher: 5,
+  elliott5: 6, headshoulders: 7, threedrives: 7,
+  brush: -1, highlighter: -1, freearrow: -1, polyline: -1, polygon: -1, path: -1,
+};
+
+/** Point labels drawn on the pattern tools. */
+const SHAPE_LABELS = {
+  abcd: ["A", "B", "C", "D"],
+  xabcd: ["X", "A", "B", "C", "D"],
+  gartley: ["X", "A", "B", "C", "D"],
+  butterfly: ["X", "A", "B", "C", "D"],
+  bat: ["X", "A", "B", "C", "D"],
+  crab: ["X", "A", "B", "C", "D"],
+  cypher: ["X", "A", "B", "C", "D"],
+  elliott5: ["0", "1", "2", "3", "4", "5"],
+  elliott3: ["0", "A", "B", "C"],
+  headshoulders: ["", "LS", "", "H", "", "RS", ""],
+  threedrives: ["1", "A", "2", "B", "3", "C", "4"],
+};
+
+/** The harmonic ratios each named pattern is defined by, for the readout. */
+const HARMONIC_RULES = {
+  gartley: { AB: [0.618, 0.618], BC: [0.382, 0.886], CD: [1.13, 1.618], XD: [0.786, 0.786] },
+  butterfly: { AB: [0.786, 0.786], BC: [0.382, 0.886], CD: [1.618, 2.24], XD: [1.27, 1.618] },
+  bat: { AB: [0.382, 0.5], BC: [0.382, 0.886], CD: [1.618, 2.618], XD: [0.886, 0.886] },
+  crab: { AB: [0.382, 0.618], BC: [0.382, 0.886], CD: [2.24, 3.618], XD: [1.618, 1.618] },
+  cypher: { AB: [0.382, 0.618], BC: [1.13, 1.414], CD: [0.786, 0.786], XD: [0.786, 0.786] },
+};
+
+/** Shapes whose second anchor is only a width, not a price. */
+const TIME_ONLY = { daterange: true, fibtime: true, vline: true, dateline: true };
+
+const DASHES = { solid: [], dashed: [6, 4], dotted: [1.5, 3] };
+
+let __shapeSeq = 0;
+function shapeId() {
+  __shapeSeq += 1;
+  return "d" + Date.now().toString(36) + "-" + __shapeSeq.toString(36);
+}
+
 class CandleChart {
+  /* How much of the remembered price window the data must still fill
+     before the scale is allowed to stay put. Below this the chart is
+     mostly empty space and a re-fit is the right answer. */
+  static FIT_FILL = 0.55;
+
+  /* Empty space held between the NEWEST candle and the price column,
+     as a fraction of the visible window.
+
+     Two things about it, both of them the point:
+
+     It is a fraction, not a number of bars, so it means the same thing
+     at every zoom - a slider counted in bars had to be re-set every
+     time the trader zoomed, which is why it is gone.
+
+     And it belongs to the newest bar, not to the viewport. The old
+     margin was simply subtracted from every window: scroll two hundred
+     bars into history and thirty cells of blank still sat on the right
+     where real candles should have been, so part of the chart the
+     trader had deliberately scrolled to was replaced by the gap that
+     was meant to live at the live edge. The gap shrinks bar for bar as
+     the chart is pulled back and is gone once the newest candle is
+     off-screen. */
+  static HEAD_GAP = 0.15;
+
+  /* How near the pointer has to be to grab a stop or a target. A finger
+     covers far more than a mouse and cannot see what it is covering. */
+  static LEVEL_GRAB = 5;
+  static LEVEL_GRAB_TOUCH = 12;
+
+  /* 1, 2, 5 x a power of ten - the step sizes a reader expects to see on
+     an axis. The price window is snapped to the same ladder the axis
+     labels use, so the remembered frame always lands on round numbers. */
+  static niceStep(raw) {
+    if (!(raw > 0) || !Number.isFinite(raw)) return 1;
+    const e = Math.pow(10, Math.floor(Math.log10(raw)));
+    const m = raw / e;
+    return (m <= 1 ? 1 : m <= 2 ? 2 : m <= 5 ? 5 : 10) * e;
+  }
+
   constructor(canvas, opts) {
     this.canvas = canvas;
     this.ctx = canvas.getContext("2d");
     this.opts = opts || {};
     this.bars = [];
-    this.offset = 0;
-    this.span = 80;
+
+    /* ---- what is shown ------------------------------------------------ */
+    this.type = "candles";
+    this.grid = true;
+    this.crosshair = "cross";      // cross | dot | none
+    this.tool = "cursor";
+    this.magnet = "off";           // off | weak | strong
+    this.snapTime = true;
+    this.indicators = [];
+    this.drawings = [];
+    this.selected = null;
+
+    /* ---- the view ------------------------------------------------------ */
+    this.offset = 0;               // bars scrolled back from the newest
+    this.span = 120;               // bars across the plot
+    this.rightPad = 0;             // empty bars kept to the right of the last
+    /* Breathing room between the newest candle and the price column.
+       Off by default; the chart header turns it on. */
+    this.headGap = false;
+    this.scale = { auto: true, log: false, percent: false, invert: false, lock: false, mn: null, mx: null };
+
+    /* ---- transient ----------------------------------------------------- */
     this.hover = null;
     this.drag = null;
-    this.tick = null;
-    this.tool = "cursor";
     this.draft = null;
-    this.drawings = [];
+    this.tick = null;
     this.levels = [];
+    /* Resting orders the robot has planted but that have not filled. A
+       position is a trade; one of these is a decision waiting for price,
+       and until it was drawn there was no way to see the robot had made
+       one. */
+    this.orders = [];
     this.pending = { sl: 0, tp: 0 };
     this.dragLevel = null;
+    this.signals = [];
+    this._sigHits = [];
+    this._sigHover = null;
+    this._pinned = null;
+    this.showSignals = true;
     this._moved = false;
-    this.magnet = false;
-    this.crosshair = true;
+    this._space = false;
+
+    /* ---- history ------------------------------------------------------- */
+    this.past = [];
+    this.future = [];
+
     this.key = this.opts.key || "";
     this.analyze = Boolean(this.opts.analyze);
-    this.signals = [];
-    this.showSignals = true;
-    this._clicks = 0;
-    if (this.key) this.drawings = CandleChart.load(this.key);
-    this.ro = new ResizeObserver(() => this.draw());
+    if (this.key) {
+      this.drawings = CandleChart.load(this.key).map((d) => this.hydrate(d));
+      this.restoreState();
+    }
+
+    /* A resize is answered on the next frame, never inside the callback.
+       draw() resizes the canvas backing store, and a canvas that changes
+       size while the observer is still delivering is exactly what makes the
+       browser report "ResizeObserver loop completed with undelivered
+       notifications" - a benign warning, but one the desk's boot trap was
+       catching and turning into a fatal-looking error box. */
+    this.ro = new ResizeObserver(() => this.scheduleDraw());
     this.ro.observe(canvas.parentElement || canvas);
+    /* ---- input ---------------------------------------------------------
+       Pointer events only. This canvas used to listen for pointerdown AND
+       touchstart, and a touchscreen fires both for the same finger: a
+       two-finger pinch ran the zoom from the touch handler while a pan
+       drag, started by the first finger's pointerdown, was still live
+       underneath it. The chart zoomed and slid at once and neither
+       gesture felt like it was being obeyed.
+
+       One stream, one source of truth. Pointer events already report
+       touch, pen and mouse, and `touch-action:none` on the canvas means
+       the browser hands us every gesture instead of scrolling the page.
+       Multi-finger work is done by tracking the live pointers in a map,
+       which is also the only way to know a second finger has arrived. */
     canvas.addEventListener("wheel", (e) => this.onWheel(e), { passive: false });
     canvas.addEventListener("pointerdown", (e) => this.onDown(e));
     canvas.addEventListener("pointermove", (e) => this.onMove(e));
     canvas.addEventListener("pointerup", (e) => this.onUp(e));
-    canvas.addEventListener("pointerleave", () => { this.hover = null; this.draw(); });
-    canvas.addEventListener("touchstart", (e) => this.onTouch(e), { passive: false });
-    canvas.addEventListener("touchmove", (e) => this.onTouch(e), { passive: false });
-    canvas.addEventListener("dblclick", () => this.fit());
+    // A cancelled pointer is not an "up": the browser took the gesture
+    // away (a system edge-swipe, a call arriving, the finger sliding off
+    // a captured surface). Without this the drag it started would never
+    // end, and the chart would follow the pointer around for ever after.
+    canvas.addEventListener("pointercancel", (e) => this.onCancel(e));
+    canvas.addEventListener("lostpointercapture", (e) => this.onCancel(e));
+    canvas.addEventListener("pointerleave", (e) => {
+      if (this.pointers && this.pointers.size) return; // mid-gesture, not a real leave
+      /* A finger "leaves" the canvas every time it lifts, which would
+         wipe the card in the same frame the tap just opened it. Touch
+         dismisses by tapping somewhere else instead. */
+      if (this.isTouch(e) || this._sigTapped) { this.hover = null; this.draw(); return; }
+      this.hover = null; this._sigHover = null; this.draw();
+    });
+    canvas.addEventListener("contextmenu", (e) => this.onContext(e));
+    canvas.addEventListener("dblclick", (e) => this.onDouble(e));
   }
+
+  /* ======================================================== persistence == */
+
   static load(key) {
     try { return JSON.parse(localStorage.getItem("aurion.draw." + key) || "[]") || []; }
     catch { return []; }
   }
+
+  /** Older drawings predate ids and style fields; fill them in on the way in. */
+  hydrate(d) {
+    return Object.assign({
+      id: shapeId(),
+      width: 1.4,
+      style: "solid",
+      opacity: 1,
+      fill: true,
+      visible: true,
+      locked: false,
+      name: "",
+    }, d);
+  }
+
   persist() {
     if (!this.key) return;
-    try { localStorage.setItem("aurion.draw." + this.key, JSON.stringify(this.drawings.slice(-200))); } catch { /* */ }
+    try {
+      localStorage.setItem("aurion.draw." + this.key, JSON.stringify(this.drawings.slice(-400)));
+    } catch { /* private mode must never break the chart */ }
   }
+
+  /** The workspace: chart type, indicators, scale. Kept apart from drawings
+      so clearing the chart does not throw the trader's indicators away. */
+  saveState() {
+    if (!this.key) return;
+    try {
+      localStorage.setItem("aurion.chart." + this.key, JSON.stringify({
+        type: this.type,
+        indicators: this.indicators.map((i) => ({ id: i.id, type: i.type, params: i.params, visible: i.visible, color: i.color })),
+        scale: { log: this.scale.log, percent: this.scale.percent, invert: this.scale.invert, auto: this.scale.auto },
+        grid: this.grid,
+        crosshair: this.crosshair,
+        magnet: this.magnet,
+        headGap: this.headGap,
+      }));
+    } catch { /* not fatal */ }
+  }
+
+  restoreState() {
+    let st = null;
+    try { st = JSON.parse(localStorage.getItem("aurion.chart." + this.key) || "null"); } catch { st = null; }
+    if (!st || typeof st !== "object") return;
+    if (st.type) this.type = st.type;
+    if (typeof st.grid === "boolean") this.grid = st.grid;
+    if (st.crosshair) this.crosshair = st.crosshair;
+    if (st.magnet) this.magnet = st.magnet;
+    if (typeof st.headGap === "boolean") this.headGap = st.headGap;
+    if (st.scale) Object.assign(this.scale, st.scale, { mn: null, mx: null });
+    if (Array.isArray(st.indicators)) {
+      this.indicators = st.indicators
+        .filter((i) => i && this.indicatorDef(i.type))
+        .map((i) => ({
+          id: i.id || shapeId(),
+          type: i.type,
+          params: Object.assign({}, this.indicatorDef(i.type).params, i.params || {}),
+          visible: i.visible !== false,
+          color: i.color || "",
+        }));
+    }
+  }
+
+  /* ============================================================ history == */
+
+  /**
+   * Undo is a snapshot stack rather than a list of inverse operations.
+   *
+   * A drawing is small and there are never many of them, so the honest,
+   * unbreakable version costs a few kilobytes: every mutation pushes the
+   * state that preceded it. Inverse operations would be cheaper and would
+   * eventually get one of the fifty shape kinds wrong.
+   */
+  snapshot() {
+    try {
+      this.past.push(JSON.stringify(this.drawings));
+      if (this.past.length > 80) this.past.shift();
+      this.future.length = 0;
+    } catch { /* a snapshot that cannot be taken must not block the edit */ }
+  }
+
+  restore(json) {
+    try {
+      const next = JSON.parse(json);
+      this.drawings = Array.isArray(next) ? next.map((d) => this.hydrate(d)) : [];
+      const keep = this.selected && this.drawings.find((d) => d.id === this.selected.id);
+      this.selected = keep || null;
+      this.persist();
+      this.draw();
+      this.changed();
+    } catch { /* corrupt history entry: leave the chart as it is */ }
+  }
+
+  undo() {
+    if (!this.past.length) return false;
+    this.future.push(JSON.stringify(this.drawings));
+    this.restore(this.past.pop());
+    return true;
+  }
+
+  redo() {
+    if (!this.future.length) return false;
+    this.past.push(JSON.stringify(this.drawings));
+    this.restore(this.future.pop());
+    return true;
+  }
+
+  canUndo() { return this.past.length > 0; }
+  canRedo() { return this.future.length > 0; }
+
+  /** Tell the interface that the object list or selection moved. */
+  /** Reported on every scroll, separately from changed(), because the
+      answer to "is there more history behind this?" costs a request and
+      must not be asked on every style tweak. */
+  scrolled() {
+    if (typeof this.opts.onScroll === "function") {
+      try { this.opts.onScroll(this); } catch { /* the chart is still fine */ }
+    }
+  }
+
+  changed() {
+    if (typeof this.opts.onChange === "function") {
+      try { this.opts.onChange(this); } catch { /* the chart is still fine */ }
+    }
+  }
+
+  /* ========================================================= the objects == */
+
+  addObject(obj) {
+    this.snapshot();
+    const d = this.hydrate(obj);
+    this.drawings.push(d);
+    this.persist();
+    this.draw();
+    this.changed();
+    return d;
+  }
+
+  getObject(id) { return this.drawings.find((d) => d.id === id) || null; }
+
+  updateObject(id, patch, opts) {
+    const d = this.getObject(id);
+    if (!d) return null;
+    if (!(opts && opts.quiet)) this.snapshot();
+    Object.assign(d, patch || {});
+    this.persist();
+    this.draw();
+    if (!(opts && opts.quiet)) this.changed();
+    return d;
+  }
+
+  /**
+   * Remove a drawing.
+   *
+   * Takes the id or the object itself. Matching on the object matters: not
+   * every shape carries an id (ones built in-memory and never persisted do
+   * not), and `d.id === undefined` would happily match the first such shape
+   * in the list rather than the one actually being deleted.
+   */
+  removeObject(id) {
+    const at = (id && typeof id === "object")
+      ? this.drawings.indexOf(id)
+      : (id === undefined || id === null ? -1 : this.drawings.findIndex((d) => d.id === id));
+    if (at < 0) return false;
+    this.snapshot();
+    const [gone] = this.drawings.splice(at, 1);
+    if (this.selected === gone) this.selected = null;
+    this.persist();
+    this.draw();
+    this.changed();
+    return true;
+  }
+
+  eachObject(fn) {
+    this.snapshot();
+    this.drawings.forEach(fn);
+    this.persist();
+    this.draw();
+    this.changed();
+  }
+
+  clearDrawings() {
+    if (!this.drawings.length) return;
+    this.snapshot();
+    this.drawings = [];
+    this.selected = null;
+    this.persist();
+    this.draw();
+    this.changed();
+  }
+
+  select(shape) {
+    this.selected = shape || null;
+    this.draw();
+    this.changed();
+  }
+
+  selectById(id) {
+    this.select(this.getObject(id));
+  }
+
+  deleteSelected() {
+    if (!this.selected) return false;
+    // By reference, not by id — the selection is the shape, and it may not
+    // have an id yet.
+    return this.removeObject(this.selected);
+  }
+
+  /* ========================================================== indicators == */
+
+  indicatorDef(type) {
+    const lib = (typeof window !== "undefined" && window.AurionSeries) || null;
+    return (lib && lib.INDICATOR_BY_ID[type]) || null;
+  }
+
+  addIndicator(type, params) {
+    const def = this.indicatorDef(type);
+    if (!def) return null;
+    const ind = {
+      id: shapeId(),
+      type,
+      params: Object.assign({}, def.params, params || {}),
+      visible: true,
+      color: "",
+    };
+    this.indicators.push(ind);
+    this.saveState();
+    this.draw();
+    this.changed();
+    return ind;
+  }
+
+  updateIndicator(id, patch) {
+    const ind = this.indicators.find((i) => i.id === id);
+    if (!ind) return null;
+    if (patch && patch.params) {
+      ind.params = Object.assign({}, ind.params, patch.params);
+      delete patch.params;
+    }
+    Object.assign(ind, patch || {});
+    this.saveState();
+    this.draw();
+    this.changed();
+    return ind;
+  }
+
+  removeIndicator(id) {
+    const at = this.indicators.findIndex((i) => i.id === id);
+    if (at < 0) return false;
+    this.indicators.splice(at, 1);
+    this.saveState();
+    this.draw();
+    this.changed();
+    return true;
+  }
+
+  /* =============================================================== state == */
+
   setTool(tool) {
     this.tool = tool || "cursor";
     this.draft = null;
-    this._clicks = 0;
-    this.canvas.style.cursor = this.tool === "cursor" ? "grab" : "crosshair";
+    this.canvas.style.cursor = this.cursorFor();
     this.draw();
   }
-  setMagnet(on) { this.magnet = Boolean(on); }
+
+  /**
+   * Is the pointer on a stop or a target?
+   *
+   * Only ever on the cursor tool: while a drawing tool is armed the
+   * trader is placing a shape, and grabbing a broker level instead
+   * would be a very expensive surprise.
+   */
+  levelAt(x, y) {
+    if (this.tool !== "cursor") return null;
+    const L = this._L;
+    if (!L || x < L.plotL || x > L.plotR) return null;
+    const reach = this._pointerType === "touch"
+      ? CandleChart.LEVEL_GRAB_TOUCH : CandleChart.LEVEL_GRAB;
+    let best = null;
+    for (const z of this._lvlZones || []) {
+      const d = Math.abs(y - z.y);
+      if (d <= reach && (!best || d < best.d)) best = { z, d };
+    }
+    return best ? best.z : null;
+  }
+
+  beginLevelDrag(zone, price) {
+    this._lvlDrag = { ticket: zone.ticket, kind: zone.kind, symbol: zone.symbol,
+      from: zone.price, price, type: zone.type, open: zone.open };
+    this.canvas.style.cursor = "ns-resize";
+    this.draw();
+  }
+
+  moveLevelDrag(price) {
+    if (!this._lvlDrag) return;
+    this._lvlDrag.price = price;
+    this.draw();
+  }
+
+  /**
+   * Let go.
+   *
+   * The chart does not send the order itself - it reports the intent and
+   * the desk decides, because changing a live stop is real money and the
+   * confirmation, the wording and the failure handling belong with every
+   * other order path rather than in the renderer. The line snaps back to
+   * where it was until the broker says otherwise; showing it at the new
+   * price before the fill would be inventing a state.
+   */
+  endLevelDrag(commit) {
+    const d = this._lvlDrag;
+    this._lvlDrag = null;
+    this.canvas.style.cursor = this.cursorFor();
+    this.draw();
+    if (!d || !commit) return;
+    if (!(d.price > 0) || d.price === d.from) return;
+    if (typeof this.opts.onLevelMove === "function") {
+      try { this.opts.onLevelMove({ ...d }); } catch { /* the chart is still fine */ }
+    }
+  }
+
+  cursorFor() {
+    if (this.tool === "cursor") return "default";
+    if (this.tool === "pan") return "grab";
+    if (this.tool === "eraser") return "cell";
+    return "crosshair";
+  }
+
+  setCrosshair(mode) { this.crosshair = mode || "cross"; this.saveState(); this.draw(); }
+  setGrid(on) { this.grid = Boolean(on); this.saveState(); this.draw(); }
+  setMagnet(mode) {
+    // The old interface had a magnet switch; a switch cannot say how strong.
+    if (mode === true) mode = "weak";
+    if (mode === false) mode = "off";
+    this.magnet = mode || "off";
+    this.saveState();
+  }
+  setSnapTime(on) { this.snapTime = Boolean(on); }
+
+  setType(type) {
+    const lib = (typeof window !== "undefined" && window.AurionSeries) || null;
+    if (lib && !lib.SERIES_TYPES.some((t) => t.id === type)) return this.type;
+    this.type = type;
+    this._series = null;
+    this.saveState();
+    this.draw();
+    return type;
+  }
+
+
   setLevels(positions) {
     this.levels = Array.isArray(positions) ? positions.filter(Boolean) : [];
     this.draw();
   }
+
+  /** The robot's planted entry points: resting orders, not open trades. */
+  setOrders(orders) {
+    this.orders = Array.isArray(orders) ? orders.filter(Boolean) : [];
+    this.draw();
+  }
+
   setPending(p) {
     p = p || {};
     this.pending = { sl: Number(p.sl || 0) || 0, tp: Number(p.tp || 0) || 0 };
     this.draw();
   }
+
   setSignals(signals, show) {
     this.signals = Array.isArray(signals) ? signals : [];
+    this._sigHover = null;
     if (typeof show === "boolean") this.showSignals = show;
     this.draw();
   }
+
   setLastBar(b) {
     if (!b) return;
     if (!this.bars.length) { this.setBars([b]); return; }
@@ -125,32 +684,10 @@ class CandleChart {
     const last = this.bars[this.bars.length - 1];
     if (t && String(last.time || last.ts || "") === t) this.bars[this.bars.length - 1] = b;
     else this.bars.push(b);
+    this._series = null;
     this.draw();
   }
-  zoom(dir) {
-    this.span = Math.max(20, Math.min(this.bars.length || 20, this.span + (dir > 0 ? -10 : 10)));
-    this.draw();
-  }
-  snapHit(hit) {
-    if (!hit || !hit.valid || !this.magnet || !hit.L) return hit;
-    const row = hit.L.rows[hit.i];
-    if (!row) return hit;
-    let best = hit.p;
-    let bd = 12;
-    for (const p of [row.o, row.h, row.l, row.c]) {
-      const d = Math.abs(hit.L.yOf(p) - hit.y);
-      if (d < bd) { bd = d; best = p; }
-    }
-    hit.p = best;
-    return hit;
-  }
-  undo() { this.drawings.pop(); this.persist(); this.draw(); }
-  clearDrawings() { this.drawings = []; this.persist(); this.draw(); }
-  fit() {
-    this.offset = 0;
-    this.span = Math.min(160, Math.max(40, this.bars.length || 40));
-    this.draw();
-  }
+
   setBars(bars) {
     const had = this.bars.length > 0;
     const prevSpan = this.span;
@@ -163,16 +700,22 @@ class CandleChart {
       map.set(t, b);
     }
     this.bars = [...map.values()].sort((a, b) => String(a.time || a.ts || "").localeCompare(String(b.time || b.ts || "")));
+    this._series = null;
     if (!had) {
       this.offset = 0;
       this.span = Math.min(this.analyze ? 160 : 120, Math.max(30, this.bars.length || 30));
     } else {
-      this.span = Math.max(20, Math.min(this.bars.length || prevSpan, prevSpan));
-      this.offset = Math.max(0, Math.min(Math.max(0, this.bars.length - this.span), prevOff));
+      this.span = Math.max(8, Math.min(this.rows().length || prevSpan, prevSpan));
+      this.offset = prevOff;
+      this.clampOffset();
     }
     this.draw();
   }
+
   setTick(tick) { this.tick = tick; this.draw(); }
+
+  /* ================================================================ data == */
+
   norm(b) {
     return {
       t: b.time || b.ts || "",
@@ -183,13 +726,62 @@ class CandleChart {
       v: +b.volume || +b.v || 0,
     };
   }
+
+  /** The raw normalised bars, before the chart type has its say. */
   all() { return this.bars.map((b) => this.norm(b)); }
+
+  /**
+   * The rows the chart actually plots: the bars after the series transform,
+   * memoised because Renko over a thousand bars is not free and the chart
+   * repaints on every pointer move.
+   */
+  rows() {
+    if (this._series && this._seriesType === this.type && this._seriesLen === this.bars.length) {
+      return this._series;
+    }
+    const lib = (typeof window !== "undefined" && window.AurionSeries) || null;
+    const def = lib && lib.SERIES_TYPES.find((t) => t.id === this.type);
+    const base = this.all();
+    this._series = def && def.transform ? def.transform(base) : base;
+    if (!this._series.length) this._series = base;
+    this._seriesType = this.type;
+    this._seriesLen = this.bars.length;
+    return this._series;
+  }
+
+  /**
+   * The visible window.
+   *
+   * A negative offset means the chart has been pulled past the newest bar -
+   * the empty margin on the right that every terminal lets you scroll into,
+   * so the last candle does not have to live jammed against the price axis.
+   * That margin is expressed as `rightPad`, which the layout counts as extra
+   * cells, and it is the only reason offset is allowed below zero.
+   */
   slice() {
-    const all = this.all();
-    const end = all.length - this.offset;
-    const start = Math.max(0, end - this.span);
+    const all = this.rows();
+    this.rightPad = Math.max(this.headGapCells(), -this.offset);
+    const end = all.length - Math.max(0, this.offset);
+    const start = Math.max(0, end - this.span + this.rightPad);
     return { rows: all.slice(start, end), start, end };
   }
+
+  /**
+   * Empty cells the head gap is asking for RIGHT NOW.
+   *
+   * The gap is anchored to the newest bar rather than to the right-hand
+   * edge of the window, which is the whole difference between this and
+   * the fixed margin it replaces. Scrolling back by one bar reveals one
+   * more real candle into the gap, so by the time the newest candle has
+   * left the screen the gap has gone with it and the window is candles
+   * all the way across. Pull back one bar, get one bar: nothing jumps.
+   */
+  headGapCells() {
+    if (!this.headGap) return 0;
+    const want = Math.max(1, Math.round(this.span * CandleChart.HEAD_GAP));
+    return Math.max(0, want - Math.max(0, this.offset));
+  }
+
   fmtPrice(p) {
     const n = Number(p);
     if (!Number.isFinite(n)) return "—";
@@ -199,6 +791,9 @@ class CandleChart {
     if (a >= 1) return n.toFixed(4);
     return n.toFixed(5);
   }
+
+  /* ============================================================== layout == */
+
   size() {
     const dpr = window.devicePixelRatio || 1;
     const r = this.canvas.getBoundingClientRect();
@@ -208,184 +803,974 @@ class CandleChart {
       this.canvas.height = Math.round(h * dpr);
     }
     this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    const axisW = this.analyze ? 92 : 84;
-    return { w, h, padL: 14, padR: axisW, padT: 16, padB: 36, gapR: 18 };
+    const axisW = w < 420 ? 62 : (this.analyze ? 92 : 78);
+    return { w, h, padL: 10, padR: axisW, padT: 14, padB: 26, gapR: 10 };
   }
+
+  /**
+   * Everything the painters need, computed once per frame.
+   *
+   * The price axis is the interesting part. Auto scale fits the visible bars;
+   * once the trader drags the axis it is pinned until they ask for auto back.
+   * Log and percent are alternative mappings of the same range rather than
+   * separate code paths, so every drawing follows the axis it was placed on.
+   */
   layout() {
     const { w, h, padL, padR, padT, padB, gapR } = this.size();
     const { rows, start } = this.slice();
     if (!rows.length) return null;
-    let mn = Math.min(...rows.map((r) => r.l)), mx = Math.max(...rows.map((r) => r.h));
+
+    /* ---- sub-panes ---------------------------------------------------- */
+    const subs = this.indicators.filter((i) => {
+      const def = this.indicatorDef(i.type);
+      return i.visible !== false && def && def.pane === "sub";
+    });
+    const usable = h - padT - padB;
+    let paneShare = 0;
+    subs.forEach((i) => { paneShare += (this.indicatorDef(i.type).height || 0.18); });
+    paneShare = Math.min(0.62, paneShare);
+    const panesH = subs.length ? Math.round(usable * paneShare) : 0;
+    const gap = 6;
+    const mainB = padT + usable - panesH - (subs.length ? gap : 0);
+
+    /* ---- price range --------------------------------------------------- */
+    let mn = Math.min(...rows.map((r) => r.l));
+    let mx = Math.max(...rows.map((r) => r.h));
     for (const lv of this.levels || []) {
       for (const k of ["sl", "tp", "price_open", "price_current"]) {
         const n = Number(lv[k]);
         if (n > 0) { mn = Math.min(mn, n); mx = Math.max(mx, n); }
       }
     }
+    // A resting entry sits away from the market by design, so it is the
+    // one level most likely to fall outside the visible range. Drawn but
+    // off-screen is the same as not drawn.
+    for (const od of this.orders || []) {
+      for (const k of ["price", "sl", "tp"]) {
+        const n = Number(od[k]);
+        if (n > 0) { mn = Math.min(mn, n); mx = Math.max(mx, n); }
+      }
+    }
+    for (const ind of this.indicators) {
+      const def = this.indicatorDef(ind.type);
+      if (!def || def.pane !== "main" || ind.visible === false) continue;
+      const out = this.indicatorValues(ind, rows, start);
+      for (const plot of def.plots) {
+        for (const v of (out[plot.key] || [])) {
+          if (v === null || !Number.isFinite(v)) continue;
+          mn = Math.min(mn, v); mx = Math.max(mx, v);
+        }
+      }
+    }
     if (mn === mx) { mn -= 1; mx += 1; }
-    const padPct = (mx - mn) * 0.04 || 0.5;
-    mn -= padPct;
-    mx += padPct;
-    const span = mx - mn || 1;
+    const auto = this.scale.auto || this.scale.mn === null;
+    if (!auto) { mn = this.scale.mn; mx = this.scale.mx; }
+    else {
+      const pad = (mx - mn) * 0.06 || 0.5;
+      mn -= pad; mx += pad;
+
+      /* The price scale holds still unless it has to move.
+
+         It used to be re-fitted on every single draw, which is correct
+         arithmetic and the wrong behaviour: with a live feed the scale
+         changed whenever a tick set a new extreme or a new bar pushed
+         the old one out of the window, so every price mapped to a
+         slightly different row each time. Candles drifting is hard to
+         see. A horizontal reference line drifting is not - the stop and
+         the target never settled. Measured on a 120-bar window: 5.7px
+         when a tick made a new high, another 2.8px when the next candle
+         arrived, several times a minute.
+
+         So the fitted window is remembered and reused while the data
+         still sits inside it and still fills enough of it to be worth
+         looking at. When price genuinely leaves, or the range collapses
+         to less than this much of the window - a different instrument,
+         a zoom, a quiet session after a violent one - it re-fits once,
+         in one visible step, which is a scale change the viewer can
+         follow rather than a permanent tremor. */
+      const keep = this._fit;
+      const span = mx - mn;
+      if (keep && mn >= keep.mn && mx <= keep.mx
+          && span / ((keep.mx - keep.mn) || 1) >= CandleChart.FIT_FILL) {
+        mn = keep.mn; mx = keep.mx;
+      } else {
+        /* Snap outwards to a round step when re-fitting. A frame fitted
+           exactly to the data is discarded by the next tick that
+           overshoots it by a fraction of a pip, which is no better than
+           not remembering one at all - the first attempt at this did
+           exactly that and still drifted 2.8px on a new candle. Rounding
+           out to the ladder the axis already uses gives the window slack
+           to absorb ordinary movement, and makes the one re-fit that
+           does happen land on numbers worth reading. */
+        const step = CandleChart.niceStep(span / 6) || span / 6 || 1;
+        mn = Math.floor(mn / step) * step;
+        mx = Math.ceil(mx / step) * step;
+        this._fit = { mn, mx };
+      }
+    }
+
+    const log = this.scale.log && mn > 0;
+    const invert = this.scale.invert;
+    const f = log ? Math.log : (x) => x;
+    const fi = log ? Math.exp : (x) => x;
+    const fmn = f(mn), fmx = f(mx);
+    const fspan = (fmx - fmn) || 1;
+    const plotH = mainB - padT;
+
     const plotW = Math.max(20, w - padL - padR - gapR);
-    const bw = plotW / rows.length;
+    const cells = rows.length + this.rightPad;
+    const bw = plotW / Math.max(1, cells);
+
+    const yOf = (p) => {
+      const v = (f(Math.max(log ? 1e-9 : -Infinity, p)) - fmn) / fspan;
+      const k = invert ? v : 1 - v;
+      return padT + k * plotH;
+    };
+    const pOf = (y) => {
+      const k = (y - padT) / (plotH || 1);
+      const v = invert ? k : 1 - k;
+      return fi(fmn + v * fspan);
+    };
+
+    /* ---- pane geometry -------------------------------------------------- */
+    const panes = [];
+    if (subs.length) {
+      const each = panesH / subs.length;
+      subs.forEach((ind, n) => {
+        const top = mainB + gap + n * each;
+        const bot = top + each - 4;
+        panes.push({ ind, def: this.indicatorDef(ind.type), top, bot });
+      });
+    }
+
     return {
-      w, h, padL, padR, padT, padB, gapR, rows, start, bw, mn, mx, span,
+      w, h, padL, padR, padT, padB, gapR, rows, start, bw, mn, mx,
+      span: mx - mn, log, cells,
       plotL: padL,
       plotR: padL + plotW,
       plotT: padT,
-      plotB: h - padB,
+      plotB: mainB,
+      axisB: h - padB,
+      panes,
       xOf: (i) => padL + i * bw + bw / 2,
-      yOf: (p) => padT + (1 - (p - mn) / span) * (h - padT - padB),
+      yOf,
+      pOf,
       iOf: (x) => Math.floor((x - padL) / bw),
-      pOf: (y) => mx - ((y - padT) / (h - padT - padB)) * span,
     };
   }
-  hit(e) {
-    const L = this.layout();
-    if (!L) return null;
-    const r = this.canvas.getBoundingClientRect();
-    const x = e.clientX - r.left, y = e.clientY - r.top;
-    const i = L.iOf(x);
-    const gi = L.start + i;
-    const row = L.rows[i];
-    return {
-      L, x, y, i, gi,
-      t: row ? row.t : "",
-      p: L.pOf(y),
-      valid: i >= 0 && i < L.rows.length,
-    };
+
+  /* ---- indicator values, memoised per frame ----------------------------
+   *
+   * Computed over the WHOLE series and then cut to the visible window -
+   * never computed over the window itself.
+   *
+   * This used to be handed `L.rows`, the slice on screen, which meant every
+   * indicator started its warm-up at the left edge of the viewport instead
+   * of at the start of history. An EMA(50) needs fifty closes before it has
+   * a value, so the leftmost fifty bars of a 120-bar window had nothing
+   * drawn: the line began 41% of the way across the chart and the trader saw
+   * a half-drawn indicator. Scrolling back did not help, because the window
+   * moved with the viewport and the warm-up moved with it - the line stayed
+   * stubbornly half-drawn wherever you looked, which is exactly how it was
+   * reported.
+   *
+   * The data to do this properly was always loaded; only the range passed to
+   * calc() was wrong. Measured on 600 bars with a 120-bar window, the blank
+   * counts were EMA(50) 49, MACD 25, BB/SMA/Donchian 19, RSI/ATR 13. All of
+   * them are now zero wherever history reaches back far enough, and where it
+   * genuinely does not - the first bars ever recorded - the gap is real and
+   * is still shown as a gap rather than invented.
+   */
+  indicatorValues(ind, rows, start) {
+    const def = this.indicatorDef(ind.type);
+    if (!def) return {};
+    const full = this.rows();
+    const stamp = ind.id + "|" + full.length + "|" + (full[0] && full[0].t) + "|" +
+      (full[full.length - 1] && full[full.length - 1].c) + "|" + JSON.stringify(ind.params);
+    this._indCache = this._indCache || new Map();
+    const hit = this._indCache.get(ind.id);
+    let out;
+    if (hit && hit.stamp === stamp) out = hit.out;
+    else {
+      out = {};
+      try { out = def.calc(full, ind.params) || {}; } catch { out = {}; }
+      this._indCache.set(ind.id, { stamp, out });
+    }
+
+    /* Cut to the window the caller is painting. Callers that do not say
+       which window they mean get the whole thing, which is what the
+       indicator list and the settings dialog want. */
+    if (start === undefined || start === null) return out;
+    const from = Math.max(0, Math.round(start));
+    const len = Array.isArray(rows) ? rows.length : full.length - from;
+    const cut = {};
+    for (const key of Object.keys(out)) {
+      cut[key] = Array.isArray(out[key]) ? out[key].slice(from, from + len) : out[key];
+    }
+    return cut;
   }
+  /* =============================================================== paint == */
+
+  /** Coalesce every redraw request in a frame into one paint. */
+  scheduleDraw() {
+    if (this._raf) return;
+    const raf = (typeof requestAnimationFrame === "function")
+      ? requestAnimationFrame
+      : (fn) => setTimeout(fn, 16);
+    this._raf = raf(() => { this._raf = 0; this.draw(); });
+  }
+
   draw() {
-    const L = this.layout();
+    // Re-entrancy guard. Painting can resize the canvas, which can notify an
+    // observer, which can ask to paint again; without this the two chase
+    // each other for a frame.
+    if (this._painting) return;
+    this._painting = true;
+    try { this.paint(); } finally { this._painting = false; }
+  }
+
+  paint() {
     const ctx = this.ctx;
     const box = this.size();
     ctx.clearRect(0, 0, box.w, box.h);
+    const L = this.layout();
     if (!L) return;
+    this._L = L;
     ctx.font = "11px IBM Plex Mono, Vazirmatn, monospace";
-    ctx.strokeStyle = chartTheme().grid;
-    ctx.lineWidth = 1;
-    for (let i = 0; i < 5; i++) {
-      const p = L.mx - (L.span * i) / 4;
-      const yy = L.yOf(p);
-      ctx.beginPath(); ctx.moveTo(L.plotL, yy); ctx.lineTo(L.plotR, yy); ctx.stroke();
-    }
+    ctx.textBaseline = "alphabetic";
+    ctx.textAlign = "left";
+
+    this.paintGrid(L);
+
     ctx.save();
     ctx.beginPath();
     ctx.rect(L.plotL, L.plotT, L.plotR - L.plotL, L.plotB - L.plotT);
     ctx.clip();
-    L.rows.forEach((r, i) => {
+    this.paintSeries(L);
+    this.paintMainIndicators(L);
+    this.drawings.forEach((d) => { if (d.visible !== false) this.paintShape(L, d, false); });
+    if (this.draft) this.paintShape(L, this.draft, true);
+    this.paintLevels(L);
+    this.paintOrders(L);
+    this.paintPending(L);
+    this.paintSignals(L);
+    this.paintLastPrice(L);
+    ctx.restore();
+
+    this.paintPanes(L);
+    this.paintAxes(L);
+    this.paintCrosshair(L);
+    this.paintSignalCard(L);
+    this.paintLegend(L);
+    this.paintStretch(L);
+  }
+
+  paintGrid(L) {
+    if (!this.grid) return;
+    const ctx = this.ctx;
+    const T = chartTheme();
+    ctx.strokeStyle = T.grid;
+    ctx.lineWidth = 1;
+    /* The same ticks the axis prints, so every horizontal rule has a number
+       against it. They used to be independent - five evenly spaced lines
+       and five evenly spaced labels - which agreed only by coincidence. */
+    for (const t of this.priceTicks(L)) {
+      ctx.beginPath(); ctx.moveTo(L.plotL, t.y); ctx.lineTo(L.plotR, t.y); ctx.stroke();
+    }
+    // Vertical rules on a round number of bars rather than every bar: a grid
+    // you cannot see through is not a grid.
+    const step = Math.max(1, Math.round(L.rows.length / 8));
+    for (let i = 0; i < L.rows.length; i += step) {
+      const x = L.xOf(i);
+      ctx.beginPath(); ctx.moveTo(x, L.plotT); ctx.lineTo(x, L.plotB); ctx.stroke();
+    }
+  }
+
+  /**
+   * The price series itself, in whichever geometry the chart type asks for.
+   *
+   * Candle bodies are drawn at a minimum of one pixel so a doji is still a
+   * mark rather than nothing, and the body is skipped entirely below two
+   * pixels of bar width - past that it is a solid block of colour and the
+   * wick carries the information.
+   */
+  paintSeries(L) {
+    const ctx = this.ctx;
+    const T = chartTheme();
+    const lib = (typeof window !== "undefined" && window.AurionSeries) || null;
+    const def = lib && lib.SERIES_TYPES.find((t) => t.id === this.type);
+    const geometry = (def && def.geometry) || "candle";
+    const rows = L.rows;
+
+    if (geometry === "line" || geometry === "area") {
+      const base = this.type === "baseline"
+        ? rows.reduce((a, r) => a + r.c, 0) / rows.length
+        : null;
+      ctx.lineWidth = 1.6;
+      ctx.beginPath();
+      rows.forEach((r, i) => {
+        const x = L.xOf(i), y = L.yOf(r.c);
+        if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+      });
+      if (this.type === "baseline") {
+        // Two passes so the part above the baseline is green and the part
+        // below is red, clipped rather than redrawn.
+        const yb = L.yOf(base);
+        [[L.plotT, yb, T.up, T.upT], [yb, L.plotB, T.down, T.downT]].forEach(([top, bot, col, tri]) => {
+          ctx.save();
+          ctx.beginPath(); ctx.rect(L.plotL, top, L.plotR - L.plotL, Math.max(0, bot - top)); ctx.clip();
+          const g = ctx.createLinearGradient(0, top, 0, bot);
+          g.addColorStop(0, "rgba(" + tri + ",.22)");
+          g.addColorStop(1, "rgba(" + tri + ",0)");
+          ctx.beginPath();
+          rows.forEach((r, i) => {
+            const x = L.xOf(i), y = L.yOf(r.c);
+            if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+          });
+          ctx.lineTo(L.xOf(rows.length - 1), yb);
+          ctx.lineTo(L.xOf(0), yb);
+          ctx.closePath();
+          ctx.fillStyle = g; ctx.fill();
+          ctx.strokeStyle = col; ctx.lineWidth = 1.6;
+          ctx.beginPath();
+          rows.forEach((r, i) => {
+            const x = L.xOf(i), y = L.yOf(r.c);
+            if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+          });
+          ctx.stroke();
+          ctx.restore();
+        });
+        ctx.strokeStyle = T.line;
+        ctx.setLineDash([4, 4]);
+        ctx.beginPath(); ctx.moveTo(L.plotL, yb); ctx.lineTo(L.plotR, yb); ctx.stroke();
+        ctx.setLineDash([]);
+        return;
+      }
+      if (geometry === "area") {
+        const g = ctx.createLinearGradient(0, L.plotT, 0, L.plotB);
+        g.addColorStop(0, "rgba(" + T.upT + ",.26)");
+        g.addColorStop(1, "rgba(" + T.upT + ",0)");
+        ctx.lineTo(L.xOf(rows.length - 1), L.plotB);
+        ctx.lineTo(L.xOf(0), L.plotB);
+        ctx.closePath();
+        ctx.fillStyle = g;
+        ctx.fill();
+        ctx.beginPath();
+        rows.forEach((r, i) => {
+          const x = L.xOf(i), y = L.yOf(r.c);
+          if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+        });
+      }
+      ctx.strokeStyle = T.up;
+      ctx.stroke();
+      return;
+    }
+
+    const bodyW = Math.max(1, L.bw * 0.66);
+    const thin = L.bw < 2.4;
+    rows.forEach((r, i) => {
       const x = L.xOf(i);
       const up = r.c >= r.o;
-      const col = up ? chartTheme().up : chartTheme().down;
+      const col = up ? T.up : T.down;
       ctx.strokeStyle = col;
+      ctx.fillStyle = col;
+      ctx.lineWidth = Math.min(1.6, Math.max(1, L.bw * 0.12));
+
+      if (geometry === "bar") {
+        ctx.beginPath();
+        ctx.moveTo(x, L.yOf(r.h)); ctx.lineTo(x, L.yOf(r.l));
+        ctx.moveTo(x - bodyW / 2, L.yOf(r.o)); ctx.lineTo(x, L.yOf(r.o));
+        ctx.moveTo(x, L.yOf(r.c)); ctx.lineTo(x + bodyW / 2, L.yOf(r.c));
+        ctx.stroke();
+        return;
+      }
+
       ctx.beginPath();
       ctx.moveTo(x, L.yOf(r.h));
       ctx.lineTo(x, L.yOf(r.l));
       ctx.stroke();
+      if (thin) return;
       const top = L.yOf(Math.max(r.o, r.c));
       const bot = L.yOf(Math.min(r.o, r.c));
-      ctx.fillStyle = col;
-      ctx.globalAlpha = 0.92;
-      ctx.fillRect(x - Math.max(1, L.bw * 0.32), top, Math.max(2, L.bw * 0.64), Math.max(1, bot - top));
-      ctx.globalAlpha = 1;
+      const h = Math.max(1, bot - top);
+      if (this.type === "hollow" && up) {
+        ctx.lineWidth = 1.2;
+        ctx.strokeRect(x - bodyW / 2, top, bodyW, h);
+      } else {
+        this.candleBody(ctx, T, x - bodyW / 2, top, bodyW, h, col);
+      }
     });
-    this.drawings.forEach((d) => this.paintShape(L, d, false));
-    if (this.draft) this.paintShape(L, this.draft, true);
-    this.paintLevels(L);
-    this.paintPending(L);
-    this.paintSignals(L);
-    if (this.tick && (this.tick.bid || this.tick.ask)) {
-      const mid = ((+this.tick.bid || 0) + (+this.tick.ask || 0)) / 2;
-      if (mid) {
-        const yy = L.yOf(mid);
-        ctx.strokeStyle = "rgba(" + chartTheme().goldT + ",.7)";
-        ctx.setLineDash([4, 4]);
-        ctx.beginPath(); ctx.moveTo(L.plotL, yy); ctx.lineTo(L.plotR, yy); ctx.stroke();
-        ctx.setLineDash([]);
-      }
+  }
+
+  /**
+   * One candle body, in whatever material the theme is made of.
+   *
+   * Flat is the rectangle that has always been drawn and stays the default
+   * for ten of the twelve themes. The other two earn their names here:
+   *
+   *   velvet  soft and inflated - rounded corners and a light wash down
+   *           the top third, so the body reads as a cushion rather than a
+   *           block. The radius is capped against both the width and the
+   *           height, because a two-pixel candle rounded by three pixels
+   *           is a dot and the trader loses the open/close edges.
+   *
+   *   relief  pressed out of the page - the fill, then a lighter top edge
+   *           and a darker bottom edge. One pixel each, drawn inside the
+   *           body so the candle keeps its exact bounds: the top of a body
+   *           IS the open or the close, and an emboss that grew the shape
+   *           by a pixel would be lying about the price.
+   *
+   * Both degrade to the flat rectangle when the body is too small to carry
+   * the detail, which is most of the chart when it is zoomed out.
+   */
+  candleBody(ctx, T, bx, by, bw, bh, col) {
+    const material = T.material;
+
+    if (material === "velvet" && bw >= 3 && bh >= 3) {
+      const r = Math.min(bw * 0.34, bh * 0.34, 3.5);
+      ctx.globalAlpha = 0.96;
+      ctx.beginPath();
+      if (ctx.roundRect) ctx.roundRect(bx, by, bw, bh, r);
+      else ctx.rect(bx, by, bw, bh);
+      ctx.fill();
+      // The inflated highlight. Clipped to the body so it follows the
+      // rounded corners instead of squaring them off again.
+      ctx.save();
+      ctx.clip();
+      ctx.globalAlpha = 0.16;
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(bx, by, bw, Math.max(1, bh * 0.34));
+      ctx.restore();
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = col;
+      return;
     }
-    if (this.hover && L.rows[this.hover.i]) {
-      const r = L.rows[this.hover.i];
-      const x = L.xOf(this.hover.i);
-      ctx.strokeStyle = chartTheme().line;
-      ctx.beginPath(); ctx.moveTo(x, L.plotT); ctx.lineTo(x, L.plotB); ctx.stroke();
-      if (this.tool !== "cursor" || this.analyze) {
-        const yy = this.hover.y != null ? this.hover.y : L.yOf(r.c);
-        ctx.beginPath(); ctx.moveTo(L.plotL, yy); ctx.lineTo(L.plotR, yy); ctx.stroke();
-      }
+
+    if (material === "relief" && bw >= 3 && bh >= 3) {
+      ctx.globalAlpha = 0.94;
+      ctx.fillRect(bx, by, bw, bh);
+      ctx.globalAlpha = 0.5;
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(bx, by, bw, 1);
+      ctx.globalAlpha = 0.34;
+      ctx.fillStyle = "#000000";
+      ctx.fillRect(bx, by + bh - 1, bw, 1);
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = col;
+      return;
     }
+
+    ctx.globalAlpha = 0.94;
+    ctx.fillRect(bx, by, bw, bh);
+    ctx.globalAlpha = 1;
+  }
+
+  /** Resolve an indicator plot colour name to a real one. */
+  plotColor(name, ind) {
+    const T = chartTheme();
+    if (ind && ind.color) return ind.color;
+    switch (name) {
+      case "gold": return T.gold;
+      case "violet": return T.violet;
+      case "up": return T.up;
+      case "down": return T.down;
+      case "muted": return T.muted;
+      case "accent": return T.violet;
+      default: return T.gold;
+    }
+  }
+
+  paintMainIndicators(L) {
+    for (const ind of this.indicators) {
+      const def = this.indicatorDef(ind.type);
+      if (!def || def.pane !== "main" || ind.visible === false) continue;
+      const out = this.indicatorValues(ind, L.rows, L.start);
+      if (def.band && out[def.band[0]] && out[def.band[1]]) {
+        this.paintBand(L, out[def.band[0]], out[def.band[1]], this.plotColor(def.plots[0].color, ind));
+      }
+      def.plots.forEach((plot) => {
+        this.paintSeriesLine(L, out[plot.key], this.plotColor(plot.color, ind), plot.dash, L.yOf);
+      });
+    }
+  }
+
+  paintBand(L, upper, lower, color) {
+    const ctx = this.ctx;
+    ctx.save();
+    ctx.globalAlpha = 0.08;
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    let started = false;
+    upper.forEach((v, i) => {
+      if (v === null) return;
+      const x = L.xOf(i), y = L.yOf(v);
+      if (!started) { ctx.moveTo(x, y); started = true; } else ctx.lineTo(x, y);
+    });
+    for (let i = lower.length - 1; i >= 0; i--) {
+      if (lower[i] === null) continue;
+      ctx.lineTo(L.xOf(i), L.yOf(lower[i]));
+    }
+    ctx.closePath();
+    ctx.fill();
     ctx.restore();
-    ctx.fillStyle = chartTheme().panel;
+  }
+
+  paintSeriesLine(L, values, color, dash, yOf) {
+    if (!values) return;
+    const ctx = this.ctx;
+    ctx.save();
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 1.3;
+    if (dash) ctx.setLineDash([4, 4]);
+    ctx.beginPath();
+    let pen = false;
+    values.forEach((v, i) => {
+      if (v === null || !Number.isFinite(v)) { pen = false; return; }
+      const x = L.xOf(i), y = yOf(v);
+      if (!pen) { ctx.moveTo(x, y); pen = true; } else ctx.lineTo(x, y);
+    });
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  /**
+   * The indicator strips under the chart.
+   *
+   * Each gets its own price range - an RSI and a volume histogram share no
+   * units - and its own right-hand scale so the numbers can be read without
+   * hovering.
+   */
+  paintPanes(L) {
+    const ctx = this.ctx;
+    const T = chartTheme();
+    for (const pane of L.panes) {
+      const { ind, def, top, bot } = pane;
+      const out = this.indicatorValues(ind, L.rows, L.start);
+      let mn = Infinity, mx = -Infinity;
+      if (def.range) { mn = def.range[0]; mx = def.range[1]; }
+      else {
+        def.plots.forEach((plot) => {
+          (out[plot.key] || []).forEach((v) => {
+            if (v === null || !Number.isFinite(v)) return;
+            mn = Math.min(mn, v); mx = Math.max(mx, v);
+          });
+        });
+        if (def.zero) mn = Math.min(mn, 0);
+        if (!Number.isFinite(mn) || !Number.isFinite(mx)) { mn = 0; mx = 1; }
+        if (mn === mx) { mn -= 1; mx += 1; }
+        const pad = (mx - mn) * 0.1;
+        mn -= pad; mx += pad;
+      }
+      const span = (mx - mn) || 1;
+      const yOf = (v) => bot - ((v - mn) / span) * (bot - top);
+      pane.yOf = yOf; pane.mn = mn; pane.mx = mx;
+
+      ctx.save();
+      ctx.strokeStyle = T.panelLine;
+      ctx.beginPath(); ctx.moveTo(L.plotL, top - 3); ctx.lineTo(L.plotR, top - 3); ctx.stroke();
+
+      (def.guides || []).forEach((g) => {
+        if (g < mn || g > mx) return;
+        ctx.strokeStyle = T.grid;
+        ctx.setLineDash([3, 4]);
+        ctx.beginPath(); ctx.moveTo(L.plotL, yOf(g)); ctx.lineTo(L.plotR, yOf(g)); ctx.stroke();
+        ctx.setLineDash([]);
+      });
+
+      ctx.beginPath();
+      ctx.rect(L.plotL, top - 3, L.plotR - L.plotL, bot - top + 3);
+      ctx.clip();
+
+      def.plots.forEach((plot) => {
+        const values = out[plot.key];
+        if (!values) return;
+        if (plot.kind === "histogram") {
+          const w = Math.max(1, L.bw * 0.6);
+          values.forEach((v, i) => {
+            if (v === null || !Number.isFinite(v)) return;
+            const x = L.xOf(i);
+            const zero = yOf(Math.max(mn, Math.min(mx, 0)));
+            const y = yOf(v);
+            if (plot.color === "direction") {
+              const r = L.rows[i];
+              ctx.fillStyle = r && r.c >= r.o ? "rgba(" + T.upT + ",.5)" : "rgba(" + T.downT + ",.5)";
+            } else if (plot.color === "signed") {
+              ctx.fillStyle = v >= 0 ? "rgba(" + T.upT + ",.55)" : "rgba(" + T.downT + ",.55)";
+            } else ctx.fillStyle = this.plotColor(plot.color, ind);
+            ctx.fillRect(x - w / 2, Math.min(y, zero), w, Math.max(1, Math.abs(zero - y)));
+          });
+        } else {
+          this.paintSeriesLine(L, values, this.plotColor(plot.color, ind), plot.dash, yOf);
+        }
+      });
+      ctx.restore();
+
+      // The pane's own name and last value, top-left, like every terminal.
+      const last = def.plots.map((p) => {
+        const arr = out[p.key] || [];
+        for (let i = arr.length - 1; i >= 0; i--) {
+          if (arr[i] !== null && Number.isFinite(arr[i])) return arr[i];
+        }
+        return null;
+      }).find((v) => v !== null);
+      ctx.fillStyle = T.muted;
+      ctx.font = "10px IBM Plex Mono, Vazirmatn, monospace";
+      const title = def.short + (ind.params.period ? " " + ind.params.period : "");
+      ctx.fillText(title + (last === null || last === undefined ? "" : "  " + this.fmtPrice(last)), L.plotL + 6, top + 10);
+
+      ctx.textAlign = "right";
+      ctx.fillStyle = T.muted;
+      ctx.fillText(this.fmtPrice(mx), L.w - 8, top + 8);
+      ctx.fillText(this.fmtPrice(mn), L.w - 8, bot - 2);
+      ctx.textAlign = "left";
+      ctx.font = "11px IBM Plex Mono, Vazirmatn, monospace";
+    }
+  }
+
+  /** The dotted line and tag for the live mid price. */
+  paintLastPrice(L) {
+    if (!this.tick || !(this.tick.bid || this.tick.ask)) return;
+    const mid = ((+this.tick.bid || 0) + (+this.tick.ask || 0)) / 2;
+    if (!mid) return;
+    const ctx = this.ctx;
+    const y = L.yOf(mid);
+    ctx.strokeStyle = "rgba(" + chartTheme().goldT + ",.7)";
+    ctx.setLineDash([4, 4]);
+    ctx.beginPath(); ctx.moveTo(L.plotL, y); ctx.lineTo(L.plotR, y); ctx.stroke();
+    ctx.setLineDash([]);
+  }
+
+  /**
+   * The prices to print up the right-hand axis.
+   *
+   * The axis used to print exactly five numbers, at nought, a quarter, a
+   * half, three quarters and all of the plot height. That had two costs.
+   * The values were whatever happened to fall at those fractions, so the
+   * axis read 1.10374, 1.10521, 1.10668 - arithmetically spaced numbers
+   * nobody can scan - and on a tall chart five of them left most of the
+   * axis blank, so reading a level off the chart meant hovering for the
+   * crosshair instead of just looking.
+   *
+   * Now the step is chosen from the 1-2-5 series, so the labels land on
+   * round numbers, and as many are printed as will fit without touching.
+   * Ticks are generated in price space and then positioned through the
+   * axis's own mapping, which means a logarithmic or inverted axis gets
+   * correct, if unevenly spaced, lines for free; anything that still
+   * crowds after mapping is dropped rather than overprinted.
+   *
+   * In percent mode the same reasoning is applied to the percentages,
+   * because round prices are not round percentages.
+   */
+  priceTicks(L) {
+    const plotH = Math.max(1, L.plotB - L.plotT);
+    const minGap = 26;                       // px between label centres
+    const maxN = Math.max(2, Math.min(40, Math.floor(plotH / minGap)));
+    const nice = CandleChart.niceStep;
+
+    const first = L.rows[0];
+    const pct = this.scale.percent && first && first.c;
+    const base = pct ? first.c : 0;
+
+    /* Work in whatever units the axis is labelled in, so the round numbers
+       are the ones the trader actually reads. */
+    const toUnit = (p) => (pct ? ((p - base) / base) * 100 : p);
+    const toPrice = (u) => (pct ? base * (1 + u / 100) : u);
+
+    let lo = toUnit(L.mn), hi = toUnit(L.mx);
+    if (lo > hi) { const t = lo; lo = hi; hi = t; }
+    const range = hi - lo;
+    if (!(range > 0) || !Number.isFinite(range)) return [];
+
+    const step = nice(range / maxN);
+    const out = [];
+    const start = Math.ceil(lo / step) * step;
+    for (let v = start, guard = 0; v <= hi + step * 1e-6 && guard < 200; v += step, guard++) {
+      /* Floating point: 0.1 + 0.2 must not label itself 0.30000000000000004. */
+      const u = Math.abs(v) < step * 1e-9 ? 0 : Number(v.toFixed(10));
+      const price = toPrice(u);
+      const y = L.yOf(price);
+      if (!Number.isFinite(y) || y < L.plotT - 0.5 || y > L.plotB + 0.5) continue;
+      out.push({ y, text: pct ? u.toFixed(2) + "%" : this.fmtPrice(price) });
+    }
+
+    /* A log or inverted axis can bunch the mapped positions even though the
+       values were evenly spaced, so thin anything that ended up too close. */
+    out.sort((a, b) => a.y - b.y);
+    const kept = [];
+    for (const t of out) {
+      if (!kept.length || t.y - kept[kept.length - 1].y >= minGap - 6) kept.push(t);
+    }
+    return kept;
+  }
+
+  /** Price axis on the right, time axis along the bottom. */
+  paintAxes(L) {
+    const ctx = this.ctx;
+    const T = chartTheme();
+    ctx.fillStyle = T.panel;
     ctx.fillRect(L.w - L.padR, 0, L.padR, L.h);
-    ctx.strokeStyle = chartTheme().panelLine;
+    ctx.strokeStyle = T.panelLine;
     ctx.beginPath(); ctx.moveTo(L.w - L.padR, 0); ctx.lineTo(L.w - L.padR, L.h); ctx.stroke();
-    ctx.fillStyle = chartTheme().muted;
+    ctx.beginPath(); ctx.moveTo(0, L.axisB); ctx.lineTo(L.w, L.axisB); ctx.stroke();
+
+    ctx.fillStyle = T.muted;
     ctx.textAlign = "right";
     ctx.textBaseline = "middle";
-    for (let i = 0; i < 5; i++) {
-      const p = L.mx - (L.span * i) / 4;
-      const yy = Math.min(L.plotB - 2, Math.max(L.plotT + 2, L.yOf(p)));
-      ctx.fillText(this.fmtPrice(p), L.w - 10, yy);
+    for (const t of this.priceTicks(L)) {
+      ctx.fillText(t.text, L.w - 8, Math.min(L.plotB - 2, Math.max(L.plotT + 2, t.y)));
     }
+
     if (this.tick && (this.tick.bid || this.tick.ask)) {
       const mid = ((+this.tick.bid || 0) + (+this.tick.ask || 0)) / 2;
       if (mid) {
-        const yy = Math.min(L.plotB - 2, Math.max(L.plotT + 2, L.yOf(mid)));
-        ctx.fillStyle = chartTheme().tag;
-        ctx.fillRect(L.w - L.padR + 4, yy - 9, L.padR - 8, 18);
-        ctx.fillStyle = chartTheme().gold;
-        ctx.fillText(this.fmtPrice(mid), L.w - 10, yy);
+        const y = Math.min(L.plotB - 2, Math.max(L.plotT + 2, L.yOf(mid)));
+        ctx.fillStyle = T.tag;
+        ctx.fillRect(L.w - L.padR + 3, y - 9, L.padR - 6, 18);
+        ctx.fillStyle = T.gold;
+        ctx.fillText(this.fmtPrice(mid), L.w - 8, y);
       }
     }
     this.paintLevelLabels(L);
+
+    // Time axis: as many stamps as fit, never overlapping.
+    ctx.textAlign = "center";
+    ctx.fillStyle = T.muted;
+    ctx.font = "10px IBM Plex Mono, Vazirmatn, monospace";
+    const room = Math.max(1, Math.floor((L.plotR - L.plotL) / 86));
+    const step = Math.max(1, Math.ceil(L.rows.length / room));
+    for (let i = 0; i < L.rows.length; i += step) {
+      const r = L.rows[i];
+      if (!r || !r.t) continue;
+      const label = String(r.t).slice(5, 16).replace("T", " ");
+      ctx.fillText(label, L.xOf(i), L.axisB + 14);
+    }
+    ctx.font = "11px IBM Plex Mono, Vazirmatn, monospace";
     ctx.textAlign = "left";
     ctx.textBaseline = "alphabetic";
-    if (this.hover && L.rows[this.hover.i]) {
-      const r = L.rows[this.hover.i];
-      ctx.fillStyle = chartTheme().panel;
-      ctx.fillRect(12, 10, 236, 78);
-      ctx.fillStyle = chartTheme().text;
-      ctx.fillText(r.t, 20, 26);
-      ctx.fillStyle = r.c >= r.o ? chartTheme().up : chartTheme().down;
-      ctx.fillText("O " + this.fmtPrice(r.o) + "  H " + this.fmtPrice(r.h), 20, 46);
-      ctx.fillText("L " + this.fmtPrice(r.l) + "  C " + this.fmtPrice(r.c), 20, 64);
-    }
   }
+
+  /**
+   * The crosshair, with a price tag on the axis and a time tag under it.
+   *
+   * It is drawn last and outside the plot clip so the tags sit on the axes
+   * rather than being cut off by them.
+   */
+  paintCrosshair(L) {
+    if (!this.hover || this.crosshair === "none") return;
+    const ctx = this.ctx;
+    const T = chartTheme();
+    const i = this.hover.i;
+    const x = L.xOf(i);
+    const y = this.hover.y;
+    if (this.crosshair === "dot") {
+      ctx.fillStyle = T.text;
+      ctx.beginPath(); ctx.arc(x, y, 3, 0, Math.PI * 2); ctx.fill();
+      return;
+    }
+    ctx.save();
+    ctx.strokeStyle = T.line;
+    ctx.setLineDash([3, 3]);
+    ctx.beginPath(); ctx.moveTo(x, L.plotT); ctx.lineTo(x, L.axisB); ctx.stroke();
+    if (y >= L.plotT && y <= L.plotB) {
+      ctx.beginPath(); ctx.moveTo(L.plotL, y); ctx.lineTo(L.plotR, y); ctx.stroke();
+      ctx.setLineDash([]);
+      const p = L.pOf(y);
+      const text = this.fmtPrice(p);
+      const tw = ctx.measureText(text).width + 12;
+      ctx.fillStyle = T.text;
+      ctx.fillRect(L.w - L.padR + 3, y - 9, Math.min(L.padR - 6, tw), 18);
+      ctx.fillStyle = T.panel;
+      ctx.textBaseline = "middle";
+      ctx.fillText(text, L.w - L.padR + 8, y);
+      ctx.textBaseline = "alphabetic";
+    }
+    ctx.setLineDash([]);
+    const row = L.rows[i];
+    if (row && row.t) {
+      const label = String(row.t).slice(5, 16).replace("T", " ");
+      const tw = ctx.measureText(label).width + 12;
+      ctx.fillStyle = T.text;
+      ctx.fillRect(x - tw / 2, L.axisB + 2, tw, 16);
+      ctx.fillStyle = T.panel;
+      ctx.textAlign = "center";
+      ctx.fillText(label, x, L.axisB + 14);
+      ctx.textAlign = "left";
+    }
+    ctx.restore();
+  }
+
+  /**
+   * The OHLC readout.
+   *
+   * It used to be a filled panel sitting on top of the candles in the corner
+   * where the price action usually is. It is now a single line of text along
+   * the top, the way a terminal does it, so it never covers anything.
+   */
+  paintLegend(L) {
+    const ctx = this.ctx;
+    const T = chartTheme();
+    const r = (this.hover && L.rows[this.hover.i]) || L.rows[L.rows.length - 1];
+    if (!r) return;
+    const up = r.c >= r.o;
+    const parts = [
+      ["O", this.fmtPrice(r.o)], ["H", this.fmtPrice(r.h)],
+      ["L", this.fmtPrice(r.l)], ["C", this.fmtPrice(r.c)],
+    ];
+    let x = L.plotL + 4;
+    ctx.font = "11px IBM Plex Mono, Vazirmatn, monospace";
+    ctx.textBaseline = "top";
+    parts.forEach(([k, v]) => {
+      ctx.fillStyle = T.muted;
+      ctx.fillText(k, x, 2);
+      x += ctx.measureText(k).width + 3;
+      ctx.fillStyle = up ? T.up : T.down;
+      ctx.fillText(v, x, 2);
+      x += ctx.measureText(v).width + 10;
+    });
+    const dp = r.c - r.o;
+    const pct = r.o ? (dp / r.o) * 100 : 0;
+    ctx.fillStyle = up ? T.up : T.down;
+    ctx.fillText((dp >= 0 ? "+" : "") + this.fmtPrice(dp) + "  (" + pct.toFixed(2) + "%)", x, 2);
+
+    // Main-pane indicator names, so what is on the chart is always named.
+    let ix = L.plotL + 4;
+    let iy = 16;
+    for (const ind of this.indicators) {
+      const def = this.indicatorDef(ind.type);
+      if (!def || def.pane !== "main") continue;
+      const label = def.short + (ind.params.period ? " " + ind.params.period : "");
+      ctx.fillStyle = ind.visible === false ? T.muted : this.plotColor(def.plots[0].color, ind);
+      ctx.globalAlpha = ind.visible === false ? 0.5 : 1;
+      ctx.fillText(label, ix, iy);
+      ctx.globalAlpha = 1;
+      ix += ctx.measureText(label).width + 10;
+    }
+    ctx.textBaseline = "alphabetic";
+  }
+  /**
+   * An open position: three lines, and nothing else over the price.
+   *
+   * The stop and the target used to be 1.6px rules with a tinted band
+   * filling the whole width from each of them back to the entry. On a
+   * trade with any room in it that is most of the chart covered in red
+   * and green wash, with the candles - the thing being looked at -
+   * underneath it. The levels are three prices; three lines say so.
+   *
+   * The entry stays dashed and the stop and target stay solid, so the
+   * three are told apart by more than colour, and their prices are
+   * written on the price axis by paintLevelLabels rather than on top of
+   * the candles.
+   */
   paintLevels(L) {
     const ctx = this.ctx;
+    const T = chartTheme();
+    /* Where each stop and target ended up on screen, so a pointer can be
+       tested against them. Rebuilt every paint because the scale moves. */
+    this._lvlZones = [];
+    const drag = this._lvlDrag;
+    ctx.save();
     for (const pos of this.levels || []) {
-      const sl = Number(pos.sl || 0);
-      const tp = Number(pos.tp || 0);
       const open = Number(pos.price_open || 0);
       if (open) {
         const y = L.yOf(open);
-        ctx.strokeStyle = "rgba(" + chartTheme().goldT + ",.55)";
+        ctx.strokeStyle = "rgba(" + T.goldT + ",.55)";
+        ctx.lineWidth = 1;
         ctx.setLineDash([3, 4]);
         ctx.beginPath(); ctx.moveTo(L.plotL, y); ctx.lineTo(L.plotR, y); ctx.stroke();
         ctx.setLineDash([]);
       }
-      if (sl) {
-        const y = L.yOf(sl);
-        ctx.strokeStyle = "rgba(" + chartTheme().downT + ",.95)";
-        ctx.lineWidth = 1.6;
+      for (const [kind, price0, tint] of [["sl", Number(pos.sl || 0), T.badT],
+                                          ["tp", Number(pos.tp || 0), T.okT]]) {
+        const held = drag && drag.ticket === pos.ticket && drag.kind === kind;
+        const price = held ? drag.price : price0;
+        if (!price) continue;
+        const y = L.yOf(price);
+        ctx.strokeStyle = "rgba(" + tint + "," + (held ? 1 : 0.9) + ")";
+        ctx.lineWidth = held ? 2 : 1.2;
+        if (held) ctx.setLineDash([6, 4]);
         ctx.beginPath(); ctx.moveTo(L.plotL, y); ctx.lineTo(L.plotR, y); ctx.stroke();
-        ctx.fillStyle = "rgba(" + chartTheme().downT + ",.16)";
-        const yOpen = open ? L.yOf(open) : y;
-        ctx.fillRect(L.plotL, Math.min(y, yOpen), L.plotR - L.plotL, Math.abs(yOpen - y));
+        ctx.setLineDash([]);
+        /* While it is being moved the number has to travel with it, or
+           the trader is dragging a line to a price they cannot read. */
+        if (held) this.tag(L.plotR, y, this.fmtPrice(price), "rgb(" + tint + ")", "end");
+        this._lvlZones.push({
+          ticket: pos.ticket, symbol: pos.symbol, kind, y,
+          price: price0, type: String(pos.type || "").toLowerCase(),
+          sl: Number(pos.sl || 0), tp: Number(pos.tp || 0),
+          open: Number(pos.price_open || 0),
+        });
       }
-      if (tp) {
-        const y = L.yOf(tp);
-        ctx.strokeStyle = "rgba(" + chartTheme().upT + ",.95)";
-        ctx.lineWidth = 1.6;
-        ctx.beginPath(); ctx.moveTo(L.plotL, y); ctx.lineTo(L.plotR, y); ctx.stroke();
-        ctx.fillStyle = "rgba(" + chartTheme().upT + ",.12)";
-        const yOpen = open ? L.yOf(open) : y;
-        ctx.fillRect(L.plotL, Math.min(y, yOpen), L.plotR - L.plotL, Math.abs(yOpen - y));
-      }
-      ctx.lineWidth = 1.4;
     }
+    ctx.restore();
+    ctx.lineWidth = 1.4;
   }
+  /**
+   * The robot's planted entry points.
+   *
+   * Deliberately drawn unlike an open position: the entry is a dashed
+   * line with an arrow at the price and the word WAITING on the tag, and
+   * the stop and target are faint. An open trade is solid and filled.
+   * The difference has to be readable at a glance, because "the robot
+   * has decided and is waiting for price" and "the robot is in" are
+   * different states of mind for whoever is watching the chart.
+   */
+  paintOrders(L) {
+    const ctx = this.ctx;
+    const T = chartTheme();
+    for (const od of this.orders || []) {
+      const price = Number(od.price || 0);
+      if (!price) continue;
+      const side = String(od.type || od.side || "").toLowerCase();
+      const isBuy = side.includes("buy");
+      const col = isBuy ? T.up : T.down;
+      const y = L.yOf(price);
+
+      ctx.save();
+      ctx.strokeStyle = col;
+      ctx.globalAlpha = 0.9;
+      ctx.lineWidth = 1.6;
+      ctx.setLineDash([7, 5]);
+      ctx.beginPath(); ctx.moveTo(L.plotL, y); ctx.lineTo(L.plotR, y); ctx.stroke();
+      ctx.setLineDash([]);
+
+      // The stop and the target travel with the order, so the whole
+      // ticket is visible before it is live, not after.
+      for (const [p, c] of [[Number(od.sl || 0), T.down], [Number(od.tp || 0), T.up]]) {
+        if (!p) continue;
+        const yy = L.yOf(p);
+        ctx.strokeStyle = c;
+        ctx.globalAlpha = 0.4;
+        ctx.lineWidth = 1;
+        ctx.setLineDash([2, 5]);
+        ctx.beginPath(); ctx.moveTo(L.plotL, yy); ctx.lineTo(L.plotR, yy); ctx.stroke();
+        ctx.setLineDash([]);
+      }
+      ctx.globalAlpha = 1;
+
+      const kind = String(od.type || "").replace(/_/g, " ").toUpperCase() || (isBuy ? "BUY" : "SELL");
+      const text = `${kind} ${this.fmtPrice(price)} · ${this.i18n("chart.order_waiting", "WAITING")}`;
+      ctx.font = "11px IBM Plex Mono, Vazirmatn, monospace";
+      const tw = ctx.measureText(text).width + 26;
+      const bx = L.plotR - tw - 8;
+      ctx.fillStyle = T.panel;
+      ctx.fillRect(bx, y - 10, tw, 20);
+      ctx.strokeStyle = col;
+      ctx.lineWidth = 1;
+      ctx.strokeRect(bx + 0.5, y - 9.5, tw - 1, 19);
+      // A small arrow pointing the way the order would take the market.
+      ctx.fillStyle = col;
+      ctx.beginPath();
+      if (isBuy) { ctx.moveTo(bx + 8, y + 4); ctx.lineTo(bx + 13, y - 4); ctx.lineTo(bx + 18, y + 4); }
+      else { ctx.moveTo(bx + 8, y - 4); ctx.lineTo(bx + 13, y + 4); ctx.lineTo(bx + 18, y - 4); }
+      ctx.closePath(); ctx.fill();
+      ctx.textAlign = "left";
+      ctx.textBaseline = "middle";
+      ctx.fillText(text, bx + 22, y);
+      ctx.restore();
+    }
+    ctx.lineWidth = 1.4;
+  }
+
   paintPending(L) {
     const ctx = this.ctx;
     const sl = Number(this.pending && this.pending.sl || 0);
@@ -411,6 +1796,10 @@ class CandleChart {
     ctx.lineWidth = 1.4;
   }
   paintSignals(L) {
+    // Rebuilt every paint rather than cached: the markers move with every
+    // pan, zoom and new bar, and a stale hit box is worse than none - it
+    // puts the card on a signal the pointer is nowhere near.
+    this._sigHits = [];
     if (!this.showSignals || !this.signals || !this.signals.length) return;
     const ctx = this.ctx;
     const rows = L.rows;
@@ -483,8 +1872,1198 @@ class CandleChart {
         ctx.fill();
       }
       ctx.restore();
+
+      // The marker's clickable / hoverable area. Deliberately larger than
+      // the triangle: a 12px arrow is not a pointer target, and a trader
+      // chasing one with the mouse while price moves is a trader not
+      // reading the chart.
+      const anchorY = isBuy ? L.yOf(row.l) + 14 : L.yOf(row.h) - 14;
+      const box = {
+        x: x - 22, y: isBuy ? anchorY - 10 : anchorY - 24,
+        w: 44, h: 36, cx: x, cy: anchorY, sig,
+      };
+      this._sigHits.push(box);
+      if (this._isPinned(sig)) {
+        this._sigHover = box;
+        // A ring around the pinned mark, so it still reads as "this one"
+        // after the card is dismissed by the first mouse move.
+        ctx.save();
+        ctx.strokeStyle = chartTheme().gold;
+        ctx.lineWidth = 1.4;
+        ctx.beginPath();
+        ctx.arc(x, anchorY, 13, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.restore();
+      }
     }
   }
+
+  /**
+   * Show a signal's card without the trader hovering it, and scroll the
+   * window until the mark is actually on screen.
+   *
+   * This is what a clicked notification calls: landing on the chart with
+   * the signal somewhere off the left edge, uncarded, would answer none of
+   * the questions that made the trader click.
+   */
+  pinSignal(sig) {
+    if (!sig) return;
+    this._pinned = sig;
+    const total = this.rows().length;
+    const idx = Number(sig.index);
+    if (Number.isFinite(idx) && total) {
+      const { start, end } = this.slice();
+      if (idx < start + 2 || idx >= end - 2) {
+        // Park it a third of the way in from the right, so the bars that
+        // followed the signal - whether it worked - are visible too.
+        const target = Math.round(idx + this.span / 3);
+        this.offset = Math.max(0, total - target);
+        this.clampOffset();
+      }
+    }
+    this.draw();
+  }
+
+  /** Does this hit box belong to the signal that was pinned? */
+  _isPinned(sig) {
+    const want = this._pinned;
+    if (!want) return false;
+    if (want === sig) return true;
+    if (want.time && sig.time) return want.time === sig.time && want.type === sig.type;
+    return Number.isFinite(want.index) && want.index === sig.index && want.type === sig.type;
+  }
+
+  /** The signal under the pointer, or null. Newest wins when they overlap. */
+  signalAt(x, y) {
+    const hits = this._sigHits || [];
+    for (let i = hits.length - 1; i >= 0; i--) {
+      const h = hits[i];
+      if (x >= h.x && x <= h.x + h.w && y >= h.y && y <= h.y + h.h) return h;
+    }
+    return null;
+  }
+
+  /**
+   * The card that appears when the pointer rests on a signal.
+   *
+   * Everything a trader needs in order to act on the mark is here: which
+   * strategy produced it, where it wanted in, where the stop and target
+   * went, and what it risked to make that. Without this the arrow says
+   * "buy" and nothing else, which is an instruction rather than a case.
+   *
+   * Drawn last, outside the plot clip, so it is never cut off by an axis.
+   */
+  paintSignalCard(L) {
+    const hit = this._sigHover;
+    if (!hit) return;
+    const sig = hit.sig;
+    const ctx = this.ctx;
+    const T = chartTheme();
+    const isBuy = sig.type === "buy" || sig.side === "buy";
+    const accent = isBuy ? T.up : T.down;
+
+    const num = (v) => (Number(v) ? this.fmtPrice(Number(v)) : "—");
+    const rows = [
+      [this.i18n("signal.entry", "Entry"), num(sig.entry || sig.price)],
+      [this.i18n("signal.sl", "SL"), num(sig.sl)],
+      [this.i18n("signal.tp", "TP"), num(sig.tp)],
+    ];
+    if (Number(sig.rr)) rows.push([this.i18n("signal.rr", "R:R"), Number(sig.rr).toFixed(2)]);
+    if (Number(sig.confidence)) {
+      rows.push([this.i18n("signal.confidence", "Confidence"), Math.round(Number(sig.confidence) * 100) + "%"]);
+    }
+
+    const title = (isBuy ? "BUY" : "SELL") + "  " + String(sig.strategy || "").toUpperCase();
+    ctx.save();
+    ctx.font = "11px IBM Plex Mono, Vazirmatn, monospace";
+
+    // Wrap the reason to the card width instead of letting it run off the
+    // edge. The reason is the whole point of the card for King, which says
+    // which five confluences agreed.
+    const maxW = 250;
+    const reason = String(sig.reason || "");
+    const lines = [];
+    if (reason) {
+      let line = "";
+      for (const word of reason.split(/\s+/)) {
+        const probe = line ? line + " " + word : word;
+        if (ctx.measureText(probe).width > maxW - 20 && line) { lines.push(line); line = word; }
+        else line = probe;
+        if (lines.length >= 4) break;
+      }
+      if (line && lines.length < 4) lines.push(line);
+    }
+
+    const padX = 10, padY = 9, lh = 15;
+    const w = maxW;
+    const h = padY * 2 + 18 + rows.length * lh + (lines.length ? lines.length * 13 + 6 : 0);
+
+    // Keep the card on the canvas whichever edge the signal is near.
+    let cx = hit.cx + 16;
+    let cy = hit.cy - h / 2;
+    if (cx + w > L.plotR) cx = hit.cx - 16 - w;
+    if (cx < L.plotL) cx = L.plotL + 4;
+    cy = Math.max(L.plotT + 4, Math.min(cy, L.plotB - h - 4));
+
+    ctx.fillStyle = T.panel;
+    ctx.strokeStyle = accent;
+    ctx.lineWidth = 1;
+    if (ctx.roundRect) { ctx.beginPath(); ctx.roundRect(cx, cy, w, h, 7); ctx.fill(); ctx.stroke(); }
+    else { ctx.fillRect(cx, cy, w, h); ctx.strokeRect(cx, cy, w, h); }
+
+    let y = cy + padY + 9;
+    ctx.textBaseline = "middle";
+    ctx.textAlign = "left";
+    ctx.fillStyle = accent;
+    ctx.font = "bold 11px IBM Plex Mono, Vazirmatn, monospace";
+    ctx.fillText(title, cx + padX, y);
+    y += 18;
+
+    ctx.font = "11px IBM Plex Mono, Vazirmatn, monospace";
+    for (const [label, value] of rows) {
+      ctx.fillStyle = T.muted;
+      ctx.fillText(label, cx + padX, y);
+      ctx.fillStyle = label === this.i18n("signal.sl", "SL") ? T.down
+        : label === this.i18n("signal.tp", "TP") ? T.up : T.text;
+      ctx.textAlign = "right";
+      ctx.fillText(value, cx + w - padX, y);
+      ctx.textAlign = "left";
+      y += lh;
+    }
+    if (lines.length) {
+      y += 4;
+      ctx.fillStyle = T.muted;
+      ctx.font = "10px IBM Plex Mono, Vazirmatn, monospace";
+      for (const line of lines) { ctx.fillText(line, cx + padX, y); y += 13; }
+    }
+    ctx.restore();
+  }
+
+  /** Translate if the desk's dictionary is around; fall back to English. */
+  i18n(key, fallback) {
+    try {
+      /* The lexical binding, not window.I18N.
+
+         i18n.js declares `const I18N = {...}` at the top level of a
+         classic script. That is a global LEXICAL binding and never a
+         property of window, so `window.I18N` was undefined on every
+         desk and every label routed through here - the signal card's
+         rows, the pending-order tag, the level tags on the price axis -
+         silently rendered its English fallback whatever language the
+         trader had chosen. Measured in the browser: typeof window.I18N
+         "undefined", typeof I18N "object".
+
+         window is still tried second, so a host that does export it
+         there keeps working. */
+      const src = (typeof I18N !== "undefined" && I18N && I18N.t) ? I18N
+        : (typeof window !== "undefined" && window.I18N && window.I18N.t) ? window.I18N
+        : null;
+      const t = src ? src.t(key) : key;
+      return !t || t === key ? fallback : t;
+    } catch (e) { return fallback; }
+  }
+  /**
+   * The price of each level, on the price axis where prices live.
+   *
+   * These were opaque chips sitting inside the plot against the left
+   * edge, which put three solid blocks over the oldest candles on
+   * screen for the whole life of a trade. The axis already exists to
+   * answer "what price is that line", and a tag there covers nothing.
+   *
+   * Drawn from paintAxes, outside the plot clip, so the gutter is
+   * reachable. The role is only named when its name fits beside the
+   * number; the tag sits on its line either way, and the line's own
+   * dash and colour already say which of the three it is.
+   */
+  paintLevelLabels(L) {
+    const ctx = this.ctx;
+    const T = chartTheme();
+    const gutter = L.padR - 6;
+    if (gutter < 24) return;
+    ctx.save();
+    ctx.textAlign = "left";
+    ctx.textBaseline = "middle";
+    ctx.font = "10px IBM Plex Mono, Vazirmatn, monospace";
+    for (const pos of this.levels || []) {
+      const items = [
+        [Number(pos.sl || 0), T.bad, this.i18n("signal.sl", "SL")],
+        [Number(pos.tp || 0), T.ok, this.i18n("signal.tp", "TP")],
+        [Number(pos.price_open || 0), T.gold, String(pos.type || "POS").toUpperCase()],
+      ];
+      for (const [p, col, label] of items) {
+        if (!p) continue;
+        const y = Math.min(L.plotB - 2, Math.max(L.plotT + 2, L.yOf(p)));
+        const price = this.fmtPrice(p);
+        const full = label + " " + price;
+        const text = ctx.measureText(full).width + 10 <= gutter ? full : price;
+        ctx.fillStyle = col;
+        ctx.fillRect(L.w - L.padR + 3, y - 8, gutter, 16);
+        /* The tag is a solid block of the level's own colour, so the ink
+           on it is picked against that colour and not against the
+           panel - a theme whose target green is pale and whose text is
+           white would otherwise print white on near-white. */
+        ctx.fillStyle = this.inkOn(col);
+        ctx.fillText(text, L.w - L.padR + 7, y);
+      }
+    }
+    ctx.restore();
+    ctx.textAlign = "left";
+    ctx.textBaseline = "alphabetic";
+    ctx.font = "11px IBM Plex Mono, Vazirmatn, monospace";
+  }
+
+  /** Black or white, whichever can be read on top of `col`. */
+  inkOn(col) {
+    const m = String(col).trim();
+    let r = 0, g = 0, b = 0;
+    const hex = m.match(/^#([0-9a-f]{3}|[0-9a-f]{6})$/i);
+    if (hex) {
+      const h = hex[1].length === 3 ? hex[1].replace(/./g, (c) => c + c) : hex[1];
+      r = parseInt(h.slice(0, 2), 16); g = parseInt(h.slice(2, 4), 16); b = parseInt(h.slice(4, 6), 16);
+    } else {
+      const parts = m.match(/-?\d+(\.\d+)?/g);
+      if (!parts || parts.length < 3) return "#000";
+      [r, g, b] = parts.slice(0, 3).map(Number);
+    }
+    return (r * 299 + g * 587 + b * 114) / 1000 > 150 ? "rgba(0,0,0,.82)" : "rgba(255,255,255,.95)";
+  }
+
+  /* ============================================================= shapes == */
+
+  /** The anchors of a drawing, in the order they were placed. */
+  anchorKeys(d) {
+    // A position is placed with two clicks - entry, then stop - but it has
+    // three things a trader needs to move: the target is an anchor too, so
+    // it can be dragged and typed rather than only derived from a multiple.
+    if (d.kind === "long" || d.kind === "short") return d.c ? ["a", "b", "c"] : ["a", "b"];
+    const n = SHAPE_POINTS[d.kind];
+    if (n === -1) return [];
+    return ["a", "b", "c", "d", "e", "f", "g"].slice(0, Math.max(1, n || 2));
+  }
+
+  anchorPoints(d) {
+    if (SHAPE_POINTS[d.kind] === -1) return Array.isArray(d.pts) ? d.pts : [];
+    return this.anchorKeys(d).map((k) => d[k]).filter(Boolean);
+  }
+
+  /** Apply an object's own styling to the context. Returns its colour. */
+  styleFor(L, d, ghost) {
+    const ctx = this.ctx;
+    const T = chartTheme();
+    const color = d.color || T.gold;
+    ctx.strokeStyle = color;
+    ctx.fillStyle = color;
+    ctx.lineWidth = Number(d.width) || 1.4;
+    ctx.globalAlpha = ghost ? 0.65 : (d.opacity === undefined ? 1 : Number(d.opacity));
+    ctx.setLineDash(DASHES[d.style] || []);
+    return color;
+  }
+
+  /** Semi-transparent version of a colour, for fills. */
+  wash(color, alpha) {
+    const T = chartTheme();
+    const hex = /^#([0-9a-f]{6})$/i.exec(String(color || ""));
+    if (hex) {
+      const n = parseInt(hex[1], 16);
+      return "rgba(" + [(n >> 16) & 255, (n >> 8) & 255, n & 255].join(",") + "," + alpha + ")";
+    }
+    return "rgba(" + T.goldT + "," + alpha + ")";
+  }
+
+  /** A small text tag with the chart's panel colour behind it. */
+  tag(x, y, text, color, align) {
+    const ctx = this.ctx;
+    const T = chartTheme();
+    ctx.save();
+    ctx.setLineDash([]);
+    ctx.globalAlpha = 1;
+    ctx.font = "11px IBM Plex Mono, Vazirmatn, monospace";
+    const w = ctx.measureText(text).width + 12;
+    const left = align === "end" ? x - w : x;
+    ctx.fillStyle = T.panel;
+    ctx.fillRect(left, y - 9, w, 18);
+    ctx.fillStyle = color || T.text;
+    ctx.textBaseline = "middle";
+    ctx.fillText(text, left + 6, y);
+    ctx.textBaseline = "alphabetic";
+    ctx.restore();
+  }
+
+  strokePath(points, opts) {
+    const ctx = this.ctx;
+    if (!points.length) return;
+    ctx.beginPath();
+    points.forEach((p, i) => { if (i === 0) ctx.moveTo(p.x, p.y); else ctx.lineTo(p.x, p.y); });
+    if (opts && opts.close) ctx.closePath();
+    if (opts && opts.fill) {
+      const save = ctx.fillStyle;
+      ctx.fillStyle = opts.fill;
+      ctx.fill();
+      ctx.fillStyle = save;
+    }
+    ctx.stroke();
+  }
+
+  arrowHead(a, b, size) {
+    const ctx = this.ctx;
+    const ang = Math.atan2(b.y - a.y, b.x - a.x);
+    const s = size || 10;
+    ctx.beginPath();
+    ctx.moveTo(b.x, b.y);
+    ctx.lineTo(b.x - s * Math.cos(ang - 0.4), b.y - s * Math.sin(ang - 0.4));
+    ctx.moveTo(b.x, b.y);
+    ctx.lineTo(b.x - s * Math.cos(ang + 0.4), b.y - s * Math.sin(ang + 0.4));
+    ctx.stroke();
+  }
+
+  /** Extend a segment to the plot edge in one or both directions. */
+  extend(L, a, b, left, right) {
+    const dx = b.x - a.x, dy = b.y - a.y;
+    const len = Math.hypot(dx, dy) || 1;
+    const far = (L.plotR - L.plotL) + (L.plotB - L.plotT);
+    const ux = (dx / len) * far, uy = (dy / len) * far;
+    return {
+      a: left ? { x: a.x - ux, y: a.y - uy } : a,
+      b: right ? { x: b.x + ux, y: b.y + uy } : b,
+    };
+  }
+
+  paintShape(L, d, ghost) {
+    const ctx = this.ctx;
+    const T = chartTheme();
+    ctx.save();
+    const color = this.styleFor(L, d, ghost);
+    const kind = d.kind;
+    const P = this.anchorPoints(d).map((pt) => this.xyOf(L, pt)).filter(Boolean);
+    const a = P[0], b = P[1], c = P[2];
+
+    /* ---- horizontals and verticals ------------------------------------ */
+    if (kind === "hline" || kind === "hray" || kind === "priceline") {
+      if (a) {
+        const y = L.yOf(d.a.p);
+        ctx.beginPath();
+        ctx.moveTo(kind === "hray" ? a.x : L.plotL, y);
+        ctx.lineTo(L.plotR, y);
+        ctx.stroke();
+        // Every price line now says what price it is. A horizontal line
+        // with no number is a line the trader has to read off the axis by
+        // eye, which is exactly the measurement they drew it to avoid.
+        if (d.showPrice !== false) this.tag(L.plotR, y, this.fmtPrice(d.a.p), color, "end");
+      }
+    } else if (kind === "vline" || kind === "dateline") {
+      if (a) {
+        ctx.beginPath(); ctx.moveTo(a.x, L.plotT); ctx.lineTo(a.x, L.plotB); ctx.stroke();
+        if (kind === "dateline" && d.a.t) this.tag(a.x, L.plotT + 10, String(d.a.t).slice(5, 16), color);
+      }
+    } else if (kind === "crossline") {
+      if (a) {
+        const y = L.yOf(d.a.p);
+        ctx.beginPath();
+        ctx.moveTo(L.plotL, y); ctx.lineTo(L.plotR, y);
+        ctx.moveTo(a.x, L.plotT); ctx.lineTo(a.x, L.plotB);
+        ctx.stroke();
+        if (d.showPrice !== false) this.tag(L.plotR, y, this.fmtPrice(d.a.p), color, "end");
+      }
+
+    /* ---- straight lines ------------------------------------------------ */
+    } else if (kind === "trend" || kind === "ray" || kind === "extended" ||
+               kind === "arrow" || kind === "infoline" || kind === "measure") {
+      if (a && b) {
+        const seg = this.extend(L, a, b,
+          kind === "extended" || d.extendL, kind === "ray" || kind === "extended" || d.extendR);
+        this.strokePath([seg.a, seg.b]);
+        if (kind === "arrow") this.arrowHead(a, b, 11);
+        // A sloped line has a different price at every x, so the number
+        // that means something is the one where it leaves the chart - the
+        // level it is pointing at, which is why it was drawn.
+        if (kind !== "measure" && kind !== "infoline" && d.showPrice !== false) {
+          const far = seg.b.x >= seg.a.x ? seg.b : seg.a;
+          const ex = Math.max(L.plotL + 8, Math.min(L.plotR, far.x));
+          const t = (ex - seg.a.x) / ((seg.b.x - seg.a.x) || 1);
+          const ey = Math.max(L.plotT + 9, Math.min(L.plotB - 9, seg.a.y + t * (seg.b.y - seg.a.y)));
+          this.tag(ex, ey, this.fmtPrice(L.pOf(ey)), color, "end");
+        }
+        if (kind === "measure" || kind === "infoline") {
+          const dp = d.b.p - d.a.p;
+          const bars = Math.abs((d.b.gi || 0) - (d.a.gi || 0));
+          const pct = d.a.p ? (dp / d.a.p) * 100 : 0;
+          this.tag((a.x + b.x) / 2, (a.y + b.y) / 2 - 14,
+            this.fmtPrice(dp) + "  " + pct.toFixed(2) + "%  " + bars + "b",
+            dp >= 0 ? T.up : T.down);
+        }
+      }
+
+    /* ---- channels ------------------------------------------------------ */
+    } else if (kind === "parallel" || kind === "channel" || kind === "flatchannel" || kind === "disjoint") {
+      if (a && b) {
+        this.strokePath([a, b]);
+        const third = kind === "disjoint" ? P[2] : c;
+        if (third) {
+          const dx = kind === "flatchannel" ? 0 : b.x - a.x;
+          const dy = kind === "flatchannel" ? 0 : b.y - a.y;
+          const c2 = kind === "disjoint" && P[3]
+            ? P[3]
+            : { x: third.x + (kind === "flatchannel" ? (b.x - a.x) : dx), y: third.y + dy };
+          this.strokePath([third, c2]);
+          if (d.fill !== false) {
+            ctx.save();
+            ctx.fillStyle = this.wash(color, 0.08);
+            ctx.beginPath();
+            ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y);
+            ctx.lineTo(c2.x, c2.y); ctx.lineTo(third.x, third.y);
+            ctx.closePath(); ctx.fill();
+            ctx.restore();
+          }
+          if (kind === "channel") {
+            ctx.save();
+            ctx.globalAlpha = 0.5;
+            this.strokePath([{ x: (a.x + third.x) / 2, y: (a.y + third.y) / 2 },
+              { x: (b.x + c2.x) / 2, y: (b.y + c2.y) / 2 }]);
+            ctx.restore();
+          }
+        }
+      }
+    } else if (kind === "regression") {
+      if (a && b) {
+        // A real least-squares fit over the bars between the two anchors,
+        // with one and two standard deviations either side.
+        const i0 = Math.max(0, Math.min(d.a.gi, d.b.gi) - L.start);
+        const i1 = Math.min(L.rows.length - 1, Math.max(d.a.gi, d.b.gi) - L.start);
+        const fitRows = L.rows.slice(i0, i1 + 1);
+        const lib = (typeof window !== "undefined" && window.AurionSeries) || null;
+        const reg = lib && fitRows.length > 1 ? lib.regression(fitRows) : null;
+        if (reg) {
+          const y0 = L.yOf(reg.intercept);
+          const y1 = L.yOf(reg.intercept + reg.slope * (fitRows.length - 1));
+          const x0 = L.xOf(i0), x1 = L.xOf(i1);
+          this.strokePath([{ x: x0, y: y0 }, { x: x1, y: y1 }]);
+          [1, 2].forEach((k) => {
+            ctx.save();
+            ctx.globalAlpha = (ctx.globalAlpha || 1) * (k === 1 ? 0.75 : 0.45);
+            ctx.setLineDash([4, 4]);
+            [1, -1].forEach((sgn) => {
+              this.strokePath([
+                { x: x0, y: L.yOf(reg.intercept + sgn * k * reg.sigma) },
+                { x: x1, y: L.yOf(reg.intercept + reg.slope * (fitRows.length - 1) + sgn * k * reg.sigma) },
+              ]);
+            });
+            ctx.restore();
+          });
+          this.tag(x1, y1 - 12, (reg.slope >= 0 ? "+" : "") + this.fmtPrice(reg.slope) + "/bar", color, "end");
+        }
+      }
+    } else if (kind === "pitchfork" || kind === "schiff" || kind === "modschiff") {
+      if (a && b && c) {
+        // Schiff moves the handle's origin to the midpoint of A-B; the
+        // modified version puts it halfway along the handle instead.
+        let origin = a;
+        if (kind === "schiff") origin = { x: a.x, y: (a.y + b.y) / 2 };
+        if (kind === "modschiff") origin = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+        const mid = { x: (b.x + c.x) / 2, y: (b.y + c.y) / 2 };
+        const dx = mid.x - origin.x, dy = mid.y - origin.y;
+        const len = Math.hypot(dx, dy) || 1;
+        const far = ((L.plotR - L.plotL) + (L.plotB - L.plotT)) / len;
+        const proj = (p) => ({ x: p.x + dx * far, y: p.y + dy * far });
+        this.strokePath([origin, mid]);
+        [[origin, mid], [b, proj(b)], [c, proj(c)]].forEach(([s, e], i) => {
+          ctx.save();
+          if (i) ctx.globalAlpha = (ctx.globalAlpha || 1) * 0.85;
+          this.strokePath([s, i ? e : proj(origin)]);
+          ctx.restore();
+        });
+        if (d.fill !== false) {
+          ctx.save();
+          ctx.fillStyle = this.wash(color, 0.06);
+          ctx.beginPath();
+          ctx.moveTo(b.x, b.y); ctx.lineTo(proj(b).x, proj(b).y);
+          ctx.lineTo(proj(c).x, proj(c).y); ctx.lineTo(c.x, c.y);
+          ctx.closePath(); ctx.fill();
+          ctx.restore();
+        }
+      }
+
+    /* ---- fibonacci ----------------------------------------------------- */
+    } else if (kind === "fib" || kind === "fibext" || kind === "fibchannel") {
+      const levels = this.fibLevels(d);
+      if (a && b) {
+        const base = kind === "fibext" && c ? c : a;
+        const from = kind === "fibext" && c ? d.c.p : d.a.p;
+        const to = kind === "fibext" && c ? d.c.p + (d.b.p - d.a.p) : d.b.p;
+        const x0 = Math.min(a.x, b.x), x1 = Math.max(a.x, b.x);
+        const tail = Math.min(L.plotR, x1 + (x1 - x0) * 0.38);
+        if (kind === "fibchannel" && c) {
+          // Levels run parallel to the A-B line instead of flat.
+          const dyc = c.y - a.y;
+          levels.forEach((lv) => {
+            const off = dyc * lv.value;
+            ctx.save();
+            ctx.strokeStyle = lv.color || color;
+            ctx.globalAlpha = (ctx.globalAlpha || 1) * (lv.strong ? 1 : 0.75);
+            this.strokePath([{ x: a.x, y: a.y + off }, { x: b.x, y: b.y + off }]);
+            ctx.restore();
+            ctx.fillStyle = T.fib;
+            ctx.fillText(lv.label, b.x + 4, b.y + off - 3);
+          });
+        } else {
+          for (let i = 0; i < levels.length - 1 && d.fill !== false; i++) {
+            const yA = L.yOf(from + (to - from) * levels[i].value);
+            const yB = L.yOf(from + (to - from) * levels[i + 1].value);
+            ctx.save();
+            ctx.globalAlpha = (ctx.globalAlpha || 1) * 0.5;
+            ctx.fillStyle = this.wash(levels[i].color || color, i % 2 ? 0.05 : 0.09);
+            ctx.fillRect(x0, Math.min(yA, yB), tail - x0, Math.abs(yB - yA));
+            ctx.restore();
+          }
+          levels.forEach((lv) => {
+            const p = from + (to - from) * lv.value;
+            const y = L.yOf(p);
+            ctx.save();
+            ctx.strokeStyle = lv.color || color;
+            ctx.lineWidth = lv.strong ? 1.7 : 1;
+            this.strokePath([{ x: x0, y }, { x: tail, y }]);
+            ctx.restore();
+            ctx.fillStyle = T.fib;
+            ctx.fillText(lv.label + "  " + this.fmtPrice(p), x0 + 6, y - 3);
+          });
+          ctx.save();
+          ctx.setLineDash([4, 4]);
+          ctx.globalAlpha = (ctx.globalAlpha || 1) * 0.55;
+          this.strokePath(kind === "fibext" && c ? [a, b, c] : [a, b]);
+          ctx.restore();
+        }
+      }
+    } else if (kind === "fibtime") {
+      if (a && b) {
+        const span = (b.x - a.x) || 1;
+        this.fibLevels(d).forEach((lv) => {
+          const x = a.x + span * lv.value;
+          ctx.save();
+          ctx.strokeStyle = lv.color || color;
+          ctx.lineWidth = lv.strong ? 1.6 : 1;
+          this.strokePath([{ x, y: L.plotT }, { x, y: L.plotB }]);
+          ctx.restore();
+          ctx.fillStyle = T.fib;
+          ctx.fillText(lv.label, x + 4, L.plotT + 12);
+        });
+      }
+    } else if (kind === "fibcircle" || kind === "fibarc" || kind === "fibspiral") {
+      if (a && b) {
+        const r = Math.hypot(b.x - a.x, b.y - a.y);
+        if (kind === "fibspiral") {
+          // A golden spiral out of quarter arcs, growing by phi each turn.
+          const phi = 1.618033988749;
+          ctx.beginPath();
+          let rad = r / Math.pow(phi, 4);
+          let cx = a.x, cy = a.y, ang = 0;
+          for (let i = 0; i < 8; i++) {
+            ctx.arc(cx, cy, rad, ang, ang + Math.PI / 2);
+            const nx = cx + Math.cos(ang + Math.PI / 2) * rad;
+            const ny = cy + Math.sin(ang + Math.PI / 2) * rad;
+            const nr = rad * phi;
+            cx = nx - Math.cos(ang + Math.PI / 2) * nr;
+            cy = ny - Math.sin(ang + Math.PI / 2) * nr;
+            rad = nr;
+            ang += Math.PI / 2;
+          }
+          ctx.stroke();
+        } else {
+          this.fibLevels(d).forEach((lv) => {
+            if (!lv.value) return;
+            ctx.save();
+            ctx.strokeStyle = lv.color || color;
+            ctx.lineWidth = lv.strong ? 1.6 : 1;
+            ctx.beginPath();
+            if (kind === "fibarc") ctx.arc(a.x, a.y, r * lv.value, Math.PI, Math.PI * 2);
+            else ctx.arc(a.x, a.y, r * lv.value, 0, Math.PI * 2);
+            ctx.stroke();
+            ctx.restore();
+            ctx.fillStyle = T.fib;
+            ctx.fillText(lv.label, a.x + r * lv.value + 3, a.y - 3);
+          });
+        }
+      }
+    } else if (kind === "fibwedge") {
+      if (a && b && c) {
+        this.fibLevels(d).forEach((lv) => {
+          ctx.save();
+          ctx.strokeStyle = lv.color || color;
+          this.strokePath([a, { x: b.x + (c.x - b.x) * lv.value, y: b.y + (c.y - b.y) * lv.value }]);
+          ctx.restore();
+        });
+      }
+
+    /* ---- gann ---------------------------------------------------------- */
+    } else if (kind === "gannfan") {
+      if (a && b) {
+        const ratios = [[1, 1], [1, 2], [2, 1], [1, 3], [3, 1], [1, 4], [4, 1], [1, 8], [8, 1]];
+        const dx = b.x - a.x, dy = b.y - a.y;
+        ratios.forEach(([rx, ry], i) => {
+          ctx.save();
+          ctx.globalAlpha = (ctx.globalAlpha || 1) * (rx === ry ? 1 : 0.6);
+          ctx.lineWidth = rx === ry ? 1.7 : 1;
+          const k = 6;
+          this.strokePath([a, { x: a.x + dx * (rx / ry) * k, y: a.y + dy * k }]);
+          ctx.restore();
+          if (rx === ry) this.tag(a.x + dx, a.y + dy, "1×1", color);
+        });
+      }
+    } else if (kind === "gannbox" || kind === "gannsquare") {
+      if (a && b) {
+        const x0 = Math.min(a.x, b.x), x1 = Math.max(a.x, b.x);
+        const y0 = Math.min(a.y, b.y), y1 = Math.max(a.y, b.y);
+        ctx.strokeRect(x0, y0, x1 - x0, y1 - y0);
+        const parts = kind === "gannsquare" ? [0.25, 0.5, 0.75] : [0.25, 0.382, 0.5, 0.618, 0.75];
+        ctx.save();
+        ctx.globalAlpha = (ctx.globalAlpha || 1) * 0.55;
+        parts.forEach((p) => {
+          this.strokePath([{ x: x0 + (x1 - x0) * p, y: y0 }, { x: x0 + (x1 - x0) * p, y: y1 }]);
+          this.strokePath([{ x: x0, y: y0 + (y1 - y0) * p }, { x: x1, y: y0 + (y1 - y0) * p }]);
+        });
+        if (kind === "gannsquare") {
+          this.strokePath([{ x: x0, y: y1 }, { x: x1, y: y0 }]);
+          this.strokePath([{ x: x0, y: y0 }, { x: x1, y: y1 }]);
+        }
+        ctx.restore();
+      }
+
+    /* ---- geometry ------------------------------------------------------ */
+    } else if (kind === "rect" || kind === "daterange" || kind === "pricerange") {
+      if (a && b) {
+        let x = Math.min(a.x, b.x), y = Math.min(a.y, b.y);
+        let w = Math.abs(b.x - a.x), h = Math.abs(b.y - a.y);
+        if (kind === "daterange") { y = L.plotT; h = L.plotB - L.plotT; }
+        if (kind === "pricerange") { x = L.plotL; w = L.plotR - L.plotL; }
+        if (d.fill !== false) {
+          ctx.save();
+          ctx.fillStyle = this.wash(color, 0.12);
+          ctx.fillRect(x, y, w, h);
+          ctx.restore();
+        }
+        ctx.strokeRect(x, y, w, h);
+        if (kind === "pricerange" || kind === "daterange") {
+          const dp = d.b.p - d.a.p;
+          const pct = d.a.p ? (dp / d.a.p) * 100 : 0;
+          const bars = Math.abs((d.b.gi || 0) - (d.a.gi || 0));
+          const text = kind === "pricerange"
+            ? this.fmtPrice(Math.abs(dp)) + "  " + Math.abs(pct).toFixed(2) + "%"
+            : bars + " bars";
+          this.tag(x + 8, y + h / 2, text, dp >= 0 ? T.up : T.down);
+        }
+      }
+    } else if (kind === "rotrect") {
+      if (a && b) {
+        const c3 = c || b;
+        const dx = b.x - a.x, dy = b.y - a.y;
+        const len = Math.hypot(dx, dy) || 1;
+        const nx = -dy / len, ny = dx / len;
+        const off = c ? ((c3.x - b.x) * nx + (c3.y - b.y) * ny) : 0;
+        this.strokePath([
+          a, b, { x: b.x + nx * off, y: b.y + ny * off }, { x: a.x + nx * off, y: a.y + ny * off },
+        ], { close: true, fill: d.fill !== false ? this.wash(color, 0.1) : null });
+      }
+    } else if (kind === "circle") {
+      if (a && b) {
+        const r = Math.max(3, Math.hypot(b.x - a.x, b.y - a.y));
+        ctx.beginPath(); ctx.arc(a.x, a.y, r, 0, Math.PI * 2);
+        if (d.fill !== false) { ctx.save(); ctx.fillStyle = this.wash(color, 0.1); ctx.fill(); ctx.restore(); }
+        ctx.stroke();
+      }
+    } else if (kind === "ellipse") {
+      if (a && b) {
+        ctx.beginPath();
+        ctx.ellipse((a.x + b.x) / 2, (a.y + b.y) / 2,
+          Math.max(2, Math.abs(b.x - a.x) / 2), Math.max(2, Math.abs(b.y - a.y) / 2), 0, 0, Math.PI * 2);
+        if (d.fill !== false) { ctx.save(); ctx.fillStyle = this.wash(color, 0.1); ctx.fill(); ctx.restore(); }
+        ctx.stroke();
+      }
+    } else if (kind === "triangle") {
+      if (a && b) {
+        this.strokePath(c ? [a, b, c] : [a, b],
+          { close: Boolean(c), fill: c && d.fill !== false ? this.wash(color, 0.1) : null });
+      }
+    } else if (kind === "arc" || kind === "curve" || kind === "doublecurve") {
+      if (a && b) {
+        ctx.beginPath();
+        ctx.moveTo(a.x, a.y);
+        if (c) ctx.quadraticCurveTo(c.x, c.y, b.x, b.y);
+        else ctx.lineTo(b.x, b.y);
+        ctx.stroke();
+        if (kind === "doublecurve" && P[3]) {
+          ctx.beginPath();
+          ctx.moveTo(b.x, b.y);
+          ctx.quadraticCurveTo(P[3].x, P[3].y, P[3].x, P[3].y);
+          ctx.stroke();
+        }
+      }
+    } else if (kind === "polyline" || kind === "polygon" || kind === "path") {
+      const pts = (d.pts || []).map((p) => this.xyOf(L, p)).filter(Boolean);
+      if (pts.length > 1) {
+        this.strokePath(pts, {
+          close: kind === "polygon",
+          fill: kind === "polygon" && d.fill !== false ? this.wash(color, 0.1) : null,
+        });
+        if (kind === "path") this.arrowHead(pts[pts.length - 2], pts[pts.length - 1], 10);
+      }
+
+    /* ---- positions and risk ------------------------------------------- */
+    } else if (kind === "long" || kind === "short") {
+      if (a && b) this.paintPosition(L, d, a, b, kind === "long");
+
+    /* ---- patterns ------------------------------------------------------ */
+    } else if (SHAPE_LABELS[kind]) {
+      this.paintPattern(L, d, P, color);
+
+    /* ---- annotation ---------------------------------------------------- */
+    } else if (kind === "text" || kind === "emoji" || kind === "note" ||
+               kind === "label" || kind === "pricelabel" || kind === "flag") {
+      if (a) this.paintAnnotation(L, d, a, color);
+    } else if (kind === "callout") {
+      if (a && b) {
+        ctx.save();
+        ctx.setLineDash([3, 3]);
+        this.strokePath([a, b]);
+        ctx.restore();
+        this.paintAnnotation(L, d, b, color);
+      }
+
+    /* ---- freehand ------------------------------------------------------ */
+    } else if (kind === "brush" || kind === "highlighter" || kind === "freearrow") {
+      const pts = (d.pts || []).map((p) => this.xyOf(L, p)).filter(Boolean);
+      if (pts.length > 1) {
+        ctx.save();
+        if (kind === "highlighter") {
+          ctx.globalAlpha = (ctx.globalAlpha || 1) * 0.3;
+          ctx.lineWidth = Math.max(8, (Number(d.width) || 1.4) * 8);
+          ctx.lineCap = "round";
+        }
+        ctx.lineJoin = "round";
+        // Quadratic smoothing through the midpoints: a freehand line drawn
+        // with a mouse is a staircase without it.
+        ctx.beginPath();
+        ctx.moveTo(pts[0].x, pts[0].y);
+        for (let i = 1; i < pts.length - 1; i++) {
+          const mx = (pts[i].x + pts[i + 1].x) / 2;
+          const my = (pts[i].y + pts[i + 1].y) / 2;
+          ctx.quadraticCurveTo(pts[i].x, pts[i].y, mx, my);
+        }
+        ctx.lineTo(pts[pts.length - 1].x, pts[pts.length - 1].y);
+        ctx.stroke();
+        ctx.restore();
+        if (kind === "freearrow") this.arrowHead(pts[pts.length - 2], pts[pts.length - 1], 12);
+      }
+    }
+
+    /* ---- the handles --------------------------------------------------- */
+    if (!ghost && this.selected === d) {
+      ctx.setLineDash([]);
+      ctx.globalAlpha = 1;
+      const pts = SHAPE_POINTS[kind] === -1 ? [] : P;
+      pts.forEach((pt) => {
+        ctx.fillStyle = d.locked ? T.muted : T.text;
+        ctx.strokeStyle = T.panel;
+        ctx.lineWidth = 1.5;
+        // Draw the handle the size it can actually be grabbed at, so the
+        // target the trader aims for is the target shapeAt() tests.
+        const r = this.coarse ? 9 : 4.5;
+        ctx.beginPath(); ctx.arc(pt.x, pt.y, r, 0, Math.PI * 2);
+        ctx.fill(); ctx.stroke();
+      });
+    }
+    ctx.restore();
+  }
+
+  /** The level table for a fib tool: its own, or the default for its kind. */
+  fibLevels(d) {
+    const T = chartTheme();
+    if (Array.isArray(d.levels) && d.levels.length) {
+      return d.levels.filter((l) => l && l.visible !== false).map((l) => ({
+        value: Number(l.value),
+        label: l.label || (Number(l.value) * 100).toFixed(1) + "%",
+        strong: Boolean(l.strong),
+        color: l.color || "",
+      }));
+    }
+    const sets = {
+      fib: [0, 0.236, 0.382, 0.5, 0.618, 0.786, 1],
+      fibext: [0, 0.618, 1, 1.272, 1.618, 2, 2.618],
+      fibchannel: [0, 0.382, 0.5, 0.618, 1, 1.618],
+      fibtime: [0, 0.382, 0.5, 0.618, 1, 1.618, 2.618],
+      fibcircle: [0.236, 0.382, 0.5, 0.618, 1],
+      fibarc: [0.382, 0.5, 0.618, 1],
+      fibwedge: [0.236, 0.382, 0.5, 0.618, 1],
+    };
+    const strong = { 0.5: 1, 0.618: 1, 1.618: 1 };
+    return (sets[d.kind] || sets.fib).map((v) => ({
+      value: v,
+      label: (v * 100).toFixed(1).replace(/\.0$/, "") + "%",
+      strong: Boolean(strong[v]),
+      color: strong[v] ? T.up : "",
+    }));
+  }
+
+  /**
+   * A long or short position.
+   *
+   * Entry and stop come from the two anchors; the target is projected at the
+   * object's own reward multiple. The zones are drawn to scale, so a trade
+   * with a bad ratio looks bad before the numbers are read. The numbers
+   * describe the drawing, not a forecast - nothing here is an outcome.
+   */
+  paintPosition(L, d, a, b, long) {
+    const ctx = this.ctx;
+    const T = chartTheme();
+    const entry = d.a.p;
+    const stop = d.b.p;
+    const risk = Math.abs(entry - stop);
+    const rr = Number(d.rr || 2);
+    const target = d.c && Number.isFinite(d.c.p)
+      ? Number(d.c.p)
+      : (long ? entry + risk * rr : entry - risk * rr);
+    const pts = [a, b].concat(d.c ? [this.xyOf(L, d.c)].filter(Boolean) : []);
+    const x = Math.min(...pts.map((p) => p.x));
+    const w = Math.max(56, Math.max(...pts.map((p) => p.x)) - x);
+    const yEntry = L.yOf(entry), yStop = L.yOf(stop), yTarget = L.yOf(target);
+
+    ctx.save();
+    ctx.setLineDash([]);
+    ctx.fillStyle = "rgba(" + T.downT + ",.14)";
+    ctx.fillRect(x, Math.min(yEntry, yStop), w, Math.abs(yStop - yEntry));
+    ctx.fillStyle = "rgba(" + T.upT + ",.14)";
+    ctx.fillRect(x, Math.min(yEntry, yTarget), w, Math.abs(yTarget - yEntry));
+
+    ctx.setLineDash([4, 3]);
+    [[yStop, T.down], [yTarget, T.up]].forEach(([yy, col]) => {
+      ctx.strokeStyle = col;
+      ctx.beginPath(); ctx.moveTo(x, yy); ctx.lineTo(x + w, yy); ctx.stroke();
+    });
+    ctx.setLineDash([]);
+    ctx.strokeStyle = T.text;
+    ctx.beginPath(); ctx.moveTo(x, yEntry); ctx.lineTo(x + w, yEntry); ctx.stroke();
+
+    const reward = Math.abs(target - entry);
+    const pctR = entry ? (risk / entry) * 100 : 0;
+    const pctW = entry ? (reward / entry) * 100 : 0;
+    const lines = [
+      (long ? "LONG" : "SHORT") + "   " + (risk ? (reward / risk).toFixed(2) : "—") + " R",
+      "entry  " + this.fmtPrice(entry),
+      "stop   " + this.fmtPrice(stop) + "   −" + this.fmtPrice(risk) + "  " + pctR.toFixed(2) + "%",
+      "target " + this.fmtPrice(target) + "   +" + this.fmtPrice(reward) + "  " + pctW.toFixed(2) + "%",
+    ];
+    ctx.font = "11px IBM Plex Mono, Vazirmatn, monospace";
+    const bw = Math.max(...lines.map((t) => ctx.measureText(t).width)) + 16;
+    const bh = lines.length * 14 + 10;
+    let by = Math.min(yTarget, yStop) - bh - 4;
+    if (by < L.plotT) by = Math.max(yTarget, yStop) + 6;
+    ctx.fillStyle = T.panel;
+    ctx.fillRect(x, by, bw, bh);
+    lines.forEach((t, i) => {
+      ctx.fillStyle = i === 0 ? (long ? T.up : T.down) : T.muted;
+      ctx.fillText(t, x + 8, by + 16 + i * 14);
+    });
+    ctx.restore();
+  }
+
+  /**
+   * The pattern family: a labelled polyline with the leg ratios written on it.
+   *
+   * Every harmonic is the same drawing with different rules, so they are one
+   * renderer. For the named ones the actual retracement of each leg is
+   * measured and shown against the textbook range - the tool marks what the
+   * trader drew, it does not claim the pattern is valid.
+   */
+  paintPattern(L, d, P, color) {
+    const ctx = this.ctx;
+    const T = chartTheme();
+    const labels = SHAPE_LABELS[d.kind] || [];
+    if (P.length < 2) return;
+    this.strokePath(P, {
+      close: false,
+      fill: d.fill !== false && P.length > 3 ? this.wash(color, 0.06) : null,
+    });
+    if (d.fill !== false && P.length >= 4) {
+      // Shade the triangles the eye is meant to compare.
+      ctx.save();
+      ctx.globalAlpha = (ctx.globalAlpha || 1) * 0.5;
+      ctx.fillStyle = this.wash(color, 0.08);
+      for (let i = 0; i + 2 < P.length; i += 2) {
+        ctx.beginPath();
+        ctx.moveTo(P[i].x, P[i].y);
+        ctx.lineTo(P[i + 1].x, P[i + 1].y);
+        ctx.lineTo(P[i + 2].x, P[i + 2].y);
+        ctx.closePath(); ctx.fill();
+      }
+      ctx.restore();
+    }
+    ctx.save();
+    ctx.setLineDash([]);
+    ctx.globalAlpha = 1;
+    ctx.font = "11px Outfit, Vazirmatn, sans-serif";
+    P.forEach((pt, i) => {
+      const text = (d.labels && d.labels[i]) || labels[i] || "";
+      if (!text) return;
+      const above = i === 0 || !P[i - 1] || pt.y <= P[i - 1].y;
+      this.tag(pt.x - 9, pt.y + (above ? -14 : 16), text, color);
+    });
+
+    const rules = HARMONIC_RULES[d.kind];
+    if (rules && P.length === 5) {
+      const pts = this.anchorPoints(d);
+      const leg = (i, j) => Math.abs(pts[j].p - pts[i].p);
+      const ratios = [
+        ["AB", leg(1, 2) / (leg(0, 1) || 1), rules.AB],
+        ["BC", leg(2, 3) / (leg(1, 2) || 1), rules.BC],
+        ["CD", leg(3, 4) / (leg(2, 3) || 1), rules.CD],
+        ["XD", leg(0, 4) / (leg(0, 1) || 1), rules.XD],
+      ];
+      let y = Math.min(...P.map((p) => p.y)) - 8;
+      const x = Math.max(...P.map((p) => p.x)) + 8;
+      ratios.forEach(([name, got, want], i) => {
+        const ok = got >= want[0] * 0.9 && got <= want[1] * 1.1;
+        this.tag(x, y + i * 18, name + " " + got.toFixed(3), ok ? T.up : T.muted);
+      });
+    }
+    ctx.restore();
+  }
+
+  /** Text, notes, labels, flags - everything that is words on the chart. */
+  paintAnnotation(L, d, at, color) {
+    const ctx = this.ctx;
+    const T = chartTheme();
+    const kind = d.kind;
+    const text = kind === "pricelabel" ? this.fmtPrice(d.a.p) : (d.text || "");
+    ctx.save();
+    ctx.setLineDash([]);
+    ctx.globalAlpha = d.opacity === undefined ? 1 : Number(d.opacity);
+    const size = Number(d.fontSize) || (kind === "emoji" ? 18 : 13);
+    const weight = d.bold ? "600 " : "";
+    ctx.font = weight + size + "px " + (kind === "emoji" ? "sans-serif" : "Outfit, Vazirmatn, sans-serif");
+    ctx.textBaseline = "middle";
+    ctx.textAlign = d.align === "center" ? "center" : (d.align === "end" ? "right" : "left");
+
+    /* The marker tool used to stamp the pushpin emoji. An emoji is not ours
+       to draw: every platform paints it differently, it ignores the chart's
+       colour, and it does not scale with the rest of the annotations. When
+       no text is given, the marker is now a drawn pin in the object's own
+       colour, exactly like the flag above it. Anything the trader types in
+       themselves is still their own content and is drawn as typed. */
+    if (kind === "emoji" && !text) {
+      const h = size * 1.5;
+      ctx.strokeStyle = color; ctx.fillStyle = color;
+      ctx.lineWidth = 1.5; ctx.lineCap = "round";
+      ctx.beginPath();
+      ctx.moveTo(at.x, at.y); ctx.lineTo(at.x, at.y - h * 0.42);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(at.x, at.y - h * 0.68, h * 0.28, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+      return;
+    }
+
+    if (kind === "flag") {
+      ctx.strokeStyle = color; ctx.fillStyle = color;
+      ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.moveTo(at.x, at.y); ctx.lineTo(at.x, at.y - 22); ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(at.x, at.y - 22); ctx.lineTo(at.x + 16, at.y - 18); ctx.lineTo(at.x, at.y - 13);
+      ctx.closePath(); ctx.fill();
+      if (text) { ctx.fillStyle = T.text; ctx.fillText(text, at.x + 20, at.y - 18); }
+      ctx.restore();
+      return;
+    }
+
+    const w = ctx.measureText(text).width;
+    if (kind === "note" || kind === "label" || kind === "pricelabel" || kind === "callout") {
+      const padX = 8, padY = 5;
+      const bx = at.x - (ctx.textAlign === "center" ? w / 2 : 0) - padX;
+      const by = at.y - size / 2 - padY;
+      ctx.fillStyle = d.background || this.wash(color, kind === "note" ? 0.16 : 0.9);
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      const r = 5, bw = w + padX * 2, bh = size + padY * 2;
+      ctx.moveTo(bx + r, by);
+      ctx.arcTo(bx + bw, by, bx + bw, by + bh, r);
+      ctx.arcTo(bx + bw, by + bh, bx, by + bh, r);
+      ctx.arcTo(bx, by + bh, bx, by, r);
+      ctx.arcTo(bx, by, bx + bw, by, r);
+      ctx.closePath();
+      ctx.fill();
+      if (kind === "note") ctx.stroke();
+      ctx.fillStyle = kind === "note" ? T.text : (d.textColor || T.tag);
+    } else {
+      ctx.fillStyle = d.textColor || color;
+    }
+    ctx.fillText(text, at.x, at.y);
+    ctx.restore();
+  }
+
+  /* ========================================================== hit-testing == */
+
+  hit(e) {
+    const L = this._L || this.layout();
+    if (!L) return null;
+    const r = this.canvas.getBoundingClientRect();
+    const x = e.clientX - r.left, y = e.clientY - r.top;
+    const raw = L.iOf(x);
+    const i = Math.max(0, Math.min(L.rows.length - 1, raw));
+    /* Out in the empty margin there is no bar, so there is no bar time
+       either. Reporting the last candle's time there would make every
+       time-snapping tool slide its anchor back onto that candle - the
+       drawing would be placed in the margin and painted somewhere else.
+       An empty time sends the point down the continuous-gx path, which
+       is what the margin exists for. */
+    const row = raw >= 0 && raw < L.rows.length ? L.rows[raw] : null;
+    // gx is where the pointer really is, in bar units and unclamped: it can
+    // sit between two bars, before the first or out in the empty margin past
+    // the last. Everything that is drawn uses it; only the legend and the
+    // crosshair use the snapped index.
+    return {
+      L, x, y, i, gi: L.start + i,
+      gx: (x - L.padL) / (L.bw || 1) - 0.5 + L.start,
+      t: row ? row.t : "",
+      p: L.pOf(y),
+      onPriceAxis: x > L.plotR,
+      onTimeAxis: y > L.axisB - 6,
+      valid: x >= L.plotL && x <= L.plotR && y >= L.plotT && y <= L.plotB,
+    };
+  }
+
+  /**
+   * Magnet.
+   *
+   * Weak pulls to the nearest of the bar's four prices only when the pointer
+   * is already close to one; strong always takes the nearest. Time snapping
+   * is separate and on by default, because a drawing that sits between two
+   * bars is never what anybody meant.
+   */
+  snapHit(hit) {
+    if (!hit || !hit.L) return hit;
+    if (this.magnet === "off") return hit;
+    const row = hit.L.rows[hit.i];
+    if (!row) return hit;
+    let best = hit.p, bd = this.magnet === "strong" ? Infinity : 14;
+    for (const p of [row.o, row.h, row.l, row.c]) {
+      const d = Math.abs(hit.L.yOf(p) - hit.y);
+      if (d < bd) { bd = d; best = p; }
+    }
+    hit.p = best;
+    return hit;
+  }
+
+  /** Tools that must never be pinned to a bar. */
+  static get FREEHAND() { return { brush: 1, highlighter: 1, freearrow: 1, polyline: 1, path: 1, polygon: 1 }; }
+
+  /**
+   * A point in data space.
+   *
+   * `gx` is the honest position and is always kept. `t` is only recorded
+   * when the anchor is meant to belong to a particular bar - and never for
+   * the freehand tools, which is what used to flatten a brush stroke onto
+   * the candles: every sample was being rewritten to the nearest bar's
+   * timestamp, so a curve drawn between two candles, or out in the margin
+   * past the last one, collapsed onto them.
+   */
+  point(hit, opts) {
+    const free = (opts && opts.free) || CandleChart.FREEHAND[this.tool];
+    return {
+      t: this.snapTime && !free ? hit.t : "",
+      p: hit.p,
+      gi: hit.gi,
+      gx: hit.gx,
+    };
+  }
+
+  xyOf(L, pt) {
+    if (!pt) return null;
+
+    /* A point placed with a continuous coordinate keeps it. This is what
+       lets a drawing live between two bars, above the highest high or out
+       in the empty margin to the right of the newest candle - anywhere the
+       trader put it, rather than on the nearest available bar. */
+    if (Number.isFinite(pt.gx) && !pt.t) {
+      const x = L.padL + (pt.gx - L.start + 0.5) * L.bw;
+      const far = (L.plotR - L.plotL) * 3;
+      if (x < L.plotL - far || x > L.plotR + far) {
+        if (pt.p == null) return null;
+        return { x: x < L.plotL ? L.plotL - 4 : L.plotR + 4, y: L.yOf(pt.p), off: true, i: -1 };
+      }
+      return { x, y: L.yOf(pt.p), i: Math.round(pt.gx - L.start) };
+    }
+
+    let i = -1;
+    if (pt.t) i = L.rows.findIndex((r) => r.t === pt.t);
+    if (i < 0 && Number.isFinite(pt.gx)) {
+      const x = L.padL + (pt.gx - L.start + 0.5) * L.bw;
+      return { x, y: L.yOf(pt.p), i: Math.round(pt.gx - L.start) };
+    }
+    if (i < 0 && Number.isFinite(pt.gi)) i = pt.gi - L.start;
+    if (i < 0 || i >= L.cells) {
+      // Off-screen anchors still position a line: clamp to the edge so a
+      // trend line drawn last week does not vanish when it scrolls away.
+      if (pt.p == null) return null;
+      const x = i < 0 ? L.plotL - 4 : L.plotR + 4;
+      return { x, y: L.yOf(pt.p), off: true, i };
+    }
+    return { x: L.xOf(i), y: L.yOf(pt.p), i };
+  }
+
+  shapeAt(L, x, y) {
+    const near = this.grabRadius;
+    for (let i = this.drawings.length - 1; i >= 0; i--) {
+      const d = this.drawings[i];
+      if (d.visible === false) continue;
+      const pts = this.anchorPoints(d).map((p) => this.xyOf(L, p)).filter(Boolean);
+      const keys = this.anchorKeys(d);
+      for (let k = 0; k < pts.length; k++) {
+        if (Math.hypot(pts[k].x - x, pts[k].y - y) <= near + 3) {
+          return { shape: d, index: i, handle: d.locked ? null : keys[k] };
+        }
+      }
+      const kind = d.kind;
+      if (kind === "hline" || kind === "hray" || kind === "priceline") {
+        if (pts[0] && Math.abs(y - pts[0].y) <= near) return { shape: d, index: i, handle: null };
+        continue;
+      }
+      if (kind === "vline" || kind === "dateline") {
+        if (pts[0] && Math.abs(x - pts[0].x) <= near) return { shape: d, index: i, handle: null };
+        continue;
+      }
+      if (kind === "rect" || kind === "circle" || kind === "ellipse" ||
+          kind === "long" || kind === "short" || kind === "gannbox" || kind === "gannsquare" ||
+          kind === "daterange" || kind === "pricerange") {
+        if (pts.length > 1) {
+          const x0 = Math.min(pts[0].x, pts[1].x) - near, x1 = Math.max(pts[0].x, pts[1].x) + near;
+          const y0 = Math.min(pts[0].y, pts[1].y) - near, y1 = Math.max(pts[0].y, pts[1].y) + near;
+          const inX = kind === "pricerange" ? true : x >= x0 && x <= x1;
+          const inY = kind === "daterange" ? true : y >= y0 && y <= y1;
+          if (inX && inY) return { shape: d, index: i, handle: null };
+        }
+        continue;
+      }
+      const free = Array.isArray(d.pts) ? d.pts.map((p) => this.xyOf(L, p)).filter(Boolean) : [];
+      const chain = free.length ? free : pts;
+      for (let k = 0; k + 1 < chain.length; k++) {
+        if (this.nearSegment(x, y, chain[k], chain[k + 1]) <= near) {
+          return { shape: d, index: i, handle: null };
+        }
+      }
+      if (chain.length === 1 && Math.hypot(chain[0].x - x, chain[0].y - y) <= near + 8) {
+        return { shape: d, index: i, handle: null };
+      }
+    }
+    return null;
+  }
+
+  nearSegment(px, py, a, b) {
+    const dx = b.x - a.x, dy = b.y - a.y;
+    const len = dx * dx + dy * dy;
+    if (!len) return Math.hypot(px - a.x, py - a.y);
+    let t = ((px - a.x) * dx + (py - a.y) * dy) / len;
+    t = Math.max(0, Math.min(1, t));
+    return Math.hypot(px - (a.x + t * dx), py - (a.y + t * dy));
+  }
+
   pendingHit(L, y) {
     const sl = Number(this.pending && this.pending.sl || 0);
     const tp = Number(this.pending && this.pending.tp || 0);
@@ -496,324 +3075,929 @@ class CandleChart {
     }
     return best;
   }
-  paintLevelLabels(L) {
-    const ctx = this.ctx;
-    ctx.textAlign = "left";
-    ctx.textBaseline = "middle";
-    ctx.font = "11px IBM Plex Mono, Vazirmatn, monospace";
-    for (const pos of this.levels || []) {
-      const items = [
-        [Number(pos.sl || 0), chartTheme().down, "SL"],
-        [Number(pos.tp || 0), chartTheme().up, "TP"],
-        [Number(pos.price_open || 0), chartTheme().gold, String(pos.type || "POS").toUpperCase()],
-      ];
-      for (const [p, col, label] of items) {
-        if (!p) continue;
-        const y = Math.min(L.plotB - 2, Math.max(L.plotT + 2, L.yOf(p)));
-        const text = label + " " + this.fmtPrice(p);
-        const tw = Math.min(160, ctx.measureText(text).width + 14);
-        ctx.fillStyle = chartTheme().panel;
-        ctx.fillRect(L.plotL + 6, y - 9, tw, 18);
-        ctx.fillStyle = col;
-        ctx.fillText(text, L.plotL + 12, y);
-      }
+
+  moveSelected(from, to, handle) {
+    const d = this.selected;
+    if (!d || d.locked || !from || !to) return;
+    const dGi = (to.gi || 0) - (from.gi || 0);
+    const dP = (to.p || 0) - (from.p || 0);
+    const dGx = (to.gx === undefined || from.gx === undefined) ? dGi : (to.gx - from.gx);
+    const shift = (pt) => {
+      if (!pt) return pt;
+      pt.gi = (pt.gi || 0) + dGi;
+      if (Number.isFinite(pt.gx)) pt.gx += dGx;
+      pt.p = (pt.p || 0) + dP;
+      pt.t = "";
+      return pt;
+    };
+    // Dragging a position by its entry moves the trade; dragging the stop
+    // or the target moves only that leg, which is how the ratio is set.
+    if (handle === "a" && (d.kind === "long" || d.kind === "short")) {
+      this.anchorKeys(d).forEach((k) => shift(d[k]));
+    } else if (handle && d[handle]) shift(d[handle]);
+    else {
+      this.anchorKeys(d).forEach((k) => shift(d[k]));
+      if (Array.isArray(d.pts)) d.pts.forEach(shift);
     }
-  }
-  xyOf(L, pt) {
-    if (!pt) return null;
-    let i = -1;
-    if (pt.t) i = L.rows.findIndex((r) => r.t === pt.t);
-    if (i < 0 && Number.isFinite(pt.gi)) i = pt.gi - L.start;
-    if (i < 0 || i >= L.rows.length) {
-      if (pt.kind === "hline" || pt.p != null) return { x: L.padL, y: L.yOf(pt.p), off: true, i };
-      return null;
-    }
-    return { x: L.xOf(i), y: L.yOf(pt.p), i };
-  }
-  paintShape(L, d, ghost) {
-    const ctx = this.ctx;
-    ctx.save();
-    ctx.globalAlpha = ghost ? 0.7 : 1;
-    ctx.strokeStyle = d.color || chartTheme().gold;
-    ctx.fillStyle = d.color || chartTheme().gold;
-    ctx.lineWidth = 1.4;
-    const a = this.xyOf(L, d.a);
-    const b = this.xyOf(L, d.b || d.a);
-    const kind = d.kind;
-    if ((kind === "hline" || kind === "hray") && d.a) {
-      const y = L.yOf(d.a.p);
-      ctx.setLineDash(kind === "hray" ? [] : [6, 4]);
-      ctx.beginPath();
-      if (kind === "hray" && a) { ctx.moveTo(a.x, y); ctx.lineTo(L.plotR, y); }
-      else { ctx.moveTo(L.plotL, y); ctx.lineTo(L.plotR, y); }
-      ctx.stroke();
-      ctx.setLineDash([]);
-    } else if (kind === "vline" && a) {
-      ctx.setLineDash([6, 4]);
-      ctx.beginPath(); ctx.moveTo(a.x, L.plotT); ctx.lineTo(a.x, L.plotB); ctx.stroke();
-      ctx.setLineDash([]);
-    } else if ((kind === "trend" || kind === "ray" || kind === "extended" || kind === "measure" || kind === "arrow" || kind === "infoline") && a && b) {
-      ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
-      if (kind === "ray" || kind === "extended") {
-        const dx = b.x - a.x, dy = b.y - a.y;
-        ctx.beginPath(); ctx.moveTo(b.x, b.y); ctx.lineTo(b.x + dx * 8, b.y + dy * 8); ctx.stroke();
-        if (kind === "extended") {
-          ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(a.x - dx * 8, a.y - dy * 8); ctx.stroke();
-        }
-      }
-      if (kind === "arrow") {
-        const ang = Math.atan2(b.y - a.y, b.x - a.x);
-        ctx.beginPath();
-        ctx.moveTo(b.x, b.y);
-        ctx.lineTo(b.x - 10 * Math.cos(ang - 0.4), b.y - 10 * Math.sin(ang - 0.4));
-        ctx.moveTo(b.x, b.y);
-        ctx.lineTo(b.x - 10 * Math.cos(ang + 0.4), b.y - 10 * Math.sin(ang + 0.4));
-        ctx.stroke();
-      }
-      if (kind === "measure" || kind === "infoline" || kind === "pricerange") {
-        const dp = (d.b.p - d.a.p);
-        const bars = Math.abs((d.b.gi || 0) - (d.a.gi || 0));
-        const pct = d.a.p ? (dp / d.a.p) * 100 : 0;
-        const label = this.fmtPrice(dp) + "   " + pct.toFixed(2) + "%   " + bars + "b";
-        const tw = Math.min(240, ctx.measureText(label).width + 16);
-        let lx = (a.x + b.x) / 2 - tw / 2;
-        let ly = (a.y + b.y) / 2 - 16;
-        lx = Math.max(L.plotL + 4, Math.min(L.plotR - tw - 4, lx));
-        ly = Math.max(L.plotT + 4, Math.min(L.plotB - 28, ly));
-        ctx.fillStyle = chartTheme().panel;
-        ctx.fillRect(lx, ly, tw, 26);
-        ctx.fillStyle = dp >= 0 ? chartTheme().up : chartTheme().down;
-        ctx.fillText(label, lx + 8, ly + 17);
-      }
-    } else if (kind === "daterange" && a && b) {
-      const x = Math.min(a.x, b.x), w = Math.abs(b.x - a.x);
-      ctx.fillStyle = "rgba(" + chartTheme().violetT + ",.12)";
-      ctx.fillRect(x, L.plotT, w, L.plotB - L.plotT);
-      ctx.strokeRect(x, L.plotT, w, L.plotB - L.plotT);
-    } else if (kind === "pricerange" && a && b) {
-      const y = Math.min(a.y, b.y), h = Math.abs(b.y - a.y);
-      ctx.fillStyle = "rgba(" + chartTheme().upT + ",.1)";
-      ctx.fillRect(L.plotL, y, L.plotR - L.plotL, h);
-      ctx.strokeRect(L.plotL, y, L.plotR - L.plotL, h);
-    } else if ((kind === "rect" || kind === "long" || kind === "short") && a && b) {
-      const x = Math.min(a.x, b.x), y = Math.min(a.y, b.y);
-      const w = Math.abs(b.x - a.x), h = Math.abs(b.y - a.y);
-      ctx.fillStyle = kind === "short" ? "rgba(" + chartTheme().downT + ",.12)" : "rgba(" + chartTheme().violetT + ",.12)";
-      if (kind === "long") ctx.fillStyle = "rgba(" + chartTheme().upT + ",.12)";
-      ctx.fillRect(x, y, w, h);
-      ctx.strokeRect(x, y, w, h);
-      if (kind === "long" || kind === "short") {
-        ctx.fillStyle = chartTheme().text;
-        ctx.fillText(kind.toUpperCase(), x + 6, y + 14);
-      }
-    } else if (kind === "circle" && a && b) {
-      const rr = Math.max(4, Math.hypot(b.x - a.x, b.y - a.y));
-      ctx.beginPath(); ctx.arc(a.x, a.y, rr, 0, Math.PI * 2); ctx.stroke();
-    } else if (kind === "ellipse" && a && b) {
-      const cx = (a.x + b.x) / 2, cy = (a.y + b.y) / 2;
-      ctx.beginPath();
-      ctx.ellipse(cx, cy, Math.max(2, Math.abs(b.x - a.x) / 2), Math.max(2, Math.abs(b.y - a.y) / 2), 0, 0, Math.PI * 2);
-      ctx.stroke();
-    } else if (kind === "triangle" && a && b) {
-      const c = this.xyOf(L, d.c);
-      ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y);
-      if (c) { ctx.lineTo(c.x, c.y); ctx.closePath(); }
-      ctx.stroke();
-    } else if ((kind === "parallel" || kind === "channel") && a && b) {
-      ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
-      const c = this.xyOf(L, d.c);
-      if (c) {
-        const dx = b.x - a.x, dy = b.y - a.y;
-        ctx.beginPath(); ctx.moveTo(c.x, c.y); ctx.lineTo(c.x + dx, c.y + dy); ctx.stroke();
-        ctx.strokeStyle = "rgba(" + chartTheme().goldT + ",.35)";
-        ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(c.x, c.y); ctx.stroke();
-        ctx.beginPath(); ctx.moveTo(b.x, b.y); ctx.lineTo(c.x + dx, c.y + dy); ctx.stroke();
-        if (kind === "channel") {
-          ctx.fillStyle = "rgba(" + chartTheme().goldT + ",.08)";
-          ctx.beginPath();
-          ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y);
-          ctx.lineTo(c.x + dx, c.y + dy); ctx.lineTo(c.x, c.y);
-          ctx.closePath(); ctx.fill();
-        }
-      }
-    } else if (kind === "pitchfork" && a && b) {
-      const c = this.xyOf(L, d.c);
-      ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
-      if (c) {
-        const mx = (b.x + c.x) / 2, my = (b.y + c.y) / 2;
-        const dx = mx - a.x, dy = my - a.y;
-        ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(a.x + dx * 6, a.y + dy * 6); ctx.stroke();
-        ctx.beginPath(); ctx.moveTo(b.x, b.y); ctx.lineTo(b.x + dx * 6, b.y + dy * 6); ctx.stroke();
-        ctx.beginPath(); ctx.moveTo(c.x, c.y); ctx.lineTo(c.x + dx * 6, c.y + dy * 6); ctx.stroke();
-      }
-    } else if (kind === "gann" && a && b) {
-      const ratios = [1, 2, 0.5, 3, 1 / 3];
-      ratios.forEach((r, n) => {
-        ctx.strokeStyle = n === 0 ? chartTheme().gold : "rgba(" + chartTheme().goldT + ",.55)";
-        ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, a.y + (b.y - a.y) * r); ctx.stroke();
-      });
-    } else if (kind === "fibext" && a && b) {
-      const levels = [0, 1, 1.272, 1.618, 2, 2.618];
-      const hi = d.a.p, lo = d.b.p;
-      levels.forEach((lv) => {
-        const p = hi + (lo - hi) * lv;
-        const y = L.yOf(p);
-        ctx.strokeStyle = lv === 1.618 || lv === 2.618 ? chartTheme().up : "rgba(" + chartTheme().violetT + ",.75)";
-        ctx.beginPath(); ctx.moveTo(L.plotL, y); ctx.lineTo(L.plotR, y); ctx.stroke();
-        ctx.fillStyle = chartTheme().fib;
-        ctx.fillText(lv.toFixed(3) + "  " + this.fmtPrice(p), L.plotL + 6, y - 3);
-      });
-    } else if (kind === "fib" && a && b) {
-      const levels = [0, 0.236, 0.382, 0.5, 0.618, 0.786, 1];
-      const hi = d.a.p, lo = d.b.p;
-      levels.forEach((lv) => {
-        const p = hi + (lo - hi) * lv;
-        const y = L.yOf(p);
-        ctx.strokeStyle = lv === 0.618 || lv === 0.5 ? chartTheme().up : "rgba(" + chartTheme().goldT + ",.7)";
-        ctx.beginPath(); ctx.moveTo(L.plotL, y); ctx.lineTo(L.plotR, y); ctx.stroke();
-        ctx.fillStyle = chartTheme().fib;
-        ctx.fillText(lv.toFixed(3) + "  " + this.fmtPrice(p), L.plotL + 6, y - 3);
-      });
-    } else if (kind === "fibtime" && a && b) {
-      const ratios = [0, 0.382, 0.5, 0.618, 1, 1.618, 2.618];
-      const span = (b.x - a.x) || 1;
-      ratios.forEach((lv) => {
-        const x = a.x + span * lv;
-        ctx.strokeStyle = lv === 0.618 || lv === 1.618 ? chartTheme().up : "rgba(" + chartTheme().violetT + ",.7)";
-        ctx.beginPath(); ctx.moveTo(x, L.plotT); ctx.lineTo(x, L.plotB); ctx.stroke();
-        ctx.fillStyle = chartTheme().fib;
-        ctx.fillText(lv.toFixed(3), x + 4, L.plotT + 12);
-      });
-    } else if (kind === "brush" && Array.isArray(d.pts)) {
-      ctx.beginPath();
-      d.pts.forEach((pt, i) => {
-        const xy = this.xyOf(L, pt);
-        if (!xy) return;
-        if (i === 0) ctx.moveTo(xy.x, xy.y);
-        else ctx.lineTo(xy.x, xy.y);
-      });
-      ctx.stroke();
-    } else if ((kind === "text" || kind === "emoji") && a) {
-      ctx.font = kind === "emoji" ? "18px sans-serif" : "13px Outfit, Vazirmatn, sans-serif";
-      ctx.fillStyle = chartTheme().text;
-      ctx.fillText(d.text || "", a.x + 6, a.y - 6);
-    }
-    ctx.restore();
-  }
-  onWheel(e) {
-    e.preventDefault();
-    const dir = e.deltaY > 0 ? 1 : -1;
-    this.span = Math.max(20, Math.min(this.bars.length || 20, this.span + dir * 6));
     this.draw();
   }
-  needsThird(kind) {
-    return kind === "parallel" || kind === "channel" || kind === "pitchfork" || kind === "triangle";
+
+  /* ========================================================== navigation == */
+
+  /**
+   * The travel limits: the chart stops at its own two ends.
+   *
+   * Both bounds used to allow scrolling into nothing. maxOffset let the
+   * window run on until only a fifth of it still held bars, so dragging
+   * left eventually left a handful of stretched candles adrift; minOffset
+   * allowed the window to be pulled 45% of a screen past the newest bar,
+   * into an empty right-hand margin. The margin is a convention borrowed
+   * from desktop terminals, but it was reported as a bug here - you push
+   * the chart and end up staring at blank space - so the chart now simply
+   * stops when the data does, by hand and by wheel alike.
+   *
+   * Scrolled fully back, the oldest bar sits at the left edge; scrolled
+   * fully forward, the newest sits at the right. The window always stays
+   * full of bars. When there is less history than fits on screen there is
+   * nowhere to go at all, and both bounds collapse to zero.
+   */
+  maxOffset() { return Math.max(0, this.rows().length - this.span); }
+
+  /** The newest bar is the right-hand edge; there is nothing beyond it. */
+  minOffset() { return 0; }
+
+  /**
+   * Zoom.
+   *
+   * Around the pointer, not the middle: zooming into a chart and finding the
+   * candle you were looking at has moved is the single most common way a web
+   * chart feels amateur. `at` is a bar index in the visible slice.
+   */
+  zoom(dir, at) {
+    this.forgetScaleFit();
+    const total = this.rows().length;
+    if (!total) return;
+    const before = this.span;
+    const factor = dir > 0 ? 0.82 : 1 / 0.82;
+    this.span = Math.max(8, Math.min(Math.max(20, total + this.rightPad), Math.round(before * factor)));
+    if (at !== undefined && at !== null && before) {
+      // Keep the bar under the cursor in place by moving the window's end.
+      const share = Math.max(0, Math.min(1, at / before));
+      const delta = Math.round((this.span - before) * (1 - share));
+      this.offset = this.offset + delta;
+    }
+    this.clampOffset();
+    this.draw();
   }
-  askText(kind, pt) {
-    const finish = (txt) => {
-      if (!txt) return;
-      this.drawings.push({ kind, a: pt, text: txt, color: chartTheme().gold });
-      this.persist();
-      this.draw();
+
+  /**
+   * Scroll the window by a number of bars.
+   *
+   * Positive goes back in time. The sign convention for *dragging* is the
+   * one thing this file cannot get wrong: the chart is a sheet of paper
+   * under the hand, so whatever the pointer does, the candles do. Drag
+   * right and the candles go right, which means older bars come into view
+   * and the offset grows. It used to be the opposite, and it was also
+   * negated again for right-to-left layouts - which made the gesture
+   * backwards in English and correct by accident in Persian. The canvas is
+   * never mirrored, so direction does not depend on the language at all.
+   */
+  pan(bars) {
+    this.forgetScaleFit();
+    this.offset += bars;
+    this.clampOffset();
+    this.draw();
+    /* Scrolling changes whether the live edge is on screen, and the
+       control that offers to take you back has to know. */
+    this.changed();
+    this.scrolled();
+  }
+
+  clampOffset() {
+    this.offset = Math.max(this.minOffset(), Math.min(this.maxOffset(), this.offset));
+  }
+
+  /**
+   * Begin a pan, recording enough to move the chart on both axes.
+   *
+   * A finger had only ever been able to push the chart sideways. The price
+   * axis was reachable by dragging with the right button held, or by
+   * dragging the axis itself - neither of which a touchscreen can do - so
+   * on a phone the chart could not be moved up or down at all, and a
+   * candle that sat above or below the window was simply unreachable.
+   *
+   * The same drag now carries the price range it started from, so the
+   * gesture can move time and price together. Which of those actually
+   * happens is decided in onMove: a finger gets both axes, a left mouse
+   * drag keeps to time alone, because on a desktop the right button
+   * already does the two-axis drag and quietly changing what the left one
+   * does would move the chart under people who were not asking for it.
+   */
+  panDrag(e, raw) {
+    this.forgetScaleFit();
+    const L = (raw && raw.L) || this._L || this.layout();
+    const kind = (e && e.pointerType) || this._pointerType || "mouse";
+    return {
+      mode: "pan",
+      /* The pointer that started THIS drag, not what the device is capable
+         of. A touchscreen laptop reports a coarse pointer even while a
+         mouse is being used, and that must not change what the mouse does. */
+      twoAxis: kind === "touch" || kind === "pen",
+      x: e.clientX,
+      y: e.clientY,
+      off: this.offset,
+      mn: L ? L.mn : null,
+      mx: L ? L.mx : null,
+      plotH: L ? (L.plotB - L.plotT) : 1,
+      bw: L ? L.bw : 1,
     };
-    if (typeof this.opts.onText === "function") {
-      this.opts.onText(kind === "emoji" ? "🙂" : "", finish);
+  }
+
+  /**
+   * Stretch or compress the price axis around one price.
+   *
+   * Around a chosen price rather than the middle of the window, so the
+   * candle under the cursor stays under the cursor while the rest of the
+   * chart grows or shrinks away from it. Done in log space when the axis is
+   * logarithmic, or the anchor drifts on one of the two scales.
+   */
+  scaleAround(start, k) {
+    this.scale.auto = false;
+    const log = this.scale.log && start.mn > 0 && start.at > 0;
+    const f = log ? Math.log : (x) => x;
+    const fi = log ? Math.exp : (x) => x;
+    const a = f(start.at);
+    const lo = f(start.mn);
+    const hi = f(start.mx);
+    const mn = fi(a - (a - lo) * k);
+    const mx = fi(a + (hi - a) * k);
+    if (!Number.isFinite(mn) || !Number.isFinite(mx) || mx - mn <= 0) return;
+    this.scale.mn = mn;
+    this.scale.mx = mx;
+  }
+
+  /**
+   * The readout that appears while the scale is being stretched.
+   *
+   * Without it the gesture is invisible until the candles have already
+   * moved, and a control the user cannot see engaging is a control they
+   * will assume is not there. It fades on its own.
+   */
+  flashStretch(x, y, ratio) {
+    this._stretch = { x, y, ratio, until: Date.now() + 900 };
+    // Guarded: the engine is also run head-less by the tests, where there
+    // is no timer. The readout is decoration and must never be the reason
+    // a frame throws.
+    if (typeof setTimeout !== "function") return;
+    if (this._stretchTimer) clearTimeout(this._stretchTimer);
+    this._stretchTimer = setTimeout(() => {
+      this._stretch = null;
+      this._stretchTimer = 0;
+      this.draw();
+    }, 950);
+  }
+
+  paintStretch(L) {
+    const st = this._stretch;
+    if (!st) return;
+    const live = this.drag && this.drag.mode === "stretch";
+    if (!live && Date.now() > st.until) return;
+    const T = chartTheme();
+    const ctx = this.ctx;
+    const pct = Math.round((st.ratio || 1) * 100);
+    const text = "\u2195 " + pct + "%";
+    ctx.save();
+    ctx.font = "12px IBM Plex Mono, Vazirmatn, monospace";
+    const w = ctx.measureText(text).width + 20;
+    const x = Math.max(L.plotL + 4, Math.min(L.plotR - w - 4, st.x + 14));
+    const y = Math.max(L.plotT + 14, Math.min(L.plotB - 14, st.y));
+    ctx.fillStyle = T.panel;
+    ctx.strokeStyle = "rgb(" + T.goldT + " / .55)";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    const r = 9;
+    ctx.moveTo(x + r, y - 13);
+    ctx.arcTo(x + w, y - 13, x + w, y + 13, r);
+    ctx.arcTo(x + w, y + 13, x, y + 13, r);
+    ctx.arcTo(x, y + 13, x, y - 13, r);
+    ctx.arcTo(x, y - 13, x + w, y - 13, r);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = T.gold;
+    ctx.textBaseline = "middle";
+    ctx.fillText(text, x + 10, y);
+    ctx.restore();
+  }
+
+  /** Stretch or compress the price axis around its middle. */
+  scaleBy(k) {
+    const L = this._L || this.layout();
+    if (!L) return;
+    const mid = (L.mn + L.mx) / 2;
+    const half = ((L.mx - L.mn) / 2) * k;
+    this.scale.auto = false;
+    this.scale.mn = mid - half;
+    this.scale.mx = mid + half;
+    this.draw();
+  }
+
+  /**
+   * Move the price window by a number of pixels.
+   *
+   * Used by the right-button drag. The arithmetic is done in whatever space
+   * the axis is in - linear or logarithmic - so the chart follows the cursor
+   * exactly on both, and inverted axes drag the right way round.
+   */
+  panPrice(start, dy) {
+    this.forgetScaleFit();
+    const h = start.plotH || 1;
+    const dir = this.scale.invert ? -1 : 1;
+    this.scale.auto = false;
+    if (this.scale.log && start.mn > 0) {
+      const a = Math.log(start.mn), b = Math.log(start.mx);
+      const k = ((b - a) / h) * dy * dir;
+      this.scale.mn = Math.exp(a + k);
+      this.scale.mx = Math.exp(b + k);
+    } else {
+      const k = ((start.mx - start.mn) / h) * dy * dir;
+      this.scale.mn = start.mn + k;
+      this.scale.mx = start.mx + k;
+    }
+  }
+
+  shiftScale(dp) {
+    const L = this._L || this.layout();
+    if (!L) return;
+    this.scale.auto = false;
+    this.scale.mn = (this.scale.mn === null ? L.mn : this.scale.mn) + dp;
+    this.scale.mx = (this.scale.mx === null ? L.mx : this.scale.mx) + dp;
+    this.draw();
+  }
+
+  setAutoScale(on) {
+    this.forgetScaleFit();
+    this.scale.auto = on !== false;
+    if (this.scale.auto) { this.scale.mn = null; this.scale.mx = null; }
+    this.saveState();
+    this.draw();
+  }
+
+  setLogScale(on) { this.scale.log = Boolean(on); this.forgetScaleFit(); this.saveState(); this.draw(); }
+  setPercentScale(on) { this.scale.percent = Boolean(on); this.forgetScaleFit(); this.saveState(); this.draw(); }
+  setInvertScale(on) { this.scale.invert = Boolean(on); this.forgetScaleFit(); this.saveState(); this.draw(); }
+
+  /* Deliberate gestures beat the sticky scale: a zoom, a pan or a scale
+     switch is the viewer asking for a different frame, so the
+     remembered one is dropped and the next draw re-fits. */
+  forgetScaleFit() { this._fit = null; }
+
+  /**
+   * How far the newest candle sits from the price column, in bars.
+   *
+   * A chart with the live candle jammed against the axis is hard to read
+   * precisely because the next move has no room to appear in. The amount
+   * is a preference rather than a constant: a scalper wants a sliver, a
+   * swing trader wants half a screen.
+   */
+  setHeadGap(on) {
+    this.headGap = !!on;
+    this.forgetScaleFit();
+    this.clampOffset();
+    this.saveState();
+    this.draw();
+    this.changed();
+    return this.headGap;
+  }
+
+  headGapOn() { return !!this.headGap; }
+
+  /** Is the newest candle in view? */
+  atLatest() { return this.offset <= 0; }
+
+  /**
+   * Back to the live edge.
+   *
+   * Scrolling into history is one gesture; getting back was several, and
+   * on a phone it was a long drag with no landmark to stop at.
+   */
+  scrollToLatest() {
+    this.offset = 0;
+    this.forgetScaleFit();
+    this.clampOffset();
+    this.draw();
+    this.changed();
+  }
+
+  fit() {
+    this.forgetScaleFit();
+    this.offset = 0;
+    this.rightPad = this.headGapCells();
+    this.span = Math.min(160, Math.max(30, this.rows().length || 40));
+    this.setAutoScale(true);
+    this.draw();
+  }
+
+  resetView() { this.fit(); }
+
+  /* ========================================================= interaction == */
+
+  /**
+   * The wheel.
+   *
+   *   wheel            zoom around the pointer
+   *   shift + wheel    pan sideways
+   *   ctrl/cmd wheel   zoom, for the trackpads that send pinch that way
+   *
+   * Over the price axis the wheel scales the price instead, which is what
+   * every terminal does and what makes a chart feel unlocked.
+   */
+  onWheel(e) {
+    e.preventDefault();
+    const hit = this.hit(e);
+    const dir = e.deltaY > 0 ? -1 : 1;
+    if (hit && hit.onPriceAxis) { this.scaleBy(dir > 0 ? 0.9 : 1.1); return; }
+    /* ctrl means "vertical" everywhere on this chart: with the right button
+       it stretches by dragging, with the wheel it stretches by scrolling.
+       Both are anchored on the price under the pointer. */
+    if ((e.ctrlKey || e.metaKey) && hit) {
+      const L = hit.L;
+      this.scaleAround({ mn: L.mn, mx: L.mx, at: hit.p }, dir > 0 ? 0.88 : 1 / 0.88);
+      this.flashStretch(hit.x, hit.y, (L.mx - L.mn) / Math.max(1e-12, this.scale.mx - this.scale.mn));
+      this.draw();
       return;
     }
-    const txt = window.prompt("", kind === "emoji" ? "📌" : "");
-    finish(txt);
+    if (e.shiftKey && !e.ctrlKey) {
+      // Wheel down goes forward in time, the way scrolling down a document
+      // goes forward through it.
+      this.pan(Math.round((e.deltaY > 0 ? -1 : 1) * Math.max(1, this.span * 0.08)));
+      return;
+    }
+    this.zoom(dir, hit ? hit.i : null);
   }
+
+  onDouble(e) {
+    const hit = this.hit(e);
+    if (hit && hit.onPriceAxis) { this.setAutoScale(true); return; }
+    if (this.tool === "cursor" && hit) {
+      const found = this.shapeAt(hit.L, hit.x, hit.y);
+      if (found) {
+        this.select(found.shape);
+        if (typeof this.opts.onEdit === "function") this.opts.onEdit(found.shape);
+        return;
+      }
+    }
+    this.fit();
+  }
+
+  /**
+   * The browser's own menu is always refused on the canvas.
+   *
+   * The right button is a navigation control here, and which of mousedown or
+   * mouseup fires this event depends on the platform - so deciding anything
+   * in it would behave differently on Windows and on Linux. The decision is
+   * made in onUp instead, where it is known whether the pointer moved.
+   */
+  onContext(e) {
+    e.preventDefault();
+  }
+
+  /** How many points this tool still needs before the shape is finished. */
+  needs(kind) {
+    const n = SHAPE_POINTS[kind];
+    return n === undefined ? 2 : n;
+  }
+
+  placed(d) {
+    if (Array.isArray(d.pts)) return d.pts.length;
+    return this.anchorKeys(d).filter((k) => d[k]).length;
+  }
+
+  askText(kind, pt, after) {
+    const finish = (txt) => {
+      /* A marker with no words is a pin, not a mistake, so it is allowed
+         through the same way an empty note is. */
+      if (!txt && kind !== "note" && kind !== "emoji") return;
+      const obj = this.addObject({
+        kind, a: pt, text: txt,
+        color: chartTheme().gold,
+      });
+      if (typeof after === "function") after(obj);
+    };
+    if (typeof this.opts.onText === "function") {
+      this.opts.onText("", finish);
+      return;
+    }
+    finish(window.prompt("", "") || "");
+  }
+
   onDown(e) {
+    this._pointerType = (e && e.pointerType) || "mouse";
+    if (!this.pointers) this.pointers = new Map();
+    if (e && e.pointerId != null) {
+      this.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY, id: e.pointerId });
+    }
+    // Second finger: stop whatever one finger was doing and frame the
+    // chart instead. Third and beyond are ignored rather than guessed at.
+    if (this.pointers.size === 2) { this.beginPinch(); return; }
+    if (this.pointers.size > 2) return;
+
     this._moved = false;
-    const hit = this.snapHit(this.hit(e));
-    if (this.tool === "cursor" && hit && hit.L) {
+    this._downAt = e ? { x: e.clientX, y: e.clientY } : null;
+    this.armLongPress(e);
+    const raw = this.hit(e);
+    /* A finger that lands on a signal is asking to read it. Remember
+       which one, so the lift can answer in one tap: a touch pointer
+       never produces the pointermove that the hover card is built on,
+       so before this a tap did literally nothing, and the card only
+       ever appeared because a real finger wobbles. */
+    this._downSig = null;
+    if (raw && raw.valid && this.isTouch(e)) {
+      const h = this.signalAt(raw.x, raw.y);
+      if (h) this._downSig = h;
+    }
+    if (!raw) return;
+    /* A stop or a target under the pointer wins the press, ahead of the
+       tools and ahead of selection. It is tested here rather than after
+       them because a level sits ON the chart, and whatever the cursor
+       tool would otherwise do - deselect, begin a marquee - would
+       swallow the grab and the line would simply never move. */
+    const grab = raw.valid ? this.levelAt(raw.x, raw.y) : null;
+    if (grab) {
+      this.clearLongPress();
+      this.beginLevelDrag(grab, raw.p);
+      if (e && e.preventDefault) e.preventDefault();
+      return;
+    }
+    const hit = this.snapHit(raw);
+
+    /* ---- the right button: take the chart anywhere --------------------
+       Before the axes and before any tool, because this is the gesture that
+       has to work from inside whatever the trader is doing. Press and drag
+       moves time and price together, so the chart goes wherever the hand
+       goes - including past the newest bar, into the empty margin. */
+    if (e.button === 2) {
+      this._rightDrag = false;
+      // Hold ctrl (or cmd) and the same button stretches the candles
+      // instead of moving them - the price axis, adjusted from wherever the
+      // pointer already is rather than by travelling to the edge of the
+      // screen to grab the scale.
+      const stretch = e.ctrlKey || e.metaKey;
+      this.drag = {
+        mode: stretch ? "stretch" : "free",
+        x: e.clientX, y: e.clientY,
+        off: this.offset,
+        mn: raw.L.mn, mx: raw.L.mx,
+        at: raw.p,
+        plotH: raw.L.plotB - raw.L.plotT,
+        bw: raw.L.bw,
+      };
+      try { this.canvas.setPointerCapture(e.pointerId); } catch (err) { /* not fatal */ }
+      this.canvas.style.cursor = stretch ? "ns-resize" : "grabbing";
+      return;
+    }
+
+    /* ---- the axes are controls too ------------------------------------ */
+    if (raw.onPriceAxis) {
+      this.drag = { mode: "scale", y: e.clientY, mn: (this._L || {}).mn, mx: (this._L || {}).mx };
+      this.canvas.setPointerCapture(e.pointerId);
+      this.canvas.style.cursor = "ns-resize";
+      return;
+    }
+    if (raw.onTimeAxis) {
+      this.drag = { mode: "timescale", x: e.clientX, span: this.span };
+      this.canvas.setPointerCapture(e.pointerId);
+      this.canvas.style.cursor = "ew-resize";
+      return;
+    }
+
+    /* ---- middle button or held space always pans ---------------------- */
+    if (e.button === 1 || this._space || this.tool === "pan") {
+      this.drag = this.panDrag(e, raw);
+      this.canvas.setPointerCapture(e.pointerId);
+      this.canvas.style.cursor = "grabbing";
+      return;
+    }
+    if (e.button !== 0) return;
+
+    /* ---- a drawing in progress ---------------------------------------- */
+    if (this.draft) {
+      const need = this.needs(this.draft.kind);
+      if (need === -1) return;
+      const keys = this.anchorKeys(this.draft);
+      const at = this.draft.fixed != null ? this.draft.fixed : this.placed(this.draft);
+      if (at < need) {
+        this.draft[keys[at]] = this.point(hit);
+        this.draft.fixed = at + 1;
+        if (at + 1 >= need) this.commitDraft();
+        else this.draw();
+        return;
+      }
+    }
+
+    /* ---- the cursor: select, drag, or set a level --------------------- */
+    if (this.tool === "cursor" || this.tool === "eraser") {
       const kind = this.pendingHit(hit.L, hit.y);
-      if (kind) {
+      if (kind && this.tool === "cursor") {
         this.dragLevel = kind;
         this.canvas.setPointerCapture(e.pointerId);
         this.canvas.style.cursor = "ns-resize";
         return;
       }
-      if (this.pickPrice) {
-        this._priceClick = hit.p;
+      const found = this.shapeAt(hit.L, hit.x, hit.y);
+      if (this.tool === "eraser") {
+        if (found) this.removeObject(found.shape);
         return;
       }
-    }
-    if (this.draft && this.draft._locked && hit && hit.valid) {
-      this.draft.c = { t: hit.t, p: hit.p, gi: hit.gi };
-      this.drawings.push(this.draft);
-      this.draft = null;
-      this.persist();
-      this.draw();
-      return;
-    }
-    if (this.draft && this.needsThird(this.draft.kind) && !this.draft._locked && hit && hit.valid) {
-      this.draft.b = { t: hit.t, p: hit.p, gi: hit.gi };
-      this.draft._locked = true;
-      this.draw();
-      return;
-    }
-    if (this.tool === "cursor") {
-      this.drag = { x: e.clientX, off: this.offset };
+      if (found) {
+        this.select(found.shape);
+        if (!found.shape.locked) {
+          this.snapshot();
+          this.drag = { mode: "shape", from: this.point(hit), handle: found.handle };
+          this.canvas.setPointerCapture(e.pointerId);
+          this.canvas.style.cursor = "move";
+        }
+        return;
+      }
+      if (this.selected) this.select(null);
+      if (this.pickPrice) { this._priceClick = hit.p; return; }
+      this.drag = this.panDrag(e, raw);
       this.canvas.setPointerCapture(e.pointerId);
       this.canvas.style.cursor = "grabbing";
       return;
     }
-    if (!hit) return;
-    const pt = { t: hit.t, p: hit.p, gi: hit.gi };
-    if (this.tool === "hline" || this.tool === "vline" || this.tool === "hray" || this.tool === "text" || this.tool === "emoji") {
-      if (this.tool === "text" || this.tool === "emoji") {
-        this.askText(this.tool, pt);
+
+    /* ---- an existing shape, while a tool is armed ----------------------
+       Keeping the tool armed is only usable if the drawings already on the
+       chart stay reachable. A click that lands on one selects and moves it
+       instead of starting a new drawing; hold Alt to draw across a shape
+       on purpose. Without this, "the tool stays on" would mean "nothing
+       can ever be adjusted again". */
+    if (!e.altKey && this.tool !== "pan") {
+      const over = this.shapeAt(hit.L, hit.x, hit.y);
+      if (over) {
+        this.select(over.shape);
+        if (!over.shape.locked) {
+          this.snapshot();
+          this.drag = { mode: "shape", from: this.point(hit), handle: over.handle };
+          this.canvas.setPointerCapture(e.pointerId);
+          this.canvas.style.cursor = "move";
+        }
         return;
       }
-      this.drawings.push({ kind: this.tool, a: pt, color: chartTheme().gold });
-      this.persist();
-      this.draw();
+      if (this.selected) this.select(null);
+    }
+
+    /* ---- starting a new drawing --------------------------------------- */
+    const pt = this.point(hit);
+    const need = this.needs(this.tool);
+    if (this.tool === "text" || this.tool === "emoji" || this.tool === "note" ||
+        this.tool === "label" || this.tool === "flag") {
+      this.askText(this.tool, pt, () => { if (this.opts.onToolDone) this.opts.onToolDone(); });
       return;
     }
-    if (this.tool === "brush") {
-      this.draft = { kind: "brush", pts: [pt], a: pt, b: pt, color: chartTheme().gold };
+    if (need === 1) {
+      const obj = this.addObject({ kind: this.tool, a: pt, color: this.colorFor(this.tool) });
+      this.select(obj);
+      if (this.opts.onToolDone) this.opts.onToolDone();
       return;
     }
-    const color = (this.tool === "fib" || this.tool === "fibext" || this.tool === "fibtime") ? "#7c6cff"
-      : (this.tool === "long" ? chartTheme().up : (this.tool === "short" ? chartTheme().down : chartTheme().gold));
-    this.draft = { kind: this.tool, a: pt, b: pt, color };
+    if (need === -1) {
+      this.draft = { kind: this.tool, pts: [pt], a: pt, b: pt, color: this.colorFor(this.tool), width: this.tool === "highlighter" ? 2 : 1.4 };
+      return;
+    }
+    // `fixed` is how many anchors the trader has actually committed, which
+    // is not the same as how many are filled in. Both a and b are set from
+    // the first point so the shape has something to paint while it is
+    // being dragged out - but counting filled anchors made a brand-new
+    // draft look finished, and the click-click branch above could never
+    // run. See the note on commitDraft().
+    this.draft = { kind: this.tool, a: pt, b: pt, fixed: 1, color: this.colorFor(this.tool) };
   }
+
+  colorFor(tool) {
+    const T = chartTheme();
+    if (tool === "long") return T.up;
+    if (tool === "short") return T.down;
+    if (tool.indexOf("fib") === 0) return T.violet;
+    return T.gold;
+  }
+
+  /**
+   * Turn the draft into a real object.
+   *
+   * Two ways in, and both have to work: drag one point to the other, or
+   * click once for each end. The second was dead code for a long time -
+   * a fresh two-point draft fills both `a` and `b` with the first point
+   * so there is something to paint, and the old count of "placed"
+   * anchors could not tell that apart from a finished shape. It mattered
+   * most on a phone, where dragging a precise line is hard and tapping
+   * twice is the natural way to do it.
+   */
+  commitDraft() {
+    if (!this.draft) return;
+    const d = this.draft;
+    delete d.fixed;
+    this.draft = null;
+    if ((d.kind === "long" || d.kind === "short") && d.a && d.b && !d.c) {
+      // The target starts at twice the risk, which is a starting point and
+      // not a recommendation; from then on it is a handle like any other.
+      const risk = Math.abs(d.a.p - d.b.p);
+      const rr = Number(d.rr || 2);
+      d.c = {
+        t: "", p: d.kind === "long" ? d.a.p + risk * rr : d.a.p - risk * rr,
+        gi: d.b.gi, gx: d.b.gx,
+      };
+    }
+    const obj = this.addObject(d);
+    this.select(obj);
+    if (typeof this.opts.onToolDone === "function") this.opts.onToolDone();
+  }
+
   onMove(e) {
-    this._moved = true;
-    const hit = this.hit(e);
-    if (hit && hit.valid) this.hover = { i: hit.i, y: hit.y };
-    else this.hover = null;
-    if (this.dragLevel && hit && hit.L) {
-      const p = hit.L.pOf(hit.y);
-      this.pending = { ...(this.pending || {}), [this.dragLevel]: p };
-      if (typeof this.opts.onPending === "function") this.opts.onPending({ ...this.pending, kind: this.dragLevel });
+    if (e && e.pointerId != null && this.pointers && this.pointers.has(e.pointerId)) {
+      this.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY, id: e.pointerId });
+    }
+    if (this.pinch) { if (e && e.preventDefault) e.preventDefault(); this.movePinch(); return; }
+    if (this.pointers && this.pointers.size > 1) return;
+
+    /* A level being dragged owns every move until the pointer lifts. */
+    if (this._lvlDrag) {
+      const lh = this.hit(e);
+      if (lh) this.moveLevelDrag(lh.p);
+      if (e && e.preventDefault) e.preventDefault();
+      return;
+    }
+
+    /* Hovering one says so. A line that can be dragged and gives no sign
+       of it is a feature nobody finds. Only the cursor is touched, and
+       only to set or clear this one shape, so it cannot fight whatever
+       else is steering the pointer. */
+    if (!this.drag && (!this.pointers || !this.pointers.size)) {
+      const hv = this.hit(e);
+      const over = hv && hv.valid ? this.levelAt(hv.x, hv.y) : null;
+      if (over) this.canvas.style.cursor = "ns-resize";
+      else if (this.canvas.style.cursor === "ns-resize") this.canvas.style.cursor = this.cursorFor();
+    }
+
+    // A finger never holds perfectly still, so treating any movement at
+    // all as a drag meant a tap on a touchscreen was never a tap: the
+    // click-to-select and click-to-set-price paths, both guarded by
+    // `!this._moved`, could not be reached with a finger. Allow a little
+    // wander before calling it a drag, and more of it for a finger.
+    if (!this._moved && this._downAt) {
+      const slop = this.tapSlop;
+      if (Math.hypot(e.clientX - this._downAt.x, e.clientY - this._downAt.y) > slop) {
+        this._moved = true;
+        this.clearLongPress();   // it became a drag, so it is not a press
+        /* Re-anchor the drag where it became one. Without this the chart
+           lurches by the whole slop distance on the first real move, and
+           with a bar only a few pixels wide even an unnoticed wobble
+           inside the slop used to round to a whole bar - which is the
+           jump you feel when tapping something on a phone.
+
+           A finger only. A mouse has no wobble to forgive, and moving
+           its anchor would make the pointer and the chart disagree by
+           the slop distance for the rest of the drag. */
+        if (this.isTouch(e) && this.drag && this.drag.mode === "pan") {
+          /* Anchor on the slop boundary, not under the finger. Moving
+             it all the way here would throw away everything this event
+             travelled, so a single large move - a flick, or one coarse
+             event from a slow device - would pan by nothing at all.
+             Taking the point where the gesture crossed the threshold
+             keeps it continuous: the pan starts at exactly zero and
+             grows from there, with the slop deducted once. */
+          const dxT = e.clientX - this._downAt.x;
+          const dyT = e.clientY - this._downAt.y;
+          const dist = Math.hypot(dxT, dyT) || 1;
+          this.drag.x = this._downAt.x + (dxT / dist) * slop;
+          this.drag.y = this._downAt.y + (dyT / dist) * slop;
+          this.drag.off = this.offset;
+          const L0 = this._L || this.layout();
+          if (L0) { this.drag.mn = L0.mn; this.drag.mx = L0.mx; }
+        }
+      }
+    } else if (!this._downAt) this._moved = true;
+
+    const raw = this.hit(e);
+    if (!raw) return;
+    const hit = this.snapHit(raw);
+    this.hover = raw.valid ? { i: raw.i, y: raw.y } : null;
+
+    // Signal cards. Only repaint when the hovered signal actually changes,
+    // or every mouse move across the chart would force a full redraw.
+    const overSignal = raw.valid && !this.drag && !this.dragLevel ? this.signalAt(raw.x, raw.y) : null;
+    const wasOver = this._sigHover;
+    if (this._pinned && overSignal && !this._isPinned(overSignal.sig)) this._pinned = null;
+    if ((overSignal && overSignal.sig) !== (wasOver && wasOver.sig)) {
+      this._sigHover = overSignal;
       this.draw();
       return;
     }
-    if (this.draft && hit) {
-      const pt = { t: hit.t, p: hit.p, gi: hit.gi };
-      if (this.draft._locked) this.draft.c = pt;
-      else if (this.draft.kind === "brush") {
-        this.draft.pts = (this.draft.pts || []).concat([pt]).slice(-400);
-        this.draft.b = pt;
-      } else this.draft.b = pt;
+
+    if (this.dragLevel) {
+      const p = raw.L.pOf(raw.y);
+      this.pending = Object.assign({}, this.pending, { [this.dragLevel]: p });
+      if (typeof this.opts.onPending === "function") this.opts.onPending(Object.assign({}, this.pending, { kind: this.dragLevel }));
+      this.draw();
+      return;
     }
-    if (this.drag && this.tool === "cursor") {
-      const L = this.layout();
-      if (L) {
+
+    if (this.drag) {
+      if (this.drag.mode === "pan") {
+        /* Still inside the tap slop: this may yet be a tap, and a tap
+           must not move the chart by even one bar. Touch only - a mouse
+           drag is deliberate from the first pixel and has always
+           tracked the pointer one to one. */
+        if (!this._moved && this.isTouch(e)) return;
+        const L = this._L || this.layout();
+        if (L) {
+          const dx = e.clientX - this.drag.x;
+          const was = this.offset;
+          this.offset = this.drag.off + Math.round(dx / L.bw);
+          this.clampOffset();
+          /* Dragging is the usual way into deep history, and it does not
+             go through pan(). Report it, or the chart runs out of bars
+             for everyone except the few who scroll with the keyboard. */
+          if (this.offset !== was) this.scrolled();
+        }
+        /* A finger moves the chart wherever it goes, price included. See
+           panDrag for why the left mouse button deliberately does not. */
+        if (this.drag.twoAxis && this.drag.mn !== null && this.drag.mn !== undefined) {
+          this.panPrice(this.drag, e.clientY - this.drag.y);
+        }
+      } else if (this.drag.mode === "free") {
         const dx = e.clientX - this.drag.x;
-        const rtl = document.documentElement.dir === "rtl" ? -1 : 1;
-        this.offset = Math.max(0, Math.min(Math.max(0, this.bars.length - this.span), this.drag.off + Math.round((-dx * rtl) / L.bw)));
+        const dy = e.clientY - this.drag.y;
+        if (Math.abs(dx) > 2 || Math.abs(dy) > 2) this._rightDrag = true;
+        const wasFree = this.offset;
+        this.offset = this.drag.off + Math.round(dx / (this.drag.bw || 1));
+        this.clampOffset();
+        if (this.offset !== wasFree) this.scrolled();
+        this.panPrice(this.drag, dy);
+      } else if (this.drag.mode === "stretch") {
+        const dy = e.clientY - this.drag.y;
+        if (Math.abs(dy) > 2) this._rightDrag = true;
+        // Down compresses, up stretches - the same direction as dragging
+        // the price axis itself, so the two gestures cannot disagree.
+        const k = Math.max(0.12, Math.min(9, 1 + dy / 200));
+        this.scaleAround(this.drag, k);
+        this.flashStretch(raw.x, raw.y, 1 / k);
+      } else if (this.drag.mode === "scale") {
+        const dy = e.clientY - this.drag.y;
+        const k = Math.max(0.2, 1 + dy / 220);
+        const mid = (this.drag.mn + this.drag.mx) / 2;
+        const half = ((this.drag.mx - this.drag.mn) / 2) * k;
+        this.scale.auto = false;
+        this.scale.mn = mid - half;
+        this.scale.mx = mid + half;
+      } else if (this.drag.mode === "timescale") {
+        const dx = e.clientX - this.drag.x;
+        this.span = Math.max(8, Math.min(Math.max(20, this.rows().length), Math.round(this.drag.span * (1 - dx / 300))));
+        this.clampOffset();
+      } else if (this.drag.mode === "shape") {
+        const to = this.point(hit);
+        this.moveSelected(this.drag.from, to, this.drag.handle);
+        this.drag.from = to;
+        return;
+      }
+      this.draw();
+      return;
+    }
+
+    if (this.draft) {
+      const pt = this.point(hit);
+      if (Array.isArray(this.draft.pts) && this.needs(this.draft.kind) === -1) {
+        this.draft.pts = this.draft.pts.concat([pt]).slice(-600);
+        this.draft.b = pt;
+      } else {
+        const keys = this.anchorKeys(this.draft);
+        const at = this.draft.fixed != null
+          ? this.draft.fixed
+          : Math.max(1, this.placed(this.draft));
+        this.draft[keys[Math.min(at, keys.length - 1)]] = pt;
       }
     }
     this.draw();
   }
+
   onUp(e) {
+    if (e && e.pointerId != null && this.pointers) this.pointers.delete(e.pointerId);
+    this.clearLongPress();
+    if (this._lvlDrag) {
+      if (e && e.pointerId != null && this.pointers) this.pointers.delete(e.pointerId);
+      this.endLevelDrag(true);
+      return;
+    }
+    if (this._longFired) {
+      // The menu is already open from the press. Letting this up run on
+      // would immediately select or deselect underneath it.
+      this._longFired = false;
+      this.drag = null;
+      this.canvas.style.cursor = this.cursorFor();
+      return;
+    }
+    if (this.pinch) {
+      // One finger lifted out of a pinch. Do not fall through into the
+      // click handling below - the gesture was a zoom, not a tap, and
+      // finishing it as a tap would select or deselect under the hand.
+      if (!this.pointers || this.pointers.size < 2) this.pinch = null;
+      if (this.pointers && this.pointers.size) return;
+      this.drag = null;
+      this.canvas.style.cursor = this.cursorFor();
+      this.draw();
+      return;
+    }
+    if (this.pointers && this.pointers.size) return;
+
+    // Double tap. The browser's own dblclick is not dependable from a
+    // finger once the canvas has taken the gesture with touch-action:
+    // none, and everything it does here - open a drawing's settings,
+    // refit the chart, restore the price axis - is worth having on a
+    // phone. Recognise it ourselves: two taps, close together in time
+    // and in space.
+    /* One tap reads a signal.
+     *
+     * The card is a hover construct, and a finger never hovers: the only
+     * pointermove a tap produces is the wobble of the hand holding the
+     * phone, so the card appeared at random and the same wobble panned
+     * the chart under it. A tap that landed on a signal at pointerdown
+     * and has not turned into a drag shows that signal's card here, on
+     * the first tap, and nothing moves.
+     *
+     * Tapping it again, or anywhere else, puts it away - so there is a
+     * way out that does not require finding a close button on a canvas.
+     * It deliberately does not feed the double-tap tracker below: two
+     * taps on a signal are "open it, close it", not "refit the chart".
+     */
+    if (this.isTouch(e) && !this._moved && !this._longFired) {
+      const tapped = this._downSig;
+      const showing = this._sigHover;
+      this._downSig = null;
+      if (tapped) {
+        const same = showing && showing.sig === tapped.sig;
+        this._sigHover = same ? null : tapped;
+        this._pinned = same ? null : tapped.sig;
+        this._sigTapped = !same;
+        this._lastTap = null;
+        this.drag = null;
+        this.canvas.style.cursor = this.cursorFor();
+        this.draw();
+        return;
+      }
+      if (showing || this._pinned) {
+        this._sigHover = null;
+        this._pinned = null;
+        this._sigTapped = false;
+        this.drag = null;
+        this.canvas.style.cursor = this.cursorFor();
+        this.draw();
+        return;
+      }
+    }
+
+    if (e && (e.pointerType === "touch" || e.pointerType === "pen") && !this._moved) {
+      const now = Date.now();
+      const last = this._lastTap;
+      if (last && now - last.at < 320 &&
+          Math.hypot(e.clientX - last.x, e.clientY - last.y) < 28) {
+        this._lastTap = null;
+        this.drag = null;
+        this.canvas.style.cursor = this.cursorFor();
+        this.onDouble(e);
+        return;
+      }
+      this._lastTap = { at: now, x: e.clientX, y: e.clientY };
+    }
+
+    if (this.drag && (this.drag.mode === "free" || this.drag.mode === "stretch")) {
+      if (this.drag.mode === "stretch" && this._stretch) this._stretch.until = Date.now() + 700;
+      this.drag = null;
+      this.canvas.style.cursor = this.cursorFor();
+      // A right *click* that never moved is not navigation; offer it to the
+      // interface as a context menu instead. A right *drag* is swallowed.
+      if (!this._rightDrag && typeof this.opts.onMenu === "function" && e) {
+        const hit = this.hit(e);
+        this.opts.onMenu({
+          x: e.clientX, y: e.clientY,
+          shape: hit ? (this.shapeAt(hit.L, hit.x, hit.y) || {}).shape || null : null,
+          price: hit ? hit.p : null,
+        });
+      }
+      this.draw();
+      return;
+    }
     if (this.dragLevel) {
       this.dragLevel = null;
-      this.canvas.style.cursor = this.tool === "cursor" ? "grab" : "crosshair";
+      this.canvas.style.cursor = this.cursorFor();
       this.draw();
+      return;
+    }
+    if (this.drag && this.drag.mode === "shape") {
+      this.drag = null;
+      this.canvas.style.cursor = this.cursorFor();
+      this.persist();
+      this.changed();
       return;
     }
     if (this.pickPrice && this._priceClick != null && typeof this.opts.onPrice === "function") {
@@ -824,36 +4008,222 @@ class CandleChart {
       this.draw();
       return;
     }
-    if (!this._moved && this.tool === "cursor" && typeof this.opts.onPrice === "function") {
+    if (!this._moved && this.tool === "cursor" && !this.selected && typeof this.opts.onPrice === "function") {
       const hit = this.hit(e || { clientX: 0, clientY: 0 });
       if (hit && hit.valid) this.opts.onPrice(hit.p);
     }
-    if (this.draft && this.needsThird(this.draft.kind)) {
-      this.drag = null;
-      this.draw();
-      return;
-    }
     if (this.draft) {
-      if (this.draft.kind === "brush" || this.draft.b) {
-        this.drawings.push(this.draft);
-        this.persist();
+      const need = this.needs(this.draft.kind);
+      if (need === -1) {
+        if ((this.draft.pts || []).length > 1) this.commitDraft();
+        else this.draft = null;
+      } else if (this._moved && this.placed(this.draft) >= 2 && need === 2) {
+        this.commitDraft();
       }
     }
-    this.draft = null;
     this.drag = null;
-    this.canvas.style.cursor = this.tool === "cursor" ? "grab" : "crosshair";
+    this.canvas.style.cursor = this.cursorFor();
     this.draw();
   }
-  onTouch(e) {
-    if (e.touches.length === 2) {
-      e.preventDefault();
-      const d = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
-      if (!this.pinch) this.pinch = { d, span: this.span };
-      else {
-        const k = this.pinch.d / d;
-        this.span = Math.max(20, Math.min(this.bars.length || 20, Math.round(this.pinch.span * k)));
-        this.draw();
-      }
-    } else this.pinch = null;
+
+  /** Escape: drop the draft first, then the selection. */
+  cancel() {
+    if (this.draft) { this.draft = null; this.draw(); return true; }
+    if (this.selected) { this.select(null); return true; }
+    return false;
   }
+
+  /* ===================================================== touch gestures == */
+
+  /**
+   * Is this a finger?
+   *
+   * The last pointer to touch the canvas is the honest answer once the
+   * trader has interacted. Before that there is nothing to go on, so the
+   * device's own capability stands in - otherwise the first tap on a
+   * phone is tested against mouse tolerances, and the handles are drawn
+   * at mouse size until something has already been grabbed.
+   *
+   * A hybrid laptop reports coarse too, and that is the right default:
+   * generous targets cost a mouse user nothing.
+   */
+  /**
+   * Is THIS event a finger?
+   *
+   * `coarse` answers for the device and deliberately keeps its last
+   * answer, which is right for sizing handles but wrong for deciding
+   * what a gesture meant: on a touchscreen laptop it stays true while a
+   * mouse is being used. Anything that changes behaviour rather than
+   * size asks this instead, and only falls back to the device when the
+   * event itself has nothing to say.
+   */
+  isTouch(e) {
+    if (e && e.pointerType) return e.pointerType === "touch" || e.pointerType === "pen";
+    return this.coarse;
+  }
+
+  get coarse() {
+    if (this._pointerType) return this._pointerType === "touch" || this._pointerType === "pen";
+    if (this._coarseDevice == null) {
+      try {
+        const mm = (this.win || (typeof window !== "undefined" ? window : null));
+        this._coarseDevice = !!(mm && mm.matchMedia && mm.matchMedia("(pointer: coarse)").matches);
+      } catch { this._coarseDevice = false; }
+    }
+    return this._coarseDevice;
+  }
+
+  /**
+   * How close counts as "on it", in CSS pixels.
+   *
+   * 8px is a mouse tolerance: a cursor is a single pixel and the user can
+   * see exactly where it is. A fingertip covers roughly 9mm of glass -
+   * about 40px - and the finger hides the very thing it is reaching for.
+   * Grabbing a trendline on a phone was close to impossible at 8px, which
+   * is why the drawing tools felt broken on mobile and fine on a desktop.
+   *
+   * The handles are drawn larger to match when a finger is in use, so the
+   * target the trader sees is the target the code actually tests.
+   */
+  get grabRadius() { return this.coarse ? 22 : 8; }
+
+  /** How far a pointer may wander before it stops counting as a tap. */
+  get tapSlop() { return this.coarse ? 10 : 3; }
+
+  /** The two live pointers, oldest first, or null. */
+  _pinchPair() {
+    if (!this.pointers || this.pointers.size < 2) return null;
+    const it = this.pointers.values();
+    return [it.next().value, it.next().value];
+  }
+
+  /**
+   * Begin a pinch, abandoning whatever one finger had started.
+   *
+   * The second finger landing is a change of intent: the trader is no
+   * longer drawing a trendline, they are framing the chart. Anything the
+   * first finger began has to be rolled back, or a pinch leaves a stray
+   * two-pixel line behind every time.
+   */
+  beginPinch() {
+    const pair = this._pinchPair();
+    if (!pair) return;
+    const [a, b] = pair;
+    if (this.drag && this.drag.mode === "shape") this.undo(true);
+    this.drag = null;
+    this.dragLevel = null;
+    if (this.draft && this.needs(this.draft.kind) !== -1) this.draft = null;
+    else if (this.draft) this.draft = null;
+    const L = this._L || this.layout();
+    this.pinch = {
+      d: Math.hypot(a.x - b.x, a.y - b.y),
+      mid: (a.x + b.x) / 2,
+      span: this.span,
+      off: this.offset,
+      // Zoom about the point between the fingers rather than the middle
+      // of the screen, so the bars under the hand stay under the hand.
+      anchor: L ? ((a.x + b.x) / 2 - L.padL) / (L.bw || 1) + L.start : null,
+    };
+    this.canvas.style.cursor = this.cursorFor();
+  }
+
+  /** Update zoom and position from the two live fingers. */
+  movePinch() {
+    const pair = this._pinchPair();
+    if (!pair || !this.pinch) return;
+    const [a, b] = pair;
+    const d = Math.hypot(a.x - b.x, a.y - b.y);
+    const mid = (a.x + b.x) / 2;
+    const k = this.pinch.d / (d || 1);
+    const most = Math.max(20, this.rows().length);
+    this.span = Math.max(8, Math.min(most, Math.round(this.pinch.span * k)));
+    const L = this.layout();
+    if (L) {
+      // Hold the anchor bar under the midpoint of the fingers, then apply
+      // however far that midpoint has travelled. Pinch and two-finger pan
+      // are one gesture, which is how every map and every chart the
+      // trader already uses behaves.
+      if (this.pinch.anchor != null) {
+        const want = (mid - L.padL) / (L.bw || 1) + L.start;
+        this.offset += Math.round(want - this.pinch.anchor);
+      } else {
+        this.offset = this.pinch.off + Math.round((mid - this.pinch.mid) / (L.bw || 1));
+      }
+      this.clampOffset();
+    }
+    // One paint per frame, not one per finger per event. A pinch reports
+    // a move for each finger and a phone can deliver them faster than it
+    // can paint, so painting synchronously here lets the work pile up
+    // behind the gesture and the chart lags the hand.
+    this.scheduleDraw();
+  }
+
+  /**
+   * Long press: the finger's right-click.
+   *
+   * The context menu - object settings, delete, the price actions - was
+   * reachable only by right-dragging, which a touchscreen cannot do. On
+   * a phone the menu simply did not exist, so a drawing could be made
+   * and then never configured or removed except through the object list.
+   *
+   * Press and hold opens the same menu, at the same place, with the same
+   * shape resolved underneath it.
+   */
+  armLongPress(e) {
+    this.clearLongPress();
+    if (!e || (e.pointerType !== "touch" && e.pointerType !== "pen")) return;
+    if (e.button && e.button !== 0) return;
+    const x = e.clientX, y = e.clientY;
+    const after = (typeof setTimeout === "function") ? setTimeout : null;
+    if (!after) return;   // no timer in this host; press-and-hold simply does nothing
+    this._longTimer = after(() => {
+      this._longTimer = null;
+      // Only if the finger is still down and alone: a second finger means
+      // a pinch, and a lifted finger means it was a tap after all.
+      if (!this.pointers || this.pointers.size !== 1) return;
+      if (this._moved) return;
+      this._longFired = true;
+      this.drag = null;
+      this.dragLevel = null;
+      if (this.draft && this.placed(this.draft) <= 1) this.draft = null;
+      const hit = this.hit({ clientX: x, clientY: y });
+      const found = hit ? this.shapeAt(hit.L, hit.x, hit.y) : null;
+      if (found && found.shape) this.select(found.shape);
+      if (typeof this.opts.onMenu === "function") {
+        this.opts.onMenu({
+          x, y,
+          shape: found ? found.shape : null,
+          price: hit ? hit.p : null,
+          touch: true,
+        });
+      }
+      this.draw();
+    }, 480);
+  }
+
+  clearLongPress() {
+    if (this._longTimer && typeof clearTimeout === "function") clearTimeout(this._longTimer);
+    this._longTimer = null;
+  }
+
+  /** A pointer went away for any reason: drop it and tidy up. */
+  onCancel(e) {
+    this.clearLongPress();
+    this._longFired = false;
+    if (e && this.pointers) this.pointers.delete(e.pointerId);
+    if (this.pointers && this.pointers.size < 2) this.pinch = null;
+    if (this.pointers && this.pointers.size === 0) {
+      this.drag = null;
+      this.dragLevel = null;
+      this._priceClick = null;
+      this.canvas.style.cursor = this.cursorFor();
+      this.draw();
+    }
+  }
+}
+
+if (typeof module !== "undefined" && module.exports) {
+  module.exports = {
+    SHAPE_POINTS, SHAPE_LABELS, CandleChart,
+  };
 }

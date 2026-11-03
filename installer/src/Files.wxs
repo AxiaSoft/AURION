@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+
+  <?include Variables.wxi ?>
+
+  <!--
+    Payload.
+
+    The file list is never maintained by hand: build\stage.ps1 produces a
+    clean tree under installer\stage and WiX harvests it with <Files>, which
+    generates one component per file with a deterministic, path-derived GUID.
+    Deterministic GUIDs are what make upgrade, repair and uninstall behave -
+    the same file always keeps the same component identity across versions.
+
+    stage\app       -> INSTALLFOLDER            (engine, backend, web desk, config, lang, scripts)
+    stage\docs      -> INSTALLFOLDER            (guides, markdown docs)   [AurionDocs feature]
+    stage\launcher  -> INSTALLFOLDER            (installer-owned launch/stop helpers)
+
+    User data is NOT here on purpose:
+      config\aurion.json     created by the engine on first run from the
+                             factory copy, so an upgrade can never wipe it
+      data\                  databases, logs, exports, licence state
+      engine\models\         trained AI models
+      backend\node_modules\  restored by the stage script into stage\app,
+                             so the desk runs straight after install
+  -->
+
+  <Fragment>
+    <ComponentGroup Id="AurionAppFiles" Directory="INSTALLFOLDER">
+      <Files Include="$(var.StageDir)\app\**" />
+    </ComponentGroup>
+  </Fragment>
+
+  <Fragment>
+    <ComponentGroup Id="AurionDocFiles" Directory="INSTALLFOLDER">
+      <Files Include="$(var.StageDir)\docs\**" />
+    </ComponentGroup>
+  </Fragment>
+
+  <Fragment>
+    <ComponentGroup Id="AurionLauncherFiles" Directory="INSTALLFOLDER">
+      <Files Include="$(var.StageDir)\launcher\**" />
+    </ComponentGroup>
+  </Fragment>
+
+</Wix>

@@ -1,0 +1,61 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- ==========================================================================
+       AURION-Uninstall.exe
+
+       The program Control Panel runs when somebody removes AURION. It exists
+       because Windows Installer's own uninstall experience is an unnamed
+       progress bar, and because the one question worth asking - whether the
+       trade history goes with the application - is one Windows has no way to
+       ask.
+
+       It ships inside the installation and the MSI points UninstallString at
+       it. Published self-contained, for the same reason AURION.exe is: at the
+       moment somebody uninstalls, nothing about the machine can be assumed,
+       least of all that a .NET runtime is still there.
+       ========================================================================== -->
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+
+    <AssemblyName>AURION-Uninstall</AssemblyName>
+    <RootNamespace>Aurion.Shell</RootNamespace>
+    <ApplicationIcon>..\..\assets\generated\aurion.ico</ApplicationIcon>
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    <ApplicationManifest>..\..\window\app.manifest</ApplicationManifest>
+
+    <Product>AURION</Product>
+    <Company>AxiaSoft</Company>
+    <AssemblyTitle>AURION uninstaller</AssemblyTitle>
+    <Description>Removes AURION</Description>
+    <Version>$(AurionVersion)</Version>
+    <FileVersion>$(AurionVersion)</FileVersion>
+    <InformationalVersion>$(AurionVersion)</InformationalVersion>
+
+    <!-- Matches the desk window: the manifest no longer declares DPI
+         awareness, so WinForms is told here, where it can act on it. -->
+    <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
+    <ApplicationVisualStyles>true</ApplicationVisualStyles>
+    <ApplicationUseCompatibleTextRendering>false</ApplicationUseCompatibleTextRendering>
+
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <DebugType>none</DebugType>
+    <InvariantGlobalization>false</InvariantGlobalization>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(AurionVersion)' == ''">
+    <Version>1.0.0</Version>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="..\shared\*.cs" />
+    <EmbeddedResource Include="..\..\assets\generated\aurion.ico" LogicalName="AURION.ico" />
+  </ItemGroup>
+
+</Project>

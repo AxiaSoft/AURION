@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  AURION desk — Android shell.
+
+  This APK contains no desk and no engine. It is a WebView pointed at the
+  AURION backend already running on the trader's machine, which serves
+  apps/web and proxies /api to the Python engine on the same origin. That
+  keeps every request same-origin, so the backend's CORS allowlist (which
+  only names loopback) is never consulted and needs no change.
+
+  usesCleartextTraffic is required: the desk is reached over plain HTTP on
+  a local network, where there is no certificate to validate. Nothing here
+  should ever be pointed at an address on the public internet.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+          package="com.axiasoft.aurion"
+          android:versionCode="1"
+          android:versionName="1.0">
+
+  <uses-permission android:name="android.permission.INTERNET" />
+  <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+
+  <application
+      android:label="AURION"
+      android:icon="@mipmap/ic_launcher"
+      android:usesCleartextTraffic="true"
+      android:supportsRtl="true"
+      android:hardwareAccelerated="true"
+      android:allowBackup="false"
+      android:theme="@android:style/Theme.Material.NoActionBar">
+
+    <activity
+        android:name=".MainActivity"
+        android:exported="true"
+        android:launchMode="singleTop"
+        android:windowSoftInputMode="adjustResize"
+        android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|smallestScreenSize|density|uiMode">
+      <intent-filter>
+        <action android:name="android.intent.action.MAIN" />
+        <category android:name="android.intent.category.LAUNCHER" />
+      </intent-filter>
+    </activity>
+
+  </application>
+</manifest>
