@@ -7,6 +7,7 @@ const http = require("http");
 
 const { ROOT, DATA } = require("./paths");
 const { load: loadConfig } = require("./config");
+const github = require("./github-update");
 
 const UPDATE_SETTINGS_FILE = path.join(DATA, "update-settings.json");
 const UPDATE_STATE_FILE = path.join(DATA, "update-state.json");
@@ -34,6 +35,31 @@ function writeSecure(file, data) {
   try { fs.chmodSync(tmp, 0o600); } catch {}
   fs.renameSync(tmp, file);
   try { fs.chmodSync(file, 0o600); } catch {}
+}
+
+/**
+ * Which channel this installation updates from.
+ *
+ * GitHub unless the configuration explicitly says otherwise. The private
+ * update server in admin/update-server still works and is still reachable
+ * by setting update_server.source to "server" — it is how an operator
+ * ships a build that is not public — but it is no longer what a plain
+ * installation uses, because it required a second service to be running
+ * somewhere for any fix to reach anyone.
+ */
+function getSourceKind() {
+  try {
+    const cfg = loadConfig() || {};
+    const kind = String((cfg.update_server && cfg.update_server.source) || "").trim().toLowerCase();
+    if (kind === "server" || kind === "update_server") return "server";
+    if (kind === "github") return "github";
+    /* No explicit choice: GitHub, which needs nothing configured. */
+    return "github";
+  } catch { return "github"; }
+}
+
+function liveConfig() {
+  try { return loadConfig() || {}; } catch { return {}; }
 }
 
 function getSourceUrl() {
@@ -65,8 +91,22 @@ function getSettings() {
     last_check_result: null,
   };
   const stored = readJsonSecure(UPDATE_SETTINGS_FILE, {});
-  const sourceUrl = getSourceUrl();
   const merged = { ...defaults, ...stored };
+
+  /* On GitHub there is no server URL to show, and showing an empty one
+     read as "updates are not configured" when they are. The panel gets
+     the repository it will actually ask, in the same field. */
+  merged.source_kind = getSourceKind();
+  if (merged.source_kind === "github") {
+    const src = github.getSource(liveConfig());
+    merged.update_server_url = github.describe(src);
+    merged.source_url = merged.update_server_url;
+    merged.source_defined = true;
+    merged.github = { owner: src.owner, repo: src.repo, branch: src.branch, authenticated: Boolean(src.token) };
+    return merged;
+  }
+
+  const sourceUrl = getSourceUrl();
   // Authoritative source URL overrides any dashboard stored value
   if (sourceUrl) {
     merged.update_server_url = sourceUrl;
@@ -226,7 +266,35 @@ function httpsJson(url, body, timeoutMs = 15000) {
   });
 }
 
+/**
+ * Press "check for updates", ask GitHub.
+ *
+ * The answer is shaped exactly like the update server's, because the
+ * route, the panel, the licence box and the About page all read that
+ * shape already and none of them should have to know where the bytes
+ * come from. The only addition is `source`, so the panel can say which
+ * repository it just asked rather than leaving the user to trust it.
+ */
+async function checkGithub() {
+  try {
+    const res = await github.check(liveConfig());
+    const state = {
+      last_check: new Date().toISOString(),
+      update_available: !!res.update_available,
+      latest: res.update_available ? res.update : null,
+      source: res.source,
+      channel: res.channel,
+    };
+    writeSecure(UPDATE_STATE_FILE, state);
+    saveSettings({ last_check: state.last_check, last_check_result: state });
+    return { ok: true, ...state };
+  } catch (e) {
+    return { ok: false, error: (e && e.message) || "network_error" };
+  }
+}
+
 async function checkForUpdates() {
+  if (getSourceKind() === "github") return checkGithub();
   const settings = getSettings();
   if (!settings.update_server_url) {
     return { ok: false, error: "update_server_not_configured" };
@@ -311,12 +379,16 @@ async function downloadUpdateFile(updateId, fileId, serverUrl) {
 }
 
 async function applyUpdate(updateId, serverUrl) {
+  const kind = getSourceKind();
   // only apply if published and exists
   const settings = getSettings();
-  const url = String(serverUrl || settings.update_server_url).replace(/\/+$/, "");
-  if (!url) return { ok: false, error: "no_server" };
+  /* GitHub needs no URL: the repository is the address. */
+  const url = kind === "github"
+    ? ""
+    : String(serverUrl || settings.update_server_url).replace(/\/+$/, "");
+  if (kind !== "github" && !url) return { ok: false, error: "no_server" };
 
-  const state = readJsonSecure(UPDATE_STATE_FILE, {});
+  let state = readJsonSecure(UPDATE_STATE_FILE, {});
   const latest = state.latest;
   if (!latest || latest.id !== updateId) {
     // re-check
@@ -324,6 +396,11 @@ async function applyUpdate(updateId, serverUrl) {
     if (!check.ok || !check.latest || check.latest.id !== updateId) {
       return { ok: false, error: "update_not_found" };
     }
+    /* Re-read it. The file list below came from `state`, and before this
+       a re-check refreshed the file on disk while the stale object stayed
+       in hand - so the one path that had to fetch a fresh manifest was
+       the one path that then applied the old one. */
+    state = readJsonSecure(UPDATE_STATE_FILE, {});
   }
 
   // Never let a remote manifest overwrite user state:
@@ -338,6 +415,11 @@ async function applyUpdate(updateId, serverUrl) {
     if (p === "data" || p.startsWith("data/")) return false;
     if (p === "config/aurion.json") return false;
     if (p.startsWith("config/news_calendar")) return false;
+    /* On the GitHub channel, hold the write to the same set the check
+       was allowed to read. The state file is the only thing standing
+       between a file list and a write loop, and a list that named
+       installer/ or tests/ would otherwise be honoured. */
+    if (kind === "github" && !github.isShippable(p)) return false;
     return true;
   });
   if (!files.length) return { ok: false, error: "no_files" };
@@ -348,7 +430,9 @@ async function applyUpdate(updateId, serverUrl) {
   const applied = [];
   try {
     for (const f of files) {
-      const dl = await downloadUpdateFile(updateId, f.id, url);
+      const dl = kind === "github"
+        ? await github.fetchFile(liveConfig(), f)
+        : await downloadUpdateFile(updateId, f.id, url);
       const targetPath = path.join(ROOT, dl.filePath);
       const safeRoot = path.resolve(ROOT);
       const safeTarget = path.resolve(targetPath);
@@ -461,7 +545,8 @@ let autoCheckTimer = null;
 function startAutoChecker() {
   if (autoCheckTimer) clearInterval(autoCheckTimer);
   const settings = getSettings();
-  if (!settings.auto_check_enabled || !settings.update_server_url) return;
+  if (!settings.auto_check_enabled) return;
+  if (getSourceKind() !== "github" && !settings.update_server_url) return;
   const hours = Math.max(1, Math.min(168, Number(settings.auto_check_interval_hours) || 6));
   const ms = hours * 3600 * 1000;
   autoCheckTimer = setInterval(async () => {
@@ -477,6 +562,7 @@ function stopAutoChecker() {
 
 module.exports = {
   copyExpertsToTerminals,
+  getSourceKind,
   getSettings,
   saveSettings,
   checkForUpdates,

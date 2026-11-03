@@ -7204,6 +7204,11 @@ const views = {
         </div>
         <div class="card">
           <h3>${I18N.t("upd.status")}</h3>
+          <!-- Where the check goes. The panel used to carry an editable
+               update-server URL, then nothing at all, which left "check
+               for updates" as a button with no stated destination. It
+               reads the repository the backend will actually ask. -->
+          <p class="sub" id="upd-source">${I18N.t("upd.source")}: -</p>
           <p class="sub" id="upd-last-check">${I18N.t("upd.last_check")}: -</p>
           <div id="upd-status"></div>
           <div class="row stx-acts">
@@ -8209,6 +8214,7 @@ async function bindExpertsCard() {
 
 async function bindUpdatePanel(){
   const urlDisplay = document.getElementById('upd-url-display');
+  const sourceEl = document.getElementById('upd-source');
   const autoEl = document.getElementById('upd-auto');
   const intervalEl = document.getElementById('upd-interval');
   const saveMsg = document.getElementById('upd-save-msg');
@@ -8220,6 +8226,7 @@ async function bindUpdatePanel(){
     const r = await API.get('/api/system/update/settings');
     if(r.ok && r.data){
       if(urlDisplay) urlDisplay.textContent = r.data.update_server_url || r.data.source_url || '—';
+      if(sourceEl) sourceEl.textContent = I18N.t('upd.source') + ': ' + (r.data.source_url || r.data.update_server_url || '—');
       if(autoEl) paintSwitch(autoEl, !!r.data.auto_check_enabled);
       if(intervalEl) intervalEl.value = r.data.auto_check_interval_hours || 6;
     }

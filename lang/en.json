@@ -1111,6 +1111,7 @@
     "interval": "Check every (hours)",
     "save": "Save settings",
     "status": "Update status",
+    "source": "Update source",
     "last_check": "Last check",
     "check": "Check for updates",
     "open_panel": "Open system updates",
