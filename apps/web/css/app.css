@@ -1497,6 +1497,43 @@ fieldset.prop-fields.is-locked{
    Capped in viewport units with a floor and a ceiling: a fixed pixel
    height that shows six rows on a desktop shows one and a half on a
    laptop in a split window. */
+/* The card's own header: the title, and "Flatten all" pushed to the
+   far end of it.
+
+   On the same line rather than under the list, because the list
+   scrolls and a control below a scrolling box is a control that
+   moves. At the head of the card it is in one fixed place on all
+   three pages.
+
+   It borrows .tv-flatten's shape from the chart dock - outlined in
+   the loss colour, filled only on hover - so the one destructive
+   button on the page reads as destructive without shouting over the
+   rows it would close. */
+.pos-head{
+  display:flex; align-items:center; gap:10px;
+  margin:0 0 10px;
+}
+/* The card's h3 owns the bottom margin normally; here the header does. */
+.pos-head h3{margin:0; flex:1 1 auto; min-width:0}
+.pos-flat{
+  flex:0 0 auto;
+  height:26px; padding:0 10px;
+  font:inherit; font-size:12px; font-weight:650;
+  /* color-mix, not rgb(var(--rose) / .55): --rose is a hex literal,
+     not a bare "r g b" triplet. */
+  border:1px solid color-mix(in srgb, var(--rose) 55%, transparent);
+  color:var(--rose);
+  border-radius:var(--radius-sm, 8px);
+  background:transparent;
+  cursor:pointer;
+  transition:background .15s ease, color .15s ease, border-color .15s ease;
+}
+.pos-flat:hover:not(:disabled){background:var(--rose); color:#fff; border-color:var(--rose)}
+/* Nothing open: it stays put so the card does not reshuffle the
+   moment the last trade closes, but it plainly cannot be pressed. */
+.pos-flat:disabled{opacity:.4; cursor:default}
+@media (prefers-reduced-motion: reduce){ .pos-flat{transition:none} }
+
 .pos-pane{
   /* The query container the rows measure themselves against, so the
      pane folds on the room it actually has rather than on the width
@@ -3037,6 +3074,15 @@ html[dir="rtl"] .q-how[open] summary::before{ transform:rotate(0deg) }
    control is now derived from it. */
 @media (pointer: coarse){
   :root{--ctl-h:48px;--ctl-gap:12px}
+  /* Flatten all, on the three "open positions" cards. A destructive
+     control pressed in a hurry needs the full target, and 26px of
+     button is not it. The halo is an ::after rather than real height
+     so the card header keeps its rhythm. Here rather than beside
+     .pos-flat itself: one touch block, so the next person sizing a
+     target has one place to read and the sheet does not grow a
+     second (pointer: coarse) for every component. */
+  .pos-flat{position:relative; height:34px; padding:0 14px}
+  .pos-flat::after{content:""; position:absolute; inset:-5px -4px}
   .btn.tiny{--ctl-h:38px}
   .icon-btn{min-height:38px}
   /* The switch grows as a switch - both numbers together - rather than

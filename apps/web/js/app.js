@@ -6504,7 +6504,7 @@ const views = {
            a trader could act on. The per-chart version in the Intelligence
            view says which symbol it means, and that is where it belongs. -->
       <div class="card pos-card">
-        <h3>${I18N.t("command.positions")}</h3>
+        ${posCardHead(I18N.t("command.positions"))}
         <div id="live-pos">${pos.length ? `<div class="pos-pane">${positionsListHtml(pos, [])}</div>` : emptyMini(I18N.t("status.no_positions"))}</div>
       </div>
 
@@ -6565,7 +6565,7 @@ const views = {
            trader actually watches the market from, so the exposure is
            visible without leaving for another page. -->
       <div class="card pos-card mk-pos">
-        <h3>${I18N.t("command.positions")}</h3>
+        ${posCardHead(I18N.t("command.positions"))}
         <div id="mk-pos">${allPositions().length
           ? `<div class="pos-pane">${positionsListHtml(allPositions(), [])}</div>`
           : emptyMini(I18N.t("status.no_positions"))}</div>
@@ -6743,7 +6743,7 @@ const views = {
         </section>
 
         <section class="card">
-          ${head(I18N.t("command.positions"))}
+          ${posCardHead(I18N.t("command.positions"))}
           <div id="live-exec-pos">${pos.length ? `<div class="pos-pane">${positionsListHtml(pos, [])}</div>` : emptyMini(I18N.t("status.no_positions"))}</div>
         </section>
 
@@ -7856,6 +7856,33 @@ function table(rows, keys, closable) {
   const cols = keys.map((k) => `<col class="c-${esc(k)}">`).join("") + (closable ? `<col class="c-close">` : "");
   return `<div class="table-wrap"><table><colgroup>${cols}</colgroup><thead><tr>${head}${closable ? `<th scope="col"><span class="sr-only">${esc(I18N.t("exec.close"))}</span></th>` : ""}</tr></thead><tbody>${body}</tbody></table></div>`;
 }
+/* Arm the card's "Flatten all" once there is a book to flatten, and
+   wire it the first time.
+
+   Found from the list rather than by id because all three cards would
+   otherwise need three ids for one control, and the next card copied
+   from them would quietly get a dead button. It is bound once - the
+   list repaints on every tick, and rebinding on each would stack
+   handlers until one press asked the question ten times.
+
+   Disabled rather than hidden: the card does not reshuffle the moment
+   the last trade closes, and the control still says where the account
+   stands. It is also re-disabled while the request is in flight, so a
+   second press cannot send a second flatten against a book the first
+   one is already closing. */
+function armCardFlatten(box, n) {
+  const btn = box.closest(".card")?.querySelector("[data-flatten]");
+  if (!btn) return;
+  btn.disabled = n === 0;
+  if (btn.dataset.bound === "1") return;
+  btn.dataset.bound = "1";
+  btn.onclick = async () => {
+    if (btn.disabled) return;
+    btn.disabled = true;
+    try { await flattenAll("positions-card"); } finally { btn.disabled = !box.querySelector(".tvp-row:not(.tvp-head)"); }
+  };
+}
+
 function paintPositions(boxId, rows, closable) {
   /* The three "open positions" cards - the Command Centre's, the
      Markets page's and the Execution one's - draw the EA chart's own
@@ -7874,6 +7901,7 @@ function paintPositions(boxId, rows, closable) {
      give back, so the list is simply always there. */
   const box = $(boxId);
   if (!box) return;
+  armCardFlatten(box, rows.length);
   if (!rows.length) {
     box.dataset.sig = "";
     box.innerHTML = emptyMini(I18N.t("status.no_positions"));
@@ -11179,6 +11207,28 @@ function allPositions() {
 function positionsSig(symbol) {
   return positionsFor(symbol)
     .map((r) => `${r.ticket}:${r.type}:${r.volume}:${r.price_open}:${r.profit}`).join("|");
+}
+
+/* One header for the three "open positions" cards, so the flatten
+   control cannot end up on two of them and not the third.
+
+   Closing a book one row at a time is the thing a trader is least
+   able to do calmly: the rows are the ones moving, and the one you
+   want is the one that just scrolled. This is the same action, the
+   same confirmation and the same /api/flatten endpoint as the
+   header's emergency button and the chart dock's - one way to go
+   flat, so there is no question of which control does what.
+
+   It renders disabled and is armed by paintPositions(), which is the
+   one place that already knows whether anything is open. A
+   destructive button that is live over an empty book can only do
+   nothing or do something surprising. */
+function posCardHead(title) {
+  return `<header class="pos-head">
+    <h3>${esc(title)}</h3>
+    <button type="button" class="pos-flat" data-flatten disabled
+            title="${esc(I18N.t("exec.close_all"))}">${esc(I18N.t("exec.close_all"))}</button>
+  </header>`;
 }
 
 /* One list builder, used by the positions dock on the EA chart and by

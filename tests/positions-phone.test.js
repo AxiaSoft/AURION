@@ -49,6 +49,27 @@ const ruleIn = (body, sel) => {
   return m ? m[1] : "";
 };
 
+/* A lazy [\s\S]*?\} cannot slice a block that contains blocks, so
+   brace-match the at-rule out by hand. */
+const atRule = (body, prelude, needle) => {
+  /* The sheet has three (pointer: coarse) blocks and flattening
+     normalises the spelling of all of them, so "the first one" is the
+     wrong one. Take the block that actually contains the rule under
+     test, and say so when none does. */
+  for (let i = body.indexOf(prelude + "{"); i >= 0; i = body.indexOf(prelude + "{", i + 1)) {
+    let d = 0;
+    for (let j = i + prelude.length; j < body.length; j++) {
+      if (body[j] === "{") d++;
+      else if (body[j] === "}" && --d === 0) {
+        const block = body.slice(i, j + 1);
+        if (!needle || block.includes(needle)) return block;
+        break;
+      }
+    }
+  }
+  return "";
+};
+
 /* ---------- the 900px table that caused it is gone ---------- */
 ok(!/\.pos-card table\{/.test(flat),
   "the positions card no longer lays out a table at all");
@@ -125,6 +146,77 @@ for (const id of ["live-pos", "mk-pos", "live-exec-pos"]) {
     `#${id} draws the shared list inside a capped pane`);
   ok(at >= 0 && !/\btable\(/.test(seg),
     `#${id} is not a table any more`);
+  /* And each card carries the same "Flatten all", from the same
+     builder. Closing a book one row at a time is the thing a trader
+     can least afford to do slowly, and a control that is on two of
+     the three cards is worse than one that is on none - it teaches
+     that the page you are on decides whether you can go flat. */
+  const cardAt = appFlat.lastIndexOf("posCardHead(", at);
+  ok(cardAt >= 0 && at - cardAt < 220,
+    `#${id} sits under the shared card header`);
+}
+
+/* The header puts the title and the button on one line, with the
+   button at the far end - not stacked, which would push the list
+   down by a row's worth on the one card whose whole point is that it
+   does not grow. */
+{
+  const head = ruleIn(flat, ".pos-head");
+  ok(/display:flex/.test(head) && /align-items:center/.test(head),
+    "the card header is a row, not a stack", head);
+  ok(/flex:1 1 auto/.test(ruleIn(flat, ".pos-head h3")),
+    "the title takes the slack, so the button sits at the far end");
+}
+
+/* A destructive button pressed in a hurry, on a phone. 26px is the
+   desk size; touch gets the full target, and the halo is what pays
+   for it without changing the header's rhythm. */
+{
+  const coarse = atRule(flat, "@media (pointer:coarse)", ".pos-flat{");
+  ok(coarse !== "", "there is a touch block to grow it in");
+  const btn = ruleIn(coarse, ".pos-flat");
+  ok(/height:34px/.test(btn), "touch grows the flatten button", btn);
+  ok(/position:relative/.test(btn),
+    "the halo has something to be positioned against", btn);
+  ok(/inset:-5px -4px/.test(ruleIn(coarse, ".pos-flat::after")),
+    "and a halo carries it the rest of the way to 44px (measured 87x44 at 390)");
+}
+
+/* The header is one builder, not three copies of a button. */
+ok(/function posCardHead\(/.test(app), "there is one card-header builder");
+{
+  const b = app.slice(app.indexOf("function posCardHead("));
+  const body = b.slice(0, b.indexOf("\n}"));
+  ok(/data-flatten/.test(body), "the header emits the flatten control");
+  ok(/\bdisabled\b/.test(body),
+    "it renders disabled, so it cannot be pressed before the book is known");
+  ok(/I18N\.t\("exec\.close_all"\)/.test(body),
+    "its label is translated, not hard-coded English");
+}
+
+/* Armed by the one function that already knows the row count, wired
+   once, and going through the same flattenAll() as the header's
+   emergency button and the chart dock's. */
+{
+  const i = app.indexOf("function armCardFlatten(");
+  ok(i >= 0, "the flatten control is armed from the repaint");
+  const body = app.slice(i, app.indexOf("\n}", i));
+  ok(/\[data-flatten\]/.test(body), "it finds the control on the card");
+  ok(/btn\.disabled = n === 0/.test(body),
+    "an empty book disables it rather than leaving it live over nothing");
+  ok(/dataset\.bound === "1"/.test(body) && /dataset\.bound = "1"/.test(body),
+    "it binds once, so a repaint per tick cannot stack handlers");
+  ok(/flattenAll\(/.test(body) && !/API\.post\(/.test(body),
+    "it goes through flattenAll, so there is one confirmation and one endpoint");
+  /* Order matters, and indexOf returns -1 for a line that is not
+     there at all - which is smaller than any real index, so a naive
+     comparison passes loudest exactly when the call has been
+     deleted. Assert it exists first. */
+  const armAt = app.indexOf("armCardFlatten(box, rows.length)");
+  const emptyAt = app.indexOf("if (!rows.length) {", app.indexOf("function paintPositions("));
+  ok(armAt >= 0, "the repaint arms the control");
+  ok(armAt >= 0 && emptyAt >= 0 && armAt < emptyAt,
+    "armed before the empty-book early return, or an emptied book leaves it live");
 }
 
 /* ---------- the markets copy gets the same treatment ---------- */
