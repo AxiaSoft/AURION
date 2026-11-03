@@ -651,15 +651,25 @@
             </div>
           </div>
         </div>
-        ${dockHtml(o)}
-      </div>
-      <!-- Open positions, across the bottom.
+        <!-- Open positions, under the chart and only under the chart.
 
-           A row of the .tv grid rather than something floating over the
-           chart: when it opens the chart's row shrinks and the candles
-           are redrawn smaller, so nothing a trader is watching is ever
-           hidden behind their own position list. The side panel is
-           untouched and keeps its own copy. -->
+             A grid row rather than something floating over the chart:
+             opening it takes height from the chart, the canvas is
+             resized and the candles are redrawn, so nothing a trader
+             is watching ends up behind their own position list.
+
+             It is a row of .tv-body, not of .tv, and that is what
+             keeps it out of the side panel's way. As a row of .tv it
+             spanned the whole desk, so the panel beside the chart was
+             cut short by the dock's height and the bottom quarter of
+             it sat behind a list it has nothing to do with. Here it
+             occupies the chart's column only, the panel spans both
+             rows, and the two no longer share any space.
+
+             It also means .tv-body keeps its height when the dock
+             opens, which is what makes the mobile tools sheet - which
+             hangs off the bottom of .tv-body - independent of this by
+             construction rather than by cancelling a movement out. -->
       <section class="tv-posdock" id="tv-posdock" aria-label="${esc(tt("chart.positions", "Positions"))}">
         <header class="tv-posdock-head">
           <h3>${esc(tt("chart.positions", "Positions"))}</h3>
@@ -681,6 +691,8 @@
         </header>
         <div class="tv-posdock-body" id="tv-posdock-body"></div>
       </section>
+        ${dockHtml(o)}
+      </div>
       <footer class="tv-status">
         <span id="tv-status-tool">${esc(tt("chart.mode_navigate", "Navigate"))}</span>
         <span class="tv-div"></span>

@@ -189,23 +189,39 @@ check("the count is capped and spoken", () => {
 /* ========== 3. the tools sheet and the positions dock are unrelated ====== */
 
 check("opening the positions dock does not move the tools sheet", () => {
-  /* Measured at 390px before the fix: with the tools sheet open the
-     rail's bottom edge was at y=785. Opening the positions dock moved
-     it to y=609 - the sheet the trader was reading jumped 176px up
-     the screen, because it is anchored to the bottom of .tv-body and
-     the dock is a grid row of .tv that shortens it.
-     
-     Pushing the sheet's own bottom down by exactly the dock's height
-     cancels that out. */
-  const body = ruleBody(CSS, ".tv.pos-open .tv-rail,.tv.pos-open .tv-toolscrim");
-  if (!body) throw new Error("nothing compensates the sheet for the dock's row");
-  if (!/inset-block-end:calc\(-1 \* var\(--tv-posdock/.test(body)) {
-    throw new Error("the compensation is not the dock's own height: " + body);
+  /* Measured at 390px before the first fix: with the tools sheet open
+     the rail's bottom edge was at y=785, and opening the positions
+     dock moved it to y=609 - the sheet the trader was reading jumped
+     176px up the screen, because it hangs off the bottom of .tv-body
+     and the dock was a grid row of .tv that shortened it.
+
+     That was first answered by pushing the sheet's own bottom edge
+     down by exactly the dock's height, on exactly the dock's clock,
+     so the two movements cancelled frame by frame. It worked, and it
+     was a standing liability: two numbers that have to stay equal,
+     two transitions that have to stay in step, and three guards to
+     keep them that way.
+
+     The dock is a row of .tv-body now, in the chart's column. The
+     body does not change height when it opens, so the sheet has
+     nothing to be compensated for and the compensation is gone. The
+     independence is structural, and this check pins the structure
+     rather than the arithmetic. */
+  if (/inset-block-end:\s*calc\(-1 \* var\(--tv-posdock/.test(CSS)) {
+    throw new Error("the sheet is being compensated again - the dock must not resize .tv-body");
   }
-  /* The scrim has to move with it, or the dock sits above the scrim
-     and takes taps that were meant to dismiss the sheet. */
-  if (!/\.tv\.pos-open \.tv-toolscrim/.test(CSS)) throw new Error("the scrim does not cover the dock");
-  return "sheet and scrim both offset by --tv-posdock";
+  const body = ruleBody(CSS, ".tv-body");
+  if (!/grid-template-rows:1fr 0/.test(body || "")) {
+    throw new Error("the dock's row is not a row of .tv-body: " + body);
+  }
+  if (!/\.tv\.pos-open \.tv-body\{grid-template-rows:1fr var\(--tv-posdock\)\}/.test(CSS)) {
+    throw new Error("opening the dock does not grow .tv-body's second row");
+  }
+  const tv = ruleBody(CSS, ".tv");
+  if (/grid-template-rows:[^;}]*--tv-posdock/.test(tv || "")) {
+    throw new Error(".tv is sizing itself around the dock again");
+  }
+  return "the dock is a row of .tv-body, so the sheet never moves";
 });
 
 check("nothing is left behind from the dock's resize", () => {
@@ -214,52 +230,43 @@ check("nothing is left behind from the dock's resize", () => {
      fixed section now and nothing sets that class, so the rule it
      asked for would be dead CSS - and a stylesheet full of rules for
      behaviour that no longer exists is how the next person reads the
-     wrong design out of it. */
+     wrong design out of it. The same now goes for the compensation
+     that replaced it. */
   if (/pos-sizing/.test(CSS)) throw new Error("the resize-only rules outlived the resize");
   if (/tv-posdock-grip/.test(CSS)) throw new Error("the grip is still styled");
-  /* The compensation that keeps the two independent is still needed:
-     the dock still occupies a grid row, it just cannot be dragged. */
-  if (!/\.tv\.pos-open \.tv-rail/.test(CSS)) throw new Error("the sheet no longer clears the dock at all");
-  return "grip and sizing rules gone, offset kept";
-});
-
-check("the sheet and the dock's row move on the same clock", () => {
-  /* Getting the end position right was not enough, and this is the
-     half that was missed the first time: .tv eases grid-template-rows
-     over --dur-3, so the body shrinks gradually, while an
-     untransitioned inset-block-end snaps the whole way in one frame.
-
-     Filmed at 390px with the tools sheet open: tapping the positions
-     button displaced the sheet 194px on the very next frame and then
-     glided it back over ~450ms, in both directions. It ended exactly
-     where it started - which is why a check that only measured the
-     end state passed while the thing the trader sees was a lurch.
-
-     So the two declarations are compared, not just asserted to
-     exist. Same property set, same duration, same easing. */
-  const row = ruleBody(CSS, ".tv");
-  const rail = ruleBody(CSS, ".tv-rail", true);
-  const gridT = /transition:([^;]*grid-template-rows[^;]*)/.exec(row || "");
-  if (!gridT) throw new Error(".tv no longer transitions its rows");
-  if (!/inset-block-end/.test(rail || "")) {
-    throw new Error("the sheet's bottom edge snaps while the dock's row eases");
+  if (/\.tv\.pos-open \.tv-rail|\.tv\.pos-open \.tv-toolscrim/.test(CSS)) {
+    throw new Error("the sheet still has a rule for the dock being open - they are unrelated");
   }
-  const dur = (txt, prop) => {
-    const m = new RegExp(prop + "\\s+([^,;]+)").exec(txt);
-    return m ? m[1].trim() : null;
-  };
-  const a = dur(gridT[1], "grid-template-rows");
-  const b = dur(rail, "inset-block-end");
-  if (!b) throw new Error("the sheet's inset has no timing of its own");
-  if (a !== b) throw new Error(`the row eases over "${a}" and the sheet over "${b}" - they will not cancel`);
-  return "both " + a;
+  return "grip, sizing and compensation rules all gone";
 });
 
-check("reduced motion silences both sides or neither", () => {
-  /* The cancellation holds while the two are on the same clock, and
-     "no clock at all" is the same clock. What would bring the lurch
-     back is silencing one of them - so they are listed together, and
-     this is here to make that pairing deliberate rather than lucky. */
+check("the dock cannot reach the side panel", () => {
+  /* Issue 2 as the trader reported it: with positions open, the side
+     panel lost a quarter of its height - measured 698px -> 522px at
+     1440 - and the dock ran the panel's full 290px width underneath
+     it. That is what a row of .tv does: it spans the desk, so a
+     panel that has nothing to do with the position list gets cut
+     short by it.
+
+     The dock is confined to the chart's column and the panel spans
+     both rows. Every item needs saying out loud, because a second
+     row turns auto-placement into a guess. */
+  const placed = (sel, re) => {
+    const m = CSS.match(new RegExp("(?:^|[}])" + sel.replace(/\./g, "\\.") + "\\{([^}]*)\\}"));
+    if (!m) throw new Error(sel + " has no placement rule of its own");
+    if (!re.test(m[1])) throw new Error(sel + " is placed wrong: " + m[1]);
+  };
+  placed(".tv-stage", /grid-column:2/);
+  placed(".tv-posdock", /grid-column:2;grid-row:2/);
+  placed(".tv-dock", /grid-column:3;grid-row:1 \/ -1/);
+  placed(".tv-rail", /grid-row:1 \/ -1/);
+  return "panel spans both rows, dock sits in the chart's column";
+});
+
+check("reduced motion silences the body and the sheet together", () => {
+  /* Nothing cancels anything any more, but both of these still
+     animate on the same screen, and a preference that stops one
+     while the other glides is just a different kind of jar. */
   const rm = CSS.slice(CSS.indexOf("@media (prefers-reduced-motion:reduce){"));
   if (!rm) throw new Error("there is no reduced-motion block in this sheet");
   const body = rm.slice(0, rm.indexOf("}}") + 1);
@@ -268,23 +275,35 @@ check("reduced motion silences both sides or neither", () => {
      Leaving it out of the leading class made this check report a
      missing rule that was in fact present - the guard was the bug. */
   const silenced = (sel) => new RegExp("(?:^|[,{};])" + sel.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "(?:[,{])").test(body);
-  const tv = silenced(".tv"), rail = silenced(".tv-rail");
-  if (tv !== rail) {
-    throw new Error(`reduced motion stops ${tv ? ".tv but not .tv-rail" : ".tv-rail but not .tv"} - one eases against the other`);
+  const tvBody = silenced(".tv-body"), rail = silenced(".tv-rail");
+  if (tvBody !== rail) {
+    throw new Error(`reduced motion stops ${tvBody ? ".tv-body but not .tv-rail" : ".tv-rail but not .tv-body"}`);
   }
-  return tv ? "both stopped" : "neither stopped";
+  if (!tvBody) throw new Error("neither the dock's row nor the sheet is silenced");
+  return "both stopped";
 });
 
-check("the compensation is inside the phone block, where the sheet exists", () => {
-  /* On a desktop the rail is a column, not a bottom sheet, and
-     giving it a negative bottom offset there would push a static
-     column off the bottom of the chart. */
-  const i = CSS.indexOf(".tv.pos-open .tv-rail");
-  if (i < 0) throw new Error("the rule is gone");
-  const before = CSS.slice(0, i);
-  const opens = (before.match(/@media /g) || []).length;
-  if (opens === 0) throw new Error("the rule is not inside any media query");
-  return "inside a media block";
+check("a closed tools sheet is parked outside the desk, not just outside its own box", () => {
+  /* Issue 1 as the trader reported it: a strip of the tools menu
+     appearing from behind the positions dock as the dock slid away.
+     Nothing was moving - all four close routes filmed at 0.0px of
+     travel. The sheet was simply sitting there the whole time:
+     translateY(101%) parks it one percent of its own height past
+     .tv-body's foot, but .tv runs 26px further for the status bar
+     and .tv is what clips, so 23px of a CLOSED sheet rested on top
+     of the status bar permanently. The dock had been hiding it, and
+     closing the dock uncovered it.
+
+     The park has to clear the clipping edge, so it is written in
+     terms of the status row rather than as a percentage of self. */
+  const rail = ruleBody(CSS, ".tv-rail", true);
+  const t = /transform:translateY\(([^)]*\)?[^)]*)\)/.exec(rail || "");
+  if (!t) throw new Error("the closed sheet is not parked by a transform: " + rail);
+  if (!/--tv-status/.test(t[1])) {
+    throw new Error("the park does not account for the status row, so the sheet shows inside .tv: " + t[1]);
+  }
+  if (!/--tv-status:\s*\d+px/.test(CSS)) throw new Error("--tv-status is never defined");
+  return "parked " + t[1];
 });
 
 /* ===================== 4. the tools sheet cannot be dragged off the top == */

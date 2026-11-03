@@ -185,9 +185,20 @@ check("overflow:hidden is kept underneath as the fallback", () => {
 
 /* The panels whose parking creates the overflow in the first place. */
 check("the panels really are parked outside .tv (so the clip matters)", () => {
+  /* The two dock directions park on a flat percentage. The tools
+     sheet cannot: its box ends at .tv-body's foot while .tv clips
+     26px lower, at the bottom of the status bar, so a percentage of
+     its own height left 23px of a closed sheet showing over the
+     status row. It parks past the clip edge instead. */
   const parked = chartCss.match(/transform:\s*translate[XY]\(-?1\d\d(?:\.\d+)?%\)/g) || [];
-  return parked.length >= 3
-    || `expected the dock (both directions) and the tool sheet, found ${parked.length}: ${parked.join(", ")}`;
+  const sheet = chartCss.match(/transform:\s*translateY\(calc\(101% \+ var\(--tv-status[^)]*\)[^)]*\)\)/g) || [];
+  if (parked.length < 2) {
+    return `expected the dock parked in both directions, found ${parked.length}: ${parked.join(", ")}`;
+  }
+  if (sheet.length !== 1) {
+    return `the tools sheet does not park clear of .tv's clip edge, found ${sheet.length}`;
+  }
+  return true;
 });
 
 /* ================================================================== *

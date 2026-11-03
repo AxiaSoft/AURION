@@ -73,13 +73,58 @@ function check(name, fn) {
 
 check("the dock is a row of the grid, so opening it resizes the chart", () => {
   /* The whole of the requirement. An absolutely positioned panel would
-     have been less code and would have covered the candles. */
-  const base = [, ruleOf(".tv")];
-  if (!/grid-template-rows:var\(--tv-bar\) 1fr 0 26px/.test(base[1])) {
-    throw new Error("the dock's row is not part of the base grid: " + base[1].slice(0, 140));
+     have been less code and would have covered the candles.
+
+     The row belongs to .tv-body, not to .tv. As a row of .tv it ran
+     the width of the desk and took its height off the side panel as
+     well as the chart. */
+  const body = ruleOf(".tv-body");
+  if (!/grid-template-rows:1fr 0/.test(body)) {
+    throw new Error("the dock's row is not part of the base grid: " + body.slice(0, 140));
   }
-  if (!/\.tv\.pos-open\{grid-template-rows:var\(--tv-bar\) 1fr var\(--tv-posdock\) 26px\}/.test(FLAT)) {
+  if (!/\.tv\.pos-open \.tv-body\{grid-template-rows:1fr var\(--tv-posdock\)\}/.test(FLAT)) {
     throw new Error("opening the dock does not give it a row");
+  }
+  if (/\.tv\.pos-open\{grid-template-rows:/.test(FLAT)) {
+    throw new Error("the dock is back to being a row of the whole desk");
+  }
+});
+
+check("the dock takes its height from the chart alone", () => {
+  /* Issue 2 as reported: with positions open, the bottom quarter of
+     the side panel was behind the dock and the panel stopped 203px
+     short of the desk floor. The dock is placed in the chart's column
+     and the panel spans both rows, so neither can reach the other.
+     Placement has to be explicit: a second row makes auto-placement
+     put these wherever they happen to fall. */
+  const want = {
+    ".tv-rail": /grid-row:1 \/ -1/,
+    ".tv-stage": /grid-column:2/,
+    ".tv-posdock": /grid-column:2/,
+    ".tv-dock": /grid-row:1 \/ -1/,
+  };
+  for (const [sel, re] of Object.entries(want)) {
+    const rule = FLAT.match(new RegExp("(?:^|[}])" + sel.replace(".", "\\.") + "\\{([^}]*)\\}"));
+    if (!rule || !re.test(rule[1])) {
+      throw new Error(sel + " is not placed on the grid explicitly: " + (rule ? rule[1] : "no such rule"));
+    }
+  }
+});
+
+check("the dock is written inside .tv-body, in the chart's column", () => {
+  /* The CSS places it in column 2, and that only means the chart's
+     column while the dock is a child of .tv-body. As a sibling of
+     .tv-body - which is where it used to be written - the same
+     declaration would place it in a column of .tv instead, and the
+     side panel would be cut short again. */
+  const i = TOOLS.indexOf('<div class="tv-body">');
+  if (i < 0) throw new Error("the body wrapper is gone, so this check cannot mean anything");
+  const j = TOOLS.indexOf('<footer class="tv-status"', i);
+  const body = TOOLS.slice(i, j);
+  const dock = body.indexOf('class="tv-posdock"');
+  if (dock < 0) throw new Error("the positions dock is not inside .tv-body");
+  if (dock > body.indexOf("${dockHtml(o)}")) {
+    throw new Error("the dock is written after the side panel, so the two can swap columns");
   }
 });
 
@@ -106,8 +151,13 @@ check("the row animates open and shut, and nothing is left of the drag", () => {
      no grip and no drag, so that rule would now be dead CSS matching
      a class nothing ever sets - and dead rules are how a stylesheet
      stops describing the thing it styles. */
-  const base = ruleOf(".tv");
-  if (!/transition:grid-template-rows/.test(base)) throw new Error("the dock snaps instead of sliding");
+  const body = ruleOf(".tv-body");
+  const t = /transition:([^;}]*)/.exec(body || "");
+  const gt = t && /grid-template-rows\s+([^,;}]+)/.exec(t[1]);
+  if (!gt) throw new Error("the dock snaps instead of sliding");
+  if (!/var\(--dur|\d*\.?\d+m?s/.test(gt[1]) || /^0s$/.test(gt[1].trim())) {
+    throw new Error("the row has a transition with no duration, so it still snaps: " + gt[1]);
+  }
   if (/pos-sizing/.test(FLAT)) throw new Error("the resize-only rule outlived the resize");
 });
 
