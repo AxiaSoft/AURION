@@ -1154,7 +1154,13 @@
     "updated_body": "The update to version {v} finished successfully. Nothing in your setup has changed — your strategies, keys and settings are exactly as you left them.",
     "updated_cta": "Continue",
     "updated_gate": "Updated to version {v} successfully. Sign in with your key, or continue in free mode.",
-    "updated_from": "Updated from {old}"
+    "updated_from": "Updated from {old}",
+    "token": "GitHub token (optional)",
+    "token_ph": "Paste a token to raise the limit",
+    "token_why": "Without one, GitHub allows 60 checks an hour shared with everyone on your connection. A read-only token raises it to 5000 and makes it yours. It is stored on this machine only.",
+    "rate_limited": "GitHub is rate limiting this connection.",
+    "rate_retry": "It clears at about {time}.",
+    "rate_token_hint": "Adding a GitHub token in the update settings removes this limit."
   },
   "about": {
     "version": "Version",
