@@ -407,87 +407,71 @@ ok(after < before * 0.75,
   `the three options take ${after}px instead of ${before}px`);
 
 /* =======================================================================
-   7 - open positions sit beside both charts, outside the chart
+   7 - a chart card is a chart, and nothing else
    ======================================================================= */
 
-ok(/function positionsStripHtml\(/.test(appJsNC), "there is a positions strip to render");
-ok(/function paintPositionStrips\(/.test(appJsNC), "and it is repainted in place rather than by re-rendering");
+/* This section used to guard a per-symbol positions strip between each
+   chart card's toolbar and its canvas, and every invariant it pinned
+   was met: in the flow, never over price, capped at 168px, scrolling
+   down rather than sideways, repainted in place so the canvas was
+   never torn down.
 
-/* Re-rendering a chart card would tear down the canvas being watched. */
-const painter = /function paintPositionStrips\([\s\S]*?\n\}/.exec(appJsNC)[0];
-ok(/innerHTML/.test(painter) && !/outerHTML/.test(painter),
-  "the repaint replaces the list, not the strip, so it cannot loop on its own signature");
-ok(/dataset\.sig/.test(painter), "and it is guarded by a signature, so an unchanged snapshot touches nothing");
+   It is gone anyway, because the thing it was good at was the wrong
+   thing to be good at. A card on the Charts page is a thumbnail - it
+   says what is attached and whether it is alive, and the eye runs down
+   the grid comparing one against the next. Trades inside each card
+   gave every card a different height, so the grid stopped reading as a
+   grid; and the cap that stopped a card growing put a scrolling list
+   inside a card inside a scrolling page, which on a touch screen is
+   two scrollers fighting over one drag.
 
-/* Driven by the same trigger as the chart's own levels. */
-const levels = /function applyChartLevels\([\s\S]*?\n\}/.exec(appJsNC)[0];
-ok(/paintPositionStrips\(\)/.test(levels),
-  "whatever moves the lines on the canvas also moves the strip above it");
+   Measured at 390 after removal: the card is 335px with one open trade
+   and 335px with thirty, and the page behind it 2248px either way. It
+   was 456 and 529, and 2626 and 2984.
 
-/* Both charts, and in both cases before the chart box - never over it.
-
-   Located by regex, not by indexOf('class="chart-box"'): the card's
-   box carries a modifier now (chart-box chart-mini) and an exact
-   string match silently returns -1, which reads as "the box is at
-   position -1, so the strip is below it" and fails for the wrong
-   reason. Match the class in the list, not the whole attribute. */
-const boxAt = (src) => {
-  const m = /class="chart-box(?:[ "])/.exec(src);
-  if (!m) throw new Error("no chart box found in this view");
-  return m.index;
-};
-/* Markets is the exception, and deliberately so.
-
-   It used to carry the strip above its chart like every other chart
-   does. But this page also carries .mk-pos, the whole open book, and
-   the strip is filtered to the instrument on screen - so one trade was
-   printed twice on one page in two different shapes, and the upper
-   copy contradicted the lower one the moment the symbol changed. The
-   rule is one book in one place per page; here that place is the
-   table, because it is the one that does not lie when you switch
-   instrument. */
-const markets = /markets\(\) \{[\s\S]*?\n  \},/.exec(appJsNC)[0];
-ok(!/positionsStripHtml\(/.test(markets),
-  "the Markets chart does not repeat the book above the chart");
-ok(/id="mk-pos"/.test(markets), "because the whole book is on the page already");
+   So these checks pin the absence - and pin it on the markup rather
+   than on the builder's name, because a check that names a function
+   that no longer exists passes no matter what the card does. */
 
 const chartCard = /const chartCard = \([\s\S]*?\n    \};/.exec(appJsNC)[0];
-ok(/positionsStripHtml\(/.test(chartCard), "each EA chart card shows open positions");
-ok(chartCard.indexOf("positionsStripHtml(") < boxAt(chartCard),
-  "in the same defined place, above its chart box");
+ok(!/positionsStripHtml\(/.test(chartCard) && !/pos-strip/.test(chartCard),
+  "a chart card does not list open positions");
+ok(!/tvp-list|positionsListHtml\(/.test(chartCard),
+  "nor draw the position rows by another route");
+ok(/class="chart-box(?:[ "])/.test(chartCard),
+  "it is still a chart card - the canvas is there");
 
-/* In the flow, not floating over anything. */
-const stripPos = resolve(appRules, [el("div", "", ["pos-strip"])], "position", 1200);
-ok(stripPos === null, `the strip is in the normal flow (${stripPos ? stripPos.val : "static"})`);
-const minH = resolve(appRules, [el("div", "", ["pos-strip"])], "min-height", 1200);
-ok(minH && /\d/.test(minH.val),
-  `and holds its height when nothing is open, so the chart never jumps (${minH ? minH.val : "none"})`);
-/* It used to scroll sideways. A horizontal scrollbar inside a card
-   hides open trades behind a gesture nobody thinks to try, so the
-   strip is capped and scrolls DOWN instead: the card still holds its
-   height whatever is open, which is what the sideways scroll was
-   for, and the trades that do not fit are somewhere a thumb will
-   find them. */
-const listOvX = resolve(appRules, [el("div", "", ["pos-strip"]), el("div", "", ["pos-strip-list"])], "overflow-x", 1200);
-ok(listOvX && listOvX.val === "hidden",
-  `the strip no longer hides positions off the side of the card (${listOvX ? listOvX.val : "none"})`);
-const listOvY = resolve(appRules, [el("div", "", ["pos-strip"]), el("div", "", ["pos-strip-list"])], "overflow-y", 1200);
-ok(listOvY && listOvY.val === "auto",
-  "more positions than fit scroll down inside the strip");
-const listCap = resolve(appRules, [el("div", "", ["pos-strip"]), el("div", "", ["pos-strip-list"])], "max-block-size", 1200);
-ok(listCap && /\d/.test(listCap.val),
-  `and the strip is capped, so the card cannot grow with the book (${listCap ? listCap.val : "none"})`);
-ok(/pos-none/.test(appJsNC), "and an empty strip says so rather than collapsing");
+/* And the machinery went with it rather than being left loaded and
+   unreferenced for the next reader to wonder about. */
+for (const dead of ["positionsStripHtml", "positionsStripBody",
+                    "paintPositionStrips", "positionsFor", "positionsSig"]) {
+  ok(!new RegExp("\\b" + dead + "\\b").test(appJsNC),
+    `${dead} is deleted, not left dead in the file`);
+}
+for (const dead of ["pos-strip", "pos-none"]) {
+  ok(!new RegExp("\\." + dead + "[{ ,:]").test(strip(read("css/app.css"))),
+    `.${dead} is not a rule for markup nobody renders`);
+}
 
-/* Every class it uses must have a rule, or the strip ships unstyled. */
-const stripHtml = /function positionsStripHtml\([\s\S]*?\n\}/.exec(appJsNC)[0]
-  + /function positionsStripBody\([\s\S]*?\n\}/.exec(appJsNC)[0];
+/* Nothing was lost: the whole book is still on the page that carries
+   it, in one place rather than two contradicting shapes. */
+const markets = /markets\(\) \{[\s\S]*?\n  \},/.exec(appJsNC)[0];
+ok(/id="mk-pos"/.test(markets), "the Markets page still carries the whole book");
+ok((markets.match(/positionsListHtml\(/g) || []).length === 1,
+  "once, not twice in two shapes");
+
+/* The same "no class without a rule" sweep, moved onto the builder
+   that survived. positionsListHtml() is now the only thing that draws
+   a position anywhere in the app - the three cards and the chart
+   desk's dock all go through it - so an unstyled class in there is
+   unstyled in four places at once. */
+const listHtml = /function positionsListHtml\([\s\S]*?\n\}/.exec(appJsNC)[0];
 const used = new Set();
-for (const m of stripHtml.matchAll(/class="([^"$]*)"/g)) m[1].split(/\s+/).filter(Boolean).forEach((c) => used.add(c));
-for (const m of stripHtml.matchAll(/is-\$\{dir\}/g)) { used.add("is-buy"); used.add("is-sell"); }
-const allCss = strip(read("css/app.css"));
+for (const m of listHtml.matchAll(/class="([^"$]*)"/g)) m[1].split(/\s+/).filter(Boolean).forEach((c) => used.add(c));
+for (const m of listHtml.matchAll(/is-\$\{dir\}/g)) { used.add("is-buy"); used.add("is-sell"); }
+const allCss = strip(read("css/app.css")) + strip(read("css/chart.css"));
 const missing = [...used].filter((c) => !new RegExp("\\." + c + "[^\\w-]").test(allCss));
-ok(missing.length === 0, `every class the strip uses has a rule (missing: ${missing.join(", ") || "none"})`);
+ok(missing.length === 0, `every class the position row uses has a rule (missing: ${missing.join(", ") || "none"})`);
 
 /* =======================================================================
    4 - candle colours are editable, and previewable

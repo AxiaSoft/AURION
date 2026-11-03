@@ -6808,7 +6808,7 @@ const views = {
         <span>${I18N.t("charts.signal")}</span><b>${a.last_signal?.direction || a.last_signal?.action || "—"}</b>
         <span>${I18N.t("charts.state")}</span><b>${a.status || "online"}</b>
       </div>
-      ${tester && !clickable ? `<p class="sub">${I18N.t("tape.showing_backtest")}</p>` : `${positionsStripHtml(a.symbol)}
+      ${tester && !clickable ? `<p class="sub">${I18N.t("tape.showing_backtest")}</p>` : `
       <div class="chart-box chart-mini"><canvas data-mini="${a.symbol||""}" data-tf="${a.timeframe||""}"></canvas></div>
 `}
     </div>`;
@@ -11179,34 +11179,28 @@ async function hardRefresh() {
   }
 }
 /* ===========================================================================
-   Open positions beside a chart
+   Open positions
    ===========================================================================
-   What is open on this instrument belonged next to the chart of it, and was
-   only ever reachable from a tab inside the drawing dock - so the one page a
-   trader watches while a trade runs was the one page that did not say the
-   trade existed.
+   There used to be a per-symbol strip between each chart card's toolbar
+   and its canvas, listing what was open on that instrument.
 
-   It is a strip in the normal flow, between the toolbar and the canvas. Not
-   an overlay: an overlay either sits on the buttons or sits on the price,
-   and both were ruled out. Being in the flow it also cannot be scrolled
-   away from or hidden behind anything, and it holds its height when there
-   is nothing open so the chart below it never jumps.
+   It is gone. A card on the Charts page is a thumbnail of a chart - it
+   answers "what is attached and is it alive", and the eye goes down the
+   grid comparing them. A list of trades inside each one made every card
+   a different height, so the grid stopped being a grid; and because the
+   list could not be allowed to grow, it became a 168px box that scrolled
+   inside a card that was itself in a scrolling page. Two scrollers one
+   inside the other, on a touch screen, over the thing you were trying to
+   read.
+
+   Nothing was lost. The whole book is on the Command Centre, on the
+   Markets page and on the Execution page, in one shape, with Flatten all
+   on each; the per-symbol view of it is the chart desk's own dock, which
+   is beside the chart that trade is actually on.
 */
-function positionsFor(symbol) {
-  return (S.snap?.positions || []).filter((r) => r && (!symbol || r.symbol === symbol));
-}
-
 /** Every open position, whatever instrument it is on. */
 function allPositions() {
   return (S.snap?.positions || []).filter(Boolean);
-}
-
-/* The Command Centre's columns, minus profit_pct: the Markets grid gives
-   this card half the width the Command Centre does, and the percentage is
-   the one figure already implied by the two beside it. */
-function positionsSig(symbol) {
-  return positionsFor(symbol)
-    .map((r) => `${r.ticket}:${r.type}:${r.volume}:${r.price_open}:${r.profit}`).join("|");
 }
 
 /* One header for the three "open positions" cards, so the flatten
@@ -11322,47 +11316,6 @@ function positionsListHtml(pos, ord) {
   return `<div class="tvp-list">${head}${ord.map(restRow).join("")}${pos.map(row).join("")}</div>`;
 }
 
-function positionsStripBody(symbol) {
-  const pos = positionsFor(symbol);
-  if (!pos.length) return `<span class="pos-none">${esc(I18N.t("status.no_positions"))}</span>`;
-  /* The header row comes along. Where the card is wide enough for the
-     aligned columns it is needed - columns with no names was the
-     chips' problem restated - and where the list folds into stacked
-     rows the same rule that folds them hides it, and each figure
-     carries its own label instead. Orders are not passed: a card
-     shows what is open on that instrument, and a planted entry that
-     has not filled belongs with the chart it will fill on. */
-  return positionsListHtml(pos, []);
-}
-
-function positionsStripHtml(symbol) {
-  return `<div class="pos-strip" data-pos-strip="${esc(symbol || "")}" data-sig="${esc(positionsSig(symbol))}">
-      <span class="pos-strip-h">${esc(I18N.t("command.positions"))}</span>
-      <div class="pos-strip-list">${positionsStripBody(symbol)}</div>
-    </div>`;
-}
-
-/* Repaint in place. The strip is rebuilt from the snapshot rather than
-   re-rendering the view, because re-rendering a chart card would tear down
-   the canvas the trader is looking at. Guarded by a signature so a snapshot
-   that changed nothing about the open trades does not touch the DOM. */
-function paintPositionStrips() {
-  document.querySelectorAll("[data-pos-strip]").forEach((el) => {
-    const sym = el.dataset.posStrip || "";
-    const sig = positionsSig(sym);
-    if (el.dataset.sig === sig) return;
-    el.dataset.sig = sig;
-    const list = el.querySelector(".pos-strip-list");
-    if (list) {
-      list.innerHTML = positionsStripBody(sym);
-      /* innerHTML threw the old buttons away along with their handlers.
-         Without this the close control works until the first snapshot
-         arrives and then silently stops. */
-      bindCloseButtons(list);
-    }
-  });
-}
-
 function applyChartLevels(force) {
   if (!force) {
     if (S._lvlTimer) return;
@@ -11376,9 +11329,6 @@ function applyChartLevels(force) {
   // that had made its decision and was waiting at a price looked exactly
   // like a robot doing nothing.
   const ord = (S.snap?.orders || []).filter((r) => r && (!symbol || r.symbol === symbol));
-  /* Same trigger as the chart's own levels: whatever moved the lines on the
-     canvas has to move the strip above it, or the two disagree. */
-  paintPositionStrips();
   if (S.chart && typeof S.chart.setLevels === "function") S.chart.setLevels(pos);
   if (S.chart && typeof S.chart.setOrders === "function") S.chart.setOrders(ord);
   syncChartPending();

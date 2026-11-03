@@ -130,7 +130,7 @@ if (!jsdom) {
     .map(read).join("\n;\n");
   let T = null;
   try {
-    win.eval(bundle + "\n;window.__T = { S, views, I18N, propStatusHtml, propFormHtml, analysisCardHtml, positionsStripHtml, paintChartPositions, patchLive, bindCloseButtons, API, fmt, fmtSigned, patchMetric, setConfirm(f){ askConfirm = f; } };");
+    win.eval(bundle + "\n;window.__T = { S, views, I18N, propStatusHtml, propFormHtml, analysisCardHtml, positionsListHtml, allPositions, paintChartPositions, patchLive, bindCloseButtons, API, fmt, fmtSigned, patchMetric, setConfirm(f){ askConfirm = f; } };");
     T = win.__T;
   } catch (e) {
     console.log("FAIL  the desk bundle loads\n      " + e.message);
@@ -179,12 +179,24 @@ if (!jsdom) {
 
     /* ---- 1. closing a position from the markets view ----------------- */
 
+    /* These used to go through positionsStripHtml(), the per-symbol
+       strip that sat inside each chart card. The strip is gone - a
+       card on the Charts page is a thumbnail, and trades inside it
+       made every card a different height and put a scrolling list
+       inside a scrolling page - but every guarantee below outlived
+       it, because the rows were always built by positionsListHtml()
+       and that is what the three positions cards and the chart desk's
+       dock all draw. Same assertions, aimed at the builder rather
+       than at one of its callers. */
+    const strip = (symbol) => T.positionsListHtml(
+      T.allPositions().filter((r) => !symbol || r.symbol === symbol), []);
+
     check("every open trade on the markets chart carries a close control", () => {
       /* Rows, not chips. The card draws the chart desk's own
          .tvp-list through the one builder both share, so a trade
          looks the same wherever it is read. The header row is in
          there too and is not a trade. */
-      const d = frag(T.positionsStripHtml("EURUSD"));
+      const d = frag(strip("EURUSD"));
       const rows = d.querySelectorAll(".tvp-row:not(.tvp-head)");
       if (rows.length !== 2) throw new Error(rows.length + " rows for 2 open trades");
       for (const c of rows) {
@@ -196,7 +208,7 @@ if (!jsdom) {
     check("the close control names the trade it would close", () => {
       /* A bare cross tells a screen reader nothing, and tells a trader
          with four trades open nothing either. */
-      const d = frag(T.positionsStripHtml("EURUSD"));
+      const d = frag(strip("EURUSD"));
       const b = d.querySelector(".tvp-row [data-close]");
       const label = b.getAttribute("aria-label") || "";
       if (!/EURUSD/.test(label)) throw new Error("aria-label is " + JSON.stringify(label));
@@ -207,15 +219,22 @@ if (!jsdom) {
     });
 
     check("it closes the ticket it is attached to, not the first one", () => {
-      const d = frag(T.positionsStripHtml("EURUSD"));
+      const d = frag(strip("EURUSD"));
       const got = [...d.querySelectorAll("[data-close]")].map((b) => b.dataset.close);
       if (got.join(",") !== "101,102") throw new Error("tickets: " + got.join(","));
     });
 
-    check("a chart with nothing open shows no close controls at all", () => {
-      const d = frag(T.positionsStripHtml("XAUUSD"));
+    check("an instrument with nothing open has no close controls at all", () => {
+      const d = frag(strip("XAUUSD"));
       if (d.querySelector("[data-close]")) throw new Error("a close button with no position");
-      if (!d.querySelector(".pos-none")) throw new Error("no empty state");
+      /* The empty state is the caller's job, not the row builder's:
+         the cards print emptyMini() and skip the list entirely, which
+         is why .pos-none went with the strip. What is checked here is
+         the part that would be dangerous - no close button pointing
+         at nothing. */
+      if (d.querySelectorAll(".tvp-row:not(.tvp-head)").length) {
+        throw new Error("rows for an instrument with no open trades");
+      }
     });
 
     check("the markets view wires the close controls when it mounts", () => {
@@ -225,11 +244,13 @@ if (!jsdom) {
       if (!/bindCloseButtons\(/.test(binds)) throw new Error("the markets view never binds its close buttons");
     });
 
-    check("the strip re-binds after a snapshot repaints it", () => {
+    check("the list re-binds after a snapshot repaints it", () => {
       /* innerHTML throws the old buttons away with their handlers; the
-         control would work until the first tick and then silently stop. */
-      const fn = /function paintPositionStrips\(\) \{[\s\S]*?\n\}/.exec(appJs)[0];
-      if (!/bindCloseButtons\(/.test(fn)) throw new Error("paintPositionStrips does not re-bind");
+         control would work until the first tick and then silently
+         stop. Now guarded on paintPositions(), which is the repaint
+         that survived the strip. */
+      const fn = /function paintPositions\(boxId, rows, closable\) \{[\s\S]*?\n\}/.exec(appJs)[0];
+      if (!/bindCloseButtons\(/.test(fn)) throw new Error("paintPositions does not re-bind");
     });
 
     /* Driven for real rather than read: "it calls askConfirm" is not the
@@ -242,7 +263,7 @@ if (!jsdom) {
       T.API.post = async (url, body) => { calls.push({ url, body }); return { ok: true }; };
       T.setConfirm(async () => answer);
       const host = win.document.createElement("div");
-      host.innerHTML = T.positionsStripHtml("EURUSD");
+      host.innerHTML = strip("EURUSD");
       win.document.body.appendChild(host);
       try {
         const btn = host.querySelector("[data-close]");
@@ -1408,7 +1429,7 @@ check("the positions list sheds detail rather than overflowing on a phone", () =
   }
   /* And the container has to be declared, or the query never matches
      and the fold silently never happens. */
-  for (const anchor of [".tv-posdock-body", ".pos-strip-list"]) {
+  for (const anchor of [".tv-posdock-body", ".pos-pane"]) {
     const re = new RegExp("[{;}]" + anchor.replace(".", "\\.") + "\\s*\\{[^}]*container:\\s*tvp\\s*/\\s*inline-size");
     if (!re.test(flat) && !re.test(appCss.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\s*\n\s*/g, ""))) {
       throw new Error(anchor + " is not a query container, so its list can never fold");

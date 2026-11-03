@@ -1550,59 +1550,19 @@ fieldset.prop-fields.is-locked{
 .pos-pane::-webkit-scrollbar{width:6px}
 .pos-pane::-webkit-scrollbar-thumb{background:rgb(var(--wash) / .18);border-radius:99px}
 
-/* Open positions, docked between a chart's toolbar and its canvas.
+/* The per-symbol strip that used to sit between a chart card's
+   toolbar and its canvas is gone, and so are its rules - .pos-strip,
+   its heading, its 168px scrolling list and the 560px rule that hid
+   the heading on a phone.
 
-   In the flow rather than over the chart, which is the whole point: it
-   cannot land on the toolbar buttons and it cannot cover price.
+   A card on the Charts page is a thumbnail: it says what is attached
+   and whether it is alive, and the eye runs down the grid comparing
+   them. Trades inside each card gave every card a different height,
+   and the list had to scroll inside a card that was itself inside a
+   scrolling page - two scrollers one inside the other, on a touch
+   screen. The book is on the three positions cards above; the
+   per-symbol view of it is the chart desk's own dock. */
 
-   The rows are the EA chart's own position rows - the same .tvp-list
-   the dock across the bottom of the chart desk is built from, from the
-   same builder in positionsListHtml(). Before this the cards drew a
-   trade as a rounded chip in a ribbon that scrolled sideways: the same
-   position looked like two different things depending on where you
-   read it, nothing lined up with the line above it because each chip
-   sized itself, and a sideways scrollbar inside a card hides open
-   trades behind a gesture nobody thinks to try.
-
-   The strip is capped and scrolls down instead. The card keeps the
-   same height whether one trade is open or nine - which is what the
-   ribbon was for, and this keeps it - and the canvas underneath never
-   moves. Nothing here opens or closes: unlike the dock on the chart
-   desk, the strip is simply always the list. */
-.pos-strip{
-  display:flex;align-items:flex-start;gap:10px;min-height:40px;
-  margin:8px 0 6px;padding:5px 10px;
-  border:1px solid var(--line);border-radius:12px;
-  background:rgb(var(--wash) / .03);
-}
-.pos-strip-h{
-  flex:0 0 auto;font-size:11px;color:var(--muted);letter-spacing:.02em;
-  text-transform:uppercase;white-space:nowrap;padding-block-start:5px;
-}
-html[dir="rtl"] .pos-strip-h{letter-spacing:0;text-transform:none}
-.pos-strip-list{
-  min-width:0;flex:1 1 auto;
-  /* The query container the rows measure themselves against, so a
-     card that is 428px wide at 1440 and 725px wide at 900 lays its
-     positions out for the room it has rather than for the window. */
-  container:tvp / inline-size;
-  /* Three rows of the aligned layout, or two of the stacked one.
-     Enough to read the book at a glance without a card turning into
-     a page of its own, and the rest is a scroll away. */
-  max-block-size:168px;
-  overflow-y:auto;overflow-x:hidden;
-  overscroll-behavior:contain;
-  scrollbar-width:thin;
-}
-.pos-strip-list::-webkit-scrollbar{width:4px}
-.pos-strip-list::-webkit-scrollbar-thumb{background:rgb(var(--wash) / .18);border-radius:99px}
-.pos-none{font-size:12px;color:var(--faint);white-space:nowrap;display:inline-block;padding-block:4px}
-@media (max-width:560px){
-  /* The label would eat a third of a phone's width; the coloured edge
-     of each row already says what it is. */
-  .pos-strip-h{display:none}
-  .pos-strip{min-height:36px;gap:0}
-}
 
 .chart-box{position:relative}
 .chart-levels{
