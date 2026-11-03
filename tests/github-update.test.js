@@ -352,21 +352,60 @@ console.log("\n=== the rate limit ===");
   say(/out\.last_known = prev/.test(upd), "and still reports the last answer that worked");
   say(/function updateErrorText/.test(app), "the desk turns the code into a sentence");
   say(/upd\.rate_limited/.test(app) && /upd\.rate_retry/.test(app), "naming the limit and when it clears");
-  say(/if \(!res\.rate_authenticated\) text \+=/.test(app),
-    "and only suggests a token to someone not already using one");
+  say(!/rate_token_hint/.test(app),
+    "and does not send the reader looking for a token field that is gone");
 
-  /* A token is the real cure for a shared address. */
-  say(/github_token/.test(upd), "a token can be stored");
-  say(/delete merged\.github_token/.test(upd), "but is never handed back out");
-  say(/github_token_set/.test(upd), "only whether one is set");
-  say(/\("github_token" in safePatch\)/.test(upd),
-    "an unrelated save keeps the stored token instead of wiping it");
-  say(/id="upd-token"/.test(app) && /type="password"/.test(app), "there is a field for it");
-  say(/body\.github_token !== undefined/.test(idx), "the route accepts it");
-  say(/\{20,255\}\$\/\.test\(tok\)/.test(idx) && /invalid_token/.test(idx),
-    "validating its shape, not merely naming the error");
-  say(/req\.user\.role !== "owner"/.test(idx.slice(idx.indexOf("/system/update/settings"), idx.indexOf("/system/update/settings") + 300)),
-    "and only an owner or admin may set one");
+  /* The desk holds no secret of its own.
+     
+     A token field was offered here once, to lift the hourly ceiling.
+     It is not needed: a check costs three requests cold and none when
+     nothing has moved, and an install costs none at all. Taking a
+     secret over the dashboard for no benefit is a liability, so the
+     whole path was removed - and these guards are what stop it coming
+     back one convenience at a time. */
+  say(!/id="upd-token"/.test(app), "there is no token field on the desk");
+  say(!/type="password"/.test(app.slice(app.indexOf("upd-interval") - 400, app.indexOf("upd-save"))),
+    "nor any other password box in the update panel");
+  say(!/github_token/.test(app), "the desk never sends a token anywhere");
+  say(!/body\.github_token/.test(idx), "the settings route does not accept one");
+  say(!/invalid_token/.test(idx), "so there is no token validation left to get wrong");
+  say(/delete safePatch\.github_token/.test(upd) && /delete next\.github_token/.test(upd),
+    "a token passed to saveSettings anyway is dropped, not written to disk");
+  say(!/github_token: next\.github_token/.test(upd), "and the settings file no longer has a slot for one");
+  say(/delete merged\.github_token/.test(upd), "nor can one travel back out on a settings read");
+  say(!/github_token_set/.test(upd), "there is nothing left for the panel to be told about");
+
+  /* A token typed into an older build is still on that disk, and with
+     the field gone there is no longer any way to clear it from the
+     product. Leaving it there would be the worst of both. */
+  say(/function purgeStoredToken\(\)/.test(upd), "a token stored by an older build is deleted");
+  say(/delete stored\.github_token;[\s\S]{0,120}writeSecure\(UPDATE_SETTINGS_FILE, stored\)/.test(upd),
+    "removed from the file in place, not merely hidden from the reply");
+  say(/purgeStoredToken\(\);\n  return cfg;/.test(upd), "and that runs whenever the updater reads its config");
+
+  /* The operator's own machine is not the dashboard. These two stay. */
+  const ghSrc2 = rd("backend/src/github-update.js");
+  say(/process\.env\.AURION_GITHUB_TOKEN/.test(ghSrc2),
+    "an operator can still set one in the environment");
+  say(/gh\.token/.test(ghSrc2), "or in their own config, which is never shipped");
+  /* Parsed, not grepped: that file has unrelated sms_token and
+     bot_token placeholders, and the thing that matters is that no
+     secret in it carries a VALUE - it is written onto every
+     customer's machine by the updater. */
+  const factory = JSON.parse(rd("config/aurion.factory.json"));
+  const ghCfg = (factory.update_server || {}).github || {};
+  say(!("token" in ghCfg), "and the config shipped to every customer has no github token field");
+  const withValue = [];
+  const walk = (node, at) => {
+    if (!node || typeof node !== "object") return;
+    for (const [k, v] of Object.entries(node)) {
+      if (typeof v === "string" && /token|secret|password/i.test(k) && v.trim()) withValue.push(at + k);
+      else if (v && typeof v === "object") walk(v, at + k + ".");
+    }
+  };
+  walk(factory, "");
+  say(withValue.length === 0,
+    withValue.length ? "shipped with a value: " + withValue.join(", ") : "and no secret in it is filled in at all");
 
   const ignore = rd(".gitignore");
   say(/data\/github-cache\.json/.test(ignore), "the cache is not committed");

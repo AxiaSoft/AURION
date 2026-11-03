@@ -16,7 +16,9 @@
  *     upd.rate_limited upd.rate_retry upd.rate_token_hint
  *
  * three keys in a row where a sentence about rate limiting should have
- * been. The keys were present in all three packs the whole time.
+ * been. The keys were present in all three packs the whole time. (The
+ * third has since been removed with the token field it advertised; the
+ * guard below pins that it went from the packs and the code together.)
  *
  * So the guards here are about sequence, not about appearance: the page
  * must not reload until the engine has answered, the pack cache must not
@@ -287,11 +289,26 @@ console.log("\n=== every string it shows exists in every language ===");
   check("the placeholders match across the three packs", mismatched.length === 0,
     mismatched.length ? mismatched.join(", ") : "{n}, {total}, {time}");
 
-  /* The three keys from the report, pinned by name. */
-  for (const key of ["upd.rate_limited", "upd.rate_retry", "upd.rate_token_hint"]) {
+  /* The keys from the report, pinned by name. The third of them,
+     upd.rate_token_hint, has since been removed along with the token
+     field it advertised - so what is pinned about that one is that it
+     is gone from the packs AND from the code, together. */
+  for (const key of ["upd.rate_limited", "upd.rate_retry"]) {
     const ok = ["en", "fa", "ar"].every((c) => typeof get(packs[c], key) === "string");
     check("the reported key " + key + " is present in all three packs", ok);
   }
+  check(
+    "the token hint is gone from every pack, not just from the code",
+    ["en", "fa", "ar"].every((c) => get(packs[c], "upd.rate_token_hint") === undefined)
+      && !/rate_token_hint/.test(read("apps/web/js/app.js")),
+    "a string nothing renders is a string nobody maintains"
+  );
+  check(
+    "and the update panel offers no token field to point at",
+    !/upd-token/.test(read("apps/web/js/app.js"))
+      && ["en", "fa", "ar"].every((c) => get(packs[c], "upd.token") === undefined),
+    "the desk holds no secret of its own"
+  );
 }
 
 console.log("\n=== how it looks ===");
