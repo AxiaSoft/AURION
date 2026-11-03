@@ -7791,11 +7791,6 @@ const views = {
           <label class="field"><span>${I18N.t("upd.interval")}</span>
             <input id="upd-interval" type="number" min="1" max="168" value="6" />
           </label>
-          <label class="field"><span>${I18N.t("upd.token")}</span>
-            <input id="upd-token" type="password" autocomplete="off" spellcheck="false"
-                   placeholder="${esc(I18N.t("upd.token_ph"))}" />
-          </label>
-          <p class="sub">${I18N.t("upd.token_why")}</p>
           <button class="btn block" id="upd-save" type="button">${I18N.t("upd.save")}</button>
           <p class="sub" id="upd-save-msg"></p>
         </div>
@@ -8840,12 +8835,7 @@ async function bindUpdatePanel(){
       auto_check_enabled: autoEl ? autoEl.classList.contains('on') : false,
       auto_check_interval_hours: Number(intervalEl.value)||6,
     };
-    const tokEl = document.getElementById('upd-token');
-    const typed = tokEl ? String(tokEl.value || '').trim() : '';
-    if (typed) body.github_token = typed;
     const r = await API.post('/api/system/update/settings', body);
-    /* Never leave a token sitting in the DOM after it has been sent. */
-    if (tokEl && typed) tokEl.value = '';
     const txt = r.ok ? I18N.t('upd.saved') : (r.error||I18N.t('upd.error'));
     /* The tick is an icon in the panel; the toast is plain text by nature,
        and its own wording already says the save succeeded. */
@@ -8853,11 +8843,6 @@ async function bindUpdatePanel(){
     toast(txt);
   };
   if(autoEl) autoEl.onclick = () => paintSwitch(autoEl, !autoEl.classList.contains('on'));
-
-  /* An untouched password box means "leave it as it is", not "clear it".
-     The field is never prefilled - the backend does not hand the token
-     back out - so there is nothing to echo and nothing to leak. */
-  const tokenEl = document.getElementById('upd-token');
 
   const checkBtn = document.getElementById('upd-check');
   if(checkBtn) checkBtn.onclick = async () => {
@@ -13425,7 +13410,6 @@ async function checkForUpdate() {
         reset_at: (r && r.reset_at) || "",
         retry_after_seconds: r && r.retry_after_seconds,
         rate_limit: r && r.rate_limit,
-        rate_authenticated: Boolean(r && r.rate_authenticated),
         /* The last answer that did work, so a temporary failure does
            not blank out what this desk is running. */
         lastKnown: (r && r.last_known) || null,
@@ -13466,8 +13450,11 @@ function updateErrorText(res) {
         when.toLocaleTimeString(I18N.locale(), { hour: "2-digit", minute: "2-digit" }));
     }
   }
-  /* Only worth suggesting when they are not already using one. */
-  if (!res.rate_authenticated) text += " " + I18N.t("upd.rate_token_hint");
+  /* There used to be a third sentence here, suggesting a GitHub token.
+     The panel no longer takes one and the updater no longer needs one,
+     so advice to go and set one would send the reader looking for a
+     field that is not there. When it clears is the whole of the
+     actionable truth now. */
   return text;
 }
 

@@ -61,26 +61,51 @@ function getSourceKind() {
 function liveConfig() {
   let cfg;
   try { cfg = loadConfig() || {}; } catch { cfg = {}; }
-  /* A personal access token raises the GitHub ceiling from 60 requests
-     an hour to 5000, and makes the budget this machine's own rather
-     than one shared with everyone behind the same address. It is kept
-     here, in the 0600 data file, and never in config/aurion.json -
-     that file is in the repository, and a token committed by accident
-     is a token that has to be revoked. */
+  /* The desk no longer holds a token of its own.
+     
+     One was offered in the update panel, to raise the GitHub ceiling
+     from 60 requests an hour to 5000. It is not needed any more: a
+     check costs three requests cold and none when nothing has moved,
+     and an install costs none at all since it started taking the whole
+     tree from the archive endpoint. Four checks a day against a limit
+     of sixty an hour is not a budget worth asking a trader to manage a
+     secret for.
+     
+     What is left is the machine's own: AURION_GITHUB_TOKEN in the
+     environment, or update_server.github.token in config/aurion.json,
+     which is the operator's live config and is never shipped. Neither
+     can be set from the dashboard, so no secret is typed into, stored
+     by, or returned from the desk. */
+  purgeStoredToken();
+  return cfg;
+}
+
+/**
+ * Remove a token an older build let somebody type into the desk.
+ *
+ * The field is gone, so nothing can clear it any more - and a secret
+ * sitting in a file that the product no longer has any way to manage is
+ * worse than one that is merely unnecessary. It is deleted the first
+ * time this runs, in place, with the same 0600 write as everything else
+ * in that file.
+ *
+ * Only the desk's copy. A token in the environment or in the operator's
+ * own config is theirs, is not a thing the dashboard can reach, and is
+ * left exactly where they put it.
+ */
+let tokenPurged = false;
+function purgeStoredToken() {
+  if (tokenPurged) return false;
+  tokenPurged = true;
   try {
     const stored = readJsonSecure(UPDATE_SETTINGS_FILE, {});
-    const tok = String(stored.github_token || "").trim();
-    if (tok) {
-      cfg = {
-        ...cfg,
-        update_server: {
-          ...(cfg.update_server || {}),
-          github: { ...((cfg.update_server || {}).github || {}), token: tok },
-        },
-      };
-    }
-  } catch { /* no token stored */ }
-  return cfg;
+    if (!("github_token" in stored)) return false;
+    delete stored.github_token;
+    writeSecure(UPDATE_SETTINGS_FILE, stored);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function getSourceUrl() {
@@ -113,10 +138,10 @@ function getSettings() {
   };
   const stored = readJsonSecure(UPDATE_SETTINGS_FILE, {});
   const merged = { ...defaults, ...stored };
-  /* Whether a token is set is useful to the panel; the token itself is
-     not, and a secret that is sent back out on every settings read is a
-     secret in one more place than it needs to be. */
-  merged.github_token_set = Boolean(String(stored.github_token || "").trim());
+  /* Belt and braces. Nothing writes a token here any more, but a file
+     left over from an older build might still carry one, and a secret
+     must not travel back out on a settings read on its way to being
+     deleted. */
   delete merged.github_token;
 
   /* On GitHub there is no server URL to show, and showing an empty one
@@ -162,16 +187,11 @@ function saveSettings(patch) {
   if ("source_url" in safePatch) delete safePatch.source_url;
   const current = getSettings();
   const next = { ...current, ...safePatch };
-  /* getSettings deliberately strips the token, so "whatever is already
-     stored" has to be read from the file rather than inherited from
-     current - otherwise saving the auto-check interval would quietly
-     delete the token and put the desk back on 60 requests an hour.
-     An empty string in the patch is a real instruction to clear it;
-     an absent key is not. */
-  const storedNow = readJsonSecure(UPDATE_SETTINGS_FILE, {});
-  next.github_token = ("github_token" in safePatch)
-    ? String(safePatch.github_token || "").trim()
-    : String(storedNow.github_token || "");
+  /* A token cannot arrive here: the route does not accept one and the
+     panel has no field. Dropped rather than ignored, so a caller that
+     passes one anyway cannot write a secret into this file. */
+  delete safePatch.github_token;
+  delete next.github_token;
   // Ensure source URL remains authoritative
   const src = getSourceUrl();
   if (src) {
@@ -184,7 +204,6 @@ function saveSettings(patch) {
     auto_check_interval_hours: next.auto_check_interval_hours,
     last_check: next.last_check,
     last_check_result: next.last_check_result,
-    github_token: next.github_token || "",
     // do not persist url from dashboard, only from source; keep placeholder for compatibility
     _note: "update_server_url is source-defined in config/aurion.json",
   });
@@ -681,8 +700,18 @@ function stopAutoChecker() {
   if (autoCheckTimer) { clearInterval(autoCheckTimer); autoCheckTimer = null; }
 }
 
+/* On the way up, every time.
+ *
+ * The purge above runs whenever the updater reads its config, which
+ * covers opening the panel or checking for an update - but a desk whose
+ * owner does neither again would keep carrying the token it can no
+ * longer manage. Doing it at boot makes the removal certain, and the
+ * flag inside means it costs one file read per process. */
+try { purgeStoredToken(); } catch { /* never block startup over this */ }
+
 module.exports = {
   copyExpertsToTerminals,
+  purgeStoredToken,
   getSourceKind,
   getSettings,
   saveSettings,

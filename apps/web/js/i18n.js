@@ -41,7 +41,10 @@ const I18N = {
    * PREVIOUS token, which matched the cached pack exactly and refreshed
    * nothing. Every key added by that update then rendered as its own
    * key: "upd.rate_limited upd.rate_retry upd.rate_token_hint" on
-   * screen instead of a sentence, reported from the field.
+   * screen instead of a sentence, reported from the field. (The third
+   * of those keys no longer exists - it suggested setting a GitHub
+   * token, and the desk stopped taking one - but the fault it exposed
+   * was never about which keys they were.)
    *
    * The install screen now waits for the engine to answer before it
    * reloads, which removes the cause; this removes the leftovers. Only

@@ -914,17 +914,16 @@ guarded.post("/system/update/settings", (req, res) => {
     if (isNaN(h) || h < 1 || h > 168) return res.status(400).json({ ok:false, error:"invalid_interval" });
     patch.auto_check_interval_hours = h;
   }
-  /* Owner-only, like the rest of this route. Validated by shape rather
-     than by asking GitHub: a token is checked the next time one is
-     used, and a bad one fails loudly there with its own message. An
-     empty string is a deliberate "forget the one I stored". */
-  if (body.github_token !== undefined) {
-    const tok = String(body.github_token || "").trim();
-    if (tok && !/^[A-Za-z0-9_\-]{20,255}$/.test(tok)) {
-      return res.status(400).json({ ok: false, error: "invalid_token" });
-    }
-    patch.github_token = tok;
-  }
+  /* No GitHub token is accepted here, by design.
+     
+     The panel used to offer one to raise the hourly ceiling. It is not
+     needed - a check costs three requests cold and none when nothing
+     has moved, an install costs none at all - and accepting a secret
+     over the dashboard means storing it, guarding it, and never
+     echoing it, for no benefit. A token that reaches this route is
+     dropped on the floor rather than saved; the only places one is
+     read from now are the environment and the operator's own config,
+     neither of which the dashboard can write. */
   const saved = updater.saveSettings(patch);
   if (patch.auto_check_enabled !== undefined || patch.auto_check_interval_hours !== undefined) {
     updater.stopAutoChecker();
