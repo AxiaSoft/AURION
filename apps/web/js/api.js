@@ -25,6 +25,16 @@ const API = {
     });
     let json = {};
     try { json = await res.json(); } catch { json = { ok: false, error: "bad_response" }; }
+    /* End of support. The desk is five days past a published update and
+       the server is refusing everything but the way out of that. The
+       facts travel in the body, so the screen that explains it needs no
+       request of its own - which matters, because the request it would
+       have made is one of the ones being refused. */
+    if (res.status === 403 && json && json.error === "support_expired") {
+      try {
+        window.dispatchEvent(new CustomEvent("aurion:support-expired", { detail: json.support || null }));
+      } catch {}
+    }
     if (res.status === 401) {
       // secure: clear token and redirect to login gate
       this.setToken("");

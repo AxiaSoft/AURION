@@ -23,6 +23,7 @@ const owner = require("./owner");
 const deskCfg = require("./config");
 const db = require("./db");
 const updater = require("./updater");
+const support = require("./support-window");
 
 ensureDirs();
 auth.boot();
@@ -532,6 +533,27 @@ guarded.use((req, res, next) => {
   return auth.requireRole("owner", "admin", "trader")(req, res, next);
 });
 
+/* End of support.
+ *
+ * Five days after a newer version is published this desk stops serving
+ * anything but the way out of that situation. The policy itself lives in
+ * support-window.js; what belongs here is the one side effect it must
+ * not own - stopping the robot.
+ *
+ * A locked screen does not stop the engine. It is a separate process
+ * with its own loop, and leaving it opening positions behind a desk
+ * nobody can read would be the worst of both: no supervision and no
+ * ability to intervene. So the first blocked request also disarms
+ * auto-trading. Once, per process, best effort, never blocking the
+ * response. */
+let tradingHaltedForSupport = false;
+function haltTradingForSupport() {
+  if (tradingHaltedForSupport) return;
+  tradingHaltedForSupport = true;
+  engine.proxy("POST", "/v1/auto", { enabled: false }).catch(() => { /* retried next boot */ });
+}
+guarded.use(support.middleware({ onExpired: haltTradingForSupport }));
+
 const ownerOnly = auth.requireRole("owner");
 
 guarded.get("/users", ownerOnly, (_req, res) => {
@@ -759,6 +781,10 @@ guarded.get("/snapshot", async (req, res) => {
   if (data && data.data && data.data.license) {
     billing.warnExpiry(req.user, data.data.license);
   }
+  /* The countdown rides along with the poll the desk already makes
+     every twelve seconds, rather than costing a request of its own.
+     res.locals.support was computed by the gate a moment ago. */
+  if (data && typeof data === "object") data.support = res.locals.support || support.status();
   const status = data && data.error === "engine_offline" ? 503 : 200;
   res.status(status).json(data);
 });
@@ -962,6 +988,15 @@ guarded.post("/system/update/apply", async (req, res) => {
   res.json(result);
 });
 
+/* How long this build has left, and why.
+ *
+ * Open to every role on purpose: the lock falls on the trader as much
+ * as on the owner, and a trader who cannot ask why their desk stopped
+ * is left with a screen that looks broken. It reads one small file. */
+guarded.get("/system/support", (_req, res) => {
+  res.json({ ok: true, data: support.status() });
+});
+
 guarded.get("/system/update/manifest", (req, res) => {
   if (req.user.role !== "owner" && req.user.role !== "admin") return res.status(403).json({ ok:false, error:"forbidden" });
   const manifest = updater.collectLocalManifest();
@@ -1130,6 +1165,29 @@ const host = process.env.AURION_HOST || cfg.backend.host || "0.0.0.0";
 const port = Number(process.env.AURION_PORT || cfg.backend.port || 8080);
 // Start update auto-checker
 try { updater.startAutoChecker(); } catch {}
+
+/* The support clock has to be wound by something.
+ *
+ * The auto-checker above is the user's: it is off by default and they
+ * may turn it off again. Enforcement cannot depend on a switch the
+ * thing being enforced upon owns, so this runs unconditionally - four
+ * checks a day, which is three GitHub requests cold and none when
+ * nothing has moved, against a ceiling of sixty an hour.
+ *
+ * It also re-disarms auto-trading on every boot of an expired desk, so
+ * restarting the machine is not a way to get the robot running again
+ * behind the lock screen. */
+const SUPPORT_WATCH_MS = 6 * 60 * 60 * 1000;
+async function supportWatchTick() {
+  try { await updater.checkForUpdates(); } catch { /* offline is not a lockout */ }
+  try {
+    if (support.status().expired) haltTradingForSupport();
+  } catch { /* never let the policy crash the desk */ }
+}
+try {
+  setTimeout(() => { supportWatchTick(); }, 45000);
+  setInterval(() => { supportWatchTick(); }, SUPPORT_WATCH_MS);
+} catch {}
 server.listen(port, host, () => {
   console.log(JSON.stringify({ ts: new Date().toISOString(), msg: `AURION desk on ${host}:${port}` }));
 });
