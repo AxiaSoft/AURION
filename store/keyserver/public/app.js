@@ -6,6 +6,46 @@
 */
 "use strict";
 const $ = (id) => document.getElementById(id);
+
+/* ---------------------------------------------------------------------
+   Icons.
+
+   The shop used to mark everything with emoji and with stray typographic
+   characters - a shield, a star, a padlock, a tick, a heart drawn as the
+   text character U+2661. None of them belonged to the design: the system
+   font decided how they looked, they stayed the same colour whatever the
+   page did, they rendered at a different weight on every platform, and on
+   Windows several arrived in full colour in the middle of grey text.
+
+   These are drawn instead, 24x24 on a 1.6 stroke, inheriting currentColor
+   so each one takes the colour of the text it sits beside. `fill` turns a
+   shape solid, which is how the wishlist heart and the popular-product
+   star show that they are switched on.
+   --------------------------------------------------------------------- */
+const ICONS = {
+  shield: '<path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"/>',
+  star: '<polygon points="12,3.6 14.4,9 20.2,9.6 15.8,13.5 17.1,19.2 12,16.2 6.9,19.2 8.2,13.5 3.8,9.6 9.6,9"/>',
+  heart: '<path d="M12 20s-7.5-4.4-7.5-9.4A4.1 4.1 0 0112 8.2a4.1 4.1 0 017.5 2.4c0 5-7.5 9.4-7.5 9.4z"/>',
+  check: '<polyline points="4.5,12.5 9.5,17.5 19.5,6.5"/>',
+  close: '<line x1="6" y1="6" x2="18" y2="18"/><line x1="18" y1="6" x2="6" y2="18"/>',
+  lock: '<rect x="4.5" y="10.5" width="15" height="10" rx="2"/><path d="M8 10.5V7.8a4 4 0 018 0v2.7"/>',
+  bolt: '<polygon points="13,2 4,14 11,14 11,22 20,10 13,10"/>',
+  headset: '<path d="M4.5 14v-2a7.5 7.5 0 0115 0v2"/><rect x="2.8" y="13.5" width="4" height="6" rx="1.6"/><rect x="17.2" y="13.5" width="4" height="6" rx="1.6"/><path d="M19.2 19.5a3.4 3.4 0 01-3.4 2.3H13"/>',
+  megaphone: '<path d="M4 10v4a1.6 1.6 0 001.6 1.6H7l3.6 3.2a.8.8 0 001.4-.6V5.8a.8.8 0 00-1.4-.6L7 8.4H5.6A1.6 1.6 0 004 10z"/><path d="M16.5 9a4 4 0 010 6"/><path d="M19 6.5a7.5 7.5 0 010 11"/>',
+  phone: '<path d="M7.6 3.5h-3A1.6 1.6 0 003 5.2 16.4 16.4 0 0018.8 21a1.6 1.6 0 001.7-1.6v-3a1.1 1.1 0 00-.95-1.1l-3-.45a1.1 1.1 0 00-1 .4l-1.2 1.4a12.6 12.6 0 01-5.1-5.1l1.4-1.2a1.1 1.1 0 00.4-1l-.45-3a1.1 1.1 0 00-1.1-.95z"/>',
+  mail: '<rect x="3" y="5.5" width="18" height="13" rx="2"/><polyline points="3.6,6.8 12,13 20.4,6.8"/>',
+  send: '<path d="M21 3.5L10.8 13.7"/><path d="M21 3.5l-6.6 17.3-3.6-7.1-7.1-3.6z"/>',
+  search: '<circle cx="11" cy="11" r="6.5"/><line x1="15.8" y1="15.8" x2="20.5" y2="20.5"/>',
+  gift: '<rect x="3.5" y="9.5" width="17" height="4" rx="1"/><path d="M5 13.5V20a1.5 1.5 0 001.5 1.5h11A1.5 1.5 0 0019 20v-6.5"/><line x1="12" y1="9.5" x2="12" y2="21.5"/><path d="M12 9.5S10.8 5 8.6 5a2.3 2.3 0 000 4.5z"/><path d="M12 9.5S13.2 5 15.4 5a2.3 2.3 0 010 4.5z"/>',
+};
+function ico(name, opts){
+  const o = opts || {};
+  const cls = o.cls ? ' class="' + o.cls + '"' : '';
+  return '<svg viewBox="0 0 24 24" aria-hidden="true"' + cls +
+    ' fill="' + (o.fill ? 'currentColor' : 'none') + '"' +
+    ' stroke="currentColor" stroke-width="1.6" stroke-linecap="round"' +
+    ' stroke-linejoin="round">' + (ICONS[name] || '') + '</svg>';
+}
 const appEl = () => $("app");
 const ADMIN_HASH = "__ADMIN_HASH__";
 const PUBLIC_VIEWS = ["store","products","product","cart","checkout","account","auth","recover","support","verify","done","wishlist"];
@@ -199,15 +239,15 @@ function productCard(p){
   const inWish=(state.me&&state.me.wishlist?state.me.wishlist.includes(p.id):state.wishlistLocal.includes(p.id));
   return `<div class="card plan ${p.popular?"pop":""}">
     ${p.badge?`<span class="pill popular" style="position:absolute;top:12px;left:12px">${esc(p.badge)}</span>`:""}
-    <span class="lock">🛡️</span>
+    <span class="lock">${ico("shield")}</span>
     <div class="months">${esc(p.title)}</div>
     <div class="sub">${esc(p.description)}</div>
     <div class="price">${toman(p.price_rial)} <small>(${p.days} روز)</small></div>
     <ul>${(p.features||[]).slice(0,4).map(f=>`<li>${esc(f)}</li>`).join("")}</ul>
-    <div class="row" style="justify-content:center"><span class="sub">⭐ ${p.rating} · ${p.reviews} نظر</span></div>
+    <div class="row" style="justify-content:center"><span class="sub">${ico("star",{fill:1,cls:"i-star"})} ${p.rating} · ${p.reviews} نظر</span></div>
     <div class="actions">
-      <button class="btn primary" data-add="${p.id}">${inCart?"✓ در سبد":"افزودن به سبد"}</button>
-      <button class="btn small ghost" data-wish="${p.id}" title="علاقه‌مندی">${inWish?"♥":"♡"}</button>
+      <button class="btn primary" data-add="${p.id}">${inCart?ico("check")+" در سبد":"افزودن به سبد"}</button>
+      <button class="btn small ghost" data-wish="${p.id}" title="علاقه‌مندی">${ico("heart",{fill:inWish,cls:"i-heart"})}</button>
       <button class="btn small ghost" data-view-product="${p.id}">جزئیات</button>
     </div>
   </div>`;
@@ -221,12 +261,12 @@ function viewStore(){
       <div class="hero-copy">
         <h1>${esc(site.name||"فروشگاه رسمی AURION")}<br/>لایسنس اورجینال، تحویل آنی</h1>
         <p>${esc(site.tagline||"پرداخت امن با زرین‌پال · کلید بلافاصله بعد از پرداخت صادر می‌شود · هر کلید یک‌بارمصرف و بایند به یک سیستم · تا ۳ بار بازیابی رایگان · پشتیبانی واقعی")}</p>
-        <div class="hero-badges"><span>🔒 زرین‌پال امن</span><span>⚡ تحویل آنی</span><span>🎧 تیکت پشتیبانی</span><span>🛡️ اصالت تضمینی</span></div>
+        <div class="hero-badges"><span>${ico("lock")} زرین‌پال امن</span><span>${ico("bolt")} تحویل آنی</span><span>${ico("headset")} تیکت پشتیبانی</span><span>${ico("shield")} اصالت تضمینی</span></div>
         <div class="row" style="margin-top:16px"><button class="btn primary" data-view="products">مشاهده همه محصولات</button><button class="btn ghost" data-view="support">پشتیبانی</button></div>
-        ${notice?`<div class="card" style="margin-top:14px;background:rgba(232,192,122,.08);border-color:rgba(232,192,122,.25)"><p class="sub">📢 ${esc(notice)}</p></div>`:""}
+        ${notice?`<div class="card" style="margin-top:14px;background:rgba(232,192,122,.08);border-color:rgba(232,192,122,.25)"><p class="sub">${ico("megaphone")} ${esc(notice)}</p></div>`:""}
       </div>
       <div class="hero-card">
-        <div class="card"><h3>چرا AURION؟</h3><ul style="list-style:none;display:grid;gap:8px;margin-top:8px;font-size:13px;color:var(--muted)"><li>✓ اتصال مستقیم MT5 + EA اختصاصی</li><li>✓ استراتژی‌های پراپ تست‌شده</li><li>✓ AI تشخیص روند</li><li>✓ مدیریت ریسک حرفه‌ای</li><li>✓ پشتیبانی واقعی فارسی</li></ul></div>
+        <div class="card"><h3>چرا AURION؟</h3><ul style="list-style:none;display:grid;gap:8px;margin-top:8px;font-size:13px;color:var(--muted)">${["اتصال مستقیم MT5 + EA اختصاصی","استراتژی‌های پراپ تست‌شده","AI تشخیص روند","مدیریت ریسک حرفه‌ای","پشتیبانی واقعی فارسی"].map(x=>`<li>${ico("check")} ${x}</li>`).join("")}</ul></div>
         <div class="card"><h3>آمار فروشگاه</h3><div class="stat-grid" style="margin-top:8px"><div class="stat"><span class="sub">کاربران</span><b>${state.siteInfo?.stats?.users||"—"}</b></div><div class="stat"><span class="sub">سفارش موفق</span><b>${state.siteInfo?.stats?.orders||"—"}</b></div></div></div>
       </div>
     </div>
@@ -268,10 +308,10 @@ function viewProduct(){
   return `<section class="view">
     <div class="row"><button class="btn small ghost" data-view="products">← بازگشت</button><span class="sub">${esc(p.sku)}</span></div>
     <div class="grid g2" style="margin-top:14px">
-      <div class="card"><div style="height:200px;display:grid;place-items:center;background:radial-gradient(circle,rgba(62,224,196,.15),transparent 70%);border-radius:12px"><span style="font-size:64px">🛡️</span></div><h2 style="margin-top:14px">${esc(p.title)}</h2><p class="sub">${esc(p.long_desc||p.description)}</p><div class="price" style="margin-top:10px;font-size:22px;color:var(--gold)">${toman(p.price_rial)} <small class="sub">برای ${p.days} روز</small></div><ul style="margin-top:10px">${(p.features||[]).map(f=>`<li>✓ ${esc(f)}</li>`).join("")}</ul></div>
+      <div class="card"><div style="height:200px;display:grid;place-items:center;background:radial-gradient(circle,rgba(62,224,196,.15),transparent 70%);border-radius:12px"><span class="hero-mark">${ico("shield")}</span></div><h2 style="margin-top:14px">${esc(p.title)}</h2><p class="sub">${esc(p.long_desc||p.description)}</p><div class="price" style="margin-top:10px;font-size:22px;color:var(--gold)">${toman(p.price_rial)} <small class="sub">برای ${p.days} روز</small></div><ul style="margin-top:10px">${(p.features||[]).map(f=>`<li>${ico("check")} ${esc(f)}</li>`).join("")}</ul></div>
       <div style="display:grid;gap:14px">
-        <div class="card"><h3>خرید</h3><div class="row" style="margin-top:10px"><button class="btn primary" data-add="${p.id}">${inCart?"✓ در سبد":"افزودن به سبد"}</button><button class="btn ghost" data-wish="${p.id}">${inWish?"♥ حذف از علاقه‌مندی":"♡ افزودن به علاقه‌مندی"}</button></div><button class="btn block" style="margin-top:10px" data-buy-now="${p.id}">خرید مستقیم با زرین‌پال</button><p class="sub" style="margin-top:8px">پرداخت امن · تحویل آنی · ۳ بار بازیابی رایگان</p></div>
-        <div class="card"><h3>ویژگی‌ها</h3><div class="kv" style="margin-top:8px"><span>مدت</span><b>${p.days} روز (${p.months} ماه)</b><span>دستگاه</span><b>۱ سیستم</b><span>بازیابی</span><b>${3} بار رایگان</b><span>امتیاز</span><b>⭐ ${p.rating} (${p.reviews} نظر)</b></div></div>
+        <div class="card"><h3>خرید</h3><div class="row" style="margin-top:10px"><button class="btn primary" data-add="${p.id}">${inCart?ico("check")+" در سبد":"افزودن به سبد"}</button><button class="btn ghost" data-wish="${p.id}">${ico("heart",{fill:inWish,cls:"i-heart"})} ${inWish?"حذف از علاقه‌مندی":"افزودن به علاقه‌مندی"}</button></div><button class="btn block" style="margin-top:10px" data-buy-now="${p.id}">خرید مستقیم با زرین‌پال</button><p class="sub" style="margin-top:8px">پرداخت امن · تحویل آنی · ۳ بار بازیابی رایگان</p></div>
+        <div class="card"><h3>ویژگی‌ها</h3><div class="kv" style="margin-top:8px"><span>مدت</span><b>${p.days} روز (${p.months} ماه)</b><span>دستگاه</span><b>۱ سیستم</b><span>بازیابی</span><b>${3} بار رایگان</b><span>امتیاز</span><b>${ico("star",{fill:1,cls:"i-star"})} ${p.rating} (${p.reviews} نظر)</b></div></div>
         <div class="card"><h3>پشتیبانی</h3><p class="sub">هر مشکلی داشتید از تب پشتیبانی تیکت بزنید یا مستقیم تماس بگیرید.</p><div id="mini-contact" style="margin-top:8px"></div></div>
       </div>
     </div>
@@ -317,9 +357,9 @@ function viewAccount(){
 
   let content="";
   if(tab==="dash"){
-    content=`<div class="grid g2"><div class="card"><h3>سلام، ${esc(state.me.user.display_name||state.me.user.identity)} 👋</h3><p class="sub">تأیید شده: ${state.me.user.verified?"بله":"خیر"} · عضویت: ${day(state.me.user.created_at)}</p><div class="stat-grid" style="margin-top:12px"><div class="stat"><span class="sub">سفارش پرداخت‌شده</span><b>${paid.length}</b></div><div class="stat"><span class="sub">کلیدها</span><b>${keysCount}</b></div><div class="stat"><span class="sub">مجموع پرداخت</span><b>${toman(totalSpent)}</b></div><div class="stat"><span class="sub">تیکت‌ها</span><b>${ticketsCount}</b></div></div></div><div class="card"><h3>دسترسی سریع</h3><div class="row" style="margin-top:10px"><button class="btn primary" data-view="products">خرید مجدد</button><button class="btn ghost" data-acc="tickets">تیکت‌ها</button><button class="btn ghost" data-acc="keys">کلیدهای من</button></div><p class="sub" style="margin-top:10px">شماره پشتیبانی: ${esc(state.supportInfo?.phone||"—")} · ایمیل: ${esc(state.supportInfo?.email||"—")}</p></div></div>`;
+    content=`<div class="grid g2"><div class="card"><h3>سلام، ${esc(state.me.user.display_name||state.me.user.identity)}</h3><p class="sub">تأیید شده: ${state.me.user.verified?"بله":"خیر"} · عضویت: ${day(state.me.user.created_at)}</p><div class="stat-grid" style="margin-top:12px"><div class="stat"><span class="sub">سفارش پرداخت‌شده</span><b>${paid.length}</b></div><div class="stat"><span class="sub">کلیدها</span><b>${keysCount}</b></div><div class="stat"><span class="sub">مجموع پرداخت</span><b>${toman(totalSpent)}</b></div><div class="stat"><span class="sub">تیکت‌ها</span><b>${ticketsCount}</b></div></div></div><div class="card"><h3>دسترسی سریع</h3><div class="row" style="margin-top:10px"><button class="btn primary" data-view="products">خرید مجدد</button><button class="btn ghost" data-acc="tickets">تیکت‌ها</button><button class="btn ghost" data-acc="keys">کلیدهای من</button></div><p class="sub" style="margin-top:10px">شماره پشتیبانی: ${esc(state.supportInfo?.phone||"—")} · ایمیل: ${esc(state.supportInfo?.email||"—")}</p></div></div>`;
   } else if(tab==="orders"){
-    content=`<div class="card"><h3>سفارش‌های من</h3>${orders.length?orders.map(o=>`<div class="card" style="margin-top:10px"><div class="row" style="justify-content:space-between"><b>${o.grant?"🎁 ":""}سفارش ${esc(o.order_no)} · ${planName(o.plan)} ${o.plans&&o.plans.length>1?`+ ${o.plans.length-1} مورد`:""}</b><span>${pill(o.status)} · ${o.grant?"رایگان":toman(o.amount)}</span></div><div class="row inv-row"><span class="mono">سفارش: <b>${esc(o.order_no)}</b></span>${o.invoice_no?`<span class="mono">فاکتور: <b>${esc(o.invoice_no)}</b></span>`:""}${o.coupon?`<span class="mono">کوپن: <b>${esc(o.coupon)}</b> (-${toman(o.discount||0)})</span>`:""}${o.ref_id&&!o.grant?`<span class="mono">رفرنس: <b>${esc(o.ref_id)}</b></span>`:""}</div>${o.items&&o.items.length?`<div class="sub" style="margin-top:6px">${o.items.map(it=>`${esc(it.title||it.plan)} × ${it.qty}`).join("، ")}</div>`:""}${keyTable(o.keys)}<div class="row" style="margin-top:8px"><button class="btn small ghost" data-ticket-order="${esc(o.order_no)}">پشتیبانی برای این سفارش</button></div></div>`).join(""):`<p class="sub">هنوز سفارشی ندارید.</p>`}</div>`;
+    content=`<div class="card"><h3>سفارش‌های من</h3>${orders.length?orders.map(o=>`<div class="card" style="margin-top:10px"><div class="row" style="justify-content:space-between"><b>${o.grant?ico("gift")+" ":""}سفارش ${esc(o.order_no)} · ${planName(o.plan)} ${o.plans&&o.plans.length>1?`+ ${o.plans.length-1} مورد`:""}</b><span>${pill(o.status)} · ${o.grant?"رایگان":toman(o.amount)}</span></div><div class="row inv-row"><span class="mono">سفارش: <b>${esc(o.order_no)}</b></span>${o.invoice_no?`<span class="mono">فاکتور: <b>${esc(o.invoice_no)}</b></span>`:""}${o.coupon?`<span class="mono">کوپن: <b>${esc(o.coupon)}</b> (-${toman(o.discount||0)})</span>`:""}${o.ref_id&&!o.grant?`<span class="mono">رفرنس: <b>${esc(o.ref_id)}</b></span>`:""}</div>${o.items&&o.items.length?`<div class="sub" style="margin-top:6px">${o.items.map(it=>`${esc(it.title||it.plan)} × ${it.qty}`).join("، ")}</div>`:""}${keyTable(o.keys)}<div class="row" style="margin-top:8px"><button class="btn small ghost" data-ticket-order="${esc(o.order_no)}">پشتیبانی برای این سفارش</button></div></div>`).join(""):`<p class="sub">هنوز سفارشی ندارید.</p>`}</div>`;
   } else if(tab==="keys"){
     const allKeys=orders.flatMap(o=>o.keys.map(k=>({...k,order_no:o.order_no,invoice_no:o.invoice_no})));
     content=`<div class="card"><h3>کلیدهای من (${allKeys.length})</h3>${allKeys.length?`<table><thead><tr><th>کلید</th><th>پلن</th><th>سفارش</th><th>وضعیت</th><th>انقضا</th><th></th></tr></thead><tbody>${allKeys.map(k=>`<tr><td class="mono">${esc(k.key)}</td><td>${planName(k.plan)}</td><td class="mono">${esc(k.order_no)}</td><td>${pill(k.status)}</td><td>${day(k.expires_at)}</td><td><button class="btn small ghost" data-copy="${esc(k.key)}">کپی</button></td></tr>`).join("")}</tbody></table>`:`<p class="sub">کلیدی ندارید.</p>`}</div>`;
@@ -342,9 +382,9 @@ function viewAccount(){
 function contactCard(){
   const si=state.supportInfo||getSupportInfoFallback();
   const rows=[];
-  if(si.phone) rows.push(`<a class="btn small ghost" href="tel:${esc(si.phone)}">📞 ${esc(si.phone)}</a>`);
-  if(si.email) rows.push(`<a class="btn small ghost" href="mailto:${esc(si.email)}">✉️ ${esc(si.email)}</a>`);
-  if(si.telegram) rows.push(`<a class="btn small ghost" href="${esc(si.telegram)}" target="_blank" rel="noopener">✈️ تلگرام</a>`);
+  if(si.phone) rows.push(`<a class="btn small ghost" href="tel:${esc(si.phone)}">${ico("phone")} ${esc(si.phone)}</a>`);
+  if(si.email) rows.push(`<a class="btn small ghost" href="mailto:${esc(si.email)}">${ico("mail")} ${esc(si.email)}</a>`);
+  if(si.telegram) rows.push(`<a class="btn small ghost" href="${esc(si.telegram)}" target="_blank" rel="noopener">${ico("send")} تلگرام</a>`);
   // always show something even if empty
   if(!rows.length) rows.push(`<span class="sub">راه تماس مستقیم به‌زودی — فعلا تیکت بزنید.</span>`);
   return `<div class="card"><h3 style="margin:0 0 8px">راه‌های ارتباط مستقیم</h3><div class="row">${rows.join("")}</div><p class="sub" style="margin-top:8px">ساعات پاسخگویی: ${esc(si.hours||"شنبه تا چهارشنبه ۹ تا ۱۸")} ${si.address?`· ${esc(si.address)}`:""}</p></div>`;
@@ -391,12 +431,12 @@ function viewDone(){
   const ord=q.get("ord")||""; const inv=q.get("inv")||""; const count=q.get("count")||"1"; const group=q.get("group")||"";
   if(!paid) return `<section class="view"><div class="card" style="max-width:520px;margin:40px auto;text-align:center"><h1>پرداخت ناموفق</h1><p class="sub">${esc(q.get("why")||"")} — مبلغی کسر نشده یا خودکار برمی‌گردد.</p><div class="row" style="justify-content:center;margin-top:12px"><button class="btn primary" data-view="cart">بازگشت به سبد</button><button class="btn ghost" data-view="support">پشتیبانی</button></div></div></section>`;
   const allKeys=keysParam?keysParam.split(",").filter(Boolean):(key?[key]:[]);
-  return `<section class="view"><div class="card" style="max-width:640px;margin:30px auto"><h1 style="margin-top:0">پرداخت موفق ✅</h1><div class="row inv-row" style="margin-bottom:10px">${ord?`<span class="mono">سفارش: <b>${esc(ord)}</b></span>`:""}${inv?`<span class="mono">فاکتور: <b>${esc(inv)}</b></span>`:""}${group?`<span class="mono">گروه: <b>${esc(group)}</b></span>`:""}<span class="mono">تعداد کلید: <b>${count}</b></span></div><p class="sub">کلیدهای شما صادر شد. آن‌ها را کپی کنید و در AURION وارد کنید. هر کلید فقط یک‌بار فعال می‌شود؛ جای امن نگه دارید. شماره سفارش و فاکتور را برای پشتیبانی نگه دارید.</p>${allKeys.map(k=>`<div class="key-box">${esc(k)}</div><div class="row" style="margin-bottom:10px"><button class="btn primary small" data-copy="${esc(k)}">کپی کلید</button></div>`).join("")}<div class="row" style="margin-top:12px"><button class="btn primary" data-view="account">حساب من</button><button class="btn ghost" data-view="support">پشتیبانی</button><button class="btn ghost" data-view="products">خرید بیشتر</button></div></div></section>`;
+  return `<section class="view"><div class="card" style="max-width:640px;margin:30px auto"><h1 style="margin-top:0">${ico("check",{cls:"i-ok"})} پرداخت موفق</h1><div class="row inv-row" style="margin-bottom:10px">${ord?`<span class="mono">سفارش: <b>${esc(ord)}</b></span>`:""}${inv?`<span class="mono">فاکتور: <b>${esc(inv)}</b></span>`:""}${group?`<span class="mono">گروه: <b>${esc(group)}</b></span>`:""}<span class="mono">تعداد کلید: <b>${count}</b></span></div><p class="sub">کلیدهای شما صادر شد. آن‌ها را کپی کنید و در AURION وارد کنید. هر کلید فقط یک‌بار فعال می‌شود؛ جای امن نگه دارید. شماره سفارش و فاکتور را برای پشتیبانی نگه دارید.</p>${allKeys.map(k=>`<div class="key-box">${esc(k)}</div><div class="row" style="margin-bottom:10px"><button class="btn primary small" data-copy="${esc(k)}">کپی کلید</button></div>`).join("")}<div class="row" style="margin-top:12px"><button class="btn primary" data-view="account">حساب من</button><button class="btn ghost" data-view="support">پشتیبانی</button><button class="btn ghost" data-view="products">خرید بیشتر</button></div></div></section>`;
 }
 function viewWishlist(){
   const ids=state.me&&state.me.wishlist?state.me.wishlist:state.wishlistLocal;
   const prods=state.products.filter(p=>ids.includes(p.id));
-  return `<section class="view"><h1>علاقه‌مندی‌ها (${prods.length})</h1><div class="grid plans">${prods.map(productCard).join("") || `<div class="card"><p class="sub">لیست خالی است. از فروشگاه محصولی را ♡ کنید.</p><button class="btn primary" data-view="products">محصولات</button></div>`}</div></section>`;
+  return `<section class="view"><h1>علاقه‌مندی‌ها (${prods.length})</h1><div class="grid plans">${prods.map(productCard).join("") || `<div class="card"><p class="sub">لیست خالی است. از فروشگاه محصولی را با ${ico("heart",{cls:"i-heart"})} نشان کنید.</p><button class="btn primary" data-view="products">محصولات</button></div>`}</div></section>`;
 }
 
 // Admin views
@@ -420,11 +460,11 @@ function admOrdersHtml(data){
   return `<div class="card"><div class="row" style="justify-content:space-between;margin-bottom:10px"><div class="row"><input id="o-q" placeholder="جستجو: سفارش/فاکتور/هویت" style="max-width:260px" value="${esc(state.admQ)}" /><select id="o-status" style="max-width:140px"><option value="">همه وضعیت‌ها</option><option value="paid">پرداخت‌شده</option><option value="pending">در انتظار</option><option value="cancelled">لغو</option><option value="gateway_error">خطای درگاه</option></select></div><div class="row"><button class="btn small ghost" id="o-prev">قبلی</button><span class="sub">صفحه ${data.page}/${data.pages} · ${data.total} مورد</span><button class="btn small ghost" id="o-next">بعدی</button></div></div><table><thead><tr><th>سفارش</th><th>فاکتور</th><th>مشتری</th><th>پلن/آیتم‌ها</th><th>مبلغ</th><th>تخفیف</th><th>وضعیت</th><th>کلید</th><th>تاریخ</th></tr></thead><tbody>${rows.map(o=>`<tr><td class="mono">${esc(o.order_no)}${o.group_id?`<br/><small>${esc(o.group_id)}</small>`:""}</td><td class="mono">${esc(o.invoice_no||"—")}</td><td>${esc(o.identity)}<br/><small class="sub">${esc(o.raw_identity||"")}</small></td><td>${esc((o.plans||[o.plan]).map(planName).join("، "))}${o.items&&o.items.length>1?`<br/><small>${o.items.map(it=>`${it.title}×${it.qty}`).join("، ")}</small>`:""}</td><td>${o.grant?"رایگان":tomanEn(o.amount)}${o.original_amount&&o.original_amount!==o.amount?`<br/><small style="text-decoration:line-through">${tomanEn(o.original_amount)}</small>`:""}</td><td>${o.discount?tomanEn(o.discount)+ (o.coupon?`<br/><small>${esc(o.coupon)}</small>`:""):"—"}</td><td>${pill(o.status)}</td><td>${o.keys}</td><td>${day(o.created_at)}</td></tr>`).join("")}</tbody></table></div>`;
 }
 function admProductsHtml(products){
-  return `<div class="card"><h3>محصولات (${products.length})</h3><p class="sub">قیمت‌ها به ریال، نمایش به تومان. محبوب‌ترین را علامت بزنید.</p><table><thead><tr><th>ID</th><th>عنوان</th><th>روز</th><th>قیمت ریال</th><th>محبوب</th><th>فعال</th><th></th></tr></thead><tbody>${products.map(p=>`<tr><td class="mono">${esc(p.id)}</td><td>${esc(p.title)}</td><td>${p.days}</td><td class="mono">${p.price_rial.toLocaleString()}</td><td>${p.popular?"★":"—"}</td><td>${p.active?"✔":"✕"}</td><td><button class="btn small ghost" data-edit-prod="${p.id}">ویرایش</button> <button class="btn small danger" data-del-prod="${p.id}">حذف</button></td></tr>`).join("")}</tbody></table></div>
+  return `<div class="card"><h3>محصولات (${products.length})</h3><p class="sub">قیمت‌ها به ریال، نمایش به تومان. محبوب‌ترین را علامت بزنید.</p><table><thead><tr><th>ID</th><th>عنوان</th><th>روز</th><th>قیمت ریال</th><th>محبوب</th><th>فعال</th><th></th></tr></thead><tbody>${products.map(p=>`<tr><td class="mono">${esc(p.id)}</td><td>${esc(p.title)}</td><td>${p.days}</td><td class="mono">${p.price_rial.toLocaleString()}</td><td>${p.popular?ico("star",{fill:1,cls:"i-star"}):"—"}</td><td>${p.active?ico("check",{cls:"i-ok"}):ico("close",{cls:"i-no"})}</td><td><button class="btn small ghost" data-edit-prod="${p.id}">ویرایش</button> <button class="btn small danger" data-del-prod="${p.id}">حذف</button></td></tr>`).join("")}</tbody></table></div>
   <div class="card" style="margin-top:14px"><h3>افزودن / ویرایش محصول</h3><div class="grid g2"><label class="field"><span>ID (m1,m3...)</span><input id="ap-id" placeholder="m1" /></label><label class="field"><span>عنوان</span><input id="ap-title" placeholder="لایسنس ۱ ماهه" /></label><label class="field"><span>توضیح کوتاه</span><input id="ap-desc" /></label><label class="field"><span>قیمت ریال</span><input id="ap-price" type="number" /></label><label class="field"><span>روز</span><input id="ap-days" type="number" /></label><label class="field"><span>ماه</span><input id="ap-months" type="number" /></label><label class="field"><span>badge</span><input id="ap-badge" placeholder="محبوب" /></label><label class="field"><span>ویژگی‌ها (با , جدا)</span><input id="ap-feat" placeholder="اتصال MT5, پشتیبانی" /></label></div><div class="row" style="margin-top:8px"><label class="row"><input type="checkbox" id="ap-pop" /> محبوب</label><label class="row"><input type="checkbox" id="ap-active" checked /> فعال</label></div><button class="btn primary" id="ap-save">ذخیره محصول</button><p class="err" id="ap-err"></p></div>`;
 }
 function admCouponsHtml(coupons){
-  return `<div class="card"><h3>کوپن‌ها (${coupons.length})</h3><table><thead><tr><th>کد</th><th>نوع</th><th>مقدار</th><th>استفاده/سقف</th><th>انقضا</th><th>فعال</th><th></th></tr></thead><tbody>${coupons.map(c=>`<tr><td class="mono">${esc(c.code)}</td><td>${c.discount_type}</td><td>${c.discount_type==="percent"?c.discount_value+"%":tomanEn(c.discount_value)}</td><td>${c.used}/${c.max_uses||"∞"}</td><td>${c.expires_at?day(c.expires_at):"—"}</td><td>${c.active?"✔":"✕"}</td><td><button class="btn small ghost" data-edit-coupon="${c.code}">ویرایش</button> <button class="btn small danger" data-del-coupon="${c.code}">حذف</button></td></tr>`).join("")}</tbody></table></div>
+  return `<div class="card"><h3>کوپن‌ها (${coupons.length})</h3><table><thead><tr><th>کد</th><th>نوع</th><th>مقدار</th><th>استفاده/سقف</th><th>انقضا</th><th>فعال</th><th></th></tr></thead><tbody>${coupons.map(c=>`<tr><td class="mono">${esc(c.code)}</td><td>${c.discount_type}</td><td>${c.discount_type==="percent"?c.discount_value+"%":tomanEn(c.discount_value)}</td><td>${c.used}/${c.max_uses||"∞"}</td><td>${c.expires_at?day(c.expires_at):"—"}</td><td>${c.active?ico("check",{cls:"i-ok"}):ico("close",{cls:"i-no"})}</td><td><button class="btn small ghost" data-edit-coupon="${c.code}">ویرایش</button> <button class="btn small danger" data-del-coupon="${c.code}">حذف</button></td></tr>`).join("")}</tbody></table></div>
   <div class="card" style="margin-top:14px"><h3>افزودن / ویرایش کوپن</h3><div class="grid g2"><label class="field"><span>کد (AX10...)</span><input id="ac-code" dir="ltr" placeholder="AX10" /></label><label class="field"><span>نوع</span><select id="ac-type"><option value="percent">درصد</option><option value="fixed">مبلغ ثابت ریال</option></select></label><label class="field"><span>مقدار</span><input id="ac-val" type="number" /></label><label class="field"><span>سقف استفاده (0=نامحدود)</span><input id="ac-max" type="number" /></label><label class="field"><span>حداقل مبلغ ریال</span><input id="ac-min" type="number" /></label><label class="field"><span>پلن‌های قابل اعمال (خالی=همه، با ,)</span><input id="ac-plans" placeholder="m1,m3" /></label><label class="field"><span>انقضا (اختیاری)</span><input id="ac-exp" type="date" /></label><label class="field"><span>یادداشت</span><input id="ac-note" /></label></div><label class="row"><input type="checkbox" id="ac-active" checked /> فعال</label><button class="btn primary" id="ac-save" style="margin-top:8px">ذخیره کوپن</button><p class="err" id="ac-err"></p></div>`;
 }
 
@@ -448,7 +488,7 @@ async function render(){
     if(state.siteInfo?.site?.tagline) $("site-tagline").textContent=state.siteInfo.site.tagline.slice(0,60);
     const ft=$("ft-contact");
     if(ft && state.supportInfo){
-      ft.innerHTML=`<div class="row" style="flex-direction:column;align-items:flex-start">${state.supportInfo.phone?`<span>📞 ${esc(state.supportInfo.phone)}</span>`:""}${state.supportInfo.email?`<span>✉️ ${esc(state.supportInfo.email)}</span>`:""}${state.supportInfo.telegram?`<a href="${esc(state.supportInfo.telegram)}" target="_blank">✈️ تلگرام</a>`:""}</div>`;
+      ft.innerHTML=`<div class="row" style="flex-direction:column;align-items:flex-start">${state.supportInfo.phone?`<span>${ico("phone")} ${esc(state.supportInfo.phone)}</span>`:""}${state.supportInfo.email?`<span>${ico("mail")} ${esc(state.supportInfo.email)}</span>`:""}${state.supportInfo.telegram?`<a href="${esc(state.supportInfo.telegram)}" target="_blank">${ico("send")} تلگرام</a>`:""}</div>`;
     }
     const nb=$("notice-bar");
     if(nb && state.siteInfo?.site?.notice){ nb.textContent=state.siteInfo.site.notice; nb.hidden=false; }
@@ -704,7 +744,7 @@ async function renderAdmin(){
   }
   else if(tab==="users"){
     const r=await api("/api/admin/users?q="+encodeURIComponent(state.admQ||""));
-    body.innerHTML=`<div class="row" style="margin-bottom:10px"><input id="u-q" placeholder="جستجو هویت" value="${esc(state.admQ||"")}" style="max-width:260px" /><button class="btn small primary" id="u-search">جستجو</button></div><div id="u-detail">${state.admUserDetail?admUserDetailHtml(state.admUserDetail):""}</div><div class="card" style="margin-top:12px"><h3>کاربران (${(r.users||[]).length})</h3><table><thead><tr><th>هویت</th><th>نوع</th><th>تأیید</th><th>سفارش</th><th>کلید</th><th>عضویت</th><th></th></tr></thead><tbody>${(r.users||[]).map(u=>`<tr><td>${esc(u.identity)}<br/><small class="sub">${esc(u.raw_identity||"")}</small></td><td>${esc(u.kind)}</td><td>${u.verified?"✔":"—"} ${u.disabled?'<span class="pill revoked">غیرفعال</span>':""}</td><td>${u.orders}</td><td>${u.keys}</td><td>${day(u.created_at)}</td><td><button class="btn small ghost" data-user-detail="${esc(u.raw_identity)}">پرونده</button></td></tr>`).join("")}</tbody></table></div>`;
+    body.innerHTML=`<div class="row" style="margin-bottom:10px"><input id="u-q" placeholder="جستجو هویت" value="${esc(state.admQ||"")}" style="max-width:260px" /><button class="btn small primary" id="u-search">جستجو</button></div><div id="u-detail">${state.admUserDetail?admUserDetailHtml(state.admUserDetail):""}</div><div class="card" style="margin-top:12px"><h3>کاربران (${(r.users||[]).length})</h3><table><thead><tr><th>هویت</th><th>نوع</th><th>تأیید</th><th>سفارش</th><th>کلید</th><th>عضویت</th><th></th></tr></thead><tbody>${(r.users||[]).map(u=>`<tr><td>${esc(u.identity)}<br/><small class="sub">${esc(u.raw_identity||"")}</small></td><td>${esc(u.kind)}</td><td>${u.verified?ico("check",{cls:"i-ok"}):"—"} ${u.disabled?'<span class="pill revoked">غیرفعال</span>':""}</td><td>${u.orders}</td><td>${u.keys}</td><td>${day(u.created_at)}</td><td><button class="btn small ghost" data-user-detail="${esc(u.raw_identity)}">پرونده</button></td></tr>`).join("")}</tbody></table></div>`;
     $("u-search").onclick=()=>{state.admQ=$("u-q").value; renderAdmin();};
     $("u-q").onkeydown=(e)=>{if(e.key==="Enter"){state.admQ=e.target.value; renderAdmin();}};
     body.querySelectorAll("[data-user-detail]").forEach(b=>b.onclick=()=>adminUserFind(b.dataset.userDetail));
@@ -787,7 +827,7 @@ async function renderAdmin(){
   }
 }
 function admUserDetailHtml(d){
-  return `<div class="card"><div class="row" style="justify-content:space-between"><b>پرونده: ${esc(d.user.identity)} ${d.disabled?'<span class="pill revoked">غیرفعال</span>':""}</b><button class="btn small ${d.disabled?"":"danger"}" id="u-toggle" data-ident="${esc(d._raw||"")}">${d.disabled?"فعال‌سازی":"غیرفعال‌سازی"}</button></div>${(d.orders||[]).map(o=>`<div class="sub" style="margin-top:10px"><b class="mono">${esc(o.order_no||"#"+o.id)}</b> ${o.grant?"🎁":""} · ${planName(o.plan)} · ${pill(o.status)} · فاکتور <b class="mono">${esc(o.invoice_no||"—")}</b></div>${o.keys.map(k=>`<div class="row key-line"><span class="mono">${esc(k.key)}</span>${pill(k.status)}<span class="sub">انقضا ${day(k.expires_at)}</span>${k.status!=="revoked"?`<button class="btn small danger" data-revoke="${esc(k.key)}">ابطال</button>`:""}<button class="btn small ghost" data-resetm="${esc(k.key)}">آزادسازی</button><button class="btn small ghost" data-copy="${esc(k.key)}">کپی</button></div>`).join("")}`).join("")||`<p class="sub">سفارشی ندارد.</p>`}${(d.tickets||[]).length?`<div class="sub" style="margin-top:10px">تیکت‌ها: ${d.tickets.map(t=>`<span class="pill" data-aticket="${t.id}" style="cursor:pointer">${esc(t.ticket_no)}</span>`).join(" ")}</div>`:""}</div>`;
+  return `<div class="card"><div class="row" style="justify-content:space-between"><b>پرونده: ${esc(d.user.identity)} ${d.disabled?'<span class="pill revoked">غیرفعال</span>':""}</b><button class="btn small ${d.disabled?"":"danger"}" id="u-toggle" data-ident="${esc(d._raw||"")}">${d.disabled?"فعال‌سازی":"غیرفعال‌سازی"}</button></div>${(d.orders||[]).map(o=>`<div class="sub" style="margin-top:10px"><b class="mono">${esc(o.order_no||"#"+o.id)}</b> ${o.grant?ico("gift"):""} · ${planName(o.plan)} · ${pill(o.status)} · فاکتور <b class="mono">${esc(o.invoice_no||"—")}</b></div>${o.keys.map(k=>`<div class="row key-line"><span class="mono">${esc(k.key)}</span>${pill(k.status)}<span class="sub">انقضا ${day(k.expires_at)}</span>${k.status!=="revoked"?`<button class="btn small danger" data-revoke="${esc(k.key)}">ابطال</button>`:""}<button class="btn small ghost" data-resetm="${esc(k.key)}">آزادسازی</button><button class="btn small ghost" data-copy="${esc(k.key)}">کپی</button></div>`).join("")}`).join("")||`<p class="sub">سفارشی ندارد.</p>`}${(d.tickets||[]).length?`<div class="sub" style="margin-top:10px">تیکت‌ها: ${d.tickets.map(t=>`<span class="pill" data-aticket="${t.id}" style="cursor:pointer">${esc(t.ticket_no)}</span>`).join(" ")}</div>`:""}</div>`;
 }
 async function adminMint(){
   const r=await api("/api/admin/mint",{method:"POST",body:{plan:$("adm-plan").value,count:Number($("adm-count").value||1),note:$("adm-note").value}});

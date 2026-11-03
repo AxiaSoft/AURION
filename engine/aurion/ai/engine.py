@@ -8,7 +8,7 @@ import numpy as np
 from ..config import ROOT, abspath, load
 from ..util.clock import utc_iso
 from ..util.log import get
-from .features import FEATURE_COLUMNS, build_feature_frame, last_features, matrix
+from .features import FEATURE_COLUMNS, build_feature_frame, last_features, matrix, matrix_columns
 from .models import LiveModels
 from .patterns import detect, regime_from_features
 
@@ -196,14 +196,39 @@ class AIEngine:
         # Drop the leftover tail already sliced; also drop pure-noise if any NaN.
         mask = np.isfinite(X).all(axis=1)
         X, y = X[mask], y[mask]
-        result = self.models.fit(X, y)
+        # Pass the column names so the model addresses features by name,
+        # and the label horizon so it can purge the overlap at the split.
+        result = self.models.fit(X, y, columns=matrix_columns(frame.iloc[sl]), purge=HORIZON)
         self.bars_since_train = 0
         if result.get("ok"):
             log.info("retrained on %s %s bars=%s", symbol, timeframe, self.models.samples)
             self.note(f"trained {symbol} {timeframe} samples={self.models.samples}")
         return {**result, "state": self.infer(rows, symbol, timeframe)}
 
-    def infer(self, rows: list[dict[str, Any]], symbol: str, timeframe: str, strategy_votes: list[str] | None = None) -> dict[str, Any]:
+    # detect() reads the last three bars and, for its structure check, the
+    # last eight closes. It was being handed the entire history every
+    # call, which turned a three-bar look into a full DataFrame build.
+    PATTERN_BARS = 16
+
+    def infer(
+        self,
+        rows: list[dict[str, Any]],
+        symbol: str,
+        timeframe: str,
+        strategy_votes: list[str] | None = None,
+        frame: "pd.DataFrame | None" = None,
+    ) -> dict[str, Any]:
+        """Read the market as it stands on the last bar of `rows`.
+
+        `frame` is an optimisation for callers that replay bar by bar.
+        This method only ever reads the final row of the feature frame
+        (last_features, and matrix of iloc[[-1]]), and every feature is
+        causal -- EMAs, backward rolling windows and shift(1), never a
+        centred window. So a caller that has already built the features
+        for the whole series can hand over the single row for this bar
+        instead of making us rebuild the frame from scratch, which is
+        what made a replay quadratic in the number of bars.
+        """
         if not rows:
             idle = self._idle()
             idle["symbol"] = symbol
@@ -211,8 +236,9 @@ class AIEngine:
             self.last = idle
             self._remember(symbol, timeframe, idle)
             return idle
-        frame = build_feature_frame(rows)
-        pattern = detect(rows)
+        if frame is None:
+            frame = build_feature_frame(rows)
+        pattern = detect(rows[-self.PATTERN_BARS:] if len(rows) > self.PATTERN_BARS else rows)
         features = last_features(frame)
         regime = regime_from_features(features)
         if frame.empty:

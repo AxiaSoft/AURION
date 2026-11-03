@@ -41,8 +41,23 @@ check("nothing still tries to fill the card that was removed",
   appJs.indexOf('$("live-ai")') < 0);
 
 check("the per-chart version survives, because that one says which symbol", (() => {
+  /* The guarantee is that every AI reading on this page is tied to a
+     named chart -- that is the whole reason the symbol-less card was
+     cut from the command centre. It used to be checked by looking for
+     the literal "ai.direction" in the view, which stopped being true
+     when the direction moved into the per-chart slider it is rendered
+     by; the reading was still per-chart, the token had just moved. */
   const view = appJs.slice(appJs.indexOf("  intelligence() {"), appJs.indexOf("  calendar() {"));
-  return view.indexOf("ai-feat-sym") > 0 && view.indexOf("ai.direction") > 0;
+  if (view.indexOf("ai-feat-sym") < 0) return "the feature block no longer names its symbol";
+  if (!/chartSliderHtml\("ai", aiSlideInnerHtml\)/.test(view)) {
+    return "the intelligence view no longer mounts the per-chart AI slider";
+  }
+  /* ...and the slider it mounts is the thing that prints the direction,
+     with the chart it belongs to beside it. */
+  const slide = appJs.slice(appJs.indexOf("function aiSlideInnerHtml("), appJs.indexOf("function aiSlideInnerHtml(") + 2400);
+  if (slide.indexOf("ai.direction") < 0) return "the slider no longer shows a direction";
+  if (slide.indexOf("slide-sym") < 0) return "the direction is no longer labelled with its chart";
+  return true;
 })());
 
 /* ====================================================== positions, wider == */
@@ -59,9 +74,19 @@ check("positions get a full-width card of their own", (() => {
 })());
 
 check("the close button cannot scroll out of reach", (() => {
+  /* It used to need a reserved column width, because the close button
+     was the last cell of a 900px table that scrolled sideways inside
+     a narrower card. There is no table and no sideways scroll: the
+     list is as wide as the pane, and the pane scrolls down. What has
+     to hold now is that the pane does not reintroduce the problem. */
   const flat = appCss.replace(/\s+/g, "");
-  return /\.pos-cardcol\.c-close\{width:\d+px\}/.test(flat) ||
-    "no fixed width reserved for the close column";
+  if (/overflow-x:auto/.test(/\.pos-pane\{([^}]*)\}/.exec(flat)?.[1] || "")) {
+    return "the positions pane scrolls sideways again";
+  }
+  if (!/\.pos-pane\{[^}]*overflow-x:hidden/.test(flat)) {
+    return "the pane does not pin its horizontal overflow";
+  }
+  return true;
 })());
 
 /* =============================================== positions, without jumping ==
@@ -71,32 +96,63 @@ check("the close button cannot scroll out of reach", (() => {
    widens its column and shifts every column after it. Three things have to
    hold together, so all three are checked.                                   */
 
-check("the table's geometry is decided once, not per repaint",
-  /\.pos-card table\{[^}]*table-layout:fixed/.test(appCss.replace(/\s*\n\s*/g, "")) ||
-  "pos-card table is not table-layout:fixed");
-
-check("fixed layout is given widths to use", (() => {
-  const keys = ["symbol", "type", "volume", "strategy", "price_open",
-    "price_current", "sl", "tp", "profit", "profit_pct", "close"];
-  const missing = keys.filter((k) => appCss.indexOf(`.pos-card col.c-${k}{`) < 0);
-  return missing.length === 0 || "no width for: " + missing.join(", ");
+/* The answer used to be table-layout:fixed plus a declared width for
+   each of eleven columns. The cards draw the chart desk's .tvp-list
+   instead, which solves the same problem a different way: the columns
+   are declared once on the LIST and the rows are subgrid children of
+   it, so a profit going from "8.40" to "-124.65" cannot widen a
+   column under the trader's cursor - there is no per-row sizing left
+   to do. Checked in chart.css, where that list lives. */
+check("the positions grid is decided once, not per repaint", (() => {
+  const flat = chartCss.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\s*\n\s*/g, "");
+  const list = /[{;}]\.tvp-list\{([^}]*)\}/.exec(flat);
+  if (!list) return "there is no positions list to size";
+  if (!/grid-template-columns:/.test(list[1])) {
+    return "the list does not declare its columns, so every row sizes its own";
+  }
+  const row = /[{;}]\.tvp-row\{([^}]*)\}/.exec(flat);
+  if (!row || !/grid-template-columns:subgrid/.test(row[1])) {
+    return "the rows do not inherit the list's columns";
+  }
+  return true;
 })());
 
-check("the markup carries the colgroup those widths attach to", (() => {
-  const fn = appJs.slice(appJs.indexOf("function table(rows, keys, closable)"),
-    appJs.indexOf("function paintPositions"));
-  return fn.indexOf("<colgroup>") > 0 && fn.indexOf('c-${esc(k)}') > 0;
+check("and the old fixed-width table did not survive alongside it", (() => {
+  const flat = appCss.replace(/\s*\n\s*/g, "");
+  if (/\.pos-card table\{/.test(flat)) return "the positions card still styles a table";
+  if (/\.pos-card col\.c-/.test(flat)) return "the column widths outlived the columns";
+  return true;
 })());
 
-check("digits are the same width as each other",
-  /\.pos-card th,\.pos-card td\{[^}]*font-variant-numeric:tabular-nums/
-    .test(appCss.replace(/\s*\n\s*/g, "")));
+check("digits are the same width as each other", (() => {
+  const flat = chartCss.replace(/\s*\n\s*/g, "");
+  return /font-variant-numeric:tabular-nums/.test(flat) ||
+    "proportional digits make the column ragged";
+})());
 
 check("rows are patched in place rather than rebuilt", (() => {
   const fn = appJs.slice(appJs.indexOf("function paintPositions"), appJs.indexOf("function tickLabel"));
-  // A full innerHTML rewrite on every tick would destroy the row the user
-  // is about to click, whatever the CSS says.
-  return fn.indexOf("if (td.textContent !== text) td.textContent = text;") > 0;
+  /* A full innerHTML rewrite on every tick would destroy the row the
+     user is about to click, whatever the CSS says - and now also the
+     close buttons' handlers and wherever the trader had scrolled the
+     pane to. The cards draw the chart's .tvp-row list rather than a
+     table, so the patch finds its row by ticket and rewrites the
+     figures that move; the cells are spans, not <td>s. Verified in a
+     browser: same row node, same handler, scrollTop held at 40, and
+     the profit went -4 -> +3.5. */
+  if (fn.indexOf("if (el.textContent !== text) el.textContent = text;") < 0) {
+    return "the figures are not patched in place";
+  }
+  if (!/\.tvp-row\[data-ticket=/.test(fn)) return "a repaint cannot find the row it should patch";
+  /* The steady-state branch has to bail out before the full render
+     below it, or "patched in place" is only true until it falls
+     through. Compared by position rather than by presence, because
+     the full render legitimately exists further down. */
+  const tail = fn.slice(fn.indexOf("dataset.sig === sig"));
+  if (tail.indexOf("\n    return;") < 0 || tail.indexOf("\n    return;") > tail.indexOf("box.innerHTML = `")) {
+    return "the steady-state path falls through into a full rewrite";
+  }
+  return true;
 })());
 
 /* ==================================================== the slider slides ==== */
@@ -207,7 +263,7 @@ check("a viewport change is repainted more than once", (() => {
   // the text between the previous } and the next {, and reading it as
   // the selector made this check fail on rules it had no quarrel with.
   const plain = chartCss.replace(/\/\*[\s\S]*?\*\//g, "");
-  const mobile = chartSliceOf(plain, "@media (max-width: 720px)");
+  const mobile = chartSliceOf(plain, "@media (max-width: 760px)");
 
   // Rules outside any media query that set columns on .tv-body.
   const base = [...plain.replace(/@media[^{]*\{[\s\S]*?\n\}/g, "")
@@ -221,12 +277,70 @@ check("a viewport change is repainted more than once", (() => {
   // Belt and braces for the same bug. grid-column has no competing
   // declaration anywhere, so the stage spans the whole track list even
   // if something later defines three columns again.
+  //
+  // Only grid-column is the subject here. This used to also pin
+  // padding-top to 44px, which was the height of the tool strip that
+  // once sat above the stage - incidental to the bug being guarded, and
+  // it failed the moment the tools became a sheet that comes up from
+  // the bottom instead. Assert the thing the check is named after.
   check("and the stage spans every column there turns out to be",
-    /\.tv-stage \{ padding-top: 44px; grid-column: 1 \/ -1/.test(chartCss));
+    /\.tv-stage \{[^}]*grid-column:\s*1\s*\/\s*-1/.test(
+      mobile.replace(/\s+/g, " ")) ||
+    /\.tv-stage \{[^}]*grid-column:\s*1\s*\/\s*-1/.test(plain));
 
   check("every heavy .tv-body layout rule is answered at the mobile breakpoint",
     unanswered.length === 0,
     unanswered.length ? unanswered.join(" | ") : `${base.length} checked`);
+})();
+
+/* ------------------------------------------------------- the breakpoints --
+
+   The sheets carried twenty-three distinct widths, including 1013px,
+   1120px and 860px - twenty-three separate occasions of dragging a
+   browser edge until one card stopped looking wrong. The cost was not
+   untidiness: different parts of the SAME page reflowed at different
+   widths, so between 820 and 900 the header had collapsed and the
+   content grid had not.                                              */
+
+(() => {
+  const SCALE = [1200, 1100, 1000, 900, 760, 560, 380];
+  const sheets = ["app", "themes", "chart"];
+  const stray = [];
+  const minmax = [];
+
+  for (const name of sheets) {
+    const css = read(`apps/web/css/${name}.css`).replace(/\/\*[\s\S]*?\*\//g, "");
+    for (const m of css.matchAll(/@media[^{]+/g)) {
+      for (const q of m[0].matchAll(/(max-width|min-width):\s*(\d+)px/g)) {
+        const n = Number(q[2]);
+        /* A min-width pairs with its max-width MINUS ONE. Both match at
+           exactly the shared number, and which rule wins is then decided
+           by source order rather than by the author. */
+        const want = q[1] === "min-width" ? SCALE.map((s) => s + 1) : SCALE;
+        if (!want.includes(n)) stray.push(`${name}.css: ${q[1]}:${n}px`);
+        if (q[1] === "min-width" && SCALE.includes(n)) minmax.push(`${name}.css: min-width:${n}px overlaps max-width:${n}px`);
+      }
+    }
+  }
+
+  check("every breakpoint comes from the documented scale",
+    stray.length === 0, stray.length ? stray.join(" | ") : `${sheets.length} sheets, 7 steps`);
+
+  check("no min-width sits on the same pixel as a max-width",
+    minmax.length === 0, minmax.join(" | ") || "ranges are exclusive");
+
+  check("the scale is written down where the breakpoints are",
+    /Breakpoints - the whole scale/.test(read("apps/web/css/app.css")),
+    "a scale nobody can find is a scale nobody follows");
+
+  /* An empty media block is a rule that was deleted without its
+     wrapper, and it reads as deliberate to the next person. */
+  const empties = [];
+  for (const name of sheets) {
+    const css = read(`apps/web/css/${name}.css`);
+    for (const m of css.matchAll(/@media[^{]+\{\s*\}/g)) empties.push(`${name}.css: ${m[0].slice(0, 36)}`);
+  }
+  check("no media query is left empty", empties.length === 0, empties.join(" | ") || "none");
 })();
 
 /* ------------------------------------------------------- control metrics --
@@ -333,9 +447,20 @@ check("a viewport change is repainted more than once", (() => {
 
   // The clock lives in System, not in prop risk: which hours a firm
   // allows is their rule, what time it is where you sit is not.
+  /* Which settings section owns the clock. Written against the
+     section boundaries rather than a fixed-width window after the id,
+     because the window broke the moment another card was added above
+     it - which says nothing about where the timezone lives. */
+  const setSection = (id) => {
+    const start = app.indexOf(`block("${id}"`);
+    if (start < 0) return "";
+    const next = app.indexOf('\n      ${block("', start + 1);
+    return app.slice(start, next < 0 ? app.indexOf("</div></div>`;", start) : next);
+  };
   check("the timezone is a System setting, not a prop one",
     /function timezoneCardHtml\(\)/.test(app) &&
-    /id="set-system"[\s\S]{0,200}timezoneCardHtml\(\)/.test(app) &&
+    /timezoneCardHtml\(\)/.test(setSection("set-system")) &&
+    !/timezoneCardHtml\(\)/.test(setSection("set-prop")) &&
     /API\.post\("\/api\/timezone"/.test(app));
 
   // Prop windows then read in it, which is the point of moving it.

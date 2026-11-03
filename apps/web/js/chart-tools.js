@@ -94,6 +94,10 @@
     flag: "M6 21V4M6 4h11l-2.5 4L17 12H6",
     emoji: "M12 3a9 9 0 100 18 9 9 0 000-18M9 10v.01M15 10v.01M8.5 14c1.8 2 5.2 2 7 0",
     brush: "M4 17c4-6 8 2 12-4 2-3 4-4 4-4",
+    // A pencil: the barrel, the collar where the wood starts, and the
+    // mark it has just left. Used for the button that opens the drawing
+    // tools, where "brush" read as a stray squiggle at 20px.
+    pencil: "M4 20h4L19.5 8.5a2.1 2.1 0 0 0 -3 -3L5 17v3|M14.5 7l3 3",
     highlighter: "M5 18h5l9-9-4-4-9 9zM4 21h16",
     freearrow: "M3 17c5-8 9 2 14-8M14 5h4v4",
     zoomIn: "M11 5a6 6 0 100 12 6 6 0 000-12M20 20l-4.5-4.5M8 11h6M11 8v6",
@@ -119,13 +123,18 @@
     plus: "M12 5v14M5 12h14",
     search: "M11 4a7 7 0 100 14 7 7 0 000-14M20 20l-4-4",
     chevron: "M9 6l6 6-6 6",
+    toEnd: "M5 12h11M11 7l5 5-5 5M20 5v14",
     panel: "M4 5h16v14H4zM15 5v14",
+    /* The positions dock: a pane across the bottom, not down one side. */
+    posdock: "M4 5h16v14H4zM4 14h16",
+    /* Candles, then empty room, then the price column. */
+    headgap: "M3 10v5M6 7v11M9 11v4M12 8v9M20 4v16",
     tick: "M5 12.5l4.5 4.5L19 7",
   };
 
   function svg(path, cls) {
     const body = String(path || "").split("|").map((d) => '<path d="' + d + '"/>').join("");
-    return '<svg class="' + (cls || "") + '" viewBox="0 0 24 24" fill="none" stroke="currentColor" ' +
+    return '<svg aria-hidden="true" focusable="false" class="' + (cls || "") + '" viewBox="0 0 24 24" fill="none" stroke="currentColor" ' +
       'stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + body + "</svg>";
   }
 
@@ -341,12 +350,74 @@
       .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
   }
 
-  /** i18n with a fallback: the chrome is translated, tool names are terms. */
+  /**
+   * i18n with a fallback.
+   *
+   * Note what this does NOT read: global.I18N.
+   *
+   * i18n.js declares the desk's translator as `const I18N = {...}` at the
+   * top level of a classic script. A top-level const is a global LEXICAL
+   * binding - every other script can see the bare name `I18N`, but it is
+   * never installed as a property of window. `global.I18N` was therefore
+   * undefined on every desk in every browser, this helper returned its
+   * English fallback every single time, and the whole chart workspace -
+   * the rail, the four menus, the dock, the properties panel - stayed in
+   * English no matter what language the trader had chosen. The ninety-odd
+   * chart.* keys already sitting in the language packs had never once been
+   * reached.
+   *
+   * The bare name is read first, with the window property kept as a second
+   * chance for any host that does attach it.
+   */
   function tt(key, fallback) {
     try {
-      const v = global.I18N ? global.I18N.t(key) : key;
-      return v === key ? fallback : v;
+      const i = (typeof I18N !== "undefined" && I18N && I18N.t) ? I18N : (global.I18N || null);
+      const v = (i && i.t) ? i.t(key) : key;
+      return (!v || v === key) ? fallback : v;
     } catch (e) { return fallback; }
+  }
+
+  /**
+   * A table row's name in the trader's language.
+   *
+   * The tables in this file stay in English on purpose: they are the
+   * fallback as well as the source of truth, so a desk running a language
+   * pack that has not caught up with a newly added tool shows that tool's
+   * English name rather than a raw dotted key.
+   *
+   * The key is derived from the row's own id and nothing else, which keeps
+   * the rule the whole file is built on - a new tool is one row in one
+   * table - true, at the cost of one line per language file.
+   *
+   * This used to read "tool names are terms", and left the entire rail,
+   * every flyout, every menu and every object name in English on a desk
+   * the trader had set to Persian. Some of them genuinely are terms of
+   * art; which ones is a decision for the translator, who can leave a row
+   * in English by translating it to itself. It is not a decision this file
+   * gets to make on their behalf.
+   */
+  function nameOf(kind, row) {
+    if (!row) return "";
+    return tt("chart." + kind + "." + row.id, row.label || row.id);
+  }
+
+  /**
+   * An indicator's name and one-line description, translated.
+   *
+   * Returns the same [name, description] pair INDICATOR_TEXT holds, so
+   * every caller keeps working unchanged.
+   */
+  function indicatorText(id) {
+    const fb = INDICATOR_TEXT[id] || [id, ""];
+    return [tt("chart.ind." + id, fb[0]), tt("chart.ind_d." + id, fb[1])];
+  }
+
+  /** Is the dock an overlay over the chart rather than a column beside it?
+      Matches the 980px breakpoint in chart.css where the dock starts to
+      float; keep the two in step. */
+  function narrow() {
+    try { return window.matchMedia("(max-width: 980px)").matches; }
+    catch (e) { return false; }
   }
 
   function read(k, fb) {
@@ -370,27 +441,35 @@
       const many = g.tools.length > 1;
       return `<div class="tvr-group" data-group="${g.id}">
         <button type="button" class="tvr-btn" data-tool="${tool.id}"
-                title="${esc(tool.label)}${tool.key ? " (" + tool.key.toUpperCase() + ")" : ""}"
-                aria-label="${esc(tool.label)}">${svg(I[tool.icon])}</button>
+                title="${esc(nameOf("tool", tool))}${tool.key ? " (" + tool.key.toUpperCase() + ")" : ""}"
+                aria-label="${esc(nameOf("tool", tool))}">${svg(I[tool.icon])}<span class="tvr-name">${esc(nameOf("grp", g))}</span></button>
         ${many ? `<button type="button" class="tvr-more" data-flyout="${g.id}"
-                aria-label="${esc(g.label)}" aria-haspopup="true" aria-expanded="false"></button>` : ""}
+                aria-label="${esc(nameOf("grp", g))}" aria-haspopup="true" aria-expanded="false"></button>` : ""}
       </div>`;
     }).join("");
 
     return `<nav class="tv-rail" id="tv-rail" aria-label="${esc(tt("chart.tools", "Drawing tools"))}">
+      <!-- A real element, not a ::before. The sheet is dismissed by
+           dragging it, and a pseudo-element cannot take a pointer. -->
+      <div class="tvr-grab" id="tv-rail-grab" role="presentation"></div>
       ${groups}
       <div class="tvr-sep"></div>
       <button type="button" class="tvr-btn" id="tv-magnet" title="${esc(tt("chart.magnet", "Magnet"))}"
-              aria-pressed="false">${svg(I.magnet)}</button>
+              aria-pressed="false">${svg(I.magnet)}<span class="tvr-name">${esc(tt("chart.magnet", "Magnet"))}</span></button>
       <button type="button" class="tvr-btn" id="tv-toollock" title="${esc(tt("chart.tool_lock", "Keep the tool armed"))}"
-              aria-pressed="true">${svg(I.pin)}</button>
+              aria-pressed="true">${svg(I.pin)}<span class="tvr-name">${esc(tt("chart.tool_lock", "Keep the tool armed"))}</span></button>
       <button type="button" class="tvr-btn" id="tv-lockall" title="${esc(tt("chart.lock_all", "Lock all drawings"))}"
-              aria-pressed="false">${svg(I.lock)}</button>
+              aria-pressed="false">${svg(I.lock)}<span class="tvr-name">${esc(tt("chart.lock_all", "Lock all drawings"))}</span></button>
       <button type="button" class="tvr-btn" id="tv-hideall" title="${esc(tt("chart.hide_all", "Hide all drawings"))}"
-              aria-pressed="false">${svg(I.eye)}</button>
-      <button type="button" class="tvr-btn danger" id="tv-clear" title="${esc(tt("chart.delete_all", "Remove all drawings"))}">${svg(I.trash)}</button>
+              aria-pressed="false">${svg(I.eye)}<span class="tvr-name">${esc(tt("chart.hide_all", "Hide all drawings"))}</span></button>
+      <button type="button" class="tvr-btn danger" id="tv-clear" title="${esc(tt("chart.delete_all", "Remove all drawings"))}">${svg(I.trash)}<span class="tvr-name">${esc(tt("chart.delete_all", "Remove all drawings"))}</span></button>
     </nav>
-    <div class="tv-flyout" id="tv-flyout" hidden></div>`;
+    <div class="tv-flyout" id="tv-flyout" hidden></div>
+    <div class="tv-toolscrim" id="tv-toolscrim" aria-hidden="true"></div>
+    <button type="button" class="tv-toolsfab" id="tv-toolsfab"
+            aria-label="${esc(tt("chart.tools", "Drawing tools"))}" aria-expanded="false">
+      ${svg(I.pencil)}
+    </button>`;
   }
 
   function topHtml(o) {
@@ -399,7 +478,19 @@
     return `<header class="tv-top">
       <button type="button" class="tv-icon" id="tv-back" title="${esc(tt("common.back", "Back"))}"
               aria-label="${esc(tt("common.back", "Back"))}">${svg(I.chevron, "flip")}</button>
-      <div class="tv-sym"><b>${esc(o.symbol)}</b><span id="tv-tf-label">${esc(o.timeframe)}</span></div>
+      <button type="button" class="tv-sym" data-menu="symbol" aria-haspopup="true"
+              title="${esc(tt("chart.switch_symbol", "Switch instrument"))}">
+        <!-- The instrument, and nothing else.
+
+             It used to carry the timeframe too, which put a second
+             copy of it in the header: the segmented strip and the
+             "More" menu immediately to the right are both the
+             timeframe, and they are the ones you can actually press.
+             A third, unpressable copy inside the instrument button
+             only made the label long enough to look crowded. -->
+        <b>${esc(o.symbol)}</b>
+        ${svg(I.chevron, "tv-sym-caret")}
+      </button>
       <div class="tv-seg" role="group" aria-label="${esc(tt("markets.timeframe", "Timeframe"))}">${tfs}</div>
       <button type="button" class="tv-btn" data-menu="tf" aria-haspopup="true">${svg(I.clock)}<span class="tvb-label" id="tv-tf-more">${esc(tt("chart.more_tf", "More"))}</span></button>
       <span class="tv-div"></span>
@@ -410,31 +501,142 @@
       <button type="button" class="tv-icon" id="tv-undo" title="${esc(tt("draw.undo", "Undo"))} (Ctrl+Z)" disabled>${svg(I.undo)}</button>
       <button type="button" class="tv-icon" id="tv-redo" title="${esc(tt("chart.redo", "Redo"))} (Ctrl+Shift+Z)" disabled>${svg(I.redo)}</button>
       <span class="tv-div"></span>
+      <!-- Room at the live edge, as one switch rather than a slider.
+
+           It was a labelled range from 0 to 60 bars sitting on the
+           chart itself, which asked the trader to pick a number in a
+           unit that changes meaning every time they zoom. There is one
+           sensible amount and this turns it on: 15% of the window,
+           held against the newest candle. -->
+      <button type="button" class="tv-icon" id="tv-headgap"
+              title="${esc(tt("chart.head_gap", "Room at the live edge"))}"
+              aria-label="${esc(tt("chart.head_gap", "Room at the live edge"))}"
+              aria-pressed="false">${svg(I.headgap)}</button>
+      <button type="button" class="tv-icon" id="tv-pos-toggle" title="${esc(tt("chart.positions_dock", "Open positions"))}"
+              aria-pressed="false" aria-controls="tv-posdock">${svg(I.posdock)}<span class="tv-icon-n" id="tv-pos-toggle-n" hidden></span></button>
       <button type="button" class="tv-icon" id="tv-dock-toggle" title="${esc(tt("chart.panel", "Side panel"))}" aria-pressed="true">${svg(I.panel)}</button>
-      <button type="button" class="tv-icon" id="tv-full" title="${esc(tt("chart.fullscreen", "Fullscreen"))} (F)">${svg(I.full)}</button>
     </header>`;
+    /* No fullscreen toggle here any more.
+       The chart is opened fullscreen from the grid and the back button
+       beside the instrument is the way out, so a second control that
+       only ever un-did the state the page had just been opened in was
+       one button too many -- and the easiest one to hit by accident on
+       a phone, where it sat directly under the thumb. */
   }
 
   function dockHtml(o) {
-    return `<aside class="tv-dock" id="tv-dock" aria-label="${esc(tt("chart.panel", "Side panel"))}">
-      <div class="tvd-tabs" role="tablist">
-        <button type="button" role="tab" data-dock="objects" class="on">${esc(tt("chart.objects", "Objects"))}</button>
-        <button type="button" role="tab" data-dock="props">${esc(tt("chart.properties", "Properties"))}</button>
-        ${o.ticket ? `<button type="button" role="tab" data-dock="trade">${esc(tt("chart.trade", "Trade"))}</button>` : ""}
+    /* Positions get a tab of their own because the floating panel on the
+       chart cannot be relied on at phone widths: it is anchored to the
+       same bottom-start corner as the drawing-tools button, which is
+       drawn over it. The tab carries a count so a trader can see there
+       is something open without opening the panel to find out. */
+    /* The panel is a drawing workspace, and it opens on Objects.
+
+       It used to carry a Positions tab as well, added back when the
+       open book was hard to see on a phone. The book has its own dock
+       across the bottom of the chart now, which resizes the chart
+       instead of covering it, so the tab was a second copy of the same
+       list - and a worse one, because at phone width the panel is an
+       overlay 300px wide across a 390px screen, so reading positions
+       in it meant hiding the chart they belong to.
+
+       Keeping it also made the panel behave as though it were broken:
+       bind() ends with showDock(ui.dockTab || "objects"), so the tab
+       the markup had selected was switched to Objects a moment after
+       the panel appeared. Tapping Positions and being shown the
+       drawing tools is exactly what that looks like from outside. */
+    const first = "objects";
+
+    /* Rebuilt.
+
+       It was four tab labels and a close button on one 28px-high line
+       inside a 290px column - 250px below 1200px. "Positions" with its
+       count, "Objects", "Properties" and "Trade" do not fit in that,
+       so the row overflowed: the labels were shaved and the close
+       button was pushed past the edge, which is how a panel ends up
+       with no visible way to shut it. The tabs are a scroller now and
+       the close has its own place in a titled header, so neither can
+       crowd the other out at any width.
+
+       It also only looked like a tab strip. role="tablist" and
+       role="tab" were there, but nothing said which tab was current
+       and nothing tied a tab to the panel it governed, so the whole
+       control announced as four unlabelled buttons; the panes were
+       plain divs. The selected state was a 2px bottom border sitting
+       directly on the strip's own 1px divider, so on a dim screen the
+       current tab was a slightly thicker line.
+
+       And they were 28px tall with a 26px close - this is the panel
+       you use while holding a phone. Everything here is at least 44px
+       where the pointer is coarse. */
+    const tabs = [
+      ["objects", tt("chart.objects", "Objects"), "tvd-objects"],
+      ["props", tt("chart.properties", "Properties"), "tvd-props"],
+    ];
+    /* The Trade tab is the manual order ticket - volume, stop, target,
+       buy and sell - so it is here whenever the desk was given one. */
+    if (o.ticket) tabs.push(["trade", tt("chart.trade", "Trade"), "tvd-trade"]);
+
+    const tab = ([id, label, pane]) => {
+      const cur = id === first;
+      return `<button type="button" role="tab" id="tvd-tab-${id}" data-dock="${id}"
+        aria-controls="${pane}" aria-selected="${cur}" tabindex="${cur ? 0 : -1}"
+        class="tvd-tab${cur ? " on" : ""}"><span class="tvd-tab-t">${esc(label)}</span></button>`;
+    };
+    /* A tabpanel that scrolls has to be focusable, or a keyboard user
+       can reach the tabs and then not the content under them. */
+    const pane = (name, id, cls, body) => `<div class="tvd-body${cls ? " " + cls : ""}" id="${id}"
+      role="tabpanel" aria-labelledby="tvd-tab-${name}" tabindex="0"
+      data-pane="${name}"${first === name ? "" : " hidden"}>${body || ""}</div>`;
+
+    /* The region is named by its own visible heading rather than by a
+       duplicate aria-label, and the tab strip gets a name of its own -
+       otherwise a screen reader reads "Side panel" three times over on
+       the way in, for the region, its heading and its tablist. */
+    return `<aside class="tv-dock" id="tv-dock" aria-labelledby="tvd-title">
+      <div class="tvd-head">
+        <h2 class="tvd-title" id="tvd-title">${esc(tt("chart.panel", "Side panel"))}</h2>
         <button type="button" class="tvd-close" id="tv-dock-close" aria-label="${esc(tt("common.close", "Close"))}">${svg(I.close)}</button>
       </div>
-      <div class="tvd-body" id="tvd-objects" data-pane="objects"></div>
-      <div class="tvd-body" id="tvd-props" data-pane="props" hidden></div>
-      ${o.ticket ? `<div class="tvd-body" data-pane="trade" hidden>
-        <div class="chart-levels" id="chart-levels"></div>
-        ${o.ticket}</div>` : ""}
+      <div class="tvd-tabs" role="tablist" aria-label="${esc(tt("chart.panel_tabs", "Panel sections"))}">
+        ${tabs.map(tab).join("")}
+      </div>
+      ${pane("objects", "tvd-objects")}
+      ${pane("props", "tvd-props")}
+      <!-- The order ticket, and nothing else. It used to be preceded
+           by <div class="chart-levels">, a position:absolute box of
+           position chips 280px wide parked over the bottom-right
+           corner of the chart - the last survivor of the chips the
+           on-chart positions panel replaced. The panel answers the
+           same question in the same place without covering price, so
+           the chips were a second, worse answer that floated over the
+           candles and only existed when the desk had been opened on a
+           ticket. -->
+      ${o.ticket ? pane("trade", "tvd-trade", "", `${o.ticket}`) : ""}
     </aside>`;
   }
 
   function html(o) {
     o = o || {};
     loadLastTools();
-    ui.dockOpen = read(LS_DOCK, "1") === "1";
+    // The dock is a column beside the chart on a desktop and an overlay
+    // on top of it on a phone, so "open" does not mean the same thing in
+    // both places. Defaulting it open put an 82vw panel over the chart
+    // the moment the page was opened on mobile - the chart was behind
+    // its own sidebar before the trader had done anything. Remember the
+    // trader's own choice either way; only the default differs.
+    /* Where the dock is a column it may remember being open. Where it is an
+       overlay it may not.
+
+       The stored preference is one value shared by every width, so a trader
+       who opened the dock at a desk arrived on a phone to find a 300px
+       panel - most of a phone screen - sitting on top of the chart from the
+       first frame. That reads as "half the chart is missing", and the cure
+       was to tap the dock button, which is a poor thing to have to discover.
+       On a narrow screen the chart opens as a chart; the dock is one tap
+       away and its stored state is honoured again the moment there is room
+       for it to be a column. */
+    ui.dockOpen = narrow() ? false : read(LS_DOCK, "1") === "1";
     return `<div class="tv${ui.dockOpen ? "" : " no-dock"}" id="tv">
       ${topHtml(o)}
       <div class="tv-body">
@@ -450,9 +652,55 @@
               <button type="button" class="tv-round" id="tv-zout" title="${esc(tt("draw.zoom_out", "Zoom out"))} (−)">${svg(I.zoomOut)}</button>
               <button type="button" class="tv-round" id="tv-auto" title="${esc(tt("chart.auto_scale", "Auto scale"))}">${svg(I.auto)}</button>
               <button type="button" class="tv-round" id="tv-fit" title="${esc(tt("draw.fit", "Reset view"))} (Home)">${svg(I.fit)}</button>
+              <!-- Back to the live edge. Scrolling into history is one
+                   gesture; getting back was a long drag with no landmark
+                   to stop at, which on a phone is most of a screen. It
+                   only exists while there is somewhere to go back to. -->
+              <button type="button" class="tv-round tv-latest" id="tv-latest" hidden
+                title="${esc(tt("chart.to_latest", "Go to the latest candle"))}">${svg(I.toEnd)}</button>
             </div>
           </div>
         </div>
+        <!-- Open positions, under the chart and only under the chart.
+
+             A grid row rather than something floating over the chart:
+             opening it takes height from the chart, the canvas is
+             resized and the candles are redrawn, so nothing a trader
+             is watching ends up behind their own position list.
+
+             It is a row of .tv-body, not of .tv, and that is what
+             keeps it out of the side panel's way. As a row of .tv it
+             spanned the whole desk, so the panel beside the chart was
+             cut short by the dock's height and the bottom quarter of
+             it sat behind a list it has nothing to do with. Here it
+             occupies the chart's column only, the panel spans both
+             rows, and the two no longer share any space.
+
+             It also means .tv-body keeps its height when the dock
+             opens, which is what makes the mobile tools sheet - which
+             hangs off the bottom of .tv-body - independent of this by
+             construction rather than by cancelling a movement out. -->
+      <section class="tv-posdock" id="tv-posdock" aria-label="${esc(tt("chart.positions", "Positions"))}">
+        <header class="tv-posdock-head">
+          <h3>${esc(tt("chart.positions", "Positions"))}</h3>
+          <span class="tv-posdock-n" id="tv-posdock-n"></span>
+          <span class="tv-spacer"></span>
+          <span class="tv-posdock-sum mono" id="tv-posdock-sum"></span>
+          <!-- Flatten the book from the panel that shows it.
+
+               Disabled until there is something to close, so the
+               control states the position of the account rather than
+               offering an action that would do nothing. It is wired
+               in app.js, with the same confirmation and the same
+               endpoint as the header's emergency button. -->
+          <button type="button" class="tv-btn tv-flatten" id="tv-posdock-flat" disabled
+                  title="${esc(tt("exec.close_all", "Close all"))}">${esc(tt("exec.close_all", "Close all"))}</button>
+          <button type="button" class="tv-icon" id="tv-posdock-close"
+                  title="${esc(tt("chart.close", "Close"))}"
+                  aria-label="${esc(tt("chart.close", "Close"))}">${svg(I.close)}</button>
+        </header>
+        <div class="tv-posdock-body" id="tv-posdock-body"></div>
+      </section>
         ${dockHtml(o)}
       </div>
       <footer class="tv-status">
@@ -467,7 +715,7 @@
 
   global.AurionChartUI = {
     GROUPS, TOOL_BY_ID, CHART_TYPES, TIMEFRAMES, INDICATOR_GROUPS, INDICATOR_TEXT, ICONS: I,
-    html, svg, esc, tt, state: ui,
+    html, svg, esc, tt, nameOf, indicatorText, state: ui,
   };
 })(typeof window !== "undefined" ? window : this);
 
@@ -493,7 +741,31 @@
 
   const { GROUPS, TOOL_BY_ID, CHART_TYPES, TIMEFRAMES, INDICATOR_GROUPS, INDICATOR_TEXT, ICONS: I } = UI;
   const svg = UI.svg, esc = UI.esc, tt = UI.tt, ui = UI.state;
+  const nameOf = UI.nameOf, indicatorText = UI.indicatorText;
 
+  const LS_POS = "aurion.chart.posdock";
+  /* The dock's height is not declared here at all.
+
+     It used to be dragged taller or shorter by a grip along its top
+     edge, clamped between 96 and 420 and remembered in local storage.
+     It is a section of the desk now rather than a drawer: it opens at
+     one size, the chart's row gives up exactly that much, and there
+     is nothing to adjust, misplace or restore. That one size is
+     --tv-posdock in chart.css, which is also what the grid row and
+     the tools sheet's offset are written in terms of - so there is a
+     single number rather than a constant here that has to be kept in
+     step with a stylesheet. */
+
+  /** Is this a phone-sized screen?
+
+      The describer above has its own narrow(), at the 980px the side
+      panel floats at; this file is two IIFEs and that one is not in
+      scope here. The positions dock folds into cards at 760, so that
+      is the width that decides whether it opens by default. */
+  function posNarrow() {
+    try { return window.matchMedia("(max-width: 760px)").matches; }
+    catch (e) { return false; }
+  }
   const LS_DOCK = "aurion.chart.dock";
   const LS_GROUP = "aurion.chart.lasttool";
   const LS_TOOLLOCK = "aurion.chart.toollock";
@@ -564,7 +836,7 @@
     TIMEFRAMES.forEach((t) => by[t.group].push(t));
     const section = (key, label) => `<div class="tvm-sec">${esc(label)}</div>` +
       by[key].map((t) => `<button type="button" class="tvm-row${t.id === ui.ctx.timeframe ? " on" : ""}" data-pick-tf="${t.id}">
-        <span class="tvm-key">${esc(t.short)}</span><span>${esc(t.label)}</span>
+        <span class="tvm-key">${esc(t.short)}</span><span>${esc(nameOf("tf", t))}</span>
         ${t.id === ui.ctx.timeframe ? svg(I.tick, "tvm-tick") : ""}</button>`).join("");
     return section("minutes", tt("chart.tf_minutes", "Minutes")) +
       section("hours", tt("chart.tf_hours", "Hours")) +
@@ -572,9 +844,41 @@
       `<p class="tvm-note">${esc(tt("chart.tf_note", "These are the intervals MetaTrader serves for this symbol."))}</p>`;
   }
 
+  /**
+   * Pick the charted instrument, with a search box.
+   *
+   * The symbol used to be a label: the only way to chart something else
+   * was to go back to the list and click a different card. With several
+   * EAs attached that is a lot of clicking, and with many it is a lot of
+   * scrolling, which is why this filters.
+   *
+   * The list is the attached charts, because those are the only symbols
+   * the terminal is actually sending bars for -- offering anything else
+   * would be offering a chart that cannot be drawn.
+   */
+  function menuSymbols(query) {
+    const all = (ui.ctx && ui.ctx.symbols) || [];
+    const q = String(query || "").trim().toUpperCase();
+    const hits = q
+      ? all.filter((s) => String(s.symbol || "").toUpperCase().includes(q) ||
+                          String(s.label || "").toUpperCase().includes(q))
+      : all;
+    const cur = ui.ctx && ui.ctx.symbol;
+    const rows = hits.map((s) => `<button type="button" class="tvm-row${s.symbol === cur ? " on" : ""}"
+        data-pick-sym="${esc(s.symbol)}">
+        <span class="tvm-key">${esc(s.symbol)}</span>
+        <span>${esc(s.timeframe || "")}</span>
+        ${s.symbol === cur ? svg(I.tick, "tvm-tick") : ""}</button>`).join("");
+    return `<div class="tvm-search dsk-search sm">${svg(I.search)}
+        <input class="dsk-search-i" type="search" id="tv-sym-q" value="${esc(query || "")}" autocomplete="off"
+               placeholder="${esc(tt("chart.search_sym", "Search instrument"))}" />
+      </div>
+      ${rows || `<p class="tvm-note">${esc(tt("chart.no_sym", "No attached chart matches that."))}</p>`}`;
+  }
+
   function menuTypes() {
     return CHART_TYPES.map((t) => `<button type="button" class="tvm-row${t.id === ui.chart.type ? " on" : ""}" data-pick-type="${t.id}">
-      ${svg(I[t.icon], "tvm-ico")}<span>${esc(t.label)}</span>
+      ${svg(I[t.icon], "tvm-ico")}<span>${esc(nameOf("type", t))}</span>
       ${t.id === ui.chart.type ? svg(I.tick, "tvm-tick") : ""}</button>`).join("");
   }
 
@@ -584,7 +888,7 @@
     const q = String(query || "").trim().toLowerCase();
     const active = ui.chart.indicators.map((ind) => {
       const def = lib.INDICATOR_BY_ID[ind.type] || {};
-      const text = INDICATOR_TEXT[ind.type] || [ind.type, ""];
+      const text = indicatorText(ind.type);
       const params = Object.keys(ind.params || {}).map((k) =>
         `<label class="tvi-param"><span>${esc(k)}</span>
           <input type="number" data-ind-param="${ind.id}" data-key="${esc(k)}" value="${esc(ind.params[k])}" min="1" step="1" /></label>`).join("");
@@ -603,20 +907,25 @@
     const groups = INDICATOR_GROUPS.map((g) => {
       const rows = lib.INDICATORS.filter((d) => d.group === g.id).filter((d) => {
         if (!q) return true;
-        const text = INDICATOR_TEXT[d.id] || [d.id, ""];
-        return (d.id + " " + text[0] + " " + text[1]).toLowerCase().indexOf(q) >= 0;
+        /* Search the English AND the translated name. A trader who knows
+           the indicator as "RSI" must still find it on a Persian desk, and
+           one reading the Persian list must be able to type what they see. */
+        const en = INDICATOR_TEXT[d.id] || [d.id, ""];
+        const text = indicatorText(d.id);
+        return (d.id + " " + en[0] + " " + en[1] + " " + text[0] + " " + text[1])
+          .toLowerCase().indexOf(q) >= 0;
       }).map((d) => {
-        const text = INDICATOR_TEXT[d.id] || [d.id, ""];
+        const text = indicatorText(d.id);
         return `<button type="button" class="tvm-row wide" data-add-ind="${d.id}">
           <span class="tvm-ico mono">${esc(d.short)}</span>
           <span class="tvm-text"><b>${esc(text[0])}</b><small>${esc(text[1])}</small></span>
           ${svg(I.plus, "tvm-tick")}</button>`;
       }).join("");
-      return rows ? `<div class="tvm-sec">${esc(g.label)}</div>${rows}` : "";
+      return rows ? `<div class="tvm-sec">${esc(nameOf("indgrp", g))}</div>${rows}` : "";
     }).join("");
 
-    return `<div class="tvm-search">${svg(I.search)}
-        <input class="ctrl" id="tv-ind-q" value="${esc(query || "")}" placeholder="${esc(tt("chart.search_ind", "Search indicators"))}" />
+    return `<div class="tvm-search dsk-search sm">${svg(I.search)}
+        <input class="dsk-search-i" type="search" id="tv-ind-q" value="${esc(query || "")}" placeholder="${esc(tt("chart.search_ind", "Search indicators"))}" />
       </div>
       ${active ? `<div class="tvm-sec">${esc(tt("chart.on_chart", "On this chart"))}</div>${active}` : ""}
       ${groups || `<p class="tvm-note">${esc(tt("chart.no_ind", "Nothing matches that."))}</p>`}`;
@@ -632,7 +941,6 @@
     const c = ui.chart;
     return `<div class="tvm-sec">${esc(tt("chart.appearance", "Appearance"))}</div>
       ${toggleRow("grid", tt("chart.grid", "Grid"), c.grid)}
-      ${toggleRow("sessions", tt("draw.sessions", "Market sessions"), c.sessions)}
       <div class="tvm-sec">${esc(tt("chart.crosshair", "Crosshair"))}</div>
       <div class="tvm-choice">
         ${["cross", "dot", "none"].map((m) => `<button type="button" data-cross="${m}" class="${c.crosshair === m ? "on" : ""}">${esc(tt("chart.cross_" + m, m))}</button>`).join("")}
@@ -662,7 +970,7 @@
     markRailState();
     const tool = TOOL_BY_ID[active];
     const st = $("tv-status-tool");
-    if (st) st.textContent = tool ? tool.label : tt("chart.mode_navigate", "Navigate");
+    if (st) st.textContent = tool ? nameOf("tool", tool) : tt("chart.mode_navigate", "Navigate");
     const hint = $("tv-status-hint");
     if (hint) {
       const need = global.SHAPE_POINTS ? global.SHAPE_POINTS[c.tool] : null;
@@ -755,11 +1063,19 @@
     const groupBtn = document.querySelector('.tvr-group[data-group="' + tool.group + '"] .tvr-btn');
     if (groupBtn) {
       groupBtn.dataset.tool = id;
-      groupBtn.innerHTML = svg(I[tool.icon]);
-      groupBtn.title = tool.label + (tool.key ? " (" + tool.key.toUpperCase() + ")" : "");
-      groupBtn.setAttribute("aria-label", tool.label);
+      // Keep the group's name on the button. It is invisible on a desktop
+      // and it is what makes the mobile tool sheet readable, so rewriting
+      // innerHTML with the icon alone silently emptied the sheet's labels
+      // as soon as the trader picked anything.
+      const group = GROUPS.find((g) => g.id === tool.group);
+      groupBtn.innerHTML = svg(I[tool.icon]) +
+        '<span class="tvr-name">' + esc(group ? nameOf("grp", group) : nameOf("tool", tool)) + "</span>";
+      groupBtn.title = nameOf("tool", tool) + (tool.key ? " (" + tool.key.toUpperCase() + ")" : "");
+      groupBtn.setAttribute("aria-label", nameOf("tool", tool));
     }
     closeFlyout();
+    // Choosing a tool is the end of the errand the sheet was opened for.
+    toggleTools(false);
     markTool();
   }
 
@@ -775,13 +1091,42 @@
     const fly = $("tv-flyout");
     const group = GROUPS.find((g) => g.id === groupId);
     if (!fly || !group) return;
-    fly.innerHTML = `<div class="tvf-head">${esc(group.label)}</div>` +
+    fly.innerHTML = `<div class="tvf-head">${esc(nameOf("grp", group))}</div>` +
       group.tools.map((t) => `<button type="button" class="tvf-row${ui.chart.tool === t.id ? " on" : ""}" data-tool="${t.id}">
-        ${svg(I[t.icon])}<span>${esc(t.label)}</span>${t.key ? `<kbd>${esc(t.key.toUpperCase())}</kbd>` : ""}</button>`).join("");
+        ${svg(I[t.icon])}<span>${esc(nameOf("tool", t))}</span>${t.key ? `<kbd>${esc(t.key.toUpperCase())}</kbd>` : ""}</button>`).join("");
     fly.hidden = false;
     const r = anchor.getBoundingClientRect();
     const box = document.querySelector(".tv-body").getBoundingClientRect();
-    fly.style.top = Math.max(4, Math.min(r.top - box.top, box.height - fly.offsetHeight - 8)) + "px";
+
+    /* Place it against the button that opened it, on both axes.
+
+       Only `top` used to be set; the inline edge came from the
+       stylesheet as "just past the rail". On a desktop that is right -
+       the rail is a column down one side, so every flyout belongs in
+       the same place. On a phone the rail is a sheet across the bottom
+       and the rail width is 0, so every tool's menu opened hard against
+       the left edge of the screen, nowhere near the tool. */
+    const narrow = window.matchMedia("(max-width: 760px)").matches;
+    if (narrow) {
+      /* Above the button, because below it is the sheet the button
+         lives in and, under that, the thumb. Clamped so a group at
+         either end of the row does not push the menu off the screen. */
+      const w = fly.offsetWidth || 180;
+      /* Measured from the inline start edge, not from the left, so this
+         is the same code in Persian and Arabic. The stylesheet already
+         positions the flyout with inset-inline-start; writing `left`
+         here would fight it in RTL and the menu would land on the
+         opposite side of the screen from its button. */
+      const rtl = document.documentElement.dir === "rtl";
+      const mid = rtl ? (box.right - r.right + r.width / 2) : (r.left - box.left + r.width / 2);
+      const start = Math.max(6, Math.min(mid - w / 2, box.width - w - 6));
+      const above = r.top - box.top - fly.offsetHeight - 8;
+      fly.style.insetInlineStart = start + "px";
+      fly.style.top = Math.max(6, above) + "px";
+    } else {
+      fly.style.insetInlineStart = "";
+      fly.style.top = Math.max(4, Math.min(r.top - box.top, box.height - fly.offsetHeight - 8)) + "px";
+    }
     anchor.setAttribute("aria-expanded", "true");
     requestAnimationFrame(() => fly.classList.add("in"));
   }
@@ -791,7 +1136,7 @@
   function objectName(d) {
     if (d.name) return d.name;
     const tool = TOOL_BY_ID[d.kind];
-    return tool ? tool.label : d.kind;
+    return tool ? nameOf("tool", tool) : d.kind;
   }
 
   function renderObjects() {
@@ -948,7 +1293,7 @@
       data-swatch="${c}" style="--c:${c}" title="${esc(c)}" aria-label="${esc(c)}"></button>`).join("");
     const widths = [1, 1.5, 2.5, 4].map((w) => `<button type="button" class="tvs-w${Math.abs(width - w) < 0.26 ? " on" : ""}"
       data-swidth="${w}" title="${esc(tt("chart.thickness", "Thickness"))} ${w}"><i style="--h:${w}px"></i></button>`).join("");
-    return `<span class="tvs-kind">${esc((TOOL_BY_ID[d.kind] || {}).label || d.kind)}</span>
+    return `<span class="tvs-kind">${esc(nameOf("tool", TOOL_BY_ID[d.kind]) || d.kind)}</span>
       <span class="tvs-div"></span>
       ${dots}
       <label class="tvs-dot tvs-custom" title="${esc(tt("chart.color_custom", "Custom colour"))}">
@@ -1016,12 +1361,13 @@
         <button type="button" class="tv-icon tiny danger" data-obj-del="${d.id}"
           title="${esc(tt("common.delete", "Delete"))}">${svg(I.trash)}</button>
       </div>
-      <p class="tvp-kind">${esc((TOOL_BY_ID[d.kind] || {}).label || d.kind)}</p>
+      <p class="tvp-kind">${esc(nameOf("tool", TOOL_BY_ID[d.kind]) || d.kind)}</p>
       ${fields}
       ${FIELD.coords(d)}`;
   }
 
   function refresh() {
+    if (typeof ui.syncNav === "function") ui.syncNav();
     renderObjects();
     renderProps();
     paintStyleBar();
@@ -1035,12 +1381,141 @@
     }
   }
 
-  function showDock(tab) {
+  /* Keep the chosen tab in view WITHIN its strip, and nowhere else.
+
+     This was b.scrollIntoView({block:"nearest", inline:"nearest"}), which
+     reads like it is scoped and is not: "nearest" only means "do not
+     scroll a container the element is already visible in". It still walks
+     up and scrolls every scrollable ancestor that cannot see it - and
+     .tv was one, because overflow:hidden is a scroll container and the
+     closed dock is parked 300px outside it. One call to line up a tab
+     shunted the entire workspace sideways. (chart.css now makes .tv
+     overflow:clip so it cannot happen again from any direction; this is
+     the other half - not asking for it in the first place.)
+
+     So the strip is scrolled by hand. No ancestor is touched, there is
+     nothing to get wrong on a right-to-left desk, and a tab inside a
+     panel that is not open is simply left alone. */
+  function revealInStrip(btn) {
+    const strip = btn && typeof btn.closest === "function" ? btn.closest(".tvd-tabs") : null;
+    if (!strip) return;
+    /* No ancestor is involved, so there is nothing to guard against: if
+       the panel happens to be closed the strip is simply lined up ready
+       for when it opens. (An earlier draft of this skipped the call for a
+       closed dock by asking narrow() - which lives in the other IIFE in
+       this file and is not in scope here. It threw on the first render,
+       which is the sort of thing a jsdom suite cannot see and a browser
+       reports in one line.) */
+    if (strip.scrollWidth <= strip.clientWidth + 1) return;
+    const start = btn.offsetLeft - strip.offsetLeft;
+    const end = start + btn.offsetWidth;
+    const view = strip.scrollLeft;
+    if (start < view) strip.scrollLeft = start;
+    else if (end > view + strip.clientWidth) strip.scrollLeft = end - strip.clientWidth;
+  }
+
+  function showDock(tab, focus) {
     ui.dockTab = tab;
-    document.querySelectorAll("[data-dock]").forEach((b) => b.classList.toggle("on", b.dataset.dock === tab));
+    document.querySelectorAll("[data-dock]").forEach((b) => {
+      const cur = b.dataset.dock === tab;
+      b.classList.toggle("on", cur);
+      /* The class paints it; these are what say so out loud. A roving
+         tabindex is also what makes Tab leave the strip after one stop
+         instead of walking through every tab in it. */
+      b.setAttribute("aria-selected", String(cur));
+      b.tabIndex = cur ? 0 : -1;
+      /* preventScroll, because focusing an element also asks every
+         scrollable ancestor to reveal it, and at this width the panel
+         this tab belongs to may be parked off-canvas. Revealing it is
+         revealInStrip's job and the strip's alone. */
+      if (cur && focus) { try { b.focus({ preventScroll: true }); } catch (e) { b.focus(); } }
+      if (cur) revealInStrip(b);
+    });
     document.querySelectorAll(".tvd-body").forEach((p) => { p.hidden = p.dataset.pane !== tab; });
     const tv = $("tv");
     if (tv && tv.classList.contains("no-dock")) toggleDock(true);
+  }
+
+  /* Arrow keys move between tabs, Home and End jump to the ends. This
+     is the half of the tab pattern that cannot be done with markup,
+     and without it the roving tabindex above would be a trap: one tab
+     reachable, the other three unreachable by keyboard entirely. */
+  function dockKey(e) {
+    const el = e.target;
+    const strip = el && typeof el.closest === "function" && el.closest(".tvd-tabs");
+    if (!strip) return;
+    const keys = { ArrowRight: 1, ArrowLeft: -1, ArrowDown: 1, ArrowUp: -1 };
+    const items = [...strip.querySelectorAll("[data-dock]")];
+    if (!items.length) return;
+    const rtl = (document.documentElement.getAttribute("dir") || "").toLowerCase() === "rtl";
+    let next = -1;
+    if (e.key === "Home") next = 0;
+    else if (e.key === "End") next = items.length - 1;
+    else if (keys[e.key]) {
+      let step = keys[e.key];
+      /* Left and right follow the writing direction; up and down never do. */
+      if (rtl && (e.key === "ArrowRight" || e.key === "ArrowLeft")) step = -step;
+      const at = items.indexOf(el.closest("[data-dock]"));
+      if (at < 0) return;
+      next = (at + step + items.length) % items.length;
+    } else return;
+    e.preventDefault();
+    showDock(items[next].dataset.dock, true);
+  }
+
+  /**
+   * The drawing tools, as a sheet rather than a strip.
+   *
+   * On a narrow screen the rail used to flatten into a 44px horizontal
+   * scroller holding ten tool groups and five switches - twenty-five
+   * targets in a band the height of one thumb, most of them off-screen
+   * behind a sideways scroll with no indication they were there. Here
+   * it opens as a labelled grid instead: everything visible at once,
+   * named, and big enough to hit.
+   */
+  function toggleTools(open) {
+    const tv = $("tv");
+    if (!tv) return;
+    const next = open === undefined ? !tv.classList.contains("tools-open") : !!open;
+    /* A tool's menu belongs to the sheet it was opened from. Leaving it
+       behind when the sheet goes left it stranded over the chart with
+       nothing underneath it and no obvious way to dismiss it. */
+    if (!next) closeFlyout();
+    tv.classList.toggle("tools-open", next);
+    /* The sheet is modal, so the header behind it is out of play. The
+       scrim covers it and the CSS stops it reacting to a pointer;
+       this is the half neither of those can do, which is keeping the
+       header's controls out of the tab order while a sheet is up.
+
+       Cleared again below whenever the sheet is not open, and the
+       sheet is forced shut when the phone layout goes away, so there
+       is no path that leaves a desktop header inert. */
+    const top = tv.querySelector(".tv-top");
+    if (top) top.toggleAttribute("inert", next);
+    const fab = $("tv-toolsfab");
+    if (fab) fab.setAttribute("aria-expanded", next ? "true" : "false");
+    // The sheet and the dock both cover the chart; two of them at once
+    // leaves nothing to look at.
+    if (next) toggleDock(false);
+  }
+
+  /**
+   * Show or hide the positions dock.
+   *
+   * It is a row of the grid, so this genuinely resizes the chart rather
+   * than parking a panel on top of it - which is the point. The canvas
+   * only re-measures when it paints, and the row animates, so the same
+   * redrawSoon the side panel uses is needed here too.
+   */
+  function togglePosDock(open) {
+    const tv = $("tv");
+    if (!tv) return;
+    const next = open === undefined ? !tv.classList.contains("pos-open") : !!open;
+    tv.classList.toggle("pos-open", next);
+    write(LS_POS, next ? "1" : "0");
+    const b = $("tv-pos-toggle");
+    if (b) b.setAttribute("aria-pressed", next ? "true" : "false");
+    redrawSoon();
   }
 
   function toggleDock(open) {
@@ -1074,15 +1549,40 @@
     if (!box || typeof ResizeObserver === "undefined") return;
     if (ui.sizeWatch) { try { ui.sizeWatch.disconnect(); } catch (e) { /* gone */ } }
 
+    /* Coalesced, because a CSS transition fires this on every frame - but
+       coalesced with a TRAILING edge, which is the whole point.
+
+       This was a leading-edge throttle: paint on the first notification,
+       then silently drop everything for 60ms. A burst of resizes that ENDS
+       inside a dropped window therefore left the canvas holding the first,
+       mid-flight geometry with no repaint ever scheduled to correct it, and
+       a canvas only re-measures when it paints. On a phone the mount is
+       exactly such a burst - the dynamic viewport settling as the address
+       bar resolves, the rail reflowing at the tablet breakpoint, the
+       grid-template-columns transition on .tv-body - so the chart came up
+       at the size it had part-way through and stayed there. The only thing
+       that fixed it was some later event that forced a paint, which is why
+       tapping the dock appeared to be the cure: toggleDock calls
+       redrawSoon.
+
+       Now the last notification in a burst always gets its paint. */
     let last = 0;
+    let trailing = 0;
+    const paint = () => {
+      try { if (ui.chart) ui.chart.draw(); } catch (e) { /* unmounted */ }
+    };
     ui.sizeWatch = new ResizeObserver(() => {
-      // Coalesced: a transition fires this on every frame.
       const now = Date.now();
-      if (now - last < 60) return;
+      if (now - last < 60) {
+        // Inside the quiet window: do not paint now, but guarantee one
+        // paint after the burst has finished.
+        clearTimeout(trailing);
+        trailing = setTimeout(() => { last = Date.now(); paint(); }, 80);
+        return;
+      }
       last = now;
-      requestAnimationFrame(() => {
-        try { if (ui.chart) ui.chart.draw(); } catch (e) { /* unmounted */ }
-      });
+      clearTimeout(trailing);
+      requestAnimationFrame(paint);
     });
     ui.sizeWatch.observe(box);
   }
@@ -1101,11 +1601,6 @@
     if (!tv) return;
     ui.fullscreen = on;
     document.body.classList.toggle("chart-full", on);
-    const btn = $("tv-full");
-    if (btn) {
-      btn.innerHTML = svg(on ? I.exit : I.full);
-      btn.setAttribute("aria-pressed", on ? "true" : "false");
-    }
     /* The whole document goes fullscreen, not the workspace element.
        Asking only for #tv looked tidier and was wrong: everything that
        floats - the confirm dialog, the toasts, these menus - lives outside
@@ -1127,6 +1622,11 @@
 
   function onKey(e) {
     if (!ui.chart || !$("tv")) return;
+    /* Someone earlier in the chain has already acted on this - the tab
+       strip's arrow keys, for one. Panning the chart as well would move
+       the price out from under the trader as a side effect of changing
+       a tab. */
+    if (e.defaultPrevented) return;
     const el = e.target;
     if (el && /^(input|textarea|select)$/i.test(el.tagName)) return;
     if (el && el.isContentEditable) return;
@@ -1150,7 +1650,8 @@
         // will not turn off". One press puts the cursor back.
         if (c.tool !== "cursor") { pickTool("cursor"); return; }
         if (c.selected) { c.select(null); return; }
-        if (ui.fullscreen) setFullscreen(false);
+        /* Escape no longer drops fullscreen either. It used to leave the
+           chart in the same half-state the device back button did. */
         return;
       case "Delete": case "Backspace":
         if (c.deleteSelected()) e.preventDefault();
@@ -1168,7 +1669,6 @@
       default: break;
     }
     const k = e.key.toLowerCase();
-    if (k === "f") { e.preventDefault(); setFullscreen(!ui.fullscreen); return; }
     if (SHORTCUT[k]) { e.preventDefault(); pickTool(SHORTCUT[k]); }
   }
 
@@ -1188,6 +1688,29 @@
     if (!ui.root) return;
 
     chart.opts.onChange = () => refresh();
+
+    /* Panning has to update the navigation chrome too.
+     *
+     * The chart reports a move two ways: changed(), which the panel
+     * listens to above, and scrolled(). Dragging only ever called
+     * scrolled() - deliberately, because changed() rebuilds the objects
+     * list, the properties pane and the style bar, which is far too much
+     * to run on every pointermove. So "go to the latest candle" stayed
+     * hidden through the entire drag that made it necessary, and only
+     * appeared on the next click, which is what finally ran syncNav.
+     *
+     * syncNav is two reads and a hidden flag, so it is safe on every
+     * move. scrolled() carries one listener and app.js already owns it
+     * for loading more history, so this wraps rather than replaces it -
+     * taking the slot outright would silently stop deep history loading.
+     */
+    const priorOnScroll = chart.opts.onScroll;
+    chart.opts.onScroll = (c) => {
+      if (typeof priorOnScroll === "function") {
+        try { priorOnScroll(c); } catch { /* nav must still update */ }
+      }
+      if (typeof ui.syncNav === "function") ui.syncNav();
+    };
     chart.opts.onToolDone = () => {
       // The tool stays armed unless the trader asked for the old one-shot
       // behaviour. Either way the shape just drawn is selected, so its
@@ -1199,7 +1722,7 @@
     const typeLabel = $("tv-type-label");
     if (typeLabel) {
       const t = CHART_TYPES.find((x) => x.id === chart.type);
-      typeLabel.textContent = t ? t.label : chart.type;
+      typeLabel.textContent = t ? nameOf("type", t) : chart.type;
     }
 
     /* ---- rail ---------------------------------------------------------- */
@@ -1279,6 +1802,18 @@
           const q = el.querySelector("#tv-ind-q");
           if (q) { q.focus(); q.oninput = () => { el.innerHTML = menuIndicators(q.value); el.querySelector("#tv-ind-q").focus(); }; }
         }
+        if (name === "symbol") {
+          const el = openMenu(menu, name, menuSymbols(""));
+          const q = el.querySelector("#tv-sym-q");
+          if (q) {
+            q.focus();
+            q.oninput = () => {
+              el.innerHTML = menuSymbols(q.value);
+              const again = el.querySelector("#tv-sym-q");
+              if (again) { again.focus(); again.setSelectionRange(again.value.length, again.value.length); }
+            };
+          }
+        }
         if (name === "settings") openMenu(menu, name, menuSettings());
         return;
       }
@@ -1295,9 +1830,36 @@
       }
       if (e.target.closest("#tv-undo")) { chart.undo(); return; }
       if (e.target.closest("#tv-redo")) { chart.redo(); return; }
-      if (e.target.closest("#tv-scrim")) { toggleDock(false); return; }
       if (e.target.closest("#tv-dock-toggle")) { toggleDock(); return; }
-      if (e.target.closest("#tv-full")) setFullscreen(!ui.fullscreen);
+      if (e.target.closest("#tv-pos-toggle")) { togglePosDock(); return; }
+      /* Bound here and not on the chart box: this button lives in the
+         header, and a delegated handler only ever sees clicks inside
+         the element it is attached to. */
+      if (e.target.closest("#tv-headgap")) {
+        chart.setHeadGap(!chart.headGapOn());
+        ui.syncNav && ui.syncNav();
+        return;
+      }
+    };
+
+    /* ---- overlays: the FAB and the two scrims --------------------------
+     *
+     * These three are built by railHtml/html into .tv-body, NOT into the
+     * header - so wiring them onto .tv-top meant their clicks never
+     * reached a handler at all. The tools FAB did nothing on a phone,
+     * and neither scrim could be tapped to dismiss what it covered.
+     * They are bound on #tv, which is the one element that contains all
+     * three of them.
+     */
+    const root = $("tv");
+    if (root) root.onclick = (e) => {
+      if (e.target.closest("#tv-toolsfab")) { toggleTools(); return; }
+      /* The dock's own close button is in the dock, which is a sibling
+         of the top bar - the same mistake the comment above records,
+         and caught by the same guard. */
+      if (e.target.closest("#tv-posdock-close")) { togglePosDock(false); return; }
+      if (e.target.closest("#tv-toolscrim")) { toggleTools(false); return; }
+      if (e.target.closest("#tv-scrim")) { toggleDock(false); }
     };
 
     /* ---- menus (delegated on the body, they live outside #tv) ---------- */
@@ -1313,12 +1875,22 @@
         const tf = e.target.closest("[data-pick-tf]");
         if (tf) { closeMenu(); if (ui.ctx.onTimeframe) ui.ctx.onTimeframe(tf.dataset.pickTf); return; }
 
+        const sym = e.target.closest("[data-pick-sym]");
+        if (sym) {
+          closeMenu();
+          const picked = sym.dataset.pickSym;
+          // Re-charting the symbol already shown would tear the workspace
+          // down and rebuild it for no change the user can see.
+          if (picked && picked !== ui.ctx.symbol && ui.ctx.onSymbol) ui.ctx.onSymbol(picked);
+          return;
+        }
+
         const ty = e.target.closest("[data-pick-type]");
         if (ty) {
           c.setType(ty.dataset.pickType);
           const lbl = $("tv-type-label");
           const def = CHART_TYPES.find((x) => x.id === c.type);
-          if (lbl && def) lbl.textContent = def.label;
+          if (lbl && def) lbl.textContent = nameOf("type", def);
           menu.innerHTML = menuTypes();
           return;
         }
@@ -1340,8 +1912,6 @@
           const on = tg.getAttribute("aria-pressed") === "true";
           const what = tg.dataset.toggle;
           if (what === "grid") c.setGrid(!on);
-          if (what === "sessions" && ui.ctx.onSessions) ui.ctx.onSessions(!on);
-          else if (what === "sessions") c.setSessions(!on);
           if (what === "auto") c.setAutoScale(!on);
           if (what === "log") c.setLogScale(!on);
           if (what === "percent") c.setPercentScale(!on);
@@ -1370,10 +1940,23 @@
           if (ind) c.updateIndicator(ind.id, { params: { [p.dataset.key]: Number(p.value) || 1 } });
         }
       });
+      /* Before onKey: the tab strip owns the arrow keys while focus is
+         inside it, and the chart's own arrow-key panning must not also
+         fire and scroll the price out from under the trader. */
+      document.addEventListener("keydown", dockKey);
       document.addEventListener("keydown", onKey);
       document.addEventListener("keyup", onKeyUp);
       document.addEventListener("fullscreenchange", () => {
-        if (!document.fullscreenElement && ui.fullscreen) setFullscreen(false);
+        /* Deliberately not calling setFullscreen(false) here.
+           On Android the device's own back button exits the browser's
+           fullscreen, and this listener used to take the desk's
+           fullscreen down with it -- so back collapsed the chart to a
+           window while leaving the trader on the chart page, which is
+           neither where they were nor where they asked to go. The
+           browser's fullscreen and the desk's are now separate: losing
+           the first leaves the chart filling the desk, and the only way
+           out of the chart is its own back button, which lands on the
+           charts list. */
         // The browser resizes the viewport over a transition, so the frame
         // painted on the way in is the old geometry. The engine's resize
         // observer catches most of it; this covers the case where the box
@@ -1388,6 +1971,51 @@
     // And the catch-all, for every size change nothing above predicted.
     watchSize();
 
+    /* Mount gets the same treatment every other viewport change already
+       got. Opening the chart is a layout change like any other - arguably
+       the largest one - yet it was the only one with no repaint ladder
+       behind it, so a first paint taken before the layout settled was
+       never corrected and the trader had to poke something to fix it.
+       0/120/360ms, the same three beats as a dock toggle. */
+    redrawSoon();
+
+    /* ---- the positions dock ------------------------------------------- */
+    /* Shut by default on a phone for the same reason the side panel
+       is: the chart is what was opened, and a quarter of a small
+       screen is too much to spend before being asked. */
+    togglePosDock(posNarrow() ? false : read(LS_POS, "0") === "1");
+
+    /* ---- the tool sheet is dragged shut, like the settings one --------- */
+    if (typeof attachSheetDrag === "function") {
+      attachSheetDrag({
+        handle: $("tv-rail-grab"),
+        sheet: $("tv-rail"),
+        scrim: $("tv-toolscrim"),
+        body: $("tv-rail"),
+        isOpen: () => { const tv = $("tv"); return !!tv && tv.classList.contains("tools-open"); },
+        close: () => toggleTools(false),
+      });
+    }
+    /* A bottom sheet is a phone thing. Carried into the desktop
+       layout it becomes a class with no rules behind it - harmless to
+       look at, except that the header would stay inert and the trader
+       would have a dead top bar and nothing on screen explaining it.
+       Rotating a phone into landscape crosses this line too. */
+    if (typeof window.matchMedia === "function") {
+      const phone = window.matchMedia("(max-width: 760px)");
+      const onLeave = (e) => { if (!e.matches) toggleTools(false); };
+      if (typeof phone.addEventListener === "function") phone.addEventListener("change", onLeave);
+      else if (typeof phone.addListener === "function") phone.addListener(onLeave);
+    }
+    if (typeof attachSheetEdgeOpen === "function") {
+      attachSheetEdgeOpen({
+        stage: $("tv-chartbox"),
+        isOpen: () => { const tv = $("tv"); return !!tv && tv.classList.contains("tools-open"); },
+        open: () => toggleTools(true),
+        when: () => window.matchMedia("(max-width: 760px)").matches,
+      });
+    }
+
     /* ---- navigation ----------------------------------------------------- */
     const box = $("tv-chartbox");
     if (box) box.onclick = (e) => {
@@ -1395,7 +2023,25 @@
       else if (e.target.closest("#tv-zout")) chart.zoom(-1);
       else if (e.target.closest("#tv-auto")) chart.setAutoScale(true);
       else if (e.target.closest("#tv-fit")) chart.fit();
+      else if (e.target.closest("#tv-latest")) chart.scrollToLatest();
+      syncNav();
     };
+
+    /* The jump button is only useful when the live edge is off-screen, and
+       a control that does nothing is worse than no control. */
+    function syncNav() {
+      const b = $("tv-latest");
+      if (b) b.hidden = chart.atLatest();
+      const hg = $("tv-headgap");
+      if (hg) {
+        const on = chart.headGapOn();
+        hg.classList.toggle("on", on);
+        hg.setAttribute("aria-pressed", on ? "true" : "false");
+      }
+    }
+    ui.syncNav = syncNav;
+
+    syncNav();
 
     /* ---- selection style bar ------------------------------------------- */
     const styleBar = $("tv-style");
@@ -1545,6 +2191,9 @@
 
   Object.assign(UI, {
     bind, refresh, pickTool, setFullscreen, showDock, closeMenu, markTool, markRailState,
+    /* Exported so the tab strip's keyboard map can be exercised against
+       a rendered panel without standing up a whole chart engine. */
+    dockKey,
     isFullscreen: () => ui.fullscreen,
   });
 })(typeof window !== "undefined" ? window : this);

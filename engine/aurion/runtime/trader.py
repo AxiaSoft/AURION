@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import shutil
 import time
 from collections import deque
 from typing import Any
 
-from .auto_entry import expired_orders, plan_entry
+from .auto_entry import confirm_entry, expired_orders, plan_entry
 from .deals import aggregate_close_deals, history_row_matches
 from ..prop.hours import (broker_offset_minutes, resolve_zone, zone_choices,
                           zone_label, zone_offset_minutes)
@@ -92,6 +93,7 @@ class Trader:
         self.auto_entry_depth = 0.5
         self.auto_entry_offset = 0.35
         self.auto_entry_expiry = 120
+        self.auto_entry_confirm = "normal"
         self._auto_entry_sweep = 0.0
         self._auto_entry_tickets: set[int] = set()
         # Entries on the wire, per symbol. Held from just before the send
@@ -155,6 +157,8 @@ class Trader:
         self._last_bar_time: dict[tuple[str, str], str] = {}
         self._news_stop = asyncio.Event()
         self._news_task: asyncio.Task | None = None
+        self._analysis_stop = asyncio.Event()
+        self._analysis_task: asyncio.Task | None = None
         self.robot_log: deque[dict[str, Any]] = deque(maxlen=600)
         self._known_pos: dict[int, dict[str, Any]] = {}
         self._pending_tag: list[dict[str, Any]] = []
@@ -256,10 +260,22 @@ class Trader:
         # Do not persist on boot — a failed overlay read would rewrite saved settings.
         self._news_stop = asyncio.Event()
         self._news_task = asyncio.create_task(self._news_refresh_loop(), name="aurion-news")
+        self._analysis_stop = asyncio.Event()
+        self._analysis_task = asyncio.create_task(
+            self._analysis_loop(), name="aurion-analysis"
+        )
         log.info("AURION engine started")
         await self.journal("info", "boot", "Engine online. Robot is idle until a strategy is enabled and auto-trade is armed.")
 
     async def stop(self) -> None:
+        self._analysis_stop.set()
+        if getattr(self, "_analysis_task", None):
+            self._analysis_task.cancel()
+            try:
+                await self._analysis_task
+            except (asyncio.CancelledError, Exception):
+                pass
+            self._analysis_task = None
         self._news_stop.set()
         if self._news_task:
             self._news_task.cancel()
@@ -344,6 +360,9 @@ class Trader:
                 await self._watch_strategies(payload)
                 await self._maybe_strategy_tick(payload)
                 self._schedule_live_ai(sym)
+            # Last, so it reports the state the handlers above just left
+            # behind rather than the one they started from.
+            await self._push_analysis()
             return
         if kind == "candle":
             self.store.upsert_candle(payload)
@@ -1061,6 +1080,9 @@ class Trader:
                 asyncio.create_task(self._bg_train(rows, symbol, timeframe), name=f"aurion-train-{symbol}")
             self.store.record_signal({**state, "source": "ai"})
             await self.bus.publish("ai", state)
+            # A closed bar is the one moment the analysis is guaranteed to
+            # have moved, so it goes out now rather than on the next tick.
+            await self._push_analysis(force=True)
             shown = state.get("display_direction") or state.get("hint") or state.get("direction") or "n/a"
             await self.journal(
                 "info",
@@ -1929,6 +1951,8 @@ class Trader:
             slot["live_action"] = action
             slot["live_reason"] = why
             slot["live_ts"] = utc_iso()
+            self._note_symbol(slot, symbol, live_action=action, live_reason=why,
+                              live_ts=slot["live_ts"])
         if not changed:
             return
         self._sync_book_meta()
@@ -1995,6 +2019,8 @@ class Trader:
         except (TypeError, ValueError):
             self.auto_entry_offset = 0.35
         self.auto_entry_expiry = self._clamp_int(auto_cfg.get("expiry_minutes"), 120, 0, 10080)
+        confirm = str(auto_cfg.get("confirm", "normal") or "normal").lower()
+        self.auto_entry_confirm = confirm if confirm in {"off", "normal", "strict"} else "normal"
         danger_cfg = runtime.get("danger_guard") if isinstance(runtime.get("danger_guard"), dict) else {}
         self.danger_enabled = bool(danger_cfg.get("enabled", False))
         self.danger_sensitivity = clamp_sensitivity(danger_cfg.get("sensitivity", 50))
@@ -2500,6 +2526,36 @@ class Trader:
         except Exception:
             return {}
 
+    # How many symbols a strategy keeps a record for. A desk watching a
+    # basket is the case this exists for; a cap stops a mistyped feed
+    # from growing the snapshot without bound.
+    SYMBOL_MEMORY = 12
+
+    @staticmethod
+    def _note_symbol(slot: dict[str, Any], symbol: str, **fields: Any) -> None:
+        """Record what a strategy said about ONE symbol.
+
+        The book used to keep a single last_action per strategy. That is
+        true of a desk watching one chart and a lie on any other: a buy
+        on EURUSD was overwritten by a hold on GBPUSD seconds later, and
+        the card showed whichever symbol happened to close last without
+        saying which one it was talking about. The per-symbol record is
+        kept here and the single field is left alone, so everything that
+        reads it still works.
+        """
+        sym = str(symbol or "").strip()
+        if not sym:
+            return
+        book = slot.setdefault("by_symbol", {})
+        row = book.setdefault(sym, {"symbol": sym})
+        row.update({k: v for k, v in fields.items() if v is not None})
+        row["symbol"] = sym
+        if len(book) > Trader.SYMBOL_MEMORY:
+            # Oldest first, by whichever timestamp the row carries.
+            stale = sorted(book.items(), key=lambda kv: str(kv[1].get("ts") or kv[1].get("live_ts") or ""))
+            for key, _ in stale[: len(book) - Trader.SYMBOL_MEMORY]:
+                book.pop(key, None)
+
     def _sync_book_meta(self) -> None:
         enabled = [k for k, v in self.book.items() if v.get("enabled")]
         first = next((self.book[k]["inst"] for k in enabled), None)
@@ -2518,6 +2574,17 @@ class Trader:
             desc["live_action"] = slot.get("live_action") or ""
             desc["live_reason"] = slot.get("live_reason") or ""
             desc["live_ts"] = slot.get("live_ts") or ""
+            # What it is saying about EACH symbol it has been asked about.
+            # The three fields above are the most recent answer whatever
+            # symbol produced it, which on a desk watching a basket names
+            # no instrument at all - so the card could not say whether a
+            # "buy" meant EURUSD or gold.
+            by = slot.get("by_symbol") or {}
+            desc["symbols"] = sorted(
+                (dict(v) for v in by.values() if isinstance(v, dict)),
+                key=lambda r: str(r.get("live_ts") or r.get("ts") or ""),
+                reverse=True,
+            )
             # The running tally of refusals: one bar's reason is an anecdote,
             # the tally is the answer to "why has it not traded all week".
             try:
@@ -2602,6 +2669,7 @@ class Trader:
             "news_trade_locked": bool(self.prop.enabled),
             "auto_entry": bool(getattr(self, "auto_entry", False)),
             "auto_entry_expiry": int(getattr(self, "auto_entry_expiry", 120)),
+            "auto_entry_confirm": str(getattr(self, "auto_entry_confirm", "normal")),
             "pending_orders": panel("pending orders", lambda: len(self._own_pending_orders()), 0),
             "danger_guard": panel("danger guard", self._danger_state, {}),
             "risk_free": panel("risk free", self._risk_free_state, {}),
@@ -2752,6 +2820,8 @@ class Trader:
                 slot["last_action"] = "fault"
                 slot["last_reason"] = str(exc)
                 slot["last_ts"] = utc_iso()
+                self._note_symbol(slot, ctx.symbol, action="fault",
+                                  reason=slot["last_reason"], ts=slot["last_ts"])
                 self.safe_mode = True
                 await self.journal("error", "strategy_fault", f"{name} crashed: {exc}")
                 self._sync_book_meta()
@@ -2767,11 +2837,17 @@ class Trader:
                 slot["last_action"] = "hold"
                 slot["last_reason"] = reason or said or "no setup on this bar"
                 slot["last_ts"] = utc_iso()
+                self._note_symbol(slot, ctx.symbol, action="hold",
+                                  reason=slot["last_reason"], ts=slot["last_ts"],
+                                  timeframe=str(getattr(ctx, "timeframe", "") or ""))
                 await self.journal("info", "hold", f"{name}: hold — {slot['last_reason']}")
                 continue
             slot["last_action"] = action
             slot["last_reason"] = reason or action
             slot["last_ts"] = utc_iso()
+            self._note_symbol(slot, ctx.symbol, action=action,
+                              reason=slot["last_reason"], ts=slot["last_ts"],
+                              timeframe=str(getattr(ctx, "timeframe", "") or ""))
             await self.journal("info", "signal", f"{name}: {action} — {slot['last_reason']}")
             if action in {"close", "close_all", "flatten"}:
                 closes.append((name, signal))
@@ -2841,6 +2917,14 @@ class Trader:
                 "lookback": 20, "volume": 0.10, "sl_atr": 1.2, "tp_atr": 2.0,
                 "min_rr": 1.6, "with_trend": True, "require_momentum": True, "min_efficiency": 0.18,
             },
+            # smart_money's own gates (HTF structure, discount/premium)
+            # already do what with_trend/require_momentum do on the
+            # others, so the style pack only moves the speed knobs.
+            "smart_money": {
+                "volume": 0.10, "setup_bars": 20, "sweep_bars": 3, "disp_bars": 3,
+                "min_displacement": 1.0, "min_rr": 1.5, "equilibrium": 0.62,
+                "require_htf": True,
+            },
         },
         "scalping": {
             "ema_rsi": {
@@ -2854,6 +2938,14 @@ class Trader:
             "atr_breakout": {
                 "lookback": 8, "volume": 0.05, "sl_atr": 0.55, "tp_atr": 0.95,
                 "min_rr": 1.2, "with_trend": True, "require_momentum": False, "min_efficiency": 0.12,
+            },
+            # Scalping cannot wait 20 bars for a retrace, so the whole
+            # sequence is compressed and the higher-timeframe check is
+            # dropped: on a scalp the HTF has not moved since the sweep.
+            "smart_money": {
+                "volume": 0.05, "setup_bars": 8, "sweep_bars": 2, "disp_bars": 2,
+                "min_displacement": 0.7, "min_rr": 1.15, "equilibrium": 0.7,
+                "require_htf": False,
             },
         },
     }
@@ -3407,12 +3499,34 @@ class Trader:
                 f"Auto entry found no better price for {side} {symbol} — sending at market",
             )
             return request
+        # The entry point is planted. Now wait for the market to agree with
+        # it. A resting order fills on touch, which takes the trade where
+        # price merely visited the level as readily as the one where the
+        # level held - so before committing, ask the candles whether this
+        # is a level being defended or a level being walked through.
+        verdict = confirm_entry(
+            side,
+            self._confirm_candles(symbol),
+            float(plan.get("price") or 0),
+            mode=str(getattr(self, "auto_entry_confirm", "normal")),
+        )
+        if not verdict.get("confirmed"):
+            await self.journal(
+                "info",
+                "auto_entry_waiting",
+                f"Entry planted for {side} {symbol} at {plan['price']} — waiting for "
+                f"confirmation: {verdict.get('reason')}",
+                {"plan": dict(plan), "confirm": dict(verdict)},
+            )
+            return {**request, "action": "hold", "auto_entry_waiting": True,
+                    "confirm": dict(verdict), "plan": dict(plan)}
         out = {
             **request,
             "action": "pending",
             "order_type": plan["order_type"],
             "price": plan["price"],
             "auto_entry": True,
+            "confirm": dict(verdict),
         }
         if plan.get("sl"):
             out["sl"] = plan["sl"]
@@ -3428,6 +3542,30 @@ class Trader:
             {"plan": dict(plan)},
         )
         return out
+
+    def _confirm_candles(self, symbol: str, count: int = 6) -> list[dict[str, Any]]:
+        """The last few closed bars, for the entry confirmation check."""
+        timeframe = str(getattr(self, "active_timeframe", "") or "M15")
+        count = max(2, int(count))
+        # The bridge holds the live series; the store is the fallback when
+        # this symbol is not the one being streamed.
+        try:
+            bridge = getattr(self, "bridge", None)
+            if bridge is not None:
+                live = [c.to_dict() if hasattr(c, "to_dict") else dict(c or {})
+                        for c in (bridge.candles_of(symbol, timeframe) or [])]
+                if len(live) >= 2:
+                    return live[-count:]
+        except Exception:
+            log.exception("could not read live candles to confirm entry for %s", symbol)
+        store = getattr(self, "store", None)
+        if store is None:
+            return []
+        try:
+            return list(store.candles(symbol, timeframe, count) or [])
+        except Exception:
+            log.exception("could not read candles to confirm entry for %s", symbol)
+            return []
 
     async def sweep_pending(self, force: bool = False) -> int:
         """Cancel our resting orders that have waited past their shelf life.
@@ -3600,6 +3738,19 @@ class Trader:
         ):
             try:
                 request = await self._apply_auto_entry(request)
+                if request.get("auto_entry_waiting"):
+                    # Planted, not entered. This is a deferral, not a
+                    # rejection: the setup stands and the next closed
+                    # candle gets another vote. Returning here is what
+                    # keeps "hold" off the wire.
+                    return {
+                        "ok": True,
+                        "held": True,
+                        "auto_entry_waiting": True,
+                        "confirm": request.get("confirm"),
+                        "plan": request.get("plan"),
+                        "error": None,
+                    }
                 if str(request.get("action") or "") == "pending":
                     # The resting price is not the market price, so the
                     # stop's cost in money is a different number. Price
@@ -3826,7 +3977,10 @@ class Trader:
             "experts": self.experts_state(),
             "last_signal": self.last_signal,
             "gate": self.trade_gate(),
-            "analysis": self._safe_analysis(),
+            "analysis": {
+                **self._safe_analysis(),
+                "by_symbol": self._analysis_by_symbol(),
+            },
             "gates": self.gates_by_symbol(),
             "license": self.license.public(),
             "robot": list(self.robot_log)[-80:],
@@ -3886,6 +4040,101 @@ class Trader:
         "ai_low": ("The AI is not confident enough yet", "Wait, or lower the AI confidence filter."),
     }
 
+    # How often the live analysis may be recomputed and pushed. Ticks
+    # arrive several times a second; the analysis is in-memory state
+    # (no pandas, no strategy call) but there is no point redrawing a
+    # panel faster than a person can read it.
+    # The desk repaints the Intelligence card from this, so the number is
+    # the worst-case age of what a trader is looking at. One analysis
+    # costs ~0.4ms of pure in-memory state, so 5/second is 0.2% of a
+    # core - the cadence is limited by what is useful, not by cost.
+    ANALYSIS_PUSH_SECONDS = 0.2
+    # How often the engine asks itself whether the reading changed. This
+    # exists because ticks are NOT a reliable heartbeat: they only arrive
+    # while an MT5 EA is attached and the market is open. Driving the
+    # live card from ticks alone left it frozen on a closed market, on a
+    # demo account with no EA, and on any symbol the EA was not watching
+    # - which is exactly when a trader stares at it hardest.
+    ANALYSIS_LOOP_SECONDS = 0.25
+
+    async def _analysis_loop(self) -> None:
+        """Keep the live analysis live, whatever is or is not feeding us.
+
+        _push_analysis only publishes when the content actually changed,
+        so an idle engine sends nothing at all and this costs a
+        sub-millisecond comparison a few times a second.
+        """
+        while not self._analysis_stop.is_set():
+            try:
+                await self._push_analysis()
+            except Exception:
+                log.exception("analysis push failed")
+            try:
+                await asyncio.wait_for(
+                    self._analysis_stop.wait(), timeout=self.ANALYSIS_LOOP_SECONDS
+                )
+            except asyncio.TimeoutError:
+                continue
+
+    async def _push_analysis(self, force: bool = False) -> None:
+        """Send the live analysis the moment it changes.
+
+        The analysis used to travel only inside the full snapshot, which
+        the desk polls every ten seconds or so. So the panel named "live
+        analysis" was up to ten seconds stale and visibly jumped in
+        steps, which is what the trader was describing when they said it
+        refreshes instead of being live.
+
+        This publishes on its own topic instead, driven by the tick
+        stream. It is throttled so a busy symbol cannot flood the socket,
+        and -- more importantly -- it only sends when the content has
+        actually changed, so a quiet market costs one comparison per
+        tick and no traffic at all. Because it recomputes from current
+        state, every cause of a change is caught here: a new AI read, a
+        strategy refusal, a gate opening, an order being planted.
+        """
+        now = time.time()
+        if not force and now - getattr(self, "_analysis_sent_at", 0.0) < self.ANALYSIS_PUSH_SECONDS:
+            return
+        self._analysis_sent_at = now
+        try:
+            data = self._safe_analysis()
+        except Exception:
+            log.exception("analysis push failed")
+            return
+        data = dict(data)
+        data["by_symbol"] = self._analysis_by_symbol()
+        sig = self._analysis_signature(data)
+        if not force and sig == getattr(self, "_analysis_sig", None):
+            return
+        self._analysis_sig = sig
+        await self.bus.publish("analysis", data)
+
+    # Fields that change on their own as time passes rather than because
+    # the robot's reading changed. Counting them would make every
+    # comparison unequal, so the throttle would publish on every tick and
+    # the desk would restamp "updated just now" forever - the age would
+    # stop meaning anything at all.
+    # "next_eval" is dropped whole: it is only a countdown (in_seconds plus
+    # the "in about 2m 1s" text rendered from it). It still travels in the
+    # payload - it just does not get a vote on whether this is new.
+    ANALYSIS_CLOCK_FIELDS = frozenset({
+        "ts", "utc", "in_seconds", "seconds", "countdown", "next_eval",
+    })
+
+    def _analysis_signature(self, data: Any) -> str:
+        def strip(node: Any) -> Any:
+            if isinstance(node, dict):
+                return {k: strip(v) for k, v in node.items()
+                        if k not in self.ANALYSIS_CLOCK_FIELDS}
+            if isinstance(node, list):
+                return [strip(v) for v in node]
+            return node
+        try:
+            return json.dumps(strip(data), sort_keys=True, default=str)
+        except Exception:
+            return repr(data)
+
     def _safe_analysis(self) -> dict[str, Any]:
         """A reporting read must never be the thing that breaks a snapshot."""
         try:
@@ -3893,6 +4142,52 @@ class Trader:
         except Exception:
             log.exception("analysis unavailable")
             return {"symbol": self.active_symbol, "blockers": [], "console": [], "fault": True}
+
+    # How many watched charts the per-symbol analysis will cover. The
+    # desk's direction slider caps itself at 12 the same way, and this
+    # runs several times a second, so an unbounded loop here would be a
+    # slow leak rather than an obvious bug.
+    ANALYSIS_SYMBOL_CAP = 12
+
+    def _watched_symbols(self) -> list[str]:
+        """The symbols the desk's direction slider is stepping through.
+
+        Deliberately the same source the slider uses - charts with the
+        EA actually attached - so stepping to a slide can never land on
+        a symbol this has no analysis for.
+        """
+        out: list[str] = []
+        seen: set[str] = set()
+        try:
+            agents = self.bridge.public_agents() or []
+        except Exception:
+            agents = []
+        for a in agents:
+            sym = str(getattr(a, "symbol", "") or "")
+            if sym and sym not in seen:
+                seen.add(sym)
+                out.append(sym)
+        active = str(self.active_symbol or "")
+        if active and active not in seen:
+            out.insert(0, active)
+        return out[: self.ANALYSIS_SYMBOL_CAP]
+
+    def _analysis_by_symbol(self) -> dict[str, Any]:
+        """One analysis per watched chart, keyed by symbol.
+
+        The Intelligence page shows the direction slider above the live
+        analysis, and stepping the slider has to move both. Without this
+        the analysis only ever described the active symbol, so the two
+        halves of the page disagreed as soon as the trader pressed the
+        arrow.
+        """
+        out: dict[str, Any] = {}
+        for sym in self._watched_symbols():
+            try:
+                out[sym] = self.analysis(sym)
+            except Exception:
+                log.exception("analysis failed for %s", sym)
+        return out
 
     def analysis(self, symbol: str = "", strategy: str = "") -> dict[str, Any]:
         """One readable account of what the robot is doing right now."""
@@ -4533,6 +4828,11 @@ class Trader:
             "bars": len(bars),
             "progress": 0,
             "started": started,
+            # Stated, so the result can be read against the settings it
+            # was produced under rather than assumed to be defaults.
+            "volume_mode": str(getattr(self, "volume_mode", "auto")),
+            "manual_volume": float(getattr(self, "manual_volume", 0.0) or 0.0),
+            "max_open": int(self._total_cap()),
         }
         await self.bus.publish("backtest", dict(self.backtest_run))
         equity = float(body.get("initial_equity") or self.bridge.account.equity or 10_000)
@@ -4563,7 +4863,7 @@ class Trader:
         loop = asyncio.get_running_loop()
         last_sent = 0.0
 
-        def report(done: int, total: int) -> None:
+        def report(done: int, total: int, live: dict[str, Any] | None = None) -> None:
             # Called from the worker thread, so the publish has to be
             # handed back to the loop rather than awaited here.
             nonlocal last_sent
@@ -4572,15 +4872,29 @@ class Trader:
                 return
             last_sent = now
             pct = int(round(100.0 * done / max(1, total)))
+            # Carry the replay's own state through, so the desk can draw
+            # the test as it happens instead of showing a spinner and a
+            # percentage. Namespaced under "live" so nothing here can be
+            # mistaken for a finished result.
             state = {**(self.backtest_run or {}), "running": True, "progress": pct}
+            if isinstance(live, dict):
+                state["live"] = dict(live)
             self.backtest_run = state
             loop.call_soon_threadsafe(
                 lambda: asyncio.ensure_future(self.bus.publish("backtest", dict(state)))
             )
 
         try:
+            # Replay with the desk's own settings, not the backtester's
+            # defaults. The lot mode decides what each entry is sized at
+            # and the open-trade cap decides how many may run at once;
+            # with neither passed through, a replay reported the result
+            # of a 0.1-lot, one-trade-at-a-time robot nobody is running.
             result = await asyncio.to_thread(
-                self.backtester.run, inst, bars, symbol, timeframe, equity, 1.0, 80, None, report
+                self.backtester.run, inst, bars, symbol, timeframe, equity, 1.0, 80, None, report,
+                str(getattr(self, "volume_mode", "auto")),
+                float(getattr(self, "manual_volume", 0.0) or 0.0),
+                int(self._total_cap()),
             )
         except Exception as exc:
             log.exception("backtest failed")

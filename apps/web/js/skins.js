@@ -21,6 +21,17 @@
 
   var LS_PERF = "aurion.perf";
   var LS_ACCENT = "aurion.accent";
+  /* A hand-picked accent.
+
+     The note above ACCENTS explains why a free picker was dropped the
+     first time: most hand-picked values fight the dark surfaces or go
+     muddy in the light theme. That reasoning still holds for the twenty
+     presets being the recommended path - but it argued for guidance, not
+     for refusing the choice. A custom value goes through exactly the same
+     readability derivation as a preset: the ink on top is measured, never
+     stored, so an unwise colour stays legible even when it is not pretty.
+ */
+  var LS_ACCENT_HEX = "aurion.accent.hex";
 
   function read(key, fallback) {
     try {
@@ -121,6 +132,68 @@
 
   // Relative luminance, so text on a bright accent is dark and vice versa.
 
+  /** "#rrggbb" if the value is one, otherwise null. Accepts "#rgb" too. */
+  function normHex(v) {
+    var m = /^#?([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(String(v || "").trim());
+    if (!m) return null;
+    var h = m[1];
+    if (h.length === 3) h = h[0] + h[0] + h[1] + h[1] + h[2] + h[2];
+    return "#" + h.toLowerCase();
+  }
+
+  function hexToHsl(hex) {
+    var n = parseInt(hex.slice(1), 16);
+    var r = ((n >> 16) & 255) / 255, g = ((n >> 8) & 255) / 255, b = (n & 255) / 255;
+    var mx = Math.max(r, g, b), mn = Math.min(r, g, b), d = mx - mn;
+    var h = 0;
+    if (d) {
+      if (mx === r) h = ((g - b) / d) % 6;
+      else if (mx === g) h = (b - r) / d + 2;
+      else h = (r - g) / d + 4;
+    }
+    h *= 60; if (h < 0) h += 360;
+    var l = (mx + mn) / 2;
+    var sat = d ? d / (1 - Math.abs(2 * l - 1)) : 0;
+    return [h, sat, l];
+  }
+
+  function hslToHex(h, sa, l) {
+    h = ((h % 360) + 360) % 360;
+    sa = Math.max(0, Math.min(1, sa));
+    l = Math.max(0, Math.min(1, l));
+    var c = (1 - Math.abs(2 * l - 1)) * sa;
+    var x = c * (1 - Math.abs(((h / 60) % 2) - 1));
+    var m = l - c / 2;
+    var t = h < 60 ? [c, x, 0] : h < 120 ? [x, c, 0] : h < 180 ? [0, c, x]
+          : h < 240 ? [0, x, c] : h < 300 ? [x, 0, c] : [c, 0, x];
+    var out = 0;
+    for (var i = 0; i < 3; i++) out = (out << 8) | Math.round((t[i] + m) * 255);
+    return "#" + ("000000" + out.toString(16)).slice(-6);
+  }
+
+  /* A preset ships three hand-tuned stops. A custom colour has to grow its
+     own: the mid turns a little and lifts, the third turns further. The
+     shifts are small enough that the family still reads as one colour. */
+  function derivedStops(hex) {
+    var hsl = hexToHsl(hex);
+    return [
+      hex,
+      hslToHex(hsl[0] - 12, Math.min(1, hsl[1] * 1.02), Math.max(0.16, hsl[2] * 0.88)),
+      hslToHex(hsl[0] + 26, Math.min(1, hsl[1] * 0.96), Math.min(0.78, hsl[2] * 1.1)),
+    ];
+  }
+
+  function customHex() { return normHex(read(LS_ACCENT_HEX, "")) || ""; }
+
+  function setCustomAccent(hex) {
+    var h = normHex(hex);
+    if (!h) return customHex();
+    write(LS_ACCENT_HEX, h);
+    write(LS_ACCENT, "custom");
+    apply();
+    return h;
+  }
+
   function rgbTriplet(hex) {
     var n = parseInt(hex.slice(1), 16);
     return ((n >> 16) & 255) + " " + ((n >> 8) & 255) + " " + (n & 255);
@@ -220,7 +293,11 @@
   }
 
   function accentTriplet(value) {
-    var preset = ACCENTS[value] || ACCENTS.aurora;
+    // "custom" is not in ACCENTS; its stops are derived from the hex the
+    // trader chose, then put through the same readability pass as a preset.
+    var preset = value === "custom" && customHex()
+      ? derivedStops(customHex())
+      : (ACCENTS[value] || ACCENTS.aurora);
     // The ink is always derived - "dark text on a light accent, light text on
     // a dark one" has to hold for every entry, not be maintained by hand.
     return [preset[0], preset[1], preset[2], readableInk(preset[0])];
@@ -243,6 +320,7 @@
   function getAccent() {
     if (forcedAccent) return forcedAccent;
     var v = read(LS_ACCENT, "aurora");
+    if (v === "custom" && customHex()) return "custom";
     return ACCENTS[v] ? v : "aurora";
   }
 
@@ -303,6 +381,16 @@
     el.style.setProperty("--accent-3-rgb", rgbTriplet(a[2]));
     el.style.setProperty("--scroll-thumb-hover", a[0]);
     el.style.setProperty("--accent-readable", legibleOnPage(a[0]));
+
+    /* The accent was briefly allowed to be a two-stop gradient. It is a
+       flat colour again, by request. Any gradient a trader saved while it
+       existed is cleared on the next apply(), so an upgrade cannot leave a
+       stale --accent-gradient painted on buttons with nothing in the
+       interface able to turn it off. */
+    el.style.removeProperty("--accent-gradient");
+    el.style.removeProperty("--accent-grad-ink");
+    if (el.dataset.accentGrad) delete el.dataset.accentGrad;
+    try { localStorage.removeItem("aurion.accent.grad"); } catch (e) { /* no store, nothing stale */ }
   }
 
   // Both readability values depend on the light/dark theme, so they are
@@ -327,6 +415,10 @@
 
   global.AurionSkin = {
     ACCENTS: ACCENTS,
+    normHex: normHex,
+    derivedStops: derivedStops,
+    customAccent: customHex,
+    setCustomAccent: setCustomAccent,
     getAccent: getAccent,
     storedAccent: storedAccent,
     setAccent: setAccent,

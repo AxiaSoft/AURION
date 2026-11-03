@@ -61,7 +61,7 @@ FORBIDDEN_MODULES = {
 }
 
 
-BUILTIN_NAMES = ("ema_rsi", "price_action", "atr_breakout")
+BUILTIN_NAMES = ("ema_rsi", "price_action", "atr_breakout", "smart_money")
 
 # Strategies that used to ship and no longer do. Saved runtime state, MT5
 # comments on open positions and a trader's own config all still name them, so
@@ -204,11 +204,13 @@ class StrategyLoader:
         from .builtin.atr_breakout import ATRBreakout
         from .builtin.ema_rsi import EmaRsi
         from .builtin.price_action import PriceAction
+        from .builtin.smart_money import SmartMoney
 
         mapping = {
             "ema_rsi": EmaRsi,
             "price_action": PriceAction,
             "atr_breakout": ATRBreakout,
+            "smart_money": SmartMoney,
         }
         name = resolve_builtin(name)
         if name not in mapping:

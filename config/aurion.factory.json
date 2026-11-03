@@ -126,6 +126,11 @@
     }
   },
   "update_server": {
+    "source": "github",
+    "github": {
+      "owner": "AxiaSoft",
+      "repo": "AURION"
+    },
     "url": "",
     "auto_check": false,
     "interval_hours": 6

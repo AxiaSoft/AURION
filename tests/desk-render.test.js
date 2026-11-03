@@ -105,7 +105,21 @@ function check(name, ok, detail) {
   win.fetch = makeFetch(fetchErrors);
   win.HTMLAnchorElement.prototype.click = function () {};
   // jsdom implements neither of these; the desk uses both at boot.
-  win.matchMedia = () => ({ matches: false, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {} });
+  /* A stub that answered `matches:false` to everything was lying about the
+     machine it claims to be: a desktop jsdom has a mouse, so (hover:hover)
+     is true there, and the calendar uses exactly that query to decide
+     whether a hover peek can ever be dismissed. Answer honestly against a
+     1280px desktop with a pointer, so width- and pointer-dependent code
+     takes the branch it would take in a real browser. */
+  const VIEWPORT = 1280;
+  win.matchMedia = (q) => {
+    const query = String(q || "");
+    let matches = true;
+    if (/hover:\s*none/.test(query) || /pointer:\s*coarse/.test(query)) matches = false;
+    for (const m of query.matchAll(/max-width:\s*(\d+)px/g)) if (VIEWPORT > +m[1]) matches = false;
+    for (const m of query.matchAll(/min-width:\s*(\d+)px/g)) if (VIEWPORT < +m[1]) matches = false;
+    return { matches, media: query, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {} };
+  };
   win.AudioContext = win.AudioContext || function () { return { createGain: () => ({}), createOscillator: () => ({}), destination: {}, currentTime: 0, resume: async () => {} }; };
   win.URL.createObjectURL = () => "blob:stub";
   win.URL.revokeObjectURL = () => {};
@@ -170,7 +184,11 @@ function check(name, ok, detail) {
   check("companion calendars shown in cells (Jalali+Hijri)", subs > 40, `${subs} sub-numbers`);
   const hasHigh = !!doc.querySelector("#cal-grid .dot.i-high");
   check("high-impact event coloured", hasHigh);
-  const weekendTag = doc.querySelectorAll("#cal-grid .cal-wk-tag").length;
+  /* Weekends used to carry a text tag inside the cell. It did not fit -
+     at 390px the cell's content box is 30px wide - and it was absolutely
+     positioned over the day number, so it is now a background tint plus
+     the wording in the day panel. The marking still has to be there. */
+  const weekendTag = doc.querySelectorAll("#cal-grid .cal-cell.wk").length;
   check("weekend days marked on the grid", weekendTag > 8, `${weekendTag} weekend cells`);
 
   const rawKeys = (rootHtml.match(/\b(?:calendar|risk|telegram|status|strategies|history)\.[a-z_]+\b/g) || [])
@@ -299,9 +317,17 @@ function check(name, ok, detail) {
       try { html2 = String(T.views.settings()); } catch (e) { threw = e.message; }
     }
     check("the settings view renders with the gallery in it", threw === "", threw || "ok");
-    check("every shipped picture has a tile",
-      AT.WALLPAPERS.every((w) => html2.includes("assets/bg/" + w + "-")),
-      AT.WALLPAPERS.filter((w) => !html2.includes("assets/bg/" + w + "-")).join(", ") || "all 10");
+    /* Ask the engine where each picture lives instead of assuming
+       assets/bg/<name>-<cut>.jpg. AURION's own backdrop is the orb the desk
+       has always used and sits beside the other artwork as a PNG. */
+    const tileMissing = AT.WALLPAPERS.filter((w) => {
+      const dark = AT.wallUrl(w + "@night", false);
+      const light = AT.wallUrl(w + "@day", true);
+      return !(dark && html2.includes(dark)) || !(light && html2.includes(light));
+    });
+    check("every shipped picture has a tile, in both cuts",
+      tileMissing.length === 0,
+      tileMissing.join(", ") || "all " + AT.WALLPAPERS.length);
     check("the tiles are a radio group the keyboard can reach",
       /id="knob-walls"[^>]*role="radiogroup"/.test(html2));
     check("'theme's own' and 'no picture' are both offered",

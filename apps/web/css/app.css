@@ -67,8 +67,16 @@
      violet would be a genuine hazard. They are deliberately NOT --accent. */
   --candle-up:#26d07c;
   --candle-down:#f4475b;
-  --ok:var(--candle-up);
-  --bad:var(--candle-down);
+  /* --ok / --bad are NOT the candle pair.
+     They were aliases of it, which is why Relief and Mono - whose
+     candles are deliberately one colour light and the same colour dark -
+     printed profit AND loss in grey: measured rgb(244,247,251) against
+     rgb(138,149,165), two greys, with the sign the only difference.
+     Candles may wear the theme, because a candle also has a position and
+     a direction on the chart. A number has nothing but its colour, so
+     profit and loss stay two plainly different hues in every theme. */
+  --ok:#26d07c;
+  --bad:#f4475b;
   --shadow:0 20px 60px rgba(0,0,0,.45);
   --r:22px;
   --nav:212px;
@@ -227,17 +235,23 @@ html[data-theme="light"] #auth::before{opacity:1}
   align-items:stretch;
 }
 .auth-brand{padding:28px 8px;animation:rise .8s var(--ease-out)}
+/* No plate. The mark used to sit in a rounded square with its own
+   surface, a hairline and a shadow - a frame drawn around something
+   that already has a silhouette, so the shape you read first was the
+   frame. It was also object-fit:cover at scale(1.08), which cropped
+   the logo to fill a box it never fitted.
+
+   The image stands on its own, uncropped, and takes the room the
+   plate used to take up. */
 .auth-logo-slot{
-  width:132px;height:132px;margin:0 0 20px;
-  border-radius:32px;overflow:hidden;flex:none;
-  background:var(--deep);
-  box-shadow:0 16px 40px rgba(0,0,0,.4), 0 0 0 1px rgb(var(--wash) / .06);
+  width:164px;height:164px;margin:0 0 20px;
+  flex:none;
   animation:floaty 6s var(--ease) infinite;
 }
 .auth-logo{
   display:block;width:100%;height:100%;
-  object-fit:cover;object-position:center;
-  transform:scale(1.08);
+  object-fit:contain;object-position:center;
+  filter:drop-shadow(0 14px 34px rgb(0 0 0 / .45));
 }
 .axiasoft-slot{
   display:flex;align-items:center;gap:10px;margin:16px 0 0;
@@ -267,9 +281,9 @@ html[dir="rtl"] .auth-brand h1{letter-spacing:.04em}
   border-radius:28px;
   padding:36px 32px 28px;
   box-shadow:var(--shadow);
-  backdrop-filter:blur(28px) saturate(140%);
-  -webkit-backdrop-filter:blur(28px) saturate(140%);
-  animation:rise .7s var(--ease-out) .08s both;
+  backdrop-filter:blur(calc(var(--blur, 18px) * 28 / 18)) saturate(140%);
+  -webkit-backdrop-filter:blur(calc(var(--blur, 18px) * 28 / 18)) saturate(140%);
+  animation:riseIn .7s var(--ease-out) .08s both;  /* riseIn: this pane is glass */
   text-align:start;
 }
 .hero{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(280px,.85fr);gap:18px;align-items:stretch}
@@ -277,7 +291,7 @@ html[dir="rtl"] .auth-brand h1{letter-spacing:.04em}
 .hero-copy h3{margin:0 0 12px;font-size:clamp(26px,4vw,40px);font-weight:500;line-height:1.25}
 .hero-copy > p{margin:0 0 18px;color:var(--muted);max-width:52ch;font-size:15px}
 .hero-chips{display:flex;flex-wrap:wrap;gap:8px}
-.glass-rise{animation:rise .65s var(--ease-out) .1s both}
+.glass-rise{animation:riseIn .65s var(--ease-out) .1s both}
 .brand-row{display:flex;align-items:center;gap:14px;margin-bottom:22px}
 .brand-row img{width:52px;height:52px;border-radius:14px;flex:none}
 .brand-row h1{margin:0;font-size:clamp(22px,4vw,28px);letter-spacing:.18em;font-weight:600}
@@ -286,8 +300,11 @@ html[dir="rtl"] .brand-row h1{letter-spacing:.04em}
 .auth-card h2{margin:8px 0 6px;font-size:clamp(20px,4vw,26px);font-weight:500}
 .lede{color:var(--muted);margin:0 0 22px;line-height:1.7;font-size:14px}
 .field{display:flex;flex-direction:column;gap:8px;margin-bottom:14px}
+/* A .field's caption is a <span> when the control is a custom widget
+   and a <label for> when it is a real input. Both look the same. */
+.field > span,.field > label{font-size:12px;color:var(--muted);letter-spacing:.02em}
 .field span{font-size:12px;color:var(--muted);letter-spacing:.02em}
-html[dir="rtl"] .field span{letter-spacing:0}
+html[dir="rtl"] .field span,html[dir="rtl"] .field > label{letter-spacing:0}
 .field input,.field select,.ctrl{
   background:var(--field);
   color:var(--ink);
@@ -320,43 +337,21 @@ html[dir="rtl"] .field span{letter-spacing:0}
   background:var(--field-hi);
 }
 
-/* Custom glass dropdown — native Windows popups are white-on-white */
-.dd-wrap{position:relative;min-width:140px;flex:1 1 148px;max-width:100%}
+/* Custom dropdown - native Windows select popups are white-on-white.
+
+   How this looks is not defined here. The button is the same .ctrl
+   shell, the menu the same glass popover and the options the same rows
+   as the symbol picker, by sharing its rules rather than restating
+   them - see the .sympick section. Two separate style blocks are how
+   the two controls drifted into visibly different dropdowns sitting on
+   the same toolbar. What is left here is structure. */
+.dd-wrap{position:relative;flex:1 1 148px;min-width:0;max-width:100%}
 .dd-native{
   position:absolute !important;opacity:0 !important;pointer-events:none !important;
   width:1px !important;height:1px !important;padding:0 !important;margin:0 !important;
   border:0 !important;inset-inline-start:0;top:0;overflow:hidden;
 }
-.dd-btn{
-  width:100%;display:flex;align-items:center;justify-content:space-between;gap:10px;
-  background:var(--field);color:var(--ink);border:1px solid var(--line);border-radius:14px;
-  padding:12px 14px;text-align:start;min-height:46px;
-  transition:border .25s var(--ease), box-shadow .25s var(--ease), background .25s;
-}
-.dd-btn:hover{background:var(--field-hi);border-color:rgb(var(--wash) / .14)}
-.dd-label{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--ink)}
-.dd-caret{
-  width:8px;height:8px;flex:none;margin-top:-3px;
-  border-inline-end:1.7px solid #c9d0de;border-bottom:1.7px solid #c9d0de;
-  transform:rotate(45deg);opacity:.85;
-}
-.dd-wrap.open .dd-caret{transform:rotate(225deg);margin-top:3px}
-.dd-menu{
-  position:fixed;z-index:240;
-  background:var(--field2);color:var(--ink);
-  border:1px solid rgb(var(--wash) / .14);
-  border-radius:14px;padding:6px;
-  box-shadow:0 22px 56px rgba(0,0,0,.62);
-  backdrop-filter:blur(22px) saturate(140%);
-  -webkit-backdrop-filter:blur(22px) saturate(140%);
-  overflow:auto;overscroll-behavior:contain;
-}
-.dd-opt{
-  width:100%;display:block;border:0;background:transparent;color:var(--ink);
-  text-align:start;padding:10px 12px;border-radius:10px;min-height:40px;font:inherit;
-}
-.dd-opt:hover,.dd-opt:focus{background:rgb(var(--accent-rgb) / .14);color:#fff;outline:none}
-.dd-opt.on{background:rgb(var(--accent-rgb) / .2);color:var(--cyan);font-weight:500}
+.dd-menu[hidden]{display:none}
 .dd-opt:disabled{opacity:.4;pointer-events:none}
 /* A cluster, not a line.
 
@@ -442,7 +437,6 @@ html[dir="rtl"] .switch.on i{transform:translate(calc(var(--sw-travel) * -1),-50
    Left in, it made the strategy banner sit further from the cards below it
    than those cards sit from each other. */
 .card.auto-banner{margin-bottom:0}
-.manual-box{margin-top:16px;padding-top:12px;border-top:1px solid var(--line)}
 .tabs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px}
 .tabs button{
   border:1px solid var(--line);background:transparent;color:var(--muted);
@@ -453,13 +447,19 @@ html[dir="rtl"] .switch.on i{transform:translate(calc(var(--sw-travel) * -1),-50
 .acc-type[data-kind="real"]{color:var(--gold)}
 .acc-type[data-kind="contest"],.acc-type[data-kind="prop_challenge"]{color:var(--violet)}
 .acc-type[data-kind="prop_funded"]{color:var(--ok)}
-#btn-refresh{min-width:42px}
 .icon-btn{
   width:42px;height:42px;border-radius:12px;border:1px solid var(--line);
   background:rgb(var(--wash) / .03);color:var(--ink);padding:0;position:relative;
   display:inline-grid;place-items:center;
+  /* A flex row will happily shrink a fixed-width button when the header
+     runs out of room, and refresh - being first to wrap - was the one it
+     chose. Opting out keeps the row uniform at every width. */
+  flex:0 0 auto;
 }
-.icon-btn svg{width:18px;height:18px}
+/* Every header glyph is drawn into the same 18px square from the same
+   24-unit viewBox, so the optical centre of each one lands on the centre
+   of its button and no icon moves when its neighbour changes. */
+.icon-btn svg{width:18px;height:18px;display:block}
 .icon-btn i{
   position:absolute;top:8px;inset-inline-end:8px;width:7px;height:7px;border-radius:99px;
   background:var(--rose);box-shadow:0 0 8px var(--rose);
@@ -478,12 +478,85 @@ html[dir="rtl"] .switch.on i{transform:translate(calc(var(--sw-travel) * -1),-50
 }
 .notify-card h4{margin:0 0 4px;font-size:13px;font-weight:500}
 .notify-card p{margin:0;color:var(--muted);font-size:12px;line-height:1.55}
-.notify-card .n-x{
-  position:absolute;top:8px;inset-inline-end:8px;border:0;background:transparent;color:var(--faint);
+/* One close button for every kind of notification - the trade cards, the
+   signal cards, the engine's own notes and the ordinary toasts. It used to
+   be a literal "x" character typed into the markup, which is a glyph
+   pretending to be an icon: it inherits the text font, so its weight and
+   size change with the theme, and a screen reader reads it as the letter. */
+.notify-card .n-x,
+.toast .n-x{
+  position:absolute;top:7px;inset-inline-end:7px;
+  width:24px;height:24px;display:grid;place-items:center;
+  border:0;border-radius:8px;background:transparent;color:var(--faint);
+  cursor:pointer;padding:0;
+  transition:color .16s var(--ease), background .16s var(--ease);
+}
+.notify-card .n-x svg,
+.toast .n-x svg{width:13px;height:13px}
+.notify-card .n-x:hover,
+.toast .n-x:hover{color:var(--ink);background:rgb(var(--wash) / .08)}
+
+/* While a card is being dragged it must not animate back to where it was
+   on every pointermove, and it must not select its own text. Once it is
+   released, the transition is what carries it off the screen. */
+.notify-card.swiping,
+.toast.swiping{transition:none;cursor:grabbing}
+.notify-card.n-out,
+.toast.n-out{
+  transition:transform .22s var(--ease), opacity .22s var(--ease);
+  pointer-events:none;
+}
+.notify-card{user-select:none;-webkit-user-select:none}
+
+/* A touch target of 24px is fine for a mouse and mean for a thumb. */
+/* ===========================================================================
+   Breakpoints - the whole scale, and the only one
+
+   This sheet had TWENTY-THREE distinct widths in it, including 1013px,
+   1120px and 860px. That is not a responsive system; it is twenty-three
+   separate occasions of someone dragging a browser edge until one card
+   stopped looking wrong. The cost is not tidiness. It is that different
+   parts of the SAME page reflowed at different widths, so between 820
+   and 900 the header had collapsed and the content grid had not, and
+   one page reflowed entirely on its own at 1013.
+
+   Seven steps now. Every @media in app.css, themes.css and chart.css
+   uses one of them and nothing else:
+
+     1200px   wide desktop      -> desktop
+     1100px   desktop           -> compact desktop
+     1000px   compact desktop   -> tablet, landscape
+      900px   tablet landscape  -> tablet
+      760px   tablet            -> large phone
+      560px   large phone       -> phone
+      380px   phone             -> small phone
+
+   Ranges are exclusive: a min-width pairs with max-width MINUS ONE
+   (1101/1100, 761/760), because `min-width:1100` and `max-width:1100`
+   both match at exactly 1100px and the later rule silently won.
+
+   Covers the four device widths the audit tests at - 375, 768, 1024,
+   1440 - with 380 and 560 below the smallest and 1200 above the
+   largest, so no device class sits on a boundary.
+
+   If a layout seems to need an eighth value, it almost certainly needs
+   a different layout: auto-fit with a minmax() floor reflows at the
+   width the CONTENT needs rather than at a width someone guessed.
+   =========================================================================== */
+
+@media (pointer:coarse){
+  .notify-card .n-x,
+  .toast .n-x{width:34px;height:34px;top:4px;inset-inline-end:4px}
+  .toast{padding-inline-end:44px}
+}
+
+@media (prefers-reduced-motion:reduce){
+  .notify-card.n-out,
+  .toast.n-out{transition:none}
 }
 .pay-veil{
   position:fixed;inset:0;z-index:280;display:grid;place-items:center;
-  background:rgb(var(--s1) / .72);backdrop-filter:blur(16px);padding:18px;
+  background:rgb(var(--s1) / .72);backdrop-filter:blur(calc(var(--blur, 18px) * 16 / 18));padding:18px;
 }
 .pay-card{width:min(520px,100%);text-align:start}
 .pay-card .keybox{
@@ -516,16 +589,8 @@ html[dir="rtl"] .switch.on i{transform:translate(calc(var(--sw-travel) * -1),-50
 .plan-card ul{margin:0;padding:0;list-style:none;display:grid;gap:6px}
 .plan-card li{font-size:12px;color:var(--muted);padding-inline-start:16px;position:relative}
 .plan-card li::before{content:"";position:absolute;inset-inline-start:0;top:6px;width:7px;height:7px;border-radius:99px;background:var(--cyan)}
-.prof-hero{display:flex;align-items:center;gap:16px;flex-wrap:wrap}
-.prof-ava{
-  width:76px;height:76px;border-radius:24px;display:grid;place-items:center;
-  background:linear-gradient(135deg,var(--accent),var(--accent-3));color:#061014;font-weight:600;font-size:26px;
-  box-shadow:0 12px 28px rgb(var(--accent-rgb) / .18);
-}
-.prof-meta{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
 .chip{display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:999px;border:1px solid var(--line);font-size:11px;color:var(--muted)}
 .chip.on{border-color:rgb(var(--accent-rgb) / .35);color:var(--cyan)}
-.prof-sec{margin-top:4px}
 .pay-row{display:flex;justify-content:space-between;gap:10px;padding:8px 0;border-bottom:1px solid var(--line);font-size:13px}
 .secret-box{
   font-family:"IBM Plex Mono",monospace;font-size:13px;letter-spacing:.08em;
@@ -534,10 +599,76 @@ html[dir="rtl"] .switch.on i{transform:translate(calc(var(--sw-travel) * -1),-50
 }
 .badge-ok{color:var(--cyan);font-size:11px}
 .badge-no{color:var(--rose);font-size:11px}
-.prof-id{display:flex;align-items:center;gap:14px;margin-bottom:14px}
-.prof-ava{
-  width:64px;height:64px;border-radius:20px;display:grid;place-items:center;
-  background:linear-gradient(135deg,var(--accent),var(--accent-3));color:#061014;font-weight:600;font-size:22px;
+/* ------------------------------------------------------------------
+   Profile - rebuilt
+
+   .prof-ava was declared TWICE in this file, nineteen lines apart:
+   76px with a shadow, then 64px without. The second silently won, so
+   the first had been dead for however long and the avatar was a size
+   nobody chose. Same fault as the settings rail had. One rule now.
+   ------------------------------------------------------------------ */
+.pfx-id{display:flex; align-items:center; gap:18px; flex-wrap:wrap}
+.pfx-ava{
+  inline-size:72px; block-size:72px; border-radius:22px;
+  display:grid; place-items:center; flex:none;
+  background:linear-gradient(135deg, var(--accent), var(--accent-3));
+  color:var(--on-accent); font-weight:600; font-size:25px;
+  box-shadow:0 12px 28px rgb(var(--accent-rgb) / .18);
+}
+.pfx-who{min-inline-size:0; flex:1 1 240px}
+.pfx-name{margin:0; font-size:21px; font-weight:600; letter-spacing:-.01em}
+.pfx-who > .sub{margin:2px 0 0}
+.pfx-chips{display:flex; flex-wrap:wrap; gap:6px; margin-block-start:10px}
+.pfx-chips .chip{cursor:default}
+.pfx-chips button.chip{cursor:pointer}
+.pfx-chips button.chip:hover{border-color:rgb(var(--accent-rgb) / .35); color:var(--ink)}
+
+/* Preferences beside security. They never share a Save button:
+   one is harmless and the other is not. */
+.pfx-cols{
+  display:grid; gap:14px; align-items:start;
+  grid-template-columns:repeat(auto-fit, minmax(320px, 1fr));
+}
+
+/* One heading grammar for every section on the page, so a section is
+   recognisable as a section without counting <h3>s. */
+.pfx-head{margin:0 0 12px}
+.pfx-head h3{margin:0}
+.pfx-head .sub{margin:4px 0 0; font-size:12.5px; max-inline-size:52ch}
+
+/* A rule between two jobs inside one card - password and 2FA are one
+   subject, so they share a card, but they are not one form. */
+.pfx-rule{
+  border:0; border-block-start:1px solid var(--line);
+  margin-block:20px 16px;
+}
+
+.pfx-row{
+  display:flex; align-items:baseline; gap:10px;
+  padding-block:9px; border-block-end:1px solid var(--line); font-size:13px;
+}
+.pfx-row:last-child{border-block-end:0}
+.pfx-row > span{color:var(--muted); min-inline-size:7.5rem}
+.pfx-row > b{font-weight:600; min-inline-size:0; overflow-wrap:anywhere}
+.pfx-none{font-style:normal; color:var(--faint); font-weight:400}
+
+/* Two-factor on and two-factor off read differently in WORDS first.
+   The colour is the second signal, not the only one. */
+.pfx-state{margin:0 0 10px}
+.pfx-state.is-on{color:var(--ok)}
+.pfx-state.is-off{color:var(--muted)}
+
+.pfx-acts{margin-block-start:10px; gap:8px; align-items:center; flex-wrap:wrap}
+.pf-code{max-inline-size:140px; font-variant-numeric:tabular-nums; letter-spacing:.14em}
+
+@media (max-width:560px){
+  .pfx-ava{inline-size:56px; block-size:56px; border-radius:18px; font-size:20px}
+  .pfx-id{gap:14px}
+  .pfx-name{font-size:19px}
+  /* A label column of 7.5rem next to a long email leaves the value
+     about four characters wide on a phone. */
+  .pfx-row{flex-direction:column; gap:2px}
+  .pfx-row > span{min-inline-size:0}
 }
 /* The chart's own toolbar used to live here: a row of 28 equal buttons that
    collapsed behind a hamburger below 900px. It has been replaced wholesale by
@@ -550,10 +681,38 @@ html[dir="rtl"] .switch.on i{transform:translate(calc(var(--sw-travel) * -1),-50
 .set-title{margin:0 0 12px;font-size:18px;font-weight:500}
 .set-h{margin:16px 0 10px;font-size:12px;color:var(--muted);font-weight:500;letter-spacing:.04em;text-transform:uppercase}
 html[dir="rtl"] .set-h{letter-spacing:0;text-transform:none}
-.set-jump{position:sticky;top:0;z-index:5;padding:4px 0 12px;background:linear-gradient(180deg, rgb(var(--s1) / .92), rgb(var(--s1) / .72) 70%, transparent)}
 .st-live{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:10px}
 .st-live .pill.on{color:var(--on-accent);background:var(--cyan);border-color:transparent}
 .st-stats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-top:10px;padding-top:8px;border-top:1px solid var(--line)}
+
+/* One chip per symbol the strategy is watching. Only rendered once
+   there is more than one - a single-chart desk does not need a label
+   saying which chart it is looking at. */
+.st-syms{display:flex;flex-wrap:wrap;gap:5px;margin-top:9px}
+.st-syms:empty{display:none}
+.st-sym{
+  display:inline-flex;align-items:baseline;gap:5px;
+  padding:3px 8px;border-radius:999px;
+  border:1px solid var(--line);
+  background:rgb(var(--wash) / .05);
+  font-size:11px;line-height:1.5;white-space:nowrap;
+}
+.st-sym b{font-weight:650;font-variant-numeric:tabular-nums}
+/* The verdict, in words. Colour says the same thing a second time and
+   is never the only thing saying it. */
+.st-sym i{font-style:normal;font-size:10px;letter-spacing:.03em;text-transform:uppercase;color:var(--muted)}
+.st-sym.up{border-color:rgb(var(--good) / .45)}
+.st-sym.up i{color:var(--good)}
+.st-sym.down{border-color:rgb(var(--bad) / .45)}
+.st-sym.down i{color:var(--bad)}
+.st-sym.warn{border-color:rgb(var(--warn) / .45)}
+.st-sym.warn i{color:var(--warn)}
+/* A dot, not a colour change: the chip is already carrying a colour
+   for the verdict and two meanings on one channel is one too many. */
+.st-sym.is-live::before{
+  content:"";width:5px;height:5px;border-radius:50%;
+  background:rgb(var(--accent));align-self:center;
+}
 .st-stats span{display:block;font-size:11px;color:var(--muted);margin-bottom:3px}
 .st-stats b{display:block;font-size:13px;font-weight:500}
 .seg{display:flex;gap:6px;flex-wrap:wrap}
@@ -587,6 +746,18 @@ html[dir="rtl"] .set-h{letter-spacing:0;text-transform:none}
   flex:1;border:1px solid var(--line);background:transparent;border-radius:999px;padding:8px 0;color:var(--muted);
   transition:background .25s,color .25s,transform .25s,border-color .25s;
 }
+/* The theme pills carry an icon beside their label now, in place of the
+   sun and moon emoji they used to print. An <svg> with no size is 300px
+   wide by spec, so this is load-bearing, not decoration.
+
+   justify-content is not optional here. These pills are flex:1, so they
+   are wider than their contents, and a flex row with no justification
+   packs everything against the leading edge - which is how the labels in
+   the personalisation section ended up left-aligned instead of centred.
+   text-align cannot fix it: it aligns text inside an item, not the items
+   inside the row. */
+.lang-pills button{display:inline-flex;align-items:center;justify-content:center;gap:6px}
+.lang-pills button svg{width:14px;height:14px;flex:none}
 .lang-pills button:hover{color:var(--ink);border-color:rgb(var(--wash) / .18)}
 .lang-pills button.on{color:var(--on-accent);background:var(--gold);border-color:transparent;font-weight:500}
 
@@ -600,6 +771,9 @@ html[dir="rtl"] .set-h{letter-spacing:0;text-transform:none}
     "nav top"
     "nav stage";
   background:transparent;
+  /* Containing block for the header status drawer, which is positioned
+     into the stage area from outside the header. */
+  position:relative;
 }
 .nav{grid-area:nav}
 .top{grid-area:top}
@@ -610,7 +784,7 @@ html[dir="rtl"] .set-h{letter-spacing:0;text-transform:none}
   padding:16px 10px calc(16px + var(--safe-b));
   background:rgb(var(--s2) / .62);
   border-inline-end:1px solid var(--line);
-  backdrop-filter:blur(20px);
+  backdrop-filter:blur(calc(var(--blur, 18px) * 20 / 18));
   /* Vertical only. Skins that give nav buttons a horizontal margin or an outer
      shadow used to push the content past the rail's width and hand it a
      sideways scrollbar. */
@@ -623,16 +797,14 @@ html[dir="rtl"] .set-h{letter-spacing:0;text-transform:none}
   display:flex;align-items:center;gap:12px;
   padding:2px 4px 16px;
 }
+/* Unboxed, same reasoning as .auth-logo-slot above. */
 .nav-logo{
-  width:84px;height:84px;flex:none;
-  border-radius:22px;overflow:hidden;
-  background:var(--deep);
-  box-shadow:0 10px 28px rgba(0,0,0,.35), 0 0 0 1px rgb(var(--wash) / .06);
+  width:104px;height:104px;flex:none;
 }
 .nav .mark{
   display:block;width:100%;height:100%;
-  object-fit:cover;object-position:center;
-  transform:scale(1.08);
+  object-fit:contain;object-position:center;
+  filter:drop-shadow(0 8px 22px rgb(0 0 0 / .38));
   border-radius:0;animation:none;
 }
 .nav-brand{min-width:0;display:flex;flex-direction:column;gap:3px}
@@ -667,7 +839,6 @@ html[dir="rtl"] .nav button:hover{transform:translateX(-2px)}
 
 /* sidebar footer: account chip + company copyright */
 .nav-foot{padding:12px 10px 14px;border-top:1px solid var(--line);display:flex;flex-direction:column;gap:10px}
-@media (max-width:1200px){}
 .nav-acc-btn{background:none;border:0;padding:0;cursor:pointer}
 .nav-acc{display:inline-block;font-size:11px;padding:4px 12px;border-radius:999px;border:1px solid var(--line);color:var(--muted);letter-spacing:.3px}
 .nav-acc.prem{color:var(--on-accent);background:linear-gradient(135deg,var(--cyan),#25b39b);border-color:transparent;font-weight:700}
@@ -741,8 +912,8 @@ html[dir="rtl"] .nav button:hover{transform:translateX(-2px)}
   position:fixed;inset:0;z-index:70;
   border:0;padding:0;margin:0;
   background:rgba(4,5,10,.56);
-  backdrop-filter:blur(8px);
-  -webkit-backdrop-filter:blur(8px);
+  backdrop-filter:blur(calc(var(--blur, 18px) * 8 / 18));
+  -webkit-backdrop-filter:blur(calc(var(--blur, 18px) * 8 / 18));
 }
 .nav-scrim[hidden]{display:none !important}
 
@@ -753,7 +924,7 @@ html[dir="rtl"] .nav button:hover{transform:translateX(-2px)}
   min-height:var(--top);
   border-bottom:1px solid var(--line);
   background:rgb(var(--s2) / .38);
-  backdrop-filter:blur(18px);
+  backdrop-filter:blur(calc(var(--blur, 18px) * 18 / 18));
   min-width:0;
   z-index:40;
 }
@@ -785,9 +956,24 @@ html[dir="rtl"] .top-actions{justify-content:flex-start}
   padding:18px 20px max(28px, var(--safe-b));
   -webkit-overflow-scrolling:touch;
 }
-.stage.is-leaving{animation:leave .16s var(--ease) both}
-.stage.is-entering{animation:rise .45s var(--ease-out)}
-.stage .card{animation:rise .55s var(--ease-out) both}
+/* Page and panel entrances MOVE, they do not fade - and that is not a
+   style preference, it is what backdrop-filter requires.
+
+   Measured in Chrome: while an opacity animation is RUNNING on a glass
+   pane or on any ancestor of one, the blur samples nothing and the pane
+   renders flat. Not while opacity is below 1 - for the whole animation,
+   even once it has reached 1, because the element stays promoted to its
+   own backdrop root until the animation ends. The same test with a
+   transform animation keeps the blur intact throughout.
+
+   So `rise` (opacity 0->1 plus a translate) on .stage and on every .card
+   meant that switching page showed flat, borderless panels for the
+   entrance - up to .26s of stagger on top of .55s - and then snapped
+   them to glass all at once when the last animation finished. That snap
+   was the bug. `riseIn` is the same movement with the fade removed. */
+.stage.is-leaving{animation:leaveOut .16s var(--ease) both}
+.stage.is-entering{animation:riseIn .45s var(--ease-out)}
+.stage .card{animation:riseIn .55s var(--ease-out) both}
 .stage .grid > .card:nth-child(1){animation-delay:.02s}
 .stage .grid > .card:nth-child(2){animation-delay:.06s}
 .stage .grid > .card:nth-child(3){animation-delay:.1s}
@@ -797,10 +983,13 @@ html[dir="rtl"] .top-actions{justify-content:flex-start}
 .stage .grid > .card:nth-child(n+7){animation-delay:.26s}
 
 @keyframes rise{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+/* Glass-safe variants: transform only, no opacity. See .stage.is-entering. */
+@keyframes riseIn{from{transform:translateY(10px)}to{transform:none}}
+@keyframes leaveOut{from{transform:none}to{transform:translateY(-6px)}}
 @keyframes leave{from{opacity:1;transform:none}to{opacity:0;transform:translateY(-6px)}}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.45}}
 @keyframes floaty{0%,100%{transform:translateY(0)}50%{transform:translateY(-4px)}}
-@keyframes toastIn{from{opacity:0;transform:translateY(10px) scale(.96)}to{opacity:1;transform:none}}
+@keyframes toastIn{from{opacity:0;transform:translateY(-14px) scale(.96)}to{opacity:1;transform:none}}
 
 .grid{display:grid;gap:14px;min-width:0}
 .g-4{grid-template-columns:repeat(4,minmax(0,1fr))}
@@ -816,8 +1005,8 @@ html[dir="rtl"] .top-actions{justify-content:flex-start}
   border-radius:var(--r);
   padding:16px 16px 14px;
   box-shadow:0 10px 40px rgba(0,0,0,.22);
-  backdrop-filter:blur(18px) saturate(130%);
-  -webkit-backdrop-filter:blur(18px) saturate(130%);
+  backdrop-filter:blur(calc(var(--blur, 18px) * 18 / 18)) saturate(130%);
+  -webkit-backdrop-filter:blur(calc(var(--blur, 18px) * 18 / 18)) saturate(130%);
   position:relative;overflow:hidden;
   min-width:0;
   transition:transform .35s var(--ease), border-color .35s, box-shadow .35s;
@@ -863,7 +1052,7 @@ tr:hover td{background:rgb(var(--wash) / .02)}
 
 .chart-box{position:relative;height:min(460px,58vh);border-radius:16px;overflow:hidden;background:rgba(0,0,0,.18);min-width:0}
 .chart-box canvas{width:100%;height:100%;display:block;touch-action:none}
-.chart-box .empty{position:absolute;inset:0;background:rgb(var(--s1) / .45);backdrop-filter:blur(6px)}
+.chart-box .empty{position:absolute;inset:0;background:rgb(var(--s1) / .45);backdrop-filter:blur(calc(var(--blur, 18px) * 6 / 18))}
 .legend{font-size:12px;color:var(--muted);min-width:0;overflow:hidden;text-overflow:ellipsis}
 
 .term{
@@ -889,6 +1078,40 @@ tr:hover td{background:rgb(var(--wash) / .02)}
 }
 
 .kv{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px 12px;font-size:13px;min-width:0}
+
+/* ------------------------------------------------------------------
+   Execution - rebuilt
+
+   One card used to hold the robot's arming switch, a signal readout,
+   "close every position at market" and a full order ticket. Four
+   jobs, one box, and the destructive one in the middle of it.
+   ------------------------------------------------------------------ */
+.exx-cols{
+  display:grid; gap:14px; align-items:start;
+  grid-template-columns:repeat(auto-fit, minmax(340px, 1fr));
+}
+
+/* "MetaTrader is not connected" means nothing on this page can trade.
+   It was a grey footnote under the fold. It leads now. */
+.exx-off{
+  margin:0 0 14px; padding:12px 14px; border-radius:var(--radius-lg);
+  border:1px solid rgb(var(--bad) / .35);
+  background:rgb(var(--bad) / .08);
+  color:var(--ink); font-size:13px;
+}
+
+.exx-send{margin-block-start:10px; gap:8px; flex-wrap:wrap}
+
+/* The emergency zone. Last on the page, alone, and fenced, because
+   it closes every open position at market with no undo. The border
+   is the point - nothing you reach for by habit is inside it. */
+.exx-danger{
+  margin-block-start:18px;
+  border:1px solid rgb(var(--bad) / .4);
+  background:linear-gradient(180deg, rgb(var(--bad) / .06), rgb(var(--s4) / .5));
+}
+.exx-danger .pfx-head h3{color:var(--bad)}
+.exx-danger .btn.danger{min-inline-size:min(100%, 260px)}
 .kv span{color:var(--muted);overflow-wrap:anywhere}
 .kv b{min-width:0;text-align:end}
 .bar{height:6px;border-radius:99px;background:rgb(var(--wash) / .06);overflow:hidden}
@@ -912,20 +1135,47 @@ tr:hover td{background:rgb(var(--wash) / .02)}
 }
 .gauge b{position:relative;z-index:1;font-size:22px}
 
+/* Notifications arrive at the top centre, the way the operating system
+ * puts them there - on a desk and on a phone alike.
+ *
+ * Two things this needs that a bottom-right corner did not:
+ *
+ *   - the strip is the full width of the window so the banner can be
+ *     centred in it, which would put an invisible fixed bar across the
+ *     header and swallow every click on it. The strip is
+ *     pointer-events:none and only the banners themselves take input.
+ *   - it sits above the whole application without a large z-index.
+ *     #toasts is a child of <body> and #app is `position:relative;
+ *     z-index:1`, so the strip is ranked against that 1 rather than
+ *     against the header's 90 or the drawer's 210. 50 is already over
+ *     everything inside the app.
+ */
 .toast-wrap{
-  position:fixed;inset-block-end:20px;inset-inline-end:20px;
-  display:grid;gap:8px;z-index:50;max-width:min(360px, calc(100vw - 32px));
+  position:fixed;z-index:50;
+  inset-block-start:calc(var(--safe-t) + 12px);
+  inset-inline:0;
+  display:grid;gap:8px;justify-items:center;
+  padding-inline:12px;
+  pointer-events:none;
 }
 .toast{
+  position:relative;
+  pointer-events:auto;
+  inline-size:min(420px, 100%);
   background:var(--glass2);border:1px solid var(--line);border-radius:14px;
-  padding:10px 14px;box-shadow:var(--shadow);backdrop-filter:blur(16px);
+  padding-block:10px;padding-inline:14px 38px;box-shadow:var(--shadow);backdrop-filter:blur(calc(var(--blur, 18px) * 16 / 18));
   animation:toastIn .35s var(--ease-out);
   text-align:start;
+  /* Swipeable on a finger as well as a mouse. pan-y leaves vertical page
+     scrolling to the browser and claims only the horizontal axis, so a
+     toast cannot trap a scroll that was meant for the page behind it. */
+  touch-action:pan-y;cursor:grab;user-select:none;-webkit-user-select:none;
 }
+.toast .toast-msg{display:block;min-width:0;overflow-wrap:anywhere}
 
 .modal{
   position:fixed;inset:0;background:rgba(4,5,8,.55);display:grid;place-items:center;z-index:40;
-  backdrop-filter:blur(8px);
+  backdrop-filter:blur(calc(var(--blur, 18px) * 8 / 18));
   animation:rise .3s var(--ease);
 }
 .modal .card{width:min(420px,92vw)}
@@ -957,8 +1207,8 @@ tr:hover td{background:rgb(var(--wash) / .02)}
     border-inline-end:1px solid var(--line);
     border-top:0;
     background:rgb(var(--s2) / .78);
-    backdrop-filter:blur(28px) saturate(150%);
-    -webkit-backdrop-filter:blur(28px) saturate(150%);
+    backdrop-filter:blur(calc(var(--blur, 18px) * 28 / 18)) saturate(150%);
+    -webkit-backdrop-filter:blur(calc(var(--blur, 18px) * 28 / 18)) saturate(150%);
     padding:max(18px, var(--safe-t)) 12px max(18px, var(--safe-b));
     box-shadow:none;
     overflow-x:hidden;
@@ -975,7 +1225,7 @@ tr:hover td{background:rgb(var(--wash) / .02)}
   .nav-scrim{display:block}
   .nav .mark,.nav-head,.nav-logo,.nav button span,.nav .spacer{display:revert}
   .nav-head{display:flex}
-  .nav-logo{display:block;width:88px;height:88px}
+  .nav-logo{display:block;width:108px;height:108px}
   .nav button{
     width:100%;
     min-width:0;
@@ -1030,14 +1280,14 @@ tr:hover td{background:rgb(var(--wash) / .02)}
     padding:4px 4px 8px;
     text-align:center;
   }
-  .auth-logo-slot{margin-inline:auto;width:120px;height:120px;border-radius:30px;margin-bottom:14px}
+  .auth-logo-slot{margin-inline:auto;width:142px;height:142px;margin-bottom:14px}
   .auth-brand h1{font-size:clamp(28px,9vw,40px)}
   .auth-points{display:none}
   .hero{grid-template-columns:minmax(0,1fr)}
   .field input,.field select,.ctrl,.dd-btn{font-size:16px}
 }
 
-@media (max-width:820px){
+@media (max-width:900px){
   .g-4,.g-3,.g-2,.g-chart{grid-template-columns:minmax(0,1fr)}
   .span-2,.span-3{grid-column:auto}
   .eq{display:none}
@@ -1071,7 +1321,6 @@ tr:hover td{background:rgb(var(--wash) / .02)}
   .top-actions .btn#btn-kill{font-size:11px;padding:8px 10px}
   .lang-pills button{font-size:12px}
   .auth-brand .lede{display:none}
-  .toast-wrap{inset-inline:12px;inset-block-end:12px;max-width:none}
 }
 
 /* Command desk — one strip, then two columns */
@@ -1082,72 +1331,63 @@ tr:hover td{background:rgb(var(--wash) / .02)}
 .gate-card .pill.on{color:var(--on-accent);background:var(--cyan);border-color:transparent}
 .gate-why{margin:0;padding-inline-start:18px;color:var(--muted);font-size:13px;line-height:1.7}
 .cmd{display:flex;flex-direction:column;gap:14px}
-.cmd-strip{
-  display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:10px;
-}
-.kpi{
-  background:linear-gradient(180deg, rgb(var(--s7) / .7), rgb(var(--s4) / .52));
-  border:1px solid var(--line);border-radius:18px;padding:12px 14px;
-  min-width:0;
-}
-.kpi span{display:block;font-size:11px;color:var(--muted);margin-bottom:6px}
-.kpi b{display:block;font-size:clamp(16px,1.8vw,22px);font-weight:500}
-.cmd-side{display:grid;gap:14px;align-content:start}
 
-/* ===========================================================================
-   Open positions
-   ===========================================================================
-   Two complaints, one table.
+/* The "open positions" cards.
 
-   It was too narrow: squeezed into half of a two-column row, so the close
-   button - the control a trader reaches for under pressure - sat behind a
-   horizontal scroll. It now spans the command centre, the rows are taller,
-   and the close button is pinned to the trailing edge where it cannot
-   scroll out of reach.
+   They used to hold a ten-column table with a 900px floor, a fixed
+   layout and a declared width per column, and below 760px the whole
+   thing folded: every row became a small card and every cell a
+   labelled line fed from data-label. All of it is gone, because the
+   table is gone - the cards draw the EA chart's .tvp-row list now,
+   from the shared builder, and that list already answers both
+   questions this section existed to answer. It aligns its columns by
+   declaring them once on the list rather than per row, so a tick
+   cannot re-measure a column under the cursor, and it folds into
+   stacked labelled rows on its own width rather than the window's.
 
-   And the rows jumped. An auto-layout table re-measures its columns on
-   every repaint, so a profit going from "8.40" to "-124.65" widened that
-   column and shoved every column after it sideways - while the trader was
-   aiming at one of them. Fixed layout plus declared widths means the
-   geometry is decided once and the digits change underneath it. The width
-   budget is generous enough for the longest value each column can hold.
-   ========================================================================= */
+   What is left is the card's own margin. The pane inside it - the
+   cap and the scroll - is .pos-pane, further down. */
 .pos-card{margin:0}
-.pos-card .table-wrap{max-height:min(560px,62vh)}
-.pos-card table{table-layout:fixed;width:100%;min-width:900px}
-.pos-card th,.pos-card td{
-  /* Digits must not resize their own cell. */
-  font-variant-numeric:tabular-nums;
-  overflow:hidden;text-overflow:ellipsis;
-}
-.pos-card td{padding:12px 10px}
-.pos-card th{padding:10px;position:sticky;top:0;z-index:2;background:var(--s2, #11141c);backdrop-filter:blur(8px)}
-.pos-card col.c-symbol{width:11%}
-.pos-card col.c-type{width:7%}
-.pos-card col.c-volume{width:7%}
-.pos-card col.c-strategy{width:12%}
-.pos-card col.c-price_open{width:10%}
-.pos-card col.c-price_current{width:10%}
-.pos-card col.c-sl{width:9%}
-.pos-card col.c-tp{width:9%}
-.pos-card col.c-profit{width:10%}
-.pos-card col.c-profit_pct{width:8%}
-.pos-card col.c-close{width:92px}
-.pos-card td:last-child{padding-inline-end:12px;text-align:end}
-.pos-card td:last-child .btn{width:100%;min-width:72px;padding-block:8px}
-/* Numbers are read by eye down a column; end-aligning them lines up the
-   decimal points, which auto-aligned text does not. */
-.pos-card td[data-k="volume"],.pos-card td[data-k="price_open"],
-.pos-card td[data-k="price_current"],.pos-card td[data-k="sl"],
-.pos-card td[data-k="tp"],.pos-card td[data-k="profit"],
-.pos-card td[data-k="profit_pct"]{text-align:end}
-.pos-card th:nth-child(n+3):nth-child(-n+10){text-align:end}
-@media (max-width:780px){
-  .pos-card td{padding:10px 8px}
-  .pos-card col.c-close{width:76px}
+/* The card is the control (see chartCard in app.js), so it needs what a
+   control needs: a visible focus ring for the keyboard, and a cursor
+   that says it can be pressed. */
+.chart-card[role="button"]{cursor:pointer}
+.chart-card[role="button"]:focus-visible{
+  outline:2px solid var(--accent); outline-offset:2px;
 }
 .chart-card{cursor:pointer}
 .chart-card:hover{transform:translateY(-2px);border-color:rgb(var(--accent-rgb) / .28)}
+
+/* ------------------------------------------------------------------
+   Charts - rebuilt
+
+   The card's only way in was el.onclick on a <div>, so opening a
+   chart - the whole point of the page - was impossible from a
+   keyboard and invisible to a screen reader. The hint under it said
+   "Click the card to open the full chart", which is what a missing
+   button sounds like written out as prose. There is a button now;
+   the card click stays as a mouse convenience.
+   ------------------------------------------------------------------ */
+/* The card keeps its hover lift, but the real control shows its own
+   focus ring - the lift is not a focus indicator. */
+.chart-card:focus-within{border-color:rgb(var(--accent-rgb) / .45)}
+
+/* Was style="height:200px". .chart-box's height is set at two places
+   in this file and the later one wins unconditionally, so a mini
+   preview has to out-specify it rather than restate it. */
+.chart-box.chart-mini{height:200px}
+@media (max-width:560px){
+  .chart-box.chart-mini{height:170px}
+}
+
+/* Was style="margin:4px 0 8px" on an <h3>, and the live grid had no
+   heading at all - so with both present, one band was labelled and
+   the other just began. */
+.chx-h{margin:4px 0 8px}
+
+/* Was style="font-size:11px" / style="font-size:18px" inline. */
+.pill.is-sm{font-size:11px}
+.metric.is-sm{font-size:18px}
 
 .danger-zone{
   border-color:rgba(255,107,138,.38) !important;
@@ -1169,7 +1409,7 @@ fieldset.prop-fields.is-locked{
 
 .desk-reload{
   position:fixed;inset:0;z-index:300;display:grid;place-items:center;
-  background:rgb(var(--s1) / .72);backdrop-filter:blur(16px);
+  background:rgb(var(--s1) / .72);backdrop-filter:blur(calc(var(--blur, 18px) * 16 / 18));
   color:var(--ink);pointer-events:none;
 }
 .desk-reload span{
@@ -1184,12 +1424,6 @@ fieldset.prop-fields.is-locked{
   .top{z-index:90}
   .menu-btn{z-index:220;position:relative}
   #desk.menu-open .top{z-index:90}
-}
-@media (max-width:1100px){
-  .cmd-strip{grid-template-columns:repeat(3,minmax(0,1fr))}
-}
-@media (max-width:820px){
-  .cmd-strip{grid-template-columns:repeat(2,minmax(0,1fr))}
 }
 
 @media (prefers-reduced-motion:reduce){
@@ -1216,7 +1450,7 @@ fieldset.prop-fields.is-locked{
 
 .top-actions{flex-wrap:wrap}
 #btn-flat{white-space:nowrap}
-@media (max-width:820px){
+@media (max-width:900px){
   .top{align-items:start}
   .top-actions{width:100%;justify-content:flex-start;row-gap:6px}
 }
@@ -1245,19 +1479,98 @@ fieldset.prop-fields.is-locked{
   .draw-frame.open .draw-tools{display:flex !important}
 }
 
+/* The "open positions" cards: the Command Centre's, the Markets page's
+   and the Execution one's.
+
+   They were three wide tables with three different column lists, so
+   the same trade read differently depending on which page you were
+   on, and the card grew without limit - thirty open trades made a
+   card thirty rows tall and pushed everything under it off the
+   screen. They draw the EA chart's own rows now, from the one shared
+   builder, and the pane is capped and scrolls inside itself so the
+   card's footprint is the same whether one trade is open or thirty.
+
+   Nothing here opens or closes. The chart desk's dock is a drawer
+   because it is taking height from a chart that wants it back; a
+   card has nothing to give back, so the list is simply always there.
+
+   Capped in viewport units with a floor and a ceiling: a fixed pixel
+   height that shows six rows on a desktop shows one and a half on a
+   laptop in a split window. */
+/* The card's own header: the title, and "Flatten all" pushed to the
+   far end of it.
+
+   On the same line rather than under the list, because the list
+   scrolls and a control below a scrolling box is a control that
+   moves. At the head of the card it is in one fixed place on all
+   three pages.
+
+   It borrows .tv-flatten's shape from the chart dock - outlined in
+   the loss colour, filled only on hover - so the one destructive
+   button on the page reads as destructive without shouting over the
+   rows it would close. */
+.pos-head{
+  display:flex; align-items:center; gap:10px;
+  margin:0 0 10px;
+}
+/* The card's h3 owns the bottom margin normally; here the header does. */
+.pos-head h3{margin:0; flex:1 1 auto; min-width:0}
+.pos-flat{
+  flex:0 0 auto;
+  height:26px; padding:0 10px;
+  font:inherit; font-size:12px; font-weight:650;
+  /* color-mix, not rgb(var(--rose) / .55): --rose is a hex literal,
+     not a bare "r g b" triplet. */
+  border:1px solid color-mix(in srgb, var(--rose) 55%, transparent);
+  color:var(--rose);
+  border-radius:var(--radius-sm, 8px);
+  background:transparent;
+  cursor:pointer;
+  transition:background .15s ease, color .15s ease, border-color .15s ease;
+}
+.pos-flat:hover:not(:disabled){background:var(--rose); color:#fff; border-color:var(--rose)}
+/* Nothing open: it stays put so the card does not reshuffle the
+   moment the last trade closes, but it plainly cannot be pressed. */
+.pos-flat:disabled{opacity:.4; cursor:default}
+@media (prefers-reduced-motion: reduce){ .pos-flat{transition:none} }
+
+.pos-pane{
+  /* The query container the rows measure themselves against, so the
+     pane folds on the room it actually has rather than on the width
+     of the window - see the @container block in chart.css. */
+  container:tvp / inline-size;
+  max-block-size:clamp(190px, 42vh, 420px);
+  overflow-y:auto;overflow-x:hidden;
+  overscroll-behavior:contain;
+  scrollbar-width:thin;
+  /* Room for the halo on the close button of the first and last rows,
+     which an overflow box would otherwise clip. */
+  padding-block:2px;
+}
+.pos-pane::-webkit-scrollbar{width:6px}
+.pos-pane::-webkit-scrollbar-thumb{background:rgb(var(--wash) / .18);border-radius:99px}
+
+/* The per-symbol strip that used to sit between a chart card's
+   toolbar and its canvas is gone, and so are its rules - .pos-strip,
+   its heading, its 168px scrolling list and the 560px rule that hid
+   the heading on a phone.
+
+   A card on the Charts page is a thumbnail: it says what is attached
+   and whether it is alive, and the eye runs down the grid comparing
+   them. Trades inside each card gave every card a different height,
+   and the list had to scroll inside a card that was itself inside a
+   scrolling page - two scrollers one inside the other, on a touch
+   screen. The book is on the three positions cards above; the
+   per-symbol view of it is the chart desk's own dock. */
+
+
 .chart-box{position:relative}
-.chart-levels{
-  position:absolute;inset-inline-end:8px;bottom:8px;z-index:6;
-  display:grid;gap:6px;max-width:min(280px,70%);pointer-events:none;
-}
-.lvl-chip{
-  pointer-events:auto;
-  display:flex;flex-wrap:wrap;align-items:center;gap:6px;
-  background:rgb(var(--s3) / .88);border:1px solid var(--line);
-  border-radius:12px;padding:6px 8px;font-size:11px;
-}
-.lvl-chip .sl{color:var(--rose)}
-.lvl-chip .tp{color:var(--cyan)}
+/* .chart-levels and .lvl-chip are gone: a position:absolute box of
+   position chips parked over the bottom-right corner of the chart,
+   reached through a "Trade" tab in the side panel. The on-chart
+   positions panel answers the same question in the same place and
+   does not sit on top of price. .chart-box keeps position:relative -
+   .chart-text-pop is still absolutely positioned inside it. */
 .chart-text-pop{
   position:absolute;z-index:12;display:flex;gap:6px;align-items:center;
   background:rgb(var(--s4) / .96);border:1px solid var(--line);border-radius:12px;padding:8px;
@@ -1265,23 +1578,10 @@ fieldset.prop-fields.is-locked{
 
 /* Settings — two columns on desktop, stacked elsewhere */
 .set-desk{display:flex;flex-direction:column;gap:8px;max-width:1120px}
-.set-jump{
-  display:flex;flex-wrap:wrap;gap:6px;
-  position:sticky;top:0;z-index:6;
-  padding:6px 0 12px;
-  background:linear-gradient(180deg, rgb(var(--s1) / .94), rgb(var(--s1) / .72) 70%, transparent);
-}
 .set-block .grid.g-2{align-items:start}
-@media (min-width:1100px){
+@media (min-width:1101px){
   .set-block > .grid.g-2{grid-template-columns:repeat(2,minmax(0,1fr))}
   .set-block .card{min-height:0}
-}
-@media (max-width:900px){
-  .set-jump{flex-wrap:nowrap;overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none}
-  .set-jump::-webkit-scrollbar{display:none}
-  .set-jump button{flex:none;white-space:nowrap}
-  .set-title{font-size:16px}
-  .set-block{margin-bottom:16px}
 }
 .ai-feed{max-height:280px;overflow:auto;margin-top:10px}
 .ai-feed .row-line{display:flex;gap:8px;font-size:12px;padding:4px 0;border-bottom:1px solid rgb(var(--wash) / .04)}
@@ -1385,10 +1685,15 @@ html[dir="rtl"] .chart-stage.sw-prev{animation-name:slideFromRight}
 
 /* desk52 — mobile pull-down drawer (statuses + equity hidden by the narrow header) */
 .hdr-drawer-btn{display:none}
-.hdr-drawer{position:absolute;top:100%;inset-inline:10px;margin-top:8px;z-index:95;
+/* Positioned into the stage's grid area rather than hung off the header:
+   an absolutely positioned child of a grid container is laid out against
+   the grid area it is assigned, so this lands exactly under the header
+   without needing a measured offset - and, being outside `.top`, its
+   backdrop-filter has real content behind it to frost. */
+.hdr-drawer{grid-area:stage;position:absolute;top:0;inset-inline:10px;margin-top:8px;z-index:95;
   border:1px solid var(--line);border-radius:16px;padding:12px;
-  background:rgb(var(--s2) / .94);backdrop-filter:blur(24px) saturate(150%);
-  -webkit-backdrop-filter:blur(24px) saturate(150%);
+  background:rgb(var(--s2) / .94);backdrop-filter:blur(calc(var(--blur, 18px) * 24 / 18)) saturate(150%);
+  -webkit-backdrop-filter:blur(calc(var(--blur, 18px) * 24 / 18)) saturate(150%);
   box-shadow:0 24px 60px rgba(0,0,0,.5);
 }
 .hdr-drawer:not([hidden]){display:block;animation:hdrDrop .26s var(--ease-out)}
@@ -1401,16 +1706,19 @@ html[dir="rtl"] .chart-stage.sw-prev{animation-name:slideFromRight}
 .hdr-drawer-btn svg{transition:transform .25s var(--ease)}
 .hdr-drawer-btn.open svg{transform:rotate(180deg)}
 .hdr-drawer-btn.open{border-color:rgb(var(--accent-rgb) / .4);color:var(--cyan)}
-@media (max-width:820px){
+@media (max-width:900px){
   .hdr-drawer-btn{display:grid}
   .hdr-drawer .hdr-chips .st-chip{font-size:11px;padding:5px 9px}
 }
-@media (max-width:400px){
+@media (max-width:380px){
   .hdr-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}
 }
 
 /* desk53 — settings: AI-confidence range + lot mode */
 .conf-head{display:flex;align-items:center;justify-content:space-between;gap:10px}
+/* A slider and its read-out, set off from the switch above it. Was
+   three identical inline margin-tops. */
+.conf-field{margin-block-start:10px}
 .conf-pct{font-size:16px;color:var(--cyan);min-width:3.4ch;text-align:end}
 input[type=range]{width:100%;accent-color:var(--cyan);height:28px;cursor:pointer}
 .badge-hint{
@@ -1425,13 +1733,12 @@ input[type=range]{width:100%;accent-color:var(--cyan);height:28px;cursor:pointer
 #btn-restart{display:none !important}
 .conn-strip{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:0}
 .conn-strip .pill{min-height:34px}
-.set-jump button.on{background:var(--gold);color:var(--on-accent);border-color:transparent;font-weight:500}
 .set-block[hidden]{display:none !important}
 .set-desk .set-block{margin:0}
 @media (max-width:1100px){
   #acc-type{display:none !important}
 }
-@media (max-width:820px){
+@media (max-width:900px){
   .top-actions #btn-lang{order:1}
   .top-actions #btn-refresh{order:2}
   .top-actions #btn-flat{order:8}
@@ -1439,7 +1746,10 @@ input[type=range]{width:100%;accent-color:var(--cyan);height:28px;cursor:pointer
   .conn-strip{gap:6px}
 }
 @media (max-width:560px){
-  .top-actions #btn-refresh{width:38px;min-width:38px;height:38px}
+  /* This used to name #btn-refresh alone, so on a phone the refresh key
+     was a 38px box sitting between two 42px ones - the odd button in the
+     row. If the header has to get tighter it gets tighter as a set. */
+  .top-actions .icon-btn{width:38px;min-width:38px;height:38px}
 }
 
 /* desk41 — compact header, tab rail, chart ticket, upload */
@@ -1501,7 +1811,7 @@ input[type=range]{width:100%;accent-color:var(--cyan);height:28px;cursor:pointer
 .st-eq{font-size:12px;color:var(--gold);white-space:nowrap;max-width:16ch;overflow:hidden;text-overflow:ellipsis}
 .top-actions{flex-wrap:nowrap;gap:6px}
 .top-actions .btn.tiny{padding:7px 10px;min-height:32px}
-.nav-logo{width:48px;height:48px;border-radius:14px}
+.nav-logo{width:62px;height:62px}
 .nav-head{padding:2px 4px 12px}
 .nav-brand b{font-size:13px;letter-spacing:.12em}
 .nav button.nav-tab, .nav button{
@@ -1519,15 +1829,6 @@ input[type=range]{width:100%;accent-color:var(--cyan);height:28px;cursor:pointer
   color:var(--ink);
 }
 .nav button.on::before{width:0;opacity:0}
-.set-jump{
-  display:flex;gap:4px;padding:4px;border:1px solid var(--line);border-radius:14px;
-  background:rgb(var(--s2) / .55);margin-bottom:14px;
-}
-.set-jump button{
-  flex:1;min-width:0;border:0;background:transparent;color:var(--muted);
-  border-radius:10px;padding:10px 8px;font-size:12px;
-}
-.set-jump button.on{background:var(--ink);color:var(--on-accent);font-weight:600}
 
 .chart-ticket{
   margin-top:10px;padding:12px;border:1px solid var(--line);border-radius:16px;
@@ -1535,6 +1836,57 @@ input[type=range]{width:100%;accent-color:var(--cyan);height:28px;cursor:pointer
 }
 .chart-ticket .ct-head h3{margin:0 0 2px;font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
 .ct-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin:10px 0}
+/* The three-field variant of the same grid (symbol/timeframe/strategy on
+   the backtest, volume/SL/TP on the manual ticket).
+
+   This used to be declared ~90 lines further down, AFTER the media
+   query meant to narrow it. Same selector, same specificity, so the
+   later unconditional rule won at every width and the @media rule was
+   dead: on a phone the three controls stayed in three columns about
+   110px wide and ran into each other. The whole ladder lives here now,
+   in one place, in the order it has to resolve in. */
+.ct-grid-3{grid-template-columns:repeat(3,minmax(0,1fr))}
+/* A grid item defaults to min-width:auto, so a long option label can
+   push a track wider than its share and squeeze the others. */
+.ct-grid>*{min-width:0}
+/* The gap owns the spacing between fields. .field also carries its own
+   14px bottom margin, which on a wrapped grid made the space between
+   rows 22px while the columns sat 8px apart. */
+.ct-grid>.field{margin-bottom:0}
+
+@media (max-width:900px){
+  .ct-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+  /* re-stated: the rule above would otherwise take the 3-up grid to two */
+  .ct-grid-3{grid-template-columns:repeat(3,minmax(0,1fr))}
+}
+@media (max-width:900px){
+  .ct-grid-3{grid-template-columns:repeat(2,minmax(0,1fr))}
+}
+/* One per row on a phone. Two columns leaves a ~150px select holding a
+   symbol name and a dropdown arrow, which is the complaint. */
+@media (max-width:560px){
+  .ct-grid,.ct-grid-3{grid-template-columns:minmax(0,1fr)}
+}
+/* Backtest form on a phone.
+
+   One option per row is right - two columns leaves a 150px select trying
+   to hold a symbol name and an arrow. But stacking the label above the
+   control makes each option a two-line block ~68px tall, so the three
+   choices spread over about 220px with the run button somewhere below
+   the fold. Putting the label beside its control halves that: the three
+   options read as one compact group again, and the select still gets the
+   whole remaining width. */
+@media (max-width:560px){
+  #bt-card .ct-grid{gap:6px}
+  #bt-card .ct-grid > .field{
+    flex-direction:row;align-items:center;gap:10px;
+  }
+  #bt-card .ct-grid > .field > span{
+    flex:0 0 8.5ch;min-width:0;
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  }
+  #bt-card .ct-grid > .field > :not(span){flex:1 1 auto;min-width:0}
+}
 .ct-actions{margin-top:4px}
 .ct-actions .btn.on{border-color:var(--gold);color:var(--gold)}
 .st-up-hero{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:12px}
@@ -1566,10 +1918,9 @@ input[type=range]{width:100%;accent-color:var(--cyan);height:28px;cursor:pointer
   .top-actions{grid-area:actions}
 }
 @media (max-width:900px){
-  .ct-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
   .st-eq{display:none}
 }
-@media (max-width:820px){
+@media (max-width:900px){
   .top{
     grid-template-columns:42px minmax(0,1fr) auto;
     grid-template-areas:"menu title actions";
@@ -1591,8 +1942,8 @@ input[type=range]{width:100%;accent-color:var(--cyan);height:28px;cursor:pointer
   inset-inline-end:0;
   z-index:60;
   background:rgb(var(--s2) / .78);
-  backdrop-filter:blur(18px) saturate(140%);
-  -webkit-backdrop-filter:blur(18px) saturate(140%);
+  backdrop-filter:blur(calc(var(--blur, 18px) * 18 / 18)) saturate(140%);
+  -webkit-backdrop-filter:blur(calc(var(--blur, 18px) * 18 / 18)) saturate(140%);
   border-bottom:1px solid var(--line);
 }
 .stage{
@@ -1615,13 +1966,11 @@ input[type=range]{width:100%;accent-color:var(--cyan);height:28px;cursor:pointer
   min-height:240px;
 }
 .chart-box{height:min(340px, 42vh)}
-@media (max-width:820px){
+@media (max-width:900px){
   .chart-work .chart-box{height:220px;min-height:200px}
   .chart-box{height:220px}
-  .ct-grid-3{grid-template-columns:repeat(2,minmax(0,1fr))}
   .ct-actions{flex-wrap:wrap}
 }
-.ct-grid-3{grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
 .welcome{
   position:fixed;inset:0;z-index:400;display:grid;place-items:center;
   background:var(--deep);
@@ -1631,7 +1980,7 @@ input[type=range]{width:100%;accent-color:var(--cyan);height:28px;cursor:pointer
   position:absolute;inset:0;width:100%;height:100%;
   object-fit:cover;background:var(--deep);opacity:1;
 }
-@media (max-width:820px){
+@media (max-width:900px){
   .welcome video{object-fit:cover}
 }
 .welcome-sound{
@@ -1640,7 +1989,7 @@ input[type=range]{width:100%;accent-color:var(--cyan);height:28px;cursor:pointer
   display:grid;place-items:center;
   border:1px solid rgb(var(--wash) / .18);
   background:rgb(var(--s2) / .72);color:var(--ink);
-  backdrop-filter:blur(12px);
+  backdrop-filter:blur(calc(var(--blur, 18px) * 12 / 18));
 }
 .welcome-sound svg{width:22px;height:22px}
 .welcome:not(.is-muted) .welcome-sound{display:none}
@@ -1667,72 +2016,212 @@ input[type=range]{width:100%;accent-color:var(--cyan);height:28px;cursor:pointer
  * Telegram admin panel, strategy drop-zone filename.
  * ======================================================================== */
 
-/* ---- calendar ---- */
-.cal-wrap{display:grid;grid-template-columns:minmax(0,1fr) 320px;gap:12px;align-items:start}
-@media (max-width:1100px){.cal-wrap{grid-template-columns:minmax(0,1fr)}}
-.cal-bar{display:flex;gap:12px;align-items:flex-start;justify-content:space-between;flex-wrap:wrap}
-.cal-h1{font-size:18px;font-weight:600}
-.cal-h2{color:var(--muted);font-size:12px;margin-top:2px}
-.cal-controls{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
-.cal-nav{display:flex;gap:6px}
-.seg{display:inline-flex;border:1px solid var(--line);border-radius:999px;padding:2px;background:var(--bg2)}
-.seg button{border:0;background:transparent;color:var(--muted);padding:6px 12px;border-radius:999px;cursor:pointer;font:inherit;font-size:12px}
-.seg button.on{background:var(--glass2);color:var(--ink)}
-.cal-month-label{display:flex;gap:10px;align-items:baseline;flex-wrap:wrap}
-.cal-ml-main{font-size:16px;font-weight:600}
-.cal-ml-sub{color:var(--muted);font-size:12px}
-.cal-ml-count{margin-inline-start:auto;color:var(--faint);font-size:12px}
-.cal-grid{padding:10px}
+/* ---- calendar ---------------------------------------------------------
+   Rebuilt for both shapes. The old layout was four stacked cards and a
+   `minmax(0,1fr) 320px` grid that collapsed at 1100px, which on a 390px
+   phone left each of the seven columns a 30px content box - measured -
+   while the cell still tried to carry a two-digit day, two companion
+   dates, four impact dots and an absolutely positioned "Closed" tag.
+
+   Now: one header, one status strip, one content pane and one aside.
+   Desktop puts pane and aside side by side; narrow screens stack them and
+   the pane defaults to the agenda. Everything that does not fit a small
+   cell moved to the day panel, which has the room for it. ---- */
+
+.cal{display:flex;flex-direction:column;gap:12px}
+
+/* header ---------------------------------------------------------- */
+.cal-top{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;
+  gap:12px 16px;padding:14px 16px}
+.cal-top-l{min-width:0}
+.cal-month{margin:0;font-size:1.22rem;font-weight:650;letter-spacing:.2px;line-height:1.2}
+.cal-year{font-weight:400;opacity:.5;margin-inline-start:6px}
+.cal-alt{margin:2px 0 0;font-size:.78rem;opacity:.6}
+.cal-top-r{display:flex;flex-wrap:wrap;align-items:center;gap:10px}
+
+.cal-nav{display:flex;align-items:center;gap:4px;padding:3px;border-radius:12px;
+  background:rgb(var(--wash) / .05);border:1px solid rgb(var(--wash) / .08)}
+.cal-arrow{display:grid;place-items:center;width:34px;height:34px;padding:0;border:0;
+  border-radius:9px;background:transparent;color:inherit;cursor:pointer;
+  transition:background .15s ease,color .15s ease}
+.cal-arrow svg{width:18px;height:18px}
+/* The chevron is drawn pointing the way the text runs. */
+[dir="rtl"] .cal-arrow svg{transform:scaleX(-1)}
+.cal-now{height:34px;padding:0 14px;border:0;border-radius:9px;background:transparent;
+  color:inherit;font:inherit;font-size:.82rem;font-weight:600;cursor:pointer;
+  transition:background .15s ease}
+.cal-arrow:hover,.cal-now:hover{background:rgb(var(--wash) / .1)}
+.cal-arrow:focus-visible,.cal-now:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+
+.cal-segs{display:flex;flex-wrap:wrap;gap:8px}
+.cal-seg{display:flex;padding:3px;border-radius:12px;background:rgb(var(--wash) / .05);
+  border:1px solid rgb(var(--wash) / .08)}
+.cal-seg button{height:30px;padding:0 12px;border:0;border-radius:9px;background:transparent;
+  color:inherit;font:inherit;font-size:.78rem;font-weight:600;cursor:pointer;white-space:nowrap;
+  opacity:.62;transition:background .15s ease,opacity .15s ease,color .15s ease}
+.cal-seg button:hover{opacity:.9}
+.cal-seg button.on{opacity:1;color:var(--ink);font-weight:600;background:rgb(var(--accent-rgb) / .14)}
+.cal-seg button:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+
+/* status strip ---------------------------------------------------- */
+.cal-status{display:flex;flex-wrap:wrap;gap:8px}
+.cal-chip{display:inline-flex;align-items:center;gap:6px;padding:5px 11px;border-radius:999px;
+  font-size:.76rem;line-height:1.3;background:rgb(var(--wash) / .06);
+  border:1px solid rgb(var(--wash) / .09)}
+.cal-chip b{font-weight:700}
+.cal-chip.is-ok{color:var(--ok);border-color:rgb(var(--accent-rgb) / .22)}
+.cal-chip.is-warn{color:var(--gold);border-color:rgba(232,192,122,.25);background:rgba(232,192,122,.1)}
+.cal-chip.is-closed{color:var(--bad);border-color:rgba(255,107,138,.25);background:rgba(255,107,138,.1)}
+
+/* two panes ------------------------------------------------------- */
+.cal-main{display:grid;grid-template-columns:minmax(0,1fr) 330px;gap:12px;align-items:start}
+.cal-pane{padding:10px;min-width:0}
+.cal-aside{display:flex;flex-direction:column;gap:12px;position:sticky;top:8px}
+
+/* month grid ------------------------------------------------------ */
+.cal-grid{display:flex;flex-direction:column;gap:6px}
 .cal-head,.cal-body{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:6px}
-.cal-hd{color:var(--faint);font-size:11px;text-align:center;padding:4px 0}
-.cal-hd.wk{color:var(--bad);opacity:.75}
-.cal-cell{position:relative;border:1px solid var(--line);border-radius:12px;background:var(--bg2);
-  padding:6px 7px 18px;min-height:74px;cursor:pointer;outline:0;transition:border-color .15s,background .15s}
-.cal-cell:hover,.cal-cell:focus-visible{border-color:rgb(var(--accent-rgb) / .45)}
-.cal-cell.out{opacity:.38}
-.cal-cell.wk{background:rgba(255,107,138,.06)}
-.cal-cell.today{border-color:var(--cyan)}
-.cal-cell.sel{background:var(--glass2);border-color:var(--violet)}
-.cal-d{font-size:15px;font-weight:600;line-height:1.2}
-.cal-subs{display:flex;gap:6px;margin-top:2px}
-.cal-sub{font-size:10px;color:var(--faint)}
-.cal-dots{position:absolute;inset-inline-start:7px;bottom:6px;display:flex;gap:3px}
-.dot{width:7px;height:7px;border-radius:50%;display:inline-block;background:var(--faint)}
+.cal-hd{text-align:center;font-size:.72rem;font-weight:600;opacity:.5;padding:2px 0;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cal-hd.wk{opacity:.35}
+
+.cal-cell{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;
+  min-width:0;padding:6px 2px;border:1px solid rgb(var(--wash) / .07);border-radius:12px;
+  background:rgb(var(--wash) / .02);color:inherit;font:inherit;cursor:pointer;
+  aspect-ratio:1 / 1;transition:background .15s ease,border-color .15s ease,transform .1s ease}
+.cal-cell:hover{background:rgb(var(--wash) / .07)}
+.cal-cell:active{transform:scale(.97)}
+.cal-cell:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.cal-cell.out{opacity:.3}
+/* Weekends read as a tint. The old text tag did not fit the cell and
+   landed on top of the day number; the day panel says it in words. */
+.cal-cell.wk{background:rgb(var(--wash) / .055)}
+.cal-cell.today{border-color:rgb(var(--accent-rgb) / .5)}
+.cal-cell.sel{background:rgb(var(--accent-rgb) / .16);border-color:var(--accent)}
+
+.cal-d{font-size:.95rem;font-weight:600;line-height:1.1;font-variant-numeric:tabular-nums}
+.cal-cell.today .cal-d{color:var(--ink)}
+.cal-subs{display:flex;gap:4px;font-size:.62rem;opacity:.82;line-height:1;
+  font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;max-width:100%}
+.cal-sub + .cal-sub::before{content:"\00B7";margin-inline-end:4px;opacity:.6}
+.cal-dots{display:flex;align-items:center;gap:3px;min-height:6px}
+.cal-dots .dot{width:5px;height:5px;border-radius:50%}
+.cal-more{width:3px;height:3px;border-radius:50%;background:currentColor;opacity:.45}
+
 .dot.i-high{background:var(--bad)}
 .dot.i-medium{background:var(--gold)}
 .dot.i-low{background:var(--ok)}
-.dot.i-holiday{background:var(--violet)}
-.cal-wk-tag{position:absolute;inset-inline-end:6px;top:6px;font-size:9px;color:var(--bad);opacity:.8}
-.cal-side{display:grid;gap:12px}
-.cal-dp-h{display:flex;flex-direction:column;gap:3px;font-size:12px}
-.cal-dp-sys b{color:var(--muted);font-weight:500;font-size:11px;margin-inline-end:4px}
-.cal-dp-wk{margin-top:8px;font-size:11px;color:var(--bad)}
-.cal-evs{display:grid;gap:6px;margin-top:10px}
-.cal-ev{display:flex;gap:8px;align-items:flex-start;border:1px solid var(--line);border-radius:10px;
-  padding:7px 8px;background:var(--bg2);border-inline-start-width:3px}
-.cal-ev.i-high{border-inline-start-color:var(--bad)}
-.cal-ev.i-medium{border-inline-start-color:var(--gold)}
-.cal-ev.i-low{border-inline-start-color:var(--ok)}
-.cal-ev.i-holiday{border-inline-start-color:var(--violet)}
-.cal-ev-time{font-family:"IBM Plex Mono",monospace;font-size:11px;color:var(--muted);min-width:42px}
-.cal-ev-t{display:block;font-size:12px}
-.cal-ev-m{display:flex;gap:6px;margin-top:2px;font-size:10px;color:var(--faint)}
-.cal-ev-ccy{font-family:"IBM Plex Mono",monospace;color:var(--cyan)}
-.cal-none{margin-top:10px;color:var(--faint);font-size:12px}
-.cal-legend{display:grid;gap:6px}
-.cal-lg-h{font-size:12px;font-weight:600;margin-bottom:2px}
-.cal-lg{display:flex;gap:8px;align-items:center;font-size:12px;color:var(--muted)}
-.cal-lg-note,.cal-lg-src{color:var(--faint);font-size:11px;display:block}
-.cal-closed{border-color:rgba(255,107,138,.35)}
-.cal-c-h{color:var(--bad);font-size:13px;font-weight:600}
-.cal-c-b{color:var(--muted);font-size:12px;margin-top:4px}
-.cal-tip{position:fixed;z-index:90;max-width:280px;background:var(--glass2);border:1px solid var(--line);
-  border-radius:12px;padding:9px 10px;box-shadow:var(--shadow);backdrop-filter:blur(10px);pointer-events:auto}
-.cal-tip-h{font-size:10px;color:var(--faint);text-transform:uppercase;letter-spacing:.06em}
-.cal-tip-sys{display:flex;justify-content:space-between;gap:10px;font-size:11px;color:var(--muted);margin-top:3px}
-.cal-tip-sep{height:1px;background:var(--line);margin:7px 0}
-.cal-tip-ev{display:flex;gap:6px;align-items:center;font-size:11px;margin-top:4px}
-.cal-tip-none{font-size:11px;color:var(--faint);margin-top:4px}
+.dot.i-holiday{background:rgb(var(--wash) / .45)}
+
+/* agenda ---------------------------------------------------------- */
+/* One day's worth, so the cap is a backstop rather than the usual case:
+   a public holiday with thirty releases on it must not push the legend
+   and the rest of the page off the screen. */
+
+/* events ---------------------------------------------------------- */
+.cal-evs{display:flex;flex-direction:column;gap:6px}
+.cal-ev{position:relative;display:flex;gap:10px;align-items:flex-start;padding:8px 10px 8px 12px;
+  border-radius:10px;background:rgb(var(--wash) / .04)}
+.cal-ev::before{content:"";position:absolute;inset-block:8px;inset-inline-start:4px;width:3px;
+  border-radius:2px;background:rgb(var(--wash) / .3)}
+.cal-ev.i-high::before{background:var(--bad)}
+.cal-ev.i-medium::before{background:var(--gold)}
+.cal-ev.i-low::before{background:var(--ok)}
+.cal-ev-time{flex:0 0 auto;font-size:.76rem;font-weight:650;opacity:.8;padding-top:1px;
+  font-variant-numeric:tabular-nums}
+.cal-ev-body{display:flex;flex-direction:column;gap:3px;min-width:0}
+.cal-ev-t{font-size:.82rem;line-height:1.35;overflow-wrap:anywhere}
+.cal-ev-m{display:flex;flex-wrap:wrap;align-items:center;gap:6px;font-size:.7rem}
+.cal-ev-ccy{font-weight:700;opacity:.65;letter-spacing:.4px}
+.cal-ev-imp{padding:1px 7px;border-radius:999px;background:rgb(var(--wash) / .06)}
+.cal-ev.i-high .cal-ev-imp{color:var(--bad);background:rgba(255,107,138,.12)}
+.cal-ev.i-medium .cal-ev-imp{color:var(--gold);background:rgba(232,192,122,.12)}
+.cal-ev.i-low .cal-ev-imp{color:var(--ok);background:rgb(var(--accent-rgb) / .12)}
+
+/* day panel ------------------------------------------------------- */
+/* The side list was explicitly uncapped. A day carrying a dozen releases
+   then made this column taller than the month grid beside it, and the
+   page had to be scrolled past the whole calendar to get back out of it -
+   on the view whose entire job is to be glanced at. It gets a sensible
+   ceiling and the EVENTS scroll inside it; the date and the three
+   calendar systems are pinned, because they are what tells you which day
+   you are looking at. */
+.cal-day{
+  padding:14px;
+  display:flex; flex-direction:column; min-block-size:0;
+  max-block-size:min(72vh,640px);
+}
+.cal-day .cal-evs{ overflow:auto; min-block-size:0; padding-inline-end:4px }
+.cal-dp-main{margin:0 0 8px;font-size:1rem;font-weight:650}
+.cal-dp-sys{display:flex;flex-wrap:wrap;gap:6px 14px;margin:0 0 10px;padding:0 0 10px;
+  border-bottom:1px solid rgb(var(--wash) / .08)}
+.cal-dp-sys div{display:flex;gap:6px;align-items:baseline;min-width:0}
+.cal-dp-sys dt{font-size:.7rem;opacity:.5}
+.cal-dp-sys dd{margin:0;font-size:.76rem;font-weight:600}
+.cal-dp-wk{margin:0 0 10px;padding:8px 10px;border-radius:10px;font-size:.76rem;line-height:1.5;
+  color:var(--bad);background:rgba(255,107,138,.09);border:1px solid rgba(255,107,138,.2)}
+.cal-none{margin:0;font-size:.8rem;opacity:.5;text-align:center;padding:10px 0}
+
+/* legend ---------------------------------------------------------- */
+.cal-legend{padding:14px}
+.cal-legend h4{margin:0 0 8px;font-size:.8rem;font-weight:650;opacity:.75}
+.cal-legend ul{list-style:none;margin:0;padding:0;display:flex;flex-wrap:wrap;gap:6px 14px}
+.cal-legend li{display:flex;align-items:center;gap:7px;font-size:.76rem;opacity:.8}
+.cal-legend .dot{width:8px;height:8px;border-radius:50%;flex:0 0 auto}
+.cal-fine{margin:10px 0 0;font-size:.7rem;line-height:1.5;opacity:.5}
+
+/* hover peek ------------------------------------------------------ */
+.cal-tip{position:fixed;z-index:70;width:270px;max-height:60vh;overflow:auto;padding:11px 13px;
+  border-radius:14px;font-size:.78rem;pointer-events:none;
+  background:var(--chart-panel,rgba(12,14,22,.96));border:1px solid rgb(var(--wash) / .14);
+  box-shadow:0 18px 44px rgba(0,0,0,.4)}
+.cal-tip[hidden]{display:none}
+.cal-tip-h{font-size:.68rem;text-transform:uppercase;letter-spacing:.7px;opacity:.45;margin-bottom:5px}
+.cal-tip-sys{display:flex;justify-content:space-between;gap:10px;padding:1px 0;font-size:.74rem}
+.cal-tip-sys span{opacity:.55}
+.cal-tip-sep{height:1px;margin:8px 0;background:rgb(var(--wash) / .1)}
+.cal-tip-ev{display:flex;align-items:baseline;gap:6px;padding:3px 0;font-size:.74rem;line-height:1.35}
+.cal-tip-ev .dot{width:6px;height:6px;border-radius:50%;flex:0 0 auto;align-self:center}
+.cal-tip-none{font-size:.74rem;opacity:.5;padding:3px 0}
+
+/* ---- narrow: stack, and let the pane breathe ---- */
+@media (max-width:1100px){
+  .cal-main{grid-template-columns:minmax(0,1fr)}
+  /* Sticky is meaningless once the aside is a block below the pane, and
+     it used to pin the panel over the content while scrolling. */
+  .cal-aside{position:static}
+}
+
+@media (max-width:760px){
+  .cal{gap:10px}
+  .cal-top{padding:12px;gap:10px}
+  .cal-top-l,.cal-top-r{width:100%}
+  .cal-month{font-size:1.08rem}
+  .cal-top-r{justify-content:space-between}
+  .cal-nav{flex:1 1 auto;justify-content:space-between}
+  .cal-now{flex:1 1 auto;text-align:center}
+  .cal-segs{width:100%}
+  .cal-seg{flex:1 1 auto}
+  .cal-seg button{flex:1 1 0;padding:0 6px;text-align:center}
+  .cal-pane{padding:8px}
+  /* Six gaps of 4px and 16px of padding leave ~48px a column at 390px -
+     a legible tap target once the cell carries only the number and its
+     dots. The companion dates moved to the day panel. */
+  .cal-grid,.cal-head,.cal-body{gap:4px}
+  .cal-cell{padding:4px 1px;border-radius:10px;gap:2px}
+  .cal-subs{display:none}
+  .cal-d{font-size:.88rem}
+  .cal-hd{font-size:.64rem}
+  .cal-ev{padding:7px 9px 7px 11px}
+  .cal-day,.cal-legend{padding:12px}
+}
+
+@media (max-width:380px){
+  .cal-grid,.cal-head,.cal-body{gap:3px}
+  .cal-cell{border-radius:8px}
+  .cal-d{font-size:.8rem}
+  .cal-dots .dot{width:4px;height:4px}
+}
 
 /* ---- allowed-symbols picker ---- */
 .sym-field{position:relative}
@@ -1740,14 +2229,28 @@ input[type=range]{width:100%;accent-color:var(--cyan);height:28px;cursor:pointer
 .sym-btn{display:flex;justify-content:space-between;align-items:center;gap:8px;width:100%;text-align:start}
 .sym-caret{color:var(--faint)}
 .sym-panel{position:absolute;z-index:60;inset-inline:0;top:calc(100% + 6px);background:var(--glass2);
-  border:1px solid var(--line);border-radius:14px;padding:8px;box-shadow:var(--shadow);backdrop-filter:blur(12px)}
-.sym-q{width:100%;margin-bottom:6px}
-.sym-acts{display:flex;gap:6px;margin-bottom:6px}
+  border:1px solid var(--line);border-radius:14px;padding:8px;box-shadow:var(--shadow);backdrop-filter:blur(calc(var(--blur, 18px) * 12 / 18))}
+/* Spacing between siblings, added by the panel, never subtracted off a
+   first or last child -- the desk's rule everywhere else. */
+.sym-panel > * + *{margin-block-start:8px}
+.sym-acts{display:flex;gap:6px}
 .sym-list{max-height:230px;overflow:auto;display:grid;gap:2px}
 .sym-row{display:flex;gap:8px;align-items:center;padding:5px 7px;border-radius:8px;cursor:pointer;font-size:12px}
 .sym-row:hover{background:rgb(var(--wash) / .05)}
 .sym-row.on{background:rgb(var(--accent-rgb) / .1)}
 .sym-empty{color:var(--faint);font-size:12px;padding:8px 4px}
+
+/* The one line that explains why the light desk's theme card is short.
+   Styled as a notice rather than a warning: nothing has gone wrong. */
+.lite-lock{
+  margin:10px 0 0;
+  padding:10px 12px;
+  border-radius:var(--ctl-r);
+  border:1px solid rgb(var(--accent-rgb) / .28);
+  background:rgb(var(--accent-rgb) / .07);
+  color:var(--muted);
+  line-height:1.7;
+}
 .sym-foot{margin-top:6px;color:var(--faint);font-size:11px;border-top:1px solid var(--line);padding-top:6px}
 
 /* ---- Telegram admin ---- */
@@ -1776,31 +2279,11 @@ input[type=range]{width:100%;accent-color:var(--cyan);height:28px;cursor:pointer
 /* news-blackout notice on the command tab */
 .tape-banner.is-news{border-color:rgba(232,192,122,.5);color:var(--gold);background:rgba(232,192,122,.1)}
 
-/* v58 — calendar fixes: the day panel must not stretch the page, and the
-   tooltip lives on <body> so #stage's transform cannot move it. */
-.cal-side{align-self:start;position:sticky;top:8px}
-.cal-day{max-height:min(60vh,520px);overflow:auto;overscroll-behavior:contain}
-.cal-evs{gap:6px}
-.cal-ev{position:relative;padding-inline-start:12px;align-items:center}
-.cal-ev::before{content:"";position:absolute;inset-inline-start:0;top:6px;bottom:6px;width:3px;border-radius:2px;background:var(--faint)}
-.cal-ev.i-high::before{background:var(--bad)}
-.cal-ev.i-medium::before{background:var(--gold)}
-.cal-ev.i-low::before{background:var(--ok)}
-.cal-ev.i-holiday::before{background:var(--violet)}
-.cal-ev-imp{padding:1px 6px;border-radius:999px;background:rgb(var(--wash) / .06)}
-.cal-ev.i-high .cal-ev-imp{color:var(--bad);background:rgba(255,107,138,.12)}
-.cal-ev.i-medium .cal-ev-imp{color:var(--gold);background:rgba(232,192,122,.12)}
-.cal-ev.i-low .cal-ev-imp{color:var(--ok);background:rgb(var(--accent-rgb) / .12)}
 .cal-ev.i-holiday .cal-ev-imp{color:#c9c2ff;background:rgb(var(--accent-3-rgb) / .14)}
-.cal-tip{max-width:min(320px,calc(100vw - 16px));max-height:min(60vh,420px);overflow:auto}
-
-/* v60 — the tooltip is interactive: scrollable, and it can be pinned. */
-.cal-tip{scrollbar-width:thin;cursor:default}
-.cal-tip.pinned{border-color:rgb(var(--accent-rgb) / .55);box-shadow:0 20px 60px rgba(0,0,0,.55)}
-.cal-tip-x{position:absolute;inset-inline-end:6px;top:6px;width:20px;height:20px;border:0;
-  border-radius:6px;background:rgb(var(--wash) / .07);color:var(--muted);cursor:pointer;font-size:12px;line-height:1}
-.cal-tip-x:hover{color:var(--ink);background:rgb(var(--wash) / .14)}
-.cal-cell.pinned{border-color:var(--cyan);background:rgb(var(--accent-rgb) / .08)}
+/* The peek is hover-only and never pinned, so it takes no pointer events
+   and needs no close button; width and clamping live in the calendar
+   block above. */
+.cal-tip{max-width:min(320px,calc(100vw - 16px));scrollbar-width:thin}
 
 /* ---- Themed slim scrollbars: thin at rest, thicker on hover ---- */
 *{
@@ -1853,8 +2336,8 @@ html[data-theme="light"]{
   --rose:#d63a5c;
   --candle-up:#0f9d58;
   --candle-down:#d93025;
-  --ok:var(--candle-up);
-  --bad:var(--candle-down);
+  --ok:#0f9d58;
+  --bad:#d93025;
   --shadow:0 20px 50px rgba(30,40,70,.16);
   --wash:21 27 40;
   --s1:213 219 230; --s2:240 244 250; --s3:244 247 251; --s4:248 250 253; --s5:250 252 255;
@@ -1892,13 +2375,6 @@ html[data-glass="off"] *{
   backdrop-filter:none !important;
   -webkit-backdrop-filter:none !important;
 }
-/* While the morph runs, "no blur" participates as blur(0px) so
-   backdrop-filter ramps smoothly to zero instead of snapping. The at-rest
-   state falls back to the zero-cost `none` when the class is removed. */
-html.theming[data-glass="off"] *{
-  backdrop-filter:blur(0px) !important;
-  -webkit-backdrop-filter:blur(0px) !important;
-}
 
 /* ---- Soft theme/glass morph: veil covers the swap, then glides out ---- */
 /* The veil that covers a theme, appearance or language change.
@@ -1914,7 +2390,13 @@ html.theming[data-glass="off"] *{
  * swapped, so a card that followed them would change colour underneath the
  * message explaining that colours are changing. */
 #theme-veil{
-  position:fixed;inset:0;z-index:9999;pointer-events:none;opacity:0;
+  position:fixed;inset:0;z-index:9999;opacity:0;
+  /* At rest it must not swallow clicks; while the change runs it must.
+     It was pointer-events:none in both states, which made it a picture
+     of a loading screen rather than one - the desk underneath stayed
+     fully clickable throughout, so a second theme could be started on
+     top of the first. */
+  pointer-events:none;
   background:
     radial-gradient(120% 90% at 30% 0%, rgba(62,224,196,.16), transparent 60%),
     radial-gradient(90% 80% at 85% 100%, rgba(124,108,255,.14), transparent 65%),
@@ -1935,6 +2417,7 @@ html.theming[data-glass="off"] *{
   opacity:0;transform:translateY(6px);
   transition:opacity .22s ease-out .08s, transform .22s ease-out .08s;
 }
+#theme-veil.is-busy{ pointer-events:auto; cursor:progress }
 #theme-veil.is-busy .tv-card{opacity:1;transform:none}
 #theme-veil .tv-text{display:flex;flex-direction:column;gap:2px;text-align:start}
 #theme-veil .tv-text b{font-weight:500;font-size:14px}
@@ -1950,34 +2433,25 @@ html.theming[data-glass="off"] *{
 @media (prefers-reduced-motion:reduce){
   #theme-veil .tv-spin{animation:none;border-top-color:#3ee0c4}
 }
-/* During the morph window every themed property glides on one shared curve,
-   so the swap reads as a slow dissolve instead of a cut. */
-html.theming *,html.theming *::before,html.theming *::after{
-  transition:
-    background .5s cubic-bezier(.33,0,.2,1),
-    color .5s cubic-bezier(.33,0,.2,1),
-    border-color .5s cubic-bezier(.33,0,.2,1),
-    box-shadow .5s cubic-bezier(.33,0,.2,1),
-    outline-color .5s cubic-bezier(.33,0,.2,1),
-    fill .5s cubic-bezier(.33,0,.2,1),
-    stroke .5s cubic-bezier(.33,0,.2,1),
-    opacity .5s cubic-bezier(.33,0,.2,1),
-    filter .5s cubic-bezier(.33,0,.2,1),
-    backdrop-filter .55s cubic-bezier(.33,0,.2,1),
-    -webkit-backdrop-filter .55s cubic-bezier(.33,0,.2,1),
-    accent-color .5s cubic-bezier(.33,0,.2,1),
-    caret-color .5s cubic-bezier(.33,0,.2,1),
-    text-shadow .5s cubic-bezier(.33,0,.2,1) !important;
-}
+/* There used to be a `.theming` class here that put a 500ms transition on
+   every themed property for the length of the swap.
+
+   It is gone, and so is the class. It was added on purpose at the moment
+   the work began and timed to run underneath the veil's fade, so the
+   change "read as a morph rather than a cut" - but an opaque cover means
+   there is nobody to see a cross-fade, and the only stretch in which it
+   WAS visible was the fade-out: the loading state ended and the desk then
+   changed colour in front of the trader, which is the one thing a cover
+   over a change exists to prevent. The swap is instant now, behind the
+   cover, and the cover lifts off a finished desk. */
 @media (prefers-reduced-motion:reduce){
   #theme-veil{display:grid}
-  html.theming *,html.theming *::before,html.theming *::after{transition:none !important}
 }
 
 /* ===== Settings redesign: side rail + content ===== */
 /* hard size guards (independent of the rail wrapper, so a stale layout can never blow the icons up) */
 .set-jump .sj-ic{width:30px;height:30px;flex:none;display:grid;place-items:center;border-radius:9px}
-.set-jump .sj-ic svg,.set-jump button svg{width:16px;height:16px;max-width:16px;max-height:16px;flex:none}
+.set-jump .sj-ic svg,.set-jump button[data-jump] svg{width:16px;height:16px;max-width:16px;max-height:16px;flex:none}
 .set-jump .sj-txt{display:flex;flex-direction:column;gap:2px;min-width:0;font-size:13px}
 .set-jump .sj-txt b{font-weight:500;font-size:13px}
 .set-jump .sj-txt small{font-size:11px}
@@ -1988,63 +2462,362 @@ html.theming *,html.theming *::before,html.theming *::after{
   position:sticky;top:8px;z-index:6;display:flex;flex-direction:column;gap:2px;flex-wrap:nowrap;
   padding:8px;margin:0;border:1px solid var(--line);border-radius:18px;
   background:linear-gradient(180deg, rgb(var(--s4) / .92), rgb(var(--s2) / .88));
-  backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
+  backdrop-filter:blur(calc(var(--blur, 18px) * 14 / 18));-webkit-backdrop-filter:blur(calc(var(--blur, 18px) * 14 / 18));
   max-height:calc(100vh - var(--top) - 24px);overflow-y:auto;scrollbar-width:thin;
 }
-.set-rail .sj-grp{
+/* The jumper's search. It sits above the first group heading and
+   scrolls with the rail rather than pinning, because the rail is
+   nine entries long and a sticky box would cost more height than it
+   saves. */
+.set-jump .sj-find{ padding:2px 2px 10px; display:flex; flex-direction:column; gap:6px }
+.sj-find-n{ margin:0; font-size:11.5px; padding-inline:2px }
+.sj-find-n[hidden]{ display:none }
+.set-jump button[data-jump][hidden]{ display:none }
+.set-jump .sj-grp[hidden]{ display:none }
+
+.sj-grp{
   font-size:10.5px;color:var(--faint);letter-spacing:.06em;text-transform:uppercase;
   padding:10px 10px 4px;font-weight:500;
 }
-html[dir="rtl"] .set-rail .sj-grp{letter-spacing:0;text-transform:none;font-size:11px}
-.set-rail .set-jump button{
+html[dir="rtl"] .sj-grp{letter-spacing:0;text-transform:none;font-size:11px}
+
+/* ---- the entries ----
+ *
+ * `button[data-jump]`, not `button`. The jumper also contains the
+ * sheet's close button and the search box's clear button, and dressing
+ * every button in here as a navigation entry stretched both of them to
+ * width:100% with an entry's padding and a transparent background. The
+ * close button spanned the whole header; the round clear button became
+ * a full-width row - and that one had been broken on the desktop rail
+ * all along, because the rule it inherited from reached it there too.
+ *
+ * Scoped to .set-jump, NOT to .set-rail. These describe the jumper, and
+ * the jumper has two shapes: the sticky rail on a desktop and the
+ * bottom sheet on a phone. The sheet is re-parented out of .set-rail to
+ * escape the stage's transform, so every rule that reached these
+ * buttons through that ancestor stopped applying the moment it moved -
+ * and a button with no author background is a white UA button, with the
+ * icon and the two lines of text falling out of their flex boxes. Only
+ * what is genuinely about the RAIL (the sticky positioning, the grid
+ * column) may be scoped to .set-rail.
+ */
+.set-jump button[data-jump]{
   display:flex;align-items:center;gap:10px;flex:none;width:100%;text-align:start;
   border:1px solid transparent;background:transparent;color:var(--muted);
   border-radius:12px;padding:8px 10px;font-size:13px;line-height:1.2;
   transition:background .18s var(--ease),color .18s var(--ease),border-color .18s var(--ease),transform .18s var(--ease);
 }
-.set-rail .set-jump button:hover{background:rgb(var(--wash) / .05);color:var(--ink)}
-.set-rail .set-jump button.on{
+.set-jump button[data-jump]:hover{background:rgb(var(--wash) / .05);color:var(--ink)}
+.set-jump button[data-jump].on{
   background:linear-gradient(135deg, rgb(var(--accent-rgb) / .16), rgb(var(--accent-3-rgb) / .10));
   border-color:rgb(var(--accent-rgb) / .28);color:var(--ink);font-weight:500;
 }
-.set-rail .sj-ic{
+.set-jump .sj-ic{
   width:30px;height:30px;flex:none;display:grid;place-items:center;border-radius:9px;
   background:rgb(var(--wash) / .05);color:var(--muted);
 }
-.set-rail .sj-ic svg{width:16px;height:16px}
-.set-rail button.on .sj-ic{background:rgb(var(--accent-rgb) / .16);color:var(--cyan)}
-.set-rail .sj-txt{display:flex;flex-direction:column;gap:2px;min-width:0}
-.set-rail .sj-txt b{font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.set-rail .sj-txt small{font-size:11px;color:var(--faint);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.set-rail button.on .sj-txt small{color:var(--muted)}
+.set-jump .sj-ic svg{width:16px;height:16px}
+.set-jump button[data-jump].on .sj-ic{background:rgb(var(--accent-rgb) / .16);color:var(--cyan)}
+.set-jump .sj-txt{display:flex;flex-direction:column;gap:2px;min-width:0}
+.set-jump .sj-txt b{font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.set-jump .sj-txt small{font-size:11px;color:var(--faint);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.set-jump button[data-jump].on .sj-txt small{color:var(--muted)}
 .set-main{min-width:0;display:flex;flex-direction:column;gap:14px}
+/* Settings panels are glass, like every other surface on the desk.
+   They used to carry the alpha without the blur, which is not frosting -
+   it is a hole: the wallpaper showed through sharp and the text sat on
+   top of it. The blur is the half that makes a translucent panel read as
+   a panel, so the two always ship together. The de-frosted counterpart
+   lives in skins.css next to the other glass-off grounding rules. */
 .set-main .set-block{
   margin:0;padding:18px 20px 20px;border:1px solid var(--line);border-radius:20px;
   background:rgb(var(--s3) / .55);
+  backdrop-filter:blur(calc(var(--blur, 18px) * 18 / 18)) saturate(130%);
+  -webkit-backdrop-filter:blur(calc(var(--blur, 18px) * 18 / 18)) saturate(130%);
   animation:setIn .28s var(--ease-out) both;
 }
-@keyframes setIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+/* Transform only - the settings panes are glass too, and a running
+   opacity animation would flatten them for its whole .28s. */
+@keyframes setIn{from{transform:translateY(6px)}to{transform:none}}
 .set-main .set-title{
   font-size:19px;font-weight:500;margin:0 0 14px;padding-bottom:12px;
   border-bottom:1px solid var(--line);
 }
 .set-main .set-block .card{background:rgb(var(--s5) / .55)}
+/* ---- the rail as a bottom sheet on a phone ---------------------------
+ *
+ * Until 1000px the rail turned into a sideways-scrolling strip of chips:
+ * three of eight sections visible, no sign the other five existed, and
+ * the group headings and the line of text under each name - the part
+ * that says what the section actually decides - both switched off to
+ * make room. A list that has to hide its own contents to fit is the
+ * wrong shape for the space.
+ *
+ * So below the breakpoint it leaves the flow entirely and becomes a
+ * sheet anchored to the bottom edge, with a button in its place naming
+ * the section you are on. Open, it is the complete rail, headings and
+ * descriptions intact, with its items under the thumb instead of at the
+ * top of the screen.
+ */
+.sj-open,.sj-scrim,.sj-grab,.sj-sheet-head,.sj-bar{display:none}
+/* The entries are their own region only when the sheet needs to scroll
+   them; on the rail the wrapper must not exist as far as layout is
+   concerned. */
+.sj-list{display:contents}
+
+/* ---- the rail as a bottom sheet on a phone ---------------------------
+ *
+ * Rebuilt. Three things were wrong with the first cut, and all three
+ * came from the sheet being treated as new furniture rather than as the
+ * rail in a different shape.
+ *
+ *   1. It painted its own surface - a hardcoded rgb(var(--s2) / .86)
+ *      with a blur - instead of the one every other panel uses. So it
+ *      matched no skin, it ignored the neumorphic and clay treatments
+ *      entirely, and with liquid glass switched off the blur was
+ *      stripped by the global data-glass rule while the .86 alpha
+ *      stayed: a panel you could see straight through. The surface is
+ *      the theme's job now. .sj-open and .set-jump are listed together
+ *      in themes.css and skins.css, so the bar and the sheet get every
+ *      skin, the glass-off and perf-fast grounding, and the light lock
+ *      for free - and cannot drift apart again.
+ *
+ *   2. The bar was a 56px slab across the full width carrying an icon,
+ *      a title, a caption and a chevron. The caption said "All
+ *      settings" next to a chevron that already said so. It is a 44px
+ *      pill now - the touch minimum, not a quarter of the screen.
+ *
+ *   3. Geometry has to out-specify the theme. html[data-skin]
+ *      .set-jump sets border-radius:var(--radius-lg), which rounded the
+ *      bottom corners of a panel sitting on the bottom edge. The rules
+ *      below are written at (0,3,1) so shape stays with the component
+ *      while colour stays with the theme.
+ */
 @media (max-width:1000px){
   .set-desk.set-rail{grid-template-columns:1fr;gap:12px}
-  .set-rail .set-jump{
-    position:sticky;top:0;flex-direction:row;overflow-x:auto;overflow-y:hidden;max-height:none;
-    border-radius:14px;padding:6px;gap:4px;scrollbar-width:none;
+
+  /* ---- closed: one pill naming the section you are in ---- */
+  .sj-bar{
+    display:flex;justify-content:center;position:fixed;z-index:92;
+    inset-inline:12px;inset-block-end:calc(10px + env(safe-area-inset-bottom));
+    pointer-events:none;
+    transition:opacity .2s var(--ease), translate .24s var(--ease);
   }
-  .set-rail .set-jump::-webkit-scrollbar{display:none}
-  .set-rail .sj-grp{display:none}
-  .set-rail .set-jump button{width:auto;padding:7px 10px;white-space:nowrap}
-  .set-rail .sj-txt small{display:none}
-  .set-rail .sj-ic{width:24px;height:24px;border-radius:7px}
+  html .sj-bar > .sj-open,
+  html[data-skin] .sj-bar > .sj-open{
+    pointer-events:auto;
+    display:flex;align-items:center;gap:8px;
+    inline-size:auto;max-inline-size:100%;
+    min-block-size:44px;padding:6px 14px;
+    border:1px solid var(--line);border-radius:999px;
+    box-shadow:0 8px 24px rgb(0 0 0 / .28);
+    color:var(--ink);font-size:13px;line-height:1.2;
+    /* The frosting half of liquid glass. The colour half comes from the
+       theme. When the trader switches liquid glass off, the global
+       data-glass rule strips this and skins.css grounds the surface to
+       an opaque one in the same breath - which is the half that was
+       missing before: the blur went and the transparency stayed. */
+    backdrop-filter:blur(calc(var(--blur, 18px) * 18 / 18)) saturate(150%);
+    -webkit-backdrop-filter:blur(calc(var(--blur, 18px) * 18 / 18)) saturate(150%);
+  }
+  .sj-now{
+    font-weight:500;min-inline-size:0;
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  }
+  .sj-open .sj-ic{
+    inline-size:22px;block-size:22px;flex:none;display:grid;place-items:center;
+    border-radius:7px;background:none;color:var(--cyan);
+  }
+  .sj-open .sj-ic svg{width:15px;height:15px}
+  .sj-open-ch{flex:none;display:grid;place-items:center;color:var(--faint);transition:rotate .2s var(--ease)}
+  .sj-open-ch svg{width:14px;height:14px}
+  .sj-open[aria-expanded="true"] .sj-open-ch{rotate:180deg}
+
+  /* Once the sheet is up the bar is behind it, saying nothing the sheet
+     does not already say, so it steps aside rather than sitting
+     underneath it. */
+  html.set-sheet-open .sj-bar{opacity:0;translate:0 12px;pointer-events:none}
+
+  /* Nothing may end up underneath it: 44px of pill, 10px of gap at each
+     end, plus the home indicator. */
+  .set-main{padding-block-end:calc(74px + env(safe-area-inset-bottom))}
+  /* The bar used to push the toasts up as well. Notifications are at
+     the top of the window now, so there is nothing left down here for
+     it to collide with. */
+
+  /* ---- the scrim and the sheet ----
+     z-index 150/151: over the mobile header at 90, under the navigation
+     drawer and its scrim at 210/200. Both are reachable now only because
+     the sheet is parented into #desk - from <body> it was measured
+     against #app's z-index of 1 and covered the side menu. */
+  /* Opening and closing are not the same gesture and are not timed the
+     same. Coming in, the sheet is the thing you asked for, so it takes
+     its time and decelerates into place; going out, it is already
+     answered, so it accelerates away and gets off the screen. Matching
+     the two makes the entry feel sluggish or the exit feel abrupt. */
+  .sj-scrim{
+    display:block;position:fixed;inset:0;z-index:150;
+    background:rgb(0 0 0 / .5);opacity:0;pointer-events:none;
+    visibility:hidden;
+    transition:opacity 240ms cubic-bezier(.3,0,.8,.15), visibility 0s linear 240ms;
+  }
+  .sj-scrim[hidden]{display:none}
+  html.set-sheet-open .sj-scrim{
+    opacity:1;pointer-events:auto;visibility:visible;
+    transition:opacity 320ms cubic-bezier(.22,1,.36,1), visibility 0s linear 0s;
+  }
+
+  html .set-jump.is-sheet,
+  html[data-skin] .set-jump.is-sheet{
+    position:fixed;inset-inline:0;inset-block-end:0;top:auto;z-index:151;
+    display:flex;flex-direction:column;gap:0;
+    max-block-size:min(72dvh, 560px);overflow:hidden;overscroll-behavior:contain;
+    border:1px solid var(--line);border-block-end:0;
+    border-start-start-radius:20px;border-start-end-radius:20px;
+    border-end-start-radius:0;border-end-end-radius:0;
+    padding:0;margin:0;
+    box-shadow:0 -16px 40px rgb(0 0 0 / .34);
+    /* The comment that used to sit here said "colour from the theme".
+       No theme ever provided one, and no rule anywhere set a background
+       on this element: measured, it computed to rgba(0,0,0,0) in all
+       twelve. The glass themes got away with it because an 18px
+       backdrop-filter over nothing still reads as frosted; the flat
+       themes (Relief, Velvet, Minimal, Mono) publish --blur:0, so there
+       the sheet was a literal hole with a border round it.
+
+       So the colour is stated here. The sheet is parented out of
+       .set-rail and cannot inherit the rail's own blur, which is why it
+       needs its own. */
+    background:rgb(var(--s2) / var(--surface-alpha, .94));
+    backdrop-filter:blur(calc(var(--blur, 18px) * 18 / 18)) saturate(150%);
+    -webkit-backdrop-filter:blur(calc(var(--blur, 18px) * 18 / 18)) saturate(150%);
+    transform:translateY(102%);
+    /* visibility carries a delay equal to the slide, or the close is not
+       an animation at all: without it the element turns invisible on the
+       first frame and the 300ms it spends travelling happens where
+       nobody can see it. Measured before this line existed - the sheet
+       read as "vanishes", because it did.
+
+       0s linear <delay> rather than a duration: visibility is discrete,
+       so this holds `visible` for the whole slide and flips once at the
+       end, which is exactly what is wanted. */
+    transition:transform 250ms cubic-bezier(.3,0,.8,.15),
+               visibility 0s linear 250ms;
+    visibility:hidden;
+    /* The sheet is the only thing moving while it moves; promoting it
+       once keeps the first frame from being the expensive one. */
+    will-change:transform;
+  }
+  html.set-sheet-open .set-jump.is-sheet,
+  html[data-skin].set-sheet-open .set-jump.is-sheet{
+    transform:translateY(0);
+    visibility:visible;
+    transition:transform 420ms cubic-bezier(.22,1,.36,1),
+               visibility 0s linear 0s;
+  }
+  /* While a finger owns it, nothing is eased: the sheet is pinned to the
+     pointer. The class is removed on release so the curves above take
+     the hand-off. */
+  .set-jump.is-sheet.is-dragging{transition:none}
+
+  /* The handle, the title and the search hold still; only the list
+     scrolls. This was two stacked position:sticky boxes with
+     hand-counted offsets, which came apart as soon as either changed
+     height - and with the nav itself scrolling, a drag that began on
+     the handle fought the scroll. */
+  .sj-grab{
+    display:grid;place-items:center;flex:none;
+    block-size:22px;padding-block:10px 4px;
+    touch-action:none;cursor:grab;
+  }
+  .sj-grab:active{cursor:grabbing}
+  .sj-grab span{display:block;inline-size:38px;block-size:4px;border-radius:999px;background:rgb(var(--wash) / .22)}
+
+  .sj-sheet-head{
+    display:flex;align-items:center;justify-content:space-between;gap:10px;flex:none;
+    padding:0 12px 8px;
+  }
+  .sj-sheet-head b{font-size:12.5px;font-weight:500;color:var(--muted)}
+  .sj-close{
+    position:relative;
+    inline-size:36px;block-size:36px;flex:none;display:grid;place-items:center;
+    border:1px solid var(--line);border-radius:10px;
+    background:rgb(var(--wash) / .05);color:var(--muted);
+  }
+  /* 36px reads right next to a 12.5px title, but it is a dismissal
+     control on a touch screen, so the target is grown to 44 without
+     growing the button. */
+  .sj-close::after{content:"";position:absolute;inset:-4px}
+  .sj-close svg{width:15px;height:15px}
+
+  .set-jump.is-sheet .sj-find{flex:none;padding:0 12px 8px}
+
+  .sj-list{
+    display:flex;flex-direction:column;gap:2px;
+    flex:1 1 auto;min-block-size:0;overflow-y:auto;overscroll-behavior:contain;
+    padding:0 10px calc(12px + env(safe-area-inset-bottom));
+    scrollbar-width:thin;
+  }
+
+  /* Inside the sheet the rail keeps everything it had on the desktop -
+     the headings, the descriptions - and only grows its targets. */
+  .set-jump.is-sheet button[data-jump]{min-block-size:46px;padding:8px 10px}
+
   .set-main .set-block{padding:14px;border-radius:16px}
   .set-main .set-title{font-size:16px}
 }
-html[data-theme="light"] .set-rail .set-jump{background:linear-gradient(180deg, rgba(255,255,255,.86), rgba(255,255,255,.7))}
-html[data-theme="light"] .set-rail .set-jump button.on{background:linear-gradient(135deg, rgba(20,150,130,.14), rgba(90,80,220,.08))}
+
+@media (max-width:1000px) and (prefers-reduced-motion:reduce){
+  .set-jump.is-sheet,.sj-scrim,.sj-open-ch,.sj-bar{transition:none}
+}
+
+/* ---- the rail carries state, not just names ---- */
+.set-jump button[data-jump]{position:relative}
+
+/* ---- every section says what it decides ---- */
+.stx-head{margin:0 0 14px; padding-block-end:12px; border-block-end:1px solid var(--line)}
+.stx-head .set-title{margin:0; padding:0; border:0}
+.stx-why{margin:5px 0 0; font-size:12.5px; max-inline-size:62ch}
+.stx-note{margin:0 0 10px}
+.stx-toggle{
+  display:flex; align-items:flex-start; justify-content:space-between;
+  gap:16px; margin-block-start:16px;
+}
+.stx-toggle-txt{min-inline-size:0}
+.stx-toggle-txt > b{display:block; font-weight:600}
+.stx-toggle-txt > p{margin:2px 0 0}
+.stx-acts{margin-block-start:10px; gap:8px; flex-wrap:wrap}
+.stx-result{margin-block-start:12px}
+.stx-src{min-block-size:120px; inline-size:100%; resize:vertical}
+.stx-upload-row{margin-block-start:10px; align-items:center; gap:8px; flex-wrap:wrap}
+
+@media (max-width:1000px){
+  /* The rail is a scrolling chip bar here, so the state word has to
+     stop pushing itself to the far edge of a chip that no longer has
+     a far edge. */
+  .stx-head{margin-block-end:12px; padding-block-end:10px}
+  .stx-why{font-size:12px}
+}
+@media (max-width:560px){
+  /* A switch beside a two-line explanation leaves the text about
+     eleven characters wide on a phone. It goes under instead. */
+  .stx-toggle{flex-direction:column; gap:10px}
+}
+
+/* The light-mode rail used to be painted with two literal rgba teals,
+   so choosing any other accent left the selected item the wrong colour
+   on light and the right one on dark. Both now come from the theme. */
+@media (max-width:1000px){
+  html[data-theme="light"] .sj-scrim{background:rgb(0 0 0 / .34)}
+}
+html[data-theme="light"] .set-rail .set-jump,
+html[data-theme="light"] .set-jump.is-sheet,
+html[data-theme="light"] .sj-open{
+  background:linear-gradient(180deg, rgb(var(--s4) / .9), rgb(var(--s2) / .78));
+}
+html[data-theme="light"] .set-jump button[data-jump].on{
+  background:linear-gradient(135deg, rgb(var(--accent-rgb) / .12), rgb(var(--accent-3-rgb) / .07));
+}
 
 /* ===========================================================================
    The robot page, and the two shapes it is built from
@@ -2157,8 +2930,22 @@ html[data-theme="light"] .set-rail .set-jump button.on{background:linear-gradien
   list-style:none; padding:4px 0;
 }
 .q-how summary::-webkit-details-marker{ display:none }
-.q-how summary::before{ content:"› "; display:inline-block; transition:transform .16s var(--ease) }
-.q-how[open] summary::before{ content:"⌄ " }
+/* A drawn chevron that turns, rather than swapping one text glyph for
+   another. The old pair ("\203A" then "\2304") relied on two characters
+   that are not in every font and do not share a size or a baseline, so the
+   marker jumped as the section opened. This is one shape, rotated. */
+.q-how summary::before{
+  content:""; display:inline-block; width:12px; height:12px;
+  margin-inline-end:6px; vertical-align:-1px;
+  background-color:currentColor;
+  -webkit-mask:var(--ico-chevron) center/12px 12px no-repeat;
+          mask:var(--ico-chevron) center/12px 12px no-repeat;
+  transform:rotate(-90deg);
+  transition:transform .16s var(--ease);
+}
+html[dir="rtl"] .q-how summary::before{ transform:rotate(90deg) }
+.q-how[open] summary::before,
+html[dir="rtl"] .q-how[open] summary::before{ transform:rotate(0deg) }
 .q-how .sub{ margin:4px 0 8px }
 .q-table{ display:grid; grid-template-columns:1fr auto; gap:6px 12px; font-size:11.5px; color:var(--muted) }
 .q-table b{ color:var(--ink) }
@@ -2241,6 +3028,15 @@ html[data-theme="light"] .set-rail .set-jump button.on{background:linear-gradien
    control is now derived from it. */
 @media (pointer: coarse){
   :root{--ctl-h:48px;--ctl-gap:12px}
+  /* Flatten all, on the three "open positions" cards. A destructive
+     control pressed in a hurry needs the full target, and 26px of
+     button is not it. The halo is an ::after rather than real height
+     so the card header keeps its rhythm. Here rather than beside
+     .pos-flat itself: one touch block, so the next person sizing a
+     target has one place to read and the sheet does not grow a
+     second (pointer: coarse) for every component. */
+  .pos-flat{position:relative; height:34px; padding:0 14px}
+  .pos-flat::after{content:""; position:absolute; inset:-5px -4px}
   .btn.tiny{--ctl-h:38px}
   .icon-btn{min-height:38px}
   /* The switch grows as a switch - both numbers together - rather than
@@ -2251,6 +3047,81 @@ html[data-theme="light"] .set-rail .set-jump button.on{background:linear-gradien
      it. Only here: on a mouse it would eat clicks aimed at the neighbour
      for no benefit, and the gap between controls on touch is 12px. */
   .switch::after{content:"";position:absolute;inset:-9px -5px;border-radius:inherit}
+
+  /* ---- and the same treatment for every target a sweep found short ----
+
+     Audited by hit-testing rather than by reading sizes: walk outwards
+     from a control's centre and ask the browser which element answers.
+     That measures the real target, expanders included, and it corrected
+     three wrong readings of my own - a nav tab reported as 5px wide
+     because I had tried to do arithmetic on a pseudo-element's computed
+     insets, #up-store reported unreachable when it is simply disabled,
+     and a first pass of expanders here that measured as having done
+     nothing at all.
+
+     That last one is the reason this block is not all ::after. .btn
+     carries overflow:hidden (for text-overflow:ellipsis, app.css:376),
+     so an expander drawn outside a button is clipped away by the button
+     itself. Every computed style said the rule had applied; the hit test
+     said otherwise, and the hit test was right. So anything built on
+     .btn is given real height instead, and the invisible trick is kept
+     for the few controls that must stay visually small.
+
+     Each growth is bounded by the measured clear space around the
+     control, so none of them reaches into a neighbour and starts
+     answering taps aimed next door. */
+
+  /* Room to grow, so grow properly. All of these measured 28-38px tall
+     with 8px or more of clear space on every side. */
+  .pc-seg>button,.cal-seg>button,.tabs>button{min-height:44px}
+  .cmd .btn.tiny,.stage .row>.btn.tiny{min-height:44px}
+  .cal-arrow,.cal-now{min-height:44px}
+  /* The order ticket. These have to out-specify their own base rules
+     rather than restate them: .ct-ic and .ct-pm are declared further
+     down this file at equal weight, and at equal weight the later rule
+     wins no matter which media query it sits in. Measured, not
+     assumed - the first attempt set the width and silently lost the
+     height to the rule below. */
+  .ct-row .ct-ic,.ct-lv .ct-ic{width:44px;min-width:44px;height:44px}
+  .ct-step .ct-pm{width:44px;height:44px}
+  .ct-row input,.ct-step input{min-height:44px}
+
+  /* Signals on and off, and the AI carousel's arrows: short by a
+     couple of pixels each. */
+  .mk-sig .btn.tiny{min-height:44px}
+  #ai-prev,#ai-next{min-width:44px}
+
+  /* The header stays 34px. That is a deliberate density choice below
+     760 - seven controls have to fit across 390px - so here the target
+     is grown around the control rather than through it, and the
+     button's own overflow has to be opened for that to survive. The
+     labels are short and already nowrap, so nothing spills.
+
+     6px between controls means 3px each side: 40x44, not 44x44.
+     Reaching 44 wide would need wider gaps, and wider gaps do not fit.
+     Saying so is better than rounding the number up. */
+  .top .icon-btn,.top .menu-btn,.top .btn.tiny{position:relative;overflow:visible}
+  .top .icon-btn::after,.top .menu-btn::after,.top .btn.tiny::after{
+    content:"";position:absolute;inset:-5px -3px;border-radius:inherit;
+  }
+
+  /* Carousel dots: 8px of dot is the design and it should stay 8px.
+     36px of gap gives each dot a 44px-wide share of the row. The card
+     clips the bottom of the expander, so the dots also take a little
+     real height - a dot row with 14px of margin under it had nothing
+     below to give. */
+  .chart-dots{gap:36px;padding-block:18px;margin-top:0}
+  .chart-dot{position:relative}
+  .chart-dot::after{content:"";position:absolute;inset:-18px;border-radius:99px}
+
+  /* The close control on a chart card's position strip used to be
+     .pos-x, capped at 28px because the chip sat in a strip that
+     scrolled sideways and clipped vertically, so no expander could
+     escape it. The strip is the chart desk's own .tvp-list now: the
+     rows have 8px of padding around the button, which is room enough
+     for the -7px expander .tv-pos-x already carries, so it reaches
+     44x44 there the same way it does in the dock. Sized in chart.css
+     next to the rule it has to out-weigh. */
 }
 
 /* iOS zooms the page when a text field smaller than 16px takes focus.
@@ -2259,7 +3130,7 @@ html[data-theme="light"] .set-rail .set-jump button.on{background:linear-gradien
    way: the only thing that stops it is the field actually being 16px.
    The desk's fields were 14px, so every tap on one scrolled and scaled
    the whole desk and left the user to pinch back out. */
-@media (max-width: 860px){
+@media (max-width:900px){
   input,select,textarea,.field input,.field select,.ctrl{font-size:16px}
 }
 
@@ -2345,10 +3216,26 @@ html[data-theme="light"] .set-rail .set-jump button.on{background:linear-gradien
   display:flex; align-items:flex-start; justify-content:space-between; gap:12px;
   padding:10px 12px; border:1px solid var(--line); border-radius:12px;
 }
+/* The file name is monospaced and unbreakable. "AurionChartAgent.mq5" is
+   four characters longer than "AurionBridge.mq5", which on a phone was
+   just enough to push the left column past the row: the end column is
+   flex:0 0 auto and cannot give way, so the Save button was carried out
+   through the card's edge. Letting the name wrap is what keeps it in. */
+.ea-row-main{ min-width:0 }
+.ea-row-file{ overflow-wrap:anywhere }
 .ea-row.is-missing{ opacity:.55 }
 .ea-row .sub{ margin:4px 0 0; font-size:11px; line-height:1.7; max-width:46ch }
 .ea-row .pill{ font-size:10px; margin-inline-start:6px }
 .ea-row-end{ display:flex; align-items:center; gap:8px; flex:0 0 auto }
+/* Below this width there is no room for a description column and a
+   version-plus-button column side by side, so the row becomes two lines
+   with the controls aligned to the end of the second. */
+@media (max-width:560px){
+  .ea-row{ flex-wrap:wrap }
+  .ea-row-main{ flex:1 1 100% }
+  .ea-row-end{ flex:1 1 100%; justify-content:flex-end }
+  .ea-row .sub{ max-width:none }
+}
 
 .ea-sub{ margin:16px 0 6px; font-size:13px; font-weight:600 }
 .ea-charts{ display:flex; flex-direction:column; gap:6px }
@@ -2399,15 +3286,6 @@ html[data-theme="light"] .set-rail .set-jump button.on{background:linear-gradien
 .notify-card.trade-card .sub { margin: 0; }
 #notify-card .field { align-items: center; }
 
-/* A planted entry is not an open trade. The chip says so before the
-   numbers do: dashed edge for "decided, waiting for price", solid for
-   "in". Same reasoning as the dashed line on the chart itself. */
-.lvl-chip.is-resting { border-style: dashed; opacity: .92; }
-.lvl-chip.is-resting .wait {
-  font-size: 10px; letter-spacing: .08em; text-transform: uppercase;
-  padding: 1px 6px; border-radius: 999px;
-  background: var(--line, #2a2f3e); color: var(--muted, #9aa3b8);
-}
 
 /* The risk-free ladder, named rather than numbered.
    A rung is "TP2 -> TP1": the target that has to be reached and the
@@ -2463,7 +3341,7 @@ html[data-theme="light"] .set-rail .set-jump button.on{background:linear-gradien
 }
 .snd-vol{display:flex;align-items:center;gap:12px;margin-top:10px}
 .snd-vol input[type="range"]{flex:1;min-width:0}
-.snd-mute{font-size:15px;line-height:1}
+.snd-mute svg{width:17px;height:17px}
 
 .snd-rows{display:flex;flex-direction:column;gap:8px;margin-top:10px}
 .snd-row{
@@ -2481,14 +3359,19 @@ html[data-theme="light"] .set-rail .set-jump button.on{background:linear-gradien
   width:30px;height:30px;flex:none;border-radius:9px;font-size:14px;
   background:rgb(var(--wash) / .06);color:var(--ink);
 }
+.snd-mark svg{width:16px;height:16px}
 .snd-mark.t-entry{color:var(--gold)}
 .snd-mark.t-up{color:var(--up, #3ddc97)}
 .snd-mark.t-down{color:var(--down, #ff6b6b)}
+.snd-mark.t-notice{color:var(--muted)}
 .snd-text{display:flex;flex-direction:column;gap:2px;min-width:0}
 .snd-text b{font-weight:600}
 .snd-text small{color:var(--muted);font-size:11px;line-height:1.45}
 .snd-pick{width:100%}
-.snd-note{margin-top:12px !important;opacity:.8}
+.snd-note{margin-block-start:12px !important;opacity:.8}
+
+.snd-play svg{width:15px;height:15px}
+.snd-play:disabled{opacity:.4;cursor:not-allowed}
 
 .snd-deliver{
   display:flex;align-items:flex-start;justify-content:space-between;
@@ -2497,7 +3380,7 @@ html[data-theme="light"] .set-rail .set-jump button.on{background:linear-gradien
 
 /* On a narrow desk the four columns stop fitting: the choice and its preview
    drop to a second line rather than squeezing the label to nothing. */
-@media (max-width:620px){
+@media (max-width:560px){
   .snd-row{grid-template-columns:auto minmax(0,1fr);row-gap:10px}
   .snd-pick{grid-column:1 / -1}
   .snd-play{grid-column:1 / -1;justify-self:start}
@@ -2529,6 +3412,44 @@ html[data-theme="light"] .set-rail .set-jump button.on{background:linear-gradien
 .col-swatch::-webkit-color-swatch-wrapper{padding:2px}
 .col-swatch::-webkit-color-swatch{border:none;border-radius:7px}
 .col-swatch::-moz-color-swatch{border:none;border-radius:7px}
+
+/* Candle preview.
+
+   Eight bars drawn in CSS from --candle-up / --candle-down, the same two
+   variables the chart canvas reads. The picker writes those variables
+   onto <html> while the finger is still moving, so these restyle live and
+   the trader is choosing against the thing they are changing rather than
+   against a word. Each bar carries its own --t/--h/--w so the row has the
+   irregular shape of a real sequence instead of eight identical blocks. */
+.cndl-h{margin:18px 0 2px;font-size:13px;font-weight:600}
+.cndl-prev{
+  display:flex;align-items:stretch;gap:7px;
+  height:92px;margin:10px 0 12px;padding:10px 12px;
+  border:1px solid var(--line);border-radius:14px;
+  background:var(--chart-panel, rgb(var(--s2) / .5));
+  overflow:hidden;
+}
+.cndl{
+  position:relative;flex:1 1 0;min-width:0;align-self:stretch;
+}
+/* The wick: a hairline through the full height of the bar's span. */
+.cndl::before{
+  content:"";position:absolute;inset-block:calc(var(--t) - var(--w)) auto;
+  height:calc(var(--h) + var(--w) * 2);
+  inset-inline-start:50%;width:2px;transform:translateX(-50%);
+  border-radius:2px;background:currentColor;opacity:.75;
+}
+/* The body. */
+.cndl::after{
+  content:"";position:absolute;inset-inline:0;
+  top:var(--t);height:var(--h);
+  border-radius:3px;background:currentColor;
+}
+.cndl.is-up{color:var(--candle-up)}
+.cndl.is-down{color:var(--candle-down)}
+@media (max-width:560px){
+  .cndl-prev{height:76px;gap:5px}
+}
 
 /* Each tile paints the backdrop it stands for, so the choice is made by
    looking rather than by reading nine adjectives. */
@@ -2665,37 +3586,59 @@ html[data-theme="light"] .set-rail .set-jump button.on{background:linear-gradien
  * ".card + .card", is two (0,2,0) - so it would have lost the cascade and
  * changed nothing. Naming both ends through :is() makes this (0,3,0),
  * which wins on specificity rather than on source order. */
-.grid > :is(.card, .grid, .row, .table-wrap) + :is(.card, .grid, .row, .table-wrap),
-.cmd > :is(.card, .grid, .row, .table-wrap) + :is(.card, .grid, .row, .table-wrap),
-.set-desk > :is(.card, .grid, .row, .table-wrap) + :is(.card, .grid, .row, .table-wrap){
+/* The list of containers was the part that rotted. .grid, .cmd and
+ * .set-desk were named when this was written; .ccx-pair, .ai-read,
+ * .exx-cols, .pfx-cols and .snd-wrap were all built afterwards, each of
+ * them a gap-owning grid, and each of them quietly took the margin back.
+ *
+ * It is not a spacing bug when it happens. These grids are align-items:
+ * stretch, so a track is as tall as its tallest item and every item fills
+ * it - but an item fills the track with its MARGIN box. A 14px top margin
+ * on the second card makes its border box 14px shorter than the first
+ * one's, side by side, at the same moment the grid is being asked to make
+ * them equal. That is the reported "the account panel is shorter than the
+ * risk panel beside it" and "the market-regime card is taller than the two
+ * next to it": one rule, two pages, and nothing wrong with either page.
+ *
+ * Written as one :is() over the parents so adding a container is adding a
+ * word. :is() carries the specificity of its most specific argument, so
+ * this is still (0,3,0) and still beats .card + .card (0,2,0) on weight
+ * rather than on source order. tests/card-stacking.test.js walks every
+ * view and fails if a gap-owning container is missing from the list. */
+:is(.grid, .cmd, .set-desk, .ccx-pair, .ai-read, .exx-cols, .pfx-cols, .snd-wrap)
+  > :is(.card, .grid, .row, .table-wrap) + :is(.card, .grid, .row, .table-wrap){
   margin-block-start:0;
 }
 
 /* --- rows of controls ---------------------------------------------------- */
-/* .row already carries a gap. Buttons placed next to each other *without*
-   a .row wrapper had nothing, which is the other half of "the buttons are
-   touching". Adjacent controls always get the same gap the rows use. */
-.btn + .btn,
-.btn + .icon-btn,
-.icon-btn + .btn,
-.icon-btn + .icon-btn,
-.btn + .switch,
-.switch + .btn{
-  margin-inline-start:var(--ctl-gap);
-}
-/* …except inside a flex or grid container, where the container's own gap
-   already does the job and a margin would double it. */
-.row > .btn + .btn,
-.row > .btn + .icon-btn,
-.row > .icon-btn + .btn,
-.row > .icon-btn + .icon-btn,
-.row > .btn + .switch,
-.row > .switch + .btn,
-.grid > .btn + .btn,
-.bgpic-acts > .btn + .btn,
-.lang-pills > * + *,
-.seg > * + *{
-  margin-inline-start:0;
+/* There used to be a blanket rule here: every .btn following another .btn
+ * got margin-inline-start, with a hand-written list of containers where it
+ * was cancelled again because their own gap already did the job.
+ *
+ * That was the wrong way round, and the list was never going to be
+ * complete. A scan of this stylesheet found 38 flex/grid containers that
+ * lay their children out in a row AND declare their own gap AND hold
+ * buttons - from .top-actions and .hdr-status to .tabs, .st-top and
+ * .plan-grid. Every one of them was spacing its buttons twice.
+ *
+ * The header is where it showed. Eight controls, seven gaps, 8px of gap
+ * plus 10px of margin each - and 12px on a touch device, where --ctl-gap
+ * grows. 56px of spacing became 140px, which is what pushed the emergency
+ * button off the side of a phone screen.
+ *
+ * Meanwhile the rule existed for exactly ONE place that genuinely had no
+ * gap: the confirm dialog's buttons. So the blanket is gone and that one
+ * container is spaced the way every other row of controls is - by the
+ * container, which is the thing that knows how its children are laid out.
+ *
+ * The scan is now tests/header-spacing.test.js, so a new gapped container
+ * cannot quietly bring this back. */
+.modal-actions{
+  display:flex;
+  align-items:center;
+  justify-content:flex-end;
+  gap:var(--ctl-gap);
+  flex-wrap:wrap;
 }
 
 /* --- the last paragraph in a card --------------------------------------- */
@@ -2764,12 +3707,41 @@ html[data-theme="light"] .set-rail .set-jump button.on{background:linear-gradien
   0%{box-shadow:0 0 0 2px rgb(var(--accent-rgb) / .55)}
   100%{box-shadow:0 0 0 2px rgb(var(--accent-rgb) / 0)}
 }
+
+/* ----- while the replay runs -----
+   Shown inside the same results card, so the run is watched where the
+   result will appear. */
+.bt-live{margin-block-end:14px}
+.bt-prog{
+  position:relative;display:flex;align-items:center;gap:10px;
+  height:10px;margin:10px 0 14px;border-radius:999px;
+  background:rgb(var(--s2) / .55);border:1px solid var(--line);
+}
+.bt-prog i{
+  display:block;height:100%;border-radius:999px;
+  background:linear-gradient(90deg, rgb(var(--accent-rgb) / .55), rgb(var(--accent-rgb)));
+  transition:width .45s ease;
+}
+.bt-prog b{
+  position:absolute;inset-inline-end:0;inset-block-start:-22px;
+  font-size:12px;opacity:.8;font-weight:600;
+}
+.bt-live-chart{
+  position:relative;height:240px;margin:4px 0 8px;
+  border-radius:14px;border:1px solid var(--line);
+  background:rgb(var(--s2) / .35);
+  overflow:hidden;
+}
+.bt-live-chart canvas{display:block;width:100%;height:100%}
+
 @media (max-width:760px){
   .bt-curve{height:168px}
+  .bt-live-chart{height:200px}
   .bt-trades{max-height:300px}
 }
 @media (prefers-reduced-motion:reduce){
   #bt-extra-card.is-fresh{animation:none}
+  .bt-prog i{transition:none}
 }
 
 /* ===== Background images =====
@@ -2795,3 +3767,1566 @@ html[data-theme="light"] .set-rail .set-jump button.on{background:linear-gradien
   .wall-tiles{grid-template-columns:repeat(auto-fill,minmax(112px,1fr))}
   .wall-art{height:66px}
 }
+
+
+/* ======================================================================
+   Icons in place of emoji
+   ----------------------------------------------------------------------
+   The interface used to lean on emoji for status and for the little mark
+   in front of a button or a heading. They were never really ours: every
+   operating system draws them differently, they ignore the accent colour
+   and the theme, they do not scale with the text, and several of them
+   carried meaning that only reads in one culture.
+
+   Everything is now the same 24x24 stroked SVG the navigation already
+   used, inherited in currentColor, so an icon takes the colour and the
+   weight of whatever sits around it. These rules only give those inline
+   SVGs a size; .btn is already inline-flex with a gap, so nothing else
+   has to change.
+   ====================================================================== */
+:root{
+  --ico-chevron:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6,9.5 12,15.5 18,9.5'/%3E%3C/svg%3E");
+}
+/* ------------------------------------------------------------------
+   Icons dropped into running text
+
+   icon() emits an <svg> with a viewBox and no CSS size, so it relies
+   entirely on a rule naming its container. Two places had none -- the
+   About page's "Update: [check] up to date" and the update panel's
+   save message -- and with no intrinsic size the browser falls back to
+   the default 300x150 replaced-element box. That is a tick the size of
+   a card, on every screen.
+
+   icon() now also carries width/height="1em" as geometry attributes,
+   which sit below all author CSS and so act as a floor that every rule
+   here still overrides. These give the two text contexts the same
+   treatment .ok already had: sized to the text and sitting on its
+   baseline rather than on top of it.
+   ------------------------------------------------------------------ */
+.abx-upd svg,
+p.sub > svg{ width:14px; height:14px; vertical-align:-2px; margin-inline-end:4px; flex:none }
+
+.btn > svg{ width:16px; height:16px; flex:none }
+.btn.tiny > svg{ width:14px; height:14px }
+/* A button holding nothing but an icon should be square, not a wide pill
+   with a lonely mark in the middle. */
+.btn > svg:only-child{ width:16px; height:16px; margin:0 -2px }
+
+.card h3 > svg{
+  width:15px; height:15px; flex:none;
+  vertical-align:-2px; margin-inline-end:7px;
+  color:var(--cyan);
+}
+/* The heading is uppercase small-caps text; letting it be a flex row keeps
+   the icon on the same optical line as the words in both directions. */
+.card h3:has(> svg){ display:flex; align-items:center; gap:0 }
+.card h3 > svg + *{ min-width:0 }
+
+/* Inline status marks inside the About table and the update panel. */
+.kv b > .dot{ display:inline-block; vertical-align:1px; margin-inline-start:6px }
+p.ok > svg, .ok > svg{ width:15px; height:15px; vertical-align:-3px; margin-inline-end:5px }
+
+
+/* ======================================================================
+   Markets, redesigned
+   ----------------------------------------------------------------------
+   The view was a chart card beside a three-column table of symbol, bid
+   and ask. The table said nothing a trader watches for, gave no sign of
+   which symbol was on the chart, and the controls above the chart sat on
+   two separate rows - on a phone that was four rows of chrome above a
+   chart with no height left.
+   ====================================================================== */
+
+/* ---- toolbar ---------------------------------------------------------- */
+.mk-bar{
+  display:flex;align-items:center;gap:10px;flex-wrap:wrap;
+  margin-block-end:10px;
+}
+/* The instrument control is a <button> inside a positioned wrapper and the
+   timeframe is a native <select>. Two different elements standing side by
+   side, which is why they did not match: the select sized itself from its
+   content ("M15") while the picker sized itself from the symbol, and the
+   button kept its own min-height inside a wrapper that was being stretched
+   by the row. Equal flex basis gives them one width, stretch plus a
+   full-height button gives them one height, and the select borrows the
+   picker's type so the two labels carry the same weight. */
+.mk-pick{display:flex;gap:8px;min-width:0;flex:1 1 260px;align-items:stretch}
+.mk-pick > *{min-width:0;flex:1 1 0}
+.mk-pick .sympick{display:flex}
+.mk-pick .sympick-btn,.mk-pick .dd-btn{block-size:100%}
+/* The symbol picker absorbs the slack and the timeframe keeps a fixed
+   seat, rather than the two bidding for the row with their content.
+
+   `flex:1 1 auto` gave both of them a content-sized basis, so the
+   longest label won the row: with no EA attached the symbol button
+   carried a 55-character sentence, took 403px of a 411px row and left
+   the timeframe a 30px stub with its label clipped and spilling over
+   the tick readout. A label is content; it must not be able to resize
+   a neighbouring control. The sentence is shortened at the source too,
+   but the row no longer depends on that. */
+.mk-pick > .sympick{flex:1 1 0;min-inline-size:0}
+.mk-pick > .dd-wrap{flex:0 0 auto;inline-size:clamp(104px, 28%, 148px)}
+.mk-pick .dd-label,.mk-pick .sympick-cur{font-weight:650;letter-spacing:.02em}
+.mk-tick{
+  flex:0 1 auto;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  color:var(--gold);font-size:12px;
+}
+.mk-sig{display:flex;align-items:center;gap:6px;flex:0 0 auto;margin-inline-start:auto}
+
+/* The chart is the point of the view, so it gets the height. */
+.mk-chart .chart-box{min-height:clamp(300px,52vh,620px)}
+
+/* The open book under the market grid. Both columns wide, because it is
+   the Command Centre's table and that table needs the room; at one
+   column it simply follows the watchlist. */
+.mk-pos{grid-column:1 / -1}
+.mk-pos .table-wrap{max-height:min(360px,42vh)}
+
+/* ---- watchlist -------------------------------------------------------- */
+.mk-watch{display:flex;flex-direction:column;min-height:0}
+.mk-watch > #live-ticks{flex:1 1 auto;min-height:0;display:flex;flex-direction:column}
+.wl{display:flex;flex-direction:column;min-height:0;gap:2px}
+.wl-head,
+.wl-row{
+  display:grid;
+  grid-template-columns:minmax(0,1.1fr) minmax(0,1.5fr) minmax(0,.6fr);
+  align-items:center;gap:10px;
+}
+.wl-head{
+  padding:0 10px 6px;font-size:10px;letter-spacing:.06em;text-transform:uppercase;
+  color:var(--muted);border-bottom:1px solid var(--line);
+}
+html[dir="rtl"] .wl-head{letter-spacing:0;text-transform:none;font-size:11px}
+.wl-head .wl-quote{display:grid;grid-template-columns:1fr 1fr;gap:8px;text-align:end}
+.wl-head .wl-quote i{font-style:normal}
+.wl-head > span:last-child{text-align:end}
+
+.wl-list{overflow:auto;min-height:0;padding-top:4px;display:flex;flex-direction:column;gap:2px}
+.wl-row{
+  width:100%;text-align:start;cursor:pointer;
+  padding:9px 10px;border:1px solid transparent;border-radius:12px;
+  background:transparent;color:var(--ink);font:inherit;
+  transition:background .16s var(--ease), border-color .16s var(--ease);
+}
+.wl-row:hover{background:rgb(var(--wash) / .06)}
+.wl-row.is-on{
+  background:rgb(var(--accent-rgb) / .10);
+  border-color:rgb(var(--accent-rgb) / .35);
+}
+.wl-id{display:flex;align-items:baseline;gap:6px;min-width:0}
+.wl-id b{font-weight:600;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.wl-tf{
+  font-style:normal;font-size:10px;color:var(--muted);
+  border:1px solid var(--line);border-radius:999px;padding:1px 6px;flex:none;
+}
+.wl-quote{display:grid;grid-template-columns:1fr 1fr;gap:8px;text-align:end;min-width:0}
+.wl-quote b{font-weight:500;font-size:12.5px;overflow:hidden;text-overflow:ellipsis}
+.wl-ask{color:var(--muted)}
+/* Direction of the last change in the bid. Colour only - no arrow glyph,
+   and nothing at all when the price has not moved. */
+/* A ticking price is a number too - --ok/--bad, not the candle pair. */
+.wl-bid.up{color:var(--ok)}
+.wl-bid.down{color:var(--bad)}
+.wl-sp{text-align:end;font-size:12px;color:var(--muted)}
+
+/* ---- phone ------------------------------------------------------------
+   The watchlist stops being a column beside the chart and becomes a short
+   list under it, with the rows left as rows: a horizontal strip of cards
+   reads worse here, because the columns are what let you compare spreads
+   down the list at a glance. */
+@media (max-width:1000px){
+  .mk-watch{max-height:none}
+  .wl-list{max-height:min(46vh,340px)}
+}
+@media (max-width:560px){
+  .mk-bar{gap:8px}
+  .mk-pick{flex:1 1 100%}
+  .mk-sig{margin-inline-start:0;flex:1 1 100%}
+  .mk-sig .btn{flex:1 1 auto}
+  .mk-tick{flex:1 1 100%;order:3}
+  .mk-chart .chart-box{min-height:clamp(260px,42vh,420px)}
+  .wl-head,
+  .wl-row{grid-template-columns:minmax(0,1fr) minmax(0,1.3fr) minmax(0,.55fr);gap:6px}
+  .wl-row{padding:11px 8px}          /* a comfortable thumb target */
+  .wl-id b{font-size:12.5px}
+  .wl-quote b{font-size:12px}
+}
+
+/* ======================================================================
+   The manual ticket, redesigned
+   ----------------------------------------------------------------------
+   Three identical number fields and six ghost buttons of equal weight,
+   where the two that send money looked exactly like the four that do
+   not. Laid out by job instead: a stepper for the lot, a row each for
+   stop and target with their verbs as icon buttons, and one pair of
+   order buttons sized for a thumb.
+   ====================================================================== */
+.ct-row{display:flex;align-items:center;gap:8px}
+.ct-lab{
+  flex:0 0 auto;min-width:56px;font-size:11px;color:var(--muted);
+  letter-spacing:.04em;text-transform:uppercase;
+}
+html[dir="rtl"] .ct-lab{letter-spacing:0;text-transform:none;font-size:12px}
+.ct-lab.sl{color:var(--rose)}
+.ct-lab.tp{color:var(--cyan)}
+
+.ct-vol{margin-block:10px}
+.ct-step{
+  display:flex;align-items:center;gap:0;flex:1 1 auto;min-width:0;
+  border:1px solid var(--line);border-radius:12px;overflow:hidden;
+  background:rgb(var(--s1) / .5);
+}
+.ct-step input{
+  flex:1 1 auto;min-width:0;width:100%;
+  border:0;background:transparent;color:var(--ink);
+  text-align:center;font:500 14px/1 IBM Plex Mono, Vazirmatn, monospace;
+  padding:10px 4px;
+}
+.ct-step input::-webkit-outer-spin-button,
+.ct-step input::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
+.ct-step input[type=number]{-moz-appearance:textfield;appearance:textfield}
+.ct-pm{
+  flex:none;width:38px;height:38px;display:grid;place-items:center;
+  border:0;background:rgb(var(--wash) / .05);color:var(--ink);cursor:pointer;
+}
+.ct-pm:hover{background:rgb(var(--accent-rgb) / .16)}
+.ct-pm svg{width:15px;height:15px}
+
+.ct-levels{display:grid;gap:8px;margin-block-end:12px}
+.ct-lv input{
+  flex:1 1 auto;min-width:0;
+  border:1px solid var(--line);border-radius:12px;
+  background:rgb(var(--s1) / .5);color:var(--ink);
+  padding:9px 10px;font:500 13px/1 IBM Plex Mono, Vazirmatn, monospace;
+}
+.ct-ic{
+  flex:none;width:34px;height:34px;display:grid;place-items:center;
+  border:1px solid var(--line);border-radius:10px;
+  background:transparent;color:var(--muted);cursor:pointer;
+  transition:color .16s var(--ease), border-color .16s var(--ease);
+}
+.ct-ic svg{width:15px;height:15px}
+.ct-ic:hover{color:var(--ink);border-color:rgb(var(--accent-rgb) / .45)}
+/* Armed: the chart is waiting for the trader to click a price. */
+.ct-ic.on{color:var(--gold);border-color:var(--gold);background:rgb(var(--wash) / .06)}
+
+.ct-sides{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-block-start:4px}
+.ct-side{
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;
+  min-height:52px;padding:8px 10px;border-radius:14px;border:1px solid transparent;
+  cursor:pointer;font:inherit;color:#061014;
+  transition:transform .18s var(--ease), filter .18s;
+}
+.ct-side span{font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;opacity:.85}
+html[dir="rtl"] .ct-side span{letter-spacing:0;text-transform:none;font-size:12px}
+.ct-side b{font-size:14px;font-weight:600}
+.ct-side.buy{background:linear-gradient(135deg,var(--accent),var(--accent-2) 60%,var(--accent-3))}
+.ct-side.sell{background:linear-gradient(135deg,#ff8aa3,#ff6b8a 60%,#e8536f)}
+.ct-side:hover{filter:brightness(1.06)}
+.ct-side:active{transform:translateY(1px)}
+
+@media (max-width:560px){
+  .ct-lab{min-width:44px}
+  .ct-side{min-height:58px}       /* thumb-sized, since this one sends an order */
+  .ct-pm{width:42px;height:42px}
+  .ct-ic{width:38px;height:38px}
+}
+
+/* ===========================================================================
+   The page name is not printed in the header
+   ---------------------------------------------------------------------------
+   The nav rail already marks which page is open, so the heading repeated
+   what was on screen two inches to its left - and on a phone it was doing
+   that while competing with the status chips and the action row for the one
+   line all three share.
+
+   It is hidden rather than deleted, and show() keeps writing to it. That
+   <h2> is the only thing that announces a page change to a screen reader:
+   the view swaps underneath without a navigation, so with no heading that
+   user gets silence. Hiding it this way keeps the announcement and drops
+   the pixels.
+
+   Nothing else has to move. The `title` grid column is minmax(0,1fr),
+   sized by the track and not by its contents, so with the heading out of
+   flow it stays as empty flexible space - which is exactly what keeps the
+   menu button at one end and the actions at the other. On a desktop the
+   header is a flex row and .hdr-status already carries margin-inline-start:
+   auto, so that end stays pinned too.
+
+   Declared last, because three earlier rules also select `.top h2` at this
+   specificity and source order is what decides between them.
+   =========================================================================== */
+.top h2{
+  position:absolute;
+  width:1px;height:1px;
+  margin:-1px;padding:0;border:0;
+  clip-path:inset(50%);
+  overflow:hidden;white-space:nowrap;
+}
+
+/* Text only the screen reader needs.
+
+   Used where a visible label would be redundant to the eye but its
+   absence leaves the control nameless: the close column of a
+   positions table, the reason a locked theme card cannot be chosen.
+   Not display:none and not visibility:hidden - both remove the text
+   from the accessibility tree as well, which is the opposite of the
+   point. */
+.sr-only{
+  position:absolute; width:1px; height:1px;
+  margin:-1px; padding:0; border:0;
+  clip:rect(0 0 0 0); clip-path:inset(50%);
+  overflow:hidden; white-space:nowrap;
+}
+
+/* ------------------------------------------------------------------
+   Searchable instrument picker
+
+   Replaces the native <select> in the markets toolbar. Built on the
+   same --ctl-* scale as the timeframe select beside it so the two line
+   up, and uses the desk's glass for the popup.
+   ------------------------------------------------------------------ */
+.sympick{position:relative;flex:1 1 auto;min-width:0}
+.sympick-btn,.dd-btn{
+  display:flex;align-items:center;gap:8px;
+  /* Explicit: the value sits at the start and the caret at the end, the
+     way a <select> reads. Without it the label inherits the desk's
+     centring and the caret drifts into the middle of the control. */
+  justify-content:space-between;
+  width:100%;text-align:start;cursor:pointer;
+}
+/* With no chart attached there is no value and no caret, only a message,
+   so it is centred like any other button label. */
+.sympick.is-empty .sympick-btn{justify-content:center;text-align:center}
+.sympick-btn[disabled],.dd-btn[disabled]{cursor:default;opacity:.65}
+.sympick-cur,.dd-label{
+  font-weight:650;letter-spacing:.02em;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;
+}
+.sympick-btn svg,.dd-btn svg{width:16px;height:16px;flex:none;opacity:.7;
+  transition:transform .2s var(--ease)}
+.sympick-btn[aria-expanded="true"] svg,
+.dd-btn[aria-expanded="true"] svg{transform:rotate(180deg)}
+
+/* Fixed, and moved to <body> while open. It was absolute inside
+   .sympick, which is correct until the picker sits in a .card - and on
+   the backtest page it does. .card is overflow:hidden, so the list was
+   sliced off at the card's edge with no way to scroll to the rest; it
+   also has a backdrop-filter, which makes it a containing block for
+   fixed children too, so position:fixed alone would have been clipped
+   by the very same box. Escaping the card means leaving it.
+
+   Everything positional here is set by bindInstrumentPicker from the
+   button's rectangle, because clamping to the viewport and flipping
+   above the control are measurements, not rules a stylesheet can
+   express. What stays here is what it looks like. */
+.sympick-pop,.dd-menu{
+  position:fixed;z-index:240;
+  inset-block-start:0;inset-inline-start:0;
+  /* Both are overwritten inline by placePopover from the trigger
+     rectangle; these are only the pre-measurement fallback, kept in
+     step with POP_MAX_H so a menu never opens tall. */
+  inline-size:min(260px, 86vw);
+  max-block-size:min(60vh, 300px);
+  display:flex;flex-direction:column;
+  background:var(--glass2);
+  backdrop-filter:blur(calc(var(--blur, 18px) * 28 / 18)) saturate(140%);
+  -webkit-backdrop-filter:blur(calc(var(--blur, 18px) * 28 / 18)) saturate(140%);
+  border:1px solid var(--line);border-radius:16px;
+  box-shadow:0 24px 60px rgba(0,0,0,.45);
+  overflow:hidden;
+}
+.sympick-pop[hidden]{display:none}
+/* The popover's search is the shared .dsk-search shell in a padded
+   header, so it reads as the same control as every other search box. */
+.sympick-search{ padding:10px 10px 8px; flex:0 0 auto }
+/* The search pins to the top and the list takes the rest, so the height
+   the script measured is spent on rows. min-block-size:0 is what lets a
+   flex child actually scroll instead of growing past its parent. */
+.sympick-list{
+  list-style:none;margin:0;padding:6px;
+  flex:1 1 auto;min-block-size:0;
+  overflow:auto;overscroll-behavior:contain;
+  -webkit-overflow-scrolling:touch;
+}
+.sympick-row,.dd-opt{
+  display:flex;align-items:center;gap:10px;
+  padding:9px 10px;border-radius:10px;cursor:pointer;
+}
+/* The generic menu has no list element of its own, so the popover is
+   also the scroller: same padding and same contained overscroll as
+   .sympick-list. */
+.dd-menu{padding:6px;overflow:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch}
+.dd-opt{
+  inline-size:100%;border:0;background:transparent;color:var(--ink);
+  text-align:start;font:inherit;min-block-size:40px;
+}
+.sympick-row.active,.sympick-row:hover,
+.dd-opt:hover,.dd-opt:focus-visible{background:rgb(var(--wash) / .07);outline:none}
+.sympick-row.on,.dd-opt.on{box-shadow:inset 0 0 0 1px rgb(var(--accent-rgb) / .45)}
+.sympick-n{font-weight:650;letter-spacing:.02em;flex:1 1 auto}
+.sympick-d{
+  color:var(--muted);font-size:12px;flex:none;
+  font-family:"IBM Plex Mono",monospace;
+}
+.sympick-none{padding:16px 12px;text-align:center;color:var(--muted);font-size:13px}
+
+/* ------------------------------------------------------------------
+   About - rebuilt
+
+   Built around the order the questions get asked in, rather than around
+   the logo. A banner (what this is, which build, the two support
+   actions), a row of live state, then the reference detail.
+
+   All of it is drawn from the desk's own variables - no fixed colours -
+   because this page has to survive twelve themes and both cuts. The
+   only decorative thing on it is one accent wash in the banner, which
+   is a gradient of --accent-rgb at low alpha and therefore follows the
+   theme rather than fighting it.
+   ------------------------------------------------------------------ */
+.abx{
+  display:flex; flex-direction:column; gap:14px;
+  /* One measure, centred in the view. Without a cap a centred page on a
+     1440px desktop is a line of text a metre wide with a logo over it. */
+  inline-size:100%; max-inline-size:900px; margin-inline:auto;
+}
+
+/* ---- 1. the banner ---- */
+/* Modernised. The hero was a flat bordered box with one wash behind
+   it; everything on the page sat at the same visual depth, so the
+   page read as four rectangles of equal weight and nothing led.
+
+   Depth now comes from layered surfaces rather than heavier borders:
+   a soft top highlight, a wider accent wash, and a shadow that lifts
+   the band off the page. The grid gained a defined row so the mark,
+   the headline and the actions share one baseline instead of each
+   centring itself. */
+/* Centred, one column, both sizes.
+
+   It was a three-column band - mark, headline, actions - which on a
+   desktop put the two support buttons in a narrow gutter on the right
+   and on a phone collapsed into a ragged left-aligned stack. Centred
+   on a single measure it is the same shape at every width, and the
+   reading order is the order the questions come in. */
+/* One panel. The page was a hero followed by a grid of three cards,
+   which is three bordered boxes and three shadows to hold eleven short
+   facts - furniture standing in for content. Everything lives in a
+   single .abx-panel now, divided by rules rather than by borders. */
+.abx-panel{
+  position:relative; overflow:hidden; isolation:isolate;
+  padding:0;
+}
+.abx-hero{
+  position:relative; z-index:1;
+  display:flex; flex-direction:column; align-items:center; text-align:center;
+  gap:0;
+  padding:44px 24px 34px;
+}
+/* The accent wash, behind everything, centred under the mark. */
+.abx-hero-wash{
+  position:absolute; z-index:0;
+  inset-block-start:-30%; inset-inline-start:50%;
+  translate:-50% 0;
+  inline-size:min(760px, 120%); aspect-ratio:1;
+  background:radial-gradient(closest-side, rgb(var(--accent-rgb) / .16), transparent 70%);
+  pointer-events:none;
+}
+.abx-panel::before{
+  content:""; position:absolute; inset:0 0 auto 0; block-size:1px; z-index:1;
+  background:linear-gradient(90deg, transparent, rgb(var(--accent-rgb) / .45), rgb(var(--accent-3-rgb) / .35), transparent);
+}
+
+/* The mark is the mark, not a mark in a box.
+
+   It sat in an 84px rounded tile with its own surface, border and
+   shadow - a square frame drawn around a logo that already has its
+   own silhouette, so the shape you read first was the frame. The
+   image stands on its own now and is the size the tile used to be,
+   which is what it was competing with for attention in the first
+   place. */
+.abx-mark{
+  inline-size:124px; block-size:124px;
+  object-fit:contain;
+  /* A logo with no plate under it needs its own lift, or it reads as
+     printed onto the panel. */
+  filter:drop-shadow(0 10px 26px rgb(0 0 0 / .4));
+}
+.abx-name{
+  margin:20px 0 0; font-size:clamp(26px, 4vw, 36px); font-weight:650;
+  letter-spacing:.06em; line-height:1.1;
+}
+.abx-name small{
+  display:block; margin-block-start:7px;
+  font-size:12px; font-weight:500; letter-spacing:.14em;
+  text-transform:uppercase; color:var(--muted);
+}
+html[dir="rtl"] .abx-name small{ letter-spacing:0; text-transform:none; font-size:13px }
+.abx-blurb{
+  margin:12px auto 0; max-inline-size:56ch;
+  color:var(--muted); font-size:14px; line-height:1.8;
+}
+.abx-tags{ display:flex; flex-wrap:wrap; justify-content:center; gap:7px; margin-block-start:20px }
+.abx-tag{
+  display:inline-flex; align-items:center; min-block-size:26px; padding:0 11px;
+  border-radius:var(--radius-pill, 999px);
+  border:1px solid var(--line); background:rgb(var(--wash) / .05);
+  color:var(--muted); font-size:12px;
+}
+.abx-tag.is-pro{
+  border-color:rgb(var(--accent-rgb) / .45);
+  background:rgb(var(--accent-rgb) / .12);
+  color:var(--ink); font-weight:600;
+}
+.abx-acts{
+  display:flex; flex-wrap:wrap; justify-content:center; gap:10px;
+  margin-block-start:22px;
+}
+.abx-acts .btn{ justify-content:center; white-space:nowrap; min-inline-size:190px }
+.abx-upd{ margin:14px 0 0; font-size:12px; text-align:center }
+.abx-upd svg{ inline-size:14px; block-size:14px; vertical-align:-2px; margin-inline-end:4px }
+
+/* The facts, as a band inside the same panel. A rule above them does
+   the work the card border used to, at a fraction of the weight. */
+.abx-facts{
+  position:relative; z-index:1;
+  display:grid; grid-template-columns:repeat(auto-fit, minmax(170px, 1fr));
+  gap:20px 18px;
+  padding:26px 24px;
+  border-block-start:1px solid var(--line);
+}
+.abx-fact{ display:flex; flex-direction:column; align-items:center; gap:5px; text-align:center; min-inline-size:0 }
+.abx-fact > span{ font-size:11px; color:var(--muted); letter-spacing:.04em; text-transform:uppercase }
+html[dir="rtl"] .abx-fact > span{ letter-spacing:0; text-transform:none }
+.abx-fact > b{ font-weight:650; font-size:13.5px; overflow-wrap:anywhere }
+
+.abx-maker{
+  position:relative; z-index:1;
+  display:flex; flex-direction:column; align-items:center; gap:8px; text-align:center;
+  padding:24px;
+  border-block-start:1px solid var(--line);
+  background:rgb(var(--wash) / .02);
+}
+/* Unboxed here too, and bigger, for the same reason as the mark. */
+.abx-maker img{ inline-size:74px; block-size:74px; object-fit:contain; flex:none }
+.abx-maker b{ font-size:15px }
+.abx-maker .sub{ font-size:12px }
+
+/* ---- narrow ----
+   One centred column at every width, so none of this is re-laying it
+   out; it is only scale. */
+@media (max-width:760px){
+  .abx-hero{ padding:34px 18px 26px }
+  .abx-acts{ inline-size:100% }
+  .abx-acts .btn{ flex:1 1 100%; min-inline-size:0 }
+  .abx-facts{ padding:22px 18px }
+}
+@media (max-width:560px){
+  .abx-hero{ padding:28px 16px 22px }
+  .abx-mark{ inline-size:92px; block-size:92px }
+  .abx-maker img{ inline-size:60px; block-size:60px }
+  .abx-name{ margin-block-start:16px }
+  .abx-blurb{ font-size:13.5px; margin-block-start:10px }
+  .abx-facts{ gap:16px 14px; padding:20px 14px }
+}
+
+
+/* ------------------------------------------------------------------
+   Intelligence
+
+   The page was the analysis card followed by a flat 2x2 of equal
+   cards, so the reading order was whatever the grid happened to do.
+   The verdict leads now, the reading comes next, and the raw material
+   sits underneath.
+   ------------------------------------------------------------------ */
+.ai-page{display:flex;flex-direction:column;gap:14px}
+
+.ai-verdict{border-inline-start:3px solid rgb(var(--wash) / .16)}
+.ai-verdict.is-ready{border-inline-start-color:var(--ok,#26d07c)}
+.ai-verdict.is-blocked{border-inline-start-color:var(--gold,#e8c07a)}
+.ai-v-head{
+  display:flex;gap:18px;align-items:flex-start;justify-content:space-between;
+  flex-wrap:wrap;
+}
+.ai-v-lead{min-width:0;flex:1 1 260px}
+.ai-v-state{
+  margin:4px 0 4px;font-size:24px;font-weight:700;line-height:1.15;
+  letter-spacing:-.01em;
+}
+.ai-verdict.is-ready .ai-v-state{color:var(--ok,#26d07c)}
+.ai-verdict.is-blocked .ai-v-state{color:var(--gold,#e8c07a)}
+
+/* The threshold is drawn, not printed: "62% / 60%" and "58% / 60%"
+   read almost the same and mean opposite things. */
+.ai-conf{flex:0 1 240px;min-width:200px}
+.ai-conf-head{display:flex;align-items:baseline;justify-content:space-between;gap:10px;font-size:12px;color:var(--muted)}
+.ai-conf-head b{font-size:19px;font-weight:700}
+.ai-conf-bar{
+  position:relative;height:8px;border-radius:999px;margin-block-start:6px;
+  background:rgb(var(--wash) / .10);overflow:hidden;
+}
+.ai-conf-fill{
+  position:absolute;inset-block:0;inset-inline-start:0;width:var(--w,0%);
+  border-radius:999px;background:var(--gold,#e8c07a);
+  transition:width .35s var(--ease);
+}
+.ai-conf-fill.is-ok{background:var(--ok,#26d07c)}
+.ai-conf-need{
+  position:absolute;inset-block:-2px;inset-inline-start:var(--at,0%);
+  width:2px;background:var(--ink);opacity:.75;border-radius:2px;
+}
+.ai-conf-foot{margin:5px 0 0;font-size:11.5px}
+.ai-conf-off{flex:0 1 240px;margin:0}
+
+.ai-v-tags{display:flex;gap:8px;flex-wrap:wrap;margin-block-start:14px}
+.ai-v-cols{
+  display:grid;gap:16px;margin-block-start:16px;
+  grid-template-columns:repeat(auto-fit,minmax(240px,1fr));
+}
+.ai-h{
+  margin:0 0 8px;font-size:11.5px;letter-spacing:.08em;text-transform:uppercase;
+  color:var(--muted);font-weight:650;
+}
+html[dir="rtl"] .ai-h{letter-spacing:0;text-transform:none}
+.ai-refuse{margin-block-start:8px}
+
+.ai-console{margin-block-start:16px}
+.ai-console > summary{cursor:pointer;list-style:none}
+.ai-console > summary::-webkit-details-marker{display:none}
+.ai-console > summary h4{display:inline-block}
+.ai-console > summary::after{content:"";margin-inline-start:6px}
+.an-code{opacity:.7}
+
+/* What the model read. Three tiles rather than two big cards, because
+   each holds one short answer. */
+.ai-read{
+  display:grid;gap:14px;
+  grid-template-columns:repeat(auto-fit,minmax(220px,1fr));
+}
+.ai-read-card{display:flex;flex-direction:column;gap:4px}
+.ai-read-v{margin:0;font-size:20px;font-weight:700;line-height:1.2}
+.ai-need{font-style:normal;font-weight:500;color:var(--muted);font-size:15px}
+/* The button is pushed to the foot of its card so the three tiles read as
+   one row rather than three ragged ones. `.ai-read-card .btn` is (0,2,0)
+   and the generic "a control that follows a paragraph" rule
+   `.card > p + .btn` is (0,2,1), so the margin:auto never applied and the
+   button sat 10px under the text with the card's whole remaining height
+   below it. Name the paragraph here too and it outweighs it. */
+.ai-read-card > p + .btn,
+.ai-read-card .btn{margin-block-start:auto;align-self:flex-start}
+.ai-hint{margin:0}
+
+.ai-feats > summary{cursor:pointer;list-style:none}
+.ai-feats > summary::-webkit-details-marker{display:none}
+.ai-feats > summary h3{display:inline-flex;align-items:center;gap:8px;margin:0}
+.ai-feat-kv{margin-block-start:12px;max-height:320px;overflow:auto;overscroll-behavior:contain}
+.ai-why{margin-block-start:12px}
+
+@media (max-width:560px){
+  .ai-v-state{font-size:20px}
+  .ai-conf,.ai-conf-off{flex:1 1 100%;min-width:0}
+  .ai-read{grid-template-columns:minmax(0,1fr)}
+  .ai-feat-kv{max-height:260px}
+}
+
+/* ------------------------------------------------------------------
+   Prop risk
+
+   The status was a switch, a one-word verdict, two bare percentages
+   and a single unlabelled bar; the rules were a flat wall of number
+   boxes in a fixed two-column grid -- too few columns for a desktop,
+   too many for a phone.
+   ------------------------------------------------------------------ */
+.pr-status{display:flex;flex-direction:column;gap:12px}
+.pr-switch{margin-block-end:0}
+.pr-switch h3{margin:0 0 6px}
+.pr-state{margin:0;font-size:19px;font-weight:700;line-height:1.2}
+.pr-state.is-ok{color:var(--ok,#26d07c)}
+.pr-state.is-locked{color:var(--bad,#f4475b)}
+.pr-state.is-off{color:var(--muted)}
+
+/* One meter per rule, each against its own limit. A figure like
+   "-1.4%" means nothing without the number it counts towards. */
+.pr-meters{
+  display:grid;gap:14px;
+  grid-template-columns:repeat(auto-fit,minmax(220px,1fr));
+}
+.pr-meter{
+  padding:12px 14px;border-radius:14px;
+  background:rgb(var(--wash) / .04);border:1px solid var(--line);
+}
+.pr-meter-head{display:flex;align-items:baseline;justify-content:space-between;gap:10px;font-size:12px;color:var(--muted)}
+.pr-meter-head b{font-size:18px;font-weight:700}
+.pr-meter-bar{
+  position:relative;height:7px;border-radius:999px;margin-block-start:8px;
+  background:rgb(var(--wash) / .10);overflow:hidden;
+}
+.pr-meter-bar > i{
+  display:block;height:100%;width:var(--w,0%);border-radius:999px;
+  background:var(--ok,#26d07c);transition:width .35s var(--ease),background .25s var(--ease);
+}
+.pr-meter.is-near .pr-meter-bar > i{background:var(--gold,#e8c07a)}
+.pr-meter.is-over .pr-meter-bar > i{background:var(--bad,#f4475b)}
+.pr-meter.is-over{border-color:rgba(255,107,138,.42)}
+.pr-meter-foot{margin:6px 0 0;font-size:11.5px}
+.pr-acts{display:flex;gap:8px;flex-wrap:wrap}
+
+.pr-preset-card{margin-block-start:14px}
+.pr-sec{margin-block-start:14px}
+.pr-sec .set-h{margin-block-start:0}
+
+/* Auto-fit: four across on a wide desktop, one on a phone, with no
+   breakpoint list to keep in step with the number of fields. */
+.pr-grid{
+  display:grid;gap:12px;
+  grid-template-columns:repeat(auto-fit,minmax(210px,1fr));
+}
+
+/* ------------------------------------------------------------------
+   Every field in a row sits on the same line
+
+   The fields in this grid are not the same shape. propNum writes a
+   label, an input and a unit; some labels carry a "0 = off" note and
+   the time fields add the broker's clock underneath. Because a grid
+   item fills from the top, a label that wraps to three lines pushed its
+   input three lines down -- which is why "min time in trade", the
+   longest label on the page in Persian at 49 characters, sat below the
+   four fields beside it.
+
+   Rather than trim the label or guess a height, each field becomes a
+   four-row grid -- label, slack, input, footnote -- and the slack row
+   takes up whatever is left. The input and its footnote are therefore
+   pinned to the bottom of a cell, and since grid rows are equal height
+   every input in a row lands on exactly the same line however long the
+   labels above them run. The footnote row is reserved on every field,
+   so a field with a broker echo is no taller than one without.
+   ------------------------------------------------------------------ */
+.pr-grid{ align-items:stretch }
+.pr-grid .field{
+  margin-block-end:0;
+  display:grid;
+  grid-template-rows:auto 1fr auto auto;
+  gap:6px;
+  block-size:100%;
+  /* Tiles, rather than a wall of loose labels: each setting gets a
+     surface of its own, so the eye has an edge to follow down a column
+     of twenty of them and the grid reads as laid out rather than
+     scattered. The four rows above are untouched - the padding box sits
+     outside them, so every input in a row still lands on one line. */
+  padding:11px 12px;
+  border-radius:12px;
+  background:rgb(var(--wash) / .03);
+  border:1px solid var(--line);
+}
+.pr-grid .field > span:first-child{ grid-row:1; align-self:start; line-height:1.3 }
+.pr-grid .field > .num-wrap{ grid-row:3 }
+/* Both the real echo and the empty reservation share row 4: the
+   reservation is blank, so an overlap costs nothing and every field
+   keeps the same height. */
+.pr-grid .field > .prop-at-broker{ grid-row:4; margin:0 }
+.pr-grid .field::after{ content:""; grid-row:4; min-block-size:1.05em }
+
+/* The unit suffix sits INSIDE the box, at its right-hand end, and the
+   rules that put it there live in skins.css under `.num-field .num-wrap`.
+
+   There used to be a second, conflicting layout here: a flex row that
+   made the unit a sibling box beside the input rather than an overlay
+   inside it. It never took effect - `.num-field .num-wrap` outweighs a
+   bare `.num-wrap` and skins.css is loaded second - so the file read as
+   though the component were a flex row while every desk rendered it as
+   an overlay. Two descriptions of one component is one too many; the
+   dead one is gone and the overlay is the only owner. Anything
+   structural added here must beat (0,2,0) or it will be ignored in the
+   same silent way. */
+.num-field.wide-unit .num-unit{ font-size:10.5px }
+/* The "0 = off" hint reads as an aside, not as part of the name. */
+.unit-note{
+  display:inline; font-style:normal; font-size:10.5px; opacity:.72;
+  margin-inline-start:5px; white-space:nowrap;
+}
+
+/* ------------------------------------------------------------------
+   The number inside the box
+
+   The boxes were already lined up with each other (the four-row grid
+   above). What was not lined up was their CONTENTS. Three input types
+   share these grids - number, time and text - and each seats its value
+   its own way: a number is centred in whatever height the box happens
+   to end up, a time control is a row of segments with its own metrics,
+   and the browser reserves inline-end room for spinner arrows on some
+   fields and not on others. Read down a column and the digits sat at
+   three different heights, none of them quite at the start of the box.
+
+   So: a height rather than a floor, one line-height for all of them,
+   one text alignment, and tabular figures so a column of numbers is a
+   column rather than a ragged edge. The spinners go with them. They are
+   a poor control for a risk limit - 0.1% and 1% of an account are not
+   one click apart - and they are the easiest thing on the page to catch
+   by accident while scrolling it.
+   ------------------------------------------------------------------ */
+.prop-fields .field input[type="number"],
+.prop-fields .field input[type="text"],
+.prop-fields .field input[type="time"],
+.prop-fields .field select,
+.num-field .num-wrap input{
+  block-size:var(--ctl-h);
+  min-block-size:var(--ctl-h);
+  line-height:calc(var(--ctl-h) - 2px);
+  padding-block:0;
+}
+
+/* ------------------------------------------------------------------
+   Where the digits sit
+
+   One seat for every numeric box on the desk, and it is a PHYSICAL
+   seat: the value at the left-hand end, the unit at the right-hand
+   end, in English and in Persian and in Arabic alike. A quantity
+   reads left to right in every language the desk speaks - 2.5 is 2.5
+   in all three - so the box does not follow the page.
+
+   Three separate things put the number in the wrong place before,
+   and each one reads as correct in the source, which is why this is
+   written out rather than left to be re-derived:
+
+     1. `direction:ltr` paired with `text-align:end`. Inside an
+        element already forced to LTR, `end` means RIGHT. The pair was
+        meant to say "LTR digits, seated at the start"; what it did
+        was park every prop number hard against the right edge of its
+        box on a Persian desk.
+
+     2. `unicode-bidi:plaintext`, inherited from the base input rule
+        at the top of this file. It resolves a box's direction from
+        its first strong character, so an all-digit box seated itself
+        one way and the same box with a letter in it seated itself the
+        other. The alignment depended on the value - which is the
+        "sometimes right, sometimes not" of the report. It is correct
+        for a free-text field and wrong for a quantity, so it is
+        turned off here and nowhere else.
+
+     3. logical padding reserving room for the suffix.
+        `padding-inline-end` flips to the LEFT on an RTL page, so the
+        gap opened on the side the digits were not on: the number was
+        pushed off the left edge into the middle of the box and into
+        the unit text. Fixed in skins.css, which owns that padding.
+
+   Scope note: this used to apply only under `.prop-fields`, so the
+   nine numeric boxes elsewhere in settings - the robot's trade
+   counts and volume, the money cap, the MT5 login, the update
+   interval, the three on the execution ticket - were seated by the
+   base rule alone and matched neither each other nor the prop tiles.
+   It is keyed on the input type now, so a numeric box is seated the
+   same way wherever it is added.
+   ------------------------------------------------------------------ */
+input[type="number"],
+input[type="time"],
+.num-field .num-wrap input{
+  direction:ltr;
+  text-align:left;
+  unicode-bidi:normal;
+  font-variant-numeric:tabular-nums;
+}
+
+/* Spinners off, everywhere rather than on one page. They are a poor
+   control for a risk limit - 0.1% and 1% of an account are not one
+   click apart - they are the easiest thing on the page to catch by
+   accident while scrolling it, and because the browser reserves room
+   for them on some fields and not others they are a second way for a
+   column of numbers to end up ragged. */
+input[type="number"]{ -moz-appearance:textfield; appearance:textfield }
+input[type="number"]::-webkit-outer-spin-button,
+input[type="number"]::-webkit-inner-spin-button{
+  -webkit-appearance:none; appearance:none; margin:0;
+}
+
+.pr-checks{
+  display:grid;gap:8px;margin-block-start:12px;
+  grid-template-columns:repeat(auto-fit,minmax(220px,1fr));
+}
+.pr-check{
+  display:flex;align-items:center;gap:10px;
+  padding:10px 12px;border-radius:12px;cursor:pointer;
+  background:rgb(var(--wash) / .04);border:1px solid var(--line);
+  font-size:13px;
+}
+.pr-check:hover{background:rgb(var(--wash) / .07)}
+.pr-check input{flex:none;width:16px;height:16px;accent-color:var(--accent);cursor:pointer}
+.pr-check:has(input:checked){border-color:rgb(var(--accent-rgb) / .45)}
+.pr-check span{min-width:0}
+
+.pr-save{margin-block-start:14px}
+
+@media (max-width:560px){
+  .pr-meters,.pr-grid,.pr-checks{grid-template-columns:minmax(0,1fr)}
+  .pr-state{font-size:17px}
+  .pr-acts .btn{flex:1 1 auto}
+}
+
+/* ------------------------------------------------------------------
+   Command centre - rebuilt
+
+   The page used to be nine full-width cards in a column. On a wide
+   screen that is a long scroll with the right-hand half of the window
+   empty, and the account's six figures sat in one strip of identical
+   boxes: equity beside margin, the day's P/L beside the leverage.
+
+   They are not the same kind of fact. Three bands now:
+
+     1. a masthead - who you are trading as, how much, and whether it
+        is connected. The chart strip is folded in here; it used to be
+        a whole card wrapped around a row of badges.
+     2. risk beside reference. The two figures that can end an account
+        are watched and get bars against their prop limits; the four
+        that are looked up get a quiet list. Side by side on a desktop,
+        which is the width the old single column was wasting.
+     3. positions and strategies, unchanged - they already own their
+        full width for good reason.
+   ------------------------------------------------------------------ */
+
+/* ---- 1. the masthead ---- */
+/* The card's chrome belongs to the skin, not to this file.
+
+   This block used to re-declare the masthead's background, its shadow,
+   its top hairline and a corner wash, to "lift it off the page". None
+   of it reached the screen: themes.css and skins.css both load after
+   this sheet and own .card, so the background and the shadow resolved
+   identical to any other card, and .ccx-head::before drew the same
+   hairline .card::before already draws.
+
+   One declaration did survive, and it was the one that did damage.
+   skins.css gives every card a specular highlight through .card::after
+   -- full width, 40% of the card's height. The later sheet won the
+   background and the insets but not inline-size, so the highlight was
+   painted at 46% of the width, anchored to the start edge: a hard
+   vertical seam 547px into the card with a lighter block on one side
+   of it. The masthead looked like it had been shaded in two tones.
+
+   The seam is gone because the whole decorative block is gone. Two
+   stylesheets cannot each own one pseudo-element; the skin owns it,
+   and what is left here is layout. */
+.ccx-head{
+  /* stretch, not center: the dividers are the borders of these cells, so
+     centring gave each one the height of its own contents and the two
+     rules came out different lengths. */
+  display:grid; gap:16px 26px; align-items:stretch;
+  /* Even fractions, not "identity then whatever is left".
+     With the identity on 1fr and the figures on auto, the identity
+     column swallowed every spare pixel and pushed the numbers against
+     the right edge - the same void as before, just moved. Equal
+     fractions spread the three zones across the band, so the width is
+     used as rhythm instead of being left over at one end. */
+  grid-template-columns:minmax(0,1.1fr) minmax(0,1fr) minmax(0,1fr);
+}
+.ccx-id{ min-inline-size:0 }
+.ccx-id-type{ margin:0; font-size:18px; font-weight:650; letter-spacing:.01em }
+.ccx-id-sub{ margin:5px 0 0; font-size:12px; overflow-wrap:anywhere; line-height:1.6 }
+
+/* Two figures, built the same way.
+
+   The masthead used to pin an identity to one edge and a single number
+   to the other, which on a desktop left some five hundred pixels of
+   nothing between them: the band was full-width but its content was
+   not, so it read as unfinished rather than spacious. The floating P/L
+   was a small chip tucked under the equity, which is the wrong weight
+   for the second number a trader actually watches.
+
+   They are two figures of the same construction now - label, value,
+   unit - at two sizes, which closes the gap with substance instead of
+   padding and lets the pair be read as one statement. */
+.ccx-fig-k{
+  display:block; font-size:11px; letter-spacing:.07em;
+  text-transform:uppercase; color:var(--muted); white-space:nowrap;
+}
+html[dir="rtl"] .ccx-fig-k{ letter-spacing:0; text-transform:none }
+.ccx-fig-v{
+  display:flex; align-items:baseline; gap:7px;
+  margin-block-start:4px; font-weight:650;
+}
+/* Tabular figures, because these are watched while they change and
+   proportional digits make them jitter sideways on every tick. */
+.ccx-fig-n{ font-variant-numeric:tabular-nums; letter-spacing:-.02em; white-space:nowrap }
+/* The unit is not the measurement. At the figure's own size "USD" was
+   as loud as the amount; it belongs one step down, where it labels
+   without competing. */
+.ccx-fig-c{ font-size:13px; font-weight:600; color:var(--muted); letter-spacing:.02em }
+.ccx-fig-pct{
+  display:block; margin-block-start:3px;
+  font-size:12.5px; font-weight:600; font-variant-numeric:tabular-nums;
+}
+
+/* Both figures start at the top of their cell, so the two labels sit on
+   one line. Centring them looked right until the P/L grew a third line
+   for the percentage, after which each label was centred against a
+   different height and the pair read as misaligned by a few pixels -
+   the kind of error that is felt before it is seen. */
+.ccx-equity,.ccx-pl{ display:flex; flex-direction:column; justify-content:flex-start }
+.ccx-id{ display:flex; flex-direction:column; justify-content:center }
+.ccx-equity{
+  min-inline-size:0;
+  border-inline-start:1px solid var(--line);
+  padding-inline-start:26px;
+}
+.ccx-equity .ccx-fig-n{ font-size:clamp(28px,3.2vw,40px); line-height:1.05 }
+
+/* Second, not equal. The rule between them is what makes the pair read
+   as one block rather than two things that happen to be adjacent. */
+.ccx-pl{
+  min-inline-size:0;
+  border-inline-start:1px solid var(--line);
+  padding-inline-start:26px;
+}
+.ccx-pl .ccx-fig-n{ font-size:clamp(19px,2.2vw,26px); line-height:1.1 }
+
+/* The connection row spans both columns and wraps, because the number
+   of attached charts is not something the layout can predict. */
+/* ---- 2. risk beside reference ---- */
+/* The two panels are one row, and they START on one line.
+
+   They were align-items:start on an auto-fit grid, which lines up the
+   TOP OF EACH CARD but says nothing about what is inside them. The
+   risk panel's first row began at y=0 of its body while the account
+   panel's first row carried 9px of its own top padding, so the two
+   columns of figures sat nine pixels out of step - close enough to
+   look like a mistake and not close enough to look deliberate.
+
+   stretch, so both cards are the height of the taller one, and a
+   shared .ccx-panel wrapper so the first line of content starts at
+   the same offset in both. */
+.ccx-pair{
+  display:grid; gap:14px; align-items:stretch;
+  grid-template-columns:repeat(auto-fit, minmax(290px, 1fr));
+}
+/* With prop off there is no risk panel, so the account panel must not
+   stretch to fill a two-column grid on its own. */
+.ccx-pair.is-solo{ grid-template-columns:minmax(0,1fr) }
+.ccx-risk,.ccx-ref{ display:flex; flex-direction:column }
+.ccx-panel{ flex:1 1 auto; display:flex; flex-direction:column; justify-content:flex-start }
+/* The account list's first row would otherwise open with the padding
+   that separates it from the row above - a gap with nothing above it. */
+.ccx-ref-rows > .ccx-ref-row:first-child{ padding-block-start:0 }
+.ccx-risk > h3,.ccx-ref > h3{
+  margin:0 0 14px; font-size:13px; font-weight:650;
+  letter-spacing:.06em; text-transform:uppercase; color:var(--muted);
+}
+html[dir="rtl"] :is(.ccx-risk,.ccx-ref) > h3{ letter-spacing:0; text-transform:none }
+.ccx-risk-row + .ccx-risk-row{ margin-block-start:14px }
+.ccx-risk-head{ display:flex; align-items:baseline; justify-content:space-between; gap:12px }
+.ccx-risk-head span{ font-size:12px; color:var(--muted) }
+.ccx-risk-head b{ font-size:17px; font-weight:650; font-variant-numeric:tabular-nums }
+.ccx-risk-bar{
+  margin-block-start:8px; block-size:8px; border-radius:999px; overflow:hidden;
+  background:rgb(var(--wash) / .09);
+  box-shadow:inset 0 1px 2px rgb(0 0 0 / .18);
+}
+/* A gradient along the fill, so the bar has a direction and the leading
+   edge is the brightest part of it. */
+.ccx-risk-bar > i{
+  display:block; block-size:100%; inline-size:var(--w, 0%);
+  border-radius:inherit;
+  background:linear-gradient(90deg, rgb(var(--accent-rgb) / .55), var(--accent));
+  transition:inline-size .3s var(--ease), background .3s var(--ease);
+}
+html[dir="rtl"] .ccx-risk-bar > i{
+  background:linear-gradient(270deg, rgb(var(--accent-rgb) / .55), var(--accent));
+}
+@media (prefers-reduced-motion:reduce){
+  .ccx-risk-bar > i{ transition:none }
+}
+/* It turns before it is too late to do anything about it, not when the
+   limit has already been hit. */
+.ccx-risk-row.is-near .ccx-risk-bar > i{
+  background:linear-gradient(90deg, rgb(var(--wash) / .12), var(--warning));
+}
+.ccx-risk-row.is-over .ccx-risk-bar > i{
+  background:linear-gradient(90deg, rgb(var(--wash) / .12), var(--bad));
+}
+.ccx-risk-row.is-over .ccx-risk-head b{ color:var(--bad) }
+.ccx-risk-foot{ margin:5px 0 0; font-size:11px }
+
+.ccx-ref-rows{ display:flex; flex-direction:column }
+.ccx-ref-row{
+  display:flex; align-items:baseline; justify-content:space-between; gap:14px;
+  padding:9px 0; border-block-end:1px solid var(--line); font-size:13px;
+}
+.ccx-ref-row:last-child{ border-block-end:0; padding-block-end:0 }
+
+/* With the prop guard off there is no risk panel, so the reference list
+   gets the full width of the desk - and a label pinned to one edge with
+   its value a thousand pixels away on the other is the same void the
+   masthead just lost. Given room, the four become a stat strip: label
+   over value, side by side, each one narrow enough to read as a pair.
+   A width cure, applied only where the width is. On a phone the label
+   and its value are already a hand's breadth apart, so stacking them
+   would double the height of the panel to solve a problem that is not
+   there. 561 is the documented scale's 560 plus one, so this picks up
+   exactly where the phone rules leave off and the two never both
+   match. */
+@media (min-width:561px){
+  .ccx-pair.is-solo .ccx-ref-rows{
+    display:grid; grid-template-columns:repeat(auto-fit,minmax(170px,1fr));
+    gap:0 26px;
+  }
+  .ccx-pair.is-solo .ccx-ref-row{
+    flex-direction:column; align-items:flex-start; gap:4px;
+    padding:13px 0 0; border-block-end:0; border-block-start:1px solid var(--line);
+  }
+  .ccx-pair.is-solo .ccx-ref-row > b{ font-size:16px }
+}
+.ccx-ref-row > span{ color:var(--muted); min-inline-size:0 }
+.ccx-ref-row > b{
+  font-weight:650; white-space:nowrap; font-variant-numeric:tabular-nums;
+}
+
+/* ---- the masthead folds in two steps, not one ----
+
+   Three zones do not survive the jump to a phone in one move. Between
+   roughly a tablet and a small laptop the identity takes the whole
+   first line and the two figures share the second, which keeps them
+   side by side - they are a pair, and reading one against the other is
+   the point - for as long as they both fit. Only when they cannot does
+   the column collapse. */
+@media (max-width:900px){
+  .ccx-head{ grid-template-columns:minmax(0,1fr) minmax(0,1fr); align-items:stretch }
+  .ccx-id{ grid-column:1 / -1 }
+  /* First on its own row now, so there is nothing to its left to divide. */
+  .ccx-equity{ border-inline-start:0; padding-inline-start:0 }
+}
+
+/* ---- narrow ---- */
+@media (max-width:560px){
+  /* The headline drops under the account identity rather than being
+     squeezed beside it, and aligns with everything else on the page. */
+  .ccx-head{ grid-template-columns:minmax(0,1fr); gap:12px }
+  .ccx-equity{ align-items:flex-start; border-inline-start:0; padding-inline-start:0 }
+  .ccx-equity .ccx-fig-n{ font-size:clamp(28px,8.5vw,36px) }
+  /* A vertical rule has nothing to divide once the figures are stacked,
+     and the inline padding it carried would indent the P/L out of line
+     with everything above it. */
+  .ccx-pl{
+    border-inline-start:0; padding-inline-start:0;
+    border-block-start:1px solid var(--line); padding-block-start:12px;
+  }
+  .ccx-pl .ccx-fig-n{ font-size:22px }
+  .ccx-risk-head b{ font-size:16px }
+}
+
+/* ------------------------------------------------------------------
+   History: the account's profit and loss, drawn
+
+   The ledger answers "what happened"; these answer "how is it going".
+   Colours come from --ok/--bad, which are aliases of the theme's candle
+   colours, so the curve is never the wrong green in a light skin and it
+   follows a user's own candle choice without a second setting.
+   ------------------------------------------------------------------ */
+.pnl-card .pc-seg{ margin:12px 0 10px }
+.pc-seg{ display:flex; flex-wrap:wrap; gap:4px; padding:3px; border-radius:12px;
+  background:rgb(var(--wash) / .05); border:1px solid var(--line) }
+.pc-seg button{ height:30px; padding:0 11px; border:0; border-radius:9px; background:transparent;
+  color:var(--ink); opacity:.72; font:inherit; font-size:12.5px; cursor:pointer;
+  white-space:nowrap; text-align:center }
+.pc-seg button:hover{ opacity:.9 }
+.pc-seg button.on{ opacity:1; color:var(--ink); font-weight:600; background:rgb(var(--accent-rgb) / .14) }
+.pc-seg button:focus-visible{ outline:2px solid var(--accent); outline-offset:1px }
+
+.pc-host{ width:100%; min-height:180px; overflow:hidden }
+/* The chart is a diagram, and its coordinate system is left-to-right
+   whatever language the desk is in: the value gutter is 46px of x,
+   time runs from low x to high x, and every label is placed by an
+   absolute x with text-anchor saying which side of that x it hangs
+   on.
+
+   SVG resolves text-anchor start/end against the inline base
+   direction, not against the coordinate system - so in Persian and
+   Arabic the whole document's dir=rtl swapped the meaning of both
+   anchors and every label hung off the wrong side of its own x.
+   Measured at 390 before this: the axis values, meant to sit in the
+   gutter at 13..40, rendered at 40..66 - on top of the grid lines and
+   the equity line; the first date label landed at -12..46, clipped
+   off the left edge of the chart; the last at 328..386, spilling out
+   of a 340px chart (and .pc-svg is overflow:visible, so out of the
+   card with it).
+
+   The anchors are not the bug and flipping them per language would
+   need every x in pnl-charts.js mirrored too. The diagram is simply
+   not a block of prose: it is pinned to ltr, and each label is
+   isolated so a Persian or Arabic phrase inside it still shapes and
+   orders as its own right-to-left run. */
+.pc-svg{ display:block; width:100%; height:auto; overflow:visible; direction:ltr }
+.pc-svg text{ unicode-bidi:plaintext }
+
+.pc-grid{ stroke:var(--line); stroke-width:1 }
+.pc-zero{ stroke:rgb(var(--wash) / .34); stroke-width:1; stroke-dasharray:4 4 }
+.pc-axis{ fill:var(--muted); font-size:11px; font-family:inherit }
+.pc-name{ font-size:11.5px; fill:var(--ink); opacity:.82 }
+.pc-val{ font-size:11.5px; font-variant-numeric:tabular-nums }
+.pc-big{ fill:var(--ink); font-size:22px; font-weight:650; font-family:inherit }
+.pc-empty{ fill:var(--muted); font-size:13px; font-family:inherit }
+
+.pc-line{ fill:none; stroke-width:2; stroke-linejoin:round; stroke-linecap:round }
+.pc-line.is-up, .pc-dot.is-up{ stroke:var(--ok) }
+.pc-line.is-down, .pc-dot.is-down{ stroke:var(--bad) }
+.pc-dot{ fill:var(--panel); stroke-width:2 }
+.pc-area{ stroke:none; fill-opacity:.16 }
+.pc-area.is-up{ fill:var(--ok) }
+.pc-area.is-down{ fill:var(--bad) }
+.pc-bar.is-up, .pc-key.is-up{ fill:var(--ok) }
+.pc-bar.is-down, .pc-key.is-down{ fill:var(--bad) }
+.pc-bar.is-flat, .pc-key.is-flat{ fill:var(--muted) }
+.pc-arc{ stroke-linecap:butt }
+.pc-arc.is-up{ stroke:var(--ok) }
+.pc-arc.is-down{ stroke:var(--bad) }
+.pc-arc.is-flat{ stroke:var(--muted) }
+text.pc-val.is-up{ fill:var(--ok) }
+text.pc-val.is-down{ fill:var(--bad) }
+
+.pc-stats{ display:grid; grid-template-columns:repeat(4, minmax(0,1fr)); gap:8px; margin:12px 0 2px }
+.pc-stat{ display:flex; flex-direction:column; gap:2px; padding:8px 10px; border-radius:10px;
+  background:rgb(var(--wash) / .04); border:1px solid var(--line); min-width:0 }
+.pc-stat span{ font-size:11px; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis }
+/* The figure, seated the way every quantity on this desk is seated:
+   left to right, because +112.96 is +112.96 in all three languages.
+
+   The sign is a neutral character, so on a Persian or Arabic page the
+   bidi algorithm handed it the paragraph's own direction and parked
+   it after the digits: a profit of +112.96 printed as "112.96+" and a
+   drawdown of -66.53 as "66.53-", which reads as a number with
+   something stuck to it rather than as a signed figure. Measured in
+   the browser on all four signed tiles.
+
+   The seat is kept physically. direction:ltr alone would also drag
+   the value to the left edge of its tile while its label stayed on
+   the right, so the right-hand end is restored explicitly for an RTL
+   page - the same trap this file already documents at the numeric
+   input rule above, where `direction:ltr` with `text-align:end` sent
+   every prop number to the wrong edge. */
+.pc-stat b{
+  font-size:14px; font-variant-numeric:tabular-nums;
+  overflow:hidden; text-overflow:ellipsis;
+  direction:ltr; unicode-bidi:isolate; text-align:left;
+}
+html[dir="rtl"] .pc-stat b{ text-align:right }
+
+@media (max-width:900px){
+  .pc-stats{ grid-template-columns:repeat(2, minmax(0,1fr)) }
+  .pc-seg{ gap:3px }
+  .pc-seg button{ flex:1 1 auto; height:28px; padding:0 8px; font-size:12px }
+  .pc-stat{ padding:7px 9px }
+  .pc-stat b{ font-size:13px }
+}
+
+/* ------------------------------------------------------------------
+   Finding a chart among the attached EAs
+
+   The grid is reordered rather than rebuilt -- the cards hold live
+   canvases -- so the matches are moved with `order` and the misses are
+   hidden. A grid container orders its own children, which is why the
+   rule sits on the card and not on a wrapper.
+   ------------------------------------------------------------------ */
+.ch-find{ display:flex; align-items:center; gap:10px; margin-block:2px 12px; flex-wrap:wrap }
+/* Only the width it should claim in its row; everything it looks like
+   comes from .dsk-search, which every search on the desk now shares. */
+.ch-find-box{ flex:1 1 260px }
+.ch-find-n{ font-variant-numeric:tabular-nums; white-space:nowrap }
+
+.chart-card[hidden]{ display:none }
+/* The card the trader is most likely to be after, marked so the eye
+   lands on it without having to read the grid. */
+.chart-card.is-hit{ border-color:rgb(var(--accent-rgb) / .55) }
+.ch-none[hidden]{ display:none }
+.ch-none{ text-align:center; padding:18px 0 }
+
+@media (max-width:560px){
+  .ch-find{ gap:8px; margin-block-end:10px }
+  .ch-find-box{ flex:1 1 100% }
+}
+
+/* ------------------------------------------------------------------
+   One search field for the whole desk
+
+   There were seven search boxes and no two were built the same way:
+   two bare input[type=search], two .ctrl text inputs, three wrapped in
+   their own one-off chrome. None of them reset the native appearance,
+   which is why clicking one produced a hard square box -- that is the
+   browser's own search widget and focus ring showing through, complete
+   with a stray clear button in WebKit.
+
+   This is the component they all use now: a rounded shell that owns the
+   border, the background and the focus ring, with the icon and the
+   input living inside it. The input itself is stripped bare, so the
+   shell is the only thing drawing anything and every search on the desk
+   is the same object.
+   ------------------------------------------------------------------ */
+
+/* Safety net. Any search input anywhere -- including ones added later,
+   and the two inside the chart workspace -- loses its native skin. */
+input[type="search"]{ -webkit-appearance:none; appearance:none }
+input[type="search"]::-webkit-search-cancel-button,
+input[type="search"]::-webkit-search-decoration,
+input[type="search"]::-webkit-search-results-button,
+input[type="search"]::-webkit-search-results-decoration{
+  -webkit-appearance:none; appearance:none; display:none;
+}
+
+.dsk-search{
+  display:flex; align-items:center; gap:8px;
+  inline-size:100%; min-inline-size:0;
+  padding-inline:11px;
+  min-block-size:var(--ctl-h);
+  border-radius:var(--ctl-r);
+  background:var(--field);
+  border:1px solid var(--line);
+  color:var(--ink);
+  transition:border .25s var(--ease), box-shadow .25s var(--ease), background .25s var(--ease);
+}
+.dsk-search:hover{ border-color:rgb(var(--wash) / .18) }
+/* focus-within, not :focus -- the ring belongs to the shell, because the
+   input inside it has no border of its own to light up. */
+.dsk-search:focus-within{
+  /* Firmer than the old .55/.12 pair, because the inner input no longer
+     draws a focus outline of its own (see themes.css section 7): this
+     rounded ring is now the whole indication that the box has focus. */
+  border-color:rgb(var(--accent-rgb) / .9);
+  box-shadow:0 0 0 3px rgb(var(--accent-rgb) / .18);
+  background:var(--field-hi);
+}
+/* Belt and braces, independent of whether a skin is active: nothing inside
+   a search shell ever draws its own rectangle. */
+.dsk-search-i:focus,
+.dsk-search-i:focus-visible,
+.dsk-search > input:focus-visible{ outline:none; box-shadow:none; border:0 }
+.dsk-search > svg{ inline-size:16px; block-size:16px; flex:none; opacity:.55 }
+.dsk-search:focus-within > svg{ opacity:.9; color:rgb(var(--accent-rgb)) }
+
+/* The input owns no box. Not a smaller box, not a borderless box - none.
+
+   It used to declare its own min-block-size, which meant there were two
+   heights in play: the shell's and the input's. They were kept in step
+   by hand, in three places, and in the compact shell they had already
+   fallen out of step - a 42px input inside a 34px box, so the box grew
+   to fit its own contents and the "small" variant was not small. Worse,
+   an input that is sized and painted independently of the thing drawn
+   around it is a second box, and a second box is what draws a second
+   rectangle when it takes focus.
+
+   So: the shell is the control. It has the height, the padding, the
+   border, the radius and the focus ring. The input stretches to fill
+   it and contributes nothing of its own. There is no longer a pair of
+   values that can disagree. */
+.dsk-search-i,
+.dsk-search > input{
+  flex:1 1 auto; min-inline-size:0;
+  align-self:stretch;
+  -webkit-appearance:none; appearance:none;
+  background:none; border:0; outline:none; box-shadow:none;
+  padding:0; margin:0;
+  min-block-size:0; block-size:auto;
+  color:var(--ink); font:inherit;
+}
+.dsk-search > input:focus{ border:0; box-shadow:none; background:none }
+.dsk-search-i::placeholder,
+.dsk-search > input::placeholder{ color:var(--muted) }
+
+/* The clear button, where a box has one. */
+.dsk-search-x{
+  flex:none; display:grid; place-items:center;
+  inline-size:22px; block-size:22px; padding:0;
+  border:0; border-radius:50%;
+  background:rgb(var(--wash) / .1); color:var(--muted); cursor:pointer;
+}
+.dsk-search-x:hover{ color:var(--ink); background:rgb(var(--wash) / .16) }
+.dsk-search-x[hidden]{ display:none }
+.dsk-search-x svg{ inline-size:12px; block-size:12px }
+
+/* ---- the reset that has to win -------------------------------------
+
+   An oval kept appearing inside three of these boxes when they were
+   clicked: the backtest symbol search, the prop allowed-symbols
+   search and the prop guide search. What those three have in common
+   is that they sit inside a .field, and `.field input` (0,1,1) sets
+   a background, a border, a border-radius and a min-height on ANY
+   input under it. `.dsk-search-i` is (0,1,0) and simply loses; the
+   themed override in themes.css only resets background, border and
+   box-shadow, and only when a skin is active.
+
+   So the input kept its own rounded box inside the shell's rounded
+   box - a pill within a pill - and the moment it took focus the
+   browser drew the focus ring around THAT radius rather than around
+   the shell. Hence an ellipse, inside the box, on click.
+
+   This is the rule that settles it: it out-specifies `.field input`
+   in every state, needs no skin, and covers the radius and the
+   height that the themed reset never mentioned. */
+.field .dsk-search-i,
+.field .dsk-search > input,
+.dsk-search .dsk-search-i,
+.dsk-search > input{
+  -webkit-appearance:none; appearance:none;
+  background:none; background-image:none;
+  border:0; border-radius:0;
+  outline:none; box-shadow:none;
+  padding:0; margin:0;
+  /* No height here either - see the note on .dsk-search-i above. This
+     rule exists to out-specify `.field input`, which sets min-height;
+     zeroing it is what hands the height back to the shell. */
+  min-block-size:0;
+}
+.field .dsk-search-i:focus,
+.field .dsk-search-i:focus-visible,
+.field .dsk-search > input:focus,
+.field .dsk-search > input:focus-visible,
+.dsk-search .dsk-search-i:focus,
+.dsk-search .dsk-search-i:focus-visible,
+.dsk-search > input:focus,
+.dsk-search > input:focus-visible{
+  background:none; border:0; border-radius:0;
+  outline:none; box-shadow:none;
+}
+
+/* A compact variant for panels and popovers. */
+.dsk-search.sm{ min-block-size:34px; padding-inline:9px; border-radius:11px }
+.dsk-search.sm > svg{ inline-size:15px; block-size:15px }
+/* Only the type size. The height is the shell's, as above. */
+.dsk-search.sm .dsk-search-i,
+.dsk-search.sm > input{ font-size:12.5px }
+
+/* The two that already had their own shell are re-based onto this one
+   rather than left to drift. */
+.sympick-search{ border-block-end:1px solid var(--line) }
+.tvm-search > .ctrl{ height:auto }
+
+/* ------------------------------------------------------------------
+   Settings -> System: licence and language
+
+   Both moved here and both were redrawn. The licence card used to open
+   with a logo and a key/value table, so "am I licensed, and for how
+   long" had to be read out of a date. It leads with the state now, in
+   words and in colour, with the term drawn as a bar when there is one
+   to run down. Language was three small pills on a section of its own;
+   it is a set of option cards here, each carrying its own name in its
+   own script so it can be found by someone who cannot read the
+   language the desk is currently in.
+   ------------------------------------------------------------------ */
+
+.lic-head{
+  display:flex; align-items:flex-start; justify-content:space-between;
+  gap:16px; flex-wrap:wrap;
+}
+.lic-lead .kicker{ margin:0 }
+.lic-state{
+  display:flex; align-items:center; gap:8px;
+  margin-block:4px 2px; font-size:18px; font-weight:600;
+}
+.lic-dot{
+  inline-size:9px; block-size:9px; border-radius:50%; flex:none;
+  background:var(--muted);
+}
+.lic-card.is-ok    .lic-dot{ background:var(--ok) }
+.lic-card.is-warn  .lic-dot{ background:var(--warning) }
+.lic-card.is-trial .lic-dot{ background:rgb(var(--accent-rgb)) }
+.lic-card.is-bad   .lic-dot{ background:var(--bad) }
+/* A hairline in the state's colour, so the card reads at a glance from
+   across the page without shouting with a full tint. */
+.lic-card{ border-inline-start:3px solid transparent }
+.lic-card.is-ok   { border-inline-start-color:var(--ok) }
+.lic-card.is-warn { border-inline-start-color:var(--warning) }
+.lic-card.is-trial{ border-inline-start-color:rgb(var(--accent-rgb) / .7) }
+.lic-card.is-bad  { border-inline-start-color:var(--bad) }
+
+.lic-facts{ display:grid; gap:4px; text-align:end }
+.lic-facts div{ display:flex; gap:10px; justify-content:flex-end; align-items:baseline }
+.lic-facts span{ font-size:11.5px; color:var(--muted) }
+.lic-facts b{ font-size:13px }
+
+.lic-bar{
+  block-size:6px; border-radius:99px; overflow:hidden;
+  background:rgb(var(--wash) / .12); margin-block-start:14px;
+}
+.lic-bar > i{
+  display:block; block-size:100%; inline-size:var(--w, 0%);
+  border-radius:99px; background:rgb(var(--accent-rgb));
+  transition:inline-size .4s var(--ease);
+}
+.lic-card.is-warn .lic-bar > i{ background:var(--warning) }
+.lic-bar-foot{ margin-block:6px 0 }
+
+/* Key and button on one line, because they are one action. The field
+   keeps its own label above it, so the button is pushed down to sit on
+   the input's line rather than the label's. */
+.lic-act{
+  display:flex; gap:10px; align-items:flex-end;
+  margin-block-start:16px; flex-wrap:wrap;
+}
+.lic-act .field{ flex:1 1 280px; margin-block-end:0 }
+.lic-act .btn{ flex:0 0 auto; min-block-size:var(--ctl-h) }
+
+.lic-foot{
+  display:flex; align-items:center; justify-content:space-between;
+  gap:12px; flex-wrap:wrap;
+  margin-block-start:14px; padding-block-start:12px;
+  border-block-start:1px solid var(--line);
+}
+
+.sys-guides{ display:flex; gap:10px; flex-wrap:wrap }
+.sys-guides .btn{ flex:1 1 200px }
+
+/* ---- language ---- */
+.lang-grid{
+  display:grid; gap:10px; margin-block-start:12px;
+  grid-template-columns:repeat(auto-fit, minmax(150px, 1fr));
+}
+.lang-opt{
+  position:relative;
+  display:flex; flex-direction:column; align-items:flex-start; gap:2px;
+  padding:13px 14px;
+  border-radius:var(--ctl-r);
+  border:1px solid var(--line);
+  background:var(--field);
+  color:var(--ink); cursor:pointer; text-align:start;
+  transition:border .2s var(--ease), background .2s var(--ease);
+}
+.lang-opt:hover{ border-color:rgb(var(--wash) / .22) }
+.lang-opt.on{
+  border-color:rgb(var(--accent-rgb) / .6);
+  background:rgb(var(--accent-rgb) / .08);
+}
+.lang-native{ font-size:16px; font-weight:600; line-height:1.3 }
+.lang-name{ font-size:11.5px; color:var(--muted) }
+.lang-tick{
+  position:absolute; inset-block-start:10px; inset-inline-end:10px;
+  inline-size:17px; block-size:17px; border-radius:50%;
+  display:grid; place-items:center;
+  background:rgb(var(--accent-rgb)); color:var(--on-accent);
+  opacity:0; transform:scale(.6);
+  transition:opacity .2s var(--ease), transform .2s var(--ease);
+}
+.lang-opt.on .lang-tick{ opacity:1; transform:scale(1) }
+.lang-tick svg{ inline-size:11px; block-size:11px }
+
+@media (max-width:560px){
+  .lic-head{ flex-direction:column; gap:10px }
+  .lic-facts{ text-align:start }
+  .lic-facts div{ justify-content:flex-start }
+  .lic-act{ flex-direction:column; align-items:stretch }
+  .lic-act .btn{ inline-size:100% }
+  .lang-grid{ grid-template-columns:1fr }
+  .sys-guides .btn{ flex:1 1 100% }
+}
+
+/* The bar the replay is standing on, over its own chart.
+   .bt-live-chart is already positioned, so this needs no extra rule. */
+.bt-replay-at{
+  position:absolute; inset-block-start:8px; inset-inline-start:10px;
+  font-size:10.5px; color:var(--muted);
+  background:rgb(var(--wash) / .14);
+  padding:2px 7px; border-radius:6px;
+  pointer-events:none;
+}
+.bt-replay-at:empty{ display:none }
+
+/* Said out loud rather than left as an empty frame: a panel with no
+   bars to draw used to look like a broken chart. */
+.bt-replay-note{
+  position:absolute; inset:0; margin:0;
+  display:flex; align-items:center; justify-content:center;
+  text-align:center; padding-inline:18px;
+  font-size:12.5px; color:var(--muted);
+}
+.bt-replay-note[hidden]{ display:none }
