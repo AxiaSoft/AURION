@@ -3848,7 +3848,7 @@ function patchLive() {
     patchMetric("command.free_margin", acc.margin_free, acc.currency);
     patchMetric("command.leverage", acc.leverage ? "1:" + acc.leverage : "—", "");
     const pos = S.snap?.positions || [];
-    paintPositions("live-pos", pos, ["symbol","type","volume","strategy","price_open","price_current","sl","tp","profit","profit_pct"], true);
+    paintPositions("live-pos", pos, true);
     applyChartLevels();
   }
   if (v === "markets") {
@@ -3868,7 +3868,7 @@ function patchLive() {
     if (empty && eaLive() && S.candles.length) empty.remove();
     /* Same patcher the Command Centre uses, so the table updates in place
        instead of being rebuilt under the trader's cursor. */
-    paintPositions("mk-pos", allPositions(), MK_POS_COLS, true);
+    paintPositions("mk-pos", allPositions(), true);
   }
   if (v === "intelligence") {
     // The card that is literally named "live analysis" has to move too.
@@ -3919,7 +3919,7 @@ function patchLive() {
     paintSwitch($("ex-auto"), Boolean(S.snap?.strategy?.auto_trade));
     const pos = S.snap?.positions || [];
     const orders = S.snap?.orders || [];
-    paintPositions("live-exec-pos", pos, ["ticket","symbol","type","volume","strategy","price_open","sl","tp","profit","profit_pct"], true);
+    paintPositions("live-exec-pos", pos, true);
     const ob = $("live-exec-ord");
     if (ob) ob.innerHTML = orders.length ? table(orders, ["ticket","symbol","type","volume","price"]) : emptyMini(I18N.t("status.no_orders"));
   }
@@ -6505,7 +6505,7 @@ const views = {
            view says which symbol it means, and that is where it belongs. -->
       <div class="card pos-card">
         <h3>${I18N.t("command.positions")}</h3>
-        <div id="live-pos">${pos.length ? table(pos, ["symbol","type","volume","strategy","price_open","price_current","sl","tp","profit","profit_pct"], true) : emptyMini(I18N.t("status.no_positions"))}</div>
+        <div id="live-pos">${pos.length ? `<div class="pos-pane">${positionsListHtml(pos, [])}</div>` : emptyMini(I18N.t("status.no_positions"))}</div>
       </div>
 
       <div class="card" id="live-st-wrap">
@@ -6567,7 +6567,7 @@ const views = {
       <div class="card pos-card mk-pos">
         <h3>${I18N.t("command.positions")}</h3>
         <div id="mk-pos">${allPositions().length
-          ? table(allPositions(), MK_POS_COLS, true)
+          ? `<div class="pos-pane">${positionsListHtml(allPositions(), [])}</div>`
           : emptyMini(I18N.t("status.no_positions"))}</div>
       </div>
     </div>`;
@@ -6744,7 +6744,7 @@ const views = {
 
         <section class="card">
           ${head(I18N.t("command.positions"))}
-          <div id="live-exec-pos">${pos.length ? table(pos, ["ticket","symbol","type","volume","strategy","price_open","sl","tp","profit","profit_pct"], true) : emptyMini(I18N.t("status.no_positions"))}</div>
+          <div id="live-exec-pos">${pos.length ? `<div class="pos-pane">${positionsListHtml(pos, [])}</div>` : emptyMini(I18N.t("status.no_positions"))}</div>
         </section>
 
         <section class="card">
@@ -7856,7 +7856,22 @@ function table(rows, keys, closable) {
   const cols = keys.map((k) => `<col class="c-${esc(k)}">`).join("") + (closable ? `<col class="c-close">` : "");
   return `<div class="table-wrap"><table><colgroup>${cols}</colgroup><thead><tr>${head}${closable ? `<th scope="col"><span class="sr-only">${esc(I18N.t("exec.close"))}</span></th>` : ""}</tr></thead><tbody>${body}</tbody></table></div>`;
 }
-function paintPositions(boxId, rows, keys, closable) {
+function paintPositions(boxId, rows, closable) {
+  /* The three "open positions" cards - the Command Centre's, the
+     Markets page's and the Execution one's - draw the EA chart's own
+     position rows now, from the same positionsListHtml() the chart
+     desk and the chart cards use.
+
+     They were wide tables: ten columns on the Command Centre's,
+     nine on the Markets one, each with its own column list, and the
+     same trade read differently in all three. On a phone the table
+     became a stack of labelled lines, which worked, but it was a
+     second answer to a question the chart desk had already answered
+     once. One row shape, learned once, wherever a position is shown.
+
+     Nothing here opens or closes. The chart desk's dock is a drawer
+     because it is taking room from a chart; a card has nothing to
+     give back, so the list is simply always there. */
   const box = $(boxId);
   if (!box) return;
   if (!rows.length) {
@@ -7865,26 +7880,33 @@ function paintPositions(boxId, rows, keys, closable) {
     return;
   }
   const sig = rows.map((r) => String(r.ticket || "") + ":" + String(r.strategy || "")).join(",");
-  if (box.dataset.sig === sig && box.querySelector("table")) {
+  if (box.dataset.sig === sig && box.querySelector(".tvp-list")) {
+    /* Same trades, moved prices. Rewriting the figures in place keeps
+       the close buttons, their handlers and the pane's scroll offset,
+       which a full re-render on every tick would all discard. */
     rows.forEach((r) => {
-      const tr = box.querySelector(`tr[data-ticket="${r.ticket}"]`);
-      if (!tr) return;
-      keys.forEach((k) => {
-        const td = tr.querySelector(`[data-k="${k}"]`);
-        if (!td) return;
-        const v = k === "profit_pct" ? posProfitPct(r) : r[k];
-        const text = cellText(k, v);
-        if (td.textContent !== text) td.textContent = text;
-        if (cellSigned(k)) {
-          td.classList.toggle("up", Number(v) > 0);
-          td.classList.toggle("down", Number(v) < 0);
+      const row = box.querySelector(`.tvp-row[data-ticket="${r.ticket}"]`);
+      if (!row) return;
+      const put = (sel, text, signed) => {
+        const el = row.querySelector(sel);
+        if (!el) return;
+        if (el.textContent !== text) el.textContent = text;
+        if (signed) {
+          const v = Number(r.profit);
+          el.classList.toggle("up", v > 0);
+          el.classList.toggle("down", v < 0);
         }
-      });
+      };
+      const pl = Number(r.profit);
+      put(".tvp-pl", Number.isFinite(pl) ? (pl > 0 ? "+" : "") + fmt(pl, 2) : "—", true);
+      put(".tvp-sl", r.sl ? fmt(r.sl, 5) : "—");
+      put(".tvp-tp", r.tp ? fmt(r.tp, 5) : "—");
+      put(".tvp-vol", fmt(r.volume, 2));
     });
     return;
   }
   box.dataset.sig = sig;
-  box.innerHTML = table(rows, keys, closable);
+  box.innerHTML = `<div class="pos-pane">${positionsListHtml(rows, [])}</div>`;
   if (closable) bindCloseButtons(box);
 }
 function tickLabel() {
@@ -11154,9 +11176,6 @@ function allPositions() {
 /* The Command Centre's columns, minus profit_pct: the Markets grid gives
    this card half the width the Command Centre does, and the percentage is
    the one figure already implied by the two beside it. */
-const MK_POS_COLS = ["symbol", "type", "volume", "strategy", "price_open",
-                     "price_current", "sl", "tp", "profit"];
-
 function positionsSig(symbol) {
   return positionsFor(symbol)
     .map((r) => `${r.ticket}:${r.type}:${r.volume}:${r.price_open}:${r.profit}`).join("|");
@@ -11194,7 +11213,17 @@ function positionsListHtml(pos, ord) {
     const dir = String(r.type || "").toLowerCase().includes("sell") ? "sell" : "buy";
     const pl = Number(r.profit);
     const what = `${r.symbol || ""} ${String(r.type || dir).toUpperCase()} ${fmt(r.volume, 2)}`.trim();
-    return `<div class="tvp-row is-${dir}">
+    /* data-ticket so a repaint can find this row and rewrite the two
+       figures that move, instead of throwing the list away on every
+       tick - which would take the close buttons' handlers, any open
+       confirmation and the scroll position with it.
+
+       The strategy is the one column the wider tables carried that
+       these cells have no room for. It is on the row as a title
+       rather than dropped: knowing which robot opened a trade is the
+       difference between reading your book and watching numbers. */
+    const by = typeof strategyLabel === "function" ? strategyLabel(r.strategy) : (r.strategy || "");
+    return `<div class="tvp-row is-${dir}" data-ticket="${esc(String(r.ticket || ""))}"${by ? ` title="${esc(by)}"` : ""}>
       ${cell("tvp-sym", esc(String(r.symbol || "")), I18N.t("table.symbol"))}
       ${cell("tvp-dir", `<b>${esc(String(r.type || dir).toUpperCase())}</b>`, I18N.t("table.type"))}
       ${cell("tvp-vol mono", fmt(r.volume, 2), I18N.t("table.volume"))}

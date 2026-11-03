@@ -74,9 +74,19 @@ check("positions get a full-width card of their own", (() => {
 })());
 
 check("the close button cannot scroll out of reach", (() => {
+  /* It used to need a reserved column width, because the close button
+     was the last cell of a 900px table that scrolled sideways inside
+     a narrower card. There is no table and no sideways scroll: the
+     list is as wide as the pane, and the pane scrolls down. What has
+     to hold now is that the pane does not reintroduce the problem. */
   const flat = appCss.replace(/\s+/g, "");
-  return /\.pos-cardcol\.c-close\{width:\d+px\}/.test(flat) ||
-    "no fixed width reserved for the close column";
+  if (/overflow-x:auto/.test(/\.pos-pane\{([^}]*)\}/.exec(flat)?.[1] || "")) {
+    return "the positions pane scrolls sideways again";
+  }
+  if (!/\.pos-pane\{[^}]*overflow-x:hidden/.test(flat)) {
+    return "the pane does not pin its horizontal overflow";
+  }
+  return true;
 })());
 
 /* =============================================== positions, without jumping ==
@@ -86,32 +96,63 @@ check("the close button cannot scroll out of reach", (() => {
    widens its column and shifts every column after it. Three things have to
    hold together, so all three are checked.                                   */
 
-check("the table's geometry is decided once, not per repaint",
-  /\.pos-card table\{[^}]*table-layout:fixed/.test(appCss.replace(/\s*\n\s*/g, "")) ||
-  "pos-card table is not table-layout:fixed");
-
-check("fixed layout is given widths to use", (() => {
-  const keys = ["symbol", "type", "volume", "strategy", "price_open",
-    "price_current", "sl", "tp", "profit", "profit_pct", "close"];
-  const missing = keys.filter((k) => appCss.indexOf(`.pos-card col.c-${k}{`) < 0);
-  return missing.length === 0 || "no width for: " + missing.join(", ");
+/* The answer used to be table-layout:fixed plus a declared width for
+   each of eleven columns. The cards draw the chart desk's .tvp-list
+   instead, which solves the same problem a different way: the columns
+   are declared once on the LIST and the rows are subgrid children of
+   it, so a profit going from "8.40" to "-124.65" cannot widen a
+   column under the trader's cursor - there is no per-row sizing left
+   to do. Checked in chart.css, where that list lives. */
+check("the positions grid is decided once, not per repaint", (() => {
+  const flat = chartCss.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\s*\n\s*/g, "");
+  const list = /[{;}]\.tvp-list\{([^}]*)\}/.exec(flat);
+  if (!list) return "there is no positions list to size";
+  if (!/grid-template-columns:/.test(list[1])) {
+    return "the list does not declare its columns, so every row sizes its own";
+  }
+  const row = /[{;}]\.tvp-row\{([^}]*)\}/.exec(flat);
+  if (!row || !/grid-template-columns:subgrid/.test(row[1])) {
+    return "the rows do not inherit the list's columns";
+  }
+  return true;
 })());
 
-check("the markup carries the colgroup those widths attach to", (() => {
-  const fn = appJs.slice(appJs.indexOf("function table(rows, keys, closable)"),
-    appJs.indexOf("function paintPositions"));
-  return fn.indexOf("<colgroup>") > 0 && fn.indexOf('c-${esc(k)}') > 0;
+check("and the old fixed-width table did not survive alongside it", (() => {
+  const flat = appCss.replace(/\s*\n\s*/g, "");
+  if (/\.pos-card table\{/.test(flat)) return "the positions card still styles a table";
+  if (/\.pos-card col\.c-/.test(flat)) return "the column widths outlived the columns";
+  return true;
 })());
 
-check("digits are the same width as each other",
-  /\.pos-card th,\.pos-card td\{[^}]*font-variant-numeric:tabular-nums/
-    .test(appCss.replace(/\s*\n\s*/g, "")));
+check("digits are the same width as each other", (() => {
+  const flat = chartCss.replace(/\s*\n\s*/g, "");
+  return /font-variant-numeric:tabular-nums/.test(flat) ||
+    "proportional digits make the column ragged";
+})());
 
 check("rows are patched in place rather than rebuilt", (() => {
   const fn = appJs.slice(appJs.indexOf("function paintPositions"), appJs.indexOf("function tickLabel"));
-  // A full innerHTML rewrite on every tick would destroy the row the user
-  // is about to click, whatever the CSS says.
-  return fn.indexOf("if (td.textContent !== text) td.textContent = text;") > 0;
+  /* A full innerHTML rewrite on every tick would destroy the row the
+     user is about to click, whatever the CSS says - and now also the
+     close buttons' handlers and wherever the trader had scrolled the
+     pane to. The cards draw the chart's .tvp-row list rather than a
+     table, so the patch finds its row by ticket and rewrites the
+     figures that move; the cells are spans, not <td>s. Verified in a
+     browser: same row node, same handler, scrollTop held at 40, and
+     the profit went -4 -> +3.5. */
+  if (fn.indexOf("if (el.textContent !== text) el.textContent = text;") < 0) {
+    return "the figures are not patched in place";
+  }
+  if (!/\.tvp-row\[data-ticket=/.test(fn)) return "a repaint cannot find the row it should patch";
+  /* The steady-state branch has to bail out before the full render
+     below it, or "patched in place" is only true until it falls
+     through. Compared by position rather than by presence, because
+     the full render legitimately exists further down. */
+  const tail = fn.slice(fn.indexOf("dataset.sig === sig"));
+  if (tail.indexOf("\n    return;") < 0 || tail.indexOf("\n    return;") > tail.indexOf("box.innerHTML = `")) {
+    return "the steady-state path falls through into a full rewrite";
+  }
+  return true;
 })());
 
 /* ==================================================== the slider slides ==== */

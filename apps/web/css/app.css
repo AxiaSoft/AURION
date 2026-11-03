@@ -1332,132 +1332,22 @@ tr:hover td{background:rgb(var(--wash) / .02)}
 .gate-why{margin:0;padding-inline-start:18px;color:var(--muted);font-size:13px;line-height:1.7}
 .cmd{display:flex;flex-direction:column;gap:14px}
 
-/* ===========================================================================
-   Open positions
-   ===========================================================================
-   Two complaints, one table.
+/* The "open positions" cards.
 
-   It was too narrow: squeezed into half of a two-column row, so the close
-   button - the control a trader reaches for under pressure - sat behind a
-   horizontal scroll. It now spans the command centre, the rows are taller,
-   and the close button is pinned to the trailing edge where it cannot
-   scroll out of reach.
+   They used to hold a ten-column table with a 900px floor, a fixed
+   layout and a declared width per column, and below 760px the whole
+   thing folded: every row became a small card and every cell a
+   labelled line fed from data-label. All of it is gone, because the
+   table is gone - the cards draw the EA chart's .tvp-row list now,
+   from the shared builder, and that list already answers both
+   questions this section existed to answer. It aligns its columns by
+   declaring them once on the list rather than per row, so a tick
+   cannot re-measure a column under the cursor, and it folds into
+   stacked labelled rows on its own width rather than the window's.
 
-   And the rows jumped. An auto-layout table re-measures its columns on
-   every repaint, so a profit going from "8.40" to "-124.65" widened that
-   column and shoved every column after it sideways - while the trader was
-   aiming at one of them. Fixed layout plus declared widths means the
-   geometry is decided once and the digits change underneath it. The width
-   budget is generous enough for the longest value each column can hold.
-   ========================================================================= */
+   What is left is the card's own margin. The pane inside it - the
+   cap and the scroll - is .pos-pane, further down. */
 .pos-card{margin:0}
-.pos-card .table-wrap{max-height:min(560px,62vh)}
-.pos-card table{table-layout:fixed;width:100%;min-width:900px}
-.pos-card th,.pos-card td{
-  /* Digits must not resize their own cell. */
-  font-variant-numeric:tabular-nums;
-  overflow:hidden;text-overflow:ellipsis;
-}
-.pos-card td{padding:12px 10px}
-.pos-card th{padding:10px;position:sticky;top:0;z-index:2;background:var(--s2, #11141c);backdrop-filter:blur(calc(var(--blur, 18px) * 8 / 18))}
-.pos-card col.c-symbol{width:11%}
-.pos-card col.c-type{width:7%}
-.pos-card col.c-volume{width:7%}
-.pos-card col.c-strategy{width:12%}
-.pos-card col.c-price_open{width:10%}
-.pos-card col.c-price_current{width:10%}
-.pos-card col.c-sl{width:9%}
-.pos-card col.c-tp{width:9%}
-.pos-card col.c-profit{width:10%}
-.pos-card col.c-profit_pct{width:8%}
-.pos-card col.c-close{width:92px}
-.pos-card td:last-child{padding-inline-end:12px;text-align:end}
-.pos-card td:last-child .btn{width:100%;min-width:72px;padding-block:8px}
-/* Numbers are read by eye down a column; end-aligning them lines up the
-   decimal points, which auto-aligned text does not. */
-.pos-card td[data-k="volume"],.pos-card td[data-k="price_open"],
-.pos-card td[data-k="price_current"],.pos-card td[data-k="sl"],
-.pos-card td[data-k="tp"],.pos-card td[data-k="profit"],
-.pos-card td[data-k="profit_pct"]{text-align:end}
-.pos-card th:nth-child(n+3):nth-child(-n+10){text-align:end}
-/* ---------------------------------------------------------------------
-   Below 760 the table stops being a table.
-
-   A 900px-wide grid in a 340px window is not a narrow table, it is a
-   hidden one: measured on a 390px phone the close button sat at x=857,
-   roughly 560px past the right edge, behind a horizontal scroll. The
-   card's own note above says that exact fault was fixed for the desk -
-   it was simply reintroduced at phone width, where the trader is most
-   likely to be closing something in a hurry.
-
-   So each row becomes its own small card and each cell a labelled line.
-   The header row goes, which means the column names have to come back
-   somewhere, and they come back per cell from data-label. Written
-   with the same reasoning as the positions dock: resize, do not hide.
-   --------------------------------------------------------------------- */
-@media (max-width:760px){
-  .pos-card td{padding:10px 8px}
-  .pos-card col.c-close{width:76px}
-
-  /* Nothing scrolls sideways any more, so the viewport is the width. */
-  .pos-card .table-wrap{overflow-x:visible;max-height:none}
-  .pos-card table{min-width:0;width:100%;table-layout:auto;display:block}
-  .pos-card colgroup,.pos-card thead{display:none}
-  .pos-card tbody{display:block}
-
-  .pos-card tbody tr{
-    display:block;
-    border:1px solid var(--line);
-    border-radius:12px;
-    padding:10px 12px;
-    background:rgb(var(--wash) / .04);
-  }
-  .pos-card tbody tr + tr{margin-top:8px}
-
-  /* Label on one side, value on the other: the eye reads down the
-     values and across only when it needs the name. */
-  .pos-card tbody td{
-    display:grid;
-    grid-template-columns:minmax(0,1fr) auto;
-    align-items:baseline;
-    gap:12px;
-    padding:5px 0;
-    overflow:visible;
-    text-align:end;
-  }
-  .pos-card tbody td::before{
-    content:attr(data-label);
-    text-align:start;
-    color:var(--muted);
-    /* The cell carries .mono so its digits line up; the label is prose
-       and inheriting from it would set the column names in a
-       typewriter face next to their own values. */
-    font-family:var(--font);
-    font-variant-numeric:normal;
-    font-size:12px;
-    font-weight:500;
-    letter-spacing:.01em;
-  }
-  /* The instrument is the row's title, not one line among ten. */
-  .pos-card tbody td[data-k="symbol"]{
-    display:block;text-align:start;
-    font-size:15px;font-weight:650;
-    padding:0 0 6px;
-    border-bottom:1px solid var(--line);
-    margin-bottom:4px;
-  }
-  .pos-card tbody td[data-k="symbol"]::before{content:none}
-
-  /* The control a trader reaches for under pressure: full width, at the
-     end of its own row, and big enough to hit. */
-  .pos-card tbody td.c-act{
-    display:block;padding:10px 0 0;
-  }
-  .pos-card tbody td.c-act .btn{
-    width:100%;min-height:44px;padding-block:11px;font-size:14px;
-  }
-  .pos-card td:last-child .btn{min-width:0}
-}
 /* The card is the control (see chartCard in app.js), so it needs what a
    control needs: a visible focus ring for the keyboard, and a cursor
    that says it can be pressed. */
@@ -1588,6 +1478,40 @@ fieldset.prop-fields.is-locked{
   }
   .draw-frame.open .draw-tools{display:flex !important}
 }
+
+/* The "open positions" cards: the Command Centre's, the Markets page's
+   and the Execution one's.
+
+   They were three wide tables with three different column lists, so
+   the same trade read differently depending on which page you were
+   on, and the card grew without limit - thirty open trades made a
+   card thirty rows tall and pushed everything under it off the
+   screen. They draw the EA chart's own rows now, from the one shared
+   builder, and the pane is capped and scrolls inside itself so the
+   card's footprint is the same whether one trade is open or thirty.
+
+   Nothing here opens or closes. The chart desk's dock is a drawer
+   because it is taking height from a chart that wants it back; a
+   card has nothing to give back, so the list is simply always there.
+
+   Capped in viewport units with a floor and a ceiling: a fixed pixel
+   height that shows six rows on a desktop shows one and a half on a
+   laptop in a split window. */
+.pos-pane{
+  /* The query container the rows measure themselves against, so the
+     pane folds on the room it actually has rather than on the width
+     of the window - see the @container block in chart.css. */
+  container:tvp / inline-size;
+  max-block-size:clamp(190px, 42vh, 420px);
+  overflow-y:auto;overflow-x:hidden;
+  overscroll-behavior:contain;
+  scrollbar-width:thin;
+  /* Room for the halo on the close button of the first and last rows,
+     which an overflow box would otherwise clip. */
+  padding-block:2px;
+}
+.pos-pane::-webkit-scrollbar{width:6px}
+.pos-pane::-webkit-scrollbar-thumb{background:rgb(var(--wash) / .18);border-radius:99px}
 
 /* Open positions, docked between a chart's toolbar and its canvas.
 

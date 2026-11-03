@@ -214,6 +214,22 @@ check("one renderer, one container", () => {
   if (!/positionsListHtml\(pos, ord\)/.test(fn)) throw new Error("the dock does not use the shared builder");
 });
 
+check("a row can be found again by its ticket", () => {
+  /* The cards repaint a moving price by locating the row and
+     rewriting its figures, rather than rebuilding the list and
+     throwing away the close buttons' handlers and the trader's scroll
+     position. That lookup is .tvp-row[data-ticket=...], so without
+     the attribute the repaint silently matches nothing and the
+     prices simply stop moving - which looks like a dead feed, not
+     like a missing attribute. */
+  if (!/data-ticket="\$\{esc\(String\(r\.ticket \|\| ""\)\)\}"/.test(BUILD)) {
+    throw new Error("the row does not carry its ticket, so a repaint cannot find it");
+  }
+  if (!/\.tvp-row\[data-ticket=/.test(APP)) {
+    throw new Error("nothing looks a row up by ticket, so the attribute is unused");
+  }
+});
+
 check("the repaint is still signature-gated, and the gate still opens", () => {
   /* With two containers this guarded against one shared signature
      letting a painted panel suppress an empty dock. With one

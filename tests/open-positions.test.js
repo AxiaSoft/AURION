@@ -179,7 +179,7 @@ function boot() {
   win.AudioContext = class { createGain() { return { connect() {}, gain: {} }; } };
   const files = ["js/themes.js", "js/skins.js", "js/i18n.js", "js/api.js", "js/calendar.js",
     "js/chart-series.js", "js/charts.js", "js/chart-tools.js", "js/pnl-charts.js", "js/app.js"];
-  win.eval(files.map(read).join("\n;\n") + ";window.__T={S,views,paintChartPositions,allPositions,MK_POS_COLS};");
+  win.eval(files.map(read).join("\n;\n") + ";window.__T={S,views,paintChartPositions,allPositions,positionsListHtml};");
   return win;
 }
 
@@ -274,17 +274,23 @@ check("the Markets page shows the open book, not just the chart's instrument", (
 
   const card = host.querySelector(".mk-pos");
   if (!card) throw new Error("no positions card on the Markets page");
-  const rows = card.querySelectorAll("tbody tr");
+  /* Rows of the shared .tvp-list, not a table. The header row carries
+     .tvp-head and is not a trade. */
+  const rows = card.querySelectorAll(".tvp-row:not(.tvp-head)");
   if (rows.length !== 2) throw new Error("expected both trades, got " + rows.length);
-  const syms = [...card.querySelectorAll("td[data-k=symbol]")].map((t) => t.textContent).sort();
+  const syms = [...card.querySelectorAll(".tvp-row:not(.tvp-head) .tvp-sym")]
+    .map((t) => t.textContent.trim()).sort();
   if (syms.join(",") !== "EURUSD,XAUUSD") {
     throw new Error("the card is filtered to the chart's symbol: " + syms.join(","));
   }
+  /* The whole point of the pane: thirty trades must not make a card
+     thirty rows tall. */
+  if (!card.querySelector(".pos-pane")) throw new Error("the list is not in a capped pane");
   if (!card.querySelector("[data-close]")) throw new Error("the positions cannot be closed from here");
   return "both instruments listed";
 });
 
-check("Markets shows the book once, in the table", () => {
+check("Markets shows the book once, in the whole-book pane", () => {
   /* This used to assert the opposite: the per-symbol strip above the
      chart and the whole-book card below it were both meant to be here,
      the strip answering "what am I holding in this instrument".
@@ -293,8 +299,10 @@ check("Markets shows the book once, in the table", () => {
      The strip is filtered to the symbol on screen and the table is
      not, so the same trade appeared twice in two shapes, and switching
      instrument made the upper copy disagree with the lower one. The
-     table is the one that stays true, so the table is the one that
-     stays. */
+     whole-book card is the one that stays true, so it is the one
+     that stays. It is the same row shape as the strip was, now, which
+     is what makes having only one of them unambiguous rather than a
+     loss. */
   const view = appJs.slice(appJs.indexOf("  markets() {"), appJs.indexOf("  intelligence() {"));
   if (/positionsStripHtml\(/.test(view)) throw new Error("the per-symbol strip is back");
   if (!/class="card pos-card mk-pos"/.test(view)) throw new Error("the whole-book card is missing");
