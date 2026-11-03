@@ -6,8 +6,12 @@
  * was asked for and, more importantly, the conditions that stop each
  * gesture from stealing somebody else's:
  *
- *   - a pull on the sheet's own surface only dismisses once its
- *     scrolling has run out, so a scroll is never hijacked;
+ *   - the helper can dismiss from a sheet's own surface, and only
+ *     once that surface's scrolling has run out, so a scroll is never
+ *     hijacked. The settings sheet deliberately does not use it: its
+ *     surface is a list of sections, and the desk reported that
+ *     reading the rest of that list threw the sheet away. There the
+ *     head - grab bar, title, search - is the only handle;
  *   - an edge swipe only opens where the sheet exists, so it cannot
  *     quietly take over the bottom of a desktop chart;
  *   - a tool's menu is anchored to the tool, and goes when the sheet
@@ -26,6 +30,7 @@ const ROOT = path.join(__dirname, "..");
 const APP = fs.readFileSync(path.join(ROOT, "apps/web/js/app.js"), "utf8");
 const TOOLS = fs.readFileSync(path.join(ROOT, "apps/web/js/chart-tools.js"), "utf8");
 const CSS = fs.readFileSync(path.join(ROOT, "apps/web/css/chart.css"), "utf8");
+const ACSS = fs.readFileSync(path.join(ROOT, "apps/web/css/app.css"), "utf8");
 
 let pass = 0;
 const fails = [];
@@ -488,6 +493,126 @@ check("closing the tool sheet also closes the tool menu", () => {
   const fn = liftFn(TOOLS, "toggleTools");
   if (!/if \(!next\) closeFlyout\(\);/.test(fn)) {
     throw new Error("the menu survives the sheet it belongs to");
+  }
+});
+
+
+/* --------------------------------------- the settings sheet's handle --- */
+
+/* The fault: a downward drag anywhere on the settings sheet dismissed
+   it, so scrolling to the sections at the bottom of the list closed
+   the thing being scrolled. Verified in a real browser at 390px before
+   and after - dragging an entry down 240px closed it, and now does
+   not.
+
+   The arming rule was not the answer. It only withholds the gesture
+   while the list has somewhere to scroll, and the top of the list -
+   where it is every time the sheet opens - is exactly where it does
+   not. The surface gesture is dropped for this sheet instead. */
+
+function setSheetDrag() {
+  const i = APP.indexOf("function bindSetSheet(");
+  if (i < 0) throw new Error("no bindSetSheet");
+  const j = APP.indexOf("attachSheetDrag({", i);
+  if (j < 0) throw new Error("the settings sheet attaches no drag");
+  return APP.slice(j, APP.indexOf("});", j) + 3);
+}
+
+check("the settings sheet is not dismissed from its own surface", () => {
+  const call = setSheetDrag();
+  if (/\bbody\s*:/.test(call)) {
+    throw new Error("the whole surface is still a dismiss target: " + call.trim());
+  }
+});
+
+check("its handle is the head, not the bare grab bar", () => {
+  const call = setSheetDrag();
+  if (!/handle:\s*\$\("set-sheet-top"\)/.test(call)) {
+    throw new Error("the handle is not the head element: " + call.trim());
+  }
+  if (!/sheet:\s*nav\b/.test(call)) throw new Error("the nav is not the sheet");
+});
+
+check("the head really does contain the search, and the list does not", () => {
+  const top = APP.indexOf('<div class="sj-top" id="set-sheet-top">');
+  if (top < 0) throw new Error("no head element in the markup");
+  const close = APP.indexOf('<div class="sj-list">', top);
+  if (close < 0) throw new Error("no list after the head");
+  const head = APP.slice(top, close);
+  [["sj-grab", "the grab bar"], ["sj-sheet-head", "the title row"], ["sj-find", "the search"]]
+    .forEach(([c, what]) => {
+      if (!head.includes(c)) throw new Error(what + " is outside the handle");
+    });
+  /* ...and the entries are not. If the list ever moves inside the
+     head, every row becomes a dismiss target again and the fault is
+     back with nothing to show for it. */
+  if (/<div class="sj-list">/.test(head)) throw new Error("the entries are inside the handle");
+  if (!/button data-jump|button\s+type="button"\s+data-jump|data-jump/.test(APP.slice(close))) {
+    throw new Error("no entries after the head");
+  }
+});
+
+check("the head owns the vertical gesture, and only as a sheet", () => {
+  const rules = ACSS.match(/\.set-jump\.is-sheet\s+\.sj-top\s*\{[^}]*\}/g) || [];
+  if (!rules.length) throw new Error("the head has no sheet rule");
+  if (!rules.some((r) => /touch-action:\s*none/.test(r))) {
+    throw new Error("the browser can still claim the drag as a scroll");
+  }
+  /* On the desktop rail the wrapper must disappear from layout, or it
+     boxes the search away from the entries it filters. */
+  if (!/\.sj-top\s*\{\s*display:\s*contents\s*\}/.test(ACSS)) {
+    throw new Error("the head is a real box on the rail");
+  }
+});
+
+check("the entry list scrolls and cannot dismiss", () => {
+  const rules = ACSS.match(/\.sj-list\s*\{[^}]*\}/g) || [];
+  const sheet = rules.filter((r) => /overflow-y:\s*auto/.test(r));
+  if (!sheet.length) throw new Error("the list is not a scroller in any rule");
+  if (!sheet.some((r) => /touch-action:\s*pan-y/.test(r))) {
+    throw new Error("the list does not claim vertical scrolling for itself");
+  }
+  if (!sheet.some((r) => /overscroll-behavior:\s*contain/.test(r))) {
+    throw new Error("a scroll at the end of the list chains to the page behind");
+  }
+});
+
+check("a drag stands aside for a control inside the handle", () => {
+  /* The search box lives in the handle. Capturing the pointer on it
+     swallows the tap that should place the caret - the sheet would be
+     draggable and the search unusable. */
+  const r = rig();
+  const onInput = { clientY: 0, pointerId: 1, timeStamp: 0,
+    target: { closest: (sel) => (/input/.test(sel) ? {} : null) } };
+  r.handle.fire("pointerdown", onInput);
+  r.handle.fire("pointermove", { clientY: 300, pointerId: 1, timeStamp: 2000 });
+  r.handle.fire("pointerup", { clientY: 300, pointerId: 1, timeStamp: 2000 });
+  if (r.closed() !== 0) throw new Error("typing in the search closed the sheet");
+  if (!r.sheet.classList.contains || r.sheet.classList.contains("is-dragging")) {
+    throw new Error("the sheet entered a drag from a control");
+  }
+});
+
+check("a drag on the head itself still closes", () => {
+  /* The other half of the guard above: standing aside for controls
+     must not stand aside for everything. */
+  const r = rig();
+  const onHead = { clientY: 0, pointerId: 1, timeStamp: 0, target: { closest: () => null } };
+  r.handle.fire("pointerdown", onHead);
+  r.handle.fire("pointermove", { clientY: 300, pointerId: 1, timeStamp: 2000 });
+  r.handle.fire("pointerup", { clientY: 300, pointerId: 1, timeStamp: 2000 });
+  if (r.closed() !== 1) throw new Error("the head no longer dismisses the sheet");
+});
+
+check("the surface gesture is still available to the sheet that wants it", () => {
+  /* Dropped for the settings sheet, not deleted: the chart tool rail
+     is a short palette, not a list to read, and dismissing it from
+     anywhere is right. */
+  if (!/body: \$\("tv-rail"\)/.test(TOOLS)) {
+    throw new Error("the tool sheet lost its surface dismissal too");
+  }
+  if (!/const body = o\.body \|\| null;/.test(APP)) {
+    throw new Error("the helper no longer supports a surface gesture at all");
   }
 });
 

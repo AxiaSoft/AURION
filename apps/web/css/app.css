@@ -2560,6 +2560,10 @@ html[dir="rtl"] .sj-grp{letter-spacing:0;text-transform:none;font-size:11px}
  * top of the screen.
  */
 .sj-open,.sj-scrim,.sj-grab,.sj-sheet-head,.sj-bar{display:none}
+/* The head groups the sheet's furniture so one element can be the drag
+   handle. On the rail it must not exist as far as layout is concerned,
+   or it would box the search away from the entries below it. */
+.sj-top{display:contents}
 /* The entries are their own region only when the sheet needs to scroll
    them; on the rail the wrapper must not exist as far as layout is
    concerned. */
@@ -2752,9 +2756,28 @@ html[dir="rtl"] .sj-grp{letter-spacing:0;text-transform:none;font-size:11px}
 
   .set-jump.is-sheet .sj-find{flex:none;padding:0 12px 8px}
 
+  /* The handle: the grab bar, the title and the search, as one block.
+     The gesture owns vertical movement here - that is what makes the
+     pull a dismissal rather than a scroll of the page behind. */
+  .set-jump.is-sheet .sj-top{
+    display:flex;flex-direction:column;flex:0 0 auto;
+    touch-action:none;cursor:grab;
+    -webkit-user-select:none;user-select:none;
+  }
+  .set-jump.is-sheet.is-dragging .sj-top{cursor:grabbing}
+  /* ...except on the controls inside it, which still have to take a
+     tap: the search field needs its caret and the close button needs
+     its press. */
+  .set-jump.is-sheet .sj-top .dsk-search,
+  .set-jump.is-sheet .sj-top .sj-close{touch-action:auto;cursor:auto;user-select:auto;-webkit-user-select:auto}
+  .set-jump.is-sheet .sj-top .sj-close{cursor:pointer}
+
   .sj-list{
     display:flex;flex-direction:column;gap:2px;
     flex:1 1 auto;min-block-size:0;overflow-y:auto;overscroll-behavior:contain;
+    /* Dragging an entry scrolls the entries. It cannot dismiss the
+       sheet - the head above does that. */
+    touch-action:pan-y;
     padding:0 10px calc(12px + env(safe-area-inset-bottom));
     scrollbar-width:thin;
   }
@@ -4199,6 +4222,7 @@ html[dir="rtl"] .ct-side span{letter-spacing:0;text-transform:none;font-size:12p
   /* Rows get a touch target on a phone, where this menu is read with a
      thumb rather than a pointer. */
   .dd-menu.dd-sheet .dd-opt{min-block-size:48px}
+
 }
 .dd-opt{
   inline-size:100%;border:0;background:transparent;color:var(--ink);
