@@ -8879,25 +8879,19 @@ async function bindUpdatePanel(){
       resultEl.innerHTML = '<div class="card" style="background:rgb(var(--s9))"><h3>'+icon("spark")+' '+I18N.t('upd.available')+': <span class="mono">'+esc(updateStamp(upd))+'</span></h3>'+changelogHtml(upd)+'<button class="btn" id="upd-apply-btn" type="button">'+icon("download")+' '+I18N.t('upd.download_apply')+'</button><p class="sub" style="margin-top:8px;color:var(--gold)">'+I18N.t('upd.replace_note')+'</p></div>';
       const applyBtn = document.getElementById('upd-apply-btn');
       if(applyBtn) applyBtn.onclick = async () => {
-        if(!confirm(I18N.t('upd.confirm').replace('%s', upd.version))) return;
+        const go = await askConfirm({
+          title: I18N.t('upd.download_apply'),
+          body: I18N.t('upd.confirm').replace('%s', upd.version),
+          ok: I18N.t('upd.download_apply'),
+          cancel: I18N.t('common.cancel'),
+        });
+        if(!go) return;
         applyBtn.disabled = true;
-        applyBtn.textContent = I18N.t('upd.installing');
-        const ar = await API.post('/api/system/update/apply', { update_id: upd.id });
-        if(ar.ok){
-          // An update that replaced the MetaTrader experts is only half
-          // applied: nothing out here can press F7 inside MetaEditor.
-          const eaLine = ar.ea_changed
-            ? '<p class="sub" style="color:var(--amber,#d8a657)">'
-              + I18N.t('ea.changed_by_update', { v: String(ar.version||upd.version||''), n: String((ar.ea_files||[]).length||2) })
-              + '</p>'
-            : '';
-          resultEl.innerHTML = '<p class="ok">'+icon("check")+' '+I18N.t('upd.installed').replace('%s', esc(ar.version||upd.version))+'<br>'+I18N.t('upd.files')+': '+(ar.applied||[]).length+'<br>'+I18N.t('upd.backup')+': '+esc(ar.backup_dir||'')+'</p>'+eaLine+'<p class="sub">'+I18N.t('upd.restart_hint')+'</p><button class="btn" id="upd-restart" type="button">'+icon("refresh")+' '+I18N.t('upd.restart')+'</button>';
-          const rb = document.getElementById('upd-restart');
-          if(rb) rb.onclick = () => restartSystem();
-        } else {
-          resultEl.innerHTML = '<p class="err">' + I18N.t('upd.install_failed') + ': '+esc(ar.error||'')+'</p>';
-          applyBtn.disabled = false;
-        }
+        /* Everything the install has to say - progress, the restart, the
+           wait for the engine - it says on its own screen, and it is the
+           thing that reloads the page when it is finished. */
+        await runUpdateInstall(upd);
+        applyBtn.disabled = false;
       };
     }
   };
@@ -13500,6 +13494,196 @@ async function fetchLicenseSettled(tries, waitMs) {
     if (i < n - 1) await new Promise((r) => setTimeout(r, wait));
   }
   return null;
+}
+
+/**
+ * Install an update behind a screen that says what is happening.
+ *
+ * Before this, pressing install disabled a button, left the desk looking
+ * idle for however long the download took, and then offered a "restart"
+ * button that the user had to find and press - after which the page
+ * navigated away on a three and a half second timer and hoped the engine
+ * had come back. Two faults came out of that hope. A desk that reloaded
+ * early got the service worker's cached index.html, whose language token
+ * still matched the cached pack, so every string the update had just
+ * added rendered as its own key. And an install that failed part way
+ * reported a bare error code next to a button that was still waiting.
+ *
+ * So: one screen, four steps, no button to find. It installs, restarts,
+ * then WAITS for the engine to answer before reloading - which is both
+ * the honest thing to show and the fix for the stale pack, because the
+ * reload now happens against a server that can serve the new one.
+ *
+ * Returns true when the page is on its way out, so the caller stops.
+ */
+async function runUpdateInstall(upd) {
+  const steps = [
+    ["download", I18N.t("upd.inst_download")],
+    ["write", I18N.t("upd.inst_write")],
+    ["restart", I18N.t("upd.inst_restart")],
+    ["wait", I18N.t("upd.inst_wait")],
+  ];
+  const host = document.createElement("div");
+  host.className = "upd-install";
+  host.setAttribute("role", "status");
+  host.setAttribute("aria-live", "polite");
+  const count = Number((upd && upd.files && upd.files.length) || 0);
+  host.innerHTML = `
+    <div class="upd-install-card">
+      <div class="upd-install-spin" aria-hidden="true"></div>
+      <h2>${esc(I18N.t("upd.inst_title"))}</h2>
+      <p class="upd-install-ver">
+        <bdi class="mono">${esc(updateStamp(upd))}</bdi>${
+        /* The stamp is latin and the sentence beside it may be Persian or
+           Arabic. Run together they reorder into nonsense, so the stamp is
+           isolated and only the stamp is monospaced - a proportional
+           sentence set in mono spaces its Persian letters wrongly. */
+        count ? ' <span class="upd-install-count">\u2014 '
+          + esc(I18N.t("upd.inst_changed", { n: fmtNum(count, 0) })) + "</span>" : ""}</p>
+      <ol class="upd-install-steps">${
+        steps.map(([id, label]) => `<li data-step="${id}"><span class="upd-step-dot"></span>${esc(label)}</li>`).join("")
+      }</ol>
+      <p class="sub upd-install-note">${esc(I18N.t("upd.inst_note"))}</p>
+      <div class="upd-install-msg" hidden></div>
+    </div>`;
+  document.body.appendChild(host);
+
+  const stepEl = (id) => host.querySelector(`[data-step="${id}"]`);
+  const mark = (id, state) => {
+    const el = stepEl(id);
+    if (!el) return;
+    el.classList.remove("doing", "done", "failed");
+    if (state) el.classList.add(state);
+  };
+  const say = (html, bad) => {
+    const box = host.querySelector(".upd-install-msg");
+    if (!box) return;
+    box.hidden = false;
+    box.className = "upd-install-msg" + (bad ? " err" : "");
+    box.innerHTML = html;
+  };
+  const stop = () => {
+    host.classList.add("is-failed");
+    host.querySelector(".upd-install-spin")?.remove();
+  };
+
+  /* Nothing here is cancellable once files start being replaced, so the
+     screen does not pretend otherwise by offering a close button. */
+  mark("download", "doing");
+  let ar;
+  try {
+    ar = await API.post("/api/system/update/apply", { update_id: upd.id });
+  } catch (err) {
+    ar = { ok: false, error: String((err && err.message) || err || "") };
+  }
+
+  if (!ar || !ar.ok) {
+    mark("download", "failed");
+    stop();
+    /* The same sentence the check box would give, so a rate limit reads
+       as a rate limit here too rather than as "install_failed:
+       github_rate_limited". */
+    const why = updateErrorText({ ok: false, ...(ar || {}) }) || (ar && ar.error) || "";
+    const partial = ar && ar.applied_count
+      ? `<p class="sub">${esc(I18N.t("upd.install_partial", {
+          /* Localised like every other figure on the desk: a Persian
+             sentence that reads "۱۵:۱۲" and "12" in the same breath
+             looks like two different programs talking. */
+          n: fmtNum(ar.applied_count, 0),
+          total: fmtNum(ar.applied_count + (ar.remaining || 0), 0),
+        }))}</p>`
+      : "";
+    say(`<p class="err">${esc(I18N.t("upd.install_failed"))} \u2014 ${esc(why)}</p>${partial}`, true);
+    return false;
+  }
+
+  /* The check leaves out every file that already matches, so an install
+     with nothing to do means this desk is current. Say so and leave the
+     machine alone - no backup, no restart. */
+  if (ar.already_current) {
+    mark("download", "done");
+    stop();
+    say(`<p class="ok">${icon("check")} ${esc(I18N.t("upd.already_current"))}</p>`);
+    setTimeout(() => host.remove(), 2600);
+    return false;
+  }
+
+  mark("download", "done");
+  mark("write", "done");
+
+  if (ar.ea_changed) {
+    say(`<p class="sub">${esc(I18N.t("ea.changed_by_update", {
+      v: String(ar.version || upd.version || ""),
+      n: fmtNum((ar.ea_files || []).length || 2, 0),
+    }))}</p>`);
+  }
+
+  mark("restart", "doing");
+  try {
+    await API.post("/api/host/restart", {});
+  } catch (err) { /* it may well die mid-reply; that IS the restart */ }
+  mark("restart", "done");
+
+  mark("wait", "doing");
+  const back = await waitForEngine(150000);
+  if (!back) {
+    mark("wait", "failed");
+    stop();
+    say(`<p class="sub">${esc(I18N.t("upd.inst_failed_wait"))}</p>`
+      + `<button class="btn" type="button" id="upd-inst-reload">${esc(I18N.t("upd.reload_now"))}</button>`);
+    const rb = host.querySelector("#upd-inst-reload");
+    if (rb) rb.onclick = () => location.replace("/?v=" + Date.now());
+    return false;
+  }
+
+  mark("wait", "done");
+  /* Safe only here: the engine has answered, so the reload is certain to
+     be able to fetch the pack the update just shipped. */
+  try { I18N.clearCache(); } catch (e) { /* */ }
+  say(`<p class="ok">${icon("check")} ${esc(I18N.t("upd.inst_done"))}</p>`);
+  setTimeout(() => location.replace("/?v=" + Date.now()), 700);
+  return true;
+}
+
+/**
+ * Poll until the engine answers, or give up.
+ *
+ * A restart is not instant and is not uniform: the process has to go
+ * down, come up, and open its port again. Reloading on a fixed timer
+ * races that, and losing the race is what produced a desk full of raw
+ * translation keys. So the page waits to be told, not to be timed.
+ *
+ * Health is deliberately unauthenticated, and the cache is bypassed so
+ * that a service worker cannot answer "fine" on the strength of a
+ * response it stored before the restart.
+ */
+async function waitForEngine(budgetMs) {
+  const started = Date.now();
+  const deadline = started + (budgetMs || 120000);
+  /* Give it a moment to actually go down, otherwise the first poll is
+     answered by the very process that is about to stop. */
+  await new Promise((r) => setTimeout(r, 2500));
+  let wentDown = false;
+  while (Date.now() < deadline) {
+    let alive = false;
+    try {
+      const res = await fetch("/api/health?t=" + Date.now(), { cache: "no-store" });
+      alive = res.ok;
+    } catch (e) { alive = false; }
+    if (!alive) {
+      wentDown = true;
+    } else if (wentDown) {
+      return true;              // down, then up: this is the new process
+    } else if (Date.now() - started > 15000) {
+      /* Never observed to drop. Either the restart is not wired up on
+         this host or it was quicker than the gap between two polls -
+         and in both cases a server that has been answering for fifteen
+         seconds is a server the reload can rely on. */
+      return true;
+    }
+    await new Promise((r) => setTimeout(r, 1200));
+  }
+  return false;
 }
 
 /** "The update worked" - shown to a premium machine, which has no gate. */

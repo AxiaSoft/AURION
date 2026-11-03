@@ -1166,7 +1166,20 @@
     "token_why": "Without one, GitHub allows 60 checks an hour shared with everyone on your connection. A read-only token raises it to 5000 and makes it yours. It is stored on this machine only.",
     "rate_limited": "GitHub is rate limiting this connection.",
     "rate_retry": "It clears at about {time}.",
-    "rate_token_hint": "Adding a GitHub token in the update settings removes this limit."
+    "rate_token_hint": "Adding a GitHub token in the update settings removes this limit.",
+    "inst_title": "Installing the update",
+    "inst_note": "Leave this window open. The desk restarts by itself and comes back when it is ready.",
+    "inst_download": "Fetching the changed files",
+    "inst_write": "Replacing files",
+    "inst_restart": "Restarting the system",
+    "inst_wait": "Waiting for the desk to come back",
+    "inst_done": "Done — reloading",
+    "inst_changed": "{n} files changed",
+    "inst_slow": "This is taking longer than usual. The desk will come back on its own; you can also reload the page.",
+    "inst_failed_wait": "The update was installed, but the desk has not answered yet. Reload the page in a moment.",
+    "already_current": "This desk is already on the latest version.",
+    "install_partial": "{n} of {total} files were installed before it stopped.",
+    "reload_now": "Reload now"
   },
   "about": {
     "version": "Version",
