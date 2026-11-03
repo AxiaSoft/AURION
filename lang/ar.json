@@ -1175,7 +1175,17 @@
     "inst_failed_wait": "تم تثبيت التحديث، لكن المكتب لم يستجب بعد. أعد تحميل الصفحة بعد لحظات.",
     "already_current": "هذا المكتب على أحدث إصدار بالفعل.",
     "install_partial": "تم تثبيت {n} من أصل {total} ملفًا قبل التوقف.",
-    "reload_now": "إعادة التحميل الآن"
+    "reload_now": "إعادة التحميل الآن",
+    "inst_pct": "{pct}٪",
+    "inst_of": "{n} من {total} ملفًا",
+    "inst_phase_download": "جلب الملفات المتغيرة",
+    "inst_phase_apply": "استبدال الملفات",
+    "inst_installed": "تم تثبيت التحديث",
+    "inst_restart_needed": "أعد تشغيل المكتب لإتمامه.",
+    "inst_restart_now": "إعادة التشغيل الآن",
+    "inst_restart_later": "لاحقًا",
+    "inst_later_note": "يظل المكتب يعمل بالإصدار السابق حتى يُعاد تشغيله.",
+    "inst_toast_done": "تم تثبيت التحديث — أعد التشغيل لإتمامه"
   },
   "about": {
     "version": "الإصدار",

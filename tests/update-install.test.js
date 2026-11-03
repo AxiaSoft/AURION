@@ -93,42 +93,21 @@ check(
   "fetching, replacing, restarting, waiting"
 );
 
+/* The restart used to happen here, unasked. It now lives behind a
+   button in finishUpdateRestart, and the ordering guards that protect
+   the raw-keys fix moved with it - see "the restart is the user's to
+   make" below, which reads that function. What matters HERE is that
+   this half no longer touches the machine. */
 check(
-  "it restarts the system itself",
-  /API\.post\("\/api\/host\/restart"/.test(runBody),
-  "no second button"
-);
-
-/* The ordering that matters. */
-const iRestart = runBody.indexOf('/api/host/restart');
-const iWait = runBody.indexOf("waitForEngine(");
-const iClear = runBody.indexOf("I18N.clearCache()");
-/* The failure branch offers its own reload button, so it is the LAST
-   one - the success path - that has to come after the wait. */
-const iReload = runBody.lastIndexOf("location.replace");
-
-check(
-  "it waits for the engine after asking for the restart",
-  iRestart > 0 && iWait > iRestart,
-  "restart, then wait"
+  "the install itself does not restart anything",
+  !/API\.post\("\/api\/host\/restart"/.test(runBody),
+  "it stops at installed, and asks"
 );
 
 check(
-  "and only reloads once the engine has answered",
-  iWait > 0 && iReload > iWait,
-  "this is the fix for the keys on screen"
-);
-
-check(
-  "the stale language pack is dropped only after the engine answers",
-  iClear > iWait && iClear < iReload,
-  "an empty cache with nothing to fetch would be worse than a stale one"
-);
-
-check(
-  "a desk that never comes back is told so, with a way out",
-  /upd\.inst_failed_wait/.test(runBody) && /upd-inst-reload/.test(runBody),
-  "rather than spinning forever"
+  "and it does not reload the page on its own either",
+  !/location\.replace/.test(runBody),
+  "the page the user is looking at matches the engine behind it"
 );
 
 console.log("\n=== waiting for the engine, actually run ===");
@@ -199,8 +178,8 @@ check(
 
 check(
   "and it does not restart the machine to do nothing",
-  runBody.indexOf("ar.already_current") < iRestart,
-  "the already-current branch returns before the restart"
+  /ar\.already_current[\s\S]{0,400}return false;/.test(runBody),
+  "the already-current branch returns before anything is touched"
 );
 
 check(
@@ -352,6 +331,131 @@ console.log("\n=== how it looks ===");
     "the screen announces itself",
     /role", "status"/.test(runBody) && /aria-live", "polite"/.test(runBody),
     "a blind user is waiting for the same restart"
+  );
+}
+
+console.log("\n=== the progress bar reports facts ===");
+{
+  const BK = read("backend/src/updater.js");
+  const IDX = read("backend/src/index.js");
+
+  check(
+    "the engine publishes how far the apply has got",
+    /function getApplyProgress\(\)/.test(BK) && /setProgress\(\{ done: applied\.length/.test(BK),
+    "counted in the apply loop itself"
+  );
+  check(
+    "and the desk can ask for it",
+    /\/system\/update\/progress/.test(IDX) && /API\.get\("\/api\/system\/update\/progress"\)/.test(APP),
+    "polled while the apply is in flight"
+  );
+  /* Scoped to this route's own body. A window of N characters ran on
+     into the apply route below, which has a role check of its own, so
+     the guard passed with the check deleted. */
+  const progStart = IDX.indexOf('guarded.get("/system/update/progress"');
+  const progBody = progStart < 0 ? "" : IDX.slice(progStart, IDX.indexOf("\n});", progStart));
+  check(
+    "progress is owner-only, like the install it describes",
+    progBody.length > 0 && /role !== "owner"/.test(progBody) && /role !== "admin"/.test(progBody)
+  );
+  check(
+    "the total is the real file count, not a guess",
+    /total: files\.length/.test(BK),
+    "the same list the loop walks"
+  );
+  check(
+    "the bar is driven by that count",
+    /\(done \/ total\) \* 100/.test(runBody),
+    "files written over files to write"
+  );
+  check(
+    "a length it cannot know sweeps instead of inventing a number",
+    /is-sweeping/.test(runBody) && /pct !== null/.test(runBody),
+    "one archive download has no useful byte count"
+  );
+  check(
+    "progress is not persisted across a restart",
+    /* Line-based, not a paren-matching regex: the first version used
+       writeSecure\([^)]*applyProgress, which cannot cross the inner
+       parens of a path.join(...) argument and so missed exactly the
+       write it was meant to catch. */
+    !BK.split("\n").some((l) => /writeSecure|writeFileSync/.test(l) && /applyProgress/.test(l))
+      && /let applyProgress/.test(BK),
+    "a stale figure would be worse than none"
+  );
+  check(
+    "polling stops when the apply returns",
+    /stopPolling\(\);/.test(runBody) && (runBody.match(/stopPolling\(\)/g) || []).length >= 2,
+    "no timer left running behind the screen"
+  );
+  check(
+    "the bar announces itself to a screen reader",
+    /role="progressbar"/.test(runBody) && /aria-valuenow/.test(runBody),
+    "with a real value, removed while sweeping"
+  );
+}
+
+console.log("\n=== the restart is the user's to make ===");
+{
+  check(
+    "the install stops once the files are on disk",
+    /upd\.inst_installed/.test(runBody) && /is-installed/.test(runBody),
+    "installed, not yet running"
+  );
+  check(
+    "it does not restart the machine by itself any more",
+    !/API\.post\("\/api\/host\/restart"/.test(runBody),
+    "taking the engine down is the user's call on a trading desk"
+  );
+  check(
+    "a notification says so as well as the screen",
+    /toast\(I18N\.t\("upd\.inst_toast_done"\)\)/.test(runBody),
+    "the install is long enough to look away from"
+  );
+  check(
+    "there is a restart button and a way to defer",
+    /upd-inst-restart/.test(runBody) && /upd-inst-later/.test(runBody)
+  );
+
+  const fin = APP.slice(APP.indexOf("async function finishUpdateRestart("));
+  const finBody = fin.slice(0, fin.indexOf("\n/**", 10));
+  check(
+    "pressing restart is what calls the restart",
+    /finishUpdateRestart\(host, upd\)/.test(runBody) && /API\.post\("\/api\/host\/restart"/.test(finBody)
+  );
+  check(
+    "and the wait for the engine still happens before the reload",
+    finBody.indexOf("waitForEngine(") > 0
+      && finBody.lastIndexOf("location.replace") > finBody.indexOf("waitForEngine("),
+    "the fix for the raw keys must survive this change"
+  );
+  check(
+    "the packs are still dropped only after the engine answers",
+    finBody.indexOf("I18N.clearCache()") > finBody.indexOf("waitForEngine(")
+      && finBody.indexOf("I18N.clearCache()") < finBody.lastIndexOf("location.replace")
+  );
+  check(
+    "deferring does not reload the page",
+    /upd-inst-later[\s\S]{0,400}host\.remove\(\)/.test(runBody)
+      && !/upd-inst-later[\s\S]{0,400}location\.replace/.test(runBody),
+    "a new desk against an old engine is the one pairing nobody tested"
+  );
+}
+
+console.log("\n=== no browser dialogs anywhere ===");
+{
+  check(
+    "the update confirmation is the desk's own modal",
+    /const go = await askConfirm\(/.test(APP) && /await runUpdateInstall\(upd\)/.test(APP)
+  );
+  check(
+    "and not one window.confirm is left in the app",
+    !/window\.confirm\(/.test(APP) && !/[^.\w]confirm\(/.test(APP.replace(/askConfirm\(/g, "")),
+    "they ignore the theme, cannot read right-to-left, and can be suppressed by the browser"
+  );
+  check(
+    "deleting a strategy asks through the same dialog",
+    /async function deleteCustomStrategy[\s\S]{0,500}askConfirm\(/.test(APP)
   );
 }
 

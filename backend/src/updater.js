@@ -461,6 +461,31 @@ async function downloadUpdateFile(updateId, fileId, serverUrl) {
 }
 
 /**
+ * Where the running install has got to.
+ *
+ * An install is one POST that can take the better part of a minute, and
+ * a screen that cannot say anything about it has to either lie with an
+ * animation or show nothing. Neither is necessary: the apply loop knows
+ * exactly how many files there are and exactly how many it has written,
+ * so it publishes that and the desk polls it.
+ *
+ * Deliberately a plain object and not persisted. It describes a thing
+ * happening in this process right now; after a restart there is nothing
+ * to report, and a stale figure read off a file would be worse than no
+ * figure at all.
+ */
+let applyProgress = { active: false, phase: "idle", done: 0, total: 0, file: "", started: 0 };
+
+function setProgress(patch) {
+  applyProgress = { ...applyProgress, ...patch };
+}
+
+/** What the desk polls while it waits for the apply to come back. */
+function getApplyProgress() {
+  return { ...applyProgress };
+}
+
+/**
  * A file out of the downloaded archive, or null to go and ask for it.
  *
  * The archive is a transport, not an authority: the bytes are hashed the
@@ -526,6 +551,7 @@ async function applyUpdate(updateId, serverUrl) {
      desk is already running the build it was asked to install, and the
      panel should say exactly that instead of reporting an error. */
   if (!files.length) {
+    setProgress({ active: false, phase: "done", done: 0, total: 0, file: "" });
     return { ok: true, already_current: true, applied: [], version: state.latest?.version || "" };
   }
 
@@ -542,6 +568,8 @@ async function applyUpdate(updateId, serverUrl) {
 
      If it cannot be had, the per-file path below still works; it is just
      the expensive way round. */
+  setProgress({ active: true, phase: "download", done: 0, total: files.length, file: "", started: Date.now() });
+
   let snapshot = null;
   if (kind === "github" && state.latest?.ref) {
     try {
@@ -551,6 +579,7 @@ async function applyUpdate(updateId, serverUrl) {
     }
   }
 
+  setProgress({ phase: "apply" });
   const applied = [];
   try {
     for (const f of files) {
@@ -580,6 +609,7 @@ async function applyUpdate(updateId, serverUrl) {
       fs.renameSync(tmp, safeTarget);
       try { fs.chmodSync(safeTarget, 0o600); } catch {}
       applied.push(dl.filePath);
+      setProgress({ done: applied.length, file: dl.filePath });
     }
 
     // update version in config if needed
@@ -610,6 +640,7 @@ async function applyUpdate(updateId, serverUrl) {
       ea_changed: eaFiles.length > 0,
     });
 
+    setProgress({ active: false, phase: "done", done: applied.length, file: "" });
     return {
       ok: true,
       applied,
@@ -624,6 +655,7 @@ async function applyUpdate(updateId, serverUrl) {
        tells the user neither that anything was written nor when they
        may try again. The remaining count and the reset time come
        straight from the headers of the response that refused. */
+    setProgress({ active: false, phase: "failed", file: "" });
     const rate = github.rateState ? github.rateState() : null;
     const out = { ok: false, error: e.message, applied, applied_count: applied.length, remaining: files.length - applied.length };
     if (e.message === "github_rate_limited") {
@@ -718,6 +750,7 @@ module.exports = {
   checkForUpdates,
   applyUpdate,
   getUpdateState,
+  getApplyProgress,
   collectLocalManifest,
   startAutoChecker,
   stopAutoChecker,

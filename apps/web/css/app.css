@@ -3755,6 +3755,57 @@ html[dir="rtl"] .q-how[open] summary::before{ transform:rotate(0deg) }
 .upd-install-steps li.failed .upd-step-dot{background:#ff6b6b}
 .upd-install-note{margin:0;opacity:.6;font-size:13px}
 .upd-install.is-failed .upd-install-note{display:none}
+/* "Leave this window open, the desk restarts by itself" stops being
+   true the moment the copy finishes and the restart becomes a button. */
+.upd-install.is-installed .upd-install-note{display:none}
+.upd-install.is-installed .upd-install-msg{margin-block-start:18px}
+/* The progress bar.
+   
+   It reports the real count of files written, polled from the engine,
+   so it is determinate for the part of the work that has a length and
+   sweeps for the part that does not (one archive download, no useful
+   byte count). A bar that creeps on a timer is an animation wearing a
+   measurement's clothes. */
+.upd-bar{
+  position:relative;block-size:6px;border-radius:999px;
+  background:rgba(232,236,244,.14);overflow:hidden;
+  margin:0 auto 10px;max-inline-size:320px;
+}
+.upd-bar-fill{
+  block-size:100%;inline-size:0%;border-radius:inherit;
+  background:linear-gradient(90deg,#3ee0c4,#7c6cff);
+  transition:inline-size .3s ease-out;
+}
+/* Length unknown: a band travels instead of a fill growing. */
+.upd-bar.is-sweeping .upd-bar-fill{
+  inline-size:38%;
+  animation:updSweep 1.25s ease-in-out infinite;
+}
+@keyframes updSweep{
+  0%{transform:translateX(-110%)}
+  100%{transform:translateX(320%)}
+}
+.upd-install.is-bad .upd-bar-fill{background:#ff6b6b}
+.upd-install.is-installed .upd-bar-fill{background:#3ee0c4}
+.upd-bar-line{
+  display:flex;gap:10px;justify-content:center;align-items:baseline;
+  margin:0 0 14px;font-size:13px;opacity:.8;
+}
+.upd-bar-count{opacity:.7;font-size:12px}
+@media (prefers-reduced-motion:reduce){
+  .upd-bar-fill{transition:none}
+  .upd-bar.is-sweeping .upd-bar-fill{animation:none;inline-size:100%;opacity:.5}
+}
+
+/* Restarting is the user's call, so the two choices are a real pair of
+   buttons rather than one button and a line of small print. */
+.upd-install-actions{
+  display:flex;gap:10px;justify-content:center;flex-wrap:wrap;
+  margin-block-start:14px;
+}
+.upd-install-actions .btn{min-block-size:44px}
+.upd-install-later-note{margin-block-start:10px;opacity:.55;font-size:12px}
+
 .upd-install-msg{margin-block-start:14px;font-size:14px}
 .upd-install-msg .err{color:#ff6b6b}
 .upd-install-msg .ok{color:#3ee0c4}
