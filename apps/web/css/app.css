@@ -3707,6 +3707,59 @@ html[dir="rtl"] .q-how[open] summary::before{ transform:rotate(0deg) }
 .upd-welcome .mono{margin:0 0 16px;opacity:.75}
 .gate-updated{margin:0 0 10px}
 
+/* The install screen. Same fixed palette and the same reasoning as the
+   welcome above it: an update replaces the stylesheet underneath this
+   screen while it is on display, so it cannot depend on theme tokens
+   that may be mid-swap, and it must stay legible either way. */
+.upd-install{
+  position:fixed;inset:0;z-index:10001;
+  display:grid;place-items:center;padding:20px;
+  background:
+    radial-gradient(120% 90% at 30% 0%, rgba(62,224,196,.14), transparent 60%),
+    radial-gradient(90% 80% at 85% 100%, rgba(124,108,255,.12), transparent 65%),
+    #06070b;
+  color:#e8ecf4;
+}
+.upd-install-card{max-width:460px;width:100%;text-align:center}
+.upd-install-card h2{margin:0 0 6px;font-size:20px;color:#fff}
+.upd-install-ver{margin:0 0 18px;opacity:.7;font-size:13px;unicode-bidi:plaintext}
+.upd-install-count{unicode-bidi:plaintext}
+.upd-install-steps li.done{opacity:.45}
+.upd-install-spin{
+  width:44px;height:44px;margin:0 auto 16px;border-radius:50%;
+  border:3px solid rgba(232,236,244,.16);border-top-color:#3ee0c4;
+  animation:updSpin .9s linear infinite;
+}
+@keyframes updSpin{to{transform:rotate(360deg)}}
+/* A spinner that cannot stop is a worse signal than no spinner, so the
+   motion is dropped rather than slowed when motion is unwelcome. */
+@media (prefers-reduced-motion:reduce){
+  .upd-install-spin{animation:none;border-top-color:rgba(232,236,244,.16)}
+}
+.upd-install-steps{
+  list-style:none;margin:0 auto 16px;padding:0;
+  max-width:320px;text-align:start;
+}
+.upd-install-steps li{
+  display:flex;align-items:center;gap:10px;
+  padding:7px 0;font-size:14px;opacity:.45;
+}
+.upd-install-steps li.doing{opacity:1}
+.upd-install-steps li.failed{opacity:1;color:#ff6b6b}
+.upd-step-dot{
+  flex:none;width:9px;height:9px;border-radius:50%;
+  background:rgba(232,236,244,.3);
+}
+.upd-install-steps li.doing .upd-step-dot{background:#3ee0c4}
+.upd-install-steps li.done .upd-step-dot{background:#3ee0c4;opacity:.65}
+.upd-install-steps li.failed .upd-step-dot{background:#ff6b6b}
+.upd-install-note{margin:0;opacity:.6;font-size:13px}
+.upd-install.is-failed .upd-install-note{display:none}
+.upd-install-msg{margin-block-start:14px;font-size:14px}
+.upd-install-msg .err{color:#ff6b6b}
+.upd-install-msg .ok{color:#3ee0c4}
+.upd-install-msg .btn{margin-block-start:10px}
+
 /* ===== Backtest results ===== */
 .bt-kv{margin-block-end:12px}
 .bt-curve{

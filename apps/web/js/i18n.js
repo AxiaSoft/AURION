@@ -31,6 +31,30 @@ const I18N = {
     } catch (e) { /* private mode, or quota: the desk still works */ }
   },
 
+  /**
+   * Forget the cached packs, so the next load goes and gets fresh ones.
+   *
+   * An update ships new keys. The desk only notices them when the build
+   * token in i18n.js's own script tag changes, and after an update the
+   * page used to reload while the engine was still restarting - so the
+   * service worker answered with the PREVIOUS index.html, carrying the
+   * PREVIOUS token, which matched the cached pack exactly and refreshed
+   * nothing. Every key added by that update then rendered as its own
+   * key: "upd.rate_limited upd.rate_retry upd.rate_token_hint" on
+   * screen instead of a sentence, reported from the field.
+   *
+   * The install screen now waits for the engine to answer before it
+   * reloads, which removes the cause; this removes the leftovers. Only
+   * safe to call when something is about to reload against an engine
+   * known to be up, because an empty cache and an unreachable pack is
+   * the one state worse than a stale one.
+   */
+  clearCache() {
+    try {
+      for (const code of ["en", "fa", "ar"]) localStorage.removeItem(this.cacheKey(code));
+    } catch (e) { /* private mode: the fetch below still refreshes it */ }
+  },
+
   /** Put a pack into force and set the document's language and direction. */
   install(code, pack) {
     this.lang = code;

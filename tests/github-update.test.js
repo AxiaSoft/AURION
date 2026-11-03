@@ -373,6 +373,139 @@ console.log("\n=== the rate limit ===");
   say(/data\/update-settings\.json/.test(ignore), "nor is the file that can hold a token");
 }
 
+console.log("\n=== an install costs no budget at all ===");
+{
+  const zlib = require("node:zlib");
+  const ghSrc = fs.readFileSync(path.join(ROOT, "backend", "src", "github-update.js"), "utf8");
+
+  /* The reported fault. The blobs API charges one request per file
+     against sixty an hour, so an install of any size ran out part way
+     and stopped with "github_rate_limited". The archive endpoint hands
+     over the whole tree in one go and - measured - does not touch the
+     hourly budget, because it redirects to codeload rather than being
+     served by the API host. */
+  say(/\/zipball\//.test(ghSrc), "the whole tree is fetched as one archive, not one request per file");
+  say(typeof gh.fetchSnapshot === "function", "and that is a function the updater can call");
+  /* Pinned on the CALL, not the name: the function's own definition
+     contains its name too, so a guard that greps for the identifier
+     goes on passing after the apply loop stops calling it. */
+  say(/const fromArchive = snapshot \? takeFromSnapshot\(snapshot, f\) : null;/.test(updaterSrc),
+      "the apply loop takes each file out of the archive first");
+  say(/fromArchive[\s\S]{0,200}await github\.fetchFile/.test(updaterSrc),
+      "the per-file request survives only as the fallback when the archive cannot be had");
+
+  /* A zip this test builds itself, so the reader is measured against the
+     format rather than against one repository's archive. */
+  const build = (entries) => {
+    const locals = [];
+    const central = [];
+    let off = 0;
+    for (const [name, body, store] of entries) {
+      const nb = Buffer.from(name, "utf8");
+      const comp = store ? Buffer.from(body) : zlib.deflateRawSync(body);
+      const crc = zlib.crc32 ? zlib.crc32(body) : 0;
+      const lfh = Buffer.alloc(30);
+      lfh.writeUInt32LE(0x04034b50, 0);
+      lfh.writeUInt16LE(store ? 0 : 8, 8);
+      lfh.writeUInt32LE(crc, 14);
+      lfh.writeUInt32LE(comp.length, 18);
+      lfh.writeUInt32LE(body.length, 22);
+      lfh.writeUInt16LE(nb.length, 26);
+      const cd = Buffer.alloc(46);
+      cd.writeUInt32LE(0x02014b50, 0);
+      cd.writeUInt16LE(store ? 0 : 8, 10);
+      cd.writeUInt32LE(crc, 16);
+      cd.writeUInt32LE(comp.length, 20);
+      cd.writeUInt32LE(body.length, 24);
+      cd.writeUInt16LE(nb.length, 28);
+      cd.writeUInt32LE(off, 42);
+      central.push(Buffer.concat([cd, nb]));
+      locals.push(Buffer.concat([lfh, nb, comp]));
+      off += lfh.length + nb.length + comp.length;
+    }
+    const cdBuf = Buffer.concat(central);
+    const eocd = Buffer.alloc(22);
+    eocd.writeUInt32LE(0x06054b50, 0);
+    eocd.writeUInt16LE(entries.length, 8);
+    eocd.writeUInt16LE(entries.length, 10);
+    eocd.writeUInt32LE(cdBuf.length, 12);
+    eocd.writeUInt32LE(off, 16);
+    return Buffer.concat([...locals, cdBuf, eocd]);
+  };
+
+  const text = Buffer.from("console.log('hello');\n".repeat(40));
+  const zip = build([
+    ["repo-abc123/apps/web/js/app.js", text, false],
+    ["repo-abc123/lang/", Buffer.alloc(0), true],
+    ["repo-abc123/lang/en.json", Buffer.from('{"a":1}'), true],
+  ]);
+  let read = null;
+  try { read = gh.readZip(zip); } catch (e) { read = e; }
+  say(read instanceof Map, "a zip built by hand is read back");
+  if (read instanceof Map) {
+    say(read.get("repo-abc123/apps/web/js/app.js")?.equals(text),
+        "a deflated entry comes back byte for byte");
+    say(read.get("repo-abc123/lang/en.json")?.toString() === '{"a":1}',
+        "a stored entry comes back byte for byte");
+    say(!read.has("repo-abc123/lang/"), "a directory entry is not mistaken for a file");
+  } else {
+    say(false, "a deflated entry comes back byte for byte");
+    say(false, "a stored entry comes back byte for byte");
+    say(false, "a directory entry is not mistaken for a file");
+  }
+
+  /* Truncation and corruption must be refused, not half-read: the bytes
+     drive a write loop over the user's installation. */
+  let threw = false;
+  try { gh.readZip(Buffer.alloc(64)); } catch (e) { threw = /bad_archive/.test(e.message); }
+  say(threw, "a buffer with no directory in it is refused");
+  threw = false;
+  try { gh.readZip(zip.subarray(0, zip.length - 8)); } catch (e) { threw = true; }
+  say(threw, "a truncated archive is refused");
+
+  /* The archive is a transport. Nothing comes out of it unverified. */
+  say(/github\.blobSha\(buffer\) !== want/.test(updaterSrc),
+      "every file out of the archive is hashed against the SHA the tree listed");
+  say(/if \(!buffer \|\| !\/\^\[0-9a-f\]\{40\}\$\/\.test\(want\)\) return null/.test(updaterSrc),
+      "a file missing from the archive falls back rather than being skipped silently");
+
+  /* A Location header is input. Following it anywhere would turn the
+     updater into a downloader for whoever can answer first. */
+  say(/\(\^\|\\\.\)github\\\.com\$/.test(ghSrc), "a redirect is only followed to a github.com host");
+  say(/u\.protocol !== "https:"/.test(ghSrc), "and only over https");
+  const dl = ghSrc.slice(ghSrc.indexOf("function download("), ghSrc.indexOf("function readZip("));
+  say(/rejectUnauthorized: true/.test(dl) && /minVersion: "TLSv1\.2"/.test(dl),
+      "the archive download verifies certificates like every other call");
+  say(/src\.token && u\.hostname === API_HOST/.test(dl),
+      "the token is sent to the API host and not forwarded to codeload");
+  say(/hops > 5/.test(dl), "a redirect loop ends rather than running forever");
+  say(/MAX_ARCHIVE/.test(dl) && /60 \* 1024 \* 1024/.test(ghSrc),
+      "the download is capped, so a huge answer cannot exhaust memory");
+
+  /* And when it does run out anyway, say how far it got. */
+  say(/applied_count: applied\.length/.test(updaterSrc) && /remaining: files\.length - applied\.length/.test(updaterSrc),
+      "a failed install reports how many files it managed and how many are left");
+  say(/out\.reset_at = reset/.test(updaterSrc),
+      "a rate-limited install carries the time the limit clears");
+}
+
+console.log("\n=== nothing to install is not a failure ===");
+{
+  say(/already_current: true/.test(updaterSrc),
+      "an apply with no changed files answers that the desk is current");
+  say(!/return \{ ok: false, error: "no_files" \}/.test(updaterSrc),
+      "and no longer reports it as an error");
+  const idx = updaterSrc.indexOf("already_current: true");
+  say(/ok: true/.test(updaterSrc.slice(idx - 120, idx)),
+      "it is an ok answer, so the panel takes the success path");
+  /* The check already drops every file whose content matches, so an
+     empty list genuinely means current - this is what makes the answer
+     above true rather than merely optimistic. */
+  const ghSrc = fs.readFileSync(path.join(ROOT, "backend", "src", "github-update.js"), "utf8");
+  say(/if \(mine === entry\.sha\) continue;/.test(ghSrc),
+      "the file list contains only files whose content actually differs");
+}
+
 const bad = results.filter((r) => !r).length;
 console.log("\ngithub-update: " + (bad ? bad + " FAILED of " + results.length : results.length + " checks passed"));
 process.exit(bad ? 1 : 0);

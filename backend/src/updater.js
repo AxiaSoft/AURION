@@ -441,6 +441,23 @@ async function downloadUpdateFile(updateId, fileId, serverUrl) {
   });
 }
 
+/**
+ * A file out of the downloaded archive, or null to go and ask for it.
+ *
+ * The archive is a transport, not an authority: the bytes are hashed the
+ * way git hashes a blob and compared with the SHA the tree listed. A file
+ * that is missing from it, or whose content does not match, falls through
+ * to the per-file request rather than being written on trust.
+ */
+function takeFromSnapshot(snapshot, f) {
+  const rel = String(f.filePath || "").replace(/\\/g, "/");
+  const want = String(f.hash || f.id || "").toLowerCase();
+  const buffer = snapshot.get(rel);
+  if (!buffer || !/^[0-9a-f]{40}$/.test(want)) return null;
+  if (github.blobSha(buffer) !== want) return null;
+  return { buffer, filePath: rel, hash: want };
+}
+
 async function applyUpdate(updateId, serverUrl) {
   const kind = getSourceKind();
   // only apply if published and exists
@@ -485,17 +502,45 @@ async function applyUpdate(updateId, serverUrl) {
     if (kind === "github" && !github.isShippable(p)) return false;
     return true;
   });
-  if (!files.length) return { ok: false, error: "no_files" };
+  /* Nothing to do is not a failure. The check leaves out every file whose
+     content already matches the remote one, so an empty list means this
+     desk is already running the build it was asked to install, and the
+     panel should say exactly that instead of reporting an error. */
+  if (!files.length) {
+    return { ok: true, already_current: true, applied: [], version: state.latest?.version || "" };
+  }
 
   const backupDir = path.join(DATA, "update_backups", updateId + "_" + Date.now());
   ensureDirSecure(backupDir);
 
+  /* One download for the whole tree, instead of one request per file.
+     The blobs API costs a request each, against sixty an hour without a
+     token, so an install of any real size used to run out of budget part
+     way through and stop with "github_rate_limited" - reported from the
+     field. The archive comes from codeload, which does not draw on that
+     budget at all, so this costs nothing and one round trip. Every file
+     taken out of it is still hashed against the SHA the tree listed.
+
+     If it cannot be had, the per-file path below still works; it is just
+     the expensive way round. */
+  let snapshot = null;
+  if (kind === "github" && state.latest?.ref) {
+    try {
+      snapshot = await github.fetchSnapshot(liveConfig(), state.latest.ref);
+    } catch (e) {
+      snapshot = null;
+    }
+  }
+
   const applied = [];
   try {
     for (const f of files) {
-      const dl = kind === "github"
-        ? await github.fetchFile(liveConfig(), f)
-        : await downloadUpdateFile(updateId, f.id, url);
+      const fromArchive = snapshot ? takeFromSnapshot(snapshot, f) : null;
+      const dl = fromArchive
+        ? fromArchive
+        : kind === "github"
+          ? await github.fetchFile(liveConfig(), f)
+          : await downloadUpdateFile(updateId, f.id, url);
       const targetPath = path.join(ROOT, dl.filePath);
       const safeRoot = path.resolve(ROOT);
       const safeTarget = path.resolve(targetPath);
@@ -555,7 +600,20 @@ async function applyUpdate(updateId, serverUrl) {
       ea_files: eaFiles,
     };
   } catch (e) {
-    return { ok: false, error: e.message, applied };
+    /* Say how far it got. An install that stops part way has left the
+       machine in a mixed state, and "github_rate_limited" on its own
+       tells the user neither that anything was written nor when they
+       may try again. The remaining count and the reset time come
+       straight from the headers of the response that refused. */
+    const rate = github.rateState ? github.rateState() : null;
+    const out = { ok: false, error: e.message, applied, applied_count: applied.length, remaining: files.length - applied.length };
+    if (e.message === "github_rate_limited") {
+      const reset = e.resetAt || (rate && rate.reset > 0 ? new Date(rate.reset * 1000).toISOString() : "");
+      if (reset) out.reset_at = reset;
+      if (e.retryAfterSeconds != null) out.retry_after_seconds = e.retryAfterSeconds;
+      if (rate) out.rate_authenticated = Boolean(rate.authenticated);
+    }
+    return out;
   }
 }
 
