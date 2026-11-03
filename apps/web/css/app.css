@@ -4942,7 +4942,30 @@ html[dir="rtl"] .ccx-risk-bar > i{
 .pc-seg button:focus-visible{ outline:2px solid var(--accent); outline-offset:1px }
 
 .pc-host{ width:100%; min-height:180px; overflow:hidden }
-.pc-svg{ display:block; width:100%; height:auto; overflow:visible }
+/* The chart is a diagram, and its coordinate system is left-to-right
+   whatever language the desk is in: the value gutter is 46px of x,
+   time runs from low x to high x, and every label is placed by an
+   absolute x with text-anchor saying which side of that x it hangs
+   on.
+
+   SVG resolves text-anchor start/end against the inline base
+   direction, not against the coordinate system - so in Persian and
+   Arabic the whole document's dir=rtl swapped the meaning of both
+   anchors and every label hung off the wrong side of its own x.
+   Measured at 390 before this: the axis values, meant to sit in the
+   gutter at 13..40, rendered at 40..66 - on top of the grid lines and
+   the equity line; the first date label landed at -12..46, clipped
+   off the left edge of the chart; the last at 328..386, spilling out
+   of a 340px chart (and .pc-svg is overflow:visible, so out of the
+   card with it).
+
+   The anchors are not the bug and flipping them per language would
+   need every x in pnl-charts.js mirrored too. The diagram is simply
+   not a block of prose: it is pinned to ltr, and each label is
+   isolated so a Persian or Arabic phrase inside it still shapes and
+   orders as its own right-to-left run. */
+.pc-svg{ display:block; width:100%; height:auto; overflow:visible; direction:ltr }
+.pc-svg text{ unicode-bidi:plaintext }
 
 .pc-grid{ stroke:var(--line); stroke-width:1 }
 .pc-zero{ stroke:rgb(var(--wash) / .34); stroke-width:1; stroke-dasharray:4 4 }
@@ -4973,7 +4996,28 @@ text.pc-val.is-down{ fill:var(--bad) }
 .pc-stat{ display:flex; flex-direction:column; gap:2px; padding:8px 10px; border-radius:10px;
   background:rgb(var(--wash) / .04); border:1px solid var(--line); min-width:0 }
 .pc-stat span{ font-size:11px; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis }
-.pc-stat b{ font-size:14px; font-variant-numeric:tabular-nums; overflow:hidden; text-overflow:ellipsis }
+/* The figure, seated the way every quantity on this desk is seated:
+   left to right, because +112.96 is +112.96 in all three languages.
+
+   The sign is a neutral character, so on a Persian or Arabic page the
+   bidi algorithm handed it the paragraph's own direction and parked
+   it after the digits: a profit of +112.96 printed as "112.96+" and a
+   drawdown of -66.53 as "66.53-", which reads as a number with
+   something stuck to it rather than as a signed figure. Measured in
+   the browser on all four signed tiles.
+
+   The seat is kept physically. direction:ltr alone would also drag
+   the value to the left edge of its tile while its label stayed on
+   the right, so the right-hand end is restored explicitly for an RTL
+   page - the same trap this file already documents at the numeric
+   input rule above, where `direction:ltr` with `text-align:end` sent
+   every prop number to the wrong edge. */
+.pc-stat b{
+  font-size:14px; font-variant-numeric:tabular-nums;
+  overflow:hidden; text-overflow:ellipsis;
+  direction:ltr; unicode-bidi:isolate; text-align:left;
+}
+html[dir="rtl"] .pc-stat b{ text-align:right }
 
 @media (max-width:900px){
   .pc-stats{ grid-template-columns:repeat(2, minmax(0,1fr)) }

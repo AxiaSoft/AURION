@@ -45,12 +45,33 @@
     return n.toFixed(a >= 10 ? 1 : 2);
   };
 
+  /* Translate if the desk's dictionary is around; fall back to English.
+
+     The lexical binding first, `global.I18N` only second. i18n.js
+     declares `const I18N = {...}` at the top level of a classic
+     script, which is a global LEXICAL binding and never a property of
+     window - so `global.I18N` was undefined here on every desk, and
+     every label this file draws fell through to its English fallback
+     whatever language the trader had chosen. The keys were all
+     present in fa and ar the whole time; nothing ever asked for them.
+     Measured in the browser: I18N.lang "fa", I18N.t("history.winrate")
+     "نرخ برد", window.I18N === I18N false, and the chart printing
+     "Win rate".
+
+     This is the same fault charts.js carries a note about at its
+     i18n() method, found the same way and fixed the same way. Two
+     files reaching for one dictionary and both reaching wrong is a
+     sign the binding is the trap, not the caller.
+
+     global is still tried second, so a host that does export it there
+     keeps working. */
   const t = (key, fallback) => {
     try {
-      if (global.I18N && typeof global.I18N.t === "function") {
-        const s = global.I18N.t(key);
-        if (s && s !== key) return s;
-      }
+      const src = (typeof I18N !== "undefined" && I18N && typeof I18N.t === "function") ? I18N
+        : (global && global.I18N && typeof global.I18N.t === "function") ? global.I18N
+        : null;
+      const s = src ? src.t(key) : key;
+      if (s && s !== key) return s;
     } catch (_) { /* i18n is optional here */ }
     return fallback;
   };

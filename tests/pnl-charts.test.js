@@ -367,6 +367,123 @@ check("every string on the new card is translated in all three languages", () =>
   return keys.length + " keys x 3 languages";
 });
 
+/* =======================================================================
+   Persian and Arabic
+   ======================================================================= */
+
+/* Reported: in fa and ar the numbers and text inside the history
+   charts landed on top of the chart. Two separate faults, both
+   measured in a real browser at 390 and 1440. */
+
+check("the chart's labels are translated, not silently English", () => {
+  /* The fault: pnl-charts.js asked for `global.I18N`, and i18n.js
+     declares `const I18N = {...}` at the top level of a classic
+     script. That is a global LEXICAL binding and never a property of
+     window, so the lookup missed on every desk and every label fell
+     through to its English fallback - in all three languages, since
+     2021-era "Win rate" is the fallback for fa and ar alike. The keys
+     were present in every pack the whole time. Measured in the
+     browser: I18N.lang "fa", I18N.t("history.winrate") "نرخ برد",
+     window.I18N === I18N false, chart printing "Win rate".
+
+     Reproduced here rather than asserted on the source, because the
+     thing that bites is a binding, not a string. A `const` at the top
+     of a script run in a vm context creates exactly the same lexical
+     global: visible to code in the context, absent from the sandbox
+     object. If the lookup regresses to a property read, this goes
+     back to English and the check fails. */
+  const box = { console };
+  box.window = box;
+  box.globalThis = box;
+  vm.createContext(box);
+  vm.runInContext('const I18N = { lang: "fa", t: (k) => ({ "history.winrate": "WINRATE-FA" }[k] || k) };',
+    box, { filename: "i18n.js" });
+  if (box.I18N !== undefined) throw new Error("the fixture did not reproduce a lexical-only binding");
+  vm.runInContext(read("js/pnl-charts.js"), box, { filename: "pnl-charts.js" });
+  const svg = box.PNL.render("donut", box.PNL.series(LEDGER), 340, 200);
+  if (/Win rate/.test(svg)) throw new Error("the chart fell back to English with a dictionary in scope");
+  if (!/WINRATE-FA/.test(svg)) throw new Error("the translation never reached the chart: " + svg.slice(0, 200));
+  return "lexical I18N is found";
+});
+
+check("a host that exports the dictionary on the global still works", () => {
+  /* The property lookup is kept as a second try rather than replaced,
+     so nothing that did work stops working. */
+  /* `window` is a DISTINCT object here, not the context itself. In a
+     vm context a property of the sandbox is also reachable as a bare
+     identifier, so a fixture that sets box.I18N exercises the lexical
+     branch and passes no matter which lookup the file does - the
+     first version of this check was exactly that, and it sat green
+     while the fallback was deleted. Hanging the dictionary off a
+     separate window object is the only way to make the bare name
+     genuinely undefined while the property is there. */
+  const box = { console };
+  box.window = { I18N: { lang: "ar", t: (k) => ({ "history.winrate": "WINRATE-AR" }[k] || k) } };
+  vm.createContext(box);
+  vm.runInContext("typeof I18N", box);
+  vm.runInContext(read("js/pnl-charts.js"), box, { filename: "pnl-charts.js" });
+  if (vm.runInContext("typeof I18N", box) !== "undefined") {
+    throw new Error("the fixture leaked a lexical binding, so this proves nothing");
+  }
+  const PNL2 = box.window.PNL;
+  const svg = PNL2.render("donut", PNL2.series(LEDGER), 340, 200);
+  if (!/WINRATE-AR/.test(svg)) throw new Error("a global dictionary is no longer read");
+  return "global I18N still works";
+});
+
+check("the chart is pinned left-to-right, whatever the page is", () => {
+  /* SVG resolves text-anchor start/end against the inline base
+     direction, not against the coordinate system. pnl-charts.js
+     places every label at an absolute x with an anchor saying which
+     side of that x it hangs on - a 46px value gutter on the left,
+     time running from low x to high x - so dir=rtl swapped the
+     meaning of both anchors and hung every label off the wrong side.
+
+     Measured at 390 before the fix: axis values meant for 13..40
+     rendered at 40..66, on top of the grid and the equity line; the
+     first date label at -12..46, clipped off the chart; the last at
+     328..386, outside a 340px chart that is overflow:visible. After:
+     13..40, 46..105 and 271..328 - identical to English. */
+  const flat = appCss.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\s+/g, " ");
+  const svg = /[}]\s*\.pc-svg\s*\{([^}]*)\}/.exec(flat);
+  if (!svg) throw new Error("no .pc-svg rule");
+  if (!/direction:\s*ltr/.test(svg[1])) {
+    throw new Error("the chart follows the page's direction, so its anchors flip: " + svg[1]);
+  }
+  /* And each label still gets its own base direction, so a Persian
+     phrase inside an ltr diagram reads right to left. */
+  const text = /[}]\s*\.pc-svg text\s*\{([^}]*)\}/.exec(flat);
+  if (!text || !/unicode-bidi:\s*plaintext/.test(text[1])) {
+    throw new Error("labels are not bidi-isolated, so an RTL phrase reorders");
+  }
+  return "direction:ltr with per-label bidi";
+});
+
+check("a signed figure keeps its sign on the left", () => {
+  /* +112.96 printed as "112.96+" and -66.53 as "66.53-" on a Persian
+     desk: the sign is a neutral character, so the bidi algorithm gave
+     it the paragraph's direction and parked it after the digits. All
+     four signed tiles were wrong. A quantity reads left to right in
+     every language this desk speaks, which is the rule the numeric
+     input fields in this same sheet already follow.
+
+     The seat has to be restored explicitly: direction:ltr alone drags
+     the value to the left edge while its label stays on the right. */
+  const flat = appCss.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\s+/g, " ");
+  const tile = /[}]\s*\.pc-stat b\s*\{([^}]*)\}/.exec(flat);
+  if (!tile) throw new Error("no .pc-stat b rule");
+  if (!/direction:\s*ltr/.test(tile[1])) throw new Error("the figure follows the page: " + tile[1]);
+  if (!/unicode-bidi:\s*isolate/.test(tile[1])) throw new Error("the figure is not isolated from the label beside it");
+  const rtlSeat = /html\[dir="rtl"\]\s*\.pc-stat b\s*\{([^}]*)\}/.exec(flat);
+  if (!rtlSeat || !/text-align:\s*right/.test(rtlSeat[1])) {
+    throw new Error("an RTL page seats the figure away from its own label");
+  }
+  if (flat.indexOf('html[dir="rtl"] .pc-stat b') < flat.indexOf(".pc-stat b{")) {
+    throw new Error("the RTL seat is declared before the rule it has to beat");
+  }
+  return "ltr digits, seated under their label";
+});
+
 /* ------------------------------------------------------------------ result */
 
 const failed = results.filter((x) => !x).length;
