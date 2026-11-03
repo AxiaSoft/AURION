@@ -726,20 +726,20 @@ check("the light-mode console rule actually beats the skin layer", () => {
 
 check("the browser is forced to pick up every file that changed", () => {
   const html = read("index.html");
-  const want = ["js/skins.js?v=desk99", "js/themes.js?v=desk188", "js/app.js?v=desk221", "js/api.js?v=desk221",
-    "css/themes.css?v=desk196", "css/app.css?v=desk221", "css/skins.css?v=desk185",
+  const want = ["js/skins.js?v=desk99", "js/themes.js?v=desk188", "js/app.js?v=desk222", "js/api.js?v=desk221",
+    "css/themes.css?v=desk196", "css/app.css?v=desk222", "css/skins.css?v=desk185",
     /* The chart sheet changed too. Its files were not listed here, so
        a phone with the old chart-tools.js cached would have kept a
        grab bar that does not drag. */
-    "js/chart-tools.js?v=desk215", "css/chart.css?v=desk206",
+    "js/chart-tools.js?v=desk222", "css/chart.css?v=desk206",
     /* charts.js was changed too - the right-margin slider became a
        head-gap toggle in the engine itself - and it had been sitting
        at desk189 while the files around it moved. A cached copy of it
        would answer setHeadGap with nothing at all. */
-    "js/charts.js?v=desk221",
+    "js/charts.js?v=desk222",
     "js/colorpicker.js?v=desk2"];
   want.forEach((w) => { if (!html.includes(w)) throw new Error("index.html is missing " + w); });
-  if (!read("sw.js").includes("aurion-shell-v211")) throw new Error("the service worker cache was not bumped");
+  if (!read("sw.js").includes("aurion-shell-v212")) throw new Error("the service worker cache was not bumped");
 });
 
 /* ----------------------------------------------------------------- report */

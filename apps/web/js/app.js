@@ -1197,8 +1197,10 @@ function themeColourNow(key) {
    the table before its strings are translated still reads as something. */
 function themeName(id) {
   const key = "themes." + id + "_name";
-  const out = I18N.t(key);
-  return out === key ? id : out;
+  /* I18N.has(), not a comparison with the key: t() answers a missing key
+     with English or with the key's last words now, never with the key,
+     so "themes.aurora_name" would have become "Aurora name" here. */
+  return I18N.has(key) ? I18N.t(key) : id;
 }
 
 /* Marking in place rather than re-rendering: rebuilding the settings tab on
@@ -2819,7 +2821,9 @@ function bindChrome() {
   bindSystemTheme();
   const hdrBtn = $("btn-hdr-drawer");
   if (hdrBtn) {
-    hdrBtn.title = I18N.t("hdr.drawer");
+    // The tooltip is declared on the element (data-i18n-title) and written
+    // by I18N.apply(), so it follows the language instead of freezing at
+    // whatever was loaded when this ran.
     hdrBtn.onclick = () => toggleHdrDrawer();
   }
   document.addEventListener("keydown", (e) => {
@@ -4465,9 +4469,11 @@ function toggleHdrDrawer(force) {
 }
 
 function accTypeLabel(kind) {
-  const key = "account." + kind;
-  const tr = I18N.t(key);
-  return tr === key ? kind : tr;
+  /* Lower-cased: the engine sends "Demo" and the pack keys it as "demo",
+     so the label fell through to the raw word for every account type
+     whose case did not happen to match. */
+  const key = "account." + String(kind || "").toLowerCase();
+  return I18N.has(key) ? I18N.t(key) : kind;
 }
 
 function stAbout(name) {
@@ -5350,9 +5356,8 @@ async function strategyUploadOrSave() {
 }
 
 function roleLabel(role) {
-  const key = "users." + String(role || "");
-  const tr = I18N.t(key);
-  return tr === key ? role : tr;
+  const key = "users." + String(role || "").toLowerCase();
+  return I18N.has(key) ? I18N.t(key) : role;
 }
 function usersCardHtml() {
   const rows = S.users || [];
@@ -6158,8 +6163,7 @@ function timezoneCardHtml() {
 
 function profileLabel(id) {
   const key = "risk.preset_" + id;
-  const tr = I18N.t(key);
-  return tr === key ? id : tr;
+  return I18N.has(key) ? I18N.t(key) : id;
 }
 function profileAbout(pr) {
   const about = (pr && pr.about) || {};
@@ -7807,11 +7811,21 @@ const views = {
         </div>
         <div class="card">
           <h3>${I18N.t("upd.status")}</h3>
-          <p class="sub" id="upd-last-check">${I18N.t("upd.last_check")}: -</p>
+          <!-- The card above the switch promises to say which build this
+               machine is on. It never did: the status read
+               "Last check: 2026-11-03T18:04:11.221Z - Up to date", which
+               is a timestamp nobody reads, a dash that looks like a typo,
+               and no version anywhere. Two labelled facts and one chip
+               instead. -->
+          <div class="upd-facts">
+            <div class="kv"><span>${I18N.t("upd.current_build")}</span><b class="mono" id="upd-current">\u2014</b></div>
+            <div class="kv"><span>${I18N.t("upd.last_check")}</span><b id="upd-last-check">${esc(I18N.t("upd.never_checked"))}</b></div>
+          </div>
+          <p class="upd-state"><span class="upd-chip" id="upd-chip">${esc(I18N.t("upd.checking"))}</span></p>
           <!-- Said here, where the switch above is, rather than only on
                the screen that locks the desk: the first time anyone
                reads this policy should not be the day it bites. -->
-          <p class="sub" id="upd-policy">${icon("hourglass")} ${esc(I18N.t("sup.policy", { n: fmtNum(supportGraceDays(), 0) }))}</p>
+          <p class="sub upd-policy" id="upd-policy">${icon("hourglass")} ${esc(I18N.t("sup.policy", { n: fmtNum(supportGraceDays(), 0) }))}</p>
           <div id="upd-status"></div>
           <div class="row stx-acts">
             <button class="btn" id="upd-check" type="button">${icon("search")} ${I18N.t("upd.check")}</button>
@@ -8814,12 +8828,64 @@ async function bindExpertsCard() {
   } catch {}
 }
 
+/**
+ * When something last happened, in the reader's own calendar and clock.
+ *
+ * The panel used to print the ISO string the engine stores -
+ * "2026-11-03T18:04:11.221Z" - which is the right thing to keep and the
+ * wrong thing to show, and in Persian it also dragged a Latin run through
+ * a right-to-left line.
+ */
+function updWhen(iso) {
+  const raw = String(iso || "").trim();
+  if (!raw) return I18N.t("upd.never_checked");
+  const d = new Date(raw);
+  if (Number.isNaN(d.getTime())) return raw;
+  try {
+    return d.toLocaleString(I18N.locale(), { dateStyle: "medium", timeStyle: "short" });
+  } catch (e) {
+    return d.toISOString().slice(0, 16).replace("T", " ");
+  }
+}
+
+/**
+ * The three facts at the top of the update card, written in one place.
+ *
+ * They were assembled inline at three call sites, each concatenating its
+ * own sentence, which is how one of them came to read "- -" and none of
+ * them came to mention the installed version at all.
+ */
+function paintUpdateFacts(o) {
+  const cur = document.getElementById("upd-current");
+  const last = document.getElementById("upd-last-check");
+  const chip = document.getElementById("upd-chip");
+  if (cur) {
+    const v = String((o && o.version) || S.version || "").trim();
+    cur.textContent = v ? (/^v/i.test(v) ? v : "v" + v) : "\u2014";
+  }
+  if (last && o && "lastCheck" in o) last.textContent = updWhen(o.lastCheck);
+  if (!chip) return;
+  const state = (o && o.state) || "unknown";
+  chip.classList.remove("is-ok", "is-new", "is-bad");
+  if (state === "available") {
+    chip.classList.add("is-new");
+    chip.textContent = I18N.t("upd.available");
+  } else if (state === "uptodate") {
+    chip.classList.add("is-ok");
+    chip.textContent = I18N.t("upd.uptodate");
+  } else if (state === "error") {
+    chip.classList.add("is-bad");
+    chip.textContent = I18N.t("upd.error");
+  } else {
+    chip.textContent = I18N.t("upd.checking");
+  }
+}
+
 async function bindUpdatePanel(){
   const urlDisplay = document.getElementById('upd-url-display');
   const autoEl = document.getElementById('upd-auto');
   const intervalEl = document.getElementById('upd-interval');
   const saveMsg = document.getElementById('upd-save-msg');
-  const lastCheckEl = document.getElementById('upd-last-check');
   const statusEl = document.getElementById('upd-status');
   const resultEl = document.getElementById('upd-result');
   // urlDisplay optional after removal
@@ -8833,13 +8899,19 @@ async function bindUpdatePanel(){
     }
     const st = await API.get('/api/system/update/state');
     if(st.ok && st.data){
-      if(lastCheckEl) lastCheckEl.textContent = I18N.t('upd.last_check') + ': ' + (st.data.last_check||'-') + ' - ' + (st.data.update_available ? I18N.t('upd.available') : I18N.t('upd.uptodate'));
+      paintUpdateFacts({
+        version: st.data.current_version,
+        lastCheck: st.data.last_check,
+        state: st.data.last_check ? (st.data.update_available ? 'available' : 'uptodate') : 'unknown',
+      });
       if(statusEl){
-        if(st.data.latest){
-          statusEl.innerHTML = '<div class="kv"><span>'+I18N.t('upd.new_version')+'</span><b class="mono">'+esc(updateStamp(st.data.latest))+'</b></div>'+changelogHtml(st.data.latest);
-        } else {
-          statusEl.innerHTML = '<p class="sub">' + I18N.t('upd.none') + '</p>';
-        }
+        /* Only when there is something to say. "No update found" used to
+           sit here permanently, and after a check the same fact was on
+           screen three times over - chip, this line, and the result
+           below it. The chip is the one that is always current. */
+        statusEl.innerHTML = st.data.latest
+          ? '<div class="kv"><span>'+esc(I18N.t('upd.new_version'))+'</span><b class="mono">'+esc(updateStamp(st.data.latest))+'</b></div>'+changelogHtml(st.data.latest)
+          : '';
       }
     }
   } catch {}
@@ -8861,19 +8933,26 @@ async function bindUpdatePanel(){
 
   const checkBtn = document.getElementById('upd-check');
   if(checkBtn) checkBtn.onclick = async () => {
-    if(resultEl) resultEl.innerHTML = '<p class="sub">' + I18N.t('upd.checking') + '</p>';
+    paintUpdateFacts({ state: 'checking' });
+    if(resultEl) resultEl.innerHTML = '<p class="sub">' + esc(I18N.t('upd.checking')) + '</p>';
     /* The same check as the licence box and About - this is the one
        place that can also install what it finds. */
     const res = await checkForUpdate();
     if(!res.ok){
+      paintUpdateFacts({ state: 'error' });
       if(resultEl) resultEl.innerHTML = '<p class="err">' + esc(updateErrorText(res)) + '</p>';
       return;
     }
     if(!res.available){
-      if(resultEl) resultEl.innerHTML = '<p class="ok">'+icon("check")+' '+I18N.t('upd.uptodate')+' - '+I18N.t('about.version')+' '+esc(res.version)+'</p>';
-      if(lastCheckEl) lastCheckEl.textContent = I18N.t('upd.last_check')+': '+(res.lastCheck||new Date().toISOString())+' - '+I18N.t('upd.uptodate');
+      paintUpdateFacts({ version: res.version, lastCheck: res.lastCheck || new Date().toISOString(), state: 'uptodate' });
+      /* Not "Up to date" again: the chip two lines above already says
+         that, and a button that answers by repeating what was on screen
+         before it was pressed reads as a button that did nothing. */
+      if(resultEl) resultEl.innerHTML = '<p class="ok">'+icon("check")+' '+esc(I18N.t('upd.check_none'))+'</p>';
       return;
     }
+    paintUpdateFacts({ lastCheck: res.lastCheck || new Date().toISOString(), state: 'available' });
+    if(statusEl) statusEl.innerHTML = '';
     const upd = res.latest;
     if(resultEl){
       resultEl.innerHTML = '<div class="card" style="background:rgb(var(--s9))"><h3>'+icon("spark")+' '+I18N.t('upd.available')+': <span class="mono">'+esc(updateStamp(upd))+'</span></h3>'+changelogHtml(upd)+'<button class="btn" id="upd-apply-btn" type="button">'+icon("download")+' '+I18N.t('upd.download_apply')+'</button><p class="sub" style="margin-top:8px;color:var(--gold)">'+I18N.t('upd.replace_note')+'</p></div>';

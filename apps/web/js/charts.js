@@ -2131,7 +2131,9 @@ class CandleChart {
       const src = (typeof I18N !== "undefined" && I18N && I18N.t) ? I18N
         : (typeof window !== "undefined" && window.I18N && window.I18N.t) ? window.I18N
         : null;
-      const t = src ? src.t(key) : key;
+      if (!src) return fallback;
+      if (src.has && !src.has(key)) return fallback;
+      const t = src.t(key);
       return !t || t === key ? fallback : t;
     } catch (e) { return fallback; }
   }
