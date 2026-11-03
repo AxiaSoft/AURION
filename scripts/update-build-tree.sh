@@ -3,7 +3,9 @@
 # See update-build-tree.ps1 for why this exists.
 set -euo pipefail
 
-BRANCH="${1:-arena/01a10ba4-aurion}"
+# main, not a working branch: a default that points at a deleted branch
+# turns this into a script that can only fail.
+BRANCH="${1:-main}"
 FORCE="${FORCE:-0}"
 
 cd "$(dirname "$0")/.."

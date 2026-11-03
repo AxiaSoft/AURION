@@ -545,6 +545,58 @@ console.log("\n=== nothing to install is not a failure ===");
       "the file list contains only files whose content actually differs");
 }
 
+console.log("\n=== the rescue scripts point somewhere that exists ===");
+{
+  /* These are what somebody reaches for when the in-app updater is the
+     thing that is broken, so they are the one set of files that must
+     not quietly rot. All three defaulted to a working branch that was
+     later merged and deleted - so running any of them answered 404 at
+     exactly the moment it was needed. */
+  const scripts = [
+    "scripts/update-installed-desk.ps1",
+    "scripts/update-build-tree.ps1",
+    "scripts/update-build-tree.sh",
+  ];
+  for (const rel of scripts) {
+    const src = fs.readFileSync(path.join(ROOT, rel), "utf8");
+    const stale = src.match(/arena\/[0-9a-f]{8}-aurion/g) || [];
+    say(stale.length === 0, rel + " does not default to a throwaway branch"
+      + (stale.length ? " (found " + stale[0] + ")" : ""));
+    say(new RegExp('(\\$Branch = "main"|BRANCH="\\$\\{1:-main\\}")').test(src),
+      "   and takes " + gh.UPDATE_BRANCH + ", the branch the in-app updater is pinned to");
+  }
+
+  /* The URL the rescue script builds is codeload's, not the API's -
+     which is why it needs no token and cannot be rate limited. That is
+     the whole reason it works when the desk's own updater does not. */
+  const rescue = fs.readFileSync(path.join(ROOT, "scripts/update-installed-desk.ps1"), "utf8");
+  say(/codeload\.github\.com/.test(rescue), "it downloads from codeload, which has no hourly limit");
+  say(!/api\.github\.com/.test(rescue), "and never calls the API, so no token is involved");
+  /* Narrow on purpose, twice over. The script prints the cache-busting
+     build tag, and it reassures the reader in so many words that no
+     credential is needed - both of which an earlier version of this
+     guard mistook for the thing it was looking for. So: strip the
+     comments and the printed strings, and read what the code DOES. */
+  const rescueCode = rescue
+    .split("\n")
+    .filter((l) => !/^\s*#/.test(l))
+    .join("\n")
+    .replace(/(Say|Warn|Head)\s+"[^"]*"/g, "")
+    .replace(/<#[\s\S]*?#>/g, "");
+  say(!/github_token|access token|personal access|Authorization|credential|-Headers/i.test(rescueCode),
+    "nothing in it asks anybody for a credential");
+  say(!/\btoken\b/i.test(rescue) || /build tag/.test(rescue),
+    "and it does not use the word 'token' for the cache tag, which reads as a demand for one");
+  say(/Tls12/.test(rescue), "over TLS 1.2, on a machine whose default may be older");
+
+  /* The two things that belong to the person using it. */
+  say(/aurion\.json is untouched/.test(rescue) || /config\\aurion\.json/.test(rescue),
+    "it leaves the user's own config alone");
+  say(!/\bdata\\/.test(rescue.replace(/data\\+\s*trades/g, "")) || /data\\\s+trades/.test(rescue),
+    "and does not copy over data\\");
+  say(/backup-\$stamp/.test(rescue), "it backs up what it is about to overwrite");
+}
+
 const bad = results.filter((r) => !r).length;
 console.log("\ngithub-update: " + (bad ? bad + " FAILED of " + results.length : results.length + " checks passed"));
 process.exit(bad ? 1 : 0);
