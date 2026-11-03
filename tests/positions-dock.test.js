@@ -19,6 +19,11 @@ const read = (f) => fs.readFileSync(path.join(ROOT, f), "utf8");
 const TOOLS = read("apps/web/js/chart-tools.js");
 const APP = read("apps/web/js/app.js");
 const CSS = read("apps/web/css/chart.css");
+/* The one row builder, shared by the dock and by each chart card's
+   position strip. It used to live inside paintChartPositions; the
+   checks that read the markup read it here now. */
+const BUILD = APP.slice(APP.indexOf("function positionsListHtml("),
+                        APP.indexOf("function positionsStripBody("));
 /* Comments name the classes they removed and the mistakes they record,
    so anything looking for a rule has to read the sheet without them. */
 const BARE = CSS.replace(/\/\*[\s\S]*?\*\//g, "");
@@ -200,8 +205,13 @@ check("one renderer, one container", () => {
     throw new Error("the bottom dock is not filled");
   }
   if (/\[side, bottom\]\.forEach/.test(fn)) throw new Error("the two-container loop survived the second container");
-  /* The old renderer had two row templates. One is the point. */
-  if ((fn.match(/const row = /g) || []).length !== 1) throw new Error("more than one row template");
+  /* The old renderer had two row templates. One is the point - and it
+     now lives in positionsListHtml(), which the chart cards' strip
+     draws from as well, so there is one row template for the whole
+     desk rather than one per place a position is shown. */
+  if ((BUILD.match(/const row = /g) || []).length !== 1) throw new Error("more than one row template");
+  if (/const row = /.test(fn)) throw new Error("the dock kept a private copy of the row");
+  if (!/positionsListHtml\(pos, ord\)/.test(fn)) throw new Error("the dock does not use the shared builder");
 });
 
 check("the repaint is still signature-gated, and the gate still opens", () => {
@@ -261,9 +271,14 @@ check("the columns are declared once on the list, not on each row", () => {
 });
 
 check("there is a header, and the per-cell prefixes it replaces are gone", () => {
-  const fn = APP.slice(APP.indexOf("function paintChartPositions("),
-                       APP.indexOf("/** Cancel a resting order"));
+  const fn = BUILD;
   if (!/tvp-head/.test(fn)) throw new Error("the list has no column headers");
+  /* Defined is not emitted. The header was built and then left out of
+     the list that gets returned, which reads as "there is a header"
+     to anything that only greps for the class. */
+  if (!/<div class="tvp-list">\$\{head\}/.test(fn)) {
+    throw new Error("the header is built but never put in the list");
+  }
   if (/<em class="sl">SL<\/em>/.test(fn) || /<em class="tp">TP<\/em>/.test(fn)) {
     throw new Error("the old per-line SL/TP prefixes are still printed on every row");
   }
@@ -284,8 +299,7 @@ check("figures are tabular, so digits line up down a column", () => {
 });
 
 check("direction and profit are not told apart by colour alone", () => {
-  const fn = APP.slice(APP.indexOf("function paintChartPositions("),
-                       APP.indexOf("/** Cancel a resting order"));
+  const fn = BUILD;
   /* BUY/SELL is written out, and the profit carries its own sign. */
   if (!/String\(r\.type \|\| dir\)\.toUpperCase\(\)/.test(fn)) {
     throw new Error("the direction is not stated in words");
@@ -295,21 +309,33 @@ check("direction and profit are not told apart by colour alone", () => {
 
 /* --------------------------------------------------------- the fold -- */
 
-check("the list folds into labelled cards rather than overflowing a phone", () => {
-  const phone = /@media\s*\(max-width:\s*760px\)\s*\{[\s\S]*?\.tv \.tvp-row\{([^}]*)\}/.exec(FLAT);
-  if (!phone) throw new Error("no phone layout");
-  if (!/display:flex/.test(phone[1]) || !/flex-wrap:wrap/.test(phone[1])) {
+check("the list folds into labelled cards rather than overflowing a narrow container", () => {
+  /* Keyed on the list's own width rather than the window's. The dock
+     is 830px wide at 1440 and 540px with the side panel open at the
+     same viewport, and a chart card holding the same list is 428px
+     at 1440 but 725px at 900 - so the window never answered the
+     question being asked, which is whether eight columns fit. */
+  const fold = /@container tvp \(max-width:\s*\d+px\)\{([\s\S]*?)\}\s*(?:@|\.|$)/.exec(FLAT + "@");
+  if (!fold) throw new Error("no narrow layout");
+  const block = FLAT.slice(FLAT.indexOf("@container tvp"));
+  const rowRule = /[{;}]\.tvp-row\{([^}]*)\}/.exec(block);
+  if (!rowRule) throw new Error("the row is not restyled when the list is narrow");
+  if (!/display:flex/.test(rowRule[1]) || !/flex-wrap:wrap/.test(rowRule[1])) {
     throw new Error("eight columns are left to overflow");
   }
   if (!/content:attr\(data-l\)/.test(FLAT)) throw new Error("the figures lose their names with the header");
+  /* A list can only fold if something above it is measurable. */
+  if (!/\.tv-posdock-body\s*\{[^}]*container:\s*tvp/.test(FLAT)) {
+    throw new Error("the dock's body is not a query container, so its list never folds");
+  }
 });
 
 check("the header is hidden by a selector that can actually beat the row", () => {
   /* Measured in a browser. The header carries BOTH classes, so
-     `.tv .tvp-head{display:none}` tied with `.tv .tvp-row{display:flex}`
-     below it and lost on source order - the stylesheet read correctly
-     and the header stayed on screen. */
-  if (!/\.tv \.tvp-row\.tvp-head\{display:none\}/.test(FLAT)) {
+     `.tvp-head{display:none}` ties with `.tvp-row{display:flex}`
+     beside it and loses on source order - the stylesheet read
+     correctly and the header stayed on screen. */
+  if (!/\.tvp-row\.tvp-head\{display:none\}/.test(FLAT)) {
     throw new Error("the header is hidden at a weight that loses to the row rule");
   }
 });
@@ -340,15 +366,23 @@ check("there is still exactly one 760px block in this sheet", () => {
 
 check("the close button is a thumb-sized target where the pointer is coarse", () => {
   const coarse = BARE.split("@media (pointer: coarse) {").slice(1).join("\n");
-  if (!/\.tv \.tv-pos-x \{[^}]*width: 30px/.test(coarse)) {
+  /* The class is doubled rather than hung off a .tv ancestor. The
+     weight is the same (0,2,0) and it was only ever there for weight,
+     but the ancestor also scoped these to the chart desk - and the
+     same button is now in every chart card's position strip, where it
+     was stuck at 22px. Measured 44.0x44.0 in a card at 390. */
+  if (!/\.tv-pos-x\.tv-pos-x \{[^}]*width: 30px/.test(coarse)) {
     throw new Error("the close button stays at 22px on a phone");
   }
-  if (!/\.tv \.tv-pos-x::after \{[^}]*inset: -7px/.test(coarse)) {
+  if (!/\.tv-pos-x\.tv-pos-x::after \{[^}]*inset: -7px/.test(coarse)) {
     throw new Error("no halo, so the target is 30px and not 44");
+  }
+  if (/\.tv \.tv-pos-x/.test(coarse)) {
+    throw new Error("the sizing is scoped to the chart desk again, leaving the cards' copy small");
   }
   /* 30 + 7 + 7 = 44. And the rows have to be far enough apart that two
      halos do not overlap and close the wrong trade. */
-  if (!/\.tv \.tvp-row:not\(\.tvp-head\) \{ padding-block: 9px \}/.test(coarse)) {
+  if (!/\.tvp-row\.tvp-row:not\(\.tvp-head\) \{ padding-block: 9px \}/.test(coarse)) {
     throw new Error("neighbouring halos can overlap");
   }
 });

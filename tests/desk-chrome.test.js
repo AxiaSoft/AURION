@@ -462,9 +462,21 @@ ok(stripPos === null, `the strip is in the normal flow (${stripPos ? stripPos.va
 const minH = resolve(appRules, [el("div", "", ["pos-strip"])], "min-height", 1200);
 ok(minH && /\d/.test(minH.val),
   `and holds its height when nothing is open, so the chart never jumps (${minH ? minH.val : "none"})`);
-const listOv = resolve(appRules, [el("div", "", ["pos-strip"]), el("div", "", ["pos-strip-list"])], "overflow-x", 1200);
-ok(listOv && listOv.val === "auto",
-  "more positions than fit scroll sideways rather than growing the strip");
+/* It used to scroll sideways. A horizontal scrollbar inside a card
+   hides open trades behind a gesture nobody thinks to try, so the
+   strip is capped and scrolls DOWN instead: the card still holds its
+   height whatever is open, which is what the sideways scroll was
+   for, and the trades that do not fit are somewhere a thumb will
+   find them. */
+const listOvX = resolve(appRules, [el("div", "", ["pos-strip"]), el("div", "", ["pos-strip-list"])], "overflow-x", 1200);
+ok(listOvX && listOvX.val === "hidden",
+  `the strip no longer hides positions off the side of the card (${listOvX ? listOvX.val : "none"})`);
+const listOvY = resolve(appRules, [el("div", "", ["pos-strip"]), el("div", "", ["pos-strip-list"])], "overflow-y", 1200);
+ok(listOvY && listOvY.val === "auto",
+  "more positions than fit scroll down inside the strip");
+const listCap = resolve(appRules, [el("div", "", ["pos-strip"]), el("div", "", ["pos-strip-list"])], "max-block-size", 1200);
+ok(listCap && /\d/.test(listCap.val),
+  `and the strip is capped, so the card cannot grow with the book (${listCap ? listCap.val : "none"})`);
 ok(/pos-none/.test(appJsNC), "and an empty strip says so rather than collapsing");
 
 /* Every class it uses must have a rule, or the strip ships unstyled. */

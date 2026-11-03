@@ -11162,28 +11162,98 @@ function positionsSig(symbol) {
     .map((r) => `${r.ticket}:${r.type}:${r.volume}:${r.price_open}:${r.profit}`).join("|");
 }
 
+/* One list builder, used by the positions dock on the EA chart and by
+   the strip on each chart card.
+
+   There used to be two renderers: the dock's aligned rows, and a
+   horizontal ribbon of chips on the cards. The same trade was drawn
+   two different ways, the chips had no columns so nothing lined up
+   with anything, and the ribbon scrolled sideways - which hides
+   positions behind a gesture nobody thinks to try. One builder means
+   the trader learns the shape once, and the two can never drift the
+   way the old pair did. */
+function positionsListHtml(pos, ord) {
+  pos = pos || [];
+  ord = ord || [];
+
+  /* One cell builder for both lists, so the two can never drift apart
+     the way the old pair of templates did. The row is a grid whose
+     columns are declared once on the list, which is what lets the
+     figures line up down the column - the old row sized every cell to
+     its own content, so nothing was comparable to the row above it. */
+  const cell = (cls, inner, label) =>
+    `<span class="tvp-c ${cls}"${label ? ` data-l="${esc(label)}"` : ""}>${inner}</span>`;
+
+  const money = (v) => {
+    const x = Number(v);
+    if (!Number.isFinite(x)) return "—";
+    return (x > 0 ? "+" : "") + fmt(x, 2);
+  };
+
+  const row = (r) => {
+    const dir = String(r.type || "").toLowerCase().includes("sell") ? "sell" : "buy";
+    const pl = Number(r.profit);
+    const what = `${r.symbol || ""} ${String(r.type || dir).toUpperCase()} ${fmt(r.volume, 2)}`.trim();
+    return `<div class="tvp-row is-${dir}">
+      ${cell("tvp-sym", esc(String(r.symbol || "")), I18N.t("table.symbol"))}
+      ${cell("tvp-dir", `<b>${esc(String(r.type || dir).toUpperCase())}</b>`, I18N.t("table.type"))}
+      ${cell("tvp-vol mono", fmt(r.volume, 2), I18N.t("table.volume"))}
+      ${cell("tvp-at mono", fmt(r.price_open, 5), I18N.t("table.price_open"))}
+      ${cell("tvp-sl mono", r.sl ? fmt(r.sl, 5) : "—", I18N.t("table.sl"))}
+      ${cell("tvp-tp mono", r.tp ? fmt(r.tp, 5) : "—", I18N.t("table.tp"))}
+      ${cell("tvp-pl mono " + clsPnl(pl), money(pl), I18N.t("table.profit"))}
+      <span class="tvp-c tvp-act"><button type="button" class="tv-pos-x" data-close="${esc(String(r.ticket))}"
+              data-close-what="${esc(what)}"
+              title="${esc(I18N.t("exec.close"))} ${esc(what)}"
+              aria-label="${esc(I18N.t("exec.close"))} ${esc(what)}">${icon("close")}</button></span>
+    </div>`;
+  };
+
+  /* A planted entry that has not filled yet is not a position, and
+     showing it as one would overstate the exposure. It is marked as
+     waiting and carries a cancel, not a close. */
+  const restRow = (r) => `<div class="tvp-row is-resting">
+      ${cell("tvp-sym", esc(String(r.symbol || "")), I18N.t("table.symbol"))}
+      ${cell("tvp-dir", `<b>${esc(String(r.type || "").replace(/_/g, " ").toUpperCase())}</b>`, I18N.t("table.type"))}
+      ${cell("tvp-vol mono", fmt(r.volume, 2), I18N.t("table.volume"))}
+      ${cell("tvp-at mono", fmt(r.price, 5), I18N.t("table.price_open"))}
+      ${cell("tvp-sl mono", r.sl ? fmt(r.sl, 5) : "—", I18N.t("table.sl"))}
+      ${cell("tvp-tp mono", r.tp ? fmt(r.tp, 5) : "—", I18N.t("table.tp"))}
+      ${cell("tvp-pl tvp-wait", esc(I18N.t("chart.order_waiting")), I18N.t("table.profit"))}
+      <span class="tvp-c tvp-act"><button type="button" class="tv-pos-x" data-cancel="${esc(String(r.ticket))}"
+              title="${esc(I18N.t("chart.order_cancel"))}"
+              aria-label="${esc(I18N.t("chart.order_cancel"))}">${icon("close")}</button></span>
+    </div>`;
+
+  /* Column names, once at the top, instead of the per-cell prefixes the
+     old row carried on every line. The header is hidden where the list
+     folds into stacked cards, which is where the per-cell labels come
+     back via data-l. */
+  const head = `<div class="tvp-row tvp-head" aria-hidden="true">
+      <span class="tvp-c tvp-sym">${esc(I18N.t("table.symbol"))}</span>
+      <span class="tvp-c tvp-dir">${esc(I18N.t("table.type"))}</span>
+      <span class="tvp-c tvp-vol">${esc(I18N.t("table.volume"))}</span>
+      <span class="tvp-c tvp-at">${esc(I18N.t("table.price_open"))}</span>
+      <span class="tvp-c tvp-sl">${esc(I18N.t("table.sl"))}</span>
+      <span class="tvp-c tvp-tp">${esc(I18N.t("table.tp"))}</span>
+      <span class="tvp-c tvp-pl">${esc(I18N.t("table.profit"))}</span>
+      <span class="tvp-c tvp-act"></span>
+    </div>`;
+
+  return `<div class="tvp-list">${head}${ord.map(restRow).join("")}${pos.map(row).join("")}</div>`;
+}
+
 function positionsStripBody(symbol) {
   const pos = positionsFor(symbol);
-  return pos.length
-    ? pos.map((r) => {
-        const dir = String(r.type || "").toLowerCase().includes("sell") ? "sell" : "buy";
-        const pl = Number(r.profit);
-        /* The chip names the trade in its own label rather than relying
-           on the chip's text, because a screen reader reaching a bare
-           cross has no way to say which of four open trades it closes. */
-        const what = `${r.symbol || ""} ${String(r.type || dir).toUpperCase()} ${fmt(r.volume, 2)}`.trim();
-        return `<span class="pos-chip is-${dir}" title="${esc(strategyLabel(r.strategy))}">
-          <b>${esc(String(r.type || dir).toUpperCase())}</b>
-          <span class="mono">${fmt(r.volume, 2)}</span>
-          <span class="mono pos-at">@ ${fmt(r.price_open, 5)}</span>
-          <span class="mono pos-pl ${clsPnl(pl)}">${Number.isFinite(pl) ? (pl > 0 ? "+" : "") + fmt(pl, 2) : "—"}</span>
-          <button type="button" class="pos-x" data-close="${esc(String(r.ticket))}"
-                  data-close-what="${esc(what)}"
-                  title="${esc(I18N.t("exec.close"))} ${esc(what)}"
-                  aria-label="${esc(I18N.t("exec.close"))} ${esc(what)}">${icon("close")}</button>
-        </span>`;
-      }).join("")
-    : `<span class="pos-none">${esc(I18N.t("status.no_positions"))}</span>`;
+  if (!pos.length) return `<span class="pos-none">${esc(I18N.t("status.no_positions"))}</span>`;
+  /* The header row comes along. Where the card is wide enough for the
+     aligned columns it is needed - columns with no names was the
+     chips' problem restated - and where the list folds into stacked
+     rows the same rule that folds them hides it, and each figure
+     carries its own label instead. Orders are not passed: a card
+     shows what is open on that instrument, and a planted entry that
+     has not filled belongs with the chart it will fill on. */
+  return positionsListHtml(pos, []);
 }
 
 function positionsStripHtml(symbol) {
@@ -11370,71 +11440,7 @@ function paintChartPositions(pos, ord) {
   const sig = pos.map((r) => `${r.ticket}:${r.sl}:${r.tp}:${r.profit}:${r.volume}`).join("|")
     + "#" + ord.map((r) => `${r.ticket}:${r.price}:${r.sl}:${r.tp}`).join("|");
 
-  /* One cell builder for both lists, so the two can never drift apart
-     the way the old pair of templates did. The row is a grid whose
-     columns are declared once on the list, which is what lets the
-     figures line up down the column - the old row sized every cell to
-     its own content, so nothing was comparable to the row above it. */
-  const cell = (cls, inner, label) =>
-    `<span class="tvp-c ${cls}"${label ? ` data-l="${esc(label)}"` : ""}>${inner}</span>`;
-
-  const money = (v) => {
-    const x = Number(v);
-    if (!Number.isFinite(x)) return "—";
-    return (x > 0 ? "+" : "") + fmt(x, 2);
-  };
-
-  const row = (r) => {
-    const dir = String(r.type || "").toLowerCase().includes("sell") ? "sell" : "buy";
-    const pl = Number(r.profit);
-    const what = `${r.symbol || ""} ${String(r.type || dir).toUpperCase()} ${fmt(r.volume, 2)}`.trim();
-    return `<div class="tvp-row is-${dir}">
-      ${cell("tvp-sym", esc(String(r.symbol || "")), I18N.t("table.symbol"))}
-      ${cell("tvp-dir", `<b>${esc(String(r.type || dir).toUpperCase())}</b>`, I18N.t("table.type"))}
-      ${cell("tvp-vol mono", fmt(r.volume, 2), I18N.t("table.volume"))}
-      ${cell("tvp-at mono", fmt(r.price_open, 5), I18N.t("table.price_open"))}
-      ${cell("tvp-sl mono", r.sl ? fmt(r.sl, 5) : "—", I18N.t("table.sl"))}
-      ${cell("tvp-tp mono", r.tp ? fmt(r.tp, 5) : "—", I18N.t("table.tp"))}
-      ${cell("tvp-pl mono " + clsPnl(pl), money(pl), I18N.t("table.profit"))}
-      <span class="tvp-c tvp-act"><button type="button" class="tv-pos-x" data-close="${esc(String(r.ticket))}"
-              data-close-what="${esc(what)}"
-              title="${esc(I18N.t("exec.close"))} ${esc(what)}"
-              aria-label="${esc(I18N.t("exec.close"))} ${esc(what)}">${icon("close")}</button></span>
-    </div>`;
-  };
-
-  /* A planted entry that has not filled yet is not a position, and
-     showing it as one would overstate the exposure. It is marked as
-     waiting and carries a cancel, not a close. */
-  const restRow = (r) => `<div class="tvp-row is-resting">
-      ${cell("tvp-sym", esc(String(r.symbol || "")), I18N.t("table.symbol"))}
-      ${cell("tvp-dir", `<b>${esc(String(r.type || "").replace(/_/g, " ").toUpperCase())}</b>`, I18N.t("table.type"))}
-      ${cell("tvp-vol mono", fmt(r.volume, 2), I18N.t("table.volume"))}
-      ${cell("tvp-at mono", fmt(r.price, 5), I18N.t("table.price_open"))}
-      ${cell("tvp-sl mono", r.sl ? fmt(r.sl, 5) : "—", I18N.t("table.sl"))}
-      ${cell("tvp-tp mono", r.tp ? fmt(r.tp, 5) : "—", I18N.t("table.tp"))}
-      ${cell("tvp-pl tvp-wait", esc(I18N.t("chart.order_waiting")), I18N.t("table.profit"))}
-      <span class="tvp-c tvp-act"><button type="button" class="tv-pos-x" data-cancel="${esc(String(r.ticket))}"
-              title="${esc(I18N.t("chart.order_cancel"))}"
-              aria-label="${esc(I18N.t("chart.order_cancel"))}">${icon("close")}</button></span>
-    </div>`;
-
-  /* Column names, once at the top, instead of the per-cell prefixes the
-     old row carried on every line. The header is hidden where the list
-     folds into stacked cards, which is where the per-cell labels come
-     back via data-l. */
-  const head = `<div class="tvp-row tvp-head" aria-hidden="true">
-      <span class="tvp-c tvp-sym">${esc(I18N.t("table.symbol"))}</span>
-      <span class="tvp-c tvp-dir">${esc(I18N.t("table.type"))}</span>
-      <span class="tvp-c tvp-vol">${esc(I18N.t("table.volume"))}</span>
-      <span class="tvp-c tvp-at">${esc(I18N.t("table.price_open"))}</span>
-      <span class="tvp-c tvp-sl">${esc(I18N.t("table.sl"))}</span>
-      <span class="tvp-c tvp-tp">${esc(I18N.t("table.tp"))}</span>
-      <span class="tvp-c tvp-pl">${esc(I18N.t("table.profit"))}</span>
-      <span class="tvp-c tvp-act"></span>
-    </div>`;
-
-  const html = `<div class="tvp-list">${head}${ord.map(restRow).join("")}${pos.map(row).join("")}</div>`;
+  const html = positionsListHtml(pos, ord);
 
   if (bottom.dataset.sig !== sig) {
     bottom.dataset.sig = sig;

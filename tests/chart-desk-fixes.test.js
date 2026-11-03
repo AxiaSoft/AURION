@@ -306,6 +306,57 @@ check("a closed tools sheet is parked outside the desk, not just outside its own
   return "parked " + t[1];
 });
 
+check("an open tools sheet takes the header out of play", () => {
+  /* Reported as "the header still works when the tools menu is open".
+     The scrim's offset parent is .tv-body, which starts below the top
+     bar, so inset:0 covered the chart and left every header control
+     live underneath a modal sheet - measured at 390: back, the symbol
+     menu, the dock toggle and the positions toggle all took taps.
+     Back was the one that mattered; it left the desk with the sheet
+     still up.
+
+     .tv clips, so pulling the scrim's top edge up by the bar's height
+     covers the header exactly and stops at the desk's own edge. */
+  const scrim = ruleBody(CSS, ".tv-toolscrim");
+  if (!scrim) throw new Error("there is no tools scrim");
+  const inset = /(?:^|;)inset:([^;]*)/.exec(scrim);
+  if (!inset) throw new Error("the scrim is not positioned by inset: " + scrim);
+  if (!/--tv-bar/.test(inset[1])) {
+    throw new Error("the scrim stops at the top of the body, leaving the header live: inset:" + inset[1]);
+  }
+  /* Pointer-reactive controls under a 45%-opaque scrim still light up
+     on hover and on an active touch, which reads as a live header. */
+  if (!/\.tv\.tools-open \.tv-top\{pointer-events:none\}/.test(CSS)) {
+    throw new Error("the header still reacts to a pointer behind the sheet");
+  }
+  return "scrim covers the bar, and the bar stops reacting";
+});
+
+check("and takes it out of the tab order, which no scrim can do", () => {
+  /* A scrim intercepts taps. It does nothing about Tab, so without
+     this the first thing a keyboard reaches behind a modal sheet is
+     the button that leaves the screen. */
+  const fn = toolsJs.slice(toolsJs.indexOf("function toggleTools("),
+                           toolsJs.indexOf("function togglePosDock("));
+  if (!/toggleAttribute\("inert", next\)/.test(fn)) {
+    throw new Error("the header is left in the tab order behind the sheet");
+  }
+  if (!/\.tv-top/.test(fn)) throw new Error("something other than the header is being made inert");
+  /* inert is set from a class that only has rules on a phone. Carried
+     into the desktop layout it would leave a dead top bar with
+     nothing on screen to explain it, so crossing back out of the
+     phone layout has to shut the sheet. */
+  if (!/matchMedia\("\(max-width: 760px\)"\)/.test(toolsJs)
+      || !/toggleTools\(false\)/.test(toolsJs)) {
+    throw new Error("nothing shuts the sheet when the phone layout goes away");
+  }
+  const guard = toolsJs.slice(toolsJs.indexOf("A bottom sheet is a phone thing"));
+  if (!/addEventListener\("change"/.test(guard.slice(0, 900))) {
+    throw new Error("the breakpoint is read once and never watched");
+  }
+  return "inert while open, and the sheet cannot outlive the phone layout";
+});
+
 /* ===================== 4. the tools sheet cannot be dragged off the top == */
 
 check("an upward drag on a sheet is bounded, not merely resisted", () => {

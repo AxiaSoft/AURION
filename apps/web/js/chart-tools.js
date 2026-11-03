@@ -1472,6 +1472,16 @@
        nothing underneath it and no obvious way to dismiss it. */
     if (!next) closeFlyout();
     tv.classList.toggle("tools-open", next);
+    /* The sheet is modal, so the header behind it is out of play. The
+       scrim covers it and the CSS stops it reacting to a pointer;
+       this is the half neither of those can do, which is keeping the
+       header's controls out of the tab order while a sheet is up.
+
+       Cleared again below whenever the sheet is not open, and the
+       sheet is forced shut when the phone layout goes away, so there
+       is no path that leaves a desktop header inert. */
+    const top = tv.querySelector(".tv-top");
+    if (top) top.toggleAttribute("inert", next);
     const fab = $("tv-toolsfab");
     if (fab) fab.setAttribute("aria-expanded", next ? "true" : "false");
     // The sheet and the dock both cover the chart; two of them at once
@@ -1952,6 +1962,17 @@
         isOpen: () => { const tv = $("tv"); return !!tv && tv.classList.contains("tools-open"); },
         close: () => toggleTools(false),
       });
+    }
+    /* A bottom sheet is a phone thing. Carried into the desktop
+       layout it becomes a class with no rules behind it - harmless to
+       look at, except that the header would stay inert and the trader
+       would have a dead top bar and nothing on screen explaining it.
+       Rotating a phone into landscape crosses this line too. */
+    if (typeof window.matchMedia === "function") {
+      const phone = window.matchMedia("(max-width: 760px)");
+      const onLeave = (e) => { if (!e.matches) toggleTools(false); };
+      if (typeof phone.addEventListener === "function") phone.addEventListener("change", onLeave);
+      else if (typeof phone.addListener === "function") phone.addListener(onLeave);
     }
     if (typeof attachSheetEdgeOpen === "function") {
       attachSheetEdgeOpen({

@@ -180,19 +180,24 @@ if (!jsdom) {
     /* ---- 1. closing a position from the markets view ----------------- */
 
     check("every open trade on the markets chart carries a close control", () => {
+      /* Rows, not chips. The card draws the chart desk's own
+         .tvp-list through the one builder both share, so a trade
+         looks the same wherever it is read. The header row is in
+         there too and is not a trade. */
       const d = frag(T.positionsStripHtml("EURUSD"));
-      const chips = d.querySelectorAll(".pos-chip");
-      if (chips.length !== 2) throw new Error(chips.length + " chips for 2 open trades");
-      for (const c of chips) {
-        if (!c.querySelector("[data-close]")) throw new Error("a chip has no close control");
+      const rows = d.querySelectorAll(".tvp-row:not(.tvp-head)");
+      if (rows.length !== 2) throw new Error(rows.length + " rows for 2 open trades");
+      for (const c of rows) {
+        if (!c.querySelector("[data-close]")) throw new Error("a row has no close control");
       }
+      if (!d.querySelector(".tvp-list")) throw new Error("the strip is not the shared list");
     });
 
     check("the close control names the trade it would close", () => {
       /* A bare cross tells a screen reader nothing, and tells a trader
          with four trades open nothing either. */
       const d = frag(T.positionsStripHtml("EURUSD"));
-      const b = d.querySelector(".pos-chip [data-close]");
+      const b = d.querySelector(".tvp-row [data-close]");
       const label = b.getAttribute("aria-label") || "";
       if (!/EURUSD/.test(label)) throw new Error("aria-label is " + JSON.stringify(label));
       if (!/BUY/i.test(label)) throw new Error("the direction is not named: " + JSON.stringify(label));
@@ -1360,27 +1365,54 @@ check("the positions list sheds detail rather than overflowing on a phone", () =
      being an eight-column grid and that each figure says what it is,
      since the column headers are no longer there to say it. */
   const flat = chartCss.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\s*\n\s*/g, "");
-  const phone = /@media\s*\(max-width:\s*760px\)\s*\{[\s\S]*?\.tv \.tvp-row\{([^}]*)\}/.exec(flat);
-  if (!phone) throw new Error("the list has no phone layout at all");
-  if (!/display:flex/.test(phone[1]) || !/flex-wrap:wrap/.test(phone[1])) {
-    throw new Error("the row is still a fixed grid of columns on a phone");
+  /* Keyed on the list's own width now, not the window's. The same
+     list is 830px in the chart's dock and 428px in a chart card at
+     the same 1440px viewport, and 725px in a card at 900 - the cards
+     reflow into a different number of columns - so a viewport
+     breakpoint got one of the two wrong at every width. */
+  /* Sliced by matching braces, not by a regex: the flattener strips
+     the newlines this used to lean on, and a lazy [\s\S]*? stops at
+     the first nested } - which is the first rule in the block, not
+     the end of it. */
+  const at = flat.search(/@container tvp \(max-width:\s*\d+px\)\s*\{/);
+  if (at < 0) throw new Error("the list has no narrow layout at all");
+  let depth = 0, end = -1;
+  for (let i = flat.indexOf("{", at); i < flat.length; i++) {
+    if (flat[i] === "{") depth++;
+    else if (flat[i] === "}" && --depth === 0) { end = i; break; }
   }
-  /* .tv .tvp-row.tvp-head, not .tv .tvp-head: the header carries both
-     classes, so at (0,2,0) it tied with the .tv .tvp-row rule below it
-     and lost on source order. Found in a browser - the sheet read
+  if (end < 0) throw new Error("the narrow block is never closed");
+  const fold = [null, flat.slice(flat.indexOf("{", at) + 1, end)];
+  const rowRule = /[{;}]\.tvp-row\{([^}]*)\}/.exec(fold[1]);
+  if (!rowRule) throw new Error("the row is not restyled when the list is narrow");
+  if (!/display:flex/.test(rowRule[1]) || !/flex-wrap:wrap/.test(rowRule[1])) {
+    throw new Error("the row is still a fixed grid of columns when it is narrow");
+  }
+  /* .tvp-row.tvp-head, not .tvp-head: the header carries both classes,
+     so at equal weight with the .tvp-row rule beside it the later one
+     would win on source order. Found in a browser - the sheet read
      correctly and the header was still on screen. */
-  if (!/\.tv \.tvp-row\.tvp-head\{display:none\}/.test(flat)) {
+  if (!/\.tvp-row\.tvp-head\{display:none\}/.test(fold[1])) {
     throw new Error("the column headers survive into a layout with no columns");
   }
-  if (!/content:attr\(data-l\)/.test(flat)) {
+  if (!/content:attr\(data-l\)/.test(fold[1])) {
     throw new Error("the figures are unlabelled once the headers are gone");
   }
-  /* The fold lives in a block that comes BEFORE the base rules, so it
-     only works because every selector in it carries a .tv ancestor. A
-     bare .tvp-row there would lose on source order and silently do
-     nothing. */
-  if (/@media\s*\(max-width:\s*760px\)\s*\{[\s\S]*?[{;]\.tvp-row\{/.test(flat)) {
-    throw new Error("a phone rule has equal weight to the base rule it must beat");
+  /* A container query adds no specificity, exactly as a media query
+     does not, so the fold beats the base rules only by coming after
+     them. It used to carry a .tv ancestor for weight instead, which
+     is what tied it to the chart desk and left a chart card with
+     eight columns in 428px. */
+  if (flat.indexOf("@container tvp") < flat.indexOf(".tvp-row{display:grid")) {
+    throw new Error("the fold is declared before the base rules it has to beat");
+  }
+  /* And the container has to be declared, or the query never matches
+     and the fold silently never happens. */
+  for (const anchor of [".tv-posdock-body", ".pos-strip-list"]) {
+    const re = new RegExp("[{;}]" + anchor.replace(".", "\\.") + "\\s*\\{[^}]*container:\\s*tvp\\s*/\\s*inline-size");
+    if (!re.test(flat) && !re.test(appCss.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\s*\n\s*/g, ""))) {
+      throw new Error(anchor + " is not a query container, so its list can never fold");
+    }
   }
 });
 

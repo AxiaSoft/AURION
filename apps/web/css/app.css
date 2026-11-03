@@ -1592,47 +1592,55 @@ fieldset.prop-fields.is-locked{
 /* Open positions, docked between a chart's toolbar and its canvas.
 
    In the flow rather than over the chart, which is the whole point: it
-   cannot land on the toolbar buttons and it cannot cover price. The row
-   scrolls sideways when more is open than will fit, so the strip's height
-   is the same whether nothing is open or six things are, and the canvas
-   below it never moves. */
+   cannot land on the toolbar buttons and it cannot cover price.
+
+   The rows are the EA chart's own position rows - the same .tvp-list
+   the dock across the bottom of the chart desk is built from, from the
+   same builder in positionsListHtml(). Before this the cards drew a
+   trade as a rounded chip in a ribbon that scrolled sideways: the same
+   position looked like two different things depending on where you
+   read it, nothing lined up with the line above it because each chip
+   sized itself, and a sideways scrollbar inside a card hides open
+   trades behind a gesture nobody thinks to try.
+
+   The strip is capped and scrolls down instead. The card keeps the
+   same height whether one trade is open or nine - which is what the
+   ribbon was for, and this keeps it - and the canvas underneath never
+   moves. Nothing here opens or closes: unlike the dock on the chart
+   desk, the strip is simply always the list. */
 .pos-strip{
-  display:flex;align-items:center;gap:10px;min-height:40px;
+  display:flex;align-items:flex-start;gap:10px;min-height:40px;
   margin:8px 0 6px;padding:5px 10px;
   border:1px solid var(--line);border-radius:12px;
   background:rgb(var(--wash) / .03);
 }
 .pos-strip-h{
   flex:0 0 auto;font-size:11px;color:var(--muted);letter-spacing:.02em;
-  text-transform:uppercase;white-space:nowrap;
+  text-transform:uppercase;white-space:nowrap;padding-block-start:5px;
 }
 html[dir="rtl"] .pos-strip-h{letter-spacing:0;text-transform:none}
 .pos-strip-list{
-  display:flex;align-items:center;gap:6px;min-width:0;flex:1 1 auto;
-  overflow-x:auto;overflow-y:hidden;scrollbar-width:thin;
+  min-width:0;flex:1 1 auto;
+  /* The query container the rows measure themselves against, so a
+     card that is 428px wide at 1440 and 725px wide at 900 lays its
+     positions out for the room it has rather than for the window. */
+  container:tvp / inline-size;
+  /* Three rows of the aligned layout, or two of the stacked one.
+     Enough to read the book at a glance without a card turning into
+     a page of its own, and the rest is a scroll away. */
+  max-block-size:168px;
+  overflow-y:auto;overflow-x:hidden;
+  overscroll-behavior:contain;
+  scrollbar-width:thin;
 }
-.pos-strip-list::-webkit-scrollbar{height:4px}
+.pos-strip-list::-webkit-scrollbar{width:4px}
 .pos-strip-list::-webkit-scrollbar-thumb{background:rgb(var(--wash) / .18);border-radius:99px}
-.pos-none{font-size:12px;color:var(--faint);white-space:nowrap}
-.pos-chip{
-  flex:0 0 auto;display:inline-flex;align-items:center;gap:6px;
-  padding:4px 9px;border-radius:999px;font-size:11.5px;
-  border:1px solid var(--line);background:rgb(var(--s5) / .5);
-  white-space:nowrap;
-}
-.pos-chip b{font-weight:600;font-size:10.5px;letter-spacing:.04em}
-.pos-chip.is-buy{border-inline-start:3px solid var(--candle-up)}
-.pos-chip.is-sell{border-inline-start:3px solid var(--candle-down)}
-.pos-chip.is-buy b{color:var(--candle-up)}
-.pos-chip.is-sell b{color:var(--candle-down)}
-.pos-chip .pos-at{color:var(--muted)}
-.pos-chip .pos-pl{font-weight:600}
+.pos-none{font-size:12px;color:var(--faint);white-space:nowrap;display:inline-block;padding-block:4px}
 @media (max-width:560px){
-  /* The label would eat a third of a phone's width; the coloured edge of
-     each chip already says what the row is. */
+  /* The label would eat a third of a phone's width; the coloured edge
+     of each row already says what it is. */
   .pos-strip-h{display:none}
   .pos-strip{min-height:36px;gap:0}
-  .pos-chip .pos-at{display:none}
 }
 
 .chart-box{position:relative}
@@ -3182,12 +3190,14 @@ html[dir="rtl"] .q-how[open] summary::before{ transform:rotate(0deg) }
   .chart-dot{position:relative}
   .chart-dot::after{content:"";position:absolute;inset:-18px;border-radius:99px}
 
-  /* Closing a position from the chart strip. The strip scrolls
-     sideways and clips vertically (overflow:auto hidden), so an
-     expander cannot escape it: the control is made genuinely bigger
-     instead, as far as the chip around it allows. */
-  .pos-x{width:28px;height:28px;min-width:28px}
-  .pos-x svg{width:14px;height:14px}
+  /* The close control on a chart card's position strip used to be
+     .pos-x, capped at 28px because the chip sat in a strip that
+     scrolled sideways and clipped vertically, so no expander could
+     escape it. The strip is the chart desk's own .tvp-list now: the
+     rows have 8px of padding around the button, which is room enough
+     for the -7px expander .tv-pos-x already carries, so it reaches
+     44x44 there the same way it does in the dock. Sized in chart.css
+     next to the rule it has to out-weigh. */
 }
 
 /* iOS zooms the page when a text field smaller than 16px takes focus.
@@ -4404,20 +4414,6 @@ html[dir="rtl"] .abx-fact > span{ letter-spacing:0; text-transform:none }
   .abx-facts{ gap:16px 14px; padding:20px 14px }
 }
 
-/* The close control on a markets position chip. Open trades were shown
-   there but could only be closed from the command centre, which meant
-   leaving the chart you were watching to act on it. */
-.pos-x{
-  width:18px;height:18px;flex:none;display:inline-flex;
-  align-items:center;justify-content:center;
-  margin-inline-start:2px;padding:0;
-  border-radius:6px;border:1px solid transparent;cursor:pointer;
-  background:transparent;color:var(--muted);
-}
-.pos-x svg{width:11px;height:11px}
-.pos-x:hover{background:rgba(255,107,138,.18);color:var(--bad);border-color:rgba(255,107,138,.42)}
-.pos-x:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
-.pos-x[disabled]{opacity:.5;cursor:default}
 
 /* ------------------------------------------------------------------
    Intelligence

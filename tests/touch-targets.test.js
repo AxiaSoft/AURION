@@ -21,12 +21,19 @@
  *     many media queries are wrapped around the earlier one. The
  *     coarse rules have to out-specify, not restate.
  *
- *  3. Two limits are real and are written down rather than rounded
+ *  3. One limit is real and is written down rather than rounded
  *     away: the header stays 34px by deliberate design with only 6px
- *     between controls, so it reaches 40x44 and not 44x44; and
- *     .pos-x lives in a strip with overflow:auto hidden, which clips
- *     any expander, so it was made genuinely bigger as far as the
- *     chip allows.
+ *     between controls, so it reaches 40x44 and not 44x44.
+ *
+ *     There used to be a second. .pos-x, the close control on a chart
+ *     card's position chip, sat in a strip that scrolled sideways and
+ *     clipped vertically, so no expander could escape it and it was
+ *     capped at 28px - short of 44. The chips are gone: the cards
+ *     draw the chart desk's own .tvp-list, whose rows have 8px of
+ *     padding round the button, and the -7px expander .tv-pos-x
+ *     already carries fits inside that. Measured 44.0x44.0 in a card
+ *     at 390. So the exception is retired rather than restated, and
+ *     what is checked here is that it has not crept back.
  *
  *     node tests/touch-targets.test.js
  */
@@ -110,14 +117,13 @@ ok(/inset:-5px -3px/.test(ruleIn(coarse, ".top .icon-btn::after,.top .menu-btn::
 const raw = css.slice(css.indexOf("@media (pointer: coarse){"));
 ok(/40x44, not 44x44/.test(raw),
   "the header's residual shortfall is written down rather than quietly rounded up");
-ok(/overflow:auto hidden/.test(raw),
-  "the reason .pos-x cannot use an expander is recorded next to the workaround");
-/* Anchored, because "width:28px" is a substring of "min-width:28px"
-   and the unanchored version passed happily against a .pos-x left at
-   its original 18px. */
-const px = ruleIn(coarse, ".pos-x");
-ok(/(?:^|;)width:28px/.test(px) && /(?:^|;)height:28px/.test(px),
-  "and .pos-x is made genuinely bigger instead", px);
+/* The retired exception. A chip strip that clips its own expanders is
+   a thing to notice coming back, and the old 28px cap is the
+   fingerprint: it was the largest a 44px target could not be. */
+ok(!/\.pos-chip/.test(css) && !/(?:^|[,{};])\.pos-x[{,:]/.test(css),
+  "the position chips and their undersized close control are gone, not merely unused");
+ok(!/overflow:auto hidden/.test(raw),
+  "and the note explaining why they could not reach 44px went with them");
 
 /* ---------- none of this touches a mouse ---------- */
 /* Everything that is NOT inside a coarse block.
