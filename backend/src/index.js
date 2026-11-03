@@ -944,6 +944,15 @@ guarded.post("/system/update/check", async (req, res) => {
   res.json(result);
 });
 
+/* Polled by the install screen while the apply above is still in
+   flight, so the bar it draws is the real count of files written and
+   not an animation standing in for one. Cheap by construction: it
+   reads an object this process already holds. */
+guarded.get("/system/update/progress", (req, res) => {
+  if (req.user.role !== "owner" && req.user.role !== "admin") return res.status(403).json({ ok:false, error:"forbidden" });
+  res.json({ ok:true, data: updater.getApplyProgress() });
+});
+
 guarded.post("/system/update/apply", async (req, res) => {
   if (req.user.role !== "owner") return res.status(403).json({ ok:false, error:"owner_only" });
   const { update_id } = req.body || {};

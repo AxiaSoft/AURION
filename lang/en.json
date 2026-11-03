@@ -1175,7 +1175,17 @@
     "inst_failed_wait": "The update was installed, but the desk has not answered yet. Reload the page in a moment.",
     "already_current": "This desk is already on the latest version.",
     "install_partial": "{n} of {total} files were installed before it stopped.",
-    "reload_now": "Reload now"
+    "reload_now": "Reload now",
+    "inst_pct": "{pct}%",
+    "inst_of": "{n} of {total} files",
+    "inst_phase_download": "Fetching the changed files",
+    "inst_phase_apply": "Replacing files",
+    "inst_installed": "The update is installed",
+    "inst_restart_needed": "Restart the desk to finish it.",
+    "inst_restart_now": "Restart now",
+    "inst_restart_later": "Later",
+    "inst_later_note": "The desk keeps running the previous version until it restarts.",
+    "inst_toast_done": "Update installed — restart to finish"
   },
   "about": {
     "version": "Version",

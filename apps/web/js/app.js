@@ -5305,8 +5305,19 @@ async function startStrategyEdit(name) {
 }
 
 async function deleteCustomStrategy(name) {
-  const q = I18N.t("strategies.confirm_delete").replace("%s", name);
-  if (!window.confirm(q)) return;
+  /* The desk's own dialog, not the browser's. This was the last
+     window.confirm left in the app: it ignores the theme, cannot be
+     read right-to-left, names the origin rather than the product, and
+     on some browsers offers to suppress every future dialog - which
+     would silently disable a confirmation that guards a deletion. */
+  const ok = await askConfirm({
+    title: I18N.t("strategies.delete"),
+    body: I18N.t("strategies.confirm_delete").replace("%s", name),
+    ok: I18N.t("strategies.delete"),
+    cancel: I18N.t("common.cancel"),
+    danger: true,
+  });
+  if (!ok) return;
   const r = await API.post("/api/strategies/delete", { name });
   toast(r.ok ? I18N.t("strategies.deleted") : (r.error || I18N.t("errors.generic")));
   if (!r.ok) return;
@@ -13518,7 +13529,7 @@ async function runUpdateInstall(upd) {
   host.innerHTML = `
     <div class="upd-install-card">
       <div class="upd-install-spin" aria-hidden="true"></div>
-      <h2>${esc(I18N.t("upd.inst_title"))}</h2>
+      <h2 class="upd-install-title">${esc(I18N.t("upd.inst_title"))}</h2>
       <p class="upd-install-ver">
         <bdi class="mono">${esc(updateStamp(upd))}</bdi>${
         /* The stamp is latin and the sentence beside it may be Persian or
@@ -13527,6 +13538,13 @@ async function runUpdateInstall(upd) {
            sentence set in mono spaces its Persian letters wrongly. */
         count ? ' <span class="upd-install-count">\u2014 '
           + esc(I18N.t("upd.inst_changed", { n: fmtNum(count, 0) })) + "</span>" : ""}</p>
+      <div class="upd-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100">
+        <div class="upd-bar-fill"></div>
+      </div>
+      <p class="upd-bar-line">
+        <span class="upd-bar-phase">${esc(I18N.t("upd.inst_phase_download"))}</span>
+        <span class="upd-bar-count mono"></span>
+      </p>
       <ol class="upd-install-steps">${
         steps.map(([id, label]) => `<li data-step="${id}"><span class="upd-step-dot"></span>${esc(label)}</li>`).join("")
       }</ol>
@@ -13552,11 +13570,72 @@ async function runUpdateInstall(upd) {
   const stop = () => {
     host.classList.add("is-failed");
     host.querySelector(".upd-install-spin")?.remove();
+    stopPolling();
+  };
+
+  const bar = host.querySelector(".upd-bar");
+  const fill = host.querySelector(".upd-bar-fill");
+  const phaseEl = host.querySelector(".upd-bar-phase");
+  const countEl = host.querySelector(".upd-bar-count");
+
+  /**
+   * Move the bar.
+   *
+   * `pct` of null means "working, but the length is not knowable" -
+   * fetching a single archive gives no byte count worth showing - and
+   * the bar says so by sweeping rather than by inventing a number that
+   * creeps forward on a timer. Every other state is a real ratio of
+   * files written to files to write.
+   */
+  const setBar = (pct, phase, count) => {
+    if (!bar) return;
+    const known = pct !== null && pct !== undefined;
+    bar.classList.toggle("is-sweeping", !known);
+    if (known) {
+      const v = Math.max(0, Math.min(100, Math.round(pct)));
+      if (fill) fill.style.inlineSize = v + "%";
+      bar.setAttribute("aria-valuenow", String(v));
+      if (countEl) countEl.textContent = I18N.t("upd.inst_pct", { pct: fmtNum(v, 0) });
+    } else {
+      if (fill) fill.style.inlineSize = "";
+      bar.removeAttribute("aria-valuenow");
+      if (countEl) countEl.textContent = count || "";
+    }
+    if (phase && phaseEl) phaseEl.textContent = phase;
+    if (known && count && countEl) countEl.textContent = count;
+  };
+
+  /* The apply is one request that does not stream, so the figures come
+     from asking the server what it is up to while it works. */
+  let pollTimer = 0;
+  const stopPolling = () => { if (pollTimer) { clearInterval(pollTimer); pollTimer = 0; } };
+  const startPolling = () => {
+    pollTimer = setInterval(async () => {
+      let p;
+      try {
+        const r = await API.get("/api/system/update/progress");
+        p = r && r.ok ? r.data : null;
+      } catch (e) { p = null; }
+      if (!p || !p.active) return;
+      if (p.phase === "download") {
+        setBar(null, I18N.t("upd.inst_phase_download"), "");
+        return;
+      }
+      if (p.phase === "apply") {
+        const total = Number(p.total) || 0;
+        const done = Number(p.done) || 0;
+        setBar(total ? (done / total) * 100 : null, I18N.t("upd.inst_phase_apply"),
+          total ? I18N.t("upd.inst_of", { n: fmtNum(done, 0), total: fmtNum(total, 0) }) : "");
+        if (done > 0) mark("download", "done");
+      }
+    }, 450);
   };
 
   /* Nothing here is cancellable once files start being replaced, so the
      screen does not pretend otherwise by offering a close button. */
   mark("download", "doing");
+  setBar(null, I18N.t("upd.inst_phase_download"), "");
+  startPolling();
   let ar;
   try {
     ar = await API.post("/api/system/update/apply", { update_id: upd.id });
@@ -13564,8 +13643,19 @@ async function runUpdateInstall(upd) {
     ar = { ok: false, error: String((err && err.message) || err || "") };
   }
 
+  stopPolling();
+
   if (!ar || !ar.ok) {
     mark("download", "failed");
+    /* Freeze the bar where the work actually stopped. Filling it to
+       100% on a failure says the opposite of what happened, and this
+       is precisely the case where the user needs to know how far it
+       got - a part-applied install is a real state of the machine. */
+    const stoppedAt = Number(ar && ar.applied_count) || 0;
+    const outOf = stoppedAt + (Number(ar && ar.remaining) || 0);
+    setBar(outOf ? (stoppedAt / outOf) * 100 : 0, I18N.t("upd.install_failed"),
+      outOf ? I18N.t("upd.inst_of", { n: fmtNum(stoppedAt, 0), total: fmtNum(outOf, 0) }) : "");
+    host.classList.add("is-bad");
     stop();
     /* The same sentence the check box would give, so a rate limit reads
        as a rate limit here too rather than as "install_failed:
@@ -13589,6 +13679,7 @@ async function runUpdateInstall(upd) {
      machine alone - no backup, no restart. */
   if (ar.already_current) {
     mark("download", "done");
+    setBar(100, I18N.t("upd.already_current"), "");
     stop();
     say(`<p class="ok">${icon("check")} ${esc(I18N.t("upd.already_current"))}</p>`);
     setTimeout(() => host.remove(), 2600);
@@ -13598,36 +13689,121 @@ async function runUpdateInstall(upd) {
   mark("download", "done");
   mark("write", "done");
 
-  if (ar.ea_changed) {
-    say(`<p class="sub">${esc(I18N.t("ea.changed_by_update", {
-      v: String(ar.version || upd.version || ""),
-      n: fmtNum((ar.ea_files || []).length || 2, 0),
-    }))}</p>`);
-  }
+  /* The files are on disk. The restart is the user's to make.
+     
+     It used to happen here, by itself, straight after the copy. That is
+     defensible for a phone app and wrong for a trading desk: restarting
+     takes the engine down, and the person watching is the only one who
+     knows whether this is a good moment. So the install stops at the
+     honest boundary - installed, not yet running - says so plainly, and
+     waits to be told. */
+  setBar(100, I18N.t("upd.inst_phase_apply"), "");
+  host.classList.add("is-installed");
+  host.querySelector(".upd-install-spin")?.remove();
+  mark("restart", null);
+  mark("wait", null);
+  /* The heading said "Installing the update" and the note underneath
+     promised that the desk would restart by itself. Neither is true
+     once the copy has finished and the restart is the user's to make,
+     and a screen that contradicts its own buttons is worse than a
+     screen with no words on it. */
+  const titleEl = host.querySelector(".upd-install-title");
+  if (titleEl) titleEl.textContent = I18N.t("upd.inst_installed");
 
+  /* A notification as well as the screen: the install can take long
+     enough that the person has looked away from it. */
+  try { toast(I18N.t("upd.inst_toast_done")); } catch (e) { /* */ }
+
+  const eaLine = ar.ea_changed
+    ? `<p class="sub">${esc(I18N.t("ea.changed_by_update", {
+        v: String(ar.version || upd.version || ""),
+        n: fmtNum((ar.ea_files || []).length || 2, 0),
+      }))}</p>`
+    : "";
+  say(eaLine
+    + `<p>${esc(I18N.t("upd.inst_restart_needed"))}</p>`
+    + `<div class="upd-install-actions">`
+    + `<button class="btn" type="button" id="upd-inst-restart">${icon("refresh")} ${esc(I18N.t("upd.inst_restart_now"))}</button>`
+    + `<button class="btn ghost" type="button" id="upd-inst-later">${esc(I18N.t("upd.inst_restart_later"))}</button>`
+    + `</div>`
+    + `<p class="sub upd-install-later-note">${esc(I18N.t("upd.inst_later_note"))}</p>`);
+
+  const laterBtn = host.querySelector("#upd-inst-later");
+  if (laterBtn) laterBtn.onclick = () => {
+    /* Deliberately no reload. The new files are on disk but this page
+       and the engine behind it are both still the old version, and
+       they agree with each other; reloading now would pair a new desk
+       with an old engine, which is the one combination nobody has
+       tested. Leave it exactly as it is until the restart. */
+    host.remove();
+  };
+
+  const restartBtn = host.querySelector("#upd-inst-restart");
+  if (restartBtn) restartBtn.onclick = () => finishUpdateRestart(host, upd);
+
+  return true;
+}
+
+/**
+ * The second half, once the user says go: restart, wait, come back.
+ *
+ * Split out from the install so that pressing "Later" and pressing
+ * "Restart now" an hour afterwards run exactly the same code, and so
+ * the part that must not be skipped - waiting for the engine before
+ * reloading, then dropping the stale language packs - has one home
+ * rather than two.
+ */
+async function finishUpdateRestart(host, upd) {
+  const bar = host.querySelector(".upd-bar");
+  const phaseEl = host.querySelector(".upd-bar-phase");
+  const countEl = host.querySelector(".upd-bar-count");
+  const msg = host.querySelector(".upd-install-msg");
+  const mark = (id, state) => {
+    const el = host.querySelector(`[data-step="${id}"]`);
+    if (!el) return;
+    el.classList.remove("doing", "done", "failed");
+    if (state) el.classList.add(state);
+  };
+
+  host.classList.remove("is-installed");
+  const titleEl = host.querySelector(".upd-install-title");
+  if (titleEl) titleEl.textContent = I18N.t("upd.inst_restart");
+  if (bar) { bar.classList.add("is-sweeping"); bar.removeAttribute("aria-valuenow"); }
+  if (countEl) countEl.textContent = "";
+  if (phaseEl) phaseEl.textContent = I18N.t("upd.inst_restart");
+  if (msg) msg.innerHTML = `<p class="sub">${esc(I18N.t("upd.inst_wait"))}</p>`;
   mark("restart", "doing");
+
   try {
     await API.post("/api/host/restart", {});
   } catch (err) { /* it may well die mid-reply; that IS the restart */ }
   mark("restart", "done");
 
   mark("wait", "doing");
+  if (phaseEl) phaseEl.textContent = I18N.t("upd.inst_wait");
   const back = await waitForEngine(150000);
   if (!back) {
     mark("wait", "failed");
-    stop();
-    say(`<p class="sub">${esc(I18N.t("upd.inst_failed_wait"))}</p>`
-      + `<button class="btn" type="button" id="upd-inst-reload">${esc(I18N.t("upd.reload_now"))}</button>`);
-    const rb = host.querySelector("#upd-inst-reload");
-    if (rb) rb.onclick = () => location.replace("/?v=" + Date.now());
+    host.classList.add("is-failed", "is-bad");
+    if (bar) bar.classList.remove("is-sweeping");
+    if (msg) {
+      msg.innerHTML = `<p class="sub">${esc(I18N.t("upd.inst_failed_wait"))}</p>`
+        + `<button class="btn" type="button" id="upd-inst-reload">${esc(I18N.t("upd.reload_now"))}</button>`;
+      const rb = msg.querySelector("#upd-inst-reload");
+      if (rb) rb.onclick = () => location.replace("/?v=" + Date.now());
+    }
     return false;
   }
 
   mark("wait", "done");
+  if (bar) { bar.classList.remove("is-sweeping"); bar.setAttribute("aria-valuenow", "100"); }
+  const fill = host.querySelector(".upd-bar-fill");
+  if (fill) fill.style.inlineSize = "100%";
+  if (phaseEl) phaseEl.textContent = I18N.t("upd.inst_done");
   /* Safe only here: the engine has answered, so the reload is certain to
      be able to fetch the pack the update just shipped. */
   try { I18N.clearCache(); } catch (e) { /* */ }
-  say(`<p class="ok">${icon("check")} ${esc(I18N.t("upd.inst_done"))}</p>`);
+  if (msg) msg.innerHTML = `<p class="ok">${icon("check")} ${esc(I18N.t("upd.inst_done"))}</p>`;
   setTimeout(() => location.replace("/?v=" + Date.now()), 700);
   return true;
 }
