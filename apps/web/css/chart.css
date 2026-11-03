@@ -1115,7 +1115,11 @@ html:fullscreen body { background: var(--bg) }
     box-shadow: var(--shadow-lg, 0 -14px 44px rgb(0 0 0 / .45));
     z-index: 40;
     transform: translateY(101%);
-    transition: transform var(--dur-3, .24s) var(--ease-1);
+    /* inset-block-end is in here for the same reason transform is, and
+       it has to keep the same clock as .tv's grid-template-rows - see
+       the .tv.pos-open rule below. */
+    transition: transform var(--dur-3, .24s) var(--ease-1),
+                inset-block-end var(--dur-3, .24s) var(--ease-1);
   }
   .tv.tools-open .tv-rail { transform: none }
 
@@ -1133,7 +1137,21 @@ html:fullscreen body { background: var(--bg) }
      which is what a sheet with a scrim is supposed to do, and the
      scrim is extended the same way so the whole of what is behind the
      sheet is dismissable - including the dock, which would otherwise
-     have taken taps meant for the scrim. */
+     have taken taps meant for the scrim.
+
+     Both sides of that cancellation have to move on the same clock.
+     Getting the end position right is not enough: .tv eases its grid
+     rows over --dur-3, so the body shrinks gradually, while an
+     untransitioned inset-block-end snaps the whole way in one frame.
+     Filmed at 390px, that was a 194px lurch downwards on the next
+     frame after the tap followed by a slow glide back - the sheet
+     ended where it started and jumped on the way, which is worse
+     than simply moving, because it reads as the panel breaking.
+
+     With the same duration and the same easing on both, the body
+     rises by f(t) * h while the sheet's own bottom drops by f(t) * h
+     at every instant, and the two cancel throughout rather than only
+     at the end. */
   .tv.pos-open .tv-rail,
   .tv.pos-open .tv-toolscrim { inset-block-end: calc(-1 * var(--tv-posdock, 176px)) }
 
@@ -1195,7 +1213,8 @@ html:fullscreen body { background: var(--bg) }
     z-index: 35;
     background: rgb(0 0 0 / .45);
     opacity: 0; pointer-events: none;
-    transition: opacity var(--dur-2, .18s) var(--ease-1);
+    transition: opacity var(--dur-2, .18s) var(--ease-1),
+                inset-block-end var(--dur-3, .24s) var(--ease-1);
   }
   .tv.tools-open .tv-toolscrim { opacity: 1; pointer-events: auto }
 
@@ -1381,6 +1400,14 @@ html:fullscreen body { background: var(--bg) }
 
 @media (prefers-reduced-motion: reduce) {
   .tv-menu, .tv-flyout, .tv-body, .tv-nav, .tv-switch i { transition: none !important }
+  /* The dock's row and the tools sheet's own bottom edge cancel each
+     other out while the dock opens, and that only holds while both
+     are on the same clock. They are listed together here, and must
+     stay together: silencing the grid row on its own would leave the
+     sheet easing against a body that had already jumped, which is
+     the lurch this pairing exists to prevent - in the other
+     direction. Stopping both is also what the preference asks for. */
+  .tv, .tv-rail, .tv-toolscrim { transition: none !important }
 }
 
 /* A drawing that contradicts itself - a long whose stop is above its entry -

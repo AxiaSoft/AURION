@@ -731,7 +731,7 @@ check("the browser is forced to pick up every file that changed", () => {
     /* The chart sheet changed too. Its files were not listed here, so
        a phone with the old chart-tools.js cached would have kept a
        grab bar that does not drag. */
-    "js/chart-tools.js?v=desk203", "css/chart.css?v=desk203",
+    "js/chart-tools.js?v=desk203", "css/chart.css?v=desk204",
     /* charts.js was changed too - the right-margin slider became a
        head-gap toggle in the engine itself - and it had been sitting
        at desk189 while the files around it moved. A cached copy of it
@@ -739,7 +739,7 @@ check("the browser is forced to pick up every file that changed", () => {
     "js/charts.js?v=desk202",
     "js/colorpicker.js?v=desk2"];
   want.forEach((w) => { if (!html.includes(w)) throw new Error("index.html is missing " + w); });
-  if (!read("sw.js").includes("aurion-shell-v193")) throw new Error("the service worker cache was not bumped");
+  if (!read("sw.js").includes("aurion-shell-v194")) throw new Error("the service worker cache was not bumped");
 });
 
 /* ----------------------------------------------------------------- report */

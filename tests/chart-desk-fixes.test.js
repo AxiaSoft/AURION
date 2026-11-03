@@ -54,11 +54,15 @@ const CSS = flat(chartCss);
 /* The body of a rule, matched on the WHOLE selector list. Searching for
    ".tv-rail{" would also match ".tv.pos-open .tv-rail{", which is how a
    check ends up reading a rule it was not looking at. */
-function ruleBody(css, selector) {
+function ruleBody(css, selector, last) {
   const sel = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const re = new RegExp("(?:^|[}])" + sel + "\\{([^}]*)\\}");
-  const m = re.exec(css);
-  return m ? m[1] : null;
+  const re = new RegExp("(?:^|[}])" + sel + "\\{([^}]*)\\}", last ? "g" : "");
+  if (!last) { const m = re.exec(css); return m ? m[1] : null; }
+  /* The sheet is declared twice: a desktop column and, inside the
+     phone block, a bottom sheet. The second is the one that moves. */
+  let m, out = null;
+  while ((m = re.exec(css))) out = m[1];
+  return out;
 }
 
 /* A declaration, anchored so that `width:28px` cannot be satisfied by
@@ -217,6 +221,58 @@ check("nothing is left behind from the dock's resize", () => {
      the dock still occupies a grid row, it just cannot be dragged. */
   if (!/\.tv\.pos-open \.tv-rail/.test(CSS)) throw new Error("the sheet no longer clears the dock at all");
   return "grip and sizing rules gone, offset kept";
+});
+
+check("the sheet and the dock's row move on the same clock", () => {
+  /* Getting the end position right was not enough, and this is the
+     half that was missed the first time: .tv eases grid-template-rows
+     over --dur-3, so the body shrinks gradually, while an
+     untransitioned inset-block-end snaps the whole way in one frame.
+
+     Filmed at 390px with the tools sheet open: tapping the positions
+     button displaced the sheet 194px on the very next frame and then
+     glided it back over ~450ms, in both directions. It ended exactly
+     where it started - which is why a check that only measured the
+     end state passed while the thing the trader sees was a lurch.
+
+     So the two declarations are compared, not just asserted to
+     exist. Same property set, same duration, same easing. */
+  const row = ruleBody(CSS, ".tv");
+  const rail = ruleBody(CSS, ".tv-rail", true);
+  const gridT = /transition:([^;]*grid-template-rows[^;]*)/.exec(row || "");
+  if (!gridT) throw new Error(".tv no longer transitions its rows");
+  if (!/inset-block-end/.test(rail || "")) {
+    throw new Error("the sheet's bottom edge snaps while the dock's row eases");
+  }
+  const dur = (txt, prop) => {
+    const m = new RegExp(prop + "\\s+([^,;]+)").exec(txt);
+    return m ? m[1].trim() : null;
+  };
+  const a = dur(gridT[1], "grid-template-rows");
+  const b = dur(rail, "inset-block-end");
+  if (!b) throw new Error("the sheet's inset has no timing of its own");
+  if (a !== b) throw new Error(`the row eases over "${a}" and the sheet over "${b}" - they will not cancel`);
+  return "both " + a;
+});
+
+check("reduced motion silences both sides or neither", () => {
+  /* The cancellation holds while the two are on the same clock, and
+     "no clock at all" is the same clock. What would bring the lurch
+     back is silencing one of them - so they are listed together, and
+     this is here to make that pairing deliberate rather than lucky. */
+  const rm = CSS.slice(CSS.indexOf("@media (prefers-reduced-motion:reduce){"));
+  if (!rm) throw new Error("there is no reduced-motion block in this sheet");
+  const body = rm.slice(0, rm.indexOf("}}") + 1);
+  /* The comma matters in both positions: these selectors appear in a
+     list, so one can be preceded by a comma as easily as by a brace.
+     Leaving it out of the leading class made this check report a
+     missing rule that was in fact present - the guard was the bug. */
+  const silenced = (sel) => new RegExp("(?:^|[,{};])" + sel.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "(?:[,{])").test(body);
+  const tv = silenced(".tv"), rail = silenced(".tv-rail");
+  if (tv !== rail) {
+    throw new Error(`reduced motion stops ${tv ? ".tv but not .tv-rail" : ".tv-rail but not .tv"} - one eases against the other`);
+  }
+  return tv ? "both stopped" : "neither stopped";
 });
 
 check("the compensation is inside the phone block, where the sheet exists", () => {
