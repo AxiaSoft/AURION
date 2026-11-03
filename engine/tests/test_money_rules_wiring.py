@@ -206,3 +206,102 @@ def test_the_chart_marks_use_the_same_rule() -> None:
     assert rule is not None
     assert rule("buy", 1.10000, 0.90000, 0.01) == pytest.approx(1.00000, abs=1e-5 + 1e-9)
     assert _trader(FakeBridge(spec={}))._chart_stop_cap("TEST") is None
+
+
+# ------------------------------------------------- the desk's own copy --
+#
+# The desk prices its own tickets now - how many points a stop is and
+# what it costs at the lot in the field - so it needs these numbers in
+# the browser. The rule that matters is the same one risk.py states:
+# a symbol that cannot be priced is left out, never guessed at.
+
+
+class SpecBridge(FakeBridge):
+    """A bridge that answers differently per symbol, like a real one."""
+
+    def __init__(self, specs: dict[str, dict], positions=()) -> None:
+        super().__init__(positions=positions)
+        self._by_symbol = specs
+
+    def symbol_spec(self, symbol: str) -> dict:
+        return dict(self._by_symbol.get(str(symbol), {}))
+
+    def known_symbols(self) -> list[str]:
+        return list(self._by_symbol)
+
+
+GOOD = {
+    "trade_tick_size": 0.00001,
+    "trade_tick_value": 0.1,
+    "digits": 5,
+    "volume_min": 0.01,
+    "volume_step": 0.01,
+    "trade_contract_size": 100_000,
+    "currency_profit": "USD",
+}
+
+
+def test_the_desk_is_sent_the_numbers_it_needs_to_price_a_ticket() -> None:
+    t = _trader(SpecBridge({"TEST": GOOD}))
+    table = t._spec_table()
+    assert "TEST" in table
+    row = table["TEST"]
+    assert row["tick_size"] == pytest.approx(0.00001)
+    assert row["tick_value"] == pytest.approx(0.1)
+    assert row["digits"] == 5
+    assert row["currency"] == "USD"
+    assert row["contract_size"] == pytest.approx(100_000)
+
+
+def test_a_symbol_that_cannot_be_priced_is_left_out_rather_than_guessed() -> None:
+    # No tick value: SymbolSpec.usable is False, and a desk that
+    # received a zero here would quietly multiply every stop by it and
+    # show $0.00 risk on a real position.
+    broken = {k: v for k, v in GOOD.items() if k != "trade_tick_value"}
+    t = _trader(SpecBridge({"TEST": GOOD, "ODD": broken}))
+    table = t._spec_table()
+    assert "TEST" in table
+    assert "ODD" not in table
+
+
+def test_the_table_covers_what_is_open_as_well_as_what_is_active() -> None:
+    # A position on a symbol the desk is not looking at still has to be
+    # priceable, or its row shows no money.
+    held = SimpleNamespace(symbol="OTHER")
+    t = _trader(SpecBridge({"TEST": GOOD, "OTHER": GOOD}, positions=[held]))
+    assert {"TEST", "OTHER"} <= set(t._spec_table())
+
+
+def test_the_money_state_says_which_lot_the_cap_is_quoted_against() -> None:
+    # The desk used to print "per lot" beside a number the engine
+    # measures against 0.01 of one - a hundredfold misreading of the
+    # trader's own risk budget. The reference lot is sent so the card
+    # can state it rather than assume it.
+    from aurion.runtime.risk import REFERENCE_LOT
+
+    t = _trader(SpecBridge({"TEST": GOOD}))
+    state = t._money_state()
+    assert state["reference_lot"] == REFERENCE_LOT
+    assert state["priced"] is True
+    assert "TEST" in state["specs"]
+
+
+def test_a_bridge_that_cannot_list_symbols_does_not_break_the_snapshot() -> None:
+    # known_symbols is newer than the bridge interface it sits on, and a
+    # snapshot that raises takes the whole desk down with it.
+    class OldBridge(FakeBridge):
+        def known_symbols(self):  # pragma: no cover - raising is the point
+            raise RuntimeError("older bridge")
+
+    t = _trader(OldBridge())
+    table = t._spec_table()
+    assert "TEST" in table          # the active symbol still gets through
+
+
+def test_the_bridge_lists_the_names_the_broker_uses() -> None:
+    from aurion.mt5.bridge import MT5Bridge
+
+    b = object.__new__(MT5Bridge)
+    b._specs = {}
+    b.remember_spec("EURUSD.m", dict(GOOD))
+    assert b.known_symbols() == ["EURUSD.m"]

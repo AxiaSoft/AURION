@@ -110,6 +110,22 @@ class MT5Bridge:
         clean["symbol"] = str(symbol)
         self._specs[name] = {**self._specs.get(name, {}), **clean}
 
+    def known_symbols(self) -> list[str]:
+        """Every symbol a contract spec has been seen for.
+
+        The desk prices its own tickets - how many points a stop is and
+        what it costs - and to do that it needs these numbers in the
+        browser. Exposed as a method rather than letting callers read
+        ``_specs``, because the names in there are normalised and the
+        ones a caller wants back are the broker's own.
+        """
+        out: list[str] = []
+        for value in self._specs.values():
+            name = str((value or {}).get("symbol") or "").strip()
+            if name and name not in out:
+                out.append(name)
+        return out
+
     def symbol_spec(self, symbol: str) -> dict[str, Any]:
         """The contract spec for a symbol, or {} when nobody can say.
 

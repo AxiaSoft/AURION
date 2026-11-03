@@ -260,9 +260,21 @@ async function main() {
   const labels = () => drawn().filter((c) => c[0] === "fillText").map((c) => String(c[1]));
 
   check("the chart plotted the bars", strokes() > 100, `${strokes()} stroked paths`);
+  /* Two decimals, and only two.
+     
+     This used to require three or more, which was the old rule: the
+     chart printed the broker's own precision, widening to five
+     decimals under 1.00. The desk asked for hundredths on every
+     instrument and confirmed it after being shown what it costs on a
+     sub-1.00 pair. So the assertion is inverted - a price with a
+     third decimal is now the failure, not the pass. */
+  const priceish = () => labels().filter((t) => /^-?\d+\.\d+$/.test(t));
   check("the chart printed a price axis",
-    labels().filter((t) => /^\d+\.\d{3,}$/.test(t)).length >= 3,
-    labels().filter((t) => /^\d+\.\d{3,}$/.test(t)).slice(0, 4).join("  "));
+    priceish().length >= 3,
+    priceish().slice(0, 4).join("  "));
+  check("every price on the chart is written to two decimals",
+    priceish().every((t) => /^-?\d+\.\d{2}$/.test(t)),
+    priceish().filter((t) => !/^-?\d+\.\d{2}$/.test(t)).slice(0, 4).join("  ") || "all 2dp");
 
   const chartTxt = () => (cv && cv.parentElement ? cv.parentElement.textContent : "");
   check("the chart is not showing its empty state",

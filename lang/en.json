@@ -432,8 +432,8 @@
   "money": {
     "title": "Money management — the per-lot stop cap",
     "help": "A stop is written in price but paid in money. This number is the most one lot may lose, and every order and every open position is measured against it: a stop further away is pulled in, an order with no stop is given one here, and the lot size is reduced to stay inside your risk budget. It never widens a stop.",
-    "cap": "Max loss per lot",
-    "per_lot": "per lot",
+    "cap": "Maximum loss",
+    "per_lot": "per {lot} lot",
     "unit": "USD",
     "save": "Save the cap",
     "zero_off": "0 turns the rule off and leaves stops wherever the strategy put them.",
@@ -441,7 +441,10 @@
     "unpriced": "The broker has not reported a tick value for this symbol, so the cap cannot be applied here. Attach the EA to this symbol's chart.",
     "reach": "At this cap the widest stop on {s} is about {p} points (a distance of {d}).",
     "saved": "Per-lot stop cap saved.",
-    "saved_off": "Per-lot stop cap turned off."
+    "saved_off": "Per-lot stop cap turned off.",
+    "ref_note": "The cap is quoted against a {lot} lot, and the system does the arithmetic from there: the same stop distance on a bigger lot simply costs proportionally more.",
+    "at_lot": "At {lot} lot that is {money} — the stop still sits {points} points away on {s}. A bigger lot moves the money, not the distance.",
+    "at_lot_unpriced": "At {lot} lot that is {money}."
   },
   "exec": {
     "title": "Execution",
@@ -512,7 +515,10 @@
     "sell_stop": "Sell stop",
     "need_price": "A limit or stop order needs an entry price.",
     "exact_price": "Type the exact price. Leave it empty to remove the level.",
-    "bad_price": "That is not a price."
+    "bad_price": "That is not a price.",
+    "risk_line": "{points} points · {money}",
+    "risk_unpriced": "The broker has not reported a tick value for this symbol, so the money cannot be worked out. Attach the EA to its chart.",
+    "risk_need_price": "Set a lot and an entry price to see what these levels are worth."
   },
   "charts": {
     "title": "EA chart agents",

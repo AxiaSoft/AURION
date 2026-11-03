@@ -308,9 +308,16 @@ check("the price axis prints many more levels than it used to", () => {
 check("the labels land on round numbers", () => {
   /* The old axis sliced the plot into quarters and printed whatever price
      fell there: 1.10374, 1.10521, 1.10668. The step is chosen from the
-     1-2-5 series now, so the gap between labels is a round number. */
+     1-2-5 series now, so the gap between labels is a round number.
+     
+     Read from `value`, not from the printed text. Prices are rounded
+     to two decimals on their way to the screen, which on this series
+     collapses several labels onto the same string - the axis is still
+     on a round ladder, the display just cannot show the difference.
+     Judging roundness from the rounded text measured the rounding. */
   const { chart } = freshChart(400, { width: 900, height: 500 });
-  const vals = tickTexts(chart).map(Number).filter(Number.isFinite);
+  const L0 = chart.layout();
+  const vals = chart.priceTicks(L0).map((t) => t.value).filter(Number.isFinite);
   if (vals.length < 3) throw new Error("not enough numeric labels to judge");
   const gaps = [];
   for (let i = 1; i < vals.length; i++) gaps.push(Math.abs(vals[i] - vals[i - 1]));
@@ -322,6 +329,16 @@ check("the labels land on round numbers", () => {
   if (![1, 2, 5, 10].some((x) => Math.abs(m - x) < 1e-6)) {
     throw new Error("step " + step + " is not from the 1-2-5 series");
   }
+});
+
+check("the axis prints prices to two decimals", () => {
+  /* Asked for on every instrument. The series here sits near 1.10,
+     which is the case that costs the most: the labels repeat rather
+     than resolve. That is the accepted trade, and pinning it here is
+     what stops the old widening table coming back by accident. */
+  const { chart } = freshChart(400, { width: 900, height: 500 });
+  const bad = tickTexts(chart).filter((t) => !/^-?\d+\.\d{2}$/.test(t));
+  if (bad.length) throw new Error("not two decimals: " + bad.slice(0, 4).join(", "));
 });
 
 check("a taller chart gets more labels, a shorter one fewer", () => {
