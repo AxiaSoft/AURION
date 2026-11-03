@@ -5530,3 +5530,121 @@ input[type="search"]::-webkit-search-results-decoration{
   font-size:12.5px; color:var(--muted);
 }
 .bt-replay-note[hidden]{ display:none }
+
+/* ===================== End of support ==============================
+ *
+ * Five days after a newer version is published this build stops being
+ * supported. Two pieces of interface come out of that: a countdown
+ * while the grace period runs, and a screen over everything once it
+ * has run out.
+ */
+
+/* ---- the countdown bar ----
+   Bottom-centre, because the toasts own the top of the window and the
+   header owns the rest of it. z-index 45: over the desk (which is
+   ranked against #app's 1), under the toast strip at 50 and well under
+   the modal layer, so nothing it says can cover an answer the user
+   asked for. */
+.sup-bar{
+  position:fixed;z-index:45;
+  inset-block-end:calc(env(safe-area-inset-bottom) + 14px);
+  /* Centred with auto margins rather than a 50% offset and a translate.
+     In a right-to-left document inset-inline-start resolves to `right`,
+     and the translate then pulls the bar the wrong way - it left the
+     Persian desk with the bar half off the screen. Margins are
+     direction-agnostic. */
+  inset-inline:0;margin-inline:auto;
+  display:flex;align-items:center;gap:10px;
+  inline-size:min(520px, calc(100vw - 24px));
+  padding-block:8px;padding-inline:12px;
+  background:var(--glass2);border:1px solid var(--line);border-radius:14px;
+  box-shadow:var(--shadow);
+  backdrop-filter:blur(calc(var(--blur, 18px) * 12 / 18));
+  animation:supBarIn .3s var(--ease-out);
+}
+@keyframes supBarIn{from{opacity:0;translate:0 14px}to{opacity:1;translate:0 0}}
+.sup-bar-ic{flex:none;display:grid;place-items:center;color:var(--gold)}
+.sup-bar-ic svg{width:18px;height:18px}
+.sup-bar-txt{flex:1;min-width:0;display:grid;gap:1px;text-align:start}
+.sup-bar-txt b{font-size:12.5px}
+.sup-bar-txt .sub{font-size:11.5px;overflow-wrap:anywhere}
+.sup-bar .btn.tiny{flex:none;min-block-size:36px}
+.sup-bar-x{
+  flex:none;inline-size:36px;block-size:36px;
+  display:grid;place-items:center;
+  background:none;border:0;border-radius:9px;color:var(--faint);cursor:pointer;
+}
+.sup-bar-x:hover{color:var(--ink)}
+.sup-bar-x svg{width:14px;height:14px}
+/* The last day is not a suggestion. */
+.sup-bar.is-urgent{border-color:var(--gold)}
+.sup-bar.is-urgent .sup-bar-txt b{color:var(--gold)}
+/* The settings sheet lives in this corner on a phone; it is the thing
+   the bar is pointing at, so the bar steps out of its way. */
+html.set-sheet-open .sup-bar{opacity:0;translate:0 12px;pointer-events:none}
+@media (max-width:1000px){
+  /* Clear of the settings sheet's own pill, which lives in this corner. */
+  .sup-bar{inset-block-end:calc(env(safe-area-inset-bottom) + 74px)}
+  /* Thumb-sized, like everything else that is pressed on a phone. */
+  .sup-bar .btn.tiny{min-block-size:44px}
+  .sup-bar-x{inline-size:44px;block-size:44px}
+}
+@media (prefers-reduced-motion:reduce){
+  .sup-bar{animation:none}
+}
+
+/* ---- the locked screen ----
+   z-index 10000, one below the install screen at 10001: pressing
+   "update now" must put the progress screen ON TOP of this, not behind
+   it. Same palette as the install screen on purpose - they are two
+   frames of the same story. */
+.sup-lock{
+  position:fixed;inset:0;z-index:10000;
+  display:grid;place-items:center;padding:20px;
+  overflow:auto;
+  background:
+    radial-gradient(120% 90% at 30% 0%, rgba(255,186,73,.12), transparent 60%),
+    radial-gradient(90% 80% at 85% 100%, rgba(124,108,255,.12), transparent 65%),
+    #06070b;
+  color:#e8ecf4;
+}
+html.sup-locked{overflow:hidden}
+.sup-lock-card{
+  max-inline-size:460px;inline-size:100%;text-align:center;
+  padding-block:8px;
+}
+.sup-lock-mark{
+  inline-size:56px;block-size:56px;margin:0 auto 14px;
+  display:grid;place-items:center;border-radius:50%;
+  background:rgba(255,186,73,.14);border:1px solid rgba(255,186,73,.4);
+  color:#ffba49;
+}
+.sup-lock-mark svg{width:26px;height:26px}
+.sup-lock-card h2{margin:0 0 8px;font-size:21px;color:#fff}
+.sup-lock-card .lede{margin:0 0 18px;font-size:13.5px;opacity:.78;line-height:1.65}
+.sup-lock-facts{
+  margin:0 0 16px;display:grid;gap:1px;
+  background:rgba(232,236,244,.1);border:1px solid rgba(232,236,244,.12);
+  border-radius:12px;overflow:hidden;text-align:start;
+}
+.sup-lock-facts > div{
+  display:flex;align-items:center;justify-content:space-between;gap:12px;
+  padding-block:9px;padding-inline:12px;background:#0a0c12;
+}
+.sup-lock-facts dt{margin:0;font-size:12px;opacity:.62}
+.sup-lock-facts dd{margin:0;font-size:12.5px}
+.sup-lock-halt{
+  display:flex;align-items:center;justify-content:center;gap:7px;
+  margin:0 0 16px;font-size:12px;opacity:.72;
+}
+.sup-lock-halt svg{width:15px;height:15px;flex:none}
+.sup-lock-actions{display:grid;gap:10px}
+.sup-lock-actions .btn{min-block-size:44px}
+.sup-lock-ask{
+  margin:0;padding:11px;border-radius:12px;font-size:12.5px;
+  background:rgba(255,186,73,.1);border:1px solid rgba(255,186,73,.3);color:#ffba49;
+}
+.sup-lock-msg{margin:14px 0 0;font-size:12.5px;opacity:.8;overflow-wrap:anywhere}
+.sup-lock-msg.err{color:#ff6b6b;opacity:1}
+/* While the install screen is up, this one has nothing left to say. */
+.sup-lock.is-installing .sup-lock-card{opacity:0}

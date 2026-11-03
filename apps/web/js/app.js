@@ -7808,6 +7808,10 @@ const views = {
         <div class="card">
           <h3>${I18N.t("upd.status")}</h3>
           <p class="sub" id="upd-last-check">${I18N.t("upd.last_check")}: -</p>
+          <!-- Said here, where the switch above is, rather than only on
+               the screen that locks the desk: the first time anyone
+               reads this policy should not be the day it bites. -->
+          <p class="sub" id="upd-policy">${icon("hourglass")} ${esc(I18N.t("sup.policy", { n: fmtNum(supportGraceDays(), 0) }))}</p>
           <div id="upd-status"></div>
           <div class="row stx-acts">
             <button class="btn" id="upd-check" type="button">${icon("search")} ${I18N.t("upd.check")}</button>
@@ -12481,6 +12485,9 @@ async function refresh(rebuild = false) {
       S._refreshRebuild = false;
       rebuild = false;
       const r = await API.get("/api/snapshot");
+      /* The support countdown rides on the poll the desk already makes,
+         so the warning bar stays current without a request of its own. */
+      if (r && r.support) applySupportState(r.support);
       if (r && r.ok) {
         // Track the engine's reading so this poll and the socket push
         // below do not rebuild the same card twice for the same content.
@@ -13875,8 +13882,213 @@ function showUpdateWelcome(version, from) {
   });
 }
 
+/* ===================== End of support =============================
+ *
+ * A published update is supported for five days, and then the build it
+ * replaced stops working. The backend owns the decision - it refuses the
+ * requests, halts the robot and answers 403 support_expired with the
+ * facts attached. Everything below is how that reads on screen.
+ *
+ * Two states, and they are deliberately different in kind:
+ *
+ *   grace   - a bar in the corner with the days remaining. It is
+ *             dismissible, because nothing is broken yet and a trader
+ *             working a position should not be nagged mid-trade. It
+ *             comes back on the next load, and it stops being
+ *             dismissible in the last day.
+ *   expired - a screen over everything, with one thing to do on it.
+ *             Not dismissible, no escape key, no close button: the desk
+ *             behind it would answer 403 to almost anything anyway, so
+ *             letting it be closed would only show a broken desk.
+ *
+ * The locked screen still offers "close all positions". A maintenance
+ * policy must not be able to trap somebody inside a trade.
+ */
+
+/* The grace period, as the server last stated it. Five is the policy
+   and the fallback; it is read from the status rather than hardcoded so
+   the screen and the server can never disagree about the number. */
+function supportGraceDays() {
+  const n = Number(S.support && S.support.grace_days);
+  return Number.isFinite(n) && n > 0 ? n : 5;
+}
+
+/** Human date for a deadline, in the reader's own calendar. */
+function supportDate(iso) {
+  const d = new Date(String(iso || ""));
+  if (Number.isNaN(d.getTime())) return "";
+  try {
+    return d.toLocaleDateString(I18N.locale(), { year: "numeric", month: "short", day: "numeric" });
+  } catch { return d.toISOString().slice(0, 10); }
+}
+
+/** "4 days left" or, inside the last day, "9 hours left". */
+function supportLeftText(st) {
+  if (!st) return "";
+  const hours = Number(st.hours_left);
+  if (Number.isFinite(hours) && hours <= 24) {
+    return I18N.t("sup.warn_hours", { n: fmtNum(Math.max(0, hours), 0) });
+  }
+  return I18N.t("sup.warn_days", { n: fmtNum(Math.max(0, Number(st.days_left) || 0), 0) });
+}
+
+/**
+ * One place where every answer carrying a support status arrives.
+ *
+ * Called from the snapshot poll (which carries it for free) and from the
+ * 403 the gate sends when the desk is already locked.
+ */
+function applySupportState(st) {
+  if (!st || typeof st !== "object") return;
+  S.support = st;
+  if (st.expired) { showSupportLock(st); return; }
+  paintSupportBar(st);
+}
+
+function paintSupportBar(st) {
+  const existing = document.getElementById("sup-bar");
+  if (!st || !st.update_available || !st.deadline) {
+    if (existing) existing.remove();
+    return;
+  }
+  /* Dismissed for this session - but only while there is more than a
+     day left. On the last day the warning has stopped being advice. */
+  const urgent = Number.isFinite(Number(st.hours_left)) && Number(st.hours_left) <= 24;
+  if (S._supBarOff && !urgent) { if (existing) existing.remove(); return; }
+
+  const html = `
+    <div class="sup-bar-ic" aria-hidden="true">${icon("hourglass")}</div>
+    <div class="sup-bar-txt">
+      <b>${esc(supportLeftText(st))}</b>
+      <span class="sub">${esc(I18N.t("sup.warn_body", { date: supportDate(st.deadline) }))}</span>
+    </div>
+    <button type="button" class="btn tiny" id="sup-bar-go">${esc(I18N.t("sup.warn_action"))}</button>
+    ${urgent ? "" : `<button type="button" class="sup-bar-x" id="sup-bar-x" aria-label="${esc(I18N.t("sup.warn_dismiss"))}">${icon("close")}</button>`}`;
+
+  const bar = existing || document.createElement("div");
+  if (!existing) {
+    bar.id = "sup-bar";
+    bar.className = "sup-bar";
+    bar.setAttribute("role", "status");
+    document.body.appendChild(bar);
+  }
+  bar.classList.toggle("is-urgent", urgent);
+  bar.innerHTML = html;
+  const go = bar.querySelector("#sup-bar-go");
+  if (go) go.onclick = () => { show("settings"); setTimeout(() => showSetTab("set-update"), 60); };
+  const x = bar.querySelector("#sup-bar-x");
+  if (x) x.onclick = () => { S._supBarOff = true; bar.remove(); };
+}
+
+/**
+ * The desk is out of support. One screen, one way forward.
+ *
+ * Installing is owner-only on the server, so a trader is told who to ask
+ * rather than given a button that will answer 403.
+ */
+function showSupportLock(st) {
+  if (document.getElementById("sup-lock")) return;
+  const barEl = document.getElementById("sup-bar");
+  if (barEl) barEl.remove();
+
+  /* Install is owner-only on the server, and a trader should be told
+     who to ask rather than handed a button that answers 403. But this
+     screen can appear before the profile has loaded - the 403 that
+     raises it may be the very first request of the session - and an
+     unknown role must not read as "not the owner" and strand the one
+     person who can fix it. Unknown shows the button; a refusal from
+     the server replaces it with the note. */
+  const knownRole = Boolean(S.user && S.user.role);
+  const isOwner = !knownRole || Boolean(S.user.is_owner || S.user.role === "owner");
+  const host = document.createElement("div");
+  host.id = "sup-lock";
+  host.className = "sup-lock";
+  host.setAttribute("role", "alertdialog");
+  host.setAttribute("aria-modal", "true");
+  host.setAttribute("aria-labelledby", "sup-lock-title");
+  host.innerHTML = `
+    <div class="sup-lock-card">
+      <div class="sup-lock-mark" aria-hidden="true">${icon("lock")}</div>
+      <h2 id="sup-lock-title">${esc(I18N.t("sup.eos_title"))}</h2>
+      <p class="lede">${esc(I18N.t("sup.eos_body", { n: fmtNum(supportGraceDays(), 0) }))}</p>
+      <dl class="sup-lock-facts">
+        <div><dt>${esc(I18N.t("sup.eos_installed"))}</dt><dd><bdi class="mono">${esc(S.version || "")}</bdi></dd></div>
+        <div><dt>${esc(I18N.t("sup.eos_latest"))}</dt><dd><bdi class="mono">${esc((st && st.latest_version) || I18N.t("sup.eos_latest_head"))}</bdi></dd></div>
+        <div><dt>${esc(I18N.t("sup.eos_deadline"))}</dt><dd><bdi>${esc(supportDate(st && st.deadline))}</bdi></dd></div>
+      </dl>
+      <p class="sup-lock-halt">${icon("shield")} ${esc(I18N.t("sup.eos_halted"))}</p>
+      <div class="sup-lock-actions">
+        ${isOwner
+          ? `<button type="button" class="btn block" id="sup-lock-go">${icon("download")} ${esc(I18N.t("sup.eos_action"))}</button>`
+          : `<p class="sup-lock-ask">${esc(I18N.t("sup.eos_owner_only"))}</p>`}
+        <button type="button" class="btn block ghost" id="sup-lock-flat">${esc(I18N.t("sup.eos_flatten"))}</button>
+      </div>
+      <p class="sup-lock-msg" hidden></p>
+    </div>`;
+  document.body.appendChild(host);
+  document.documentElement.classList.add("sup-locked");
+
+  const msgEl = host.querySelector(".sup-lock-msg");
+  const say = (text, bad) => {
+    if (!msgEl) return;
+    msgEl.hidden = false;
+    msgEl.className = "sup-lock-msg" + (bad ? " err" : "");
+    msgEl.textContent = text;
+  };
+
+  const goBtn = host.querySelector("#sup-lock-go");
+  if (goBtn) goBtn.onclick = async () => {
+    goBtn.disabled = true;
+    say(I18N.t("sup.eos_checking"), false);
+    const res = await checkForUpdate();
+    if (!res.ok) {
+      /* The server has just said this user may not do it. Stop offering
+         the button and say who can. */
+      if (res.error === "owner_only" || res.error === "forbidden") {
+        goBtn.remove();
+        say(I18N.t("sup.eos_owner_only"), true);
+        return;
+      }
+      say(updateErrorText(res), true);
+      goBtn.disabled = false;
+      return;
+    }
+    if (!res.available) {
+      /* Already current after all - the lock was standing on a stale
+         answer. Reload rather than quietly unlock a half-built desk. */
+      say(I18N.t("sup.eos_already"), false);
+      setTimeout(() => location.replace("/?v=" + Date.now()), 1200);
+      return;
+    }
+    host.classList.add("is-installing");
+    await runUpdateInstall(res.latest);
+    host.classList.remove("is-installing");
+    goBtn.disabled = false;
+  };
+
+  const flatBtn = host.querySelector("#sup-lock-flat");
+  if (flatBtn) flatBtn.onclick = async () => {
+    /* The desk's one flatten path, confirmation and all. A second copy
+       here would be a third place for this to drift - and this is the
+       copy that would be read least often and tested least. */
+    flatBtn.disabled = true;
+    const done = await flattenAll("support_expired");
+    if (done) say(I18N.t("sup.eos_flatten_done"), false);
+    flatBtn.disabled = false;
+  };
+}
+
 async function boot() {
   bindChrome();
+
+  /* The gate answers 403 to nearly everything once support has ended,
+     and the body of that 403 carries the reason. Listening for it means
+     the lock screen appears on whatever request happened to be in
+     flight, rather than waiting for a poll that will also be refused. */
+  window.addEventListener("aurion:support-expired", (e) => {
+    try { applySupportState((e && e.detail) || { expired: true, grace_days: 5 }); }
+    catch (err) { /* never break the desk over the lock screen */ }
+  });
 
   /* Find out which notification sounds this build ships. Deliberately not
      awaited: a slow fetch must not hold up the desk, and until it resolves

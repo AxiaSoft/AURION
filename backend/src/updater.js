@@ -640,6 +640,19 @@ async function applyUpdate(updateId, serverUrl) {
       ea_changed: eaFiles.length > 0,
     });
 
+    /* This installation is now the version it was being offered, so the
+       stored answer to "is an update available" is stale and saying yes.
+       Left alone it would keep the end-of-support lock closed over an
+       update that has just been installed, until the next check happened
+       to run. Cleared here, at the moment it stopped being true. */
+    writeSecure(UPDATE_STATE_FILE, {
+      last_check: new Date().toISOString(),
+      update_available: false,
+      latest: null,
+      installed_version: state.latest.version || "",
+      installed_at: new Date().toISOString(),
+    });
+
     setProgress({ active: false, phase: "done", done: applied.length, file: "" });
     return {
       ok: true,
