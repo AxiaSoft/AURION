@@ -43,7 +43,15 @@
 #>
 [CmdletBinding()]
 param(
-    [string] $Branch = "arena/01a10ba4-aurion",
+    # main, and not a working branch.
+    #
+    # This defaulted to a development branch that has since been merged and
+    # deleted, so running the script did not update anything - it failed on
+    # the download, at the moment someone reached for it because the desk's
+    # own updater was not working. A rescue tool that rots is worse than no
+    # rescue tool. main is where releases live and is the same branch the
+    # in-app updater is pinned to (UPDATE_BRANCH in backend/src/github-update.js).
+    [string] $Branch = "main",
     [string] $InstallFolder,
     [string] $FromFolder,
     [switch] $NoBackup
@@ -106,7 +114,11 @@ if ($FromFolder) {
         [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
         Invoke-WebRequest -Uri $url -OutFile $zip -UseBasicParsing
     } catch {
-        throw "Download failed: $($_.Exception.Message)`nIf this machine is offline, use -FromFolder with a copy of the repository."
+        $hint = "If this machine is offline, use -FromFolder with a copy of the repository."
+        if ($_.Exception.Message -match "404|Not Found") {
+            $hint = "There is no branch called '$Branch' in the repository. Leave -Branch unset to take main."
+        }
+        throw "Download failed: $($_.Exception.Message)`n$hint"
     }
     Expand-Archive -LiteralPath $zip -DestinationPath $temp -Force
     $source = (Get-ChildItem -LiteralPath $temp -Directory | Select-Object -First 1).FullName
@@ -244,7 +256,8 @@ if ($cleanupTemp) { Remove-Item -LiteralPath $temp -Recurse -Force -ErrorAction 
 # ---------------------------------------------------------------------------
 Head "Done"
 $tag = ([regex]::Match((Get-Content -LiteralPath $deskIndex -Raw), 'js/app\.js\?v=([^"]+)')).Groups[1].Value
-Say "Installed build token: $tag"
+Say "Installed build tag: $tag"
 Say "Start AURION, open Settings -> Language, and check the number beside the version."
 Say "If it reads $tag, you are on the new desk."
+Say "Nothing here needs a GitHub token or any other credential."
 Write-Host ""

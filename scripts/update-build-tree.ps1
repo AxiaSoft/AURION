@@ -7,8 +7,8 @@
 
     The usual cause is a branch with no upstream. These instructions:
 
-        git fetch origin arena/01a10ba4-aurion
-        git checkout -f -B arena/01a10ba4-aurion FETCH_HEAD
+        git fetch origin main
+        git checkout -f -B main FETCH_HEAD
 
     create a local branch that tracks nothing, so a later bare `git pull`
     has nowhere to pull from. It prints a complaint and leaves the tree
@@ -41,7 +41,9 @@
 
 [CmdletBinding()]
 param(
-    [string] $Branch = "arena/01a10ba4-aurion",
+    # main: see the note in update-installed-desk.ps1. A default pointing at
+    # a deleted working branch is a script that only fails.
+    [string] $Branch = "main",
     [switch] $Force,
     [switch] $Deep
 )
