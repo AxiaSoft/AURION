@@ -372,7 +372,14 @@
   function tt(key, fallback) {
     try {
       const i = (typeof I18N !== "undefined" && I18N && I18N.t) ? I18N : (global.I18N || null);
-      const v = (i && i.t) ? i.t(key) : key;
+      if (!i || !i.t) return fallback;
+      /* has() when the host offers it: t() no longer hands a missing key
+         back, so comparing its answer with the key stopped detecting a
+         miss - and this caller has a better fallback than a guess made
+         out of the key's own words. The comparison stays for a host that
+         predates has(). */
+      if (i.has && !i.has(key)) return fallback;
+      const v = i.t(key);
       return (!v || v === key) ? fallback : v;
     } catch (e) { return fallback; }
   }

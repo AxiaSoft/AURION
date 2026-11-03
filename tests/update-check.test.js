@@ -59,9 +59,16 @@ const tick=()=>new Promise(r=>setTimeout(r,0));
 
 (async()=>{
  console.log("=== all three go to the real updater, not the GitHub lookup ===");
- for (const [where,view,tab,btnId,outId] of [
+ for (const [where,view,tab,btnId,outId,expect] of [
    ["the licence box","settings","set-system","lic-upd","lic-upd-msg"],
-   ["the Update section","settings","set-update","upd-check","upd-result"],
+   /* The Update section answers "Nothing newer has been published"
+      where it used to answer "Up to date". Both report the same
+      result; the section now also carries a status chip a few lines
+      above the button, and having the button echo the chip's own
+      words made it look as though pressing it had done nothing. The
+      requirement being checked is unchanged: the press must report an
+      up-to-date result, in words, not silently. */
+   ["the Update section","settings","set-update","upd-check","upd-result",/nothing newer/i],
    ["the About page","about",null,"about-check-update","about-update-status"],
  ]){
   const k=boot(UPTODATE);
@@ -77,7 +84,7 @@ const tick=()=>new Promise(r=>setTimeout(r,0));
   say(!k.calls.some(c=>c.includes("/api/updates")), `${where.padEnd(20)} does not use the GitHub channel`);
   const out=k.doc.getElementById(outId);
   const txt=out?out.textContent.trim():"";
-  say(/Up to date/i.test(txt), `${where.padEnd(20)} says: "${txt}"`);
+  say((expect||/Up to date/i).test(txt), `${where.padEnd(20)} says: "${txt}"`);
  }
 
  console.log("\n=== when there IS one, the licence box hands over ===");

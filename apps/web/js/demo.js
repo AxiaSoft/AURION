@@ -978,6 +978,17 @@
       }
       if (p === "/api/auth/logout") return { ok: true };
 
+      /* Looking for an update is a read, however it is spelled.
+         Refusing it left the update screen in the shop window wearing a
+         red error chip, which says "this product is broken" to a
+         visitor rather than "this action is not available in a demo".
+         Installing one is still refused below - that is the half that
+         writes. There is nothing newer than the demo itself, so the
+         honest answer here is "up to date". */
+      if (p === "/api/system/update/check") {
+        return { ok: true, update_available: false, latest: null, last_check: new Date().toISOString() };
+      }
+
       /* A backtest is a simulation, so the demo runs it for real.
 
          Rule 2 refuses writes because a write has an effect in the world -
@@ -1010,6 +1021,22 @@
     // success below would satisfy its `if (data)` test and leave every label
     // in the interface showing its raw key.
     if (p.startsWith("/api/i18n/")) return MISS;
+
+    /* The update panel's two reads. Without them the catch-all below
+       answered {ok:true,data:[]}, and the panel drew a card that knew
+       neither which build it was on nor when it last looked. No version
+       is invented here: left out, the desk falls back to the one it
+       already booted with. */
+    if (p === "/api/system/update/settings") {
+      return { ok: true, data: { auto_check_enabled: true, auto_check_interval_hours: 6 } };
+    }
+    if (p === "/api/system/update/state") {
+      return { ok: true, data: {
+        last_check: new Date(Date.now() - 2 * 3600 * 1000).toISOString(),
+        update_available: false,
+        latest: null,
+      } };
+    }
 
     if (p === "/api/snapshot") return snapshot();
     if (p === "/api/license") return license();

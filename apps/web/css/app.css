@@ -3711,6 +3711,32 @@ html[dir="rtl"] .q-how[open] summary::before{ transform:rotate(0deg) }
    welcome above it: an update replaces the stylesheet underneath this
    screen while it is on display, so it cannot depend on theme tokens
    that may be mid-swap, and it must stay legible either way. */
+/* ---- the update card's two facts and its one chip -------------------
+   A version string and a formatted date are both Latin-shaped runs that
+   can land in a Persian sentence, so they are isolated rather than left
+   to the paragraph's direction; and both are allowed to break, because
+   an unbreakable 40-character string in a 1fr column is how a panel
+   stops fitting on a phone. */
+.upd-facts{display:grid;gap:6px;margin:0 0 10px}
+.upd-facts .kv b{overflow-wrap:anywhere;unicode-bidi:plaintext}
+.upd-state{margin:0 0 10px}
+.upd-chip{
+  display:inline-flex;align-items:center;gap:6px;
+  padding:4px 10px;border-radius:999px;
+  font-size:12px;line-height:1.5;
+  border:1px solid rgb(var(--s6) / .9);color:var(--muted);
+  background:rgb(var(--s9) / .6);
+  overflow-wrap:anywhere;
+}
+.upd-chip.is-ok{border-color:color-mix(in srgb,var(--ok) 55%,transparent);color:var(--ok)}
+.upd-chip.is-new{border-color:color-mix(in srgb,var(--accent) 55%,transparent);color:var(--accent-readable)}
+.upd-chip.is-bad{border-color:color-mix(in srgb,var(--bad) 55%,transparent);color:var(--bad)}
+.upd-policy{margin:0 0 10px}
+/* Release notes and error codes arrive from a server; neither is under
+   this desk's control, so neither is allowed to set the card's width. */
+.stx-result{overflow-wrap:anywhere}
+.stx-result .mono{overflow-wrap:anywhere}
+
 .upd-install{
   position:fixed;inset:0;z-index:10001;
   display:grid;place-items:center;padding:20px;
