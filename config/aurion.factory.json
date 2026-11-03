@@ -129,8 +129,7 @@
     "source": "github",
     "github": {
       "owner": "AxiaSoft",
-      "repo": "AURION",
-      "branch": "main"
+      "repo": "AURION"
     },
     "url": "",
     "auto_check": false,

@@ -13,10 +13,13 @@
  *
  * How a "version" is decided, in order:
  *
- *   1. the latest published release — tag, notes and date are exactly what
- *      the desk's update panel already displays;
- *   2. if the repository has published none, the head commit of the tracked
- *      branch, with the commit subject standing in for the release notes.
+ *   1. the latest published release, provided main contains it — tag,
+ *      notes and date are exactly what the desk's update panel displays;
+ *   2. otherwise the head commit of main, with the commit subject standing
+ *      in for the release notes.
+ *
+ * Both read main and nothing else. Every other branch in the repository is
+ * development and is never a source of updates.
  *
  * Which files differ is not guessed from the version. The tree API lists
  * every tracked path with its blob SHA, and a git blob SHA is computable
@@ -39,6 +42,23 @@ const crypto = require("crypto");
 const { ROOT } = require("./paths");
 
 const API_HOST = "api.github.com";
+
+/**
+ * The one branch an installation may update from.
+ *
+ * Every other branch in the repository is development: work in progress,
+ * experiments, and the per-session branches this desk is itself built on.
+ * None of them are a release, several of them do not run, and any of them
+ * could be the newest thing in the repository at any moment - so "the
+ * newest commit" is not a safe answer to "what should a customer install".
+ * main is.
+ *
+ * Pinned in code rather than defaulted in config. A default is something
+ * an edit can move, and the edit that moves it points a customer's
+ * auto-updater at a development branch. Nothing reads a branch name from
+ * configuration any more, so there is no value to set.
+ */
+const UPDATE_BRANCH = "main";
 const MAX_FILES = 600;
 const MAX_BLOB = 25 * 1024 * 1024;
 
@@ -99,25 +119,32 @@ function isShippable(rel) {
 }
 
 /**
- * Where to look: owner, repo and branch.
+ * Where to look: owner and repo. The branch is not negotiable.
  *
- * Read from config.update_server.github when present, so an operator can
- * point a build at a fork or a release branch without touching code, and
- * otherwise the product's own repository. A token is optional and only
- * raises the rate limit — a public repository needs none, which is the
- * point: a customer's machine updates with no credential of any kind.
+ * owner and repo are read from config.update_server.github when present,
+ * so an operator can point a build at a fork without touching code, and
+ * otherwise they are the product's own repository. The branch is always
+ * main - see UPDATE_BRANCH.
+ *
+ * A token is optional and only raises the rate limit — a public
+ * repository needs none, which is the point: a customer's machine
+ * updates with no credential of any kind.
  */
 function getSource(cfg) {
   const gh = (cfg && cfg.update_server && cfg.update_server.github) || {};
   const owner = String(gh.owner || "AxiaSoft").trim();
   const repo = String(gh.repo || "AURION").trim();
-  const branch = String(gh.branch || "main").trim();
   const token = String(process.env.AURION_GITHUB_TOKEN || gh.token || "").trim();
-  return { owner, repo, branch, token };
+  /* A branch key left over in an old config is reported, not obeyed.
+     Silently ignoring a setting someone wrote is how a machine ends up
+     doing the opposite of what its configuration appears to say. */
+  const asked = String(gh.branch || "").trim();
+  const ignored_branch = asked && asked !== UPDATE_BRANCH ? asked : "";
+  return { owner, repo, branch: UPDATE_BRANCH, token, ignored_branch };
 }
 
 function describe(src) {
-  return `github.com/${src.owner}/${src.repo}`;
+  return `github.com/${src.owner}/${src.repo}@${UPDATE_BRANCH}`;
 }
 
 function request(src, pathname, timeoutMs = 20000) {
@@ -200,10 +227,40 @@ function localBlobSha(rel) {
  * check that always says yes, which is the failure the single-check
  * rewrite existed to remove in the first place.
  */
+/**
+ * Is this ref part of main, or off on its own?
+ *
+ * releases/latest answers with the newest published release in the whole
+ * repository, and says nothing about which branch it was cut from. A
+ * release tagged on a development branch is therefore a perfectly valid
+ * answer to "the latest release" and a completely invalid answer to
+ * "what should this customer install".
+ *
+ * compare gives the exact test. ahead_by counts the commits the candidate
+ * has that main does not; zero means main already contains every one of
+ * them, which is what "it is on main" means. A tag on main reads
+ * identical or behind; anything cut elsewhere reads ahead or diverged.
+ */
+async function containedInMain(src, ref) {
+  try {
+    const cmp = await request(
+      src,
+      `/repos/${src.owner}/${src.repo}/compare/${encodeURIComponent(UPDATE_BRANCH)}...${encodeURIComponent(ref)}?per_page=1`,
+      30000
+    );
+    if (!cmp || typeof cmp.ahead_by !== "number") return false;
+    return cmp.ahead_by === 0;
+  } catch {
+    /* Could not establish that it is on main, so it is not treated as
+       being on main. The branch head is always a safe answer. */
+    return false;
+  }
+}
+
 async function resolveTarget(src) {
   try {
     const rel = await request(src, `/repos/${src.owner}/${src.repo}/releases/latest`);
-    if (rel && rel.tag_name) {
+    if (rel && rel.tag_name && await containedInMain(src, String(rel.tag_name))) {
       return {
         channel: "release",
         ref: String(rel.tag_name),
@@ -217,7 +274,10 @@ async function resolveTarget(src) {
   } catch (e) {
     if (e.message !== "github_not_found") throw e;
   }
-  const head = await request(src, `/repos/${src.owner}/${src.repo}/commits/${encodeURIComponent(src.branch)}`);
+  /* Here for one of three reasons: the repository publishes no releases,
+     the newest one is not on main, or the lookup 404'd. All three mean the
+     same thing - the head of main is what this installation should be at. */
+  const head = await request(src, `/repos/${src.owner}/${src.repo}/commits/${encodeURIComponent(UPDATE_BRANCH)}`);
   const sha = String((head && head.sha) || "");
   if (!sha) throw new Error("no_commit");
   const commit = (head && head.commit) || {};
@@ -225,7 +285,7 @@ async function resolveTarget(src) {
     channel: "branch",
     ref: sha,
     id: sha.slice(0, 12),
-    version: src.branch + "@" + sha.slice(0, 7),
+    version: UPDATE_BRANCH + "@" + sha.slice(0, 7),
     changelog: String((commit.message || "").split("\n")[0] || "").slice(0, 4000),
     published_at: (commit.committer && commit.committer.date) || (commit.author && commit.author.date) || "",
     html_url: head.html_url || "",
@@ -311,6 +371,8 @@ async function fetchFile(cfg, file) {
 }
 
 module.exports = {
+  UPDATE_BRANCH,
+  containedInMain,
   INCLUDE_DIRS,
   INCLUDE_FILES,
   getSource,

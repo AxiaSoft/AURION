@@ -1112,6 +1112,7 @@
     "save": "Save settings",
     "status": "Update status",
     "source": "Update source",
+    "branch_locked": "updates only come from main, so \"{branch}\" in your config is ignored",
     "last_check": "Last check",
     "check": "Check for updates",
     "open_panel": "Open system updates",

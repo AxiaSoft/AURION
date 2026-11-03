@@ -8226,7 +8226,11 @@ async function bindUpdatePanel(){
     const r = await API.get('/api/system/update/settings');
     if(r.ok && r.data){
       if(urlDisplay) urlDisplay.textContent = r.data.update_server_url || r.data.source_url || '—';
-      if(sourceEl) sourceEl.textContent = I18N.t('upd.source') + ': ' + (r.data.source_url || r.data.update_server_url || '—');
+      if(sourceEl){
+        const ignored = r.data.github && r.data.github.ignored_branch;
+        sourceEl.textContent = I18N.t('upd.source') + ': ' + (r.data.source_url || r.data.update_server_url || '—')
+          + (ignored ? ' \u2014 ' + I18N.t('upd.branch_locked', { branch: ignored }) : '');
+      }
       if(autoEl) paintSwitch(autoEl, !!r.data.auto_check_enabled);
       if(intervalEl) intervalEl.value = r.data.auto_check_interval_hours || 6;
     }

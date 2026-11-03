@@ -102,7 +102,17 @@ function getSettings() {
     merged.update_server_url = github.describe(src);
     merged.source_url = merged.update_server_url;
     merged.source_defined = true;
-    merged.github = { owner: src.owner, repo: src.repo, branch: src.branch, authenticated: Boolean(src.token) };
+    merged.github = {
+      owner: src.owner,
+      repo: src.repo,
+      branch: src.branch,
+      branch_locked: true,
+      /* Empty unless a config names some other branch. Carried through so
+         the panel can say it is being ignored rather than leaving someone
+         to wonder why their edit did nothing. */
+      ignored_branch: src.ignored_branch || "",
+      authenticated: Boolean(src.token),
+    };
     return merged;
   }
 
