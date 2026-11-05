@@ -2163,6 +2163,29 @@ input[type=range]{width:100%;accent-color:var(--cyan);height:28px;cursor:pointer
 .cal-none{margin:0;font-size:.8rem;opacity:.5;text-align:center;padding:10px 0}
 
 /* legend ---------------------------------------------------------- */
+/* The news reminder: a switch, two choices, and a sentence saying what
+   it will and will not do. Sized like the legend beside it so the aside
+   reads as one column of small cards. */
+/* How big an update is, and - when the tracked branch has merely moved -
+   what that actually is. Set quieter than an offer on purpose: it is a
+   statement of fact, not a call to action. */
+.upd-size b{font-variant-numeric:tabular-nums}
+.upd-unpub{display:flex;align-items:center;gap:8px;margin:0}
+.upd-unpub svg{width:15px;height:15px;flex:0 0 auto;opacity:.7}
+.upd-unpub-detail{margin:6px 0 10px;line-height:1.6}
+.cal-remind{padding:14px}
+.cal-remind-head{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.cal-remind-head h4{margin:0;font-size:.8rem;font-weight:650;opacity:.75}
+.cal-remind .sub{margin:6px 0 0;font-size:.74rem;line-height:1.5;opacity:.72}
+.cal-remind-opts{display:flex;flex-direction:column;gap:8px;margin-top:10px}
+.cal-remind-opt{display:flex;align-items:center;justify-content:space-between;gap:10px;font-size:.76rem}
+/* The label column is fixed so the two controls end up the same width:
+   "Warn me" and "For" are very different lengths, and left to themselves
+   the selects stepped in and out beneath each other. */
+.cal-remind-opt>span{opacity:.75;flex:0 0 auto;min-width:62px}
+.cal-remind-opt .ctrl{flex:1 1 0;min-width:0;height:32px;padding:0 8px;font-size:.76rem}
+/* Off is shown, not just stored: the choices fade with the switch. */
+.cal-remind:not(.is-on) .cal-remind-opts{opacity:.5}
 .cal-legend{padding:14px}
 .cal-legend h4{margin:0 0 8px;font-size:.8rem;font-weight:650;opacity:.75}
 .cal-legend ul{list-style:none;margin:0;padding:0;display:flex;flex-wrap:wrap;gap:6px 14px}
@@ -2213,7 +2236,7 @@ input[type=range]{width:100%;accent-color:var(--cyan);height:28px;cursor:pointer
   .cal-d{font-size:.88rem}
   .cal-hd{font-size:.64rem}
   .cal-ev{padding:7px 9px 7px 11px}
-  .cal-day,.cal-legend{padding:12px}
+  .cal-day,.cal-legend,.cal-remind{padding:12px}
 }
 
 @media (max-width:380px){

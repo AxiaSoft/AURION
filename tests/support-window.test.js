@@ -52,10 +52,15 @@ const check = (name, ok, note) => {
 
 const DAY = 24 * 60 * 60 * 1000;
 const at = (iso) => Date.parse(iso);
+/* A PUBLISHED release, which since the false-alarm report is the only
+   kind of update that may start the clock. published:true is part of
+   the fixture because it is part of the fact: without it the state
+   describes the head of a development branch, and that must never
+   lock anything. */
 const offered = (publishedIso, extra) => ({
   last_check: "2030-01-01T00:00:00Z",
   update_available: true,
-  latest: { version: "9.9.9", published_at: publishedIso, ...(extra || {}) },
+  latest: { version: "9.9.9", published: true, published_at: publishedIso, ...(extra || {}) },
 });
 
 /* ------------------------------------------------------------------ */
@@ -96,7 +101,7 @@ console.log("\n=== the clock starts when the update was published ===");
     "a machine that was switched off does not get a fresh five days",
     SUP.evaluate(
       { last_check: "2030-01-10T00:00:00Z", update_available: true,
-        latest: { version: "9.9.9", published_at: "2030-01-01T00:00:00Z" } },
+        latest: { version: "9.9.9", published: true, published_at: "2030-01-01T00:00:00Z" } },
       now
     ).expired,
     "the deadline is read from the release date, not from when this desk noticed"
@@ -169,7 +174,7 @@ check(
 check(
   "build_date is the fallback when published_at is missing",
   SUP.evaluate(
-    { update_available: true, latest: { version: "9.9.9", build_date: "2030-01-01" } },
+    { update_available: true, latest: { version: "9.9.9", published: true, build_date: "2030-01-01" } },
     at("2030-01-20T00:00:00Z")
   ).expired
 );

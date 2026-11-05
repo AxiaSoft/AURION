@@ -238,6 +238,7 @@ const Calendar = {
         </section>
         <aside class="cal-aside">
           <div class="card cal-day" id="cal-day">${this._dayPanel(this.selected)}</div>
+          ${this._remindHtml()}
           <div class="card cal-legend">
             <h4>${esc(t("calendar.legend"))}</h4>
             <ul>
@@ -397,6 +398,219 @@ const Calendar = {
     return `<div class="cal-tip-h">${esc(t("calendar.day"))}</div>${lines}<div class="cal-tip-sep"></div>${body}`;
   },
 
+  /** The reminder's one control panel: on, how early, how important. */
+  _remindHtml() {
+    const t = (k, v) => I18N.t(k, v);
+    const p = this.remindPrefs();
+    const sw = typeof switchHtml === "function"
+      ? switchHtml({ id: "cal-remind", on: p.on, label: t("calendar.remind_title") })
+      : `<button type="button" class="switch${p.on ? " on" : ""}" id="cal-remind"
+          aria-pressed="${p.on}" aria-label="${esc(t("calendar.remind_title"))}"><i></i></button>`;
+    const opt = (v, label, cur) => `<option value="${esc(String(v))}"${String(v) === String(cur) ? " selected" : ""}>${esc(label)}</option>`;
+    return `
+      <div class="card cal-remind${p.on ? " is-on" : ""}" id="cal-remind-card">
+        <div class="cal-remind-head">
+          <h4 id="cal-remind-label">${esc(t("calendar.remind_title"))}</h4>
+          ${sw}
+        </div>
+        <p class="sub">${esc(t("calendar.remind_sub"))}</p>
+        <div class="cal-remind-opts">
+          <label class="cal-remind-opt">
+            <span>${esc(t("calendar.remind_lead"))}</span>
+            <select class="ctrl" id="cal-remind-lead" ${p.on ? "" : "disabled"}>
+              ${this.LEADS.map((m) => opt(m, t("calendar.remind_minutes", { n: String(m) }), p.lead)).join("")}
+            </select>
+          </label>
+          <label class="cal-remind-opt">
+            <span>${esc(t("calendar.remind_level"))}</span>
+            <select class="ctrl" id="cal-remind-level" ${p.on ? "" : "disabled"}>
+              ${opt("high", t("calendar.remind_high"), p.level)}
+              ${opt("medium", t("calendar.remind_medium"), p.level)}
+              ${opt("all", t("calendar.remind_all"), p.level)}
+            </select>
+          </label>
+        </div>
+      </div>`;
+  },
+
+  /** Wire that panel. Called from bind(), so it survives every rerender. */
+  _bindRemind(root) {
+    const card = root.querySelector("#cal-remind-card");
+    if (!card) return;
+    const sw = card.querySelector("#cal-remind");
+    const lead = card.querySelector("#cal-remind-lead");
+    const level = card.querySelector("#cal-remind-level");
+    const paint = (on) => {
+      card.classList.toggle("is-on", on);
+      if (sw) { sw.classList.toggle("on", on); sw.setAttribute("aria-pressed", String(on)); }
+      if (lead) lead.disabled = !on;
+      if (level) level.disabled = !on;
+    };
+    if (sw) sw.onclick = () => {
+      const on = !this.remindPrefs().on;
+      this.saveRemindPrefs({ on });
+      paint(on);
+      /* Off means the timer stops, not that the sound is suppressed. */
+      if (on) this.startReminder(); else this.stopReminder();
+      this._remindSay(I18N.t(on ? "calendar.remind_on" : "calendar.remind_off"));
+    };
+    if (lead) lead.onchange = () => this.saveRemindPrefs({ lead: Number(lead.value) });
+    if (level) level.onchange = () => this.saveRemindPrefs({ level: level.value });
+    /* The desk portals its own dropdowns; a native select inside a card
+       would be the only one on screen that looks different. */
+    try { if (typeof enhanceSelects === "function") enhanceSelects(card); } catch (_) { /* */ }
+  },
+
+  /* ---------------- the news reminder ----------------
+   *
+   * Asked for: something that tells you a release is coming, that can be
+   * turned off, and that does nothing else.
+   *
+   * So that is all it is. It raises the desk's ordinary notification a
+   * set number of minutes before an event on the calendar and stops
+   * there - it never touches the robot, never closes anything, never
+   * changes a setting. A reminder that could act on the market would be
+   * a trading feature wearing a bell, and this one is not allowed to
+   * become that.
+   *
+   * Off is a real off: the switch stops the timer, not just the sound.
+   * The choice lives in this browser, like the other desk preferences,
+   * because it is about who is sitting in front of the screen.
+   */
+  REMIND_KEY: "aurion.cal.remind",
+  REMIND_SEEN_KEY: "aurion.cal.remind.seen",
+  REMIND_DEFAULTS: { on: true, lead: 15, level: "high" },
+  LEADS: [5, 15, 30, 60],
+  LEVELS: ["high", "medium", "all"],
+
+  remindPrefs() {
+    let saved = {};
+    try { saved = JSON.parse(localStorage.getItem(this.REMIND_KEY) || "{}") || {}; } catch (_) { saved = {}; }
+    const out = { ...this.REMIND_DEFAULTS, ...(typeof saved === "object" ? saved : {}) };
+    out.on = out.on !== false;
+    out.lead = this.LEADS.includes(Number(out.lead)) ? Number(out.lead) : this.REMIND_DEFAULTS.lead;
+    out.level = this.LEVELS.includes(out.level) ? out.level : this.REMIND_DEFAULTS.level;
+    return out;
+  },
+
+  saveRemindPrefs(patch) {
+    const next = { ...this.remindPrefs(), ...(patch || {}) };
+    try { localStorage.setItem(this.REMIND_KEY, JSON.stringify(next)); } catch (_) { /* private mode */ }
+    return next;
+  },
+
+  /** Does this event clear the bar the user set? */
+  _remindWanted(ev, level) {
+    if (!ev || ev.level === "holiday") return false;
+    /* Everything means everything the source listed as news, including
+       a row whose impact it did not grade - the one exception being a
+       market holiday, which is a closed day, not a release. */
+    if (level === "all") return true;
+    if (level === "medium") return ev.level === "high" || ev.level === "medium";
+    return ev.level === "high";
+  },
+
+  /* Announced events are remembered across reloads, or a desk left open
+     over a release would re-announce it on every refresh. Keyed by the
+     event itself rather than by an index, and pruned to the last two
+     days so the list cannot grow without end. */
+  _remindSeen() {
+    try {
+      const raw = JSON.parse(localStorage.getItem(this.REMIND_SEEN_KEY) || "{}");
+      return raw && typeof raw === "object" ? raw : {};
+    } catch (_) { return {}; }
+  },
+
+  _remindMark(id, ms) {
+    const seen = this._remindSeen();
+    seen[id] = ms;
+    const floor = Date.now() - 2 * 24 * 60 * 60 * 1000;
+    for (const k of Object.keys(seen)) if (!(seen[k] > floor)) delete seen[k];
+    try { localStorage.setItem(this.REMIND_SEEN_KEY, JSON.stringify(seen)); } catch (_) { /* */ }
+  },
+
+  _evId(ev) {
+    return [ev.day, ev.time, ev.currency, ev.title].join("|");
+  },
+
+  /** One pass over the loaded events. Pure read; announces at most a few. */
+  remindTick(nowMs) {
+    const prefs = this.remindPrefs();
+    if (!prefs.on) return [];
+    const now = Number.isFinite(nowMs) ? nowMs : Date.now();
+    const until = now + prefs.lead * 60 * 1000;
+    const seen = this._remindSeen();
+    const due = [];
+    for (const ev of this.events || []) {
+      if (!ev || !Number.isFinite(ev.ms) || ev.ms <= 0) continue;
+      if (ev.ms <= now || ev.ms > until) continue;
+      if (!this._remindWanted(ev, prefs.level)) continue;
+      const id = this._evId(ev);
+      if (seen[id]) continue;
+      due.push(ev);
+    }
+    /* Three at once is a notification; ten is a wall of toasts that
+       hides the desk. A release window with more than three events
+       announces the three nearest and says how many others there are. */
+    const show = due.slice(0, 3);
+    for (const ev of show) this._remindAnnounce(ev, now);
+    for (const ev of due) this._remindMark(this._evId(ev), ev.ms);
+    if (due.length > show.length) this._remindSay(I18N.t("calendar.remind_more", { n: String(due.length - show.length) }));
+    return due;
+  },
+
+  _remindAnnounce(ev, now) {
+    const mins = Math.max(1, Math.round((ev.ms - now) / 60000));
+    const what = ev.title || I18N.t("calendar.untitled");
+    const text = I18N.t("calendar.remind_toast", {
+      what: (ev.currency ? ev.currency + " " : "") + what,
+      n: String(mins),
+      time: ev.time || "",
+    });
+    this._remindSay(text);
+    /* The desktop host owns the Windows notification; told the same
+       thing, flagged as news so it can never be mistaken for a signal. */
+    try {
+      const bridge = window.chrome && window.chrome.webview;
+      if (bridge && typeof bridge.postMessage === "function") {
+        bridge.postMessage(JSON.stringify({ type: "news", title: I18N.t("calendar.remind_title"), body: text }));
+      }
+    } catch (_) { /* no host: the in-desk toast is the whole reminder */ }
+  },
+
+  _remindSay(text) {
+    try { if (typeof toast === "function") toast(text); } catch (_) { /* */ }
+  },
+
+  /**
+   * Keep the reminder running while the desk is open.
+   *
+   * The calendar view loads the events when it is opened; this must work
+   * when it never is, so it fetches them itself on a slow timer. Started
+   * once from boot and idempotent.
+   */
+  startReminder() {
+    if (this._remindTimer) return;
+    const tick = async () => {
+      const prefs = this.remindPrefs();
+      if (!prefs.on) return;
+      /* Only when the calendar is not on screen - the view keeps its own
+         copy fresh, and a refetch underneath it would be wasted. */
+      const stale = !this._remindFetched || Date.now() - this._remindFetched > 10 * 60 * 1000;
+      if (stale && !(this.root && document.body.contains(this.root))) {
+        this._remindFetched = Date.now();
+        try { await this.load(); } catch (_) { /* offline: try again next pass */ }
+      }
+      this.remindTick(Date.now());
+    };
+    this._remindTimer = setInterval(tick, 30000);
+    setTimeout(tick, 4000);
+  },
+
+  stopReminder() {
+    if (this._remindTimer) { clearInterval(this._remindTimer); this._remindTimer = 0; }
+  },
+
   /* ---------------- wiring ---------------- */
 
   /** Fetch the data, then paint. Safe to call after the shell is on screen. */
@@ -422,6 +636,8 @@ const Calendar = {
     const $$ = (s) => root.querySelector(s);
     const pane = $$("#cal-pane");
     const day = $$("#cal-day");
+
+    this._bindRemind(root);
 
     /* ------------------------------------------------- the hover peek */
     /* One element, parented to <body> so no transformed ancestor can

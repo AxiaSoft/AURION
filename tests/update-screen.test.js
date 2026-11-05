@@ -344,7 +344,12 @@ check("the same fact is not printed three times over", () => {
   const bind = APP.slice(APP.indexOf("async function bindUpdatePanel"), APP.indexOf("async function bindUpdatePanel") + 6000);
   must(!/statusEl\.innerHTML = '<p class="sub">' \+ I18N\.t\('upd\.none'\)/.test(bind),
     '"no update found" is still printed permanently beside the chip that says the same thing');
-  must(/statusEl\.innerHTML = st\.data\.latest/.test(bind), "the status block is no longer conditional");
+  /* The block has three outcomes now - an offer, "the branch moved and
+     nothing was released", and nothing at all - so what is pinned is
+     that it still has an empty case and still never restates the chip. */
+  must(/statusEl\.innerHTML = '';/.test(bind), "there is no longer a case that prints nothing");
+  must(/st\.data\.update_available && st\.data\.latest/.test(bind),
+    "an offer is printed for anything that merely differs from the branch");
   return "chip only";
 });
 
@@ -420,7 +425,7 @@ check("every upd.* and sup.* key the code reads is in the packs", () => {
 });
 
 check("the browser is made to fetch the files that changed", () => {
-  for (const want of ["js/app.js?v=desk222", "css/app.css?v=desk222", "js/demo.js?v=desk222"]) {
+  for (const want of ["js/app.js?v=desk223", "css/app.css?v=desk223", "js/demo.js?v=desk222"]) {
     must(HTML.includes(want), "index.html still points at the old " + want);
   }
   const token = /js\/i18n\.js\?v=(lang[0-9a-f]+)/.exec(HTML);

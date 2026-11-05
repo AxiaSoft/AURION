@@ -2887,6 +2887,28 @@ function updateStamp(upd) {
 }
 
 /**
+ * How big this update is, stated as two different things because they
+ * are two different things.
+ *
+ *   changes  - the exact number of bytes that will be written, summed
+ *              from the sizes the file listing already carried.
+ *   download - the transfer. The build arrives as one compressed
+ *              archive and the host that serves it declares no length
+ *              in advance (measured: no Content-Length, and a Range
+ *              request is answered with the whole file), so there is no
+ *              honest figure to print here. The install screen shows
+ *              the real one as it arrives instead.
+ */
+function updateSizeHtml(upd) {
+  if (!upd) return "";
+  const n = Number(upd.file_count || (upd.files || []).length) || 0;
+  const bytes = Number(upd.download_bytes) || 0;
+  if (!n && !bytes) return "";
+  return '<div class="kv upd-size"><span>' + esc(I18N.t("upd.size_changes")) + "</span><b>"
+    + esc(I18N.t("upd.size_value", { n: fmtNum(n, 0), size: fmtBytes(bytes) })) + "</b></div>";
+}
+
+/**
  * Release notes, when there are any.
  *
  * A tagged release carries notes written for whoever installs it. A
@@ -8829,6 +8851,23 @@ async function bindExpertsCard() {
 }
 
 /**
+ * A size, in the largest unit that leaves a number a person can hold.
+ *
+ * Bytes for the very small, then KB/MB/GB with one decimal - "1.2 MB",
+ * not "1264238 bytes". Zero and anything unreadable answer with a dash
+ * rather than with "0 B", which would read as a claim.
+ */
+function fmtBytes(n) {
+  const v = Number(n);
+  if (!Number.isFinite(v) || v <= 0) return "\u2014";
+  const units = ["B", "KB", "MB", "GB"];
+  let i = 0;
+  let x = v;
+  while (x >= 1024 && i < units.length - 1) { x /= 1024; i += 1; }
+  return fmtNum(x, i === 0 ? 0 : (x < 10 ? 1 : 0)) + " " + units[i];
+}
+
+/**
  * When something last happened, in the reader's own calendar and clock.
  *
  * The panel used to print the ISO string the engine stores -
@@ -8870,6 +8909,13 @@ function paintUpdateFacts(o) {
   if (state === "available") {
     chip.classList.add("is-new");
     chip.textContent = I18N.t("upd.available");
+  } else if (state === "unpublished") {
+    /* The tracked branch has moved and nothing has been released. That
+       is not an update and must not be dressed as one: no "new version"
+       colour, no call to action. The owner is told what it is, a line
+       below, and may install it deliberately. */
+    chip.classList.add("is-ok");
+    chip.textContent = I18N.t("upd.uptodate");
   } else if (state === "uptodate") {
     chip.classList.add("is-ok");
     chip.textContent = I18N.t("upd.uptodate");
@@ -8902,16 +8948,45 @@ async function bindUpdatePanel(){
       paintUpdateFacts({
         version: st.data.current_version,
         lastCheck: st.data.last_check,
-        state: st.data.last_check ? (st.data.update_available ? 'available' : 'uptodate') : 'unknown',
+        state: !st.data.last_check ? 'unknown'
+          : st.data.update_available ? 'available'
+          : st.data.unpublished ? 'unpublished'
+          : 'uptodate',
       });
       if(statusEl){
         /* Only when there is something to say. "No update found" used to
            sit here permanently, and after a check the same fact was on
            screen three times over - chip, this line, and the result
            below it. The chip is the one that is always current. */
-        statusEl.innerHTML = st.data.latest
-          ? '<div class="kv"><span>'+esc(I18N.t('upd.new_version'))+'</span><b class="mono">'+esc(updateStamp(st.data.latest))+'</b></div>'+changelogHtml(st.data.latest)
-          : '';
+        if (st.data.update_available && st.data.latest) {
+          statusEl.innerHTML = '<div class="kv"><span>'+esc(I18N.t('upd.new_version'))+'</span><b class="mono">'+esc(updateStamp(st.data.latest))+'</b></div>'
+            + updateSizeHtml(st.data.latest)
+            + changelogHtml(st.data.latest);
+        } else if (st.data.unpublished && st.data.latest) {
+          /* Said in full, because the alternative is what was reported:
+             a desk announcing an update on a product whose owner had
+             released nothing. These are the facts and no instruction. */
+          const n = Number(st.data.latest.file_count || (st.data.latest.files||[]).length) || 0;
+          statusEl.innerHTML = '<p class="sub upd-unpub">'+icon('info')+' '+esc(I18N.t('upd.no_release'))+'</p>'
+            + '<p class="sub upd-unpub-detail">'+esc(I18N.t('upd.behind_branch', {
+                n: fmtNum(n, 0), size: fmtBytes(st.data.latest.download_bytes),
+              }))+'</p>'
+            + '<button class="btn ghost" type="button" id="upd-dev-btn">'+esc(I18N.t('upd.install_branch'))+'</button>';
+          const devBtn = document.getElementById('upd-dev-btn');
+          if (devBtn) devBtn.onclick = async () => {
+            const go = await askConfirm({
+              title: I18N.t('upd.install_branch'),
+              body: I18N.t('upd.install_branch_confirm'),
+              ok: I18N.t('upd.install_branch'),
+              cancel: I18N.t('common.cancel'),
+              danger: true,
+            });
+            if (!go) return;
+            await runUpdateInstall(st.data.latest);
+          };
+        } else {
+          statusEl.innerHTML = '';
+        }
       }
     }
   } catch {}
@@ -8955,7 +9030,7 @@ async function bindUpdatePanel(){
     if(statusEl) statusEl.innerHTML = '';
     const upd = res.latest;
     if(resultEl){
-      resultEl.innerHTML = '<div class="card" style="background:rgb(var(--s9))"><h3>'+icon("spark")+' '+I18N.t('upd.available')+': <span class="mono">'+esc(updateStamp(upd))+'</span></h3>'+changelogHtml(upd)+'<button class="btn" id="upd-apply-btn" type="button">'+icon("download")+' '+I18N.t('upd.download_apply')+'</button><p class="sub" style="margin-top:8px;color:var(--gold)">'+I18N.t('upd.replace_note')+'</p></div>';
+      resultEl.innerHTML = '<div class="card" style="background:rgb(var(--s9))"><h3>'+icon("spark")+' '+I18N.t('upd.available')+': <span class="mono">'+esc(updateStamp(upd))+'</span></h3>'+updateSizeHtml(upd)+changelogHtml(upd)+'<button class="btn" id="upd-apply-btn" type="button">'+icon("download")+' '+I18N.t('upd.download_apply')+'</button><p class="sub" style="margin-top:8px;color:var(--gold)">'+I18N.t('upd.replace_note')+'</p></div>';
       const applyBtn = document.getElementById('upd-apply-btn');
       if(applyBtn) applyBtn.onclick = async () => {
         const go = await askConfirm({
@@ -13313,6 +13388,11 @@ async function enterDesk() {
   if (!S._poll) {
     S._poll = setInterval(() => { if (!typing()) refresh(false); }, 12000);
   }
+  /* The news reminder watches the economic calendar whether or not the
+     calendar page is open - a reminder you have to be looking at is not
+     a reminder. It only ever raises a notification, and the switch on
+     that page stops it completely. */
+  try { if (typeof Calendar !== "undefined") Calendar.startReminder(); } catch (e) { /* never break the desk over a toast */ }
 }
 
 function welcomeIsMobile() {
@@ -13704,7 +13784,11 @@ async function runUpdateInstall(upd) {
       } catch (e) { p = null; }
       if (!p || !p.active) return;
       if (p.phase === "download") {
-        setBar(null, I18N.t("upd.inst_phase_download"), "");
+        /* The one number that is true during this phase: how much has
+           come down so far. Nothing can say how much is left, so
+           nothing pretends to - the bar sweeps and the count rises. */
+        const got = Number(p.bytes) || 0;
+        setBar(null, I18N.t("upd.inst_phase_download"), got ? fmtBytes(got) : "");
         return;
       }
       if (p.phase === "apply") {
