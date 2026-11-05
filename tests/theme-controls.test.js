@@ -741,9 +741,9 @@ check("the browser is forced to pick up every file that changed", () => {
     /* The calendar grew the news reminder, and had been left at
        desk139 while everything around it moved - a cached copy would
        be a calendar with no reminder in it at all. */
-    "js/calendar.js?v=desk223"];
+    "js/calendar.js?v=desk225"];
   want.forEach((w) => { if (!html.includes(w)) throw new Error("index.html is missing " + w); });
-  if (!read("sw.js").includes("aurion-shell-v213")) throw new Error("the service worker cache was not bumped");
+  if (!read("sw.js").includes("aurion-shell-v214")) throw new Error("the service worker cache was not bumped");
 });
 
 /* ----------------------------------------------------------------- report */

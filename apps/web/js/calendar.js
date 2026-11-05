@@ -44,6 +44,106 @@ const Calendar = {
     return { en: "en-GB", fa: "fa-IR", ar: "ar-SA" }[I18N.lang] || "en-GB";
   },
 
+  /* A number in the reader's own digits. The desk writes Persian and
+     Arabic-Indic numerals everywhere else; "15 دقیقه قبل" with a Latin
+     15 in it is half-translated, which reads worse than either. */
+  _num(n) {
+    const v = Number(n);
+    if (!Number.isFinite(v)) return "";
+    try { return new Intl.NumberFormat(this._loc(), { useGrouping: false }).format(v); }
+    catch (_) { return String(v); }
+  },
+
+  /** A clock time in the reader's locale, from the instant itself. */
+  _clock(ms) {
+    if (!Number.isFinite(ms) || ms <= 0) return "";
+    try { return new Intl.DateTimeFormat(this._loc(), { hour: "2-digit", minute: "2-digit" }).format(new Date(ms)); }
+    catch (_) { return ""; }
+  },
+
+  /**
+   * "15 minutes" in whichever language, counted correctly.
+   *
+   * Arabic does not have one plural: 3-10 take دقائق and 11 upwards take
+   * دقيقة, so "5 دقيقة" is wrong in exactly the place a lead time of five
+   * minutes puts it. Intl knows the rule for every language the desk
+   * speaks; the pack supplies whichever forms its language actually
+   * needs and the rest fall back to the common one.
+   */
+  _mins(n) {
+    const v = Math.max(1, Math.round(Number(n) || 0));
+    let cat = "other";
+    try { cat = new Intl.PluralRules(this._loc()).select(v); } catch (_) { cat = "other"; }
+    const special = `calendar.remind_mins_${cat}`;
+    const key = (I18N.has && I18N.has(special)) ? special : "calendar.remind_mins";
+    return I18N.t(key, { n: this._num(v) });
+  },
+
+  /**
+   * The name of an economic release, in the reader's language.
+   *
+   * The feed speaks English and only English - "Core CPI m/m", "Non-Farm
+   * Employment Change" - so a Persian desk was announcing its reminders
+   * in English regardless of how well the panel around them was
+   * translated. The releases that matter are a short, stable list, so
+   * they are named in the language packs and matched here.
+   *
+   * An event that is not on the list keeps the source's own words: a
+   * wrong translation of a release you are about to trade is worse than
+   * an untranslated one, and silence is not an option either.
+   */
+  NEWS_TERMS: [
+    /* ADP first: its own release is called "ADP Non-Farm Employment
+       Change", and matched against the payrolls pattern it came out
+       announcing itself as the monthly US payrolls report, which is a
+       different number published on a different day. */
+    [/\badp\b/, "adp"],
+    [/\bnon[- ]?farm|\bnfp\b/, "nfp"],
+    [/\bunemployment (rate|claims)|\bjobless claims/, "jobless"],
+    [/\bemployment change|\bjob (gains|growth)|\bpayrolls/, "employment"],
+    [/\bcore (cpi|consumer price)/, "core_cpi"],
+    [/\bcpi\b|\bconsumer price/, "cpi"],
+    [/\bcore ppi|\bppi\b|\bproducer price/, "ppi"],
+    [/\bgdp\b|\bgross domestic/, "gdp"],
+    [/\b(interest )?rate (decision|statement)|\bmonetary policy (statement|decision)|\bbank rate/, "rate"],
+    [/\bfomc (meeting )?minutes|\bmeeting minutes/, "minutes"],
+    [/\bpress conference/, "presser"],
+    [/\bspeaks\b|\bspeech\b|\btestifies|\btestimony/, "speech"],
+    [/\bretail sales/, "retail"],
+    [/\bmanufacturing pmi|\bism manufacturing/, "pmi_mfg"],
+    [/\bservices pmi|\bism services|\bnon[- ]manufacturing pmi/, "pmi_svc"],
+    [/\bpmi\b/, "pmi"],
+    [/\bcrude oil inventories|\boil stocks/, "oil"],
+    [/\btrade balance/, "trade"],
+    [/\bconsumer (confidence|sentiment)/, "confidence"],
+    [/\bdurable goods/, "durables"],
+    [/\b(building permits|housing starts)/, "housing"],
+    [/\bindustrial production/, "industrial"],
+    [/\b(average )?(hourly )?(earnings|wages)/, "wages"],
+    [/\bbank holiday|\bholiday\b/, "holiday"],
+  ],
+  NEWS_PERIODS: [[/\bm\/m\b|\bmonth[- ]over[- ]month\b/, "mm"], [/\by\/y\b|\byear[- ]over[- ]year\b/, "yy"], [/\bq\/q\b|\bquarter[- ]over[- ]quarter\b/, "qq"]],
+
+  newsTitle(title) {
+    const raw = String(title || "").trim();
+    if (!raw) return I18N.t("calendar.untitled");
+    if (I18N.lang === "en") return raw;
+    const low = raw.toLowerCase();
+    let name = "";
+    for (const [re, slug] of this.NEWS_TERMS) {
+      if (!re.test(low)) continue;
+      const key = `news.${slug}`;
+      if (I18N.has && !I18N.has(key)) break;
+      name = I18N.t(key);
+      break;
+    }
+    if (!name) return raw;
+    for (const [re, slug] of this.NEWS_PERIODS) {
+      if (re.test(low) && (!I18N.has || I18N.has(`news.${slug}`))) return `${name} (${I18N.t(`news.${slug}`)})`;
+    }
+    return name;
+  },
+
   _fmt(system, opts) {
     // "-nu-latn" is load-bearing: under fa-IR / ar-SA Intl emits Persian and
     // Arabic-Indic digits (۱۴۰۵), and \d in a JS regex only matches ASCII, so
@@ -206,7 +306,7 @@ const Calendar = {
       <header class="cal-top card">
         <div class="cal-top-l">
           <h3 class="cal-month">${esc(this.monthName(this.anchor, this.system))}
-            <span class="cal-year">${esc(String(label.y))}</span></h3>
+            <span class="cal-year">${esc(this._num(label.y))}</span></h3>
           <p class="cal-alt">${companions
             .map((c) => esc(this.monthName(this.anchor, c)))
             .join(" \u00B7 ")}</p>
@@ -246,7 +346,9 @@ const Calendar = {
                 .map((lv) => `<li><span class="dot i-${lv}"></span>${esc(t(`calendar.impact_${lv}`))}</li>`)
                 .join("")}
             </ul>
-            <p class="cal-fine">${esc(t("calendar.blackout_note", this.blackout))}</p>
+            <p class="cal-fine">${esc(t("calendar.blackout_note", {
+              before: this._num(this.blackout.before), after: this._num(this.blackout.after),
+            }))}</p>
           </div>
         </aside>
       </div>
@@ -267,7 +369,7 @@ const Calendar = {
   _statusHtml(n) {
     const t = (k, v) => I18N.t(k, v);
     const weekend = (this.session || {}).state === "weekend";
-    const bits = [`<span class="cal-chip"><b>${esc(String(n))}</b> ${esc(t("calendar.month_events_short"))}</span>`];
+    const bits = [`<span class="cal-chip"><b>${esc(this._num(n))}</b> ${esc(t("calendar.month_events_short"))}</span>`];
     if (weekend) bits.push(`<span class="cal-chip is-closed">${esc(t("calendar.closed"))}</span>`);
     bits.push(`<span class="cal-chip ${this.source ? "is-ok" : "is-warn"}">${
       esc(this.source ? t("calendar.source_set") : t("calendar.source_missing"))}</span>`);
@@ -321,14 +423,14 @@ const Calendar = {
     /* Companion dates are desktop-only, hidden in CSS rather than dropped
        here, so the same markup serves both and a resize needs no re-render. */
     const subs = companions
-      .map((sys) => `<span class="cal-sub" data-sys="${sys}">${this.parts(c.ms, sys).d}</span>`)
+      .map((sys) => `<span class="cal-sub" data-sys="${sys}">${this._num(this.parts(c.ms, sys).d)}</span>`)
       .join("");
 
-    const label = `${c.primary.d} ${this.monthName(c.ms, this.system)}` +
-      (evs.length ? ` \u2014 ${I18N.t("calendar.day_events", { n: evs.length })}` : "");
+    const label = `${this._num(c.primary.d)} ${this.monthName(c.ms, this.system)}` +
+      (evs.length ? ` \u2014 ${I18N.t("calendar.day_events", { n: this._num(evs.length) })}` : "");
     return `<button type="button" class="${cls.join(" ")}" data-day="${key}"
         role="gridcell" aria-selected="${key === this.selected}" aria-label="${esc(label)}">
-      <span class="cal-d">${c.primary.d}</span>
+      <span class="cal-d">${this._num(c.primary.d)}</span>
       <span class="cal-subs">${subs}</span>
       <span class="cal-dots">${dots}${more}</span>
     </button>`;
@@ -347,11 +449,11 @@ const Calendar = {
     /* All three systems, always. This is the one place with room for them,
        which is why the grid cell no longer tries to carry them on a phone. */
     const head = ok
-      ? `<h4 class="cal-dp-main">${esc(`${this.parts(ms, this.system).d} ${this.monthName(ms, this.system)} ${this.parts(ms, this.system).y}`)}</h4>
+      ? `<h4 class="cal-dp-main">${esc(`${this._num(this.parts(ms, this.system).d)} ${this.monthName(ms, this.system)} ${this._num(this.parts(ms, this.system).y)}`)}</h4>
          <dl class="cal-dp-sys">
            ${this.CALENDARS.filter((s) => s !== this.system).map((sys) => {
              const p = this.parts(ms, sys);
-             return `<div><dt>${esc(t(`calendar.${sys}`))}</dt><dd>${esc(`${p.d} ${this.monthName(ms, sys)} ${p.y}`)}</dd></div>`;
+             return `<div><dt>${esc(t(`calendar.${sys}`))}</dt><dd>${esc(`${this._num(p.d)} ${this.monthName(ms, sys)} ${this._num(p.y)}`)}</dd></div>`;
            }).join("")}
          </dl>`
       : `<h4 class="cal-dp-main">${esc(key)}</h4>`;
@@ -367,7 +469,7 @@ const Calendar = {
     return `<article class="cal-ev i-${e.level}">
       <span class="cal-ev-time">${esc(e.time)}</span>
       <span class="cal-ev-body">
-        <span class="cal-ev-t">${esc(e.title || t("calendar.untitled"))}</span>
+        <span class="cal-ev-t">${esc(this.newsTitle(e.title))}</span>
         <span class="cal-ev-m">
           ${e.currency ? `<span class="cal-ev-ccy">${esc(e.currency)}</span>` : ""}
           <span class="cal-ev-imp">${esc(t(`calendar.impact_${e.level}`))}</span>
@@ -392,8 +494,8 @@ const Calendar = {
     const body = evs.length
       ? evs.slice(0, 4).map((e) =>
           `<div class="cal-tip-ev"><span class="dot i-${e.level}"></span><b>${esc(e.time)}</b> ${esc(
-            e.currency)} \u2014 ${esc(e.title || t("calendar.untitled"))}</div>`).join("") +
-        (evs.length > 4 ? `<div class="cal-tip-none">${esc(t("calendar.day_events", { n: evs.length }))}</div>` : "")
+            e.currency)} \u2014 ${esc(this.newsTitle(e.title))}</div>`).join("") +
+        (evs.length > 4 ? `<div class="cal-tip-none">${esc(t("calendar.day_events", { n: this._num(evs.length) }))}</div>` : "")
       : `<div class="cal-tip-none">${esc(t("calendar.no_events"))}</div>`;
     return `<div class="cal-tip-h">${esc(t("calendar.day"))}</div>${lines}<div class="cal-tip-sep"></div>${body}`;
   },
@@ -418,7 +520,7 @@ const Calendar = {
           <label class="cal-remind-opt">
             <span>${esc(t("calendar.remind_lead"))}</span>
             <select class="ctrl" id="cal-remind-lead" ${p.on ? "" : "disabled"}>
-              ${this.LEADS.map((m) => opt(m, t("calendar.remind_minutes", { n: String(m) }), p.lead)).join("")}
+              ${this.LEADS.map((m) => opt(m, t("calendar.remind_lead_opt", { mins: this._mins(m) }), p.lead)).join("")}
             </select>
           </label>
           <label class="cal-remind-opt">
@@ -555,17 +657,20 @@ const Calendar = {
     const show = due.slice(0, 3);
     for (const ev of show) this._remindAnnounce(ev, now);
     for (const ev of due) this._remindMark(this._evId(ev), ev.ms);
-    if (due.length > show.length) this._remindSay(I18N.t("calendar.remind_more", { n: String(due.length - show.length) }));
+    if (due.length > show.length) this._remindSay(I18N.t("calendar.remind_more", { n: this._num(due.length - show.length) }));
     return due;
   },
 
   _remindAnnounce(ev, now) {
     const mins = Math.max(1, Math.round((ev.ms - now) / 60000));
-    const what = ev.title || I18N.t("calendar.untitled");
+    /* Every part of this sentence is translated, including the name of
+       the release and the digits in it. The currency code stays Latin
+       on purpose - USD is the instrument's name, not a word. */
+    const what = this.newsTitle(ev.title);
     const text = I18N.t("calendar.remind_toast", {
       what: (ev.currency ? ev.currency + " " : "") + what,
-      n: String(mins),
-      time: ev.time || "",
+      mins: this._mins(mins),
+      time: this._clock(ev.ms) || ev.time || "",
     });
     this._remindSay(text);
     /* The desktop host owns the Windows notification; told the same
