@@ -49,7 +49,22 @@ const must = (c, m) => { if (!c) throw new Error(m); };
 
 /* ------------------------------------------------- a calendar in a box */
 
-function makeCal(stored) {
+/* The real language packs, read the way the desk reads them: a dotted
+   key, English as the fallback, {placeholders} filled in. Checking the
+   reminder against the shipped Persian and Arabic is the whole point of
+   the last section - a stub that echoes keys would have reported a
+   fully translated feature while the desk announced its reminders in
+   English. */
+const PACKS = { en: EN, fa: FA, ar: AR };
+const lookup = (pack, key) => key.split(".").reduce((o, k) => (o && typeof o === "object" ? o[k] : undefined), pack);
+const packT = (lang) => (k, v) => {
+  let s = lookup(PACKS[lang] || EN, k);
+  if (typeof s !== "string") s = lookup(EN, k);
+  if (typeof s !== "string") return k;
+  return v ? s.replace(/\{(\w+)\}/g, (m, n) => (n in v ? String(v[n]) : m)) : s;
+};
+
+function makeCal(stored, lang) {
   const store = new Map(Object.entries(stored || {}));
   const toasts = [];
   const posted = [];
@@ -61,10 +76,9 @@ function makeCal(stored) {
       removeItem: (k) => store.delete(k),
     },
     I18N: {
-      lang: "en",
-      /* Returns the key plus its arguments, so a check can see both
-         which sentence was chosen and what was put in it. */
-      t: (k, v) => k + (v ? ":" + JSON.stringify(v) : ""),
+      lang: lang || "en",
+      t: packT(lang || "en"),
+      has: (k) => typeof lookup(PACKS[lang || "en"], k) === "string",
     },
     esc: (x) => String(x),
     document: { body: { contains: () => false }, getElementById: () => null, createElement: () => ({ style: {}, classList: { add() {}, toggle() {} }, setAttribute() {}, appendChild() {} }) },
@@ -111,21 +125,21 @@ check("an event inside the lead time is announced once", () => {
   const first = cal.remindTick(NOW);
   must(first.length === 1, "nothing was announced for an event ten minutes away");
   must(toasts.length === 1, "no notification was raised");
-  must(/calendar\.remind_toast/.test(toasts[0]), "the toast is not the reminder sentence: " + toasts[0]);
+  must(/ in 10 minutes \(/.test(toasts[0]), "the toast is not the reminder sentence: " + toasts[0]);
   must(cal.remindTick(NOW).length === 0, "the same event was announced twice");
   return "once, then remembered";
 });
 
 check("the announcement says what, when, and how long from now", () => {
   const { cal, toasts } = makeCal();
-  cal.events = [ev(10, "high", "CPI")];
+  cal.events = [ev(10, "high", "Core CPI m/m")];
   cal.remindTick(NOW);
-  const arg = JSON.parse(toasts[0].slice(toasts[0].indexOf(":") + 1));
-  must(/CPI/.test(arg.what), "the event is not named");
-  must(/USD/.test(arg.what), "the currency is missing");
-  must(arg.n === "10", "the countdown is " + arg.n);
-  must(arg.time, "the scheduled time is missing");
-  return "USD CPI, 10 minutes, 12:10";
+  const said = toasts[0];
+  must(/CPI/.test(said), "the event is not named: " + said);
+  must(/USD/.test(said), "the currency is missing: " + said);
+  must(/10 minutes/.test(said), "the countdown is missing: " + said);
+  must(/\(\d{1,2}[:.]\d\d/.test(said), "the scheduled time is missing: " + said);
+  return said;
 });
 
 check("what has already happened is not a reminder", () => {
@@ -149,7 +163,7 @@ check("a burst of releases does not bury the desk in toasts", () => {
   const due = cal.remindTick(NOW);
   must(due.length === 5, "the scan missed some");
   must(toasts.length === 4, "expected three announcements plus one summary, got " + toasts.length);
-  must(/remind_more/.test(toasts[3]), "the rest are not accounted for");
+  must(/2 more/.test(toasts[3]), "the rest are not accounted for: " + toasts[3]);
   must(cal.remindTick(NOW).length === 0, "the ones that were only summarised come back again");
   return "3 + \u201cand 2 more\u201d";
 });
@@ -229,14 +243,14 @@ check("the promise is made in words too, in every language", () => {
   for (const [name, pack] of [["en", EN], ["fa", FA], ["ar", AR]]) {
     const c = pack.calendar || {};
     for (const k of ["remind_title", "remind_sub", "remind_lead", "remind_level",
-      "remind_minutes", "remind_high", "remind_medium", "remind_all",
+      "remind_mins", "remind_lead_opt", "remind_high", "remind_medium", "remind_all",
       "remind_toast", "remind_more", "remind_on", "remind_off"]) {
       must(typeof c[k] === "string" && c[k].trim(), name + " is missing calendar." + k);
     }
     must(c.remind_sub.length > 25, name + "'s explanation of what it will not do is too short to say it");
   }
   must(/only notifies/i.test(EN.calendar.remind_sub), "the English text does not say it only notifies");
-  return "12 keys x 3";
+  return "13 keys x 3";
 });
 
 /* ====================== 4. it works when unwatched ==================== */
@@ -308,6 +322,118 @@ check("an event with no clock time is not given one", () => {
     { ms: NaN, day: "2026-11-06", time: "", currency: "USD", level: "high", title: "unknown" }];
   must(cal.remindTick(NOW).length === 0, "an undated event was given a countdown");
   return "skipped, not guessed";
+});
+
+/* ============ 6. it speaks the language the desk is set to ============ *
+ *
+ * Reported after the first version shipped: the reminder only worked in
+ * English. The panel around it was translated, but what the reminder
+ * actually SAID was not - the release names come from a feed that
+ * speaks English, the counts were written in Latin digits on a desk
+ * that writes Persian ones, and "5 minutes" was pluralised with the
+ * English rule in Arabic, which has a different one.
+ *
+ * Translating the labels is not translating the feature. These run the
+ * real Persian and Arabic packs.
+ */
+
+const LATIN_DIGIT = /[0-9]/;
+
+check("the reminder announces in Persian, in Persian digits", () => {
+  const { cal, toasts } = makeCal({}, "fa");
+  cal.events = [ev(10, "high", "Core CPI m/m")];
+  cal.remindTick(NOW);
+  const said = toasts[0];
+  must(/دقیقه/.test(said), "the countdown is not in Persian: " + said);
+  must(/تورم/.test(said), "the release was announced by its English name: " + said);
+  must(/ماهانه/.test(said), "month-on-month was left in English: " + said);
+  must(!LATIN_DIGIT.test(said.replace(/USD/g, "")), "Latin digits in a Persian sentence: " + said);
+  return said;
+});
+
+check("...and in Arabic, with the Arabic plural rule", () => {
+  const { cal, toasts } = makeCal({}, "ar");
+  cal.events = [ev(5, "high", "Non-Farm Payrolls")];
+  cal.remindTick(NOW);
+  const said = toasts[0];
+  must(/الوظائف/.test(said), "the release was announced by its English name: " + said);
+  /* Three to ten take دقائق; "5 دقيقة" is the English rule applied to a
+     language that does not have it. */
+  must(/دقائق/.test(said), "five minutes was pluralised as one: " + said);
+  must(!LATIN_DIGIT.test(said.replace(/USD/g, "")), "Latin digits in an Arabic sentence: " + said);
+  const one = makeCal({}, "ar");
+  one.cal.events = [{ ...ev(14, "high", "CPI"), ms: NOW + 60 * 1000 }];
+  one.cal.remindTick(NOW);
+  must(/دقيقة واحدة/.test(one.toasts[0]), "one minute is not singular: " + one.toasts[0]);
+  return said;
+});
+
+check("the lead-time choices are written in the reader's language too", () => {
+  for (const [lang, want] of [["fa", /دقیقه/], ["ar", /دقائق|دقيقة/]]) {
+    const { cal } = makeCal({}, lang);
+    const html = cal._remindHtml();
+    const opts = [...html.matchAll(/<option[^>]*>([^<]+)</g)].map((m) => m[1].trim());
+    must(opts.length >= 7, lang + " lost its choices");
+    const leads = opts.slice(0, 4);
+    for (const o of leads) {
+      must(want.test(o), lang + " has an untranslated lead time: " + o);
+      must(!LATIN_DIGIT.test(o), lang + " writes its lead time in Latin digits: " + o);
+    }
+  }
+  return "5 / 15 / 30 / 60, localised";
+});
+
+check("a release nobody has named keeps the words the feed used", () => {
+  const { cal, toasts } = makeCal({}, "fa");
+  cal.events = [ev(10, "high", "Bundesbank Buch Speaks At Some Forum")];
+  cal.remindTick(NOW);
+  /* "Speaks" is on the list; the rest is not, and inventing a Persian
+     name for an event somebody is about to trade would be worse than
+     leaving it alone. */
+  must(/سخنرانی/.test(toasts[0]), "a known term was not translated: " + toasts[0]);
+  const odd = makeCal({}, "fa");
+  odd.cal.events = [ev(10, "high", "Gross Loan Facility Auction")];
+  odd.cal.remindTick(NOW);
+  must(/Gross Loan Facility Auction/.test(odd.toasts[0]),
+    "an unknown release was renamed rather than passed through: " + odd.toasts[0]);
+  /* "ADP Non-Farm Employment Change" is ADP's release, not the monthly
+     payrolls report it is named after - a reminder that calls it the
+     wrong number is worse than no reminder. */
+  const adp = makeCal({}, "fa");
+  adp.cal.events = [ev(10, "high", "ADP Non-Farm Employment Change")];
+  adp.cal.remindTick(NOW);
+  must(/ADP/.test(adp.toasts[0]) && !/غیرکشاورزی/.test(adp.toasts[0]),
+    "ADP's release was announced as the payrolls report: " + adp.toasts[0]);
+  return "translated when known, verbatim when not";
+});
+
+check("English is left exactly as the feed wrote it", () => {
+  const { cal, toasts } = makeCal({}, "en");
+  cal.events = [ev(10, "high", "Core CPI m/m")];
+  cal.remindTick(NOW);
+  must(/Core CPI m\/m/.test(toasts[0]), "an English desk was shown a paraphrase: " + toasts[0]);
+  return "untouched";
+});
+
+check("the calendar around it counts in the same digits", () => {
+  const { cal } = makeCal({}, "fa");
+  must(cal._num(1405) === "۱۴۰۵", "the day grid would still be Latin: " + cal._num(1405));
+  must(makeCal({}, "ar").cal._num(15) === "١٥", "Arabic digits are not used");
+  must(makeCal({}, "en").cal._num(1405) === "1405", "English was changed too");
+  /* Pinned on the source because these are template literals the vm
+     cannot reach without a DOM. */
+  must(/<span class="cal-d">\$\{this\._num\(c\.primary\.d\)\}<\/span>/.test(SRC),
+    "the day number in a grid cell is not localised");
+  must(/this\._num\(this\.parts\(ms, this\.system\)\.y\)/.test(SRC),
+    "the year in the day panel is not localised");
+  return "grid, panel, chips";
+});
+
+check("the day panel and the hover card name releases the same way", () => {
+  must(/this\.newsTitle\(e\.title\)/.test(SRC), "the day panel still prints the feed's English");
+  must((SRC.match(/this\.newsTitle\(e\.title\)/g) || []).length >= 2,
+    "one of the two places that list events was missed");
+  return "one name everywhere";
 });
 
 /* --------------------------------------------------------------------- */
