@@ -242,8 +242,13 @@ console.log("\n=== what the update panel is told, and what it shows ===");
 
   /* The subject of whatever commit sits at the head of main is not
      release notes. It is usually "Merge pull request #N from ...". */
-  const branchBlock = ghSrc.slice(ghSrc.indexOf('channel: "branch"'));
-  say(/changelog: "",/.test(branchBlock.slice(0, 900)),
+  /* Scoped to the object literal itself, not to a fixed number of
+     characters after it: a comment added inside that object pushed the
+     line being looked for out of a 900-character window, and the guard
+     reported the fault it exists to prevent. */
+  const branchStart = ghSrc.indexOf('channel: "branch"');
+  const branchBlock = ghSrc.slice(branchStart, ghSrc.indexOf("\n  };", branchStart));
+  say(/changelog: "",/.test(branchBlock),
       "a branch build sends no changelog, so no commit subject reaches the panel");
   const relBlock = ghSrc.slice(ghSrc.indexOf('channel: "release"'));
   say(/changelog: String\(rel\.body \|\| rel\.name \|\| ""\)/.test(relBlock.slice(0, 700)),

@@ -89,6 +89,20 @@ function evaluate(state, nowMs) {
   const latest = state && state.update_available && state.latest ? state.latest : null;
   if (!latest) return out;
 
+  /* The second lock, and the one that matters most.
+     A desk is only ever locked over something a person PUBLISHED. The
+     check writes published:true for a release and nothing else, so an
+     update-state file that cannot make that statement - an old one
+     written before this rule existed, one describing the head of a
+     development branch, a hand-edited one - leaves the desk working.
+     Failing open on silence is the whole design; this is where the
+     silence is read. */
+  if (latest.published !== true) {
+    out.update_available = false;
+    out.reason = "not_a_release";
+    return out;
+  }
+
   out.update_available = true;
   out.latest_version = String(latest.version || "");
 

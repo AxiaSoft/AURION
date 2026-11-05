@@ -344,10 +344,20 @@ function httpsJson(url, body, timeoutMs = 15000) {
 async function checkGithub() {
   try {
     const res = await github.check(liveConfig());
+    /* Three different things, kept apart:
+         update_available - a published release this machine does not have.
+                            The only one the desk announces and the only one
+                            the support clock is allowed to read.
+         behind           - the tracked branch has moved. True after any
+                            commit; a development fact, not an offer.
+         latest           - the target either way, so the owner can still
+                            install the branch build deliberately. */
+    const behind = !!res.behind || !!res.update_available;
     const state = {
       last_check: new Date().toISOString(),
       update_available: !!res.update_available,
-      latest: res.update_available ? res.update : null,
+      latest: behind ? res.update : null,
+      unpublished: behind && !res.published,
       source: res.source,
       channel: res.channel,
     };
@@ -474,7 +484,7 @@ async function downloadUpdateFile(updateId, fileId, serverUrl) {
  * to report, and a stale figure read off a file would be worse than no
  * figure at all.
  */
-let applyProgress = { active: false, phase: "idle", done: 0, total: 0, file: "", started: 0 };
+let applyProgress = { active: false, phase: "idle", done: 0, total: 0, file: "", bytes: 0, change_bytes: 0, started: 0 };
 
 function setProgress(patch) {
   applyProgress = { ...applyProgress, ...patch };
@@ -568,12 +578,22 @@ async function applyUpdate(updateId, serverUrl) {
 
      If it cannot be had, the per-file path below still works; it is just
      the expensive way round. */
-  setProgress({ active: true, phase: "download", done: 0, total: files.length, file: "", started: Date.now() });
+  setProgress({
+    active: true, phase: "download", done: 0, total: files.length, file: "",
+    bytes: 0,
+    /* What the update writes, which the check counted exactly. Not the
+       size of the transfer: the archive's length is not declared in
+       advance by the host that serves it. */
+    change_bytes: Number(state.latest?.download_bytes) || 0,
+    started: Date.now(),
+  });
 
   let snapshot = null;
   if (kind === "github" && state.latest?.ref) {
     try {
-      snapshot = await github.fetchSnapshot(liveConfig(), state.latest.ref);
+      /* Reported as it arrives, so the screen can show a real number
+         during the one phase whose length nothing can predict. */
+      snapshot = await github.fetchSnapshot(liveConfig(), state.latest.ref, (n) => setProgress({ bytes: n }));
     } catch (e) {
       snapshot = null;
     }
@@ -712,6 +732,19 @@ function copyExpertsToTerminals() {
 
 function getUpdateState() {
   const state = readJsonSecure(UPDATE_STATE_FILE, { last_check: null, update_available: false, latest: null });
+  /* Sanitise a file written before an update was defined as "a release
+     somebody published".
+     
+     Those files claim update_available for whatever the tracked branch
+     happened to contain at the time, which is how an installation whose
+     owner had released nothing was told to update - and then warned it
+     had five days left. The claim is dropped here, on the read, so every
+     caller is corrected at once and without waiting for the next check;
+     the file itself is rewritten the next time one runs. */
+  if (state && state.latest && state.latest.published !== true && state.update_available) {
+    state.update_available = false;
+    state.unpublished = true;
+  }
   // Carry the last applied update with it, so the desk can tell the user
   // "the experts changed in this update" without a second request.
   const last = readJsonSecure(path.join(DATA, "last-update.json"), null);

@@ -429,6 +429,10 @@ async function resolveTarget(src) {
       const when = rel.published_at || rel.created_at || "";
       return {
         channel: "release",
+        /* The one fact the rest of the system is allowed to act on. A
+           release is something a person decided to publish; everything
+           else in this function is the state of a branch. */
+        published: true,
         ref: String(rel.tag_name),
         id: String(rel.tag_name),
         version: String(rel.tag_name).replace(/^v/i, ""),
@@ -453,6 +457,14 @@ async function resolveTarget(src) {
   const when = (commit.committer && commit.committer.date) || (commit.author && commit.author.date) || "";
   return {
     channel: "branch",
+    /* NOT published. The head of main is wherever development happens
+       to have got to: a merged pull request, a typo fix, work in
+       progress. Treating that as "a new version has been released"
+       told customers to update after every commit anyone pushed, and
+       - because the support clock reads the same field - started a
+       five-day countdown to locking their desk over it. Reported from
+       the field by the owner, who had published nothing at all. */
+    published: false,
     ref: sha,
     id: sha.slice(0, 12),
     /* Filled in by check() from the release's own factory config - see
@@ -539,20 +551,39 @@ async function check(cfg) {
 
   /* A release names itself by its tag; a branch build has to be asked. */
   const version = target.version || await remoteVersion(cfg, factoryEntry);
+  const published = target.published === true;
+  /* What this update changes, in bytes, taken from the sizes the tree
+     listing already carried. It is not the size of the transfer - the
+     install fetches the whole build as one compressed archive, whose
+     length codeload does not declare in advance - and it is not
+     labelled as one. It is the exact number of bytes that will be
+     written to disk, which is the question "how big is this update"
+     actually asks. The transfer is measured while it happens. */
+  const downloadBytes = files.reduce((n, f) => n + (Number(f.size) || 0), 0);
 
   return {
     ok: true,
     source: describe(src),
     channel: target.channel,
-    update_available: files.length > 0,
+    published,
+    /* Differs from what is on this machine. Kept separate from
+       update_available on purpose: it is true for any commit on the
+       tracked branch, and nothing in the product may act on it. */
+    behind: files.length > 0,
+    /* An offer, and the thing the support clock runs on. Only ever a
+       release somebody published. */
+    update_available: published && files.length > 0,
     update: {
       id: target.id,
       ref: target.ref,
       version,
+      published,
       build_date: target.build_date || "",
       changelog: target.changelog,
       published_at: target.published_at,
       html_url: target.html_url,
+      file_count: files.length,
+      download_bytes: downloadBytes,
       files,
     },
     truncated: truncatedScan || Boolean(tree.truncated),
@@ -583,7 +614,7 @@ async function check(cfg) {
 const MAX_ARCHIVE = 60 * 1024 * 1024;
 
 /** GET that follows GitHub's redirect to codeload and keeps the bytes. */
-function download(src, url, timeoutMs, hops = 0) {
+function download(src, url, timeoutMs, hops = 0, onBytes = null) {
   return new Promise((resolve, reject) => {
     if (hops > 5) { reject(new Error("too_many_redirects")); return; }
     const u = new URL(url);
@@ -614,7 +645,7 @@ function download(src, url, timeoutMs, hops = 0) {
     }, (res) => {
       if ([301, 302, 303, 307, 308].includes(res.statusCode) && res.headers.location) {
         res.resume();
-        resolve(download(src, new URL(res.headers.location, url).toString(), timeoutMs, hops + 1));
+        resolve(download(src, new URL(res.headers.location, url).toString(), timeoutMs, hops + 1, onBytes));
         return;
       }
       const chunks = [];
@@ -623,6 +654,13 @@ function download(src, url, timeoutMs, hops = 0) {
         total += chunk.length;
         if (total > MAX_ARCHIVE) { req.destroy(new Error("archive_too_large")); return; }
         chunks.push(chunk);
+        /* The only honest download figure there is. codeload sends the
+           archive chunked, with no Content-Length and no answer to a
+           Range request - measured, both times - so how big the
+           transfer will be is genuinely unknown until it has happened.
+           What IS knowable is how much has arrived, so that is what the
+           install screen shows while it waits. */
+        if (onBytes) { try { onBytes(total); } catch (e) { /* reporting must not stop a download */ } }
       });
       res.on("end", () => {
         if (u.hostname === API_HOST) noteRate(res.headers, Boolean(src.token));
@@ -700,13 +738,15 @@ function readZip(buf) {
  * GitHub wraps the archive in a single "<owner>-<repo>-<sha>/" folder; the
  * caller wants "apps/web/js/app.js", so that one leading segment comes off.
  */
-async function fetchSnapshot(cfg, ref) {
+async function fetchSnapshot(cfg, ref, onBytes) {
   const src = getSource(cfg);
   if (!/^[A-Za-z0-9._\/-]{1,120}$/.test(String(ref || ""))) throw new Error("bad_ref");
   const buf = await download(
     src,
     `https://${API_HOST}/repos/${src.owner}/${src.repo}/zipball/${encodeURIComponent(ref)}`,
-    120000
+    120000,
+    0,
+    typeof onBytes === "function" ? onBytes : null
   );
   const entries = readZip(buf);
   const files = new Map();
