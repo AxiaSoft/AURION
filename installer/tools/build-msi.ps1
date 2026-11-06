@@ -453,6 +453,12 @@ if ($NoBundle) {
         # machine, which is the slow first run this was built to remove.
         if (-not $SkipWheels) { $needed += "runtime-python.zip" }
         $have = $needed | Where-Object { Test-Path -LiteralPath (Join-Path $vendorDir $_) }
+        # The wheels count as part of a complete bundle. Leaving them out of
+        # this list is how an MSI shipped that could only finish setup on a
+        # machine with working access to PyPI.
+        $wheelCount = (Get-ChildItem -LiteralPath (Join-Path $vendorDir "wheels") -Filter *.whl `
+                       -ErrorAction SilentlyContinue).Count
+        if (-not $SkipWheels -and $wheelCount -lt 1) { $have = @() }
 
         if ($have.Count -eq $needed.Count) {
             Write-Host ""
@@ -462,6 +468,7 @@ if ($NoBundle) {
             Write-Host ""
         } else {
             $missing = $needed | Where-Object { $have -notcontains $_ }
+            if (-not $SkipWheels -and $wheelCount -lt 1) { $missing += "wheels\*.whl" }
             throw ("The runtimes could not be collected and the bundle is incomplete.`n" +
                    "  missing: $($missing -join ', ')`n" +
                    "  $($_.Exception.Message)`n" +

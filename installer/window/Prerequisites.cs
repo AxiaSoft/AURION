@@ -1028,6 +1028,37 @@ internal static class Prerequisites
         return message;
     }
 
+    /// <summary>
+    /// Install the engine's Python libraries, and say what happened.
+    ///
+    /// Reported from a bare machine: "pydeps" missing, four times in a row,
+    /// on an installation whose Python was present and working. The window
+    /// said the libraries could not be installed; the log said
+    /// "python.exe finished with code 1"; pip's own output - the only
+    /// thing that knows WHY - went through a relay that drops every line
+    /// inside 400 ms of the last one and cuts what survives at 120
+    /// characters. pip's failures arrive as a burst, so the lines that
+    /// mattered were exactly the ones thrown away, and the setup log
+    /// promised an account it did not contain.
+    ///
+    /// Four things changed:
+    ///
+    ///   * Every attempt is written to data\logs\setup.log in full, with
+    ///     its command line and its exit code, through the handle the
+    ///     Recorder already holds open. The screen still gets the
+    ///     throttled tail; the file gets all of it.
+    ///   * The failure is named. "Cannot reach the package index" and
+    ///     "no wheel for this Python" are different problems with
+    ///     different answers, and a code of 1 distinguishes neither.
+    ///   * A retry escalates instead of repeating: the copies bundled
+    ///     with AURION, then PyPI, then a mirror if one is configured.
+    ///     A bundle that is incomplete no longer ends the attempt - it
+    ///     used to throw before the network was ever tried.
+    ///   * Success is proved by importing, not by pip's exit code. pip
+    ///     can install perfectly into a directory this interpreter has
+    ///     been told not to read, which is its own failure and needs its
+    ///     own sentence.
+    /// </summary>
     private static async Task InstallPythonLibsAsync(string installDir, IProgress<string> say, CancellationToken ct)
     {
         // Off the UI thread, like every other probe: FindPython runs a
@@ -1041,17 +1072,20 @@ internal static class Prerequisites
             throw new FileNotFoundException("engine\\requirements.txt is missing from the installation.");
         }
 
-        var (exe, args) = Split(PythonCommand);
+        // An installation whose runtime was unpacked by an older build can
+        // have an ._pth that never had site-packages switched on. pip then
+        // succeeds, the files land in Lib\site-packages, and the
+        // interpreter refuses to look there - which presents as libraries
+        // that will not install no matter how many times you ask.
+        RepairPrivatePythonPath(installDir, say);
 
-        // pip first, because everything below is pip.
-        //
-        // A machine can have a working interpreter and no pip at all - the
-        // embeddable build ships without one, and get-pip.py is what puts it
-        // there - and then every install below fails with "No module named
-        // pip" and exit code 1, which reads like a broken installation and
-        // says nothing about what to do. It was also the state a machine
-        // reached when an earlier setup was interrupted between unpacking
-        // Python and installing the libraries.
+        var (exe, args) = Split(PythonCommand);
+        LogOnly(say, "== installing the engine's libraries with " + PythonCommand);
+
+        // pip first, because everything below is pip. A machine can have a
+        // working interpreter and no pip at all - the embeddable build
+        // ships without one - and then every install below fails with "No
+        // module named pip" and exit code 1.
         await EnsurePipAsync(exe, args, installDir, say, ct);
 
         // The prepared runtime arrives with the libraries already inside it,
@@ -1069,77 +1103,233 @@ internal static class Prerequisites
         // ninety-megabyte download on somebody else's laptop.
         var wheels = Path.Combine(installDir, "vendor", "wheels");
         var offline = Directory.Exists(wheels) && Directory.GetFiles(wheels, "*.whl").Length > 0;
+        var mirror = ConfiguredIndexUrl(installDir);
 
-        // A machine on a filtered network reaches some index other than
-        // pypi.org, or none. Naming one here means setup can say "installs
-        // from the mirror it can reach" instead of "cannot install".
-        var index = (Environment.GetEnvironmentVariable("AURION_PIP_INDEX_URL") ?? "").Trim();
-        var indexArgument = index.Length > 0 ? $" --index-url \"{index}\"" : "";
-
-        // Upgrading pip needs the network. Doing it immediately before an
-        // installation whose entire purpose is to need no network is a
-        // contradiction, and on a machine that genuinely has none it is
-        // where setup appeared to hang: pip retries, backs off and retries,
-        // for a minute or more, behind a line of text reading "Updating
-        // pip…". It is a nicety at the best of times. It is skipped when
-        // the bundle is going to be used.
-        if (!offline)
-        {
-            say.Report("Updating pip…");
-            try
-            {
-                await RunAsync(exe,
-                    (args + " -m pip install --upgrade pip --retries 1 --timeout 15 --no-input").Trim(),
-                    elevate: false, ct, null, say);
-            }
-            catch (Exception ex)
-            {
-                say.Report("pip could not be updated (" + ex.Message + ") - carrying on.");
-            }
-        }
-
+        var attempts = new List<(string Label, string Args)>();
         if (offline)
         {
-            say.Report("Installing the engine's libraries from the copies that ship with AURION…");
-            await RunAsync(exe,
-                (args + $" -m pip install --no-index --find-links \"{wheels}\" -r \"{requirements}\"" +
-                 " --no-input --disable-pip-version-check").Trim(),
-                elevate: false, ct, null, say);
-            return;
+            attempts.Add(("the copies that ship with AURION",
+                $" -m pip install --no-index --find-links \"{wheels}\" -r \"{requirements}\""));
+        }
+        // --only-binary, because a machine with no compiler cannot do
+        // anything with the source archive PyPI offers when a wheel is
+        // missing except spend four minutes failing to build it.
+        attempts.Add(("PyPI",
+            $" -m pip install -r \"{requirements}\" --only-binary=:all: --retries 2 --timeout 30"));
+        if (mirror.Length > 0)
+        {
+            // Somebody whose network cannot reach PyPI can name a mirror
+            // that it can, rather than being told to install the product
+            // on a different machine.
+            attempts.Add(("the mirror this machine is pointed at",
+                $" -m pip install -r \"{requirements}\" --only-binary=:all: --retries 2 --timeout 30" +
+                $" --index-url \"{mirror}\" --trusted-host \"{HostOf(mirror)}\""));
         }
 
-        if (index.Length > 0)
+        var reasons = new List<string>();
+        for (var i = 0; i < attempts.Count; i += 1)
         {
-            say.Report("Installing the engine's libraries from " + index + "…");
+            var (label, tail) = attempts[i];
+            ct.ThrowIfCancellationRequested();
+            say.Report($"Installing the engine's libraries from {label}…");
+
+            var (code, output) = await RunCapturedAsync(exe,
+                (args + tail + " --no-input --disable-pip-version-check").Trim(), ct, say);
+            LogOnly(say, $"-- attempt {i + 1}/{attempts.Count}: {label} -> exit {code}", output);
+
+            if (code == 0)
+            {
+                say.Report("Checking that the engine can import them…");
+                if (await ImportsWorkAsync(PythonCommand, ct))
+                {
+                    say.Report("The engine's libraries are installed.");
+                    return;
+                }
+                // pip succeeded and the imports still fail: the packages
+                // are somewhere this interpreter does not look. Worth
+                // saying plainly, because reinstalling cannot fix it.
+                var where = await SitePathAsync(exe, args, ct);
+                LogOnly(say, "pip reported success but the imports still fail. sys.path:", where);
+                reasons.Add($"{label}: installed, but this Python cannot import them");
+                continue;
+            }
+
+            var reason = ExplainPipFailure(output, label, offline);
+            say.Report(reason);
+            reasons.Add(reason);
         }
-        else
+
+        // What the row says is what the trader has to act on, and
+        // "python.exe finished with code 1" is not something a person can
+        // act on.
+        throw new InvalidOperationException(
+            string.Join("  ", reasons) +
+            Environment.NewLine + Environment.NewLine +
+            "If this machine cannot reach pypi.org, point it at an index it can reach" +
+            Environment.NewLine +
+            "(set AURION_PIP_INDEX_URL), or put the wheels from a build machine into" +
+            Environment.NewLine +
+            Path.Combine(installDir, "vendor", "wheels") + " and try again." +
+            Environment.NewLine + Environment.NewLine +
+            "What pip said, line by line, is in data\\logs\\setup.log.");
+    }
+
+    /// <summary>
+    /// Switch site-packages back on in an existing private runtime.
+    ///
+    /// Same edit UnpackPythonAsync makes, applied to a runtime that is
+    /// already on disk. An installation upgraded from a build that did not
+    /// make it would otherwise be permanently unable to import anything
+    /// pip installs, and nothing about the symptom points at a text file.
+    /// </summary>
+    private static void RepairPrivatePythonPath(string installDir, IProgress<string> say)
+    {
+        try
         {
-            say.Report("Installing the engine's libraries… this is the long one.");
+            var target = Path.Combine(installDir, "runtime", "python");
+            if (!Directory.Exists(target)) return;
+
+            foreach (var pth in Directory.GetFiles(target, "python*._pth"))
+            {
+                var lines = File.ReadAllLines(pth).ToList();
+                var before = string.Join("\n", lines);
+                lines = lines.Select(l => l.Trim() == "#import site" ? "import site" : l).ToList();
+                if (!lines.Any(l => l.Trim() == "import site")) lines.Add("import site");
+                if (!lines.Any(l => l.Trim() == "Lib\\site-packages")) lines.Add("Lib\\site-packages");
+                if (string.Join("\n", lines) == before) continue;
+
+                File.WriteAllLines(pth, lines);
+                say.Report("Repaired " + Path.GetFileName(pth) + " so Python can see its own packages.");
+                LogOnly(say, "repaired " + pth);
+            }
+            Directory.CreateDirectory(Path.Combine(target, "Lib", "site-packages"));
+        }
+        catch (Exception ex)
+        {
+            // A read-only runtime is a different problem, and pip will
+            // report it in terms the reader can act on.
+            LogOnly(say, "could not repair the runtime's ._pth: " + ex.Message);
+        }
+    }
+
+    /// <summary>
+    /// A package index this machine can actually reach, if one was named.
+    ///
+    /// AURION_PIP_INDEX_URL, or config\aurion.json:
+    /// { "setup": { "pip_index_url": "https://..." } }. The environment
+    /// variable is for the person standing at the machine; the config file
+    /// is for an owner provisioning several of them. Deliberately not a
+    /// default - shipping somebody else's mirror as the standard source of
+    /// the engine's libraries is a supply-chain decision, not a fallback.
+    /// </summary>
+    private static string ConfiguredIndexUrl(string installDir)
+    {
+        foreach (var name in new[] { "AURION_PIP_INDEX_URL", "AURION_PIP_INDEX" })
+        {
+            var fromEnv = (Environment.GetEnvironmentVariable(name) ?? "").Trim();
+            if (IsHttpUrl(fromEnv)) return fromEnv;
         }
 
         try
         {
-            await RunAsync(exe,
-                (args + $" -m pip install -r \"{requirements}\" --no-input --disable-pip-version-check" +
-                 indexArgument).Trim(),
-                elevate: false, ct, null, say);
+            var cfg = Path.Combine(installDir, "config", "aurion.json");
+            if (!File.Exists(cfg)) return "";
+            using var doc = System.Text.Json.JsonDocument.Parse(File.ReadAllText(cfg));
+            if (doc.RootElement.TryGetProperty("setup", out var setup)
+                && setup.ValueKind == System.Text.Json.JsonValueKind.Object
+                && setup.TryGetProperty("pip_index_url", out var url)
+                && url.ValueKind == System.Text.Json.JsonValueKind.String)
+            {
+                var value = (url.GetString() ?? "").Trim();
+                if (IsHttpUrl(value)) return value;
+            }
         }
-        catch (InvalidOperationException ex)
+        catch
         {
-            // What the row says is what the trader has to act on, and
-            // "python.exe finished with code 1" is not something a person can
-            // act on.
-            throw new InvalidOperationException(
-                "The engine's libraries could not be installed. " + ex.Message +
-                Environment.NewLine + Environment.NewLine +
-                "If this machine cannot reach pypi.org, point it at an index it can reach" +
-                Environment.NewLine +
-                "(set AURION_PIP_INDEX_URL), or put the wheels from a build machine into" +
-                Environment.NewLine +
-                Path.Combine(installDir, "vendor", "wheels") + " and run setup again." +
-                Environment.NewLine + Environment.NewLine +
-                "What pip said, line by line, is in data\\logs\\setup.log.", ex);
+            // A malformed config must not stop an installation.
         }
+        return "";
+    }
+
+    private static bool IsHttpUrl(string value) =>
+        Uri.TryCreate(value, UriKind.Absolute, out var u) && (u.Scheme == "https" || u.Scheme == "http");
+
+    private static string HostOf(string url)
+    {
+        try { return new Uri(url).Host; } catch { return ""; }
+    }
+
+    /// <summary>
+    /// Turn pip's output into the sentence the reader needs.
+    ///
+    /// These are the endings a bare machine actually meets. Anything else
+    /// keeps pip's own last meaningful line, which is still a great deal
+    /// better than an exit code.
+    /// </summary>
+    private static string ExplainPipFailure(string output, string label, bool offline)
+    {
+        var text = output ?? "";
+        if (Regex.IsMatch(text, @"(?i)(failed to establish a new connection|network is unreachable|temporary failure in name resolution|connection (reset|refused|timed out)|read timed out|retries exceeded|proxyerror|tunnel connection failed)"))
+        {
+            return $"Could not reach {label}: this machine's network refused the connection. " +
+                   (offline ? "" : "If it has no internet access, install a build that carries the libraries, " +
+                                   "or name a reachable mirror in config\\aurion.json as setup.pip_index_url.");
+        }
+        if (Regex.IsMatch(text, @"(?i)(certificate verify failed|ssl: |sslerror)"))
+        {
+            return $"Could not verify the secure connection to {label}. A proxy or antivirus is replacing the certificate.";
+        }
+        if (Regex.IsMatch(text, @"(?i)no matching distribution found|could not find a version"))
+        {
+            var what = Regex.Match(text, @"(?i)no matching distribution found for (\S+)").Groups[1].Value;
+            return $"{label} has no build of {(what.Length > 0 ? what : "one of the libraries")} for this Python. " +
+                   "The engine needs CPython 3.10, 3.11 or 3.12 on 64-bit Windows.";
+        }
+        if (Regex.IsMatch(text, @"(?i)microsoft visual c\+\+ .* is required|error: command .*cl\.exe|metadata-generation-failed|building wheel for"))
+        {
+            return $"{label} offered source code instead of a ready-made build, and this machine has no compiler.";
+        }
+        if (Regex.IsMatch(text, @"(?i)(access is denied|permission denied|winerror 5|errno 13)"))
+        {
+            return "Windows refused to write the libraries into AURION's folder. " +
+                   "Close anything using AURION, then try again.";
+        }
+        if (Regex.IsMatch(text, @"(?i)no space left|errno 28|there is not enough space"))
+        {
+            return "There is not enough free disk space for the engine's libraries (they need about 400 MB).";
+        }
+
+        var last = (text.Split('\n')
+            .Select(l => l.Trim())
+            .LastOrDefault(l => l.StartsWith("ERROR", StringComparison.OrdinalIgnoreCase)) ?? "").Trim();
+        return last.Length > 0
+            ? $"{label}: {(last.Length > 200 ? last[..200] + "…" : last)}"
+            : $"{label} did not finish. See data\\logs\\setup.log.";
+    }
+
+    /// <summary>Where this interpreter looks for packages - for the log, when nothing else explains it.</summary>
+    private static async Task<string> SitePathAsync(string exe, string args, CancellationToken ct)
+    {
+        var (_, output) = await RunCapturedAsync(exe,
+            (args + " -c \"import sys,site;print('\\n'.join(sys.path));print(site.getsitepackages())\"").Trim(), ct, null);
+        return output;
+    }
+
+    /// <summary>
+    /// Into the setup log, without putting it on the panel.
+    ///
+    /// Everything setup says already goes through a Recorder that holds
+    /// data\logs\setup.log open for the session; opening the same file
+    /// again from here would hit a sharing violation and lose the lines
+    /// silently. pip's output is exactly what a support conversation
+    /// needs and exactly what nobody wants scrolling across a setup
+    /// screen, so it goes to the file and no further.
+    /// </summary>
+    private static void LogOnly(IProgress<string> say, string line, string? body = null)
+    {
+        if (say is not Recorder recorder) return;
+        recorder.Log(line);
+        if (!string.IsNullOrWhiteSpace(body)) recorder.Log(body!.TrimEnd());
     }
 
     /// <summary>
@@ -1605,6 +1795,80 @@ internal static class Prerequisites
             throw new InvalidOperationException(
                 $"{Path.GetFileName(exe)} finished with code {proc.ExitCode}.");
         }
+    }
+
+    /// <summary>
+    /// Run a child process, keep everything it said, and never throw over
+    /// its exit code.
+    ///
+    /// RunAsync throws "finished with code 1" and relays a throttled
+    /// sample of the output to a label. That is right for a step whose
+    /// failure is final; it is useless for pip, where the output IS the
+    /// diagnosis and the failure is the beginning of a decision about
+    /// what to try next. Nothing is dropped here - the UI still sees a
+    /// throttled line, the log sees all of it.
+    /// </summary>
+    private static async Task<(int Code, string Output)> RunCapturedAsync(string exe, string args,
+        CancellationToken ct, IProgress<string>? tail)
+    {
+        var psi = new ProcessStartInfo
+        {
+            FileName = exe,
+            Arguments = args,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            WorkingDirectory = Path.GetTempPath(),
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+        };
+
+        var lines = new List<string>();
+        var last = DateTime.MinValue;
+
+        using var proc = Process.Start(psi)
+            ?? throw new InvalidOperationException($"Could not start {Path.GetFileName(exe)}.");
+
+        void Take(object _, DataReceivedEventArgs e)
+        {
+            var line = e.Data?.TrimEnd();
+            if (string.IsNullOrEmpty(line)) return;
+            lock (lines)
+            {
+                // A download that goes wrong can print thousands of lines.
+                // The first few hundred and the last few hundred are where
+                // the answer always is; the middle is progress bars.
+                if (lines.Count < 400) lines.Add(line);
+                else
+                {
+                    lines.Add(line);
+                    if (lines.Count > 800) lines.RemoveAt(400);
+                }
+            }
+            if (tail is null) return;
+            var now = DateTime.UtcNow;
+            if (now - last < TimeSpan.FromMilliseconds(400)) return;
+            last = now;
+            tail.Report(line.Length > 120 ? line[..120] + "\u2026" : line);
+        }
+
+        proc.OutputDataReceived += Take;
+        proc.ErrorDataReceived += Take;
+        proc.BeginOutputReadLine();
+        proc.BeginErrorReadLine();
+
+        try
+        {
+            await proc.WaitForExitAsync(ct);
+        }
+        catch (OperationCanceledException)
+        {
+            try { proc.Kill(entireProcessTree: true); } catch { /* already gone */ }
+            throw;
+        }
+
+        string text;
+        lock (lines) text = string.Join(Environment.NewLine, lines);
+        return (proc.ExitCode, text);
     }
 
     /// <summary>

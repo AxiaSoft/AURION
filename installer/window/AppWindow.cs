@@ -320,6 +320,26 @@ internal sealed class AppWindow : Form
 
         setup.SkipRequested += (_, _) => done.TrySetResult(true);
         setup.CancelRequested += (_, _) => cancel.Cancel();
+
+        /* Everything setup knows is in data\logs - window.log for the
+           sequence, setup.log for pip's own account of why the engine's
+           libraries would not install. Opening the folder is one click
+           here and a trip through AppData otherwise, and it is the
+           difference between a support conversation that starts with
+           evidence and one that starts with "it says it failed". */
+        setup.LogsRequested += (_, _) =>
+        {
+            try
+            {
+                var logs = Path.Combine(_installDir, "data", "logs");
+                Directory.CreateDirectory(logs);
+                Process.Start(new ProcessStartInfo(logs) { UseShellExecute = true });
+            }
+            catch (Exception ex)
+            {
+                setup.Say("The log folder could not be opened: " + ex.Message);
+            }
+        };
         setup.InstallRequested += async (_, _) =>
         {
             // A retry needs a token that has not already been cancelled.
@@ -342,7 +362,8 @@ internal sealed class AppWindow : Form
                     done.TrySetResult(true);
                     return;
                 }
-                setup.Say("Some of it did not install. The details are on the rows above.");
+                setup.Say("Some of it did not install. The reason is on the row above, "
+                    + "and the whole story is in the setup log.");
             }
             catch (OperationCanceledException)
             {

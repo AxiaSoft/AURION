@@ -78,6 +78,23 @@ internal sealed class SetupPanel : Panel
         Cursor = Cursors.Hand,
     };
 
+    /* A failed install is a paragraph, not a word, and the row that
+       carries it is two lines tall. The log has the pip output that
+       actually names the cause, so there is a door to it rather than an
+       instruction to go hunting in AppData. */
+    private readonly Button _logs = new()
+    {
+        Text = "Open the setup log",
+        AutoSize = true,
+        Visible = false,
+        FlatStyle = FlatStyle.Flat,
+        BackColor = Base,
+        ForeColor = Muted,
+        Font = new Font("Segoe UI", 9.5f),
+        Padding = new Padding(12, 7, 12, 7),
+        Cursor = Cursors.Hand,
+    };
+
     private readonly Button _skip = new()
     {
         Text = "Continue anyway",
@@ -99,6 +116,9 @@ internal sealed class SetupPanel : Panel
     /// <summary>Raised when the trader stops work that is already running.</summary>
     public event EventHandler? CancelRequested;
 
+    /// <summary>Raised when the trader asks to see what setup wrote down.</summary>
+    public event EventHandler? LogsRequested;
+
     private bool _busy;
     private bool _started;
 
@@ -113,6 +133,8 @@ internal sealed class SetupPanel : Panel
         _install.FlatAppearance.BorderSize = 0;
         _skip.FlatAppearance.BorderColor = Line;
         _install.Click += (_, _) => Begin();
+        _logs.FlatAppearance.BorderColor = Line;
+        _logs.Click += (_, _) => LogsRequested?.Invoke(this, EventArgs.Empty);
         _skip.Click += (_, _) =>
         {
             // One button, two jobs, and the label always says which: before
@@ -130,6 +152,7 @@ internal sealed class SetupPanel : Panel
             WrapContents = false,
         };
         buttons.Controls.Add(_install);
+        buttons.Controls.Add(_logs);
         buttons.Controls.Add(_skip);
 
         var footer = new Panel { Dock = DockStyle.Bottom, Height = 48, BackColor = Base };
@@ -161,8 +184,20 @@ internal sealed class SetupPanel : Panel
 
         var missing = _items.Count(r => r.State == ReqState.Missing);
         var failed = _items.Count(r => r.State == ReqState.Failed);
-        _install.Visible = missing > 0;
+
+        /* Reported as "I press the button and nothing happens", and that
+           is nearly what it was: the button vanished.
+
+           A first attempt moves a row from Missing to Failed. The test
+           was `missing > 0`, so once the only outstanding item had been
+           tried and had failed, the count of missing items was zero and
+           the install button was hidden - leaving a screen that says
+           something went wrong, a row that says what, and no way to try
+           it again short of closing the application. Failed items are
+           exactly the ones somebody wants to retry. */
+        _install.Visible = missing + failed > 0;
         _install.Text = failed > 0 ? "Try again" : "Install what is missing";
+        _logs.Visible = failed > 0;
         if (!_busy) _skip.Text = "Continue anyway";
 
         if (missing == 0 && failed == 0)
@@ -194,6 +229,7 @@ internal sealed class SetupPanel : Panel
         _busy = busy;
         if (!busy) _started = false;
         _install.Enabled = !busy;
+        _logs.Enabled = true;
         _install.BackColor = busy ? Line : Cyan;
         _install.ForeColor = busy ? Muted : Color.FromArgb(0x06, 0x10, 0x14);
 
@@ -205,10 +241,15 @@ internal sealed class SetupPanel : Panel
 
     private Control Row(Requirement req)
     {
+        /* Tall enough to hold the reason. A failure now explains itself
+           in a sentence - "could not reach PyPI", "no build for this
+           Python" - and a 26-pixel line clipped it to its first three
+           words, which is how a diagnosis becomes a shrug. */
+        var failed = req.State == ReqState.Failed;
         var card = new Panel
         {
             Width = Math.Max(520, _list.ClientSize.Width - 26),
-            Height = 66,
+            Height = failed ? 112 : 66,
             BackColor = Card,
             Margin = new Padding(0, 0, 0, 8),
             Padding = new Padding(14, 10, 14, 10),
@@ -235,9 +276,10 @@ internal sealed class SetupPanel : Panel
         {
             AutoSize = false,
             Location = new Point(14, 32),
-            Size = new Size(card.Width - 150, 26),
+            Size = new Size(card.Width - 150, failed ? 70 : 26),
             ForeColor = Muted,
             Font = new Font("Segoe UI", 8.5f),
+            AutoEllipsis = true,
             Text = Detail(req),
         };
 

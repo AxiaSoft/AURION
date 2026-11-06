@@ -639,9 +639,15 @@ check("the build produces it into the payload",
 // machine that genuinely has no network it is where setup appeared to
 // hang: pip retries and backs off for a minute behind the words
 // "Updating pip...".
+// Now stronger than skipping it when the bundle is present: the upgrade is
+// gone. A machine that cannot reach PyPI spent its first network attempt on
+// the one package it did not need, and inherited that failure. pip is only
+// ever installed - from ensurepip, then the bundled get-pip.py - and only
+// when it is genuinely absent.
 check("pip is not upgraded over a network the bundle exists to avoid",
-  /if \(!offline\)[\s\S]{0,400}pip install --upgrade pip/.test(prereqCs) &&
-  /--retries 1 --timeout 15/.test(prereqCs));
+  !/pip install --upgrade pip/.test(prereqCs) &&
+  /static async Task EnsurePipAsync/.test(prereqCs) &&
+  /if \(PipWorks\(exe, args\)\) return;/.test(prereqCs));
 check("and pip is never left waiting for input or a version check",
   /--no-input --disable-pip-version-check/.test(prereqCs));
 
@@ -1076,6 +1082,106 @@ check("CI has a Python to collect the wheels, and keeps the bundle between runs"
   /setup-python/.test(ciBuild) &&
   /actions\/cache/.test(ciBuild) &&
   /installer\/vendor/.test(ciBuild));
+/* ============================================================== * The engine's libraries, and the button that gave up on them.
+ *
+ * From a bare machine: "pydeps" missing four times in a row, on an
+ * installation whose Python was present and working. What the window
+ * said was "Setup stopped: python.exe finished with code 1". What pip
+ * said - the only account of WHY - went to a throttled label that was
+ * then repainted, and was written nowhere at all. And after the first
+ * attempt the install button disappeared, because it was shown for
+ * items that were Missing and a tried-and-failed item is Failed.
+ *
+ * So: the failure is written down, the failure is named, the retry
+ * tries something different, and the button survives failing.
+ * =================================================================== */
+
+const fetchVendor = read("installer/tools/fetch-vendor.ps1");
+
+check("a failed attempt still offers to try again",
+  /_install\.Visible = missing \+ failed > 0;/.test(setupPanel) &&
+  !/_install\.Visible = missing > 0;/.test(setupPanel),
+  "the button used to vanish the moment the only missing item became a failed one");
+
+check("the reason fits on the row that carries it",
+  /Height = failed \? 112 : 66/.test(setupPanel) &&
+  /failed \? 70 : 26/.test(setupPanel),
+  "a one-line label clipped the diagnosis to its first few words");
+
+check("there is a door to the log, not an instruction to go hunting",
+  /LogsRequested/.test(setupPanel) &&
+  /_logs\.Visible = failed > 0;/.test(setupPanel) &&
+  /setup\.LogsRequested \+=/.test(appWindow) &&
+  /"data", "logs"/.test(appWindow));
+
+check("pip's own output is captured in full, not sampled",
+  /private static async Task<\(int Code, string Output\)> RunCapturedAsync/.test(prereqCs) &&
+  /RedirectStandardOutput = true/.test(prereqCs));
+
+check("and every attempt is written to the setup log, in full",
+  /LogOnly\(say, \$"-- attempt \{i \+ 1\}\/\{attempts\.Count\}: \{label\} -> exit \{code\}", output\);/.test(prereqCs) &&
+  /if \(say is not Recorder recorder\) return;/.test(prereqCs),
+  "through the handle the Recorder already holds, not a second opener of the same file");
+
+check("the failure is named rather than numbered",
+  /ExplainPipFailure/.test(prereqCs) &&
+  /failed to establish a new connection/.test(prereqCs) &&
+  /no matching distribution found/.test(prereqCs) &&
+  /microsoft visual c\\\+\\\+/i.test(prereqCs),
+  "network, wrong Python and no-compiler are three different problems");
+
+check("a retry escalates instead of repeating the same command",
+  /var attempts = new List<\(string Label, string Args\)>\(\);/.test(prereqCs) &&
+  /--no-index --find-links/.test(prereqCs) &&
+  /ConfiguredIndexUrl/.test(prereqCs),
+  "bundled copies, then PyPI, then a mirror if one is configured");
+
+check("PyPI is never allowed to offer source code to a machine with no compiler",
+  (prereqCs.match(/--only-binary=:all:/g) || []).length >= 2);
+
+check("a mirror is something you choose, never a default",
+  /AURION_PIP_INDEX/.test(prereqCs) &&
+  /pip_index_url/.test(prereqCs) &&
+  !/index-url\s+"https:\/\/(?!\{)/.test(prereqCs),
+  "shipping somebody else's index as the default source of the engine is a supply-chain decision");
+
+check("an interpreter that cannot see its own packages is repaired, not reinstalled",
+  /RepairPrivatePythonPath\(installDir, say\);/.test(prereqCs) &&
+  /Lib\\\\site-packages/.test(prereqCs),
+  "the embeddable build ships with site-packages switched off");
+
+check("success is proved by importing, not by pip's exit code",
+  /if \(await ImportsWorkAsync\(PythonCommand, ct\)\)/.test(prereqCs) &&
+  /pip reported success but the imports still fail/.test(prereqCs));
+
+// A console repair already exists and is better placed than a second copy
+// of it would be: provision.ps1 is what start-aurion.cmd runs when the desk
+// cannot start, and it repairs ._pth, installs pip, prefers vendor\wheels
+// and verifies the imports - the same four steps, on the installation that
+// is already broken and cannot wait for the next build.
+check("the console repair does the same four things in the same order",
+  /python\*\._pth/.test(provisionPs1) &&
+  /get-pip\.py/.test(provisionPs1) &&
+  /"--no-index", "--find-links"/.test(provisionPs1) &&
+  /import fastapi, numpy, sklearn/.test(provisionPs1));
+check("...and leaves its evidence where the window does",
+  /data\\logs\\setup\.log/.test(provisionPs1) &&
+  /setup\.log/.test(prereqCs));
+
+// The bundle is what makes a bare machine work at all. It shipped without
+// the wheels because losing them was a yellow line of text on the build
+// machine.
+check("a build cannot quietly ship without the engine's libraries",
+  /throw \("No Python on this build machine, so the engine's wheels cannot be collected/.test(fetchVendor) &&
+  /throw \("pip download failed with code \$code, so the engine's wheels are not in the bundle/.test(fetchVendor),
+  "it used to say 'continuing without wheels' and carry on");
+
+check("and the completeness check counts them",
+  /\$wheelCount/.test(buildMsi) &&
+  /-not \$SkipWheels -and \$wheelCount -lt 1/.test(buildMsi));
+
+check("shipping without them is still possible, but only on purpose",
+  /-SkipWheels/.test(fetchVendor) && /-SkipWheels/.test(buildMsi));
 
 const bad = results.filter((r) => !r.ok);
 console.log(`\n${results.length - bad.length}/${results.length} checks passed`);
