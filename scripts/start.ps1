@@ -71,6 +71,15 @@ if ($major -ne 3 -or $minor -lt 10 -or $minor -gt 12) {
   exit 1
 }
 
+# The wheels an installed copy carries. Preferring them costs a directory
+# test and means a machine with the bundle never contacts PyPI, even when a
+# package has to be put back after being deleted. On a development checkout
+# there is no vendor\ folder, the list is empty, and pip goes to PyPI exactly
+# as it always did.
+$wheelDir = Join-Path $Root "vendor\wheels"
+$fromBundle = @()
+if (Test-Path -LiteralPath $wheelDir) { $fromBundle = @("--find-links", $wheelDir) }
+
 Write-Host "AURION: checking NumPy..."
 $npOut = & $Py -c "import numpy; print(numpy.__version__)" 2>&1 | Out-String
 $npBad = ($LASTEXITCODE -ne 0) -or ($npOut -match "X86_V2|baseline optimizations") -or ($npOut -notmatch "1\.26\.")
@@ -78,14 +87,14 @@ if ($npBad) {
   Write-Host "Installing numpy==1.26.4 (ignore pip cache / hash leftovers)..."
   & $Py -m pip install --disable-pip-version-check --no-cache-dir --upgrade pip
   & $Py -m pip cache purge
-  & $Py -m pip install --disable-pip-version-check --no-cache-dir --no-deps --only-binary=:all: numpy==1.26.4
+  & $Py -m pip install --disable-pip-version-check --no-cache-dir --no-deps --only-binary=:all: @fromBundle numpy==1.26.4
   Assert-Ok "numpy wheel install failed"
 }
 
 Write-Host "AURION: installing engine packages..."
-& $Py -m pip install --disable-pip-version-check --no-cache-dir -r (Join-Path $Root "engine\requirements.txt")
+& $Py -m pip install --disable-pip-version-check --no-cache-dir @fromBundle -r (Join-Path $Root "engine\requirements.txt")
 Assert-Ok "pip install -r engine\requirements.txt failed"
-& $Py -m pip install --disable-pip-version-check --no-cache-dir "MetaTrader5>=5.0.4874"
+& $Py -m pip install --disable-pip-version-check --no-cache-dir @fromBundle "MetaTrader5>=5.0.4874"
 if ($LASTEXITCODE -ne 0) {
   Write-Host "MetaTrader5 package skipped (install it later on the MT5 machine)."
 }

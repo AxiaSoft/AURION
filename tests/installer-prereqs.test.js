@@ -40,6 +40,9 @@ const appWindow = read("installer/window/AppWindow.cs");
 const setupPanel = read("installer/window/SetupPanel.cs");
 const hiddenVbs = read("scripts/hidden.vbs");
 const provisionPs1 = read("scripts/provision.ps1");
+const startPs1 = read("scripts/start.ps1");
+const prepareRuntime = read("installer/tools/prepare-runtime.ps1");
+const ciBuild = read("installer/ci/build-msi.yml");
 const startCmd = read("start-aurion.cmd");
 const buildMsi = read("installer/tools/build-msi.ps1");
 const stagePs1 = read("installer/tools/stage.ps1");
@@ -994,6 +997,85 @@ check("and refuses the Microsoft Store alias, like everything else",
 check("and proves the result instead of claiming it",
   /import fastapi, numpy, sklearn, pandas, scipy, uvicorn/.test(fixNumpy) &&
   /exit 1/.test(fixNumpy));
+
+// ------------------------------------------------- a bundle that is actually whole
+
+// The four things AURION runs on used to be downloaded on the customer's
+// machine. Bundling them moved that to the build machine, but left the
+// expensive half behind: the installer still ran pip over ninety megabytes of
+// wheels on a laptop it could not see, and a wheel that would not unpack there
+// was a support call. prepare-runtime.ps1 does that work once, where a failure
+// is visible, and ships the result: the interpreter arrives with the engine's
+// libraries already inside it.
+
+check("one file name, in every place that has to agree on it",
+  /"runtime-python\.zip"/.test(prepareRuntime) &&
+  /private const string RuntimePythonZipName = "runtime-python\.zip"/.test(prereqCs) &&
+  /\$RuntimeZipName\s*=\s*"runtime-python\.zip"/.test(provisionPs1) &&
+  /runtime-python\.zip/.test(stagePs1) &&
+  /runtime-python\.zip/.test(buildMsi));
+
+check("the runtime is filled from the wheels the build carries, never from PyPI",
+  /--no-index/.test(prepareRuntime) &&
+  /--find-links/.test(prepareRuntime) &&
+  /requirements\.txt/.test(prepareRuntime) &&
+  !/pypi\.org/.test(prepareRuntime) &&
+  /fetch-vendor\.ps1/.test(prepareRuntime));
+
+check("and it is proven by importing, in isolation, before it is packaged",
+  /-I -c \$imports/.test(prepareRuntime) &&
+  /import sys, fastapi, uvicorn, numpy, pandas, scipy, sklearn/.test(prepareRuntime) &&
+  prepareRuntime.indexOf("-I -c $imports") < prepareRuntime.indexOf("CreateFromDirectory"));
+
+check("the zip unpacks straight into runtime\\python",
+  /::Optimal, \$false\)/.test(prepareRuntime));
+
+check("the Visual C++ runtime travels next to python.exe",
+  /vcruntime140\.dll/.test(prepareRuntime) &&
+  /msvcp140\.dll/.test(prepareRuntime));
+
+check("the vendor fetch builds the runtime, and the terminal's own package",
+  /prepare-runtime\.ps1/.test(vendorPs1) &&
+  /-SkipRuntime/.test(vendorPs1) &&
+  /pip download "MetaTrader5"/.test(vendorPs1));
+
+check("the setup window unpacks the runtime instead of installing a Python",
+  /Bundled\(installDir, RuntimePythonZipName\)\.Length > 0/.test(prereqCs) &&
+  prereqCs.indexOf("Bundled(installDir, RuntimePythonZipName).Length > 0") <
+    prereqCs.indexOf("await DownloadAsync(PythonUrl"));
+
+check("and does not run get-pip over a pip that is already there",
+  /if \(!PipWorks\(exe, ""\)\)/.test(prereqCs));
+
+check("and does not run pip over libraries that are already installed",
+  /if \(await ImportsWorkAsync\(PythonCommand, ct\)\)/.test(prereqCs));
+
+check("the console provisioner takes the same shortcut",
+  /elseif \(Get-Bundled \$RuntimeZipName\)/.test(provisionPs1) &&
+  provisionPs1.indexOf("elseif (Get-Bundled $RuntimeZipName)") <
+    provisionPs1.indexOf("Get-File -Url $PythonUrl"));
+
+check("staging refuses a vendor folder that would put pip on the customer's machine",
+  /runtime-python\.zip/.test(stagePs1) &&
+  /-AllowIncompleteVendor/.test(stagePs1) &&
+  /missing runtime-python\.zip/.test(stagePs1));
+
+check("and does not ship the interpreter's installers beside the ready runtime",
+  /python-\*-amd64\.exe/.test(stagePs1) &&
+  /python-\*-embed-amd64\.zip/.test(stagePs1));
+
+check("a release build without the runtime fails instead of shipping quietly",
+  /\$needed \+= "runtime-python\.zip"/.test(buildMsi) &&
+  /needed to bundle the engine's/.test(buildMsi));
+
+check("the installed copy prefers the wheels it carries over PyPI",
+  /--find-links/.test(startPs1) &&
+  /vendor\\wheels/.test(startPs1));
+
+check("CI has a Python to collect the wheels, and keeps the bundle between runs",
+  /setup-python/.test(ciBuild) &&
+  /actions\/cache/.test(ciBuild) &&
+  /installer\/vendor/.test(ciBuild));
 
 const bad = results.filter((r) => !r.ok);
 console.log(`\n${results.length - bad.length}/${results.length} checks passed`);

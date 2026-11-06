@@ -78,6 +78,11 @@ internal static class Prerequisites
     private const string PythonFullVersion = "3.12.7";
     private const string PythonExeName = "python-" + PythonFullVersion + "-amd64.exe";
     private const string PythonZipName = "python-" + PythonFullVersion + "-embed-amd64.zip";
+    // The same interpreter with the engine's libraries already installed in
+    // it, built by installer\tools\prepare-runtime.ps1. When a build carries
+    // this, installing Python is one unzip: no pip run, no wheels to unpack,
+    // nothing that can reach the network.
+    private const string RuntimePythonZipName = "runtime-python.zip";
     private const string GetPipName = "get-pip.py";
     private const string PythonExeName2 = "python.exe";
     private const string PythonUrl =
@@ -636,6 +641,21 @@ internal static class Prerequisites
 
     private static async Task InstallPythonAsync(string work, string installDir, IProgress<string> say, CancellationToken ct)
     {
+        // The runtime this build ships, libraries and all.
+        //
+        // Everything below this point - python.org's Burn bundle, the retries
+        // around the Windows Installer mutex, /passive when /quiet fails, the
+        // unpack fallback, the pip bootstrap - exists because installing a
+        // Python from an installer is a thing that can go wrong on a machine
+        // we cannot see. A zip cannot. This is the branch that makes all of
+        // that dead code, and it is the branch a release build takes.
+        if (Bundled(installDir, RuntimePythonZipName).Length > 0)
+        {
+            say.Report("Unpacking the Python that ships with AURION…");
+            await UnpackPythonAsync(installDir, say, ct);
+            return;
+        }
+
         var file = Bundled(installDir, PythonExeName);
         if (file.Length > 0)
         {
@@ -823,11 +843,23 @@ internal static class Prerequisites
     /// </summary>
     private static async Task UnpackPythonAsync(string installDir, IProgress<string> say, CancellationToken ct)
     {
-        var zip = Bundled(installDir, PythonZipName);
+        // The prepared runtime first: same interpreter, with the engine's
+        // libraries already installed into it, so the pip step at the end of
+        // this method finds pip present and has nothing to do.
+        var zip = Bundled(installDir, RuntimePythonZipName);
+        if (zip.Length > 0)
+        {
+            say.Report("Using the Python that ships with AURION, libraries included…");
+        }
+        else
+        {
+            zip = Bundled(installDir, PythonZipName);
+        }
         if (zip.Length == 0)
         {
             throw new FileNotFoundException(
-                "This build does not carry " + PythonZipName + ", so there is nothing to unpack.");
+                "This build does not carry " + RuntimePythonZipName + " or " + PythonZipName +
+                ", so there is nothing to unpack.");
         }
 
         var target = Path.Combine(installDir, "runtime", "python");
@@ -860,16 +892,23 @@ internal static class Prerequisites
         }
 
         // The embeddable build has no pip. get-pip.py carries one.
-        var getPip = Bundled(installDir, GetPipName);
-        if (getPip.Length == 0)
+        //
+        // The prepared runtime already has both, and running get-pip over a
+        // working pip costs a few seconds of a first run for nothing - so it
+        // is asked rather than assumed.
+        if (!PipWorks(exe, ""))
         {
-            throw new FileNotFoundException(
-                "This build does not carry " + GetPipName + ", so pip cannot be installed.");
-        }
+            var getPip = Bundled(installDir, GetPipName);
+            if (getPip.Length == 0)
+            {
+                throw new FileNotFoundException(
+                    "This build does not carry " + GetPipName + ", so pip cannot be installed.");
+            }
 
-        say.Report("Setting up pip…");
-        await RunAsync(exe, $"\"{getPip}\" --no-warn-script-location --no-input",
-            elevate: false, ct, null, say);
+            say.Report("Setting up pip…");
+            await RunAsync(exe, $"\"{getPip}\" --no-warn-script-location --no-input",
+                elevate: false, ct, null, say);
+        }
 
         PythonCommand = Quoted(exe);
         WriteRuntimeEnv(installDir);
@@ -1014,6 +1053,17 @@ internal static class Prerequisites
         // reached when an earlier setup was interrupted between unpacking
         // Python and installing the libraries.
         await EnsurePipAsync(exe, args, installDir, say, ct);
+
+        // The prepared runtime arrives with the libraries already inside it,
+        // which makes the whole of the rest of this method a no-op. Asking
+        // first is the difference between a first install that unzips and
+        // one that unzips and then watches pip confirm thirteen packages it
+        // just arrived with.
+        if (await ImportsWorkAsync(PythonCommand, ct))
+        {
+            say.Report("The engine's libraries are already in the runtime that ships with AURION.");
+            return;
+        }
 
         // Wheels bundled by fetch-vendor.ps1 mean no PyPI, no proxy, no
         // ninety-megabyte download on somebody else's laptop.
