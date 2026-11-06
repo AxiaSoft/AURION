@@ -83,6 +83,28 @@ jobs:
         with:
           node-version: "20"
 
+      # The build machine's Python, not the one the product runs on.
+      #
+      # fetch-vendor.ps1 uses it to collect the engine's wheels for
+      # cp312/win_amd64, and prepare-runtime.ps1 packs them into
+      # runtime-python.zip, which is what makes the MSI install with no
+      # network at all. The interpreter that ships is python.org's embeddable
+      # 3.12.7 either way, so this only has to be a pip that understands
+      # --platform and --python-version.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # ~300 MB of verified runtimes, re-downloaded on every push otherwise.
+      # The key changes when the scripts that decide *what* is bundled, or the
+      # requirement list that decides *which* wheels, change - so a cached
+      # bundle is never a stale one.
+      - name: Cache the bundled runtimes
+        uses: actions/cache@v4
+        with:
+          path: installer/vendor
+          key: vendor-${{ runner.os }}-${{ hashFiles('installer/tools/fetch-vendor.ps1', 'installer/tools/prepare-runtime.ps1', 'engine/requirements.txt') }}
+
       - name: Build the installer
         shell: pwsh
         run: |

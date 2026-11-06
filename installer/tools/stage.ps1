@@ -30,7 +30,8 @@
 param(
     [string] $Root  = (Resolve-Path (Join-Path $PSScriptRoot "../..")).Path,
     [string] $Stage = (Join-Path (Resolve-Path (Join-Path $PSScriptRoot "..")).Path "stage"),
-    [switch] $SkipNpm
+    [switch] $SkipNpm,
+    [switch] $AllowIncompleteVendor
 )
 
 $ErrorActionPreference = "Stop"
@@ -232,8 +233,49 @@ foreach ($f in @("start-aurion.cmd", "stop-aurion.cmd", "start-desk.cmd",
 # downloading, exactly as it did before.
 $vendorSrc = Join-Path $PSScriptRoot "../vendor"
 if (Test-Path $vendorSrc) {
-    Say "vendor\  (bundled runtimes - no download on the target machine)"
-    Copy-Tree -From (Resolve-Path $vendorSrc).Path -To (Join-Path $appDir "vendor")
+    $vendorSrc = (Resolve-Path $vendorSrc).Path
+    $runtimeZip = Join-Path $vendorSrc "runtime-python.zip"
+
+    # The prepared runtime is what makes a first run on a raw machine short:
+    # the interpreter arrives with NumPy, SciPy, pandas, scikit-learn, pandas'
+    # friends and MetaTrader5 already inside it, so the setup window unzips one
+    # file instead of running pip over ninety megabytes of wheels.
+    #
+    # It is also the line between "this MSI needs nothing from the network"
+    # and "this MSI needs nothing from the network, probably". A vendor folder
+    # without it is a half-finished bundle: on a machine that has never had
+    # AURION, it still installs offline, but it installs *slowly* and the
+    # difference is invisible until someone counts the minutes. Refusing to
+    # stage it is cheaper than finding out later.
+    if (-not (Test-Path -LiteralPath $runtimeZip)) {
+        if ($AllowIncompleteVendor) {
+            Say "vendor\ has no runtime-python.zip - the target machine will install the" "Yellow"
+            Say "engine's libraries from vendor\wheels on first run (-AllowIncompleteVendor)" "Yellow"
+        } else {
+            throw ("vendor\ is missing runtime-python.zip, so this build would install the`n" +
+                   "  engine's libraries on the customer's machine instead of shipping them ready.`n" +
+                   "  Build it with: installer\tools\fetch-vendor.ps1  (it runs prepare-runtime.ps1)`n" +
+                   "  or stage with -AllowIncompleteVendor if you meant to ship without it.")
+        }
+    }
+
+    Say "vendor\  (bundled runtimes, Python with its libraries - no download on the target)"
+    Copy-Tree -From $vendorSrc -To (Join-Path $appDir "vendor") `
+              -ExcludeDirs @(".runtime-build") -ExcludeFiles @("*.part")
+
+    if (Test-Path -LiteralPath $runtimeZip) {
+        # Superseded by the prepared runtime: the runtime zip *is* this Python
+        # with its libraries, so shipping the installer bundle and the bare
+        # embeddable zip next to it is 36 MB of payload nothing would open.
+        # The setup window prefers the prepared zip and never looks at these.
+        foreach ($stale in @("python-*-amd64.exe", "python-*-embed-amd64.zip")) {
+            $gone = @(Get-ChildItem -LiteralPath (Join-Path $appDir "vendor") -Filter $stale -File -ErrorAction SilentlyContinue)
+            foreach ($f in $gone) { Remove-Item -LiteralPath $f.FullName -Force }
+            if ($gone.Count -gt 0) {
+                Say ("  not shipped: {0} x{1} (the ready runtime replaces it)" -f $stale, $gone.Count)
+            }
+        }
+    }
 } else {
     Say "vendor\ is absent - the target machine will download its runtimes" "Yellow"
 }

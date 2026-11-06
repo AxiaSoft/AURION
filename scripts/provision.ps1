@@ -137,6 +137,10 @@ $PythonVersion   = "3.12.7"
 $PythonExeName   = "python-$PythonVersion-amd64.exe"
 $PythonZipName   = "python-$PythonVersion-embed-amd64.zip"
 $GetPipName      = "get-pip.py"
+# Built by installer\tools\prepare-runtime.ps1: the same interpreter with the
+# engine's libraries already installed into it. When a build carries it, this
+# script unpacks one zip and is done - no installer, no pip run, no wheels.
+$RuntimeZipName  = "runtime-python.zip"
 $PythonUrl       = "https://www.python.org/ftp/python/$PythonVersion/$PythonExeName"
 $PythonZipUrl    = "https://www.python.org/ftp/python/$PythonVersion/$PythonZipName"
 $PythonPublisher = "Python Software Foundation"
@@ -566,9 +570,16 @@ function Install-PythonFromZip {
 
     $target = Join-Path $InstallFolder "runtime\python"
 
-    $zip = Get-Bundled $PythonZipName
+    # The prepared runtime first: the libraries are inside it, so there is
+    # nothing to install afterwards and nothing that could go to the network.
+    $zip = Get-Bundled $RuntimeZipName
     if ($zip) {
-        Say "unpacking the Python that ships with AURION into $target ..."
+        Say "unpacking the Python that ships with AURION, libraries included, into $target ..."
+    } else {
+        $zip = Get-Bundled $PythonZipName
+    }
+    if ($zip -and (Test-Path -LiteralPath $zip)) {
+        Say "unpacking into $target ..."
     } else {
         # Nothing bundled - a build made with -NoBundle, or an older MSI.
         # The same embeddable build is on python.org, and it is a zip, so
@@ -581,7 +592,6 @@ function Install-PythonFromZip {
         Get-File -Url $PythonZipUrl -Target $zip -Label "Python"
     }
 
-    Say "unpacking into $target ..."
     if (Test-Path -LiteralPath $target) { Remove-Item -LiteralPath $target -Recurse -Force }
     New-Item -ItemType Directory -Path $target -Force | Out-Null
     Expand-Archive -LiteralPath $zip -DestinationPath $target -Force
@@ -601,9 +611,13 @@ function Install-PythonFromZip {
     # The embeddable build has no pip at all. Enable-Pip uses the bundled
     # get-pip.py when the build carries one, and the PSF's bootstrap when it
     # does not - so this fallback is not one bad build away from failing.
-    Say "setting up pip ..."
-    if (-not (Enable-Pip -Python @($exe) -Work $Work)) {
-        throw "pip could not be installed into the unpacked Python, so the engine's libraries cannot be."
+    # Enable-Pip answers immediately when pip is already there, which is the
+    # normal case for the prepared runtime: it ships with pip inside it.
+    if (-not (Test-Pip -Python @($exe))) {
+        Say "setting up pip ..."
+        if (-not (Enable-Pip -Python @($exe) -Work $Work)) {
+            throw "pip could not be installed into the unpacked Python, so the engine's libraries cannot be."
+        }
     }
 
     Say "Python is ready: $exe"
@@ -828,6 +842,21 @@ if ($SkipPython) {
     Say "skipping Python at your request"
 } elseif ($python) {
     Say "Python is already here: $($python -join ' ')"
+} elseif (Get-Bundled $RuntimeZipName) {
+    # The release path.
+    #
+    # The runtime zip is a Python with the engine's libraries already inside
+    # it, built once on the build machine. Unpacking it is the whole install:
+    # no python.org bundle, so nothing to queue behind Windows Installer and
+    # nothing that can decline to run; no pip run; no wheels; no network.
+    Head "Unpacking the Python that ships with AURION"
+    Install-PythonFromZip -Work $work
+    $python = Find-Python
+    if ($python) {
+        Say "Python is ready: $($python -join ' ')"
+    } else {
+        Say "no Python could be put in place - the engine will not start"
+    }
 } else {
     Head "Installing Python 3.12"
     $exe = Get-Bundled $PythonExeName

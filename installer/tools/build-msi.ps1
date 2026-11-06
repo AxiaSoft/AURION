@@ -214,6 +214,36 @@ Install Node.js 18 or newer from https://nodejs.org and re-run this script.
 "@
 }
 
+# Python is needed for a *release* bundle, and only for that.
+#
+# It is not what AURION runs: the interpreter in the MSI is python.org's
+# embeddable 3.12.7, unpacked and filled by installer\tools\prepare-runtime.ps1.
+# But filling it needs wheels, and collecting wheels needs a pip. Without one
+# here the bundle is missing runtime-python.zip and the installer goes back to
+# installing ninety megabytes of libraries on the trader's machine - so this
+# stops with an instruction instead of producing that MSI quietly.
+if (-not $NoBundle -and -not $SkipWheels) {
+    $buildPython = Get-Command py -ErrorAction SilentlyContinue
+    if (-not $buildPython) { $buildPython = Get-Command python -ErrorAction SilentlyContinue }
+    if (-not $buildPython) {
+        throw @'
+No Python was found on this machine, and it is needed to bundle the engine's
+libraries into the MSI.
+
+Install Python 3.12 (either the python.org installer, which also provides the
+py launcher, or: winget install Python.Python.3.12), open a new shell and run
+this script again. It is only used at build time - nothing about it is
+installed on the customer's machine.
+
+  -SkipWheels   build without the wheels and without runtime-python.zip
+  -NoBundle     do not bundle any runtime; the target machine downloads them
+
+Both of those produce an installer that has to reach the network.
+'@
+    }
+    Write-Host ("  {0}" -f $buildPython.Source) -ForegroundColor DarkGray
+}
+
 if (-not $PSBoundParameters.ContainsKey('Version') -or [string]::IsNullOrWhiteSpace($Version)) {
     $propsXml = [xml](Get-Content (Join-Path $installerDir "Version.props"))
     $Version = $propsXml.Project.PropertyGroup.AurionVersion
@@ -417,6 +447,11 @@ if ($NoBundle) {
         $vendorDir = Join-Path $installerDir "vendor"
         $needed = @("python-3.12.7-amd64.exe", "node-v20.17.0-win-x64.zip",
                     "SHASUMS256.txt", "MicrosoftEdgeWebview2Setup.exe")
+        # A release bundle is the whole thing: the interpreter with the
+        # engine's libraries already installed. Without it the MSI still
+        # installs with no network, but it does the pip work on the trader's
+        # machine, which is the slow first run this was built to remove.
+        if (-not $SkipWheels) { $needed += "runtime-python.zip" }
         $have = $needed | Where-Object { Test-Path -LiteralPath (Join-Path $vendorDir $_) }
 
         if ($have.Count -eq $needed.Count) {
@@ -439,7 +474,8 @@ Step "Staging payload"
 # stage.ps1 throws on failure; $ErrorActionPreference = "Stop" turns that into
 # a terminating error here, so there is nothing extra to check. ($LASTEXITCODE
 # is deliberately not read: it may not exist yet, which StrictMode rejects.)
-& (Join-Path $PSScriptRoot "stage.ps1") -Root $repoRoot -SkipNpm:$SkipNpm
+& (Join-Path $PSScriptRoot "stage.ps1") -Root $repoRoot -SkipNpm:$SkipNpm `
+    -AllowIncompleteVendor:($SkipWheels -or $NoBundle)
 
 # ---------------------------------------------------------------------------
 # 3b. The desk window

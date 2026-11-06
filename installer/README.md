@@ -26,6 +26,8 @@ installer/
 │       └── en-us.wxl           every visible string
 └── tools/
     ├── build-msi.ps1           one-command build
+    ├── fetch-vendor.ps1        downloads + verifies the runtimes to bundle
+    ├── prepare-runtime.ps1     Python with the engine's libraries inside it
     ├── stage.ps1               assembles + verifies the payload
     └── check-authoring.py      static lint, runs on any OS
 ```
@@ -35,8 +37,9 @@ installer/
 ## Build it
 
 **Requirements:** Windows 10/11, **.NET SDK 6.0+**, **Node.js 18+** (to restore the
-desk's production dependencies). Nothing else — NuGet pulls the WiX 5 toolset in
-automatically on the first build.
+desk's production dependencies) and **Python 3.12** (to collect the engine's
+wheels — see [What the MSI carries](#what-the-msi-carries)). NuGet pulls the WiX 5
+toolset in automatically on the first build.
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File installer\tools\build-msi.ps1
@@ -126,31 +129,65 @@ added files are two installer-owned launchers (`AURION-Launch.vbs`,
 `stop-aurion.cmd` so shortcuts get a proper icon, a correct working directory and
 no console flash.
 
-**Runtimes are installed, never bundled.** Python 3.10–3.12 and Node.js 18+ are
+**Runtimes travel with the MSI.** Python 3.10–3.12 and Node.js 18+ are still
 detected with a plain `AppSearch` (so detection is also correct during a silent
-install) and shown on a status page. What is missing is then provisioned, once
-the MSI transaction is over, by `AURION.exe --setup` — the same environment
-screen the desk shows at launch. It downloads from python.org and nodejs.org,
-refuses to run anything whose Authenticode publisher is not the vendor's, and
-logs to `data\logs\setup.log`. Python 3.13+ is called out explicitly, because
-`engine/main.py` refuses to run on it; setup adds 3.12 beside it.
+install) and shown on a status page, but a release build carries everything a
+bare machine needs, so that page usually comes up already green:
 
-Two deliberate constraints shape this:
+* `vendor\runtime-python.zip` — CPython 3.12.7 with **the engine's libraries
+  already installed in it** (fastapi, NumPy 1.26.4, SciPy, pandas, scikit-learn,
+  uvicorn, MetaTrader5, …) plus the Visual C++ runtime DLLs beside `python.exe`.
+  Installing it is one unzip: no python.org bundle, so nothing to queue behind
+  Windows Installer, no pip run, no wheel to unpack, nothing that can reach the
+  network.
+* `vendor\wheels\*.whl` — the same libraries as wheels, for an offline repair.
+* `vendor\node-v20.17.0-win-x64.zip` + `SHASUMS256.txt` — Node, checked against
+  the vendor's published checksum with no network needed.
+* `vendor\MicrosoftEdgeWebview2Setup.exe` — WebView2, Authenticode-verified.
+* `vendor\get-pip.py` — pip, carried inside it, for repair on a machine with none.
 
-* **Nothing is bundled into the MSI.** A packaged runtime collides with the one
-  the trader already has and goes stale on our release cadence instead of the
-  vendor's.
-* **Nothing is installed from inside the transaction.** Node.js ships as an
-  `.msi`, and Windows Installer's `_MSIExecute` mutex forbids a nested install,
-  so provisioning has to be a separate process. With the full wizard the Finish
-  button starts it (`AurionProvisionRuntimes`, published only when the user did
-  *not* tick "Start AURION now", since launching runs the same check anyway);
-  with `/qn`, `/qb` or `/qr` there is no finish page, so it is sequenced after
-  `InstallFinalize` instead. Short of a Burn bundle this is the supported shape.
+They are collected on the build machine by `fetch-vendor.ps1` (downloads,
+signature and checksum checks) and `prepare-runtime.ps1` (unpacks the embeddable
+Python, installs every wheel into it from `vendor\wheels` with `--no-index`, and
+proves the result by importing the engine's libraries from it in isolation
+before packaging). Both are called by `build-msi.ps1`; nothing needs to be run by
+hand.
 
-Node's installer is per-machine and will raise a UAC prompt. Everything else,
-including Python, is per-user — installing AURION itself still needs no
-administrator rights.
+Two deliberate constraints shape the rest:
+
+* **Everything that needs the network happens at build time.** A build that
+  cannot produce a complete bundle stops rather than shipping an MSI that quietly
+  installs libraries on the trader's machine: `stage.ps1` refuses a `vendor\`
+  folder without `runtime-python.zip`, and `build-msi.ps1` requires a Python on
+  the build machine for the same reason.
+* **Nothing is installed from inside the transaction.** Windows Installer's
+  `_MSIExecute` mutex forbids a nested install, so provisioning is a separate
+  process after `InstallFinalize`: with the full wizard the Finish button starts
+  it (`AurionProvisionRuntimes`, published only when the user did *not* tick
+  "Start AURION now"); with `/qn`, `/qb` or `/qr` there is no finish page, so it
+  runs unconditionally. Short of a Burn bundle this is the supported shape.
+
+Everything is per-user — `%LocalAppData%\Programs\AURION` — so installing AURION
+raises no UAC prompt and no administrator rights are needed.
+
+**The one thing that can still need the network.** WebView2 is a Windows
+component, not something AURION can ship in a signed installer of its own: it is
+included in Windows 11 and was delivered to eligible Windows 10 machines by Edge.
+Microsoft's `MicrosoftEdgeWebview2Setup.exe` — the artifact bundled here — is a
+bootstrapper that downloads the runtime when the machine does not already have
+it. On Windows 11, and on any Windows 10 that has had Edge, nothing is
+downloaded. On a Windows 10 image that has never had it and has no network, the
+desk window cannot open: install Microsoft's **Evergreen Standalone Installer
+(x64)** once on that machine, or bake it into the image. The engine and the desk
+API are unaffected — they run without WebView2, and the desk can be used in a
+browser.
+
+**Building without the bundle.** `-NoBundle` skips the vendored runtimes entirely
+(the setup window then downloads from python.org and nodejs.org on the target
+machine, as it did originally), `-SkipWheels` skips the wheel collection and the
+prepared runtime, and `stage.ps1 -AllowIncompleteVendor` lets a deliberately
+incomplete `vendor\` through. All three produce an installer that needs the
+network; none of them is a release build.
 
 **Config survives upgrades by construction.** Only `config/aurion.factory.json`
 ships. The engine creates `config/aurion.json` from it on first run
@@ -311,7 +348,9 @@ it is the one that failed.
 | Wizard says a runtime is missing | Nothing to do — setup installs it when you click Finish. To redo it later: `AURION.exe --setup` |
 | Provisioning failed or was skipped | `data\logs\setup.log` in the install folder. Re-run `AURION.exe --setup`; it only touches what is still missing |
 | Window says the engine's Python libraries are missing | `data\logs\setup.log` — pip's own output is there, line by line — then `scripts\fix-numpy.ps1` |
-| pip cannot reach PyPI (proxy, filter, no route) | `AURION_PIP_INDEX_URL` for a mirror, or the wheels from a build machine in `vendor\wheels` and `scripts\fix-numpy.ps1 -Offline` |
+| pip cannot reach PyPI (proxy, filter, no route) | should not happen on a bundled build — the libraries arrive installed in `vendor\runtime-python.zip`. Otherwise: `AURION_PIP_INDEX_URL` for a mirror, or `vendor\wheels` with `scripts\fix-numpy.ps1 -Offline` |
+| `vendor\ is missing runtime-python.zip` while building | `fetch-vendor.ps1` did not finish, or the machine has no Python. Run it directly to see why; `-NoBundle` builds an installer that downloads instead |
+| `msvcp140.dll could not be found` while building | Install the Microsoft Visual C++ 2015-2022 Redistributable (x64) on the build machine, or point `prepare-runtime.ps1 -VcRuntimeDir` at a folder that has it |
 | Setup stopped and said nothing | It no longer can: every unexpected stop writes `SETUP STOPPED: <reason>` to `data\logs\setup.log` and exits non-zero |
 
 Exit codes are the standard Windows Installer ones: `0` success, `1602` user

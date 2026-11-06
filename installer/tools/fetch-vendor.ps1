@@ -17,10 +17,22 @@
 
         installer\vendor\
             python-3.12.7-amd64.exe          25 MB
+            python-3.12.7-embed-amd64.zip    11 MB, the fallback interpreter
+            get-pip.py                       pip, carried inside it
+            runtime-python.zip                Python with the engine's
+                                              libraries already installed
             node-v20.17.0-win-x64.zip        30 MB
             SHASUMS256.txt                   the checksum list for the zip
             MicrosoftEdgeWebview2Setup.exe    2 MB
             wheels\*.whl                     ~90 MB, optional
+
+    runtime-python.zip is the difference between "the target machine does
+    not download anything" and "the target machine does not download anything
+    and does not spend two minutes installing either". prepare-runtime.ps1
+    unpacks the embeddable Python, installs every library into it from
+    wheels\, and packages the result: the installer then unzips one file and
+    is finished. wheels\ stays alongside it so a repair can still run pip
+    offline, and so a build without the prepared runtime is still complete.
 
     The verification is the same as it would have been on the customer's
     machine - Authenticode for the signed installers, the vendor's published
@@ -38,6 +50,11 @@
     that needs a Python on the build machine; without them a customer's
     machine still has to reach PyPI, but nothing else.
 
+.PARAMETER SkipRuntime
+    Do not build runtime-python.zip. The installer still installs the engine's
+    libraries from wheels\, offline - the difference is that it does the
+    unpacking on the target machine instead of shipping the result.
+
 .PARAMETER Force
     Re-download even when the file is already there.
 
@@ -49,6 +66,7 @@
 param(
     [string] $Destination = "",
     [switch] $SkipWheels,
+    [switch] $SkipRuntime,
     [switch] $Force
 )
 
@@ -301,9 +319,59 @@ if ($SkipWheels) {
             } else {
                 $n = (Get-ChildItem -LiteralPath $wheels -Filter *.whl -ErrorAction SilentlyContinue).Count
                 Say "$n wheels collected"
+
+                # MetaTrader5, by name.
+                #
+                # It is commented out of requirements.txt because the engine
+                # has to run on Linux, where the package does not exist - and
+                # scripts\start.ps1 fetched it from PyPI on the customer's
+                # machine at first run, which is precisely the download this
+                # build is meant to remove. Without it the desk starts and
+                # cannot reach the terminal, so it is worth a second pip call
+                # rather than leaving it to the repair screen.
+                Say "collecting the MetaTrader5 wheel ..."
+                $previousEap = $ErrorActionPreference
+                $ErrorActionPreference = "Continue"
+                try {
+                    & $pip[0] @tail -m pip download "MetaTrader5" --dest $wheels `
+                        --only-binary=:all: --platform win_amd64 --python-version 3.12 2>&1 |
+                        ForEach-Object { Write-Verbose "$_" }
+                    $mt5Code = $LASTEXITCODE
+                } finally {
+                    $ErrorActionPreference = $previousEap
+                }
+                if ($mt5Code -ne 0) {
+                    Say "MetaTrader5 is not on PyPI for this platform - the desk will start"
+                    Say "and the terminal will be unavailable until it is installed"
+                } else {
+                    Say "MetaTrader5 collected"
+                }
             }
         }
     }
+}
+
+# ---------------------------------------------------------------------------
+# The interpreter, with the libraries already installed
+# ---------------------------------------------------------------------------
+# This is what takes the last slow step off the customer's machine. Without
+# it the installer still needs no network - it unpacks the embeddable Python
+# and runs pip against wheels\ - but it spends a minute or two of a first run
+# doing work that could have been done here, once, and it is one more place
+# where a machine can differ from this one.
+$hasRuntimeInputs = (Test-Path -LiteralPath (Join-Path $Destination $PythonZipName)) -and
+                    (Test-Path -LiteralPath (Join-Path $Destination $GetPipName)) -and
+                    (@(Get-ChildItem -LiteralPath (Join-Path $Destination "wheels") -Filter *.whl -File -ErrorAction SilentlyContinue).Count -gt 0)
+
+if ($SkipRuntime) {
+    Head "Python runtime skipped (-SkipRuntime)"
+    Say "the target machine will install the engine's libraries from wheels\ itself"
+} elseif (-not $hasRuntimeInputs) {
+    Head "No prebuilt Python runtime"
+    Say "the interpreter or the wheels are not here, so there is nothing to build it from"
+    Say "the installer will still work offline: it unpacks Python and installs the wheels"
+} else {
+    & (Join-Path $PSScriptRoot "prepare-runtime.ps1") -Vendor $Destination -Root $repoRoot -Force:$Force
 }
 
 # ---------------------------------------------------------------------------
