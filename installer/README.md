@@ -310,10 +310,43 @@ it is the one that failed.
 | Desk will not start after install | `data\logs\engine.log` and `data\logs\desk.log` in the install folder |
 | Wizard says a runtime is missing | Nothing to do — setup installs it when you click Finish. To redo it later: `AURION.exe --setup` |
 | Provisioning failed or was skipped | `data\logs\setup.log` in the install folder. Re-run `AURION.exe --setup`; it only touches what is still missing |
+| Window says the engine's Python libraries are missing | `data\logs\setup.log` — pip's own output is there, line by line — then `scripts\fix-numpy.ps1` |
+| pip cannot reach PyPI (proxy, filter, no route) | `AURION_PIP_INDEX_URL` for a mirror, or the wheels from a build machine in `vendor\wheels` and `scripts\fix-numpy.ps1 -Offline` |
+| Setup stopped and said nothing | It no longer can: every unexpected stop writes `SETUP STOPPED: <reason>` to `data\logs\setup.log` and exits non-zero |
 
 Exit codes are the standard Windows Installer ones: `0` success, `1602` user
 cancelled, `1603` fatal error, `1618` another install in progress, `1638` a
 different version is already installed.
+
+### When the engine's libraries will not install
+
+The engine runs on the Python inside the installation (`runtime\python`), so
+"the libraries are missing" is about *that* interpreter — not the machine's.
+Three things can install them, and all three look for the same one:
+
+| Entry point | When it runs |
+|---|---|
+| `AURION.exe` (the window) | Automatically, before the desk is started, every launch |
+| `scripts\provision.ps1` | Unattended, from `start-aurion.cmd`, when something is missing |
+| `scripts\fix-numpy.ps1` | By hand, when the first two could not finish |
+
+All three set pip up first if the interpreter has none (the embeddable build
+ships without it), install `engine\requirements.txt`, and then **prove it by
+importing** — a library that installs but will not import is reported as a
+failure, not as success.
+
+A machine that cannot reach `pypi.org` is the one case none of them can solve
+on its own. Two ways out, in order of how little they need:
+
+```powershell
+# an index this machine can reach
+setx AURION_PIP_INDEX_URL https://<mirror>/simple
+
+# or no network at all: copy wheels from a build machine, then
+powershell -ExecutionPolicy Bypass -File scripts\fix-numpy.ps1 -Offline
+```
+
+`-Wheels <folder>` points the last one at any folder of `.whl` files.
 
 ---
 

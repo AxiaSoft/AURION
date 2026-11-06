@@ -108,12 +108,111 @@ if ($found.Count -eq 0) {
 # ---------------------------------------------------------------------------
 # Is the program that entry names actually there?
 # ---------------------------------------------------------------------------
-Head "The uninstaller itself"
+# ---------------------------------------------------------------------------
+# AURION's Python, and whether the engine could actually start on it
+# ---------------------------------------------------------------------------
+# The question this answers is the one a first run fails on: is there an
+# interpreter, and can it import what engine/requirements.txt asks for? Both
+# halves are printed because the interesting failure is a machine that
+# answers yes to the first and no to the second - which used to be reported
+# as "that Python cannot import fastapi, numpy and sklearn" and nothing else.
+Head "The engine's Python"
+
+# Where the installation is, decided before anything needs it.
 $folder = if ($own -and $own.InstallFolder) {
     $own.InstallFolder
 } else {
     Join-Path $env:LOCALAPPDATA "Programs\AURION"
 }
+
+$privatePy = Join-Path $folder "runtime\python\python.exe"
+$python = $null
+if (Test-Path -LiteralPath $privatePy) {
+    Good "AURION's own interpreter  $privatePy"
+    $python = $privatePy
+} else {
+    Bad "AURION's own interpreter is missing  $privatePy"
+    Say "The machine's own Python is used instead, if it is 3.10 to 3.12."
+    foreach ($v in @("3.12", "3.11", "3.10")) {
+        if (-not $python) {
+            try {
+                $out = & py "-$v" -c "import sys; print(sys.executable)" 2>$null
+                if ($LASTEXITCODE -eq 0 -and $out) { $python = ([string]$out).Trim() }
+            } catch { }
+        }
+    }
+    if (-not $python) { $python = "python" }
+}
+
+# Run something and never let its stderr end this script.
+#
+# Windows PowerShell 5.1 turns a native program's stderr into a terminating
+# error when $ErrorActionPreference is "Stop", and an interpreter with a
+# missing library writes exactly there - so the check for the thing being
+# diagnosed used to be the thing that killed the diagnosis.
+#
+# Arguments are an array, not a string: "-c" and its code are two words on a
+# command line, and joining them hands Python one argument it does not know.
+function Get-Quiet {
+    param([string] $Program, [string[]] $Arguments)
+    $previous = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    try {
+        $text = (& $Program @Arguments 2>&1 | Out-String)
+        return [pscustomobject]@{ Ok = ($LASTEXITCODE -eq 0); Text = ([string]$text).Trim() }
+    } catch {
+        return [pscustomobject]@{ Ok = $false; Text = "$_" }
+    } finally {
+        $ErrorActionPreference = $previous
+    }
+}
+
+$version = Get-Quiet -Program $python -Arguments @("-V")
+if ($version.Text) { Say "version   $($version.Text)" } else { Bad "that interpreter does not answer -V" }
+
+$imports = Get-Quiet -Program $python -Arguments @(
+    "-c", "import fastapi, numpy, sklearn, pandas, scipy, uvicorn")
+if ($imports.Ok) {
+    Good "the engine's libraries import"
+} else {
+    Bad "the engine's libraries do NOT import:"
+    Say "fastapi, numpy, scikit-learn, pandas, scipy and uvicorn are what"
+    Say "engine\requirements.txt asks for. To install them:"
+    Say "  powershell -ExecutionPolicy Bypass -File scripts\fix-numpy.ps1"
+    if ($imports.Text) {
+        foreach ($line in ($imports.Text -split "`r?`n" | Select-Object -Last 4)) { Say "    $line" }
+    }
+}
+
+$pip = Get-Quiet -Program $python -Arguments @("-m", "pip", "--version")
+if ($pip.Ok) { Say "pip       $($pip.Text)" } else { Bad "pip       not available in that interpreter" }
+
+$wheels = Join-Path $folder "vendor\wheels"
+if (Test-Path -LiteralPath $wheels) {
+    $count = @(Get-ChildItem -LiteralPath $wheels -Filter *.whl -ErrorAction SilentlyContinue).Count
+    Say "bundled wheels  $count"
+} else {
+    Say "bundled wheels  none (this build did not carry them)"
+}
+
+# ---------------------------------------------------------------------------
+# What the last setup said
+# ---------------------------------------------------------------------------
+# The one file that explains a first run that stopped before anything could
+# log: setup writes every line here, including why it stopped.
+Head "The last setup (data\logs\setup.log)"
+$setupLog = Join-Path $folder "data\logs\setup.log"
+if (Test-Path -LiteralPath $setupLog) {
+    $tail = @(Get-Content -LiteralPath $setupLog -Tail 12 -ErrorAction SilentlyContinue)
+    if ($tail.Count -eq 0) { Say "(empty)" }
+    foreach ($line in $tail) { Say $line }
+    Say ""
+    Say "full log  $setupLog"
+} else {
+    Say "no setup has run in this installation"
+}
+
+Head "The uninstaller itself"
 $exe = Join-Path $folder "AURION-Uninstall.exe"
 
 if (Test-Path -LiteralPath $exe) {

@@ -267,10 +267,21 @@ if ($SkipWheels) {
             Say "collecting wheels with $($pip -join ' ') ..."
 
             # pip writes progress to stderr even when it succeeds.
+            #
+            # The interpreter's own switches are collected with a count check
+            # rather than [1..(Length - 1)]: on a build machine with no `py`
+            # launcher, $pip is a one-element array, and that range is then
+            # 1..0 - which PowerShell reads as 1, 0 and hands pip a command
+            # line beginning with an empty argument. Every wheel collection
+            # failed that way, was swallowed by the "not fatal" branch below,
+            # and shipped an MSI whose promise of working offline was empty.
+            $tail = @()
+            if ($pip.Count -gt 1) { $tail = @($pip[1..($pip.Count - 1)]) }
+
             $previousEap = $ErrorActionPreference
             $ErrorActionPreference = "Continue"
             try {
-                & $pip[0] @($pip[1..($pip.Length - 1)]) -m pip download `
+                & $pip[0] @tail -m pip download `
                     -r $requirements --dest $wheels `
                     --only-binary=:all: --platform win_amd64 --python-version 3.12 2>&1 |
                     ForEach-Object { Write-Verbose "$_" }
@@ -283,7 +294,9 @@ if ($SkipWheels) {
                 # Not fatal. A bundle without wheels is still a better
                 # installer than no bundle, and failing the whole build over
                 # an optional optimisation would be the wrong trade.
-                Say "pip download failed with code $code - continuing without wheels" 
+                Say "pip download failed with code $code - continuing without wheels"
+                Say "this build will make a customer's first run reach PyPI for the"
+                Say "engine libraries; run it again with a working pip to bundle them"
                 Remove-Item -LiteralPath $wheels -Recurse -Force -ErrorAction SilentlyContinue
             } else {
                 $n = (Get-ChildItem -LiteralPath $wheels -Filter *.whl -ErrorAction SilentlyContinue).Count

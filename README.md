@@ -69,7 +69,7 @@ MT5 Python API (Windows) ──────────┘              │
 | `engine/` | Python engine: AI, strategies, prop rules, backtest, MT5 bridge |
 | `apps/web/` | The desk UI (served by the backend on :8080) |
 | `config/`, `lang/`, `data/` | Configuration, translations, live state |
-| `scripts/` | Day-to-day helpers used by `start-aurion.cmd` (`hidden.vbs`, `copy-ea.ps1`, `restart-aurion.cmd`, `fix-npm.ps1`, `fix-numpy.ps1`) |
+| `scripts/` | Day-to-day helpers used by `start-aurion.cmd` (`hidden.vbs`, `copy-ea.ps1`, `restart-aurion.cmd`, `fix-npm.ps1`, `fix-numpy.ps1`), and `provision.ps1`, the unattended setup it runs when a runtime or the engine's libraries are missing |
 | [`store/`](store/README.md) | **The shop** — standalone key server / store (own app, own deploy) |
 | [`admin/`](admin/README.md) | **Owner/admin tooling** — local key minting, update server and its hidden panel |
 
