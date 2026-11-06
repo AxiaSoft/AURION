@@ -60,9 +60,20 @@ if not defined PYCMD echo [launcher] no usable Python found>>"%TRAIL%"
 if not defined PYCMD goto :NEEDINSTALL
 echo [launcher] python: %PYCMD%>>"%TRAIL%"
 
+REM The engine's libraries are a separate question from "is there a Python",
+REM and the two used to be reported as one: a single line naming three
+REM modules, in a console nobody reads, with nothing anywhere saying that
+REM setup was about to install them. It now names the ones actually absent -
+REM find_spec imports nothing, so this costs milliseconds even on a machine
+REM where importing numpy takes a minute - and records them where the failure
+REM window quotes them back.
+set "LIBSPROBLEM="
+set "MISSINGLIB="
 %PYCMD% -c "import fastapi,numpy,sklearn" >nul 2>nul
-if errorlevel 1 echo [launcher] that Python cannot import fastapi, numpy and sklearn>>"%TRAIL%"
-if errorlevel 1 goto :NEEDINSTALL
+if errorlevel 1 set "LIBSPROBLEM=1"
+if defined LIBSPROBLEM call :NAMEMISSINGLIBS
+if defined LIBSPROBLEM echo [launcher] the engine's libraries are not installed: %MISSINGLIB% >>"%TRAIL%"
+if defined LIBSPROBLEM goto :NEEDINSTALL
 
 call :FINDNODE
 if not defined NODECMD echo [launcher] no usable Node found>>"%TRAIL%"
@@ -96,6 +107,11 @@ echo Prerequisites missing or incomplete - installing them now.
 echo This takes a few minutes the first time. Nothing needs an administrator.
 echo.
 "%PS%" -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\provision.ps1"
+REM provision.ps1 writes its own reasons into data\logs\setup.log. All this
+REM adds is the one fact the script cannot report about itself: how far it
+REM got before it stopped.
+set "SETUPCODE=%errorlevel%"
+if not "%SETUPCODE%"=="0" echo [launcher] setup stopped with code %SETUPCODE% - the reason is in data\logs\setup.log >>"%TRAIL%"
 goto :SETUPRETRY
 
 :SETUPWINDOW
@@ -130,14 +146,24 @@ pause
 exit /b 1
 
 :SAYWHATSMISSING
+REM Written into desk.log because that is the file the window quotes when the
+REM desk itself never started - so this may be the only account of a first
+REM run that failed before anything was listening. It therefore says which
+REM prerequisite, where setup wrote its reasons, and what to run.
 if not exist "data\logs" mkdir "data\logs" 2>nul
-> "data\logs\desk.log" echo AURION cannot start: a prerequisite is missing.
+> "data\logs\desk.log" echo AURION cannot start: a prerequisite is missing or could not be installed.
+if defined LIBSPROBLEM >> "data\logs\desk.log" echo   - the engine's Python libraries are missing: %MISSINGLIB%
 if not defined PYCMD   >> "data\logs\desk.log" echo   - Python 3.10, 3.11 or 3.12 was not found.
 if defined PYCMD       >> "data\logs\desk.log" echo   - Python: %PYCMD%
 if not defined NODECMD >> "data\logs\desk.log" echo   - Node.js 18 or newer was not found.
 if defined NODECMD     >> "data\logs\desk.log" echo   - Node: %NODECMD%
 if not exist "backend\node_modules\express" >> "data\logs\desk.log" echo   - backend\node_modules is not installed.
->> "data\logs\desk.log" echo Run AURION.exe --setup to install what is missing.
+>> "data\logs\desk.log" echo.
+>> "data\logs\desk.log" echo What setup did, and why it stopped:
+>> "data\logs\desk.log" echo   %CD%\data\logs\setup.log
+>> "data\logs\desk.log" echo To install it by hand, in %CD%:
+>> "data\logs\desk.log" echo   powershell -ExecutionPolicy Bypass -File scripts\provision.ps1
+>> "data\logs\desk.log" echo   powershell -ExecutionPolicy Bypass -File scripts\fix-numpy.ps1
 goto :eof
 
 :NOTREE
@@ -198,6 +224,25 @@ exit /b 1
 REM ---------------------------------------------------------------------------
 REM Helpers
 REM ---------------------------------------------------------------------------
+:NAMEMISSINGLIBS
+REM Which of the three modules, by name.
+REM
+REM find_spec answers without importing, so this is milliseconds even where
+REM an import of numpy and scikit-learn takes a minute the first time. The
+REM answer goes through a file rather than being read from the console,
+REM because a pipeline into a for /f would put this launcher's quoting and
+REM cmd's quote handling in the same line - which is how FIND ended up with
+REM an unterminated search string, and how the launcher once cost itself
+REM exit code 255.
+set "MISSINGLIB=fastapi, numpy, sklearn"
+set "PROBEFILE=%TEMP%\aurion-missing-libs.txt"
+if not exist "%TEMP%" set "PROBEFILE=%CD%\data\logs\missing-libs.txt"
+%PYCMD% -c "import importlib.util as u; print(','.join(m for m in ('fastapi','numpy','sklearn') if u.find_spec(m) is None))" >"%PROBEFILE%" 2>nul
+if not exist "%PROBEFILE%" goto :eof
+set /p MISSINGLIB=<"%PROBEFILE%"
+del "%PROBEFILE%" >nul 2>nul
+if not defined MISSINGLIB set "MISSINGLIB=fastapi, numpy, sklearn"
+goto :eof
 REM ---------------------------------------------------------------------------
 REM The runtimes setup recorded.
 REM

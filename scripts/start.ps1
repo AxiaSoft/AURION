@@ -24,12 +24,27 @@ function Get-AurionPython {
   if ($env:AURION_PYTHON -and (Test-Path -LiteralPath $env:AURION_PYTHON)) {
     return $env:AURION_PYTHON
   }
+
+  # AURION's own interpreter first, exactly as start-aurion.cmd and
+  # provision.ps1 do.
+  #
+  # This script used to go straight to `py -3.12` and then to whatever
+  # `python` was, which on an installed machine is a different interpreter
+  # from the one the desk runs on - so "installing the engine's packages"
+  # here filled somebody else's site-packages, and the engine started by the
+  # shortcut still could not import them.
+  $mine = Join-Path $Root "runtime\python\python.exe"
+  if (Test-Path -LiteralPath $mine) { return $mine }
+
   foreach ($ver in @("3.12", "3.11", "3.10")) {
     $exe = Get-PyExe $ver
     if ($exe) { return $exe }
   }
   $fallback = Get-Command python -ErrorAction SilentlyContinue
-  if ($fallback) { return $fallback.Source }
+  # %LOCALAPPDATA%\Microsoft\WindowsApps\python.exe is an app execution
+  # alias, not an interpreter: it opens the Store, or writes packages where
+  # site-packages will never look.
+  if ($fallback -and $fallback.Source -notlike "*\WindowsApps\*") { return $fallback.Source }
   return $null
 }
 

@@ -845,7 +845,10 @@ check("the installed app prefers the bundle over the network",
   /Bundled\(installDir, "MicrosoftEdgeWebview2Setup\.exe"\)/.test(prereqCs) &&
   /--no-index --find-links/.test(prereqCs));
 check("and so does the script, for an install that is already on a machine",
-  /Get-Bundled/.test(provisionPs1) && /--no-index --find-links/.test(provisionPs1));
+  /Get-Bundled/.test(provisionPs1) &&
+  // the flags travel as separate argv elements now, so a path with a space
+  // in it cannot be split in half by the shell
+  /"--no-index", "--find-links", \$wheels/.test(provisionPs1));
 
 // A bundled file is still checked - a bundle is only as good as the build
 // that made it - but a failed check must not delete part of the install.
@@ -868,6 +871,129 @@ check("an unbundled build still falls back to downloading",
 // as three words and the desk never started.
 check("hidden.vbs re-quotes arguments that contain spaces",
   /InStr\(arg, " "\) > 0/.test(hiddenVbs));
+
+// ---------------------------------------------------------------------------
+// "The libraries are missing and it will not install them"
+// ---------------------------------------------------------------------------
+// The report that produced this section, from window.log on a bare machine:
+//
+//     == AURION setup
+//     Python is already here: ...\runtime\python\python.exe
+//     [launcher] that Python cannot import fastapi, numpy and sklearn
+//
+// and nothing else - no pip, no error, no line after it, and an engine that
+// never started. Setup had died one statement after saying the interpreter
+// was there: the check that decides whether to install the libraries.
+//
+// Two faults, both of them only in the case that matters (AURION's own
+// interpreter is a one-element argv array):
+//
+//   * $Python[1..($Python.Length - 1)] with one element evaluates 1..0, and
+//     PowerShell reads that as the *descending* range 1, 0 - so the command
+//     was "python.exe <nothing> <python.exe> -c ...", which exits 2.
+//   * $ErrorActionPreference = "Stop" plus a native program writing to
+//     stderr is a terminating error in Windows PowerShell 5.1, and 2>$null
+//     does not prevent it. A failing "import numpy" writes a traceback to
+//     stderr, so the check killed the script instead of reporting a library.
+const fixNumpy = read("scripts/fix-numpy.ps1");
+
+check("the interpreter's argv is never sliced with 1..(Length-1)",
+  !/\[1\.\.\(\$Python\.Length - 1\)\]/.test(provisionPs1) &&
+  !/\[1\.\.\(\$Python\.Length - 1\)\]/.test(fixNumpy) &&
+  // where a range is still used it is behind a count check, which makes the
+  // one-element case an empty array rather than a descending one
+  /\$Python\.Count -gt 1/.test(provisionPs1) &&
+  /\$Python\.Count -gt 1/.test(fixNumpy));
+
+check("a child writing to stderr cannot end setup",
+  /function Invoke-Program/.test(provisionPs1) &&
+  /function Invoke-PythonCaptured/.test(provisionPs1) &&
+  /\$ErrorActionPreference = "Continue"/.test(provisionPs1) &&
+  /\$ErrorActionPreference = \$previous/.test(provisionPs1) &&
+  !/& py "-\$v" -c "import sys" 2>\$null/.test(provisionPs1));
+
+check("setup writes down why it stopped, and exits non-zero",
+  /^trap \{/m.test(provisionPs1) &&
+  /SETUP STOPPED/.test(provisionPs1) &&
+  /exit 1/.test(provisionPs1));
+
+check("the engine's libraries are installed, not merely noticed",
+  /function Install-EngineLibraries/.test(provisionPs1) &&
+  /Install-EngineLibraries -Python \$python -Requirements \$requirements/.test(provisionPs1) &&
+  /"-m", "pip", "install", "-r", \$Requirements/.test(provisionPs1) &&
+  /function Test-EngineImports/.test(provisionPs1));
+
+check("and are proven by importing them afterwards",
+  /\$check = Test-EngineImports -Python \$Python/.test(provisionPs1) &&
+  /still do not import/.test(provisionPs1) &&
+  // the same question decides whether the machine is "ready" at all
+  /if \(\$engineLibsFailed\) \{\s*\$ready = \$false/.test(provisionPs1));
+
+check("pip is set up when the interpreter has none",
+  /function Enable-Pip/.test(provisionPs1) &&
+  /ensurepip/.test(provisionPs1) &&
+  /Get-Bundled \$GetPipName/.test(provisionPs1) &&
+  /bootstrap\.pypa\.io/.test(provisionPs1) &&
+  /EnsurePipAsync/.test(prereqCs) &&
+  /ensurepip --upgrade --default-pip/.test(prereqCs));
+
+check("the window asks for pip before it asks pip for anything",
+  prereqCs.indexOf("await EnsurePipAsync") > 0 &&
+  prereqCs.indexOf("await EnsurePipAsync") < prereqCs.indexOf("-m pip install -r"));
+
+check("a filtered network has somewhere to be named",
+  /AURION_PIP_INDEX_URL/.test(provisionPs1) &&
+  /AURION_PIP_INDEX_URL/.test(prereqCs) &&
+  /AURION_PIP_INDEX_URL/.test(fixNumpy) &&
+  /--index-url/.test(prereqCs));
+
+check("a failed pip says what to do about it",
+  /function Explain-PipFailure/.test(provisionPs1) &&
+  /CERTIFICATE_VERIFY_FAILED/.test(provisionPs1) &&
+  /vendor\\wheels/.test(provisionPs1));
+
+check("npm's warnings cannot end setup either",
+  /Invoke-Program -Program \$node/.test(provisionPs1) &&
+  !/& \$node \$cli install/.test(provisionPs1));
+
+check("a machine with no bundle can still be given a Python and a pip",
+  /Get-File -Url \$PythonZipUrl/.test(provisionPs1) &&
+  /Get-File -Url \$GetPipUrl/.test(provisionPs1));
+
+// ------------------------------------------------------- the launcher's half
+
+check("the launcher names which engine libraries are missing",
+  /set "LIBSPROBLEM=1"/.test(startCmd) &&
+  /:NAMEMISSINGLIBS/.test(startCmd) &&
+  /find_spec/.test(startCmd) &&
+  /the engine's libraries are not installed/.test(startCmd));
+
+check("and that line reaches the failure box",
+  /if defined LIBSPROBLEM >> "data\\logs\\desk\.log" echo   - the engine's Python libraries are missing: %MISSINGLIB%/.test(startCmd) &&
+  /data\\logs\\setup\.log/.test(startCmd));
+
+check("the launcher records what setup did with its exit code",
+  /set "SETUPCODE=%errorlevel%"/.test(startCmd) &&
+  /setup stopped with code %SETUPCODE%/.test(startCmd));
+
+// ------------------------------------------------------ the hand repair path
+
+// start-aurion.cmd and the engine both point a stuck user at fix-numpy.ps1.
+// It used to run `python -m pip`, which on this machine is either absent or
+// the Microsoft Store alias - a repair script that repairs the wrong
+// interpreter and reports success.
+check("the hand repair uses the interpreter AURION runs on",
+  /runtime\\python\\python\.exe/.test(fixNumpy) &&
+  /function Find-Python/.test(fixNumpy) &&
+  !/^python -m pip/m.test(fixNumpy));
+
+check("and refuses the Microsoft Store alias, like everything else",
+  /WindowsApps/.test(fixNumpy) &&
+  /\$recorded -notlike/.test(fixNumpy));
+
+check("and proves the result instead of claiming it",
+  /import fastapi, numpy, sklearn, pandas, scipy, uvicorn/.test(fixNumpy) &&
+  /exit 1/.test(fixNumpy));
 
 const bad = results.filter((r) => !r.ok);
 console.log(`\n${results.length - bad.length}/${results.length} checks passed`);

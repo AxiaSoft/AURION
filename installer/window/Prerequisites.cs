@@ -1004,10 +1004,27 @@ internal static class Prerequisites
 
         var (exe, args) = Split(PythonCommand);
 
+        // pip first, because everything below is pip.
+        //
+        // A machine can have a working interpreter and no pip at all - the
+        // embeddable build ships without one, and get-pip.py is what puts it
+        // there - and then every install below fails with "No module named
+        // pip" and exit code 1, which reads like a broken installation and
+        // says nothing about what to do. It was also the state a machine
+        // reached when an earlier setup was interrupted between unpacking
+        // Python and installing the libraries.
+        await EnsurePipAsync(exe, args, installDir, say, ct);
+
         // Wheels bundled by fetch-vendor.ps1 mean no PyPI, no proxy, no
         // ninety-megabyte download on somebody else's laptop.
         var wheels = Path.Combine(installDir, "vendor", "wheels");
         var offline = Directory.Exists(wheels) && Directory.GetFiles(wheels, "*.whl").Length > 0;
+
+        // A machine on a filtered network reaches some index other than
+        // pypi.org, or none. Naming one here means setup can say "installs
+        // from the mirror it can reach" instead of "cannot install".
+        var index = (Environment.GetEnvironmentVariable("AURION_PIP_INDEX_URL") ?? "").Trim();
+        var indexArgument = index.Length > 0 ? $" --index-url \"{index}\"" : "";
 
         // Upgrading pip needs the network. Doing it immediately before an
         // installation whose entire purpose is to need no network is a
@@ -1041,11 +1058,114 @@ internal static class Prerequisites
             return;
         }
 
-        say.Report("Installing the engine's libraries… this is the long one.");
-        await RunAsync(exe,
-            (args + $" -m pip install -r \"{requirements}\" --no-input --disable-pip-version-check").Trim(),
-            elevate: false, ct, null, say);
+        if (index.Length > 0)
+        {
+            say.Report("Installing the engine's libraries from " + index + "…");
+        }
+        else
+        {
+            say.Report("Installing the engine's libraries… this is the long one.");
+        }
+
+        try
+        {
+            await RunAsync(exe,
+                (args + $" -m pip install -r \"{requirements}\" --no-input --disable-pip-version-check" +
+                 indexArgument).Trim(),
+                elevate: false, ct, null, say);
+        }
+        catch (InvalidOperationException ex)
+        {
+            // What the row says is what the trader has to act on, and
+            // "python.exe finished with code 1" is not something a person can
+            // act on.
+            throw new InvalidOperationException(
+                "The engine's libraries could not be installed. " + ex.Message +
+                Environment.NewLine + Environment.NewLine +
+                "If this machine cannot reach pypi.org, point it at an index it can reach" +
+                Environment.NewLine +
+                "(set AURION_PIP_INDEX_URL), or put the wheels from a build machine into" +
+                Environment.NewLine +
+                Path.Combine(installDir, "vendor", "wheels") + " and run setup again." +
+                Environment.NewLine + Environment.NewLine +
+                "What pip said, line by line, is in data\\logs\\setup.log.", ex);
+        }
     }
+
+    /// <summary>
+    /// Make sure this interpreter has a working pip.
+    ///
+    /// The embeddable Python ships without one - get-pip.py is what puts it
+    /// there - and an interpreter in that state answers every install above
+    /// with "No module named pip" and exit code 1, which reads like a broken
+    /// installation and says nothing about what to do next. It is also the
+    /// state an interrupted first run leaves behind: Python unpacked, the
+    /// libraries never installed, and the next launch unable to finish the
+    /// job because the thing that would finish it is missing.
+    /// </summary>
+    private static async Task EnsurePipAsync(
+        string exe, string args, string installDir, IProgress<string> say, CancellationToken ct)
+    {
+        if (PipWorks(exe, args)) return;
+
+        say.Report("pip is missing from the engine's Python. Setting it up…");
+
+        // ensurepip is part of the standard library and needs nothing from
+        // the network: the one repair that works on a machine with none.
+        try
+        {
+            await RunAsync(exe, (args + " -m ensurepip --upgrade --default-pip").Trim(),
+                elevate: false, ct, null, say);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception)
+        {
+            // The embeddable build carries no ensurepip. get-pip.py is next.
+        }
+
+        if (PipWorks(exe, args))
+        {
+            say.Report("pip is ready.");
+            return;
+        }
+
+        var getPip = Bundled(installDir, GetPipName);
+        if (getPip.Length == 0)
+        {
+            // The address pip's own installation guide names, over https, for
+            // the one build that has no other way to obtain pip. A build that
+            // bundled the file - which is every release build, see
+            // fetch-vendor.ps1 - never reaches this.
+            getPip = Path.Combine(Path.GetTempPath(), "AURION-setup", GetPipName);
+            Directory.CreateDirectory(Path.GetDirectoryName(getPip)!);
+            say.Report("Downloading get-pip.py from bootstrap.pypa.io…");
+            var bytes = await Http.GetByteArrayAsync("https://bootstrap.pypa.io/get-pip.py", ct);
+            if (bytes.Length < 100_000)
+            {
+                throw new InvalidOperationException(
+                    "The get-pip.py download was too small to be real (" + bytes.Length + " bytes).");
+            }
+            await File.WriteAllBytesAsync(getPip, bytes, ct);
+        }
+
+        await RunAsync(exe, $"\"{getPip}\" --no-warn-script-location --no-input",
+            elevate: false, ct, null, say);
+
+        if (!PipWorks(exe, args))
+        {
+            throw new InvalidOperationException(
+                "pip could not be set up in " + exe + ", so the engine's libraries cannot be installed. " +
+                "Repair AURION from Settings > Apps, which puts back the runtime it ships with.");
+        }
+        say.Report("pip is ready.");
+    }
+
+    /// <summary>Does this interpreter answer "-m pip --version"?</summary>
+    private static bool PipWorks(string exe, string args) =>
+        RunQuiet(exe, (args + " -m pip --version").Trim(), timeoutMs: 60_000);
 
     /// <summary>
     /// Unpack Node into the installation folder. No installer, no elevation.
