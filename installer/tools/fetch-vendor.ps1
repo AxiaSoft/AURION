@@ -277,8 +277,15 @@ if ($SkipWheels) {
         }
 
         if (-not $pip) {
-            Say "no Python on this build machine - skipping the wheels" 
-            Say "the MSI will still work; the engine libraries will come from PyPI on first run"
+            # Not a warning any more. A bundle without wheels is a bundle
+            # that needs the CUSTOMER's network to reach PyPI, and the one
+            # that shipped without them produced exactly that support call:
+            # a bare machine, four attempts, "could not install the engine's
+            # libraries", and no way forward. If that trade is wanted it has
+            # to be asked for, by name.
+            throw ("No Python on this build machine, so the engine's wheels cannot be collected.`n" +
+                   "  Install CPython 3.12 here, or build with -SkipWheels to ship a bundle that`n" +
+                   "  downloads the engine's libraries on the customer's machine instead.")
         } else {
             $wheels = Join-Path $Destination "wheels"
             New-Item -ItemType Directory -Path $wheels -Force | Out-Null
@@ -309,43 +316,47 @@ if ($SkipWheels) {
             }
 
             if ($code -ne 0) {
-                # Not fatal. A bundle without wheels is still a better
-                # installer than no bundle, and failing the whole build over
-                # an optional optimisation would be the wrong trade.
-                Say "pip download failed with code $code - continuing without wheels"
-                Say "this build will make a customer's first run reach PyPI for the"
-                Say "engine libraries; run it again with a working pip to bundle them"
+                # Fatal. The half-bundle is indistinguishable from a good one
+                # until it is on somebody else's computer with no internet,
+                # which is the machine this whole bundle exists for.
                 Remove-Item -LiteralPath $wheels -Recurse -Force -ErrorAction SilentlyContinue
-            } else {
-                $n = (Get-ChildItem -LiteralPath $wheels -Filter *.whl -ErrorAction SilentlyContinue).Count
-                Say "$n wheels collected"
+                throw ("pip download failed with code $code, so the engine's wheels are not in the bundle.`n" +
+                       "  Fix the download here, or build with -SkipWheels to ship without them deliberately.")
+            }
+            $n = (Get-ChildItem -LiteralPath $wheels -Filter *.whl -ErrorAction SilentlyContinue).Count
+            if ($n -lt 1) {
+                throw "pip reported success but no wheels landed in $wheels."
+            }
+            Say "$n wheels collected"
 
-                # MetaTrader5, by name.
-                #
-                # It is commented out of requirements.txt because the engine
-                # has to run on Linux, where the package does not exist - and
-                # scripts\start.ps1 fetched it from PyPI on the customer's
-                # machine at first run, which is precisely the download this
-                # build is meant to remove. Without it the desk starts and
-                # cannot reach the terminal, so it is worth a second pip call
-                # rather than leaving it to the repair screen.
-                Say "collecting the MetaTrader5 wheel ..."
-                $previousEap = $ErrorActionPreference
-                $ErrorActionPreference = "Continue"
-                try {
-                    & $pip[0] @tail -m pip download "MetaTrader5" --dest $wheels `
-                        --only-binary=:all: --platform win_amd64 --python-version 3.12 2>&1 |
-                        ForEach-Object { Write-Verbose "$_" }
-                    $mt5Code = $LASTEXITCODE
-                } finally {
-                    $ErrorActionPreference = $previousEap
-                }
-                if ($mt5Code -ne 0) {
-                    Say "MetaTrader5 is not on PyPI for this platform - the desk will start"
-                    Say "and the terminal will be unavailable until it is installed"
-                } else {
-                    Say "MetaTrader5 collected"
-                }
+            # MetaTrader5, by name.
+            #
+            # It is commented out of requirements.txt because the engine has
+            # to run on Linux, where the package does not exist - and
+            # scripts\start.ps1 fetched it from PyPI on the customer's machine
+            # at first run, which is precisely the download this build is
+            # meant to remove. Without it the desk starts and cannot reach the
+            # terminal, so it is worth a second pip call rather than leaving
+            # it to the repair screen.
+            Say "collecting the MetaTrader5 wheel ..."
+            $previousEap = $ErrorActionPreference
+            $ErrorActionPreference = "Continue"
+            try {
+                & $pip[0] @tail -m pip download "MetaTrader5" --dest $wheels `
+                    --only-binary=:all: --platform win_amd64 --python-version 3.12 2>&1 |
+                    ForEach-Object { Write-Verbose "$_" }
+                $mt5Code = $LASTEXITCODE
+            } finally {
+                $ErrorActionPreference = $previousEap
+            }
+            if ($mt5Code -ne 0) {
+                # Not fatal, and genuinely optional: the desk starts without
+                # it and says the terminal is unavailable, which is a state
+                # the product already handles.
+                Say "MetaTrader5 is not on PyPI for this platform - the desk will start"
+                Say "and the terminal will be unavailable until it is installed"
+            } else {
+                Say "MetaTrader5 collected"
             }
         }
     }
