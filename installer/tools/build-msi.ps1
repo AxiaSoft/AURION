@@ -720,6 +720,35 @@ Write-Host "  BUILD OK" -ForegroundColor Green
 Write-Host ("  SHA-256 {0}" -f $hash) -ForegroundColor DarkGray
 Write-Host ""
 
+# ---------------------------------------------------------------------------
+# 5b. Is it shippable, as opposed to merely built
+# ---------------------------------------------------------------------------
+# "It built without errors" and "it installs on a bare PC" are different
+# claims, and only the second one matters to whoever receives the MSI. A
+# build can finish perfectly and still carry a wheel that was truncated
+# while it was being written - which this machine has shown it can do - and
+# the first anybody knows of it is a red row on somebody else's computer.
+#
+# verify-bundle.ps1 opens every wheel, checks the Node zip against the
+# checksum nodejs.org published, and runs the customer's own offline pip
+# install into a temporary folder. It is a minute, at the end of a build
+# that took much longer, and it is the difference between hoping and
+# knowing. It never fails the build: the MSI exists either way, and the
+# verdict is information about it.
+if (-not $NoBundle) {
+    Step "Verifying the bundle installs with no network"
+    try {
+        & (Join-Path $PSScriptRoot "verify-bundle.ps1") -Root $repoRoot -Msi $msi.FullName
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host ""
+            Write-Host "  The MSI is built, but the checks above say it is not ready to ship." -ForegroundColor Yellow
+            Write-Host "  Fix what they name and build again before sending it to anybody." -ForegroundColor Yellow
+        }
+    } catch {
+        Write-Host ("  the verification could not run: {0}" -f $_.Exception.Message) -ForegroundColor Yellow
+    }
+}
+
 # Everything that now exists, by name and size.
 #
 # "I click AURION-Setup.exe and nothing happens" turned out to mean the
