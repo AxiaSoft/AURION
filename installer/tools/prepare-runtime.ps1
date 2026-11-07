@@ -46,6 +46,17 @@
     dropped by default: they more than double the size of the runtime, contain
     the longest paths in it, and nothing imports them.
 
+.PARAMETER Work
+    Where to assemble the runtime before it is zipped. Defaults to a hidden
+    folder inside installer\vendor. Point it at a folder your antivirus does
+    not watch when the scanner keeps taking python.exe out of the build:
+
+        -Work D:\build-scratch
+
+    The same thing, when build-msi.ps1 or fetch-vendor.ps1 is what you run:
+
+        $env:AURION_RUNTIME_WORK = "D:\build-scratch"
+
 .PARAMETER VcRuntimeDir
     Where to take the Visual C++ runtime DLLs from, when they are not in
     C:\Windows\System32. Any folder that has them will do.
@@ -67,6 +78,7 @@ param(
     [string] $GetPipName    = "get-pip.py",
     [string] $OutputName    = "runtime-python.zip",
     [string] $VcRuntimeDir  = "",
+    [string] $Work          = "",
     [switch] $Force,
     [switch] $KeepTests,
     [switch] $SkipVcRuntime
@@ -88,10 +100,247 @@ $wheelDir = Join-Path $vendorDir "wheels"
 $embedZip = Join-Path $vendorDir $PythonZipName
 $getPip   = Join-Path $vendorDir $GetPipName
 $output   = Join-Path $vendorDir $OutputName
-$work     = Join-Path $vendorDir ".runtime-build"
+# Where the runtime is assembled before it is zipped.
+#
+# Normally inside vendor\, which keeps everything about a build in one place
+# (stage.ps1 excludes it from the payload). It is overridable because on a
+# machine whose antivirus keeps taking python.exe out of this folder, the
+# cheapest answer is to assemble it somewhere that is excluded from scanning
+# - without having to exclude the whole source tree.
+#
+#   -Work D:\build-scratch            or      $env:AURION_RUNTIME_WORK
+#
+# The environment variable exists so it also reaches this script when
+# fetch-vendor.ps1 or build-msi.ps1 is the thing being run.
+# No ?? here: this script also runs under Windows PowerShell 5.1.
+if (-not $Work -and $env:AURION_RUNTIME_WORK) { $Work = $env:AURION_RUNTIME_WORK.Trim() }
+if ($Work) {
+    # Always a subfolder of what was given. The unpack step starts by
+    # deleting $work outright, and a -Work pointed at something that already
+    # has files in it would be a destructive surprise.
+    New-Item -ItemType Directory -Path $Work -Force | Out-Null
+    $work = Join-Path (Resolve-Path -LiteralPath $Work).Path "aurion-runtime-build"
+} else {
+    $work = Join-Path $vendorDir ".runtime-build"
+}
 $python   = Join-Path $work "python"
+$exe      = Join-Path $python "python.exe"
 
 Add-Type -AssemblyName System.IO.Compression.FileSystem
+
+# The embeddable build ships with site-packages switched off. Left as it is,
+# pip installs into a folder the interpreter never looks in and every import
+# the engine needs fails with the libraries sitting right there. A function,
+# not a block, because the repair below can have to put the file back.
+function Enable-SitePackages {
+    $pth = Join-Path $python "python312._pth"
+    if (-not (Test-Path -LiteralPath $pth)) {
+        $found = @(Get-ChildItem -LiteralPath $python -Filter "python*._pth" -File -ErrorAction SilentlyContinue)
+        if ($found.Count -gt 0) { $pth = $found[0].FullName }
+    }
+    if (-not (Test-Path -LiteralPath $pth)) {
+        throw "No ._pth file in $PythonZipName, so site-packages cannot be enabled."
+    }
+    $lines = @(Get-Content -LiteralPath $pth |
+               ForEach-Object { if ($_.Trim() -eq "#import site") { "import site" } else { $_ } })
+    if ($lines -notcontains "import site") { $lines += "import site" }
+    if ($lines -notcontains "Lib\site-packages") { $lines += "Lib\site-packages" }
+    Set-Content -LiteralPath $pth -Value $lines
+    Say "patched $(Split-Path -Leaf $pth): site-packages enabled"
+}
+
+# Ask Windows Defender whether it took the file, instead of suggesting it.
+#
+# The first version of this message told the reader to run Get-MpThreat
+# themselves. Asking here costs one call and turns a suspicion into a line
+# naming the threat and the file - or into the knowledge that Defender has
+# nothing to do with it, which is just as useful and much harder to get
+# afterwards, because a detection that is not read is still there but the
+# build that provoked it is gone.
+function Get-DefenderEvidence {
+    param([string] $PathLike)
+    $lines = @()
+    try {
+        if (-not (Get-Command Get-MpThreatDetection -ErrorAction SilentlyContinue)) {
+            return @("  (Windows Defender's cmdlets are not on this machine, so it could not be asked.)")
+        }
+        $since = (Get-Date).AddHours(-6)
+        $hits = @(Get-MpThreatDetection -ErrorAction SilentlyContinue |
+                  Where-Object { $_.InitialDetectionTime -ge $since })
+        foreach ($h in $hits) {
+            $what = @($h.Resources) -join " "
+            if ($PathLike -and $what -and ($what -notlike "*$PathLike*")) { continue }
+            $name = ""
+            try { $name = (Get-MpThreat -ErrorAction SilentlyContinue |
+                           Where-Object { $_.ThreatID -eq $h.ThreatID } |
+                           Select-Object -First 1).ThreatName } catch { }
+            $lines += ("  Defender: {0:u}  {1}`n            {2}" -f $h.InitialDetectionTime, $name, $what)
+        }
+        if ($lines.Count -eq 0) {
+            $lines += "  Defender reports no detection in this folder in the last six hours."
+        }
+    } catch {
+        $lines += "  (Defender could not be asked: " + $_.Exception.Message + ")"
+    }
+    return $lines
+}
+
+# Put the interpreter back from the zip it came out of.
+#
+# Observed on a real build machine: every phase ran - pip installed ninety
+# megabytes of libraries with this interpreter - and between the trimming
+# step and the verification step python.exe was no longer on disk, with the
+# rest of the tree untouched. Nothing in this script deletes it. A scanner
+# removing a freshly extracted .exe that has just written thousands of files
+# is the explanation that fits, and the trimming step is a long window of
+# deletions for one to finish a scan in.
+#
+# Losing a ten-minute build to that is unnecessary. The files are verbatim
+# copies of entries in an embeddable zip whose checksum fetch-vendor.ps1
+# already verified, so putting them back is not a guess - it is the same
+# extraction, repeated. Twice at most: a third time means something on this
+# machine is removing them faster than the build can work, and no number of
+# retries will finish.
+$script:Restores = 0
+function Restore-Interpreter {
+    param([string] $Phase)
+    if (-not (Test-Path -LiteralPath $python)) { return $false }
+    if (-not (Test-Path -LiteralPath $embedZip)) { return $false }
+    if ($script:Restores -ge 2) { return $false }
+
+    $putBack = @()
+    $zip = [System.IO.Compression.ZipFile]::OpenRead($embedZip)
+    try {
+        foreach ($entry in $zip.Entries) {
+            # Root entries only. Anything in a subfolder is either the
+            # standard library (inside python312.zip, one entry) or something
+            # pip installed, which this cannot and must not recreate.
+            if ($entry.FullName.Contains("/")) { continue }
+            if (-not $entry.Name) { continue }
+            $dest = Join-Path $python $entry.Name
+            if (Test-Path -LiteralPath $dest) { continue }
+            [System.IO.Compression.ZipFileExtensions]::ExtractToFile($entry, $dest, $true)
+            $putBack += $entry.Name
+        }
+    } finally {
+        $zip.Dispose()
+    }
+
+    if (-not (Test-Path -LiteralPath $exe)) { return $false }
+    $script:Restores += 1
+
+    Write-Host ""
+    Write-Host ("  $exe was missing at $Phase and has been put back from $PythonZipName.") -ForegroundColor Yellow
+    Write-Host ("  restored: " + ($putBack -join ", ")) -ForegroundColor Yellow
+    Write-Host "  Something on this machine is removing it mid-build - see the end of this run." -ForegroundColor Yellow
+    foreach ($line in (Get-DefenderEvidence -PathLike $python)) { Write-Host $line -ForegroundColor Yellow }
+    Write-Host ""
+
+    # A ._pth that went with it would leave site-packages switched off, and
+    # everything pip installed invisible. Cheap to redo, fatal to skip.
+    if ($putBack | Where-Object { $_ -like "*._pth" }) { Enable-SitePackages }
+    return $true
+}
+
+# Say it before the ten minutes, not after.
+#
+# Both builds that lost their interpreter found out at the end, having
+# already unpacked Python, installed pip and unpacked ninety megabytes of
+# libraries. Real-time protection watching the folder this assembles in is
+# knowable in one call, at the start, for nothing.
+function Show-ScannerAdvisory {
+    try {
+        if (-not (Get-Command Get-MpComputerStatus -ErrorAction SilentlyContinue)) { return }
+        $status = Get-MpComputerStatus -ErrorAction SilentlyContinue
+        if (-not $status -or -not $status.RealTimeProtectionEnabled) { return }
+
+        $excluded = @()
+        try { $excluded = @((Get-MpPreference -ErrorAction SilentlyContinue).ExclusionPath) } catch { }
+        foreach ($path in $excluded) {
+            if ($path -and $work.ToLowerInvariant().StartsWith($path.ToLowerInvariant().TrimEnd('\'))) { return }
+        }
+
+        Write-Host ""
+        Write-Host "  Windows Defender real-time protection is on and $work is not excluded." -ForegroundColor DarkYellow
+        Write-Host "  A freshly extracted python.exe that writes thousands of files is a" -ForegroundColor DarkYellow
+        Write-Host "  heuristic match, and this build has lost one mid-run before. If it" -ForegroundColor DarkYellow
+        Write-Host "  happens, in an administrator PowerShell:" -ForegroundColor DarkYellow
+        Write-Host "      Add-MpPreference -ExclusionPath '$Root'" -ForegroundColor DarkYellow
+        Write-Host ""
+    } catch {
+        # An advisory that fails is not a build problem.
+    }
+}
+
+# Is the interpreter we unpacked still there?
+#
+# PowerShell's own answer when it is not - "The term '...python.exe' is not
+# recognized as the name of a cmdlet, function, script file, or operable
+# program" - reads like a typo in this script rather than like a file that
+# has been taken away, and it arrives attached to whichever phase happened
+# to run next.
+function Assert-Interpreter {
+    param([string] $Phase)
+    if (Test-Path -LiteralPath $exe) { return }
+    if (Restore-Interpreter -Phase $Phase) { return }
+
+    $evidence = (Get-DefenderEvidence -PathLike $python) -join [Environment]::NewLine
+    $again = if ($script:Restores -gt 0) {
+        "  It has already been put back $($script:Restores) time(s) in this run and taken away again,`n" +
+        "  so something on this machine is removing it faster than the build can work.`n"
+    } else { "" }
+
+    throw ("The interpreter is gone: $exe`n" +
+           "  It was unpacked successfully, and by $Phase it was no longer on disk.`n" +
+           $again +
+           "  Nothing in this script deletes it. What does:`n" +
+           "$evidence`n" +
+           "    * an antivirus scanner. Exclude the build tree, in an administrator PowerShell:`n" +
+           "        Add-MpPreference -ExclusionPath '$Root'`n" +
+           "      or assemble the runtime somewhere already excluded:`n" +
+           "        installer\tools\prepare-runtime.ps1 -Force -Work D:\build-scratch`n" +
+           "        (`$env:AURION_RUNTIME_WORK does the same through build-msi.ps1)`n" +
+           "    * a second build running in the same tree at the same time.")
+}
+
+# Native calls below write progress to stderr and are not errors.
+#
+# $LASTEXITCODE is reset first. It survives from whatever ran before, so a
+# call that never starts leaves the previous command's 0 in place and is read
+# as a success - which is how a missing interpreter could be reported three
+# phases after the phase that should have caught it.
+function Invoke-PythonRaw {
+    param([string] $Phase, [string[]] $Arguments)
+    Assert-Interpreter -Phase $Phase
+    $global:LASTEXITCODE = -1
+    $previousEap = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    try {
+        $text = & $exe @Arguments 2>&1 | Out-String
+        $code = $LASTEXITCODE
+    } catch [System.Management.Automation.CommandNotFoundException] {
+        # PowerShell could not resolve python.exe: it has been removed since
+        # the check at the top of this function. Assert again - which repairs
+        # it if it can - and run once more before giving up.
+        Assert-Interpreter -Phase $Phase
+        $global:LASTEXITCODE = -1
+        $text = & $exe @Arguments 2>&1 | Out-String
+        $code = $LASTEXITCODE
+    } finally {
+        $ErrorActionPreference = $previousEap
+    }
+    return [pscustomobject]@{ Code = $code; Text = $text }
+}
+
+function Invoke-Python {
+    param([string] $What, [string[]] $Arguments)
+    $run = Invoke-PythonRaw -Phase $What -Arguments $Arguments
+    if ($run.Code -ne 0) {
+        $tail = ($run.Text.Trim() -split "`r?`n" | Select-Object -Last 25) -join [Environment]::NewLine
+        throw ("$What failed with exit code $($run.Code).`n" + $tail)
+    }
+    return $run.Text
+}
 
 # ---------------------------------------------------------------------------
 # 1. What we need, and a clear account of anything missing.
@@ -175,12 +424,13 @@ if (Test-Path -LiteralPath $lockFile) {
 }
 Set-Content -LiteralPath $lockFile -Value ("{0}  {1:u}  {2}" -f $PID, (Get-Date), $vendorDir)
 
+Show-ScannerAdvisory
+
 Head "Unpacking $PythonZipName"
 if (Test-Path -LiteralPath $work) { Remove-Item -LiteralPath $work -Recurse -Force }
 New-Item -ItemType Directory -Path $python -Force | Out-Null
 [System.IO.Compression.ZipFile]::ExtractToDirectory($embedZip, $python)
 
-$exe = Join-Path $python "python.exe"
 if (-not (Test-Path -LiteralPath $exe)) {
     throw "$PythonZipName does not contain python.exe at its root, so it is not the embeddable build."
 }
@@ -190,98 +440,8 @@ if (-not (Test-Path -LiteralPath $exe)) {
 # the engine needs fails with the libraries sitting right there. provision.ps1
 # and Prerequisites.cs both patch this too; doing it here is what lets the
 # finished zip be unzipped and used without any further step.
-$pth = Join-Path $python "python312._pth"
-if (-not (Test-Path -LiteralPath $pth)) {
-    $found = @(Get-ChildItem -LiteralPath $python -Filter "python*._pth" -File)
-    if ($found.Count -gt 0) { $pth = $found[0].FullName }
-}
-if (Test-Path -LiteralPath $pth) {
-    $lines = @(Get-Content -LiteralPath $pth |
-               ForEach-Object { if ($_.Trim() -eq "#import site") { "import site" } else { $_ } })
-    if ($lines -notcontains "import site") { $lines += "import site" }
-    if ($lines -notcontains "Lib\site-packages") { $lines += "Lib\site-packages" }
-    Set-Content -LiteralPath $pth -Value $lines
-    Say "patched $(Split-Path -Leaf $pth): site-packages enabled"
-} else {
-    throw "No ._pth file in $PythonZipName, so site-packages cannot be enabled."
-}
+Enable-SitePackages
 New-Item -ItemType Directory -Path (Join-Path $python "Lib\site-packages") -Force | Out-Null
-
-# Is the interpreter we unpacked still there?
-#
-# Reported from a real build: every phase ran, and then the verification step
-# stopped with
-#
-#   The term 'D:\...\vendor\.runtime-build\python\python.exe' is not
-#   recognized as the name of a cmdlet, function, script file, or operable
-#   program.
-#
-# which is PowerShell's way of saying "that file does not exist" and reads
-# like a typo in the script. It is not a typo: the file was there minutes
-# earlier, because pip installed ninety megabytes of libraries with it. Two
-# things remove it from under a running build, and neither announces itself:
-#
-#   * an antivirus scanner quarantining python.exe. A freshly extracted
-#     interpreter, in a hidden-looking folder, that has just written
-#     thousands of files, is a heuristic match; Defender takes the .exe and
-#     leaves the rest of the tree in place.
-#   * a second build in the same tree. The first thing this script does is
-#     delete .runtime-build and unpack it again, so two overlapping builds
-#     take each other's interpreter away mid-run. The lock below makes that
-#     impossible rather than merely unlikely.
-#
-# Checking costs nothing and turns an error that looks like a bug in the
-# build script into the one sentence that identifies the actual cause.
-function Assert-Interpreter {
-    param([string] $Phase)
-    if (Test-Path -LiteralPath $exe) { return }
-    throw ("The interpreter is gone: $exe`n" +
-           "  It was unpacked successfully, and by $Phase it was no longer on disk.`n" +
-           "  Nothing in this script deletes it. The two things that do:`n" +
-           "    * an antivirus scanner quarantined it. Check with:`n" +
-           "        Get-MpThreat | Select-Object ThreatName, Resources`n" +
-           "      and exclude the build tree (in an administrator PowerShell):`n" +
-           "        Add-MpPreference -ExclusionPath '$Root'`n" +
-           "    * a second build running in the same tree at the same time.`n" +
-           "  Then run: installer\tools\prepare-runtime.ps1 -Force")
-}
-
-# Native calls below write progress to stderr and are not errors.
-#
-# $LASTEXITCODE is reset first. It survives from whatever ran before, so a
-# call that never starts leaves the previous command's 0 in place and is read
-# as a success - which is how a missing interpreter could be reported three
-# phases after the phase that should have caught it.
-function Invoke-PythonRaw {
-    param([string] $Phase, [string[]] $Arguments)
-    Assert-Interpreter -Phase $Phase
-    $global:LASTEXITCODE = -1
-    $previousEap = $ErrorActionPreference
-    $ErrorActionPreference = "Continue"
-    try {
-        $text = & $exe @Arguments 2>&1 | Out-String
-        $code = $LASTEXITCODE
-    } catch [System.Management.Automation.CommandNotFoundException] {
-        # PowerShell could not resolve python.exe: it has been removed since
-        # the check at the top of this function, or it is no longer readable.
-        Assert-Interpreter -Phase $Phase
-        throw ("$exe could not be run during $Phase, although the file is there.`n" +
-               "  " + $_.Exception.Message)
-    } finally {
-        $ErrorActionPreference = $previousEap
-    }
-    return [pscustomobject]@{ Code = $code; Text = $text }
-}
-
-function Invoke-Python {
-    param([string] $What, [string[]] $Arguments)
-    $run = Invoke-PythonRaw -Phase $What -Arguments $Arguments
-    if ($run.Code -ne 0) {
-        $tail = ($run.Text.Trim() -split "`r?`n" | Select-Object -Last 25) -join [Environment]::NewLine
-        throw ("$What failed with exit code $($run.Code).`n" + $tail)
-    }
-    return $run.Text
-}
 
 $version = (Invoke-Python -What "Checking the interpreter" -Arguments @("-V")).Trim()
 Say "interpreter: $version"
@@ -504,6 +664,17 @@ Remove-Item -LiteralPath $work -Recurse -Force -ErrorAction SilentlyContinue
 Remove-Item -LiteralPath $lockFile -Force -ErrorAction SilentlyContinue
 
 Write-Host ""
+if ($script:Restores -gt 0) {
+    # The zip is sound - it proved itself by importing in isolation above -
+    # but a machine that removes a build's interpreter will do it again, and
+    # next time it may be during the one phase that cannot be repaired.
+    Write-Host ("  python.exe was removed from under this build {0} time(s) and put back." -f $script:Restores) -ForegroundColor Yellow
+    Write-Host "  The runtime was verified after that, so this zip is good. The machine is not:" -ForegroundColor Yellow
+    foreach ($line in (Get-DefenderEvidence -PathLike $python)) { Write-Host $line -ForegroundColor Yellow }
+    Write-Host "      Add-MpPreference -ExclusionPath '$Root'        (administrator PowerShell)" -ForegroundColor Yellow
+    Write-Host "      or build with -Work D:\build-scratch, somewhere already excluded" -ForegroundColor Yellow
+    Write-Host ""
+}
 Write-Host ("  runtime ready: {0} ({1:N1} MB, {2:N1} MB unpacked)" -f
             $output, ($zipBytes / 1MB), $rawMb) -ForegroundColor Green
 Write-Host "  the installer unpacks this; it runs no pip on the target machine" -ForegroundColor Green

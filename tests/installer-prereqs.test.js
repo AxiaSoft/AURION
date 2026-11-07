@@ -1210,9 +1210,17 @@ check("a vanished interpreter is diagnosed, not reported as a typo",
 check("every python run checks it first",
   /function Invoke-PythonRaw \{/.test(prepareRuntime) &&
   /Invoke-PythonRaw[\s\S]{0,200}Assert-Interpreter -Phase \$Phase/.test(prepareRuntime) &&
-  // exactly one raw invocation left: the one inside Invoke-PythonRaw
-  (prepareRuntime.match(/& \$exe /g) || []).length === 1,
-  "a second raw call site is a second place that can fail incomprehensibly");
+  // Every raw invocation lives inside Invoke-PythonRaw - the first attempt
+  // and the retry after a repair. A call site anywhere else is another
+  // place that can fail incomprehensibly.
+  (() => {
+    const all = (prepareRuntime.match(/& \$exe /g) || []).length;
+    const body = prepareRuntime.slice(
+      prepareRuntime.indexOf("function Invoke-PythonRaw {"),
+      prepareRuntime.indexOf("function Invoke-Python {"));
+    const inside = (body.match(/& \$exe /g) || []).length;
+    return all > 0 && all === inside;
+  })());
 
 check("and the phase that failed is named",
   /Assert-Interpreter -Phase "the trimming step"/.test(prepareRuntime) &&
@@ -1246,6 +1254,65 @@ check("the lock is not left inside the folder that becomes payload",
 check("a crashed build does not block the next one for ever",
   /Remove-Item -LiteralPath \$lockFile -Force -ErrorAction SilentlyContinue/.test(prepareRuntime) &&
   /previousPid -ne \$PID/.test(prepareRuntime));
+
+/* =====================================================================
+ * The interpreter that keeps being taken away
+ *
+ * Second report, with the diagnosis from the first one working: the
+ * interpreter was present at the trimming step and gone by the
+ * verification step. The trimming step deletes *.pyc, __pycache__ and
+ * packages' own test folders - nothing else - so the removal came from
+ * outside the build, during the longest window of file activity in it.
+ *
+ * Telling somebody to run Get-MpThreat themselves was not enough. The
+ * script now asks Defender itself, puts the interpreter back from the
+ * zip it came out of, and says at the START that the folder is being
+ * watched rather than after ten minutes of work.
+ * =================================================================== */
+
+check("the build asks Defender instead of telling the reader to",
+  /function Get-DefenderEvidence \{/.test(prepareRuntime) &&
+  /Get-MpThreatDetection/.test(prepareRuntime) &&
+  /Defender reports no detection in this folder/.test(prepareRuntime),
+  "a detection nobody reads is still there, but the build that provoked it is gone");
+
+check("a removed interpreter is put back rather than losing the build",
+  /function Restore-Interpreter \{/.test(prepareRuntime) &&
+  /ZipFileExtensions\]::ExtractToFile/.test(prepareRuntime) &&
+  /Assert-Interpreter[\s\S]{0,400}if \(Restore-Interpreter -Phase \$Phase\) \{ return \}/.test(prepareRuntime));
+
+check("...only from the verified zip, and only files at its root",
+  /if \(\$entry\.FullName\.Contains\("\/"\)\) \{ continue \}/.test(prepareRuntime) &&
+  /if \(Test-Path -LiteralPath \$dest\) \{ continue \}/.test(prepareRuntime),
+  "anything in a subfolder is pip's work, which this cannot recreate");
+
+check("...and a restored ._pth is patched again",
+  /if \(\$putBack \| Where-Object \{ \$_ -like "\*\._pth" \}\) \{ Enable-SitePackages \}/.test(prepareRuntime),
+  "an unpatched ._pth leaves site-packages off and every library invisible");
+
+check("...twice at most",
+  /if \(\$script:Restores -ge 2\) \{ return \$false \}/.test(prepareRuntime) &&
+  /taken away again/.test(prepareRuntime));
+
+check("a build that needed repairing says so at the end",
+  /if \(\$script:Restores -gt 0\) \{/.test(prepareRuntime) &&
+  /The runtime was verified after that, so this zip is good\. The machine is not:/.test(prepareRuntime),
+  "the zip is sound; the machine that made it is the finding");
+
+check("and the warning comes before the ten minutes, not after",
+  /function Show-ScannerAdvisory \{/.test(prepareRuntime) &&
+  /RealTimeProtectionEnabled/.test(prepareRuntime) &&
+  prepareRuntime.indexOf("Show-ScannerAdvisory\n\nHead \"Unpacking") > 0);
+
+check("the scratch folder can be moved out of the scanner's way",
+  /\[string\] \$Work\s+= ""/.test(prepareRuntime) &&
+  /AURION_RUNTIME_WORK/.test(prepareRuntime) &&
+  /Join-Path \(Resolve-Path -LiteralPath \$Work\)\.Path "aurion-runtime-build"/.test(prepareRuntime),
+  "-Work must never be deleted wholesale: the unpack step removes $work outright");
+
+check("the advisory and the repair both work on Windows PowerShell 5.1",
+  !/\?\?/.test(prepareRuntime.replace(/#.*$/gm, "")),
+  "?? is PowerShell 7 only, and the build machine may be running 5.1");
 
 const bad = results.filter((r) => !r.ok);
 console.log(`\n${results.length - bad.length}/${results.length} checks passed`);
