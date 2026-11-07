@@ -142,6 +142,39 @@ if ((Test-Path -LiteralPath $output) -and -not $Force) {
 # ---------------------------------------------------------------------------
 # 3. Unpack the interpreter.
 # ---------------------------------------------------------------------------
+# One build at a time in one tree.
+#
+# The first thing this step does is delete .runtime-build and unpack it
+# again. Two builds started a few minutes apart in the same checkout - the
+# easiest mistake in the world to make, and one that produces no warning -
+# therefore take each other's interpreter away mid-run, and the one that
+# loses reports it several phases later as "python.exe is not recognized".
+#
+# The marker lives in TEMP, not in vendor\: everything in vendor\ is staged
+# into the MSI, and a stray file there is payload. A marker left behind by a
+# build that crashed names a process that no longer exists, and is ignored.
+# A stable hash of the path, not String.GetHashCode: .NET randomises that
+# per process, so two builds would compute two different names and the lock
+# would never see them.
+$lockKey = [System.BitConverter]::ToString(
+    [System.Security.Cryptography.MD5]::Create().ComputeHash(
+        [System.Text.Encoding]::UTF8.GetBytes($vendorDir.ToLowerInvariant()))).Replace("-", "").Substring(0, 8)
+$lockName = "aurion-prepare-runtime-$lockKey.pid"
+$lockFile = Join-Path ([System.IO.Path]::GetTempPath()) $lockName
+if (Test-Path -LiteralPath $lockFile) {
+    $previousPid = 0
+    $recorded = (Get-Content -LiteralPath $lockFile -ErrorAction SilentlyContinue | Select-Object -First 1)
+    if ($recorded) { [void][int]::TryParse(($recorded -split "\s+")[0], [ref] $previousPid) }
+    if ($previousPid -gt 0 -and $previousPid -ne $PID -and
+        (Get-Process -Id $previousPid -ErrorAction SilentlyContinue)) {
+        throw ("Another build is already building the runtime in this tree (process $previousPid).`n" +
+               "  Two of them delete and unpack $work at the same time, and the one that`n" +
+               "  loses fails with an interpreter that has vanished. Wait for it, or stop it.`n" +
+               "  If that process is not a build, delete $lockFile and run this again.")
+    }
+}
+Set-Content -LiteralPath $lockFile -Value ("{0}  {1:u}  {2}" -f $PID, (Get-Date), $vendorDir)
+
 Head "Unpacking $PythonZipName"
 if (Test-Path -LiteralPath $work) { Remove-Item -LiteralPath $work -Recurse -Force }
 New-Item -ItemType Directory -Path $python -Force | Out-Null
@@ -174,22 +207,80 @@ if (Test-Path -LiteralPath $pth) {
 }
 New-Item -ItemType Directory -Path (Join-Path $python "Lib\site-packages") -Force | Out-Null
 
+# Is the interpreter we unpacked still there?
+#
+# Reported from a real build: every phase ran, and then the verification step
+# stopped with
+#
+#   The term 'D:\...\vendor\.runtime-build\python\python.exe' is not
+#   recognized as the name of a cmdlet, function, script file, or operable
+#   program.
+#
+# which is PowerShell's way of saying "that file does not exist" and reads
+# like a typo in the script. It is not a typo: the file was there minutes
+# earlier, because pip installed ninety megabytes of libraries with it. Two
+# things remove it from under a running build, and neither announces itself:
+#
+#   * an antivirus scanner quarantining python.exe. A freshly extracted
+#     interpreter, in a hidden-looking folder, that has just written
+#     thousands of files, is a heuristic match; Defender takes the .exe and
+#     leaves the rest of the tree in place.
+#   * a second build in the same tree. The first thing this script does is
+#     delete .runtime-build and unpack it again, so two overlapping builds
+#     take each other's interpreter away mid-run. The lock below makes that
+#     impossible rather than merely unlikely.
+#
+# Checking costs nothing and turns an error that looks like a bug in the
+# build script into the one sentence that identifies the actual cause.
+function Assert-Interpreter {
+    param([string] $Phase)
+    if (Test-Path -LiteralPath $exe) { return }
+    throw ("The interpreter is gone: $exe`n" +
+           "  It was unpacked successfully, and by $Phase it was no longer on disk.`n" +
+           "  Nothing in this script deletes it. The two things that do:`n" +
+           "    * an antivirus scanner quarantined it. Check with:`n" +
+           "        Get-MpThreat | Select-Object ThreatName, Resources`n" +
+           "      and exclude the build tree (in an administrator PowerShell):`n" +
+           "        Add-MpPreference -ExclusionPath '$Root'`n" +
+           "    * a second build running in the same tree at the same time.`n" +
+           "  Then run: installer\tools\prepare-runtime.ps1 -Force")
+}
+
 # Native calls below write progress to stderr and are not errors.
-function Invoke-Python {
-    param([string] $What, [string[]] $Arguments)
+#
+# $LASTEXITCODE is reset first. It survives from whatever ran before, so a
+# call that never starts leaves the previous command's 0 in place and is read
+# as a success - which is how a missing interpreter could be reported three
+# phases after the phase that should have caught it.
+function Invoke-PythonRaw {
+    param([string] $Phase, [string[]] $Arguments)
+    Assert-Interpreter -Phase $Phase
+    $global:LASTEXITCODE = -1
     $previousEap = $ErrorActionPreference
     $ErrorActionPreference = "Continue"
     try {
         $text = & $exe @Arguments 2>&1 | Out-String
         $code = $LASTEXITCODE
+    } catch [System.Management.Automation.CommandNotFoundException] {
+        # PowerShell could not resolve python.exe: it has been removed since
+        # the check at the top of this function, or it is no longer readable.
+        Assert-Interpreter -Phase $Phase
+        throw ("$exe could not be run during $Phase, although the file is there.`n" +
+               "  " + $_.Exception.Message)
     } finally {
         $ErrorActionPreference = $previousEap
     }
-    if ($code -ne 0) {
-        $tail = ($text.Trim() -split "`r?`n" | Select-Object -Last 25) -join [Environment]::NewLine
-        throw ("$What failed with exit code $code.`n" + $tail)
+    return [pscustomobject]@{ Code = $code; Text = $text }
+}
+
+function Invoke-Python {
+    param([string] $What, [string[]] $Arguments)
+    $run = Invoke-PythonRaw -Phase $What -Arguments $Arguments
+    if ($run.Code -ne 0) {
+        $tail = ($run.Text.Trim() -split "`r?`n" | Select-Object -Last 25) -join [Environment]::NewLine
+        throw ("$What failed with exit code $($run.Code).`n" + $tail)
     }
-    return $text
+    return $run.Text
 }
 
 $version = (Invoke-Python -What "Checking the interpreter" -Arguments @("-V")).Trim()
@@ -240,15 +331,11 @@ $null = Invoke-Python -What "pip install -r engine\requirements.txt" -Arguments 
 $mt5 = @($wheels | Where-Object { $_.Name -like "MetaTrader5-*" })
 if ($mt5.Count -gt 0) {
     Say "MetaTrader5 ($($mt5[0].Name))"
-    $previousEap = $ErrorActionPreference
-    $ErrorActionPreference = "Continue"
-    try {
-        $out = & $exe -m pip install "MetaTrader5" --no-index --find-links $wheelDir `
-            --no-cache-dir --no-warn-script-location --disable-pip-version-check 2>&1 | Out-String
-        $code = $LASTEXITCODE
-    } finally {
-        $ErrorActionPreference = $previousEap
-    }
+    $run = Invoke-PythonRaw -Phase "installing MetaTrader5" -Arguments @(
+        "-m", "pip", "install", "MetaTrader5", "--no-index", "--find-links", $wheelDir,
+        "--no-cache-dir", "--no-warn-script-location", "--disable-pip-version-check")
+    $out = $run.Text
+    $code = $run.Code
     if ($code -ne 0) {
         # Not fatal: the engine imports it optionally and says so. But it is
         # the one library a trader is most likely to miss, so it is loud.
@@ -321,6 +408,7 @@ foreach ($required in @("vcruntime140.dll", "msvcp140.dll")) {
 # ---------------------------------------------------------------------------
 # 7. Trim what nothing imports.
 # ---------------------------------------------------------------------------
+Assert-Interpreter -Phase "the trimming step"
 $site = Join-Path $python "Lib\site-packages"
 $pyc = @(Get-ChildItem -LiteralPath $python -Recurse -File -Include "*.pyc", "*.pyo" -ErrorAction SilentlyContinue)
 foreach ($f in $pyc) { Remove-Item -LiteralPath $f.FullName -Force -ErrorAction SilentlyContinue }
@@ -351,14 +439,9 @@ if (-not $KeepTests) {
 # import below succeeds, it succeeded on what is in the zip and nothing else.
 Head "Verifying the runtime in isolation"
 $imports = "import sys, fastapi, uvicorn, numpy, pandas, scipy, sklearn, pydantic, websockets, httpx, openpyxl, tzdata; print('ok', sys.version.split()[0], numpy.__version__, pandas.__version__, sklearn.__version__)"
-$previousEap = $ErrorActionPreference
-$ErrorActionPreference = "Continue"
-try {
-    $report = & $exe -I -c $imports 2>&1 | Out-String
-    $code = $LASTEXITCODE
-} finally {
-    $ErrorActionPreference = $previousEap
-}
+$run = Invoke-PythonRaw -Phase "verifying the runtime" -Arguments @("-I", "-c", $imports)
+$report = $run.Text
+$code = $run.Code
 if ($code -ne 0) {
     throw ("The packaged Python cannot import the engine's libraries:`n" +
            (($report.Trim() -split "`r?`n" | Select-Object -Last 25) -join [Environment]::NewLine) + "`n" +
@@ -369,14 +452,10 @@ Say $report.Trim()
 # MetaTrader5 imports its own compiled module; a machine without the terminal
 # still imports it, so this only proves the wheel landed intact.
 try {
-    $previousEap = $ErrorActionPreference
-    $ErrorActionPreference = "Continue"
-    try {
-        $mt5Out = & $exe -I -c "import MetaTrader5; print('MetaTrader5 imports')" 2>&1 | Out-String
-        $mt5Code = $LASTEXITCODE
-    } finally {
-        $ErrorActionPreference = $previousEap
-    }
+    $mt5Run = Invoke-PythonRaw -Phase "importing MetaTrader5" `
+        -Arguments @("-I", "-c", "import MetaTrader5; print('MetaTrader5 imports')")
+    $mt5Out = $mt5Run.Text
+    $mt5Code = $mt5Run.Code
     if ($mt5Code -eq 0) { Say $mt5Out.Trim() }
     else { Write-Host "  MetaTrader5 does not import here; the desk will run without the terminal" -ForegroundColor Yellow }
 } catch { }
@@ -384,27 +463,15 @@ try {
 # pip's own dependency audit. Not fatal - a wheel that needs something newer
 # than the pin would already have failed the import above - but it is the one
 # place a half-satisfied requirement shows up by name.
-$previousEap = $ErrorActionPreference
-$ErrorActionPreference = "Continue"
-try {
-    $audit = (& $exe -I -m pip check 2>&1 | Out-String).Trim()
-} finally {
-    $ErrorActionPreference = $previousEap
-}
+$audit = (Invoke-PythonRaw -Phase "auditing the libraries" -Arguments @("-I", "-m", "pip", "check")).Text.Trim()
 if ($audit -and $audit -notmatch "No broken requirements found") {
     Write-Host "  pip check:" -ForegroundColor Yellow
     Write-Host $audit -ForegroundColor Yellow
 }
 
-$pipOut = $null
-$previousEap = $ErrorActionPreference
-$ErrorActionPreference = "Continue"
-try {
-    $pipOut = (& $exe -I -m pip --version 2>&1 | Out-String).Trim()
-    $pipCode = $LASTEXITCODE
-} finally {
-    $ErrorActionPreference = $previousEap
-}
+$pipRun = Invoke-PythonRaw -Phase "checking pip in the finished runtime" -Arguments @("-I", "-m", "pip", "--version")
+$pipOut = $pipRun.Text.Trim()
+$pipCode = $pipRun.Code
 if ($pipCode -ne 0) { throw "The packaged Python has no working pip, so it cannot be repaired offline: $pipOut" }
 Say $pipOut
 
@@ -419,6 +486,7 @@ Head "Packaging $OutputName"
 $part = $output + ".part"
 if (Test-Path -LiteralPath $part) { Remove-Item -LiteralPath $part -Force }
 
+Assert-Interpreter -Phase "packaging"
 $files = @(Get-ChildItem -LiteralPath $python -Recurse -File)
 $rawMb = (($files | Measure-Object Length -Sum).Sum / 1MB)
 Say ("{0} files, {1:N1} MB uncompressed" -f $files.Count, $rawMb)
@@ -433,6 +501,7 @@ $zipBytes = (Get-Item -LiteralPath $output).Length
 Say ("{0}, {1:N1} MB" -f $OutputName, ($zipBytes / 1MB))
 
 Remove-Item -LiteralPath $work -Recurse -Force -ErrorAction SilentlyContinue
+Remove-Item -LiteralPath $lockFile -Force -ErrorAction SilentlyContinue
 
 Write-Host ""
 Write-Host ("  runtime ready: {0} ({1:N1} MB, {2:N1} MB unpacked)" -f

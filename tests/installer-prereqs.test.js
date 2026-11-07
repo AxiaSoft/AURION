@@ -1029,9 +1029,10 @@ check("the runtime is filled from the wheels the build carries, never from PyPI"
   /fetch-vendor\.ps1/.test(prepareRuntime));
 
 check("and it is proven by importing, in isolation, before it is packaged",
-  /-I -c \$imports/.test(prepareRuntime) &&
+  /Arguments @\("-I", "-c", \$imports\)/.test(prepareRuntime) &&
   /import sys, fastapi, uvicorn, numpy, pandas, scipy, sklearn/.test(prepareRuntime) &&
-  prepareRuntime.indexOf("-I -c $imports") < prepareRuntime.indexOf("CreateFromDirectory"));
+  prepareRuntime.indexOf('@("-I", "-c", $imports)') < prepareRuntime.indexOf("CreateFromDirectory"),
+  "-I: no PYTHONPATH, no user site - what imports is what is in the zip");
 
 check("the zip unpacks straight into runtime\\python",
   /::Optimal, \$false\)/.test(prepareRuntime));
@@ -1182,6 +1183,69 @@ check("and the completeness check counts them",
 
 check("shipping without them is still possible, but only on purpose",
   /-SkipWheels/.test(fetchVendor) && /-SkipWheels/.test(buildMsi));
+
+/* =====================================================================
+ * "python.exe is not recognized as the name of a cmdlet"
+ *
+ * A real build log. Every phase of prepare-runtime.ps1 ran - the
+ * interpreter was unpacked, get-pip installed pip with it, pip installed
+ * ninety megabytes of libraries with it - and then the verification step
+ * stopped with PowerShell's way of saying "that file does not exist",
+ * naming the interpreter it had been using all along. Wrapped by
+ * build-msi as "missing: runtime-python.zip", which points at the
+ * output rather than the cause.
+ *
+ * Nothing in the script deletes the interpreter. Two things outside it
+ * do: an antivirus quarantine, and a second build in the same tree. The
+ * script now names both, and makes the second one impossible.
+ * =================================================================== */
+
+check("a vanished interpreter is diagnosed, not reported as a typo",
+  /function Assert-Interpreter \{/.test(prepareRuntime) &&
+  /The interpreter is gone: \$exe/.test(prepareRuntime) &&
+  /Get-MpThreat/.test(prepareRuntime) &&
+  /Add-MpPreference -ExclusionPath/.test(prepareRuntime),
+  "the message has to carry the next command, not just the bad news");
+
+check("every python run checks it first",
+  /function Invoke-PythonRaw \{/.test(prepareRuntime) &&
+  /Invoke-PythonRaw[\s\S]{0,200}Assert-Interpreter -Phase \$Phase/.test(prepareRuntime) &&
+  // exactly one raw invocation left: the one inside Invoke-PythonRaw
+  (prepareRuntime.match(/& \$exe /g) || []).length === 1,
+  "a second raw call site is a second place that can fail incomprehensibly");
+
+check("and the phase that failed is named",
+  /Assert-Interpreter -Phase "the trimming step"/.test(prepareRuntime) &&
+  /Assert-Interpreter -Phase "packaging"/.test(prepareRuntime) &&
+  /-Phase "verifying the runtime"/.test(prepareRuntime));
+
+check("CommandNotFound is translated instead of being allowed through",
+  /catch \[System\.Management\.Automation\.CommandNotFoundException\]/.test(prepareRuntime));
+
+// How a missing interpreter could be reported three phases late: the earlier
+// phases read a success that belonged to whatever ran before them.
+check("a stale exit code cannot be read as a success",
+  /\$global:LASTEXITCODE = -1/.test(prepareRuntime) &&
+  /\$code = \$LASTEXITCODE/.test(prepareRuntime));
+
+check("two builds cannot unpack the same tree at once",
+  /aurion-prepare-runtime-\$lockKey\.pid/.test(prepareRuntime) &&
+  /Another build is already building the runtime in this tree/.test(prepareRuntime) &&
+  /Get-Process -Id \$previousPid/.test(prepareRuntime),
+  "the first thing the unpack does is delete the folder the other one is using");
+
+check("the lock is keyed by a hash that survives leaving the process",
+  /MD5\]::Create\(\)\.ComputeHash/.test(prepareRuntime) &&
+  !/GetHashCode\(\)/.test(prepareRuntime),
+  "String.GetHashCode is randomised per process, so it would never match");
+
+check("the lock is not left inside the folder that becomes payload",
+  /GetTempPath\(\)\) \$lockName/.test(prepareRuntime) &&
+  /ExcludeDirs @\("\.runtime-build"\)/.test(stagePs1));
+
+check("a crashed build does not block the next one for ever",
+  /Remove-Item -LiteralPath \$lockFile -Force -ErrorAction SilentlyContinue/.test(prepareRuntime) &&
+  /previousPid -ne \$PID/.test(prepareRuntime));
 
 const bad = results.filter((r) => !r.ok);
 console.log(`\n${results.length - bad.length}/${results.length} checks passed`);
