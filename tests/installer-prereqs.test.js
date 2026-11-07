@@ -46,6 +46,7 @@ const ciBuild = read("installer/ci/build-msi.yml");
 const startCmd = read("start-aurion.cmd");
 const buildMsi = read("installer/tools/build-msi.ps1");
 const stagePs1 = read("installer/tools/stage.ps1");
+const verifyBundle = read("installer/tools/verify-bundle.ps1");
 const vendorPs1 = read("installer/tools/fetch-vendor.ps1");
 
 // ---------------------------------------------------------------- detection
@@ -1313,6 +1314,67 @@ check("the scratch folder can be moved out of the scanner's way",
 check("the advisory and the repair both work on Windows PowerShell 5.1",
   !/\?\?/.test(prepareRuntime.replace(/#.*$/gm, "")),
   "?? is PowerShell 7 only, and the build machine may be running 5.1");
+
+/* =====================================================================
+ * "It built without errors" is not "it installs on a bare PC"
+ *
+ * Asked directly, after a clean build on a machine that had twice had
+ * files removed out of the bundle mid-run: will this install on a
+ * machine with nothing on it? Nothing in the build answered that. The
+ * build proves the MSI was produced; it says nothing about whether the
+ * wheels inside it still open.
+ *
+ * verify-bundle.ps1 answers it with evidence, on the build machine,
+ * before anybody receives the file.
+ * =================================================================== */
+
+check("every wheel in the bundle is opened, not counted",
+  /ZipFile\]::OpenRead\(\$wheel\.FullName\)/.test(verifyBundle) &&
+  /\*\.dist-info\/METADATA/.test(verifyBundle) &&
+  /not a readable archive/.test(verifyBundle),
+  "a truncated wheel has a name and a size like any other; only opening it tells you");
+
+check("the Node zip is checked against the checksum nodejs.org published",
+  /SHASUMS256\.txt/.test(verifyBundle) &&
+  /Get-FileHash -LiteralPath \$nodeZip -Algorithm SHA256/.test(verifyBundle));
+
+check("the signed installers are checked by signature, not by size",
+  /Get-AuthenticodeSignature -LiteralPath \$path/.test(verifyBundle));
+
+check("every requirement must have a wheel to come from",
+  /engine\\requirements\.txt/.test(verifyBundle) &&
+  /no wheel for \$u/.test(verifyBundle) &&
+  /function Normalise/.test(verifyBundle),
+  "scikit_learn-1.5.2.whl satisfies scikit-learn, and the comparison has to know that");
+
+check("the customer's own install is simulated, offline",
+  /"--no-index", "--find-links", \$wheelDir,/.test(verifyBundle) &&
+  /"--target", \$target,/.test(verifyBundle) &&
+  /"--only-binary=:all:"/.test(verifyBundle),
+  "--no-index so that needing the network is a failure rather than a silent success");
+
+check("...and it cleans up after itself",
+  /Remove-Item -LiteralPath \$target -Recurse -Force -ErrorAction SilentlyContinue/.test(verifyBundle));
+
+check("the argv slice that broke provision.ps1 is not written again",
+  /if \(\$candidate\.Count -gt 1\) \{ \$pre = @\(\$candidate\[1\.\.\(\$candidate\.Count - 1\)\]\) \}/.test(verifyBundle) &&
+  !/\$args = /.test(verifyBundle),
+  "1..0 is a descending range, and $args is an automatic variable");
+
+check("the verdict is a verdict, with an exit code behind it",
+  /This bundle installs on a machine with nothing on it and no network\./.test(verifyBundle) &&
+  /Not ready to ship:/.test(verifyBundle) &&
+  /exit 1/.test(verifyBundle));
+
+check("...and it still says what it cannot prove",
+  /run the MSI once on a/.test(verifyBundle) &&
+  /clean machine with the network unplugged/.test(verifyBundle),
+  "a check that overstates itself is worse than no check");
+
+check("the build runs it, and does not pretend a failed check is a failed build",
+  /Step "Verifying the bundle installs with no network"/.test(buildMsi) &&
+  /verify-bundle\.ps1"\) -Root \$repoRoot -Msi \$msi\.FullName/.test(buildMsi) &&
+  /The MSI is built, but the checks above say it is not ready to ship\./.test(buildMsi));
 
 const bad = results.filter((r) => !r.ok);
 console.log(`\n${results.length - bad.length}/${results.length} checks passed`);
