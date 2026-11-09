@@ -47,6 +47,7 @@ const startCmd = read("start-aurion.cmd");
 const buildMsi = read("installer/tools/build-msi.ps1");
 const stagePs1 = read("installer/tools/stage.ps1");
 const verifyBundle = read("installer/tools/verify-bundle.ps1");
+const findDeleter = read("installer/tools/find-the-deleter.ps1");
 const vendorPs1 = read("installer/tools/fetch-vendor.ps1");
 
 // ---------------------------------------------------------------- detection
@@ -1495,6 +1496,59 @@ check("the repair leaves the zip the size it would have been",
   /\$pycAgain = @\(Get-ChildItem -LiteralPath \$python -Recurse -File -Include "\*\.pyc", "\*\.pyo"/.test(prepareRuntime) &&
   /\$cacheAgain = @\(Get-ChildItem -LiteralPath \$python -Recurse -Directory -Filter "__pycache__"/.test(prepareRuntime),
   "step 7 already ran and will not run again");
+
+/* =====================================================================
+ * "Some other antivirus" was wrong
+ *
+ *     Get-CimInstance -Namespace root\SecurityCenter2 -ClassName AntivirusProduct
+ *     displayName      pathToSignedProductExe
+ *     Windows Defender windowsdefender://
+ *
+ * Defender and nothing else. Three builds' worth of advice had been
+ * assuming a third-party scanner, and there isn't one. Guessing a fourth
+ * time is not going to produce a different build, so this asks Windows
+ * directly: an audit entry on the folder makes every deletion inside it
+ * a Security log record that names the process that did it.
+ * =================================================================== */
+
+check("something names the process, instead of a fourth guess",
+  /auditpol\.exe \/set \/subcategory:"File System" \/success:enable/.test(findDeleter) &&
+  /FileSystemAuditRule/.test(findDeleter) &&
+  /Id        = 4663, 4660/.test(findDeleter),
+  "4663 carries the process and the file; 4660 on its own carries neither");
+
+check("...and the machine is put back exactly as it was",
+  /RemoveAuditRule/.test(findDeleter) &&
+  /auditpol\.exe \/set \/subcategory:"File System" \/success:disable/.test(findDeleter) &&
+  /-Off/.test(findDeleter),
+  "an audit policy left switched on is a cost somebody pays forever");
+
+check("arming and disarming refuse to half-finish without elevation",
+  (findDeleter.match(/this needs an administrator PowerShell - nothing was changed/g) || []).length === 2);
+
+check("the two Defender features an ExclusionPath does not cover are checked",
+  /EnableControlledFolderAccess/.test(findDeleter) &&
+  /AttackSurfaceReductionRules_Ids/.test(findDeleter) &&
+  /ASR does not read ExclusionPath/.test(findDeleter),
+  "both act on files without ever producing a threat detection");
+
+check("the exclusion is checked against the folder, not assumed from the drive",
+  /\$Watch\.ToLowerInvariant\(\)\.StartsWith\(\$p\.ToLowerInvariant\(\)\.TrimEnd\('\\'\)\)/.test(findDeleter),
+  "an exclusion added in a non-elevated window is not added at all");
+
+check("the report does not accuse the build of its own deletions",
+  /it is this build's own work/.test(findDeleter) &&
+  /the trim step and pip both/.test(findDeleter),
+  "powershell.exe and python.exe delete thousands of files here legitimately");
+
+check("an empty report says so rather than clearing anybody",
+  /nothing was recorded for \$Watch in the last \$Hours hours/.test(findDeleter) &&
+  /Either -Arm was not run before the build/.test(findDeleter));
+
+check("the watcher follows AURION_RUNTIME_WORK like the build does",
+  /\$env:AURION_RUNTIME_WORK\.Trim\(\) "aurion-runtime-build"/.test(findDeleter) &&
+  /vendor\\\.runtime-build/.test(findDeleter),
+  "watching the folder the build is not using proves nothing");
 
 const bad = results.filter((r) => !r.ok);
 console.log(`\n${results.length - bad.length}/${results.length} checks passed`);
