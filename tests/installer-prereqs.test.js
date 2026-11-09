@@ -1617,6 +1617,51 @@ check("...and does not then demand the file it was told not to build",
 // staging step and threw on the very file it had just been told not to
 // build. A switch that makes a file optional has to say so everywhere
 // that file is demanded, or it makes it optional nowhere.
+/* =====================================================================
+ * A comment that deleted an argument
+ *
+ * The staging fix shipped looking exactly right and changed nothing:
+ *
+ *     & ... stage.ps1 -Root $repoRoot -SkipNpm:$SkipNpm `
+ *         # -SkipRuntime belongs here too...
+ *         -AllowIncompleteVendor:($SkipWheels -or $SkipRuntime -or $NoBundle)
+ *
+ * The backtick joins the two lines, the # comments out everything after
+ * it, and -AllowIncompleteVendor is never passed. The build threw at
+ * stage.ps1:255 again, on a run whose commit contained the fix.
+ *
+ * Nothing about reading that code suggests a problem, which is exactly
+ * why it needs a machine to check it.
+ * =================================================================== */
+
+{
+  const psFiles = {
+    "build-msi.ps1": buildMsi,
+    "stage.ps1": stagePs1,
+    "fetch-vendor.ps1": fetchVendor,
+    "prepare-runtime.ps1": prepareRuntime,
+    "verify-bundle.ps1": verifyBundle,
+    "find-the-deleter.ps1": findDeleter,
+    "provision.ps1": provisionPs1,
+  };
+  const swallowed = [];
+  for (const [name, text] of Object.entries(psFiles)) {
+    const lines = text.split(/\r?\n/);
+    for (let i = 0; i < lines.length - 1; i += 1) {
+      // A comment line that happens to end in a backtick is prose, not a
+      // continuation - these files quote `py` and `import numpy` that way,
+      // and both read as false positives without this.
+      if (/^\s*#/.test(lines[i])) continue;
+      // a line continued with a backtick, whose continuation is a comment
+      if (!/[^`]`\s*$/.test(lines[i]) && !/^`\s*$/.test(lines[i])) continue;
+      if (/^\s*#/.test(lines[i + 1])) swallowed.push(`${name}:${i + 1}`);
+    }
+  }
+  check("no comment sits between a backtick and the line it continues",
+    swallowed.length === 0,
+    swallowed.length ? swallowed.join(", ") : "the argument after it is silently dropped");
+}
+
 check("every gate that demands the prepared runtime honours -SkipRuntime",
   // 1. the fetch
   /fetch-vendor\.ps1"\) -SkipWheels:\$SkipWheels -SkipRuntime:\$SkipRuntime/.test(buildMsi) &&

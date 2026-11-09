@@ -499,12 +499,19 @@ Step "Staging payload"
 # stage.ps1 throws on failure; $ErrorActionPreference = "Stop" turns that into
 # a terminating error here, so there is nothing extra to check. ($LASTEXITCODE
 # is deliberately not read: it may not exist yet, which StrictMode rejects.)
+#
+# -SkipRuntime belongs in the list below too. It was added to the fetch and
+# to the completeness guard and not to this one, so a -SkipRuntime build got
+# all the way to staging and then threw on the very file it had just been
+# told not to build. Every switch that makes runtime-python.zip optional has
+# to say so in all three places or it makes none of them.
+#
+# This comment lives above the call and not inside it. Put between a line
+# ending in a backtick and the line it continues, a comment ends the command:
+# the backtick joins the two lines, the # comments out what follows, and the
+# argument on the next line is silently never passed. That is how the fix for
+# the staging guard shipped looking correct and changed nothing at all.
 & (Join-Path $PSScriptRoot "stage.ps1") -Root $repoRoot -SkipNpm:$SkipNpm `
-    # -SkipRuntime belongs here too. It was added to the fetch and to the
-    # completeness guard and not to this one, so a -SkipRuntime build got
-    # all the way to staging and then threw on the very file it had just
-    # been told not to build. Every switch that makes runtime-python.zip
-    # optional has to say so in all three places or it makes none of them.
     -AllowIncompleteVendor:($SkipWheels -or $SkipRuntime -or $NoBundle)
 
 # ---------------------------------------------------------------------------
