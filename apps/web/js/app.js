@@ -4350,8 +4350,6 @@ function patchStrategyLive() {
     /* The per-symbol strip has to be patched too. The second stats row
        was once left out of this loop and sat at whatever it was when
        the tab was built; this is the same trap. */
-    const syms = document.querySelector('[data-st-syms="' + it.name + '"]');
-    if (syms) syms.innerHTML = stSymbolRows(it);
     // The second stats row was never patched at all, so the record, the
     // profit factor and the average sat at whatever they were when the tab
     // was last built.
@@ -4572,7 +4570,7 @@ function chartTicketHtml() {
           <button type="button" class="ct-pm" data-vol="-1" aria-label="-">${icon("minus")}</button>
           <input id="ct-vol" type="number" step="0.01" min="0.01" inputmode="decimal"
                  aria-label="${esc(I18N.t("exec.volume"))}"
-                 value="${esc(String(t.vol || ticketLot()))}" />
+                 value="${esc(String(ticketLot()))}" />
           <button type="button" class="ct-pm" data-vol="1" aria-label="+">${icon("plus")}</button>
         </div>
       </div>
@@ -4675,10 +4673,32 @@ function deskLot() {
   return v > 0 ? v : 0.10;
 }
 
-/** Lot the ticket should show: what the user last typed, else the setting. */
+/**
+ * Lot the ticket should show.
+ *
+ * What the user last typed into the ticket, unless the setting has been
+ * changed since - in which case the setting wins.
+ *
+ * Reported: changing the lot in Settings from 1 to 2 left the market
+ * ticket and the EA chart still offering 1. S.ticket.vol is remembered
+ * for the length of the session and had no expiry, so the first number
+ * ever typed into a ticket outranked every later change to the setting,
+ * permanently and silently. A trader who sets 2 in Settings and sends
+ * what the ticket shows sends 1, and nothing on screen said so.
+ *
+ * The remembered value is kept - retyping a one-off size on a single
+ * ticket must not be lost on the next repaint - but it is tagged with
+ * the setting that was in force when it was typed. When the setting
+ * moves, the tag no longer matches and the new setting takes over.
+ */
 function ticketLot() {
-  const typed = Number((S.ticket || {}).vol);
-  return typed > 0 ? typed : deskLot();
+  const t = S.ticket || {};
+  const setting = deskLot();
+  const typed = Number(t.vol);
+  if (!(typed > 0)) return setting;
+  // Typed before the setting changed: the setting is the newer intent.
+  if (Number(t.volFrom) !== setting) return setting;
+  return typed;
 }
 
 /**
@@ -4744,6 +4764,9 @@ function rememberTicket() {
   S.ticket = {
     strategy: "@" + operatorName(),
     vol: String($("ct-vol")?.value || deskLot()),
+    // Which setting this lot was typed against, so a later change to the
+    // setting can be told apart from the value the trader chose here.
+    volFrom: deskLot(),
     sl: String($("ct-sl")?.value || ""),
     tp: String($("ct-tp")?.value || ""),
     type: String($("ct-type")?.value || "market"),
@@ -5178,20 +5201,16 @@ function stState(it) {
  * Empty until the engine has seen more than one symbol - a single-chart
  * desk does not need a label saying which chart it is.
  */
-function stSymbolRows(it) {
-  const rows = Array.isArray(it.symbols) ? it.symbols : [];
-  if (rows.length < 2) return "";
-  return rows.map((r) => {
-    const st = stState({
-      last_action: r.action, last_reason: r.reason, last_ts: r.ts,
-      live_action: r.live_action, live_reason: r.live_reason, live_ts: r.live_ts,
-    });
-    const act = st.act || "idle";
-    return `<span class="st-sym ${stActClass(act)}${st.live ? " is-live" : ""}"
-      title="${esc(r.symbol + " — " + (st.why || act))}">
-      <b>${esc(r.symbol)}</b><i>${esc(act)}</i></span>`;
-  }).join("");
-}
+/* The per-symbol chips are gone - no stSymbolRows, no .st-syms row.
+   They put a tag like "GBPUSD hold" under every strategy card, one per
+   symbol the strategy watched. They were added for a reason that still
+   holds: the headline above them is whatever symbol spoke last, so on a
+   basket it names no instrument. They were removed by request anyway -
+   a card carrying six chips that mostly say "hold" is six lines of noise
+   around the one line that matters, and the strategy page is read to see
+   what a strategy is doing, not to audit every symbol at once.
+   The per-symbol detail is still in the snapshot and still on the
+   positions and market views; nothing was taken off the wire. */
 
 function stActClass(act) {
   return act === "buy" ? "up" : act === "sell" ? "down" : act === "blocked" ? "warn" : "";
@@ -5242,15 +5261,6 @@ function strategyLiveCards() {
     const act = state.act || "idle";
     const cls = stActClass(act);
     const custom = (it.kind || "builtin") !== "builtin";
-    /* What this strategy is saying about each symbol it watches.
-
-       The headline above is the most recent answer whatever symbol
-       produced it. On a desk running one chart that is the whole
-       truth; on a basket it names no instrument at all, so a trader
-       reading "buy" could not tell whether it meant EURUSD or gold -
-       and the next symbol's bar erased it seconds later anyway. */
-    const perSym = stSymbolRows(it);
-
     return `<div class="card st-card${it.enabled ? "" : " is-off"}" data-st-card="${esc(it.name)}">
       <div class="st-top">
         <div>
@@ -5279,7 +5289,6 @@ function strategyLiveCards() {
         <div><span>${I18N.t("strategies.avg")}</span>
           <b class="mono ${clsPnl(it.avg)}" data-st-avg="${esc(it.name)}">${fmt(it.avg || 0)}</b></div>
       </div>
-      <div class="st-syms" data-st-syms="${esc(it.name)}">${perSym}</div>
       <p class="sub" data-st-eval="${esc(it.name)}" title="${esc(refusalTally(it))}">${esc(state.why) || I18N.t("strategies.waiting")}</p>
       ${custom ? `<div class="row st-mng">
         <button type="button" class="btn tiny ghost" data-st-edit="${esc(it.name)}">${I18N.t("strategies.edit")}</button>
@@ -5808,7 +5817,6 @@ function robotPanelHtml() {
         <p class="sub">${I18N.t("slots.help")}</p>
         ${slotsHtml(st)}
         <hr class="set-rule" />
-        ${switchRow({ id: "st-smart", title: I18N.t("slots.smart"), sub: I18N.t("slots.smart_help"), on: st.smart_filters !== false })}
         <ul class="set-list">
           <li>${I18N.t("slots.filter_htf")}</li>
           <li>${I18N.t("slots.filter_spread")}</li>
@@ -8971,19 +8979,16 @@ async function bindUpdatePanel(){
             + '<p class="sub upd-unpub-detail">'+esc(I18N.t('upd.behind_branch', {
                 n: fmtNum(n, 0), size: fmtBytes(st.data.latest.download_bytes),
               }))+'</p>'
-            + '<button class="btn ghost" type="button" id="upd-dev-btn">'+esc(I18N.t('upd.install_branch'))+'</button>';
-          const devBtn = document.getElementById('upd-dev-btn');
-          if (devBtn) devBtn.onclick = async () => {
-            const go = await askConfirm({
-              title: I18N.t('upd.install_branch'),
-              body: I18N.t('upd.install_branch_confirm'),
-              ok: I18N.t('upd.install_branch'),
-              cancel: I18N.t('common.cancel'),
-              danger: true,
-            });
-            if (!go) return;
-            await runUpdateInstall(st.data.latest);
-          };
+            ;
+          /* No button here on purpose.
+             There used to be one offering to install the development
+             branch - whatever had been committed to main since the last
+             release, published or not. It was removed by request: an
+             update screen is for updates the owner has decided to ship,
+             and a one-click path to unreleased code on a trading desk is
+             a way to put a half-finished strategy in front of real money.
+             The two lines above still say what is on the branch, because
+             knowing is not the same as installing. */
         } else {
           statusEl.innerHTML = '';
         }
@@ -10554,7 +10559,13 @@ function bindRobotPanel() {
     const r = await API.post("/api/auto", {
       min_open_trades: lo,
       max_open_trades: hi,
-      smart_filters: $("st-smart")?.classList.contains("on"),
+      /* smart_filters is deliberately not sent any more.
+         The switch that set it was removed from the settings by request.
+         The engine keeps whatever value it already had - leaving the
+         control out of the payload means this panel stops overwriting it
+         with the state of a switch that no longer exists, which is what
+         an absent element's ?.classList would have done: undefined, every
+         save, silently turning the filters off for everybody. */
       min_signal_quality: +($("st-quality")?.value || 0.55),
     });
     if (!quiet) toast(r.ok ? I18N.t("common.save") : (r.error || I18N.t("errors.generic")));
@@ -10577,12 +10588,6 @@ function bindRobotPanel() {
     el.addEventListener("change", () => saveSlots(true));
     el.addEventListener("keydown", (e) => { if (e.key === "Enter") saveSlots(true); });
   });
-  const smart = $("st-smart");
-  if (smart) smart.onclick = () => {
-    smart.classList.toggle("on");
-    smart.setAttribute("aria-pressed", smart.classList.contains("on") ? "true" : "false");
-    saveSlots(true);
-  };
   const quality = $("st-quality");
   if (quality) {
     const qpct = $("st-quality-pct");

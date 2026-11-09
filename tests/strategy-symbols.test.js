@@ -1,161 +1,84 @@
 /**
- * The strategy card has to say which market it is talking about.
+ * The per-symbol chips were removed from the strategy card.
  *
- * The engine keeps one verdict per strategy per symbol now, but that is
- * only worth keeping if the card shows it. Reported as "the robot only
- * trades one symbol": it was evaluating every attached symbol all along,
- * and the card was showing whichever one closed a candle most recently
- * with no label on it — so a buy on EURUSD read as a buy on whatever the
- * trader happened to be looking at.
+ * ---------------------------------------------------------------------
+ * What this file used to be, and why that matters
  *
- * The chips are lifted out of app.js and run for real rather than
- * grepped for, because the interesting part is the behaviour: that the
- * strip stays empty on a one-chart desk, that it reuses the headline's
- * own live-vs-decision rule instead of inventing a second one, and that
- * it does not rely on colour alone to say what a strategy decided.
+ * This suite was written to guard a strip of chips under every strategy
+ * card - one per symbol the strategy watched, each saying buy / sell /
+ * hold. It existed for a real reason, reported as "the robot only trades
+ * one symbol": the engine keeps one verdict per strategy per symbol, but
+ * the card showed whichever symbol had closed a candle most recently,
+ * with no label on it. A buy on EURUSD read as a buy on whatever chart
+ * the trader was looking at.
+ *
+ * The chips fixed that and introduced a different problem. On a desk
+ * watching six symbols, every card grew six tags that mostly said
+ * "GBPUSD hold" - six lines of noise around the one line being read.
+ * Removal was asked for by name.
+ *
+ * So this file is not deleted. A guard that pinned a deliberate decision
+ * is worth more as a record of the reversal than as an empty file: it
+ * says what was there, why it went, and - most importantly - what must
+ * still be true now that it is gone. The per-symbol data is still in the
+ * snapshot and still shown on the positions and market views; nothing
+ * was taken off the wire, and the ambiguity the chips were built for is
+ * answered there instead.
  *
  *     node tests/strategy-symbols.test.js
+ * ---------------------------------------------------------------------
  */
 const fs = require("node:fs");
-const vm = require("node:vm");
 
 const app = fs.readFileSync("apps/web/js/app.js", "utf8");
 const css = fs.readFileSync("apps/web/css/app.css", "utf8");
 let fails = 0;
 const ok = (c, m, d) => {
   if (!c) { fails++; console.log("FAIL " + m + (d ? "  — " + d : "")); }
-  else console.log("ok   " + m + (d ? "  — " + d : ""));
+  else console.log("ok   " + m + (d ? "  — " + d : "")); 
 };
 
-/* ---------- lift the three functions and run them ---------- */
-function lift(name) {
-  const head = `function ${name}(`;
-  const at = app.indexOf(head);
-  if (at < 0) throw new Error("not found: " + name);
-  let depth = 0, i = app.indexOf("{", at);
-  const start = i;
-  for (; i < app.length; i++) {
-    if (app[i] === "{") depth++;
-    else if (app[i] === "}") { depth--; if (!depth) break; }
-  }
-  return app.slice(at, i + 1);
-}
+/* ---------- gone, and gone completely ---------- */
 
-const sandbox = {
-  console,
-  esc: (s) => String(s == null ? "" : s).replace(/[&<>"']/g,
-    (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])),
-  Date,
-};
-vm.createContext(sandbox);
-for (const fn of ["stState", "stActClass", "stSymbolRows"]) {
-  vm.runInContext(lift(fn), sandbox);
-}
-const rows = (it) => sandbox.stSymbolRows(it);
+ok(!/function stSymbolRows\b/.test(app),
+  "stSymbolRows is gone",
+  "the builder, not just its call site");
 
-const now = new Date().toISOString();
-const old = new Date(Date.now() - 600000).toISOString();
+ok(!/data-st-syms/.test(app),
+  "no card carries a per-symbol strip any more");
 
-/* ---------- the strip only appears when it means something ---------- */
-ok(rows({}) === "", "no symbols at all renders nothing");
-ok(rows({ symbols: [] }) === "", "an empty list renders nothing");
-ok(rows({ symbols: [{ symbol: "EURUSD", action: "buy", ts: now }] }) === "",
-  "a one-chart desk gets no strip — it does not need a label saying which chart");
+ok(!/class="st-sym[ "]/.test(app),
+  "no per-symbol chip is rendered");
 
-/* ---------- two symbols, both named, neither erased ---------- */
-const two = rows({
-  symbols: [
-    { symbol: "EURUSD", action: "buy", reason: "trend up", ts: now },
-    { symbol: "GBPUSD", action: "hold", reason: "no setup on this bar", ts: now },
-  ],
-});
-ok(/EURUSD/.test(two) && /GBPUSD/.test(two), "both symbols appear");
-ok(/>buy</.test(two), "EURUSD's buy survives the other symbol's bar");
-ok(/>hold</.test(two), "GBPUSD's hold is shown as its own verdict");
-ok((two.match(/class="st-sym/g) || []).length === 2, "one chip per symbol");
+/* A half-removal is the failure mode worth guarding. The live patch path
+   updated the strip by querying data-st-syms on every snapshot; left
+   behind, it would be a selector that matches nothing, called a few
+   times a second, quietly forever. */
+ok(!/stSymbolRows\(/.test(app),
+  "nothing still calls it",
+  "including the live-patch path that refreshed the strip per snapshot");
 
-/* ---------- the verdict is in words, not only in colour ---------- */
-ok(/<i>buy<\/i>/.test(two.replace(/\s+/g, "")) || />buy</.test(two),
-  "the verdict is spelled out, so colour is never the only indicator");
+/* ---------- what must still be true ---------- */
 
-/** The verdict shown on ONE named chip.
- *
- * The first version of these checks asked whether the word "hold"
- * appeared anywhere in the strip — which it did, on the other symbol's
- * chip, so a mutation that threw the live-vs-decision rule away passed
- * cleanly. A per-symbol assertion has to be made per symbol.
- */
-function verdictOf(html, symbol) {
-  for (const chip of html.split("<span").slice(1)) {
-    if (!chip.includes(">" + symbol + "<")) continue;
-    const m = chip.match(/<i>([^<]*)<\/i>/);
-    return m ? m[1] : "";
-  }
-  return null;
-}
+ok(/data-st-act="\$\{esc\(it\.name\)\}"/.test(app),
+  "the card still shows the strategy's own verdict");
 
-ok(verdictOf(two, "EURUSD") === "buy", "the EURUSD chip reads buy",
-  String(verdictOf(two, "EURUSD")));
-ok(verdictOf(two, "GBPUSD") === "hold", "the GBPUSD chip reads hold",
-  String(verdictOf(two, "GBPUSD")));
+ok(/data-st-eval="\$\{esc\(it\.name\)\}"/.test(app),
+  "...and still says why, in words");
 
-/* ---------- it reuses the headline's rule, it does not invent one ---------- */
-const stale = rows({
-  symbols: [
-    { symbol: "EURUSD", action: "buy", reason: "trend up", ts: old,
-      live_action: "hold", live_reason: "watched", live_ts: now },
-    { symbol: "GBPUSD", action: "hold", ts: now },
-  ],
-});
-ok(verdictOf(stale, "EURUSD") === "hold",
-  "a decision older than a minute yields to the live watch, exactly as the headline does",
-  String(verdictOf(stale, "EURUSD")));
-const fresh = rows({
-  symbols: [
-    { symbol: "EURUSD", action: "buy", reason: "trend up", ts: now,
-      live_action: "hold", live_reason: "watched", live_ts: now },
-    { symbol: "GBPUSD", action: "hold", ts: now },
-  ],
-});
-ok(verdictOf(fresh, "EURUSD") === "buy",
-  "a fresh decision outranks the watch pass, exactly as the headline does",
-  String(verdictOf(fresh, "EURUSD")));
-ok(/stState\(/.test(lift("stSymbolRows")),
-  "the chips call stState rather than restating the rule — two copies is how they disagree");
+/* The reason the chips existed. The engine still sends per-symbol
+   verdicts and the desk still has somewhere to read them, so removing
+   the chips removed a display, not an answer. */
+ok(/\bsymbols\b/.test(app),
+  "the per-symbol data is still consumed somewhere in the desk",
+  "the chips were a view of it, not the source of it");
 
-/* ---------- the chips carry their state for the eye too ---------- */
-ok(/is-live/.test(fresh) === false || /is-live/.test(stale),
-  "a live chip is marked live");
-ok(/title="/.test(two), "each chip explains itself on hover");
+/* The stale CSS is worth catching too: a rule for an element nothing
+   emits is dead weight that the next person has to prove is dead. */
+ok(!/\.st-syms\b/.test(css) && !/\.st-sym\b/.test(css),
+  "the chip styles went with the chips",
+  "a rule for an element nothing emits is read as evidence the element exists");
 
-/* ---------- markup is sound ---------- */
-const opens = (two.match(/<span/g) || []).length;
-const closes = (two.match(/<\/span>/g) || []).length;
-ok(opens === closes, "the chip markup is balanced", `${opens} open vs ${closes} close`);
-
-/* ---------- it is wired into the card and kept patched ---------- */
-ok(/data-st-syms="\$\{esc\(it\.name\)\}"/.test(app),
-  "the card has a container for the strip");
-const patch = app.slice(app.indexOf("function patchStrategyLive"),
-  app.indexOf("function patchStrategyLive") + 3000);
-ok(/data-st-syms/.test(patch),
-  "the strip is live-patched, not frozen at whatever the tab was built with");
-
-/* ---------- the style exists and does not shout ---------- */
-const flat = css.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\s+/g, " ")
-  .replace(/\s*([{};:,])\s*/g, "$1");
-const ruleOf = (sel) => {
-  const m = flat.match(new RegExp(sel.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\{([^}]*)\\}"));
-  return m ? m[1] : "";
-};
-ok(ruleOf(".st-syms") !== "", ".st-syms is styled");
-ok(/flex-wrap:wrap/.test(ruleOf(".st-syms")),
-  "the chips wrap — a basket of symbols must not force the card sideways on a phone");
-ok(/display:none/.test(ruleOf(".st-syms:empty")),
-  "an empty strip takes no vertical space");
-ok(/white-space:nowrap/.test(ruleOf(".st-sym")), "a chip never breaks mid-symbol");
-ok(ruleOf(".st-sym.up i") !== "" && ruleOf(".st-sym.down i") !== "",
-  "buy and sell are tinted");
-
-console.log(fails ? `\nstrategy symbols: ${fails} FAILED` : "\nstrategy symbols: all checks passed");
-process.exit(fails ? 1 : 0);
+console.log("");
+console.log(fails ? `strategy-symbols: ${fails} FAILED` : "strategy-symbols: all checks passed");
+process.exitCode = fails ? 1 : 0;

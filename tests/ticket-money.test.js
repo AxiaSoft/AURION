@@ -394,6 +394,84 @@ check("the axis still reports the value it landed on", () => {
 
 /* ----------------------------------------------------------- report ---- */
 
+/* ------------------------------------------------------------------ *
+ * The lot in Settings is the lot the ticket offers
+ *
+ * Reported: changing the lot in Settings from 1 to 2 left the market
+ * ticket and the EA chart still showing 1.
+ *
+ * ticketLot() preferred S.ticket.vol - what had last been typed into a
+ * ticket - over the setting, and S.ticket.vol never expired. So the
+ * first number ever typed outranked every later change to the setting,
+ * for the whole session, silently. A trader who sets 2 and sends what
+ * the ticket shows sends 1.
+ *
+ * The remembered value still wins while the setting stands still: a
+ * one-off size typed for a single trade must survive a repaint. It is
+ * tagged with the setting it was typed against, and when the setting
+ * moves the tag stops matching.
+ * ------------------------------------------------------------------ */
+
+check("a lot typed on the ticket survives a repaint", () => {
+  const ctx = { S: { ticket: { vol: "0.50", volFrom: 0.10 }, snap: { strategy: { manual_volume: 0.10 } } } };
+  const fn = liftFn(APP, "ticketLot");
+  const dl = liftFn(APP, "deskLot");
+  const run = new vm.Script(dl + "\n" + fn + "\n;ticketLot();");
+  const got = run.runInNewContext(ctx);
+  if (got !== 0.5) throw new Error("expected the typed 0.5, got " + got);
+});
+
+check("...and loses to the setting once the setting changes", () => {
+  // typed 0.50 while the setting was 0.10; the setting is 2 now
+  const ctx = { S: { ticket: { vol: "0.50", volFrom: 0.10 }, snap: { strategy: { manual_volume: 2 } } } };
+  const fn = liftFn(APP, "ticketLot");
+  const dl = liftFn(APP, "deskLot");
+  const got = new vm.Script(dl + "\n" + fn + "\n;ticketLot();").runInNewContext(ctx);
+  if (got !== 2) throw new Error("the ticket kept offering " + got + " after the setting moved to 2");
+});
+
+check("an untouched ticket just follows the setting", () => {
+  const ctx = { S: { ticket: {}, snap: { strategy: { manual_volume: 2 } } } };
+  const fn = liftFn(APP, "ticketLot");
+  const dl = liftFn(APP, "deskLot");
+  const got = new vm.Script(dl + "\n" + fn + "\n;ticketLot();").runInNewContext(ctx);
+  if (got !== 2) throw new Error("expected 2, got " + got);
+});
+
+check("the ticket input asks ticketLot rather than reading the memory raw", () => {
+  // value="${esc(String(t.vol || ticketLot()))}" put the stale remembered
+  // value first and never reached the function that resolves the conflict.
+  if (/t\.vol \|\| ticketLot\(\)/.test(APP)) {
+    throw new Error("the input short-circuits past ticketLot()");
+  }
+  if (!/value="\$\{esc\(String\(ticketLot\(\)\)\)\}"/.test(APP)) {
+    throw new Error("the lot input no longer renders from ticketLot()");
+  }
+});
+
+check("the remembered lot records which setting it was typed against", () => {
+  if (!/volFrom: deskLot\(\),/.test(APP)) throw new Error("rememberTicket drops the tag");
+});
+
+/* ------------------------------------------------------------------ *
+ * Smart filters are no longer a control on this screen
+ *
+ * Removed from the bot's settings by request. The dangerous half of a
+ * removal like this is the save path: $("st-smart")?.classList with no
+ * such element is undefined, and sending that on every save would have
+ * turned the filters off for everybody without anybody asking.
+ * ------------------------------------------------------------------ */
+
+check("the smart-filters switch is gone from the settings", () => {
+  if (/st-smart/.test(APP)) throw new Error("the control, its handler, or its id is still there");
+});
+
+check("...and the save no longer sends a value for it", () => {
+  if (/smart_filters:/.test(APP)) {
+    throw new Error("the payload still carries smart_filters, now sourced from an element that does not exist");
+  }
+});
+
 if (fails.length) {
   console.log("\nticket-money: " + fails.length + " check(s) failed");
   fails.forEach((f) => console.log("  x " + f));

@@ -685,34 +685,12 @@ html[dir="rtl"] .set-h{letter-spacing:0;text-transform:none}
 .st-live .pill.on{color:var(--on-accent);background:var(--cyan);border-color:transparent}
 .st-stats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-top:10px;padding-top:8px;border-top:1px solid var(--line)}
 
-/* One chip per symbol the strategy is watching. Only rendered once
-   there is more than one - a single-chart desk does not need a label
-   saying which chart it is looking at. */
-.st-syms{display:flex;flex-wrap:wrap;gap:5px;margin-top:9px}
-.st-syms:empty{display:none}
-.st-sym{
-  display:inline-flex;align-items:baseline;gap:5px;
-  padding:3px 8px;border-radius:999px;
-  border:1px solid var(--line);
-  background:rgb(var(--wash) / .05);
-  font-size:11px;line-height:1.5;white-space:nowrap;
-}
-.st-sym b{font-weight:650;font-variant-numeric:tabular-nums}
-/* The verdict, in words. Colour says the same thing a second time and
-   is never the only thing saying it. */
-.st-sym i{font-style:normal;font-size:10px;letter-spacing:.03em;text-transform:uppercase;color:var(--muted)}
-.st-sym.up{border-color:rgb(var(--good) / .45)}
-.st-sym.up i{color:var(--good)}
-.st-sym.down{border-color:rgb(var(--bad) / .45)}
-.st-sym.down i{color:var(--bad)}
-.st-sym.warn{border-color:rgb(var(--warn) / .45)}
-.st-sym.warn i{color:var(--warn)}
-/* A dot, not a colour change: the chip is already carrying a colour
-   for the verdict and two meanings on one channel is one too many. */
-.st-sym.is-live::before{
-  content:"";width:5px;height:5px;border-radius:50%;
-  background:rgb(var(--accent));align-self:center;
-}
+/* The per-symbol chips under each strategy card are gone - removed by
+   request, because a desk watching six symbols grew six tags per card
+   that mostly said "GBPUSD hold". Their styles went with them rather
+   than being left behind: a rule for an element nothing emits reads to
+   the next person as evidence that the element still exists.
+   tests/strategy-symbols.test.js records what they were for. */
 .st-stats span{display:block;font-size:11px;color:var(--muted);margin-bottom:3px}
 .st-stats b{display:block;font-size:13px;font-weight:500}
 .seg{display:flex;gap:6px;flex-wrap:wrap}

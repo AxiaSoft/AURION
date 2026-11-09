@@ -425,7 +425,7 @@ check("every upd.* and sup.* key the code reads is in the packs", () => {
 });
 
 check("the browser is made to fetch the files that changed", () => {
-  for (const want of ["js/app.js?v=desk223", "css/app.css?v=desk223", "js/demo.js?v=desk222"]) {
+  for (const want of ["js/app.js?v=desk226", "css/app.css?v=desk226", "js/demo.js?v=desk222"]) {
     must(HTML.includes(want), "index.html still points at the old " + want);
   }
   const token = /js\/i18n\.js\?v=(lang[0-9a-f]+)/.exec(HTML);
@@ -457,6 +457,32 @@ check("the demo state invents no version", () => {
   const body = DEMO.slice(i, i + 400);
   must(!/current_version/.test(body), "the demo makes up a build number for a real-looking screen");
   return "falls back to the desk's own";
+});
+
+/* ------------------------------------------------------------------ *
+ * The development build is not something you can install from here
+ *
+ * The screen used to offer a button - "install this branch" - whenever
+ * main was ahead of the last release. It was removed by request. An
+ * update screen is for updates the owner decided to ship, and a
+ * one-click path to unreleased code on a trading desk is a way to put a
+ * half-finished strategy in front of real money.
+ *
+ * What stays is the sentence: this build is behind the branch, by this
+ * many files. Knowing is not the same as installing.
+ * ------------------------------------------------------------------ */
+
+check("the update screen cannot install an unreleased build", () => {
+  must(!/upd-dev-btn/.test(APP), "the button is back");
+  must(!/install_branch_confirm/.test(APP), "its confirmation dialog is still wired up");
+  return "no button, no handler";
+});
+
+check("...but still says what is on the branch", () => {
+  const i = APP.indexOf("upd.behind_branch");
+  must(i > 0, "the desk stopped saying it is behind the branch at all");
+  must(/upd-unpub-detail/.test(APP), "the detail line went with the button");
+  return "the file count and size are still shown";
 });
 
 /* ------------------------------------------------------------------ */
