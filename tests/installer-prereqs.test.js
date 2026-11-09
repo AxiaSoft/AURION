@@ -1568,6 +1568,55 @@ check("the watcher follows AURION_RUNTIME_WORK like the build does",
   /vendor\\\.runtime-build/.test(findDeleter),
   "watching the folder the build is not using proves nothing");
 
+/* =====================================================================
+ * An -Arm that silently did nothing
+ *
+ *     Method invocation failed because [System.Object[]] does not
+ *     contain a method named 'op_BitwiseOr'.
+ *
+ * Written inline in a constructor's argument list, PowerShell binds the
+ * commas tighter than -bor: "Everyone", Delete -bor DeleteSubdirectories
+ * parses as ("Everyone", Delete) -bor DeleteSubdirectories, and an array
+ * has no op_BitwiseOr. The audit was never switched on. The build then
+ * failed exactly as before, and -Report found nothing and said so - which
+ * read like a result and was a bug in the tool.
+ * =================================================================== */
+
+check("the rights are combined before they reach the constructor",
+  /\$rights = \(\[System\.Security\.AccessControl\.FileSystemRights\]::Delete -bor/.test(findDeleter) &&
+  /New-Object System\.Security\.AccessControl\.FileSystemAuditRule -ArgumentList @\(/.test(findDeleter) &&
+  !/FileSystemAuditRule\(\s*\n\s*"Everyone",/.test(findDeleter),
+  "a comma binds tighter than -bor, and an array has no op_BitwiseOr");
+
+check("an audit entry that did not stick stops the run",
+  /\$check = Get-Acl -LiteralPath \$Watch -Audit/.test(findDeleter) &&
+  /do not trust -Report/.test(findDeleter),
+  "Set-Acl returns without error when the account lacks SeSecurityPrivilege");
+
+/* =====================================================================
+ * Giving up on the prepared runtime without giving up the bundle
+ *
+ * -SkipWheels dodges prepare-runtime.ps1, but it dodges collecting the
+ * wheels with it, and a bundle with no wheels needs the customer's
+ * network - the exact thing this installer exists to avoid. -SkipRuntime
+ * is the half that was missing: every wheel still travels, only the
+ * pre-built runtime-python.zip is skipped.
+ * =================================================================== */
+
+check("the build can skip the prepared runtime and still bundle everything",
+  /\[switch\] \$SkipRuntime,/.test(buildMsi) &&
+  /fetch-vendor\.ps1"\) -SkipWheels:\$SkipWheels -SkipRuntime:\$SkipRuntime/.test(buildMsi),
+  "fetch-vendor already had the switch; nothing could reach it");
+
+check("...and does not then demand the file it was told not to build",
+  /if \(-not \$SkipWheels -and -not \$SkipRuntime\) \{ \$needed \+= "runtime-python\.zip" \}/.test(buildMsi),
+  "the completeness guard threw at line 472 on a file nobody asked for");
+
+check("...and says what the trade actually costs",
+  /two minutes installing the libraries instead of a few/.test(buildMsi) &&
+  /a bundle with no\s*\n?\s*wheels is a bundle that needs the customer's network/.test(buildMsi),
+  "the customer's first run is slower; it is never online");
+
 const bad = results.filter((r) => !r.ok);
 console.log(`\n${results.length - bad.length}/${results.length} checks passed`);
 process.exit(bad.length ? 1 : 0);

@@ -253,16 +253,39 @@ if ($Arm) {
     & auditpol.exe /set /subcategory:"File System" /success:enable /failure:disable | Out-Null
     Say "audit policy: File System success auditing on"
 
+    # The two rights are combined on their own line, deliberately.
+    #
+    # Written inline in the argument list, PowerShell binds the commas
+    # tighter than -bor: "Everyone", Delete -bor DeleteSubdirectoriesAndFiles
+    # parses as ("Everyone", Delete) -bor DeleteSubdirectoriesAndFiles, and
+    # an array has no op_BitwiseOr. That is exactly the error this script
+    # produced the first time it was armed on a real machine - the audit
+    # was never switched on, the build failed as usual, and -Report then
+    # found nothing and said so, which looked like a result and was a bug.
+    $rights = ([System.Security.AccessControl.FileSystemRights]::Delete -bor
+               [System.Security.AccessControl.FileSystemRights]::DeleteSubdirectoriesAndFiles)
+    $inherit = ([System.Security.AccessControl.InheritanceFlags]::ContainerInherit -bor
+                [System.Security.AccessControl.InheritanceFlags]::ObjectInherit)
+
     $acl = Get-Acl -LiteralPath $Watch -Audit
-    $rule = New-Object System.Security.AccessControl.FileSystemAuditRule(
+    $rule = New-Object System.Security.AccessControl.FileSystemAuditRule -ArgumentList @(
         "Everyone",
-        [System.Security.AccessControl.FileSystemRights]::Delete -bor
-        [System.Security.AccessControl.FileSystemRights]::DeleteSubdirectoriesAndFiles,
-        [System.Security.AccessControl.InheritanceFlags]"ContainerInherit, ObjectInherit",
+        $rights,
+        $inherit,
         [System.Security.AccessControl.PropagationFlags]::None,
         [System.Security.AccessControl.AuditFlags]::Success)
     $acl.AddAuditRule($rule)
     Set-Acl -LiteralPath $Watch -AclObject $acl
+
+    # Proof, not hope. Set-Acl can return without error and leave nothing
+    # behind when the account lacks SeSecurityPrivilege, and an -Arm that
+    # quietly did nothing turns the -Report that follows into a false
+    # all-clear - which is worse than no report at all.
+    $check = Get-Acl -LiteralPath $Watch -Audit
+    if (@($check.Audit).Count -lt 1) {
+        Fail "the audit entry did not stick - this run proves nothing, do not trust -Report"
+        exit 1
+    }
     Good "this folder now records who deletes anything inside it"
 
     Write-Host ""
