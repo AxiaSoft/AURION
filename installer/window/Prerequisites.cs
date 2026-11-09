@@ -118,6 +118,36 @@ internal static class Prerequisites
         }
     }
 
+    /// <summary>
+    /// pip's own wheel, from the wheels this build bundled.
+    ///
+    /// A wheel is a zip, and a zip with a package at its root can be run:
+    /// python "pip-24.2-py3-none-any.whl\pip" install ... bootstraps pip
+    /// with nothing but the interpreter and the file. It is how pip is
+    /// installed on a machine that has no pip and no network, and it is
+    /// the only route here that cannot reach for one.
+    /// </summary>
+    private static string BundledPipWheel(string installDir)
+    {
+        try
+        {
+            var dir = Path.Combine(installDir, "vendor", "wheels");
+            if (!Directory.Exists(dir)) return "";
+            // "pip-*" also matches pipdeptree and pip-tools; the version
+            // that follows the dash has to start with a digit.
+            foreach (var file in Directory.GetFiles(dir, "pip-*.whl"))
+            {
+                var name = Path.GetFileName(file);
+                if (name.Length > 4 && char.IsDigit(name[4])) return file;
+            }
+            return "";
+        }
+        catch
+        {
+            return "";
+        }
+    }
+
     // Node arrives as the official zip, not the MSI, and is unpacked into the
     // installation folder.
     //
@@ -891,24 +921,23 @@ internal static class Prerequisites
             throw new InvalidOperationException("Python unpacked but python.exe is not in " + target + ".");
         }
 
-        // The embeddable build has no pip. get-pip.py carries one.
+        // The embeddable build has no pip, and this is the first place on a
+        // bare machine that needs one.
         //
-        // The prepared runtime already has both, and running get-pip over a
-        // working pip costs a few seconds of a first run for nothing - so it
-        // is asked rather than assumed.
-        if (!PipWorks(exe, ""))
-        {
-            var getPip = Bundled(installDir, GetPipName);
-            if (getPip.Length == 0)
-            {
-                throw new FileNotFoundException(
-                    "This build does not carry " + GetPipName + ", so pip cannot be installed.");
-            }
-
-            say.Report("Setting up pip…");
-            await RunAsync(exe, $"\"{getPip}\" --no-warn-script-location --no-input",
-                elevate: false, ct, null, say);
-        }
+        // It used to run get-pip.py here with its defaults, which is how a
+        // customer with a working internet connection got a network error:
+        // get-pip.py carries pip, but unless told otherwise it also fetches
+        // setuptools and wheel from PyPI, and an unreachable index took the
+        // whole unpack down before a single bundled wheel was tried.
+        //
+        // EnsurePipAsync is the one routine that knows every way to get a
+        // pip without a network - the bundled pip wheel first, get-pip with
+        // the offline flags after it - and having two places that bootstrap
+        // pip differently is what let this survive in one of them.
+        //
+        // The prepared runtime already has pip, and EnsurePipAsync asks
+        // before it does anything, so this costs nothing when it is there.
+        await EnsurePipAsync(exe, "", installDir, say, ct);
 
         PythonCommand = Quoted(exe);
         WriteRuntimeEnv(installDir);
@@ -1372,6 +1401,53 @@ internal static class Prerequisites
             return;
         }
 
+        // pip's own wheel, before get-pip.py, because this step must not be
+        // able to reach the network and get-pip.py can.
+        //
+        // Reported from a bare machine whose internet was working: "could
+        // not install the prerequisites", a network error, and thirty
+        // perfectly good wheels sitting unused in vendor\wheels. The
+        // embeddable build has no pip and no ensurepip, so setup fell
+        // through to get-pip.py - which by default does not only install
+        // pip, it also fetches setuptools and wheel from PyPI. One
+        // unreachable index, and the offline install below was never
+        // attempted at all. The customer saw a network error from a step
+        // that was never supposed to need a network.
+        //
+        // prepare-runtime.ps1 has passed --no-setuptools --no-wheel for
+        // exactly this reason since it was written. This path did not.
+        var pipWheel = BundledPipWheel(installDir);
+        if (pipWheel.Length > 0)
+        {
+            say.Report("Setting up pip from the copy that ships with AURION…");
+            var wheelDir = Path.GetDirectoryName(pipWheel) ?? "";
+            try
+            {
+                // The wheel is both the thing being run and the thing being
+                // installed, and --no-index makes needing PyPI an error
+                // rather than a silent download.
+                var (code, output) = await RunCapturedAsync(exe,
+                    (args + $" \"{Path.Combine(pipWheel, "pip")}\" install" +
+                     $" --no-index --find-links \"{wheelDir}\" \"{pipWheel}\"" +
+                     " --no-warn-script-location --no-input --disable-pip-version-check").Trim(), ct, say);
+                LogOnly(say, $"-- pip from the bundled wheel -> exit {code}", output);
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                LogOnly(say, "-- pip from the bundled wheel could not be run: " + ex.Message);
+            }
+
+            if (PipWorks(exe, args))
+            {
+                say.Report("pip is ready.");
+                return;
+            }
+        }
+
         var getPip = Bundled(installDir, GetPipName);
         if (getPip.Length == 0)
         {
@@ -1391,16 +1467,30 @@ internal static class Prerequisites
             await File.WriteAllBytesAsync(getPip, bytes, ct);
         }
 
-        await RunAsync(exe, $"\"{getPip}\" --no-warn-script-location --no-input",
-            elevate: false, ct, null, say);
-
-        if (!PipWorks(exe, args))
+        // --no-setuptools --no-wheel first. Without them get-pip.py installs
+        // two packages nothing here asks for, from an index this machine may
+        // not be able to reach, and takes the whole setup down with it. They
+        // are get-pip's own options and have been for years; the plain call
+        // stays as a second attempt in case a future get-pip.py drops them.
+        foreach (var tail in new[]
+                 {
+                     " --no-setuptools --no-wheel --no-warn-script-location --no-input",
+                     " --no-warn-script-location --no-input",
+                 })
         {
-            throw new InvalidOperationException(
-                "pip could not be set up in " + exe + ", so the engine's libraries cannot be installed. " +
-                "Repair AURION from Settings > Apps, which puts back the runtime it ships with.");
+            var (code, output) = await RunCapturedAsync(exe, (args + $" \"{getPip}\"" + tail).Trim(), ct, say);
+            LogOnly(say, $"-- get-pip.py{tail} -> exit {code}", output);
+            if (PipWorks(exe, args))
+            {
+                say.Report("pip is ready.");
+                return;
+            }
         }
-        say.Report("pip is ready.");
+
+        throw new InvalidOperationException(
+            "pip could not be set up in " + exe + ", so the engine's libraries cannot be installed. " +
+            "Repair AURION from Settings > Apps, which puts back the runtime it ships with. " +
+            "What each attempt said is in data\\logs\\setup.log.");
     }
 
     /// <summary>Does this interpreter answer "-m pip --version"?</summary>

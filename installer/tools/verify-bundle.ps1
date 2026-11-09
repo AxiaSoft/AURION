@@ -247,6 +247,25 @@ if ($needed.Count -eq 0) {
 if ($have.ContainsKey("metatrader5")) { Good "MetaTrader5 is bundled" }
 else { Warn "no MetaTrader5 wheel: the desk will start and the terminal will be unavailable" }
 
+# pip itself, which is not a requirement and is the one wheel without which
+# none of the others can be used.
+#
+# The embeddable Python ships with no pip and no ensurepip. A bare machine
+# with no pip and no pip wheel has to get one from get-pip.py, which by
+# default also fetches setuptools and wheel from PyPI - and that is how a
+# customer with working internet got a network error out of an installer
+# whose whole point is that it needs none. The installer runs this file
+# directly to bootstrap itself; without it there is no offline route.
+$pipWheel = @($wheels | Where-Object { $_.Name -match "^pip-[0-9]" })
+if ($pipWheel.Count -gt 0) {
+    Good "pip's own wheel is bundled ($($pipWheel[0].Name)): a machine with no pip needs no network"
+} elseif ($hasPrepared) {
+    Warn "no pip wheel - the prepared runtime already has pip, but a repair could not bootstrap one offline"
+} else {
+    Fail "no pip wheel in the bundle"
+    $problems += "pip's own wheel is missing: a machine with no pip would have to reach PyPI before it could use any of the wheels beside it"
+}
+
 # ---------------------------------------------------------------------------
 # 4. The customer's install, simulated
 # ---------------------------------------------------------------------------

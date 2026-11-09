@@ -853,7 +853,9 @@ check("the installed app prefers the bundle over the network",
   /Bundled\(installDir, PythonExeName\)/.test(prereqCs) &&
   /Bundled\(installDir, NodeZipName\)/.test(prereqCs) &&
   /Bundled\(installDir, "MicrosoftEdgeWebview2Setup\.exe"\)/.test(prereqCs) &&
-  /--no-index --find-links/.test(prereqCs));
+  // by its own operands, not by the bare flag: there are two --no-index
+  // commands here now and a substring test is satisfied by either one
+  /--no-index --find-links \\"\{wheels\}\\" -r \\"\{requirements\}\\"/.test(prereqCs));
 check("and so does the script, for an install that is already on a machine",
   /Get-Bundled/.test(provisionPs1) &&
   // the flags travel as separate argv elements now, so a path with a space
@@ -1052,8 +1054,14 @@ check("the setup window unpacks the runtime instead of installing a Python",
   prereqCs.indexOf("Bundled(installDir, RuntimePythonZipName).Length > 0") <
     prereqCs.indexOf("await DownloadAsync(PythonUrl"));
 
+// This used to pin `if (!PipWorks(exe, ""))` inside UnpackPythonAsync.
+// That line is gone on purpose: having a second place that bootstrapped
+// pip is what let the get-pip-goes-to-PyPI bug survive in one of them
+// after the other was fixed. UnpackPythonAsync now delegates, and the
+// behaviour this guard exists for - never run get-pip over a working
+// pip - is the first line of the routine it delegates to.
 check("and does not run get-pip over a pip that is already there",
-  /if \(!PipWorks\(exe, ""\)\)/.test(prereqCs));
+  /private static async Task EnsurePipAsync\([\s\S]{0,400}?if \(PipWorks\(exe, args\)\) return;/.test(prereqCs));
 
 check("and does not run pip over libraries that are already installed",
   /if \(await ImportsWorkAsync\(PythonCommand, ct\)\)/.test(prereqCs));
@@ -1134,7 +1142,7 @@ check("the failure is named rather than numbered",
 
 check("a retry escalates instead of repeating the same command",
   /var attempts = new List<\(string Label, string Args\)>\(\);/.test(prereqCs) &&
-  /--no-index --find-links/.test(prereqCs) &&
+  /--no-index --find-links \\"\{wheels\}\\" -r \\"\{requirements\}\\"/.test(prereqCs) &&
   /ConfiguredIndexUrl/.test(prereqCs),
   "bundled copies, then PyPI, then a mirror if one is configured");
 
@@ -1375,6 +1383,60 @@ check("the build runs it, and does not pretend a failed check is a failed build"
   /Step "Verifying the bundle installs with no network"/.test(buildMsi) &&
   /verify-bundle\.ps1"\) -Root \$repoRoot -Msi \$msi\.FullName/.test(buildMsi) &&
   /The MSI is built, but the checks above say it is not ready to ship\./.test(buildMsi));
+
+/* =====================================================================
+ * The network error from the step that needs no network
+ *
+ * A bare machine, working internet, and the setup window still said the
+ * prerequisites could not be installed - with a network error, while
+ * thirty verified wheels sat unused in vendor\wheels.
+ *
+ * The embeddable Python has no pip and no ensurepip, so setup fell
+ * through to get-pip.py. get-pip.py carries pip, but left to its
+ * defaults it also fetches setuptools and wheel from PyPI. One
+ * unreachable index and EnsurePipAsync threw, so the offline install
+ * below it was never attempted at all. prepare-runtime.ps1 has passed
+ * --no-setuptools --no-wheel since it was written; this path did not.
+ * =================================================================== */
+
+check("pip is bootstrapped from a wheel before anything that can reach PyPI",
+  /BundledPipWheel\(installDir\)/.test(prereqCs) &&
+  prereqCs.indexOf("var pipWheel = BundledPipWheel(installDir);") <
+    prereqCs.indexOf("var getPip = Bundled(installDir, GetPipName);"),
+  "a wheel is a zip with the package at its root, so python can run it to install it");
+
+check("...offline, by its own flags",
+  /--no-index --find-links \\"\{wheelDir\}\\" \\"\{pipWheel\}\\"/.test(prereqCs),
+  "--no-index so that reaching for an index is an error rather than a silent download");
+
+check("...and pip-* does not match pipdeptree",
+  /char\.IsDigit\(name\[4\]\)/.test(prereqCs));
+
+check("get-pip.py is never run with the defaults that go to PyPI first",
+  /" --no-setuptools --no-wheel --no-warn-script-location --no-input",/.test(prereqCs) &&
+  prereqCs.indexOf('" --no-setuptools --no-wheel --no-warn-script-location --no-input",') <
+    prereqCs.indexOf('" --no-warn-script-location --no-input",'),
+  "the plain call stays as a second attempt, in case a future get-pip.py drops the options");
+
+check("every pip bootstrap attempt is written to setup.log",
+  /LogOnly\(say, \$"-- pip from the bundled wheel -> exit \{code\}", output\)/.test(prereqCs) &&
+  /LogOnly\(say, \$"-- get-pip\.py\{tail\} -> exit \{code\}", output\)/.test(prereqCs),
+  "the first failure is the one that matters, and it was the one being thrown away");
+
+check("the build collects pip's own wheel, and will not ship without it",
+  /-m pip download "pip" --dest \$wheels/.test(fetchVendor) &&
+  /\$_\.Name -match "\^pip-\[0-9\]"/.test(fetchVendor) &&
+  /pip's own wheel could not be collected/.test(fetchVendor));
+
+check("there is one routine that bootstraps pip, not two",
+  (prereqCs.match(/Bundled\(installDir, GetPipName\)/g) || []).length === 1 &&
+  /await EnsurePipAsync\(exe, "", installDir, say, ct\);/.test(prereqCs),
+  "UnpackPythonAsync had its own get-pip call, and that is the copy the fix had missed");
+
+check("the verifier fails a bundle that has no pip wheel",
+  /pip's own wheel is bundled/.test(verifyBundle) &&
+  /no pip wheel in the bundle/.test(verifyBundle),
+  "the one wheel without which none of the others can be used");
 
 const bad = results.filter((r) => !r.ok);
 console.log(`\n${results.length - bad.length}/${results.length} checks passed`);
