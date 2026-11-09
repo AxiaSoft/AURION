@@ -1612,6 +1612,20 @@ check("...and does not then demand the file it was told not to build",
   /if \(-not \$SkipWheels -and -not \$SkipRuntime\) \{ \$needed \+= "runtime-python\.zip" \}/.test(buildMsi),
   "the completeness guard threw at line 472 on a file nobody asked for");
 
+// Three separate places decide whether runtime-python.zip is required,
+// and -SkipRuntime shipped wired to two of them: the build reached the
+// staging step and threw on the very file it had just been told not to
+// build. A switch that makes a file optional has to say so everywhere
+// that file is demanded, or it makes it optional nowhere.
+check("every gate that demands the prepared runtime honours -SkipRuntime",
+  // 1. the fetch
+  /fetch-vendor\.ps1"\) -SkipWheels:\$SkipWheels -SkipRuntime:\$SkipRuntime/.test(buildMsi) &&
+  // 2. the completeness guard that threw at line 472
+  /if \(-not \$SkipWheels -and -not \$SkipRuntime\) \{ \$needed \+= "runtime-python\.zip" \}/.test(buildMsi) &&
+  // 3. the staging guard that threw at stage.ps1 line 255
+  /-AllowIncompleteVendor:\(\$SkipWheels -or \$SkipRuntime -or \$NoBundle\)/.test(buildMsi),
+  "fetch, completeness, staging");
+
 check("...and says what the trade actually costs",
   /two minutes installing the libraries instead of a few/.test(buildMsi) &&
   /a bundle with no\s*\n?\s*wheels is a bundle that needs the customer's network/.test(buildMsi),

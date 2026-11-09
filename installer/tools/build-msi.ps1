@@ -500,7 +500,12 @@ Step "Staging payload"
 # a terminating error here, so there is nothing extra to check. ($LASTEXITCODE
 # is deliberately not read: it may not exist yet, which StrictMode rejects.)
 & (Join-Path $PSScriptRoot "stage.ps1") -Root $repoRoot -SkipNpm:$SkipNpm `
-    -AllowIncompleteVendor:($SkipWheels -or $NoBundle)
+    # -SkipRuntime belongs here too. It was added to the fetch and to the
+    # completeness guard and not to this one, so a -SkipRuntime build got
+    # all the way to staging and then threw on the very file it had just
+    # been told not to build. Every switch that makes runtime-python.zip
+    # optional has to say so in all three places or it makes none of them.
+    -AllowIncompleteVendor:($SkipWheels -or $SkipRuntime -or $NoBundle)
 
 # ---------------------------------------------------------------------------
 # 3b. The desk window
