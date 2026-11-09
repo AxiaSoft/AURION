@@ -112,14 +112,37 @@ if (-not (Get-Command Get-MpPreference -ErrorAction SilentlyContinue)) {
     try { $pref = Get-MpPreference -ErrorAction SilentlyContinue } catch { }
     try { $status = Get-MpComputerStatus -ErrorAction SilentlyContinue } catch { }
 
+    # Real-time protection first, because everything else in this section
+    # is conditional on it.
+    #
+    # The machine that lost three builds answered False here. Defender with
+    # real-time protection switched off does not scan files as they are
+    # written and does not remove them, so it is not what has been taking
+    # python.exe - and every exclusion that has been recommended for this
+    # problem, including by this script's first version, was advice for a
+    # scanner that was not running. Saying "add an exclusion" to somebody
+    # whose scanner is off sends them to fix something that is not broken.
+    $rtp = $true
     if ($status) {
+        try { $rtp = [bool] $status.RealTimeProtectionEnabled } catch { $rtp = $true }
         Say ("real-time protection  {0}" -f $status.RealTimeProtectionEnabled)
         Say ("tamper protection     {0}" -f $status.IsTamperProtected)
     }
 
+    if (-not $rtp) {
+        Write-Host ""
+        Good "Defender's real-time protection is OFF, so Defender is not deleting anything."
+        Say  "An exclusion cannot help a scanner that is not scanning. Whatever is"
+        Say  "removing files from the build is an ordinary program on this machine,"
+        Say  "and -Arm below is now the only thing that will name it."
+        Write-Host ""
+    }
+
     # Is the folder actually covered? An exclusion added for D:\AURION-BUILD
     # covers D:\AURION-BUILD\installer\vendor\.runtime-build underneath it,
-    # and an exclusion added in a non-elevated window is not added at all.
+    # and an exclusion added in a non-elevated window is not added at all -
+    # which is worth reporting even when it would not have mattered, because
+    # "I already added that" and "that was added" are different facts.
     $covered = $false
     $paths = @()
     if ($pref) { try { $paths = @($pref.ExclusionPath) } catch { $paths = @() } }
@@ -127,7 +150,12 @@ if (-not (Get-Command Get-MpPreference -ErrorAction SilentlyContinue)) {
         if (-not $p) { continue }
         if ($Watch.ToLowerInvariant().StartsWith($p.ToLowerInvariant().TrimEnd('\'))) { $covered = $true }
     }
-    if ($covered) { Good "the build tree is in Defender's exclusion list" }
+    if ($covered) { Say "the build tree is in Defender's exclusion list" }
+    elseif (-not $rtp) {
+        Say "the build tree is not in the exclusion list, which does not matter while"
+        Say "real-time protection is off - but it does mean an earlier Add-MpPreference"
+        Say "did not take effect. Tamper protection refuses it unless it is elevated."
+    }
     else {
         Fail "the build tree is NOT excluded"
         Say  "  Add-MpPreference -ExclusionPath '$Watch'   (administrator PowerShell)"
@@ -172,8 +200,17 @@ if (-not (Get-Command Get-MpPreference -ErrorAction SilentlyContinue)) {
 
     # Defender's own operational log, which records removals whether or not
     # Get-MpThreatDetection still lists them.
+    # 1006/1116 are detections, 1007/1117 are actions taken, 1118/1119 are
+    # remediation. Those are the ones that can explain a missing file.
+    #
+    # 5007 is not. It is "a setting changed", Defender writes dozens of them
+    # for its own engine and signature updates, and the first run of this
+    # script buried the interesting lines under thirteen of them saying
+    # MpEngineRing was written and then cleared. A count is the honest
+    # summary of that; printing all of it looks like evidence and is not.
     $since = (Get-Date).AddHours(-$Hours)
     $found = 0
+    $config = 0
     try {
         $events = @(Get-WinEvent -FilterHashtable @{
             LogName   = "Microsoft-Windows-Windows Defender/Operational"
@@ -181,13 +218,17 @@ if (-not (Get-Command Get-MpPreference -ErrorAction SilentlyContinue)) {
             StartTime = $since
         } -ErrorAction SilentlyContinue)
         foreach ($e in $events) {
+            if ($e.Id -eq 5007) { $config += 1; continue }
             $text = ($e.Message -replace "\s+", " ")
             if ($text.Length -gt 300) { $text = $text.Substring(0, 300) + "..." }
             Say ("{0:u}  id {1}  {2}" -f $e.TimeCreated, $e.Id, $text)
             $found += 1
         }
     } catch { }
-    if ($found -eq 0) { Say "Defender's own log records nothing in the last $Hours hours" }
+    if ($found -eq 0) { Say "Defender detected and removed nothing in the last $Hours hours" }
+    if ($config -gt 0) {
+        Say "($config configuration-change records, which are updates and settings, not deletions)"
+    }
 }
 
 # ---------------------------------------------------------------------------

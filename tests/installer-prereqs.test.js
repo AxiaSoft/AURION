@@ -1486,11 +1486,29 @@ check("a repair that fails restores the original error instead of hiding it",
   /the reinstall did not finish:/.test(prepareRuntime) &&
   /\$site = Join-Path[\s\S]*?catch \{[\s\S]{0,300}?return \$false[\s\S]{0,200}?\}/.test(prepareRuntime));
 
-check("a runtime that is still broken after a repair names the scanner question",
+// This used to point at Get-CimInstance root\SecurityCenter2, to find the
+// third-party scanner. That question has since been asked and answered on
+// the machine it keeps happening to - Windows Defender and nothing else,
+// with real-time protection off - so the advice now points at the tool
+// that records who actually deletes the files, rather than at a product
+// that does not exist.
+check("a runtime that is still broken after a repair says what to do next",
   /if \(\$script:LibraryRepairs -gt 0 -or \$script:Restores -gt 0\)/.test(prepareRuntime) &&
-  /root\\SecurityCenter2 -ClassName AntivirusProduct/.test(prepareRuntime) &&
+  /find-the-deleter\.ps1 -Arm/.test(prepareRuntime) &&
+  /find-the-deleter\.ps1 -Report/.test(prepareRuntime) &&
   /AURION_RUNTIME_WORK/.test(prepareRuntime),
-  "it is not Defender - it reports nothing and the tree is excluded");
+  "not another exclusion for a scanner that is switched off");
+
+check("real-time protection decides whether an exclusion is even advice",
+  /Defender's real-time protection is OFF, so Defender is not deleting anything\./.test(findDeleter) &&
+  /An exclusion cannot help a scanner that is not scanning\./.test(findDeleter) &&
+  /elseif \(-not \$rtp\)/.test(findDeleter),
+  "this script's own first version handed out an exclusion for a scanner that was off");
+
+check("configuration-change records are counted, not quoted",
+  /if \(\$e\.Id -eq 5007\) \{ \$config \+= 1; continue \}/.test(findDeleter) &&
+  /configuration-change records, which are updates and settings, not deletions/.test(findDeleter),
+  "thirteen lines about MpEngineRing buried the part that mattered");
 
 check("the repair leaves the zip the size it would have been",
   /\$pycAgain = @\(Get-ChildItem -LiteralPath \$python -Recurse -File -Include "\*\.pyc", "\*\.pyo"/.test(prepareRuntime) &&

@@ -711,15 +711,21 @@ if ($code -ne 0) {
     if ($script:LibraryRepairs -gt 0 -or $script:Restores -gt 0) {
         # Said plainly, because three builds have now been lost to this and
         # the next step is not another build.
+        # It is not Defender, and it is not another antivirus. That was
+        # asked and answered on the machine this keeps happening to:
+        # SecurityCenter2 lists Windows Defender and nothing else, and
+        # Defender's real-time protection is switched off. So the thing
+        # removing these files is an ordinary program, and the only way
+        # left to name it is to have Windows record who does it.
         $advice = ("`n  This runtime was repaired during the build and still does not work, so`n" +
                    "  something on this machine is removing files faster than they can be put`n" +
-                   "  back. It is not Windows Defender - it reports nothing and the tree is`n" +
-                   "  excluded. Find out what else is scanning it:`n" +
-                   "      Get-CimInstance -Namespace root\SecurityCenter2 -ClassName AntivirusProduct |`n" +
-                   "          Select-Object displayName, pathToSignedProductExe`n" +
-                   "  then exclude $work in that product, or build with`n" +
-                   "      `$env:AURION_RUNTIME_WORK = 'C:\rtbuild'`n" +
-                   "  to assemble it somewhere that product is not watching.")
+                   "  back. Have Windows name it:`n" +
+                   "      installer\tools\find-the-deleter.ps1 -Arm      (administrator)`n" +
+                   "      ... run this build again and let it fail ...`n" +
+                   "      installer\tools\find-the-deleter.ps1 -Report`n" +
+                   "      installer\tools\find-the-deleter.ps1 -Off`n" +
+                   "  Or sidestep it entirely by assembling the runtime somewhere else:`n" +
+                   "      `$env:AURION_RUNTIME_WORK = 'C:\rtbuild'")
     }
     throw ("The packaged Python cannot import the engine's libraries:`n" +
            (($report.Trim() -split "`r?`n" | Select-Object -Last 25) -join [Environment]::NewLine) + "`n" +
