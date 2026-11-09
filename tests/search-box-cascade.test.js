@@ -377,15 +377,20 @@ check("the sheet's own buttons are not dressed as navigation entries", () => {
   const markup = `<div id="app"><section id="desk">
     <nav class="set-jump is-sheet">
       <div class="sj-sheet-head"><b>t</b><button class="sj-close" id="set-sheet-close"><svg></svg></button></div>
+      <!-- The settings sheet no longer has a search box of its own; the
+           clear button is still sized here because .dsk-search-x is
+           shared with the symbol, chart and guide search boxes, and the
+           sheet's own close button sitting beside it is exactly the
+           cascade collision this file exists to catch. -->
       <div class="sj-find"><span class="dsk-search sm"><input class="dsk-search-i">
-        <button class="dsk-search-x" id="set-q-clear"><svg></svg></button></span></div>
+        <button class="dsk-search-x" id="a-search-clear"><svg></svg></button></span></div>
       <div class="sj-list">${ENTRIES}</div>
     </nav></section></div>`;
   const { doc, flat } = sheetFor("aurora", { markup });
   const bad = [];
   const cases = [
     ["the close button", "#set-sheet-close", { display: "grid", "inline-size": "36px", "border-radius": "10px" }],
-    ["the search's clear button", "#set-q-clear", { display: "grid", "inline-size": "22px", "border-radius": "50%" }],
+    ["a search box's clear button", "#a-search-clear", { display: "grid", "inline-size": "22px", "border-radius": "50%" }],
   ];
   for (const [name, sel, want] of cases) {
     const el = doc.querySelector(sel);

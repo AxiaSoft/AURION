@@ -463,8 +463,15 @@
       <div class="tvr-sep"></div>
       <button type="button" class="tvr-btn" id="tv-magnet" title="${esc(tt("chart.magnet", "Magnet"))}"
               aria-pressed="false">${svg(I.magnet)}<span class="tvr-name">${esc(tt("chart.magnet", "Magnet"))}</span></button>
+      <!-- Not pressed in the markup. The pin is off by default now - a
+           tool lets go of the pointer after one shape - and markRailState()
+           repaints this from the stored setting as soon as the rail is
+           bound, which is the only place that can read it: this template
+           lives in a different scope from toolLocked(). Hardcoding "true"
+           here, as it used to, drew the pin as on while the behaviour was
+           off. -->
       <button type="button" class="tvr-btn" id="tv-toollock" title="${esc(tt("chart.tool_lock", "Keep the tool armed"))}"
-              aria-pressed="true">${svg(I.pin)}<span class="tvr-name">${esc(tt("chart.tool_lock", "Keep the tool armed"))}</span></button>
+              aria-pressed="false">${svg(I.pin)}<span class="tvr-name">${esc(tt("chart.tool_lock", "Keep the tool armed"))}</span></button>
       <button type="button" class="tvr-btn" id="tv-lockall" title="${esc(tt("chart.lock_all", "Lock all drawings"))}"
               aria-pressed="false">${svg(I.lock)}<span class="tvr-name">${esc(tt("chart.lock_all", "Lock all drawings"))}</span></button>
       <button type="button" class="tvr-btn" id="tv-hideall" title="${esc(tt("chart.hide_all", "Hide all drawings"))}"
@@ -784,16 +791,23 @@
   /**
    * Does a drawing tool stay armed after a shape is finished?
    *
-   * It used to snap back to the cursor every time, which is what most
-   * charting packages do and what the code called correct. It is correct
-   * for someone drawing one line. It is miserable for someone drawing
-   * twenty: a trader marking up a session re-clicks the tool between every
-   * single line. Staying armed is now the default, the switch is on the
-   * rail beside the magnet, and Escape disarms it - so the one-line case
-   * costs a keystroke instead of the twenty-line case costing twenty
-   * clicks.
+   * No, by default. Reported directly: after using a tool once the
+   * pointer has to come back to normal.
+   *
+   * The argument for arming it is real and still true - someone marking
+   * up a session draws twenty lines and does not want to re-click the
+   * tool twenty times. The argument against it is that it changes what
+   * the next click does, on a chart where clicks move stops and targets
+   * and the next click is usually not another drawing. A trader who
+   * finishes a line and reaches for a level instead draws a second line
+   * on top of it, and that surprise costs more than a re-click.
+   *
+   * So the behaviour is kept and the default is reversed: one shape,
+   * back to the cursor. The switch is on the rail beside the magnet and
+   * is remembered, so the twenty-line case is one click away and then
+   * stays that way for good.
    */
-  function toolLocked() { return read(LS_TOOLLOCK, "1") === "1"; }
+  function toolLocked() { return read(LS_TOOLLOCK, "0") === "1"; }
 
   function setToolLock(on) {
     write(LS_TOOLLOCK, on ? "1" : "0");
@@ -1724,9 +1738,9 @@
       syncNav();
     };
     chart.opts.onToolDone = () => {
-      // The tool stays armed unless the trader asked for the old one-shot
-      // behaviour. Either way the shape just drawn is selected, so its
-      // colour and thickness are one click away on the style bar.
+      // Back to the cursor after one shape, unless the trader pinned the
+      // tool on the rail. Either way the shape just drawn is selected, so
+      // its colour and thickness are one click away on the style bar.
       if (!toolLocked() && chart.tool !== "cursor") pickTool("cursor");
     };
     chart.opts.onEdit = () => showDock("props");

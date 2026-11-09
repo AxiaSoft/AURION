@@ -7707,22 +7707,13 @@ const views = {
           <button type="button" class="sj-close" id="set-sheet-close"
                   aria-label="${esc(I18N.t("settings.sheet_close"))}">${icon("close")}</button>
         </div>
-        <!-- Nine sections across three groups is past the point where
-             reading the rail is faster than typing. The box filters the
-             rail itself rather than opening a results page: the thing
-             you are looking for is one of these entries, so the answer
-             is "which of these", not "here is a list of matches". -->
-        <div class="sj-find">
-          <span class="dsk-search sm">${icon("search")}
-            <input type="search" id="set-q" class="dsk-search-i" autocomplete="off" spellcheck="false"
-                   placeholder="${esc(I18N.t("settings.search"))}"
-                   aria-label="${esc(I18N.t("settings.search"))}"
-                   aria-controls="set-jump" />
-            <button type="button" class="dsk-search-x" id="set-q-clear" hidden
-                    aria-label="${esc(I18N.t("common.close"))}">${icon("close")}</button>
-          </span>
-          <p class="sj-find-n sub" id="set-q-n" aria-live="polite" hidden></p>
-        </div>
+        <!-- There is no search box here. It filtered the rail as you
+             typed, which was a fair answer to nine sections across three
+             groups - but the right answer to "too many entries to scan"
+             is fewer, better-named entries, not a box that hides the
+             ones you did not name. It also cost the rail its one
+             constant: the list moved under the pointer while reading it.
+             Removal was asked for by name. -->
         </div>
         <!-- The entries are a region of their own so that, as a sheet,
              the handle, the title and the search can hold still while
@@ -9065,81 +9056,15 @@ async function bindUpdatePanel(){
      wants it from a terminal. */
 }
 
-/**
- * Filter the settings rail as you type.
- *
- * It matches on the entry's name AND on its one-line description,
- * because people search for what a section DOES ("spread", "daily
- * loss") rather than for what it is called. A group heading is hidden
- * when nothing under it survives, otherwise the rail ends up with
- * three headings and one button.
- *
- * It deliberately does not change the open section. Typing is a way of
- * looking, and a page that navigates away on every keystroke cannot be
- * looked at.
- */
-function bindSettingsSearch() {
-  const q = $("set-q");
-  const rail = $("set-jump");
-  if (!q || !rail || q.dataset.bound === "1") return;
-  q.dataset.bound = "1";
-  const clear = $("set-q-clear");
-  const count = $("set-q-n");
-  const buttons = [...rail.querySelectorAll("button[data-jump]")];
-  const groups = [...rail.querySelectorAll(".sj-grp")];
+/* The settings rail used to be filtered by a search box above it.
+   Both are gone together - the box and the filter. It matched on each
+   entry's name and on its description, hid the group headings that
+   emptied out, and cleared on Escape without letting the sheet close.
+   None of that was broken; it was removed because the rail is better
+   short than searchable, and a list that rearranges itself while you
+   read it is harder to learn than a list that never moves.
+   tests/settings-sheet.test.js keeps the record. */
 
-  const apply = () => {
-    const term = q.value.trim().toLowerCase();
-    if (clear) clear.hidden = !term;
-    let shown = 0;
-    for (const b of buttons) {
-      const hit = !term || b.textContent.toLowerCase().includes(term);
-      b.hidden = !hit;
-      if (hit) shown += 1;
-    }
-    /* A heading belongs to the buttons that follow it up to the next
-       heading, so walk forward rather than guessing from the DOM. */
-    for (const g of groups) {
-      let any = false;
-      for (let n = g.nextElementSibling; n && !n.classList.contains("sj-grp"); n = n.nextElementSibling) {
-        if (n.matches("button[data-jump]") && !n.hidden) { any = true; break; }
-      }
-      g.hidden = !any;
-    }
-    if (count) {
-      count.hidden = !term;
-      count.textContent = shown
-        ? I18N.t("settings.search_n", { n: shown, t: buttons.length })
-        : I18N.t("settings.search_none");
-    }
-    rail.classList.toggle("is-filtered", Boolean(term));
-  };
-
-  q.addEventListener("input", apply);
-  q.addEventListener("keydown", (e) => {
-    if (e.key === "Escape" && q.value) {
-      q.value = "";
-      apply();
-      /* The sheet also listens for Escape, on the nav this box sits
-         inside. Without this the box cleared itself and the event then
-         bubbled up and shut the sheet, so one keypress undid the
-         filter AND threw away the list - a typo cost you the page.
-         Stopped only when there was something to clear, so an Escape
-         on an empty box still closes the sheet, which is what it
-         should do. */
-      e.preventDefault();
-      e.stopPropagation();
-    }
-    /* Enter opens the only thing left, which is what you meant if you
-       typed enough to leave one. */
-    if (e.key === "Enter") {
-      const first = buttons.find((b) => !b.hidden);
-      if (first) { showSetTab(first.dataset.jump); first.focus(); closeSetSheet(false); }
-    }
-  });
-  if (clear) clear.onclick = () => { q.value = ""; apply(); q.focus(); };
-  apply();
-}
 
 /* The settings rail as a bottom sheet, below the rail's breakpoint.
  *
@@ -10143,7 +10068,6 @@ function bindView(view) {
       closeSetSheet();
     };
     showSetTab(S.setTab || "set-robot");
-    bindSettingsSearch();
     bindSetSheet();
     const sav = $("s-save");
     if (sav) sav.onclick = () => saveAccountSettings(false);

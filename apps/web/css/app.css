@@ -2470,9 +2470,7 @@ html[data-glass="off"] *{
    scrolls with the rail rather than pinning, because the rail is
    nine entries long and a sticky box would cost more height than it
    saves. */
-.set-jump .sj-find{ padding:2px 2px 10px; display:flex; flex-direction:column; gap:6px }
-.sj-find-n{ margin:0; font-size:11.5px; padding-inline:2px }
-.sj-find-n[hidden]{ display:none }
+/* .sj-find / .sj-find-n: the settings search box, removed. */
 .set-jump button[data-jump][hidden]{ display:none }
 .set-jump .sj-grp[hidden]{ display:none }
 
@@ -2755,7 +2753,6 @@ html[dir="rtl"] .sj-grp{letter-spacing:0;text-transform:none;font-size:11px}
   .sj-close::after{content:"";position:absolute;inset:-4px}
   .sj-close svg{width:15px;height:15px}
 
-  .set-jump.is-sheet .sj-find{flex:none;padding:0 12px 8px}
 
   /* The handle: the grab bar, the title and the search, as one block.
      The gesture owns vertical movement here - that is what makes the

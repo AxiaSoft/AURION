@@ -183,13 +183,34 @@ test("a drawing in progress is not interrupted by the shape underneath", () => {
 
 /* ---------------------------------------------------------------------- */
 
-test("the tool lock is on by default and survives a reload", () => {
-  // The behaviour module keeps the preference in localStorage; the default
-  // has to be "armed", because that is the request this change answers.
+test("the tool lets go of the pointer after one shape, by default", () => {
+  /* This check used to assert the opposite, and the reasoning it was
+     written with still stands on its own terms: someone marking up a
+     session draws twenty lines and should not re-click the tool twenty
+     times, so the tool was left armed.
+     It was reversed on request, and the reason is the part the original
+     missed - on this chart the next click is usually not another
+     drawing. Stops and targets are dragged on the same canvas, so
+     finishing a line and reaching for a level drew a second line over
+     the first, and nothing but the rail said which mode was on.
+     The preference and its switch are untouched; only the default
+     moved, so the twenty-line case is one click away and then sticks. */
   const ui = fs.readFileSync(path.join(__dirname, "chart-tools.js"), "utf8");
-  assert.match(ui, /function toolLocked\(\)\s*{\s*return read\(LS_TOOLLOCK, "1"\) === "1"/);
+  assert.match(ui, /function toolLocked\(\)\s*{\s*return read\(LS_TOOLLOCK, "0"\) === "1"/);
   assert.match(ui, /if \(!toolLocked\(\) && chart\.tool !== "cursor"\) pickTool\("cursor"\)/);
-  assert.match(ui, /id="tv-toollock"/, "and there is a switch for it on the rail");
+  assert.match(ui, /id="tv-toollock"/, "and there is still a switch for it on the rail");
+  assert.match(ui, /function setToolLock/, "and it is still remembered between sessions");
+});
+
+test("the eraser obeys the same rule", () => {
+  /* The one tool where staying armed is actively dangerous: a second
+     click after a deletion deletes a second drawing. */
+  const src = fs.readFileSync(path.join(__dirname, "charts.js"), "utf8");
+  const i = src.lastIndexOf('if (this.tool === "eraser")');
+  assert.ok(i > 0, "the eraser branch moved");
+  const body = src.slice(i, i + 900);
+  assert.match(body, /removeObject/, "wrong branch");
+  assert.match(body, /onToolDone/, "the eraser deletes a shape and stays in erase mode");
 });
 
 test("escape disarms the tool", () => {

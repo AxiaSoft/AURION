@@ -533,16 +533,23 @@ check("its handle is the head, not the bare grab bar", () => {
   if (!/sheet:\s*nav\b/.test(call)) throw new Error("the nav is not the sheet");
 });
 
-check("the head really does contain the search, and the list does not", () => {
+check("the head really does contain the title row, and the list does not", () => {
   const top = APP.indexOf('<div class="sj-top" id="set-sheet-top">');
   if (top < 0) throw new Error("no head element in the markup");
   const close = APP.indexOf('<div class="sj-list">', top);
   if (close < 0) throw new Error("no list after the head");
   const head = APP.slice(top, close);
-  [["sj-grab", "the grab bar"], ["sj-sheet-head", "the title row"], ["sj-find", "the search"]]
+  /* "sj-find", the search box, used to be listed here too. It was
+     removed from the settings sheet; what this check is really about is
+     unchanged - everything that is chrome belongs to the handle, and
+     nothing that is an entry does. */
+  [["sj-grab", "the grab bar"], ["sj-sheet-head", "the title row"]]
     .forEach(([c, what]) => {
       if (!head.includes(c)) throw new Error(what + " is outside the handle");
     });
+  if (head.includes("sj-find")) {
+    throw new Error("the search box is back in the settings sheet");
+  }
   /* ...and the entries are not. If the list ever moves inside the
      head, every row becomes a dismiss target again and the fault is
      back with nothing to show for it. */
@@ -559,7 +566,7 @@ check("the head owns the vertical gesture, and only as a sheet", () => {
     throw new Error("the browser can still claim the drag as a scroll");
   }
   /* On the desktop rail the wrapper must disappear from layout, or it
-     boxes the search away from the entries it filters. */
+     boxes the title row away from the entries below it. */
   if (!/\.sj-top\s*\{\s*display:\s*contents\s*\}/.test(ACSS)) {
     throw new Error("the head is a real box on the rail");
   }

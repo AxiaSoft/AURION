@@ -3681,7 +3681,17 @@ class CandleChart {
       }
       const found = this.shapeAt(hit.L, hit.x, hit.y);
       if (this.tool === "eraser") {
-        if (found) this.removeObject(found.shape);
+        if (found) {
+          this.removeObject(found.shape);
+          /* The eraser reports "done" like every other tool, so the same
+             rule covers it: one deletion and the pointer is a pointer
+             again, unless the trader pinned the tool on the rail. It is
+             the tool where staying armed is worst - the next click on a
+             line while still in erase mode deletes that line too, and
+             the only sign of which mode is on is the rail. A click that
+             misses deletes nothing, so the mode stays for a retry. */
+          if (typeof this.opts.onToolDone === "function") this.opts.onToolDone();
+        }
         return;
       }
       if (found) {

@@ -616,6 +616,77 @@ if (!jsdom) {
   }
 }
 
+/* ------------------------------------------------------------------ *
+ * A drawing tool lets go of the pointer when it is done
+ *
+ * Reported: after using a tool once, the pointer has to come back to
+ * normal. It did not - the tool stayed armed, which is genuinely better
+ * for marking up a session with twenty lines and genuinely worse for
+ * everything else, because on this chart the next click usually moves a
+ * stop or a target rather than drawing again. Finishing a line and
+ * reaching for a level drew a second line on top of it.
+ *
+ * The pin on the rail still exists for the twenty-line case and is
+ * remembered. What changed is which way it points when nobody has
+ * touched it.
+ * ------------------------------------------------------------------ */
+
+check("the tool returns to the cursor after one shape, by default", () => {
+  const src = fs.readFileSync(path.join(WEB, "js", "chart-tools.js"), "utf8");
+  const m = src.match(/function toolLocked\(\)\s*\{[^}]*\}/);
+  if (!m) throw new Error("toolLocked() is gone");
+  if (!/read\(LS_TOOLLOCK,\s*"0"\)/.test(m[0])) {
+    throw new Error("the default is back to staying armed: " + m[0]);
+  }
+  if (!/LS_TOOLLOCK/.test(src) || !/function setToolLock/.test(src)) {
+    throw new Error("the pin that overrides the default was removed with it");
+  }
+});
+
+check("every finished tool says so, the eraser included", () => {
+  const src = fs.readFileSync(path.join(WEB, "js", "charts.js"), "utf8");
+  // commitDraft, the one-point tools, the text prompts - and the eraser,
+  // which was the one tool that deleted a shape and stayed armed.
+  const hits = (src.match(/onToolDone/g) || []).length;
+  if (hits < 5) throw new Error("only " + hits + " onToolDone sites; the eraser is probably not one of them");
+  /* lastIndexOf, not indexOf: cursorFor() tests the same string a
+     couple of thousand lines earlier, and a window opened there says
+     nothing about the branch that does the deleting. */
+  const i = src.lastIndexOf('if (this.tool === "eraser")');
+  if (i < 0 || !/removeObject/.test(src.slice(i, i + 900))) {
+    throw new Error("the eraser branch that deletes a shape moved");
+  }
+  if (!/onToolDone/.test(src.slice(i, i + 900))) {
+    throw new Error("the eraser deletes a shape and stays in erase mode");
+  }
+});
+
+check("the desk listens for it and disarms", () => {
+  const src = fs.readFileSync(path.join(WEB, "js", "chart-tools.js"), "utf8");
+  const i = src.indexOf("chart.opts.onToolDone");
+  if (i < 0) throw new Error("nothing is wired to onToolDone - the chart reports into a void");
+  const body = src.slice(i, i + 400);
+  if (!/pickTool\("cursor"\)/.test(body)) throw new Error("the handler no longer returns to the cursor");
+  if (!/toolLocked\(\)/.test(body)) throw new Error("the pin is ignored, so it cannot be pinned on");
+});
+
+check("the rail button does not draw itself as pinned", () => {
+  const src = fs.readFileSync(path.join(WEB, "js", "chart-tools.js"), "utf8");
+  const i = src.indexOf('id="tv-toollock"');
+  if (i < 0) throw new Error("the pin button is gone");
+  if (/aria-pressed="true"/.test(src.slice(i, i + 400))) {
+    throw new Error("the pin renders as pressed while the behaviour is off by default");
+  }
+  /* The template cannot read the setting - it is in a different scope
+     from toolLocked() - so markRailState is what has to put the real
+     answer on screen, and it runs when the rail is bound. */
+  const j = src.indexOf("const tlock = $(\"tv-toollock\")");
+  if (j < 0) throw new Error("markRailState stopped painting the pin");
+  if (!/toolLocked\(\)/.test(src.slice(j, j + 400))) {
+    throw new Error("the pin is painted from something other than the stored setting");
+  }
+});
+
 /* ------------------------------------------------------------------ result */
 
 const failed = results.filter((r) => !r).length;
