@@ -1438,6 +1438,64 @@ check("the verifier fails a bundle that has no pip wheel",
   /no pip wheel in the bundle/.test(verifyBundle),
   "the one wheel without which none of the others can be used");
 
+/* =====================================================================
+ * Three builds lost to damage that was repairable
+ *
+ * Same machine, three runs, Defender exclusions in place by the third:
+ *
+ *     python.exe was missing at verifying the runtime and has been put back
+ *     AttributeError: module 'numpy' has no attribute '__version__'
+ *
+ * That AttributeError is not a numpy bug. `import numpy` succeeded, so the
+ * folder is still there - it is numpy/__init__.py that is gone, leaving an
+ * empty namespace package. Whatever takes python.exe takes files out of
+ * site-packages too.
+ *
+ * Restore-Interpreter deliberately only re-extracts root entries of the
+ * embeddable zip; it must not invent anything pip wrote. So the build put
+ * back a working interpreter, failed the import check on half a numpy, and
+ * threw away ten minutes of work over damage it could have redone from the
+ * wheels still sitting in vendor\wheels.
+ * =================================================================== */
+
+check("damaged libraries are reinstalled before the build gives up",
+  /function Repair-Libraries \{/.test(prepareRuntime) &&
+  /if \(\$run\.Code -ne 0 -and \(Repair-Libraries -Phase "the build"\)\)/.test(prepareRuntime),
+  "the wheels that built it the first time are still on disk");
+
+check("...from the bundle, never from PyPI",
+  /Say "the engine's libraries, again, from vendor\\wheels"/.test(prepareRuntime) &&
+  // its own command, not a count: three other --no-index calls in this file
+  // keep a count satisfied while the repair quietly reaches for an index
+  /Say "the engine's libraries, again[\s\S]{0,400}?"-m", "pip", "install", "-r", \$requirements,\s*\n\s*"--no-index", "--find-links", \$wheelDir,/.test(prepareRuntime),
+  "a repair that downloads is not a repair of an offline bundle");
+
+check("...and pip is reinstalled with it, because pip lives in site-packages",
+  /\$site = Join-Path \$python "Lib\\site-packages"[\s\S]{0,400}?Remove-Item -LiteralPath \$site -Recurse -Force/.test(prepareRuntime) &&
+  /Say "pip, again"/.test(prepareRuntime) &&
+  /"--no-setuptools", "--no-wheel"\)[\s\S]{0,600}?Say "the engine's libraries, again/.test(prepareRuntime),
+  "wiping site-packages takes pip with it, and get-pip must not go to PyPI either");
+
+check("the repair runs once, not in a loop",
+  /if \(\$script:LibraryRepairs -ge 1\) \{ return \$false \}/.test(prepareRuntime) &&
+  /\$script:LibraryRepairs \+= 1/.test(prepareRuntime),
+  "if the libraries are eaten twice, the honest outcome is the throw");
+
+check("a repair that fails restores the original error instead of hiding it",
+  /the reinstall did not finish:/.test(prepareRuntime) &&
+  /\$site = Join-Path[\s\S]*?catch \{[\s\S]{0,300}?return \$false[\s\S]{0,200}?\}/.test(prepareRuntime));
+
+check("a runtime that is still broken after a repair names the scanner question",
+  /if \(\$script:LibraryRepairs -gt 0 -or \$script:Restores -gt 0\)/.test(prepareRuntime) &&
+  /root\\SecurityCenter2 -ClassName AntivirusProduct/.test(prepareRuntime) &&
+  /AURION_RUNTIME_WORK/.test(prepareRuntime),
+  "it is not Defender - it reports nothing and the tree is excluded");
+
+check("the repair leaves the zip the size it would have been",
+  /\$pycAgain = @\(Get-ChildItem -LiteralPath \$python -Recurse -File -Include "\*\.pyc", "\*\.pyo"/.test(prepareRuntime) &&
+  /\$cacheAgain = @\(Get-ChildItem -LiteralPath \$python -Recurse -Directory -Filter "__pycache__"/.test(prepareRuntime),
+  "step 7 already ran and will not run again");
+
 const bad = results.filter((r) => !r.ok);
 console.log(`\n${results.length - bad.length}/${results.length} checks passed`);
 process.exit(bad.length ? 1 : 0);
