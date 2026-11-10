@@ -540,7 +540,12 @@ html[dir="rtl"] .tv-flyout { transform: translateX(6px) }
    people never opened. Selecting a shape now brings its controls to it. */
 
 .tv-style {
-  position: absolute; inset-block-start: 10px; inset-inline-start: 10px;
+  /* Clear of the chart's own readout. The canvas writes its OHLC line
+     at y=2 and the names of any main-pane indicators at y=16, so the
+     top ~30px of the plot already belongs to text; a bar starting at
+     10px sat on top of both, and the first thing a trader did after
+     selecting a shape was lose sight of the price it was drawn at. */
+  position: absolute; inset-block-start: 34px; inset-inline-start: 10px;
   z-index: 6;
   display: flex; align-items: center; gap: 4px; flex-wrap: wrap;
   max-inline-size: calc(100% - 20px);
@@ -755,48 +760,208 @@ html[dir="rtl"] .tvd-title { letter-spacing: 0; text-transform: none; font-size:
 .tvd-swatch { width: 9px; height: 9px; border-radius: 3px; flex: none }
 .tvd-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
 
-/* --------------------------------------------------------- properties -- */
+/* --------------------------------------------------------- properties --
+ *
+ * These were .tvp-* and they collided, silently and completely, with
+ * the positions table's .tvp-* in the same stylesheet. Two unrelated
+ * things, one prefix: a property row wanted
+ * `display:flex; justify-content:space-between`, a position row wanted
+ * `display:grid; grid-template-columns:subgrid`, and the position row
+ * is 650 lines further down, so it won on source order every time.
+ *
+ * What that looked like on screen, which is how it was found: the
+ * thickness and opacity sliders lost their track and rendered as a
+ * bare thumb floating under the label; "Solid / Dashed / Dotted"
+ * printed on top of each other; "Left" and "Right" came out as
+ * "LefRight"; the checkboxes had no control at all. A panel of broken
+ * controls, in every language, for as long as both class sets have
+ * existed.
+ *
+ * The prefix here is now .tvo- (tv object). Renaming the positions
+ * table instead would have been the bigger change - it reaches into
+ * app.js and six suites - and scoping these under an ancestor would
+ * have fixed the symptom while leaving the next collision to be
+ * discovered the same way. Two different things now have two
+ * different names.
+ */
 
-.tvp-head { display: flex; align-items: center; gap: 4px; margin-bottom: 2px }
-.tvp-name { height: 28px; font-size: 12px; flex: 1 }
-.tvp-kind { margin: 0 0 10px; font-size: 11px; color: var(--faint) }
-.tvp-sec {
-  margin: 12px 0 6px;
+.tvo-head { display: flex; align-items: center; gap: 6px; margin-bottom: 2px }
+.tvo-name { height: 30px; font-size: 12.5px; flex: 1; min-width: 0 }
+.tvo-kind { margin: 0 0 12px; font-size: 11px; color: var(--faint) }
+.tvo-sec {
+  margin: 14px 0 6px;
   font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: var(--faint);
 }
-.tvp-row {
-  display: flex; align-items: center; justify-content: space-between; gap: 10px;
-  min-height: 30px;
+.tvo-empty { margin: 18px 6px; font-size: 12px; color: var(--faint); line-height: 1.6 }
+
+/* One row, one property. The label takes what it needs and the control
+   takes the rest, rather than both being squeezed to a fixed width: a
+   Persian label is half again as long as its English original and a
+   fixed label column clipped it. */
+.tvo-row {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between;
+  gap: 6px 12px;
+  min-height: 34px;
+  padding: 2px 0;
   font-size: 12px; color: var(--muted);
 }
-.tvp-row > input[type="range"] { flex: 0 0 120px }
-.tvp-row > input[type="color"] { width: 34px; height: 22px; padding: 0; border: 1px solid var(--line); border-radius: 5px; background: none }
-.tvp-row > .ctrl { flex: 0 0 150px; height: 26px; font-size: 12px }
-.tvp-row > input[type="number"] { flex: 0 0 76px }
-.tvp-choice, .tvm-choice { display: inline-flex; gap: 2px; padding: 2px; border-radius: 8px; background: var(--surface-sunken) }
-.tvp-choice button, .tvm-choice button {
-  height: 22px; padding: 0 8px;
-  border: 0; border-radius: 6px;
-  background: transparent; color: var(--muted);
-  font: inherit; font-size: 11px; cursor: pointer;
-}
-.tvp-choice button.on, .tvm-choice button.on { background: var(--accent); color: var(--accent-ink, var(--on-accent)) }
-.tvm-choice { display: flex; margin: 0 4px 6px }
-.tvm-choice button { flex: 1 }
+.tvo-row > span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis }
 
-.tvp-levels { display: grid; grid-template-columns: 1fr 1fr; gap: 3px 10px }
-.tvp-level { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--muted) }
-.tvp-level input[type="color"] { width: 22px; height: 18px; padding: 0; border: 0; background: none; margin-inline-start: auto }
-.tvp-add { display: flex; gap: 4px }
-.tvp-add input { width: 74px }
-.tvp-coords { display: grid; grid-template-columns: 1fr 1fr; gap: 5px }
-.tvp-coord { display: flex; align-items: center; gap: 5px; font-size: 11px; color: var(--muted) }
-.tvp-coord input { width: 100%; }
-.tvp-coord input, .tvp-row input[type="number"], .tvp-add input {
-  height: 26px; padding: 0 7px;
-  border: 1px solid var(--line); border-radius: 6px;
+/* ---- the controls themselves -------------------------------------
+   A range input has no appearance of its own worth keeping: the
+   browser default is a grey track that disappears against a dark
+   panel, which is why the sliders looked like a floating dot even
+   before the collision above. Track and thumb are drawn here, and the
+   filled part of the track is drawn from --fill, which the panel sets
+   as the value changes so the slider reads at a glance.             */
+
+.tvo-range { flex: 0 0 132px; display: flex; align-items: center; gap: 8px }
+.tvo-range output {
+  flex: none; min-width: 28px;
+  font-family: "IBM Plex Mono", monospace; font-size: 11px;
+  color: var(--ink); text-align: end;
+  font-variant-numeric: tabular-nums;
+}
+.tvo-row input[type="range"] {
+  flex: 1; min-width: 0; height: 22px; margin: 0; padding: 0;
+  background: none; border: 0;
+  -webkit-appearance: none; appearance: none;
+  cursor: pointer;
+}
+.tvo-row input[type="range"]::-webkit-slider-runnable-track {
+  height: 4px; border-radius: 999px;
+  background: linear-gradient(to right,
+    var(--accent) 0 var(--fill, 50%), rgb(var(--wash) / .16) var(--fill, 50%) 100%);
+}
+.tvo-row input[type="range"]::-moz-range-track {
+  height: 4px; border-radius: 999px; background: rgb(var(--wash) / .16);
+}
+.tvo-row input[type="range"]::-moz-range-progress {
+  height: 4px; border-radius: 999px; background: var(--accent);
+}
+.tvo-row input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none; appearance: none;
+  width: 14px; height: 14px; margin-top: -5px;
+  border-radius: 50%; border: 2px solid var(--surface-2);
+  background: var(--accent);
+}
+.tvo-row input[type="range"]::-moz-range-thumb {
+  width: 14px; height: 14px;
+  border-radius: 50%; border: 2px solid var(--surface-2);
+  background: var(--accent);
+}
+.tvo-row input[type="range"]:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 999px }
+
+/* The slider has to mirror on a right-to-left desk, and `direction`
+   is the only thing that moves a range input's own origin - a
+   transform would flip the thumb's shadow and the focus ring with it.
+   The gradient above is written `to right` in both, so it is flipped
+   back here to stay on the low side of the value. */
+html[dir="rtl"] .tvo-row input[type="range"] { direction: rtl }
+html[dir="rtl"] .tvo-row input[type="range"]::-webkit-slider-runnable-track {
+  background: linear-gradient(to left,
+    var(--accent) 0 var(--fill, 50%), rgb(var(--wash) / .16) var(--fill, 50%) 100%);
+}
+
+.tvo-row > input[type="color"] {
+  width: 44px; height: 26px; padding: 2px; flex: none;
+  border: 1px solid var(--line); border-radius: 7px; background: var(--surface-sunken);
+  cursor: pointer;
+}
+.tvo-row > input[type="color"]::-webkit-color-swatch { border: 0; border-radius: 4px }
+.tvo-row > input[type="color"]::-moz-color-swatch { border: 0; border-radius: 4px }
+.tvo-row > .ctrl { flex: 0 1 150px; height: 28px; font-size: 12px; min-width: 0 }
+.tvo-row > input[type="number"] { flex: 0 0 84px }
+
+/* A switch, not a default checkbox: the default is 13px square, which
+   is under half the 44px a finger needs and reads as a speck of grey
+   on a dark panel. Same shape as every other switch on the desk. */
+.tvo-row input[type="checkbox"] {
+  -webkit-appearance: none; appearance: none;
+  flex: none; position: relative; margin: 0;
+  width: 40px; height: 24px; border-radius: 999px;
+  border: 1px solid var(--line); background: var(--surface-sunken);
+  cursor: pointer; transition: background .16s ease, border-color .16s ease;
+}
+.tvo-row input[type="checkbox"]::after {
+  content: ""; position: absolute; inset-block-start: 3px; inset-inline-start: 3px;
+  width: 16px; height: 16px; border-radius: 50%;
+  background: var(--muted);
+  transition: translate .16s ease, background .16s ease;
+}
+.tvo-row input[type="checkbox"]:checked { background: rgb(var(--accent-rgb) / .9); border-color: transparent }
+.tvo-row input[type="checkbox"]:checked::after { background: var(--on-accent, #04120f); translate: 16px 0 }
+html[dir="rtl"] .tvo-row input[type="checkbox"]:checked::after { translate: -16px 0 }
+.tvo-row input[type="checkbox"]:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px }
+
+/* A segmented control. `display:flex` with each button flexed, so the
+   three options share the width instead of each sizing to its own
+   text - which is what produced "LefRight" and a stack of overlapping
+   words once the grid rule above had taken the row apart. */
+.tvo-choice, .tvm-choice {
+  display: flex; gap: 2px; padding: 2px;
+  border-radius: 9px; background: var(--surface-sunken);
+  border: 1px solid var(--line);
+}
+/* Wide enough to spell its options, and allowed to take a line of its
+   own when the label leaves it no room. The alternative - squeezing
+   three buttons into whatever is left of a 290px dock - is what
+   printed "Das…", "Dott…" and "Ri…", and a segmented control whose
+   segments are ellipses is a control you have to click to read.
+   flex-basis is the full width so a row that cannot fit both wraps
+   cleanly rather than shrinking the buttons. */
+.tvo-choice { flex: 1 1 190px; max-width: 100% }
+.tvo-choice button, .tvm-choice button {
+  flex: 1 1 0; min-width: 0;
+  height: 26px; padding: 0 9px;
+  border: 0; border-radius: 7px;
+  background: transparent; color: var(--muted);
+  font: inherit; font-size: 11px; white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis;
+  cursor: pointer; transition: background .14s ease, color .14s ease;
+}
+.tvo-choice button:hover, .tvm-choice button:hover { background: rgb(var(--wash) / .08); color: var(--ink) }
+.tvo-choice button.on, .tvm-choice button.on { background: var(--accent); color: var(--accent-ink, var(--on-accent)) }
+.tvo-choice button:focus-visible, .tvm-choice button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px }
+.tvm-choice { margin: 0 4px 6px }
+
+.tvo-levels { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 10px }
+.tvo-level { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--muted) }
+.tvo-level input[type="color"] { width: 24px; height: 20px; padding: 0; border: 0; background: none; margin-inline-start: auto }
+/* The fibonacci ratios are Latin numerals in a Persian panel; without
+   this they are reordered against the row they label. */
+.tvo-level > .mono { direction: ltr; unicode-bidi: isolate }
+.tvo-add { display: flex; gap: 4px }
+.tvo-add input { width: 74px }
+.tvo-coords { display: grid; grid-template-columns: 1fr 1fr; gap: 6px }
+.tvo-coord { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--muted) }
+.tvo-coord input { width: 100%; min-width: 0 }
+.tvo-coord input, .tvo-row input[type="number"], .tvo-add input {
+  height: 28px; padding: 0 8px;
+  border: 1px solid var(--line); border-radius: 7px;
   background: var(--surface-sunken); color: var(--ink);
   font: inherit; font-size: 11px; font-family: "IBM Plex Mono", monospace;
+  /* A price is a Latin number wherever it is read. Without this the
+     minus sign and the decimal point change places under RTL.
+
+     `left`, not `start`: inside a box already pinned to ltr the two
+     are the same thing, and `left` is what every other numeric field
+     on the desk says, so one grep finds them all. */
+  direction: ltr; text-align: left;
+}
+.tvo-coord input:focus-visible, .tvo-row input[type="number"]:focus-visible, .tvo-add input:focus-visible {
+  outline: 2px solid var(--accent); outline-offset: -1px;
+}
+
+/* Touch. The dock is reachable on a phone, and a 22px control is not.
+   Everything here is already at or above 24px; this lifts the ones the
+   finger actually aims at the rest of the way. */
+@media (pointer: coarse) {
+  .tvo-row { min-height: 44px }
+  .tvo-choice button, .tvm-choice button { height: 34px }
+  .tvo-coord input, .tvo-row input[type="number"], .tvo-add input, .tvo-row > .ctrl { height: 36px }
+  .tvo-row > input[type="color"] { width: 52px; height: 32px }
+  .tvo-row input[type="range"] { height: 44px }
 }
 
 /* ------------------------------------------------------------- status -- */
@@ -1382,7 +1547,7 @@ html:fullscreen body { background: var(--bg) }
 
 /* A drawing that contradicts itself - a long whose stop is above its entry -
    says so in the panel rather than printing a confident ratio for it. */
-.tvp-warn {
+.tvo-warn {
   margin: 8px 0 0;
   padding: 7px 9px;
   border: 1px solid rgb(255 107 138 / .35);
@@ -1392,7 +1557,7 @@ html:fullscreen body { background: var(--bg) }
   line-height: 1.5;
   color: var(--rose);
 }
-.tvp-note { margin: 8px 0 0; font-size: 10.5px; color: var(--faint); line-height: 1.5 }
+.tvo-note { margin: 8px 0 0; font-size: 10.5px; color: var(--faint); line-height: 1.5 }
 
 
 /* The overlay-era row styling lived here: .tv-pos-body as a floating

@@ -530,6 +530,11 @@
     "tf": "Timeframe",
     "ea": "Expert",
     "state": "State",
+    "st_online": "Online",
+    "st_offline": "Offline",
+    "st_idle": "Idle",
+    "st_paused": "Paused",
+    "st_removed": "Removed",
     "signal": "Last signal",
     "params": "Parameters",
     "logs": "EA log",
@@ -1399,7 +1404,7 @@
     "snap_hint": "Anchors land on a bar, never between two",
     "trading": "Trading",
     "signals": "Strategy signals",
-    "no_objects": "Nothing drawn yet. Pick a tool from the left.",
+    "no_objects": "Nothing drawn yet. Pick a tool from the toolbar.",
     "no_selection": "Select an object on the chart, or in the Objects list, to edit it.",
     "color": "Colour",
     "thickness": "Thickness",
@@ -1606,7 +1611,9 @@
     "rr": "R:R",
     "strategy": "Strategy",
     "open_ea_chart": "Open the EA chart",
-    "from_strategy": "from"
+    "from_strategy": "from",
+    "toggle_on": "Signals on",
+    "toggle_off": "Signals off"
   },
   "slots": {
     "title": "How many trades the robot opens",

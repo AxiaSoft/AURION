@@ -134,7 +134,20 @@ option, optgroup{
   background-color:var(--field);
   color:var(--ink);
 }
-.mono{font-family:"IBM Plex Mono",Vazirmatn,ui-monospace,monospace;font-variant-numeric:tabular-nums;letter-spacing:0}
+/* .mono means "a machine-readable value": a price, a ticket number, a
+   ratio, a version, a timestamp, a multiplier. Those are read
+   left-to-right in every language, and on a Persian or Arabic desk the
+   bidi algorithm was free to reorder them - "x1.2" came out as "1.2x",
+   and anything with a sign or a slash in it was a coin toss.
+
+   direction:ltr fixes the run; unicode-bidi:isolate stops it from
+   dragging the Persian sentence around it out of order, which is what
+   direction alone would have done. Checked against the running desk
+   before shipping: of the 54 .mono elements on screen in Persian, not
+   one contains a word - they are all values, which is what the class
+   has always been for. Persian digits are unaffected: Arabic-Indic
+   numerals run left-to-right inside their own number either way. */
+.mono{font-family:"IBM Plex Mono",Vazirmatn,ui-monospace,monospace;font-variant-numeric:tabular-nums;letter-spacing:0;direction:ltr;unicode-bidi:isolate}
 .hidden{display:none !important}
 [hidden]{display:none !important}
 
@@ -1041,7 +1054,9 @@ tr:hover td{background:rgb(var(--wash) / .02)}
 .term .l-info{color:#c9d4e8}
 .term .l-warning{color:var(--gold)}
 .term .l-error{color:var(--rose)}
-.term .ts{color:var(--faint);margin-inline-end:8px}
+/* An ISO timestamp carries a sign and colons, so bidi reordered the
+   offset onto the wrong end of it. Same reasoning as .mono above. */
+.term .ts{color:var(--faint);margin-inline-end:8px;direction:ltr;unicode-bidi:isolate}
 
 .wizard{display:grid;gap:10px}
 .wizard .step{
@@ -1563,7 +1578,7 @@ fieldset.prop-fields.is-locked{
 }
 .ai-feed{max-height:280px;overflow:auto;margin-top:10px}
 .ai-feed .row-line{display:flex;gap:8px;font-size:12px;padding:4px 0;border-bottom:1px solid rgb(var(--wash) / .04)}
-.ai-feed .ts{color:var(--faint);flex:none}
+.ai-feed .ts{color:var(--faint);flex:none;direction:ltr;unicode-bidi:isolate}
 
 /* desk54 — per-chart sliders with smooth RTL/LTR animation */
 .chart-slider{

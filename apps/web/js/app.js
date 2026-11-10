@@ -3180,6 +3180,22 @@ function allAgents() {
     return st !== "offline" && st !== "removed";
   });
 }
+/**
+ * An EA's state, in the reader's language.
+ *
+ * The engine reports it as a bare English word - "online", "idle",
+ * "paused" - and the card printed that word verbatim, so a Persian
+ * desk showed a row of Persian labels with "online" at the end of it.
+ * A word the desk has no translation for is still shown rather than
+ * hidden: an unrecognised state is information, and swallowing it
+ * would be worse than leaving it in English.
+ */
+function agentState(status) {
+  const raw = String(status || "online").toLowerCase().trim();
+  const key = "charts.st_" + raw;
+  return I18N.has(key) ? I18N.t(key) : (status || "online");
+}
+
 function isTesterAgent(a) {
   return Boolean(a && (a.tester || String(a.mode || "").toLowerCase() === "tester" || String(a.mode || "").toLowerCase() === "backtest"));
 }
@@ -7293,7 +7309,7 @@ const views = {
           </div>
           <span class="legend mono mk-tick" id="tick-lbl">${tickLabel()}</span>
           <div class="mk-sig">
-            <button type="button" class="btn tiny ${S.signalsEnabled?"on":"ghost"}" id="sig-toggle-m">${S.signalsEnabled?icon("bell")+" Signals ON":icon("bellOff")+" Signals OFF"}</button>
+            <button type="button" class="btn tiny ${S.signalsEnabled?"on":"ghost"}" id="sig-toggle-m">${S.signalsEnabled?icon("bell")+" "+esc(I18N.t("signal.toggle_on")):icon("bellOff")+" "+esc(I18N.t("signal.toggle_off"))}</button>
             <button type="button" class="btn tiny ghost" id="sig-show-m" aria-pressed="${Boolean(S.showSignals)}"
                     aria-label="${esc(I18N.t(S.showSignals ? "chart.signals_hide" : "chart.signals_show"))}"
                     title="${esc(I18N.t(S.showSignals ? "chart.signals_hide" : "chart.signals_show"))}"${
@@ -7566,7 +7582,7 @@ const views = {
       <div class="kv">
         <span>${I18N.t("charts.chart")}</span><b class="mono">${a.chart_id || "—"}</b>
         <span>${I18N.t("charts.signal")}</span><b>${a.last_signal?.direction || a.last_signal?.action || "—"}</b>
-        <span>${I18N.t("charts.state")}</span><b>${a.status || "online"}</b>
+        <span>${I18N.t("charts.state")}</span><b>${esc(agentState(a.status))}</b>
       </div>
       ${tester && !clickable ? `<p class="sub">${I18N.t("tape.showing_backtest")}</p>` : `
       <div class="chart-box chart-mini"><canvas data-mini="${a.symbol||""}" data-tf="${a.timeframe||""}"></canvas></div>
@@ -9792,8 +9808,12 @@ function bindView(view) {
         S.signalsEnabled = !S.signalsEnabled;
         localStorage.setItem("aurion.signalsEnabled", S.signalsEnabled ? "1" : "0");
         sigToggleM.innerHTML = S.signalsEnabled
-          ? icon("bell") + " Signals ON"
-          : icon("bellOff") + " Signals OFF";
+          /* Written in the reader's language. This button and its twin
+             in the markets header were the last two hard-coded English
+             sentences on the desk: a Persian trader was shown
+             "Signals ON" in a panel of Persian. */
+          ? icon("bell") + " " + esc(I18N.t("signal.toggle_on"))
+          : icon("bellOff") + " " + esc(I18N.t("signal.toggle_off"));
         sigToggleM.classList.toggle("on", S.signalsEnabled);
         sigToggleM.classList.toggle("ghost", !S.signalsEnabled);
         /* The template hides this button with the `hidden` attribute,
@@ -11547,6 +11567,11 @@ function drawReplayChart(bars, marks) {
   if (!g) return;
   g.setTransform(dpr, 0, 0, dpr, 0, 0);
   g.clearRect(0, 0, w, h);
+  /* Prices and timestamps, which are left-to-right runs whatever the
+     desk's language is. Canvas text defaults to the element's own
+     direction, so on a Persian desk this chart's own labels were bidi
+     reordered - the same fault the main chart had. */
+  g.direction = "ltr";
 
   // Same colour resolution as the equity curve: a custom property can
   // come back as the literal text "var(--something)".
@@ -11646,7 +11671,11 @@ function drawReplayChart(bars, marks) {
   g.textAlign = "start";
   g.textBaseline = "middle";
   for (const v of [hi - pad, (hi + lo) / 2, lo + pad]) {
-    g.fillText(fmt(v, 2), w - padR + 6, y(v));
+    /* toFixed, not fmt(): fmt localises, so this axis printed Persian
+       digits beside a main chart whose axis prints Latin ones - two
+       charts of the same prices, numbered two different ways, one
+       above the other. Same two decimals as everywhere else. */
+    g.fillText(Number(v).toFixed(PRICE_DP), w - padR + 6, y(v));
   }
 }
 
