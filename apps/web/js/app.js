@@ -2078,7 +2078,10 @@ function announceSignal(sig) {
 
   // The same signal can arrive twice - the bus republishes on reconnect - and
   // a duplicate toast for a trade you already saw is worse than none.
-  const key = [sig.ts, sig.symbol, action, sig.volume, sig.sl, sig.tp].join("|");
+  // `armed` is part of the identity: "seen but not sent" and "sent" are
+  // two different pieces of news about the same setup, and collapsing
+  // them would silence whichever arrived second.
+  const key = [sig.ts, sig.symbol, action, sig.volume, sig.sl, sig.tp, sig.armed].join("|");
   if (S._lastSignalKey === key) return;
   S._lastSignalKey = key;
 
@@ -2443,6 +2446,14 @@ function pushSignalCard(sig) {
     `<h4>${esc(signalHeadline(sig))}</h4>` +
     `<p class="sub">${esc(signalDetail(sig) || I18N.t("signal.no_levels"))}</p>` +
     (signalSource(sig) ? `<p class="sub dim">${esc(signalSource(sig))}</p>` : "") +
+    /* A setup the robot saw but will not send - disarmed, kill switch
+       down, outside hours. It is announced exactly like any other
+       signal, because missing it is the expensive outcome, but it must
+       say so: somebody waiting for a fill that is never coming is worse
+       off than somebody who was never told. */
+    (sig.armed === false
+      ? `<p class="sub n-only">${esc(I18N.t("signal.not_sent"))}${sig.why ? " — " + esc(String(sig.why)) : ""}</p>`
+      : "") +
     `<button type="button" class="btn tiny" data-sig-open="${esc(sig.symbol || "")}"
              data-sig-tf="${esc(sig.timeframe || "")}">${esc(I18N.t("signal.open_ea_chart"))}</button>`;
   stack.prepend(card);
@@ -5391,7 +5402,6 @@ function strategyLiveCards() {
         </div>
         ${switchHtml({ on: it.enabled, label: it.name, attrs: `data-st="${esc(it.name)}"` })}
       </div>
-      ${evidenceHtml(it)}
       <div class="st-live">
         <span class="pill ${it.enabled?"on":""}" data-st-on="${esc(it.name)}">${it.enabled ? I18N.t("strategies.enable") : I18N.t("strategies.disable")}</span>
         <b class="mono ${cls}" data-st-act="${esc(it.name)}">${esc(act)}</b>
@@ -5428,28 +5438,31 @@ function strategyLiveCards() {
    run and that is knowable before the trader finds out with their own
    account, so the card says it, with the numbers and with what was
    measured. See BaseStrategy.evidence. */
-function evidenceHtml(it) {
-  const ev = (it && it.evidence) || {};
-  const state = String(ev.state || "");
-  if (!state) return "";
-  const label = state === "measured" ? I18N.t("strategies.ev_measured")
-    : state === "negative" ? I18N.t("strategies.ev_negative")
-    : I18N.t("strategies.ev_unmeasured");
-  const tone = state === "measured" ? "ok" : state === "negative" ? "bad" : "warn";
-  const n = Number(ev.trades || 0);
-  const stats = n > 0 ? I18N.t("strategies.ev_stats", {
-    n: fmt(n, 0),
-    win: fmt(Number(ev.win || 0) * 100, 1),
-    pf: fmt(Number(ev.pf || 0), 2),
-    e: (Number(ev.expectancy || 0) >= 0 ? "+" : "") + fmt(Number(ev.expectancy || 0), 3),
-  }) : "";
-  const hint = [String(ev.basis || ""), I18N.t("strategies.ev_basis_hint")].filter(Boolean).join(" — ");
-  return `<div class="st-ev st-ev-${tone}" data-st-ev="${esc(it.name)}">
-      <b>${esc(label)}</b>
-      ${stats ? `<span class="mono" title="${esc(hint)}">${esc(stats)}</span>` : ""}
-      ${state === "negative" ? `<small>${esc(I18N.t("strategies.ev_warn"))}</small>` : ""}
-    </div>`;
-}
+/* The backtest badge is gone from the strategy cards.
+ *
+ * It was a coloured strip across every card reading "Backtested —
+ * positive", "Backtested — loses money" or "Not backtested", with the
+ * trade count, win rate, profit factor and expectancy beside it. Asked
+ * for directly: take the backtest-status tag off the cards.
+ *
+ * It is not being hidden, it is being removed - the function that drew
+ * it, the markup, and the three tone classes with it. Half a feature
+ * left behind as dead code is how a card grows a badge again by
+ * accident.
+ *
+ * What is NOT lost. The measurement itself is the strategy's own
+ * property (BaseStrategy.evidence) and is still computed, still carried
+ * in /api/strategies, and still guarded by
+ * engine/tests/test_strategy_rules_are_measured.py - so nothing may
+ * ship a default that was never measured. The card simply no longer
+ * prints it. The backtest page is where a trader asks that question,
+ * and it answers it with the run in front of them rather than with a
+ * number from a synthetic market they did not choose.
+ *
+ * The strings stay in the language packs (strategies.ev_*): the
+ * question "what is known about this strategy" has not gone away, and
+ * reusing a key is cheaper than inventing it twice.
+ */
 
 function refusalTally(it) {
   const rows = Array.isArray(it && it.refusals) ? it.refusals : [];

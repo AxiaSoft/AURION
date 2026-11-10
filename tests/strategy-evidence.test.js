@@ -118,73 +118,63 @@ check(
   "mirrored layouts and symbol-free guidance",
 );
 
-/* --------------------------------------------------------------- the card */
+/* --------------------------------------------------------------- the card
+ *
+ * REVERSED, and the reason is kept here rather than deleted.
+ *
+ * This section used to render evidenceHtml() in a sandbox and pin every
+ * part of a coloured badge on the strategy card: the tone class, the
+ * sample size, the win rate, the signed expectancy, the basis tooltip
+ * and the warning sentence on the losing one.
+ *
+ * The badge was removed on request - take the backtest-status tag off
+ * the cards. So what is pinned now is the removal, and the three ways
+ * it could quietly come back: the function, the call site, and the
+ * stylesheet. A badge that returns as dead CSS plus a one-line call is
+ * exactly how this kind of thing grows back.
+ *
+ * Everything ABOVE this line is untouched and still runs. The
+ * measurement is a property of the strategy, not of the card: the
+ * built-ins still declare it, BaseStrategy still defaults an upload to
+ * "unmeasured", describe() still hands it to the desk, and the copy
+ * still exists in all three packs. None of that depended on the badge,
+ * and none of it goes away with it.
+ */
 
-const fnAt = APP.indexOf("function evidenceHtml(it) {");
-check("app.js defines evidenceHtml", fnAt >= 0);
-const fnEnd = APP.indexOf("\n}\n", fnAt);
-const sandbox = {
-  I18N: {
-    t(key, vars) {
-      const leaf = key.split(".").pop();
-      let text = packs.en.strategies[leaf];
-      if (text === undefined) text = key;
-      if (vars) for (const [k, v] of Object.entries(vars)) text = text.replaceAll(`{${k}}`, v);
-      return text;
-    },
-  },
-  esc: (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;"),
-  fmt: (n, d = 2) => Number(n).toFixed(d),
-};
-vm.createContext(sandbox);
-vm.runInContext(APP.slice(fnAt, fnEnd + 2), sandbox);
-const render = (ev) => sandbox.evidenceHtml({ name: "price_action", evidence: ev });
-
-check("no evidence renders nothing at all", render(undefined) === "", render(undefined));
-check("an empty state renders nothing at all", render({ state: "" }) === "");
-
-const bad = render({ state: "negative", trades: 590, win: 0.388, pf: 0.81, expectancy: -0.099,
-  basis: "seeded synthetic market, costs not modelled" });
-check("a losing strategy gets the warning tone", /class="st-ev st-ev-bad"/.test(bad), bad);
-check("a losing strategy carries the warning in words",
-  bad.includes(packs.en.strategies.ev_warn.slice(0, 24)),
-  "the tint alone is not a sentence anybody can act on");
-check("the sample size is shown, not just the verdict", /590 trades/.test(bad), bad);
-check("the win rate is a percentage", /38\.8% won/.test(bad), bad);
-check("a negative expectancy keeps its sign", /-0\.099R/.test(bad), bad);
-check("the basis is reachable without leaving the card", /title="[^"]*costs not modelled/.test(bad), bad);
-check("the basis tooltip also carries the standing caveat",
-  bad.includes(sandbox.esc(packs.en.strategies.ev_basis_hint.slice(0, 30))), bad);
-
-const good = render({ state: "measured", trades: 2273, win: 0.672, pf: 2.67, expectancy: 0.533, basis: "x" });
-check("a measured strategy gets the positive tone", /class="st-ev st-ev-ok"/.test(good), good);
-check("a positive expectancy is shown as positive", /\+0\.533R/.test(good), good);
-check("a measured strategy is not given the warning copy",
-  !good.includes(packs.en.strategies.ev_warn.slice(0, 24)),
-  "the warning belongs to the one that loses");
-
-const unknown = render({ state: "unmeasured", basis: "" });
-check("an unmeasured strategy says so", /class="st-ev st-ev-warn"/.test(unknown), unknown);
-check("an unmeasured strategy shows no made-up numbers", !/trades/.test(unknown), unknown);
-
-check("the card is rendered inside the strategy card",
-  /\$\{evidenceHtml\(it\)\}/.test(APP),
-  "defined but never called is the same as absent");
+check(
+  "evidenceHtml is gone, not merely unused",
+  APP.indexOf("function evidenceHtml(it) {") < 0,
+  "the function that drew the badge is still in app.js",
+);
+check(
+  "nothing calls it from the strategy card",
+  !/\$\{evidenceHtml\(it\)\}/.test(APP) && !/evidenceHtml\(/.test(APP),
+  "the call site survived the removal",
+);
+check(
+  "the strategy card still renders without it",
+  /function strategyLiveCards\(\)/.test(APP) && /class="card st-card/.test(APP),
+  "the card markup was damaged by the removal",
+);
+check(
+  "the removal is explained where somebody would put it back",
+  /The backtest badge is gone from the strategy cards/.test(APP),
+  "an unexplained deletion is re-added by the next person to read the file",
+);
 
 /* -------------------------------------------------------------------- css */
 
-for (const cls of ["st-ev-ok", "st-ev-bad", "st-ev-warn"]) {
-  check("app.css styles ." + cls, CSS.includes("." + cls + "{"), "an unstyled banner is a bare paragraph");
+for (const cls of ["st-ev", "st-ev-ok", "st-ev-bad", "st-ev-warn"]) {
+  check(
+    "app.css no longer styles ." + cls,
+    !CSS.includes("." + cls + "{"),
+    "an orphan rule is an invitation to put the badge back",
+  );
 }
 check(
-  "the tints use color-mix, not rgb() of a hex token",
-  !/\.st-ev-(ok|bad|warn)\{[^}]*rgb\(var\(/.test(CSS),
-  "--ok/--bad/--warning are hex literals; rgb(var(--ok) / .12) is dropped by the parser",
-);
-check(
-  "the banner text is not dimmed with the rest of a disabled card",
-  /\.st-card\.is-off \.st-ev\{opacity:1\}/.test(CSS),
-  "the warning matters most on a card that is still switched off",
+  "and the stylesheet says why the rules went",
+  /The \.st-ev strip is gone with the backtest badge/.test(CSS),
+  "a silent deletion in CSS is indistinguishable from an accident",
 );
 
 console.log(`\n${pass} of ${total} checks passed`);
