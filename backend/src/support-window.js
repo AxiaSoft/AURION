@@ -1,7 +1,13 @@
 "use strict";
 /**
- * End of support: a build stops being usable five days after a newer one
- * is published.
+ * End of support: a build stops being usable five days after a newer
+ * VERSION is published.
+ *
+ * "Version", precisely: the number in config/aurion.factory.json, which
+ * only the builder writes, or a tagged release. Not "an update" - main
+ * is the release branch and every merge on it is delivered, so updates
+ * arrive far more often than versions do, and an update that leaves the
+ * version alone must never put a countdown on anybody's desk.
  *
  * Why this exists. An installed copy that never updates is not a stable
  * copy, it is a copy that keeps whatever was wrong with it - including
@@ -90,16 +96,26 @@ function evaluate(state, nowMs) {
   if (!latest) return out;
 
   /* The second lock, and the one that matters most.
-     A desk is only ever locked over something a person PUBLISHED. The
-     check writes published:true for a release and nothing else, so an
-     update-state file that cannot make that statement - an old one
-     written before this rule existed, one describing the head of a
-     development branch, a hand-edited one - leaves the desk working.
-     Failing open on silence is the whole design; this is where the
-     silence is read. */
-  if (latest.published !== true) {
+     A desk is only ever locked over a NEW VERSION - a number the
+     builder moved in config/aurion.factory.json, or a release somebody
+     tagged. Both are deliberate acts by a person cutting a build.
+     
+     What is deliberately NOT enough: an ordinary update. main is the
+     release branch and every merge on it is now delivered to every
+     customer, down to a one-line fix, because a fix that cannot be
+     installed is not a fix. If that alone could start the clock, then
+     every merge would schedule every desk in the field to stop five
+     days later - which is precisely the fault this gate was added for,
+     and it stays fixed by reading the version rather than the offer.
+     
+     An update-state file that can make neither statement - an old one
+     written before these fields existed, a hand-edited one - leaves
+     the desk working. Failing open on silence is the whole design;
+     this is where the silence is read. */
+  const newVersion = latest.version_changed === true || latest.published === true;
+  if (!newVersion) {
     out.update_available = false;
-    out.reason = "not_a_release";
+    out.reason = "no_new_version";
     return out;
   }
 

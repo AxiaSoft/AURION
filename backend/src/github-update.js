@@ -21,6 +21,31 @@
  * Both read main and nothing else. Every other branch in the repository is
  * development and is never a source of updates.
  *
+ * WHAT COUNTS AS AN UPDATE, and what counts as a new VERSION
+ * ---------------------------------------------------------
+ * These were the same thing and should never have been. main is the
+ * release branch: nothing reaches it except through a pull request the
+ * owner merged, so anything on it is shipped work, down to a one-line
+ * fix. Development lives on the other branches, which this file cannot
+ * see at all. Requiring a tag before a customer could receive a merged
+ * fix meant the fix sat on main, visible to the desk, named in the
+ * panel, and un-installable — reported by the owner, who could see
+ * "1 file differs" and had no way to take it.
+ *
+ * So an update is: main has a shipped file this machine does not. That
+ * is all. `update_available` is the file list and nothing else.
+ *
+ * A VERSION is a separate statement, and only the builder makes it: the
+ * number in config/aurion.factory.json, which changes when a build is
+ * cut and never because a commit landed. `version_changed` says whether
+ * the number being offered differs from the number installed.
+ *
+ * The distinction is load-bearing, because the end-of-support clock
+ * reads it. Five days after a NEW VERSION the desk locks; a merged fix
+ * that leaves the version alone is delivered, installable, and starts
+ * no clock at all. Without that split, "deliver every merge" would mean
+ * "lock every customer out five days after every merge".
+ *
  * Which files differ is not guessed from the version. The tree API lists
  * every tracked path with its blob SHA, and a git blob SHA is computable
  * locally — sha1("blob <bytelength>\0" + bytes). So the comparison is exact,
@@ -457,13 +482,17 @@ async function resolveTarget(src) {
   const when = (commit.committer && commit.committer.date) || (commit.author && commit.author.date) || "";
   return {
     channel: "branch",
-    /* NOT published. The head of main is wherever development happens
-       to have got to: a merged pull request, a typo fix, work in
-       progress. Treating that as "a new version has been released"
-       told customers to update after every commit anyone pushed, and
-       - because the support clock reads the same field - started a
-       five-day countdown to locking their desk over it. Reported from
-       the field by the owner, who had published nothing at all. */
+    /* Not a published release - and that is a statement about where
+       the NOTES and the version number come from, not about whether
+       this may be installed.
+       It used to mean both, and the second meaning was wrong: main is
+       the release branch, so a merged pull request is shipped work and
+       a customer is entitled to it whether or not anyone cut a tag.
+       What this flag still governs is the support clock, which may
+       only be started by a new version number from the builder - see
+       version_changed in check(). The original fault it was added for
+       (a five-day countdown to locking the desk, started by an
+       ordinary commit) therefore stays fixed. */
     published: false,
     ref: sha,
     id: sha.slice(0, 12),
@@ -475,7 +504,9 @@ async function resolveTarget(src) {
        at the head of main is not release notes: most of the time it is
        "Merge pull request #4 from ...", which tells the person deciding
        whether to install precisely nothing. Notes come from a release,
-       and a branch build has none. */
+       and a branch build has none. The panel says so in words and
+       shows the file count and size instead, which are measured facts
+       rather than a sentence nobody wrote for this purpose. */
     changelog: "",
     published_at: when,
     build_date: String(when).slice(0, 10),
@@ -498,6 +529,26 @@ async function resolveTarget(src) {
  * worse than none, and the build stamp beside it still identifies the
  * build exactly.
  */
+/**
+ * The version number THIS machine calls itself.
+ *
+ * Read from the installed config/aurion.factory.json, which is the
+ * builder's file: the installer writes it and nothing at runtime
+ * touches it. config/aurion.json is the live configuration and is
+ * deliberately not consulted - an operator editing their settings must
+ * not be able to move the version and, through it, the support clock.
+ *
+ * Returns "" when it cannot be read, and every caller treats "" as
+ * "no statement", never as "different".
+ */
+function localFactoryVersion() {
+  try {
+    const raw = fs.readFileSync(path.join(ROOT, "config", "aurion.factory.json"), "utf8");
+    const v = String((JSON.parse(raw) || {}).version || "").trim();
+    return /^[0-9][0-9A-Za-z.\-+]{0,30}$/.test(v) ? v : "";
+  } catch { return ""; }
+}
+
 async function remoteVersion(cfg, entry) {
   if (!entry || !entry.sha) return "";
   try {
@@ -552,6 +603,11 @@ async function check(cfg) {
   /* A release names itself by its tag; a branch build has to be asked. */
   const version = target.version || await remoteVersion(cfg, factoryEntry);
   const published = target.published === true;
+  /* Did the BUILDER move the number? Only a real difference counts, and
+     only when both ends could be read - an unreadable file on either
+     side is silence, and silence must never start a clock. */
+  const localVersion = localFactoryVersion();
+  const versionChanged = Boolean(version) && Boolean(localVersion) && version !== localVersion;
   /* What this update changes, in bytes, taken from the sizes the tree
      listing already carried. It is not the size of the transfer - the
      install fetches the whole build as one compressed archive, whose
@@ -570,14 +626,26 @@ async function check(cfg) {
        update_available on purpose: it is true for any commit on the
        tracked branch, and nothing in the product may act on it. */
     behind: files.length > 0,
-    /* An offer, and the thing the support clock runs on. Only ever a
-       release somebody published. */
-    update_available: published && files.length > 0,
+    /* An offer: main carries a shipped file this machine does not.
+       main is the release branch - a merged pull request is shipped
+       work - so every difference is offered, down to a single file.
+       It is NOT what the support clock runs on; see version_changed. */
+    update_available: files.length > 0,
+    /* The builder's statement, and the only thing that may lock a desk.
+       Kept out of update_available on purpose: delivering a fix and
+       threatening to stop the desk over it are different decisions,
+       and only the second one needs a new version number. */
+    version_changed: versionChanged,
+    local_version: localVersion,
     update: {
       id: target.id,
       ref: target.ref,
       version,
       published,
+      /* Carried on the target as well as beside it, because the state
+         file keeps the target and the support policy reads the file. */
+      version_changed: versionChanged,
+      local_version: localVersion,
       build_date: target.build_date || "",
       changelog: target.changelog,
       published_at: target.published_at,

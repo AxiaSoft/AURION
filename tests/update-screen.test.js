@@ -460,29 +460,45 @@ check("the demo state invents no version", () => {
 });
 
 /* ------------------------------------------------------------------ *
- * The development build is not something you can install from here
+ * One install path, and it covers main
  *
- * The screen used to offer a button - "install this branch" - whenever
- * main was ahead of the last release. It was removed by request. An
- * update screen is for updates the owner decided to ship, and a
- * one-click path to unreleased code on a trading desk is a way to put a
- * half-finished strategy in front of real money.
+ * REVERSED, and the history matters.
  *
- * What stays is the sentence: this build is behind the branch, by this
- * many files. Knowing is not the same as installing.
+ * The screen once had a second button - "install this branch" - beside
+ * the normal one. It was removed by request, because at the time any
+ * commit on main was also announced as a published release and started
+ * a five-day countdown to locking the desk: a one-click path to
+ * unreleased code, on a trading desk, under duress.
+ *
+ * Both halves of that are gone. main is the release branch, nothing
+ * reaches it except a pull request the owner merged, and the countdown
+ * now reads the builder's version number rather than the offer (see
+ * tests/release-gate.test.js). So there is no "unreleased code" for a
+ * second button to install, and no second button: the ordinary offer
+ * covers main, with one install path and one confirmation.
+ *
+ * What is pinned here is that it stayed ONE path - a separate dev-only
+ * button must not grow back - and that the card explains itself when
+ * there are no release notes behind the offer.
  * ------------------------------------------------------------------ */
 
-check("the update screen cannot install an unreleased build", () => {
-  must(!/upd-dev-btn/.test(APP), "the button is back");
+check("there is exactly one way to install, and no dev-only button", () => {
+  must(!/upd-dev-btn/.test(APP), "the separate branch button is back");
   must(!/install_branch_confirm/.test(APP), "its confirmation dialog is still wired up");
-  return "no button, no handler";
+  must(APP.split("upd-apply-btn").length - 1 >= 1, "the one install button is gone");
+  return "upd-apply-btn only";
 });
 
-check("...but still says what is on the branch", () => {
-  const i = APP.indexOf("upd.behind_branch");
-  must(i > 0, "the desk stopped saying it is behind the branch at all");
-  must(/upd-unpub-detail/.test(APP), "the detail line went with the button");
-  return "the file count and size are still shown";
+check("...and an offer with no release notes says so instead of showing a blank", () => {
+  must(/function fromMainHtml\(res\)/.test(APP), "nothing explains the missing notes");
+  const i = APP.indexOf("upd.from_main");
+  must(i > 0, "the sentence is not wired to a key");
+  for (const code of ["en", "fa", "ar"]) must(typeof PACKS[code].upd.from_main === "string", code + " cannot say it");
+  /* The older sentence is kept for the case where the server reports a
+     difference it did not offer - an old state file, or a future rule. */
+  must(/upd\.behind_branch/.test(APP), "the fallback line was deleted with the old rule");
+  must(/upd-unpub-detail/.test(APP), "the detail line went with it");
+  return "upd.from_main + the behind_branch fallback";
 });
 
 /* ------------------------------------------------------------------ */

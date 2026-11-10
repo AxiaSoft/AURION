@@ -3004,6 +3004,25 @@ function changelogHtml(upd) {
   return text ? '<p class="sub">' + esc(text) + "</p>" : "";
 }
 
+/**
+ * "Where did this update come from, and why is the version the same?"
+ *
+ * main is the release branch, so a merged fix is shipped work and is
+ * offered the moment it lands - with no tag behind it and therefore no
+ * release notes, and usually with the version number unchanged, because
+ * only the builder writes that number. Both of those look like faults
+ * if nobody says otherwise: an update card with an empty middle, and a
+ * "new version" whose number matches the one already installed.
+ *
+ * One sentence, shown only when there is no release behind the offer.
+ * Takes the whole answer rather than the target, because `unpublished`
+ * is a property of the check and not of the build it found.
+ */
+function fromMainHtml(res) {
+  if (!res || !res.unpublished) return "";
+  return '<p class="sub upd-from-main">' + esc(I18N.t("upd.from_main")) + "</p>";
+}
+
 function buildTag(iso) {
   const raw = String(iso || "").trim();
   const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(raw);
@@ -9147,7 +9166,8 @@ async function bindUpdatePanel(){
         if (st.data.update_available && st.data.latest) {
           statusEl.innerHTML = '<div class="kv"><span>'+esc(I18N.t('upd.new_version'))+'</span><b class="mono">'+esc(updateStamp(st.data.latest))+'</b></div>'
             + updateSizeHtml(st.data.latest)
-            + changelogHtml(st.data.latest);
+            + changelogHtml(st.data.latest)
+            + fromMainHtml(st.data);
         } else if (st.data.unpublished && st.data.latest) {
           /* Said in full, because the alternative is what was reported:
              a desk announcing an update on a product whose owner had
@@ -9158,15 +9178,14 @@ async function bindUpdatePanel(){
                 n: fmtNum(n, 0), size: fmtBytes(st.data.latest.download_bytes),
               }))+'</p>'
             ;
-          /* No button here on purpose.
-             There used to be one offering to install the development
-             branch - whatever had been committed to main since the last
-             release, published or not. It was removed by request: an
-             update screen is for updates the owner has decided to ship,
-             and a one-click path to unreleased code on a trading desk is
-             a way to put a half-finished strategy in front of real money.
-             The two lines above still say what is on the branch, because
-             knowing is not the same as installing. */
+          /* Reached only when the server offers nothing while still
+             reporting a difference. That no longer happens for main -
+             every merge on it is an offer - so this is the honest
+             fallback for a state file written by an older build, or by
+             a future rule that suppresses an offer for its own reason.
+             It says what differs and stops there: the install path
+             belongs to the branch above, which is the one with a
+             target the server agreed to hand over. */
         } else {
           statusEl.innerHTML = '';
         }
@@ -9213,12 +9232,17 @@ async function bindUpdatePanel(){
     if(statusEl) statusEl.innerHTML = '';
     const upd = res.latest;
     if(resultEl){
-      resultEl.innerHTML = '<div class="card" style="background:rgb(var(--s9))"><h3>'+icon("spark")+' '+I18N.t('upd.available')+': <span class="mono">'+esc(updateStamp(upd))+'</span></h3>'+updateSizeHtml(upd)+changelogHtml(upd)+'<button class="btn" id="upd-apply-btn" type="button">'+icon("download")+' '+I18N.t('upd.download_apply')+'</button><p class="sub" style="margin-top:8px;color:var(--gold)">'+I18N.t('upd.replace_note')+'</p></div>';
+      resultEl.innerHTML = '<div class="card" style="background:rgb(var(--s9))"><h3>'+icon("spark")+' '+I18N.t('upd.available')+': <span class="mono">'+esc(updateStamp(upd))+'</span></h3>'+updateSizeHtml(upd)+changelogHtml(upd)+fromMainHtml(res)+'<button class="btn" id="upd-apply-btn" type="button">'+icon("download")+' '+I18N.t('upd.download_apply')+'</button><p class="sub" style="margin-top:8px;color:var(--gold)">'+I18N.t('upd.replace_note')+'</p></div>';
       const applyBtn = document.getElementById('upd-apply-btn');
       if(applyBtn) applyBtn.onclick = async () => {
         const go = await askConfirm({
           title: I18N.t('upd.download_apply'),
-          body: I18N.t('upd.confirm').replace('%s', upd.version),
+          /* The stamp, not the bare version. Most updates now come from
+             main with the version number unchanged, so "install 1.0.0?"
+             on a desk already running 1.0.0 reads as a dialog that has
+             lost track of itself. updateStamp adds the build date, which
+             is the part that actually differs. */
+          body: I18N.t('upd.confirm').replace('%s', updateStamp(upd)),
           ok: I18N.t('upd.download_apply'),
           cancel: I18N.t('common.cancel'),
         });
@@ -13855,6 +13879,10 @@ async function checkForUpdate() {
       available: Boolean(r.update_available),
       version: (latest && latest.version) || "",
       lastCheck: r.last_check || "",
+      /* No tagged release behind the offer, so no release notes and
+         usually no change of version number. Carried out so the card
+         can say so instead of leaving two blanks to be read as bugs. */
+      unpublished: Boolean(r.unpublished),
       latest,
     };
   } catch (e) {
