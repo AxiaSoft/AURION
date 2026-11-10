@@ -19,27 +19,71 @@ class PriceAction(BaseStrategy):
 
     What the measurements say, plainly
     ----------------------------------
-    This is the weakest of the four built-ins and I am not going to dress it
-    up. Run through ``scripts/strategy-xray.py`` over five instruments and
-    two independent sets of seeds, a candle pattern on its own was between
-    break-even and clearly negative, and nothing tried against it held up in
-    both samples: a higher-timeframe filter, a tighter pattern score, a
-    2.0 reward-to-risk, wider targets, tighter stops, continuation-only and
-    reversal-only all improved one sample and spoiled the other, and the
-    pullback filter below cut the trade count by two thirds without paying
-    for it. King, ema_rsi and atr_breakout all have a measurable edge in
-    those runs; this one does not.
+    This is the weakest of the four built-ins and it is not going to be
+    dressed up. Measured on scripts/strategy-xray.py - five instruments,
+    2 200 M15 bars each, the AI frozen so only the rules move, spread and
+    commission not modelled - across a six-seed tuning set and an eight-
+    seed set that was never tuned on:
 
-    So it ships honest rather than over-fitted. The defaults are the plain
-    ones; the stricter ideas are all here as switches — ``require_htf``,
-    ``require_pullback``, ``pattern_kinds``, ``require_level_touch`` — for a
-    trader who wants the pattern only as a confirmation of something they
-    have already decided. Treat it as a second opinion, not as a robot you
-    leave alone with an account.
+        arm                                   tuning        held out
+        as it shipped                        -0.259R       -0.223R
+        higher-timeframe filter              -0.254R          -
+        pullback filter                      -0.218R          -
+        reversal patterns only               -0.240R          -
+        continuation patterns only           -0.318R          -
+        min_score 0.72                       -0.207R          -
+        wider target / tighter stop          -0.261R / -0.253R
+        wider stop buffer, higher floor      -0.259R / -0.252R
+        level that already held              -0.196R       -0.163R
+        trend read at 21/55                  -0.146R       -0.152R
+        both of the last two                 -0.168R       -0.099R
+
+    Sixteen arms, every one of them negative. The last line is what
+    ships: it is the only change that improved both samples at once, and
+    it roughly halves the loss. It is still a loss.
+
+    Why it was losing is worth writing down, because it was not bad luck.
+    ``swing_levels`` measured its window up to and including the bar
+    being traded, so "the pattern is at support" was true exactly when
+    price was *making* a new 20-bar low - a level that is breaking, not
+    one that has held - and the strategy bought it. Meanwhile
+    ``with_trend`` was reading a 50/200 EMA pair, which on this
+    timeframe has no opinion about the last twenty bars at all. So the
+    two gates that were supposed to agree were measuring different
+    markets, and the binding one was buying falling knives. ``skip`` on
+    swing_levels and a 21/55 trend read are both fixes to that, and both
+    helped - which is the evidence that the diagnosis is right.
+
+    What it does not fix: run the same test with every entry taken on
+    the opposite side and the result is +0.440R on the tuning seeds and
+    +0.475R on the held-out ones, profit factor 2.2 and 2.4. A rule that
+    is reliably wrong is still information, and the honest reading is
+    that a candle pattern at a 20-bar extreme in these markets is a
+    continuation signal being traded as a reversal. That is not shipped,
+    for two reasons: inverting a rule to fit a synthetic generator is
+    curve-fitting with extra steps, and the costs that would eat most of
+    a 0.4R edge are not in the model.
+
+    So it ships honest rather than over-fitted, and the strategy card now
+    says so in the trader's own language before the switch is touched
+    (BaseStrategy.evidence). The defaults are the plain ones; the
+    stricter ideas are all here as switches - ``require_htf``,
+    ``require_pullback``, ``pattern_kinds``, ``require_level_touch`` -
+    for a trader who wants the pattern only as a confirmation of
+    something they have already decided. Treat it as a second opinion,
+    not as a robot you leave alone with an account.
     """
 
+    evidence = {
+        "state": "negative",
+        "trades": 590,
+        "win": 0.388,
+        "pf": 0.81,
+        "expectancy": -0.099,
+        "basis": "8 seeds x 5 instruments x 2 200 M15 bars of seeded synthetic market (scripts/strategy-xray.py), frozen AI, spread and commission not modelled",
+    }
     name = "price_action"
-    version = "2.0.0"
+    version = "2.1.0"
     language = "en"
     params: dict[str, Any] = {
         "volume": 0.10,
@@ -57,6 +101,15 @@ class PriceAction(BaseStrategy):
         "min_atr_pct": 0.0003,
         "min_efficiency": 0.12,
         "structure_atr": 1.2,
+        # Read the trend at the scale the level is measured on. The
+        # shared default is 50/200, which on M15 says nothing about the
+        # last twenty bars - so "with the trend" and "at a level" were
+        # answers about two different markets. 21/55 with a lower block
+        # threshold took the strategy from -0.259R to -0.146R on the
+        # tuning seeds and -0.223R to -0.152R on held-out seeds.
+        "trend_fast": 21,
+        "trend_slow": 55,
+        "counter_trend_block": 0.2,
         # Only a pattern that forms *at* a level counts. Without this the
         # same code also fired on closes beyond the level, which is a
         # breakout trade wearing a reversal pattern's clothes — and that
@@ -78,6 +131,20 @@ class PriceAction(BaseStrategy):
         "min_rr": 1.4,
         # Which family of patterns is allowed to fire.
         "pattern_kinds": "all",
+        # How the stop is drawn once recent structure is taken into
+        # account - see risk_levels(). Today's values, named so they can
+        # be measured rather than guessed at.
+        # Leave the newest bars out of the level the pattern has to sit
+        # at. With 0 the window ends on the bar being traded, so "at
+        # support" means "making a new low right now" - a level that is
+        # breaking. With 4 it means a low that was already there and
+        # that price has come back to, which is what support is. On its
+        # own: -0.259R to -0.196R tuning, -0.223R to -0.163R held out.
+        # Together with the 21/55 trend read: -0.168R and -0.099R.
+        "level_skip": 4,
+        "stop_buffer_atr": 0.15,
+        "stop_floor": 0.6,
+        "stop_ceiling": 1.8,
     }
 
     #: Patterns that say "the move continues" versus patterns that say
@@ -146,7 +213,7 @@ class PriceAction(BaseStrategy):
             if leg.retracement > hi:
                 return self.decline("the leg is broken, not pulling back", f"{leg.retracement:.0%}")
         # The pattern has to be at a level that means something.
-        high, low = swing_levels(frame, 20)
+        high, low = swing_levels(frame, 20, int(self.params.get("level_skip", 0) or 0))
         reach = atr * float(self.params.get("structure_atr") or 1.2)
         if atr > 0:
             near_support = abs(price - low) <= reach
@@ -164,6 +231,9 @@ class PriceAction(BaseStrategy):
             float(self.params["tp_atr"]),
             float(self.params.get("min_rr") or 1.3),
             (high, low),
+            buffer_atr=float(self.params.get("stop_buffer_atr", 0.15) or 0.0),
+            floor=float(self.params.get("stop_floor", 0.6) or 0.6),
+            ceiling=float(self.params.get("stop_ceiling", 1.8) or 1.8),
         )
         self.accepted()
         confidence = min(0.99, 0.45 * score + 0.3 + 0.25 * efficiency(frame))

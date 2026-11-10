@@ -242,6 +242,103 @@ function Restore-Interpreter {
     return $true
 }
 
+# Put the libraries back, when putting the interpreter back was not enough.
+#
+# Three builds in a row on the same machine got this far and then failed on
+# an interpreter that was missing from a folder nobody had touched, with
+# Windows Defender reporting no detection and, on the third run, Defender
+# exclusions already in place for the whole build tree. Whatever is removing
+# files here is not Defender, and it does not only take python.exe:
+#
+#     AttributeError: module 'numpy' has no attribute '__version__'
+#
+# That error is not a numpy bug and not a version clash. `import numpy`
+# succeeded, so the folder is still on sys.path - it is numpy/__init__.py
+# that is gone, which leaves Python treating the directory as an empty
+# namespace package. Something removed files from inside site-packages at
+# the same time it took the interpreter's own.
+#
+# Restore-Interpreter cannot repair that. It re-extracts root entries of the
+# embeddable zip, and deliberately refuses to recreate anything in a
+# subfolder, because it has no idea what pip put there. So the build
+# restored a working python.exe, immediately failed the import check with
+# half a numpy, and threw - having done ten minutes of work and thrown all
+# of it away over damage it could have simply redone.
+#
+# This redoes it. site-packages is deleted and rebuilt from the same bundled
+# wheels, offline, exactly as step 5 built it the first time. pip goes with
+# it - pip lives in site-packages - so get-pip runs again first. Once per
+# build: if the libraries are damaged twice, something is actively eating
+# this tree and the honest outcome is the throw that follows.
+$script:LibraryRepairs = 0
+function Repair-Libraries {
+    param([string] $Phase)
+    if ($script:LibraryRepairs -ge 1) { return $false }
+    if (-not (Test-Path -LiteralPath $exe)) { return $false }
+    if (-not (Test-Path -LiteralPath $getPip)) { return $false }
+    if ($wheels.Count -lt 1) { return $false }
+    $script:LibraryRepairs += 1
+
+    Write-Host ""
+    Write-Host ("  The libraries did not survive $Phase, so they are being installed again.") -ForegroundColor Yellow
+    Write-Host "  Putting python.exe back cannot repair what pip wrote; this can." -ForegroundColor Yellow
+    Write-Host ""
+
+    $site = Join-Path $python "Lib\site-packages"
+    if (Test-Path -LiteralPath $site) { Remove-Item -LiteralPath $site -Recurse -Force -ErrorAction SilentlyContinue }
+    New-Item -ItemType Directory -Path $site -Force | Out-Null
+    # The ._pth may have gone with everything else, and without it the
+    # reinstall below lands somewhere the interpreter will not look.
+    Enable-SitePackages
+
+    Say "pip, again"
+    try {
+        $null = Invoke-Python -What "get-pip.py" -Arguments @(
+            $getPip, "--no-warn-script-location", "--no-input", "--disable-pip-version-check",
+            "--no-setuptools", "--no-wheel")
+    } catch {
+        Say "get-pip.py did not accept the offline flags; trying again without them"
+        $null = Invoke-Python -What "get-pip.py" -Arguments @(
+            $getPip, "--no-warn-script-location", "--no-input", "--disable-pip-version-check")
+    }
+
+    # A repair that fails is not a new kind of failure. Returning false puts
+    # the original import error back in front of the person reading this,
+    # with the advice that follows it, instead of burying it under a second
+    # one from pip.
+    Say "the engine's libraries, again, from vendor\wheels"
+    try {
+        $null = Invoke-Python -What "pip install -r engine\requirements.txt" -Arguments @(
+            "-m", "pip", "install", "-r", $requirements,
+            "--no-index", "--find-links", $wheelDir,
+            "--no-cache-dir", "--no-warn-script-location", "--disable-pip-version-check")
+    } catch {
+        Write-Host "  the reinstall did not finish:" -ForegroundColor Yellow
+        Write-Host (($_.Exception.Message -split "`r?`n" | Select-Object -First 5) -join [Environment]::NewLine) -ForegroundColor Yellow
+        return $false
+    }
+
+    $mt5Again = @($wheels | Where-Object { $_.Name -like "MetaTrader5-*" })
+    if ($mt5Again.Count -gt 0) {
+        $mt5Repair = Invoke-PythonRaw -Phase "reinstalling MetaTrader5" -Arguments @(
+            "-m", "pip", "install", "MetaTrader5", "--no-index", "--find-links", $wheelDir,
+            "--no-cache-dir", "--no-warn-script-location", "--disable-pip-version-check")
+        if ($mt5Repair.Code -eq 0) { Say "MetaTrader5 reinstalled" }
+        else { Write-Host "  MetaTrader5 did not reinstall; the desk will run without the terminal" -ForegroundColor Yellow }
+    }
+
+    # Step 7 ran before this and will not run again, and a reinstall writes
+    # bytecode as it goes. Dropping it here keeps the finished zip the size
+    # it would have been.
+    $pycAgain = @(Get-ChildItem -LiteralPath $python -Recurse -File -Include "*.pyc", "*.pyo" -ErrorAction SilentlyContinue)
+    foreach ($f in $pycAgain) { Remove-Item -LiteralPath $f.FullName -Force -ErrorAction SilentlyContinue }
+    $cacheAgain = @(Get-ChildItem -LiteralPath $python -Recurse -Directory -Filter "__pycache__" -ErrorAction SilentlyContinue)
+    foreach ($d in $cacheAgain) { Remove-Item -LiteralPath $d.FullName -Recurse -Force -ErrorAction SilentlyContinue }
+
+    Say "the libraries have been reinstalled; verifying again"
+    return $true
+}
+
 # Say it before the ten minutes, not after.
 #
 # Both builds that lost their interpreter found out at the end, having
@@ -600,12 +697,40 @@ if (-not $KeepTests) {
 Head "Verifying the runtime in isolation"
 $imports = "import sys, fastapi, uvicorn, numpy, pandas, scipy, sklearn, pydantic, websockets, httpx, openpyxl, tzdata; print('ok', sys.version.split()[0], numpy.__version__, pandas.__version__, sklearn.__version__)"
 $run = Invoke-PythonRaw -Phase "verifying the runtime" -Arguments @("-I", "-c", $imports)
+# A failure here used to end the build. Most of the time what it means is
+# that site-packages was damaged while this was being assembled - the same
+# thing that takes python.exe - and that is repairable from the wheels that
+# are still sitting in vendor\wheels. Try once, then decide.
+if ($run.Code -ne 0 -and (Repair-Libraries -Phase "the build")) {
+    $run = Invoke-PythonRaw -Phase "verifying the runtime after the repair" -Arguments @("-I", "-c", $imports)
+}
 $report = $run.Text
 $code = $run.Code
 if ($code -ne 0) {
+    $advice = ""
+    if ($script:LibraryRepairs -gt 0 -or $script:Restores -gt 0) {
+        # Said plainly, because three builds have now been lost to this and
+        # the next step is not another build.
+        # It is not Defender, and it is not another antivirus. That was
+        # asked and answered on the machine this keeps happening to:
+        # SecurityCenter2 lists Windows Defender and nothing else, and
+        # Defender's real-time protection is switched off. So the thing
+        # removing these files is an ordinary program, and the only way
+        # left to name it is to have Windows record who does it.
+        $advice = ("`n  This runtime was repaired during the build and still does not work, so`n" +
+                   "  something on this machine is removing files faster than they can be put`n" +
+                   "  back. Have Windows name it:`n" +
+                   "      installer\tools\find-the-deleter.ps1 -Arm      (administrator)`n" +
+                   "      ... run this build again and let it fail ...`n" +
+                   "      installer\tools\find-the-deleter.ps1 -Report`n" +
+                   "      installer\tools\find-the-deleter.ps1 -Off`n" +
+                   "  Or sidestep it entirely by assembling the runtime somewhere else:`n" +
+                   "      `$env:AURION_RUNTIME_WORK = 'C:\rtbuild'")
+    }
     throw ("The packaged Python cannot import the engine's libraries:`n" +
            (($report.Trim() -split "`r?`n" | Select-Object -Last 25) -join [Environment]::NewLine) + "`n" +
-           "  A runtime that fails here would fail on the customer's machine, so the build stops.")
+           "  A runtime that fails here would fail on the customer's machine, so the build stops." +
+           $advice)
 }
 Say $report.Trim()
 

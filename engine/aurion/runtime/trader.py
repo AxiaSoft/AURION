@@ -12,7 +12,17 @@ from .deals import aggregate_close_deals, history_row_matches
 from ..prop.hours import (broker_offset_minutes, resolve_zone, zone_choices,
                           zone_label, zone_offset_minutes)
 from .gates import fire_blockers as gate_blockers
-from .risk import REFERENCE_LOT, SymbolSpec, cap_stop, money_at_risk, volume_for_risk
+from .risk import (
+    DEFAULT_SCOPE,
+    MONEY_SCOPES,
+    REFERENCE_LOT,
+    SymbolSpec,
+    cap_stop,
+    money_at_risk,
+    normalise_scope,
+    risk_budget,
+    volume_for_risk,
+)
 from .stops import ladder_target, resolve_stop, resolve_stop_r
 from ..ai.engine import AIEngine
 from ..backtest.engine import Backtester
@@ -126,6 +136,9 @@ class Trader:
         # Money management, stated the one way that means the same thing on
         # every instrument: what a stop is allowed to cost per 1.00 lot.
         self.max_loss_per_lot = 10.0
+        # What that number counts: one trade, or one 0.01 lot. See
+        # MONEY_SCOPES in runtime/risk.py.
+        self.money_scope = DEFAULT_SCOPE
         self._spec_gap_said: set[str] = set()
         self._cap_note: dict[int, float] = {}
         self.risk_free_trigger_pct = 0.30
@@ -431,6 +444,43 @@ class Trader:
         if "flatten" in action:
             await self.flatten(f"prop:{decision.get('code')}")
 
+    def _ai_for(self, symbol: str) -> dict[str, Any]:
+        """The AI's reading of *this* chart, never of some other one.
+
+        ``AIEngine.last`` is whichever chart was analysed most recently.
+        On a one-symbol desk that is the right answer by accident; the
+        moment a second symbol is watched it stops being the right
+        answer and nobody notices, because the reading still looks
+        perfectly sensible - it is just about a different instrument.
+
+        The damage was real and ran both ways. A strategy was handed
+        another chart's direction, confidence and regime in its context,
+        so ``with_trend`` and the AI-agreement rule inside it were judged
+        against the wrong market; and the account's AI veto refused an
+        entry with "the AI reads bear against this buy" when the bear
+        read belonged to a symbol the signal had never mentioned. That
+        is how a strong setup gets turned down for no reason the trader
+        can see on the chart in front of them.
+
+        ``by_symbol`` has carried ``ready``, ``direction`` and
+        ``confidence`` per chart all along, and ``signal_quality`` was
+        already reading it that way. This is the same lookup, in one
+        place, for everyone: the chart's own entry, and ``last`` only
+        when it is about this chart or about no chart at all.
+        """
+        name = str(symbol or "").strip()
+        try:
+            view = dict((self.ai.by_symbol.get(name) or {})) if name else {}
+            if view:
+                return view
+            last = dict(self.ai.last or {})
+            if not name:
+                return last
+            last_sym = str(last.get("symbol") or "")
+            return last if (last_sym == name or not last_sym) else {}
+        except Exception:
+            return {}
+
     def _ctx(self, symbol: str, timeframe: str, tick: dict[str, Any] | None = None) -> StrategyContext:
         candles = [c.to_dict() for c in self.bridge.candles_of(symbol, timeframe)]
         if not candles and self._is_ea_symbol(symbol):
@@ -443,7 +493,7 @@ class Trader:
             account=self.bridge.account.to_dict(),
             positions=[p.to_dict() for p in self.bridge.positions],
             orders=[o.to_dict() for o in self.bridge.orders],
-            ai=self.ai.last,
+            ai=self._ai_for(symbol),
             params=getattr(self.strategy, "params", {}) if self.strategy else {},
             now=utc_iso(),
         )
@@ -1120,6 +1170,16 @@ class Trader:
         except (TypeError, ValueError):
             return 0.0
 
+    def _scope(self) -> str:
+        """Whether the cap is read per trade or per 0.01 lot."""
+        return normalise_scope(getattr(self, "money_scope", DEFAULT_SCOPE))
+
+    def _cap_words(self) -> str:
+        """The cap and its unit, for anything a human reads."""
+        cap = self._cap()
+        return (f"{cap:.2f} per trade" if self._scope() == "trade"
+                else f"{cap:.2f} per {REFERENCE_LOT:g} lot")
+
     async def _no_spec(self, symbol: str) -> None:
         """Say once per symbol that money cannot be priced here.
 
@@ -1135,7 +1195,7 @@ class Trader:
             "warning",
             "no_spec",
             f"{key}: the broker has not reported a tick value, so the "
-            f"{self._cap():.2f} per-lot stop cap cannot be applied here. "
+            f"stop cap of {self._cap_words()} cannot be applied here. "
             "Attach AurionBridge to this symbol's chart, or connect the terminal.",
         )
 
@@ -1178,12 +1238,63 @@ class Trader:
         if entry <= 0:
             return request
 
-        # At the lot this ticket is actually being sent with. Measuring
-        # the cap against a notional one lot is what made the stop on a
-        # 0.01-lot ticket a hundred times tighter than the trader asked.
+        scope = self._scope()
+        requested_volume = float(request.get("volume") or 0)
+        wanted_sl = float(request.get("sl") or 0)
+
+        # Size first, under a per-trade cap.
+        #
+        # The cap has two levers and they are not equally good. Pulling
+        # the stop in keeps the size and moves the exit, which is the
+        # one thing the trader actually chose by looking at the chart;
+        # it is also how a big ticket ends up with a stop four tenths of
+        # a pip away, dying in the spread. Cutting the size keeps the
+        # stop exactly where it was drawn and simply buys less of it.
+        #
+        # So under "trade" the size moves first and the stop is only
+        # touched when the broker's minimum lot already risks more than
+        # the cap - at which point there is no size left to cut and
+        # tightening is the only alternative to refusing the trade.
+        #
+        # Under "lot" the budget grows with the size, so sizing down
+        # never helps and this is skipped entirely.
+        if scope == "trade" and wanted_sl > 0 and requested_volume > 0:
+            at_risk = money_at_risk(side, entry, wanted_sl, requested_volume, spec)
+            if at_risk > cap + 1e-9:
+                fitted = volume_for_risk(side, entry, wanted_sl, spec, cap, requested_volume)
+                if fitted > 0:
+                    await self.journal(
+                        "info",
+                        "sized_to_cap",
+                        f"{symbol} {side}: {requested_volume:.2f} lots with that stop risks "
+                        f"{at_risk:.2f}; sent {fitted:.2f} so the trade cannot lose more than "
+                        f"{cap:.2f}. The stop was left where you put it.",
+                        {"requested": requested_volume, "sent": fitted,
+                         "would_risk": round(at_risk, 2), "cap": cap},
+                    )
+                    request["volume"] = fitted
+                    requested_volume = fitted
+                    # Sized to land on the cap, so the stop is inside it
+                    # by construction. Running the stop rule now would
+                    # still nudge it one tick, because the allowed
+                    # distance is floored to whole ticks and the stop
+                    # that just paid for itself sits exactly on the
+                    # boundary. Moving a trader's stop by a tick for a
+                    # rounding artefact is noise in the journal and a
+                    # different fill, so it is skipped when the ticket
+                    # already fits.
+                    if money_at_risk(side, entry, wanted_sl, fitted, spec) <= cap + 1e-6:
+                        return await self._size_for_budget(request, side, entry, symbol)
+
+        # Whatever size is going out now, the stop still has to fit the
+        # cap at that size. Measuring the cap against a notional one lot
+        # is what made the stop on a 0.01-lot ticket a hundred times
+        # tighter than asked; multiplying it by the lot, which is what
+        # the per-lot scope does, is what gave a 0.10-lot ticket a 100
+        # stop from a setting that said 10.
         capped = cap_stop(
             side, entry, float(request.get("sl") or 0), spec, cap,
-            float(request.get("volume") or 0),
+            float(request.get("volume") or 0), scope,
         )
         if capped is None:
             return request
@@ -1194,13 +1305,26 @@ class Trader:
                 "info",
                 "stop_capped",
                 f"{symbol} {side}: stop {('moved to ' + str(capped.sl)) if before else 'set at ' + str(capped.sl)} "
-                f"so one lot risks {capped.money_per_lot:.2f}, not more than {cap:.2f} "
+                f"so this ticket risks {capped.money:.2f}, inside the cap of {self._cap_words()} "
                 f"({capped.reason})",
-                {"before": before, "after": capped.sl, "per_lot": round(capped.money_per_lot, 2)},
+                {"before": before, "after": capped.sl, "money": round(capped.money, 2),
+                 "scope": scope},
             )
 
-        # Position sizing. The cap bounds what one lot may lose; the
-        # account's own risk budget bounds how many lots that is.
+        return await self._size_for_budget(request, side, entry, symbol)
+
+    async def _size_for_budget(self, request: dict[str, Any], side: str,
+                               entry: float, symbol: str) -> dict[str, Any]:
+        """The account's own risk budget, applied after the stop cap.
+
+        Two ceilings, and the lower one wins: the cap says what a trade
+        may lose, prop's percentage says what this account may lose on
+        one trade, and neither is allowed to let the other be stepped
+        over.
+        """
+        spec = self.symbol_spec(symbol)
+        if not spec.usable:
+            return request
         budget = self._risk_budget()
         requested = float(request.get("volume") or 0)
         if budget > 0 and requested > 0:
@@ -1281,7 +1405,7 @@ class Trader:
             if side not in {"buy", "sell"} or entry <= 0:
                 continue
             capped = cap_stop(side, entry, float(pos.sl or 0), spec, cap,
-                              float(getattr(pos, "volume", 0) or 0))
+                              float(getattr(pos, "volume", 0) or 0), self._scope())
             if capped is None or not capped.capped:
                 continue
             if abs(self._cap_note.get(pos.ticket, 0.0) - capped.sl) < spec.tick_size / 2:
@@ -1290,8 +1414,9 @@ class Trader:
             await self.journal(
                 "warning",
                 "stop_capped_live",
-                f"{symbol} #{pos.ticket} risked more than {cap:.2f} per lot — stop pulled to {capped.sl}",
-                {"ticket": pos.ticket, "sl": capped.sl, "per_lot": round(capped.money_per_lot, 2)},
+                f"{symbol} #{pos.ticket} risked more than {self._cap_words()} — stop pulled to {capped.sl}",
+                {"ticket": pos.ticket, "sl": capped.sl, "money": round(capped.money, 2),
+                 "scope": self._scope()},
             )
             await bridge.send_order({
                 "action": "modify",
@@ -1672,14 +1797,22 @@ class Trader:
         cap = self._cap()
         symbol = str(getattr(self, "active_symbol", "") or "")
         spec = self.symbol_spec(symbol) if symbol else SymbolSpec()
+        scope = self._scope()
         state: dict[str, Any] = {
             "max_loss_per_lot": cap,
+            "scope": scope,
             "symbol": symbol,
             "priced": bool(spec.usable),
             "currency": spec.currency or str((self.bridge.account.to_dict() or {}).get("currency") or ""),
         }
         if spec.usable and cap > 0:
-            distance = spec.floor_to_tick(spec.distance_for(cap))
+            # The widest stop the cap allows, at the reference size the
+            # desk prints beside it. distance_for() takes money and a
+            # volume, so the budget has to be the one that belongs to
+            # that volume - passing the raw cap read a per-trade budget
+            # as if it were per-lot and overstated the reach.
+            ref = REFERENCE_LOT
+            distance = spec.floor_to_tick(spec.distance_for(risk_budget(cap, ref, scope), ref))
             state["max_stop_distance"] = spec.round_price(distance)
             state["max_stop_points"] = round(distance / spec.tick_size, 1) if spec.tick_size else 0
         state["reference_lot"] = REFERENCE_LOT
@@ -1741,8 +1874,16 @@ class Trader:
         return out
 
     async def set_money(self, body: dict[str, Any]) -> dict[str, Any]:
-        """Set the per-lot loss cap. 0 turns the rule off, loudly."""
+        """Set the loss cap and what it counts. 0 turns the rule off, loudly."""
         body = dict(body or {})
+        if "scope" in body:
+            asked = str(body.get("scope") or "")
+            if asked.strip().lower() not in MONEY_SCOPES:
+                # Named rather than silently defaulted: a desk that sends
+                # a scope it invented is a desk that thinks the cap means
+                # something it does not.
+                return {"ok": False, "error": "scope must be one of " + ", ".join(MONEY_SCOPES)}
+            self.money_scope = normalise_scope(asked)
         if "max_loss_per_lot" in body:
             try:
                 value = float(body.get("max_loss_per_lot") or 0)
@@ -1758,7 +1899,7 @@ class Trader:
         await self.journal(
             "info",
             "money_cfg",
-            (f"Stop cap set to {state['max_loss_per_lot']:.2f} per lot"
+            (f"Stop cap set to {self._cap_words()}"
              if state["max_loss_per_lot"] > 0
              else "Stop cap OFF — stops are whatever the strategy asks for"),
             extra=state,
@@ -1772,8 +1913,13 @@ class Trader:
         if cap <= 0 or not spec.usable:
             return None
 
+        scope = self._scope()
+
         def rule(side: str, entry: float, sl: float, volume: float = 0.0) -> float:
-            out = cap_stop(side, entry, sl, spec, cap, volume)
+            # Same scope as the live rule: a replay that prices risk by a
+            # different rule than the desk is a chart of a system nobody
+            # is running.
+            out = cap_stop(side, entry, sl, spec, cap, volume, scope)
             return out.sl if out else sl
 
         return rule
@@ -2088,6 +2234,12 @@ class Trader:
             self.max_loss_per_lot = max(0.0, float(money_cfg.get("max_loss_per_lot", 10.0)))
         except (TypeError, ValueError):
             self.max_loss_per_lot = 10.0
+        # Absent from an older config file, which is the common case:
+        # normalise_scope answers DEFAULT_SCOPE, so an upgraded desk
+        # reads its existing number per trade. That is a change in
+        # behaviour and it is the point - it is the reading the number
+        # was always labelled with.
+        self.money_scope = normalise_scope(money_cfg.get("scope"))
         rf_cfg = runtime.get("risk_free") if isinstance(runtime.get("risk_free"), dict) else {}
         self.risk_free_enabled = bool(rf_cfg.get("enabled", False))
         self.risk_free_trigger_pct = self._clamp_pct(rf_cfg.get("trigger_pct"), 0.30)
@@ -2490,15 +2642,7 @@ class Trader:
         what it is for.
         """
         want = "bull" if str(side).lower() in {"buy", "long"} else "bear"
-        ai: dict[str, Any] = {}
-        try:
-            ai = dict((self.ai.by_symbol.get(symbol) or {}))
-            if not ai:
-                last = self.ai.last or {}
-                if str(last.get("symbol") or "") == symbol or not last.get("symbol"):
-                    ai = dict(last)
-        except Exception:
-            ai = {}
+        ai: dict[str, Any] = self._ai_for(symbol)
 
         reasons: list[str] = []
         votes: list[tuple[float, float]] = []      # (weight, 0..1 value)
@@ -2787,6 +2931,7 @@ class Trader:
                     },
                     "money": {
                         "max_loss_per_lot": float(getattr(self, "max_loss_per_lot", 10.0) or 0.0),
+                        "scope": self._scope(),
                     },
                     "risk_free": {
                         "enabled": bool(self.risk_free_enabled),
@@ -3292,7 +3437,7 @@ class Trader:
 
     def _ai_ceiling_note(self) -> str:
         ceiling = self._ai_ceiling()
-        if ceiling <= 0 or ceiling >= float(getattr(self, "min_ai_confidence", 0.55) or 0):
+        if ceiling <= 0 or ceiling >= float(getattr(self, "min_ai_confidence", 0.35) or 0):
             return ""
         return (
             f" — and with the edge measured so far the AI cannot go above {ceiling:.2f}, "
@@ -3311,7 +3456,7 @@ class Trader:
         market's fault rather than the slider's.
         """
         ceiling = self._ai_ceiling()
-        if ceiling <= 0 or ceiling >= float(getattr(self, "min_ai_confidence", 0.55) or 0):
+        if ceiling <= 0 or ceiling >= float(getattr(self, "min_ai_confidence", 0.35) or 0):
             self._ai_ceiling_said = False
             return
         if getattr(self, "_ai_ceiling_said", False):
@@ -3390,7 +3535,11 @@ class Trader:
         # the trader could not say which of the two had refused. The
         # built-ins no longer ask; this is the account's rule.
         if action in {"buy", "sell", "market"} and self.require_ai_agree:
-            ai = self.ai.last or {}
+            # This chart's reading, not the last chart the AI happened to
+            # look at. See _ai_for(): the veto used to refuse a XAUUSD buy
+            # because EURUSD read bear, and said so in words that made the
+            # trader doubt the chart instead of the robot.
+            ai = self._ai_for(self._resolve_symbol(payload))
             if ai.get("ready"):
                 if float(ai.get("confidence") or 0) < self.min_ai_confidence:
                     await self._blocked(
@@ -3444,17 +3593,48 @@ class Trader:
             "bias": verdict.get("bias") or "neutral",
             "at": utc_iso(),
         }
+        # The quality floor no longer refuses an entry.
+        #
+        # Asked for directly - the smart filters were to stop blocking
+        # trades - and measured before shipping, because a change to
+        # what the robot will and will not take is not a preference.
+        #
+        # A/B over a seeded synthetic market, 8 markets x 3 built-ins,
+        # 2 837 priced trades, expectancy in R (costs not modelled; see
+        # backtest/engine.py). The split is on the strategy's own
+        # confidence against the 0.55 floor, which is exactly what
+        # signal_quality() returns when the model is still learning and
+        # the slower chart has no opinion - the state of any fresh
+        # install:
+        #
+        #   everything                 n=2837  win 45.4%  PF 1.15  +0.0580R
+        #   the floor let through      n=2756  win 45.5%  PF 1.14  +0.0568R
+        #   the floor refused          n=  81  win 43.2%  PF 1.33  +0.0990R
+        #
+        # So the floor was refusing 2.9% of entries and the ones it
+        # refused were, if anything, slightly better than the ones it
+        # allowed. n=81 is small and that number is noisy - the honest
+        # reading is not "blocking is harmful", it is "there is no
+        # measured evidence it protects anything", which is not enough
+        # to keep a rule that stops a trade.
+        #
+        # What the same measurement does support is keeping the score
+        # itself. Confidence predicts return across its range - the six
+        # bands run -0.040R, -0.021R, -0.000R, +0.138R, +0.093R,
+        # +0.178R, corr +0.067 - so the quality-weighted lot below
+        # earns its keep: at the same average size it returned +156.4R
+        # where flat sizing returned +135.8R, about 15% better. The
+        # score now shapes the size and the number of tickets, and
+        # refuses nothing.
         if getattr(self, "smart_filters", True):
-            if quality < float(getattr(self, "min_signal_quality", 0.55) or 0):
-                await self._blocked(
-                    source,
-                    payload,
-                    "low_quality",
-                    f"quality {quality:.2f} is under the {float(getattr(self, 'min_signal_quality', 0.55)):.2f} floor "
-                    f"({'; '.join(verdict.get('reasons') or []) or 'no supporting read'})",
-                    {"quality": verdict},
-                )
-                return
+            # The spread guard stays, and is deliberately not covered by
+            # the measurement above: a historical bar carries no spread,
+            # so there is nothing here to A/B it against. It is also not
+            # the same kind of rule - it is not an opinion about the
+            # setup, it is a refusal to pay a cost that is visible at
+            # that instant, which is what stops the robot buying into a
+            # rollover or a news-print spread. Removing it on a hunch is
+            # exactly the thing the measurement above exists to avoid.
             ok_spread, why = self._spread_ok(symbol)
             if not ok_spread:
                 await self._blocked(source, payload, "spread", why)
@@ -4616,14 +4796,23 @@ class Trader:
             log.exception("store recreate failed")
         self.kill_switch = False
         self.safe_mode = False
-        self.auto_trade = False
-        self.require_ai_agree = True
-        self.min_ai_confidence = 0.55
-        self.trade_style = "normal"
-        self.min_open_trades = 1
-        self.max_open_trades = 2
-        self.smart_filters = True
-        self.min_signal_quality = 0.55
+        # Take the settings back from the file that was just restored,
+        # rather than restating them here.
+        #
+        # What was here set the minimum AI confidence to 0.55 while
+        # aurion.factory.json says 0.35, and before the model has
+        # measured an edge it cannot report more than about 0.53 (see
+        # LiveModels.confidence_ceiling and test_ai_brain) - a robot
+        # that refuses every entry. To be exact: it was not doing that,
+        # because _load_runtime_book() is called again further down this
+        # same reset and read the right number off the file. It was a
+        # contradiction waiting for someone to reorder two blocks.
+        #
+        # Restating the defaults in a second place also meant the lot
+        # mode, the manual lot, the news switch and the auto-entry
+        # settings were never reset at all. One reader, one set of
+        # defaults, in the file the trader can actually see.
+        self._load_runtime_book()
         self.last_quality: dict[str, Any] = {}
         self.danger_enabled = False
         self.danger_sensitivity = 50
@@ -4906,6 +5095,46 @@ class Trader:
         # had died. Nothing was wrong except the waiting.
         return dict(self.backtest_run)
 
+    def _backtest_point_value(self, symbol: str) -> float:
+        """What one whole unit of price is worth, per 1.0 lot, in money.
+
+        This was the number behind "the backtest trades in cents". It
+        was the literal 1.0, so the replay priced a trade as
+
+            (exit - entry) * volume
+
+        and on a five-digit pair a 50-point winner at 0.10 lots came
+        out as 0.0005 - not a small profit, a profit in the wrong unit
+        entirely. Every figure built on it inherited the mistake:
+        equity, drawdown, the curve, and R, since the stop distance was
+        converted the same way.
+
+        The live side has had one answer to this question since the
+        money rules went in: money = distance / tick_size * tick_value
+        * volume (runtime/risk.py). Per whole unit of price and per
+        lot, that is tick_value / tick_size - 10 000 on a typical FX
+        pair, which is exactly the factor the results were missing.
+
+        Asked of the same broker the replay's bars came from, so the
+        test and the account agree. When the broker will not say - no
+        MT5 connection, an EA that does not answer, an unknown symbol -
+        it falls back to 1.0, which is what it always was. A guessed
+        tick value is a wrong number stated with confidence, and the
+        run reports the factor it used so nobody has to assume.
+        """
+        try:
+            spec = self.symbol_spec(str(symbol or ""))
+        except Exception:
+            log.exception("backtest could not read the spec for %s", symbol)
+            return 1.0
+        if not spec.usable:
+            return 1.0
+        try:
+            value = float(spec.tick_value) / float(spec.tick_size)
+        except (TypeError, ValueError, ZeroDivisionError):
+            return 1.0
+        return value if value > 0 else 1.0
+
     async def _run_backtest(
         self,
         inst: Any,
@@ -4947,7 +5176,8 @@ class Trader:
             # with neither passed through, a replay reported the result
             # of a 0.1-lot, one-trade-at-a-time robot nobody is running.
             result = await asyncio.to_thread(
-                self.backtester.run, inst, bars, symbol, timeframe, equity, 1.0, 80, None, report,
+                self.backtester.run, inst, bars, symbol, timeframe, equity,
+                self._backtest_point_value(symbol), 80, None, report,
                 str(getattr(self, "volume_mode", "auto")),
                 float(getattr(self, "manual_volume", 0.0) or 0.0),
                 int(self._total_cap()),

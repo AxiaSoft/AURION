@@ -102,14 +102,41 @@ def test_the_desk_shows_why_the_last_signal_was_not_sent() -> None:
     assert "self.last_block = {" in src
     assert '"last_block": dict(getattr(self, "last_block", {}) or {})' in src, \
         "the refusal has to reach the snapshot or the desk cannot show it"
-    for code in ("low_quality", "spread", "slots_full", "ai_low", "ai_disagree", "license"):
+    # "low_quality" is no longer among them: the quality floor stopped
+    # refusing entries (see test_the_score_sizes_rather_than_refuses
+    # below for the measurement). Every refusal that remains still has
+    # to leave a named record, or "why is it not trading" comes back.
+    for code in ("spread", "slots_full", "ai_low", "ai_disagree", "license"):
         assert f'"{code}"' in src, f"{code} must go through the one recorder"
 
 
-def test_the_gate_and_the_sizing_are_both_driven_by_it() -> None:
+def test_the_score_sizes_rather_than_refuses() -> None:
+    """The score used to do two jobs; it now does one of them.
+
+    Named "the gate and the sizing are both driven by it" until the
+    gate was taken out on request, and the gate half was measured
+    before it went. A/B over a seeded synthetic market, 8 markets x 3
+    built-ins, 2 837 priced trades, split on the strategy's own
+    confidence against the 0.55 floor - which is what signal_quality
+    returns on a fresh install, where the model is still learning and
+    the slower chart has not voted:
+
+        everything             n=2837  win 45.4%  PF 1.15  +0.0580R
+        the floor allowed      n=2756  win 45.5%  PF 1.14  +0.0568R
+        the floor refused      n=  81  win 43.2%  PF 1.33  +0.0990R
+
+    2.9% of entries refused, and no evidence they deserved it.
+
+    The sizing half measured the other way and is kept. Confidence
+    predicts return across its range - six bands at -0.040R, -0.021R,
+    -0.000R, +0.138R, +0.093R, +0.178R - and at the same average size
+    the quality-weighted lot returned +156.4R against +135.8R flat.
+    Costs are not modelled; see backtest/engine.py.
+    """
     src = TRADER.read_text(encoding="utf-8")
-    assert "if quality < float(getattr(self, \"min_signal_quality\"" in src, \
-        "the score must gate the entry"
+    assert "if quality < float(getattr(self, \"min_signal_quality\"" not in src, \
+        "the quality floor is refusing entries again - it was removed on request, " \
+        "and the A/B is in the comment beside the spread guard"
     assert "factor = 0.6 + 0.4 * max(0.0, min(1.0, (quality - 0.5) / 0.4))" in src, \
         "a bare pass has to trade smaller - the desk says 60% to 100%"
     assert "strength = max(0.0, min(1.0, (float(quality) - 0.5) / 0.4))" in src, \
@@ -128,7 +155,7 @@ TESTS = [
     test_an_unready_model_cannot_silence_the_robot,
     test_desk_publishes_those_weights,
     test_the_desk_shows_why_the_last_signal_was_not_sent,
-    test_the_gate_and_the_sizing_are_both_driven_by_it,
+    test_the_score_sizes_rather_than_refuses,
     test_the_last_verdict_reaches_the_desk,
 ]
 

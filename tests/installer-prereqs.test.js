@@ -47,6 +47,7 @@ const startCmd = read("start-aurion.cmd");
 const buildMsi = read("installer/tools/build-msi.ps1");
 const stagePs1 = read("installer/tools/stage.ps1");
 const verifyBundle = read("installer/tools/verify-bundle.ps1");
+const findDeleter = read("installer/tools/find-the-deleter.ps1");
 const vendorPs1 = read("installer/tools/fetch-vendor.ps1");
 
 // ---------------------------------------------------------------- detection
@@ -853,7 +854,9 @@ check("the installed app prefers the bundle over the network",
   /Bundled\(installDir, PythonExeName\)/.test(prereqCs) &&
   /Bundled\(installDir, NodeZipName\)/.test(prereqCs) &&
   /Bundled\(installDir, "MicrosoftEdgeWebview2Setup\.exe"\)/.test(prereqCs) &&
-  /--no-index --find-links/.test(prereqCs));
+  // by its own operands, not by the bare flag: there are two --no-index
+  // commands here now and a substring test is satisfied by either one
+  /--no-index --find-links \\"\{wheels\}\\" -r \\"\{requirements\}\\"/.test(prereqCs));
 check("and so does the script, for an install that is already on a machine",
   /Get-Bundled/.test(provisionPs1) &&
   // the flags travel as separate argv elements now, so a path with a space
@@ -1052,8 +1055,14 @@ check("the setup window unpacks the runtime instead of installing a Python",
   prereqCs.indexOf("Bundled(installDir, RuntimePythonZipName).Length > 0") <
     prereqCs.indexOf("await DownloadAsync(PythonUrl"));
 
+// This used to pin `if (!PipWorks(exe, ""))` inside UnpackPythonAsync.
+// That line is gone on purpose: having a second place that bootstrapped
+// pip is what let the get-pip-goes-to-PyPI bug survive in one of them
+// after the other was fixed. UnpackPythonAsync now delegates, and the
+// behaviour this guard exists for - never run get-pip over a working
+// pip - is the first line of the routine it delegates to.
 check("and does not run get-pip over a pip that is already there",
-  /if \(!PipWorks\(exe, ""\)\)/.test(prereqCs));
+  /private static async Task EnsurePipAsync\([\s\S]{0,400}?if \(PipWorks\(exe, args\)\) return;/.test(prereqCs));
 
 check("and does not run pip over libraries that are already installed",
   /if \(await ImportsWorkAsync\(PythonCommand, ct\)\)/.test(prereqCs));
@@ -1134,7 +1143,7 @@ check("the failure is named rather than numbered",
 
 check("a retry escalates instead of repeating the same command",
   /var attempts = new List<\(string Label, string Args\)>\(\);/.test(prereqCs) &&
-  /--no-index --find-links/.test(prereqCs) &&
+  /--no-index --find-links \\"\{wheels\}\\" -r \\"\{requirements\}\\"/.test(prereqCs) &&
   /ConfiguredIndexUrl/.test(prereqCs),
   "bundled copies, then PyPI, then a mirror if one is configured");
 
@@ -1375,6 +1384,297 @@ check("the build runs it, and does not pretend a failed check is a failed build"
   /Step "Verifying the bundle installs with no network"/.test(buildMsi) &&
   /verify-bundle\.ps1"\) -Root \$repoRoot -Msi \$msi\.FullName/.test(buildMsi) &&
   /The MSI is built, but the checks above say it is not ready to ship\./.test(buildMsi));
+
+/* =====================================================================
+ * The network error from the step that needs no network
+ *
+ * A bare machine, working internet, and the setup window still said the
+ * prerequisites could not be installed - with a network error, while
+ * thirty verified wheels sat unused in vendor\wheels.
+ *
+ * The embeddable Python has no pip and no ensurepip, so setup fell
+ * through to get-pip.py. get-pip.py carries pip, but left to its
+ * defaults it also fetches setuptools and wheel from PyPI. One
+ * unreachable index and EnsurePipAsync threw, so the offline install
+ * below it was never attempted at all. prepare-runtime.ps1 has passed
+ * --no-setuptools --no-wheel since it was written; this path did not.
+ * =================================================================== */
+
+check("pip is bootstrapped from a wheel before anything that can reach PyPI",
+  /BundledPipWheel\(installDir\)/.test(prereqCs) &&
+  prereqCs.indexOf("var pipWheel = BundledPipWheel(installDir);") <
+    prereqCs.indexOf("var getPip = Bundled(installDir, GetPipName);"),
+  "a wheel is a zip with the package at its root, so python can run it to install it");
+
+check("...offline, by its own flags",
+  /--no-index --find-links \\"\{wheelDir\}\\" \\"\{pipWheel\}\\"/.test(prereqCs),
+  "--no-index so that reaching for an index is an error rather than a silent download");
+
+check("...and pip-* does not match pipdeptree",
+  /char\.IsDigit\(name\[4\]\)/.test(prereqCs));
+
+check("get-pip.py is never run with the defaults that go to PyPI first",
+  /" --no-setuptools --no-wheel --no-warn-script-location --no-input",/.test(prereqCs) &&
+  prereqCs.indexOf('" --no-setuptools --no-wheel --no-warn-script-location --no-input",') <
+    prereqCs.indexOf('" --no-warn-script-location --no-input",'),
+  "the plain call stays as a second attempt, in case a future get-pip.py drops the options");
+
+check("every pip bootstrap attempt is written to setup.log",
+  /LogOnly\(say, \$"-- pip from the bundled wheel -> exit \{code\}", output\)/.test(prereqCs) &&
+  /LogOnly\(say, \$"-- get-pip\.py\{tail\} -> exit \{code\}", output\)/.test(prereqCs),
+  "the first failure is the one that matters, and it was the one being thrown away");
+
+check("the build collects pip's own wheel, and will not ship without it",
+  /-m pip download "pip" --dest \$wheels/.test(fetchVendor) &&
+  /\$_\.Name -match "\^pip-\[0-9\]"/.test(fetchVendor) &&
+  /pip's own wheel could not be collected/.test(fetchVendor));
+
+check("there is one routine that bootstraps pip, not two",
+  (prereqCs.match(/Bundled\(installDir, GetPipName\)/g) || []).length === 1 &&
+  /await EnsurePipAsync\(exe, "", installDir, say, ct\);/.test(prereqCs),
+  "UnpackPythonAsync had its own get-pip call, and that is the copy the fix had missed");
+
+check("the verifier fails a bundle that has no pip wheel",
+  /pip's own wheel is bundled/.test(verifyBundle) &&
+  /no pip wheel in the bundle/.test(verifyBundle),
+  "the one wheel without which none of the others can be used");
+
+/* =====================================================================
+ * Three builds lost to damage that was repairable
+ *
+ * Same machine, three runs, Defender exclusions in place by the third:
+ *
+ *     python.exe was missing at verifying the runtime and has been put back
+ *     AttributeError: module 'numpy' has no attribute '__version__'
+ *
+ * That AttributeError is not a numpy bug. `import numpy` succeeded, so the
+ * folder is still there - it is numpy/__init__.py that is gone, leaving an
+ * empty namespace package. Whatever takes python.exe takes files out of
+ * site-packages too.
+ *
+ * Restore-Interpreter deliberately only re-extracts root entries of the
+ * embeddable zip; it must not invent anything pip wrote. So the build put
+ * back a working interpreter, failed the import check on half a numpy, and
+ * threw away ten minutes of work over damage it could have redone from the
+ * wheels still sitting in vendor\wheels.
+ * =================================================================== */
+
+check("damaged libraries are reinstalled before the build gives up",
+  /function Repair-Libraries \{/.test(prepareRuntime) &&
+  /if \(\$run\.Code -ne 0 -and \(Repair-Libraries -Phase "the build"\)\)/.test(prepareRuntime),
+  "the wheels that built it the first time are still on disk");
+
+check("...from the bundle, never from PyPI",
+  /Say "the engine's libraries, again, from vendor\\wheels"/.test(prepareRuntime) &&
+  // its own command, not a count: three other --no-index calls in this file
+  // keep a count satisfied while the repair quietly reaches for an index
+  /Say "the engine's libraries, again[\s\S]{0,400}?"-m", "pip", "install", "-r", \$requirements,\s*\n\s*"--no-index", "--find-links", \$wheelDir,/.test(prepareRuntime),
+  "a repair that downloads is not a repair of an offline bundle");
+
+check("...and pip is reinstalled with it, because pip lives in site-packages",
+  /\$site = Join-Path \$python "Lib\\site-packages"[\s\S]{0,400}?Remove-Item -LiteralPath \$site -Recurse -Force/.test(prepareRuntime) &&
+  /Say "pip, again"/.test(prepareRuntime) &&
+  /"--no-setuptools", "--no-wheel"\)[\s\S]{0,600}?Say "the engine's libraries, again/.test(prepareRuntime),
+  "wiping site-packages takes pip with it, and get-pip must not go to PyPI either");
+
+check("the repair runs once, not in a loop",
+  /if \(\$script:LibraryRepairs -ge 1\) \{ return \$false \}/.test(prepareRuntime) &&
+  /\$script:LibraryRepairs \+= 1/.test(prepareRuntime),
+  "if the libraries are eaten twice, the honest outcome is the throw");
+
+check("a repair that fails restores the original error instead of hiding it",
+  /the reinstall did not finish:/.test(prepareRuntime) &&
+  /\$site = Join-Path[\s\S]*?catch \{[\s\S]{0,300}?return \$false[\s\S]{0,200}?\}/.test(prepareRuntime));
+
+// This used to point at Get-CimInstance root\SecurityCenter2, to find the
+// third-party scanner. That question has since been asked and answered on
+// the machine it keeps happening to - Windows Defender and nothing else,
+// with real-time protection off - so the advice now points at the tool
+// that records who actually deletes the files, rather than at a product
+// that does not exist.
+check("a runtime that is still broken after a repair says what to do next",
+  /if \(\$script:LibraryRepairs -gt 0 -or \$script:Restores -gt 0\)/.test(prepareRuntime) &&
+  /find-the-deleter\.ps1 -Arm/.test(prepareRuntime) &&
+  /find-the-deleter\.ps1 -Report/.test(prepareRuntime) &&
+  /AURION_RUNTIME_WORK/.test(prepareRuntime),
+  "not another exclusion for a scanner that is switched off");
+
+check("real-time protection decides whether an exclusion is even advice",
+  /Defender's real-time protection is OFF, so Defender is not deleting anything\./.test(findDeleter) &&
+  /An exclusion cannot help a scanner that is not scanning\./.test(findDeleter) &&
+  /elseif \(-not \$rtp\)/.test(findDeleter),
+  "this script's own first version handed out an exclusion for a scanner that was off");
+
+check("configuration-change records are counted, not quoted",
+  /if \(\$e\.Id -eq 5007\) \{ \$config \+= 1; continue \}/.test(findDeleter) &&
+  /configuration-change records, which are updates and settings, not deletions/.test(findDeleter),
+  "thirteen lines about MpEngineRing buried the part that mattered");
+
+check("the repair leaves the zip the size it would have been",
+  /\$pycAgain = @\(Get-ChildItem -LiteralPath \$python -Recurse -File -Include "\*\.pyc", "\*\.pyo"/.test(prepareRuntime) &&
+  /\$cacheAgain = @\(Get-ChildItem -LiteralPath \$python -Recurse -Directory -Filter "__pycache__"/.test(prepareRuntime),
+  "step 7 already ran and will not run again");
+
+/* =====================================================================
+ * "Some other antivirus" was wrong
+ *
+ *     Get-CimInstance -Namespace root\SecurityCenter2 -ClassName AntivirusProduct
+ *     displayName      pathToSignedProductExe
+ *     Windows Defender windowsdefender://
+ *
+ * Defender and nothing else. Three builds' worth of advice had been
+ * assuming a third-party scanner, and there isn't one. Guessing a fourth
+ * time is not going to produce a different build, so this asks Windows
+ * directly: an audit entry on the folder makes every deletion inside it
+ * a Security log record that names the process that did it.
+ * =================================================================== */
+
+check("something names the process, instead of a fourth guess",
+  /auditpol\.exe \/set \/subcategory:"File System" \/success:enable/.test(findDeleter) &&
+  /FileSystemAuditRule/.test(findDeleter) &&
+  /Id        = 4663, 4660/.test(findDeleter),
+  "4663 carries the process and the file; 4660 on its own carries neither");
+
+check("...and the machine is put back exactly as it was",
+  /RemoveAuditRule/.test(findDeleter) &&
+  /auditpol\.exe \/set \/subcategory:"File System" \/success:disable/.test(findDeleter) &&
+  /-Off/.test(findDeleter),
+  "an audit policy left switched on is a cost somebody pays forever");
+
+check("arming and disarming refuse to half-finish without elevation",
+  (findDeleter.match(/this needs an administrator PowerShell - nothing was changed/g) || []).length === 2);
+
+check("the two Defender features an ExclusionPath does not cover are checked",
+  /EnableControlledFolderAccess/.test(findDeleter) &&
+  /AttackSurfaceReductionRules_Ids/.test(findDeleter) &&
+  /ASR does not read ExclusionPath/.test(findDeleter),
+  "both act on files without ever producing a threat detection");
+
+check("the exclusion is checked against the folder, not assumed from the drive",
+  /\$Watch\.ToLowerInvariant\(\)\.StartsWith\(\$p\.ToLowerInvariant\(\)\.TrimEnd\('\\'\)\)/.test(findDeleter),
+  "an exclusion added in a non-elevated window is not added at all");
+
+check("the report does not accuse the build of its own deletions",
+  /it is this build's own work/.test(findDeleter) &&
+  /the trim step and pip both/.test(findDeleter),
+  "powershell.exe and python.exe delete thousands of files here legitimately");
+
+check("an empty report says so rather than clearing anybody",
+  /nothing was recorded for \$Watch in the last \$Hours hours/.test(findDeleter) &&
+  /Either -Arm was not run before the build/.test(findDeleter));
+
+check("the watcher follows AURION_RUNTIME_WORK like the build does",
+  /\$env:AURION_RUNTIME_WORK\.Trim\(\) "aurion-runtime-build"/.test(findDeleter) &&
+  /vendor\\\.runtime-build/.test(findDeleter),
+  "watching the folder the build is not using proves nothing");
+
+/* =====================================================================
+ * An -Arm that silently did nothing
+ *
+ *     Method invocation failed because [System.Object[]] does not
+ *     contain a method named 'op_BitwiseOr'.
+ *
+ * Written inline in a constructor's argument list, PowerShell binds the
+ * commas tighter than -bor: "Everyone", Delete -bor DeleteSubdirectories
+ * parses as ("Everyone", Delete) -bor DeleteSubdirectories, and an array
+ * has no op_BitwiseOr. The audit was never switched on. The build then
+ * failed exactly as before, and -Report found nothing and said so - which
+ * read like a result and was a bug in the tool.
+ * =================================================================== */
+
+check("the rights are combined before they reach the constructor",
+  /\$rights = \(\[System\.Security\.AccessControl\.FileSystemRights\]::Delete -bor/.test(findDeleter) &&
+  /New-Object System\.Security\.AccessControl\.FileSystemAuditRule -ArgumentList @\(/.test(findDeleter) &&
+  !/FileSystemAuditRule\(\s*\n\s*"Everyone",/.test(findDeleter),
+  "a comma binds tighter than -bor, and an array has no op_BitwiseOr");
+
+check("an audit entry that did not stick stops the run",
+  /\$check = Get-Acl -LiteralPath \$Watch -Audit/.test(findDeleter) &&
+  /do not trust -Report/.test(findDeleter),
+  "Set-Acl returns without error when the account lacks SeSecurityPrivilege");
+
+/* =====================================================================
+ * Giving up on the prepared runtime without giving up the bundle
+ *
+ * -SkipWheels dodges prepare-runtime.ps1, but it dodges collecting the
+ * wheels with it, and a bundle with no wheels needs the customer's
+ * network - the exact thing this installer exists to avoid. -SkipRuntime
+ * is the half that was missing: every wheel still travels, only the
+ * pre-built runtime-python.zip is skipped.
+ * =================================================================== */
+
+check("the build can skip the prepared runtime and still bundle everything",
+  /\[switch\] \$SkipRuntime,/.test(buildMsi) &&
+  /fetch-vendor\.ps1"\) -SkipWheels:\$SkipWheels -SkipRuntime:\$SkipRuntime/.test(buildMsi),
+  "fetch-vendor already had the switch; nothing could reach it");
+
+check("...and does not then demand the file it was told not to build",
+  /if \(-not \$SkipWheels -and -not \$SkipRuntime\) \{ \$needed \+= "runtime-python\.zip" \}/.test(buildMsi),
+  "the completeness guard threw at line 472 on a file nobody asked for");
+
+// Three separate places decide whether runtime-python.zip is required,
+// and -SkipRuntime shipped wired to two of them: the build reached the
+// staging step and threw on the very file it had just been told not to
+// build. A switch that makes a file optional has to say so everywhere
+// that file is demanded, or it makes it optional nowhere.
+/* =====================================================================
+ * A comment that deleted an argument
+ *
+ * The staging fix shipped looking exactly right and changed nothing:
+ *
+ *     & ... stage.ps1 -Root $repoRoot -SkipNpm:$SkipNpm `
+ *         # -SkipRuntime belongs here too...
+ *         -AllowIncompleteVendor:($SkipWheels -or $SkipRuntime -or $NoBundle)
+ *
+ * The backtick joins the two lines, the # comments out everything after
+ * it, and -AllowIncompleteVendor is never passed. The build threw at
+ * stage.ps1:255 again, on a run whose commit contained the fix.
+ *
+ * Nothing about reading that code suggests a problem, which is exactly
+ * why it needs a machine to check it.
+ * =================================================================== */
+
+{
+  const psFiles = {
+    "build-msi.ps1": buildMsi,
+    "stage.ps1": stagePs1,
+    "fetch-vendor.ps1": fetchVendor,
+    "prepare-runtime.ps1": prepareRuntime,
+    "verify-bundle.ps1": verifyBundle,
+    "find-the-deleter.ps1": findDeleter,
+    "provision.ps1": provisionPs1,
+  };
+  const swallowed = [];
+  for (const [name, text] of Object.entries(psFiles)) {
+    const lines = text.split(/\r?\n/);
+    for (let i = 0; i < lines.length - 1; i += 1) {
+      // A comment line that happens to end in a backtick is prose, not a
+      // continuation - these files quote `py` and `import numpy` that way,
+      // and both read as false positives without this.
+      if (/^\s*#/.test(lines[i])) continue;
+      // a line continued with a backtick, whose continuation is a comment
+      if (!/[^`]`\s*$/.test(lines[i]) && !/^`\s*$/.test(lines[i])) continue;
+      if (/^\s*#/.test(lines[i + 1])) swallowed.push(`${name}:${i + 1}`);
+    }
+  }
+  check("no comment sits between a backtick and the line it continues",
+    swallowed.length === 0,
+    swallowed.length ? swallowed.join(", ") : "the argument after it is silently dropped");
+}
+
+check("every gate that demands the prepared runtime honours -SkipRuntime",
+  // 1. the fetch
+  /fetch-vendor\.ps1"\) -SkipWheels:\$SkipWheels -SkipRuntime:\$SkipRuntime/.test(buildMsi) &&
+  // 2. the completeness guard that threw at line 472
+  /if \(-not \$SkipWheels -and -not \$SkipRuntime\) \{ \$needed \+= "runtime-python\.zip" \}/.test(buildMsi) &&
+  // 3. the staging guard that threw at stage.ps1 line 255
+  /-AllowIncompleteVendor:\(\$SkipWheels -or \$SkipRuntime -or \$NoBundle\)/.test(buildMsi),
+  "fetch, completeness, staging");
+
+check("...and says what the trade actually costs",
+  /two minutes installing the libraries instead of a few/.test(buildMsi) &&
+  /a bundle with no\s*\n?\s*wheels is a bundle that needs the customer's network/.test(buildMsi),
+  "the customer's first run is slower; it is never online");
 
 const bad = results.filter((r) => !r.ok);
 console.log(`\n${results.length - bad.length}/${results.length} checks passed`);

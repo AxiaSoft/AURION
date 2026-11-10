@@ -16,6 +16,14 @@ class EmaRsi(BaseStrategy):
     reward-to-risk.
     """
 
+    evidence = {
+        "state": "measured",
+        "trades": 2448,
+        "win": 0.501,
+        "pf": 2.03,
+        "expectancy": 0.321,
+        "basis": "8 seeds x 5 instruments x 2 200 M15 bars of seeded synthetic market (scripts/strategy-xray.py), frozen AI, spread and commission not modelled",
+    }
     name = "ema_rsi"
     version = "2.0.0"
     language = "en"
@@ -47,6 +55,34 @@ class EmaRsi(BaseStrategy):
         "confirm_bars": 1,
         "allow_pullback": True,
         "pullback_trend_strength": 0.2,
+        # Close the open trade the moment the EMAs cross the other way.
+        #
+        # It is the strategy's most expensive habit and also, measured,
+        # the right call - which is why it is a switch and not a
+        # deletion. Nearly half of all exits are this one, at about
+        # -0.44R each, and they give back roughly a third of the gross
+        # profit the +2R targets earn. Turning it off does exactly what
+        # that arithmetic predicts and leaves the trades to the stop and
+        # the target instead: six tuning seeds and eight held-out seeds,
+        # five instruments, 2 200 M15 bars, AI frozen, costs not
+        # modelled:
+        #
+        #   on  (shipped)   +0.333R x 1 668 = +555R   |   +0.321R x 2 448 = +787R
+        #   off             +0.368R x 1 439 = +530R   |   +0.356R x 2 097 = +747R
+        #
+        # So each individual trade really is about 11% better without
+        # the flip, in both samples - but the flip frees the slot, and
+        # the extra trades it buys are worth more to the account than
+        # the per-trade improvement is. Total return is what an account
+        # is paid in, so the default stays on. A trader who is sized for
+        # fewer, cleaner trades has the switch.
+        "flip_on_cross": True,
+        # How the stop is drawn once recent structure is taken into
+        # account - see risk_levels(). Today's values, named so they can
+        # be measured rather than guessed at.
+        "stop_buffer_atr": 0.15,
+        "stop_floor": 0.6,
+        "stop_ceiling": 1.8,
     }
 
     def on_candle(self, ctx: StrategyContext) -> StrategySignal | None:
@@ -74,10 +110,11 @@ class EmaRsi(BaseStrategy):
             crossed_up = crossed_up or (two_fx <= two_sx and prev_fx > prev_sx and fx > sx)
             crossed_dn = crossed_dn or (two_fx >= two_sx and prev_fx < prev_sx and fx < sx)
 
-        if crossed_up and pos and pos.get("type") == "sell":
-            return StrategySignal("close", ctx.symbol, reason="flip to long after EMA cross", comment="AURION ema_rsi")
-        if crossed_dn and pos and pos.get("type") == "buy":
-            return StrategySignal("close", ctx.symbol, reason="flip to short after EMA cross", comment="AURION ema_rsi")
+        if bool(self.params.get("flip_on_cross", True)):
+            if crossed_up and pos and pos.get("type") == "sell":
+                return StrategySignal("close", ctx.symbol, reason="flip to long after EMA cross", comment="AURION ema_rsi")
+            if crossed_dn and pos and pos.get("type") == "buy":
+                return StrategySignal("close", ctx.symbol, reason="flip to short after EMA cross", comment="AURION ema_rsi")
 
         side = "buy" if crossed_up else "sell" if crossed_dn else ""
         entry_kind = "cross"
@@ -128,6 +165,9 @@ class EmaRsi(BaseStrategy):
             float(self.params["tp_atr"]),
             float(self.params.get("min_rr") or 1.3),
             structure,
+            buffer_atr=float(self.params.get("stop_buffer_atr", 0.15) or 0.0),
+            floor=float(self.params.get("stop_floor", 0.6) or 0.6),
+            ceiling=float(self.params.get("stop_ceiling", 1.8) or 1.8),
         )
         bias, strength = trend_bias(frame)
         confidence = 0.5 + 0.25 * (1.0 if bias == ("bull" if side == "buy" else "bear") else 0.0) * strength

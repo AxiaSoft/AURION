@@ -463,8 +463,15 @@
       <div class="tvr-sep"></div>
       <button type="button" class="tvr-btn" id="tv-magnet" title="${esc(tt("chart.magnet", "Magnet"))}"
               aria-pressed="false">${svg(I.magnet)}<span class="tvr-name">${esc(tt("chart.magnet", "Magnet"))}</span></button>
+      <!-- Not pressed in the markup. The pin is off by default now - a
+           tool lets go of the pointer after one shape - and markRailState()
+           repaints this from the stored setting as soon as the rail is
+           bound, which is the only place that can read it: this template
+           lives in a different scope from toolLocked(). Hardcoding "true"
+           here, as it used to, drew the pin as on while the behaviour was
+           off. -->
       <button type="button" class="tvr-btn" id="tv-toollock" title="${esc(tt("chart.tool_lock", "Keep the tool armed"))}"
-              aria-pressed="true">${svg(I.pin)}<span class="tvr-name">${esc(tt("chart.tool_lock", "Keep the tool armed"))}</span></button>
+              aria-pressed="false">${svg(I.pin)}<span class="tvr-name">${esc(tt("chart.tool_lock", "Keep the tool armed"))}</span></button>
       <button type="button" class="tvr-btn" id="tv-lockall" title="${esc(tt("chart.lock_all", "Lock all drawings"))}"
               aria-pressed="false">${svg(I.lock)}<span class="tvr-name">${esc(tt("chart.lock_all", "Lock all drawings"))}</span></button>
       <button type="button" class="tvr-btn" id="tv-hideall" title="${esc(tt("chart.hide_all", "Hide all drawings"))}"
@@ -784,16 +791,23 @@
   /**
    * Does a drawing tool stay armed after a shape is finished?
    *
-   * It used to snap back to the cursor every time, which is what most
-   * charting packages do and what the code called correct. It is correct
-   * for someone drawing one line. It is miserable for someone drawing
-   * twenty: a trader marking up a session re-clicks the tool between every
-   * single line. Staying armed is now the default, the switch is on the
-   * rail beside the magnet, and Escape disarms it - so the one-line case
-   * costs a keystroke instead of the twenty-line case costing twenty
-   * clicks.
+   * No, by default. Reported directly: after using a tool once the
+   * pointer has to come back to normal.
+   *
+   * The argument for arming it is real and still true - someone marking
+   * up a session draws twenty lines and does not want to re-click the
+   * tool twenty times. The argument against it is that it changes what
+   * the next click does, on a chart where clicks move stops and targets
+   * and the next click is usually not another drawing. A trader who
+   * finishes a line and reaches for a level instead draws a second line
+   * on top of it, and that surprise costs more than a re-click.
+   *
+   * So the behaviour is kept and the default is reversed: one shape,
+   * back to the cursor. The switch is on the rail beside the magnet and
+   * is remembered, so the twenty-line case is one click away and then
+   * stays that way for good.
    */
-  function toolLocked() { return read(LS_TOOLLOCK, "1") === "1"; }
+  function toolLocked() { return read(LS_TOOLLOCK, "0") === "1"; }
 
   function setToolLock(on) {
     write(LS_TOOLLOCK, on ? "1" : "0");
@@ -1174,35 +1188,92 @@
           <button type="button" class="tv-icon tiny danger" data-obj-del="${d.id}"
             title="${esc(tt("common.delete", "Delete"))}">${svg(I.trash)}</button>
         </li>`).join("")}</ul>`
-      : `<p class="tvd-empty">${esc(tt("chart.no_objects", "Nothing drawn yet. Pick a tool from the left."))}</p>`}`;
+      : `<p class="tvd-empty">${esc(tt("chart.no_objects", "Nothing drawn yet. Pick a tool from the toolbar."))}</p>`}`;
+  }
+
+  /**
+   * One slider row, with the number it is setting beside it.
+   *
+   * A bare <input type="range"> states its value nowhere. "Thickness"
+   * and a dot on a track is a control you adjust by trial: there is no
+   * way to see that the line is at 2.5 rather than 3, and no way to
+   * come back later and read what was chosen. The output element says
+   * it, and --fill colours the part of the track below the thumb so
+   * the position reads without arithmetic.
+   */
+  function range(o) {
+    const min = Number(o.min), max = Number(o.max);
+    const value = Math.max(min, Math.min(max, Number(o.value)));
+    const fill = max > min ? ((value - min) / (max - min)) * 100 : 0;
+    return `<label class="tvo-row"><span>${esc(o.label)}</span>
+      <span class="tvo-range">
+        <input type="range" min="${esc(String(min))}" max="${esc(String(max))}"
+               step="${esc(String(o.step))}" ${o.attr}
+               style="--fill:${fill.toFixed(1)}%" value="${esc(String(value))}" />
+        <output>${esc(rangeText(value, o))}</output>
+      </span></label>`;
+  }
+
+  /** What a slider's number reads as. Opacity is a percentage; the
+      rest are the number itself, to as many places as its step has. */
+  function rangeText(value, o) {
+    if (o.pct) return Math.round(Number(value) * 100) + "%";
+    const dp = o.dp === undefined ? 1 : o.dp;
+    return Number(value).toFixed(dp) + (o.unit || "");
+  }
+
+  /**
+   * Keep a slider's readout and its filled track in step with it.
+   *
+   * Bound to "input" rather than rebuilt from renderProps(): redrawing
+   * the whole panel on every pixel of a drag destroys the element
+   * being dragged, and the drag stops dead at the first move.
+   */
+  function syncRange(el) {
+    if (!el || el.type !== "range") return;
+    const min = Number(el.min), max = Number(el.max), value = Number(el.value);
+    const fill = max > min ? ((value - min) / (max - min)) * 100 : 0;
+    el.style.setProperty("--fill", fill.toFixed(1) + "%");
+    const out = el.parentElement && el.parentElement.querySelector("output");
+    if (!out) return;
+    const prop = el.getAttribute("data-prop") || el.getAttribute("data-prop-num") || "";
+    out.textContent = prop === "opacity"
+      ? Math.round(value * 100) + "%"
+      : (prop === "fontSize" ? value.toFixed(0) + "px" : value.toFixed(1));
   }
 
   const FIELD = {
-    color: (d) => `<label class="tvp-row"><span>${esc(tt("chart.color", "Colour"))}</span>
+    color: (d) => `<label class="tvo-row"><span>${esc(tt("chart.color", "Colour"))}</span>
       <input type="color" data-prop="color" value="${esc(/^#[0-9a-f]{6}$/i.test(d.color || "") ? d.color : "#e8c07a")}" /></label>`,
-    width: (d) => `<label class="tvp-row"><span>${esc(tt("chart.thickness", "Thickness"))}</span>
-      <input type="range" min="1" max="6" step="0.5" data-prop="width" value="${esc(d.width || 1.4)}" /></label>`,
-    style: (d) => `<div class="tvp-row"><span>${esc(tt("chart.line_style", "Line style"))}</span>
-      <span class="tvp-choice">${["solid", "dashed", "dotted"].map((s) =>
+    width: (d) => range({
+      label: tt("chart.thickness", "Thickness"), attr: 'data-prop="width"',
+      min: 1, max: 6, step: 0.5, value: Number(d.width || 1.4), dp: 1,
+    }),
+    style: (d) => `<div class="tvo-row"><span>${esc(tt("chart.line_style", "Line style"))}</span>
+      <span class="tvo-choice">${["solid", "dashed", "dotted"].map((s) =>
         `<button type="button" data-prop-style="${s}" class="${(d.style || "solid") === s ? "on" : ""}">${esc(tt("chart.style_" + s, s))}</button>`).join("")}</span></div>`,
-    opacity: (d) => `<label class="tvp-row"><span>${esc(tt("chart.opacity", "Opacity"))}</span>
-      <input type="range" min="0.1" max="1" step="0.05" data-prop="opacity" value="${esc(d.opacity === undefined ? 1 : d.opacity)}" /></label>`,
-    fill: (d) => `<label class="tvp-row"><span>${esc(tt("chart.fill", "Background fill"))}</span>
+    opacity: (d) => range({
+      label: tt("chart.opacity", "Opacity"), attr: 'data-prop="opacity"',
+      min: 0.1, max: 1, step: 0.05, value: d.opacity === undefined ? 1 : Number(d.opacity),
+      pct: true,
+    }),
+    fill: (d) => `<label class="tvo-row"><span>${esc(tt("chart.fill", "Background fill"))}</span>
       <input type="checkbox" data-prop-bool="fill" ${d.fill !== false ? "checked" : ""} /></label>`,
-    showPrice: (d) => `<label class="tvp-row"><span>${esc(tt("chart.show_price", "Show the price"))}</span>
+    showPrice: (d) => `<label class="tvo-row"><span>${esc(tt("chart.show_price", "Show the price"))}</span>
       <input type="checkbox" data-prop-bool="showPrice" ${d.showPrice === false ? "" : "checked"} /></label>`,
-    extend: (d) => `<div class="tvp-row"><span>${esc(tt("chart.extend", "Extend"))}</span>
-      <span class="tvp-choice">
+    extend: (d) => `<div class="tvo-row"><span>${esc(tt("chart.extend", "Extend"))}</span>
+      <span class="tvo-choice">
         <button type="button" data-prop-toggle="extendL" class="${d.extendL ? "on" : ""}">${esc(tt("chart.left", "Left"))}</button>
         <button type="button" data-prop-toggle="extendR" class="${d.extendR ? "on" : ""}">${esc(tt("chart.right", "Right"))}</button>
       </span></div>`,
-    text: (d) => `<label class="tvp-row"><span>${esc(tt("chart.text", "Text"))}</span>
+    text: (d) => `<label class="tvo-row"><span>${esc(tt("chart.text", "Text"))}</span>
       <input class="ctrl" data-prop="text" value="${esc(d.text || "")}" /></label>`,
-    font: (d) => `<label class="tvp-row"><span>${esc(tt("chart.font_size", "Font size"))}</span>
-      <input type="range" min="9" max="28" step="1" data-prop-num="fontSize" value="${esc(d.fontSize || 13)}" /></label>
-      <label class="tvp-row"><span>${esc(tt("chart.bold", "Bold"))}</span>
+    font: (d) => range({
+      label: tt("chart.font_size", "Font size"), attr: 'data-prop-num="fontSize"',
+      min: 9, max: 28, step: 1, value: Number(d.fontSize || 13), dp: 0, unit: "px",
+    }) + `<label class="tvo-row"><span>${esc(tt("chart.bold", "Bold"))}</span>
       <input type="checkbox" data-prop-bool="bold" ${d.bold ? "checked" : ""} /></label>`,
-    rr: (d) => `<label class="tvp-row"><span>${esc(tt("chart.reward", "Reward multiple"))}</span>
+    rr: (d) => `<label class="tvo-row"><span>${esc(tt("chart.reward", "Reward multiple"))}</span>
       <input type="number" step="0.1" min="0.1" data-prop-num="rr" value="${esc(d.rr || 2)}" /></label>`,
 
     /* A position is three prices and the numbers that fall out of them.
@@ -1218,34 +1289,43 @@
         : (long ? entry + Math.abs(entry - stop) * (d.rr || 2) : entry - Math.abs(entry - stop) * (d.rr || 2));
       const risk = Math.abs(entry - stop);
       const reward = Math.abs(target - entry);
-      const step = entry >= 100 ? 0.01 : 0.00001;
-      const row = (key, label, value) => `<label class="tvp-row"><span>${esc(label)}</span>
-        <input type="number" step="${step}" data-price="${key}" value="${esc(Number(value).toFixed(5))}" /></label>`;
-      return `<div class="tvp-sec">${esc(tt("chart.position", "Position"))}</div>
+      const dp = priceDp();
+      const step = (1 / Math.pow(10, dp)).toFixed(dp);
+      const row = (key, label, value) => `<label class="tvo-row"><span>${esc(label)}</span>
+        <input type="number" step="${esc(step)}" data-price="${key}" value="${esc(Number(value).toFixed(dp))}" /></label>`;
+      return `<div class="tvo-sec">${esc(tt("chart.position", "Position"))}</div>
         ${row("a", tt("chart.entry", "Entry"), entry)}
         ${row("b", tt("chart.stop", "Stop loss"), stop)}
         ${row("c", tt("chart.target", "Take profit"), target)}
-        <div id="tvp-derived">${positionSums(d)}</div>
-        <p class="tvp-note">${esc(tt("chart.position_note", "These are the numbers of the drawing, not a forecast."))}</p>`;
+        <div id="tvo-derived">${positionSums(d)}</div>
+        <p class="tvo-note">${esc(tt("chart.position_note", "These are the numbers of the drawing, not a forecast."))}</p>`;
     },
     levels: (d) => {
       const chart = ui.chart;
       const levels = chart.fibLevels(d);
-      return `<div class="tvp-sec">${esc(tt("chart.levels", "Levels"))}</div>
-        <div class="tvp-levels">${levels.map((l, i) => `<label class="tvp-level">
+      return `<div class="tvo-sec">${esc(tt("chart.levels", "Levels"))}</div>
+        <div class="tvo-levels">${levels.map((l, i) => `<label class="tvo-level">
           <input type="checkbox" data-level-vis="${i}" checked />
           <span class="mono">${esc(l.label)}</span>
           <input type="color" data-level-color="${i}" value="${esc(/^#[0-9a-f]{6}$/i.test(l.color) ? l.color : "#7c6cff")}" />
         </label>`).join("")}</div>
-        <div class="tvp-row"><span>${esc(tt("chart.custom_level", "Add a level"))}</span>
-          <span class="tvp-add"><input type="number" step="0.001" id="tvp-newlevel" placeholder="1.414" />
-          <button type="button" class="tv-chip" id="tvp-addlevel">${svg(I.plus)}</button></span></div>`;
+        <div class="tvo-row"><span>${esc(tt("chart.custom_level", "Add a level"))}</span>
+          <span class="tvo-add"><input type="number" step="0.001" id="tvo-newlevel" placeholder="1.414" />
+          <button type="button" class="tv-chip" id="tvo-addlevel">${svg(I.plus)}</button></span></div>`;
     },
     coords: (d) => {
+      /* The chart's own precision, not five places. A gold level read
+         2447.44681 here while every other price on the desk - the
+         axis, the ticket, the tape - said 2447.45, and the three
+         extra digits were the chart's floating-point position rather
+         than anything the broker quotes. The step follows it, so the
+         arrow keys move a digit that is actually shown. */
+      const dp = priceDp();
+      const step = (1 / Math.pow(10, dp)).toFixed(dp);
       const rows = ["a", "b", "c", "d", "e"].filter((k) => d[k]).map((k) => `
-        <label class="tvp-coord"><span class="mono">${k.toUpperCase()}</span>
-          <input type="number" step="any" data-coord="${k}" value="${esc(Number(d[k].p).toFixed(5))}" /></label>`).join("");
-      return rows ? `<div class="tvp-sec">${esc(tt("chart.coordinates", "Coordinates"))}</div><div class="tvp-coords">${rows}</div>` : "";
+        <label class="tvo-coord"><span class="mono">${k.toUpperCase()}</span>
+          <input type="number" step="${esc(step)}" data-coord="${k}" value="${esc(Number(d[k].p).toFixed(dp))}" /></label>`).join("");
+      return rows ? `<div class="tvo-sec">${esc(tt("chart.coordinates", "Coordinates"))}</div><div class="tvo-coords">${rows}</div>` : "";
     },
   };
 
@@ -1263,13 +1343,13 @@
     // A stop on the wrong side of the entry is a drawing mistake, and it is
     // better to say so than to print a confident ratio for it.
     const wrong = long ? (stop > entry || target < entry) : (stop < entry || target > entry);
-    return `<div class="tvp-row"><span>${esc(tt("chart.ratio", "Risk / reward"))}</span>
+    return `<div class="tvo-row"><span>${esc(tt("chart.ratio", "Risk / reward"))}</span>
         <b class="mono">${risk ? (reward / risk).toFixed(2) : "—"} R</b></div>
-      <div class="tvp-row"><span>${esc(tt("chart.risk", "Risk"))}</span>
+      <div class="tvo-row"><span>${esc(tt("chart.risk", "Risk"))}</span>
         <b class="mono down">${c.fmtPrice(risk)}${entry ? "  " + ((risk / entry) * 100).toFixed(2) + "%" : ""}</b></div>
-      <div class="tvp-row"><span>${esc(tt("chart.rewardv", "Reward"))}</span>
+      <div class="tvo-row"><span>${esc(tt("chart.rewardv", "Reward"))}</span>
         <b class="mono up">${c.fmtPrice(reward)}${entry ? "  " + ((reward / entry) * 100).toFixed(2) + "%" : ""}</b></div>
-      ${wrong ? `<p class="tvp-warn">${esc(tt("chart.position_side",
+      ${wrong ? `<p class="tvo-warn">${esc(tt("chart.position_side",
         "The stop or the target is on the wrong side of the entry for this direction."))}</p>` : ""}`;
   }
 
@@ -1334,6 +1414,21 @@
     bar.innerHTML = styleBarHtml(d);
   }
 
+  /**
+   * How many decimals a price is written with here.
+   *
+   * Read from the chart engine rather than restated, so the panel and
+   * the axis beside it cannot disagree - which they did, at five
+   * places against two.
+   */
+  function priceDp() {
+    try {
+      const dp = Number(global.CandleChart && global.CandleChart.PRICE_DP);
+      if (Number.isFinite(dp) && dp >= 0 && dp <= 8) return dp;
+    } catch (_) { /* no engine in scope */ }
+    return 2;
+  }
+
   /** Which properties a kind actually has. Nothing irrelevant is shown. */
   function fieldsFor(kind) {
     const base = ["color", "width", "style", "opacity"];
@@ -1351,24 +1446,38 @@
     return pricey(kind) ? base.concat(["showPrice"]) : base;
   }
 
+  /**
+   * The kind of thing this is, under its name.
+   *
+   * Only when it says something the name does not. An unrenamed
+   * drawing takes its kind as its name, so the panel opened with
+   * "Trend line" written twice, one line apart, in two type sizes -
+   * which reads as a rendering fault rather than as a caption.
+   */
+  function kindCaption(d) {
+    const kind = nameOf("tool", TOOL_BY_ID[d.kind]) || d.kind;
+    if (String(objectName(d)).trim() === String(kind).trim()) return "";
+    return `<p class="tvo-kind">${esc(kind)}</p>`;
+  }
+
   function renderProps() {
     const host = $("tvd-props");
     if (!host) return;
     const d = ui.chart.selected;
     if (!d) {
-      host.innerHTML = `<p class="tvd-empty">${esc(tt("chart.no_selection", "Select an object on the chart, or in the Objects list, to edit it."))}</p>`;
+      host.innerHTML = `<p class="tvo-empty">${esc(tt("chart.no_selection", "Select an object on the chart, or in the Objects list, to edit it."))}</p>`;
       return;
     }
     const fields = fieldsFor(d.kind).map((f) => (FIELD[f] ? FIELD[f](d) : "")).join("");
     host.innerHTML = `
-      <div class="tvp-head">
-        <input class="ctrl tvp-name" data-prop="name" value="${esc(objectName(d))}" aria-label="${esc(tt("chart.rename", "Name"))}" />
+      <div class="tvo-head">
+        <input class="ctrl tvo-name" data-prop="name" value="${esc(objectName(d))}" aria-label="${esc(tt("chart.rename", "Name"))}" />
         <button type="button" class="tv-icon tiny" data-obj-lock="${d.id}" aria-pressed="${Boolean(d.locked)}"
           title="${esc(tt("chart.lock", "Lock"))}">${svg(d.locked ? I.lock : I.unlock)}</button>
         <button type="button" class="tv-icon tiny danger" data-obj-del="${d.id}"
           title="${esc(tt("common.delete", "Delete"))}">${svg(I.trash)}</button>
       </div>
-      <p class="tvp-kind">${esc(nameOf("tool", TOOL_BY_ID[d.kind]) || d.kind)}</p>
+      ${kindCaption(d)}
       ${fields}
       ${FIELD.coords(d)}`;
   }
@@ -1724,9 +1833,9 @@
       syncNav();
     };
     chart.opts.onToolDone = () => {
-      // The tool stays armed unless the trader asked for the old one-shot
-      // behaviour. Either way the shape just drawn is selected, so its
-      // colour and thickness are one click away on the style bar.
+      // Back to the cursor after one shape, unless the trader pinned the
+      // tool on the rail. Either way the shape just drawn is selected, so
+      // its colour and thickness are one click away on the style bar.
       if (!toolLocked() && chart.tool !== "cursor") pickTool("cursor");
     };
     chart.opts.onEdit = () => showDock("props");
@@ -2144,8 +2253,8 @@
           chart.updateObject(chart.selected.id, { [k]: !chart.selected[k] });
           return;
         }
-        if (e.target.closest("#tvp-addlevel") && chart.selected) {
-          const v = Number(($("tvp-newlevel") || {}).value);
+        if (e.target.closest("#tvo-addlevel") && chart.selected) {
+          const v = Number(($("tvo-newlevel") || {}).value);
           if (!Number.isFinite(v)) return;
           const levels = chart.fibLevels(chart.selected).concat([{ value: v, label: (v * 100).toFixed(1) + "%", visible: true }]);
           levels.sort((a, b) => a.value - b.value);
@@ -2156,6 +2265,10 @@
       dock.oninput = (e) => {
         const d = chart.selected;
         const t = e.target;
+        /* The readout and the filled track, before anything else, and
+           unconditionally: a slider has to answer the drag even on the
+           frame where the object write is skipped. */
+        if (t.type === "range") syncRange(t);
         if (t.dataset.prop && d) {
           chart.updateObject(d.id, { [t.dataset.prop]: t.type === "range" ? Number(t.value) : t.value }, { quiet: true });
           if (t.dataset.prop === "name") renderObjects();
@@ -2179,7 +2292,7 @@
           // Only the derived block is rebuilt. Re-rendering the whole panel
           // would replace the field being typed into and send the caret to
           // the end on every keystroke.
-          const sums = $("tvp-derived");
+          const sums = $("tvo-derived");
           if (sums) sums.innerHTML = positionSums(d);
           renderObjects();
           return;

@@ -1066,6 +1066,20 @@ class CandleChart {
     ctx.font = "11px IBM Plex Mono, Vazirmatn, monospace";
     ctx.textBaseline = "alphabetic";
     ctx.textAlign = "left";
+    /* Every string this chart draws is a left-to-right run - a price,
+       a timestamp, a symbol, an indicator's short name - and canvas
+       text defaults to the element's own direction, which on a Persian
+       or Arabic desk is rtl. So the axis read "15 11-08" for 11-08
+       19:15, and the change read "0.52+" for +0.52: the segments were
+       bidi-reordered one by one, which is correct behaviour applied to
+       text that is not in the page's language.
+
+       Set here, once, rather than around each fillText. The canvas is
+       never mirrored either - see pan() - so there is no case in which
+       this wants to be anything else. The older engines that do not
+       implement ctx.direction ignore the assignment, which leaves them
+       exactly where they were. */
+    ctx.direction = "ltr";
 
     this.paintGrid(L);
 
@@ -3681,7 +3695,17 @@ class CandleChart {
       }
       const found = this.shapeAt(hit.L, hit.x, hit.y);
       if (this.tool === "eraser") {
-        if (found) this.removeObject(found.shape);
+        if (found) {
+          this.removeObject(found.shape);
+          /* The eraser reports "done" like every other tool, so the same
+             rule covers it: one deletion and the pointer is a pointer
+             again, unless the trader pinned the tool on the rail. It is
+             the tool where staying armed is worst - the next click on a
+             line while still in erase mode deletes that line too, and
+             the only sign of which mode is on is the rail. A click that
+             misses deletes nothing, so the mode stays for a retry. */
+          if (typeof this.opts.onToolDone === "function") this.opts.onToolDone();
+        }
         return;
       }
       if (found) {

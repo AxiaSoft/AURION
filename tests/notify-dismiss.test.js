@@ -127,7 +127,8 @@ async function boot() {
   const bundle = ["js/themes.js", "js/skins.js", "js/i18n.js", "js/api.js", "js/calendar.js", "js/charts.js", "js/app.js"]
     .map((f) => fs.readFileSync(path.join(WEB, f), "utf8")).join("\n;\n");
   win.eval(bundle +
-    "\n;window.__T = { S, toast, bindDismiss, paintNotifies, dismissNote, pushTradeCard, playSound," +
+    "\n;window.__T = { S, toast, bindDismiss, paintNotifies, dismissNote, pushTradeCard, playSound,"
+    + " announceSignal, pushSignalCard," +
     " notifyPrefs, saveNotifyPrefs, loadSoundFiles, SOUND_FILES, SOUND_DIR," +
     " SOUND_SLOTS, SOUND_NAMES, SOUND_FILE_NAMES, NOTIFY_DEFAULTS, notifySoundCardHtml, icon, I18N };");
   await new Promise((r) => setTimeout(r, 60));
@@ -603,6 +604,66 @@ async function swipe(win, el, dx, opts) {
     const coarse = css.slice(at);
     const m = /\.n-x\{[^}]*width:(\d+)px/.exec(coarse);
     if (!m || Number(m[1]) < 32) throw new Error("the touch-size rule is missing or too small");
+  });
+
+  /* ---------------------------------------------------------------- *
+   * A signal is seen when it arrives, not when something else happens
+   *
+   * Reported: the system signalled and nothing appeared; then a trade
+   * was opened by hand and every missed signal arrived at once, in a
+   * stack. The cards had been built all along and put into
+   * #notify-stack, which ships hidden and was only ever un-hidden by
+   * the trade path. Driven here rather than grepped, because the fault
+   * was entirely in what the DOM looked like afterwards.
+   * ---------------------------------------------------------------- */
+
+  await check("a signal is visible the moment it arrives", async () => {
+    const { doc, T } = await boot();
+    const stack = doc.getElementById("notify-stack");
+    if (!stack.hidden) throw new Error("the stack did not start hidden, so this proves nothing");
+    T.announceSignal({ ts: "2026-01-01T00:00:00Z", symbol: "EURUSD", action: "buy", entry: 1.1, volume: 0.1 });
+    if (stack.hidden) throw new Error("the card went into a hidden container");
+    if (stack.children.length !== 1) throw new Error("no card: " + stack.children.length);
+    if (!/EURUSD/.test(stack.textContent)) throw new Error("the card does not name the symbol");
+  });
+
+  await check("a signal makes the same noise an entry does", async () => {
+    const { T, played } = await boot();
+    const before = played.length;
+    T.announceSignal({ ts: "2026-01-01T00:01:00Z", symbol: "XAUUSD", action: "sell", entry: 2000 });
+    if (played.length <= before) throw new Error("silent - the trader has to be looking at the screen to know");
+  });
+
+  await check("three signals do not arrive as one pile later", async () => {
+    const { doc, T } = await boot();
+    const stack = doc.getElementById("notify-stack");
+    for (let i = 0; i < 3; i++) {
+      T.announceSignal({ ts: "2026-01-01T00:0" + i + ":00Z", symbol: "EURUSD", action: "buy", entry: 1.1 });
+      if (stack.hidden) throw new Error("signal " + (i + 1) + " was invisible");
+    }
+    if (stack.children.length !== 3) throw new Error("expected three cards, got " + stack.children.length);
+  });
+
+  await check("the same signal twice is announced once", async () => {
+    const { doc, T } = await boot();
+    const sig = { ts: "2026-01-01T00:05:00Z", symbol: "EURUSD", action: "buy", entry: 1.1, volume: 0.1 };
+    T.announceSignal(sig);
+    T.announceSignal({ ...sig });
+    const stack = doc.getElementById("notify-stack");
+    if (stack.children.length !== 1) throw new Error("the bus replay chimed twice: " + stack.children.length);
+  });
+
+  await check("the stack goes back to hidden once the last card is gone", async () => {
+    const { win, doc, T } = await boot();
+    const stack = doc.getElementById("notify-stack");
+    T.announceSignal({ ts: "2026-01-01T00:06:00Z", symbol: "EURUSD", action: "buy", entry: 1.1 });
+    const card = stack.firstElementChild;
+    card.querySelector(".n-x").dispatchEvent(new win.Event("click", { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 360));
+    if (stack.children.length) throw new Error("the card survived its own close button");
+    if (!stack.hidden) {
+      throw new Error("an empty but visible stack sits over the desk and eats pointer events");
+    }
   });
 
   function re_escape(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"); }

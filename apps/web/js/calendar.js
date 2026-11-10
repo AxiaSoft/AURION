@@ -209,6 +209,12 @@ const Calendar = {
       const res = await API.get("/api/news");
       const data = (res && res.data) || {};
       this.source = data.source || "";
+      /* Kept rather than discarded. The engine already reports whether
+         the week it served came off the network or out of the cache and
+         why a fetch failed; the desk threw all of it away, which is how
+         a calendar that had not updated for a fortnight looked exactly
+         like one that had. */
+      this.feed = (data.feed && typeof data.feed === "object") ? data.feed : null;
       this.blackout = { before: data.blackout_before || 15, after: data.blackout_after || 15 };
       this.events = (data.events || []).map((row) => this._norm(row)).filter(Boolean);
     } catch (_) {
@@ -623,16 +629,67 @@ const Calendar = {
     } catch (_) { return {}; }
   },
 
-  _remindMark(id, ms) {
+  /**
+   * Remember that this event has been announced.
+   *
+   * `atMs` is when it was announced, not when the release is due, and
+   * it comes from the same clock the scan ran on. Both halves of that
+   * sentence were wrong and the pair of them made the ledger unsound:
+   * the stored value was the event's own timestamp, and the pruning
+   * floor was read from Date.now() while the decision to announce was
+   * made against the `now` handed to remindTick. Two clocks for one
+   * question. Anything whose event time happened to sit outside the
+   * two-day window of the other clock was deleted the instant it was
+   * written, so it was announced again on the very next pass - a
+   * release every thirty seconds until it had gone by.
+   *
+   * One clock, and it measures the right thing: the ledger is a record
+   * of what this desk has already said, so it is dated by when it said
+   * it.
+   */
+  _remindMark(id, atMs) {
     const seen = this._remindSeen();
-    seen[id] = ms;
-    const floor = Date.now() - 2 * 24 * 60 * 60 * 1000;
-    for (const k of Object.keys(seen)) if (!(seen[k] > floor)) delete seen[k];
+    const now = Number.isFinite(atMs) ? atMs : Date.now();
+    seen[id] = now;
+    const floor = now - 2 * 24 * 60 * 60 * 1000;
+    for (const k of Object.keys(seen)) if (!(Number(seen[k]) > floor)) delete seen[k];
     try { localStorage.setItem(this.REMIND_SEEN_KEY, JSON.stringify(seen)); } catch (_) { /* */ }
   },
 
   _evId(ev) {
     return [ev.day, ev.time, ev.currency, ev.title].join("|");
+  },
+
+  REMIND_WARNED_KEY: "aurion.cal.remind.warned",
+
+  /**
+   * Say so when there is nothing left to remind anyone about.
+   *
+   * The reminder reported as "it did not work" had two faults that
+   * stopped it and one that hid them. This is the one that hid them:
+   * the engine serves the last good week from cache when the feed
+   * cannot be reached, which is the right call - a stale calendar
+   * beats a blank one - but the desk dropped the cache flag, so a
+   * calendar whose newest release was eight days in the past looked
+   * identical to a live one. The reminder then sat there with nothing
+   * in its window, correctly silent, and indistinguishable from
+   * broken.
+   *
+   * Said at most once a day, because it is a condition rather than an
+   * event and a toast every thirty seconds is its own fault.
+   */
+  _remindStale(nowMs) {
+    const now = Number.isFinite(nowMs) ? nowMs : Date.now();
+    const events = this.events || [];
+    if (!events.length) return false;
+    const ahead = events.some((ev) => ev && Number.isFinite(ev.ms) && ev.ms > now);
+    if (ahead) return false;
+    let last = 0;
+    try { last = Number(localStorage.getItem(this.REMIND_WARNED_KEY) || 0) || 0; } catch (_) { last = 0; }
+    if (last && now - last < 24 * 60 * 60 * 1000 && now >= last) return false;
+    try { localStorage.setItem(this.REMIND_WARNED_KEY, String(now)); } catch (_) { /* private mode */ }
+    this._remindSay(I18N.t("calendar.remind_stale"));
+    return true;
   },
 
   /** One pass over the loaded events. Pure read; announces at most a few. */
@@ -656,7 +713,7 @@ const Calendar = {
        announces the three nearest and says how many others there are. */
     const show = due.slice(0, 3);
     for (const ev of show) this._remindAnnounce(ev, now);
-    for (const ev of due) this._remindMark(this._evId(ev), ev.ms);
+    for (const ev of due) this._remindMark(this._evId(ev), now);
     if (due.length > show.length) this._remindSay(I18N.t("calendar.remind_more", { n: this._num(due.length - show.length) }));
     return due;
   },
@@ -706,7 +763,10 @@ const Calendar = {
         this._remindFetched = Date.now();
         try { await this.load(); } catch (_) { /* offline: try again next pass */ }
       }
-      this.remindTick(Date.now());
+      const now = Date.now();
+      /* Order matters: announce what is due first, and only complain
+         about a stale calendar when nothing was. */
+      if (!this.remindTick(now).length) this._remindStale(now);
     };
     this._remindTimer = setInterval(tick, 30000);
     setTimeout(tick, 4000);

@@ -239,6 +239,14 @@ class Backtester:
                     "tp": float(payload.get("tp") or 0),
                     "time": bar.get("time"),
                     "reason": payload.get("reason"),
+                    # Carried through so a finished run can be split by it.
+                    # The live quality floor is the strategy's own
+                    # confidence whenever nothing else has an opinion -
+                    # a model that is still learning does not vote - so
+                    # this is the field that makes "what would the floor
+                    # have refused, and was it right to" an answerable
+                    # question instead of an argument.
+                    "confidence": float(payload.get("confidence") or 0),
                 })
             peak = max(peak, equity)
             curve.append(equity)
@@ -291,6 +299,16 @@ class Backtester:
             "volume_mode": mode,
             "manual_volume": lot,
             "max_open": cap,
+            # And what a whole unit of price was worth per lot, which is
+            # the factor that turns a price distance into money. It was
+            # a hard-coded 1.0, so every figure in this result used to
+            # be out by the broker's tick_value/tick_size - about
+            # 10 000 on a five-digit pair, which is why a run reported
+            # profits in fractions of a cent. Named here because a run
+            # priced off the broker's spec and a run that fell back to
+            # 1.0 because the spec was unreadable would otherwise look
+            # the same.
+            "point_value": float(point_value),
         }
 
     # ------------------------------------------------------------------

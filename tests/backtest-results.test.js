@@ -24,6 +24,11 @@ const stub = `
   const S={backtest:null};
   const esc=(x)=>String(x);
   const fmt=(v,d=2)=>Number(v||0).toFixed(d);
+  /* Prices go through price(), not fmt(): the desk writes every price
+     with PRICE_DP - two decimals, by request - from one place, so the
+     chart, the ticket and this table cannot drift apart. */
+  const PRICE_DP=2;
+  const price=(v)=>fmt(v, PRICE_DP);
   const clsPnl=(n)=>Number(n)>0?'up':Number(n)<0?'down':'';
   const $=()=>null;
 `;
@@ -61,7 +66,10 @@ ok(run.includes('class="mono up">10.00') || run.includes('up">10.00'), 'a winnin
 ok(run.includes('down">-5.00'), 'a losing trade is coloured down');
 ok(run.includes('"n":2') && run.includes('"total":3'), 'it says how many of the total trades are listed');
 ok(run.indexOf('tp') > run.indexOf('sl') === false || true, 'newest trade first');
-ok(run.indexOf('1.3000') < run.indexOf('1.1000'), 'the newest trade is listed first');
+/* 1.30 and 1.10, not 1.3000 and 1.1000: prices are written to two
+   decimals everywhere on the desk now. Still a perfectly good ordering
+   check - the two entries are distinct at that precision. */
+ok(run.indexOf('1.30') < run.indexOf('1.10'), 'the newest trade is listed first');
 
 console.log(fails ? `\nbacktest results: ${fails} FAILED` : '\nbacktest results: all checks passed');
 process.exit(fails ? 1 : 0);

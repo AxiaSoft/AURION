@@ -225,6 +225,11 @@ function bindDismiss(el, onGone) {
     el._gone = true;
     if (typeof onGone === "function") onGone(el);
     else el.remove();
+    /* The container ships hidden and has to go back to hidden when it
+       empties, or it sits on the corner of the screen as an invisible
+       box that still eats pointer events over whatever is under it. */
+    const stack = $("notify-stack");
+    if (stack && stack.children.length === 0) stack.hidden = true;
   };
 
   /* Slide the card out the way it was thrown before removing it, so the
@@ -412,9 +417,9 @@ function askPrice(opts) {
       <h3 id="modal-title">${esc(opts.title || "")}</h3>
       ${opts.body ? `<p class="modal-body">${esc(opts.body)}</p>` : ""}
       <input id="modal-price" class="ctrl" type="number" inputmode="decimal"
-             step="${esc(String(opts.step || "0.00001"))}"
+             step="${esc(String(opts.step || PRICE_STEP))}"
              aria-label="${esc(opts.title || "")}"
-             value="${start > 0 ? esc(String(start)) : ""}" />
+             value="${esc(priceField(start))}" />
       <p class="sub" id="modal-price-msg"></p>
       <div class="modal-actions">
         <button type="button" class="btn ghost" id="modal-no">${esc(I18N.t("common.cancel"))}</button>
@@ -478,7 +483,7 @@ async function onChartLevelEdit(kind, current) {
   if (got === null) return;
   const el = $(kind === "sl" ? "ct-sl" : "ct-tp");
   if (el) {
-    el.value = got > 0 ? String(got) : "";
+    el.value = priceField(got);
     el.dispatchEvent(new Event("input", { bubbles: true }));
   }
   rememberTicket();
@@ -495,6 +500,51 @@ async function onChartLevelEdit(kind, current) {
  * Printing the token the running app.js was loaded with settles it in one
  * glance: if this does not match the token in index.html, the page is old.
  */
+/**
+ * How many decimals a price is written with, everywhere on the desk.
+ *
+ * Two. Asked for directly: the manual-trade stop, target and entry
+ * fields were showing five, which is the broker's own precision and is
+ * unreadable at a glance - 1.08451 and 1.08415 are the same shape.
+ *
+ * This is a deliberate flat number rather than per-instrument digits.
+ * It was offered both ways and two-for-everything was chosen, so it is
+ * written once, here, and read from here by the ticket, the price
+ * dialog, the tape, the tables and the notifications. CandleChart has
+ * its own PRICE_DP, already 2, for the same reason: a desk where the
+ * chart and the ticket disagree about a price is worse than either.
+ *
+ * It costs something and the cost is real: on a five-digit FX pair the
+ * fourth and fifth digits are no longer shown, and a stop typed into a
+ * two-decimal field is a two-decimal stop. On gold, indices and crypto
+ * - which is what this desk is mostly pointed at - it is simply the
+ * right number.
+ */
+const PRICE_DP = 2;
+
+/** A price, written the desk's way. */
+function price(n) { return fmt(n, PRICE_DP); }
+
+/* The same precision as a step for a <number> field, derived rather
+   than written out twice: "0.01" for 2, "0.1" for 1. A field that
+   steps finer than it displays snaps the arrow keys to digits it then
+   hides, and the trader watches the value refuse to change. */
+const PRICE_STEP = (1 / Math.pow(10, PRICE_DP)).toFixed(PRICE_DP);
+
+/**
+ * A price on its way INTO an input, as a plain machine-readable number.
+ *
+ * Not price(): that one is for reading and goes through toLocaleString,
+ * which in Persian returns Eastern Arabic digits and in several locales
+ * a thousands separator - and <input type="number"> rejects both,
+ * silently, leaving the field empty. Same two decimals, no grouping,
+ * no localisation.
+ */
+function priceField(v) {
+  const n = Number(v);
+  return n > 0 ? n.toFixed(PRICE_DP) : "";
+}
+
 function fmt(n, d = 2) {
   if (n === null || n === undefined || n === "" || Number.isNaN(Number(n))) return "—";
   try {
@@ -2007,9 +2057,9 @@ function signalDetail(sig) {
   const entry = signalPrice(sig, "entry") || signalPrice(sig, "price");
   const sl = signalPrice(sig, "sl");
   const tp = signalPrice(sig, "tp");
-  if (entry) bits.push(`${I18N.t("signal.entry")} ${fmt(entry, 5)}`);
-  if (sl) bits.push(`${I18N.t("signal.sl")} ${fmt(sl, 5)}`);
-  if (tp) bits.push(`${I18N.t("signal.tp")} ${fmt(tp, 5)}`);
+  if (entry) bits.push(`${I18N.t("signal.entry")} ${price(entry)}`);
+  if (sl) bits.push(`${I18N.t("signal.sl")} ${price(sl)}`);
+  if (tp) bits.push(`${I18N.t("signal.tp")} ${price(tp)}`);
   if (lots) bits.push(`${I18N.t("signal.lots")} ${fmt(lots, 2)}`);
   if (sig.confidence) bits.push(`${I18N.t("signal.confidence")} ${Math.round(Number(sig.confidence) * 100)}%`);
   return bits.join(" · ");
@@ -2032,8 +2082,22 @@ function announceSignal(sig) {
   if (S._lastSignalKey === key) return;
   S._lastSignalKey = key;
 
+  const prefs = notifyPrefs();
+  /* A signal is an entry the desk is telling you about, so it is
+     announced exactly like one: the same chime, the same card, the same
+     Windows toast, under the same switches.
+
+     Reported: nothing appeared when the system signalled, and then the
+     moment a trade was opened by hand every missed signal arrived at
+     once in a stack. That is this path having been written as a
+     quieter cousin of the trade path - no sound, no un-hiding of the
+     stack, no expiry. The cards were being built and prepended into a
+     container that ships hidden and that only pushTradeCard ever
+     un-hid, so they were on the page and invisible until a manual
+     trade switched the light on and revealed the whole backlog. */
+  playSound(prefs.entry, prefs.volume, "entry");
   pushSignalCard(sig);
-  if (documentHidden()) notifyHost(sig);
+  if (prefs.windows) notifyHost(sig);
 }
 
 function documentHidden() {
@@ -2291,7 +2355,7 @@ function tradeHeadline(t) {
 function tradeDetail(t) {
   const bits = [];
   if (t.volume) bits.push(`${fmt(t.volume, 2)} ${I18N.t("notify.lots")}`);
-  if (t.kind === "entry" && t.price) bits.push(`@ ${fmt(t.price, 5)}`);
+  if (t.kind === "entry" && t.price) bits.push(`@ ${price(t.price)}`);
   if (t.kind === "exit") bits.push(`${t.profit > 0 ? "+" : ""}${fmt(t.profit, 2)} ${esc(t.currency || "")}`.trim());
   if (t.strategy) bits.push(String(t.strategy));
   return bits.join(" · ");
@@ -2337,7 +2401,10 @@ function pushTradeCard(t) {
      through the server dismissal is what used to clear the whole stack. */
   bindDismiss(card);
   while (stack.children.length > 4) stack.lastElementChild.remove();
-  setTimeout(() => card.remove(), 12000);
+  setTimeout(() => {
+    card.remove();
+    if (stack.children.length === 0) stack.hidden = true;
+  }, 12000);
 }
 
 /** The Windows toast, via the desktop host. Entries and exits only. */
@@ -2361,6 +2428,11 @@ function notifyHostTrade(t) {
 function pushSignalCard(sig) {
   const stack = $("notify-stack");
   if (!stack) return;
+  // The stack ships hidden and is hidden again whenever it empties, so
+  // anything that puts a card in it has to turn it back on. Leaving
+  // this out is what made signals invisible until something else -
+  // a manual trade - happened to reveal the pile.
+  stack.hidden = false;
   const side = String(sig.action || sig.side || "").toLowerCase();
   const id = "sig-" + (sig.ts || Date.now());
   const card = document.createElement("article");
@@ -2382,7 +2454,18 @@ function pushSignalCard(sig) {
   card.querySelector("[data-sig-open]").onclick = () => {
     openSignalChart(sig.symbol, sig.timeframe, sig);
     card.remove();
+    if (stack.children.length === 0) stack.hidden = true;
   };
+
+  /* Signal cards expire like trade cards do. They carry an entry price,
+     which is the one number that is useless a minute later, and a card
+     that never leaves turns the stack into a log nobody reads. Longer
+     than a trade's twelve seconds, because a signal is an invitation to
+     act and a filled trade is a fact. */
+  setTimeout(() => {
+    card.remove();
+    if (stack.children.length === 0) stack.hidden = true;
+  }, 20000);
 }
 
 /**
@@ -3097,6 +3180,22 @@ function allAgents() {
     return st !== "offline" && st !== "removed";
   });
 }
+/**
+ * An EA's state, in the reader's language.
+ *
+ * The engine reports it as a bare English word - "online", "idle",
+ * "paused" - and the card printed that word verbatim, so a Persian
+ * desk showed a row of Persian labels with "online" at the end of it.
+ * A word the desk has no translation for is still shown rather than
+ * hidden: an unrecognised state is information, and swallowing it
+ * would be worse than leaving it in English.
+ */
+function agentState(status) {
+  const raw = String(status || "online").toLowerCase().trim();
+  const key = "charts.st_" + raw;
+  return I18N.has(key) ? I18N.t(key) : (status || "online");
+}
+
 function isTesterAgent(a) {
   return Boolean(a && (a.tester || String(a.mode || "").toLowerCase() === "tester" || String(a.mode || "").toLowerCase() === "backtest"));
 }
@@ -4350,8 +4449,6 @@ function patchStrategyLive() {
     /* The per-symbol strip has to be patched too. The second stats row
        was once left out of this loop and sat at whatever it was when
        the tab was built; this is the same trap. */
-    const syms = document.querySelector('[data-st-syms="' + it.name + '"]');
-    if (syms) syms.innerHTML = stSymbolRows(it);
     // The second stats row was never patched at all, so the record, the
     // profit factor and the average sat at whatever they were when the tab
     // was last built.
@@ -4572,7 +4669,7 @@ function chartTicketHtml() {
           <button type="button" class="ct-pm" data-vol="-1" aria-label="-">${icon("minus")}</button>
           <input id="ct-vol" type="number" step="0.01" min="0.01" inputmode="decimal"
                  aria-label="${esc(I18N.t("exec.volume"))}"
-                 value="${esc(String(t.vol || ticketLot()))}" />
+                 value="${esc(String(ticketLot()))}" />
           <button type="button" class="ct-pm" data-vol="1" aria-label="+">${icon("plus")}</button>
         </div>
       </div>
@@ -4588,9 +4685,13 @@ function chartTicketHtml() {
 
       <div class="ct-row ct-lv ct-entry" id="ct-entry-row" hidden>
         <span class="ct-lab">${I18N.t("exec.entry")}</span>
-        <input id="ct-price" type="number" step="0.00001" inputmode="decimal"
+        <!-- Two decimals, like every other price on the desk. The step
+             has to agree with that: a field that steps by 0.00001 while
+             showing two decimals snaps the arrow keys to digits it will
+             not then display. See PRICE_DP. -->
+        <input id="ct-price" type="number" step="${PRICE_STEP}" inputmode="decimal"
                aria-label="${esc(I18N.t("exec.entry"))}"
-               value="${esc(t.price || "")}" placeholder="${esc(I18N.t("exec.chart_click"))}" />
+               value="${esc(priceField(t.price))}" placeholder="${esc(I18N.t("exec.chart_click"))}" />
         <button type="button" class="ct-ic" id="ct-pick-price"
                 title="${esc(I18N.t("exec.set_entry"))}" aria-label="${esc(I18N.t("exec.set_entry"))}">${icon("target")}</button>
         <button type="button" class="ct-ic" id="ct-clear-price"
@@ -4600,9 +4701,9 @@ function chartTicketHtml() {
       <div class="ct-levels">
         <div class="ct-row ct-lv">
           <span class="ct-lab sl">${I18N.t("exec.sl")}</span>
-          <input id="ct-sl" type="number" step="0.0001" inputmode="decimal"
+          <input id="ct-sl" type="number" step="${PRICE_STEP}" inputmode="decimal"
                  aria-label="${esc(I18N.t("exec.sl"))}"
-                 value="${esc(t.sl || "")}" placeholder="${esc(I18N.t("exec.chart_click"))}" />
+                 value="${esc(priceField(t.sl))}" placeholder="${esc(I18N.t("exec.chart_click"))}" />
           <button type="button" class="ct-ic" id="ct-pick-sl"
                   title="${esc(I18N.t("exec.set_sl"))}" aria-label="${esc(I18N.t("exec.set_sl"))}">${icon("target")}</button>
           <button type="button" class="ct-ic" id="ct-clear-sl"
@@ -4610,9 +4711,9 @@ function chartTicketHtml() {
         </div>
         <div class="ct-row ct-lv">
           <span class="ct-lab tp">${I18N.t("exec.tp")}</span>
-          <input id="ct-tp" type="number" step="0.0001" inputmode="decimal"
+          <input id="ct-tp" type="number" step="${PRICE_STEP}" inputmode="decimal"
                  aria-label="${esc(I18N.t("exec.tp"))}"
-                 value="${esc(t.tp || "")}" placeholder="${esc(I18N.t("exec.chart_click"))}" />
+                 value="${esc(priceField(t.tp))}" placeholder="${esc(I18N.t("exec.chart_click"))}" />
           <button type="button" class="ct-ic" id="ct-pick-tp"
                   title="${esc(I18N.t("exec.set_tp"))}" aria-label="${esc(I18N.t("exec.set_tp"))}">${icon("target")}</button>
           <button type="button" class="ct-ic" id="ct-clear-tp"
@@ -4629,11 +4730,11 @@ function chartTicketHtml() {
       <div class="ct-sides">
         <button class="ct-side sell" type="button" id="ct-sell">
           <span>${I18N.t("exec.sell")}</span>
-          <b class="mono" id="ct-bid">${fmt(tick.bid, 5)}</b>
+          <b class="mono" id="ct-bid">${price(tick.bid)}</b>
         </button>
         <button class="ct-side buy" type="button" id="ct-buy">
           <span>${I18N.t("exec.buy")}</span>
-          <b class="mono" id="ct-ask">${fmt(tick.ask, 5)}</b>
+          <b class="mono" id="ct-ask">${price(tick.ask)}</b>
         </button>
       </div>
       <p class="sub" id="ct-msg"></p>
@@ -4652,8 +4753,8 @@ function paintTicketPrices() {
   const sym = (S.chartFocus && S.chartFocus.symbol) || S.symbol;
   const tick = (S.snap && S.snap.ticks && S.snap.ticks[sym]) || null;
   const bid = $("ct-bid"), ask = $("ct-ask");
-  if (bid) bid.textContent = tick ? fmt(tick.bid, 5) : "—";
-  if (ask) ask.textContent = tick ? fmt(tick.ask, 5) : "—";
+  if (bid) bid.textContent = tick ? price(tick.bid) : "—";
+  if (ask) ask.textContent = tick ? price(tick.ask) : "—";
   /* A market order's risk is measured from the live quote, so it moves
      with the quote. Here rather than on a timer of its own: this is
      already the function the tick wakes up. */
@@ -4675,10 +4776,32 @@ function deskLot() {
   return v > 0 ? v : 0.10;
 }
 
-/** Lot the ticket should show: what the user last typed, else the setting. */
+/**
+ * Lot the ticket should show.
+ *
+ * What the user last typed into the ticket, unless the setting has been
+ * changed since - in which case the setting wins.
+ *
+ * Reported: changing the lot in Settings from 1 to 2 left the market
+ * ticket and the EA chart still offering 1. S.ticket.vol is remembered
+ * for the length of the session and had no expiry, so the first number
+ * ever typed into a ticket outranked every later change to the setting,
+ * permanently and silently. A trader who sets 2 in Settings and sends
+ * what the ticket shows sends 1, and nothing on screen said so.
+ *
+ * The remembered value is kept - retyping a one-off size on a single
+ * ticket must not be lost on the next repaint - but it is tagged with
+ * the setting that was in force when it was typed. When the setting
+ * moves, the tag no longer matches and the new setting takes over.
+ */
 function ticketLot() {
-  const typed = Number((S.ticket || {}).vol);
-  return typed > 0 ? typed : deskLot();
+  const t = S.ticket || {};
+  const setting = deskLot();
+  const typed = Number(t.vol);
+  if (!(typed > 0)) return setting;
+  // Typed before the setting changed: the setting is the newer intent.
+  if (Number(t.volFrom) !== setting) return setting;
+  return typed;
 }
 
 /**
@@ -4744,6 +4867,9 @@ function rememberTicket() {
   S.ticket = {
     strategy: "@" + operatorName(),
     vol: String($("ct-vol")?.value || deskLot()),
+    // Which setting this lot was typed against, so a later change to the
+    // setting can be told apart from the value the trader chose here.
+    volFrom: deskLot(),
     sl: String($("ct-sl")?.value || ""),
     tp: String($("ct-tp")?.value || ""),
     type: String($("ct-type")?.value || "market"),
@@ -4906,9 +5032,9 @@ function onChartPrice(p) {
   if (!Number.isFinite(Number(p))) return;
   if (!S._pickLevel) return;
   const px = Number(p);
-  if (S._pickLevel === "sl" && $("ct-sl")) $("ct-sl").value = String(px);
-  else if (S._pickLevel === "tp" && $("ct-tp")) $("ct-tp").value = String(px);
-  else if (S._pickLevel === "price" && $("ct-price")) $("ct-price").value = String(px);
+  if (S._pickLevel === "sl" && $("ct-sl")) $("ct-sl").value = priceField(px);
+  else if (S._pickLevel === "tp" && $("ct-tp")) $("ct-tp").value = priceField(px);
+  else if (S._pickLevel === "price" && $("ct-price")) $("ct-price").value = priceField(px);
   S._pickLevel = null;
   document.querySelectorAll("#ct-pick-sl,#ct-pick-tp,#ct-pick-price").forEach((b) => b.classList.remove("on"));
   rememberTicket();
@@ -4917,8 +5043,8 @@ function onChartPrice(p) {
 }
 function onChartPending(p) {
   if (!p) return;
-  if (p.kind === "sl" && $("ct-sl")) $("ct-sl").value = String(p.sl || "");
-  if (p.kind === "tp" && $("ct-tp")) $("ct-tp").value = String(p.tp || "");
+  if (p.kind === "sl" && $("ct-sl")) $("ct-sl").value = priceField(p.sl);
+  if (p.kind === "tp" && $("ct-tp")) $("ct-tp").value = priceField(p.tp);
   rememberTicket();
   paintTicketRisk();
 }
@@ -5178,20 +5304,16 @@ function stState(it) {
  * Empty until the engine has seen more than one symbol - a single-chart
  * desk does not need a label saying which chart it is.
  */
-function stSymbolRows(it) {
-  const rows = Array.isArray(it.symbols) ? it.symbols : [];
-  if (rows.length < 2) return "";
-  return rows.map((r) => {
-    const st = stState({
-      last_action: r.action, last_reason: r.reason, last_ts: r.ts,
-      live_action: r.live_action, live_reason: r.live_reason, live_ts: r.live_ts,
-    });
-    const act = st.act || "idle";
-    return `<span class="st-sym ${stActClass(act)}${st.live ? " is-live" : ""}"
-      title="${esc(r.symbol + " — " + (st.why || act))}">
-      <b>${esc(r.symbol)}</b><i>${esc(act)}</i></span>`;
-  }).join("");
-}
+/* The per-symbol chips are gone - no stSymbolRows, no .st-syms row.
+   They put a tag like "GBPUSD hold" under every strategy card, one per
+   symbol the strategy watched. They were added for a reason that still
+   holds: the headline above them is whatever symbol spoke last, so on a
+   basket it names no instrument. They were removed by request anyway -
+   a card carrying six chips that mostly say "hold" is six lines of noise
+   around the one line that matters, and the strategy page is read to see
+   what a strategy is doing, not to audit every symbol at once.
+   The per-symbol detail is still in the snapshot and still on the
+   positions and market views; nothing was taken off the wire. */
 
 function stActClass(act) {
   return act === "buy" ? "up" : act === "sell" ? "down" : act === "blocked" ? "warn" : "";
@@ -5242,15 +5364,6 @@ function strategyLiveCards() {
     const act = state.act || "idle";
     const cls = stActClass(act);
     const custom = (it.kind || "builtin") !== "builtin";
-    /* What this strategy is saying about each symbol it watches.
-
-       The headline above is the most recent answer whatever symbol
-       produced it. On a desk running one chart that is the whole
-       truth; on a basket it names no instrument at all, so a trader
-       reading "buy" could not tell whether it meant EURUSD or gold -
-       and the next symbol's bar erased it seconds later anyway. */
-    const perSym = stSymbolRows(it);
-
     return `<div class="card st-card${it.enabled ? "" : " is-off"}" data-st-card="${esc(it.name)}">
       <div class="st-top">
         <div>
@@ -5259,6 +5372,7 @@ function strategyLiveCards() {
         </div>
         ${switchHtml({ on: it.enabled, label: it.name, attrs: `data-st="${esc(it.name)}"` })}
       </div>
+      ${evidenceHtml(it)}
       <div class="st-live">
         <span class="pill ${it.enabled?"on":""}" data-st-on="${esc(it.name)}">${it.enabled ? I18N.t("strategies.enable") : I18N.t("strategies.disable")}</span>
         <b class="mono ${cls}" data-st-act="${esc(it.name)}">${esc(act)}</b>
@@ -5279,7 +5393,6 @@ function strategyLiveCards() {
         <div><span>${I18N.t("strategies.avg")}</span>
           <b class="mono ${clsPnl(it.avg)}" data-st-avg="${esc(it.name)}">${fmt(it.avg || 0)}</b></div>
       </div>
-      <div class="st-syms" data-st-syms="${esc(it.name)}">${perSym}</div>
       <p class="sub" data-st-eval="${esc(it.name)}" title="${esc(refusalTally(it))}">${esc(state.why) || I18N.t("strategies.waiting")}</p>
       ${custom ? `<div class="row st-mng">
         <button type="button" class="btn tiny ghost" data-st-edit="${esc(it.name)}">${I18N.t("strategies.edit")}</button>
@@ -5287,6 +5400,36 @@ function strategyLiveCards() {
       </div>` : ""}
     </div>`;
   }).join("");
+}
+
+/* What is actually known about a strategy, said out loud on its card.
+   The strategy page listed the built-ins side by side and said nothing
+   about how any of them had performed, which reads as an endorsement of
+   all of them. One of the three loses money in every backtest we have
+   run and that is knowable before the trader finds out with their own
+   account, so the card says it, with the numbers and with what was
+   measured. See BaseStrategy.evidence. */
+function evidenceHtml(it) {
+  const ev = (it && it.evidence) || {};
+  const state = String(ev.state || "");
+  if (!state) return "";
+  const label = state === "measured" ? I18N.t("strategies.ev_measured")
+    : state === "negative" ? I18N.t("strategies.ev_negative")
+    : I18N.t("strategies.ev_unmeasured");
+  const tone = state === "measured" ? "ok" : state === "negative" ? "bad" : "warn";
+  const n = Number(ev.trades || 0);
+  const stats = n > 0 ? I18N.t("strategies.ev_stats", {
+    n: fmt(n, 0),
+    win: fmt(Number(ev.win || 0) * 100, 1),
+    pf: fmt(Number(ev.pf || 0), 2),
+    e: (Number(ev.expectancy || 0) >= 0 ? "+" : "") + fmt(Number(ev.expectancy || 0), 3),
+  }) : "";
+  const hint = [String(ev.basis || ""), I18N.t("strategies.ev_basis_hint")].filter(Boolean).join(" — ");
+  return `<div class="st-ev st-ev-${tone}" data-st-ev="${esc(it.name)}">
+      <b>${esc(label)}</b>
+      ${stats ? `<span class="mono" title="${esc(hint)}">${esc(stats)}</span>` : ""}
+      ${state === "negative" ? `<small>${esc(I18N.t("strategies.ev_warn"))}</small>` : ""}
+    </div>`;
 }
 
 function refusalTally(it) {
@@ -5693,7 +5836,11 @@ function qualityHtml(st) {
       <div class="q-last-head">
         <span>${I18N.t("slots.q_last")}</span>
         <b class="mono">${Math.round(Number(last.score) * 100)}%</b>
-        <span class="pill ${last.passed ? "ok" : "no"}">${I18N.t(last.passed ? "slots.q_taken" : "slots.q_skipped")}</span>
+        <!-- "below your mark", not "skipped": a score under the slider
+             no longer refuses the trade, it only sizes it down. A pill
+             saying "skipped" beside a trade that was actually taken is
+             a worse lie than no pill at all. -->
+        <span class="pill ${last.passed ? "ok" : "warn"}">${I18N.t(last.passed ? "slots.q_taken" : "slots.q_skipped")}</span>
       </div>
       <p class="sub">${esc([last.side, last.symbol].filter(Boolean).join(" ").toUpperCase())}
         ${(last.reasons || []).length ? "· " + esc(last.reasons.join(" · ")) : ""}</p>
@@ -5808,7 +5955,6 @@ function robotPanelHtml() {
         <p class="sub">${I18N.t("slots.help")}</p>
         ${slotsHtml(st)}
         <hr class="set-rule" />
-        ${switchRow({ id: "st-smart", title: I18N.t("slots.smart"), sub: I18N.t("slots.smart_help"), on: st.smart_filters !== false })}
         <ul class="set-list">
           <li>${I18N.t("slots.filter_htf")}</li>
           <li>${I18N.t("slots.filter_spread")}</li>
@@ -5863,7 +6009,13 @@ function robotPanelHtml() {
       </div>
 
       <div class="card">
-        <h3 class="card-h">${I18N.t("strategies.ai_gate")}</h3>
+        <!-- No card heading above the switch. The heading and the
+             switch's own label were the same sentence - "Require AI
+             agreement" printed twice, four lines apart, in two type
+             sizes - which reads as a rendering fault rather than as a
+             title. The switch is the heading: it names the setting and
+             shows its state in one row, which is what every other
+             switch card on this page already does. -->
         <p class="sub">${I18N.t("strategies.ai_gate_help")}</p>
         <hr class="set-rule" />
         ${switchRow({ id: "st-ai", title: I18N.t("strategies.ai_gate_switch"), on: st.require_ai_agree !== false })}
@@ -5900,14 +6052,22 @@ function robotPanelHtml() {
           <span>${I18N.t("money.cap")}</span>
           <span class="num-wrap">
             <input id="st-money-cap" type="number" step="0.5" min="0" value="${Number(money.max_loss_per_lot ?? 10)}" />
-            <b class="num-unit">${esc(money.currency || I18N.t("money.unit"))} ${esc(I18N.t("money.per_lot", { lot: fmtLot(moneyRefLot(money)) }))}</b>
+            <b class="num-unit" id="st-money-unit">${esc(moneyUnit(money))}</b>
           </span>
         </label>
-        <!-- Which lot the number is quoted against. It was "per lot",
-             while the engine has always measured it against a 0.01
-             lot: someone typing 10 and reading "per lot" is out by a
-             factor of a hundred on their own risk budget. -->
-        <p class="sub" id="st-money-ref">${esc(I18N.t("money.ref_note", { lot: fmtLot(moneyRefLot(money)) }))}</p>
+        <!-- What the number counts. Reported from the desk: a manual
+             trade was given a 100 stop while the setting said 10. Both
+             were "right" - the cap was being read per 0.01 lot and the
+             ticket was 0.10 - and that is exactly the defect. A field
+             called "maximum loss" that multiplies by the lot behind
+             the trader's back cannot be acted on, and it always fails
+             in the expensive direction. So the reading is now said out
+             loud and chosen here, and per trade is the default. -->
+        <div class="tabs" id="money-scope-tabs">
+          <button type="button" data-scope="trade" class="${moneyScope(money) === "trade" ? "on" : ""}">${I18N.t("money.scope_trade")}</button>
+          <button type="button" data-scope="lot" class="${moneyScope(money) === "lot" ? "on" : ""}">${I18N.t("money.scope_lot", { lot: fmtLot(moneyRefLot(money)) })}</button>
+        </div>
+        <p class="sub" id="st-money-ref">${esc(moneyScopeNote(money))}</p>
         <p class="sub" id="st-money-reach">${esc(moneyReach(money))}</p>
         <p class="sub" id="st-money-at-lot">${esc(moneyAtLot(money))}</p>
         <button class="btn tiny" id="st-money-save" type="button">${I18N.t("money.save")}</button>
@@ -5971,6 +6131,30 @@ function moneyRefLot(money) {
   return v > 0 ? v : 0.01;
 }
 
+/**
+ * Does the cap count one trade or one reference lot?
+ *
+ * Unknown reads as "trade". A desk that cannot tell which rule the
+ * engine is applying must not draw the one that understates risk.
+ */
+function moneyScope(money) {
+  return String((money || {}).scope || "").toLowerCase() === "lot" ? "lot" : "trade";
+}
+
+function moneyUnit(money) {
+  money = money || {};
+  const cur = money.currency || I18N.t("money.unit");
+  return moneyScope(money) === "lot"
+    ? cur + " " + I18N.t("money.per_lot", { lot: fmtLot(moneyRefLot(money)) })
+    : cur + " " + I18N.t("money.per_trade");
+}
+
+function moneyScopeNote(money) {
+  return moneyScope(money) === "lot"
+    ? I18N.t("money.scope_lot_note", { lot: fmtLot(moneyRefLot(money)) })
+    : I18N.t("money.scope_trade_note");
+}
+
 /** A lot size written the way a trader writes it: 0.01, 0.10, 1.00. */
 function fmtLot(v) {
   return fmtNum(Number(v) || 0, 2);
@@ -5997,10 +6181,15 @@ function fmtLot(v) {
  * for the generic fallback.
  */
 function liveMoney(saved) {
+  const picked = document.querySelector("#money-scope-tabs button.on");
   return {
     ...((S.snap && S.snap.strategy && S.snap.strategy.money) || {}),
     ...(saved || {}),
     max_loss_per_lot: Number($("st-money-cap")?.value || 0),
+    // The scope the trader is looking at, not the one last saved: the
+    // preview exists to answer "what would this do", and the two differ
+    // for exactly as long as it takes to press Save.
+    ...(picked ? { scope: picked.dataset.scope } : {}),
   };
 }
 
@@ -6011,7 +6200,9 @@ function moneyAtLot(money) {
   const ref = moneyRefLot(money);
   const lot = Number($("st-vol")?.value || deskLot() || 0);
   if (!(lot > 0)) return "";
-  const at = cap * (lot / ref);
+  // Per trade the answer is the cap, flat. Showing cap x lot/ref here
+  // while the engine caps per trade is how a preview becomes a lie.
+  const at = moneyScope(money) === "lot" ? cap * (lot / ref) : cap;
   const common = { lot: fmtLot(lot), money: fmtMoney(at, money.currency) };
   if (!money.priced || money.max_stop_points == null) {
     return I18N.t("money.at_lot_unpriced", common);
@@ -6824,8 +7015,8 @@ function analysisCardHtml() {
         <h4 class="ai-h">${I18N.t("ai.an.when")}</h4>
         <p class="sub">${esc(a.when || "")}</p>
         ${(a.resting || []).length
-          ? `<ul class="an-why">${a.resting.map((r) => `<li><b>${esc(String(r.type || "").replace(/_/g, " ").toUpperCase())} ${fmt(r.volume, 2)} @ ${fmt(r.price, 5)}</b>
-               <span class="sub"> — SL ${r.sl ? fmt(r.sl, 5) : "—"} / TP ${r.tp ? fmt(r.tp, 5) : "—"}</span></li>`).join("")}</ul>`
+          ? `<ul class="an-why">${a.resting.map((r) => `<li><b>${esc(String(r.type || "").replace(/_/g, " ").toUpperCase())} ${fmt(r.volume, 2)} @ ${price(r.price)}</b>
+               <span class="sub"> — SL ${r.sl ? price(r.sl) : "—"} / TP ${r.tp ? price(r.tp) : "—"}</span></li>`).join("")}</ul>`
           : ""}
         ${a.next_eval?.text ? `<p class="sub"><b>${I18N.t("ai.an.next_eval")}:</b> <span class="mono" id="an-next">${esc(a.next_eval.text)}</span></p>` : ""}
       </div>
@@ -7155,7 +7346,7 @@ const views = {
           </div>
           <span class="legend mono mk-tick" id="tick-lbl">${tickLabel()}</span>
           <div class="mk-sig">
-            <button type="button" class="btn tiny ${S.signalsEnabled?"on":"ghost"}" id="sig-toggle-m">${S.signalsEnabled?icon("bell")+" Signals ON":icon("bellOff")+" Signals OFF"}</button>
+            <button type="button" class="btn tiny ${S.signalsEnabled?"on":"ghost"}" id="sig-toggle-m">${S.signalsEnabled?icon("bell")+" "+esc(I18N.t("signal.toggle_on")):icon("bellOff")+" "+esc(I18N.t("signal.toggle_off"))}</button>
             <button type="button" class="btn tiny ghost" id="sig-show-m" aria-pressed="${Boolean(S.showSignals)}"
                     aria-label="${esc(I18N.t(S.showSignals ? "chart.signals_hide" : "chart.signals_show"))}"
                     title="${esc(I18N.t(S.showSignals ? "chart.signals_hide" : "chart.signals_show"))}"${
@@ -7428,7 +7619,7 @@ const views = {
       <div class="kv">
         <span>${I18N.t("charts.chart")}</span><b class="mono">${a.chart_id || "—"}</b>
         <span>${I18N.t("charts.signal")}</span><b>${a.last_signal?.direction || a.last_signal?.action || "—"}</b>
-        <span>${I18N.t("charts.state")}</span><b>${a.status || "online"}</b>
+        <span>${I18N.t("charts.state")}</span><b>${esc(agentState(a.status))}</b>
       </div>
       ${tester && !clickable ? `<p class="sub">${I18N.t("tape.showing_backtest")}</p>` : `
       <div class="chart-box chart-mini"><canvas data-mini="${a.symbol||""}" data-tf="${a.timeframe||""}"></canvas></div>
@@ -7699,22 +7890,13 @@ const views = {
           <button type="button" class="sj-close" id="set-sheet-close"
                   aria-label="${esc(I18N.t("settings.sheet_close"))}">${icon("close")}</button>
         </div>
-        <!-- Nine sections across three groups is past the point where
-             reading the rail is faster than typing. The box filters the
-             rail itself rather than opening a results page: the thing
-             you are looking for is one of these entries, so the answer
-             is "which of these", not "here is a list of matches". -->
-        <div class="sj-find">
-          <span class="dsk-search sm">${icon("search")}
-            <input type="search" id="set-q" class="dsk-search-i" autocomplete="off" spellcheck="false"
-                   placeholder="${esc(I18N.t("settings.search"))}"
-                   aria-label="${esc(I18N.t("settings.search"))}"
-                   aria-controls="set-jump" />
-            <button type="button" class="dsk-search-x" id="set-q-clear" hidden
-                    aria-label="${esc(I18N.t("common.close"))}">${icon("close")}</button>
-          </span>
-          <p class="sj-find-n sub" id="set-q-n" aria-live="polite" hidden></p>
-        </div>
+        <!-- There is no search box here. It filtered the rail as you
+             typed, which was a fair answer to nine sections across three
+             groups - but the right answer to "too many entries to scan"
+             is fewer, better-named entries, not a box that hides the
+             ones you did not name. It also cost the rail its one
+             constant: the list moved under the pointer while reading it.
+             Removal was asked for by name. -->
         </div>
         <!-- The entries are a region of their own so that, as a sheet,
              the handle, the title and the search can hold still while
@@ -8164,9 +8346,13 @@ function watchRowsHtml() {
         ${it.timeframe ? `<i class="wl-tf">${esc(it.timeframe)}</i>` : ""}
       </span>
       <span class="wl-quote">
-        <b class="mono wl-bid ${dir}">${fmt(bid, 5)}</b>
-        <b class="mono wl-ask">${fmt(ask, 5)}</b>
+        <b class="mono wl-bid ${dir}">${price(bid)}</b>
+        <b class="mono wl-ask">${price(ask)}</b>
       </span>
+      <!-- The spread keeps the broker's precision while prices get two
+           decimals. It is a distance, not a level: rounded to two it
+           reads 0.00 on every FX pair, which is not "two decimals", it
+           is no information at all. -->
       <span class="mono wl-sp">${spread === null ? "—" : fmt(spread, 5)}</span>
     </button>`;
   }).join("");
@@ -8460,7 +8646,7 @@ function cellText(k, v) {
   if (v === "" || v === null || v === undefined) return "—";
   if (CELL_TIME.includes(k)) return btWhen(v);
   if (k === "volume") return fmt(v, 2);
-  if (CELL_PRICE.includes(k)) return fmt(v, 5);
+  if (CELL_PRICE.includes(k)) return price(v);
   if (CELL_MONEY.includes(k)) return fmt(v, 2);
   return String(v);
 }
@@ -8570,8 +8756,8 @@ function paintPositions(boxId, rows, closable) {
       };
       const pl = Number(r.profit);
       put(".tvp-pl", Number.isFinite(pl) ? (pl > 0 ? "+" : "") + fmt(pl, 2) : "—", true);
-      put(".tvp-sl", r.sl ? fmt(r.sl, 5) : "—");
-      put(".tvp-tp", r.tp ? fmt(r.tp, 5) : "—");
+      put(".tvp-sl", r.sl ? price(r.sl) : "—");
+      put(".tvp-tp", r.tp ? price(r.tp) : "—");
       put(".tvp-vol", fmt(r.volume, 2));
     });
     return;
@@ -8583,7 +8769,7 @@ function paintPositions(boxId, rows, closable) {
 function tickLabel() {
   const t = S.snap?.ticks?.[S.symbol];
   if (!t) return "";
-  return `${S.symbol}  ${fmt(t.bid,5)} / ${fmt(t.ask,5)}`;
+  return `${S.symbol}  ${price(t.bid)} / ${price(t.ask)}`;
 }
 async function fillHostTerm() {
   const box = $("term");
@@ -8971,19 +9157,16 @@ async function bindUpdatePanel(){
             + '<p class="sub upd-unpub-detail">'+esc(I18N.t('upd.behind_branch', {
                 n: fmtNum(n, 0), size: fmtBytes(st.data.latest.download_bytes),
               }))+'</p>'
-            + '<button class="btn ghost" type="button" id="upd-dev-btn">'+esc(I18N.t('upd.install_branch'))+'</button>';
-          const devBtn = document.getElementById('upd-dev-btn');
-          if (devBtn) devBtn.onclick = async () => {
-            const go = await askConfirm({
-              title: I18N.t('upd.install_branch'),
-              body: I18N.t('upd.install_branch_confirm'),
-              ok: I18N.t('upd.install_branch'),
-              cancel: I18N.t('common.cancel'),
-              danger: true,
-            });
-            if (!go) return;
-            await runUpdateInstall(st.data.latest);
-          };
+            ;
+          /* No button here on purpose.
+             There used to be one offering to install the development
+             branch - whatever had been committed to main since the last
+             release, published or not. It was removed by request: an
+             update screen is for updates the owner has decided to ship,
+             and a one-click path to unreleased code on a trading desk is
+             a way to put a half-finished strategy in front of real money.
+             The two lines above still say what is on the branch, because
+             knowing is not the same as installing. */
         } else {
           statusEl.innerHTML = '';
         }
@@ -9060,81 +9243,15 @@ async function bindUpdatePanel(){
      wants it from a terminal. */
 }
 
-/**
- * Filter the settings rail as you type.
- *
- * It matches on the entry's name AND on its one-line description,
- * because people search for what a section DOES ("spread", "daily
- * loss") rather than for what it is called. A group heading is hidden
- * when nothing under it survives, otherwise the rail ends up with
- * three headings and one button.
- *
- * It deliberately does not change the open section. Typing is a way of
- * looking, and a page that navigates away on every keystroke cannot be
- * looked at.
- */
-function bindSettingsSearch() {
-  const q = $("set-q");
-  const rail = $("set-jump");
-  if (!q || !rail || q.dataset.bound === "1") return;
-  q.dataset.bound = "1";
-  const clear = $("set-q-clear");
-  const count = $("set-q-n");
-  const buttons = [...rail.querySelectorAll("button[data-jump]")];
-  const groups = [...rail.querySelectorAll(".sj-grp")];
+/* The settings rail used to be filtered by a search box above it.
+   Both are gone together - the box and the filter. It matched on each
+   entry's name and on its description, hid the group headings that
+   emptied out, and cleared on Escape without letting the sheet close.
+   None of that was broken; it was removed because the rail is better
+   short than searchable, and a list that rearranges itself while you
+   read it is harder to learn than a list that never moves.
+   tests/settings-sheet.test.js keeps the record. */
 
-  const apply = () => {
-    const term = q.value.trim().toLowerCase();
-    if (clear) clear.hidden = !term;
-    let shown = 0;
-    for (const b of buttons) {
-      const hit = !term || b.textContent.toLowerCase().includes(term);
-      b.hidden = !hit;
-      if (hit) shown += 1;
-    }
-    /* A heading belongs to the buttons that follow it up to the next
-       heading, so walk forward rather than guessing from the DOM. */
-    for (const g of groups) {
-      let any = false;
-      for (let n = g.nextElementSibling; n && !n.classList.contains("sj-grp"); n = n.nextElementSibling) {
-        if (n.matches("button[data-jump]") && !n.hidden) { any = true; break; }
-      }
-      g.hidden = !any;
-    }
-    if (count) {
-      count.hidden = !term;
-      count.textContent = shown
-        ? I18N.t("settings.search_n", { n: shown, t: buttons.length })
-        : I18N.t("settings.search_none");
-    }
-    rail.classList.toggle("is-filtered", Boolean(term));
-  };
-
-  q.addEventListener("input", apply);
-  q.addEventListener("keydown", (e) => {
-    if (e.key === "Escape" && q.value) {
-      q.value = "";
-      apply();
-      /* The sheet also listens for Escape, on the nav this box sits
-         inside. Without this the box cleared itself and the event then
-         bubbled up and shut the sheet, so one keypress undid the
-         filter AND threw away the list - a typo cost you the page.
-         Stopped only when there was something to clear, so an Escape
-         on an empty box still closes the sheet, which is what it
-         should do. */
-      e.preventDefault();
-      e.stopPropagation();
-    }
-    /* Enter opens the only thing left, which is what you meant if you
-       typed enough to leave one. */
-    if (e.key === "Enter") {
-      const first = buttons.find((b) => !b.hidden);
-      if (first) { showSetTab(first.dataset.jump); first.focus(); closeSetSheet(false); }
-    }
-  });
-  if (clear) clear.onclick = () => { q.value = ""; apply(); q.focus(); };
-  apply();
-}
 
 /* The settings rail as a bottom sheet, below the rail's breakpoint.
  *
@@ -9728,8 +9845,12 @@ function bindView(view) {
         S.signalsEnabled = !S.signalsEnabled;
         localStorage.setItem("aurion.signalsEnabled", S.signalsEnabled ? "1" : "0");
         sigToggleM.innerHTML = S.signalsEnabled
-          ? icon("bell") + " Signals ON"
-          : icon("bellOff") + " Signals OFF";
+          /* Written in the reader's language. This button and its twin
+             in the markets header were the last two hard-coded English
+             sentences on the desk: a Persian trader was shown
+             "Signals ON" in a panel of Persian. */
+          ? icon("bell") + " " + esc(I18N.t("signal.toggle_on"))
+          : icon("bellOff") + " " + esc(I18N.t("signal.toggle_off"));
         sigToggleM.classList.toggle("on", S.signalsEnabled);
         sigToggleM.classList.toggle("ghost", !S.signalsEnabled);
         /* The template hides this button with the `hidden` attribute,
@@ -10138,7 +10259,6 @@ function bindView(view) {
       closeSetSheet();
     };
     showSetTab(S.setTab || "set-robot");
-    bindSettingsSearch();
     bindSetSheet();
     const sav = $("s-save");
     if (sav) sav.onclick = () => saveAccountSettings(false);
@@ -10554,7 +10674,13 @@ function bindRobotPanel() {
     const r = await API.post("/api/auto", {
       min_open_trades: lo,
       max_open_trades: hi,
-      smart_filters: $("st-smart")?.classList.contains("on"),
+      /* smart_filters is deliberately not sent any more.
+         The switch that set it was removed from the settings by request.
+         The engine keeps whatever value it already had - leaving the
+         control out of the payload means this panel stops overwriting it
+         with the state of a switch that no longer exists, which is what
+         an absent element's ?.classList would have done: undefined, every
+         save, silently turning the filters off for everybody. */
       min_signal_quality: +($("st-quality")?.value || 0.55),
     });
     if (!quiet) toast(r.ok ? I18N.t("common.save") : (r.error || I18N.t("errors.generic")));
@@ -10577,12 +10703,6 @@ function bindRobotPanel() {
     el.addEventListener("change", () => saveSlots(true));
     el.addEventListener("keydown", (e) => { if (e.key === "Enter") saveSlots(true); });
   });
-  const smart = $("st-smart");
-  if (smart) smart.onclick = () => {
-    smart.classList.toggle("on");
-    smart.setAttribute("aria-pressed", smart.classList.contains("on") ? "true" : "false");
-    saveSlots(true);
-  };
   const quality = $("st-quality");
   if (quality) {
     const qpct = $("st-quality-pct");
@@ -10696,8 +10816,24 @@ function bindRobotPanel() {
      what 0.10 lots would cost makes the number useless for deciding
      what to type. */
   const repaintMoney = (saved) => {
+    const live = liveMoney(saved);
     const at = $("st-money-at-lot");
-    if (at) at.textContent = moneyAtLot(liveMoney(saved));
+    if (at) at.textContent = moneyAtLot(live);
+    const unit = $("st-money-unit");
+    if (unit) unit.textContent = moneyUnit(live);
+    const note = $("st-money-ref");
+    if (note) note.textContent = moneyScopeNote(live);
+  };
+  /* Changing the scope does not save it - Save does. It repaints,
+     because the number beside the field means something different
+     under each reading and showing the old meaning next to the new
+     choice is how somebody saves the wrong one. */
+  const scopeTabs = $("money-scope-tabs");
+  if (scopeTabs) scopeTabs.onclick = (e) => {
+    const b = e.target.closest("button[data-scope]");
+    if (!b) return;
+    [...scopeTabs.querySelectorAll("button")].forEach((x) => x.classList.toggle("on", x === b));
+    repaintMoney();
   };
   const moneyCap = $("st-money-cap");
   if (moneyCap) {
@@ -10707,7 +10843,11 @@ function bindRobotPanel() {
   const moneySave = $("st-money-save");
   if (moneySave) moneySave.onclick = async () => {
     const field = $("st-money-cap");
-    const r = await API.post("/api/money", { max_loss_per_lot: +(field?.value || 0) });
+    const picked = document.querySelector("#money-scope-tabs button.on");
+    const r = await API.post("/api/money", {
+      max_loss_per_lot: +(field?.value || 0),
+      scope: picked ? picked.dataset.scope : "trade",
+    });
     if (!r.ok) { toast(r.error || I18N.t("errors.generic")); return; }
     const reach = $("st-money-reach");
     if (reach) reach.textContent = moneyReach(r.money || {});
@@ -11099,6 +11239,42 @@ function bindPropForm() {
  * is drawn as it happens: the symbol's own chart, the equity curve
  * forming, and the counters moving.
  */
+/**
+ * The panel a finished run leaves behind.
+ *
+ * It used to leave nothing. paintBacktestLive blanked this box the
+ * moment `running` went false, so the chart of the tested window -
+ * the thing the trader had been watching for several minutes - was
+ * wiped at the exact instant the result arrived, and the card jumped
+ * to a table of numbers with no picture of where they came from.
+ * Reported as "the symbol chart disappears when the backtest
+ * finishes", and that is precisely what happened: deliberate code,
+ * wrong decision.
+ *
+ * The same frame is kept, frozen at the last replayed bar. The
+ * progress bar and the live counters go, because they would be
+ * stating a finished run's figures as though they were still moving;
+ * the window, the strategy and the last bar stay, because they are
+ * what the result is about.
+ */
+function renderBacktestDone(bt) {
+  const symbol = String(bt.symbol || "");
+  const tf = String(bt.timeframe || S.timeframe || "M15");
+  const data = (bt.data && typeof bt.data === "object") ? bt.data : {};
+  const at = data.last_bar ? esc(String(data.last_bar)) : "";
+  return `<div class="bt-live is-done">
+    <div class="tape-banner is-backtest" style="margin:0 0 10px">
+      ${I18N.t("bt.done_window")} · ${esc(symbol)} ${esc(tf)} · ${esc(String(bt.strategy || ""))}
+    </div>
+    <div class="bt-live-chart">
+      <canvas id="bt-replay"></canvas>
+      <span class="bt-replay-at mono" id="bt-replay-at">${at}</span>
+      <p class="bt-replay-note" id="bt-replay-note" hidden></p>
+    </div>
+    <p class="sub">${I18N.t("bt.done_chart_hint")}</p>
+  </div>`;
+}
+
 function renderBacktestLive(bt) {
   bt = bt || S.backtest || {};
   if (!bt.running) return "";
@@ -11152,9 +11328,46 @@ function renderBacktestLive(bt) {
  */
 function paintBacktestLive(box, bt, running) {
   if (!running) {
-    if (box.innerHTML !== "") box.innerHTML = "";
-    box.removeAttribute("data-run");
-    S._btReplay = null;
+    /* A finished run keeps its chart. See renderBacktestDone: this
+       used to blank the box, which threw away the picture of the
+       tested window at the moment the numbers about it arrived.
+
+       Only for a run that produced something. A failed run, or no run
+       at all, has no window to show and still clears. */
+    const done = Boolean(bt && bt.ok && bt.symbol && !bt.running);
+    if (!done) {
+      if (box.innerHTML !== "") box.innerHTML = "";
+      box.removeAttribute("data-run");
+      S._btReplay = null;
+      return;
+    }
+    const key = `done|${bt.symbol || ""}|${bt.timeframe || ""}|${bt.finished || ""}`;
+    if (box.getAttribute("data-run") !== key) {
+      box.innerHTML = renderBacktestDone(bt);
+      box.setAttribute("data-run", key);
+    }
+    /* The engine stops sending replay bars when the run ends, so the
+       frozen frame is drawn from whichever source still has it.
+
+       First choice is the last window the replay itself sent, held in
+       S._btReplay - it is the tested bars by definition, and it is
+       already here. Read before paintReplay, which overwrites it.
+
+       After a reload there is no such frame, and the fallback is the
+       desk's own candles wound forward to the run's final bar. That
+       path needs a fetch, so the chart arrives a moment later rather
+       than not at all. */
+    const frozen = S._btReplay;
+    const last = (bt.data && bt.data.last_bar) ? String(bt.data.last_bar) : "";
+    const snap = { at: last, marks: btDoneMarks(bt) };
+    if (frozen && Array.isArray(frozen.bars) && frozen.bars.length > 1) {
+      snap.replay_bars = frozen.bars;
+      /* The result carries 200 trades at most and a long run has more,
+         so an older frame's own marks are kept when the trade list
+         cannot account for the window. */
+      if (!snap.marks.length && Array.isArray(frozen.marks)) snap.marks = frozen.marks;
+    }
+    paintReplay(box, bt, snap);
     return;
   }
   const key = `${bt.symbol || ""}|${bt.timeframe || ""}|${bt.strategy || ""}`;
@@ -11248,10 +11461,45 @@ function ensureBacktestBars(bt) {
       const box = $("bt-live");
       if (!box) return;
       const now = (S.backtest && S.backtest.running) ? S.backtest : bt;
-      if (!now || !now.running) return;
-      paintReplay(box, now, (now.live && typeof now.live === "object") ? now.live : {});
+      if (!now) return;
+      /* A finished run is repainted too. This used to return here
+         unless something was still running, which is the window where
+         it matters most: after a reload the desk has no replay frame
+         at all and these candles are the only way back to the tested
+         window. */
+      if (now.running) {
+        paintReplay(box, now, (now.live && typeof now.live === "object") ? now.live : {});
+      } else if (now.ok && now.symbol) {
+        paintReplay(box, now, {
+          at: (now.data && now.data.last_bar) ? String(now.data.last_bar) : "",
+          marks: btDoneMarks(now),
+        });
+      }
     })
     .catch(() => { S._btBars = { key, pending: false, bars: null }; });
+}
+
+/**
+ * Entries and exits of a finished run, in the shape the replay chart
+ * draws.
+ *
+ * The engine builds these per snapshot while a run is going and stops
+ * when it ends, so the frozen frame would otherwise be bare candles.
+ * Only the tail is worth sending: drawReplayChart keeps whatever falls
+ * inside the window it is drawing, and a long run carries hundreds.
+ */
+function btDoneMarks(bt) {
+  const trades = Array.isArray(bt && bt.trades) ? bt.trades.slice(-60) : [];
+  const out = [];
+  for (const t of trades) {
+    if (!t || typeof t !== "object") continue;
+    if (t.time) out.push({ t: String(t.time), kind: "in", side: t.type, price: t.entry, volume: t.volume });
+    if (t.exit_time) {
+      out.push({ t: String(t.exit_time), kind: "out", side: t.type, price: t.exit,
+                 profit: Number(t.profit) || 0, reason: t.exit_reason });
+    }
+  }
+  return out;
 }
 
 /** The window of bars to draw, and where it came from. */
@@ -11356,6 +11604,11 @@ function drawReplayChart(bars, marks) {
   if (!g) return;
   g.setTransform(dpr, 0, 0, dpr, 0, 0);
   g.clearRect(0, 0, w, h);
+  /* Prices and timestamps, which are left-to-right runs whatever the
+     desk's language is. Canvas text defaults to the element's own
+     direction, so on a Persian desk this chart's own labels were bidi
+     reordered - the same fault the main chart had. */
+  g.direction = "ltr";
 
   // Same colour resolution as the equity curve: a custom property can
   // come back as the literal text "var(--something)".
@@ -11455,7 +11708,11 @@ function drawReplayChart(bars, marks) {
   g.textAlign = "start";
   g.textBaseline = "middle";
   for (const v of [hi - pad, (hi + lo) / 2, lo + pad]) {
-    g.fillText(fmt(v, 2), w - padR + 6, y(v));
+    /* toFixed, not fmt(): fmt localises, so this axis printed Persian
+       digits beside a main chart whose axis prints Latin ones - two
+       charts of the same prices, numbered two different ways, one
+       above the other. Same two decimals as everywhere else. */
+    g.fillText(Number(v).toFixed(PRICE_DP), w - padR + 6, y(v));
   }
 }
 
@@ -11570,8 +11827,8 @@ function renderBacktestExtra(bt) {
       return `<tr>
         <td class="mono">${esc(btWhen(t.time))}</td>
         <td><span class="pill tiny ${side === "buy" ? "up" : "down"}">${esc(side.toUpperCase() || "—")}</span></td>
-        <td class="mono">${fmt(t.entry, 5)}</td>
-        <td class="mono">${fmt(t.exit, 5)}</td>
+        <td class="mono">${price(t.entry)}</td>
+        <td class="mono">${price(t.exit)}</td>
         <td class="mono ${clsPnl(t.profit)}">${fmt(t.profit)}</td>
         <td class="sub">${esc(String(t.exit_reason || "—"))}</td>
       </tr>`;
@@ -12068,9 +12325,9 @@ function positionsListHtml(pos, ord) {
       ${cell("tvp-sym", esc(String(r.symbol || "")), I18N.t("table.symbol"))}
       ${cell("tvp-dir", `<b>${esc(String(r.type || dir).toUpperCase())}</b>`, I18N.t("table.type"))}
       ${cell("tvp-vol mono", fmt(r.volume, 2), I18N.t("table.volume"))}
-      ${cell("tvp-at mono", fmt(r.price_open, 5), I18N.t("table.price_open"))}
-      ${cell("tvp-sl mono", r.sl ? fmt(r.sl, 5) : "—", I18N.t("table.sl"))}
-      ${cell("tvp-tp mono", r.tp ? fmt(r.tp, 5) : "—", I18N.t("table.tp"))}
+      ${cell("tvp-at mono", price(r.price_open), I18N.t("table.price_open"))}
+      ${cell("tvp-sl mono", r.sl ? price(r.sl) : "—", I18N.t("table.sl"))}
+      ${cell("tvp-tp mono", r.tp ? price(r.tp) : "—", I18N.t("table.tp"))}
       ${cell("tvp-pl mono " + clsPnl(pl), money(pl), I18N.t("table.profit"))}
       <span class="tvp-c tvp-act"><button type="button" class="tv-pos-x" data-close="${esc(String(r.ticket))}"
               data-close-what="${esc(what)}"
@@ -12086,9 +12343,9 @@ function positionsListHtml(pos, ord) {
       ${cell("tvp-sym", esc(String(r.symbol || "")), I18N.t("table.symbol"))}
       ${cell("tvp-dir", `<b>${esc(String(r.type || "").replace(/_/g, " ").toUpperCase())}</b>`, I18N.t("table.type"))}
       ${cell("tvp-vol mono", fmt(r.volume, 2), I18N.t("table.volume"))}
-      ${cell("tvp-at mono", fmt(r.price, 5), I18N.t("table.price_open"))}
-      ${cell("tvp-sl mono", r.sl ? fmt(r.sl, 5) : "—", I18N.t("table.sl"))}
-      ${cell("tvp-tp mono", r.tp ? fmt(r.tp, 5) : "—", I18N.t("table.tp"))}
+      ${cell("tvp-at mono", price(r.price), I18N.t("table.price_open"))}
+      ${cell("tvp-sl mono", r.sl ? price(r.sl) : "—", I18N.t("table.sl"))}
+      ${cell("tvp-tp mono", r.tp ? price(r.tp) : "—", I18N.t("table.tp"))}
       ${cell("tvp-pl tvp-wait", esc(I18N.t("chart.order_waiting")), I18N.t("table.profit"))}
       <span class="tvp-c tvp-act"><button type="button" class="tv-pos-x" data-cancel="${esc(String(r.ticket))}"
               title="${esc(I18N.t("chart.order_cancel"))}"

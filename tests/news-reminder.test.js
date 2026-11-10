@@ -239,18 +239,126 @@ check("...and the only thing it calls is a notification", () => {
   return "toast + host notification";
 });
 
+/* ============ 3b. the three faults behind "it did not work" ==========
+
+   Reported plainly: the reminder produced nothing - no toast in the
+   desk and no Windows notification. Three separate defects, each of
+   which would have been enough on its own, so each gets its own check.
+   ==================================================================== */
+
+check("the Windows host actually accepts a news message", () => {
+  /* Fault one, and the reason there was never a Windows notification:
+     the host's message handler returned early unless the payload
+     mentioned "signal" or "trade". The reminder has posted
+     {"type":"news"} since the day it was written, so the balloon was
+     not broken - it was never reachable. */
+  const host = read("installer/window/AppWindow.cs");
+  const i = host.indexOf("core.WebMessageReceived");
+  must(i > 0, "the host no longer listens for desk messages at all");
+  const body = host.slice(i, i + 2200);
+  must(/var isNews = raw\.Contains/.test(body), "the host does not recognise a news message");
+  must(/if \(!isSignal && !isTrade && !isNews\) return;/.test(body),
+    "the early return still drops news");
+  must(/isNews \? "" :/.test(body),
+    "a news balloon would inherit the last signal's symbol and open the wrong chart");
+});
+
+check("the ledger is dated by one clock, and by the right event", () => {
+  /* Fault two. _remindMark stored the release's own timestamp and
+     pruned against Date.now(), while the decision to announce was made
+     against the `now` handed to remindTick. Two clocks for one
+     question: an entry whose event time fell outside the other clock's
+     two-day window was deleted as it was written, so the release was
+     announced again on the next pass, every thirty seconds, until it
+     had gone by. */
+  const i = SRC.indexOf("  _remindMark(");
+  const body = SRC.slice(i, SRC.indexOf("\n  _evId(", i));
+  must(!/Date\.now\(\) - 2 \*/.test(body), "the prune floor is read off a second clock");
+  must(/const floor = now - 2 \*/.test(body), "the prune does not use the clock it was given");
+  must(/this\._remindMark\(this\._evId\(ev\), now\)/.test(SRC),
+    "the ledger is still dated by the release rather than by the announcement");
+});
+
+check("a release is announced once even when the clock is not today's", () => {
+  /* The behaviour the two clocks broke, driven rather than grepped,
+     and at a time deliberately far from the machine's own: that is the
+     whole point - the answer must not depend on when the test runs. */
+  for (const when of [NOW, NOW - 400 * 24 * 60 * MIN, NOW + 400 * 24 * 60 * MIN]) {
+    const { cal, toasts } = makeCal();
+    cal.events = [{ ...ev(10, "high"), ms: when + 10 * MIN }];
+    must(cal.remindTick(when).length === 1, "nothing was announced at " + new Date(when).toISOString());
+    must(cal.remindTick(when).length === 0, "announced twice at " + new Date(when).toISOString());
+    must(toasts.length === 1, "raised " + toasts.length + " toasts at " + new Date(when).toISOString());
+  }
+  return "once, a year either side of today";
+});
+
+check("a calendar with nothing left in it says so instead of going quiet", () => {
+  /* Fault three, the one that hid the other two. The engine serves the
+     last good week from cache when the feed cannot be reached - right
+     call, a stale calendar beats a blank one - but the desk dropped
+     the flag, so a calendar whose newest release was last week looked
+     exactly like a live one. The reminder then had nothing in its
+     window, was correctly silent, and was indistinguishable from
+     broken. */
+  const { cal, toasts } = makeCal();
+  cal.events = [ev(-600, "high"), ev(-120, "high")];
+  must(cal.remindTick(NOW).length === 0, "a past release was announced");
+  must(cal._remindStale(NOW) === true, "nothing was said about a calendar with no future in it");
+  must(toasts.length === 1, "expected one notice, got " + toasts.length);
+  must(toasts[0] !== "calendar.remind_stale", "the notice is an untranslated key");
+  must(toasts[0].length > 25, "the notice does not say what to do: " + toasts[0]);
+  return toasts[0].slice(0, 48) + "...";
+});
+
+check("...but it does not say it twice in a day", () => {
+  const { cal, toasts, store } = makeCal();
+  cal.events = [ev(-120, "high")];
+  must(cal._remindStale(NOW) === true, "the first notice did not happen");
+  must(cal._remindStale(NOW + 60 * MIN) === false, "it complained again an hour later");
+  must(cal._remindStale(NOW + 25 * 60 * MIN) === true, "it never speaks again after the first day");
+  must(toasts.length === 2, "expected two notices a day apart, got " + toasts.length);
+  must(store.has("aurion.cal.remind.warned"), "the notice is not remembered across a reload");
+  return "once a day";
+});
+
+check("a live calendar is never called stale", () => {
+  const { cal, toasts } = makeCal();
+  cal.events = [ev(-120, "high"), ev(600, "high")];
+  must(cal._remindStale(NOW) === false, "a calendar with a release ahead of it was called stale");
+  must(toasts.length === 0, "it complained about a working calendar");
+  /* And an empty calendar is a different complaint - the feed has not
+     loaded at all, which the Calendar tab says in its own words. */
+  cal.events = [];
+  must(cal._remindStale(NOW) === false, "an empty calendar was reported as a stale one");
+  return "quiet";
+});
+
+check("the engine's own report on the feed is kept rather than thrown away", () => {
+  const i = SRC.indexOf("async load() {");
+  const body = SRC.slice(i, i + 900);
+  must(/this\.feed = /.test(body), "the desk still discards the feed's cached/error report");
+});
+
+check("the reminder complains only when it had nothing to announce", () => {
+  const i = SRC.indexOf("startReminder() {");
+  const body = SRC.slice(i, SRC.indexOf("stopReminder()", i));
+  must(/if \(!this\.remindTick\(now\)\.length\) this\._remindStale\(now\)/.test(body),
+    "a stale notice could land on top of a real reminder");
+});
+
 check("the promise is made in words too, in every language", () => {
   for (const [name, pack] of [["en", EN], ["fa", FA], ["ar", AR]]) {
     const c = pack.calendar || {};
     for (const k of ["remind_title", "remind_sub", "remind_lead", "remind_level",
       "remind_mins", "remind_lead_opt", "remind_high", "remind_medium", "remind_all",
-      "remind_toast", "remind_more", "remind_on", "remind_off"]) {
+      "remind_toast", "remind_more", "remind_stale", "remind_on", "remind_off"]) {
       must(typeof c[k] === "string" && c[k].trim(), name + " is missing calendar." + k);
     }
     must(c.remind_sub.length > 25, name + "'s explanation of what it will not do is too short to say it");
   }
   must(/only notifies/i.test(EN.calendar.remind_sub), "the English text does not say it only notifies");
-  return "13 keys x 3";
+  return "14 keys x 3";
 });
 
 /* ====================== 4. it works when unwatched ==================== */

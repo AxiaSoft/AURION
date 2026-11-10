@@ -124,7 +124,7 @@ window.AURION_DEMO_FIXTURES = {
     "enabled": false,
     "auto_trade": false,
     "require_ai_agree": true,
-    "min_ai_confidence": 0.55,
+    "min_ai_confidence": 0.35,
     "volume_mode": "auto",
     "manual_volume": 0.1,
     "trade_style": "normal",
@@ -185,6 +185,14 @@ window.AURION_DEMO_FIXTURES = {
        "pullback_trend_strength": 0.2
       },
       "class": "EmaRsi",
+      "evidence": {
+       "state": "measured",
+       "trades": 2448,
+       "win": 0.501,
+       "pf": 2.03,
+       "expectancy": 0.321,
+       "basis": "8 seeds x 5 instruments x 2 200 M15 bars of seeded synthetic market (scripts/strategy-xray.py), frozen AI, spread and commission not modelled"
+      },
       "enabled": false,
       "kind": "builtin",
       "last_action": "idle",
@@ -222,6 +230,14 @@ window.AURION_DEMO_FIXTURES = {
        "structure_atr": 1.2
       },
       "class": "PriceAction",
+      "evidence": {
+       "state": "negative",
+       "trades": 590,
+       "win": 0.388,
+       "pf": 0.81,
+       "expectancy": -0.099,
+       "basis": "8 seeds x 5 instruments x 2 200 M15 bars of seeded synthetic market (scripts/strategy-xray.py), frozen AI, spread and commission not modelled"
+      },
       "enabled": false,
       "kind": "builtin",
       "last_action": "idle",
@@ -260,6 +276,14 @@ window.AURION_DEMO_FIXTURES = {
        "min_efficiency": 0.18
       },
       "class": "ATRBreakout",
+      "evidence": {
+       "state": "measured",
+       "trades": 2273,
+       "win": 0.672,
+       "pf": 2.67,
+       "expectancy": 0.533,
+       "basis": "8 seeds x 5 instruments x 2 200 M15 bars of seeded synthetic market (scripts/strategy-xray.py), frozen AI, spread and commission not modelled"
+      },
       "enabled": false,
       "kind": "builtin",
       "last_action": "idle",
@@ -1858,7 +1882,7 @@ window.AURION_DEMO_FIXTURES = {
    "runtime": {
     "auto_trade": false,
     "require_ai_agree": true,
-    "min_ai_confidence": 0.55,
+    "min_ai_confidence": 0.35,
     "trade_style": "normal",
     "danger_guard": {
      "enabled": false,

@@ -95,10 +95,19 @@ function moneyBox(snapMoney, fields) {
     deskLot: () => 0.1,
     Math, Number, String, Object, console,
     window: {},
+    /* liveMoney reads the scope straight off the card, because the
+       preview has to answer for the reading the trader is looking at
+       rather than the one last saved. With no card rendered there is
+       no button to find, and the engine's own value stands. */
+    document: {
+      querySelector: (sel) => ((fields || {}).scope && sel.indexOf("money-scope-tabs") >= 0
+        ? { dataset: { scope: fields.scope } } : null),
+    },
   };
   vm.createContext(ctx);
   const names = ["specFor", "priceMoney", "fmtNum", "fmtMoney", "riskPhrase",
-    "moneyRefLot", "fmtLot", "liveMoney", "moneyAtLot"];
+    "moneyRefLot", "moneyScope", "moneyUnit", "moneyScopeNote",
+    "fmtLot", "liveMoney", "moneyAtLot"];
   const src = names.map((n) => liftFn(APP, n)).join("\n") +
     "\nwindow.X = {" + names.join(",") + "};";
   vm.runInContext(src, ctx);
@@ -179,12 +188,59 @@ check("a hundred points reads as 100, not 100.0", () => {
 
 /* ------------------------------------------- the cap, at a real lot ----- */
 
-check("the cap is restated at the lot in the field", () => {
-  const X = moneyBox(PRICED, { "st-money-cap": 10, "st-vol": 0.5 });
+/* ------------------------------------------------------------------ *
+ * The cap counts one trade, not one lot
+ *
+ * Reported: a manual trade was given a $100 stop while the setting
+ * said 10. Both numbers were right - the cap was read against a 0.01
+ * lot and the ticket was 0.10 - which is precisely the defect. A field
+ * labelled "maximum loss" that multiplies by the lot behind the
+ * trader's back cannot be acted on, and it fails in the expensive
+ * direction, because people raise their size long before they revisit
+ * their risk settings.
+ *
+ * The check below used to assert the multiplication: "0.50 lot on a 10
+ * cap is 500". The reasoning behind it answered an earlier fault - the
+ * cap had been read against a full 1.00 lot, which put a ten-pip stop
+ * on the 0.01-lot tickets most people send - and that half still
+ * holds, so the scaling reading is kept as a choice and pinned below.
+ * What changed is which one you get without asking.
+ * ------------------------------------------------------------------ */
+
+check("per trade, the cap is the same money at every lot", () => {
+  for (const lot of [0.01, 0.1, 0.5, 2]) {
+    const X = moneyBox(PRICED, { "st-money-cap": 10, "st-vol": lot, scope: "trade" });
+    const line = X.moneyAtLot(X.liveMoney());
+    if (!/10\.00/.test(line)) throw new Error("at " + lot + " lot the cap moved: " + line);
+  }
+});
+
+check("per lot, it still scales - for anyone who asks for that", () => {
+  const X = moneyBox(PRICED, { "st-money-cap": 10, "st-vol": 0.5, scope: "lot" });
   const line = X.moneyAtLot(X.liveMoney());
   if (!/0\.50/.test(line)) throw new Error("the lot is not named: " + line);
   if (!/500\.00/.test(line)) throw new Error("0.50 lot on a 10 cap is 500: " + line);
-  if (!/250/.test(line)) throw new Error("the distance is not named: " + line);
+});
+
+check("a reading the desk does not recognise is read as per trade", () => {
+  const X = moneyBox(PRICED);
+  if (X.moneyScope({}) !== "trade") throw new Error("an absent scope is not read as per trade");
+  if (X.moneyScope({ scope: "LOT" }) !== "lot") throw new Error("the scope is case-sensitive");
+  if (X.moneyScope({ scope: "whatever" }) !== "trade") throw new Error("an unknown scope is not the safe one");
+});
+
+check("the unit beside the field says which reading is on", () => {
+  const X = moneyBox(PRICED);
+  const perTrade = X.moneyUnit({ scope: "trade", currency: "USD", reference_lot: 0.01 });
+  const perLot = X.moneyUnit({ scope: "lot", currency: "USD", reference_lot: 0.01 });
+  if (perTrade === perLot) throw new Error("both readings print the same unit: " + perTrade);
+  if (!/trade/i.test(perTrade)) throw new Error("the per-trade unit does not say trade: " + perTrade);
+  if (!/0\.01/.test(perLot)) throw new Error("the per-lot unit does not name the lot: " + perLot);
+  const noteT = X.moneyScopeNote({ scope: "trade" });
+  const noteL = X.moneyScopeNote({ scope: "lot", reference_lot: 0.01 });
+  if (noteT === noteL || !noteT.trim() || !noteL.trim()) {
+    throw new Error("the explanation under the field does not change with the reading");
+  }
 });
 
 check("the reference lot comes from the engine, not from a guess here", () => {
@@ -197,7 +253,7 @@ check("the reference lot comes from the engine, not from a guess here", () => {
 
 check("an unpriced symbol gets the short wording, not a made-up distance", () => {
   const X = moneyBox({ max_loss_per_lot: 10, reference_lot: 0.01, priced: false },
-    { "st-money-cap": 10, "st-vol": 0.1 });
+    { "st-money-cap": 10, "st-vol": 0.1, scope: "lot" });
   const line = X.moneyAtLot(X.liveMoney());
   if (/points|نقطه|پوینت/.test(line)) throw new Error("it invented a distance: " + line);
   if (!/100\.00/.test(line)) throw new Error("the money is still owed: " + line);
@@ -334,7 +390,9 @@ check("it says so when it cannot price the symbol", () => {
 
 check("every new string exists in all three languages", () => {
   const keys = ["exec.risk_line", "exec.risk_unpriced", "exec.risk_need_price",
-    "money.at_lot", "money.at_lot_unpriced", "money.ref_note", "money.per_lot", "money.cap"];
+    "money.at_lot", "money.at_lot_unpriced", "money.per_lot", "money.per_trade",
+    "money.scope_trade", "money.scope_lot", "money.scope_trade_note",
+    "money.scope_lot_note", "money.cap"];
   const missing = [];
   for (const key of keys) {
     const [ns, k] = key.split(".");
@@ -349,7 +407,10 @@ check("the lot placeholder survives translation", () => {
   /* "per lot" was the old wording and it was wrong by a factor of a
      hundred. A translation that drops {lot} puts it back. */
   for (const [lang, d] of Object.entries(LANGS)) {
-    for (const key of ["per_lot", "ref_note", "at_lot", "at_lot_unpriced"]) {
+    /* ref_note went when the reference lot stopped being the whole
+       story. scope_lot and scope_lot_note are the strings that still
+       talk about one, and they are the ones that must keep {lot}. */
+    for (const key of ["per_lot", "scope_lot", "scope_lot_note", "at_lot", "at_lot_unpriced"]) {
       if (!String((d.money || {})[key] || "").includes("{lot}")) {
         throw new Error(lang + " money." + key + " lost {lot}");
       }
@@ -363,16 +424,101 @@ check("the lot placeholder survives translation", () => {
   }
 });
 
-check("the card no longer claims the cap is per whole lot", () => {
+check("the card says which reading the cap uses", () => {
   const card = APP.slice(APP.indexOf('id="set-money"'), APP.indexOf('id="st-money-save"'));
-  if (!/money\.per_lot", \{ lot:/.test(card)) {
-    throw new Error("the unit is printed without the lot it refers to");
+  if (!/money-scope-tabs/.test(card)) throw new Error("there is no way to see or change the reading");
+  if (!/data-scope="trade"/.test(card) || !/data-scope="lot"/.test(card)) {
+    throw new Error("the two readings are not both offered");
   }
-  if (!/st-money-ref/.test(card)) throw new Error("the card does not state its reference lot");
+  if (!/st-money-unit/.test(card)) throw new Error("the unit beside the field is not repainted");
+  if (!/st-money-ref/.test(card)) throw new Error("the card does not explain the reading");
   if (!/st-money-at-lot/.test(card)) throw new Error("the card does not restate the cap at the real lot");
 });
 
+check("the save sends the reading along with the number", () => {
+  /* Sending only the number leaves the engine on whichever reading it
+     already had, so a trader who switches to per trade and presses
+     Save would keep being charged per lot. */
+  const i = APP.indexOf('API.post("/api/money"');
+  if (i < 0) throw new Error("the cap is no longer saved");
+  const call = APP.slice(i, i + 260);
+  if (!/scope:/.test(call)) throw new Error("only the number is sent");
+});
+
 /* ------------------------------------------------------ two decimals ---- */
+
+/* ------------------------------------------------------------------ *
+ * Two decimals, and the same two everywhere
+ *
+ * Reported: the manual-trade stop, target and entry fields showed far
+ * too many digits. They showed five - the broker's own precision -
+ * which is unreadable at a glance, because 1.08451 and 1.08415 are the
+ * same shape.
+ *
+ * Offered as a flat two or as per-instrument digits; a flat two was
+ * chosen. So it is one constant, and every price on the desk reads
+ * from it - the ticket, the price dialog, the tape, the tables, the
+ * notifications - because a desk where the chart says one price and
+ * the ticket says another is worse than either precision on its own.
+ * ------------------------------------------------------------------ */
+
+check("the desk has one answer for how many decimals a price has", () => {
+  if (!/const PRICE_DP = 2;/.test(APP)) throw new Error("app.js has no PRICE_DP, or it is not 2");
+  if (!/static PRICE_DP = 2;/.test(CHARTS)) throw new Error("the chart disagrees with the ticket");
+});
+
+check("no price is still printed to five decimals", () => {
+  /* Two survivors, both deliberate: the spread, which is a distance
+     and reads 0.00 at two decimals, and the AI feature dump, which is
+     not prices at all. Anything else is a site that was missed. */
+  const lines = APP.split("\n")
+    .map((l, i) => [i + 1, l])
+    .filter(([, l]) => /fmt\([^)]*,\s*5\)/.test(l))
+    .filter(([, l]) => !/wl-sp|feats/.test(l));
+  if (lines.length) {
+    throw new Error("still at five decimals: " + lines.map(([n]) => "line " + n).join(", "));
+  }
+});
+
+check("the three ticket fields step by what they display", () => {
+  const ticket = APP.slice(APP.indexOf('id="ct-price"'), APP.indexOf('id="ct-tp"') + 400);
+  for (const id of ["ct-price", "ct-sl", "ct-tp"]) {
+    const at = ticket.indexOf('id="' + id + '"');
+    if (at < 0) throw new Error(id + " is gone");
+    const tag = ticket.slice(at, at + 200);
+    if (/step="0\.000/.test(tag)) {
+      throw new Error(id + " steps finer than it shows, so the arrow keys move digits it hides");
+    }
+    if (!/step="\$\{PRICE_STEP\}"/.test(tag)) throw new Error(id + " does not take its step from PRICE_DP");
+    if (!/priceField\(/.test(tag)) throw new Error(id + " renders a raw number rather than a two-decimal one");
+  }
+});
+
+check("a price going into a field is not localised", () => {
+  /* price() goes through toLocaleString, which in Persian returns
+     Eastern Arabic digits and in several locales a thousands
+     separator. <input type="number"> rejects both - silently, leaving
+     the field empty - so the writer path has its own helper. */
+  const fn = liftFn(APP, "priceField");
+  if (/toLocaleString|I18N/.test(fn)) throw new Error("priceField localises: " + fn.replace(/\s+/g, " "));
+  if (!/toFixed\(PRICE_DP\)/.test(fn)) throw new Error("priceField does not use PRICE_DP");
+  const ctx = { Number, Math, PRICE_DP: 2 };
+  const run = (v) => new (require("vm").Script)(fn + ";priceField(" + JSON.stringify(v) + ");")
+    .runInNewContext({ ...ctx });
+  if (run(1.084513) !== "1.08") throw new Error("got " + run(1.084513));
+  if (run(0) !== "") throw new Error("zero must leave the field empty, not print 0.00");
+  if (run("") !== "") throw new Error("an empty field must stay empty");
+});
+
+check("every place that writes a price into the ticket uses it", () => {
+  for (const fn of ["onChartPrice", "onChartPending"]) {
+    const body = liftFn(APP, fn);
+    if (/\.value = String\(/.test(body)) {
+      throw new Error(fn + " writes a raw number into a two-decimal field");
+    }
+    if (!/priceField\(/.test(body)) throw new Error(fn + " does not go through priceField");
+  }
+});
 
 check("prices on the EA chart are written to two decimals", () => {
   const fn = liftMethod(CHARTS, "fmtPrice");
@@ -393,6 +539,84 @@ check("the axis still reports the value it landed on", () => {
 });
 
 /* ----------------------------------------------------------- report ---- */
+
+/* ------------------------------------------------------------------ *
+ * The lot in Settings is the lot the ticket offers
+ *
+ * Reported: changing the lot in Settings from 1 to 2 left the market
+ * ticket and the EA chart still showing 1.
+ *
+ * ticketLot() preferred S.ticket.vol - what had last been typed into a
+ * ticket - over the setting, and S.ticket.vol never expired. So the
+ * first number ever typed outranked every later change to the setting,
+ * for the whole session, silently. A trader who sets 2 and sends what
+ * the ticket shows sends 1.
+ *
+ * The remembered value still wins while the setting stands still: a
+ * one-off size typed for a single trade must survive a repaint. It is
+ * tagged with the setting it was typed against, and when the setting
+ * moves the tag stops matching.
+ * ------------------------------------------------------------------ */
+
+check("a lot typed on the ticket survives a repaint", () => {
+  const ctx = { S: { ticket: { vol: "0.50", volFrom: 0.10 }, snap: { strategy: { manual_volume: 0.10 } } } };
+  const fn = liftFn(APP, "ticketLot");
+  const dl = liftFn(APP, "deskLot");
+  const run = new vm.Script(dl + "\n" + fn + "\n;ticketLot();");
+  const got = run.runInNewContext(ctx);
+  if (got !== 0.5) throw new Error("expected the typed 0.5, got " + got);
+});
+
+check("...and loses to the setting once the setting changes", () => {
+  // typed 0.50 while the setting was 0.10; the setting is 2 now
+  const ctx = { S: { ticket: { vol: "0.50", volFrom: 0.10 }, snap: { strategy: { manual_volume: 2 } } } };
+  const fn = liftFn(APP, "ticketLot");
+  const dl = liftFn(APP, "deskLot");
+  const got = new vm.Script(dl + "\n" + fn + "\n;ticketLot();").runInNewContext(ctx);
+  if (got !== 2) throw new Error("the ticket kept offering " + got + " after the setting moved to 2");
+});
+
+check("an untouched ticket just follows the setting", () => {
+  const ctx = { S: { ticket: {}, snap: { strategy: { manual_volume: 2 } } } };
+  const fn = liftFn(APP, "ticketLot");
+  const dl = liftFn(APP, "deskLot");
+  const got = new vm.Script(dl + "\n" + fn + "\n;ticketLot();").runInNewContext(ctx);
+  if (got !== 2) throw new Error("expected 2, got " + got);
+});
+
+check("the ticket input asks ticketLot rather than reading the memory raw", () => {
+  // value="${esc(String(t.vol || ticketLot()))}" put the stale remembered
+  // value first and never reached the function that resolves the conflict.
+  if (/t\.vol \|\| ticketLot\(\)/.test(APP)) {
+    throw new Error("the input short-circuits past ticketLot()");
+  }
+  if (!/value="\$\{esc\(String\(ticketLot\(\)\)\)\}"/.test(APP)) {
+    throw new Error("the lot input no longer renders from ticketLot()");
+  }
+});
+
+check("the remembered lot records which setting it was typed against", () => {
+  if (!/volFrom: deskLot\(\),/.test(APP)) throw new Error("rememberTicket drops the tag");
+});
+
+/* ------------------------------------------------------------------ *
+ * Smart filters are no longer a control on this screen
+ *
+ * Removed from the bot's settings by request. The dangerous half of a
+ * removal like this is the save path: $("st-smart")?.classList with no
+ * such element is undefined, and sending that on every save would have
+ * turned the filters off for everybody without anybody asking.
+ * ------------------------------------------------------------------ */
+
+check("the smart-filters switch is gone from the settings", () => {
+  if (/st-smart/.test(APP)) throw new Error("the control, its handler, or its id is still there");
+});
+
+check("...and the save no longer sends a value for it", () => {
+  if (/smart_filters:/.test(APP)) {
+    throw new Error("the payload still carries smart_filters, now sourced from an element that does not exist");
+  }
+});
 
 if (fails.length) {
   console.log("\nticket-money: " + fails.length + " check(s) failed");

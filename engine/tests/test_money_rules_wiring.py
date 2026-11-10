@@ -5,9 +5,13 @@ reached: an order on its way out is capped and sized, an open position
 that drifts outside the cap is pulled back inside it, and a symbol whose
 contract the broker never described is reported rather than guessed at.
 
-The cap is quoted against one micro lot (REFERENCE_LOT in runtime/risk),
-so on this contract a $10 cap is 0.10000 of price - the numbers below
-are that, not the old per-1.00-lot reading.
+The cap is a PER-TRADE number by default (MONEY_SCOPES in runtime/risk),
+so on this contract a $10 cap is $10 whatever the lot: at 0.10 lots the
+stop may sit 0.00999 away, at 0.01 lots it may sit 0.10000 away. The
+numbers below are that. They used to be the per-0.01-lot reading, which
+is what gave a 0.10-lot manual trade a $100 stop from a setting that
+said 10 - the defect this file now pins the fix for. The older reading
+is still available as scope="lot" and is exercised at the bottom.
 
 The trader is built without running its constructor — it would want a
 database, a licence and a terminal — and given exactly the three
@@ -71,24 +75,67 @@ def run(coro):
 # ---------------------------------------------------------- outgoing --
 
 def test_an_outgoing_order_has_its_stop_capped() -> None:
+    """A stop so wide that even the minimum lot cannot afford it.
+
+    0.20 of price at the broker's 0.01 minimum is $200, twenty times the
+    cap, so there is no size small enough to buy that stop. Only then
+    does the rule move the stop, and it moves it to exactly the cap at
+    the size being sent: $9.99 at 0.10 lots, one tick inside the ceiling
+    because the distance is floored to whole ticks.
+    """
     bridge = FakeBridge()
     t = _trader(bridge)
     out = run(t._apply_money_rules(
         {"action": "market", "side": "buy", "symbol": "TEST", "volume": 0.10, "sl": 0.90000, "price": 1.10000}
     ))
-    # One tick of slack: the distance is floored to whole ticks so the
-    # cap is a ceiling, which can leave the stop a tick inside it.
-    assert out["sl"] == pytest.approx(1.00000, abs=1e-5 + 1e-9)
+    assert out["sl"] == pytest.approx(1.09001, abs=1e-5 + 1e-9)
+    assert out["volume"] == pytest.approx(0.10)
     assert any(code == "stop_capped" for _, code, _ in t.logged)
 
 
+def test_the_size_moves_before_the_stop_does() -> None:
+    """The reported fault, from the other side.
+
+    A stop the trader chose by looking at the chart is worth more than
+    the lot they chose out of habit, and a cap that answers by yanking
+    the stop towards the entry turns a planned trade into a coin flip in
+    the spread. On this contract a 100-point stop costs $10 a lot, so
+    2.00 lots risks $20; one lot risks the $10 the cap allows, over the
+    very same stop.
+    """
+    bridge = FakeBridge()
+    t = _trader(bridge)
+    out = run(t._apply_money_rules(
+        {"action": "market", "side": "buy", "symbol": "TEST", "volume": 2.00, "sl": 1.09900, "price": 1.10000}
+    ))
+    assert out["sl"] == pytest.approx(1.09900), "the stop was moved instead of the size"
+    assert out["volume"] == pytest.approx(1.00)
+    assert any(code == "sized_to_cap" for _, code, _ in t.logged)
+    assert not any(code == "stop_capped" for _, code, _ in t.logged)
+
+
+def test_a_ticket_already_inside_the_cap_keeps_its_own_size() -> None:
+    bridge = FakeBridge()
+    t = _trader(bridge)
+    out = run(t._apply_money_rules(
+        {"action": "market", "side": "buy", "symbol": "TEST", "volume": 0.05, "sl": 1.09900, "price": 1.10000}
+    ))
+    # 0.05 lots over 100 points is $5 - half the cap, and the rule is a
+    # ceiling, not a target.
+    assert out["volume"] == pytest.approx(0.05)
+    assert out["sl"] == pytest.approx(1.09900)
+    assert not any(code in {"sized_to_cap", "stop_capped"} for _, code, _ in t.logged)
+
+
 def test_an_order_without_a_stop_is_given_one() -> None:
+    """At the cap, at the size asked for: $10 on 0.10 lots is 0.00999."""
     bridge = FakeBridge()
     t = _trader(bridge)
     out = run(t._apply_money_rules(
         {"action": "market", "side": "sell", "symbol": "TEST", "volume": 0.10, "price": 1.10000}
     ))
-    assert out["sl"] == pytest.approx(1.20000, abs=1e-5 + 1e-9)
+    assert out["sl"] == pytest.approx(1.10999, abs=1e-5 + 1e-9)
+    assert out["volume"] == pytest.approx(0.10), "a missing stop is not a reason to resize"
 
 
 def test_a_tight_stop_is_not_touched() -> None:
@@ -107,14 +154,31 @@ def test_the_entry_price_comes_from_the_tick_when_the_order_has_none() -> None:
     out = run(t._apply_money_rules(
         {"action": "market", "side": "buy", "symbol": "TEST", "volume": 0.10, "sl": 0.50000}
     ))
-    # Entry read from the ask (1.10000), limit 0.10000 -> 1.00000.
-    assert out["sl"] == pytest.approx(1.00000, abs=1e-5 + 1e-9)
+    # Entry read from the ask (1.10000); at 0.10 lots $10 is 0.00999.
+    assert out["sl"] == pytest.approx(1.09001, abs=1e-5 + 1e-9)
 
 
 def test_prop_risk_budget_sizes_the_lot_down() -> None:
+    """Prop's percentage and the cap are both ceilings; the lower wins.
+
+    1% of 10,000 is $100 of prop budget and a 100-point stop costs $10 a
+    lot, so prop alone would allow 10 lots. The $10 cap allows one. The
+    trade goes out at one, because a ceiling that can be stepped over by
+    turning on another feature is not a ceiling.
+    """
     bridge = FakeBridge()
     t = _trader(bridge)
-    # 1% of 10,000 = $100 of budget; a $10-per-lot stop pays for 10 lots.
+    t.prop = SimpleNamespace(enabled=True, profile={"max_risk_per_trade_pct": 1.0})
+    out = run(t._apply_money_rules(
+        {"action": "market", "side": "buy", "symbol": "TEST", "volume": 25.0, "sl": 1.09900, "price": 1.10000}
+    ))
+    assert out["volume"] == pytest.approx(1.0)
+    assert any(code == "sized_to_cap" for _, code, _ in t.logged)
+
+
+def test_prop_still_binds_when_it_is_the_tighter_of_the_two() -> None:
+    bridge = FakeBridge()
+    t = _trader(bridge, cap=1000.0)
     t.prop = SimpleNamespace(enabled=True, profile={"max_risk_per_trade_pct": 1.0})
     out = run(t._apply_money_rules(
         {"action": "market", "side": "buy", "symbol": "TEST", "volume": 25.0, "sl": 1.09900, "price": 1.10000}
@@ -169,11 +233,18 @@ def _pos(ticket: int, sl: float, side: str = "buy"):
 
 
 def test_an_open_position_outside_the_cap_is_pulled_back_in() -> None:
+    """On an open trade the stop is the only lever there is.
+
+    Sizing down is how an outgoing ticket is brought inside the cap, and
+    it is not available here: the position exists, at the size it was
+    filled at. So this path still moves the stop, to the cap at that
+    size - 0.00999 on 0.10 lots.
+    """
     bridge = FakeBridge(positions=[_pos(7, 0.90000)])
     t = _trader(bridge)
     run(t._enforce_stop_cap({"symbol": "TEST"}))
     assert bridge.sent and bridge.sent[0]["action"] == "modify"
-    assert bridge.sent[0]["sl"] == pytest.approx(1.00000, abs=1e-5 + 1e-9)
+    assert bridge.sent[0]["sl"] == pytest.approx(1.09001, abs=1e-5 + 1e-9)
     assert bridge.sent[0]["ticket"] == 7
 
 
@@ -181,7 +252,7 @@ def test_a_position_with_no_stop_at_all_gets_one() -> None:
     bridge = FakeBridge(positions=[_pos(8, 0.0, side="sell")])
     t = _trader(bridge)
     run(t._enforce_stop_cap({"symbol": "TEST"}))
-    assert bridge.sent[0]["sl"] == pytest.approx(1.20000, abs=1e-5 + 1e-9)
+    assert bridge.sent[0]["sl"] == pytest.approx(1.10999, abs=1e-5 + 1e-9)
 
 
 def test_the_same_modify_is_not_sent_on_every_tick() -> None:
@@ -193,7 +264,8 @@ def test_the_same_modify_is_not_sent_on_every_tick() -> None:
 
 
 def test_a_position_already_inside_the_cap_is_left_alone() -> None:
-    bridge = FakeBridge(positions=[_pos(10, 1.05000)])
+    # 0.00050 of price on 0.10 lots is 50 cents, well under the cap.
+    bridge = FakeBridge(positions=[_pos(10, 1.09950)])
     t = _trader(bridge)
     run(t._enforce_stop_cap({"symbol": "TEST"}))
     assert bridge.sent == []

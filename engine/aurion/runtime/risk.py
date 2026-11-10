@@ -9,8 +9,8 @@ every trade risks far more than intended, and nothing says so until the
 loss is realised.
 
 So risk is stated once, in the only unit that means the same thing on
-every instrument: **money per 1.00 lot**. One number, "no stop may cost
-more than $10 per lot", and everything else is arithmetic:
+every instrument: **money**. One number, "no trade may lose more than
+$10", and everything else is arithmetic:
 
     loss(distance, volume) = distance / tick_size * tick_value * volume
 
@@ -33,6 +33,10 @@ from typing import Any
 
 __all__ = [
     "REFERENCE_LOT",
+    "MONEY_SCOPES",
+    "DEFAULT_SCOPE",
+    "normalise_scope",
+    "risk_budget",
     "SymbolSpec",
     "StopCap",
     "cap_stop",
@@ -160,9 +164,21 @@ class StopCap:
 
     sl: float
     distance: float
-    money_per_lot: float
+    money: float
     capped: bool
     reason: str = ""
+
+    @property
+    def money_per_lot(self) -> float:
+        """Deprecated name for :attr:`money`.
+
+        It was never the money per lot - it has always been the cost of
+        this stop at the volume it was asked about - and reading it as
+        "per lot" is how a journal line came to say "one lot risks
+        100.00" about a 0.10-lot ticket. Kept so nothing breaks while
+        the callers move over.
+        """
+        return self.money
 
     def __bool__(self) -> bool:  # pragma: no cover - convenience only
         return self.sl > 0
@@ -179,18 +195,59 @@ class StopCap:
 # then fixed, raising the lot did not raise the risk, it just made the
 # same tiny stop cost more.
 #
-# Quoting against 0.01 gives both halves of what the setting promises:
+# Quoting against 0.01 gives both halves of what that setting promised:
 # a 0.01-lot ticket risks the cap, and doubling the lot doubles the
 # money at risk over the same, instrument-appropriate distance.
+#
+# It is now only used by the "lot" scope below. The default scope reads
+# the cap as a per-TRADE number and never consults this constant, which
+# is why a 0.10-lot ticket no longer silently costs ten times the cap.
 REFERENCE_LOT = 0.01
 
 
-def risk_budget(max_loss_per_lot: float, volume: float) -> float:
-    """The money this ticket is allowed to lose, at its own size."""
+# What the cap counts.
+#
+# "trade" - the number is the most this ticket may lose, whatever size
+#           it is sent at. Set 10 and no single trade loses more than
+#           10, at 0.01 lots or at 1.00.
+# "lot"   - the number is quoted against REFERENCE_LOT and scales with
+#           the size: 10 on a 0.10-lot ticket is 100.
+#
+# "trade" is the default and the reading everybody means by "maximum
+# loss". "lot" is the older behaviour, kept because it is the right
+# tool for someone who varies size deliberately and wants the risk to
+# vary with it, and because silently reinterpreting a number somebody
+# already has saved is how a setting becomes untrustworthy.
+MONEY_SCOPES = ("trade", "lot")
+DEFAULT_SCOPE = "trade"
+
+
+def normalise_scope(scope: Any) -> str:
+    """Anything that is not a known scope is the default, not an error."""
+    text = str(scope or "").strip().lower()
+    return text if text in MONEY_SCOPES else DEFAULT_SCOPE
+
+
+def risk_budget(max_loss_per_lot: float, volume: float,
+                scope: str = DEFAULT_SCOPE) -> float:
+    """The money this ticket is allowed to lose.
+
+    Reported from the desk: a manual trade was given a stop costing
+    $100 when the setting said 10. Both numbers were right - the cap
+    was being read per 0.01 lot and the ticket was 0.10 - and that is
+    the defect. A field labelled "maximum loss" that multiplies by the
+    lot behind the trader's back is a number nobody can act on, and the
+    way it fails is always the expensive direction, because people
+    raise their size long before they revisit their risk settings.
+    """
     cap = _f(max_loss_per_lot)
     volume = _f(volume)
     if cap <= 0:
         return 0.0
+    if normalise_scope(scope) == "trade":
+        # The ticket's own size is deliberately not consulted. That is
+        # the whole promise of a per-trade cap.
+        return cap
     if volume <= 0:
         volume = REFERENCE_LOT
     return cap * (volume / REFERENCE_LOT)
@@ -202,6 +259,7 @@ def protective_stop(
     spec: SymbolSpec,
     max_loss_per_lot: float,
     volume: float = REFERENCE_LOT,
+    scope: str = DEFAULT_SCOPE,
 ) -> float:
     """A stop at exactly the cap, for an order that arrived without one.
 
@@ -216,7 +274,7 @@ def protective_stop(
     if not spec.usable or entry <= 0 or cap <= 0 or side not in {"buy", "sell"}:
         return 0.0
     volume = _f(volume) or REFERENCE_LOT
-    budget = risk_budget(cap, volume)
+    budget = risk_budget(cap, volume, scope)
     distance = spec.floor_to_tick(spec.distance_for(budget, volume))
     if distance <= 0:
         return 0.0
@@ -230,6 +288,7 @@ def cap_stop(
     spec: SymbolSpec,
     max_loss_per_lot: float,
     volume: float = REFERENCE_LOT,
+    scope: str = DEFAULT_SCOPE,
 ) -> StopCap | None:
     """Pull ``sl`` in until one lot cannot lose more than the cap.
 
@@ -248,13 +307,13 @@ def cap_stop(
         return None
 
     volume = _f(volume) or REFERENCE_LOT
-    budget = risk_budget(cap, volume)
+    budget = risk_budget(cap, volume, scope)
     limit = spec.floor_to_tick(spec.distance_for(budget, volume))
     if limit <= 0:
         return None
 
     if sl <= 0:
-        placed = protective_stop(side, entry, spec, cap, volume)
+        placed = protective_stop(side, entry, spec, cap, volume, scope)
         if placed <= 0:
             return None
         return StopCap(placed, limit, spec.money(limit, volume), True, "no stop was attached")
@@ -263,7 +322,7 @@ def cap_stop(
     if distance <= 0:
         # Wrong side of the entry: replace it rather than "cap" it, since
         # the ticket as written protects nothing at all.
-        placed = protective_stop(side, entry, spec, cap, volume)
+        placed = protective_stop(side, entry, spec, cap, volume, scope)
         if placed <= 0:
             return None
         return StopCap(placed, limit, spec.money(limit, volume), True,

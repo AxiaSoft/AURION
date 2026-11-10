@@ -202,21 +202,52 @@ check("every way out of the sheet works", () => {
   return "escape, scrim, button, pick";
 });
 
-check("Escape in the search box clears the filter before it closes the sheet", () => {
-  /* Two things answer to Escape in the same subtree. The inner one
-     wins while it still has something to clear, or a typo costs you
-     the whole sheet. */
+/* ------------------------------------------------------------------ *
+ * There is no search box in the settings sheet
+ *
+ * There was one, and the check that stood here was about a real
+ * collision: two things answered to Escape in the same subtree, and
+ * before it was fixed one keypress both cleared the box and threw the
+ * sheet away, so a typo cost you the page.
+ *
+ * The box was removed by request. The right answer to "nine sections
+ * are too many to scan" is fewer, better-named sections, not a filter
+ * that hides the ones you did not name - and a list that rearranges
+ * itself while being read is harder to learn than a list that never
+ * moves.
+ *
+ * So the collision check is replaced, not deleted: what has to stay
+ * true is that Escape still closes the sheet, from the first press,
+ * now that nothing in there is competing for it.
+ * ------------------------------------------------------------------ */
+
+check("no search box filters the settings rail", () => {
+  const { click, $ } = boot(true);
+  click($("set-sheet-open"));
+  ok(!$("set-q"), "the search input is back");
+  ok(!$("set-q-clear"), "its clear button is still there");
+  ok(!$("set-q-n"), "its result count is still there");
+  return "box, clear button and counter all gone";
+});
+
+check("every section is reachable without typing", () => {
+  const { click, $ } = boot(true);
+  click($("set-sheet-open"));
+  const entries = [...$("set-jump").querySelectorAll("button[data-jump]")];
+  ok(entries.length >= 8, "the rail lost entries along with the box: " + entries.length);
+  // Nothing may start hidden now that nothing can unhide it.
+  const hidden = entries.filter((b) => b.hidden);
+  ok(!hidden.length, hidden.length + " entries start hidden with no filter left to reveal them");
+  return entries.length + " entries, all visible";
+});
+
+check("the first Escape closes the sheet", () => {
   const { doc, click, key, $ } = boot(true);
   click($("set-sheet-open"));
-  const q = $("set-q");
-  q.focus();
-  q.value = "noti";
-  q.dispatchEvent(new (q.ownerDocument.defaultView.Event)("input", { bubbles: true }));
-  key(q, "Escape");
-  eq(q.value, "", "the filter was not cleared");
-  ok(doc.documentElement.classList.contains("set-sheet-open"), "the sheet closed instead of clearing the box");
-  key(q, "Escape");
-  ok(!doc.documentElement.classList.contains("set-sheet-open"), "a second Escape does not close it");
+  ok(doc.documentElement.classList.contains("set-sheet-open"), "the sheet did not open");
+  key($("set-jump"), "Escape");
+  ok(!doc.documentElement.classList.contains("set-sheet-open"),
+    "Escape no longer closes the sheet on the first press");
 });
 
 check("picking a section switches it and relabels the closed bar", () => {

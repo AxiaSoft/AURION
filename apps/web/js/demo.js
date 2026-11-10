@@ -98,7 +98,7 @@
   // <script>, an import() -- races the licence call that decides whether the
   // key gate appears.  Same-origin and parser-time, so none of the reasons
   // document.write is usually a mistake apply.
-  document.write('<script src="demo/fixtures.js?v=desk182"><\/script>');
+  document.write('<script src="demo/fixtures.js?v=desk233"><\/script>');
 
   /* ====================================================== sample market == */
 

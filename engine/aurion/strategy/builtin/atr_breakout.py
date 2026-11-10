@@ -16,6 +16,14 @@ class ATRBreakout(BaseStrategy):
     required, and the stop sits back inside the broken range.
     """
 
+    evidence = {
+        "state": "measured",
+        "trades": 2273,
+        "win": 0.672,
+        "pf": 2.67,
+        "expectancy": 0.533,
+        "basis": "8 seeds x 5 instruments x 2 200 M15 bars of seeded synthetic market (scripts/strategy-xray.py), frozen AI, spread and commission not modelled",
+    }
     name = "atr_breakout"
     version = "2.0.0"
     language = "en"
@@ -39,6 +47,12 @@ class ATRBreakout(BaseStrategy):
         "require_htf": True,
         "htf_factor": 4,
         "min_efficiency": 0.18,
+        # How the stop is drawn once recent structure is taken into
+        # account - see risk_levels(). Today's values, named so they can
+        # be measured rather than guessed at.
+        "stop_buffer_atr": 0.15,
+        "stop_floor": 0.6,
+        "stop_ceiling": 1.8,
     }
 
     def on_candle(self, ctx: StrategyContext) -> StrategySignal | None:
@@ -98,6 +112,9 @@ class ATRBreakout(BaseStrategy):
             float(self.params["tp_atr"]),
             float(self.params.get("min_rr") or 1.5),
             structure,
+            buffer_atr=float(self.params.get("stop_buffer_atr", 0.15) or 0.0),
+            floor=float(self.params.get("stop_floor", 0.6) or 0.6),
+            ceiling=float(self.params.get("stop_ceiling", 1.8) or 1.8),
         )
         bias, strength = trend_bias(frame)
         confidence = 0.5 + 0.25 * efficiency(frame)

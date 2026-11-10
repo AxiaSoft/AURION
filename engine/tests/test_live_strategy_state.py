@@ -120,7 +120,11 @@ def test_it_is_throttled() -> None:
 
 def test_every_refusal_goes_through_the_one_recorder() -> None:
     """Each drop has to leave a named record, or the question returns."""
-    for code in ("license", "ai_low", "ai_disagree", "low_quality", "spread", "slots_full"):
+    # "low_quality" has left this list on purpose: the quality floor no
+    # longer refuses an entry, so there is no such refusal to record.
+    # See test_quality_weights.test_the_score_sizes_rather_than_refuses
+    # for the A/B that preceded the change.
+    for code in ("license", "ai_low", "ai_disagree", "spread", "slots_full"):
         assert f'"{code}",' in TRADER_SRC, f"{code} is no longer recorded"
     assert TRADER_SRC.count("async def _blocked(") == 1
     assert 'self.last_block = {' in TRADER_SRC

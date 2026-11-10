@@ -146,8 +146,26 @@ def efficiency(frame: pd.DataFrame, window: int = 10) -> float:
     return max(0.0, min(1.0, net / path))
 
 
-def swing_levels(frame: pd.DataFrame, lookback: int = 20) -> tuple[float, float]:
-    window = frame.iloc[-lookback:] if len(frame) > lookback else frame
+def swing_levels(frame: pd.DataFrame, lookback: int = 20, skip: int = 0) -> tuple[float, float]:
+    """Highest high and lowest low of the recent window.
+
+    ``skip`` drops that many bars off the end before measuring, which
+    changes the meaning of the answer rather than just the number. With
+    ``skip=0`` the window includes the bar being traded, so "price is at
+    the low" is true precisely when price is *making* a new low - the
+    level has not held, it is breaking. With a few bars skipped the low
+    is one that already existed and that price has come back to, which
+    is what "support" is normally taken to mean.
+    """
+    skip = max(0, int(skip))
+    end = len(frame) - skip
+    if end <= 1:
+        window = frame
+    else:
+        start = max(0, end - max(1, int(lookback)))
+        window = frame.iloc[start:end]
+    if window.empty:
+        window = frame
     return float(window["high"].max()), float(window["low"].min())
 
 
@@ -159,6 +177,9 @@ def risk_levels(
     tp_atr: float,
     min_rr: float = 1.3,
     structure: tuple[float, float] | None = None,
+    buffer_atr: float = 0.15,
+    floor: float = 0.6,
+    ceiling: float = 1.8,
 ) -> tuple[float, float]:
     """Stop and target for one ticket, with a guaranteed reward-to-risk.
 
@@ -166,16 +187,30 @@ def risk_levels(
     that would invalidate the idea, which is both tighter and more honest than
     a pure ATR multiple; the target is then stretched so the ticket still pays
     at least ``min_rr`` times what it risks.
+
+    Three numbers decide how much of the ATR multiple survives that:
+    ``buffer_atr`` is the air left beyond the swing, and ``floor`` and
+    ``ceiling`` are the fractions of the ATR stop the structure may
+    shrink to or grow past. They used to be literals, which hid a side
+    effect worth naming: a strategy that enters *at* a level on purpose
+    has almost no distance between price and the swing, so the
+    structure branch pins its risk at ``floor x sl_atr`` and the
+    trader's own ``sl_atr`` setting quietly stops doing anything. They
+    are arguments now, so each strategy can say what it means and the
+    effect can be measured instead of argued about.
     """
     if price <= 0 or atr <= 0:
         return 0.0, 0.0
     risk = atr * max(0.2, float(sl_atr))
     if structure:
         high, low = structure
+        lo_mult = max(0.05, float(floor))
+        hi_mult = max(lo_mult, float(ceiling))
+        air = atr * max(0.0, float(buffer_atr))
         if side == "buy" and low > 0 and price > low:
-            risk = max(risk * 0.6, min(risk * 1.8, price - low + atr * 0.15))
+            risk = max(risk * lo_mult, min(risk * hi_mult, price - low + air))
         elif side == "sell" and high > 0 and high > price:
-            risk = max(risk * 0.6, min(risk * 1.8, high - price + atr * 0.15))
+            risk = max(risk * lo_mult, min(risk * hi_mult, high - price + air))
     reward = max(atr * max(0.2, float(tp_atr)), risk * max(1.0, float(min_rr)))
     if side == "buy":
         return price - risk, price + reward

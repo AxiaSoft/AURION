@@ -134,7 +134,20 @@ option, optgroup{
   background-color:var(--field);
   color:var(--ink);
 }
-.mono{font-family:"IBM Plex Mono",Vazirmatn,ui-monospace,monospace;font-variant-numeric:tabular-nums;letter-spacing:0}
+/* .mono means "a machine-readable value": a price, a ticket number, a
+   ratio, a version, a timestamp, a multiplier. Those are read
+   left-to-right in every language, and on a Persian or Arabic desk the
+   bidi algorithm was free to reorder them - "x1.2" came out as "1.2x",
+   and anything with a sign or a slash in it was a coin toss.
+
+   direction:ltr fixes the run; unicode-bidi:isolate stops it from
+   dragging the Persian sentence around it out of order, which is what
+   direction alone would have done. Checked against the running desk
+   before shipping: of the 54 .mono elements on screen in Persian, not
+   one contains a word - they are all values, which is what the class
+   has always been for. Persian digits are unaffected: Arabic-Indic
+   numerals run left-to-right inside their own number either way. */
+.mono{font-family:"IBM Plex Mono",Vazirmatn,ui-monospace,monospace;font-variant-numeric:tabular-nums;letter-spacing:0;direction:ltr;unicode-bidi:isolate}
 .hidden{display:none !important}
 [hidden]{display:none !important}
 
@@ -430,6 +443,26 @@ html[dir="rtl"] .switch.on i{transform:translate(calc(var(--sw-travel) * -1),-50
    and only the body of the card steps back. */
 .st-card.is-off .st-stats,.st-card.is-off .sub{opacity:.62}
 .st-card.is-off{transition:opacity .2s var(--ease)}
+/* What the backtest says about this strategy, on the card, before the
+   switch is touched. Tinted rather than filled: a filled accent box here
+   would read as a recommendation, and for the one marked "negative" that
+   is the opposite of the message. Text stays on --ink so the contrast
+   does not depend on the tint. */
+.st-ev{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 10px;padding:8px 10px;
+  border-radius:10px;border:1px solid transparent;font-size:12px;line-height:1.5}
+.st-ev b{font-weight:650;color:var(--ink)}
+.st-ev span{color:var(--muted);font-size:11.5px}
+.st-ev small{flex:1 1 100%;color:var(--muted);font-size:11.5px}
+/* color-mix, not rgb(var(--ok) / .12): --ok, --bad and --warning are hex
+   literals, and rgb() of a hex is nothing at all - the rule is dropped and
+   the tint silently disappears. */
+.st-ev-ok{background:color-mix(in srgb,var(--ok) 12%,transparent);
+  border-color:color-mix(in srgb,var(--ok) 34%,transparent)}
+.st-ev-bad{background:color-mix(in srgb,var(--bad) 12%,transparent);
+  border-color:color-mix(in srgb,var(--bad) 38%,transparent)}
+.st-ev-warn{background:color-mix(in srgb,var(--warning) 12%,transparent);
+  border-color:color-mix(in srgb,var(--warning) 34%,transparent)}
+.st-card.is-off .st-ev{opacity:1}
 .st-top{display:flex;align-items:center;justify-content:space-between;gap:12px}
 .auto-banner{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:14px}
 /* When the banner IS the card rather than sitting inside one, that bottom
@@ -685,34 +718,12 @@ html[dir="rtl"] .set-h{letter-spacing:0;text-transform:none}
 .st-live .pill.on{color:var(--on-accent);background:var(--cyan);border-color:transparent}
 .st-stats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-top:10px;padding-top:8px;border-top:1px solid var(--line)}
 
-/* One chip per symbol the strategy is watching. Only rendered once
-   there is more than one - a single-chart desk does not need a label
-   saying which chart it is looking at. */
-.st-syms{display:flex;flex-wrap:wrap;gap:5px;margin-top:9px}
-.st-syms:empty{display:none}
-.st-sym{
-  display:inline-flex;align-items:baseline;gap:5px;
-  padding:3px 8px;border-radius:999px;
-  border:1px solid var(--line);
-  background:rgb(var(--wash) / .05);
-  font-size:11px;line-height:1.5;white-space:nowrap;
-}
-.st-sym b{font-weight:650;font-variant-numeric:tabular-nums}
-/* The verdict, in words. Colour says the same thing a second time and
-   is never the only thing saying it. */
-.st-sym i{font-style:normal;font-size:10px;letter-spacing:.03em;text-transform:uppercase;color:var(--muted)}
-.st-sym.up{border-color:rgb(var(--good) / .45)}
-.st-sym.up i{color:var(--good)}
-.st-sym.down{border-color:rgb(var(--bad) / .45)}
-.st-sym.down i{color:var(--bad)}
-.st-sym.warn{border-color:rgb(var(--warn) / .45)}
-.st-sym.warn i{color:var(--warn)}
-/* A dot, not a colour change: the chip is already carrying a colour
-   for the verdict and two meanings on one channel is one too many. */
-.st-sym.is-live::before{
-  content:"";width:5px;height:5px;border-radius:50%;
-  background:rgb(var(--accent));align-self:center;
-}
+/* The per-symbol chips under each strategy card are gone - removed by
+   request, because a desk watching six symbols grew six tags per card
+   that mostly said "GBPUSD hold". Their styles went with them rather
+   than being left behind: a rule for an element nothing emits reads to
+   the next person as evidence that the element still exists.
+   tests/strategy-symbols.test.js records what they were for. */
 .st-stats span{display:block;font-size:11px;color:var(--muted);margin-bottom:3px}
 .st-stats b{display:block;font-size:13px;font-weight:500}
 .seg{display:flex;gap:6px;flex-wrap:wrap}
@@ -1063,7 +1074,9 @@ tr:hover td{background:rgb(var(--wash) / .02)}
 .term .l-info{color:#c9d4e8}
 .term .l-warning{color:var(--gold)}
 .term .l-error{color:var(--rose)}
-.term .ts{color:var(--faint);margin-inline-end:8px}
+/* An ISO timestamp carries a sign and colons, so bidi reordered the
+   offset onto the wrong end of it. Same reasoning as .mono above. */
+.term .ts{color:var(--faint);margin-inline-end:8px;direction:ltr;unicode-bidi:isolate}
 
 .wizard{display:grid;gap:10px}
 .wizard .step{
@@ -1585,7 +1598,7 @@ fieldset.prop-fields.is-locked{
 }
 .ai-feed{max-height:280px;overflow:auto;margin-top:10px}
 .ai-feed .row-line{display:flex;gap:8px;font-size:12px;padding:4px 0;border-bottom:1px solid rgb(var(--wash) / .04)}
-.ai-feed .ts{color:var(--faint);flex:none}
+.ai-feed .ts{color:var(--faint);flex:none;direction:ltr;unicode-bidi:isolate}
 
 /* desk54 — per-chart sliders with smooth RTL/LTR animation */
 .chart-slider{
@@ -2492,17 +2505,30 @@ html[data-glass="off"] *{
    scrolls with the rail rather than pinning, because the rail is
    nine entries long and a sticky box would cost more height than it
    saves. */
-.set-jump .sj-find{ padding:2px 2px 10px; display:flex; flex-direction:column; gap:6px }
-.sj-find-n{ margin:0; font-size:11.5px; padding-inline:2px }
-.sj-find-n[hidden]{ display:none }
+/* .sj-find / .sj-find-n: the settings search box, removed. */
 .set-jump button[data-jump][hidden]{ display:none }
 .set-jump .sj-grp[hidden]{ display:none }
 
+/* A group heading in this rail is read, not decorated, so it has to
+   clear the two bars the desk's own checklist sets: 11px, and 4.5:1.
+   It was 10.5px in --faint, which measures 3.52:1 on the dark rail and
+   3.54:1 on the light one - under the bar in both, in every theme,
+   because both tokens are defined per theme at about the same
+   lightness. --muted is 6.35:1 and 5.60:1 in the same two places.
+
+   The rule above it is the structure. Three labels in a column of
+   eight entries is a weak signal on its own - the eye reads one list,
+   not three groups - and the label was carrying that job alone. */
 .sj-grp{
-  font-size:10.5px;color:var(--faint);letter-spacing:.06em;text-transform:uppercase;
-  padding:10px 10px 4px;font-weight:500;
+  font-size:11.5px;color:var(--muted);letter-spacing:.06em;text-transform:uppercase;
+  padding:14px 10px 6px;font-weight:600;
 }
-html[dir="rtl"] .sj-grp{letter-spacing:0;text-transform:none;font-size:11px}
+.sj-grp + button[data-jump]{margin-block-start:0}
+.set-jump .sj-grp ~ .sj-grp,
+.sj-list > .sj-grp:not(:first-child){
+  margin-block-start:8px;padding-block-start:14px;border-block-start:1px solid var(--line);
+}
+html[dir="rtl"] .sj-grp{letter-spacing:0;text-transform:none;font-size:12px}
 
 /* ---- the entries ----
  *
@@ -2525,15 +2551,32 @@ html[dir="rtl"] .sj-grp{letter-spacing:0;text-transform:none;font-size:11px}
  * column) may be scoped to .set-rail.
  */
 .set-jump button[data-jump]{
-  display:flex;align-items:center;gap:10px;flex:none;width:100%;text-align:start;
+  /* `position:relative` for the current-section marker below. */
+  position:relative;
+  display:flex;align-items:center;gap:11px;flex:none;width:100%;text-align:start;
   border:1px solid transparent;background:transparent;color:var(--muted);
-  border-radius:12px;padding:8px 10px;font-size:13px;line-height:1.2;
-  transition:background .18s var(--ease),color .18s var(--ease),border-color .18s var(--ease),transform .18s var(--ease);
+  border-radius:12px;padding:9px 10px;font-size:13px;line-height:1.25;
+  transition:background .18s var(--ease),color .18s var(--ease),border-color .18s var(--ease);
 }
-.set-jump button[data-jump]:hover{background:rgb(var(--wash) / .05);color:var(--ink)}
+.set-jump button[data-jump]:hover{background:rgb(var(--wash) / .06);color:var(--ink)}
+.set-jump button[data-jump]:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .set-jump button[data-jump].on{
   background:linear-gradient(135deg, rgb(var(--accent-rgb) / .16), rgb(var(--accent-3-rgb) / .10));
   border-color:rgb(var(--accent-rgb) / .28);color:var(--ink);font-weight:500;
+}
+/* Which section you are in, said by shape as well as by colour.
+   The tint alone is about a 1.2:1 step against the rail, which is
+   inside the margin of error of a colour-blind reader, of a glare-lit
+   screen and of the neumorphic skins - and it is the one piece of
+   state a navigation rail exists to carry. A solid bar on the leading
+   edge is not a colour difference. */
+.set-jump button[data-jump].on::before{
+  content:"";position:absolute;inset-block:9px;inset-inline-start:-1px;
+  width:3px;border-radius:0 999px 999px 0;background:var(--accent);
+}
+html[dir="rtl"] .set-jump button[data-jump].on::before{border-radius:999px 0 0 999px}
+@media (prefers-reduced-motion:reduce){
+  .set-jump button[data-jump]{transition:none}
 }
 .set-jump .sj-ic{
   width:30px;height:30px;flex:none;display:grid;place-items:center;border-radius:9px;
@@ -2543,8 +2586,14 @@ html[dir="rtl"] .sj-grp{letter-spacing:0;text-transform:none;font-size:11px}
 .set-jump button[data-jump].on .sj-ic{background:rgb(var(--accent-rgb) / .16);color:var(--cyan)}
 .set-jump .sj-txt{display:flex;flex-direction:column;gap:2px;min-width:0}
 .set-jump .sj-txt b{font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.set-jump .sj-txt small{font-size:11px;color:var(--faint);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.set-jump button[data-jump].on .sj-txt small{color:var(--muted)}
+/* 11.5px in --muted, for the same measured reason as the group
+   headings: this line is the only thing that says what a section
+   decides, and at --faint it was 3.5:1 - present, and not readable
+   without leaning in. The active entry used to be the one legible
+   row in the list, which is backwards: the section you are already
+   looking at is the one you need the description of least. */
+.set-jump .sj-txt small{font-size:11.5px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.set-jump button[data-jump].on .sj-txt small{color:var(--ink);opacity:.8}
 .set-main{min-width:0;display:flex;flex-direction:column;gap:14px}
 /* Settings panels are glass, like every other surface on the desk.
    They used to carry the alpha without the blur, which is not frosting -
@@ -2777,7 +2826,6 @@ html[dir="rtl"] .sj-grp{letter-spacing:0;text-transform:none;font-size:11px}
   .sj-close::after{content:"";position:absolute;inset:-4px}
   .sj-close svg{width:15px;height:15px}
 
-  .set-jump.is-sheet .sj-find{flex:none;padding:0 12px 8px}
 
   /* The handle: the grab bar, the title and the search, as one block.
      The gesture owns vertical movement here - that is what makes the
@@ -2806,8 +2854,14 @@ html[dir="rtl"] .sj-grp{letter-spacing:0;text-transform:none;font-size:11px}
   }
 
   /* Inside the sheet the rail keeps everything it had on the desktop -
-     the headings, the descriptions - and only grows its targets. */
-  .set-jump.is-sheet button[data-jump]{min-block-size:46px;padding:8px 10px}
+     the headings, the descriptions - and only grows its targets.
+
+     The padding is NOT restated here. It was, at the rail's old 8px,
+     and when the rail went to 9px the two drifted apart: the sheet is
+     the rail in another shape and the one thing it may change is the
+     minimum height. tests/search-box-cascade compares every resolved
+     property of the two and caught it. */
+  .set-jump.is-sheet button[data-jump]{min-block-size:46px}
 
   .set-main .set-block{padding:14px;border-radius:16px}
   .set-main .set-title{font-size:16px}
@@ -2939,7 +2993,10 @@ html[data-theme="light"] .set-jump button[data-jump].on{
   border-radius:12px;
 }
 .q-last.ok{ border-inline-start-color:var(--candle-up, var(--accent)) }
-.q-last.no{ border-inline-start-color:var(--rose) }
+/* Amber, not red. A score under the mark is no longer a refusal - the
+   trade was taken, at a smaller size - and a red edge beside it reads
+   as "this was stopped". */
+.q-last.no{ border-inline-start-color:var(--amber, #d8a657) }
 .q-last-head{ display:flex; align-items:center; gap:8px; font-size:12px; flex-wrap:wrap }
 .q-last-head b{ font-size:15px }
 .q-last-head .pill{ font-size:10px }

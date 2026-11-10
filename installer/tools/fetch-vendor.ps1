@@ -358,6 +358,45 @@ if ($SkipWheels) {
             } else {
                 Say "MetaTrader5 collected"
             }
+
+            # pip's own wheel.
+            #
+            # The embeddable Python has no pip and no ensurepip, so a bare
+            # machine has to get one from somewhere before it can install
+            # anything from wheels\. Until this was bundled, "somewhere" was
+            # get-pip.py - which carries pip but, left to its defaults, also
+            # fetches setuptools and wheel from PyPI. A customer with working
+            # internet and an unreachable index got a network error from the
+            # one step that was supposed to prove the network was not needed,
+            # and the thirty wheels beside it were never tried.
+            #
+            # A wheel is a zip with the package at its root, so the installer
+            # can run this file to install itself: no index, no get-pip, no
+            # network. Fatal, like the wheels above, because a bundle without
+            # it is a bundle that works on machines like this one and fails
+            # on the machines it exists for.
+            Say "collecting pip's own wheel ..."
+            $previousEap = $ErrorActionPreference
+            $ErrorActionPreference = "Continue"
+            try {
+                & $pip[0] @tail -m pip download "pip" --dest $wheels `
+                    --only-binary=:all: --python-version 3.12 2>&1 |
+                    ForEach-Object { Write-Verbose "$_" }
+                $pipCode = $LASTEXITCODE
+            } finally {
+                $ErrorActionPreference = $previousEap
+            }
+            # pip-24.2-py3-none-any.whl, not pipdeptree: the character after
+            # the dash has to be a digit.
+            $pipWheel = @(Get-ChildItem -LiteralPath $wheels -Filter "pip-*.whl" -File -ErrorAction SilentlyContinue |
+                          Where-Object { $_.Name -match "^pip-[0-9]" })
+            if ($pipCode -ne 0 -or $pipWheel.Count -eq 0) {
+                throw ("pip's own wheel could not be collected, so a machine with no pip`n" +
+                       "  would have to reach PyPI before it could use any of the wheels`n" +
+                       "  beside it. Fix the download here, or build with -SkipWheels to`n" +
+                       "  ship without the offline path deliberately.")
+            }
+            Say "pip wheel collected ($($pipWheel[0].Name))"
         }
     }
 }

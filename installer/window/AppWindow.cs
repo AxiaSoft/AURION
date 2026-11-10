@@ -830,18 +830,30 @@ internal sealed class AppWindow : Form
             if (string.IsNullOrWhiteSpace(raw)) return;
             var isSignal = raw.Contains("\"signal\"");
             var isTrade = raw.Contains("\"trade\"");
-            if (!isSignal && !isTrade) return;
+            // News was posted by the desk and silently dropped here. The
+            // calendar reminder has sent {"type":"news", ...} since it was
+            // built, this test only knew the other two, and the reminder's
+            // Windows notification therefore never existed - not broken in
+            // some subtle way, simply never delivered. Reported as "the
+            // reminder did not work", and this half of it was the host.
+            var isNews = raw.Contains("\"news\"");
+            if (!isSignal && !isTrade && !isNews) return;
 
             // Deliberately a hand-rolled read of a few known fields rather
-            // than a JSON dependency: the host has two messages to parse and
-            // their shape is defined a few lines away in app.js.
+            // than a JSON dependency: the host has three messages to parse
+            // and their shape is defined in app.js and calendar.js.
             //
             // A trade is the one thing worth interrupting someone for, so a
             // losing exit is raised as a warning rather than a notice - the
             // icon is the only part of a balloon tip read at a glance.
             var icon = Field(raw, "level") == "warning" ? ToolTipIcon.Warning : ToolTipIcon.Info;
+            // A news reminder carries no symbol, and must not inherit the
+            // last signal's: clicking the balloon opens whatever symbol was
+            // stashed, so a release about the yen would have opened whatever
+            // chart the previous alert happened to name.
             ShowSignalToast(Field(raw, "title"), Field(raw, "body"),
-                            Field(raw, "symbol"), Field(raw, "timeframe"), icon);
+                            isNews ? "" : Field(raw, "symbol"),
+                            isNews ? "" : Field(raw, "timeframe"), icon);
         };
 
         core.DocumentTitleChanged += (_, _) =>

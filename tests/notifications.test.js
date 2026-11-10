@@ -57,6 +57,57 @@ ok("every sound offered has a label in all three packs", ["en", "fa", "ar"].ever
 }));
 ok("Windows notifications can be switched off", /sw-wintoast/.test(app) && /prefs\.windows/.test(announce));
 
+/* ------------------------------------------------------------------ *
+ * A signal is announced the same way a trade is
+ *
+ * Reported: when the system signalled, nothing appeared - and then the
+ * moment a trade was opened by hand, every missed signal arrived at
+ * once in a stack.
+ *
+ * It was not a delivery problem. The cards were being built and put
+ * into #notify-stack the whole time, but that container ships hidden
+ * and only pushTradeCard ever set hidden = false, so the signals were
+ * on the page and invisible until a manual trade switched the light on
+ * and revealed the backlog. The signal path was also silent and its
+ * cards never expired, which is what turned the reveal into a pile.
+ * ------------------------------------------------------------------ */
+
+const announceSignal = app.slice(app.indexOf("function announceSignal("),
+                                 app.indexOf("function documentHidden("));
+const pushSignal = app.slice(app.indexOf("function pushSignalCard("),
+                             app.indexOf("function openSignalChart("));
+
+ok("a signal plays the same sound an entry does", /playSound\(\s*prefs\.entry/.test(announceSignal));
+ok("a signal shows an in-app card", /pushSignalCard\(/.test(announceSignal));
+ok("a signal reaches Windows under the same switch as a trade",
+   /if \(prefs\.windows\) notifyHost\(/.test(announceSignal),
+   "it was gated on the window being hidden, so a visible desk got nothing but an invisible card");
+
+ok("putting a signal card up un-hides the stack",
+   /stack\.hidden = false/.test(pushSignal),
+   "this is the whole fault: cards prepended into a hidden container");
+
+ok("a signal card does not stay for ever",
+   /setTimeout\([\s\S]{0,120}card\.remove\(\)/.test(pushSignal),
+   "a card carrying an entry price is useless a minute later");
+
+/* The other half of hidden = false: something has to put it back, or
+   an empty but visible stack sits over the corner of the desk eating
+   pointer events. Every removal path goes through one of these. */
+const dismiss = app.slice(app.indexOf("function bindDismiss("),
+                          app.indexOf("function bindDismiss(") + 900);
+ok("dismissing the last card hides the stack again",
+   /stack\.children\.length === 0\) stack\.hidden = true/.test(dismiss));
+
+const pushTrade = app.slice(app.indexOf("function pushTradeCard("),
+                            app.indexOf("function notifyHostTrade("));
+ok("a trade card's own expiry hides the stack when it was the last one",
+   /stack\.children\.length === 0\) stack\.hidden = true/.test(pushTrade));
+
+ok("a signal is still de-duplicated before any of that happens",
+   /_lastSignalKey/.test(announceSignal),
+   "the bus republishes on reconnect and a chime per replay is worse than silence");
+
 /* --- the host side ---------------------------------------------------- */
 
 ok("the desktop host accepts a trade message, not only a signal",

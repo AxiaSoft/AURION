@@ -110,7 +110,12 @@ function winner(flat, el, prop, W) {
     const v = r.style.getPropertyValue(prop);
     if (!v) continue;
     if (r.mq) {
-      if (/prefers-reduced-motion|forced-colors|print/.test(r.mq)) continue;
+      /* `pointer: coarse` is a different input device, not a different
+         window width. A rule that makes a control bigger for a finger
+         has nothing to say about how the same control is laid out
+         under a mouse, and counting it here reported the touch height
+         as the desktop one. */
+      if (/prefers-reduced-motion|forced-colors|print|pointer:\s*coarse|hover:\s*none/.test(r.mq)) continue;
       const mx = /max-width:\s*(\d+)px/.exec(r.mq), mn = /min-width:\s*(\d+)px/.exec(r.mq);
       if (mx && W > Number(mx[1])) continue;
       if (mn && W < Number(mn[1])) continue;
@@ -203,16 +208,26 @@ for (const dir of ["ltr", "rtl"]) {
 
   /* A chart property box is numeric too, and is styled in a different
      file - it must not have been missed, and chart.css must still win
-     the compact height it sets for itself. */
+     the compact height it sets for itself.
+
+     The class is .tvo-row, not .tvp-row. It was renamed: the chart's
+     property rows and the positions table's rows both used .tvp-, in
+     the same stylesheet, and the positions rules are 650 lines lower
+     so they won on source order and took the property panel's layout
+     apart. Written here as the class the panel actually uses, which
+     is the point of the check.
+
+     28px, not 26px: the controls were lifted to a size a finger can
+     hit while the panel was being repaired. */
   const row = doc.createElement("div");
-  row.className = "tvp-row";
+  row.className = "tvo-row";
   row.innerHTML = '<input type="number" />';
   stage.appendChild(row);
   const tvp = row.firstElementChild;
   const cta = winner(flat, tvp, "text-align", 1440);
   const ch = winner(flat, tvp, "height", 1440);
   say(cta && cta.v === "left", `a chart property number is seated the same way (${cta && cta.v})`);
-  say(ch && ch.v === "26px", `...while chart.css keeps its own compact height (${ch && ch.v})`);
+  say(ch && ch.v === "28px", `...while chart.css keeps its own compact height (${ch && ch.v})`);
 }
 
 /* ======================================= one owner for the component == */

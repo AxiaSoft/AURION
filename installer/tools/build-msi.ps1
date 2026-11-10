@@ -31,6 +31,22 @@
     Bundle everything except the Python wheels. Use when the build machine
     has no Python to collect them with.
 
+.PARAMETER SkipRuntime
+    Bundle the wheels, but do not pre-build runtime-python.zip.
+
+    The MSI is still a complete offline installer - the embeddable Python,
+    get-pip, pip's own wheel and all the engine's wheels travel in it, and
+    the customer's machine needs nothing from the network. What it gives up
+    is having pip's work done here in advance, so the customer's first run
+    spends about two minutes installing the libraries instead of a few
+    seconds unzipping them.
+
+    That is the trade to take when prepare-runtime.ps1 cannot finish on this
+    build machine - which is what happens when something here keeps removing
+    files out of the tree while it assembles. -SkipWheels also avoids that
+    step, but it avoids collecting the wheels with it, and a bundle with no
+    wheels is a bundle that needs the customer's network. This one does not.
+
 .PARAMETER SkipNpm
     Passed through to stage.ps1. Local iteration only.
 
@@ -56,6 +72,7 @@ param(
     [switch] $SkipNpm,
     [switch] $NoBundle,
     [switch] $SkipWheels,
+    [switch] $SkipRuntime,
     [switch] $InstallDotnet,
     [ValidateSet("Release", "Debug")] [string] $Configuration = "Release"
 )
@@ -236,6 +253,7 @@ this script again. It is only used at build time - nothing about it is
 installed on the customer's machine.
 
   -SkipWheels   build without the wheels and without runtime-python.zip
+  -SkipRuntime  bundle the wheels but do not pre-build runtime-python.zip
   -NoBundle     do not bundle any runtime; the target machine downloads them
 
 Both of those produce an installer that has to reach the network.
@@ -442,7 +460,7 @@ if ($NoBundle) {
     # build to a momentary refusal from nodejs.org, with 139 MB of verified
     # payload already sitting on disk, is not an acceptable trade.
     try {
-        & (Join-Path $PSScriptRoot "fetch-vendor.ps1") -SkipWheels:$SkipWheels
+        & (Join-Path $PSScriptRoot "fetch-vendor.ps1") -SkipWheels:$SkipWheels -SkipRuntime:$SkipRuntime
     } catch {
         $vendorDir = Join-Path $installerDir "vendor"
         $needed = @("python-3.12.7-amd64.exe", "node-v20.17.0-win-x64.zip",
@@ -451,7 +469,7 @@ if ($NoBundle) {
         # engine's libraries already installed. Without it the MSI still
         # installs with no network, but it does the pip work on the trader's
         # machine, which is the slow first run this was built to remove.
-        if (-not $SkipWheels) { $needed += "runtime-python.zip" }
+        if (-not $SkipWheels -and -not $SkipRuntime) { $needed += "runtime-python.zip" }
         $have = $needed | Where-Object { Test-Path -LiteralPath (Join-Path $vendorDir $_) }
         # The wheels count as part of a complete bundle. Leaving them out of
         # this list is how an MSI shipped that could only finish setup on a
@@ -481,8 +499,20 @@ Step "Staging payload"
 # stage.ps1 throws on failure; $ErrorActionPreference = "Stop" turns that into
 # a terminating error here, so there is nothing extra to check. ($LASTEXITCODE
 # is deliberately not read: it may not exist yet, which StrictMode rejects.)
+#
+# -SkipRuntime belongs in the list below too. It was added to the fetch and
+# to the completeness guard and not to this one, so a -SkipRuntime build got
+# all the way to staging and then threw on the very file it had just been
+# told not to build. Every switch that makes runtime-python.zip optional has
+# to say so in all three places or it makes none of them.
+#
+# This comment lives above the call and not inside it. Put between a line
+# ending in a backtick and the line it continues, a comment ends the command:
+# the backtick joins the two lines, the # comments out what follows, and the
+# argument on the next line is silently never passed. That is how the fix for
+# the staging guard shipped looking correct and changed nothing at all.
 & (Join-Path $PSScriptRoot "stage.ps1") -Root $repoRoot -SkipNpm:$SkipNpm `
-    -AllowIncompleteVendor:($SkipWheels -or $NoBundle)
+    -AllowIncompleteVendor:($SkipWheels -or $SkipRuntime -or $NoBundle)
 
 # ---------------------------------------------------------------------------
 # 3b. The desk window

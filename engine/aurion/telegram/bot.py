@@ -951,7 +951,7 @@ class TelegramBot:
                 pass
         st = snap.get("strategy") if isinstance(snap.get("strategy"), dict) else {}
         lines.append(f"AI Gate: {'🟢 ON' if st.get('require_ai_agree', True) else '🔴 OFF'}")
-        lines.append(f"Min Conf: {st.get('min_ai_confidence', 0.55)}")
+        lines.append(f"Min Conf: {st.get('min_ai_confidence', 0.35)}")
         tape = str(snap.get("tape") or "idle")
         lines.append(t(lang, "tape_tester" if tape == "tester" else ("tape_live" if tape == "live" else "tape_idle")))
         return "\n".join(lines)
