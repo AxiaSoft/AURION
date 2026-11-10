@@ -535,7 +535,8 @@ guarded.use((req, res, next) => {
 
 /* End of support.
  *
- * Five days after a newer version is published this desk stops serving
+ * Five days after a newer VERSION is published - the builder's number,
+ * not merely an available update - this desk stops serving
  * anything but the way out of that situation. The policy itself lives in
  * support-window.js; what belongs here is the one side effect it must
  * not own - stopping the robot.

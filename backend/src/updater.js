@@ -344,18 +344,25 @@ function httpsJson(url, body, timeoutMs = 15000) {
 async function checkGithub() {
   try {
     const res = await github.check(liveConfig());
-    /* Three different things, kept apart:
-         update_available - a published release this machine does not have.
-                            The only one the desk announces and the only one
-                            the support clock is allowed to read.
-         behind           - the tracked branch has moved. True after any
-                            commit; a development fact, not an offer.
-         latest           - the target either way, so the owner can still
-                            install the branch build deliberately. */
+    /* Four different things, kept apart:
+         update_available - main carries a shipped file this machine does
+                            not. main is the release branch, so this is an
+                            offer and the desk announces it. It does NOT
+                            start the support clock.
+         version_changed  - the builder moved the number in
+                            config/aurion.factory.json. The only fact the
+                            support clock is allowed to read, which is why
+                            an ordinary merge can be delivered without
+                            scheduling anybody's desk to stop.
+         unpublished      - no tagged release behind it, so there are no
+                            release notes to show. A presentation fact.
+         latest           - the target, carried whenever there is one. */
     const behind = !!res.behind || !!res.update_available;
     const state = {
       last_check: new Date().toISOString(),
       update_available: !!res.update_available,
+      version_changed: !!res.version_changed,
+      local_version: res.local_version || "",
       latest: behind ? res.update : null,
       unpublished: behind && !res.published,
       source: res.source,
@@ -514,7 +521,11 @@ function takeFromSnapshot(snapshot, f) {
 
 async function applyUpdate(updateId, serverUrl) {
   const kind = getSourceKind();
-  // only apply if published and exists
+  /* No publication test here, and there never was one that worked:
+     what is installed is the target the last check agreed on, matched
+     by id below. main is the release branch, so that target is shipped
+     work whether or not a tag was cut over it. The route above is
+     owner-only, which is where "who may install" is decided. */
   const settings = getSettings();
   /* GitHub needs no URL: the repository is the address. */
   const url = kind === "github"
@@ -732,18 +743,26 @@ function copyExpertsToTerminals() {
 
 function getUpdateState() {
   const state = readJsonSecure(UPDATE_STATE_FILE, { last_check: null, update_available: false, latest: null });
-  /* Sanitise a file written before an update was defined as "a release
-     somebody published".
+  /* An update from main is an update.
      
-     Those files claim update_available for whatever the tracked branch
-     happened to contain at the time, which is how an installation whose
-     owner had released nothing was told to update - and then warned it
-     had five days left. The claim is dropped here, on the read, so every
-     caller is corrected at once and without waiting for the next check;
-     the file itself is rewritten the next time one runs. */
+     This used to delete the claim on the way out - any state whose
+     target was not a tagged release had update_available forced to
+     false - because "an update" and "a new version" were one field and
+     the support clock read it. They are two fields now: the clock reads
+     version_changed, which only the builder can move, so an offer no
+     longer carries the power to lock a desk and no longer has to be
+     suppressed to keep it safe.
+     What survives from that rule is the flag it set. A target with no
+     release behind it has no release notes, and the panel says so
+     rather than drawing an empty space where they would be. */
   if (state && state.latest && state.latest.published !== true && state.update_available) {
-    state.update_available = false;
     state.unpublished = true;
+  }
+  /* A state file written before version_changed existed cannot make
+     that statement, and silence is not a new version: the clock stays
+     off until the next check writes a file that can answer. */
+  if (state && state.latest && typeof state.latest.version_changed !== "boolean") {
+    state.latest.version_changed = false;
   }
   // Carry the last applied update with it, so the desk can tell the user
   // "the experts changed in this update" without a second request.
