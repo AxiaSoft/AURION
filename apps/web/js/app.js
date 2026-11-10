@@ -5978,7 +5978,13 @@ function robotPanelHtml() {
       </div>
 
       <div class="card">
-        <h3 class="card-h">${I18N.t("strategies.ai_gate")}</h3>
+        <!-- No card heading above the switch. The heading and the
+             switch's own label were the same sentence - "Require AI
+             agreement" printed twice, four lines apart, in two type
+             sizes - which reads as a rendering fault rather than as a
+             title. The switch is the heading: it names the setting and
+             shows its state in one row, which is what every other
+             switch card on this page already does. -->
         <p class="sub">${I18N.t("strategies.ai_gate_help")}</p>
         <hr class="set-rule" />
         ${switchRow({ id: "st-ai", title: I18N.t("strategies.ai_gate_switch"), on: st.require_ai_agree !== false })}

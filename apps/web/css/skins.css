@@ -74,11 +74,18 @@ a:hover{ color:var(--accent-readable, var(--accent)) }
 ::selection{ background:rgb(var(--accent-rgb) / .3) }
 
 /* Anything FILLED with the accent takes --accent-ink, the foreground measured
-   against it in app.css rather than picked by eye. */
+   against it in app.css rather than picked by eye.
+
+   The settings rail's current entry is NOT in this list, and listing it
+   here was the bug that made the settings menu unreadable: that entry
+   is a 16% accent tint over the rail, not a fill, so --accent-ink put
+   near-black text on a near-black row. Measured at rgb(6,16,20) on the
+   dark rail - the name of the section you are in, invisible, in every
+   skin, since this rule was written. It belongs with the tinted
+   selections below. */
 .btn,
 .btn *,
 .lang-pills button.on,
-.set-jump button[data-jump].on,
 .tabs button.on{ color:var(--accent-ink) }
 .chip.on,
 .nav button.on,
@@ -282,10 +289,16 @@ html .tabs button.on:focus{
   filter:none;
   box-shadow:none;
 }
+/* Hovering the entry you are already on must not repaint it. It used
+   to flip from a 16% tint to a solid accent fill - the only item on
+   the desk that does - so the rail flashed a different colour under
+   the pointer while reading it, and on the way past the current entry
+   on the way to another one. Same treatment as .nav button.on below:
+   the tint deepens, the text stays legible. */
 html .set-jump button[data-jump].on:hover,
 html .set-jump button[data-jump].on:focus{
-  background:var(--accent);
-  color:var(--accent-ink);
+  background:linear-gradient(135deg, rgb(var(--accent-rgb) / .22), rgb(var(--accent-3-rgb) / .14));
+  color:var(--ink);
   transform:none;
   filter:none;
 }

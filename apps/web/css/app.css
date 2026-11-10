@@ -2489,11 +2489,26 @@ html[data-glass="off"] *{
 .set-jump button[data-jump][hidden]{ display:none }
 .set-jump .sj-grp[hidden]{ display:none }
 
+/* A group heading in this rail is read, not decorated, so it has to
+   clear the two bars the desk's own checklist sets: 11px, and 4.5:1.
+   It was 10.5px in --faint, which measures 3.52:1 on the dark rail and
+   3.54:1 on the light one - under the bar in both, in every theme,
+   because both tokens are defined per theme at about the same
+   lightness. --muted is 6.35:1 and 5.60:1 in the same two places.
+
+   The rule above it is the structure. Three labels in a column of
+   eight entries is a weak signal on its own - the eye reads one list,
+   not three groups - and the label was carrying that job alone. */
 .sj-grp{
-  font-size:10.5px;color:var(--faint);letter-spacing:.06em;text-transform:uppercase;
-  padding:10px 10px 4px;font-weight:500;
+  font-size:11.5px;color:var(--muted);letter-spacing:.06em;text-transform:uppercase;
+  padding:14px 10px 6px;font-weight:600;
 }
-html[dir="rtl"] .sj-grp{letter-spacing:0;text-transform:none;font-size:11px}
+.sj-grp + button[data-jump]{margin-block-start:0}
+.set-jump .sj-grp ~ .sj-grp,
+.sj-list > .sj-grp:not(:first-child){
+  margin-block-start:8px;padding-block-start:14px;border-block-start:1px solid var(--line);
+}
+html[dir="rtl"] .sj-grp{letter-spacing:0;text-transform:none;font-size:12px}
 
 /* ---- the entries ----
  *
@@ -2516,15 +2531,32 @@ html[dir="rtl"] .sj-grp{letter-spacing:0;text-transform:none;font-size:11px}
  * column) may be scoped to .set-rail.
  */
 .set-jump button[data-jump]{
-  display:flex;align-items:center;gap:10px;flex:none;width:100%;text-align:start;
+  /* `position:relative` for the current-section marker below. */
+  position:relative;
+  display:flex;align-items:center;gap:11px;flex:none;width:100%;text-align:start;
   border:1px solid transparent;background:transparent;color:var(--muted);
-  border-radius:12px;padding:8px 10px;font-size:13px;line-height:1.2;
-  transition:background .18s var(--ease),color .18s var(--ease),border-color .18s var(--ease),transform .18s var(--ease);
+  border-radius:12px;padding:9px 10px;font-size:13px;line-height:1.25;
+  transition:background .18s var(--ease),color .18s var(--ease),border-color .18s var(--ease);
 }
-.set-jump button[data-jump]:hover{background:rgb(var(--wash) / .05);color:var(--ink)}
+.set-jump button[data-jump]:hover{background:rgb(var(--wash) / .06);color:var(--ink)}
+.set-jump button[data-jump]:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .set-jump button[data-jump].on{
   background:linear-gradient(135deg, rgb(var(--accent-rgb) / .16), rgb(var(--accent-3-rgb) / .10));
   border-color:rgb(var(--accent-rgb) / .28);color:var(--ink);font-weight:500;
+}
+/* Which section you are in, said by shape as well as by colour.
+   The tint alone is about a 1.2:1 step against the rail, which is
+   inside the margin of error of a colour-blind reader, of a glare-lit
+   screen and of the neumorphic skins - and it is the one piece of
+   state a navigation rail exists to carry. A solid bar on the leading
+   edge is not a colour difference. */
+.set-jump button[data-jump].on::before{
+  content:"";position:absolute;inset-block:9px;inset-inline-start:-1px;
+  width:3px;border-radius:0 999px 999px 0;background:var(--accent);
+}
+html[dir="rtl"] .set-jump button[data-jump].on::before{border-radius:999px 0 0 999px}
+@media (prefers-reduced-motion:reduce){
+  .set-jump button[data-jump]{transition:none}
 }
 .set-jump .sj-ic{
   width:30px;height:30px;flex:none;display:grid;place-items:center;border-radius:9px;
@@ -2534,8 +2566,14 @@ html[dir="rtl"] .sj-grp{letter-spacing:0;text-transform:none;font-size:11px}
 .set-jump button[data-jump].on .sj-ic{background:rgb(var(--accent-rgb) / .16);color:var(--cyan)}
 .set-jump .sj-txt{display:flex;flex-direction:column;gap:2px;min-width:0}
 .set-jump .sj-txt b{font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.set-jump .sj-txt small{font-size:11px;color:var(--faint);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.set-jump button[data-jump].on .sj-txt small{color:var(--muted)}
+/* 11.5px in --muted, for the same measured reason as the group
+   headings: this line is the only thing that says what a section
+   decides, and at --faint it was 3.5:1 - present, and not readable
+   without leaning in. The active entry used to be the one legible
+   row in the list, which is backwards: the section you are already
+   looking at is the one you need the description of least. */
+.set-jump .sj-txt small{font-size:11.5px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.set-jump button[data-jump].on .sj-txt small{color:var(--ink);opacity:.8}
 .set-main{min-width:0;display:flex;flex-direction:column;gap:14px}
 /* Settings panels are glass, like every other surface on the desk.
    They used to carry the alpha without the blur, which is not frosting -
@@ -2796,8 +2834,14 @@ html[dir="rtl"] .sj-grp{letter-spacing:0;text-transform:none;font-size:11px}
   }
 
   /* Inside the sheet the rail keeps everything it had on the desktop -
-     the headings, the descriptions - and only grows its targets. */
-  .set-jump.is-sheet button[data-jump]{min-block-size:46px;padding:8px 10px}
+     the headings, the descriptions - and only grows its targets.
+
+     The padding is NOT restated here. It was, at the rail's old 8px,
+     and when the rail went to 9px the two drifted apart: the sheet is
+     the rail in another shape and the one thing it may change is the
+     minimum height. tests/search-box-cascade compares every resolved
+     property of the two and caught it. */
+  .set-jump.is-sheet button[data-jump]{min-block-size:46px}
 
   .set-main .set-block{padding:14px;border-radius:16px}
   .set-main .set-title{font-size:16px}
