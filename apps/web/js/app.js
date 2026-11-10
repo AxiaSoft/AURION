@@ -417,9 +417,9 @@ function askPrice(opts) {
       <h3 id="modal-title">${esc(opts.title || "")}</h3>
       ${opts.body ? `<p class="modal-body">${esc(opts.body)}</p>` : ""}
       <input id="modal-price" class="ctrl" type="number" inputmode="decimal"
-             step="${esc(String(opts.step || PRICE_STEP))}"
+             step="${esc(String(opts.step || priceStep(opts.symbol, start)))}"
              aria-label="${esc(opts.title || "")}"
-             value="${esc(priceField(start))}" />
+             value="${esc(priceField(start, opts.symbol))}" />
       <p class="sub" id="modal-price-msg"></p>
       <div class="modal-actions">
         <button type="button" class="btn ghost" id="modal-no">${esc(I18N.t("common.cancel"))}</button>
@@ -475,15 +475,21 @@ function askPrice(opts) {
  */
 async function onChartLevelEdit(kind, current) {
   const which = kind === "sl" ? "exec.sl" : "exec.tp";
+  /* The instrument the ticket is on, so the dialog offers the same
+     decimals and the same arrow-key step as the field it writes into.
+     Without it a four-decimal pair was typed into a two-decimal box
+     and the last two digits were dropped on the way back. */
+  const sym = (S.chartFocus && S.chartFocus.symbol) || S.symbol;
   const got = await askPrice({
     title: I18N.t(which),
     body: I18N.t("exec.exact_price"),
     value: current,
+    symbol: sym,
   });
   if (got === null) return;
   const el = $(kind === "sl" ? "ct-sl" : "ct-tp");
   if (el) {
-    el.value = priceField(got);
+    el.value = priceField(got, sym);
     el.dispatchEvent(new Event("input", { bubbles: true }));
   }
   rememberTicket();
@@ -501,35 +507,99 @@ async function onChartLevelEdit(kind, current) {
  * glance: if this does not match the token in index.html, the page is old.
  */
 /**
- * How many decimals a price is written with, everywhere on the desk.
+ * How many decimals a price is written with on this desk.
  *
- * Two. Asked for directly: the manual-trade stop, target and entry
- * fields were showing five, which is the broker's own precision and is
- * unreadable at a glance - 1.08451 and 1.08415 are the same shape.
+ * It was a flat two on every instrument. That came from a real
+ * complaint - the manual ticket was showing the broker's five, and
+ * 1.08451 next to 1.08415 is the same shape at a glance - and two was
+ * chosen over per-instrument digits at the time.
  *
- * This is a deliberate flat number rather than per-instrument digits.
- * It was offered both ways and two-for-everything was chosen, so it is
- * written once, here, and read from here by the ticket, the price
- * dialog, the tape, the tables and the notifications. CandleChart has
- * its own PRICE_DP, already 2, for the same reason: a desk where the
- * chart and the ticket disagree about a price is worse than either.
+ * Two turned out to be right for half the book and wrong for the
+ * other half, which is what was reported next: an instrument whose
+ * prices move in a narrow band needs more decimals, because a whole
+ * session of EURUSD can live inside one hundredth and every price on
+ * the desk then prints the same 1.08 - the stop, the target, the
+ * entry, the axis, all identical and all useless. Gold at 2338 and an
+ * index at 39210 have the opposite problem and keep two.
  *
- * It costs something and the cost is real: on a five-digit FX pair the
- * fourth and fifth digits are no longer shown, and a stop typed into a
- * two-decimal field is a two-decimal stop. On gold, indices and crypto
- * - which is what this desk is mostly pointed at - it is simply the
- * right number.
+ * So the count is per instrument now, between PRICE_DP_MIN and
+ * PRICE_DP_MAX - two and four. Four and not five: the fifth digit is
+ * the one that made the numbers unreadable in the first place, and
+ * four is the pip and its tenth, which is as fine as a price is read.
+ *
+ * Where it comes from, best source first:
+ *
+ *   1. the broker's own digit count for that symbol, out of the
+ *      snapshot's specs, clamped into that range - EURUSD's 5 becomes
+ *      4, USDJPY's 3 stays 3, gold's 2 stays 2, an index's 1 is
+ *      lifted to 2;
+ *   2. failing that, the size of the price itself, on the ladder in
+ *      CandleChart.dpForPrice - so an instrument the desk has never
+ *      heard of, or one quoted before the first snapshot lands, is
+ *      still written sensibly.
+ *
+ * The ladder lives in charts.js and is read from there rather than
+ * restated, because a desk where the chart and the ticket disagree
+ * about a price is worse than either of them being wrong alone.
  */
 const PRICE_DP = 2;
+const PRICE_DP_MIN = 2;
+const PRICE_DP_MAX = 4;
 
-/** A price, written the desk's way. */
-function price(n) { return fmt(n, PRICE_DP); }
+/** The ladder, from the chart engine, with a local copy if it is absent. */
+function dpForPrice(p) {
+  if (typeof CandleChart !== "undefined" && typeof CandleChart.dpForPrice === "function") {
+    return CandleChart.dpForPrice(p);
+  }
+  const n = Math.abs(Number(p));
+  if (!Number.isFinite(n) || n <= 0) return PRICE_DP;
+  if (n >= 100) return 2;
+  if (n >= 10) return 3;
+  return 4;
+}
+
+const clampDp = (d) => Math.min(PRICE_DP_MAX, Math.max(PRICE_DP_MIN, Math.round(Number(d))));
+
+/**
+ * The decimal count for one symbol.
+ *
+ * `sample` is any price of that instrument, used only when the broker
+ * has told us nothing about it. Passing neither gives the old flat
+ * two, which is what every caller that has no symbol to hand wants.
+ */
+function priceDp(symbol, sample) {
+  const spec = typeof specFor === "function" ? specFor(symbol) : null;
+  const d = spec && Number(spec.digits);
+  if (Number.isFinite(d) && d > 0) return clampDp(d);
+  return dpForPrice(sample);
+}
+
+/**
+ * A price, written the desk's way.
+ *
+ * The symbol is optional and every caller that can name one should:
+ * without it the price can only be judged by its own size, which is
+ * right nearly always and guesses on the boundary.
+ *
+ * Fixed decimals, not "up to". A column of prices where one row reads
+ * 1.09 and the next 1.0865 cannot be scanned - the digits do not line
+ * up and the shorter one looks like a different instrument. So the
+ * minimum and the maximum are the same number.
+ */
+function price(n, symbol) {
+  const d = priceDp(symbol, n);
+  return fmt(n, d, d);
+}
 
 /* The same precision as a step for a <number> field, derived rather
-   than written out twice: "0.01" for 2, "0.1" for 1. A field that
+   than written out twice: "0.01" for 2, "0.0001" for 4. A field that
    steps finer than it displays snaps the arrow keys to digits it then
    hides, and the trader watches the value refuse to change. */
-const PRICE_STEP = (1 / Math.pow(10, PRICE_DP)).toFixed(PRICE_DP);
+const stepFor = (d) => (1 / Math.pow(10, d)).toFixed(d);
+const PRICE_STEP = stepFor(PRICE_DP);
+
+/** The step for one symbol's price fields. */
+function priceStep(symbol, sample) { return stepFor(priceDp(symbol, sample)); }
 
 /**
  * A price on its way INTO an input, as a plain machine-readable number.
@@ -537,20 +607,27 @@ const PRICE_STEP = (1 / Math.pow(10, PRICE_DP)).toFixed(PRICE_DP);
  * Not price(): that one is for reading and goes through toLocaleString,
  * which in Persian returns Eastern Arabic digits and in several locales
  * a thousands separator - and <input type="number"> rejects both,
- * silently, leaving the field empty. Same two decimals, no grouping,
- * no localisation.
+ * silently, leaving the field empty. Same decimals, no grouping, no
+ * localisation.
  */
-function priceField(v) {
+function priceField(v, symbol) {
   const n = Number(v);
-  return n > 0 ? n.toFixed(PRICE_DP) : "";
+  return n > 0 ? n.toFixed(priceDp(symbol, n)) : "";
 }
 
-function fmt(n, d = 2) {
+/**
+ * `min` pins the number of decimals instead of only capping it, which
+ * is what a column of prices needs. Left out everywhere else, so a
+ * count of 3 is still "3" and not "3.00".
+ */
+function fmt(n, d = 2, min) {
   if (n === null || n === undefined || n === "" || Number.isNaN(Number(n))) return "—";
+  const opts = { maximumFractionDigits: d };
+  if (Number.isFinite(min)) opts.minimumFractionDigits = Math.min(min, d);
   try {
-    return Number(n).toLocaleString(I18N.locale(), { maximumFractionDigits: d });
+    return Number(n).toLocaleString(I18N.locale(), opts);
   } catch {
-    return Number(n).toLocaleString("en-GB", { maximumFractionDigits: d });
+    return Number(n).toLocaleString("en-GB", opts);
   }
 }
 function markLangPills() {
@@ -2057,9 +2134,9 @@ function signalDetail(sig) {
   const entry = signalPrice(sig, "entry") || signalPrice(sig, "price");
   const sl = signalPrice(sig, "sl");
   const tp = signalPrice(sig, "tp");
-  if (entry) bits.push(`${I18N.t("signal.entry")} ${price(entry)}`);
-  if (sl) bits.push(`${I18N.t("signal.sl")} ${price(sl)}`);
-  if (tp) bits.push(`${I18N.t("signal.tp")} ${price(tp)}`);
+  if (entry) bits.push(`${I18N.t("signal.entry")} ${price(entry, sig.symbol)}`);
+  if (sl) bits.push(`${I18N.t("signal.sl")} ${price(sl, sig.symbol)}`);
+  if (tp) bits.push(`${I18N.t("signal.tp")} ${price(tp, sig.symbol)}`);
   if (lots) bits.push(`${I18N.t("signal.lots")} ${fmt(lots, 2)}`);
   if (sig.confidence) bits.push(`${I18N.t("signal.confidence")} ${Math.round(Number(sig.confidence) * 100)}%`);
   return bits.join(" · ");
@@ -2358,7 +2435,7 @@ function tradeHeadline(t) {
 function tradeDetail(t) {
   const bits = [];
   if (t.volume) bits.push(`${fmt(t.volume, 2)} ${I18N.t("notify.lots")}`);
-  if (t.kind === "entry" && t.price) bits.push(`@ ${price(t.price)}`);
+  if (t.kind === "entry" && t.price) bits.push(`@ ${price(t.price, t.symbol)}`);
   if (t.kind === "exit") bits.push(`${t.profit > 0 ? "+" : ""}${fmt(t.profit, 2)} ${esc(t.currency || "")}`.trim());
   if (t.strategy) bits.push(String(t.strategy));
   return bits.join(" · ");
@@ -4687,6 +4764,11 @@ function chartTicketHtml() {
   const who = operatorName();
   const sym = (S.chartFocus && S.chartFocus.symbol) || S.symbol;
   const tick = (S.snap && S.snap.ticks && S.snap.ticks[sym]) || {};
+  /* This instrument's step, not the desk's. EURUSD's fields step by
+     0.0001 and gold's by 0.01, because a field that steps by a digit
+     it does not display leaves the trader pressing an arrow key and
+     watching the number refuse to move. */
+  const pStep = priceStep(sym, tick.bid);
   return `<div class="chart-ticket" id="chart-ticket">
       <div class="ct-head">
         <h3>${I18N.t("exec.manual")}</h3>
@@ -4715,13 +4797,14 @@ function chartTicketHtml() {
 
       <div class="ct-row ct-lv ct-entry" id="ct-entry-row" hidden>
         <span class="ct-lab">${I18N.t("exec.entry")}</span>
-        <!-- Two decimals, like every other price on the desk. The step
-             has to agree with that: a field that steps by 0.00001 while
-             showing two decimals snaps the arrow keys to digits it will
-             not then display. See PRICE_DP. -->
-        <input id="ct-price" type="number" step="${PRICE_STEP}" inputmode="decimal"
+        <!-- As many decimals as this instrument's prices need - four on
+             a narrow FX pair, two on gold. The step has to agree with
+             that: a field that steps by 0.00001 while showing two
+             decimals snaps the arrow keys to digits it will not then
+             display. See priceDp. -->
+        <input id="ct-price" type="number" step="${pStep}" inputmode="decimal"
                aria-label="${esc(I18N.t("exec.entry"))}"
-               value="${esc(priceField(t.price))}" placeholder="${esc(I18N.t("exec.chart_click"))}" />
+               value="${esc(priceField(t.price, sym))}" placeholder="${esc(I18N.t("exec.chart_click"))}" />
         <button type="button" class="ct-ic" id="ct-pick-price"
                 title="${esc(I18N.t("exec.set_entry"))}" aria-label="${esc(I18N.t("exec.set_entry"))}">${icon("target")}</button>
         <button type="button" class="ct-ic" id="ct-clear-price"
@@ -4731,9 +4814,9 @@ function chartTicketHtml() {
       <div class="ct-levels">
         <div class="ct-row ct-lv">
           <span class="ct-lab sl">${I18N.t("exec.sl")}</span>
-          <input id="ct-sl" type="number" step="${PRICE_STEP}" inputmode="decimal"
+          <input id="ct-sl" type="number" step="${pStep}" inputmode="decimal"
                  aria-label="${esc(I18N.t("exec.sl"))}"
-                 value="${esc(priceField(t.sl))}" placeholder="${esc(I18N.t("exec.chart_click"))}" />
+                 value="${esc(priceField(t.sl, sym))}" placeholder="${esc(I18N.t("exec.chart_click"))}" />
           <button type="button" class="ct-ic" id="ct-pick-sl"
                   title="${esc(I18N.t("exec.set_sl"))}" aria-label="${esc(I18N.t("exec.set_sl"))}">${icon("target")}</button>
           <button type="button" class="ct-ic" id="ct-clear-sl"
@@ -4741,9 +4824,9 @@ function chartTicketHtml() {
         </div>
         <div class="ct-row ct-lv">
           <span class="ct-lab tp">${I18N.t("exec.tp")}</span>
-          <input id="ct-tp" type="number" step="${PRICE_STEP}" inputmode="decimal"
+          <input id="ct-tp" type="number" step="${pStep}" inputmode="decimal"
                  aria-label="${esc(I18N.t("exec.tp"))}"
-                 value="${esc(priceField(t.tp))}" placeholder="${esc(I18N.t("exec.chart_click"))}" />
+                 value="${esc(priceField(t.tp, sym))}" placeholder="${esc(I18N.t("exec.chart_click"))}" />
           <button type="button" class="ct-ic" id="ct-pick-tp"
                   title="${esc(I18N.t("exec.set_tp"))}" aria-label="${esc(I18N.t("exec.set_tp"))}">${icon("target")}</button>
           <button type="button" class="ct-ic" id="ct-clear-tp"
@@ -4760,11 +4843,11 @@ function chartTicketHtml() {
       <div class="ct-sides">
         <button class="ct-side sell" type="button" id="ct-sell">
           <span>${I18N.t("exec.sell")}</span>
-          <b class="mono" id="ct-bid">${price(tick.bid)}</b>
+          <b class="mono" id="ct-bid">${price(tick.bid, sym)}</b>
         </button>
         <button class="ct-side buy" type="button" id="ct-buy">
           <span>${I18N.t("exec.buy")}</span>
-          <b class="mono" id="ct-ask">${price(tick.ask)}</b>
+          <b class="mono" id="ct-ask">${price(tick.ask, sym)}</b>
         </button>
       </div>
       <p class="sub" id="ct-msg"></p>
@@ -4783,8 +4866,8 @@ function paintTicketPrices() {
   const sym = (S.chartFocus && S.chartFocus.symbol) || S.symbol;
   const tick = (S.snap && S.snap.ticks && S.snap.ticks[sym]) || null;
   const bid = $("ct-bid"), ask = $("ct-ask");
-  if (bid) bid.textContent = tick ? price(tick.bid) : "—";
-  if (ask) ask.textContent = tick ? price(tick.ask) : "—";
+  if (bid) bid.textContent = tick ? price(tick.bid, sym) : "—";
+  if (ask) ask.textContent = tick ? price(tick.ask, sym) : "—";
   /* A market order's risk is measured from the live quote, so it moves
      with the quote. Here rather than on a timer of its own: this is
      already the function the tick wakes up. */
@@ -5062,9 +5145,13 @@ function onChartPrice(p) {
   if (!Number.isFinite(Number(p))) return;
   if (!S._pickLevel) return;
   const px = Number(p);
-  if (S._pickLevel === "sl" && $("ct-sl")) $("ct-sl").value = priceField(px);
-  else if (S._pickLevel === "tp" && $("ct-tp")) $("ct-tp").value = priceField(px);
-  else if (S._pickLevel === "price" && $("ct-price")) $("ct-price").value = priceField(px);
+  /* Rounded to this instrument's decimals, not the desk's default: a
+     level picked off a EURUSD chart and written back as 1.08 is a
+     different level from the one that was clicked. */
+  const sym = (S.chartFocus && S.chartFocus.symbol) || S.symbol;
+  if (S._pickLevel === "sl" && $("ct-sl")) $("ct-sl").value = priceField(px, sym);
+  else if (S._pickLevel === "tp" && $("ct-tp")) $("ct-tp").value = priceField(px, sym);
+  else if (S._pickLevel === "price" && $("ct-price")) $("ct-price").value = priceField(px, sym);
   S._pickLevel = null;
   document.querySelectorAll("#ct-pick-sl,#ct-pick-tp,#ct-pick-price").forEach((b) => b.classList.remove("on"));
   rememberTicket();
@@ -5073,8 +5160,9 @@ function onChartPrice(p) {
 }
 function onChartPending(p) {
   if (!p) return;
-  if (p.kind === "sl" && $("ct-sl")) $("ct-sl").value = priceField(p.sl);
-  if (p.kind === "tp" && $("ct-tp")) $("ct-tp").value = priceField(p.tp);
+  const sym = (S.chartFocus && S.chartFocus.symbol) || S.symbol;
+  if (p.kind === "sl" && $("ct-sl")) $("ct-sl").value = priceField(p.sl, sym);
+  if (p.kind === "tp" && $("ct-tp")) $("ct-tp").value = priceField(p.tp, sym);
   rememberTicket();
   paintTicketRisk();
 }
@@ -7047,8 +7135,8 @@ function analysisCardHtml() {
         <h4 class="ai-h">${I18N.t("ai.an.when")}</h4>
         <p class="sub">${esc(a.when || "")}</p>
         ${(a.resting || []).length
-          ? `<ul class="an-why">${a.resting.map((r) => `<li><b>${esc(String(r.type || "").replace(/_/g, " ").toUpperCase())} ${fmt(r.volume, 2)} @ ${price(r.price)}</b>
-               <span class="sub"> — SL ${r.sl ? price(r.sl) : "—"} / TP ${r.tp ? price(r.tp) : "—"}</span></li>`).join("")}</ul>`
+          ? `<ul class="an-why">${a.resting.map((r) => `<li><b>${esc(String(r.type || "").replace(/_/g, " ").toUpperCase())} ${fmt(r.volume, 2)} @ ${price(r.price, r.symbol || a.symbol)}</b>
+               <span class="sub"> — SL ${r.sl ? price(r.sl, r.symbol || a.symbol) : "—"} / TP ${r.tp ? price(r.tp, r.symbol || a.symbol) : "—"}</span></li>`).join("")}</ul>`
           : ""}
         ${a.next_eval?.text ? `<p class="sub"><b>${I18N.t("ai.an.next_eval")}:</b> <span class="mono" id="an-next">${esc(a.next_eval.text)}</span></p>` : ""}
       </div>
@@ -8378,8 +8466,8 @@ function watchRowsHtml() {
         ${it.timeframe ? `<i class="wl-tf">${esc(it.timeframe)}</i>` : ""}
       </span>
       <span class="wl-quote">
-        <b class="mono wl-bid ${dir}">${price(bid)}</b>
-        <b class="mono wl-ask">${price(ask)}</b>
+        <b class="mono wl-bid ${dir}">${price(bid, it.symbol)}</b>
+        <b class="mono wl-ask">${price(ask, it.symbol)}</b>
       </span>
       <!-- The spread keeps the broker's precision while prices get two
            decimals. It is a distance, not a level: rounded to two it
@@ -8670,7 +8758,7 @@ const CELL_MONEY = ["profit", "net", "swap", "commission", "fees"];
    simply never called it. */
 const CELL_TIME = ["ts", "ts_open", "time", "time_open", "time_close"];
 
-function cellText(k, v) {
+function cellText(k, v, symbol) {
   if (k === "profit_pct") {
     return (v === null || v === undefined || Number.isNaN(Number(v))) ? "—" : fmt(v, 2) + "%";
   }
@@ -8678,7 +8766,7 @@ function cellText(k, v) {
   if (v === "" || v === null || v === undefined) return "—";
   if (CELL_TIME.includes(k)) return btWhen(v);
   if (k === "volume") return fmt(v, 2);
-  if (CELL_PRICE.includes(k)) return price(v);
+  if (CELL_PRICE.includes(k)) return price(v, symbol);
   if (CELL_MONEY.includes(k)) return fmt(v, 2);
   return String(v);
 }
@@ -8699,7 +8787,7 @@ function table(rows, keys, closable) {
     // Every money column is signed, not just profit. A swap of -4.10 shown
     // in the same colour as a profit of 4.10 is a column the eye skips.
     const c = cellSigned(k) ? clsPnl(v) : "";
-    const text = cellText(k, v);
+    const text = cellText(k, v, r.symbol);
     /* The column name travels with the cell.
        Below 760 the table stacks and the header row goes away, and a
        bare column of numbers with no names is not a smaller table, it
@@ -8788,8 +8876,8 @@ function paintPositions(boxId, rows, closable) {
       };
       const pl = Number(r.profit);
       put(".tvp-pl", Number.isFinite(pl) ? (pl > 0 ? "+" : "") + fmt(pl, 2) : "—", true);
-      put(".tvp-sl", r.sl ? price(r.sl) : "—");
-      put(".tvp-tp", r.tp ? price(r.tp) : "—");
+      put(".tvp-sl", r.sl ? price(r.sl, r.symbol) : "—");
+      put(".tvp-tp", r.tp ? price(r.tp, r.symbol) : "—");
       put(".tvp-vol", fmt(r.volume, 2));
     });
     return;
@@ -8801,7 +8889,7 @@ function paintPositions(boxId, rows, closable) {
 function tickLabel() {
   const t = S.snap?.ticks?.[S.symbol];
   if (!t) return "";
-  return `${S.symbol}  ${price(t.bid)} / ${price(t.ask)}`;
+  return `${S.symbol}  ${price(t.bid, S.symbol)} / ${price(t.ask, S.symbol)}`;
 }
 async function fillHostTerm() {
   const box = $("term");
@@ -11740,6 +11828,7 @@ function drawReplayChart(bars, marks) {
   }
 
   // The price axis: three labels, enough to read the scale.
+  const axisDp = dpForPrice((hi + lo) / 2);
   g.fillStyle = ink;
   g.font = "10px ui-monospace, monospace";
   g.textAlign = "start";
@@ -11748,8 +11837,13 @@ function drawReplayChart(bars, marks) {
     /* toFixed, not fmt(): fmt localises, so this axis printed Persian
        digits beside a main chart whose axis prints Latin ones - two
        charts of the same prices, numbered two different ways, one
-       above the other. Same two decimals as everywhere else. */
-    g.fillText(Number(v).toFixed(PRICE_DP), w - padR + 6, y(v));
+       above the other.
+       
+       The count is taken from the prices being drawn rather than the
+       desk's default, and once for the whole axis rather than per
+       label, so a replay of a narrow FX pair does not print the same
+       number three times down the side. */
+    g.fillText(Number(v).toFixed(axisDp), w - padR + 6, y(v));
   }
 }
 
@@ -11837,6 +11931,11 @@ function renderBacktestExtra(bt) {
 
   const curve = Array.isArray(bt.equity_curve) ? bt.equity_curve.map(Number).filter((x) => Number.isFinite(x)) : [];
   const trades = Array.isArray(bt.trades) ? bt.trades : [];
+  /* The instrument the run was on, so its entries and exits are
+     written with its own number of decimals rather than the desk's
+     default - a EURUSD backtest listing 1.08 against 1.08 for every
+     trade is a table of identical rows. */
+  const btSymbol = bt.symbol || (bt.request && bt.request.symbol) || "";
   const m = bt.metrics || {};
 
   let head = "";
@@ -11864,8 +11963,8 @@ function renderBacktestExtra(bt) {
       return `<tr>
         <td class="mono">${esc(btWhen(t.time))}</td>
         <td><span class="pill tiny ${side === "buy" ? "up" : "down"}">${esc(side.toUpperCase() || "—")}</span></td>
-        <td class="mono">${price(t.entry)}</td>
-        <td class="mono">${price(t.exit)}</td>
+        <td class="mono">${price(t.entry, btSymbol)}</td>
+        <td class="mono">${price(t.exit, btSymbol)}</td>
         <td class="mono ${clsPnl(t.profit)}">${fmt(t.profit)}</td>
         <td class="sub">${esc(String(t.exit_reason || "—"))}</td>
       </tr>`;
@@ -12326,9 +12425,22 @@ function posCardHead(title) {
    positions behind a gesture nobody thinks to try. One builder means
    the trader learns the shape once, and the two can never drift the
    way the old pair did. */
-function positionsListHtml(pos, ord) {
+/**
+ * `focus` - the symbol whose chart this list is sitting on, or "".
+ *
+ * The list itself is the whole book either way. What focus changes is
+ * only which rows are marked as being drawn on the chart in front of
+ * you: a EURUSD position has no line on a gold chart, because 1.10 is
+ * not a price that exists on that scale, and a row that looks
+ * identical to the one with a line would be a quiet lie about what is
+ * on screen. Every other caller passes nothing and gets what it always
+ * got.
+ */
+function positionsListHtml(pos, ord, focus) {
   pos = pos || [];
   ord = ord || [];
+  const here = String(focus || "").trim();
+  const away = (r) => (here && String((r && r.symbol) || "") !== here ? " is-away" : "");
 
   /* One cell builder for both lists, so the two can never drift apart
      the way the old pair of templates did. The row is a grid whose
@@ -12358,13 +12470,17 @@ function positionsListHtml(pos, ord) {
        rather than dropped: knowing which robot opened a trade is the
        difference between reading your book and watching numbers. */
     const by = typeof strategyLabel === "function" ? strategyLabel(r.strategy) : (r.strategy || "");
-    return `<div class="tvp-row is-${dir}" data-ticket="${esc(String(r.ticket || ""))}"${by ? ` title="${esc(by)}"` : ""}>
+    /* data-sym so a tap on the row can take the chart to the trade.
+       On a list that now spans every symbol, "see it" and "close it"
+       are different things and both have to be reachable. */
+    return `<div class="tvp-row is-${dir}${away(r)}" data-ticket="${esc(String(r.ticket || ""))}"
+         data-sym="${esc(String(r.symbol || ""))}"${by ? ` title="${esc(by)}"` : ""}>
       ${cell("tvp-sym", esc(String(r.symbol || "")), I18N.t("table.symbol"))}
       ${cell("tvp-dir", `<b>${esc(String(r.type || dir).toUpperCase())}</b>`, I18N.t("table.type"))}
       ${cell("tvp-vol mono", fmt(r.volume, 2), I18N.t("table.volume"))}
-      ${cell("tvp-at mono", price(r.price_open), I18N.t("table.price_open"))}
-      ${cell("tvp-sl mono", r.sl ? price(r.sl) : "—", I18N.t("table.sl"))}
-      ${cell("tvp-tp mono", r.tp ? price(r.tp) : "—", I18N.t("table.tp"))}
+      ${cell("tvp-at mono", price(r.price_open, r.symbol), I18N.t("table.price_open"))}
+      ${cell("tvp-sl mono", r.sl ? price(r.sl, r.symbol) : "—", I18N.t("table.sl"))}
+      ${cell("tvp-tp mono", r.tp ? price(r.tp, r.symbol) : "—", I18N.t("table.tp"))}
       ${cell("tvp-pl mono " + clsPnl(pl), money(pl), I18N.t("table.profit"))}
       <span class="tvp-c tvp-act"><button type="button" class="tv-pos-x" data-close="${esc(String(r.ticket))}"
               data-close-what="${esc(what)}"
@@ -12376,13 +12492,13 @@ function positionsListHtml(pos, ord) {
   /* A planted entry that has not filled yet is not a position, and
      showing it as one would overstate the exposure. It is marked as
      waiting and carries a cancel, not a close. */
-  const restRow = (r) => `<div class="tvp-row is-resting">
+  const restRow = (r) => `<div class="tvp-row is-resting${away(r)}" data-sym="${esc(String(r.symbol || ""))}">
       ${cell("tvp-sym", esc(String(r.symbol || "")), I18N.t("table.symbol"))}
       ${cell("tvp-dir", `<b>${esc(String(r.type || "").replace(/_/g, " ").toUpperCase())}</b>`, I18N.t("table.type"))}
       ${cell("tvp-vol mono", fmt(r.volume, 2), I18N.t("table.volume"))}
-      ${cell("tvp-at mono", price(r.price), I18N.t("table.price_open"))}
-      ${cell("tvp-sl mono", r.sl ? price(r.sl) : "—", I18N.t("table.sl"))}
-      ${cell("tvp-tp mono", r.tp ? price(r.tp) : "—", I18N.t("table.tp"))}
+      ${cell("tvp-at mono", price(r.price, r.symbol), I18N.t("table.price_open"))}
+      ${cell("tvp-sl mono", r.sl ? price(r.sl, r.symbol) : "—", I18N.t("table.sl"))}
+      ${cell("tvp-tp mono", r.tp ? price(r.tp, r.symbol) : "—", I18N.t("table.tp"))}
       ${cell("tvp-pl tvp-wait", esc(I18N.t("chart.order_waiting")), I18N.t("table.profit"))}
       <span class="tvp-c tvp-act"><button type="button" class="tv-pos-x" data-cancel="${esc(String(r.ticket))}"
               title="${esc(I18N.t("chart.order_cancel"))}"
@@ -12404,7 +12520,38 @@ function positionsListHtml(pos, ord) {
       <span class="tvp-c tvp-act"></span>
     </div>`;
 
-  return `<div class="tvp-list">${head}${ord.map(restRow).join("")}${pos.map(row).join("")}</div>`;
+  /* The symbol on the chart first, the rest after it, each group in
+     the order the broker sent them. Sorting by symbol name instead
+     would reshuffle the book every time the chart changed, and a list
+     that rearranges itself while you read it is harder to use than one
+     that never moves. */
+  const mine = here ? (r) => String((r && r.symbol) || "") === here : () => true;
+  const order = (rows) => (here ? [...rows.filter(mine), ...rows.filter((r) => !mine(r))] : rows);
+
+  return `<div class="tvp-list">${head}${order(ord).map(restRow).join("")}${order(pos).map(row).join("")}</div>`;
+}
+
+/**
+ * Tell a chart how many decimals this instrument's prices want.
+ *
+ * The chart can work it out from the prices it is drawing and does
+ * when nothing tells it otherwise, but the desk has the broker's own
+ * digit count out of the snapshot and that is the better answer - it
+ * knows USDJPY is quoted to three where the price alone only says
+ * "over a hundred, so two".
+ *
+ * Passed through on every levels pass rather than only on a symbol
+ * change: the specs arrive with the snapshot, which can be several
+ * seconds after the chart was first drawn.
+ */
+function syncChartPrecision(chart, symbol) {
+  if (!chart || typeof chart.setPriceDp !== "function") return;
+  const spec = specFor(symbol);
+  const d = spec && Number(spec.digits);
+  /* null, not a number, when the broker has said nothing: that puts
+     the chart back on reading its own prices instead of leaving it on
+     whatever the last instrument needed. */
+  chart.setPriceDp(Number.isFinite(d) && d > 0 ? d : null);
 }
 
 function applyChartLevels(force) {
@@ -12414,12 +12561,36 @@ function applyChartLevels(force) {
     return;
   }
   const symbol = (S.chartFocus && S.chartFocus.symbol) || S.symbol || "";
-  const pos = (S.snap?.positions || []).filter((r) => r && (!symbol || r.symbol === symbol));
+
+  /* The whole book, and the part of it that belongs on this chart.
+     They are two different questions and were answered as one.
+
+     A LINE is only meaningful on the chart it was priced against: a
+     EURUSD stop at 1.09500 drawn on gold would sit somewhere around
+     the 2400 axis or nowhere at all. So setLevels and setOrders still
+     get this symbol and nothing else.
+
+     The PANEL is the opposite case. It was filtered the same way, so
+     switching the chart to gold made a EURUSD position disappear from
+     the desk entirely - open, costing money, with no row and no close
+     button anywhere on the page the trader was looking at. Asked for
+     directly: positions must be shown generally, so they can be
+     controlled. The dock now lists the whole account, this chart's
+     symbol first, and the rows for other symbols say so.
+
+     The flatten button under that list already closed the whole
+     account rather than this symbol; it now stands over a list that
+     actually shows what it would close. */
+  syncChartPrecision(S.chart, symbol);
+  const onChart = (rows) => (rows || []).filter((r) => r && (!symbol || r.symbol === symbol));
+  const allPos = (S.snap?.positions || []).filter(Boolean);
   // Resting orders: the entry points the robot has planted and that have
   // not filled yet. The chart only ever drew open positions, so a robot
   // that had made its decision and was waiting at a price looked exactly
   // like a robot doing nothing.
-  const ord = (S.snap?.orders || []).filter((r) => r && (!symbol || r.symbol === symbol));
+  const allOrd = (S.snap?.orders || []).filter(Boolean);
+  const pos = onChart(allPos);
+  const ord = onChart(allOrd);
   if (S.chart && typeof S.chart.setLevels === "function") S.chart.setLevels(pos);
   if (S.chart && typeof S.chart.setOrders === "function") S.chart.setOrders(ord);
   syncChartPending();
@@ -12438,7 +12609,7 @@ function applyChartLevels(force) {
      The chips are gone. The panel is the thing that draws open trades
      on this desk, so it is called whenever the levels move, which is
      what the rest of this function exists to notice. */
-  paintChartPositions(pos, ord);
+  paintChartPositions(allPos, allOrd, symbol);
 }
 
 /* Collapsed state of the on-chart panel, remembered across views. */
@@ -12457,7 +12628,7 @@ function applyChartLevels(force) {
  * without being lost. It is anchored opposite the zoom controls so it
  * covers neither them nor the newest candles.
  */
-function paintChartPositions(pos, ord) {
+function paintChartPositions(pos, ord, focus) {
   /* One list now, not two.
 
      The side panel used to carry a copy of this; it has been removed,
@@ -12547,17 +12718,59 @@ function paintChartPositions(pos, ord) {
     return;
   }
 
-  const sig = pos.map((r) => `${r.ticket}:${r.sl}:${r.tp}:${r.profit}:${r.volume}`).join("|")
+  /* The focused symbol is part of the signature. Without it, switching
+     the chart from gold to EURUSD left the list untouched - same
+     tickets, same numbers - so the ordering and the "not on this
+     chart" markers would still be describing the chart before last. */
+  const sig = String(focus || "") + "@"
+    + pos.map((r) => `${r.ticket}:${r.sl}:${r.tp}:${r.profit}:${r.volume}`).join("|")
     + "#" + ord.map((r) => `${r.ticket}:${r.price}:${r.sl}:${r.tp}`).join("|");
 
-  const html = positionsListHtml(pos, ord);
+  const html = positionsListHtml(pos, ord, focus);
 
   if (bottom.dataset.sig !== sig) {
     bottom.dataset.sig = sig;
     bottom.innerHTML = html;
     bindCloseButtons(bottom);
     bindCancelButtons(bottom);
+    bindRowJump(bottom);
   }
+}
+
+/**
+ * Tap a row for another symbol and the chart goes there.
+ *
+ * The dock lists the whole account now, so for the first time it can
+ * show a trade that has no line on the chart under it. "Close it" was
+ * already reachable - the button on the row - but "look at it" was
+ * not, and on a list spanning several symbols those are different
+ * things: a stop is dragged on the chart, not in a table.
+ *
+ * Only rows marked as being elsewhere are clickable. A row for the
+ * symbol already on screen would navigate to where you are, which
+ * reads as a dead tap, and the close button inside it must keep its
+ * own click.
+ */
+function bindRowJump(root) {
+  (root || document).querySelectorAll(".tvp-row.is-away[data-sym]").forEach((row) => {
+    if (row.dataset.jump === "1") return;
+    row.dataset.jump = "1";
+    row.setAttribute("role", "button");
+    row.setAttribute("tabindex", "0");
+    const sym = row.dataset.sym || "";
+    const go = (e) => {
+      /* The close and cancel buttons live inside this row. Without
+         this, closing a trade would also navigate the chart away
+         from the one place showing the confirmation. */
+      if (e && e.target && e.target.closest("button")) return;
+      if (!sym) return;
+      openChartDesk(sym, (S.chartFocus && S.chartFocus.timeframe) || S.timeframe || "M15");
+    };
+    row.onclick = go;
+    row.onkeydown = (e) => {
+      if (e.key === "Enter" || e.key === " ") { e.preventDefault(); go(e); }
+    };
+  });
 }
 
 /** Cancel a resting order the robot planted but that has not filled. */
@@ -12603,7 +12816,12 @@ async function onChartLevelMove(d) {
     if (wrong) { toast(I18N.t(isSl ? "chart.lvl_sl_side" : "chart.lvl_tp_side")); return; }
   }
 
-  const digits = Number(pos.digits) || 5;
+  /* The confirmation says the same number the chart and the dock say.
+     It used to print the broker's raw five, so a drag the trader had
+     watched land on 1.0865 asked them to confirm 1.08650 - and on an
+     instrument where the desk shows two decimals, a price with three
+     digits it has never displayed. */
+  const digits = priceDp(pos.symbol || d.symbol, price);
   const shown = price.toFixed(digits);
   const ok = await askConfirm({
     title: I18N.t(isSl ? "chart.lvl_move_sl" : "chart.lvl_move_tp"),
@@ -12820,6 +13038,7 @@ async function paintMiniCharts() {
       const bars = c.data || [];
       if (!bars.length) continue;
       const chart = new CandleChart(cv);
+      syncChartPrecision(chart, symbol);
       chart.setBars(bars);
       const t = S.snap?.ticks?.[symbol];
       if (t) chart.setTick(t);

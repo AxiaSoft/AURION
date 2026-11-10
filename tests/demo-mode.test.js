@@ -260,21 +260,51 @@ async function main() {
   const labels = () => drawn().filter((c) => c[0] === "fillText").map((c) => String(c[1]));
 
   check("the chart plotted the bars", strokes() > 100, `${strokes()} stroked paths`);
-  /* Two decimals, and only two.
+  /* As many decimals as this instrument needs, and the same number on
+     every label.
      
-     This used to require three or more, which was the old rule: the
-     chart printed the broker's own precision, widening to five
-     decimals under 1.00. The desk asked for hundredths on every
-     instrument and confirmed it after being shown what it costs on a
-     sub-1.00 pair. So the assertion is inverted - a price with a
-     third decimal is now the failure, not the pass. */
+     This check has now been written three ways, which is the whole
+     history of the rule. It first required three or more, when the
+     chart printed the broker's own precision and widened to five
+     under 1.00. It was then inverted to insist on exactly two, after
+     the desk asked for hundredths everywhere. That was reported as
+     wrong for the narrow instruments - and the demo chart is EURUSD
+     at about 1.048, the exact case: at two decimals every label on
+     that axis read 1.05 and the scale said nothing at all.
+     
+     So: between two and four, never five, and all the same. The
+     consistency is the part worth pinning - one count per chart, not
+     one per number, or 99.995 appears above 100.00 on the same axis
+     and the extra digit looks like extra precision. */
+  /* The recorder keeps every call since the canvas was created, which
+     includes the first draw - before any bars had arrived, when the
+     chart had no prices to judge and fell back to two. Wipe it and
+     redraw, so what is measured is one frame of the finished chart
+     rather than its whole history. */
+  if (cv && cv.__calls) {
+    cv.__calls.length = 0;
+    /* A wheel event is the shortest route to a repaint from outside
+       the desk - the chart binds it and draws. The zoom in and back
+       out again leaves the view where it was. */
+    cv.dispatchEvent(new window.WheelEvent("wheel", { bubbles: true, deltaY: -120, clientX: 300, clientY: 200 }));
+    cv.dispatchEvent(new window.WheelEvent("wheel", { bubbles: true, deltaY: 120, clientX: 300, clientY: 200 }));
+    await sleep(400);
+  }
+
   const priceish = () => labels().filter((t) => /^-?\d+\.\d+$/.test(t));
   check("the chart printed a price axis",
     priceish().length >= 3,
     priceish().slice(0, 4).join("  "));
-  check("every price on the chart is written to two decimals",
-    priceish().every((t) => /^-?\d+\.\d{2}$/.test(t)),
-    priceish().filter((t) => !/^-?\d+\.\d{2}$/.test(t)).slice(0, 4).join("  ") || "all 2dp");
+  const dps = () => [...new Set(priceish().map((t) => t.split(".")[1].length))];
+  check("every price on the chart carries the same number of decimals",
+    dps().length === 1, "counts seen: " + dps().join(", "));
+  check("that number is between two and four",
+    dps().length === 1 && dps()[0] >= 2 && dps()[0] <= 4,
+    priceish().slice(0, 4).join("  "));
+  check("a sub-ten pair is not collapsed to hundredths",
+    /* The reported fault, stated as a test: this axis is EURUSD. */
+    dps()[0] >= 4 || !priceish().every((t) => /^-?[0-9]\./.test(t)),
+    priceish().slice(0, 4).join("  "));
 
   const chartTxt = () => (cv && cv.parentElement ? cv.parentElement.textContent : "");
   check("the chart is not showing its empty state",

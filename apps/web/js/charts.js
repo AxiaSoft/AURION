@@ -182,9 +182,58 @@ class CandleChart {
      off-screen. */
   static HEAD_GAP = 0.15;
 
-  /* How many decimals a price is printed with, everywhere on this
-     chart. See fmtPrice. */
+  /* How many decimals a price is printed with when nothing better is
+     known. See fmtPrice and dpForPrice. */
   static PRICE_DP = 2;
+
+  /* The floor and the ceiling on that number.
+     
+     Never fewer than two, because a whole-number price on a desk that
+     deals in cents reads as a rounded one. Never more than four:
+     asked for directly, and the fifth digit of a five-digit FX quote
+     is the one that makes 1.08451 and 1.08415 the same shape at a
+     glance. Four is the pip and its tenth, which is as fine as a
+     human reads a price. */
+  static PRICE_DP_MIN = 2;
+  static PRICE_DP_MAX = 4;
+
+  /**
+   * How many decimals a price of this size wants.
+   *
+   * The desk ran on a flat two for every instrument. That was right
+   * for gold at 2338 and for an index at 39210, and wrong for EURUSD:
+   * a whole day of that pair can live inside one hundredth, so every
+   * axis label, every stop and every entry printed the same 1.08 and
+   * the chart may as well not have had a price scale.
+   *
+   * Reported as exactly that - the narrow instruments want four
+   * decimals, the wide ones two. It is the price that decides, not a
+   * list of symbol names, so an instrument nobody here has heard of
+   * is handled on the day it is added:
+   *
+   *     2338.40   >= 100   two       gold, indices, crypto
+   *       27.420  >= 10    three     silver
+   *        1.0865  < 10    four      FX
+   *
+   * The broker's own digit count is better than this where the desk
+   * has it - that is what AurionPrice.dpFor uses it for - and this is
+   * the answer for everywhere it does not, including a chart drawn
+   * before the first snapshot has landed.
+   */
+  static dpForPrice(p) {
+    const n = Math.abs(Number(p));
+    if (!Number.isFinite(n) || n <= 0) return CandleChart.PRICE_DP;
+    if (n >= 100) return 2;
+    if (n >= 10) return 3;
+    return 4;
+  }
+
+  /** Hold it inside the floor and the ceiling. */
+  static clampDp(d) {
+    const n = Math.round(Number(d));
+    if (!Number.isFinite(n)) return CandleChart.PRICE_DP;
+    return Math.min(CandleChart.PRICE_DP_MAX, Math.max(CandleChart.PRICE_DP_MIN, n));
+  }
 
   /* How near the pointer has to be to grab a stop or a target. A finger
      covers far more than a mouse and cannot see what it is covering. */
@@ -232,6 +281,9 @@ class CandleChart {
     this.drag = null;
     this.draft = null;
     this.tick = null;
+    /* Set by the desk from the broker's digit count; null means work
+       it out from the prices being drawn. See fmtPrice. */
+    this._priceDp = null;
     this.levels = [];
     /* Resting orders the robot has planted but that have not filled. A
        position is a trade; one of these is a decision waiting for price,
@@ -801,22 +853,54 @@ class CandleChart {
     return Math.max(0, want - Math.max(0, this.offset));
   }
 
-  /* Two decimals, on every instrument.
-     
-     This used to widen with the price - five decimals under 1, four
-     under 100, three under 1000 - which is what a terminal does
-     because it is showing the broker's own digits. The desk asked for
-     hundredths everywhere and was shown what that costs on a
-     sub-1.00 pair, where the whole day's range can be narrower than
-     one hundredth and every axis label then reads the same number,
-     and confirmed it for all symbols. So it is one rule, not a table:
-     anything that prints a price on this chart prints two decimals.
-     
-     CandleChart.PRICE_DP is the single place to change it. */
+  /**
+   * As many decimals as this instrument's prices need, two to four.
+   *
+   * It was a flat two on every instrument. That was asked for once and
+   * then reported as wrong for exactly the case it is wrong for: on a
+   * sub-10 FX pair a whole session can fit inside one hundredth, so
+   * every axis label read the same 1.08 and the scale said nothing.
+   * Now the narrow instruments get up to four and the wide ones keep
+   * two.
+   *
+   * The count is per CHART, not per label. Deciding it from each
+   * number separately would print 99.995 above 100.00 on the same
+   * axis, where the extra digit looks like extra precision rather
+   * than a different rule. So it is taken once from the instrument:
+   * the desk's setPriceDp if it has told us the broker's digits,
+   * otherwise the size of the prices being drawn.
+   */
   fmtPrice(p) {
     const n = Number(p);
     if (!Number.isFinite(n)) return "—";
-    return n.toFixed(CandleChart.PRICE_DP);
+    return n.toFixed(this.priceDp());
+  }
+
+  /** The decimal count in force on this chart. */
+  priceDp() {
+    if (Number.isFinite(this._priceDp)) return this._priceDp;
+    /* The last close, not the number being printed: every label on an
+       axis has to be the same shape as every other. */
+    const bars = this.bars || [];
+    const ref = (this.tick && Number(this.tick.bid))
+      || (bars.length ? Number(bars[bars.length - 1].c) : 0);
+    return CandleChart.dpForPrice(ref);
+  }
+
+  /**
+   * The desk knows the broker's digit count; tell the chart.
+   *
+   * Passed null or nothing when the symbol is unknown, which puts the
+   * chart back on reading the price itself rather than leaving it on
+   * the previous instrument's count - switching from gold to EURUSD
+   * must not carry gold's two decimals across.
+   */
+  setPriceDp(dp) {
+    const next = (dp === null || dp === undefined || dp === "")
+      ? null : CandleChart.clampDp(dp);
+    if (next === this._priceDp) return;
+    this._priceDp = next;
+    this.draw();
   }
 
   /* ============================================================== layout == */
