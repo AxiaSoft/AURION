@@ -444,6 +444,43 @@ class Trader:
         if "flatten" in action:
             await self.flatten(f"prop:{decision.get('code')}")
 
+    def _ai_for(self, symbol: str) -> dict[str, Any]:
+        """The AI's reading of *this* chart, never of some other one.
+
+        ``AIEngine.last`` is whichever chart was analysed most recently.
+        On a one-symbol desk that is the right answer by accident; the
+        moment a second symbol is watched it stops being the right
+        answer and nobody notices, because the reading still looks
+        perfectly sensible - it is just about a different instrument.
+
+        The damage was real and ran both ways. A strategy was handed
+        another chart's direction, confidence and regime in its context,
+        so ``with_trend`` and the AI-agreement rule inside it were judged
+        against the wrong market; and the account's AI veto refused an
+        entry with "the AI reads bear against this buy" when the bear
+        read belonged to a symbol the signal had never mentioned. That
+        is how a strong setup gets turned down for no reason the trader
+        can see on the chart in front of them.
+
+        ``by_symbol`` has carried ``ready``, ``direction`` and
+        ``confidence`` per chart all along, and ``signal_quality`` was
+        already reading it that way. This is the same lookup, in one
+        place, for everyone: the chart's own entry, and ``last`` only
+        when it is about this chart or about no chart at all.
+        """
+        name = str(symbol or "").strip()
+        try:
+            view = dict((self.ai.by_symbol.get(name) or {})) if name else {}
+            if view:
+                return view
+            last = dict(self.ai.last or {})
+            if not name:
+                return last
+            last_sym = str(last.get("symbol") or "")
+            return last if (last_sym == name or not last_sym) else {}
+        except Exception:
+            return {}
+
     def _ctx(self, symbol: str, timeframe: str, tick: dict[str, Any] | None = None) -> StrategyContext:
         candles = [c.to_dict() for c in self.bridge.candles_of(symbol, timeframe)]
         if not candles and self._is_ea_symbol(symbol):
@@ -456,7 +493,7 @@ class Trader:
             account=self.bridge.account.to_dict(),
             positions=[p.to_dict() for p in self.bridge.positions],
             orders=[o.to_dict() for o in self.bridge.orders],
-            ai=self.ai.last,
+            ai=self._ai_for(symbol),
             params=getattr(self.strategy, "params", {}) if self.strategy else {},
             now=utc_iso(),
         )
@@ -2605,15 +2642,7 @@ class Trader:
         what it is for.
         """
         want = "bull" if str(side).lower() in {"buy", "long"} else "bear"
-        ai: dict[str, Any] = {}
-        try:
-            ai = dict((self.ai.by_symbol.get(symbol) or {}))
-            if not ai:
-                last = self.ai.last or {}
-                if str(last.get("symbol") or "") == symbol or not last.get("symbol"):
-                    ai = dict(last)
-        except Exception:
-            ai = {}
+        ai: dict[str, Any] = self._ai_for(symbol)
 
         reasons: list[str] = []
         votes: list[tuple[float, float]] = []      # (weight, 0..1 value)
@@ -3408,7 +3437,7 @@ class Trader:
 
     def _ai_ceiling_note(self) -> str:
         ceiling = self._ai_ceiling()
-        if ceiling <= 0 or ceiling >= float(getattr(self, "min_ai_confidence", 0.55) or 0):
+        if ceiling <= 0 or ceiling >= float(getattr(self, "min_ai_confidence", 0.35) or 0):
             return ""
         return (
             f" — and with the edge measured so far the AI cannot go above {ceiling:.2f}, "
@@ -3427,7 +3456,7 @@ class Trader:
         market's fault rather than the slider's.
         """
         ceiling = self._ai_ceiling()
-        if ceiling <= 0 or ceiling >= float(getattr(self, "min_ai_confidence", 0.55) or 0):
+        if ceiling <= 0 or ceiling >= float(getattr(self, "min_ai_confidence", 0.35) or 0):
             self._ai_ceiling_said = False
             return
         if getattr(self, "_ai_ceiling_said", False):
@@ -3506,7 +3535,11 @@ class Trader:
         # the trader could not say which of the two had refused. The
         # built-ins no longer ask; this is the account's rule.
         if action in {"buy", "sell", "market"} and self.require_ai_agree:
-            ai = self.ai.last or {}
+            # This chart's reading, not the last chart the AI happened to
+            # look at. See _ai_for(): the veto used to refuse a XAUUSD buy
+            # because EURUSD read bear, and said so in words that made the
+            # trader doubt the chart instead of the robot.
+            ai = self._ai_for(self._resolve_symbol(payload))
             if ai.get("ready"):
                 if float(ai.get("confidence") or 0) < self.min_ai_confidence:
                     await self._blocked(
@@ -4763,14 +4796,23 @@ class Trader:
             log.exception("store recreate failed")
         self.kill_switch = False
         self.safe_mode = False
-        self.auto_trade = False
-        self.require_ai_agree = True
-        self.min_ai_confidence = 0.55
-        self.trade_style = "normal"
-        self.min_open_trades = 1
-        self.max_open_trades = 2
-        self.smart_filters = True
-        self.min_signal_quality = 0.55
+        # Take the settings back from the file that was just restored,
+        # rather than restating them here.
+        #
+        # What was here set the minimum AI confidence to 0.55 while
+        # aurion.factory.json says 0.35, and before the model has
+        # measured an edge it cannot report more than about 0.53 (see
+        # LiveModels.confidence_ceiling and test_ai_brain) - a robot
+        # that refuses every entry. To be exact: it was not doing that,
+        # because _load_runtime_book() is called again further down this
+        # same reset and read the right number off the file. It was a
+        # contradiction waiting for someone to reorder two blocks.
+        #
+        # Restating the defaults in a second place also meant the lot
+        # mode, the manual lot, the news switch and the auto-entry
+        # settings were never reset at all. One reader, one set of
+        # defaults, in the file the trader can actually see.
+        self._load_runtime_book()
         self.last_quality: dict[str, Any] = {}
         self.danger_enabled = False
         self.danger_sensitivity = 50

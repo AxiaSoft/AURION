@@ -5372,6 +5372,7 @@ function strategyLiveCards() {
         </div>
         ${switchHtml({ on: it.enabled, label: it.name, attrs: `data-st="${esc(it.name)}"` })}
       </div>
+      ${evidenceHtml(it)}
       <div class="st-live">
         <span class="pill ${it.enabled?"on":""}" data-st-on="${esc(it.name)}">${it.enabled ? I18N.t("strategies.enable") : I18N.t("strategies.disable")}</span>
         <b class="mono ${cls}" data-st-act="${esc(it.name)}">${esc(act)}</b>
@@ -5399,6 +5400,36 @@ function strategyLiveCards() {
       </div>` : ""}
     </div>`;
   }).join("");
+}
+
+/* What is actually known about a strategy, said out loud on its card.
+   The strategy page listed the built-ins side by side and said nothing
+   about how any of them had performed, which reads as an endorsement of
+   all of them. One of the three loses money in every backtest we have
+   run and that is knowable before the trader finds out with their own
+   account, so the card says it, with the numbers and with what was
+   measured. See BaseStrategy.evidence. */
+function evidenceHtml(it) {
+  const ev = (it && it.evidence) || {};
+  const state = String(ev.state || "");
+  if (!state) return "";
+  const label = state === "measured" ? I18N.t("strategies.ev_measured")
+    : state === "negative" ? I18N.t("strategies.ev_negative")
+    : I18N.t("strategies.ev_unmeasured");
+  const tone = state === "measured" ? "ok" : state === "negative" ? "bad" : "warn";
+  const n = Number(ev.trades || 0);
+  const stats = n > 0 ? I18N.t("strategies.ev_stats", {
+    n: fmt(n, 0),
+    win: fmt(Number(ev.win || 0) * 100, 1),
+    pf: fmt(Number(ev.pf || 0), 2),
+    e: (Number(ev.expectancy || 0) >= 0 ? "+" : "") + fmt(Number(ev.expectancy || 0), 3),
+  }) : "";
+  const hint = [String(ev.basis || ""), I18N.t("strategies.ev_basis_hint")].filter(Boolean).join(" — ");
+  return `<div class="st-ev st-ev-${tone}" data-st-ev="${esc(it.name)}">
+      <b>${esc(label)}</b>
+      ${stats ? `<span class="mono" title="${esc(hint)}">${esc(stats)}</span>` : ""}
+      ${state === "negative" ? `<small>${esc(I18N.t("strategies.ev_warn"))}</small>` : ""}
+    </div>`;
 }
 
 function refusalTally(it) {

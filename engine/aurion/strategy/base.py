@@ -94,6 +94,24 @@ class BaseStrategy:
     language = "en"
     params: dict[str, Any] = {}
 
+    #: What has actually been measured about this strategy, in a form the
+    #: desk can put in front of the trader before they switch it on.
+    #:
+    #: A strategy page that lists four robots and says nothing about any
+    #: of them invites the reasonable assumption that all four are
+    #: supposed to make money. They are not equally good and one of them
+    #: is not good at all, and that is knowable - it is in the backtests
+    #: - so hiding it is a choice, not an oversight.
+    #:
+    #: ``state`` is one of:
+    #:   ``"measured"``   tested out of sample and positive;
+    #:   ``"negative"``   tested out of sample and it loses;
+    #:   ``"unmeasured"`` nobody has run the numbers.
+    #: ``trades``/``win``/``pf``/``expectancy`` are that test, and
+    #: ``basis`` says what was tested so the figure cannot be quoted as
+    #: something it is not.
+    evidence: dict[str, Any] = {"state": "unmeasured", "basis": ""}
+
     def __init__(self, params: dict[str, Any] | None = None) -> None:
         merged = dict(self.params)
         if params:
@@ -152,4 +170,5 @@ class BaseStrategy:
             "language": self.language,
             "params": self.params,
             "class": self.__class__.__name__,
+            "evidence": dict(getattr(self, "evidence", None) or {}),
         }

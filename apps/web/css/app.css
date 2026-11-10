@@ -443,6 +443,26 @@ html[dir="rtl"] .switch.on i{transform:translate(calc(var(--sw-travel) * -1),-50
    and only the body of the card steps back. */
 .st-card.is-off .st-stats,.st-card.is-off .sub{opacity:.62}
 .st-card.is-off{transition:opacity .2s var(--ease)}
+/* What the backtest says about this strategy, on the card, before the
+   switch is touched. Tinted rather than filled: a filled accent box here
+   would read as a recommendation, and for the one marked "negative" that
+   is the opposite of the message. Text stays on --ink so the contrast
+   does not depend on the tint. */
+.st-ev{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 10px;padding:8px 10px;
+  border-radius:10px;border:1px solid transparent;font-size:12px;line-height:1.5}
+.st-ev b{font-weight:650;color:var(--ink)}
+.st-ev span{color:var(--muted);font-size:11.5px}
+.st-ev small{flex:1 1 100%;color:var(--muted);font-size:11.5px}
+/* color-mix, not rgb(var(--ok) / .12): --ok, --bad and --warning are hex
+   literals, and rgb() of a hex is nothing at all - the rule is dropped and
+   the tint silently disappears. */
+.st-ev-ok{background:color-mix(in srgb,var(--ok) 12%,transparent);
+  border-color:color-mix(in srgb,var(--ok) 34%,transparent)}
+.st-ev-bad{background:color-mix(in srgb,var(--bad) 12%,transparent);
+  border-color:color-mix(in srgb,var(--bad) 38%,transparent)}
+.st-ev-warn{background:color-mix(in srgb,var(--warning) 12%,transparent);
+  border-color:color-mix(in srgb,var(--warning) 34%,transparent)}
+.st-card.is-off .st-ev{opacity:1}
 .st-top{display:flex;align-items:center;justify-content:space-between;gap:12px}
 .auto-banner{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:14px}
 /* When the banner IS the card rather than sitting inside one, that bottom
