@@ -5908,14 +5908,22 @@ function robotPanelHtml() {
           <span>${I18N.t("money.cap")}</span>
           <span class="num-wrap">
             <input id="st-money-cap" type="number" step="0.5" min="0" value="${Number(money.max_loss_per_lot ?? 10)}" />
-            <b class="num-unit">${esc(money.currency || I18N.t("money.unit"))} ${esc(I18N.t("money.per_lot", { lot: fmtLot(moneyRefLot(money)) }))}</b>
+            <b class="num-unit" id="st-money-unit">${esc(moneyUnit(money))}</b>
           </span>
         </label>
-        <!-- Which lot the number is quoted against. It was "per lot",
-             while the engine has always measured it against a 0.01
-             lot: someone typing 10 and reading "per lot" is out by a
-             factor of a hundred on their own risk budget. -->
-        <p class="sub" id="st-money-ref">${esc(I18N.t("money.ref_note", { lot: fmtLot(moneyRefLot(money)) }))}</p>
+        <!-- What the number counts. Reported from the desk: a manual
+             trade was given a 100 stop while the setting said 10. Both
+             were "right" - the cap was being read per 0.01 lot and the
+             ticket was 0.10 - and that is exactly the defect. A field
+             called "maximum loss" that multiplies by the lot behind
+             the trader's back cannot be acted on, and it always fails
+             in the expensive direction. So the reading is now said out
+             loud and chosen here, and per trade is the default. -->
+        <div class="tabs" id="money-scope-tabs">
+          <button type="button" data-scope="trade" class="${moneyScope(money) === "trade" ? "on" : ""}">${I18N.t("money.scope_trade")}</button>
+          <button type="button" data-scope="lot" class="${moneyScope(money) === "lot" ? "on" : ""}">${I18N.t("money.scope_lot", { lot: fmtLot(moneyRefLot(money)) })}</button>
+        </div>
+        <p class="sub" id="st-money-ref">${esc(moneyScopeNote(money))}</p>
         <p class="sub" id="st-money-reach">${esc(moneyReach(money))}</p>
         <p class="sub" id="st-money-at-lot">${esc(moneyAtLot(money))}</p>
         <button class="btn tiny" id="st-money-save" type="button">${I18N.t("money.save")}</button>
@@ -5979,6 +5987,30 @@ function moneyRefLot(money) {
   return v > 0 ? v : 0.01;
 }
 
+/**
+ * Does the cap count one trade or one reference lot?
+ *
+ * Unknown reads as "trade". A desk that cannot tell which rule the
+ * engine is applying must not draw the one that understates risk.
+ */
+function moneyScope(money) {
+  return String((money || {}).scope || "").toLowerCase() === "lot" ? "lot" : "trade";
+}
+
+function moneyUnit(money) {
+  money = money || {};
+  const cur = money.currency || I18N.t("money.unit");
+  return moneyScope(money) === "lot"
+    ? cur + " " + I18N.t("money.per_lot", { lot: fmtLot(moneyRefLot(money)) })
+    : cur + " " + I18N.t("money.per_trade");
+}
+
+function moneyScopeNote(money) {
+  return moneyScope(money) === "lot"
+    ? I18N.t("money.scope_lot_note", { lot: fmtLot(moneyRefLot(money)) })
+    : I18N.t("money.scope_trade_note");
+}
+
 /** A lot size written the way a trader writes it: 0.01, 0.10, 1.00. */
 function fmtLot(v) {
   return fmtNum(Number(v) || 0, 2);
@@ -6005,10 +6037,15 @@ function fmtLot(v) {
  * for the generic fallback.
  */
 function liveMoney(saved) {
+  const picked = document.querySelector("#money-scope-tabs button.on");
   return {
     ...((S.snap && S.snap.strategy && S.snap.strategy.money) || {}),
     ...(saved || {}),
     max_loss_per_lot: Number($("st-money-cap")?.value || 0),
+    // The scope the trader is looking at, not the one last saved: the
+    // preview exists to answer "what would this do", and the two differ
+    // for exactly as long as it takes to press Save.
+    ...(picked ? { scope: picked.dataset.scope } : {}),
   };
 }
 
@@ -6019,7 +6056,9 @@ function moneyAtLot(money) {
   const ref = moneyRefLot(money);
   const lot = Number($("st-vol")?.value || deskLot() || 0);
   if (!(lot > 0)) return "";
-  const at = cap * (lot / ref);
+  // Per trade the answer is the cap, flat. Showing cap x lot/ref here
+  // while the engine caps per trade is how a preview becomes a lie.
+  const at = moneyScope(money) === "lot" ? cap * (lot / ref) : cap;
   const common = { lot: fmtLot(lot), money: fmtMoney(at, money.currency) };
   if (!money.priced || money.max_stop_points == null) {
     return I18N.t("money.at_lot_unpriced", common);
@@ -10625,8 +10664,24 @@ function bindRobotPanel() {
      what 0.10 lots would cost makes the number useless for deciding
      what to type. */
   const repaintMoney = (saved) => {
+    const live = liveMoney(saved);
     const at = $("st-money-at-lot");
-    if (at) at.textContent = moneyAtLot(liveMoney(saved));
+    if (at) at.textContent = moneyAtLot(live);
+    const unit = $("st-money-unit");
+    if (unit) unit.textContent = moneyUnit(live);
+    const note = $("st-money-ref");
+    if (note) note.textContent = moneyScopeNote(live);
+  };
+  /* Changing the scope does not save it - Save does. It repaints,
+     because the number beside the field means something different
+     under each reading and showing the old meaning next to the new
+     choice is how somebody saves the wrong one. */
+  const scopeTabs = $("money-scope-tabs");
+  if (scopeTabs) scopeTabs.onclick = (e) => {
+    const b = e.target.closest("button[data-scope]");
+    if (!b) return;
+    [...scopeTabs.querySelectorAll("button")].forEach((x) => x.classList.toggle("on", x === b));
+    repaintMoney();
   };
   const moneyCap = $("st-money-cap");
   if (moneyCap) {
@@ -10636,7 +10691,11 @@ function bindRobotPanel() {
   const moneySave = $("st-money-save");
   if (moneySave) moneySave.onclick = async () => {
     const field = $("st-money-cap");
-    const r = await API.post("/api/money", { max_loss_per_lot: +(field?.value || 0) });
+    const picked = document.querySelector("#money-scope-tabs button.on");
+    const r = await API.post("/api/money", {
+      max_loss_per_lot: +(field?.value || 0),
+      scope: picked ? picked.dataset.scope : "trade",
+    });
     if (!r.ok) { toast(r.error || I18N.t("errors.generic")); return; }
     const reach = $("st-money-reach");
     if (reach) reach.textContent = moneyReach(r.money || {});

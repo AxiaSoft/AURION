@@ -95,10 +95,19 @@ function moneyBox(snapMoney, fields) {
     deskLot: () => 0.1,
     Math, Number, String, Object, console,
     window: {},
+    /* liveMoney reads the scope straight off the card, because the
+       preview has to answer for the reading the trader is looking at
+       rather than the one last saved. With no card rendered there is
+       no button to find, and the engine's own value stands. */
+    document: {
+      querySelector: (sel) => ((fields || {}).scope && sel.indexOf("money-scope-tabs") >= 0
+        ? { dataset: { scope: fields.scope } } : null),
+    },
   };
   vm.createContext(ctx);
   const names = ["specFor", "priceMoney", "fmtNum", "fmtMoney", "riskPhrase",
-    "moneyRefLot", "fmtLot", "liveMoney", "moneyAtLot"];
+    "moneyRefLot", "moneyScope", "moneyUnit", "moneyScopeNote",
+    "fmtLot", "liveMoney", "moneyAtLot"];
   const src = names.map((n) => liftFn(APP, n)).join("\n") +
     "\nwindow.X = {" + names.join(",") + "};";
   vm.runInContext(src, ctx);
@@ -179,12 +188,59 @@ check("a hundred points reads as 100, not 100.0", () => {
 
 /* ------------------------------------------- the cap, at a real lot ----- */
 
-check("the cap is restated at the lot in the field", () => {
-  const X = moneyBox(PRICED, { "st-money-cap": 10, "st-vol": 0.5 });
+/* ------------------------------------------------------------------ *
+ * The cap counts one trade, not one lot
+ *
+ * Reported: a manual trade was given a $100 stop while the setting
+ * said 10. Both numbers were right - the cap was read against a 0.01
+ * lot and the ticket was 0.10 - which is precisely the defect. A field
+ * labelled "maximum loss" that multiplies by the lot behind the
+ * trader's back cannot be acted on, and it fails in the expensive
+ * direction, because people raise their size long before they revisit
+ * their risk settings.
+ *
+ * The check below used to assert the multiplication: "0.50 lot on a 10
+ * cap is 500". The reasoning behind it answered an earlier fault - the
+ * cap had been read against a full 1.00 lot, which put a ten-pip stop
+ * on the 0.01-lot tickets most people send - and that half still
+ * holds, so the scaling reading is kept as a choice and pinned below.
+ * What changed is which one you get without asking.
+ * ------------------------------------------------------------------ */
+
+check("per trade, the cap is the same money at every lot", () => {
+  for (const lot of [0.01, 0.1, 0.5, 2]) {
+    const X = moneyBox(PRICED, { "st-money-cap": 10, "st-vol": lot, scope: "trade" });
+    const line = X.moneyAtLot(X.liveMoney());
+    if (!/10\.00/.test(line)) throw new Error("at " + lot + " lot the cap moved: " + line);
+  }
+});
+
+check("per lot, it still scales - for anyone who asks for that", () => {
+  const X = moneyBox(PRICED, { "st-money-cap": 10, "st-vol": 0.5, scope: "lot" });
   const line = X.moneyAtLot(X.liveMoney());
   if (!/0\.50/.test(line)) throw new Error("the lot is not named: " + line);
   if (!/500\.00/.test(line)) throw new Error("0.50 lot on a 10 cap is 500: " + line);
-  if (!/250/.test(line)) throw new Error("the distance is not named: " + line);
+});
+
+check("a reading the desk does not recognise is read as per trade", () => {
+  const X = moneyBox(PRICED);
+  if (X.moneyScope({}) !== "trade") throw new Error("an absent scope is not read as per trade");
+  if (X.moneyScope({ scope: "LOT" }) !== "lot") throw new Error("the scope is case-sensitive");
+  if (X.moneyScope({ scope: "whatever" }) !== "trade") throw new Error("an unknown scope is not the safe one");
+});
+
+check("the unit beside the field says which reading is on", () => {
+  const X = moneyBox(PRICED);
+  const perTrade = X.moneyUnit({ scope: "trade", currency: "USD", reference_lot: 0.01 });
+  const perLot = X.moneyUnit({ scope: "lot", currency: "USD", reference_lot: 0.01 });
+  if (perTrade === perLot) throw new Error("both readings print the same unit: " + perTrade);
+  if (!/trade/i.test(perTrade)) throw new Error("the per-trade unit does not say trade: " + perTrade);
+  if (!/0\.01/.test(perLot)) throw new Error("the per-lot unit does not name the lot: " + perLot);
+  const noteT = X.moneyScopeNote({ scope: "trade" });
+  const noteL = X.moneyScopeNote({ scope: "lot", reference_lot: 0.01 });
+  if (noteT === noteL || !noteT.trim() || !noteL.trim()) {
+    throw new Error("the explanation under the field does not change with the reading");
+  }
 });
 
 check("the reference lot comes from the engine, not from a guess here", () => {
@@ -197,7 +253,7 @@ check("the reference lot comes from the engine, not from a guess here", () => {
 
 check("an unpriced symbol gets the short wording, not a made-up distance", () => {
   const X = moneyBox({ max_loss_per_lot: 10, reference_lot: 0.01, priced: false },
-    { "st-money-cap": 10, "st-vol": 0.1 });
+    { "st-money-cap": 10, "st-vol": 0.1, scope: "lot" });
   const line = X.moneyAtLot(X.liveMoney());
   if (/points|نقطه|پوینت/.test(line)) throw new Error("it invented a distance: " + line);
   if (!/100\.00/.test(line)) throw new Error("the money is still owed: " + line);
@@ -334,7 +390,9 @@ check("it says so when it cannot price the symbol", () => {
 
 check("every new string exists in all three languages", () => {
   const keys = ["exec.risk_line", "exec.risk_unpriced", "exec.risk_need_price",
-    "money.at_lot", "money.at_lot_unpriced", "money.ref_note", "money.per_lot", "money.cap"];
+    "money.at_lot", "money.at_lot_unpriced", "money.per_lot", "money.per_trade",
+    "money.scope_trade", "money.scope_lot", "money.scope_trade_note",
+    "money.scope_lot_note", "money.cap"];
   const missing = [];
   for (const key of keys) {
     const [ns, k] = key.split(".");
@@ -349,7 +407,10 @@ check("the lot placeholder survives translation", () => {
   /* "per lot" was the old wording and it was wrong by a factor of a
      hundred. A translation that drops {lot} puts it back. */
   for (const [lang, d] of Object.entries(LANGS)) {
-    for (const key of ["per_lot", "ref_note", "at_lot", "at_lot_unpriced"]) {
+    /* ref_note went when the reference lot stopped being the whole
+       story. scope_lot and scope_lot_note are the strings that still
+       talk about one, and they are the ones that must keep {lot}. */
+    for (const key of ["per_lot", "scope_lot", "scope_lot_note", "at_lot", "at_lot_unpriced"]) {
       if (!String((d.money || {})[key] || "").includes("{lot}")) {
         throw new Error(lang + " money." + key + " lost {lot}");
       }
@@ -363,13 +424,25 @@ check("the lot placeholder survives translation", () => {
   }
 });
 
-check("the card no longer claims the cap is per whole lot", () => {
+check("the card says which reading the cap uses", () => {
   const card = APP.slice(APP.indexOf('id="set-money"'), APP.indexOf('id="st-money-save"'));
-  if (!/money\.per_lot", \{ lot:/.test(card)) {
-    throw new Error("the unit is printed without the lot it refers to");
+  if (!/money-scope-tabs/.test(card)) throw new Error("there is no way to see or change the reading");
+  if (!/data-scope="trade"/.test(card) || !/data-scope="lot"/.test(card)) {
+    throw new Error("the two readings are not both offered");
   }
-  if (!/st-money-ref/.test(card)) throw new Error("the card does not state its reference lot");
+  if (!/st-money-unit/.test(card)) throw new Error("the unit beside the field is not repainted");
+  if (!/st-money-ref/.test(card)) throw new Error("the card does not explain the reading");
   if (!/st-money-at-lot/.test(card)) throw new Error("the card does not restate the cap at the real lot");
+});
+
+check("the save sends the reading along with the number", () => {
+  /* Sending only the number leaves the engine on whichever reading it
+     already had, so a trader who switches to per trade and presses
+     Save would keep being charged per lot. */
+  const i = APP.indexOf('API.post("/api/money"');
+  if (i < 0) throw new Error("the cap is no longer saved");
+  const call = APP.slice(i, i + 260);
+  if (!/scope:/.test(call)) throw new Error("only the number is sent");
 });
 
 /* ------------------------------------------------------ two decimals ---- */

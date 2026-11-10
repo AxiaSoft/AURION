@@ -11,10 +11,11 @@ see REFERENCE_LOT in runtime/risk.py. It used to be read against a full
 trader's own setting on the 0.01-lot tickets most people actually send:
 "max loss $10" placed a ten-pip stop and the position died in the noise.
 
-Two properties follow from the new reading and are pinned below: a
-0.01-lot ticket may lose exactly the cap, and because the distance is
-fixed by the cap rather than by the size, doubling the lot doubles the
-money at risk instead of halving the stop.
+That per-0.01-lot reading has itself since been replaced: the cap is a
+per-trade number by default, because a field labelled "maximum loss"
+that multiplies by the lot gave a 0.10-lot manual trade a $100 stop
+from a setting that said 10. The scaling reading is still available as
+scope="lot" and is pinned below alongside the new default.
 
 These tests pin the places the rule has to hold - the arithmetic, the
 lot size derived from it, and the refusal to guess when the broker has
@@ -28,6 +29,8 @@ import pytest
 
 from aurion.runtime.risk import (
     REFERENCE_LOT,
+    normalise_scope,
+    risk_budget,
     SymbolSpec,
     cap_stop,
     money_at_risk,
@@ -104,26 +107,62 @@ def test_the_cap_is_quoted_against_one_micro_lot() -> None:
     assert money_at_risk("buy", 1.10000, sl, REFERENCE_LOT, FX) == pytest.approx(10.0)
 
 
-def test_a_bigger_lot_risks_more_rather_than_being_stopped_sooner() -> None:
-    """The other half of what the trader asked for.
+def test_the_cap_is_the_same_money_at_every_lot() -> None:
+    """The reported fault: a 0.10-lot trade given a $100 stop from a 10.
 
-    The old reading fixed the money and shrank the stop, so raising the
-    lot bought a tighter stop rather than a bigger position. The stop
-    distance is now the same whatever the size, and the money scales.
+    This check used to assert the opposite, and said so in its own name
+    - "a bigger lot risks more rather than being stopped sooner". The
+    reasoning behind it was sound as far as it went: before that, the
+    cap was read against a full 1.00 lot, which on the 0.01-lot tickets
+    most people send placed a ten-pip stop and killed the position in
+    the noise. Rebasing onto 0.01 fixed that case.
+
+    What it missed is that a field labelled "maximum loss" must not
+    multiply by anything. Quoting it per 0.01 lot meant the number on
+    screen was only true for one particular size, and wrong by exactly
+    the factor the trader raised their lot by - always in the expensive
+    direction, because people raise size long before they revisit risk
+    settings. $10 and 0.10 lots gave a $100 stop.
+
+    Both halves are kept. The default scope is "trade" and pins the
+    money; the scope deliberately chosen by someone who wants risk to
+    scale with size is "lot", and it still behaves exactly as this test
+    used to demand.
     """
-    distances = []
-    for volume, expected in ((0.01, 10.0), (0.02, 20.0), (0.10, 100.0)):
+    monies = []
+    for volume in (0.01, 0.02, 0.10, 1.00):
         sl = protective_stop("buy", 1.10000, FX, 10.0, volume)
-        distances.append(1.10000 - sl)
         risked = money_at_risk("buy", 1.10000, sl, volume, FX)
         # Never a cent over: the distance is floored to whole ticks so
         # the cap stays a ceiling rather than becoming a target.
+        assert risked <= 10.0 + 1e-9
+        assert risked == pytest.approx(10.0, rel=2e-3)
+        monies.append(risked)
+    assert max(monies) - min(monies) < 0.05, f"the cap moved with the lot: {monies}"
+
+
+def test_the_per_lot_scope_still_scales_with_the_size() -> None:
+    """The old behaviour, now something you ask for rather than get."""
+    distances = []
+    for volume, expected in ((0.01, 10.0), (0.02, 20.0), (0.10, 100.0)):
+        sl = protective_stop("buy", 1.10000, FX, 10.0, volume, "lot")
+        distances.append(1.10000 - sl)
+        risked = money_at_risk("buy", 1.10000, sl, volume, FX)
         assert risked <= expected + 1e-9
         assert risked == pytest.approx(expected, rel=1e-3)
     # Same distance every time, to within the tick it was floored to.
     assert max(distances) - min(distances) <= FX.tick_size + 1e-12, (
         f"the stop distance moved with the lot: {distances}"
     )
+
+
+def test_an_unknown_scope_is_the_safe_one_rather_than_an_error() -> None:
+    """Nothing in the money path may raise on a bad string from a config."""
+    assert normalise_scope("per-trade-ish") == "trade"
+    assert normalise_scope(None) == "trade"
+    assert normalise_scope("LOT") == "lot"
+    assert risk_budget(10.0, 0.10, "nonsense") == pytest.approx(10.0)
+    assert risk_budget(10.0, 0.10, "lot") == pytest.approx(100.0)
 
 
 def test_a_stop_on_the_wrong_side_is_replaced_not_capped() -> None:

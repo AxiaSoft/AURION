@@ -12,7 +12,17 @@ from .deals import aggregate_close_deals, history_row_matches
 from ..prop.hours import (broker_offset_minutes, resolve_zone, zone_choices,
                           zone_label, zone_offset_minutes)
 from .gates import fire_blockers as gate_blockers
-from .risk import REFERENCE_LOT, SymbolSpec, cap_stop, money_at_risk, volume_for_risk
+from .risk import (
+    DEFAULT_SCOPE,
+    MONEY_SCOPES,
+    REFERENCE_LOT,
+    SymbolSpec,
+    cap_stop,
+    money_at_risk,
+    normalise_scope,
+    risk_budget,
+    volume_for_risk,
+)
 from .stops import ladder_target, resolve_stop, resolve_stop_r
 from ..ai.engine import AIEngine
 from ..backtest.engine import Backtester
@@ -126,6 +136,9 @@ class Trader:
         # Money management, stated the one way that means the same thing on
         # every instrument: what a stop is allowed to cost per 1.00 lot.
         self.max_loss_per_lot = 10.0
+        # What that number counts: one trade, or one 0.01 lot. See
+        # MONEY_SCOPES in runtime/risk.py.
+        self.money_scope = DEFAULT_SCOPE
         self._spec_gap_said: set[str] = set()
         self._cap_note: dict[int, float] = {}
         self.risk_free_trigger_pct = 0.30
@@ -1120,6 +1133,16 @@ class Trader:
         except (TypeError, ValueError):
             return 0.0
 
+    def _scope(self) -> str:
+        """Whether the cap is read per trade or per 0.01 lot."""
+        return normalise_scope(getattr(self, "money_scope", DEFAULT_SCOPE))
+
+    def _cap_words(self) -> str:
+        """The cap and its unit, for anything a human reads."""
+        cap = self._cap()
+        return (f"{cap:.2f} per trade" if self._scope() == "trade"
+                else f"{cap:.2f} per {REFERENCE_LOT:g} lot")
+
     async def _no_spec(self, symbol: str) -> None:
         """Say once per symbol that money cannot be priced here.
 
@@ -1135,7 +1158,7 @@ class Trader:
             "warning",
             "no_spec",
             f"{key}: the broker has not reported a tick value, so the "
-            f"{self._cap():.2f} per-lot stop cap cannot be applied here. "
+            f"stop cap of {self._cap_words()} cannot be applied here. "
             "Attach AurionBridge to this symbol's chart, or connect the terminal.",
         )
 
@@ -1178,12 +1201,63 @@ class Trader:
         if entry <= 0:
             return request
 
-        # At the lot this ticket is actually being sent with. Measuring
-        # the cap against a notional one lot is what made the stop on a
-        # 0.01-lot ticket a hundred times tighter than the trader asked.
+        scope = self._scope()
+        requested_volume = float(request.get("volume") or 0)
+        wanted_sl = float(request.get("sl") or 0)
+
+        # Size first, under a per-trade cap.
+        #
+        # The cap has two levers and they are not equally good. Pulling
+        # the stop in keeps the size and moves the exit, which is the
+        # one thing the trader actually chose by looking at the chart;
+        # it is also how a big ticket ends up with a stop four tenths of
+        # a pip away, dying in the spread. Cutting the size keeps the
+        # stop exactly where it was drawn and simply buys less of it.
+        #
+        # So under "trade" the size moves first and the stop is only
+        # touched when the broker's minimum lot already risks more than
+        # the cap - at which point there is no size left to cut and
+        # tightening is the only alternative to refusing the trade.
+        #
+        # Under "lot" the budget grows with the size, so sizing down
+        # never helps and this is skipped entirely.
+        if scope == "trade" and wanted_sl > 0 and requested_volume > 0:
+            at_risk = money_at_risk(side, entry, wanted_sl, requested_volume, spec)
+            if at_risk > cap + 1e-9:
+                fitted = volume_for_risk(side, entry, wanted_sl, spec, cap, requested_volume)
+                if fitted > 0:
+                    await self.journal(
+                        "info",
+                        "sized_to_cap",
+                        f"{symbol} {side}: {requested_volume:.2f} lots with that stop risks "
+                        f"{at_risk:.2f}; sent {fitted:.2f} so the trade cannot lose more than "
+                        f"{cap:.2f}. The stop was left where you put it.",
+                        {"requested": requested_volume, "sent": fitted,
+                         "would_risk": round(at_risk, 2), "cap": cap},
+                    )
+                    request["volume"] = fitted
+                    requested_volume = fitted
+                    # Sized to land on the cap, so the stop is inside it
+                    # by construction. Running the stop rule now would
+                    # still nudge it one tick, because the allowed
+                    # distance is floored to whole ticks and the stop
+                    # that just paid for itself sits exactly on the
+                    # boundary. Moving a trader's stop by a tick for a
+                    # rounding artefact is noise in the journal and a
+                    # different fill, so it is skipped when the ticket
+                    # already fits.
+                    if money_at_risk(side, entry, wanted_sl, fitted, spec) <= cap + 1e-6:
+                        return await self._size_for_budget(request, side, entry, symbol)
+
+        # Whatever size is going out now, the stop still has to fit the
+        # cap at that size. Measuring the cap against a notional one lot
+        # is what made the stop on a 0.01-lot ticket a hundred times
+        # tighter than asked; multiplying it by the lot, which is what
+        # the per-lot scope does, is what gave a 0.10-lot ticket a 100
+        # stop from a setting that said 10.
         capped = cap_stop(
             side, entry, float(request.get("sl") or 0), spec, cap,
-            float(request.get("volume") or 0),
+            float(request.get("volume") or 0), scope,
         )
         if capped is None:
             return request
@@ -1194,13 +1268,26 @@ class Trader:
                 "info",
                 "stop_capped",
                 f"{symbol} {side}: stop {('moved to ' + str(capped.sl)) if before else 'set at ' + str(capped.sl)} "
-                f"so one lot risks {capped.money_per_lot:.2f}, not more than {cap:.2f} "
+                f"so this ticket risks {capped.money:.2f}, inside the cap of {self._cap_words()} "
                 f"({capped.reason})",
-                {"before": before, "after": capped.sl, "per_lot": round(capped.money_per_lot, 2)},
+                {"before": before, "after": capped.sl, "money": round(capped.money, 2),
+                 "scope": scope},
             )
 
-        # Position sizing. The cap bounds what one lot may lose; the
-        # account's own risk budget bounds how many lots that is.
+        return await self._size_for_budget(request, side, entry, symbol)
+
+    async def _size_for_budget(self, request: dict[str, Any], side: str,
+                               entry: float, symbol: str) -> dict[str, Any]:
+        """The account's own risk budget, applied after the stop cap.
+
+        Two ceilings, and the lower one wins: the cap says what a trade
+        may lose, prop's percentage says what this account may lose on
+        one trade, and neither is allowed to let the other be stepped
+        over.
+        """
+        spec = self.symbol_spec(symbol)
+        if not spec.usable:
+            return request
         budget = self._risk_budget()
         requested = float(request.get("volume") or 0)
         if budget > 0 and requested > 0:
@@ -1281,7 +1368,7 @@ class Trader:
             if side not in {"buy", "sell"} or entry <= 0:
                 continue
             capped = cap_stop(side, entry, float(pos.sl or 0), spec, cap,
-                              float(getattr(pos, "volume", 0) or 0))
+                              float(getattr(pos, "volume", 0) or 0), self._scope())
             if capped is None or not capped.capped:
                 continue
             if abs(self._cap_note.get(pos.ticket, 0.0) - capped.sl) < spec.tick_size / 2:
@@ -1290,8 +1377,9 @@ class Trader:
             await self.journal(
                 "warning",
                 "stop_capped_live",
-                f"{symbol} #{pos.ticket} risked more than {cap:.2f} per lot — stop pulled to {capped.sl}",
-                {"ticket": pos.ticket, "sl": capped.sl, "per_lot": round(capped.money_per_lot, 2)},
+                f"{symbol} #{pos.ticket} risked more than {self._cap_words()} — stop pulled to {capped.sl}",
+                {"ticket": pos.ticket, "sl": capped.sl, "money": round(capped.money, 2),
+                 "scope": self._scope()},
             )
             await bridge.send_order({
                 "action": "modify",
@@ -1672,14 +1760,22 @@ class Trader:
         cap = self._cap()
         symbol = str(getattr(self, "active_symbol", "") or "")
         spec = self.symbol_spec(symbol) if symbol else SymbolSpec()
+        scope = self._scope()
         state: dict[str, Any] = {
             "max_loss_per_lot": cap,
+            "scope": scope,
             "symbol": symbol,
             "priced": bool(spec.usable),
             "currency": spec.currency or str((self.bridge.account.to_dict() or {}).get("currency") or ""),
         }
         if spec.usable and cap > 0:
-            distance = spec.floor_to_tick(spec.distance_for(cap))
+            # The widest stop the cap allows, at the reference size the
+            # desk prints beside it. distance_for() takes money and a
+            # volume, so the budget has to be the one that belongs to
+            # that volume - passing the raw cap read a per-trade budget
+            # as if it were per-lot and overstated the reach.
+            ref = REFERENCE_LOT
+            distance = spec.floor_to_tick(spec.distance_for(risk_budget(cap, ref, scope), ref))
             state["max_stop_distance"] = spec.round_price(distance)
             state["max_stop_points"] = round(distance / spec.tick_size, 1) if spec.tick_size else 0
         state["reference_lot"] = REFERENCE_LOT
@@ -1741,8 +1837,16 @@ class Trader:
         return out
 
     async def set_money(self, body: dict[str, Any]) -> dict[str, Any]:
-        """Set the per-lot loss cap. 0 turns the rule off, loudly."""
+        """Set the loss cap and what it counts. 0 turns the rule off, loudly."""
         body = dict(body or {})
+        if "scope" in body:
+            asked = str(body.get("scope") or "")
+            if asked.strip().lower() not in MONEY_SCOPES:
+                # Named rather than silently defaulted: a desk that sends
+                # a scope it invented is a desk that thinks the cap means
+                # something it does not.
+                return {"ok": False, "error": "scope must be one of " + ", ".join(MONEY_SCOPES)}
+            self.money_scope = normalise_scope(asked)
         if "max_loss_per_lot" in body:
             try:
                 value = float(body.get("max_loss_per_lot") or 0)
@@ -1758,7 +1862,7 @@ class Trader:
         await self.journal(
             "info",
             "money_cfg",
-            (f"Stop cap set to {state['max_loss_per_lot']:.2f} per lot"
+            (f"Stop cap set to {self._cap_words()}"
              if state["max_loss_per_lot"] > 0
              else "Stop cap OFF — stops are whatever the strategy asks for"),
             extra=state,
@@ -1772,8 +1876,13 @@ class Trader:
         if cap <= 0 or not spec.usable:
             return None
 
+        scope = self._scope()
+
         def rule(side: str, entry: float, sl: float, volume: float = 0.0) -> float:
-            out = cap_stop(side, entry, sl, spec, cap, volume)
+            # Same scope as the live rule: a replay that prices risk by a
+            # different rule than the desk is a chart of a system nobody
+            # is running.
+            out = cap_stop(side, entry, sl, spec, cap, volume, scope)
             return out.sl if out else sl
 
         return rule
@@ -2088,6 +2197,12 @@ class Trader:
             self.max_loss_per_lot = max(0.0, float(money_cfg.get("max_loss_per_lot", 10.0)))
         except (TypeError, ValueError):
             self.max_loss_per_lot = 10.0
+        # Absent from an older config file, which is the common case:
+        # normalise_scope answers DEFAULT_SCOPE, so an upgraded desk
+        # reads its existing number per trade. That is a change in
+        # behaviour and it is the point - it is the reading the number
+        # was always labelled with.
+        self.money_scope = normalise_scope(money_cfg.get("scope"))
         rf_cfg = runtime.get("risk_free") if isinstance(runtime.get("risk_free"), dict) else {}
         self.risk_free_enabled = bool(rf_cfg.get("enabled", False))
         self.risk_free_trigger_pct = self._clamp_pct(rf_cfg.get("trigger_pct"), 0.30)
@@ -2787,6 +2902,7 @@ class Trader:
                     },
                     "money": {
                         "max_loss_per_lot": float(getattr(self, "max_loss_per_lot", 10.0) or 0.0),
+                        "scope": self._scope(),
                     },
                     "risk_free": {
                         "enabled": bool(self.risk_free_enabled),

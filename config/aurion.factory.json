@@ -79,7 +79,8 @@
       "lock_pct": 0.0
     },
     "money": {
-      "max_loss_per_lot": 10.0
+      "max_loss_per_lot": 10.0,
+      "scope": "trade"
     },
     "strategies": {
       "ema_rsi": {

@@ -187,11 +187,28 @@ def test_a_micro_lot_may_risk_the_whole_cap() -> None:
     assert money_at_risk("buy", 1.10000, sl, REFERENCE_LOT, FX) == pytest.approx(10.0)
 
 
-def test_raising_the_lot_raises_the_risk_instead_of_tightening_the_stop() -> None:
+def test_raising_the_lot_does_not_raise_what_the_trade_may_lose() -> None:
+    """A later report, from the same setting, in the other direction.
+
+    This check used to assert that 0.10 lots on a 10 cap risks 100 -
+    the cap was quoted against one micro lot and scaled. It was written
+    to fix a genuine fault directly above: reading the cap against a
+    full 1.00 lot made the stop on a micro-lot ticket a hundred times
+    tighter than the setting, and the position died in the noise.
+
+    Then a manual trade was given a $100 stop while the setting said
+    10, and that is the same arithmetic seen by the person paying for
+    it. A field called "maximum loss" may not multiply by anything.
+
+    Both readings are kept and the default is the one the label
+    promises; scope="lot" is the old one, pinned in
+    engine/tests/test_money_rules.py.
+    """
     small = protective_stop("buy", 1.10000, FX, 10.0, 0.01)
     large = protective_stop("buy", 1.10000, FX, 10.0, 0.10)
-    assert abs(small - large) <= FX.tick_size + 1e-9
-    assert money_at_risk("buy", 1.10000, large, 0.10, FX) == pytest.approx(100.0, rel=1e-3)
+    assert small < large, "the bigger lot did not get the tighter stop it has to have"
+    assert money_at_risk("buy", 1.10000, small, 0.01, FX) == pytest.approx(10.0, rel=2e-3)
+    assert money_at_risk("buy", 1.10000, large, 0.10, FX) == pytest.approx(10.0, rel=2e-3)
 
 
 # ------------------------------------------------------ the profit ladder --

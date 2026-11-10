@@ -430,8 +430,8 @@
     "no_limit": "No limit set"
   },
   "money": {
-    "title": "Money management — the per-lot stop cap",
-    "help": "A stop is written in price but paid in money. This number is the most one lot may lose, and every order and every open position is measured against it: a stop further away is pulled in, an order with no stop is given one here, and the lot size is reduced to stay inside your risk budget. It never widens a stop.",
+    "title": "Money management — the stop cap",
+    "help": "A stop is written in price but paid in money. This number is the most a trade may lose, and every order and every open position is measured against it: too large a lot is cut back before the stop is touched, a stop further away than the cap allows is pulled in, and an order with no stop is given one here. It never widens a stop.",
     "cap": "Maximum loss",
     "per_lot": "per {lot} lot",
     "unit": "USD",
@@ -440,11 +440,15 @@
     "off": "The rule is off.",
     "unpriced": "The broker has not reported a tick value for this symbol, so the cap cannot be applied here. Attach the EA to this symbol's chart.",
     "reach": "At this cap the widest stop on {s} is about {p} points (a distance of {d}).",
-    "saved": "Per-lot stop cap saved.",
-    "saved_off": "Per-lot stop cap turned off.",
-    "ref_note": "The cap is quoted against a {lot} lot, and the system does the arithmetic from there: the same stop distance on a bigger lot simply costs proportionally more.",
-    "at_lot": "At {lot} lot that is {money} — the stop still sits {points} points away on {s}. A bigger lot moves the money, not the distance.",
-    "at_lot_unpriced": "At {lot} lot that is {money}."
+    "saved": "Stop cap saved.",
+    "saved_off": "Stop cap turned off.",
+    "at_lot": "At {lot} lot that is {money} — the stop sits {points} points away on {s}.",
+    "at_lot_unpriced": "At {lot} lot that is {money}.",
+    "per_trade": "per trade",
+    "scope_trade": "Per trade",
+    "scope_lot": "Per {lot} lot",
+    "scope_trade_note": "The number is the most a single trade may lose, at any size. If the lot you asked for would risk more than that over the stop you drew, the lot is reduced and the stop is left exactly where it is.",
+    "scope_lot_note": "The number is quoted against a {lot} lot and scales with the size: at ten times that lot, a trade may lose ten times the number. Choose this only if you want your risk to grow with your size."
   },
   "exec": {
     "title": "Execution",
