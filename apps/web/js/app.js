@@ -225,6 +225,11 @@ function bindDismiss(el, onGone) {
     el._gone = true;
     if (typeof onGone === "function") onGone(el);
     else el.remove();
+    /* The container ships hidden and has to go back to hidden when it
+       empties, or it sits on the corner of the screen as an invisible
+       box that still eats pointer events over whatever is under it. */
+    const stack = $("notify-stack");
+    if (stack && stack.children.length === 0) stack.hidden = true;
   };
 
   /* Slide the card out the way it was thrown before removing it, so the
@@ -2032,8 +2037,22 @@ function announceSignal(sig) {
   if (S._lastSignalKey === key) return;
   S._lastSignalKey = key;
 
+  const prefs = notifyPrefs();
+  /* A signal is an entry the desk is telling you about, so it is
+     announced exactly like one: the same chime, the same card, the same
+     Windows toast, under the same switches.
+
+     Reported: nothing appeared when the system signalled, and then the
+     moment a trade was opened by hand every missed signal arrived at
+     once in a stack. That is this path having been written as a
+     quieter cousin of the trade path - no sound, no un-hiding of the
+     stack, no expiry. The cards were being built and prepended into a
+     container that ships hidden and that only pushTradeCard ever
+     un-hid, so they were on the page and invisible until a manual
+     trade switched the light on and revealed the whole backlog. */
+  playSound(prefs.entry, prefs.volume, "entry");
   pushSignalCard(sig);
-  if (documentHidden()) notifyHost(sig);
+  if (prefs.windows) notifyHost(sig);
 }
 
 function documentHidden() {
@@ -2337,7 +2356,10 @@ function pushTradeCard(t) {
      through the server dismissal is what used to clear the whole stack. */
   bindDismiss(card);
   while (stack.children.length > 4) stack.lastElementChild.remove();
-  setTimeout(() => card.remove(), 12000);
+  setTimeout(() => {
+    card.remove();
+    if (stack.children.length === 0) stack.hidden = true;
+  }, 12000);
 }
 
 /** The Windows toast, via the desktop host. Entries and exits only. */
@@ -2361,6 +2383,11 @@ function notifyHostTrade(t) {
 function pushSignalCard(sig) {
   const stack = $("notify-stack");
   if (!stack) return;
+  // The stack ships hidden and is hidden again whenever it empties, so
+  // anything that puts a card in it has to turn it back on. Leaving
+  // this out is what made signals invisible until something else -
+  // a manual trade - happened to reveal the pile.
+  stack.hidden = false;
   const side = String(sig.action || sig.side || "").toLowerCase();
   const id = "sig-" + (sig.ts || Date.now());
   const card = document.createElement("article");
@@ -2382,7 +2409,18 @@ function pushSignalCard(sig) {
   card.querySelector("[data-sig-open]").onclick = () => {
     openSignalChart(sig.symbol, sig.timeframe, sig);
     card.remove();
+    if (stack.children.length === 0) stack.hidden = true;
   };
+
+  /* Signal cards expire like trade cards do. They carry an entry price,
+     which is the one number that is useless a minute later, and a card
+     that never leaves turns the stack into a log nobody reads. Longer
+     than a trade's twelve seconds, because a signal is an invitation to
+     act and a filled trade is a fact. */
+  setTimeout(() => {
+    card.remove();
+    if (stack.children.length === 0) stack.hidden = true;
+  }, 20000);
 }
 
 /**
