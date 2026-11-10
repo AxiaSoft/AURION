@@ -187,8 +187,42 @@ def test_prop_still_binds_when_it_is_the_tighter_of_the_two() -> None:
     assert any(code == "sized_down" for _, code, _ in t.logged)
 
 
-def test_a_budget_that_cannot_pay_for_the_minimum_lot_sends_nothing() -> None:
+def test_a_budget_that_cannot_pay_for_the_minimum_lot_tightens_the_stop() -> None:
+    """Reversed deliberately. This used to assert volume == 0.
+
+    Refusing was the reported fault, not the fix. Two ceilings apply to
+    an entry — the money cap and prop's risk-per-trade percentage — and
+    when the cap is the binding one the stop is pulled in so the
+    smallest lot fits. When the budget was the binding one the ticket
+    was zeroed instead, and "volume after sizing is below the broker's
+    minimum lot" came back on every order, by hand and from the robot,
+    naming the one number the trader cannot change.
+
+    Same fork, same answer now: send the broker's minimum with the stop
+    inside the budget.
+    """
     bridge = FakeBridge()
+    t = _trader(bridge)
+    t.prop = SimpleNamespace(enabled=True, profile={"max_risk_per_trade_pct": 0.0001})
+    out = run(t._apply_money_rules(
+        {"action": "market", "side": "buy", "symbol": "TEST", "volume": 1.0, "sl": 1.09900, "price": 1.10000}
+    ))
+    assert out["volume"] == pytest.approx(0.01)
+    assert any(code == "sized_to_budget" for _, code, _ in t.logged)
+    # $0.01 of budget at 0.01 lots buys ten ticks of stop on this contract.
+    assert out["sl"] == pytest.approx(1.09990, abs=1e-9)
+    assert not t.last_money_block
+
+
+def test_the_rescue_stops_at_the_spread() -> None:
+    """Tightening is only a rescue while the result is still a trade.
+
+    A stop inside the spread is an instant exit wearing a stop's
+    clothes, so below that the honest answer is still no — with both
+    numbers and the setting to change, rather than a sentence about lot
+    sizes.
+    """
+    bridge = FakeBridge(tick=SimpleNamespace(bid=1.09950, ask=1.10000))
     t = _trader(bridge)
     t.prop = SimpleNamespace(enabled=True, profile={"max_risk_per_trade_pct": 0.0001})
     out = run(t._apply_money_rules(
@@ -196,6 +230,53 @@ def test_a_budget_that_cannot_pay_for_the_minimum_lot_sends_nothing() -> None:
     ))
     assert out["volume"] == 0.0
     assert any(code == "too_small" for _, code, _ in t.logged)
+    why = t.last_money_block.get("why", "")
+    assert "0.01" in why, why
+    assert "Prop" in why, "the trader is owed the setting that unblocks them"
+
+
+def test_a_small_prop_account_can_still_trade() -> None:
+    """The reported configuration, end to end.
+
+    A $1,000 account on the default 0.40% profile has a $4 budget, which
+    is under the $10 money cap. The cap sizes the ticket so it risks $10
+    at the minimum lot; prop's $4 then cannot pay for that, and every
+    order — manual and robot — was refused. Now the stop comes in to $4
+    and the trade goes.
+    """
+    bridge = FakeBridge()
+    bridge.account = SimpleNamespace(to_dict=lambda: {"equity": 1_000, "currency": "USD"})
+    t = _trader(bridge)
+    t.prop = SimpleNamespace(enabled=True, profile={"max_risk_per_trade_pct": 0.40})
+    out = run(t._apply_money_rules(
+        {"action": "market", "side": "buy", "symbol": "TEST", "volume": 0.01, "sl": 1.00000, "price": 1.10000}
+    ))
+    assert out["volume"] == pytest.approx(0.01)
+    # $4 at 0.01 lots is 0.04 of price on this contract, less the one
+    # tick the allowed distance is floored by so the budget stays a
+    # ceiling rather than a target.
+    assert out["sl"] == pytest.approx(1.06001, abs=1e-9)
+    assert run_money_at_risk(t, out) == pytest.approx(4.0, abs=0.01)
+    assert run_money_at_risk(t, out) <= 4.0
+
+
+def run_money_at_risk(t, request) -> float:
+    from aurion.runtime.risk import money_at_risk
+    spec = t.symbol_spec(str(request.get("symbol") or ""))
+    return money_at_risk("buy", 1.10000, float(request.get("sl") or 0),
+                         float(request.get("volume") or 0), spec)
+
+
+def test_a_lot_smaller_than_the_brokers_minimum_is_never_rounded_up() -> None:
+    """The rescue sends the minimum; it must not send it to someone who
+    asked for less than the minimum in the first place."""
+    bridge = FakeBridge()
+    t = _trader(bridge)
+    t.prop = SimpleNamespace(enabled=True, profile={"max_risk_per_trade_pct": 0.0001})
+    out = run(t._apply_money_rules(
+        {"action": "market", "side": "buy", "symbol": "TEST", "volume": 0.005, "sl": 1.09900, "price": 1.10000}
+    ))
+    assert out["volume"] == 0.0
 
 
 def test_without_a_spec_nothing_is_invented_and_it_is_said_once() -> None:

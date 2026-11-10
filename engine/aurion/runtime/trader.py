@@ -21,6 +21,7 @@ from .risk import (
     money_at_risk,
     normalise_scope,
     risk_budget,
+    round_volume,
     volume_for_risk,
 )
 from .stops import ladder_target, resolve_stop, resolve_stop_r
@@ -95,6 +96,8 @@ class Trader:
         self.smart_filters = True
         self.min_signal_quality = 0.55
         self.last_quality: dict[str, Any] = {}
+        # Why the last ticket was sized to nothing, in the words the trader needs.
+        self.last_money_block: dict[str, Any] = {}
         self.news_trade = False
         # Auto entry point: the robot names a price and waits there with the
         # stop and target already attached, instead of buying the market the
@@ -1214,6 +1217,7 @@ class Trader:
         widens risk, and nothing here invents a price: with no contract
         spec the request goes out untouched and the journal says so.
         """
+        self.last_money_block = {}
         cap = self._cap()
         if cap <= 0:
             return request
@@ -1340,15 +1344,86 @@ class Trader:
                 )
                 request["volume"] = sized
             elif sized <= 0:
-                # Below the broker's minimum lot the only honest sizes are
-                # "the minimum" or "nothing", and nothing is the one that
-                # respects the budget.
-                await self.journal(
-                    "warning",
-                    "too_small",
-                    f"{symbol}: the budget of {budget:.2f} does not pay for the broker's minimum lot — no entry",
-                )
-                request["volume"] = 0.0
+                # The budget will not pay for the broker's smallest lot at
+                # this stop. There is no size left to cut, so this is the
+                # same fork the cap meets one step earlier: tighten the
+                # stop until the smallest lot fits, or refuse the trade.
+                #
+                # The cap tightens. This refused — and that is the fault
+                # reported from the desk as "volume after sizing is below
+                # the broker's minimum lot" on every manual order, with
+                # the robot silently doing nothing for the same reason.
+                # The message named the broker's minimum lot, which was
+                # not the binding number at all: the binding number is
+                # the prop profile's risk-per-trade percentage, and on a
+                # small account it lands under the money cap, so nothing
+                # can ever be sent. Two ceilings where the lower one is
+                # unreachable is not a risk rule, it is an off switch
+                # that nobody asked for and nothing explains.
+                #
+                # So: send the smallest lot the broker will take, with
+                # the stop pulled in until it costs no more than the
+                # budget. That keeps the trader inside the number they
+                # agreed to with the firm, which is the whole point of
+                # the budget, and it is exactly what already happens one
+                # line above when the cap is the binding ceiling.
+                smallest = round_volume(spec.volume_min, spec)
+                fitted = None
+                if smallest > 0 and requested >= smallest - 1e-9:
+                    fitted = cap_stop(side, entry, float(request.get("sl") or 0),
+                                      spec, budget, smallest, "trade")
+                # A stop inside the current spread is not a stop, it is an
+                # instant exit wearing one. Tightening is only a rescue
+                # while the result is still a trade, so the spread - the
+                # one cost that is visible at this instant - is the floor.
+                # No quote means no measurement, and an unmeasured floor
+                # does not get to refuse anything.
+                if fitted is not None:
+                    quote = self.tick_of(symbol)
+                    try:
+                        spread = float(quote.get("ask") or 0) - float(quote.get("bid") or 0)
+                    except (TypeError, ValueError):
+                        spread = 0.0
+                    if spread > 0 and fitted.distance < spread:
+                        fitted = None
+                if fitted is not None and fitted.sl > 0:
+                    before = float(request.get("sl") or 0)
+                    request["volume"] = smallest
+                    request["sl"] = fitted.sl
+                    self.last_money_block = {}
+                    await self.journal(
+                        "info",
+                        "sized_to_budget",
+                        f"{symbol}: {requested:.2f} lots risks more than the "
+                        f"{budget:.2f} this account allows on one trade, and "
+                        f"{smallest:g} is the smallest the broker takes — sent "
+                        f"{smallest:g} with the stop moved to {fitted.sl} so it "
+                        f"costs {fitted.money:.2f}.",
+                        {"requested": requested, "sent": smallest, "budget": round(budget, 2),
+                         "sl_before": before, "sl_after": fitted.sl,
+                         "money": round(fitted.money, 2)},
+                    )
+                else:
+                    # Even one tick of stop on the smallest lot costs more
+                    # than the budget. Nothing can be sent, and the trader
+                    # is owed the two numbers and the way out rather than
+                    # a sentence about lot sizes.
+                    per_min = money_at_risk(side, entry, float(request.get("sl") or 0),
+                                            smallest or spec.volume_min, spec)
+                    why = (
+                        f"{symbol}: this account allows {budget:.2f} on one trade, but the "
+                        f"smallest lot the broker takes ({(smallest or spec.volume_min):g}) "
+                        f"risks {per_min:.2f} with this stop, and pulling the stop in far "
+                        f"enough would put it inside the spread. Raise the risk-per-trade "
+                        f"percentage in Prop, or trade an instrument whose minimum lot fits."
+                    )
+                    self.last_money_block = {
+                        "symbol": symbol, "budget": round(budget, 2),
+                        "min_lot": smallest or spec.volume_min,
+                        "min_lot_risk": round(per_min, 2), "why": why, "at": utc_iso(),
+                    }
+                    await self.journal("warning", "too_small", why, dict(self.last_money_block))
+                    request["volume"] = 0.0
         return request
 
     def _risk_budget(self) -> float:
@@ -3679,6 +3754,19 @@ class Trader:
                 # failure nothing should keep holding it.
                 self._release_slot(symbol)
             if not (result or {}).get("ok"):
+                # Say why, on the card that produced the signal.
+                #
+                # Everything upstream of here records its refusal through
+                # _blocked(); the order path itself did not, so a ticket
+                # that died at the broker or in the money rule left the
+                # strategy card saying "hold" and the "why did nothing
+                # happen" line empty. That is the robot the trader
+                # described as silently not entering - it was entering,
+                # and being refused, with nowhere to say so.
+                await self._blocked(
+                    source, payload, "order_refused",
+                    str((result or {}).get("error") or "the order was refused"),
+                )
                 break
 
     # ---- auto entry point ------------------------------------------------
@@ -3948,7 +4036,15 @@ class Trader:
             # that will actually be sent.
             request = await self._apply_money_rules(request)
             if float(request.get("volume") or 0) <= 0:
-                return {"ok": False, "error": "volume after sizing is below the broker's minimum lot"}
+                # Say which number is binding. "Below the broker's minimum
+                # lot" was true and useless: the broker's minimum is fixed
+                # and the trader cannot change it, so the one sentence they
+                # were given named the only part of the problem they had no
+                # control over. _size_for_budget leaves the real reason -
+                # and the way out - in last_money_block.
+                why = str((getattr(self, "last_money_block", None) or {}).get("why") or "")
+                return {"ok": False, "error": why or
+                        "volume after sizing is below the broker's minimum lot"}
         if str(request.get("action") or "") == "market" and not self.news_trading_on():
             blocked, why = self.prop._news_blackout(str(request.get("symbol") or ""), force=True)
             if blocked:
