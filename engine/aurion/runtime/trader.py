@@ -3138,6 +3138,38 @@ class Trader:
                     f"Signal seen but not sent — {why}.",
                     extra={"blocked": list(blocked or [])},
                 )
+                # Tell the desk anyway, now, on every one of them.
+                #
+                # This branch is the robot disarmed, the kill switch
+                # down, outside trading hours - a gate that stops the
+                # ORDER. The setup still happened, and until now the
+                # only trace of it was a warning line in a log nobody
+                # has open: no chime, no card, no Windows toast. That
+                # is the reported fault, in the trader's words - "we
+                # miss the trade because nothing tells us in time" -
+                # and it is worst in exactly the mode where a human is
+                # supposed to be the one acting on it.
+                #
+                # armed:false is the whole difference from a dispatched
+                # signal. The card says it is a signal only, and why,
+                # so nobody waits for a fill that is not coming.
+                for name, signal in entries:
+                    try:
+                        seen = signal.to_dict() if hasattr(signal, "to_dict") else dict(signal or {})
+                    except Exception:
+                        seen = {}
+                    if not seen:
+                        continue
+                    seen.setdefault("symbol", getattr(ctx, "symbol", "") or self.active_symbol)
+                    seen.setdefault("timeframe", str(getattr(ctx, "timeframe", "") or ""))
+                    seen["strategy"] = name
+                    seen["source"] = f"strategy:{name}"
+                    seen["armed"] = False
+                    seen["why"] = why
+                    seen["ts"] = utc_iso()
+                    self.last_signal = seen
+                    self.store.record_signal(seen)
+                    await self.bus.publish("signal", seen)
             self._sync_book_meta()
             await self.bus.publish("strategy", self.strategy_meta)
             return
@@ -3600,6 +3632,30 @@ class Trader:
                 await self._blocked(source, payload, "license", str(gate.get("error") or "licence limit"))
                 return
             payload["volume"] = self._robot_volume(payload)
+        if action in {"buy", "sell", "market"} and not payload.get("comment"):
+            tag = self._strategy_tag_for_request({**payload, "source": source})
+            payload["comment"] = (f"AURION {tag}" if tag else "AURION")[:31]
+            if tag:
+                payload["strategy"] = tag
+        payload["source"] = source
+        # Announce it the moment it exists, not once it has survived
+        # every gate.
+        #
+        # This used to sit below the AI veto, so a setup the AI refused
+        # was never published at all: the desk stayed silent, and the
+        # trader learned about the move afterwards from the chart. A
+        # refusal is the desk's decision about an entry, and the entry
+        # is still the news - reported as "we miss trades because
+        # nothing tells us in time".
+        #
+        # Everything the card prints is already on the payload here:
+        # the licence gate above has sized it and the tag is set, so
+        # moving the publish up costs the card nothing and buys it the
+        # veto, the money rules and the broker round trip in latency.
+        # Whether it became an order is a separate event - the trade.
+        self.last_signal = {**payload, "source": source, "ts": utc_iso(), "armed": True}
+        self.store.record_signal(self.last_signal)
+        await self.bus.publish("signal", self.last_signal)
         # The AI veto lives here and nowhere else.
         #
         # It used to be asked twice: once by the strategy, through its own
@@ -3634,15 +3690,6 @@ class Trader:
                         source, payload, "ai_disagree", f"the AI reads {ai.get('direction')} against this {action}"
                     )
                     return
-        if action in {"buy", "sell", "market"} and not payload.get("comment"):
-            tag = self._strategy_tag_for_request({**payload, "source": source})
-            payload["comment"] = (f"AURION {tag}" if tag else "AURION")[:31]
-            if tag:
-                payload["strategy"] = tag
-        payload["source"] = source
-        self.last_signal = {**payload, "source": source, "ts": utc_iso()}
-        self.store.record_signal(self.last_signal)
-        await self.bus.publish("signal", self.last_signal)
         if action not in {"buy", "sell", "market"}:
             await self.journal(
                 "info", "fire", f"{source} firing {action} {payload.get('symbol') or ''} vol={payload.get('volume') or 0}"

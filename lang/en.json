@@ -1614,6 +1614,7 @@
     "confidence": "Confidence",
     "open_chart": "Open chart",
     "no_levels": "No stop or target set by the strategy",
+    "not_sent": "Signal only — the robot did not send it",
     "entry": "Entry",
     "rr": "R:R",
     "strategy": "Strategy",
