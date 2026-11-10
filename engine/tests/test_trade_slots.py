@@ -103,7 +103,30 @@ def test_dispatch_opens_the_planned_number_of_tickets() -> None:
     assert all(s["symbol"] == "EURUSD" for s in sent)
 
 
-def test_low_quality_signal_is_dropped() -> None:
+def test_a_low_quality_signal_is_traded_smaller_rather_than_dropped() -> None:
+    """This check used to assert the opposite, and it was right to.
+
+    The quality floor refused anything scoring under min_signal_quality,
+    and the reasoning was sound on its face: do not take setups the
+    robot's own reads disagree with.
+
+    It was removed on request - the smart filters were to stop blocking
+    trades - and only after the request was measured. A/B over a seeded
+    synthetic market, 8 markets x 3 built-ins, 2 837 priced trades,
+    split on the strategy's own confidence against the 0.55 floor
+    (which is exactly what signal_quality returns when the model is
+    still learning and the slower chart is silent):
+
+        everything             n=2837  PF 1.15  +0.0580R
+        the floor allowed      n=2756  PF 1.14  +0.0568R
+        the floor refused      n=  81  PF 1.33  +0.0990R
+
+    The floor refused 2.9% of entries and they were no worse than the
+    rest. The score itself does predict return across its range, so it
+    still sets the lot and the ticket count - the same data gives
+    +156.4R quality-sized against +135.8R flat at the same average
+    size. What it no longer does is refuse.
+    """
     t = _trader()
     sent: list[dict] = []
 
@@ -114,8 +137,12 @@ def test_low_quality_signal_is_dropped() -> None:
     t.execute = _execute
     t.signal_quality = lambda symbol, side, conf=0.0: {"score": 0.2, "reasons": ["ai against"]}
     asyncio.run(t._dispatch_signal(StrategySignal("buy", "EURUSD", volume=0.10), "strategy:test"))
-    assert sent == []
-    assert any(item["code"] == "low_quality" for item in t.robot_log)
+    assert sent, "a weak signal is still a signal and must reach the broker"
+    assert not any(item["code"] == "low_quality" for item in t.robot_log), \
+        "the floor is refusing entries again"
+    # Weak, so it goes out at the small end of the 60%-100% band.
+    assert sent[0]["volume"] < 0.10, f"a weak setup was not sized down: {sent[0]['volume']}"
+    assert sent[0]["volume"] >= 0.01
 
 
 def test_quality_score_reacts_to_the_ai_read() -> None:

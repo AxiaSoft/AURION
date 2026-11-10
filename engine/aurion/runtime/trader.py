@@ -3560,17 +3560,48 @@ class Trader:
             "bias": verdict.get("bias") or "neutral",
             "at": utc_iso(),
         }
+        # The quality floor no longer refuses an entry.
+        #
+        # Asked for directly - the smart filters were to stop blocking
+        # trades - and measured before shipping, because a change to
+        # what the robot will and will not take is not a preference.
+        #
+        # A/B over a seeded synthetic market, 8 markets x 3 built-ins,
+        # 2 837 priced trades, expectancy in R (costs not modelled; see
+        # backtest/engine.py). The split is on the strategy's own
+        # confidence against the 0.55 floor, which is exactly what
+        # signal_quality() returns when the model is still learning and
+        # the slower chart has no opinion - the state of any fresh
+        # install:
+        #
+        #   everything                 n=2837  win 45.4%  PF 1.15  +0.0580R
+        #   the floor let through      n=2756  win 45.5%  PF 1.14  +0.0568R
+        #   the floor refused          n=  81  win 43.2%  PF 1.33  +0.0990R
+        #
+        # So the floor was refusing 2.9% of entries and the ones it
+        # refused were, if anything, slightly better than the ones it
+        # allowed. n=81 is small and that number is noisy - the honest
+        # reading is not "blocking is harmful", it is "there is no
+        # measured evidence it protects anything", which is not enough
+        # to keep a rule that stops a trade.
+        #
+        # What the same measurement does support is keeping the score
+        # itself. Confidence predicts return across its range - the six
+        # bands run -0.040R, -0.021R, -0.000R, +0.138R, +0.093R,
+        # +0.178R, corr +0.067 - so the quality-weighted lot below
+        # earns its keep: at the same average size it returned +156.4R
+        # where flat sizing returned +135.8R, about 15% better. The
+        # score now shapes the size and the number of tickets, and
+        # refuses nothing.
         if getattr(self, "smart_filters", True):
-            if quality < float(getattr(self, "min_signal_quality", 0.55) or 0):
-                await self._blocked(
-                    source,
-                    payload,
-                    "low_quality",
-                    f"quality {quality:.2f} is under the {float(getattr(self, 'min_signal_quality', 0.55)):.2f} floor "
-                    f"({'; '.join(verdict.get('reasons') or []) or 'no supporting read'})",
-                    {"quality": verdict},
-                )
-                return
+            # The spread guard stays, and is deliberately not covered by
+            # the measurement above: a historical bar carries no spread,
+            # so there is nothing here to A/B it against. It is also not
+            # the same kind of rule - it is not an opinion about the
+            # setup, it is a refusal to pay a cost that is visible at
+            # that instant, which is what stops the robot buying into a
+            # rollover or a news-print spread. Removing it on a hunch is
+            # exactly the thing the measurement above exists to avoid.
             ok_spread, why = self._spread_ok(symbol)
             if not ok_spread:
                 await self._blocked(source, payload, "spread", why)

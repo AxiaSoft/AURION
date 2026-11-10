@@ -447,6 +447,79 @@ check("the save sends the reading along with the number", () => {
 
 /* ------------------------------------------------------ two decimals ---- */
 
+/* ------------------------------------------------------------------ *
+ * Two decimals, and the same two everywhere
+ *
+ * Reported: the manual-trade stop, target and entry fields showed far
+ * too many digits. They showed five - the broker's own precision -
+ * which is unreadable at a glance, because 1.08451 and 1.08415 are the
+ * same shape.
+ *
+ * Offered as a flat two or as per-instrument digits; a flat two was
+ * chosen. So it is one constant, and every price on the desk reads
+ * from it - the ticket, the price dialog, the tape, the tables, the
+ * notifications - because a desk where the chart says one price and
+ * the ticket says another is worse than either precision on its own.
+ * ------------------------------------------------------------------ */
+
+check("the desk has one answer for how many decimals a price has", () => {
+  if (!/const PRICE_DP = 2;/.test(APP)) throw new Error("app.js has no PRICE_DP, or it is not 2");
+  if (!/static PRICE_DP = 2;/.test(CHARTS)) throw new Error("the chart disagrees with the ticket");
+});
+
+check("no price is still printed to five decimals", () => {
+  /* Two survivors, both deliberate: the spread, which is a distance
+     and reads 0.00 at two decimals, and the AI feature dump, which is
+     not prices at all. Anything else is a site that was missed. */
+  const lines = APP.split("\n")
+    .map((l, i) => [i + 1, l])
+    .filter(([, l]) => /fmt\([^)]*,\s*5\)/.test(l))
+    .filter(([, l]) => !/wl-sp|feats/.test(l));
+  if (lines.length) {
+    throw new Error("still at five decimals: " + lines.map(([n]) => "line " + n).join(", "));
+  }
+});
+
+check("the three ticket fields step by what they display", () => {
+  const ticket = APP.slice(APP.indexOf('id="ct-price"'), APP.indexOf('id="ct-tp"') + 400);
+  for (const id of ["ct-price", "ct-sl", "ct-tp"]) {
+    const at = ticket.indexOf('id="' + id + '"');
+    if (at < 0) throw new Error(id + " is gone");
+    const tag = ticket.slice(at, at + 200);
+    if (/step="0\.000/.test(tag)) {
+      throw new Error(id + " steps finer than it shows, so the arrow keys move digits it hides");
+    }
+    if (!/step="\$\{PRICE_STEP\}"/.test(tag)) throw new Error(id + " does not take its step from PRICE_DP");
+    if (!/priceField\(/.test(tag)) throw new Error(id + " renders a raw number rather than a two-decimal one");
+  }
+});
+
+check("a price going into a field is not localised", () => {
+  /* price() goes through toLocaleString, which in Persian returns
+     Eastern Arabic digits and in several locales a thousands
+     separator. <input type="number"> rejects both - silently, leaving
+     the field empty - so the writer path has its own helper. */
+  const fn = liftFn(APP, "priceField");
+  if (/toLocaleString|I18N/.test(fn)) throw new Error("priceField localises: " + fn.replace(/\s+/g, " "));
+  if (!/toFixed\(PRICE_DP\)/.test(fn)) throw new Error("priceField does not use PRICE_DP");
+  const ctx = { Number, Math, PRICE_DP: 2 };
+  const run = (v) => new (require("vm").Script)(fn + ";priceField(" + JSON.stringify(v) + ");")
+    .runInNewContext({ ...ctx });
+  if (run(1.084513) !== "1.08") throw new Error("got " + run(1.084513));
+  if (run(0) !== "") throw new Error("zero must leave the field empty, not print 0.00");
+  if (run("") !== "") throw new Error("an empty field must stay empty");
+});
+
+check("every place that writes a price into the ticket uses it", () => {
+  for (const fn of ["onChartPrice", "onChartPending"]) {
+    const body = liftFn(APP, fn);
+    if (/\.value = String\(/.test(body)) {
+      throw new Error(fn + " writes a raw number into a two-decimal field");
+    }
+    if (!/priceField\(/.test(body)) throw new Error(fn + " does not go through priceField");
+  }
+});
+
 check("prices on the EA chart are written to two decimals", () => {
   const fn = liftMethod(CHARTS, "fmtPrice");
   if (/a >= 1000|toFixed\(5\)|toFixed\(4\)|toFixed\(3\)/.test(fn)) {

@@ -417,9 +417,9 @@ function askPrice(opts) {
       <h3 id="modal-title">${esc(opts.title || "")}</h3>
       ${opts.body ? `<p class="modal-body">${esc(opts.body)}</p>` : ""}
       <input id="modal-price" class="ctrl" type="number" inputmode="decimal"
-             step="${esc(String(opts.step || "0.00001"))}"
+             step="${esc(String(opts.step || PRICE_STEP))}"
              aria-label="${esc(opts.title || "")}"
-             value="${start > 0 ? esc(String(start)) : ""}" />
+             value="${esc(priceField(start))}" />
       <p class="sub" id="modal-price-msg"></p>
       <div class="modal-actions">
         <button type="button" class="btn ghost" id="modal-no">${esc(I18N.t("common.cancel"))}</button>
@@ -483,7 +483,7 @@ async function onChartLevelEdit(kind, current) {
   if (got === null) return;
   const el = $(kind === "sl" ? "ct-sl" : "ct-tp");
   if (el) {
-    el.value = got > 0 ? String(got) : "";
+    el.value = priceField(got);
     el.dispatchEvent(new Event("input", { bubbles: true }));
   }
   rememberTicket();
@@ -500,6 +500,51 @@ async function onChartLevelEdit(kind, current) {
  * Printing the token the running app.js was loaded with settles it in one
  * glance: if this does not match the token in index.html, the page is old.
  */
+/**
+ * How many decimals a price is written with, everywhere on the desk.
+ *
+ * Two. Asked for directly: the manual-trade stop, target and entry
+ * fields were showing five, which is the broker's own precision and is
+ * unreadable at a glance - 1.08451 and 1.08415 are the same shape.
+ *
+ * This is a deliberate flat number rather than per-instrument digits.
+ * It was offered both ways and two-for-everything was chosen, so it is
+ * written once, here, and read from here by the ticket, the price
+ * dialog, the tape, the tables and the notifications. CandleChart has
+ * its own PRICE_DP, already 2, for the same reason: a desk where the
+ * chart and the ticket disagree about a price is worse than either.
+ *
+ * It costs something and the cost is real: on a five-digit FX pair the
+ * fourth and fifth digits are no longer shown, and a stop typed into a
+ * two-decimal field is a two-decimal stop. On gold, indices and crypto
+ * - which is what this desk is mostly pointed at - it is simply the
+ * right number.
+ */
+const PRICE_DP = 2;
+
+/** A price, written the desk's way. */
+function price(n) { return fmt(n, PRICE_DP); }
+
+/* The same precision as a step for a <number> field, derived rather
+   than written out twice: "0.01" for 2, "0.1" for 1. A field that
+   steps finer than it displays snaps the arrow keys to digits it then
+   hides, and the trader watches the value refuse to change. */
+const PRICE_STEP = (1 / Math.pow(10, PRICE_DP)).toFixed(PRICE_DP);
+
+/**
+ * A price on its way INTO an input, as a plain machine-readable number.
+ *
+ * Not price(): that one is for reading and goes through toLocaleString,
+ * which in Persian returns Eastern Arabic digits and in several locales
+ * a thousands separator - and <input type="number"> rejects both,
+ * silently, leaving the field empty. Same two decimals, no grouping,
+ * no localisation.
+ */
+function priceField(v) {
+  const n = Number(v);
+  return n > 0 ? n.toFixed(PRICE_DP) : "";
+}
+
 function fmt(n, d = 2) {
   if (n === null || n === undefined || n === "" || Number.isNaN(Number(n))) return "—";
   try {
@@ -2012,9 +2057,9 @@ function signalDetail(sig) {
   const entry = signalPrice(sig, "entry") || signalPrice(sig, "price");
   const sl = signalPrice(sig, "sl");
   const tp = signalPrice(sig, "tp");
-  if (entry) bits.push(`${I18N.t("signal.entry")} ${fmt(entry, 5)}`);
-  if (sl) bits.push(`${I18N.t("signal.sl")} ${fmt(sl, 5)}`);
-  if (tp) bits.push(`${I18N.t("signal.tp")} ${fmt(tp, 5)}`);
+  if (entry) bits.push(`${I18N.t("signal.entry")} ${price(entry)}`);
+  if (sl) bits.push(`${I18N.t("signal.sl")} ${price(sl)}`);
+  if (tp) bits.push(`${I18N.t("signal.tp")} ${price(tp)}`);
   if (lots) bits.push(`${I18N.t("signal.lots")} ${fmt(lots, 2)}`);
   if (sig.confidence) bits.push(`${I18N.t("signal.confidence")} ${Math.round(Number(sig.confidence) * 100)}%`);
   return bits.join(" · ");
@@ -2310,7 +2355,7 @@ function tradeHeadline(t) {
 function tradeDetail(t) {
   const bits = [];
   if (t.volume) bits.push(`${fmt(t.volume, 2)} ${I18N.t("notify.lots")}`);
-  if (t.kind === "entry" && t.price) bits.push(`@ ${fmt(t.price, 5)}`);
+  if (t.kind === "entry" && t.price) bits.push(`@ ${price(t.price)}`);
   if (t.kind === "exit") bits.push(`${t.profit > 0 ? "+" : ""}${fmt(t.profit, 2)} ${esc(t.currency || "")}`.trim());
   if (t.strategy) bits.push(String(t.strategy));
   return bits.join(" · ");
@@ -4624,9 +4669,13 @@ function chartTicketHtml() {
 
       <div class="ct-row ct-lv ct-entry" id="ct-entry-row" hidden>
         <span class="ct-lab">${I18N.t("exec.entry")}</span>
-        <input id="ct-price" type="number" step="0.00001" inputmode="decimal"
+        <!-- Two decimals, like every other price on the desk. The step
+             has to agree with that: a field that steps by 0.00001 while
+             showing two decimals snaps the arrow keys to digits it will
+             not then display. See PRICE_DP. -->
+        <input id="ct-price" type="number" step="${PRICE_STEP}" inputmode="decimal"
                aria-label="${esc(I18N.t("exec.entry"))}"
-               value="${esc(t.price || "")}" placeholder="${esc(I18N.t("exec.chart_click"))}" />
+               value="${esc(priceField(t.price))}" placeholder="${esc(I18N.t("exec.chart_click"))}" />
         <button type="button" class="ct-ic" id="ct-pick-price"
                 title="${esc(I18N.t("exec.set_entry"))}" aria-label="${esc(I18N.t("exec.set_entry"))}">${icon("target")}</button>
         <button type="button" class="ct-ic" id="ct-clear-price"
@@ -4636,9 +4685,9 @@ function chartTicketHtml() {
       <div class="ct-levels">
         <div class="ct-row ct-lv">
           <span class="ct-lab sl">${I18N.t("exec.sl")}</span>
-          <input id="ct-sl" type="number" step="0.0001" inputmode="decimal"
+          <input id="ct-sl" type="number" step="${PRICE_STEP}" inputmode="decimal"
                  aria-label="${esc(I18N.t("exec.sl"))}"
-                 value="${esc(t.sl || "")}" placeholder="${esc(I18N.t("exec.chart_click"))}" />
+                 value="${esc(priceField(t.sl))}" placeholder="${esc(I18N.t("exec.chart_click"))}" />
           <button type="button" class="ct-ic" id="ct-pick-sl"
                   title="${esc(I18N.t("exec.set_sl"))}" aria-label="${esc(I18N.t("exec.set_sl"))}">${icon("target")}</button>
           <button type="button" class="ct-ic" id="ct-clear-sl"
@@ -4646,9 +4695,9 @@ function chartTicketHtml() {
         </div>
         <div class="ct-row ct-lv">
           <span class="ct-lab tp">${I18N.t("exec.tp")}</span>
-          <input id="ct-tp" type="number" step="0.0001" inputmode="decimal"
+          <input id="ct-tp" type="number" step="${PRICE_STEP}" inputmode="decimal"
                  aria-label="${esc(I18N.t("exec.tp"))}"
-                 value="${esc(t.tp || "")}" placeholder="${esc(I18N.t("exec.chart_click"))}" />
+                 value="${esc(priceField(t.tp))}" placeholder="${esc(I18N.t("exec.chart_click"))}" />
           <button type="button" class="ct-ic" id="ct-pick-tp"
                   title="${esc(I18N.t("exec.set_tp"))}" aria-label="${esc(I18N.t("exec.set_tp"))}">${icon("target")}</button>
           <button type="button" class="ct-ic" id="ct-clear-tp"
@@ -4665,11 +4714,11 @@ function chartTicketHtml() {
       <div class="ct-sides">
         <button class="ct-side sell" type="button" id="ct-sell">
           <span>${I18N.t("exec.sell")}</span>
-          <b class="mono" id="ct-bid">${fmt(tick.bid, 5)}</b>
+          <b class="mono" id="ct-bid">${price(tick.bid)}</b>
         </button>
         <button class="ct-side buy" type="button" id="ct-buy">
           <span>${I18N.t("exec.buy")}</span>
-          <b class="mono" id="ct-ask">${fmt(tick.ask, 5)}</b>
+          <b class="mono" id="ct-ask">${price(tick.ask)}</b>
         </button>
       </div>
       <p class="sub" id="ct-msg"></p>
@@ -4688,8 +4737,8 @@ function paintTicketPrices() {
   const sym = (S.chartFocus && S.chartFocus.symbol) || S.symbol;
   const tick = (S.snap && S.snap.ticks && S.snap.ticks[sym]) || null;
   const bid = $("ct-bid"), ask = $("ct-ask");
-  if (bid) bid.textContent = tick ? fmt(tick.bid, 5) : "—";
-  if (ask) ask.textContent = tick ? fmt(tick.ask, 5) : "—";
+  if (bid) bid.textContent = tick ? price(tick.bid) : "—";
+  if (ask) ask.textContent = tick ? price(tick.ask) : "—";
   /* A market order's risk is measured from the live quote, so it moves
      with the quote. Here rather than on a timer of its own: this is
      already the function the tick wakes up. */
@@ -4967,9 +5016,9 @@ function onChartPrice(p) {
   if (!Number.isFinite(Number(p))) return;
   if (!S._pickLevel) return;
   const px = Number(p);
-  if (S._pickLevel === "sl" && $("ct-sl")) $("ct-sl").value = String(px);
-  else if (S._pickLevel === "tp" && $("ct-tp")) $("ct-tp").value = String(px);
-  else if (S._pickLevel === "price" && $("ct-price")) $("ct-price").value = String(px);
+  if (S._pickLevel === "sl" && $("ct-sl")) $("ct-sl").value = priceField(px);
+  else if (S._pickLevel === "tp" && $("ct-tp")) $("ct-tp").value = priceField(px);
+  else if (S._pickLevel === "price" && $("ct-price")) $("ct-price").value = priceField(px);
   S._pickLevel = null;
   document.querySelectorAll("#ct-pick-sl,#ct-pick-tp,#ct-pick-price").forEach((b) => b.classList.remove("on"));
   rememberTicket();
@@ -4978,8 +5027,8 @@ function onChartPrice(p) {
 }
 function onChartPending(p) {
   if (!p) return;
-  if (p.kind === "sl" && $("ct-sl")) $("ct-sl").value = String(p.sl || "");
-  if (p.kind === "tp" && $("ct-tp")) $("ct-tp").value = String(p.tp || "");
+  if (p.kind === "sl" && $("ct-sl")) $("ct-sl").value = priceField(p.sl);
+  if (p.kind === "tp" && $("ct-tp")) $("ct-tp").value = priceField(p.tp);
   rememberTicket();
   paintTicketRisk();
 }
@@ -5740,7 +5789,11 @@ function qualityHtml(st) {
       <div class="q-last-head">
         <span>${I18N.t("slots.q_last")}</span>
         <b class="mono">${Math.round(Number(last.score) * 100)}%</b>
-        <span class="pill ${last.passed ? "ok" : "no"}">${I18N.t(last.passed ? "slots.q_taken" : "slots.q_skipped")}</span>
+        <!-- "below your mark", not "skipped": a score under the slider
+             no longer refuses the trade, it only sizes it down. A pill
+             saying "skipped" beside a trade that was actually taken is
+             a worse lie than no pill at all. -->
+        <span class="pill ${last.passed ? "ok" : "warn"}">${I18N.t(last.passed ? "slots.q_taken" : "slots.q_skipped")}</span>
       </div>
       <p class="sub">${esc([last.side, last.symbol].filter(Boolean).join(" ").toUpperCase())}
         ${(last.reasons || []).length ? "· " + esc(last.reasons.join(" · ")) : ""}</p>
@@ -6909,8 +6962,8 @@ function analysisCardHtml() {
         <h4 class="ai-h">${I18N.t("ai.an.when")}</h4>
         <p class="sub">${esc(a.when || "")}</p>
         ${(a.resting || []).length
-          ? `<ul class="an-why">${a.resting.map((r) => `<li><b>${esc(String(r.type || "").replace(/_/g, " ").toUpperCase())} ${fmt(r.volume, 2)} @ ${fmt(r.price, 5)}</b>
-               <span class="sub"> — SL ${r.sl ? fmt(r.sl, 5) : "—"} / TP ${r.tp ? fmt(r.tp, 5) : "—"}</span></li>`).join("")}</ul>`
+          ? `<ul class="an-why">${a.resting.map((r) => `<li><b>${esc(String(r.type || "").replace(/_/g, " ").toUpperCase())} ${fmt(r.volume, 2)} @ ${price(r.price)}</b>
+               <span class="sub"> — SL ${r.sl ? price(r.sl) : "—"} / TP ${r.tp ? price(r.tp) : "—"}</span></li>`).join("")}</ul>`
           : ""}
         ${a.next_eval?.text ? `<p class="sub"><b>${I18N.t("ai.an.next_eval")}:</b> <span class="mono" id="an-next">${esc(a.next_eval.text)}</span></p>` : ""}
       </div>
@@ -8240,9 +8293,13 @@ function watchRowsHtml() {
         ${it.timeframe ? `<i class="wl-tf">${esc(it.timeframe)}</i>` : ""}
       </span>
       <span class="wl-quote">
-        <b class="mono wl-bid ${dir}">${fmt(bid, 5)}</b>
-        <b class="mono wl-ask">${fmt(ask, 5)}</b>
+        <b class="mono wl-bid ${dir}">${price(bid)}</b>
+        <b class="mono wl-ask">${price(ask)}</b>
       </span>
+      <!-- The spread keeps the broker's precision while prices get two
+           decimals. It is a distance, not a level: rounded to two it
+           reads 0.00 on every FX pair, which is not "two decimals", it
+           is no information at all. -->
       <span class="mono wl-sp">${spread === null ? "—" : fmt(spread, 5)}</span>
     </button>`;
   }).join("");
@@ -8536,7 +8593,7 @@ function cellText(k, v) {
   if (v === "" || v === null || v === undefined) return "—";
   if (CELL_TIME.includes(k)) return btWhen(v);
   if (k === "volume") return fmt(v, 2);
-  if (CELL_PRICE.includes(k)) return fmt(v, 5);
+  if (CELL_PRICE.includes(k)) return price(v);
   if (CELL_MONEY.includes(k)) return fmt(v, 2);
   return String(v);
 }
@@ -8646,8 +8703,8 @@ function paintPositions(boxId, rows, closable) {
       };
       const pl = Number(r.profit);
       put(".tvp-pl", Number.isFinite(pl) ? (pl > 0 ? "+" : "") + fmt(pl, 2) : "—", true);
-      put(".tvp-sl", r.sl ? fmt(r.sl, 5) : "—");
-      put(".tvp-tp", r.tp ? fmt(r.tp, 5) : "—");
+      put(".tvp-sl", r.sl ? price(r.sl) : "—");
+      put(".tvp-tp", r.tp ? price(r.tp) : "—");
       put(".tvp-vol", fmt(r.volume, 2));
     });
     return;
@@ -8659,7 +8716,7 @@ function paintPositions(boxId, rows, closable) {
 function tickLabel() {
   const t = S.snap?.ticks?.[S.symbol];
   if (!t) return "";
-  return `${S.symbol}  ${fmt(t.bid,5)} / ${fmt(t.ask,5)}`;
+  return `${S.symbol}  ${price(t.bid)} / ${price(t.ask)}`;
 }
 async function fillHostTerm() {
   const box = $("term");
@@ -11596,8 +11653,8 @@ function renderBacktestExtra(bt) {
       return `<tr>
         <td class="mono">${esc(btWhen(t.time))}</td>
         <td><span class="pill tiny ${side === "buy" ? "up" : "down"}">${esc(side.toUpperCase() || "—")}</span></td>
-        <td class="mono">${fmt(t.entry, 5)}</td>
-        <td class="mono">${fmt(t.exit, 5)}</td>
+        <td class="mono">${price(t.entry)}</td>
+        <td class="mono">${price(t.exit)}</td>
         <td class="mono ${clsPnl(t.profit)}">${fmt(t.profit)}</td>
         <td class="sub">${esc(String(t.exit_reason || "—"))}</td>
       </tr>`;
@@ -12094,9 +12151,9 @@ function positionsListHtml(pos, ord) {
       ${cell("tvp-sym", esc(String(r.symbol || "")), I18N.t("table.symbol"))}
       ${cell("tvp-dir", `<b>${esc(String(r.type || dir).toUpperCase())}</b>`, I18N.t("table.type"))}
       ${cell("tvp-vol mono", fmt(r.volume, 2), I18N.t("table.volume"))}
-      ${cell("tvp-at mono", fmt(r.price_open, 5), I18N.t("table.price_open"))}
-      ${cell("tvp-sl mono", r.sl ? fmt(r.sl, 5) : "—", I18N.t("table.sl"))}
-      ${cell("tvp-tp mono", r.tp ? fmt(r.tp, 5) : "—", I18N.t("table.tp"))}
+      ${cell("tvp-at mono", price(r.price_open), I18N.t("table.price_open"))}
+      ${cell("tvp-sl mono", r.sl ? price(r.sl) : "—", I18N.t("table.sl"))}
+      ${cell("tvp-tp mono", r.tp ? price(r.tp) : "—", I18N.t("table.tp"))}
       ${cell("tvp-pl mono " + clsPnl(pl), money(pl), I18N.t("table.profit"))}
       <span class="tvp-c tvp-act"><button type="button" class="tv-pos-x" data-close="${esc(String(r.ticket))}"
               data-close-what="${esc(what)}"
@@ -12112,9 +12169,9 @@ function positionsListHtml(pos, ord) {
       ${cell("tvp-sym", esc(String(r.symbol || "")), I18N.t("table.symbol"))}
       ${cell("tvp-dir", `<b>${esc(String(r.type || "").replace(/_/g, " ").toUpperCase())}</b>`, I18N.t("table.type"))}
       ${cell("tvp-vol mono", fmt(r.volume, 2), I18N.t("table.volume"))}
-      ${cell("tvp-at mono", fmt(r.price, 5), I18N.t("table.price_open"))}
-      ${cell("tvp-sl mono", r.sl ? fmt(r.sl, 5) : "—", I18N.t("table.sl"))}
-      ${cell("tvp-tp mono", r.tp ? fmt(r.tp, 5) : "—", I18N.t("table.tp"))}
+      ${cell("tvp-at mono", price(r.price), I18N.t("table.price_open"))}
+      ${cell("tvp-sl mono", r.sl ? price(r.sl) : "—", I18N.t("table.sl"))}
+      ${cell("tvp-tp mono", r.tp ? price(r.tp) : "—", I18N.t("table.tp"))}
       ${cell("tvp-pl tvp-wait", esc(I18N.t("chart.order_waiting")), I18N.t("table.profit"))}
       <span class="tvp-c tvp-act"><button type="button" class="tv-pos-x" data-cancel="${esc(String(r.ticket))}"
               title="${esc(I18N.t("chart.order_cancel"))}"

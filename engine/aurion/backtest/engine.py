@@ -239,6 +239,14 @@ class Backtester:
                     "tp": float(payload.get("tp") or 0),
                     "time": bar.get("time"),
                     "reason": payload.get("reason"),
+                    # Carried through so a finished run can be split by it.
+                    # The live quality floor is the strategy's own
+                    # confidence whenever nothing else has an opinion -
+                    # a model that is still learning does not vote - so
+                    # this is the field that makes "what would the floor
+                    # have refused, and was it right to" an answerable
+                    # question instead of an argument.
+                    "confidence": float(payload.get("confidence") or 0),
                 })
             peak = max(peak, equity)
             curve.append(equity)

@@ -2914,7 +2914,10 @@ html[data-theme="light"] .set-jump button[data-jump].on{
   border-radius:12px;
 }
 .q-last.ok{ border-inline-start-color:var(--candle-up, var(--accent)) }
-.q-last.no{ border-inline-start-color:var(--rose) }
+/* Amber, not red. A score under the mark is no longer a refusal - the
+   trade was taken, at a smaller size - and a red edge beside it reads
+   as "this was stopped". */
+.q-last.no{ border-inline-start-color:var(--amber, #d8a657) }
 .q-last-head{ display:flex; align-items:center; gap:8px; font-size:12px; flex-wrap:wrap }
 .q-last-head b{ font-size:15px }
 .q-last-head .pill{ font-size:10px }
