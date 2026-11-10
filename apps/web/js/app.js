@@ -11182,6 +11182,42 @@ function bindPropForm() {
  * is drawn as it happens: the symbol's own chart, the equity curve
  * forming, and the counters moving.
  */
+/**
+ * The panel a finished run leaves behind.
+ *
+ * It used to leave nothing. paintBacktestLive blanked this box the
+ * moment `running` went false, so the chart of the tested window -
+ * the thing the trader had been watching for several minutes - was
+ * wiped at the exact instant the result arrived, and the card jumped
+ * to a table of numbers with no picture of where they came from.
+ * Reported as "the symbol chart disappears when the backtest
+ * finishes", and that is precisely what happened: deliberate code,
+ * wrong decision.
+ *
+ * The same frame is kept, frozen at the last replayed bar. The
+ * progress bar and the live counters go, because they would be
+ * stating a finished run's figures as though they were still moving;
+ * the window, the strategy and the last bar stay, because they are
+ * what the result is about.
+ */
+function renderBacktestDone(bt) {
+  const symbol = String(bt.symbol || "");
+  const tf = String(bt.timeframe || S.timeframe || "M15");
+  const data = (bt.data && typeof bt.data === "object") ? bt.data : {};
+  const at = data.last_bar ? esc(String(data.last_bar)) : "";
+  return `<div class="bt-live is-done">
+    <div class="tape-banner is-backtest" style="margin:0 0 10px">
+      ${I18N.t("bt.done_window")} · ${esc(symbol)} ${esc(tf)} · ${esc(String(bt.strategy || ""))}
+    </div>
+    <div class="bt-live-chart">
+      <canvas id="bt-replay"></canvas>
+      <span class="bt-replay-at mono" id="bt-replay-at">${at}</span>
+      <p class="bt-replay-note" id="bt-replay-note" hidden></p>
+    </div>
+    <p class="sub">${I18N.t("bt.done_chart_hint")}</p>
+  </div>`;
+}
+
 function renderBacktestLive(bt) {
   bt = bt || S.backtest || {};
   if (!bt.running) return "";
@@ -11235,9 +11271,46 @@ function renderBacktestLive(bt) {
  */
 function paintBacktestLive(box, bt, running) {
   if (!running) {
-    if (box.innerHTML !== "") box.innerHTML = "";
-    box.removeAttribute("data-run");
-    S._btReplay = null;
+    /* A finished run keeps its chart. See renderBacktestDone: this
+       used to blank the box, which threw away the picture of the
+       tested window at the moment the numbers about it arrived.
+
+       Only for a run that produced something. A failed run, or no run
+       at all, has no window to show and still clears. */
+    const done = Boolean(bt && bt.ok && bt.symbol && !bt.running);
+    if (!done) {
+      if (box.innerHTML !== "") box.innerHTML = "";
+      box.removeAttribute("data-run");
+      S._btReplay = null;
+      return;
+    }
+    const key = `done|${bt.symbol || ""}|${bt.timeframe || ""}|${bt.finished || ""}`;
+    if (box.getAttribute("data-run") !== key) {
+      box.innerHTML = renderBacktestDone(bt);
+      box.setAttribute("data-run", key);
+    }
+    /* The engine stops sending replay bars when the run ends, so the
+       frozen frame is drawn from whichever source still has it.
+
+       First choice is the last window the replay itself sent, held in
+       S._btReplay - it is the tested bars by definition, and it is
+       already here. Read before paintReplay, which overwrites it.
+
+       After a reload there is no such frame, and the fallback is the
+       desk's own candles wound forward to the run's final bar. That
+       path needs a fetch, so the chart arrives a moment later rather
+       than not at all. */
+    const frozen = S._btReplay;
+    const last = (bt.data && bt.data.last_bar) ? String(bt.data.last_bar) : "";
+    const snap = { at: last, marks: btDoneMarks(bt) };
+    if (frozen && Array.isArray(frozen.bars) && frozen.bars.length > 1) {
+      snap.replay_bars = frozen.bars;
+      /* The result carries 200 trades at most and a long run has more,
+         so an older frame's own marks are kept when the trade list
+         cannot account for the window. */
+      if (!snap.marks.length && Array.isArray(frozen.marks)) snap.marks = frozen.marks;
+    }
+    paintReplay(box, bt, snap);
     return;
   }
   const key = `${bt.symbol || ""}|${bt.timeframe || ""}|${bt.strategy || ""}`;
@@ -11331,10 +11404,45 @@ function ensureBacktestBars(bt) {
       const box = $("bt-live");
       if (!box) return;
       const now = (S.backtest && S.backtest.running) ? S.backtest : bt;
-      if (!now || !now.running) return;
-      paintReplay(box, now, (now.live && typeof now.live === "object") ? now.live : {});
+      if (!now) return;
+      /* A finished run is repainted too. This used to return here
+         unless something was still running, which is the window where
+         it matters most: after a reload the desk has no replay frame
+         at all and these candles are the only way back to the tested
+         window. */
+      if (now.running) {
+        paintReplay(box, now, (now.live && typeof now.live === "object") ? now.live : {});
+      } else if (now.ok && now.symbol) {
+        paintReplay(box, now, {
+          at: (now.data && now.data.last_bar) ? String(now.data.last_bar) : "",
+          marks: btDoneMarks(now),
+        });
+      }
     })
     .catch(() => { S._btBars = { key, pending: false, bars: null }; });
+}
+
+/**
+ * Entries and exits of a finished run, in the shape the replay chart
+ * draws.
+ *
+ * The engine builds these per snapshot while a run is going and stops
+ * when it ends, so the frozen frame would otherwise be bare candles.
+ * Only the tail is worth sending: drawReplayChart keeps whatever falls
+ * inside the window it is drawing, and a long run carries hundreds.
+ */
+function btDoneMarks(bt) {
+  const trades = Array.isArray(bt && bt.trades) ? bt.trades.slice(-60) : [];
+  const out = [];
+  for (const t of trades) {
+    if (!t || typeof t !== "object") continue;
+    if (t.time) out.push({ t: String(t.time), kind: "in", side: t.type, price: t.entry, volume: t.volume });
+    if (t.exit_time) {
+      out.push({ t: String(t.exit_time), kind: "out", side: t.type, price: t.exit,
+                 profit: Number(t.profit) || 0, reason: t.exit_reason });
+    }
+  }
+  return out;
 }
 
 /** The window of bars to draw, and where it came from. */

@@ -5053,6 +5053,46 @@ class Trader:
         # had died. Nothing was wrong except the waiting.
         return dict(self.backtest_run)
 
+    def _backtest_point_value(self, symbol: str) -> float:
+        """What one whole unit of price is worth, per 1.0 lot, in money.
+
+        This was the number behind "the backtest trades in cents". It
+        was the literal 1.0, so the replay priced a trade as
+
+            (exit - entry) * volume
+
+        and on a five-digit pair a 50-point winner at 0.10 lots came
+        out as 0.0005 - not a small profit, a profit in the wrong unit
+        entirely. Every figure built on it inherited the mistake:
+        equity, drawdown, the curve, and R, since the stop distance was
+        converted the same way.
+
+        The live side has had one answer to this question since the
+        money rules went in: money = distance / tick_size * tick_value
+        * volume (runtime/risk.py). Per whole unit of price and per
+        lot, that is tick_value / tick_size - 10 000 on a typical FX
+        pair, which is exactly the factor the results were missing.
+
+        Asked of the same broker the replay's bars came from, so the
+        test and the account agree. When the broker will not say - no
+        MT5 connection, an EA that does not answer, an unknown symbol -
+        it falls back to 1.0, which is what it always was. A guessed
+        tick value is a wrong number stated with confidence, and the
+        run reports the factor it used so nobody has to assume.
+        """
+        try:
+            spec = self.symbol_spec(str(symbol or ""))
+        except Exception:
+            log.exception("backtest could not read the spec for %s", symbol)
+            return 1.0
+        if not spec.usable:
+            return 1.0
+        try:
+            value = float(spec.tick_value) / float(spec.tick_size)
+        except (TypeError, ValueError, ZeroDivisionError):
+            return 1.0
+        return value if value > 0 else 1.0
+
     async def _run_backtest(
         self,
         inst: Any,
@@ -5094,7 +5134,8 @@ class Trader:
             # with neither passed through, a replay reported the result
             # of a 0.1-lot, one-trade-at-a-time robot nobody is running.
             result = await asyncio.to_thread(
-                self.backtester.run, inst, bars, symbol, timeframe, equity, 1.0, 80, None, report,
+                self.backtester.run, inst, bars, symbol, timeframe, equity,
+                self._backtest_point_value(symbol), 80, None, report,
                 str(getattr(self, "volume_mode", "auto")),
                 float(getattr(self, "manual_volume", 0.0) or 0.0),
                 int(self._total_cap()),

@@ -194,6 +194,96 @@ def test_the_lot_actually_scales_the_money():
     assert large["metrics"]["net"] == pytest.approx(small["metrics"]["net"] * 10, rel=1e-6)
 
 
+# --------------------------------------------------- and the money ---
+#
+# The third complaint in the same breath as the lot: the replay
+# reported profits in cents. It was not the sizing - that had already
+# been fixed - it was the unit. point_value was passed as a literal
+# 1.0, so a trade was priced as (exit - entry) * volume and a 50-point
+# winner on a five-digit pair came out as 0.0005. Not a small number;
+# the wrong number, by whatever the broker's tick_value / tick_size
+# happens to be, which is 10 000 on a typical FX pair. Equity,
+# drawdown, the curve and R all inherited it.
+#
+# The live side has had one answer since the money rules went in -
+# money = distance / tick_size * tick_value * volume - and the replay
+# now asks the same broker the same question.
+
+
+def test_the_point_value_scales_the_money_exactly():
+    """What a unit of price is worth has to reach the result."""
+    one = run(Always(volume=0.2), volume_mode="auto", max_open=1)
+    many = Backtester().run(Always(volume=0.2), bars(), "XAUUSD", "M5", 10_000.0,
+                            10_000.0, 80, None, None, volume_mode="auto", max_open=1)
+    assert one["ok"] and many["ok"]
+    assert many["metrics"]["net"] == pytest.approx(one["metrics"]["net"] * 10_000, rel=1e-6)
+
+
+def test_the_result_names_the_point_value_it_used():
+    """A run priced off the broker and one that fell back look alike."""
+    res = Backtester().run(Always(volume=0.2), bars(), "XAUUSD", "M5", 10_000.0,
+                           10_000.0, 80, None, None, volume_mode="auto", max_open=1)
+    assert res["point_value"] == pytest.approx(10_000.0)
+    assert run(Always(volume=0.2))["point_value"] == pytest.approx(1.0)
+
+
+def test_the_trader_asks_the_broker_rather_than_assuming_one():
+    """The caller is where the 1.0 was hard-coded, so check the caller."""
+    from types import SimpleNamespace
+
+    from aurion.runtime.trader import Trader
+
+    class Bridge:
+        def __init__(self, info):
+            self.info = info
+
+        def symbol_spec(self, symbol):
+            return dict(self.info)
+
+    def point_value(info):
+        t = object.__new__(Trader)
+        t.bridge = Bridge(info)
+        return t._backtest_point_value("EURUSD")
+
+    # A five-digit pair: 0.1 of account currency per 0.00001 of price,
+    # so one whole unit of price is 10 000 per lot. This is the factor
+    # the replay was missing.
+    assert point_value({"trade_tick_size": 0.00001, "trade_tick_value": 0.1}) == pytest.approx(10_000.0)
+    # Gold, quoted to two decimals.
+    assert point_value({"trade_tick_size": 0.01, "trade_tick_value": 1.0}) == pytest.approx(100.0)
+    # And when the broker will not say, it is the old 1.0 rather than a
+    # guess. A guessed tick value is a wrong number stated with
+    # confidence, which is worse than an obviously unscaled one.
+    assert point_value({}) == pytest.approx(1.0)
+    assert point_value({"trade_tick_size": 0.00001, "trade_tick_value": 0}) == pytest.approx(1.0)
+    assert point_value({"trade_tick_size": 0, "trade_tick_value": 0.1}) == pytest.approx(1.0)
+
+
+def test_a_broker_that_raises_does_not_break_the_run():
+    from aurion.runtime.trader import Trader
+
+    class Angry:
+        def symbol_spec(self, symbol):
+            raise RuntimeError("no terminal")
+
+    t = object.__new__(Trader)
+    t.bridge = Angry()
+    assert t._backtest_point_value("EURUSD") == pytest.approx(1.0)
+
+
+def test_the_replay_is_no_longer_called_with_a_literal_one():
+    """The regression this guards is a single character in a call."""
+    import inspect
+
+    from aurion.runtime import trader as trader_mod
+
+    src = inspect.getsource(trader_mod)
+    i = src.index("self.backtester.run, inst, bars")
+    call = src[i:i + 320]
+    assert "self._backtest_point_value(symbol)" in call, call
+    assert "equity, 1.0, 80" not in call, "the hard-coded point value is back: " + call
+
+
 # ------------------------------------------- and the result says so ---
 #
 # The replay honoured the desk's lot setting for a long time and said

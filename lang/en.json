@@ -1124,6 +1124,7 @@
     "remind_all": "Everything on the calendar",
     "remind_toast": "{what} in {mins} ({time})",
     "remind_more": "and {n} more in the same window",
+    "remind_stale": "The economic calendar has not updated — every release in it has already passed, so there is nothing to remind you about. Open the Calendar tab and refresh it.",
     "remind_on": "News reminder on.",
     "remind_off": "News reminder off."
   },
@@ -1329,7 +1330,9 @@
     "live_trades": "Trades closed",
     "live_bar": "Bar reached",
     "live_position": "Open position",
-    "live_chart_hint": "The symbol's live chart. The replay works through history while the market here keeps updating.",
+    "live_chart_hint": "The bars the replay is working through, not the live market.",
+    "done_window": "The window that was tested",
+    "done_chart_hint": "The bars the replay finished on, with its entries and exits marked. The run is over; this chart no longer moves.",
     "live_curve_hint": "Equity as the replay builds it. The finished curve replaces this when the run ends.",
     "replay_wait": "Lining up the replayed bars…",
     "replay_outside": "The bar being replayed is outside the history this desk holds.",

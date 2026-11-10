@@ -168,6 +168,153 @@ function liveRun(extra = {}) {
 
 /* ======================= 1. it is the replay, not the market ========= */
 
+/* ============ 0. the chart survives the end of the run ==============
+
+   Reported: "the symbol chart disappears when the backtest finishes."
+   It did, and on purpose: paintBacktestLive blanked the box the moment
+   `running` went false, so the picture of the tested window was wiped
+   at the instant the numbers about it arrived.
+
+   Driven rather than grepped. The old code passed every reasonable
+   source check - it rendered the panel correctly, it drew the right
+   candles, it cleaned up after itself - and the fault was only visible
+   by looking at the DOM one frame after the run ended.
+   ==================================================================== */
+
+/** The result the engine publishes when a run ends. */
+function doneRun(extra = {}) {
+  const b = bars();
+  return {
+    running: false, ok: true, mode: "backtest", symbol: "XAUUSD", timeframe: "M5",
+    strategy: "price_action", progress: 100, finished: "2026-01-02T18:00:00Z",
+    metrics: { trades: 4 },
+    equity_curve: [10000, 10120, 10231.4],
+    data: { source: "mt5", first_bar: b[0].t, last_bar: b[b.length - 1].t,
+            warmup_bars: 0, tested_bars: b.length },
+    trades: [
+      { type: "buy", volume: 0.5, entry: b[20].c, time: b[20].t,
+        exit: b[48].c, exit_time: b[48].t, profit: 31.4, exit_reason: "tp" },
+      { type: "sell", volume: 0.5, entry: b[90].c, time: b[90].t,
+        exit: b[110].c, exit_time: b[110].t, profit: -12.2, exit_reason: "sl" },
+    ],
+    ...extra,
+  };
+}
+
+check("a finished run still has a chart", () => {
+  const d = desk();
+  const host = d.doc.getElementById("host");
+  const run = liveRun();
+  d.T.paintBacktestLive(host, run, true);
+  if (!host.querySelector("#bt-replay")) throw new Error("the running panel has no chart to lose");
+  /* The engine stops sending replay bars with the final result, which
+     is exactly the moment this used to go blank. */
+  d.T.paintBacktestLive(host, doneRun(), false);
+  if (host.innerHTML === "") throw new Error("the panel was blanked when the run finished");
+  if (!host.querySelector("#bt-replay")) throw new Error("the chart canvas is gone");
+  return "canvas survives";
+});
+
+check("...and it is still drawing candles, not an empty frame", () => {
+  const d = desk();
+  const host = d.doc.getElementById("host");
+  d.T.paintBacktestLive(host, liveRun(), true);
+  d.state.only = "bt-replay";
+  d.log.length = 0;
+  d.T.paintBacktestLive(host, doneRun(), false);
+  const drawn = d.log.filter((e) => e.op === "fillRect" || e.op === "fill").length;
+  if (drawn < 20) throw new Error("only " + drawn + " shapes were drawn into the finished chart");
+  const note = host.querySelector("#bt-replay-note");
+  if (note && !note.hidden) throw new Error("it fell back to the placeholder: " + note.textContent);
+  return drawn + " shapes";
+});
+
+check("the finished panel drops the figures that are no longer moving", () => {
+  const d = desk();
+  const host = d.doc.getElementById("host");
+  d.T.paintBacktestLive(host, liveRun(), true);
+  d.T.paintBacktestLive(host, doneRun(), false);
+  if (host.querySelector(".bt-prog")) throw new Error("a finished run still shows a progress bar");
+  if (host.querySelector(".bt-kv")) throw new Error("the live counters are still being stated");
+  if (!host.querySelector(".is-done")) throw new Error("the panel does not say the run is over");
+  const at = host.querySelector("#bt-replay-at");
+  if (!at || !at.textContent.trim()) throw new Error("the frozen frame does not say which bar it ends on");
+  return "progress and counters gone, last bar named";
+});
+
+check("a run that failed has no window, and still clears", () => {
+  const d = desk();
+  const host = d.doc.getElementById("host");
+  d.T.paintBacktestLive(host, liveRun(), true);
+  d.T.paintBacktestLive(host, { ok: false, running: false, mode: "backtest", error: "no_bars" }, false);
+  if (host.innerHTML !== "") throw new Error("a failed run left a chart of nothing behind");
+  return "cleared";
+});
+
+check("the marks come from the trades when the live feed has stopped", () => {
+  /* The engine builds marks per snapshot and stops at the end of the
+     run, so the frozen frame has to derive them from the result's own
+     trade list or it would be bare candles. */
+  const d = desk();
+  const host = d.doc.getElementById("host");
+  d.T.paintBacktestLive(host, liveRun(), true);
+  d.state.only = "bt-replay";
+  d.log.length = 0;
+  d.T.paintBacktestLive(host, doneRun(), false);
+  /* Entries are triangles, exits are dots - see "entries and exits are
+     marked" below. Two round trips is two of each. */
+  const entries = d.log.filter((e) => e.op === "closePath").length;
+  const exits = d.log.filter((e) => e.op === "arc").length;
+  if (entries !== 2) throw new Error("expected 2 entry markers, drew " + entries);
+  if (exits !== 2) throw new Error("expected 2 exit dots, drew " + exits);
+  return "2 entries, 2 exits";
+});
+
+check("a result whose trade list was truncated keeps the frame's own marks", () => {
+  /* The result carries the last 200 trades; a long run has more, and
+     the window on screen can be entirely made of trades that fell off
+     the end. Falling back to the frame the replay last sent is the
+     difference between a marked chart and bare candles. */
+  const d = desk();
+  const host = d.doc.getElementById("host");
+  d.T.paintBacktestLive(host, liveRun(), true);
+  d.state.only = "bt-replay";
+  d.log.length = 0;
+  d.T.paintBacktestLive(host, doneRun({ trades: [] }), false);
+  const marks = d.log.filter((e) => e.op === "closePath" || e.op === "arc").length;
+  if (marks < 5) throw new Error("only " + marks + " markers survived the truncation");
+  return marks + " markers from the last live frame";
+});
+
+check("the panel is not rebuilt on every repaint of the same result", () => {
+  const d = desk();
+  const host = d.doc.getElementById("host");
+  d.T.paintBacktestLive(host, liveRun(), true);
+  const run = doneRun();
+  d.T.paintBacktestLive(host, run, false);
+  const canvas = host.querySelector("#bt-replay");
+  d.T.paintBacktestLive(host, run, false);
+  if (host.querySelector("#bt-replay") !== canvas) {
+    throw new Error("the same finished result replaced its own canvas");
+  }
+  return "stable";
+});
+
+check("the running hint no longer claims to be the live market", () => {
+  /* It said so while the panel drew the replay. The sentence was left
+     over from the version that really did show today's candles. */
+  const en = JSON.parse(fs.readFileSync(path.join(ROOT, "lang", "en.json"), "utf8"));
+  const hint = String(en.bt.live_chart_hint || "");
+  if (/live chart|keeps updating/i.test(hint)) throw new Error("still describes the live market: " + hint);
+  for (const lang of ["en", "fa", "ar"]) {
+    const pack = JSON.parse(fs.readFileSync(path.join(ROOT, "lang", lang + ".json"), "utf8"));
+    for (const k of ["done_window", "done_chart_hint", "live_chart_hint"]) {
+      if (typeof pack.bt[k] !== "string" || !pack.bt[k].trim()) throw new Error(lang + " is missing bt." + k);
+    }
+  }
+  return "3 packs";
+});
+
 check("the running panel no longer carries a live-market thumbnail", () => {
   const { doc, T } = desk();
   const host = doc.getElementById("host");
