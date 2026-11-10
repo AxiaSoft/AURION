@@ -283,15 +283,27 @@ function check(name, ok, detail) {
     const raw = text.match(/\b(?:bt|history|upd)\.[a-z_]+/g) || [];
     check("no untranslated keys in the backtest view", raw.length === 0, [...new Set(raw)].join(", ") || "none");
 
-    /* Two decimals, not four. The desk writes every price with
-       PRICE_DP, which is 2 by request - the five-digit broker precision
-       the ticket used to show is unreadable, 1.08451 and 1.08415 being
-       the same shape. So the fixture's 1.0812 and 1.0862 both reach the
-       table as 1.08, and what is checkable is that the entry and the
-       exit are both there rather than which digits they carry. */
-    const entries = (plain.match(/\b1\.08\b/g) || []).length;
-    check("the trades it took are listed", entries >= 2,
+    /* Four decimals on EURUSD, and this check used to insist on two.
+       
+       The desk did write every price with a flat PRICE_DP of 2, which
+       came from a real complaint about the broker's five - 1.08451
+       and 1.08415 are the same shape at a glance. It was then
+       reported as wrong for exactly this instrument: every trade in
+       this fixture collapsed to "1.08", four identical cells, a table
+       that could not tell a winner from a loser by its prices. The
+       count is per instrument now, two to four, and EURUSD is four.
+       
+       This fixture is a EURUSD run, so the figures it carries must
+       survive into the table intact. Still capped: nothing anywhere
+       may print the fifth digit. */
+    const entries = (plain.match(/\b1\.0(?:812|840|851|862)\b/g) || []).length;
+    check("the trades it took are listed, at this pair's own precision", entries >= 2,
       entries + " price cells; expected an entry and an exit at least");
+    check("and no price is collapsed to the desk's old flat two decimals",
+      !/\b1\.08\b/.test(plain), "a bare 1.08 is in the table");
+    check("and nothing prints the broker's fifth digit",
+      !/\b\d+\.\d{5}\b/.test(plain),
+      (plain.match(/\b\d+\.\d{5}\b/g) || []).join(" ") || "none");
     check("a losing trade is shown as a loss, not an absolute value",
       /[-\u2212]\s?11/.test(plain), plain.includes("11") ? "11 present" : "no 11 at all");
 

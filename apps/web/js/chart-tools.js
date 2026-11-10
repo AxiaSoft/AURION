@@ -1423,6 +1423,15 @@
    */
   function priceDp() {
     try {
+      /* The live chart's own count first. It is no longer a flat two
+         for every instrument - EURUSD gets four and gold keeps two -
+         so reading the class constant here would put a gold-shaped
+         number in the panel beside a four-decimal axis. */
+      const chart = ui && ui.chart;
+      if (chart && typeof chart.priceDp === "function") {
+        const live = Number(chart.priceDp());
+        if (Number.isFinite(live) && live >= 0 && live <= 8) return live;
+      }
       const dp = Number(global.CandleChart && global.CandleChart.PRICE_DP);
       if (Number.isFinite(dp) && dp >= 0 && dp <= 8) return dp;
     } catch (_) { /* no engine in scope */ }

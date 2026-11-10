@@ -489,8 +489,16 @@ check("the three ticket fields step by what they display", () => {
     if (/step="0\.000/.test(tag)) {
       throw new Error(id + " steps finer than it shows, so the arrow keys move digits it hides");
     }
-    if (!/step="\$\{PRICE_STEP\}"/.test(tag)) throw new Error(id + " does not take its step from PRICE_DP");
-    if (!/priceField\(/.test(tag)) throw new Error(id + " renders a raw number rather than a two-decimal one");
+    /* pStep, not PRICE_STEP. The step was a single desk-wide constant
+       when every price was written to two decimals; it is now this
+       instrument's, because EURUSD's fields step by 0.0001 and
+       gold's by 0.01. Still derived from the displayed count, which
+       is what this check is actually for - a field that steps finer
+       than it shows leaves the arrow keys moving nothing visible. */
+    if (!/step="\$\{pStep\}"/.test(tag)) throw new Error(id + " does not take its step from priceDp");
+    if (!/priceField\([^)]*,\s*sym\)/.test(tag)) {
+      throw new Error(id + " renders the value without naming its instrument");
+    }
   }
 });
 
@@ -501,8 +509,13 @@ check("a price going into a field is not localised", () => {
      the field empty - so the writer path has its own helper. */
   const fn = liftFn(APP, "priceField");
   if (/toLocaleString|I18N/.test(fn)) throw new Error("priceField localises: " + fn.replace(/\s+/g, " "));
-  if (!/toFixed\(PRICE_DP\)/.test(fn)) throw new Error("priceField does not use PRICE_DP");
-  const ctx = { Number, Math, PRICE_DP: 2 };
+  /* priceDp(symbol), not the flat PRICE_DP it used to take: the count
+     is per instrument now, two to four. The stub below stands in for
+     the lookup so this check stays about localisation and rounding,
+     which is what it is for - the count itself is measured in
+     tests/price-precision.test.js. */
+  if (!/toFixed\(priceDp\(/.test(fn)) throw new Error("priceField does not ask for the symbol's precision");
+  const ctx = { Number, Math, priceDp: () => 2 };
   const run = (v) => new (require("vm").Script)(fn + ";priceField(" + JSON.stringify(v) + ");")
     .runInNewContext({ ...ctx });
   if (run(1.084513) !== "1.08") throw new Error("got " + run(1.084513));
@@ -520,13 +533,24 @@ check("every place that writes a price into the ticket uses it", () => {
   }
 });
 
-check("prices on the EA chart are written to two decimals", () => {
+check("prices on the EA chart come from one place, capped at four", () => {
+  /* This asked for exactly two. Two was right for gold and useless
+     for EURUSD, where a whole session fits inside one hundredth and
+     every axis label then read 1.05 - reported, and now two to four
+     per instrument. What has NOT come back is the old widening table
+     that ran out to the broker's five: that is what made the ticket
+     unreadable and the ceiling is there to stop it. */
   const fn = liftMethod(CHARTS, "fmtPrice");
-  if (/a >= 1000|toFixed\(5\)|toFixed\(4\)|toFixed\(3\)/.test(fn)) {
+  if (/toFixed\(5\)|a >= 1000/.test(fn)) {
     throw new Error("the widening table is back: " + fn.replace(/\s+/g, " "));
   }
-  if (!/CandleChart\.PRICE_DP/.test(fn)) throw new Error("the precision is not read from one place");
-  if (!/static PRICE_DP = 2;/.test(CHARTS)) throw new Error("PRICE_DP is not 2");
+  if (!/this\.priceDp\(\)/.test(fn)) throw new Error("the precision is not read from one place");
+  if (!/static PRICE_DP_MAX = 4;/.test(CHARTS)) throw new Error("the ceiling is not four");
+  if (!/static PRICE_DP_MIN = 2;/.test(CHARTS)) throw new Error("the floor is not two");
+  /* One count per chart. Taking it from the number being printed
+     would put 99.995 above 100.00 on the same axis. */
+  const dp = liftMethod(CHARTS, "priceDp");
+  if (!/this\.tick|this\.bars/.test(dp)) throw new Error("the count is not taken from the chart's own prices");
 });
 
 check("the axis still reports the value it landed on", () => {
