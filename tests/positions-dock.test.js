@@ -222,7 +222,10 @@ check("one renderer, one container", () => {
      desk rather than one per place a position is shown. */
   if ((BUILD.match(/const row = /g) || []).length !== 1) throw new Error("more than one row template");
   if (/const row = /.test(fn)) throw new Error("the dock kept a private copy of the row");
-  if (!/positionsListHtml\(pos, ord\)/.test(fn)) throw new Error("the dock does not use the shared builder");
+  /* The third argument is the symbol the chart is on, added when the
+     dock stopped being filtered to it. The shared builder is still the
+     only thing drawing a row. */
+  if (!/positionsListHtml\(pos, ord, focus\)/.test(fn)) throw new Error("the dock does not use the shared builder");
 });
 
 check("a row can be found again by its ticket", () => {
@@ -566,10 +569,14 @@ check("the on-chart panel is repainted whatever the side panel holds", () => {
      3 again on refill. */
   const fn = APP.slice(APP.indexOf("function applyChartLevels("));
   const body = fn.slice(0, fn.indexOf("\n}"));
-  if (!/paintChartPositions\(pos, ord\)/.test(body)) {
+  /* allPos/allOrd, not pos/ord. The panel is handed the whole account
+     and the symbol the chart is on; pos/ord are the filtered lists and
+     they still go to setLevels/setOrders, because a line only means
+     anything on the chart it was priced against. */
+  if (!/paintChartPositions\(allPos, allOrd, symbol\)/.test(body)) {
     throw new Error("the on-chart panel is no longer repainted when the levels move");
   }
-  const callAt = body.indexOf("paintChartPositions(pos, ord)");
+  const callAt = body.indexOf("paintChartPositions(allPos, allOrd, symbol)");
   const guard = body.slice(0, callAt);
   if (/\breturn;/.test(guard.slice(guard.indexOf("syncChartPending()")))) {
     throw new Error("a return still stands between the levels and the panel");

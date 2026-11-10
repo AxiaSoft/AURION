@@ -1610,6 +1610,26 @@ html:fullscreen body { background: var(--bg) }
 .tvp-row.is-sell{border-inline-start-color:var(--candle-down)}
 .tvp-row.is-resting{border-inline-start-color:var(--muted);border-inline-start-style:dashed}
 
+/* A trade on another symbol.
+ *
+ * The dock lists the whole account, so most of what is in it on any
+ * given chart has no line drawn for it - 1.09500 is not a price on a
+ * gold axis. The row has to stay fully readable, because it is real
+ * money and it carries a working close button, while still being
+ * distinguishable at a glance from the ones the chart is actually
+ * showing.
+ *
+ * So: no dimming. Nothing here touches opacity or colour - a position
+ * is not less important for being on a different chart, and --faint
+ * would put the figures at about 3.5:1. The difference is a dotted
+ * edge and the symbol in the accent, which also says the row is the
+ * way to get to that chart.
+ */
+.tvp-row.is-away{border-inline-start-style:dotted}
+.tvp-row.is-away .tvp-sym{color:var(--accent);font-weight:600}
+.tvp-row.is-away[role="button"]{cursor:pointer}
+.tvp-row.is-away:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
 .tvp-head{
   padding-block:2px 4px;
   font-size:10px;

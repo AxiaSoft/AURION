@@ -12326,9 +12326,22 @@ function posCardHead(title) {
    positions behind a gesture nobody thinks to try. One builder means
    the trader learns the shape once, and the two can never drift the
    way the old pair did. */
-function positionsListHtml(pos, ord) {
+/**
+ * `focus` - the symbol whose chart this list is sitting on, or "".
+ *
+ * The list itself is the whole book either way. What focus changes is
+ * only which rows are marked as being drawn on the chart in front of
+ * you: a EURUSD position has no line on a gold chart, because 1.10 is
+ * not a price that exists on that scale, and a row that looks
+ * identical to the one with a line would be a quiet lie about what is
+ * on screen. Every other caller passes nothing and gets what it always
+ * got.
+ */
+function positionsListHtml(pos, ord, focus) {
   pos = pos || [];
   ord = ord || [];
+  const here = String(focus || "").trim();
+  const away = (r) => (here && String((r && r.symbol) || "") !== here ? " is-away" : "");
 
   /* One cell builder for both lists, so the two can never drift apart
      the way the old pair of templates did. The row is a grid whose
@@ -12358,7 +12371,11 @@ function positionsListHtml(pos, ord) {
        rather than dropped: knowing which robot opened a trade is the
        difference between reading your book and watching numbers. */
     const by = typeof strategyLabel === "function" ? strategyLabel(r.strategy) : (r.strategy || "");
-    return `<div class="tvp-row is-${dir}" data-ticket="${esc(String(r.ticket || ""))}"${by ? ` title="${esc(by)}"` : ""}>
+    /* data-sym so a tap on the row can take the chart to the trade.
+       On a list that now spans every symbol, "see it" and "close it"
+       are different things and both have to be reachable. */
+    return `<div class="tvp-row is-${dir}${away(r)}" data-ticket="${esc(String(r.ticket || ""))}"
+         data-sym="${esc(String(r.symbol || ""))}"${by ? ` title="${esc(by)}"` : ""}>
       ${cell("tvp-sym", esc(String(r.symbol || "")), I18N.t("table.symbol"))}
       ${cell("tvp-dir", `<b>${esc(String(r.type || dir).toUpperCase())}</b>`, I18N.t("table.type"))}
       ${cell("tvp-vol mono", fmt(r.volume, 2), I18N.t("table.volume"))}
@@ -12376,7 +12393,7 @@ function positionsListHtml(pos, ord) {
   /* A planted entry that has not filled yet is not a position, and
      showing it as one would overstate the exposure. It is marked as
      waiting and carries a cancel, not a close. */
-  const restRow = (r) => `<div class="tvp-row is-resting">
+  const restRow = (r) => `<div class="tvp-row is-resting${away(r)}" data-sym="${esc(String(r.symbol || ""))}">
       ${cell("tvp-sym", esc(String(r.symbol || "")), I18N.t("table.symbol"))}
       ${cell("tvp-dir", `<b>${esc(String(r.type || "").replace(/_/g, " ").toUpperCase())}</b>`, I18N.t("table.type"))}
       ${cell("tvp-vol mono", fmt(r.volume, 2), I18N.t("table.volume"))}
@@ -12404,7 +12421,15 @@ function positionsListHtml(pos, ord) {
       <span class="tvp-c tvp-act"></span>
     </div>`;
 
-  return `<div class="tvp-list">${head}${ord.map(restRow).join("")}${pos.map(row).join("")}</div>`;
+  /* The symbol on the chart first, the rest after it, each group in
+     the order the broker sent them. Sorting by symbol name instead
+     would reshuffle the book every time the chart changed, and a list
+     that rearranges itself while you read it is harder to use than one
+     that never moves. */
+  const mine = here ? (r) => String((r && r.symbol) || "") === here : () => true;
+  const order = (rows) => (here ? [...rows.filter(mine), ...rows.filter((r) => !mine(r))] : rows);
+
+  return `<div class="tvp-list">${head}${order(ord).map(restRow).join("")}${order(pos).map(row).join("")}</div>`;
 }
 
 function applyChartLevels(force) {
@@ -12414,12 +12439,35 @@ function applyChartLevels(force) {
     return;
   }
   const symbol = (S.chartFocus && S.chartFocus.symbol) || S.symbol || "";
-  const pos = (S.snap?.positions || []).filter((r) => r && (!symbol || r.symbol === symbol));
+
+  /* The whole book, and the part of it that belongs on this chart.
+     They are two different questions and were answered as one.
+
+     A LINE is only meaningful on the chart it was priced against: a
+     EURUSD stop at 1.09500 drawn on gold would sit somewhere around
+     the 2400 axis or nowhere at all. So setLevels and setOrders still
+     get this symbol and nothing else.
+
+     The PANEL is the opposite case. It was filtered the same way, so
+     switching the chart to gold made a EURUSD position disappear from
+     the desk entirely - open, costing money, with no row and no close
+     button anywhere on the page the trader was looking at. Asked for
+     directly: positions must be shown generally, so they can be
+     controlled. The dock now lists the whole account, this chart's
+     symbol first, and the rows for other symbols say so.
+
+     The flatten button under that list already closed the whole
+     account rather than this symbol; it now stands over a list that
+     actually shows what it would close. */
+  const onChart = (rows) => (rows || []).filter((r) => r && (!symbol || r.symbol === symbol));
+  const allPos = (S.snap?.positions || []).filter(Boolean);
   // Resting orders: the entry points the robot has planted and that have
   // not filled yet. The chart only ever drew open positions, so a robot
   // that had made its decision and was waiting at a price looked exactly
   // like a robot doing nothing.
-  const ord = (S.snap?.orders || []).filter((r) => r && (!symbol || r.symbol === symbol));
+  const allOrd = (S.snap?.orders || []).filter(Boolean);
+  const pos = onChart(allPos);
+  const ord = onChart(allOrd);
   if (S.chart && typeof S.chart.setLevels === "function") S.chart.setLevels(pos);
   if (S.chart && typeof S.chart.setOrders === "function") S.chart.setOrders(ord);
   syncChartPending();
@@ -12438,7 +12486,7 @@ function applyChartLevels(force) {
      The chips are gone. The panel is the thing that draws open trades
      on this desk, so it is called whenever the levels move, which is
      what the rest of this function exists to notice. */
-  paintChartPositions(pos, ord);
+  paintChartPositions(allPos, allOrd, symbol);
 }
 
 /* Collapsed state of the on-chart panel, remembered across views. */
@@ -12457,7 +12505,7 @@ function applyChartLevels(force) {
  * without being lost. It is anchored opposite the zoom controls so it
  * covers neither them nor the newest candles.
  */
-function paintChartPositions(pos, ord) {
+function paintChartPositions(pos, ord, focus) {
   /* One list now, not two.
 
      The side panel used to carry a copy of this; it has been removed,
@@ -12547,17 +12595,59 @@ function paintChartPositions(pos, ord) {
     return;
   }
 
-  const sig = pos.map((r) => `${r.ticket}:${r.sl}:${r.tp}:${r.profit}:${r.volume}`).join("|")
+  /* The focused symbol is part of the signature. Without it, switching
+     the chart from gold to EURUSD left the list untouched - same
+     tickets, same numbers - so the ordering and the "not on this
+     chart" markers would still be describing the chart before last. */
+  const sig = String(focus || "") + "@"
+    + pos.map((r) => `${r.ticket}:${r.sl}:${r.tp}:${r.profit}:${r.volume}`).join("|")
     + "#" + ord.map((r) => `${r.ticket}:${r.price}:${r.sl}:${r.tp}`).join("|");
 
-  const html = positionsListHtml(pos, ord);
+  const html = positionsListHtml(pos, ord, focus);
 
   if (bottom.dataset.sig !== sig) {
     bottom.dataset.sig = sig;
     bottom.innerHTML = html;
     bindCloseButtons(bottom);
     bindCancelButtons(bottom);
+    bindRowJump(bottom);
   }
+}
+
+/**
+ * Tap a row for another symbol and the chart goes there.
+ *
+ * The dock lists the whole account now, so for the first time it can
+ * show a trade that has no line on the chart under it. "Close it" was
+ * already reachable - the button on the row - but "look at it" was
+ * not, and on a list spanning several symbols those are different
+ * things: a stop is dragged on the chart, not in a table.
+ *
+ * Only rows marked as being elsewhere are clickable. A row for the
+ * symbol already on screen would navigate to where you are, which
+ * reads as a dead tap, and the close button inside it must keep its
+ * own click.
+ */
+function bindRowJump(root) {
+  (root || document).querySelectorAll(".tvp-row.is-away[data-sym]").forEach((row) => {
+    if (row.dataset.jump === "1") return;
+    row.dataset.jump = "1";
+    row.setAttribute("role", "button");
+    row.setAttribute("tabindex", "0");
+    const sym = row.dataset.sym || "";
+    const go = (e) => {
+      /* The close and cancel buttons live inside this row. Without
+         this, closing a trade would also navigate the chart away
+         from the one place showing the confirmation. */
+      if (e && e.target && e.target.closest("button")) return;
+      if (!sym) return;
+      openChartDesk(sym, (S.chartFocus && S.chartFocus.timeframe) || S.timeframe || "M15");
+    };
+    row.onclick = go;
+    row.onkeydown = (e) => {
+      if (e.key === "Enter" || e.key === " ") { e.preventDefault(); go(e); }
+    };
+  });
 }
 
 /** Cancel a resting order the robot planted but that has not filled. */
