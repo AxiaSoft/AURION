@@ -425,7 +425,7 @@ check("every upd.* and sup.* key the code reads is in the packs", () => {
 });
 
 check("the browser is made to fetch the files that changed", () => {
-  for (const want of ["js/app.js?v=desk237", "css/app.css?v=desk237", "js/demo.js?v=desk237"]) {
+  for (const want of ["js/app.js?v=desk238", "css/app.css?v=desk238", "js/demo.js?v=desk237"]) {
     must(HTML.includes(want), "index.html still points at the old " + want);
   }
   const token = /js\/i18n\.js\?v=(lang[0-9a-f]+)/.exec(HTML);

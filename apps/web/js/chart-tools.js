@@ -1726,17 +1726,19 @@
     if (!tv) return;
     ui.fullscreen = on;
     document.body.classList.toggle("chart-full", on);
-    /* The whole document goes fullscreen, not the workspace element.
-       Asking only for #tv looked tidier and was wrong: everything that
-       floats - the confirm dialog, the toasts, these menus - lives outside
-       #tv, and the browser paints nothing outside the fullscreen element.
-       Fullscreening the document keeps the entire desk inside it, and the
-       chart still fills the screen because body.chart-full says so. */
+    /* The desk's own fullscreen, and only that.
+       It used to ask the browser to fullscreen the whole document as
+       well. On a phone that takes the entire screen -- status bar,
+       address bar, gesture bar -- and the way out is a system gesture
+       rather than anything the desk draws, which is exactly what was
+       reported. body.chart-full already hides the navigation and the
+       header and hands the chart the whole stage, so the picture is the
+       same size inside the app, with the back button still on it.
+       Turning fullscreen off still leaves the browser's, in case
+       something else (or an older build) put the page into it. */
     try {
-      const root = document.documentElement;
-      if (on && !document.fullscreenElement && root.requestFullscreen) root.requestFullscreen().catch(() => {});
       if (!on && document.fullscreenElement && document.exitFullscreen) document.exitFullscreen().catch(() => {});
-    } catch (e) { /* the app-level fullscreen still applies */ }
+    } catch (e) { /* the app-level fullscreen is what matters */ }
     redrawSoon();
   }
 

@@ -555,6 +555,16 @@ html[dir="rtl"] .switch.on i{transform:translate(calc(var(--sw-travel) * -1),-50
 }
 .notify-card{user-select:none;-webkit-user-select:none}
 
+/* Held: hovered, pressed, or under a finger. Its five seconds are paused,
+   and the card says so quietly rather than leaving the reader to wonder
+   whether it is about to go. No movement -- a card that grows under the
+   pointer is a card whose close button moves while you aim at it. */
+.notify-card.n-held,
+.toast.n-held{
+  border-color:rgb(var(--accent-rgb) / .45);
+  box-shadow:var(--shadow), 0 0 0 1px rgb(var(--accent-rgb) / .18);
+}
+
 /* A touch target of 24px is fine for a mouse and mean for a thumb. */
 /* ===========================================================================
    Breakpoints - the whole scale, and the only one
@@ -4239,6 +4249,12 @@ html[dir="rtl"] .ct-lab{letter-spacing:0;text-transform:none;font-size:12px}
 .ct-entry[hidden]{display:none}
 .ct-entry .ct-lab{color:var(--muted)}
 .ct-step{
+  /* The control is laid out physically, like the number inside it: minus
+     on the left, plus on the right, in all three languages. A quantity
+     reads left to right everywhere -- 0.11 is 0.11 -- and letting the
+     page's direction flip the buttons puts "more" where the eye has
+     learnt "less", which is the one mistake a lot field must not make. */
+  direction:ltr;
   display:flex;align-items:center;gap:0;flex:1 1 auto;min-width:0;
   border:1px solid var(--line);border-radius:12px;overflow:hidden;
   background:rgb(var(--s1) / .5);
@@ -4257,6 +4273,8 @@ html[dir="rtl"] .ct-lab{letter-spacing:0;text-transform:none;font-size:12px}
   border:0;background:rgb(var(--wash) / .05);color:var(--ink);cursor:pointer;
 }
 .ct-pm:hover{background:rgb(var(--accent-rgb) / .16)}
+.ct-pm:disabled{opacity:.4;cursor:not-allowed}
+.ct-pm:disabled:hover{background:rgb(var(--wash) / .05)}
 .ct-pm svg{width:15px;height:15px}
 
 .ct-levels{display:grid;gap:8px;margin-block-end:12px}

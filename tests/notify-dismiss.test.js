@@ -128,7 +128,7 @@ async function boot() {
     .map((f) => fs.readFileSync(path.join(WEB, f), "utf8")).join("\n;\n");
   win.eval(bundle +
     "\n;window.__T = { S, toast, bindDismiss, paintNotifies, dismissNote, pushTradeCard, playSound,"
-    + " announceSignal, pushSignalCard," +
+    + " announceSignal, pushSignalCard, autoDismiss, NOTIFY_LIFE_MS," +
     " notifyPrefs, saveNotifyPrefs, loadSoundFiles, SOUND_FILES, SOUND_DIR," +
     " SOUND_SLOTS, SOUND_NAMES, SOUND_FILE_NAMES, NOTIFY_DEFAULTS, notifySoundCardHtml, icon, I18N };");
   await new Promise((r) => setTimeout(r, 60));
@@ -664,6 +664,189 @@ async function swipe(win, el, dx, opts) {
     if (!stack.hidden) {
       throw new Error("an empty but visible stack sits over the desk and eats pointer events");
     }
+  });
+
+  /* ---------------------------------------------------------------- *
+   * Five seconds, paused while it is being read
+   *
+   * Asked for plainly: notifications should leave on their own after
+   * five seconds, but one that is hovered, pressed, or held under a
+   * finger stays, and starts its five seconds again when it is let go.
+   *
+   * The timings below use a short life so the suite does not spend a
+   * minute waiting. The life is a parameter of the same function the
+   * desk uses -- what is being checked is the pause and the restart,
+   * not the number, and the number is checked separately against every
+   * path that raises a notification.
+   * ---------------------------------------------------------------- */
+
+  const LIFE = 120;
+  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+
+  /** A card in the stack, as any of the real paths would leave it. */
+  function card(doc, T) {
+    const stack = doc.getElementById("notify-stack");
+    stack.hidden = false;
+    const el = doc.createElement("article");
+    el.className = "notify-card";
+    el.innerHTML = '<h4>x</h4><button type="button" class="n-x" data-nx="x">x</button>';
+    stack.appendChild(el);
+    T.bindDismiss(el);
+    T.autoDismiss(el, LIFE);
+    return el;
+  }
+  const send = (win, el, type) => {
+    const e = new win.Event(type, { bubbles: false, cancelable: true });
+    Object.assign(e, { pointerId: 9, pointerType: "touch", clientX: 10, clientY: 10 });
+    el.dispatchEvent(e);
+  };
+
+  await check("a notification leaves on its own", async () => {
+    const { win, doc, T } = await boot();
+    const el = card(doc, T);
+    await wait(LIFE * 0.4);
+    if (!el.isConnected) throw new Error("it went early");
+    await wait(LIFE);
+    if (el.isConnected) throw new Error("it is still there");
+    if (!doc.getElementById("notify-stack").hidden) throw new Error("the empty stack stayed visible");
+    void win;
+  });
+
+  await check("hovering it holds it on screen", async () => {
+    const { win, doc, T } = await boot();
+    const el = card(doc, T);
+    send(win, el, "pointerenter");
+    await wait(LIFE * 3);
+    if (!el.isConnected) throw new Error("it left under the pointer");
+    if (!el.classList.contains("n-held")) throw new Error("a held card does not say so");
+    send(win, el, "pointerleave");
+    if (el.classList.contains("n-held")) throw new Error("it is still marked held after the pointer left");
+    await wait(LIFE * 2);
+    if (el.isConnected) throw new Error("it never left after the pointer did");
+  });
+
+  await check("a finger held on it holds it, and letting go starts the clock", async () => {
+    const { win, doc, T } = await boot();
+    const el = card(doc, T);
+    send(win, el, "pointerdown");
+    await wait(LIFE * 3);
+    if (!el.isConnected) throw new Error("it left under the finger");
+    send(win, el, "pointerup");
+    await wait(LIFE * 0.4);
+    if (!el.isConnected) throw new Error("it went the moment the finger lifted, not five seconds later");
+    await wait(LIFE);
+    if (el.isConnected) throw new Error("it never left after the finger did");
+  });
+
+  await check("the clock restarts in full, it does not resume where it stopped", async () => {
+    const { win, doc, T } = await boot();
+    const el = card(doc, T);
+    await wait(LIFE * 0.8);              // nearly out of time
+    send(win, el, "pointerdown");
+    await wait(LIFE);
+    send(win, el, "pointerup");
+    await wait(LIFE * 0.5);              // more than the remainder, less than a life
+    if (!el.isConnected) throw new Error("it resumed the old countdown instead of restarting");
+    await wait(LIFE);
+    if (el.isConnected) throw new Error("it never left");
+  });
+
+  await check("a touch-only runtime holds it too", async () => {
+    const { win, doc, T } = await boot();
+    const el = card(doc, T);
+    send(win, el, "touchstart");
+    await wait(LIFE * 3);
+    if (!el.isConnected) throw new Error("touchstart did not pause it");
+    send(win, el, "touchend");
+    await wait(LIFE * 2);
+    if (el.isConnected) throw new Error("touchend did not release it");
+  });
+
+  await check("a gesture the browser takes away does not strand the card", async () => {
+    /* The browser cancels the pointer when it decides the gesture was a
+       scroll, or when the app is switched. Without pointercancel the
+       card is held for ever by a finger that is no longer there. */
+    const { win, doc, T } = await boot();
+    const el = card(doc, T);
+    send(win, el, "pointerdown");
+    send(win, el, "pointercancel");
+    await wait(LIFE * 2);
+    if (el.isConnected) throw new Error("the card is held by a pointer that was taken away");
+  });
+
+  await check("keyboard focus holds it as a hand does", async () => {
+    const { win, doc, T } = await boot();
+    const el = card(doc, T);
+    el.dispatchEvent(new win.Event("focusin", { bubbles: true }));
+    await wait(LIFE * 3);
+    if (!el.isConnected) throw new Error("it vanished while the keyboard was on it");
+    el.dispatchEvent(new win.Event("focusout", { bubbles: true }));
+    await wait(LIFE * 2);
+    if (el.isConnected) throw new Error("it never left after focus did");
+  });
+
+  await check("closing it by hand stops its timer firing into nothing", async () => {
+    const { win, doc, T } = await boot();
+    const el = card(doc, T);
+    el.querySelector(".n-x").dispatchEvent(new win.Event("click", { bubbles: true }));
+    if (el.isConnected) throw new Error("the close button did not remove it");
+    if (el._life && el._life.ms !== LIFE) throw new Error("the life was not the one asked for");
+    await wait(LIFE * 2);               // the timer would fire about here
+  });
+
+  await check("every kind of notification uses the one five-second rule", async () => {
+    const src = fs.readFileSync(path.join(WEB, "js", "app.js"), "utf8");
+    const slice = (from, to) => src.slice(src.indexOf(from), src.indexOf(to));
+    const paths = {
+      "an ordinary notification": slice("function toast(msg, opts)", "function modalOpen("),
+      "a trade card": slice("function pushTradeCard(", "function notifyHostTrade("),
+      "a signal card": slice("function pushSignalCard(", "function openSignalChart("),
+      "an engine note": slice("function paintNotifies(", "async function dismissNote("),
+    };
+    for (const [what, body] of Object.entries(paths)) {
+      if (!/autoDismiss\(/.test(body)) throw new Error(what + " does not use the shared timer");
+    }
+    for (const [what, body] of Object.entries(paths)) {
+      if (/setTimeout\([^)]{0,200}(3200|12000|20000)\)/.test(body)) {
+        throw new Error(what + " still has a lifetime of its own");
+      }
+    }
+    if (!/const NOTIFY_LIFE_MS = 5000;/.test(src)) throw new Error("the five seconds is not five seconds");
+  });
+
+  await check("a real toast carries the five seconds, not a number of its own", async () => {
+    const { T } = await boot();
+    const el = T.toast("saved");
+    if (!el._life) throw new Error("a toast has no timer");
+    if (el._life.ms !== 5000) throw new Error("a toast lives for " + el._life.ms + "ms");
+  });
+
+  await check("an engine note that times out is not marked read on the engine", async () => {
+    /* The card is the only place a note is shown, so a five-second card
+       must not throw the note away: it stops being displayed, the engine
+       still has it, and nothing is POSTed. Dismissing it by hand still
+       does tell the engine -- that is the difference between "I read
+       that" and "I was not looking". */
+    const { doc, T, posted } = await boot();
+    T.S.notes = [{ id: "note-1", title: "Engine", body: "something happened" }];
+    T.paintNotifies();
+    const stack = doc.getElementById("notify-stack");
+    if (stack.children.length !== 1) throw new Error("the note was not drawn");
+    const el = stack.firstElementChild;
+    if (!el._life || el._life.ms !== 5000) throw new Error("the note card is not on the five-second clock");
+    // Waited out for real: the card is armed by paintNotifies and there
+    // is no hook to shorten it without the production code carrying a
+    // test switch, which is worse than five seconds of waiting.
+    await wait(5400);
+    if (el.isConnected) throw new Error("the note card never left");
+    if (posted.some((r) => /\/dismiss/.test(r.url))) {
+      throw new Error("timing out dismissed the note on the engine");
+    }
+    if (!(T.S.notes || []).some((n) => n.id === "note-1")) throw new Error("the note was deleted locally");
+    // ...and the next poll must not put it straight back, or the five
+    // seconds looks broken to everybody except the person who wrote it.
+    T.paintNotifies();
+    if (stack.children.length) throw new Error("the repaint brought the timed-out card back");
   });
 
   function re_escape(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"); }

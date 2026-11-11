@@ -140,10 +140,19 @@ check("anything that adds a card un-hides the stack", () => {
 });
 
 check("and the stack is hidden again exactly when it empties", () => {
-  const body = slice("function pushTradeCard(t) {", "function notifyHostTrade(t)");
-  must(/if \(stack\.children\.length === 0\) stack\.hidden = true/.test(body),
+  /* REWRITTEN, not deleted. The card's own twelve-second setTimeout --
+     which is where this used to look for the hide -- has been replaced
+     by one five-second clock shared by every notification, which pauses
+     while the card is being hovered, pressed or held. The rule being
+     protected is unchanged: whatever removes the last card must put the
+     stack back to hidden, or an invisible fixed box keeps eating
+     clicks over the page. */
+  const card = slice("function pushTradeCard(t) {", "function notifyHostTrade(t)");
+  must(/autoDismiss\(card\)/.test(card), "a trade card is not on the shared clock");
+  const body = slice("function autoDismiss(el, ms, onExpire) {", "function noticeSound(");
+  must(/if \(stack && stack\.children\.length === 0\) stack\.hidden = true/.test(body),
     "an empty stack keeps a fixed, invisible box over the page");
-  return "children.length === 0";
+  return "children.length === 0, in autoDismiss";
 });
 
 check("the stack is not pinned to an inline edge in the stylesheet", () => {
