@@ -5447,6 +5447,24 @@ function strategyItems() {
   return items;
 }
 
+function strategyFaultCards() {
+  /* A strategy file that will not import is simply absent from the book,
+     so the desk showed nothing: no card, no row, no error. The trader
+     uploaded something, it was accepted, and then it was not there -
+     which reads as a lost upload rather than a fault in the code. The
+     engine now reports what failed and why; this is where it is said. */
+  const rows = S.snap?.strategy?.faults;
+  if (!Array.isArray(rows) || !rows.length) return "";
+  return `<div class="card st-broken" id="st-broken">
+      <h3>${I18N.t("strategies.broken_title")}</h3>
+      <p class="sub">${I18N.t("strategies.broken_hint")}</p>
+      ${rows.map((r) => `<div class="st-broken-row">
+        <b class="mono">${esc(r.file || r.name || "")}</b>
+        <span class="mono st-broken-why">${esc(r.error || "")}</span>
+      </div>`).join("")}
+    </div>`;
+}
+
 function strategyUploadCard() {
   if (!licFeat("strategy_upload")) return lockedUpgradeCard("strategy_upload");
   return `<div class="card st-upload" id="st-upload">
@@ -7610,6 +7628,7 @@ const views = {
         <span class="pill" id="st-live-sig">${sig ? `${sig.action||"—"} ${sig.symbol||""}` : I18N.t("strategies.waiting")}</span>
       </div>
       <div class="grid g-2" id="st-live-grid">${strategyLiveCards()}</div>
+      ${strategyFaultCards()}
       ${strategyUploadCard()}
     </div>`;
   },

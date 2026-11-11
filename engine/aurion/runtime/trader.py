@@ -2360,13 +2360,17 @@ class Trader:
             try:
                 kind = str(spec.get("kind") or "file")
                 params = spec.get("params") or {}
-                if kind == "builtin":
-                    inst = self.loader.load_builtin(name, params)
-                else:
-                    from pathlib import Path
-
-                    path = Path(spec.get("path") or (self.loader.dir / str(spec.get("file") or name)))
-                    inst = self.loader.load_path(path, params)
+                # Through the same resolver as every other caller. The old
+                # join dropped the ".py" whenever a saved entry predated the
+                # "file" key, so an upgraded desk lost the strategy on boot
+                # and only got it back from the self-heal sweep below -
+                # disabled, however it had been left.
+                inst = self.loader.build({
+                    "kind": kind,
+                    "name": spec.get("file") or name,
+                    "path": spec.get("path"),
+                    "params": params,
+                })
                 self.book[name] = {
                     "inst": inst,
                     "enabled": bool(spec.get("enabled")),
@@ -2375,8 +2379,10 @@ class Trader:
                     "last_reason": "",
                     "last_ts": "",
                 }
-            except Exception:
+                self._clear_strategy_fault(name)
+            except Exception as exc:
                 log.exception("saved strategy %s failed to reload", name)
+                self._note_strategy_fault(name, exc)
         self._apply_style_params()
         for name, spec in saved.items():
             if name not in self.book or not isinstance(spec, dict):
@@ -2395,8 +2401,9 @@ class Trader:
                     continue
                 try:
                     inst = self.loader.load_path(path, {})
-                except Exception:
+                except Exception as exc:
                     log.exception("uploaded strategy %s failed to load", stem)
+                    self._note_strategy_fault(stem, exc, file=path.name)
                     continue
                 self.book[stem] = {
                     "inst": inst,
@@ -2406,6 +2413,7 @@ class Trader:
                     "last_reason": "",
                     "last_ts": "",
                 }
+                self._clear_strategy_fault(stem)
                 log.info("registered uploaded strategy %s from disk", stem)
         except Exception:
             pass
@@ -2831,6 +2839,38 @@ class Trader:
             for key, _ in stale[: len(book) - Trader.SYMBOL_MEMORY]:
                 book.pop(key, None)
 
+    def _note_strategy_fault(self, name: str, exc: Exception, file: str | None = None) -> None:
+        """Remember a strategy file that is on disk but would not load.
+
+        A file that fails to import is simply absent from the book, so the
+        desk shows nothing at all: no card, no error, no row. The trader
+        uploaded something, it was accepted, and then it was not there -
+        which reads as the upload having been lost rather than the code
+        having a fault in it. The log said so all along, and nobody reads
+        the log.
+        """
+        key = str(name or "").strip()
+        if not key:
+            return
+        faults = getattr(self, "strategy_faults", None)
+        if faults is None:
+            faults = self.strategy_faults = {}
+        faults[key] = {
+            "name": key,
+            "file": file or f"{key}.py",
+            "error": f"{type(exc).__name__}: {exc}" if not isinstance(exc, StrategyValidationError) else str(exc),
+            "ts": utc_iso(),
+        }
+
+    def _clear_strategy_fault(self, name: str) -> None:
+        """A name that loads is no longer broken."""
+        key = str(name or "").strip()
+        if key.endswith(".py"):
+            key = key[:-3]
+        faults = getattr(self, "strategy_faults", None)
+        if faults:
+            faults.pop(key, None)
+
     def _sync_book_meta(self) -> None:
         enabled = [k for k, v in self.book.items() if v.get("enabled")]
         first = next((self.book[k]["inst"] for k in enabled), None)
@@ -2953,6 +2993,13 @@ class Trader:
             "auto_limit": panel("auto limit", self._auto_limit_meta, {}),
             "prop_enabled": bool(getattr(self.prop, "enabled", True)),
             "items": items,
+            # Files in the strategies folder that would not load. Without
+            # these the desk can only show what succeeded, so a broken
+            # upload looks like a lost upload.
+            "faults": sorted(
+                (dict(v) for v in (getattr(self, "strategy_faults", {}) or {}).values()),
+                key=lambda r: str(r.get("name") or ""),
+            ),
             "stats": ledger,
             "class": first.__class__.__name__ if first else "",
         }
@@ -5021,16 +5068,17 @@ class Trader:
         kind = spec.get("kind") or "builtin"
         name = spec.get("name") or spec.get("file")
         params = spec.get("params") or {}
+        # One resolver for every caller. This used to join the name onto the
+        # strategies folder itself, which loses the ".py" whenever the caller
+        # passes a stem - the desk's dropdown does - and surfaced as a raw
+        # FileNotFoundError naming a path the trader never typed.
         try:
-            if kind == "builtin":
-                inst = self.loader.load_builtin(str(name), params)
-            else:
-                from pathlib import Path
-
-                path = Path(spec.get("path") or (self.loader.dir / str(name)))
-                inst = self.loader.load_path(path, params)
+            inst = self.loader.build({"kind": kind, "name": name, "path": spec.get("path"), "params": params})
         except StrategyValidationError as exc:
             return {"ok": False, "error": str(exc)}
+        except Exception as exc:
+            log.exception("strategy %s failed to load", name)
+            return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
         if self.strategy and hasattr(self.strategy, "on_stop"):
             try:
                 self.strategy.on_stop(self._ctx(self.active_symbol, self.active_timeframe))
@@ -5040,10 +5088,12 @@ class Trader:
         if kind != "builtin":
             from pathlib import Path as _P
 
-            path = _P(spec.get("path") or (self.loader.dir / name))
-            name = path.stem or name
-            if name.endswith(".py"):
-                name = name[:-3]
+            # The book is keyed by stem. Derive it from the name itself -
+            # joining it onto the strategies folder first was how the ".py"
+            # went missing everywhere else.
+            explicit = spec.get("path")
+            source = _P(explicit) if explicit else (self.loader.file_for(name) or _P(str(name)))
+            name = source.stem or name
         prev = self.book.get(name) or {}
         if "enabled" in spec:
             enabled = bool(spec.get("enabled"))
@@ -5063,6 +5113,7 @@ class Trader:
             "last_ts": prev.get("last_ts") or "",
         }
         self.strategy = inst
+        self._clear_strategy_fault(name)
         if enabled and hasattr(inst, "on_start"):
             inst.on_start(self._ctx(self.active_symbol, self.active_timeframe))
         self._sync_book_meta()

@@ -159,31 +159,142 @@ class StrategyLoader:
         validate_source(source)
         return {"ok": True, "file": path.name}
 
+    @staticmethod
+    def _implements(cls: Any, method: str) -> bool:
+        """True when `cls` actually writes `method`, rather than inheriting it.
+
+        BaseStrategy supplies no-op on_candle/on_tick so a subclass always
+        *has* them. hasattr() therefore says yes to a helper class that
+        happens to inherit from BaseStrategy, which is how a file with two
+        classes could load the wrong one.
+
+        The answer is read off the MRO rather than compared against the
+        BaseStrategy imported here: a user file is imported under its own
+        module name, and the engine can end up holding two copies of
+        aurion.strategy.base (the test suite does). Identity comparison
+        then said "yes, it implements it" for every class in the file and
+        the helper won again, from a different direction.
+        """
+        base_names = {"BaseStrategy", "Strategy", "object"}
+        for klass in getattr(cls, "__mro__", ()):
+            if method in getattr(klass, "__dict__", {}):
+                return klass.__name__ not in base_names
+        return False
+
     def _instantiate(self, module: Any, params: dict[str, Any] | None) -> BaseStrategy:
-        candidates = []
-        for _, obj in inspect.getmembers(module, inspect.isclass):
-            if obj.__module__ != module.__name__:
-                continue
-            if obj.__name__ in {"BaseStrategy", "Strategy"}:
-                continue
-            if hasattr(obj, "on_candle") or hasattr(obj, "on_tick"):
-                candidates.append(obj)
-        if not candidates:
-            raise StrategyValidationError("no strategy class with on_candle/on_tick found")
-        cls = candidates[0]
-        inst = cls(params or {})
-        return inst
+        """Pick the strategy class in a loaded module, deterministically.
+
+        This used to take candidates[0], and inspect.getmembers sorts by
+        NAME — so a file containing a helper and the real strategy loaded
+        whichever came first in the alphabet. `class Helper(BaseStrategy)`
+        beat `class MyStrategy(BaseStrategy)` and the desk armed a
+        strategy that does nothing, with no complaint anywhere.
+
+        The order of preference is now what the author actually wrote:
+        a class that implements on_candle or on_tick wins over one that
+        merely inherits them, and ties are broken by position in the file
+        rather than by name.
+        """
+        defined = [
+            obj
+            for _, obj in inspect.getmembers(module, inspect.isclass)
+            if obj.__module__ == module.__name__
+            and obj.__name__ not in {"BaseStrategy", "Strategy"}
+        ]
+        # Source order, so "the first strategy in the file" means what it
+        # looks like it means. Classes without a line number sort last.
+        def where(cls: Any) -> int:
+            try:
+                return int(inspect.getsourcelines(cls)[1])
+            except (OSError, TypeError):
+                return 10**9
+
+        defined.sort(key=where)
+
+        real = [c for c in defined
+                if self._implements(c, "on_candle") or self._implements(c, "on_tick")]
+        if real:
+            if len(real) > 1:
+                log.info(
+                    "%s defines %d strategies (%s); using the first one",
+                    module.__name__, len(real), ", ".join(c.__name__ for c in real),
+                )
+            cls = real[0]
+        else:
+            inherited = [c for c in defined
+                         if hasattr(c, "on_candle") or hasattr(c, "on_tick")]
+            if not inherited:
+                found = ", ".join(c.__name__ for c in defined) or "none"
+                raise StrategyValidationError(
+                    "no strategy class found — a class must define on_candle "
+                    f"or on_tick (classes in this file: {found})"
+                )
+            # Inherits the no-op base methods and overrides neither: it will
+            # load and then never say anything, which is worth naming here
+            # rather than leaving the trader to discover it in silence.
+            cls = inherited[0]
+            log.warning(
+                "strategy class %s overrides neither on_candle nor on_tick; "
+                "it can never produce a signal", cls.__name__,
+            )
+        try:
+            return cls(params or {})
+        except StrategyValidationError:
+            raise
+        except Exception as exc:
+            raise StrategyValidationError(
+                f"{cls.__name__}.__init__ failed: {type(exc).__name__}: {exc}"
+            ) from exc
 
     def load_path(self, path: Path, params: dict[str, Any] | None = None) -> BaseStrategy:
-        validate_source(path.read_text(encoding="utf-8"))
+        """Import one strategy file and build the class inside it.
+
+        Everything that can go wrong here comes back as
+        StrategyValidationError carrying a sentence a trader can act on.
+        It used to let the raw exception out, so a missing file reached
+        the desk as "[Errno 2] No such file or directory: 'C:\\Users\\...
+        \\engine\\strategies\\my_strategy'" — a path the trader never
+        typed, with no hint that the extension had been lost on the way.
+        """
+        path = Path(path)
+        try:
+            source = path.read_text(encoding="utf-8")
+        except FileNotFoundError:
+            raise StrategyValidationError(self._unknown(path.stem)) from None
+        except IsADirectoryError:
+            raise StrategyValidationError(f"'{path.name}' is a folder, not a strategy file") from None
+        except UnicodeDecodeError:
+            raise StrategyValidationError(
+                f"'{path.name}' is not UTF-8 text — save it as UTF-8 and upload it again"
+            ) from None
+        except OSError as exc:
+            raise StrategyValidationError(f"cannot read '{path.name}': {exc}") from exc
+
+        validate_source(source)
         key = path.stem
         mod_name = f"aurion_user_strategy_{key}"
         spec = importlib.util.spec_from_file_location(mod_name, path)
         if spec is None or spec.loader is None:
-            raise StrategyValidationError("cannot import strategy file")
+            raise StrategyValidationError(f"cannot import '{path.name}'")
         module = importlib.util.module_from_spec(spec)
         sys.modules[mod_name] = module
-        spec.loader.exec_module(module)
+        try:
+            spec.loader.exec_module(module)
+        except Exception as exc:
+            # The file ran and threw: a typo in a name, a bad default, an
+            # import of something that is not installed. Name the line, and
+            # do not leave a half-built module behind for the next load to
+            # find.
+            sys.modules.pop(mod_name, None)
+            line = ""
+            tb = exc.__traceback__
+            while tb is not None:
+                if tb.tb_frame.f_code.co_filename == str(path):
+                    line = f" at line {tb.tb_lineno}"
+                tb = tb.tb_next
+            raise StrategyValidationError(
+                f"'{path.name}' failed while loading{line}: {type(exc).__name__}: {exc}"
+            ) from exc
         inst = self._instantiate(module, params)
         self.loaded[key] = inst
         log.info("loaded strategy %s from %s", inst.name, path.name)
@@ -244,6 +355,14 @@ class StrategyLoader:
         explicit = spec.get("path")
         if explicit:
             return self.load_path(Path(explicit), params)
+
+        if not str(name or "").strip():
+            # Without this the message read "no strategy called 'None'",
+            # which sends the trader looking for a strategy of that name.
+            raise StrategyValidationError(
+                "no strategy was named — pick one from the list: "
+                + ", ".join(list(BUILTIN_NAMES) + self.uploaded_names())
+            )
 
         is_builtin = resolve_builtin(str(name)) in set(BUILTIN_NAMES)
         found = self.file_for(name)
