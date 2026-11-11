@@ -348,7 +348,9 @@
     "rf_to_entry": "break-even",
     "rf_rung_at": "at {pct}% of the way to target",
     "file_name": "Strategy file name",
-    "source": "Strategy source code"
+    "source": "Strategy source code",
+    "broken_title": "A strategy file will not load",
+    "broken_hint": "The file is still in your strategies folder. Fix the code and upload it again, or delete it."
   },
   "sys": {
     "tz_title": "Time zone",
