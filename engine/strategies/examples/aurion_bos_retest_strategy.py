@@ -132,9 +132,9 @@ class MyStrategy(BaseStrategy):
     language = "fa"  # en | fa | ar
 
     #: Nothing has been measured out of sample yet, and saying so is the
-    #: honest answer. The guard suite (engine/tests/test_bos_retest.py) only
-    #: proves the setup is DETECTED on a chart that contains it and refused
-    #: on one that does not - that is correctness, not profitability.
+    #: honest answer. The guard suite (engine/tests/test_bos_retest_example.py)
+    #: only proves the setup is DETECTED on a chart that contains it and
+    #: refused on one that does not - correctness, not profitability.
     evidence = {
         "state": "unmeasured",
         "basis": "detection verified on a hand-built BOS+retest fixture and on "
