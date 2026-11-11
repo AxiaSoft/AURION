@@ -223,6 +223,9 @@ function bindDismiss(el, onGone) {
   const finish = () => {
     if (el._gone) return;
     el._gone = true;
+    // A card thrown away by hand must not be waited on any more, or its
+    // own five-second timer fires into a detached element.
+    if (el._life) el._life.stop();
     if (typeof onGone === "function") onGone(el);
     else el.remove();
     /* The container ships hidden and has to go back to hidden when it
@@ -288,6 +291,85 @@ function bindDismiss(el, onGone) {
   el._dismiss = finish;
 }
 
+/**
+ * Every notification leaves by itself after five seconds -- unless it is
+ * being read.
+ *
+ * Asked for plainly: notifications should go on their own, but one the
+ * trader is hovering, holding the mouse down on, or keeping a finger on
+ * must stay, and start its five seconds again when it is let go.
+ *
+ * The three lifetimes before this were 3.2s for a status message, 12s for
+ * a trade and 20s for a signal, and none of them paused for anything. A
+ * signal card with an entry price on it could not be read on a phone
+ * without racing it, and a long one could not be read at all.
+ *
+ * Details that are not decoration:
+ *
+ *   - hover, press and focus are tracked separately. A finger that lands
+ *     fires pointerdown and pointerenter both, and a mouse that leaves
+ *     while the button is down fires pointerleave without pointerup; one
+ *     flag would be cleared by whichever event arrived last and the card
+ *     would vanish under the hand.
+ *   - focus counts as held. Tabbing to the close button and then being
+ *     interrupted should not lose the card out from under the keyboard.
+ *   - the clock restarts from the beginning on release rather than
+ *     resuming whatever was left, which is what "when it is let go, five
+ *     seconds later" asks for and is also the only version that is
+ *     predictable to a reader.
+ *   - a pointer the browser takes away mid-gesture (a scroll begins, the
+ *     app is switched) still releases, through pointercancel and
+ *     touchcancel. Without those the card is held for ever by a finger
+ *     that is no longer there.
+ */
+const NOTIFY_LIFE_MS = 5000;
+
+function autoDismiss(el, ms, onExpire) {
+  if (!el || el._life) return el;
+  const life = Number(ms) > 0 ? Number(ms) : NOTIFY_LIFE_MS;
+  const held = { hover: false, press: false, focus: false };
+  let timer = null;
+
+  const stop = () => { if (timer) { clearTimeout(timer); timer = null; } };
+  const leave = () => {
+    timer = null;
+    if (el._gone) return;
+    /* Running out of time is not the same as being dismissed, and a card
+       whose source needs to know the difference passes its own action. */
+    if (typeof onExpire === "function") { onExpire(el); }
+    else if (typeof el._dismiss === "function") { el._dismiss(); return; }
+    else el.remove();
+    const stack = $("notify-stack");
+    if (stack && stack.children.length === 0) stack.hidden = true;
+  };
+  const arm = () => {
+    stop();
+    if (el._gone) return;
+    const busy = held.hover || held.press || held.focus;
+    el.classList.toggle("n-held", busy);
+    if (!busy) timer = setTimeout(leave, life);
+  };
+  const set = (key, value) => { held[key] = value; arm(); };
+  const up = () => set("press", false);
+
+  el.addEventListener("pointerenter", () => set("hover", true));
+  el.addEventListener("pointerleave", () => { held.press = false; set("hover", false); });
+  el.addEventListener("pointerdown", () => set("press", true));
+  el.addEventListener("pointerup", up);
+  el.addEventListener("pointercancel", up);
+  /* Touch as well as pointer: a WebView that does not implement pointer
+     events at all still has to honour a finger held on the card. */
+  el.addEventListener("touchstart", () => set("press", true), { passive: true });
+  el.addEventListener("touchend", up);
+  el.addEventListener("touchcancel", up);
+  el.addEventListener("focusin", () => set("focus", true));
+  el.addEventListener("focusout", () => set("focus", false));
+
+  el._life = { arm, stop, held, ms: life };
+  arm();
+  return el;
+}
+
 /* Ordinary notifications arrive in bursts - saving a form can raise three
    in a row - and three chimes on top of each other is a noise, not a
    notification. One sound per window, the rest are seen and not heard. */
@@ -327,8 +409,8 @@ function toast(msg, opts) {
   // textContent, not innerHTML: a toast often carries a server message.
   el.querySelector(".toast-msg").textContent = msg;
   wrap.appendChild(el);
-  const timer = setTimeout(() => { if (el._dismiss) el._dismiss(); else el.remove(); }, 3200);
-  bindDismiss(el, () => { clearTimeout(timer); el.remove(); });
+  bindDismiss(el);
+  autoDismiss(el);
   if (!opts.silent) noticeSound();
   return el;
 }
@@ -2481,10 +2563,7 @@ function pushTradeCard(t) {
      through the server dismissal is what used to clear the whole stack. */
   bindDismiss(card);
   while (stack.children.length > 4) stack.lastElementChild.remove();
-  setTimeout(() => {
-    card.remove();
-    if (stack.children.length === 0) stack.hidden = true;
-  }, 12000);
+  autoDismiss(card);
 }
 
 /** The Windows toast, via the desktop host. Entries and exits only. */
@@ -2545,15 +2624,12 @@ function pushSignalCard(sig) {
     if (stack.children.length === 0) stack.hidden = true;
   };
 
-  /* Signal cards expire like trade cards do. They carry an entry price,
-     which is the one number that is useless a minute later, and a card
-     that never leaves turns the stack into a log nobody reads. Longer
-     than a trade's twelve seconds, because a signal is an invitation to
-     act and a filled trade is a fact. */
-  setTimeout(() => {
-    card.remove();
-    if (stack.children.length === 0) stack.hidden = true;
-  }, 20000);
+  /* Signal cards expire like everything else now: five seconds, paused
+     for as long as the card is being hovered, pressed or held. They
+     carry an entry price, which is the one number that is useless a
+     minute later, and a card that never leaves turns the stack into a
+     log nobody reads. */
+  autoDismiss(card);
 }
 
 /**
@@ -5274,6 +5350,46 @@ function showRestingOrder(o) {
   if (typeof S.chart.setPending === "function") S.chart.setPending({ sl: 0, tp: 0, entry: 0 });
 }
 
+/**
+ * Move a lot field by one of its own steps, and tell the page about it.
+ *
+ * One implementation for the chart ticket and for Settings, because they
+ * must not disagree about what a step is or about the floor. Two details
+ * are the reason this is a function rather than two handlers:
+ *
+ *   - 0.1 + 0.01 is 0.11000000000000001 in binary floating point, and a
+ *     lot field showing that is a bug report. The value is snapped to the
+ *     step's own grid and then trimmed.
+ *   - it never goes below the field's min (or one step, if there is no
+ *     min), because a lot of zero is not an order and a negative lot is
+ *     nothing at all.
+ *
+ * `change` is fired as well as `input`: the ticket listens for the first
+ * and Settings commits on the second, and a stepper press is a committed
+ * decision in both places.
+ */
+function stepLotField(el, dir) {
+  if (!el) return;
+  const step = Number(el.step) || 0.01;
+  const floor = Number(el.min) > 0 ? Number(el.min) : step;
+  const ceil = Number(el.max) > 0 ? Number(el.max) : Infinity;
+  const from = Number(el.value);
+  const base = Number.isFinite(from) && from > 0 ? from : floor;
+  let next = Math.round((base + (Number(dir) || 0) * step) / step) * step;
+  next = Math.min(ceil, Math.max(floor, next));
+  el.value = String(Number(next.toFixed(6)));
+  el.dispatchEvent(new Event("input", { bubbles: true }));
+  el.dispatchEvent(new Event("change", { bubbles: true }));
+}
+
+/** Wire every +/- pair inside `host` to the field it names. */
+function bindLotSteppers(host) {
+  if (!host) return;
+  host.querySelectorAll("[data-lot-step]").forEach((b) => {
+    b.onclick = () => stepLotField($(b.getAttribute("data-lot-for")), b.getAttribute("data-lot-step"));
+  });
+}
+
 function bindChartTicket() {
   const host = $("chart-ticket");
   if (!host) return;
@@ -5281,15 +5397,7 @@ function bindChartTicket() {
   /* Steppers move the lot by one step of the input, so the control and the
      keyboard agree on what "one more" means. */
   host.querySelectorAll("[data-vol]").forEach((b) => {
-    b.onclick = () => {
-      const el = $("ct-vol");
-      if (!el) return;
-      const step = Number(el.step) || 0.01;
-      const dir = Number(b.getAttribute("data-vol")) || 0;
-      const next = Math.max(step, Math.round(((Number(el.value) || 0) + dir * step) / step) * step);
-      el.value = String(Number(next.toFixed(6)));
-      el.dispatchEvent(new Event("input", { bubbles: true }));
-    };
+    b.onclick = () => stepLotField($("ct-vol"), b.getAttribute("data-vol"));
   });
   ["ct-vol", "ct-sl", "ct-tp"].forEach((id) => {
     const el = $(id);
@@ -6140,9 +6248,23 @@ function robotPanelHtml() {
           <button type="button" data-vm="auto" class="${st.volume_mode !== "manual" ? "on" : ""}">${I18N.t("strategies.lot_auto")}</button>
           <button type="button" data-vm="manual" class="${st.volume_mode === "manual" ? "on" : ""}"${!licFeat("volume_mode") ? " disabled" : ""}>${I18N.t("strategies.lot_manual")}</button>
         </div>
-        <label class="field" id="vol-field"${st.volume_mode === "manual" ? "" : " hidden"}><span>${I18N.t("strategies.lot_value")}</span>
-          <input id="st-vol" type="number" step="0.01" min="0.01" max="1000" value="${st.manual_volume ?? 0.10}" />
-        </label>
+        <!-- The lot is set with buttons as well as the keyboard. Typing
+             0.01 into a number field on a phone means opening a numeric
+             keypad, clearing what is there and getting a decimal point
+             right; the same two buttons the chart ticket already has do
+             it in one tap, and the step is the field's own step so both
+             agree on what "one more" means. -->
+        <div class="field" id="vol-field"${st.volume_mode === "manual" ? "" : " hidden"}>
+          <span id="st-vol-label">${I18N.t("strategies.lot_value")}</span>
+          <div class="ct-step lot-step">
+            <button type="button" class="ct-pm" data-lot-step="-1" data-lot-for="st-vol"
+                    aria-label="${esc(I18N.t("exec.lot_down"))}">${icon("minus")}</button>
+            <input id="st-vol" type="number" step="0.01" min="0.01" max="1000" inputmode="decimal"
+                   aria-labelledby="st-vol-label" value="${st.manual_volume ?? 0.10}" />
+            <button type="button" class="ct-pm" data-lot-step="1" data-lot-for="st-vol"
+                    aria-label="${esc(I18N.t("exec.lot_up"))}">${icon("plus")}</button>
+          </div>
+        </div>
         <p class="sub" id="vol-sub">${I18N.t(st.volume_mode === "manual" ? "strategies.lot_manual_sub" : "strategies.lot_auto_sub")}</p>
       </div>
 
@@ -9929,19 +10051,17 @@ function bindView(view) {
              controls -- closing a position must not also throw the
              trader into a fullscreen chart on the way. */
           if (ev && ev.target && ev.target.closest("button, a, input, select, textarea")) return;
-          /* Ask the browser for fullscreen here, inside the click.
-             requestFullscreen is only granted during a user gesture, and
-             by the time the workspace has mounted that gesture is over --
-             the request would be refused and the chart would open in a
-             window instead. The desk's own fullscreen (body.chart-full)
-             is applied on mount regardless, so a refusal still fills the
-             desk; this is what also takes the browser chrome away. */
-          try {
-            const root = document.documentElement;
-            if (!document.fullscreenElement && root.requestFullscreen) {
-              root.requestFullscreen().catch(() => {});
-            }
-          } catch (e) { /* the app-level fullscreen still applies */ }
+          /* Fullscreen inside the app, not the browser's.
+             This used to call requestFullscreen() on the document, which
+             on a phone hands the chart the entire screen: the status bar,
+             the address bar and the system gesture bar all go, and the
+             only way back is a gesture the desk does not draw. Asked for
+             directly -- fill the app, not the phone. body.chart-full
+             hides the navigation and the header and gives the chart the
+             whole stage, which is the fullscreen that was wanted, and the
+             back button out of it stays on screen the whole time.
+             Anything already in browser fullscreen is left alone; leaving
+             it is handled where fullscreen is turned off. */
           openChartDesk(el.dataset.sym, el.dataset.tf, { fullscreen: true });
         };
         el.onclick = open;
@@ -10892,6 +11012,10 @@ function bindRobotPanel() {
     const b = e.target.closest("[data-vm]"); if (!b) return;
     saveVol(b.dataset.vm === "manual" ? "manual" : "auto", false);
   };
+  // The +/- pair beside the lot field. The press itself fires input and
+  // change on the field, so the money line below it and the save path
+  // underneath both run exactly as they do for a typed number.
+  bindLotSteppers($("vol-field"));
   const stVol = $("st-vol");
   if (stVol) {
     const commit = async () => {
@@ -10906,8 +11030,21 @@ function bindRobotPanel() {
       const at = $("st-money-at-lot");
       if (at) at.textContent = moneyAtLot(liveMoney());
     });
-    stVol.addEventListener("change", commit);
-    stVol.addEventListener("keydown", (e) => { if (e.key === "Enter") commit(); });
+    /* Saving is deferred a moment, because a stepper is pressed in
+       runs: five taps from 0.10 to 0.15 would otherwise be five saves
+       and five re-renders of this page, with the button moving out from
+       under the finger each time. Typing and tabbing away still saves at
+       once -- the delay is shorter than the gap between two taps. */
+    const commitSoon = () => {
+      if (S._lotSaveTimer) clearTimeout(S._lotSaveTimer);
+      S._lotSaveTimer = setTimeout(() => { S._lotSaveTimer = null; commit(); }, 600);
+    };
+    stVol.addEventListener("change", commitSoon);
+    stVol.addEventListener("keydown", (e) => {
+      if (e.key !== "Enter") return;
+      if (S._lotSaveTimer) { clearTimeout(S._lotSaveTimer); S._lotSaveTimer = null; }
+      commit();
+    });
   }
   const news = $("st-news");
   if (news) news.onclick = async () => {
@@ -13500,7 +13637,14 @@ function paintNotifies() {
   if (!stack) return;
 
   stack.querySelectorAll('[data-note="server"]').forEach((el) => el.remove());
+  /* A card that has already timed out on screen must not be put back by
+     the next poll, which runs every few seconds and would otherwise make
+     the five-second rule look broken. The note itself is NOT dismissed on
+     the engine -- it only stops being shown -- so nothing is destroyed by
+     a trader who happened to be looking elsewhere. */
+  const seen = S._noteSeen || (S._noteSeen = new Set());
   for (const n of notes.slice(0, 4)) {
+    if (seen.has(String(n.id))) continue;
     const card = document.createElement("article");
     card.className = "notify-card";
     card.setAttribute("data-note", "server");
@@ -13511,6 +13655,14 @@ function paintNotifies() {
       `<h4>${esc(n.title || "")}</h4><p>${esc(n.body || "")}</p>`;
     stack.appendChild(card);
     bindDismiss(card, () => dismissNote(n.id));
+    /* Timing out is not the same as being dismissed: the card goes and
+       is not shown again, but the note stays on the engine. Closing or
+       swiping it still dismisses it for real -- the difference between
+       "I read that" and "I was not looking". */
+    autoDismiss(card, NOTIFY_LIFE_MS, () => {
+      seen.add(String(n.id));
+      card.remove();
+    });
   }
   // Hidden only when there is genuinely nothing left, server or local.
   stack.hidden = stack.children.length === 0;

@@ -87,8 +87,13 @@ ok("putting a signal card up un-hides the stack",
    /stack\.hidden = false/.test(pushSignal),
    "this is the whole fault: cards prepended into a hidden container");
 
+/* REWRITTEN, not deleted. This used to look for the card's own
+   setTimeout(..., 20000). Every notification is now on one five-second
+   clock that pauses while the card is hovered, pressed or held under a
+   finger -- asked for directly -- so the thing to hold the code to is
+   that the signal card is on that clock, not that it owns a timer. */
 ok("a signal card does not stay for ever",
-   /setTimeout\([\s\S]{0,120}card\.remove\(\)/.test(pushSignal),
+   /autoDismiss\(card\)/.test(pushSignal),
    "a card carrying an entry price is useless a minute later");
 
 /* The other half of hidden = false: something has to put it back, or
@@ -101,8 +106,15 @@ ok("dismissing the last card hides the stack again",
 
 const pushTrade = app.slice(app.indexOf("function pushTradeCard("),
                             app.indexOf("function notifyHostTrade("));
-ok("a trade card's own expiry hides the stack when it was the last one",
-   /stack\.children\.length === 0\) stack\.hidden = true/.test(pushTrade));
+/* Same reversal: the expiry lives in autoDismiss now, and hiding an
+   emptied stack is its job. Checked where it is rather than where it
+   used to be -- an empty but visible stack still eats pointer events
+   over the corner of the desk. */
+ok("a trade card is on the shared clock", /autoDismiss\(card\)/.test(pushTrade));
+const life = app.slice(app.indexOf("function autoDismiss("),
+                       app.indexOf("function autoDismiss(") + 2000);
+ok("an expiry that empties the stack hides it again",
+   /stack\.children\.length === 0\) stack\.hidden = true/.test(life));
 
 ok("a signal is still de-duplicated before any of that happens",
    /_lastSignalKey/.test(announceSignal),

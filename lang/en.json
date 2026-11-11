@@ -466,6 +466,8 @@
     "close_all": "Flatten all",
     "modify": "Modify",
     "volume": "Volume",
+    "lot_up": "Increase lot",
+    "lot_down": "Decrease lot",
     "sl": "Stop loss",
     "tp": "Take profit",
     "ticket": "Ticket",

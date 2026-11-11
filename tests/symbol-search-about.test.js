@@ -47,28 +47,48 @@ const chartCss = read("css/chart.css");
    2. Fullscreen when a chart is opened from the grid
    ====================================================================== */
 
-check("opening a chart asks for fullscreen inside the click, not after it", () => {
-  /* requestFullscreen is gesture-bound. By the time openChartDesk has
-     re-rendered the workspace the gesture is spent and the browser
-     refuses, so the order of these two statements is the whole feature. */
+check("opening a chart does not take the whole phone screen", () => {
+  /* REVERSED, deliberately. This used to require requestFullscreen() to
+     be called inside the click, because the gesture is spent by the time
+     openChartDesk has re-rendered and the browser would refuse.
+
+     That was the right implementation of the wrong behaviour. On a phone
+     the browser's fullscreen takes the status bar, the address bar and
+     the gesture bar, and the way back out is a system gesture the desk
+     does not draw. Asked for directly: fill the app, not the phone. The
+     desk's own fullscreen -- body.chart-full -- gives the chart the whole
+     stage and keeps the back button on screen. */
   const h = /data-open-chart[\s\S]{0,2600}?openChartDesk\(/.exec(appJs);
   if (!h) throw new Error("could not find the grid's open handler");
-  const body = h[0];
-  const reqAt = body.indexOf("requestFullscreen");
-  if (reqAt < 0) throw new Error("the grid handler never requests fullscreen");
-  const openAt = body.lastIndexOf("openChartDesk(");
-  if (reqAt > openAt) {
-    throw new Error("requestFullscreen is called after openChartDesk, so the gesture is already gone");
+  if (/requestFullscreen/.test(h[0].replace(/\/\*[\s\S]*?\*\//g, ""))) {
+    throw new Error("the grid handler still asks the browser for fullscreen");
   }
 });
 
-check("the request is awaited by nothing, so a refusal cannot block the open", () => {
-  /* A browser that refuses must still open the chart. */
-  const h = /data-open-chart[\s\S]{0,2600}?openChartDesk\([^;]*;/.exec(appJs)[0];
-  if (/await\s+[^;]*requestFullscreen/.test(h)) {
-    throw new Error("the handler awaits requestFullscreen; a refusal would stop the chart opening");
+check("no code path asks the browser to fullscreen the document", () => {
+  const strip = (src) => src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+  for (const [name, src] of [["app.js", appJs], ["chart-tools.js", chartJs]]) {
+    if (/\.requestFullscreen\s*\(/.test(strip(src))) {
+      throw new Error(name + " calls requestFullscreen; the chart must fill the app, not the screen");
+    }
   }
-  if (!/catch/.test(h)) throw new Error("a rejected requestFullscreen promise is not caught");
+});
+
+check("leaving fullscreen still releases the browser's, if something set it", () => {
+  /* An older build, or the user's own F11, can leave the page in the
+     browser's fullscreen. Turning the chart's fullscreen off has to get
+     out of it, or the desk comes back with no browser chrome. */
+  const fn = chartJs.slice(chartJs.indexOf("function setFullscreen("),
+                           chartJs.indexOf("function setFullscreen(") + 1400);
+  if (!/exitFullscreen/.test(fn)) throw new Error("setFullscreen(false) never exits the browser's fullscreen");
+  if (!/chart-full/.test(fn)) throw new Error("setFullscreen no longer toggles the desk's own fullscreen");
+});
+
+check("the desk's own fullscreen fills the viewport on a phone", () => {
+  if (!/body\.chart-full .tv\{ height: 100dvh \}|body\.chart-full \.tv \{ height: 100dvh \}/.test(chartCss)) {
+    throw new Error("body.chart-full does not size the chart to the viewport");
+  }
+  if (!/body\.chart-full #nav/.test(chartCss)) throw new Error("the navigation is not hidden in the desk's fullscreen");
 });
 
 check("the grid open sets the flag the workspace reads on mount", () => {
