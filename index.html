@@ -7,7 +7,9 @@
   ?demo=1 switches the desk onto apps/web/js/demo.js, which answers the API
   and the websocket from canned data. Pages has no Node desk and no Python
   engine behind it, so without that the site is a shell where every request
-  fails. The demo refuses every write, and says so in a banner.
+  fails. The demo refuses every write, and marks itself with a chip in the
+  desk header -- it used to be a bar across the bottom of the window, which
+  covered the positions dock and a row of the book on a phone.
 
   A meta refresh as well as the script, because the redirect has to work
   before and without JavaScript, and a visible link underneath for the case
@@ -26,12 +28,14 @@
   main { height: 100%; display: grid; place-content: center; justify-items: center; gap: 14px; text-align: center }
   img { width: 72px; height: 72px; border-radius: 18px }
   a { color: #3ee0c4 }
+  .note { max-width: 32ch; color: #6f7892 }
 </style>
 </head>
 <body>
 <main>
   <img src="apps/web/icons/mark.png" alt="AURION" />
   <p>Opening the desk…</p>
+  <p class="note">Live demo — sample data, every feature unlocked.<br />No broker, no engine, nothing is traded.</p>
   <p><a href="apps/web/index.html?demo=1">Continue</a></p>
 </main>
 <script>location.replace("apps/web/index.html?demo=1");</script>

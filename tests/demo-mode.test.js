@@ -168,8 +168,44 @@ async function main() {
     news.ok && news.data && Number(news.data.count) > 0 && Array.isArray(news.data.events),
     `/api/news -> ${news.data && news.data.count} events from ${news.data && news.data.source}`);
 
-  check("the demo banner is on the page", Boolean($("demo-banner")),
-    $("demo-banner") ? $("demo-banner").textContent.trim().slice(0, 60) : "missing");
+  const mark = $("demo-banner");
+  check("the demo says it is a demo", Boolean(mark),
+    mark ? mark.textContent.trim().slice(0, 60) : "missing");
+
+  // It used to be a bar pinned across the bottom of the window, over the
+  // positions dock and the foot of the chart. A notice about the page is
+  // not allowed to cover the page.
+  check("the notice sits in the header, not across the bottom",
+    Boolean(mark && mark.closest("header.top")),
+    mark ? (mark.parentElement ? mark.parentElement.className || mark.parentElement.tagName : "orphan") : "missing");
+
+  const demoSrc = fs.readFileSync(path.join(ROOT, "apps/web/js/demo.js"), "utf8");
+  check("nothing pins the notice to the bottom edge",
+    !/#demo-banner\{[^}]*bottom:\s*0/.test(demoSrc) && !/\.demo-mark\{[^}]*position:fixed/.test(demoSrc));
+
+  check("the short label survives when there is no room for the sentence",
+    /@media \(max-width:1100px\)\{\.demo-mark span\{display:none\}\}/.test(demoSrc)
+    && /el\.title = text/.test(demoSrc),
+    "sentence moves to the title");
+
+  // Measured at 390px: the header's action row is already wider than the
+  // screen, so a chip dropped in there pushes the kill switch off the edge.
+  check("the notice is not in the row that holds the kill switch",
+    Boolean(mark && !mark.closest(".top-actions")),
+    mark && mark.parentElement ? mark.parentElement.id || mark.parentElement.className : "missing");
+
+  check("below 900px it leaves the header instead of crowding it",
+    /\(max-width:900px\)/.test(demoSrc) && /classList\.add\("loose"\)/.test(demoSrc)
+    && /\.demo-mark\.loose\{position:fixed;top:calc\(var\(--top/.test(demoSrc),
+    "moves to a pill under the header");
+
+  // The engine publishes a card for every strategy file that will not load.
+  // The demo has to carry the same shape or it stops being a rehearsal.
+  const snap = await window.fetch("/api/snapshot").then((r) => r.json()).catch(() => null);
+  check("the snapshot carries the strategy fault list the desk reads",
+    Boolean(snap && snap.data && snap.data.strategy && Array.isArray(snap.data.strategy.faults)),
+    snap && snap.data && snap.data.strategy
+      ? `faults=${JSON.stringify((snap.data.strategy || {}).faults)}` : "no snapshot");
 
   // No gate. A visitor who cannot obtain a key must not be asked for one,
   // so the demo reports a paid licence and the desk opens on its own.

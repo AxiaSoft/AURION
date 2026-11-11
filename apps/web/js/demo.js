@@ -909,6 +909,12 @@
       need: 160,
     });
 
+    // The engine publishes every strategy file that would not load, and the
+    // desk draws a card for each. Nothing is broken here, so the list is
+    // empty -- but it has to be present, or the demo is a different shape
+    // from the thing it is demonstrating.
+    if (d.strategy) d.strategy.faults = Array.isArray(d.strategy.faults) ? d.strategy.faults : [];
+
     // licFeat() reads the snapshot's copy before S.license, so the premium
     // licence has to be on both or half the desk stays locked.
     d.license = clone(license().data);
@@ -1274,7 +1280,27 @@
   DemoSocket.CLOSED = 3;
   window.WebSocket = DemoSocket;
 
-  /* ============================================================= banner == */
+  /* ============================================================== mark == */
+
+  /*
+   * A demo has to say so, permanently, without being in the way.
+   *
+   * This used to be a bar pinned across the bottom of the window. It sat on
+   * top of the desk's own bottom furniture -- the positions dock and the
+   * foot of the chart -- and on a phone it ate a row of the book. A notice
+   * about the page must not cover the page.
+   *
+   * It is a chip among the engine and MT5 chips now. Two details, both
+   * measured in a real browser rather than guessed:
+   *
+   *   - the header's action row is already 14px wider than a 390px phone,
+   *     so dropping the chip in there pushed the kill switch off the edge.
+   *     It goes in .hdr-status instead, which is the row the desk itself
+   *     hides at 900px for exactly that reason;
+   *   - and because that row is hidden there, below 900px the chip moves
+   *     out to a small pill just under the header, clear of the stage's
+   *     cards and nowhere near the bottom dock.
+   */
 
   const BANNER = {
     en: ["Demo", "Sample data, every feature unlocked. No broker, no engine, nothing is traded."],
@@ -1282,28 +1308,63 @@
     ar: ["عرض", "بيانات نموذجية وكل الميزات مفتوحة. بلا وسيط ولا محرك، ولا تنفيذ لأي صفقة."],
   };
 
+  // The width at which app.css hides .hdr-status.
+  const NARROW = "(max-width:900px)";
+
   function banner() {
     let lang = "en";
     try { lang = localStorage.getItem("aurion.lang") || "en"; } catch {}
     const [tag, text] = BANNER[lang] || BANNER.en;
     const rtl = lang === "fa" || lang === "ar";
-    const el = document.createElement("div");
+
+    const el = document.createElement("span");
     el.id = "demo-banner";
+    el.className = "demo-mark";
     el.dir = rtl ? "rtl" : "ltr";
+    el.title = text;                     // the sentence, whenever it is cut
     el.innerHTML = `<strong>${tag}</strong><span>${text}</span>`;
+
     const css = document.createElement("style");
     css.textContent = `
-      #demo-banner{position:fixed;left:0;right:0;bottom:0;z-index:99999;
-        display:flex;gap:10px;align-items:center;justify-content:center;flex-wrap:wrap;
-        padding:7px 14px;background:#1b1205;border-top:1px solid #6b4a12;
-        color:#e8b83c;font:12px/1.5 system-ui,"Segoe UI",sans-serif}
-      #demo-banner strong{background:#e8b83c;color:#1b1205;border-radius:4px;
-        padding:1px 7px;font-size:11px;letter-spacing:.06em;text-transform:uppercase}
-      #demo-banner span{color:#c9a861}
-      @media(max-width:520px){#demo-banner span{display:none}}
+      .demo-mark{display:inline-flex;align-items:center;gap:7px;flex:0 0 auto;
+        max-width:min(40vw,330px);padding:4px 8px;border-radius:999px;
+        border:1px solid #6b4a12;background:rgba(232,184,60,.12);
+        color:#e8b83c;font:11px/1.4 system-ui,"Segoe UI",sans-serif;
+        white-space:nowrap;overflow:hidden}
+      .demo-mark strong{background:#e8b83c;color:#1b1205;border-radius:999px;
+        padding:1px 7px;font-size:10px;font-weight:600;letter-spacing:.06em;
+        text-transform:uppercase;flex:0 0 auto}
+      .demo-mark span{color:#c9a861;overflow:hidden;text-overflow:ellipsis}
+      /* The header is tight below this; the label alone still says it. */
+      @media (max-width:1100px){.demo-mark span{display:none}}
+      /* Out of the header, under it -- never the bottom, where the
+         positions dock lives. */
+      .demo-mark.loose{position:fixed;top:calc(var(--top, 56px) + 8px);
+        inset-inline-start:12px;z-index:70;background:#1b1205;
+        border-color:#6b4a12;box-shadow:0 6px 18px rgba(0,0,0,.35)}
     `;
     document.head.appendChild(css);
-    document.body.appendChild(el);
+
+    const mq = typeof matchMedia === "function" ? matchMedia(NARROW) : null;
+
+    function mount() {
+      const status = document.getElementById("hdr-status");
+      const narrow = mq ? mq.matches : false;
+      if (status && !narrow) {
+        el.classList.remove("loose");
+        if (el.parentElement !== status) status.insertBefore(el, status.firstChild);
+      } else {
+        el.classList.add("loose");
+        if (el.parentElement !== document.body) document.body.appendChild(el);
+      }
+    }
+
+    mount();
+    if (mq) {
+      // Safari below 14 has no addEventListener on a media query list.
+      if (mq.addEventListener) mq.addEventListener("change", mount);
+      else if (mq.addListener) mq.addListener(mount);
+    }
   }
 
   if (document.readyState === "loading") {
