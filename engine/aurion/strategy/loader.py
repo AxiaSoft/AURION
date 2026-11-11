@@ -189,16 +189,79 @@ class StrategyLoader:
         log.info("loaded strategy %s from %s", inst.name, path.name)
         return inst
 
+    def uploaded_names(self) -> list[str]:
+        """Stems of the strategy files on disk, in the order the desk lists them."""
+        return [p.stem for p in sorted(self.dir.glob("*.py")) if not p.name.startswith("_")]
+
+    def file_for(self, name: Any) -> Path | None:
+        """The uploaded file a name refers to, with or without the suffix.
+
+        The desk's dropdown holds a strategy's *stem* ("my_strategy"), the
+        upload endpoint passes the *file name* ("my_strategy.py"), and both
+        have to mean the same file. Joining the raw value onto the folder
+        turned the first of those into a path with no extension, which
+        raised FileNotFoundError from somewhere deep in load_path.
+        """
+        raw = str(name or "").strip()
+        if not raw:
+            return None
+        stem = Path(raw).name
+        if stem.endswith(".py"):
+            stem = stem[:-3]
+        if not stem:
+            return None
+        candidate = self.dir / f"{stem}.py"
+        return candidate if candidate.is_file() else None
+
+    def _unknown(self, name: Any) -> str:
+        """An error that says what the caller could have asked for instead.
+
+        "unknown builtin strategy 'x'" named the thing that failed and
+        nothing that would work, which on the desk read as a broken
+        upload rather than a mislabelled request.
+        """
+        known = list(BUILTIN_NAMES) + self.uploaded_names()
+        return (
+            f"no strategy called '{name}' — available: {', '.join(known)}"
+            if known
+            else f"no strategy called '{name}' and none are installed"
+        )
+
     def build(self, spec: dict[str, Any]):
+        """Resolve a {kind, name, path} spec to a live strategy.
+
+        `kind` is a hint, not a promise. The desk labelled every backtest
+        request "builtin" whatever was picked in the dropdown, so running
+        a backtest on an uploaded strategy came back as "unknown builtin
+        strategy 'my_strategy'" - the file was uploaded, loaded and armed
+        perfectly, and only the label was wrong. A caller that names
+        something real gets it, whichever bucket they put it in.
+        """
         kind = spec.get("kind") or "builtin"
         name = spec.get("name") or spec.get("file")
         params = spec.get("params") or {}
-        if kind == "builtin":
-            return self.load_builtin(str(name), params)
-        from pathlib import Path
 
-        path = Path(spec.get("path") or (self.dir / str(name)))
-        return self.load_path(path, params)
+        explicit = spec.get("path")
+        if explicit:
+            return self.load_path(Path(explicit), params)
+
+        is_builtin = resolve_builtin(str(name)) in set(BUILTIN_NAMES)
+        found = self.file_for(name)
+
+        if kind == "builtin":
+            if is_builtin:
+                return self.load_builtin(str(name), params)
+            if found is not None:
+                log.info("strategy %s was asked for as a builtin; it is an uploaded file", name)
+                return self.load_path(found, params)
+            raise StrategyValidationError(self._unknown(name))
+
+        if found is not None:
+            return self.load_path(found, params)
+        if is_builtin:
+            log.info("strategy %s was asked for as a file; it is a builtin", name)
+            return self.load_builtin(str(name), params)
+        raise StrategyValidationError(self._unknown(name))
 
     def load_builtin(self, name: str, params: dict[str, Any] | None = None) -> BaseStrategy:
         from .builtin.atr_breakout import ATRBreakout
@@ -214,7 +277,7 @@ class StrategyLoader:
         }
         name = resolve_builtin(name)
         if name not in mapping:
-            raise StrategyValidationError(f"unknown builtin strategy '{name}'")
+            raise StrategyValidationError(self._unknown(name))
         inst = mapping[name](params or {})
         self.loaded[f"builtin:{name}"] = inst
         return inst

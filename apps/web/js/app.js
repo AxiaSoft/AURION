@@ -7811,7 +7811,7 @@ const views = {
             <select class="ctrl" id="bt-tf">${["M1","M5","M15","M30","H1","H4","D1"].map((t)=>`<option ${t===(S.timeframe||"M15")?"selected":""}>${t}</option>`).join("")}</select>
           </label>
           <label class="field"><span>${I18N.t("strategies.active")}</span>
-            <select class="ctrl" id="bt-st">${stItems.map((it)=>`<option value="${esc(it.name)}">${esc(it.name)}</option>`).join("")}</select>
+            <select class="ctrl" id="bt-st">${stItems.map((it)=>`<option value="${esc(it.name)}" data-kind="${esc(it.kind || "builtin")}">${esc(it.name)}</option>`).join("")}</select>
           </label>
         </div>
         <div class="row" style="margin-top:10px">
@@ -10217,7 +10217,14 @@ function bindView(view) {
       if (S._btBusy) return;
       const symbol = String($("bt-sym")?.value || S.symbol || "").trim();
       const timeframe = String($("bt-tf")?.value || S.timeframe || "M15");
-      const name = String($("bt-st")?.value || "ema_rsi");
+      // An uploaded strategy is not a builtin, and saying it is was the
+      // whole of "unknown builtin strategy 'my_strategy'" on a file that
+      // had uploaded, loaded and armed perfectly. The engine already
+      // reports each strategy's kind; carry it instead of assuming.
+      const stSel = $("bt-st");
+      const name = String(stSel?.value || "ema_rsi");
+      const stOpt = stSel ? stSel.options[stSel.selectedIndex] : null;
+      const kind = String((stOpt && stOpt.dataset && stOpt.dataset.kind) || "builtin");
       if (!symbol || !liveSymbols().some((x) => x.symbol === symbol)) {
         toast(I18N.t("exec.no_ea_symbol"));
         return;
@@ -10238,7 +10245,7 @@ function bindView(view) {
         const r = await API.post("/api/backtest", {
           symbol,
           timeframe,
-          strategy: { kind: "builtin", name },
+          strategy: { kind, name },
         });
         if (!r || r.ok === false) {
           S.backtest = { ok: false, running: false, mode: "backtest", error: (r && r.error) || "generic" };
