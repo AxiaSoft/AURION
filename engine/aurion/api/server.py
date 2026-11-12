@@ -370,53 +370,6 @@ async def danger_save(body: dict[str, Any] | None = None) -> dict[str, Any]:
     return await trader.set_danger(body or {})
 
 
-@app.post("/v1/strategies/upload")
-async def upload_strategy(body: dict[str, Any]) -> dict[str, Any]:
-    if not trader.license.feature("strategy_upload"):
-        return {"ok": False, "error": "premium_required", "feature": "strategy_upload", "upgrade": True}
-    filename = str(body.get("filename") or "custom.py")
-    source = str(body.get("source") or "")
-    if not source.strip():
-        return {"ok": False, "error": "empty strategy"}
-    try:
-        dest = trader.loader.save_upload(filename, source)
-        # Always register the strategy in the live book so its card shows up on
-        # the desk immediately — armed only when the upload asked for it.
-        applied = await trader.apply_strategy(
-            {"kind": "file", "name": dest.name, "params": body.get("params") or {}, "enabled": bool(body.get("activate"))}
-        )
-        return _strategy_reply({**applied, "file": dest.name, "name": dest.stem})
-    except Exception as exc:
-        return _strategy_reply({"ok": False, "error": str(exc)})
-
-
-@app.get("/v1/strategies/source")
-async def strategy_source(name: str = "") -> dict[str, Any]:
-    return _strategy_reply(trader.strategy_source(name))
-
-
-@app.post("/v1/strategies/update")
-async def update_strategy(body: dict[str, Any]) -> dict[str, Any]:
-    if not trader.license.feature("strategy_upload"):
-        return {"ok": False, "error": "premium_required", "feature": "strategy_upload", "upgrade": True}
-    return _strategy_reply(
-        await trader.update_strategy(str(body.get("name") or ""), str(body.get("source") or ""))
-    )
-
-
-@app.post("/v1/strategies/delete")
-async def delete_strategy(body: dict[str, Any]) -> dict[str, Any]:
-    return _strategy_reply(await trader.delete_strategy(str(body.get("name") or "")))
-
-
-@app.get("/v1/strategies/template")
-async def strategy_template() -> dict[str, Any]:
-    from ..config import ROOT
-
-    path = ROOT / "engine" / "strategies" / "template.py"
-    return {"ok": True, "data": path.read_text(encoding="utf-8"), "filename": "template.py"}
-
-
 @app.get("/v1/prop")
 async def prop_state() -> dict[str, Any]:
     from ..prop.profiles import PROFILES

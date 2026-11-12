@@ -67,7 +67,6 @@ window.AURION_DEMO_FIXTURES = {
    "features": {
     "prop": false,
     "scalping": false,
-    "strategy_upload": false,
     "telegram": false,
     "news": false,
     "chart_signals": false,
@@ -77,7 +76,6 @@ window.AURION_DEMO_FIXTURES = {
    "locked": [
     "prop",
     "scalping",
-    "strategy_upload",
     "telegram",
     "news",
     "chart_signals",
@@ -666,7 +664,6 @@ window.AURION_DEMO_FIXTURES = {
     "features": {
      "prop": false,
      "scalping": false,
-     "strategy_upload": false,
      "telegram": false,
      "news": false,
      "chart_signals": false,
@@ -676,7 +673,6 @@ window.AURION_DEMO_FIXTURES = {
     "locked": [
      "prop",
      "scalping",
-     "strategy_upload",
      "telegram",
      "news",
      "chart_signals",

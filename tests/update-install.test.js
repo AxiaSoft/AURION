@@ -453,10 +453,11 @@ console.log("\n=== no browser dialogs anywhere ===");
     !/window\.confirm\(/.test(APP) && !/[^.\w]confirm\(/.test(APP.replace(/askConfirm\(/g, "")),
     "they ignore the theme, cannot read right-to-left, and can be suppressed by the browser"
   );
-  check(
-    "deleting a strategy asks through the same dialog",
-    /async function deleteCustomStrategy[\s\S]{0,500}askConfirm\(/.test(APP)
-  );
+  // There was a third check here: deleting a strategy asks through
+  // askConfirm rather than window.confirm. Custom strategies were
+  // removed, so deleteCustomStrategy no longer exists. The rule it was
+  // an example of is not lost - the check above bans every bare
+  // confirm( in the bundle, which is the stronger statement.
 }
 
 const failed = results.filter((r) => !r.ok);
