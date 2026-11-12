@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 import json
 import re
-from pathlib import PurePosixPath, PureWindowsPath
 from typing import Any
 
 import os
@@ -13,6 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse
 
 from .. import build_id
+from ..util.errors import readable_error
 from ..config import heal_packaged_files, load, merge, save
 from ..mt5.protocol import parse_ea_json
 from ..runtime.trader import Trader
@@ -278,45 +278,22 @@ async def safe(body: dict[str, Any]) -> dict[str, Any]:
 def _readable_error(text: str) -> str:
     """Turn a raw OS error into a sentence, wherever one leaks out.
 
-    A customer saw this, twice, months apart, from two different
-    strategies:
+    A customer saw this, three times, months apart, from three
+    different strategies:
 
         [Errno 2] No such file or directory:
           'C:\\Users\\...\\AURION\\engine\\strategies\\aurion_gold_pullback'
 
     Every join that produced a path like that has been fixed, and the
     loader turns a missing file into a sentence naming the strategies
-    that do exist. This is the net under all of it. An errno is a fact
-    about a filesystem call; it is never an answer to "why will my
-    strategy not load", and it must not reach a trader's screen again
-    because some future edit took a new route to the same mistake.
+    that do exist. This is the net under all of it.
 
-    Pure text in, text out: it cannot know which call failed, only that
-    whatever came back is unusable as it stands. The original is kept in
-    the engine log, where diagnosing it belongs.
+    The implementation moved to util/errors.py the third time it was
+    reported, because living here it only covered the endpoints below -
+    and a backtest answers over the websocket, not through them, so it
+    was never covered at all.
     """
-    raw = str(text or "")
-    m = re.search(r"\[Errno (\d+)\][^:]*:\s*'([^']*)'", raw)
-    if not m:
-        return raw
-    errno_no = m.group(1)
-    target = m.group(2).replace("\\\\", "\\")
-    # A Windows path has to be split by Windows rules even when the
-    # engine reporting it is not on Windows: the desk reads these
-    # messages, the test suite runs on Linux, and a basename of
-    # "C:\\...\\name" helps nobody.
-    parts = PureWindowsPath(target) if "\\" in target else PurePosixPath(target)
-    name = parts.name or target
-    if errno_no == "2":
-        return (
-            f"'{name}' is not on disk where the engine looked for it. "
-            "Upload the strategy file again, or pick another one from the list."
-        )
-    if errno_no == "13":
-        return f"the engine is not allowed to read '{name}' — check the file's permissions"
-    if errno_no == "21":
-        return f"'{name}' is a folder, not a strategy file"
-    return f"the engine could not read '{name}' (OS error {errno_no})"
+    return readable_error(text)
 
 
 def _strategy_reply(result: Any) -> Any:

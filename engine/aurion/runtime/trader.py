@@ -39,6 +39,8 @@ from ..strategy.loader import (
 )
 from ..license.guard import Guard
 from ..util.clock import utc_iso
+from ..util.errors import readable_error
+from ..build_id import BUILD_ID
 from ..util.market import block_reason as market_block_reason, session as market_session
 from ..util.log import RING, get
 from .bus import Bus
@@ -2850,6 +2852,15 @@ class Trader:
         the log.
         """
         key = str(name or "").strip()
+        # Strip the suffix the same way _clear_strategy_fault does.
+        # It did not, so a fault recorded against "x.py" - which is how
+        # older runtime configs keyed their saved strategies - could
+        # never be cleared by a later successful load of "x". The card
+        # stayed on the desk with its original message long after the
+        # strategy was loading perfectly, which reads as "the same error
+        # keeps coming back" when nothing is wrong any more.
+        if key.endswith(".py"):
+            key = key[:-3]
         if not key:
             return
         faults = getattr(self, "strategy_faults", None)
@@ -3423,7 +3434,7 @@ class Trader:
                     inst = self.loader.load_path(cand, params or {})
                     kind = "file"
                 except Exception as exc:
-                    return {"ok": False, "error": str(exc)}
+                    return {"ok": False, "error": readable_error(str(exc))}
             self.book[name] = {"inst": inst, "enabled": False, "kind": kind, "last_action": "idle", "last_reason": "", "last_ts": ""}
         if params:
             inst = self.book[name]["inst"]
@@ -3468,7 +3479,7 @@ class Trader:
         try:
             return {"ok": True, "name": name, "file": path.name, "source": path.read_text(encoding="utf-8")}
         except Exception as exc:
-            return {"ok": False, "error": str(exc)}
+            return {"ok": False, "error": readable_error(str(exc))}
 
     async def update_strategy(self, name: str, source: str) -> dict[str, Any]:
         """Rewrite the code of a custom strategy and hot-reload it in place."""
@@ -3484,7 +3495,7 @@ class Trader:
             path = self.loader.save_upload(f"{name}.py", source)
             inst = self.loader.load_path(path, params)
         except Exception as exc:
-            return {"ok": False, "error": str(exc)}
+            return {"ok": False, "error": readable_error(str(exc))}
         ctx = None
         if enabled and hasattr(slot["inst"], "on_stop"):
             try:
@@ -5079,7 +5090,7 @@ class Trader:
         try:
             inst = self.loader.build({"kind": kind, "name": name, "path": spec.get("path"), "params": params})
         except StrategyValidationError as exc:
-            return {"ok": False, "error": str(exc)}
+            return {"ok": False, "error": readable_error(str(exc))}
         except Exception as exc:
             log.exception("strategy %s failed to load", name)
             return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
@@ -5238,7 +5249,8 @@ class Trader:
             result["timeframe"] = timeframe
             return result
         except Exception as exc:
-            return {"ok": False, "error": str(exc)}
+            log.exception("chart signals failed")
+            return {"ok": False, "error": readable_error(str(exc))}
 
     async def backtest(self, body: dict[str, Any]) -> dict[str, Any]:
         if bool((self.backtest_run or {}).get("running")):
@@ -5256,9 +5268,14 @@ class Trader:
         try:
             inst = self.loader.build(spec)
         except StrategyValidationError as exc:
-            return {"ok": False, "error": str(exc)}
+            return {"ok": False, "error": readable_error(str(exc)), "build_id": BUILD_ID}
         except Exception as exc:
-            return {"ok": False, "error": str(exc)}
+            # Not a validation error, so it is something the loader did
+            # not expect - an errno included. A backtest answers over
+            # the websocket rather than through the endpoint wrapper, so
+            # the net has to be here or there is none at all.
+            log.exception("backtest could not build the strategy")
+            return {"ok": False, "error": readable_error(str(exc)), "build_id": BUILD_ID}
         started = utc_iso()
         self.backtest_run = {
             "ok": True,
@@ -5382,7 +5399,14 @@ class Trader:
             )
         except Exception as exc:
             log.exception("backtest failed")
-            result = {"ok": False, "error": str(exc), "mode": "backtest", "symbol": symbol, "timeframe": timeframe}
+            result = {
+                "ok": False,
+                "error": readable_error(str(exc)),
+                "build_id": BUILD_ID,
+                "mode": "backtest",
+                "symbol": symbol,
+                "timeframe": timeframe,
+            }
         result = dict(result or {})
         result["mode"] = "backtest"
         result["running"] = False

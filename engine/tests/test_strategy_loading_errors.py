@@ -422,6 +422,20 @@ def _api_helpers():
     import re as _re
     from pathlib import Path as _Path, PurePosixPath, PureWindowsPath
 
+    # The errno-to-sentence logic used to live in this slice. It moved to
+    # aurion/util/errors.py the third time the customer reported the raw
+    # message, because living in server.py it only protected answers that
+    # left through these endpoints - and a backtest answers over the
+    # websocket, so it was never protected at all.
+    #
+    # These tests are kept pointed at the API helpers on purpose: what
+    # they pin is "nothing with an errno in it leaves through the API",
+    # which is still true and still worth pinning. The real util is put
+    # in the namespace rather than the slice being widened, so the test
+    # exercises the same implementation the engine runs instead of a
+    # second copy that could drift from it.
+    from aurion.util.errors import readable_error as _readable
+
     src = (_Path(__file__).resolve().parents[1] / "aurion" / "api" / "server.py").read_text(encoding="utf-8")
     start = src.index("def _readable_error(")
     end = src.index('@app.get("/v1/strategies")')
@@ -429,6 +443,7 @@ def _api_helpers():
         "re": _re,
         "PurePosixPath": PurePosixPath,
         "PureWindowsPath": PureWindowsPath,
+        "readable_error": _readable,
         "Any": object,
         "build_id": type("B", (), {"BUILD_ID": "feedfacefeedface"}),
     }
