@@ -7,7 +7,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from ..config import ROOT, load
+from ..config import DATA_DIR, ROOT, load
 from ..util.log import get
 from .base import BaseStrategy
 
@@ -130,11 +130,141 @@ def validate_source(source: str) -> dict[str, Any]:
 
 
 class StrategyLoader:
+    """Loads strategies, and makes sure the user's own ones still exist.
+
+    The working folder is engine/strategies, which is inside the
+    installation. That is fine for the shipped template and examples and
+    was wrong for everything the user wrote: Windows Installer owns that
+    folder. A major upgrade removes the old product before it lays the
+    new one down - deliberately, so that files dropped from a build
+    leave no orphans - and the install tree is not a place where a
+    customer's work can be expected to survive it. An update, a repair,
+    a reinstall, an antivirus quarantine: every one of them can take a
+    file out of there, and when one did, the only trace was
+
+        [Errno 2] No such file or directory:
+          'C:\\...\\AURION\\engine\\strategies\\aurion_gold_pullback'
+
+    reported twice, months apart, for two different strategies. The
+    loader was blamed both times and the loader was never at fault: it
+    was asked for a file that genuinely was not there any more.
+
+    So the user's copy now lives in the vault - data/strategies - which
+    is user data by every definition this product already uses: the
+    installer excludes data\ on purpose, the updater's protected list
+    refuses to write anything under it, and a factory reset keeps it.
+    Nothing that installs or updates AURION can reach into it.
+
+    engine/strategies stays the working folder, so every caller, glob
+    and import path below is unchanged. The two are reconciled at
+    startup: anything in the vault that is missing from the working
+    folder is written back, and anything in the working folder that the
+    vault has never seen is taken into it. A strategy can therefore
+    survive an upgrade that empties the install tree, and one uploaded
+    by an older build is adopted the first time this runs.
+    """
+
     def __init__(self) -> None:
         cfg = load()
         self.dir = ROOT / cfg["paths"]["strategies"]
         self.dir.mkdir(parents=True, exist_ok=True)
+        # Outside the installation on purpose. See the class docstring.
+        self.vault = DATA_DIR / "strategies"
         self.loaded: dict[str, Any] = {}
+        try:
+            self.sync_vault()
+        except Exception:
+            # A strategy folder that cannot be reconciled must never stop
+            # the engine from starting: the desk would be gone as well.
+            log.exception("could not reconcile the strategy vault")
+
+    # Shipped with the product, not written by the user. These live in
+    # the install tree because that is where they come from, and copying
+    # them into a user's vault would resurrect an old template after an
+    # update replaced it.
+    _SHIPPED = {"template"}
+
+    def _is_user_file(self, path: Path) -> bool:
+        return (
+            path.is_file()
+            and path.suffix == ".py"
+            and not path.name.startswith("_")
+            and path.stem not in self._SHIPPED
+        )
+
+    def sync_vault(self) -> dict[str, list[str]]:
+        """Reconcile the install folder with the user's own copy.
+
+        Returns what it did, so the caller can log it - a strategy
+        quietly reappearing is more alarming than one that is announced.
+
+        Content is compared before writing in either direction: an
+        unconditional copy would undo an edit made through the desk, and
+        an unconditional copy the other way would undo one made in the
+        file itself.
+        """
+        restored: list[str] = []
+        adopted: list[str] = []
+        self.vault.mkdir(parents=True, exist_ok=True)
+
+        # The vault is the record of what the user has. Anything in it
+        # that is not in the working folder was taken away by something
+        # that had no business touching it.
+        for src in sorted(self.vault.glob("*.py")):
+            if not self._is_user_file(src):
+                continue
+            live = self.dir / src.name
+            try:
+                if not live.exists():
+                    live.write_text(src.read_text(encoding="utf-8"), encoding="utf-8")
+                    restored.append(src.stem)
+            except OSError:
+                log.exception("could not restore strategy %s from the vault", src.stem)
+
+        # And anything in the working folder the vault has never seen was
+        # uploaded by a build that predates this, or dropped in by hand.
+        for live in sorted(self.dir.glob("*.py")):
+            if not self._is_user_file(live):
+                continue
+            keep = self.vault / live.name
+            try:
+                source = live.read_text(encoding="utf-8")
+                if not keep.exists():
+                    keep.write_text(source, encoding="utf-8")
+                    adopted.append(live.stem)
+                elif keep.read_text(encoding="utf-8") != source:
+                    # The working copy is the one the engine runs and the
+                    # desk edits, so it wins.
+                    keep.write_text(source, encoding="utf-8")
+            except OSError:
+                log.exception("could not take strategy %s into the vault", live.stem)
+
+        if restored:
+            log.warning(
+                "restored %d strategy file(s) that had gone missing from the installation: %s",
+                len(restored), ", ".join(restored),
+            )
+        if adopted:
+            log.info("took %d existing strategy file(s) into the vault: %s", len(adopted), ", ".join(adopted))
+        return {"restored": restored, "adopted": adopted}
+
+    def forget(self, stem: str) -> None:
+        """Delete a user strategy from both places.
+
+        Without the second half a deleted strategy would be restored by
+        the next startup, which is the vault turning from a safety net
+        into a bug.
+        """
+        name = str(stem or "").strip()
+        if name.endswith(".py"):
+            name = name[:-3]
+        if not name:
+            return
+        for base in (self.dir, self.vault):
+            try:
+                (base / f"{name}.py").unlink(missing_ok=True)
+            except OSError:
+                log.exception("could not delete %s.py from %s", name, base)
 
     def list(self) -> list[dict[str, Any]]:
         items = []
@@ -420,4 +550,14 @@ class StrategyLoader:
         stem = sanitize_stem(filename)
         dest = self.dir / f"{stem}.py"
         dest.write_text(source, encoding="utf-8")
+        # The user's copy, outside the installation, written in the same
+        # breath. A strategy that exists for even a moment only inside a
+        # folder the installer owns is a strategy an upgrade can take.
+        try:
+            self.vault.mkdir(parents=True, exist_ok=True)
+            (self.vault / f"{stem}.py").write_text(source, encoding="utf-8")
+        except OSError:
+            # Never fail an upload over the backup: the strategy is on
+            # disk and working, and the next sync will pick it up.
+            log.exception("could not copy strategy %s into the vault", stem)
         return dest
