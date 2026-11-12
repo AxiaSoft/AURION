@@ -175,8 +175,21 @@ app.use((req, res, next) => {
 });
 
 app.get("/api/health", async (_req, res) => {
-  const engineUp = await engine.healthy();
-  res.json({ ok: true, product: "AURION", backend: "online", engine: engineUp ? "online" : "offline" });
+  /* Also: is the engine running the code that is on this disk? An update
+     copies files under a live process, and Python keeps the modules it
+     already imported - so an installation could be new and its behaviour
+     old, with nothing anywhere saying so. A customer spent days on a bug
+     that had already been fixed because of it. build.restart_required is
+     true only when the engine answered with a fingerprint and it differs
+     from the files as they are now; silence is never a mismatch. */
+  const build = await engine.buildState();
+  res.json({
+    ok: true,
+    product: "AURION",
+    backend: "online",
+    engine: build.online ? "online" : "offline",
+    build,
+  });
 });
 
 app.get("/api/meta", async (req, res) => {
@@ -984,7 +997,26 @@ guarded.post("/system/update/apply", async (req, res) => {
   if (req.user.role !== "owner") return res.status(403).json({ ok:false, error:"owner_only" });
   const { update_id } = req.body || {};
   if (!update_id) return res.status(400).json({ ok:false, error:"need_update_id" });
-  const result = await updater.applyUpdate(String(update_id));
+  /* The restart is part of the install, not a separate favour: writing
+     new files under a running engine changes nothing until the process
+     that imported the old ones goes away. A caller may opt out, and the
+     answer always says which of the two happened. */
+  const result = await updater.applyUpdate(String(update_id), "", {
+    restart: (req.body || {}).restart !== false,
+  });
+  if (!result.ok) return res.status(400).json(result);
+  res.json(result);
+});
+
+/* Write every shipped file again, matching or not, then restart.
+ *
+ * For the installation whose files hash correctly and whose behaviour is
+ * still wrong - the state in which the ordinary update truthfully and
+ * uselessly answers "already up to date". Owner-only and never
+ * automatic. */
+guarded.post("/system/update/repair", async (req, res) => {
+  if (req.user.role !== "owner") return res.status(403).json({ ok:false, error:"owner_only" });
+  const result = await updater.repairInstall({ restart: (req.body || {}).restart !== false });
   if (!result.ok) return res.status(400).json(result);
   res.json(result);
 });

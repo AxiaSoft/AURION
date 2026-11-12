@@ -1,5 +1,6 @@
 const http = require("http");
 const { load } = require("./config");
+const buildId = require("./build-id");
 
 function base() {
   const cfg = load();
@@ -74,4 +75,40 @@ async function healthy() {
   }
 }
 
-module.exports = { proxy, request, healthy, base };
+/**
+ * Which code the engine is actually running, against which is on disk.
+ *
+ * An update replaces files under a live process, and Python keeps the
+ * modules it imported: the installation was new and the behaviour was
+ * old, with nothing anywhere saying so. The engine reports a fingerprint
+ * of the source it imported; buildState() compares it with the same
+ * fingerprint of those files now.
+ *
+ * Never throws, and never guesses. An engine that is down, or older than
+ * this check, reports nothing - and nothing is not a mismatch.
+ */
+async function buildState() {
+  let running = "";
+  let online = false;
+  try {
+    const result = await request("GET", "/health", undefined, 2500);
+    const data = (result && result.data) || {};
+    online = Boolean(data.ok);
+    running = String(data.build_id || "");
+  } catch { online = false; }
+  const cmp = buildId.compare(running);
+  return {
+    online,
+    running: cmp.running,
+    disk: cmp.disk,
+    /* True only when both sides spoke and disagreed: the update is on
+       disk and the engine has not been restarted into it. */
+    restart_required: online && cmp.stale,
+    /* An engine that cannot say which build it is (anything before this
+       was added) - reported so the desk can be honest about not knowing
+       rather than claiming either answer. */
+    unknown: online && !cmp.known,
+  };
+}
+
+module.exports = { proxy, request, healthy, base, buildState };

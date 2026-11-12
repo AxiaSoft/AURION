@@ -1257,7 +1257,18 @@
     "inst_restart_now": "Restart now",
     "inst_restart_later": "Later",
     "inst_later_note": "The desk keeps running the previous version until it restarts.",
-    "inst_toast_done": "Update installed — restart to finish"
+    "inst_toast_done": "Update installed — restart to finish",
+    "differs": "Files differ",
+    "repair_btn": "Repair install",
+    "repair_hint": "Writes every file of the current build again, even the ones that look correct, then restarts. Use it when the desk misbehaves although the update says it is up to date.",
+    "repair_confirm": "This downloads the current build and writes every one of its files over this installation, then restarts the desk. Your settings, licence and data are not touched. It takes a few minutes.",
+    "repair_running": "Repairing the installation",
+    "repair_wait": "Writing every file of the current build. Leave this window open.",
+    "repair_done": "Repaired — reloading",
+    "repair_failed": "Repair failed",
+    "inst_restarting": "Restarting to finish the update",
+    "engine_stale_title": "The engine is still running the previous version",
+    "engine_stale_body": "The new files are on disk, but the engine came back as the old build. Restart again, and if it keeps happening use Repair install."
   },
   "sup": {
     "warn_days": "{n} days until this version's support ends",

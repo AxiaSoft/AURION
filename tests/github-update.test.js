@@ -546,8 +546,18 @@ console.log("\n=== nothing to install is not a failure ===");
      empty list genuinely means current - this is what makes the answer
      above true rather than merely optimistic. */
   const ghSrc = fs.readFileSync(path.join(ROOT, "backend", "src", "github-update.js"), "utf8");
-  say(/if \(mine === entry\.sha\) continue;/.test(ghSrc),
+  /* Was: /if \(mine === entry\.sha\) continue;/ - the skip with no
+     condition in front of it. Reversed deliberately, not relaxed: the
+     repair install calls the same check with { all: true } and needs
+     every shipped file, matching or not, because the installation it
+     exists for is the one whose hashes are right and whose behaviour is
+     wrong. What matters here is unchanged and is still pinned - the
+     ORDINARY check skips matching files - so "nothing to install" still
+     means "nothing differs". */
+  say(/if \(!opts\.all && mine === entry\.sha\) continue;/.test(ghSrc),
       "the file list contains only files whose content actually differs");
+  say(/async function check\(cfg, opts = \{\}\)/.test(ghSrc),
+      "and the all-files mode is an explicit argument, not the default");
 }
 
 console.log("\n=== the rescue scripts point somewhere that exists ===");

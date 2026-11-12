@@ -10,6 +10,7 @@ from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse
 
+from .. import build_id
 from ..config import heal_packaged_files, load, merge, save
 from ..mt5.protocol import parse_ea_json
 from ..runtime.trader import Trader
@@ -62,7 +63,21 @@ def fail(message: str, status: int = 400) -> JSONResponse:
 
 @app.get("/health")
 async def health() -> dict[str, Any]:
-    return {"ok": True, "product": "AURION", "engine": "online"}
+    """Alive, and running which code.
+
+    build_id is a fingerprint of the Python source this process imported,
+    taken before anything could change under it. The desk compares it with
+    the same fingerprint of those files as they are now: a difference means
+    an update landed on disk and this process is still the old one. That
+    state used to be invisible -- an installation that had been updated
+    kept reporting an error which had already been fixed.
+    """
+    return {
+        "ok": True,
+        "product": "AURION",
+        "engine": "online",
+        "build_id": build_id.BUILD_ID,
+    }
 
 
 @app.get("/", response_class=HTMLResponse)
