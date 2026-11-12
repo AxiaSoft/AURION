@@ -568,7 +568,7 @@ async function remoteVersion(cfg, entry) {
  * running installation can take a customer's own additions with it, and
  * nothing in the desk needs a deletion to work.
  */
-async function check(cfg) {
+async function check(cfg, opts = {}) {
   const src = getSource(cfg);
   const target = await resolveTarget(src);
   const tree = await request(
@@ -590,13 +590,20 @@ async function check(cfg) {
     if (rel === "config/aurion.factory.json") factoryEntry = entry;
     if (files.length >= MAX_FILES) { truncatedScan = true; break; }
     const mine = localBlobSha(rel);
-    if (mine === entry.sha) continue;
+    /* opts.all is the repair install: list every shipped file, matching
+       or not. A desk whose files look right by hash and behaves wrong
+       has something the hash cannot see - a half-written copy restored
+       from a backup, an antivirus quarantine, a file the user edited and
+       put back - and for that the only honest answer is to lay the whole
+       build down again. The ordinary check stays difference-only; this
+       is asked for explicitly and by the owner. */
+    if (!opts.all && mine === entry.sha) continue;
     files.push({
       id: String(entry.sha),
       filePath: rel,
       hash: String(entry.sha),
       size: Number(entry.size || 0),
-      status: mine ? "changed" : "added",
+      status: mine === entry.sha ? "same" : (mine ? "changed" : "added"),
     });
   }
 

@@ -8294,7 +8294,17 @@ const views = {
           <div id="upd-status"></div>
           <div class="row stx-acts">
             <button class="btn" id="upd-check" type="button">${icon("search")} ${I18N.t("upd.check")}</button>
+            <!-- For the machine whose files hash correctly and whose
+                 behaviour is wrong: to the ordinary check that desk is
+                 "up to date", which is true and no help at all. This
+                 writes every shipped file again and restarts. -->
+            <button class="btn ghost" id="upd-repair" type="button">${icon("refresh")} ${I18N.t("upd.repair_btn")}</button>
           </div>
+          <!-- Filled in only when the engine answers with a build that
+               is not the one on disk: the update landed and the process
+               was never restarted into it. Invisible otherwise. -->
+          <p class="sub err" id="upd-stale" hidden></p>
+          <p class="sub" id="upd-repair-hint">${esc(I18N.t("upd.repair_hint"))}</p>
           <div id="upd-result" class="stx-result"></div>
         </div>`)}
 
@@ -9357,12 +9367,15 @@ function paintUpdateFacts(o) {
     chip.classList.add("is-new");
     chip.textContent = I18N.t("upd.available");
   } else if (state === "unpublished") {
-    /* The tracked branch has moved and nothing has been released. That
-       is not an update and must not be dressed as one: no "new version"
-       colour, no call to action. The owner is told what it is, a line
-       below, and may install it deliberately. */
-    chip.classList.add("is-ok");
-    chip.textContent = I18N.t("upd.uptodate");
+    /* A difference exists and was not offered as an update. Whatever
+       else that is, it is not "up to date" - which is what this said,
+       in green, while the files on this machine were not the files on
+       the branch. Saying the comforting thing when the true thing is
+       unclear is how a desk ends up trusted for the wrong reason. So:
+       no "new version" colour and no call to action, because nothing
+       was offered, but the chip names the state it is actually in and
+       the line below gives the count. */
+    chip.textContent = I18N.t("upd.differs");
   } else if (state === "uptodate") {
     chip.classList.add("is-ok");
     chip.textContent = I18N.t("upd.uptodate");
@@ -9497,6 +9510,25 @@ async function bindUpdatePanel(){
         applyBtn.disabled = false;
       };
     }
+  };
+
+  /* The panel's own copy of the question the install screen asks after
+     a restart, for the desk that was updated days ago and never came
+     back up as the new build. Silent unless both sides answered and
+     disagreed. */
+  try {
+    const verdict = await verifyEngineBuild();
+    const staleEl = document.getElementById('upd-stale');
+    if (staleEl) {
+      staleEl.hidden = !verdict.stale;
+      staleEl.textContent = verdict.stale ? I18N.t('upd.engine_stale_body') : '';
+    }
+  } catch (e) { /* never block the panel over this */ }
+
+  const repairBtn = document.getElementById('upd-repair');
+  if (repairBtn) repairBtn.onclick = async () => {
+    repairBtn.disabled = true;
+    try { await runRepairInstall(); } finally { repairBtn.disabled = false; }
   };
 
   /* The "local files" view is gone. It listed up to a hundred paths
@@ -14553,30 +14585,40 @@ async function runUpdateInstall(upd) {
 
   mark("download", "done");
   mark("write", "done");
-
-  /* The files are on disk. The restart is the user's to make.
-     
-     It used to happen here, by itself, straight after the copy. That is
-     defensible for a phone app and wrong for a trading desk: restarting
-     takes the engine down, and the person watching is the only one who
-     knows whether this is a good moment. So the install stops at the
-     honest boundary - installed, not yet running - says so plainly, and
-     waits to be told. */
   setBar(100, I18N.t("upd.inst_phase_apply"), "");
+
+  /* The files are on disk - and on their own that changes nothing.
+
+     This used to stop here, with a tidy "installed, restart when you
+     like" and two buttons. The reasoning was that a trading desk should
+     not take itself down unasked. What it produced, reported from the
+     field, was worse than an unwanted restart: the engine is a service
+     behind this page, closing the window does not stop it, and Python
+     holds the modules it imported for the life of the process. So the
+     files were new, the screen said installed, and the desk went on
+     running the old code - answering with a bug that had been fixed two
+     releases earlier. An update that does not take effect is not an
+     update, and "later" in practice meant "never".
+
+     The install now finishes the job: the apply schedules the restart
+     and this screen follows it through to the engine coming back and
+     then checks that what came back is actually the new build. */
+  if (ar.restarting) {
+    host.querySelector(".upd-install-spin")?.remove();
+    try { toast(I18N.t("upd.inst_toast_done")); } catch (e) { /* */ }
+    return await finishUpdateRestart(host, upd, { scheduled: true });
+  }
+
+  /* Only when the restart was explicitly declined by the caller. The
+     files are down and the process is still the old one, which is a
+     real state of the machine and is named as such. */
   host.classList.add("is-installed");
   host.querySelector(".upd-install-spin")?.remove();
   mark("restart", null);
   mark("wait", null);
-  /* The heading said "Installing the update" and the note underneath
-     promised that the desk would restart by itself. Neither is true
-     once the copy has finished and the restart is the user's to make,
-     and a screen that contradicts its own buttons is worse than a
-     screen with no words on it. */
   const titleEl = host.querySelector(".upd-install-title");
   if (titleEl) titleEl.textContent = I18N.t("upd.inst_installed");
 
-  /* A notification as well as the screen: the install can take long
-     enough that the person has looked away from it. */
   try { toast(I18N.t("upd.inst_toast_done")); } catch (e) { /* */ }
 
   const eaLine = ar.ea_changed
@@ -14618,7 +14660,7 @@ async function runUpdateInstall(upd) {
  * reloading, then dropping the stale language packs - has one home
  * rather than two.
  */
-async function finishUpdateRestart(host, upd) {
+async function finishUpdateRestart(host, upd, opts) {
   const bar = host.querySelector(".upd-bar");
   const phaseEl = host.querySelector(".upd-bar-phase");
   const countEl = host.querySelector(".upd-bar-count");
@@ -14632,16 +14674,25 @@ async function finishUpdateRestart(host, upd) {
 
   host.classList.remove("is-installed");
   const titleEl = host.querySelector(".upd-install-title");
-  if (titleEl) titleEl.textContent = I18N.t("upd.inst_restart");
+  /* Two different sentences on purpose: a restart the install is doing
+     by itself has to say what it is finishing, because the person did
+     not ask for it and is owed the reason. */
+  if (titleEl) titleEl.textContent = I18N.t(opts && opts.scheduled ? "upd.inst_restarting" : "upd.inst_restart");
   if (bar) { bar.classList.add("is-sweeping"); bar.removeAttribute("aria-valuenow"); }
   if (countEl) countEl.textContent = "";
   if (phaseEl) phaseEl.textContent = I18N.t("upd.inst_restart");
   if (msg) msg.innerHTML = `<p class="sub">${esc(I18N.t("upd.inst_wait"))}</p>`;
   mark("restart", "doing");
 
-  try {
-    await API.post("/api/host/restart", {});
-  } catch (err) { /* it may well die mid-reply; that IS the restart */ }
+  /* The install already scheduled it, in the same call that wrote the
+     files - asking a second time would restart a desk that is in the
+     middle of restarting. Only the "Restart now" button, pressed later
+     against an install that deferred, has to ask. */
+  if (!(opts && opts.scheduled)) {
+    try {
+      await API.post("/api/host/restart", {});
+    } catch (err) { /* it may well die mid-reply; that IS the restart */ }
+  }
   mark("restart", "done");
 
   mark("wait", "doing");
@@ -14656,6 +14707,40 @@ async function finishUpdateRestart(host, upd) {
         + `<button class="btn" type="button" id="upd-inst-reload">${esc(I18N.t("upd.reload_now"))}</button>`;
       const rb = msg.querySelector("#upd-inst-reload");
       if (rb) rb.onclick = () => location.replace("/?v=" + Date.now());
+    }
+    return false;
+  }
+
+  /* Came back - but as which build?
+
+     This is the check that was missing, and its absence is the whole
+     reason a customer spent days on a fixed bug. Files on disk and a
+     live engine were taken as proof the update had taken effect; they
+     are not. The engine reports a fingerprint of the source it actually
+     imported and the desk compares it with those files as they are now.
+     Only a real disagreement - both sides answered, and differently -
+     is reported, because an older engine that cannot answer must not be
+     accused of anything. */
+  const verdict = await verifyEngineBuild();
+  if (verdict.stale) {
+    mark("wait", "failed");
+    host.classList.add("is-failed", "is-bad");
+    if (bar) bar.classList.remove("is-sweeping");
+    if (phaseEl) phaseEl.textContent = I18N.t("upd.engine_stale_title");
+    if (msg) {
+      msg.innerHTML = `<p class="err">${icon("info")} ${esc(I18N.t("upd.engine_stale_title"))}</p>`
+        + `<p class="sub">${esc(I18N.t("upd.engine_stale_body"))}</p>`
+        + `<div class="upd-install-actions">`
+        + `<button class="btn" type="button" id="upd-inst-retry-restart">${icon("refresh")} ${esc(I18N.t("upd.inst_restart_now"))}</button>`
+        + `<button class="btn ghost" type="button" id="upd-inst-repair">${esc(I18N.t("upd.repair_btn"))}</button>`
+        + `</div>`;
+      const again = msg.querySelector("#upd-inst-retry-restart");
+      if (again) again.onclick = () => {
+        host.classList.remove("is-failed", "is-bad");
+        finishUpdateRestart(host, upd);
+      };
+      const rep = msg.querySelector("#upd-inst-repair");
+      if (rep) rep.onclick = () => runRepairInstall();
     }
     return false;
   }
@@ -14712,6 +14797,96 @@ async function waitForEngine(budgetMs) {
     await new Promise((r) => setTimeout(r, 1200));
   }
   return false;
+}
+
+/**
+ * Is the engine running the code that is on this disk?
+ *
+ * The question nobody was asking, and the reason an installation could
+ * be updated and broken at the same time. The engine fingerprints the
+ * Python source it imported; the backend fingerprints those same files
+ * as they are now. Equal means the restart took. Different means the
+ * files moved and the process did not.
+ *
+ * Deliberately conservative: anything it cannot establish - health did
+ * not answer, the engine is too old to report a build, the fingerprint
+ * could not be taken - comes back as "not stale". A false alarm here
+ * would tell a working desk it is broken, which is worse than silence.
+ */
+async function verifyEngineBuild() {
+  try {
+    const res = await fetch("/api/health?t=" + Date.now(), { cache: "no-store" });
+    if (!res.ok) return { stale: false, known: false };
+    const data = await res.json();
+    const build = (data && data.build) || {};
+    return {
+      stale: build.restart_required === true,
+      known: build.restart_required === true || build.restart_required === false,
+      running: String(build.running || ""),
+      disk: String(build.disk || ""),
+    };
+  } catch (e) {
+    return { stale: false, known: false };
+  }
+}
+
+/**
+ * Write every shipped file again, then restart: the repair install.
+ *
+ * For the desk whose files look right and behave wrong, where the
+ * ordinary update truthfully answers "already up to date" and leaves
+ * the person exactly where they were. It is slower and bigger than an
+ * update and it is confirmed before it runs.
+ */
+async function runRepairInstall() {
+  const yes = await askConfirm({
+    title: I18N.t("upd.repair_btn"),
+    body: I18N.t("upd.repair_confirm"),
+    ok: I18N.t("upd.repair_btn"),
+    cancel: I18N.t("common.cancel"),
+  });
+  if (!yes) return false;
+
+  const host = document.createElement("div");
+  host.className = "upd-install";
+  host.innerHTML = `
+    <div class="auth-card upd-card upd-install-card" role="dialog" aria-modal="true">
+      <h2 class="upd-install-title">${esc(I18N.t("upd.repair_running"))}</h2>
+      <p class="sub upd-install-msg">${esc(I18N.t("upd.repair_wait"))}</p>
+    </div>`;
+  document.body.appendChild(host);
+  const msg = host.querySelector(".upd-install-msg");
+
+  let r;
+  try {
+    r = await API.post("/api/system/update/repair", {});
+  } catch (err) {
+    r = { ok: false, error: String((err && err.message) || err || "") };
+  }
+
+  if (!r || !r.ok) {
+    host.classList.add("is-bad");
+    if (msg) {
+      msg.innerHTML = `<span class="err">${esc(I18N.t("upd.repair_failed"))} \u2014 ${esc(updateErrorText({ ok: false, ...(r || {}) }) || (r && r.error) || "")}</span>`;
+    }
+    setTimeout(() => host.remove(), 6000);
+    return false;
+  }
+
+  /* The repair restarts for the same reason the update does: files that
+     nothing re-imports have not been repaired. */
+  const titleEl = host.querySelector(".upd-install-title");
+  if (titleEl) titleEl.textContent = I18N.t("upd.inst_restart");
+  if (msg) msg.textContent = I18N.t("upd.inst_wait");
+  const back = await waitForEngine(180000);
+  if (!back) {
+    if (msg) msg.innerHTML = `<span class="sub">${esc(I18N.t("upd.inst_failed_wait"))}</span>`;
+    return false;
+  }
+  try { I18N.clearCache(); } catch (e) { /* */ }
+  if (msg) msg.innerHTML = `<span class="ok">${icon("check")} ${esc(I18N.t("upd.repair_done"))}</span>`;
+  setTimeout(() => location.replace("/?v=" + Date.now()), 900);
+  return true;
 }
 
 /** "The update worked" - shown to a premium machine, which has no gate. */

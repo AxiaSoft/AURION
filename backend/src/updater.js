@@ -8,6 +8,8 @@ const http = require("http");
 const { ROOT, DATA } = require("./paths");
 const { load: loadConfig } = require("./config");
 const github = require("./github-update");
+const hostctl = require("./host");
+const buildId = require("./build-id");
 
 const UPDATE_SETTINGS_FILE = path.join(DATA, "update-settings.json");
 const UPDATE_STATE_FILE = path.join(DATA, "update-state.json");
@@ -519,7 +521,118 @@ function takeFromSnapshot(snapshot, f) {
   return { buffer, filePath: rel, hash: want };
 }
 
-async function applyUpdate(updateId, serverUrl) {
+/**
+ * Lay the whole build down again: the repair install.
+ *
+ * The ordinary update is a difference: the check compares blob hashes
+ * and writes only what differs. That is right nearly always and useless
+ * in the case that actually brings people to support - an installation
+ * whose files hash correctly and whose behaviour is still wrong. A
+ * restored backup, a half-finished copy, a file an antivirus took and
+ * gave back, bytecode newer than the source it claims to be: to a hash
+ * comparison all of those look like nothing to do, and the update screen
+ * answers "already up to date" to someone staring at a broken desk.
+ *
+ * Repair takes the same shipped file list from the same branch and
+ * writes every one of them, matching or not, then clears the bytecode
+ * and restarts - all of it through the identical apply path, so the
+ * protected-file filter, the backups and the per-file hash check are the
+ * ones that are already tested rather than a second copy of them.
+ *
+ * Owner-only, and never automatic: it is a bigger hammer than an update
+ * and it must be someone's decision.
+ */
+async function repairInstall(opts = {}) {
+  if (getSourceKind() !== "github") return { ok: false, error: "repair_needs_github" };
+  let target;
+  try {
+    target = await github.check(liveConfig(), { all: true });
+  } catch (e) {
+    return { ok: false, error: (e && e.message) || "network_error" };
+  }
+  if (!target || !target.ok || !target.update || !Array.isArray(target.update.files) || !target.update.files.length) {
+    return { ok: false, error: "repair_no_files" };
+  }
+
+  /* The apply reads its file list from the state file, which is also
+     what the desk reads to answer "is an update available". Writing the
+     complete list there makes every shipped file look like a pending
+     update for as long as the repair runs - true while it is running,
+     a lie the moment it stops. So the previous answer is kept and put
+     back on every path out of here. */
+  const previous = readJsonSecure(UPDATE_STATE_FILE, {});
+  writeSecure(UPDATE_STATE_FILE, {
+    last_check: new Date().toISOString(),
+    update_available: true,
+    latest: target.update,
+    repair: true,
+  });
+
+  let result;
+  try {
+    result = await applyUpdate(String(target.update.id), "", opts);
+  } catch (e) {
+    result = { ok: false, error: (e && e.message) || "repair_failed" };
+  }
+
+  if (!result || !result.ok) {
+    try { writeSecure(UPDATE_STATE_FILE, previous); } catch { /* */ }
+    return { ok: false, error: (result && result.error) || "repair_failed", applied: (result && result.applied) || [] };
+  }
+  /* A successful apply has already rewritten the state file to say this
+     machine is current, which after a repair is exactly true. */
+  return { ...result, repaired: true, file_count: target.update.files.length };
+}
+
+/**
+ * Throw away the engine's compiled bytecode.
+ *
+ * Python writes a .pyc beside every module it imports and reuses it when
+ * the source's size and timestamp match what the .pyc recorded. An update
+ * writes the new source with whatever timestamp the copy gives it, and a
+ * .pyc from a build months older can still be judged current -- at which
+ * point the fix is on disk, the desk says it is installed, and the engine
+ * goes on executing September.
+ *
+ * That is not theory: it is what a customer hit. The error they reported
+ * after updating came from a module whose source no longer contained the
+ * line that produced it.
+ *
+ * So the bytecode goes, every time. It is derived - deleting it costs one
+ * slower import and nothing else - and it is the only copy of the old code
+ * an update leaves behind. The archive walker skips __pycache__ when it
+ * downloads, which is correct and is also why nothing had ever cleaned it.
+ *
+ * Best effort by design: a file that will not delete (locked by the very
+ * process we are about to restart, on Windows) must not fail the install.
+ */
+function purgeBytecode(root) {
+  const base = root || path.join(ROOT, "engine");
+  const removed = [];
+  const walk = (dir, depth) => {
+    if (depth > 12) return;
+    let entries;
+    try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
+    for (const e of entries) {
+      const abs = path.join(dir, e.name);
+      if (e.isDirectory()) {
+        if (e.name === "__pycache__") {
+          try { fs.rmSync(abs, { recursive: true, force: true }); removed.push(abs); } catch { /* locked */ }
+          continue;
+        }
+        /* Virtualenvs and model stores are not ours to rake through. */
+        if (e.name === "node_modules" || e.name === ".git" || e.name === "venv" || e.name === ".venv") continue;
+        walk(abs, depth + 1);
+      } else if (e.isFile() && (e.name.endsWith(".pyc") || e.name.endsWith(".pyo"))) {
+        try { fs.rmSync(abs, { force: true }); removed.push(abs); } catch { /* locked */ }
+      }
+    }
+  };
+  try { walk(base, 0); } catch { /* */ }
+  return removed;
+}
+
+async function applyUpdate(updateId, serverUrl, opts = {}) {
   const kind = getSourceKind();
   /* No publication test here, and there never was one that worked:
      what is installed is the target the last check agreed on, matched
@@ -684,7 +797,34 @@ async function applyUpdate(updateId, serverUrl) {
       installed_at: new Date().toISOString(),
     });
 
-    setProgress({ active: false, phase: "done", done: applied.length, file: "" });
+    /* Before anything restarts, and whether or not this update touched
+       Python: stale bytecode is what let an updated installation keep
+       running the old modules. See purgeBytecode. */
+    const purged = purgeBytecode();
+    /* The files on disk have just changed, so any cached fingerprint of
+       them describes the installation that existed a second ago. */
+    try { buildId.invalidate(); } catch { /* */ }
+
+    /* And now actually finish the job.
+
+       This used to end here, with the files written and the process
+       that reads them still running the previous build. The desk said
+       "installed", the user closed the window - which does not stop
+       anything, the engine is a service behind it - and the next thing
+       they saw was the bug they had just updated to fix. An update that
+       does not take effect is not an update.
+
+       Restarting is therefore the default and the end of the apply, not
+       a suggestion printed afterwards. A caller that genuinely wants the
+       files without the restart has to say so, and it is told plainly
+       in the answer which of the two actually happened. */
+    const restart = opts.restart !== false;
+    let restartScheduled = false;
+    if (restart) {
+      try { hostctl.scheduleRestart(); restartScheduled = true; } catch { restartScheduled = false; }
+    }
+
+    setProgress({ active: false, phase: restartScheduled ? "restart" : "done", done: applied.length, file: "" });
     return {
       ok: true,
       applied,
@@ -692,6 +832,10 @@ async function applyUpdate(updateId, serverUrl) {
       version: state.latest.version,
       ea_changed: eaFiles.length > 0,
       ea_files: eaFiles,
+      bytecode_removed: purged.length,
+      /* The desk shows one of two different endings on the strength of
+         this, so it is always present and never inferred. */
+      restarting: restartScheduled,
     };
   } catch (e) {
     /* Say how far it got. An install that stops part way has left the
@@ -814,6 +958,8 @@ module.exports = {
   saveSettings,
   checkForUpdates,
   applyUpdate,
+  repairInstall,
+  purgeBytecode,
   getUpdateState,
   getApplyProgress,
   collectLocalManifest,
