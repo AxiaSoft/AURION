@@ -3523,7 +3523,11 @@ class Trader:
             pass
         file_missing = False
         try:
-            (self.loader.dir / f"{name}.py").unlink(missing_ok=True)
+            # Both copies: the working one in the installation and the
+            # user's own in data/strategies. Deleting only the first
+            # would have the vault restore it at the next start, which
+            # turns a safety net into a bug.
+            self.loader.forget(name)
         except Exception as exc:
             log.exception("could not delete strategy file %s.py", name)
             file_missing = str(exc)

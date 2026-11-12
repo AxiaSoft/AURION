@@ -219,6 +219,51 @@ console.log("\n=== every new sentence exists in all three languages ===");
   }
 }
 
+/* --------------------------------------------------------------- */
+console.log("\n=== an update can reach the files that start the product ===");
+{
+  const gh = require(path.join(ROOT, "backend", "src", "github-update.js"));
+  /* Found while fixing a fault in start-aurion.cmd and realising the
+     fix could never be delivered: INCLUDE_DIRS covers scripts/, but the
+     launchers sit at the root of the tree and were in no shipped
+     directory at all. The file the Windows shortcut actually runs, and
+     the engine's own entry point, were both unfixable by update - for
+     everyone, permanently. */
+  for (const f of ["start-aurion.cmd", "stop-aurion.cmd", "engine/main.py", "engine/requirements.txt"]) {
+    say(gh.isShippable(f), f + " can be delivered by an update");
+  }
+  /* And the lines that must stay out. A release that wrote these would
+     take the machine's own state with it. */
+  for (const f of ["config/aurion.json", "data/users.json", "data/license/state.json"]) {
+    say(!gh.isShippable(f), f + " is still refused");
+  }
+  /* The user's own strategies are not part of a release either: an
+     update that wrote engine/strategies/ would overwrite the very
+     files this release exists to stop losing. */
+  say(!gh.isShippable("engine/strategies/my_strategy.py"),
+    "a release never writes over an uploaded strategy");
+}
+
+/* --------------------------------------------------------------- */
+console.log("\n=== a user's strategy is not kept where the installer can take it ===");
+{
+  const loader = read("engine/aurion/strategy/loader.py");
+  say(/self\.vault = DATA_DIR \/ "strategies"/.test(loader),
+    "the user's copy lives under the data directory");
+  say(/def sync_vault\(/.test(loader) && /self\.sync_vault\(\)/.test(loader),
+    "and the two are reconciled at startup");
+  say(/def forget\(/.test(loader) && /for base in \(self\.dir, self\.vault\)/.test(loader),
+    "deleting removes both, so a deleted strategy cannot come back");
+  const trader = read("engine/aurion/runtime/trader.py");
+  say(/self\.loader\.forget\(name\)/.test(trader) && !/\(self\.loader\.dir \/ f"\{name\}\.py"\)\.unlink/.test(trader),
+    "the delete endpoint goes through it rather than unlinking one copy");
+  /* The installer's own statement about what it owns, so this stays
+     true if the staging script is ever rewritten. */
+  const wxs = read("installer/src/Package.wxs");
+  say(/Schedule="afterInstallInitialize"/.test(wxs),
+    "the upgrade really does remove the old product first - which is why the vault exists");
+}
+
 if (failures.length) {
   console.log("\nupdate-takes-effect: " + failures.length + " FAILED of " + (pass + failures.length));
   process.exit(1);

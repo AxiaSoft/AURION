@@ -486,3 +486,146 @@ def test_a_success_is_passed_through_untouched():
     ok = {"ok": True, "strategy": {"name": "x"}}
     assert reply(ok) == ok
     assert "build_id" not in reply(ok)
+
+
+# ---------------------------------------------------------------------------
+# Where a user's strategy lives.
+#
+# The real cause of "[Errno 2] ... \engine\strategies\<name>", reported
+# twice for two different strategies: user-written strategies were kept
+# in engine/strategies, inside the installation. Windows Installer owns
+# that folder. A major upgrade is scheduled afterInstallInitialize, so
+# the old product is removed in full before the new one is laid down -
+# correct for shipped files, fatal for a customer's own. The loader was
+# blamed both times and was never at fault; it was asked for a file that
+# genuinely was not there any more.
+#
+# The user's copy now lives in data/strategies, which every part of this
+# product already treats as untouchable: the installer excludes data\,
+# the updater's protected list refuses to write under it, a factory
+# reset keeps it.
+# ---------------------------------------------------------------------------
+
+import shutil
+
+import pytest
+
+from aurion.strategy import loader as loader_mod
+
+
+GOOD = """
+from aurion.strategy.base import BaseStrategy
+
+
+class MyStrategy(BaseStrategy):
+    name = "vaulted"
+
+    def on_candle(self, ctx):
+        return None
+"""
+
+
+@pytest.fixture()
+def vaulted(tmp_path, monkeypatch):
+    """A loader whose two folders are both throwaway."""
+    work = tmp_path / "install" / "engine" / "strategies"
+    vault = tmp_path / "data" / "strategies"
+    work.mkdir(parents=True)
+
+    def make():
+        ld = loader_mod.StrategyLoader.__new__(loader_mod.StrategyLoader)
+        ld.dir = work
+        ld.vault = vault
+        ld.loaded = {}
+        ld.sync_vault()
+        return ld
+
+    return make, work, vault
+
+
+def test_an_upload_is_kept_outside_the_installation(vaulted):
+    make, work, vault = vaulted
+    ld = make()
+    ld.save_upload("aurion_gold_pullback.py", GOOD)
+    assert (work / "aurion_gold_pullback.py").is_file()
+    assert (vault / "aurion_gold_pullback.py").is_file(), "nothing outside the install tree"
+
+
+def test_a_strategy_survives_the_installation_being_wiped(vaulted):
+    """The reported failure, reproduced and then cured.
+
+    Removing the install folder's copy is exactly what a major upgrade
+    does to a file it does not own in a directory it manages.
+    """
+    make, work, vault = vaulted
+    make().save_upload("aurion_gold_pullback.py", GOOD)
+
+    shutil.rmtree(work)
+    work.mkdir(parents=True)
+    assert not (work / "aurion_gold_pullback.py").exists()
+
+    ld = make()
+    assert (work / "aurion_gold_pullback.py").is_file(), "the upgrade still loses the strategy"
+    inst = ld.build({"kind": "file", "name": "aurion_gold_pullback"})
+    assert inst.name == "vaulted"
+
+
+def test_a_strategy_from_an_older_build_is_adopted(vaulted):
+    """Nobody has a vault yet. The first start has to build one."""
+    make, work, vault = vaulted
+    (work / "legacy_one.py").write_text(GOOD, encoding="utf-8")
+    make()
+    assert (vault / "legacy_one.py").is_file()
+
+
+def test_an_edit_wins_over_the_stored_copy(vaulted):
+    """The working file is what the engine runs and the desk edits."""
+    make, work, vault = vaulted
+    make().save_upload("edited.py", GOOD)
+    changed = GOOD.replace('name = "vaulted"', 'name = "edited by hand"')
+    (work / "edited.py").write_text(changed, encoding="utf-8")
+    make()
+    assert (vault / "edited.py").read_text(encoding="utf-8") == changed
+
+
+def test_deleting_really_deletes(vaulted):
+    """Otherwise the safety net becomes the bug."""
+    make, work, vault = vaulted
+    ld = make()
+    ld.save_upload("gone.py", GOOD)
+    ld.forget("gone")
+    assert not (work / "gone.py").exists()
+    assert not (vault / "gone.py").exists()
+    make()
+    assert not (work / "gone.py").exists(), "a deleted strategy came back"
+
+
+def test_the_shipped_template_is_not_taken_into_a_user_vault(vaulted):
+    """It belongs to the build, so an update must be able to replace it."""
+    make, work, vault = vaulted
+    (work / "template.py").write_text(GOOD, encoding="utf-8")
+    make()
+    assert not (vault / "template.py").exists()
+
+
+def test_the_vault_is_under_the_data_directory(tmp_path):
+    """Which is what makes it safe: data/ is protected everywhere.
+
+    Built by hand rather than with StrategyLoader(): the real
+    constructor reconciles the real folders, so a test that called it
+    would create data/strategies inside the checkout and leave it
+    there. A test must not write into the tree it is testing.
+    """
+    from aurion.config import DATA_DIR, ROOT
+
+    src = (
+        __import__("pathlib").Path(loader_mod.__file__)
+    ).read_text(encoding="utf-8")
+    assert 'self.vault = DATA_DIR / "strategies"' in src
+
+    work = ROOT / "engine" / "strategies"
+    vault = DATA_DIR / "strategies"
+    # The point of the whole change: the two are not in the same tree,
+    # and the user's one is the one the installer excludes.
+    assert vault != work
+    assert work not in vault.parents

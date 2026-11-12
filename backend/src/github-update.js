@@ -244,7 +244,29 @@ const INCLUDE_DIRS = [
    news calendar, neither of which a release may touch - but the factory
    defaults next to them are the product's own, and leaving them behind
    meant a release could add a setting the shipped default never gained. */
-const INCLUDE_FILES = ["config/aurion.factory.json"];
+const INCLUDE_FILES = [
+  "config/aurion.factory.json",
+  /* The launchers, which an update could not reach.
+   *
+   * INCLUDE_DIRS covers scripts/, so restart-aurion.cmd shipped - but
+   * start-aurion.cmd and stop-aurion.cmd sit at the root of the tree
+   * and were in no shipped directory at all. They are what the Windows
+   * shortcut actually runs: the file that starts the engine, waits for
+   * it and starts the desk. A fault in it was therefore unfixable by
+   * update, for everyone, forever. That was found while fixing one -
+   * the line between starting the engine and starting the desk waited
+   * for nothing at all - and discovering it could never be delivered.
+   *
+   * engine/main.py is here for the same reason and is worse: it is the
+   * engine's own entry point, the first thing Python runs, and no
+   * update could replace it either. */
+  "start-aurion.cmd",
+  "stop-aurion.cmd",
+  "start-desk.cmd",
+  "start-engine.cmd",
+  "engine/main.py",
+  "engine/requirements.txt",
+];
 
 /* Never, whatever a release contains.
  *
