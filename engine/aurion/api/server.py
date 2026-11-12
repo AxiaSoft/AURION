@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
+from pathlib import PurePosixPath, PureWindowsPath
 from typing import Any
 
 import os
@@ -273,6 +275,75 @@ async def safe(body: dict[str, Any]) -> dict[str, Any]:
     return trader.set_safe(bool(body.get("value", True)))
 
 
+def _readable_error(text: str) -> str:
+    """Turn a raw OS error into a sentence, wherever one leaks out.
+
+    A customer saw this, twice, months apart, from two different
+    strategies:
+
+        [Errno 2] No such file or directory:
+          'C:\\Users\\...\\AURION\\engine\\strategies\\aurion_gold_pullback'
+
+    Every join that produced a path like that has been fixed, and the
+    loader turns a missing file into a sentence naming the strategies
+    that do exist. This is the net under all of it. An errno is a fact
+    about a filesystem call; it is never an answer to "why will my
+    strategy not load", and it must not reach a trader's screen again
+    because some future edit took a new route to the same mistake.
+
+    Pure text in, text out: it cannot know which call failed, only that
+    whatever came back is unusable as it stands. The original is kept in
+    the engine log, where diagnosing it belongs.
+    """
+    raw = str(text or "")
+    m = re.search(r"\[Errno (\d+)\][^:]*:\s*'([^']*)'", raw)
+    if not m:
+        return raw
+    errno_no = m.group(1)
+    target = m.group(2).replace("\\\\", "\\")
+    # A Windows path has to be split by Windows rules even when the
+    # engine reporting it is not on Windows: the desk reads these
+    # messages, the test suite runs on Linux, and a basename of
+    # "C:\\...\\name" helps nobody.
+    parts = PureWindowsPath(target) if "\\" in target else PurePosixPath(target)
+    name = parts.name or target
+    if errno_no == "2":
+        return (
+            f"'{name}' is not on disk where the engine looked for it. "
+            "Upload the strategy file again, or pick another one from the list."
+        )
+    if errno_no == "13":
+        return f"the engine is not allowed to read '{name}' — check the file's permissions"
+    if errno_no == "21":
+        return f"'{name}' is a folder, not a strategy file"
+    return f"the engine could not read '{name}' (OS error {errno_no})"
+
+
+def _strategy_reply(result: Any) -> Any:
+    """Every strategy answer, made readable and attributable.
+
+    Two things are added to a failure, and only to a failure:
+
+      * the error is run through _readable_error, so no errno reaches
+        the desk whatever path inside produced it;
+      * build_id, the fingerprint of the source this engine imported.
+
+    The second one exists because of how long the first fault took to
+    pin down. The same message kept coming back from a machine whose
+    files had already been fixed - because the files had been replaced
+    under a running process that went on executing the old ones. With
+    the build stamped on the error, "this is not the code you shipped"
+    is visible in the message itself instead of taking a week.
+    """
+    if not isinstance(result, dict) or result.get("ok") is not False:
+        return result
+    out = dict(result)
+    if isinstance(out.get("error"), str):
+        out["error"] = _readable_error(out["error"])
+    out.setdefault("build_id", build_id.BUILD_ID)
+    return out
+
+
 @app.get("/v1/strategies")
 async def strategies() -> dict[str, Any]:
     return {
@@ -287,12 +358,14 @@ async def strategies() -> dict[str, Any]:
 
 @app.post("/v1/strategies/apply")
 async def apply_strategy(body: dict[str, Any]) -> dict[str, Any]:
-    return await trader.apply_strategy(body)
+    return _strategy_reply(await trader.apply_strategy(body))
 
 
 @app.post("/v1/strategies/toggle")
 async def toggle_strategy(body: dict[str, Any]) -> dict[str, Any]:
-    return await trader.toggle_strategy(str(body.get("name") or ""), bool(body.get("enabled")), body.get("params"))
+    return _strategy_reply(
+        await trader.toggle_strategy(str(body.get("name") or ""), bool(body.get("enabled")), body.get("params"))
+    )
 
 
 @app.post("/v1/auto")
@@ -335,26 +408,28 @@ async def upload_strategy(body: dict[str, Any]) -> dict[str, Any]:
         applied = await trader.apply_strategy(
             {"kind": "file", "name": dest.name, "params": body.get("params") or {}, "enabled": bool(body.get("activate"))}
         )
-        return {**applied, "file": dest.name, "name": dest.stem}
+        return _strategy_reply({**applied, "file": dest.name, "name": dest.stem})
     except Exception as exc:
-        return {"ok": False, "error": str(exc)}
+        return _strategy_reply({"ok": False, "error": str(exc)})
 
 
 @app.get("/v1/strategies/source")
 async def strategy_source(name: str = "") -> dict[str, Any]:
-    return trader.strategy_source(name)
+    return _strategy_reply(trader.strategy_source(name))
 
 
 @app.post("/v1/strategies/update")
 async def update_strategy(body: dict[str, Any]) -> dict[str, Any]:
     if not trader.license.feature("strategy_upload"):
         return {"ok": False, "error": "premium_required", "feature": "strategy_upload", "upgrade": True}
-    return await trader.update_strategy(str(body.get("name") or ""), str(body.get("source") or ""))
+    return _strategy_reply(
+        await trader.update_strategy(str(body.get("name") or ""), str(body.get("source") or ""))
+    )
 
 
 @app.post("/v1/strategies/delete")
 async def delete_strategy(body: dict[str, Any]) -> dict[str, Any]:
-    return await trader.delete_strategy(str(body.get("name") or ""))
+    return _strategy_reply(await trader.delete_strategy(str(body.get("name") or "")))
 
 
 @app.get("/v1/strategies/template")

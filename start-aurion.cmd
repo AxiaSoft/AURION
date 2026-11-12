@@ -180,7 +180,26 @@ REM Killing whatever happens to hold 8080 would take down unrelated software.
 "%PS%" -NoProfile -ExecutionPolicy Bypass -Command "$own=@('node','python','pythonw','py'); foreach($p in 8080,18765,18766){ Get-NetTCPConnection -LocalPort $p -State Listen -ErrorAction SilentlyContinue | ForEach-Object { $proc = Get-Process -Id $_.OwningProcess -ErrorAction SilentlyContinue; if($proc -and ($own -contains $proc.ProcessName.ToLower())){ Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue } } }" >nul 2>nul
 
 "%CSCRIPT%" //nologo "%~dp0scripts\hidden.vbs" "%CD%" "%CD%\data\logs\engine.log" %PYCMD% engine\main.py --host 127.0.0.1 --port 18765
-time /t >nul
+
+REM Wait for the engine to answer, and start it once more if it did not.
+REM
+REM This line used to be "time /t >nul", which prints the time and waits
+REM for nothing at all - so the desk was started immediately after the
+REM engine, and whether the engine had come up was never asked. A restart
+REM makes that race real: the engine being replaced can still be holding
+REM port 18765 for a moment, the new one fails to bind and exits, and what
+REM the user sees is a desk that works with an engine that is not there.
+REM Reported exactly that way - "the engine would not start and I had to
+REM close the app and open it again".
+"%PS%" -NoProfile -ExecutionPolicy Bypass -Command "for($i=0;$i -lt 40;$i++){ try { $r=Invoke-WebRequest -UseBasicParsing -TimeoutSec 2 http://127.0.0.1:18765/health; if($r.StatusCode -eq 200){exit 0} } catch {}; Start-Sleep -Milliseconds 700 }; exit 1"
+if not errorlevel 1 goto :ENGINEUP
+echo [launcher] the engine did not answer in 30s - starting it once more>>"%TRAIL%"
+"%CSCRIPT%" //nologo "%~dp0scripts\hidden.vbs" "%CD%" "%CD%\data\logs\engine.log" %PYCMD% engine\main.py --host 127.0.0.1 --port 18765
+REM Not waited on a second time: the desk below supervises the engine from
+REM here on and will keep trying, which is the part that does not depend on
+REM this window still existing.
+:ENGINEUP
+
 "%CSCRIPT%" //nologo "%~dp0scripts\hidden.vbs" "%CD%\backend" "%CD%\data\logs\desk.log" %NODECMD% src\index.js
 
 REM Wait for the desk to answer instead of guessing with a fixed sleep, so the

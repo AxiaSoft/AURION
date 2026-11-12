@@ -8304,6 +8304,10 @@ const views = {
                is not the one on disk: the update landed and the process
                was never restarted into it. Invisible otherwise. -->
           <p class="sub err" id="upd-stale" hidden></p>
+          <!-- The two fingerprints, side by side. Support spent a week
+               on "the error is still there" because nothing anywhere
+               said which code was running; one glance answers it now. -->
+          <p class="sub mono" id="upd-build" hidden></p>
           <p class="sub" id="upd-repair-hint">${esc(I18N.t("upd.repair_hint"))}</p>
           <div id="upd-result" class="stx-result"></div>
         </div>`)}
@@ -9522,6 +9526,16 @@ async function bindUpdatePanel(){
     if (staleEl) {
       staleEl.hidden = !verdict.stale;
       staleEl.textContent = verdict.stale ? I18N.t('upd.engine_stale_body') : '';
+    }
+    const buildEl = document.getElementById('upd-build');
+    if (buildEl) {
+      /* Only when both halves are real. One fingerprint on its own
+         invites the reader to compare it with nothing. */
+      const show = Boolean(verdict.running && verdict.disk);
+      buildEl.hidden = !show;
+      buildEl.textContent = show
+        ? I18N.t('upd.engine_build', { running: verdict.running, disk: verdict.disk })
+        : '';
     }
   } catch (e) { /* never block the panel over this */ }
 
