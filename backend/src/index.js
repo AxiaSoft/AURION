@@ -23,6 +23,7 @@ const owner = require("./owner");
 const deskCfg = require("./config");
 const db = require("./db");
 const updater = require("./updater");
+const supervisor = require("./engine-supervisor");
 const support = require("./support-window");
 
 ensureDirs();
@@ -189,6 +190,11 @@ app.get("/api/health", async (_req, res) => {
     backend: "online",
     engine: build.online ? "online" : "offline",
     build,
+    /* What the desk is doing about an engine that is not answering.
+       Without this the screen can only say "offline", which reads as
+       "give up", when in fact it is being started again a few seconds
+       from now. */
+    supervisor: supervisor.state(),
   });
 });
 
@@ -1221,6 +1227,16 @@ try {
   setTimeout(() => { supportWatchTick(); }, 45000);
   setInterval(() => { supportWatchTick(); }, SUPPORT_WATCH_MS);
 } catch {}
+/* Keep the engine running.
+ *
+ * Reported from the field: after an update the engine did not come up
+ * and the only way back was closing the app and opening it again. The
+ * launcher starts the engine once and nothing watched it afterwards, so
+ * a process that lost the race for its port - which is exactly what an
+ * update restart risks - left a healthy desk talking to nothing, with
+ * no way to fix it from inside the product. */
+try { supervisor.start(); } catch { /* never let it stop the desk starting */ }
+
 server.listen(port, host, () => {
   console.log(JSON.stringify({ ts: new Date().toISOString(), msg: `AURION desk on ${host}:${port}` }));
 });

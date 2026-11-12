@@ -1268,7 +1268,8 @@
     "repair_failed": "Repair failed",
     "inst_restarting": "Restarting to finish the update",
     "engine_stale_title": "The engine is still running the previous version",
-    "engine_stale_body": "The new files are on disk, but the engine came back as the old build. Restart again, and if it keeps happening use Repair install."
+    "engine_stale_body": "The new files are on disk, but the engine came back as the old build. Restart again, and if it keeps happening use Repair install.",
+    "engine_build": "Engine running {running} · files on disk {disk}"
   },
   "sup": {
     "warn_days": "{n} days until this version's support ends",

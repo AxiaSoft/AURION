@@ -398,3 +398,91 @@ def test_no_caller_builds_a_strategy_path_by_hand():
                 continue
             offenders.append(f"{i}: {line.strip()}")
     assert not offenders, "a strategy path is being built without .py:\n" + "\n".join(offenders)
+
+
+# ---------------------------------------------------------------------------
+# The net under everything else.
+#
+# A customer saw "[Errno 2] No such file or directory: '...\\engine\\
+# strategies\\aurion_gold_pullback'" twice, months apart, from two
+# different strategies. Every join that could produce a path like that
+# has been fixed and the loader answers a missing file in words. This is
+# the layer that makes the raw text unreachable whatever future edit
+# takes a new route to the same mistake: the API rewrites it on the way
+# out and stamps the build that produced it.
+# ---------------------------------------------------------------------------
+
+def _api_helpers():
+    """The two helpers, without importing the FastAPI app.
+
+    Importing aurion.api.server constructs a Trader, which wants a
+    licence, a bus and a config. The helpers are pure text functions and
+    are read out of the module source so the test stays a test of them.
+    """
+    import re as _re
+    from pathlib import Path as _Path, PurePosixPath, PureWindowsPath
+
+    src = (_Path(__file__).resolve().parents[1] / "aurion" / "api" / "server.py").read_text(encoding="utf-8")
+    start = src.index("def _readable_error(")
+    end = src.index('@app.get("/v1/strategies")')
+    ns = {
+        "re": _re,
+        "PurePosixPath": PurePosixPath,
+        "PureWindowsPath": PureWindowsPath,
+        "Any": object,
+        "build_id": type("B", (), {"BUILD_ID": "feedfacefeedface"}),
+    }
+    exec(compile(src[start:end], "server.py", "exec"), ns)
+    return ns["_readable_error"], ns["_strategy_reply"]
+
+
+def test_the_reported_message_never_reaches_the_desk_again():
+    readable, _ = _api_helpers()
+    raw = (
+        "[Errno 2] No such file or directory: "
+        r"'C:\\Users\\Aryan\\AppData\\Local\\Programs\\AURION\\engine"
+        r"\\strategies\\aurion_gold_pullback'"
+    )
+    out = readable(raw)
+    assert "Errno" not in out
+    assert "No such file or directory" not in out
+    # It still says which strategy, which is the only part of the
+    # original that was ever any use.
+    assert "aurion_gold_pullback" in out
+    # And a Windows path is split by Windows rules even on Linux.
+    assert "C:" not in out
+
+
+def test_other_os_errors_are_named_too():
+    readable, _ = _api_helpers()
+    assert "permission" in readable("[Errno 13] Permission denied: '/x/a.py'").lower()
+    assert "folder" in readable("[Errno 21] Is a directory: '/x/a'").lower()
+    assert "OS error 28" in readable("[Errno 28] No space left on device: '/x/a.py'")
+
+
+def test_a_sentence_is_left_exactly_as_it_was():
+    """The loader's own messages are already right; do not touch them."""
+    readable, _ = _api_helpers()
+    msg = "no strategy called 'x' — available: ema_rsi, price_action"
+    assert readable(msg) == msg
+
+
+def test_a_failure_says_which_build_produced_it():
+    """Why this exists, in one line.
+
+    The same message kept coming back from a machine whose files had
+    already been fixed, because the files had been replaced under a
+    running process that went on executing the old ones. With the build
+    stamped on the error, that is visible in the message itself.
+    """
+    _, reply = _api_helpers()
+    out = reply({"ok": False, "error": "[Errno 2] No such file or directory: '/x/y'"})
+    assert out["build_id"] == "feedfacefeedface"
+    assert "Errno" not in out["error"]
+
+
+def test_a_success_is_passed_through_untouched():
+    _, reply = _api_helpers()
+    ok = {"ok": True, "strategy": {"name": "x"}}
+    assert reply(ok) == ok
+    assert "build_id" not in reply(ok)
