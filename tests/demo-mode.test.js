@@ -259,8 +259,12 @@ async function main() {
 
   const lic = await window.fetch("/api/license").then((r) => r.json());
   const feats = Object.entries(lic.data.features || {});
+  // The literal count used to be 8. "strategy_upload" was retired with
+  // custom strategies, so pinning a number here just records how many
+  // features happened to exist on the day it was written. What this
+  // check is for is that the demo unlocks everything there is.
   check("every licensed feature is unlocked",
-    feats.length >= 8 && feats.every(([, on]) => on === true) && (lic.data.locked || []).length === 0,
+    feats.length >= 7 && feats.every(([, on]) => on === true) && (lic.data.locked || []).length === 0,
     `${feats.length} features: ${feats.filter(([, on]) => !on).map(([k]) => k).join(", ") || "all on"}`);
 
 

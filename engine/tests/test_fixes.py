@@ -972,135 +972,6 @@ def _bare_trader_with_loader(tmpdir):
     return trader
 
 
-def test_toggle_falls_back_to_custom_file_strategy() -> None:
-    """A .py sitting in the strategies folder must be toggleable — never hit the builtin lookup."""
-    import asyncio
-    import tempfile
-
-    tmp = tempfile.mkdtemp()
-    (Path(tmp) / "aurion_xauusd_strategy.py").write_text(_CUSTOM_SRC, encoding="utf-8")
-    trader = _bare_trader_with_loader(tmp)
-
-    async def run():
-        r = await trader.toggle_strategy("aurion_xauusd_strategy", True)
-        assert r.get("ok"), r
-        slot = trader.book["aurion_xauusd_strategy"]
-        assert slot["enabled"] is True
-        assert slot["kind"] == "file"
-        names = [i["name"] for i in trader.strategy_meta["items"]]
-        assert "aurion_xauusd_strategy" in names
-        r2 = await trader.toggle_strategy("does_not_exist", True)
-        assert r2.get("ok") is False
-
-    asyncio.run(run())
-
-
-def test_upload_registers_card_even_without_activate() -> None:
-    """Upload → apply(enabled=False): the card shows up, nothing is armed."""
-    import asyncio
-    import tempfile
-
-    tmp = tempfile.mkdtemp()
-    trader = _bare_trader_with_loader(tmp)
-    dest = trader.loader.save_upload("flow.py", _CUSTOM_SRC)
-
-    async def run():
-        return await trader.apply_strategy({"kind": "file", "name": dest.name, "params": {}, "enabled": False})
-
-    r = asyncio.run(run())
-    assert r.get("ok"), r
-    assert trader.book["flow"]["enabled"] is False
-    item = next(i for i in trader.strategy_meta["items"] if i["name"] == "flow")
-    assert item["kind"] == "file"
-
-
-def test_update_and_delete_custom_strategy() -> None:
-    """Custom strategies keep params through an edit and vanish completely on delete."""
-    import asyncio
-    import tempfile
-
-    tmp = tempfile.mkdtemp()
-    trader = _bare_trader_with_loader(tmp)
-    dest = trader.loader.save_upload("flow.py", _CUSTOM_SRC)
-
-    async def run():
-        await trader.apply_strategy({"kind": "file", "name": dest.name, "params": {"volume": 0.5}, "enabled": True})
-        src = trader.strategy_source("flow")
-        assert src["ok"] and "class Flow" in src["source"]
-        # Broken code is rejected and the file on disk is left untouched.
-        bad = await trader.update_strategy("flow", "import os\n" + _CUSTOM_SRC)
-        assert bad.get("ok") is False
-        assert "import os" not in (Path(tmp) / "flow.py").read_text(encoding="utf-8")
-        # A valid edit hot-reloads in place, keeping enabled + params.
-        ok = await trader.update_strategy("flow", _CUSTOM_SRC_V2)
-        assert ok.get("ok"), ok
-        slot = trader.book["flow"]
-        assert slot["enabled"] is True
-        assert slot["inst"].params.get("volume") == 0.5
-        assert "# v2" in (Path(tmp) / "flow.py").read_text(encoding="utf-8")
-        # Delete removes card and file.
-        done = await trader.delete_strategy("flow")
-        assert done.get("ok"), done
-        assert "flow" not in trader.book
-        assert not (Path(tmp) / "flow.py").exists()
-        gone = trader.strategy_source("flow")
-        assert gone.get("ok") is False
-
-    asyncio.run(run())
-
-
-def test_builtin_strategies_are_read_only() -> None:
-    """Edit/delete must refuse built-in strategies."""
-    import asyncio
-    import tempfile
-
-    tmp = tempfile.mkdtemp()
-    trader = _bare_trader_with_loader(tmp)
-    trader.book["ema_rsi"] = {
-        "inst": trader.loader.load_builtin("ema_rsi", {}),
-        "enabled": False,
-        "kind": "builtin",
-        "last_action": "idle",
-        "last_reason": "",
-        "last_ts": "",
-    }
-    trader._sync_book_meta()
-    assert trader.strategy_source("ema_rsi").get("ok") is False
-
-    async def run():
-        upd = await trader.update_strategy("ema_rsi", _CUSTOM_SRC)
-        dele = await trader.delete_strategy("ema_rsi")
-        return upd, dele
-
-    upd, dele = asyncio.run(run())
-    assert upd.get("ok") is False and "read-only" in upd.get("error", "")
-    assert dele.get("ok") is False
-    assert "ema_rsi" in trader.book
-    assert not (Path(tmp) / "ema_rsi.py").exists()
-
-
-def test_reserved_and_illegal_upload_names_rejected() -> None:
-    import tempfile
-
-    from aurion.strategy.loader import StrategyValidationError
-
-    loader = StrategyLoader()
-    loader.dir = Path(tempfile.mkdtemp())
-    for bad in ("ema_rsi.py", "template.py", "my strat.py", "1flow.py", "_hidden.py"):
-        try:
-            loader.save_upload(bad, _CUSTOM_SRC)
-        except StrategyValidationError:
-            continue
-        raise AssertionError(f"save_upload accepted illegal name {bad}")
-    ok = loader.save_upload("aurion_xauusd_strategy.py", _CUSTOM_SRC)
-    assert ok.name == "aurion_xauusd_strategy.py"
-    # Path traversal is neutralised: only the bare file name survives.
-    trav = loader.save_upload("../evil.py", _CUSTOM_SRC)
-    assert trav.parent == loader.dir and trav.name == "evil.py"
-
-
-# Test-only issuer keypair (RFC 8032 seed — never the production pair). The
-# production private seed stays off-repo; tests inject their own via env.
 _TEST_LIC_PRIV = "9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60"
 _TEST_LIC_PUB = "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a"
 
@@ -1129,7 +1000,7 @@ def test_ed25519_official_rfc_vectors() -> None:
 
 
 def test_license_freemium_default_and_locks(tmp_path, monkeypatch) -> None:
-    """No key -> freemium: prop/scalping/upload locked, account_type freemium.
+    """No key -> freemium: prop/scalping locked, account_type freemium.
 
     "No key" has to mean no key. This used to read whatever licence the
     machine running the tests happened to have activated, so on a
@@ -1149,7 +1020,11 @@ def test_license_freemium_default_and_locks(tmp_path, monkeypatch) -> None:
     assert pub["premium"] is False
     assert pub["features"]["prop"] is False
     assert pub["features"]["scalping"] is False
-    assert pub["features"]["strategy_upload"] is False
+    # "strategy_upload" used to be asserted here. Custom strategies were
+    # removed from the product, so the feature was retired from the
+    # licence rather than left locked - a flag nothing reads is a flag
+    # that drifts.
+    assert "strategy_upload" not in pub["features"]
     assert pub["features"]["telegram"] is False
     assert pub["features"]["news"] is False
     assert g.feature("other") is True

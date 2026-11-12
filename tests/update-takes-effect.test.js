@@ -237,31 +237,42 @@ console.log("\n=== an update can reach the files that start the product ===");
   for (const f of ["config/aurion.json", "data/users.json", "data/license/state.json"]) {
     say(!gh.isShippable(f), f + " is still refused");
   }
-  /* The user's own strategies are not part of a release either: an
-     update that wrote engine/strategies/ would overwrite the very
-     files this release exists to stop losing. */
+  /* engine/strategies/ no longer exists in the tree, and a release
+     must still never create it on a customer's disk. */
   say(!gh.isShippable("engine/strategies/my_strategy.py"),
-    "a release never writes over an uploaded strategy");
+    "a release never puts a strategy file back");
 }
 
 /* --------------------------------------------------------------- */
-console.log("\n=== a user's strategy is not kept where the installer can take it ===");
+console.log("\n=== a user's strategy can no longer be anywhere at all ===");
 {
+  /* Four checks stood here, over the vault that kept an uploaded
+     strategy outside the install tree so an upgrade could not take it.
+     Custom strategies were removed from the product, so there is no
+     uploaded strategy to protect and no vault to protect it with.
+
+     The checks are not simply dropped. What they were defending - a
+     release must never write over something that belongs to the
+     machine rather than to the product - still holds, and is now
+     asserted about what is left, plus the cleanup that removes the
+     folders the feature left behind on a customer's disk. */
   const loader = read("engine/aurion/strategy/loader.py");
-  say(/self\.vault = DATA_DIR \/ "strategies"/.test(loader),
-    "the user's copy lives under the data directory");
-  say(/def sync_vault\(/.test(loader) && /self\.sync_vault\(\)/.test(loader),
-    "and the two are reconciled at startup");
-  say(/def forget\(/.test(loader) && /for base in \(self\.dir, self\.vault\)/.test(loader),
-    "deleting removes both, so a deleted strategy cannot come back");
+  say(!/sync_vault|save_upload|load_path/.test(loader),
+    "the loader cannot read a strategy file at all any more");
+  const cleanup = read("engine/aurion/strategy/cleanup.py");
+  say(/DATA_DIR \/ "strategies"/.test(cleanup),
+    "the vault a previous build created is deleted, not orphaned under data/");
+  say(/def run_once\(/.test(cleanup) && /marker\.exists\(\)/.test(cleanup),
+    "and that sweep runs once rather than on every boot");
   const trader = read("engine/aurion/runtime/trader.py");
-  say(/self\.loader\.forget\(name\)/.test(trader) && !/\(self\.loader\.dir \/ f"\{name\}\.py"\)\.unlink/.test(trader),
-    "the delete endpoint goes through it rather than unlinking one copy");
-  /* The installer's own statement about what it owns, so this stays
-     true if the staging script is ever rewritten. */
+  say(/run_once|_remove_custom_strategies/.test(trader),
+    "the engine actually calls it on startup");
+  /* The installer's own statement about what it owns. Still true, and
+     still the reason data/ has to be cleaned up in code: the MSI will
+     never go near it. */
   const wxs = read("installer/src/Package.wxs");
   say(/Schedule="afterInstallInitialize"/.test(wxs),
-    "the upgrade really does remove the old product first - which is why the vault exists");
+    "the upgrade removes the old product first, and still never touches data/");
 }
 
 if (failures.length) {

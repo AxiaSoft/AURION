@@ -859,11 +859,6 @@ guarded.post("/danger", passthrough("POST", "/v1/danger"));
 guarded.post("/risk_free", passthrough("POST", "/v1/risk_free"));
 guarded.post("/money", passthrough("POST", "/v1/money"));
 guarded.post("/timezone", passthrough("POST", "/v1/timezone"));
-guarded.post("/strategies/upload", passthrough("POST", "/v1/strategies/upload"));
-guarded.get("/strategies/source", passthrough("GET", "/v1/strategies/source"));
-guarded.post("/strategies/update", passthrough("POST", "/v1/strategies/update"));
-guarded.post("/strategies/delete", passthrough("POST", "/v1/strategies/delete"));
-guarded.get("/strategies/template", passthrough("GET", "/v1/strategies/template"));
 // The MetaTrader experts: which ones this build ships, which version each
 // attached chart is running, and the source itself so the desk can hand the
 // user the file to compile instead of telling them to go and find it.
