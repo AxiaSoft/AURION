@@ -257,6 +257,20 @@ class StrategyLoader:
         typed, with no hint that the extension had been lost on the way.
         """
         path = Path(path)
+        # An explicit path that lost its extension is still answerable.
+        #
+        # This is the shape of the fault that was reported twice from a
+        # Windows desk: a path ending in the strategy's name with no
+        # ".py" on it, which nobody typed. The joins that produced it are
+        # gone, but a spec stored by an older build is still on disk in
+        # data/, and a caller outside this file can always make the same
+        # mistake again. If the file beside it exists, use it rather than
+        # refusing something that is plainly there.
+        if not path.suffix and not path.exists():
+            with_py = path.with_suffix(".py")
+            if with_py.is_file():
+                log.info("strategy path '%s' had no extension; using %s", path.name, with_py.name)
+                path = with_py
         try:
             source = path.read_text(encoding="utf-8")
         except FileNotFoundError:

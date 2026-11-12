@@ -226,6 +226,32 @@ def test_the_class_that_implements_on_candle_wins(loader):
     assert loader.build({"kind": "file", "name": "two"}).name == "real"
 
 
+def test_an_explicit_path_with_no_extension_still_finds_the_file(loader):
+    """Reported from a Windows desk, twice:
+
+        [Errno 2] No such file or directory:
+            'C:\\...\\AURION\\engine\\strategies\\aurion_bos_retest_strategy'
+
+    The joins that dropped the ".py" are gone, but a spec written by an
+    older build is still sitting in data/ on every machine that ran one,
+    and it names a path in exactly that shape. A file that is plainly
+    there must not be refused because of a missing four characters.
+    """
+    loader.save_upload("aurion_bos_retest_strategy.py", GOOD)
+    naked = loader.dir / "aurion_bos_retest_strategy"       # no .py, does not exist
+    assert not naked.exists()
+    inst = loader.build({"kind": "file", "name": "aurion_bos_retest_strategy", "path": str(naked)})
+    assert is_strategy(inst)
+
+
+def test_a_path_that_is_wrong_in_any_other_way_is_still_refused_in_words(loader):
+    """The recovery above must not turn into "guess what they meant"."""
+    with pytest.raises(StrategyValidationError) as e:
+        loader.build({"kind": "file", "name": "ghost", "path": str(loader.dir / "ghost")})
+    assert "ghost" in str(e.value)
+    assert "Errno" not in str(e.value)
+
+
 def test_a_second_copy_of_the_base_module_does_not_confuse_the_pick(loader):
     """The choice must not rest on `is BaseStrategy.on_candle`.
 
