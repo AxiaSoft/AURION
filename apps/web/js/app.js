@@ -9524,8 +9524,12 @@ async function bindUpdatePanel(){
     const verdict = await verifyEngineBuild();
     const staleEl = document.getElementById('upd-stale');
     if (staleEl) {
-      staleEl.hidden = !verdict.stale;
-      staleEl.textContent = verdict.stale ? I18N.t('upd.engine_stale_body') : '';
+      /* Also shown when the engine is current but belongs to another
+         installation: the fingerprints differ for a reason no restart
+         can fix, and silence there is what made it unexplainable. */
+      const show = verdict.stale || verdict.differentTree;
+      staleEl.hidden = !show;
+      staleEl.textContent = show ? engineStaleAdvice(verdict).join(' ') : '';
     }
     const buildEl = document.getElementById('upd-build');
     if (buildEl) {
@@ -9534,7 +9538,10 @@ async function bindUpdatePanel(){
       const show = Boolean(verdict.running && verdict.disk);
       buildEl.hidden = !show;
       buildEl.textContent = show
-        ? I18N.t('upd.engine_build', { running: verdict.running, disk: verdict.disk })
+        ? (I18N.t('upd.engine_build', { running: verdict.running, disk: verdict.disk })
+           + (verdict.differentTree
+              ? '\n' + I18N.t('upd.engine_dirs', { engine: verdict.engineDir, disk: verdict.diskDir })
+              : ''))
         : '';
     }
   } catch (e) { /* never block the panel over this */ }
@@ -14749,18 +14756,29 @@ async function finishUpdateRestart(host, upd, opts) {
      is reported, because an older engine that cannot answer must not be
      accused of anything. */
   const verdict = await verifyEngineBuild();
-  if (verdict.stale) {
+  if (verdict.stale || verdict.differentTree) {
     mark("wait", "failed");
     host.classList.add("is-failed", "is-bad");
     if (bar) bar.classList.remove("is-sweeping");
     if (phaseEl) phaseEl.textContent = I18N.t("upd.engine_stale_title");
     if (msg) {
+      /* Restart and Repair are deliberately NOT offered when the cause
+         is a second installation: both would run, both would succeed,
+         and the number would not move - which is precisely the loop the
+         customer was stuck in. Offer them only where they can work. */
+      const actionable = !verdict.differentTree;
       msg.innerHTML = `<p class="err">${icon("info")} ${esc(I18N.t("upd.engine_stale_title"))}</p>`
-        + `<p class="sub">${esc(I18N.t("upd.engine_stale_body"))}</p>`
-        + `<div class="upd-install-actions">`
-        + `<button class="btn" type="button" id="upd-inst-retry-restart">${icon("refresh")} ${esc(I18N.t("upd.inst_restart_now"))}</button>`
-        + `<button class="btn ghost" type="button" id="upd-inst-repair">${esc(I18N.t("upd.repair_btn"))}</button>`
-        + `</div>`;
+        + engineStaleAdvice(verdict).map((line) => `<p class="sub">${esc(line)}</p>`).join("")
+        + `<p class="sub mono">${esc(I18N.t("upd.engine_build", { running: verdict.running, disk: verdict.disk }))}</p>`
+        + (verdict.differentTree && verdict.engineDir
+            ? `<p class="sub mono">${esc(I18N.t("upd.engine_dirs", { engine: verdict.engineDir, disk: verdict.diskDir }))}</p>`
+            : "")
+        + (actionable
+            ? `<div class="upd-install-actions">`
+              + `<button class="btn" type="button" id="upd-inst-retry-restart">${icon("refresh")} ${esc(I18N.t("upd.inst_restart_now"))}</button>`
+              + `<button class="btn ghost" type="button" id="upd-inst-repair">${esc(I18N.t("upd.repair_btn"))}</button>`
+              + `</div>`
+            : "");
       const again = msg.querySelector("#upd-inst-retry-restart");
       if (again) again.onclick = () => {
         host.classList.remove("is-failed", "is-bad");
@@ -14840,6 +14858,42 @@ async function waitForEngine(budgetMs) {
  * could not be taken - comes back as "not stale". A false alarm here
  * would tell a working desk it is broken, which is worse than silence.
  */
+/**
+ * What to tell someone whose engine is not the files on their disk.
+ *
+ * The old text was one sentence for every cause: "Restart again, and if
+ * it keeps happening use Repair install." A customer followed it
+ * exactly, twice, and nothing changed - because Repair install schedules
+ * the same restart that had already failed, and the thing in the way was
+ * a surviving engine process holding the port. The only cure was a
+ * reboot, and no message anywhere said so.
+ *
+ * So the advice now depends on which of the two states this is:
+ *
+ *   different tree   two installations, and this desk is updating the
+ *                    one you are not running. Restarting is pointless;
+ *                    say which folder each side is using.
+ *   stale process    an engine from before the update is still bound to
+ *                    the port, so the new one cannot start. Say that,
+ *                    name the process, and give the cure that works.
+ */
+function engineStaleAdvice(verdict) {
+  const lines = [];
+  if (verdict.differentTree && verdict.engineDir && verdict.diskDir) {
+    lines.push(I18N.t("upd.engine_stale_tree", { engine: verdict.engineDir, disk: verdict.diskDir }));
+    return lines;
+  }
+  lines.push(I18N.t("upd.engine_stale_body"));
+  if (verdict.pid) {
+    lines.push(I18N.t("upd.engine_stale_pid", {
+      pid: String(verdict.pid),
+      since: verdict.startedAt || "?",
+    }));
+  }
+  lines.push(I18N.t("upd.engine_stale_cure"));
+  return lines;
+}
+
 async function verifyEngineBuild() {
   try {
     const res = await fetch("/api/health?t=" + Date.now(), { cache: "no-store" });
@@ -14851,6 +14905,15 @@ async function verifyEngineBuild() {
       known: build.restart_required === true || build.restart_required === false,
       running: String(build.running || ""),
       disk: String(build.disk || ""),
+      /* A mismatch has two causes that need opposite actions, and the
+         desk used to give one answer for both. different_tree means the
+         engine belongs to a second installation on this machine, and no
+         restart of THIS one can ever change the number. */
+      differentTree: build.different_tree === true,
+      engineDir: String(build.engine_dir || ""),
+      diskDir: String(build.disk_dir || ""),
+      pid: Number(build.pid || 0) || 0,
+      startedAt: String(build.started_at || ""),
     };
   } catch (e) {
     return { stale: false, known: false };

@@ -177,7 +177,14 @@ exit /b 1
 
 REM Free the AURION ports, but only when a leftover AURION process owns them.
 REM Killing whatever happens to hold 8080 would take down unrelated software.
-"%PS%" -NoProfile -ExecutionPolicy Bypass -Command "$own=@('node','python','pythonw','py'); foreach($p in 8080,18765,18766){ Get-NetTCPConnection -LocalPort $p -State Listen -ErrorAction SilentlyContinue | ForEach-Object { $proc = Get-Process -Id $_.OwningProcess -ErrorAction SilentlyContinue; if($proc -and ($own -contains $proc.ProcessName.ToLower())){ Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue } } }" >nul 2>nul
+REM stop-engine.ps1 waits for the ports to actually go quiet and exits
+REM non-zero if one is still held. Starting the engine anyway is the bug
+REM this replaced: the new process cannot bind, exits, and the surviving
+REM old process keeps answering /health - so the launcher below would
+REM see 200, report success, and leave the installation running code
+REM that is no longer on disk.
+"%PS%" -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\stop-engine.ps1" -Root "%CD%" >>"%TRAIL%" 2>&1
+if errorlevel 1 goto :PORTHELD
 
 "%CSCRIPT%" //nologo "%~dp0scripts\hidden.vbs" "%CD%" "%CD%\data\logs\engine.log" %PYCMD% engine\main.py --host 127.0.0.1 --port 18765
 
@@ -224,6 +231,22 @@ echo   Stop    double-click stop-aurion.cmd
 echo.
 timeout /t 4 >nul
 exit /b 0
+
+:PORTHELD
+REM A port is still held by a process we could not stop. Say so, loudly,
+REM because every other symptom of this state is misleading: the desk
+REM comes up, the engine answers, and the only thing wrong is that the
+REM engine is the previous build.
+echo.
+echo   An earlier AURION process is still holding its port and could not
+echo   be stopped. Starting another engine would change nothing - it
+echo   cannot take the port, so the old one keeps serving.
+echo.
+echo   Details: %CD%\data\logs\setup.log
+echo   Close AURION completely, or restart Windows, then start again.
+echo.
+if not defined AURION_NO_BROWSER pause
+exit /b 1
 
 :NOTREADY
 echo.
