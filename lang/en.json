@@ -1268,8 +1268,12 @@
     "repair_failed": "Repair failed",
     "inst_restarting": "Restarting to finish the update",
     "engine_stale_title": "The engine is still running the previous version",
-    "engine_stale_body": "The new files are on disk, but the engine came back as the old build. Restart again, and if it keeps happening use Repair install.",
-    "engine_build": "Engine running {running} · files on disk {disk}"
+    "engine_stale_body": "The new files are on disk, but the engine answering is an older process that is still holding the port — so a new one cannot take its place. Restarting and Repair install both go through that same process and will not change this.",
+    "engine_build": "Engine running {running} · files on disk {disk}",
+    "engine_stale_cure": "Close AURION completely (stop-aurion.cmd), wait a few seconds, then open it again. If the number below still does not change, restart Windows: a process that nothing can stop is cleared by a reboot.",
+    "engine_stale_pid": "The surviving engine is process {pid}, running since {since}.",
+    "engine_stale_tree": "This engine is not even reading the same folder. It is running from {engine}, while this desk updates {disk}. Two copies of AURION are installed and you are looking at one while using the other — restarting will never make these agree. Open the copy at {engine}, or uninstall it.",
+    "engine_dirs": "Engine folder {engine} · desk folder {disk}"
   },
   "sup": {
     "warn_days": "{n} days until this version's support ends",

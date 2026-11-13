@@ -90,17 +90,51 @@ async function healthy() {
 async function buildState() {
   let running = "";
   let online = false;
+  let engineDir = "";
+  let pid = 0;
+  let startedAt = "";
   try {
     const result = await request("GET", "/health", undefined, 2500);
     const data = (result && result.data) || {};
     online = Boolean(data.ok);
     running = String(data.build_id || "");
+    engineDir = String(data.source_dir || "");
+    pid = Number(data.pid || 0) || 0;
+    startedAt = String(data.started_at || "");
   } catch { online = false; }
   const cmp = buildId.compare(running);
+
+  /* Is the engine even looking at the same tree we are?
+   *
+   * A permanent mismatch has two completely different causes and the
+   * desk used to show one message for both. Either the engine is an old
+   * process of THIS installation - restart it - or it is a perfectly
+   * current process of a DIFFERENT installation on the same machine, in
+   * which case restarting and repairing this one will never change the
+   * number, which is exactly what was reported from the field. The
+   * paths are the only thing that separates them.
+   *
+   * Compared case-insensitively and without a trailing separator,
+   * because Windows will hand back either. Unknown on one side is not a
+   * difference. */
+  const norm = (p) => String(p || "").replace(/[\\/]+$/, "").toLowerCase();
+  const differentTree = Boolean(engineDir) && norm(engineDir) !== norm(buildId.SOURCE_DIR);
+
   return {
     online,
     running: cmp.running,
     disk: cmp.disk,
+    /* Where each fingerprint came from. Reported always, not only on a
+       mismatch: "they agree, and here is the tree they agree about" is
+       the sentence that ends a support thread. */
+    engine_dir: engineDir,
+    disk_dir: buildId.SOURCE_DIR,
+    different_tree: online && differentTree,
+    /* Which process, and since when. An engine that started before the
+       update was downloaded is a survivor, and naming its PID is the
+       difference between "restart again" and "end this process". */
+    pid,
+    started_at: startedAt,
     /* True only when both sides spoke and disagreed: the update is on
        disk and the engine has not been restarted into it. */
     restart_required: online && cmp.stale,

@@ -19,6 +19,12 @@ from ..mt5.protocol import parse_ea_json
 from ..runtime.trader import Trader
 from ..strategy.loader import BUILTIN_NAMES
 from ..util.log import RING
+from ..util.clock import utc_iso
+#: When this process started, so the desk can say how old the engine it
+#: is talking to actually is. A build id answers "which code"; this
+#: answers "and since when", which is what makes a surviving process
+#: from before the update recognisable as one.
+_STARTED_AT = utc_iso()
 
 trader = Trader()
 app = FastAPI(title="AURION Engine", version="1.0.0")
@@ -80,6 +86,20 @@ async def health() -> dict[str, Any]:
         "product": "AURION",
         "engine": "online",
         "build_id": build_id.BUILD_ID,
+        # Which tree this fingerprint describes.
+        #
+        # Without it, two different installations on one machine look
+        # exactly like one installation that failed to restart: the desk
+        # hashes its own engine/aurion, the engine reports a hash of a
+        # different engine/aurion, and the permanent disagreement reads
+        # as "restart me" forever. The path is the only thing that tells
+        # those two cases apart, and it costs nothing to say.
+        "source_dir": str(build_id.SOURCE_DIR),
+        # The process identity, so a desk that cannot kill the engine
+        # can at least name it. Support asked "which PID" and nobody
+        # could answer without Task Manager.
+        "pid": os.getpid(),
+        "started_at": _STARTED_AT,
     }
 
 
