@@ -130,11 +130,23 @@ const stub = `
 /* paintReplay and the window it chooses are real here. Stubbing them
    would have let the panel fall back to the live feed -- which is the
    one thing it must never do -- without a single test noticing. */
+/* barsForDays and the three constants behind it are taken from the real
+   source rather than stubbed. ensureBacktestBars sizes its request with
+   them - the replay must cover the same thirty days the chart shows -
+   so a stub here would let the panel go back to asking for a flat 1500
+   bars without this file noticing. */
+const konst = (name, fallback) => {
+  const m = src.match(new RegExp('const ' + name + ' = ([^;]+);'));
+  return 'const ' + name + ' = ' + (m ? m[1] : fallback) + ';';
+};
 const api = new Function(
   stub + ['btNormBar', 'btReplayWindow', 'btWatchReplaySize', 'ensureBacktestBars',
-          'paintReplay', 'renderBacktestLive', 'paintBacktestLive'].map(grab).join('\n') +
+          'paintReplay', 'renderBacktestLive', 'paintBacktestLive', 'barsForDays'].map(grab).join('\n') +
+  '\n' + konst('TF_MINUTES', '{ M15: 15 }') +
+  '\n' + konst('HISTORY_DAYS', '30') +
+  '\n' + konst('HISTORY_MAX', '60000') +
   '\nconst BT_REPLAY_SPAN = ' + (src.match(/BT_REPLAY_SPAN = (\d+)/) || [, '160'])[1] + ';' +
-  '\nreturn {renderBacktestLive, paintBacktestLive, btReplayWindow, btNormBar, S, counts, fetchCount, rafDefer, rafFlush};'
+  '\nreturn {renderBacktestLive, paintBacktestLive, btReplayWindow, btNormBar, barsForDays, S, counts, fetchCount, rafDefer, rafFlush};'
 )();
 
 /* ------------------------------------------------ 1. one container */
@@ -404,6 +416,26 @@ for (const [name, pack] of [['en', en], ['fa', fa], ['ar', ar]]) {
 }
 ok(!/EURUSD|XAUUSD|gold/i.test(JSON.stringify([en.bt, fa.bt, ar.bt])),
   'the new help text names no specific instrument');
+
+/* ------------------------------------- the replay covers thirty days */
+/* The panel used to fetch a flat 1500 bars. 1500 bars is a different
+   period on every timeframe - sixteen days of M15, a day of M1 - so a
+   run over the thirty days the chart shows could be drawn against a
+   window that did not contain it. The ask is now derived, and derived
+   from the SAME helper the chart uses. */
+{
+  const want = (tf) => api.barsForDays(tf, 30);
+  ok(want('M1') >= 30 * 24 * 60, `M1 asks for thirty days (${want('M1')} bars)`);
+  ok(want('M5') >= 30 * 24 * 12, `M5 asks for thirty days (${want('M5')} bars)`);
+  ok(want('M15') >= 30 * 24 * 4, `M15 asks for thirty days (${want('M15')} bars)`);
+  ok(want('M1') > want('M15') && want('M15') > want('H4'),
+    'a faster timeframe needs more bars for the same thirty days');
+  ok(!/count=1500/.test(src) && !/count=800/.test(src),
+    'no desk request still names a fixed bar count');
+  const call = src.slice(src.indexOf('function ensureBacktestBars'));
+  ok(/barsForDays\(/.test(call.slice(0, call.indexOf('\n}'))),
+    'ensureBacktestBars derives its depth instead of naming a number');
+}
 
 console.log(fails ? `\n${fails} failed` : '\nall good');
 process.exit(fails ? 1 : 0);

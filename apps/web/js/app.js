@@ -5555,16 +5555,64 @@ function strategyItems() {
   return items;
 }
 
+function strategyFaultCards() {
+  /* A strategy file that will not import is simply absent from the book,
+     so the desk showed nothing: no card, no row, no error. The trader
+     uploaded something, it was accepted, and then it was not there -
+     which reads as a lost upload rather than a fault in the code. The
+     engine now reports what failed and why; this is where it is said. */
+  const rows = S.snap?.strategy?.faults;
+  if (!Array.isArray(rows) || !rows.length) return "";
+  return `<div class="card st-broken" id="st-broken">
+      <h3>${I18N.t("strategies.broken_title")}</h3>
+      <p class="sub">${I18N.t("strategies.broken_hint")}</p>
+      ${rows.map((r) => `<div class="st-broken-row">
+        <b class="mono">${esc(r.file || r.name || "")}</b>
+        <span class="mono st-broken-why">${esc(r.error || "")}</span>
+      </div>`).join("")}
+    </div>`;
+}
+
+function strategyUploadCard() {
+  if (!licFeat("strategy_upload")) return lockedUpgradeCard("strategy_upload");
+  return `<div class="card st-upload" id="st-upload">
+      <div class="st-up-hero">
+        <div>
+          <h3>${I18N.t("strategies.upload")}</h3>
+          <p class="sub">${I18N.t("strategies.file_hint")}</p>
+        </div>
+        <a class="btn tiny ghost" id="st-tpl" href="#">${I18N.t("strategies.template")}</a>
+      </div>
+      <label class="st-drop" id="st-drop" for="st-file-pick" tabindex="0" role="button"
+             aria-label="${I18N.t("strategies.drop")}">
+        <input type="file" id="st-file-pick" accept=".py,.txt" hidden />
+        <span class="st-drop-ico" aria-hidden="true"></span>
+        <b>${I18N.t("strategies.drop")}</b>
+        <small>${I18N.t("strategies.browse")}</small>
+        <small class="st-drop-name mono" id="st-drop-name"></small>
+      </label>
+      <input class="ctrl" id="st-file" placeholder="my_strategy.py"
+             aria-label="${esc(I18N.t("strategies.file_name"))}" />
+      <textarea id="st-src" class="ctrl st-src" placeholder="# Python strategy"
+                aria-label="${esc(I18N.t("strategies.source"))}"></textarea>
+      <div class="row" style="margin-top:10px;align-items:center;gap:8px">
+        <button class="btn" id="st-up" type="button">${I18N.t("strategies.upload")}</button>
+        <a class="btn tiny ghost" id="st-cancel" href="#" hidden>${I18N.t("strategies.cancel")}</a>
+      </div>
+      <p class="sub" id="st-up-msg"></p>
+    </div>`;
+}
 function strategyLiveCards() {
   return strategyItems().map((it) => {
     const state = stState(it);
     const act = state.act || "idle";
     const cls = stActClass(act);
+    const custom = (it.kind || "builtin") !== "builtin";
     return `<div class="card st-card${it.enabled ? "" : " is-off"}" data-st-card="${esc(it.name)}">
       <div class="st-top">
         <div>
           <h3 style="margin:0">${esc(it.name)}</h3>
-          <p class="sub">${stAbout(it.name)}</p>
+          <p class="sub">${custom ? I18N.t("strategies.custom_about") : stAbout(it.name)}</p>
         </div>
         ${switchHtml({ on: it.enabled, label: it.name, attrs: `data-st="${esc(it.name)}"` })}
       </div>
@@ -5573,7 +5621,7 @@ function strategyLiveCards() {
         <b class="mono ${cls}" data-st-act="${esc(it.name)}">${esc(act)}</b>
         <i class="st-dot${state.live ? " is-live" : ""}" data-st-dot="${esc(it.name)}"
            title="${I18N.t("strategies.live_hint")}"></i>
-        <span class="pill ghost">${I18N.t("strategies.builtin_tag")}</span>
+        <span class="pill ghost">${I18N.t(custom ? "strategies.custom" : "strategies.builtin_tag")}</span>
       </div>
       <div class="st-stats">
         <div><span>${I18N.t("strategies.winrate")}</span><b class="mono" data-st-wr="${esc(it.name)}">${fmt(it.win_rate || 0, 1)}%</b></div>
@@ -5589,6 +5637,10 @@ function strategyLiveCards() {
           <b class="mono ${clsPnl(it.avg)}" data-st-avg="${esc(it.name)}">${fmt(it.avg || 0)}</b></div>
       </div>
       <p class="sub" data-st-eval="${esc(it.name)}" title="${esc(refusalTally(it))}">${esc(state.why) || I18N.t("strategies.waiting")}</p>
+      ${custom ? `<div class="row st-mng">
+        <button type="button" class="btn tiny ghost" data-st-edit="${esc(it.name)}">${I18N.t("strategies.edit")}</button>
+        <button type="button" class="btn tiny ghost st-del" data-st-del="${esc(it.name)}">${I18N.t("strategies.delete")}</button>
+      </div>` : ""}
     </div>`;
   }).join("");
 }
@@ -5630,6 +5682,88 @@ function refusalTally(it) {
   const rows = Array.isArray(it && it.refusals) ? it.refusals : [];
   if (!rows.length) return "";
   return rows.map(r => `${r.reason} × ${r.count}`).join("\n");
+}
+
+function strategyEditorEls() {
+  return { file: $("st-file"), src: $("st-src"), up: $("st-up"), cancel: $("st-cancel"), msg: $("st-up-msg") };
+}
+
+function setStrategyEditMode(name, source, file) {
+  S._stEdit = name || null;
+  S._stEditSrc = name ? (typeof source === "string" ? source : $("st-src")?.value || "") : "";
+  S._stEditFile = name ? (file || name + ".py") : "";
+  restoreStrategyEditor(true);
+}
+
+function restoreStrategyEditor(refill) {
+  const els = strategyEditorEls();
+  if (!els.up) return;
+  const name = S._stEdit;
+  els.up.textContent = I18N.t(name ? "strategies.save_changes" : "strategies.upload");
+  if (els.cancel) els.cancel.hidden = !name;
+  if (els.file) {
+    els.file.value = name ? (S._stEditFile || name + ".py") : "";
+    els.file.disabled = Boolean(name);
+  }
+  if (els.src) {
+    if (name && (refill || !els.src.value)) els.src.value = S._stEditSrc || "";
+    if (!name) els.src.value = "";
+  }
+  if (els.msg) els.msg.textContent = name ? `${I18N.t("strategies.editing")}: ${name}` : "";
+}
+
+async function startStrategyEdit(name) {
+  const r = await API.get("/api/strategies/source?name=" + encodeURIComponent(name));
+  if (!r.ok) { toast(r.error || I18N.t("errors.generic")); return; }
+  if (S.view !== "strategies") await show("strategies", { animate: false, closeMenu: false });
+  setStrategyEditMode(r.name, r.source, r.file);
+  $("st-src")?.focus();
+  $("st-upload")?.scrollIntoView({ behavior: "smooth", block: "center" });
+}
+
+async function deleteCustomStrategy(name) {
+  /* The desk's own dialog, not the browser's. This was the last
+     window.confirm left in the app: it ignores the theme, cannot be
+     read right-to-left, names the origin rather than the product, and
+     on some browsers offers to suppress every future dialog - which
+     would silently disable a confirmation that guards a deletion. */
+  const ok = await askConfirm({
+    title: I18N.t("strategies.delete"),
+    body: I18N.t("strategies.confirm_delete").replace("%s", name),
+    ok: I18N.t("strategies.delete"),
+    cancel: I18N.t("common.cancel"),
+    danger: true,
+  });
+  if (!ok) return;
+  const r = await API.post("/api/strategies/delete", { name });
+  toast(r.ok ? I18N.t("strategies.deleted") : (r.error || I18N.t("errors.generic")));
+  if (!r.ok) return;
+  if (r.strategy) { S.snap = S.snap || {}; S.snap.strategy = r.strategy; }
+  if (S._stEdit === name) S._stEdit = null;
+  await refresh(false);
+  show(S.view, { animate: false, closeMenu: false, nav: false });
+}
+
+async function strategyUploadOrSave() {
+  const els = strategyEditorEls();
+  const editing = S._stEdit;
+  const msg = els.msg;
+  const r = editing
+    ? await API.post("/api/strategies/update", { name: editing, source: els.src?.value || "" })
+    : await API.post("/api/strategies/upload", {
+        filename: els.file?.value || "custom.py",
+        source: els.src?.value || "",
+        activate: true,
+      });
+  const text = r.ok
+    ? I18N.t(editing ? "strategies.updated" : "strategies.loaded")
+    : (r.error === "premium_required" ? I18N.t("lic.err_locked") : (r.error || I18N.t("strategies.invalid")));
+  if (msg) msg.textContent = text;
+  if (!licGateToast(r)) toast(text);
+  if (r.ok && r.strategy) { S.snap = S.snap || {}; S.snap.strategy = r.strategy; }
+  if (r.ok && editing) setStrategyEditMode(null);
+  await refresh(false);
+  if (S.view === "strategies" || S.view === "settings") show(S.view, { animate: false, closeMenu: false, nav: false });
 }
 
 function roleLabel(role) {
@@ -7616,6 +7750,8 @@ const views = {
         <span class="pill" id="st-live-sig">${sig ? `${sig.action||"—"} ${sig.symbol||""}` : I18N.t("strategies.waiting")}</span>
       </div>
       <div class="grid g-2" id="st-live-grid">${strategyLiveCards()}</div>
+      ${strategyFaultCards()}
+      ${strategyUploadCard()}
     </div>`;
   },
   execution() {
@@ -7870,6 +8006,7 @@ const views = {
     const feats = [
       ["prop", "upgrade.f_prop"],
       ["scalping", "upgrade.f_scalp"],
+      ["strategy_upload", "upgrade.f_upload"],
       ["telegram", "upgrade.f_telegram"],
       ["news", "upgrade.f_news"],
       ["chart_signals", "upgrade.f_chart_signals"],
@@ -10081,6 +10218,7 @@ function bindView(view) {
   }
   if (view === "strategies") {
     bindStrategyToggles();
+    bindStrategyUpload();
   }
   if (view === "execution") {
     bindGateSlider();
@@ -10501,6 +10639,20 @@ function bindView(view) {
     bindAppearance();
     markAppearancePills();
     markThemeCards();
+    bindStrategyUpload();
+    const tpl = $("st-tpl");
+    if (tpl) tpl.onclick = async (e) => {
+      e.preventDefault();
+      const r = await API.get("/api/strategies/template");
+      if (r.ok) {
+        $("st-src").value = r.data;
+        const blob = new Blob([r.data], { type: "text/x-python" });
+        const a = document.createElement("a");
+        a.href = URL.createObjectURL(blob); a.download = "aurion_strategy_template.py"; a.click();
+      }
+    };
+    const up = $("st-up");
+    if (up) up.onclick = () => strategyUploadOrSave();
   }
   if (view === "about") {
     const chk = $("about-check-update");
@@ -10590,9 +10742,125 @@ function bindStrategyToggles() {
       patchStrategyLive();
     };
   });
+  document.querySelectorAll("[data-st-edit]").forEach((b) => {
+    b.onclick = () => startStrategyEdit(b.dataset.stEdit);
+  });
+  document.querySelectorAll("[data-st-del]").forEach((b) => {
+    b.onclick = () => deleteCustomStrategy(b.dataset.stDel);
+  });
 }
 
+// ---------------------------------------------------------------------------
+// Strategy file intake: drag & drop or click-to-browse.
+//
+// The drag listeners live on `document` and are installed once at boot.  Every
+// view re-render replaces the drop-zone element, which used to take its
+// listeners with it - that is why dropping a file stopped working after the
+// first refresh.  Document-level handling also makes the whole Strategies tab
+// a drop target and stops the browser from navigating to the dropped file.
+// ---------------------------------------------------------------------------
+const STRATEGY_FILE_RE = /\.(py|txt)$/i;
 
+function strategyDropActive() {
+  return S.view === "strategies" && Boolean($("st-drop")) && licFeat("strategy_upload");
+}
+
+function dragHasFiles(e) {
+  const dt = e.dataTransfer;
+  if (!dt) return false;
+  if (dt.types) return Array.prototype.indexOf.call(dt.types, "Files") !== -1;
+  return Boolean(dt.files && dt.files.length);
+}
+
+async function takeStrategyFile(file) {
+  if (!file) return;
+  if (!STRATEGY_FILE_RE.test(file.name || "")) {
+    toast(I18N.t("strategies.bad_type"));
+    return;
+  }
+  const drop = $("st-drop");
+  if (drop) drop.classList.add("has-file");
+  if ($("st-file")) $("st-file").value = file.name || "custom.py";
+  let text = "";
+  try {
+    text = await file.text();
+  } catch {
+    try { text = await new Response(file).text(); } catch { text = ""; }
+  }
+  if (!text) {
+    toast(I18N.t("strategies.bad_read"));
+    return;
+  }
+  if ($("st-src")) $("st-src").value = text;
+  const hint = $("st-drop-name");
+  if (hint) hint.textContent = `${file.name} · ${(file.size / 1024).toFixed(1)} KB`;
+  toast(I18N.t("strategies.file_ready", { name: file.name }));
+}
+
+function bindStrategyDropTarget() {
+  if (document._stDropBound) return;
+  document._stDropBound = true;
+  let depth = 0;
+  const mark = (on) => { const z = $("st-drop"); if (z) z.classList.toggle("over", on); };
+  document.addEventListener("dragenter", (e) => {
+    if (!strategyDropActive() || !dragHasFiles(e)) return;
+    e.preventDefault();
+    depth++;
+    mark(true);
+  });
+  document.addEventListener("dragover", (e) => {
+    if (!strategyDropActive() || !dragHasFiles(e)) return;
+    e.preventDefault();
+    try { e.dataTransfer.dropEffect = "copy"; } catch { /* older engines */ }
+  });
+  document.addEventListener("dragleave", () => {
+    if (!strategyDropActive()) return;
+    depth = Math.max(0, depth - 1);
+    if (!depth) mark(false);
+  });
+  document.addEventListener("drop", (e) => {
+    if (!strategyDropActive()) return;
+    e.preventDefault();
+    depth = 0;
+    mark(false);
+    takeStrategyFile(e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0]);
+  });
+}
+
+function bindStrategyUpload() {
+  bindStrategyDropTarget();
+  const pick = $("st-file-pick");
+  if (pick && !pick._bound) {
+    pick._bound = true;
+    pick.addEventListener("change", () => takeStrategyFile(pick.files && pick.files[0]));
+  }
+  const tpl = $("st-tpl");
+  if (tpl && !tpl._bound) {
+    tpl._bound = true;
+    tpl.onclick = async (e) => {
+      e.preventDefault();
+      const r = await API.get("/api/strategies/template");
+      if (r.ok) {
+        if ($("st-src")) $("st-src").value = r.data;
+        const blob = new Blob([r.data], { type: "text/x-python" });
+        const a = document.createElement("a");
+        a.href = URL.createObjectURL(blob); a.download = "aurion_strategy_template.py"; a.click();
+      }
+    };
+  }
+  const up = $("st-up");
+  if (up && !up._bound) {
+    up._bound = true;
+    up.onclick = () => strategyUploadOrSave();
+  }
+  const cancel = $("st-cancel");
+  if (cancel && !cancel._bound) {
+    cancel._bound = true;
+    cancel.onclick = (e) => { e.preventDefault(); setStrategyEditMode(null); };
+  }
+  // A view re-render wipes the form — put the editing session back on screen.
+  restoreStrategyEditor(true);
+}
 async function fillMt5Form() {
   const prefs = S.prefs || {};
   try {
@@ -11516,7 +11784,8 @@ function ensureBacktestBars(bt) {
   if (have && have.key === key && (have.bars || have.pending)) return;
   S._btBars = { key, pending: true, bars: null };
   API.get(`/api/candles?symbol=${encodeURIComponent(bt.symbol)}`
-        + `&timeframe=${encodeURIComponent(bt.timeframe || S.timeframe || "M15")}&count=1500`)
+        + `&timeframe=${encodeURIComponent(bt.timeframe || S.timeframe || "M15")}`
+        + `&count=${barsForDays(bt.timeframe || S.timeframe || "M15", HISTORY_DAYS)}`)
     .then((r) => {
       const bars = (r && r.data ? r.data : []).map(btNormBar).filter(Boolean);
       S._btBars = { key, pending: false, bars };
@@ -12912,13 +13181,19 @@ const TF_MINUTES = { M1: 1, M5: 5, M15: 15, M30: 30, H1: 60, H4: 240, D1: 1440, 
    It used to ask for 800 whatever the timeframe, which on M15 is about
    eight days - the chart ran out of history a week back and there was
    nothing behind it. The ask is now derived from the timeframe so the
-   first screen always reaches at least thirty days back, and the engine
-   keeps 3000 bars per symbol and timeframe, which is the ceiling.
+   first screen always reaches at least thirty days back.
+
+   The ceiling used to be 3000 bars, which quietly undid the derivation
+   on exactly the timeframes that needed it: thirty days of M1 is 43 200
+   bars and of M5 is 8640, so both clamped back to 3000 - two days of M1.
+   The ceiling now matches the engine's own (aurion/util/history.py), so
+   the thirty days survive on every timeframe. 43 200 bars is a few MB of
+   plain objects and the chart only ever draws the visible slice.
 
    Weekends are not subtracted. Over-asking costs one number in a query
    string; under-asking is the bug being fixed. */
 const HISTORY_DAYS = 30;
-const HISTORY_MAX = 3000;
+const HISTORY_MAX = 60000;
 function barsForDays(timeframe, days) {
   const mins = TF_MINUTES[String(timeframe || "M15").toUpperCase()] || 15;
   const want = Math.ceil(((days || HISTORY_DAYS) * 24 * 60) / mins);
@@ -13002,7 +13277,13 @@ async function fetchChartSignals(symbol, timeframe) {
   }
   S.signalsLoading = true;
   try {
-    const r = await API.get(`/api/chart/signals?symbol=${encodeURIComponent(symbol)}&timeframe=${encodeURIComponent(timeframe)}&count=800&strict=true`);
+    /* The whole thirty-day window, not a flat 800 bars: the marks have
+       to cover the history the trader can scroll back through, or the
+       older half of the chart reads as "no setups" when it simply was
+       not analysed. */
+    const r = await API.get(`/api/chart/signals?symbol=${encodeURIComponent(symbol)}`
+      + `&timeframe=${encodeURIComponent(timeframe)}`
+      + `&count=${barsForDays(timeframe, HISTORY_DAYS)}&strict=true`);
     if (r && r.ok && r.signals) {
       S.chartSignals = r.signals;
     } else if (r && r.data && r.data.signals) {
@@ -14904,6 +15185,7 @@ async function boot() {
     try { repaintForLanguage(); } catch (e) { /* not worth breaking the desk */ }
   });
 
+  bindStrategyDropTarget();
   await I18N.load(I18N.lang);
   I18N.apply();
   markLangPills();

@@ -112,6 +112,27 @@ class BaseStrategy:
     #: something it is not.
     evidence: dict[str, Any] = {"state": "unmeasured", "basis": ""}
 
+    #: How many bars of history this strategy actually reads, or 0 for
+    #: "all of them".
+    #:
+    #: A replay hands ``ctx.candles`` to the strategy on every bar, and
+    #: almost every strategy immediately turns that list into a frame.
+    #: If the list is the whole run, that work is repeated from the start
+    #: of history on every bar and the replay costs time proportional to
+    #: the square of its length. Over the thirty-day window that is the
+    #: difference between a minute and a quarter of an hour on M1.
+    #:
+    #: Declaring a window says "nothing I compute reaches further back
+    #: than this", and the backtester then hands over only that many
+    #: bars. It is a promise about the strategy, not a hint: set it too
+    #: low and indicators silently read a shorter history, which changes
+    #: results. Set it to the longest lookback you use with room to
+    #: spare, or leave it at 0.
+    #:
+    #: 0 is the safe default and costs only speed. ``smart_money`` keeps
+    #: it, because its higher-timeframe bias resamples the entire frame.
+    history_window: int = 0
+
     def __init__(self, params: dict[str, Any] | None = None) -> None:
         merged = dict(self.params)
         if params:

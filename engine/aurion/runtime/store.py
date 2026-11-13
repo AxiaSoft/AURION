@@ -11,6 +11,7 @@ from typing import Any
 from ..config import DATA_DIR, ROOT, load
 from ..strategy.loader import BUILTIN_NAMES, LEGACY_BUILTINS
 from ..util.clock import utc_iso
+from ..util.history import at_least_30_days
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS ticks (
@@ -656,10 +657,17 @@ class Store:
     def equity_series(self, limit: int = 2000) -> list[dict[str, Any]]:
         return self.query("SELECT * FROM equity ORDER BY ts DESC LIMIT ?", (limit,))[::-1]
 
-    def candles(self, symbol: str, timeframe: str, limit: int = 800) -> list[dict[str, Any]]:
+    def candles(self, symbol: str, timeframe: str, limit: int = 0) -> list[dict[str, Any]]:
+        """Stored bars for a series, defaulting to the thirty-day window.
+
+        The default was a flat 800, which is a different period on every
+        timeframe and less than a day on M1. Nothing is pruned from this
+        table, so the history is there to be read - the default was the
+        only thing keeping callers from seeing it.
+        """
         return self.query(
             "SELECT * FROM candles WHERE symbol=? AND timeframe=? ORDER BY ts DESC LIMIT ?",
-            (symbol, timeframe, limit),
+            (symbol, timeframe, at_least_30_days(timeframe, limit)),
         )[::-1]
 
     def signals(self, limit: int = 200) -> list[dict[str, Any]]:

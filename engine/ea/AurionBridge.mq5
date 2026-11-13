@@ -2,6 +2,12 @@
 //| AurionBridge.mq5                                                 |
 //| Live chart agent for the AURION engine.                          |
 //|                                                                  |
+//| v1.19 — thirty days of history, on every timeframe. The depth    |
+//|   was clamped to 400 bars, which is six hours of M1, so a desk   |
+//|   that fell back to this pipe could never show, train on or      |
+//|   backtest the month AURION promises. The engine now says how    |
+//|   many bars it wants and this expert honours it, up to whatever  |
+//|   the terminal actually holds.                                   |
 //| v1.18 — the desk can now see which expert is attached. Hello     |
 //|   carries the version from one #define instead of a literal      |
 //|   typed twice, and the desk compares it with the version it       |
@@ -29,15 +35,21 @@
 // nobody could tell. AURION_EA_VERSION is the value sent to the engine;
 // engine/tests/test_ea_version.py fails the build if the #property below
 // drifts from it, because #property will not take a macro.
-#define AURION_EA_VERSION "1.18"
-#property version   "1.18"
+#define AURION_EA_VERSION "1.19"
+#property version   "1.19"
 #property strict
-#property description "AURION live bridge 1.18 — reports its own version to the desk"
+#property description "AURION live bridge 1.19 — thirty days of history on any timeframe"
 
 input string InpEngineHost   = "127.0.0.1";
 input int    InpEnginePort   = 18766;
 input int    InpHeartbeatMs  = 1000;
-input int    InpCandleDepth  = 300;
+// Fallback depth, used only when the engine does not name one. The
+// engine asks for thirty days of the timeframe in question; this is
+// what an unprompted history push sends.
+input int    InpCandleDepth  = 3000;
+// Ceiling for a single history push, so a bad request cannot ask the
+// terminal for a decade. 60 000 M1 bars is about six weeks.
+#define AURION_HIST_MAX 60000
 input bool   InpSendHistory  = true;
 input string InpEaName       = "AurionBridge";
 input int    InpHttpPort     = 18765;
@@ -56,6 +68,7 @@ int      g_http_port = 0;
 string   g_hist_tfname = "";
 int      g_hist_pos = -1;
 int      g_hist_count = 0;
+int      g_hist_want = 0;
 ENUM_TIMEFRAMES g_hist_tf = PERIOD_CURRENT;
 MqlRates g_hist_rates[];
 string   g_http_q[];
@@ -71,7 +84,7 @@ void SendSpec();
 void SendPositions();
 void SendOrders();
 void SendDeals();
-void QueueHistory(const string tfName);
+void QueueHistory(const string tfName, const int want);
 void PumpHistory();
 void MaybeClosedBar();
 void PollCommands();
@@ -215,7 +228,7 @@ void BurstConnect()
    FlushOut();
    if(InpSendHistory)
      {
-      QueueHistory("");
+      QueueHistory("", 0);
       PumpHistory();
       FlushOut();
      }
@@ -609,9 +622,10 @@ ENUM_TIMEFRAMES PeriodFromName(const string name)
    return _Period;
   }
 
-void QueueHistory(const string tfName)
+void QueueHistory(const string tfName, const int want)
   {
    g_hist_tfname = tfName;
+   g_hist_want = want;
    g_hist_pos = 0;
    g_hist_count = 0;
    ArrayFree(g_hist_rates);
@@ -624,9 +638,13 @@ void PumpHistory()
    if(g_hist_count <= 0)
      {
       g_hist_tf = (g_hist_tfname == "" ? _Period : PeriodFromName(g_hist_tfname));
-      int depth = InpCandleDepth;
+      // The engine names the depth it needs - thirty days of this
+      // timeframe - because only the engine knows which timeframe the
+      // trader is on. The old code ignored it and clamped to 400 bars,
+      // so the desk got six hours of M1 and called it a month.
+      int depth = (g_hist_want > 0 ? g_hist_want : InpCandleDepth);
       if(depth < 50) depth = 50;
-      if(depth > 400) depth = 400;
+      if(depth > AURION_HIST_MAX) depth = AURION_HIST_MAX;
       ArraySetAsSeries(g_hist_rates, false);
       int n = CopyRates(_Symbol, g_hist_tf, 0, depth, g_hist_rates);
       if(n <= 0)
@@ -920,7 +938,7 @@ void HandleCommand(const string line)
       if(want != "" && !SameSymbol(want, _Symbol)) return;
       string tf = Extract(line, "timeframe_name");
       if(tf == "") tf = Extract(line, "timeframe");
-      QueueHistory(tf);
+      QueueHistory(tf, (int)StringToInteger(Extract(line, "count")));
      }
   }
 

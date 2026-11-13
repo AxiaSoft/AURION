@@ -40,6 +40,7 @@ from ..strategy.loader import (
 from ..license.guard import Guard
 from ..util.clock import utc_iso
 from ..util.errors import readable_error
+from ..util.history import HISTORY_DAYS, at_least_30_days
 from ..build_id import BUILD_ID
 from ..util.market import block_reason as market_block_reason, session as market_session
 from ..util.log import RING, get
@@ -68,17 +69,6 @@ class Trader:
         self.bridge = MT5Bridge()
         self.ai = AIEngine()
         self.prop = PropEngine()
-        # Custom strategies were removed from the product. Anything the
-        # feature left on this machine is deleted the first time this
-        # runs; see strategy/cleanup.py for why it cannot be left to the
-        # installer. It never raises - a cleanup that fails must not
-        # stop the engine from starting.
-        try:
-            from ..strategy.cleanup import run_once as _remove_custom_strategies
-
-            _remove_custom_strategies()
-        except Exception:
-            log.exception("could not remove the leftovers of custom strategies")
         self.loader = StrategyLoader()
         self.backtester = Backtester()
         self.strategy = None
@@ -500,7 +490,7 @@ class Trader:
     def _ctx(self, symbol: str, timeframe: str, tick: dict[str, Any] | None = None) -> StrategyContext:
         candles = [c.to_dict() for c in self.bridge.candles_of(symbol, timeframe)]
         if not candles and self._is_ea_symbol(symbol):
-            candles = self.store.candles(symbol, timeframe, 800)
+            candles = self.store.candles(symbol, timeframe, at_least_30_days(timeframe))
         return StrategyContext(
             symbol=symbol,
             timeframe=timeframe,
@@ -1103,7 +1093,7 @@ class Trader:
             return
         rows = [c.to_dict() for c in self.bridge.candles_of(symbol, timeframe)]
         if not rows and self._is_ea_symbol(str(symbol or "")):
-            rows = self.store.candles(symbol, timeframe, 1500)
+            rows = self.store.candles(symbol, timeframe, at_least_30_days(timeframe))
         if not rows:
             return
         state: dict[str, Any] | None = None
@@ -2392,11 +2382,10 @@ class Trader:
                     "last_reason": "",
                     "last_ts": "",
                 }
-            except Exception:
-                # A saved entry that names a strategy which no longer
-                # exists - an uploaded one, before they were removed -
-                # is simply dropped. The desk lists what is available.
-                log.warning("saved strategy %s is no longer available; ignoring it", name)
+                self._clear_strategy_fault(name)
+            except Exception as exc:
+                log.exception("saved strategy %s failed to reload", name)
+                self._note_strategy_fault(name, exc)
         self._apply_style_params()
         for name, spec in saved.items():
             if name not in self.book or not isinstance(spec, dict):
@@ -2405,6 +2394,32 @@ class Trader:
             if params:
                 inst = self.book[name]["inst"]
                 inst.params = {**getattr(inst, "params", {}), **params}
+        # Self-heal: any uploaded .py still sitting in the strategies folder is
+        # registered (disabled), so a custom strategy can never vanish from the
+        # desk just because the runtime config lost its entry.
+        try:
+            for path in sorted(self.loader.dir.glob("*.py")):
+                stem = path.stem
+                if stem in self.book or stem.startswith("_") or stem == "template":
+                    continue
+                try:
+                    inst = self.loader.load_path(path, {})
+                except Exception as exc:
+                    log.exception("uploaded strategy %s failed to load", stem)
+                    self._note_strategy_fault(stem, exc, file=path.name)
+                    continue
+                self.book[stem] = {
+                    "inst": inst,
+                    "enabled": False,
+                    "kind": "file",
+                    "last_action": "idle",
+                    "last_reason": "",
+                    "last_ts": "",
+                }
+                self._clear_strategy_fault(stem)
+                log.info("registered uploaded strategy %s from disk", stem)
+        except Exception:
+            pass
         # Heal legacy configs: older builds allowed several enabled strategies.
         # Now a single one is armed — keep the first, switch the rest off.
         enabled_names = [k for k, v in self.book.items() if v.get("enabled")]
@@ -2827,6 +2842,47 @@ class Trader:
             for key, _ in stale[: len(book) - Trader.SYMBOL_MEMORY]:
                 book.pop(key, None)
 
+    def _note_strategy_fault(self, name: str, exc: Exception, file: str | None = None) -> None:
+        """Remember a strategy file that is on disk but would not load.
+
+        A file that fails to import is simply absent from the book, so the
+        desk shows nothing at all: no card, no error, no row. The trader
+        uploaded something, it was accepted, and then it was not there -
+        which reads as the upload having been lost rather than the code
+        having a fault in it. The log said so all along, and nobody reads
+        the log.
+        """
+        key = str(name or "").strip()
+        # Strip the suffix the same way _clear_strategy_fault does.
+        # It did not, so a fault recorded against "x.py" - which is how
+        # older runtime configs keyed their saved strategies - could
+        # never be cleared by a later successful load of "x". The card
+        # stayed on the desk with its original message long after the
+        # strategy was loading perfectly, which reads as "the same error
+        # keeps coming back" when nothing is wrong any more.
+        if key.endswith(".py"):
+            key = key[:-3]
+        if not key:
+            return
+        faults = getattr(self, "strategy_faults", None)
+        if faults is None:
+            faults = self.strategy_faults = {}
+        faults[key] = {
+            "name": key,
+            "file": file or f"{key}.py",
+            "error": f"{type(exc).__name__}: {exc}" if not isinstance(exc, StrategyValidationError) else str(exc),
+            "ts": utc_iso(),
+        }
+
+    def _clear_strategy_fault(self, name: str) -> None:
+        """A name that loads is no longer broken."""
+        key = str(name or "").strip()
+        if key.endswith(".py"):
+            key = key[:-3]
+        faults = getattr(self, "strategy_faults", None)
+        if faults:
+            faults.pop(key, None)
+
     def _sync_book_meta(self) -> None:
         enabled = [k for k, v in self.book.items() if v.get("enabled")]
         first = next((self.book[k]["inst"] for k in enabled), None)
@@ -2949,11 +3005,13 @@ class Trader:
             "auto_limit": panel("auto limit", self._auto_limit_meta, {}),
             "prop_enabled": bool(getattr(self.prop, "enabled", True)),
             "items": items,
-            # Always empty. It listed strategy files that would not
-            # load; there are no strategy files any more. The key stays
-            # so a desk that still reads it gets a list rather than
-            # undefined.
-            "faults": [],
+            # Files in the strategies folder that would not load. Without
+            # these the desk can only show what succeeded, so a broken
+            # upload looks like a lost upload.
+            "faults": sorted(
+                (dict(v) for v in (getattr(self, "strategy_faults", {}) or {}).values()),
+                key=lambda r: str(r.get("name") or ""),
+            ),
             "stats": ledger,
             "class": first.__class__.__name__ if first else "",
         }
@@ -3355,17 +3413,30 @@ class Trader:
         if name.endswith(".py"):
             name = name[:-3]
         if name not in self.book:
-            # Not armed yet. There used to be a fallback here that looked
-            # for a user-uploaded .py of this name; custom strategies are
-            # gone, so a name that is not built in is simply not a
-            # strategy.
+            # Not armed yet — first try the built-ins, then fall back to a
+            # user-uploaded .py in the strategies folder. Without this a custom
+            # strategy that survived a restart only as a file could never be
+            # switched on ("unknown builtin strategy ...").
             from ..strategy.loader import StrategyValidationError
 
+            inst = None
+            kind = "builtin"
             try:
                 inst = self.loader.load_builtin(name, params or {})
-            except StrategyValidationError as exc:
-                return {"ok": False, "error": readable_error(str(exc))}
-            self.book[name] = {"inst": inst, "enabled": False, "kind": "builtin", "last_action": "idle", "last_reason": "", "last_ts": ""}
+            except StrategyValidationError:
+                inst = None
+            if inst is None:
+                from pathlib import Path as _P
+
+                cand = _P(self.loader.dir / f"{name}.py")
+                if not cand.exists():
+                    return {"ok": False, "error": f"unknown strategy {name}"}
+                try:
+                    inst = self.loader.load_path(cand, params or {})
+                    kind = "file"
+                except Exception as exc:
+                    return {"ok": False, "error": readable_error(str(exc))}
+            self.book[name] = {"inst": inst, "enabled": False, "kind": kind, "last_action": "idle", "last_reason": "", "last_ts": ""}
         if params:
             inst = self.book[name]["inst"]
             inst.params = {**getattr(inst, "params", {}), **params}
@@ -3380,6 +3451,105 @@ class Trader:
         self._persist_runtime()
         await self.bus.publish("strategy", self.strategy_meta)
         return {"ok": True, "strategy": self.strategy_meta}
+
+    # ------------------------------------------------------------------
+    # Custom (user-uploaded) strategy management
+    # ------------------------------------------------------------------
+    def _custom_slot(self, name: str):
+        """Resolve a book slot that the user is allowed to edit/delete."""
+        name = str(name or "").strip()
+        if name.endswith(".py"):
+            name = name[:-3]
+        slot = self.book.get(name)
+        if slot is None:
+            return name, None, {"ok": False, "error": f"unknown strategy {name}"}
+        if (slot.get("kind") or "builtin") != "file":
+            return name, None, {
+                "ok": False,
+                "error": "built-in strategies are read-only — upload your own .py copy to change it",
+            }
+        return name, slot, None
+
+    def strategy_source(self, name: str) -> dict[str, Any]:
+        name, slot, err = self._custom_slot(name)
+        if err:
+            return err
+        path = self.loader.dir / f"{name}.py"
+        if not path.exists():
+            return {"ok": False, "error": "strategy file missing from disk"}
+        try:
+            return {"ok": True, "name": name, "file": path.name, "source": path.read_text(encoding="utf-8")}
+        except Exception as exc:
+            return {"ok": False, "error": readable_error(str(exc))}
+
+    async def update_strategy(self, name: str, source: str) -> dict[str, Any]:
+        """Rewrite the code of a custom strategy and hot-reload it in place."""
+        name, slot, err = self._custom_slot(name)
+        if err:
+            return err
+        if not str(source or "").strip():
+            return {"ok": False, "error": "empty strategy"}
+        enabled = bool(slot.get("enabled"))
+        params = dict(getattr(slot.get("inst"), "params", {}) or {})
+        try:
+            # save_upload validates first, so broken code never reaches disk.
+            path = self.loader.save_upload(f"{name}.py", source)
+            inst = self.loader.load_path(path, params)
+        except Exception as exc:
+            return {"ok": False, "error": readable_error(str(exc))}
+        ctx = None
+        if enabled and hasattr(slot["inst"], "on_stop"):
+            try:
+                ctx = self._ctx(self.active_symbol, self.active_timeframe)
+                slot["inst"].on_stop(ctx)
+            except Exception:
+                pass
+        slot["inst"] = inst
+        slot["last_action"] = "idle"
+        slot["last_reason"] = "reloaded"
+        slot["last_ts"] = ""
+        if enabled and hasattr(inst, "on_start"):
+            try:
+                inst.on_start(ctx or self._ctx(self.active_symbol, self.active_timeframe))
+            except Exception:
+                pass
+        self._sync_book_meta()
+        self._persist_runtime()
+        await self.bus.publish("strategy", self.strategy_meta)
+        return {"ok": True, "strategy": self.strategy_meta, "name": name, "file": f"{name}.py"}
+
+    async def delete_strategy(self, name: str) -> dict[str, Any]:
+        """Remove a custom strategy from the book and delete its .py file."""
+        name, slot, err = self._custom_slot(name)
+        if err:
+            return err
+        if slot.get("enabled") and hasattr(slot["inst"], "on_stop"):
+            try:
+                slot["inst"].on_stop(self._ctx(self.active_symbol, self.active_timeframe))
+            except Exception:
+                pass
+        del self.book[name]
+        try:
+            self.loader.loaded.pop(name, None)
+        except Exception:
+            pass
+        file_missing = False
+        try:
+            # Both copies: the working one in the installation and the
+            # user's own in data/strategies. Deleting only the first
+            # would have the vault restore it at the next start, which
+            # turns a safety net into a bug.
+            self.loader.forget(name)
+        except Exception as exc:
+            log.exception("could not delete strategy file %s.py", name)
+            file_missing = str(exc)
+        self._sync_book_meta()
+        self._persist_runtime()
+        await self.bus.publish("strategy", self.strategy_meta)
+        out = {"ok": True, "strategy": self.strategy_meta, "name": name}
+        if file_missing:
+            out["warning"] = file_missing
+        return out
 
     def _robot_volume(self, payload: dict[str, Any]) -> Any:
         """Volume for a robot entry: manual mode pins every robot trade to the
@@ -4893,7 +5063,9 @@ class Trader:
             return {"ok": False, "error": "attach AurionBridge first — AURION will not load a market-watch chart"}
         self.active_symbol = symbol
         self.active_timeframe = timeframe
-        bars = await self.bridge.pull_candles(symbol, timeframe, load()["engine"].get("candle_lookback") or 1500)
+        bars = await self.bridge.pull_candles(
+            symbol, timeframe, at_least_30_days(timeframe, load()["engine"].get("candle_lookback"))
+        )
         if bars:
             try:
                 self.ai.infer(bars, symbol, timeframe)
@@ -4959,6 +5131,7 @@ class Trader:
             "last_ts": prev.get("last_ts") or "",
         }
         self.strategy = inst
+        self._clear_strategy_fault(name)
         if enabled and hasattr(inst, "on_start"):
             inst.on_start(self._ctx(self.active_symbol, self.active_timeframe))
         self._sync_book_meta()
@@ -5021,7 +5194,7 @@ class Trader:
         except Exception:
             log.exception("live AI infer failed")
 
-    async def chart_signals(self, symbol: str, timeframe: str = "M15", count: int = 800, strict: bool = True) -> dict[str, Any]:
+    async def chart_signals(self, symbol: str, timeframe: str = "M15", count: int = 0, strict: bool = True) -> dict[str, Any]:
         # premium feature
         if not self.license.feature("chart_signals"):
             return {"ok": False, "error": "premium_required", "feature": "chart_signals", "upgrade": True}
@@ -5030,10 +5203,16 @@ class Trader:
         if not symbol:
             return {"ok": False, "error": "symbol_required"}
         # Need candles
+        # Signals must cover the whole thirty-day window, because that is
+        # the window the trader is reading them on. The cached bars were
+        # accepted whenever there were more than 50 of them, so on a chart
+        # that had just opened the analysis ran over the last fifty bars
+        # and the rest of the month came back blank.
+        want = at_least_30_days(timeframe, count)
         bars = [c.to_dict() for c in self.bridge.candles_of(symbol, timeframe)]
-        if len(bars) < 50:
+        if len(bars) < want:
             try:
-                bars = await self.bridge.pull_candles(symbol, timeframe, int(count or 800))
+                bars = await self.bridge.pull_candles(symbol, timeframe, want) or bars
             except Exception:
                 bars = bars or []
         if not bars or len(bars) < 30:
@@ -5089,9 +5268,14 @@ class Trader:
         timeframe = str(body.get("timeframe") or self.active_timeframe or "M15")
         if not symbol or not self._is_ea_symbol(symbol):
             return {"ok": False, "error": "no AurionBridge on that symbol — attach the EA first"}
+        # The trader must be able to backtest anywhere inside the thirty
+        # days the chart shows. Cached bars were taken as sufficient at 90
+        # of them, which on M5 is seven hours, so a run launched from a
+        # fresh chart silently tested a sliver of the visible history.
+        want = at_least_30_days(timeframe, body.get("bars"))
         bars = [c.to_dict() for c in self.bridge.candles_of(symbol, timeframe)]
-        if len(bars) < 90:
-            bars = await self.bridge.pull_candles(symbol, timeframe, int(body.get("bars") or 1500))
+        if len(bars) < want:
+            bars = await self.bridge.pull_candles(symbol, timeframe, want) or bars
         if not bars:
             return {"ok": False, "error": "no real MT5 history available for this symbol/timeframe"}
         spec = body.get("strategy") or {"kind": "builtin", "name": "ema_rsi", "params": body.get("params") or {}}

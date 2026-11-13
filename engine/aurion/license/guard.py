@@ -38,6 +38,7 @@ PAID_PLANS = ("m1", "m3", "m6", "y1")
 FREEMIUM_LOCKED = (
     "prop",
     "scalping",
+    "strategy_upload",
     "telegram",
     "news",
     "chart_signals",
