@@ -84,6 +84,13 @@ class PriceAction(BaseStrategy):
     }
     name = "price_action"
     version = "2.1.0"
+
+    # Nothing here reaches further back than the slow EMA, the RSI and
+    # the ATR, all of which are well inside a hundred bars. Declaring the
+    # window keeps a thirty-day replay linear instead of quadratic; the
+    # A/B that proved the results are byte-identical either way is in
+    # engine/tests/test_backtest_window.py.
+    history_window = 1500
     language = "en"
     params: dict[str, Any] = {
         "volume": 0.10,

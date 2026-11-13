@@ -17,17 +17,39 @@ from .native import AVAILABLE as NATIVE_AVAILABLE
 from .native import NativeMT5
 from .protocol import decode_buffer, encode, parse_ea_json
 from .types import Account, Candle, ChartAgent, Deal, PendingOrder, Position, Tick, classify_account, timeframe_from_minutes
+from ..util.history import at_least_30_days, cache_size
 
 log = get("mt5")
 
 EventHandler = Callable[[str, dict[str, Any]], Awaitable[None] | None]
 
 
+class _CandleBuckets(dict):
+    """Per-series candle buffers, each sized for thirty days of ITS OWN
+    timeframe.
+
+    This was a defaultdict of deque(maxlen=3000), one size for every
+    series. 3000 bars is six years of D1 and two days of M1, so the
+    product's "at least thirty days" promise was quietly impossible on
+    the fast timeframes no matter how many bars anything asked MT5 for:
+    the buffer threw the older ones away on arrival.
+
+    A defaultdict factory cannot see the key it is filling, so the size
+    could not depend on the timeframe. __missing__ can.
+    """
+
+    def __missing__(self, key: Any) -> deque:
+        timeframe = key[1] if isinstance(key, tuple) and len(key) > 1 else "M15"
+        bucket: deque = deque(maxlen=cache_size(str(timeframe)))
+        self[key] = bucket
+        return bucket
+
+
 def _new_tape() -> dict[str, Any]:
     """One isolated view of terminal state (live chart or tester chart)."""
     return {
         "ticks": {},
-        "candles": defaultdict(lambda: deque(maxlen=3000)),
+        "candles": _CandleBuckets(),
         "positions": [],
         "orders": [],
         "deals": [],
@@ -617,7 +639,14 @@ class MT5Bridge:
                     if not fut.done():
                         fut.set_result(payload)
 
-    async def _request_ea_history(self, symbol: str, timeframe: str, timeout: float = 8.0) -> list[Candle]:
+    async def _request_ea_history(self, symbol: str, timeframe: str, timeout: float = 8.0, count: int = 0) -> list[Candle]:
+        """Ask the attached expert for history over the thirty-day window.
+
+        `count` is passed to the expert, which sizes its CopyRates call
+        from it. Experts older than 1.19 ignore the field and send their
+        own fixed depth, which is why the desk reports an out-of-date
+        expert rather than pretending the window is there.
+        """
         tf = self._norm_tf(timeframe)
         if not self._ea_clients and not self._http_live():
             return []
@@ -634,7 +663,7 @@ class MT5Bridge:
                     "symbol": symbol,
                     "timeframe": minutes,
                     "timeframe_name": tf,
-                    "count": 800,
+                    "count": at_least_30_days(tf, count),
                 },
                 symbol=symbol,
                 any_ok=False,
@@ -807,9 +836,18 @@ class MT5Bridge:
         await self.emit("positions", [p.to_dict() for p in positions])
         await self.emit("orders", [o.to_dict() for o in orders])
 
-    async def pull_candles(self, symbol: str, timeframe: str, count: int = 800) -> list[dict[str, Any]]:
+    async def pull_candles(self, symbol: str, timeframe: str, count: int = 0) -> list[dict[str, Any]]:
+        """Bars for this series, never fewer than thirty days of them.
+
+        `count` used to default to 800, which is eight days of M15 and
+        thirteen hours of M1. It is now only a floor-raiser: a caller
+        that wants more history still gets it, and a caller that asks
+        for less - or forgets to ask - gets the thirty days the product
+        promises on that timeframe.
+        """
         symbol = str(symbol or "").strip()
         tf = self._norm_tf(timeframe)
+        count = at_least_30_days(tf, count)
         if not symbol:
             return []
         cached = self._candles_for(symbol, tf)
@@ -825,7 +863,7 @@ class MT5Bridge:
         if not rows:
             rows = cached
         if len(rows) < 20 and self.is_ea_symbol(symbol):
-            fetched = await self._request_ea_history(symbol, tf, timeout=8.0)
+            fetched = await self._request_ea_history(symbol, tf, timeout=8.0, count=count)
             if fetched:
                 rows = fetched
             else:
@@ -847,7 +885,7 @@ class MT5Bridge:
                 live_store["ticks"][symbol] = tick
                 live_store["last_tick_at"] = tick.time
                 await self.emit("tick", tick.to_dict())
-            rows = await asyncio.to_thread(self.native.candles, symbol, tf, 800)
+            rows = await asyncio.to_thread(self.native.candles, symbol, tf, at_least_30_days(tf))
             if rows:
                 bucket = live_store["candles"][(symbol, tf)]
                 bucket.clear()

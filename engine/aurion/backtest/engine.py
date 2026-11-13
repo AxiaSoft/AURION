@@ -33,6 +33,26 @@ def _bar_time(bar: Any) -> str:
 # that the cost per update does not grow with the length of the run.
 _REPLAY_BARS = 160
 
+#: Ceiling on a strategy's declared history window, so a typo in an
+#: uploaded strategy cannot ask for more bars than the run holds. The
+#: window itself comes from the strategy (BaseStrategy.history_window);
+#: 0 there means "the whole run", which is the default and the old
+#: behaviour.
+#:
+#: Why strategies may declare one at all: a replay hands ctx.candles to
+#: the strategy on every bar and the builtins turn that straight into a
+#: DataFrame, so a full-history window makes a run quadratic. Thirty
+#: days of M1 is 43 200 bars, and that was 745 seconds.
+#:
+#: MEASURED before any builtin was given a window. 30 days of M15 (2880
+#: bars) and of M5 (8640), window 1500 against the full history:
+#: ema_rsi, price_action and atr_breakout produced an identical trade
+#: count, identical per-trade profits and an identical equity curve, at
+#: 51s against 65s on M5. smart_money did NOT - 14 trades against 11 -
+#: because _htf_bias resamples the whole frame, so it declares no window
+#: and still gets everything. The A/B is engine/tests/test_backtest_window.py.
+_WINDOW_CEILING = 200_000
+
 
 def _slim(bar: Any) -> dict[str, Any]:
     """A bar reduced to what a chart needs.
@@ -136,6 +156,12 @@ class Backtester:
         lot = max(0.0, float(manual_volume or 0.0))
         brain = ai or AIEngine()
         feats = self._precompute_features(bars)
+        # What the strategy says it reads. 0 (the default) means the
+        # whole run, which is how this always behaved.
+        try:
+            span = max(0, min(_WINDOW_CEILING, int(getattr(strategy, "history_window", 0) or 0)))
+        except (TypeError, ValueError):
+            span = 0
         ctx_start = self._ctx(strategy, symbol, timeframe, bars[:warmup], None, equity, [], brain)
         strategy.on_start(ctx_start)
         manage = self._manage_rules(getattr(strategy, "params", {}) or {})
@@ -182,7 +208,7 @@ class Backtester:
                         progress = None
                 except Exception:
                     progress = None         # a broken reporter must not stop the run
-            window = bars[: i + 1]
+            window = bars[max(0, i + 1 - span): i + 1] if span else bars[: i + 1]
             bar = bars[i]
             price = float(bar.get("close") or bar.get("c") or 0)
             if price <= 0:

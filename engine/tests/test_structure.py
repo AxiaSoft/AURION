@@ -31,6 +31,7 @@ from aurion.strategy.builtin._structure import (  # noqa: E402
 from aurion.strategy.loader import (  # noqa: E402
     BUILTIN_NAMES,
     LEGACY_BUILTINS,
+    RESERVED_NAMES,
     resolve_builtin,
 )
 
@@ -208,12 +209,9 @@ def test_the_withdrawn_strategies_resolve_instead_of_raising() -> None:
     assert "scalp_impulse" not in BUILTIN_NAMES
     assert resolve_builtin("king") == "price_action"
     assert resolve_builtin("scalp_impulse") == "price_action"
-    # There used to be a second half here: nobody may upload a file
-    # that reclaims a retired name. Custom strategies were removed, so
-    # RESERVED_NAMES went with the uploader it protected - there is no
-    # longer any way to introduce a name at all. What still matters, and
-    # is still checked above, is that a saved config naming a retired
-    # built-in resolves instead of stopping the engine on first boot.
+    # And nobody may upload a file that reclaims a retired name.
+    assert "king" in RESERVED_NAMES
+    assert "scalp_impulse" in RESERVED_NAMES
 
 
 def test_the_surviving_builtins_are_the_four_that_ship() -> None:

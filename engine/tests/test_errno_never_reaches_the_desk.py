@@ -169,13 +169,39 @@ def test_the_endpoint_wrapper_still_cleans_and_stamps():
     assert out.get("build_id")
 
 
-# ---------------------------------------------------------------------------
-# Three tests stood here, covering a fault recorded against "x.py" that
-# _clear_strategy_fault could never reach because it stripped the suffix
-# before looking the key up. They are gone with their subject: custom
-# strategies were removed from the product, and the fault book existed
-# only to report an uploaded file that would not import. There is no
-# longer any file to fail to import.
-#
-# The removal itself is pinned in test_custom_strategies_are_gone.py.
-# ---------------------------------------------------------------------------
+# ------------------------------------------------------- the stale fault card
+
+
+def test_a_fault_recorded_with_the_suffix_can_be_cleared():
+    """Why the same message appeared to come back after it was fixed.
+
+    _note_strategy_fault keyed on the name it was given and
+    _clear_strategy_fault stripped ".py" before looking it up, so a
+    fault noted against "x.py" - how older runtime configs key their
+    saved strategies - was unreachable forever. The card sat on the desk
+    with its original text long after the strategy loaded fine.
+    """
+    t = _trader()
+    t.strategy_faults = {}
+    t._note_strategy_fault("aurion_ict_fvg_sweep.py", FileNotFoundError(2, "No such file"))
+    assert t.strategy_faults, "the fault was not recorded at all"
+    t._clear_strategy_fault("aurion_ict_fvg_sweep")
+    assert t.strategy_faults == {}, "a loading strategy still shows a stale error card"
+
+
+def test_clearing_works_both_ways_round():
+    t = _trader()
+    t.strategy_faults = {}
+    t._note_strategy_fault("mine", FileNotFoundError(2, "No such file"))
+    t._clear_strategy_fault("mine.py")
+    assert t.strategy_faults == {}
+
+
+def test_a_validation_error_is_stored_without_a_type_prefix():
+    """The trader should read the sentence, not "StrategyValidationError:"."""
+    from aurion.strategy.loader import StrategyValidationError
+
+    t = _trader()
+    t.strategy_faults = {}
+    t._note_strategy_fault("mine", StrategyValidationError("no strategy called 'mine'"))
+    assert t.strategy_faults["mine"]["error"] == "no strategy called 'mine'"
