@@ -1189,9 +1189,21 @@ function themeBuilderHtml() {
      whatever is on the page: once a choice has been made it overrides
      --theme-bg globally, so a tile painted from that variable would show the
      chosen picture and offer to switch you to it. */
+  /* Through assetUrl, like the desk's own backdrop.
+     wallUrl() answers a path relative to the DOCUMENT, and the backend
+     serves index.html for every unmatched path - so on any URL with a
+     segment in it the tile asked for a picture and was handed HTML. It
+     decoded nothing and painted nothing, which is exactly the report:
+     every shipped tile blank, and only the trader's own picture - a
+     data URL, with no path to get wrong - showing up at all. */
+  const tileUrl = (name, light) => {
+    const rel = AurionTheme.wallUrl(name, light);
+    if (!rel) return "";
+    return AurionTheme.assetUrl ? AurionTheme.assetUrl(rel) : rel;
+  };
   const ownWall = AurionTheme.themeWall(current);
   const ownStyle = ownWall
-    ? ` style="background-image:url(&quot;${esc(AurionTheme.wallUrl(ownWall, lightNow))}&quot;)"`
+    ? ` style="background-image:url(&quot;${esc(tileUrl(ownWall, lightNow))}&quot;)"`
     : "";
 
   /* Every scene, in both cuts.
@@ -1229,9 +1241,9 @@ function themeBuilderHtml() {
     const name = I18N.t("themes.wall_" + w);
     return [
       wallTile(`${w}@night`, `${name} ${darkLabel}`,
-        ` style="background-image:url(&quot;${esc(AurionTheme.wallUrl(w + "@night", false))}&quot;)"`),
+        ` style="background-image:url(&quot;${esc(tileUrl(w + "@night", false))}&quot;)"`),
       wallTile(`${w}@day`, `${name} ${lightLabel}`,
-        ` style="background-image:url(&quot;${esc(AurionTheme.wallUrl(w + "@day", true))}&quot;)"`),
+        ` style="background-image:url(&quot;${esc(tileUrl(w + "@day", true))}&quot;)"`),
     ];
   })).join("");
 
@@ -1651,6 +1663,14 @@ function bindThemesGallery() {
       if (!slider) return;
       const key = slider.dataset.knob;
       const value = Number(slider.value);
+      /* A knob DOES promote the desk onto Custom - that is the designed
+         behaviour for the material numbers. What was missing is the
+         gallery hearing about it: the card for the old theme stayed
+         marked until something else happened to re-render the page, so
+         the desk said "Midnight" while plainly not being Midnight any
+         more. Compared rather than called unconditionally, because the
+         promotion happens on the first frame of a drag and only then. */
+      const was = AurionTheme.effective();
       AurionTheme.edit({ [key]: value });
       const out = $("knob-v-" + key);
       if (out) {
@@ -1659,36 +1679,60 @@ function bindThemesGallery() {
           ? I18N.t("themes.motion_off") : value + suffix;
       }
       if (key === "radius") paintCustomPreview();
+      if (AurionTheme.effective() !== was) markThemeCards();
       markThemeEdited();
     };
     const walls = $("knob-walls");
     if (walls) walls.onclick = (e) => {
       const b = e.target.closest("[data-wallpick]");
       if (!b) return;
+      /* keep:true - the backdrop is a preference ABOUT this theme, not a
+         new theme. Without it the desk was promoted onto Custom the
+         moment a picture was chosen, and the material themes lost the
+         thing that makes them themes: Velvet stopped being velvet and
+         Relief stopped being relief, because every rule that draws them
+         is written against their own data-skin. */
       if (b.dataset.wallpick === "photo") {
         /* The trader's own picture is not a wallpaper id - it is the
            "photo" backdrop. Both halves are set in one call: the
            backdrop that draws it, and wall:none so a shipped
            photograph is not left layered underneath it. */
-        AurionTheme.edit({ bg: "photo", wall: "none" });
+        AurionTheme.edit({ bg: "photo", wall: "none" }, { keep: true });
       } else {
         /* Leaving the picture means leaving the picture backdrop too,
            or the chosen wallpaper is set and nothing on screen changes
            - which reads as a tile that does not work. */
         const patch = { wall: b.dataset.wallpick };
         if (AurionTheme.knobs().bg === "photo") patch.bg = "flat";
-        AurionTheme.edit(patch);
+        AurionTheme.edit(patch, { keep: true });
       }
+      /* In the moment, all of it: the tiles, the warning line, the
+         gallery card and the charts. The desk itself is already
+         repainted by the time edit() returns - what used to lag was
+         everything on this page that describes it. */
       renderSettingsKnobs();
       verifyWallpaper();
+      markThemeCards();
+      markThemeEdited();
+      repaintChartsForTheme();
+    };
+
+    /* Both of these take effect the instant they are chosen, and both
+       can promote the desk onto Custom, so the gallery is re-marked with
+       them. */
+    const fx = $("knob-fx");
+    if (fx) fx.onchange = () => {
+      AurionTheme.edit({ fx: fx.value });
+      markThemeCards();
       markThemeEdited();
     };
 
-    const fx = $("knob-fx");
-    if (fx) fx.onchange = () => { AurionTheme.edit({ fx: fx.value }); markThemeEdited(); };
-
     const font = $("knob-font");
-    if (font) font.onchange = () => { AurionTheme.edit({ font: font.value }); markThemeEdited(); };
+    if (font) font.onchange = () => {
+      AurionTheme.edit({ font: font.value });
+      markThemeCards();
+      markThemeEdited();
+    };
 
     /* Colours repaint live while the picker is open, which is the only way
        to judge a colour: a swatch in a dialog tells you nothing about how
@@ -1729,6 +1773,7 @@ function bindThemesGallery() {
           const clear = row && row.querySelector("[data-colclear]");
           if (clear) clear.hidden = false;
           warnOnContrast();
+          markThemeCards();
           markThemeEdited();
           repaintChartsForTheme();
         },
@@ -1928,16 +1973,18 @@ function bindBackgroundPicture() {
       // by hand afterwards would be a step with only one sensible answer.
       // wall:none goes with it, or whichever shipped photograph was
       // already chosen stays layered over the one just uploaded.
-      AurionTheme.edit({ bg: "photo", wall: "none" });
+      AurionTheme.edit({ bg: "photo", wall: "none" }, { keep: true });
       renderSettingsKnobs();
+      markThemeCards();
       toast(I18N.t("themes.bg_image_set"));
     }).catch(() => toast(I18N.t("themes.bg_image_bad")));
   };
 
   if (clear) clear.onclick = () => {
     AurionTheme.setBgImage("");
-    if (AurionTheme.knobs().bg === "photo") AurionTheme.edit({ bg: "flat" });
+    if (AurionTheme.knobs().bg === "photo") AurionTheme.edit({ bg: "flat" }, { keep: true });
     renderSettingsKnobs();
+    markThemeCards();
   };
 
   if (dim) dim.oninput = () => {
@@ -2071,7 +2118,11 @@ function markWallTiles() {
     // "" is the theme's own picture, which is named after the theme itself.
     if (value === "photo") return;   // painted from the data URL, not from a file on disk
     const name = value === "" ? AurionTheme.themeWall(current) : value;
-    const url = AurionTheme.wallUrl(name, light);
+    /* assetUrl again - see tileUrl() in themeBuilderHtml. A tile that
+       is re-marked must not lose the picture the tile that was built
+       had. */
+    const rel = AurionTheme.wallUrl(name, light);
+    const url = rel && AurionTheme.assetUrl ? AurionTheme.assetUrl(rel) : rel;
     const art = b.querySelector(".wall-art");
     if (art && url) art.style.backgroundImage = `url("${url}")`;
     else if (art && value === "") art.style.backgroundImage = "";
@@ -2274,28 +2325,30 @@ function bindAppearance() {
     const b = e.target.closest("[data-accent]");
     if (!b) return;
     if (b.dataset.locked) { toast(I18N.t("themes.locked_toast")); show("upgrade"); return; }
-    /* Under the veil, like every other appearance change. Picking an
-       accent recolours every control, every chart and every chip on the
-       desk; doing it in the open meant watching the page change in
-       pieces, with the charts arriving last because they only recolour
-       when asked. The drag inside the colour picker deliberately does
-       NOT go through here - it has to track the pointer frame by frame,
-       and a cover over a live preview is a contradiction. */
-    morphTheme(() => {
-      /* A shipped accent and a custom one cannot both be in force. */
-      AurionSkin.setCustomAccent("");
-      AurionSkin.setAccent(b.dataset.accent);
-      // Picking an accent is part of building the theme, whichever theme
-      // it is, so it is remembered with the rest of that theme's knobs
-      // rather than being reset the next time the theme is applied.
-      if (typeof AurionTheme !== "undefined") {
-        AurionTheme.edit({ accent: b.dataset.accent }, { silent: true });
-      }
-      markAppearancePills();
-      paintCustomPreview();
-      // The chart reads its colours once when it paints, so it has to be asked.
-      repaintChartsForTheme();
-    }, { title: I18N.t("ui.switch_theme") });
+    /* No veil. By request, and this is the second time it has been
+       asked for: an accent is a handful of CSS variables, not a theme
+       swap, and covering the desk for the best part of a second to
+       change them makes the quickest choice on the page feel like the
+       slowest. The cover also hid the very thing being judged. Every
+       accent - shipped here, and the trader's own in the branch above -
+       now lands on the frame it is clicked on.
+       The order below is what makes that true: the variables first, so
+       the page restyles immediately, then the controls that describe
+       the choice, then the canvases, which repaint only when asked. */
+    /* A shipped accent and a custom one cannot both be in force. */
+    AurionSkin.setCustomAccent("");
+    AurionSkin.setAccent(b.dataset.accent);
+    // Picking an accent is part of building the theme, whichever theme
+    // it is, so it is remembered with the rest of that theme's knobs
+    // rather than being reset the next time the theme is applied.
+    // keep:true: an accent must not turn Velvet into Custom either.
+    if (typeof AurionTheme !== "undefined") {
+      AurionTheme.edit({ accent: b.dataset.accent }, { silent: true, keep: true });
+    }
+    markAppearancePills();
+    paintCustomPreview();
+    // The chart reads its colours once when it paints, so it has to be asked.
+    repaintChartsForTheme();
   };
 
   bindThemesGallery();

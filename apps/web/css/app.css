@@ -3636,6 +3636,15 @@ html[dir="rtl"] .q-how[open] summary::before{ transform:rotate(0deg) }
 }
 .cndl{
   position:relative;flex:1 1 0;min-width:0;align-self:stretch;
+  /* The body is this wide, and no wider.
+
+     The bars used to fill their whole share of the strip, so fourteen
+     of them on a desk-width card came out as fat slabs with a hairline
+     of space between: nothing like a chart, and too heavy to judge two
+     colours against. A candle is a thin body on a wick, so the body is
+     given a width of its own and the flex track only decides where it
+     is centred. */
+  --cndl-w:8px;
 }
 /* The wick: a hairline from the bar's high to its low.
 
@@ -3646,20 +3655,35 @@ html[dir="rtl"] .q-how[open] summary::before{ transform:rotate(0deg) }
    colours are readable. Top and height are given outright now. */
 .cndl::before{
   content:"";position:absolute;top:var(--wt);height:var(--wh);
-  inset-inline-start:50%;width:2px;transform:translateX(-50%);
-  border-radius:2px;background:currentColor;opacity:.75;
+  inset-inline-start:50%;width:1.5px;transform:translateX(-50%);
+  border-radius:2px;background:currentColor;opacity:.8;
 }
 /* The body. */
 .cndl::after{
-  content:"";position:absolute;inset-inline:0;
+  content:"";position:absolute;
+  inset-inline-start:50%;width:var(--cndl-w);transform:translateX(-50%);
   top:var(--t);height:var(--h);
-  border-radius:3px;background:currentColor;
+  border-radius:2px;background:currentColor;
+  box-sizing:border-box;
+}
+/* Up and down, readable without reading the colours.
+
+   Colour alone is a weak signal here: the trader is on this card
+   precisely BECAUSE they are about to change those two colours, and
+   they are free to choose two that barely differ - or to be unable to
+   tell them apart at all. So the two directions also differ in the way
+   charts have always distinguished them: a rising bar is hollow, a
+   falling bar is filled. */
+.cndl.is-up::after{
+  background:transparent;
+  border:1.5px solid currentColor;
 }
 .cndl-cap{margin:-6px 0 12px;font-size:11px;opacity:.75}
 .cndl.is-up{color:var(--candle-up)}
 .cndl.is-down{color:var(--candle-down)}
 @media (max-width:560px){
   .cndl-prev{height:76px;gap:5px}
+  .cndl{--cndl-w:6px}
 }
 
 /* Each tile paints the backdrop it stands for, so the choice is made by

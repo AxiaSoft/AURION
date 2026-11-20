@@ -396,7 +396,14 @@
        stored, so anything not named here is silently dropped on the way
        out - which is how the wallpaper was saved correctly and then read
        back as "none chosen". */
-    if (parsed.wall === "none" || WALLPAPERS.indexOf(parsed.wall) !== -1) out.wall = parsed.wall;
+    /* validWall, not a plain name lookup. Every tile in the gallery but
+       three asks for a scene pinned to one cut - "ocean@night" - and a
+       bare WALLPAPERS.indexOf() does not recognise those, so the choice
+       was written correctly by setCustom and then thrown away here on
+       the way back out. On screen that read as "the picture I clicked is
+       not taken": the tile snapped back to the theme's own, and on a
+       theme that ships no picture of its own the desk went bare. */
+    if (parsed.wall === "none" || validWall(parsed.wall)) out.wall = parsed.wall;
     return out;
   }
 
@@ -730,7 +737,10 @@
       }
       if (edit.font && FONTS[edit.font]) out.font = edit.font;
       if (edit.fx && FX[edit.fx] && lightAllows("fx")) out.fx = edit.fx;
-      if (edit.wall === "none" || WALLPAPERS.indexOf(edit.wall) !== -1) out.wall = edit.wall;
+      /* validWall again - see getCustom(). A cut-pinned choice is a
+         legal choice everywhere it is written, so it has to be legal
+         everywhere it is read. */
+      if (edit.wall === "none" || validWall(edit.wall)) out.wall = edit.wall;
     }
     return out;
   }
@@ -823,9 +833,24 @@
     return "custom";
   }
 
-  /** Edit the theme currently in use - built-in ones included. */
+  /**
+   * Edit the theme currently in use - built-in ones included.
+   *
+   * opts.keep asks for the edit to be stored against the theme on screen
+   * instead of promoting the desk onto Custom.
+   *
+   * That exists because promotion is the right answer for a knob and the
+   * wrong one for a photograph. Velvet and Relief are not palettes, they
+   * are materials: their entire character lives in css/themes.css under
+   * html[data-skin="clay"] and html[data-skin="neu"]. Promote the desk to
+   * Custom and every one of those rules stops matching, so choosing a
+   * wallpaper on Velvet turned Velvet into the default theme wearing a
+   * slightly different colour. A backdrop is a preference about the
+   * theme, not a new theme, so it is remembered against the theme and
+   * the material survives.
+   */
   function editTheme(patch, opts) {
-    var id = promoteToCustom(effectiveTheme());
+    var id = (opts && opts.keep) ? effectiveTheme() : promoteToCustom(effectiveTheme());
 
     // Knobs, accent, backdrop and wallpaper are Custom's own storage;
     // colours, typeface and effect are in the shared edits slot. Both

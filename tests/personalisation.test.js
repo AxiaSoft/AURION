@@ -209,8 +209,15 @@ check("picking the picture's tile asks for the backdrop, not a wallpaper id", ()
   const body = h.slice(0, h.indexOf("markThemeEdited();"));
   if (!/wallpick === "photo"/.test(body))
     throw new Error("the handler does not special-case the picture's tile");
-  if (!/edit\(\{ bg: "photo", wall: "none" \}\)/.test(body))
+  if (!/edit\(\{ bg: "photo", wall: "none" \}/.test(body))
     throw new Error("picking it does not set bg:photo with wall:none");
+  /* And it is stored against the theme on screen. Promotion would cost
+     the material themes their material: Velvet and Relief are drawn by
+     rules written against their own data-skin, so a desk shunted onto
+     Custom for choosing a photograph stops being velvet or relief and
+     comes back as the default theme in a slightly different colour. */
+  if (!/\{ keep: true \}/.test(body))
+    throw new Error("choosing a backdrop still promotes the desk onto Custom");
   if (!/patch\.bg = "flat"/.test(body))
     throw new Error("picking another tile does not leave the picture backdrop, so nothing would change on screen");
   return "both halves in one call";
@@ -219,8 +226,10 @@ check("picking the picture's tile asks for the backdrop, not a wallpaper id", ()
 check("uploading a picture turns it on, and lifts any shipped photograph off it", () => {
   const u = appJs.slice(appJs.indexOf("function bindBackgroundPicture"));
   const body = u.slice(0, u.indexOf("function markWallTiles"));
-  if (!/edit\(\{ bg: "photo", wall: "none" \}\)/.test(body))
+  if (!/edit\(\{ bg: "photo", wall: "none" \}/.test(body))
     throw new Error("the upload path does not set bg:photo with wall:none");
+  if (!/\{ keep: true \}/.test(body))
+    throw new Error("uploading a picture still promotes the desk onto Custom");
   return "bg:photo, wall:none";
 });
 
