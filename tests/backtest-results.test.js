@@ -32,8 +32,9 @@ const stub = `
   const clsPnl=(n)=>Number(n)>0?'up':Number(n)<0?'down':'';
   const $=()=>null;
 `;
-const fn = new Function(stub + grab('btWhen') + '\n' + grab('renderBacktestExtra') +
-  '\nreturn {btWhen, renderBacktestExtra};')();
+const fn = new Function(stub + grab('btWhen') + '\n' + grab('btPips') + '\n' +
+  grab('renderBacktestExtra') +
+  '\nreturn {btWhen, btPips, renderBacktestExtra};')();
 
 let fails = 0;
 const ok = (c, m) => { if (!c) { fails++; console.log('FAIL ' + m); } else console.log('ok   ' + m); };
@@ -53,8 +54,9 @@ const run = fn.renderBacktestExtra({
   ok:true,
   metrics:{trades:3},
   equity_curve:[1000,1010,980,1040],
-  trades:[{type:'buy',entry:1.1,exit:1.2,profit:10,time:1735689600,exit_reason:'tp'},
-          {type:'sell',entry:1.3,exit:1.35,profit:-5,time:1735693200,exit_reason:'sl'}],
+  pip_size:0.0001,
+  trades:[{type:'buy',entry:1.1,exit:1.2,profit:10,volume:0.5,pips:1000,time:1735689600,exit_reason:'tp'},
+          {type:'sell',entry:1.3,exit:1.35,profit:-5,volume:0.2,pips:-500,time:1735693200,exit_reason:'sl'}],
 });
 ok(run.includes('id="bt-curve"'), 'a run with a curve gets a canvas');
 ok(run.includes('bt.start') && run.includes('bt.dd'), 'start equity and drawdown are shown');
@@ -70,6 +72,24 @@ ok(run.indexOf('tp') > run.indexOf('sl') === false || true, 'newest trade first'
    decimals everywhere on the desk now. Still a perfectly good ordering
    check - the two entries are distinct at that precision. */
 ok(run.indexOf('1.30') < run.indexOf('1.10'), 'the newest trade is listed first');
+
+/* Volume and pips.
+   The table showed money and nothing else, so two trades of the same
+   quality at different lot sizes looked like different strategies, and
+   "how far did it go" had to be subtracted out of two five-decimal
+   prices by eye. */
+ok(run.includes('>0.50<'), 'each trade shows the lots it was taken at');
+ok(run.includes('+1000.0'), 'a winning trade shows its pips, signed');
+ok(run.includes('-500.0'), 'a losing trade shows negative pips');
+
+/* The dash matters more than the number. point_value falls back to 1.0
+   when the broker will not answer, and a pip count derived from a
+   guessed tick size is a wrong number stated with full confidence - so
+   when pip_size is absent the engine sends no pips and the desk says
+   nothing rather than 0.0, which would read as "it went nowhere". */
+ok(fn.btPips({pips:12.3}, {pip_size:0}) === '—', 'no pips shown when the broker never gave a tick size');
+ok(fn.btPips({pips:12.3}, {pip_size:0.0001}) === '+12.3', 'a known pip size prints a signed figure');
+ok(fn.btPips({}, {pip_size:0.0001}) === '—', 'a trade with no pip field shows a dash, not zero');
 
 console.log(fails ? `\nbacktest results: ${fails} FAILED` : '\nbacktest results: all checks passed');
 process.exit(fails ? 1 : 0);

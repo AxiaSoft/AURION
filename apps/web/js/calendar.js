@@ -467,7 +467,68 @@ const Calendar = {
       ${weekend ? `<p class="cal-dp-wk">${esc(t("calendar.closed_note"))}</p>` : ""}
       ${evs.length
         ? `<div class="cal-evs">${evs.map((e) => this._ev(e)).join("")}</div>`
-        : `<p class="cal-none">${esc(t("calendar.no_events"))}</p>`}`;
+        : `<p class="cal-none">${esc(t("calendar.no_events"))}</p>`}
+      ${ok ? this._backtestOffer(key, ms) : ""}`;
+  },
+
+  /* Three buttons: test this day, its week, or its month.
+     The calendar is where a trader already looks at a past period and
+     thinks "what would the robot have done through that?" - and until
+     now the answer needed the backtest page, a date nobody could enter,
+     and a replay of all the history there is.
+
+     A future date is not offered. It has no bars, so the engine would
+     answer "no bars in that period", which is a true answer to a
+     question that should never have been askable.
+
+     Day keys are plain YYYY-MM-DD in the Gregorian calendar whatever
+     calendar system is on screen, because that is what the engine
+     matches bar timestamps against; the labels are localised, the keys
+     are not. */
+  _backtestOffer(key, ms) {
+    const t = (k, v) => I18N.t(k, v);
+    const today = this._dayKey(Date.now());
+    if (key > today) return "";
+    const r = this._ranges(ms);
+    const btn = (span, from, to, label) =>
+      `<button class="btn tiny cal-bt-go" data-bt="${esc(span)}" data-from="${esc(from)}" data-to="${esc(to)}">${esc(label)}</button>`;
+    return `<div class="cal-bt">
+      <h5 class="cal-bt-h">${esc(t("calendar.bt_title"))}</h5>
+      <p class="sub">${esc(t("calendar.bt_hint"))}</p>
+      <div class="cal-bt-row">
+        ${btn("day", r.day[0], r.day[1], t("calendar.bt_day"))}
+        ${btn("week", r.week[0], r.week[1], t("calendar.bt_week"))}
+        ${btn("month", r.month[0], r.month[1], t("calendar.bt_month"))}
+      </div>
+    </div>`;
+  },
+
+  /* The day, week and month containing `ms`, as inclusive Gregorian
+     YYYY-MM-DD pairs.
+
+     The week runs Monday to Sunday. getDay() calls Sunday 0, so Sunday
+     has to be pulled back six days rather than zero - the off-by-one
+     that would otherwise make every Sunday test the week after itself.
+
+     An end bound beyond today is trimmed: asking for the rest of the
+     current month is asking for bars that do not exist yet, and the
+     engine would rightly refuse the whole request. */
+  _ranges(ms) {
+    const today = this._dayKey(Date.now());
+    const clamp = (k) => (k > today ? today : k);
+    const key = (d) => this._dayKey(d.getTime());
+    const base = new Date(ms);
+    const dow = base.getDay();
+    const back = dow === 0 ? 6 : dow - 1;
+    const monday = new Date(base.getFullYear(), base.getMonth(), base.getDate() - back);
+    const sunday = new Date(base.getFullYear(), base.getMonth(), base.getDate() - back + 6);
+    const first = new Date(base.getFullYear(), base.getMonth(), 1);
+    const last = new Date(base.getFullYear(), base.getMonth() + 1, 0);
+    return {
+      day: [key(base), clamp(key(base))],
+      week: [key(monday), clamp(key(sunday))],
+      month: [key(first), clamp(key(last))],
+    };
   },
 
   _ev(e) {
@@ -484,27 +545,6 @@ const Calendar = {
     </article>`;
   },
 
-  /* A quick peek for a mouse, on hover only. It is deliberately NOT shown
-     on click any more: clicking already fills the day panel, so a pinned
-     card put the same text on screen twice, floating over the grid it was
-     describing. Touch devices never see it - they get the panel. */
-  _tipFor(key, evs) {
-    const t = (k, v) => I18N.t(k, v);
-    const ms = this._fromDayKey(key);
-    const lines = this.CALENDARS.map((sys) => {
-      const p = this.parts(ms, sys);
-      return `<div class="cal-tip-sys"><span>${esc(t(`calendar.${sys}`))}</span><b>${esc(
-        `${p.d} ${this.monthName(ms, sys)}`,
-      )}</b></div>`;
-    }).join("");
-    const body = evs.length
-      ? evs.slice(0, 4).map((e) =>
-          `<div class="cal-tip-ev"><span class="dot i-${e.level}"></span><b>${esc(e.time)}</b> ${esc(
-            e.currency)} \u2014 ${esc(this.newsTitle(e.title))}</div>`).join("") +
-        (evs.length > 4 ? `<div class="cal-tip-none">${esc(t("calendar.day_events", { n: this._num(evs.length) }))}</div>` : "")
-      : `<div class="cal-tip-none">${esc(t("calendar.no_events"))}</div>`;
-    return `<div class="cal-tip-h">${esc(t("calendar.day"))}</div>${lines}<div class="cal-tip-sep"></div>${body}`;
-  },
 
   /** The reminder's one control panel: on, how early, how important. */
   _remindHtml() {
@@ -804,43 +844,21 @@ const Calendar = {
 
     this._bindRemind(root);
 
-    /* ------------------------------------------------- the hover peek */
-    /* One element, parented to <body> so no transformed ancestor can
-       hijack its fixed positioning. Only ever created where a real mouse
-       exists: on a touch screen it could be shown but never dismissed. */
-    const fine = typeof window !== "undefined" && window.matchMedia
-      ? window.matchMedia("(hover:hover) and (pointer:fine)").matches
-      : true;
-    let tip = document.getElementById("cal-tip");
-    if (fine && !tip) {
-      tip = document.createElement("div");
-      tip.className = "cal-tip";
-      tip.id = "cal-tip";
-      tip.hidden = true;
-      document.body.appendChild(tip);
-    }
-    this.tip = fine ? tip : null;
+    /* The hover peek is gone.
+       It showed the day's news when the pointer crossed a number, which
+       meant the one thing a calendar number could do was describe
+       itself - and it could only do it for a mouse. A number is now
+       simply clicked, and the click fills the day panel, which already
+       said everything the peek said AND can carry the backtest offer.
+       Nothing was lost: the peek was a duplicate of the panel.
 
-    const hideTip = () => { if (tip) tip.hidden = true; };
-    /* Kept on the instance: the desk calls it when the view changes, and
-       the card lives on <body> so it would otherwise outlive the grid. */
+       `unpin` stays on the instance because the desk calls it on every
+       view change. It now only sweeps a card left on <body> by a desk
+       that was open across the update. */
+    this.tip = null;
+    const hideTip = () => { document.getElementById("cal-tip")?.remove(); };
     this.unpin = hideTip;
-
-    const showTip = (cell) => {
-      if (!tip) return;
-      const key = cell.dataset.day;
-      tip.innerHTML = this._tipFor(key, this.byDay.get(key) || []);
-      tip.hidden = false;
-      const r = cell.getBoundingClientRect();
-      const w = Math.min(tip.offsetWidth || 260, window.innerWidth - 16);
-      const h = tip.offsetHeight || 160;
-      tip.style.maxWidth = `${window.innerWidth - 16}px`;
-      const left = Math.min(Math.max(8, r.left + r.width / 2 - w / 2), window.innerWidth - w - 8);
-      tip.style.left = `${Math.max(8, left)}px`;
-      let top = r.bottom + 8;
-      if (top + h > window.innerHeight - 8) top = r.top - h - 8;
-      tip.style.top = `${Math.max(8, Math.min(top, window.innerHeight - h - 8))}px`;
-    };
+    hideTip();
 
     /* ------------------------------------------------------ selection */
 
@@ -952,31 +970,41 @@ const Calendar = {
       select(next.dataset.day);
     });
 
-    if (fine) {
-      pane?.addEventListener("mouseover", (e) => {
-        const cell = e.target.closest(".cal-cell");
-        if (cell && pane.contains(cell)) showTip(cell);
-      });
-      pane?.addEventListener("mouseleave", hideTip);
-      pane?.addEventListener("focusin", (e) => {
-        const cell = e.target.closest(".cal-cell");
-        if (cell) showTip(cell);
-      });
-      pane?.addEventListener("focusout", hideTip);
-      // Scrolling moves the grid out from under a fixed-position card.
-      window.addEventListener("scroll", hideTip, { passive: true, capture: true });
-    }
+    /* No mouseover, focusin, scroll or MutationObserver handlers here
+       any more. They existed only to position and dismiss the peek. */
 
-    /* The card lives on <body>, so it has to remove itself if the pane it
-       describes ever leaves the document. */
-    if (typeof MutationObserver !== "undefined" && pane && tip) {
-      const watcher = new MutationObserver(() => {
-        if (!document.body.contains(pane)) {
-          hideTip();
-          watcher.disconnect();
-        }
-      });
-      watcher.observe(document.body, { childList: true, subtree: true });
-    }
+    /* ---------------------------------------- backtest from the panel */
+
+    /* Delegated, because the panel's HTML is replaced on every selection
+       - a handler bound to the buttons themselves would be dropped the
+       first time another day was clicked. */
+    day?.addEventListener("click", (e) => {
+      const btn = e.target.closest(".cal-bt-go");
+      if (!btn || !day.contains(btn)) return;
+      const from = btn.dataset.from || "";
+      const to = btn.dataset.to || "";
+      if (!from || !to) return;
+      const run = typeof window !== "undefined" && window.startBacktest;
+      if (typeof run !== "function") return;
+      /* Spelled out rather than taken from the chart's current state at
+         read time: the run moves the desk to the backtest page, which
+         could otherwise change the symbol out from under the request. */
+      run({ symbol: this.btSymbol(), timeframe: this.btTimeframe(), from, to });
+    });
+  },
+
+  /* Which symbol and timeframe a calendar-launched run uses.
+     Whatever the desk is showing. The calendar has no instrument of its
+     own and inventing a picker here would be a second place to set the
+     same two things. Split out so a test can state them. */
+  btSymbol() {
+    // `S` is app.js's top-level const. Both files are classic scripts
+    // sharing one global scope, but a const is NOT a window property,
+    // so it has to be read by name and guarded for the test rigs that
+    // load this file on its own.
+    try { return typeof S !== "undefined" ? String(S.symbol || "") : ""; } catch { return ""; }
+  },
+  btTimeframe() {
+    try { return typeof S !== "undefined" ? String(S.timeframe || "M15") : "M15"; } catch { return "M15"; }
   },
 };

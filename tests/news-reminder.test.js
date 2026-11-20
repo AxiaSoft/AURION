@@ -537,11 +537,20 @@ check("the calendar around it counts in the same digits", () => {
   return "grid, panel, chips";
 });
 
-check("the day panel and the hover card name releases the same way", () => {
+check("every place that lists an event names it the same way", () => {
+  /* There used to be two: the day panel and the hover card, and the
+     point of the check was that a fix to one did not miss the other.
+     The hover card is gone - a day is clicked now and the panel is the
+     only place events are listed - so the count is one.
+
+     Written as "every place" rather than a number: it counts the calls
+     against the places, so adding a third listing without routing it
+     through newsTitle still fails. */
   must(/this\.newsTitle\(e\.title\)/.test(SRC), "the day panel still prints the feed's English");
-  must((SRC.match(/this\.newsTitle\(e\.title\)/g) || []).length >= 2,
-    "one of the two places that list events was missed");
-  return "one name everywhere";
+  const named = (SRC.match(/this\.newsTitle\(/g) || []).length;
+  const lists = (SRC.match(/\bcal-ev-t\b|\bcal-tip-ev\b/g) || []).length;
+  must(named >= lists, `${lists} event listings but only ${named} go through newsTitle`);
+  return `${lists} listing, named once`;
 });
 
 /* --------------------------------------------------------------------- */

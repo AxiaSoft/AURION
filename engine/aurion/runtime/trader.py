@@ -61,6 +61,77 @@ log = get("trader")
 NEWS_REFRESH_SECONDS = 5 * 60
 
 
+#: Bars of run-up handed to a range backtest before the period starts.
+#:
+#: The Backtester already discards its first `warmup` bars (80) without
+#: trading them, so a range that begins exactly at the chosen date would
+#: lose its first eighty bars to warming up - on a one-day M15 run that
+#: is the whole day. Feeding the bars BEFORE the period lets the
+#: indicators arrive primed and the period itself be traded in full.
+#:
+#: 400 rather than 80 because a strategy may read further back than the
+#: replay does; it is capped by whatever history actually exists, and
+#: costs only a little time.
+RANGE_WARMUP_BARS = 400
+
+
+def _slice_bars(
+    bars: list[dict[str, Any]],
+    start: Any,
+    end: Any,
+) -> dict[str, Any]:
+    """The bars inside [start, end], plus run-up before them.
+
+    `start` and `end` are YYYY-MM-DD, or anything ISO that begins with
+    one; `end` is INCLUSIVE, because a trader who picks the 5th means
+    the whole of the 5th. Either may be empty, which means "no bound on
+    that side", so the calendar can ask for a month, a week or a day
+    with one shape of request.
+
+    Returns the bars to replay, the period actually covered, and an
+    error when the request is answerable but empty - a week with no
+    bars in it is a real answer and must not be reported as a crash or,
+    worse, silently widened to the whole history.
+    """
+    def day_of(bar: dict[str, Any]) -> str:
+        value = str((bar or {}).get("time") or (bar or {}).get("t") or "")
+        return value[:10]
+
+    lo = str(start or "").strip()[:10]
+    hi = str(end or "").strip()[:10]
+    if not lo and not hi:
+        return {"bars": bars, "from": day_of(bars[0]) if bars else "", "to": day_of(bars[-1]) if bars else ""}
+
+    inside: list[int] = []
+    for i, bar in enumerate(bars):
+        day = day_of(bar)
+        if not day:
+            continue
+        if lo and day < lo:
+            continue
+        if hi and day > hi:
+            continue
+        inside.append(i)
+
+    if not inside:
+        # Said plainly, because the two causes need different actions:
+        # a period before the history begins needs a different period,
+        # and a closed week needs none.
+        return {"bars": [], "from": lo, "to": hi, "error": "no bars in that period"}
+
+    first, last = inside[0], inside[-1]
+    begin = max(0, first - RANGE_WARMUP_BARS)
+    return {
+        "bars": bars[begin: last + 1],
+        "from": day_of(bars[first]),
+        "to": day_of(bars[last]),
+        # How many of the bars handed over are run-up rather than the
+        # period itself. The result reports it so "tested bars" cannot
+        # be read as "bars in the month you picked".
+        "warmup": first - begin,
+    }
+
+
 
 class Trader:
     def __init__(self) -> None:
@@ -5278,6 +5349,18 @@ class Trader:
             bars = await self.bridge.pull_candles(symbol, timeframe, want) or bars
         if not bars:
             return {"ok": False, "error": "no real MT5 history available for this symbol/timeframe"}
+
+        # A run over one month, one week or one day, chosen from the
+        # calendar. Without this the only testable period was "all the
+        # history there is", which over six months of M1 is 259 200 bars
+        # and a very long wait for an answer about one week in March.
+        window = _slice_bars(bars, body.get("from"), body.get("to"))
+        if window.get("error"):
+            return {"ok": False, "error": window["error"], "build_id": BUILD_ID}
+        bars = window["bars"]
+        tested_from = window["from"]
+        tested_to = window["to"]
+
         spec = body.get("strategy") or {"kind": "builtin", "name": "ema_rsi", "params": body.get("params") or {}}
         try:
             inst = self.loader.build(spec)
@@ -5300,6 +5383,10 @@ class Trader:
             "timeframe": timeframe,
             "strategy": getattr(inst, "name", str(spec.get("name") or "")),
             "bars": len(bars),
+            # Echoed so the desk can title the run with the period the
+            # trader picked, not the period it assumes was used.
+            "from": tested_from,
+            "to": tested_to,
             "progress": 0,
             "started": started,
             # Stated, so the result can be read against the settings it
@@ -5323,6 +5410,41 @@ class Trader:
         # finished perfectly in the engine and told the trader their engine
         # had died. Nothing was wrong except the waiting.
         return dict(self.backtest_run)
+
+    def _backtest_pip_size(self, symbol: str) -> float:
+        """How much price a pip is, for this broker's quote of this symbol.
+
+        The result listed money per trade and nothing about distance, so
+        "how far did it go" could only be worked out from two prices
+        with five decimals each. Money also conflates distance with lot
+        size, which makes two trades of identical quality look unlike
+        each other.
+
+        The convention, and it is only a convention: on a quote with
+        three or five decimals the last digit is a fractional pip, so a
+        pip is ten points. Everywhere else a pip is one point - which
+        for a two-decimal metal means 0.01, the broker's own step,
+        because there is no agreed pip on gold and inventing one would
+        be worse than reporting the step the broker actually quotes.
+
+        0 when the broker will not say. The caller then reports no pip
+        figure at all rather than a number derived from a guess.
+        """
+        try:
+            spec = self.symbol_spec(str(symbol or ""))
+        except Exception:
+            log.exception("backtest could not read the spec for %s", symbol)
+            return 0.0
+        if not spec.usable:
+            return 0.0
+        try:
+            digits = int(spec.digits)
+            point = float(spec.tick_size)
+        except (TypeError, ValueError):
+            return 0.0
+        if point <= 0:
+            return 0.0
+        return point * 10.0 if digits in (3, 5) else point
 
     def _backtest_point_value(self, symbol: str) -> float:
         """What one whole unit of price is worth, per 1.0 lot, in money.
@@ -5410,6 +5532,7 @@ class Trader:
                 str(getattr(self, "volume_mode", "auto")),
                 float(getattr(self, "manual_volume", 0.0) or 0.0),
                 int(self._total_cap()),
+                self._backtest_pip_size(symbol),
             )
         except Exception as exc:
             log.exception("backtest failed")

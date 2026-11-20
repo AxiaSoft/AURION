@@ -2239,19 +2239,16 @@ input[type=range]{width:100%;accent-color:var(--cyan);height:28px;cursor:pointer
 .cal-legend .dot{width:8px;height:8px;border-radius:50%;flex:0 0 auto}
 .cal-fine{margin:10px 0 0;font-size:.7rem;line-height:1.5;opacity:.5}
 
-/* hover peek ------------------------------------------------------ */
-.cal-tip{position:fixed;z-index:70;width:270px;max-height:60vh;overflow:auto;padding:11px 13px;
-  border-radius:14px;font-size:.78rem;pointer-events:none;
-  background:var(--chart-panel,rgba(12,14,22,.96));border:1px solid rgb(var(--wash) / .14);
-  box-shadow:0 18px 44px rgba(0,0,0,.4)}
-.cal-tip[hidden]{display:none}
-.cal-tip-h{font-size:.68rem;text-transform:uppercase;letter-spacing:.7px;opacity:.45;margin-bottom:5px}
-.cal-tip-sys{display:flex;justify-content:space-between;gap:10px;padding:1px 0;font-size:.74rem}
-.cal-tip-sys span{opacity:.55}
-.cal-tip-sep{height:1px;margin:8px 0;background:rgb(var(--wash) / .1)}
-.cal-tip-ev{display:flex;align-items:baseline;gap:6px;padding:3px 0;font-size:.74rem;line-height:1.35}
-.cal-tip-ev .dot{width:6px;height:6px;border-radius:50%;flex:0 0 auto;align-self:center}
-.cal-tip-none{font-size:.74rem;opacity:.5;padding:3px 0}
+/* backtest offer in the day panel ---------------------------------- */
+/* Replaces the hover peek, which described the day the pointer was over
+   and so could only ever repeat what the panel beside it already said.
+   The panel can do something the peek could not: offer to replay the
+   robot over the day, week or month that was clicked. */
+.cal-bt{margin-top:14px;padding-top:12px;border-top:1px solid rgb(var(--wash) / .1)}
+.cal-bt-h{margin:0 0 3px;font-size:.78rem}
+.cal-bt .sub{margin:0 0 9px;font-size:.72rem;line-height:1.5}
+.cal-bt-row{display:flex;flex-wrap:wrap;gap:7px}
+.cal-bt-go{flex:1 1 auto;min-width:84px;white-space:nowrap}
 
 /* ---- narrow: stack, and let the pane breathe ---- */
 @media (max-width:1100px){
@@ -2349,10 +2346,6 @@ input[type=range]{width:100%;accent-color:var(--cyan);height:28px;cursor:pointer
 .tape-banner.is-news{border-color:rgba(232,192,122,.5);color:var(--gold);background:rgba(232,192,122,.1)}
 
 .cal-ev.i-holiday .cal-ev-imp{color:#c9c2ff;background:rgb(var(--accent-3-rgb) / .14)}
-/* The peek is hover-only and never pinned, so it takes no pointer events
-   and needs no close button; width and clamping live in the calendar
-   block above. */
-.cal-tip{max-width:min(320px,calc(100vw - 16px));scrollbar-width:thin}
 
 /* ---- Themed slim scrollbars: thin at rest, thicker on hover ---- */
 *{

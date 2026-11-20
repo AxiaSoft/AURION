@@ -1872,7 +1872,6 @@ html[data-skin] .wizard .step{
   transition:border-color var(--dur-2) var(--ease-1), background var(--dur-2) var(--ease-1);
 }
 html[data-skin] .wizard .step:hover{ background:var(--surface-hover); border-color:var(--border-accent) }
-html[data-skin] .cal-tip{ border-radius:var(--radius-md) }
 html[data-skin] .cal-cell{ border-radius:var(--radius-sm) }
 html[data-skin] .secret-box,
 html[data-skin] .keybox{ border-radius:var(--radius-md) }

@@ -51,7 +51,12 @@ _REPLAY_BARS = 160
 #: 51s against 65s on M5. smart_money did NOT - 14 trades against 11 -
 #: because _htf_bias resamples the whole frame, so it declares no window
 #: and still gets everything. The A/B is engine/tests/test_backtest_window.py.
-_WINDOW_CEILING = 200_000
+#:
+#: Raised from 200 000 when the product window went to six months: M1 is
+#: now 259 200 bars, and a ceiling below the window silently becomes the
+#: window - which is the whole failure mode this constant exists to be
+#: measured against rather than guessed at.
+_WINDOW_CEILING = 400_000
 
 
 def _slim(bar: Any) -> dict[str, Any]:
@@ -118,6 +123,7 @@ class Backtester:
         volume_mode: str = "auto",
         manual_volume: float = 0.0,
         max_open: int = 1,
+        pip_size: float = 0.0,
     ) -> dict[str, Any]:
         """Replay real bars. `progress(done, total)` is optional and never fatal.
 
@@ -228,6 +234,7 @@ class Backtester:
                         "profit": pnl,
                         "exit_time": bar.get("time"),
                         "exit_reason": hit["reason"],
+                        "pips": self._pips(pos, hit["price"], pip_size),
                         "risk": abs(pos["entry"] - float(risk0)) * pos["volume"] * point_value if risk0 else 0,
                     })
                     positions.remove(pos)
@@ -249,7 +256,10 @@ class Backtester:
                 for pos in list(positions):
                     pnl = self._pnl(pos, price, point_value)
                     equity += pnl
-                    trades.append({**pos, "exit": price, "profit": pnl, "exit_time": bar.get("time"), "exit_reason": payload.get("reason") or "strategy", "risk": self._risk(pos, point_value)})
+                    trades.append({**pos, "exit": price, "profit": pnl, "exit_time": bar.get("time"),
+                                   "exit_reason": payload.get("reason") or "strategy",
+                                   "pips": self._pips(pos, price, pip_size),
+                                   "risk": self._risk(pos, point_value)})
                 positions = []
             elif action in {"buy", "sell"} and len(positions) < cap:
                 positions.append({
@@ -280,7 +290,10 @@ class Backtester:
             last = float(bars[-1].get("close") or 0)
             pnl = self._pnl(pos, last, point_value)
             equity += pnl
-            trades.append({**pos, "exit": last, "profit": pnl, "exit_time": bars[-1].get("time"), "exit_reason": "eod", "risk": self._risk(pos, point_value)})
+            trades.append({**pos, "exit": last, "profit": pnl, "exit_time": bars[-1].get("time"),
+                           "exit_reason": "eod",
+                           "pips": self._pips(pos, last, pip_size),
+                           "risk": self._risk(pos, point_value)})
             curve.append(equity)
         positions = []
         metrics = summarize(trades, curve, initial_equity)
@@ -299,7 +312,21 @@ class Backtester:
             "metrics": metrics,
             "management": manage,
             "trades": trades[-200:],
-            "equity_curve": curve[-500:],
+            # The WHOLE run, thinned - not the last 500 points.
+            #
+            # Reported: "the equity curve changes when the backtest
+            # finishes and no longer matches what it showed while it
+            # ran". It did. The live panel publishes _thin(curve, 240),
+            # which is the entire run evenly sampled, and the result
+            # published curve[-500:], which is the tail. On any run with
+            # more than 500 curve points the two describe different
+            # periods, so the picture visibly jumped at the finish and
+            # the final one silently hid the beginning - including, on a
+            # long run, the drawdown the trader was looking for.
+            #
+            # Same function, same meaning, slightly denser because this
+            # one is drawn large and only sent once.
+            "equity_curve": _thin(curve, 500),
             "ts": utc_iso(),
             # Provenance. The run already refuses to start without real
             # bars from MT5, but "it is real" is an assertion until the
@@ -335,6 +362,10 @@ class Backtester:
             # 1.0 because the spec was unreadable would otherwise look
             # the same.
             "point_value": float(point_value),
+            # What one pip was taken to be. 0 means the broker did not
+            # say and no pip figure was computed, which the desk shows
+            # as a dash rather than a zero.
+            "pip_size": float(pip_size or 0.0),
         }
 
     # ------------------------------------------------------------------
@@ -579,6 +610,30 @@ class Backtester:
         if initial <= 0 or entry <= 0:
             return 0.0
         return abs(entry - initial) * float(position.get("volume") or 0) * float(point_value)
+
+    @staticmethod
+    def _pips(position: dict[str, Any], exit_price: float, pip_size: float) -> float:
+        """How far the trade went, in pips, signed by whether it won.
+
+        The result listed money and left "how far did it actually move"
+        to be inferred from two prices, which on a five-decimal pair
+        nobody can do at a glance. Money also mixes two different
+        things - distance and lot size - so two trades of the same
+        quality look nothing alike.
+
+        Signed against the direction, so a losing short is negative.
+        pip_size of 0 means the broker never said, and the field is
+        then omitted rather than guessed: a pip count computed from an
+        assumed tick size is a wrong number stated confidently.
+        """
+        try:
+            size = float(pip_size)
+            if size <= 0:
+                return 0.0
+            direction = 1.0 if position.get("type") == "buy" else -1.0
+            return round((float(exit_price) - float(position["entry"])) * direction / size, 1)
+        except (TypeError, ValueError, KeyError, ZeroDivisionError):
+            return 0.0
 
     def _pnl(self, position: dict[str, Any], exit_price: float, point_value: float) -> float:
         direction = 1.0 if position["type"] == "buy" else -1.0

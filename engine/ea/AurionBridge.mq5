@@ -48,8 +48,9 @@ input int    InpHeartbeatMs  = 1000;
 // what an unprompted history push sends.
 input int    InpCandleDepth  = 3000;
 // Ceiling for a single history push, so a bad request cannot ask the
-// terminal for a decade. 60 000 M1 bars is about six weeks.
-#define AURION_HIST_MAX 60000
+// terminal for a decade. 300 000 M1 bars is about seven months, which
+// clears the six-month window the desk asks for.
+#define AURION_HIST_MAX 300000
 input bool   InpSendHistory  = true;
 input string InpEaName       = "AurionBridge";
 input int    InpHttpPort     = 18765;

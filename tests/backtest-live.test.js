@@ -191,9 +191,23 @@ ok(watch.includes('paintBacktestResults(d, { reveal: true })'),
 ok(/d\.running[\s\S]{0,260}paintBacktestResults\(d\)/.test(watch),
   'the polling fallback also drives the live panel');
 
-const runner = src.slice(src.indexOf('const goBt = $("h-bt")'), src.indexOf('if (view === "history")'));
+/* The run itself moved out of the view binding.
+   It used to be the body of the backtest page's go button, which made
+   "be looking at that page, with its three fields filled in" a
+   precondition for starting a run - and the calendar needs to start
+   one for a picked month, week or day with none of those fields on
+   screen. The button now only reads its fields and calls. */
+const runner = grab('startBacktest');
 ok(/paintBacktestResults\(S\.backtest, \{ reveal: true \}\)/.test(runner),
   'starting a run scrolls to the panel the result will appear in');
+ok(/if \(S\.view !== "backtest"\) go\("backtest"\)/.test(runner),
+  'a run started from elsewhere brings the backtest page up, so it is not invisible');
+ok(/if \(from\) body\.from = from;/.test(runner) && /if \(to\) body\.to = to;/.test(runner),
+  'a period is sent only when one was picked, so an unbounded run stays unbounded');
+
+const btBtn = src.slice(src.indexOf('const goBt = $("h-bt")'), src.indexOf('if (view === "history")'));
+ok(/startBacktest\(\{/.test(btBtn) && !/API\.post\("\/api\/backtest"/.test(btBtn),
+  'the page button runs through the one shared starter rather than its own copy');
 
 /* ------------------------------------------------ 3. the live view */
 ok(api.renderBacktestLive({ running: false, ok: true }) === '',

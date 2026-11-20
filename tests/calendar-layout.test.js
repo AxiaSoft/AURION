@@ -246,13 +246,25 @@ for (const m of css.matchAll(/\.(cal-[\w-]+)/g)) styled.add(m[1]);
 const orphan = [...styled].filter((c) => !new RegExp(c + "(?![\\w-])").test(calJsNC) && !new RegExp(c + "(?![\\w-])").test(appJsNC));
 ok(orphan.length === 0, "no calendar rule styles markup that no longer exists", orphan.join(", ") || "none");
 
-/* ----------------------------------------------- 3. the pinning is gone */
+/* --------------------------------- 3. the floating card is gone entirely */
 
+/* It was pinned-on-click first, then hover-only, now nothing.
+   The last check here used to assert that the peek had
+   pointer-events:none so it could not swallow a click. There is no
+   peek to swallow anything: a day number is clicked, and the click
+   fills the day panel, which says what the peek said and additionally
+   offers to backtest that day, week or month. A hovering card could
+   never have carried a button - it vanished when the pointer left it. */
 ok(!/pinned/.test(calJsNC), "clicking a day no longer pins a floating copy of the day panel");
 ok(!/pinned/.test(appJsNC), "...and the desk has no pinned state left to unwind");
 ok(!/cal-tip-x/.test(css) && !/cal-tip-x/.test(calJs), "the tooltip's close button went with it");
-ok(/pointer-events:\s*none/.test(/\.cal-tip\{([^}]*)\}/.exec(css)?.[1] || ""),
-  "the hover peek never swallows a click");
+ok(!/\.cal-tip\b/.test(css), "no stylesheet still describes a hover peek");
+ok(!/mouseover/.test(calJsNC) && !/_tipFor/.test(calJsNC),
+  "the calendar binds no hover handler and has no tooltip renderer left");
+/* Kept: a desk left open across the update has a peek stranded on
+   <body> with nothing left to remove it. */
+ok(/getElementById\("cal-tip"\)/.test(calJsNC) && /getElementById\("cal-tip"\)/.test(appJsNC),
+  "both sides still sweep a card stranded on body by the previous version");
 
 /* ---------------------------------------------------- 4. the behaviour */
 
@@ -380,8 +392,9 @@ async function boot(viewport, hover) {
     "the companion dates are dropped from the cell on a phone",
     calCss.slice(owner, owner + 30));
 
-  /* A touch device must never be given a card it cannot dismiss. */
-  ok(!p.doc.getElementById("cal-tip"), "no hover tooltip is created on a touch device");
+  /* No card on any device now - it was only ever withheld from touch
+     because it could not be dismissed there. */
+  ok(!p.doc.getElementById("cal-tip"), "no hover tooltip is created");
 
   /* Tapping a cell fills the day panel - on a phone that panel is the
      only place the detail exists. */

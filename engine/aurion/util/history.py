@@ -25,18 +25,34 @@ from __future__ import annotations
 from ..mt5.types import timeframe_minutes
 
 #: The promise. At least this many days of history, on every timeframe.
-HISTORY_DAYS = 30
+#:
+#: Was 30. Six months is what a trader needs to judge a strategy: a
+#: month contains one market mood, and a robot tuned to one month is
+#: tuned to noise. It is also four distinct months of news, which is
+#: what the calendar-driven backtest picks from.
+#:
+#: The cost is real and falls almost entirely on M1: 180 days of it is
+#: 259 200 bars. That is a chart the browser must hold, a deque the
+#: engine must hold, and a replay that takes many minutes. It is
+#: accepted deliberately - and it is why the backtest can be pointed at
+#: a single month, week or day from the calendar instead of always
+#: replaying everything.
+HISTORY_DAYS = 180
 
 #: Enough bars to be able to say anything at all, whatever the window
 #: works out to. A strategy with a 200-bar moving average needs more
 #: than the 30 D1 bars that thirty days of a daily chart contains.
 MIN_BARS = 400
 
-#: Hard ceiling per series, so one request cannot exhaust memory. Thirty
-#: days of M1 is 43 200 bars, which is the real cost of this promise and
-#: is accepted deliberately; this only stops an absurd timeframe string
-#: or a future HISTORY_DAYS of 3650 from taking the engine down.
-MAX_BARS = 60_000
+#: Hard ceiling per series, so one request cannot exhaust memory.
+#:
+#: Six months of M1 is 259 200 bars, so the ceiling has to clear that or
+#: it silently becomes the real window - which is the exact bug this
+#: module was written to stop, where a 3000-bar cap quietly turned
+#: thirty days of M1 into two. Sized with room above the promise and no
+#: more, so a future HISTORY_DAYS of 3650, or a nonsense timeframe,
+#: still cannot take the engine down.
+MAX_BARS = 300_000
 
 
 def bars_for_days(timeframe: str, days: int = HISTORY_DAYS) -> int:

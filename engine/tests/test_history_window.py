@@ -1,4 +1,4 @@
-"""Thirty days of history, on every timeframe, everywhere.
+"""The promised history window, on every timeframe, everywhere.
 
 The chart, the AI's training, the signals drawn on the chart and the
 backtest are four different code paths that all needed history, and
@@ -14,8 +14,12 @@ promise to that: not "the helper returns a big number", but that the
 number is really at least thirty days on every timeframe the desk
 offers, and that none of the old fixed counts have crept back in.
 
+Every assertion is written against HISTORY_DAYS rather than a typed
+number, so raising the promise (it went from 30 days to six months)
+moves the whole file with it instead of turning it red.
+
 Run:
-    python3 -m pytest engine/tests/test_thirty_day_window.py
+    python3 -m pytest engine/tests/test_history_window.py
 """
 from __future__ import annotations
 
@@ -42,12 +46,17 @@ ROOT = Path(__file__).resolve().parents[2]
 DESK_TIMEFRAMES = ["M1", "M5", "M15", "M30", "H1", "H4", "D1"]
 
 
-def test_the_promise_is_thirty_days() -> None:
-    assert HISTORY_DAYS >= 30
+def test_the_promise_is_at_least_six_months() -> None:
+    """The number the product promises, stated once.
+
+    Raised from 30 days: a month is one market mood, and a strategy
+    judged on one mood is judged on noise.
+    """
+    assert HISTORY_DAYS >= 180
 
 
 @pytest.mark.parametrize("timeframe", DESK_TIMEFRAMES)
-def test_every_timeframe_reaches_back_thirty_days(timeframe: str) -> None:
+def test_every_timeframe_reaches_back_the_whole_window(timeframe: str) -> None:
     """The arithmetic, stated as the trader would state it."""
     bars = bars_for_days(timeframe)
     days = bars * timeframe_minutes(timeframe) / (24 * 60)
@@ -66,6 +75,11 @@ def test_nothing_is_left_below_the_old_fixed_counts(timeframe: str) -> None:
     assert bars_for_days(timeframe) >= 400
     if timeframe in ("M1", "M5", "M15"):
         assert bars_for_days(timeframe) >= 800, "this timeframe needs more than the old 800"
+    # And more than the window that came before it, on every intraday
+    # timeframe. A regression that halved HISTORY_DAYS would otherwise
+    # pass everything above.
+    if timeframe != "D1":
+        assert bars_for_days(timeframe) * timeframe_minutes(timeframe) / (24 * 60) >= 180
 
 
 @pytest.mark.parametrize("timeframe", DESK_TIMEFRAMES)
@@ -181,7 +195,7 @@ def test_the_engine_tells_the_expert_how_deep_to_go() -> None:
         "request_history must carry the thirty-day depth, not a fixed 800"
 
 
-def test_the_desk_ceiling_matches_the_engines() -> None:
+def test_the_desk_ceiling_clears_the_window() -> None:
     """app.js clamped its own ask to 3000 bars.
 
     The desk already derived the window from the timeframe, and then
