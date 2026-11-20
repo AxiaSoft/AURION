@@ -120,9 +120,9 @@
 #              how many bars back you actually read, or 0 for "all of
 #              them". 0 is the default and is always safe.
 #
-#              Why it exists: AURION keeps at least thirty days of
-#              history on every timeframe, and thirty days of M1 is
-#              43 200 bars. A backtest calls on_candle once per bar and
+#              Why it exists: AURION keeps at least six months of
+#              history on every timeframe, and six months of M1 is
+#              259 200 bars. A backtest calls on_candle once per bar and
 #              hands you ctx.candles each time. If you need everything,
 #              you are handed everything, and turning that into a frame
 #              on every bar makes the run cost grow with the SQUARE of

@@ -2265,75 +2265,58 @@ input[type=range]{width:100%;accent-color:var(--cyan);height:28px;cursor:pointer
 .cal-legend .dot{width:8px;height:8px;border-radius:50%;flex:0 0 auto}
 .cal-fine{margin:10px 0 0;font-size:.7rem;line-height:1.5;opacity:.5}
 
-/* backtest offer in the day panel ---------------------------------- */
-/* Replaces the hover peek, which described the day the pointer was over
-   and so could only ever repeat what the panel beside it already said.
-   The panel can do something the peek could not: offer to replay the
-   robot over the day, week or month that was clicked. */
-.cal-bt{margin-top:14px;padding-top:12px;border-top:1px solid rgb(var(--wash) / .1)}
-.cal-bt-h{margin:0 0 3px;font-size:.78rem}
-.cal-bt .sub{margin:0 0 9px;font-size:.72rem;line-height:1.5}
-.cal-bt-row{display:flex;flex-wrap:wrap;gap:7px}
-.cal-bt-go{flex:1 1 auto;min-width:84px;white-space:nowrap}
-
-/* ---- desktop: the whole calendar on one screen ----
+/* ---- desktop: the month under one roof, still readable ----
  *
- * Asked for directly: see the month without scrolling, with the
- * reminder and the legend UNDER it rather than beside it, and all of
- * it on screen at once.
+ * The first attempt at "the whole month on one screen" made the page
+ * fit and the calendar useless: the cells were told to divide up
+ * whatever height was left (grid-auto-rows:minmax(0,1fr) with
+ * aspect-ratio:auto and min-block-size:0), so on a normal laptop the
+ * rows collapsed to around forty pixels, the day numbers sat on top of
+ * their news dots, and the dots themselves were clipped out of the
+ * cell. Reported exactly that way: the news cannot be seen and the
+ * numbers are squashed.
  *
- * Two things were in the way.
+ * So the height is no longer taken from the window. A cell has a floor
+ * it may not go below, the grid is as tall as six of those, and if the
+ * result is taller than the screen the stage scrolls - which it does
+ * everywhere else on the desk. A scrollbar is a smaller price than a
+ * month nobody can read.
  *
- * The aside was a 330px column to the right of the grid, so the month
- * only ever had about three quarters of the width - and the cards in
- * it were the page's full height, which is what made the view taller
- * than the window in the first place.
+ * What is kept from that attempt is the part that was actually asked
+ * for and did work: the reminder, the day panel and the legend sit in
+ * a row UNDER the month instead of in a 330px column beside it, so the
+ * month gets the full width and the three cards are visible together.
  *
- * And .cal-cell is aspect-ratio:1/1. Seven square columns across a
- * full-width pane is a cell about 190px tall; six rows of those is
- * 1 140px of grid before the header, on a screen whose stage is around
- * 950px. A square cell cannot fit a month on a landscape screen - the
- * arithmetic says so whatever the padding. On a desktop the cells are
- * now rectangles that divide up the height that is actually available.
- *
- * The height comes from the stage, not from a vh guess: #desk is
- * 100dvh with the stage as a minmax(0,1fr) row, so the stage has a
- * definite height and percentages inside it resolve against the real
- * space left over after the header - which a vh number cannot know.
- *
- * Below 1100px none of this applies: the aside is already stacked
- * there, and squeezing six rows into a phone screen makes the days
- * too small to tap. */
+ * The cell stops being square here. Seven square columns across a
+ * full-width pane is a ~190px cell and six rows of that is ~1140px -
+ * the shape that made the month unreachable in the first place. A
+ * desktop cell is a rectangle with a sensible floor instead. */
 @media (min-width:1101px){
-  #cal-root{block-size:100%}
-  .cal{block-size:100%}
-  /* 1fr for the month, auto for the three cards under it: the month
-     takes whatever is left, so the page never grows past the stage. */
-  .cal-main{grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr) auto;
-    flex:1 1 auto;min-block-size:0}
-  .cal-pane{min-block-size:0;overflow:hidden;display:flex;flex-direction:column}
-  .cal-grid{flex:1 1 auto;min-block-size:0}
-  .cal-body{flex:1 1 auto;min-block-size:0;grid-auto-rows:minmax(0,1fr)}
-  /* The one line that makes a month fit. */
-  .cal-cell{aspect-ratio:auto;min-block-size:0;padding:4px 2px}
-  /* Sticky belongs to a column beside the content; this is a row below it. */
+  .cal-main{grid-template-columns:minmax(0,1fr)}
+  /* A rectangle, not a square, and never shorter than this: the day
+     number, the two companion dates and a row of dots are three lines
+     of content and 96px is what they need to stay apart. */
+  .cal-cell{aspect-ratio:auto;min-block-size:96px;padding:7px 4px;gap:4px;justify-content:flex-start}
+  .cal-d{font-size:1.02rem}
+  .cal-subs{font-size:.66rem}
+  /* Pushed to the bottom of the cell so the dots line up across a row
+     whatever each day's number and companion dates come to. */
+  .cal-dots{margin-block-start:auto;min-height:7px}
+  .cal-dots .dot{width:6px;height:6px}
+  /* Sticky belongs to a column beside the content; this is a row below
+     it, and a sticky row would detach from the month it describes. */
   .cal-aside{position:static;flex-direction:row;align-items:stretch;gap:12px}
-  .cal-aside>*{flex:1 1 0;min-inline-size:0}
-  /* The day panel carries the most, and is the one card a trader reads
-     word by word, so it gets half again the width of the other two. */
-  .cal-aside>.cal-day{flex:1.6 1 0}
-  .cal-day{max-block-size:min(34vh,320px)}
-  /* A short laptop would otherwise shrink the rows until the numbers
-     are unreadable. Past this point the stage is allowed to scroll
-     again - a scrollbar beats a month nobody can read. */
-  .cal-pane{min-block-size:264px}
-}
-/* The companion dates in each cell are the first thing to go when the
-   rows get short: the day panel states all three calendars for the
-   selected day anyway. */
-@media (min-width:1101px) and (max-height:860px){
-  .cal-subs{display:none}
-  .cal-day{max-block-size:min(30vh,260px)}
+  /* Equal columns AND equal heights. The three cards used to be sized
+     one by its own content and another by a max-block-size cap, which
+     is what left them visibly different heights in the same row. They
+     share the row's height now; whatever overflows scrolls inside the
+     card that owns it. */
+  .cal-aside>*{flex:1 1 0;min-inline-size:0;align-self:stretch}
+  .cal-day{max-block-size:none;block-size:auto}
+  /* The cap moves off the card and onto the list inside it, which is
+     the part that can be any length. The date and the three calendar
+     systems above it stay put. */
+  .cal-day .cal-evs{max-block-size:min(38vh,340px)}
 }
 
 /* ---- narrow: stack, and let the pane breathe ---- */

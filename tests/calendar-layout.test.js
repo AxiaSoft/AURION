@@ -209,11 +209,14 @@ ok(!/min-height:\s*74px/.test(css), "the 74px fixed cell height is gone");
 ok(resolve(rules.filter((r) => !/height/.test(r.cond || "")), SUBS, "display", 1280) === null ||
    resolve(rules.filter((r) => !/height/.test(r.cond || "")), SUBS, "display", 1280).val !== "none",
   "companion dates are shown in the cell on a desktop with the height for them");
-{
-  const short = rules.filter((r) => /max-height:\s*860px/.test(r.cond || ""));
-  ok(short.some((r) => /\.cal-subs/.test(r.sel) && /display:\s*none/.test(r.body)),
-    "...and are the first thing dropped when the screen is too short for six readable rows");
-}
+/* There is no height-conditional rule any more. Dropping the companion
+   dates on a short screen only made sense while the rows were being
+   squeezed to fit that screen, and that is exactly the behaviour that
+   came back reported: ~40px rows with the number on top of the dots.
+   The month is allowed to be taller than the window now and the stage
+   scrolls, so the dates stay on every desktop. */
+ok(!rules.some((r) => /height/.test(r.cond || "") && /\.cal-subs/.test(r.sel)),
+  "the companion dates are not dropped by a height query any more");
 ok(resolve(rules, SUBS, "display", 390)?.val === "none",
   "companion dates are not squeezed into a phone cell");
 
@@ -226,15 +229,19 @@ ok(resolve(rules, SUBS, "display", 390)?.val === "none",
    override replaces it. What matters is the computed result. */
 ok(resolve(rules, [el("div", "", ["cal"]), el("div", "", ["cal-main"])], "grid-template-columns", 1280).val === "minmax(0,1fr)",
   "desktop stacks the aside under the month rather than beside it");
-ok(/minmax\(0,\s*1fr\)\s+auto/.test(resolve(rules, [el("div", "", ["cal"]), el("div", "", ["cal-main"])], "grid-template-rows", 1280)?.val || ""),
-  "the month takes the space that is left and the cards take what they need");
+ok(!/minmax\(0,\s*1fr\)/.test(resolve(rules, [el("div", "", ["cal"]), el("div", "", ["cal-main"])], "grid-template-rows", 1280)?.val || ""),
+  "the month is sized by its own rows, not by what the window has left over");
 {
   /* The square cell is what made a month taller than any landscape
      screen: seven square columns across a full-width pane is a ~190px
      cell, and six of those is ~1140px of grid. On desktop the cells
      divide the height available instead. */
   const cell = resolve(rules, CELL, "aspect-ratio", 1280);
-  ok(cell && /auto/.test(cell.val), "the desktop cell is a rectangle sized by the height on offer");
+  ok(cell && /auto/.test(cell.val), "the desktop cell is a rectangle, not a square");
+  const floor = resolve(rules, CELL, "min-block-size", 1280);
+  ok(floor && Number(String(floor.val).replace("px", "")) >= 80,
+    "...with a floor under it, so a row cannot be crushed to a line of clipped dots",
+    floor ? floor.val : "none");
   ok(resolve(rules, CELL, "aspect-ratio", 390)?.val?.startsWith("1"),
     "...while a phone cell stays square, so the days stay tappable");
 }

@@ -172,9 +172,36 @@ check("a run launched from the calendar shows its period on the page", () => {
   }
 });
 
-check("the calendar still launches runs through the one shared entry point", () => {
-  if (!calJs.includes("window.startBacktest")) throw new Error("the calendar lost its route in");
-  if (!/run\(\{ symbol: this\.btSymbol\(\)/.test(calJs)) throw new Error("it no longer passes a symbol");
+/* The calendar no longer launches runs at all.
+
+   Its three buttons were asked for and then withdrawn: the backtest
+   page's own period picker - which this same round added - does the
+   same job in the place a person goes to run a backtest, so the
+   calendar's copy was a second way to do one thing.
+
+   This asserts the REMOVAL is complete rather than merely invisible.
+   A dead branch nothing renders is worse than the button, because
+   nothing keeps it honest. */
+check("the calendar offers no backtest of its own any more", () => {
+  /* Comments stripped first: the file explains at length why the
+     feature went, and naming the thing you removed is not keeping it. */
+  const live = code(calJs);
+  for (const dead of ["_backtestOffer", "_ranges", "cal-bt-go", "cal-bt", "btSymbol", "btTimeframe",
+                      "window.startBacktest"]) {
+    if (live.includes(dead)) throw new Error("calendar.js still carries " + dead);
+  }
+  if (/\.cal-bt\b/.test(appCss)) throw new Error("the styles are still in app.css");
+  for (const lang of ["en", "fa", "ar"]) {
+    for (const k of ["bt_title", "bt_hint", "bt_day", "bt_week", "bt_month"]) {
+      if (langs[lang].calendar[k]) throw new Error(`${lang}.calendar.${k} is still defined`);
+    }
+  }
+  return "removed, not hidden";
+});
+
+check("the backtest page kept the picker that replaced it", () => {
+  if (!appJs.includes("backtestPeriodHtml()")) throw new Error("the period picker went with it");
+  if (!/BT_SPANS/.test(appJs)) throw new Error("the spans are gone");
 });
 
 // ── 1. the calendar fits a desktop screen ─────────────────────────────
@@ -201,31 +228,61 @@ check("the reminder and the legend sit under the month, not beside it", () => {
   }
 });
 
-check("the height comes from the stage, so nothing has to be scrolled", () => {
+/* The first attempt at "fit the month on one screen" is NOT what is
+   pinned here, because it was reported as broken the day it shipped:
+   the rows were told to divide up whatever height the window had left
+   (grid-auto-rows:minmax(0,1fr) over cells with min-block-size:0), so
+   on an ordinary laptop a row was about forty pixels, the day numbers
+   crowded their news dots and the dots were clipped away entirely.
+   Fitting the screen is worth nothing if the month cannot be read.
+
+   What is pinned is the floor that replaced it. */
+check("a desktop cell is tall enough to hold what is in it", () => {
+  const cell = mediaRules("(min-width:1101px)").find(([sel]) => sel === ".cal-cell");
+  const min = /min-block-size:\s*(\d+)px/.exec(cell[1]);
+  if (!min) throw new Error("no floor on the cell height: " + cell[1]);
+  if (Number(min[1]) < 80) throw new Error("the floor is too low to fit a number, two companion dates and a row of dots: " + min[1] + "px");
+  return min[1] + "px";
+});
+
+check("nothing squeezes the rows into the window any more", () => {
   const rules = mediaRules("(min-width:1101px)");
-  const root = rules.find(([sel]) => sel === "#cal-root");
-  if (!root || !/block-size:\s*100%/.test(root[1])) {
-    throw new Error("the view does not fill the stage, so the rows have no height to divide up");
+  const joined = rules.map(([sel, d]) => sel + "{" + d + "}").join("\n");
+  if (/grid-auto-rows:\s*minmax\(0,\s*1fr\)/.test(joined)) {
+    throw new Error("the rows are still dividing up the leftover height, which is what crushed them");
   }
-  const main = rules.find(([sel]) => sel === ".cal-main");
-  if (!/grid-template-rows:\s*minmax\(0,\s*1fr\)\s+auto/.test(main[1])) {
-    throw new Error("the month does not take the leftover height: " + main[1]);
+  if (/block-size:\s*100%/.test(joined)) {
+    throw new Error("the calendar is still pinned to the stage's height");
+  }
+  const cell = rules.find(([sel]) => sel === ".cal-cell");
+  if (/min-block-size:\s*0/.test(cell[1])) throw new Error("the cell may still collapse: " + cell[1]);
+});
+
+check("the dots sit at the foot of every cell, so a row lines up", () => {
+  const dots = mediaRules("(min-width:1101px)").find(([sel]) => sel === ".cal-dots");
+  if (!dots || !/margin-block-start:\s*auto/.test(dots[1])) {
+    throw new Error("the news dots float with the text above them and no two cells agree");
   }
 });
 
-check("#desk is still the 100dvh grid that height depends on", () => {
-  const at = appCss.indexOf("#desk{");
-  const rule = appCss.slice(at, appCss.indexOf("}", at));
-  if (!/height:\s*100dvh/.test(rule)) throw new Error("the stage no longer has a definite height");
-  if (!/grid-template-rows:auto minmax\(0,1fr\)/.test(rule.replace(/\s+/g, " "))) {
-    throw new Error("the stage row is not the one that absorbs the leftover height");
-  }
-});
-
-check("a short laptop gets a floor rather than unreadable rows", () => {
+/* "Some of the containers are not the same height - there are small
+   ones and big ones." Two different things sized that row: one card
+   grew with its own content and another was capped by a
+   max-block-size, so they could not match. */
+check("the three cards under the month are one height", () => {
   const rules = mediaRules("(min-width:1101px)");
-  const pane = rules.filter(([sel]) => sel === ".cal-pane").map(([, d]) => d).join(";");
-  if (!/min-block-size:\s*\d+px/.test(pane)) throw new Error("no minimum height on the month");
+  const kids = rules.find(([sel]) => sel === ".cal-aside>*");
+  if (!kids || !/align-self:\s*stretch/.test(kids[1])) {
+    throw new Error("the cards are not stretched to the row");
+  }
+  const day = rules.find(([sel]) => sel === ".cal-day");
+  if (!day || !/max-block-size:\s*none/.test(day[1])) {
+    throw new Error("the day panel is still capped, so it cannot match its neighbours: " + (day ? day[1] : "no rule"));
+  }
+  const evs = rules.find(([sel]) => sel === ".cal-day .cal-evs");
+  if (!evs || !/max-block-size:/.test(evs[1])) {
+    throw new Error("the cap has to move to the list inside the card, or a busy day grows the row");
+  }
 });
 
 check("the phone layout is left alone", () => {

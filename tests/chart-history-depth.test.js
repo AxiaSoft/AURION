@@ -119,12 +119,36 @@ check("an unknown timeframe falls back rather than producing NaN", () => {
 });
 
 check("the desk's own loader uses it, and no longer hard-codes 800", () => {
+  /* It used to have to name HISTORY_DAYS here. It must NOT any more:
+     pulling the full six months every time a series was loaded is what
+     made the desk sit behind the start-up video, so the loader now
+     asks for the period the chart is set to show - chartDays() - and
+     the six months are one press of the range strip away. What is
+     still forbidden is a fixed bar count, which is the original bug:
+     800 bars is eight days of M15 and thirteen hours of M1. */
   const load = APP.slice(APP.indexOf("async function pickMarket"));
   const body = load.slice(0, load.indexOf("\nfunction typing"));
   if (/count=800/.test(body)) throw new Error("the 800-bar request is still there");
-  if (!/barsForDays\(timeframe, HISTORY_DAYS\)/.test(body)) {
+  if (!/barsForDays\(timeframe, chartDays\(\)\)/.test(body)) {
     throw new Error("the loader does not derive its count from the timeframe");
   }
+  if (/barsForDays\(timeframe, HISTORY_DAYS\)/.test(body)) {
+    throw new Error("it is back to pulling the whole window before anything is drawn");
+  }
+});
+
+check("the period the chart opens with is a real period, not a bar count", () => {
+  const open = /const CHART_OPEN_DAYS = (\d+);/.exec(APP);
+  if (!open) throw new Error("nothing states what a chart opens with");
+  const d = Number(open[1]);
+  if (d < 7) throw new Error("a chart opens on " + d + " days, which is the old 'ends a week back' complaint");
+  if (d >= Number(days[1])) throw new Error("the first fetch is still the whole promise");
+  /* And every timeframe must still clear the useful floor at that
+     period, exactly as it had to at thirty. */
+  for (const tf of ["M1", "M5", "M15", "M30", "H1", "H4", "D1"]) {
+    if (barsForDays(tf, d) < 400) throw new Error(tf + " opens with " + barsForDays(tf, d) + " bars");
+  }
+  return d + " days";
 });
 
 check("reaching the oldest bar asks for more, once at a time", () => {
@@ -138,8 +162,14 @@ check("reaching the oldest bar asks for more, once at a time", () => {
     console,
   };
   vm.createContext(box);
+  /* chartDays() came with the lazy loading: the widening ask is sized
+     by the period the chart is set to, not by the full promise. Lifted
+     too, or loadMoreHistory throws ReferenceError in here and the
+     "no requests went out" that follows looks like a passing guard. */
   vm.runInContext((consts ? consts[0] : "") + "\n" + days[0] + "\n" + cap[0] + "\n"
-    + liftFn("barsForDays") + "\n" + liftFn("loadMoreHistory")
+    + /const CHART_OPEN_DAYS = \d+;/.exec(APP)[0] + "\n"
+    + /const CHART_RANGE_DAYS = \[[^\]]*\];/.exec(APP)[0] + "\n"
+    + liftFn("barsForDays") + "\n" + liftFn("chartDays") + "\n" + liftFn("loadMoreHistory")
     + "\nthis.loadMoreHistory = loadMoreHistory;", box);
 
   /* Two scrolls in the same tick must produce one request. */
