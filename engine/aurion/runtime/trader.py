@@ -140,7 +140,9 @@ def _slice_bars(
         # Said plainly, because the two causes need different actions:
         # a period before the history begins needs a different period,
         # and a closed week needs none.
-        return {"bars": [], "from": lo, "to": hi, "error": "no bars in that period"}
+        return {"bars": [], "from": lo, "to": hi,
+                "code": "no_bars_in_period",
+                "error": "no bars in that period"}
 
     first, last = inside[0], inside[-1]
     begin = max(0, first - RANGE_WARMUP_BARS)
@@ -4424,7 +4426,7 @@ class Trader:
         source = str(request.get("source") or "desk")
         if self.kill_switch and str(request.get("action") or "") not in {"close", "flatten", "close_all"}:
             await self.journal("warning", "kill", "Order blocked — kill switch is armed")
-            return {"ok": False, "error": "kill switch armed"}
+            return {"ok": False, "code": "kill_switch", "error": "kill switch armed"}
         action = str(request.get("action") or "market").lower()
         if action not in {"close", "flatten", "close_all", "modify"}:
             sess = self.market_state()
@@ -4436,7 +4438,10 @@ class Trader:
                     f"Order blocked — {why} (reopens {sess.get('next_open') or 'Monday'})",
                     {"session": sess},
                 )
-                return {"ok": False, "error": sess.get("reason") or "market_closed", "market": sess}
+                return {"ok": False,
+                        "code": str(sess.get("reason") or "market_closed"),
+                        "args": {"opens": str(sess.get("next_open") or "")},
+                        "error": sess.get("reason") or "market_closed", "market": sess}
         if action in {"buy", "sell"}:
             request = {**request, "side": action, "action": "market"}
         if action == "close_all":
@@ -4449,7 +4454,7 @@ class Trader:
                 pos = next((p for p in self.bridge.positions if p.symbol == symbol), None)
             if not pos:
                 await self.journal("warning", "no_pos", "Close requested but no matching position")
-                return {"ok": False, "error": "no position to close"}
+                return {"ok": False, "code": "no_position", "error": "no position to close"}
             request = {
                 **request,
                 "ticket": pos.ticket,
@@ -4471,7 +4476,9 @@ class Trader:
                         "max_open_trades",
                         f"Robot entry blocked — {self._open_count()} open, ceiling is {self._total_cap()}",
                     )
-                    return {"ok": False, "error": f"max open trades reached ({self._total_cap()})"}
+                    return {"ok": False, "code": "max_open",
+                        "args": {"n": self._total_cap()},
+                        "error": f"max open trades reached ({self._total_cap()})"}
                 lic = self.license.allow_bot_entry()
                 if not lic.get("ok"):
                     until = lic.get("limit_until") or ""
@@ -4489,14 +4496,15 @@ class Trader:
             request["symbol"] = self._resolve_symbol(request)
             if not request["symbol"]:
                 await self.journal("error", "no_symbol", "Order has no symbol — pick a market or attach AurionBridge")
-                return {"ok": False, "error": "symbol is required — pick a live chart or type the broker symbol"}
+                return {"ok": False, "code": "symbol_required",
+                        "error": "symbol is required — pick a live chart or type the broker symbol"}
             try:
                 volume = float(request.get("volume") or 0)
             except (TypeError, ValueError):
                 volume = 0.0
             if volume <= 0:
                 await self.journal("error", "no_volume", "Order has no volume")
-                return {"ok": False, "error": "volume must be greater than 0"}
+                return {"ok": False, "code": "volume_required", "error": "volume must be greater than 0"}
             request["volume"] = volume
             if not request.get("comment"):
                 tag = self._strategy_tag_for_request(request)
@@ -4540,7 +4548,8 @@ class Trader:
             return gate
         if not (self.bridge.connected or self.bridge.active_agents() or self.bridge.native.connected or self.bridge._ea_clients):
             await self.journal("error", "mt5_down", "MT5 is not reachable — AURION will not fabricate a fill")
-            return {"ok": False, "error": "MetaTrader 5 is not reachable. AURION will not fabricate a fill."}
+            return {"ok": False, "code": "mt5_unreachable",
+                    "error": "MetaTrader 5 is not reachable. AURION will not fabricate a fill."}
         # Auto entry point. Deliberately the last step before the wire: every
         # gate above - prop, news, quality, the open-trade ceiling - judges
         # the trade the strategy asked for, and swapping the order type under
@@ -5822,12 +5831,25 @@ class Trader:
             return {"ok": False, "error": readable_error(str(exc))}
 
     async def backtest(self, body: dict[str, Any]) -> dict[str, Any]:
+        # Every refusal from here on carries a `code` beside its English
+        # `error`.
+        #
+        # The desk showed the English sentence verbatim - a line of
+        # English in the middle of a Persian results card, which is
+        # what "English is still showing in the backtest" was about.
+        # The sentence stays, because it is what goes into the log and
+        # what can be quoted in a bug report; the code is what the desk
+        # translates, and `args` carries the parts of the sentence that
+        # are facts rather than words.
         if bool((self.backtest_run or {}).get("running")):
-            return {"ok": False, "error": "backtest_busy", "running": True, **self.backtest_run}
+            return {"ok": False, "code": "backtest_busy", "error": "backtest_busy",
+                    "running": True, **self.backtest_run}
         symbol = str(body.get("symbol") or self.active_symbol or "")
         timeframe = str(body.get("timeframe") or self.active_timeframe or "M15")
         if not symbol or not self._is_ea_symbol(symbol):
-            return {"ok": False, "error": "no AurionBridge on that symbol — attach the EA first"}
+            return {"ok": False, "code": "no_ea_symbol",
+                    "args": {"symbol": symbol},
+                    "error": "no AurionBridge on that symbol — attach the EA first"}
         # The trader must be able to backtest anywhere inside the thirty
         # days the chart shows. Cached bars were taken as sufficient at 90
         # of them, which on M5 is seven hours, so a run launched from a
@@ -5844,7 +5866,9 @@ class Trader:
         if len(bars) < want:
             bars = await self.bridge.pull_candles(symbol, timeframe, want) or bars
         if not bars:
-            return {"ok": False, "error": "no real MT5 history available for this symbol/timeframe"}
+            return {"ok": False, "code": "no_history",
+                    "args": {"symbol": symbol, "timeframe": timeframe},
+                    "error": "no real MT5 history available for this symbol/timeframe"}
 
         # A run over one month, one week or one day, chosen from the
         # calendar. Without this the only testable period was "all the
@@ -5860,12 +5884,17 @@ class Trader:
             oldest = str((bars[0] or {}).get("time") or "")[:10]
             newest = str((bars[-1] or {}).get("time") or "")[:10]
             detail = window["error"]
+            code = str(window.get("code") or "no_bars_in_period")
+            args = {"symbol": symbol, "timeframe": timeframe,
+                    "oldest": oldest, "newest": newest}
             if oldest and newest:
                 detail = (
                     f"{detail} — this terminal only has {timeframe} bars "
                     f"from {oldest} to {newest} for {symbol}"
                 )
-            return {"ok": False, "error": detail, "build_id": BUILD_ID}
+                code = "no_bars_in_period_have"
+            return {"ok": False, "code": code, "args": args,
+                    "error": detail, "build_id": BUILD_ID}
         bars = window["bars"]
         tested_from = window["from"]
         tested_to = window["to"]
@@ -5882,7 +5911,11 @@ class Trader:
         try:
             inst = self.loader.build(spec)
         except StrategyValidationError as exc:
-            return {"ok": False, "error": readable_error(str(exc)), "build_id": BUILD_ID}
+            # The detail is the strategy author's own fault message and
+            # cannot be translated; the heading around it can.
+            return {"ok": False, "code": "strategy_invalid",
+                    "args": {"detail": readable_error(str(exc))},
+                    "error": readable_error(str(exc)), "build_id": BUILD_ID}
         except Exception as exc:
             # Not a validation error, so it is something the loader did
             # not expect - an errno included. A backtest answers over

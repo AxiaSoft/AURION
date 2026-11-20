@@ -383,6 +383,43 @@ function noticeSound() {
 }
 
 /**
+ * What the engine refused, in the reader's own language.
+ *
+ * The engine answers a refusal with an English sentence - "no bars in
+ * that period", "kill switch armed" - and the desk printed it exactly
+ * as it arrived, which on a Persian desk is a line of English in the
+ * middle of a Persian card. That is most of what "English is still
+ * showing in the backtest" was about.
+ *
+ * The sentence is not removed from the engine: it is what goes into
+ * the journal, into an exported result and into a bug report, and it
+ * has to stay the same whoever is reading the screen. What travels
+ * beside it now is a stable `code`, and the parts of the sentence
+ * that are facts rather than words travel as `args` - a symbol, a
+ * timeframe, the two dates the terminal actually holds.
+ *
+ * Unknown codes and bare strings fall through to whatever the engine
+ * said. A refusal nobody has translated yet is still a refusal the
+ * trader needs to see, and swallowing it for a tidy "Request failed"
+ * would be worse than the English.
+ */
+function errText(r, fallbackKey) {
+  const o = r && typeof r === "object" ? r : {};
+  const raw = String(o.error || o.detail || o.message || (typeof r === "string" ? r : "") || "").trim();
+  const code = String(o.code || "").trim();
+  /* The code first, then the message itself read as a code: several
+     engine paths have always answered with a bare token ("engine_offline",
+     "premium_required") and those are worth translating too. */
+  for (const key of [code, raw]) {
+    if (key && /^[a-z0-9_]+$/.test(key) && I18N.has("engerr." + key)) {
+      return I18N.t("engerr." + key, o.args || {});
+    }
+  }
+  if (raw) return raw;
+  return I18N.t(fallbackKey || "errors.generic");
+}
+
+/**
  * The ordinary notification: a short message in the corner.
  *
  * It now has a close button and can be swiped away, because it used to do
@@ -4553,7 +4590,7 @@ async function flattenAll(reason) {
   if (!ok) return false;
   try {
     const r = await API.post("/api/flatten", { reason });
-    toast(r && r.ok ? I18N.t("exec.close_all") : ((r && (r.message || r.error)) || I18N.t("errors.generic")));
+    toast(r && r.ok ? I18N.t("exec.close_all") : (errText(r)));
     await refresh(false);
     return !!(r && r.ok);
   } catch (err) {
@@ -4580,7 +4617,7 @@ function bindCloseButtons(root) {
       b.disabled = true;
       try {
         const r = await API.post("/api/order", { action: "close", ticket: +b.dataset.close });
-        if (r && r.ok === false) toast(r.message || r.error || I18N.t("errors.generic"));
+        if (r && r.ok === false) toast(r.message || errText(r));
         await refresh(false);
       } catch (err) {
         toast((err && err.message) || I18N.t("errors.generic"));
@@ -4710,8 +4747,7 @@ function patchLive() {
     if (samples) samples.textContent = String(ai.samples || 0);
     const why = $("ai-why");
     if (why) {
-      const cw = ai.confidence_why || {};
-      why.textContent = cw.text || ai.reason || I18N.t("ai.conf_help");
+      why.textContent = aiWhyText(ai);
     }
     // live features based on selected chart (ai_by_symbol)
     const featBox = $("ai-feat");
@@ -6125,7 +6161,7 @@ function restoreStrategyEditor(refill) {
 
 async function startStrategyEdit(name) {
   const r = await API.get("/api/strategies/source?name=" + encodeURIComponent(name));
-  if (!r.ok) { toast(r.error || I18N.t("errors.generic")); return; }
+  if (!r.ok) { toast(errText(r)); return; }
   if (S.view !== "strategies") await show("strategies", { animate: false, closeMenu: false });
   setStrategyEditMode(r.name, r.source, r.file);
   $("st-src")?.focus();
@@ -6147,7 +6183,7 @@ async function deleteCustomStrategy(name) {
   });
   if (!ok) return;
   const r = await API.post("/api/strategies/delete", { name });
-  toast(r.ok ? I18N.t("strategies.deleted") : (r.error || I18N.t("errors.generic")));
+  toast(r.ok ? I18N.t("strategies.deleted") : (errText(r)));
   if (!r.ok) return;
   if (r.strategy) { S.snap = S.snap || {}; S.snap.strategy = r.strategy; }
   if (S._stEdit === name) S._stEdit = null;
@@ -7867,7 +7903,7 @@ function bindAiKillBlock() {
     try {
       const r = await API.post("/api/kill", { armed: false });
       if (r && r.ok === false) {
-        toast(r.error || I18N.t("errors.generic"));
+        toast(errText(r));
         off.disabled = false;
         return;
       }
@@ -7900,7 +7936,35 @@ function analysisCardHtml() {
   const conf = Math.round((a.ai?.confidence || 0) * 100);
   const need = Math.round((a.ai?.min_confidence || 0) * 100);
   const gate = Boolean(a.ai?.gate);
-  const line = (b) => `<li><b>${esc(b.text || b.code || "")}</b>${b.fix ? `<span class="sub"> — ${esc(b.fix)}</span>` : ""}</li>`;
+  /* Why nothing is trading, in the reader's language.
+   *
+   * The engine sends each blocker as a code AND as an English pair of
+   * sentences (GATE_PLAIN), and the card printed the English. On a
+   * Persian desk the one card whose entire job is to explain was the
+   * most English thing on the screen.
+   *
+   * The code is translated where there is a translation; where there
+   * is not - "no_setup" carries the STRATEGY's own refusal text, which
+   * nobody but its author can translate - the engine's words are shown
+   * exactly as they came, because a wrong explanation is worse than a
+   * foreign one. */
+  const line = (b) => {
+    const code = String((b && b.code) || "");
+    const known = code && I18N.has("blocker." + code);
+    /* no_setup's text is the strategy's OWN words when it has any, and
+       those outrank the generic sentence - but the engine falls back
+       to a sentence of its own when the strategy said nothing, and
+       that one is ours to translate. */
+    const own = String((b && b.text) || "").trim();
+    const generic = !own || own.toLowerCase() === "no setup on this bar";
+    const text = known && (code !== "no_setup" || generic)
+      ? I18N.t("blocker." + code)
+      : (own || code || "");
+    const fix = known && I18N.has("blocker." + code + "_fix")
+      ? I18N.t("blocker." + code + "_fix")
+      : (b.fix || "");
+    return `<li><b>${esc(text)}</b>${fix ? `<span class="sub"> — ${esc(fix)}</span>` : ""}</li>`;
+  };
   const lines = (a.console || []).slice(-40).reverse();
 
   /* The threshold is drawn on the bar rather than printed beside it:
@@ -8400,7 +8464,7 @@ const views = {
               ? Object.entries(feats).slice(0, 18).map(([k, v]) => `<span>${esc(k)}</span><b class="mono">${fmt(v, 5)}</b>`).join("")
               : emptyMini(I18N.t("status.ai_idle"))}</div>
           </details>
-          <p class="sub ai-why" id="ai-why">${esc((cur.confidence_why && cur.confidence_why.text) || cur.reason || I18N.t("ai.conf_help"))}</p>
+          <p class="sub ai-why" id="ai-why">${esc(aiWhyText(cur))}</p>
         </section>
       </div>
     </div>`;
@@ -8609,7 +8673,7 @@ const views = {
                  placeholder="${esc(I18N.t("terminal.placeholder"))}" />
         </span>
         <button class="btn tiny ghost" id="log-clr" type="button">${I18N.t("terminal.clear")}</button>
-        <button class="btn tiny" id="term-restart" type="button" title="Immediate restart of system terminals">${icon("refresh")} ${I18N.t("terminal.restart")||"Restart Terminals"}</button>
+        <button class="btn tiny" id="term-restart" type="button" title="${esc(I18N.t("terminal.restart_title"))}">${icon("refresh")} ${esc(I18N.t("terminal.restart"))}</button>
       </div>
       <div class="term" id="term">${renderLogs()}</div>
     </div>`;
@@ -9353,6 +9417,58 @@ function dirLabel(d) {
   return I18N.t("ai.neutral");
 }
 
+/* The Intelligence read, in the reader's language.
+ *
+ * The engine composes three sentences in English and ships them as
+ * finished prose: the confidence explainer, the outlook line and the
+ * idle/learning reason. On a Persian desk they were the only English
+ * left on the screen. They are rebuilt here from the NUMBERS the
+ * engine sends alongside the prose, so a translated desk reads
+ * Persian and an untranslated field still falls back to the engine's
+ * own words rather than to nothing. */
+function aiPct(v) {
+  return Math.round(Number(v || 0) * 100) + "%";
+}
+function aiWhyText(st) {
+  const why = (st && st.confidence_why) || null;
+  if (why && (why.model != null || why.agreement != null)) {
+    return I18N.t("ai.why_text", {
+      model: aiPct(why.model),
+      agree: aiPct(why.agreement),
+      dir: dirLabel(shownDir(st)),
+    });
+  }
+  return (why && why.text) || (st && st.reason) || I18N.t("ai.conf_help");
+}
+function aiReasonText(st) {
+  /* "idle" and "waiting" are whole English sentences; everything else
+     the engine puts in `reason` is key=value telemetry (model=bull
+     p=0.62), which is the same in every language and is left alone. */
+  const status = String((st && st.status) || "");
+  if (status === "idle") return I18N.t("ai.idle_reason");
+  if (status === "waiting") {
+    return I18N.t("ai.learning_reason", {
+      have: Number((st && st.samples) || 0),
+      need: Number((st && st.need) || 0),
+    });
+  }
+  return (st && st.reason) || I18N.t("status.ai_idle");
+}
+function aiOutlookText(st) {
+  const votes = (st && (st.outlook_votes || (st.outlook && st.outlook.votes))) || null;
+  if (!votes) return (st && st.outlook_text) || "";
+  const pattern = (st.pattern_obj && st.pattern_obj.name) || (typeof st.pattern === "string" ? st.pattern : "");
+  return I18N.t("ai.outlook_text", {
+    dir: dirLabel(shownDir(st)),
+    tf: String(st.timeframe || ""),
+    conf: aiPct(st.outlook_strength),
+    bull: Number(votes.bull || 0),
+    bear: Number(votes.bear || 0),
+    pattern: pattern || I18N.t("ai.no_pattern"),
+    regime: regLabel(st.regime_obj || st.regime) === "—" ? I18N.t("ai.unknown_regime") : regLabel(st.regime_obj || st.regime),
+  });
+}
+
 // --- Per-chart AI direction slider (manual left/right, never auto-advances) --
 // With several EA charts attached the AI judges every chart independently; the
 // engine ships one state per symbol (ai_by_symbol) so here we build one slide
@@ -9455,7 +9571,7 @@ function stepChartSlider(kind, delta, jumpTo, renderInner) {
       const symEl = $("ai-feat-sym");
       if (symEl) symEl.textContent = ai.symbol || "";
       const why = $("ai-why");
-      if (why) why.textContent = (ai.confidence_why && ai.confidence_why.text) || ai.reason || I18N.t("ai.conf_help");
+      if (why) why.textContent = aiWhyText(ai);
       const samp = $("ai-samples");
       if (samp) samp.textContent = String(ai.samples || 0);
     } catch {}
@@ -9508,14 +9624,14 @@ function aiSlideInnerHtml(slide) {
   const p = Math.round(((has ? st.confidence : 0) || 0) * 100);
   const ready = Boolean(has && st.ready);
   const title = slide.symbol ? (slide.timeframe ? slide.symbol + " · " + slide.timeframe : slide.symbol) : I18N.t("ai.title");
-  const reason = !has ? I18N.t("ai.no_chart_data") : (st.reason || I18N.t("status.ai_idle"));
+  const reason = !has ? I18N.t("ai.no_chart_data") : aiReasonText(st);
   // v54 merged: direction + regime per chart separate
   const regime = st && (st.regime_obj || st.regime);
   const pattern = st && (st.pattern_obj || st.pattern);
   const regimeLabel = regime ? regLabel(typeof regime === "string" ? {name: regime} : regime) : "—";
   const patternLabel = pattern ? (typeof pattern === "string" ? pattern : (pattern.name || "—")) : "—";
   const outlookStrength = st ? (st.outlook_strength != null ? Math.round(st.outlook_strength*100) : p) : 0;
-  const outlookTxt = st && st.outlook_text ? st.outlook_text : "";
+  const outlookTxt = st ? aiOutlookText(st) : "";
   return `<div class="ai-hero">
     <div>
       <h3>${I18N.t("ai.direction")}<span class="slide-sym mono">${esc(title)}</span></h3>
@@ -9524,7 +9640,7 @@ function aiSlideInnerHtml(slide) {
         <span class="pill ${d === "bull" ? "ok" : d === "bear" ? "no" : "ghost"}" id="ai-dir-pill">${dirLabel(d)} · ${p}%</span>
         <span class="pill ghost" id="ai-regime-pill">${I18N.t("ai.regime")}: ${esc(regimeLabel)}</span>
         <span class="pill ghost" id="ai-pattern-pill">${I18N.t("ai.pattern")}: ${esc(patternLabel)}</span>
-        ${outlookStrength ? `<span class="pill ghost">outlook ${outlookStrength}%</span>` : ""}
+        ${outlookStrength ? `<span class="pill ghost">${I18N.t("ai.outlook")} ${outlookStrength}%</span>` : ""}
       </div>
       <p class="sub" id="ai-reason">${esc(reason)}</p>
       ${outlookTxt ? `<p class="sub" style="opacity:.8">${esc(outlookTxt)}</p>` : ""}
@@ -9802,7 +9918,7 @@ async function restartSystem() {
   toast(I18N.t("host.restarting"));
   try {
     const r = await API.post("/api/host/restart", {});
-    if (!r.ok) return toast(r.error || I18N.t("errors.generic"));
+    if (!r.ok) return toast(errText(r));
   } catch (err) {
     toast((err && err.message) || I18N.t("errors.generic"));
     return;
@@ -9826,7 +9942,7 @@ async function factoryReset() {
   toast(I18N.t("host.factory_going"));
   try {
     const r = await API.post("/api/host/factory-reset", { confirm: "FACTORY" });
-    if (!r.ok) return toast(r.error || I18N.t("errors.generic"));
+    if (!r.ok) return toast(errText(r));
   } catch (err) {
     toast((err && err.message) || I18N.t("errors.generic"));
     return;
@@ -9912,7 +10028,7 @@ function bindTelegramPanel() {
       notify_close: Boolean($("tg-close")?.classList.contains("on")),
     });
     const msg = $("tg-msg");
-    const text = r.ok ? I18N.t("telegram.saved") : (r.error || I18N.t("errors.generic"));
+    const text = r.ok ? I18N.t("telegram.saved") : (errText(r));
     if (msg) msg.textContent = text;
     toast(text);
     if (r.ok) {
@@ -9924,7 +10040,7 @@ function bindTelegramPanel() {
   const pair = $("tg-pair");
   if (pair) pair.onclick = async () => {
     const r = await API.post("/api/telegram/pair", {});
-    if (!r.ok) return toast(r.error || I18N.t("errors.generic"));
+    if (!r.ok) return toast(errText(r));
     S._tgCode = r.code || (r.data && r.data.code) || "";
     const box = $("tg-code");
     if (box) box.textContent = S._tgCode || "······";
@@ -9945,7 +10061,7 @@ function bindTelegramPanel() {
   if (test) test.onclick = async () => {
     const r = await API.post("/api/telegram/test", {});
     if (!r.ok) {
-      const err = r.error === "no_chat" ? I18N.t("telegram.need_chat") : (r.error === "disabled" ? I18N.t("telegram.stopped") : (r.error || I18N.t("errors.generic")));
+      const err = r.error === "no_chat" ? I18N.t("telegram.need_chat") : (r.error === "disabled" ? I18N.t("telegram.stopped") : (errText(r)));
       toast(err);
       return;
     }
@@ -9954,7 +10070,7 @@ function bindTelegramPanel() {
   document.querySelectorAll("[data-tg-unlink]").forEach((b) => {
     b.onclick = async () => {
       const r = await API.post("/api/telegram/unlink", { chat_id: b.getAttribute("data-tg-unlink") });
-      if (!r.ok) return toast(r.error || I18N.t("errors.generic"));
+      if (!r.ok) return toast(errText(r));
       await reloadSettings();
     };
   });
@@ -10952,7 +11068,7 @@ function bindView(view) {
         return;
       }
       const r = await API.post("/api/ai/train", { symbol: S.symbol, timeframe: S.timeframe });
-      toast(r.ok ? I18N.t("logs.retrain") : (r.error || I18N.t("errors.generic")));
+      toast(r.ok ? I18N.t("logs.retrain") : (errText(r)));
       await refresh();
     };
   }
@@ -11061,7 +11177,7 @@ function bindView(view) {
       paintSwitch(auto, on);
       try {
         const r = await API.post("/api/auto", { enabled: on });
-        toast(r.ok ? I18N.t(on ? "exec.auto_on" : "exec.auto_off") : (r.error || I18N.t("errors.generic")));
+        toast(r.ok ? I18N.t(on ? "exec.auto_on" : "exec.auto_off") : (errText(r)));
         if (!r.ok) {
           paintSwitch(auto, !on);
           return;
@@ -11092,9 +11208,9 @@ function bindView(view) {
     const tr = $("term-restart");
     if (tr) tr.onclick = async () => {
       const ok = await askConfirm({
-        title: I18N.t("terminal.restart")||"Restart Terminals",
-        body: I18N.t("terminal.restart_confirm")||"Immediate restart of system terminals? MT5 connection will be restarted.",
-        ok: I18N.t("terminal.restart")||"Restart",
+        title: I18N.t("terminal.restart"),
+        body: I18N.t("terminal.restart_confirm"),
+        ok: I18N.t("terminal.restart"),
         cancel: I18N.t("common.cancel"),
         danger: false,
       });
@@ -11103,12 +11219,12 @@ function bindView(view) {
       tr.innerHTML = icon("hourglass") + " Restarting...";
       try {
         const r = await API.post("/api/terminals/restart", {});
-        toast(r.ok ? (I18N.t("terminal.restart_ok")||"Terminals restarted") : (r.error||I18N.t("errors.generic")));
+        toast(r.ok ? I18N.t("terminal.restart_ok") : errText(r));
       } catch (e) {
         toast(I18N.t("errors.generic"));
       } finally {
         tr.disabled = false;
-        tr.innerHTML = icon("refresh") + " " + esc(I18N.t("terminal.restart")||"Restart Terminals");
+        tr.innerHTML = icon("refresh") + " " + esc(I18N.t("terminal.restart"));
       }
     };
     const tabs = $("term-tabs");
@@ -11187,7 +11303,7 @@ function bindView(view) {
         const r = await API.post("/api/export/excel", { lang: I18N.lang });
         const name = r.ok ? r.data?.filename : "";
         if (!name) {
-          toast(r.error || I18N.t("errors.generic"));
+          toast(errText(r));
           return;
         }
         // Fetch the workbook as a blob: the /api/exports route is behind
@@ -11196,7 +11312,7 @@ function bindView(view) {
         if (!d.ok) {
           toast(d.error === "auth_required"
             ? I18N.t("errors.session_expired")
-            : (d.error || I18N.t("errors.generic")));
+            : errText(d));
         } else {
           toast(I18N.t("history.export_done", { name }));
         }
@@ -11217,7 +11333,7 @@ function bindView(view) {
       if (!ok) return;
       const r = await API.post("/api/history/reset", { days: 0 });
       const err = !r.ok
-        ? (r.error === "engine_offline" ? I18N.t("errors.no_engine") : (r.error || r.detail || I18N.t("errors.generic")))
+        ? errText(r)
         : "";
       toast(r.ok ? I18N.t("logs.archived") : String(err));
       loadHistory();
@@ -11456,7 +11572,7 @@ function bindStrategyToggles() {
       paintStrategyEnabled(name, on);
       const r = await API.post("/api/strategies/toggle", { name, enabled: on });
       if (!r.ok) paintStrategyEnabled(name, !on);
-      toast(r.ok ? I18N.t(on ? "strategies.enable" : "strategies.disable") : (r.error || I18N.t("errors.generic")));
+      toast(r.ok ? I18N.t(on ? "strategies.enable" : "strategies.disable") : (errText(r)));
       if (r.ok && r.strategy) {
         S.snap = S.snap || {};
         S.snap.strategy = r.strategy;
@@ -11637,7 +11753,7 @@ async function saveAccountSettings(quiet) {
     });
   } catch { /* engine overlay is best-effort */ }
   if (!quiet) {
-    const text = r.ok ? I18N.t("settings.saved_account") : (r.error || I18N.t("errors.generic"));
+    const text = r.ok ? I18N.t("settings.saved_account") : (errText(r));
     if ($("s-msg")) $("s-msg").textContent = text;
     toast(text);
   }
@@ -11688,7 +11804,7 @@ function bindRobotPanel() {
       if (!r.ok) {
         paintSwitch(auto, !on);
         if (sub) sub.textContent = I18N.t(!on ? "exec.auto_on" : "exec.auto_off");
-        toast(r.error || I18N.t("errors.generic"));
+        toast(errText(r));
         return;
       }
       S.snap = S.snap || {};
@@ -11739,7 +11855,7 @@ function bindRobotPanel() {
          save, silently turning the filters off for everybody. */
       min_signal_quality: +($("st-quality")?.value || 0.55),
     });
-    if (!quiet) toast(r.ok ? I18N.t("common.save") : (r.error || I18N.t("errors.generic")));
+    if (!quiet) toast(r.ok ? I18N.t("common.save") : (errText(r)));
     await refresh(false);
     return r;
   };
@@ -11787,7 +11903,7 @@ function bindRobotPanel() {
     const body = { volume_mode: mode };
     if (mode === "manual") body.manual_volume = +($("st-vol")?.value || 0.10);
     const r = await API.post("/api/auto", body);
-    if (!quiet) toast(r.ok ? I18N.t("common.save") : (r.error || I18N.t("errors.generic")));
+    if (!quiet) toast(r.ok ? I18N.t("common.save") : (errText(r)));
     await refresh(false);
     if (S.view === "settings") show("settings", { animate: false, closeMenu: false });
     return r;
@@ -11842,7 +11958,7 @@ function bindRobotPanel() {
       if (!r.ok) {
         paintSwitch(news, !on);
         if (licGateToast(r)) return;
-        toast(r.error || I18N.t("errors.generic"));
+        toast(errText(r));
         return;
       }
       toast(I18N.t(on ? "strategies.news_on" : "strategies.news_off"));
@@ -11864,7 +11980,7 @@ function bindRobotPanel() {
       if (!r.ok) {
         paintSwitch(autoEntry, !on);
         if (licGateToast(r)) return;
-        toast(r.error || I18N.t("errors.generic"));
+        toast(errText(r));
         return;
       }
       toast(I18N.t(on ? "autoentry.on" : "autoentry.off"));
@@ -11947,7 +12063,7 @@ function bindRobotPanel() {
       mode: auto ? "auto" : "fixed",
       ...(auto ? { risk_pct: +($("st-money-pct")?.value || 0) } : {}),
     });
-    if (!r.ok) { toast(r.error || I18N.t("errors.generic")); return; }
+    if (!r.ok) { toast(errText(r)); return; }
     const reach = $("st-money-reach");
     if (reach) reach.textContent = moneyReach(r.money || {});
     repaintMoney(r.money || {});
@@ -11962,7 +12078,7 @@ function bindRobotPanel() {
   const tzSel = $("sys-tz");
   if (tzSel) tzSel.onchange = async () => {
     const r = await API.post("/api/timezone", { timezone: tzSel.value });
-    if (!r.ok) { toast(r.error || I18N.t("errors.generic")); return; }
+    if (!r.ok) { toast(errText(r)); return; }
     const label = r.system?.label || tzSel.value;
     toast(I18N.t("sys.tz_set", { z: label }));
     await reloadSettings();
@@ -11978,7 +12094,7 @@ function bindRobotPanel() {
       const r = await API.post("/api/risk_free", { enabled: on, ladder: on });
       if (!r.ok) {
         paintSwitch(rfSw, !on);
-        toast(r.error || I18N.t("errors.generic"));
+        toast(errText(r));
         return;
       }
       toast(I18N.t(on ? "strategies.rf_on" : "strategies.rf_off"));
@@ -12010,7 +12126,7 @@ function bindRobotPanel() {
     });
     rfSteps.addEventListener("change", async () => {
       const r = await API.post("/api/risk_free", { steps: +rfSteps.value });
-      if (!r.ok) toast(r.error || I18N.t("errors.generic"));
+      if (!r.ok) toast(errText(r));
       await refresh(false);
     });
   }
@@ -12025,7 +12141,7 @@ function bindRobotPanel() {
       const r = await API.post("/api/danger", { enabled: on });
       if (!r.ok) {
         paintSwitch(dgSw, !on);
-        toast(r.error || I18N.t("errors.generic"));
+        toast(errText(r));
         return;
       }
       toast(I18N.t(on ? "strategies.danger_on" : "strategies.danger_off"));
@@ -12040,7 +12156,7 @@ function bindRobotPanel() {
     dgSens.addEventListener("input", () => { if (pct) pct.textContent = dgSens.value + "%"; });
     dgSens.addEventListener("change", async () => {
       const r = await API.post("/api/danger", { sensitivity: +dgSens.value });
-      if (!r.ok) toast(r.error || I18N.t("errors.generic"));
+      if (!r.ok) toast(errText(r));
       await refresh(false);
     });
   }
@@ -12050,7 +12166,7 @@ function bindRobotPanel() {
     if (b.disabled) { toast(I18N.t("lic.err_locked")); show("upgrade"); return; }
     const r = await API.post("/api/auto", { trade_style: b.dataset.style });
     if (licGateToast(r)) return;
-    toast(r.ok ? I18N.t("style." + b.dataset.style) : (r.error || I18N.t("errors.generic")));
+    toast(r.ok ? I18N.t("style." + b.dataset.style) : (errText(r)));
     await refresh(false);
     if (S.view === "settings") show("settings", { animate: false, closeMenu: false });
   };
@@ -12130,7 +12246,7 @@ function bindPropEnable() {
           if (sub) sub.textContent = I18N.t(!on ? "risk.prop_on" : "risk.prop_off");
           if (lk) lk.disabled = on;
           if (uk) uk.disabled = on;
-          if (!licGateToast(r)) toast(r.error || I18N.t("errors.generic"));
+          if (!licGateToast(r)) toast(errText(r));
           return;
         }
         S.snap = S.snap || {};
@@ -12312,7 +12428,7 @@ function bindPropForm() {
       if ($("pr-id")) $("pr-id").value = id;
       const r = await API.post("/api/prop", { profile: { id } });
       if (licGateToast(r)) return;
-      toast(r.ok ? I18N.t("risk.preset_applied") : (r.error || I18N.t("errors.generic")));
+      toast(r.ok ? I18N.t("risk.preset_applied") : (errText(r)));
       if (r.ok) {
         if (r.data) {
           S.snap = S.snap || {};
@@ -12326,7 +12442,7 @@ function bindPropForm() {
   if (!save) return;
   save.onclick = async () => {
     const r = await API.post("/api/prop", { profile: customPropPayload() });
-    if (!licGateToast(r)) toast(r.ok ? I18N.t("common.save") : (r.error || I18N.t("errors.generic")));
+    if (!licGateToast(r)) toast(r.ok ? I18N.t("common.save") : (errText(r)));
     if (r.ok) await reloadSettings();
   };
 }
@@ -13021,7 +13137,7 @@ function renderBacktestCard(bt) {
   // result share a card: renderBacktestExtra owns it. Saying it twice in
   // the same box read like a fault.
   if (!bt || (!bt.ok && !bt.error && bt.mode !== "backtest")) return "";
-  if (!bt.ok) return `<p class="err">${esc(bt.error || I18N.t("errors.generic"))}</p>`;
+  if (!bt.ok) return `<p class="err">${esc(errText(bt))}</p>`;
   const m = bt.metrics || {};
   return `<div class="tape-banner is-backtest" style="margin:12px 0 10px">${I18N.t("tape.showing_backtest")} · ${esc(bt.symbol || "")} ${esc(bt.timeframe || "")} · ${esc(strategyLabel(bt.strategy))}</div>
     <div class="kv">
@@ -13443,7 +13559,7 @@ async function startBacktest(opts) {
       S.backtest = { ok: false, running: false, mode: "backtest", error: (r && r.error) || "generic" };
       if (S.snap) S.snap.backtest = S.backtest;
       paintBacktestResults(S.backtest);
-      toast((r && r.error) || I18N.t("errors.generic"));
+      toast(errText(r));
       S._btBusy = false;
       setBacktestBusy(false);
       headerState();
@@ -14141,7 +14257,7 @@ function bindCancelButtons(root) {
     btn.onclick = async () => {
       btn.disabled = true;
       const r = await API.post("/api/order", { action: "cancel", ticket: +btn.dataset.cancel });
-      if (!r || !r.ok) { btn.disabled = false; toast((r && r.error) || I18N.t("errors.generic")); return; }
+      if (!r || !r.ok) { btn.disabled = false; toast(errText(r)); return; }
       toast(I18N.t("chart.order_cancelled"));
       await refresh(false);
     };
@@ -14205,7 +14321,7 @@ async function onChartLevelMove(d) {
     tp: isSl ? Number(pos.tp || 0) : Number(shown),
   };
   const r = await API.post("/api/order", body);
-  if (!r || !r.ok) { toast((r && r.error) || I18N.t("errors.generic")); return; }
+  if (!r || !r.ok) { toast(errText(r)); return; }
   toast(I18N.t("chart.lvl_moved"));
   await refresh(false);
 }
@@ -15424,7 +15540,7 @@ async function enterDesk() {
   $("btn-kill").onclick = async () => {
     const armed = !S.snap?.kill_switch;
     const r = await API.post("/api/kill", { armed });
-    if (r && r.ok === false) { toast(r.error || I18N.t("errors.generic")); return; }
+    if (r && r.ok === false) { toast(errText(r)); return; }
     /* Straight away, from the state we just asked for, rather than
        waiting for the snapshot poll to come back and tell us what we
        already know: on the intelligence page this is the difference

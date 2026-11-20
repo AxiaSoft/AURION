@@ -752,7 +752,12 @@ html[dir="rtl"] .set-h{letter-spacing:0;text-transform:none}
 .st-stats b{display:block;font-size:13px;font-weight:500}
 .seg{display:flex;gap:6px;flex-wrap:wrap}
 #btn-kill.kills{box-shadow:0 0 0 1px var(--rose), 0 0 24px rgba(255,107,138,.25)}
-.err{color:var(--rose);min-height:18px;font-size:13px;margin:4px 0 0}
+/* unicode-bidi:plaintext because not every refusal can be translated.
+   A strategy's own fault message, or a code nobody has a sentence for
+   yet, arrives in English and lands inside a right-to-left card; left
+   to the paragraph's own direction its full stop jumps to the wrong
+   end and the sentence reads as broken rather than as foreign. */
+.err{color:var(--rose);min-height:18px;font-size:13px;margin:4px 0 0;unicode-bidi:plaintext}
 .auth-modes{
   display:flex;gap:4px;margin:0 0 18px;padding:4px;
   border:1px solid var(--line);border-radius:999px;background:rgba(0,0,0,.22);
