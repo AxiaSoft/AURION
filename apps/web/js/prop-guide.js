@@ -274,6 +274,13 @@
           ar: "يسمح بشراء وبيع على الرمز نفسه؛ بعض الشركات تمنعه."
         },
         {
+          id: "pr-throttle",
+          label: { fa: "اعمال محدودیت‌های تعداد", en: "Apply the count limits", ar: "تطبيق حدود العدد" },
+          fa: "قانون‌های «تعدادی» — معاملهٔ باز، هر نماد، در روز، فاصلهٔ بین ورودها و ضررهای پشت‌سرهم — فقط وقتی این روشن باشد اجرا می‌شوند. قرارداد شرکت‌ها دربارهٔ پول است نه تعداد تیکت؛ این‌ها ترمز داخلی این نرم‌افزارند. خاموش بگذارید تا استراتژی هر معامله‌ای را که قانون‌های پولی اجازه می‌دهند بگیرد، و فقط وقتی روشن کنید که خودتان بخواهید دست ربات را ببندید. محدودیت‌های پولی — ضرر روزانه، دراودان، حجم، ساعت، خبر، فهرست نماد — همیشه برقرارند و این کلید رویشان اثری ندارد.",
+          en: "The count rules — open trades, per symbol, per day, the gap between entries, the losing streak — are applied only while this is on. A firm's contract is about money, not ticket count; these are this software's own brake. Leave it off and the strategy takes every trade the money rules allow; turn it on only when you want the robot held back on purpose. The money limits — daily loss, drawdown, lot, hours, news, the symbol list — are always in force and this switch does not touch them.",
+          ar: "قواعد العدد تُطبَّق فقط عند تفعيل هذا المفتاح، أما حدود المال فسارية دائماً."
+        },
+        {
           id: "pr-save",
           label: { fa: "ذخیرهٔ قوانین", en: "Save rules", ar: "حفظ القواعد" },
           fa: "تا وقتی ذخیره نزده‌اید هیچ تغییری اعمال نشده. بعد از ذخیره، وضعیت بالای صفحه بلافاصله با عددهای جدید محاسبه می‌شود.",

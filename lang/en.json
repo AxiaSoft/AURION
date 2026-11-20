@@ -435,7 +435,10 @@
     "guide_search_ph": "e.g. drawdown, hours, news",
     "guide_empty": "Nothing matches that.",
     "of_limit": "of {n} allowed",
-    "no_limit": "No limit set"
+    "no_limit": "No limit set",
+    "throttle": "Apply the trade-count limits",
+    "throttle_on": "The count limits above — open trades, per symbol, per day, the gap between entries and the losing streak — are being enforced. They are AURION's own brake, not a firm's rule, and they will reduce how many trades the robot takes.",
+    "throttle_off": "Only the money limits are enforced: daily loss, drawdown, lot size, hours, news and the symbol list. The count boxes above keep their numbers but nothing is refused for taking too many trades."
   },
   "money": {
     "title": "Money management — the stop cap",
@@ -997,7 +1000,9 @@
     "off_tag": "off",
     "notice": "Ordinary notifications",
     "notice_hint": "Saved settings, reconnects, refusals - the messages that appear in the corner",
-    "custom_note": "Every sound is a file that lives in the source tree, so a given name sounds the same on every machine the product is installed on. Choose which sound each event plays."
+    "custom_note": "Every sound is a file that lives in the source tree, so a given name sounds the same on every machine the product is installed on. Choose which sound each event plays.",
+    "prop_pass": "Prop allowed the order",
+    "prop_stop": "Prop stopped the order"
   },
   "owner": {
     "title": "Owner account",

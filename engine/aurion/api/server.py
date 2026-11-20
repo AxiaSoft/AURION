@@ -504,7 +504,22 @@ async def prop_enable(body: dict[str, Any]) -> dict[str, Any]:
 
 @app.get("/v1/history")
 async def history(limit: int = 400) -> dict[str, Any]:
-    return {"ok": True, "data": trader.store.history(limit, closed_only=False)}
+    """Closed trades only.
+
+    This used to answer with ``closed_only=False``, so every position
+    appeared the moment it opened. The intention was that a trade
+    should not be invisible while it is running - but the row that
+    arrived had no close time, no close price, no profit, no swap, no
+    commission and no net, which is nine of the seventeen columns
+    empty. A reader cannot tell that row from a broken one, it cannot
+    be checked against the broker's statement, and it sorts in among
+    the finished trades as though it were one.
+
+    An open position is already on the desk, in the positions dock,
+    with a live P/L that a history row could never have. History is
+    the record of what finished.
+    """
+    return {"ok": True, "data": trader.store.history(limit, closed_only=True)}
 
 
 @app.get("/v1/equity")

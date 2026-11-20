@@ -3412,6 +3412,13 @@ html[dir="rtl"] .q-how[open] summary::before{ transform:rotate(0deg) }
 .notify-card.trade-card.is-profit { border-left-color: var(--up, #2ecc71); }
 .notify-card.trade-card.is-loss { border-left-color: var(--down, #ff6b6b); }
 .notify-card.trade-card h4 { margin: 0 0 4px; font-size: 14px; }
+/* The prop verdict card. A pass is neutral, a refusal borrows the
+   losing colour - it is a trade that did not happen. */
+.notify-card.prop-card { border-left: 3px solid var(--line, #3a3f52); }
+.notify-card.prop-card.is-pass { border-left-color: var(--accent, #6aa6ff); }
+.notify-card.prop-card.is-block { border-left-color: var(--down, #ff6b6b); }
+.notify-card.prop-card h4 { margin: 0 0 4px; font-size: 14px; }
+.notify-card.prop-card .sub { margin: 0; }
 .notify-card.trade-card .sub { margin: 0; }
 #notify-card .field { align-items: center; }
 

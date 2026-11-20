@@ -78,10 +78,33 @@ def test_entries_never_exceed_free_slots() -> None:
 
 
 def test_prop_ceiling_wins_when_it_is_tighter() -> None:
+    # Rewritten, deliberately. The profile now has to ASK to be throttled
+    # by ticket count: reported fault "prop mode reduces the number of
+    # trades", and the reduction was AURION's own, applied under the
+    # firms' names. throttle_entries is what the old behaviour is called
+    # now, so this still pins "a profile that wants a lower ceiling gets
+    # one" - it just has to say so.
     t = _trader()
-    t.prop = SimpleNamespace(enabled=True, profile={"max_open_trades": 1, "max_positions_per_symbol": 1}, locked=False)
+    t.prop = SimpleNamespace(
+        enabled=True,
+        profile={"max_open_trades": 1, "max_positions_per_symbol": 1, "throttle_entries": True},
+        locked=False,
+    )
     assert t._total_cap() == 1
     assert t._entries_for_signal("EURUSD", 0.99) == 1
+
+
+def test_a_prop_profile_that_does_not_throttle_leaves_the_ceiling_alone() -> None:
+    """The other half of the same rule, and the reported fault itself."""
+    t = _trader()
+    t.max_open_trades = 3
+    t.prop = SimpleNamespace(
+        enabled=True,
+        profile={"max_open_trades": 1, "max_positions_per_symbol": 1},
+        locked=False,
+    )
+    assert t._total_cap() == 3, "an armed prop profile lowered the ticket ceiling without being asked to"
+    assert t._per_symbol_cap() == 3
 
 
 def test_dispatch_opens_the_planned_number_of_tickets() -> None:

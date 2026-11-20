@@ -539,6 +539,58 @@ class Trader:
         if kind in {"status", "ea_log", "ea_signal", "order_result", "log"}:
             await self.bus.publish(kind, payload if isinstance(payload, dict) else {"data": payload})
 
+    async def _announce_prop_check(self, request: dict[str, Any], gate: dict[str, Any]) -> None:
+        """Say out loud what the prop rules did with this order - either way.
+
+        Asked for directly: "tell me when prop stops a trade, and tell me
+        when it lets one through". Until now only the refusal left a
+        trace, and it left it in the robot log - a page nobody has open
+        while they are watching a chart. So a trader who had armed a
+        profile could not tell the difference between "the rules are
+        quietly doing their job" and "the rules are eating my trades",
+        which is exactly the complaint.
+
+        One event per gated entry, carrying the verdict and, when it is
+        a refusal, the sentence that names the rule. Closes, modifies
+        and anything the gate waved through untouched because prop is
+        off are not news and are not announced.
+        """
+        if not getattr(self.prop, "enabled", False):
+            return
+        action = str(request.get("action") or "").lower()
+        if action not in {"market", "buy", "sell", "pending"}:
+            return
+        if gate.get("bypassed"):
+            return
+        ok = bool(gate.get("ok"))
+        profile = self.prop.profile or {}
+        payload = {
+            "ok": ok,
+            "why": "" if ok else str(gate.get("error") or "blocked"),
+            "symbol": str(request.get("symbol") or ""),
+            "side": str(request.get("side") or action or ""),
+            "volume": float(request.get("volume") or 0),
+            "profile": str(profile.get("id") or ""),
+            "source": str(request.get("source") or ""),
+            # Which count limits are live right now. Empty on every
+            # firm-shaped profile, and that emptiness is the answer to
+            # "is prop the reason I am taking fewer trades?".
+            "throttles": list(self.prop.throttle_names()) if hasattr(self.prop, "throttle_names") else [],
+            "ts": utc_iso(),
+        }
+        if ok:
+            await self.journal(
+                "info",
+                "prop_pass",
+                f"Prop checked {payload['side']} {payload['symbol']} "
+                f"{payload['volume']:g} against the {payload['profile'] or 'prop'} profile and allowed it",
+                {"prop_check": payload},
+            )
+        try:
+            await self.bus.publish("prop_check", payload)
+        except Exception:
+            log.exception("prop check publish failed")
+
     async def _handle_prop_trip(self, decision: dict[str, Any]) -> None:
         action = decision.get("action") or ""
         self.safe_mode = True
@@ -2620,9 +2672,27 @@ class Trader:
         else:
             book.pop(key, None)
 
+    def _prop_caps_count(self) -> bool:
+        """Is the armed prop profile allowed to lower the ticket ceiling?
+
+        Only when the profile asks for it. A funded-account rulebook
+        limits money, not the number of trades, so the firm-shaped
+        profiles no longer hold the robot's ceiling down - that was
+        AURION's own throttle wearing the firm's name, and it is the
+        reported "prop mode reduces the trade count". See
+        PropEngine.counts_capped().
+        """
+        prop = getattr(self, "prop", None)
+        if not getattr(prop, "enabled", False):
+            return False
+        try:
+            return bool((prop.profile or {}).get("throttle_entries"))
+        except Exception:
+            return False
+
     def _per_symbol_cap(self) -> int:
         """How many positions may share one symbol (prop wins when armed)."""
-        if getattr(self.prop, "enabled", False):
+        if self._prop_caps_count():
             try:
                 return max(1, int((self.prop.profile or {}).get("max_positions_per_symbol") or 1))
             except (TypeError, ValueError):
@@ -2631,7 +2701,7 @@ class Trader:
 
     def _total_cap(self) -> int:
         cap = max(1, int(getattr(self, "max_open_trades", 2) or 2))
-        if getattr(self.prop, "enabled", False):
+        if self._prop_caps_count():
             try:
                 cap = min(cap, max(1, int((self.prop.profile or {}).get("max_open_trades") or cap)))
             except (TypeError, ValueError):
@@ -4258,6 +4328,7 @@ class Trader:
                 await self.journal("warning", "news", f"News window blocked the order: {why}")
                 return {"ok": False, "error": why}
         gate = self.prop.allow_order(request, self.bridge.account.to_dict(), [p.to_dict() for p in self.bridge.positions])
+        await self._announce_prop_check(request, gate)
         if not gate.get("ok"):
             why = gate.get("error") or "blocked"
             self.store.log_event("warning", why, "logs.rule_block", request)

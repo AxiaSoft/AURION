@@ -2418,6 +2418,46 @@ function announceSignal(sig) {
   if (prefs.windows) notifyHost(sig);
 }
 
+/* The prop verdict on one order, announced both ways.
+ *
+ * Asked for: tell me when the prop rules stop a trade, and tell me when
+ * they let one through. Only the refusal used to leave a trace, and it
+ * left it in the robot log - a page nobody has open while they are
+ * watching a chart - so "prop is eating my trades" and "prop is quietly
+ * doing its job" looked identical from the desk.
+ *
+ * A pass is information, not an alarm: card only, no chime, so the
+ * sounds that mean a real fill keep meaning it. A refusal takes the
+ * ordinary notice sound, because a trade that did not happen is the
+ * expensive one to miss. */
+function announcePropCheck(d) {
+  if (!d || typeof d !== "object") return;
+  const key = [d.ts, d.symbol, d.side, d.volume, d.ok, d.why].join("|");
+  if (S._lastPropCheckKey === key) return;
+  S._lastPropCheckKey = key;
+  const stack = $("notify-stack");
+  if (!stack) return;
+  stack.hidden = false;
+  const ok = Boolean(d.ok);
+  const prefs = notifyPrefs();
+  if (!ok) playSound(prefs.notice, prefs.volume, "notice");
+  const id = "prop-" + (d.ts || Date.now());
+  const card = document.createElement("article");
+  card.className = "notify-card prop-card " + (ok ? "is-pass" : "is-block");
+  card.setAttribute("data-nid", id);
+  const line = [String(d.side || "").toUpperCase(), d.symbol || "", d.volume ? String(d.volume) : ""]
+    .filter(Boolean).join(" ");
+  card.innerHTML =
+    `<button type="button" class="n-x" data-nx="${esc(id)}" aria-label="${esc(I18N.t("notify.dismiss"))}">${icon("close")}</button>` +
+    `<h4>${esc(I18N.t(ok ? "notify.prop_pass" : "notify.prop_stop"))}</h4>` +
+    `<p class="sub">${esc(line)}</p>` +
+    (ok ? "" : `<p class="sub n-only">${esc(String(d.why || ""))}</p>`);
+  stack.prepend(card);
+  bindDismiss(card);
+  while (stack.children.length > 4) stack.lastElementChild.remove();
+  autoDismiss(card);
+}
+
 function documentHidden() {
   try {
     // The host tells us when its window is minimised; the Page Visibility API
@@ -7188,7 +7228,18 @@ function propFormHtml() {
           <label class="pr-check"><input type="checkbox" id="pr-we" ${pr.allow_weekend ? "checked" : ""}/><span>${I18N.t("risk.weekend")}</span></label>
           <label class="pr-check"><input type="checkbox" id="pr-hold" ${pr.allow_hold_over_weekend ? "checked" : ""}/><span>${I18N.t("risk.hold_weekend")}</span></label>
           <label class="pr-check"><input type="checkbox" id="pr-hedge" ${pr.hedging_allowed !== false ? "checked" : ""}${dis}/><span>${I18N.t("risk.hedge")}</span></label>
+          <!-- The count limits are a switch of their own now.
+               Reported: arming a prop profile cut the number of trades
+               the robot took. Five of the rules above count tickets
+               rather than money - open trades, per symbol, per day, the
+               gap, the losing streak - and no funded-account rulebook
+               contains any of them. They are house style, so they are
+               opt-in, and the firm-shaped presets ship with them off.
+               The boxes stay visible and keep their numbers; this says
+               whether those numbers are being enforced. -->
+          <label class="pr-check"><input type="checkbox" id="pr-throttle" ${pr.throttle_entries ? "checked" : ""}${dis}/><span>${I18N.t("risk.throttle")}</span></label>
         </div>
+        <p class="sub pr-throttle-note">${I18N.t(pr.throttle_entries ? "risk.throttle_on" : "risk.throttle_off")}</p>
       </section>
     </fieldset>
     ${locked ? "" : `<div class="pr-save"><button class="btn block" id="pr-save" type="button">${I18N.t("risk.save")}</button></div>`}`;
@@ -11608,6 +11659,7 @@ function customPropPayload() {
     news_blackout_before: +($("pr-nb")?.value || 15),
     news_blackout_after: +($("pr-na")?.value || 15),
     hedging_allowed: Boolean($("pr-hedge")?.checked),
+    throttle_entries: Boolean($("pr-throttle")?.checked),
   };
 }
 
@@ -12720,9 +12772,39 @@ function watchBacktest() {
     headerState();
   }, 5000);
 }
+/**
+ * Finished trades only.
+ *
+ * Entry rows used to be listed too, so a trade appeared the moment it
+ * opened. What appeared was a row with no close time, no close price,
+ * no profit, no swap, no commission and no net - nine of the
+ * seventeen columns empty - sorted in among the finished trades as
+ * though it were one of them. It cannot be read, it cannot be checked
+ * against the broker's statement, and it looks like a bug.
+ *
+ * The engine answers with closed rows now; this is the second gate,
+ * for a desk talking to an engine that has not been updated yet, and
+ * for the legacy rows that carry no kind at all.
+ */
 function historyRows(rows) {
-  // Entries and closes both appear, so a trade shows up the moment it opens.
-  return Array.isArray(rows) ? rows : [];
+  if (!Array.isArray(rows)) return [];
+  return rows.filter((row) => {
+    const kind = String(row.kind || row.entry || "").toLowerCase();
+    if (kind === "in" || kind === "entry") return false;
+    if (kind === "out" || kind === "inout" || kind === "close") return true;
+    /* No kind: rows written by older builds. The engine's rule for
+       those is "it moved money" (store._is_close_row), and this is the
+       same rule, widened to swap and commission so it can never be
+       STRICTER than the engine's - the engine filters first, so a row
+       that reaches here has already been judged finished once, and a
+       second, tighter opinion would delete it from the table while
+       leaving it in the ledger. The backend export runs the identical
+       rule (excel.isFinishedTrade): two definitions of a finished
+       trade would mean the table and the spreadsheet disagreeing about
+       which rows exist. */
+    return [row.profit, row.net, row.swap, row.commission]
+      .some((v) => v !== null && v !== undefined && v !== "" && Number(v) !== 0);
+  });
 }
 
 /**
@@ -13939,6 +14021,9 @@ function onLive(msg) {
     if ("kill_switch" in d) S.snap.kill_switch = d.kill_switch;
     if ("safe_mode" in d) S.snap.safe_mode = d.safe_mode;
     scheduleSync();
+  }
+  if (msg.type === "prop_check") {
+    announcePropCheck(msg.data || msg);
   }
   if (msg.type === "signal") {
     S.snap = S.snap || {};
