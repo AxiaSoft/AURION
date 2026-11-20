@@ -348,6 +348,60 @@ class MT5Bridge:
             "tape": self.tape_mode(),
             "open_positions": len(self.positions),
             "pending_orders": len(self.orders),
+            "link": self.link_status(),
+        }
+
+    def link_status(self) -> dict[str, Any]:
+        """How this desk is joined to the broker, in the desk's words.
+
+        Two routes exist and they are not interchangeable:
+
+          direct  - the engine logged into the account itself with the
+                    number, the server and a password. It needs the
+                    MetaTrader5 Python package, so it is Windows only.
+          expert  - AurionBridge running on a chart inside MetaTrader,
+                    which is what most desks use.
+
+        The desk used to be told only "mt5: live", which is true of both
+        and useful for neither: a trader looking at a dead chart cannot
+        tell whether the terminal is logged out or the expert was never
+        attached, and a trader on an investor password cannot tell why
+        a perfectly healthy connection refuses to place an order.
+
+        can_trade is the honest answer to "will a signal become an
+        order". On a direct link it is the broker's own verdict -
+        trade_allowed is false for an investor password - and on the
+        expert route it is whether a live chart is actually attached.
+        """
+        acc = self.account
+        if self.native.connected:
+            route = "direct"
+            can_trade = bool(acc.trade_allowed)
+            # An investor password logs in perfectly and then refuses
+            # every order. The account reads back with trading off while
+            # the terminal itself is happy, which is the one shape the
+            # desk can tell apart from a terminal in read-only mode.
+            reason = "" if can_trade else "read_only"
+        elif self._ea_clients or self._http_live():
+            route = "expert"
+            can_trade = len(self.online_agents(include_tester=False)) > 0
+            reason = "" if can_trade else "tester_only"
+        else:
+            route = "none"
+            can_trade = False
+            reason = "offline"
+        return {
+            "route": route,
+            "can_trade": can_trade,
+            "reason": reason,
+            "login": int(acc.login or 0),
+            "server": str(acc.server or ""),
+            "company": str(acc.company or ""),
+            "currency": str(acc.currency or ""),
+            "leverage": int(acc.leverage or 0),
+            "account_type": str(acc.account_type or ""),
+            "account_label": str(acc.account_label or ""),
+            "native_package": NATIVE_AVAILABLE,
         }
 
     def snapshot_full(self) -> dict[str, Any]:
@@ -747,6 +801,17 @@ class MT5Bridge:
         server = creds.get("server") or cfg["mt5"].get("server") or ""
         timeout = int(cfg["mt5"].get("timeout_ms") or 10000)
         portable = bool(cfg["mt5"].get("portable"))
+        # Checked here rather than left to the terminal. Without a
+        # number and a server MetaTrader attaches to whichever account
+        # the terminal happens to be logged into, which is how a desk
+        # ends up showing a different account's equity and nobody can
+        # see why.
+        if login and not server:
+            return {"ok": False, "error": "the broker's server name is missing - it is on the same line as the account number in the broker's email", "reason": "no_server"}
+        if server and not login:
+            return {"ok": False, "error": "the account number is missing", "reason": "no_login"}
+        if login and not password:
+            return {"ok": False, "error": "the account password is missing", "reason": "no_password"}
         ok, message = await asyncio.to_thread(
             self.native.initialize, path, login, password, server, timeout, portable
         )
@@ -764,7 +829,10 @@ class MT5Bridge:
         await self._refresh_tape_view(prev_tape)
         await self.emit("status", self.snapshot_status)
         await self.emit("log", {"level": "info", "lang_key": "logs.connected", "message": "native MT5 connected"})
-        return {"ok": True, "account": self.account.to_dict()}
+        # The link goes back with the account: whether this login can
+        # trade is decided at connect time, and the desk should be able
+        # to say so without waiting for the next status broadcast.
+        return {"ok": True, "account": self.account.to_dict(), "link": self.link_status()}
 
     async def disconnect_native(self) -> None:
         prev_tape = self.active_tape()
@@ -1673,6 +1741,37 @@ class MT5Bridge:
 
     async def send_order(self, request: dict[str, Any]) -> dict[str, Any]:
         if self.native.connected:
+            # An investor password logs in, streams prices and account
+            # figures perfectly, and refuses every order. Letting the
+            # request through returns retcode 10027 ("autotrading
+            # disabled by client terminal") or 10018, which is a number
+            # the trader cannot act on and which blames the terminal for
+            # a password choice. Refused here instead, with the reason,
+            # before anything is sent.
+            if not self.account.trade_allowed:
+                # Two different causes read back the same way on the
+                # account, so the terminal is asked which one it is
+                # rather than guessing. Naming the wrong one sends the
+                # trader to re-enter a password that was never the
+                # problem.
+                term = await asyncio.to_thread(self.native.terminal_info)
+                terminal_off = term is not None and term.get("trade_allowed") is False
+                result = {
+                    "ok": False,
+                    "error": (
+                        "MetaTrader itself is not accepting orders - the AutoTrading button "
+                        "in the terminal is off. Switch it on and try again."
+                        if terminal_off else
+                        "this login is read-only - it was opened with the investor password, "
+                        "so the broker will not accept orders from it. Reconnect with the "
+                        "master password, or let AurionBridge place the orders."
+                    ),
+                    "reason": "autotrading_off" if terminal_off else "read_only",
+                    "routed": "none",
+                    "route": "direct",
+                }
+                await self.emit("order_result", result)
+                return result
             built = self._to_native_request(request)
             if not built.get("ok", True) and "error" in built:
                 return built

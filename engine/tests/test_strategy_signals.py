@@ -20,7 +20,7 @@ import random
 
 import pytest
 
-from aurion.signals.strategy_signals import WARMUP_BARS, replay
+from aurion.signals.strategy_signals import MAX_MARKS, WARMUP_BARS, replay
 from aurion.strategy.base import BaseStrategy, StrategySignal
 
 
@@ -251,9 +251,39 @@ def test_the_kept_instance_is_the_most_confident_one():
 
 
 def test_the_chart_is_never_flooded():
+    """REWRITTEN, because the ceiling it pinned was the reported bug.
+
+    This asserted 60 marks. The 60 came from ``_dedupe`` ending in
+    ``return kept[-60:]`` - a slice, not a thinning - and a slice of
+    the END of a sorted list is exactly the complaint the customer
+    made: signals only ever appear at the right-hand edge of the
+    chart, never earlier in the month. Six months of history produced
+    sixty marks, all of them in the last few days.
+
+    The flood it was guarding against is real and still guarded. The
+    cap is now ``MAX_MARKS``, applied by ``thin_marks`` which drops
+    marks evenly across the whole span instead of keeping the tail, so
+    a wide chart stays readable AND stays populated end to end.
+
+    Written against the constant, not against the number: a literal
+    here is a second place to edit and a silent disagreement waiting
+    to happen.
+    """
     out = replay(series(2000), [("always", Always())], "EURUSD", "M15", window=1500,
                  budget_seconds=30)
-    assert len(out["signals"]) <= 60
+    marks = out["signals"]
+    assert len(marks) <= MAX_MARKS
+
+    # and they span the replayed window rather than bunching at one end.
+    # window=1500 of 2000 bars, so the first bar that can carry a mark is
+    # 500 - measuring against 0 would be measuring the window, not the
+    # bunching.
+    idx = [m["index"] for m in marks]
+    assert idx, "no marks at all"
+    first, last = 500, 1999
+    span = last - first
+    assert min(idx) < first + span * 0.25, f"the earliest mark is at bar {min(idx)} of {first}..{last}"
+    assert max(idx) > first + span * 0.75, f"the latest mark is at bar {max(idx)} of {first}..{last}"
 
 
 # -------------------------------------------------------------- the budget --

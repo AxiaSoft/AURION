@@ -4532,6 +4532,23 @@ function patchLive() {
     if (msg && !typing()) {
       msg.textContent = mt.last_error || (mt.connected ? I18N.t("status.mt5_live") : I18N.t("status.mt5_down"));
     }
+    /* The connection card is live. It is the one card on this page
+       whose facts change without anybody clicking - a terminal is
+       closed, an expert is detached, a login is swapped - and a card
+       that states them only at render time is a card that lies for as
+       long as the page stays open. Rebuilt only when something in it
+       actually moved, or every poll would blow away a half-typed
+       field next to it. */
+    const linkCard = document.querySelector(".broker-link");
+    if (linkCard) {
+      const lk = mt.link || {};
+      const key = [lk.route, lk.can_trade, lk.reason, lk.login, lk.server,
+        lk.company, lk.leverage, lk.native_package, I18N.lang].join("|");
+      if (S._linkKey !== key) {
+        S._linkKey = key;
+        linkCard.outerHTML = brokerLinkHtml();
+      }
+    }
     const pstat = S.snap?.prop || {};
     const pprof = pstat.profile || {};
     const st = $("risk-state");
@@ -6754,6 +6771,65 @@ function paintPropMeter(id, used, limit) {
   box.classList.toggle("is-over", lim > 0 && pct >= 100);
 }
 
+/**
+ * The broker connection, said in full.
+ *
+ * The desk used to answer "is MetaTrader connected" with one green dot,
+ * which is true of two completely different arrangements and useful for
+ * neither. A trader looking at a dead chart could not tell whether the
+ * terminal was logged out or the expert had never been attached, and a
+ * trader whose signals quietly never became orders had nowhere to find
+ * out that the password they saved was the investor one.
+ *
+ * So: which route, which account, on which server, and - the question
+ * the green dot was standing in for - whether an order sent down this
+ * link would actually be accepted.
+ */
+function brokerLinkHtml() {
+  const link = (S.snap && S.snap.mt5 && S.snap.mt5.link) || {};
+  const route = link.route || "none";
+  const routeLabel = I18N.t(
+    route === "direct" ? "settings.link_direct"
+      : route === "expert" ? "settings.link_expert"
+        : "settings.link_none");
+  const canTrade = Boolean(link.can_trade);
+  /* The reason is named by the engine, not guessed here: only the
+     engine can tell an investor password from a terminal with
+     AutoTrading switched off, and a desk that guesses sends the trader
+     to change the wrong thing. */
+  const why = canTrade
+    ? I18N.t("settings.link_can_trade")
+    : I18N.t("settings.link_" + (link.reason === "read_only" ? "read_only"
+      : link.reason === "tester_only" ? "tester_only" : "offline"));
+
+  const row = (label, value) => (value
+    ? `<div class="kv"><span>${esc(label)}</span><b class="mono">${esc(value)}</b></div>`
+    : "");
+  const facts = [
+    row(I18N.t("settings.link_account"), link.login ? String(link.login) : ""),
+    row(I18N.t("settings.link_server"), link.server || ""),
+    row(I18N.t("settings.link_company"), link.company || ""),
+    row(I18N.t("settings.link_leverage"), link.leverage ? "1:" + link.leverage : ""),
+  ].join("");
+
+  /* Said only where it is true. On Windows the package is there and the
+     note is noise; on anything else the direct-login fields below are a
+     dead end, and saying nothing leaves the trader filling them in. */
+  const noPackage = link.native_package === false
+    ? `<p class="sub">${esc(I18N.t("settings.link_no_package"))}</p>` : "";
+
+  return `<div class="card broker-link" data-route="${esc(route)}">
+    <h3>${esc(I18N.t("settings.link_title"))}</h3>
+    <div class="kv"><span>${esc(I18N.t("settings.link_route"))}</span>
+      <b><span class="st-chip" data-state="${route === "none" ? "down" : "live"}">${esc(routeLabel)}</span></b></div>
+    ${facts}
+    <div class="kv"><span>${esc(I18N.t("settings.link_trading"))}</span>
+      <b><span class="st-chip" id="link-trade" data-state="${canTrade ? "live" : "down"}">${esc(I18N.t(canTrade ? "exec.auto_on" : "status.mt5_down"))}</span></b></div>
+    <p class="sub" id="link-why">${esc(why)}</p>
+    ${noPackage}
+  </div>`;
+}
+
 function propStatusHtml() {
   const p = S.snap?.prop || {};
   const pr = p.profile || {};
@@ -8266,6 +8342,7 @@ const views = {
         licFeat("prop") ? `${propStatusHtml()}${propFormHtml()}${propGuideHtml()}` : lockedUpgradeCard("prop"))}
 
       ${block("set-mt5", "MetaTrader 5", I18N.t("settings.why_mt5"), `
+        ${brokerLinkHtml()}
         <div class="card">
           <!-- Rendered with their text, not with an empty <span data-i18n>
                filled in afterwards by I18N.apply(). These four were the
@@ -8280,6 +8357,7 @@ const views = {
             <input id="s-server" autocomplete="off" spellcheck="false" /></label>
           <label class="field"><span>${esc(I18N.t("settings.mt5_password"))}</span>
             <input id="s-pass" type="password" autocomplete="current-password" /></label>
+          <p class="sub">${esc(I18N.t("settings.mt5_password_hint"))}</p>
           <p class="sub">${esc(I18N.t("settings.password_note"))}</p>
           <div class="row stx-acts">
             <button class="btn" id="s-save" type="button">${I18N.t("settings.save")}</button>
