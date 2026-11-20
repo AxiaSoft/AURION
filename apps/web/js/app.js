@@ -1312,15 +1312,11 @@ function themeBuilderHtml() {
                drag writes the variable straight onto <html> and these bars
                restyle on the same frame. A canvas would have had to be told
                to repaint, and there is no chart on the settings page to
-               repaint anyway. -->
-          <div class="cndl-prev" id="cndl-prev" aria-hidden="true">
-            ${[
-              ["up", 34, 62, 10], ["up", 22, 48, 14], ["down", 30, 44, 12],
-              ["up", 18, 70, 8], ["down", 40, 36, 16], ["down", 26, 52, 11],
-              ["up", 20, 58, 13], ["up", 30, 46, 9],
-            ].map(([dir, top, body, wick]) =>
-              `<i class="cndl is-${dir}" style="--t:${top}%;--h:${body}%;--w:${wick}%"></i>`).join("")}
-          </div>
+               repaint anyway.
+
+               The SHAPES are the trader's own last bars - see
+               candlePreviewHtml. -->
+          ${candlePreviewHtml()}
           <div class="col-rows">
             ${colourRow("candle_up", I18N.t("themes.c_candle_up"), I18N.t("themes.c_candle_up_hint"))}
             ${colourRow("candle_down", I18N.t("themes.c_candle_down"), I18N.t("themes.c_candle_down_hint"))}
@@ -1463,6 +1459,116 @@ function markThemeCards() {
     renderSettingsKnobs();
   }
   paintCustomPreview();
+}
+
+/* ------------------------------------------------- the candle preview ----
+
+   Eight invented rectangles used to stand in for the chart.
+
+   They were invented well - irregular bodies, irregular wicks - and
+   they were still wrong for the job, because the question being asked
+   at that moment is "will I be able to read my chart in these two
+   colours", and the answer depends on the instrument. A pair that
+   separates cleanly on EURUSD's small, even M15 bodies can collapse on
+   gold's long wicks and gaps, and a made-up sequence cannot show that.
+
+   So the preview is the trader's own last bars, at the symbol and
+   timeframe they are actually looking at, scaled into the strip. When
+   no chart has loaded - no expert attached, settings opened first -
+   the invented sequence is still there, and it says that it is an
+   example rather than quietly passing itself off as the market. */
+
+/** The fallback: a plausible sequence, used only when there are no bars. */
+const CANDLE_SAMPLE = [
+  ["up", 34, 62, 24, 84], ["up", 22, 48, 8, 76], ["down", 30, 44, 18, 68],
+  ["up", 18, 70, 10, 86], ["down", 40, 36, 24, 68], ["down", 26, 52, 15, 74],
+  ["up", 20, 58, 7, 84], ["up", 30, 46, 21, 64],
+];
+
+const CANDLE_PREVIEW_BARS = 14;
+
+/**
+ * The last few real bars as percentages of the strip.
+ *
+ * Returns [] rather than something approximate when there is nothing
+ * to draw: a preview built from one bar, or from bars that are all the
+ * same price, is a picture of nothing and the sample is a better
+ * answer than a flat line.
+ */
+function candlePreviewShapes() {
+  const rows = (S.candles || []).slice(-CANDLE_PREVIEW_BARS);
+  if (rows.length < 4) return [];
+  /* Engine bars arrive as {o,h,l,c}; the candles API speaks
+     {open,high,low,close}. Both reach S.candles depending on which
+     path filled it, so both are read. */
+  const num = (bar, a, b) => {
+    const v = bar[a] !== undefined ? bar[a] : bar[b];
+    return typeof v === "number" ? v : Number(v);
+  };
+  const bars = rows.map((b) => ({
+    o: num(b, "o", "open"), h: num(b, "h", "high"),
+    l: num(b, "l", "low"), c: num(b, "c", "close"),
+  })).filter((b) => [b.o, b.h, b.l, b.c].every((v) => isFinite(v)));
+  if (bars.length < 4) return [];
+
+  const hi = Math.max(...bars.map((b) => b.h));
+  const lo = Math.min(...bars.map((b) => b.l));
+  const range = hi - lo;
+  if (!(range > 0)) return [];
+
+  const pct = (price) => ((hi - price) / range) * 100;
+  return bars.map((b) => {
+    const top = Math.max(b.o, b.c);
+    const bottom = Math.min(b.o, b.c);
+    /* A doji is a real candle and has to stay visible: a body of zero
+       height renders as nothing at all, and a strip with gaps in it
+       reads as a drawing bug rather than as a market that closed where
+       it opened. */
+    const bodyTop = pct(top);
+    const bodyH = Math.max(1.5, pct(bottom) - bodyTop);
+    return [
+      b.c >= b.o ? "up" : "down",
+      bodyTop, bodyH,
+      pct(b.h), Math.max(bodyH, pct(b.l) - pct(b.h)),
+    ];
+  });
+}
+
+function candlePreviewHtml() {
+  const real = candlePreviewShapes();
+  const shapes = real.length ? real : CANDLE_SAMPLE;
+  const f = S.chartFocus || {};
+  /* Named, because an unlabelled strip of bars invites the reading
+     "this is what your chart looks like" whichever it is. */
+  const caption = real.length
+    ? I18N.t("themes.candles_live")
+      .replace("{symbol}", f.symbol || S.symbol || "")
+      .replace("{tf}", f.timeframe || S.timeframe || "")
+      .replace("{n}", String(real.length))
+    : I18N.t("themes.candles_sample");
+  const bars = shapes.map(([dir, t, h, wt, wh]) =>
+    `<i class="cndl is-${dir}" style="--t:${t.toFixed(2)}%;--h:${h.toFixed(2)}%;`
+    + `--wt:${wt.toFixed(2)}%;--wh:${wh.toFixed(2)}%"></i>`).join("");
+  return `<div class="cndl-prev" id="cndl-prev" aria-hidden="true" data-real="${real.length ? "1" : "0"}">${bars}</div>
+    <p class="sub cndl-cap" id="cndl-cap">${esc(caption)}</p>`;
+}
+
+/** Redraw the strip in place when new bars arrive. */
+function paintCandlePreview() {
+  const strip = $("cndl-prev");
+  if (!strip) return;
+  const real = candlePreviewShapes();
+  /* Keyed on the bars themselves: the settings page polls, and
+     rebuilding this every second would restart the colour picker's
+     hover and fight the drag that is choosing the colour. */
+  const key = real.length
+    ? real.map((r) => r.join(",")).join("|")
+    : "sample";
+  if (S._cndlKey === key) return;
+  S._cndlKey = key;
+  const cap = $("cndl-cap");
+  strip.outerHTML = candlePreviewHtml();
+  if (cap) cap.remove();
 }
 
 /* The custom miniature follows its own knobs live, so the card in the grid is
@@ -4539,6 +4645,9 @@ function patchLive() {
        long as the page stays open. Rebuilt only when something in it
        actually moved, or every poll would blow away a half-typed
        field next to it. */
+    /* The candle strip is the trader's own last bars, and bars keep
+       arriving while the settings page is open. */
+    paintCandlePreview();
     const linkCard = document.querySelector(".broker-link");
     if (linkCard) {
       const lk = mt.link || {};
@@ -14425,20 +14534,31 @@ async function playWelcome() {
   let settled = false;
   let safety = 0;
   return new Promise((resolve) => {
+    /* The clip is over - but the curtain STAYS UP.
+
+       This used to fade the overlay out and hide it here, and that was
+       the flash the trader reported. boot() only starts building the
+       next screen after this promise settles, and the first thing it
+       does is await a network call, so the fade revealed the bare
+       shell: no nav, no cards, the page's own background, for as long
+       as the engine took to answer. Then the desk appeared on top of
+       it. A loading screen that ends before the thing it is covering
+       exists is not a loading screen.
+
+       dismissWelcome() lifts it, and boot calls that only once the gate
+       or the desk is actually painted. */
     const done = () => {
       if (settled) return;
       settled = true;
       clearTimeout(safety);
       try { clearInterval(stall); } catch (e) { /* not armed yet */ }
-      try {
-        if (vid) { vid.pause(); vid.removeAttribute("src"); vid.load(); }
-      } catch { /* */ }
-      wrap.classList.add("out");
-      setTimeout(() => {
-        wrap.hidden = true;
-        wrap.classList.remove("out");
-        resolve();
-      }, 700);
+      /* Paused, not torn down. Clearing src makes the element blank
+         and the overlay drops to a flat colour - a second, smaller
+         flash in the middle of the one being fixed. The last frame
+         stays on screen and the element is released in
+         dismissWelcome, after the fade has covered it. */
+      try { if (vid) vid.pause(); } catch (e) { /* already gone */ }
+      resolve();
     };
     if (skip) {
       skip.textContent = I18N.t("welcome.skip");
@@ -14461,7 +14581,7 @@ async function playWelcome() {
       if (e.target.closest("#welcome-skip")) return;
       unmute();
     });
-    if (!vid) { wrap.hidden = true; resolve(); return; }
+    if (!vid) { resolve(); return; }
     const sources = welcomeSrcList();
     let i = 0;
     /* A ceiling, and a stall watchdog underneath it.
@@ -14502,7 +14622,10 @@ async function playWelcome() {
     };
     const tryPlay = () => {
       if (settled) return;
-      if (i >= sources.length) { wrap.hidden = true; resolve(); return; }
+      /* No clip on disk is not a reason to show the trader an
+         unpainted desk. The curtain stays, plain, and lifts with
+         everything else. */
+      if (i >= sources.length) { resolve(); return; }
       const src = sources[i++];
       vid.onerror = () => tryPlay();
       vid.onended = done;
@@ -14538,6 +14661,40 @@ async function playWelcome() {
     tryPlay();
     safety = setTimeout(done, WELCOME_CEILING_MS);
   });
+}
+
+/**
+ * Lift the loading curtain, once there is something behind it.
+ *
+ * Deliberately separate from playWelcome. The clip finishing and the
+ * desk being ready are two different events, and the overlay has to
+ * wait for the later of them or the trader sees the gap between.
+ *
+ * The two frames are not superstition. Setting .hidden on the screen
+ * that was just rendered is not enough: the browser has been handed
+ * new markup but has not painted it yet, so lifting the curtain in the
+ * same task can still show one frame of nothing. One frame to let the
+ * layout happen, one to let it paint, then the fade.
+ */
+/* How long the curtain may wait for a desk that is not arriving. Long
+   enough for a slow engine to answer, short enough that a broken boot
+   is a visible broken desk rather than a frozen splash. */
+const WELCOME_HOLD_MS = 8000;
+let welcomeLifted = false;
+async function dismissWelcome() {
+  if (welcomeLifted) return;
+  welcomeLifted = true;
+  const wrap = $("welcome");
+  if (!wrap || wrap.hidden) return;
+  await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+  wrap.classList.add("out");
+  await new Promise((r) => setTimeout(r, 700));
+  wrap.hidden = true;
+  wrap.classList.remove("out");
+  // Now the element can go: it is off screen, and a decoded video left
+  // in the page costs memory for the rest of the session.
+  const vid = $("welcome-vid");
+  try { if (vid) { vid.pause(); vid.removeAttribute("src"); vid.load(); } } catch (e) { /* */ }
 }
 
 /* ---------------------------------------------------------------- update --
@@ -15528,11 +15685,35 @@ async function boot() {
   S._gateLic = lic;
   await welcome;
 
-  if (lic && lic.premium) {
-    if (upd.updated) await showUpdateWelcome(S.version, upd.from);
-    return licenseSessionEnter("auto", lic);
+  /* A curtain that is waiting for the desk must never be able to wait
+     forever. Everything below can fail - the licence session, the
+     settings fetch inside enterDesk, a render - and a failure that
+     leaves the overlay up hides the desk completely, which is far
+     worse than the flash being fixed. Two backstops: an absolute
+     timer, and a finally. */
+  const curtainTimer = setTimeout(() => { dismissWelcome(); }, WELCOME_HOLD_MS);
+  try {
+    if (lic && lic.premium) {
+      if (upd.updated) {
+        /* The update screen is something to read and dismiss, so the
+           curtain has to come up BEFORE it - behind the overlay it
+           would be an invisible dialog waiting for a click nobody can
+           give. */
+        await dismissWelcome();
+        await showUpdateWelcome(S.version, upd.from);
+        await licenseSessionEnter("auto", lic);
+        return;
+      }
+      /* Paint the desk first, lift the curtain second. The other order
+         is the reported flash. */
+      await licenseSessionEnter("auto", lic);
+      return;
+    }
+    showGate(lic);
+  } finally {
+    clearTimeout(curtainTimer);
+    await dismissWelcome();
   }
-  showGate(lic);
 }
 
 boot();

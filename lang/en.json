@@ -1787,6 +1787,8 @@
     "c_ink_hint": "Headings and body text.",
     "candles_title": "Candle colours",
     "candles_hint": "Every theme ships its own pair, chosen to read on its own chart background. Change them here to override that theme's; the preview updates as you choose, and profit and loss figures across the desk follow the same pair.",
+    "candles_live": "Your own last {n} bars — {symbol} {tf}.",
+    "candles_sample": "Example shape — no chart has loaded yet, so these bars are not your market.",
     "c_candle_up": "Up",
     "c_candle_up_hint": "Rising candles, and every profit figure",
     "c_candle_down": "Down",

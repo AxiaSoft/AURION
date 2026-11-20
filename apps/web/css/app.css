@@ -3561,10 +3561,15 @@ html[dir="rtl"] .q-how[open] summary::before{ transform:rotate(0deg) }
 .cndl{
   position:relative;flex:1 1 0;min-width:0;align-self:stretch;
 }
-/* The wick: a hairline through the full height of the bar's span. */
+/* The wick: a hairline from the bar's high to its low.
+
+   It used to be derived from the body - one --w either side - which
+   is only ever right for a symmetrical candle. Real bars are mostly
+   not: a rejection is a long wick on ONE side, and that shape is
+   exactly what a trader is looking for when they judge whether two
+   colours are readable. Top and height are given outright now. */
 .cndl::before{
-  content:"";position:absolute;inset-block:calc(var(--t) - var(--w)) auto;
-  height:calc(var(--h) + var(--w) * 2);
+  content:"";position:absolute;top:var(--wt);height:var(--wh);
   inset-inline-start:50%;width:2px;transform:translateX(-50%);
   border-radius:2px;background:currentColor;opacity:.75;
 }
@@ -3574,6 +3579,7 @@ html[dir="rtl"] .q-how[open] summary::before{ transform:rotate(0deg) }
   top:var(--t);height:var(--h);
   border-radius:3px;background:currentColor;
 }
+.cndl-cap{margin:-6px 0 12px;font-size:11px;opacity:.75}
 .cndl.is-up{color:var(--candle-up)}
 .cndl.is-down{color:var(--candle-down)}
 @media (max-width:560px){
