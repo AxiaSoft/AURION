@@ -1141,7 +1141,12 @@
     "remind_more": "and {n} more in the same window",
     "remind_stale": "The economic calendar has not updated — every release in it has already passed, so there is nothing to remind you about. Open the Calendar tab and refresh it.",
     "remind_on": "News reminder on.",
-    "remind_off": "News reminder off."
+    "remind_off": "News reminder off.",
+    "bt_title": "Test the robot on this period",
+    "bt_hint": "Replays your strategy over real bars from the period you pick, and reports every trade it would have taken.",
+    "bt_day": "This day",
+    "bt_week": "This week",
+    "bt_month": "This month"
   },
   "news": {
     "nfp": "Non-Farm Payrolls",
@@ -1370,7 +1375,9 @@
     "replay_outside": "The bar being replayed is outside the history this desk holds.",
     "prov_lot_auto": "lot: automatic (the strategy's own)",
     "prov_lot_manual": "lot: fixed at",
-    "prov_max_open": "max open"
+    "prov_max_open": "max open",
+    "t_lots": "Lots",
+    "t_pips": "Pips"
   },
   "chart": {
     "regime_hint": "The slider above shows direction and regime per chart — move between charts with the arrows.",

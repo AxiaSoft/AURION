@@ -2701,12 +2701,16 @@ function bindHostBridge() {
 }
 
 
-/* The calendar's hover peek is parented to <body>, so it survives the view
-   it describes; the desk hides it on every view change. It can no longer be
-   pinned, so there is no pinned state left to unwind. */
+/* The calendar's hover peek is gone - a day is clicked now, and the click
+   fills the day panel, which lives inside the view and leaves with it.
+
+   This is kept, and still called on every view change, because the peek
+   was parented to <body>: a desk left open across the update has one
+   stranded on the page with no handler left to remove it. Calendar.unpin
+   does the removal; this is the sweep for the case where calendar.js
+   never loaded. */
 function dismissCalendarCard() {
-  const tip = document.getElementById("cal-tip");
-  if (tip) tip.hidden = true;
+  document.getElementById("cal-tip")?.remove();
   try { if (window.Calendar && typeof Calendar.unpin === "function") Calendar.unpin(); } catch {}
 }
 
@@ -10405,61 +10409,19 @@ function bindView(view) {
       requestAnimationFrame(() => drawEquityCurve(btNow.equity_curve.map(Number).filter((x) => Number.isFinite(x))));
     }
     const goBt = $("h-bt");
-    if (goBt) goBt.onclick = async () => {
-      if (S._btBusy) return;
-      const symbol = String($("bt-sym")?.value || S.symbol || "").trim();
-      const timeframe = String($("bt-tf")?.value || S.timeframe || "M15");
+    if (goBt) goBt.onclick = () => {
+      const stSel = $("bt-st");
       // An uploaded strategy is not a builtin, and saying it is was the
       // whole of "unknown builtin strategy 'my_strategy'" on a file that
       // had uploaded, loaded and armed perfectly. The engine already
       // reports each strategy's kind; carry it instead of assuming.
-      const stSel = $("bt-st");
-      const name = String(stSel?.value || "ema_rsi");
       const stOpt = stSel ? stSel.options[stSel.selectedIndex] : null;
-      const kind = String((stOpt && stOpt.dataset && stOpt.dataset.kind) || "builtin");
-      if (!symbol || !liveSymbols().some((x) => x.symbol === symbol)) {
-        toast(I18N.t("exec.no_ea_symbol"));
-        return;
-      }
-      S._btBusy = true;
-      setBacktestBusy(true, 0);
-      S.backtest = { running: true, mode: "backtest", symbol, timeframe, strategy: name, progress: 0 };
-      // Put the live panel up and scroll to it immediately. The run is
-      // watched in the same place the result will appear, so the trader
-      // never has to hunt for either.
-      paintBacktestResults(S.backtest, { reveal: true });
-      headerState();
-      try {
-        // The engine accepts the run and answers at once; the result
-        // arrives over the socket. Waiting on this request was the whole
-        // bug: a replay longer than the proxy's 25 second patience came
-        // back as "engine offline" after finishing perfectly.
-        const r = await API.post("/api/backtest", {
-          symbol,
-          timeframe,
-          strategy: { kind, name },
-        });
-        if (!r || r.ok === false) {
-          S.backtest = { ok: false, running: false, mode: "backtest", error: (r && r.error) || "generic" };
-          if (S.snap) S.snap.backtest = S.backtest;
-          paintBacktestResults(S.backtest);
-          toast((r && r.error) || I18N.t("errors.generic"));
-          S._btBusy = false;
-          setBacktestBusy(false);
-          headerState();
-          return;
-        }
-        S.backtest = { ...r, running: true, mode: "backtest" };
-        if (S.snap) S.snap.backtest = S.backtest;
-        headerState();
-        watchBacktest();
-      } catch (err) {
-        S.backtest = { ok: false, running: false, mode: "backtest", error: err && err.message };
-        toast(I18N.t("errors.generic"));
-        S._btBusy = false;
-        setBacktestBusy(false);
-        headerState();
-      }
+      return startBacktest({
+        symbol: String($("bt-sym")?.value || S.symbol || "").trim(),
+        timeframe: String($("bt-tf")?.value || S.timeframe || "M15"),
+        name: String(stSel?.value || "ema_rsi"),
+        kind: String((stOpt && stOpt.dataset && stOpt.dataset.kind) || "builtin"),
+      });
     };
   }
   if (view === "history") {
@@ -12180,8 +12142,10 @@ function renderBacktestExtra(bt) {
       return `<tr>
         <td class="mono">${esc(btWhen(t.time))}</td>
         <td><span class="pill tiny ${side === "buy" ? "up" : "down"}">${esc(side.toUpperCase() || "—")}</span></td>
+        <td class="mono">${fmt(t.volume, 2)}</td>
         <td class="mono">${price(t.entry, btSymbol)}</td>
         <td class="mono">${price(t.exit, btSymbol)}</td>
+        <td class="mono ${clsPnl(t.pips)}">${btPips(t, bt)}</td>
         <td class="mono ${clsPnl(t.profit)}">${fmt(t.profit)}</td>
         <td class="sub">${esc(String(t.exit_reason || "—"))}</td>
       </tr>`;
@@ -12192,7 +12156,9 @@ function renderBacktestExtra(bt) {
         <table>
           <thead><tr>
             <th>${I18N.t("bt.t_when")}</th><th>${I18N.t("bt.t_side")}</th>
+            <th>${I18N.t("bt.t_lots")}</th>
             <th>${I18N.t("bt.t_entry")}</th><th>${I18N.t("bt.t_exit")}</th>
+            <th>${I18N.t("bt.t_pips")}</th>
             <th>${I18N.t("bt.t_pnl")}</th><th>${I18N.t("bt.t_why")}</th>
           </tr></thead>
           <tbody>${rows}</tbody>
@@ -12203,6 +12169,26 @@ function renderBacktestExtra(bt) {
 }
 
 /** Bar times arrive as ISO strings or epoch seconds depending on the feed. */
+/**
+ * A trade's distance in pips, or a dash.
+ *
+ * The result used to show money only, and money is distance multiplied
+ * by lot size - so a 5-pip scalp at 2 lots and a 100-pip swing at 0.1
+ * read almost the same. Pips separate the two, which is the number a
+ * trader judges a strategy by.
+ *
+ * A dash, never a zero, when the broker never told us its tick size:
+ * the engine omits the figure rather than computing one from a guessed
+ * pip, and a displayed 0.0 would be indistinguishable from a trade that
+ * really went nowhere.
+ */
+function btPips(trade, run) {
+  const known = Number((run && run.pip_size) || 0) > 0;
+  const value = Number(trade && trade.pips);
+  if (!known || !Number.isFinite(value)) return "—";
+  return (value > 0 ? "+" : "") + value.toFixed(1);
+}
+
 function btWhen(v) {
   if (v == null || v === "") return "—";
   let d = null;
@@ -12354,6 +12340,83 @@ function paintBacktestResults(bt, opts) {
     }
   }
 }
+
+/**
+ * Run a backtest. One path, used by the backtest page and the calendar.
+ *
+ * `from` and `to` are optional YYYY-MM-DD bounds, inclusive both ends.
+ * They are what makes a calendar month, week or day testable: without
+ * them the engine replays every bar it holds, which at six months of
+ * M1 is a quarter of a million bars and many minutes of waiting for an
+ * answer about one week.
+ *
+ * This used to live inside the backtest view's bindView branch, so the
+ * only way to start a run was to be looking at that page with its three
+ * form fields filled in. The calendar needs the same run with none of
+ * those fields on screen.
+ */
+async function startBacktest(opts) {
+  const o = opts || {};
+  if (S._btBusy) return false;
+  const symbol = String(o.symbol || S.symbol || "").trim();
+  const timeframe = String(o.timeframe || S.timeframe || "M15");
+  const name = String(o.name || "ema_rsi");
+  const kind = String(o.kind || "builtin");
+  const from = String(o.from || "");
+  const to = String(o.to || "");
+  if (!symbol || !liveSymbols().some((x) => x.symbol === symbol)) {
+    toast(I18N.t("exec.no_ea_symbol"));
+    return false;
+  }
+  S._btBusy = true;
+  setBacktestBusy(true, 0);
+  S.backtest = { running: true, mode: "backtest", symbol, timeframe, strategy: name, progress: 0, from, to };
+  // Put the live panel up and scroll to it immediately. The run is
+  // watched in the same place the result will appear, so the trader
+  // never has to hunt for either. A run started from the calendar also
+  // moves the desk to that page, or it would appear to do nothing.
+  if (S.view !== "backtest") go("backtest");
+  paintBacktestResults(S.backtest, { reveal: true });
+  headerState();
+  try {
+    // The engine accepts the run and answers at once; the result
+    // arrives over the socket. Waiting on this request was the whole
+    // bug: a replay longer than the proxy's 25 second patience came
+    // back as "engine offline" after finishing perfectly.
+    const body = { symbol, timeframe, strategy: { kind, name } };
+    if (from) body.from = from;
+    if (to) body.to = to;
+    const r = await API.post("/api/backtest", body);
+    if (!r || r.ok === false) {
+      S.backtest = { ok: false, running: false, mode: "backtest", error: (r && r.error) || "generic" };
+      if (S.snap) S.snap.backtest = S.backtest;
+      paintBacktestResults(S.backtest);
+      toast((r && r.error) || I18N.t("errors.generic"));
+      S._btBusy = false;
+      setBacktestBusy(false);
+      headerState();
+      return false;
+    }
+    S.backtest = { ...r, running: true, mode: "backtest", from, to };
+    if (S.snap) S.snap.backtest = S.backtest;
+    headerState();
+    watchBacktest();
+    return true;
+  } catch (err) {
+    S.backtest = { ok: false, running: false, mode: "backtest", error: err && err.message };
+    toast(I18N.t("errors.generic"));
+    S._btBusy = false;
+    setBacktestBusy(false);
+    headerState();
+    return false;
+  }
+}
+
+// Published for calendar.js, which starts a run for a picked period.
+// A top-level `function` is already a window property in a classic
+// script, but saying so is what makes it a contract rather than an
+// accident of the script type.
+if (typeof window !== "undefined") window.startBacktest = startBacktest;
 
 function setBacktestBusy(on, progress) {
   const btn = $("h-bt");
@@ -13188,19 +13251,24 @@ const TF_MINUTES = { M1: 1, M5: 5, M15: 15, M30: 30, H1: 60, H4: 240, D1: 1440, 
    It used to ask for 800 whatever the timeframe, which on M15 is about
    eight days - the chart ran out of history a week back and there was
    nothing behind it. The ask is now derived from the timeframe so the
-   first screen always reaches at least thirty days back.
+   first screen always reaches at least the promised window back.
 
    The ceiling used to be 3000 bars, which quietly undid the derivation
-   on exactly the timeframes that needed it: thirty days of M1 is 43 200
-   bars and of M5 is 8640, so both clamped back to 3000 - two days of M1.
+   on exactly the timeframes that needed it: a month of M1 is 43 200 bars
+   and of M5 is 8640, so both clamped back to 3000 - two days of M1.
    The ceiling now matches the engine's own (aurion/util/history.py), so
-   the thirty days survive on every timeframe. 43 200 bars is a few MB of
-   plain objects and the chart only ever draws the visible slice.
+   the window survives on every timeframe. The chart only ever draws the
+   visible slice, so the cost of holding it is memory, not frame rate.
+
+   HISTORY_DAYS is six months. On M1 that is 259 200 bars, which is the
+   heaviest thing the desk holds; it is the reason the backtest can be
+   aimed at one month, week or day from the calendar rather than always
+   replaying the lot.
 
    Weekends are not subtracted. Over-asking costs one number in a query
    string; under-asking is the bug being fixed. */
-const HISTORY_DAYS = 30;
-const HISTORY_MAX = 60000;
+const HISTORY_DAYS = 180;
+const HISTORY_MAX = 300000;
 function barsForDays(timeframe, days) {
   const mins = TF_MINUTES[String(timeframe || "M15").toUpperCase()] || 15;
   const want = Math.ceil(((days || HISTORY_DAYS) * 24 * 60) / mins);

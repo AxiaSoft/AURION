@@ -198,7 +198,6 @@ function check(name, ok, detail) {
   check("calendar-system buttons are labelled in Persian", jalaliLabel === "شمسی", JSON.stringify(jalaliLabel));
   const legend = doc.querySelector(".cal-legend").textContent;
   check("legend shows impact labels in Persian", legend.includes("اهمیت بالا"), legend.trim().slice(0, 40));
-  const tipTxt = doc.querySelector(".cal-tip") ? doc.querySelector(".cal-tip").textContent : "";
 
   // ---------- 3. the three controls that called the non-existent UI.page ----------
   const before = T.Calendar.monthName(T.Calendar.anchor, T.Calendar.system);
@@ -227,15 +226,27 @@ function check(name, ok, detail) {
   const cells2 = doc.querySelectorAll("#cal-grid .cal-cell").length;
   check("calendar-system switch works and repaints", threw === "" && sys === "gregorian" && cells2 === 42, threw || `system=${sys} cells=${cells2}`);
 
-  // ---------- 4. hover tooltip ----------
+  // ---------- 4. hovering a day does NOT open a tooltip any more ----------
+  /* REVERSED, deliberately. This used to assert the opposite: that
+     mousing over a day opened a floating card of that day's news.
+
+     It was asked for the other way round. Hovering a number was the
+     only thing a calendar number did, it could only do it for a mouse,
+     and what it showed was a copy of the day panel sitting beside it.
+     A day is clicked now, and the click fills the panel - which can
+     also offer to backtest that day, week or month, which a card that
+     disappears when the pointer leaves never could.
+
+     Kept rather than deleted so that bringing the peek back is a
+     conscious act with this reasoning in front of whoever does it. */
   threw = "";
   try {
     const c = doc.querySelector("#cal-grid .cal-cell.has");
     c.dispatchEvent(new win.MouseEvent("mouseover", { bubbles: true }));
   } catch (e) { threw = e.message; }
   const tipEl = doc.getElementById("cal-tip");
-  const tip = tipEl && !tipEl.hidden ? tipEl.textContent.length : 0;
-  check("hover opens the detail tooltip", threw === "" && tip > 0, threw || `${tip} chars of detail`);
+  check("hovering a day opens nothing - the click does the work", threw === "" && !tipEl,
+    threw || (tipEl ? "a cal-tip card was created" : "no card"));
 
   // ---------- 5. day click ----------
   threw = "";

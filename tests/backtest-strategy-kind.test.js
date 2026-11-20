@@ -142,12 +142,23 @@ check("a hostile strategy name cannot break out of the attribute", () => {
 
 /* ------------------------------- the request body, by source position */
 
-const handler = (() => {
-  const i = APP.indexOf('const goBt = $("h-bt");');
-  if (i < 0) throw new Error("cannot find the backtest button handler");
-  const j = APP.indexOf('if (view === "history")', i);
+/* Two slices now, not one.
+
+   The run used to live entirely inside the button's handler. It was
+   lifted into startBacktest() so the calendar can replay a picked
+   month, week or day without the backtest page's three form fields
+   being on screen. So the reading of data-kind and the sending of it
+   are in different functions, and a check that wants both has to span
+   both. */
+const slice = (from, to) => {
+  const i = APP.indexOf(from);
+  if (i < 0) throw new Error("cannot find " + from);
+  const j = APP.indexOf(to, i + from.length);
   return APP.slice(i, j < 0 ? APP.length : j);
-})();
+};
+const button = slice('const goBt = $("h-bt");', 'if (view === "history")');
+const starter = slice("async function startBacktest(opts) {", "\nfunction ");
+const handler = button + "\n" + starter;
 
 check("the request no longer hard-codes builtin", () => {
   must(
@@ -165,12 +176,17 @@ check("the request sends the kind that was read from the option", () => {
   return "kind carried";
 });
 
-check("the kind is read before the request is sent", () => {
-  const read = handler.indexOf("dataset.kind");
-  const post = handler.indexOf("/api/backtest");
-  must(read > -1 && post > -1, "could not locate both halves");
-  must(read < post, "the kind is read after the request is already built");
-  return "ordered";
+check("the kind is read by the button and carried into the request", () => {
+  /* Ordering by source position no longer means anything - the two
+     halves are separate functions and could be written in either
+     order. What matters is that the button is the one reading the
+     option, and the starter is the one posting, with kind passed
+     between them. */
+  must(button.includes("dataset.kind"), "the button never reads data-kind off the selected option");
+  must(/kind:\s*String\(/.test(button), "the button does not pass a kind to the starter");
+  must(starter.includes("/api/backtest"), "the starter is not the thing that posts");
+  must(/const kind = String\(o\.kind/.test(starter), "the starter ignores the kind it was given");
+  return "read, passed, sent";
 });
 
 /* ---------------------------------------------------------- report ---- */
