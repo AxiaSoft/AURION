@@ -60,7 +60,7 @@ function check(name, fn) {
 
 function desk() {
   const files = ["themes.js", "skins.js", "i18n.js", "api.js", "calendar.js",
-    "chart-series.js", "charts.js", "chart-tools.js", "pnl-charts.js", "app.js"];
+    "chart-series.js", "charts.js", "chart-tools.js", "pnl-charts.js", "datetime.js", "app.js"];
   const src = files.map((f) => read("js/" + f)).join("\n;\n");
   const dom = new JSDOM("<!doctype html><html><body><div id='host'></div></body></html>",
     { runScripts: "outside-only", pretendToBeVisual: true, url: "http://localhost/",

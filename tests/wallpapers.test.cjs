@@ -141,6 +141,16 @@ ok(T.themeWall("midnight")==="midnight",
    ship a picture - the orb. It was the one backdrop a trader could see and
    not find in the list. Custom genuinely ships none. */
 ok(T.themeWall("glass")==="aurion","the default theme offers its own backdrop",T.themeWall("glass"));
+/* Custom's "own picture" is the picture of the material it was promoted
+   from - here midnight, from the two lines above. Custom ships no
+   material of its own, so without this it would be the one theme whose
+   first gallery tile said "this theme ships none" while the desk was
+   plainly showing midnight's photograph. */
+ok(T.themeWall("custom")==="midnight",
+  "custom offers the picture of the material it was promoted from",T.themeWall("custom"));
+/* And a Custom that was never promoted from anything genuinely ships
+   none, which is the case this line has always been about. */
+T.setCustom({material:""});
 ok(T.themeWall("custom")==="",
   "a theme that ships no picture says so rather than inventing a filename");
 

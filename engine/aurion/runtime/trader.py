@@ -5851,6 +5851,14 @@ class Trader:
         tested_to = window["to"]
 
         spec = body.get("strategy") or {"kind": "builtin", "name": "ema_rsi", "params": body.get("params") or {}}
+        # The robot on its own, with no strategy underneath it. Its one
+        # setting is the confidence floor, and the honest value for it
+        # is the one the live robot is running on right now -- otherwise
+        # the replay answers for a default nobody trades.
+        if str(spec.get("kind") or "") == "robot" or str(spec.get("name") or "").lower() == "robot":
+            params = dict(spec.get("params") or {})
+            params.setdefault("min_confidence", float(getattr(self, "min_ai_confidence", 0.35) or 0.0))
+            spec = {**spec, "kind": "robot", "name": "robot", "params": params}
         try:
             inst = self.loader.build(spec)
         except StrategyValidationError as exc:

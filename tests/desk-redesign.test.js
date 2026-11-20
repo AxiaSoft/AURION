@@ -126,7 +126,7 @@ if (!jsdom) {
   win.URL.createObjectURL = () => "blob:stub";
   win.AudioContext = class { createGain() { return { connect() {}, gain: {} }; } };
 
-  const bundle = ["js/themes.js", "js/skins.js", "js/i18n.js", "js/api.js", "js/calendar.js", "js/charts.js", "js/app.js"]
+  const bundle = ["js/themes.js", "js/skins.js", "js/i18n.js", "js/api.js", "js/calendar.js", "js/charts.js", "js/datetime.js", "js/app.js"]
     .map(read).join("\n;\n");
   let T = null;
   try {

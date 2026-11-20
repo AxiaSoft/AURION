@@ -316,6 +316,12 @@ const Calendar = {
           <p class="cal-alt">${companions
             .map((c) => esc(this.monthName(this.anchor, c)))
             .join(" \u00B7 ")}</p>
+          <!-- How much news this month, said beside the month's name.
+               It was a chip on a strip of its own below the header,
+               which is a second row of furniture for one number that
+               belongs to the title it describes. -->
+          <span class="cal-chip cal-count">
+            <b>${esc(this._num(n))}</b> ${esc(t("calendar.month_events_short"))}</span>
         </div>
 
         <div class="cal-top-r">
@@ -336,7 +342,7 @@ const Calendar = {
         </div>
       </header>
 
-      ${this._statusHtml(n)}
+      ${this._statusHtml()}
 
       <div class="cal-main">
         <section class="cal-pane card" id="cal-pane">
@@ -371,14 +377,33 @@ const Calendar = {
       stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${d}"/></svg>`;
   },
 
-  /** The one-line state of the month: how much news, and whether we trade. */
-  _statusHtml(n) {
+  /** Anything about this month worth saying, or nothing at all.
+   *
+   * Two chips were dropped from here, for two different reasons.
+   *
+   * The count of the month's events moved up into the header: it
+   * describes the month whose name is written there, and giving it a
+   * strip of its own put a second row of furniture on the page for one
+   * number.
+   *
+   * "Calendar source is active" was deleted outright. A chip that only
+   * ever says a healthy default is healthy is noise on every desk that
+   * is working, which is all of them - the source being MISSING is the
+   * only state worth a line, and that one stays.
+   *
+   * When neither chip applies this renders nothing, rather than an
+   * empty strip holding the space where a chip would have been.
+   */
+  _statusHtml() {
     const t = (k, v) => I18N.t(k, v);
-    const weekend = (this.session || {}).state === "weekend";
-    const bits = [`<span class="cal-chip"><b>${esc(this._num(n))}</b> ${esc(t("calendar.month_events_short"))}</span>`];
-    if (weekend) bits.push(`<span class="cal-chip is-closed">${esc(t("calendar.closed"))}</span>`);
-    bits.push(`<span class="cal-chip ${this.source ? "is-ok" : "is-warn"}">${
-      esc(this.source ? t("calendar.source_set") : t("calendar.source_missing"))}</span>`);
+    const bits = [];
+    if ((this.session || {}).state === "weekend") {
+      bits.push(`<span class="cal-chip is-closed">${esc(t("calendar.closed"))}</span>`);
+    }
+    if (!this.source) {
+      bits.push(`<span class="cal-chip is-warn">${esc(t("calendar.source_missing"))}</span>`);
+    }
+    if (!bits.length) return "";
     return `<div class="cal-status">${bits.join("")}</div>`;
   },
 
@@ -445,7 +470,7 @@ const Calendar = {
 
   /* -------------------------------------------------------- day detail */
 
-  _dayPanel(key) {
+  _dayPanel(key, peek) {
     const t = (k, v) => I18N.t(k, v);
     const evs = (this.byDay.get(key) || []).slice();
     const ms = this._fromDayKey(key);
@@ -464,6 +489,7 @@ const Calendar = {
          </dl>`
       : `<h4 class="cal-dp-main">${esc(key)}</h4>`;
     return `${head}
+      ${peek ? `<p class="cal-dp-peek">${esc(t("calendar.peek_hint"))}</p>` : ""}
       ${weekend ? `<p class="cal-dp-wk">${esc(t("calendar.closed_note"))}</p>` : ""}
       ${evs.length
         ? `<div class="cal-evs">${evs.map((e) => this._ev(e)).join("")}</div>`
@@ -799,13 +825,15 @@ const Calendar = {
 
     this._bindRemind(root);
 
-    /* The hover peek is gone.
-       It showed the day's news when the pointer crossed a number, which
-       meant the one thing a calendar number could do was describe
-       itself - and it could only do it for a mouse. A number is now
-       simply clicked, and the click fills the day panel, which says
-       everything the peek said and stays put while it is read.
-       Nothing was lost: the peek was a duplicate of the panel.
+    /* The floating peek card is gone for good.
+
+       It was a tooltip parented to <body> that followed the pointer,
+       and it could only ever speak to a mouse. What replaced it reads
+       the SAME panel the click fills: hovering a day shows that day's
+       news in the card beside the month, and clicking pins it. Nothing
+       moves, nothing is drawn twice, and the news scrolls inside a card
+       whose height never changes - so hovering across a row of days
+       cannot make the page jump.
 
        `unpin` stays on the instance because the desk calls it on every
        view change. It now only sweeps a card left on <body> by a desk
@@ -846,6 +874,26 @@ const Calendar = {
         }
       }
     };
+
+    /* ----------------------------------------------------------- peek */
+
+    /* Show a day without choosing it. The pinned day is not touched, so
+       the pointer leaving the month puts the panel straight back to
+       whatever was clicked - a preview can never lose the trader's
+       place. */
+    const showPeek = (key) => {
+      if (!day || !key || key === this.peek) return;
+      this.peek = key;
+      day.innerHTML = this._dayPanel(key, true);
+      day.classList.add("is-peek");
+    };
+    const dropPeek = () => {
+      if (!day || !this.peek) return;
+      this.peek = "";
+      day.innerHTML = this._dayPanel(this.selected);
+      day.classList.remove("is-peek");
+    };
+    this.peek = "";
 
     /* ------------------------------------------------------- controls */
 
@@ -902,7 +950,27 @@ const Calendar = {
     pane?.addEventListener("click", (e) => {
       const el = e.target.closest("[data-day]");
       if (!el || !pane.contains(el)) return;
+      this.peek = "";
+      day?.classList.remove("is-peek");
       select(el.dataset.day, { reveal: true });
+    });
+
+    /* Hover and keyboard focus both preview. One delegated pair of
+       listeners on the pane, so a re-render of the grid cannot leave a
+       stale handler behind, and pointerleave on the pane - not on each
+       cell - so crossing the gap between two days does not flicker the
+       panel back and forth. */
+    pane?.addEventListener("mouseover", (e) => {
+      const el = e.target.closest(".cal-cell");
+      if (el && pane.contains(el)) showPeek(el.dataset.day);
+    });
+    pane?.addEventListener("focusin", (e) => {
+      const el = e.target.closest(".cal-cell");
+      if (el && pane.contains(el)) showPeek(el.dataset.day);
+    });
+    pane?.addEventListener("mouseleave", dropPeek);
+    pane?.addEventListener("focusout", (e) => {
+      if (!pane.contains(e.relatedTarget)) dropPeek();
     });
 
     /* The cells are real buttons now, so Enter and Space already activate
@@ -921,11 +989,14 @@ const Calendar = {
       const i = all.indexOf(cell);
       const next = all[i + step];
       if (!next) return;
+      this.peek = "";
+      day?.classList.remove("is-peek");
       next.focus();
       select(next.dataset.day);
     });
 
-    /* No mouseover, focusin, scroll or MutationObserver handlers here
-       any more. They existed only to position and dismiss the peek. */
+    /* No scroll or MutationObserver handlers here any more: they existed
+       only to keep a floating card glued to the cell under the pointer,
+       and nothing floats now. */
   },
 };

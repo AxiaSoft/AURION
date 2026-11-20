@@ -72,7 +72,7 @@ function boot(phone) {
   win.HTMLCanvasElement.prototype.getContext = () => null;
 
   const bundle = ["js/themes.js", "js/skins.js", "js/i18n.js", "js/api.js",
-                  "js/calendar.js", "js/charts.js", "js/app.js"].map(read).join("\n;\n");
+                  "js/calendar.js", "js/charts.js", "js/datetime.js", "js/app.js"].map(read).join("\n;\n");
   win.eval(bundle + "\n;window.__T = { S, views, I18N, bindView, sweepSetSheet, showSetTab };");
   const T = win.__T;
   T.I18N.pack = JSON.parse(fs.readFileSync(path.join(ROOT, "lang", "en.json"), "utf8"));

@@ -1846,6 +1846,8 @@ input[type=range]{width:100%;accent-color:var(--cyan);height:28px;cursor:pointer
 .outlook-banner.dir-bear{border-color:rgba(255,107,138,.35)}
 .outlook-banner .metric{margin:2px 0}
 .outlook-banner b{font-size:28px}
+/* What the robot-only replay is, shown only while that mode is picked. */
+.bt-robot-hint{margin:8px 0 0;padding:8px 10px;border-radius:10px;background:rgb(var(--accent-rgb) / .08);border:1px solid rgb(var(--accent-rgb) / .22)}
 .bt-load{display:flex;align-items:center;gap:10px;margin-top:12px;color:var(--gold)}
 .bt-load i{
   width:16px;height:16px;border-radius:50%;
@@ -2137,11 +2139,18 @@ input[type=range]{width:100%;accent-color:var(--cyan);height:28px;cursor:pointer
 
 /* status strip ---------------------------------------------------- */
 .cal-status{display:flex;flex-wrap:wrap;gap:8px}
+/* Filled, never an outline. A chip with a transparent middle reads as a
+   placeholder waiting for a value, which is exactly what the desk was
+   told it looked like. */
 .cal-chip{display:inline-flex;align-items:center;gap:6px;padding:5px 11px;border-radius:999px;
-  font-size:.76rem;line-height:1.3;background:rgb(var(--wash) / .06);
-  border:1px solid rgb(var(--wash) / .09)}
+  font-size:.76rem;line-height:1.3;background:rgb(var(--wash) / .14);
+  border:1px solid rgb(var(--wash) / .16)}
 .cal-chip b{font-weight:700}
-.cal-chip.is-ok{color:var(--ok);border-color:rgb(var(--accent-rgb) / .22)}
+/* The month's event count, now in the header beside the month's name. */
+.cal-count{margin-block-start:8px;background:rgb(var(--accent-rgb) / .16);
+  border-color:rgb(var(--accent-rgb) / .3)}
+.cal-chip.is-ok{color:var(--ok);background:rgb(var(--accent-rgb) / .14);
+  border-color:rgb(var(--accent-rgb) / .22)}
 .cal-chip.is-warn{color:var(--gold);border-color:rgba(232,192,122,.25);background:rgba(232,192,122,.1)}
 .cal-chip.is-closed{color:var(--bad);border-color:rgba(255,107,138,.25);background:rgba(255,107,138,.1)}
 
@@ -2218,11 +2227,20 @@ input[type=range]{width:100%;accent-color:var(--cyan);height:28px;cursor:pointer
    ceiling and the EVENTS scroll inside it; the date and the three
    calendar systems are pinned, because they are what tells you which day
    you are looking at. */
+/* The height is LOCKED, not merely capped. A card that grows and
+   shrinks with whichever day is under the pointer makes the whole page
+   jump while the pointer crosses a row, and that is the single thing
+   that made hovering unusable. It is one size on every day of the
+   month; the events scroll inside it. */
 .cal-day{
   padding:14px;
   display:flex; flex-direction:column; min-block-size:0;
+  block-size:min(72vh,640px);
   max-block-size:min(72vh,640px);
 }
+/* A previewed day, as opposed to the one that was clicked. */
+.cal-day.is-peek{border-style:dashed}
+.cal-dp-peek{margin:0 0 8px;font-size:.7rem;opacity:.55}
 .cal-day .cal-evs{ overflow:auto; min-block-size:0; padding-inline-end:4px }
 .cal-dp-main{margin:0 0 8px;font-size:1rem;font-weight:650}
 .cal-dp-sys{display:flex;flex-wrap:wrap;gap:6px 14px;margin:0 0 10px;padding:0 0 10px;
@@ -2292,7 +2310,13 @@ input[type=range]{width:100%;accent-color:var(--cyan);height:28px;cursor:pointer
  * the shape that made the month unreachable in the first place. A
  * desktop cell is a rectangle with a sensible floor instead. */
 @media (min-width:1101px){
-  .cal-main{grid-template-columns:minmax(0,1fr)}
+  /* The news sits BESIDE the month, not under it.
+     It spent a release under the grid, where reading a day meant
+     scrolling the whole month off the screen first - and a hover
+     preview is worth nothing if what it fills is out of view. The side
+     column is back, wide enough for an event line, and sticky so it
+     stays level with the grid. */
+  .cal-main{grid-template-columns:minmax(0,1fr) 360px}
   /* A rectangle, not a square, and never shorter than this: the day
      number, the two companion dates and a row of dots are three lines
      of content and 96px is what they need to stay apart. */
@@ -2303,20 +2327,15 @@ input[type=range]{width:100%;accent-color:var(--cyan);height:28px;cursor:pointer
      whatever each day's number and companion dates come to. */
   .cal-dots{margin-block-start:auto;min-height:7px}
   .cal-dots .dot{width:6px;height:6px}
-  /* Sticky belongs to a column beside the content; this is a row below
-     it, and a sticky row would detach from the month it describes. */
-  .cal-aside{position:static;flex-direction:row;align-items:stretch;gap:12px}
-  /* Equal columns AND equal heights. The three cards used to be sized
-     one by its own content and another by a max-block-size cap, which
-     is what left them visibly different heights in the same row. They
-     share the row's height now; whatever overflows scrolls inside the
-     card that owns it. */
-  .cal-aside>*{flex:1 1 0;min-inline-size:0;align-self:stretch}
-  .cal-day{max-block-size:none;block-size:auto}
-  /* The cap moves off the card and onto the list inside it, which is
-     the part that can be any length. The date and the three calendar
-     systems above it stay put. */
-  .cal-day .cal-evs{max-block-size:min(38vh,340px)}
+  /* A column beside the month, so it is sticky again: the news card
+     stays level with whatever row the pointer is on. */
+  .cal-aside{position:sticky;top:8px;flex-direction:column;align-items:stretch;gap:12px}
+  .cal-aside>*{flex:0 0 auto;min-inline-size:0}
+  /* One height, every day, whatever is in it - see .cal-day above.
+     The reminder and the legend take their own, and the events scroll
+     inside the card rather than lengthening it. */
+  .cal-day{flex:0 1 auto;block-size:min(62vh,560px);max-block-size:min(62vh,560px)}
+  .cal-day .cal-evs{max-block-size:none}
 }
 
 /* ---- narrow: stack, and let the pane breathe ---- */
@@ -5034,9 +5053,13 @@ html[dir="rtl"] .ai-h{letter-spacing:0;text-transform:none}
    ------------------------------------------------------------------ */
 .prop-fields .field input[type="number"],
 .prop-fields .field input[type="text"],
-.prop-fields .field input[type="time"],
+/* The time control is the desk's own button now, not a browser widget,
+   and it has to seat its value at exactly the same height as the
+   numbers beside it - which was the whole point of this block. */
+.prop-fields .field .dt-btn,
 .prop-fields .field select,
-.num-field .num-wrap input{
+.num-field .num-wrap input,
+.num-field .num-wrap .dt-btn{
   block-size:var(--ctl-h);
   min-block-size:var(--ctl-h);
   line-height:calc(var(--ctl-h) - 2px);

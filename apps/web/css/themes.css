@@ -2449,6 +2449,87 @@ html[data-bg="photo"] .aurora::after{
 }
 .cp-sw:hover{ transform:scale(1.08) }
 
+/* ===========================================================================
+   The desk's own date and time pickers.
+
+   Same shape as the colour picker above - a fixed popover in the page,
+   not a window in front of it - for the same reason: the field being
+   filled in has to stay visible while it is being filled in. They sit
+   here rather than in app.css because they are chrome the theme owns:
+   every colour below is a theme token, so a picker is never a grey
+   browser widget in the middle of a themed desk.
+   =========================================================================== */
+.dt-field{ display:block; min-width:0 }
+.dt-btn{
+  display:flex; align-items:center; justify-content:space-between; gap:8px;
+  width:100%; cursor:pointer; text-align:start;
+}
+.dt-btn .dt-text{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap }
+.dt-ico{ width:16px; height:16px; flex:none; opacity:.62 }
+.dt-btn:hover{ border-color:var(--accent) }
+.dt-btn:hover .dt-ico{ opacity:1 }
+
+.dt-pop{
+  position:fixed; z-index:6000;
+  display:flex; flex-direction:column; gap:10px;
+  padding:12px;
+  background:rgb(var(--s6));
+  border:1px solid rgb(var(--wash) / .14);
+  border-radius:var(--r-3, 14px);
+  box-shadow:0 18px 48px rgb(0 0 0 / .42);
+  color:var(--ink);
+}
+.dt-pop-date{ width:288px }
+.dt-pop-time{ width:208px }
+.dt-head{ display:flex; align-items:center; gap:8px }
+.dt-head b{ flex:1; text-align:center; font-size:13px; font-weight:650 }
+.dt-nav{
+  width:28px; height:28px; flex:none; line-height:1; font-size:17px;
+  background:none; border:0; border-radius:8px; color:var(--muted); cursor:pointer;
+}
+.dt-nav:hover:not(:disabled){ background:rgb(var(--wash) / .10); color:var(--ink) }
+.dt-nav:disabled{ opacity:.25; cursor:default }
+/* The chevrons are written the way the text runs. */
+[dir="rtl"] .dt-nav{ transform:scaleX(-1) }
+
+.dt-wd,.dt-grid{ display:grid; grid-template-columns:repeat(7,1fr); gap:4px }
+.dt-wdn{ text-align:center; font-size:10px; opacity:.5; padding-bottom:2px }
+.dt-day{
+  aspect-ratio:1/1; display:grid; place-items:center;
+  font:600 12px/1 inherit; cursor:pointer; color:inherit;
+  background:rgb(var(--wash) / .05);
+  border:1px solid transparent; border-radius:9px;
+}
+.dt-day:hover:not(:disabled){ background:rgb(var(--wash) / .14) }
+/* Out of range is DISABLED, and has to look it - the whole point of the
+   bounds is that the impossible day cannot be chosen by accident. */
+.dt-day:disabled{ opacity:.2; cursor:not-allowed; background:none }
+.dt-day.now{ border-color:rgb(var(--accent-rgb) / .5) }
+.dt-day.on{ background:rgb(var(--accent-rgb) / .22); border-color:var(--accent) }
+.dt-pad{ visibility:hidden }
+
+.dt-cols{ display:grid; grid-template-columns:1fr 1fr; gap:8px }
+.dt-col{
+  display:flex; flex-direction:column; gap:3px;
+  max-height:184px; overflow:auto; padding-inline-end:2px;
+}
+.dt-opt{
+  padding:6px 0; font:600 12px/1 var(--mono, ui-monospace, monospace);
+  color:inherit; cursor:pointer; text-align:center;
+  background:rgb(var(--wash) / .05); border:1px solid transparent; border-radius:8px;
+}
+.dt-opt:hover{ background:rgb(var(--wash) / .14) }
+.dt-opt.on{ background:rgb(var(--accent-rgb) / .22); border-color:var(--accent) }
+
+.dt-foot{ display:flex; justify-content:flex-end }
+.dt-quick{
+  padding:6px 12px; font:600 12px/1 inherit; cursor:pointer; color:var(--ink);
+  background:rgb(var(--accent-rgb) / .16);
+  border:1px solid rgb(var(--accent-rgb) / .3); border-radius:9px;
+}
+.dt-quick:hover:not(:disabled){ background:rgb(var(--accent-rgb) / .26) }
+.dt-quick:disabled{ opacity:.35; cursor:default }
+
 /* The swatch that opens it, in the settings rows. */
 .col-swatch{
   width:44px; height:28px; flex:none; cursor:pointer; padding:0;

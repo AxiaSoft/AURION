@@ -1,15 +1,22 @@
 from __future__ import annotations
 
+import logging
+import shutil
+import tempfile
 from copy import deepcopy
 from itertools import product
+from pathlib import Path
 from typing import Any
 
 from ..ai.engine import AIEngine
 from ..ai.features import build_feature_frame
+from ..ai.models import LiveModels
 from ..runtime.stops import resolve_stop_r
 from ..strategy.base import StrategyContext
 from ..util.clock import utc_iso
 from .metrics import summarize
+
+log = logging.getLogger(__name__)
 
 
 def _bar_time(bar: Any) -> str:
@@ -57,6 +64,22 @@ _REPLAY_BARS = 160
 #: window - which is the whole failure mode this constant exists to be
 #: measured against rather than guessed at.
 _WINDOW_CEILING = 400_000
+
+#: How often a learning replay retrains, in bars.
+#:
+#: Only strategies that declare ``learns = True`` train at all, and today
+#: that is the robot-only replay. Live, the AI retrains every
+#: ``retrain_every_bars`` (40 by default), which would be hundreds of
+#: full refits across a replay and would make a run take longer than
+#: anyone will wait. 250 keeps the model moving through the window
+#: without the replay turning into a training job; every refit uses only
+#: bars already replayed, so the choice of interval cannot leak the
+#: future either way.
+_LEARN_EVERY = 250
+
+#: Bars handed to each of those refits. A cap, so the cost of a refit is
+#: flat instead of growing with how far into the run it happens.
+_LEARN_BARS = 6_000
 
 
 def _slim(bar: Any) -> dict[str, Any]:
@@ -146,6 +169,16 @@ class Backtester:
         strategy that fires in clusters showed a handful of trades over
         a window where the robot would have taken many.
         """
+        # A strategy may need more settling than the caller's default --
+        # the robot-only replay cannot decide anything until the model it
+        # *is* has been trained. Clamped to half the run so a greedy
+        # declaration cannot leave nothing to test.
+        try:
+            want = int(getattr(strategy, "warmup_bars", 0) or 0)
+        except (TypeError, ValueError):
+            want = 0
+        if want > warmup and bars:
+            warmup = max(warmup, min(want, max(1, len(bars) // 2)))
         if not bars or len(bars) < warmup + 5:
             return {"ok": False, "error": "not enough real historical bars from MT5 to backtest"}
         if getattr(strategy, "on_start", None) is None:
@@ -160,7 +193,70 @@ class Backtester:
         # the desk prints is what the replay sized its entries with.
         mode = "manual" if str(volume_mode or "auto").lower() == "manual" else "auto"
         lot = max(0.0, float(manual_volume or 0.0))
-        brain = ai or AIEngine()
+        # A learning replay trains as it goes, so it must never touch the
+        # desk's live model: it gets its own brain with a throwaway model
+        # directory, which is deleted when the run ends. A caller that
+        # passed a brain in keeps that brain -- that is an explicit
+        # choice and the tests rely on it.
+        learns = bool(getattr(strategy, "learns", False))
+        scratch: Any = None
+        if learns and ai is None:
+            brain, scratch = self._scratch_brain()
+        else:
+            brain = ai or AIEngine()
+        try:
+            return self._replay(
+                strategy, bars, symbol, timeframe, initial_equity, point_value,
+                warmup, brain, progress, volume_mode, manual_volume, cap, pip_size,
+                mode, lot, equity, peak, curve, trades, positions, learns,
+            )
+        finally:
+            if scratch is not None:
+                shutil.rmtree(scratch, ignore_errors=True)
+
+    @staticmethod
+    def _scratch_brain() -> tuple[AIEngine, str]:
+        """A brain with its own empty model directory, and that directory.
+
+        ``AIEngine()`` loads (and ``fit`` later overwrites) the model the
+        live desk trades on. A replay that trains would therefore both
+        start from whatever the desk happens to know today -- which
+        includes the future, relative to the window being replayed -- and
+        leave its own half-trained weights behind. Both are disqualifying,
+        so the replay learns in a temporary directory instead.
+        """
+        brain = AIEngine()
+        directory = tempfile.mkdtemp(prefix="aurion-replay-")
+        brain.models = LiveModels(Path(directory))
+        brain.last = brain._idle()
+        brain.by_symbol = {}
+        return brain, directory
+
+    def _replay(
+        self,
+        strategy,
+        bars: list[dict[str, Any]],
+        symbol: str,
+        timeframe: str,
+        initial_equity: float,
+        point_value: float,
+        warmup: int,
+        brain: AIEngine,
+        progress: Any,
+        volume_mode: str,
+        manual_volume: float,
+        cap: int,
+        pip_size: float,
+        mode: str,
+        lot: float,
+        equity: float,
+        peak: float,
+        curve: list[float],
+        trades: list[dict[str, Any]],
+        positions: list[dict[str, Any]],
+        learns: bool = False,
+    ) -> dict[str, Any]:
+        """The bar loop itself. Split out only so run() can clean up after it."""
         feats = self._precompute_features(bars)
         # What the strategy says it reads. 0 (the default) means the
         # whole run, which is how this always behaved.
@@ -242,6 +338,15 @@ class Backtester:
                     # Manage the stop the way the live robot manages it.
                     self._manage(pos, bar, manage)
             account = {"equity": equity, "balance": equity, "profit": 0, "currency": "USD"}
+            if learns and (i - warmup) % _LEARN_EVERY == 0:
+                # Trained on bars already replayed and never on the ones
+                # ahead. A failure here is not fatal: the strategy simply
+                # keeps seeing a model that is not ready, which it
+                # reports as a refusal rather than as silence.
+                try:
+                    brain.train(bars[max(0, i + 1 - _LEARN_BARS): i + 1], symbol, timeframe)
+                except Exception:
+                    log.exception("replay retrain skipped")
             state = brain.infer(window, symbol, timeframe, frame=self._feature_row(feats, i, bars))
             ctx = self._ctx(strategy, symbol, timeframe, window, bar, equity, positions, brain, state)
             signal = strategy.on_candle(ctx)

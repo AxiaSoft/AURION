@@ -174,15 +174,21 @@ check(
   t.api.set("cyber");
   t.api.setBgImage("data:image/jpeg;base64,AAAA");
   t.api.edit({ bg: "photo" });
-  /* The skin is now "custom", not "cyber": an edit moves the desk onto
-     the Custom theme by request. The point of this check is the
+  /* The active theme is now "custom", not "cyber": an edit moves the
+     desk onto the Custom theme by request. The skin attribute is NOT
+     "custom", and deliberately so - it names the material the desk is
+     wearing, which is still cyber's, because that is what the ~124
+     material rules in themes.css are written against. Custom being in
+     force is said by data-custom. The point of this check is the
      backdrop, which is still chosen independently of whatever the
-     theme shipped with - so that is what it asserts, with the theme
-     named as whatever the edit left in force. */
+     theme shipped with. */
   check(
     "a theme can be given a background it did not ship with",
-    t.html.dataset.bg === "photo" && t.html.dataset.skin === "custom",
-    `skin=${t.html.dataset.skin} bg=${t.html.dataset.bg}`
+    t.html.dataset.bg === "photo"
+      && t.api.effective() === "custom"
+      && t.html.dataset.custom === "1"
+      && t.html.dataset.skin === "cyber",
+    `skin=${t.html.dataset.skin} custom=${t.html.dataset.custom} effective=${t.api.effective()} bg=${t.html.dataset.bg}`
   );
 }
 

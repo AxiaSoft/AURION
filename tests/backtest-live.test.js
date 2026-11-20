@@ -141,7 +141,13 @@ const konst = (name, fallback) => {
 };
 const api = new Function(
   stub + ['btNormBar', 'btReplayWindow', 'btWatchReplaySize', 'ensureBacktestBars',
-          'paintReplay', 'renderBacktestLive', 'paintBacktestLive', 'barsForDays'].map(grab).join('\n') +
+          'paintReplay', 'renderBacktestLive', 'paintBacktestLive', 'barsForDays',
+          /* The live panel titles itself with the strategy, and a run can
+             now name the robot rather than a strategy - which has a label
+             of its own rather than an id to print. Taken from the real
+             source, not stubbed: a stub would hide the one case it is
+             there for. */
+          'strategyLabel'].map(grab).join('\n') +
   '\n' + konst('TF_MINUTES', '{ M15: 15 }') +
   '\n' + konst('HISTORY_DAYS', '30') +
   '\n' + konst('HISTORY_MAX', '60000') +

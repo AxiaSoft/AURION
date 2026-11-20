@@ -391,6 +391,8 @@
       out[key] = clamp(parsed[key], LIMITS[key][0], LIMITS[key][1]);
     }
     if (typeof parsed.accent === "string") out.accent = parsed.accent;
+    /* The material Custom was seeded from. See customMaterial(). */
+    if (parsed.material && BY_ID[parsed.material]) out.material = parsed.material;
     if (BACKDROPS.indexOf(parsed.bg) !== -1) out.bg = parsed.bg;
     /* getCustom rebuilds from a whitelist rather than returning what was
        stored, so anything not named here is silently dropped on the way
@@ -573,8 +575,45 @@
      it. css/themes.css names each file after its skin, so the mapping is the
      id itself - except Glass and Custom, which ship with none. */
   function themeOwnWall(id) {
-    if (THEME_OWN_WALL[id]) return THEME_OWN_WALL[id];
-    return WALLPAPERS.indexOf(id) === -1 ? "" : id;
+    /* Custom wears the material it was seeded from, so "the theme's own
+       picture" means that material's picture - otherwise the first tile
+       in the gallery would say "this theme ships none" while the desk
+       was plainly showing one. */
+    var key = id === "custom" ? customMaterial() : id;
+    if (THEME_OWN_WALL[key]) return THEME_OWN_WALL[key];
+    return WALLPAPERS.indexOf(key) === -1 ? "" : key;
+  }
+
+  /* ------------------------------------------------------- the material --
+   *
+   * Reported, twice: "when I change the colour or the picture of Velvet or
+   * Relief it does switch to the custom theme, which is right, but Velvet
+   * and Relief are destroyed and the default theme comes back with my
+   * colour on it. I want to be able to edit those two inside Custom."
+   *
+   * The cause is that a theme is two different things wearing one name.
+   * Half of it is numbers - palette, knobs, accent - and those are seeded
+   * onto Custom on promotion, which is why the colours very nearly
+   * survived. The other half is MATERIAL: the inner light along a clay
+   * card's top edge, the twin shadows that make a relief surface look
+   * pressed out of the page. None of that is a number. It is a hundred and
+   * twenty-four rules in css/themes.css written against html[data-skin=
+   * "clay"] and html[data-skin="neu"], and the instant the desk moved to
+   * data-skin="custom" every one of them stopped matching.
+   *
+   * So Custom remembers which material it was seeded from, and the desk
+   * keeps WEARING that material: data-skin stays on the departing theme
+   * and data-custom marks that the numbers on top are the trader's. The
+   * knobs, colours and wallpaper Custom publishes carry three attributes
+   * and outrank the theme's own rules, exactly as before - the only thing
+   * that changes is that the material underneath them survives.
+   *
+   * A Custom that was never promoted from anything has no material and
+   * stays on its own neutral one.
+   */
+  function customMaterial() {
+    var m = getCustom().material;
+    return m && BY_ID[m] ? m : "custom";
   }
 
   /** Which wallpaper this theme has been given: "" = the theme's own. */
@@ -787,6 +826,11 @@
        name on the way out, landing Custom on its own default instead
        of on what was being looked at. */
     var seeded = { accent: knobs.accent, bg: liveBackdrop(knobs.bg) };
+    /* The material comes across with everything else. Without this line
+       Velvet and Relief are lost the moment anything on them is edited:
+       what they are is written in CSS against their own skin, and no
+       amount of seeded numbers reproduces it. */
+    if (from && BY_ID[from] && from !== "custom") seeded.material = from;
     for (var lk in LIMITS) {
       if (Object.prototype.hasOwnProperty.call(LIMITS, lk)) seeded[lk] = knobs[lk];
     }
@@ -962,6 +1006,9 @@
       else if (key === "wall") {
         if (!patch[key]) delete next.wall;
         else if (patch[key] === "none" || validWall(patch[key])) next.wall = patch[key];
+      } else if (key === "material") {
+        if (BY_ID[patch[key]] && patch[key] !== "custom") next.material = patch[key];
+        else delete next.material;
       }
     }
     write(LS_CUSTOM, JSON.stringify(next));
@@ -971,7 +1018,13 @@
   }
 
   function resetCustom() {
+    /* The material is not one of the things being reset. "Put this theme
+       back to how it shipped" is about the numbers the trader moved; a
+       Custom seeded from Velvet is still velvet afterwards, or the reset
+       button is a second, hidden way of destroying the material. */
+    var material = customMaterial();
     write(LS_CUSTOM, null);
+    if (material !== "custom") setCustom({ material: material }, { silent: true });
     apply();
     if (effectiveTheme() === "custom") applyAccent(defaultCustom().accent);
     return getCustom();
@@ -1122,7 +1175,16 @@
     var id = effectiveTheme();
     var k = activeKnobs();
 
-    el.dataset.skin = id;
+    /* The skin attribute is the MATERIAL, not the stored id: a Custom
+       seeded from Velvet goes on being drawn as velvet. effective()
+       still answers "custom", so the gallery, the builder and the
+       licence see the theme the trader is on. */
+    var material = id === "custom" ? customMaterial() : id;
+    el.dataset.skin = material;
+    /* Said out loud, for anything that needs to know the numbers on top
+       are the trader's rather than the material's own. */
+    if (id === "custom") el.dataset.custom = "1";
+    else delete el.dataset.custom;
     /* "photo" is the trader's own picture. If they picked it and then removed
        the file we fall back rather than leave an empty page. */
     /* liveBackdrop maps anything an older build stored onto a backdrop
@@ -1314,6 +1376,7 @@
     WALLPAPERS: WALLPAPERS,
     wall: activeWall,
     themeWall: themeOwnWall,
+    material: customMaterial,
     wallUrl: wallUrl,
     cssUrl: cssUrl,
   };

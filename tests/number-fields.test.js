@@ -48,7 +48,7 @@ const ROOT = path.resolve(__dirname, "..");
 const WEB = path.join(ROOT, "apps", "web");
 const JS = (f) => fs.readFileSync(path.join(WEB, "js", f), "utf8");
 const FILES = ["themes.js", "skins.js", "i18n.js", "api.js", "calendar.js",
-  "chart-series.js", "charts.js", "chart-tools.js", "pnl-charts.js", "app.js"];
+  "chart-series.js", "charts.js", "chart-tools.js", "pnl-charts.js", "datetime.js", "app.js"];
 const CSSF = ["css/app.css", "css/skins.css", "css/chart.css", "css/themes.css"];
 const css = CSSF.map((f) => fs.readFileSync(path.join(WEB, f), "utf8"));
 

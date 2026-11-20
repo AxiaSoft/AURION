@@ -80,7 +80,7 @@ const ALIGNED_ON_PURPOSE = [
   win.IntersectionObserver = class { observe() {} unobserve() {} disconnect() {} };
   win.URL.createObjectURL = () => "blob:stub";
 
-  const bundle = ["js/themes.js", "js/skins.js", "js/i18n.js", "js/api.js", "js/calendar.js", "js/charts.js", "js/app.js"]
+  const bundle = ["js/themes.js", "js/skins.js", "js/i18n.js", "js/api.js", "js/calendar.js", "js/charts.js", "js/datetime.js", "js/app.js"]
     .map((f) => fs.readFileSync(path.join(WEB, f), "utf8")).join("\n;\n");
   win.eval(bundle + ";window.__T = { views, S, I18N, appearanceCardsHtml, notifySoundCardHtml };");
   await new Promise((r) => setTimeout(r, 200));

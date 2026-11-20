@@ -481,10 +481,15 @@ check("a viewport change is repainted more than once", (() => {
     !/propText\("pr-hs"/.test(app));
 
   // A free-text box accepted "7pm" and "07.00" and produced a window
-  // that never opened, with nothing saying why. type="time" gives two
-  // spinnable fields in the user's own locale and refuses 25:70.
-  check("the hours are real time inputs, not free text",
-    /type="time" step="60"/.test(app) &&
+  // that never opened, with nothing saying why. type="time" fixed that
+  // and brought its own problem: the widget is drawn by the browser in
+  // the OS locale, so a Persian desk got an English control - and a
+  // WebView2 host a different one again. The desk draws its own now;
+  // the value underneath is still an input holding "HH:MM", and
+  // normalTime still spells out whatever was stored.
+  check("the hours use the desk's own picker, not a browser widget",
+    /AurionWhen\.timeField\(/.test(app) &&
+    !/type="time"/.test(app) &&
     /function normalTime\(/.test(app));
 
   // And each field says which clock it is in, beside its own label.

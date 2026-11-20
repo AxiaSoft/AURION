@@ -76,7 +76,15 @@ LEGACY_BUILTINS = {"scalp_impulse": "price_action", "king": "price_action"}
 
 # Both names stay reserved after retirement: an uploaded file called either
 # would collide with the aliases above and silently shadow the real target.
-RESERVED_NAMES = set(BUILTIN_NAMES) | set(LEGACY_BUILTINS) | {"template", "base"}
+# "robot" is the AI trading on its own, with no strategy underneath it.
+# It is NOT a builtin: it is not in BUILTIN_NAMES, it never appears in
+# the list of strategies that can be armed, and build() only hands it
+# out to a caller that asks for it by name. It exists so a backtest can
+# answer "how does the robot trade when nothing else has an opinion".
+# Reserved all the same, so an uploaded robot.py cannot shadow it.
+ROBOT_NAME = "robot"
+
+RESERVED_NAMES = set(BUILTIN_NAMES) | set(LEGACY_BUILTINS) | {"template", "base", ROBOT_NAME}
 
 
 def resolve_builtin(name: str) -> str:
@@ -541,6 +549,17 @@ class StrategyLoader:
         kind = spec.get("kind") or "builtin"
         name = spec.get("name") or spec.get("file")
         params = spec.get("params") or {}
+
+        # The robot on its own. Answered before anything touches the
+        # builtin table or the uploads directory, because it lives in
+        # neither: it is a replay-only pseudo-strategy and the only
+        # caller that can reach it is one that asked for it by name.
+        if kind == ROBOT_NAME or str(name or "").strip().lower() == ROBOT_NAME:
+            from .robot import RobotSolo
+
+            inst = RobotSolo(params)
+            self.loaded[f"robot:{ROBOT_NAME}"] = inst
+            return inst
 
         explicit = spec.get("path")
         if explicit:

@@ -220,15 +220,19 @@ ok(!rules.some((r) => /height/.test(r.cond || "") && /\.cal-subs/.test(r.sel)),
 ok(resolve(rules, SUBS, "display", 390)?.val === "none",
   "companion dates are not squeezed into a phone cell");
 
-/* The aside used to be a 330px column to the right of the month. It is
-   a row underneath it now, at every width, because the month was asked
-   to fit the screen with the reminder and the legend visible under it -
-   and a 330px column both narrowed the grid and made the page taller
-   than the window, since those cards ran the full height of the page.
-   The base rule still declares the two-column track; the desktop
-   override replaces it. What matters is the computed result. */
-ok(resolve(rules, [el("div", "", ["cal"]), el("div", "", ["cal-main"])], "grid-template-columns", 1280).val === "minmax(0,1fr)",
-  "desktop stacks the aside under the month rather than beside it");
+/* The aside is a column beside the month again, and this is the second
+   time it has moved, so both reasons are written down.
+
+   It was moved UNDER the month because a 330px column narrowed the grid
+   and the cards ran the full height of the page. It is back BESIDE it
+   because the day's news is now what a hover fills, and a preview that
+   appears below a six-row month is a preview nobody can see. What was
+   actually wrong both times was the height: the news card is locked to
+   one size now and scrolls inside itself, so the column cannot run
+   past the grid whatever day is open. */
+ok(/\bminmax\(0,\s*1fr\)\s+360px\b/.test(resolve(rules, [el("div", "", ["cal"]), el("div", "", ["cal-main"])], "grid-template-columns", 1280).val),
+  "desktop puts the news beside the month",
+  resolve(rules, [el("div", "", ["cal"]), el("div", "", ["cal-main"])], "grid-template-columns", 1280).val);
 ok(!/minmax\(0,\s*1fr\)/.test(resolve(rules, [el("div", "", ["cal"]), el("div", "", ["cal-main"])], "grid-template-rows", 1280)?.val || ""),
   "the month is sized by its own rows, not by what the window has left over");
 {
@@ -247,10 +251,19 @@ ok(!/minmax\(0,\s*1fr\)/.test(resolve(rules, [el("div", "", ["cal"]), el("div", 
 }
 ok(resolve(rules, [el("div", "", ["cal"]), el("div", "", ["cal-main"])], "grid-template-columns", 900).val === "minmax(0,1fr)",
   "the two panes stack on a narrow screen");
-ok(resolve(rules, ASIDE, "position", 1280)?.val === "static",
-  "the aside is static on desktop too, now that it is a row below the grid and not a column beside it");
-ok(resolve(rules, ASIDE, "flex-direction", 1280)?.val === "row",
-  "and its three cards sit side by side in that row");
+ok(resolve(rules, ASIDE, "position", 1280)?.val === "sticky",
+  "the aside is sticky on desktop, so the news stays level with the month it describes");
+ok(resolve(rules, ASIDE, "flex-direction", 1280)?.val === "column",
+  "and its three cards are stacked in that column");
+{
+  /* The locked height is the thing that makes a hover preview usable:
+     a card that resized to each day would move the page under the
+     pointer. */
+  const day = [el("div", "", ["cal"]), el("div", "", ["cal-main"]), el("aside", "", ["cal-aside"]), el("div", "", ["card", "cal-day"])];
+  const h = resolve(rules, day, "block-size", 1280);
+  ok(h && /min\(/.test(h.val) && h.val !== "auto",
+    "the news card is one fixed height on every day of the month", h ? h.val : "none");
+}
 ok(resolve(rules, ASIDE, "position", 900)?.val === "static",
   "the aside stops being sticky once it is stacked below the grid");
 ok(resolve(rules, ASIDE, "position", 390)?.val === "static", "...on a phone too");
@@ -296,8 +309,15 @@ ok(!/pinned/.test(calJsNC), "clicking a day no longer pins a floating copy of th
 ok(!/pinned/.test(appJsNC), "...and the desk has no pinned state left to unwind");
 ok(!/cal-tip-x/.test(css) && !/cal-tip-x/.test(calJs), "the tooltip's close button went with it");
 ok(!/\.cal-tip\b/.test(css), "no stylesheet still describes a hover peek");
-ok(!/mouseover/.test(calJsNC) && !/_tipFor/.test(calJsNC),
-  "the calendar binds no hover handler and has no tooltip renderer left");
+ok(!/_tipFor/.test(calJsNC) && !/cal-tip/.test(css),
+  "no tooltip renderer and no tooltip styles are left");
+/* Hover is back, but as a preview inside the news card that is already
+   on the page - not as a floating card of its own. The distinction is
+   the whole difference between the two designs, so it is asserted
+   rather than described: the handler exists, and what it touches is
+   #cal-day. */
+ok(/addEventListener\("mouseover"/.test(calJsNC) && /is-peek/.test(calJsNC),
+  "hovering a day previews it in the news card beside the month");
 /* Kept: a desk left open across the update has a peek stranded on
    <body> with nothing left to remove it. */
 ok(/getElementById\("cal-tip"\)/.test(calJsNC) && /getElementById\("cal-tip"\)/.test(appJsNC),
@@ -476,9 +496,32 @@ async function boot(viewport, hover) {
     cells[0].getAttribute("aria-label"));
 
   /* ---- the month still says what it used to say ---- */
-  const status = k.doc.querySelector(".cal-status").textContent;
-  ok(/\d/.test(status), "the status strip counts the month's events", status.trim().replace(/\s+/g, " "));
-  ok(status.includes("active") || status.includes("configured"), "...and reports the news source", status.trim().replace(/\s+/g, " ").slice(0, 80));
+  /* The count moved into the header, beside the month it counts. */
+  const count = k.doc.querySelector(".cal-top .cal-count");
+  ok(count && /\d/.test(count.textContent), "the header counts the month's events",
+    count ? count.textContent.trim().replace(/\s+/g, " ") : "no chip");
+  /* And "the calendar source is active" is gone: a chip that only ever
+     says a healthy default is healthy is noise on every working desk.
+     A MISSING source is still reported - that one is a fault. */
+  const strip = k.doc.querySelector(".cal-status");
+  ok(!strip || !/active|configured/i.test(strip.textContent),
+    "the 'source is active' chip is gone",
+    strip ? strip.textContent.trim().replace(/\s+/g, " ") : "no strip at all");
+  /* No chip anywhere may be empty - the whole point of filling them. */
+  const blank = [...k.doc.querySelectorAll(".cal-chip")].filter((c) => !c.textContent.trim());
+  ok(blank.length === 0, "no empty chips on the calendar", `${blank.length} empty`);
+
+  /* ---- hovering a day previews it without choosing it ---- */
+  const pinned = k.Cal.selected;
+  const hoverCells = [...k.doc.querySelectorAll(".cal-cell")];
+  const over = hoverCells.find((c) => c.dataset.day !== pinned);
+  over.dispatchEvent(new k.win.MouseEvent("mouseover", { bubbles: true }));
+  const dayCard = k.doc.getElementById("cal-day");
+  ok(dayCard.classList.contains("is-peek"), "hovering a day previews it in the news card");
+  ok(k.Cal.selected === pinned, "...without changing which day is pinned", k.Cal.selected);
+  k.doc.getElementById("cal-pane").dispatchEvent(new k.win.MouseEvent("mouseleave", { bubbles: false }));
+  ok(!dayCard.classList.contains("is-peek") && k.Cal.selected === pinned,
+    "...and the pinned day comes back when the pointer leaves");
   ok(k.doc.querySelectorAll(".cal-legend li").length === 4, "the impact legend still has all four levels");
   ok(/15/.test(k.doc.querySelector(".cal-fine").textContent), "the blackout note still states the window",
     k.doc.querySelector(".cal-fine").textContent.trim());

@@ -37,10 +37,19 @@ def test_the_pieces_are_there() -> None:
     for path in (PREREQ, PANEL):
         assert path.exists(), f"{path.name} is missing"
     csproj = CSPROJ.read_text(encoding="utf-8")
-    # The project globs *.cs, so a new file is compiled without being listed;
-    # this fails if somebody switches it to explicit <Compile> items and
-    # forgets these two.
-    if "<Compile " in csproj:
+    # The SDK project globs *.cs out of its own folder, so a new file next
+    # to these two is compiled without being listed anywhere. What would
+    # break that is turning the glob off, and only that: a <Compile
+    # Include> pointing at a file from another folder (the window pulls in
+    # ..\shell\shared\Aurora.cs) ADDS to the glob rather than replacing
+    # it, and reading one as the other failed this test on a project that
+    # compiles both files perfectly well.
+    globbed = not re.search(
+        r"<EnableDefault(Compile)?Items>\s*false\s*</EnableDefault(Compile)?Items>",
+        csproj,
+        re.I,
+    )
+    if not globbed:
         for name in ("Prerequisites.cs", "SetupPanel.cs"):
             assert name in csproj, f"{name} is not compiled"
 
