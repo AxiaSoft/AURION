@@ -726,7 +726,7 @@ check("the light-mode console rule actually beats the skin layer", () => {
 
 check("the browser is forced to pick up every file that changed", () => {
   const html = read("index.html");
-  const want = ["js/skins.js?v=desk99", "js/themes.js?v=desk188", "js/app.js?v=desk241", "js/api.js?v=desk221",
+  const want = ["js/skins.js?v=desk99", "js/themes.js?v=desk188", "js/app.js?v=desk242", "js/api.js?v=desk221",
     "css/themes.css?v=desk197", "css/app.css?v=desk239", "css/skins.css?v=desk233",
     /* The chart sheet changed too. Its files were not listed here, so
        a phone with the old chart-tools.js cached would have kept a
@@ -736,7 +736,7 @@ check("the browser is forced to pick up every file that changed", () => {
        head-gap toggle in the engine itself - and it had been sitting
        at desk189 while the files around it moved. A cached copy of it
        would answer setHeadGap with nothing at all. */
-    "js/charts.js?v=desk235",
+    "js/charts.js?v=desk236",
     "js/colorpicker.js?v=desk2",
     /* The calendar grew the news reminder, and had been left at
        desk139 while everything around it moved - a cached copy would

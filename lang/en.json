@@ -1630,7 +1630,8 @@
     "lvl_moved": "Sent to the broker",
     "lvl_gone": "That position is no longer open",
     "lvl_sl_side": "A stop has to sit on the losing side of the price",
-    "lvl_tp_side": "A target has to sit on the winning side of the price"
+    "lvl_tp_side": "A target has to sit on the winning side of the price",
+    "signals_analysing": "Still analysing"
   },
   "signal": {
     "buy": "Buy signal",

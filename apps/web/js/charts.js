@@ -293,6 +293,7 @@ class CandleChart {
     this.pending = { sl: 0, tp: 0 };
     this.dragLevel = null;
     this.signals = [];
+    this.signalCoverage = null;
     this._sigHits = [];
     this._sigHover = null;
     this._pinned = null;
@@ -748,6 +749,65 @@ class CandleChart {
     this.draw();
   }
 
+  /**
+   * How much of the history the engine has marked so far.
+   *
+   * The marks are strategies replayed bar by bar, which takes real
+   * time over six months of history, so the engine works backwards
+   * through the chart in slabs. Without this the trader cannot tell
+   * "no setups here" from "not looked at yet", and the first reading
+   * is the dangerous one: it says the robot sat out a whole season.
+   */
+  setSignalCoverage(cov) {
+    this.signalCoverage = cov && Number.isFinite(Number(cov.from)) ? cov : null;
+    this.draw();
+  }
+
+  /** Shade and label the stretch that has not been analysed yet. */
+  paintSignalCoverage(L) {
+    const cov = this.signalCoverage;
+    if (!cov || cov.complete || !this.showSignals) return;
+    if (!this.signals || !this.signals.length) return;
+    const edge = Number(cov.from) - L.start;
+    // Entirely off the left of the view: nothing unanalysed is visible.
+    if (!(edge > 0)) return;
+    const x = Math.min(L.plotR, Math.max(L.plotL, L.xOf(Math.min(edge, L.rows.length - 1))));
+    if (x <= L.plotL + 1) return;
+    const ctx = this.ctx;
+    const T = chartTheme();
+    ctx.save();
+    /* A wash, not a curtain. The candles underneath are real history
+       and must stay readable - the only thing being said here is that
+       no strategy has been asked about them yet. */
+    ctx.globalAlpha = 0.07;
+    ctx.fillStyle = T.muted;
+    ctx.fillRect(L.plotL, L.plotT, x - L.plotL, L.plotB - L.plotT);
+    ctx.globalAlpha = 1;
+    ctx.setLineDash([4, 4]);
+    ctx.strokeStyle = T.muted;
+    ctx.globalAlpha = 0.45;
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(x + 0.5, L.plotT);
+    ctx.lineTo(x + 0.5, L.plotB);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    /* Only worth saying if there is room to say it; a clipped word is
+       worse than the shading alone, which already reads as "different
+       from the rest". */
+    const text = this.i18n("chart.signals_analysing", "Still analysing");
+    ctx.font = "11px IBM Plex Mono, Vazirmatn, monospace";
+    const w = ctx.measureText(text).width;
+    if (x - L.plotL > w + 16) {
+      ctx.globalAlpha = 0.75;
+      ctx.fillStyle = T.muted;
+      ctx.textAlign = "right";
+      ctx.textBaseline = "top";
+      ctx.fillText(text, x - 8, L.plotT + 6);
+    }
+    ctx.restore();
+  }
+
   setLastBar(b) {
     if (!b) return;
     if (!this.bars.length) { this.setBars([b]); return; }
@@ -1178,6 +1238,7 @@ class CandleChart {
     this.paintLevels(L);
     this.paintOrders(L);
     this.paintPending(L);
+    this.paintSignalCoverage(L);
     this.paintSignals(L);
     this.paintLastPrice(L);
     ctx.restore();

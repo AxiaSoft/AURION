@@ -13267,6 +13267,12 @@ const TF_MINUTES = { M1: 1, M5: 5, M15: 15, M30: 30, H1: 60, H4: 240, D1: 1440, 
 
    Weekends are not subtracted. Over-asking costs one number in a query
    string; under-asking is the bug being fixed. */
+/* Pause between one slab of signal analysis and asking for the next.
+   Long enough that the engine is not the only thing the box is doing
+   and the desk stays responsive between slabs, short enough that the
+   chart visibly fills in rather than appearing to have stopped. */
+const SIGNAL_FILL_DELAY_MS = 1200;
+
 const HISTORY_DAYS = 180;
 const HISTORY_MAX = 300000;
 function barsForDays(timeframe, days) {
@@ -13337,6 +13343,50 @@ async function paintMiniCharts() {
   }
 }
 
+/**
+ * Remember how much of the chart has actually been analysed.
+ *
+ * The marks are the armed strategies replayed bar by bar, which costs
+ * real time - about 11ms a bar for smart_money - so six months of them
+ * cannot be produced inside one request. The engine works through the
+ * history in slabs and reports how far it has got.
+ *
+ * The desk has to show that, because an unmarked stretch of chart and
+ * an unanalysed stretch of chart look identical, and reading the second
+ * as the first means concluding the robot saw no setups all spring.
+ */
+function noteSignalCoverage(res) {
+  S.signalCoverage = {
+    from: Number(res.covered_from || 0),
+    to: Number(res.covered_to || 0),
+    bars: Number(res.bars || 0),
+    complete: res.complete !== false,
+  };
+}
+
+/**
+ * Ask again while the engine is still working backwards.
+ *
+ * Each call pushes the analysed region further back, so the chart
+ * fills in over a few seconds instead of stopping wherever the first
+ * request ran out of time. Stops as soon as the engine says it is
+ * complete, and never stacks two timers.
+ */
+function scheduleSignalFill(symbol, timeframe) {
+  if (S._signalFill) { clearTimeout(S._signalFill); S._signalFill = null; }
+  const cov = S.signalCoverage;
+  if (!cov || cov.complete) return;
+  if (!S.signalsEnabled || !S.showSignals) return;
+  S._signalFill = setTimeout(() => {
+    S._signalFill = null;
+    // Only if the trader is still on the same chart. Carrying on
+    // analysing a symbol nobody is looking at is work the machine
+    // could be spending on the one they switched to.
+    if (S.symbol !== symbol || S.timeframe !== timeframe) return;
+    fetchChartSignals(symbol, timeframe);
+  }, SIGNAL_FILL_DELAY_MS);
+}
+
 async function fetchChartSignals(symbol, timeframe) {
   symbol = symbol || S.symbol || (S.chartFocus && S.chartFocus.symbol) || "";
   timeframe = timeframe || S.timeframe || "M15";
@@ -13361,8 +13411,10 @@ async function fetchChartSignals(symbol, timeframe) {
       + `&count=${barsForDays(timeframe, HISTORY_DAYS)}&strict=true`);
     if (r && r.ok && r.signals) {
       S.chartSignals = r.signals;
+      noteSignalCoverage(r);
     } else if (r && r.data && r.data.signals) {
       S.chartSignals = r.data.signals;
+      noteSignalCoverage(r.data);
     } else if (r && r.ok === false && r.error === "premium_required") {
       S.chartSignals = [];
       // keep enabled flag but show upgrade toast once
@@ -13374,10 +13426,16 @@ async function fetchChartSignals(symbol, timeframe) {
     } else {
       S.chartSignals = [];
     }
-    if (S.chart && typeof S.chart.setSignals === "function") S.chart.setSignals(S.chartSignals, S.showSignals);
+    if (S.chart && typeof S.chart.setSignals === "function") {
+      S.chart.setSignals(S.chartSignals, S.showSignals);
+      if (typeof S.chart.setSignalCoverage === "function") {
+        S.chart.setSignalCoverage(S.signalCoverage);
+      }
+    }
     // A notification that was clicked before the marks existed is honoured
     // here, now that they do.
     if (S.pendingSignal && S.pendingSignal.symbol === symbol) pinPendingSignal();
+    scheduleSignalFill(symbol, timeframe);
     // per user request: no bottom list — signals only on canvas (CandleChart overlay)
 
   } catch (e) {

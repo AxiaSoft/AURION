@@ -74,6 +74,28 @@ NEWS_REFRESH_SECONDS = 5 * 60
 #: costs only a little time.
 RANGE_WARMUP_BARS = 400
 
+#: Wall-clock ceiling for one chart-mark pass.
+#:
+#: The marks are an armed strategy's own output replayed bar by bar,
+#: and smart_money costs about 11 ms a bar, so six months of M15 is
+#: three minutes of work. It is done in slabs across refreshes instead,
+#: and this is one slab's share. Long enough to make visible progress,
+#: short enough that a chart refresh is never felt as a hang.
+CHART_MARK_BUDGET_SECONDS = 8.0
+
+#: Bars analysed on the very first pass for a chart.
+#:
+#: Deliberately modest: the first paint has to arrive quickly, and the
+#: bars nearest the right-hand edge are the ones being looked at. The
+#: rest is filled in behind it by later refreshes.
+CHART_MARK_FIRST_PASS = 1200
+
+#: How much further back each subsequent pass reaches.
+CHART_MARK_STEP_BACK = 1500
+
+#: How many charts' worth of analysis to remember at once.
+CHART_MARK_CACHES = 8
+
 
 def _slice_bars(
     bars: list[dict[str, Any]],
@@ -257,6 +279,10 @@ class Trader:
         self.telegram = None
         self.license = Guard()
         self.backtest_run: dict[str, Any] = {"running": False, "mode": "idle"}
+        # Chart marks already worked out, per symbol/timeframe/armed set.
+        # Analysis is expensive enough that it is done in slabs across
+        # refreshes; this is what carries the finished slabs between them.
+        self._chart_marks: dict[str, dict[str, Any]] = {}
         self._last_ai_tick = 0.0
         # Event faults already reported, so a broken path says so once
         # instead of several times a second.
@@ -5265,6 +5291,165 @@ class Trader:
         except Exception:
             log.exception("live AI infer failed")
 
+    # ------------------------------------------------- chart mark cache
+
+    def _marks_store(self) -> dict[str, Any]:
+        """The cache, created on demand.
+
+        Not simply self._chart_marks: the Python test harness builds a
+        Trader with __new__ and hand-sets only the attributes a given
+        check needs, so anything read here must survive not having been
+        through __init__.
+        """
+        store = getattr(self, "_chart_marks", None)
+        if store is None:
+            store = {}
+            self._chart_marks = store
+        return store
+
+    def _chart_mark_key(self, symbol: str, timeframe: str, armed: list) -> str:
+        """What makes one body of analysis different from another.
+
+        The armed set is part of it: the marks are those strategies'
+        own output, so arming a fourth strategy invalidates everything
+        and the cache must not quietly keep showing three strategies'
+        marks under a four-strategy label.
+        """
+        names = ",".join(sorted(str(n) for n, _ in armed))
+        return f"{symbol}|{timeframe}|{names}"
+
+    def _chart_mark_plan(self, symbol: str, timeframe: str, armed: list, bars: list) -> dict[str, Any]:
+        """Which bars to analyse on this call.
+
+        New bars at the right-hand edge come first - they are what the
+        trader is looking at - and only then does coverage walk
+        backwards. The alternative, extending backwards first, means a
+        chart whose newest bar is unmarked, which is the one mark
+        nobody will forgive being missing.
+
+        Positions are held as bar TIMES, not indices: the history
+        scrolls, so index 4000 is a different bar tomorrow, and a cache
+        keyed on indices would quietly slide its marks into the wrong
+        place.
+        """
+        from ..signals.strategy_signals import WARMUP_BARS
+
+        key = self._chart_mark_key(symbol, timeframe, armed)
+        total = len(bars)
+        held = self._marks_store().get(key)
+        times = [str(b.get("time") or "") for b in bars]
+        index_of = {t: i for i, t in enumerate(times) if t}
+
+        # `to_time` is the LAST bar analysed, so the exclusive bound is
+        # one past it. Reading it back as the bound itself leaves the
+        # newest covered bar looking uncovered, and every refresh
+        # re-analyses that one bar for ever and never reaches backwards.
+        lo = hi = None
+        if held:
+            lo = index_of.get(held.get("from_time") or "")
+            end = index_of.get(held.get("to_time") or "")
+            hi = None if end is None else end + 1
+        if lo is None or hi is None or lo > hi:
+            # Nothing usable: either the first call, or the history
+            # moved far enough that the remembered bars have scrolled
+            # off. Start at the right-hand edge.
+            return {"key": key, "first": max(WARMUP_BARS, total - CHART_MARK_FIRST_PASS),
+                    "last": total, "fresh": True}
+
+        if hi < total:
+            # New bars have arrived since last time. Those first, and
+            # one bar of overlap so a mark on the boundary bar is not
+            # lost between the two passes.
+            return {"key": key, "first": max(WARMUP_BARS, hi - 1), "last": total, "fresh": False}
+
+        # Fully caught up at the right. Spend the call reaching further
+        # back, a slab at a time.
+        if lo <= WARMUP_BARS:
+            return {"key": key, "first": lo, "last": lo, "fresh": False, "complete": True}
+        return {"key": key, "first": max(WARMUP_BARS, lo - CHART_MARK_STEP_BACK),
+                "last": lo + 1, "fresh": False}
+
+    def _chart_marks_merge(
+        self, symbol: str, timeframe: str, armed: list, bars: list,
+        plan: dict[str, Any], result: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Fold this pass into what is already known and answer with all of it.
+
+        The desk gets every mark discovered so far, not just the slab
+        analysed on this call - otherwise each refresh would wipe the
+        chart and redraw a different fragment of it.
+        """
+        from ..signals.strategy_signals import WARMUP_BARS
+
+        key = plan["key"]
+        total = len(bars)
+        times = [str(b.get("time") or "") for b in bars]
+        index_of = {t: i for i, t in enumerate(times) if t}
+        held = None if plan.get("fresh") else self._marks_store().get(key)
+
+        kept: list[dict[str, Any]] = []
+        if held:
+            # Re-index: these marks were found when the history was a
+            # different length. A mark whose bar has scrolled off is
+            # dropped rather than guessed at.
+            for mark in held.get("signals", []):
+                idx = index_of.get(str(mark.get("time") or ""))
+                if idx is None:
+                    continue
+                kept.append({**mark, "index": idx})
+
+        lo = plan["first"]
+        hi = int(result.get("covered_to") or plan["last"])
+        fresh_marks = list(result.get("signals") or [])
+        # Anything previously known inside the slab just re-analysed is
+        # replaced by what the slab found, so a strategy whose settings
+        # changed cannot leave a stale arrow behind.
+        kept = [m for m in kept if not (lo <= int(m.get("index", -1)) < hi)]
+        merged = kept + fresh_marks
+        merged.sort(key=lambda m: (int(m.get("index", 0)), str(m.get("strategy", ""))))
+        # Thinned here as well as inside the replay: each slab is under
+        # the cap on its own, but five slabs added together need not be.
+        # thin_marks keeps the best of each slice of history rather than
+        # the newest, so accumulating coverage never pushes the spring
+        # off the chart to make room for the autumn.
+        from ..signals.strategy_signals import thin_marks
+        merged = thin_marks(merged)
+
+        if held:
+            old_lo = index_of.get(held.get("from_time") or "")
+            old_end = index_of.get(held.get("to_time") or "")
+            covered_lo = lo if old_lo is None else min(old_lo, lo)
+            covered_hi = hi if old_end is None else max(old_end + 1, hi)
+        else:
+            covered_lo, covered_hi = lo, hi
+
+        covered_lo = max(0, min(covered_lo, total))
+        covered_hi = max(covered_lo, min(covered_hi, total))
+        store = self._marks_store()
+        store[key] = {
+            "from_time": times[covered_lo] if covered_lo < total else "",
+            "to_time": times[covered_hi - 1] if 0 < covered_hi <= total else "",
+            "signals": merged,
+        }
+        # One cache per chart the trader looks at; a handful of symbols
+        # at a time, so this only stops an unbounded leak over days.
+        while len(store) > CHART_MARK_CACHES:
+            store.pop(next(iter(store)))
+
+        complete = covered_lo <= WARMUP_BARS and covered_hi >= total
+        return {
+            **result,
+            "signals": merged,
+            "count": len(merged),
+            "covered_from": covered_lo,
+            "covered_to": covered_hi,
+            # The desk draws a boundary at `covered_from` and says marks
+            # start there, so an unanalysed stretch is never read as a
+            # stretch with no setups. `complete` turns that off.
+            "complete": bool(complete),
+            "analysing": not complete,
+        }
+
     async def chart_signals(self, symbol: str, timeframe: str = "M15", count: int = 0, strict: bool = True) -> dict[str, Any]:
         # premium feature
         if not self.license.feature("chart_signals"):
@@ -5297,6 +5482,24 @@ class Trader:
             if armed:
                 from ..signals.strategy_signals import replay
 
+                # Where to look this time.
+                #
+                # Reported: "the signals are only drawn at the right
+                # edge of the chart, not across all the months". They
+                # were - the replay covered the last 240 bars. Covering
+                # six months instead is 17 280 bars on M15, and at
+                # roughly 11 ms a bar for smart_money that is a
+                # three-minute HTTP request, so it cannot simply be
+                # widened.
+                #
+                # So the analysis is remembered and extended: each
+                # refresh does the new bars at the right-hand edge
+                # first, then spends what budget is left pushing the
+                # covered region further back. The chart fills in from
+                # the right over a few refreshes instead of being
+                # permanently blank behind bar 240.
+                plan = self._chart_mark_plan(symbol, timeframe, armed, bars)
+
                 result = await asyncio.to_thread(
                     replay,
                     bars,
@@ -5315,7 +5518,11 @@ class Trader:
                     # distance the engine would refuse to send is a trade
                     # the trader cannot actually take.
                     cap=self._chart_stop_cap(symbol),
+                    budget_seconds=CHART_MARK_BUDGET_SECONDS,
+                    first=plan["first"],
+                    last=plan["last"],
                 )
+                result = self._chart_marks_merge(symbol, timeframe, armed, bars, plan, result)
             else:
                 # Nothing armed. Falling back to the indicator read keeps the
                 # chart useful, but it is labelled so nobody mistakes it for
