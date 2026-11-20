@@ -726,8 +726,8 @@ check("the light-mode console rule actually beats the skin layer", () => {
 
 check("the browser is forced to pick up every file that changed", () => {
   const html = read("index.html");
-  const want = ["js/skins.js?v=desk99", "js/themes.js?v=desk189", "js/app.js?v=desk247", "js/api.js?v=desk221",
-    "css/themes.css?v=desk197", "css/app.css?v=desk242", "css/skins.css?v=desk233",
+  const want = ["js/skins.js?v=desk99", "js/themes.js?v=desk189", "js/app.js?v=desk248", "js/api.js?v=desk221",
+    "css/themes.css?v=desk197", "css/app.css?v=desk243", "css/skins.css?v=desk233",
     /* The chart sheet changed too. Its files were not listed here, so
        a phone with the old chart-tools.js cached would have kept a
        grab bar that does not drag. */

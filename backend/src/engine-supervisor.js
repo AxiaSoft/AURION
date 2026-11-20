@@ -161,6 +161,127 @@ function startEngine() {
   }
 }
 
+/**
+ * Replace a running engine with one that reads the files on disk now.
+ *
+ * The missing recovery, and the one the field keeps asking for. An
+ * update writes new files; the engine that imported the old ones is
+ * still running and still perfectly healthy, so the supervisor above -
+ * which only ever starts an engine that is DOWN - correctly leaves it
+ * alone. The desk then says "the engine is still running the previous
+ * version" and the only cure on offer was a full restart of the
+ * product, or closing the window and opening it again. For one
+ * process.
+ *
+ * This stops that process and starts a new one, leaving the desk's own
+ * server untouched. The desk stays up, the page is not reloaded, and
+ * nobody has to close anything.
+ *
+ * Three stages, each only used because the one before it did not work:
+ *
+ *   1. ask the engine to shut itself down. It persists its settings on
+ *      the way out, which a kill does not, so this is the only stage
+ *      that is allowed to be slow;
+ *   2. wait for the port to go quiet. "Asked it to stop" is not "it
+ *      stopped" - that assumption is what made every previous restart
+ *      path unreliable;
+ *   3. on Windows, fall back to stop-engine.ps1, which knows how to
+ *      identify an AURION process, refuses to touch anything else, and
+ *      reports who is holding the port when it cannot.
+ *
+ * Only then is a new engine started. Starting one on top of a survivor
+ * is the exact failure this is here to end: the new process loses the
+ * race for the port, exits, and the old one keeps answering - which
+ * looks like success to everything that only checks health.
+ */
+async function replaceEngine(opts) {
+  const budgetMs = Number((opts && opts.budgetMs) || 30000);
+  const deadline = Date.now() + budgetMs;
+  const port = enginePort();
+  const steps = [];
+
+  const alive = async () => {
+    try { return await engine.healthy(); } catch { return false; }
+  };
+
+  if (!(await alive())) {
+    // Nothing to replace. Start one, so "replace" always ends with an
+    // engine running rather than reporting that there was none.
+    steps.push("engine was not answering");
+    const started = startEngine();
+    return { ok: started, steps, started, stopped: false, forced: false };
+  }
+
+  /* 1. Save, then ask it to go. A kill would skip the saving. */
+  try {
+    await engine.request("POST", "/v1/persist", {}, 8000);
+    steps.push("settings persisted");
+  } catch (err) {
+    steps.push("persist failed: " + (err && err.message ? err.message : "unknown"));
+  }
+  try {
+    await engine.request("POST", "/v1/shutdown", {}, 5000);
+    steps.push("shutdown requested");
+  } catch (err) {
+    /* The connection dying mid-reply IS the shutdown working. */
+    steps.push("shutdown request ended with " + (err && err.message ? err.message : "no reply"));
+  }
+
+  /* 2. Wait for it to actually be gone. */
+  let gone = false;
+  while (Date.now() < deadline) {
+    if (!(await alive())) { gone = true; break; }
+    await new Promise((r) => setTimeout(r, 500));
+  }
+
+  /* 3. Still there: make it go, carefully, and only on Windows where
+        the script that knows how to do it safely lives. */
+  let forced = false;
+  if (!gone && process.platform === "win32") {
+    forced = true;
+    steps.push("asking stop-engine.ps1 to free port " + port);
+    try {
+      const { spawnSync } = require("child_process");
+      const script = path.join(ROOT, "scripts", "stop-engine.ps1");
+      const run = spawnSync("powershell", [
+        "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", script,
+        "-Root", ROOT,
+        /* ONLY the engine's ports. The desk's own port is deliberately
+           not in this list: freeing it would kill the server answering
+           the request that asked for this. */
+        "-Ports", String(port) + "," + String(port + 1),
+        "-TimeoutSec", "15",
+      ], { timeout: Math.max(5000, deadline - Date.now()), windowsHide: true, encoding: "utf8" });
+      const said = String((run && (run.stdout || "")) || "").trim();
+      if (said) steps.push(said.split(/\r?\n/).slice(-4).join(" "));
+      gone = run && run.status === 0;
+    } catch (err) {
+      steps.push("stop-engine.ps1 could not be run: " + (err && err.message ? err.message : "unknown"));
+    }
+    if (!gone && !(await alive())) gone = true;
+  }
+
+  if (!gone) {
+    logLine("could not stop the running engine; not starting a second one");
+    return {
+      ok: false,
+      error: "engine_would_not_stop",
+      steps,
+      started: false,
+      stopped: false,
+      forced,
+    };
+  }
+
+  const started = startEngine();
+  logLine(started ? "engine replaced in place" : "the old engine stopped but a new one could not be started");
+  /* The supervisor's counters describe an engine that no longer exists. */
+  misses = 0;
+  attempts = 0;
+  lastAttemptAt = 0;
+  return { ok: Boolean(started), steps, started, stopped: true, forced };
+}
+
 async function tick() {
   if (starting) return;
   let alive = false;
@@ -241,4 +362,4 @@ function state() {
   };
 }
 
-module.exports = { start, stop, state, startEngine, setStarter, findPython, tick, CHECK_MS, MISSES_BEFORE_START, MAX_ATTEMPTS };
+module.exports = { start, stop, state, startEngine, replaceEngine, setStarter, findPython, tick, enginePort, CHECK_MS, MISSES_BEFORE_START, MAX_ATTEMPTS };

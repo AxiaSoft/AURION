@@ -200,20 +200,50 @@ ok(/\.cal-cell\{[^}]*aspect-ratio:\s*1/.test(css.replace(/\s*\n\s*/g, "")),
 ok(!/min-height:\s*74px/.test(css), "the 74px fixed cell height is gone");
 
 /* Companion dates are in the markup for desktop and hidden on a phone,
-   rather than squeezed into a 30px box; the day panel carries them. */
-ok(resolve(rules, SUBS, "display", 1280) === null ||
-   resolve(rules, SUBS, "display", 1280).val !== "none",
-  "companion dates are shown in the cell on desktop");
+   rather than squeezed into a 30px box; the day panel carries them.
+   `resolve` only understands widths, so a rule guarded by a height
+   query reads here as if it always applied. The desktop check is
+   therefore written against a tall desktop explicitly: on a short one
+   the dates are dropped on purpose, because a month that fits the
+   screen gets its rows from whatever height is left. */
+ok(resolve(rules.filter((r) => !/height/.test(r.cond || "")), SUBS, "display", 1280) === null ||
+   resolve(rules.filter((r) => !/height/.test(r.cond || "")), SUBS, "display", 1280).val !== "none",
+  "companion dates are shown in the cell on a desktop with the height for them");
+{
+  const short = rules.filter((r) => /max-height:\s*860px/.test(r.cond || ""));
+  ok(short.some((r) => /\.cal-subs/.test(r.sel) && /display:\s*none/.test(r.body)),
+    "...and are the first thing dropped when the screen is too short for six readable rows");
+}
 ok(resolve(rules, SUBS, "display", 390)?.val === "none",
   "companion dates are not squeezed into a phone cell");
 
-/* Two panes on desktop, stacked below 1100px - and crucially the aside
-   stops being sticky once it is a block underneath the grid. */
-ok(/330px|320px/.test(resolve(rules, [el("div", "", ["cal"]), el("div", "", ["cal-main"])], "grid-template-columns", 1280).val),
-  "desktop lays the pane and the aside side by side");
+/* The aside used to be a 330px column to the right of the month. It is
+   a row underneath it now, at every width, because the month was asked
+   to fit the screen with the reminder and the legend visible under it -
+   and a 330px column both narrowed the grid and made the page taller
+   than the window, since those cards ran the full height of the page.
+   The base rule still declares the two-column track; the desktop
+   override replaces it. What matters is the computed result. */
+ok(resolve(rules, [el("div", "", ["cal"]), el("div", "", ["cal-main"])], "grid-template-columns", 1280).val === "minmax(0,1fr)",
+  "desktop stacks the aside under the month rather than beside it");
+ok(/minmax\(0,\s*1fr\)\s+auto/.test(resolve(rules, [el("div", "", ["cal"]), el("div", "", ["cal-main"])], "grid-template-rows", 1280)?.val || ""),
+  "the month takes the space that is left and the cards take what they need");
+{
+  /* The square cell is what made a month taller than any landscape
+     screen: seven square columns across a full-width pane is a ~190px
+     cell, and six of those is ~1140px of grid. On desktop the cells
+     divide the height available instead. */
+  const cell = resolve(rules, CELL, "aspect-ratio", 1280);
+  ok(cell && /auto/.test(cell.val), "the desktop cell is a rectangle sized by the height on offer");
+  ok(resolve(rules, CELL, "aspect-ratio", 390)?.val?.startsWith("1"),
+    "...while a phone cell stays square, so the days stay tappable");
+}
 ok(resolve(rules, [el("div", "", ["cal"]), el("div", "", ["cal-main"])], "grid-template-columns", 900).val === "minmax(0,1fr)",
   "the two panes stack on a narrow screen");
-ok(resolve(rules, ASIDE, "position", 1280)?.val === "sticky", "the aside follows the grid on desktop");
+ok(resolve(rules, ASIDE, "position", 1280)?.val === "static",
+  "the aside is static on desktop too, now that it is a row below the grid and not a column beside it");
+ok(resolve(rules, ASIDE, "flex-direction", 1280)?.val === "row",
+  "and its three cards sit side by side in that row");
 ok(resolve(rules, ASIDE, "position", 900)?.val === "static",
   "the aside stops being sticky once it is stacked below the grid");
 ok(resolve(rules, ASIDE, "position", 390)?.val === "static", "...on a phone too");
@@ -384,13 +414,20 @@ async function boot(viewport, hover) {
      mounts the calendar into a bare document with no stylesheet, so
      every computed value would come back as the initial one. */
   const calCss = require("fs").readFileSync("apps/web/css/app.css", "utf8");
-  const hideAt = calCss.indexOf(".cal-subs{display:none}");
-  /* app.css has several max-width:760px blocks; find the one this rule
-     is actually inside by walking back to its opening @media. */
-  const owner = calCss.lastIndexOf("@media", hideAt);
-  ok(hideAt > 0 && /^@media \(max-width:\s*760px\)/.test(calCss.slice(owner, owner + 32)),
+  /* app.css drops the companion dates in more than one place now - on a
+     phone, and on a desktop too short for six readable rows - so every
+     occurrence is collected and the phone one looked for among them.
+     Taking the first and asserting on it reported the phone rule as
+     missing while it sat further down the file. */
+  const owners = [];
+  for (let at = calCss.indexOf(".cal-subs{display:none}"); at !== -1;
+       at = calCss.indexOf(".cal-subs{display:none}", at + 1)) {
+    const o = calCss.lastIndexOf("@media", at);
+    owners.push(calCss.slice(o, calCss.indexOf("{", o)).trim());
+  }
+  ok(owners.some((q) => /^@media \(max-width:\s*760px\)$/.test(q)),
     "the companion dates are dropped from the cell on a phone",
-    calCss.slice(owner, owner + 30));
+    owners.join(" | ") || "nowhere");
 
   /* No card on any device now - it was only ever withheld from touch
      because it could not be dismissed there. */

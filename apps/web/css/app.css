@@ -1913,6 +1913,22 @@ input[type=range]{width:100%;accent-color:var(--cyan);height:28px;cursor:pointer
 @media (max-width:560px){
   .ct-grid,.ct-grid-3{grid-template-columns:minmax(0,1fr)}
 }
+/* The period picker on the backtest form.
+
+   `.ct-grid-2` is declared here rather than beside the 3-up variant
+   because it is only ever two date fields; giving it the same ladder
+   of media queries would collapse two short date inputs to one column
+   on a phone for no gain - they already fit side by side. */
+.ct-grid-2{grid-template-columns:repeat(2,minmax(0,1fr))}
+.bt-period{margin:12px 0 2px}
+.bt-period .field-lab{display:block;margin-bottom:6px;font-size:12.5px;opacity:.75}
+.bt-period .bt-span{margin:0}
+/* The spans are a one-line strip on a desktop and wrap on a phone -
+   seven chips never fit one line at 390px, and a horizontally
+   scrolling strip hides the one you want. */
+.bt-period .bt-dates{margin:8px 0 0}
+.bt-period-note{margin:6px 0 0;font-size:12px;opacity:.72}
+
 /* Backtest form on a phone.
 
    One option per row is right - two columns leaves a 150px select trying
@@ -2259,6 +2275,66 @@ input[type=range]{width:100%;accent-color:var(--cyan);height:28px;cursor:pointer
 .cal-bt .sub{margin:0 0 9px;font-size:.72rem;line-height:1.5}
 .cal-bt-row{display:flex;flex-wrap:wrap;gap:7px}
 .cal-bt-go{flex:1 1 auto;min-width:84px;white-space:nowrap}
+
+/* ---- desktop: the whole calendar on one screen ----
+ *
+ * Asked for directly: see the month without scrolling, with the
+ * reminder and the legend UNDER it rather than beside it, and all of
+ * it on screen at once.
+ *
+ * Two things were in the way.
+ *
+ * The aside was a 330px column to the right of the grid, so the month
+ * only ever had about three quarters of the width - and the cards in
+ * it were the page's full height, which is what made the view taller
+ * than the window in the first place.
+ *
+ * And .cal-cell is aspect-ratio:1/1. Seven square columns across a
+ * full-width pane is a cell about 190px tall; six rows of those is
+ * 1 140px of grid before the header, on a screen whose stage is around
+ * 950px. A square cell cannot fit a month on a landscape screen - the
+ * arithmetic says so whatever the padding. On a desktop the cells are
+ * now rectangles that divide up the height that is actually available.
+ *
+ * The height comes from the stage, not from a vh guess: #desk is
+ * 100dvh with the stage as a minmax(0,1fr) row, so the stage has a
+ * definite height and percentages inside it resolve against the real
+ * space left over after the header - which a vh number cannot know.
+ *
+ * Below 1100px none of this applies: the aside is already stacked
+ * there, and squeezing six rows into a phone screen makes the days
+ * too small to tap. */
+@media (min-width:1101px){
+  #cal-root{block-size:100%}
+  .cal{block-size:100%}
+  /* 1fr for the month, auto for the three cards under it: the month
+     takes whatever is left, so the page never grows past the stage. */
+  .cal-main{grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr) auto;
+    flex:1 1 auto;min-block-size:0}
+  .cal-pane{min-block-size:0;overflow:hidden;display:flex;flex-direction:column}
+  .cal-grid{flex:1 1 auto;min-block-size:0}
+  .cal-body{flex:1 1 auto;min-block-size:0;grid-auto-rows:minmax(0,1fr)}
+  /* The one line that makes a month fit. */
+  .cal-cell{aspect-ratio:auto;min-block-size:0;padding:4px 2px}
+  /* Sticky belongs to a column beside the content; this is a row below it. */
+  .cal-aside{position:static;flex-direction:row;align-items:stretch;gap:12px}
+  .cal-aside>*{flex:1 1 0;min-inline-size:0}
+  /* The day panel carries the most, and is the one card a trader reads
+     word by word, so it gets half again the width of the other two. */
+  .cal-aside>.cal-day{flex:1.6 1 0}
+  .cal-day{max-block-size:min(34vh,320px)}
+  /* A short laptop would otherwise shrink the rows until the numbers
+     are unreadable. Past this point the stage is allowed to scroll
+     again - a scrollbar beats a month nobody can read. */
+  .cal-pane{min-block-size:264px}
+}
+/* The companion dates in each cell are the first thing to go when the
+   rows get short: the day panel states all three calendars for the
+   selected day anyway. */
+@media (min-width:1101px) and (max-height:860px){
+  .cal-subs{display:none}
+  .cal-day{max-block-size:min(30vh,260px)}
+}
 
 /* ---- narrow: stack, and let the pane breathe ---- */
 @media (max-width:1100px){
@@ -4702,6 +4778,29 @@ html[dir="rtl"] .abx-fact > span{ letter-spacing:0; text-transform:none }
    sits underneath.
    ------------------------------------------------------------------ */
 .ai-page{display:flex;flex-direction:column;gap:14px}
+
+/* The kill-switch notice, on the page it invalidates.
+   It is the only thing rendered while the switch is armed, so it can
+   simply fill the stage and centre itself - which is what "in the
+   middle of the screen" means, and what an overlay sitting on top of
+   a tall page cannot do. 100% resolves against the stage because #desk
+   is 100dvh with the stage as a minmax(0,1fr) row. */
+.ai-page:has(.ai-blocked){block-size:100%}
+.ai-blocked{flex:1 1 auto;display:grid;place-items:center;min-block-size:100%;padding:16px 0}
+.ai-kill-card{max-inline-size:min(520px,100%);text-align:center;padding:26px 24px;
+  border-color:rgba(255,107,138,.28);background:rgba(255,107,138,.06)}
+.ai-kill-mark{display:grid;place-items:center;inline-size:46px;block-size:46px;margin:0 auto 12px;
+  border-radius:50%;background:rgba(255,107,138,.14);color:var(--bad)}
+.ai-kill-mark svg{inline-size:22px;block-size:22px}
+.ai-kill-card h3{margin:0 0 8px;font-size:1.08rem;color:var(--bad)}
+.ai-kill-body{margin:0;font-size:.86rem;line-height:1.7;opacity:.82}
+/* Two buttons side by side where they fit, one per line where they do
+   not. flex-basis rather than a breakpoint: the width that matters is
+   the card's, not the window's, and 160px is the point below which the
+   longer label starts breaking - a media query would have to guess at
+   that from the outside and would be wrong inside a narrower card. */
+.ai-kill-acts{display:flex;flex-wrap:wrap;justify-content:center;gap:10px;margin-block-start:18px}
+.ai-kill-acts .btn{flex:1 1 160px;max-inline-size:100%}
 
 .ai-verdict{border-inline-start:3px solid rgb(var(--wash) / .16)}
 .ai-verdict.is-ready{border-inline-start-color:var(--ok,#26d07c)}

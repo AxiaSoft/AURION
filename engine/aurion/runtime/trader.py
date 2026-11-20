@@ -41,7 +41,7 @@ from ..strategy.loader import (
 from ..license.guard import Guard
 from ..util.clock import utc_iso
 from ..util.errors import readable_error
-from ..util.history import HISTORY_DAYS, at_least_30_days
+from ..util.history import HISTORY_DAYS, at_least_window
 from ..build_id import BUILD_ID
 from ..util.market import block_reason as market_block_reason, session as market_session
 from ..util.log import RING, get
@@ -647,7 +647,7 @@ class Trader:
     def _ctx(self, symbol: str, timeframe: str, tick: dict[str, Any] | None = None) -> StrategyContext:
         candles = [c.to_dict() for c in self.bridge.candles_of(symbol, timeframe)]
         if not candles and self._is_ea_symbol(symbol):
-            candles = self.store.candles(symbol, timeframe, at_least_30_days(timeframe))
+            candles = self.store.candles(symbol, timeframe, at_least_window(timeframe))
         return StrategyContext(
             symbol=symbol,
             timeframe=timeframe,
@@ -1250,7 +1250,7 @@ class Trader:
             return
         rows = [c.to_dict() for c in self.bridge.candles_of(symbol, timeframe)]
         if not rows and self._is_ea_symbol(str(symbol or "")):
-            rows = self.store.candles(symbol, timeframe, at_least_30_days(timeframe))
+            rows = self.store.candles(symbol, timeframe, at_least_window(timeframe))
         if not rows:
             return
         state: dict[str, Any] | None = None
@@ -5436,7 +5436,7 @@ class Trader:
         self.active_symbol = symbol
         self.active_timeframe = timeframe
         bars = await self.bridge.pull_candles(
-            symbol, timeframe, at_least_30_days(timeframe, load()["engine"].get("candle_lookback"))
+            symbol, timeframe, at_least_window(timeframe, load()["engine"].get("candle_lookback"))
         )
         if bars:
             try:
@@ -5739,7 +5739,7 @@ class Trader:
         # accepted whenever there were more than 50 of them, so on a chart
         # that had just opened the analysis ran over the last fifty bars
         # and the rest of the month came back blank.
-        want = at_least_30_days(timeframe, count)
+        want = at_least_window(timeframe, count)
         bars = [c.to_dict() for c in self.bridge.candles_of(symbol, timeframe)]
         if len(bars) < want:
             try:
@@ -5825,7 +5825,7 @@ class Trader:
         # days the chart shows. Cached bars were taken as sufficient at 90
         # of them, which on M5 is seven hours, so a run launched from a
         # fresh chart silently tested a sliver of the visible history.
-        want = at_least_30_days(timeframe, body.get("bars"))
+        want = at_least_window(timeframe, body.get("bars"))
         bars = [c.to_dict() for c in self.bridge.candles_of(symbol, timeframe)]
         if len(bars) < want:
             bars = await self.bridge.pull_candles(symbol, timeframe, want) or bars

@@ -7641,6 +7641,76 @@ function currentAnalysis() {
   return (sym && by[sym]) || a;
 }
 
+/* ── the kill switch, stated on the page it invalidates ──────────────
+ *
+ * Asked for: opening the intelligence page while the kill switch is
+ * armed should say so in the middle of the screen, with a way to turn
+ * it off from there.
+ *
+ * The page is REPLACED rather than dimmed behind a scrim. Two reasons,
+ * one of them geometry: an overlay centred over a page that is two
+ * thousand pixels tall centres itself a thousand pixels down, which is
+ * off screen - "in the middle" is only true if there is nothing
+ * underneath it. The other is honesty. Every number on this page is a
+ * reason to trade, and while the kill switch is armed none of them can
+ * become one. Showing the analysis greyed out invites reading it as if
+ * it still counted.
+ *
+ * "Show it anyway" is there so nobody is trapped: a trader who has
+ * deliberately armed the switch and wants to watch the robot think is
+ * entitled to. The intent is remembered only while the switch stays
+ * armed - re-arming it brings the notice back, because that is a new
+ * decision.
+ */
+function aiKillBlocked() {
+  if (!S.snap || !S.snap.kill_switch) {
+    S._aiKillSeen = false;
+    return false;
+  }
+  return !S._aiKillSeen;
+}
+
+function aiKillBlockHtml() {
+  return `<section class="ai-blocked" id="ai-kill-block">
+    <div class="card ai-kill-card" role="alert" aria-live="assertive">
+      <span class="ai-kill-mark">${icon("shield")}</span>
+      <h3>${esc(I18N.t("ai.kill_title"))}</h3>
+      <p class="ai-kill-body">${esc(I18N.t("ai.kill_body"))}</p>
+      <div class="ai-kill-acts">
+        <button type="button" class="btn" id="ai-kill-off">${esc(I18N.t("ai.kill_off"))}</button>
+        <button type="button" class="btn ghost" id="ai-kill-anyway">${esc(I18N.t("ai.kill_anyway"))}</button>
+      </div>
+    </div>
+  </section>`;
+}
+
+function bindAiKillBlock() {
+  const off = $("ai-kill-off");
+  if (off) off.onclick = async () => {
+    off.disabled = true;
+    try {
+      const r = await API.post("/api/kill", { armed: false });
+      if (r && r.ok === false) {
+        toast(r.error || I18N.t("errors.generic"));
+        off.disabled = false;
+        return;
+      }
+      // The snapshot carries the new state; the page redraws itself
+      // from it, so there is no second source of truth to keep.
+      await refresh(false);
+      show("intelligence", { animate: false });
+    } catch (e) {
+      off.disabled = false;
+      toast(I18N.t("errors.generic"));
+    }
+  };
+  const anyway = $("ai-kill-anyway");
+  if (anyway) anyway.onclick = () => {
+    S._aiKillSeen = true;
+    show("intelligence", { animate: false });
+  };
+}
+
 function analysisCardHtml() {
   const a = currentAnalysis();
   if (!a) {
@@ -8073,6 +8143,10 @@ const views = {
     </div>`;
   },
   intelligence() {
+    /* The kill switch comes first, by request.
+       See aiKillBlocked() for why the rest of the page is not drawn
+       behind it rather than dimmed. */
+    if (aiKillBlocked()) return `<div class="cmd ai-page">${aiKillBlockHtml()}</div>`;
     /* Rebuilt for both sizes.
 
        The page was the analysis card followed by a flat 2x2 of equal
@@ -8383,6 +8457,7 @@ const views = {
             <select class="ctrl" id="bt-st">${stItems.map((it)=>`<option value="${esc(it.name)}" data-kind="${esc(it.kind || "builtin")}">${esc(it.name)}</option>`).join("")}</select>
           </label>
         </div>
+        ${backtestPeriodHtml()}
         <div class="row" style="margin-top:10px">
           <button class="btn" id="h-bt" type="button"${running || !items.length ? " disabled" : ""}>${running ? I18N.t("history.backtest_running") : I18N.t("history.backtest_run")}</button>
         </div>
@@ -8734,6 +8809,13 @@ const views = {
                is not the one on disk: the update landed and the process
                was never restarted into it. Invisible otherwise. -->
           <p class="sub err" id="upd-stale" hidden></p>
+          <!-- Offered beside the explanation rather than only on the
+               install screen: this panel is where somebody lands days
+               later, still running the engine the update replaced. It
+               swaps that one process; it does not restart the desk. -->
+          <div class="row" id="upd-swap-row" hidden>
+            <button class="btn" id="upd-swap" type="button">${icon("refresh")} ${esc(I18N.t("upd.engine_replace_btn"))}</button>
+          </div>
           <!-- The two fingerprints, side by side. Support spent a week
                on "the error is still there" because nothing anywhere
                said which code was running; one glance answers it now. -->
@@ -9961,6 +10043,28 @@ async function bindUpdatePanel(){
       staleEl.hidden = !show;
       staleEl.textContent = show ? engineStaleAdvice(verdict).join(' ') : '';
     }
+    /* Only where it can work. A second installation's engine is not
+       this desk's to stop, and offering a button that cannot help is
+       how the original support loop started. */
+    const swapRow = document.getElementById('upd-swap-row');
+    if (swapRow) swapRow.hidden = !(verdict.stale && !verdict.differentTree);
+    const swapBtn = document.getElementById('upd-swap');
+    if (swapBtn) swapBtn.onclick = async () => {
+      swapBtn.disabled = true;
+      const label = swapBtn.textContent;
+      swapBtn.textContent = I18N.t('upd.engine_replacing');
+      const ok = await replaceEngineInPlace();
+      const after = ok ? await verifyEngineBuild() : null;
+      if (after && !after.stale && !after.differentTree) {
+        toast(I18N.t('upd.engine_replace_ok'));
+        try { I18N.clearCache(); } catch (e) { /* */ }
+        location.replace('/?v=' + Date.now());
+        return;
+      }
+      swapBtn.disabled = false;
+      swapBtn.textContent = label;
+      toast(I18N.t('upd.engine_replace_failed'));
+    };
     const buildEl = document.getElementById('upd-build');
     if (buildEl) {
       /* Only when both halves are real. One fingerprint on its own
@@ -10636,7 +10740,13 @@ function bindView(view) {
   if (view === "calendar") {
     Calendar.mount($("cal-root"));
   }
-  if (view === "intelligence") {
+  // Nothing else on this page is rendered while the kill-switch notice
+  // is up, so the branch below would be binding elements that do not
+  // exist. Written as a sibling branch rather than an early return:
+  // bindView has shared work after the per-view blocks.
+  if (view === "intelligence" && aiKillBlocked()) {
+    bindAiKillBlock();
+  } else if (view === "intelligence") {
     // The card was just drawn from the current snapshot, so the cache
     // starts in step with what is on screen.
     S._anHtml = null;
@@ -10834,6 +10944,7 @@ function bindView(view) {
     if (btNow.ok && Array.isArray(btNow.equity_curve) && btNow.equity_curve.length > 1) {
       requestAnimationFrame(() => drawEquityCurve(btNow.equity_curve.map(Number).filter((x) => Number.isFinite(x))));
     }
+    bindBacktestPeriod();
     const goBt = $("h-bt");
     if (goBt) goBt.onclick = () => {
       const stSel = $("bt-st");
@@ -10842,11 +10953,26 @@ function bindView(view) {
       // had uploaded, loaded and armed perfectly. The engine already
       // reports each strategy's kind; carry it instead of assuming.
       const stOpt = stSel ? stSel.options[stSel.selectedIndex] : null;
+      const span = btSpan();
+      const r = btRange(span);
+      // Refused here rather than sent: the engine would answer "no bars
+      // in that period", which reads like a data problem for what is
+      // really a typo in a date field.
+      if (span === "custom" && (!r.from || !r.to)) {
+        toast(I18N.t("bt.period_pick"));
+        return false;
+      }
+      if (r.from && r.to && r.from > r.to) {
+        toast(I18N.t("bt.period_backwards"));
+        return false;
+      }
       return startBacktest({
         symbol: String($("bt-sym")?.value || S.symbol || "").trim(),
         timeframe: String($("bt-tf")?.value || S.timeframe || "M15"),
         name: String(stSel?.value || "ema_rsi"),
         kind: String((stOpt && stOpt.dataset && stOpt.dataset.kind) || "builtin"),
+        from: r.from,
+        to: r.to,
       });
     };
   }
@@ -12049,6 +12175,136 @@ function renderBacktestDone(bt) {
   </div>`;
 }
 
+/* ── which period a backtest covers ──────────────────────────────────
+ *
+ * The calendar could already test a day, a week or a month, and the
+ * backtest page could test nothing but "everything the engine holds" -
+ * which at six months of M1 is a quarter of a million bars and minutes
+ * of waiting for an answer about one week. The asymmetry made no
+ * sense: the page whose whole job is backtesting was the slow way to
+ * do it.
+ *
+ * The same spans are offered here, plus two dates for anything the
+ * presets do not cover. Bounds are inclusive at both ends and are
+ * plain Gregorian YYYY-MM-DD whatever calendar is on screen, because
+ * that is what the engine matches bar timestamps against.
+ */
+const BT_SPANS = ["all", "today", "week", "month", "prev_month", "q", "custom"];
+
+function btSpan() {
+  const want = String(S._btSpan || "all");
+  return BT_SPANS.includes(want) ? want : "all";
+}
+
+/** YYYY-MM-DD for a Date, in local time - not toISOString(), which is UTC
+    and hands back yesterday for anybody east of Greenwich after midnight. */
+function btDayKey(d) {
+  const p = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}
+
+/**
+ * The inclusive from/to pair for a span, or empty strings for "all".
+ *
+ * Every end bound is trimmed to today. Asking for the rest of this
+ * month is asking for bars that do not exist yet, and the engine
+ * answers "no bars in that period" - a true answer to a question that
+ * should not have been askable.
+ */
+function btRange(span) {
+  const now = new Date();
+  const today = btDayKey(now);
+  const clamp = (k) => (k > today ? today : k);
+  const at = (y, m, d) => btDayKey(new Date(y, m, d));
+  const y = now.getFullYear();
+  const m = now.getMonth();
+  const d = now.getDate();
+  switch (span) {
+    case "today":
+      return { from: today, to: today };
+    case "week": {
+      // Monday to Sunday. getDay() calls Sunday 0, so Sunday is pulled
+      // back six days rather than zero - the off-by-one that otherwise
+      // makes every Sunday test the week after itself.
+      const dow = now.getDay();
+      const back = dow === 0 ? 6 : dow - 1;
+      return { from: at(y, m, d - back), to: clamp(at(y, m, d - back + 6)) };
+    }
+    case "month":
+      return { from: at(y, m, 1), to: clamp(at(y, m + 1, 0)) };
+    case "prev_month":
+      return { from: at(y, m - 1, 1), to: clamp(at(y, m, 0)) };
+    case "q":
+      return { from: at(y, m - 3, d), to: today };
+    case "custom":
+      return { from: String(S._btFrom || ""), to: String(S._btTo || "") };
+    default:
+      return { from: "", to: "" };
+  }
+}
+
+function backtestPeriodHtml() {
+  const span = btSpan();
+  const r = btRange(span);
+  const chip = (id) =>
+    `<button type="button" data-btspan="${id}" class="${id === span ? "on" : ""}"
+       aria-pressed="${id === span}">${esc(I18N.t("bt.span_" + id))}</button>`;
+  return `<div class="bt-period" id="bt-period">
+    <span class="field-lab">${esc(I18N.t("bt.period"))}</span>
+    <div class="pc-seg bt-span" id="bt-span" role="group" aria-label="${esc(I18N.t("bt.period"))}">
+      ${BT_SPANS.map(chip).join("")}
+    </div>
+    <div class="ct-grid ct-grid-2 bt-dates" id="bt-dates"${span === "custom" ? "" : " hidden"}>
+      <label class="field"><span>${esc(I18N.t("bt.from"))}</span>
+        <input class="ctrl" type="date" id="bt-from" value="${esc(String(S._btFrom || ""))}" max="${esc(btDayKey(new Date()))}" />
+      </label>
+      <label class="field"><span>${esc(I18N.t("bt.to"))}</span>
+        <input class="ctrl" type="date" id="bt-to" value="${esc(String(S._btTo || ""))}" max="${esc(btDayKey(new Date()))}" />
+      </label>
+    </div>
+    <p class="sub bt-period-note" id="bt-period-note">${esc(btPeriodNote(span, r))}</p>
+  </div>`;
+}
+
+/** The sentence under the chips: exactly which bars this run will read. */
+function btPeriodNote(span, r) {
+  if (span === "all") return I18N.t("bt.period_all");
+  if (span === "custom" && (!r.from || !r.to)) return I18N.t("bt.period_pick");
+  if (r.from && r.to && r.from > r.to) return I18N.t("bt.period_backwards");
+  return I18N.t("bt.period_from_to", { from: r.from, to: r.to });
+}
+
+function paintBacktestPeriod() {
+  const span = btSpan();
+  const r = btRange(span);
+  const seg = $("bt-span");
+  if (seg) {
+    seg.querySelectorAll("button[data-btspan]").forEach((b) => {
+      const on = b.dataset.btspan === span;
+      b.classList.toggle("on", on);
+      b.setAttribute("aria-pressed", on ? "true" : "false");
+    });
+  }
+  const dates = $("bt-dates");
+  if (dates) dates.hidden = span !== "custom";
+  const note = $("bt-period-note");
+  if (note) note.textContent = btPeriodNote(span, r);
+}
+
+function bindBacktestPeriod() {
+  const seg = $("bt-span");
+  if (seg) seg.onclick = (e) => {
+    const b = e.target.closest("button[data-btspan]");
+    if (!b) return;
+    S._btSpan = b.dataset.btspan;
+    paintBacktestPeriod();
+  };
+  const from = $("bt-from");
+  const to = $("bt-to");
+  if (from) from.onchange = () => { S._btFrom = String(from.value || ""); paintBacktestPeriod(); };
+  if (to) to.onchange = () => { S._btTo = String(to.value || ""); paintBacktestPeriod(); };
+}
+
 function renderBacktestLive(bt) {
   bt = bt || S.backtest || {};
   if (!bt.running) return "";
@@ -12841,12 +13097,28 @@ async function startBacktest(opts) {
   }
   S._btBusy = true;
   setBacktestBusy(true, 0);
+  // A run launched from the calendar lands on the backtest page a
+  // moment later. Carrying its dates into the period picker means the
+  // page says which period is being replayed, instead of showing "all
+  // history" beside a result that covers one week.
+  if (from && to) {
+    S._btSpan = "custom";
+    S._btFrom = from;
+    S._btTo = to;
+  }
   S.backtest = { running: true, mode: "backtest", symbol, timeframe, strategy: name, progress: 0, from, to };
   // Put the live panel up and scroll to it immediately. The run is
   // watched in the same place the result will appear, so the trader
   // never has to hunt for either. A run started from the calendar also
   // moves the desk to that page, or it would appear to do nothing.
-  if (S.view !== "backtest") go("backtest");
+  //
+  // show(), not go(): there has never been a function called go() on
+  // this desk. The call threw ReferenceError on every run started from
+  // anywhere other than the backtest page itself - which is exactly
+  // what the calendar does - and because it sits above the POST, the
+  // request was never sent either. "The button errors and no backtest
+  // happens" was one missing navigation helper, not two faults.
+  if (S.view !== "backtest") show("backtest");
   paintBacktestResults(S.backtest, { reveal: true });
   headerState();
   try {
@@ -13903,7 +14175,7 @@ async function fetchChartSignals(symbol, timeframe) {
   }
   S.signalsLoading = true;
   try {
-    /* The whole thirty-day window, not a flat 800 bars: the marks have
+    /* The whole HISTORY_DAYS window, not a flat 800 bars: the marks have
        to cover the history the trader can scroll back through, or the
        older half of the chart reads as "no setups" when it simply was
        not analysed. */
@@ -15433,7 +15705,21 @@ async function finishUpdateRestart(host, upd, opts) {
      Only a real disagreement - both sides answered, and differently -
      is reported, because an older engine that cannot answer must not be
      accused of anything. */
-  const verdict = await verifyEngineBuild();
+  let verdict = await verifyEngineBuild();
+  /* Stale, same tree: the update worked and one process did not get
+     the message. That is a thing the desk can fix by itself, and it
+     used to be the moment it gave up and told the trader to restart
+     the whole product - or, as reported, to close the window and open
+     it again, which is the same restart with more steps.
+     Tried once, automatically, before anything is called an error.
+     A different tree is NOT retried: no amount of stopping this
+     installation's engine will change a number that belongs to another
+     installation. */
+  if (verdict.stale && !verdict.differentTree) {
+    if (phaseEl) phaseEl.textContent = I18N.t("upd.engine_replacing");
+    const swapped = await replaceEngineInPlace();
+    if (swapped) verdict = await verifyEngineBuild();
+  }
   if (verdict.stale || verdict.differentTree) {
     mark("wait", "failed");
     host.classList.add("is-failed", "is-bad");
@@ -15453,10 +15739,29 @@ async function finishUpdateRestart(host, upd, opts) {
             : "")
         + (actionable
             ? `<div class="upd-install-actions">`
-              + `<button class="btn" type="button" id="upd-inst-retry-restart">${icon("refresh")} ${esc(I18N.t("upd.inst_restart_now"))}</button>`
+              /* First, because it is the smallest thing that can work
+                 and the only one that does not take the desk down
+                 with it. The automatic attempt above has already run,
+                 so this one exists for the case where the engine was
+                 busy then and is not now. */
+              + `<button class="btn" type="button" id="upd-inst-swap">${icon("refresh")} ${esc(I18N.t("upd.engine_replace_btn"))}</button>`
+              + `<button class="btn ghost" type="button" id="upd-inst-retry-restart">${esc(I18N.t("upd.inst_restart_now"))}</button>`
               + `<button class="btn ghost" type="button" id="upd-inst-repair">${esc(I18N.t("upd.repair_btn"))}</button>`
               + `</div>`
             : "");
+      const swap = msg.querySelector("#upd-inst-swap");
+      if (swap) swap.onclick = async () => {
+        swap.disabled = true;
+        const ok = await replaceEngineInPlace();
+        const after = ok ? await verifyEngineBuild() : null;
+        if (after && !after.stale && !after.differentTree) {
+          try { I18N.clearCache(); } catch (e) { /* */ }
+          location.replace("/?v=" + Date.now());
+          return;
+        }
+        swap.disabled = false;
+        toast(I18N.t("upd.engine_replace_failed"));
+      };
       const again = msg.querySelector("#upd-inst-retry-restart");
       if (again) again.onclick = () => {
         host.classList.remove("is-failed", "is-bad");
@@ -15570,6 +15875,49 @@ function engineStaleAdvice(verdict) {
   }
   lines.push(I18N.t("upd.engine_stale_cure"));
   return lines;
+}
+
+/**
+ * Swap the engine process without restarting the desk.
+ *
+ * The proportionate cure for "the engine is still running the previous
+ * version": one process is replaced, the page stays up, and nothing
+ * has to be closed and reopened. The backend does the careful part -
+ * persist, ask it to stop, watch the port go quiet, only then start a
+ * new one - because starting an engine on top of a survivor is the
+ * failure this exists to end.
+ *
+ * Returns true only when a new engine is answering. Everything else,
+ * including "could not stop the old one", is false: the caller must
+ * then say so rather than reporting a recovery that did not happen.
+ */
+async function replaceEngineInPlace() {
+  let r;
+  try {
+    r = await API.post("/api/system/engine/replace", {});
+  } catch (err) {
+    return false;
+  }
+  if (!r || !r.ok) return false;
+  // Started is not running. The engine imports numpy and friends before
+  // it answers anything, so wait for it the same way the restart does.
+  return await waitForEngineHealth(90000);
+}
+
+/** Poll the engine's own health - not the desk's - until it answers. */
+async function waitForEngineHealth(budgetMs) {
+  const deadline = Date.now() + (budgetMs || 60000);
+  while (Date.now() < deadline) {
+    try {
+      const res = await fetch("/api/health?t=" + Date.now(), { cache: "no-store" });
+      if (res.ok) {
+        const data = await res.json();
+        if (data && data.build && data.build.online === true) return true;
+      }
+    } catch (e) { /* the desk's own server is fine; keep asking */ }
+    await new Promise((r) => setTimeout(r, 1200));
+  }
+  return false;
 }
 
 async function verifyEngineBuild() {

@@ -155,12 +155,20 @@ console.log("\n=== the engine says which code it is running ===");
 console.log("\n=== the desk checks, instead of assuming ===");
 {
   say(/async function verifyEngineBuild\(\)/.test(APP), "the desk can ask the question");
-  say(/const verdict = await verifyEngineBuild\(\);/.test(APP),
+  say(/(?:const|let) verdict = await verifyEngineBuild\(\);/.test(APP),
     "and the install asks it after the restart");
   /* lastIndexOf: the settings panel asks the same question earlier in
-     the file, and the one being pinned here is the install's. */
-  const i = APP.lastIndexOf("const verdict = await verifyEngineBuild();");
+     the file, and the one being pinned here is the install's. It is
+     `let` rather than `const` now, because a stale verdict on the same
+     tree is no longer the end of the story - the desk replaces the
+     engine in place and asks again before it reports anything. */
+  const i = APP.lastIndexOf("let verdict = await verifyEngineBuild();");
+  say(i > 0, "the install's verdict can be revised after a self-repair");
   const after = APP.slice(i, i + 1800);
+  say(/if \(verdict\.stale && !verdict\.differentTree\)[\s\S]{0,400}replaceEngineInPlace\(\)/.test(after),
+    "a stale engine on this tree is swapped once, automatically, before anyone is told to restart");
+  say(/if \(swapped\) verdict = await verifyEngineBuild\(\);/.test(after),
+    "and the swap is verified rather than assumed");
   say(/upd\.engine_stale_title/.test(after),
     "a desk that came back as the old build is told so, not shown a tick");
   say(/restart_required === true/.test(APP) && /return \{ stale: false, known: false \}/.test(APP),

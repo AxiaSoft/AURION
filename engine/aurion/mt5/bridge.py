@@ -17,7 +17,7 @@ from .native import AVAILABLE as NATIVE_AVAILABLE
 from .native import NativeMT5
 from .protocol import decode_buffer, encode, parse_ea_json
 from .types import Account, Candle, ChartAgent, Deal, PendingOrder, Position, Tick, classify_account, timeframe_from_minutes
-from ..util.history import at_least_30_days, cache_size
+from ..util.history import at_least_window, cache_size
 
 log = get("mt5")
 
@@ -717,7 +717,7 @@ class MT5Bridge:
                     "symbol": symbol,
                     "timeframe": minutes,
                     "timeframe_name": tf,
-                    "count": at_least_30_days(tf, count),
+                    "count": at_least_window(tf, count),
                 },
                 symbol=symbol,
                 any_ok=False,
@@ -915,7 +915,7 @@ class MT5Bridge:
         """
         symbol = str(symbol or "").strip()
         tf = self._norm_tf(timeframe)
-        count = at_least_30_days(tf, count)
+        count = at_least_window(tf, count)
         if not symbol:
             return []
         cached = self._candles_for(symbol, tf)
@@ -953,7 +953,7 @@ class MT5Bridge:
                 live_store["ticks"][symbol] = tick
                 live_store["last_tick_at"] = tick.time
                 await self.emit("tick", tick.to_dict())
-            rows = await asyncio.to_thread(self.native.candles, symbol, tf, at_least_30_days(tf))
+            rows = await asyncio.to_thread(self.native.candles, symbol, tf, at_least_window(tf))
             if rows:
                 bucket = live_store["candles"][(symbol, tf)]
                 bucket.clear()

@@ -457,12 +457,20 @@ check("there is one calendar layout, and no switch to a second", () => {
 
 check("the grid a phone is left with keeps its cells tappable", () => {
   /* With no list to fall back to, the grid has to survive 390px on
-     its own. The companion dates are what used to overflow the cell. */
-  const hide = appCss.indexOf(".cal-subs{display:none}");
-  if (hide < 0) throw new Error("the companion dates are no longer dropped on a phone");
-  const owner = appCss.lastIndexOf("@media", hide);
-  if (!/^@media \(max-width:\s*760px\)/.test(appCss.slice(owner, owner + 32))) {
-    throw new Error("they are dropped at the wrong width: " + appCss.slice(owner, owner + 30));
+     its own. The companion dates are what used to overflow the cell.
+     EVERY place that drops them is collected, not the first: there is
+     now a second, legitimate one - a desktop too short to give the
+     month rows a readable height - and reading only the first made
+     this report the phone rule as missing while it sat below. */
+  const owners = [];
+  for (let at = appCss.indexOf(".cal-subs{display:none}"); at !== -1;
+       at = appCss.indexOf(".cal-subs{display:none}", at + 1)) {
+    const owner = appCss.lastIndexOf("@media", at);
+    owners.push(appCss.slice(owner, appCss.indexOf("{", owner)).trim());
+  }
+  if (!owners.length) throw new Error("the companion dates are no longer dropped anywhere");
+  if (!owners.some((q) => /^@media \(max-width:\s*760px\)$/.test(q))) {
+    throw new Error("not dropped on a phone; only at " + owners.join(" | "));
   }
   return "cell carries the number and its dots";
 });

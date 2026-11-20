@@ -926,6 +926,31 @@ guarded.post("/host/restart", (_req, res) => {
   res.json({ ok: true, restarting: true });
   hostctl.scheduleRestart();
 });
+
+/* Replace the engine process without restarting the product.
+ *
+ * For the one state that had no proportionate cure: an update has
+ * written new files and the engine that imported the old ones is still
+ * running and still healthy. The supervisor only starts an engine that
+ * is down, so it leaves this one alone - correctly - and the desk was
+ * left telling the trader to restart everything, or to close the
+ * window and open it again, because of one process.
+ *
+ * Owner-only, like every other route that can stop something. It can
+ * take tens of seconds: the engine persists its settings on the way
+ * out and the port has to be observed going quiet before a new process
+ * is started on top of it. */
+guarded.post("/system/engine/replace", async (req, res) => {
+  if (req.user.role !== "owner") return res.status(403).json({ ok: false, error: "owner_only" });
+  let result;
+  try {
+    result = await supervisor.replaceEngine({ budgetMs: 45000 });
+  } catch (err) {
+    result = { ok: false, error: String((err && err.message) || err || "replace_failed") };
+  }
+  if (!result.ok) return res.status(400).json(result);
+  res.json(result);
+});
 guarded.post("/host/factory-reset", async (req, res) => {
   const phrase = String((req.body && req.body.confirm) || "").trim().toUpperCase();
   if (phrase !== "FACTORY") {

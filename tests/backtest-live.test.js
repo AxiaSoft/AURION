@@ -200,8 +200,20 @@ ok(/d\.running[\s\S]{0,260}paintBacktestResults\(d\)/.test(watch),
 const runner = grab('startBacktest');
 ok(/paintBacktestResults\(S\.backtest, \{ reveal: true \}\)/.test(runner),
   'starting a run scrolls to the panel the result will appear in');
-ok(/if \(S\.view !== "backtest"\) go\("backtest"\)/.test(runner),
+/* This line used to read `go\("backtest"\)` - the exact text of the
+   code, including its bug. There has never been a function called go()
+   on this desk, so every run started from anywhere but the backtest
+   page itself threw ReferenceError before the request was sent: the
+   calendar's buttons errored and ran nothing. The test passed
+   throughout, because it was checking that the source said what the
+   source said.
+   It now names the navigator that exists, and the suite's own
+   scope-aware call checker (apps/web/js/check-calls.mjs) catches the
+   general case. */
+ok(/if \(S\.view !== "backtest"\) show\("backtest"\)/.test(runner),
   'a run started from elsewhere brings the backtest page up, so it is not invisible');
+ok(!/\bgo\(/.test(runner.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '')),
+  'and it does so with a function that exists');
 ok(/if \(from\) body\.from = from;/.test(runner) && /if \(to\) body\.to = to;/.test(runner),
   'a period is sent only when one was picked, so an unbounded run stays unbounded');
 

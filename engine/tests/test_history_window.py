@@ -33,7 +33,7 @@ from aurion.util.history import (
     HISTORY_DAYS,
     MAX_BARS,
     MIN_BARS,
-    at_least_30_days,
+    at_least_window,
     bars_for_days,
     cache_size,
 )
@@ -115,17 +115,17 @@ def test_a_caller_asking_for_more_still_gets_more() -> None:
     A trader who asks to backtest a year must get a year.
     """
     big = bars_for_days("H4") * 10
-    assert at_least_30_days("H4", big) == big
+    assert at_least_window("H4", big) == big
 
 
 @pytest.mark.parametrize("asked", [None, 0, -1, "", "junk", 50, 800])
 def test_a_missing_or_silly_ask_falls_back_to_the_window(asked) -> None:
     for timeframe in DESK_TIMEFRAMES:
-        assert at_least_30_days(timeframe, asked) >= bars_for_days(timeframe)
+        assert at_least_window(timeframe, asked) >= bars_for_days(timeframe)
 
 
 def test_nothing_can_ask_for_an_unbounded_number_of_bars() -> None:
-    assert at_least_30_days("M1", 10**9) == MAX_BARS
+    assert at_least_window("M1", 10**9) == MAX_BARS
     assert bars_for_days("M1", 10_000) == MAX_BARS
 
 
@@ -155,7 +155,7 @@ CALLERS = [
 @pytest.mark.parametrize("path", CALLERS)
 def test_each_caller_derives_its_depth(path: str) -> None:
     text = (ROOT / path).read_text(encoding="utf-8")
-    assert "at_least_30_days" in text, f"{path} does not derive its history depth"
+    assert "at_least_window" in text, f"{path} does not derive its history depth"
 
 
 @pytest.mark.parametrize("path", CALLERS)
@@ -191,7 +191,7 @@ def test_the_expert_asks_the_terminal_for_what_the_engine_wants() -> None:
 
 def test_the_engine_tells_the_expert_how_deep_to_go() -> None:
     text = (ROOT / "engine/aurion/mt5/bridge.py").read_text(encoding="utf-8")
-    assert '"count": at_least_30_days(tf, count)' in text, \
+    assert '"count": at_least_window(tf, count)' in text, \
         "request_history must carry the thirty-day depth, not a fixed 800"
 
 
