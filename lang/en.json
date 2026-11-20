@@ -230,7 +230,7 @@
     "conf_help": "Confidence is the model probability of the next move, then scaled by how many live candle votes agree (pattern, EMA, MACD, DI, RSI). Chop and tiny ATR cut the score. The Robot number is the minimum required for a robot entry.",
     "auto_learn": "Learns automatically from live EA candles",
     "retrain": "Retrain now",
-    "outlook": "Live outlook",
+    "outlook": "Outlook",
     "short": "AI",
     "prev_chart": "Previous chart",
     "next_chart": "Next chart",
@@ -259,7 +259,14 @@
     "kill_title": "The kill switch is on",
     "kill_body": "Nothing on this page can lead to a trade while the kill switch is armed. The robot keeps reading the market, but no order will be sent and no signal will be acted on.",
     "kill_off": "Turn the kill switch off",
-    "kill_anyway": "Show the analysis anyway"
+    "kill_anyway": "Show the analysis anyway",
+    "range": "Ranging",
+    "why_text": "Model probability {model} on the last live bars, then scaled by how far the candle pattern, EMA, MACD, DI and RSI agree ({agree} with {dir}). A quiet ATR or a choppy tape cuts the score. The number in Robot is the minimum this must reach before the robot may enter.",
+    "idle_reason": "No read yet — it starts as soon as real candles arrive.",
+    "learning_reason": "Learning: {have} of {need} complete candles so far.",
+    "outlook_text": "{dir} on {tf} · confidence {conf} · {bull} up / {bear} down · {pattern} · {regime}",
+    "no_pattern": "no pattern",
+    "unknown_regime": "regime unknown"
   },
   "strategies": {
     "title": "Strategies",
@@ -593,7 +600,8 @@
     "robot_empty": "The robot has not evaluated a bar yet. Enable a strategy and wait for the next closed candle — or send a manual order.",
     "restart": "Restart Terminals",
     "restart_confirm": "Immediate restart of system terminals? MT5 connection will be restarted.",
-    "restart_ok": "Terminals restarted"
+    "restart_ok": "Terminals restarted",
+    "restart_title": "Immediate restart of the system terminals"
   },
   "account": {
     "type": "Account type",
@@ -854,7 +862,8 @@
     "r_license_tampered": "License file is not trusted.",
     "r_clock_rollback": "Clock rollback blocked the robot.",
     "r_machine_mismatch": "License is bound to another PC.",
-    "r_license": "License is not allowing robot entries."
+    "r_license": "License is not allowing robot entries.",
+    "r_slots_full": "Every robot trade slot is in use. Nothing new opens until one closes."
   },
   "guide": {
     "open": "Full guide",
@@ -1696,7 +1705,8 @@
     "lvl_gone": "That position is no longer open",
     "lvl_sl_side": "A stop has to sit on the losing side of the price",
     "lvl_tp_side": "A target has to sit on the winning side of the price",
-    "signals_analysing": "Still analysing"
+    "signals_analysing": "Still analysing",
+    "close": "Close"
   },
   "signal": {
     "buy": "Buy signal",
@@ -1964,5 +1974,51 @@
     "hours": "Hours",
     "minutes": "Minutes",
     "set": "Set"
+  },
+  "engerr": {
+    "backtest_busy": "A backtest is already running. Wait for it to finish, or stop it first.",
+    "no_ea_symbol": "AurionBridge is not attached to {symbol}. Open that chart in MetaTrader and attach the expert, then try again.",
+    "no_history": "MetaTrader has sent no {timeframe} bars for {symbol} yet. AURION will not invent them.",
+    "no_bars_in_period": "There are no bars in the period you picked.",
+    "no_bars_in_period_have": "There are no {timeframe} bars for {symbol} in the period you picked. This terminal holds {oldest} to {newest}. Pick a period inside that, or let MetaTrader download more history.",
+    "strategy_invalid": "The strategy could not be loaded: {detail}",
+    "kill_switch": "The emergency switch is armed. Only closing is allowed.",
+    "market_closed": "The market is closed.",
+    "market_closed_weekend": "The market is closed for the weekend. It reopens {opens}.",
+    "no_position": "There is no open position to close.",
+    "symbol_required": "Pick a live chart, or type the broker's own symbol.",
+    "volume_required": "The lot size has to be greater than zero.",
+    "max_open": "The open-trade ceiling of {n} has been reached.",
+    "mt5_unreachable": "MetaTrader 5 is not reachable. AURION will not fabricate a fill.",
+    "engine_offline": "The Python engine is offline.",
+    "premium_required": "This feature is part of the paid plan."
+  },
+  "blocker": {
+    "mt5_down": "MetaTrader is not connected",
+    "mt5_down_fix": "Open MetaTrader and attach AurionBridge to the chart.",
+    "kill": "The emergency switch is down",
+    "kill_fix": "Release the emergency switch on the dashboard.",
+    "safe": "Safe mode is on after a fault",
+    "safe_fix": "Clear safe mode once you have read the fault.",
+    "prop_lock": "The prop rules have locked trading",
+    "prop_lock_fix": "Wait for the next prop period, or relax the profile.",
+    "auto_off": "Auto-trade is off",
+    "auto_off_fix": "Arm auto-trade. Until then the robot watches and reports but never sends.",
+    "no_strategy": "No strategy is enabled",
+    "no_strategy_fix": "Enable one in Strategies.",
+    "slots_full": "Every trade slot is already in use",
+    "slots_full_fix": "Close a position, or raise the open-trade ceiling.",
+    "ai_low": "The AI is not confident enough yet",
+    "ai_low_fix": "Wait, or lower the AI confidence filter.",
+    "no_setup": "The strategy sees no setup on this bar",
+    "no_setup_fix": "Nothing to do: it is watching, and will say so when it sees one.",
+    "symbol_blocked": "This symbol is not on the prop allow-list",
+    "symbol_blocked_fix": "Pick a symbol the profile permits.",
+    "symbol_max": "This symbol already holds its maximum",
+    "symbol_max_fix": "Close one here, or trade another symbol.",
+    "news_block": "A news blackout is in force",
+    "news_block_fix": "Wait for the window to pass.",
+    "license": "The free plan's trading limit has been reached",
+    "license_fix": "Upgrade, or wait for the window to reset."
   }
 }

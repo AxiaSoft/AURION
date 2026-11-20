@@ -160,6 +160,11 @@ class AIEngine:
             "confidence_why": state.get("confidence_why") or {},
             "outlook_strength": float(outlook.get("strength") or 0.0) if isinstance(outlook, dict) else 0.0,
             "outlook_text": str(outlook.get("text") or "") if isinstance(outlook, dict) else "",
+            # The desk rebuilds the outlook sentence in the reader's own
+            # language, so it needs the counts the sentence is made of,
+            # not only the finished English line.
+            "outlook_votes": dict(outlook.get("votes") or {}) if isinstance(outlook, dict) else {},
+            "need": int(state.get("need") or 0),
             "samples": int(state.get("samples") or 0),
             "ts": str(state.get("ts") or utc_iso()),
         }
