@@ -11,7 +11,7 @@ from typing import Any
 from ..config import DATA_DIR, ROOT, load
 from ..strategy.loader import BUILTIN_NAMES, LEGACY_BUILTINS
 from ..util.clock import utc_iso
-from ..util.history import at_least_30_days
+from ..util.history import at_least_window
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS ticks (
@@ -667,7 +667,7 @@ class Store:
         """
         return self.query(
             "SELECT * FROM candles WHERE symbol=? AND timeframe=? ORDER BY ts DESC LIMIT ?",
-            (symbol, timeframe, at_least_30_days(timeframe, limit)),
+            (symbol, timeframe, at_least_window(timeframe, limit)),
         )[::-1]
 
     def signals(self, limit: int = 200) -> list[dict[str, Any]]:

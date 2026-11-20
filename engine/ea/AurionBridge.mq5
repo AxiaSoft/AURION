@@ -2,12 +2,14 @@
 //| AurionBridge.mq5                                                 |
 //| Live chart agent for the AURION engine.                          |
 //|                                                                  |
-//| v1.19 — thirty days of history, on every timeframe. The depth    |
-//|   was clamped to 400 bars, which is six hours of M1, so a desk   |
-//|   that fell back to this pipe could never show, train on or      |
-//|   backtest the month AURION promises. The engine now says how    |
-//|   many bars it wants and this expert honours it, up to whatever  |
-//|   the terminal actually holds.                                   |
+//| v1.19 — the engine names the depth, this expert honours it. The  |
+//|   depth was clamped to 400 bars, which is six hours of M1, so a  |
+//|   desk that fell back to this pipe could never show, train on or |
+//|   backtest the window AURION promises. Nothing here states a     |
+//|   number of days on purpose: the window is the engine's to set   |
+//|   (it is 180 days as this is written, up from 30), and an expert |
+//|   that agreed with it in a comment would be the copy that goes   |
+//|   stale. The ceiling below is the only limit this file imposes.  |
 //| v1.18 — the desk can now see which expert is attached. Hello     |
 //|   carries the version from one #define instead of a literal      |
 //|   typed twice, and the desk compares it with the version it       |
@@ -38,13 +40,13 @@
 #define AURION_EA_VERSION "1.19"
 #property version   "1.19"
 #property strict
-#property description "AURION live bridge 1.19 — thirty days of history on any timeframe"
+#property description "AURION live bridge 1.19 — history depth set by the engine, on any timeframe"
 
 input string InpEngineHost   = "127.0.0.1";
 input int    InpEnginePort   = 18766;
 input int    InpHeartbeatMs  = 1000;
 // Fallback depth, used only when the engine does not name one. The
-// engine asks for thirty days of the timeframe in question; this is
+// engine asks for its own window of the timeframe in question; this is
 // what an unprompted history push sends.
 input int    InpCandleDepth  = 3000;
 // Ceiling for a single history push, so a bad request cannot ask the
@@ -639,8 +641,8 @@ void PumpHistory()
    if(g_hist_count <= 0)
      {
       g_hist_tf = (g_hist_tfname == "" ? _Period : PeriodFromName(g_hist_tfname));
-      // The engine names the depth it needs - thirty days of this
-      // timeframe - because only the engine knows which timeframe the
+      // The engine names the depth it needs, because only the engine
+      // knows the window the product promises and which timeframe the
       // trader is on. The old code ignored it and clamped to 400 bars,
       // so the desk got six hours of M1 and called it a month.
       int depth = (g_hist_want > 0 ? g_hist_want : InpCandleDepth);

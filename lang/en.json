@@ -256,7 +256,11 @@
       "desk_says": "The desk says",
       "waiting": "Waiting for the engine…",
       "needs": "Needs"
-    }
+    },
+    "kill_title": "The kill switch is on",
+    "kill_body": "Nothing on this page can lead to a trade while the kill switch is armed. The robot keeps reading the market, but no order will be sent and no signal will be acted on.",
+    "kill_off": "Turn the kill switch off",
+    "kill_anyway": "Show the analysis anyway"
   },
   "strategies": {
     "title": "Strategies",
@@ -1312,7 +1316,11 @@
     "engine_stale_cure": "Close AURION completely (stop-aurion.cmd), wait a few seconds, then open it again. If the number below still does not change, restart Windows: a process that nothing can stop is cleared by a reboot.",
     "engine_stale_pid": "The surviving engine is process {pid}, running since {since}.",
     "engine_stale_tree": "This engine is not even reading the same folder. It is running from {engine}, while this desk updates {disk}. Two copies of AURION are installed and you are looking at one while using the other — restarting will never make these agree. Open the copy at {engine}, or uninstall it.",
-    "engine_dirs": "Engine folder {engine} · desk folder {disk}"
+    "engine_dirs": "Engine folder {engine} · desk folder {disk}",
+    "engine_replacing": "Replacing the engine…",
+    "engine_replace_btn": "Replace the engine now",
+    "engine_replace_ok": "The engine is now running the files on disk.",
+    "engine_replace_failed": "The engine could not be replaced. See data/logs/desk.log."
   },
   "sup": {
     "warn_days": "{n} days until this version's support ends",
@@ -1411,7 +1419,21 @@
     "prov_lot_manual": "lot: fixed at",
     "prov_max_open": "max open",
     "t_lots": "Lots",
-    "t_pips": "Pips"
+    "t_pips": "Pips",
+    "period": "Period",
+    "span_all": "All history",
+    "span_today": "Today",
+    "span_week": "This week",
+    "span_month": "This month",
+    "span_prev_month": "Last month",
+    "span_q": "Last 3 months",
+    "span_custom": "Pick dates",
+    "from": "From",
+    "to": "To",
+    "period_all": "Every bar the engine holds. Thorough, but slow on short timeframes.",
+    "period_from_to": "{from} to {to}, both days included.",
+    "period_pick": "Choose a start and an end date.",
+    "period_backwards": "The start date is after the end date."
   },
   "chart": {
     "regime_hint": "The slider above shows direction and regime per chart — move between charts with the arrows.",

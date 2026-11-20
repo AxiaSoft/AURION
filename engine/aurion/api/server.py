@@ -13,7 +13,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 
 from .. import build_id
 from ..util.errors import readable_error
-from ..util.history import HISTORY_DAYS, at_least_30_days
+from ..util.history import HISTORY_DAYS, at_least_window
 from ..config import heal_packaged_files, load, merge, save
 from ..mt5.protocol import parse_ea_json
 from ..runtime.trader import Trader
@@ -224,7 +224,7 @@ async def ai_train(body: dict[str, Any]) -> dict[str, Any]:
     # backtester replays. It used to be a flat 1500 bars, so on M1 the
     # model was trained on a day of data and on H4 on nine months.
     bars = await trader.bridge.pull_candles(
-        symbol, timeframe, at_least_30_days(timeframe, body.get("count"))
+        symbol, timeframe, at_least_window(timeframe, body.get("count"))
     )
     result = await asyncio.to_thread(trader.ai.train, bars, symbol, timeframe)
     return result

@@ -9,8 +9,8 @@ timeframe the trader happened to be looking at, and on M1 and M5 the
 window was far too short to say anything about a strategy at all.
 
 The product promise is a period, not a bar count: at least the last
-thirty days, on every timeframe. That is one number, here, and the
-callers convert it.
+HISTORY_DAYS of it, on every timeframe. That is one number, here, and
+the callers convert it.
 
 The conversion is deliberately generous. It divides calendar days by
 the bar length, so for a 24/5 instrument it asks for roughly 7/5 of
@@ -49,7 +49,7 @@ MIN_BARS = 400
 #: Six months of M1 is 259 200 bars, so the ceiling has to clear that or
 #: it silently becomes the real window - which is the exact bug this
 #: module was written to stop, where a 3000-bar cap quietly turned
-#: thirty days of M1 into two. Sized with room above the promise and no
+#: six months of M1 into a fortnight. Sized with room above the promise and no
 #: more, so a future HISTORY_DAYS of 3650, or a nonsense timeframe,
 #: still cannot take the engine down.
 MAX_BARS = 300_000
@@ -63,13 +63,19 @@ def bars_for_days(timeframe: str, days: int = HISTORY_DAYS) -> int:
     return max(MIN_BARS, min(MAX_BARS, needed))
 
 
-def at_least_30_days(timeframe: str, asked: int | None = None) -> int:
-    """`asked`, raised to the thirty-day floor for this timeframe.
+def at_least_window(timeframe: str, asked: int | None = None) -> int:
+    """`asked`, raised to the HISTORY_DAYS floor for this timeframe.
 
     Callers keep their own number - a backtest the trader has asked to
     run over more history, a configured lookback - and this only ever
     raises it. Nothing in the product may ask for less than the window
     the product promises.
+
+    Named for the promise rather than for a number of days: it was
+    at_least_30_days, the promise became 180, and a function whose name
+    states a figure it no longer enforces is worse than one with a
+    vague name. Every caller reads it to decide how much history to
+    fetch, so the name is the first thing anybody checks.
     """
     floor = bars_for_days(timeframe)
     try:
@@ -79,10 +85,15 @@ def at_least_30_days(timeframe: str, asked: int | None = None) -> int:
     return min(MAX_BARS, max(floor, want))
 
 
+#: The old name, kept so an out-of-tree caller does not break on an
+#: internal rename. Nothing in this repository uses it.
+at_least_30_days = at_least_window
+
+
 def cache_size(timeframe: str) -> int:
     """How many bars of this timeframe to keep in memory.
 
-    A little over the window, so the oldest bar of the thirty days is
-    not dropped the moment a new one arrives.
+    A little over the window, so the oldest bar of it is not dropped
+    the moment a new one arrives.
     """
     return min(MAX_BARS, bars_for_days(timeframe) + 200)
