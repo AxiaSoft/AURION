@@ -145,6 +145,25 @@ check("closing the workspace by any route also leaves fullscreen", () => {
   }
 });
 
+check("detaching ONE chart of several also leaves fullscreen", () => {
+  /* noteEaLink watches the link as a whole, so it fires when the LAST
+     expert goes away. Detaching one chart on a desk with others still
+     attached leaves the link up and the focus dangling: the view falls
+     back to the chart list, and the list inherited the chart's
+     fullscreen - no navigation, no header, no panel, and no way out
+     but a reload. That is the commoner case and it was the one that
+     was missed. */
+  const i = appJs.indexOf("if (S.chartFocus && (!live.size || !live.has(S.chartFocus.symbol)))");
+  if (i < 0) throw new Error("nothing drops the focus when its chart goes away");
+  const body = appJs.slice(i, i + 900);
+  const clear = body.indexOf("S.chartFocus = null");
+  const leave = body.indexOf("leaveChartFullscreen()");
+  if (clear < 0) throw new Error("the dangling focus is not cleared");
+  if (leave < 0 || leave > body.indexOf("return changed")) {
+    throw new Error("the chart list is left filling the screen with no panel");
+  }
+});
+
 /* ======================================================================
    1b. The chart workspace's symbol menu (source-level contract)
    ====================================================================== */

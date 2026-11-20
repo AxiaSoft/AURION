@@ -307,19 +307,18 @@
 
   const QUICK_TF = ["M5", "M15", "H1", "H4", "D1"];
 
-  /* How much time the window shows, as opposed to how long one candle
-     is. These two were conflated: the strip above picked the candle
-     size and the only way to change the PERIOD on screen was the wheel,
-     which moves in 18% steps - so "show me the last six months" was
-     twenty-odd scrolls, and most people concluded the history was not
-     there. The days are the desk's own CHART_RANGE_DAYS; the labels are
-     short because they sit in a segmented strip. */
-  const RANGES = [
-    { days: 1, key: "chart.range_1d", short: "1D" },
-    { days: 7, key: "chart.range_1w", short: "1W" },
-    { days: 30, key: "chart.range_1m", short: "1M" },
-    { days: 180, key: "chart.range_6m", short: "6M" },
-  ];
+  /* There is no period strip any more - no 1D, 1W, 1M, 6M.
+     It was added when the only way to widen the window was the wheel,
+     and it did two jobs at once: it set the span on screen AND it was
+     the button that fetched more history. Asked for its removal
+     directly: "I only want to move by dragging on the screen". Four
+     buttons that each reset the view to a fixed span are the opposite
+     of that - every drag into the past was one press away from being
+     thrown back to the live edge.
+     Dragging now owns both jobs. Reaching the oldest bar held asks the
+     engine for an older window (maybeLoadMoreHistory), so the history
+     arrives because the trader went looking for it, which is the only
+     moment anybody actually wants it. */
 
   const INDICATOR_GROUPS = [
     { id: "ma", label: "Moving averages" },
@@ -503,9 +502,6 @@
   function topHtml(o) {
     const tfs = QUICK_TF.map((id) => `<button type="button" class="tvt-seg${id === o.timeframe ? " on" : ""}"
         data-tf="${id}">${esc((TIMEFRAMES.find((t) => t.id === id) || {}).short || id)}</button>`).join("");
-    const ranges = RANGES.map((r) => `<button type="button" class="tvt-seg${r.days === Number(o.rangeDays) ? " on" : ""}"
-        data-range="${r.days}" aria-pressed="${r.days === Number(o.rangeDays)}"
-        title="${esc(tt(r.key, r.short))}">${esc(tt(r.key, r.short))}</button>`).join("");
     return `<header class="tv-top">
       <button type="button" class="tv-icon" id="tv-back" title="${esc(tt("common.back", "Back"))}"
               aria-label="${esc(tt("common.back", "Back"))}">${svg(I.chevron, "flip")}</button>
@@ -524,13 +520,9 @@
       </button>
       <div class="tv-seg" role="group" aria-label="${esc(tt("markets.timeframe", "Timeframe"))}">${tfs}</div>
       <button type="button" class="tv-btn" data-menu="tf" aria-haspopup="true">${svg(I.clock)}<span class="tvb-label" id="tv-tf-more">${esc(tt("chart.more_tf", "More"))}</span></button>
-      <span class="tv-div"></span>
-      <!-- The period on screen, next to the candle size and clearly
-           separate from it. Pressing one of these also fetches the
-           history it needs: the desk opens a chart with a month and
-           keeps the rest until it is asked for, so this strip is both
-           the zoom control and the "load it now" button. -->
-      <div class="tv-seg tv-range" role="group" aria-label="${esc(tt("chart.range", "Period shown"))}">${ranges}</div>
+      <!-- No period strip here. Dragging the chart is the whole of
+           "show me further back" now, and reaching the oldest bar
+           fetches the next window by itself. -->
       <span class="tv-div"></span>
       <button type="button" class="tv-btn" data-menu="type" aria-haspopup="true">${svg(I.chart)}<span class="tvb-label" id="tv-type-label">Candles</span></button>
       <button type="button" class="tv-btn" data-menu="indicators" aria-haspopup="true">${svg(I.indicators)}<span class="tvb-label">${esc(tt("chart.indicators", "Indicators"))}</span></button>
@@ -1947,8 +1939,6 @@
     if (top) top.onclick = (e) => {
       const tf = e.target.closest("[data-tf]");
       if (tf) { if (ctx.onTimeframe) ctx.onTimeframe(tf.dataset.tf); return; }
-      const range = e.target.closest("[data-range]");
-      if (range) { if (ctx.onRange) ctx.onRange(Number(range.dataset.range)); return; }
       const menu = e.target.closest("[data-menu]");
       if (menu) {
         const name = menu.dataset.menu;

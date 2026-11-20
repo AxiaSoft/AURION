@@ -514,14 +514,35 @@ async function boot(viewport, hover) {
   /* ---- hovering a day previews it without choosing it ---- */
   const pinned = k.Cal.selected;
   const hoverCells = [...k.doc.querySelectorAll(".cal-cell")];
-  const over = hoverCells.find((c) => c.dataset.day !== pinned);
+  /* A day that HAS news: the card only has a list to scroll when there
+     is something in it, and that list is the thing this preview exists
+     to let the trader read. */
+  const over = hoverCells.find((c) => c.dataset.day !== pinned && c.querySelector(".cal-dots i, .cal-dots span, .cal-dots b"))
+    || hoverCells.find((c) => c.dataset.day !== pinned && c.querySelector(".cal-dots").textContent.trim())
+    || hoverCells.find((c) => c.dataset.day !== pinned);
   over.dispatchEvent(new k.win.MouseEvent("mouseover", { bubbles: true }));
   const dayCard = k.doc.getElementById("cal-day");
   ok(dayCard.classList.contains("is-peek"), "hovering a day previews it in the news card");
   ok(k.Cal.selected === pinned, "...without changing which day is pinned", k.Cal.selected);
-  k.doc.getElementById("cal-pane").dispatchEvent(new k.win.MouseEvent("mouseleave", { bubbles: false }));
+  /* Leaving the grid no longer drops the preview on the spot: the only
+     way to reach the card is to leave the grid, and the news inside it
+     is a list that has to be scrollable. Reported as "I hover and its
+     container keeps changing" - the card was readable for exactly as
+     long as the pointer stayed on the day number. */
+  const pane = k.doc.getElementById("cal-pane");
+  pane.dispatchEvent(new k.win.MouseEvent("mouseleave", { bubbles: false }));
+  ok(dayCard.classList.contains("is-peek"),
+    "crossing the gap towards the card keeps the preview up");
+  dayCard.dispatchEvent(new k.win.MouseEvent("mouseenter", { bubbles: false }));
+  await new Promise((r) => setTimeout(r, 400));
+  ok(dayCard.classList.contains("is-peek") && k.Cal.peek === over.dataset.day,
+    "...and the pointer settling in the card holds it there indefinitely");
+  const list = dayCard.querySelector(".cal-evs");
+  ok(!!list, "the previewed day's news is a list inside the card, where it can scroll");
+  dayCard.dispatchEvent(new k.win.MouseEvent("mouseleave", { bubbles: false }));
+  await new Promise((r) => setTimeout(r, 400));
   ok(!dayCard.classList.contains("is-peek") && k.Cal.selected === pinned,
-    "...and the pinned day comes back when the pointer leaves");
+    "...and the pinned day comes back once the pointer leaves the card too");
   ok(k.doc.querySelectorAll(".cal-legend li").length === 4, "the impact legend still has all four levels");
   ok(/15/.test(k.doc.querySelector(".cal-fine").textContent), "the blackout note still states the window",
     k.doc.querySelector(".cal-fine").textContent.trim());

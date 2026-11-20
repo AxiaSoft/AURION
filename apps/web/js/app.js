@@ -1528,20 +1528,37 @@ function candlePreviewShapes() {
   const range = hi - lo;
   if (!(range > 0)) return [];
 
-  const pct = (price) => ((hi - price) / range) * 100;
+  const clamp = (v) => (v < 0 ? 0 : v > 100 ? 100 : v);
+  const pct = (price) => clamp(((hi - price) / range) * 100);
   return bars.map((b) => {
     const top = Math.max(b.o, b.c);
     const bottom = Math.min(b.o, b.c);
     /* A doji is a real candle and has to stay visible: a body of zero
        height renders as nothing at all, and a strip with gaps in it
        reads as a drawing bug rather than as a market that closed where
-       it opened. */
-    const bodyTop = pct(top);
-    const bodyH = Math.max(1.5, pct(bottom) - bodyTop);
+       it opened.
+       The minimum is taken out of the TOP of the body rather than
+       added to its bottom, or a bar that closed on the low of the
+       window is given 1.5% of height it does not have and is drawn
+       through the floor of the strip. Several of those in a row -
+       which is what a trend looks like - is the "the candle preview is
+       corrupted" that was reported: bodies and wicks leaving the box
+       and being sliced off by its overflow. */
+    let bodyTop = pct(top);
+    let bodyH = pct(bottom) - bodyTop;
+    if (bodyH < 1.5) {
+      bodyH = 1.5;
+      bodyTop = Math.min(bodyTop, 100 - bodyH);
+    }
+    /* The wick spans high to low, and therefore always contains the
+       body: deriving its height from the body (the old Math.max) made
+       a long-wicked bar shorter than its own shadow. */
+    const wickTop = Math.min(pct(b.h), bodyTop);
+    const wickBottom = Math.max(pct(b.l), bodyTop + bodyH);
     return [
       b.c >= b.o ? "up" : "down",
       bodyTop, bodyH,
-      pct(b.h), Math.max(bodyH, pct(b.l) - pct(b.h)),
+      wickTop, Math.min(100 - wickTop, wickBottom - wickTop),
     ];
   });
 }
@@ -3748,7 +3765,18 @@ function pruneDeadSymbols() {
     S.candles = [];
   }
   if (S.chartFocus && (!live.size || !live.has(S.chartFocus.symbol))) {
+    /* The chart being looked at is gone - its expert was detached, or
+       the terminal closed. The view falls back to the chart list, and
+       the list must not inherit the chart's fullscreen.
+       Reported as "I disconnect a chart and the list fills the screen
+       with no panel": fullscreen hides the navigation, the header and
+       the view head because the chart is the only thing worth looking
+       at, so a list left inside it has no way out but a reload.
+       noteEaLink() covers the LAST expert going away; this covers one
+       of several, which leaves the desk connected and the focus
+       dangling - the commoner case, and the one that was missed. */
     S.chartFocus = null;
+    leaveChartFullscreen();
     changed = true;
   }
   return changed;
@@ -8499,8 +8527,6 @@ const views = {
       return AurionChartUI.html({
         symbol: f.symbol,
         timeframe: f.timeframe,
-        // Which period the range strip should show as picked.
-        rangeDays: chartDays(),
         ticket: chartTicketHtml(),
       });
     }
@@ -13096,6 +13122,22 @@ function renderBacktestExtra(bt) {
     <p class="sub">${I18N.t("bt.curve_hint")}</p>`;
   }
 
+  /* Bounds the replay refused, when there were any. The engine omits
+     the key entirely on a clean run, so this costs a normal result
+     nothing - and when it is there it is the explanation for a book of
+     trades that all closed at once, or at prices nowhere near the
+     market. Silence here is what made "some losses are marked tp"
+     unanswerable. */
+  let refused = "";
+  const refusals = bt.refused_bounds || {};
+  const refusedN = Object.keys(refusals).reduce((a, k) => a + (Number(refusals[k]) || 0), 0);
+  if (refusedN > 0) {
+    refused = `<div class="note warn bt-refused">
+      <b>${I18N.t("bt.refused_title")}</b>
+      <p class="sub">${esc(I18N.t("bt.refused_body", { n: refusedN }))}</p>
+    </div>`;
+  }
+
   let table = `<p class="sub">${I18N.t("bt.no_trades")}</p>`;
   if (trades.length) {
     const total = Number(m.trades || trades.length);
@@ -13103,13 +13145,13 @@ function renderBacktestExtra(bt) {
       const side = String(t.type || "").toLowerCase();
       return `<tr>
         <td class="mono">${esc(btWhen(t.time))}</td>
-        <td><span class="pill tiny ${side === "buy" ? "up" : "down"}">${esc(side.toUpperCase() || "—")}</span></td>
+        <td><span class="pill tiny ${side === "buy" ? "up" : "down"}">${esc(btSide(side))}</span></td>
         <td class="mono">${fmt(t.volume, 2)}</td>
         <td class="mono">${price(t.entry, btSymbol)}</td>
         <td class="mono">${price(t.exit, btSymbol)}</td>
         <td class="mono ${clsPnl(t.pips)}">${btPips(t, bt)}</td>
         <td class="mono ${clsPnl(t.profit)}">${fmt(t.profit)}</td>
-        <td class="sub">${esc(String(t.exit_reason || "—"))}</td>
+        <td class="sub">${esc(btWhy(t.exit_reason))}</td>
       </tr>`;
     }).join("");
     table = `<h4 class="bt-sub">${I18N.t("bt.trades_title")}</h4>
@@ -13127,7 +13169,39 @@ function renderBacktestExtra(bt) {
         </table>
       </div>`;
   }
-  return head + table;
+  return head + refused + table;
+}
+
+/* The engine speaks one language: its own.
+ *
+ * "buy", "sell", "tp", "sl", "eod" are how the replay records a trade,
+ * and they were printed into the table exactly as they arrived. On a
+ * Persian desk that is a table of Persian headings over English words
+ * - reported as English still showing in the backtest - and BUY in
+ * capitals is not even English, it is a protocol token.
+ *
+ * Translated at the point of display, never in the engine: the result
+ * is also what gets exported and compared between runs, and a result
+ * whose contents change with the language of whoever ran it cannot be
+ * diffed against anything.
+ *
+ * An unknown reason - a strategy may close a position with a sentence
+ * of its own - is shown as it came rather than swallowed. */
+function btSide(side) {
+  const key = String(side || "").toLowerCase();
+  if (key === "buy" || key === "sell") return I18N.t("bt.side_" + key);
+  return key ? key.toUpperCase() : "—";
+}
+
+function btWhy(reason) {
+  const raw = String(reason == null ? "" : reason).trim();
+  if (!raw) return "—";
+  const key = raw.toLowerCase();
+  /* A fixed list, not a lookup-and-hope: I18N.t() humanises an unknown
+     key rather than failing, so asking it for "bt.why_<sentence>"
+     would turn a strategy's own words into a mangled title. */
+  const known = { tp: 1, sl: 1, eod: 1, strategy: 1, signal: 1 };
+  return known[key] ? I18N.t("bt.why_" + key) : raw;
 }
 
 /** Bar times arrive as ISO strings or epoch seconds depending on the feed. */
@@ -14216,10 +14290,6 @@ function bindChartDesk() {
         await fetchChartSignals(S.chartFocus?.symbol, S.chartFocus?.timeframe);
       },
       onTimeframe: (tf) => switchChartTimeframe(tf),
-      rangeDays: chartDays(),
-      // The period on screen. Fetches what it needs first, so this is
-      // also how the trader asks for the rest of the six months.
-      onRange: (days) => applyChartRange(days),
     });
 
     /* Opened from the grid: fill the screen immediately. Consumed here so
@@ -14244,7 +14314,6 @@ function bindChartDesk() {
           S.chart.showSpan(barsForDays(S.chartFocus.timeframe, chartDays()));
         }
       }
-      paintChartRange();
       const t = S.snap?.ticks?.[S.chartFocus.symbol];
       if (S.chart && t) S.chart.setTick(t);
       applyChartLevels();
@@ -14322,62 +14391,23 @@ function barsForDays(timeframe, days) {
  *   first look what a chart opens with. A month is a few hundred bars
  *              on the slower timeframes and still well under a tenth
  *              of the full window on M1.
- *   on demand  the range strip above the chart. Picking 6M fetches six
- *              months and shows six months - and scrolling off the
- *              left edge still widens the window by itself, which is
- *              the other way a trader asks for more.
+ *   on demand  dragging. Reaching the oldest bar held fetches an older
+ *              window, and keeps doing it as the trader keeps going
+ *              back, until the broker has no more to give.
  *
- * The chosen range is remembered, because it is a deliberate choice and
- * making it again on every chart would be its own annoyance. A trader
- * who leaves it on 6M is asking for the slow load, knowingly.
+ * The 1D/1W/1M/6M strip that used to be the "on demand" half is gone,
+ * removed on request: "I only want to move by dragging on the screen".
+ * It had become the only way to load more history, which is why
+ * dragging now carries that job on its own - see loadMoreHistory.
  */
 const CHART_PRIME_BARS = 600;
-const CHART_RANGE_DAYS = [1, 7, 30, HISTORY_DAYS];
 const CHART_OPEN_DAYS = 30;
+/* One number now, not a remembered choice from a strip that no longer
+   exists. Kept as a function because a dozen call sites read it and
+   "how much does a chart open with" is still a question worth having
+   one answer to. */
 function chartDays() {
-  const d = Number(S.chartDays);
-  return CHART_RANGE_DAYS.includes(d) ? d : CHART_OPEN_DAYS;
-}
-function setChartDays(days) {
-  S.chartDays = Number(days) || CHART_OPEN_DAYS;
-  try { localStorage.setItem("aurion.chartDays", String(S.chartDays)); } catch { /* private mode */ }
-}
-try {
-  const saved = Number(localStorage.getItem("aurion.chartDays"));
-  if (CHART_RANGE_DAYS.includes(saved)) S.chartDays = saved;
-} catch { /* private mode */ }
-
-/**
- * Load (if needed) and then show `days` of this series.
- *
- * The two halves are separate on purpose. Holding six months of bars
- * and DISPLAYING six months of bars are different things, and the
- * second one is what "I still cannot see six months" was about: the
- * chart opens on a 120-bar window, which is a day and a half of M15,
- * so even with the whole window in memory the trader had to zoom out
- * by hand some twenty times to reach the far end of it.
- */
-async function applyChartRange(days) {
-  const f = S.chartFocus || { symbol: S.symbol, timeframe: S.timeframe || "M15" };
-  if (!f.symbol) return;
-  setChartDays(days);
-  const want = barsForDays(f.timeframe, chartDays());
-  if ((S.candles || []).length < want) await loadMoreHistory({ bars: want });
-  if (S.chart && typeof S.chart.showSpan === "function") S.chart.showSpan(want);
-  /* The marks follow the bars: analysing a window the trader cannot
-     see is the cost this whole change exists to avoid. */
-  if (S.signalsEnabled && licFeat("chart_signals")) fetchChartSignals(f.symbol, f.timeframe);
-  paintChartRange();
-}
-
-/** Mark the picked range in the strip without rebuilding the chart. */
-function paintChartRange() {
-  const now = chartDays();
-  document.querySelectorAll("[data-range]").forEach((b) => {
-    const on = Number(b.dataset.range) === now;
-    b.classList.toggle("on", on);
-    b.setAttribute("aria-pressed", on ? "true" : "false");
-  });
+  return CHART_OPEN_DAYS;
 }
 
 /**
@@ -14389,18 +14419,34 @@ function paintChartRange() {
  * getting bigger - otherwise reaching the start of the broker's history
  * means asking forever.
  */
+/* How long a short answer is taken as final.
+ *
+ * "The answer stopped growing" used to mean "the broker has no more",
+ * permanently, for that series and timeframe. It is not that reliable:
+ * the engine asks the expert for the window, the expert streams it a
+ * few hundred bars at a time, and a request that arrives mid-stream is
+ * answered with what has landed so far. Taken as the end of history
+ * that single short reply stopped the desk ever asking again - which
+ * is the reported "the past months are still not shown" even after the
+ * engine was fixed to go and get them.
+ *
+ * So a short answer is now believed for half a minute. Long enough
+ * that dragging at the start of a series is not a request per frame,
+ * short enough that the bars which arrived in the meantime are picked
+ * up the next time the trader goes looking for them. */
+const HIST_RETRY_MS = 30000;
+
 async function loadMoreHistory(opts) {
   if (S._histBusy) return;
   const f = S.chartFocus;
   if (!f || !S.chart) return;
   const asked = Math.round(Number(opts && opts.bars) || 0);
   const have = (S.candles || []).length;
-  /* An explicit ask is honoured even when the last reply was short:
-     _histDone means "the broker has no more than this", which is an
-     answer about the end of the series, not a reason to refuse a range
-     the trader has just pressed. */
+  const key = f.symbol + "." + f.timeframe;
   if (have >= HISTORY_MAX) return;
-  if (!asked && S._histDone === f.symbol + "." + f.timeframe) return;
+  /* An explicit ask is honoured whatever the last reply said. */
+  if (!asked && S._histDone && S._histDone.key === key
+      && Date.now() - S._histDone.at < HIST_RETRY_MS) return;
   if (asked && have >= asked) return;
   S._histBusy = true;
   try {
@@ -14412,11 +14458,12 @@ async function loadMoreHistory(opts) {
     const bars = (c && c.data) || [];
     if (bars.length > have) {
       S.candles = bars;
+      S._histDone = null;
       /* setBars keeps the span and the offset, so the view does not jump
          when older bars appear behind it. */
       S.chart.setBars(bars);
     } else {
-      S._histDone = f.symbol + "." + f.timeframe;
+      S._histDone = { key, at: Date.now() };
     }
   } catch { /* leave what we have */ } finally {
     S._histBusy = false;
@@ -14589,7 +14636,7 @@ async function pickMarket(symbol, timeframe, opts) {
     S.candles = c.data || [];
     /* A different series: whatever we learned about the end of the last
        one does not apply. */
-    S._histDone = "";
+    S._histDone = null;
   } else if (Array.isArray(r?.data)) S.candles = r.data;
   if (S.view === "markets") {
     const lbl = $("tick-lbl");

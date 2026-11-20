@@ -155,56 +155,55 @@ check("the chart can be told to show a period, not only to fit", () => {
   if (/Math\.min\(160/.test(fn)) throw new Error("showSpan inherited fit()'s cap and cannot show a month");
 });
 
-check("there is a range strip, and it is not the timeframe strip", () => {
-  if (!/const RANGES = \[/.test(toolsJs)) throw new Error("no period control");
-  const tbl = toolsJs.slice(toolsJs.indexOf("const RANGES = ["), toolsJs.indexOf("];", toolsJs.indexOf("const RANGES = [")));
-  for (const d of [1, 7, 30, 180]) {
-    if (!new RegExp(`days: ${d}\\b`).test(tbl)) throw new Error(`no ${d}-day range`);
-  }
-  if (!/data-range=/.test(toolsJs)) throw new Error("the buttons carry no period");
-  if (!/ctx\.onRange/.test(toolsJs)) throw new Error("pressing one does nothing");
+check("the period strip is gone, and stays gone", () => {
+  /* Asked for directly: "I only want to move by dragging on the
+     screen". The strip set the window to a fixed span, so every drag
+     into the past was one press away from being thrown back to the
+     live edge - and because it was also the only thing that FETCHED
+     more history, dragging alone never reached the older months.
+     Deleted rather than hidden, on the same instruction. */
+  if (/const RANGES = \[/.test(toolsJs)) throw new Error("the range table is back");
+  if (/data-range=/.test(toolsJs)) throw new Error("the range buttons are back in the header");
+  if (/ctx\.onRange/.test(toolsJs)) throw new Error("the header still calls a range handler");
+  if (/tv-range/.test(toolsJs)) throw new Error("the strip is still being laid out");
+  if (/rangeDays/.test(appJs)) throw new Error("the desk still hands the header a period to mark");
+  if (/function applyChartRange/.test(appJs)) throw new Error("the handler outlived its buttons");
+  if (/function paintChartRange/.test(appJs)) throw new Error("something is still painting a strip that is not there");
 });
 
-check("picking a range loads what it needs before showing it", () => {
-  const fn = code(body(appJs, "applyChartRange"));
-  if (!/loadMoreHistory\(\{ bars: want \}\)/.test(fn)) {
-    throw new Error("it would show six months of a series that only has one loaded");
-  }
-  if (!/showSpan\(want\)/.test(fn)) throw new Error("it loads the bars and still shows a day and a half");
-  if (fn.indexOf("loadMoreHistory") > fn.indexOf("showSpan")) {
-    throw new Error("the window is set before the bars arrive");
-  }
-  if (!/setChartDays\(days\)/.test(fn)) throw new Error("the choice is not remembered");
+check("dragging is the whole of 'show me further back'", () => {
+  /* With the strip gone, maybeLoadMoreHistory is the only thing left
+     that can widen the series. If it stops asking, the past months are
+     unreachable by any means at all. */
+  const fn = code(body(appJs, "maybeLoadMoreHistory"));
+  if (!/loadMoreHistory\(\)/.test(fn)) throw new Error("reaching the oldest bar no longer fetches more");
+  const load = code(body(appJs, "loadMoreHistory"));
+  if (!/count=\$\{want\}/.test(load)) throw new Error("the widening request stopped carrying its size");
+  if (!/Math\.max\(have \* 2/.test(load)) throw new Error("it no longer widens the window it asks for");
 });
 
-check("an explicit ask is not refused by what the last reply said", () => {
-  /* _histDone means "the broker has no more than this". That is an
-     answer about the end of the series, not a reason to ignore a button
-     the trader just pressed. */
+check("one short answer does not end history forever", () => {
+  /* _histDone used to be a permanent verdict per series. The expert
+     streams its history in chunks, so a request answered mid-stream
+     comes back short through no fault of the broker - and the desk
+     then never asked again, which is "the past months are still not
+     shown" surviving every fix made underneath it. */
   const fn = code(body(appJs, "loadMoreHistory"));
-  if (!/if \(!asked && S\._histDone/.test(fn)) {
-    throw new Error("a range press can be swallowed by the end-of-history flag");
-  }
+  if (!/HIST_RETRY_MS/.test(fn)) throw new Error("a short reply is believed forever again");
+  if (!/S\._histDone = null;/.test(fn)) throw new Error("a good reply does not clear the verdict");
   if (!/if \(asked && have >= asked\) return;/.test(fn)) {
-    throw new Error("pressing the same range twice refetches it");
+    throw new Error("the same window is refetched on every drag");
   }
 });
 
-check("a chart opens on the period that was last picked", () => {
-  const at = appJs.indexOf("await pickMarket(S.chartFocus.symbol, S.chartFocus.timeframe);");
-  if (at === -1) throw new Error("the charts view no longer loads its series");
-  const after = appJs.slice(at, at + 900);
-  if (!/showSpan\(barsForDays\(S\.chartFocus\.timeframe, chartDays\(\)\)\)/.test(after)) {
-    throw new Error("it still opens on the 120-bar default");
-  }
-});
-
-check("every range label exists in all three packs", () => {
-  for (const lang of ["en", "fa", "ar"]) {
-    for (const k of ["range", "range_1d", "range_1w", "range_1m", "range_6m"]) {
-      if (!langs[lang].chart[k]) throw new Error(`${lang}.chart.${k} is missing`);
-    }
-  }
+check("a chart opens on one known period", () => {
+  /* chartDays() survives the strip because a dozen callers ask "how
+     much does a chart open with". It must answer, and answer the same
+     thing every time - a remembered choice from a control that no
+     longer exists is a setting nobody can change. */
+  const fn = code(body(appJs, "chartDays"));
+  if (/localStorage/.test(fn)) throw new Error("it still reads a choice that cannot be made");
+  if (!/return CHART_OPEN_DAYS;/.test(fn)) throw new Error("chartDays no longer answers with the opening period");
 });
 
 /* ── C. the kill switch, on the press ───────────────────────────────── */

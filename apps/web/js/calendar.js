@@ -881,19 +881,64 @@ const Calendar = {
        the pointer leaving the month puts the panel straight back to
        whatever was clicked - a preview can never lose the trader's
        place. */
+    /* A preview the pointer can walk into.
+     *
+     * Reported twice: "it opens when I hover a number and then the
+     * container keeps changing" - and, the part that matters, the news
+     * inside it cannot be scrolled. It could not: leaving the grid
+     * dropped the preview instantly, and the only way to reach the
+     * panel is to leave the grid. The card was readable for exactly as
+     * long as the pointer stayed on the day, which on a busy day is a
+     * list longer than the card.
+     *
+     * So the drop is deferred rather than immediate, and the panel
+     * itself cancels it. Crossing the gap between the grid and the
+     * card keeps the preview; settling in the card keeps it
+     * indefinitely; leaving the card gives it back to the pinned day.
+     * The grace also covers crossing the gap BETWEEN two cells, which
+     * is what made the panel flicker on the way past. */
+    const PEEK_GRACE_MS = 260;
+    let dropTimer = 0;
+    const cancelDrop = () => { if (dropTimer) { clearTimeout(dropTimer); dropTimer = 0; } };
+    /* True while the pointer is inside the card: a day hovered through
+       the card (it has no cells, but a re-render can race) must not
+       steal the preview the reader is in the middle of. */
+    let inPanel = false;
+
     const showPeek = (key) => {
-      if (!day || !key || key === this.peek) return;
+      cancelDrop();
+      if (!day || !key || inPanel || key === this.peek) return;
       this.peek = key;
       day.innerHTML = this._dayPanel(key, true);
       day.classList.add("is-peek");
     };
-    const dropPeek = () => {
+    const dropNow = () => {
+      cancelDrop();
       if (!day || !this.peek) return;
       this.peek = "";
       day.innerHTML = this._dayPanel(this.selected);
       day.classList.remove("is-peek");
     };
+    const dropPeek = () => {
+      cancelDrop();
+      if (!this.peek) return;
+      dropTimer = setTimeout(() => { dropTimer = 0; if (!inPanel) dropNow(); }, PEEK_GRACE_MS);
+    };
     this.peek = "";
+
+    /* The card holds the pointer rather than losing it. */
+    day?.addEventListener("mouseenter", () => { inPanel = true; cancelDrop(); });
+    day?.addEventListener("mouseleave", () => { inPanel = false; dropPeek(); });
+    /* Scrolling the news inside it is the whole point of keeping it. */
+    day?.addEventListener("wheel", cancelDrop, { passive: true });
+    /* Keyboard: tabbing into the previewed card must not close it
+       either, and tabbing out of it returns to the pinned day. */
+    day?.addEventListener("focusin", () => { inPanel = true; cancelDrop(); });
+    day?.addEventListener("focusout", (e) => {
+      if (day.contains(e.relatedTarget)) return;
+      inPanel = false;
+      dropPeek();
+    });
 
     /* ------------------------------------------------------- controls */
 
@@ -950,6 +995,8 @@ const Calendar = {
     pane?.addEventListener("click", (e) => {
       const el = e.target.closest("[data-day]");
       if (!el || !pane.contains(el)) return;
+      cancelDrop();
+      inPanel = false;
       this.peek = "";
       day?.classList.remove("is-peek");
       select(el.dataset.day, { reveal: true });
@@ -989,6 +1036,8 @@ const Calendar = {
       const i = all.indexOf(cell);
       const next = all[i + step];
       if (!next) return;
+      cancelDrop();
+      inPanel = false;
       this.peek = "";
       day?.classList.remove("is-peek");
       next.focus();

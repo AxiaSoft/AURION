@@ -35,6 +35,83 @@ def _bar_time(bar: Any) -> str:
     return ""
 
 
+#: How far from the entry a stop or a target may sit, as a fraction of
+#: the entry price. Deliberately enormous: this is not a risk rule, it
+#: is the line past which a number cannot be a price for this
+#: instrument at all.
+_MAX_BOUND_SPAN = 0.5
+
+
+def sane_bounds(side: str, entry: float, sl: float, tp: float) -> tuple[float, float, list[str]]:
+    """A stop and a target that can only do what they are named for.
+
+    Reported from a real run: trades that LOST money were listed with
+    "tp" as the reason they closed. A take-profit cannot lose - unless
+    it is on the wrong side of the entry, and then it is hit on the
+    very next bar at a price far away from the market, which is how a
+    strategy that returns a DISTANCE ("sl": 20) instead of a PRICE, or
+    that has its buy and sell branches crossed, produces a book full of
+    catastrophic "profits taken".
+
+    The replay used to honour whatever number it was handed, which made
+    an unanswerable result: the table said tp, the money said loss, and
+    neither was wrong about what had been executed. So the bounds are
+    checked against the direction of the trade when the position opens:
+
+      buy   stop below the entry, target above it
+      sell  stop above the entry, target below it
+
+    A bound on the wrong side is DROPPED, not corrected - the engine
+    does not know what the strategy meant, and inventing a target is
+    worse than trading without one. Each drop is named in the returned
+    list so the run can report how many it refused rather than quietly
+    changing somebody's strategy.
+
+    Zero means "not set" throughout, which is MetaTrader's own
+    convention and the one the strategies already use.
+    """
+    dropped: list[str] = []
+    try:
+        entry_f = float(entry or 0)
+        sl_f = float(sl or 0)
+        tp_f = float(tp or 0)
+    except (TypeError, ValueError):
+        return 0.0, 0.0, ["sl", "tp"]
+    if entry_f <= 0:
+        return 0.0, 0.0, []
+    buy = str(side or "").lower() == "buy"
+    if sl_f > 0 and (sl_f >= entry_f if buy else sl_f <= entry_f):
+        dropped.append("sl")
+        sl_f = 0.0
+    if tp_f > 0 and (tp_f <= entry_f if buy else tp_f >= entry_f):
+        dropped.append("tp")
+        tp_f = 0.0
+    # Far enough away to be a different number entirely.
+    #
+    # The side test alone passes ("sl": 20, "tp": 40) on gold at 2000:
+    # 20 is genuinely below the entry, so it reads as a legal stop, and
+    # the trade then runs with a 99% stop that can never be reached.
+    # That is the other half of the distance-for-a-price mistake, and
+    # the half that produces a book of trades which only ever close at
+    # the end of the run. Nothing legitimate puts a bound half the
+    # price of the instrument away from the market.
+    span = _MAX_BOUND_SPAN * entry_f
+    if sl_f > 0 and abs(entry_f - sl_f) > span:
+        dropped.append("sl")
+        sl_f = 0.0
+    if tp_f > 0 and abs(tp_f - entry_f) > span:
+        dropped.append("tp")
+        tp_f = 0.0
+    # A negative or zero price is not a bound, it is a bug upstream.
+    if sl_f < 0:
+        dropped.append("sl")
+        sl_f = 0.0
+    if tp_f < 0:
+        dropped.append("tp")
+        tp_f = 0.0
+    return sl_f, tp_f, dropped
+
+
 # How many replayed bars travel with each progress update. Enough for
 # the desk to draw a chart that is recognisably moving, small enough
 # that the cost per update does not grow with the length of the run.
@@ -267,6 +344,12 @@ class Backtester:
         ctx_start = self._ctx(strategy, symbol, timeframe, bars[:warmup], None, equity, [], brain)
         strategy.on_start(ctx_start)
         manage = self._manage_rules(getattr(strategy, "params", {}) or {})
+        # Stops and targets the strategy asked for and this replay would
+        # not place, counted by kind. Reported with the result: a run
+        # that silently dropped half its targets is a different run from
+        # one that placed them, and the trader has to be able to see
+        # which one they are reading.
+        refused: dict[str, int] = {}
         total = max(1, len(bars) - warmup)
         step = max(1, total // 50)          # ~2% at a time, not per bar
         for i in range(warmup, len(bars)):
@@ -367,17 +450,26 @@ class Backtester:
                                    "risk": self._risk(pos, point_value)})
                 positions = []
             elif action in {"buy", "sell"} and len(positions) < cap:
+                # Checked against the direction of the trade before the
+                # position exists. A target on the wrong side of the
+                # entry is hit on the next bar and books a loss called
+                # "tp" - see sane_bounds.
+                sl_px, tp_px, dropped = sane_bounds(
+                    action, price, payload.get("sl"), payload.get("tp")
+                )
+                for which in dropped:
+                    refused[which] = refused.get(which, 0) + 1
                 positions.append({
                     "symbol": symbol,
                     "type": action,
                     "volume": self._entry_volume(payload, volume_mode, manual_volume),
                     "entry": price,
-                    "sl": float(payload.get("sl") or 0),
+                    "sl": sl_px,
                     # The stop as it was placed. Break-even and trailing
                     # move "sl", and R has to keep meaning what it meant
                     # when the risk was taken.
-                    "initial_sl": float(payload.get("sl") or 0),
-                    "tp": float(payload.get("tp") or 0),
+                    "initial_sl": sl_px,
+                    "tp": tp_px,
                     "time": bar.get("time"),
                     "reason": payload.get("reason"),
                     # Carried through so a finished run can be split by it.
@@ -445,6 +537,11 @@ class Backtester:
                 "warmup_bars": int(warmup),
                 "tested_bars": max(0, len(bars) - int(warmup)),
             },
+            # Bounds refused for being on the wrong side of the entry.
+            # Absent from a clean run rather than reported as zeros, so
+            # the desk can show a line only when there is something to
+            # say about it.
+            **({"refused_bounds": dict(refused)} if refused else {}),
             # The lot rule this run actually used, for the same reason as
             # `data` above. The replay has honoured the desk's auto/fixed
             # lot setting and its open-trade cap for a while, but the
@@ -689,6 +786,28 @@ class Backtester:
         high = float(bar.get("high") or bar.get("h") or 0)
         low = float(bar.get("low") or bar.get("l") or 0)
         sl, tp = float(position.get("sl") or 0), float(position.get("tp") or 0)
+        # The second line of the same defence as sane_bounds, because
+        # "sl" is MOVED while a position is open (break-even, trailing)
+        # and a management rule with its arithmetic the wrong way round
+        # would otherwise book the same impossible exit. A stop that is
+        # not on the losing side and a target that is not on the
+        # winning side are not a stop and a target, and they are
+        # ignored here rather than executed.
+        # Equality is allowed on the stop and only on the stop: a
+        # break-even rule moves it exactly to the entry, and that is a
+        # real stop with zero risk, not a crossed one.
+        entry = float(position.get("entry") or 0)
+        if entry > 0:
+            if position["type"] == "buy":
+                if sl > entry:
+                    sl = 0.0
+                if tp <= entry:
+                    tp = 0.0
+            else:
+                if sl and sl < entry:
+                    sl = 0.0
+                if tp and tp >= entry:
+                    tp = 0.0
         if position["type"] == "buy":
             if sl and low <= sl:
                 return {"price": sl, "reason": "sl"}

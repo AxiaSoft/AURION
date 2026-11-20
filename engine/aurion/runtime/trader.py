@@ -41,7 +41,7 @@ from ..strategy.loader import (
 from ..license.guard import Guard
 from ..util.clock import utc_iso
 from ..util.errors import readable_error
-from ..util.history import HISTORY_DAYS, at_least_window, requested_window
+from ..util.history import HISTORY_DAYS, at_least_window, bars_to_cover, requested_window
 from ..build_id import BUILD_ID
 from ..util.market import block_reason as market_block_reason, session as market_session
 from ..util.log import RING, get
@@ -5833,6 +5833,13 @@ class Trader:
         # of them, which on M5 is seven hours, so a run launched from a
         # fresh chart silently tested a sliver of the visible history.
         want = at_least_window(timeframe, body.get("bars"))
+        # A run over a named period needs the bars of THAT period, and
+        # the promise-sized window is measured from now - so a request
+        # for "last month" on a desk whose cache starts three weeks ago
+        # used to be answered "no bars in that period", which reads as
+        # a data fault for what is really an unfetched window. Size the
+        # ask from the oldest day actually being asked for.
+        want = max(want, bars_to_cover(timeframe, body.get("from")))
         bars = [c.to_dict() for c in self.bridge.candles_of(symbol, timeframe)]
         if len(bars) < want:
             bars = await self.bridge.pull_candles(symbol, timeframe, want) or bars
@@ -5845,7 +5852,20 @@ class Trader:
         # and a very long wait for an answer about one week in March.
         window = _slice_bars(bars, body.get("from"), body.get("to"))
         if window.get("error"):
-            return {"ok": False, "error": window["error"], "build_id": BUILD_ID}
+            # Say WHICH history exists. "No bars in that period" is true
+            # and useless: the two causes - a period before this
+            # broker's history begins, and a closed market - need
+            # different actions from the trader, and only the first one
+            # can be distinguished by naming the oldest bar there is.
+            oldest = str((bars[0] or {}).get("time") or "")[:10]
+            newest = str((bars[-1] or {}).get("time") or "")[:10]
+            detail = window["error"]
+            if oldest and newest:
+                detail = (
+                    f"{detail} — this terminal only has {timeframe} bars "
+                    f"from {oldest} to {newest} for {symbol}"
+                )
+            return {"ok": False, "error": detail, "build_id": BUILD_ID}
         bars = window["bars"]
         tested_from = window["from"]
         tested_to = window["to"]
