@@ -377,18 +377,30 @@ for (const cut of ["dark", "light"]) {
 
 /* --------------------------------------------------- the trader still wins */
 
+/* An edit now moves the desk onto the Custom theme, seeded from the
+   theme that was on screen - so these checks are made against custom,
+   which is where the choice lands. The property being guarded is
+   unchanged: a chosen colour wins, the half that was not chosen does
+   not move, and clearing gives the pair back.
+
+   The seeding is what makes the second check still meaningful. Every
+   theme ships its own pair because one pair cannot read on both
+   sunset's warm maroon and glass's near-black; if promotion dropped
+   the pair, nudging the up-candle would silently recolour the
+   down-candle too. */
 applyIn("ocean", "dark");
 T.edit({ candle_up: "#123456" }, { silent: true });
 T.apply();
 let e = published();
+ok(T.effective() === "custom", `the edit moved the desk to custom (${T.effective()})`);
 ok(e[0] === "#123456", `a chosen colour beats the theme's own (${e[0]})`);
 ok(e[1] === T.BY_ID.ocean.candles.dark[1],
-  `and the half that was not chosen still comes from the theme (${e[1]})`);
+  `and the half that was not chosen still comes from the theme it was seeded from (${e[1]})`);
 
 T.edit({ candle_up: "" }, { silent: true });
 T.apply();
 e = published();
-ok(e[0] === T.BY_ID.ocean.candles.dark[0],
+ok(e[0] === T.BY_ID.custom.candles.dark[0],
   `clearing the choice returns the theme's own pair (${e[0]})`);
 
 /* The settings rows must still be able to tell "the theme ships this"
@@ -397,7 +409,7 @@ ok(e[0] === T.BY_ID.ocean.candles.dark[0],
 ok(Object.keys(T.colours("ocean")).length === 0,
   "an unedited theme reports no chosen colours, so no Clear button is offered");
 T.edit({ candle_up: "#123456" }, { silent: true });
-ok(T.colours("ocean").candle_up === "#123456", "and an edited one reports the choice");
+ok(T.colours("custom").candle_up === "#123456", "and an edited one reports the choice");
 T.edit({ candle_up: "" }, { silent: true });
 
 /* Switching cut has to re-publish: the pair is per-cut, so a desk going

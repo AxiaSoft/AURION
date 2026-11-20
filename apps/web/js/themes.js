@@ -430,7 +430,22 @@
      trader who cannot separate the shipped green from the shipped red has
      no way to read the chart at all. The pair is editable, the roles are
      not - up is still up. */
-  var COLOR_KEYS = ["page", "panel", "ink", "candle_up", "candle_down"];
+  /* No "page" here any more, by request: the page-background colour
+     control is removed.
+
+     It was the one colour that could put the desk beyond rescue. Panel
+     and ink are drawn over a known backdrop and the contrast warning
+     catches a bad pair, but the page colour IS the backdrop - set it to
+     the panel colour and every card dissolves, set it near the ink and
+     the text goes with it, and the control used to fix it is on a card
+     that has just become invisible. The backdrop is what the wallpaper,
+     the backdrop mode and the theme itself are for.
+
+     Kept in RETIRED_COLOR_KEYS rather than merely deleted so a value
+     saved by an older build is actively dropped on read instead of
+     lingering in storage and being honoured by some other code path. */
+  var COLOR_KEYS = ["panel", "ink", "candle_up", "candle_down"];
+  var RETIRED_COLOR_KEYS = ["page"];
 
   /* Effects over the backdrop.
 
@@ -492,15 +507,13 @@
   function colourCss(colours) {
     var out = "";
     var panel = hexToRgb(colours.panel);
-    var page = hexToRgb(colours.page);
     var ink = hexToRgb(colours.ink);
 
-    if (page) {
-      var pageLight = luma(page) > 0.5;
-      out += "--bg:" + rgbToHex(page) + ";";
-      out += "--bg2:" + rgbToHex(mix(page, pageLight ? [0, 0, 0] : [255, 255, 255], 0.05)) + ";";
-      out += "--deep:" + rgbToHex(mix(page, [0, 0, 0], 0.25)) + ";";
-    }
+    /* No --bg / --bg2 / --deep from a chosen colour any more: the
+       page-background control is gone, so the backdrop is the theme's
+       own, which is what the wallpaper and the backdrop mode sit on.
+       colours.page is not read even if an older build left one in
+       storage - see RETIRED_COLOR_KEYS. */
 
     if (panel) {
       var light = luma(panel) > 0.5;
@@ -616,6 +629,8 @@
     var edit = readEdits()[id];
     var out = {};
     if (!edit) return out;
+    /* Retired keys are gone before this point - readEdits strips them
+       out of storage - so COLOR_KEYS is the whole list. */
     for (var i = 0; i < COLOR_KEYS.length; i++) {
       var k = COLOR_KEYS[i];
       if (!lightAllows(k)) continue;
@@ -661,10 +676,31 @@
   function readEdits() {
     var raw = read(LS_EDITS, "");
     if (!raw) return {};
-    try {
-      var parsed = JSON.parse(raw);
-      return parsed && typeof parsed === "object" ? parsed : {};
-    } catch (e) { return {}; }
+    var parsed = null;
+    try { parsed = JSON.parse(raw); } catch (e) { parsed = null; }
+    if (!parsed || typeof parsed !== "object") return {};
+    /* Retired settings are cleared out of storage the first time it is
+       read, and the cleaned copy is written straight back.
+
+       Leaving them merely unread is not enough. The value stays on the
+       desk forever, it reappears in anything that exports or inspects
+       the stored theme, and the next person to look at the file finds a
+       live-looking key and wires it up again. Dropping it on read makes
+       the removal a fact about the data, not a habit of one function. */
+    var dirty = false;
+    for (var id in parsed) {
+      if (!Object.prototype.hasOwnProperty.call(parsed, id)) continue;
+      var e = parsed[id];
+      if (!e || typeof e !== "object") continue;
+      for (var ri = 0; ri < RETIRED_COLOR_KEYS.length; ri++) {
+        if (Object.prototype.hasOwnProperty.call(e, RETIRED_COLOR_KEYS[ri])) {
+          delete e[RETIRED_COLOR_KEYS[ri]];
+          dirty = true;
+        }
+      }
+    }
+    if (dirty) write(LS_EDITS, JSON.stringify(parsed));
+    return parsed;
   }
 
   /** The theme's own numbers with this trader's edits laid over the top. */
@@ -709,10 +745,92 @@
     return false;
   }
 
+  /**
+   * Seed the Custom theme from the theme on screen, and switch to it.
+   *
+   * Reported: "changing any theme setting should switch to the custom
+   * theme and update its background." It did not - an edit made while
+   * Midnight was on screen was stored against Midnight. That has two
+   * bad consequences. The gallery still says Midnight while showing
+   * something Midnight does not look like, so the shipped themes stop
+   * being a reliable place to return to; and the Custom theme, which
+   * is the one place personalisation is meant to live, stays at its
+   * defaults no matter how much the trader personalises.
+   *
+   * Seeding first is what makes the switch invisible: Custom is given
+   * the departing theme's own knobs, colours, wallpaper and backdrop,
+   * so the desk looks identical the instant before the patch lands and
+   * only the edited thing changes.
+   *
+   * Returns the id now in force - "custom" normally, but the original
+   * id when Custom is locked on this licence, because a free desk must
+   * not be shunted onto a theme it is not allowed to see.
+   */
+  function promoteToCustom(from) {
+    if (from === "custom") return "custom";
+    if (isLocked("custom")) return from;
+
+    var knobs = activeKnobs();
+    /* liveBackdrop, because several themes still name a backdrop that
+       was retired - the desk maps those to flat when it paints, but
+       getCustom rebuilds from a whitelist and would drop an unknown
+       name on the way out, landing Custom on its own default instead
+       of on what was being looked at. */
+    var seeded = { accent: knobs.accent, bg: liveBackdrop(knobs.bg) };
+    for (var lk in LIMITS) {
+      if (Object.prototype.hasOwnProperty.call(LIMITS, lk)) seeded[lk] = knobs[lk];
+    }
+    // The wallpaper in force, not the one Custom happens to remember.
+    var w = activeWall(from);
+    if (w) seeded.wall = w;
+    else if (themeOwnWall(from)) seeded.wall = themeOwnWall(from);
+    write(LS_CUSTOM, JSON.stringify(seeded));
+
+    // Colours, typeface and effect live in the edits slot for every
+    // theme, Custom included, so they are copied across there.
+    var all = readEdits();
+    var mine = all[from] && typeof all[from] === "object" ? all[from] : {};
+    var copy = {};
+    for (var ck in mine) {
+      if (Object.prototype.hasOwnProperty.call(mine, ck)) copy[ck] = mine[ck];
+    }
+    /* The candle pair too, when the departing theme ships one and the
+       trader has not chosen their own. Every theme names its own pair
+       because a pair that reads on sunset's warm maroon does not read
+       on glass's near-black, so promoting without it would recolour
+       every candle on screen - which is a very loud way to respond to
+       someone nudging a corner radius.
+
+       Both cuts are seeded, not just the one on screen, or the pair
+       reverts the first time the desk is switched to light. */
+    var darkPair = themeCandles(from, false);
+    var lightPair = themeCandles(from, true);
+    var pair = isLightCut() ? lightPair : darkPair;
+    if (pair) {
+      if (!copy.candle_up) copy.candle_up = pair.candle_up;
+      if (!copy.candle_down) copy.candle_down = pair.candle_down;
+    }
+    all.custom = copy;
+    write(LS_EDITS, JSON.stringify(all));
+
+    // keepAccent, because the accent in force is already the right one
+    // and re-deriving it from Custom's default would change the colour
+    // of a desk whose owner only moved a corner radius.
+    write(LS_SKIN, "custom");
+    try {
+      global.dispatchEvent(new CustomEvent("aurion:theme", { detail: { id: "custom", promoted: true } }));
+    } catch (e) { /* CustomEvent is not essential */ }
+    return "custom";
+  }
+
   /** Edit the theme currently in use - built-in ones included. */
   function editTheme(patch, opts) {
-    var id = effectiveTheme();
-    if (id === "custom") return setCustom(patch, opts);
+    var id = promoteToCustom(effectiveTheme());
+
+    // Knobs, accent, backdrop and wallpaper are Custom's own storage;
+    // colours, typeface and effect are in the shared edits slot. Both
+    // halves of a patch are written, so an edit never half-lands.
+    if (id === "custom") setCustom(patch, { silent: true });
 
     var all = readEdits();
     var next = all[id] && typeof all[id] === "object" ? all[id] : {};
@@ -744,7 +862,10 @@
     write(LS_EDITS, JSON.stringify(all));
     if (!(opts && opts.silent)) apply();
     if (next.accent) applyAccent(next.accent);
-    return themeKnobs(id);
+    // activeKnobs, not themeKnobs: Custom's knobs live in its own slot
+    // and themeKnobs would hand back the table's shipped defaults, so
+    // the caller would redraw its sliders to the wrong positions.
+    return activeKnobs();
   }
 
   /** Put the theme in use back to how it shipped. */

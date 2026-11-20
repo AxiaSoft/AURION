@@ -280,6 +280,37 @@ function profitStyle(profit) {
   return S.num;
 }
 
+/**
+ * Did this row finish?
+ *
+ * An entry row has no close time, no close price, no profit, no swap,
+ * no commission and no net - nine of the seventeen columns empty. In a
+ * spreadsheet that is worse than on screen: the whole point of the
+ * workbook is to be compared line by line against the broker's own
+ * statement, and the statement has no such rows. Every one of them is
+ * a line the reader has to identify and skip by hand before the two
+ * can be reconciled.
+ *
+ * The engine already answers with closed rows. This is the second
+ * gate, for a backend talking to an engine that has not been updated,
+ * and it uses the engine's own rule so the export and the on-screen
+ * table can never disagree about which trades exist.
+ */
+function isFinishedTrade(trade) {
+  if (!trade || typeof trade !== "object") return false;
+  const kind = String(trade.kind || trade.entry || "").toLowerCase();
+  if (kind === "in" || kind === "entry") return false;
+  if (kind === "out" || kind === "inout" || kind === "close") return true;
+  // Legacy rows carry no kind: a finished trade is one that moved
+  // money - the engine's own rule (store._is_close_row), widened to
+  // swap and commission so this gate is never stricter than the one
+  // upstream. Kept identical to the desk's historyRows() on purpose:
+  // the spreadsheet and the on-screen table must contain the same rows
+  // or neither can be checked against the broker's statement.
+  return [trade.profit, trade.net, trade.swap, trade.commission]
+    .some((v) => v !== null && v !== undefined && v !== "" && Number(v) !== 0);
+}
+
 async function exportHistory({ lang, trades, equity, account, metrics }) {
   fs.mkdirSync(EXPORTS, { recursive: true });
   const meta = localeFor(lang);
@@ -323,7 +354,7 @@ async function exportHistory({ lang, trades, equity, account, metrics }) {
     t(lang, "table.comment"),
   ].map((h) => ({ v: h, s: S.header }));
   const tradeRows = [tradeHead];
-  for (const trade of trades || []) {
+  for (const trade of (trades || []).filter(isFinishedTrade)) {
     const alt = tradeRows.length % 2 === 0;
     const textS = alt ? S.cellAlt : S.cell;
     const numS = alt ? S.numAlt : S.num;
@@ -409,4 +440,4 @@ async function exportHistory({ lang, trades, equity, account, metrics }) {
   return { filename, path: dest, locale: meta.locale };
 }
 
-module.exports = { exportHistory };
+module.exports = { exportHistory, isFinishedTrade };

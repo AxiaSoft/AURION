@@ -57,9 +57,21 @@ T.set("midnight");
 ok(T.wall("midnight")==="","a theme starts on its own picture");
 ok(!/--theme-bg/.test(css()),"and publishes no override");
 
-// pick the ocean picture while on midnight — the whole point of the request
+/* pick the ocean picture while on midnight — the whole point of the request
+
+   REWRITTEN for a requested change of behaviour: an edit now moves the
+   desk onto the Custom theme, seeded from whatever was on screen, so
+   the choice lands on "custom" rather than on "midnight". The shipped
+   themes stay as they shipped, which is the point - the gallery used
+   to go on saying "midnight" while showing something midnight does not
+   look like.
+
+   What is being guarded is unchanged: any theme can be given any
+   picture, and it is published. */
 T.edit({wall:"ocean"});
-ok(T.wall("midnight")==="ocean","any theme can wear any picture");
+ok(T.effective()==="custom","an edit moves the desk onto the custom theme",T.effective());
+ok(T.wall("custom")==="ocean","any theme can wear any picture",T.wall("custom"));
+ok(T.wall("midnight")==="","and the theme it came from is left as it shipped",T.wall("midnight"));
 /* The published URL is absolute now. themes.css addresses the pictures as
    "../assets/bg/x.jpg" - resolved against the stylesheet - while an injected
    <style> resolves against the document, and those two bases only agree
@@ -78,39 +90,49 @@ T.apply();
 ok(/ocean-light\.jpg/.test(css()),"a light desk gets the light cut",(css().match(/--theme-bg:[^}]*/)||[""])[0]);
 el.dataset.theme="dark";T.apply();
 
-// per theme, as asked
+/* The shipped themes stay pristine.
+
+   This block used to show the choice living on whichever theme was in
+   use - frost holding sunset while midnight held ocean. Edits all land
+   on Custom now, so what has to be proved is the other half of the
+   same property: picking a picture while frost is on screen must not
+   change frost. A built-in that quietly drifts is the bug the per-theme
+   storage was introduced to fix, and it must not come back by a
+   different route. */
 T.set("frost");
-ok(T.wall("frost")==="","the choice belongs to the theme it was made on");
+ok(T.wall("frost")==="","a built-in starts on its own picture");
 T.edit({wall:"sunset"});
-T.set("midnight");
-ok(T.wall("midnight")==="ocean","midnight still has its own");
-T.set("frost");
-ok(T.wall("frost")==="sunset","frost has a different one");
+ok(T.wall("custom")==="sunset","the pick lands on custom",T.wall("custom"));
+ok(T.wall("frost")==="","and frost is untouched",T.wall("frost"));
+ok(T.wall("midnight")==="","and so is midnight",T.wall("midnight"));
 
 // explicitly no picture
 T.edit({wall:"none"});
-ok(T.wall("frost")==="none","'no picture' is remembered");
+ok(T.wall("custom")==="none","'no picture' is remembered");
 ok(/--theme-bg:none/.test(css()),"and actually clears the theme's own picture");
 
 // back to the theme default
 T.edit({wall:""});
-ok(T.wall("frost")==="","clearing hands the theme back its own picture");
+ok(T.wall("custom")==="","clearing hands the theme back its own picture");
 ok(!/--theme-bg/.test(css()),"and withdraws the override");
 
 // junk must not get through
 T.edit({wall:"../../etc/passwd"});
-ok(T.wall("frost")==="","an unknown name is refused");
+ok(T.wall("custom")==="","an unknown name is refused");
 T.edit({wall:'ocean"); background:url(evil'});
-ok(T.wall("frost")==="","an injection attempt is refused");
+ok(T.wall("custom")==="","an injection attempt is refused");
 
 // survives a reload
 T.edit({wall:"cyber"});
 const saved=JSON.stringify(store);
 win.eval(fs.readFileSync(path.join(WEB,"js/themes.js"),"utf8"));
-ok(win.AurionTheme.wall("frost")==="cyber","the choice survives a restart");
+ok(win.AurionTheme.wall("custom")==="cyber","the choice survives a restart",
+  win.AurionTheme.wall("custom"));
 void saved;
 
-// the "theme's own" tile must show the THEME's picture, not the chosen one
+/* the "theme's own" tile must show the THEME's picture, not the chosen one.
+   themeWall() is a lookup against the table, so it answers for a theme
+   whether or not that theme is the one being edited. */
 T.set("midnight");
 T.edit({wall:"ocean"});
 ok(T.themeWall("midnight")==="midnight",

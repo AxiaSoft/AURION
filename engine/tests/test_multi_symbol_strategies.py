@@ -242,7 +242,15 @@ def test_the_per_symbol_cap_is_separate_from_the_total() -> None:
 
     class _Prop:
         enabled = True
-        profile = {"max_positions_per_symbol": 1, "max_open_trades": 3}
+        # throttle_entries is new, and it is what this test is about:
+        # a prop profile may lower the ticket ceiling only when it asks
+        # to. Reported fault - "prop mode reduces the number of trades" -
+        # and the reduction was AURION's own house rule wearing a firm's
+        # name. The rule being pinned here is unchanged; the profile now
+        # has to opt into it. The opposite case (a profile that does not
+        # ask, and must not shrink anything) lives in
+        # test_prop_trade_count.py.
+        profile = {"max_positions_per_symbol": 1, "max_open_trades": 3, "throttle_entries": True}
 
     t.prop = _Prop()
     committed = {"EURUSD": 1}

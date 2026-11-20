@@ -5,6 +5,7 @@ import json
 import shutil
 import time
 from collections import deque
+from pathlib import Path
 from typing import Any
 
 from .auto_entry import confirm_entry, expired_orders, plan_entry
@@ -73,6 +74,28 @@ NEWS_REFRESH_SECONDS = 5 * 60
 #: replay does; it is capped by whatever history actually exists, and
 #: costs only a little time.
 RANGE_WARMUP_BARS = 400
+
+#: Wall-clock ceiling for one chart-mark pass.
+#:
+#: The marks are an armed strategy's own output replayed bar by bar,
+#: and smart_money costs about 11 ms a bar, so six months of M15 is
+#: three minutes of work. It is done in slabs across refreshes instead,
+#: and this is one slab's share. Long enough to make visible progress,
+#: short enough that a chart refresh is never felt as a hang.
+CHART_MARK_BUDGET_SECONDS = 8.0
+
+#: Bars analysed on the very first pass for a chart.
+#:
+#: Deliberately modest: the first paint has to arrive quickly, and the
+#: bars nearest the right-hand edge are the ones being looked at. The
+#: rest is filled in behind it by later refreshes.
+CHART_MARK_FIRST_PASS = 1200
+
+#: How much further back each subsequent pass reaches.
+CHART_MARK_STEP_BACK = 1500
+
+#: How many charts' worth of analysis to remember at once.
+CHART_MARK_CACHES = 8
 
 
 def _slice_bars(
@@ -213,6 +236,13 @@ class Trader:
         # Money management, stated the one way that means the same thing on
         # every instrument: what a stop is allowed to cost per 1.00 lot.
         self.max_loss_per_lot = 10.0
+        # Automatic money management. "fixed" is the number the trader
+        # typed; "auto" is a share of the live account, recomputed for
+        # every ticket. See _cap().
+        self.money_mode = "fixed"
+        self.money_risk_pct = 1.0
+        self._auto_cap_last = 0.0
+        self._auto_cap_said = False
         # What that number counts: one trade, or one 0.01 lot. See
         # MONEY_SCOPES in runtime/risk.py.
         self.money_scope = DEFAULT_SCOPE
@@ -257,6 +287,10 @@ class Trader:
         self.telegram = None
         self.license = Guard()
         self.backtest_run: dict[str, Any] = {"running": False, "mode": "idle"}
+        # Chart marks already worked out, per symbol/timeframe/armed set.
+        # Analysis is expensive enough that it is done in slabs across
+        # refreshes; this is what carries the finished slabs between them.
+        self._chart_marks: dict[str, dict[str, Any]] = {}
         self._last_ai_tick = 0.0
         # Event faults already reported, so a broken path says so once
         # instead of several times a second.
@@ -512,6 +546,58 @@ class Trader:
             return
         if kind in {"status", "ea_log", "ea_signal", "order_result", "log"}:
             await self.bus.publish(kind, payload if isinstance(payload, dict) else {"data": payload})
+
+    async def _announce_prop_check(self, request: dict[str, Any], gate: dict[str, Any]) -> None:
+        """Say out loud what the prop rules did with this order - either way.
+
+        Asked for directly: "tell me when prop stops a trade, and tell me
+        when it lets one through". Until now only the refusal left a
+        trace, and it left it in the robot log - a page nobody has open
+        while they are watching a chart. So a trader who had armed a
+        profile could not tell the difference between "the rules are
+        quietly doing their job" and "the rules are eating my trades",
+        which is exactly the complaint.
+
+        One event per gated entry, carrying the verdict and, when it is
+        a refusal, the sentence that names the rule. Closes, modifies
+        and anything the gate waved through untouched because prop is
+        off are not news and are not announced.
+        """
+        if not getattr(self.prop, "enabled", False):
+            return
+        action = str(request.get("action") or "").lower()
+        if action not in {"market", "buy", "sell", "pending"}:
+            return
+        if gate.get("bypassed"):
+            return
+        ok = bool(gate.get("ok"))
+        profile = self.prop.profile or {}
+        payload = {
+            "ok": ok,
+            "why": "" if ok else str(gate.get("error") or "blocked"),
+            "symbol": str(request.get("symbol") or ""),
+            "side": str(request.get("side") or action or ""),
+            "volume": float(request.get("volume") or 0),
+            "profile": str(profile.get("id") or ""),
+            "source": str(request.get("source") or ""),
+            # Which count limits are live right now. Empty on every
+            # firm-shaped profile, and that emptiness is the answer to
+            # "is prop the reason I am taking fewer trades?".
+            "throttles": list(self.prop.throttle_names()) if hasattr(self.prop, "throttle_names") else [],
+            "ts": utc_iso(),
+        }
+        if ok:
+            await self.journal(
+                "info",
+                "prop_pass",
+                f"Prop checked {payload['side']} {payload['symbol']} "
+                f"{payload['volume']:g} against the {payload['profile'] or 'prop'} profile and allowed it",
+                {"prop_check": payload},
+            )
+        try:
+            await self.bus.publish("prop_check", payload)
+        except Exception:
+            log.exception("prop check publish failed")
 
     async def _handle_prop_trip(self, decision: dict[str, Any]) -> None:
         action = decision.get("action") or ""
@@ -1241,19 +1327,105 @@ class Trader:
             info = {}
         return SymbolSpec.from_info(info, str(symbol or ""))
 
+    AUTO_RISK_MIN_PCT = 0.05
+    AUTO_RISK_MAX_PCT = 10.0
+
+    def _equity_now(self) -> float:
+        """Live equity, falling back to balance. 0 when the account is unknown."""
+        try:
+            account = self.bridge.account.to_dict() or {}
+        except Exception:
+            return 0.0
+        for key in ("equity", "balance"):
+            try:
+                value = float(account.get(key) or 0)
+            except (TypeError, ValueError):
+                continue
+            if value > 0:
+                return value
+        return 0.0
+
+    def _auto_risk_pct(self) -> float:
+        """The share of the account one trade may lose, after every ceiling.
+
+        The trader's own number, held between 0.05% and 10%, and then
+        lowered - never raised - by the prop profile's max risk per
+        trade when one is armed. A prop rule that says 1% and a desk
+        that says 2% is not a disagreement to average out: the tighter
+        of the two is the only one that keeps both promises.
+        """
+        try:
+            pct = float(getattr(self, "money_risk_pct", 1.0) or 0.0)
+        except (TypeError, ValueError):
+            pct = 1.0
+        pct = max(self.AUTO_RISK_MIN_PCT, min(self.AUTO_RISK_MAX_PCT, pct))
+        if getattr(self.prop, "enabled", False):
+            try:
+                prop_pct = float((self.prop.profile or {}).get("max_risk_per_trade_pct") or 0)
+            except (TypeError, ValueError):
+                prop_pct = 0.0
+            if prop_pct > 0:
+                pct = min(pct, prop_pct)
+        return pct
+
     def _cap(self) -> float:
+        """The most one trade may lose, in account currency.
+
+        This is the single number the whole money rule is built on -
+        sizing, stop capping and the chart replay all read it - so
+        "automatic" is implemented here and nowhere else. In automatic
+        mode the cap is a share of live equity, recomputed for every
+        ticket: an account that doubles risks twice as much, an account
+        in drawdown risks less, and nobody edits a field. A fixed
+        currency amount typed once is the one money setting guaranteed
+        to be wrong later.
+
+        It fails CLOSED. If the account has not reported equity yet,
+        the last cap that WAS computed is used rather than zero -
+        because zero here does not mean "no risk", it means "no rule",
+        and dropping the stop cap the moment the terminal reconnects is
+        the worst possible reading of missing data.
+        """
+        if str(getattr(self, "money_mode", "fixed")) == "auto":
+            equity = self._equity_now()
+            if equity > 0:
+                cap = round(equity * self._auto_risk_pct() / 100.0, 2)
+                if cap > 0:
+                    self._auto_cap_last = cap
+                    return cap
+            held = float(getattr(self, "_auto_cap_last", 0.0) or 0.0)
+            if held > 0:
+                return held
+            # Nothing to size against and nothing remembered: fall back
+            # to the stored fixed cap rather than to no rule at all.
+            try:
+                return max(0.0, float(getattr(self, "max_loss_per_lot", 0.0) or 0.0))
+            except (TypeError, ValueError):
+                return 0.0
         try:
             return max(0.0, float(getattr(self, "max_loss_per_lot", 0.0) or 0.0))
         except (TypeError, ValueError):
             return 0.0
 
     def _scope(self) -> str:
-        """Whether the cap is read per trade or per 0.01 lot."""
+        """Whether the cap is read per trade or per 0.01 lot.
+
+        Automatic mode is always per trade. A percentage of the account
+        that then multiplies by the lot size is not a percentage of the
+        account, and the point of the mode is that "what can this cost
+        me?" has an answer without arithmetic.
+        """
+        if str(getattr(self, "money_mode", "fixed")) == "auto":
+            return "trade"
         return normalise_scope(getattr(self, "money_scope", DEFAULT_SCOPE))
 
     def _cap_words(self) -> str:
         """The cap and its unit, for anything a human reads."""
         cap = self._cap()
+        if str(getattr(self, "money_mode", "fixed")) == "auto":
+            equity = self._equity_now()
+            where = f" of {equity:.2f} equity" if equity > 0 else " (equity not reported yet)"
+            return f"{cap:.2f} per trade — {self._auto_risk_pct():.2f}%{where}"
         return (f"{cap:.2f} per trade" if self._scope() == "trade"
                 else f"{cap:.2f} per {REFERENCE_LOT:g} lot")
 
@@ -1947,8 +2119,20 @@ class Trader:
         symbol = str(getattr(self, "active_symbol", "") or "")
         spec = self.symbol_spec(symbol) if symbol else SymbolSpec()
         scope = self._scope()
+        mode = str(getattr(self, "money_mode", "fixed"))
+        equity = self._equity_now()
         state: dict[str, Any] = {
             "max_loss_per_lot": cap,
+            # Automatic mode. The desk needs all four to say what it is
+            # doing: which mode, the percentage asked for, the
+            # percentage actually in force after the prop ceiling, and
+            # the equity the cap was computed from - so a cap that
+            # looks wrong can be checked rather than guessed at.
+            "mode": mode,
+            "risk_pct": float(getattr(self, "money_risk_pct", 1.0) or 0.0),
+            "risk_pct_effective": self._auto_risk_pct(),
+            "equity": equity,
+            "auto_held": bool(mode == "auto" and equity <= 0 and cap > 0),
             "scope": scope,
             "symbol": symbol,
             "priced": bool(spec.usable),
@@ -2025,6 +2209,27 @@ class Trader:
     async def set_money(self, body: dict[str, Any]) -> dict[str, Any]:
         """Set the loss cap and what it counts. 0 turns the rule off, loudly."""
         body = dict(body or {})
+        if "mode" in body:
+            asked_mode = str(body.get("mode") or "").strip().lower()
+            if asked_mode not in {"fixed", "auto"}:
+                return {"ok": False, "error": "mode must be 'fixed' or 'auto'"}
+            self.money_mode = asked_mode
+        if "risk_pct" in body:
+            try:
+                pct = float(body.get("risk_pct") or 0)
+            except (TypeError, ValueError):
+                return {"ok": False, "error": "risk_pct must be a number"}
+            if pct < self.AUTO_RISK_MIN_PCT or pct > self.AUTO_RISK_MAX_PCT:
+                # Refused rather than clamped. A trader who typed 50
+                # meant something, and silently saving 10 teaches them
+                # the field does not do what it says.
+                return {
+                    "ok": False,
+                    "error": (f"risk per trade must be between {self.AUTO_RISK_MIN_PCT:g}% "
+                              f"and {self.AUTO_RISK_MAX_PCT:g}%"),
+                }
+            self.money_risk_pct = pct
+            self._auto_cap_last = 0.0
         if "scope" in body:
             asked = str(body.get("scope") or "")
             if asked.strip().lower() not in MONEY_SCOPES:
@@ -2389,6 +2594,13 @@ class Trader:
         # behaviour and it is the point - it is the reading the number
         # was always labelled with.
         self.money_scope = normalise_scope(money_cfg.get("scope"))
+        self.money_mode = "auto" if str(money_cfg.get("mode") or "fixed") == "auto" else "fixed"
+        try:
+            pct = float(money_cfg.get("risk_pct", 1.0))
+        except (TypeError, ValueError):
+            pct = 1.0
+        self.money_risk_pct = max(self.AUTO_RISK_MIN_PCT, min(self.AUTO_RISK_MAX_PCT, pct))
+        self._auto_cap_last = 0.0
         rf_cfg = runtime.get("risk_free") if isinstance(runtime.get("risk_free"), dict) else {}
         self.risk_free_enabled = bool(rf_cfg.get("enabled", False))
         self.risk_free_trigger_pct = self._clamp_pct(rf_cfg.get("trigger_pct"), 0.30)
@@ -2594,9 +2806,27 @@ class Trader:
         else:
             book.pop(key, None)
 
+    def _prop_caps_count(self) -> bool:
+        """Is the armed prop profile allowed to lower the ticket ceiling?
+
+        Only when the profile asks for it. A funded-account rulebook
+        limits money, not the number of trades, so the firm-shaped
+        profiles no longer hold the robot's ceiling down - that was
+        AURION's own throttle wearing the firm's name, and it is the
+        reported "prop mode reduces the trade count". See
+        PropEngine.counts_capped().
+        """
+        prop = getattr(self, "prop", None)
+        if not getattr(prop, "enabled", False):
+            return False
+        try:
+            return bool((prop.profile or {}).get("throttle_entries"))
+        except Exception:
+            return False
+
     def _per_symbol_cap(self) -> int:
         """How many positions may share one symbol (prop wins when armed)."""
-        if getattr(self.prop, "enabled", False):
+        if self._prop_caps_count():
             try:
                 return max(1, int((self.prop.profile or {}).get("max_positions_per_symbol") or 1))
             except (TypeError, ValueError):
@@ -2605,7 +2835,7 @@ class Trader:
 
     def _total_cap(self) -> int:
         cap = max(1, int(getattr(self, "max_open_trades", 2) or 2))
-        if getattr(self.prop, "enabled", False):
+        if self._prop_caps_count():
             try:
                 cap = min(cap, max(1, int((self.prop.profile or {}).get("max_open_trades") or cap)))
             except (TypeError, ValueError):
@@ -2913,7 +3143,49 @@ class Trader:
             for key, _ in stale[: len(book) - Trader.SYMBOL_MEMORY]:
                 book.pop(key, None)
 
-    def _note_strategy_fault(self, name: str, exc: Exception, file: str | None = None) -> None:
+    @staticmethod
+    def _strategy_file_of(slot: dict[str, Any] | None, name: str) -> str:
+        """The .py the trader would open to fix this, as a bare name."""
+        for key in ("file", "path"):
+            value = str((slot or {}).get(key) or "")
+            if value:
+                return Path(value).name
+        inst = (slot or {}).get("inst")
+        for key in ("__file__", "path", "file"):
+            value = str(getattr(inst, key, "") or "")
+            if value:
+                return Path(value).name
+        return f"{name}.py"
+
+    @staticmethod
+    def _strategy_fault_detail(exc: Exception, slot: dict[str, Any] | None = None) -> str:
+        """The exact error, with the line in the trader's own file.
+
+        "ZeroDivisionError: division by zero" is true and unusable: the
+        file is the one thing the trader can change and it is the one
+        thing the message left out. The traceback is walked from the
+        bottom for the last frame that is NOT inside the AURION package
+        - that is the author's own code - and its file and line are put
+        in front of the message.
+        """
+        import traceback
+
+        frames = traceback.extract_tb(exc.__traceback__)
+        here = str(Path(__file__).resolve().parents[1])
+        mine = [f for f in frames if here not in str(Path(f.filename).resolve().parent)]
+        text = f"{type(exc).__name__}: {exc}"
+        if isinstance(exc, StrategyValidationError):
+            text = str(exc)
+        if mine:
+            last = mine[-1]
+            where = f"{Path(last.filename).name} line {last.lineno}"
+            if last.line:
+                return f"{where}: {text}  ->  {last.line.strip()[:120]}"
+            return f"{where}: {text}"
+        return text
+
+    def _note_strategy_fault(self, name: str, exc: Exception, file: str | None = None,
+                             detail: str | None = None) -> None:
         """Remember a strategy file that is on disk but would not load.
 
         A file that fails to import is simply absent from the book, so the
@@ -2941,7 +3213,9 @@ class Trader:
         faults[key] = {
             "name": key,
             "file": file or f"{key}.py",
-            "error": f"{type(exc).__name__}: {exc}" if not isinstance(exc, StrategyValidationError) else str(exc),
+            "error": detail or (
+                f"{type(exc).__name__}: {exc}" if not isinstance(exc, StrategyValidationError) else str(exc)
+            ),
             "ts": utc_iso(),
         }
 
@@ -3136,7 +3410,13 @@ class Trader:
                     },
                     "money": {
                         "max_loss_per_lot": float(getattr(self, "max_loss_per_lot", 10.0) or 0.0),
-                        "scope": self._scope(),
+                        # The scope the trader chose, not the one in force:
+                        # automatic mode forces "trade", and saving that
+                        # would quietly rewrite their fixed-mode setting
+                        # the first time automatic was switched on.
+                        "scope": normalise_scope(getattr(self, "money_scope", DEFAULT_SCOPE)),
+                        "mode": str(getattr(self, "money_mode", "fixed")),
+                        "risk_pct": float(getattr(self, "money_risk_pct", 1.0) or 0.0),
                     },
                     "risk_free": {
                         "enabled": bool(self.risk_free_enabled),
@@ -3222,17 +3502,37 @@ class Trader:
             try:
                 signal = inst.on_candle(ctx)
             except Exception as exc:
+                # One broken file is one broken file.
+                #
+                # This used to set safe_mode and RETURN: a single bad
+                # line in a single strategy stopped the robot trading
+                # at all, and the strategies that had not been asked
+                # yet were never asked - on this bar or any later one,
+                # because the next bar crashed in the same place. A
+                # desk with three strategies lost all three to a typo
+                # in the one the trader was still writing, and the
+                # only sign was "safe mode" with no file named.
+                #
+                # Now the fault belongs to the strategy that caused
+                # it: it is switched off, named on the broken-files
+                # card with the exact error and the line it happened
+                # on, and the loop carries on to the others.
+                detail = self._strategy_fault_detail(exc, slot)
                 log.exception("strategy %s on_candle crashed", name)
                 slot["last_action"] = "fault"
-                slot["last_reason"] = str(exc)
+                slot["last_reason"] = detail
                 slot["last_ts"] = utc_iso()
+                # Off, not just marked. Left armed it would raise on
+                # every closed candle for as long as the desk is open,
+                # filling the log and announcing nothing new.
+                slot["enabled"] = False
                 self._note_symbol(slot, ctx.symbol, action="fault",
-                                  reason=slot["last_reason"], ts=slot["last_ts"])
-                self.safe_mode = True
-                await self.journal("error", "strategy_fault", f"{name} crashed: {exc}")
-                self._sync_book_meta()
-                await self.bus.publish("strategy", self.strategy_meta)
-                return
+                                  reason=detail, ts=slot["last_ts"])
+                self._note_strategy_fault(name, exc, file=self._strategy_file_of(slot, name),
+                                          detail=detail)
+                await self.journal("error", "strategy_fault",
+                                   f"{name} was switched off after it crashed: {detail}")
+                continue
             action, reason = self._signal_bits(signal)
             if not signal or action in {"", "hold", "none"}:
                 # "no setup on this bar" is true and useless. A strategy that
@@ -4232,6 +4532,7 @@ class Trader:
                 await self.journal("warning", "news", f"News window blocked the order: {why}")
                 return {"ok": False, "error": why}
         gate = self.prop.allow_order(request, self.bridge.account.to_dict(), [p.to_dict() for p in self.bridge.positions])
+        await self._announce_prop_check(request, gate)
         if not gate.get("ok"):
             why = gate.get("error") or "blocked"
             self.store.log_event("warning", why, "logs.rule_block", request)
@@ -5265,6 +5566,165 @@ class Trader:
         except Exception:
             log.exception("live AI infer failed")
 
+    # ------------------------------------------------- chart mark cache
+
+    def _marks_store(self) -> dict[str, Any]:
+        """The cache, created on demand.
+
+        Not simply self._chart_marks: the Python test harness builds a
+        Trader with __new__ and hand-sets only the attributes a given
+        check needs, so anything read here must survive not having been
+        through __init__.
+        """
+        store = getattr(self, "_chart_marks", None)
+        if store is None:
+            store = {}
+            self._chart_marks = store
+        return store
+
+    def _chart_mark_key(self, symbol: str, timeframe: str, armed: list) -> str:
+        """What makes one body of analysis different from another.
+
+        The armed set is part of it: the marks are those strategies'
+        own output, so arming a fourth strategy invalidates everything
+        and the cache must not quietly keep showing three strategies'
+        marks under a four-strategy label.
+        """
+        names = ",".join(sorted(str(n) for n, _ in armed))
+        return f"{symbol}|{timeframe}|{names}"
+
+    def _chart_mark_plan(self, symbol: str, timeframe: str, armed: list, bars: list) -> dict[str, Any]:
+        """Which bars to analyse on this call.
+
+        New bars at the right-hand edge come first - they are what the
+        trader is looking at - and only then does coverage walk
+        backwards. The alternative, extending backwards first, means a
+        chart whose newest bar is unmarked, which is the one mark
+        nobody will forgive being missing.
+
+        Positions are held as bar TIMES, not indices: the history
+        scrolls, so index 4000 is a different bar tomorrow, and a cache
+        keyed on indices would quietly slide its marks into the wrong
+        place.
+        """
+        from ..signals.strategy_signals import WARMUP_BARS
+
+        key = self._chart_mark_key(symbol, timeframe, armed)
+        total = len(bars)
+        held = self._marks_store().get(key)
+        times = [str(b.get("time") or "") for b in bars]
+        index_of = {t: i for i, t in enumerate(times) if t}
+
+        # `to_time` is the LAST bar analysed, so the exclusive bound is
+        # one past it. Reading it back as the bound itself leaves the
+        # newest covered bar looking uncovered, and every refresh
+        # re-analyses that one bar for ever and never reaches backwards.
+        lo = hi = None
+        if held:
+            lo = index_of.get(held.get("from_time") or "")
+            end = index_of.get(held.get("to_time") or "")
+            hi = None if end is None else end + 1
+        if lo is None or hi is None or lo > hi:
+            # Nothing usable: either the first call, or the history
+            # moved far enough that the remembered bars have scrolled
+            # off. Start at the right-hand edge.
+            return {"key": key, "first": max(WARMUP_BARS, total - CHART_MARK_FIRST_PASS),
+                    "last": total, "fresh": True}
+
+        if hi < total:
+            # New bars have arrived since last time. Those first, and
+            # one bar of overlap so a mark on the boundary bar is not
+            # lost between the two passes.
+            return {"key": key, "first": max(WARMUP_BARS, hi - 1), "last": total, "fresh": False}
+
+        # Fully caught up at the right. Spend the call reaching further
+        # back, a slab at a time.
+        if lo <= WARMUP_BARS:
+            return {"key": key, "first": lo, "last": lo, "fresh": False, "complete": True}
+        return {"key": key, "first": max(WARMUP_BARS, lo - CHART_MARK_STEP_BACK),
+                "last": lo + 1, "fresh": False}
+
+    def _chart_marks_merge(
+        self, symbol: str, timeframe: str, armed: list, bars: list,
+        plan: dict[str, Any], result: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Fold this pass into what is already known and answer with all of it.
+
+        The desk gets every mark discovered so far, not just the slab
+        analysed on this call - otherwise each refresh would wipe the
+        chart and redraw a different fragment of it.
+        """
+        from ..signals.strategy_signals import WARMUP_BARS
+
+        key = plan["key"]
+        total = len(bars)
+        times = [str(b.get("time") or "") for b in bars]
+        index_of = {t: i for i, t in enumerate(times) if t}
+        held = None if plan.get("fresh") else self._marks_store().get(key)
+
+        kept: list[dict[str, Any]] = []
+        if held:
+            # Re-index: these marks were found when the history was a
+            # different length. A mark whose bar has scrolled off is
+            # dropped rather than guessed at.
+            for mark in held.get("signals", []):
+                idx = index_of.get(str(mark.get("time") or ""))
+                if idx is None:
+                    continue
+                kept.append({**mark, "index": idx})
+
+        lo = plan["first"]
+        hi = int(result.get("covered_to") or plan["last"])
+        fresh_marks = list(result.get("signals") or [])
+        # Anything previously known inside the slab just re-analysed is
+        # replaced by what the slab found, so a strategy whose settings
+        # changed cannot leave a stale arrow behind.
+        kept = [m for m in kept if not (lo <= int(m.get("index", -1)) < hi)]
+        merged = kept + fresh_marks
+        merged.sort(key=lambda m: (int(m.get("index", 0)), str(m.get("strategy", ""))))
+        # Thinned here as well as inside the replay: each slab is under
+        # the cap on its own, but five slabs added together need not be.
+        # thin_marks keeps the best of each slice of history rather than
+        # the newest, so accumulating coverage never pushes the spring
+        # off the chart to make room for the autumn.
+        from ..signals.strategy_signals import thin_marks
+        merged = thin_marks(merged)
+
+        if held:
+            old_lo = index_of.get(held.get("from_time") or "")
+            old_end = index_of.get(held.get("to_time") or "")
+            covered_lo = lo if old_lo is None else min(old_lo, lo)
+            covered_hi = hi if old_end is None else max(old_end + 1, hi)
+        else:
+            covered_lo, covered_hi = lo, hi
+
+        covered_lo = max(0, min(covered_lo, total))
+        covered_hi = max(covered_lo, min(covered_hi, total))
+        store = self._marks_store()
+        store[key] = {
+            "from_time": times[covered_lo] if covered_lo < total else "",
+            "to_time": times[covered_hi - 1] if 0 < covered_hi <= total else "",
+            "signals": merged,
+        }
+        # One cache per chart the trader looks at; a handful of symbols
+        # at a time, so this only stops an unbounded leak over days.
+        while len(store) > CHART_MARK_CACHES:
+            store.pop(next(iter(store)))
+
+        complete = covered_lo <= WARMUP_BARS and covered_hi >= total
+        return {
+            **result,
+            "signals": merged,
+            "count": len(merged),
+            "covered_from": covered_lo,
+            "covered_to": covered_hi,
+            # The desk draws a boundary at `covered_from` and says marks
+            # start there, so an unanalysed stretch is never read as a
+            # stretch with no setups. `complete` turns that off.
+            "complete": bool(complete),
+            "analysing": not complete,
+        }
+
     async def chart_signals(self, symbol: str, timeframe: str = "M15", count: int = 0, strict: bool = True) -> dict[str, Any]:
         # premium feature
         if not self.license.feature("chart_signals"):
@@ -5297,6 +5757,24 @@ class Trader:
             if armed:
                 from ..signals.strategy_signals import replay
 
+                # Where to look this time.
+                #
+                # Reported: "the signals are only drawn at the right
+                # edge of the chart, not across all the months". They
+                # were - the replay covered the last 240 bars. Covering
+                # six months instead is 17 280 bars on M15, and at
+                # roughly 11 ms a bar for smart_money that is a
+                # three-minute HTTP request, so it cannot simply be
+                # widened.
+                #
+                # So the analysis is remembered and extended: each
+                # refresh does the new bars at the right-hand edge
+                # first, then spends what budget is left pushing the
+                # covered region further back. The chart fills in from
+                # the right over a few refreshes instead of being
+                # permanently blank behind bar 240.
+                plan = self._chart_mark_plan(symbol, timeframe, armed, bars)
+
                 result = await asyncio.to_thread(
                     replay,
                     bars,
@@ -5315,7 +5793,11 @@ class Trader:
                     # distance the engine would refuse to send is a trade
                     # the trader cannot actually take.
                     cap=self._chart_stop_cap(symbol),
+                    budget_seconds=CHART_MARK_BUDGET_SECONDS,
+                    first=plan["first"],
+                    last=plan["last"],
                 )
+                result = self._chart_marks_merge(symbol, timeframe, armed, bars, plan, result)
             else:
                 # Nothing armed. Falling back to the indicator read keeps the
                 # chart useful, but it is labelled so nobody mistakes it for

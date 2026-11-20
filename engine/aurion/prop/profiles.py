@@ -3,6 +3,25 @@ from __future__ import annotations
 from copy import deepcopy
 from typing import Any
 
+# throttle_entries - does this profile limit HOW MANY trades, as opposed to
+# how much they can lose?
+#
+# Reported: turning prop mode on cut the number of trades the robot took.
+# It did, and most of the cutting was AURION's own idea. A prop firm's
+# rules are about money - daily loss, maximum drawdown, lot size, the
+# instruments and the hours - and the published FTMO, FundingPips and
+# The5ers rulebooks say nothing about a ticket count or a gap between
+# entries. Those limits were house style, and applying them under a
+# firm's name throttled a strategy without protecting anything the firm
+# actually measures.
+#
+# So the count limits - max open trades, positions per symbol, trades per
+# day, minutes between entries, consecutive losses - are opt-in now, and
+# the firm-shaped profiles leave them off. The money limits are never
+# optional. "conservative" keeps them on: it is not a firm, it is a
+# deliberately tight in-house book, and "few tickets" is the whole of
+# what it is for.
+#
 # Built-in IDs are factory-sealed. Only "custom" may be edited from the desk.
 LOCKED_IDS = frozenset({"conservative", "ftmo_challenge", "fundingpips", "the5ers"})
 
@@ -24,6 +43,7 @@ PROFILES: dict[str, dict[str, Any]] = {
         "max_lot_per_symbol": 0.30,
         "max_open_trades": 2,
         "max_positions_per_symbol": 1,
+        "throttle_entries": True,
         "max_trades_per_day": 6,
         "max_risk_per_trade_pct": 0.40,
         "max_consecutive_losses": 3,
@@ -59,6 +79,7 @@ PROFILES: dict[str, dict[str, Any]] = {
         "max_lot_per_symbol": 2.00,
         "max_open_trades": 5,
         "max_positions_per_symbol": 2,
+        "throttle_entries": False,
         "max_trades_per_day": 0,
         "max_risk_per_trade_pct": 1.00,
         "max_consecutive_losses": 0,
@@ -94,6 +115,7 @@ PROFILES: dict[str, dict[str, Any]] = {
         "max_lot_per_symbol": 0.80,
         "max_open_trades": 3,
         "max_positions_per_symbol": 1,
+        "throttle_entries": False,
         "max_trades_per_day": 8,
         "max_risk_per_trade_pct": 0.75,
         "max_consecutive_losses": 4,
@@ -129,6 +151,7 @@ PROFILES: dict[str, dict[str, Any]] = {
         "max_lot_per_symbol": 1.50,
         "max_open_trades": 8,
         "max_positions_per_symbol": 2,
+        "throttle_entries": False,
         "max_trades_per_day": 20,
         "max_risk_per_trade_pct": 1.25,
         "max_consecutive_losses": 0,
@@ -164,6 +187,7 @@ PROFILES: dict[str, dict[str, Any]] = {
         "max_lot_per_symbol": 0.0,
         "max_open_trades": 3,
         "max_positions_per_symbol": 1,
+        "throttle_entries": False,
         "max_trades_per_day": 0,
         "max_risk_per_trade_pct": 0.75,
         "max_consecutive_losses": 0,
@@ -186,6 +210,8 @@ PROFILES: dict[str, dict[str, Any]] = {
 
 
 EXTRAS: dict[str, Any] = {
+    # Off unless a profile asks for it. See throttle_entries below.
+    "throttle_entries": False,
     "min_hold_minutes": 0.0,
     "max_hold_hours": 0.0,
     "max_trades_per_day": 0,

@@ -466,7 +466,11 @@ class PropEngine:
             close_h = int(self.profile.get("friday_close_utc_hour") or 21)
             if now.weekday() == 4 and now.hour >= close_h and positions:
                 return {"ok": False, "action": "flatten_and_lock", "code": "weekend_flatten", "metrics": metrics}
-        if len(positions) > int(self.profile["max_open_trades"]):
+        if self.counts_capped() and len(positions) > int(self.profile["max_open_trades"]):
+            # Only when the profile asks to be throttled by ticket count.
+            # Tripping a lock - and on most profiles flattening the book -
+            # because the robot holds one position too many is AURION's
+            # own house rule, and no funded-account rulebook contains it.
             self._record("max_trades", f"{len(positions)} open")
             return self._trip("max_trades", metrics)
         max_h = float(self.profile.get("max_hold_hours") or 0)
@@ -494,6 +498,44 @@ class PropEngine:
         if when.tzinfo is None:
             when = when.replace(tzinfo=timezone.utc)
         return max(0.0, (datetime.now(timezone.utc) - when).total_seconds() / 60.0)
+
+    def counts_capped(self) -> bool:
+        """Does the active profile limit HOW MANY trades may be taken?
+
+        Reported: "prop mode reduces the number of trades". It did. Five
+        of the gates below - open trades, positions per symbol, trades
+        per day, the gap between entries, consecutive losses - count
+        tickets rather than money, and they were applied under the name
+        of firms whose published rules say nothing about any of them. A
+        trader switching to the FTMO profile to respect a 5% daily loss
+        limit was silently also accepting a 5-ticket ceiling AURION
+        invented, and the strategy took fewer trades for no reason the
+        firm would ever check.
+
+        So the count gates are opt-in per profile (profiles.py sets
+        throttle_entries) and the firm-shaped profiles leave them off.
+        Everything that limits LOSS - daily loss, drawdown, lot size,
+        hours, news, the symbol list - is never optional and is not
+        affected by this flag.
+        """
+        return bool(self.profile.get("throttle_entries"))
+
+    def throttle_names(self) -> list[str]:
+        """The count gates this profile is currently applying, by name."""
+        if not self.counts_capped():
+            return []
+        out: list[str] = []
+        if int(self.profile.get("max_open_trades") or 0) > 0:
+            out.append("max_open_trades")
+        if int(self.profile.get("max_positions_per_symbol") or 0) > 0:
+            out.append("max_positions_per_symbol")
+        if int(self.profile.get("max_trades_per_day") or 0) > 0:
+            out.append("max_trades_per_day")
+        if float(self.profile.get("min_minutes_between_trades") or 0) > 0:
+            out.append("min_minutes_between_trades")
+        if int(self.profile.get("max_consecutive_losses") or 0) > 0:
+            out.append("max_consecutive_losses")
+        return out
 
     def allow_order(self, request: dict[str, Any], account: dict[str, Any], positions: list[dict[str, Any]]) -> dict[str, Any]:
         action = str(request.get("action") or "market").lower()
@@ -542,10 +584,11 @@ class PropEngine:
                 ),
             }
         desk = str(request.get("source") or "") == "desk"
-        if (not desk) and len(positions) >= int(self.profile["max_open_trades"]) and action in {"market", "buy", "sell", "pending"}:
+        throttle = self.counts_capped()
+        if throttle and (not desk) and len(positions) >= int(self.profile["max_open_trades"]) and action in {"market", "buy", "sell", "pending"}:
             return {"ok": False, "error": "max open trades reached"}
         same = [p for p in positions if p.get("symbol") == symbol]
-        if (not desk) and len(same) >= int(self.profile.get("max_positions_per_symbol") or 1):
+        if throttle and (not desk) and len(same) >= int(self.profile.get("max_positions_per_symbol") or 1):
             return {"ok": False, "error": "max positions for symbol reached"}
         allowed = str(self.profile.get("allowed_symbols") or "").strip()
         if allowed and symbol:
@@ -553,10 +596,10 @@ class PropEngine:
             if symbol.upper() not in names:
                 return {"ok": False, "error": f"{symbol} is not in the allowed symbol list"}
         cap = int(self.profile.get("max_consecutive_losses") or 0)
-        if cap > 0 and self.consecutive_losses >= cap:
+        if throttle and cap > 0 and self.consecutive_losses >= cap:
             return {"ok": False, "error": f"{self.consecutive_losses} consecutive losses"}
         gap = float(self.profile.get("min_minutes_between_trades") or 0)
-        if gap > 0 and self.last_entry_ts:
+        if throttle and gap > 0 and self.last_entry_ts:
             import time as _t
             if (_t.time() - self.last_entry_ts) / 60.0 < gap:
                 return {"ok": False, "error": f"wait {gap:.0f} minutes between entries"}
@@ -564,7 +607,7 @@ class PropEngine:
         if target > 0 and traded and metrics.get("ready") and metrics["daily_pl_pct"] >= target:
             return {"ok": False, "error": "daily profit target reached — new entries locked"}
         day_cap = int(self.profile.get("max_trades_per_day") or 0)
-        if day_cap > 0 and self.entries_today >= day_cap:
+        if throttle and day_cap > 0 and self.entries_today >= day_cap:
             return {"ok": False, "error": f"max {day_cap} trades per day reached"}
         if not self.profile.get("hedging_allowed", True) and symbol:
             side = str(request.get("side") or action or "").lower()

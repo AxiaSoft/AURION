@@ -890,6 +890,23 @@
       last_error: "",
       ea_last_ingest: new Date().toISOString(),
       ea_last_hello: new Date(Date.now() - 600000).toISOString(),
+      /* The demo shows the AurionBridge route, because that is the one
+         a demo can honestly show: a direct login needs a real broker
+         server and a real password, and the demo must never look like
+         it has either. */
+      link: {
+        route: "expert",
+        can_trade: true,
+        reason: "",
+        login: 5000271,
+        server: "AxiaSoft-Demo",
+        company: "AxiaSoft",
+        currency: "USD",
+        leverage: 100,
+        account_type: "demo",
+        account_label: "Demo",
+        native_package: false,
+      },
     });
 
     d.ai = Object.assign({}, d.ai, {

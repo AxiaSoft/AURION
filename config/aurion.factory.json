@@ -80,7 +80,9 @@
     },
     "money": {
       "max_loss_per_lot": 10.0,
-      "scope": "trade"
+      "scope": "trade",
+      "mode": "fixed",
+      "risk_pct": 1.0
     },
     "strategies": {
       "ema_rsi": {

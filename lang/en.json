@@ -350,7 +350,10 @@
     "file_name": "Strategy file name",
     "source": "Strategy source code",
     "broken_title": "A strategy file will not load",
-    "broken_hint": "The file is still in your strategies folder. Fix the code and upload it again, or delete it."
+    "broken_hint": "The file is still in your strategies folder. Fix the code and upload it again, or delete it.",
+    "view_code": "View code",
+    "hide_code": "Hide code",
+    "code_lines": "{n} lines"
   },
   "sys": {
     "tz_title": "Time zone",
@@ -435,7 +438,10 @@
     "guide_search_ph": "e.g. drawdown, hours, news",
     "guide_empty": "Nothing matches that.",
     "of_limit": "of {n} allowed",
-    "no_limit": "No limit set"
+    "no_limit": "No limit set",
+    "throttle": "Apply the trade-count limits",
+    "throttle_on": "The count limits above — open trades, per symbol, per day, the gap between entries and the losing streak — are being enforced. They are AURION's own brake, not a firm's rule, and they will reduce how many trades the robot takes.",
+    "throttle_off": "Only the money limits are enforced: daily loss, drawdown, lot size, hours, news and the symbol list. The count boxes above keep their numbers but nothing is refused for taking too many trades."
   },
   "money": {
     "title": "Money management — the stop cap",
@@ -456,7 +462,17 @@
     "scope_trade": "Per trade",
     "scope_lot": "Per {lot} lot",
     "scope_trade_note": "The number is the most a single trade may lose, at any size. If the lot you asked for would risk more than that over the stop you drew, the lot is reduced and the stop is left exactly where it is.",
-    "scope_lot_note": "The number is quoted against a {lot} lot and scales with the size: at ten times that lot, a trade may lose ten times the number. Choose this only if you want your risk to grow with your size."
+    "scope_lot_note": "The number is quoted against a {lot} lot and scales with the size: at ten times that lot, a trade may lose ten times the number. Choose this only if you want your risk to grow with your size.",
+    "mode_fixed": "Fixed amount",
+    "mode_auto": "Automatic",
+    "risk_pct": "Risk per trade",
+    "pct_of_equity": "% of equity",
+    "auto_now": "{p}% of {e} is {m} — that is the most one trade may lose, recomputed from the account before every order.",
+    "auto_prop": "Asked for {p}%, held lower by the prop profile's max risk per trade.",
+    "auto_held": "The account has not reported equity yet, so the last computed cap of {m} is still being applied. The rule is not off.",
+    "auto_no_equity": "Waiting for the account. Until equity is reported the fixed amount below is used, so the rule is never silently off.",
+    "auto_always_on": "Automatic mode is always on: there is no zero. To turn the rule off, switch to a fixed amount and set it to 0.",
+    "saved_auto": "Automatic money management saved."
   },
   "exec": {
     "title": "Execution",
@@ -631,6 +647,22 @@
     "disconnect": "Disconnect",
     "save": "Save configuration",
     "password_note": "Stored only on the engine host. Never sent to the browser after save.",
+    "link_title": "Broker connection",
+    "link_route": "Route",
+    "link_direct": "Direct login",
+    "link_expert": "Through AurionBridge",
+    "link_none": "Not connected",
+    "link_account": "Account",
+    "link_server": "Server",
+    "link_company": "Broker",
+    "link_leverage": "Leverage",
+    "link_trading": "Orders",
+    "link_can_trade": "This login can place orders.",
+    "link_read_only": "Read-only. The investor password shows prices, charts and the account, and the broker refuses any order sent with it. Reconnect with the master password, or leave the orders to AurionBridge.",
+    "link_tester_only": "No live chart is attached. Only a Strategy Tester chart is reporting, and the tester tape cannot trade.",
+    "link_offline": "Nothing is connected: no direct login, and no chart running AurionBridge.",
+    "link_no_package": "Direct login needs the MetaTrader5 Python package, which exists only on Windows. On this machine only the AurionBridge route is available.",
+    "mt5_password_hint": "Investor password is enough for charts, prices and account status, and it cannot be used to trade — which is the safer thing to store. Use the master password only if you want AURION to place the orders itself instead of AurionBridge.",
     "sec_robot": "Robot",
     "goto_prop": "All prop fields live in Settings",
     "saved_account": "Saved to your account.",
@@ -981,7 +1013,9 @@
     "off_tag": "off",
     "notice": "Ordinary notifications",
     "notice_hint": "Saved settings, reconnects, refusals - the messages that appear in the corner",
-    "custom_note": "Every sound is a file that lives in the source tree, so a given name sounds the same on every machine the product is installed on. Choose which sound each event plays."
+    "custom_note": "Every sound is a file that lives in the source tree, so a given name sounds the same on every machine the product is installed on. Choose which sound each event plays.",
+    "prop_pass": "Prop allowed the order",
+    "prop_stop": "Prop stopped the order"
   },
   "owner": {
     "title": "Owner account",
@@ -1630,7 +1664,8 @@
     "lvl_moved": "Sent to the broker",
     "lvl_gone": "That position is no longer open",
     "lvl_sl_side": "A stop has to sit on the losing side of the price",
-    "lvl_tp_side": "A target has to sit on the winning side of the price"
+    "lvl_tp_side": "A target has to sit on the winning side of the price",
+    "signals_analysing": "Still analysing"
   },
   "signal": {
     "buy": "Buy signal",
@@ -1764,14 +1799,14 @@
     "bg_custom": "Your picture",
     "colours_title": "Colours",
     "colours_hint": "Recolour the whole interface without leaving this theme. Panels are built from one colour so the layers keep their separation — picking every shade by hand is how a theme ends up flat.",
-    "c_page": "Page",
-    "c_page_hint": "Behind everything.",
     "c_panel": "Panels",
     "c_panel_hint": "Cards, fields and menus.",
     "c_ink": "Text",
     "c_ink_hint": "Headings and body text.",
     "candles_title": "Candle colours",
     "candles_hint": "Every theme ships its own pair, chosen to read on its own chart background. Change them here to override that theme's; the preview updates as you choose, and profit and loss figures across the desk follow the same pair.",
+    "candles_live": "Your own last {n} bars — {symbol} {tf}.",
+    "candles_sample": "Example shape — no chart has loaded yet, so these bars are not your market.",
     "c_candle_up": "Up",
     "c_candle_up_hint": "Rising candles, and every profit figure",
     "c_candle_down": "Down",
@@ -1826,7 +1861,8 @@
     "wall_missing_path": "Tried: {path}",
     "wall_theme_none": "This theme has no picture",
     "wall_aurion": "AURION",
-    "bg_picture": "Background picture"
+    "bg_picture": "Background picture",
+    "wall_mine": "Your picture"
   },
   "ea": {
     "title": "Expert Advisors (MetaTrader 5)",
