@@ -41,7 +41,7 @@ HISTORY_DAYS = 180
 
 #: Enough bars to be able to say anything at all, whatever the window
 #: works out to. A strategy with a 200-bar moving average needs more
-#: than the 30 D1 bars that thirty days of a daily chart contains.
+#: than the 30 D1 bars that a month of a daily chart contains.
 MIN_BARS = 400
 
 #: Hard ceiling per series, so one request cannot exhaust memory.
@@ -88,6 +88,41 @@ def at_least_window(timeframe: str, asked: int | None = None) -> int:
 #: The old name, kept so an out-of-tree caller does not break on an
 #: internal rename. Nothing in this repository uses it.
 at_least_30_days = at_least_window
+
+
+def requested_window(timeframe: str, asked: int | None = None) -> int:
+    """`asked` bars when a caller really asked; the promise when it did not.
+
+    The twin of :func:`at_least_window`, and the difference between them
+    is who is asking.
+
+    Everything inside the engine - the trader, the analysis, the
+    backtest, the store - must not be allowed to under-ask, because
+    under-asking silently shortens the window the product promises and
+    nobody notices until a strategy is judged on a fortnight. Those
+    callers use at_least_window and get the floor whatever they pass.
+
+    The desk is different. It is a window on a screen, and it knows how
+    much of the series it is actually showing: a chart opened on one
+    month must be able to ask for one month, or every chart that opens
+    pulls six months of bars - 259 200 of them on M1 - before anything
+    is drawn. That was measured as a slow, apparently frozen start-up
+    after HISTORY_DAYS went from 30 to 180, and the fix is to let the
+    front end say a smaller number and be believed.
+
+    The promise is not weakened: it is still what a caller gets when it
+    does not state a number, and the six months are still there to be
+    fetched the moment the trader picks that range.
+    """
+    try:
+        want = int(asked or 0)
+    except (TypeError, ValueError):
+        want = 0
+    if want <= 0:
+        return bars_for_days(timeframe)
+    #: A floor remains, because an indicator needs some bars to exist
+    #: at all and a caller asking for five is a bug, not a preference.
+    return min(MAX_BARS, max(60, want))
 
 
 def cache_size(timeframe: str) -> int:

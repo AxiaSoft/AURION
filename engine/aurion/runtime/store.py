@@ -658,7 +658,7 @@ class Store:
         return self.query("SELECT * FROM equity ORDER BY ts DESC LIMIT ?", (limit,))[::-1]
 
     def candles(self, symbol: str, timeframe: str, limit: int = 0) -> list[dict[str, Any]]:
-        """Stored bars for a series, defaulting to the thirty-day window.
+        """Stored bars for a series, defaulting to the HISTORY_DAYS window.
 
         The default was a flat 800, which is a different period on every
         timeframe and less than a day on M1. Nothing is pruned from this

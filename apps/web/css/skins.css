@@ -465,6 +465,21 @@ table tbody tr,
   box-shadow:0 0 0 3px rgb(var(--wash) / .10), 0 6px 16px rgba(0,0,0,.4);
 }
 
+/* The trader's own colour, marked as theirs.
+
+   It sat in the row looking exactly like the eleven shipped dots, so the
+   one swatch that opens a colour picker was indistinguishable from the
+   eleven that do not. A dashed ring says "this one is yours to set"
+   without a label and without covering the colour it is showing - which
+   is the whole point of the dot. It is an outline rather than the
+   border, because the border is already spoken for: it is how every dot
+   in the row shows that it is the one in force. */
+.accent-dot.accent-custom{
+  outline:2px dashed rgb(var(--wash) / .55);
+  outline-offset:3px;
+}
+.accent-dot.accent-custom.on{ outline-color:var(--ink) }
+
 /* ===========================================================================
    11. Prop rules: units and the symbol picker
    ===========================================================================

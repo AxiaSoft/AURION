@@ -1189,9 +1189,21 @@ function themeBuilderHtml() {
      whatever is on the page: once a choice has been made it overrides
      --theme-bg globally, so a tile painted from that variable would show the
      chosen picture and offer to switch you to it. */
+  /* Through assetUrl, like the desk's own backdrop.
+     wallUrl() answers a path relative to the DOCUMENT, and the backend
+     serves index.html for every unmatched path - so on any URL with a
+     segment in it the tile asked for a picture and was handed HTML. It
+     decoded nothing and painted nothing, which is exactly the report:
+     every shipped tile blank, and only the trader's own picture - a
+     data URL, with no path to get wrong - showing up at all. */
+  const tileUrl = (name, light) => {
+    const rel = AurionTheme.wallUrl(name, light);
+    if (!rel) return "";
+    return AurionTheme.assetUrl ? AurionTheme.assetUrl(rel) : rel;
+  };
   const ownWall = AurionTheme.themeWall(current);
   const ownStyle = ownWall
-    ? ` style="background-image:url(&quot;${esc(AurionTheme.wallUrl(ownWall, lightNow))}&quot;)"`
+    ? ` style="background-image:url(&quot;${esc(tileUrl(ownWall, lightNow))}&quot;)"`
     : "";
 
   /* Every scene, in both cuts.
@@ -1229,9 +1241,9 @@ function themeBuilderHtml() {
     const name = I18N.t("themes.wall_" + w);
     return [
       wallTile(`${w}@night`, `${name} ${darkLabel}`,
-        ` style="background-image:url(&quot;${esc(AurionTheme.wallUrl(w + "@night", false))}&quot;)"`),
+        ` style="background-image:url(&quot;${esc(tileUrl(w + "@night", false))}&quot;)"`),
       wallTile(`${w}@day`, `${name} ${lightLabel}`,
-        ` style="background-image:url(&quot;${esc(AurionTheme.wallUrl(w + "@day", true))}&quot;)"`),
+        ` style="background-image:url(&quot;${esc(tileUrl(w + "@day", true))}&quot;)"`),
     ];
   })).join("");
 
@@ -1651,6 +1663,14 @@ function bindThemesGallery() {
       if (!slider) return;
       const key = slider.dataset.knob;
       const value = Number(slider.value);
+      /* A knob DOES promote the desk onto Custom - that is the designed
+         behaviour for the material numbers. What was missing is the
+         gallery hearing about it: the card for the old theme stayed
+         marked until something else happened to re-render the page, so
+         the desk said "Midnight" while plainly not being Midnight any
+         more. Compared rather than called unconditionally, because the
+         promotion happens on the first frame of a drag and only then. */
+      const was = AurionTheme.effective();
       AurionTheme.edit({ [key]: value });
       const out = $("knob-v-" + key);
       if (out) {
@@ -1659,36 +1679,60 @@ function bindThemesGallery() {
           ? I18N.t("themes.motion_off") : value + suffix;
       }
       if (key === "radius") paintCustomPreview();
+      if (AurionTheme.effective() !== was) markThemeCards();
       markThemeEdited();
     };
     const walls = $("knob-walls");
     if (walls) walls.onclick = (e) => {
       const b = e.target.closest("[data-wallpick]");
       if (!b) return;
+      /* keep:true - the backdrop is a preference ABOUT this theme, not a
+         new theme. Without it the desk was promoted onto Custom the
+         moment a picture was chosen, and the material themes lost the
+         thing that makes them themes: Velvet stopped being velvet and
+         Relief stopped being relief, because every rule that draws them
+         is written against their own data-skin. */
       if (b.dataset.wallpick === "photo") {
         /* The trader's own picture is not a wallpaper id - it is the
            "photo" backdrop. Both halves are set in one call: the
            backdrop that draws it, and wall:none so a shipped
            photograph is not left layered underneath it. */
-        AurionTheme.edit({ bg: "photo", wall: "none" });
+        AurionTheme.edit({ bg: "photo", wall: "none" }, { keep: true });
       } else {
         /* Leaving the picture means leaving the picture backdrop too,
            or the chosen wallpaper is set and nothing on screen changes
            - which reads as a tile that does not work. */
         const patch = { wall: b.dataset.wallpick };
         if (AurionTheme.knobs().bg === "photo") patch.bg = "flat";
-        AurionTheme.edit(patch);
+        AurionTheme.edit(patch, { keep: true });
       }
+      /* In the moment, all of it: the tiles, the warning line, the
+         gallery card and the charts. The desk itself is already
+         repainted by the time edit() returns - what used to lag was
+         everything on this page that describes it. */
       renderSettingsKnobs();
       verifyWallpaper();
+      markThemeCards();
+      markThemeEdited();
+      repaintChartsForTheme();
+    };
+
+    /* Both of these take effect the instant they are chosen, and both
+       can promote the desk onto Custom, so the gallery is re-marked with
+       them. */
+    const fx = $("knob-fx");
+    if (fx) fx.onchange = () => {
+      AurionTheme.edit({ fx: fx.value });
+      markThemeCards();
       markThemeEdited();
     };
 
-    const fx = $("knob-fx");
-    if (fx) fx.onchange = () => { AurionTheme.edit({ fx: fx.value }); markThemeEdited(); };
-
     const font = $("knob-font");
-    if (font) font.onchange = () => { AurionTheme.edit({ font: font.value }); markThemeEdited(); };
+    if (font) font.onchange = () => {
+      AurionTheme.edit({ font: font.value });
+      markThemeCards();
+      markThemeEdited();
+    };
 
     /* Colours repaint live while the picker is open, which is the only way
        to judge a colour: a swatch in a dialog tells you nothing about how
@@ -1729,6 +1773,7 @@ function bindThemesGallery() {
           const clear = row && row.querySelector("[data-colclear]");
           if (clear) clear.hidden = false;
           warnOnContrast();
+          markThemeCards();
           markThemeEdited();
           repaintChartsForTheme();
         },
@@ -1928,16 +1973,18 @@ function bindBackgroundPicture() {
       // by hand afterwards would be a step with only one sensible answer.
       // wall:none goes with it, or whichever shipped photograph was
       // already chosen stays layered over the one just uploaded.
-      AurionTheme.edit({ bg: "photo", wall: "none" });
+      AurionTheme.edit({ bg: "photo", wall: "none" }, { keep: true });
       renderSettingsKnobs();
+      markThemeCards();
       toast(I18N.t("themes.bg_image_set"));
     }).catch(() => toast(I18N.t("themes.bg_image_bad")));
   };
 
   if (clear) clear.onclick = () => {
     AurionTheme.setBgImage("");
-    if (AurionTheme.knobs().bg === "photo") AurionTheme.edit({ bg: "flat" });
+    if (AurionTheme.knobs().bg === "photo") AurionTheme.edit({ bg: "flat" }, { keep: true });
     renderSettingsKnobs();
+    markThemeCards();
   };
 
   if (dim) dim.oninput = () => {
@@ -2071,7 +2118,11 @@ function markWallTiles() {
     // "" is the theme's own picture, which is named after the theme itself.
     if (value === "photo") return;   // painted from the data URL, not from a file on disk
     const name = value === "" ? AurionTheme.themeWall(current) : value;
-    const url = AurionTheme.wallUrl(name, light);
+    /* assetUrl again - see tileUrl() in themeBuilderHtml. A tile that
+       is re-marked must not lose the picture the tile that was built
+       had. */
+    const rel = AurionTheme.wallUrl(name, light);
+    const url = rel && AurionTheme.assetUrl ? AurionTheme.assetUrl(rel) : rel;
     const art = b.querySelector(".wall-art");
     if (art && url) art.style.backgroundImage = `url("${url}")`;
     else if (art && value === "") art.style.backgroundImage = "";
@@ -2274,28 +2325,30 @@ function bindAppearance() {
     const b = e.target.closest("[data-accent]");
     if (!b) return;
     if (b.dataset.locked) { toast(I18N.t("themes.locked_toast")); show("upgrade"); return; }
-    /* Under the veil, like every other appearance change. Picking an
-       accent recolours every control, every chart and every chip on the
-       desk; doing it in the open meant watching the page change in
-       pieces, with the charts arriving last because they only recolour
-       when asked. The drag inside the colour picker deliberately does
-       NOT go through here - it has to track the pointer frame by frame,
-       and a cover over a live preview is a contradiction. */
-    morphTheme(() => {
-      /* A shipped accent and a custom one cannot both be in force. */
-      AurionSkin.setCustomAccent("");
-      AurionSkin.setAccent(b.dataset.accent);
-      // Picking an accent is part of building the theme, whichever theme
-      // it is, so it is remembered with the rest of that theme's knobs
-      // rather than being reset the next time the theme is applied.
-      if (typeof AurionTheme !== "undefined") {
-        AurionTheme.edit({ accent: b.dataset.accent }, { silent: true });
-      }
-      markAppearancePills();
-      paintCustomPreview();
-      // The chart reads its colours once when it paints, so it has to be asked.
-      repaintChartsForTheme();
-    }, { title: I18N.t("ui.switch_theme") });
+    /* No veil. By request, and this is the second time it has been
+       asked for: an accent is a handful of CSS variables, not a theme
+       swap, and covering the desk for the best part of a second to
+       change them makes the quickest choice on the page feel like the
+       slowest. The cover also hid the very thing being judged. Every
+       accent - shipped here, and the trader's own in the branch above -
+       now lands on the frame it is clicked on.
+       The order below is what makes that true: the variables first, so
+       the page restyles immediately, then the controls that describe
+       the choice, then the canvases, which repaint only when asked. */
+    /* A shipped accent and a custom one cannot both be in force. */
+    AurionSkin.setCustomAccent("");
+    AurionSkin.setAccent(b.dataset.accent);
+    // Picking an accent is part of building the theme, whichever theme
+    // it is, so it is remembered with the rest of that theme's knobs
+    // rather than being reset the next time the theme is applied.
+    // keep:true: an accent must not turn Velvet into Custom either.
+    if (typeof AurionTheme !== "undefined") {
+      AurionTheme.edit({ accent: b.dataset.accent }, { silent: true, keep: true });
+    }
+    markAppearancePills();
+    paintCustomPreview();
+    // The chart reads its colours once when it paints, so it has to be asked.
+    repaintChartsForTheme();
   };
 
   bindThemesGallery();
@@ -3521,7 +3574,9 @@ function primeEaChart() {
   const key = S.symbol + ":" + (S.timeframe || "");
   if (S._primedEa === key && S.candles.length) return;
   S._primedEa = key;
-  pickMarket(S.symbol, S.timeframe || "M15");
+  /* Nothing is being charted yet: this is the background fill that
+     used to drag six months of bars in behind the startup video. */
+  pickMarket(S.symbol, S.timeframe || "M15", { prime: true });
 }
 function robotRows() {
   if (S.robotLogs && S.robotLogs.length) return S.robotLogs;
@@ -7670,6 +7725,40 @@ function aiKillBlocked() {
   return !S._aiKillSeen;
 }
 
+/* The notice has to appear the moment the switch is armed, not the next
+ * time the page happens to be rebuilt.
+ *
+ * Reported exactly that way: the switch was pressed while the AI
+ * section was open, nothing changed, and the notice only showed up
+ * after navigating somewhere else and back. The reason is that nothing
+ * on this desk rebuilds a mounted view when a FLAG changes - the header
+ * button posts and calls refresh(false), the socket's status frame
+ * updates S.snap and calls scheduleSync(), and both of those repaint
+ * values inside the page they are already looking at. The kill switch
+ * does not change a value on the intelligence page; it changes which
+ * page there is.
+ *
+ * So every path that can move the switch funnels through here, and
+ * here is the only place that knows the page has to be rebuilt. Called
+ * with the state after the change, from the snapshot poll, the live
+ * socket and the header button alike - it compares against the last
+ * value it saw, so calling it with no change costs nothing and calling
+ * it from three places cannot rebuild the page three times.
+ */
+function noteKillSwitch(next) {
+  const now = Boolean(next);
+  const was = S._killState;
+  S._killState = now;
+  if (was === undefined || was === now) return;
+  /* Arming it again is a new decision, so a previous "show it anyway"
+     does not carry over. aiKillBlocked() clears the flag whenever the
+     switch is off; this covers the other edge. */
+  if (now) S._aiKillSeen = false;
+  if (S.view === "intelligence") {
+    show("intelligence", { animate: false, closeMenu: false, nav: false });
+  }
+}
+
 function aiKillBlockHtml() {
   return `<section class="ai-blocked" id="ai-kill-block">
     <div class="card ai-kill-card" role="alert" aria-live="assertive">
@@ -8351,6 +8440,8 @@ const views = {
       return AurionChartUI.html({
         symbol: f.symbol,
         timeframe: f.timeframe,
+        // Which period the range strip should show as picked.
+        rangeDays: chartDays(),
         ticket: chartTicketHtml(),
       });
     }
@@ -13981,6 +14072,10 @@ function bindChartDesk() {
         await fetchChartSignals(S.chartFocus?.symbol, S.chartFocus?.timeframe);
       },
       onTimeframe: (tf) => switchChartTimeframe(tf),
+      rangeDays: chartDays(),
+      // The period on screen. Fetches what it needs first, so this is
+      // also how the trader asks for the rest of the six months.
+      onRange: (days) => applyChartRange(days),
     });
 
     /* Opened from the grid: fill the screen immediately. Consumed here so
@@ -13996,7 +14091,16 @@ function bindChartDesk() {
   (async () => {
     try {
       await pickMarket(S.chartFocus.symbol, S.chartFocus.timeframe);
-      if (S.chart && S.candles.length) S.chart.setBars(S.candles);
+      if (S.chart && S.candles.length) {
+        S.chart.setBars(S.candles);
+        /* Open on the period the trader last picked, not on the
+           120-bar default: holding six months and showing a day and a
+           half of it is the bug this pairs with. */
+        if (typeof S.chart.showSpan === "function") {
+          S.chart.showSpan(barsForDays(S.chartFocus.timeframe, chartDays()));
+        }
+      }
+      paintChartRange();
       const t = S.snap?.ticks?.[S.chartFocus.symbol];
       if (S.chart && t) S.chart.setTick(t);
       applyChartLevels();
@@ -14054,6 +14158,84 @@ function barsForDays(timeframe, days) {
   return Math.max(400, Math.min(HISTORY_MAX, want));
 }
 
+/* ── how much of that window is fetched, and when ───────────────────
+ *
+ * HISTORY_DAYS is what the product PROMISES, not what it must download
+ * before the desk is usable. Pulling all of it at boot is what made the
+ * desk sit on the startup video: six months of M15 is 17 280 bars per
+ * series and of M1 is 259 200, the engine asks MetaTrader for every one
+ * of them, and the desk then parses the JSON - before anything is on
+ * screen and whether or not a chart is even open.
+ *
+ * Reported as "the desk takes a long time to load since the candles
+ * went to six months", with the fix named in the same sentence: fetch
+ * less up front and fetch the rest when the trader asks for it.
+ *
+ * Three sizes, by what is actually being looked at:
+ *
+ *   priming    no chart on screen at all - the desk only needs enough
+ *              bars to know the series exists and to draw a thumbnail.
+ *   first look what a chart opens with. A month is a few hundred bars
+ *              on the slower timeframes and still well under a tenth
+ *              of the full window on M1.
+ *   on demand  the range strip above the chart. Picking 6M fetches six
+ *              months and shows six months - and scrolling off the
+ *              left edge still widens the window by itself, which is
+ *              the other way a trader asks for more.
+ *
+ * The chosen range is remembered, because it is a deliberate choice and
+ * making it again on every chart would be its own annoyance. A trader
+ * who leaves it on 6M is asking for the slow load, knowingly.
+ */
+const CHART_PRIME_BARS = 600;
+const CHART_RANGE_DAYS = [1, 7, 30, HISTORY_DAYS];
+const CHART_OPEN_DAYS = 30;
+function chartDays() {
+  const d = Number(S.chartDays);
+  return CHART_RANGE_DAYS.includes(d) ? d : CHART_OPEN_DAYS;
+}
+function setChartDays(days) {
+  S.chartDays = Number(days) || CHART_OPEN_DAYS;
+  try { localStorage.setItem("aurion.chartDays", String(S.chartDays)); } catch { /* private mode */ }
+}
+try {
+  const saved = Number(localStorage.getItem("aurion.chartDays"));
+  if (CHART_RANGE_DAYS.includes(saved)) S.chartDays = saved;
+} catch { /* private mode */ }
+
+/**
+ * Load (if needed) and then show `days` of this series.
+ *
+ * The two halves are separate on purpose. Holding six months of bars
+ * and DISPLAYING six months of bars are different things, and the
+ * second one is what "I still cannot see six months" was about: the
+ * chart opens on a 120-bar window, which is a day and a half of M15,
+ * so even with the whole window in memory the trader had to zoom out
+ * by hand some twenty times to reach the far end of it.
+ */
+async function applyChartRange(days) {
+  const f = S.chartFocus || { symbol: S.symbol, timeframe: S.timeframe || "M15" };
+  if (!f.symbol) return;
+  setChartDays(days);
+  const want = barsForDays(f.timeframe, chartDays());
+  if ((S.candles || []).length < want) await loadMoreHistory({ bars: want });
+  if (S.chart && typeof S.chart.showSpan === "function") S.chart.showSpan(want);
+  /* The marks follow the bars: analysing a window the trader cannot
+     see is the cost this whole change exists to avoid. */
+  if (S.signalsEnabled && licFeat("chart_signals")) fetchChartSignals(f.symbol, f.timeframe);
+  paintChartRange();
+}
+
+/** Mark the picked range in the strip without rebuilding the chart. */
+function paintChartRange() {
+  const now = chartDays();
+  document.querySelectorAll("[data-range]").forEach((b) => {
+    const on = Number(b.dataset.range) === now;
+    b.classList.toggle("on", on);
+    b.setAttribute("aria-pressed", on ? "true" : "false");
+  });
+}
+
 /**
  * More history, because the trader scrolled off the end of what we have.
  *
@@ -14063,15 +14245,24 @@ function barsForDays(timeframe, days) {
  * getting bigger - otherwise reaching the start of the broker's history
  * means asking forever.
  */
-async function loadMoreHistory() {
+async function loadMoreHistory(opts) {
   if (S._histBusy) return;
   const f = S.chartFocus;
   if (!f || !S.chart) return;
+  const asked = Math.round(Number(opts && opts.bars) || 0);
   const have = (S.candles || []).length;
-  if (have >= HISTORY_MAX || S._histDone === f.symbol + "." + f.timeframe) return;
+  /* An explicit ask is honoured even when the last reply was short:
+     _histDone means "the broker has no more than this", which is an
+     answer about the end of the series, not a reason to refuse a range
+     the trader has just pressed. */
+  if (have >= HISTORY_MAX) return;
+  if (!asked && S._histDone === f.symbol + "." + f.timeframe) return;
+  if (asked && have >= asked) return;
   S._histBusy = true;
   try {
-    const want = Math.min(HISTORY_MAX, Math.max(have * 2, barsForDays(f.timeframe, HISTORY_DAYS)));
+    const want = asked
+      ? Math.min(HISTORY_MAX, asked)
+      : Math.min(HISTORY_MAX, Math.max(have * 2, barsForDays(f.timeframe, chartDays())));
     const c = await API.get(`/api/candles?symbol=${encodeURIComponent(f.symbol)}`
       + `&timeframe=${encodeURIComponent(f.timeframe)}&count=${want}`);
     const bars = (c && c.data) || [];
@@ -14175,13 +14366,20 @@ async function fetchChartSignals(symbol, timeframe) {
   }
   S.signalsLoading = true;
   try {
-    /* The whole HISTORY_DAYS window, not a flat 800 bars: the marks have
-       to cover the history the trader can scroll back through, or the
-       older half of the chart reads as "no setups" when it simply was
-       not analysed. */
+    /* As many bars as the chart is holding, not a flat 800 and not the
+       whole six months either.
+       800 was the original bug - the older half of the chart read as
+       "no setups" when it simply had not been analysed. Asking for
+       HISTORY_DAYS was the overcorrection: it made the engine replay
+       every strategy over 17 280 bars of M15 (259 200 of M1) the
+       instant a chart opened, whatever window the trader was actually
+       looking at. The marks have to cover the bars that can be
+       scrolled to, and that is exactly how many we hold. */
+    const held = (S.candles || []).length;
+    const count = Math.max(400, Math.min(barsForDays(timeframe, chartDays()), held || barsForDays(timeframe, chartDays())));
     const r = await API.get(`/api/chart/signals?symbol=${encodeURIComponent(symbol)}`
       + `&timeframe=${encodeURIComponent(timeframe)}`
-      + `&count=${barsForDays(timeframe, HISTORY_DAYS)}&strict=true`);
+      + `&count=${count}&strict=true`);
     if (r && r.ok && r.signals) {
       S.chartSignals = r.signals;
       noteSignalCoverage(r);
@@ -14218,8 +14416,9 @@ async function fetchChartSignals(symbol, timeframe) {
   }
 }
 
-async function pickMarket(symbol, timeframe) {
+async function pickMarket(symbol, timeframe, opts) {
   if (!symbol) return;
+  const prime = Boolean(opts && opts.prime);
   if (!liveSymbols().some((x) => x.symbol === symbol)) {
     S.candles = [];
     return;
@@ -14236,8 +14435,13 @@ async function pickMarket(symbol, timeframe) {
   }
   const r = await API.post("/api/market", { symbol, timeframe });
   if (r && r.ok && typeof r.bars === "number") {
+    /* Not the whole promise. What this chart is set to show - or, when
+       no chart is on screen, barely anything, because this call also
+       runs the moment the socket says hello and that is the load the
+       trader was waiting through before the desk appeared. */
+    const count = prime ? CHART_PRIME_BARS : barsForDays(timeframe, chartDays());
     const c = await API.get(`/api/candles?symbol=${encodeURIComponent(symbol)}`
-      + `&timeframe=${encodeURIComponent(timeframe)}&count=${barsForDays(timeframe, HISTORY_DAYS)}`);
+      + `&timeframe=${encodeURIComponent(timeframe)}&count=${count}`);
     S.candles = c.data || [];
     /* A different series: whatever we learned about the end of the last
        one does not apply. */
@@ -14289,6 +14493,7 @@ async function refresh(rebuild = false) {
         const anSig = JSON.stringify(r.data?.analysis || null);
         if (anSig !== S._anSig) S._anSig = anSig;
         S.snap = r.data;
+        noteKillSwitch(S.snap.kill_switch);
         if (Array.isArray(S.snap.robot) && S.snap.robot.length) {
           S.robotLogs = S.snap.robot.slice();
         }
@@ -14475,6 +14680,9 @@ function onLive(msg) {
     if ("kill_switch" in d) S.snap.kill_switch = d.kill_switch;
     if ("safe_mode" in d) S.snap.safe_mode = d.safe_mode;
     scheduleSync();
+    /* scheduleSync() repaints values; the kill switch decides which page
+       exists, which is a rebuild. */
+    if ("kill_switch" in d) noteKillSwitch(d.kill_switch);
   }
   if (msg.type === "prop_check") {
     announcePropCheck(msg.data || msg);
@@ -15024,7 +15232,15 @@ async function enterDesk() {
   };
   $("btn-kill").onclick = async () => {
     const armed = !S.snap?.kill_switch;
-    await API.post("/api/kill", { armed });
+    const r = await API.post("/api/kill", { armed });
+    if (r && r.ok === false) { toast(r.error || I18N.t("errors.generic")); return; }
+    /* Straight away, from the state we just asked for, rather than
+       waiting for the snapshot poll to come back and tell us what we
+       already know: on the intelligence page this is the difference
+       between the notice appearing on the press and appearing a
+       second later. refresh() below still runs and still agrees. */
+    if (S.snap) S.snap.kill_switch = armed;
+    noteKillSwitch(armed);
     await refresh(false);
   };
   const flatHdr = $("btn-flat");

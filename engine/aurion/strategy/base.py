@@ -119,7 +119,7 @@ class BaseStrategy:
     #: almost every strategy immediately turns that list into a frame.
     #: If the list is the whole run, that work is repeated from the start
     #: of history on every bar and the replay costs time proportional to
-    #: the square of its length. Over the thirty-day window that is the
+    #: the square of its length. Over the history window that is the
     #: difference between a minute and a quarter of an hour on M1.
     #:
     #: Declaring a window says "nothing I compute reaches further back

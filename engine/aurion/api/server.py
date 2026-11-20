@@ -184,7 +184,10 @@ async def candles(symbol: str, timeframe: str = "M15", count: int = 0) -> dict[s
     cached = trader.bridge._candles_for(symbol, timeframe)
     if not trader._is_ea_symbol(symbol) and not cached:
         return {"ok": False, "error": "no AurionBridge on that symbol", "data": [], "count": 0, "synthetic": False}
-    bars = await trader.bridge.pull_candles(symbol, timeframe, count)
+    # `exact`: this is the desk asking for the window it is drawing.
+    # Without it a chart opened on one month pulled six, which is the
+    # start-up stall. count=0 still means "the promise".
+    bars = await trader.bridge.pull_candles(symbol, timeframe, count, exact=True)
     return {"ok": True, "data": bars, "count": len(bars), "synthetic": False}
 
 

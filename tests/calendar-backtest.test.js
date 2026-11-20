@@ -1,24 +1,27 @@
-/* Backtesting a period picked from the calendar.
+/* The calendar's day panel, and the backtest offer that used to be in it.
  *
  *   node tests/calendar-backtest.test.js
  *
- * The request: "let me pick a past month, a week or a day and test the
- * robot on it". Two things had to change for that to be possible.
+ * HISTORY, because this file is now mostly about something that is
+ * gone. The request was "let me pick a past month, a week or a day and
+ * test the robot on it", and it was built into the day panel: three
+ * buttons that called startBacktest() with a from/to pair.
  *
- * ONE. Hovering a day number opened a floating card of that day's news
- * and that was the only thing a day number did. It was mouse-only, and
- * what it showed was a copy of the day panel already open beside it. A
- * card that disappears when the pointer leaves it can never carry a
- * button, so the peek is gone and the click does the work.
+ * It was then withdrawn - "remove the robot-test section from the
+ * calendar, the options you added to the backtest page are enough".
+ * The backtest page has its own period picker now (today, this week,
+ * this month, the previous month, the quarter, or two dates), which is
+ * the same capability in the place a person goes to run a backtest, so
+ * the calendar's copy was a second way to do one thing.
  *
- * TWO. Starting a run lived inside the backtest page's go button, so
- * running one meant being on that page with its three fields filled in.
- * It was lifted into startBacktest(), which the calendar calls with a
- * from/to pair.
- *
- * The risky parts are the date arithmetic - a week that runs Monday to
- * Sunday, a month that stops at today - so those are computed here
- * against known dates rather than eyeballed.
+ * What this file checks now:
+ *   - the removal is COMPLETE - no dead markup, styles, strings or
+ *     handlers left behind, because a branch nothing renders is worse
+ *     than the button it replaced;
+ *   - the parts of that work which were NOT withdrawn still hold: the
+ *     hover peek stays gone, a day is selected by clicking it, the
+ *     panel is rebuilt on every selection, and startBacktest() is
+ *     still the one published entry point the backtest page uses.
  */
 const fs = require("fs");
 const path = require("path");
@@ -119,122 +122,53 @@ async function boot() {
   today.dispatchEvent(new p.win.MouseEvent("click", { bubbles: true }));
   const panel = p.doc.getElementById("cal-day");
   ok(p.Cal.selected === today.dataset.day, "clicking a day selects it", p.Cal.selected);
-  ok(panel.querySelector(".cal-bt"), "...and the day panel offers to backtest the period");
+  ok(panel.querySelector(".cal-dp-main"), "...and the day panel is filled with that day");
+  ok(panel.textContent.trim().length > 10, "the panel says something", `${panel.textContent.trim().length} chars`);
 
-  const buttons = [...panel.querySelectorAll(".cal-bt-go")];
-  ok(buttons.length === 3, "three periods are offered", `${buttons.length} buttons`);
-  ok(buttons.map((b) => b.dataset.bt).join(",") === "day,week,month",
-    "a day, a week and a month", buttons.map((b) => b.dataset.bt).join(","));
-  ok(buttons.every((b) => b.textContent.trim() && !b.textContent.includes("calendar.")),
-    "every button is translated", buttons.map((b) => b.textContent.trim()).join(" / "));
+  /* The panel is rebuilt from scratch on every selection. That is why
+     the buttons it used to carry had to be bound by delegation, and it
+     is still the reason nothing may hold a reference to its children. */
+  const otherCell = cells.find((c) => c.dataset.day && c.dataset.day !== today.dataset.day);
+  otherCell.dispatchEvent(new p.win.MouseEvent("click", { bubbles: true }));
+  ok(p.Cal.selected === otherCell.dataset.day, "a second click moves the selection", p.Cal.selected);
+  ok(p.doc.getElementById("cal-day").textContent.includes(
+       String(p.Cal._num(p.Cal.parts(p.Cal._fromDayKey(otherCell.dataset.day), p.Cal.system).d))),
+     "the panel follows the selection rather than keeping the first day");
 
-  /* ------------------------------------- 2. what actually gets run - */
+  /* ------------------------- 2. the offer is gone, not hidden ----- */
 
+  ok(!p.doc.querySelector(".cal-bt"), "no backtest offer is rendered in the day panel");
+  ok(!p.doc.querySelector(".cal-bt-go"), "...and no period buttons with it");
+
+  /* Source-level, because a feature can be "not rendered" and still be
+     one condition away from coming back. */
+  const live = calJs.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+  for (const dead of ["_backtestOffer", "_ranges", "cal-bt", "btSymbol", "btTimeframe", "startBacktest"]) {
+    ok(!live.includes(dead), `calendar.js no longer carries ${dead}`);
+  }
+  ok(!/\.cal-bt\b/.test(css), "the styles went with it");
+  for (const key of ["bt_title", "bt_hint", "bt_day", "bt_week", "bt_month"]) {
+    ok(!(key in lang.calendar), `calendar.${key} is gone from the pack`);
+  }
+
+  /* Pressing a day must not start anything at all now. __runs is the
+     rig's record of startBacktest() calls. */
   p.win.__runs.length = 0;
-  buttons[2].dispatchEvent(new p.win.MouseEvent("click", { bubbles: true }));
-  const run = p.win.__runs[0];
-  ok(!!run, "pressing a period button starts a run");
-  ok(run && run.from && run.to, "the run carries a period", run ? `${run.from} .. ${run.to}` : "none");
-  ok(run && run.symbol === "EURUSD" && run.timeframe === "M15",
-    "it uses the instrument the desk is already showing",
-    run ? `${run.symbol} ${run.timeframe}` : "none");
-  ok(/^\d{4}-\d{2}-\d{2}$/.test(run.from) && /^\d{4}-\d{2}-\d{2}$/.test(run.to),
-    "the dates are plain Gregorian keys, whatever calendar is on screen",
-    `${run.from} .. ${run.to}`);
+  [...p.doc.querySelectorAll(".cal-cell")].slice(0, 6)
+    .forEach((c) => c.dispatchEvent(new p.win.MouseEvent("click", { bubbles: true })));
+  ok(p.win.__runs.length === 0, "clicking days starts no backtests", `${p.win.__runs.length} runs`);
 
-  /* The desk may be set to the Persian or Hijri calendar. The engine
-     matches these against bar timestamps, so they must not be
-     localised - a Jalali 1405-02-15 matches no bar that ever existed. */
-  p.Cal.system = "jalali";
-  p.Cal.rerender();
-  const jalaliPanel = p.doc.getElementById("cal-day");
-  const jBtn = jalaliPanel.querySelector(".cal-bt-go");
-  ok(jBtn && /^\d{4}-\d{2}-\d{2}$/.test(jBtn.dataset.from) && Number(jBtn.dataset.from.slice(0, 4)) > 1900,
-    "a Persian calendar still sends Gregorian dates to the engine",
-    jBtn ? jBtn.dataset.from : "no button");
-  p.Cal.system = "gregorian";
-  p.Cal.rerender();
-
-  /* ----------------------------------- 3. the date arithmetic ------ */
-
-  /* Known dates rather than "today", because the two things that can
-     be wrong here - which day a week starts on, and whether a period
-     may run past today - are both invisible on most dates. */
-  const at = (y, m, d) => new Date(y, m - 1, d, 12).getTime();
-
-  // 2026-03-11 is a Wednesday. Monday is the 9th, Sunday the 15th.
-  let r = p.Cal._ranges(at(2026, 3, 11));
-  ok(r.week[0] === "2026-03-09", "a week starts on the Monday", r.week[0]);
-  ok(r.week[1] === "2026-03-15", "...and ends on the Sunday", r.week[1]);
-  ok(r.month[0] === "2026-03-01" && r.month[1] === "2026-03-31",
-    "a month runs first to last", `${r.month[0]} .. ${r.month[1]}`);
-  ok(r.day[0] === "2026-03-11" && r.day[1] === "2026-03-11", "a day is itself", r.day[0]);
-
-  /* The off-by-one that matters: getDay() calls Sunday 0, so a naive
-     "subtract getDay()-1" sends every Sunday forward into the week
-     after itself. 2026-03-15 is a Sunday and belongs to the week that
-     began on the 9th. */
-  r = p.Cal._ranges(at(2026, 3, 15));
-  ok(r.week[0] === "2026-03-09" && r.week[1] === "2026-03-15",
-    "a Sunday belongs to the week that just ended, not the one starting",
-    `${r.week[0]} .. ${r.week[1]}`);
-
-  // 2026-02-28 is a Saturday; February 2026 has 28 days.
-  r = p.Cal._ranges(at(2026, 2, 28));
-  ok(r.month[1] === "2026-02-28", "the month end is the real last day, not the 31st", r.month[1]);
-
-  /* ------------------------------ 4. nothing in the future -------- */
-
-  /* A future period has no bars. The engine would correctly answer
-     "no bars in that period", which is a true answer to a question
-     that should never have been askable. */
-  const todayStr = p.Cal._dayKey(Date.now());
-  const thisMonth = p.Cal._ranges(Date.now());
-  ok(thisMonth.month[1] <= todayStr,
-    "the current month stops at today rather than asking for bars that do not exist yet",
-    `${thisMonth.month[1]} vs today ${todayStr}`);
-  ok(thisMonth.month[0] <= todayStr, "...and still starts at the first of the month", thisMonth.month[0]);
-
-  /* Re-queried, not reused. The calendar-system switch above called
-     rerender(), which replaces every cell - the originals are detached
-     nodes whose clicks reach no delegated listener and silently do
-     nothing, which would make this check pass for the wrong reason. */
-  const live = [...p.doc.querySelectorAll(".cal-cell")];
-  const future = live.find((c) => c.dataset.day > todayStr);
-  if (future) {
-    future.dispatchEvent(new p.win.MouseEvent("click", { bubbles: true }));
-    ok(!p.doc.getElementById("cal-day").querySelector(".cal-bt"),
-      "a future day is not offered a backtest at all", future.dataset.day);
-  } else {
-    ok(true, "a future day is not offered a backtest at all", "no future day in this month");
-  }
-
-  /* --------------------------- 5. the offer survives a repaint ---- */
-
-  /* The panel's HTML is replaced on every selection, so a handler
-     bound to the buttons themselves would be dropped the first time
-     another day was clicked. */
-  const past = live.find((c) => c.dataset.day < todayStr && c.dataset.day);
-  if (past) {
-    past.dispatchEvent(new p.win.MouseEvent("click", { bubbles: true }));
-    p.win.__runs.length = 0;
-    p.doc.querySelector("#cal-day .cal-bt-go").dispatchEvent(new p.win.MouseEvent("click", { bubbles: true }));
-    ok(p.win.__runs.length === 1, "the buttons still work after the panel has been rebuilt");
-  }
-
-  /* ------------------------------------- 6. the wiring, by source - */
+  /* ------------------------------ 3. what survived the removal ---- */
 
   ok(/window\.startBacktest = startBacktest/.test(appJs),
-    "app.js publishes the starter the calendar calls");
+    "app.js still publishes the one shared starter");
   ok(/async function startBacktest\(opts\)/.test(appJs),
-    "...and it is a real top-level function, not a closure in a view binding");
+    "...still a real top-level function, not a closure in a view binding");
   ok(/if \(from\) body\.from = from;/.test(appJs) && /if \(to\) body\.to = to;/.test(appJs),
-    "the period reaches the request body");
-  ok(/\.cal-bt\b/.test(css) && /\.cal-bt-go\b/.test(css), "the offer is styled");
-  for (const key of ["bt_title", "bt_hint", "bt_day", "bt_week", "bt_month"]) {
-    ok(typeof lang.calendar[key] === "string" && lang.calendar[key].length > 2,
-      `calendar.${key} exists`);
-  }
+    "a period still reaches the request body - the backtest page sends one now");
+  ok(/backtestPeriodHtml\(\)/.test(appJs),
+    "the picker that replaced the calendar's buttons is on the backtest page");
+
   /* Three packs, identical key sets - a missing Arabic string shows the
      reader a raw dotted key. */
   for (const code of ["fa", "ar"]) {

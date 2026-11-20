@@ -41,7 +41,7 @@ from ..strategy.loader import (
 from ..license.guard import Guard
 from ..util.clock import utc_iso
 from ..util.errors import readable_error
-from ..util.history import HISTORY_DAYS, at_least_window
+from ..util.history import HISTORY_DAYS, at_least_window, requested_window
 from ..build_id import BUILD_ID
 from ..util.market import block_reason as market_block_reason, session as market_session
 from ..util.log import RING, get
@@ -5734,16 +5734,23 @@ class Trader:
         if not symbol:
             return {"ok": False, "error": "symbol_required"}
         # Need candles
-        # Signals must cover the whole thirty-day window, because that is
-        # the window the trader is reading them on. The cached bars were
-        # accepted whenever there were more than 50 of them, so on a chart
-        # that had just opened the analysis ran over the last fifty bars
-        # and the rest of the month came back blank.
-        want = at_least_window(timeframe, count)
+        # Signals must cover the window the trader is reading them on -
+        # no more and no less. The cached bars used to be accepted
+        # whenever there were more than 50 of them, so on a chart that
+        # had just opened the analysis ran over the last fifty bars and
+        # the rest of the window came back blank.
+        #
+        # The count comes from the desk and is believed, because the
+        # desk is the only side that knows how many bars are on screen.
+        # Raising it to the full HISTORY_DAYS floor here meant every
+        # chart that opened replayed every armed strategy over six
+        # months of bars - 259 200 of them on M1 - to draw marks on the
+        # day and a half that was visible.
+        want = requested_window(timeframe, count)
         bars = [c.to_dict() for c in self.bridge.candles_of(symbol, timeframe)]
         if len(bars) < want:
             try:
-                bars = await self.bridge.pull_candles(symbol, timeframe, want) or bars
+                bars = await self.bridge.pull_candles(symbol, timeframe, want, exact=True) or bars
             except Exception:
                 bars = bars or []
         if not bars or len(bars) < 30:

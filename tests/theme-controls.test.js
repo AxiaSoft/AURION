@@ -726,24 +726,24 @@ check("the light-mode console rule actually beats the skin layer", () => {
 
 check("the browser is forced to pick up every file that changed", () => {
   const html = read("index.html");
-  const want = ["js/skins.js?v=desk99", "js/themes.js?v=desk189", "js/app.js?v=desk248", "js/api.js?v=desk221",
-    "css/themes.css?v=desk197", "css/app.css?v=desk243", "css/skins.css?v=desk233",
+  const want = ["js/skins.js?v=desk99", "js/themes.js?v=desk190", "js/app.js?v=desk250", "js/api.js?v=desk221",
+    "css/themes.css?v=desk197", "css/app.css?v=desk245", "css/skins.css?v=desk234",
     /* The chart sheet changed too. Its files were not listed here, so
        a phone with the old chart-tools.js cached would have kept a
        grab bar that does not drag. */
-    "js/chart-tools.js?v=desk238", "css/chart.css?v=desk235",
+    "js/chart-tools.js?v=desk239", "css/chart.css?v=desk235",
     /* charts.js was changed too - the right-margin slider became a
        head-gap toggle in the engine itself - and it had been sitting
        at desk189 while the files around it moved. A cached copy of it
        would answer setHeadGap with nothing at all. */
-    "js/charts.js?v=desk236",
+    "js/charts.js?v=desk237",
     "js/colorpicker.js?v=desk2",
     /* The calendar grew the news reminder, and had been left at
        desk139 while everything around it moved - a cached copy would
        be a calendar with no reminder in it at all. */
-    "js/calendar.js?v=desk231"];
+    "js/calendar.js?v=desk232"];
   want.forEach((w) => { if (!html.includes(w)) throw new Error("index.html is missing " + w); });
-  if (!read("sw.js").includes("aurion-shell-v214")) throw new Error("the service worker cache was not bumped");
+  if (!read("sw.js").includes("aurion-shell-v215")) throw new Error("the service worker cache was not bumped");
 });
 
 /* ----------------------------------------------------------------- report */

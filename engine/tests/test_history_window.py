@@ -190,9 +190,25 @@ def test_the_expert_asks_the_terminal_for_what_the_engine_wants() -> None:
 
 
 def test_the_engine_tells_the_expert_how_deep_to_go() -> None:
+    """The depth asked of the expert is the depth the caller resolved.
+
+    It used to read `at_least_window(tf, count)` here, which was right
+    while every path was a floor-raise. It is wrong now that the desk
+    can ask for exactly the month it is drawing: raising the number a
+    second time, after pull_candles had already decided it, would quietly
+    turn that one month back into six on its way out to the expert - the
+    start-up stall, moved rather than fixed.
+
+    What must hold is that the count travels: never a fixed 800, and
+    never re-floored at the point of sending.
+    """
     text = (ROOT / "engine/aurion/mt5/bridge.py").read_text(encoding="utf-8")
-    assert '"count": at_least_window(tf, count)' in text, \
-        "request_history must carry the thirty-day depth, not a fixed 800"
+    send = text[text.index("async def _request_ea_history") : text.index("async def pull_candles")]
+    assert '"count"' in send, "the request must carry a depth at all"
+    assert '"count": 800' not in send, "a fixed 800 is back"
+    assert "at_least_window(tf, count)" not in send, \
+        "the resolved count is being raised again on its way to the expert"
+    assert "int(count" in send, "the caller's count must be what is sent"
 
 
 def test_the_desk_ceiling_clears_the_window() -> None:

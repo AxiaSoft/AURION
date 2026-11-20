@@ -467,69 +467,22 @@ const Calendar = {
       ${weekend ? `<p class="cal-dp-wk">${esc(t("calendar.closed_note"))}</p>` : ""}
       ${evs.length
         ? `<div class="cal-evs">${evs.map((e) => this._ev(e)).join("")}</div>`
-        : `<p class="cal-none">${esc(t("calendar.no_events"))}</p>`}
-      ${ok ? this._backtestOffer(key, ms) : ""}`;
+        : `<p class="cal-none">${esc(t("calendar.no_events"))}</p>`}`;
   },
 
-  /* Three buttons: test this day, its week, or its month.
-     The calendar is where a trader already looks at a past period and
-     thinks "what would the robot have done through that?" - and until
-     now the answer needed the backtest page, a date nobody could enter,
-     and a replay of all the history there is.
+  /* No "test the robot on this period" offer here any more.
 
-     A future date is not offered. It has no bars, so the engine would
-     answer "no bars in that period", which is a true answer to a
-     question that should never have been askable.
+     It was added so a trader reading a past month could replay the
+     robot over it without typing dates. The backtest page has its own
+     period picker now - today, this week, this month, the previous
+     month, the quarter, or two dates - which is the same capability in
+     the place a person goes to run a backtest, so the calendar's copy
+     was a second way to do one thing and the user asked for it to go.
 
-     Day keys are plain YYYY-MM-DD in the Gregorian calendar whatever
-     calendar system is on screen, because that is what the engine
-     matches bar timestamps against; the labels are localised, the keys
-     are not. */
-  _backtestOffer(key, ms) {
-    const t = (k, v) => I18N.t(k, v);
-    const today = this._dayKey(Date.now());
-    if (key > today) return "";
-    const r = this._ranges(ms);
-    const btn = (span, from, to, label) =>
-      `<button class="btn tiny cal-bt-go" data-bt="${esc(span)}" data-from="${esc(from)}" data-to="${esc(to)}">${esc(label)}</button>`;
-    return `<div class="cal-bt">
-      <h5 class="cal-bt-h">${esc(t("calendar.bt_title"))}</h5>
-      <p class="sub">${esc(t("calendar.bt_hint"))}</p>
-      <div class="cal-bt-row">
-        ${btn("day", r.day[0], r.day[1], t("calendar.bt_day"))}
-        ${btn("week", r.week[0], r.week[1], t("calendar.bt_week"))}
-        ${btn("month", r.month[0], r.month[1], t("calendar.bt_month"))}
-      </div>
-    </div>`;
-  },
-
-  /* The day, week and month containing `ms`, as inclusive Gregorian
-     YYYY-MM-DD pairs.
-
-     The week runs Monday to Sunday. getDay() calls Sunday 0, so Sunday
-     has to be pulled back six days rather than zero - the off-by-one
-     that would otherwise make every Sunday test the week after itself.
-
-     An end bound beyond today is trimmed: asking for the rest of the
-     current month is asking for bars that do not exist yet, and the
-     engine would rightly refuse the whole request. */
-  _ranges(ms) {
-    const today = this._dayKey(Date.now());
-    const clamp = (k) => (k > today ? today : k);
-    const key = (d) => this._dayKey(d.getTime());
-    const base = new Date(ms);
-    const dow = base.getDay();
-    const back = dow === 0 ? 6 : dow - 1;
-    const monday = new Date(base.getFullYear(), base.getMonth(), base.getDate() - back);
-    const sunday = new Date(base.getFullYear(), base.getMonth(), base.getDate() - back + 6);
-    const first = new Date(base.getFullYear(), base.getMonth(), 1);
-    const last = new Date(base.getFullYear(), base.getMonth() + 1, 0);
-    return {
-      day: [key(base), clamp(key(base))],
-      week: [key(monday), clamp(key(sunday))],
-      month: [key(first), clamp(key(last))],
-    };
-  },
+     Removed, not hidden: _backtestOffer(), _ranges(), the delegated
+     .cal-bt-go handler, the .cal-bt styles and the calendar.bt_* keys
+     are all gone with it. A dead branch nothing renders is worse than
+     the button, because nothing keeps it honest. */
 
   _ev(e) {
     const t = (k, v) => I18N.t(k, v);
@@ -840,6 +793,8 @@ const Calendar = {
   bind(root) {
     const $$ = (s) => root.querySelector(s);
     const pane = $$("#cal-pane");
+    /* The day panel. It no longer carries a backtest offer, but it is
+       still what a clicked day fills. */
     const day = $$("#cal-day");
 
     this._bindRemind(root);
@@ -848,8 +803,8 @@ const Calendar = {
        It showed the day's news when the pointer crossed a number, which
        meant the one thing a calendar number could do was describe
        itself - and it could only do it for a mouse. A number is now
-       simply clicked, and the click fills the day panel, which already
-       said everything the peek said AND can carry the backtest offer.
+       simply clicked, and the click fills the day panel, which says
+       everything the peek said and stays put while it is read.
        Nothing was lost: the peek was a duplicate of the panel.
 
        `unpin` stays on the instance because the desk calls it on every
@@ -972,39 +927,5 @@ const Calendar = {
 
     /* No mouseover, focusin, scroll or MutationObserver handlers here
        any more. They existed only to position and dismiss the peek. */
-
-    /* ---------------------------------------- backtest from the panel */
-
-    /* Delegated, because the panel's HTML is replaced on every selection
-       - a handler bound to the buttons themselves would be dropped the
-       first time another day was clicked. */
-    day?.addEventListener("click", (e) => {
-      const btn = e.target.closest(".cal-bt-go");
-      if (!btn || !day.contains(btn)) return;
-      const from = btn.dataset.from || "";
-      const to = btn.dataset.to || "";
-      if (!from || !to) return;
-      const run = typeof window !== "undefined" && window.startBacktest;
-      if (typeof run !== "function") return;
-      /* Spelled out rather than taken from the chart's current state at
-         read time: the run moves the desk to the backtest page, which
-         could otherwise change the symbol out from under the request. */
-      run({ symbol: this.btSymbol(), timeframe: this.btTimeframe(), from, to });
-    });
-  },
-
-  /* Which symbol and timeframe a calendar-launched run uses.
-     Whatever the desk is showing. The calendar has no instrument of its
-     own and inventing a picker here would be a second place to set the
-     same two things. Split out so a test can state them. */
-  btSymbol() {
-    // `S` is app.js's top-level const. Both files are classic scripts
-    // sharing one global scope, but a const is NOT a window property,
-    // so it has to be read by name and guarded for the test rigs that
-    // load this file on its own.
-    try { return typeof S !== "undefined" ? String(S.symbol || "") : ""; } catch { return ""; }
-  },
-  btTimeframe() {
-    try { return typeof S !== "undefined" ? String(S.timeframe || "M15") : "M15"; } catch { return "M15"; }
   },
 };

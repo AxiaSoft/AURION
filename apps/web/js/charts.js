@@ -3632,6 +3632,33 @@ class CandleChart {
     this.draw();
   }
 
+  /**
+   * Show the last `bars` bars, whatever the zoom was.
+   *
+   * fit() exists already, but it is deliberately capped at 160 bars -
+   * "a sensible default view" - and a range button is the opposite
+   * request: show me this period even if it is 17 280 bars of M15.
+   * Hence a second entry point rather than an argument on the first,
+   * which would have made every existing caller's behaviour depend on
+   * a parameter it does not pass.
+   *
+   * More bars than exist is not an error: the window is simply the
+   * whole series, which is what "six months" means on an instrument
+   * the broker only has two months of.
+   */
+  showSpan(bars) {
+    const total = this.rows().length;
+    if (!total) return;
+    const want = Math.max(8, Math.round(Number(bars) || 0));
+    this.forgetScaleFit();
+    this.offset = 0;
+    this.rightPad = this.headGapCells();
+    this.span = Math.min(total, want);
+    this.setAutoScale(true);
+    this.draw();
+    this.changed();
+  }
+
   resetView() { this.fit(); }
 
   /* ========================================================= interaction == */

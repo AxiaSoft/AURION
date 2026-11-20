@@ -1179,12 +1179,7 @@
     "remind_more": "and {n} more in the same window",
     "remind_stale": "The economic calendar has not updated — every release in it has already passed, so there is nothing to remind you about. Open the Calendar tab and refresh it.",
     "remind_on": "News reminder on.",
-    "remind_off": "News reminder off.",
-    "bt_title": "Test the robot on this period",
-    "bt_hint": "Replays your strategy over real bars from the period you pick, and reports every trade it would have taken.",
-    "bt_day": "This day",
-    "bt_week": "This week",
-    "bt_month": "This month"
+    "remind_off": "News reminder off."
   },
   "news": {
     "nfp": "Non-Farm Payrolls",
@@ -1687,7 +1682,12 @@
     "lvl_gone": "That position is no longer open",
     "lvl_sl_side": "A stop has to sit on the losing side of the price",
     "lvl_tp_side": "A target has to sit on the winning side of the price",
-    "signals_analysing": "Still analysing"
+    "signals_analysing": "Still analysing",
+    "range": "Period shown",
+    "range_1d": "1D",
+    "range_1w": "1W",
+    "range_1m": "1M",
+    "range_6m": "6M"
   },
   "signal": {
     "buy": "Buy signal",

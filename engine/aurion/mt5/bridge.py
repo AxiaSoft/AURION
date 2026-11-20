@@ -17,7 +17,7 @@ from .native import AVAILABLE as NATIVE_AVAILABLE
 from .native import NativeMT5
 from .protocol import decode_buffer, encode, parse_ea_json
 from .types import Account, Candle, ChartAgent, Deal, PendingOrder, Position, Tick, classify_account, timeframe_from_minutes
-from ..util.history import at_least_window, cache_size
+from ..util.history import at_least_window, cache_size, requested_window
 
 log = get("mt5")
 
@@ -25,12 +25,13 @@ EventHandler = Callable[[str, dict[str, Any]], Awaitable[None] | None]
 
 
 class _CandleBuckets(dict):
-    """Per-series candle buffers, each sized for thirty days of ITS OWN
-    timeframe.
+    """Per-series candle buffers, each sized for the HISTORY_DAYS window
+    of ITS OWN timeframe.
 
     This was a defaultdict of deque(maxlen=3000), one size for every
     series. 3000 bars is six years of D1 and two days of M1, so the
-    product's "at least thirty days" promise was quietly impossible on
+    product's "at least HISTORY_DAYS of history" promise was quietly
+    impossible on
     the fast timeframes no matter how many bars anything asked MT5 for:
     the buffer threw the older ones away on arrival.
 
@@ -694,7 +695,7 @@ class MT5Bridge:
                         fut.set_result(payload)
 
     async def _request_ea_history(self, symbol: str, timeframe: str, timeout: float = 8.0, count: int = 0) -> list[Candle]:
-        """Ask the attached expert for history over the thirty-day window.
+        """Ask the attached expert for history over the window asked for.
 
         `count` is passed to the expert, which sizes its CopyRates call
         from it. Experts older than 1.19 ignore the field and send their
@@ -717,7 +718,9 @@ class MT5Bridge:
                     "symbol": symbol,
                     "timeframe": minutes,
                     "timeframe_name": tf,
-                    "count": at_least_window(tf, count),
+                    # Already resolved by the caller - raising it again here
+                    # would undo an exact request on its way to the EA.
+                    "count": max(1, int(count or 0)) or at_least_window(tf),
                 },
                 symbol=symbol,
                 any_ok=False,
@@ -904,18 +907,28 @@ class MT5Bridge:
         await self.emit("positions", [p.to_dict() for p in positions])
         await self.emit("orders", [o.to_dict() for o in orders])
 
-    async def pull_candles(self, symbol: str, timeframe: str, count: int = 0) -> list[dict[str, Any]]:
-        """Bars for this series, never fewer than thirty days of them.
+    async def pull_candles(
+        self, symbol: str, timeframe: str, count: int = 0, exact: bool = False
+    ) -> list[dict[str, Any]]:
+        """Bars for this series.
 
         `count` used to default to 800, which is eight days of M15 and
-        thirteen hours of M1. It is now only a floor-raiser: a caller
-        that wants more history still gets it, and a caller that asks
-        for less - or forgets to ask - gets the thirty days the product
-        promises on that timeframe.
+        thirteen hours of M1. It is normally only a floor-raiser: a
+        caller that wants more history still gets it, and a caller that
+        asks for less - or forgets to ask - gets the HISTORY_DAYS
+        window the product promises on that timeframe.
+
+        `exact` is for the one caller that genuinely knows better: the
+        desk, asking for the period it is currently drawing. A chart
+        opened on one month should cost one month, not six; without
+        this flag the floor turned every chart that opened into a
+        full-window pull and the desk appeared to hang on start-up.
+        The promise still holds for everyone who does not set it, and
+        for the desk the moment the trader picks a wider range.
         """
         symbol = str(symbol or "").strip()
         tf = self._norm_tf(timeframe)
-        count = at_least_window(tf, count)
+        count = requested_window(tf, count) if exact else at_least_window(tf, count)
         if not symbol:
             return []
         cached = self._candles_for(symbol, tf)
