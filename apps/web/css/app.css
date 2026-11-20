@@ -1363,8 +1363,43 @@ tr:hover td{background:rgb(var(--wash) / .02)}
 /* Command desk — one strip, then two columns */
 .stage .card.gate-card{animation:none;transform:none}
 .gate-card .gate-pills{display:flex;flex-wrap:wrap;gap:6px;margin:4px 0 10px}
-.gate-card .pill.ok{border-color:rgb(var(--accent-rgb) / .35);color:var(--cyan)}
-.gate-card .pill.no{border-color:rgba(255,107,138,.35);color:var(--rose)}
+/* Filled, not outlined.
+   Asked for directly, about this card: "I want these tags to be solid".
+   An outline on a dark panel at 12px reads as a disabled control, and
+   the six of them are the fastest answer on the page to "is anything
+   stopping the robot" - they have to be legible at a glance and from a
+   distance, and red and cyan hairlines are neither. The wash behind
+   each one carries the state; the border is now the same colour as the
+   fill so nothing looks hollow. */
+.gate-card .pill.ok{
+  border-color:rgb(var(--accent-rgb) / .42);
+  background:rgb(var(--accent-rgb) / .16);
+  color:var(--cyan);font-weight:600;
+}
+.gate-card .pill.no{
+  border-color:rgba(255,107,138,.42);
+  background:rgba(255,107,138,.16);
+  color:var(--rose);font-weight:600;
+}
+/* The armed/idle badge beside the heading is the same kind of fact and
+   was the same kind of outline. */
+.gate-card .auto-banner .pill{
+  background:rgb(var(--wash) / .07);border-color:rgb(var(--wash) / .14);
+  color:var(--text);font-weight:600;
+}
+.gate-card .auto-banner .pill.on{
+  background:rgb(var(--accent-rgb) / .18);
+  border-color:rgb(var(--accent-rgb) / .45);
+  color:var(--cyan);
+}
+/* MetaTrader's own status chip, and its neighbours, sit in the same
+   section of the command centre and were named in the same sentence. */
+.gate-card .ea-chart .pill.ok,.ea-list .pill.ok{
+  background:rgb(var(--accent-rgb) / .16);border-color:rgb(var(--accent-rgb) / .42);
+}
+.gate-card .ea-chart .pill.no,.ea-list .pill.no{
+  background:rgba(255,107,138,.16);border-color:rgba(255,107,138,.42);
+}
 .gate-card .pill.on{color:var(--on-accent);background:var(--cyan);border-color:transparent}
 .gate-why{margin:0;padding-inline-start:18px;color:var(--muted);font-size:13px;line-height:1.7}
 .cmd{display:flex;flex-direction:column;gap:14px}
@@ -1475,8 +1510,17 @@ fieldset.prop-fields.is-locked{
 .dot.dot-engine.live{background:var(--cyan);box-shadow:0 0 12px var(--cyan)}
 .dot.dot-mt5.live{background:var(--gold);box-shadow:0 0 12px var(--gold);animation:pulse 2.2s var(--ease) infinite}
 .dot.dot-engine.down,.dot.dot-mt5.down{background:var(--rose);box-shadow:0 0 10px var(--rose)}
-.pill[data-kind="engine"]{border-color:rgb(var(--accent-rgb) / .28)}
-.pill[data-kind="mt5"]{border-color:rgba(232,192,122,.32)}
+/* The engine and MetaTrader chips, filled for the same reason as the
+   gate's: these two say whether anything on the desk is real, and a
+   hairline on glass is not a statement anybody reads from a metre
+   away. The tint follows the state, so "down" cannot be mistaken for
+   "live" by shape alone. */
+.pill[data-kind="engine"]{border-color:rgb(var(--accent-rgb) / .34);background:rgb(var(--accent-rgb) / .12)}
+.pill[data-kind="mt5"]{border-color:rgba(232,192,122,.38);background:rgba(232,192,122,.12)}
+.pill[data-kind="engine"]:has(.dot.down),
+.pill[data-kind="mt5"]:has(.dot.down){
+  border-color:rgba(255,107,138,.38);background:rgba(255,107,138,.12);
+}
 @media (max-width:560px){
   .top-actions .pill[data-kind="engine"],
   .top-actions .pill[data-kind="mt5"]{min-width:28px;justify-content:center;padding:6px 10px}
@@ -3535,7 +3579,10 @@ html[dir="rtl"] .q-how[open] summary::before{ transform:rotate(0deg) }
 .bgpic-row{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
 .bgpic-thumb{
   width:112px;height:66px;flex:none;border-radius:10px;
-  border:1px solid var(--line);background:var(--s2) center/cover no-repeat;
+  /* rgb(), for the same reason as the backtest header above: bare
+     var(--s2) is three numbers and no colour, so this thumbnail had no
+     background at all behind a picture that had not loaded yet. */
+  border:1px solid var(--line);background:rgb(var(--s2)) center/cover no-repeat;
 }
 .bgpic-acts{display:flex;gap:8px;flex-wrap:wrap}
 #bgpic-dim-wrap{margin-top:12px}
@@ -4104,11 +4151,39 @@ html[dir="rtl"] .q-how[open] summary::before{ transform:rotate(0deg) }
 }
 .bt-curve canvas{display:block;width:100%;height:100%}
 .bt-sub{margin:18px 0 6px;font-size:14px;font-weight:500}
+
+/* The bounds the replay refused. Amber rather than red: the run is
+   valid and its figures are real - it is the strategy's stop and
+   target that were not prices, and the trader needs to know before
+   reading the table, not after wondering about it. Logical sides and
+   an inline-start rule, so it reads the same in Persian. */
+.bt-refused{
+  margin:12px 0;padding:10px 12px;
+  border:1px solid rgba(216,166,87,.38);
+  border-inline-start:3px solid var(--amber, #d8a657);
+  border-radius:10px;
+  background:rgba(216,166,87,.10);
+}
+.bt-refused b{color:var(--amber, #d8a657);font-weight:600}
+.bt-refused .sub{margin:4px 0 0}
 /* The trade list is long by design; cap it and let it scroll rather than
    pushing everything below it off the page. */
 .bt-trades{max-height:360px;overflow:auto}
 .bt-trades table{width:100%}
-.bt-trades thead th{position:sticky;top:0;z-index:1;background:var(--s2, #11141c)}
+/* The sticky header has to be OPAQUE, and it was not.
+   --s2 is an RGB TRIPLE ("8 10 16"), not a colour: every other use in
+   this file wraps it, as rgb(var(--s2) / .38). Written bare it is an
+   invalid background, the declaration is dropped, and the header keeps
+   the table's transparent background - so every row scrolled straight
+   through the column titles. That is the reported "the text goes into
+   the table header"; it was never a layout fault.
+   The border and the shade under it are what separate a header that no
+   longer moves from the first row that does. */
+.bt-trades thead th{
+  position:sticky;top:0;z-index:2;
+  background:rgb(var(--s2));
+  box-shadow:0 1px 0 var(--line), 0 6px 10px -8px rgb(0 0 0 / .55);
+}
 .bt-trades td{white-space:nowrap}
 .pill.tiny{font-size:10px;padding:2px 7px}
 /* A brief highlight when a finished run is scrolled into view. */

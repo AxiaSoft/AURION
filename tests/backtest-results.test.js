@@ -33,8 +33,9 @@ const stub = `
   const $=()=>null;
 `;
 const fn = new Function(stub + grab('btWhen') + '\n' + grab('btPips') + '\n' +
+  grab('btSide') + '\n' + grab('btWhy') + '\n' +
   grab('renderBacktestExtra') +
-  '\nreturn {btWhen, btPips, renderBacktestExtra};')();
+  '\nreturn {btWhen, btPips, btSide, btWhy, renderBacktestExtra};')();
 
 let fails = 0;
 const ok = (c, m) => { if (!c) { fails++; console.log('FAIL ' + m); } else console.log('ok   ' + m); };
@@ -63,7 +64,18 @@ ok(run.includes('bt.start') && run.includes('bt.dd'), 'start equity and drawdown
 // peak 1040, trough after peak 0; max dd is 1010 -> 980 = 30
 ok(run.includes('30.00'), 'max drawdown is measured off the curve (30), not guessed');
 ok(run.includes('1040.00'), 'final equity comes from the last curve point');
-ok(run.includes('BUY') && run.includes('SELL'), 'both sides appear in the trade list');
+/* The side is translated, not printed as the protocol token the engine
+   uses. On a Persian desk "BUY" under a Persian heading was part of
+   the reported "English is still showing in the backtest". */
+ok(run.includes('bt.side_buy') && run.includes('bt.side_sell'),
+  'both sides appear in the trade list, through the language pack');
+ok(!/>BUY</.test(run) && !/>SELL</.test(run), 'and not as the raw protocol token');
+ok(run.includes('bt.why_tp') && run.includes('bt.why_sl'),
+  'the reason a trade closed is translated too');
+ok(fn.btWhy('a reason of its own') === 'a reason of its own',
+  'a strategy that closes with a sentence of its own keeps it');
+ok(fn.btWhy('') === '—', 'and no reason at all is a dash');
+ok(fn.btSide('') === '—', 'a trade with no side is not an empty chip');
 ok(run.includes('class="mono up">10.00') || run.includes('up">10.00'), 'a winning trade is coloured up');
 ok(run.includes('down">-5.00'), 'a losing trade is coloured down');
 ok(run.includes('"n":2') && run.includes('"total":3'), 'it says how many of the total trades are listed');
@@ -90,6 +102,20 @@ ok(run.includes('-500.0'), 'a losing trade shows negative pips');
 ok(fn.btPips({pips:12.3}, {pip_size:0}) === '—', 'no pips shown when the broker never gave a tick size');
 ok(fn.btPips({pips:12.3}, {pip_size:0.0001}) === '+12.3', 'a known pip size prints a signed figure');
 ok(fn.btPips({}, {pip_size:0.0001}) === '—', 'a trade with no pip field shows a dash, not zero');
+
+/* Bounds the replay refused.
+   The engine drops a stop or a target that is on the wrong side of the
+   entry - which is what booked losses as "tp" - and says how many. The
+   desk has to repeat that, or a book of trades which all ran without a
+   target looks like a strategy that simply never sets one. */
+const refused = fn.renderBacktestExtra({
+  ok:true, metrics:{trades:1}, equity_curve:[1000,990], pip_size:0.0001,
+  refused_bounds:{tp:2, sl:1},
+  trades:[{type:'buy',entry:1.1,exit:1.09,profit:-10,volume:0.1,pips:-100,time:1735689600,exit_reason:'eod'}],
+});
+ok(refused.includes('bt.refused_title'), 'a run that refused bounds says so');
+ok(refused.includes('"n":3'), '...and counts every one of them');
+ok(!run.includes('bt.refused_title'), 'a clean run carries no such notice');
 
 console.log(fails ? `\nbacktest results: ${fails} FAILED` : '\nbacktest results: all checks passed');
 process.exit(fails ? 1 : 0);

@@ -22,6 +22,9 @@ erring downward is not.
 
 from __future__ import annotations
 
+from datetime import date
+from typing import Any
+
 from ..mt5.types import timeframe_minutes
 
 #: The promise. At least this many days of history, on every timeframe.
@@ -123,6 +126,43 @@ def requested_window(timeframe: str, asked: int | None = None) -> int:
     #: A floor remains, because an indicator needs some bars to exist
     #: at all and a caller asking for five is a bug, not a preference.
     return min(MAX_BARS, max(60, want))
+
+
+def bars_to_cover(timeframe: str, start: Any, now: Any = None) -> int:
+    """Bars needed to reach back to `start` from today, on this timeframe.
+
+    The window every other function here talks about is measured
+    forward from the present: "the last HISTORY_DAYS". A backtest is
+    not - it names a period, and that period can sit anywhere inside
+    the broker's history. Asking for the promise-sized window and then
+    slicing it is right only while the period is inside the promise;
+    a run over last month on a desk that happens to hold three weeks
+    was answered "no bars in that period", which is a true sentence
+    about a window nobody asked for.
+
+    `start` is YYYY-MM-DD, or anything ISO that begins with one, or
+    empty - and empty means "no lower bound", which cannot be sized, so
+    it returns 0 and leaves the caller's own floor in charge.
+
+    Generous by the same margin as bars_for_days, plus a few days of
+    run-up: a strategy needs bars BEFORE the period to have an opinion
+    on its first one.
+    """
+    text = str(start or "").strip()[:10]
+    if len(text) != 10:
+        return 0
+    try:
+        year, month, day = (int(part) for part in text.split("-"))
+        first = date(year, month, day)
+    except (TypeError, ValueError):
+        return 0
+    today = now if isinstance(now, date) else date.today()
+    days = (today - first).days + 1
+    if days <= 0:
+        return 0
+    #: Run-up, in days, so the first bar of the period is not the first
+    #: bar the strategy has ever seen.
+    return bars_for_days(timeframe, days + 10)
 
 
 def cache_size(timeframe: str) -> int:

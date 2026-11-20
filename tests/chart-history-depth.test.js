@@ -168,7 +168,7 @@ check("reaching the oldest bar asks for more, once at a time", () => {
      "no requests went out" that follows looks like a passing guard. */
   vm.runInContext((consts ? consts[0] : "") + "\n" + days[0] + "\n" + cap[0] + "\n"
     + /const CHART_OPEN_DAYS = \d+;/.exec(APP)[0] + "\n"
-    + /const CHART_RANGE_DAYS = \[[^\]]*\];/.exec(APP)[0] + "\n"
+    + /const HIST_RETRY_MS = \d+;/.exec(APP)[0] + "\n"
     + liftFn("barsForDays") + "\n" + liftFn("chartDays") + "\n" + liftFn("loadMoreHistory")
     + "\nthis.loadMoreHistory = loadMoreHistory;", box);
 

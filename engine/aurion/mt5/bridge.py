@@ -93,6 +93,10 @@ class MT5Bridge:
         self._ea_grace_until = 0.0
         self._order_waiters: list[asyncio.Future] = []
         self._hist_waiters: dict[tuple[str, str], list[asyncio.Future]] = defaultdict(list)
+        #: (symbol, tf) -> (when we last asked, what we asked for, what we got).
+        #: What stops a series the broker cannot deepen from being asked
+        #: for its full window on every single request.
+        self._hist_asked: dict[tuple[str, str], tuple[float, int, int]] = {}
         self._agent_owner: dict[int, asyncio.StreamWriter | None] = {}
         self._purge_gen: dict[int, int] = {}
         self._http_seen: dict[int, float] = {}
@@ -681,6 +685,61 @@ class MT5Bridge:
                 return list(rows)
         return []
 
+    #: Below this fraction of what was asked for, the cache counts as
+    #: short and the expert is asked. Not an equality test: MetaTrader
+    #: answers a 17 280-bar ask with however many bars the symbol has,
+    #: and a weekend, a holiday or a young symbol legitimately leaves a
+    #: gap. A tenth of a window missing is normal; a third is not.
+    _HIST_ENOUGH = 0.67
+
+    #: Never re-ask a series more often than this when the last answer
+    #: came up short. The expert may still be streaming, and the broker
+    #: may simply not have the bars - neither is improved by asking
+    #: again immediately.
+    _HIST_RETRY_S = 20.0
+
+    @classmethod
+    def _short_of(cls, rows: list[Any], count: int) -> bool:
+        """Is what we hold materially less than what was asked for?"""
+        want = max(0, int(count or 0))
+        if want <= 0:
+            return not rows
+        return len(rows) < want * cls._HIST_ENOUGH
+
+    def _history_timeout(self, count: int) -> float:
+        """How long to wait for the expert, scaled to the size of the ask.
+
+        The expert streams history in chunks on its own timer, so a
+        bigger window genuinely takes longer to arrive. A flat eight
+        seconds was fine for the few hundred bars this used to request
+        and far too short for a six-month window; a flat sixty would
+        hold up every chart that opens. Bounded at both ends, and the
+        caller gets whatever has landed when the wait is over - the
+        rest keeps arriving into the cache behind it.
+        """
+        want = max(0, int(count or 0))
+        return max(8.0, min(25.0, 6.0 + want / 900.0))
+
+    def _may_ask_history(self, symbol: str, timeframe: str, count: int) -> bool:
+        """Is it worth asking the expert for this window again?
+
+        Refuses only the case that has already been answered: the same
+        series, asked for at least as much, recently, and the answer
+        was short. A bigger ask than last time always goes out.
+        """
+        last = self._hist_asked.get((symbol, timeframe))
+        if not last:
+            return True
+        when, asked, got = last
+        if int(count or 0) > asked:
+            return True
+        if self._short_of([None] * got, count):
+            return (time.time() - when) >= self._HIST_RETRY_S
+        return True
+
+    def _note_history_answer(self, symbol: str, timeframe: str, count: int, got: int) -> None:
+        self._hist_asked[(symbol, timeframe)] = (time.time(), max(0, int(count or 0)), int(got))
+
     def _resolve_hist(self, symbol: str, timeframe: str) -> None:
         tf = self._norm_tf(timeframe)
         rows = self._candles_for(symbol, tf)
@@ -943,12 +1002,29 @@ class MT5Bridge:
                 bucket.extend(rows)
         if not rows:
             rows = cached
-        if len(rows) < 20 and self.is_ea_symbol(symbol):
-            fetched = await self._request_ea_history(symbol, tf, timeout=8.0, count=count)
-            if fetched:
-                rows = fetched
-            else:
-                rows = self._candles_for(symbol, tf)
+        # Ask the expert when what we hold falls SHORT OF WHAT WAS ASKED
+        # FOR - not only when the series is empty.
+        #
+        # It used to ask only when the cache held fewer than twenty
+        # bars, and that one threshold is the whole of "the past months
+        # are not shown" and "a backtest of last month finds no bars",
+        # because the expert pushes its own default depth
+        # when it attaches (3000 bars: a month of M15, ten days of M5),
+        # the engine cached that, and from then on every request - a
+        # chart dragged into the past, a replay of three months, the
+        # AI's training window - was answered out of a cache that was
+        # comfortably over twenty bars and nowhere near the window the
+        # product promises. Nothing ever went back and asked for more.
+        if self._short_of(rows, count) and self.is_ea_symbol(symbol):
+            if self._may_ask_history(symbol, tf, count):
+                fetched = await self._request_ea_history(
+                    symbol, tf, timeout=self._history_timeout(count), count=count
+                )
+                if fetched:
+                    rows = fetched
+                else:
+                    rows = self._candles_for(symbol, tf)
+                self._note_history_answer(symbol, tf, count, len(rows))
         await self.emit("candles", {"symbol": symbol, "timeframe": tf, "bars": [c.to_dict() for c in rows]})
         return [c.to_dict() for c in rows]
 

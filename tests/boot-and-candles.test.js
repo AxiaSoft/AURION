@@ -196,6 +196,37 @@ check("a doji is still visible", () => {
   return out[0][2].toFixed(2) + "%";
 });
 
+check("nothing is ever drawn outside the strip", () => {
+  /* Reported as "the candle preview is corrupted". The strip clips
+     what leaves it, so a shape with a negative top or a bottom past
+     100% comes out as a slab against the frame with a straight cut in
+     it - and the two cases that produce one are both ordinary: a bar
+     that closed on the low of the window (the doji floor used to be
+     added BELOW the body) and a wick sized from the body rather than
+     from the bar's own high and low. */
+  const runs = [
+    /* A down-trend ending on the low: every body sits at the bottom. */
+    [bar(14, 14, 10, 10), bar(10, 10, 7, 7), bar(7, 7, 4, 4), bar(4, 4, 1, 1)],
+    /* Flat closes on the extremes, which is where the floor bites. */
+    [bar(10, 10, 10.0, 10), bar(10, 12, 10, 10), bar(10, 10, 8, 8), bar(8, 8.2, 8, 8)],
+    /* One spike, so every other bar is a sliver. */
+    [bar(10, 10.1, 9.9, 10), bar(10, 90, 10, 11), bar(11, 11.2, 10.8, 10.9), bar(10.9, 11, 10.7, 10.8)],
+  ];
+  for (const rows of runs) {
+    for (const [dir, top, h, wickTop, wickH] of shapes(rows)) {
+      for (const [name, v] of [["body top", top], ["body bottom", top + h],
+        ["wick top", wickTop], ["wick bottom", wickTop + wickH]]) {
+        if (!(v >= -0.001 && v <= 100.001)) {
+          throw new Error(`a ${dir} bar's ${name} is at ${v.toFixed(2)}%, outside the strip`);
+        }
+      }
+      if (wickTop > top + 0.001) throw new Error("the wick starts below the body it belongs to");
+      if (wickTop + wickH < top + h - 0.001) throw new Error("the body hangs below its own wick");
+    }
+  }
+  return "every shape inside 0..100";
+});
+
 check("too little to draw falls back rather than inventing a flat line", () => {
   if (shapes([]).length !== 0) throw new Error("no bars produced shapes");
   if (shapes([bar(1, 1, 1, 1), bar(1, 1, 1, 1)]).length !== 0)

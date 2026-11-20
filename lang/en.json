@@ -220,7 +220,6 @@
     "neutral": "Neutral",
     "trend_up": "Trending up",
     "trend_down": "Trending down",
-    "range": "Ranging",
     "high_vol": "High volatility",
     "low_vol": "Compressed volatility",
     "untrained": "Untrained hint",
@@ -1434,7 +1433,16 @@
     "period_pick": "Choose a start and an end date.",
     "period_backwards": "The start date is after the end date.",
     "robot_only": "The robot alone (no strategy)",
-    "robot_hint": "Replays the window with the robot deciding on its own, with no strategy underneath it. It learns forward through the window in a scratch model and never touches the live one."
+    "robot_hint": "Replays the window with the robot deciding on its own, with no strategy underneath it. It learns forward through the window in a scratch model and never touches the live one.",
+    "side_buy": "Buy",
+    "side_sell": "Sell",
+    "why_tp": "Target",
+    "why_sl": "Stop",
+    "why_eod": "End of run",
+    "why_strategy": "Strategy closed it",
+    "why_signal": "Opposite signal",
+    "refused_title": "Bounds the replay refused",
+    "refused_body": "{n} order(s) named a stop or a target on the wrong side of the entry, or too far from it to be a price for this instrument. Those bounds were dropped rather than guessed at, so those trades ran without them. Check that the strategy returns PRICES, not distances."
   },
   "chart": {
     "regime_hint": "The slider above shows direction and regime per chart — move between charts with the arrows.",
@@ -1688,12 +1696,7 @@
     "lvl_gone": "That position is no longer open",
     "lvl_sl_side": "A stop has to sit on the losing side of the price",
     "lvl_tp_side": "A target has to sit on the winning side of the price",
-    "signals_analysing": "Still analysing",
-    "range": "Period shown",
-    "range_1d": "1D",
-    "range_1w": "1W",
-    "range_1m": "1M",
-    "range_6m": "6M"
+    "signals_analysing": "Still analysing"
   },
   "signal": {
     "buy": "Buy signal",
