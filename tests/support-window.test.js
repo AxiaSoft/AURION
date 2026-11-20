@@ -334,9 +334,26 @@ check(
     "a lockout the user can switch off is not a lockout"
   );
   check(
-    "and it re-disarms the robot on an expired desk at boot",
-    /if \(support\.status\(\)\.expired\) haltTradingForSupport\(\)/.test(body),
+    "and it re-disarms the robot on an expired desk",
+    /if \(st\.expired\) haltTradingForSupport\(\)/.test(body),
     "otherwise restarting the machine is a way to keep trading behind the lock"
+  );
+  check(
+    "at boot, from the stored answer, before any network call",
+    /const startup = support\.status\(\);[\s\S]{0,120}if \(startup\.expired\) haltTradingForSupport\(\)/.test(INDEX)
+      && INDEX.indexOf("const startup = support.status();") < INDEX.indexOf("setTimeout(() => { supportWatchTick(); }, 45000)"),
+    "an expired build spent the first forty-five seconds of every boot armed, waiting to be told what it already knew"
+  );
+  check(
+    "and the deadline itself is kept, not merely polled for",
+    /function armSupportDeadline\(/.test(INDEX)
+      && /setTimeout\(\(\) => \{[\s\S]{0,200}support\.status\(\)\.expired\) haltTradingForSupport/.test(INDEX)
+      && /if \(left > SUPPORT_WATCH_MS\) return;/.test(INDEX),
+    "a grace period that ends at 14:05 and is enforced at 18:00 is not a five day policy"
+  );
+  check(
+    "the one shot never holds the process open",
+    /supportDeadlineTimer\.unref === "function"\) supportDeadlineTimer\.unref\(\)/.test(INDEX)
   );
 }
 check(
@@ -537,6 +554,9 @@ const needed = [
   "eos_deadline", "eos_halted", "eos_action", "eos_checking", "eos_already",
   "eos_owner_only", "eos_flatten", "eos_flatten_confirm", "eos_flatten_done",
   "eos_flatten_fail", "policy",
+  /* Added with the countdown: the last hour, the deadline itself, and
+     what the screen after an update says about the clock. */
+  "warn_minutes", "until", "after_update",
 ];
 for (const lang of ["en", "fa", "ar"]) {
   const sup = packs[lang].sup || {};
@@ -556,7 +576,10 @@ check(
     && packs[l].sup.warn_hours.includes("{n}")
     && packs[l].sup.warn_body.includes("{date}")
     && packs[l].sup.eos_body.includes("{n}")
-    && packs[l].sup.policy.includes("{n}")),
+    && packs[l].sup.policy.includes("{n}")
+    && packs[l].sup.warn_minutes.includes("{n}")
+    && packs[l].sup.until.includes("{date}")
+    && packs[l].sup.after_update.includes("{n}")),
   "a dropped {n} prints the sentence with the number missing"
 );
 check(

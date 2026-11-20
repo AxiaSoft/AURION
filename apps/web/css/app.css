@@ -3963,6 +3963,32 @@ html[dir="rtl"] .q-how[open] summary::before{ transform:rotate(0deg) }
 .upd-chip.is-new{border-color:color-mix(in srgb,var(--accent) 55%,transparent);color:var(--accent-readable)}
 .upd-chip.is-bad{border-color:color-mix(in srgb,var(--bad) 55%,transparent);color:var(--bad)}
 .upd-policy{margin:0 0 10px}
+/* While a countdown is running this line stops being a policy note and
+   becomes the deadline. It is given the warning colour and the figure
+   is emphasised, because the sentence around it is the part that can
+   be skimmed - the time left is not. */
+.upd-policy.is-counting{color:var(--gold)}
+.upd-policy.is-counting b{color:var(--gold);font-variant-numeric:tabular-nums}
+.upd-policy.is-counting span{opacity:.85}
+/* Said on the screen that appears after an update installs. Set apart
+   from the body text above it: it is a different kind of fact - what
+   happens next, rather than what just happened. */
+.upd-w-sup{
+  margin:0 0 16px;
+  padding:9px 11px;
+  border-radius:10px;
+  border:1px solid var(--line);
+  background:color-mix(in srgb,var(--panel) 70%,transparent);
+  font-size:12.5px;
+  text-align:start;
+  overflow-wrap:anywhere;
+}
+.upd-w-sup svg{width:14px;height:14px;vertical-align:-2px;opacity:.8}
+.upd-w-sup.is-counting{
+  border-color:color-mix(in srgb,var(--gold) 45%,transparent);
+  color:var(--gold);
+}
+.upd-w-sup.is-counting b{font-variant-numeric:tabular-nums}
 /* Release notes and error codes arrive from a server; neither is under
    this desk's control, so neither is allowed to set the card's width. */
 .stx-result{overflow-wrap:anywhere}
