@@ -922,23 +922,96 @@ function getUpdateState() {
   return state;
 }
 
+/* ---- the automatic check, and when it actually happens -------------
+ *
+ * The setting is "every N hours", and it used to be a setInterval of
+ * exactly N hours started when the process came up. Two things were
+ * wrong with that, and both were reported:
+ *
+ *   1. The check landed at the END of the window. Six hours was read
+ *      as "within six hours" and behaved as "after six hours", so a
+ *      release published a minute after a tick sat unseen for the
+ *      whole period - and on a desk that is restarted during the day,
+ *      the tick never arrived at all, because the interval counted
+ *      uptime rather than time.
+ *
+ *   2. The only thing that saved it was a check thirty seconds after
+ *      every boot, which ignored the setting completely in the other
+ *      direction: a desk opened six times a day checked six times,
+ *      whatever the interval said.
+ *
+ * So the window is now measured from the LAST CHECK, which is on disk
+ * and survives restarts, and the check is placed INSIDE it rather than
+ * on its edge - at a random point in the middle of the window. Random
+ * for two reasons: it is still inside the window wherever it lands, and
+ * a field of desks that all started from the same release do not line
+ * up on the same minute afterwards.
+ *
+ * The guarantee is the one the setting claims: no window of N hours
+ * passes without a check, and no window gets two.
+ */
+
+/* Where in the window the check goes: never at the start (a restart
+   must not mean an immediate check), never at the end (that is the
+   fault being fixed). With six hours this is between three hours and
+   five and a half. */
+const AUTO_CHECK_EARLIEST = 0.5;
+const AUTO_CHECK_LATEST = 0.9;
+
+/** The window, in ms, honouring the same 1..168 hour clamp as the route. */
+function autoCheckWindowMs(settings) {
+  const hours = Math.max(1, Math.min(168, Number(settings && settings.auto_check_interval_hours) || 6));
+  return hours * 3600 * 1000;
+}
+
+/**
+ * How long until the next check, given when the last one happened.
+ *
+ * Exported for the tests, and pure: no clock, no disk, no network. A
+ * scheduler that can only be observed by waiting six hours is a
+ * scheduler nobody checks.
+ */
+function nextCheckDelayMs(windowMs, lastCheckMs, nowMs, frac) {
+  const span = Math.max(60 * 1000, Number(windowMs) || 0);
+  const now = Number.isFinite(nowMs) ? nowMs : Date.now();
+  /* No check on record - a fresh install, or a settings file from
+     before this existed. Treat the window as having started now, so
+     the first check is inside the first window like every other. */
+  const last = Number.isFinite(lastCheckMs) && lastCheckMs > 0 ? lastCheckMs : now;
+  const r = Number.isFinite(frac) ? frac : Math.random();
+  const at = last + span * (AUTO_CHECK_EARLIEST + (AUTO_CHECK_LATEST - AUTO_CHECK_EARLIEST) * r);
+  /* Overdue - the desk was off, or the clock moved. Check promptly,
+     but not in the first seconds of a boot: the engine is still coming
+     up and a network call there competes with the thing the trader is
+     waiting for. */
+  return Math.max(30 * 1000, at - now);
+}
+
 let autoCheckTimer = null;
 function startAutoChecker() {
-  if (autoCheckTimer) clearInterval(autoCheckTimer);
+  stopAutoChecker();
   const settings = getSettings();
   if (!settings.auto_check_enabled) return;
   if (getSourceKind() !== "github" && !settings.update_server_url) return;
-  const hours = Math.max(1, Math.min(168, Number(settings.auto_check_interval_hours) || 6));
-  const ms = hours * 3600 * 1000;
-  autoCheckTimer = setInterval(async () => {
-    try { await checkForUpdates(); } catch {}
-  }, ms);
-  // also check shortly after start
-  setTimeout(async () => { try { await checkForUpdates(); } catch {} }, 30000);
+
+  const windowMs = autoCheckWindowMs(settings);
+  const last = Date.parse(String(settings.last_check || "")); // NaN when never
+  const delay = nextCheckDelayMs(windowMs, last, Date.now());
+
+  autoCheckTimer = setTimeout(async () => {
+    autoCheckTimer = null;
+    try { await checkForUpdates(); } catch { /* offline is not a failure */ }
+    /* Re-read the settings rather than closing over them: the interval
+       may have been changed while this one was pending, and the next
+       window should be the one that is configured now. */
+    try { startAutoChecker(); } catch { /* never let the scheduler stop the desk */ }
+  }, delay);
+  /* A pending check must not be the reason a process refuses to exit. */
+  if (autoCheckTimer && typeof autoCheckTimer.unref === "function") autoCheckTimer.unref();
 }
 
 function stopAutoChecker() {
-  if (autoCheckTimer) { clearInterval(autoCheckTimer); autoCheckTimer = null; }
+  if (autoCheckTimer) { clearTimeout(autoCheckTimer); autoCheckTimer = null; }
 }
 
 /* On the way up, every time.
@@ -965,4 +1038,7 @@ module.exports = {
   collectLocalManifest,
   startAutoChecker,
   stopAutoChecker,
+  /* Exported for the tests: the placement rule is the whole feature. */
+  nextCheckDelayMs,
+  autoCheckWindowMs,
 };

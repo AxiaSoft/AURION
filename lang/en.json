@@ -1321,6 +1321,8 @@
   "sup": {
     "warn_days": "{n} days until this version's support ends",
     "warn_hours": "{n} hours until this version's support ends",
+    "warn_minutes": "{n} minutes until this version's support ends",
+    "until": "Support ends {date}",
     "warn_body": "A newer version has been published. Install it before {date} or this desk will stop working.",
     "warn_action": "Update",
     "warn_dismiss": "Dismiss",
@@ -1339,7 +1341,8 @@
     "eos_flatten_confirm": "Close every open position at market, right now?",
     "eos_flatten_done": "Close order sent.",
     "eos_flatten_fail": "Could not close the positions.",
-    "policy": "Every version is supported for {n} days after a newer one is published. After that the desk locks until it is updated."
+    "policy": "Every version is supported for {n} days after a newer one is published. After that the desk locks until it is updated.",
+    "after_update": "This build is supported. When a newer version is published you will have {n} days to install it, and the countdown appears here."
   },
   "about": {
     "version": "Version",

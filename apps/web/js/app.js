@@ -10076,6 +10076,16 @@ async function bindUpdatePanel(){
       if(autoEl) paintSwitch(autoEl, !!r.data.auto_check_enabled);
       if(intervalEl) intervalEl.value = r.data.auto_check_interval_hours || 6;
     }
+    /* Asked for directly rather than waited for: the snapshot poll
+       carries the support status, but somebody who opens this panel in
+       the first seconds of a session would see the rule where the
+       deadline belongs until the first poll landed. */
+    try {
+      const sup = await API.get('/api/system/support');
+      if (sup.ok && sup.data) S.support = sup.data;
+    } catch { /* the rule is the fallback, and it is still true */ }
+    paintSupportPolicyLine();
+
     const st = await API.get('/api/system/update/state');
     if(st.ok && st.data){
       paintUpdateFacts({
@@ -16355,8 +16365,45 @@ async function runRepairInstall() {
   return true;
 }
 
+/**
+ * How long THIS build is supported, said on the screen that appears
+ * when an update has just been installed.
+ *
+ * Reported: a desk takes an update and is told nothing about the clock
+ * it is now under - the five day rule was only ever mentioned in the
+ * settings panel and on the screen that locks the desk, which is the
+ * worst possible place to read a deadline for the first time. So the
+ * "you are updated" screen carries it.
+ *
+ * Two cases, and they are different facts:
+ *   - a deadline is already running (this machine installed something,
+ *     and something newer than it is already published): the moment and
+ *     the time left, exactly as the countdown bar states them.
+ *   - nothing newer exists, which is the usual case right after an
+ *     update: there is no date to invent, so it says what starts the
+ *     clock and how long it will then be.
+ */
+function supportWelcomeHtml() {
+  const st = supportLive(null);
+  if (st && st.update_available && st.deadline && !st.expired) {
+    return `<p class="upd-w-sup is-counting">${icon("hourglass")} <b>${esc(supportLeftText(st))}</b> `
+      + `<span>${esc(I18N.t("sup.until", { date: supportMoment(st.deadline) }))}</span></p>`;
+  }
+  return `<p class="upd-w-sup">${icon("hourglass")} `
+    + `${esc(I18N.t("sup.after_update", { n: fmtNum(supportGraceDays(), 0) }))}</p>`;
+}
+
 /** "The update worked" - shown to a premium machine, which has no gate. */
-function showUpdateWelcome(version, from) {
+async function showUpdateWelcome(version, from) {
+  /* Asked for before the card is built, because this screen appears
+     during boot - before the first snapshot poll, which is where the
+     support status normally arrives from. Without it the one screen
+     that is certain to be read after an update would be the one screen
+     that could not state the clock. */
+  try {
+    const sup = await API.get("/api/system/support");
+    if (sup && sup.ok && sup.data) S.support = sup.data;
+  } catch { /* the rule is the fallback, and it is still true */ }
   return new Promise((resolve) => {
     const host = document.createElement("div");
     host.className = "upd-welcome";
@@ -16366,6 +16413,7 @@ function showUpdateWelcome(version, from) {
         <h2 id="upd-w-title">${esc(I18N.t("upd.updated_title"))}</h2>
         <p class="lede">${esc(I18N.t("upd.updated_body", { v: version }))}</p>
         ${from ? `<p class="sub mono">${esc(I18N.t("upd.updated_from", { old: from }))}</p>` : ""}
+        ${supportWelcomeHtml()}
         <button class="btn block" type="button" id="upd-w-go">${esc(I18N.t("upd.updated_cta"))}</button>
       </div>`;
     document.body.appendChild(host);
@@ -16421,14 +16469,89 @@ function supportDate(iso) {
   } catch { return d.toISOString().slice(0, 10); }
 }
 
-/** "4 days left" or, inside the last day, "9 hours left". */
+/** Date and time, because "Tuesday" is not a deadline - 14:05 is. */
+function supportMoment(iso) {
+  const d = new Date(String(iso || ""));
+  if (Number.isNaN(d.getTime())) return "";
+  try {
+    return d.toLocaleString(I18N.locale(), {
+      year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit",
+    });
+  } catch { return d.toISOString().slice(0, 16).replace("T", " "); }
+}
+
+/**
+ * "4 days left", "9 hours left", "12 minutes left".
+ *
+ * The minutes were missing, and the last hour is exactly when a number
+ * that only counts in hours stops being information: "0 hours" sat on
+ * screen for sixty minutes and then the desk locked.
+ */
 function supportLeftText(st) {
   if (!st) return "";
+  const ms = Number(st.ms_left);
   const hours = Number(st.hours_left);
+  if (Number.isFinite(ms) && ms <= 60 * 60 * 1000) {
+    const mins = Math.max(0, Math.ceil(ms / 60000));
+    return I18N.t("sup.warn_minutes", { n: fmtNum(mins, 0) });
+  }
   if (Number.isFinite(hours) && hours <= 24) {
     return I18N.t("sup.warn_hours", { n: fmtNum(Math.max(0, hours), 0) });
   }
   return I18N.t("sup.warn_days", { n: fmtNum(Math.max(0, Number(st.days_left) || 0), 0) });
+}
+
+/**
+ * The same status, recomputed against this machine's clock.
+ *
+ * The server states the deadline once and the poll repeats whatever it
+ * last said; between two polls - and for as long as a poll keeps
+ * failing - days_left is a number that was true some time ago. The
+ * deadline itself is an absolute instant, so the time remaining can be
+ * worked out here, every minute, without asking anybody.
+ */
+function supportLive(st) {
+  const base = st || S.support;
+  if (!base || !base.deadline) return base || null;
+  const dl = Date.parse(String(base.deadline));
+  if (!Number.isFinite(dl)) return base;
+  const ms = dl - Date.now();
+  return {
+    ...base,
+    ms_left: ms,
+    days_left: Math.max(0, Math.ceil(ms / 86400000)),
+    hours_left: Math.max(0, Math.ceil(ms / 3600000)),
+    expired: ms <= 0,
+    supported: ms > 0,
+  };
+}
+
+/**
+ * Keep the countdown counting.
+ *
+ * Once a minute, which is the resolution the last hour needs and
+ * cheaper than anything else on this desk. It is also what makes the
+ * lock land ON the deadline rather than on whichever poll happens
+ * next: when the clock runs out the screen changes by itself.
+ */
+function startSupportTicker() {
+  if (S._supTick) return;
+  S._supTick = setInterval(() => {
+    const live = supportLive(null);
+    if (!live || !live.deadline) { stopSupportTicker(); return; }
+    if (live.expired) {
+      stopSupportTicker();
+      S.support = live;
+      showSupportLock(live);
+      return;
+    }
+    paintSupportBar(live);
+    paintSupportPolicyLine();
+  }, 60000);
+}
+
+function stopSupportTicker() {
+  if (S._supTick) { clearInterval(S._supTick); S._supTick = null; }
 }
 
 /**
@@ -16440,8 +16563,13 @@ function supportLeftText(st) {
 function applySupportState(st) {
   if (!st || typeof st !== "object") return;
   S.support = st;
-  if (st.expired) { showSupportLock(st); return; }
-  paintSupportBar(st);
+  /* Trust this machine's clock over the age of the answer: a status
+     fetched eleven minutes ago says eleven minutes too much. */
+  const live = supportLive(st) || st;
+  if (live.expired) { stopSupportTicker(); showSupportLock(live); return; }
+  paintSupportBar(live);
+  paintSupportPolicyLine();
+  if (live.deadline) startSupportTicker(); else stopSupportTicker();
 }
 
 function paintSupportBar(st) {
@@ -16459,7 +16587,7 @@ function paintSupportBar(st) {
     <div class="sup-bar-ic" aria-hidden="true">${icon("hourglass")}</div>
     <div class="sup-bar-txt">
       <b>${esc(supportLeftText(st))}</b>
-      <span class="sub">${esc(I18N.t("sup.warn_body", { date: supportDate(st.deadline) }))}</span>
+      <span class="sub">${esc(I18N.t("sup.warn_body", { date: supportMoment(st.deadline) }))}</span>
     </div>
     <button type="button" class="btn tiny" id="sup-bar-go">${esc(I18N.t("sup.warn_action"))}</button>
     ${urgent ? "" : `<button type="button" class="sup-bar-x" id="sup-bar-x" aria-label="${esc(I18N.t("sup.warn_dismiss"))}">${icon("close")}</button>`}`;
@@ -16477,6 +16605,30 @@ function paintSupportBar(st) {
   if (go) go.onclick = () => { show("settings"); setTimeout(() => showSetTab("set-update"), 60); };
   const x = bar.querySelector("#sup-bar-x");
   if (x) x.onclick = () => { S._supBarOff = true; bar.remove(); };
+}
+
+/**
+ * The update panel's policy line, once there is a date to put in it.
+ *
+ * The panel stated the rule - "five days after a newer version is
+ * published" - and stopped there, so the one thing a trader needed
+ * from it, WHEN, was never on screen. While a countdown is running
+ * the rule is replaced by the deadline itself: the moment, and the
+ * time left, in the place the rule used to sit.
+ */
+function paintSupportPolicyLine() {
+  const el = document.getElementById("upd-policy");
+  if (!el) return;
+  const st = supportLive(null);
+  if (!st || !st.update_available || !st.deadline) {
+    el.classList.remove("is-counting");
+    el.innerHTML = icon("hourglass") + " " + esc(I18N.t("sup.policy", { n: fmtNum(supportGraceDays(), 0) }));
+    return;
+  }
+  el.classList.add("is-counting");
+  el.innerHTML = icon("hourglass")
+    + " <b>" + esc(supportLeftText(st)) + "</b> "
+    + "<span>" + esc(I18N.t("sup.until", { date: supportMoment(st.deadline) })) + "</span>";
 }
 
 /**

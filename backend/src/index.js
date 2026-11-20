@@ -1242,12 +1242,61 @@ try { updater.startAutoChecker(); } catch {}
  * restarting the machine is not a way to get the robot running again
  * behind the lock screen. */
 const SUPPORT_WATCH_MS = 6 * 60 * 60 * 1000;
+
+/* The deadline itself, to the minute.
+ *
+ * The six-hourly tick is how the desk LEARNS; it is not how the
+ * deadline is kept. A grace period that ends at 14:05 and is enforced
+ * at 18:00 is not a five day policy, it is a five day policy plus
+ * however long the next tick takes - and the trader watching the
+ * countdown on their own screen reach zero while the desk keeps
+ * trading is being shown something untrue.
+ *
+ * So whenever the status says there is a known, finite time left,
+ * one shot is armed for that moment. It costs nothing while nothing is
+ * pending, it is re-armed from every tick, and if the facts change -
+ * the update was installed, the check now says something else - the
+ * next tick re-reads them and this timer finds an unexpired desk and
+ * does nothing. */
+let supportDeadlineTimer = null;
+function armSupportDeadline(st) {
+  if (supportDeadlineTimer) { clearTimeout(supportDeadlineTimer); supportDeadlineTimer = null; }
+  const left = Number(st && st.ms_left);
+  if (!Number.isFinite(left) || left <= 0) return;
+  /* Only the window this process can see to the end of. A deadline
+     four days out is the next tick's business, not a four day timer. */
+  if (left > SUPPORT_WATCH_MS) return;
+  supportDeadlineTimer = setTimeout(() => {
+    supportDeadlineTimer = null;
+    try {
+      if (support.status().expired) haltTradingForSupport();
+    } catch { /* never let the policy crash the desk */ }
+  }, left + 1000);
+  if (typeof supportDeadlineTimer.unref === "function") supportDeadlineTimer.unref();
+}
+
 async function supportWatchTick() {
   try { await updater.checkForUpdates(); } catch { /* offline is not a lockout */ }
   try {
-    if (support.status().expired) haltTradingForSupport();
+    const st = support.status();
+    if (st.expired) haltTradingForSupport();
+    else armSupportDeadline(st);
   } catch { /* never let the policy crash the desk */ }
 }
+try {
+  /* Before any network call, from what is already on disk.
+   *
+   * A build that has been sitting on a shelf comes back up knowing
+   * perfectly well that it is out of support - the last check wrote it
+   * down - and it used to spend the first forty-five seconds of that
+   * boot with auto-trading armed, waiting to be told something it
+   * already knew. The stored answer is also the only one available to
+   * a machine that is offline, and a grace period does not pause
+   * because GitHub is unreachable. */
+  const startup = support.status();
+  if (startup.expired) haltTradingForSupport();
+  else armSupportDeadline(startup);
+} catch { /* never let the policy stop the desk starting */ }
 try {
   setTimeout(() => { supportWatchTick(); }, 45000);
   setInterval(() => { supportWatchTick(); }, SUPPORT_WATCH_MS);
