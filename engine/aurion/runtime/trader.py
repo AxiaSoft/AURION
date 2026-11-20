@@ -5,6 +5,7 @@ import json
 import shutil
 import time
 from collections import deque
+from pathlib import Path
 from typing import Any
 
 from .auto_entry import confirm_entry, expired_orders, plan_entry
@@ -235,6 +236,13 @@ class Trader:
         # Money management, stated the one way that means the same thing on
         # every instrument: what a stop is allowed to cost per 1.00 lot.
         self.max_loss_per_lot = 10.0
+        # Automatic money management. "fixed" is the number the trader
+        # typed; "auto" is a share of the live account, recomputed for
+        # every ticket. See _cap().
+        self.money_mode = "fixed"
+        self.money_risk_pct = 1.0
+        self._auto_cap_last = 0.0
+        self._auto_cap_said = False
         # What that number counts: one trade, or one 0.01 lot. See
         # MONEY_SCOPES in runtime/risk.py.
         self.money_scope = DEFAULT_SCOPE
@@ -1319,19 +1327,105 @@ class Trader:
             info = {}
         return SymbolSpec.from_info(info, str(symbol or ""))
 
+    AUTO_RISK_MIN_PCT = 0.05
+    AUTO_RISK_MAX_PCT = 10.0
+
+    def _equity_now(self) -> float:
+        """Live equity, falling back to balance. 0 when the account is unknown."""
+        try:
+            account = self.bridge.account.to_dict() or {}
+        except Exception:
+            return 0.0
+        for key in ("equity", "balance"):
+            try:
+                value = float(account.get(key) or 0)
+            except (TypeError, ValueError):
+                continue
+            if value > 0:
+                return value
+        return 0.0
+
+    def _auto_risk_pct(self) -> float:
+        """The share of the account one trade may lose, after every ceiling.
+
+        The trader's own number, held between 0.05% and 10%, and then
+        lowered - never raised - by the prop profile's max risk per
+        trade when one is armed. A prop rule that says 1% and a desk
+        that says 2% is not a disagreement to average out: the tighter
+        of the two is the only one that keeps both promises.
+        """
+        try:
+            pct = float(getattr(self, "money_risk_pct", 1.0) or 0.0)
+        except (TypeError, ValueError):
+            pct = 1.0
+        pct = max(self.AUTO_RISK_MIN_PCT, min(self.AUTO_RISK_MAX_PCT, pct))
+        if getattr(self.prop, "enabled", False):
+            try:
+                prop_pct = float((self.prop.profile or {}).get("max_risk_per_trade_pct") or 0)
+            except (TypeError, ValueError):
+                prop_pct = 0.0
+            if prop_pct > 0:
+                pct = min(pct, prop_pct)
+        return pct
+
     def _cap(self) -> float:
+        """The most one trade may lose, in account currency.
+
+        This is the single number the whole money rule is built on -
+        sizing, stop capping and the chart replay all read it - so
+        "automatic" is implemented here and nowhere else. In automatic
+        mode the cap is a share of live equity, recomputed for every
+        ticket: an account that doubles risks twice as much, an account
+        in drawdown risks less, and nobody edits a field. A fixed
+        currency amount typed once is the one money setting guaranteed
+        to be wrong later.
+
+        It fails CLOSED. If the account has not reported equity yet,
+        the last cap that WAS computed is used rather than zero -
+        because zero here does not mean "no risk", it means "no rule",
+        and dropping the stop cap the moment the terminal reconnects is
+        the worst possible reading of missing data.
+        """
+        if str(getattr(self, "money_mode", "fixed")) == "auto":
+            equity = self._equity_now()
+            if equity > 0:
+                cap = round(equity * self._auto_risk_pct() / 100.0, 2)
+                if cap > 0:
+                    self._auto_cap_last = cap
+                    return cap
+            held = float(getattr(self, "_auto_cap_last", 0.0) or 0.0)
+            if held > 0:
+                return held
+            # Nothing to size against and nothing remembered: fall back
+            # to the stored fixed cap rather than to no rule at all.
+            try:
+                return max(0.0, float(getattr(self, "max_loss_per_lot", 0.0) or 0.0))
+            except (TypeError, ValueError):
+                return 0.0
         try:
             return max(0.0, float(getattr(self, "max_loss_per_lot", 0.0) or 0.0))
         except (TypeError, ValueError):
             return 0.0
 
     def _scope(self) -> str:
-        """Whether the cap is read per trade or per 0.01 lot."""
+        """Whether the cap is read per trade or per 0.01 lot.
+
+        Automatic mode is always per trade. A percentage of the account
+        that then multiplies by the lot size is not a percentage of the
+        account, and the point of the mode is that "what can this cost
+        me?" has an answer without arithmetic.
+        """
+        if str(getattr(self, "money_mode", "fixed")) == "auto":
+            return "trade"
         return normalise_scope(getattr(self, "money_scope", DEFAULT_SCOPE))
 
     def _cap_words(self) -> str:
         """The cap and its unit, for anything a human reads."""
         cap = self._cap()
+        if str(getattr(self, "money_mode", "fixed")) == "auto":
+            equity = self._equity_now()
+            where = f" of {equity:.2f} equity" if equity > 0 else " (equity not reported yet)"
+            return f"{cap:.2f} per trade — {self._auto_risk_pct():.2f}%{where}"
         return (f"{cap:.2f} per trade" if self._scope() == "trade"
                 else f"{cap:.2f} per {REFERENCE_LOT:g} lot")
 
@@ -2025,8 +2119,20 @@ class Trader:
         symbol = str(getattr(self, "active_symbol", "") or "")
         spec = self.symbol_spec(symbol) if symbol else SymbolSpec()
         scope = self._scope()
+        mode = str(getattr(self, "money_mode", "fixed"))
+        equity = self._equity_now()
         state: dict[str, Any] = {
             "max_loss_per_lot": cap,
+            # Automatic mode. The desk needs all four to say what it is
+            # doing: which mode, the percentage asked for, the
+            # percentage actually in force after the prop ceiling, and
+            # the equity the cap was computed from - so a cap that
+            # looks wrong can be checked rather than guessed at.
+            "mode": mode,
+            "risk_pct": float(getattr(self, "money_risk_pct", 1.0) or 0.0),
+            "risk_pct_effective": self._auto_risk_pct(),
+            "equity": equity,
+            "auto_held": bool(mode == "auto" and equity <= 0 and cap > 0),
             "scope": scope,
             "symbol": symbol,
             "priced": bool(spec.usable),
@@ -2103,6 +2209,27 @@ class Trader:
     async def set_money(self, body: dict[str, Any]) -> dict[str, Any]:
         """Set the loss cap and what it counts. 0 turns the rule off, loudly."""
         body = dict(body or {})
+        if "mode" in body:
+            asked_mode = str(body.get("mode") or "").strip().lower()
+            if asked_mode not in {"fixed", "auto"}:
+                return {"ok": False, "error": "mode must be 'fixed' or 'auto'"}
+            self.money_mode = asked_mode
+        if "risk_pct" in body:
+            try:
+                pct = float(body.get("risk_pct") or 0)
+            except (TypeError, ValueError):
+                return {"ok": False, "error": "risk_pct must be a number"}
+            if pct < self.AUTO_RISK_MIN_PCT or pct > self.AUTO_RISK_MAX_PCT:
+                # Refused rather than clamped. A trader who typed 50
+                # meant something, and silently saving 10 teaches them
+                # the field does not do what it says.
+                return {
+                    "ok": False,
+                    "error": (f"risk per trade must be between {self.AUTO_RISK_MIN_PCT:g}% "
+                              f"and {self.AUTO_RISK_MAX_PCT:g}%"),
+                }
+            self.money_risk_pct = pct
+            self._auto_cap_last = 0.0
         if "scope" in body:
             asked = str(body.get("scope") or "")
             if asked.strip().lower() not in MONEY_SCOPES:
@@ -2467,6 +2594,13 @@ class Trader:
         # behaviour and it is the point - it is the reading the number
         # was always labelled with.
         self.money_scope = normalise_scope(money_cfg.get("scope"))
+        self.money_mode = "auto" if str(money_cfg.get("mode") or "fixed") == "auto" else "fixed"
+        try:
+            pct = float(money_cfg.get("risk_pct", 1.0))
+        except (TypeError, ValueError):
+            pct = 1.0
+        self.money_risk_pct = max(self.AUTO_RISK_MIN_PCT, min(self.AUTO_RISK_MAX_PCT, pct))
+        self._auto_cap_last = 0.0
         rf_cfg = runtime.get("risk_free") if isinstance(runtime.get("risk_free"), dict) else {}
         self.risk_free_enabled = bool(rf_cfg.get("enabled", False))
         self.risk_free_trigger_pct = self._clamp_pct(rf_cfg.get("trigger_pct"), 0.30)
@@ -3009,7 +3143,49 @@ class Trader:
             for key, _ in stale[: len(book) - Trader.SYMBOL_MEMORY]:
                 book.pop(key, None)
 
-    def _note_strategy_fault(self, name: str, exc: Exception, file: str | None = None) -> None:
+    @staticmethod
+    def _strategy_file_of(slot: dict[str, Any] | None, name: str) -> str:
+        """The .py the trader would open to fix this, as a bare name."""
+        for key in ("file", "path"):
+            value = str((slot or {}).get(key) or "")
+            if value:
+                return Path(value).name
+        inst = (slot or {}).get("inst")
+        for key in ("__file__", "path", "file"):
+            value = str(getattr(inst, key, "") or "")
+            if value:
+                return Path(value).name
+        return f"{name}.py"
+
+    @staticmethod
+    def _strategy_fault_detail(exc: Exception, slot: dict[str, Any] | None = None) -> str:
+        """The exact error, with the line in the trader's own file.
+
+        "ZeroDivisionError: division by zero" is true and unusable: the
+        file is the one thing the trader can change and it is the one
+        thing the message left out. The traceback is walked from the
+        bottom for the last frame that is NOT inside the AURION package
+        - that is the author's own code - and its file and line are put
+        in front of the message.
+        """
+        import traceback
+
+        frames = traceback.extract_tb(exc.__traceback__)
+        here = str(Path(__file__).resolve().parents[1])
+        mine = [f for f in frames if here not in str(Path(f.filename).resolve().parent)]
+        text = f"{type(exc).__name__}: {exc}"
+        if isinstance(exc, StrategyValidationError):
+            text = str(exc)
+        if mine:
+            last = mine[-1]
+            where = f"{Path(last.filename).name} line {last.lineno}"
+            if last.line:
+                return f"{where}: {text}  ->  {last.line.strip()[:120]}"
+            return f"{where}: {text}"
+        return text
+
+    def _note_strategy_fault(self, name: str, exc: Exception, file: str | None = None,
+                             detail: str | None = None) -> None:
         """Remember a strategy file that is on disk but would not load.
 
         A file that fails to import is simply absent from the book, so the
@@ -3037,7 +3213,9 @@ class Trader:
         faults[key] = {
             "name": key,
             "file": file or f"{key}.py",
-            "error": f"{type(exc).__name__}: {exc}" if not isinstance(exc, StrategyValidationError) else str(exc),
+            "error": detail or (
+                f"{type(exc).__name__}: {exc}" if not isinstance(exc, StrategyValidationError) else str(exc)
+            ),
             "ts": utc_iso(),
         }
 
@@ -3232,7 +3410,13 @@ class Trader:
                     },
                     "money": {
                         "max_loss_per_lot": float(getattr(self, "max_loss_per_lot", 10.0) or 0.0),
-                        "scope": self._scope(),
+                        # The scope the trader chose, not the one in force:
+                        # automatic mode forces "trade", and saving that
+                        # would quietly rewrite their fixed-mode setting
+                        # the first time automatic was switched on.
+                        "scope": normalise_scope(getattr(self, "money_scope", DEFAULT_SCOPE)),
+                        "mode": str(getattr(self, "money_mode", "fixed")),
+                        "risk_pct": float(getattr(self, "money_risk_pct", 1.0) or 0.0),
                     },
                     "risk_free": {
                         "enabled": bool(self.risk_free_enabled),
@@ -3318,17 +3502,37 @@ class Trader:
             try:
                 signal = inst.on_candle(ctx)
             except Exception as exc:
+                # One broken file is one broken file.
+                #
+                # This used to set safe_mode and RETURN: a single bad
+                # line in a single strategy stopped the robot trading
+                # at all, and the strategies that had not been asked
+                # yet were never asked - on this bar or any later one,
+                # because the next bar crashed in the same place. A
+                # desk with three strategies lost all three to a typo
+                # in the one the trader was still writing, and the
+                # only sign was "safe mode" with no file named.
+                #
+                # Now the fault belongs to the strategy that caused
+                # it: it is switched off, named on the broken-files
+                # card with the exact error and the line it happened
+                # on, and the loop carries on to the others.
+                detail = self._strategy_fault_detail(exc, slot)
                 log.exception("strategy %s on_candle crashed", name)
                 slot["last_action"] = "fault"
-                slot["last_reason"] = str(exc)
+                slot["last_reason"] = detail
                 slot["last_ts"] = utc_iso()
+                # Off, not just marked. Left armed it would raise on
+                # every closed candle for as long as the desk is open,
+                # filling the log and announcing nothing new.
+                slot["enabled"] = False
                 self._note_symbol(slot, ctx.symbol, action="fault",
-                                  reason=slot["last_reason"], ts=slot["last_ts"])
-                self.safe_mode = True
-                await self.journal("error", "strategy_fault", f"{name} crashed: {exc}")
-                self._sync_book_meta()
-                await self.bus.publish("strategy", self.strategy_meta)
-                return
+                                  reason=detail, ts=slot["last_ts"])
+                self._note_strategy_fault(name, exc, file=self._strategy_file_of(slot, name),
+                                          detail=detail)
+                await self.journal("error", "strategy_fault",
+                                   f"{name} was switched off after it crashed: {detail}")
+                continue
             action, reason = self._signal_bits(signal)
             if not signal or action in {"", "hold", "none"}:
                 # "no setup on this bar" is true and useless. A strategy that

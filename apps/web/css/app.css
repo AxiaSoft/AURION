@@ -1952,7 +1952,17 @@ input[type=range]{width:100%;accent-color:var(--cyan);height:28px;cursor:pointer
 }
 .st-drop.over{border-color:var(--gold);background:rgba(232,192,122,.1)}
 .st-drop.has-file{border-style:solid}
-.st-src{min-height:140px;width:100%;resize:vertical;margin-top:8px}
+/* The editor is hidden behind a button, so when it IS open it can be
+   a real editor: tall enough to read a strategy in, monospaced,
+   and scrolled rather than wrapped so an indented block still
+   looks like one. 60vh is capped so the upload button stays on
+   screen - an editor you have to scroll past to submit is how a
+   trader concludes the page is broken. */
+.st-src{min-height:min(60vh,520px);width:100%;resize:vertical;margin-top:8px;
+  font-family:var(--mono,ui-monospace,SFMono-Regular,Menlo,Consolas,monospace);
+  font-size:12.5px;line-height:1.5;tab-size:4;white-space:pre;overflow:auto}
+.st-code{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:10px}
+.st-code-note{opacity:.75}
 
 @media (max-width:1200px){
   .top{

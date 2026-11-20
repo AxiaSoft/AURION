@@ -4864,8 +4864,8 @@ function patchStrategyLive() {
     }
   });
   const sig = S.snap?.last_signal;
-  const pill = $("st-live-sig");
-  if (pill && sig) pill.textContent = `${sig.action || "—"} ${sig.symbol || ""}`;
+  /* No #st-live-sig any more - the strategies banner was removed, and
+     the per-strategy cards carry their own state. */
   const liveSig = $("live-signal");
   if (liveSig && sig) {
     const b = liveSig.querySelector("b");
@@ -5813,8 +5813,27 @@ function strategyUploadCard() {
       </label>
       <input class="ctrl" id="st-file" placeholder="my_strategy.py"
              aria-label="${esc(I18N.t("strategies.file_name"))}" />
-      <textarea id="st-src" class="ctrl st-src" placeholder="# Python strategy"
-                aria-label="${esc(I18N.t("strategies.source"))}"></textarea>
+      <!-- The editor is behind a button now, and it is a full-height
+           editor when it is open.
+           A permanently-open code box is most of the page on a laptop,
+           and on the overwhelmingly common path - drop a .py in, press
+           upload - nobody ever types in it. It was also too short to
+           read a real strategy in, so the one trader who did want to
+           look at the code got a four-line porthole onto four hundred
+           lines. Collapsed by default, opened by the button, opened
+           automatically whenever there is something to look at: a file
+           was dropped, the template was fetched, or an existing
+           strategy is being edited. -->
+      <div class="st-code">
+        <button type="button" class="btn tiny ghost" id="st-code-btn"
+                aria-expanded="false" aria-controls="st-code-wrap">${I18N.t("strategies.view_code")}</button>
+        <span class="sub st-code-note" id="st-code-note"></span>
+      </div>
+      <div id="st-code-wrap" hidden>
+        <textarea id="st-src" class="ctrl st-src" placeholder="# Python strategy"
+                  spellcheck="false" wrap="off"
+                  aria-label="${esc(I18N.t("strategies.source"))}"></textarea>
+      </div>
       <div class="row" style="margin-top:10px;align-items:center;gap:8px">
         <button class="btn" id="st-up" type="button">${I18N.t("strategies.upload")}</button>
         <a class="btn tiny ghost" id="st-cancel" href="#" hidden>${I18N.t("strategies.cancel")}</a>
@@ -5915,6 +5934,39 @@ function setStrategyEditMode(name, source, file) {
   restoreStrategyEditor(true);
 }
 
+/* Open or close the code editor, and say which it is.
+ *
+ * One function, called from the button, from the file drop, from the
+ * template fetch and from "edit this strategy", so the button label,
+ * the aria state and the panel can never disagree about whether the
+ * editor is open - which is what happens when four callers each flip
+ * the hidden attribute themselves. */
+function setStrategyCodeOpen(open) {
+  const wrap = $("st-code-wrap");
+  const btn = $("st-code-btn");
+  if (!wrap || !btn) return;
+  const want = Boolean(open);
+  wrap.hidden = !want;
+  btn.setAttribute("aria-expanded", want ? "true" : "false");
+  btn.textContent = I18N.t(want ? "strategies.hide_code" : "strategies.view_code");
+  if (want) $("st-src")?.focus();
+}
+
+function strategyCodeIsOpen() {
+  const wrap = $("st-code-wrap");
+  return Boolean(wrap && !wrap.hidden);
+}
+
+/** Lines of code waiting in the editor, for the note beside the button. */
+function paintStrategyCodeNote() {
+  const note = $("st-code-note");
+  if (!note) return;
+  const src = $("st-src")?.value || "";
+  note.textContent = src.trim()
+    ? I18N.t("strategies.code_lines", { n: String(src.split("\n").length) })
+    : "";
+}
+
 function restoreStrategyEditor(refill) {
   const els = strategyEditorEls();
   if (!els.up) return;
@@ -5930,6 +5982,11 @@ function restoreStrategyEditor(refill) {
     if (!name) els.src.value = "";
   }
   if (els.msg) els.msg.textContent = name ? `${I18N.t("strategies.editing")}: ${name}` : "";
+  // Editing a strategy is the one case where the code IS the task, so
+  // the editor opens itself; leaving the uploader closes it again.
+  if (name) setStrategyCodeOpen(true);
+  else if (strategyCodeIsOpen() && !(els.src && els.src.value.trim())) setStrategyCodeOpen(false);
+  paintStrategyCodeNote();
 }
 
 async function startStrategyEdit(name) {
@@ -6528,6 +6585,32 @@ function robotPanelHtml() {
         <h3 class="card-h">${I18N.t("money.title")}</h3>
         <p class="sub">${I18N.t("money.help")}</p>
         <hr class="set-rule" />
+        <!-- Automatic money management.
+             A fixed amount of money, typed once, is the one risk
+             setting guaranteed to be wrong later: the account that was
+             1 000 is 1 600, or it is 700, and the number the trader
+             chose when they set the desk up no longer means what they
+             meant by it. Automatic mode states the rule the way a
+             trader actually holds it in their head - "I risk one
+             percent" - and recomputes the cap from live equity for
+             every ticket. The fixed field stays, because somebody
+             trading a fixed stake wants a fixed stake. -->
+        <div class="tabs" id="money-mode-tabs">
+          <button type="button" data-mmode="fixed" class="${moneyMode(money) === "fixed" ? "on" : ""}">${I18N.t("money.mode_fixed")}</button>
+          <button type="button" data-mmode="auto" class="${moneyMode(money) === "auto" ? "on" : ""}">${I18N.t("money.mode_auto")}</button>
+        </div>
+        <div id="money-auto" ${moneyMode(money) === "auto" ? "" : "hidden"}>
+          <label class="field num-field">
+            <span>${I18N.t("money.risk_pct")}</span>
+            <span class="num-wrap">
+              <input id="st-money-pct" type="number" step="0.05" min="0.05" max="10"
+                     value="${Number(money.risk_pct ?? 1)}" />
+              <b class="num-unit">${I18N.t("money.pct_of_equity")}</b>
+            </span>
+          </label>
+          <p class="sub" id="st-money-auto-note">${esc(moneyAutoNote(money))}</p>
+        </div>
+        <div id="money-fixed" ${moneyMode(money) === "auto" ? "hidden" : ""}>
         <label class="field num-field">
           <span>${I18N.t("money.cap")}</span>
           <span class="num-wrap">
@@ -6548,10 +6631,11 @@ function robotPanelHtml() {
           <button type="button" data-scope="lot" class="${moneyScope(money) === "lot" ? "on" : ""}">${I18N.t("money.scope_lot", { lot: fmtLot(moneyRefLot(money)) })}</button>
         </div>
         <p class="sub" id="st-money-ref">${esc(moneyScopeNote(money))}</p>
+        </div>
         <p class="sub" id="st-money-reach">${esc(moneyReach(money))}</p>
         <p class="sub" id="st-money-at-lot">${esc(moneyAtLot(money))}</p>
         <button class="btn tiny" id="st-money-save" type="button">${I18N.t("money.save")}</button>
-        <p class="sub">${I18N.t("money.zero_off")}</p>
+        <p class="sub" id="st-money-off-note">${I18N.t(moneyMode(money) === "auto" ? "money.auto_always_on" : "money.zero_off")}</p>
       </div>
 
       <div class="card">
@@ -6617,6 +6701,37 @@ function moneyRefLot(money) {
  * Unknown reads as "trade". A desk that cannot tell which rule the
  * engine is applying must not draw the one that understates risk.
  */
+function moneyMode(money) {
+  return String((money || {}).mode || "").toLowerCase() === "auto" ? "auto" : "fixed";
+}
+
+/* What automatic mode is doing right now, in one sentence.
+ *
+ * Three different states, and they must not be collapsed: the normal
+ * case (a percentage of a known equity), the prop case (the profile
+ * asked for less and won), and the case where the account has not
+ * reported equity yet - where the engine is holding the last cap it
+ * computed rather than dropping the rule. The last one is the one a
+ * trader has to be told about, because a cap that is not being
+ * recomputed looks exactly like one that is. */
+function moneyAutoNote(money) {
+  money = money || {};
+  const asked = Number(money.risk_pct || 0);
+  const live = Number(money.risk_pct_effective || asked);
+  const cap = Number(money.max_loss_per_lot || 0);
+  if (money.auto_held) return I18N.t("money.auto_held", { m: fmtMoney(cap, money.currency) });
+  const equity = Number(money.equity || 0);
+  if (!(equity > 0)) return I18N.t("money.auto_no_equity");
+  const base = I18N.t("money.auto_now", {
+    p: fmtNum(live, 2),
+    e: fmtMoney(equity, money.currency),
+    m: fmtMoney(cap, money.currency),
+  });
+  return live + 1e-9 < asked
+    ? base + " " + I18N.t("money.auto_prop", { p: fmtNum(asked, 2) })
+    : base;
+}
+
 function moneyScope(money) {
   return String((money || {}).scope || "").toLowerCase() === "lot" ? "lot" : "trade";
 }
@@ -6662,9 +6777,31 @@ function fmtLot(v) {
  */
 function liveMoney(saved) {
   const picked = document.querySelector("#money-scope-tabs button.on");
-  return {
+  const mode = document.querySelector("#money-mode-tabs button.on");
+  const base = {
     ...((S.snap && S.snap.strategy && S.snap.strategy.money) || {}),
     ...(saved || {}),
+  };
+  if (mode && mode.dataset.mmode === "auto") {
+    // Preview the automatic cap from the field being typed in, the
+    // same arithmetic the engine does, so the sentence under the box
+    // answers "what would this do" before anything is saved.
+    const pct = Number($("st-money-pct")?.value || 0);
+    const equity = Number(base.equity || 0);
+    const live = base.risk_pct_effective != null && Number(base.risk_pct_effective) < pct
+      ? Number(base.risk_pct_effective) : pct;
+    return {
+      ...base,
+      mode: "auto",
+      scope: "trade",
+      risk_pct: pct,
+      risk_pct_effective: live,
+      max_loss_per_lot: equity > 0 ? Math.round(equity * live) / 100 : Number(base.max_loss_per_lot || 0),
+    };
+  }
+  return {
+    ...base,
+    mode: "fixed",
     max_loss_per_lot: Number($("st-money-cap")?.value || 0),
     // The scope the trader is looking at, not the one last saved: the
     // preview exists to answer "what would this do", and the two differ
@@ -8024,21 +8161,22 @@ const views = {
     return `<div class="cmd" id="cal-root"><div class="empty">${esc(I18N.t("telegram.loading"))}</div></div>`;
   },
   strategies() {
-    const st = S.snap?.strategy || {};
-    const sig = S.snap?.last_signal;
-    /* Wrapped in .cmd like every other view. Without it the three blocks
-       were loose in the page and leaned on sibling margins to space
-       themselves, which is what left the banner sitting at a different
-       distance from the cards than the cards sit from each other. */
+    /* The "live strategy status" banner is gone, by request.
+     *
+     * It was a card across the top repeating three things the page
+     * already shows: whether auto-trade is armed (the switch is on
+     * the execution page and in the header), the trade style (a
+     * setting), and the last signal as a pill - which every strategy
+     * card below states for itself, per strategy, with the reason.
+     * A summary that agrees with the detail underneath it is a line
+     * the eye has to check and discard; when it disagrees, because
+     * the pill showed whichever strategy spoke last, it is worse
+     * than nothing. Removed outright rather than hidden: a banner
+     * left behind as dead markup is how a page grows one back.
+     *
+     * Wrapped in .cmd like every other view, so the blocks space
+     * themselves instead of leaning on sibling margins. */
     return `<div class="cmd">
-      <div class="card auto-banner">
-        <div>
-          <h3 style="margin:0 0 6px">${I18N.t("strategies.live")}</h3>
-          <p class="sub">${st.auto_trade ? I18N.t("exec.auto_on") : I18N.t("exec.auto_off")} · ${I18N.t("style.title")}: ${I18N.t("style." + (st.trade_style||"normal"))}</p>
-          <p class="sub" style="opacity:.85">${I18N.t("strategies.single_rule")}</p>
-        </div>
-        <span class="pill" id="st-live-sig">${sig ? `${sig.action||"—"} ${sig.symbol||""}` : I18N.t("strategies.waiting")}</span>
-      </div>
       <div class="grid g-2" id="st-live-grid">${strategyLiveCards()}</div>
       ${strategyFaultCards()}
       ${strategyUploadCard()}
@@ -11049,6 +11187,10 @@ async function takeStrategyFile(file) {
     return;
   }
   if ($("st-src")) $("st-src").value = text;
+  // There is now something to look at, so offer it rather than hiding
+  // the file the trader just chose behind a button.
+  setStrategyCodeOpen(true);
+  paintStrategyCodeNote();
   const hint = $("st-drop-name");
   if (hint) hint.textContent = `${file.name} · ${(file.size / 1024).toFixed(1)} KB`;
   toast(I18N.t("strategies.file_ready", { name: file.name }));
@@ -11099,11 +11241,23 @@ function bindStrategyUpload() {
       const r = await API.get("/api/strategies/template");
       if (r.ok) {
         if ($("st-src")) $("st-src").value = r.data;
+        setStrategyCodeOpen(true);
+        paintStrategyCodeNote();
         const blob = new Blob([r.data], { type: "text/x-python" });
         const a = document.createElement("a");
         a.href = URL.createObjectURL(blob); a.download = "aurion_strategy_template.py"; a.click();
       }
     };
+  }
+  const code = $("st-code-btn");
+  if (code && !code._bound) {
+    code._bound = true;
+    code.onclick = () => setStrategyCodeOpen(!strategyCodeIsOpen());
+  }
+  const src = $("st-src");
+  if (src && !src._bound) {
+    src._bound = true;
+    src.addEventListener("input", paintStrategyCodeNote);
   }
   const up = $("st-up");
   if (up && !up._bound) {
@@ -11414,7 +11568,29 @@ function bindRobotPanel() {
     if (unit) unit.textContent = moneyUnit(live);
     const note = $("st-money-ref");
     if (note) note.textContent = moneyScopeNote(live);
+    // Automatic mode: which half of the card is showing, and the
+    // sentence that says what the percentage currently works out to.
+    const auto = moneyMode(live) === "auto";
+    if ($("money-auto")) $("money-auto").hidden = !auto;
+    if ($("money-fixed")) $("money-fixed").hidden = auto;
+    if ($("st-money-auto-note")) $("st-money-auto-note").textContent = moneyAutoNote(live);
+    if ($("st-money-reach")) $("st-money-reach").textContent = moneyReach(live);
+    if ($("st-money-off-note")) {
+      $("st-money-off-note").textContent = I18N.t(auto ? "money.auto_always_on" : "money.zero_off");
+    }
   };
+  const modeTabs = $("money-mode-tabs");
+  if (modeTabs) modeTabs.onclick = (e) => {
+    const b = e.target.closest("button[data-mmode]");
+    if (!b) return;
+    [...modeTabs.querySelectorAll("button")].forEach((x) => x.classList.toggle("on", x === b));
+    repaintMoney();
+  };
+  const moneyPct = $("st-money-pct");
+  if (moneyPct) {
+    moneyPct.addEventListener("input", () => repaintMoney());
+    moneyPct.addEventListener("change", () => repaintMoney());
+  }
   /* Changing the scope does not save it - Save does. It repaints,
      because the number beside the field means something different
      under each reading and showing the old meaning next to the new
@@ -11435,15 +11611,21 @@ function bindRobotPanel() {
   if (moneySave) moneySave.onclick = async () => {
     const field = $("st-money-cap");
     const picked = document.querySelector("#money-scope-tabs button.on");
+    const mode = document.querySelector("#money-mode-tabs button.on");
+    const auto = Boolean(mode && mode.dataset.mmode === "auto");
     const r = await API.post("/api/money", {
       max_loss_per_lot: +(field?.value || 0),
       scope: picked ? picked.dataset.scope : "trade",
+      mode: auto ? "auto" : "fixed",
+      ...(auto ? { risk_pct: +($("st-money-pct")?.value || 0) } : {}),
     });
     if (!r.ok) { toast(r.error || I18N.t("errors.generic")); return; }
     const reach = $("st-money-reach");
     if (reach) reach.textContent = moneyReach(r.money || {});
     repaintMoney(r.money || {});
-    toast(I18N.t(Number(r.money?.max_loss_per_lot) ? "money.saved" : "money.saved_off"));
+    toast(I18N.t(auto
+      ? "money.saved_auto"
+      : (Number(r.money?.max_loss_per_lot) ? "money.saved" : "money.saved_off")));
     await reloadSettings();
   };
 

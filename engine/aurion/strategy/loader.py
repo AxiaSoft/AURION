@@ -171,6 +171,14 @@ class StrategyLoader:
         # Outside the installation on purpose. See the class docstring.
         self.vault = DATA_DIR / "strategies"
         self.loaded: dict[str, Any] = {}
+        # Why each file that will not load will not load, keyed by stem.
+        #
+        # list() used to answer {"loaded": False} and nothing else, so a
+        # file with a fault in it and a file the trader had simply left
+        # switched off were the same row on the desk. The sentence is
+        # already built - load_path turns every failure into one - it
+        # was just thrown away with the exception.
+        self.failures: dict[str, str] = {}
         try:
             self.sync_vault()
         except Exception:
@@ -277,6 +285,9 @@ class StrategyLoader:
                     "path": str(path),
                     "loaded": path.stem in self.loaded,
                     "name": getattr(self.loaded.get(path.stem), "name", path.stem),
+                    # "" for a file that is merely not loaded; the
+                    # engine's own sentence for one that cannot be.
+                    "error": self._failures().get(path.stem, ""),
                 }
             )
         for key, inst in self.loaded.items():
@@ -377,6 +388,41 @@ class StrategyLoader:
             ) from exc
 
     def load_path(self, path: Path, params: dict[str, Any] | None = None) -> BaseStrategy:
+        """Import one strategy file, remembering why it would not import.
+
+        The refusal is recorded against the file's stem before it is
+        re-raised, so list() can hand the desk the same sentence the
+        caller gets. Without this the only place a load failure is ever
+        seen is the response to the upload that caused it: come back
+        tomorrow, and the file is on the list looking merely unused.
+        """
+        stem = Path(path).stem
+        failures = self._failures()
+        try:
+            inst = self._load_path(path, params)
+        except StrategyValidationError as exc:
+            failures[stem] = str(exc)
+            raise
+        except Exception as exc:                      # pragma: no cover - belt and braces
+            failures[stem] = f"{type(exc).__name__}: {exc}"
+            raise
+        failures.pop(stem, None)
+        return inst
+
+    def _failures(self) -> dict[str, str]:
+        """The per-file error memory, created on demand.
+
+        Built here rather than assumed from __init__ because loaders
+        are also raised with __new__ in places that set only the few
+        attributes they need; a missing dict must not turn "this file
+        has a syntax error" into AttributeError.
+        """
+        failures = getattr(self, "failures", None)
+        if not isinstance(failures, dict):
+            failures = self.failures = {}
+        return failures
+
+    def _load_path(self, path: Path, params: dict[str, Any] | None = None) -> BaseStrategy:
         """Import one strategy file and build the class inside it.
 
         Everything that can go wrong here comes back as

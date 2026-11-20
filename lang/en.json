@@ -350,7 +350,10 @@
     "file_name": "Strategy file name",
     "source": "Strategy source code",
     "broken_title": "A strategy file will not load",
-    "broken_hint": "The file is still in your strategies folder. Fix the code and upload it again, or delete it."
+    "broken_hint": "The file is still in your strategies folder. Fix the code and upload it again, or delete it.",
+    "view_code": "View code",
+    "hide_code": "Hide code",
+    "code_lines": "{n} lines"
   },
   "sys": {
     "tz_title": "Time zone",
@@ -459,7 +462,17 @@
     "scope_trade": "Per trade",
     "scope_lot": "Per {lot} lot",
     "scope_trade_note": "The number is the most a single trade may lose, at any size. If the lot you asked for would risk more than that over the stop you drew, the lot is reduced and the stop is left exactly where it is.",
-    "scope_lot_note": "The number is quoted against a {lot} lot and scales with the size: at ten times that lot, a trade may lose ten times the number. Choose this only if you want your risk to grow with your size."
+    "scope_lot_note": "The number is quoted against a {lot} lot and scales with the size: at ten times that lot, a trade may lose ten times the number. Choose this only if you want your risk to grow with your size.",
+    "mode_fixed": "Fixed amount",
+    "mode_auto": "Automatic",
+    "risk_pct": "Risk per trade",
+    "pct_of_equity": "% of equity",
+    "auto_now": "{p}% of {e} is {m} — that is the most one trade may lose, recomputed from the account before every order.",
+    "auto_prop": "Asked for {p}%, held lower by the prop profile's max risk per trade.",
+    "auto_held": "The account has not reported equity yet, so the last computed cap of {m} is still being applied. The rule is not off.",
+    "auto_no_equity": "Waiting for the account. Until equity is reported the fixed amount below is used, so the rule is never silently off.",
+    "auto_always_on": "Automatic mode is always on: there is no zero. To turn the rule off, switch to a fixed amount and set it to 0.",
+    "saved_auto": "Automatic money management saved."
   },
   "exec": {
     "title": "Execution",
