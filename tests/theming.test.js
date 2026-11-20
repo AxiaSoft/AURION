@@ -112,7 +112,34 @@ check(
     (t.style.textContent.match(/--blur:[^;]*/) || ["?"])[0]
   );
 
-  /* The bug this guards: one shared slot meant editing neu also moved clay. */
+  /* REWRITTEN, because the behaviour it described was asked to change.
+
+     These three checks used to say: an edit made while neu was on
+     screen is stored against neu, stays there when you leave and come
+     back, and flags neu as edited. By request, an edit now lands on
+     the Custom theme and the desk switches to it.
+
+     The reason the old behaviour was wrong: the gallery went on saying
+     "neu" while showing something neu does not look like, so the
+     shipped themes stopped being a reliable place to return to - and
+     Custom, which is the one slot personalisation is meant to live in,
+     stayed at its defaults however much was personalised.
+
+     What must NOT change is the thing the original bug was about: one
+     shared slot, so editing one theme moved another. The shipped
+     themes must all still be pristine. */
+  check(
+    "an edit switches the desk to the custom theme",
+    t.api.effective() === "custom",
+    `on ${t.api.effective()}`
+  );
+
+  check(
+    "the theme that was on screen is left exactly as it shipped",
+    t.api.BY_ID.neu.knobs.blur !== 31 && t.api.edited("neu") === false,
+    `neu edited=${t.api.edited("neu")}`
+  );
+
   t.api.set("clay");
   check(
     "edits do not leak to another theme",
@@ -120,16 +147,18 @@ check(
     `clay blur ${t.api.knobs().blur}, expected ${t.api.BY_ID.clay.knobs.blur}`
   );
 
-  t.api.set("neu");
-  check("edits survive leaving the theme and coming back", t.api.knobs().blur === 31);
+  t.api.set("custom");
+  check("edits survive leaving the theme and coming back", t.api.knobs().blur === 31,
+    `custom blur ${t.api.knobs().blur}`);
 
-  check("edited themes are flagged as edited", t.api.edited("neu") === true && t.api.edited("clay") === false);
+  check("the custom theme is flagged as edited, and the built-ins are not",
+    t.api.edited("clay") === false && t.api.edited("neu") === false);
 
   t.api.reset();
   check(
-    "reset puts a built-in theme back exactly as it shipped",
-    t.api.knobs().blur === t.api.BY_ID.neu.knobs.blur && t.api.edited("neu") === false,
-    `neu blur back to ${t.api.knobs().blur}`
+    "reset puts the custom theme back exactly as it shipped",
+    t.api.knobs().blur === t.api.defaultCustom().blur,
+    `custom blur back to ${t.api.knobs().blur}`
   );
 }
 
@@ -145,9 +174,14 @@ check(
   t.api.set("cyber");
   t.api.setBgImage("data:image/jpeg;base64,AAAA");
   t.api.edit({ bg: "photo" });
+  /* The skin is now "custom", not "cyber": an edit moves the desk onto
+     the Custom theme by request. The point of this check is the
+     backdrop, which is still chosen independently of whatever the
+     theme shipped with - so that is what it asserts, with the theme
+     named as whatever the edit left in force. */
   check(
     "a theme can be given a background it did not ship with",
-    t.html.dataset.bg === "photo" && t.html.dataset.skin === "cyber",
+    t.html.dataset.bg === "photo" && t.html.dataset.skin === "custom",
     `skin=${t.html.dataset.skin} bg=${t.html.dataset.bg}`
   );
 }

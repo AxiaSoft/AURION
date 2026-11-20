@@ -286,7 +286,14 @@ check("on a dark desk every colour and knob still takes", () => {
   T.edit({ page: "#123456", panel: "#654321", ink: "#abcdef", candle_up: "#00ff00", radius: 4 });
   const k = T.knobs();
   const c = T.colours(T.effective());
-  if (c.page !== "#123456") throw new Error("page did not take on a dark desk: " + c.page);
+  /* `page` is deliberately not checked any more - the page-background
+     control was removed by request, and a value offered for it is now
+     dropped rather than stored. It is still PASSED above, on purpose:
+     an old desk can have one in storage, and the check below proves
+     that a stray page value neither takes effect nor derails the
+     colours sent alongside it. */
+  if (c.page) throw new Error("the retired page colour was honoured: " + c.page);
+  if (c.panel !== "#654321") throw new Error("panel did not take on a dark desk: " + c.panel);
   if (c.candle_up !== "#00ff00") throw new Error("candle_up did not take: " + c.candle_up);
   if (k.radius !== 4) throw new Error("radius did not take: " + k.radius);
   return "all applied";
@@ -301,6 +308,9 @@ check("on a light desk the page, panel, ink and candle edits do not apply", () =
   for (const key of ["page", "panel", "ink", "candle_up", "candle_down"]) {
     if (c[key]) throw new Error(key + " is customisable in light mode (" + c[key] + ")");
   }
+  /* "page" stays in that list even though its control is gone - in
+     light mode it must be absent for both reasons at once, and a key
+     that is retired is exactly the sort that leaks back. */
   return "all five held back";
 });
 
@@ -337,12 +347,16 @@ check("nothing is deleted - a dark-desk theme survives a trip through light", ()
      who flips to light for an hour must not lose an afternoon's work. */
   const win = themeModule("dark");
   const T = win.AurionTheme;
-  T.edit({ page: "#123456", radius: 4 });
+  /* Carried on `panel` now rather than `page`: the page-background
+     control is gone, so a page value is dropped on read and would make
+     this check fail for a reason that has nothing to do with the lock
+     it is guarding. */
+  T.edit({ panel: "#123456", radius: 4 });
   win.document.documentElement.dataset.theme = "light";
-  if (T.colours(T.effective()).page) throw new Error("the edit applied in light mode");
+  if (T.colours(T.effective()).panel) throw new Error("the edit applied in light mode");
   win.document.documentElement.dataset.theme = "dark";
   const c = T.colours(T.effective());
-  if (c.page !== "#123456") throw new Error("the edit was lost on the way back: " + c.page);
+  if (c.panel !== "#123456") throw new Error("the edit was lost on the way back: " + c.panel);
   if (T.knobs().radius !== 4) throw new Error("the knob was lost on the way back");
   return "held, then restored";
 });

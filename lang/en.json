@@ -1765,8 +1765,6 @@
     "bg_custom": "Your picture",
     "colours_title": "Colours",
     "colours_hint": "Recolour the whole interface without leaving this theme. Panels are built from one colour so the layers keep their separation — picking every shade by hand is how a theme ends up flat.",
-    "c_page": "Page",
-    "c_page_hint": "Behind everything.",
     "c_panel": "Panels",
     "c_panel_hint": "Cards, fields and menus.",
     "c_ink": "Text",
@@ -1827,7 +1825,8 @@
     "wall_missing_path": "Tried: {path}",
     "wall_theme_none": "This theme has no picture",
     "wall_aurion": "AURION",
-    "bg_picture": "Background picture"
+    "bg_picture": "Background picture",
+    "wall_mine": "Your picture"
   },
   "ea": {
     "title": "Expert Advisors (MetaTrader 5)",

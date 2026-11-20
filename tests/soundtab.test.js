@@ -143,7 +143,22 @@ check(
   t.api.edit({ page: "#101820", panel: "#1b2530", ink: "#eef4ff", font: "mono" });
   const out = t.style.textContent;
 
-  check("the page colour can be changed from the builder", /--bg:#101820/.test(out));
+  /* REVERSED. This used to assert that the page colour could be set
+     from the builder. The control was removed by request, and the
+     check is kept pointing the other way so that putting it back is a
+     decision someone makes with the reason in front of them.
+
+     Why it went: panel and ink are judged against a known backdrop and
+     a bad pair trips the contrast warning. The page colour IS that
+     backdrop - matched to the panel it dissolves every card, matched to
+     the ink it takes the text - and the control for undoing it lives on
+     a card the bad choice has just made invisible.
+
+     A value left in storage by an older build must be dropped too, not
+     merely unread: an ignored key is one rediscovery away from being
+     honoured again. */
+  check("a page colour is not published, even when one is asked for",
+    !/--bg:#101820/.test(out), (out.match(/--bg:[^;]*/) || ["none"])[0]);
   check(
     "panels are rebuilt as a ladder, not as one flat colour",
     /--s1:/.test(out) && /--s9:/.test(out) &&
@@ -171,10 +186,15 @@ check(
 
   /* The knobs and the colours share one declaration block; a missing
      separator silently voids the declaration on either side of it. */
+  /* --bg was the first declaration the colour half used to emit; with
+     the page control gone the panel ladder is, so the join is checked
+     against --s1 instead. The property being guarded is unchanged: a
+     missing semicolon here silently voids the declaration on both
+     sides of it. */
   check(
     "the published rule is well formed where the knobs meet the colours",
-    /--motion-scale:[\d.]+;--bg:/.test(t.style.textContent),
-    (t.style.textContent.match(/--motion-scale:[^;]*;--bg/) || ["missing"])[0]
+    /--motion-scale:[\d.]+;--s1:/.test(t.style.textContent),
+    (t.style.textContent.match(/--motion-scale:[^;]*;--[a-z0-9-]+/) || ["missing"])[0]
   );
 
   check(
@@ -198,9 +218,19 @@ check(
   );
   check(
     "colour and font strings are translated",
-    ["colours_title", "c_page", "c_panel", "c_ink", "c_clear", "font_title", "contrast_warn"]
+    /* c_page is gone, deliberately. The page-background control was
+       removed by request: it is the one colour with no safety net,
+       because it IS the backdrop everything else is judged against,
+       and the control for undoing a bad choice sits on a card that the
+       bad choice has just made invisible. */
+    ["colours_title", "c_panel", "c_ink", "c_clear", "font_title", "contrast_warn"]
       .every((k) => [en, fa, ar].every((d) => d.themes[k])),
     "all present"
+  );
+  check(
+    "the page-background strings went with the control",
+    [en, fa, ar].every((d) => !d.themes.c_page && !d.themes.c_page_hint),
+    "no orphans left in the packs"
   );
 }
 

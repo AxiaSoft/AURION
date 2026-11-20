@@ -1162,7 +1162,15 @@ function themeBuilderHtml() {
      Each tile is the picture itself at thumbnail size, in the cut that
      matches the mode in force - so what you see on the tile is what lands
      on the desk. */
-  const wallNow = AurionTheme.wall(current);
+  /* The trader's own picture counts as the selected wallpaper whenever
+     it is the backdrop in force. Without this the uploaded picture is
+     on screen and no tile is marked, so the gallery says "nothing
+     chosen" about the very thing being looked at - and clicking the
+     tile a second time after a reload did nothing, because as far as
+     the row was concerned it had never been chosen. */
+  const picked = AurionTheme.knobs().bg === "photo" && AurionTheme.getBgImage()
+    ? "photo" : AurionTheme.wall(current);
+  const wallNow = picked;
   const lightNow = document.documentElement.dataset.theme === "light";
   /* The cut is part of the picture's NAME - "Aurora Dark" - rather than a
      badge stamped across the artwork. A label printed over the thumbnail
@@ -1198,12 +1206,26 @@ function themeBuilderHtml() {
      and Custom ship none, and the tile was then simply empty - which reads
      as a picture that failed to load rather than as a theme that has none.
      It says which it is. */
+  /* The trader's own picture, as a tile among the rest.
+     Reported: after uploading a wallpaper the "no image" tile still
+     showed an empty square. It was not meant to show the picture - the
+     upload lives in a separate section further down - but that is not
+     how the row reads: a gallery of every background on offer, with the
+     one you just added missing from it. So it is here, selectable like
+     any other, and selected whenever it is the backdrop in force, which
+     is what makes it survive a reload. */
+  const mine = AurionTheme.getBgImage();
+  const mineTile = mine
+    ? wallTile("photo", I18N.t("themes.wall_mine"),
+        ` style="background-image:url(&quot;${esc(mine).replace(/"/g, "&quot;")}&quot;)"`)
+    : "";
   const wallTiles = [
     wallTile("",
       ownWall ? I18N.t("themes.wall_theme") : I18N.t("themes.wall_theme_none"),
       ownStyle, ownWall ? "" : " is-none"),
+    mineTile,
     wallTile("none", I18N.t("themes.wall_none"), "", " is-none"),
-  ].concat(AurionTheme.WALLPAPERS.flatMap((w) => {
+  ].filter(Boolean).concat(AurionTheme.WALLPAPERS.flatMap((w) => {
     const name = I18N.t("themes.wall_" + w);
     return [
       wallTile(`${w}@night`, `${name} ${darkLabel}`,
@@ -1272,7 +1294,13 @@ function themeBuilderHtml() {
           <h4>${esc(I18N.t("themes.colours_title"))}</h4>
           <p class="sub">${esc(I18N.t("themes.colours_hint"))}</p>
           <div class="col-rows">
-            ${colourRow("page", I18N.t("themes.c_page"), I18N.t("themes.c_page_hint"))}
+            <!-- No page-background row, by request. It was the one
+                 colour that could put the desk beyond rescue: panel and
+                 ink are drawn over a known backdrop and a bad pair trips
+                 the contrast warning, but the page colour IS the
+                 backdrop, and the control for undoing it sits on a card
+                 that has just become invisible. The backdrop mode, the
+                 wallpaper and the theme are what set it now. -->
             ${colourRow("panel", I18N.t("themes.c_panel"), I18N.t("themes.c_panel_hint"))}
             ${colourRow("ink", I18N.t("themes.c_ink"), I18N.t("themes.c_ink_hint"))}
           </div>
@@ -1531,8 +1559,21 @@ function bindThemesGallery() {
     if (walls) walls.onclick = (e) => {
       const b = e.target.closest("[data-wallpick]");
       if (!b) return;
-      AurionTheme.edit({ wall: b.dataset.wallpick });
-      markWallTiles();
+      if (b.dataset.wallpick === "photo") {
+        /* The trader's own picture is not a wallpaper id - it is the
+           "photo" backdrop. Both halves are set in one call: the
+           backdrop that draws it, and wall:none so a shipped
+           photograph is not left layered underneath it. */
+        AurionTheme.edit({ bg: "photo", wall: "none" });
+      } else {
+        /* Leaving the picture means leaving the picture backdrop too,
+           or the chosen wallpaper is set and nothing on screen changes
+           - which reads as a tile that does not work. */
+        const patch = { wall: b.dataset.wallpick };
+        if (AurionTheme.knobs().bg === "photo") patch.bg = "flat";
+        AurionTheme.edit(patch);
+      }
+      renderSettingsKnobs();
       verifyWallpaper();
       markThemeEdited();
     };
@@ -1779,7 +1820,9 @@ function bindBackgroundPicture() {
       AurionTheme.setBgImage(dataUrl);
       // Choosing a picture means wanting to see it; selecting the backdrop
       // by hand afterwards would be a step with only one sensible answer.
-      AurionTheme.edit({ bg: "photo" });
+      // wall:none goes with it, or whichever shipped photograph was
+      // already chosen stays layered over the one just uploaded.
+      AurionTheme.edit({ bg: "photo", wall: "none" });
       renderSettingsKnobs();
       toast(I18N.t("themes.bg_image_set"));
     }).catch(() => toast(I18N.t("themes.bg_image_bad")));
@@ -1905,7 +1948,13 @@ function markWallTiles() {
   const walls = $("knob-walls");
   if (!walls || !window.AurionTheme) return;
   const current = AurionTheme.effective();
-  const chosen = AurionTheme.wall(current);
+  /* The same rule the tiles were built with: the trader's own picture is
+     the "photo" backdrop rather than a wallpaper id, and when it is in
+     force it is the selected tile. Marking from wall() alone would
+     unmark it on every re-render and the gallery would claim nothing
+     was chosen while the picture was plainly on screen. */
+  const chosen = AurionTheme.knobs().bg === "photo" && AurionTheme.getBgImage()
+    ? "photo" : AurionTheme.wall(current);
   const light = document.documentElement.dataset.theme === "light";
   walls.querySelectorAll("[data-wallpick]").forEach((b) => {
     const value = b.dataset.wallpick;
@@ -1914,6 +1963,7 @@ function markWallTiles() {
     b.setAttribute("aria-checked", String(on));
     b.tabIndex = on ? 0 : -1;
     // "" is the theme's own picture, which is named after the theme itself.
+    if (value === "photo") return;   // painted from the data URL, not from a file on disk
     const name = value === "" ? AurionTheme.themeWall(current) : value;
     const url = AurionTheme.wallUrl(name, light);
     const art = b.querySelector(".wall-art");
