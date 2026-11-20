@@ -726,8 +726,8 @@ check("the light-mode console rule actually beats the skin layer", () => {
 
 check("the browser is forced to pick up every file that changed", () => {
   const html = read("index.html");
-  const want = ["js/skins.js?v=desk99", "js/themes.js?v=desk190", "js/app.js?v=desk250", "js/api.js?v=desk221",
-    "css/themes.css?v=desk197", "css/app.css?v=desk245", "css/skins.css?v=desk234",
+  const want = ["js/skins.js?v=desk99", "js/themes.js?v=desk191", "js/app.js?v=desk251", "js/api.js?v=desk221",
+    "css/themes.css?v=desk198", "css/app.css?v=desk246", "css/skins.css?v=desk234",
     /* The chart sheet changed too. Its files were not listed here, so
        a phone with the old chart-tools.js cached would have kept a
        grab bar that does not drag. */
@@ -738,12 +738,17 @@ check("the browser is forced to pick up every file that changed", () => {
        would answer setHeadGap with nothing at all. */
     "js/charts.js?v=desk237",
     "js/colorpicker.js?v=desk2",
+    /* The desk's own date and time pickers, new in this release: the
+       backtest range and the prop session hours no longer open a
+       browser widget. A cached index.html that never loaded the file
+       would leave both fields as buttons that do nothing. */
+    "js/datetime.js?v=desk1",
     /* The calendar grew the news reminder, and had been left at
        desk139 while everything around it moved - a cached copy would
        be a calendar with no reminder in it at all. */
-    "js/calendar.js?v=desk232"];
+    "js/calendar.js?v=desk233"];
   want.forEach((w) => { if (!html.includes(w)) throw new Error("index.html is missing " + w); });
-  if (!read("sw.js").includes("aurion-shell-v215")) throw new Error("the service worker cache was not bumped");
+  if (!read("sw.js").includes("aurion-shell-v216")) throw new Error("the service worker cache was not bumped");
 });
 
 /* ----------------------------------------------------------------- report */

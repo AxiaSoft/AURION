@@ -106,7 +106,7 @@ win.HTMLCanvasElement.prototype.getContext = () => noopCtx;
 
 const bundle = [
   "js/themes.js", "js/skins.js", "js/i18n.js", "js/api.js", "js/calendar.js",
-  "js/chart-series.js", "js/charts.js", "js/chart-tools.js", "js/pnl-charts.js", "js/app.js",
+  "js/chart-series.js", "js/charts.js", "js/chart-tools.js", "js/pnl-charts.js", "js/datetime.js", "js/app.js",
 ].map(read).join("\n;\n");
 win.eval(bundle + "\n;window.__T = { S, views, I18N, show };");
 const T = win.__T;

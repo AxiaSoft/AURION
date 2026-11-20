@@ -4336,20 +4336,13 @@ function openChartDesk(symbol, timeframe, opts) {
 }
 function closeChartDesk() {
   S.chartFocus = null;
-  S.chartFocusFull = false;
   /* Back must always land on the ordinary chart list, never on a
      fullscreen desk with no navigation. The workspace's own back button
      drops fullscreen before calling this, but it is not the only route
-     in -- closing from anywhere else has to be just as safe. */
-  try {
-    if (typeof AurionChartUI !== "undefined" && AurionChartUI.isFullscreen()) {
-      AurionChartUI.setFullscreen(false);
-    }
-  } catch (e) { /* non-fatal */ }
-  try {
-    if (document.fullscreenElement && document.exitFullscreen) document.exitFullscreen().catch(() => {});
-  } catch (e) { /* non-fatal */ }
-  document.body.classList.remove("chart-full");
+     in -- closing from anywhere else has to be just as safe, and so is
+     the EA dropping while the desk is fullscreen, which is why the
+     three ways out of fullscreen live in one function. */
+  leaveChartFullscreen();
   show("charts", { animate: true, closeMenu: false });
 }
 
@@ -4956,7 +4949,54 @@ function tapeMode() {
   if (eaLive()) return "live";
   return "idle";
 }
+/* The expert went away while the chart was filling the screen.
+ *
+ * Reported: "I disconnect the EA while I am in the chart; the chart goes
+ * and the desk is still fullscreen." Fullscreen is a chart mode - it
+ * hides the navigation, the header and the view head precisely because
+ * the chart is the only thing worth looking at. The moment there is no
+ * chart to look at, that bargain is off and the trader is left on a
+ * blank page with no way out but a reload.
+ *
+ * So the link is watched the way the kill switch is: one reactor, called
+ * with the state after the change, comparing against the last value it
+ * saw. Only the falling edge does anything, and only when the desk is
+ * actually in fullscreen - a trader who never opened one must not have
+ * their view rearranged because an expert dropped.
+ */
+function noteEaLink() {
+  const live = eaLive();
+  const was = S._eaLinkState;
+  S._eaLinkState = live;
+  if (was === undefined || was === live || live) return;
+  leaveChartFullscreen();
+}
+
+/** Drop every form of fullscreen the chart can be in. Safe to call twice. */
+function leaveChartFullscreen() {
+  let was = false;
+  try {
+    was = Boolean(document.body && document.body.classList.contains("chart-full"));
+  } catch (e) { /* non-fatal */ }
+  try {
+    if (typeof AurionChartUI !== "undefined" && AurionChartUI.isFullscreen()) {
+      was = true;
+      AurionChartUI.setFullscreen(false);
+    }
+  } catch (e) { /* non-fatal */ }
+  try {
+    if (document.fullscreenElement && document.exitFullscreen) {
+      was = true;
+      document.exitFullscreen().catch(() => {});
+    }
+  } catch (e) { /* non-fatal */ }
+  try { document.body.classList.remove("chart-full"); } catch (e) { /* non-fatal */ }
+  S.chartFocusFull = false;
+  return was;
+}
+
 function headerState() {
+  noteEaLink();
   const eng = $("st-engine");
   const mtEl = $("st-mt5");
   if (!eng || !mtEl) return;
@@ -5074,6 +5114,9 @@ function strategyStatsOf(name) {
 function strategyLabel(name) {
   const key = String(name || "").trim();
   if (!key || key === "desk" || key === "manual") return I18N.t("strategies.none");
+  // The backtest-only robot mode is not a strategy and its internal id
+  // would read as one in every place a run is titled.
+  if (key === "robot") return I18N.t("bt.robot_only");
   if (key.startsWith("@")) return key.slice(1);
   return key;
 }
@@ -5818,6 +5861,14 @@ function stState(it) {
 
 function stActClass(act) {
   return act === "buy" ? "up" : act === "sell" ? "down" : act === "blocked" ? "warn" : "";
+}
+
+// Was the robot-only mode the last thing picked in the backtest form?
+// Kept on S so a re-render (a new snapshot arrives roughly every
+// second) does not quietly put the dropdown back on a strategy the
+// trader did not choose.
+function btRobot() {
+  return S._btRobot === true;
 }
 
 function strategyItems() {
@@ -7248,23 +7299,31 @@ function propTime(id, labelKey, value, placeholder) {
   const sys = S.snap?.strategy?.system || {};
   const zone = String(sys.label || sys.timezone || "UTC");
 
-  // type="time" rather than a text box.
+  // The desk's own picker, not the browser's.
   //
-  // The browser then draws hours and minutes as two spinnable fields in
-  // the user's own locale, validates them, and refuses 25:70 - none of
-  // which a free-text box did. It was previously possible to save "7pm"
-  // or "07.00" and get a window that never opened, with nothing saying
-  // why.
+  // A free-text box let "7pm" and "07.00" through and gave a window
+  // that never opened, with nothing saying why. A native time input
+  // fixed that
+  // and introduced two problems of its own: it is drawn by the browser
+  // in the OS locale, so a Persian desk got an English widget, and in a
+  // WebView2 host it is a different control again from the one in Edge.
+  // AurionWhen draws hours and minutes in the product's own type, in
+  // the desk's language, and can only produce a real time - the value
+  // underneath is still "HH:MM" in an input of this id, so everything
+  // that reads or saves this field is unchanged.
   return `<label class="field num-field">
       <span>${I18N.t(labelKey)} <b class="tz-tag">${esc(zone)}</b></span>
       <span class="num-wrap">
-        <input id="${id}" type="time" step="60" value="${esc(normalTime(value, placeholder))}" />
+        ${AurionWhen.timeField({
+          id, value: normalTime(value, placeholder), step: 5,
+          label: I18N.t(labelKey),
+        })}
       </span>
       <small class="sub prop-at-broker" data-for="${id}">${esc(brokerEcho(value))}</small>
     </label>`;
 }
 
-/** "7:5" and "07.00" both mean 07:00; type="time" wants it spelled out. */
+/** "7:5" and "07.00" both mean 07:00; the picker wants it spelled out. */
 function normalTime(value, fallback) {
   const m = /^\s*(\d{1,2})\s*[:.]\s*(\d{1,2})\s*$/.exec(String(value ?? ""));
   if (!m) return fallback || "00:00";
@@ -8545,9 +8604,16 @@ const views = {
             <select class="ctrl" id="bt-tf">${["M1","M5","M15","M30","H1","H4","D1"].map((t)=>`<option ${t===(S.timeframe||"M15")?"selected":""}>${t}</option>`).join("")}</select>
           </label>
           <label class="field"><span>${I18N.t("strategies.active")}</span>
-            <select class="ctrl" id="bt-st">${stItems.map((it)=>`<option value="${esc(it.name)}" data-kind="${esc(it.kind || "builtin")}">${esc(it.name)}</option>`).join("")}</select>
+            <select class="ctrl" id="bt-st">
+              ${stItems.map((it)=>`<option value="${esc(it.name)}" data-kind="${esc(it.kind || "builtin")}">${esc(it.name)}</option>`).join("")}
+              <!-- The robot on its own. It is not a strategy and is not in
+                   the book, so it cannot come from strategyItems(); it is a
+                   replay-only mode the engine resolves from data-kind. -->
+              <option value="robot" data-kind="robot"${btRobot() ? " selected" : ""}>${esc(I18N.t("bt.robot_only"))}</option>
+            </select>
           </label>
         </div>
+        <p class="sub bt-robot-hint${btRobot() ? "" : " hidden"}" id="bt-robot-hint">${esc(I18N.t("bt.robot_hint"))}</p>
         ${backtestPeriodHtml()}
         <div class="row" style="margin-top:10px">
           <button class="btn" id="h-bt" type="button"${running || !items.length ? " disabled" : ""}>${running ? I18N.t("history.backtest_running") : I18N.t("history.backtest_run")}</button>
@@ -11036,6 +11102,15 @@ function bindView(view) {
       requestAnimationFrame(() => drawEquityCurve(btNow.equity_curve.map(Number).filter((x) => Number.isFinite(x))));
     }
     bindBacktestPeriod();
+    // Remember the robot-only choice and say what it means while it is
+    // selected. The form re-renders on every snapshot, so the selection
+    // has to live somewhere other than the DOM.
+    const stPick = $("bt-st");
+    if (stPick) stPick.onchange = () => {
+      S._btRobot = String(stPick.value || "") === "robot";
+      const hint = $("bt-robot-hint");
+      if (hint) hint.classList.toggle("hidden", !S._btRobot);
+    };
     const goBt = $("h-bt");
     if (goBt) goBt.onclick = () => {
       const stSel = $("bt-st");
@@ -12255,7 +12330,7 @@ function renderBacktestDone(bt) {
   const at = data.last_bar ? esc(String(data.last_bar)) : "";
   return `<div class="bt-live is-done">
     <div class="tape-banner is-backtest" style="margin:0 0 10px">
-      ${I18N.t("bt.done_window")} · ${esc(symbol)} ${esc(tf)} · ${esc(String(bt.strategy || ""))}
+      ${I18N.t("bt.done_window")} · ${esc(symbol)} ${esc(tf)} · ${esc(strategyLabel(bt.strategy))}
     </div>
     <div class="bt-live-chart">
       <canvas id="bt-replay"></canvas>
@@ -12345,12 +12420,25 @@ function backtestPeriodHtml() {
     <div class="pc-seg bt-span" id="bt-span" role="group" aria-label="${esc(I18N.t("bt.period"))}">
       ${BT_SPANS.map(chip).join("")}
     </div>
+    <!-- The desk's own pickers, not the browser's. Besides being drawn
+         in the product's own type and language, they are the only ones
+         that really enforce the bounds: a native date field's max
+         attribute stops its spinner and nothing else, which is how a run came to
+         be sent a range that ends after today or before it starts.
+         Here the days outside the allowed span are disabled, and
+         btDateBounds() narrows each field against the other. -->
     <div class="ct-grid ct-grid-2 bt-dates" id="bt-dates"${span === "custom" ? "" : " hidden"}>
       <label class="field"><span>${esc(I18N.t("bt.from"))}</span>
-        <input class="ctrl" type="date" id="bt-from" value="${esc(String(S._btFrom || ""))}" max="${esc(btDayKey(new Date()))}" />
+        ${AurionWhen.dateField({
+          id: "bt-from", value: String(S._btFrom || ""),
+          max: btDateBounds().fromMax, label: I18N.t("bt.from"),
+        })}
       </label>
       <label class="field"><span>${esc(I18N.t("bt.to"))}</span>
-        <input class="ctrl" type="date" id="bt-to" value="${esc(String(S._btTo || ""))}" max="${esc(btDayKey(new Date()))}" />
+        ${AurionWhen.dateField({
+          id: "bt-to", value: String(S._btTo || ""),
+          min: btDateBounds().toMin, max: btDateBounds().toMax, label: I18N.t("bt.to"),
+        })}
       </label>
     </div>
     <p class="sub bt-period-note" id="bt-period-note">${esc(btPeriodNote(span, r))}</p>
@@ -12363,6 +12451,35 @@ function btPeriodNote(span, r) {
   if (span === "custom" && (!r.from || !r.to)) return I18N.t("bt.period_pick");
   if (r.from && r.to && r.from > r.to) return I18N.t("bt.period_backwards");
   return I18N.t("bt.period_from_to", { from: r.from, to: r.to });
+}
+
+/**
+ * What the two custom-range fields are allowed to hold.
+ *
+ * Reported: a run could be given a start after its end, or dates in the
+ * future, and the only thing that said so was the engine answering "no
+ * bars in that period" - which reads as a data fault for what is really
+ * a typo. Two rules, and both of them are now facts about the fields
+ * rather than warnings after the fact:
+ *
+ *   * neither end may be later than today. There are no bars from
+ *     tomorrow, and a replay of the future is not a thing to allow and
+ *     then explain.
+ *   * the end may not be before the start. Expressed as bounds on each
+ *     field rather than a comparison afterwards, so the impossible day
+ *     cannot be chosen in the first place.
+ */
+function btDateBounds() {
+  const today = btDayKey(new Date());
+  const from = String(S._btFrom || "");
+  const to = String(S._btTo || "");
+  return {
+    // A start can be any past day, but never after the end that is
+    // already chosen.
+    fromMax: to && to < today ? to : today,
+    toMin: from || "",
+    toMax: today,
+  };
 }
 
 function paintBacktestPeriod() {
@@ -12378,6 +12495,13 @@ function paintBacktestPeriod() {
   }
   const dates = $("bt-dates");
   if (dates) dates.hidden = span !== "custom";
+  // The two fields bound each other, so every change renarrows the
+  // other one rather than leaving it open and catching it later.
+  if (typeof AurionWhen !== "undefined") {
+    const b = btDateBounds();
+    AurionWhen.setBounds("bt-from", "", b.fromMax);
+    AurionWhen.setBounds("bt-to", b.toMin, b.toMax);
+  }
   const note = $("bt-period-note");
   if (note) note.textContent = btPeriodNote(span, r);
 }
@@ -12390,9 +12514,19 @@ function bindBacktestPeriod() {
     S._btSpan = b.dataset.btspan;
     paintBacktestPeriod();
   };
+  if (typeof AurionWhen !== "undefined") AurionWhen.bind(document);
   const from = $("bt-from");
   const to = $("bt-to");
-  if (from) from.onchange = () => { S._btFrom = String(from.value || ""); paintBacktestPeriod(); };
+  if (from) from.onchange = () => {
+    S._btFrom = String(from.value || "");
+    /* Moving the start past the end drags the end with it rather than
+       leaving a range that cannot be run. */
+    if (S._btTo && S._btFrom && S._btTo < S._btFrom) {
+      S._btTo = S._btFrom;
+      AurionWhen.setValue("bt-to", S._btTo);
+    }
+    paintBacktestPeriod();
+  };
   if (to) to.onchange = () => { S._btTo = String(to.value || ""); paintBacktestPeriod(); };
 }
 
@@ -12416,7 +12550,7 @@ function renderBacktestLive(bt) {
 
   return `<div class="bt-live">
     <div class="tape-banner is-backtest" style="margin:0 0 10px">
-      ${I18N.t("bt.live_running")} · ${esc(symbol)} ${esc(tf)} · ${esc(String(bt.strategy || ""))}
+      ${I18N.t("bt.live_running")} · ${esc(symbol)} ${esc(tf)} · ${esc(strategyLabel(bt.strategy))}
     </div>
     <div class="bt-prog" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${pct}">
       <i style="width:${pct}%"></i><b class="mono">${pct}%</b>
@@ -12853,7 +12987,7 @@ function renderBacktestCard(bt) {
   if (!bt || (!bt.ok && !bt.error && bt.mode !== "backtest")) return "";
   if (!bt.ok) return `<p class="err">${esc(bt.error || I18N.t("errors.generic"))}</p>`;
   const m = bt.metrics || {};
-  return `<div class="tape-banner is-backtest" style="margin:12px 0 10px">${I18N.t("tape.showing_backtest")} · ${esc(bt.symbol || "")} ${esc(bt.timeframe || "")} · ${esc(bt.strategy || "")}</div>
+  return `<div class="tape-banner is-backtest" style="margin:12px 0 10px">${I18N.t("tape.showing_backtest")} · ${esc(bt.symbol || "")} ${esc(bt.timeframe || "")} · ${esc(strategyLabel(bt.strategy))}</div>
     <div class="kv">
       <span>${I18N.t("history.winrate")}</span><b>${fmt(m.win_rate)}%</b>
       <span>${I18N.t("history.pf")}</span><b>${fmt(m.profit_factor,2)}</b>
@@ -16445,6 +16579,11 @@ function showSupportLock(st) {
 
 async function boot() {
   bindChrome();
+
+  /* The desk's own date and time pickers. One delegated listener on the
+     document, so every field drawn by AurionWhen works on every view
+     and a re-render cannot leave a dead handler behind. */
+  if (typeof AurionWhen !== "undefined") AurionWhen.bind(document);
 
   /* The gate answers 403 to nearly everything once support has ended,
      and the body of that 403 carries the reason. Listening for it means

@@ -58,7 +58,7 @@ function boot() {
   win.URL.createObjectURL = () => "b:";
   win.AudioContext = class { createGain() { return { connect() {}, gain: {} }; } };
   const files = ["js/themes.js", "js/skins.js", "js/i18n.js", "js/api.js", "js/calendar.js",
-    "js/chart-series.js", "js/charts.js", "js/chart-tools.js", "js/pnl-charts.js", "js/app.js"];
+    "js/chart-series.js", "js/charts.js", "js/chart-tools.js", "js/pnl-charts.js", "js/datetime.js", "js/app.js"];
   win.eval(files.map(read).join("\n;\n")
     + ";window.__T={S,views,symbolFieldHtml,bindSymbolField,fillSymbolField,"
     + "applyChartSearch,bindChartSearch,symbolScore,symbolQuery,searchSymbols};");

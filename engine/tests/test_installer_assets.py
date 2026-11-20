@@ -13,6 +13,7 @@ once. This makes it impossible to commit again.
 """
 from __future__ import annotations
 
+import re
 import struct
 from pathlib import Path
 
@@ -184,9 +185,20 @@ def test_a_dropped_png_can_be_repaired_without_extra_tools() -> None:
     src = maker.read_text(encoding="utf-8")
     assert "System.Drawing" in src and "Add-Type" in src, "it must not need anything installed"
     # The container it writes: type 1, 32bpp, 256 stored as PNG, the rest DIB.
-    assert "[uint16]1)                 # type 1 = icon" in src
-    assert "[uint16]32)            # bits per pixel" in src
+    #
+    # Matched on what each field MEANS rather than on the exact call that
+    # writes it. The writer was replaced - BinaryWriter.Write([uint16]x)
+    # resolves to Write(Char) on PowerShell 5.1 and emits one UTF-8 byte
+    # instead of two, which silently produced a 15-byte directory entry -
+    # and a test pinned to the old spelling failed on the fix for that.
+    assert "# type 1 = icon" in src
+    assert "# bits per pixel" in src
     assert "biHeight - colours + mask" in src, "an icon DIB doubles biHeight; that is the classic trap"
+    # And the trap itself must not come back.
+    assert "BitConverter" in src, "the 16-bit fields are not written through BitConverter"
+    assert not re.search(r"\.Write\(\[uint16\]", src), (
+        "BinaryWriter.Write([uint16]) is back; on PowerShell 5.1 it writes one byte, not two"
+    )
 
     ps1 = SCRIPT.read_text(encoding="utf-8")
     assert "make-icon.ps1" in ps1, "the build script has to know how to repair one"

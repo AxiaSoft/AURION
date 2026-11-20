@@ -121,9 +121,28 @@ check("closing the workspace by any route also leaves fullscreen", () => {
   /* The back button is not the only way out, and landing on the chart
      list still in fullscreen is the exact bug that was reported. */
   const fn = /function closeChartDesk\(\) \{[\s\S]*?\n\}/.exec(appJs)[0];
-  if (!/setFullscreen\(false\)/.test(fn)) throw new Error("closeChartDesk does not leave fullscreen");
-  if (!/S\.chartFocusFull\s*=\s*false/.test(fn)) throw new Error("closeChartDesk does not clear the flag");
-  if (!/chart-full/.test(fn)) throw new Error("the desk's own fullscreen class is left behind");
+  if (!/leaveChartFullscreen\(\)/.test(fn)) {
+    throw new Error("closeChartDesk does not leave fullscreen");
+  }
+  /* The three ways out of fullscreen - the chart's own mode, the
+     browser's, and the desk's body class - live in one function now,
+     because closing the workspace is no longer the only caller: the EA
+     dropping while the chart fills the screen has to do exactly the
+     same thing, and two copies of this would have drifted. */
+  const helper = /function leaveChartFullscreen\(\) \{[\s\S]*?\n\}/.exec(appJs);
+  if (!helper) throw new Error("there is no shared way out of fullscreen");
+  const body = helper[0];
+  if (!/setFullscreen\(false\)/.test(body)) throw new Error("the chart is left in its own fullscreen");
+  if (!/exitFullscreen/.test(body)) throw new Error("the browser is left in fullscreen");
+  if (!/S\.chartFocusFull\s*=\s*false/.test(body)) throw new Error("the flag is never cleared");
+  if (!/chart-full/.test(body)) throw new Error("the desk's own fullscreen class is left behind");
+  /* And the EA's falling edge is wired to it, which is the fault that
+     was reported: "I disconnect the EA while I am in the chart; the
+     chart goes and the desk is still fullscreen." */
+  const note = /function noteEaLink\(\) \{[\s\S]*?\n\}/.exec(appJs);
+  if (!note || !/leaveChartFullscreen\(\)/.test(note[0])) {
+    throw new Error("nothing leaves fullscreen when the expert goes away");
+  }
 });
 
 /* ======================================================================
@@ -205,7 +224,7 @@ if (!jsdom) {
   win.URL.createObjectURL = () => "blob:stub";
   win.AudioContext = class { createGain() { return { connect() {}, gain: {} }; } };
 
-  const bundle = ["js/themes.js", "js/skins.js", "js/i18n.js", "js/api.js", "js/calendar.js", "js/charts.js", "js/app.js"]
+  const bundle = ["js/themes.js", "js/skins.js", "js/i18n.js", "js/api.js", "js/calendar.js", "js/charts.js", "js/datetime.js", "js/app.js"]
     .map((f) => read(f)).join("\n;\n");
   let T = null;
   try {

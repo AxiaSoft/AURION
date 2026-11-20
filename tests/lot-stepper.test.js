@@ -56,7 +56,7 @@ async function boot() {
   win.ResizeObserver = class { observe() {} unobserve() {} disconnect() {} };
   win.IntersectionObserver = class { observe() {} unobserve() {} disconnect() {} };
   win.AudioContext = class { constructor() { this.state = "running"; this.destination = {}; } resume() { return Promise.resolve(); } };
-  const bundle = ["js/themes.js", "js/skins.js", "js/i18n.js", "js/api.js", "js/calendar.js", "js/charts.js", "js/app.js"]
+  const bundle = ["js/themes.js", "js/skins.js", "js/i18n.js", "js/api.js", "js/calendar.js", "js/charts.js", "js/datetime.js", "js/app.js"]
     .map((f) => fs.readFileSync(path.join(WEB, f), "utf8")).join("\n;\n");
   win.eval(bundle + "\n;window.__T = { stepLotField, bindLotSteppers, S };");
   await new Promise((r) => setTimeout(r, 40));

@@ -44,7 +44,7 @@ function boot(reply){
  win.AudioContext=class{createGain(){return{connect(){},gain:{}}}};
  win.HTMLCanvasElement.prototype.getContext=()=>null;
  win.confirm=()=>false;
- const bundle=["js/themes.js","js/skins.js","js/i18n.js","js/api.js","js/calendar.js","js/chart-series.js","js/charts.js","js/chart-tools.js","js/pnl-charts.js","js/app.js"].map(read).join("\n;\n");
+ const bundle=["js/themes.js","js/skins.js","js/i18n.js","js/api.js","js/calendar.js","js/chart-series.js","js/charts.js","js/chart-tools.js","js/pnl-charts.js","js/datetime.js", "js/app.js"].map(read).join("\n;\n");
  win.eval(bundle+"\n;window.__T={S,views,I18N,bindView,API,showSetTab,checkForUpdate};");
  const T=win.__T;
  T.I18N.pack=JSON.parse(fs.readFileSync(path.join(ROOT,"lang","en.json"),"utf8"));

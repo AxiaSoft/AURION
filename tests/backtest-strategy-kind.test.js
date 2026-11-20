@@ -71,6 +71,12 @@ const render = (items) => {
     esc: (s) => String(s == null ? "" : s)
       .replace(/&/g, "&amp;").replace(/</g, "&lt;")
       .replace(/>/g, "&gt;").replace(/"/g, "&quot;"),
+    /* The picker carries one option the book does not: the robot on its
+       own, with no strategy underneath it. It is not a strategy and
+       cannot be armed, so it can never come from strategyItems(); it is
+       appended by the view and resolved by its data-kind. */
+    btRobot: () => false,
+    I18N: { t: (k) => (k === "bt.robot_only" ? "The robot alone (no strategy)" : k) },
   };
   vm.createContext(sandbox);
   return vm.runInContext("`" + tpl + "`", sandbox);
@@ -102,10 +108,20 @@ const pick = (html, value) => {
 
 /* --------------------------------------------------------- checks ---- */
 
-check("the picker lists every strategy in the book", () => {
+check("the picker lists every strategy in the book, plus the robot", () => {
   const got = pick(render(BOOK), "ema_rsi");
-  must(got.count === BOOK.length, `rendered ${got.count} options, expected ${BOOK.length}`);
+  must(got.count === BOOK.length + 1,
+    `rendered ${got.count} options, expected ${BOOK.length + 1} (the book plus the robot)`);
   return `${got.count} options`;
+});
+
+check("the robot is offered, and is not asked for as a strategy", () => {
+  const got = pick(render(BOOK), "robot");
+  must(got.name === "robot", "the robot option is missing: " + got.name);
+  /* Not "builtin": the loader raises on an unknown builtin name, so a
+     robot run has to be recognisable before anything looks it up. */
+  must(got.kind === "robot", `kind was "${got.kind}"`);
+  return "robot -> robot";
 });
 
 check("an uploaded strategy is reported as a file, not a builtin", () => {

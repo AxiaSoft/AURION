@@ -215,17 +215,31 @@ check("the month grid is not seven squares on a desktop", () => {
   if (!/aspect-ratio:\s*auto/.test(cell[1])) throw new Error("aspect-ratio is still 1/1: " + cell[1]);
 });
 
-check("the reminder and the legend sit under the month, not beside it", () => {
+/* This check used to say the opposite, and the reversal is deliberate.
+
+   The cards were moved under the month because the side column
+   narrowed the grid and ran taller than the page. The real fault was
+   the height, and the height is now locked: the news card is one size
+   on every day and scrolls inside itself. With that fixed the column
+   belongs beside the month again, because the day's news is what a
+   hover fills, and a preview under six rows of grid is a preview
+   nobody sees. */
+check("the news sits beside the month, with the grid still the wider half", () => {
   const rules = mediaRules("(min-width:1101px)");
   const main = rules.find(([sel]) => sel === ".cal-main");
-  if (!main) throw new Error(".cal-main still has the 330px side column at desktop width");
-  if (!/grid-template-columns:\s*minmax\(0,\s*1fr\)/.test(main[1])) {
-    throw new Error("still two columns: " + main[1]);
+  if (!main) throw new Error(".cal-main has no desktop rule at all");
+  const cols = /grid-template-columns:\s*([^;]+)/.exec(main[1]);
+  if (!cols || !/minmax\(0,\s*1fr\)\s+360px/.test(cols[1])) {
+    throw new Error("the news is not a side column: " + main[1]);
   }
   const aside = rules.find(([sel]) => sel === ".cal-aside");
-  if (!aside || !/flex-direction:\s*row/.test(aside[1])) {
-    throw new Error("the three cards are not a row under the month");
+  if (!aside || !/flex-direction:\s*column/.test(aside[1])) {
+    throw new Error("the cards are not stacked in that column");
   }
+  if (!/position:\s*sticky/.test(aside[1])) {
+    throw new Error("the column does not follow the month down the page");
+  }
+  return cols[1].trim();
 });
 
 /* The first attempt at "fit the month on one screen" is NOT what is
@@ -269,20 +283,24 @@ check("the dots sit at the foot of every cell, so a row lines up", () => {
    ones and big ones." Two different things sized that row: one card
    grew with its own content and another was capped by a
    max-block-size, so they could not match. */
-check("the three cards under the month are one height", () => {
+/* The complaint behind the original check - "some containers are small
+   and some are big" - was about three cards in a row disagreeing about
+   their height. They are a column now, so each one is as tall as what
+   it holds, and the only one that could run away is the news card.
+   That one is pinned to a single height, which is also what makes
+   hovering from day to day leave the page still. */
+check("the news card is one fixed height, whatever day is open", () => {
   const rules = mediaRules("(min-width:1101px)");
-  const kids = rules.find(([sel]) => sel === ".cal-aside>*");
-  if (!kids || !/align-self:\s*stretch/.test(kids[1])) {
-    throw new Error("the cards are not stretched to the row");
-  }
   const day = rules.find(([sel]) => sel === ".cal-day");
-  if (!day || !/max-block-size:\s*none/.test(day[1])) {
-    throw new Error("the day panel is still capped, so it cannot match its neighbours: " + (day ? day[1] : "no rule"));
+  if (!day) throw new Error("no desktop rule for the news card");
+  const h = /(?:^|;)\s*block-size:\s*([^;]+)/.exec(day[1]);
+  if (!h || /auto/.test(h[1])) {
+    throw new Error("the card is still sized by its contents: " + day[1]);
   }
+  if (!/max-block-size:/.test(day[1])) throw new Error("no ceiling either: " + day[1]);
   const evs = rules.find(([sel]) => sel === ".cal-day .cal-evs");
-  if (!evs || !/max-block-size:/.test(evs[1])) {
-    throw new Error("the cap has to move to the list inside the card, or a busy day grows the row");
-  }
+  if (!evs) throw new Error("the events list has no desktop rule, so nothing scrolls inside the card");
+  return h[1].trim();
 });
 
 check("the phone layout is left alone", () => {

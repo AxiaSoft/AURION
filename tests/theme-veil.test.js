@@ -68,7 +68,7 @@ function boot() {
   win.requestAnimationFrame = (fn) => rafQ.push(fn);
 
   const bundle = ["js/themes.js", "js/skins.js", "js/i18n.js", "js/api.js",
-                  "js/calendar.js", "js/charts.js", "js/app.js"].map(read).join("\n;\n");
+                  "js/calendar.js", "js/charts.js", "js/datetime.js", "js/app.js"].map(read).join("\n;\n");
   win.eval(bundle + "\n;window.__T = { morphTheme, I18N };");
 
   const tick = () => new Promise((r) => setImmediate(r));

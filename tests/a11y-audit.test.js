@@ -55,7 +55,7 @@ win.AudioContext = class { createGain() { return { connect() {}, gain: {} }; } }
    throw before it returned its markup. */
 win.HTMLCanvasElement.prototype.getContext = () => null;
 
-const bundle = ["js/themes.js", "js/skins.js", "js/i18n.js", "js/api.js", "js/calendar.js", "js/charts.js", "js/app.js"]
+const bundle = ["js/themes.js", "js/skins.js", "js/i18n.js", "js/api.js", "js/calendar.js", "js/charts.js", "js/datetime.js", "js/app.js"]
   .map(read).join("\n;\n");
 win.eval(bundle + "\n;window.__T = { S, views, I18N };");
 const T = win.__T;

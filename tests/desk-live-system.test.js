@@ -70,7 +70,7 @@ function check(name, fn) {
 
 function desk() {
   const files = ["themes.js", "skins.js", "i18n.js", "api.js", "calendar.js",
-    "chart-series.js", "charts.js", "chart-tools.js", "pnl-charts.js", "app.js"];
+    "chart-series.js", "charts.js", "chart-tools.js", "pnl-charts.js", "datetime.js", "app.js"];
   const src = files.map((f) => read("js/" + f)).join("\n;\n");
   const dom = new JSDOM("<!doctype html><html><body><div id='host'></div></body></html>",
     { runScripts: "outside-only", pretendToBeVisual: true, url: "http://localhost/",
@@ -264,7 +264,15 @@ check("the chart's own back button is still the way out, and lands on the charts
   const close = /function closeChartDesk\(\)[\s\S]*?\n}/.exec(appJs);
   if (!close) throw new Error("closeChartDesk is gone");
   if (!/show\("charts"/.test(close[0])) throw new Error("back does not land on the charts section");
-  if (!/chart-full/.test(close[0])) throw new Error("the desk's own fullscreen class is not cleared");
+  /* The three ways out of fullscreen moved into one helper, because
+     closing the workspace stopped being the only caller - the EA
+     dropping while the chart fills the screen has to do the same
+     thing. The class is still cleared; it is cleared there. */
+  if (!/leaveChartFullscreen\(\)/.test(close[0])) throw new Error("back does not leave fullscreen");
+  const helper = /function leaveChartFullscreen\(\)[\s\S]*?\n}/.exec(appJs);
+  if (!helper || !/chart-full/.test(helper[0])) {
+    throw new Error("the desk's own fullscreen class is not cleared anywhere");
+  }
   return "back -> not fullscreen -> charts";
 });
 

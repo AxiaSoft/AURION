@@ -142,7 +142,7 @@ if (!jsdom) {
 } else {
   const { JSDOM, VirtualConsole } = jsdom;
   const FILES = ["themes.js", "skins.js", "i18n.js", "api.js", "calendar.js",
-    "chart-series.js", "charts.js", "chart-tools.js", "pnl-charts.js", "app.js"];
+    "chart-series.js", "charts.js", "chart-tools.js", "pnl-charts.js", "datetime.js", "app.js"];
   const code = FILES.map((f) => JS(f)).join("\n;\n");
   const dom = new JSDOM("<!doctype html><html><body><div id=\"stage\"></div></body></html>", {
     url: "http://localhost/", runScripts: "outside-only",

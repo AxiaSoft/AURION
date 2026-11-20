@@ -37,19 +37,33 @@ def test_the_pieces_are_there() -> None:
     for path in (PREREQ, PANEL):
         assert path.exists(), f"{path.name} is missing"
     csproj = CSPROJ.read_text(encoding="utf-8")
-    # The project globs *.cs, so a new file is compiled without being listed;
-    # this fails if somebody switches it to explicit <Compile> items and
-    # forgets these two.
-    if "<Compile " in csproj:
+    # The SDK project globs *.cs out of its own folder, so a new file next
+    # to these two is compiled without being listed anywhere. What would
+    # break that is turning the glob off, and only that: a <Compile
+    # Include> pointing at a file from another folder (the window pulls in
+    # ..\shell\shared\Aurora.cs) ADDS to the glob rather than replacing
+    # it, and reading one as the other failed this test on a project that
+    # compiles both files perfectly well.
+    globbed = not re.search(
+        r"<EnableDefault(Compile)?Items>\s*false\s*</EnableDefault(Compile)?Items>",
+        csproj,
+        re.I,
+    )
+    if not globbed:
         for name in ("Prerequisites.cs", "SetupPanel.cs"):
             assert name in csproj, f"{name} is not compiled"
 
 
 def test_the_check_runs_before_the_desk_is_started() -> None:
-    """Order is the whole feature: ask first, start second."""
+    """Order is the whole feature: check first, start second."""
     app = APP.read_text(encoding="utf-8")
     boot = app[app.index("private async Task BootAsync("):]
-    boot = boot[:boot.index("private bool StartDesk(")]
+    # Ends at the next method declaration, whatever it is called and
+    # whatever it returns: this used to be pinned to the literal
+    # "private bool StartDesk(" and broke when the launcher started
+    # returning the Process it had started, which has nothing to do
+    # with the order this test is about.
+    boot = boot[:re.search(r"\n    private ", boot).end()]
     assert "EnsurePrerequisitesAsync" in boot, "boot does not check the machine"
     assert boot.index("EnsurePrerequisitesAsync") < boot.index("StartDesk()"), \
         "the check has to happen before the launcher is run"
@@ -59,20 +73,46 @@ def test_a_prepared_machine_never_sees_it() -> None:
     """The cost on a working desk must be nothing at all."""
     app = APP.read_text(encoding="utf-8")
     block = app[app.index("private async Task<bool> EnsurePrerequisitesAsync("):]
-    block = block[:block.index("/// <summary>Runs the application's own launcher")]
+    block = block[:block.index("private static string Readable(")]
     assert "await DeskIsAnsweringAsync()) return true;" in block, \
         "a desk that is already answering must skip the check entirely"
-    assert "items.All(r => r.State == ReqState.Present)" in block, \
-        "and a machine with everything present must go straight on"
+    # "Nothing missing" is now Present OR Installed - a requirement that
+    # this very run installed is as settled as one that was already
+    # there, and counting only Present sent a machine that had just been
+    # set up round the loop again.
+    assert "missing.Count == 0" in block, \
+        "a machine with nothing missing must go straight on"
+    assert "r.State is ReqState.Present or ReqState.Installed" in block, \
+        "a requirement installed by this run has to count as settled"
 
 
 # ------------------------------------------------------------ it is honest --
 
+def _code_only(src: str) -> str:
+    """The source with its comments removed.
+
+    This file reads C# as text, and the C# documents itself heavily -
+    including, in one place, an example settings file containing the
+    literal "https://...". Scanning comments for URLs makes a
+    documentation example look like a download.
+    """
+    src = re.sub(r"/\*[\s\S]*?\*/", "", src)
+    return re.sub(r"^\s*//.*$", "", src, flags=re.M)
+
+
 def test_every_download_is_https_and_from_the_vendor() -> None:
-    src = _prereq()
+    src = _code_only(_prereq())
     urls = re.findall(r'"(https?://[^"]+)"', src)
     assert urls, "no download URLs found - has the manifest moved?"
-    allowed = ("https://www.python.org/", "https://nodejs.org/", "https://go.microsoft.com/")
+    allowed = (
+        "https://www.python.org/",
+        "https://nodejs.org/",
+        "https://go.microsoft.com/",
+        # pip's own bootstrap, from the Python Packaging Authority. The
+        # embeddable Python build ships without pip and without
+        # ensurepip, so this is the vendor route to one.
+        "https://bootstrap.pypa.io/",
+    )
     for url in urls:
         assert url.startswith("https://"), f"{url} is not https"
         assert any(url.startswith(a) for a in allowed), \
@@ -87,23 +127,46 @@ def test_nothing_unsigned_is_ever_executed() -> None:
     download = download[:download.index("private static bool SignedBy(")]
     assert "SignedBy(" in download, "the download path must verify the signature"
     assert "File.Delete(target)" in download, "and delete anything that fails"
-    # The publisher has to be checked, not merely the presence of a signature.
-    for publisher in ("Python Software Foundation", "OpenJS Foundation", "Microsoft Corporation"):
+    # The publisher has to be checked, not merely the presence of a
+    # signature - for the two downloads that are signed executables.
+    for publisher in ("Python Software Foundation", "Microsoft Corporation"):
         assert publisher in src, f"no expected publisher for {publisher}"
+    # Node arrives as a ZIP, which carries no Authenticode signature at
+    # all, so there is nothing to check a publisher against. It is
+    # verified against the SHA-256 list nodejs.org publishes beside it
+    # instead, and a file that does not match is not used.
+    assert "SHASUMS256.txt" in src, "Node's download is not checked against anything"
+    assert "does not match the checksum published for it" in src, \
+        "a bad checksum has to stop the file being used, and say so"
 
 
-def test_consent_comes_before_the_download() -> None:
+def test_the_setup_screen_says_what_comes_from_where() -> None:
+    """A first run installs by itself, and still has to be accountable.
+
+    This check used to require consent BEFORE any download. The product
+    deliberately changed: a bare machine now installs what it is missing
+    without being asked, because the alternative - a dialog about
+    WebView2 in front of a trader who wanted to open a trading desk -
+    was a question only one answer made sense to. The banner over that
+    code says so in as many words.
+
+    What survives is everything that made the consent screen worth
+    having: the panel still exists for when automatic setup does not
+    get there, it still names the vendor and the size of each item, it
+    still offers to retry or to carry on without, and the retry runs
+    the same installer the automatic path runs.
+    """
     panel = PANEL.read_text(encoding="utf-8")
-    assert "InstallRequested" in panel, "there must be an explicit action to start"
-    assert "SkipRequested" in panel, "and a way to decline"
-    # The vendor and the size are shown on the row before anything is fetched.
+    assert "InstallRequested" in panel, "there is no way to ask for a retry"
+    assert "SkipRequested" in panel, "and no way to carry on without"
     assert "req.Source" in panel and "req.Size" in panel, \
-        "the consent screen has to say what comes from where, and how big"
+        "the screen has to say what comes from where, and how big"
     app = APP.read_text(encoding="utf-8")
-    assert "setup.InstallRequested +=" in app, "installation must be driven by that event"
-    assert "Prerequisites.InstallAsync" in app
-    assert app.index("setup.InstallRequested +=") < app.index("Prerequisites.InstallAsync"), \
-        "nothing may be installed before the trader asks for it"
+    assert "setup.InstallRequested +=" in app, "the retry is not wired to anything"
+    handler = app[app.index("setup.InstallRequested +="):]
+    handler = handler[:handler.index("setup.CancelRequested +=") if "setup.CancelRequested +=" in handler[:4000] else 4000]
+    assert "Prerequisites.InstallAsync" in handler, \
+        "the retry button does not run the installer"
 
 
 def test_the_result_is_verified_rather_than_assumed() -> None:
@@ -143,17 +206,22 @@ def test_the_python_libraries_come_from_the_pinned_file() -> None:
     assert "pip install -r" in src, "and be installed from it, not named one by one"
 
 
-def test_node_is_installed_per_machine_and_python_per_user() -> None:
-    """Elevation is asked for exactly once, and only where it is unavoidable."""
-    src = _prereq()
-    assert "InstallAllUsers=0" in src, "Python must install per-user - no elevation needed"
-    python_call = src[src.index("async Task InstallPythonAsync("):]
-    python_call = python_call[:python_call.index("private static async Task InstallPythonLibsAsync(")]
-    assert "elevate: false" in python_call, "the Python install must not prompt for admin"
+def test_nothing_in_setup_asks_for_administrator() -> None:
+    """Stronger than it used to be, because the product got stronger.
 
-    node_call = src[src.index("async Task InstallNodeAsync("):]
-    node_call = node_call[:node_call.index("private static async Task InstallNodeLibsAsync(")]
-    assert "elevate: true" in node_call, "Node's MSI is per-machine and does need admin"
+    This asserted that Node's MSI elevated and Python's installer did
+    not. Node is no longer an MSI: it is the official ZIP, unpacked
+    beside the desk, so the one remaining UAC prompt in a first run is
+    gone. Nothing in setup elevates now, and that is worth pinning -
+    an elevated installer is the single most alarming thing a trading
+    app can do on first launch, and it is now impossible rather than
+    merely rare.
+    """
+    src = _code_only(_prereq())
+    assert "InstallAllUsers=0" in src, "Python must install per-user - no elevation needed"
+    assert "elevate: false" in src, "nothing in setup runs anything at all"
+    assert "elevate: true" not in src, \
+        "something in setup asks for administrator again"
 
 
 def test_a_reboot_request_counts_as_success() -> None:
@@ -206,7 +274,14 @@ def test_a_failure_can_be_sent_to_support() -> None:
     assert '"setup.log"' in src or "setup.log" in src, "setup has to leave a log"
     assert "data" in src and "logs" in src, "next to the desk's other logs"
     install = src[src.index("public static async Task InstallAsync("):]
-    assert "Write(log," in install, "and record what happened, not only what is on screen"
+    # The writing moved behind a recorder that holds the file open for
+    # the session - opening and appending per line lost whole runs when
+    # two steps wrote at once - so what is asserted is that the install
+    # path records, not which call does it.
+    assert "recorder.Log(" in install, \
+        "and record what happened, not only what is on screen"
+    assert "--- setup finished ---" in install, \
+        "a log that does not say where a run ended cannot be read after two of them"
 
 
 def test_the_check_can_be_run_on_demand() -> None:
@@ -239,11 +314,11 @@ TESTS = [
     test_a_prepared_machine_never_sees_it,
     test_every_download_is_https_and_from_the_vendor,
     test_nothing_unsigned_is_ever_executed,
-    test_consent_comes_before_the_download,
+    test_the_setup_screen_says_what_comes_from_where,
     test_the_result_is_verified_rather_than_assumed,
     test_the_python_policy_is_the_same_everywhere,
     test_the_python_libraries_come_from_the_pinned_file,
-    test_node_is_installed_per_machine_and_python_per_user,
+    test_nothing_in_setup_asks_for_administrator,
     test_a_reboot_request_counts_as_success,
     test_the_launcher_runs_the_fix_instead_of_describing_it,
 ]

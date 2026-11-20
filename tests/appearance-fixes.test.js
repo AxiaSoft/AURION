@@ -503,8 +503,14 @@ check("the prop page really does mix input types in one grid", () => {
   if (i < 0) throw new Error("propNum is gone");
   if (!/type="number"/.test(appJs.slice(i, i + 900))) throw new Error("propNum stopped using type=number");
   const j = appJs.indexOf("function propTime");
-  if (!/type="time"/.test(appJs.slice(j, j + 2600))) throw new Error("propTime stopped using type=time");
-  return "number + time";
+  /* The time field stopped being a browser widget - it is the desk's
+     own picker over a hidden value input - but it still shares these
+     grids with type=number, so the two still have to be reconciled.
+     What is asserted is the mix, not which widget draws the time. */
+  if (!/AurionWhen\.timeField\(/.test(appJs.slice(j, j + 2600))) {
+    throw new Error("propTime no longer draws a time field at all");
+  }
+  return "number + the desk's own time picker";
 });
 
 check("every value sits at the same height, by height and not by floor", () => {
