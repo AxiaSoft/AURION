@@ -53,6 +53,11 @@ def test_native_close_without_volume() -> None:
 
 def test_prop_does_not_reflatten() -> None:
     prop = PropEngine()
+    # The guard ships OFF, and an engine that is off answers "not ready"
+    # to everything - deliberately, so a desk with no prop profile does
+    # not carry two live percentages nothing will enforce. This test is
+    # about what happens AFTER a rule trips, so it has to be on first.
+    prop.set_enabled(True)
     account = {"equity": 9000, "balance": 10000}
     prop.day_start_equity = 10000
     prop.high_water = 10000
