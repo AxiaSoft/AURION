@@ -209,6 +209,41 @@ function lotField(doc, value) {
     return "44x44 on coarse pointers, minus-left in every language";
   });
 
+  await check("the number inside the stepper is not a second field", () => {
+    /* Reported: "the lot input in the robot settings has a round thing
+       inside it between the + and the -, and no other input does."
+       The stepper sits inside a .field, so `.field input` reached the
+       number between the buttons and gave it a 14px radius plus, on
+       focus, its own background, accent border and 4px glow - a
+       rounded blob drawn inside the stepper's own frame. Nothing else
+       on the desk shows that, because for every other input that
+       frame IS the field. */
+    /* Its own rule, not the ".ct-row input,.ct-step input{min-height}"
+       line in the coarse-pointer block further up the sheet. */
+    const at = appCss.indexOf("\n.ct-step input{");
+    const rule = appCss.slice(at, appCss.indexOf("}", at));
+    must(/border-radius:0/.test(rule), "the number keeps the standard field's corner radius");
+    must(/background:transparent/.test(rule) && /border:0/.test(rule),
+      "the number is still drawn as its own box");
+    const focusAt = appCss.indexOf(".ct-step input:focus{");
+    must(focusAt > 0, "the field focus styling still reaches the number");
+    const focus = appCss.slice(focusAt, appCss.indexOf("}", focusAt));
+    must(/box-shadow:none/.test(focus), "the focus glow is still drawn inside the frame");
+    must(/background:transparent/.test(focus), "the focus fill is still drawn inside the frame");
+    /* The feedback is not lost, it is moved to the thing a person
+       sees: the frame around minus, number and plus. */
+    must(/\.ct-step:focus-within\{/.test(appCss),
+      "nothing shows the lot control has focus any more");
+    /* And in a .field the stepper wears the field's own shell, so a
+       column of settings is built to one set of measurements. */
+    const shellAt = appCss.indexOf(".field > .ct-step{");
+    must(shellAt > 0, "the lot control does not take the shape of a field");
+    const shell = appCss.slice(shellAt, appCss.indexOf("}", shellAt));
+    must(/border-radius:var\(--ctl-r\)/.test(shell) && /min-block-size:var\(--ctl-h\)/.test(shell),
+      "it is built to its own radius and height rather than the desk's: " + shell.replace(/\s+/g, " "));
+    return "one control, one shell, no blob inside it";
+  });
+
   const failed = results.filter((r) => !r).length;
   console.log(`\nlot-stepper: ${results.length - failed} of ${results.length} checks passed`);
   process.exit(failed ? 1 : 0);

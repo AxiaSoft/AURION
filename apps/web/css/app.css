@@ -4733,6 +4733,46 @@ html[dir="rtl"] .ct-lab{letter-spacing:0;text-transform:none;font-size:12px}
   border:0;background:transparent;color:var(--ink);
   text-align:center;font:500 14px/1 IBM Plex Mono, Vazirmatn, monospace;
   padding:10px 4px;
+  /* The number between the two buttons is PART of this control, not a
+     field of its own sitting inside it.
+
+     Reported: "the lot input in the robot settings has a round thing
+     inside it, between the + and the -, and no other input does".
+     That round thing was the standard field styling leaking in. The
+     lot stepper lives inside a .field, so `.field input` reaches the
+     number and gives it a 14px radius and, on focus, its own
+     background, accent border and 4px glow - a rounded blob drawn
+     INSIDE the stepper's frame, which no other input on the desk
+     shows because for every other one that frame IS the field.
+     `border:0` and `background:transparent` above already undid two
+     of those; the radius and the whole focus treatment were missed. */
+  border-radius:0;
+}
+.ct-step input:focus{
+  border-color:transparent;
+  background:transparent;
+  box-shadow:none;
+}
+/* And where the stepper IS the field - the lot in the robot settings,
+   as opposed to the compact one on the chart ticket - it wears the
+   shell every other field wears: the same radius, the same surface
+   and the same height, so a row of settings does not have one control
+   built to different measurements. The buttons stretch to that height
+   instead of being two 38px squares floating in a taller box. */
+.field > .ct-step{
+  border-radius:var(--ctl-r);
+  background:var(--field);
+  min-block-size:var(--ctl-h);
+}
+.field > .ct-step .ct-pm{align-self:stretch;height:auto}
+
+/* The focus goes to the control a person actually sees - the frame
+   around minus, number and plus - so the lot field lights up exactly
+   like every other field on the page. */
+.ct-step:focus-within{
+  border-color:rgb(var(--accent-rgb) / .55);
+  box-shadow:0 0 0 4px rgb(var(--accent-rgb) / .12);
+  background:var(--field-hi);
 }
 .ct-step input::-webkit-outer-spin-button,
 .ct-step input::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
