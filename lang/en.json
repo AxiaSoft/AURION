@@ -585,7 +585,8 @@
     "open_sr": "Open the full {sym} {tf} chart",
     "live_now": "Live charts",
     "hist_edge": "This is the oldest candle your terminal holds: {n} {tf} candles, back to {when}.",
-    "hist_edge_fix": "MetaTrader keeps only a set number of bars — Tools → Options → Charts → Max bars in chart."
+    "hist_edge_fix": "MetaTrader keeps only a set number of bars — Tools → Options → Charts → Max bars in chart.",
+    "hist_loading": "Fetching older candles…"
   },
   "terminal": {
     "title": "Terminal",
@@ -865,7 +866,8 @@
     "r_clock_rollback": "Clock rollback blocked the robot.",
     "r_machine_mismatch": "License is bound to another PC.",
     "r_license": "License is not allowing robot entries.",
-    "r_slots_full": "Every robot trade slot is in use. Nothing new opens until one closes."
+    "r_slots_full": "Every robot trade slot is in use. Nothing new opens until one closes.",
+    "solo_robot": "the robot, on its own"
   },
   "guide": {
     "open": "Full guide",

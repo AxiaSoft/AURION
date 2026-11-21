@@ -230,29 +230,33 @@ check("the trader's own swatch wears a dashed ring", () => {
 /* ----------------------------------------- 3. the candle preview reads */
 
 check("the preview bodies have a width of their own, and a thin one", () => {
-  const i = appCss.indexOf(".cndl{");
-  if (i < 0) throw new Error(".cndl is gone");
-  const rule = appCss.slice(i, appCss.indexOf("}", i));
-  const m = /--cndl-w:\s*(\d+(?:\.\d+)?)px/.exec(rule);
-  if (!m) throw new Error("the body still fills its whole share of the strip");
-  if (Number(m[1]) > 10) throw new Error("a " + m[1] + "px body is not slim");
-  const after = appCss.slice(appCss.indexOf(".cndl::after{"));
-  const body = after.slice(0, after.indexOf("}"));
-  if (!/width:var\(--cndl-w\)/.test(body))
-    throw new Error("the body does not use the width it was given");
-  if (/inset-inline:0/.test(body))
-    throw new Error("the body is still stretched edge to edge");
-  return m[1] + "px";
+  /* The strip was rewritten as a canvas: percentage-positioned <i>
+     elements could not draw a doji without inflating it, and on a
+     narrow card the fixed-width bodies overlapped. The property being
+     checked is the same - a candle body is thin, and it is sized from
+     the space one bar is given - it is now arithmetic rather than a
+     custom property. */
+  const fn = appJs.slice(appJs.indexOf("function paintCandlePreview"));
+  const body = fn.slice(0, fn.indexOf("\n}"));
+  const m = /Math\.max\(1, Math\.min\((\d+), Math\.round\(slot \* ([\d.]+)\)\)\)/.exec(body);
+  if (!m) throw new Error("the body is not a bounded share of its slot");
+  if (Number(m[1]) > 16) throw new Error("a " + m[1] + "px body is not slim");
+  if (Number(m[2]) >= 1) throw new Error("the body fills its whole slot again");
+  if (/\.cndl\{/.test(appCss)) throw new Error("the old CSS candles are still in the sheet");
+  return m[2] + " of the slot, max " + m[1] + "px";
 });
 
 check("up and down differ by more than their colour", () => {
-  const i = appCss.indexOf(".cndl.is-up::after{");
-  if (i < 0) throw new Error("a rising bar is told apart by colour alone");
-  const rule = appCss.slice(i, appCss.indexOf("}", i));
-  if (!/background:transparent/.test(rule) || !/border:/.test(rule))
-    throw new Error("a rising bar is not hollow: " + rule.replace(/\s+/g, " "));
-  if (!/\.cndl\.is-up\{color:var\(--candle-up\)\}/.test(appCss.replace(/[ \n\t]/g, "")))
-    throw new Error("the rising bar no longer reads the candle-up variable");
+  const fn = appJs.slice(appJs.indexOf("function paintCandlePreview"));
+  const body = fn.slice(0, fn.indexOf("\n}"));
+  if (!/if \(rising\)[\s\S]{0,200}strokeRect/.test(body))
+    throw new Error("a rising bar is not hollow");
+  if (!/fillRect/.test(body))
+    throw new Error("a falling bar is not filled");
+  if (!/rising \? C\.up : C\.down/.test(body))
+    throw new Error("the bars no longer read the candle pair");
+  if (!/--candle-up/.test(appJs) || !/--candle-down/.test(appJs))
+    throw new Error("the painter does not read the chart's own variables");
   return "hollow up, filled down";
 });
 

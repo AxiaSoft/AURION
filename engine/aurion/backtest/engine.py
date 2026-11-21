@@ -532,9 +532,22 @@ class Backtester:
             # window in MetaTrader and check the figures came from there.
             "data": {
                 "source": "mt5",
-                "first_bar": _bar_time(bars[0]),
+                # The first bar TRADED, not the first bar handed over.
+                #
+                # A run over a named period is given several hundred
+                # bars of run-up before that period so the indicators
+                # arrive primed. This reported bars[0] - the first
+                # run-up bar - so the result of "test the 5th of March"
+                # was headed with a window starting days earlier, and
+                # the trader quite reasonably read that as the replay
+                # having tested a different date than the one they
+                # chose. The run-up is still reported, under its own
+                # name, because it is a fact about the run; it is just
+                # not the window the figures are about.
+                "first_bar": _bar_time(bars[min(int(warmup), len(bars) - 1)]),
                 "last_bar": _bar_time(bars[-1]),
                 "warmup_bars": int(warmup),
+                "warmup_from": _bar_time(bars[0]) if int(warmup) > 0 else "",
                 "tested_bars": max(0, len(bars) - int(warmup)),
             },
             # Bounds refused for being on the wrong side of the entry.

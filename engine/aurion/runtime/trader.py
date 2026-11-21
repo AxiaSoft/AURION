@@ -75,6 +75,13 @@ NEWS_REFRESH_SECONDS = 5 * 60
 #: costs only a little time.
 RANGE_WARMUP_BARS = 400
 
+#: The name the robot trades under when no strategy is enabled.
+#:
+#: The same name the backtest's {"kind": "robot"} runs under, on
+#: purpose: a trader measures "robot" in a replay and then sees
+#: "robot" on the live ticket, and the two are the same code.
+SOLO_ROBOT_NAME = "robot"
+
 #: Wall-clock ceiling for one chart-mark pass.
 #:
 #: The marks are an armed strategy's own output replayed bar by bar,
@@ -183,6 +190,27 @@ class Trader:
         # "manual" = the user's fixed lot for every robot entry.
         self.volume_mode = "auto"
         self.manual_volume = 0.10
+        # The robot with no strategy underneath it.
+        #
+        # Asked for directly: "when every strategy is off, the robot
+        # should enter on its own." Until now a book with nothing
+        # enabled was a dead desk - the closed-bar handler wrote "no
+        # strategy enabled" and returned - which made disabling the
+        # last strategy an off switch for the whole product rather
+        # than a choice about which method to trade.
+        #
+        # It is the SAME decision-maker the backtest already offers as
+        # {"kind": "robot"}: the model's own read of the bar, with the
+        # live confidence floor as its only setting. So a trader can
+        # measure it before trusting it, and what they measured is
+        # what runs.
+        #
+        # It never competes with a strategy. The moment one strategy
+        # is enabled, that strategy is the opinion and this stands
+        # down - otherwise two unrelated methods would be sending
+        # orders on the same symbol.
+        self.solo_robot = True
+        self._solo_slot: dict[str, Any] | None = None
         self.trade_style = "normal"
         # How many robot positions may live at once, and how many the robot is
         # allowed to open for one confirmed signal. "Between 1 and N trades":
@@ -2548,6 +2576,7 @@ class Trader:
         self.auto_trade = bool(runtime.get("auto_trade", False))
         self.require_ai_agree = bool(runtime.get("require_ai_agree", True))
         self.min_ai_confidence = float(runtime.get("min_ai_confidence") or 0.35)
+        self.solo_robot = bool(runtime.get("solo_robot", True))
         self.volume_mode = "manual" if str(runtime.get("volume_mode") or "auto") == "manual" else "auto"
         try:
             self.manual_volume = max(0.0, min(1000.0, float(runtime.get("manual_volume") or 0.10)))
@@ -3313,9 +3342,17 @@ class Trader:
             desc["gross_profit"] = float(stats.get("gross_profit") or 0)
             desc["gross_loss"] = float(stats.get("gross_loss") or 0)
             desc["last_trade_ts"] = stats.get("last_ts")
+        solo = bool(getattr(self, "solo_robot", True)) and not enabled
         self.strategy_meta = {
-            "name": ",".join(enabled) if enabled else None,
-            "enabled": bool(enabled) and self.auto_trade,
+            # Named even with an empty book: "nothing" and "the robot
+            # itself" are different answers to "who is trading", and
+            # the command centre asks exactly that question.
+            "name": ",".join(enabled) if enabled else ("robot" if solo else None),
+            "enabled": (bool(enabled) or solo) and self.auto_trade,
+            # Whether the robot MAY trade alone, and whether it is in
+            # fact the one deciding right now.
+            "solo_robot": bool(getattr(self, "solo_robot", True)),
+            "solo_active": solo,
             "auto_trade": self.auto_trade,
             "require_ai_agree": self.require_ai_agree,
             "min_ai_confidence": self.min_ai_confidence,
@@ -3396,6 +3433,7 @@ class Trader:
                     "auto_trade": self.auto_trade,
                     "require_ai_agree": self.require_ai_agree,
                     "min_ai_confidence": self.min_ai_confidence,
+                    "solo_robot": bool(getattr(self, "solo_robot", True)),
                     "volume_mode": getattr(self, "volume_mode", "auto"),
                     "manual_volume": getattr(self, "manual_volume", 0.10),
                     "trade_style": self.trade_style,
@@ -3478,26 +3516,90 @@ class Trader:
             tape_mode=self.bridge.tape_mode(),
         )
 
+    def _solo_robot_slot(self) -> dict[str, Any] | None:
+        """The robot's own slot, built once, or None if it may not trade.
+
+        Returns None when the trader has switched solo trading off, and
+        when the robot has already crashed once this session: a fault
+        here would otherwise be raised on every closed candle for as
+        long as the desk stays open, filling the log and announcing
+        nothing new. The same rule the book applies to a strategy that
+        throws.
+
+        The slot is shaped like a book slot - last_action, last_reason,
+        last_ts, symbols - because everything downstream of the
+        evaluation loop reads those fields and none of it should have
+        to know whether a strategy or the robot produced the signal.
+        """
+        if not bool(getattr(self, "solo_robot", True)):
+            return None
+        slot = getattr(self, "_solo_slot", None)
+        if slot is not None:
+            return None if slot.get("faulted") else slot
+        try:
+            inst = self.loader.build({
+                "kind": "robot",
+                "name": SOLO_ROBOT_NAME,
+                # The live floor, not the class default: the trader set
+                # that number for robot entries and this IS a robot
+                # entry. Read at build time and refreshed below, so
+                # moving the slider moves the robot.
+                "params": {"min_confidence": float(getattr(self, "min_ai_confidence", 0.35) or 0.0)},
+            })
+        except Exception:
+            log.exception("the solo robot could not be built")
+            self._solo_slot = {"faulted": True, "inst": None}
+            return None
+        slot = {
+            "inst": inst,
+            "enabled": True,
+            "kind": "robot",
+            "solo": True,
+            "last_action": "",
+            "last_reason": "",
+            "last_ts": "",
+            "symbols": {},
+        }
+        self._solo_slot = slot
+        return slot
+
     async def _run_enabled_strategies(
         self, ctx: StrategyContext, execute: bool = False, blocked: list[str] | None = None
     ) -> None:
         closes: list[tuple[str, Any]] = []
         entries: list[tuple[str, Any]] = []
-        enabled = [name for name, slot in self.book.items() if slot.get("enabled") and slot.get("inst")]
-        if not enabled:
-            await self.journal("info", "no_strategy", f"Closed {ctx.symbol} {ctx.timeframe} — no strategy enabled.")
-            self._sync_book_meta()
-            await self.bus.publish("strategy", self.strategy_meta)
-            return
+        # Who is deciding this bar: the enabled strategies, or - when
+        # there are none - the robot on its own. See self.solo_robot.
+        pairs: list[tuple[str, dict[str, Any]]] = [
+            (name, slot) for name, slot in self.book.items()
+            if slot.get("enabled") and slot.get("inst")
+        ]
+        if not pairs:
+            solo = self._solo_robot_slot()
+            if solo is not None and solo.get("inst") is not None:
+                # The confidence floor is a live setting; a robot built
+                # an hour ago must not keep trading yesterday's number.
+                try:
+                    solo["inst"].params = {
+                        **getattr(solo["inst"], "params", {}),
+                        "min_confidence": float(getattr(self, "min_ai_confidence", 0.35) or 0.0),
+                    }
+                except Exception:
+                    pass
+            if solo is None:
+                await self.journal("info", "no_strategy",
+                                   f"Closed {ctx.symbol} {ctx.timeframe} — no strategy enabled.")
+                self._sync_book_meta()
+                await self.bus.publish("strategy", self.strategy_meta)
+                return
+            pairs = [(SOLO_ROBOT_NAME, solo)]
         await self.journal(
             "info",
             "eval",
-            f"Evaluating {', '.join(enabled)} on {ctx.symbol} {ctx.timeframe} "
+            f"Evaluating {', '.join(name for name, _ in pairs)} on {ctx.symbol} {ctx.timeframe} "
             f"({'LIVE fire' if execute else 'observe only — will not send'})",
         )
-        for name, slot in self.book.items():
-            if not slot.get("enabled"):
-                continue
+        for name, slot in pairs:
             inst = slot.get("inst")
             if not inst:
                 continue
@@ -3528,6 +3630,8 @@ class Trader:
                 # every closed candle for as long as the desk is open,
                 # filling the log and announcing nothing new.
                 slot["enabled"] = False
+                if slot.get("solo"):
+                    slot["faulted"] = True
                 self._note_symbol(slot, ctx.symbol, action="fault",
                                   reason=detail, ts=slot["last_ts"])
                 self._note_strategy_fault(name, exc, file=self._strategy_file_of(slot, name),
@@ -3706,6 +3810,8 @@ class Trader:
             self.require_ai_agree = bool(body.get("require_ai_agree"))
         if "min_ai_confidence" in body:
             self.min_ai_confidence = float(body.get("min_ai_confidence") or 0)
+        if "solo_robot" in body:
+            self.solo_robot = bool(body.get("solo_robot"))
         if "volume_mode" in body:
             mode = str(body.get("volume_mode") or "auto")
             if mode == "manual" and not self.license.feature("volume_mode"):
@@ -5192,7 +5298,13 @@ class Trader:
         if not self.auto_trade:
             reasons.append("auto_off")
         enabled = [k for k, v in self.book.items() if v.get("enabled")]
-        if not enabled:
+        # An empty book is only a closed gate when the robot is not
+        # allowed to trade on its own. With solo trading on it is a
+        # choice of method, not a missing part, so the card names the
+        # robot as the thing that decides instead of saying the desk
+        # is unarmed.
+        solo = not enabled and bool(getattr(self, "solo_robot", True))
+        if not enabled and not solo:
             reasons.append("no_strategy")
         lic = self.license.allow_bot_entry()
         if not lic.get("ok"):
@@ -5217,7 +5329,10 @@ class Trader:
             "ready": robot_ready,
             "mt5": mt5,
             "auto_trade": self.auto_trade,
-            "strategies": enabled,
+            "strategies": enabled or ([SOLO_ROBOT_NAME] if solo else []),
+            # So the desk can say "the robot, on its own" rather than
+            # listing a strategy that is not in the book.
+            "solo_robot": solo,
             "kill": self.kill_switch,
             "safe": self.safe_mode,
             "prop": bool(self.prop.enabled),
@@ -5948,7 +6063,13 @@ class Trader:
         await self.bus.publish("backtest", dict(self.backtest_run))
         equity = float(body.get("initial_equity") or self.bridge.account.equity or 10_000)
         self._backtest_task = asyncio.create_task(
-            self._run_backtest(inst, bars, symbol, timeframe, equity, started),
+            self._run_backtest(
+                inst, bars, symbol, timeframe, equity, started,
+                # The bars prepended BEFORE the chosen period, so the
+                # replay skips exactly those and starts trading on the
+                # day the trader picked. See _run_backtest.
+                int(window.get("warmup") or 0),
+            ),
             name=f"aurion-backtest-{symbol}",
         )
         # Answer now. The run itself reports over the bus.
@@ -6036,6 +6157,14 @@ class Trader:
             return 1.0
         return value if value > 0 else 1.0
 
+    #: The least run-up any replay gets, whatever period was asked for.
+    #:
+    #: Matches the Backtester's own default. A period that starts near
+    #: the beginning of this terminal's history cannot be given the
+    #: full run-up, and trading a strategy on bar three with empty
+    #: indicators is not a test of anything.
+    BACKTEST_MIN_WARMUP = 80
+
     async def _run_backtest(
         self,
         inst: Any,
@@ -6044,8 +6173,22 @@ class Trader:
         timeframe: str,
         equity: float,
         started: str,
+        prepended: int = 0,
     ) -> dict[str, Any]:
-        """The replay itself, off the request path, reporting as it goes."""
+        """The replay itself, off the request path, reporting as it goes.
+
+        `prepended` is how many of `bars` sit BEFORE the period the
+        trader chose - the run-up _slice_bars added so the indicators
+        arrive primed.
+
+        It used to be computed and then thrown away: the replay was
+        told to skip a flat eighty bars, so on a range run it traded
+        the other three hundred and twenty bars of run-up as though
+        they were part of the test. A one-day backtest therefore filled
+        up with trades dated three days before the day that was asked
+        for, which is exactly "I pick a date and it tests a different
+        one". The run-up is run-up; it is skipped in full.
+        """
         loop = asyncio.get_running_loop()
         last_sent = 0.0
 
@@ -6076,9 +6219,14 @@ class Trader:
             # and the open-trade cap decides how many may run at once;
             # with neither passed through, a replay reported the result
             # of a 0.1-lot, one-trade-at-a-time robot nobody is running.
+            warmup = max(self.BACKTEST_MIN_WARMUP, int(prepended or 0))
+            # Never so much run-up that there is nothing left to test:
+            # a short period near the start of history would otherwise
+            # be skipped entirely and report zero trades.
+            warmup = min(warmup, max(1, len(bars) - 5))
             result = await asyncio.to_thread(
                 self.backtester.run, inst, bars, symbol, timeframe, equity,
-                self._backtest_point_value(symbol), 80, None, report,
+                self._backtest_point_value(symbol), warmup, None, report,
                 str(getattr(self, "volume_mode", "auto")),
                 float(getattr(self, "manual_volume", 0.0) or 0.0),
                 int(self._total_cap()),

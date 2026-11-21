@@ -1368,24 +1368,29 @@ tr:hover td{background:rgb(var(--wash) / .02)}
 /* Command desk — one strip, then two columns */
 .stage .card.gate-card{animation:none;transform:none}
 .gate-card .gate-pills{display:flex;flex-wrap:wrap;gap:6px;margin:4px 0 10px}
-/* Filled, not outlined.
-   Asked for directly, about this card: "I want these tags to be solid".
-   An outline on a dark panel at 12px reads as a disabled control, and
-   the six of them are the fastest answer on the page to "is anything
-   stopping the robot" - they have to be legible at a glance and from a
-   distance, and red and cyan hairlines are neither. The wash behind
-   each one carries the state; the border is now the same colour as the
-   fill so nothing looks hollow. */
+/* Filled with the colour itself, not a wash of it.
+   Asked for twice, about this card: "I want these tags solid - the
+   colour". The first attempt tinted the background to 16% and kept
+   coloured text, which at 12px on a dark panel still reads as an
+   outline with a shadow behind it. These six chips are the fastest
+   answer on the page to "is anything stopping the robot", and the
+   answer has to carry across a room.
+   So: the state colour IS the chip, and the text is the dark ink that
+   sits on it. Nothing here is hollow, and green-vs-red is readable
+   before a single word is. */
 .gate-card .pill.ok{
-  border-color:rgb(var(--accent-rgb) / .42);
-  background:rgb(var(--accent-rgb) / .16);
-  color:var(--cyan);font-weight:600;
+  background:var(--cyan);
+  border-color:var(--cyan);
+  color:var(--on-accent);font-weight:600;
 }
 .gate-card .pill.no{
-  border-color:rgba(255,107,138,.42);
-  background:rgba(255,107,138,.16);
-  color:var(--rose);font-weight:600;
+  background:var(--rose);
+  border-color:var(--rose);
+  color:var(--on-accent);font-weight:600;
 }
+/* The strategy chip carries a list of names and can run long; it keeps
+   the fill but is allowed to wrap rather than be cut off. */
+.gate-card .gate-pills .pill{white-space:normal}
 /* The armed/idle badge beside the heading is the same kind of fact and
    was the same kind of outline. */
 .gate-card .auto-banner .pill{
@@ -1400,10 +1405,16 @@ tr:hover td{background:rgb(var(--wash) / .02)}
 /* MetaTrader's own status chip, and its neighbours, sit in the same
    section of the command centre and were named in the same sentence. */
 .gate-card .ea-chart .pill.ok,.ea-list .pill.ok{
-  background:rgb(var(--accent-rgb) / .16);border-color:rgb(var(--accent-rgb) / .42);
+  background:var(--cyan);border-color:var(--cyan);color:var(--on-accent);font-weight:600;
 }
 .gate-card .ea-chart .pill.no,.ea-list .pill.no{
-  background:rgba(255,107,138,.16);border-color:rgba(255,107,138,.42);
+  background:var(--rose);border-color:var(--rose);color:var(--on-accent);font-weight:600;
+}
+/* A dot inside a filled chip needs its halo taken off, or it glows
+   against its own background and reads as a smudge. */
+.gate-card .pill.ok .dot,.gate-card .pill.no .dot,
+.ea-list .pill.ok .dot,.ea-list .pill.no .dot{
+  background:var(--on-accent);box-shadow:none;animation:none;
 }
 .gate-card .pill.on{color:var(--on-accent);background:var(--cyan);border-color:transparent}
 .gate-why{margin:0;padding-inline-start:18px;color:var(--muted);font-size:13px;line-height:1.7}
@@ -2267,6 +2278,15 @@ input[type=range]{width:100%;accent-color:var(--cyan);height:28px;cursor:pointer
 .cal-ev.i-high .cal-ev-imp{color:var(--bad);background:rgba(255,107,138,.12)}
 .cal-ev.i-medium .cal-ev-imp{color:var(--gold);background:rgba(232,192,122,.12)}
 .cal-ev.i-low .cal-ev-imp{color:var(--ok);background:rgb(var(--accent-rgb) / .12)}
+/* "Market closed", on the row rather than above the list.
+   The generic .cal-chip is sized for the month strip, so it is brought
+   down to the size of the other two tags it now sits beside. */
+.cal-ev-shut{padding:1px 7px;font-size:.7rem;gap:0;border-radius:999px;font-weight:650}
+/* A release on a shut market is not a tradeable event, and the row is
+   dimmed to say so before a single word is read. The tag itself keeps
+   its full strength - it is the thing being pointed at. */
+.cal-ev.is-shut{opacity:.72}
+.cal-ev.is-shut .cal-ev-shut{opacity:1}
 
 /* day panel ------------------------------------------------------- */
 /* The side list was explicitly uncapped. A day carrying a dozen releases
@@ -3691,70 +3711,32 @@ html[dir="rtl"] .q-how[open] summary::before{ transform:rotate(0deg) }
 
 /* Candle preview.
 
-   Eight bars drawn in CSS from --candle-up / --candle-down, the same two
-   variables the chart canvas reads. The picker writes those variables
-   onto <html> while the finger is still moving, so these restyle live and
-   the trader is choosing against the thing they are changing rather than
-   against a word. Each bar carries its own --t/--h/--w so the row has the
-   irregular shape of a real sequence instead of eight identical blocks. */
+   A canvas, drawn by paintCandlePreview() with the same two variables
+   the chart reads - --candle-up and --candle-down. The picker writes
+   those onto <html> while the finger is still moving and the drag
+   repaints this on the same frame, so the trader is choosing against
+   the thing they are changing rather than against a word.
+
+   It used to be fourteen absolutely-positioned <i> elements sized in
+   percentages, which is what the "the candle preview is corrupted"
+   report was about: minimum body heights plus borders made every
+   doji a smear, fixed-width bodies overlapped on a narrow card, and
+   the box then sliced whatever stuck out. A candle is a line and a
+   rectangle on one scale; it is drawn as one now. */
 .cndl-h{margin:18px 0 2px;font-size:13px;font-weight:600}
 .cndl-prev{
-  display:flex;align-items:stretch;gap:7px;
-  height:92px;margin:10px 0 12px;padding:10px 12px;
+  position:relative;
+  height:92px;margin:10px 0 12px;padding:0;
   border:1px solid var(--line);border-radius:14px;
   background:var(--chart-panel, rgb(var(--s2) / .5));
   overflow:hidden;
 }
-.cndl{
-  position:relative;flex:1 1 0;min-width:0;align-self:stretch;
-  /* The body is this wide, and no wider.
-
-     The bars used to fill their whole share of the strip, so fourteen
-     of them on a desk-width card came out as fat slabs with a hairline
-     of space between: nothing like a chart, and too heavy to judge two
-     colours against. A candle is a thin body on a wick, so the body is
-     given a width of its own and the flex track only decides where it
-     is centred. */
-  --cndl-w:8px;
-}
-/* The wick: a hairline from the bar's high to its low.
-
-   It used to be derived from the body - one --w either side - which
-   is only ever right for a symmetrical candle. Real bars are mostly
-   not: a rejection is a long wick on ONE side, and that shape is
-   exactly what a trader is looking for when they judge whether two
-   colours are readable. Top and height are given outright now. */
-.cndl::before{
-  content:"";position:absolute;top:var(--wt);height:var(--wh);
-  inset-inline-start:50%;width:1.5px;transform:translateX(-50%);
-  border-radius:2px;background:currentColor;opacity:.8;
-}
-/* The body. */
-.cndl::after{
-  content:"";position:absolute;
-  inset-inline-start:50%;width:var(--cndl-w);transform:translateX(-50%);
-  top:var(--t);height:var(--h);
-  border-radius:2px;background:currentColor;
-  box-sizing:border-box;
-}
-/* Up and down, readable without reading the colours.
-
-   Colour alone is a weak signal here: the trader is on this card
-   precisely BECAUSE they are about to change those two colours, and
-   they are free to choose two that barely differ - or to be unable to
-   tell them apart at all. So the two directions also differ in the way
-   charts have always distinguished them: a rising bar is hollow, a
-   falling bar is filled. */
-.cndl.is-up::after{
-  background:transparent;
-  border:1.5px solid currentColor;
-}
+/* Sized in script against the box, so it cannot end up on a fractional
+   pixel grid and turn every one-pixel wick grey. */
+.cndl-prev canvas{display:block;width:100%;height:100%}
 .cndl-cap{margin:-6px 0 12px;font-size:11px;opacity:.75}
-.cndl.is-up{color:var(--candle-up)}
-.cndl.is-down{color:var(--candle-down)}
 @media (max-width:560px){
-  .cndl-prev{height:76px;gap:5px}
-  .cndl{--cndl-w:6px}
+  .cndl-prev{height:76px}
 }
 
 /* Each tile paints the backdrop it stands for, so the choice is made by

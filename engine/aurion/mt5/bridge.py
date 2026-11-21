@@ -773,10 +773,27 @@ class MT5Bridge:
                 return dict(info)
         return {}
 
-    def _resolve_hist(self, symbol: str, timeframe: str) -> None:
+    def _resolve_hist(self, symbol: str, timeframe: str, final: bool = False) -> None:
+        """Hand the bars we now hold to whoever is waiting for them.
+
+        `final` marks the expert's last word on one request. Expert 1.20
+        answers a request it could not fill with an empty final reply -
+        it asked CopyRates for about a hundred seconds, said so in the
+        Experts log, and gave up. That reply used to be dropped here,
+        because "no rows" returned before the waiters were touched, and
+        the desk then sat out the full timeout on a question that had
+        already been answered. Worse, the waiter list was left behind,
+        so the NEXT request for the same series joined the stale queue
+        instead of asking again.
+
+        A shortfall is a legitimate answer and is delivered as one: the
+        empty list travels, the caller reports the depth the broker
+        actually has, and the trader is told rather than left watching
+        a spinner.
+        """
         tf = self._norm_tf(timeframe)
         rows = self._candles_for(symbol, tf)
-        if not rows:
+        if not rows and not final:
             return
         payload = [c.to_dict() for c in rows]
         for key in list(self._hist_waiters.keys()):
@@ -1330,7 +1347,9 @@ class MT5Bridge:
                             "depth": self.hist_depth(symbol, tf),
                         },
                     )
-                    self._resolve_hist(symbol, tf)
+                    # final:true from the expert - including the empty
+                    # reply it sends when the broker has nothing more.
+                    self._resolve_hist(symbol, tf, final=True)
             return
         if kind == "account":
             kind_info = classify_account(
