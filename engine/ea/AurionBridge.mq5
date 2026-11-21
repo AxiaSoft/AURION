@@ -2,6 +2,16 @@
 //| AurionBridge.mq5                                                 |
 //| Live chart agent for the AURION engine.                          |
 //|                                                                  |
+//| v1.20 — a history request is no longer abandoned the first time  |
+//|   MetaTrader says "not yet". CopyRates answers -1 while it is    |
+//|   still fetching a series from the broker, which is the normal   |
+//|   first answer on a timeframe this chart has never opened; the   |
+//|   old code read that as "no history" and went silent for good.   |
+//|   It now re-asks on a widening delay, and when it finally gives  |
+//|   up it SAYS so, carrying how many bars the terminal actually    |
+//|   holds and the date of the oldest one, so the desk can tell a   |
+//|   broker's limit from a "Max bars in chart" setting.             |
+//|                                                                  |
 //| v1.19 — the engine names the depth, this expert honours it. The  |
 //|   depth was clamped to 400 bars, which is six hours of M1, so a  |
 //|   desk that fell back to this pipe could never show, train on or |
@@ -37,10 +47,10 @@
 // nobody could tell. AURION_EA_VERSION is the value sent to the engine;
 // engine/tests/test_ea_version.py fails the build if the #property below
 // drifts from it, because #property will not take a macro.
-#define AURION_EA_VERSION "1.19"
-#property version   "1.19"
+#define AURION_EA_VERSION "1.20"
+#property version   "1.20"
 #property strict
-#property description "AURION live bridge 1.19 — history depth set by the engine, on any timeframe"
+#property description "AURION live bridge 1.20 — history depth set by the engine, and a history request that waits for the download"
 
 input string InpEngineHost   = "127.0.0.1";
 input int    InpEnginePort   = 18766;
@@ -53,6 +63,11 @@ input int    InpCandleDepth  = 3000;
 // terminal for a decade. 300 000 M1 bars is about seven months, which
 // clears the six-month window the desk asks for.
 #define AURION_HIST_MAX 300000
+// How many times to re-ask CopyRates while MetaTrader downloads the
+// series in the background. At a widening 250ms..3s delay this is
+// roughly a minute and a half of patience, which covers a cold M1
+// series on a slow link without hanging the request for ever.
+#define AURION_HIST_TRIES 40
 input bool   InpSendHistory  = true;
 input string InpEaName       = "AurionBridge";
 input int    InpHttpPort     = 18765;
@@ -72,6 +87,8 @@ string   g_hist_tfname = "";
 int      g_hist_pos = -1;
 int      g_hist_count = 0;
 int      g_hist_want = 0;
+int      g_hist_tries = 0;
+uint     g_hist_next = 0;
 ENUM_TIMEFRAMES g_hist_tf = PERIOD_CURRENT;
 MqlRates g_hist_rates[];
 string   g_http_q[];
@@ -89,6 +106,8 @@ void SendOrders();
 void SendDeals();
 void QueueHistory(const string tfName, const int want);
 void PumpHistory();
+string HistoryDepthTag(const ENUM_TIMEFRAMES tf, const int requested);
+void SendHistoryShortfall(const int requested);
 void MaybeClosedBar();
 void PollCommands();
 bool WriteInbox(const string json);
@@ -127,6 +146,8 @@ int OnInit()
    g_next_try = 0;
    g_hist_pos = -1;
    g_hist_count = 0;
+   g_hist_tries = 0;
+   g_hist_next = 0;
    g_logged_http = false;
    g_logged_file = false;
    g_http_port = 0;
@@ -631,13 +652,54 @@ void QueueHistory(const string tfName, const int want)
    g_hist_want = want;
    g_hist_pos = 0;
    g_hist_count = 0;
+   g_hist_tries = 0;
+   g_hist_next = 0;
    ArrayFree(g_hist_rates);
+  }
+
+/* What this terminal holds on a timeframe, as JSON fields.
+ *
+ * SERIES_BARS_COUNT is what MetaTrader has in memory for the series
+ * and SERIES_FIRSTDATE is the oldest bar in it. Both are facts about
+ * the TERMINAL, not about the broker's archive, which is exactly the
+ * distinction a trader cannot make by looking at a short chart. */
+string HistoryDepthTag(const ENUM_TIMEFRAMES tf, const int requested)
+  {
+   long have = SeriesInfoInteger(_Symbol, tf, SERIES_BARS_COUNT);
+   datetime oldest = (datetime)SeriesInfoInteger(_Symbol, tf, SERIES_FIRSTDATE);
+   string json = "\"requested\":" + IntegerToString(requested) + ",";
+   json += "\"available\":" + IntegerToString((int)have) + ",";
+   json += "\"oldest\":\"" + (oldest > 0 ? IsoTime(oldest) : "") + "\",";
+   return json;
+  }
+
+/* The reply that used to be silence.
+ *
+ * When CopyRates never comes good the request simply stopped, and the
+ * desk had no way to tell "the terminal has nothing here" from "the
+ * bridge died". A final, empty answer carrying the depth facts says
+ * which it is. */
+void SendHistoryShortfall(const int requested)
+  {
+   string json = "{\"type\":\"candles\"," + TapeTag() + ",\"symbol\":\"" + JsonEsc(_Symbol) + "\",";
+   json += "\"timeframe\":" + IntegerToString(PeriodSeconds(g_hist_tf) / 60) + ",";
+   json += "\"timeframe_name\":\"" + TfName(g_hist_tf) + "\",";
+   json += "\"replace\":false,";
+   json += "\"final\":true,";
+   json += HistoryDepthTag(g_hist_tf, requested);
+   json += "\"bars\":[]}";
+   SendRaw(json);
+   Print("AURION: no history for ", _Symbol, " ", TfName(g_hist_tf),
+         " after ", AURION_HIST_TRIES, " attempts - the terminal holds ",
+         SeriesInfoInteger(_Symbol, g_hist_tf, SERIES_BARS_COUNT), " bars");
   }
 
 void PumpHistory()
   {
    if(g_hist_pos < 0)
       return;
+   if(g_hist_count <= 0 && g_hist_next > 0 && GetTickCount() < g_hist_next)
+      return;   // waiting out the backoff between CopyRates attempts
    if(g_hist_count <= 0)
      {
       g_hist_tf = (g_hist_tfname == "" ? _Period : PeriodFromName(g_hist_tfname));
@@ -652,11 +714,41 @@ void PumpHistory()
       int n = CopyRates(_Symbol, g_hist_tf, 0, depth, g_hist_rates);
       if(n <= 0)
         {
+         // MetaTrader answers -1 while it is still fetching the series
+         // from the broker, which is the NORMAL first answer for a
+         // timeframe the chart has never been opened on. The old code
+         // read that as "there is no history" and abandoned the
+         // request for good: the desk then waited for a reply that was
+         // never coming and drew whatever few bars it already had.
+         // Asking again is what finishes the download, so ask again -
+         // on a widening delay, and not forever.
+         g_hist_tries++;
+         if(g_hist_tries <= AURION_HIST_TRIES)
+           {
+            // Touching the series is what tells the terminal somebody
+            // wants it; without this the background fetch may never be
+            // scheduled at all.
+            SeriesInfoInteger(_Symbol, g_hist_tf, SERIES_BARS_COUNT);
+            uint wait = (uint)(250 * g_hist_tries);
+            if(wait > 3000) wait = 3000;
+            g_hist_next = GetTickCount() + wait;
+            return;
+           }
+         // Out of patience. Say so rather than going quiet: an empty
+         // final reply releases the desk to draw what it has and lets
+         // it tell the trader the terminal holds no history here,
+         // which is a different problem from a bridge that stopped
+         // answering.
+         SendHistoryShortfall(depth);
          g_hist_pos = -1;
+         g_hist_tries = 0;
+         g_hist_next = 0;
          return;
         }
       g_hist_count = n;
       g_hist_pos = 0;
+      g_hist_tries = 0;
+      g_hist_next = 0;
      }
    int start = g_hist_pos;
    int endd = start + 60;
@@ -667,6 +759,16 @@ void PumpHistory()
    json += "\"timeframe_name\":\"" + TfName(g_hist_tf) + "\",";
    json += "\"replace\":" + (start == 0 ? "true" : "false") + ",";
    json += "\"final\":" + (endd >= g_hist_count ? "true" : "false") + ",";
+   if(endd >= g_hist_count)
+     {
+      // What this terminal actually holds, said once at the end of the
+      // stream. A chart that stops three weeks back is either the
+      // broker's limit or the terminal's "Max bars in chart" setting,
+      // and a trader cannot tell those apart from a short chart alone.
+      // Sending the count and the oldest date lets the desk name the
+      // cause instead of silently drawing less than it promised.
+      json += HistoryDepthTag(g_hist_tf, (g_hist_want > 0 ? g_hist_want : InpCandleDepth));
+     }
    json += "\"bars\":[";
    for(int i = start; i < endd; i++)
      {

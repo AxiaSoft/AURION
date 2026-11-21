@@ -525,15 +525,25 @@ html[dir="rtl"] .tv-flyout { transform: translateX(6px) }
 
 .tv-round:hover { color: var(--ink); transform: translateY(-1px) }
 
+/* Where history ends, said at the edge where the trader hits it.
+ *
+ * Along the bottom-start corner, not centred at the top: the canvas
+ * writes its OHLC line and the indicator names across the top ~30px,
+ * and a banner landing on top of the prices is how a hint becomes a
+ * fault report. The nav buttons live in the opposite corner, so the
+ * two never meet, and the width is capped so a long sentence wraps
+ * into the corner instead of running across the chart. */
 .tv-hint {
-  position: absolute; inset-block-start: 10px; inset-inline-start: 50%;
-  transform: translateX(-50%);
+  position: absolute; inset-block-end: 12px; inset-inline-start: 12px;
+  max-width: min(42ch, calc(100% - 150px));
   padding: 5px 11px;
-  border: 1px solid var(--line); border-radius: var(--radius-pill, 999px);
+  border: 1px solid var(--line); border-radius: var(--radius-m, 10px);
   background: var(--surface-floating);
-  font-size: 11px; color: var(--muted);
+  font-size: 11px; line-height: 1.5; color: var(--muted);
+  text-align: start;
   pointer-events: none;
 }
+.tv-hint[hidden] { display: none }
 
 /* ------------------------------------------------- selection style bar -- */
 /* Colour and thickness used to live behind a double-click, in a dock most

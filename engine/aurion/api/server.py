@@ -188,7 +188,17 @@ async def candles(symbol: str, timeframe: str = "M15", count: int = 0) -> dict[s
     # Without it a chart opened on one month pulled six, which is the
     # start-up stall. count=0 still means "the promise".
     bars = await trader.bridge.pull_candles(symbol, timeframe, count, exact=True)
-    return {"ok": True, "data": bars, "count": len(bars), "synthetic": False}
+    # What the terminal itself holds for this series, when the expert has
+    # said. A chart that stops short is either the broker's archive or
+    # MetaTrader's own "Max bars in chart"; the desk cannot say which
+    # without being told, and the trader certainly cannot.
+    return {
+        "ok": True,
+        "data": bars,
+        "count": len(bars),
+        "synthetic": False,
+        "depth": trader.bridge.hist_depth(symbol, timeframe),
+    }
 
 
 @app.get("/v1/agents")

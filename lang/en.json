@@ -583,7 +583,9 @@
     "no_signals": "No strict signals on this window",
     "search": "Search charts",
     "open_sr": "Open the full {sym} {tf} chart",
-    "live_now": "Live charts"
+    "live_now": "Live charts",
+    "hist_edge": "This is the oldest candle your terminal holds: {n} {tf} candles, back to {when}.",
+    "hist_edge_fix": "MetaTrader keeps only a set number of bars — Tools → Options → Charts → Max bars in chart."
   },
   "terminal": {
     "title": "Terminal",
