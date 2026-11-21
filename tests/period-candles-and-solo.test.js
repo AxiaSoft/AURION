@@ -162,9 +162,14 @@ check("the preview is bars again, and they are chunky", () => {
   const block = CSS.slice(CSS.indexOf(".cndl-prev{"), CSS.indexOf(".cndl-cap"));
   if (!/display:flex/.test(block)) throw new Error("the strip is not a flex row of tracks");
   if (!/\.cndl\{[^}]*flex:1 1 0/.test(block)) throw new Error("the bars do not share the strip");
-  if (!/\.cndl::after\{[^}]*inset-inline:0/.test(block))
-    throw new Error("the body is a sliver rather than the width of its track");
-  return "equal tracks, full-width bodies, same colours as the chart";
+  /* "Fat ones" was the ask then; "exactly how the EA chart shows them"
+     is the ask now, and the chart's body is 66% of its slot with the
+     other 34% as the gap. Both are satisfied by the same rule - what
+     is excluded is the sliver in the middle of an empty column. */
+  const side = Number((/\.cndl::after\{[^}]*inset-inline:([\d.]+)%/.exec(block) || [])[1]);
+  if (!(side >= 0 && side <= 20))
+    throw new Error("the body is a sliver rather than most of its track");
+  return "equal tracks, " + (100 - 2 * side) + "% bodies, same colours as the chart";
 });
 
 check("a doji is kept flat rather than inflated into a block", () => {

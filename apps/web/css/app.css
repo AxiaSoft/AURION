@@ -3882,7 +3882,10 @@ html[dir="rtl"] .q-how[open] summary::before{ transform:rotate(0deg) }
    here. */
 .cndl-h{margin:18px 0 2px;font-size:13px;font-weight:600}
 .cndl-prev{
-  display:flex;align-items:stretch;gap:7px;
+  /* gap:0 - the space between two candles is the 34% of each slot the
+     body does not use, exactly as on the chart, so eight bars here
+     have the chart's rhythm rather than a looser one of their own. */
+  display:flex;align-items:stretch;gap:0;
   /* A chart is a diagram, and time runs left to right in it whatever
      language the desk is in - the chart canvas beside this strip is
      drawn that way and cannot be otherwise. A flex row inherits the
@@ -3896,13 +3899,33 @@ html[dir="rtl"] .q-how[open] summary::before{ transform:rotate(0deg) }
   overflow:hidden;
 }
 .cndl{position:relative;flex:1 1 0;min-width:0;align-self:stretch}
-/* The wick: a hairline from the bar's high to its low.
 
-   It used to be derived from the body - one width either side - which
-   is only ever right for a symmetrical candle. Real bars are mostly
-   not: a rejection is a long wick on ONE side, and that shape is
-   exactly what a trader is looking for when they judge whether two
-   colours are readable. Top and height are given outright. */
+/* ---------------------------------------------------------------------
+   Drawn the way the chart draws a candle, and not approximately.
+
+   Asked for: "change the shape of the preview candles - exactly how
+   they are shown on the EA chart". Everything below is a reading of
+   paintSeries()/candleBody() in js/charts.js, which is the one place
+   a candle is really drawn, so the strip is a sample of the real
+   thing rather than a second opinion about it:
+
+     * the body is 66% of the bar's slot (bodyW = L.bw * 0.66), which
+       means the gap between candles is the slot's other 34% - not a
+       flex gap. .cndl-prev sets gap:0 for exactly that reason.
+     * the body is a square-cornered rectangle at 94% alpha. It was a
+       2px-rounded box here, and rounding is a material (see below),
+       not the default shape.
+     * BOTH directions are filled. The old rule drew a rising body as
+       an outline and claimed the chart agreed; it does not - hollow
+       is one of the chart's series types ("hollow"), chosen by the
+       trader, and the default candle is solid whichever way it went.
+       Up and down are told apart by --candle-up / --candle-down,
+       which is the pair this preview exists to judge.
+     * the wick is a 1.6px line in the SAME colour at full opacity,
+       running the whole high-to-low with the body over it - that is
+       ctx.lineWidth = min(1.6, max(1, bw*0.12)) at the widths this
+       strip is ever drawn at.
+   --------------------------------------------------------------------- */
 .cndl::before{
   content:"";position:absolute;top:var(--wt);height:var(--wh);
   /* Centred, in BOTH reading directions.
@@ -3914,30 +3937,56 @@ html[dir="rtl"] .q-how[open] summary::before{ transform:rotate(0deg) }
      "the shadows are crooked, the candle is not in the middle of its
      shadow", and it was visible only on the Persian desk.
      Both insets at 50% minus half the width needs no transform at all:
-     the 2px width is what the pair of insets leaves, and it is the
-     same 2px either way round. */
-  inset-inline:calc(50% - 1px);
-  border-radius:2px;background:currentColor;opacity:.85;
+     the 1.6px width is what the pair of insets leaves, and it is the
+     same 1.6px either way round. */
+  inset-inline:calc(50% - .8px);
+  background:currentColor;
 }
-/* The body, edge to edge of the bar's own share. */
 .cndl::after{
-  content:"";position:absolute;inset-inline:0;
+  content:"";position:absolute;
+  /* 17% either side leaves the chart's 66% body. */
+  inset-inline:17%;
   top:var(--t);height:var(--h);
-  border-radius:2px;background:currentColor;
+  background:currentColor;opacity:.94;
   box-sizing:border-box;
 }
 .cndl-cap{margin:-6px 0 12px;font-size:11px;opacity:.75}
 .cndl.is-up{color:var(--candle-up)}
 .cndl.is-down{color:var(--candle-down)}
-/* Up and down differ by more than their colour.
-   The whole purpose of this strip is judging whether a chosen PAIR of
-   colours can be told apart, and a trader who picks two that cannot be
-   must still be able to read the preview that is telling them so. A
-   rising body is hollow and a falling one solid - the same convention
-   the chart itself draws with. */
-.cndl.is-up::after{background:transparent;border:1.5px solid currentColor}
+
+/* The two themes whose candles are not flat.
+
+   charts.js reads --candle-style and builds the body out of the
+   theme's material: "velvet" inflates it, "relief" presses it into
+   the page. The preview has to wear the same material, or choosing
+   colours on the Clay or Neu desk is being done against a body the
+   chart will not draw. Keyed on data-skin because that is where
+   themes.css declares --candle-style, and a Custom theme keeps the
+   data-skin of the material it was seeded from. */
+html[data-skin="clay"] .cndl::after{
+  /* roundRect(..., min(bw*.34, bh*.34, 3.5)) - a percentage radius
+     resolves against width horizontally and height vertically, so the
+     same min() expresses the cap on a short body that the canvas code
+     does with Math.min. Then the inflating highlight: white at .16
+     over the top third, clipped to the rounded shape. */
+  border-radius:min(3.5px, 34%);
+  opacity:.96;
+  background:linear-gradient(to bottom, rgb(255 255 255 / .16) 0 34%, transparent 34%),
+    currentColor;
+}
+html[data-skin="neu"] .cndl::after{
+  /* A lighter top edge and a darker bottom one, both 1px and both
+     INSIDE the body: the top of a body is the open or the close, and
+     an emboss that grew the shape by a pixel would be lying about the
+     price. */
+  background:linear-gradient(to bottom,
+      rgb(255 255 255 / .5) 0 1px,
+      transparent 1px calc(100% - 1px),
+      rgb(0 0 0 / .34) calc(100% - 1px)),
+    currentColor;
+}
 @media (max-width:560px){
-  .cndl-prev{height:76px;gap:5px}
+  .cndl-prev{height:76px}
 }
 
 /* Each tile paints the backdrop it stands for, so the choice is made by
