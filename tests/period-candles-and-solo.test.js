@@ -150,40 +150,57 @@ check("an expert that found nothing still releases the waiters", () => {
 
 /* ------------------------------------------- 3. the candle preview */
 
-check("the preview is drawn, not stacked out of divs", () => {
-  if (!/id="cndl-canvas"/.test(APP)) throw new Error("there is no canvas");
-  if (/class="cndl is-/.test(APP)) throw new Error("the old percentage boxes are still emitted");
-  const fn = jsFn(APP, "paintCandlePreview");
-  for (const want of ["getContext", "fillRect", "strokeRect"]) {
-    if (!fn.includes(want)) throw new Error("the painter never calls " + want);
-  }
+check("the preview is bars again, and they are chunky", () => {
+  /* Written for the canvas version and rewritten with it. The trader
+     looked at the canvas and said, in these words, that the preview
+     candles were wrong and to put back the fat ones - so the canvas is
+     gone, the <i> bars are back, and what is checked is the thing that
+     was asked for: a bar fills its own track. */
+  if (/id="cndl-canvas"/.test(APP)) throw new Error("the canvas is still being rendered");
+  if (!/class="cndl is-/.test(APP)) throw new Error("the bars are not emitted");
   if (!/--candle-up/.test(APP)) throw new Error("it does not read the chart's own colours");
-  return "a canvas, same colours as the chart";
+  const block = CSS.slice(CSS.indexOf(".cndl-prev{"), CSS.indexOf(".cndl-cap"));
+  if (!/display:flex/.test(block)) throw new Error("the strip is not a flex row of tracks");
+  if (!/\.cndl\{[^}]*flex:1 1 0/.test(block)) throw new Error("the bars do not share the strip");
+  if (!/\.cndl::after\{[^}]*inset-inline:0/.test(block))
+    throw new Error("the body is a sliver rather than the width of its track");
+  return "equal tracks, full-width bodies, same colours as the chart";
 });
 
-check("a doji cannot be inflated into something wider than its neighbour", () => {
-  const fn = jsFn(APP, "paintCandlePreview");
-  if (!/height < 1/.test(fn)) throw new Error("a zero-height body has no case of its own");
-  if (!/slot \* 0\.62/.test(fn)) throw new Error("the body is not a share of its slot");
-  return "flat bars drawn as a line, bodies sized from the slot";
+check("a doji is kept flat rather than inflated into a block", () => {
+  const fn = jsFn(APP, "candlePreviewShapes");
+  if (!/bodyH < 2/.test(fn)) throw new Error("a zero-height body has no case of its own");
+  /* And the floor is taken out of the TOP of the body, or a bar that
+     closed on the low of the window is drawn through the floor of the
+     strip - which is what "the preview is corrupted" was. */
+  if (!/bodyTop = Math\.min\(bodyTop, 100 - bodyH\)/.test(fn)) {
+    throw new Error("the minimum height can push a body out of the strip");
+  }
+  return "flat bars stay flat, inside the box";
 });
 
-check("the strip repaints while the colour is still being dragged", () => {
-  if (!/key === "candle_up" \|\| key === "candle_down"/.test(APP)) {
-    throw new Error("onInput does not repaint the canvas, so the live preview is dead");
+check("the colours are live during a drag, with nothing to repaint", () => {
+  /* The canvas had to be told to redraw on every frame of a colour
+     drag; CSS bars do not. They are painted from --candle-up and
+     --candle-down, and previewColour writes those onto <html> as the
+     slider moves - so the strip follows the drag by itself, and the
+     four repaint calls the canvas needed are gone. */
+  if (!/\.cndl\.is-up\{color:var\(--candle-up\)\}/.test(CSS)) {
+    throw new Error("a rising bar does not read the variable the picker writes");
   }
-  if (!jsFn(APP, "renderSettingsKnobs").includes("paintCandlePreview()")) {
-    throw new Error("the first frame of the settings page leaves it blank");
+  if (!/\.cndl\.is-down\{color:var\(--candle-down\)\}/.test(CSS)) {
+    throw new Error("a falling bar does not read the variable the picker writes");
   }
-  return "on input, on commit, on render";
+  const calls = (APP.match(/paintCandlePreview\(\)/g) || []).length;
+  if (calls > 3) throw new Error(calls + " repaint calls - the canvas-era plumbing is back");
+  return "the variables are the repaint";
 });
 
-check("the stylesheet no longer positions candles", () => {
-  if (/\.cndl\{/.test(CSS) || /\.cndl::after/.test(CSS)) {
-    throw new Error("the old CSS candles are still there and will fight the canvas");
-  }
-  if (!/\.cndl-prev canvas\{/.test(CSS)) throw new Error("the canvas has no box to fill");
-  return "only the frame is CSS now";
+check("the stylesheet positions the candles, since nothing else does", () => {
+  if (/\.cndl-prev canvas\{/.test(CSS)) throw new Error("a canvas rule is still in the sheet");
+  if (!/\.cndl::before\{/.test(CSS)) throw new Error("the wick has no rule");
+  if (!/\.cndl::after\{/.test(CSS)) throw new Error("the body has no rule");
+  return "wick and body, placed from their own properties";
 });
 
 /* ------------------------------------------- 4. trading with no strategy */

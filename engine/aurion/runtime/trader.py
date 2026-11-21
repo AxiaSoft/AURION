@@ -5978,8 +5978,28 @@ class Trader:
         # ask from the oldest day actually being asked for.
         want = max(want, bars_to_cover(timeframe, body.get("from")))
         bars = [c.to_dict() for c in self.bridge.candles_of(symbol, timeframe)]
-        if len(bars) < want:
-            bars = await self.bridge.pull_candles(symbol, timeframe, want) or bars
+        # Whether to fetch is a question about DATES, not about counts.
+        #
+        # This used to be `len(bars) < want` alone, and that comparison
+        # is the second half of "I pick November and it tests some
+        # other month". Both sides of it are counts, and a count says
+        # nothing about WHERE the bars are. A cache holding the
+        # six-month window is longer than almost any `want` - on M1 it
+        # is the 300 000-bar ceiling - so a request that starts before
+        # that window satisfied the test instantly, no fetch was made,
+        # and the run was answered out of bars that could not contain
+        # the period the trader chose.
+        #
+        # So ask the other question as well: does what we hold actually
+        # reach back to the first day being asked for? If it does not,
+        # fetch regardless of how many bars there are.
+        asked_from = str(body.get("from") or "").strip()[:10]
+        oldest_held = str((bars[0] or {}).get("time") or "")[:10] if bars else ""
+        too_recent = bool(asked_from and oldest_held and asked_from < oldest_held)
+        if len(bars) < want or too_recent:
+            bars = await self.bridge.pull_candles(
+                symbol, timeframe, want, need_from=asked_from,
+            ) or bars
         if not bars:
             return {"ok": False, "code": "no_history",
                     "args": {"symbol": symbol, "timeframe": timeframe},

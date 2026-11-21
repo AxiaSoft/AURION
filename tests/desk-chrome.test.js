@@ -498,18 +498,42 @@ for (const lang of ["en", "fa", "ar"]) {
   ok(gone.length === 0, `${lang} has every new theme string (missing: ${gone.join(", ") || "none"})`);
 }
 
-/* The preview, now a canvas. The percentage-positioned bars it
-   replaced could not draw a doji or a flat body without inflating it,
-   which is what "the candle preview is broken" was about. It still
-   reads the same two variables the chart reads - it is simply told to
-   repaint when they move, which is what the picker's onInput does. */
+/* The preview, and it is CSS bars again.
+
+   It was briefly a canvas, on the argument that a canvas can draw a
+   doji without inflating it. The trader's answer was the only one that
+   matters - "the preview candles are wrong, put back the fat ones" -
+   and the canvas version drew one-pixel wicks and slivers of body at
+   the sizes this strip is actually displayed at. So: one <i> per bar,
+   filling its own track, with the body and the wick each positioned
+   from their own custom properties.
+
+   Being CSS is also what makes it live. The bars are painted from
+   --candle-up / --candle-down, which previewColour writes onto <html>
+   on every frame of a drag, so the strip restyles itself with no
+   repaint call at all - the canvas needed four of them and they are
+   gone with it. */
 ok(/class="cndl-prev"/.test(appJsNC), "there is a candle preview in the builder");
-ok(/id="cndl-canvas"/.test(appJsNC), "the preview is a canvas");
-const painter = appJsNC.slice(appJsNC.indexOf("function paintCandlePreview"));
-const painterBody = painter.slice(0, painter.indexOf("\n}"));
-ok(/read\("--candle-up"/.test(appJsNC), "the preview's rising bars read --candle-up");
-ok(/read\("--candle-down"/.test(appJsNC), "and its falling bars read --candle-down");
-ok(/getContext\("2d"\)/.test(painterBody), "and something actually draws them");
+ok(!/id="cndl-canvas"/.test(appJsNC), "the canvas preview has been removed, not left behind");
+ok(/<i class="cndl is-\$\{dir\}"/.test(appJsNC), "each bar is an element of its own");
+ok(/--t:\$\{/.test(appJsNC) && /--h:\$\{/.test(appJsNC),
+  "the body is placed from its own two properties");
+ok(/--wt:\$\{/.test(appJsNC) && /--wh:\$\{/.test(appJsNC),
+  "and the wick from two more, so an asymmetric rejection candle reads correctly");
+
+/* The chunky part, asserted as a number rather than as a word: a body
+   that spans its whole track, in a track that is a flex child sharing
+   the strip evenly. The old slim version pinned .cndl::after to a
+   --cndl-w of a few pixels, which is the thing being refused. */
+const cndlCss = read("css/app.css");
+const cndlBlock = cndlCss.slice(cndlCss.indexOf(".cndl-prev{"), cndlCss.indexOf(".cndl-cap"));
+ok(/display:flex/.test(cndlBlock), "the strip is a flex row of tracks");
+ok(/\.cndl\{[^}]*flex:1 1 0/.test(cndlBlock), "every bar takes an equal share of the strip");
+ok(/\.cndl::after\{[^}]*inset-inline:0/.test(cndlBlock),
+  "the body fills its track rather than being a sliver in the middle of it");
+ok(!/--cndl-w/.test(cndlBlock), "no fixed body width survives");
+ok(/\.cndl::before\{[^}]*var\(--wt\)[\s\S]*?var\(--wh\)/.test(cndlBlock),
+  "the wick is placed from its own properties");
 
 /* previewColour writes whatever colourCss emits straight onto <html>, so
    the preview is live only because the pair goes through that same path. */

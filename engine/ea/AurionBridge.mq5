@@ -2,6 +2,16 @@
 //| AurionBridge.mq5                                                 |
 //| Live chart agent for the AURION engine.                          |
 //|                                                                  |
+//| v1.21 — history is asked for as a PERIOD, not as a bar count.    |
+//|   CopyRates(sym, tf, 0, depth, ...) is served out of the series   |
+//|   the terminal has already built, and never makes it fetch more,  |
+//|   so a deep ask was silently answered with whatever was loaded:   |
+//|   MetaTrader scrolled back months while AURION drew weeks. The    |
+//|   date-range form is what triggers the download, and the retry    |
+//|   ladder below already covers the "-1 while downloading" reply.   |
+//|   If the broker refuses the whole period we now fall back to the  |
+//|   bars this terminal does hold instead of sending nothing.        |
+//|                                                                  |
 //| v1.20 — a history request is no longer abandoned the first time  |
 //|   MetaTrader says "not yet". CopyRates answers -1 while it is    |
 //|   still fetching a series from the broker, which is the normal   |
@@ -47,10 +57,10 @@
 // nobody could tell. AURION_EA_VERSION is the value sent to the engine;
 // engine/tests/test_ea_version.py fails the build if the #property below
 // drifts from it, because #property will not take a macro.
-#define AURION_EA_VERSION "1.20"
-#property version   "1.20"
+#define AURION_EA_VERSION "1.21"
+#property version   "1.21"
 #property strict
-#property description "AURION live bridge 1.20 — history depth set by the engine, and a history request that waits for the download"
+#property description "AURION live bridge 1.21 — history asked for as a date range, so the terminal downloads the months the desk needs"
 
 input string InpEngineHost   = "127.0.0.1";
 input int    InpEnginePort   = 18766;
@@ -711,7 +721,32 @@ void PumpHistory()
       if(depth < 50) depth = 50;
       if(depth > AURION_HIST_MAX) depth = AURION_HIST_MAX;
       ArraySetAsSeries(g_hist_rates, false);
-      int n = CopyRates(_Symbol, g_hist_tf, 0, depth, g_hist_rates);
+      /* Ask for a PERIOD, not for a position.
+       *
+       * This is the whole of "MetaTrader shows me months and AURION
+       * does not". CopyRates(symbol, tf, 0, depth, rates) is answered
+       * out of the series this terminal has already built: if the
+       * chart has three thousand bars loaded, three thousand bars is
+       * the answer, however many the engine asked for, and nothing in
+       * that call ever makes the terminal go to the broker for the
+       * rest. The depth the engine names was therefore a ceiling that
+       * could never be reached, and the desk drew a few weeks while
+       * the same terminal, on the same symbol, scrolled back months.
+       *
+       * The date form is a request for a time RANGE, and a range the
+       * terminal does not hold is what makes it download. It answers
+       * -1 the first few times while that download runs, which is
+       * exactly the case the retry ladder below already exists for.
+       *
+       * The range is the depth expressed in time, because that is
+       * what the depth was converted FROM: the engine sizes it as
+       * calendar days divided by the bar length. Going back
+       * depth x PeriodSeconds therefore asks for the same calendar
+       * window, and the weekends inside it simply come back empty. */
+      datetime stop  = TimeCurrent() + PeriodSeconds(g_hist_tf);
+      datetime begin = (datetime)((long)stop - (long)PeriodSeconds(g_hist_tf) * (long)depth);
+      if((long)begin < 0) begin = 0;
+      int n = CopyRates(_Symbol, g_hist_tf, begin, stop, g_hist_rates);
       if(n <= 0)
         {
          // MetaTrader answers -1 while it is still fetching the series
@@ -739,16 +774,39 @@ void PumpHistory()
          // it tell the trader the terminal holds no history here,
          // which is a different problem from a bridge that stopped
          // answering.
-         SendHistoryShortfall(depth);
-         g_hist_pos = -1;
+         /* One last ask, by position, for whatever the terminal has
+          * already built. The range request can fail outright on a
+          * series the broker will not serve that far back, and in
+          * that case the three thousand bars sitting in the chart are
+          * still worth having - they are what the trader can see.
+          * Only when THAT is empty too is there really nothing. */
+         int held = CopyRates(_Symbol, g_hist_tf, 0, depth, g_hist_rates);
+         if(held > 0)
+           {
+            Print("AURION: ", _Symbol, " ", TfName(g_hist_tf),
+                  " - the broker would not serve the whole period; sending the ",
+                  held, " bars this terminal holds");
+            g_hist_count = held;
+            g_hist_pos = 0;
+            g_hist_tries = 0;
+            g_hist_next = 0;
+           }
+         else
+           {
+            SendHistoryShortfall(depth);
+            g_hist_pos = -1;
+            g_hist_tries = 0;
+            g_hist_next = 0;
+            return;
+           }
+        }
+      else
+        {
+         g_hist_count = n;
+         g_hist_pos = 0;
          g_hist_tries = 0;
          g_hist_next = 0;
-         return;
         }
-      g_hist_count = n;
-      g_hist_pos = 0;
-      g_hist_tries = 0;
-      g_hist_next = 0;
      }
    int start = g_hist_pos;
    int endd = start + 60;

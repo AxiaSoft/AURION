@@ -229,34 +229,39 @@ check("the trader's own swatch wears a dashed ring", () => {
 
 /* ----------------------------------------- 3. the candle preview reads */
 
-check("the preview bodies have a width of their own, and a thin one", () => {
-  /* The strip was rewritten as a canvas: percentage-positioned <i>
-     elements could not draw a doji without inflating it, and on a
-     narrow card the fixed-width bodies overlapped. The property being
-     checked is the same - a candle body is thin, and it is sized from
-     the space one bar is given - it is now arithmetic rather than a
-     custom property. */
-  const fn = appJs.slice(appJs.indexOf("function paintCandlePreview"));
-  const body = fn.slice(0, fn.indexOf("\n}"));
-  const m = /Math\.max\(1, Math\.min\((\d+), Math\.round\(slot \* ([\d.]+)\)\)\)/.exec(body);
-  if (!m) throw new Error("the body is not a bounded share of its slot");
-  if (Number(m[1]) > 16) throw new Error("a " + m[1] + "px body is not slim");
-  if (Number(m[2]) >= 1) throw new Error("the body fills its whole slot again");
-  if (/\.cndl\{/.test(appCss)) throw new Error("the old CSS candles are still in the sheet");
-  return m[2] + " of the slot, max " + m[1] + "px";
+check("the preview bodies are chunky, and share the strip evenly", () => {
+  /* The strip was briefly a canvas, and before that it was slim bars
+     of a fixed pixel width that overlapped on a narrow card. It is
+     back to CSS bars, by request - "the preview candles are wrong, put
+     back the fat ones" - and the property being protected is now the
+     opposite one: a body fills the share of the strip its own bar is
+     given, so fourteen bars are fourteen equal tracks at any width. */
+  const block = appCss.slice(appCss.indexOf(".cndl-prev{"), appCss.indexOf(".cndl-cap"));
+  if (!block) throw new Error("the preview has no rules at all");
+  if (!/display:flex/.test(block)) throw new Error("the strip is not a flex row");
+  if (!/\.cndl\{[^}]*flex:1 1 0/.test(block))
+    throw new Error("the bars do not take an equal share of the strip");
+  if (!/\.cndl::after\{[^}]*inset-inline:0/.test(block))
+    throw new Error("the body does not fill its track");
+  if (/--cndl-w/.test(block)) throw new Error("a fixed body width is back");
+  if (/id="cndl-canvas"/.test(appJs)) throw new Error("the canvas preview is still being rendered");
+  return "equal tracks, full-width bodies";
 });
 
 check("up and down differ by more than their colour", () => {
-  const fn = appJs.slice(appJs.indexOf("function paintCandlePreview"));
-  const body = fn.slice(0, fn.indexOf("\n}"));
-  if (!/if \(rising\)[\s\S]{0,200}strokeRect/.test(body))
+  if (!/\.cndl\.is-up\{color:var\(--candle-up\)\}/.test(appCss))
+    throw new Error("a rising bar does not read the candle pair");
+  if (!/\.cndl\.is-down\{color:var\(--candle-down\)\}/.test(appCss))
+    throw new Error("a falling bar does not read the candle pair");
+  if (!/\.cndl\.is-up::after\{[^}]*background:transparent/.test(appCss))
     throw new Error("a rising bar is not hollow");
-  if (!/fillRect/.test(body))
+  if (!/\.cndl::after\{[^}]*background:currentColor/.test(appCss))
     throw new Error("a falling bar is not filled");
-  if (!/rising \? C\.up : C\.down/.test(body))
-    throw new Error("the bars no longer read the candle pair");
+  /* Live without a repaint: the bars are painted from the two
+     variables previewColour writes onto <html> during a drag, which is
+     why the canvas-era repaint calls could be deleted. */
   if (!/--candle-up/.test(appJs) || !/--candle-down/.test(appJs))
-    throw new Error("the painter does not read the chart's own variables");
+    throw new Error("nothing on the desk publishes the chart's own variables");
   return "hollow up, filled down";
 });
 

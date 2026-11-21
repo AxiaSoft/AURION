@@ -298,26 +298,29 @@ ok(orphan.length === 0, "no calendar rule styles markup that no longer exists", 
 
 /* --------------------------------- 3. the floating card is gone entirely */
 
-/* It was pinned-on-click first, then hover-only, now nothing.
-   The last check here used to assert that the peek had
-   pointer-events:none so it could not swallow a click. There is no
-   peek to swallow anything: a day number is clicked, and the click
-   fills the day panel, which says what the peek said and additionally
-   offers to backtest that day, week or month. A hovering card could
-   never have carried a button - it vanished when the pointer left it. */
-ok(!/pinned/.test(calJsNC), "clicking a day no longer pins a floating copy of the day panel");
-ok(!/pinned/.test(appJsNC), "...and the desk has no pinned state left to unwind");
+/* The old pointer-following tooltip (#cal-tip) is still gone. What
+   replaced it is a popover ANCHORED to the cell, which is a different
+   thing: it is positioned once, from the day's own rectangle, and it
+   does not move again - so it can be walked into, scrolled, and
+   clicked. Asked for in exactly those terms: a window beside the day
+   number, the news scrollable inside it, closing on a click outside. */
 ok(!/cal-tip-x/.test(css) && !/cal-tip-x/.test(calJs), "the tooltip's close button went with it");
-ok(!/\.cal-tip\b/.test(css), "no stylesheet still describes a hover peek");
-ok(!/_tipFor/.test(calJsNC) && !/cal-tip/.test(css),
-  "no tooltip renderer and no tooltip styles are left");
-/* Hover is back, but as a preview inside the news card that is already
-   on the page - not as a floating card of its own. The distinction is
-   the whole difference between the two designs, so it is asserted
-   rather than described: the handler exists, and what it touches is
-   #cal-day. */
-ok(/addEventListener\("mouseover"/.test(calJsNC) && /is-peek/.test(calJsNC),
-  "hovering a day previews it in the news card beside the month");
+ok(!/\.cal-tip\b/.test(css), "no stylesheet still describes the pointer-following tooltip");
+ok(!/_tipFor/.test(calJsNC), "no tooltip renderer is left");
+ok(/getBoundingClientRect/.test(calJsNC) && /const placePop/.test(calJsNC),
+  "the popover is placed from the cell's own rectangle, not from the pointer");
+ok(/addEventListener\("mouseover"/.test(calJsNC), "hover opens it");
+ok(/addEventListener\("touchstart"/.test(calJsNC), "and a press-and-hold does too, for a touch screen");
+ok(/pointerdown/.test(calJsNC) && /closePop/.test(calJsNC), "a click outside closes it");
+/* The shared news card is no longer rewritten by a hover. That was the
+   complaint this replaces: "its container keeps changing". */
+ok(!/day\.innerHTML = this\._dayPanel\(key, true\)/.test(calJsNC),
+  "hovering no longer rewrites the shared news card");
+const popCss = css.slice(css.indexOf(".cal-pop{"), css.indexOf(".cal-pop{") + 600);
+ok(/position:fixed/.test(popCss), "the popover is fixed, like the rectangle it was placed from");
+ok(/max-block-size/.test(popCss), "it is capped rather than growing off the screen");
+ok(/\.cal-pop \.cal-evs\{[^}]*overflow:auto/.test(css),
+  "and the news scrolls inside it");
 /* Kept: a desk left open across the update has a peek stranded on
    <body> with nothing left to remove it. */
 ok(/getElementById\("cal-tip"\)/.test(calJsNC) && /getElementById\("cal-tip"\)/.test(appJsNC),
@@ -511,38 +514,43 @@ async function boot(viewport, hover) {
   const blank = [...k.doc.querySelectorAll(".cal-chip")].filter((c) => !c.textContent.trim());
   ok(blank.length === 0, "no empty chips on the calendar", `${blank.length} empty`);
 
-  /* ---- hovering a day previews it without choosing it ---- */
+  /* ---- hovering a day opens a window beside that day ---- */
   const pinned = k.Cal.selected;
   const hoverCells = [...k.doc.querySelectorAll(".cal-cell")];
-  /* A day that HAS news: the card only has a list to scroll when there
-     is something in it, and that list is the thing this preview exists
-     to let the trader read. */
+  /* A day that HAS news: the popover only has a list to scroll when
+     there is something in it, and that list is the thing it exists to
+     let the trader read. */
   const over = hoverCells.find((c) => c.dataset.day !== pinned && c.querySelector(".cal-dots i, .cal-dots span, .cal-dots b"))
     || hoverCells.find((c) => c.dataset.day !== pinned && c.querySelector(".cal-dots").textContent.trim())
     || hoverCells.find((c) => c.dataset.day !== pinned);
-  over.dispatchEvent(new k.win.MouseEvent("mouseover", { bubbles: true }));
   const dayCard = k.doc.getElementById("cal-day");
-  ok(dayCard.classList.contains("is-peek"), "hovering a day previews it in the news card");
-  ok(k.Cal.selected === pinned, "...without changing which day is pinned", k.Cal.selected);
-  /* Leaving the grid no longer drops the preview on the spot: the only
-     way to reach the card is to leave the grid, and the news inside it
-     is a list that has to be scrollable. Reported as "I hover and its
-     container keeps changing" - the card was readable for exactly as
-     long as the pointer stayed on the day number. */
+  const cardBefore = dayCard.innerHTML;
+  over.dispatchEvent(new k.win.MouseEvent("mouseover", { bubbles: true }));
+  await new Promise((r) => setTimeout(r, 260));
+  let pop = k.doc.getElementById("cal-pop");
+  ok(!!pop, "hovering a day opens a window of its own");
+  ok(over.classList.contains("is-peek"), "...marked on the day it belongs to");
+  ok(k.Cal.selected === pinned, "...without changing which day is chosen", k.Cal.selected);
+  /* The whole point of the rewrite: the shared news card is not
+     touched by a hover. Reported twice as "it keeps changing the
+     container". */
+  ok(dayCard.innerHTML === cardBefore, "the shared news card is left alone");
+  ok(!!pop.querySelector(".cal-evs"),
+    "the day's news is a list inside the popover, where it can scroll");
+  /* Leaving the grid gives a grace period - the only way to reach the
+     popover is to leave the grid - and settling inside it holds it
+     open indefinitely. */
   const pane = k.doc.getElementById("cal-pane");
   pane.dispatchEvent(new k.win.MouseEvent("mouseleave", { bubbles: false }));
-  ok(dayCard.classList.contains("is-peek"),
-    "crossing the gap towards the card keeps the preview up");
-  dayCard.dispatchEvent(new k.win.MouseEvent("mouseenter", { bubbles: false }));
+  pop.dispatchEvent(new k.win.MouseEvent("mouseenter", { bubbles: false }));
   await new Promise((r) => setTimeout(r, 400));
-  ok(dayCard.classList.contains("is-peek") && k.Cal.peek === over.dataset.day,
-    "...and the pointer settling in the card holds it there indefinitely");
-  const list = dayCard.querySelector(".cal-evs");
-  ok(!!list, "the previewed day's news is a list inside the card, where it can scroll");
-  dayCard.dispatchEvent(new k.win.MouseEvent("mouseleave", { bubbles: false }));
-  await new Promise((r) => setTimeout(r, 400));
-  ok(!dayCard.classList.contains("is-peek") && k.Cal.selected === pinned,
-    "...and the pinned day comes back once the pointer leaves the card too");
+  ok(!!k.doc.getElementById("cal-pop"),
+    "crossing the gap into the popover keeps it up");
+  /* And a click anywhere else closes it, which is the third thing that
+     was asked for by name. */
+  k.doc.body.dispatchEvent(new k.win.MouseEvent("pointerdown", { bubbles: true }));
+  ok(!k.doc.getElementById("cal-pop"), "clicking outside closes it");
+  ok(k.Cal.selected === pinned, "...and still without choosing a day", k.Cal.selected);
   ok(k.doc.querySelectorAll(".cal-legend li").length === 4, "the impact legend still has all four levels");
   ok(/15/.test(k.doc.querySelector(".cal-fine").textContent), "the blackout note still states the window",
     k.doc.querySelector(".cal-fine").textContent.trim());

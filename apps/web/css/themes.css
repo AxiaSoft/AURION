@@ -2005,17 +2005,44 @@ html[data-skin] .gate-card .pill.on{
   border-color:transparent;
   box-shadow:none;
 }
-html[data-skin] .gate-card .pill.ok{
-  background:transparent;
-  border:1px solid rgb(var(--accent-rgb) / .35);
-  color:var(--accent-readable, var(--accent));
+/* Filled, and this is the rule that decides it.
+
+   app.css fills these chips; this file is loaded after it and carried
+   one more attribute, so the hollow version written here won every
+   time and the trader - who asked twice - kept seeing an outline with
+   bold coloured text inside it. Said once more, plainly: the chip IS
+   the state's colour and the text is the ink that sits on it.
+
+   "ok" follows the accent so it belongs to the theme. "no" never
+   does, for the same reason the kill button does not: it has to be
+   found by colour alone, in every theme. */
+html[data-skin] .gate-card .pill.ok,
+html[data-skin] .gate-card .ea-chart .pill.ok,
+html[data-skin] .ea-list .pill.ok{
+  background:var(--accent);
+  border-color:transparent;
+  color:var(--accent-ink, var(--on-accent));
+  font-weight:600;
   box-shadow:none;
 }
-html[data-skin] .gate-card .pill.no{
-  background:transparent;
-  border:1px solid rgb(255 107 138 / .35);
-  color:var(--rose);
+html[data-skin] .gate-card .pill.no,
+html[data-skin] .gate-card .ea-chart .pill.no,
+html[data-skin] .ea-list .pill.no{
+  background:var(--rose);
+  border-color:transparent;
+  color:var(--on-accent);
+  font-weight:600;
   box-shadow:none;
+}
+/* The dot inside a filled chip would otherwise glow against its own
+   background and read as a smudge. */
+html[data-skin] .gate-card .pill.ok .dot,
+html[data-skin] .gate-card .pill.no .dot,
+html[data-skin] .ea-list .pill.ok .dot,
+html[data-skin] .ea-list .pill.no .dot{
+  background:currentColor;
+  box-shadow:none;
+  animation:none;
 }
 
 /* ===========================================================================

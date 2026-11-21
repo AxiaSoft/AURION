@@ -1017,7 +1017,8 @@ class MT5Bridge:
         await self.emit("orders", [o.to_dict() for o in orders])
 
     async def pull_candles(
-        self, symbol: str, timeframe: str, count: int = 0, exact: bool = False
+        self, symbol: str, timeframe: str, count: int = 0, exact: bool = False,
+        need_from: str = "",
     ) -> list[dict[str, Any]]:
         """Bars for this series.
 
@@ -1034,6 +1035,13 @@ class MT5Bridge:
         full-window pull and the desk appeared to hang on start-up.
         The promise still holds for everyone who does not set it, and
         for the desk the moment the trader picks a wider range.
+
+        `need_from` is the earliest DAY the caller must be able to see,
+        "YYYY-MM-DD". A count cannot express that: a cache can be very
+        long and still begin last Tuesday, which is how a backtest of
+        November came to be answered out of bars that began in March.
+        When what we hold does not reach that far back, the expert is
+        asked again however many bars are already sitting in it.
         """
         symbol = str(symbol or "").strip()
         tf = self._norm_tf(timeframe)
@@ -1065,7 +1073,12 @@ class MT5Bridge:
         # AI's training window - was answered out of a cache that was
         # comfortably over twenty bars and nowhere near the window the
         # product promises. Nothing ever went back and asked for more.
-        if self._short_of(rows, count) and self.is_ea_symbol(symbol):
+        # Deep enough, as opposed to merely long enough. See `need_from`.
+        want_day = str(need_from or "").strip()[:10]
+        shallow = bool(want_day) and (
+            not rows or str(getattr(rows[0], "time", "") or "")[:10] > want_day
+        )
+        if (self._short_of(rows, count) or shallow) and self.is_ea_symbol(symbol):
             if self._may_ask_history(symbol, tf, count):
                 fetched = await self._request_ea_history(
                     symbol, tf, timeout=self._history_timeout(count), count=count
