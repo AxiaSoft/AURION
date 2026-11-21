@@ -3204,10 +3204,6 @@ function closeDropdown(menu) {
 function repositionOpenDropdowns() {
   const vh = window.innerHeight;
   document.querySelectorAll("body > .dd-menu:not([hidden])").forEach((menu) => {
-    /* A sheet is anchored to the viewport, not to the trigger, so a
-       scroll underneath it means nothing at all - not a move, and
-       certainly not a dismissal. Leaving it alone is the whole fix. */
-    if (menu.classList.contains("dd-sheet")) return;
     const btn = menu._btn;
     if (!btn || !btn.isConnected) { closeDropdown(menu); return; }
     const r = btn.getBoundingClientRect();
@@ -3269,44 +3265,26 @@ function placePopover(btn, pop, opts) {
   pop.style.insetInlineStart = Math.max(POP_EDGE, Math.min(startPx, maxStart)) + "px";
 }
 
-/* A phone is not a small desktop.
+/* One model on every screen.
 
-   Following the trigger is right when the menu is a few rows beside a
-   control the thumb can still see. On a phone it is the wrong model
-   entirely: the trigger is halfway down 5800px of settings, the menu is
-   most of what is left of a 844px screen, and the gesture that reads
-   the rest of the list is the same gesture that moves the trigger. So
-   the menu slid up the screen with it and then dismissed itself the
-   moment the trigger cleared the top edge - which is the "it gets
-   dragged along and closes" the desk reported.
+   For a while a phone got something else here: below 760px a menu
+   stopped following its trigger and became a sheet pinned to the
+   bottom of the viewport. It was answering a real complaint - a menu
+   opened low on a long settings page slid away under the finger that
+   was scrolling to read it - but it answered it by making the desk
+   hold two different controls, and the one everybody measures against
+   is the symbol picker, which is a popover on a phone as much as on a
+   desktop. Asked for plainly: "the dropdowns open as a mobile sheet;
+   I want them to open like the symbol one."
 
-   Below 760px the menu stops being a popover and becomes a sheet: it is
-   pinned to the bottom of the viewport, it does not track anything, and
-   it scrolls its own list. Nothing the page does underneath can move it
-   or close it. */
-const DD_SHEET_MQ = "(max-width: 760px)";
-
-function menuWantsSheet() {
-  return typeof window.matchMedia === "function"
-    && window.matchMedia(DD_SHEET_MQ).matches;
-}
-
-/* The sheet's geometry lives in the stylesheet, so the job here is to
-   hand it back: clear every inline value placePopover wrote from a
-   trigger rectangle, or they would out-specify the sheet rules. */
-function sheetDropdown(menu) {
-  menu.classList.add("dd-sheet");
-  menu.classList.remove("is-up");
-  menu.style.insetBlockStart = "";
-  menu.style.insetBlockEnd = "";
-  menu.style.insetInlineStart = "";
-  menu.style.inlineSize = "";
-  menu.style.maxBlockSize = "";
-}
-
+   So there is no sheet. Every menu on the desk, symbol list included,
+   is placePopover's: the width of the control that opened it, as tall
+   as the space actually below or above it, flipped upwards when the
+   room is up there, and following its trigger while the page moves.
+   The scroll complaint is still answered - by repositionOpenDropdowns
+   moving the menu with the trigger rather than by anchoring it
+   somewhere else. */
 function placeDropdownMenu(btn, menu) {
-  if (menuWantsSheet()) { sheetDropdown(menu); return; }
-  menu.classList.remove("dd-sheet");
   placePopover(btn, menu);
 }
 

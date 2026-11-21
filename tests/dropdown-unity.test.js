@@ -236,53 +236,43 @@ ok(/html\[data-skin\] \.sympick-pop\{ animation:ddIn/.test(themesCss)
 }
 
 
-/* ---- the phone sheet ------------------------------------------------
-   Following the trigger is right on a desktop and wrong on a phone: the
-   gesture that reads the rest of a tall menu is the same gesture that
-   moves its trigger, so the menu slid up the screen and then dismissed
-   itself. Below 760px it is pinned to the viewport instead. Measured at
-   390px: it drifted 366px and closed after 8 of 20 scrolls; now 20/20
-   survive with zero drift. */
-ok(/function menuWantsSheet\(/.test(appJs), "there is a single test for the sheet breakpoint");
-ok(/max-width:\s*760px/.test(appJs), "and it is the phone breakpoint the rest of the desk uses");
-ok(/function sheetDropdown\(/.test(appJs), "the sheet has its own placement routine");
-ok(/if \(menuWantsSheet\(\)\) \{ sheetDropdown\(menu\); return; \}/.test(appJs),
-  "placeDropdownMenu hands a phone straight to it, before any trigger geometry");
-ok(/menu\.classList\.remove\("dd-sheet"\)/.test(appJs),
-  "and takes the class back off when the viewport grows, so a rotate restores the popover");
+/* ---- one control, at every width ------------------------------------
+   For a while a phone got a different dropdown: below 760px the menu
+   became a sheet pinned to the bottom of the viewport. Reported, and
+   plainly: "the dropdowns open as a mobile sheet; I want them to open
+   like the symbol one." The symbol picker was always a popover, so the
+   sheet was the desk holding two controls again - the exact thing the
+   rest of this suite exists to prevent. */
+ok(!/dd-sheet/.test(appJs), "no menu turns itself into a sheet any more");
+ok(!/menuWantsSheet|sheetDropdown/.test(appJs), "and the routines that did it are gone, not merely unused");
+ok(!/dd-sheet/.test(appCss), "the sheet geometry is out of the stylesheet too");
 
 {
-  /* The inline values placePopover writes would out-specify the sheet's
-     stylesheet rules, so they have to be cleared, not just overridden. */
-  const fn = appJs.slice(appJs.indexOf("function sheetDropdown("));
+  const fn = appJs.slice(appJs.indexOf("function placeDropdownMenu("));
   const body = fn.slice(0, fn.indexOf("\n}"));
-  ["insetBlockStart", "insetBlockEnd", "insetInlineStart", "inlineSize", "maxBlockSize"].forEach((k) =>
-    ok(new RegExp("style\\." + k + '\\s*=\\s*""').test(body),
-      "sheetDropdown clears the inline " + k + " placePopover left behind"));
-  ok(/classList\.add\("dd-sheet"\)/.test(body), "and marks the menu as a sheet");
+  ok(/placePopover\(btn, menu\)/.test(body),
+    "a dropdown menu is placed by the same routine as the symbol popover");
+  ok(!/matchMedia|max-width/.test(body),
+    "and it asks nothing about the screen - there is one behaviour to reason about");
 }
 
 {
+  /* The complaint the sheet was answering is still answered, by the
+     menu following its trigger rather than by anchoring elsewhere. */
   const fn = appJs.slice(appJs.indexOf("function repositionOpenDropdowns("));
   const body = fn.slice(0, fn.indexOf("\n}"));
-  ok(/classList\.contains\("dd-sheet"\)/.test(body) && /return;/.test(body),
-    "a scroll leaves a sheet entirely alone - not repositioned, not closed");
-  ok(body.indexOf('classList.contains("dd-sheet")') < body.indexOf("closeDropdown"),
-    "and it bails out before the close-when-off-screen rule can reach it");
+  ok(/placeDropdownMenu\(btn, menu\)/.test(body),
+    "a scroll moves an open menu with its trigger at every width");
 }
 
 {
-  const css = read("apps/web/css/app.css");
-  ok(/\.dd-menu\.dd-sheet\{/.test(css.replace(/\s+/g, "")) || /\.dd-menu\.dd-sheet\s*\{/.test(css),
-    "the sheet geometry is in the stylesheet");
-  const at = css.indexOf(".dd-menu.dd-sheet");
-  const blk = css.slice(at, css.indexOf("}", at));
-  ok(/inset-block-end:\s*0/.test(blk), "pinned to the bottom edge");
-  ok(/inset-block-start:\s*auto/.test(blk), "and released from the top one");
-  ok(/overscroll-behavior:\s*contain/.test(blk),
-    "its overscroll does not chain to the page - that chaining is what dragged the pane");
-  ok(css.slice(0, at).lastIndexOf("@media") > css.slice(0, at).lastIndexOf("}\n.dd-menu{") - 1,
-    "and the whole thing sits inside a media query, so desktops are untouched");
+  /* A popover on a phone is still read with a thumb. */
+  const at = appCss.indexOf("@media (max-width: 760px) {\n  .dd-menu .dd-opt");
+  ok(at > 0, "menu rows get a touch target on a phone");
+  const blk = appCss.slice(at, appCss.indexOf("\n}", at));
+  ok(/\.dd-menu \.dd-opt\{min-block-size:48px\}/.test(blk)
+    && /\.sympick-row\{min-block-size:48px\}/.test(blk),
+    "...and both dropdowns get the same one, stated together");
 }
 
 console.log(failed ? `\n${failed} check(s) failed` : "\nall checks passed");
