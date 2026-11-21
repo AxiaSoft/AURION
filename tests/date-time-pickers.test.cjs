@@ -206,9 +206,24 @@ const chip = btTouch.slice(btTouch.indexOf("#bt-card .bt-span button{"), btTouch
 ok(/min-height:4\dpx/.test(chip) && /font-size:1[4-9]px/.test(chip),
   "the period chips are a thumb tall on a phone, not the 30px toolbar height",
   chip.replace(/\s+/g, " "));
+/* The thing that is tapped, as opposed to the calendar that opens.
+   Reported twice, because the first answer shrank it: min-height:46px
+   and font-size:15px are both SMALLER than what .ctrl already gives a
+   control on a touch pointer (48px from --ctl-h, 16px from the
+   iOS-zoom rule), and being more specific they won. A rule that sizes
+   a target may only ever raise it. */
 const dtBtn = btTouch.slice(btTouch.indexOf(".bt-dates .dt-btn{"), btTouch.indexOf("}", btTouch.indexOf(".bt-dates .dt-btn{")));
-ok(/min-height:4\dpx/.test(dtBtn), "and the two buttons that open the calendar are full height",
-  dtBtn.replace(/\s+/g, " "));
+const btnH = Number((/min-block-size:(\d+)px/.exec(dtBtn) || [])[1]);
+const btnF = Number((/font-size:(\d+)px/.exec(dtBtn) || [])[1]);
+ok(btnH >= 48, "the button that opens the calendar is at least the desk's touch height", btnH + "px");
+ok(btnF >= 16, "and its date is at least the size every other field is given on a phone", btnF + "px");
+ok(/flex-direction:column/.test(btTouch.slice(btTouch.indexOf(".bt-dates > .field{"),
+  btTouch.indexOf("}", btTouch.indexOf(".bt-dates > .field{")))),
+  "...with its caption above it, so the whole card width is the target rather than a third of a row");
+
+/* And the same button everywhere else a picker is opened. */
+ok(/\.dt-btn\{ min-block-size:48px; font-size:16px/.test(touch),
+  "every picker trigger on the desk gets a touch height, not just the backtest's two");
 
 /* ----------------------------------------------------------- the report */
 

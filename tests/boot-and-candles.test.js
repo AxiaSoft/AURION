@@ -249,20 +249,67 @@ check("nothing is ever drawn outside the strip", () => {
   return "every shape inside the box";
 });
 
-check("the bars are chunky: each one fills its own track", () => {
-  /* This is the complaint itself, asserted as CSS rather than as
-     arithmetic. The strip is a flex row, every bar is an equal share
-     of it, and the body spans its whole share - no fixed width, no
-     sliver in the middle of an empty column. */
+check("a bar is shaped the way the chart shapes one", () => {
+  /* Asked for: "change the shape of the preview candles - exactly how
+     they are shown on the EA chart." So these numbers are not a taste
+     decision, they are a reading of paintSeries() in js/charts.js, and
+     this check fails if the two drift apart again. */
+  const chart = read("apps/web/js/charts.js");
   const block = appCss.slice(appCss.indexOf(".cndl-prev{"), appCss.indexOf(".cndl-cap"));
   if (!/display:flex/.test(block)) throw new Error("the strip is not a flex row of tracks");
   if (!/\.cndl\{[^}]*flex:1 1 0/.test(block)) throw new Error("the bars do not share the strip evenly");
-  if (!/\.cndl::after\{[^}]*inset-inline:0/.test(block))
-    throw new Error("the body does not fill its track");
+
+  /* bodyW = L.bw * 0.66, so the body leaves (100-66)/2 either side -
+     and the space between two candles is that remainder, not a flex
+     gap on top of it. */
+  const ratio = Number((/const bodyW = Math\.max\(1, L\.bw \* ([\d.]+)\)/.exec(chart) || [])[1]);
+  if (!(ratio > 0)) throw new Error("charts.js no longer states a body width this can be checked against");
+  const side = Number((/\.cndl::after\{[^}]*inset-inline:([\d.]+)%/.exec(block) || [])[1]);
+  if (Math.abs((100 - 2 * side) / 100 - ratio) > 0.01)
+    throw new Error(`the body is ${100 - 2 * side}% of its track, the chart draws ${ratio * 100}%`);
+  if (!/\.cndl-prev\{[^}]*gap:0/.test(block))
+    throw new Error("a flex gap is widening the space the body ratio already set");
   if (/--cndl-w/.test(block)) throw new Error("a fixed body width is back");
   if (!/\.cndl::before\{[^}]*var\(--wt\)/.test(block) || !/\.cndl::before\{[^}]*var\(--wh\)/.test(block))
     throw new Error("the wick is not placed from its own properties");
-  return "flex tracks, full-width bodies";
+  return (100 - 2 * side) + "% bodies, the chart's own ratio";
+});
+
+check("both directions are filled, as the default chart type draws them", () => {
+  /* The rising body used to be an outline here, with a comment saying
+     the chart agreed. It does not: hollow is one of the chart's series
+     TYPES, picked by the trader, and the default candle is solid
+     whichever way the bar went. An outline also judges the chosen
+     colour pair on a 1.5px line rather than on a body. */
+  const block = appCss.slice(appCss.indexOf(".cndl-prev{"), appCss.indexOf(".cndl-cap"));
+  if (/is-up::after\{[^}]*background:transparent/.test(appCss))
+    throw new Error("a rising body is still hollow");
+  if (!/\.cndl::after\{[^}]*background:currentColor/.test(block))
+    throw new Error("the body is not filled with the direction's own colour");
+  if (!/\.cndl\.is-up\{color:var\(--candle-up\)\}/.test(appCss)
+    || !/\.cndl\.is-down\{color:var\(--candle-down\)\}/.test(appCss))
+    throw new Error("the two directions no longer read the pair being chosen");
+  return "solid up, solid down";
+});
+
+check("the two themes with a material candle get it here too", () => {
+  /* charts.js builds the body out of --candle-style: clay inflates it
+     (velvet), neu presses it into the page (relief). A preview that
+     stayed flat on those desks would be showing a body the chart will
+     not draw. */
+  const chart = read("apps/web/js/charts.js");
+  for (const [skin, material] of [["clay", "velvet"], ["neu", "relief"]]) {
+    if (!new RegExp(`html\\[data-skin="${skin}"\\] \\.cndl::after\\{`).test(appCss))
+      throw new Error(skin + " has no candle material in the preview");
+    if (!new RegExp(`material === "${material}"`).test(chart))
+      throw new Error("charts.js no longer draws " + material + " - the preview is copying a dead branch");
+    /* And the material really is declared for that skin, so the
+       selector is not guarding a theme that no longer exists. */
+    if (!new RegExp(`html\\[data-skin="${skin}"\\]\\{ --candle-style:${material} \\}`)
+      .test(read("apps/web/css/themes.css")))
+      throw new Error("themes.css no longer gives " + skin + " the " + material + " candle");
+  }
+  return "velvet on clay, relief on neu";
 });
 
 check("too little to draw falls back rather than inventing a flat line", () => {
@@ -346,7 +393,7 @@ check("the wick is centred on its body, in both reading directions", () => {
   const wick = block.slice(block.indexOf(".cndl::before{"), block.indexOf("}", block.indexOf(".cndl::before{")));
   if (/transform:[^;]*translateX/.test(wick))
     throw new Error("a physical transform is positioning a logically-inset wick again");
-  if (!/inset-inline:calc\(50% - 1px\)/.test(wick))
+  if (!/inset-inline:calc\(50% - \.8px\)/.test(wick))
     throw new Error("the wick is not centred by its insets: " + wick.replace(/\s+/g, " "));
   /* And the strip itself reads left to right, like the chart it is a
      picture of. A flex row inherits the page direction, so on the

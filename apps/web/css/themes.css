@@ -2574,6 +2574,12 @@ html[data-bg="photo"] .aurora::after{
 @media (pointer: coarse), (max-width: 560px){
   /* A popover is no use if it is taller than the screen it is pinned
      to, so it is allowed to scroll inside itself as a last resort. */
+  /* The button that opens a picker, everywhere one appears - the prop
+     session times as much as the backtest range. A popover nobody can
+     comfortably open is not improved by being large once it is open. */
+  .dt-btn{ min-block-size:48px; font-size:16px; padding-inline:14px; gap:10px }
+  .dt-ico{ inline-size:19px; block-size:19px; opacity:.75 }
+
   .dt-pop{ gap:12px; padding:14px; max-block-size:calc(100vh - 16px); overflow:auto }
   /* 360px of width, less 28px of padding and 30px of gaps, is a 43px
      day cell - a real target - and still inside a 390px screen. */

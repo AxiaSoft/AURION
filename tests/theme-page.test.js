@@ -233,19 +233,28 @@ check("the preview bodies are chunky, and share the strip evenly", () => {
   /* The strip was briefly a canvas, and before that it was slim bars
      of a fixed pixel width that overlapped on a narrow card. It is
      back to CSS bars, by request - "the preview candles are wrong, put
-     back the fat ones" - and the property being protected is now the
-     opposite one: a body fills the share of the strip its own bar is
-     given, so fourteen bars are fourteen equal tracks at any width. */
+     back the fat ones" - and then shaped, by a later request, exactly
+     as the chart shapes one: a body that is 66% of the share its own
+     bar is given, because that is bodyW = L.bw * 0.66 in charts.js,
+     with the gap between candles being the 34% that leaves rather
+     than a flex gap on top of it. Fourteen bars are still fourteen
+     equal tracks at any width. */
   const block = appCss.slice(appCss.indexOf(".cndl-prev{"), appCss.indexOf(".cndl-cap"));
   if (!block) throw new Error("the preview has no rules at all");
   if (!/display:flex/.test(block)) throw new Error("the strip is not a flex row");
   if (!/\.cndl\{[^}]*flex:1 1 0/.test(block))
     throw new Error("the bars do not take an equal share of the strip");
-  if (!/\.cndl::after\{[^}]*inset-inline:0/.test(block))
-    throw new Error("the body does not fill its track");
+  const side = Number((/\.cndl::after\{[^}]*inset-inline:([\d.]+)%/.exec(block) || [])[1]);
+  const ratio = Number((/const bodyW = Math\.max\(1, L\.bw \* ([\d.]+)\)/
+    .exec(read("apps/web/js/charts.js")) || [])[1]);
+  if (!(ratio > 0)) throw new Error("charts.js states no body width to check against");
+  if (Math.abs((100 - 2 * side) / 100 - ratio) > 0.01)
+    throw new Error(`the body is ${100 - 2 * side}% of its track, the chart draws ${ratio * 100}%`);
+  if (!/\.cndl-prev\{[^}]*gap:0/.test(block))
+    throw new Error("a flex gap is widening the space the body ratio already set");
   if (/--cndl-w/.test(block)) throw new Error("a fixed body width is back");
   if (/id="cndl-canvas"/.test(appJs)) throw new Error("the canvas preview is still being rendered");
-  return "equal tracks, full-width bodies";
+  return "equal tracks, " + (100 - 2 * side) + "% bodies";
 });
 
 check("up and down differ by more than their colour", () => {
@@ -253,16 +262,20 @@ check("up and down differ by more than their colour", () => {
     throw new Error("a rising bar does not read the candle pair");
   if (!/\.cndl\.is-down\{color:var\(--candle-down\)\}/.test(appCss))
     throw new Error("a falling bar does not read the candle pair");
-  if (!/\.cndl\.is-up::after\{[^}]*background:transparent/.test(appCss))
-    throw new Error("a rising bar is not hollow");
+  /* Both bodies are filled, which is what the default chart type
+     draws - hollow is a series type the trader picks, not the shape
+     of a rising candle. The pair of colours is therefore judged on
+     two solid bodies, which is the thing being chosen. */
+  if (/\.cndl\.is-up::after\{[^}]*background:transparent/.test(appCss))
+    throw new Error("a rising bar is hollow again, which the chart does not do by default");
   if (!/\.cndl::after\{[^}]*background:currentColor/.test(appCss))
-    throw new Error("a falling bar is not filled");
+    throw new Error("a body is not filled with its direction's colour");
   /* Live without a repaint: the bars are painted from the two
      variables previewColour writes onto <html> during a drag, which is
      why the canvas-era repaint calls could be deleted. */
   if (!/--candle-up/.test(appJs) || !/--candle-down/.test(appJs))
     throw new Error("nothing on the desk publishes the chart's own variables");
-  return "hollow up, filled down";
+  return "solid up, solid down, in the pair being chosen";
 });
 
 /* ------------------------------------------------ 4. in the moment */

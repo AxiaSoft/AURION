@@ -521,16 +521,23 @@ ok(/--t:\$\{/.test(appJsNC) && /--h:\$\{/.test(appJsNC),
 ok(/--wt:\$\{/.test(appJsNC) && /--wh:\$\{/.test(appJsNC),
   "and the wick from two more, so an asymmetric rejection candle reads correctly");
 
-/* The chunky part, asserted as a number rather than as a word: a body
-   that spans its whole track, in a track that is a flex child sharing
-   the strip evenly. The old slim version pinned .cndl::after to a
+/* The chunky part, asserted as a number rather than as a word, and
+   taken from the chart rather than chosen here: the body is 66% of its
+   track because paintSeries() in charts.js draws bodyW = L.bw * 0.66,
+   and the space between two candles is the remaining 34% rather than a
+   flex gap on top of it. The old slim version pinned .cndl::after to a
    --cndl-w of a few pixels, which is the thing being refused. */
 const cndlCss = read("css/app.css");
 const cndlBlock = cndlCss.slice(cndlCss.indexOf(".cndl-prev{"), cndlCss.indexOf(".cndl-cap"));
 ok(/display:flex/.test(cndlBlock), "the strip is a flex row of tracks");
 ok(/\.cndl\{[^}]*flex:1 1 0/.test(cndlBlock), "every bar takes an equal share of the strip");
-ok(/\.cndl::after\{[^}]*inset-inline:0/.test(cndlBlock),
-  "the body fills its track rather than being a sliver in the middle of it");
+const cndlSide = Number((/\.cndl::after\{[^}]*inset-inline:([\d.]+)%/.exec(cndlBlock) || [])[1]);
+const chartRatio = Number((/const bodyW = Math\.max\(1, L\.bw \* ([\d.]+)\)/
+  .exec(read("js/charts.js")) || [])[1]);
+ok(Math.abs((100 - 2 * cndlSide) / 100 - chartRatio) < 0.01,
+  `the body is the chart's own ${chartRatio * 100}% of its track, not a sliver in the middle of it`);
+ok(/\.cndl-prev\{[^}]*gap:0/.test(cndlBlock),
+  "and the gap between candles is what that ratio leaves, as on the chart");
 ok(!/--cndl-w/.test(cndlBlock), "no fixed body width survives");
 ok(/\.cndl::before\{[^}]*var\(--wt\)[\s\S]*?var\(--wh\)/.test(cndlBlock),
   "the wick is placed from its own properties");
