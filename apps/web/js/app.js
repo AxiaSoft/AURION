@@ -1512,37 +1512,51 @@ function markThemeCards() {
 
 /* ------------------------------------------------- the candle preview ----
 
-   Eight invented rectangles used to stand in for the chart.
+   Rewritten as a canvas, drawn by the same rules as the chart.
 
-   They were invented well - irregular bodies, irregular wicks - and
-   they were still wrong for the job, because the question being asked
-   at that moment is "will I be able to read my chart in these two
-   colours", and the answer depends on the instrument. A pair that
-   separates cleanly on EURUSD's small, even M15 bodies can collapse on
-   gold's long wicks and gaps, and a made-up sequence cannot show that.
+   The old strip was fourteen <i> elements positioned with percentage
+   custom properties, and it was reported as corrupted. It was: a body
+   given a 1.5% minimum height was then drawn with a 1.5px border on
+   each side, so every doji and every bar that closed near its open
+   came out as a smear thicker than the body it stood for; a flex track
+   narrower than the fixed 8px body - which is what fourteen bars on a
+   phone comes to - let neighbouring bodies overlap; and the strip's
+   own overflow:hidden then sliced whatever still stuck out, which is
+   what made it look broken rather than merely wrong.
 
-   So the preview is the trader's own last bars, at the symbol and
-   timeframe they are actually looking at, scaled into the strip. When
-   no chart has loaded - no expert attached, settings opened first -
-   the invented sequence is still there, and it says that it is an
-   example rather than quietly passing itself off as the market. */
+   None of that was fixable by adjusting the numbers, because the
+   shape of a candle is not expressible as two independent percentage
+   boxes. It is a line and a rectangle on one scale, which is what a
+   canvas is for - and it is how the real chart draws them, so this
+   preview is now made the same way as the thing it is previewing.
 
-/** The fallback: a plausible sequence, used only when there are no bars. */
+   What it shows is still the trader's own last bars at the symbol and
+   timeframe they are looking at, because the question being asked at
+   this moment is "will I be able to read MY chart in these two
+   colours", and that depends on the instrument: a pair that separates
+   cleanly on EURUSD's small, even M15 bodies can collapse on gold's
+   long wicks. When no chart has loaded there is a worked example, and
+   the caption says which of the two is on screen. */
+
+/** The fallback, as OHLC rather than as pre-computed geometry: one
+    shape of data all the way through, so the drawing code has no
+    second path to go wrong down. */
 const CANDLE_SAMPLE = [
-  ["up", 34, 62, 24, 84], ["up", 22, 48, 8, 76], ["down", 30, 44, 18, 68],
-  ["up", 18, 70, 10, 86], ["down", 40, 36, 24, 68], ["down", 26, 52, 15, 74],
-  ["up", 20, 58, 7, 84], ["up", 30, 46, 21, 64],
-];
+  [12, 18, 11, 17], [17, 21, 16, 20], [20, 20.5, 17, 17.6], [17.6, 19, 15, 15.4],
+  [15.4, 15.6, 15.3, 15.45], [15.45, 20, 15.1, 19.4], [19.4, 23, 19, 22.4],
+  [22.4, 22.6, 18, 18.7], [18.7, 19.2, 14, 14.6], [14.6, 17, 14.4, 16.6],
+  [16.6, 16.8, 16.5, 16.55], [16.55, 21, 16.2, 20.6], [20.6, 24, 20.2, 23.5],
+  [23.5, 23.8, 21, 21.6],
+].map(([o, h, l, c]) => ({ o, h, l, c }));
 
 const CANDLE_PREVIEW_BARS = 14;
 
 /**
- * The last few real bars as percentages of the strip.
+ * The last few real bars as {o,h,l,c}, or [] when there are not enough.
  *
- * Returns [] rather than something approximate when there is nothing
- * to draw: a preview built from one bar, or from bars that are all the
- * same price, is a picture of nothing and the sample is a better
- * answer than a flat line.
+ * [] rather than something approximate: a preview built from one bar,
+ * or from bars that are all the same price, is a picture of nothing,
+ * and the worked example is a better answer than a flat line.
  */
 function candlePreviewShapes() {
   const rows = (S.candles || []).slice(-CANDLE_PREVIEW_BARS);
@@ -1559,50 +1573,13 @@ function candlePreviewShapes() {
     l: num(b, "l", "low"), c: num(b, "c", "close"),
   })).filter((b) => [b.o, b.h, b.l, b.c].every((v) => isFinite(v)));
   if (bars.length < 4) return [];
-
   const hi = Math.max(...bars.map((b) => b.h));
   const lo = Math.min(...bars.map((b) => b.l));
-  const range = hi - lo;
-  if (!(range > 0)) return [];
-
-  const clamp = (v) => (v < 0 ? 0 : v > 100 ? 100 : v);
-  const pct = (price) => clamp(((hi - price) / range) * 100);
-  return bars.map((b) => {
-    const top = Math.max(b.o, b.c);
-    const bottom = Math.min(b.o, b.c);
-    /* A doji is a real candle and has to stay visible: a body of zero
-       height renders as nothing at all, and a strip with gaps in it
-       reads as a drawing bug rather than as a market that closed where
-       it opened.
-       The minimum is taken out of the TOP of the body rather than
-       added to its bottom, or a bar that closed on the low of the
-       window is given 1.5% of height it does not have and is drawn
-       through the floor of the strip. Several of those in a row -
-       which is what a trend looks like - is the "the candle preview is
-       corrupted" that was reported: bodies and wicks leaving the box
-       and being sliced off by its overflow. */
-    let bodyTop = pct(top);
-    let bodyH = pct(bottom) - bodyTop;
-    if (bodyH < 1.5) {
-      bodyH = 1.5;
-      bodyTop = Math.min(bodyTop, 100 - bodyH);
-    }
-    /* The wick spans high to low, and therefore always contains the
-       body: deriving its height from the body (the old Math.max) made
-       a long-wicked bar shorter than its own shadow. */
-    const wickTop = Math.min(pct(b.h), bodyTop);
-    const wickBottom = Math.max(pct(b.l), bodyTop + bodyH);
-    return [
-      b.c >= b.o ? "up" : "down",
-      bodyTop, bodyH,
-      wickTop, Math.min(100 - wickTop, wickBottom - wickTop),
-    ];
-  });
+  return hi > lo ? bars : [];
 }
 
 function candlePreviewHtml() {
   const real = candlePreviewShapes();
-  const shapes = real.length ? real : CANDLE_SAMPLE;
   const f = S.chartFocus || {};
   /* Named, because an unlabelled strip of bars invites the reading
      "this is what your chart looks like" whichever it is. */
@@ -1612,29 +1589,130 @@ function candlePreviewHtml() {
       .replace("{tf}", f.timeframe || S.timeframe || "")
       .replace("{n}", String(real.length))
     : I18N.t("themes.candles_sample");
-  const bars = shapes.map(([dir, t, h, wt, wh]) =>
-    `<i class="cndl is-${dir}" style="--t:${t.toFixed(2)}%;--h:${h.toFixed(2)}%;`
-    + `--wt:${wt.toFixed(2)}%;--wh:${wh.toFixed(2)}%"></i>`).join("");
-  return `<div class="cndl-prev" id="cndl-prev" aria-hidden="true" data-real="${real.length ? "1" : "0"}">${bars}</div>
+  return `<div class="cndl-prev" id="cndl-prev" aria-hidden="true" data-real="${real.length ? "1" : "0"}">
+      <canvas id="cndl-canvas"></canvas>
+    </div>
     <p class="sub cndl-cap" id="cndl-cap">${esc(caption)}</p>`;
 }
 
-/** Redraw the strip in place when new bars arrive. */
+/** The two colours this desk is currently drawing candles with. */
+function candlePreviewColours() {
+  const css = getComputedStyle(document.documentElement);
+  const read = (name, fallback) => {
+    const v = String(css.getPropertyValue(name) || "").trim();
+    return v || fallback;
+  };
+  return {
+    up: read("--candle-up", "#26d07c"),
+    down: read("--candle-down", "#f4475b"),
+    line: read("--chart-line", "rgba(255,255,255,.14)"),
+  };
+}
+
+/**
+ * Draw it.
+ *
+ * Called on every repaint of the settings page AND on every frame of a
+ * colour drag, so it has to be cheap and it has to be idempotent. It
+ * is both: fourteen rectangles, no state kept anywhere.
+ */
 function paintCandlePreview() {
-  const strip = $("cndl-prev");
-  if (!strip) return;
+  const box = $("cndl-prev");
+  const cv = $("cndl-canvas");
+  if (!box || !cv) return;
   const real = candlePreviewShapes();
-  /* Keyed on the bars themselves: the settings page polls, and
-     rebuilding this every second would restart the colour picker's
-     hover and fight the drag that is choosing the colour. */
-  const key = real.length
-    ? real.map((r) => r.join(",")).join("|")
-    : "sample";
-  if (S._cndlKey === key) return;
-  S._cndlKey = key;
-  const cap = $("cndl-cap");
-  strip.outerHTML = candlePreviewHtml();
-  if (cap) cap.remove();
+  const bars = real.length ? real : CANDLE_SAMPLE;
+
+  /* The caption is the only part that is rebuilt, and only when the
+     bars themselves change - the settings page polls, and replacing
+     this markup every second would fight the colour picker's drag. */
+  const key = real.length ? real.map((b) => `${b.o},${b.h},${b.l},${b.c}`).join("|") : "sample";
+  if (S._cndlKey !== key) {
+    S._cndlKey = key;
+    const cap = $("cndl-cap");
+    const f = S.chartFocus || {};
+    if (cap) {
+      cap.textContent = real.length
+        ? I18N.t("themes.candles_live")
+          .replace("{symbol}", f.symbol || S.symbol || "")
+          .replace("{tf}", f.timeframe || S.timeframe || "")
+          .replace("{n}", String(real.length))
+        : I18N.t("themes.candles_sample");
+    }
+    box.dataset.real = real.length ? "1" : "0";
+  }
+
+  const w = Math.max(120, Math.round(box.clientWidth));
+  const h = Math.max(60, Math.round(box.clientHeight));
+  if (!w || !h) return;
+  const dpr = Math.min(2, window.devicePixelRatio || 1);
+  cv.width = Math.round(w * dpr);
+  cv.height = Math.round(h * dpr);
+  cv.style.width = w + "px";
+  cv.style.height = h + "px";
+  const g = cv.getContext("2d");
+  if (!g) return;
+  g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  g.clearRect(0, 0, w, h);
+
+  const hi = Math.max(...bars.map((b) => b.h));
+  const lo = Math.min(...bars.map((b) => b.l));
+  const range = (hi - lo) || 1;
+  const padY = 10;
+  const padX = 12;
+  const y = (price) => padY + ((hi - price) / range) * (h - padY * 2);
+
+  const slot = (w - padX * 2) / bars.length;
+  /* A body is a share of its slot, never a fixed width: that is what
+     let fourteen bars overlap on a narrow card. Rounded to whole
+     pixels and floored at one, because a half-pixel rectangle is a
+     grey smudge and a zero-width one is nothing at all. */
+  const body = Math.max(1, Math.min(14, Math.round(slot * 0.62)));
+  const C = candlePreviewColours();
+
+  for (let i = 0; i < bars.length; i += 1) {
+    const b = bars[i];
+    const cx = Math.round(padX + slot * (i + 0.5));
+    const rising = b.c >= b.o;
+    const colour = rising ? C.up : C.down;
+    g.strokeStyle = colour;
+    g.fillStyle = colour;
+
+    /* The wick, high to low, on a half-pixel so a 1px line is sharp
+       rather than two grey ones. */
+    g.lineWidth = 1;
+    g.beginPath();
+    g.moveTo(cx + 0.5, y(b.h));
+    g.lineTo(cx + 0.5, y(b.l));
+    g.stroke();
+
+    /* The body. A bar that closed where it opened is a real candle and
+       has to stay visible, so it is drawn as the one-pixel line it
+       actually is - not inflated into a block that overlaps the bar
+       beside it, which is what the old strip did. */
+    const top = y(Math.max(b.o, b.c));
+    const bottom = y(Math.min(b.o, b.c));
+    const left = cx - Math.floor(body / 2) + 0.5;
+    const height = bottom - top;
+    if (height < 1) {
+      g.beginPath();
+      g.moveTo(left, Math.round(top) + 0.5);
+      g.lineTo(left + body, Math.round(top) + 0.5);
+      g.stroke();
+      continue;
+    }
+    /* Hollow rising, filled falling - how charts have always told the
+       two apart. It matters more here than anywhere: the trader is on
+       this card precisely BECAUSE they are about to change these two
+       colours, and they are free to choose two nobody could tell
+       apart. The shape still answers. */
+    if (rising) {
+      g.lineWidth = Math.min(2, Math.max(1, Math.round(body / 6)));
+      g.strokeRect(left, top, body - 1, height);
+    } else {
+      g.fillRect(left, top, body, height);
+    }
+  }
 }
 
 /* The custom miniature follows its own knobs live, so the card in the grid is
@@ -1673,6 +1751,9 @@ function pickTheme(id, opts) {
     markThemeCards();
     markAppearancePills();
     repaintChartsForTheme();
+    /* A theme carries its own candle pair, so the strip is showing the
+       previous theme's colours until it is told otherwise. */
+    paintCandlePreview();
   });
 }
 
@@ -1819,6 +1900,11 @@ function bindThemesGallery() {
           /* Preview only - nothing is stored and no sheet is rebuilt. */
           previewColour(key, hex);
           sw.style.background = hex;
+          /* The strip is a canvas now, and a canvas does not restyle
+             itself when a variable under it changes. Repainting on
+             every frame of the drag is what keeps the promise the
+             card makes: you are choosing against your own candles. */
+          if (key === "candle_up" || key === "candle_down") paintCandlePreview();
         },
         onCommit(hex) {
           AurionTheme.edit({ [key]: hex });
@@ -1830,12 +1916,14 @@ function bindThemesGallery() {
           markThemeCards();
           markThemeEdited();
           repaintChartsForTheme();
+          paintCandlePreview();
         },
         onClose() {
           /* Whatever is stored is the truth; drop any preview on top. */
           clearColourPreview();
           AurionTheme.apply();
           repaintChartsForTheme();
+          paintCandlePreview();
         },
       });
     });
@@ -2200,6 +2288,11 @@ function renderSettingsKnobs() {
 
   markWallTiles();
   verifyWallpaper();
+  /* The strip is a canvas: it is blank until something draws it, and
+     "something" cannot be the stylesheet any more. Painted here so it
+     is already right on the frame the settings page appears, not a
+     poll later. */
+  paintCandlePreview();
 
   const picture = AurionTheme.getBgImage();
 
@@ -4274,7 +4367,16 @@ function gateSlideInnerHtml(slide) {
       </div>
       <span class="pill ${g.ready ? "on" : ""}">${g.ready ? I18N.t("gate.armed") : I18N.t("gate.idle")}</span>
     </div>
-    <div class="gate-pills">${items.map(([id, ok, key]) => `<span class="pill ${ok ? "ok" : "no"}">${I18N.t(key)}${id==="st" && g.strategies?.length ? " · " + g.strategies.join(", ") : ""}</span>`).join("")}</div>
+    <div class="gate-pills">${items.map(([id, ok, key]) => {
+      /* The strategies chip names what is deciding. With an empty book
+         and solo trading on, that is the robot itself - and printing
+         the engine's internal name "robot" there would read as a
+         strategy nobody can find in the list. */
+      const names = id === "st" && g.strategies?.length
+        ? (g.solo_robot ? I18N.t("gate.solo_robot") : g.strategies.join(", "))
+        : "";
+      return `<span class="pill ${ok ? "ok" : "no"}">${I18N.t(key)}${names ? " · " + esc(names) : ""}</span>`;
+    }).join("")}</div>
     <ul class="gate-why">${why}</ul>`;
 }
 function gateKey() {
@@ -4284,7 +4386,8 @@ function gateKey() {
     lang: I18N.lang,
     slides: slides.map((g) => ([
       g.symbol || "", g.timeframe || "", g.who || "nobody", Boolean(g.ready), Boolean(g.mt5),
-      Boolean(g.auto_trade), (g.strategies || []).join(","), Boolean(g.kill), Boolean(g.prop),
+      Boolean(g.auto_trade), (g.strategies || []).join(","), Boolean(g.solo_robot),
+      Boolean(g.kill), Boolean(g.prop),
       Boolean(g.prop_locked), Boolean(g.ai_gate), (g.reasons || []).join(","), g.style || "normal",
       g.positions || 0,
     ]).join("|")),
@@ -14565,10 +14668,28 @@ async function loadMoreHistory(opts) {
       && Date.now() - S._histDone.at < HIST_RETRY_MS) return;
   if (asked && have >= asked) return;
   S._histBusy = true;
+  paintHistoryEdge();
   try {
+    /* Reaching the edge asks for the WHOLE promised window, not twice
+       what we happen to hold.
+     *
+     * Doubling was meant to be gentle, and it is why the six months
+     * could not be reached: a chart opens on thirty days, and every
+     * further month costs another drag to the very oldest bar, another
+     * round trip, and - when the reply arrives the same size because
+     * MetaTrader is still downloading - a thirty-second wait before
+     * the desk will even ask again. Four or five of those in a row is
+     * not a gesture anybody completes, so in practice the chart
+     * stopped at a month and the promise was only true on paper.
+     *
+     * The staged fetch exists to keep start-up quick, and this is not
+     * start-up: nothing is drawn here that was not already on screen,
+     * and the trader has just said what they want by dragging off the
+     * end of it. One ask, the whole window, and the chart reaches back
+     * six months on the first drag. */
     const want = asked
       ? Math.min(HISTORY_MAX, asked)
-      : Math.min(HISTORY_MAX, Math.max(have * 2, barsForDays(f.timeframe, chartDays())));
+      : Math.min(HISTORY_MAX, Math.max(have + 1, barsForDays(f.timeframe, HISTORY_DAYS)));
     const c = await API.get(`/api/candles?symbol=${encodeURIComponent(f.symbol)}`
       + `&timeframe=${encodeURIComponent(f.timeframe)}&count=${want}`);
     noteHistoryDepth(f.symbol, f.timeframe, c && c.depth);
@@ -14649,7 +14770,13 @@ function paintHistoryEdge() {
   const el = $("tv-hint");
   if (!el) return;
   const atEdge = S.chart && (S.chart.maxOffset() - S.chart.offset) <= CHART_HISTORY_LEAD;
-  const note = atEdge ? historyEdgeNote() : "";
+  /* Six months of M15 is seventeen thousand bars and on M1 a quarter
+     of a million, and the trader asked for them by dragging off the
+     end of the chart. Saying so is the difference between a fetch and
+     a chart that has stopped responding. */
+  const note = S._histBusy
+    ? I18N.t("charts.hist_loading")
+    : (atEdge ? historyEdgeNote() : "");
   el.textContent = note;
   el.hidden = !note;
 }

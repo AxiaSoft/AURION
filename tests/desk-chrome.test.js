@@ -498,14 +498,18 @@ for (const lang of ["en", "fa", "ar"]) {
   ok(gone.length === 0, `${lang} has every new theme string (missing: ${gone.join(", ") || "none"})`);
 }
 
-/* The preview. A canvas would need telling to repaint and there is no
-   chart on the settings page anyway; drawn in CSS from the same two
-   variables, it restyles on the frame the picker writes them. */
+/* The preview, now a canvas. The percentage-positioned bars it
+   replaced could not draw a doji or a flat body without inflating it,
+   which is what "the candle preview is broken" was about. It still
+   reads the same two variables the chart reads - it is simply told to
+   repaint when they move, which is what the picker's onInput does. */
 ok(/class="cndl-prev"/.test(appJsNC), "there is a candle preview in the builder");
-const up = resolve(appRules, [el("div", "", ["cndl-prev"]), el("i", "", ["cndl", "is-up"])], "color", 1200);
-const down = resolve(appRules, [el("div", "", ["cndl-prev"]), el("i", "", ["cndl", "is-down"])], "color", 1200);
-ok(up && up.val === "var(--candle-up)", `the preview's rising bars read --candle-up (${up ? up.val : "none"})`);
-ok(down && down.val === "var(--candle-down)", `and its falling bars read --candle-down (${down ? down.val : "none"})`);
+ok(/id="cndl-canvas"/.test(appJsNC), "the preview is a canvas");
+const painter = appJsNC.slice(appJsNC.indexOf("function paintCandlePreview"));
+const painterBody = painter.slice(0, painter.indexOf("\n}"));
+ok(/read\("--candle-up"/.test(appJsNC), "the preview's rising bars read --candle-up");
+ok(/read\("--candle-down"/.test(appJsNC), "and its falling bars read --candle-down");
+ok(/getContext\("2d"\)/.test(painterBody), "and something actually draws them");
 
 /* previewColour writes whatever colourCss emits straight onto <html>, so
    the preview is live only because the pair goes through that same path. */

@@ -2,15 +2,22 @@
 
 Asked for: "the robot can trade without a strategy — put it in the
 backtest too, so we can see how the robot trades independently of the
-strategies."
+strategies", and then: "when every strategy is off, the robot should
+enter on its own."
 
 Everywhere else in this product the AI is a filter and never a source of
 signals: a strategy decides, and the model is allowed to veto. That rule
 is deliberate and it stays. This is the one place the model is asked the
 other question — *if nobody else had an opinion, what would you have
-done?* — and it is a REPLAY ONLY. It is not in BUILTIN_NAMES, it cannot
-be added to the live book, and nothing in the running engine can reach
-it: the only way in is a backtest asking for ``{"kind": "robot"}``.
+done?* — and it is asked only when nobody else does have one.
+
+It is still not in BUILTIN_NAMES and it still cannot be added to the
+book beside a strategy. There are exactly two ways in, and they build
+the same class from the same parameters: a backtest asking for
+``{"kind": "robot"}``, and a live desk whose book has nothing enabled
+(Trader._solo_robot_slot, gated on the ``solo_robot`` setting). That
+symmetry is the point — what the trader measured in the replay is what
+trades.
 
 How it decides
 --------------

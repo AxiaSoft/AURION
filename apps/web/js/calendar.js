@@ -490,9 +490,9 @@ const Calendar = {
       : `<h4 class="cal-dp-main">${esc(key)}</h4>`;
     return `${head}
       ${peek ? `<p class="cal-dp-peek">${esc(t("calendar.peek_hint"))}</p>` : ""}
-      ${weekend ? `<p class="cal-dp-wk">${esc(t("calendar.closed_note"))}</p>` : ""}
+      ${weekend && !evs.length ? `<p class="cal-dp-wk">${esc(t("calendar.closed_note"))}</p>` : ""}
       ${evs.length
-        ? `<div class="cal-evs">${evs.map((e) => this._ev(e)).join("")}</div>`
+        ? `<div class="cal-evs">${evs.map((e) => this._ev(e, weekend)).join("")}</div>`
         : `<p class="cal-none">${esc(t("calendar.no_events"))}</p>`}`;
   },
 
@@ -510,15 +510,30 @@ const Calendar = {
      are all gone with it. A dead branch nothing renders is worse than
      the button, because nothing keeps it honest. */
 
-  _ev(e) {
+  /* One event row.
+   *
+   * `closed` says the market is shut on this event's own day. It used
+   * to be stated once, as a sentence at the top of the panel, which
+   * put it furthest from the thing it changes the meaning of: a
+   * release at 13:30 on a Saturday is not something to trade and the
+   * row for it looked exactly like one that is. Asked for directly -
+   * put the "market closed" tag beside the event - so it rides on the
+   * row, where it is read at the same moment as the time it applies
+   * to.
+   *
+   * A bank holiday is a different fact and keeps its own level: it
+   * shuts one currency's banks, not the market, and saying "closed"
+   * there would be false. */
+  _ev(e, closed) {
     const t = (k, v) => I18N.t(k, v);
-    return `<article class="cal-ev i-${e.level}">
+    return `<article class="cal-ev i-${e.level}${closed ? " is-shut" : ""}">
       <span class="cal-ev-time">${esc(e.time)}</span>
       <span class="cal-ev-body">
         <span class="cal-ev-t">${esc(this.newsTitle(e.title))}</span>
         <span class="cal-ev-m">
           ${e.currency ? `<span class="cal-ev-ccy">${esc(e.currency)}</span>` : ""}
           <span class="cal-ev-imp">${esc(t(`calendar.impact_${e.level}`))}</span>
+          ${closed ? `<span class="cal-chip is-closed cal-ev-shut">${esc(t("calendar.closed"))}</span>` : ""}
         </span>
       </span>
     </article>`;

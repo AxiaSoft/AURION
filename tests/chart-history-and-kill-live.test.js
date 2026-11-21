@@ -91,9 +91,13 @@ check("no path asks for six months before the trader does", () => {
   while ((m = re.exec(code(appJs)))) {
     if (/HISTORY_DAYS/.test(m[1])) offenders.push(m[0]);
   }
-  /* The backtest's own chart is allowed: it is drawn after a run the
-     trader asked for, over the period they picked. */
-  const allowed = offenders.filter((o) => o.includes("bt.timeframe"));
+  /* Two are allowed, and both are the trader asking.
+     - the backtest's own chart, drawn after a run they started over
+       the period they picked;
+     - the drag at the oldest bar, which is the ONLY gesture left for
+       "show me further back" and must fetch the whole promise rather
+       than a slice of it. See loadMoreHistory. */
+  const allowed = offenders.filter((o) => o.includes("bt.timeframe") || o.includes("f.timeframe"));
   if (offenders.length !== allowed.length) {
     throw new Error("still fetching the whole window up front: " + offenders.filter((o) => !allowed.includes(o)).join(", "));
   }
@@ -179,7 +183,16 @@ check("dragging is the whole of 'show me further back'", () => {
   if (!/loadMoreHistory\(\)/.test(fn)) throw new Error("reaching the oldest bar no longer fetches more");
   const load = code(body(appJs, "loadMoreHistory"));
   if (!/count=\$\{want\}/.test(load)) throw new Error("the widening request stopped carrying its size");
-  if (!/Math\.max\(have \* 2/.test(load)) throw new Error("it no longer widens the window it asks for");
+  /* Doubling, which is what this used to require, made six months
+     unreachable in practice: a chart opens on thirty days, each drag
+     asked for twice what it held, and the cool-off between tries sat
+     in the middle of it. Four or five successful drags to reach the
+     promise, and the trader reported seeing one month. One drag now
+     asks for the whole 180 days. */
+  if (/Math\.max\(have \* 2/.test(load)) throw new Error("it still only doubles, so the promise takes five drags");
+  if (!/barsForDays\(f\.timeframe, HISTORY_DAYS\)/.test(load)) {
+    throw new Error("it no longer widens the window it asks for");
+  }
 });
 
 check("one short answer does not end history forever", () => {
