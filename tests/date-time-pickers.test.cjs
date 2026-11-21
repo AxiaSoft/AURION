@@ -170,6 +170,46 @@ ok(/AurionWhen\.setBounds\("bt-from"/.test(appJs) && /AurionWhen\.setBounds\("bt
 ok(/S\._btTo\s*<\s*S\._btFrom/.test(appJs),
   "moving the start past the end drags the end with it rather than leaving an impossible range");
 
+/* ------------------------------------------- 4. the same picker, by thumb */
+
+/* Reported from a phone: "in the backtest, the selectors in the date
+   section are tiny". Everything in the picker was a fixed px sized for
+   a mouse, so a 390px screen got the same 288px calendar with 34px day
+   cells - and a day has to be hit between its neighbours, which makes
+   it the smallest target on the page. */
+const themesCss = read("css/themes.css");
+const appCssRaw = read("css/app.css");
+const touch = themesCss.slice(themesCss.indexOf("@media (pointer: coarse), (max-width: 560px)"));
+ok(themesCss.includes("@media (pointer: coarse), (max-width: 560px)"),
+  "the pickers have a touch size at all, and it answers to a thumb as well as to a narrow window");
+const dayRule = touch.slice(touch.indexOf(".dt-day{"), touch.indexOf("}", touch.indexOf(".dt-day{")));
+const dayPx = Number((/font-size:(\d+(?:\.\d+)?)px/.exec(dayRule) || [])[1]);
+ok(dayPx >= 15, "a day in the calendar is legible on a phone", dayPx + "px");
+
+/* 360px of popover, less its padding and the six gaps between seven
+   columns, is what decides how big a day actually is. */
+const popRule = touch.slice(touch.indexOf(".dt-pop-date{"), touch.indexOf("}", touch.indexOf(".dt-pop-date{")));
+const popW = Number((/min\(94vw,\s*(\d+)px\)/.exec(popRule) || [])[1]);
+const pad = Number((/padding:(\d+)px/.exec(touch.slice(touch.indexOf(".dt-pop{"), touch.indexOf("}", touch.indexOf(".dt-pop{")))) || [])[1]);
+const gap = Number((/gap:(\d+)px/.exec(touch.slice(touch.indexOf(".dt-wd,.dt-grid{"), touch.indexOf("}", touch.indexOf(".dt-wd,.dt-grid{")))) || [])[1]);
+const cell = (popW - pad * 2 - gap * 6) / 7;
+ok(cell >= 40, "and the cell it sits in is a thumb's target", cell.toFixed(1) + "px square");
+ok(popW <= 366, "...while the popover still fits a 390px screen with room either side", popW + "px");
+ok(/max-block-size:calc\(100vh - 16px\)/.test(touch) && /overflow:auto/.test(touch),
+  "a popover taller than the screen scrolls inside itself instead of running off the bottom");
+ok(/\.dt-opt\{[^}]*font-size:15px/.test(touch), "the time list is readable too");
+
+/* The two controls the complaint actually names, and the seven chips
+   above them. */
+const btTouch = appCssRaw.slice(appCssRaw.indexOf("#bt-card .bt-span{flex-wrap:wrap}"));
+const chip = btTouch.slice(btTouch.indexOf("#bt-card .bt-span button{"), btTouch.indexOf("}", btTouch.indexOf("#bt-card .bt-span button{")));
+ok(/min-height:4\dpx/.test(chip) && /font-size:1[4-9]px/.test(chip),
+  "the period chips are a thumb tall on a phone, not the 30px toolbar height",
+  chip.replace(/\s+/g, " "));
+const dtBtn = btTouch.slice(btTouch.indexOf(".bt-dates .dt-btn{"), btTouch.indexOf("}", btTouch.indexOf(".bt-dates .dt-btn{")));
+ok(/min-height:4\dpx/.test(dtBtn), "and the two buttons that open the calendar are full height",
+  dtBtn.replace(/\s+/g, " "));
+
 /* ----------------------------------------------------------- the report */
 
 console.log(failed ? `\ndate-time-pickers: ${failed} FAILED` : "\ndate-time-pickers: all checks passed");

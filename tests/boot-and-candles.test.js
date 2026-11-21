@@ -333,6 +333,60 @@ check("the strip is replaced only when the bars change", () => {
   return "keyed on the bars, colours follow the variables";
 });
 
+check("the wick is centred on its body, in both reading directions", () => {
+  /* Reported from the Persian desk: "the shadows are crooked, the
+     candle is not in the middle of its shadow". It was: the wick was
+     placed with a LOGICAL inset (inset-inline-start, which resolves to
+     `right` under RTL) and pulled back with a PHYSICAL transform
+     (translateX, which always moves left). Under LTR the two cancel;
+     under RTL they add up, and the hairline sat a full 2px off the
+     body. Two insets and no transform cannot disagree with
+     themselves. */
+  const block = appCss.slice(appCss.indexOf(".cndl-prev{"), appCss.indexOf(".cndl-cap"));
+  const wick = block.slice(block.indexOf(".cndl::before{"), block.indexOf("}", block.indexOf(".cndl::before{")));
+  if (/transform:[^;]*translateX/.test(wick))
+    throw new Error("a physical transform is positioning a logically-inset wick again");
+  if (!/inset-inline:calc\(50% - 1px\)/.test(wick))
+    throw new Error("the wick is not centred by its insets: " + wick.replace(/\s+/g, " "));
+  /* And the strip itself reads left to right, like the chart it is a
+     picture of. A flex row inherits the page direction, so on the
+     Persian desk the eight bars were laid out newest-first. */
+  if (!/direction:ltr/.test(block))
+    throw new Error("the strip is mirrored on an RTL desk, so time runs backwards in it");
+  return "centred by insets, time left to right";
+});
+
+check("the worked example is a sequence, and all of it fits in the strip", () => {
+  /* One row of the old sample ran to 108%, so the first candle's lower
+     shadow was sliced off against the frame - which reads as a
+     drawing fault rather than as a market. */
+  const src = body("const CANDLE_SAMPLE = [", "\nconst CANDLE_PREVIEW_BARS");
+  /* The trailing comma JavaScript allows is not JSON, and neither are
+     the newlines, so the rows are read one bracket at a time. */
+  const rows = [...src.matchAll(/\["(up|down)",([^\]]*)\]/g)]
+    .map((m) => [m[1], ...m[2].split(",").map(Number)]);
+  if (rows.length < 8) throw new Error("the example is only " + rows.length + " bars long");
+  let ups = 0;
+  for (const [dir, t, h, wt, wh] of rows) {
+    if (dir !== "up" && dir !== "down") throw new Error("unknown direction " + dir);
+    if (dir === "up") ups += 1;
+    if (wt < 0 || wt + wh > 100.001) throw new Error(`a wick runs ${wt}%..${(wt + wh).toFixed(1)}%`);
+    if (t < 0 || t + h > 100.001) throw new Error(`a body runs ${t}%..${(t + h).toFixed(1)}%`);
+    if (wt > t + 0.001 || wt + wh < t + h - 0.001)
+      throw new Error("a body hangs outside its own wick");
+    if (!(wt < t - 0.001) || !(wt + wh > t + h + 0.001))
+      throw new Error("a bar has no shadow at one end, so one direction goes unjudged");
+  }
+  if (ups < 2 || ups > rows.length - 2)
+    throw new Error("the example is " + ups + " rising of " + rows.length + " - it shows one direction");
+  /* The window's extremes are its own edges, as in any real window. */
+  if (Math.min(...rows.map((r) => r[3])) > 0.001)
+    throw new Error("nothing reaches the top of the strip");
+  if (Math.max(...rows.map((r) => r[3] + r[4])) < 99.999)
+    throw new Error("nothing reaches the bottom of the strip");
+  return rows.length + " bars, " + ups + " rising, every shadow inside the frame";
+});
+
 check("the canvas preview is gone from the sheet as well as from the script", () => {
   if (/\.cndl-prev canvas\{/.test(appCss)) throw new Error("a canvas rule is still in the sheet");
   if (!/\.cndl\{/.test(appCss)) throw new Error("the CSS candles have no rule at all");

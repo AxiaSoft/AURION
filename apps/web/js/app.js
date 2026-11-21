@@ -1543,11 +1543,38 @@ function markThemeCards() {
    example instead, and the caption says which of the two is on
    screen. */
 
-/** The fallback: a plausible sequence, used only when there are no bars. */
+/* The fallback: a worked example, used only when there are no bars.
+ *
+ * It is not eight random shapes. The numbers below were computed from
+ * a real OHLC path, and that matters for three reasons the previous
+ * set got wrong:
+ *
+ *   * every wick stays inside the strip. One of the old rows ran to
+ *     108%, so the first candle's lower shadow was sliced off against
+ *     the frame - which reads as a drawing fault, not as a market.
+ *   * each bar opens where the one before it closed, so the strip
+ *     looks like a sequence rather than eight unrelated bars.
+ *   * the highest high touches the top and the lowest low the bottom,
+ *     which is what a real window of bars always does.
+ *
+ * The path, open/high/low/close:
+ *   10.00 10.45  9.70 10.35      10.35 10.95 10.25 10.85
+ *   10.85 11.05 10.45 10.55      10.55 11.25 10.45 11.15
+ *   11.15 11.35 10.60 10.70      10.70 11.45 10.60 11.35
+ *   11.35 11.55 10.90 11.00      11.00 11.80 10.95 11.70
+ *
+ * Five rising and three falling, each with a shadow at both ends, so
+ * the pair of colours being chosen is judged on both directions and
+ * on the thin parts as well as the thick ones.
+ *
+ * Each row is [direction, bodyTop, bodyHeight, wickTop, wickHeight],
+ * all four as percentages of the strip - exactly what
+ * candlePreviewShapes() produces from real bars. */
 const CANDLE_SAMPLE = [
-  ["up", 34, 62, 24, 84], ["up", 22, 48, 8, 76], ["down", 30, 44, 18, 68],
-  ["up", 18, 70, 10, 86], ["down", 40, 36, 24, 68], ["down", 26, 52, 15, 74],
-  ["up", 20, 58, 7, 84], ["up", 30, 46, 21, 64],
+  ["up", 69.0, 16.7, 64.3, 35.7], ["up", 45.2, 23.8, 40.5, 33.3],
+  ["down", 45.2, 14.3, 35.7, 28.6], ["up", 31.0, 28.6, 26.2, 38.1],
+  ["down", 31.0, 21.4, 21.4, 35.7], ["up", 21.4, 31.0, 16.7, 40.5],
+  ["down", 21.4, 16.7, 11.9, 31.0], ["up", 4.8, 33.3, 0.0, 40.5],
 ];
 
 const CANDLE_PREVIEW_BARS = 14;
@@ -3177,10 +3204,6 @@ function closeDropdown(menu) {
 function repositionOpenDropdowns() {
   const vh = window.innerHeight;
   document.querySelectorAll("body > .dd-menu:not([hidden])").forEach((menu) => {
-    /* A sheet is anchored to the viewport, not to the trigger, so a
-       scroll underneath it means nothing at all - not a move, and
-       certainly not a dismissal. Leaving it alone is the whole fix. */
-    if (menu.classList.contains("dd-sheet")) return;
     const btn = menu._btn;
     if (!btn || !btn.isConnected) { closeDropdown(menu); return; }
     const r = btn.getBoundingClientRect();
@@ -3242,44 +3265,26 @@ function placePopover(btn, pop, opts) {
   pop.style.insetInlineStart = Math.max(POP_EDGE, Math.min(startPx, maxStart)) + "px";
 }
 
-/* A phone is not a small desktop.
+/* One model on every screen.
 
-   Following the trigger is right when the menu is a few rows beside a
-   control the thumb can still see. On a phone it is the wrong model
-   entirely: the trigger is halfway down 5800px of settings, the menu is
-   most of what is left of a 844px screen, and the gesture that reads
-   the rest of the list is the same gesture that moves the trigger. So
-   the menu slid up the screen with it and then dismissed itself the
-   moment the trigger cleared the top edge - which is the "it gets
-   dragged along and closes" the desk reported.
+   For a while a phone got something else here: below 760px a menu
+   stopped following its trigger and became a sheet pinned to the
+   bottom of the viewport. It was answering a real complaint - a menu
+   opened low on a long settings page slid away under the finger that
+   was scrolling to read it - but it answered it by making the desk
+   hold two different controls, and the one everybody measures against
+   is the symbol picker, which is a popover on a phone as much as on a
+   desktop. Asked for plainly: "the dropdowns open as a mobile sheet;
+   I want them to open like the symbol one."
 
-   Below 760px the menu stops being a popover and becomes a sheet: it is
-   pinned to the bottom of the viewport, it does not track anything, and
-   it scrolls its own list. Nothing the page does underneath can move it
-   or close it. */
-const DD_SHEET_MQ = "(max-width: 760px)";
-
-function menuWantsSheet() {
-  return typeof window.matchMedia === "function"
-    && window.matchMedia(DD_SHEET_MQ).matches;
-}
-
-/* The sheet's geometry lives in the stylesheet, so the job here is to
-   hand it back: clear every inline value placePopover wrote from a
-   trigger rectangle, or they would out-specify the sheet rules. */
-function sheetDropdown(menu) {
-  menu.classList.add("dd-sheet");
-  menu.classList.remove("is-up");
-  menu.style.insetBlockStart = "";
-  menu.style.insetBlockEnd = "";
-  menu.style.insetInlineStart = "";
-  menu.style.inlineSize = "";
-  menu.style.maxBlockSize = "";
-}
-
+   So there is no sheet. Every menu on the desk, symbol list included,
+   is placePopover's: the width of the control that opened it, as tall
+   as the space actually below or above it, flipped upwards when the
+   room is up there, and following its trigger while the page moves.
+   The scroll complaint is still answered - by repositionOpenDropdowns
+   moving the menu with the trigger rather than by anchoring it
+   somewhere else. */
 function placeDropdownMenu(btn, menu) {
-  if (menuWantsSheet()) { sheetDropdown(menu); return; }
-  menu.classList.remove("dd-sheet");
   placePopover(btn, menu);
 }
 
