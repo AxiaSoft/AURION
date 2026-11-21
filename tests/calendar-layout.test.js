@@ -555,6 +555,41 @@ async function boot(viewport, hover) {
   ok(/15/.test(k.doc.querySelector(".cal-fine").textContent), "the blackout note still states the window",
     k.doc.querySelector(".cal-fine").textContent.trim());
 
+  /* ---- a tap on a phone opens the window, and stays there ----
+     Reported: "on mobile, tapping the number lands on the news
+     container instead of showing that window". Two causes, both here:
+     select() smooth-scrolled the stacked day panel into view, and the
+     popover closes on any scroll because it is fixed beside a cell
+     that the scroll has just moved. So the card was created and
+     destroyed by the same tap. */
+  {
+    const src = read("js/calendar.js");
+    /* The comment explaining its absence stays; the CALL may not. */
+    ok(!/scrollIntoView\(/.test(src),
+      "nothing drags the page to the news panel when a day is chosen");
+
+    const cells = [...k.doc.querySelectorAll(".cal-cell")];
+    const tapped = cells.find((c) => c.dataset.day !== k.Cal.selected) || cells[0];
+    tapped.dispatchEvent(new k.win.MouseEvent("click", { bubbles: true }));
+    const tapPop = k.doc.getElementById("cal-pop");
+    ok(!!tapPop, "a tap on a day opens that day's window");
+    ok(k.Cal.selected === tapped.dataset.day,
+      "...and chooses the day, so the panel below is right for anyone who scrolls to it");
+
+    /* Scrolling the LIST inside the window is the reader working
+       through a busy day, not a reason to take it away. */
+    const list = tapPop.querySelector(".cal-evs") || tapPop;
+    list.dispatchEvent(new k.win.Event("scroll", { bubbles: true }));
+    ok(!!k.doc.getElementById("cal-pop"),
+      "scrolling the news inside the window does not dismiss it");
+
+    /* Scrolling the page underneath still does, because the card is
+       fixed beside a cell that has moved. */
+    k.doc.getElementById("cal-pane").dispatchEvent(new k.win.Event("scroll", { bubbles: true }));
+    ok(!k.doc.getElementById("cal-pop"),
+      "...while scrolling the page behind it still closes it");
+  }
+
   /* A weekend day must still say so, in the one place with room for words. */
   const weekendCells = k.doc.querySelectorAll(".cal-cell.wk").length;
   ok(weekendCells >= 10, "weekends are marked across the whole grid", `${weekendCells} of 42`);

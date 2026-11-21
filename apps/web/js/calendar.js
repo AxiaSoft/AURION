@@ -860,7 +860,7 @@ const Calendar = {
       ? CSS.escape(k)
       : String(k).replace(/[^0-9-]/g, ""));
 
-    const select = (key, opts) => {
+    const select = (key) => {
       if (!key) return;
       this.selected = key;
       if (day) day.innerHTML = this._dayPanel(key);
@@ -873,14 +873,24 @@ const Calendar = {
           el.classList.add("sel");
           if (el.hasAttribute("aria-selected")) el.setAttribute("aria-selected", "true");
         });
-      /* On a phone the day panel is below the grid, so a tap that changed
-         it off-screen looked like nothing happened. */
-      if (opts && opts.reveal && day && typeof day.scrollIntoView === "function") {
-        const stacked = window.matchMedia && window.matchMedia("(max-width:1100px)").matches;
-        if (stacked) {
-          try { day.scrollIntoView({ behavior: "smooth", block: "nearest" }); } catch (e) { /* older engines */ }
-        }
-      }
+      /* Deliberately no scrollIntoView here.
+
+         It used to scroll the stacked day panel into view on a phone,
+         from the time when that panel below the grid WAS the answer to
+         a tap. It is not any more - the answer is the popover beside
+         the number - and the two could not both happen:
+
+           tap -> select() smooth-scrolls the page to the news card
+               -> the scroll listener below fires, which exists because
+                  the popover is position:fixed beside a cell that has
+                  just moved
+               -> closePop()
+
+         so the card the tap was asking for was built and destroyed in
+         the same gesture, and all the user saw was the page jumping to
+         the news container. Reported exactly that way. The panel is
+         still filled, for anyone who scrolls down to it; nothing drags
+         the page there. */
     };
 
     /* ------------------------------------------------- the day popup */
@@ -1026,9 +1036,21 @@ const Calendar = {
     document.addEventListener("pointerdown", onAway, true);
     document.addEventListener("keydown", onKey, true);
     window.addEventListener("resize", closePop);
-    /* Scrolling the page moves the cell; the card is position:fixed and
-       would be left behind beside nothing. */
-    window.addEventListener("scroll", closePop, true);
+    /* Scrolling the PAGE moves the cell, and the card is position:fixed
+       beside it, so it would be left hanging next to nothing.
+
+       Scrolling INSIDE the card is the opposite: it is the reader
+       working through a busy day's releases, which is the whole reason
+       the list scrolls. A capture listener on window sees both, so the
+       one that comes from the card is let through - otherwise the
+       first drag down the list on a phone dismissed the thing being
+       read. */
+    const onScroll = (e) => {
+      const t = e.target;
+      if (t && t.closest && t.closest("#cal-pop")) return;
+      closePop();
+    };
+    window.addEventListener("scroll", onScroll, true);
 
     /* The desk calls unpin() on every view change, and a rerender
        replaces the grid under an open card. */
@@ -1094,7 +1116,7 @@ const Calendar = {
          card beside the month and what every other part of the page
          reads - and it pins the popover open beside the number, which
          is what was asked for. */
-      select(el.dataset.day, { reveal: true });
+      select(el.dataset.day);
       openPop(el, true);
     });
 
