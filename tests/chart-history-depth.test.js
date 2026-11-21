@@ -159,6 +159,10 @@ check("reaching the oldest bar asks for more, once at a time", () => {
     S: { chartFocus: { symbol: "EURUSD", timeframe: "M15" }, candles: new Array(800), chart: { setBars() {} } },
     calls: [],
     API: { get(url) { box.calls.push(url); return Promise.resolve({ data: new Array(1600) }); } },
+    /* No document in here, so the edge note finds no element and bows
+       out - which is all this check needs from it. It is lifted rather
+       than stubbed so that a rename in app.js fails here too. */
+    $: () => null,
     console,
   };
   vm.createContext(box);
@@ -169,7 +173,9 @@ check("reaching the oldest bar asks for more, once at a time", () => {
   vm.runInContext((consts ? consts[0] : "") + "\n" + days[0] + "\n" + cap[0] + "\n"
     + /const CHART_OPEN_DAYS = \d+;/.exec(APP)[0] + "\n"
     + /const HIST_RETRY_MS = \d+;/.exec(APP)[0] + "\n"
-    + liftFn("barsForDays") + "\n" + liftFn("chartDays") + "\n" + liftFn("loadMoreHistory")
+    + liftFn("barsForDays") + "\n" + liftFn("chartDays")
+    + "\n" + liftFn("noteHistoryDepth") + "\n" + liftFn("historyDepthOf")
+    + "\n" + liftFn("paintHistoryEdge") + "\n" + liftFn("loadMoreHistory")
     + "\nthis.loadMoreHistory = loadMoreHistory;", box);
 
   /* Two scrolls in the same tick must produce one request. */

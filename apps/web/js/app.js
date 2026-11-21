@@ -14571,6 +14571,7 @@ async function loadMoreHistory(opts) {
       : Math.min(HISTORY_MAX, Math.max(have * 2, barsForDays(f.timeframe, chartDays())));
     const c = await API.get(`/api/candles?symbol=${encodeURIComponent(f.symbol)}`
       + `&timeframe=${encodeURIComponent(f.timeframe)}&count=${want}`);
+    noteHistoryDepth(f.symbol, f.timeframe, c && c.depth);
     const bars = (c && c.data) || [];
     if (bars.length > have) {
       S.candles = bars;
@@ -14583,7 +14584,74 @@ async function loadMoreHistory(opts) {
     }
   } catch { /* leave what we have */ } finally {
     S._histBusy = false;
+    /* The reply is what turns "we have no more" into "there IS no
+       more", so the edge note is decided here rather than on the
+       gesture that triggered the fetch. */
+    paintHistoryEdge();
   }
+}
+
+/* What the TERMINAL holds, as the expert last reported it.
+ *
+ * A chart that stops three weeks back has three possible causes and
+ * they need three different answers: the broker has no more, MetaTrader
+ * was never told to keep more ("Max bars in chart"), or the bars are
+ * still downloading. From a short chart alone they look identical, and
+ * a trader who cannot tell them apart assumes the product is broken.
+ * The expert now says which, so the desk can too. */
+function noteHistoryDepth(symbol, timeframe, depth) {
+  if (!symbol || !timeframe || !depth || typeof depth !== "object") return;
+  if (!Number(depth.available) && !depth.oldest) return;
+  S.histDepth = S.histDepth || {};
+  S.histDepth[String(symbol) + "." + String(timeframe)] = depth;
+}
+function historyDepthOf(symbol, timeframe) {
+  return (S.histDepth || {})[String(symbol || "") + "." + String(timeframe || "")] || null;
+}
+
+/* The line shown when the trader drags past the oldest candle there is.
+ *
+ * Only ever shown at the edge, and only when the terminal itself is the
+ * limit: while bars are still arriving the desk says nothing, because
+ * "this is all there is" is the one thing it would be wrong about. */
+function historyEdgeNote() {
+  const f = S.chartFocus;
+  if (!f) return "";
+  const d = historyDepthOf(f.symbol, f.timeframe);
+  if (!d) return "";
+  const have = (S.candles || []).length;
+  const held = Number(d.available) || 0;
+  if (!held || have < held - 2) return "";   // still filling in
+  const when = histDate(d.oldest);
+  const base = I18N.t("charts.hist_edge", { n: fmt(held, 0), tf: f.timeframe, when: when || "—" });
+  /* Blame the setting only where the setting can be the cause. These
+     five numbers are exactly what MetaTrader's "Max bars in chart"
+     offers; any other count came from the broker's archive, and
+     sending a trader to change a setting that is not the problem is
+     worse than saying nothing. */
+  const capped = [5000, 10000, 20000, 50000, 100000].includes(held);
+  return capped ? base + " " + I18N.t("charts.hist_edge_fix") : base;
+}
+/* A day, with its year, in the reader's own calendar. The year matters
+   here and nowhere else on a chart: "back to 12 March" is useless when
+   the question is whether the terminal holds six months or six years. */
+function histDate(iso) {
+  if (!iso) return "";
+  const d = new Date(String(iso));
+  if (isNaN(d.getTime())) return "";
+  try {
+    return d.toLocaleDateString(I18N.locale(), { year: "numeric", month: "short", day: "2-digit" });
+  } catch (e) {
+    return String(iso).slice(0, 10);
+  }
+}
+function paintHistoryEdge() {
+  const el = $("tv-hint");
+  if (!el) return;
+  const atEdge = S.chart && (S.chart.maxOffset() - S.chart.offset) <= CHART_HISTORY_LEAD;
+  const note = atEdge ? historyEdgeNote() : "";
+  el.textContent = note;
+  el.hidden = !note;
 }
 
 /* Near the oldest bar we hold, go and get more. The threshold is in bars
@@ -14592,6 +14660,7 @@ function maybeLoadMoreHistory() {
   if (!S.chart || !S.chartFocus) return;
   const left = S.chart.maxOffset() - S.chart.offset;
   if (left <= CHART_HISTORY_LEAD) loadMoreHistory();
+  paintHistoryEdge();
 }
 const CHART_HISTORY_LEAD = 30;
 
@@ -14749,6 +14818,7 @@ async function pickMarket(symbol, timeframe, opts) {
     const count = prime ? CHART_PRIME_BARS : barsForDays(timeframe, chartDays());
     const c = await API.get(`/api/candles?symbol=${encodeURIComponent(symbol)}`
       + `&timeframe=${encodeURIComponent(timeframe)}&count=${count}`);
+    noteHistoryDepth(symbol, timeframe, c && c.depth);
     S.candles = c.data || [];
     /* A different series: whatever we learned about the end of the last
        one does not apply. */
@@ -14868,6 +14938,7 @@ function onLive(msg) {
   }
   if (msg.type === "candles") {
     const d = msg.data || msg;
+    noteHistoryDepth(d.symbol, d.timeframe, d.depth);
     if ((d.symbol === S.symbol || !S.symbol) && (d.timeframe === S.timeframe || !d.timeframe || !S.timeframe)) {
       if (d.symbol) S.symbol = d.symbol;
       if (d.timeframe) S.timeframe = d.timeframe;

@@ -97,6 +97,12 @@ class MT5Bridge:
         #: What stops a series the broker cannot deepen from being asked
         #: for its full window on every single request.
         self._hist_asked: dict[tuple[str, str], tuple[float, int, int]] = {}
+        # What the TERMINAL holds per series, as the expert last reported
+        # it: {"requested", "available", "oldest"}. This is the only way
+        # to tell a short chart caused by the broker's archive from one
+        # caused by MetaTrader's own "Max bars in chart" setting, and
+        # the trader cannot tell those apart by looking.
+        self._hist_depth: dict[tuple[str, str], dict[str, Any]] = {}
         self._agent_owner: dict[int, asyncio.StreamWriter | None] = {}
         self._purge_gen: dict[int, int] = {}
         self._http_seen: dict[int, float] = {}
@@ -263,7 +269,7 @@ class MT5Bridge:
         await self.emit("deals", [d.to_dict() for d in self.deals[-400:]])
         for (symbol, tf), rows in self.candles.items():
             if rows:
-                await self.emit("candles", {"symbol": symbol, "timeframe": tf, "bars": [c.to_dict() for c in rows]})
+                await self.emit("candles", {"symbol": symbol, "timeframe": tf, "bars": [c.to_dict() for c in rows], "depth": self.hist_depth(symbol, tf)})
         await self.emit("agents", {"items": [a.to_dict() for a in self.online_agents()]})
         await self.emit("status", self.snapshot_status)
 
@@ -740,6 +746,33 @@ class MT5Bridge:
     def _note_history_answer(self, symbol: str, timeframe: str, count: int, got: int) -> None:
         self._hist_asked[(symbol, timeframe)] = (time.time(), max(0, int(count or 0)), int(got))
 
+    def _note_hist_depth(self, symbol: str, timeframe: str, message: dict[str, Any]) -> None:
+        """Remember what the terminal said it holds for this series.
+
+        Experts before 1.20 send none of these fields, and an absent
+        answer must not overwrite a known one with zeroes - a desk that
+        forgets what it was told is worse than a desk never told.
+        """
+        if "available" not in message and "oldest" not in message:
+            return
+        self._hist_depth[(symbol, self._norm_tf(timeframe))] = {
+            "requested": self._inum(message.get("requested")),
+            "available": self._inum(message.get("available")),
+            "oldest": str(message.get("oldest") or ""),
+            "at": time.time(),
+        }
+
+    def hist_depth(self, symbol: str, timeframe: str) -> dict[str, Any]:
+        """What the terminal holds for this series, or {} if never said."""
+        tf = self._norm_tf(timeframe)
+        found = self._hist_depth.get((symbol, tf))
+        if found:
+            return dict(found)
+        for (sym, t), info in self._hist_depth.items():
+            if self._norm_tf(t) == tf and self._sym_match(sym, symbol):
+                return dict(info)
+        return {}
+
     def _resolve_hist(self, symbol: str, timeframe: str) -> None:
         tf = self._norm_tf(timeframe)
         rows = self._candles_for(symbol, tf)
@@ -1025,7 +1058,15 @@ class MT5Bridge:
                 else:
                     rows = self._candles_for(symbol, tf)
                 self._note_history_answer(symbol, tf, count, len(rows))
-        await self.emit("candles", {"symbol": symbol, "timeframe": tf, "bars": [c.to_dict() for c in rows]})
+        await self.emit(
+            "candles",
+            {
+                "symbol": symbol,
+                "timeframe": tf,
+                "bars": [c.to_dict() for c in rows],
+                "depth": self.hist_depth(symbol, tf),
+            },
+        )
         return [c.to_dict() for c in rows]
 
     async def _prime_agent(self, agent: ChartAgent) -> None:
@@ -1047,7 +1088,7 @@ class MT5Bridge:
                 bucket = live_store["candles"][(symbol, tf)]
                 bucket.clear()
                 bucket.extend(rows)
-                await self.emit("candles", {"symbol": symbol, "timeframe": tf, "bars": [c.to_dict() for c in rows]})
+                await self.emit("candles", {"symbol": symbol, "timeframe": tf, "bars": [c.to_dict() for c in rows], "depth": self.hist_depth(symbol, tf)})
                 self._resolve_hist(symbol, tf)
         except Exception:
             log.exception("prime agent %s %s failed", symbol, tf)
@@ -1278,8 +1319,17 @@ class MT5Bridge:
                 ordered = sorted(bucket, key=lambda c: (str(c.time), int(c.time_msc or 0)))
                 bucket.clear()
                 bucket.extend(ordered)
+                self._note_hist_depth(symbol, tf, message)
                 if tape == self.active_tape():
-                    await self.emit("candles", {"symbol": symbol, "timeframe": tf, "bars": [c.to_dict() for c in bucket]})
+                    await self.emit(
+                        "candles",
+                        {
+                            "symbol": symbol,
+                            "timeframe": tf,
+                            "bars": [c.to_dict() for c in bucket],
+                            "depth": self.hist_depth(symbol, tf),
+                        },
+                    )
                     self._resolve_hist(symbol, tf)
             return
         if kind == "account":

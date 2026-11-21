@@ -583,7 +583,9 @@
     "no_signals": "لا توجد إشارات صارمة في هذه النافذة",
     "search": "بحث في الرسوم",
     "open_sr": "فتح الرسم الكامل {sym} {tf}",
-    "live_now": "الرسوم الحيّة"
+    "live_now": "الرسوم الحيّة",
+    "hist_edge": "هذه أقدم شمعة لدى منصّتك: {n} شمعة {tf}، حتى تاريخ {when}.",
+    "hist_edge_fix": "تحتفظ ميتاتريدر بعدد محدود من الشموع فقط — Tools ← Options ← Charts ← Max bars in chart."
   },
   "terminal": {
     "title": "الطرفية",
