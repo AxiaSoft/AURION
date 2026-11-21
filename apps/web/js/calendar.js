@@ -840,22 +840,15 @@ const Calendar = {
 
     this._bindRemind(root);
 
-    /* The floating peek card is gone for good.
+    /* Anything a previous build left parented to <body>.
 
-       It was a tooltip parented to <body> that followed the pointer,
-       and it could only ever speak to a mouse. What replaced it reads
-       the SAME panel the click fills: hovering a day shows that day's
-       news in the card beside the month, and clicking pins it. Nothing
-       moves, nothing is drawn twice, and the news scrolls inside a card
-       whose height never changes - so hovering across a row of days
-       cannot make the page jump.
-
-       `unpin` stays on the instance because the desk calls it on every
-       view change. It now only sweeps a card left on <body> by a desk
-       that was open across the update. */
+       Two generations of this have existed - a pointer-following
+       tooltip (#cal-tip) and a preview written into the news card -
+       and a desk that was open across an update can be holding either.
+       Sweeping the old node is one line and saves a stranded card
+       floating over the new one. */
     this.tip = null;
     const hideTip = () => { document.getElementById("cal-tip")?.remove(); };
-    this.unpin = hideTip;
     hideTip();
 
     /* ------------------------------------------------------ selection */
@@ -890,70 +883,157 @@ const Calendar = {
       }
     };
 
-    /* ----------------------------------------------------------- peek */
+    /* ------------------------------------------------- the day popup */
 
-    /* Show a day without choosing it. The pinned day is not touched, so
-       the pointer leaving the month puts the panel straight back to
-       whatever was clicked - a preview can never lose the trader's
-       place. */
-    /* A preview the pointer can walk into.
+    /* Asked for in these words: the window must open BESIDE the number
+     * that was hovered or pressed, the news inside it must scroll, and
+     * clicking outside must close it - and hovering must stop changing
+     * the shared news card.
      *
-     * Reported twice: "it opens when I hover a number and then the
-     * container keeps changing" - and, the part that matters, the news
-     * inside it cannot be scrolled. It could not: leaving the grid
-     * dropped the preview instantly, and the only way to reach the
-     * panel is to leave the grid. The card was readable for exactly as
-     * long as the pointer stayed on the day, which on a busy day is a
-     * list longer than the card.
+     * The version before this one answered the last part by previewing
+     * into the card beside the month. That removed the flicker but
+     * also removed the thing being asked for: the reader's eye is on a
+     * day in the middle of a grid and the answer appeared somewhere
+     * else entirely, and on a phone it appeared below the fold. So the
+     * preview is a popover again - anchored to the cell, not to the
+     * pointer, so it does not slide around under the hand - and the
+     * shared card is left alone unless a day is actually CHOSEN.
      *
-     * So the drop is deferred rather than immediate, and the panel
-     * itself cancels it. Crossing the gap between the grid and the
-     * card keeps the preview; settling in the card keeps it
-     * indefinitely; leaving the card gives it back to the pinned day.
-     * The grace also covers crossing the gap BETWEEN two cells, which
-     * is what made the panel flicker on the way past. */
-    const PEEK_GRACE_MS = 260;
-    let dropTimer = 0;
-    const cancelDrop = () => { if (dropTimer) { clearTimeout(dropTimer); dropTimer = 0; } };
-    /* True while the pointer is inside the card: a day hovered through
-       the card (it has no cells, but a re-render can race) must not
-       steal the preview the reader is in the middle of. */
-    let inPanel = false;
+     * Three ways in, because a desk is used with three hands:
+     *   - hover, after a short delay, on a device that has a pointer
+     *   - a press and hold, on a touch screen
+     *   - a plain click or tap, which also pins it open
+     * Hover-opened popovers follow the pointer away. A pinned one
+     * stays until something outside it is clicked, or Escape.
+     */
+    const POP_OPEN_MS = 140;    /* hover before it opens - not instant */
+    const POP_GRACE_MS = 260;   /* crossing the gap must not close it */
+    const POP_HOLD_MS = 420;    /* a press that counts as press-and-hold */
 
-    const showPeek = (key) => {
-      cancelDrop();
-      if (!day || !key || inPanel || key === this.peek) return;
-      this.peek = key;
-      day.innerHTML = this._dayPanel(key, true);
-      day.classList.add("is-peek");
+    let popKey = "";
+    let popPinned = false;
+    let popCell = null;
+    let openTimer = 0;
+    let shutTimer = 0;
+    let holdTimer = 0;
+    let inPop = false;
+
+    const clearTimers = () => {
+      if (openTimer) { clearTimeout(openTimer); openTimer = 0; }
+      if (shutTimer) { clearTimeout(shutTimer); shutTimer = 0; }
     };
-    const dropNow = () => {
-      cancelDrop();
-      if (!day || !this.peek) return;
-      this.peek = "";
-      day.innerHTML = this._dayPanel(this.selected);
-      day.classList.remove("is-peek");
+    const clearHold = () => { if (holdTimer) { clearTimeout(holdTimer); holdTimer = 0; } };
+
+    const popNode = () => document.getElementById("cal-pop");
+
+    const closePop = () => {
+      clearTimers();
+      clearHold();
+      popKey = "";
+      popPinned = false;
+      inPop = false;
+      if (popCell) popCell.classList.remove("is-peek");
+      popCell = null;
+      popNode()?.remove();
     };
-    const dropPeek = () => {
-      cancelDrop();
-      if (!this.peek) return;
-      dropTimer = setTimeout(() => { dropTimer = 0; if (!inPanel) dropNow(); }, PEEK_GRACE_MS);
+
+    /* Beside the number, and inside the window.
+     *
+     * The inline side is tried first - that is what "beside" means -
+     * and the block position is pinned to the cell's own top so the
+     * popover reads as belonging to that row. Everything is clamped to
+     * the viewport afterwards, because a cell in the last column or
+     * the bottom week would otherwise put half the card off-screen. */
+    const placePop = (node, cell) => {
+      const r = cell.getBoundingClientRect();
+      const vw = window.innerWidth || 1024;
+      const vh = window.innerHeight || 768;
+      const w = node.offsetWidth || 300;
+      const h = node.offsetHeight || 260;
+      const gap = 10;
+      const rtl = document.documentElement.getAttribute("dir") === "rtl";
+      /* The reading direction decides which side is tried first, so in
+         Persian the card opens to the left of the day as the eye
+         expects, and flips only when there is no room. */
+      const first = rtl ? r.left - gap - w : r.right + gap;
+      const other = rtl ? r.right + gap : r.left - gap - w;
+      let left = first;
+      if (left < 8 || left + w > vw - 8) left = other;
+      if (left < 8 || left + w > vw - 8) {
+        /* Neither side fits - a phone. Centre it on the cell and let
+           the block clamp below push it clear. */
+        left = Math.max(8, Math.min(r.left + r.width / 2 - w / 2, vw - w - 8));
+      }
+      let top = r.top;
+      if (top + h > vh - 8) top = vh - h - 8;
+      if (top < 8) top = 8;
+      node.style.left = Math.round(left) + "px";
+      node.style.top = Math.round(top) + "px";
     };
+
+    const openPop = (cell, pinned) => {
+      if (!cell) return;
+      const key = cell.dataset.day;
+      if (!key) return;
+      clearTimers();
+      if (popKey === key) {
+        if (pinned) popPinned = true;
+        return;
+      }
+      popNode()?.remove();
+      if (popCell) popCell.classList.remove("is-peek");
+      const node = document.createElement("div");
+      node.id = "cal-pop";
+      node.className = "cal-pop card";
+      node.setAttribute("role", "dialog");
+      node.setAttribute("aria-label", I18N.t("calendar.title"));
+      /* The scroller is a child, not the popover itself: the day's
+         heading stays put while a long list of releases moves under
+         it, which is what makes a busy day readable at all. */
+      node.innerHTML = '<div class="cal-pop-in">' + this._dayPanel(key) + "</div>";
+      document.body.appendChild(node);
+      popKey = key;
+      popPinned = Boolean(pinned);
+      popCell = cell;
+      cell.classList.add("is-peek");
+      placePop(node, cell);
+      /* Measured once more after layout: the first measurement is taken
+         before the browser has wrapped the event titles, so a tall card
+         would otherwise hang off the bottom. */
+      requestAnimationFrame(() => {
+        const live = popNode();
+        if (live && popCell) placePop(live, popCell);
+      });
+      node.addEventListener("mouseenter", () => { inPop = true; clearTimers(); });
+      node.addEventListener("mouseleave", () => { inPop = false; shutSoon(); });
+      node.addEventListener("wheel", clearTimers, { passive: true });
+    };
+
+    const shutSoon = () => {
+      clearTimers();
+      if (!popKey || popPinned) return;
+      shutTimer = setTimeout(() => { shutTimer = 0; if (!inPop) closePop(); }, POP_GRACE_MS);
+    };
+
+    /* The popover belongs to the window, not to the grid, so it is
+       closed by anything that moves the ground under it. */
+    const onAway = (e) => {
+      if (!popKey) return;
+      if (e.target.closest && (e.target.closest("#cal-pop") || e.target.closest(".cal-cell"))) return;
+      closePop();
+    };
+    const onKey = (e) => { if (e.key === "Escape" && popKey) closePop(); };
+    document.addEventListener("pointerdown", onAway, true);
+    document.addEventListener("keydown", onKey, true);
+    window.addEventListener("resize", closePop);
+    /* Scrolling the page moves the cell; the card is position:fixed and
+       would be left behind beside nothing. */
+    window.addEventListener("scroll", closePop, true);
+
+    /* The desk calls unpin() on every view change, and a rerender
+       replaces the grid under an open card. */
+    this.unpin = () => { hideTip(); closePop(); };
     this.peek = "";
-
-    /* The card holds the pointer rather than losing it. */
-    day?.addEventListener("mouseenter", () => { inPanel = true; cancelDrop(); });
-    day?.addEventListener("mouseleave", () => { inPanel = false; dropPeek(); });
-    /* Scrolling the news inside it is the whole point of keeping it. */
-    day?.addEventListener("wheel", cancelDrop, { passive: true });
-    /* Keyboard: tabbing into the previewed card must not close it
-       either, and tabbing out of it returns to the pinned day. */
-    day?.addEventListener("focusin", () => { inPanel = true; cancelDrop(); });
-    day?.addEventListener("focusout", (e) => {
-      if (day.contains(e.relatedTarget)) return;
-      inPanel = false;
-      dropPeek();
-    });
 
     /* ------------------------------------------------------- controls */
 
@@ -1010,11 +1090,12 @@ const Calendar = {
     pane?.addEventListener("click", (e) => {
       const el = e.target.closest("[data-day]");
       if (!el || !pane.contains(el)) return;
-      cancelDrop();
-      inPanel = false;
-      this.peek = "";
-      day?.classList.remove("is-peek");
+      /* A click does both: it chooses the day - which is what fills the
+         card beside the month and what every other part of the page
+         reads - and it pins the popover open beside the number, which
+         is what was asked for. */
       select(el.dataset.day, { reveal: true });
+      openPop(el, true);
     });
 
     /* Hover and keyboard focus both preview. One delegated pair of
@@ -1024,16 +1105,33 @@ const Calendar = {
        panel back and forth. */
     pane?.addEventListener("mouseover", (e) => {
       const el = e.target.closest(".cal-cell");
-      if (el && pane.contains(el)) showPeek(el.dataset.day);
+      if (!el || !pane.contains(el) || popPinned) return;
+      if (el === popCell) { clearTimers(); return; }
+      clearTimers();
+      openTimer = setTimeout(() => { openTimer = 0; openPop(el, false); }, POP_OPEN_MS);
     });
     pane?.addEventListener("focusin", (e) => {
       const el = e.target.closest(".cal-cell");
-      if (el && pane.contains(el)) showPeek(el.dataset.day);
+      if (el && pane.contains(el) && !popPinned) openPop(el, false);
     });
-    pane?.addEventListener("mouseleave", dropPeek);
+    pane?.addEventListener("mouseleave", shutSoon);
     pane?.addEventListener("focusout", (e) => {
-      if (!pane.contains(e.relatedTarget)) dropPeek();
+      if (!pane.contains(e.relatedTarget) && !popPinned) shutSoon();
     });
+
+    /* Press and hold, for the hand that has no pointer to hover with.
+       A tap still selects, because the click handler above runs on
+       release; the hold only decides whether the card was already open
+       by then. Any movement is a scroll, not a press. */
+    pane?.addEventListener("touchstart", (e) => {
+      const el = e.target.closest(".cal-cell");
+      if (!el || !pane.contains(el)) return;
+      clearHold();
+      holdTimer = setTimeout(() => { holdTimer = 0; openPop(el, true); }, POP_HOLD_MS);
+    }, { passive: true });
+    pane?.addEventListener("touchmove", clearHold, { passive: true });
+    pane?.addEventListener("touchend", clearHold, { passive: true });
+    pane?.addEventListener("touchcancel", clearHold, { passive: true });
 
     /* The cells are real buttons now, so Enter and Space already activate
        them. Arrow keys are what a grid still has to add. */
@@ -1051,10 +1149,7 @@ const Calendar = {
       const i = all.indexOf(cell);
       const next = all[i + step];
       if (!next) return;
-      cancelDrop();
-      inPanel = false;
-      this.peek = "";
-      day?.classList.remove("is-peek");
+      closePop();
       next.focus();
       select(next.dataset.day);
     });

@@ -73,9 +73,16 @@ check("a 'not yet' from CopyRates is no longer the end of the request", () => {
   const body = mqlFn("PumpHistory");
   const at = body.indexOf("if(n <= 0)");
   if (at < 0) throw new Error("the CopyRates failure branch is gone");
-  const branch = body.slice(at, at + 1600);
+  const branch = body.slice(at, at + 3000);
   if (!/g_hist_tries\+\+/.test(branch)) throw new Error("the attempt is not counted");
   if (!/AURION_HIST_TRIES/.test(branch)) throw new Error("there is no ceiling on the attempts");
+  /* Out of patience is not the same as having nothing. The range the
+     engine asked for may be more than this broker will serve, and the
+     bars the terminal does hold are still what the trader can see on
+     their own chart - so they are sent rather than thrown away. */
+  if (!/CopyRates\(_Symbol, g_hist_tf, 0, depth, g_hist_rates\)/.test(branch)) {
+    throw new Error("a period the broker refuses now returns nothing at all");
+  }
   /* The abandon must be reachable ONLY after the ceiling. A bare
      `g_hist_pos = -1; return;` before the retry is the original bug. */
   const giveUp = branch.indexOf("g_hist_pos = -1");

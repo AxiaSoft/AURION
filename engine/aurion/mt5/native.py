@@ -6,6 +6,7 @@ they return empty structures instead of inventing prices.
 
 from __future__ import annotations
 
+import time
 from datetime import datetime, timezone
 from typing import Any
 
@@ -18,8 +19,16 @@ from .types import (
     Tick,
     classify_account,
     timeframe_from_minutes,
+    timeframe_minutes,
     timeframe_mt5,
 )
+
+#: How many times to re-ask for a date range while the terminal fetches
+#: it. Short on purpose: this runs inside a request the desk is waiting
+#: on, and the expert's own ladder (AURION_HIST_TRIES) is the patient
+#: one. Four tries at 0.4s is under two seconds added to a cold series.
+_RANGE_TRIES = 4
+_RANGE_WAIT_SECONDS = 0.4
 
 try:
     import MetaTrader5 as mt5  # type: ignore
@@ -190,11 +199,71 @@ class NativeMT5:
         )
 
     def candles(self, symbol: str, timeframe: str, count: int) -> list[Candle]:
+        """The last `count` bars of this series, fetching them if need be.
+
+        This used to be one line - ``copy_rates_from_pos(symbol, tf, 0,
+        count)`` - and that line is why "MetaTrader shows me months and
+        AURION does not" survived three attempts to size the request
+        properly. The position form is answered out of the series the
+        terminal has ALREADY built for that symbol and timeframe. If the
+        terminal holds three thousand M15 bars, three thousand is the
+        answer, no matter that the engine asked for seventeen thousand,
+        and nothing about asking makes the terminal go to the broker for
+        the rest. Every fix upstream - a bigger window, a deeper ask
+        sized from the backtest's start date - arrived here and was
+        quietly capped.
+
+        The RANGE form is the one that triggers a download: a period the
+        terminal does not hold makes it request the missing section from
+        the server. Like any download it is not instant, so the first
+        answer can be short or empty; that is what the retry below is
+        for, and it is the same patience the expert applies on its side.
+
+        The period asked for is `count` bars of calendar time, because
+        that is what `count` was computed FROM - HISTORY_DAYS divided by
+        the bar length. The weekends inside it simply come back empty,
+        and the tail is trimmed to `count` at the end so a caller that
+        asked for a thousand bars is never handed six thousand.
+        """
         if not AVAILABLE or not self.connected:
             return []
-        rates = mt5.copy_rates_from_pos(symbol, timeframe_mt5(timeframe), 0, int(count))
+        want = max(1, int(count))
+        tfm = timeframe_mt5(timeframe)
+        step = max(60, int(timeframe_minutes(timeframe)) * 60)
+        rates = None
+        try:
+            now = datetime.now(tz=timezone.utc)
+            start = datetime.fromtimestamp(
+                max(0.0, now.timestamp() - float(step) * float(want)), tz=timezone.utc
+            )
+            stop = datetime.fromtimestamp(now.timestamp() + float(step), tz=timezone.utc)
+            for attempt in range(_RANGE_TRIES):
+                rates = mt5.copy_rates_range(symbol, tfm, start, stop)
+                if rates is not None and len(rates) >= want:
+                    break
+                # Short or empty means the terminal is still fetching the
+                # section we asked for. Give it a moment and ask again -
+                # asking is what keeps the download going.
+                if attempt + 1 < _RANGE_TRIES:
+                    time.sleep(_RANGE_WAIT_SECONDS)
+        except Exception:
+            rates = None
+        held = None
+        if rates is None or len(rates) < want:
+            # Either the broker will not serve that far back or the
+            # range call failed outright. What the terminal does hold is
+            # still the best answer available, and it is what the trader
+            # can see on their own chart.
+            try:
+                held = mt5.copy_rates_from_pos(symbol, tfm, 0, want)
+            except Exception:
+                held = None
+        if rates is None or (held is not None and len(held) > len(rates)):
+            rates = held
         if rates is None:
             return []
+        if len(rates) > want:
+            rates = rates[-want:]
         out: list[Candle] = []
         for row in rates:
             t = int(row["time"])
