@@ -2557,6 +2557,44 @@ html[data-bg="photo"] .aurora::after{
 .dt-quick:hover:not(:disabled){ background:rgb(var(--accent-rgb) / .26) }
 .dt-quick:disabled{ opacity:.35; cursor:default }
 
+/* --------------------------------------------------------------------------
+   The same pickers under a thumb.
+
+   Reported from a phone: "the selectors in the backtest's date section
+   are tiny". They were sized for a mouse and nothing resized them -
+   every number above is a fixed px, so a 288px calendar with 34px day
+   cells and 12px digits was drawn identically on a 390px screen. A day
+   cell has to be hit between its neighbours, which makes it one of the
+   smallest targets on the desk, and 34px is under the 48px the rest of
+   the desk agreed on in app.css.
+
+   Both conditions, deliberately: a phone-width window on a laptop has
+   the same cramped calendar, and a tablet has the same thumb.
+   -------------------------------------------------------------------------- */
+@media (pointer: coarse), (max-width: 560px){
+  /* A popover is no use if it is taller than the screen it is pinned
+     to, so it is allowed to scroll inside itself as a last resort. */
+  .dt-pop{ gap:12px; padding:14px; max-block-size:calc(100vh - 16px); overflow:auto }
+  /* 360px of width, less 28px of padding and 30px of gaps, is a 43px
+     day cell - a real target - and still inside a 390px screen. */
+  .dt-pop-date{ width:min(94vw, 360px) }
+  .dt-pop-time{ width:min(94vw, 300px) }
+  .dt-head b{ font-size:15px }
+  .dt-nav{ width:40px; height:40px; font-size:21px }
+  .dt-wd,.dt-grid{ gap:5px }
+  .dt-wdn{ font-size:12px }
+  .dt-day{ font-size:15px; border-radius:11px }
+  .dt-cols{ gap:10px }
+  /* In viewport units, because the list is next to a thumb on a screen
+     whose height is not 768px. */
+  .dt-col{ gap:5px; max-height:min(46vh, 260px) }
+  .dt-opt{ padding:11px 0; font-size:15px }
+  /* "Today" / "Now" is the single most used control in the popover and
+     it was a 24px chip in a corner. */
+  .dt-foot{ justify-content:stretch }
+  .dt-quick{ flex:1; padding:12px 16px; font-size:15px }
+}
+
 /* The swatch that opens it, in the settings rows. */
 .col-swatch{
   width:44px; height:28px; flex:none; cursor:pointer; padding:0;

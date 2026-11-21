@@ -2030,7 +2030,11 @@ input[type=range]{width:100%;accent-color:var(--cyan);height:28px;cursor:pointer
      thirds is readable; a horizontally scrolling strip hides exactly
      the chip somebody is reaching for. */
   #bt-card .bt-span{flex-wrap:wrap}
-  #bt-card .bt-span button{flex:1 1 28%;padding:0 8px}
+  /* .pc-seg is a 30px strip of 12.5px labels - right for a toolbar
+     under a mouse, and the smallest thing on this page under a thumb.
+     These seven chips are how the period is chosen, so they get a
+     thumb's height and the type to match. */
+  #bt-card .bt-span button{flex:1 1 28%;padding:0 8px;height:auto;min-height:40px;font-size:14px}
 
   /* Two date fields side by side is a desktop assumption: each button
      holds a written-out date ("5 October 2026") and at half of 390px
@@ -2045,6 +2049,11 @@ input[type=range]{width:100%;accent-color:var(--cyan);height:28px;cursor:pointer
     overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
   }
   #bt-card .bt-period .bt-dates .dt-field{flex:1 1 auto;min-width:0}
+  /* The two buttons that open the calendar are what "date section"
+     means to the person using it: full control height, and the date
+     itself large enough to read without leaning in. */
+  #bt-card .bt-period .bt-dates .dt-btn{min-height:46px;font-size:15px}
+  #bt-card .bt-period .field-lab{font-size:13px}
 
   /* The one thing the page exists to do. Full width, thumb height. */
   #bt-card #h-bt{width:100%;min-height:44px}
