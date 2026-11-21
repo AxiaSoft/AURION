@@ -2041,18 +2041,31 @@ input[type=range]{width:100%;accent-color:var(--cyan);height:28px;cursor:pointer
      it is ellipsis. One per row, label beside control, same shape as
      the three fields above it. */
   #bt-card .bt-period .ct-grid-2{grid-template-columns:minmax(0,1fr);gap:6px}
+  /* The thing that is actually TAPPED.
+     Reported twice. The first answer put the label beside the control,
+     like the three fields above - which is right for a select, and
+     wrong here: the button holds a written-out date ("5 October
+     2026"), so 8.5ch of label took a third of the row and the date
+     ellipsised inside what was left. And the rule that was meant to
+     enlarge it did the opposite: min-height:46px and font-size:15px
+     both UNDER-cut what the control already had from .ctrl (48px from
+     --ctl-h on a touch pointer, 16px from the iOS-zoom rule), and
+     being more specific they won.
+     So: the caption goes back above its control, the button gets the
+     whole card width, and the two numbers are raised rather than
+     lowered. */
   #bt-card .bt-period .bt-dates > .field{
-    flex-direction:row;align-items:center;gap:10px;margin-bottom:0;
+    flex-direction:column;align-items:stretch;gap:6px;margin-bottom:0;
   }
-  #bt-card .bt-period .bt-dates > .field > span{
-    flex:0 0 8.5ch;min-width:0;
-    overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
-  }
+  #bt-card .bt-period .bt-dates > .field > span{flex:none;font-size:12.5px}
   #bt-card .bt-period .bt-dates .dt-field{flex:1 1 auto;min-width:0}
-  /* The two buttons that open the calendar are what "date section"
-     means to the person using it: full control height, and the date
-     itself large enough to read without leaning in. */
-  #bt-card .bt-period .bt-dates .dt-btn{min-height:46px;font-size:15px}
+  #bt-card .bt-period .bt-dates .dt-btn{
+    min-block-size:54px;font-size:16px;
+    padding-inline:14px;gap:12px;
+  }
+  /* The calendar glyph is the affordance - it is what says "this
+     opens something" - and it was a 16px mark at 62% opacity. */
+  #bt-card .bt-period .bt-dates .dt-ico{inline-size:20px;block-size:20px;opacity:.8}
   #bt-card .bt-period .field-lab{font-size:13px}
 
   /* The one thing the page exists to do. Full width, thumb height. */
