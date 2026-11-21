@@ -1543,11 +1543,38 @@ function markThemeCards() {
    example instead, and the caption says which of the two is on
    screen. */
 
-/** The fallback: a plausible sequence, used only when there are no bars. */
+/* The fallback: a worked example, used only when there are no bars.
+ *
+ * It is not eight random shapes. The numbers below were computed from
+ * a real OHLC path, and that matters for three reasons the previous
+ * set got wrong:
+ *
+ *   * every wick stays inside the strip. One of the old rows ran to
+ *     108%, so the first candle's lower shadow was sliced off against
+ *     the frame - which reads as a drawing fault, not as a market.
+ *   * each bar opens where the one before it closed, so the strip
+ *     looks like a sequence rather than eight unrelated bars.
+ *   * the highest high touches the top and the lowest low the bottom,
+ *     which is what a real window of bars always does.
+ *
+ * The path, open/high/low/close:
+ *   10.00 10.45  9.70 10.35      10.35 10.95 10.25 10.85
+ *   10.85 11.05 10.45 10.55      10.55 11.25 10.45 11.15
+ *   11.15 11.35 10.60 10.70      10.70 11.45 10.60 11.35
+ *   11.35 11.55 10.90 11.00      11.00 11.80 10.95 11.70
+ *
+ * Five rising and three falling, each with a shadow at both ends, so
+ * the pair of colours being chosen is judged on both directions and
+ * on the thin parts as well as the thick ones.
+ *
+ * Each row is [direction, bodyTop, bodyHeight, wickTop, wickHeight],
+ * all four as percentages of the strip - exactly what
+ * candlePreviewShapes() produces from real bars. */
 const CANDLE_SAMPLE = [
-  ["up", 34, 62, 24, 84], ["up", 22, 48, 8, 76], ["down", 30, 44, 18, 68],
-  ["up", 18, 70, 10, 86], ["down", 40, 36, 24, 68], ["down", 26, 52, 15, 74],
-  ["up", 20, 58, 7, 84], ["up", 30, 46, 21, 64],
+  ["up", 69.0, 16.7, 64.3, 35.7], ["up", 45.2, 23.8, 40.5, 33.3],
+  ["down", 45.2, 14.3, 35.7, 28.6], ["up", 31.0, 28.6, 26.2, 38.1],
+  ["down", 31.0, 21.4, 21.4, 35.7], ["up", 21.4, 31.0, 16.7, 40.5],
+  ["down", 21.4, 16.7, 11.9, 31.0], ["up", 4.8, 33.3, 0.0, 40.5],
 ];
 
 const CANDLE_PREVIEW_BARS = 14;

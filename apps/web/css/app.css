@@ -3874,6 +3874,13 @@ html[dir="rtl"] .q-how[open] summary::before{ transform:rotate(0deg) }
 .cndl-h{margin:18px 0 2px;font-size:13px;font-weight:600}
 .cndl-prev{
   display:flex;align-items:stretch;gap:7px;
+  /* A chart is a diagram, and time runs left to right in it whatever
+     language the desk is in - the chart canvas beside this strip is
+     drawn that way and cannot be otherwise. A flex row inherits the
+     page's RTL direction, so on the Persian desk these eight bars
+     were laid out newest-first: the same sequence as the chart,
+     mirrored. Stated here, once, rather than reversing the array. */
+  direction:ltr;
   height:92px;margin:10px 0 12px;padding:10px 12px;
   border:1px solid var(--line);border-radius:14px;
   background:var(--chart-panel, rgb(var(--s2) / .5));
@@ -3889,7 +3896,18 @@ html[dir="rtl"] .q-how[open] summary::before{ transform:rotate(0deg) }
    colours are readable. Top and height are given outright. */
 .cndl::before{
   content:"";position:absolute;top:var(--wt);height:var(--wh);
-  inset-inline-start:50%;width:2px;transform:translateX(-50%);
+  /* Centred, in BOTH reading directions.
+     This was `inset-inline-start:50%` with a `translateX(-50%)` to pull
+     it back, and the two do not agree in Persian: the inset is logical
+     and resolves to `right` under RTL, while the transform is physical
+     and always shifts left - so the hairline landed a full two pixels
+     to one side of the body it belongs to. That is the reported
+     "the shadows are crooked, the candle is not in the middle of its
+     shadow", and it was visible only on the Persian desk.
+     Both insets at 50% minus half the width needs no transform at all:
+     the 2px width is what the pair of insets leaves, and it is the
+     same 2px either way round. */
+  inset-inline:calc(50% - 1px);
   border-radius:2px;background:currentColor;opacity:.85;
 }
 /* The body, edge to edge of the bar's own share. */
