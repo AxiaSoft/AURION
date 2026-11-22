@@ -343,5 +343,79 @@ check("the retirement is named, not implied", () => {
   return "RETIRED_COLOR_KEYS";
 });
 
+/* ----------------------------------------------------------------------
+   The opening film is a choice.
+
+   Asked for directly: a switch in personalisation that decides whether
+   the startup video plays. It is right the first time and wrong on the
+   twentieth start of a working day.
+   ---------------------------------------------------------------------- */
+
+check("personalisation offers the switch, beside the other look settings", () => {
+  const at = appJs.indexOf('id: "sw-intro"');
+  if (at < 0) throw new Error("there is no intro switch in the settings markup");
+  const block = appJs.slice(appJs.indexOf('block("set-personal"'), at);
+  if (!block || block.length > 4000) throw new Error("the switch is not inside the personalisation block");
+  if (!/settings\.intro_video/.test(block)) throw new Error("the switch has no label of its own");
+  if (!/paintIntroSwitch\(\);[\s\S]{0,200}sw-intro[\s\S]{0,160}setIntroNow\(!introOn\(\)\)/.test(appJs)) {
+    throw new Error("the switch is drawn but never wired");
+  }
+  return "sw-intro, in set-personal";
+});
+
+check("turning it off means the clip is never fetched", () => {
+  /* A film that is loaded and then hidden is the same wait with
+     nothing to look at. */
+  const fn = appJs.slice(appJs.indexOf("async function playWelcome()"), appJs.indexOf("const sources = welcomeSrcList()"));
+  if (!/if \(!introOn\(\)\) \{/.test(fn)) throw new Error("playWelcome does not consult the setting");
+  const off = fn.slice(fn.indexOf("if (!introOn()) {"));
+  if (!/return;/.test(off)) throw new Error("it falls through to the player anyway");
+  if (!/no-clip/.test(off)) throw new Error("the curtain is not told there is no film on it");
+  if (!/skip\.hidden = true/.test(off)) throw new Error("a Skip button is left over a clip that is not playing");
+  /* The curtain itself must stay: it is what hides a half-built desk. */
+  if (/wrap\.hidden = true/.test(off)) throw new Error("the loading curtain is torn down with the film");
+  return "no source, no controls, curtain kept";
+});
+
+check("on is the default, and an unreadable store still says on", () => {
+  const fn = appJs.slice(appJs.indexOf("function introOn()"), appJs.indexOf("function paintIntroSwitch()"));
+  if (!/!== "off"/.test(fn)) throw new Error("the default is not on");
+  if (!/catch \{ return true; \}/.test(fn)) throw new Error("a private-mode browser loses the film");
+  if (!/aurion\.intro/.test(appJs)) throw new Error("the choice is not stored under a named key");
+  return "aurion.intro, default on";
+});
+
+check("the choice survives a restart, which is the only time it matters", () => {
+  const dom = new JSDOM("<!doctype html><html><body></body></html>",
+    { pretendToBeVisual: true, runScripts: "outside-only", url: "https://aurion.test/" });
+  const win = dom.window;
+  const src = appJs.slice(appJs.indexOf("const LS_INTRO ="), appJs.indexOf("function setGlassNow("));
+  /* $ and toast live elsewhere in app.js; this checks what is stored
+     and read back, not what is painted. */
+  const T = win.eval("(function(){ function $(){ return null } function toast(){}\n"
+    + src + "\nreturn { introOn, setIntroNow }; })()");
+  if (T.introOn() !== true) throw new Error("a fresh desk starts with the film off");
+  T.setIntroNow(false);
+  if (win.localStorage.getItem("aurion.intro") !== "off") throw new Error("off was not written down");
+  if (T.introOn() !== false) throw new Error("off is not read back");
+  T.setIntroNow(true);
+  if (T.introOn() !== true) throw new Error("it cannot be turned back on");
+  return "written to localStorage, read on the next start";
+});
+
+check("the switch is worded in all three languages, and says when it applies", () => {
+  for (const [lang, pack] of Object.entries(langs)) {
+    for (const k of ["intro_video", "intro_video_hint", "intro_video_on", "intro_video_off"]) {
+      if (!pack.settings || !pack.settings[k]) throw new Error(`${lang} is missing settings.${k}`);
+    }
+    /* The result of this switch is invisible until the next start, so
+       both confirmations have to say so. */
+    if (!/AURION|أوريون|اوریون/i.test(pack.settings.intro_video_on)) {
+      throw new Error(`${lang} does not say when the change takes effect`);
+    }
+  }
+  return "three packs, four keys";
+});
+
 console.log(fails ? `\npersonalisation: ${fails} FAILED` : "\npersonalisation: all checks passed");
 process.exit(fails ? 1 : 0);

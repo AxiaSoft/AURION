@@ -3097,6 +3097,43 @@ function paintGlassSwitch() {
   sw.disabled = forced;
   sw.setAttribute("aria-disabled", forced ? "true" : "false");
 }
+/* ------------------------------------------------------- the intro clip --
+ *
+ * The desk opens with a short film. It is the right first impression
+ * once; it is not the right thing on the twentieth start of a working
+ * day, and a trader who opens the desk to look at a position does not
+ * want to sit through it or hunt for Skip. So it is a setting, kept
+ * with the other things about how the desk looks.
+ *
+ * Off is a real off: the clip is never fetched, so the start is also
+ * quicker. The loading curtain itself stays either way - it is what
+ * hides a half-built desk, and removing it to honour this switch would
+ * trade a film for a flash of unpainted page.
+ *
+ * Defaults to on, and an unreadable localStorage reads as on, because
+ * the one thing worse than a film you did not ask for is a product
+ * whose first impression silently disappears.
+ */
+const LS_INTRO = "aurion.intro";
+function introOn() {
+  try { return localStorage.getItem(LS_INTRO) !== "off"; } catch { return true; }
+}
+function paintIntroSwitch() {
+  const sw = $("sw-intro");
+  if (!sw) return;
+  const on = introOn();
+  sw.classList.toggle("on", on);
+  sw.setAttribute("aria-pressed", on ? "true" : "false");
+}
+function setIntroNow(on) {
+  try { localStorage.setItem(LS_INTRO, on ? "on" : "off"); } catch { /* private mode */ }
+  paintIntroSwitch();
+  /* Said out loud, because the result of this switch is invisible until
+     the next start and a control that appears to do nothing gets
+     pressed again. */
+  try { toast(I18N.t(on ? "settings.intro_video_on" : "settings.intro_video_off")); } catch (e) { /* no toast host yet */ }
+}
+
 function setGlassNow(on) {
   const next = on ? "on" : "off";
   if (document.documentElement) document.documentElement.dataset.glass = next;
@@ -9291,6 +9328,16 @@ const views = {
             ${switchHtml({ id: "sw-glass", on: glassOn(), disabled: glassForced(),
               label: I18N.t("settings.liquid_glass") })}
           </div>
+          <!-- The opening film. Right the first time, wrong on the
+               twentieth start of a working day - so it is a choice,
+               kept with the rest of how the desk looks. -->
+          <div class="stx-toggle">
+            <div class="stx-toggle-txt">
+              <b>${I18N.t("settings.intro_video")}</b>
+              <p class="sub">${I18N.t("settings.intro_video_hint")}</p>
+            </div>
+            ${switchHtml({ id: "sw-intro", on: introOn(), label: I18N.t("settings.intro_video") })}
+          </div>
         </div>
         ${appearanceCardsHtml()}`)}
 
@@ -11762,6 +11809,9 @@ function bindView(view) {
     paintGlassSwitch();
     const glass = $("sw-glass");
     if (glass) glass.onclick = () => { if (!glassForced()) setGlass(!glassOn()); };
+    paintIntroSwitch();
+    const intro = $("sw-intro");
+    if (intro) intro.onclick = () => setIntroNow(!introOn());
     bindAppearance();
     markAppearancePills();
     markThemeCards();
@@ -16186,6 +16236,17 @@ async function playWelcome() {
   const vid = $("welcome-vid");
   const skip = $("welcome-skip");
   const soundBtn = $("welcome-sound");
+  /* Turned off in personalisation. The curtain stays - it is what
+     covers the desk being built - but it stays plain, nothing is
+     fetched, and the two controls that only make sense over a film
+     are taken away rather than left to be pressed. */
+  if (!introOn()) {
+    wrap.classList.add("no-clip");
+    if (vid) { vid.hidden = true; try { vid.removeAttribute("src"); } catch (e) { /* */ } }
+    if (skip) skip.hidden = true;
+    if (soundBtn) soundBtn.hidden = true;
+    return;
+  }
   let settled = false;
   let safety = 0;
   return new Promise((resolve) => {
