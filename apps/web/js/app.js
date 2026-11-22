@@ -14969,9 +14969,19 @@ function openCalendarMoment(dayKey, at) {
     toast(I18N.t("calendar.see_chart_none"));
     return;
   }
+  /* Nothing has traded in the future, so there is no candle to land on.
+     The panel already withholds the button on a day that has not come,
+     but a panel rendered just before midnight - or left open while the
+     clock ran - can still be holding an instant that has since become
+     the wrong side of now. */
+  const now = Date.now();
+  if (when > now + 60000) {
+    toast(I18N.t("calendar.chart_not_yet"));
+    return;
+  }
   const timeframe = (S.chartFocus && S.chartFocus.timeframe) || S.timeframe || "M15";
   // Read once the chart is mounted and its bars are in - see goPendingMoment.
-  S.pendingMoment = { symbol, timeframe, at: when, day: String(dayKey || "") };
+  S.pendingMoment = { symbol, timeframe, at: Math.min(when, now), day: String(dayKey || "") };
   if (typeof Calendar !== "undefined" && typeof Calendar.unpin === "function") Calendar.unpin();
   /* Full screen, like every other way into a chart.
      Opening one from the chart grid fills the screen; arriving from the

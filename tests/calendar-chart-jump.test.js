@@ -117,6 +117,61 @@ check("the instant it jumps to is the loudest release of that day", () => {
   return "high impact, then first, then midday";
 });
 
+check("a day that has not traded is not offered as a chart", () => {
+  /* Reported: the calendar lists releases weeks ahead, and every one of
+     those future days carried "see the chart on this date" - a chart
+     that cannot exist, because no candle has been printed in a day
+     that has not come. */
+  const sandbox = {
+    esc: (v) => String(v),
+    I18N: { t: (k) => k },
+    calendarChartSymbol: () => "SYM",
+  };
+  vm.createContext(sandbox);
+  vm.runInContext("this.fn = { " + liftMethod(CAL, "_chartBtn") + ","
+    + liftMethod(CAL, "_chartMoment") + "," + liftMethod(CAL, "_dayStart") + ","
+    + liftMethod(CAL, "_fromDayKey") + " };", sandbox);
+  const host = Object.assign({ byDay: new Map() }, sandbox.fn);
+  const key = (ms) => {
+    const d = new Date(ms); const p = (n) => String(n).padStart(2, "0");
+    return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+  };
+  const DAY = 86400000;
+  const now = Date.now();
+
+  const soon = key(now + 2 * DAY);
+  const ahead = host._chartBtn(soon, [{ ms: now + 2 * DAY, level: "high" }]);
+  if (/cal-chart-go/.test(ahead)) throw new Error("a day two days out still offers a chart");
+  if (!/calendar\.chart_not_yet/.test(ahead)) {
+    throw new Error("the button vanishes with no reason given, which reads as a broken day");
+  }
+
+  const past = key(now - 30 * DAY);
+  const back = host._chartBtn(past, [{ ms: now - 30 * DAY, level: "high" }]);
+  if (!/cal-chart-go/.test(back)) throw new Error("a day that has traded lost its button");
+  if (Number(/data-at="(\d+)"/.exec(back)[1]) !== now - 30 * DAY) {
+    throw new Error("a past instant was moved");
+  }
+
+  /* Today is half a day that exists and half a day that does not. */
+  const later = Math.min(now + 6 * 3600000, host._dayStart(key(now)) + DAY - 1);
+  const today = host._chartBtn(key(now), [{ ms: later, level: "high" }]);
+  if (later > now) {
+    if (!/cal-chart-go/.test(today)) throw new Error("today is refused because one release is still to come");
+    const at = Number(/data-at="(\d+)"/.exec(today)[1]);
+    if (at > Date.now()) throw new Error("it still asks for a candle from this afternoon");
+    if (!/calendar\.chart_up_to_now/.test(today)) throw new Error("the shift to the newest candle is silent");
+  }
+
+  /* And the desk refuses it too, for a panel left open past midnight. */
+  const f = liftFn(APP, "openCalendarMoment");
+  if (!/when > now \+ 60000/.test(f) || !/calendar\.chart_not_yet/.test(f)) {
+    throw new Error("a stale panel can still ask for a candle from the future");
+  }
+  if (!/at: Math\.min\(when, now\)/.test(f)) throw new Error("the instant is not clamped to now");
+  return "withheld ahead of time, clamped on the day itself";
+});
+
 check("both copies of the day panel can be pressed", () => {
   /* The same markup is rendered twice - the card beside the month and
      the popover beside the number - and a handler bound to only one of
@@ -408,7 +463,7 @@ check("the edge note still wins when nothing is downloading", () => {
 
 check("every new string exists in all three packs", () => {
   const want = {
-    calendar: ["see_chart", "see_chart_none", "see_chart_short"],
+    calendar: ["see_chart", "see_chart_none", "see_chart_short", "chart_not_yet", "chart_up_to_now"],
     charts: ["hist_getting", "hist_shown", "hist_loading"],
   };
   for (const [lang, pack] of Object.entries(PACKS)) {
@@ -418,7 +473,7 @@ check("every new string exists in all three packs", () => {
       }
     }
   }
-  return "three packs, six keys";
+  return "three packs, eight keys";
 });
 
 check("the placeholders survive translation", () => {
@@ -444,7 +499,7 @@ check("no new string names an instrument", () => {
      see_chart is filled in from what is attached, not written down. */
   const words = /\b(EURUSD|XAUUSD|GBPUSD|gold|طلا|ذهب)\b/i;
   for (const [lang, pack] of Object.entries(PACKS)) {
-    for (const key of ["see_chart", "see_chart_none", "see_chart_short"]) {
+    for (const key of ["see_chart", "see_chart_none", "see_chart_short", "chart_not_yet", "chart_up_to_now"]) {
       if (words.test(pack.calendar[key])) throw new Error(`${lang} calendar.${key} names an instrument`);
     }
     for (const key of ["hist_getting", "hist_shown"]) {

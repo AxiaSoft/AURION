@@ -274,6 +274,13 @@ const Calendar = {
     return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), 12).getTime();
   },
 
+  /** Midnight at the start of that calendar day, local time. */
+  _dayStart(key) {
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(key || ""));
+    if (!m) return NaN;
+    return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), 0, 0, 0, 0).getTime();
+  },
+
   /** 42 UTC midnights covering the primary month that contains `anchor`. */
   cells(anchor) {
     const cur = new Date(anchor);
@@ -511,13 +518,34 @@ const Calendar = {
    * attached there is no candle to land on, and a button that explains
    * itself by failing is worse than no button. */
   _chartBtn(key, evs) {
-    const ms = this._chartMoment(key, evs);
+    let ms = this._chartMoment(key, evs);
     if (!Number.isFinite(ms) || ms <= 0) return "";
     if (typeof calendarChartSymbol !== "function" || !calendarChartSymbol()) return "";
+
+    /* A day that has not happened has no candles in it.
+       The calendar lists releases weeks ahead - that is most of what it
+       is for - so the offer appeared on dates the market has not traded
+       yet, and pressing it could only ever end in "your terminal does
+       not hold that date". The button is withdrawn and replaced by the
+       reason, because a day that silently loses its button reads as a
+       day the feature is broken on. */
+    const now = Date.now();
+    const start = this._dayStart(key);
+    if (!Number.isFinite(start) || start > now) {
+      return `<p class="cal-dp-wait">${esc(I18N.t("calendar.chart_not_yet"))}</p>`;
+    }
+
+    /* Today, before the release: the day exists but that hour does not,
+       so land on the newest candle there is rather than ask for one
+       from this afternoon. */
+    const ahead = ms > now;
+    if (ahead) ms = now;
+
     const sym = calendarChartSymbol();
     return `<button type="button" class="btn ghost small cal-chart-go" data-day="${esc(key)}" data-at="${ms}">
       ${esc(I18N.t("calendar.see_chart", { symbol: sym }))}
-    </button>`;
+    </button>` +
+      (ahead ? `<p class="cal-dp-wait">${esc(I18N.t("calendar.chart_up_to_now"))}</p>` : "");
   },
 
   /* Which instant on that day the chart should open at.
