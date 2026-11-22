@@ -269,6 +269,7 @@ class CandleChart {
 
     /* ---- the view ------------------------------------------------------ */
     this.offset = 0;               // bars scrolled back from the newest
+    this.timeMark = 0;             // an instant to point at, 0 for none
     this.span = 120;               // bars across the plot
     this.rightPad = 0;             // empty bars kept to the right of the last
     /* Breathing room between the newest candle and the price column.
@@ -1239,6 +1240,7 @@ class CandleChart {
     this.paintOrders(L);
     this.paintPending(L);
     this.paintSignalCoverage(L);
+    this.paintTimeMark(L);
     this.paintSignals(L);
     this.paintLastPrice(L);
     ctx.restore();
@@ -2027,6 +2029,44 @@ class CandleChart {
     }
     ctx.lineWidth = 1.4;
   }
+  /* The moment the chart was sent to, drawn as a line rather than a
+     highlight: a filled band would change the colour of the candle
+     being asked about, which is the one thing that must stay readable. */
+  paintTimeMark(L) {
+    const want = Number(this.timeMark || 0);
+    if (!want) return;
+    const rows = L.rows;
+    let idx = -1;
+    for (let i = 0; i < rows.length; i += 1) {
+      const t = Date.parse(String(rows[i].t || "").replace(" ", "T"));
+      if (!Number.isFinite(t)) continue;
+      if (t <= want) idx = i; else break;
+    }
+    if (idx < 0) return;
+    const ctx = this.ctx;
+    const T = chartTheme();
+    const x = L.xOf(idx);
+    ctx.save();
+    ctx.strokeStyle = T.gold;
+    ctx.lineWidth = 1;
+    ctx.setLineDash([4, 4]);
+    ctx.globalAlpha = 0.9;
+    ctx.beginPath();
+    ctx.moveTo(x, L.plotT);
+    ctx.lineTo(x, L.plotB);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = T.gold;
+    ctx.beginPath();
+    ctx.moveTo(x, L.plotT + 1);
+    ctx.lineTo(x - 5, L.plotT + 9);
+    ctx.lineTo(x + 5, L.plotT + 9);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+  }
+
   paintSignals(L) {
     // Rebuilt every paint rather than cached: the markers move with every
     // pan, zoom and new bar, and a stale hit box is worse than none - it
@@ -3359,6 +3399,52 @@ class CandleChart {
 
   /** The newest bar is the right-hand edge; there is nothing beyond it. */
   minOffset() { return 0; }
+
+  /**
+   * Put a moment in time on screen.
+   *
+   * What the calendar presses: a trader reading a release wants the
+   * candle it landed on, and "scroll back four months" is not an
+   * instruction anybody follows. The nearest bar at or before the
+   * instant is centred - at or BEFORE, because a release at 13:30 is
+   * inside the 13:30 candle, not the next one - and optionally marked,
+   * since a chart that has silently jumped somewhere is indistinguishable
+   * from one that has not moved.
+   *
+   * Returns false when the bars do not reach back that far, so the
+   * caller can say so instead of leaving the trader looking at the
+   * oldest candle the broker gave us and believing it is March.
+   */
+  goToTime(at, opts) {
+    const want = Number(at);
+    const rows = this.rows();
+    if (!Number.isFinite(want) || !rows.length) return false;
+    const stamp = (r) => {
+      const t = Date.parse(String(r.t || "").replace(" ", "T"));
+      return Number.isFinite(t) ? t : NaN;
+    };
+    let idx = -1;
+    for (let i = 0; i < rows.length; i += 1) {
+      const t = stamp(rows[i]);
+      if (!Number.isFinite(t)) continue;
+      if (t <= want) idx = i; else break;
+    }
+    const reached = idx >= 0;
+    if (!reached) idx = 0;
+    // Centred rather than parked at an edge: the question is always
+    // "what happened around then", so both sides have to be visible.
+    this.offset = Math.max(0, Math.min(this.maxOffset(),
+      rows.length - Math.round(idx + this.span / 2)));
+    this.clampOffset();
+    this.timeMark = (opts && opts.mark) ? want : 0;
+    this.forgetScaleFit();
+    this.draw();
+    this.changed();
+    return reached;
+  }
+
+  /** Take the marker away; any new series invalidates it. */
+  clearTimeMark() { this.timeMark = 0; this.draw(); }
 
   /**
    * Zoom.

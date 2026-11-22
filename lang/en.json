@@ -586,7 +586,9 @@
     "live_now": "Live charts",
     "hist_edge": "This is the oldest candle your terminal holds: {n} {tf} candles, back to {when}.",
     "hist_edge_fix": "MetaTrader keeps only a set number of bars — Tools → Options → Charts → Max bars in chart.",
-    "hist_loading": "Fetching older candles…"
+    "hist_loading": "Fetching older candles…",
+    "hist_getting": "Downloading candles from MetaTrader — {have} of {want} {tf}",
+    "hist_shown": "Now showing {from} to {to} — {n} {tf} candles"
   },
   "terminal": {
     "title": "Terminal",
@@ -1192,7 +1194,10 @@
     "remind_stale": "The economic calendar has not updated — every release in it has already passed, so there is nothing to remind you about. Open the Calendar tab and refresh it.",
     "remind_on": "News reminder on.",
     "remind_off": "News reminder off.",
-    "peek_hint": "Preview — click the day to keep it open"
+    "peek_hint": "Preview — click the day to keep it open",
+    "see_chart": "See {symbol} on this date",
+    "see_chart_none": "No chart to open — attach AurionBridge to a chart first.",
+    "see_chart_short": "Your terminal does not hold candles that far back, so the chart stopped at its oldest one."
   },
   "news": {
     "nfp": "Non-Farm Payrolls",
