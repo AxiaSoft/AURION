@@ -4713,6 +4713,21 @@ function patchLive() {
       eaVer.hidden = stale.length === 0;
       if (stale.length) eaVer.textContent = eaStaleLabel();
     }
+    /* The rail and the book summary are sums of the snapshot, not of
+       the DOM, so they are rebuilt here rather than left to the next
+       full re-render - which on this view can be minutes away. Neither
+       holds a control or a text selection, so replacing the markup
+       costs nothing a trader can feel. */
+    const rail = $("cmd-rail");
+    if (rail) {
+      const next = cmdRailHtml();
+      if (rail._html !== next) { rail._html = next; rail.innerHTML = next; }
+    }
+    const book = $("cmd-book");
+    if (book) {
+      const next = cmdBookHtml();
+      if (book._html !== next) { book._html = next; book.innerHTML = next; }
+    }
     const strip = $("conn-strip");
     if (strip) {
       const eng = strip.querySelector(".pill-engine");
@@ -8298,6 +8313,102 @@ function morphElement(from, to) {
 }
 
 
+/* ============================================ the command centre, parts ==
+
+   Two pieces of the command centre are rebuilt on every snapshot rather
+   than on every re-render, so they live out here where patchLive() can
+   reach them as well as the view. Keeping one builder each is the point:
+   a panel drawn by the view and repainted by a second, nearly-identical
+   block of markup is how the two slowly come to disagree.
+   ======================================================================= */
+
+/* The status rail across the top of the masthead.
+ *
+ * Engine, terminal, experts, which tape is driving the desk, and when
+ * the figures below were last true. These were scattered - some in a
+ * hero that disappears the moment an EA attaches, some nowhere - so a
+ * connected desk showed no connection state at all and a stale number
+ * looked exactly like a live one.
+ */
+function cmdRailHtml() {
+  const agents = liveAgents();
+  const chip = (on, label, extra) =>
+    `<span class="ccx-chip${on ? " is-on" : " is-off"}${extra ? " " + extra : ""}">
+      <i class="dot ${on ? "live" : "down"}"></i>${esc(label)}</span>`;
+  let stamp = "";
+  try {
+    if (S.snap && S.snap.ts) {
+      stamp = new Date(S.snap.ts).toLocaleTimeString(I18N.locale(), {
+        hour: "2-digit", minute: "2-digit", second: "2-digit",
+      });
+    }
+  } catch (_) { stamp = ""; }
+  const tester = String((S.snap && S.snap.tape) || "") === "tester";
+  return `${chip(Boolean(S.snap), I18N.t(S.snap ? "status.engine_live" : "status.engine_down"))}
+    ${chip(mt5Live(), I18N.t(mt5Live() ? "status.mt5_live" : "status.mt5_down"))}
+    ${chip(agents.length > 0, I18N.t("status.ea_attached", { n: agents.length }))}
+    ${tester ? `<span class="ccx-chip is-warn">${esc(I18N.t("tape.backtest"))}</span>` : ""}
+    ${stamp ? `<span class="ccx-chip is-quiet"><span class="mono">${esc(I18N.t("command.updated", { t: stamp }))}</span></span>` : ""}`;
+}
+
+/* The open book, summarised.
+ *
+ * The page carried the position table and nothing above it, so "how
+ * exposed am I, and which way" was a question you answered by reading
+ * rows and adding up in your head. Every figure here is the sum of the
+ * rows in that table - count, lots each way, net lots, floating P/L -
+ * and nothing is modelled or estimated.
+ */
+function cmdBookHtml() {
+  const pos = (S.snap && S.snap.positions) || [];
+  const isSell = (r) => String((r && r.type) || "").toLowerCase().includes("sell");
+  const vol = (list) => list.reduce((sum, r) => sum + (Number(r.volume) || 0), 0);
+  const longs = pos.filter((r) => !isSell(r));
+  const shorts = pos.filter(isSell);
+  const lotsL = vol(longs);
+  const lotsS = vol(shorts);
+  const gross = lotsL + lotsS;
+  const net = lotsL - lotsS;
+  const pl = pos.reduce((sum, r) => sum + (Number(r.profit) || 0), 0);
+  const share = gross > 0 ? (lotsL / gross) * 100 : 0;
+  /* The figure and its unit are separate elements, as they are in the
+     masthead: at one size "lots" is as loud as the number it measures,
+     and these are read against each other. */
+  const unit = esc(I18N.t("risk.u_lots"));
+  const lots = (v) => `<b class="mono">${fmt(v, 2, 2)}</b> <span class="ccx-unit">${unit}</span>`;
+  const lotsText = (v) => `${fmt(v, 2, 2)} ${I18N.t("risk.u_lots")}`;
+
+  const fig = (key, inner) => `<div class="ccx-book-fig">
+      <span class="ccx-fig-k">${I18N.t(key)}</span>
+      <b class="ccx-book-n mono">${inner}</b>
+    </div>`;
+
+  /* The split is drawn only when there is something to split. A bar at
+     0/0 is a measurement of nothing dressed as a measurement. */
+  const split = gross > 0
+    ? `<div class="ccx-split" role="img"
+            aria-label="${esc(I18N.t("command.long") + " " + lotsText(lotsL) + ", " + I18N.t("command.short") + " " + lotsText(lotsS))}">
+        <i class="is-long" style="--w:${share}%"></i>
+        <i class="is-short" style="--w:${100 - share}%"></i>
+      </div>
+      <div class="ccx-split-keys">
+        <span class="is-long">${esc(I18N.t("command.long"))} ${lots(lotsL)}</span>
+        <span class="is-short">${esc(I18N.t("command.short"))} ${lots(lotsS)}</span>
+      </div>`
+    : `<p class="sub ccx-book-empty">${esc(I18N.t("command.book_empty"))}</p>`;
+
+  return `<div class="ccx-book-top">
+      ${fig("command.positions", String(pos.length))}
+      ${fig("command.profit", `<span class="${clsPnl(pl)}">${fmtSigned(pl)}</span>`)}
+    </div>
+    ${split}
+    <div class="ccx-ref-row ccx-book-net">
+      <span>${I18N.t("command.exposure")}</span>
+      <span class="ccx-book-net-v">${net > 0 ? "+" : ""}${lots(net)}</span>
+    </div>`;
+}
+
+
 const views = {
   command() {
     /* Rebuilt for both sizes.
@@ -8412,6 +8523,11 @@ const views = {
            the page no longer opens with a card's worth of chrome
            wrapped around six pills. -->
       <header class="card ccx-head">
+        <!-- The rail. Engine, terminal, experts, tape, and the time the
+             figures below were last true. A desk whose connection state
+             only appears while it is NOT connected leaves a trader
+             reading month-old numbers with nothing to say so. -->
+        <div class="ccx-rail" id="cmd-rail">${cmdRailHtml()}</div>
         <div class="ccx-id">
           <p class="ccx-id-type" id="cmd-acc-type">${accTypeLabel(acc.account_label || acc.account_type || "unknown")}</p>
           <p class="ccx-id-sub sub">${esc([acc.company, acc.server, acc.margin_mode,
@@ -8441,7 +8557,7 @@ const views = {
            and is watched; the right-hand four are looked up. On a
            desktop they sit side by side, which is the width the old
            single-column stack was throwing away. -->
-      <div class="ccx-pair${propOn ? "" : " is-solo"}">
+      <div class="ccx-pair">
         ${propOn ? `<section class="card ccx-risk">
           <h3>${I18N.t("risk.sec_limits")}</h3>
           <div class="ccx-panel">
@@ -8449,6 +8565,16 @@ const views = {
             ${risk("command.drawdown", prop.drawdown_pct, prof.max_drawdown_pct)}
           </div>
         </section>` : ""}
+        <!-- The book, summed.
+
+             Underneath this row is the position table, and above it
+             there used to be nothing: "how exposed am I, and which
+             way" was a question answered by reading rows and adding
+             up. Every figure here is a sum of those same rows. -->
+        <section class="card ccx-book">
+          <h3>${I18N.t("command.book_title")}</h3>
+          <div class="ccx-panel" id="cmd-book">${cmdBookHtml()}</div>
+        </section>
         <section class="card ccx-ref">
           <h3>${I18N.t("command.title_account")}</h3>
           <div class="ccx-panel"><div class="ccx-ref-rows">

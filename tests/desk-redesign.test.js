@@ -648,6 +648,83 @@ if (!jsdom) {
       if (!d.querySelectorAll(".ccx-risk-row").length) throw new Error("the risk figures are not set apart");
     });
 
+    check("the masthead says whether the desk is actually connected", () => {
+      /* The connection state used to live only in the hero, and the
+         hero is hidden the moment an expert attaches - so a working
+         desk showed nothing about engine, terminal or experts, and a
+         frozen snapshot looked exactly like a live one. */
+      const d = frag(T.views.command());
+      const rail = d.querySelector(".ccx-head .ccx-rail");
+      if (!rail) throw new Error("there is no status rail in the masthead");
+      const chips = rail.querySelectorAll(".ccx-chip");
+      if (chips.length < 3) throw new Error("the rail carries " + chips.length + " chips");
+      const txt = rail.textContent;
+      for (const [what, word] of [["the terminal", T.I18N.t("status.mt5_live")],
+        ["the experts", T.I18N.t("status.ea_attached", { n: 2 })]]) {
+        if (!txt.includes(word)) throw new Error(what + " is not reported");
+      }
+      if (!rail.querySelectorAll("i.dot.live").length) throw new Error("nothing shows as live");
+      /* And when the figures were last true. */
+      T.S.snap.ts = "2026-10-28T10:20:30Z";
+      if (!frag(T.views.command()).querySelector(".ccx-rail .mono")) {
+        throw new Error("the snapshot's age is not shown");
+      }
+      return chips.length + " chips, dots and a timestamp";
+    });
+
+    check("the open book is summed above the table of it", () => {
+      /* The page carried the rows and nothing else, so "how exposed am
+         I, and which way" was answered by adding up in your head. */
+      const d = frag(T.views.command());
+      const book = d.querySelector(".ccx-pair .ccx-book");
+      if (!book) throw new Error("there is no book panel");
+      const figs = [...book.querySelectorAll(".ccx-book-n")].map((b) => b.textContent.trim());
+      if (figs[0] !== "2") throw new Error("the open count is " + figs[0] + ", not 2");
+      /* 12.4 long and -4.2 short on the fixture. */
+      if (!/8\.2/.test(figs[1])) throw new Error("the floating total is " + figs[1]);
+      const keys = book.querySelector(".ccx-split-keys").textContent;
+      if (!/0\.20/.test(keys) || !/0\.10/.test(keys)) throw new Error("the lots each way are wrong: " + keys);
+      const bar = book.querySelectorAll(".ccx-split > i");
+      if (bar.length !== 2) throw new Error("the long/short split is not drawn");
+      const w = bar[0].getAttribute("style") || "";
+      if (!/--w:66\.6/.test(w)) throw new Error("the long share is " + w);
+      const net = book.querySelector(".ccx-book-net-v").textContent;
+      if (!/\+/.test(net) || !/0\.10/.test(net)) throw new Error("the net exposure is " + net);
+      return "count, floating, split and net, all summed from the rows";
+    });
+
+    check("an empty book measures nothing rather than drawing a flat bar", () => {
+      const keep = T.S.snap.positions;
+      T.S.snap.positions = [];
+      const d = frag(T.views.command());
+      T.S.snap.positions = keep;
+      const book = d.querySelector(".ccx-book");
+      if (book.querySelector(".ccx-split")) throw new Error("a 0/0 split is drawn as a measurement");
+      if (!book.querySelector(".ccx-book-empty")) throw new Error("nothing says the book is empty");
+    });
+
+    check("the rail and the book are repainted by the live patch", () => {
+      /* This view re-renders only when its key changes, which can be
+         minutes; a summary that is only true at mount reads as live
+         and is not. One builder each, called from both places. */
+      const src = appJs;
+      for (const fn of ["cmdRailHtml", "cmdBookHtml"]) {
+        const calls = src.split(fn + "()").length - 1;
+        if (calls < 2) throw new Error(fn + " is used " + calls + " time(s) - view or patch, not both");
+      }
+      const el = win.document.createElement("div");
+      el.innerHTML = T.views.command();
+      win.document.body.appendChild(el);
+      T.S.snap.positions = [...T.S.snap.positions,
+        { ticket: 103, symbol: "XAUUSD", type: "sell", volume: 0.5, profit: -10, strategy: "trend" }];
+      T.patchLive();
+      const n = win.document.querySelector("#cmd-book .ccx-book-n").textContent.trim();
+      T.S.snap.positions = T.S.snap.positions.slice(0, 2);
+      el.remove();
+      if (n !== "3") throw new Error("the book still says " + n + " after a third trade opened");
+      return "one builder, two callers";
+    });
+
     check("equity is the headline, risk is measured, reference is listed", () => {
       const d = frag(T.views.command());
       if (!d.querySelector('.ccx-equity [data-metric="command.equity"]')) {
