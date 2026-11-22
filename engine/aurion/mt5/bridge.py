@@ -712,6 +712,24 @@ class MT5Bridge:
             return not rows
         return len(rows) < want * cls._HIST_ENOUGH
 
+    @staticmethod
+    def _reaches_further(held: list[Any], fresh: list[Any]) -> bool:
+        """Does what we already hold go back further than a new answer?
+
+        Both are the same series, so "further" is simply an older first
+        bar; the length is the tie-breaker for the case where a partial
+        answer happens to start on the same bar.
+        """
+        if not held:
+            return False
+        if not fresh:
+            return True
+        first_held = str(getattr(held[0], "time", "") or "")
+        first_fresh = str(getattr(fresh[0], "time", "") or "")
+        if first_held and first_fresh and first_held != first_fresh:
+            return first_held < first_fresh
+        return len(held) > len(fresh)
+
     def _history_timeout(self, count: int) -> float:
         """How long to wait for the expert, scaled to the size of the ask.
 
@@ -1054,6 +1072,18 @@ class MT5Bridge:
         rows: list[Candle] = []
         if self.native.connected and self.is_ea_symbol(symbol):
             rows = await asyncio.to_thread(self.native.candles, symbol, tf, count)
+            # The terminal's own answer does not automatically win.
+            #
+            # It used to overwrite the cache unconditionally, and the
+            # cache is where the expert's deep history lands. A Python
+            # API that answers out of a series MetaTrader has only
+            # partly built - which is what happens on a timeframe no
+            # chart is open on - therefore threw away months the
+            # expert had already gone and fetched, and the next request
+            # started from the short answer again. Whichever reaches
+            # further back is the one that is kept.
+            if rows and self._reaches_further(cached, rows):
+                rows = []
             if rows:
                 bucket = self._tape_store("live")["candles"][(symbol, tf)]
                 bucket.clear()
@@ -1305,7 +1335,16 @@ class MT5Bridge:
             )
             if candle.symbol and candle.close:
                 tape = self._msg_tape(message)
-                agent = await self._touch_agent(self._cid(message.get("chart_id")), candle.symbol, candle.timeframe)
+                # The chart's own timeframe, not the candle's. Since EA
+                # 1.22 a chart also feeds the timeframe the desk is
+                # looking at, so taking the candle's would rewrite the
+                # agent's timeframe to whatever the trader last viewed
+                # and the chart list would flicker between the two.
+                agent = await self._touch_agent(
+                    self._cid(message.get("chart_id")),
+                    candle.symbol,
+                    str(message.get("chart_timeframe") or candle.timeframe),
+                )
                 if agent and (message.get("tester") or str(message.get("mode") or "").lower() in {"tester", "backtest"}):
                     agent.params = {**(agent.params or {}), "tester": True, "mode": "tester"}
                     tape = "tester"
@@ -1323,7 +1362,13 @@ class MT5Bridge:
             tf = str(message.get("timeframe_name") or timeframe_from_minutes(minutes))
             tape = self._msg_tape(message)
             if symbol:
-                await self._touch_agent(self._cid(message.get("chart_id")), symbol, tf)
+                # As above: history is asked for on the timeframe the
+                # desk shows, which is not the chart's own.
+                await self._touch_agent(
+                    self._cid(message.get("chart_id")),
+                    symbol,
+                    str(message.get("chart_timeframe") or tf),
+                )
             bucket = self._tape_store(tape)["candles"][(symbol, tf)]
             replace = True if "replace" not in message else bool(message.get("replace"))
             final = True if "final" not in message else bool(message.get("final"))

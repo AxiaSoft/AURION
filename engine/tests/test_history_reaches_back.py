@@ -18,7 +18,7 @@ another number of bars, whether the answer was good enough.
 
 2. ``AurionBridge.mq5`` had the identical call on the expert side, so
    the fallback pipe capped the window in exactly the same way. Fixed
-   in 1.21 and checked by tests/history-not-abandoned.test.js.
+   in 1.21/1.22 and checked by tests/history-not-abandoned.test.js.
 
 3. ``Trader.backtest`` decided whether to fetch with
    ``len(bars) < want``. Both sides are counts, and a count says
@@ -140,7 +140,7 @@ def _bridge():
     b = MT5Bridge()
     b.native = _FakeNative()
     agent = ChartAgent(chart_id=1, symbol="EURUSD", timeframe="M15",
-                       ea_name="AurionBridge", version="1.21")
+                       ea_name="AurionBridge", version="1.22")
     b.agents[1] = agent
     b._agent_beat[1] = time.time()
     return b

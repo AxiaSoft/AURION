@@ -237,11 +237,29 @@ class NativeMT5:
                 max(0.0, now.timestamp() - float(step) * float(want)), tz=timezone.utc
             )
             stop = datetime.fromtimestamp(now.timestamp() + float(step), tz=timezone.utc)
+            # Retry while the download is still MAKING PROGRESS, not
+            # until the ask is satisfied.
+            #
+            # `want` is deliberately generous - HISTORY_DAYS of calendar
+            # time divided by the bar length, so about 7/5 of the bars
+            # a 24/5 instrument can have - which means a complete,
+            # perfectly healthy answer is always shorter than `want`
+            # and `len(rates) >= want` was almost never true. Every
+            # call therefore ran the full ladder and slept 1.2 s before
+            # returning bars it already had on the first attempt, on
+            # every chart that opened and every timeframe switch.
+            #
+            # An answer that has stopped growing is a finished answer.
+            best = -1
             for attempt in range(_RANGE_TRIES):
                 rates = mt5.copy_rates_range(symbol, tfm, start, stop)
-                if rates is not None and len(rates) >= want:
+                have = len(rates) if rates is not None else 0
+                if have >= want:
                     break
-                # Short or empty means the terminal is still fetching the
+                if 0 < have <= best:
+                    break   # the terminal has stopped adding to it
+                best = max(best, have)
+                # Empty, or still filling: the terminal is fetching the
                 # section we asked for. Give it a moment and ask again -
                 # asking is what keeps the download going.
                 if attempt + 1 < _RANGE_TRIES:
