@@ -14525,6 +14525,9 @@ function bindChartDesk() {
   // Arriving here from a notification: if the marks for this symbol are
   // already loaded, pin straight away rather than waiting for the next poll.
   if (S.pendingSignal && S.pendingSignal.symbol === S.chartFocus.symbol) pinPendingSignal();
+  // A day pressed in the calendar: the bars for it may still be on
+  // their way, so this runs again when they land (see setMarket).
+  if (S.pendingMoment) goPendingMoment();
   applyChartLevels(true);
   bindChartTicket();
 
@@ -14758,6 +14761,15 @@ async function loadMoreHistory(opts) {
       /* setBars keeps the span and the offset, so the view does not jump
          when older bars appear behind it. */
       S.chart.setBars(bars);
+      /* The reply landing is the moment to say what is now on screen.
+         The engine says the same thing over the socket when the expert
+         finishes streaming, but a request answered out of the cache
+         never reaches the expert at all and would otherwise end in
+         silence. */
+      noteHistoryProgress({
+        symbol: f.symbol, timeframe: f.timeframe,
+        have: bars.length, want: want, done: true, depth: c && c.depth,
+      });
     } else {
       S._histDone = { key, at: Date.now() };
     }
@@ -14824,19 +14836,170 @@ function histDate(iso) {
     return String(iso).slice(0, 10);
   }
 }
+/* ── how the download is going, and what ended up on screen ─────────
+ *
+ * Asked for directly: show the state of the candles coming down from
+ * MetaTrader, and when they have arrived say which period is being
+ * displayed.
+ *
+ * Both halves answer the same question from opposite ends. Six months
+ * of M15 is 17 280 candles and of M1 is 259 200; they arrive in chunks
+ * over tens of seconds, and until they are all here a chart that is
+ * still filling looks exactly like a chart that has given up. A number
+ * that keeps moving is the difference. And once it stops, the thing
+ * the trader actually wants to know is what they are now looking at -
+ * which is a date range, not a bar count, because "6 ماه" was the ask.
+ *
+ * The engine reports progress from the expert's own chunks (the
+ * hist_progress event); nothing here is a guess or a timer.
+ */
+const HIST_SHOWN_MS = 9000;   // how long the "now showing" line stays up
+
+function noteHistoryProgress(d) {
+  if (!d || !d.symbol || !d.timeframe) return;
+  noteHistoryDepth(d.symbol, d.timeframe, d.depth);
+  S.histProgress = S.histProgress || {};
+  S.histProgress[String(d.symbol) + "." + String(d.timeframe)] = {
+    have: Math.max(0, Number(d.have) || 0),
+    want: Math.max(0, Number(d.want) || 0),
+    done: Boolean(d.done),
+    at: Date.now(),
+  };
+  paintHistoryEdge();
+}
+function historyProgressOf(symbol, timeframe) {
+  return (S.histProgress || {})[String(symbol || "") + "." + String(timeframe || "")] || null;
+}
+
+/* The period on screen, from the bars themselves.
+ *
+ * Deliberately not from the depth the expert reports: that says what
+ * the TERMINAL holds, and the two differ for as long as a download is
+ * running. This sentence is about what is drawn. */
+function historyShownNote() {
+  const f = S.chartFocus;
+  if (!f) return "";
+  const bars = S.candles || [];
+  if (bars.length < 2) return "";
+  const from = histDate(bars[0] && bars[0].time);
+  const to = histDate(bars[bars.length - 1] && bars[bars.length - 1].time);
+  if (!from || !to) return "";
+  return I18N.t("charts.hist_shown", {
+    from, to, n: fmt(bars.length, 0), tf: f.timeframe,
+  });
+}
+
 function paintHistoryEdge() {
   const el = $("tv-hint");
   if (!el) return;
+  const f = S.chartFocus;
   const atEdge = S.chart && (S.chart.maxOffset() - S.chart.offset) <= CHART_HISTORY_LEAD;
-  /* Six months of M15 is seventeen thousand bars and on M1 a quarter
-     of a million, and the trader asked for them by dragging off the
-     end of the chart. Saying so is the difference between a fetch and
-     a chart that has stopped responding. */
-  const note = S._histBusy
-    ? I18N.t("charts.hist_loading")
-    : (atEdge ? historyEdgeNote() : "");
-  el.textContent = note;
+  const p = f ? historyProgressOf(f.symbol, f.timeframe) : null;
+  const fresh = p && (Date.now() - p.at) < 60000;
+  const running = Boolean(S._histBusy || (fresh && !p.done));
+  let note = "";
+  let pct = -1;
+  if (running) {
+    /* Six months of M15 is seventeen thousand bars and on M1 a quarter
+       of a million, and the trader asked for them by dragging off the
+       end of the chart. Saying so is the difference between a fetch and
+       a chart that has stopped responding. */
+    if (p && p.want > 0 && p.have > 0) {
+      pct = Math.max(2, Math.min(100, Math.round((p.have / p.want) * 100)));
+      note = I18N.t("charts.hist_getting", {
+        have: fmt(p.have, 0), want: fmt(p.want, 0), tf: f ? f.timeframe : "",
+      });
+    } else {
+      note = I18N.t("charts.hist_loading");
+    }
+  } else if (fresh && p.done && (Date.now() - p.at) < HIST_SHOWN_MS) {
+    note = historyShownNote();
+    /* The line is time-limited, so something has to come back and take
+       it down; nothing else repaints a chart that is simply sitting
+       there. */
+    clearTimeout(S._histShownTimer);
+    S._histShownTimer = setTimeout(paintHistoryEdge, HIST_SHOWN_MS - (Date.now() - p.at) + 50);
+  } else if (atEdge) {
+    note = historyEdgeNote();
+  }
+  el.innerHTML = note
+    ? `<span class="tv-hint-txt">${esc(note)}</span>`
+      + (pct >= 0 ? `<span class="tv-hint-bar"><i style="width:${pct}%"></i></span>` : "")
+    : "";
   el.hidden = !note;
+}
+
+/* ── from a day in the calendar to the candle it happened on ───────
+ *
+ * Asked for in these words: from the calendar, press "see the chart"
+ * for the selected date and land on the EA chart of the chosen
+ * instrument, at that date.
+ *
+ * Three things have to be true for that to work, and only the first
+ * was already there:
+ *
+ *   the chart        openChartDesk already takes the trader to the EA
+ *                    workspace for a symbol.
+ *   the history      a chart opens on thirty days. A release in March
+ *                    is not in the bars that are loaded, so the window
+ *                    is widened to reach the day asked for BEFORE the
+ *                    view is moved - otherwise the jump lands on the
+ *                    oldest bar held, which is the wrong one and looks
+ *                    like the feature did nothing.
+ *   the mark         a chart scrolled to a date with nothing on it is
+ *                    just a chart. The moment is marked, so the candle
+ *                    being talked about is the one being pointed at.
+ */
+function calendarChartSymbol() {
+  const live = liveSymbols();
+  if (S.chartFocus && S.chartFocus.symbol) return S.chartFocus.symbol;
+  if (S.symbol && live.some((a) => a.symbol === S.symbol)) return S.symbol;
+  return live.length ? live[0].symbol : "";
+}
+
+function openCalendarMoment(dayKey, at) {
+  const symbol = calendarChartSymbol();
+  const when = Number(at);
+  if (!symbol || !Number.isFinite(when) || when <= 0) {
+    toast(I18N.t("calendar.see_chart_none"));
+    return;
+  }
+  const timeframe = (S.chartFocus && S.chartFocus.timeframe) || S.timeframe || "M15";
+  // Read once the chart is mounted and its bars are in - see goPendingMoment.
+  S.pendingMoment = { symbol, timeframe, at: when, day: String(dayKey || "") };
+  if (typeof Calendar !== "undefined" && typeof Calendar.unpin === "function") Calendar.unpin();
+  openChartDesk(symbol, timeframe);
+}
+
+/* How far back the chart has to reach to show that day, in bars of the
+   timeframe in question, with a week of margin either side so the
+   target does not sit jammed against the oldest candle. */
+function barsBackTo(timeframe, at) {
+  const days = Math.ceil((Date.now() - Number(at)) / 86400000) + 7;
+  return barsForDays(timeframe, Math.max(1, days));
+}
+
+async function goPendingMoment() {
+  const want = S.pendingMoment;
+  if (!want || !S.chart || !S.chartFocus) return;
+  if (want.symbol !== S.chartFocus.symbol) return;
+  if (typeof S.chart.goToTime !== "function") { S.pendingMoment = null; return; }
+  const reaches = () => {
+    const first = (S.candles || [])[0];
+    const t = first && Date.parse(String(first.time || "").replace(" ", "T"));
+    return Number.isFinite(t) && t <= want.at;
+  };
+  if (!reaches()) {
+    /* One ask, sized to the date rather than doubled towards it: the
+       trader named a day, so the window is the distance to that day. */
+    await loadMoreHistory({ bars: barsBackTo(want.timeframe, want.at) });
+  }
+  // Cleared whether or not the broker could reach back that far: a
+  // second attempt would ask for the same bars and be refused the same
+  // way, and the note below says which it was.
+  S.pendingMoment = null;
+  const landed = S.chart.goToTime(want.at, { mark: true });
+  if (!landed) toast(I18N.t("calendar.see_chart_short"));
 }
 
 /* Near the oldest bar we hold, go and get more. The threshold is in bars
@@ -15022,6 +15185,10 @@ async function pickMarket(symbol, timeframe, opts) {
   }
   if (S.view === "charts" && S.chartFocus && S.chartFocus.symbol === symbol) {
     if (S.chart && S.signalsEnabled) fetchChartSignals(symbol, timeframe);
+    /* The bars have just landed. Arriving here from the calendar, this
+       is the first moment the jump can actually be made - the chart was
+       mounted before the candles existed. */
+    if (S.pendingMoment) goPendingMoment();
   }
 }
 
@@ -15120,6 +15287,9 @@ function onLive(msg) {
         else S.chart.setBars(S.candles);
       }
     }
+  }
+  if (msg.type === "hist_progress") {
+    noteHistoryProgress(msg.data || msg);
   }
   if (msg.type === "candles") {
     const d = msg.data || msg;

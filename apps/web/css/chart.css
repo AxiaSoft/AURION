@@ -545,6 +545,24 @@ html[dir="rtl"] .tv-flyout { transform: translateX(6px) }
 }
 .tv-hint[hidden] { display: none }
 
+/* The download line is two rows: the sentence, and - only while bars
+   are actually coming down - a bar that shows how far through the
+   stream the expert is. A percentage inside the sentence would be
+   read and forgotten; a bar that moves is what tells a trader to wait
+   rather than to reload the page. */
+.tv-hint-txt { display: block }
+.tv-hint-bar {
+  display: block; margin-block-start: 5px;
+  height: 3px; border-radius: 999px;
+  background: color-mix(in srgb, var(--muted) 25%, transparent);
+  overflow: hidden;
+}
+.tv-hint-bar > i {
+  display: block; height: 100%; border-radius: inherit;
+  background: var(--accent);
+  transition: width .35s ease;
+}
+
 /* ------------------------------------------------- selection style bar -- */
 /* Colour and thickness used to live behind a double-click, in a dock most
    people never opened. Selecting a shape now brings its controls to it. */

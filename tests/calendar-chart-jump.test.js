@@ -1,0 +1,375 @@
+/**
+ * Two things the trader asked for, checked rather than described.
+ *
+ * 1. From the calendar to the chart. Reading a release and then wanting
+ *    to see the candle it landed on meant leaving the calendar, opening
+ *    the chart and dragging back through months - so in practice the
+ *    two halves of one question were never put together. There is now a
+ *    "see the chart on this date" button on the day panel, and pressing
+ *    it opens the EA chart for the selected instrument, loads enough
+ *    history to reach that day, and marks the moment.
+ *
+ * 2. The state of the download. Six months of M15 is 17 280 candles and
+ *    of M1 is 259 200; they arrive from MetaTrader in chunks over tens
+ *    of seconds, and a chart that is still filling looks exactly like
+ *    one that has given up. The engine now reports the expert's own
+ *    progress and the desk shows it - then says which period ended up
+ *    on screen.
+ *
+ *     node tests/calendar-chart-jump.test.js
+ */
+
+const fs = require("node:fs");
+const path = require("node:path");
+const vm = require("node:vm");
+
+const ROOT = path.resolve(__dirname, "..");
+const read = (p) => fs.readFileSync(path.join(ROOT, ...p.split("/")), "utf8");
+
+const APP = read("apps/web/js/app.js");
+const CAL = read("apps/web/js/calendar.js");
+const CHARTS = read("apps/web/js/charts.js");
+const CSS = read("apps/web/css/app.css");
+const CHARTCSS = read("apps/web/css/chart.css");
+const BRIDGE = read("engine/aurion/mt5/bridge.py");
+const TRADER = read("engine/aurion/runtime/trader.py");
+const PACKS = {
+  en: JSON.parse(read("lang/en.json")),
+  fa: JSON.parse(read("lang/fa.json")),
+  ar: JSON.parse(read("lang/ar.json")),
+};
+
+const results = [];
+function check(name, fn) {
+  try {
+    const note = fn();
+    results.push(true);
+    console.log("ok   " + name + (typeof note === "string" ? "  — " + note : ""));
+  } catch (e) {
+    results.push(false);
+    console.log("FAIL " + name + "\n       " + e.message);
+  }
+}
+
+/* One top-level function out of app.js, by brace matching. */
+function liftFn(src, name) {
+  let at = src.indexOf("function " + name + "(");
+  if (at < 0) throw new Error(name + " is missing");
+  if (src.slice(at - 6, at) === "async ") at -= 6;
+  const open = src.indexOf("{", at);
+  let depth = 0;
+  for (let i = open; i < src.length; i += 1) {
+    if (src[i] === "{") depth += 1;
+    else if (src[i] === "}") { depth -= 1; if (!depth) return src.slice(at, i + 1); }
+  }
+  throw new Error(name + " never closes");
+}
+
+/* A method of an object literal or a class, which `function name(` does
+   not match. Same brace walk from the signature line. */
+function liftMethod(src, name) {
+  const re = new RegExp("^\\s{2,4}" + name + "\\s*\\([^)]*\\)\\s*\\{", "m");
+  const m = re.exec(src);
+  if (!m) throw new Error(name + " is missing");
+  const open = src.indexOf("{", m.index);
+  let depth = 0;
+  for (let i = open; i < src.length; i += 1) {
+    if (src[i] === "{") depth += 1;
+    else if (src[i] === "}") { depth -= 1; if (!depth) return src.slice(m.index, i + 1); }
+  }
+  throw new Error(name + " never closes");
+}
+
+/* ── 1. the calendar button ───────────────────────────────────────── */
+
+check("the day panel offers the chart for that date", () => {
+  if (!/_chartBtn\(key, evs\)/.test(CAL)) throw new Error("the button is not rendered from the day panel");
+  const btn = liftMethod(CAL, "_chartBtn");
+  if (!/cal-chart-go/.test(btn)) throw new Error("the button has no class to delegate on");
+  if (!/data-day=|data-at=/.test(btn)) throw new Error("the button carries neither the day nor the instant");
+  if (!/calendar\.see_chart/.test(btn)) throw new Error("the label is a hard-coded string");
+  /* Offered only when there is somewhere to go. Without an expert
+     attached there is no candle to land on, and a button that explains
+     itself by failing is worse than no button. */
+  if (!/calendarChartSymbol\(\)/.test(btn)) throw new Error("it is offered with no chart to open");
+  return "one button per day, labelled with the instrument";
+});
+
+check("the instant it jumps to is the loudest release of that day", () => {
+  const sandbox = { out: null };
+  vm.createContext(sandbox);
+  vm.runInContext("this.fn = { " + liftMethod(CAL, "_chartMoment") + " };", sandbox);
+  const day = "2026-03-06";
+  const base = Date.UTC(2026, 2, 6, 12, 0, 0);
+  const host = {
+    byDay: new Map(),
+    _fromDayKey: () => base,
+    _chartMoment: sandbox.fn._chartMoment,
+  };
+  const low = { ms: 1000, level: "low" };
+  const high = { ms: 2000, level: "high" };
+  if (host._chartMoment(day, [low, high]) !== 2000) throw new Error("it does not prefer the high-impact release");
+  if (host._chartMoment(day, [low]) !== 1000) throw new Error("it ignores the only release there is");
+  /* A quiet day still answers "what was the market doing then". */
+  if (host._chartMoment(day, []) !== base) throw new Error("a day with no releases has no moment at all");
+  /* A row with no usable timestamp must not become NaN on the button. */
+  if (host._chartMoment(day, [{ ms: 0, level: "high" }]) !== base) throw new Error("an undated row is taken as a moment");
+  return "high impact, then first, then midday";
+});
+
+check("both copies of the day panel can be pressed", () => {
+  /* The same markup is rendered twice - the card beside the month and
+     the popover beside the number - and a handler bound to only one of
+     them is a button that works in half the places it appears. */
+  if (!/day\?\.addEventListener\("click", goChart\)/.test(CAL)) {
+    throw new Error("the stacked day card is not wired");
+  }
+  if (!/node\.addEventListener\("click", goChart\)/.test(CAL)) {
+    throw new Error("the popover is not wired");
+  }
+  const h = CAL.slice(CAL.indexOf("const goChart"), CAL.indexOf("const select"));
+  if (!/stopPropagation\(\)/.test(h)) {
+    throw new Error("the press also reaches the day cell, which reopens the popover over the chart");
+  }
+  if (!/openCalendarMoment/.test(h)) throw new Error("nothing is asked to open the chart");
+  return "the card and the popover, and the press does not bubble";
+});
+
+/* ── 2. what the desk does with it ────────────────────────────────── */
+
+check("pressing it remembers the moment and opens the EA chart", () => {
+  const f = liftFn(APP, "openCalendarMoment");
+  if (!/openChartDesk\(/.test(f)) throw new Error("it does not open the chart workspace");
+  if (!/S\.pendingMoment = \{/.test(f)) throw new Error("the moment is not remembered for after the mount");
+  if (!/calendar\.see_chart_none/.test(f)) throw new Error("no chart attached is not explained");
+  /* The popover is fixed to a cell on a page that is about to be
+     replaced; leaving it up means a card floating over the chart. */
+  if (!/Calendar\.unpin/.test(f)) throw new Error("the calendar popover is left floating over the chart");
+  return "pending moment, then openChartDesk";
+});
+
+check("the jump is attempted when the bars exist, not before", () => {
+  /* The chart is mounted before its candles have been fetched, so one
+     call site is never enough. */
+  const sites = (APP.match(/if \(S\.pendingMoment\) goPendingMoment\(\);/g) || []).length;
+  if (sites < 2) throw new Error("only " + sites + " place(s) try the jump");
+  const f = liftFn(APP, "goPendingMoment");
+  if (!/loadMoreHistory\(\{ bars: barsBackTo\(/.test(f)) {
+    throw new Error("a date outside the loaded window is not fetched before the jump");
+  }
+  if (!/goToTime\(want\.at/.test(f)) throw new Error("nothing moves the view");
+  if (!/S\.pendingMoment = null/.test(f)) throw new Error("the request is never cleared, so it would replay");
+  if (!/calendar\.see_chart_short/.test(f)) {
+    throw new Error("a terminal that cannot reach that far back says nothing");
+  }
+  return "widen, jump, clear, and report a short archive";
+});
+
+check("the window asked for is the distance to that day", () => {
+  const consts = /const TF_MINUTES = \{[^}]*\};/.exec(APP);
+  const days = /const HISTORY_DAYS = (\d+);/.exec(APP);
+  const cap = /const HISTORY_MAX = (\d+);/.exec(APP);
+  const sandbox = {};
+  vm.createContext(sandbox);
+  vm.runInContext(
+    (consts ? consts[0] : "") + "\n" + (days ? days[0] : "") + "\n" + (cap ? cap[0] : "") + "\n"
+    + liftFn(APP, "barsForDays") + "\n" + liftFn(APP, "barsBackTo")
+    + "\nthis.barsBackTo = barsBackTo;", sandbox);
+  const ninety = Date.now() - 90 * 86400000;
+  const bars = sandbox.barsBackTo("M15", ninety);
+  const reach = (bars * 15) / (24 * 60);
+  if (reach < 90) throw new Error("ninety days back asks for " + reach.toFixed(1) + " days");
+  if (reach > 120) throw new Error("it over-asks: " + reach.toFixed(1) + " days for a 90-day jump");
+  // A deeper timeframe costs fewer bars for the same calendar distance.
+  if (!(sandbox.barsBackTo("M15", ninety) > sandbox.barsBackTo("H4", ninety))) {
+    throw new Error("the ask does not scale with the timeframe");
+  }
+  return Math.round(reach) + " days of M15 for a 90-day jump";
+});
+
+/* ── 3. the chart lands on the right candle ───────────────────────── */
+
+function runGoToTime(bars, want, span) {
+  const rows = bars.map((t) => ({ t }));
+  const sandbox = {};
+  vm.createContext(sandbox);
+  vm.runInContext("this.host = { " + liftMethod(CHARTS, "goToTime") + " };", sandbox);
+  const host = {
+    span: span || 10,
+    offset: 0,
+    timeMark: 0,
+    rows: () => rows,
+    maxOffset() { return Math.max(0, rows.length - this.span); },
+    minOffset: () => 0,
+    clampOffset() { this.offset = Math.max(0, Math.min(this.maxOffset(), this.offset)); },
+    forgetScaleFit() {},
+    draw() {},
+    changed() {},
+    goToTime: sandbox.host.goToTime,
+  };
+  const ok = host.goToTime(want, { mark: true });
+  return { ok, host, rows };
+}
+
+check("the chart centres on the candle the release happened in", () => {
+  const bars = [];
+  for (let i = 0; i < 100; i += 1) bars.push(new Date(Date.UTC(2026, 0, 1, 0, i * 15)).toISOString());
+  // A release at 05:07 belongs to the 05:00 candle, not to 05:15.
+  const want = Date.UTC(2026, 0, 1, 5, 7);
+  const { ok, host, rows } = runGoToTime(bars, want, 20);
+  if (!ok) throw new Error("it reported the bars do not reach, when they do");
+  const start = Math.max(0, rows.length - host.offset - host.span);
+  const end = rows.length - host.offset;
+  const idx = bars.indexOf(new Date(Date.UTC(2026, 0, 1, 5, 0)).toISOString());
+  if (idx < start || idx >= end) throw new Error("the target candle is not on screen at all");
+  const from = idx - start;
+  if (from < host.span * 0.25 || from > host.span * 0.75) {
+    throw new Error("it is parked at an edge rather than centred");
+  }
+  return "the bar at or before the instant, in the middle of the window";
+});
+
+check("a date older than the archive is reported, not faked", () => {
+  const bars = [];
+  for (let i = 0; i < 50; i += 1) bars.push(new Date(Date.UTC(2026, 5, 1, 0, i * 15)).toISOString());
+  const { ok } = runGoToTime(bars, Date.UTC(2025, 0, 1), 20);
+  if (ok) throw new Error("it claimed to have landed on a candle it does not hold");
+  return "false, so the desk can say the terminal stops short";
+});
+
+check("the moment is pointed at, not just scrolled to", () => {
+  if (!/this\.paintTimeMark\(L\);/.test(CHARTS)) throw new Error("the mark is never painted");
+  const f = liftMethod(CHARTS, "paintTimeMark");
+  if (!/setLineDash/.test(f)) throw new Error("the mark is a solid line, indistinguishable from a drawing");
+  /* A filled band would recolour the very candle being asked about. */
+  if (/fillRect/.test(f)) throw new Error("it paints over the candle it is pointing at");
+  if (!/this\.timeMark/.test(f)) throw new Error("it does not read the marked instant");
+  if (!/clearTimeMark\(\)/.test(CHARTS)) throw new Error("the mark can never be taken off");
+  return "a dashed line and a pennant, from timeMark";
+});
+
+/* ── 4. the download, while it is happening ───────────────────────── */
+
+check("the engine reports the expert's progress, not a guess", () => {
+  if (!/async def _say_history_progress\(/.test(BRIDGE)) throw new Error("the bridge says nothing about progress");
+  if (!/if not final and tape == self\.active_tape\(\):/.test(BRIDGE)) {
+    throw new Error("progress is only reported when the stream has already finished");
+  }
+  const fn = BRIDGE.slice(BRIDGE.indexOf("async def _say_history_progress"),
+    BRIDGE.indexOf("def _history_timeout"));
+  for (const field of ["have", "want", "done", "depth"]) {
+    if (!fn.includes(`"${field}"`)) throw new Error(field + " is not reported");
+  }
+  if (!/self\._hist_want\[key\] = /.test(BRIDGE)) {
+    throw new Error("the size of the ask is never recorded, so progress has no denominator");
+  }
+  if (!/bus\.publish\("hist_progress"/.test(TRADER)) throw new Error("it never reaches the desk");
+  return "have / want / done, from the chunks themselves";
+});
+
+check("the desk shows how far through it is, with a bar that moves", () => {
+  if (!/msg\.type === "hist_progress"/.test(APP)) throw new Error("the event is ignored");
+  const f = liftFn(APP, "paintHistoryEdge");
+  if (!/charts\.hist_getting/.test(f)) throw new Error("the count is not shown while it downloads");
+  if (!/tv-hint-bar/.test(f)) throw new Error("there is no progress bar");
+  if (!/Math\.min\(100,/.test(f)) throw new Error("the bar can run past 100%");
+  if (!/charts\.hist_loading/.test(f)) {
+    throw new Error("a download with no known size has nothing to say");
+  }
+  if (!/\.tv-hint-bar/.test(CHARTCSS)) throw new Error("the bar is not styled");
+  return "a sentence with the numbers in it and a bar under it";
+});
+
+check("when it finishes it says which period is on screen", () => {
+  const f = liftFn(APP, "historyShownNote");
+  if (!/charts\.hist_shown/.test(f)) throw new Error("nothing names the period");
+  /* From the BARS, not from the depth the expert reports: that one says
+     what the terminal holds, which is a different number for as long as
+     a download is running. */
+  if (!/S\.candles/.test(f)) throw new Error("the sentence is not about what is drawn");
+  if (/histDepth|historyDepthOf/.test(f)) throw new Error("it describes the terminal rather than the chart");
+  const p = liftFn(APP, "paintHistoryEdge");
+  if (!/historyShownNote\(\)/.test(p)) throw new Error("the sentence is never painted");
+  if (!/HIST_SHOWN_MS/.test(p)) throw new Error("the line never goes away");
+  if (!/setTimeout\(paintHistoryEdge/.test(p)) {
+    throw new Error("nothing comes back to take it down, so it stays until the next repaint");
+  }
+  return "from and to and a count, for a few seconds after the last chunk";
+});
+
+check("the edge note still wins when nothing is downloading", () => {
+  /* The three states are exclusive and ordered: a download in flight, a
+     download that just finished, and the end of history. Losing that
+     order means claiming "this is all there is" mid-stream, which is
+     the one thing this line must never be wrong about. */
+  const f = liftFn(APP, "paintHistoryEdge");
+  const i = f.indexOf("charts.hist_getting");
+  const j = f.indexOf("historyShownNote()");
+  const k = f.indexOf("historyEdgeNote()");
+  if (!(i > 0 && j > i && k > j)) throw new Error("the three states are no longer in order");
+  return "downloading, then just-finished, then the edge";
+});
+
+/* ── 5. the words ─────────────────────────────────────────────────── */
+
+check("every new string exists in all three packs", () => {
+  const want = {
+    calendar: ["see_chart", "see_chart_none", "see_chart_short"],
+    charts: ["hist_getting", "hist_shown", "hist_loading"],
+  };
+  for (const [lang, pack] of Object.entries(PACKS)) {
+    for (const [group, keys] of Object.entries(want)) {
+      for (const key of keys) {
+        if (!pack[group] || !pack[group][key]) throw new Error(`${lang} is missing ${group}.${key}`);
+      }
+    }
+  }
+  return "three packs, six keys";
+});
+
+check("the placeholders survive translation", () => {
+  const need = {
+    "calendar.see_chart": ["{symbol}"],
+    "charts.hist_getting": ["{have}", "{want}"],
+    "charts.hist_shown": ["{from}", "{to}", "{n}", "{tf}"],
+  };
+  for (const [lang, pack] of Object.entries(PACKS)) {
+    for (const [dotted, holes] of Object.entries(need)) {
+      const [group, key] = dotted.split(".");
+      const text = pack[group][key];
+      for (const hole of holes) {
+        if (!text.includes(hole)) throw new Error(`${lang} ${dotted} drops ${hole}`);
+      }
+    }
+  }
+  return "symbol, counts, dates";
+});
+
+check("no new string names an instrument", () => {
+  /* House rule: help text never names a specific market - the symbol in
+     see_chart is filled in from what is attached, not written down. */
+  const words = /\b(EURUSD|XAUUSD|GBPUSD|gold|طلا|ذهب)\b/i;
+  for (const [lang, pack] of Object.entries(PACKS)) {
+    for (const key of ["see_chart", "see_chart_none", "see_chart_short"]) {
+      if (words.test(pack.calendar[key])) throw new Error(`${lang} calendar.${key} names an instrument`);
+    }
+    for (const key of ["hist_getting", "hist_shown"]) {
+      if (words.test(pack.charts[key])) throw new Error(`${lang} charts.${key} names an instrument`);
+    }
+  }
+});
+
+check("the button is a real touch target on a phone", () => {
+  const at = CSS.indexOf(".cal-chart-go{");
+  if (at < 0) throw new Error("the button has no styles of its own");
+  const block = CSS.slice(at, at + 400);
+  if (!/inline-size:100%/.test(block)) throw new Error("it does not span the panel");
+  const coarse = CSS.slice(at, at + 600);
+  const m = /pointer:coarse\)\{ \.cal-chart-go\{ min-block-size:(\d+)px/.exec(coarse);
+  if (!m || Number(m[1]) < 44) throw new Error("under 44px on a touch screen");
+  return m[1] + "px on a coarse pointer";
+});
+
+const bad = results.filter((r) => r === false).length;
+console.log(`\ncalendar-chart-jump: ${bad ? bad + " FAILED of " + results.length : results.length + " checks passed"}`);
+process.exit(bad ? 1 : 0);

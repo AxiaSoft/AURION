@@ -103,6 +103,12 @@ class MT5Bridge:
         # caused by MetaTrader's own "Max bars in chart" setting, and
         # the trader cannot tell those apart by looking.
         self._hist_depth: dict[tuple[str, str], dict[str, Any]] = {}
+        #: (symbol, tf) -> how many bars the expert was last asked for.
+        #: Only needed so a half-arrived stream can be reported as a
+        #: fraction rather than as a spinner: six months of M1 is a
+        #: quarter of a million candles and the trader is entitled to
+        #: know it is moving.
+        self._hist_want: dict[tuple[str, str], int] = {}
         self._agent_owner: dict[int, asyncio.StreamWriter | None] = {}
         self._purge_gen: dict[int, int] = {}
         self._http_seen: dict[int, float] = {}
@@ -730,6 +736,33 @@ class MT5Bridge:
             return first_held < first_fresh
         return len(held) > len(fresh)
 
+    async def _say_history_progress(
+        self, symbol: str, timeframe: str, got: int, done: bool,
+    ) -> None:
+        """Tell the desk how far a history download has got.
+
+        Reported from the chunks as they land rather than from a timer,
+        because the expert is the only thing that knows: it streams a
+        few hundred bars per message and a six-month M1 series is a
+        quarter of a million of them. Without this the desk could only
+        show a spinner, and a spinner that may have thirty seconds left
+        in it is indistinguishable from one that has hung - which is
+        how "the candles are not loading" gets reported.
+        """
+        tf = self._norm_tf(timeframe)
+        want = int(self._hist_want.get((symbol, tf), 0) or 0)
+        await self.emit(
+            "hist_progress",
+            {
+                "symbol": symbol,
+                "timeframe": tf,
+                "have": max(0, int(got)),
+                "want": max(0, want),
+                "done": bool(done),
+                "depth": self.hist_depth(symbol, tf),
+            },
+        )
+
     def _history_timeout(self, count: int) -> float:
         """How long to wait for the expert, scaled to the size of the ask.
 
@@ -861,6 +894,12 @@ class MT5Bridge:
                     self._hist_waiters.pop(key, None)
                 return []
             log.info("requested EA history %s %s via %s chart(s)", symbol, tf, n)
+            # The ask is remembered before the first chunk lands, so the
+            # very first progress line already has a denominator.
+            self._hist_want[key] = max(0, int(count or 0))
+            await self._say_history_progress(
+                symbol, tf, len(self._candles_for(symbol, tf)), False,
+            )
         try:
             await asyncio.wait_for(asyncio.shield(fut), timeout=timeout)
         except asyncio.TimeoutError:
@@ -1390,6 +1429,12 @@ class MT5Bridge:
                     ),
                     tape,
                 )
+            if not final and tape == self.active_tape():
+                # Mid-stream. The desk gets a number rather than a
+                # spinner; see _say_history_progress. Only for the tape
+                # on screen: a Strategy Tester chart streaming its own
+                # history is not what the trader is waiting for.
+                await self._say_history_progress(symbol, tf, len(bucket), False)
             if final:
                 ordered = sorted(bucket, key=lambda c: (str(c.time), int(c.time_msc or 0)))
                 bucket.clear()
@@ -1408,6 +1453,7 @@ class MT5Bridge:
                     # final:true from the expert - including the empty
                     # reply it sends when the broker has nothing more.
                     self._resolve_hist(symbol, tf, final=True)
+                    await self._say_history_progress(symbol, tf, len(bucket), True)
             return
         if kind == "account":
             kind_info = classify_account(

@@ -491,9 +491,48 @@ const Calendar = {
     return `${head}
       ${peek ? `<p class="cal-dp-peek">${esc(t("calendar.peek_hint"))}</p>` : ""}
       ${weekend && !evs.length ? `<p class="cal-dp-wk">${esc(t("calendar.closed_note"))}</p>` : ""}
+      ${this._chartBtn(key, evs)}
       ${evs.length
         ? `<div class="cal-evs">${evs.map((e) => this._ev(e, weekend)).join("")}</div>`
         : `<p class="cal-none">${esc(t("calendar.no_events"))}</p>`}`;
+  },
+
+  /* "Show me that day on the chart."
+   *
+   * Reading a release and then going to find the candle it happened on
+   * meant leaving the calendar, opening the chart, and dragging back
+   * through however many months - which nobody does, so the two halves
+   * of the same question were never actually put together. The button
+   * takes the day the panel is showing straight to the EA chart for the
+   * instrument that is already selected, loads whatever history is
+   * needed to reach it, and marks the moment.
+   *
+   * Only offered when there is a chart to go to: without an expert
+   * attached there is no candle to land on, and a button that explains
+   * itself by failing is worse than no button. */
+  _chartBtn(key, evs) {
+    const ms = this._chartMoment(key, evs);
+    if (!Number.isFinite(ms) || ms <= 0) return "";
+    if (typeof calendarChartSymbol !== "function" || !calendarChartSymbol()) return "";
+    const sym = calendarChartSymbol();
+    return `<button type="button" class="btn ghost small cal-chart-go" data-day="${esc(key)}" data-at="${ms}">
+      ${esc(I18N.t("calendar.see_chart", { symbol: sym }))}
+    </button>`;
+  },
+
+  /* Which instant on that day the chart should open at.
+   *
+   * The loudest release, because that is the candle anybody reading a
+   * news day is looking for; the first event otherwise; and midday on a
+   * day with no releases at all, so a quiet day still answers the
+   * question "what was the market doing then". */
+  _chartMoment(key, evs) {
+    const list = (evs && evs.length ? evs : (this.byDay.get(key) || []))
+      .filter((e) => Number.isFinite(e.ms) && e.ms > 0);
+    const loud = list.find((e) => e.level === "high") || list[0];
+    if (loud) return loud.ms;
+    const base = this._fromDayKey(key);
+    return Number.isFinite(base) ? base : 0;
   },
 
   /* No "test the robot on this period" offer here any more.
@@ -860,6 +899,21 @@ const Calendar = {
       ? CSS.escape(k)
       : String(k).replace(/[^0-9-]/g, ""));
 
+    /* One handler for both copies of the day panel - the card beside
+       the month and the popover beside the number - because they are
+       the same markup rendered twice and a jump means the same thing
+       from either. */
+    const goChart = (e) => {
+      const btn = e.target.closest && e.target.closest(".cal-chart-go");
+      if (!btn) return;
+      e.preventDefault();
+      e.stopPropagation();
+      if (typeof openCalendarMoment === "function") {
+        openCalendarMoment(btn.dataset.day, Number(btn.dataset.at));
+      }
+    };
+    day?.addEventListener("click", goChart);
+
     const select = (key) => {
       if (!key) return;
       this.selected = key;
@@ -1014,6 +1068,7 @@ const Calendar = {
         const live = popNode();
         if (live && popCell) placePop(live, popCell);
       });
+      node.addEventListener("click", goChart);
       node.addEventListener("mouseenter", () => { inPop = true; clearTimers(); });
       node.addEventListener("mouseleave", () => { inPop = false; shutSoon(); });
       node.addEventListener("wheel", clearTimers, { passive: true });

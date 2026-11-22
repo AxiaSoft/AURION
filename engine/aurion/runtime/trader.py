@@ -574,6 +574,12 @@ class Trader:
         if kind == "ticks":
             await self.bus.publish("ticks", payload if isinstance(payload, dict) else {})
             return
+        if kind == "hist_progress":
+            # Straight through: how far a history download has got is a
+            # fact about the bridge, not something the trader applies
+            # any rule to. The desk is the only consumer.
+            await self.bus.publish("hist_progress", payload if isinstance(payload, dict) else {})
+            return
         if kind in {"status", "ea_log", "ea_signal", "order_result", "log"}:
             await self.bus.publish(kind, payload if isinstance(payload, dict) else {"data": payload})
 
