@@ -191,6 +191,11 @@
     "latency": "Bridge latency",
     "connect_hint": "Attach AurionBridge to the chart you want here. AURION never invents candles, fills or equity. This banner leaves as soon as the EA is online, and returns when the last EA is removed.",
     "hero": "The desk is waiting for AurionBridge on a live chart",
+    "updated": "Updated {t}",
+    "book_title": "Open book",
+    "book_empty": "Nothing is open. The split appears as soon as there is a position.",
+    "long": "Long",
+    "short": "Short",
     "ready": "Desk ready"
   },
   "markets": {
@@ -1197,7 +1202,9 @@
     "peek_hint": "Preview — click the day to keep it open",
     "see_chart": "See {symbol} on this date",
     "see_chart_none": "No chart to open — attach AurionBridge to a chart first.",
-    "see_chart_short": "Your terminal does not hold candles that far back, so the chart stopped at its oldest one."
+    "see_chart_short": "Your terminal does not hold candles that far back, so the chart stopped at its oldest one.",
+    "chart_not_yet": "This day has not traded yet, so there is no chart for it.",
+    "chart_up_to_now": "Opens at the latest candle — the rest of today has not traded yet."
   },
   "news": {
     "nfp": "Non-Farm Payrolls",

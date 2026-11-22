@@ -251,16 +251,20 @@ for (const [label, W] of [["desktop", 1440], ["phone", 390]]) {
 
 /* The two the user actually reported, named, so a regression says which
    page broke rather than only that something did. */
-check("command centre: the account card is not shorter than the risk card beside it", () => {
+check("command centre: no card in the panel row is shorter than the ones beside it", () => {
   render("command");
   const pair = stage.querySelector(".ccx-pair");
   if (!pair) return "no .ccx-pair";
-  if (pair.children.length !== 2) return `expected risk + account, got ${pair.children.length}`;
+  /* Risk, the open book, and the account reference. */
+  if (pair.children.length !== 3) return `expected risk + book + account, got ${pair.children.length}`;
   const ai = winner(pair, "align-items", 1440);
   if (!ai || ai.v !== "stretch") return `.ccx-pair align-items is ${ai && ai.v}`;
-  const account = pair.querySelector(".ccx-ref");
-  const m = winner(account, "margin-block-start", 1440);
-  return (!m || zeroish(m.v)) || `.ccx-ref carries ${m.v} from ${m.sel}`;
+  const offenders = [".ccx-risk", ".ccx-book", ".ccx-ref"]
+    .map((sel) => [sel, pair.querySelector(sel)])
+    .map(([sel, el]) => [sel, el && winner(el, "margin-block-start", 1440)])
+    .filter(([, m]) => m && !zeroish(m.v));
+  return offenders.length === 0
+    || offenders.map(([sel, m]) => `${sel} carries ${m.v} from ${m.sel}`).join("; ");
 });
 
 check("intelligence: the regime card is the same height as the two beside it", () => {
