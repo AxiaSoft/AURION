@@ -2,6 +2,20 @@
 //| AurionBridge.mq5                                                 |
 //| Live chart agent for the AURION engine.                          |
 //|                                                                  |
+//| v1.22 — the bars this terminal already holds are sent FIRST, and |
+//|   the deeper period is fetched behind them. 1.21 asked only for  |
+//|   a date range, and a range the terminal has no series for is    |
+//|   answered -1 while MetaTrader downloads it: on a timeframe the  |
+//|   chart has never been opened on that is every attempt for up to |
+//|   a minute and a half, far past the engine's timeout, so the     |
+//|   desk drew nothing at all unless the MetaTrader chart was put   |
+//|   on the same timeframe by hand. Now phase one answers out of    |
+//|   the series (fast, any timeframe) and phase two re-sends the    |
+//|   whole period when the download lands, with replace:true.       |
+//|   The stream is also 250 bars a chunk on a 25ms timer instead of |
+//|   60 on a 400ms one - six months of M15 took two minutes to      |
+//|   dribble out, which no caller waits for.                        |
+//|                                                                  |
 //| v1.21 — history is asked for as a PERIOD, not as a bar count.    |
 //|   CopyRates(sym, tf, 0, depth, ...) is served out of the series   |
 //|   the terminal has already built, and never makes it fetch more,  |
@@ -57,10 +71,10 @@
 // nobody could tell. AURION_EA_VERSION is the value sent to the engine;
 // engine/tests/test_ea_version.py fails the build if the #property below
 // drifts from it, because #property will not take a macro.
-#define AURION_EA_VERSION "1.21"
-#property version   "1.21"
+#define AURION_EA_VERSION "1.22"
+#property version   "1.22"
 #property strict
-#property description "AURION live bridge 1.21 — history asked for as a date range, so the terminal downloads the months the desk needs"
+#property description "AURION live bridge 1.22 — the bars on hand are sent at once, the deeper period follows when the terminal has downloaded it"
 
 input string InpEngineHost   = "127.0.0.1";
 input int    InpEnginePort   = 18766;
@@ -78,11 +92,34 @@ input int    InpCandleDepth  = 3000;
 // roughly a minute and a half of patience, which covers a cold M1
 // series on a slow link without hanging the request for ever.
 #define AURION_HIST_TRIES 40
+// The same patience, but for phase one, which only asks for what the
+// terminal has already built. That answer either comes in the first
+// second or it is not coming at all, and every attempt here is time
+// the desk spends with an empty chart.
+#define AURION_HIST_QUICK_TRIES 8
+// Bars per message. 60 was a safe guess made when a request was a few
+// hundred bars; at one chunk per timer pass it means six months of
+// M15 (17 280 bars) takes 288 passes, which was two minutes of
+// dribbling history while the engine's 25-second patience ran out.
+#define AURION_HIST_CHUNK 250
 input bool   InpSendHistory  = true;
 input string InpEaName       = "AurionBridge";
 input int    InpHttpPort     = 18765;
 
 datetime g_last_bar = 0;
+/* The timeframe the DESK is looking at, which is not necessarily the
+   one this MetaTrader chart is on.
+   Every live message used to be built from _Period alone, so a trader
+   who switched timeframe in AURION got the history for the new
+   timeframe once and then nothing: no closing bars, no forming bar,
+   a chart frozen at the moment it was drawn - unless they went into
+   MetaTrader and switched that chart too, which is exactly what was
+   reported. The last timeframe the engine asked history for is
+   remembered here and fed alongside _Period, never instead of it:
+   the chart's own timeframe is what the built-in strategies are
+   evaluated on, and that must keep flowing whatever the desk shows. */
+ENUM_TIMEFRAMES g_feed_tf = PERIOD_CURRENT;
+datetime g_feed_bar = 0;
 datetime g_deals_from = 0;
 uint     g_last_beat = 0;
 uint     g_last_spec      = 0;
@@ -101,6 +138,12 @@ int      g_hist_tries = 0;
 uint     g_hist_next = 0;
 ENUM_TIMEFRAMES g_hist_tf = PERIOD_CURRENT;
 MqlRates g_hist_rates[];
+// Which half of the answer is in flight: 0 = the bars this terminal
+// already holds, 1 = the period the broker has to be asked for.
+int      g_hist_phase = 0;
+// How many bars phase one delivered, so phase two only re-sends the
+// stream when it has MORE than the desk is already drawing.
+int      g_hist_sent = 0;
 string   g_http_q[];
 
 void BurstConnect();
@@ -109,6 +152,7 @@ int ActiveHttpPort();
 bool SendHello();
 void SendTick();
 void SendCandle(const int shift);
+void SendCandleOn(const ENUM_TIMEFRAMES tf, const int shift);
 void SendAccount();
 void SendSpec();
 void SendPositions();
@@ -158,12 +202,16 @@ int OnInit()
    g_hist_count = 0;
    g_hist_tries = 0;
    g_hist_next = 0;
+   g_hist_phase = 0;
+   g_hist_sent = 0;
    g_logged_http = false;
    g_logged_file = false;
    g_http_port = 0;
    ArrayResize(g_http_q, 0);
    g_deals_from = TimeCurrent();
    g_last_bar = iTime(_Symbol, _Period, 0);
+   g_feed_tf = PERIOD_CURRENT;
+   g_feed_bar = 0;
    EventSetMillisecondTimer(50);
    Print("AURION: v" + AURION_EA_VERSION + " FILE+HTTP  ", InpEngineHost, ":", InpHttpPort,
          "  common=", TerminalInfoString(TERMINAL_COMMONDATA_PATH),
@@ -189,11 +237,23 @@ void OnDeinit(const int reason)
 void MaybeClosedBar()
   {
    datetime bar = iTime(_Symbol, _Period, 0);
-   if(bar == 0)
+   if(bar != 0)
+     {
+      if(g_last_bar != 0 && bar != g_last_bar)
+         SendCandle(1);
+      g_last_bar = bar;
+     }
+   // And the same for the timeframe the desk is showing, when that is
+   // a different one. A desk chart that never receives a closed bar
+   // stops growing the moment its history has been drawn.
+   if(g_feed_tf == PERIOD_CURRENT || g_feed_tf == _Period)
       return;
-   if(g_last_bar != 0 && bar != g_last_bar)
-      SendCandle(1);
-   g_last_bar = bar;
+   datetime fbar = iTime(_Symbol, g_feed_tf, 0);
+   if(fbar == 0)
+      return;
+   if(g_feed_bar != 0 && fbar != g_feed_bar)
+      SendCandleOn(g_feed_tf, 1);
+   g_feed_bar = fbar;
   }
 
 void OnTick()
@@ -216,7 +276,19 @@ void OnTimer()
    MaybeClosedBar();
    PollCommands();
    if(g_hist_pos >= 0)
-      PumpHistory();
+     {
+      /* History moves at the timer's speed, and the timer is a
+         quarter-second heartbeat. At one chunk a pass, six months of
+         M15 is 288 passes - nearly two minutes of history dribbling
+         out while the engine's patience (eight to twenty-five
+         seconds) runs out and the desk draws whatever arrived. So
+         while a stream is in flight, several chunks go per pass and
+         the timer runs fast; it drops back to the heartbeat below
+         the moment the stream ends. */
+      for(int k = 0; k < 4 && g_hist_pos >= 0; k++)
+         PumpHistory();
+      EventSetMillisecondTimer(25);
+     }
    if(now - g_last_beat >= (uint)InpHeartbeatMs)
      {
       g_last_beat = now;
@@ -621,27 +693,47 @@ void SendTick()
    SendRaw(json);
   }
 
-void SendCandle(const int shift)
+/* One candle, on a named timeframe.
+   The timeframe is a parameter rather than _Period because the desk
+   can be showing a different one; see g_feed_tf. */
+void SendCandleOn(const ENUM_TIMEFRAMES tf, const int shift)
   {
-   datetime t = iTime(_Symbol, _Period, shift);
+   ENUM_TIMEFRAMES use = (tf == PERIOD_CURRENT ? _Period : tf);
+   datetime t = iTime(_Symbol, use, shift);
    if(t == 0)
       return;
    string json = "{";
    json += "\"type\":\"candle\",";
    json += "\"symbol\":\"" + JsonEsc(_Symbol) + "\",";
-   json += "\"timeframe\":" + IntegerToString(PeriodSeconds(_Period) / 60) + ",";
-   json += "\"timeframe_name\":\"" + TfName(_Period) + "\",";
+   json += "\"timeframe\":" + IntegerToString(PeriodSeconds(use) / 60) + ",";
+   json += "\"timeframe_name\":\"" + TfName(use) + "\",";
+   // The timeframe of the MetaTrader CHART, which is not the same
+   // thing as the timeframe of this candle: a desk showing H4 is fed
+   // H4 bars by an M15 chart. Without this the engine would keep
+   // rewriting the chart's timeframe to whatever the desk last looked
+   // at, and the chart list would flicker between the two.
+   json += "\"chart_timeframe\":\"" + TfName(_Period) + "\",";
    json += "\"time\":\"" + IsoTime(t) + "\",";
    json += "\"time_msc\":" + IntegerToString((long)t * 1000) + ",";
-   json += "\"open\":" + DoubleToString(iOpen(_Symbol, _Period, shift), _Digits) + ",";
-   json += "\"high\":" + DoubleToString(iHigh(_Symbol, _Period, shift), _Digits) + ",";
-   json += "\"low\":" + DoubleToString(iLow(_Symbol, _Period, shift), _Digits) + ",";
-   json += "\"close\":" + DoubleToString(iClose(_Symbol, _Period, shift), _Digits) + ",";
-   json += "\"volume\":" + DoubleToString((double)iVolume(_Symbol, _Period, shift), 0) + ",";
+   json += "\"open\":" + DoubleToString(iOpen(_Symbol, use, shift), _Digits) + ",";
+   json += "\"high\":" + DoubleToString(iHigh(_Symbol, use, shift), _Digits) + ",";
+   json += "\"low\":" + DoubleToString(iLow(_Symbol, use, shift), _Digits) + ",";
+   json += "\"close\":" + DoubleToString(iClose(_Symbol, use, shift), _Digits) + ",";
+   json += "\"volume\":" + DoubleToString((double)iVolume(_Symbol, use, shift), 0) + ",";
    json += "\"closed\":" + (shift > 0 ? "true" : "false") + ",";
    json += TapeTag();
    json += "}";
    SendRaw(json);
+  }
+
+/* The chart's own timeframe, which every existing caller means. */
+void SendCandle(const int shift)
+  {
+   SendCandleOn(_Period, shift);
+   // The desk's timeframe too, when it differs - this is what keeps a
+   // chart the trader switched to inside AURION alive.
+   if(g_feed_tf != PERIOD_CURRENT && g_feed_tf != _Period)
+      SendCandleOn(g_feed_tf, shift);
   }
 
 ENUM_TIMEFRAMES PeriodFromName(const string name)
@@ -658,12 +750,31 @@ ENUM_TIMEFRAMES PeriodFromName(const string name)
 
 void QueueHistory(const string tfName, const int want)
   {
+   if(tfName != "")
+     {
+      // The engine only ever asks for history for the timeframe the
+      // desk is showing, so this is also the answer to "what is the
+      // trader looking at" - and it is the only thing in the protocol
+      // that says so. Remember it, and feed it live from now on.
+      ENUM_TIMEFRAMES want_tf = PeriodFromName(tfName);
+      if(want_tf != g_feed_tf)
+        {
+         g_feed_tf = want_tf;
+         g_feed_bar = 0;
+        }
+     }
    g_hist_tfname = tfName;
    g_hist_want = want;
    g_hist_pos = 0;
    g_hist_count = 0;
    g_hist_tries = 0;
    g_hist_next = 0;
+   // Every request starts from "what have we got" again. A new request
+   // can be for a different timeframe, and carrying the previous
+   // phase - or the count it delivered - over would make phase two
+   // judge this series against the last one's.
+   g_hist_phase = 0;
+   g_hist_sent = 0;
    ArrayFree(g_hist_rates);
   }
 
@@ -704,6 +815,46 @@ void SendHistoryShortfall(const int requested)
          SeriesInfoInteger(_Symbol, g_hist_tf, SERIES_BARS_COUNT), " bars");
   }
 
+/* The depth this request is for, clamped once rather than in three
+ * places that could drift apart. */
+int HistDepth()
+  {
+   int depth = (g_hist_want > 0 ? g_hist_want : InpCandleDepth);
+   if(depth < 50) depth = 50;
+   if(depth > AURION_HIST_MAX) depth = AURION_HIST_MAX;
+   return depth;
+  }
+
+/* History, in two answers rather than one.
+ *
+ * 1.21 asked only for a date RANGE, because that is the form that makes
+ * MetaTrader download a period it does not hold - and that part was
+ * right, it is how six months arrive at all. What it got wrong is that
+ * a range the terminal has no series for is answered -1 while the
+ * download runs. On a timeframe this chart has never been opened on
+ * that is EVERY attempt for up to a minute and a half, and the engine
+ * gives up after eight to twenty-five seconds. The desk was left with
+ * an empty chart unless the trader went into MetaTrader and put the
+ * chart on the same timeframe by hand - which is exactly what was
+ * reported.
+ *
+ * So the answer is split in two:
+ *
+ *   phase 0  CopyRates(sym, tf, 0, depth) - whatever series this
+ *            terminal has already built. It comes back at once, and
+ *            the act of asking is also what makes the terminal start
+ *            building a series it does not have, so the desk gets a
+ *            chart on any timeframe within a second. It is marked
+ *            final, so the waiting request is answered instead of
+ *            timing out.
+ *
+ *   phase 1  the date range, on the old widening ladder. When it
+ *            lands with MORE bars than phase 0 sent, the whole stream
+ *            is re-sent with replace:true and the desk swaps the
+ *            short chart for the deep one. If the broker will not
+ *            serve the period, the phase 0 bars stay on screen and
+ *            nothing has been lost.
+ */
 void PumpHistory()
   {
    if(g_hist_pos < 0)
@@ -717,75 +868,14 @@ void PumpHistory()
       // knows the window the product promises and which timeframe the
       // trader is on. The old code ignored it and clamped to 400 bars,
       // so the desk got six hours of M1 and called it a month.
-      int depth = (g_hist_want > 0 ? g_hist_want : InpCandleDepth);
-      if(depth < 50) depth = 50;
-      if(depth > AURION_HIST_MAX) depth = AURION_HIST_MAX;
+      int depth = HistDepth();
       ArraySetAsSeries(g_hist_rates, false);
-      /* Ask for a PERIOD, not for a position.
-       *
-       * This is the whole of "MetaTrader shows me months and AURION
-       * does not". CopyRates(symbol, tf, 0, depth, rates) is answered
-       * out of the series this terminal has already built: if the
-       * chart has three thousand bars loaded, three thousand bars is
-       * the answer, however many the engine asked for, and nothing in
-       * that call ever makes the terminal go to the broker for the
-       * rest. The depth the engine names was therefore a ceiling that
-       * could never be reached, and the desk drew a few weeks while
-       * the same terminal, on the same symbol, scrolled back months.
-       *
-       * The date form is a request for a time RANGE, and a range the
-       * terminal does not hold is what makes it download. It answers
-       * -1 the first few times while that download runs, which is
-       * exactly the case the retry ladder below already exists for.
-       *
-       * The range is the depth expressed in time, because that is
-       * what the depth was converted FROM: the engine sizes it as
-       * calendar days divided by the bar length. Going back
-       * depth x PeriodSeconds therefore asks for the same calendar
-       * window, and the weekends inside it simply come back empty. */
-      datetime stop  = TimeCurrent() + PeriodSeconds(g_hist_tf);
-      datetime begin = (datetime)((long)stop - (long)PeriodSeconds(g_hist_tf) * (long)depth);
-      if((long)begin < 0) begin = 0;
-      int n = CopyRates(_Symbol, g_hist_tf, begin, stop, g_hist_rates);
-      if(n <= 0)
+
+      if(g_hist_phase == 0)
         {
-         // MetaTrader answers -1 while it is still fetching the series
-         // from the broker, which is the NORMAL first answer for a
-         // timeframe the chart has never been opened on. The old code
-         // read that as "there is no history" and abandoned the
-         // request for good: the desk then waited for a reply that was
-         // never coming and drew whatever few bars it already had.
-         // Asking again is what finishes the download, so ask again -
-         // on a widening delay, and not forever.
-         g_hist_tries++;
-         if(g_hist_tries <= AURION_HIST_TRIES)
-           {
-            // Touching the series is what tells the terminal somebody
-            // wants it; without this the background fetch may never be
-            // scheduled at all.
-            SeriesInfoInteger(_Symbol, g_hist_tf, SERIES_BARS_COUNT);
-            uint wait = (uint)(250 * g_hist_tries);
-            if(wait > 3000) wait = 3000;
-            g_hist_next = GetTickCount() + wait;
-            return;
-           }
-         // Out of patience. Say so rather than going quiet: an empty
-         // final reply releases the desk to draw what it has and lets
-         // it tell the trader the terminal holds no history here,
-         // which is a different problem from a bridge that stopped
-         // answering.
-         /* One last ask, by position, for whatever the terminal has
-          * already built. The range request can fail outright on a
-          * series the broker will not serve that far back, and in
-          * that case the three thousand bars sitting in the chart are
-          * still worth having - they are what the trader can see.
-          * Only when THAT is empty too is there really nothing. */
          int held = CopyRates(_Symbol, g_hist_tf, 0, depth, g_hist_rates);
          if(held > 0)
            {
-            Print("AURION: ", _Symbol, " ", TfName(g_hist_tf),
-                  " - the broker would not serve the whole period; sending the ",
-                  held, " bars this terminal holds");
             g_hist_count = held;
             g_hist_pos = 0;
             g_hist_tries = 0;
@@ -793,8 +883,22 @@ void PumpHistory()
            }
          else
            {
-            SendHistoryShortfall(depth);
-            g_hist_pos = -1;
+            // Nothing built yet for this timeframe. Touching the series
+            // is what schedules the terminal's own fetch, and a few
+            // short waits are worth it because this is the answer that
+            // puts a chart on screen.
+            g_hist_tries++;
+            SeriesInfoInteger(_Symbol, g_hist_tf, SERIES_BARS_COUNT);
+            if(g_hist_tries <= AURION_HIST_QUICK_TRIES)
+              {
+               uint qwait = (uint)(120 * g_hist_tries);
+               if(qwait > 1000) qwait = 1000;
+               g_hist_next = GetTickCount() + qwait;
+               return;
+              }
+            // Still nothing on hand. The range form is the one that
+            // downloads, so go straight to it.
+            g_hist_phase = 1;
             g_hist_tries = 0;
             g_hist_next = 0;
             return;
@@ -802,19 +906,84 @@ void PumpHistory()
         }
       else
         {
-         g_hist_count = n;
-         g_hist_pos = 0;
-         g_hist_tries = 0;
-         g_hist_next = 0;
+         /* Ask for a PERIOD, not for a position.
+          *
+          * CopyRates(symbol, tf, 0, depth, rates) is answered out of
+          * the series this terminal has already built - that is phase
+          * 0 above - and nothing in that call ever makes the terminal
+          * go to the broker for the rest. The date form is a request
+          * for a time RANGE, and a range the terminal does not hold is
+          * what makes it download. That is the whole of "MetaTrader
+          * shows me months and AURION does not".
+          *
+          * The range is the depth expressed in time, because that is
+          * what the depth was converted FROM: the engine sizes it as
+          * calendar days divided by the bar length. Going back
+          * depth x PeriodSeconds therefore asks for the same calendar
+          * window, and the weekends inside it simply come back empty. */
+         datetime stop  = TimeCurrent() + PeriodSeconds(g_hist_tf);
+         datetime begin = (datetime)((long)stop - (long)PeriodSeconds(g_hist_tf) * (long)depth);
+         if((long)begin < 0) begin = 0;
+         int n = CopyRates(_Symbol, g_hist_tf, begin, stop, g_hist_rates);
+         if(n > g_hist_sent)
+           {
+            g_hist_count = n;
+            g_hist_pos = 0;
+            g_hist_tries = 0;
+            g_hist_next = 0;
+           }
+         else
+           {
+            // MetaTrader answers -1 while it is still fetching, which
+            // is the normal first answer for a period it does not
+            // hold. Asking again is what finishes the download, so ask
+            // again - on a widening delay, and not forever.
+            g_hist_tries++;
+            if(g_hist_tries <= AURION_HIST_TRIES)
+              {
+               SeriesInfoInteger(_Symbol, g_hist_tf, SERIES_BARS_COUNT);
+               uint wait = (uint)(250 * g_hist_tries);
+               if(wait > 3000) wait = 3000;
+               g_hist_next = GetTickCount() + wait;
+               return;
+              }
+            if(g_hist_sent > 0)
+              {
+               // Out of patience, but not out of history: the desk is
+               // already drawing the bars this terminal holds, which
+               // is what the trader can see on their own chart. Say
+               // which it is, and leave that chart alone.
+               Print("AURION: ", _Symbol, " ", TfName(g_hist_tf),
+                     " - the broker would not serve the whole period; the desk keeps the ",
+                     g_hist_sent, " bars this terminal holds");
+               g_hist_pos = -1;
+               g_hist_count = 0;
+               g_hist_tries = 0;
+               g_hist_next = 0;
+               ArrayFree(g_hist_rates);
+               return;
+              }
+            // Nothing anywhere. Say so rather than going quiet: an
+            // empty final reply releases the desk to draw what it has
+            // and lets it tell the trader the terminal holds no
+            // history here, which is a different problem from a bridge
+            // that stopped answering.
+            SendHistoryShortfall(depth);
+            g_hist_pos = -1;
+            g_hist_tries = 0;
+            g_hist_next = 0;
+            return;
+           }
         }
      }
    int start = g_hist_pos;
-   int endd = start + 60;
+   int endd = start + AURION_HIST_CHUNK;
    if(endd > g_hist_count) endd = g_hist_count;
    int digits = (int)SymbolInfoInteger(_Symbol, SYMBOL_DIGITS);
    string json = "{\"type\":\"candles\"," + TapeTag() + ",\"symbol\":\"" + JsonEsc(_Symbol) + "\",";
    json += "\"timeframe\":" + IntegerToString(PeriodSeconds(g_hist_tf) / 60) + ",";
    json += "\"timeframe_name\":\"" + TfName(g_hist_tf) + "\",";
+   json += "\"chart_timeframe\":\"" + TfName(_Period) + "\",";
    json += "\"replace\":" + (start == 0 ? "true" : "false") + ",";
    json += "\"final\":" + (endd >= g_hist_count ? "true" : "false") + ",";
    if(endd >= g_hist_count)
@@ -843,9 +1012,24 @@ void PumpHistory()
    g_hist_pos = endd;
    if(endd >= g_hist_count)
      {
+      int streamed = g_hist_count;
       g_hist_pos = -1;
       g_hist_count = 0;
       ArrayFree(g_hist_rates);
+      if(g_hist_phase == 0)
+        {
+         g_hist_sent = streamed;
+         // The desk has a chart now. If it is shallower than what was
+         // asked for, go and fetch the rest as a period: that download
+         // can take a minute, and nothing is waiting on it any more.
+         if(streamed < HistDepth())
+           {
+            g_hist_phase = 1;
+            g_hist_pos = 0;
+            g_hist_tries = 0;
+            g_hist_next = GetTickCount() + 50;
+           }
+        }
      }
   }
 

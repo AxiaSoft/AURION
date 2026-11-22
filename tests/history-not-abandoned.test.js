@@ -71,17 +71,19 @@ function mqlFn(name) {
 
 check("a 'not yet' from CopyRates is no longer the end of the request", () => {
   const body = mqlFn("PumpHistory");
-  const at = body.indexOf("if(n <= 0)");
-  if (at < 0) throw new Error("the CopyRates failure branch is gone");
+  const at = body.indexOf("if(n > g_hist_sent)");
+  if (at < 0) throw new Error("the date-range branch is gone");
   const branch = body.slice(at, at + 3000);
   if (!/g_hist_tries\+\+/.test(branch)) throw new Error("the attempt is not counted");
   if (!/AURION_HIST_TRIES/.test(branch)) throw new Error("there is no ceiling on the attempts");
   /* Out of patience is not the same as having nothing. The range the
      engine asked for may be more than this broker will serve, and the
      bars the terminal does hold are still what the trader can see on
-     their own chart - so they are sent rather than thrown away. */
-  if (!/CopyRates\(_Symbol, g_hist_tf, 0, depth, g_hist_rates\)/.test(branch)) {
-    throw new Error("a period the broker refuses now returns nothing at all");
+     their own chart - so they are kept rather than thrown away. Since
+     1.22 those bars have already been SENT, by phase one, so what is
+     checked here is that running out of patience does not wipe them. */
+  if (!/g_hist_sent > 0/.test(branch)) {
+    throw new Error("a period the broker refuses now discards the bars already on screen");
   }
   /* The abandon must be reachable ONLY after the ceiling. A bare
      `g_hist_pos = -1; return;` before the retry is the original bug. */
@@ -90,6 +92,78 @@ check("a 'not yet' from CopyRates is no longer the end of the request", () => {
   if (giveUp < 0) throw new Error("the request never ends, even out of patience");
   if (retry < 0 || retry > giveUp) throw new Error("it still abandons the request before trying again");
   return "counted, capped, and retried before it gives up";
+});
+
+/* ── 1.22: an answer now comes in two halves ──────────────────────── */
+
+check("the bars already in the terminal are sent before the download", () => {
+  /* The reported fault: switching timeframe in the desk drew nothing
+     until the MetaTrader chart was put on the same timeframe by hand.
+     A date-range CopyRates for a timeframe this chart has never been
+     opened on is answered -1 for as long as the download takes, which
+     is longer than the engine waits - so the one-and-only answer
+     arrived after everyone had given up. Phase one answers out of the
+     series instead: instant on any timeframe, and marked final, so the
+     waiting request is released with a chart on it. */
+  const body = mqlFn("PumpHistory");
+  if (!/g_hist_phase == 0/.test(body)) throw new Error("there is only one phase again");
+  const at = body.indexOf("if(g_hist_phase == 0)");
+  /* Phase one ends where the date-range branch begins; the plain
+     `else` in between belongs to `if(held > 0)`, so it is the wrong
+     place to cut. */
+  const quick = body.slice(at, body.indexOf("Ask for a PERIOD", at));
+  if (!/CopyRates\(_Symbol, g_hist_tf, 0, depth, g_hist_rates\)/.test(quick)) {
+    throw new Error("phase one does not read the series the terminal already holds");
+  }
+  if (!/AURION_HIST_QUICK_TRIES/.test(quick)) {
+    throw new Error("phase one has no ceiling of its own, so it can block as long as a download");
+  }
+  const m = /#define AURION_HIST_QUICK_TRIES (\d+)/.exec(EA);
+  if (!m) throw new Error("AURION_HIST_QUICK_TRIES is not defined");
+  let ms = 0;
+  for (let i = 1; i <= Number(m[1]); i += 1) ms += Math.min(1000, 120 * i);
+  if (ms > 8000) throw new Error("phase one waits " + Math.round(ms / 1000) + "s before the desk sees anything");
+  return Number(m[1]) + " quick attempts ≈ " + (ms / 1000).toFixed(1) + "s, then the range is asked for";
+});
+
+check("the deep period is still fetched, behind the chart that is already up", () => {
+  const body = mqlFn("PumpHistory");
+  if (!/CopyRates\(_Symbol, g_hist_tf, begin, stop, g_hist_rates\)/.test(body)) {
+    throw new Error("nothing asks for a date range any more, so nothing ever downloads");
+  }
+  /* Phase one finishing must hand over to phase two whenever it was
+     short of the ask - otherwise the desk keeps the handful of bars
+     the terminal happened to hold and six months never arrives. */
+  if (!/streamed < HistDepth\(\)[\s\S]{0,200}g_hist_phase = 1/.test(body)) {
+    throw new Error("a short first answer is never followed by the deeper fetch");
+  }
+  /* And the deep answer must REPLACE rather than append, or the desk
+     would draw the shallow bars twice. */
+  if (!/\\"replace\\":" \+ \(start == 0 \? "true" : "false"\)/.test(body)) {
+    throw new Error("the second answer does not replace the first");
+  }
+  if (!/n > g_hist_sent/.test(body)) {
+    throw new Error("the deep answer is accepted even when it is no deeper than what is already drawn");
+  }
+  return "phase two re-sends the whole series with replace:true";
+});
+
+check("history is streamed fast enough to beat the engine's patience", () => {
+  const m = /#define AURION_HIST_CHUNK (\d+)/.exec(EA);
+  if (!m) throw new Error("AURION_HIST_CHUNK is not defined");
+  const chunk = Number(m[1]);
+  if (chunk < 150) throw new Error("only " + chunk + " bars a message; six months would dribble out for minutes");
+  const timer = mqlFn("OnTimer");
+  if (!/EventSetMillisecondTimer\(25\)/.test(timer)) {
+    throw new Error("the timer does not speed up while history is in flight");
+  }
+  if (!/for\(int k = 0; k < \d+ && g_hist_pos >= 0; k\+\+\)/.test(timer)) {
+    throw new Error("only one chunk goes per timer pass");
+  }
+  if (!/g_hist_pos < 0[\s\S]{0,80}EventSetMillisecondTimer\(400\)/.test(timer)) {
+    throw new Error("the fast timer is never given back");
+  }
+  return chunk + " bars a chunk, several chunks a pass, 25ms while streaming";
 });
 
 check("the retry waits, and the wait widens", () => {

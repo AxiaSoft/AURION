@@ -471,20 +471,25 @@ check("the EA version moves for behaviour, and only for behaviour", () => {
   /* This pinned 1.19 because the change it was written for was a
      comment, and a version bump costs every user a recompile by hand.
      1.20 retried a history request that MetaTrader answers with "not
-     yet". 1.21 is the one that makes the retry worth anything: the
-     request is a DATE RANGE now, because the position form of
-     CopyRates is answered out of the series the terminal has already
-     built and never makes it download more - which is why MetaTrader
-     could scroll back months while the desk drew weeks. That is a
-     change the engine can see, so the number moves; the pin is kept,
-     just moved, so the NEXT comment cannot drift it. */
-  if (!/#define AURION_EA_VERSION "1\.21"/.test(ea)) {
+     yet". 1.21 made the request a DATE RANGE, because the position
+     form of CopyRates is answered out of the series the terminal has
+     already built and never makes it download more - which is why
+     MetaTrader could scroll back months while the desk drew weeks.
+     1.22 sends BOTH: the series first, so a timeframe the MetaTrader
+     chart is not on still draws at once, and the range behind it, so
+     the months still arrive. Each of those is a change the engine can
+     see, so the number moves; the pin is kept, just moved, so the
+     NEXT comment cannot drift it. */
+  if (!/#define AURION_EA_VERSION "1\.22"/.test(ea)) {
     throw new Error("the version moved again; bump it only for a change the engine can see");
   }
   if (!/PumpHistory/.test(ea) || !/AURION_HIST_TRIES/.test(ea)) {
-    throw new Error("1.21 claims a retry the expert does not have");
+    throw new Error("1.22 claims a retry the expert does not have");
   }
-  /* The whole point of 1.21, asserted rather than described. */
+  /* Both halves of 1.22, asserted rather than described. */
+  if (!/CopyRates\(_Symbol, g_hist_tf, 0, depth, g_hist_rates\)/.test(ea)) {
+    throw new Error("the bars the terminal already holds are not sent first");
+  }
   if (!/CopyRates\(_Symbol, g_hist_tf, begin, stop, g_hist_rates\)/.test(ea)) {
     throw new Error("the history request is not asked for as a period");
   }

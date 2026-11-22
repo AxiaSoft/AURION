@@ -726,7 +726,7 @@ check("the light-mode console rule actually beats the skin layer", () => {
 
 check("the browser is forced to pick up every file that changed", () => {
   const html = read("index.html");
-  const want = ["js/skins.js?v=desk99", "js/themes.js?v=desk191", "js/app.js?v=desk259", "js/api.js?v=desk221",
+  const want = ["js/skins.js?v=desk99", "js/themes.js?v=desk191", "js/app.js?v=desk260", "js/api.js?v=desk221",
     "css/themes.css?v=desk201", "css/app.css?v=desk256", "css/skins.css?v=desk234",
     /* The chart sheet changed too. Its files were not listed here, so
        a phone with the old chart-tools.js cached would have kept a
@@ -748,7 +748,7 @@ check("the browser is forced to pick up every file that changed", () => {
        be a calendar with no reminder in it at all. */
     "js/calendar.js?v=desk235"];
   want.forEach((w) => { if (!html.includes(w)) throw new Error("index.html is missing " + w); });
-  if (!read("sw.js").includes("aurion-shell-v228")) throw new Error("the service worker cache was not bumped");
+  if (!read("sw.js").includes("aurion-shell-v229")) throw new Error("the service worker cache was not bumped");
 });
 
 /* ----------------------------------------------------------------- report */

@@ -15125,10 +15125,25 @@ function onLive(msg) {
     const d = msg.data || msg;
     noteHistoryDepth(d.symbol, d.timeframe, d.depth);
     if ((d.symbol === S.symbol || !S.symbol) && (d.timeframe === S.timeframe || !d.timeframe || !S.timeframe)) {
-      if (d.symbol) S.symbol = d.symbol;
-      if (d.timeframe) S.timeframe = d.timeframe;
-      S.candles = d.bars || [];
-      if (S.chart) S.chart.setBars(S.candles);
+      /* A broadcast never SHORTENS the chart.
+         These arrive unasked - one per history answer the engine
+         serves anyone, including the small priming pull it does for
+         a chart nobody is looking at - and they replace the series
+         wholesale. A trader who had just dragged six months into view
+         would watch it snap back to a few hundred bars. Deeper wins;
+         equal or shallower is ignored, and the live `candle` stream
+         keeps the right-hand edge current either way. */
+      const incoming = d.bars || [];
+      const same = d.symbol === S.symbol && d.timeframe === S.timeframe;
+      const held = (S.candles || []).length;
+      const deeper = !same || !held || incoming.length >= held
+        || String((incoming[0] || {}).time || "") < String((S.candles[0] || {}).time || "");
+      if (deeper) {
+        if (d.symbol) S.symbol = d.symbol;
+        if (d.timeframe) S.timeframe = d.timeframe;
+        S.candles = incoming;
+        if (S.chart) S.chart.setBars(S.candles);
+      }
     }
   }
   if (msg.type === "account") {
