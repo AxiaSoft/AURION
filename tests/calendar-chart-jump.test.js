@@ -148,6 +148,38 @@ check("pressing it remembers the moment and opens the EA chart", () => {
   return "pending moment, then openChartDesk";
 });
 
+check("the chart arrives full screen, as it does from every other door", () => {
+  /* Opening a chart from the grid fills the screen. Arriving from the
+     calendar did not, because the flag was simply not passed, so the
+     same chart looked like a smaller feature depending on which door
+     was used. */
+  const f = liftFn(APP, "openCalendarMoment");
+  if (!/openChartDesk\(symbol, timeframe, \{ fullscreen: true \}\)/.test(f)) {
+    throw new Error("the calendar opens the chart windowed");
+  }
+  return "fullscreen: true, the same as the chart grid";
+});
+
+check("the jump survives the view the workspace opens with", () => {
+  /* showSpan() parks the window back at the live edge, which is the
+     exact opposite of "take me to this date". It runs on every mount,
+     so the order of the two is the whole feature. */
+  const at = APP.indexOf("S.chart.showSpan === \"function\" && !S.pendingMoment");
+  if (at < 0) throw new Error("the opening span still overrides a requested date");
+  const after = APP.slice(at, at + 500);
+  if (!/if \(S\.pendingMoment\) goPendingMoment\(\);/.test(after)) {
+    throw new Error("nothing jumps once the bars are actually on the chart");
+  }
+  const f = liftFn(APP, "goPendingMoment");
+  if (!/if \(!\(S\.chart\.bars \|\| \[\]\)\.length\) return;/.test(f)) {
+    throw new Error("an empty chart would be reported as a terminal with no archive");
+  }
+  if (/S\.pendingMoment = null[\s\S]{0,200}S\.chart\.bars \|\| \[\]/.test(f)) {
+    throw new Error("the request is disarmed before the chart can honour it");
+  }
+  return "span, then bars, then the jump";
+});
+
 check("the jump is attempted when the bars exist, not before", () => {
   /* The chart is mounted before its candles have been fetched, so one
      call site is never enough. */
@@ -246,6 +278,68 @@ check("the moment is pointed at, not just scrolled to", () => {
   if (!/this\.timeMark/.test(f)) throw new Error("it does not read the marked instant");
   if (!/clearTimeMark\(\)/.test(CHARTS)) throw new Error("the mark can never be taken off");
   return "a dashed line and a pennant, from timeMark";
+});
+
+/* ── the popover a tap opens must stay open ───────────────────────── */
+
+check("a scroll repositions the card instead of destroying it", () => {
+  /* Reported: on the phone a tap on a day flashes the window up and it
+     vanishes, and it takes a second tap - the same on a desktop.
+     Choosing a day rewrites the day panel, whose list of releases is a
+     scroller; its scrollTop snapping back to zero is a scroll event,
+     arriving milliseconds after the tap that opened the card. The old
+     handler closed the card on any scroll from anywhere. */
+  const h = CAL.slice(CAL.indexOf("const follow = ()"), CAL.indexOf("on(document, \"pointerdown\""));
+  if (!h) throw new Error("the follow/scroll handlers are gone");
+  if (!/placePop\(node, popCell\)/.test(h)) throw new Error("a scroll no longer re-places the card");
+  if (!/getBoundingClientRect\(\)/.test(h)) throw new Error("it closes without looking at where the cell is");
+  if (!/closest\("#cal-day"\)/.test(h)) {
+    throw new Error("rewriting the day panel still counts as the ground moving");
+  }
+  if (!/if \(!popKey\) return;/.test(h)) throw new Error("it runs with no popover open");
+  /* resize is the same event in disguise on a phone: the URL bar
+     sliding away resizes the window mid-read. */
+  if (!/on\(window, "resize", follow\)/.test(CAL)) throw new Error("a resize still closes the card outright");
+  return "follow the cell, close only once it has left the screen";
+});
+
+check("one set of global handlers, however often the grid is rebuilt", () => {
+  /* Each stale copy carries its own closePop, and closePop removes
+     whichever #cal-pop it finds - so after one month change a scroll
+     took down a popover belonging to the handler still in use. */
+  if (!/this\._off\.forEach/.test(CAL)) throw new Error("previous handlers are never removed");
+  if (!/removeEventListener/.test(CAL)) throw new Error("nothing is ever unbound");
+  for (const bad of ['document.addEventListener("pointerdown"', 'window.addEventListener("scroll"',
+    'window.addEventListener("resize"']) {
+    if (CAL.includes(bad)) throw new Error("a global handler is still registered without a way back: " + bad);
+  }
+  return "bind() sweeps what the previous bind() left";
+});
+
+check("a tap opens the day on the lift, not on the invented click", () => {
+  const i = CAL.indexOf('pane?.addEventListener("touchend"');
+  if (i < 0) throw new Error("touchend does nothing but clear a timer");
+  const h = CAL.slice(i, i + 600);
+  if (!/openPop\(el, true\)/.test(h)) throw new Error("the lift does not open the card");
+  if (!/touchMoved/.test(h)) throw new Error("a scroll of the grid would open a day");
+  /* The mouse events a browser invents after a tap must not re-enter
+     the hover path and queue a second open for the same cell. */
+  if (!/const TOUCH_ECHO_MS = \d+;/.test(CAL)) throw new Error("nothing marks the echo window");
+  if (!/Date\.now\(\) - touchedAt < TOUCH_ECHO_MS/.test(CAL)) {
+    throw new Error("the synthetic hover still competes with the finger");
+  }
+  return "touchend selects and pins; the echo is ignored";
+});
+
+check("hover still opens it on a pointer, and a click still pins it", () => {
+  if (!/openTimer = setTimeout\(\(\) => \{ openTimer = 0; openPop\(el, false\); \}, POP_OPEN_MS\)/.test(CAL)) {
+    throw new Error("hover no longer previews");
+  }
+  const click = CAL.slice(CAL.indexOf('pane?.addEventListener("click"'), CAL.indexOf('/* Hover and keyboard focus'));
+  if (!/select\(el\.dataset\.day\)/.test(click) || !/openPop\(el, true\)/.test(click)) {
+    throw new Error("a click no longer chooses the day and pins the card");
+  }
+  return "both ways in, as asked";
 });
 
 /* ── 4. the download, while it is happening ───────────────────────── */

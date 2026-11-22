@@ -873,6 +873,22 @@ const Calendar = {
   bind(root) {
     const $$ = (s) => root.querySelector(s);
     const pane = $$("#cal-pane");
+
+    /* Whatever a previous bind() left on document and window.
+     *
+     * bind() runs again on every month change, every calendar-system
+     * change and every time the view is mounted, and the popover's
+     * handlers are global - so they accumulated. Each stale copy keeps
+     * its own closePop, and closePop removes whichever #cal-pop it can
+     * find: after a single month change, a scroll anywhere on the page
+     * took down a popover that belonged to the handler still in use.
+     * Registered through on() below so there is exactly one set. */
+    if (Array.isArray(this._off)) this._off.forEach((fn) => { try { fn(); } catch (_) { /* gone */ } });
+    this._off = [];
+    const on = (target, type, fn, opts) => {
+      target.addEventListener(type, fn, opts);
+      this._off.push(() => target.removeEventListener(type, fn, opts));
+    };
     /* The day panel. It no longer carries a backtest offer, but it is
        still what a clicked day fills. */
     const day = $$("#cal-day");
@@ -973,6 +989,9 @@ const Calendar = {
     const POP_OPEN_MS = 140;    /* hover before it opens - not instant */
     const POP_GRACE_MS = 260;   /* crossing the gap must not close it */
     const POP_HOLD_MS = 420;    /* a press that counts as press-and-hold */
+    /* How long the mouse events a browser invents after a tap keep
+       arriving. Anything in this window is the finger, not a pointer. */
+    const TOUCH_ECHO_MS = 700;
 
     let popKey = "";
     let popPinned = false;
@@ -1088,24 +1107,52 @@ const Calendar = {
       closePop();
     };
     const onKey = (e) => { if (e.key === "Escape" && popKey) closePop(); };
-    document.addEventListener("pointerdown", onAway, true);
-    document.addEventListener("keydown", onKey, true);
-    window.addEventListener("resize", closePop);
-    /* Scrolling the PAGE moves the cell, and the card is position:fixed
-       beside it, so it would be left hanging next to nothing.
 
-       Scrolling INSIDE the card is the opposite: it is the reader
-       working through a busy day's releases, which is the whole reason
-       the list scrolls. A capture listener on window sees both, so the
-       one that comes from the card is let through - otherwise the
-       first drag down the list on a phone dismissed the thing being
-       read. */
-    const onScroll = (e) => {
-      const t = e.target;
-      if (t && t.closest && t.closest("#cal-pop")) return;
-      closePop();
+    /* The ground moved: follow it, do not give up.
+     *
+     * This used to close the popover on any scroll and on any resize,
+     * because the card is position:fixed beside a cell and would
+     * otherwise be left hanging next to nothing. That was too blunt in
+     * both directions, and it is the whole of the reported fault -
+     * "on the phone I tap a day, the window flashes up and vanishes,
+     * and I have to tap again" (the same on a desktop).
+     *
+     * A scroll event is fired by any scrollable element, not only by
+     * the page, and selecting a day REWRITES the day panel: its list
+     * of releases is a scroller, its scrollTop snaps back to zero, and
+     * that is a scroll event - arriving a few milliseconds after the
+     * tap that opened the card. The second tap worked because the same
+     * day was already selected, so nothing was rewritten and nothing
+     * scrolled.
+     *
+     * So the question is no longer "did something scroll" but "where
+     * is the cell now": the card is put back beside it, and it is only
+     * closed once the cell itself has left the screen. Which also
+     * fixes the phone's own resize - the URL bar sliding away is a
+     * resize, and it was closing the card in the middle of reading. */
+    const follow = () => {
+      const node = popNode();
+      if (!node || !popCell) return;
+      if (!document.body.contains(popCell)) { closePop(); return; }
+      const r = popCell.getBoundingClientRect();
+      const vw = window.innerWidth || 1024;
+      const vh = window.innerHeight || 768;
+      if (r.bottom <= 0 || r.top >= vh || r.right <= 0 || r.left >= vw) { closePop(); return; }
+      placePop(node, popCell);
     };
-    window.addEventListener("scroll", onScroll, true);
+    const onScroll = (e) => {
+      if (!popKey) return;
+      const t = e.target;
+      /* Inside the card is the reader working through a busy day, and
+         inside the day panel is the rewrite described above. Neither
+         moves the cell. */
+      if (t && t.closest && (t.closest("#cal-pop") || t.closest("#cal-day"))) return;
+      follow();
+    };
+    on(document, "pointerdown", onAway, true);
+    on(document, "keydown", onKey, true);
+    on(window, "resize", follow);
+    on(window, "scroll", onScroll, true);
 
     /* The desk calls unpin() on every view change, and a rerender
        replaces the grid under an open card. */
@@ -1183,6 +1230,12 @@ const Calendar = {
     pane?.addEventListener("mouseover", (e) => {
       const el = e.target.closest(".cal-cell");
       if (!el || !pane.contains(el) || popPinned) return;
+      /* A touch screen sends mouseover and mousemove of its own after
+         every tap. Letting the hover path run on those means a finger
+         competes with itself: the tap opens the card pinned and the
+         synthetic hover immediately queues another open for the same
+         cell. Ignored for as long as a tap can still be echoing. */
+      if (Date.now() - touchedAt < TOUCH_ECHO_MS) return;
       if (el === popCell) { clearTimers(); return; }
       clearTimers();
       openTimer = setTimeout(() => { openTimer = 0; openPop(el, false); }, POP_OPEN_MS);
@@ -1196,19 +1249,39 @@ const Calendar = {
       if (!pane.contains(e.relatedTarget) && !popPinned) shutSoon();
     });
 
-    /* Press and hold, for the hand that has no pointer to hover with.
-       A tap still selects, because the click handler above runs on
-       release; the hold only decides whether the card was already open
-       by then. Any movement is a scroll, not a press. */
+    /* Touch opens the card on the lift, not on the synthetic click.
+     *
+     * A tap used to rely on the click event the browser makes up
+     * afterwards, which arrives up to 300ms later on some engines -
+     * long enough to read as "nothing happened, tap again". The lift
+     * does it directly; the click that follows finds the same day
+     * already open and only re-pins it.
+     *
+     * Any movement is a scroll, not a tap, so the hold is cleared and
+     * the lift does nothing.
+     *
+     * touchedAt is what keeps the synthetic mouse events that follow a
+     * tap out of the hover path above. */
+    let touchedAt = 0;
+    let touchMoved = false;
+    pane?.addEventListener("touchend", (e) => {
+      const el = e.target.closest && e.target.closest(".cal-cell");
+      touchedAt = Date.now();
+      clearHold();
+      if (!el || !pane.contains(el) || touchMoved) return;
+      select(el.dataset.day);
+      openPop(el, true);
+    }, { passive: true });
     pane?.addEventListener("touchstart", (e) => {
       const el = e.target.closest(".cal-cell");
+      touchedAt = Date.now();
+      touchMoved = false;
       if (!el || !pane.contains(el)) return;
       clearHold();
       holdTimer = setTimeout(() => { holdTimer = 0; openPop(el, true); }, POP_HOLD_MS);
     }, { passive: true });
-    pane?.addEventListener("touchmove", clearHold, { passive: true });
-    pane?.addEventListener("touchend", clearHold, { passive: true });
-    pane?.addEventListener("touchcancel", clearHold, { passive: true });
+    pane?.addEventListener("touchmove", () => { touchMoved = true; clearHold(); }, { passive: true });
+    pane?.addEventListener("touchcancel", () => { touchMoved = true; clearHold(); }, { passive: true });
 
     /* The cells are real buttons now, so Enter and Space already activate
        them. Arrow keys are what a grid still has to add. */

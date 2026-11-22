@@ -14589,10 +14589,15 @@ function bindChartDesk() {
         S.chart.setBars(S.candles);
         /* Open on the period the trader last picked, not on the
            120-bar default: holding six months and showing a day and a
-           half of it is the bug this pairs with. */
-        if (typeof S.chart.showSpan === "function") {
+           half of it is the bug this pairs with.
+           Skipped when a date was asked for from the calendar, because
+           showSpan parks the window back at the live edge and that is
+           the opposite of what was just requested. */
+        if (typeof S.chart.showSpan === "function" && !S.pendingMoment) {
           S.chart.showSpan(barsForDays(S.chartFocus.timeframe, chartDays()));
         }
+        // Now that there are bars to land on - see goPendingMoment.
+        if (S.pendingMoment) goPendingMoment();
       }
       const t = S.snap?.ticks?.[S.chartFocus.symbol];
       if (S.chart && t) S.chart.setTick(t);
@@ -14968,7 +14973,12 @@ function openCalendarMoment(dayKey, at) {
   // Read once the chart is mounted and its bars are in - see goPendingMoment.
   S.pendingMoment = { symbol, timeframe, at: when, day: String(dayKey || "") };
   if (typeof Calendar !== "undefined" && typeof Calendar.unpin === "function") Calendar.unpin();
-  openChartDesk(symbol, timeframe);
+  /* Full screen, like every other way into a chart.
+     Opening one from the chart grid fills the screen; arriving from the
+     calendar did not, because the flag was simply not passed - so the
+     same chart looked like a different, smaller feature depending on
+     which door was used. */
+  openChartDesk(symbol, timeframe, { fullscreen: true });
 }
 
 /* How far back the chart has to reach to show that day, in bars of the
@@ -14984,6 +14994,12 @@ async function goPendingMoment() {
   if (!want || !S.chart || !S.chartFocus) return;
   if (want.symbol !== S.chartFocus.symbol) return;
   if (typeof S.chart.goToTime !== "function") { S.pendingMoment = null; return; }
+  /* The chart can exist before it has been handed any bars - mounting
+     the workspace builds the canvas and only then fetches the candles -
+     and jumping inside an empty chart would report "your terminal does
+     not hold that date" about a chart that holds nothing at all. Left
+     armed on purpose, for the call that follows setBars. */
+  if (!(S.chart.bars || []).length) return;
   const reaches = () => {
     const first = (S.candles || [])[0];
     const t = first && Date.parse(String(first.time || "").replace(" ", "T"));
