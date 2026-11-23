@@ -55,6 +55,9 @@ function makeCtx() {
     beginPath: rec("beginPath"), moveTo: rec("moveTo"), lineTo: rec("lineTo"),
     closePath: rec("closePath"), stroke: rec("stroke"), fill: rec("fill"),
     fillRect: rec("fillRect"), strokeRect: rec("strokeRect"), arc: rec("arc"),
+    // The equity curve fills its profit and loss halves separately,
+    // each clipped to its own side of the starting line.
+    rect: rec("rect"), clip: rec("clip"),
     setLineDash: rec("setLineDash"), save: rec("save"), restore: rec("restore"),
     fillText: rec("fillText"),
     createLinearGradient: () => ({ addColorStop() {} }),

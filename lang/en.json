@@ -2021,7 +2021,8 @@
     "mt5_unreachable": "MetaTrader 5 is not reachable. AURION will not fabricate a fill.",
     "engine_offline": "The Python engine is offline.",
     "premium_required": "This feature is part of the paid plan.",
-    "backtest_idle": "No backtest is running."
+    "backtest_idle": "No backtest is running.",
+    "unknown_endpoint": "This desk's server is older than the page it gave you, so it does not know this request yet. Close AURION and start it again — the update is already on disk."
   },
   "blocker": {
     "mt5_down": "MetaTrader is not connected",
