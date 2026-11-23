@@ -168,6 +168,23 @@ async function main() {
     news.ok && news.data && Number(news.data.count) > 0 && Array.isArray(news.data.events),
     `/api/news -> ${news.data && news.data.count} events from ${news.data && news.data.source}`);
 
+  /* The build stamp. This read used to land in the catch-all, which
+     answers {ok:true,data:[]} - truthy, so the desk accepted it, found
+     no date inside and stamped the demo with whatever day the visitor
+     happened to open it. A build identifier that changes overnight,
+     on a page where nothing was rebuilt, is not an identifier. */
+  const meta = await window.fetch("/api/meta").then((r) => r.json());
+  check("the demo states its own build rather than borrowing the clock",
+    Boolean(meta && meta.ok && meta.data && /^\d{4}-\d{2}-\d{2}$/.test(String(meta.data.build_date || ""))
+      && String(meta.data.build_seq || "") === "01"),
+    meta && meta.data ? `${meta.data.build_date} #${meta.data.build_seq}` : "no meta");
+
+  const demoJs = fs.readFileSync(path.join(ROOT, "apps/web/js/demo.js"), "utf8");
+  check("the demo build date is a constant, not the visitor's clock",
+    /const DEMO_BUILD_DATE = "\d{4}-\d{2}-\d{2}"/.test(demoJs)
+    && /build_date: DEMO_BUILD_DATE/.test(demoJs),
+    (/const DEMO_BUILD_DATE = "([\d-]+)"/.exec(demoJs) || [])[1] || "missing");
+
   const mark = $("demo-banner");
   check("the demo says it is a demo", Boolean(mark),
     mark ? mark.textContent.trim().slice(0, 60) : "missing");
