@@ -21,8 +21,14 @@
 
         powershell -ExecutionPolicy Bypass -File scripts\update-build-tree.ps1
 
-    Add -Force to discard local changes (the regenerated icon, a .env you
-    were testing with) and take the branch exactly as it is on GitHub.
+    Local changes do not stop it. A build tree is a deployment, not a
+    place to develop: refusing to update because a file was pasted in to
+    test a fix is how a machine ends up three commits behind while its
+    owner believes it is current. They are written out as a patch under
+    data\local-changes\ first, so nothing is lost and `git apply` brings
+    them back; then the branch is taken exactly as GitHub has it.
+
+    Add -Keep to get the old behaviour: stop, and change nothing.
 
     A file deleted on the branch is deleted here too. `git reset --hard`
     removes the ones git is tracking; this also sweeps away untracked
@@ -44,7 +50,13 @@ param(
     # main: see the note in update-installed-desk.ps1. A default pointing at
     # a deleted working branch is a script that only fails.
     [string] $Branch = "main",
+    # Kept because it is in every note and every habit. It was the way
+    # to say "yes, discard my changes"; that is now what happens anyway,
+    # with the changes saved first, so passing it changes nothing.
     [switch] $Force,
+    # The opposite, for the rare case where this folder really is being
+    # edited: stop, and let the person decide.
+    [switch] $Keep,
     [switch] $Deep
 )
 
@@ -84,14 +96,58 @@ if ($dirty.Count -gt 0) {
     $dirty | Select-Object -First 8 | ForEach-Object { Say "    $_" }
     if ($dirty.Count -gt 8) { Say "    ... and $($dirty.Count - 8) more" }
 
-    if (-not $Force) {
+    if ($Keep) {
         Write-Host ""
-        Warn "Stopping, so none of that is lost."
+        Warn "-Keep given; stopping so none of that is lost."
         Warn "Keep them:     git stash"
-        Warn "Discard them:  run this again with -Force"
+        Warn "Then run this again."
         exit 2
     }
-    Warn "-Force given; these will be discarded."
+
+    # Why this no longer refuses.
+    #
+    # It used to stop and ask for -Force, which is the correct instinct
+    # for a working copy and the wrong one for a build tree. This folder
+    # is a deployment: nobody develops in it, and the "local changes"
+    # are almost always something that was pasted in to test a fix, or a
+    # line-ending difference nobody made on purpose. Refusing turned a
+    # one-command update into the same four-step dance every time -
+    # which is how a machine sat three commits behind while its owner
+    # believed it was current, and read the resulting failures as bugs.
+    #
+    # So it takes the branch. It does not throw the changes away: they
+    # are written out as a patch first, which can be read, kept, or
+    # applied again with `git apply`.
+    $sameButWhitespace = $false
+    try {
+        $realDiff = @(git diff --ignore-all-space --ignore-blank-lines --name-only HEAD 2>$null)
+        $sameButWhitespace = ($realDiff.Count -eq 0)
+    } catch { }
+
+    $stamp = Get-Date -Format "yyyyMMdd-HHmmss"
+    $saveDir = Join-Path $root "data\local-changes"
+    New-Item -ItemType Directory -Path $saveDir -Force | Out-Null
+    $patch = Join-Path $saveDir "$stamp.patch"
+    try {
+        git diff HEAD --binary 2>$null | Out-File -LiteralPath $patch -Encoding utf8
+        if ((Test-Path -LiteralPath $patch) -and ((Get-Item -LiteralPath $patch).Length -gt 0)) {
+            Good "saved to  data\local-changes\$stamp.patch   (git apply that file to get them back)"
+        } else {
+            Remove-Item -LiteralPath $patch -Force -ErrorAction SilentlyContinue
+        }
+    } catch {
+        Warn "could not write the patch: $($_.Exception.Message)"
+    }
+
+    if ($sameButWhitespace) {
+        # Worth naming, because it comes back every single time until
+        # it is fixed, and it is not an edit anybody made.
+        Warn "Those files differ only in whitespace or line endings - nobody edited them."
+        Warn "An editor or a copy/paste rewrote CRLF as LF, or the reverse. Fix it once:"
+        Warn "    git config --global core.autocrlf true"
+    }
+
+    Warn "Taking the branch as it is on GitHub."
 }
 
 # ---------------------------------------------------------------------------
