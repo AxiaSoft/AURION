@@ -25,6 +25,8 @@ const db = require("./db");
 const updater = require("./updater");
 const supervisor = require("./engine-supervisor");
 const support = require("./support-window");
+const buildId = require("./build-id");
+const buildSeq_ = require("./build-seq");
 
 ensureDirs();
 auth.boot();
@@ -206,6 +208,13 @@ app.get("/api/meta", async (req, res) => {
     const stat = fs.statSync(path.join(__dirname, "..", "..", "config", "aurion.json"));
     buildDate = stat.mtime.toISOString().slice(0,10);
   } catch { buildDate = new Date().toISOString().slice(0,10); }
+  /* The release number within that day - the last two digits of the
+     build stamp. Counted off the engine-source fingerprint rather than
+     off this file's mtime, because config/aurion.json is rewritten
+     every time a setting is saved and a trader changing their risk cap
+     is not a new build. See build-seq.js. */
+  let buildSeq = "01";
+  try { buildSeq = buildSeq_.seqFor(buildDate, buildId.diskBuildId()); } catch { /* 01 */ }
   res.json({
     ok: true,
     data: {
@@ -216,6 +225,7 @@ app.get("/api/meta", async (req, res) => {
       languages: ["en", "fa", "ar"],
       version: cfg.version || "1.0.0",
       build_date: buildDate,
+      build_seq: buildSeq,
       engine: await engine.healthy(),
     },
   });

@@ -3467,7 +3467,23 @@ function bindChrome() {
 }
 
 /**
- * The build stamp, written DSK-DDMMYY.
+ * The build stamp, written AURION-YY<M>DD<NN> -- "AURION-26N2301" for
+ * the first build of the 23rd of November 2026.
+ *
+ *   <M>   the English month: its initial where that is unique, and the
+ *         initial plus one lower-case letter where it is not
+ *         (Ap, My, Ju, Jy, Au);
+ *   <NN>  the release number within that day, two digits. A date alone
+ *         cannot separate two builds of the same afternoon, which is
+ *         precisely when somebody is reading a stamp back to support.
+ *         Supplied by the backend, which counts distinct engine-source
+ *         fingerprints seen that day; 01 when nothing better is known.
+ *
+ * It was DSK-DDMMYY. Two things changed and both were asked for: the
+ * prefix now names the product rather than the desk process, and the
+ * date is shortest-first -- year, month as one letter, day -- which is
+ * five characters instead of six and can be read back over a phone
+ * without "is that the third of November or the eleventh of March".
  *
  * The wire format stays ISO (YYYY-MM-DD): it is unambiguous, it sorts,
  * and the backend derives it from a file mtime. Only the display is
@@ -3475,12 +3491,12 @@ function bindChrome() {
  * there is one place to look when the format is questioned.
  *
  * Deliberately not localised. A build stamp is an identifier a user
- * reads back to support, so it has to be the same six digits in every
+ * reads back to support, so it has to be the same characters in every
  * language -- Persian digits in a support ticket help nobody.
  */
 /**
- * How an offered build is named: "v1.0.0 DSK-031126" - the version
- * the release carries, then the build stamp as DSK-ddmmyy.
+ * How an offered build is named: "v1.0.0 AURION-26N03" - the version
+ * the release carries, then the build stamp as AURION-YY<M>DD.
  *
  * It used to read "main@a19a26b", which names a commit. That answers
  * "which commit is this" - a question nobody installing an update is
@@ -3489,16 +3505,15 @@ function bindChrome() {
  *
  * The number comes from the release's own factory config, so it is the
  * version being offered rather than the one already installed, and the
- * stamp is buildTag's existing DSK-DDMMYY, unchanged and still not
- * localised. Either half may be missing without the other becoming
- * nonsense.
+ * stamp is buildTag's own AURION-YY<M>DD, still not localised. Either
+ * half may be missing without the other becoming nonsense.
  */
 function updateStamp(upd) {
   const v = String((upd && upd.version) || "").trim();
   const d = String((upd && upd.build_date) || (upd && upd.published_at) || "").trim();
   const parts = [];
   if (v) parts.push(/^v/i.test(v) ? v : "v" + v);
-  if (d) parts.push(buildTag(d));
+  if (d) parts.push(buildTag(d, upd && upd.build_seq));
   return parts.join(" ") || "-";
 }
 
@@ -3556,16 +3571,40 @@ function fromMainHtml(res) {
   return '<p class="sub upd-from-main">' + esc(I18N.t("upd.from_main")) + "</p>";
 }
 
-function buildTag(iso) {
+function buildTag(iso, seq) {
+  /* The month, as one letter where that is unambiguous and two where
+     it is not.
+     Twelve English month names share seven initials: J for January,
+     June and July, M for March and May, A for April and August. A
+     single letter would make three different builds in a year print
+     the same stamp, which is the one thing an identifier may not do.
+     So the five months that own their initial keep it, and the seven
+     that collide carry a second, lower-case letter chosen to tell them
+     apart -- Ju for June against Jy for July, Ap for April against Au
+     for August. Given exactly, not derived, because "the second letter
+     of the name" produces Ju for both June and July.
+     Kept inside the function on purpose: this is lifted out of the
+     file and run on its own by two test harnesses, and a constant
+     declared beside it would not come with it. */
+  const MONTHS = ["J", "F", "M", "Ap", "My", "Ju", "Jy", "Au", "S", "O", "N", "D"];
   const raw = String(iso || "").trim();
   const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(raw);
   if (!m) {
     /* Never invent a date. If the engine sent something unexpected,
        show it as it came rather than stamping today over it. */
-    return raw ? "DSK-" + raw : "DSK-\u2014";
+    return raw ? "AURION-" + raw : "AURION-\u2014";
   }
   const [, y, mo, d] = m;
-  return `DSK-${d}${mo}${y.slice(2)}`;
+  const letter = MONTHS[Number(mo) - 1];
+  /* A month outside 01-12 is not a date this can shorten; the ISO text
+     goes through untouched rather than becoming "AURION-26undefined". */
+  if (!letter) return "AURION-" + raw;
+  /* Two digits, always. A tail that is sometimes one character and
+     sometimes two is not a format, and 01 is the honest reading for an
+     installation that knows of one build that day. */
+  const n = Math.max(1, Math.min(99, Math.trunc(Number(seq)) || 1));
+  const nn = String(n).padStart(2, "0");
+  return `AURION-${y.slice(2)}${letter}${d}${nn}`;
 }
 
 function copyrightLocale() {
@@ -6567,7 +6606,7 @@ function licenseCardHtml() {
 
       <div class="lic-foot">
         <button class="btn tiny ghost" id="lic-upd" type="button">${I18N.t("license.check_updates")}</button>
-        <span class="sub mono" id="build-tag">${esc(buildTag(S.buildDate))}</span>
+        <span class="sub mono" id="build-tag">${esc(buildTag(S.buildDate, S.buildSeq))}</span>
       </div>
       <p class="sub" id="lic-upd-msg"></p>
     </div>`;
@@ -9405,7 +9444,7 @@ const views = {
           <p class="abx-blurb">${I18N.t("about.blurb")}</p>
           <div class="abx-tags">
             <span class="abx-tag mono">v${esc(ver)}</span>
-            <span class="abx-tag mono">${esc(buildTag(buildDate))}</span>
+            <span class="abx-tag mono">${esc(buildTag(buildDate, S.buildSeq))}</span>
             <span class="abx-tag${L.premium ? " is-pro" : ""}">${esc(L.premium ? planLabel(L) : "Freemium")}</span>
           </div>
           <div class="abx-acts">
@@ -9420,7 +9459,7 @@ const views = {
         <div class="abx-facts">
           ${fact(I18N.t("about.product"), "AURION Live Desk")}
           ${fact(I18N.t("about.version"), "v" + ver, true)}
-          ${fact(I18N.t("about.build"), buildTag(buildDate), true)}
+          ${fact(I18N.t("about.build"), buildTag(buildDate, S.buildSeq), true)}
           ${fact(I18N.t("about.license"), L.premium ? planLabel(L) : "Freemium")}
           ${fact(I18N.t("about.language"), I18N.lang.toUpperCase(), true)}
           ${fact(I18N.t("about.support"), "support@axiasoft")}
@@ -17535,6 +17574,10 @@ async function boot() {
     if(meta && meta.ok && meta.data){
       S.version = meta.data.version || '1.0.0';
       S.buildDate = meta.data.build_date || new Date().toISOString().slice(0,10);
+      /* The release number within that day. Absent on an older backend,
+         and buildTag reads a missing one as the first build of the day
+         rather than printing a gap. */
+      S.buildSeq = meta.data.build_seq || "";
     }
   } catch {}
   const upd = updateCheck(S.version);
@@ -17585,5 +17628,5 @@ async function boot() {
 boot();
 // Say which build this is before anything else can go wrong, so "the
 // change is not there" can be answered without guessing.
-try { console.info("AURION desk build", buildTag(S.buildDate)); } catch (e) { /* no DOM yet */ }
+try { console.info("AURION desk build", buildTag(S.buildDate, S.buildSeq)); } catch (e) { /* no DOM yet */ }
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});

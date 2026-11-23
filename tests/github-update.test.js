@@ -282,12 +282,12 @@ console.log("\n=== what the update panel is told, and what it shows ===");
   vm.runInContext(lift("buildTag") + "\n" + lift("updateStamp") + "\n" + lift("changelogHtml"), box);
 
   const got = box.updateStamp({ version: "1.0.5", build_date: "2026-11-06" });
-  say(got === "v1.0.5 DSK-061126", `v1.0.5 + 2026-11-06 renders as "${got}"`);
-  say(box.updateStamp({ version: "v2.0.0", build_date: "2026-01-02" }) === "v2.0.0 DSK-020126",
+  say(got === "v1.0.5 AURION-26N0601", `v1.0.5 + 2026-11-06 renders as "${got}"`);
+  say(box.updateStamp({ version: "v2.0.0", build_date: "2026-01-02" }) === "v2.0.0 AURION-26J0201",
       "a tag that already starts with v is not given a second one");
   say(box.updateStamp({ version: "1.0.0", build_date: "" }) === "v1.0.0",
       "no date, no empty stamp trailing the version");
-  say(box.updateStamp({ version: "", build_date: "2026-11-06" }) === "DSK-061126",
+  say(box.updateStamp({ version: "", build_date: "2026-11-06" }) === "AURION-26N0601",
       "no version, the build stamp still identifies the build exactly");
   say(box.updateStamp({}) === "-", "nothing at all degrades to a dash, not to 'undefined'");
   say(!/main@|@[0-9a-f]{7}/.test(box.updateStamp({ version: "1.0.0", build_date: "2026-11-06" })),

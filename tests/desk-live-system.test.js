@@ -395,7 +395,7 @@ check("a desk left on the deleted Language tab still opens", () => {
 
 check("the build tag is a real build tag, not a dash", () => {
   // There were two buildTag functions; declarations hoist, so the
-  // second always won and the no-argument calls rendered "DSK-—".
+  // second always won and the no-argument calls rendered a bare dash.
   const defs = appJs.match(/function buildTag\(/g) || [];
   if (defs.length !== 1) throw new Error(defs.length + " buildTag definitions still exist");
   if (/buildTag\(\)/.test(appJs)) throw new Error("a no-argument buildTag() call is left");
@@ -403,7 +403,7 @@ check("the build tag is a real build tag, not a dash", () => {
   win.__T.S.buildDate = "2026-10-30";
   win.document.getElementById("host").innerHTML = win.__T.views.settings();
   const tag = win.document.getElementById("build-tag").textContent;
-  if (tag !== "DSK-301026") throw new Error("build tag reads " + tag);
+  if (tag !== "AURION-26O3001") throw new Error("build tag reads " + tag);
   return tag;
 });
 

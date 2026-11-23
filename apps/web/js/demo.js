@@ -947,6 +947,12 @@
 
   /* ============================================================= router == */
 
+  /* The day this demo build was cut. A constant, not new Date(): the
+     stamp a visitor reads has to be the same one the next visitor
+     reads, and the demo is published, not rebuilt overnight. Moved
+     forward when the fixtures are. */
+  const DEMO_BUILD_DATE = "2026-11-23";
+
   const READONLY = { ok: false, error: "demo", message: "Read-only demo: this action needs the real desk." };
 
   // Returned for reads the demo must visibly not answer, so the caller takes
@@ -1058,6 +1064,30 @@
         last_check: new Date(Date.now() - 2 * 3600 * 1000).toISOString(),
         update_available: false,
         latest: null,
+      } };
+    }
+
+    /* The build stamp, AURION-YY<M>DD<NN>.
+
+       This read used to fall into the catch-all below, which answers
+       {ok:true,data:[]} - truthy, so the desk accepted it, found no
+       build_date and no build_seq inside, and stamped the About page
+       and the settings panel with whatever today happens to be on the
+       visitor's machine. A demo that reports a different build every
+       morning is not reporting a build.
+
+       The date is the demo's own, fixed, and the release number is the
+       first of that day, because the demo is one build: there is no
+       engine behind it whose fingerprint could change. Everything the
+       stamp is made of is therefore stated here rather than guessed
+       from the clock. */
+    if (p === "/api/meta") {
+      return { ok: true, data: {
+        version: "1.0.0",
+        build_date: DEMO_BUILD_DATE,
+        build_seq: "01",
+        languages: ["en", "fa", "ar"],
+        engine: true,
       } };
     }
 
