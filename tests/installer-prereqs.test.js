@@ -1083,7 +1083,9 @@ check("and does not ship the interpreter's installers beside the ready runtime",
 
 check("a release build without the runtime fails instead of shipping quietly",
   /\$needed \+= "runtime-python\.zip"/.test(buildMsi) &&
-  /needed to bundle the engine's/.test(buildMsi));
+  /Find-BuildPython/.test(buildMsi) &&
+  /throw \(\(Get-BuildPythonAdvice\) -join/.test(buildMsi),
+  "the message moved into the shared resolver - the stop did not");
 
 check("the installed copy prefers the wheels it carries over PyPI",
   /--find-links/.test(startPs1) &&
@@ -1183,7 +1185,7 @@ check("...and leaves its evidence where the window does",
 // the wheels because losing them was a yellow line of text on the build
 // machine.
 check("a build cannot quietly ship without the engine's libraries",
-  /throw \("No Python on this build machine, so the engine's wheels cannot be collected/.test(fetchVendor) &&
+  /throw \(\(Get-BuildPythonAdvice\) -join/.test(fetchVendor) &&
   /throw \("pip download failed with code \$code, so the engine's wheels are not in the bundle/.test(fetchVendor),
   "it used to say 'continuing without wheels' and carry on");
 

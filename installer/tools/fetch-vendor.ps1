@@ -262,18 +262,20 @@ if ($SkipWheels) {
     if (-not (Test-Path -LiteralPath $requirements)) {
         Say "engine\requirements.txt is missing - skipping"
     } else {
+        # The shared resolver, not a `py`/`python` guess.
+        #
+        # The guess failed on a machine with python.org 3.12 installed
+        # and working: there was no py launcher, and `python` reached
+        # the Microsoft Store stub, which exits non-zero with nothing
+        # behind it. This step then declared the machine had no Python
+        # and stopped the build - while build-msi.ps1, three screens
+        # earlier, had printed that same stub as the Python it found.
+        . (Join-Path $PSScriptRoot "find-build-python.ps1")
+        $found = Find-BuildPython -RepoRoot $repoRoot
         $pip = $null
-        foreach ($v in @("3.12", "3.11", "3.10")) {
-            try {
-                $null = & py "-$v" -c "import sys" 2>$null
-                if ($LASTEXITCODE -eq 0) { $pip = @("py", "-$v"); break }
-            } catch { }
-        }
-        if (-not $pip) {
-            try {
-                $null = & python -c "import sys" 2>$null
-                if ($LASTEXITCODE -eq 0) { $pip = @("python") }
-            } catch { }
+        if ($found) {
+            $pip = @($found.Argv)
+            Say ("using {0}" -f $found.Exe)
         }
 
         if (-not $pip) {
@@ -283,9 +285,7 @@ if ($SkipWheels) {
             # a bare machine, four attempts, "could not install the engine's
             # libraries", and no way forward. If that trade is wanted it has
             # to be asked for, by name.
-            throw ("No Python on this build machine, so the engine's wheels cannot be collected.`n" +
-                   "  Install CPython 3.12 here, or build with -SkipWheels to ship a bundle that`n" +
-                   "  downloads the engine's libraries on the customer's machine instead.")
+            throw ((Get-BuildPythonAdvice) -join "`n")
         } else {
             $wheels = Join-Path $Destination "wheels"
             New-Item -ItemType Directory -Path $wheels -Force | Out-Null

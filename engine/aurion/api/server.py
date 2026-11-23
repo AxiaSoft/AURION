@@ -180,10 +180,56 @@ async def ticks() -> dict[str, Any]:
 
 
 @app.get("/v1/candles")
-async def candles(symbol: str, timeframe: str = "M15", count: int = 0) -> dict[str, Any]:
+async def candles(
+    symbol: str, timeframe: str = "M15", count: int = 0, before: str = ""
+) -> dict[str, Any]:
     cached = trader.bridge._candles_for(symbol, timeframe)
     if not trader._is_ea_symbol(symbol) and not cached:
         return {"ok": False, "error": "no AurionBridge on that symbol", "data": [], "count": 0, "synthetic": False}
+    # `before`: one slab older than what the desk already holds.
+    #
+    # Without it, going back in time meant asking for a BIGGER newest
+    # window - two months to see the second month, six to see the
+    # sixth - so every drag re-sent everything already on screen and
+    # made the terminal re-serve it. On M1 the last of those requests
+    # is a quarter of a million bars to reveal one more screenful.
+    #
+    # The answer comes out of this installation's own database, which
+    # is where every bar that has ever been downloaded now lives, so
+    # the terminal is not asked at all. Only when the database has
+    # nothing for that stretch does it fall back to the live window.
+    if before:
+        want = count if count > 0 else 500
+        rows = await asyncio.to_thread(
+            trader.store.candles_before, symbol, timeframe, before, want
+        )
+        if not rows:
+            # Nothing on disk for that stretch. The live tape may still
+            # hold it, and failing that the terminal is asked once -
+            # deeper than what is held, because "serve only the newest
+            # candles" must not turn into "the old charts are gone".
+            # Whatever comes back is written to the archive on the way
+            # past, so the same drag never costs a download twice.
+            held = trader.bridge.candles_of(symbol, timeframe)
+            older = [b.to_dict() for b in held if str(b.time) < before]
+            if not older:
+                deep = min(len(held) + want * 2, 300_000)
+                try:
+                    pulled = await trader.bridge.pull_candles(
+                        symbol, timeframe, deep, exact=True
+                    )
+                except Exception:  # noqa: BLE001 - a chart must not 500
+                    pulled = []
+                older = [b for b in pulled if str(b.get("time", "")) < before]
+            rows = older[-want:]
+        return {
+            "ok": True,
+            "data": rows,
+            "count": len(rows),
+            "before": before,
+            "synthetic": False,
+            "depth": trader.bridge.hist_depth(symbol, timeframe),
+        }
     # `exact`: this is the desk asking for the window it is drawing.
     # Without it a chart opened on one month pulled six, which is the
     # start-up stall. count=0 still means "the promise".

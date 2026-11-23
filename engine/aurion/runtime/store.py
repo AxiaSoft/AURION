@@ -743,6 +743,45 @@ class Store:
             (symbol, timeframe, at_least_window(timeframe, limit)),
         )[::-1]
 
+    def candles_before(
+        self, symbol: str, timeframe: str, before: str, limit: int = 500
+    ) -> list[dict[str, Any]]:
+        """The bars immediately OLDER than `before`, oldest first.
+
+        The window a chart draws is the newest few hundred bars, and
+        that is all the desk should ever be sent to open one. Going
+        back used to mean asking for a bigger newest-window - two
+        months to see the second month, six to see the sixth - so the
+        further back a trader dragged, the more of what was already on
+        their screen was sent again. On M1 the last of those requests
+        is a quarter of a million bars to reveal one more screen.
+
+        This is the other half: one slab, older than what is held,
+        read from this installation's own database. Nothing is asked
+        of the terminal, so dragging back through months costs no
+        download at all once the bars have been seen once.
+        """
+        mark = str(before or "").strip()
+        if not mark:
+            return []
+        size = int(limit or 500)
+        size = max(1, min(size, 20000))
+        rows = self.query(
+            "SELECT * FROM candles WHERE symbol=? AND timeframe=? AND ts<? "
+            "ORDER BY ts DESC LIMIT ?",
+            (symbol, timeframe, mark, size),
+        )
+        # Spelt the way the wire spells a bar. The column is `ts` and
+        # every reader of a candle - the desk, the chart, the expert -
+        # calls it `time`; handing back the column name would draw an
+        # empty chart with no error anywhere.
+        out: list[dict[str, Any]] = []
+        for row in reversed(rows):
+            bar = dict(row)
+            bar["time"] = bar.pop("ts", None)
+            out.append(bar)
+        return out
+
     def signals(self, limit: int = 200) -> list[dict[str, Any]]:
         return self.query("SELECT * FROM signals ORDER BY id DESC LIMIT ?", (limit,))
 

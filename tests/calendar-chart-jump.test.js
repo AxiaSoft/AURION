@@ -241,7 +241,7 @@ check("the jump is attempted when the bars exist, not before", () => {
   const sites = (APP.match(/if \(S\.pendingMoment\) goPendingMoment\(\);/g) || []).length;
   if (sites < 2) throw new Error("only " + sites + " place(s) try the jump");
   const f = liftFn(APP, "goPendingMoment");
-  if (!/loadMoreHistory\(\{ bars: barsBackTo\(/.test(f)) {
+  if (!/loadOlderSlab\(/.test(f)) {
     throw new Error("a date outside the loaded window is not fetched before the jump");
   }
   if (!/goToTime\(want\.at/.test(f)) throw new Error("nothing moves the view");
@@ -249,29 +249,122 @@ check("the jump is attempted when the bars exist, not before", () => {
   if (!/calendar\.see_chart_short/.test(f)) {
     throw new Error("a terminal that cannot reach that far back says nothing");
   }
-  return "widen, jump, clear, and report a short archive";
+  return "walk back, jump, clear, and report a short archive";
 });
 
-check("the window asked for is the distance to that day", () => {
+check("the walk back keeps going until the day is covered", () => {
+  /* Reported: pressing a date left the chart on the newest candles.
+     It asked for ONE window sized to the distance - a quarter of a
+     million M1 bars for six months - and when the reply came back the
+     ordinary live window instead, nothing reached the date and the
+     view never moved. Slabs are bounded and repeated, so reaching a
+     date is a walk rather than one impossible request.
+
+     Run, not read: the loop guard survives its own deletion in the
+     source text. */
   const consts = /const TF_MINUTES = \{[^}]*\};/.exec(APP);
   const days = /const HISTORY_DAYS = (\d+);/.exec(APP);
   const cap = /const HISTORY_MAX = (\d+);/.exec(APP);
-  const sandbox = {};
-  vm.createContext(sandbox);
+  const step = 60000; // one M1 bar
+  const stamp = (ms) => new Date(ms).toISOString().slice(0, 19).replace("T", " ");
+  const now = Date.UTC(2026, 9, 5, 12, 0, 0);
+  const want = now - 5000 * step; // five thousand bars back
+
+  const held = [];
+  for (let i = 500; i > 0; i -= 1) held.push({ time: stamp(now - i * step) });
+
+  const box = {
+    console,
+    $: () => null,
+    S: {
+      chartFocus: { symbol: "EURUSD", timeframe: "M1" },
+      candles: held,
+      chart: { bars: held, setBars(b) { box.S.candles = b; box.S.chart.bars = b; }, goToTime(at) { box.landed = at; return true; } },
+      pendingMoment: { symbol: "EURUSD", timeframe: "M1", at: want, day: "2026-10-05" },
+    },
+    calls: [],
+    toast: () => { box.toasted = true; },
+    I18N: { t: (k) => k },
+    API: {
+      get(url) {
+        box.calls.push(url);
+        const before = Date.parse(decodeURIComponent(/before=([^&]+)/.exec(url)[1]).replace(" ", "T") + "Z");
+        const count = Number(/count=(\d+)/.exec(url)[1]);
+        const out = [];
+        for (let i = count; i > 0; i -= 1) out.push({ time: stamp(before - i * step) });
+        return Promise.resolve({ data: out });
+      },
+    },
+  };
+  vm.createContext(box);
   vm.runInContext(
     (consts ? consts[0] : "") + "\n" + (days ? days[0] : "") + "\n" + (cap ? cap[0] : "") + "\n"
-    + liftFn(APP, "barsForDays") + "\n" + liftFn(APP, "barsBackTo")
-    + "\nthis.barsBackTo = barsBackTo;", sandbox);
-  const ninety = Date.now() - 90 * 86400000;
-  const bars = sandbox.barsBackTo("M15", ninety);
-  const reach = (bars * 15) / (24 * 60);
-  if (reach < 90) throw new Error("ninety days back asks for " + reach.toFixed(1) + " days");
-  if (reach > 120) throw new Error("it over-asks: " + reach.toFixed(1) + " days for a 90-day jump");
-  // A deeper timeframe costs fewer bars for the same calendar distance.
-  if (!(sandbox.barsBackTo("M15", ninety) > sandbox.barsBackTo("H4", ninety))) {
-    throw new Error("the ask does not scale with the timeframe");
-  }
-  return Math.round(reach) + " days of M15 for a 90-day jump";
+    + /const HIST_RETRY_MS = \d+;/.exec(APP)[0] + "\n"
+    + /const CHART_OPEN_DAYS = \d+;/.exec(APP)[0] + "\n"
+    + liftFn(APP, "barsForDays") + "\n" + liftFn(APP, "chartDays") + "\n"
+    + liftFn(APP, "historyStep") + "\n" + liftFn(APP, "oldestHeldTime") + "\n"
+    + liftFn(APP, "mergeOlder") + "\n" + liftFn(APP, "noteHistoryDepth") + "\n"
+    + liftFn(APP, "historyDepthOf") + "\n" + liftFn(APP, "noteHistoryProgress") + "\n"
+    + liftFn(APP, "paintHistoryEdge") + "\n" + liftFn(APP, "loadOlderSlab") + "\n"
+    + liftFn(APP, "goPendingMoment")
+    + "\nthis.goPendingMoment = goPendingMoment;", box);
+
+  return box.goPendingMoment().then(() => {
+    if (!box.calls.length) throw new Error("the date was never fetched");
+    const oldest = Date.parse(String(box.S.candles[0].time).replace(" ", "T") + "Z");
+    if (oldest > want) {
+      throw new Error("the walk stopped " + Math.round((oldest - want) / step) + " bars short of the date");
+    }
+    if (box.landed !== want) throw new Error("the view did not move to the date");
+    for (const url of box.calls) {
+      const n = Number(/count=(\d+)/.exec(url)[1]);
+      if (n > 8000) throw new Error("one of the asks is the old enormous window: " + n);
+    }
+    return box.calls.length + " slabs of M1 to reach 5000 bars back";
+  });
+});
+
+check("the walk stops when the history genuinely runs out", () => {
+  const consts = /const TF_MINUTES = \{[^}]*\};/.exec(APP);
+  const now = Date.UTC(2026, 9, 5, 12, 0, 0);
+  const held = [{ time: "2026-10-05 11:59:00" }];
+  const box = {
+    console,
+    $: () => null,
+    S: {
+      chartFocus: { symbol: "EURUSD", timeframe: "M1" },
+      candles: held,
+      chart: { bars: held, setBars() {}, goToTime: () => false },
+      pendingMoment: { symbol: "EURUSD", timeframe: "M1", at: now - 365 * 86400000, day: "2025-10-05" },
+    },
+    calls: [],
+    toast: (k) => { box.toasted = k; },
+    I18N: { t: (k) => k },
+    API: { get(url) { box.calls.push(url); return Promise.resolve({ data: [] }); } },
+  };
+  vm.createContext(box);
+  vm.runInContext(
+    (consts ? consts[0] : "") + "\n" + /const HISTORY_DAYS = \d+;/.exec(APP)[0] + "\n"
+    + /const HISTORY_MAX = \d+;/.exec(APP)[0] + "\n"
+    + /const HIST_RETRY_MS = \d+;/.exec(APP)[0] + "\n"
+    + /const CHART_OPEN_DAYS = \d+;/.exec(APP)[0] + "\n"
+    + liftFn(APP, "barsForDays") + "\n" + liftFn(APP, "chartDays") + "\n"
+    + liftFn(APP, "historyStep") + "\n" + liftFn(APP, "oldestHeldTime") + "\n"
+    + liftFn(APP, "mergeOlder") + "\n" + liftFn(APP, "noteHistoryDepth") + "\n"
+    + liftFn(APP, "historyDepthOf") + "\n" + liftFn(APP, "noteHistoryProgress") + "\n"
+    + liftFn(APP, "paintHistoryEdge") + "\n" + liftFn(APP, "loadOlderSlab") + "\n"
+    + liftFn(APP, "goPendingMoment")
+    + "\nthis.goPendingMoment = goPendingMoment;", box);
+
+  return box.goPendingMoment().then(() => {
+    if (box.calls.length !== 1) {
+      throw new Error("it kept asking after an empty answer (" + box.calls.length + " calls)");
+    }
+    if (box.toasted !== "calendar.see_chart_short") {
+      throw new Error("a terminal that cannot reach that far back said nothing");
+    }
+    return "one ask, then the honest answer";
+  });
 });
 
 /* ── 3. the chart lands on the right candle ───────────────────────── */

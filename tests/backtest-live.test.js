@@ -141,6 +141,11 @@ const konst = (name, fallback) => {
 };
 const api = new Function(
   stub + ['btNormBar', 'btReplayWindow', 'btWatchReplaySize', 'ensureBacktestBars',
+          /* The replay chart can be scrolled and hovered now, so the
+             panel keeps a view and a highlight. Taken from the real
+             source: stubbing them would hide a paint that forgets to
+             reset either between runs. */
+          'btResetReplayView', 'btPannableBars',
           'paintReplay', 'renderBacktestLive', 'paintBacktestLive', 'barsForDays',
           /* The live panel titles itself with the strategy, and a run can
              now name the robot rather than a strategy - which has a label

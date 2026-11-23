@@ -1208,17 +1208,34 @@ wss.on("connection", (socket, req) => {
 
   function connectUpstream() {
     const { host, port } = engine.base();
+    /* The header's engine light is fed from here.
+     *
+     * This socket is a proxy of the engine's own stream, so this
+     * process learns that the engine has gone the instant the TCP
+     * connection drops - seconds before any poll would. It was
+     * already telling the browser on a clean close; it was silent on
+     * the two cases that matter more. A refused connection (the
+     * engine is not listening at all) closed the browser's socket
+     * with no explanation, and a successful one said nothing, so
+     * recovery waited for the next twelve-second snapshot. Both are
+     * one line. */
+    const tell = (state) => {
+      if (socket.readyState !== 1) return;
+      try { socket.send(JSON.stringify({ type: "engine", data: { state } })); } catch { /* */ }
+    };
     upstream = new (require("ws"))(`ws://${host}:${port}/v1/stream`);
+    upstream.on("open", () => tell("online"));
     upstream.on("message", (buf) => {
       if (socket.readyState === 1) socket.send(buf.toString());
     });
     upstream.on("close", () => {
       if (socket.readyState === 1) {
-        try { socket.send(JSON.stringify({ type: "engine", data: { state: "offline" } })); } catch { /* */ }
+        tell("offline");
         socket.close();
       }
     });
     upstream.on("error", () => {
+      tell("offline");
       try { socket.close(); } catch { /* */ }
     });
     socket.on("message", (buf) => {

@@ -6331,6 +6331,54 @@ input[type="search"]::-webkit-search-results-decoration{
 }
 .bt-replay-note[hidden]{ display:none }
 
+/* ----- reading the two backtest charts -----
+ *
+ * The curve and the replay were pictures: correct, drawn from real
+ * output, and impossible to ask a question of. Both now answer a
+ * pointer and a fingertip, so these are the manners of that answer.
+ *
+ * touch-action matters more than it looks. The replay is dragged
+ * sideways to move through the window, so it claims horizontal
+ * gestures and leaves vertical ones to the page - otherwise the chart
+ * would swallow the scroll and trap a phone on the results card. The
+ * curve is only ever scrubbed, so it claims nothing and simply reads
+ * where the finger is. */
+.bt-live-chart canvas{ touch-action:pan-y; cursor:grab }
+.bt-live-chart canvas:active{ cursor:grabbing }
+.bt-curve canvas{ touch-action:pan-y; cursor:crosshair }
+
+.bt-tip{
+  position:absolute; z-index:3; pointer-events:none;
+  min-inline-size:132px; max-inline-size:min(260px, 78%);
+  padding:7px 9px; border-radius:10px;
+  border:1px solid var(--line);
+  background:rgb(var(--s2) / .96);
+  box-shadow:0 10px 24px -14px rgb(0 0 0 / .8);
+  font-size:11.5px; line-height:1.45;
+  /* Numbers read left-to-right in every language the desk speaks, but
+     the labels beside them do not - so the panel itself follows the
+     page's direction and only the figures are pinned. */
+}
+.bt-tip[hidden]{ display:none }
+.bt-tip-grid{
+  display:grid; grid-template-columns:auto auto; gap:2px 10px;
+  align-items:baseline;
+}
+.bt-tip-grid > span{ color:var(--muted) }
+.bt-tip-grid > b{ font-weight:600; text-align:end }
+.bt-tip-grid .mono{ direction:ltr; unicode-bidi:isolate }
+.bt-tip-h{
+  grid-column:1 / -1; display:flex; gap:8px; align-items:center;
+  margin-block-end:2px; text-align:start;
+}
+.bt-tip .up{ color:var(--ok) }
+.bt-tip .down{ color:var(--bad) }
+@media (max-width:760px){
+  /* A fingertip is wider than a mouse pointer, so the panel is bigger
+     and the type is not the smallest on the page. */
+  .bt-tip{ font-size:12.5px; padding:9px 11px }
+}
+
 /* ===================== End of support ==============================
  *
  * Five days after a newer version is published this build stops being
