@@ -2254,6 +2254,12 @@ body.st-page-open{overflow:hidden}
 @media (max-width:900px){
   .welcome video{object-fit:cover}
 }
+/* The opening film turned off in personalisation. The curtain is still
+   needed - it is what covers a desk that is still being built - so it
+   stays, as the plain backdrop, with nothing on it to press. */
+.welcome.no-clip video,
+.welcome.no-clip .welcome-sound,
+.welcome.no-clip #welcome-skip{ display:none }
 .welcome-sound{
   position:absolute;bottom:24px;inset-inline-start:24px;z-index:2;
   width:46px;height:46px;border-radius:999px;padding:0;
