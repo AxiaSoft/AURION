@@ -1041,6 +1041,17 @@
         return { ok: true, accepted: true, running: true, symbol, timeframe };
       }
 
+      /* The demo's replay is arithmetic over a generated series and
+         finishes inside the call above, so by the time anything could
+         press the stop button there is nothing left running. The route
+         still has to exist, or the button would answer "read-only
+         demo" - which is both untrue and the opposite of reassuring. */
+      if (p === "/api/backtest/cancel") {
+        return lastBacktest && lastBacktest.running
+          ? { ok: true, cancelling: true, running: true }
+          : { ok: false, code: "backtest_idle", error: "backtest_idle" };
+      }
+
       return READONLY;
     }
 

@@ -224,8 +224,23 @@ class Backtester:
         manual_volume: float = 0.0,
         max_open: int = 1,
         pip_size: float = 0.0,
+        should_stop: Any = None,
     ) -> dict[str, Any]:
         """Replay real bars. `progress(done, total)` is optional and never fatal.
+
+        `should_stop()` is asked, every bar, whether the trader has
+        called the run off. A replay asks the AI for a fresh read on
+        every bar, so a six-month M1 run is minutes of work that used
+        to be uninterruptible: the only way out was to close the desk
+        or wait. Asked for in those words - "put something in the
+        backtest to cancel it".
+
+        Stopping is not failing. The bars that were replayed were
+        really replayed and the trades they produced are real, so the
+        run returns what it has with `cancelled` set, and says how far
+        it got. What it must never do is present a part of a window as
+        though it were the whole of it, which is why the flag travels
+        all the way to the result rather than being swallowed here.
 
         A run asks the AI for a fresh read on every bar, so fifteen hundred
         bars is not instant. Without a progress callback the only thing the
@@ -286,6 +301,7 @@ class Backtester:
                 strategy, bars, symbol, timeframe, initial_equity, point_value,
                 warmup, brain, progress, volume_mode, manual_volume, cap, pip_size,
                 mode, lot, equity, peak, curve, trades, positions, learns,
+                should_stop,
             )
         finally:
             if scratch is not None:
@@ -332,6 +348,7 @@ class Backtester:
         trades: list[dict[str, Any]],
         positions: list[dict[str, Any]],
         learns: bool = False,
+        should_stop: Any = None,
     ) -> dict[str, Any]:
         """The bar loop itself. Split out only so run() can clean up after it."""
         feats = self._precompute_features(bars)
@@ -352,7 +369,26 @@ class Backtester:
         refused: dict[str, int] = {}
         total = max(1, len(bars) - warmup)
         step = max(1, total // 50)          # ~2% at a time, not per bar
+        # Where the replay actually stopped, and whether it was called
+        # off. On a run that finishes these are the last bar and False,
+        # which is what every line below already assumed.
+        stopped_at = len(bars) - 1
+        cancelled = False
         for i in range(warmup, len(bars)):
+            # Asked every bar, not every progress tick: a tick is up to
+            # two per cent of the run, which on a long replay is the
+            # difference between a button that works and a button that
+            # appears not to.
+            if should_stop is not None:
+                try:
+                    if should_stop():
+                        cancelled = True
+                        stopped_at = max(warmup, i - 1)
+                        break
+                except Exception:
+                    # A broken canceller must not end the run; it just
+                    # stops being consulted.
+                    should_stop = None
             if progress is not None and (i - warmup) % step == 0:
                 try:
                     # Carry the run's state, not just how far along it is.
@@ -483,12 +519,19 @@ class Backtester:
                 })
             peak = max(peak, equity)
             curve.append(equity)
+            stopped_at = i
+        # Anything still open is closed on the last bar that was
+        # REPLAYED, not the last bar that was handed over. On a
+        # completed run they are the same bar; on a cancelled one they
+        # are not, and closing at bars[-1] would settle a position at a
+        # price from the future of the run the trader stopped.
+        final = bars[max(0, min(stopped_at, len(bars) - 1))]
         for pos in list(positions):
-            last = float(bars[-1].get("close") or 0)
+            last = float(final.get("close") or 0)
             pnl = self._pnl(pos, last, point_value)
             equity += pnl
-            trades.append({**pos, "exit": last, "profit": pnl, "exit_time": bars[-1].get("time"),
-                           "exit_reason": "eod",
+            trades.append({**pos, "exit": last, "profit": pnl, "exit_time": final.get("time"),
+                           "exit_reason": "cancelled" if cancelled else "eod",
                            "pips": self._pips(pos, last, pip_size),
                            "risk": self._risk(pos, point_value)})
             curve.append(equity)
@@ -502,6 +545,11 @@ class Backtester:
         return {
             "ok": True,
             "mode": "backtest",
+            # A cancelled run is a real result over a shorter window,
+            # not an error: the desk needs to label it so a half window
+            # is never read as a whole one. Absent from a run that
+            # finished, rather than reported as False.
+            **({"cancelled": True} if cancelled else {}),
             "symbol": symbol,
             "timeframe": timeframe,
             "bars": len(bars),
@@ -545,10 +593,13 @@ class Backtester:
                 # name, because it is a fact about the run; it is just
                 # not the window the figures are about.
                 "first_bar": _bar_time(bars[min(int(warmup), len(bars) - 1)]),
-                "last_bar": _bar_time(bars[-1]),
+                # The last bar REPLAYED. On a cancelled run this is
+                # where the trader stopped it, so the reported window
+                # is the window the figures are actually about.
+                "last_bar": _bar_time(final),
                 "warmup_bars": int(warmup),
                 "warmup_from": _bar_time(bars[0]) if int(warmup) > 0 else "",
-                "tested_bars": max(0, len(bars) - int(warmup)),
+                "tested_bars": max(0, min(stopped_at + 1, len(bars)) - int(warmup)),
             },
             # Bounds refused for being on the wrong side of the entry.
             # Absent from a clean run rather than reported as zeros, so

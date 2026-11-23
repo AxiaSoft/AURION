@@ -867,6 +867,12 @@ async def backtest(body: dict[str, Any]) -> dict[str, Any]:
     return await trader.backtest(body)
 
 
+@app.post("/v1/backtest/cancel")
+async def backtest_cancel() -> dict[str, Any]:
+    """Stop the replay that is running. Safe to call twice."""
+    return await trader.cancel_backtest()
+
+
 @app.get("/v1/backtest")
 async def backtest_state() -> dict[str, Any]:
     return {"ok": True, "data": trader.backtest_run or {"running": False, "mode": "idle"}}

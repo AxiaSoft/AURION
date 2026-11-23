@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import shutil
+import threading
 import time
 from collections import deque
 from pathlib import Path
@@ -326,6 +327,11 @@ class Trader:
         self.telegram = None
         self.license = Guard()
         self.backtest_run: dict[str, Any] = {"running": False, "mode": "idle"}
+        # Raised when the trader calls a running replay off. The replay
+        # itself runs in a worker thread (see _run_backtest), so this is
+        # a threading.Event and not an asyncio one: cancelling the task
+        # cannot interrupt a thread, but a flag the bar loop reads can.
+        self._backtest_cancel = threading.Event()
         # Chart marks already worked out, per symbol/timeframe/armed set.
         # Analysis is expensive enough that it is done in slabs across
         # refreshes; this is what carries the finished slabs between them.
@@ -5549,6 +5555,7 @@ class Trader:
         self.active_timeframe = "M15"
         self.robot_log.clear()
         self.backtest_run = {"running": False, "mode": "idle"}
+        self._backtest_cancel.clear()
         self._last_bar_time.clear()
         self._known_pos = {}
         self._pending_tag = []
@@ -6081,6 +6088,9 @@ class Trader:
             log.exception("backtest could not build the strategy")
             return {"ok": False, "error": readable_error(str(exc)), "build_id": BUILD_ID}
         started = utc_iso()
+        # A cancel from the previous run must not kill this one before
+        # it has replayed a bar.
+        self._backtest_cancel.clear()
         self.backtest_run = {
             "ok": True,
             "running": True,
@@ -6123,6 +6133,40 @@ class Trader:
         # finished perfectly in the engine and told the trader their engine
         # had died. Nothing was wrong except the waiting.
         return dict(self.backtest_run)
+
+    async def cancel_backtest(self) -> dict[str, Any]:
+        """Call a running replay off.
+
+        Asked for directly: "put an option in the backtest to cancel
+        it". A replay asks the AI for a read on every bar, so a long
+        window is minutes of work with no way out but closing the desk.
+
+        Two things have to happen and only one of them is the task.
+        The replay body runs inside asyncio.to_thread, and cancelling a
+        task cannot interrupt a thread, so the flag is what actually
+        stops the work; the task handle is only used to wake a run that
+        has not reached its bar loop yet. The run then ends through its
+        normal path - partial result, bus publish, journal line - so a
+        cancelled backtest is a shorter result and not an error.
+
+        Refusals carry a `code`, like every other refusal here, because
+        the desk translates the code and never the English sentence.
+        """
+        if not bool((self.backtest_run or {}).get("running")):
+            return {"ok": False, "code": "backtest_idle",
+                    "error": "no backtest is running"}
+        if self._backtest_cancel.is_set():
+            # Already asked for. Saying so is not an error - the trader
+            # pressed the button twice, which is what people do when a
+            # long run takes a moment to notice.
+            return {"ok": True, "cancelling": True, "running": True,
+                    **(self.backtest_run or {})}
+        self._backtest_cancel.set()
+        state = {**(self.backtest_run or {}), "running": True, "cancelling": True}
+        self.backtest_run = state
+        await self.bus.publish("backtest", dict(state))
+        await self.journal("info", "backtest", "Backtest cancelled by the trader")
+        return {"ok": True, "cancelling": True, **state}
 
     def _backtest_pip_size(self, symbol: str) -> float:
         """How much price a pip is, for this broker's quote of this symbol.
@@ -6273,6 +6317,10 @@ class Trader:
                 float(getattr(self, "manual_volume", 0.0) or 0.0),
                 int(self._total_cap()),
                 self._backtest_pip_size(symbol),
+                # Read once per bar inside the replay. This is the only
+                # thing that can stop a run already in the worker
+                # thread; see cancel_backtest.
+                self._backtest_cancel.is_set,
             )
         except Exception as exc:
             log.exception("backtest failed")
@@ -6287,7 +6335,22 @@ class Trader:
         result = dict(result or {})
         result["mode"] = "backtest"
         result["running"] = False
-        result["progress"] = 100
+        # A run that was called off reports what it replayed, labelled.
+        # The flag is read before it is cleared, and the result is
+        # trusted first: the backtester sets `cancelled` itself when it
+        # breaks out of the bar loop, and a run that finished in the
+        # instant between the press and the check is a finished run.
+        cancelled = bool(result.get("cancelled")) or (
+            self._backtest_cancel.is_set() and not result.get("ok")
+        )
+        if cancelled:
+            result["cancelled"] = True
+        result.pop("cancelling", None)
+        self._backtest_cancel.clear()
+        # Progress is where it stopped, not a lie about completion.
+        result["progress"] = 100 if not cancelled else int(
+            (self.backtest_run or {}).get("progress") or 0
+        )
         result["started"] = started
         result["finished"] = utc_iso()
         self.backtest_run = result
@@ -6296,7 +6359,7 @@ class Trader:
             "info" if result.get("ok") else "error",
             "backtest",
             (
-                f"Backtest finished: {symbol} {timeframe} "
+                f"Backtest {'cancelled' if cancelled else 'finished'}: {symbol} {timeframe} "
                 f"{(result.get('metrics') or {}).get('trades', 0)} trades, "
                 f"win rate {float((result.get('metrics') or {}).get('win_rate') or 0):.0f}%"
                 if result.get("ok")

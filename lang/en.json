@@ -1473,7 +1473,14 @@
     "tip_open": "still open",
     "tip_when": "When",
     "curve_hover_hint": "Hover any point — or touch it on a phone — to read the equity and the profit at that moment.",
-    "replay_hover_hint": "Drag the chart to move through the window, to its first bar and back to its last. Hover an entry or an exit — or touch it — to outline the stretch that trade was running for. Double-click to fit the whole run again."
+    "replay_hover_hint": "Drag the chart to move through the window, to its first bar and back to its last. Hover an entry or an exit — or touch it — to outline the stretch that trade was running for. Double-click to fit the whole run again.",
+    "cancel": "Stop the run",
+    "cancelling": "Stopping…",
+    "cancel_wait": "Stopping after the current bar…",
+    "cancel_sent": "Stopping the backtest…",
+    "cancelled_toast": "Backtest stopped",
+    "cancelled_note": "You stopped this run. The figures below cover only the bars that were replayed before it stopped, not the whole period.",
+    "why_cancelled": "Run stopped"
   },
   "chart": {
     "regime_hint": "The slider above shows direction and regime per chart — move between charts with the arrows.",
@@ -2013,7 +2020,8 @@
     "max_open": "The open-trade ceiling of {n} has been reached.",
     "mt5_unreachable": "MetaTrader 5 is not reachable. AURION will not fabricate a fill.",
     "engine_offline": "The Python engine is offline.",
-    "premium_required": "This feature is part of the paid plan."
+    "premium_required": "This feature is part of the paid plan.",
+    "backtest_idle": "No backtest is running."
   },
   "blocker": {
     "mt5_down": "MetaTrader is not connected",

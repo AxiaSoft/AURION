@@ -913,6 +913,7 @@ guarded.get("/host-logs", (req, res) => {
 });
 guarded.post("/history/reset", passthrough("POST", "/v1/history/reset"));
 guarded.post("/backtest", passthrough("POST", "/v1/backtest"));
+guarded.post("/backtest/cancel", passthrough("POST", "/v1/backtest/cancel"));
 guarded.get("/backtest", passthrough("GET", "/v1/backtest"));
 guarded.get("/analysis", passthrough("GET", "/v1/analysis"));
 guarded.get("/config", passthrough("GET", "/v1/config"));

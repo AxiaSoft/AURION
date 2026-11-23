@@ -9102,6 +9102,10 @@ const views = {
         ${backtestPeriodHtml()}
         <div class="row" style="margin-top:10px">
           <button class="btn" id="h-bt" type="button"${running || !items.length ? " disabled" : ""}>${running ? I18N.t("history.backtest_running") : I18N.t("history.backtest_run")}</button>
+          <!-- A long replay asks the AI for a read on every bar, so it can
+               run for minutes. Before this button the only way out was to
+               close the desk. It exists only while a run is going. -->
+          <button class="btn ghost" id="bt-stop" type="button"${running ? "" : " hidden"}>${icon("close")} ${I18N.t("bt.cancel")}</button>
         </div>
         <div id="bt-load" class="bt-load${running ? "" : " hidden"}"><i></i><span>${I18N.t("history.backtest_wait")}</span></div>
       </div>
@@ -11668,6 +11672,8 @@ function bindView(view) {
       const hint = $("bt-robot-hint");
       if (hint) hint.classList.toggle("hidden", !S._btRobot);
     };
+    const stopBt = $("bt-stop");
+    if (stopBt) stopBt.onclick = () => cancelBacktest();
     const goBt = $("h-bt");
     if (goBt) goBt.onclick = () => {
       const stSel = $("bt-st");
@@ -13941,7 +13947,13 @@ function renderBacktestCard(bt) {
   if (!bt || (!bt.ok && !bt.error && bt.mode !== "backtest")) return "";
   if (!bt.ok) return `<p class="err">${esc(errText(bt))}</p>`;
   const m = bt.metrics || {};
-  return `<div class="tape-banner is-backtest" style="margin:12px 0 10px">${I18N.t("tape.showing_backtest")} · ${esc(bt.symbol || "")} ${esc(bt.timeframe || "")} · ${esc(strategyLabel(bt.strategy))}</div>
+  // A run that was stopped covers less of the window than the form
+  // above it says. Saying so here is the difference between a short
+  // result and a wrong one.
+  const stopped = bt.cancelled
+    ? `<p class="sub bt-cancelled">${icon("close")} ${esc(I18N.t("bt.cancelled_note"))}</p>`
+    : "";
+  return stopped + `<div class="tape-banner is-backtest" style="margin:12px 0 10px">${I18N.t("tape.showing_backtest")} · ${esc(bt.symbol || "")} ${esc(bt.timeframe || "")} · ${esc(strategyLabel(bt.strategy))}</div>
     <div class="kv">
       <span>${I18N.t("history.winrate")}</span><b>${fmt(m.win_rate)}%</b>
       <span>${I18N.t("history.pf")}</span><b>${fmt(m.profit_factor,2)}</b>
@@ -14118,7 +14130,7 @@ function btWhy(reason) {
   /* A fixed list, not a lookup-and-hope: I18N.t() humanises an unknown
      key rather than failing, so asking it for "bt.why_<sentence>"
      would turn a strategy's own words into a mangled title. */
-  const known = { tp: 1, sl: 1, eod: 1, strategy: 1, signal: 1 };
+  const known = { tp: 1, sl: 1, eod: 1, strategy: 1, signal: 1, cancelled: 1 };
   return known[key] ? I18N.t("bt.why_" + key) : raw;
 }
 
@@ -14431,6 +14443,7 @@ async function startBacktest(opts) {
     return false;
   }
   S._btBusy = true;
+  S._btCancelling = false;
   setBacktestBusy(true, 0);
   // A run launched from the calendar lands on the backtest page a
   // moment later. Carrying its dates into the period picker means the
@@ -14496,23 +14509,73 @@ async function startBacktest(opts) {
 // accident of the script type.
 if (typeof window !== "undefined") window.startBacktest = startBacktest;
 
-function setBacktestBusy(on, progress) {
+function setBacktestBusy(on, progress, cancelling) {
   const btn = $("h-bt");
   const load = $("bt-load");
   if (btn) {
     btn.disabled = Boolean(on) || !liveSymbols().length;
     btn.textContent = I18N.t(on ? "history.backtest_running" : "history.backtest_run");
   }
+  // The stop button only exists while there is something to stop, and
+  // once pressed it says so rather than looking unpressed: the replay
+  // finishes the bar it is on before it notices, and a button that
+  // appears to have done nothing gets pressed again.
+  const stop = $("bt-stop");
+  if (stop) {
+    const asked = Boolean(cancelling) || Boolean(S._btCancelling);
+    stop.hidden = !on;
+    stop.disabled = Boolean(on) && asked;
+    stop.textContent = asked ? I18N.t("bt.cancelling") : I18N.t("bt.cancel");
+    if (!on) S._btCancelling = false;
+  }
   if (load) load.classList.toggle("hidden", !on);
   const say = load ? load.querySelector("span") : null;
   if (say) {
     const pct = Number(progress);
+    const waiting = (Boolean(cancelling) || Boolean(S._btCancelling)) && on
+      ? I18N.t("bt.cancel_wait")
+      : I18N.t("history.backtest_wait");
     // A number that moves is the difference between "working" and "hung".
     say.textContent = on && pct > 0
-      ? `${I18N.t("history.backtest_wait")} · ${Math.min(99, Math.round(pct))}%`
-      : I18N.t("history.backtest_wait");
+      ? `${waiting} · ${Math.min(99, Math.round(pct))}%`
+      : waiting;
   }
 }
+
+/**
+ * Call the running replay off.
+ *
+ * The engine raises a flag the bar loop reads, so the run stops at the
+ * next bar and comes back through its ordinary finish path: a real
+ * result over a shorter window, labelled as cancelled. Nothing here
+ * tears the panel down - the run reports its own ending, exactly as a
+ * completed one does.
+ */
+async function cancelBacktest() {
+  const bt = S.backtest || S.snap?.backtest || {};
+  if (!S._btBusy && !bt.running) return false;
+  if (S._btCancelling) return false;
+  S._btCancelling = true;
+  setBacktestBusy(true, bt.progress, true);
+  try {
+    const r = await API.post("/api/backtest/cancel", {});
+    if (!r || r.ok === false) {
+      S._btCancelling = false;
+      setBacktestBusy(Boolean(bt.running || S._btBusy), bt.progress);
+      toast(errText(r));
+      return false;
+    }
+    toast(I18N.t("bt.cancel_sent"));
+    return true;
+  } catch {
+    S._btCancelling = false;
+    setBacktestBusy(true, bt.progress);
+    toast(I18N.t("errors.generic"));
+    return false;
+  }
+}
+
+if (typeof window !== "undefined") window.cancelBacktest = cancelBacktest;
 
 /**
  * Follow a running backtest even if the socket drops.
@@ -14547,7 +14610,7 @@ function watchBacktest() {
     S.backtest = d;
     if (S.snap) S.snap.backtest = d;
     if (d.running) {
-      setBacktestBusy(true, d.progress);
+      setBacktestBusy(true, d.progress, Boolean(d.cancelling));
       // Keep the live panel moving on the fallback path too, so a dropped
       // socket costs refresh rate and not the live view itself.
       if (S.view === "backtest") paintBacktestResults(d);
@@ -14555,9 +14618,10 @@ function watchBacktest() {
     }
     clearInterval(S._btPoll); S._btPoll = null;
     S._btBusy = false;
+    S._btCancelling = false;
     setBacktestBusy(false);
     paintBacktestResults(d, { reveal: true });
-    if (d.ok) toast(I18N.t("history.backtest_done"));
+    if (d.ok) toast(I18N.t(d.cancelled ? "bt.cancelled_toast" : "history.backtest_done"));
     headerState();
   }, 5000);
 }
@@ -16354,7 +16418,7 @@ function onLive(msg) {
     // used to live, so the finished result never reached the screen it was
     // run from - the page just sat on its spinner.
     if (S.view === "backtest" || S.view === "history") {
-      setBacktestBusy(Boolean(d.running), d.progress);
+      setBacktestBusy(Boolean(d.running), d.progress, Boolean(d.cancelling));
       // This is the fast path, and it used to refresh only #bt-result:
       // the curve and trade table below it kept the previous run's
       // numbers, and nothing scrolled, so a result the trader had
@@ -16363,7 +16427,8 @@ function onLive(msg) {
       paintBacktestResults(d, { reveal: !d.running });
       if (!d.running) {
         S._btBusy = false;
-        toast(I18N.t(d.ok ? "history.backtest_done" : "errors.generic"));
+        S._btCancelling = false;
+        toast(I18N.t(d.cancelled ? "bt.cancelled_toast" : (d.ok ? "history.backtest_done" : "errors.generic")));
       }
     }
     headerState();
