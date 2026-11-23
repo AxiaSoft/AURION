@@ -263,6 +263,79 @@ class Store:
             ),
         )
 
+    def save_candles(self, symbol: str, timeframe: str, rows: Any) -> int:
+        """Write a whole series in one transaction, and say how many.
+
+        upsert_candle() is one row, one commit. That is right for the
+        single bar that closes every minute and catastrophic for the
+        other caller: the expert hands over its history in blocks of
+        thousands, and three thousand commits against a WAL database is
+        thousands of flushes to disk for one answer. On a machine with
+        a slow disk that IS the stall a trader sees as "downloading
+        candles" - the bars had arrived; the engine was still writing
+        them.
+
+        Rows may be Candle objects, dicts from the wire ("time") or
+        rows read back out of this table ("ts"); a row carries its own
+        symbol and timeframe when it has one, and falls back to the
+        series it was handed with. Anything without a timestamp is
+        skipped rather than written as NULL - a bar with no time is not
+        a bar, and the primary key would collapse the lot into one row.
+        """
+        series_sym = str(symbol or "")
+        series_tf = str(timeframe or "")
+        payload: list[tuple[Any, ...]] = []
+        for row in rows or []:
+            data = row if isinstance(row, dict) else getattr(row, "to_dict", lambda: None)()
+            if not isinstance(data, dict):
+                continue
+            ts = data.get("time") or data.get("ts")
+            if not ts:
+                continue
+            payload.append((
+                str(data.get("symbol") or series_sym),
+                str(data.get("timeframe") or series_tf),
+                str(ts),
+                data.get("open"),
+                data.get("high"),
+                data.get("low"),
+                data.get("close"),
+                data.get("volume"),
+                data.get("spread") or 0,
+            ))
+        if not payload:
+            return 0
+        with self._lock:
+            self._conn.executemany(
+                """INSERT INTO candles(symbol, timeframe, ts, open, high, low, close, volume, spread)
+                   VALUES (?,?,?,?,?,?,?,?,?)
+                   ON CONFLICT(symbol, timeframe, ts) DO UPDATE SET
+                     open=excluded.open, high=excluded.high, low=excluded.low,
+                     close=excluded.close, volume=excluded.volume, spread=excluded.spread""",
+                payload,
+            )
+            self._conn.commit()
+        return len(payload)
+
+    def candle_span(self, symbol: str, timeframe: str) -> dict[str, Any]:
+        """What this installation already holds for a series.
+
+        Three numbers - how many bars, the oldest, the newest - so a
+        caller can decide whether to ask the terminal for more without
+        reading the bars themselves back first.
+        """
+        rows = self.query(
+            "SELECT COUNT(*) AS n, MIN(ts) AS oldest, MAX(ts) AS newest "
+            "FROM candles WHERE symbol=? AND timeframe=?",
+            (str(symbol or ""), str(timeframe or "")),
+        )
+        row = rows[0] if rows else {}
+        return {
+            "count": int(row.get("n") or 0),
+            "oldest": str(row.get("oldest") or ""),
+            "newest": str(row.get("newest") or ""),
+        }
+
     def record_equity(self, account: dict[str, Any], drawdown: float) -> None:
         self.execute(
             """INSERT INTO equity(ts, balance, equity, margin, profit, drawdown)

@@ -135,6 +135,112 @@ class MT5Bridge:
         # every order. Either source may fill it — the native terminal
         # directly, or an attached EA that reports its chart's symbol.
         self._specs: dict[str, dict[str, Any]] = {}
+        # Where downloaded bars are kept between runs, and where they are
+        # read back from. Installed by the Trader, which owns the store;
+        # the bridge must not know what a database is. Absent - a test
+        # harness, a bridge built on its own - and everything below
+        # degrades to exactly the old in-memory behaviour.
+        self._tape_save: Callable[[str, str, list[Candle]], Any] | None = None
+        self._tape_load: Callable[[str, str, int], Any] | None = None
+        #: Series already read back from disk this run, so a chart that
+        #: is redrawn twenty times costs one read.
+        self._tape_warmed: set[tuple[str, str]] = set()
+
+    # ---- the candle archive ----------------------------------------------
+
+    def use_candle_archive(
+        self,
+        save: Callable[[str, str, list[Candle]], Any] | None,
+        load: Callable[[str, str, int], Any] | None,
+    ) -> None:
+        """Keep downloaded bars, and read them back after a restart.
+
+        Asked for directly: "when candles are downloaded, store them in
+        AURION's own files". They partly were - bars pushed by the
+        expert went into the engine's database on their way past - but
+        bars read from the terminal through the MetaTrader5 package
+        never did, and NOTHING ever read any of them back. The bridge
+        starts every run with empty deques, so the first chart a trader
+        opened after a restart downloaded six months again, from a
+        broker, over the internet, for data already sitting on the
+        disk.
+        """
+        self._tape_save = save
+        self._tape_load = load
+
+    def _archive(self, symbol: str, timeframe: str, rows: list[Candle]) -> None:
+        """Write a series to disk. Live tape only, and never fatal.
+
+        The Strategy Tester's tape is a simulation of a past the broker
+        has already lived through; writing it into the same table as
+        live history would silently rewrite what the robot learns from.
+        """
+        if not rows or not self._tape_save:
+            return
+        if self.active_tape() != "live":
+            return
+        try:
+            self._tape_save(symbol, timeframe, list(rows))
+        except Exception:
+            # A chart must never fail to draw because a write failed.
+            log.exception("could not archive %s %s", symbol, timeframe)
+
+    def _warm_from_disk(self, symbol: str, timeframe: str, count: int) -> list[Candle]:
+        """Fill an empty series from what this installation already has.
+
+        Only when the live cache is genuinely short of the ask: a
+        warmed series must never be allowed to overwrite bars the
+        terminal just sent. Read once per series per run.
+        """
+        if not self._tape_load:
+            return []
+        key = (symbol, timeframe)
+        if key in self._tape_warmed:
+            return self._candles_for(symbol, timeframe)
+        self._tape_warmed.add(key)
+        if self.active_tape() != "live":
+            return []
+        try:
+            rows = self._tape_load(symbol, timeframe, max(0, int(count or 0))) or []
+        except Exception:
+            log.exception("could not read stored candles for %s %s", symbol, timeframe)
+            return []
+        held = self._candles_for(symbol, timeframe)
+        fresh = [c for c in (self._candle_from_row(symbol, timeframe, r) for r in rows) if c]
+        if not fresh or self._reaches_further(held, fresh):
+            return held
+        bucket = self._tape_store("live")["candles"][(symbol, timeframe)]
+        bucket.clear()
+        bucket.extend(fresh)
+        log.info("warmed %s %s with %d stored bars", symbol, timeframe, len(fresh))
+        return list(bucket)
+
+    @staticmethod
+    def _candle_from_row(symbol: str, timeframe: str, row: Any) -> Candle | None:
+        """One stored row back into a Candle.
+
+        The table calls the timestamp `ts` and the wire calls it `time`;
+        both are accepted, and a row with neither is dropped rather than
+        being given a time of its own.
+        """
+        if not isinstance(row, dict):
+            return None
+        when = str(row.get("time") or row.get("ts") or "")
+        if not when:
+            return None
+        num = lambda v: float(v or 0)  # noqa: E731 - local, and reads better inline
+        return Candle(
+            symbol=str(row.get("symbol") or symbol),
+            timeframe=str(row.get("timeframe") or timeframe),
+            time=when,
+            time_msc=int(row.get("time_msc") or 0),
+            open=num(row.get("open")),
+            high=num(row.get("high")),
+            low=num(row.get("low")),
+            close=num(row.get("close")),
+            volume=num(row.get("volume")),
+            spread=num(row.get("spread")),
+        )
 
     # ---- contract specification ------------------------------------------
 
@@ -1108,6 +1214,12 @@ class MT5Bridge:
         cached = self._candles_for(symbol, tf)
         if not self.is_ea_symbol(symbol):
             return []
+        # What this installation already downloaded, before anybody is
+        # asked to download it again. This is the whole of "the first
+        # chart after a restart takes six months to open": the bars were
+        # on the disk and nothing read them.
+        if self._short_of(cached, count):
+            cached = self._warm_from_disk(symbol, tf, count) or cached
         rows: list[Candle] = []
         if self.native.connected and self.is_ea_symbol(symbol):
             rows = await asyncio.to_thread(self.native.candles, symbol, tf, count)
@@ -1127,6 +1239,7 @@ class MT5Bridge:
                 bucket = self._tape_store("live")["candles"][(symbol, tf)]
                 bucket.clear()
                 bucket.extend(rows)
+                self._archive(symbol, tf, rows)
         if not rows:
             rows = cached
         # Ask the expert when what we hold falls SHORT OF WHAT WAS ASKED
@@ -1156,6 +1269,7 @@ class MT5Bridge:
                     rows = fetched
                 else:
                     rows = self._candles_for(symbol, tf)
+                self._archive(symbol, tf, rows)
                 self._note_history_answer(symbol, tf, count, len(rows))
         await self.emit(
             "candles",
@@ -1187,6 +1301,7 @@ class MT5Bridge:
                 bucket = live_store["candles"][(symbol, tf)]
                 bucket.clear()
                 bucket.extend(rows)
+                self._archive(symbol, tf, rows)
                 await self.emit("candles", {"symbol": symbol, "timeframe": tf, "bars": [c.to_dict() for c in rows], "depth": self.hist_depth(symbol, tf)})
                 self._resolve_hist(symbol, tf)
         except Exception:
