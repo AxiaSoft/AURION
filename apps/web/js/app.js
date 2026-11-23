@@ -128,6 +128,10 @@ function leaveDesk(msg) {
       S.live = null;
     }
     if (S._poll) { clearInterval(S._poll); S._poll = null; }
+    stopEngineWatch();
+    S._engineUp = undefined;
+    S._engineSince = 0;
+    S._engineSeenAt = 0;
     if (S._termPoll) { clearInterval(S._termPoll); S._termPoll = null; }
     if (S._syncTimer) { clearTimeout(S._syncTimer); S._syncTimer = null; }
     if (S._prefTimer) { clearTimeout(S._prefTimer); S._prefTimer = null; }
@@ -3147,6 +3151,11 @@ function clsPnl(n) { return Number(n) > 0 ? "up" : Number(n) < 0 ? "down" : ""; 
    be the only indicator. The plus is the missing half of that pair. */
 function fmtSigned(n) { return (Number(n) > 0 ? "+" : "") + fmt(n); }
 function mt5Live() {
+  /* Everything the desk knows about the terminal arrived through the
+     engine. With the engine gone, "MT5: live" is a claim about a
+     snapshot, not about a broker - and two green lights over a dead
+     desk is worse than one red one. */
+  if (S._engineUp === false) return false;
   const mt = S.snap && S.snap.mt5;
   if (mt && mt.connected) return true;
   if (eaLive()) return true;
@@ -5225,12 +5234,101 @@ function leaveChartFullscreen() {
   return was;
 }
 
+/* ------------------------------------------------------ the engine light
+ *
+ * Asked for: the engine's state in the header has to be true NOW.
+ *
+ * It was not, and the reason was one line in refresh():
+ *
+ *     } else S.snap = S.snap || null;
+ *
+ * A failed poll keeps the last good snapshot - which is right for the
+ * tables, because a stale number with a stale look is better than a
+ * screen that empties itself every time a request times out. But the
+ * header chip was reading Boolean(S.snap), "have we ever had a
+ * snapshot", and calling it "Engine: live". An engine that died at
+ * 10:02 stayed green until somebody reloaded the page. The one light
+ * whose entire job is to say whether the engine is there was the one
+ * thing on the screen that could not say it.
+ *
+ * Three sources now feed it, fastest first:
+ *
+ *   1. the live socket. The desk's /ws is a proxy of the engine's own
+ *      stream, so the backend knows the instant the upstream drops and
+ *      sends {type:"engine", state:"offline"}. Any other message on
+ *      that socket came THROUGH the engine, so it is proof of life.
+ *   2. /api/health - unauthenticated, no engine round trip, and it
+ *      already answers engine: online|offline plus what the supervisor
+ *      is doing about it. Polled every two seconds while the engine is
+ *      down or has been quiet, and not at all while messages are
+ *      arriving.
+ *   3. the twelve-second snapshot poll, which is now allowed to report
+ *      a failure instead of throwing it away.
+ *
+ * The flip repaints the header immediately rather than waiting for the
+ * next render pass, because "in the moment" is the whole request.
+ */
+const ENGINE_PROBE_MS = 2000;
+const ENGINE_SILENCE_MS = 8000;
+
+function engineUp() { return S._engineUp === true; }
+
+/** One place where the light changes, so every source agrees. */
+function noteEngine(up, why) {
+  const now = Date.now();
+  const next = Boolean(up);
+  if (next) S._engineSeenAt = now;
+  if (S._engineUp === next) return;
+  S._engineUp = next;
+  S._engineSince = now;
+  S._engineWhy = why || "";
+  try { headerState(); } catch (e) { /* a light must not break the desk */ }
+}
+
+/* Deliberately not API.get: that sends the token, and API.req lets a
+   network error throw - which is exactly the case being measured. */
+async function probeEngine() {
+  let up = false;
+  let sup = null;
+  try {
+    const res = await fetch("/api/health", { credentials: "same-origin", cache: "no-store" });
+    if (res.ok) {
+      const j = await res.json();
+      up = Boolean(j && j.engine === "online");
+      sup = (j && j.supervisor) || null;
+    }
+  } catch (e) { up = false; }
+  S._engineSup = sup;
+  noteEngine(up, "health");
+  return up;
+}
+
+function startEngineWatch() {
+  if (S._engineWatch) return;
+  S._engineWatch = setInterval(() => {
+    /* A hidden tab is not a trading desk. The first probe after it
+       comes back is what matters, and the visibility handler does it. */
+    if (document.hidden) return;
+    const quiet = (Date.now() - (S._engineSeenAt || 0)) > ENGINE_SILENCE_MS;
+    if (S._engineUp !== true || quiet) probeEngine();
+  }, ENGINE_PROBE_MS);
+  try {
+    document.addEventListener("visibilitychange", () => {
+      if (!document.hidden) probeEngine();
+    });
+  } catch (e) { /* non-fatal */ }
+}
+
+function stopEngineWatch() {
+  if (S._engineWatch) { clearInterval(S._engineWatch); S._engineWatch = null; }
+}
+
 function headerState() {
   noteEaLink();
   const eng = $("st-engine");
   const mtEl = $("st-mt5");
   if (!eng || !mtEl) return;
-  const engLive = Boolean(S.snap);
+  const engLive = engineUp();
   const mtLive = mt5Live();
   const acc = S.snap?.mt5?.account || {};
   const killed = Boolean(S.snap?.kill_switch);
@@ -5241,6 +5339,13 @@ function headerState() {
   S._hdrKey = key;
   eng.dataset.state = engLive ? "live" : "down";
   eng.textContent = I18N.t(engLive ? "status.engine_live" : "status.engine_down");
+  /* Since when, on hover. No new string: the label it already carries,
+     and a clock in the trader's own locale. The question after "is it
+     down" is always "since when", and the log is three clicks away. */
+  try {
+    const since = S._engineSince ? new Date(S._engineSince).toLocaleTimeString(I18N.lang) : "";
+    eng.title = since ? `${eng.textContent} · ${since}` : eng.textContent;
+  } catch (e) { /* a tooltip is not worth an exception */ }
   mtEl.dataset.state = mtLive ? "live" : "down";
   mtEl.textContent = I18N.t(mtLive ? "status.mt5_live" : "status.mt5_down");
   const tapeEl = $("st-tape");
@@ -5272,7 +5377,7 @@ function hdrDrawerHtml() {
   const snap = S.snap || {};
   const acc = snap.mt5?.account || {};
   const mtLive = mt5Live();
-  const engLive = Boolean(S.snap);
+  const engLive = engineUp();
   const tape = tapeMode();
   const runningBt = Boolean((S.backtest || snap.backtest || {}).running);
   const tapeModeNow = runningBt ? "backtest" : tape;
@@ -15380,7 +15485,17 @@ async function refresh(rebuild = false) {
       const wantRebuild = rebuild || S._refreshRebuild;
       S._refreshRebuild = false;
       rebuild = false;
-      const r = await API.get("/api/snapshot");
+      /* A network failure here used to throw straight out of refresh():
+         API.req does not wrap its fetch, so with the desk unreachable
+         the poll died mid-flight, the header never heard about it, and
+         the engine chip kept whatever it was last told. */
+      let r = null;
+      try {
+        r = await API.get("/api/snapshot");
+      } catch (err) {
+        r = { ok: false, error: (err && err.message) || "network" };
+      }
+      if (r && r.error !== "auth_required") noteEngine(Boolean(r.ok), "snapshot");
       /* The support countdown rides on the poll the desk already makes,
          so the warning bar stays current without a request of its own. */
       if (r && r.support) applySupportState(r.support);
@@ -15418,6 +15533,15 @@ async function refresh(rebuild = false) {
 
 function onLive(msg) {
   if (!msg) return;
+  /* The backend says this outright when the engine's stream drops or
+     will not open - the earliest anything in the browser can know. */
+  if (msg.type === "engine") {
+    noteEngine(((msg.data || {}).state || "") === "online", "stream");
+    return;
+  }
+  /* "ready" is the DESK answering; everything else on this socket was
+     relayed from the engine and is therefore proof that it is alive. */
+  if (msg.type !== "ready" && msg.type !== "error") noteEngine(true, "stream");
   if (msg.type === "hello" && msg.data) {
     S.snap = { ...(S.snap || {}), ...msg.data };
     if (Array.isArray(S.snap.agents) && S.snap.agents.length) {
@@ -16173,6 +16297,8 @@ async function enterDesk() {
   if (q.get("paid") === "fail") showPayResult(false);
   S.live = new LiveSocket(onLive);
   S.live.connect();
+  startEngineWatch();
+  probeEngine();
   const logs = await API.get("/api/logs?limit=200");
   S.logs = logs.data || [];
   await refresh(true);
