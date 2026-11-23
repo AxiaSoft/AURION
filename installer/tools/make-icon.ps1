@@ -64,7 +64,8 @@ function Get-PngBytes {
     $ms = New-Object System.IO.MemoryStream
     try {
         $Bitmap.Save($ms, [System.Drawing.Imaging.ImageFormat]::Png)
-        return $ms.ToArray()
+        # The comma is load-bearing: see the note above Get-DibBytes.
+        return , $ms.ToArray()
     } finally { $ms.Dispose() }
 }
 
@@ -133,7 +134,21 @@ function Get-DibBytes {
     Add-U32 $out 0; Add-U32 $out 0                  # palette
     $out.AddRange($pixels)
     $out.AddRange($mask)
-    return $out.ToArray()
+
+    # `return , $array`, not `return $array`.
+    #
+    # PowerShell unrolls an array on the way out of a function and the
+    # caller collects the pieces into a fresh System.Object[] of BOXED
+    # bytes. It looks identical when printed and it is not: the next
+    # List[byte].AddRange refuses it outright -
+    #
+    #   Cannot convert argument "collection", with value "System.Object[]",
+    #   to type "System.Collections.Generic.IEnumerable`1[System.Byte]"
+    #
+    # - which is the error that stopped the icon being rebuilt during a
+    # release build. The unary comma wraps the array in a one-element
+    # array, so what survives the unrolling is the byte[] itself.
+    return , $out.ToArray()
 }
 
 <#
@@ -197,7 +212,10 @@ try {
     foreach ($size in ($Sizes | Sort-Object -Descending -Unique)) {
         $bmp = New-SquareBitmap -Image $image -Size $size
         try {
-            $bytes = if ($size -ge 256) { Get-PngBytes $bmp } else { Get-DibBytes $bmp }
+            # Cast as well as comma-wrapped: two cheap guards against the
+            # same conversion, because the failure mode is a release
+            # build that stops halfway with a message about nothing.
+            $bytes = [byte[]] $(if ($size -ge 256) { Get-PngBytes $bmp } else { Get-DibBytes $bmp })
             $images += [pscustomobject]@{ Size = $size; Bytes = $bytes }
         } finally { $bmp.Dispose() }
     }
@@ -227,7 +245,7 @@ foreach ($img in $images) {
     Add-U32 $blob $offset
     $offset += $img.Bytes.Length
 }
-foreach ($img in $images) { $blob.AddRange($img.Bytes) }
+foreach ($img in $images) { $blob.AddRange([byte[]] $img.Bytes) }
 
 $bytes = $blob.ToArray()
 

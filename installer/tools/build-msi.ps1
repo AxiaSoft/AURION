@@ -239,27 +239,22 @@ Install Node.js 18 or newer from https://nodejs.org and re-run this script.
 # here the bundle is missing runtime-python.zip and the installer goes back to
 # installing ninety megabytes of libraries on the trader's machine - so this
 # stops with an instruction instead of producing that MSI quietly.
+# One resolver, shared with fetch-vendor.ps1, because this check and the
+# one that actually collects the wheels used to disagree: this printed a
+# Python it had "found" and the wheel step then stopped the build saying
+# there was none. Both were looking at the Microsoft Store stub.
+. (Join-Path $PSScriptRoot "find-build-python.ps1")
+
+$buildPython = $null
 if (-not $NoBundle -and -not $SkipWheels) {
-    $buildPython = Get-Command py -ErrorAction SilentlyContinue
-    if (-not $buildPython) { $buildPython = Get-Command python -ErrorAction SilentlyContinue }
+    $buildPython = Find-BuildPython -RepoRoot $repoRoot
     if (-not $buildPython) {
-        throw @'
-No Python was found on this machine, and it is needed to bundle the engine's
-libraries into the MSI.
-
-Install Python 3.12 (either the python.org installer, which also provides the
-py launcher, or: winget install Python.Python.3.12), open a new shell and run
-this script again. It is only used at build time - nothing about it is
-installed on the customer's machine.
-
-  -SkipWheels   build without the wheels and without runtime-python.zip
-  -SkipRuntime  bundle the wheels but do not pre-build runtime-python.zip
-  -NoBundle     do not bundle any runtime; the target machine downloads them
-
-Both of those produce an installer that has to reach the network.
-'@
+        throw ((Get-BuildPythonAdvice) -join "`n")
     }
-    Write-Host ("  {0}" -f $buildPython.Source) -ForegroundColor DarkGray
+    Write-Host ("  {0}" -f $buildPython.Exe) -ForegroundColor DarkGray
+    if ($buildPython.How -ne $buildPython.Exe) {
+        Write-Host ("  (via {0})" -f $buildPython.How) -ForegroundColor DarkGray
+    }
 }
 
 if (-not $PSBoundParameters.ContainsKey('Version') -or [string]::IsNullOrWhiteSpace($Version)) {
@@ -285,8 +280,7 @@ $needAssets = @(@("aurion.ico", "banner.bmp", "dialog.bmp", "info.ico",
 if ($needAssets.Count -eq 0) {
     Write-Host "  assets present" -ForegroundColor Gray
 } else {
-    $py = Get-Command py -ErrorAction SilentlyContinue
-    if (-not $py) { $py = Get-Command python -ErrorAction SilentlyContinue }
+    $py = Find-BuildPython -RepoRoot $repoRoot
     if (-not $py) {
         throw ("Missing assets: {0}.`n" -f ($needAssets -join ', ')) +
               "  These are committed to the repository, so the quickest fix is:`n" +
@@ -294,7 +288,9 @@ if ($needAssets.Count -eq 0) {
               "  To regenerate them instead you need Python with Pillow."
     }
     Write-Host "  generating from the application artwork" -ForegroundColor Gray
-    & $py.Source (Join-Path $installerDir "assets\build-assets.py")
+    $pyTail = @()
+    if ($py.Argv.Count -gt 1) { $pyTail = @($py.Argv[1..($py.Argv.Count - 1)]) }
+    & $py.Argv[0] @pyTail (Join-Path $installerDir "assets\build-assets.py")
     if ($LASTEXITCODE -ne 0) {
         throw "Asset generation failed.`n" +
               "  The generated assets are committed, so you normally do not need to build them:`n" +
