@@ -3467,7 +3467,15 @@ function bindChrome() {
 }
 
 /**
- * The build stamp, written DSK-DDMMYY.
+ * The build stamp, written AURION-YY<M>DD -- "AURION-26N23" for the
+ * 23rd of November 2026, where <M> is the initial of the English
+ * month name.
+ *
+ * It was DSK-DDMMYY. Two things changed and both were asked for: the
+ * prefix now names the product rather than the desk process, and the
+ * date is shortest-first -- year, month as one letter, day -- which is
+ * five characters instead of six and can be read back over a phone
+ * without "is that the third of November or the eleventh of March".
  *
  * The wire format stays ISO (YYYY-MM-DD): it is unambiguous, it sorts,
  * and the backend derives it from a file mtime. Only the display is
@@ -3475,12 +3483,12 @@ function bindChrome() {
  * there is one place to look when the format is questioned.
  *
  * Deliberately not localised. A build stamp is an identifier a user
- * reads back to support, so it has to be the same six digits in every
+ * reads back to support, so it has to be the same characters in every
  * language -- Persian digits in a support ticket help nobody.
  */
 /**
- * How an offered build is named: "v1.0.0 DSK-031126" - the version
- * the release carries, then the build stamp as DSK-ddmmyy.
+ * How an offered build is named: "v1.0.0 AURION-26N03" - the version
+ * the release carries, then the build stamp as AURION-YY<M>DD.
  *
  * It used to read "main@a19a26b", which names a commit. That answers
  * "which commit is this" - a question nobody installing an update is
@@ -3489,9 +3497,8 @@ function bindChrome() {
  *
  * The number comes from the release's own factory config, so it is the
  * version being offered rather than the one already installed, and the
- * stamp is buildTag's existing DSK-DDMMYY, unchanged and still not
- * localised. Either half may be missing without the other becoming
- * nonsense.
+ * stamp is buildTag's own AURION-YY<M>DD, still not localised. Either
+ * half may be missing without the other becoming nonsense.
  */
 function updateStamp(upd) {
   const v = String((upd && upd.version) || "").trim();
@@ -3557,15 +3564,27 @@ function fromMainHtml(res) {
 }
 
 function buildTag(iso) {
+  /* The initial of each English month, by number. Kept inside the
+     function on purpose: this is lifted out of the file and run on its
+     own by two test harnesses, and a constant declared beside it would
+     not come with it. Ambiguous alone -- January, June and July all
+     begin with J -- which is why the year leads and the day follows: a
+     stamp is matched against a known build, not decoded into a date
+     from nothing. */
+  const MONTHS = "JFMAMJJASOND";
   const raw = String(iso || "").trim();
   const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(raw);
   if (!m) {
     /* Never invent a date. If the engine sent something unexpected,
        show it as it came rather than stamping today over it. */
-    return raw ? "DSK-" + raw : "DSK-\u2014";
+    return raw ? "AURION-" + raw : "AURION-\u2014";
   }
   const [, y, mo, d] = m;
-  return `DSK-${d}${mo}${y.slice(2)}`;
+  const letter = MONTHS[Number(mo) - 1];
+  /* A month outside 01-12 is not a date this can shorten; the ISO text
+     goes through untouched rather than becoming "AURION-26undefined". */
+  if (!letter) return "AURION-" + raw;
+  return `AURION-${y.slice(2)}${letter}${d}`;
 }
 
 function copyrightLocale() {
