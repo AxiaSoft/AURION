@@ -1466,7 +1466,14 @@
     "why_strategy": "Strategy closed it",
     "why_signal": "Opposite signal",
     "refused_title": "Bounds the replay refused",
-    "refused_body": "{n} order(s) named a stop or a target on the wrong side of the entry, or too far from it to be a price for this instrument. Those bounds were dropped rather than guessed at, so those trades ran without them. Check that the strategy returns PRICES, not distances."
+    "refused_body": "{n} order(s) named a stop or a target on the wrong side of the entry, or too far from it to be a price for this instrument. Those bounds were dropped rather than guessed at, so those trades ran without them. Check that the strategy returns PRICES, not distances.",
+    "tip_equity": "Equity",
+    "tip_pnl": "Profit / loss",
+    "tip_point": "Point",
+    "tip_open": "still open",
+    "tip_when": "When",
+    "curve_hover_hint": "Hover any point — or touch it on a phone — to read the equity and the profit at that moment.",
+    "replay_hover_hint": "Drag the chart to move through the window, to its first bar and back to its last. Hover an entry or an exit — or touch it — to outline the stretch that trade was running for. Double-click to fit the whole run again."
   },
   "chart": {
     "regime_hint": "The slider above shows direction and regime per chart — move between charts with the arrows.",

@@ -12897,7 +12897,7 @@ function renderBacktestDone(bt) {
       <span class="bt-replay-at mono" id="bt-replay-at">${at}</span>
       <p class="bt-replay-note" id="bt-replay-note" hidden></p>
     </div>
-    <p class="sub">${I18N.t("bt.done_chart_hint")}</p>
+    <p class="sub">${I18N.t("bt.done_chart_hint")} ${I18N.t("bt.replay_hover_hint")}</p>
   </div>`;
 }
 
@@ -13305,16 +13305,36 @@ function ensureBacktestBars(bt) {
  * inside the window it is drawing, and a long run carries hundreds.
  */
 function btDoneMarks(bt) {
-  const trades = Array.isArray(bt && bt.trades) ? bt.trades.slice(-60) : [];
+  /* Every trade, not the last sixty.
+   *
+   * The tail was chosen when this chart showed a fixed window of 160
+   * bars at the end of the run - anything older could not be drawn
+   * anyway. The chart scrolls now, so the whole tested window is
+   * reachable, and a book of trades that stops sixty from the end is
+   * a chart that is simply missing its own history. The cap that
+   * remains is a sanity limit, not an editorial one. */
+  const trades = Array.isArray(bt && bt.trades) ? bt.trades.slice(-4000) : [];
   const out = [];
-  for (const t of trades) {
-    if (!t || typeof t !== "object") continue;
-    if (t.time) out.push({ t: String(t.time), kind: "in", side: t.type, price: t.entry, volume: t.volume });
-    if (t.exit_time) {
-      out.push({ t: String(t.exit_time), kind: "out", side: t.type, price: t.exit,
-                 profit: Number(t.profit) || 0, reason: t.exit_reason });
-    }
-  }
+  trades.forEach((t, i) => {
+    if (!t || typeof t !== "object") return;
+    /* The id is what ties an entry to its own exit, which is what the
+       outlined rectangle is drawn between. Without it a hovered mark
+       knows its own price and nothing about the trade it belongs to. */
+    const pair = {
+      id: i,
+      side: t.type,
+      volume: t.volume,
+      entry: t.entry,
+      exit: t.exit,
+      inT: t.time ? String(t.time) : "",
+      outT: t.exit_time ? String(t.exit_time) : "",
+      profit: Number(t.profit) || 0,
+      pips: t.pips,
+      reason: t.exit_reason,
+    };
+    if (t.time) out.push({ ...pair, t: pair.inT, kind: "in", price: t.entry, open: !t.exit_time });
+    if (t.exit_time) out.push({ ...pair, t: pair.outT, kind: "out", price: t.exit });
+  });
   return out;
 }
 
@@ -13343,11 +13363,52 @@ function btReplayWindow(bt, snap) {
   return { bars: bars.slice(Math.max(0, end - BT_REPLAY_SPAN + 1), end + 1), source: "desk" };
 }
 
+/**
+ * The bars a finished run can be scrolled through.
+ *
+ * While a replay is moving, the chart shows the window it has reached
+ * and follows it - that is the live view and it is unchanged. Once the
+ * run is over the picture is static, and a static picture of 160 bars
+ * out of a six-month test answers almost nothing: asked for, in these
+ * words, was being able to turn through that chart to its beginning
+ * and its end.
+ *
+ * So a finished run is handed the whole tested window - the desk's own
+ * candles clipped to the first and last bar the engine reported - and
+ * the chart draws a movable slice of it. The frozen frame is the
+ * fallback, exactly as before, for a run whose candles are not here.
+ */
+function btPannableBars(bt, fallback) {
+  const cache = S._btBars;
+  const key = `${(bt && bt.symbol) || ""}|${(bt && bt.timeframe) || ""}`;
+  if (!cache || cache.key !== key || !Array.isArray(cache.bars) || cache.bars.length < 2) return fallback;
+  const d = (bt && bt.data) || {};
+  const first = d.first_bar ? String(d.first_bar) : "";
+  const last = d.last_bar ? String(d.last_bar) : "";
+  let a = 0, b = cache.bars.length - 1;
+  if (first) {
+    const i = cache.bars.findIndex((x) => x.t === first);
+    if (i >= 0) a = i;
+  }
+  if (last) {
+    const i = cache.bars.findIndex((x) => x.t === last);
+    if (i >= 0) b = i;
+  }
+  if (b <= a) return fallback;
+  const span = cache.bars.slice(a, b + 1);
+  return span.length > (fallback || []).length ? span : fallback;
+}
+
 function paintReplay(box, bt, snap) {
   const note = box.querySelector("#bt-replay-note");
   btWatchReplaySize(box);
-  const { bars, source } = btReplayWindow(bt, snap);
+  const win = btReplayWindow(bt, snap);
+  const source = win.source;
+  const bars = (bt && !bt.running) ? btPannableBars(bt, win.bars) : win.bars;
   if (source !== "engine") ensureBacktestBars(bt);
+  /* A different run is a different chart: the scroll position from the
+     last one would open the new one somewhere arbitrary. */
+  btResetReplayView(`${(bt && bt.symbol) || ""}|${(bt && bt.timeframe) || ""}|${(bt && bt.finished) || ""}|${bars.length}`);
 
   if (bars.length > 1) {
     if (note) { note.hidden = true; note.textContent = ""; }
@@ -13397,6 +13458,91 @@ function btWatchReplaySize(box) {
   ro.observe(frame);
 }
 
+/* ── moving through the replayed window ─────────────────────────────
+ *
+ * Asked for: "let me turn through that chart to the end and to the
+ * beginning", and "when I hover an entry or an exit - or tap it on a
+ * phone - draw a box around the part where that trade was running".
+ *
+ * Both are the same small amount of state: which slice of the tested
+ * window is on screen, and which trade the finger or the pointer is
+ * on. Held here rather than on the canvas, because the canvas is
+ * rebuilt whenever the panel is and the scroll position should not be
+ * lost with it.
+ */
+const BT_REPLAY_MIN_SPAN = 20;
+
+/** The visible slice: `span` bars ending `offset` bars from the newest. */
+function btReplayView(total) {
+  const v = S._btView || null;
+  const span = Math.max(1, Math.min(v && v.span ? v.span : BT_REPLAY_SPAN, total));
+  const offset = Math.max(0, Math.min((v && v.offset) || 0, total - span));
+  return { offset, span };
+}
+
+/** Forget where we were when the chart becomes a different chart. */
+function btResetReplayView(key) {
+  if (S._btViewKey === key) return;
+  S._btViewKey = key;
+  S._btView = null;
+  S._btHover = null;
+}
+
+/**
+ * Move the window by whole bars, clamped at both ends.
+ *
+ * Positive is forward in time, towards the last bar of the run;
+ * negative walks back towards the first. `offset` counts bars from the
+ * newest, so it moves the other way - which is exactly the sort of
+ * sign that is wrong once and then wrong everywhere, hence one place
+ * to get it right. Returns true when the window actually moved.
+ */
+function btPanReplay(bars) {
+  const g = S._btGeom;
+  if (!g || !g.total) return false;
+  const view = btReplayView(g.total);
+  const next = Math.max(0, Math.min(g.total - view.span, Math.round(view.offset - bars)));
+  if (next === view.offset) return false;
+  S._btView = { span: view.span, offset: next };
+  return true;
+}
+
+/** Zoom about the right-hand edge, which is where the run ended. */
+function btZoomReplay(factor) {
+  const g = S._btGeom;
+  if (!g || !g.total) return false;
+  const view = btReplayView(g.total);
+  const span = Math.max(BT_REPLAY_MIN_SPAN, Math.min(g.total, Math.round(view.span * factor)));
+  if (span === view.span) return false;
+  S._btView = { span, offset: Math.max(0, Math.min(g.total - span, view.offset)) };
+  return true;
+}
+
+/**
+ * The trade under a point, in canvas pixels.
+ *
+ * Entries and exits are small marks, and a fingertip is not. The reach
+ * is generous on purpose - a touch that lands near a triangle means
+ * that triangle - and the nearest one wins when two are close.
+ */
+function btMarkAt(px, py, reach) {
+  const g = S._btGeom;
+  if (!g || !Array.isArray(g.marks) || !g.marks.length) return null;
+  const max = Number(reach) || 18;
+  let best = null, bestD = Infinity;
+  for (const m of g.marks) {
+    /* Only marks that know their own trade. While a replay is still
+       running the engine sends bare entry and exit points with no
+       pairing, and answering those would open a panel of blanks and
+       outline nothing. */
+    if (m.id == null) continue;
+    const dx = px - m.x, dy = py - m.y;
+    const d = Math.sqrt(dx * dx + dy * dy);
+    if (d < bestD && d <= max) { bestD = d; best = m; }
+  }
+  return best;
+}
+
 /**
  * The bars a backtest is replaying, with its trades marked on them.
  *
@@ -13405,9 +13551,16 @@ function btWatchReplaySize(box) {
  * second, with no interaction, no indicators and no drawing tools. The
  * workspace would rebuild its whole state on every update.
  */
-function drawReplayChart(bars, marks) {
+function drawReplayChart(all, marks) {
   const cv = $("bt-replay");
-  if (!cv || !Array.isArray(bars) || bars.length < 2) return;
+  if (!cv || !Array.isArray(all) || all.length < 2) return;
+  btBindReplay(cv);
+  /* Only the slice the trader has scrolled to. The whole tested window
+     is kept, so turning back to the first bar costs nothing and asks
+     nothing of the engine. */
+  const view = btReplayView(all.length);
+  const start = Math.max(0, all.length - view.offset - view.span);
+  const bars = all.slice(start, Math.max(start + 2, all.length - view.offset));
   const box = cv.parentElement;
   const dpr = Math.min(2, window.devicePixelRatio || 1);
   const w = Math.max(240, (box ? box.clientWidth : 0) || 240);
@@ -13471,6 +13624,58 @@ function drawReplayChart(bars, marks) {
   g.lineTo(w - padR, Math.round(y(lastC)) + 0.5);
   g.stroke();
 
+  // Where the run entered and left.
+  const at = new Map();
+  bars.forEach((b, i) => { if (b && b.t) at.set(String(b.t), i); });
+  /* Positions over the WHOLE window, so a trade whose entry has been
+     scrolled off the left still knows where its rectangle begins. */
+  const atAll = new Map();
+  all.forEach((b, i) => { if (b && b.t) atAll.set(String(b.t), i); });
+  const placed = [];
+
+  /* The trade the pointer - or the finger - is on, outlined from its
+     entry to its close.
+     *
+     * Asked for in these words: hovering an entry or an exit should
+     * put a box around the stretch where that trade was running. The
+     * band is the duration; the rectangle inside it is the distance
+     * between the two prices, which is the trade's result drawn to
+     * scale. Both are drawn UNDER the candles, so highlighting a
+     * trade never hides the bars it is about. */
+  const hover = S._btHover;
+  if (hover && (hover.inT || hover.outT)) {
+    const ai = atAll.has(hover.inT) ? atAll.get(hover.inT) : -1;
+    const bi = atAll.has(hover.outT) ? atAll.get(hover.outT) : all.length - 1;
+    if (ai >= 0) {
+      const lo_ = Math.min(ai, bi) - start;
+      const hi_ = Math.max(ai, bi) - start;
+      const x0 = x(Math.max(-1, Math.min(bars.length, lo_)));
+      const x1 = x(Math.max(-1, Math.min(bars.length, hi_)));
+      const win = Number(hover.profit) >= 0;
+      const tint = win ? up : down;
+      g.save();
+      g.globalAlpha = 0.10;
+      g.fillStyle = tint;
+      g.fillRect(Math.min(x0, x1), padT, Math.max(2, Math.abs(x1 - x0)), h - padT - padB);
+      g.restore();
+      const pin = num(hover.entry), pout = num(hover.exit);
+      if (pin && pout) {
+        const yTop = Math.min(y(pin), y(pout));
+        const yBot = Math.max(y(pin), y(pout));
+        g.save();
+        g.globalAlpha = 0.18;
+        g.fillStyle = tint;
+        g.fillRect(Math.min(x0, x1), yTop, Math.max(2, Math.abs(x1 - x0)), Math.max(2, yBot - yTop));
+        g.restore();
+        g.strokeStyle = tint;
+        g.lineWidth = 1.5;
+        g.setLineDash([5, 4]);
+        g.strokeRect(Math.min(x0, x1) + 0.5, yTop + 0.5, Math.max(2, Math.abs(x1 - x0)) - 1, Math.max(2, yBot - yTop) - 1);
+        g.setLineDash([]);
+      }
+    }
+  }
+
   for (let i = 0; i < bars.length; i++) {
     const b = bars[i];
     const o = num(b.o), c = num(b.c), hg = num(b.h), l = num(b.l);
@@ -13488,9 +13693,6 @@ function drawReplayChart(bars, marks) {
     g.fillRect(cx - bw / 2, top, bw, Math.max(1, bot - top));
   }
 
-  // Where the run entered and left.
-  const at = new Map();
-  bars.forEach((b, i) => { if (b && b.t) at.set(String(b.t), i); });
   for (const m of (marks || [])) {
     const i = at.get(String(m && m.t));
     if (i === undefined) continue;
@@ -13499,6 +13701,11 @@ function drawReplayChart(bars, marks) {
     const cx = x(i), cy = y(price);
     const isIn = m.kind === "in";
     const buy = String(m.side || "").toLowerCase() === "buy";
+    const lit = hover && m.id != null && hover.id === m.id;
+    /* Remembered in canvas coordinates: this is what a pointer or a
+       fingertip is tested against, and recomputing the geometry in the
+       hit test would be the same arithmetic written twice. */
+    placed.push({ ...m, x: cx, y: cy });
     g.fillStyle = isIn ? (buy ? up : down) : ink;
     g.beginPath();
     if (isIn) {
@@ -13509,12 +13716,19 @@ function drawReplayChart(bars, marks) {
       g.lineTo(cx + 5, cy + d * 13);
       g.closePath();
       g.fill();
-      if (m.open) { g.strokeStyle = g.fillStyle; g.lineWidth = 1.5; g.stroke(); }
+      if (m.open || lit) { g.strokeStyle = lit ? ink : g.fillStyle; g.lineWidth = 1.5; g.stroke(); }
     } else {
       g.fillStyle = num(m.profit) >= 0 ? up : down;
       g.beginPath();
-      g.arc(cx, cy, 3.2, 0, Math.PI * 2);
+      g.arc(cx, cy, lit ? 5 : 3.2, 0, Math.PI * 2);
       g.fill();
+    }
+    if (lit) {
+      g.strokeStyle = ink;
+      g.lineWidth = 1;
+      g.beginPath();
+      g.arc(cx, cy, 9, 0, Math.PI * 2);
+      g.stroke();
     }
   }
 
@@ -13536,6 +13750,186 @@ function drawReplayChart(bars, marks) {
        number three times down the side. */
     g.fillText(Number(v).toFixed(axisDp), w - padR + 6, y(v));
   }
+
+  /* A line showing how much of the run is on screen, and where. Three
+     hundred bars of a six-month test look exactly like the whole test
+     without it, and a trader who has scrolled into the middle has no
+     way back out that they can see. */
+  if (all.length > bars.length) {
+    const frac = bars.length / all.length;
+    const bx = padL + ((all.length - view.offset - bars.length) / all.length) * iw;
+    g.fillStyle = line;
+    g.fillRect(padL, h - 3, iw, 2);
+    g.fillStyle = ink;
+    g.fillRect(Math.max(padL, bx), h - 3, Math.max(14, iw * frac), 2);
+  }
+
+  /* Everything the pointer needs, in the coordinates it arrives in. */
+  S._btGeom = {
+    total: all.length, start, count: bars.length,
+    padL, padR, padT, padB, w, h, lo, hi, bw,
+    marks: placed,
+  };
+  btPaintReplayTip(cv);
+}
+
+/* ── the two things the pointer can ask these charts ────────────────
+ *
+ * A backtest is read, not operated: the answers wanted from it are
+ * "what was my equity there" and "which trade was that". Both were
+ * drawn and neither could be asked, so the curve was a shape and the
+ * triangles were decoration.
+ *
+ * Pointer events, not mouse events, so a finger is the same gesture
+ * as a mouse - that is the whole of what "or on mobile, a touch" needs
+ * to mean. Nothing here opens a menu, selects, or changes the run.
+ */
+
+/** The little panel both charts speak through. */
+function btTip(host) {
+  if (!host) return null;
+  let el = host.querySelector(".bt-tip");
+  if (!el) {
+    el = document.createElement("div");
+    el.className = "bt-tip";
+    el.hidden = true;
+    host.appendChild(el);
+  }
+  return el;
+}
+
+/** Put it beside the point without letting it fall out of the frame. */
+function btPlaceTip(el, host, px, py) {
+  if (!el || !host) return;
+  const w = host.clientWidth || 0;
+  const h = host.clientHeight || 0;
+  el.hidden = false;
+  const tw = el.offsetWidth || 150;
+  const th = el.offsetHeight || 54;
+  let left = px + 14;
+  if (left + tw > w - 6) left = px - tw - 14;
+  if (left < 6) left = 6;
+  let top = py - th - 12;
+  if (top < 6) top = py + 16;
+  if (top + th > h - 6) top = Math.max(6, h - th - 6);
+  el.style.left = Math.round(left) + "px";
+  el.style.top = Math.round(top) + "px";
+}
+
+/** What the hovered trade says about itself. */
+function btPaintReplayTip(cv) {
+  const host = cv && cv.parentElement;
+  if (!host) return;
+  const m = S._btHover;
+  const el = btTip(host);
+  if (!el) return;
+  if (!m) { el.hidden = true; el.innerHTML = ""; return; }
+  const sym = (S.backtest && S.backtest.symbol) || "";
+  const run = S.backtest || {};
+  const open = !m.outT;
+  const rows = [
+    `<b class="bt-tip-h"><span class="pill tiny ${String(m.side || "").toLowerCase() === "buy" ? "up" : "down"}">${esc(btSide(m.side))}</span>
+      <span class="mono">${fmt(m.volume, 2)}</span></b>`,
+    `<span>${I18N.t("bt.t_entry")}</span><b class="mono">${price(m.entry, sym)}</b>`,
+    `<span>${I18N.t("bt.t_exit")}</span><b class="mono">${open ? I18N.t("bt.tip_open") : price(m.exit, sym)}</b>`,
+  ];
+  if (!open) {
+    rows.push(`<span>${I18N.t("bt.t_pips")}</span><b class="mono">${btPips(m, run)}</b>`);
+    rows.push(`<span>${I18N.t("bt.t_pnl")}</span><b class="mono ${clsPnl(m.profit)}">${fmt(m.profit)}</b>`);
+    rows.push(`<span>${I18N.t("bt.t_why")}</span><b>${esc(btWhy(m.reason))}</b>`);
+  }
+  rows.push(`<span>${I18N.t("bt.tip_when")}</span><b class="mono">${esc(btWhen(m.inT))}${open ? "" : " → " + esc(btWhen(m.outT))}</b>`);
+  el.innerHTML = `<div class="bt-tip-grid">${rows.join("")}</div>`;
+  btPlaceTip(el, host, m.x, m.y);
+}
+
+/**
+ * Hover, touch and scroll on the replay chart.
+ *
+ * Bound once per canvas - the panel rebuilds its markup between runs,
+ * and binding on every draw would stack a new set of listeners twice
+ * a second for the length of a replay.
+ */
+function btBindReplay(cv) {
+  if (!cv || !cv.dataset || cv.dataset.btBound === "1") return;
+  cv.dataset.btBound = "1";
+  let drag = null;
+
+  const redraw = () => {
+    const r = S._btReplay;
+    if (r && Array.isArray(r.bars)) drawReplayChart(r.bars, r.marks);
+  };
+  const point = (e) => {
+    const r = cv.getBoundingClientRect();
+    return { x: e.clientX - r.left, y: e.clientY - r.top };
+  };
+  const look = (p) => {
+    const found = btMarkAt(p.x, p.y, 20);
+    const was = S._btHover ? S._btHover.id : null;
+    const now = found ? found.id : null;
+    S._btHover = found || null;
+    if (was !== now) redraw(); else btPaintReplayTip(cv);
+  };
+
+  cv.addEventListener("pointerdown", (e) => {
+    const p = point(e);
+    /* A press is a question until it becomes a drag. Deciding on the
+       way up would make every tap a one-pixel pan and no answer. */
+    drag = { x: e.clientX, from: e.clientX, moved: false, id: e.pointerId };
+    look(p);
+    try { cv.setPointerCapture(e.pointerId); } catch (_) { /* older engines */ }
+  });
+
+  cv.addEventListener("pointermove", (e) => {
+    if (drag) {
+      const g = S._btGeom;
+      const per = g && g.count ? (g.w - g.padL - g.padR) / g.count : 6;
+      const dx = e.clientX - drag.x;
+      if (Math.abs(e.clientX - drag.from) > 4) drag.moved = true;
+      const bars = dx / Math.max(1, per);
+      if (Math.abs(bars) >= 1) {
+        // Drag right, go back in time: the bars follow the finger.
+        if (btPanReplay(-bars)) { drag.x = e.clientX; redraw(); }
+      }
+      return;
+    }
+    look(point(e));
+  });
+
+  const release = (e) => {
+    if (drag) {
+      try { cv.releasePointerCapture(e.pointerId); } catch (_) { /* */ }
+      const moved = drag.moved;
+      drag = null;
+      // A tap that did not travel keeps whatever it landed on.
+      if (!moved) look(point(e));
+    }
+  };
+  cv.addEventListener("pointerup", release);
+  cv.addEventListener("pointercancel", release);
+  cv.addEventListener("pointerleave", (e) => {
+    if (drag) return;
+    /* A mouse leaving means "no longer asking". A finger lifting does
+       not - it has nowhere to rest - so a touch keeps its answer on
+       screen until the next tap. */
+    if (e.pointerType === "mouse" && S._btHover) { S._btHover = null; redraw(); }
+  });
+
+  cv.addEventListener("wheel", (e) => {
+    if (!S._btGeom || S._btGeom.total <= S._btGeom.count) return;
+    e.preventDefault();
+    const zoom = e.ctrlKey || e.metaKey || Math.abs(e.deltaY) > Math.abs(e.deltaX);
+    const moved = zoom && !e.shiftKey
+      ? btZoomReplay(e.deltaY > 0 ? 1.2 : 1 / 1.2)
+      : btPanReplay((e.deltaX || e.deltaY) > 0 ? 6 : -6);
+    if (moved) redraw();
+  }, { passive: false });
+
+  cv.addEventListener("dblclick", () => {
+    S._btView = null;
+    S._btHover = null;
+    redraw();
+  });
 }
 
 function renderBacktestCard(bt) {
@@ -13643,7 +14037,7 @@ function renderBacktestExtra(bt) {
       <span>${I18N.t("bt.dd")}</span><b class="mono ${dd > 0 ? "down" : ""}">${fmt(dd)}</b>
     </div>
     <div class="bt-curve"><canvas id="bt-curve"></canvas></div>
-    <p class="sub">${I18N.t("bt.curve_hint")}</p>`;
+    <p class="sub">${I18N.t("bt.curve_hint")} ${I18N.t("bt.curve_hover_hint")}</p>`;
   }
 
   /* Bounds the replay refused, when there were any. The engine omits
@@ -13770,6 +14164,11 @@ function btWhen(v) {
 function drawEquityCurve(curve) {
   const cv = $("bt-curve");
   if (!cv || !Array.isArray(curve) || curve.length < 2) return;
+  btBindCurve(cv);
+  /* A different run is a different curve: the point being asked about
+     is not the same point, and a stale index would answer a question
+     about the previous backtest. */
+  if (!S._btCurve || S._btCurve.curve.length !== curve.length) S._btCurveAt = null;
   const box = cv.parentElement;
   const dpr = Math.min(2, window.devicePixelRatio || 1);
   const w = Math.max(240, (box ? box.clientWidth : 0) || 240);
@@ -13856,6 +14255,109 @@ function drawEquityCurve(curve) {
   g.arc(x(curve.length - 1), y(curve[curve.length - 1]), 3.5, 0, Math.PI * 2);
   g.fillStyle = colour;
   g.fill();
+
+  /* The point being asked about: a rule down the chart and a dot on
+     the line, so the figure in the panel is visibly the figure at
+     that place rather than a number floating over a picture. */
+  S._btCurve = { curve, w, h, padL, padR, padT, padB, lo, hi, base };
+  const at = S._btCurveAt;
+  if (Number.isFinite(at) && at >= 0 && at < curve.length) {
+    const cx = x(at), cy = y(curve[at]);
+    g.strokeStyle = grid;
+    g.lineWidth = 1;
+    g.setLineDash([3, 3]);
+    g.beginPath();
+    g.moveTo(Math.round(cx) + 0.5, padT);
+    g.lineTo(Math.round(cx) + 0.5, h - padB);
+    g.stroke();
+    g.setLineDash([]);
+    const here = curve[at] >= base ? up : down;
+    g.beginPath();
+    g.arc(cx, cy, 4.5, 0, Math.PI * 2);
+    g.fillStyle = here;
+    g.fill();
+    g.beginPath();
+    g.arc(cx, cy, 7, 0, Math.PI * 2);
+    g.strokeStyle = here;
+    g.lineWidth = 1.5;
+    g.stroke();
+  }
+  btPaintCurveTip(cv);
+}
+
+/** Which point of the curve a given canvas x is asking about. */
+function btCurveIndexAt(px) {
+  const c = S._btCurve;
+  if (!c || !Array.isArray(c.curve) || c.curve.length < 2) return -1;
+  const iw = Math.max(1, c.w - c.padL - c.padR);
+  const f = (px - c.padL) / iw;
+  return Math.max(0, Math.min(c.curve.length - 1, Math.round(f * (c.curve.length - 1))));
+}
+
+/**
+ * Equity and profit at the point being pointed at.
+ *
+ * The curve could already be read as a shape - up good, down bad - and
+ * that is all it could be read as. The two numbers a trader actually
+ * wants off it, "how much did I have here" and "how far ahead or
+ * behind was I here", were in the data the whole time and never on
+ * screen.
+ */
+function btPaintCurveTip(cv) {
+  const host = cv && cv.parentElement;
+  const c = S._btCurve;
+  if (!host || !c) return;
+  const el = btTip(host);
+  if (!el) return;
+  const at = S._btCurveAt;
+  if (!Number.isFinite(at) || at < 0 || at >= c.curve.length) {
+    el.hidden = true; el.innerHTML = ""; return;
+  }
+  const v = c.curve[at];
+  const pnl = v - c.base;
+  const pct = c.base ? (pnl / Math.abs(c.base)) * 100 : 0;
+  el.innerHTML = `<div class="bt-tip-grid">
+    <span>${I18N.t("bt.tip_equity")}</span><b class="mono">${fmt(v)}</b>
+    <span>${I18N.t("bt.tip_pnl")}</span><b class="mono ${clsPnl(pnl)}">${pnl > 0 ? "+" : ""}${fmt(pnl)} (${pnl > 0 ? "+" : ""}${fmt(pct, 2)}%)</b>
+    <span>${I18N.t("bt.tip_point")}</span><b class="mono">${fmt(at + 1, 0)} / ${fmt(c.curve.length, 0)}</b>
+  </div>`;
+  const iw = Math.max(1, c.w - c.padL - c.padR);
+  const px = c.padL + (at / (c.curve.length - 1)) * iw;
+  const py = c.padT + (1 - (v - c.lo) / (c.hi - c.lo)) * (c.h - c.padT - c.padB);
+  btPlaceTip(el, host, px, py);
+}
+
+/** Hover and touch on the equity curve, bound once per canvas. */
+function btBindCurve(cv) {
+  if (!cv || !cv.dataset || cv.dataset.btBound === "1") return;
+  cv.dataset.btBound = "1";
+  const redraw = () => {
+    const c = S._btCurve;
+    if (c && Array.isArray(c.curve)) drawEquityCurve(c.curve);
+  };
+  const read = (e) => {
+    const r = cv.getBoundingClientRect();
+    const at = btCurveIndexAt(e.clientX - r.left);
+    if (at === S._btCurveAt) { btPaintCurveTip(cv); return; }
+    S._btCurveAt = at;
+    redraw();
+  };
+  /* A finger dragged along the curve scrubs it; the page can still be
+     scrolled vertically from here, which is why touch-action is pan-y
+     rather than none. */
+  cv.addEventListener("pointerdown", (e) => {
+    read(e);
+    try { cv.setPointerCapture(e.pointerId); } catch (_) { /* */ }
+  });
+  cv.addEventListener("pointermove", read);
+  cv.addEventListener("pointerup", (e) => {
+    try { cv.releasePointerCapture(e.pointerId); } catch (_) { /* */ }
+  });
+  cv.addEventListener("pointerleave", (e) => {
+    if (e.pointerType !== "mouse") return;
+    S._btCurveAt = null;
+    redraw();
+  });
 }
 
 /**
