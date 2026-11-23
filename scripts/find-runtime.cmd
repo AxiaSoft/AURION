@@ -75,11 +75,20 @@ if defined AURION_ENV_PY if "%AURION_ENV_PY_CLEAN%"=="%AURION_ENV_PY%" if exist 
 if defined AURION_PYCMD goto :NODE
 
 REM The py launcher, newest supported version first.
+REM
+REM The probe asks the interpreter what it IS, not merely whether it
+REM runs. `py -3.12` is not a guarantee of a real interpreter: on a
+REM machine whose only Python 3.12 came from the Microsoft Store, the
+REM launcher resolves to the Store build and sys.executable points
+REM straight back into WindowsApps. Guarding runtime.env alone was not
+REM enough - the same alias walked in through the launcher, and setup
+REM then recorded it, which is how data\runtime.env ended up naming an
+REM alias that this very file was written to refuse.
 where py >nul 2>nul
 if errorlevel 1 goto :PY_PLAIN
 for %%V in (3.12 3.11 3.10) do (
   if not defined AURION_PYCMD (
-    py -%%V -c "import sys" >nul 2>nul
+    py -%%V -c "import sys; sys.exit(1 if 'windowsapps' in sys.executable.lower() else 0)" >nul 2>nul
     if not errorlevel 1 (
       set "AURION_PYCMD=py -%%V"
       set "AURION_PYFROM=py launcher"
@@ -88,8 +97,10 @@ for %%V in (3.12 3.11 3.10) do (
 )
 :PY_PLAIN
 if defined AURION_PYCMD goto :NODE
-REM Plain `python`, but only when it is a version the engine can run on.
-python -c "import sys; sys.exit(0 if (3,10) <= sys.version_info[:2] <= (3,12) else 1)" >nul 2>nul
+REM Plain `python`, but only when it is a version the engine can run on
+REM and not the Store alias - which is what a bare `python` resolves to
+REM on a stock Windows that has never had a Python installed.
+python -c "import sys; sys.exit(0 if (3,10) <= sys.version_info[:2] <= (3,12) and 'windowsapps' not in sys.executable.lower() else 1)" >nul 2>nul
 if not errorlevel 1 (
   set "AURION_PYCMD=python"
   set "AURION_PYFROM=PATH"

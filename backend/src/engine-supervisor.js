@@ -83,6 +83,38 @@ function logLine(text) {
  * exits silently when started detached, which is exactly how this
  * starts things.
  */
+const STORE_ALIAS = /WindowsApps/i;
+
+/**
+ * Is this command a real interpreter, or the Store alias wearing one of
+ * its many hats?
+ *
+ * Asking the path is not enough. `py -3.12` is a path to the launcher,
+ * not to the interpreter it chooses, and on a machine whose only Python
+ * 3.12 came from the Microsoft Store the launcher chooses the Store
+ * build: sys.executable points back into WindowsApps, which exits
+ * silently when started detached - and detached is exactly how this
+ * starts things. So the interpreter is asked what it is. One short
+ * synchronous probe, once, at the moment we are about to spawn an
+ * engine that would otherwise die without writing a line.
+ */
+function realExecutable(cmd, args) {
+  try {
+    const { spawnSync } = require("child_process");
+    const out = spawnSync(cmd, [...args, "-c", "import sys;print(sys.executable)"], {
+      encoding: "utf8", timeout: 8000, windowsHide: true,
+    });
+    if (out.status !== 0) return null;
+    const exe = String(out.stdout || "").trim().split(/\r?\n/).pop().trim();
+    return exe || null;
+  } catch { return null; }
+}
+
+function usable(cmd, args) {
+  const exe = realExecutable(cmd, args);
+  return Boolean(exe) && !STORE_ALIAS.test(exe);
+}
+
 function findPython() {
   const tried = [];
   const envFile = path.join(DATA, "runtime.env");
@@ -90,7 +122,7 @@ function findPython() {
     const raw = fs.readFileSync(envFile, "utf8");
     for (const line of raw.split(/\r?\n/)) {
       const m = /^\s*PYTHON\s*=\s*(.+?)\s*$/i.exec(line);
-      if (m && m[1] && !/WindowsApps/i.test(m[1]) && fs.existsSync(m[1])) return { cmd: m[1], args: [], from: "runtime.env" };
+      if (m && m[1] && !STORE_ALIAS.test(m[1]) && fs.existsSync(m[1])) return { cmd: m[1], args: [], from: "runtime.env" };
       if (m) tried.push(m[1]);
     }
   } catch { /* no file is normal */ }
@@ -101,10 +133,20 @@ function findPython() {
   if (fs.existsSync(bundled)) return { cmd: bundled, args: [], from: "bundled runtime" };
 
   if (process.platform === "win32") {
-    /* The launcher prefers `py -3.12`; without a probe we cannot know it
-       exists, but a wrong guess costs one failed attempt and a log line,
-       and `python` is the fallback underneath it. */
-    return { cmd: "py", args: ["-3.12"], from: "py launcher" };
+    /* The launcher, newest supported version first - and each one is
+       asked where it really lives before it is believed. Refusing the
+       alias only when runtime.env named it was half a guard: the same
+       alias walked in through `py -3.12`, and then setup recorded it,
+       which is how an installation ended up with the one interpreter
+       every script here was written to refuse. */
+    for (const v of ["-3.12", "-3.11", "-3.10"]) {
+      if (usable("py", [v])) return { cmd: "py", args: [v], from: "py launcher" };
+    }
+    if (usable("python", [])) return { cmd: "python", args: [], from: "PATH" };
+    /* Nothing passed. Say so by returning the launcher anyway: the
+       attempt fails, and a failed attempt with a log line beside it is
+       more use than a supervisor that silently stops trying. */
+    return { cmd: "py", args: ["-3.12"], from: "py launcher (unverified)" };
   }
   return { cmd: "python3", args: [], from: "PATH" };
 }

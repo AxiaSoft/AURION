@@ -623,6 +623,41 @@ function Install-PythonFromZip {
     Say "Python is ready: $exe"
 }
 
+<#
+    Where does this command's interpreter actually live?
+
+    `py -3.12` is a path to the launcher, not to the interpreter it
+    picks, and `python` on a stock Windows is an app execution alias.
+    Both can resolve to the Microsoft Store build, whose sys.executable
+    sits under %LOCALAPPDATA%\Microsoft\WindowsApps: it redirects writes
+    away from site-packages and, started detached, exits without output
+    or a log. Guarding only the path recorded in runtime.env was half a
+    guard - the alias walked in through the launcher instead, and THIS
+    script then wrote it into runtime.env, producing an installation
+    holding the one interpreter every launcher here refuses.
+
+    So every candidate is asked where it really is, and the answer, not
+    the command, is what decides.
+#>
+function Resolve-PythonExe {
+    param([string[]] $Python)
+    $probe = Invoke-PythonCaptured -Python $Python -Arguments @("-c", "import sys; print(sys.executable)")
+    if (-not $probe.Ok) { return "" }
+    $exe = ($probe.Text -split "`r?`n" |
+            ForEach-Object { $_.Trim() } |
+            Where-Object { $_ -like "*.exe" } |
+            Select-Object -First 1)
+    if ($exe) { return $exe }
+    return ""
+}
+
+function Test-NotStoreAlias {
+    param([string[]] $Python)
+    $exe = Resolve-PythonExe -Python $Python
+    if (-not $exe) { return $false }
+    return ($exe -notlike "*\WindowsApps\*")
+}
+
 function Find-Python {
     # AURION's own interpreter first. The engine is pinned to NumPy 1.26.4 -
     # the last official Windows wheel that does not require x86-64-v2 - and
@@ -648,7 +683,12 @@ function Find-Python {
     # what a child writes.
     foreach ($v in @("3.12", "3.11", "3.10")) {
         $probe = Invoke-PythonCaptured -Python @("py", "-$v") -Arguments @("-c", "import sys")
-        if ($probe.Ok) { return @("py", "-$v") }
+        if (-not $probe.Ok) { continue }
+        # It runs. That is not the same as being an interpreter: on a
+        # machine whose only 3.12 came from the Store, this is the
+        # Store build and the launcher is merely its doorway.
+        if (Test-NotStoreAlias -Python @("py", "-$v")) { return @("py", "-$v") }
+        Say "py -$v resolves to the Microsoft Store alias - skipping it"
     }
 
     # Where python.org records what it installed.
@@ -666,7 +706,7 @@ function Find-Python {
                 $dir = (Get-ItemProperty -Path $key -ErrorAction Stop)."(default)"
                 if (-not $dir) { continue }
                 $exe = Join-Path $dir "python.exe"
-                if (Test-Path -LiteralPath $exe) { return @($exe) }
+                if ((Test-Path -LiteralPath $exe) -and ($exe -notlike "*\WindowsApps\*")) { return @($exe) }
             } catch { }
         }
     }
@@ -686,7 +726,7 @@ function Find-Python {
     if ($bare -and $bare -notlike "*\WindowsApps\*") {
         $probe = Invoke-PythonCaptured -Python @("python") -Arguments @(
             "-c", "import sys; sys.exit(0 if (3,10) <= sys.version_info[:2] <= (3,12) else 1)")
-        if ($probe.Ok) { return @("python") }
+        if ($probe.Ok -and (Test-NotStoreAlias -Python @("python"))) { return @("python") }
     }
     return $null
 }
@@ -1064,6 +1104,14 @@ if ($python) {
             ForEach-Object { $_.Trim() } |
             Where-Object { $_ -like "*.exe" } |
             Select-Object -First 1)
+    # ...and never the Store alias, whichever lookup produced it. This
+    # file is written once and believed by every launcher afterwards,
+    # so one bad line here outlives every repair the user then runs.
+    if ($exe -and (Test-Path -LiteralPath $exe) -and ($exe -like "*\WindowsApps\*")) {
+        Say "refusing to record $exe - that is the Microsoft Store alias, not an interpreter"
+        Say "the launchers will search again on each run rather than believe a bad path"
+        $exe = ""
+    }
     if ($exe -and (Test-Path -LiteralPath $exe)) { $lines += "PYTHON=$exe" }
 }
 if ($node) { $lines += "NODE=$node" }

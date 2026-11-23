@@ -249,6 +249,119 @@ check("the resolver and the doctor are shipped", () => {
   return "scripts\\ ships whole";
 });
 
+/* ---------------------------------- 7. the alias, by every door it uses */
+
+/*
+ * The Store alias is not a path to be blacklisted. It is an outcome.
+ *
+ * The first guard refused it only where it had been SEEN: the path
+ * recorded in data\runtime.env. Then a field machine came back with
+ * exactly the same fault and a clean runtime.env, because the alias had
+ * walked in through `py -3.12` - the launcher resolved to the Store
+ * build, setup asked that interpreter for sys.executable, got a
+ * WindowsApps path back, and wrote it into runtime.env itself. The
+ * file every script distrusted was being poisoned by the one script
+ * every user is told to run.
+ *
+ * So the test is no longer "is WindowsApps mentioned". It is: does each
+ * lookup ask the interpreter where it actually lives, and does setup
+ * refuse to write the answer down when it is the alias.
+ */
+
+check("the py launcher is asked what it really resolves to", () => {
+  const probe = /py -%%V -c "([^"]+)"/.exec(RESOLVER);
+  if (!probe) throw new Error("the resolver no longer probes the launcher at all");
+  if (!/sys\.executable/.test(probe[1])) {
+    throw new Error("`py -3.12` is believed on the strength of running - it can BE the Store alias");
+  }
+  if (!/windowsapps/i.test(probe[1])) throw new Error("the probe does not test for the alias");
+  return "sys.executable, not exit status";
+});
+
+check("a bare python is checked for the alias as well as for its version", () => {
+  const plain = RESOLVER.slice(RESOLVER.indexOf(":PY_PLAIN"));
+  if (!/windowsapps/i.test(plain)) {
+    throw new Error("on a stock Windows a bare `python` IS the alias, and it would be accepted");
+  }
+  return "version and identity";
+});
+
+check("the supervisor verifies the launcher before it spawns through it", () => {
+  if (!/sys\.executable/.test(SUPERVISOR)) {
+    throw new Error("the supervisor still returns `py -3.12` unverified");
+  }
+  if (!/STORE_ALIAS/.test(SUPERVISOR)) throw new Error("there is no single rule for the alias");
+  /* It starts the engine DETACHED, which is the one way the alias
+     fails with no output and no log - so guessing here is expensive. */
+  if (!/detached: true/.test(SUPERVISOR)) throw new Error("the supervisor no longer starts detached (check this test)");
+  return "probed, then spawned";
+});
+
+check("setup refuses to record the alias, whichever lookup produced it", () => {
+  const prov = read("scripts/provision.ps1");
+  if (!/function Test-NotStoreAlias/.test(prov)) {
+    throw new Error("provision.ps1 has no single test for the alias");
+  }
+  /* The py-launcher branch is where it got in. */
+  const launcher = prov.slice(prov.indexOf("foreach ($v in @(\"3.12\""));
+  if (!/Test-NotStoreAlias/.test(launcher.slice(0, 900))) {
+    throw new Error("`py -3.x` is still accepted without asking where it resolves");
+  }
+  /* And the last line of defence: runtime.env is written once and
+     believed by every launcher afterwards. */
+  const rec = prov.slice(prov.indexOf("Recording the runtimes"));
+  if (!/WindowsApps/.test(rec)) throw new Error("setup would still write the alias into runtime.env");
+  return "refused at the lookup and again at the pen";
+});
+
+check("the doctor reports the alias however it was found", () => {
+  const doc = read("scripts/engine-doctor.ps1");
+  if (!/sys\.executable/.test(doc)) {
+    throw new Error("the doctor judges `py -3.12` by whether it runs, which the alias does");
+  }
+  if (!/provision\.ps1/.test(doc)) throw new Error("it names the fault but not the repair");
+  return "named with its repair";
+});
+
+/* ------------------------------- 8. the doctor knows its own processes */
+
+check("a process is ours by what it runs, not by whose interpreter it borrowed", () => {
+  const doc = read("scripts/engine-doctor.ps1");
+  /*
+   * Reported from the field. The doctor printed:
+   *
+   *   18765  held by python3.12 (pid 13496)  C:\Program Files\WindowsApps\...
+   *
+   * and told the user to go and kill it. That process was AURION's own
+   * engine. A machine without runtime\python runs our engine under a
+   * borrowed interpreter, and an interpreter is never inside the
+   * install folder - so the test "$proc.Path starts with $Root" called
+   * both halves of the product foreign, every time, on exactly the
+   * machines that needed the doctor.
+   */
+  if (!/Win32_Process/.test(doc)) throw new Error("the doctor never reads a command line");
+  if (!/CommandLine/.test(doc)) throw new Error("ownership is still decided by the executable alone");
+  if (!/engine\\main\.py/.test(doc)) throw new Error("it does not look for the one file only AURION runs");
+  /* A second installation holding this one's port is the opposite
+     advice, so it must not be swept into "this installation". */
+  if (!/ANOTHER AURION installation/.test(doc)) {
+    throw new Error("another installation's engine would be reported as ours");
+  }
+  return "command line first, path second";
+});
+
+check("our own engine holding a port it no longer serves is called out", () => {
+  const doc = read("scripts/engine-doctor.ps1");
+  /* The quiet one: the port is held by OUR engine, which has stopped
+     answering. Nothing new can bind, so every start exits in silence -
+     which the user reads as "the engine will not start". */
+  if (!/still holding/.test(doc)) {
+    throw new Error("a live but unresponsive engine is reported as two unrelated facts");
+  }
+  if (!/stop-engine\.ps1/.test(doc)) throw new Error("no way out is offered");
+  return "the two facts are joined up";
+});
+
 console.log("\nengine-start: " + pass + " of " + (pass + fails.length) + " checks passed");
 if (fails.length) {
   console.error("\nFAILED:\n  " + fails.join("\n  "));

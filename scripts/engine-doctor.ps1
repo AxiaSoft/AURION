@@ -76,8 +76,30 @@ if (Test-Path $envFile) {
         if ($line -match '^\s*NODE\s*=\s*(.+?)\s*$')   { $envNode = $Matches[1] }
     }
 }
+# Where does a command's interpreter really live?
+#
+# `py -3.12` is a path to the launcher, not to the interpreter it picks,
+# and a bare `python` on a stock Windows is an app execution alias. Both
+# can land on the Microsoft Store build, whose sys.executable sits under
+# WindowsApps: it redirects writes away from site-packages and, started
+# detached, exits with no output and no log. Judging the command instead
+# of the interpreter is how a machine was told its Python was fine while
+# every launcher refused it.
+function Resolve-Exe {
+    param([string] $Program, [string[]] $Pre)
+    try {
+        $out = & $Program @Pre -c "import sys;print(sys.executable)" 2>$null
+        $line = @($out | ForEach-Object { "$_".Trim() } | Where-Object { $_ }) | Select-Object -Last 1
+        if ($LASTEXITCODE -eq 0 -and $line) { return "$line" }
+    } catch { }
+    return ""
+}
+function Test-StoreAlias { param([string] $Path) return ($Path -and $Path -match 'WindowsApps') }
+
+$storeSeen = $false
 if (-not $py -and $envPy) {
-    if ($envPy -match 'WindowsApps') {
+    if (Test-StoreAlias $envPy) {
+        $storeSeen = $true
         Bad "data\runtime.env points at the Microsoft Store alias - that is not an interpreter"
         Say "  $envPy"
     } elseif (Test-Path $envPy) {
@@ -90,10 +112,25 @@ if (-not $py -and $envPy) {
 if (-not $py) {
     foreach ($v in "3.12", "3.11", "3.10") {
         if ($py) { continue }
-        try {
-            & py "-$v" -c "import sys" 2>$null | Out-Null
-            if ($LASTEXITCODE -eq 0) { $py = "py -$v"; $pyFrom = "py launcher" }
-        } catch { }
+        $exe = Resolve-Exe -Program "py" -Pre @("-$v")
+        if (-not $exe) { continue }
+        if (Test-StoreAlias $exe) {
+            $storeSeen = $true
+            Bad "py -$v is the Microsoft Store alias, not an interpreter - skipping it"
+            Say "  $exe"
+            continue
+        }
+        $py = "py -$v"; $pyFrom = "py launcher"
+    }
+}
+if (-not $py) {
+    $exe = Resolve-Exe -Program "python" -Pre @()
+    if ($exe -and (Test-StoreAlias $exe)) {
+        $storeSeen = $true
+        Bad "a bare 'python' on this machine is the Microsoft Store alias, not an interpreter"
+        Say "  $exe"
+    } elseif ($exe) {
+        $py = "python"; $pyFrom = "PATH"
     }
 }
 
@@ -122,11 +159,80 @@ if (-not $py) {
     }
 }
 
+if ($storeSeen) {
+    Say ""
+    Bad "The Microsoft Store Python was found on this machine and is refused everywhere."
+    Say "It is an app execution alias: it resolves only inside an interactive session"
+    Say "belonging to the user who installed it, it redirects writes away from"
+    Say "site-packages, and started detached - which is how the desk starts the"
+    Say "engine - it exits without output and without a log."
+    Say "The repair is to give this installation its own interpreter:"
+    Say "  powershell -ExecutionPolicy Bypass -File scripts\provision.ps1"
+    Say "and afterwards data\runtime.env must read"
+    Say "  PYTHON=$Root\runtime\python\python.exe"
+}
+
 if ($envNode -and -not (Test-Path $envNode)) { Bad "data\runtime.env points at a Node that is no longer there: $envNode" }
 
 # ------------------------------------------------------------- 2. ports
 Head "2. Who holds AURION's ports"
 
+# Is this process one of ours?
+#
+# The first version of this asked only where the EXECUTABLE lived, and
+# on the machine that prompted it the answer was always "no": the engine
+# was running under C:\Program Files\WindowsApps\...\python3.12.exe and
+# the desk under C:\Program Files\nodejs\node.exe. Neither is inside the
+# install folder, and neither ever will be unless this installation has
+# its own runtime - so the doctor called AURION's own two processes
+# foreign and told the user to go and kill them.
+#
+# What makes a process ours is not whose executable it is. It is what it
+# was told to run. An interpreter is a borrowed tool; the argument after
+# it - this install folder, engine\main.py, the desk's server.js - is
+# the fact that matters, and it is in the command line.
+function Get-CommandLine {
+    param([int] $ProcessId)
+    try {
+        return [string] (Get-CimInstance Win32_Process -Filter "ProcessId=$ProcessId" -ErrorAction Stop).CommandLine
+    } catch { }
+    try {
+        return [string] (Get-WmiObject Win32_Process -Filter "ProcessId=$ProcessId" -ErrorAction Stop).CommandLine
+    } catch { }
+    return ""
+}
+
+function Get-Owner {
+    param([string] $Path, [string] $CommandLine)
+    $root = $Root.ToLower()
+    if ($Path -and $Path.ToLower().StartsWith($root)) { return "mine" }
+    if (-not $CommandLine) { return "foreign" }
+    $cl = $CommandLine.ToLower()
+
+    # The install folder named anywhere in the command line: this is how
+    # the launcher starts both halves, with absolute paths.
+    if ($cl.Contains($root)) { return "mine" }
+
+    # An absolute path to SOMEBODY ELSE'S engine. Worth separating,
+    # because the advice is the opposite: a second installation holding
+    # this one's port is a thing to stop, not a thing to celebrate.
+    if ($cl -match '([a-z]:\\[^"]*?)\\engine\\main\.py') {
+        if ($Matches[1] -ne $root) { return "other" }
+        return "mine"
+    }
+
+    # Started from inside the folder, with relative paths - which is
+    # what hidden.vbs does: it sets the working directory and then runs
+    # `python engine\main.py` or `node src\index.js`. The executable is
+    # a borrowed interpreter and tells us nothing; the script does.
+    foreach ($mark in @("engine\main.py", "engine/main.py",
+                        "src\index.js", "src/index.js")) {
+        if ($cl.Contains($mark)) { return "mine" }
+    }
+    return "foreign"
+}
+
+$ourEnginePid = 0
 foreach ($p in @(8080, $Port, ($Port + 1))) {
     $conns = @()
     try { $conns = @(Get-NetTCPConnection -State Listen -LocalPort $p -ErrorAction Stop) } catch { }
@@ -140,14 +246,35 @@ foreach ($p in @(8080, $Port, ($Port + 1))) {
         $name = if ($proc) { $proc.ProcessName } else { "unknown" }
         $path = ""
         try { if ($proc) { $path = $proc.Path } } catch { }
-        $mine = $path -and $path.ToLower().StartsWith($Root.ToLower())
-        if ($mine) { Good "$p   held by $name (pid $($c.OwningProcess)) - this installation" }
-        else { Bad "$p   held by $name (pid $($c.OwningProcess))  $path" }
+        $cmdline = Get-CommandLine -ProcessId ([int] $c.OwningProcess)
+        $owner = Get-Owner -Path $path -CommandLine $cmdline
+        if ($owner -eq "other") {
+            Bad "$p   held by ANOTHER AURION installation ($name, pid $($c.OwningProcess))"
+            Say "  $cmdline"
+            Say "  Two installations cannot share a port. Stop that one, or give"
+            Say "  this one its own port in config\aurion.json."
+            continue
+        }
+        if ($owner -eq "mine") {
+            Good "$p   held by $name (pid $($c.OwningProcess)) - this installation"
+            if ($p -ne 8080) { $ourEnginePid = [int] $c.OwningProcess }
+            # Said plainly, because it is the actual fault on a machine
+            # that has no runtime\python: our engine, somebody else's
+            # interpreter. Nothing to kill - something to provision.
+            if ($path -and -not $path.ToLower().StartsWith($Root.ToLower())) {
+                Say "  running under an interpreter outside this folder: $path"
+            }
+        } else {
+            Bad "$p   held by $name (pid $($c.OwningProcess))  $path"
+            if ($cmdline) { Say "  $cmdline" }
+        }
     }
 }
 Say ""
 Say "A port held by a process that will not die is the failure that looks"
 Say "like 'the engine will not start': the new one cannot bind and exits."
+Say "A port held by THIS installation is not that failure - it is the"
+Say "engine doing its job, and killing it only costs you a restart."
 Say "  powershell -ExecutionPolicy Bypass -File scripts\stop-engine.ps1 -WhatIfOnly"
 
 # ------------------------------------------------------------ 3. health
@@ -160,6 +287,16 @@ try {
 
 if (-not $health) {
     Bad "no answer on http://127.0.0.1:$Port/health"
+    if ($ourEnginePid -gt 0) {
+        # The worst of the three cases, and the one that reads as "it
+        # will not start": the port is held by our own engine, which is
+        # no longer answering on it. A new engine cannot bind, so it
+        # exits in silence, for as long as this one is alive.
+        Bad "...but this installation's engine (pid $ourEnginePid) is still holding $Port"
+        Say "It is alive and not serving. Nothing new can bind while it is there:"
+        Say "  powershell -ExecutionPolicy Bypass -File scripts\stop-engine.ps1"
+        Say "  .\start-engine.cmd"
+    }
 } else {
     Good "the engine answers on $Port"
     if ($health.build_id) { Say "running build $($health.build_id)" }
