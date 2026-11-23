@@ -314,6 +314,22 @@ check("setup refuses to record the alias, whichever lookup produced it", () => {
   return "refused at the lookup and again at the pen";
 });
 
+check("refusing the alias explains itself instead of saying 'no Python'", () => {
+  const prov = read("scripts/provision.ps1");
+  /* On the machine this was written for, "no Python found" is a lie
+     that sends the user hunting for an installer: Python 3.12 is right
+     there and imports everything. It is the Store build, and the only
+     thing it cannot do is run detached - which is the only way AURION
+     ever starts it. The message has to say that, or the refusal reads
+     as setup breaking a working machine. */
+  if (!/function Explain-NoPython/.test(prov)) {
+    throw new Error("setup refuses the alias without ever saying why");
+  }
+  if (!/StoreAliasSeen/.test(prov)) throw new Error("the explanation cannot tell the two cases apart");
+  if (!/runtime\\python/.test(prov)) throw new Error("it does not say what the repair produces");
+  return "refused, with the reason and the way out";
+});
+
 check("the doctor reports the alias however it was found", () => {
   const doc = read("scripts/engine-doctor.ps1");
   if (!/sys\.executable/.test(doc)) {

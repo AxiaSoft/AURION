@@ -658,6 +658,12 @@ function Test-NotStoreAlias {
     return ($exe -notlike "*\WindowsApps\*")
 }
 
+# Set when a lookup found the Store alias and refused it. It changes
+# what "no Python" means: not "this machine has none" - which sends a
+# user looking for something to install - but "the only one here is the
+# one nothing can use", which has a different and shorter answer.
+$script:StoreAliasSeen = $false
+
 function Find-Python {
     # AURION's own interpreter first. The engine is pinned to NumPy 1.26.4 -
     # the last official Windows wheel that does not require x86-64-v2 - and
@@ -688,7 +694,9 @@ function Find-Python {
         # machine whose only 3.12 came from the Store, this is the
         # Store build and the launcher is merely its doorway.
         if (Test-NotStoreAlias -Python @("py", "-$v")) { return @("py", "-$v") }
+        $script:StoreAliasSeen = $true
         Say "py -$v resolves to the Microsoft Store alias - skipping it"
+        Say "  (it is an app execution alias; started detached it exits with no log)"
     }
 
     # Where python.org records what it installed.
@@ -729,6 +737,39 @@ function Find-Python {
         if ($probe.Ok -and (Test-NotStoreAlias -Python @("python"))) { return @("python") }
     }
     return $null
+}
+
+<#
+    Why there is no Python, in the words that lead somewhere.
+
+    "No Python found" sends a user hunting for an installer. On the
+    machine this was written for that is the wrong errand: Python 3.12
+    is right there, it imports fastapi and numpy, and it runs the engine
+    perfectly well from an interactive PowerShell. It is the Microsoft
+    Store build, and the one thing it cannot do is the thing AURION
+    needs - run detached, started by the desk or by a shortcut, writing
+    to its own site-packages. So it is refused everywhere, by setup, by
+    all three launchers and by the supervisor, and the answer is not to
+    find a Python but to give this installation one of its own.
+#>
+function Explain-NoPython {
+    if (-not $script:StoreAliasSeen) { return }
+    Say ""
+    Say "The only Python on this machine is the Microsoft Store build."
+    Say "It is an app execution alias: it resolves only inside an interactive"
+    Say "session belonging to the user who installed it, it redirects writes"
+    Say "away from site-packages, and started detached - which is how the desk"
+    Say "and the shortcut start the engine - it exits with no output and no log."
+    Say "Nothing in AURION will use it, which is why setup did not record it."
+    Say ""
+    Say "Give this installation its own interpreter, either way round:"
+    Say "  * run setup again with a network connection, so it can fetch and"
+    Say "    install Python 3.12 into $InstallFolder\runtime\python; or"
+    Say "  * install python.org's Python 3.12 (not 3.13 - the engine's NumPy"
+    Say "    has no wheel above 3.12) with 'Add python.exe to PATH' ticked,"
+    Say "    then run this script again."
+    Say ""
+    Say "Then check it took:  type data\runtime.env"
 }
 
 <#
@@ -896,6 +937,7 @@ if ($SkipPython) {
         Say "Python is ready: $($python -join ' ')"
     } else {
         Say "no Python could be put in place - the engine will not start"
+        Explain-NoPython
     }
 } else {
     Head "Installing Python 3.12"
@@ -957,6 +999,7 @@ if ($SkipPython) {
         Say "Python is ready: $($python -join ' ')"
     } else {
         Say "no Python could be put in place - the engine will not start"
+        Explain-NoPython
     }
 }
 
